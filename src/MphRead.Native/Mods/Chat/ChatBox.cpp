@@ -4,6 +4,7 @@
 #include "../InputSettings.hpp"
 #include "../Network/NetProtocol.hpp"
 #include "../Network/NetSession.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -16,6 +17,9 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::UncheckedIncrement;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 
 namespace
 {
@@ -32,18 +36,6 @@ namespace
     {
         using namespace std::chrono;
         return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
-    }
-
-    [[nodiscard]] std::int32_t IncrementInt32(std::int32_t value) noexcept
-    {
-        return std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(value) + 1U);
-    }
-
-    [[nodiscard]] std::int64_t SubtractInt64(std::int64_t left, std::int64_t right) noexcept
-    {
-        const std::uint64_t result = static_cast<std::uint64_t>(left)
-            - static_cast<std::uint64_t>(right);
-        return std::bit_cast<std::int64_t>(result);
     }
 
     [[nodiscard]] bool IsWhiteSpaceCodePoint(std::uint32_t value) noexcept
@@ -239,13 +231,13 @@ namespace MphRead::Mods::Chat
                 i >= 0 && static_cast<std::int32_t>(into.size()) < VisibleLines; i--)
             {
                 const ChatLine& line = state.Lines[static_cast<std::size_t>(i)];
-                const std::int64_t age = SubtractInt64(now, line.ArrivedAt);
+                const std::int64_t age = UncheckedSubtract(now, line.ArrivedAt);
                 if (age >= HoldMilliseconds)
                 {
                     break;
                 }
                 const float alpha = age > HoldMilliseconds - FadeMilliseconds
-                    ? static_cast<float>(SubtractInt64(HoldMilliseconds, age))
+                    ? static_cast<float>(UncheckedSubtract(HoldMilliseconds, age))
                         / static_cast<float>(FadeMilliseconds)
                     : 1.0F;
                 into.emplace_back(line, alpha);
@@ -273,7 +265,7 @@ namespace MphRead::Mods::Chat
         const std::int64_t now = TickCount64();
         std::lock_guard<std::mutex> guard(state.Lock);
         return !state.Lines.empty()
-            && SubtractInt64(now, state.Lines.back().ArrivedAt) < HoldMilliseconds;
+            && UncheckedSubtract(now, state.Lines.back().ArrivedAt) < HoldMilliseconds;
     }
 
     void ChatBox::Clear()
@@ -306,7 +298,7 @@ namespace MphRead::Mods::Chat
             Add(name, packet.Text, packet.Kind);
         }
         State& state = GetState();
-        state.Received = IncrementInt32(state.Received);
+        state.Received = UncheckedIncrement(state.Received);
     }
 
     void ChatBox::System(const std::optional<std::string>& text)
@@ -392,7 +384,7 @@ namespace MphRead::Mods::Chat
                 Network::NetSession::SendChat(*text);
             }
             State& state = GetState();
-            state.Sent = IncrementInt32(state.Sent);
+            state.Sent = UncheckedIncrement(state.Sent);
         }
     }
 

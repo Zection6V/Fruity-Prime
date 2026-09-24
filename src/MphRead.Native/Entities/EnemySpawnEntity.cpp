@@ -61,6 +61,8 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::DistanceSquared;
 using ::OpenTK::Mathematics::Multiply;
@@ -92,22 +94,6 @@ namespace MphRead::Entities
                 throw System::NullReferenceException();
             }
             return *GameState::StorySave;
-        }
-
-        [[nodiscard]] std::int32_t AddInt32Unchecked(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t sum
-                = std::bit_cast<std::uint32_t>(left) + std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(sum);
-        }
-
-        [[nodiscard]] std::int32_t SubInt32Unchecked(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t difference
-                = std::bit_cast<std::uint32_t>(left) - std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(difference);
         }
 
         [[nodiscard]] std::int32_t UnboxInt32(const MessageObject& value)
@@ -361,8 +347,8 @@ namespace MphRead::Entities
                 {
                     Flags |= SpawnerFlags::PlayAnimation;
                 }
-                _activeCount = AddInt32Unchecked(_activeCount, 1);
-                _spawnedCount = AddInt32Unchecked(_spawnedCount, 1);
+                _activeCount = UncheckedAdd(_activeCount, 1);
+                _spawnedCount = UncheckedAdd(_spawnedCount, 1);
                 _cooldownTimer = static_cast<std::int32_t>(_data.CooldownTime) * 2;
                 if (_activeCount >= _data.SpawnLimit
                     || (_data.SpawnTotal > 0 && _spawnedCount >= _data.SpawnTotal))
@@ -473,8 +459,8 @@ namespace MphRead::Entities
         {
             if (UnboxInt32(info.Param1) != 0)
             {
-                _activeCount = SubInt32Unchecked(_activeCount, 1);
-                _spawnedCount = SubInt32Unchecked(_spawnedCount, 1);
+                _activeCount = UncheckedSubtract(_activeCount, 1);
+                _spawnedCount = UncheckedSubtract(_spawnedCount, 1);
                 _cooldownTimer = 0;
             }
             else
@@ -495,14 +481,14 @@ namespace MphRead::Entities
                     }
                     else
                     {
-                        _activeCount = SubInt32Unchecked(_activeCount, 1);
+                        _activeCount = UncheckedSubtract(_activeCount, 1);
                         _cooldownTimer
                             = static_cast<std::int32_t>(_data.CooldownTime) * 2;
                     }
                 }
                 else
                 {
-                    _activeCount = SubInt32Unchecked(_activeCount, 1);
+                    _activeCount = UncheckedSubtract(_activeCount, 1);
                     _cooldownTimer
                         = static_cast<std::int32_t>(_data.CooldownTime) * 2;
                 }
@@ -625,7 +611,7 @@ namespace MphRead::Entities
                         = RequireReference(enemy).EnemyType();
                     if (enemyType == MphRead::EnemyType::Gorea1A)
                     {
-                        enemyCount = AddInt32Unchecked(enemyCount, 1);
+                        enemyCount = UncheckedAdd(enemyCount, 1);
                         isGorea1 = true;
                     }
                     else if (enemyType == MphRead::EnemyType::Trocra
@@ -635,7 +621,7 @@ namespace MphRead::Entities
                         || enemyType == MphRead::EnemyType::Gorea1B
                         || enemyType == MphRead::EnemyType::GoreaSealSphere1)
                     {
-                        enemyCount = AddInt32Unchecked(enemyCount, 1);
+                        enemyCount = UncheckedAdd(enemyCount, 1);
                     }
                 }
                 if (isGorea1 && enemyCount >= 14)

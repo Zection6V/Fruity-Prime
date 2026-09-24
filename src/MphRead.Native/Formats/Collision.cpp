@@ -40,6 +40,9 @@
 
 using ::MphRead::HasFlag;
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 
 namespace
 {
@@ -185,39 +188,6 @@ namespace MphRead::Formats::Collision
                 x / count,
                 y / count,
                 z / count);
-        }
-
-        std::int32_t WrapMultiply(
-            std::int32_t left,
-            std::int32_t right) noexcept
-        {
-            const std::uint32_t value
-                = static_cast<std::uint32_t>(left)
-                * static_cast<std::uint32_t>(right);
-
-            return std::bit_cast<std::int32_t>(value);
-        }
-
-        std::int32_t WrapAdd(
-            std::int32_t left,
-            std::int32_t right) noexcept
-        {
-            const std::uint32_t value
-                = static_cast<std::uint32_t>(left)
-                + static_cast<std::uint32_t>(right);
-
-            return std::bit_cast<std::int32_t>(value);
-        }
-
-        std::int32_t WrapSubtract(
-            std::int32_t left,
-            std::int32_t right) noexcept
-        {
-            const std::uint32_t value
-                = static_cast<std::uint32_t>(left)
-                - static_cast<std::uint32_t>(right);
-
-            return std::bit_cast<std::int32_t>(value);
         }
 
         std::int32_t ManagedDivide(
@@ -850,7 +820,7 @@ namespace MphRead::Formats::Collision
             = Header.PartsX;
 
         const std::int32_t xz
-            = WrapMultiply(
+            = UncheckedMultiply(
                 x,
                 Header.PartsZ);
 
@@ -860,9 +830,9 @@ namespace MphRead::Formats::Collision
                 xz);
 
         const std::int32_t afterY
-            = WrapSubtract(
+            = UncheckedSubtract(
                 index,
-                WrapMultiply(
+                UncheckedMultiply(
                     yInc,
                     xz));
 
@@ -872,9 +842,9 @@ namespace MphRead::Formats::Collision
                 x);
 
         const std::int32_t xInc
-            = WrapSubtract(
+            = UncheckedSubtract(
                 afterY,
-                WrapMultiply(
+                UncheckedMultiply(
                     zInc,
                     x));
 
@@ -917,14 +887,14 @@ namespace MphRead::Formats::Collision
             return -1;
         }
 
-        return WrapAdd(
-            WrapAdd(
-                WrapMultiply(
+        return UncheckedAdd(
+            UncheckedAdd(
+                UncheckedMultiply(
                     yInc,
-                    WrapMultiply(
+                    UncheckedMultiply(
                         Header.PartsX,
                         Header.PartsZ)),
-                WrapMultiply(
+                UncheckedMultiply(
                     zInc,
                     Header.PartsX)),
             xInc);
@@ -1123,13 +1093,13 @@ namespace MphRead::Formats::Collision
             = PartIndexFromEntry(entryIndex);
 
         point0.X += static_cast<float>(
-            WrapMultiply(partInc.X, 4));
+            UncheckedMultiply(partInc.X, 4));
 
         point0.Y += static_cast<float>(
-            WrapMultiply(partInc.Y, 4));
+            UncheckedMultiply(partInc.Y, 4));
 
         point0.Z += static_cast<float>(
-            WrapMultiply(partInc.Z, 4));
+            UncheckedMultiply(partInc.Z, 4));
 
         const OpenTK::Mathematics::Vector3 sideX(
             4.0F, 0.0F, 0.0F);

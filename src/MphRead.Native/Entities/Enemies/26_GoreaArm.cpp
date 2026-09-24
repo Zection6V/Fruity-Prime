@@ -19,6 +19,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::OpenTK::Mathematics::LengthSquared;
 using ::OpenTK::Mathematics::ScaleVector;
 
@@ -49,14 +50,6 @@ namespace MphRead::Entities::Enemies
                 throw Memory::Detail::ArgumentOutOfRangeException();
             }
             return values[static_cast<std::size_t>(index)];
-        }
-
-        [[nodiscard]] std::int32_t ManagedAdd(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t value = std::bit_cast<std::uint32_t>(left)
-                + std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(value);
         }
 
         [[nodiscard]] std::int32_t ManagedMultiplyByTwo(
@@ -226,7 +219,7 @@ namespace MphRead::Entities::Enemies
     bool Enemy26Entity::EnemyTakeDamage(EntityBase* source)
     {
         const std::int32_t prevDamage = Damage;
-        Damage = ManagedAdd(
+        Damage = UncheckedAdd(
             Damage, 65535 - static_cast<std::int32_t>(_health));
 
         bool forceBreak = RegenTimer > 0;

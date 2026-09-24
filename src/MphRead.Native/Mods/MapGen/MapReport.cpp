@@ -21,6 +21,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UncheckedAdd;
 
 namespace
 {
@@ -44,14 +45,6 @@ namespace
             ThrowListIndex();
         }
         return values[static_cast<std::size_t>(index)];
-    }
-
-    [[nodiscard]] std::int32_t ManagedAdd(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left)
-            + static_cast<std::uint32_t>(right));
     }
 
     [[nodiscard]] std::size_t ManagedStringLength(std::string_view text) noexcept
@@ -233,7 +226,7 @@ namespace MphRead::Mods::MapGen
                 counts.push_back(ShaderCount{name, 0});
                 found = std::addressof(counts.back());
             }
-            found->Count = ManagedAdd(found->Count, face.MeshVertCount() / 3);
+            found->Count = UncheckedAdd(found->Count, face.MeshVertCount() / 3);
         }
 
         std::string summary = mapName.has_value() ? *mapName : source;

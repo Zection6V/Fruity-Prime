@@ -26,6 +26,9 @@
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UInt32ToInt32;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
 using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::Equal;
 using ::OpenTK::Mathematics::Length;
@@ -53,30 +56,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] PlayerEntity& MainPlayer()
         {
             return RequireReference(PlayerEntity::Main());
-        }
-
-        [[nodiscard]] std::int32_t WrapInt32(std::uint32_t value) noexcept
-        {
-            return std::bit_cast<std::int32_t>(value);
-        }
-
-        [[nodiscard]] std::int32_t AddInt32(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            return WrapInt32(
-                static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-        }
-
-        [[nodiscard]] std::int32_t MultiplyInt32(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            return WrapInt32(
-                static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
-        }
-
-        [[nodiscard]] std::int32_t UInt32ToInt32(std::uint32_t value) noexcept
-        {
-            return std::bit_cast<std::int32_t>(value);
         }
 
         [[nodiscard]] std::uint16_t GetShotCount(const Enemy10Values& values)
@@ -239,7 +218,7 @@ namespace MphRead::Entities::Enemies
         const Vector3 travel = target - static_cast<Vector3>(Position);
         _stepDistance = step;
         const float distance = Length(travel);
-        _stepCount = AddInt32(ConvertToInt32Net9(distance / _stepDistance), 1);
+        _stepCount = UncheckedAdd(ConvertToInt32Net9(distance / _stepDistance), 1);
         if (distance == 0.0F)
         {
             _speed = Vector3::Zero;
@@ -252,7 +231,7 @@ namespace MphRead::Entities::Enemies
             _speed.X /= 2.0F;
             _speed.Y /= 2.0F;
             _speed.Z /= 2.0F;
-            _stepCount = MultiplyInt32(_stepCount, 2);
+            _stepCount = UncheckedMultiply(_stepCount, 2);
         }
     }
 

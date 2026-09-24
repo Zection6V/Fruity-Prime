@@ -2,6 +2,7 @@
 
 #include "../Read.hpp"
 #include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -29,6 +30,8 @@ using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::UInt32ToInt32;
+using ::MphRead::NativeRuntime::UncheckedAdd;
 
 namespace
 {
@@ -225,21 +228,6 @@ namespace
         return DecodeUtf8ToUtf16(value).size();
     }
 
-    [[nodiscard]] std::int32_t ManagedInt32(std::uint32_t value) noexcept
-    {
-        return std::bit_cast<std::int32_t>(value);
-    }
-
-    [[nodiscard]] std::uint32_t UncheckedAdd(std::uint32_t left, std::uint32_t right) noexcept
-    {
-        return left + right;
-    }
-
-    [[nodiscard]] std::int32_t UncheckedAdd(std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-    }
 }
 
 namespace MphRead::Archive::ArchiveDetail
@@ -859,7 +847,7 @@ namespace MphRead::Archive
             + static_cast<std::uint64_t>(ArchiveSizes::FileHeader) * header.FileCount);
         std::vector<FileHeader> files;
         const auto swaps = Read::DoOffsets<FileHeader>(bytes,
-            static_cast<std::uint32_t>(ArchiveSizes::ArchiveHeader), ManagedInt32(header.FileCount));
+            static_cast<std::uint32_t>(ArchiveSizes::ArchiveHeader), UInt32ToInt32(header.FileCount));
         for (const FileHeader& swap : *swaps)
         {
             const FileHeader file = swap.SwapBytes();
@@ -887,8 +875,8 @@ namespace MphRead::Archive
         for (const FileHeader& file : files)
         {
             const std::string filename = file.Filename.MarshalString();
-            const std::int32_t start = ManagedInt32(file.Offset);
-            const std::int32_t end = UncheckedAdd(start, ManagedInt32(file.TargetFileSize));
+            const std::int32_t start = UInt32ToInt32(file.Offset);
+            const std::int32_t end = UncheckedAdd(start, UInt32ToInt32(file.TargetFileSize));
             if (!outputDirectory)
             {
                 throw System::ArgumentNullException("first");

@@ -3,6 +3,7 @@
 #include "../Formats/RawFormats.hpp"
 #include "../Read.hpp"
 #include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <array>
 #include <bit>
@@ -25,6 +26,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::FileReadAllBytes;
+using ::MphRead::NativeRuntime::UncheckedNegate;
 
 namespace
 {
@@ -37,12 +39,6 @@ namespace
             ::new (static_cast<void*>(std::addressof(target))) T(source);
         }
         return target;
-    }
-
-    [[nodiscard]] constexpr std::int32_t WrapNegateInt32(std::int32_t value) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            0U - std::bit_cast<std::uint32_t>(value));
     }
 
     [[nodiscard]] float RoundToEven3(float value) noexcept
@@ -205,9 +201,9 @@ namespace MphRead::Utility
         assert(effVec1.X.Value == viewMatrix.One.X.Value);
         assert(effVec1.Y.Value == viewMatrix.Two.X.Value);
         assert(effVec1.Z.Value == viewMatrix.Three.X.Value);
-        assert(effVec2.X.Value == WrapNegateInt32(viewMatrix.One.Y.Value));
-        assert(effVec2.Y.Value == WrapNegateInt32(viewMatrix.Two.Y.Value));
-        assert(effVec2.Z.Value == WrapNegateInt32(viewMatrix.Three.Y.Value));
+        assert(effVec2.X.Value == UncheckedNegate(viewMatrix.One.Y.Value));
+        assert(effVec2.Y.Value == UncheckedNegate(viewMatrix.Two.Y.Value));
+        assert(effVec2.Z.Value == UncheckedNegate(viewMatrix.Three.Y.Value));
 
         const std::vector<std::uint8_t> storage
             = FileReadAllBytes(R"(D:\Cdrv\MPH\Disassembly\dump.bin)");

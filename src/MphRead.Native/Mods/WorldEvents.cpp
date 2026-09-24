@@ -1,17 +1,14 @@
 #include "WorldEvents.hpp"
 
 #include "../Entities/Players/PlayerEntity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <bit>
 
+using ::MphRead::NativeRuntime::IncrementInPlace;
+
 namespace
 {
-    void IncrementInt32(std::int32_t& value) noexcept
-    {
-        std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
-        bits += 1U;
-        value = std::bit_cast<std::int32_t>(bits);
-    }
 }
 
 namespace MphRead::Mods
@@ -71,7 +68,7 @@ namespace MphRead::Mods
             return;
         }
         const std::size_t countIndex = static_cast<std::size_t>((player).SlotIndex());
-        IncrementInt32(_jumpPads[countIndex]);
+        IncrementInPlace(_jumpPads[countIndex]);
         const std::size_t idIndex = static_cast<std::size_t>((player).SlotIndex());
         _lastJumpPadId[idIndex] = entityId;
     }
@@ -83,7 +80,7 @@ namespace MphRead::Mods
             return;
         }
         const std::size_t countIndex = static_cast<std::size_t>((player).SlotIndex());
-        IncrementInt32(_teleports[countIndex]);
+        IncrementInPlace(_teleports[countIndex]);
         const std::size_t idIndex = static_cast<std::size_t>((player).SlotIndex());
         _lastTeleporterId[idIndex] = entityId;
     }

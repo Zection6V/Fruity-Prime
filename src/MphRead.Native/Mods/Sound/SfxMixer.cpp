@@ -18,6 +18,7 @@
 
 
 
+
 namespace MphRead::Mods::Sound
 {
     using OpenTK::Audio::OpenAL::ALFormat;
@@ -42,32 +43,6 @@ namespace MphRead::Mods::Sound
             Paused = 0x1013,
             Stopped = 0x1014
         };
-
-        std::int32_t AddUnchecked(std::int32_t value, std::int32_t amount)
-        {
-            std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
-            bits += std::bit_cast<std::uint32_t>(amount);
-            return std::bit_cast<std::int32_t>(bits);
-        }
-
-        std::int32_t IncrementUnchecked(std::int32_t value)
-        {
-            return AddUnchecked(value, 1);
-        }
-
-        std::int32_t SubtractUnchecked(std::int32_t value, std::int32_t amount)
-        {
-            std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
-            bits -= std::bit_cast<std::uint32_t>(amount);
-            return std::bit_cast<std::int32_t>(bits);
-        }
-
-        std::int64_t AddUnchecked(std::int64_t value, std::int32_t amount)
-        {
-            std::uint64_t bits = std::bit_cast<std::uint64_t>(value);
-            bits += static_cast<std::uint64_t>(static_cast<std::int64_t>(amount));
-            return std::bit_cast<std::int64_t>(bits);
-        }
 
         std::int32_t DotNetDoubleToInt32(double value)
         {
@@ -232,7 +207,7 @@ namespace MphRead::Mods::Sound
             SfxMixer::Mix(FloatSpan(buffer.data() + offset,
                 static_cast<std::size_t>(bytes) / sizeof(float)));
             const std::int64_t position = _position.load(std::memory_order_relaxed);
-            _position.store(AddUnchecked(position, bytes), std::memory_order_relaxed);
+            _position.store(UncheckedAdd(position, bytes), std::memory_order_relaxed);
             return bytes;
         }
 
@@ -338,7 +313,7 @@ namespace MphRead::Mods::Sound
     {
         std::lock_guard<std::recursive_mutex> guard(_lock);
         const std::int32_t id = _nextBuffer;
-        _nextBuffer = IncrementUnchecked(_nextBuffer);
+        _nextBuffer = UncheckedIncrement(_nextBuffer);
         _buffers[id] = std::make_shared<Buffer>();
         return id;
     }
@@ -365,7 +340,7 @@ namespace MphRead::Mods::Sound
     {
         std::lock_guard<std::recursive_mutex> guard(_lock);
         const std::int32_t id = _nextSource;
-        _nextSource = IncrementUnchecked(_nextSource);
+        _nextSource = UncheckedIncrement(_nextSource);
         std::shared_ptr<Voice> voice = std::make_shared<Voice>();
         for (VoiceEntry& entry : _voices)
         {
@@ -615,8 +590,8 @@ namespace MphRead::Mods::Sound
             buffers[static_cast<std::size_t>(i)] = voice.Queue.front();
             voice.Queue.erase(voice.Queue.begin());
         }
-        voice.Processed = SubtractUnchecked(voice.Processed, count);
-        voice.Index = std::max<std::int32_t>(0, SubtractUnchecked(voice.Index, count));
+        voice.Processed = UncheckedSubtract(voice.Processed, count);
+        voice.Index = std::max<std::int32_t>(0, UncheckedSubtract(voice.Index, count));
     }
 
     std::int32_t SfxMixer::GetSource(std::int32_t id, ALGetSourcei param)
@@ -727,10 +702,10 @@ namespace MphRead::Mods::Sound
                     voice.Cursor = loopStart + std::fmod(voice.Cursor - loopEnd,
                         static_cast<double>(loopEnd - loopStart));
                 }
-                else if (AddUnchecked(voice.Index, 1) < static_cast<std::int32_t>(voice.Queue.size()))
+                else if (UncheckedAdd(voice.Index, 1) < static_cast<std::int32_t>(voice.Queue.size()))
                 {
-                    voice.Index = IncrementUnchecked(voice.Index);
-                    voice.Processed = IncrementUnchecked(voice.Processed);
+                    voice.Index = UncheckedIncrement(voice.Index);
+                    voice.Processed = UncheckedIncrement(voice.Processed);
                     voice.Cursor = 0.0;
                     bufferIt = _buffers.find(voice.Queue[static_cast<std::size_t>(voice.Index)]);
                     if (bufferIt == _buffers.end() || bufferIt->second->Frames <= 0)
@@ -745,8 +720,8 @@ namespace MphRead::Mods::Sound
                 }
                 else
                 {
-                    voice.Processed = IncrementUnchecked(voice.Processed);
-                    voice.Index = IncrementUnchecked(voice.Index);
+                    voice.Processed = UncheckedIncrement(voice.Processed);
+                    voice.Index = UncheckedIncrement(voice.Index);
                     voice.State = SourceState::Stopped;
                     return;
                 }
@@ -819,6 +794,9 @@ namespace MphRead::Mods::Sound
 using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedIncrement;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;

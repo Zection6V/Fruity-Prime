@@ -49,6 +49,8 @@
 #endif
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 
 namespace
 {
@@ -150,38 +152,6 @@ namespace
             throw IndexOutOfRangeException();
         }
         return array[static_cast<std::size_t>(index)];
-    }
-
-    [[nodiscard]] constexpr std::int32_t UncheckedAdd32(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t result = std::bit_cast<std::uint32_t>(left)
-            + std::bit_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(result);
-    }
-
-    [[nodiscard]] constexpr std::int32_t UncheckedSubtract32(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t result = std::bit_cast<std::uint32_t>(left)
-            - std::bit_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(result);
-    }
-
-    [[nodiscard]] constexpr std::int64_t UncheckedAdd64(
-        std::int64_t left, std::int64_t right) noexcept
-    {
-        const std::uint64_t result = std::bit_cast<std::uint64_t>(left)
-            + std::bit_cast<std::uint64_t>(right);
-        return std::bit_cast<std::int64_t>(result);
-    }
-
-    [[nodiscard]] constexpr std::int64_t UncheckedSubtract64(
-        std::int64_t left, std::int64_t right) noexcept
-    {
-        const std::uint64_t result = std::bit_cast<std::uint64_t>(left)
-            - std::bit_cast<std::uint64_t>(right);
-        return std::bit_cast<std::int64_t>(result);
     }
 
     [[nodiscard]] std::int32_t IntPtrToInt32(std::intptr_t value)
@@ -1164,9 +1134,9 @@ namespace
         // Process.StartTime performs a fresh stat read after GetProcessesByName has
         // finished constructing its Process array.
         const LinuxProcessStat stat = ReadLinuxProcessStat(processId);
-        const std::int64_t dateTimeTicks = UncheckedAdd64(
+        const std::int64_t dateTimeTicks = UncheckedAdd(
             bootTimeDateTimeTicks, LinuxJiffiesToTimeSpanTicks(stat.StartTicks));
-        const std::int64_t unixTicks = UncheckedSubtract64(
+        const std::int64_t unixTicks = UncheckedSubtract(
             dateTimeTicks, UnixEpochDateTimeTicks);
         return {
             UnixTicksToLocalDateTimeTicks(unixTicks),
@@ -1586,7 +1556,7 @@ namespace MphRead::Memory
                     = memoryInfo.RegionSize - static_cast<std::int64_t>(search.size());
                 for (std::int32_t i = 0;
                      static_cast<std::int64_t>(i) <= lastStart;
-                     i = UncheckedAdd32(i, 1))
+                     i = UncheckedAdd(i, 1))
                 {
                     bool equal = true;
                     for (std::size_t j = 0; j < search.size(); ++j)
@@ -1600,12 +1570,12 @@ namespace MphRead::Memory
 
                     if (equal)
                     {
-                        const std::int32_t zeroIndex = UncheckedSubtract32(i, 0x4000);
-                        const std::int32_t zeroIndex1 = UncheckedAdd32(zeroIndex, 1);
+                        const std::int32_t zeroIndex = UncheckedSubtract(i, 0x4000);
+                        const std::int32_t zeroIndex1 = UncheckedAdd(zeroIndex, 1);
                         if (VectorArrayAt(buffer, zeroIndex) == 0
                             && VectorArrayAt(buffer, zeroIndex1) == 0)
                         {
-                            const std::int64_t found = UncheckedAdd64(
+                            const std::int64_t found = UncheckedAdd(
                                 memoryInfo.BaseAddress,
                                 static_cast<std::int64_t>(zeroIndex));
                             _baseAddress = Int64ToIntPtr(found);
@@ -1625,7 +1595,7 @@ namespace MphRead::Memory
             {
                 throw ProgramException("Failed to scan memory.");
             }
-            minAddr = Int64ToIntPtr(UncheckedAdd64(
+            minAddr = Int64ToIntPtr(UncheckedAdd(
                 static_cast<std::int64_t>(minAddr), memoryInfo.RegionSize));
         }
 
@@ -1679,14 +1649,14 @@ namespace MphRead::Memory
         RefreshMemory();
         (*_players)[0] = std::make_shared<CPlayer>(*this, Addresses->Players);
         (*_players)[1] = std::make_shared<CPlayer>(
-            *this, UncheckedAdd32(Addresses->Players, 0xF30));
+            *this, UncheckedAdd(Addresses->Players, 0xF30));
         (*_players)[2] = std::make_shared<CPlayer>(
-            *this, UncheckedAdd32(
+            *this, UncheckedAdd(
                 Addresses->Players,
                 static_cast<std::int32_t>(
                     static_cast<std::uint32_t>(0xF30) * UINT32_C(2))));
         (*_players)[3] = std::make_shared<CPlayer>(
-            *this, UncheckedAdd32(
+            *this, UncheckedAdd(
                 Addresses->Players,
                 static_cast<std::int32_t>(
                     static_cast<std::uint32_t>(0xF30) * UINT32_C(3))));
@@ -1768,7 +1738,7 @@ namespace MphRead::Memory
             }
 
             const std::shared_ptr<AIContext> parent
-                = context->Item(UncheckedSubtract32(i, 1));
+                = context->Item(UncheckedSubtract(i, 1));
             std::int32_t childIndex = -1;
 
             for (std::int32_t j = 0;
@@ -1854,7 +1824,7 @@ namespace MphRead::Memory
         }
 
         const std::int32_t frameCount = ReadInt32FromBuffer(
-            UncheckedSubtract32(Addresses->FrameCount, 0x02000000));
+            UncheckedSubtract(Addresses->FrameCount, 0x02000000));
         bool add = _mem.empty();
         if (!add)
         {
@@ -1914,7 +1884,7 @@ namespace MphRead::Memory
             if (entity
                 && RequireReference(entity).EntityType()
                     == static_cast<MphRead::EntityType>(
-                        ReadUInt16FromBuffer(UncheckedSubtract32(
+                        ReadUInt16FromBuffer(UncheckedSubtract(
                             IntPtrToInt32(nextAddr), Offset))))
             {
                 _entities.push_back(entity);
@@ -1942,9 +1912,9 @@ namespace MphRead::Memory
         std::shared_ptr<ManagedArray<std::uint8_t>> value,
         std::int32_t size)
     {
-        const std::int32_t offset = UncheckedSubtract32(address, Offset);
+        const std::int32_t offset = UncheckedSubtract(address, Offset);
         const std::int32_t pointerValue
-            = UncheckedAdd32(IntPtrToInt32(_baseAddress), offset);
+            = UncheckedAdd(IntPtrToInt32(_baseAddress), offset);
         const std::intptr_t pointer = static_cast<std::intptr_t>(pointerValue);
         const std::intptr_t processHandle = ProcessHandle();
 
@@ -1962,7 +1932,7 @@ namespace MphRead::Memory
 
         for (std::int32_t i = 0; i < size; ++i)
         {
-            const std::int32_t destinationIndex = UncheckedAdd32(offset, i);
+            const std::int32_t destinationIndex = UncheckedAdd(offset, i);
             std::uint8_t& destination
                 = ManagedArrayAt(*_buffer, destinationIndex);
             if (!value)
@@ -1980,7 +1950,7 @@ namespace MphRead::Memory
 
     std::shared_ptr<CEntity> Memory::GetEntity(std::int32_t address)
     {
-        const std::int32_t offset = UncheckedSubtract32(address, Offset);
+        const std::int32_t offset = UncheckedSubtract(address, Offset);
         const auto type = static_cast<MphRead::EntityType>(
             ReadUInt16FromBuffer(offset));
 

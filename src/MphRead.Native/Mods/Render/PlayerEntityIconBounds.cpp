@@ -1,6 +1,7 @@
 #include "PlayerEntityIconBounds.hpp"
 
 #include "../../Entities/Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <bit>
 #include <cstddef>
@@ -8,35 +9,13 @@
 #include <limits>
 #include <stdexcept>
 
+using ::MphRead::NativeRuntime::UInt32ToInt32;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
+
 namespace
 {
-    std::int32_t FromWrappedUnsigned(std::uint32_t value)
-    {
-        if (value <= 0x7FFFFFFFU)
-        {
-            return static_cast<std::int32_t>(value);
-        }
-        return -1 - static_cast<std::int32_t>(0xFFFFFFFFU - value);
-    }
-
-    std::int32_t WrapAdd(std::int32_t left, std::int32_t right)
-    {
-        return FromWrappedUnsigned(static_cast<std::uint32_t>(left)
-            + static_cast<std::uint32_t>(right));
-    }
-
-    std::int32_t WrapSubtract(std::int32_t left, std::int32_t right)
-    {
-        return FromWrappedUnsigned(static_cast<std::uint32_t>(left)
-            - static_cast<std::uint32_t>(right));
-    }
-
-    std::int32_t WrapMultiply(std::int32_t left, std::int32_t right)
-    {
-        return FromWrappedUnsigned(static_cast<std::uint32_t>(left)
-            * static_cast<std::uint32_t>(right));
-    }
-
     float Int32ToSingle(std::int32_t value)
     {
         static_assert(sizeof(float) == sizeof(std::uint32_t));
@@ -112,23 +91,23 @@ namespace MphRead::Entities
 
     std::int32_t IconBounds::Width() const
     {
-        return WrapAdd(WrapSubtract(MaxX, MinX), 1);
+        return UncheckedAdd(UncheckedSubtract(MaxX, MinX), 1);
     }
 
     std::int32_t IconBounds::Height() const
     {
-        return WrapAdd(WrapSubtract(MaxY, MinY), 1);
+        return UncheckedAdd(UncheckedSubtract(MaxY, MinY), 1);
     }
 
     float IconBounds::CentreX() const
     {
-        const std::int32_t sum = WrapAdd(WrapAdd(MinX, MaxX), 1);
+        const std::int32_t sum = UncheckedAdd(UncheckedAdd(MinX, MaxX), 1);
         return Int32ToSingle(sum) / 2.0F;
     }
 
     float IconBounds::CentreY() const
     {
-        const std::int32_t sum = WrapAdd(WrapAdd(MinY, MaxY), 1);
+        const std::int32_t sum = UncheckedAdd(UncheckedAdd(MinY, MaxY), 1);
         return Int32ToSingle(sum) / 2.0F;
     }
 
@@ -148,7 +127,7 @@ namespace MphRead::Entities
         std::int32_t frame, std::int32_t width, std::int32_t height)
     {
         const std::int32_t tilesX = width / 8;
-        const std::int32_t image = WrapMultiply(WrapMultiply(frame, width), height);
+        const std::int32_t image = UncheckedMultiply(UncheckedMultiply(frame, width), height);
         std::int32_t minX = width;
         std::int32_t minY = height;
         std::int32_t maxX = -1;
@@ -160,10 +139,10 @@ namespace MphRead::Entities
             for (std::int32_t x = 0; x < width; x++)
             {
                 std::int32_t index = image;
-                index = WrapAdd(index, WrapMultiply(WrapMultiply(ty, tilesX), 64));
-                index = WrapAdd(index, WrapMultiply(x / 8, 64));
-                index = WrapAdd(index, WrapMultiply(py, 8));
-                index = WrapAdd(index, x % 8);
+                index = UncheckedAdd(index, UncheckedMultiply(UncheckedMultiply(ty, tilesX), 64));
+                index = UncheckedAdd(index, UncheckedMultiply(x / 8, 64));
+                index = UncheckedAdd(index, UncheckedMultiply(py, 8));
+                index = UncheckedAdd(index, x % 8);
                 if (index < 0)
                 {
                     continue;
@@ -197,7 +176,7 @@ namespace MphRead::Entities
         }
         if (maxX < minX || maxY < minY)
         {
-            return IconBounds(0, 0, WrapSubtract(width, 1), WrapSubtract(height, 1));
+            return IconBounds(0, 0, UncheckedSubtract(width, 1), UncheckedSubtract(height, 1));
         }
         return IconBounds(minX, minY, maxX, maxY);
     }

@@ -6,6 +6,7 @@
 #include "Q3Bsp.hpp"
 #include "../../Formats/Types.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -27,6 +28,8 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
 
 namespace MphRead::Mods::MapGen::MapTextureBakeInterop
 {
@@ -87,22 +90,6 @@ namespace
     constexpr std::array<std::string_view, 4> Extensions{
         ".tga", ".jpg", ".jpeg", ".png"
     };
-
-    [[nodiscard]] std::int32_t WrapAdd(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left)
-            + static_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] std::int32_t WrapMultiply(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left)
-            * static_cast<std::uint32_t>(right));
-    }
 
     [[nodiscard]] std::int32_t ManagedShiftRight(
         std::int32_t value, unsigned count) noexcept
@@ -357,24 +344,24 @@ namespace
         const std::int32_t width = image.Width;
         const std::int32_t height = image.Height;
 
-        const std::int32_t resultLength = WrapMultiply(
-            WrapMultiply(size, size), 3);
+        const std::int32_t resultLength = UncheckedMultiply(
+            UncheckedMultiply(size, size), 3);
         std::vector<std::uint8_t> result(ArrayLength(resultLength));
 
         for (std::int32_t y = 0; y < size; ++y)
         {
             const std::int32_t y0
-                = WrapMultiply(y, height) / size;
+                = UncheckedMultiply(y, height) / size;
             const std::int32_t y1 = std::max(
-                WrapAdd(y0, 1),
-                WrapMultiply(WrapAdd(y, 1), height) / size);
+                UncheckedAdd(y0, 1),
+                UncheckedMultiply(UncheckedAdd(y, 1), height) / size);
             for (std::int32_t x = 0; x < size; ++x)
             {
                 const std::int32_t x0
-                    = WrapMultiply(x, width) / size;
+                    = UncheckedMultiply(x, width) / size;
                 const std::int32_t x1 = std::max(
-                    WrapAdd(x0, 1),
-                    WrapMultiply(WrapAdd(x, 1), width) / size);
+                    UncheckedAdd(x0, 1),
+                    UncheckedMultiply(UncheckedAdd(x, 1), width) / size);
 
                 std::int32_t r = 0;
                 std::int32_t g = 0;
@@ -386,25 +373,25 @@ namespace
                     for (std::int32_t sx = x0;
                         sx < x1 && sx < width; ++sx)
                     {
-                        const std::int32_t offset = WrapMultiply(
-                            WrapAdd(WrapMultiply(sy, width), sx), 3);
-                        r = WrapAdd(r, AtByte(image.Pixels, offset));
-                        g = WrapAdd(g, AtByte(
-                            image.Pixels, WrapAdd(offset, 1)));
-                        b = WrapAdd(b, AtByte(
-                            image.Pixels, WrapAdd(offset, 2)));
-                        count = WrapAdd(count, 1);
+                        const std::int32_t offset = UncheckedMultiply(
+                            UncheckedAdd(UncheckedMultiply(sy, width), sx), 3);
+                        r = UncheckedAdd(r, AtByte(image.Pixels, offset));
+                        g = UncheckedAdd(g, AtByte(
+                            image.Pixels, UncheckedAdd(offset, 1)));
+                        b = UncheckedAdd(b, AtByte(
+                            image.Pixels, UncheckedAdd(offset, 2)));
+                        count = UncheckedAdd(count, 1);
                     }
                 }
 
-                const std::int32_t target = WrapMultiply(
-                    WrapAdd(WrapMultiply(y, size), x), 3);
+                const std::int32_t target = UncheckedMultiply(
+                    UncheckedAdd(UncheckedMultiply(y, size), x), 3);
                 const std::int32_t divisor = std::max<std::int32_t>(1, count);
                 SetByte(result, target,
                     static_cast<std::uint8_t>(r / divisor));
-                SetByte(result, WrapAdd(target, 1),
+                SetByte(result, UncheckedAdd(target, 1),
                     static_cast<std::uint8_t>(g / divisor));
-                SetByte(result, WrapAdd(target, 2),
+                SetByte(result, UncheckedAdd(target, 2),
                     static_cast<std::uint8_t>(b / divisor));
             }
         }
@@ -430,10 +417,10 @@ namespace
         [[nodiscard]] std::int32_t operator()(
             std::int32_t left, std::int32_t right) const
         {
-            const std::int32_t leftOffset = WrapAdd(
-                WrapMultiply(left, 3), _channel);
-            const std::int32_t rightOffset = WrapAdd(
-                WrapMultiply(right, 3), _channel);
+            const std::int32_t leftOffset = UncheckedAdd(
+                UncheckedMultiply(left, 3), _channel);
+            const std::int32_t rightOffset = UncheckedAdd(
+                UncheckedMultiply(right, 3), _channel);
             const std::int32_t a = AtByte(_rgb, leftOffset);
             const std::int32_t b = AtByte(_rgb, rightOffset);
             return a < b ? -1 : (a > b ? 1 : 0);
@@ -651,7 +638,7 @@ namespace
             const std::vector<std::uint8_t>& rgb,
             std::int32_t size)
     {
-        const std::int32_t count = WrapMultiply(size, size);
+        const std::int32_t count = UncheckedMultiply(size, size);
         std::vector<std::int32_t> indices(ArrayLength(count));
         for (std::int32_t i = 0; i < count; ++i)
         {
@@ -676,14 +663,14 @@ namespace
                 {
                     std::int32_t low = 255;
                     std::int32_t high = 0;
-                    const std::int32_t end = WrapAdd(
+                    const std::int32_t end = UncheckedAdd(
                         box.Start, box.Length);
                     for (std::int32_t j = box.Start; j < end; ++j)
                     {
                         const std::int32_t index = indices.at(
                             static_cast<std::size_t>(j));
-                        const std::int32_t offset = WrapAdd(
-                            WrapMultiply(index, 3), channel);
+                        const std::int32_t offset = UncheckedAdd(
+                            UncheckedMultiply(index, 3), channel);
                         const std::int32_t value = AtByte(rgb, offset);
                         low = std::min(low, value);
                         high = std::max(high, value);
@@ -715,7 +702,7 @@ namespace
             boxes[static_cast<std::size_t>(widest)]
                 = BoxRange{selected.Start, half};
             boxes.push_back(BoxRange{
-                WrapAdd(selected.Start, half),
+                UncheckedAdd(selected.Start, half),
                 selected.Length - half
             });
         }
@@ -731,15 +718,15 @@ namespace
             std::int32_t r = 0;
             std::int32_t g = 0;
             std::int32_t b = 0;
-            const std::int32_t end = WrapAdd(box.Start, box.Length);
+            const std::int32_t end = UncheckedAdd(box.Start, box.Length);
             for (std::int32_t j = box.Start; j < end; ++j)
             {
                 const std::int32_t index = indices.at(
                     static_cast<std::size_t>(j));
-                const std::int32_t offset = WrapMultiply(index, 3);
-                r = WrapAdd(r, AtByte(rgb, offset));
-                g = WrapAdd(g, AtByte(rgb, WrapAdd(offset, 1)));
-                b = WrapAdd(b, AtByte(rgb, WrapAdd(offset, 2)));
+                const std::int32_t offset = UncheckedMultiply(index, 3);
+                r = UncheckedAdd(r, AtByte(rgb, offset));
+                g = UncheckedAdd(g, AtByte(rgb, UncheckedAdd(offset, 1)));
+                b = UncheckedAdd(b, AtByte(rgb, UncheckedAdd(offset, 2)));
             }
             const std::int32_t divisor
                 = std::max<std::int32_t>(1, box.Length);

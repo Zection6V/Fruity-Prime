@@ -60,35 +60,13 @@
 #endif
 
 using ::MphRead::HasFlag;
+using ::MphRead::NativeRuntime::IncrementInPlace;
 using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::UncheckedAdd;
 
 namespace
 {
     using MphRead::Mods::Network::NetRole;
-
-    [[nodiscard]] std::int32_t AddInt32Unchecked(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] std::int64_t AddInt64Unchecked(
-        std::int64_t left, std::int64_t right) noexcept
-    {
-        return std::bit_cast<std::int64_t>(
-            static_cast<std::uint64_t>(left) + static_cast<std::uint64_t>(right));
-    }
-
-    void IncrementInt32(std::int32_t& value) noexcept
-    {
-        value = AddInt32Unchecked(value, 1);
-    }
-
-    void IncrementInt64(std::int64_t& value) noexcept
-    {
-        value = AddInt64Unchecked(value, 1);
-    }
 
     struct NumberSymbols
     {
@@ -740,7 +718,7 @@ namespace MphRead::Mods::Network
 
     void NetSession::NoteStatesApplied() noexcept
     {
-        IncrementInt64(_statesApplied);
+        IncrementInPlace(_statesApplied);
     }
 
     void NetSession::StartServerAuthority(
@@ -995,7 +973,7 @@ namespace MphRead::Mods::Network
         if (_role == NetRole::Server)
         {
             _netFrame++;
-            IncrementInt64(_authorityFrames);
+            IncrementInPlace(_authorityFrames);
             return;
         }
         if (_transport == nullptr)
@@ -1006,7 +984,7 @@ namespace MphRead::Mods::Network
         _netFrame++;
         if (_isAuthority)
         {
-            IncrementInt64(_authorityFrames);
+            IncrementInPlace(_authorityFrames);
         }
 
         for (ReceivedPacket packet : _transport->Drain())
@@ -1026,7 +1004,7 @@ namespace MphRead::Mods::Network
         else if (_role == NetRole::Client && _netFrame % 60U == 0U
             && time - _lastServerPacket > SilenceBeforeRejoin)
         {
-            IncrementInt32(_reAnnouncements);
+            IncrementInPlace(_reAnnouncements);
             _reAnnounced = true;
             if (!_connectionLost)
             {
@@ -1088,7 +1066,7 @@ namespace MphRead::Mods::Network
                     if (_isAuthority)
                     {
                         _isAuthority = false;
-                        IncrementInt32(_authorityStandDowns);
+                        IncrementInPlace(_authorityStandDowns);
                         ConsoleWriteLine("[net] re-admitted; standing down as the "
                             "simulation authority until the server says otherwise");
                         NetLog::Event("re-admitted, authority relinquished");
@@ -1380,14 +1358,14 @@ namespace MphRead::Mods::Network
         if (_lastSlotIntentFrame[index] != 0 && intent.Frame <= _lastSlotIntentFrame[index]
             && _lastSlotIntentFrame[index] - intent.Frame < IntentResetGap)
         {
-            IncrementInt64(_intentsOutOfOrder);
+            IncrementInPlace(_intentsOutOfOrder);
             return;
         }
         _lastSlotIntentFrame[index] = intent.Frame;
         RemoteIntents[index] = intent;
         RemoteIntentValid[index] = true;
         RemoteIntentArrived[index] = std::max(_netFrame, 1U);
-        IncrementInt64(_intentsReceived);
+        IncrementInPlace(_intentsReceived);
     }
 
     void NetSession::ForgetSlot(std::int32_t slot)
@@ -1505,8 +1483,8 @@ namespace MphRead::Mods::Network
         if (_lastSnapshotFrame != 0 && header.Frame <= _lastSnapshotFrame
             && _lastSnapshotFrame - header.Frame < SnapshotResetGap)
         {
-            IncrementInt64(_snapshotsOutOfOrder);
-            IncrementInt32(_lateSnapshotRun);
+            IncrementInPlace(_snapshotsOutOfOrder);
+            IncrementInPlace(_lateSnapshotRun);
             if (_lateSnapshotRun < LateSnapshotsBeforeReset)
             {
                 return;
@@ -1514,11 +1492,11 @@ namespace MphRead::Mods::Network
             NetLog::Event("snapshot stream re-based: " + Int32Text(_lateSnapshotRun)
                 + " in a row older than " + std::to_string(_lastSnapshotFrame)
                 + " (now " + std::to_string(header.Frame) + ")");
-            IncrementInt32(_snapshotStreamResets);
+            IncrementInPlace(_snapshotStreamResets);
         }
         _lateSnapshotRun = 0;
         _lastSnapshotFrame = header.Frame;
-        IncrementInt64(_snapshotsReceived);
+        IncrementInPlace(_snapshotsReceived);
         Rng::SetRng1(header.Rng1);
         Rng::SetRng2(header.Rng2);
 
@@ -1734,7 +1712,7 @@ namespace MphRead::Mods::Network
         header.Rng2 = Rng::Rng2();
         header.PlayerCount = static_cast<std::uint8_t>(count);
         header.Write(_scratch);
-        IncrementInt64(_snapshotsSent);
+        IncrementInPlace(_snapshotsSent);
         NetUnlagged::Record(header.Frame);
         DemoRecorder::RecordOwnSnapshot(
             std::span<const std::uint8_t>(_scratch).first(offset));

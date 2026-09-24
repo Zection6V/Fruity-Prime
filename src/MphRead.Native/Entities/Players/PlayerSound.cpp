@@ -25,6 +25,9 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::MphRead::TestFlag;
 
 namespace
@@ -67,24 +70,6 @@ namespace
             throw MphRead::SceneDetail::IndexOutOfRangeException();
         }
         return values[static_cast<std::size_t>(index)];
-    }
-
-    [[nodiscard]] std::int32_t ManagedAdd(std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            std::bit_cast<std::uint32_t>(left) + std::bit_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] std::int32_t ManagedSubtract(std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            std::bit_cast<std::uint32_t>(left) - std::bit_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] std::int32_t ManagedMultiply(std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            std::bit_cast<std::uint32_t>(left) * std::bit_cast<std::uint32_t>(right));
     }
 
     template <typename TContainer>
@@ -476,7 +461,7 @@ namespace MphRead::Entities
     {
         const std::int32_t sfxId = TerrainSfxValue(_standTerrain, TerrainSfx::Land);
         const float amountA = static_cast<float>(
-            ManagedMultiply(0xFFFF, static_cast<std::int32_t>(_timeBeforeLanding)))
+            UncheckedMultiply(0xFFFF, static_cast<std::int32_t>(_timeBeforeLanding)))
             / (90.0F * 2.0F);
         _soundSource.PlaySfx(
             sfxId, false, false, -1.0F, false, false, amountA);
@@ -646,14 +631,14 @@ namespace MphRead::Entities
             UpdateHealthSfx(0);
             UpdateScanSfx(-1, true);
         }
-        Sound::Sfx::TimedSfxMute = ManagedAdd(Sound::Sfx::TimedSfxMute, 1);
+        Sound::Sfx::TimedSfxMute = UncheckedAdd(Sound::Sfx::TimedSfxMute, 1);
     }
 
     void PlayerEntity::RestartTimedSfx(bool force)
     {
         const bool restart = force
             || (Sound::Sfx::TimedSfxMute
-                = ManagedSubtract(Sound::Sfx::TimedSfxMute, 1)) <= 0;
+                = UncheckedSubtract(Sound::Sfx::TimedSfxMute, 1)) <= 0;
         if (restart)
         {
             Sound::Sfx::TimedSfxMute = 0;
@@ -675,7 +660,7 @@ namespace MphRead::Entities
             Sound::Sfx::SfxMute = true;
             RequireReference(Sound::Sfx::Instance()).StopEnvironmentSfx();
         }
-        Sound::Sfx::LongSfxMute = ManagedAdd(Sound::Sfx::LongSfxMute, 1);
+        Sound::Sfx::LongSfxMute = UncheckedAdd(Sound::Sfx::LongSfxMute, 1);
     }
 
     void PlayerEntity::RestartLongSfx(bool force)
@@ -683,7 +668,7 @@ namespace MphRead::Entities
         RestartTimedSfx(force);
         const bool restart = force
             || (Sound::Sfx::LongSfxMute
-                = ManagedSubtract(Sound::Sfx::LongSfxMute, 1)) <= 0;
+                = UncheckedSubtract(Sound::Sfx::LongSfxMute, 1)) <= 0;
         if (restart)
         {
             Sound::Sfx::LongSfxMute = 0;

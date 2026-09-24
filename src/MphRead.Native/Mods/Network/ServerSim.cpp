@@ -15,6 +15,7 @@
 #include "NetLog.hpp"
 #include "NetUnlagged.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <bit>
 #include <chrono>
@@ -29,20 +30,11 @@
 #include <string>
 #include <utility>
 
+using ::MphRead::NativeRuntime::IncrementInPlace;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+
 namespace
 {
-    [[nodiscard]] std::int64_t AddInt64Unchecked(
-        std::int64_t left, std::int64_t right) noexcept
-    {
-        return std::bit_cast<std::int64_t>(
-            static_cast<std::uint64_t>(left) + static_cast<std::uint64_t>(right));
-    }
-
-    void IncrementInt64(std::int64_t& value) noexcept
-    {
-        value = AddInt64Unchecked(value, 1);
-    }
-
     [[nodiscard]] std::string FormatFixed(double value, std::int32_t digits)
     {
         std::ostringstream stream;
@@ -92,7 +84,7 @@ namespace MphRead::Mods::Network
         _lastAdvance = now;
         if (elapsed > StallSeconds)
         {
-            IncrementInt64(_stalls);
+            IncrementInPlace(_stalls);
             _accumulator = 0.0;
             return;
         }
@@ -110,7 +102,7 @@ namespace MphRead::Mods::Network
         {
             const auto dropped = static_cast<std::int64_t>(
                 _accumulator / Mods::Render::FrameTiming::StepSeconds);
-            _droppedSteps = AddInt64Unchecked(_droppedSteps, dropped);
+            _droppedSteps = UncheckedAdd(_droppedSteps, dropped);
             _accumulator = 0.0;
         }
     }
@@ -223,7 +215,7 @@ namespace MphRead::Mods::Network
         }
         catch (const std::exception& ex)
         {
-            IncrementInt64(_stepFailures);
+            IncrementInPlace(_stepFailures);
             if (_stepFailures == 1)
             {
                 std::cout << "[sim] step failed: " << ex.what() << '\n';
@@ -237,7 +229,7 @@ namespace MphRead::Mods::Network
 
         const double elapsed = std::chrono::duration<double>(
             std::chrono::steady_clock::now() - start).count();
-        IncrementInt64(_frames);
+        IncrementInPlace(_frames);
         _stepSeconds += elapsed;
         if (elapsed > _worstStepSeconds)
         {
@@ -245,7 +237,7 @@ namespace MphRead::Mods::Network
         }
         if (elapsed > 1.0 / 60.0)
         {
-            IncrementInt64(_overrunSteps);
+            IncrementInPlace(_overrunSteps);
         }
     }
 

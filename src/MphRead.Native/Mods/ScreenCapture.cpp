@@ -10,6 +10,7 @@
 #include "../Formats/Types.hpp"
 #include "../Scene.hpp"
 #include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <bit>
 #include <cstdint>
@@ -26,6 +27,8 @@
 
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
 
 namespace MphRead::Export::ImagesInterop
 {
@@ -56,18 +59,6 @@ namespace
         std::ofstream stream(PathFromUtf8(path), std::ios::binary | std::ios::trunc);
         stream.exceptions(std::ios::failbit | std::ios::badbit);
         return stream;
-    }
-
-    [[nodiscard]] std::int32_t WrappedAdd(std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] std::int32_t WrappedMultiply(std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
     }
 
     [[nodiscard]] std::string DebugSourceName(std::int32_t value)
@@ -316,14 +307,14 @@ namespace MphRead::Mods
 
         std::int32_t lit = 0;
         std::int32_t total = 0;
-        for (std::int32_t i = 0; WrappedAdd(i, 2) < length; i = WrappedAdd(i, 3))
+        for (std::int32_t i = 0; UncheckedAdd(i, 2) < length; i = UncheckedAdd(i, 3))
         {
-            total = WrappedAdd(total, 1);
+            total = UncheckedAdd(total, 1);
             if (channel(i) > 8
-                || channel(WrappedAdd(i, 1)) > 8
-                || channel(WrappedAdd(i, 2)) > 8)
+                || channel(UncheckedAdd(i, 1)) > 8
+                || channel(UncheckedAdd(i, 2)) > 8)
             {
-                lit = WrappedAdd(lit, 1);
+                lit = UncheckedAdd(lit, 1);
             }
         }
         return total == 0 ? 0.0 : static_cast<double>(lit) / static_cast<double>(total);
@@ -363,7 +354,7 @@ namespace MphRead::Mods
                 {
                     return;
                 }
-                _messagesLogged = WrappedAdd(_messagesLogged, 1);
+                _messagesLogged = UncheckedAdd(_messagesLogged, 1);
                 const std::string text
                     = std::string(message, static_cast<std::size_t>(length));
                 const std::string severityText = DebugSeverityName(severity);
@@ -440,16 +431,16 @@ namespace MphRead::Mods
         };
 
         std::int32_t lit = 0;
-        for (std::int32_t i = 0; i < length; i = WrappedAdd(i, 3))
+        for (std::int32_t i = 0; i < length; i = UncheckedAdd(i, 3))
         {
             if (channel(i) > 8
-                || channel(WrappedAdd(i, 1)) > 8
-                || channel(WrappedAdd(i, 2)) > 8)
+                || channel(UncheckedAdd(i, 1)) > 8
+                || channel(UncheckedAdd(i, 2)) > 8)
             {
-                lit = WrappedAdd(lit, 1);
+                lit = UncheckedAdd(lit, 1);
             }
         }
-        const std::int32_t area = WrappedMultiply(width, height);
+        const std::int32_t area = UncheckedMultiply(width, height);
         return static_cast<double>(lit) / static_cast<double>(area);
     }
 }

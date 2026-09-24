@@ -20,6 +20,9 @@
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UInt32ToInt32;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::ScaleVector;
 
@@ -50,25 +53,6 @@ namespace MphRead::Entities::Enemies
                 throw System::NullReferenceException();
             }
             return *player;
-        }
-
-        [[nodiscard]] std::int32_t WrapInt32(std::uint32_t value) noexcept
-        {
-            return std::bit_cast<std::int32_t>(value);
-        }
-
-        [[nodiscard]] std::int32_t AddInt32(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            return WrapInt32(
-                static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-        }
-
-        [[nodiscard]] std::int32_t MultiplyInt32(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            return WrapInt32(
-                static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
         }
 
     }
@@ -197,8 +181,8 @@ namespace MphRead::Entities::Enemies
         target.Y = static_cast<Vector3>(MainPlayer().Position).Y + 0.5F;
         _speed = target - static_cast<Vector3>(Position);
         const float mag = Length(_speed);
-        _moveTimer = AddInt32(ConvertToInt32Net9(mag / 0.6F), 1);
-        _moveTimer = MultiplyInt32(_moveTimer, 2);
+        _moveTimer = UncheckedAdd(ConvertToInt32Net9(mag / 0.6F), 1);
+        _moveTimer = UncheckedMultiply(_moveTimer, 2);
         _speed = ScaleVector(_speed, 0.6F / mag);
         _speed.X /= 2.0F;
         _speed.Y /= 2.0F;
@@ -238,8 +222,8 @@ namespace MphRead::Entities::Enemies
         }
         _speed = _targetPos - static_cast<Vector3>(Position);
         const float mag = Length(_speed);
-        _moveTimer = AddInt32(ConvertToInt32Net9(mag / 0.3F), 1);
-        _moveTimer = MultiplyInt32(_moveTimer, 2);
+        _moveTimer = UncheckedAdd(ConvertToInt32Net9(mag / 0.3F), 1);
+        _moveTimer = UncheckedMultiply(_moveTimer, 2);
         _speed = ScaleVector(_speed, 0.3F / mag);
         _speed.X /= 2.0F;
         _speed.Y /= 2.0F;

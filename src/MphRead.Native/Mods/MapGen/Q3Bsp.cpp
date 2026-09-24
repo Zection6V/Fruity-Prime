@@ -3,6 +3,7 @@
 #include "../../Formats/Types.hpp"
 #include "../../Program.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -33,6 +34,8 @@
 #endif
 
 using ::MphRead::NativeRuntime::FileReadAllBytes;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
 
 namespace
 {
@@ -328,18 +331,6 @@ namespace
 #endif
         }
         return result;
-    }
-
-    [[nodiscard]] std::int32_t WrapAdd(std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] std::int32_t WrapMul(std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
     }
 
     [[nodiscard]] std::uint16_t ReadU16(const ByteVector& bytes, std::size_t position)
@@ -1199,7 +1190,7 @@ namespace
         results.reserve(static_cast<std::size_t>(count));
         for (std::int32_t i = 0; i < count; ++i)
         {
-            const std::int32_t position = WrapAdd(lump.first, WrapMul(i, size));
+            const std::int32_t position = UncheckedAdd(lump.first, UncheckedMultiply(i, size));
             reader.Position(position);
             results.push_back(read(reader));
         }
@@ -1714,7 +1705,7 @@ namespace MphRead::Mods::MapGen
             const std::int32_t offset = ReadI32(bsp, 8 + static_cast<std::size_t>(i) * 8);
             const std::int32_t length = ReadI32(bsp, 8 + static_cast<std::size_t>(i) * 8 + 4);
             const bool used = std::find(UsedLumps.begin(), UsedLumps.end(), i) != UsedLumps.end();
-            const std::int32_t end = WrapAdd(offset, length);
+            const std::int32_t end = UncheckedAdd(offset, length);
             if (!used || offset < 0 || length <= 0
                 || (end > 0 && static_cast<std::uint64_t>(end) > bsp.size()))
             {

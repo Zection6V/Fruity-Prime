@@ -4,6 +4,7 @@
 #include "NetSession.hpp"
 #include "ServerSim.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -39,6 +40,8 @@
 #include <sys/resource.h>
 #endif
 
+using ::MphRead::NativeRuntime::IncrementInPlace;
+using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::TestFlag;
 
 namespace
@@ -59,18 +62,6 @@ namespace
             throw System::NullReferenceException();
         }
         return *value;
-    }
-
-    [[nodiscard]] std::int64_t AddInt64Unchecked(
-        std::int64_t left, std::int64_t right) noexcept
-    {
-        return std::bit_cast<std::int64_t>(
-            static_cast<std::uint64_t>(left) + static_cast<std::uint64_t>(right));
-    }
-
-    void IncrementInt64(std::int64_t& value) noexcept
-    {
-        value = AddInt64Unchecked(value, 1);
     }
 
     template <typename TInt>
@@ -222,13 +213,13 @@ namespace MphRead::Mods::Network
         if (!sim.Start(room, mode, players,
             [&](std::span<const std::uint8_t> payload)
             {
-                IncrementInt64(snapshots);
-                snapshotBytes = AddInt64Unchecked(
+                IncrementInPlace(snapshots);
+                snapshotBytes = UncheckedAdd(
                     snapshotBytes, static_cast<std::int64_t>(payload.size()));
             },
             [&]()
             {
-                IncrementInt64(matchEnds);
+                IncrementInPlace(matchEnds);
             }))
         {
             return 1;

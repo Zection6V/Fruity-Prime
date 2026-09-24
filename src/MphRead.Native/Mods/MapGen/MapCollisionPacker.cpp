@@ -24,6 +24,8 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
 using ::OpenTK::Mathematics::ComponentMax;
 using ::OpenTK::Mathematics::ComponentMin;
 
@@ -32,20 +34,6 @@ namespace
     using MphRead::Utility::CollisionDataEditor;
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
-
-    [[nodiscard]] constexpr std::int32_t WrapAdd(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] constexpr std::int32_t WrapMul(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
-    }
 
     [[nodiscard]] constexpr std::int32_t ToInt32Unchecked(
         std::size_t value) noexcept
@@ -272,12 +260,12 @@ namespace MphRead::Mods::MapGen
         {
             const float quotient = (maximum - minimum) / CellSize;
             const std::int32_t floored = ConvertToInt32Net9(std::floor(quotient));
-            return std::max<std::int32_t>(1, WrapAdd(floored, 1));
+            return std::max<std::int32_t>(1, UncheckedAdd(floored, 1));
         };
         const std::int32_t partsX = partCount(max.X, min.X);
         const std::int32_t partsY = partCount(max.Y, min.Y);
         const std::int32_t partsZ = partCount(max.Z, min.Z);
-        const std::int32_t cellCount = WrapMul(WrapMul(partsX, partsY), partsZ);
+        const std::int32_t cellCount = UncheckedMultiply(UncheckedMultiply(partsX, partsY), partsZ);
         if (cellCount < 0)
         {
             throw System::OverflowException();
@@ -310,16 +298,16 @@ namespace MphRead::Mods::MapGen
             const std::int32_t y1 = CellIndex(faceMax.Y, min.Y, partsY);
             const std::int32_t z0 = CellIndex(faceMin.Z, min.Z, partsZ);
             const std::int32_t z1 = CellIndex(faceMax.Z, min.Z, partsZ);
-            for (std::int32_t y = y0; y <= y1; y = WrapAdd(y, 1))
+            for (std::int32_t y = y0; y <= y1; y = UncheckedAdd(y, 1))
             {
-                for (std::int32_t z = z0; z <= z1; z = WrapAdd(z, 1))
+                for (std::int32_t z = z0; z <= z1; z = UncheckedAdd(z, 1))
                 {
-                    for (std::int32_t x = x0; x <= x1; x = WrapAdd(x, 1))
+                    for (std::int32_t x = x0; x <= x1; x = UncheckedAdd(x, 1))
                     {
-                        const std::int32_t index = WrapAdd(
-                            WrapAdd(
-                                WrapMul(WrapMul(y, partsX), partsZ),
-                                WrapMul(z, partsX)),
+                        const std::int32_t index = UncheckedAdd(
+                            UncheckedAdd(
+                                UncheckedMultiply(UncheckedMultiply(y, partsX), partsZ),
+                                UncheckedMultiply(z, partsX)),
                             x);
                         if (index < 0 || index >= cellCount)
                         {
@@ -339,7 +327,7 @@ namespace MphRead::Mods::MapGen
         std::int32_t references = 0;
         for (const std::optional<std::vector<std::uint16_t>>& cell : cells)
         {
-            references = WrapAdd(
+            references = UncheckedAdd(
                 references,
                 cell ? ListCount(cell->size()) : 0);
         }

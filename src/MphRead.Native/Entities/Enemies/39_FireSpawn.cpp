@@ -26,6 +26,10 @@
 
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::RoundToEven;
+using ::MphRead::NativeRuntime::UInt32ToInt32;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::ClearScale;
 using ::OpenTK::Mathematics::CreateRotationY;
@@ -97,39 +101,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] PlayerEntity& MainPlayer()
         {
             return RequireReference(PlayerEntity::Main());
-        }
-
-        [[nodiscard]] std::int32_t UInt32ToInt32Unchecked(
-            std::uint32_t value) noexcept
-        {
-            return std::bit_cast<std::int32_t>(value);
-        }
-
-        [[nodiscard]] std::int32_t AddInt32Unchecked(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t bits
-                = std::bit_cast<std::uint32_t>(left)
-                + std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(bits);
-        }
-
-        [[nodiscard]] std::int32_t SubtractInt32Unchecked(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t bits
-                = std::bit_cast<std::uint32_t>(left)
-                - std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(bits);
-        }
-
-        [[nodiscard]] std::int32_t MultiplyInt32Unchecked(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t bits
-                = std::bit_cast<std::uint32_t>(left)
-                * std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(bits);
         }
 
         void SetTranslation(Matrix4& transform, Vector3 position) noexcept
@@ -207,7 +178,7 @@ namespace MphRead::Entities::Enemies
         EnemySpawnEntity& spawner = RequireReference(_spawner);
 
         const std::int32_t version
-            = UInt32ToInt32Unchecked(spawner.Data.Fields.S06().EnemyVersion);
+            = UInt32ToInt32(spawner.Data.Fields.S06().EnemyVersion);
         SetRecolor(ArrayAt(_recolors, version));
 
         Flags |= EnemyFlags::Visible;
@@ -231,7 +202,7 @@ namespace MphRead::Entities::Enemies
             "LavaDemon", 1, AnimFlags::Paused);
 
         const std::int32_t subtype
-            = UInt32ToInt32Unchecked(spawner.Data.Fields.S06().EnemySubtype);
+            = UInt32ToInt32(spawner.Data.Fields.S06().EnemySubtype);
         _values = VectorAt(Metadata::Enemy39Values, subtype);
         _health = _healthMax = _values.HealthMax;
 
@@ -383,7 +354,7 @@ namespace MphRead::Entities::Enemies
         }
         if (_tangibilityTimer <= 5 * 2)
         {
-            _tangibilityTimer = AddInt32Unchecked(_tangibilityTimer, 1);
+            _tangibilityTimer = UncheckedAdd(_tangibilityTimer, 1);
         }
         State0();
     }
@@ -479,7 +450,7 @@ namespace MphRead::Entities::Enemies
             }
 
             _animFrameCount
-                = SubtractInt32Unchecked(_animFrameCount, 1);
+                = UncheckedSubtract(_animFrameCount, 1);
         }
     }
 
@@ -517,7 +488,7 @@ namespace MphRead::Entities::Enemies
         }
         if (_tangibilityTimer <= 18 * 2)
         {
-            _tangibilityTimer = AddInt32Unchecked(_tangibilityTimer, 1);
+            _tangibilityTimer = UncheckedAdd(_tangibilityTimer, 1);
         }
         State0();
     }
@@ -556,7 +527,7 @@ namespace MphRead::Entities::Enemies
 
         Vector3 vec(distance, 0.0F, 0.0F);
         _surfaceDirection
-            = MultiplyInt32Unchecked(_surfaceDirection, -1);
+            = UncheckedMultiply(_surfaceDirection, -1);
 
         const float angle
             = static_cast<float>(Rng::GetRandomInt2(0xB4000))
@@ -587,7 +558,7 @@ namespace MphRead::Entities::Enemies
     {
         if (_attackDelay > 0)
         {
-            _attackDelay = SubtractInt32Unchecked(_attackDelay, 1);
+            _attackDelay = UncheckedSubtract(_attackDelay, 1);
             return false;
         }
 

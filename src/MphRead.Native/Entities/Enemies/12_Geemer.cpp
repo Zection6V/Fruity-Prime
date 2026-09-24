@@ -20,6 +20,10 @@
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UInt32ToInt32;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedNegate;
 using ::OpenTK::Mathematics::Equal;
 using ::OpenTK::Mathematics::LengthSquared;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
@@ -64,28 +68,6 @@ namespace MphRead::Entities::Enemies
             return *player;
         }
 
-        [[nodiscard]] std::int32_t WrapInt32(std::uint32_t value) noexcept
-        {
-            return std::bit_cast<std::int32_t>(value);
-        }
-
-        [[nodiscard]] std::int32_t AddInt32(std::int32_t left, std::int32_t right) noexcept
-        {
-            return WrapInt32(
-                static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-        }
-
-        [[nodiscard]] std::int32_t MultiplyInt32(std::int32_t left, std::int32_t right) noexcept
-        {
-            return WrapInt32(
-                static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
-        }
-
-        [[nodiscard]] std::int32_t NegateInt32(std::int32_t value) noexcept
-        {
-            return WrapInt32(0U - static_cast<std::uint32_t>(value));
-        }
-
         [[nodiscard]] std::int32_t ShiftRightInt32(std::int32_t value, std::uint32_t count) noexcept
         {
             count &= 31U;
@@ -99,30 +81,30 @@ namespace MphRead::Entities::Enemies
             {
                 shifted |= 0xFFFFFFFFU << (32U - count);
             }
-            return WrapInt32(shifted);
+            return UInt32ToInt32(shifted);
         }
 
         [[nodiscard]] float CollisionCorrection(float value, std::int32_t rmd) noexcept
         {
             std::int32_t n = ConvertToInt32Net9(value * 4096.0F);
-            std::int32_t v20 = MultiplyInt32(n, rmd);
+            std::int32_t v20 = UncheckedMultiply(n, rmd);
             std::int64_t product = static_cast<std::int64_t>(n) * static_cast<std::int64_t>(rmd);
             std::uint64_t productBits = std::bit_cast<std::uint64_t>(product);
-            std::int32_t v21 = WrapInt32(static_cast<std::uint32_t>(productBits >> 32U));
+            std::int32_t v21 = UInt32ToInt32(static_cast<std::uint32_t>(productBits >> 32U));
             std::int32_t v22;
             if (v21 < 0)
             {
-                std::int32_t first = ShiftRightInt32(NegateInt32(v20), 12U);
-                std::int32_t carry = AddInt32(v21, v20 != 0 ? 1 : 0);
-                std::int32_t second = MultiplyInt32(-1048576, carry);
-                v22 = NegateInt32(WrapInt32(
+                std::int32_t first = ShiftRightInt32(UncheckedNegate(v20), 12U);
+                std::int32_t carry = UncheckedAdd(v21, v20 != 0 ? 1 : 0);
+                std::int32_t second = UncheckedMultiply(-1048576, carry);
+                v22 = UncheckedNegate(UInt32ToInt32(
                     static_cast<std::uint32_t>(first) | static_cast<std::uint32_t>(second)));
             }
             else
             {
                 std::int32_t first = ShiftRightInt32(v20, 12U);
                 std::uint32_t second = static_cast<std::uint32_t>(v21) << 20U;
-                v22 = WrapInt32(static_cast<std::uint32_t>(first) | second);
+                v22 = UInt32ToInt32(static_cast<std::uint32_t>(first) | second);
             }
             return static_cast<float>(v22) / 4096.0F;
         }

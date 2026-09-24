@@ -49,6 +49,10 @@ using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UInt32ToInt32;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::MphRead::TestAny;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::Add;
@@ -168,24 +172,6 @@ namespace
         return nullptr;
     }
 
-    [[nodiscard]] std::int32_t ManagedAdd(std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            std::bit_cast<std::uint32_t>(left) + std::bit_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] std::int32_t ManagedSubtract(std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            std::bit_cast<std::uint32_t>(left) - std::bit_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] std::int32_t ManagedMultiply(std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            std::bit_cast<std::uint32_t>(left) * std::bit_cast<std::uint32_t>(right));
-    }
-
     [[nodiscard]] std::uint16_t ManagedUInt16Add(std::uint16_t left, std::uint16_t right) noexcept
     {
         return static_cast<std::uint16_t>(static_cast<std::uint32_t>(left) + right);
@@ -199,11 +185,6 @@ namespace
     [[nodiscard]] std::uint8_t ManagedByteFromInt32(std::int32_t value) noexcept
     {
         return static_cast<std::uint8_t>(static_cast<std::uint32_t>(value));
-    }
-
-    [[nodiscard]] std::int32_t ManagedInt32FromUInt32(std::uint32_t value) noexcept
-    {
-        return std::bit_cast<std::int32_t>(value);
     }
 
     [[nodiscard]] Vector3 Row0(const Matrix4& value) noexcept
@@ -278,7 +259,7 @@ namespace MphRead::Entities
         {
             if (ManagedAt(_syluxBombs, i))
             {
-                placed = ManagedAdd(placed, 1);
+                placed = UncheckedAdd(placed, 1);
             }
         }
         if (_syluxBombCount == placed || _lastBombCountReport == _syluxBombCount)
@@ -496,7 +477,7 @@ namespace MphRead::Entities
                         if (time < 150 * 2)
                         {
                             std::string message = Text::Strings::GetHudMessage(246);
-                            const std::int32_t seconds = ManagedAdd(time, 30 * 2) / (30 * 2);
+                            const std::int32_t seconds = UncheckedAdd(time, 30 * 2) / (30 * 2);
                             const std::string needle = "%d";
                             const std::string replacement = std::to_string(seconds);
                             std::size_t pos = 0;
@@ -902,13 +883,13 @@ namespace MphRead::Entities
             {
                 if (_healthRecovery <= 3)
                 {
-                    _health = ManagedAdd(_health, _healthRecovery);
+                    _health = UncheckedAdd(_health, _healthRecovery);
                     _healthRecovery = 0;
                 }
                 else
                 {
-                    _health = ManagedAdd(_health, 3);
-                    _healthRecovery = ManagedSubtract(_healthRecovery, 3);
+                    _health = UncheckedAdd(_health, 3);
+                    _healthRecovery = UncheckedSubtract(_healthRecovery, 3);
                     _scrollSfxTimer = 2.0F / 30.0F;
                 }
                 if (_health > _healthMax)
@@ -936,13 +917,13 @@ namespace MphRead::Entities
                 {
                     if (recovery <= 3)
                     {
-                        currentAmmo = ManagedAdd(currentAmmo, recovery);
+                        currentAmmo = UncheckedAdd(currentAmmo, recovery);
                         recovery = 0;
                     }
                     else
                     {
-                        currentAmmo = ManagedAdd(currentAmmo, 3);
-                        recovery = ManagedSubtract(recovery, 3);
+                        currentAmmo = UncheckedAdd(currentAmmo, 3);
+                        recovery = UncheckedSubtract(recovery, 3);
                         _scrollSfxTimer = 2.0F / 30.0F;
                     }
                     if (currentAmmo > ManagedAt(_ammoMax, i))
@@ -1139,10 +1120,10 @@ namespace MphRead::Entities
         if (_aimY < 60.0F && _aimY > -60.0F && !equipInfo.Zoomed && _health > 0
             && !Features::NoIdleSway())
         {
-            std::int32_t swayStart = ManagedMultiply(_values.SwayStartTime, 2);
+            std::int32_t swayStart = UncheckedMultiply(_values.SwayStartTime, 2);
             if (Features::DelayedIdleSway())
             {
-                swayStart = ManagedMultiply(swayStart, 4);
+                swayStart = UncheckedMultiply(swayStart, 4);
             }
             if (_timeSinceInput == swayStart)
             {
@@ -1664,7 +1645,7 @@ namespace MphRead::Entities
                     playSfx(SfxId::AMMO_POWER_UP1);
                 }
                 std::int32_t& currentAmmo = ManagedAt(_ammo, slot);
-                currentAmmo = ManagedAdd(currentAmmo, amount);
+                currentAmmo = UncheckedAdd(currentAmmo, amount);
                 if (currentAmmo > ManagedAt(_ammoMax, slot))
                 {
                     currentAmmo = ManagedAt(_ammoMax, slot);
@@ -1722,8 +1703,8 @@ namespace MphRead::Entities
                 {
                     pickedUp = true;
                     _timeSincePickup = 0;
-                    _healthMax = ManagedAdd(_healthMax, _values.EnergyTank);
-                    _healthRecovery = ManagedSubtract(_healthMax, _health);
+                    _healthMax = UncheckedAdd(_healthMax, _values.EnergyTank);
+                    _healthRecovery = UncheckedSubtract(_healthMax, _health);
                     RequireReference(GameState::StorySave).HealthMax = _healthMax;
                     if (IsMainPlayer())
                     {
@@ -1737,9 +1718,9 @@ namespace MphRead::Entities
                 {
                     pickedUp = true;
                     _timeSincePickup = 0;
-                    ManagedAt(_ammoMax, 1) = ManagedAdd(ManagedAt(_ammoMax, 1), 100);
+                    ManagedAt(_ammoMax, 1) = UncheckedAdd(ManagedAt(_ammoMax, 1), 100);
                     ManagedAt(_ammoRecovery, 1)
-                        = ManagedSubtract(ManagedAt(_ammoMax, 1), ManagedAt(_ammo, 1));
+                        = UncheckedSubtract(ManagedAt(_ammoMax, 1), ManagedAt(_ammo, 1));
                     ManagedAt(RequireReference(RequireReference(GameState::StorySave).AmmoMax), 1)
                         = ManagedAt(_ammoMax, 1);
                     if (IsMainPlayer())
@@ -1754,9 +1735,9 @@ namespace MphRead::Entities
                 {
                     pickedUp = true;
                     _timeSincePickup = 0;
-                    ManagedAt(_ammoMax, 0) = ManagedAdd(ManagedAt(_ammoMax, 0), 300);
+                    ManagedAt(_ammoMax, 0) = UncheckedAdd(ManagedAt(_ammoMax, 0), 300);
                     ManagedAt(_ammoRecovery, 0)
-                        = ManagedSubtract(ManagedAt(_ammoMax, 0), ManagedAt(_ammo, 0));
+                        = UncheckedSubtract(ManagedAt(_ammoMax, 0), ManagedAt(_ammo, 0));
                     ManagedAt(RequireReference(RequireReference(GameState::StorySave).AmmoMax), 0)
                         = ManagedAt(_ammoMax, 0);
                     if (IsMainPlayer())
@@ -1792,7 +1773,7 @@ namespace MphRead::Entities
             if (_hunter == Hunter::Samus || _hunter == Hunter::Guardian)
             {
                 ManagedAt(_ammo, 1) = std::min(
-                    ManagedAdd(ManagedAt(_ammo, 1), 50), ManagedAt(_ammoMax, 1));
+                    UncheckedAdd(ManagedAt(_ammo, 1), 50), ManagedAt(_ammoMax, 1));
                 if (IsMainPlayer() && Sound::Sfx::TimedSfxMute == 0)
                 {
                     _soundSource.PlayFreeSfx(SfxId::AMMO_POWER_UP1);
@@ -1840,7 +1821,7 @@ namespace MphRead::Entities
         std::int32_t& ammo = ManagedAt(_ammo, info.AmmoType);
         if (ammo < 60)
         {
-            ammo = std::min(ManagedAdd(ammo, 60), 60);
+            ammo = std::min(UncheckedAdd(ammo, 60), 60);
         }
         if (!_availableWeapons[weapon])
         {
@@ -1883,7 +1864,7 @@ namespace MphRead::Entities
 
     void PlayerEntity::GainHealth(std::uint32_t health)
     {
-        GainHealth(ManagedInt32FromUInt32(health));
+        GainHealth(UInt32ToInt32(health));
     }
 
     void PlayerEntity::GainHealth(std::int32_t health)
@@ -1896,13 +1877,13 @@ namespace MphRead::Entities
                 std::int32_t turretHealth = halfturret.Health();
                 if (_health <= turretHealth)
                 {
-                    _health = ManagedAdd(_health, ManagedSubtract(health, health / 2));
-                    turretHealth = ManagedAdd(turretHealth, health / 2);
+                    _health = UncheckedAdd(_health, UncheckedSubtract(health, health / 2));
+                    turretHealth = UncheckedAdd(turretHealth, health / 2);
                 }
                 else
                 {
-                    _health = ManagedAdd(_health, health / 2);
-                    turretHealth = ManagedAdd(turretHealth, ManagedSubtract(health, health / 2));
+                    _health = UncheckedAdd(_health, health / 2);
+                    turretHealth = UncheckedAdd(turretHealth, UncheckedSubtract(health, health / 2));
                 }
                 if (turretHealth > 100)
                 {
@@ -1912,7 +1893,7 @@ namespace MphRead::Entities
             }
             else
             {
-                _health = ManagedAdd(_health, health);
+                _health = UncheckedAdd(_health, health);
             }
             if (_health > _healthMax)
             {
@@ -2495,14 +2476,14 @@ namespace MphRead::Entities
             if (!candidateRef.IsActive() || candidateRef.Cooldown() != 0
                 || (scene().FrameCount() == 0 && candidateRef.Availability()))
             {
-                limit = ManagedAdd(limit, 1);
+                limit = UncheckedAdd(limit, 1);
                 continue;
             }
             const auto data = candidateRef.Data();
             if (GameState::Mode() == GameMode::Capture && data.TeamIndex != -1
                 && data.TeamIndex != _teamIndex)
             {
-                limit = ManagedAdd(limit, 1);
+                limit = UncheckedAdd(limit, 1);
                 continue;
             }
             float minDistSqr = 100.0F;
@@ -2530,7 +2511,7 @@ namespace MphRead::Entities
                 bestDistance = minDistSqr;
                 bestAvailable = candidate;
             }
-            limit = ManagedAdd(limit, 1);
+            limit = UncheckedAdd(limit, 1);
         }
         if (!valid.empty())
         {
@@ -2569,20 +2550,20 @@ namespace MphRead::Entities
         {
             if (PlayerCount() > 3)
             {
-                count = ManagedSubtract(900 * 2, static_cast<std::int32_t>(_timeSinceDead));
+                count = UncheckedSubtract(900 * 2, static_cast<std::int32_t>(_timeSinceDead));
             }
             else if (PlayerCount() > 2)
             {
-                count = ManagedSubtract(600 * 2, static_cast<std::int32_t>(_timeSinceDead));
+                count = UncheckedSubtract(600 * 2, static_cast<std::int32_t>(_timeSinceDead));
             }
             else
             {
-                count = ManagedSubtract(300 * 2, static_cast<std::int32_t>(_timeSinceDead));
+                count = UncheckedSubtract(300 * 2, static_cast<std::int32_t>(_timeSinceDead));
             }
         }
         else if (!TestFlag(_loadFlags, LoadFlags::Spawned))
         {
-            count = ManagedSubtract(210 * 2, static_cast<std::int32_t>(_timeSinceDead));
+            count = UncheckedSubtract(210 * 2, static_cast<std::int32_t>(_timeSinceDead));
         }
         return count;
     }

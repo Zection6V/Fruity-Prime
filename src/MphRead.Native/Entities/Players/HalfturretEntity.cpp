@@ -29,6 +29,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UInt64ToInt32;
 using ::OpenTK::Mathematics::CreateScale;
 using ::OpenTK::Mathematics::IsZero;
 
@@ -80,11 +81,6 @@ namespace
             Vector4(0.0F, 1.0F, 0.0F, 0.0F),
             Vector4(s, 0.0F, c, 0.0F),
             Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
-    [[nodiscard]] constexpr std::int32_t UncheckedInt32(std::uint64_t value) noexcept
-    {
-        return std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(value));
     }
 
     template <typename T>
@@ -637,12 +633,12 @@ namespace MphRead::Entities
             const std::uint64_t frame = RequireReference(_scene).LiveFrames() / 2U;
             const std::uint64_t zTerm = 781874935307ULL * (53248ULL * frame);
             const std::uint64_t zValue = 16ULL * ((zTerm >> 32) + 2048ULL);
-            const std::int32_t zInt = UncheckedInt32(zValue);
+            const std::int32_t zInt = UInt64ToInt32(zValue);
             const float rotZ = static_cast<float>(zInt >> 20) * (360.0F / 4096.0F);
             const std::uint64_t yTerm = 781874935307ULL * (26624ULL * frame)
                 + 0x80000000000ULL;
             const std::uint64_t yValue = 16ULL * (yTerm >> 32);
-            const std::int32_t yInt = UncheckedInt32(yValue);
+            const std::int32_t yInt = UInt64ToInt32(yValue);
             const float rotY = static_cast<float>(yInt >> 20) * (360.0F / 4096.0F);
             constexpr float degreesToRadians = 0.01745329251994329576923690768489F;
             Matrix4 rot = RotationZ(rotZ * degreesToRadians);

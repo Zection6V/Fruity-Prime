@@ -6,6 +6,7 @@
 #include "../Program.hpp"
 #include "../Strings.hpp"
 #include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 #include "Types.hpp"
 
 #include <algorithm>
@@ -26,6 +27,7 @@
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::Multiply;
 
@@ -76,11 +78,6 @@ namespace
             throw System::NullReferenceException();
         }
         return *value;
-    }
-
-    [[nodiscard]] constexpr std::int32_t ManagedInt32(std::uint32_t value) noexcept
-    {
-        return std::bit_cast<std::int32_t>(value);
     }
 
     template <typename TArray>
@@ -1001,7 +998,7 @@ namespace MphRead
           AnimationFlags(static_cast<MatAnimFlags>(raw.AnimationFlags)),
           TexgenMode(raw.TexcoordTransformMode),
           TexcoordAnimationId(raw.TexcoordAnimationId),
-          MatrixId(ManagedInt32(raw.MatrixId)),
+          MatrixId(UInt32ToInt32(raw.MatrixId)),
           ScaleS(raw.ScaleS.FloatValue()),
           ScaleT(raw.ScaleT.FloatValue()),
           TranslateS(raw.TranslateS.FloatValue()),
@@ -1035,7 +1032,7 @@ namespace MphRead
         std::shared_ptr<const std::vector<float>> rotations,
         std::shared_ptr<const std::vector<float>> translations,
         std::shared_ptr<const NodeAnimationDictionary> animations)
-        : FrameCount(ManagedInt32(raw.FrameCount)),
+        : FrameCount(UInt32ToInt32(raw.FrameCount)),
           Count(animations
               ? static_cast<std::int32_t>(animations->size())
               : 0),
@@ -1065,10 +1062,10 @@ namespace MphRead
         std::shared_ptr<const std::vector<float>> rotations,
         std::shared_ptr<const std::vector<float>> translations,
         std::shared_ptr<const TexcoordAnimationDictionary> animations)
-        : FrameCount(ManagedInt32(raw.FrameCount)),
+        : FrameCount(UInt32ToInt32(raw.FrameCount)),
           CurrentFrame(raw.AnimationFrame),
           UnusedFrame(raw.Unused1A),
-          Count(ManagedInt32(raw.AnimationCount)),
+          Count(UInt32ToInt32(raw.AnimationCount)),
           Scales(std::move(scales)),
           Rotations(std::move(rotations)),
           Translations(std::move(translations)),
@@ -1124,10 +1121,10 @@ namespace MphRead
         RawMaterialAnimationGroup raw,
         std::shared_ptr<const std::vector<float>> colors,
         std::shared_ptr<const MaterialAnimationDictionary> animations)
-        : FrameCount(ManagedInt32(raw.FrameCount)),
+        : FrameCount(UInt32ToInt32(raw.FrameCount)),
           CurrentFrame(raw.AnimationFrame),
           UnusedFrame(raw.Unused12),
-          Count(ManagedInt32(raw.AnimationCount)),
+          Count(UInt32ToInt32(raw.AnimationCount)),
           Colors(std::move(colors)),
           Animations(FreezeMap(animations))
     {

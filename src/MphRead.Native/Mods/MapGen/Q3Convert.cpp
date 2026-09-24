@@ -52,6 +52,7 @@ using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::RoundToEven;
+using ::MphRead::NativeRuntime::UncheckedAdd;
 
 namespace
 {
@@ -133,14 +134,6 @@ namespace
             ArrayBounds();
         }
         return (*values)[index];
-    }
-
-    [[nodiscard]] constexpr std::int32_t WrapAdd(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left)
-            + static_cast<std::uint32_t>(right));
     }
 
     [[nodiscard]] bool IsAsciiWhitespace(unsigned char value) noexcept
@@ -2114,10 +2107,10 @@ namespace MphRead::Mods::MapGen
             }
 
             for (std::int32_t i = face->Vertex();
-                i < WrapAdd(
+                i < UncheckedAdd(
                     face->Vertex(),
                     face->VertexCount());
-                i = WrapAdd(i, 1))
+                i = UncheckedAdd(i, 1))
             {
                 Q3Vertex* vertex = Require(
                     ListAt(bsp->Vertices(), i));
@@ -2160,7 +2153,7 @@ namespace MphRead::Mods::MapGen
                 < reach
             && factor < 10)
         {
-            factor = WrapAdd(factor, 1);
+            factor = UncheckedAdd(factor, 1);
         }
         return factor;
     }

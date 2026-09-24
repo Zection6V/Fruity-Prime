@@ -5,6 +5,7 @@
 
 #include "../Program.hpp"
 #include "../Read.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 #include "Types.hpp"
 
 #include <bit>
@@ -20,6 +21,11 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ShiftLeft;
+using ::MphRead::NativeRuntime::ShiftRight;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::OpenTK::Mathematics::CreateRotationX;
 using ::OpenTK::Mathematics::CreateRotationY;
 using ::OpenTK::Mathematics::CreateRotationZ;
@@ -70,55 +76,6 @@ namespace
     {
         auto& list = Require(values);
         return list.at(static_cast<std::size_t>(index));
-    }
-
-    [[nodiscard]] constexpr std::int32_t WrapAdd(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            std::bit_cast<std::uint32_t>(left)
-            + std::bit_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] constexpr std::int32_t WrapSub(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            std::bit_cast<std::uint32_t>(left)
-            - std::bit_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] constexpr std::int32_t WrapMul(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            std::bit_cast<std::uint32_t>(left)
-            * std::bit_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] constexpr std::int32_t ManagedShiftRight(
-        std::int32_t value, std::int32_t count) noexcept
-    {
-        const std::uint32_t shift = std::bit_cast<std::uint32_t>(count) & 31U;
-        if (shift == 0)
-        {
-            return value;
-        }
-        const std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
-        std::uint32_t result = bits >> shift;
-        if (value < 0)
-        {
-            result |= 0xFFFFFFFFU << (32U - shift);
-        }
-        return std::bit_cast<std::int32_t>(result);
-    }
-
-    [[nodiscard]] constexpr std::int32_t ManagedShiftLeft(
-        std::int32_t value, std::int32_t count) noexcept
-    {
-        const std::uint32_t shift = std::bit_cast<std::uint32_t>(count) & 31U;
-        return std::bit_cast<std::int32_t>(
-            std::bit_cast<std::uint32_t>(value) << shift);
     }
 
     [[nodiscard]] Matrix4 Identity() noexcept
@@ -447,7 +404,7 @@ namespace MphRead
             }
 
             (*info.Frame)[0] = TypeExtensions::TestFlag(animFlags, AnimFlags::Reverse)
-                ? WrapSub((*info.FrameCount)[0], 1)
+                ? UncheckedSubtract((*info.FrameCount)[0], 1)
                 : 0;
         }
         else
@@ -520,7 +477,7 @@ namespace MphRead
 
             (*info.Frame)[slotIndex]
                 = TypeExtensions::TestFlag(animFlags, AnimFlags::Reverse)
-                ? WrapSub((*info.FrameCount)[slotIndex], 1)
+                ? UncheckedSubtract((*info.FrameCount)[slotIndex], 1)
                 : 0;
         }
         else
@@ -569,22 +526,22 @@ namespace MphRead
                 {
                     if (frame <= step)
                     {
-                        (*info.Frame)[slotIndex] = WrapSub(step, frame);
+                        (*info.Frame)[slotIndex] = UncheckedSubtract(step, frame);
                         (*info.Flags)[slotIndex] ^= AnimFlags::Reverse;
                     }
                     else
                     {
-                        (*info.Frame)[slotIndex] = WrapSub(frame, step);
+                        (*info.Frame)[slotIndex] = UncheckedSubtract(frame, step);
                     }
                 }
                 else
                 {
-                    const std::int32_t nextFrame = WrapAdd(frame, step);
+                    const std::int32_t nextFrame = UncheckedAdd(frame, step);
                     (*info.Frame)[slotIndex] = nextFrame;
-                    if (nextFrame >= WrapSub(frameCount, 1))
+                    if (nextFrame >= UncheckedSubtract(frameCount, 1))
                     {
-                        (*info.Frame)[slotIndex] = WrapSub(
-                            WrapSub(WrapMul(2, frameCount), nextFrame),
+                        (*info.Frame)[slotIndex] = UncheckedSubtract(
+                            UncheckedSubtract(UncheckedMultiply(2, frameCount), nextFrame),
                             2);
                         (*info.Flags)[slotIndex] ^= AnimFlags::Reverse;
                     }
@@ -594,7 +551,7 @@ namespace MphRead
             {
                 if (frame > step)
                 {
-                    (*info.Frame)[slotIndex] = WrapSub(frame, step);
+                    (*info.Frame)[slotIndex] = UncheckedSubtract(frame, step);
                 }
                 else if (TypeExtensions::TestFlag(flags, AnimFlags::NoLoop))
                 {
@@ -607,24 +564,24 @@ namespace MphRead
                 }
                 else
                 {
-                    (*info.Frame)[slotIndex] = WrapSub(
-                        frameCount, WrapSub(step, frame));
+                    (*info.Frame)[slotIndex] = UncheckedSubtract(
+                        frameCount, UncheckedSubtract(step, frame));
                 }
             }
             else
             {
-                const std::int32_t nextFrame = WrapAdd(frame, step);
+                const std::int32_t nextFrame = UncheckedAdd(frame, step);
                 (*info.Frame)[slotIndex] = nextFrame;
-                if (nextFrame >= WrapSub(frameCount, 1))
+                if (nextFrame >= UncheckedSubtract(frameCount, 1))
                 {
                     if (TypeExtensions::TestFlag(flags, AnimFlags::NoLoop))
                     {
-                        (*info.Frame)[slotIndex] = WrapSub(frameCount, 1);
+                        (*info.Frame)[slotIndex] = UncheckedSubtract(frameCount, 1);
                         (*info.Flags)[slotIndex] |= AnimFlags::Ended;
                     }
                     else if (nextFrame >= frameCount)
                     {
-                        (*info.Frame)[slotIndex] = WrapSub(nextFrame, frameCount);
+                        (*info.Frame)[slotIndex] = UncheckedSubtract(nextFrame, frameCount);
                     }
                 }
             }
@@ -711,7 +668,7 @@ namespace MphRead
     std::int32_t Model::NextId() noexcept
     {
         const std::int32_t result = _nextId;
-        _nextId = WrapAdd(_nextId, 1);
+        _nextId = UncheckedAdd(_nextId, 1);
         return result;
     }
 
@@ -1226,21 +1183,21 @@ namespace MphRead
         }
         if (blend == 1)
         {
-            return At(values, WrapAdd(start, frame));
+            return At(values, UncheckedAdd(start, frame));
         }
 
-        const std::int32_t shift = ManagedShiftRight(blend, 1);
-        const std::int32_t limit = ManagedShiftLeft(
-            ManagedShiftRight(WrapSub(frameCount, 1), shift),
+        const std::int32_t shift = ShiftRight(blend, 1);
+        const std::int32_t limit = ShiftLeft(
+            ShiftRight(UncheckedSubtract(frameCount, 1), shift),
             shift);
         if (frame >= limit)
         {
-            const std::int32_t tail = WrapSub(
-                WrapSub(frameCount, limit),
-                WrapSub(frame, limit));
+            const std::int32_t tail = UncheckedSubtract(
+                UncheckedSubtract(frameCount, limit),
+                UncheckedSubtract(frame, limit));
             return At(
                 values,
-                WrapSub(WrapAdd(start, lutLength), tail));
+                UncheckedSubtract(UncheckedAdd(start, lutLength), tail));
         }
 
         if (blend == 0)
@@ -1257,11 +1214,11 @@ namespace MphRead
         const std::int32_t remainder = frame % blend;
         if (remainder == 0)
         {
-            return At(values, WrapAdd(start, index));
+            return At(values, UncheckedAdd(start, index));
         }
 
-        float first = At(values, WrapAdd(start, index));
-        float second = At(values, WrapAdd(WrapAdd(start, index), 1));
+        float first = At(values, UncheckedAdd(start, index));
+        float second = At(values, UncheckedAdd(UncheckedAdd(start, index), 1));
         if (isRotation)
         {
             if (first - second > std::numbers::pi_v<float>)
@@ -1299,23 +1256,23 @@ namespace MphRead
     void Model::SetMatrixStackValues(std::int32_t index, Matrix4 matrix)
     {
         auto& values = Require(_matrixStackValues);
-        const std::int32_t offset = WrapMul(16, index);
-        values[static_cast<std::size_t>(WrapAdd(offset, 0))] = matrix.M11;
-        values[static_cast<std::size_t>(WrapAdd(offset, 1))] = matrix.M12;
-        values[static_cast<std::size_t>(WrapAdd(offset, 2))] = matrix.M13;
-        values[static_cast<std::size_t>(WrapAdd(offset, 3))] = matrix.M14;
-        values[static_cast<std::size_t>(WrapAdd(offset, 4))] = matrix.M21;
-        values[static_cast<std::size_t>(WrapAdd(offset, 5))] = matrix.M22;
-        values[static_cast<std::size_t>(WrapAdd(offset, 6))] = matrix.M23;
-        values[static_cast<std::size_t>(WrapAdd(offset, 7))] = matrix.M24;
-        values[static_cast<std::size_t>(WrapAdd(offset, 8))] = matrix.M31;
-        values[static_cast<std::size_t>(WrapAdd(offset, 9))] = matrix.M32;
-        values[static_cast<std::size_t>(WrapAdd(offset, 10))] = matrix.M33;
-        values[static_cast<std::size_t>(WrapAdd(offset, 11))] = matrix.M34;
-        values[static_cast<std::size_t>(WrapAdd(offset, 12))] = matrix.M41;
-        values[static_cast<std::size_t>(WrapAdd(offset, 13))] = matrix.M42;
-        values[static_cast<std::size_t>(WrapAdd(offset, 14))] = matrix.M43;
-        values[static_cast<std::size_t>(WrapAdd(offset, 15))] = matrix.M44;
+        const std::int32_t offset = UncheckedMultiply(16, index);
+        values[static_cast<std::size_t>(UncheckedAdd(offset, 0))] = matrix.M11;
+        values[static_cast<std::size_t>(UncheckedAdd(offset, 1))] = matrix.M12;
+        values[static_cast<std::size_t>(UncheckedAdd(offset, 2))] = matrix.M13;
+        values[static_cast<std::size_t>(UncheckedAdd(offset, 3))] = matrix.M14;
+        values[static_cast<std::size_t>(UncheckedAdd(offset, 4))] = matrix.M21;
+        values[static_cast<std::size_t>(UncheckedAdd(offset, 5))] = matrix.M22;
+        values[static_cast<std::size_t>(UncheckedAdd(offset, 6))] = matrix.M23;
+        values[static_cast<std::size_t>(UncheckedAdd(offset, 7))] = matrix.M24;
+        values[static_cast<std::size_t>(UncheckedAdd(offset, 8))] = matrix.M31;
+        values[static_cast<std::size_t>(UncheckedAdd(offset, 9))] = matrix.M32;
+        values[static_cast<std::size_t>(UncheckedAdd(offset, 10))] = matrix.M33;
+        values[static_cast<std::size_t>(UncheckedAdd(offset, 11))] = matrix.M34;
+        values[static_cast<std::size_t>(UncheckedAdd(offset, 12))] = matrix.M41;
+        values[static_cast<std::size_t>(UncheckedAdd(offset, 13))] = matrix.M42;
+        values[static_cast<std::size_t>(UncheckedAdd(offset, 14))] = matrix.M43;
+        values[static_cast<std::size_t>(UncheckedAdd(offset, 15))] = matrix.M44;
     }
 
     bool Model::NodeParentsEnabled(const std::shared_ptr<Node>& node) const

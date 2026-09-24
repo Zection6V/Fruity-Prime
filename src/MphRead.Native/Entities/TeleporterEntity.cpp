@@ -29,6 +29,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::CreateRotationY;
@@ -89,14 +90,6 @@ namespace
             throw MphRead::Memory::Detail::IndexOutOfRangeException();
         }
         return static_cast<std::size_t>(index);
-    }
-
-    [[nodiscard]] std::int32_t ManagedSubtract(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t value = std::bit_cast<std::uint32_t>(left)
-            - std::bit_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(value);
     }
 
     template <std::size_t Size>
@@ -346,7 +339,7 @@ namespace MphRead::Entities
             if (_bool4
                 && (ManagedArrayAt(animInfo.Index, 0) != 0
                     || ManagedArrayAt(animInfo.Frame, 0)
-                        == ManagedSubtract(
+                        == UncheckedSubtract(
                             ManagedArrayAt(animInfo.FrameCount, 0), 1)))
             {
                 InitiateAnimaton();

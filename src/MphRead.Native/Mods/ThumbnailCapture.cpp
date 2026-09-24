@@ -11,6 +11,7 @@
 #include "../GameState.hpp"
 #include "../Scene.hpp"
 #include "../Utility/Rng.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <array>
 #include <bit>
@@ -34,6 +35,8 @@
 #include <cxxabi.h>
 #include <cstdlib>
 #endif
+
+using ::MphRead::NativeRuntime::UncheckedAdd;
 
 namespace OpenTK::Graphics::OpenGL::GL
 {
@@ -586,14 +589,6 @@ namespace
         }
 
 
-    [[nodiscard]] std::int32_t WrappedAdd(
-        std::int32_t left,
-        std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-    }
-
     [[nodiscard]] std::locale CurrentUserLocale()
     {
         try
@@ -916,7 +911,7 @@ namespace MphRead::Mods
         if (!_captured)
         {
             const std::int32_t previous = _settleFrames;
-            _settleFrames = WrappedAdd(_settleFrames, -1);
+            _settleFrames = UncheckedAdd(_settleFrames, -1);
             capturing = previous <= 0;
         }
 
@@ -949,7 +944,7 @@ namespace MphRead::Mods
             if (_attempts > 0)
             {
                 line += " on attempt ";
-                line += std::to_string(WrappedAdd(_attempts, 1));
+                line += std::to_string(UncheckedAdd(_attempts, 1));
                 line += ", window shown";
             }
             ThumbnailLog::Write(line);
@@ -959,7 +954,7 @@ namespace MphRead::Mods
         {
             std::string line = _roomKey;
             line += ": attempt ";
-            line += std::to_string(WrappedAdd(_attempts, 1));
+            line += std::to_string(UncheckedAdd(_attempts, 1));
             line += " produced nothing usable (target ";
             line += FramebufferStatusName(_scene->FramebufferStatus());
             line += ", first GL error this frame ";
@@ -977,7 +972,7 @@ namespace MphRead::Mods
             }
 
             _settleFrames = RetryFrames;
-            _attempts = WrappedAdd(_attempts, 1);
+            _attempts = UncheckedAdd(_attempts, 1);
             giveUp = _attempts >= MaxAttempts;
         }
 
@@ -1032,7 +1027,7 @@ namespace MphRead::Mods
             const bool ok = CaptureRoom(rooms[i], width, height);
             if (ok)
             {
-                captured = WrappedAdd(captured, 1);
+                captured = UncheckedAdd(captured, 1);
             }
 
             std::string first = "[thumbnails] ";

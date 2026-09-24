@@ -23,6 +23,10 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UInt32ToInt32;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::OpenTK::Mathematics::AddY;
 
 namespace MphRead::Entities::Enemies
@@ -64,38 +68,6 @@ namespace MphRead::Entities::Enemies
                 throw SceneDetail::IndexOutOfRangeException();
             }
             return values[static_cast<std::size_t>(index)];
-        }
-
-        [[nodiscard]] std::int32_t UInt32ToInt32(std::uint32_t value) noexcept
-        {
-            return std::bit_cast<std::int32_t>(value);
-        }
-
-        [[nodiscard]] std::int32_t AddInt32Unchecked(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t result
-                = std::bit_cast<std::uint32_t>(left)
-                + std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(result);
-        }
-
-        [[nodiscard]] std::int32_t SubInt32Unchecked(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t result
-                = std::bit_cast<std::uint32_t>(left)
-                - std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(result);
-        }
-
-        [[nodiscard]] std::int32_t MulInt32Unchecked(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t result
-                = std::bit_cast<std::uint32_t>(left)
-                * std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(result);
         }
 
         [[nodiscard]] std::int32_t UnboxInt32(const MessageObject& value)
@@ -185,7 +157,7 @@ namespace MphRead::Entities::Enemies
         ModelInstance& model = RequireReference(_model);
         AnimationInfo& animInfo = RequireReference(model.AnimInfo);
         const std::int32_t frameCount = ManagedArrayAt(animInfo.FrameCount, 0);
-        _animFrameCount = SubInt32Unchecked(frameCount, 1);
+        _animFrameCount = UncheckedSubtract(frameCount, 1);
         _animDelayTimer = _animInterval;
     }
 
@@ -194,9 +166,9 @@ namespace MphRead::Entities::Enemies
         const std::int32_t min = static_cast<std::int32_t>(_values.MinShots);
         const std::int32_t max = static_cast<std::int32_t>(_values.MaxShots);
         const std::int32_t range
-            = SubInt32Unchecked(AddInt32Unchecked(max, 1), min);
+            = UncheckedSubtract(UncheckedAdd(max, 1), min);
         const std::uint32_t random = Rng::GetRandomInt2(range);
-        _shotsRemaining = AddInt32Unchecked(
+        _shotsRemaining = UncheckedAdd(
             min, std::bit_cast<std::int32_t>(random));
     }
 
@@ -235,12 +207,12 @@ namespace MphRead::Entities::Enemies
             }
             else if (_animDelayTimer != 0)
             {
-                _animDelayTimer = SubInt32Unchecked(_animDelayTimer, 1);
+                _animDelayTimer = UncheckedSubtract(_animDelayTimer, 1);
             }
             else
             {
                 ManagedArrayAt(animInfo.Frame, 0)
-                    = AddInt32Unchecked(frame, 1);
+                    = UncheckedAdd(frame, 1);
                 _animDelayTimer = _animInterval;
             }
         }
@@ -248,12 +220,12 @@ namespace MphRead::Entities::Enemies
         {
             if (_animDelayTimer != 0)
             {
-                _animDelayTimer = SubInt32Unchecked(_animDelayTimer, 1);
+                _animDelayTimer = UncheckedSubtract(_animDelayTimer, 1);
             }
             else
             {
                 std::int32_t& frame = ManagedArrayAt(animInfo.Frame, 0);
-                frame = SubInt32Unchecked(frame, 1);
+                frame = UncheckedSubtract(frame, 1);
                 _animDelayTimer = _animInterval;
             }
         }
@@ -268,7 +240,7 @@ namespace MphRead::Entities::Enemies
         ModelInstance& model = RequireReference(_model);
         AnimationInfo& animInfo = RequireReference(model.AnimInfo);
         const std::int32_t frameCount = ManagedArrayAt(animInfo.FrameCount, 0);
-        return SubInt32Unchecked(frameCount, 1);
+        return UncheckedSubtract(frameCount, 1);
     }
 
     void Enemy45Entity::SetAnimation()
@@ -295,7 +267,7 @@ namespace MphRead::Entities::Enemies
     {
         if (_shotsRemaining != 0 && _shotCooldown != 0)
         {
-            _shotCooldown = SubInt32Unchecked(_shotCooldown, 1);
+            _shotCooldown = UncheckedSubtract(_shotCooldown, 1);
         }
         else
         {
@@ -322,8 +294,8 @@ namespace MphRead::Entities::Enemies
                 owner, equipPtr, spawnPosition, spawnDir,
                 spawnFlags, nodeRef, scene);
 
-            _shotsRemaining = SubInt32Unchecked(_shotsRemaining, 1);
-            _shotCooldown = MulInt32Unchecked(
+            _shotsRemaining = UncheckedSubtract(_shotsRemaining, 1);
+            _shotCooldown = UncheckedMultiply(
                 static_cast<std::int32_t>(_values.ShotCooldown), 2);
         }
         (void)CallSubroutine<Enemy45Entity>(
@@ -378,10 +350,10 @@ namespace MphRead::Entities::Enemies
     {
         if (_salvoCooldown != 0)
         {
-            _salvoCooldown = SubInt32Unchecked(_salvoCooldown, 1);
+            _salvoCooldown = UncheckedSubtract(_salvoCooldown, 1);
             return false;
         }
-        _salvoCooldown = MulInt32Unchecked(
+        _salvoCooldown = UncheckedMultiply(
             static_cast<std::int32_t>(_values.SalvoCooldown), 2);
         return true;
     }
@@ -405,7 +377,7 @@ namespace MphRead::Entities::Enemies
             {
                 const std::int32_t amount = UnboxInt32(info.Param1);
                 _animFrameCount
-                    = SubInt32Unchecked(_animFrameCount, amount);
+                    = UncheckedSubtract(_animFrameCount, amount);
             }
             if (!_animating)
             {
@@ -421,12 +393,12 @@ namespace MphRead::Entities::Enemies
             const std::int32_t frameCount
                 = ManagedArrayAt(animInfo.FrameCount, 0);
             const std::int32_t maxFrame
-                = SubInt32Unchecked(frameCount, 1);
+                = UncheckedSubtract(frameCount, 1);
             if (_animFrameCount < maxFrame)
             {
                 const std::int32_t amount = UnboxInt32(info.Param1);
                 _animFrameCount
-                    = AddInt32Unchecked(_animFrameCount, amount);
+                    = UncheckedAdd(_animFrameCount, amount);
             }
             if (_animFrameCount > maxFrame)
             {

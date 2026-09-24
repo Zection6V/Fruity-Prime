@@ -7,6 +7,7 @@
 #include "NetDamage.hpp"
 #include "NetHooks.hpp"
 #include "NetSession.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -31,38 +32,12 @@
 #endif
 
 using ::MphRead::HasFlag;
+using ::MphRead::NativeRuntime::IncrementInPlace;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 
 namespace
 {
-    [[nodiscard]] std::int32_t UncheckedAddInt32(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t result = static_cast<std::uint32_t>(left)
-            + static_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(result);
-    }
-
-    [[nodiscard]] std::int32_t UncheckedSubtractInt32(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t result = static_cast<std::uint32_t>(left)
-            - static_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(result);
-    }
-
-    [[nodiscard]] std::int64_t UncheckedAddInt64(
-        std::int64_t left, std::int64_t right) noexcept
-    {
-        const std::uint64_t result = static_cast<std::uint64_t>(left)
-            + static_cast<std::uint64_t>(right);
-        return std::bit_cast<std::int64_t>(result);
-    }
-
-    void UncheckedIncrement(std::int64_t& value) noexcept
-    {
-        value = UncheckedAddInt64(value, 1);
-    }
-
     [[nodiscard]] std::string CurrentCultureDecimalSeparator()
     {
 #if defined(_WIN32)
@@ -366,7 +341,7 @@ namespace MphRead::Mods::Network
             {
                 damage = static_cast<std::uint32_t>(
                     std::max<std::int32_t>(0, victim.Health() - 1));
-                UncheckedIncrement(_lethalHeld);
+                IncrementInPlace(_lethalHeld);
                 lethal = false;
             }
 
@@ -378,22 +353,22 @@ namespace MphRead::Mods::Network
 
             if (self)
             {
-                UncheckedIncrement(_selfPredicted);
+                IncrementInPlace(_selfPredicted);
             }
             else
             {
-                UncheckedIncrement(_predicted);
+                IncrementInPlace(_predicted);
             }
 
             if (lethal)
             {
                 if (self)
                 {
-                    UncheckedIncrement(_selfDeathsPredicted);
+                    IncrementInPlace(_selfDeathsPredicted);
                 }
                 else
                 {
-                    UncheckedIncrement(_deathsPredicted);
+                    IncrementInPlace(_deathsPredicted);
                 }
             }
         }
@@ -414,7 +389,7 @@ namespace MphRead::Mods::Network
         const std::size_t index = static_cast<std::size_t>(slot);
         if (_pendingCount[index] == 0)
         {
-            UncheckedIncrement(_unpredicted);
+            IncrementInPlace(_unpredicted);
             return false;
         }
 
@@ -430,11 +405,11 @@ namespace MphRead::Mods::Network
 
             if (self)
             {
-                UncheckedIncrement(_selfConfirmed);
+                IncrementInPlace(_selfConfirmed);
             }
             else
             {
-                UncheckedIncrement(_confirmed);
+                IncrementInPlace(_confirmed);
             }
         }
 
@@ -472,7 +447,7 @@ namespace MphRead::Mods::Network
                 = (_pendingHead[index] + i) % PendingCapacity;
             if (_pendingLethal[index][static_cast<std::size_t>(at)])
             {
-                UncheckedIncrement(_deathsUndone);
+                IncrementInPlace(_deathsUndone);
                 break;
             }
         }
@@ -525,7 +500,7 @@ namespace MphRead::Mods::Network
         _healFrame[static_cast<std::size_t>(tail)] = NetSession::NetFrame();
         _healAmount[static_cast<std::size_t>(tail)] = amount;
         _healCount++;
-        _drainPredicted = UncheckedAddInt64(
+        _drainPredicted = UncheckedAdd(
             _drainPredicted, static_cast<std::int64_t>(amount));
     }
 
@@ -550,7 +525,7 @@ namespace MphRead::Mods::Network
             if (now - _pendingFrame[index][atIndex]
                 < static_cast<std::uint32_t>(hold))
             {
-                debit = UncheckedAddInt32(
+                debit = UncheckedAdd(
                     debit, _pendingDamage[index][atIndex]);
             }
         }
@@ -570,7 +545,7 @@ namespace MphRead::Mods::Network
         const std::int32_t debit = Debit(slot);
         std::int32_t health = debit > 0 && authorityHealth > 1
             ? std::max<std::int32_t>(
-                1, UncheckedSubtractInt32(authorityHealth, debit))
+                1, UncheckedSubtract(authorityHealth, debit))
             : authorityHealth;
 
         if (authorityHealth > 0 && _shownHealth[index] > 0)
@@ -607,11 +582,11 @@ namespace MphRead::Mods::Network
             const std::size_t index = static_cast<std::size_t>(at);
             if (now - _healFrame[index] < static_cast<std::uint32_t>(hold))
             {
-                credit = UncheckedAddInt32(credit, _healAmount[index]);
+                credit = UncheckedAdd(credit, _healAmount[index]);
             }
         }
 
-        credit = UncheckedSubtractInt32(
+        credit = UncheckedSubtract(
             credit, Debit(NetHooks::LocalSlot()));
 
         if (player.Health() <= 0 && HeldDead(NetHooks::LocalSlot()))
@@ -628,7 +603,7 @@ namespace MphRead::Mods::Network
             ? player.HealthMax()
             : authorityHealth;
         return std::clamp(
-            UncheckedAddInt32(authorityHealth, credit), 1, max);
+            UncheckedAdd(authorityHealth, credit), 1, max);
     }
 
     bool NetHitPrediction::HeldDead(std::int32_t slot)
@@ -694,7 +669,7 @@ namespace MphRead::Mods::Network
                 _pendingHead[index]
                     = (_pendingHead[index] + 1) % PendingCapacity;
                 _pendingCount[index]--;
-                UncheckedIncrement(_denied);
+                IncrementInPlace(_denied);
             }
         }
 
@@ -722,7 +697,7 @@ namespace MphRead::Mods::Network
             _pendingHead[index]
                 = (_pendingHead[index] + 1) % PendingCapacity;
             _pendingCount[index]--;
-            UncheckedIncrement(_denied);
+            IncrementInPlace(_denied);
         }
 
         _predictedFrame[index] = frame;

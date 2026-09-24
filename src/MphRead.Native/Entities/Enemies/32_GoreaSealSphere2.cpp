@@ -16,6 +16,8 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::MphRead::TestFlag;
 
 namespace MphRead::Entities::Enemies
@@ -45,22 +47,6 @@ namespace MphRead::Entities::Enemies
                 throw Memory::Detail::ArgumentOutOfRangeException();
             }
             return values[static_cast<std::size_t>(index)];
-        }
-
-        [[nodiscard]] std::int32_t ManagedAdd(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t value = std::bit_cast<std::uint32_t>(left)
-                + std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(value);
-        }
-
-        [[nodiscard]] std::int32_t ManagedSubtract(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t value = std::bit_cast<std::uint32_t>(left)
-                - std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(value);
         }
 
         [[nodiscard]] PlayerEntity& MainPlayer()
@@ -203,7 +189,7 @@ namespace MphRead::Entities::Enemies
         }
         else
         {
-            _damage = ManagedAdd(_damage, damage);
+            _damage = UncheckedAdd(_damage, damage);
             RequireReference(_gorea2).UpdatePhase();
         }
 
@@ -235,11 +221,11 @@ namespace MphRead::Entities::Enemies
                 {
                     index = 6;
                 }
-                const std::int32_t diff = ManagedSubtract(
+                const std::int32_t diff = UncheckedSubtract(
                     _damage, 120 * index);
                 for (std::int32_t i = 1; i < 3; ++i)
                 {
-                    if (ManagedSubtract(diff, damage) < i * 40
+                    if (UncheckedSubtract(diff, damage) < i * 40
                         && i * 40 <= diff)
                     {
                         spawnEffect = true;

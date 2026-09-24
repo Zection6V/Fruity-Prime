@@ -8,6 +8,7 @@
 #include "../HUD/HudInfo.hpp"
 #include "../Read.hpp"
 #include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -32,6 +33,8 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
 
 namespace MphRead::Export::ImagesInterop
 {
@@ -91,22 +94,6 @@ namespace
 {
     using MphRead::ColorRgba;
 
-    [[nodiscard]] std::int32_t WrappedMultiply(
-        std::int32_t left,
-        std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] std::int32_t WrappedAdd(
-        std::int32_t left,
-        std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-    }
-
     [[nodiscard]] std::size_t ArrayLength(std::int32_t length)
     {
         if (length < 0)
@@ -120,7 +107,7 @@ namespace
         std::int32_t width,
         std::int32_t height) noexcept
     {
-        return WrappedMultiply(WrappedMultiply(width, height), 3);
+        return UncheckedMultiply(UncheckedMultiply(width, height), 3);
     }
 
     [[nodiscard]] std::size_t NewArrayLength(
@@ -400,7 +387,7 @@ namespace MphRead::Export
                 {
                     return;
                 }
-                assert(WrappedMultiply(
+                assert(UncheckedMultiply(
                     static_cast<std::int32_t>(texture.Width),
                     static_cast<std::int32_t>(texture.Height))
                     == static_cast<std::int32_t>(pixels.size()));
@@ -467,7 +454,7 @@ namespace MphRead::Export
                         const std::uint16_t paletteId
                             = Require(group.PaletteIds).at(static_cast<std::size_t>(i));
                         doTexture(textureId, paletteId);
-                        id = WrappedAdd(id, 1);
+                        id = UncheckedAdd(id, 1);
                     }
                 }
             }

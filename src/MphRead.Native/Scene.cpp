@@ -7,6 +7,7 @@
 #include "Metadata/Metadata.hpp"
 #include "Read.hpp"
 #include "Strings.hpp"
+#include "NativeRuntime/System/Managed.hpp"
 #include "Formats/Types.hpp"
 
 #include <bit>
@@ -19,43 +20,15 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ShiftRight;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
 using ::OpenTK::Mathematics::Multiply;
 using ::OpenTK::Mathematics::WithY;
 
 namespace
 {
     using OpenTK::Mathematics::Vector3;
-
-    [[nodiscard]] std::int32_t WrapAdd(std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t value = static_cast<std::uint32_t>(left)
-            + static_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(value);
-    }
-
-    [[nodiscard]] std::int32_t WrapMultiply(std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t value = static_cast<std::uint32_t>(left)
-            * static_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(value);
-    }
-
-    [[nodiscard]] std::int32_t ArithmeticShiftRight(
-        std::int32_t value, std::int32_t count) noexcept
-    {
-        const std::uint32_t shift = static_cast<std::uint32_t>(count) & 31U;
-        if (shift == 0)
-        {
-            return value;
-        }
-        std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
-        bits >>= shift;
-        if (value < 0)
-        {
-            bits |= ~std::uint32_t{0} << (32U - shift);
-        }
-        return std::bit_cast<std::int32_t>(bits);
-    }
 
     [[nodiscard]] std::string ToUpperInvariant(std::string value)
     {
@@ -321,14 +294,14 @@ namespace MphRead
             throw System::NullReferenceException();
         }
         const BossFlags bossFlags = GameState::StorySave->BossFlags;
-        const std::int32_t shiftCount = WrapMultiply(2, areaId);
+        const std::int32_t shiftCount = UncheckedMultiply(2, areaId);
         const std::int32_t layerId
-            = ArithmeticShiftRight(static_cast<std::int32_t>(bossFlags), shiftCount) & 3;
+            = ShiftRight(static_cast<std::int32_t>(bossFlags), shiftCount) & 3;
 
         std::vector<std::shared_ptr<::MphRead::NavMapRoomSymbols>> rooms;
         for (std::int32_t i = 1; i <= 35; ++i)
         {
-            const std::int32_t id = WrapAdd(WrapMultiply(areaId / 2, 100), i);
+            const std::int32_t id = UncheckedAdd(UncheckedMultiply(areaId / 2, 100), i);
             std::shared_ptr<StringTableEntry> roomEntry
                 = Text::Strings::GetEntry('R', id, Text::StringTables::LocationNames);
             if (!roomEntry)

@@ -8,6 +8,7 @@
 #include "../Metadata/Metadata.hpp"
 #include "../Read.hpp"
 #include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -26,6 +27,9 @@
 #include <string_view>
 
 using ::MphRead::NativeRuntime::FileReadAllBytes;
+using ::MphRead::NativeRuntime::UInt32ToInt32;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
 
 namespace MphRead::Formats::Sound
 {
@@ -167,8 +171,6 @@ namespace MphRead::Formats::Sound
             }
             return loopStart + loopLength;
         }
-        [[nodiscard]] std::int32_t ManagedAdd(std::int32_t left, std::int32_t right) noexcept;
-        [[nodiscard]] std::int32_t ManagedMultiply(std::int32_t left, std::int32_t right) noexcept;
         [[nodiscard]] bool ManagedIntLessThanUInt(std::int32_t left, std::uint32_t right) noexcept;
         void DecodeWaveData(std::span<const std::uint8_t> data,
             WaveFormat format,
@@ -184,13 +186,13 @@ namespace MphRead::Formats::Sound
                 std::int32_t stepIndex = ReadLittle<std::int16_t>(data, 2);
                 transferred += 4;
                 for (std::int32_t i = 0; ManagedIntLessThanUInt(i, sampleCount);
-                    i = ManagedAdd(i, 1))
+                    i = UncheckedAdd(i, 1))
                 {
                     std::uint8_t value = CheckedByte(data, static_cast<std::size_t>(transferred));
                     if (!low)
                     {
                         value >>= 4;
-                        transferred = ManagedAdd(transferred, 1);
+                        transferred = UncheckedAdd(transferred, 1);
                     }
                     value &= 0x0F;
                     if (stepIndex < 0 || stepIndex >= static_cast<std::int32_t>(
@@ -273,7 +275,7 @@ namespace MphRead::Formats::Sound
                        (format == WaveFormat::None && sampleCount == 0 && data.empty()));
 #endif
                 for (std::int32_t i = 0; ManagedIntLessThanUInt(i, sampleCount);
-                    i = ManagedAdd(i, 1))
+                    i = UncheckedAdd(i, 1))
                 {
                     writer.Write(static_cast<std::uint8_t>(
                         CheckedByte(data, static_cast<std::size_t>(i)) ^ 0x80U));
@@ -316,7 +318,7 @@ namespace MphRead::Formats::Sound
             }
             const std::int32_t firstLength = static_cast<std::int32_t>(first->size());
             const std::int32_t channelCount = static_cast<std::int32_t>(channels->size());
-            const std::int32_t length = ManagedMultiply(firstLength, channelCount);
+            const std::int32_t length = UncheckedMultiply(firstLength, channelCount);
             if (length < 0)
             {
                 throw std::overflow_error("Arithmetic operation resulted in an overflow.");
@@ -336,9 +338,9 @@ namespace MphRead::Formats::Sound
                     throw std::overflow_error("Arithmetic operation resulted in an overflow.");
                 }
                 const std::int32_t channelLength = static_cast<std::int32_t>(channel->size());
-                std::int32_t destIndex = ManagedMultiply(i, bytesPerSample);
+                std::int32_t destIndex = UncheckedMultiply(i, bytesPerSample);
                 std::int32_t srcIndex = 0;
-                for (std::int32_t j = 0; j < channelLength; j = ManagedAdd(j, bytesPerSample))
+                for (std::int32_t j = 0; j < channelLength; j = UncheckedAdd(j, bytesPerSample))
                 {
                     for (std::int32_t k = 0; k < bytesPerSample; ++k)
                     {
@@ -349,11 +351,11 @@ namespace MphRead::Formats::Sound
                         }
                         (*data)[static_cast<std::size_t>(destIndex)] =
                             (*channel)[static_cast<std::size_t>(srcIndex)];
-                        destIndex = ManagedAdd(destIndex, 1);
-                        srcIndex = ManagedAdd(srcIndex, 1);
+                        destIndex = UncheckedAdd(destIndex, 1);
+                        srcIndex = UncheckedAdd(srcIndex, 1);
                     }
-                    destIndex = ManagedAdd(
-                        destIndex, ManagedMultiply(bytesPerSample, ManagedAdd(channelCount, -1)));
+                    destIndex = UncheckedAdd(
+                        destIndex, UncheckedMultiply(bytesPerSample, UncheckedAdd(channelCount, -1)));
                 }
             }
             return data;
@@ -424,20 +426,6 @@ namespace MphRead::Formats::Sound
             }
             return 0;
         }
-        [[nodiscard]] std::int32_t ManagedInt32(std::uint32_t value) noexcept
-        {
-            return std::bit_cast<std::int32_t>(value);
-        }
-        [[nodiscard]] std::int32_t ManagedAdd(std::int32_t left, std::int32_t right) noexcept
-        {
-            return std::bit_cast<std::int32_t>(
-                static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-        }
-        [[nodiscard]] std::int32_t ManagedMultiply(std::int32_t left, std::int32_t right) noexcept
-        {
-            return std::bit_cast<std::int32_t>(
-                static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
-        }
         [[nodiscard]] bool ManagedIntLessThanUInt(std::int32_t left, std::uint32_t right) noexcept
         {
             return static_cast<std::int64_t>(left) < static_cast<std::int64_t>(right);
@@ -445,13 +433,13 @@ namespace MphRead::Formats::Sound
         [[nodiscard]] std::span<const std::uint8_t> ManagedSliceFromUint(
             std::span<const std::uint8_t> bytes, std::uint32_t start)
         {
-            return MphRead::ReadDetail::Slice(bytes, ManagedInt32(start));
+            return MphRead::ReadDetail::Slice(bytes, UInt32ToInt32(start));
         }
         [[nodiscard]] std::span<const std::uint8_t> ManagedRangeSlice(
             std::span<const std::uint8_t> bytes, std::uint32_t start, std::uint32_t end)
         {
-            const std::int32_t managedStart = ManagedInt32(start);
-            const std::int32_t managedEnd = ManagedInt32(end);
+            const std::int32_t managedStart = UInt32ToInt32(start);
+            const std::int32_t managedEnd = UInt32ToInt32(end);
             if (managedStart < 0 || managedEnd < 0 || managedEnd < managedStart)
             {
                 MphRead::ReadDetail::ThrowRange();
@@ -883,8 +871,8 @@ namespace MphRead::Formats::Sound
         : Id(id), Offset(offset), Format(ValidateMphFormat(header.Format)),
           Loop(header.LoopFlag != 0), SampleRate(header.SampleRate), SampleStart(header.LoopStart),
           SampleLength(header.LoopLength),
-          LoopStart(Format == WaveFormat::ADPCM ? ManagedInt32((SampleStart * 4U - 4U) * 2U) : 0),
-          LoopLength(Format == WaveFormat::ADPCM ? ManagedInt32(SampleLength * 8U) : 0),
+          LoopStart(Format == WaveFormat::ADPCM ? UInt32ToInt32((SampleStart * 4U - 4U) * 2U) : 0),
+          LoopLength(Format == WaveFormat::ADPCM ? UInt32ToInt32(SampleLength * 8U) : 0),
           _data(std::make_shared<std::vector<std::uint8_t>>(data.begin(), data.end())), Data(_data),
           WaveData(std::make_shared<SoundNativeRuntime::LazyByteArray>(
               [dataRef = _data,
@@ -907,10 +895,10 @@ namespace MphRead::Formats::Sound
           Loop(header.Format == 4 ? header.LoopStart > 1U : header.LoopStart > 0U),
           SampleRate(static_cast<std::uint16_t>(header.SampleRate)), SampleStart(header.LoopStart),
           SampleLength(FhSampleLength(header, data.size())),
-          LoopStart(Format == WaveFormat::ADPCM ? ManagedInt32((SampleStart * 4U - 4U) * 2U)
-                                                : ManagedInt32(SampleStart)),
-          LoopLength(Format == WaveFormat::ADPCM ? ManagedInt32(SampleLength * 8U)
-                                                 : ManagedInt32(SampleLength)),
+          LoopStart(Format == WaveFormat::ADPCM ? UInt32ToInt32((SampleStart * 4U - 4U) * 2U)
+                                                : UInt32ToInt32(SampleStart)),
+          LoopLength(Format == WaveFormat::ADPCM ? UInt32ToInt32(SampleLength * 8U)
+                                                 : UInt32ToInt32(SampleLength)),
           _data(std::make_shared<std::vector<std::uint8_t>>(data.begin(), data.end())), Data(_data),
           WaveData(std::make_shared<SoundNativeRuntime::LazyByteArray>(
               [dataRef = _data,
@@ -955,7 +943,7 @@ namespace MphRead::Formats::Sound
         }
         const auto data = WaveData->Value();
         const std::int32_t factor = Format == WaveFormat::ADPCM ? 2 : 1;
-        const std::int32_t length = ManagedMultiply(LoopStart, factor);
+        const std::int32_t length = UncheckedMultiply(LoopStart, factor);
         if (length < 0)
         {
             MphRead::ReadDetail::ThrowRange();
@@ -966,8 +954,8 @@ namespace MphRead::Formats::Sound
     {
         const auto data = WaveData->Value();
         const std::int32_t factor = Format == WaveFormat::ADPCM ? 2 : 1;
-        const std::int32_t start = ManagedMultiply(LoopStart, factor);
-        const std::int32_t length = ManagedMultiply(LoopLength, factor);
+        const std::int32_t start = UncheckedMultiply(LoopStart, factor);
+        const std::int32_t length = UncheckedMultiply(LoopLength, factor);
         if (start < 0 || length < 0)
         {
             MphRead::ReadDetail::ThrowRange();
@@ -979,7 +967,7 @@ namespace MphRead::Formats::Sound
     {
         const auto data = WaveData->Value();
         const std::int32_t factor = Format == WaveFormat::ADPCM ? 2 : 1;
-        const std::int32_t start = ManagedMultiply(ManagedAdd(LoopStart, LoopLength), factor);
+        const std::int32_t start = UncheckedMultiply(UncheckedAdd(LoopStart, LoopLength), factor);
         if (static_cast<std::int64_t>(start) >= static_cast<std::int64_t>(data->size()))
         {
             return {};
@@ -1320,7 +1308,7 @@ namespace MphRead::Formats::Sound
         const auto names = MphRead::Read::ReadStrings(bytes, offset, count);
         const std::int32_t nameLength = CheckedStringLengthSum(*names);
         const std::int32_t namesCount = static_cast<std::int32_t>(names->size());
-        offset += static_cast<std::int64_t>(ManagedAdd(nameLength, namesCount));
+        offset += static_cast<std::int64_t>(UncheckedAdd(nameLength, namesCount));
         if (rawEntries->empty())
         {
             throw std::runtime_error("Sequence contains no elements");
@@ -1591,7 +1579,7 @@ namespace MphRead::Formats::Sound
         const std::uint32_t groupCount = MphRead::Read::SpanReadUint(infoBytes, groupOffset);
         groupOffset += 4U;
         groupInfo.reserve(groupCount);
-        for (std::int32_t i = 0; ManagedIntLessThanUInt(i, groupCount); i = ManagedAdd(i, 1))
+        for (std::int32_t i = 0; ManagedIntLessThanUInt(i, groupCount); i = UncheckedAdd(i, 1))
         {
             const std::uint32_t itemCount = MphRead::Read::SpanReadUint(infoBytes, groupOffset);
             groupOffset += 4U;
@@ -1637,7 +1625,7 @@ namespace MphRead::Formats::Sound
         {
             const StrmInfo info = strmInfo->at(i);
             const std::string& name = strmNames->at(i);
-            const std::int32_t fileIndex = ManagedInt32(info.FileId);
+            const std::int32_t fileIndex = UInt32ToInt32(info.FileId);
             if (fileIndex < 0)
             {
                 throw std::out_of_range("Index was out of range. Must be non-negative and less "
@@ -1674,7 +1662,7 @@ namespace MphRead::Formats::Sound
                 BinaryWriter writer(stream);
                 std::uint32_t start = entry.Offset + header.DataOffset + header.BlockSize * j;
                 for (std::int32_t k = 0; ManagedIntLessThanUInt(k, header.BlockCount);
-                    k = ManagedAdd(k, 1))
+                    k = UncheckedAdd(k, 1))
                 {
                     std::uint32_t size;
                     std::uint32_t samples;

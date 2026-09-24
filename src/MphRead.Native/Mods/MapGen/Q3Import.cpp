@@ -40,6 +40,8 @@ using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
 using ::OpenTK::Mathematics::Add;
 using ::OpenTK::Mathematics::ComponentMax;
 using ::OpenTK::Mathematics::ComponentMin;
@@ -175,20 +177,6 @@ namespace
             NullReference();
         }
         return texcoords;
-    }
-
-    [[nodiscard]] constexpr std::int32_t WrapAdd(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] constexpr std::int32_t WrapMul(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
     }
 
     [[nodiscard]] bool IsAsciiWhitespace(unsigned char value) noexcept
@@ -863,10 +851,10 @@ namespace MphRead::Mods::MapGen
             brushCount = levelModel->BrushCount();
         }
 
-        const std::int32_t brushEnd = WrapAdd(firstBrush, brushCount);
+        const std::int32_t brushEnd = UncheckedAdd(firstBrush, brushCount);
         for (std::int32_t brushIndex = firstBrush;
             brushIndex < brushEnd;
-            brushIndex = WrapAdd(brushIndex, 1))
+            brushIndex = UncheckedAdd(brushIndex, 1))
         {
             Q3Brush* brush = Require(ListAt(bsp->Brushes(), brushIndex));
             Q3Texture* texture = Require(ListAt(bsp->Textures(), brush->Texture()));
@@ -925,7 +913,7 @@ namespace MphRead::Mods::MapGen
                 static_cast<std::size_t>(brush->SideCount()));
             for (std::int32_t i = 0; i < brush->SideCount(); ++i)
             {
-                const std::int32_t sideIndex = WrapAdd(brush->FirstSide(), i);
+                const std::int32_t sideIndex = UncheckedAdd(brush->FirstSide(), i);
                 Q3BrushSide* side = Require(ListAt(bsp->BrushSides(), sideIndex));
                 Q3Plane* plane = Require(ListAt(bsp->Planes(), side->Plane()));
                 planes[static_cast<std::size_t>(i)] = Vector4(
@@ -1095,8 +1083,8 @@ namespace MphRead::Mods::MapGen
                 }
 
                 for (std::int32_t i = 0;
-                    WrapAdd(i, 2) < face->MeshVertCount();
-                    i = WrapAdd(i, 3))
+                    UncheckedAdd(i, 2) < face->MeshVertCount();
+                    i = UncheckedAdd(i, 3))
                 {
                     std::vector<Vector3> points(3);
                     std::vector<Vector2> uvs(3);
@@ -1105,12 +1093,12 @@ namespace MphRead::Mods::MapGen
 
                     for (std::int32_t j = 0; j < 3; ++j)
                     {
-                        const std::int32_t meshIndex = WrapAdd(
-                            WrapAdd(face->MeshVert(), i), j);
+                        const std::int32_t meshIndex = UncheckedAdd(
+                            UncheckedAdd(face->MeshVert(), i), j);
                         const std::int32_t vertexOffset
                             = ListAt(bsp->MeshVerts(), meshIndex);
                         const std::int32_t vertexIndex
-                            = WrapAdd(face->Vertex(), vertexOffset);
+                            = UncheckedAdd(face->Vertex(), vertexOffset);
                         Q3Vertex* vertex
                             = Require(ListAt(bsp->Vertices(), vertexIndex));
 
@@ -1184,9 +1172,9 @@ namespace MphRead::Mods::MapGen
                     = static_cast<std::size_t>(dimension)
                     * static_cast<std::size_t>(dimension);
 
-                for (std::int32_t py = 0; WrapAdd(py, 2) < h; py = WrapAdd(py, 2))
+                for (std::int32_t py = 0; UncheckedAdd(py, 2) < h; py = UncheckedAdd(py, 2))
                 {
-                    for (std::int32_t px = 0; WrapAdd(px, 2) < w; px = WrapAdd(px, 2))
+                    for (std::int32_t px = 0; UncheckedAdd(px, 2) < w; px = UncheckedAdd(px, 2))
                     {
                         std::vector<Vector3> points(valueCount);
                         std::vector<Vector2> uvs(valueCount);
@@ -1223,14 +1211,14 @@ namespace MphRead::Mods::MapGen
                                         const float weight = rw * cw;
 
                                         const std::int32_t row
-                                            = WrapAdd(py, r);
+                                            = UncheckedAdd(py, r);
                                         const std::int32_t rowOffset
-                                            = WrapMul(row, w);
+                                            = UncheckedMultiply(row, w);
                                         const std::int32_t controlOffset
-                                            = WrapAdd(
-                                                WrapAdd(rowOffset, px), c);
+                                            = UncheckedAdd(
+                                                UncheckedAdd(rowOffset, px), c);
                                         const std::int32_t vertexIndex
-                                            = WrapAdd(
+                                            = UncheckedAdd(
                                                 face->Vertex(),
                                                 controlOffset);
                                         Q3Vertex* vertex = Require(
@@ -1519,7 +1507,7 @@ namespace MphRead::Mods::MapGen
         for (std::int32_t i = 0; i < brush->SideCount(); ++i)
         {
             const std::int32_t sideIndex
-                = WrapAdd(brush->FirstSide(), i);
+                = UncheckedAdd(brush->FirstSide(), i);
             Q3BrushSide* side
                 = Require(ListAt(bsp->BrushSides(), sideIndex));
             Q3Texture* texture
@@ -1706,7 +1694,7 @@ namespace MphRead::Mods::MapGen
         for (std::int32_t i = 0; i < brush->SideCount(); ++i)
         {
             const std::int32_t firstIndex
-                = WrapAdd(brush->FirstSide(), i);
+                = UncheckedAdd(brush->FirstSide(), i);
             Q3BrushSide* firstSide
                 = Require(ListAt(bsp->BrushSides(), firstIndex));
             Q3Plane* plane
@@ -1726,7 +1714,7 @@ namespace MphRead::Mods::MapGen
                 }
 
                 const std::int32_t otherIndex
-                    = WrapAdd(brush->FirstSide(), j);
+                    = UncheckedAdd(brush->FirstSide(), j);
                 Q3BrushSide* otherSide
                     = Require(ListAt(bsp->BrushSides(), otherIndex));
                 Q3Plane* other
@@ -1761,15 +1749,15 @@ namespace MphRead::Mods::MapGen
             const BrushBounds& bound = bounds[i];
             const std::int32_t startX = Cell(bound.Min.X);
             const std::int32_t endX = Cell(bound.Max.X);
-            for (std::int32_t x = startX; x <= endX; x = WrapAdd(x, 1))
+            for (std::int32_t x = startX; x <= endX; x = UncheckedAdd(x, 1))
             {
                 const std::int32_t startY = Cell(bound.Min.Y);
                 const std::int32_t endY = Cell(bound.Max.Y);
-                for (std::int32_t y = startY; y <= endY; y = WrapAdd(y, 1))
+                for (std::int32_t y = startY; y <= endY; y = UncheckedAdd(y, 1))
                 {
                     const std::int32_t startZ = Cell(bound.Min.Z);
                     const std::int32_t endZ = Cell(bound.Max.Z);
-                    for (std::int32_t z = startZ; z <= endZ; z = WrapAdd(z, 1))
+                    for (std::int32_t z = startZ; z <= endZ; z = UncheckedAdd(z, 1))
                     {
                         lookup[CellKey{x, y, z}].push_back(
                             static_cast<std::int32_t>(i));

@@ -20,6 +20,9 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::UInt32ToInt32;
+using ::MphRead::NativeRuntime::UncheckedDecrement;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
 using ::OpenTK::Mathematics::Equal;
 using ::OpenTK::Mathematics::LengthSquared;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
@@ -57,22 +60,6 @@ namespace MphRead::Entities::Enemies
                 throw System::NullReferenceException();
             }
             return *player;
-        }
-
-        [[nodiscard]] std::int32_t WrapInt32(std::uint32_t value) noexcept
-        {
-            return std::bit_cast<std::int32_t>(value);
-        }
-
-        [[nodiscard]] std::int32_t MultiplyInt32(std::int32_t left, std::int32_t right) noexcept
-        {
-            return WrapInt32(
-                static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
-        }
-
-        [[nodiscard]] std::int32_t DecrementInt32(std::int32_t value) noexcept
-        {
-            return WrapInt32(static_cast<std::uint32_t>(value) - 1U);
         }
 
     }
@@ -159,7 +146,7 @@ namespace MphRead::Entities::Enemies
                 0, 0, SetFlags::Texture | SetFlags::Material | SetFlags::Node);
             Flags &= ~EnemyFlags::NoHomingNc;
             Flags &= ~EnemyFlags::Invincible;
-            _field18C = MultiplyInt32(ConvertToInt32Net9(_idleRangeZ / 0.7F), 2);
+            _field18C = UncheckedMultiply(ConvertToInt32Net9(_idleRangeZ / 0.7F), 2);
             _speed = WithY(ScaleVector(_field194, 0.7F), 0.0F);
             _speed.X /= 2.0F;
             _speed.Y /= 2.0F;
@@ -301,7 +288,7 @@ namespace MphRead::Entities::Enemies
         {
             return true;
         }
-        _field18C = DecrementInt32(_field18C);
+        _field18C = UncheckedDecrement(_field18C);
         return false;
     }
 

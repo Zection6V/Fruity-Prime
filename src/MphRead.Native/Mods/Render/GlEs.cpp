@@ -1,4 +1,5 @@
 #include "GlEs.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #if defined(__ANDROID__)
 #include "../../Program.hpp"
@@ -17,6 +18,7 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+
 
 namespace
 {
@@ -59,21 +61,6 @@ namespace
     std::int32_t UInt32Bits(std::uint32_t value)
     {
         return std::bit_cast<std::int32_t>(value);
-    }
-
-    std::int32_t WrapAdd(std::int32_t left, std::int32_t right)
-    {
-        return UInt32Bits(Int32Bits(left) + Int32Bits(right));
-    }
-
-    std::int32_t WrapSubtract(std::int32_t left, std::int32_t right)
-    {
-        return UInt32Bits(Int32Bits(left) - Int32Bits(right));
-    }
-
-    std::int32_t WrapMultiply(std::int32_t left, std::int32_t right)
-    {
-        return UInt32Bits(Int32Bits(left) * Int32Bits(right));
     }
 
     GLuint GlName(std::int32_t value)
@@ -280,7 +267,7 @@ namespace MphRead::Mods::Render
 
     void GlEs::End()
     {
-        const std::int32_t count = WrapSubtract(_batch.VertexCount, _primStart);
+        const std::int32_t count = UncheckedSubtract(_batch.VertexCount, _primStart);
         EmitIndices(_primMode, _primStart, count);
         if (!_recording)
         {
@@ -305,7 +292,7 @@ namespace MphRead::Mods::Render
         v.push_back(_curTexCoord[1]);
         v.push_back(_curTexCoord[2]);
         v.push_back(_colorSet ? 1.0F : 0.0F);
-        _batch.VertexCount = WrapAdd(_batch.VertexCount, 1);
+        _batch.VertexCount = UncheckedAdd(_batch.VertexCount, 1);
     }
 
     void GlEs::Vertex3(const std::array<float, 3>& vector)
@@ -353,20 +340,20 @@ namespace MphRead::Mods::Render
         case GlTriangles:
             for (std::int32_t i = 0; i + 2 < count; i += 3)
             {
-                tris.push_back(WrapAdd(base, i));
-                tris.push_back(WrapAdd(base, i + 1));
-                tris.push_back(WrapAdd(base, i + 2));
+                tris.push_back(UncheckedAdd(base, i));
+                tris.push_back(UncheckedAdd(base, i + 1));
+                tris.push_back(UncheckedAdd(base, i + 2));
             }
             break;
         case GlQuads:
             for (std::int32_t i = 0; i + 3 < count; i += 4)
             {
-                tris.push_back(WrapAdd(base, i));
-                tris.push_back(WrapAdd(base, i + 1));
-                tris.push_back(WrapAdd(base, i + 2));
-                tris.push_back(WrapAdd(base, i));
-                tris.push_back(WrapAdd(base, i + 2));
-                tris.push_back(WrapAdd(base, i + 3));
+                tris.push_back(UncheckedAdd(base, i));
+                tris.push_back(UncheckedAdd(base, i + 1));
+                tris.push_back(UncheckedAdd(base, i + 2));
+                tris.push_back(UncheckedAdd(base, i));
+                tris.push_back(UncheckedAdd(base, i + 2));
+                tris.push_back(UncheckedAdd(base, i + 3));
             }
             break;
         case GlTriangleStrip:
@@ -374,35 +361,35 @@ namespace MphRead::Mods::Render
             {
                 if ((i & 1) == 0)
                 {
-                    tris.push_back(WrapAdd(base, i));
-                    tris.push_back(WrapAdd(base, i + 1));
-                    tris.push_back(WrapAdd(base, i + 2));
+                    tris.push_back(UncheckedAdd(base, i));
+                    tris.push_back(UncheckedAdd(base, i + 1));
+                    tris.push_back(UncheckedAdd(base, i + 2));
                 }
                 else
                 {
-                    tris.push_back(WrapAdd(base, i + 1));
-                    tris.push_back(WrapAdd(base, i));
-                    tris.push_back(WrapAdd(base, i + 2));
+                    tris.push_back(UncheckedAdd(base, i + 1));
+                    tris.push_back(UncheckedAdd(base, i));
+                    tris.push_back(UncheckedAdd(base, i + 2));
                 }
             }
             break;
         case GlQuadStrip:
             for (std::int32_t i = 0; i + 3 < count; i += 2)
             {
-                tris.push_back(WrapAdd(base, i));
-                tris.push_back(WrapAdd(base, i + 1));
-                tris.push_back(WrapAdd(base, i + 3));
-                tris.push_back(WrapAdd(base, i));
-                tris.push_back(WrapAdd(base, i + 3));
-                tris.push_back(WrapAdd(base, i + 2));
+                tris.push_back(UncheckedAdd(base, i));
+                tris.push_back(UncheckedAdd(base, i + 1));
+                tris.push_back(UncheckedAdd(base, i + 3));
+                tris.push_back(UncheckedAdd(base, i));
+                tris.push_back(UncheckedAdd(base, i + 3));
+                tris.push_back(UncheckedAdd(base, i + 2));
             }
             break;
         case GlTriangleFan:
             for (std::int32_t i = 1; i + 1 < count; ++i)
             {
                 tris.push_back(base);
-                tris.push_back(WrapAdd(base, i));
-                tris.push_back(WrapAdd(base, i + 1));
+                tris.push_back(UncheckedAdd(base, i));
+                tris.push_back(UncheckedAdd(base, i + 1));
             }
             break;
         case GlLineLoop:
@@ -410,8 +397,8 @@ namespace MphRead::Mods::Render
                 std::vector<std::int32_t>& lines = _batch.LineIndices;
                 for (std::int32_t i = 0; i < count; ++i)
                 {
-                    lines.push_back(WrapAdd(base, i));
-                    lines.push_back(WrapAdd(base, (i + 1) % count));
+                    lines.push_back(UncheckedAdd(base, i));
+                    lines.push_back(UncheckedAdd(base, (i + 1) % count));
                 }
             }
             break;
@@ -424,7 +411,7 @@ namespace MphRead::Mods::Render
     std::int32_t GlEs::GenLists(std::int32_t range)
     {
         const std::int32_t id = _nextListId;
-        _nextListId = WrapAdd(_nextListId, range);
+        _nextListId = UncheckedAdd(_nextListId, range);
         return id;
     }
 
@@ -461,12 +448,12 @@ namespace MphRead::Mods::Render
         compiled.Ibo = ManagedName(ibo);
         glBindVertexArray(vao);
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        const std::int32_t vertexBytes = WrapMultiply(
+        const std::int32_t vertexBytes = UncheckedMultiply(
             static_cast<std::int32_t>(_batch.Vertices.size()), static_cast<std::int32_t>(sizeof(float)));
         glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(vertexBytes), _batch.Vertices.data(), GL_STATIC_DRAW);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
         const std::vector<std::int32_t> indices = BuildIndexArray();
-        const std::int32_t indexBytes = WrapMultiply(
+        const std::int32_t indexBytes = UncheckedMultiply(
             static_cast<std::int32_t>(indices.size()), static_cast<std::int32_t>(sizeof(std::int32_t)));
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(indexBytes), indices.data(), GL_STATIC_DRAW);
         SetupAttributes();
@@ -493,7 +480,7 @@ namespace MphRead::Mods::Render
         }
         if (compiled.LineCount > 0)
         {
-            const std::int32_t offset = WrapMultiply(compiled.TriCount,
+            const std::int32_t offset = UncheckedMultiply(compiled.TriCount,
                 static_cast<std::int32_t>(sizeof(std::int32_t)));
             glDrawElements(GL_LINES, compiled.LineCount, GL_UNSIGNED_INT,
                 reinterpret_cast<const void*>(static_cast<std::intptr_t>(offset)));
@@ -505,7 +492,7 @@ namespace MphRead::Mods::Render
     {
         for (std::int32_t i = 0; i < range; ++i)
         {
-            const std::int32_t id = WrapAdd(list, i);
+            const std::int32_t id = UncheckedAdd(list, i);
             const auto found = _lists.find(id);
             if (found != _lists.end())
             {
@@ -566,7 +553,7 @@ namespace MphRead::Mods::Render
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, GlName(_dynIbo));
         }
 
-        const std::int32_t vertexBytes = WrapMultiply(
+        const std::int32_t vertexBytes = UncheckedMultiply(
             static_cast<std::int32_t>(_batch.Vertices.size()), static_cast<std::int32_t>(sizeof(float)));
         if (vertexBytes > _dynVboSize)
         {
@@ -581,7 +568,7 @@ namespace MphRead::Mods::Render
         }
 
         const std::vector<std::int32_t> indices = BuildIndexArray();
-        const std::int32_t indexBytes = WrapMultiply(
+        const std::int32_t indexBytes = UncheckedMultiply(
             static_cast<std::int32_t>(indices.size()), static_cast<std::int32_t>(sizeof(std::int32_t)));
         if (indexBytes > _dynIboSize)
         {
@@ -602,7 +589,7 @@ namespace MphRead::Mods::Render
         }
         if (lineCount > 0)
         {
-            const std::int32_t offset = WrapMultiply(triCount, static_cast<std::int32_t>(sizeof(std::int32_t)));
+            const std::int32_t offset = UncheckedMultiply(triCount, static_cast<std::int32_t>(sizeof(std::int32_t)));
             glDrawElements(GL_LINES, lineCount, GL_UNSIGNED_INT,
                 reinterpret_cast<const void*>(static_cast<std::intptr_t>(offset)));
         }
@@ -668,7 +655,7 @@ namespace MphRead::Mods::Render
 
     std::int32_t GlEs::GenTexture()
     {
-        const std::int32_t name = _textureHighWater = WrapAdd(_textureHighWater, 1);
+        const std::int32_t name = _textureHighWater = UncheckedAdd(_textureHighWater, 1);
         RealTexture(name);
         return name;
     }
@@ -1116,3 +1103,7 @@ namespace MphRead::Mods::Render
     }
 }
 #endif
+
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedSubtract;

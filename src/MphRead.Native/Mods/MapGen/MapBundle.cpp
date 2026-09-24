@@ -6,6 +6,7 @@
 #include "../../Formats/Types.hpp"
 #include "../../Program.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -46,6 +47,7 @@ using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::UncheckedAdd;
 
 namespace MphRead::Mods::MapGen
 {
@@ -1967,12 +1969,6 @@ namespace
         return static_cast<std::int64_t>(size);
     }
 
-    [[nodiscard]] std::int64_t WrapAddInt64(
-        std::int64_t left, std::int64_t right) noexcept
-    {
-        return std::bit_cast<std::int64_t>(
-            std::bit_cast<std::uint64_t>(left) + std::bit_cast<std::uint64_t>(right));
-    }
 }
 
 namespace MphRead::Mods::MapGen
@@ -2123,7 +2119,7 @@ namespace MphRead::Mods::MapGen
             const std::int64_t levelLength = FileLength(*level);
             const std::int64_t textureLength
                 = texturePath ? FileLength(*texturePath) : 0;
-            const std::int64_t before = WrapAddInt64(levelLength, textureLength);
+            const std::int64_t before = UncheckedAdd(levelLength, textureLength);
             std::cout << "[mapbundle] " << definition->Name() << " -> " << path
                 << " (" << FileLength(path) / 1024 << " KiB, from "
                 << before / 1024 << " KiB)" << std::endl;

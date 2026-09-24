@@ -7,6 +7,7 @@
 #include "Program.hpp"
 #include "Utility/Compress.hpp"
 #include "NativeRuntime/System/IO.hpp"
+#include "NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -26,6 +27,10 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::Int64ToInt32;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
 
 namespace MphRead
 {
@@ -427,23 +432,6 @@ namespace
     [[nodiscard]] std::string FileNameWithoutExtension(const std::string& path)
     {
         return ::MphRead::NativeRuntime::PathGetFileNameWithoutExtension(path);
-    }
-
-    [[nodiscard]] std::int32_t UncheckedAdd(std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] std::int32_t UncheckedMultiply(std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] std::int32_t ManagedInt64ToInt32(std::int64_t value) noexcept
-    {
-        return std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(static_cast<std::uint64_t>(value)));
     }
 
     [[nodiscard]] std::size_t ManagedCapacity(std::int32_t capacity)
@@ -1869,13 +1857,13 @@ namespace MphRead
     std::shared_ptr<const std::vector<std::string>> Read::ReadStrings(
         std::span<const std::uint8_t> bytes, std::int64_t offset, std::int32_t count)
     {
-        return ReadStrings(bytes, ManagedInt64ToInt32(offset), count);
+        return ReadStrings(bytes, Int64ToInt32(offset), count);
     }
 
     std::shared_ptr<const std::vector<std::string>> Read::ReadStrings(
         std::span<const std::uint8_t> bytes, std::int64_t offset, std::uint32_t count)
     {
-        return ReadStrings(bytes, ManagedInt64ToInt32(offset), ReadDetail::ManagedInt32(count));
+        return ReadStrings(bytes, Int64ToInt32(offset), ReadDetail::ManagedInt32(count));
     }
 
     std::shared_ptr<const std::vector<std::string>> Read::ReadStrings(

@@ -12,6 +12,7 @@
 
 #include "DedicatedServer.hpp"
 #include "MapRotation.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -30,6 +31,8 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::UncheckedIncrement;
+
 namespace
 {
     constexpr std::int64_t TicksPerMillisecond = 10'000;
@@ -38,12 +41,6 @@ namespace
     {
         return std::to_string(address[0]) + "." + std::to_string(address[1]) + "."
             + std::to_string(address[2]) + "." + std::to_string(address[3]);
-    }
-
-    std::int32_t UncheckedAddOne(std::int32_t value) noexcept
-    {
-        const std::uint32_t bits = static_cast<std::uint32_t>(value) + 1U;
-        return std::bit_cast<std::int32_t>(bits);
     }
 
     std::int32_t UncheckedSlotCount(std::int32_t first, std::int32_t last) noexcept
@@ -550,14 +547,14 @@ namespace MphRead::Mods::Network
                 {
                     if (now - cooling->second < PortCooldownSeconds)
                     {
-                        port = UncheckedAddOne(port);
+                        port = UncheckedIncrement(port);
                         continue;
                     }
                     _cooling.erase(cooling);
                 }
                 return port;
             }
-            port = UncheckedAddOne(port);
+            port = UncheckedIncrement(port);
         }
         return -1;
     }

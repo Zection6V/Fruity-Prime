@@ -26,7 +26,11 @@
 #include <intrin.h>
 #endif
 
+using ::MphRead::NativeRuntime::Int32ToUInt32;
 using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::UInt32ToInt32;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
 
 namespace
 {
@@ -38,28 +42,6 @@ namespace
         {
         }
     };
-
-    [[nodiscard]] constexpr std::uint32_t ManagedUInt32(std::int32_t value) noexcept
-    {
-        return std::bit_cast<std::uint32_t>(value);
-    }
-
-    [[nodiscard]] constexpr std::int32_t ManagedInt32(std::uint32_t value) noexcept
-    {
-        return std::bit_cast<std::int32_t>(value);
-    }
-
-    [[nodiscard]] constexpr std::int32_t AddInt32(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return ManagedInt32(ManagedUInt32(left) + ManagedUInt32(right));
-    }
-
-    [[nodiscard]] constexpr std::int32_t MultiplyInt32(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return ManagedInt32(ManagedUInt32(left) * ManagedUInt32(right));
-    }
 
     template <typename T>
     [[nodiscard]] T& Require(const std::shared_ptr<T>& value)
@@ -1698,7 +1680,7 @@ namespace
         {
             minimumDigits = std::max(minimumDigits, 8);
         }
-        return FormatHexUInt32(ManagedUInt32(value), minimumDigits);
+        return FormatHexUInt32(Int32ToUInt32(value), minimumDigits);
     }
 
     [[nodiscard]] std::string FormatBinary(std::uint32_t value)
@@ -1809,7 +1791,7 @@ namespace MphRead::Testing
         while (offset < size)
         {
             std::cout << "  int field_" << FormatHexInt32(offset, 1) << ";\n";
-            offset = AddInt32(offset, 4);
+            offset = UncheckedAdd(offset, 4);
         }
         std::cout << "}\n";
     }
@@ -1841,12 +1823,12 @@ namespace MphRead::Testing
         const std::uint32_t v19 = polygonId == 1 ? 0x4000U : 0U;
         const std::uint32_t v20 = v19 | 0x8000U;
         const std::uint32_t polygonModeBits =
-            ManagedUInt32(MultiplyInt32(
+            Int32ToUInt32(UncheckedMultiply(
                 16,
-                ManagedInt32(static_cast<std::uint32_t>(materialRef.PolygonMode))));
+                UInt32ToInt32(static_cast<std::uint32_t>(materialRef.PolygonMode))));
         const std::uint32_t cullingBits =
             static_cast<std::uint32_t>(materialRef.Culling) << 6U;
-        const std::uint32_t polygonBits = ManagedUInt32(polygonId) << 24U;
+        const std::uint32_t polygonBits = Int32ToUInt32(polygonId) << 24U;
         const std::uint32_t alphaBits =
             static_cast<std::uint32_t>(materialRef.Alpha) << 16U;
         const std::uint32_t attr = v20
@@ -1858,7 +1840,7 @@ namespace MphRead::Testing
                   << FormatUInt32CurrentCulture(materialRef.Lighting)
                   << ", mode = "
                   << FormatInt32CurrentCulture(
-                      ManagedInt32(static_cast<std::uint32_t>(materialRef.PolygonMode)))
+                      UInt32ToInt32(static_cast<std::uint32_t>(materialRef.PolygonMode)))
                   << " (" << PolygonModeName(materialRef.PolygonMode) << "), cull = "
                   << FormatUInt32CurrentCulture(
                       static_cast<std::uint32_t>(materialRef.Culling))
@@ -2273,7 +2255,7 @@ namespace MphRead::Testing
                     type = ReplaceAll(getter, "Read", "");
                     type = ReplaceAll(std::move(type), "Pointer", "IntPtr") + "Array";
                 }
-                size = MultiplyInt32(size, number);
+                size = UncheckedMultiply(size, number);
             }
 
             MPH_TESTPRINT_DEBUG_WRITE_LINE("        private const int _off" + FormatInt32CurrentCulture(index)
@@ -2306,8 +2288,8 @@ namespace MphRead::Testing
                     + ", value); }");
             }
             MPH_TESTPRINT_DEBUG_WRITE_LINE("");
-            index = AddInt32(index, 1);
-            offset = AddInt32(offset, size);
+            index = UncheckedAdd(index, 1);
+            offset = UncheckedAdd(offset, size);
         }
 
         MPH_TESTPRINT_DEBUG_WRITE_LINE("        public " + InterpolationString(className)

@@ -7,6 +7,7 @@
 #include "../../Metadata/Rooms.hpp"
 #include "../../Read.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -44,6 +45,7 @@ using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::UncheckedAdd;
 
 namespace
 {
@@ -1204,15 +1206,6 @@ namespace
 #endif
     }
 
-    [[nodiscard]] std::int32_t WrapAddInt32(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t result =
-            std::bit_cast<std::uint32_t>(left)
-            + std::bit_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(result);
-    }
-
     struct MapFileEnumeration final
     {
         std::vector<std::string> Results;
@@ -1487,9 +1480,9 @@ namespace MphRead::Mods::MapGen
             const DefinitionList& indexDefinitions = Definitions();
             MapDefinition* definition =
                 indexDefinitions[static_cast<std::size_t>(i)].get();
-            const std::int32_t id = WrapAddInt32(State().FirstId, i);
+            const std::int32_t id = UncheckedAdd(State().FirstId, i);
             rooms.push_back(MakeMetadata(definition, id));
-            i = WrapAddInt32(i, 1);
+            i = UncheckedAdd(i, 1);
         }
         return rooms;
     }
@@ -1628,7 +1621,7 @@ namespace MphRead::Mods::MapGen
                     entityDirectory,
                     nodeDirectory,
                     verbose);
-                count = WrapAddInt32(count, 1);
+                count = UncheckedAdd(count, 1);
             }
         }
         return count;

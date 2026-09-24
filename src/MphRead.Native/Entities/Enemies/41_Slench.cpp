@@ -33,6 +33,9 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::CreateFromAxisAngle;
@@ -124,33 +127,6 @@ namespace MphRead::Entities::Enemies
                 value.X * matrix.M13 + value.Y * matrix.M23 + value.Z * matrix.M33);
         }
 
-        [[nodiscard]] std::int32_t AddInt32Unchecked(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t result
-                = std::bit_cast<std::uint32_t>(left)
-                + std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(result);
-        }
-
-        [[nodiscard]] std::int32_t SubInt32Unchecked(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t result
-                = std::bit_cast<std::uint32_t>(left)
-                - std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(result);
-        }
-
-        [[nodiscard]] std::int32_t MulInt32Unchecked(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t result
-                = std::bit_cast<std::uint32_t>(left)
-                * std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(result);
-        }
-
         [[nodiscard]] std::int32_t DivideInt32(
             std::int32_t dividend, std::int32_t divisor)
         {
@@ -223,14 +199,14 @@ namespace MphRead::Entities::Enemies
 
     Enemy41Values Enemy41Entity::GetValues()
     {
-        const std::int32_t index = MulInt32Unchecked(_subtype, 3);
+        const std::int32_t index = UncheckedMultiply(_subtype, 3);
         return VectorAt(Metadata::Enemy41Values, index);
     }
 
     Enemy41Values Enemy41Entity::GetPhaseValues()
     {
-        const std::int32_t index = AddInt32Unchecked(
-            MulInt32Unchecked(_subtype, 3), _phase);
+        const std::int32_t index = UncheckedAdd(
+            UncheckedMultiply(_subtype, 3), _phase);
         return VectorAt(Metadata::Enemy41Values, index);
     }
 
@@ -396,7 +372,7 @@ namespace MphRead::Entities::Enemies
             const std::int32_t max
                 = static_cast<std::int32_t>(phaseValues.MaxStaticShotTimer) * 2;
             const std::uint32_t random = Rng::GetRandomInt2(
-                SubInt32Unchecked(max, min));
+                UncheckedSubtract(max, min));
             _staticShotTimer = std::bit_cast<std::int32_t>(
                 static_cast<std::uint32_t>(min) + random);
             break;
@@ -456,7 +432,7 @@ namespace MphRead::Entities::Enemies
             _slenchFlags |= Enemies::SlenchFlags::Detached;
             _patternAngle = 0.0F;
             _floatBaseY = 0.0F;
-            _roamTimer = MulInt32Unchecked(phaseValues.RoamTime, 2);
+            _roamTimer = UncheckedMultiply(phaseValues.RoamTime, 2);
             _slamTimer = 0;
             _slenchFlags &= ~Enemies::SlenchFlags::Rolling;
             _slenchFlags &= ~Enemies::SlenchFlags::Floating;
@@ -582,14 +558,14 @@ namespace MphRead::Entities::Enemies
         {
             if (_shotCooldown > 0)
             {
-                _shotCooldown = SubInt32Unchecked(_shotCooldown, 1);
+                _shotCooldown = UncheckedSubtract(_shotCooldown, 1);
             }
             else
             {
                 EquipInfo& equip = RequireReference(_equipInfo);
                 equip.SetWeapon(VectorAt(
                     RequireReference(Weapons::BossWeapons),
-                    AddInt32Unchecked(4, _subtype)));
+                    UncheckedAdd(4, _subtype)));
                 const Vector3 spawnPos
                     = ScaleVector(facing, _shieldOffset) + static_cast<Vector3>(Position);
                 const BeamResultFlags result = BeamProjectileEntity::Spawn(
@@ -605,7 +581,7 @@ namespace MphRead::Entities::Enemies
                     SetRecoilTargetVecs();
                     _soundSource.PlaySfx(SfxId::BIGEYE_ATTACK2);
                     const std::shared_ptr<WeaponInfo> weapon = equip.Weapon;
-                    _shotCooldown = MulInt32Unchecked(
+                    _shotCooldown = UncheckedMultiply(
                         RequireReference(weapon).ShotCooldown, 2);
                 }
             }
@@ -736,7 +712,7 @@ namespace MphRead::Entities::Enemies
         else if (State() == SlenchState::Idle)
         {
             if (_staticShotTimer > 0
-                && (_staticShotTimer = SubInt32Unchecked(_staticShotTimer, 1)) > 0)
+                && (_staticShotTimer = UncheckedSubtract(_staticShotTimer, 1)) > 0)
             {
                 (void)RotateToTarget(
                     playerTarget,
@@ -751,7 +727,7 @@ namespace MphRead::Entities::Enemies
         {
             if (_staticShotTimer < 36 * 2)
             {
-                _staticShotTimer = AddInt32Unchecked(_staticShotTimer, 1);
+                _staticShotTimer = UncheckedAdd(_staticShotTimer, 1);
                 if (_staticShotTimer < 16 * 2)
                 {
                     (void)RotateToTarget(
@@ -782,7 +758,7 @@ namespace MphRead::Entities::Enemies
             }
             else if (_staticShotCooldown != 0)
             {
-                _staticShotCooldown = SubInt32Unchecked(
+                _staticShotCooldown = UncheckedSubtract(
                     _staticShotCooldown, 1);
                 (void)RotateToTarget(
                     playerTarget,
@@ -791,7 +767,7 @@ namespace MphRead::Entities::Enemies
             else if (_staticShotCounter
                 < static_cast<std::int32_t>(phaseValues.StaticShotCount))
             {
-                _staticShotCounter = AddInt32Unchecked(
+                _staticShotCounter = UncheckedAdd(
                     _staticShotCounter, 1);
                 _staticShotCooldown
                     = static_cast<std::int32_t>(phaseValues.StaticShotCooldown) * 2;
@@ -921,16 +897,16 @@ namespace MphRead::Entities::Enemies
 
         else if (State() == SlenchState::Roam)
         {
-            const std::int32_t phaseHealth = MulInt32Unchecked(
+            const std::int32_t phaseHealth = UncheckedMultiply(
                 static_cast<std::int32_t>(_healthMax) / 3,
-                SubInt32Unchecked(2, _phase));
+                UncheckedSubtract(2, _phase));
             if (_health > phaseHealth)
             {
                 if (_roamTimer == 0
-                    || (_roamTimer = SubInt32Unchecked(_roamTimer, 1)) != 0)
+                    || (_roamTimer = UncheckedSubtract(_roamTimer, 1)) != 0)
                 {
                     if (_health
-                        <= AddInt32Unchecked(
+                        <= UncheckedAdd(
                             phaseHealth,
                             static_cast<std::int32_t>(_healthMax) / 12))
                     {
@@ -944,7 +920,7 @@ namespace MphRead::Entities::Enemies
                         {
                             if (_rollTimer == 0
                                 || (_rollTimer
-                                    = SubInt32Unchecked(_rollTimer, 1)) != 0)
+                                    = UncheckedSubtract(_rollTimer, 1)) != 0)
                             {
                                 if (_hitFloor)
                                 {
@@ -1212,7 +1188,7 @@ namespace MphRead::Entities::Enemies
                 {
                     _damageEffect->SetElementExtension(true);
                 }
-                _phase = AddInt32Unchecked(_phase, 1);
+                _phase = UncheckedAdd(_phase, 1);
                 _soundSource.PlaySfx(SfxId::BIGEYE_DIE_SCR);
                 ChangeState(SlenchState::Return);
             }
@@ -1224,13 +1200,13 @@ namespace MphRead::Entities::Enemies
             (void)RotateToTarget(
                 _destVec1,
                 Fixed::ToFloat(phaseValues.AngleIncrement5) / 2.0F);
-            const std::int32_t time = MulInt32Unchecked(
+            const std::int32_t time = UncheckedMultiply(
                 DivideInt32(
                     360,
                     static_cast<std::int32_t>(phaseValues.WobbleRotInc)),
                 static_cast<std::int32_t>(phaseValues.WobbleCycles));
-            _wobbleTimer = AddInt32Unchecked(_wobbleTimer, 1);
-            if (_wobbleTimer >= MulInt32Unchecked(time, 2))
+            _wobbleTimer = UncheckedAdd(_wobbleTimer, 1);
+            if (_wobbleTimer >= UncheckedMultiply(time, 2))
             {
                 ChangeState(SlenchState::Slam);
             }
@@ -1246,8 +1222,8 @@ namespace MphRead::Entities::Enemies
                     = Fixed::ToFloat(phaseValues.MaxWobbleDist);
                 float factor = maxDist
                     - static_cast<float>(_wobbleTimer) * maxDist
-                    / static_cast<float>(MulInt32Unchecked(
-                        MulInt32Unchecked(time, 2), 2));
+                    / static_cast<float>(UncheckedMultiply(
+                        UncheckedMultiply(time, 2), 2));
                 if (factor < 0.01F)
                 {
                     factor = 0.01F;
@@ -1280,7 +1256,7 @@ namespace MphRead::Entities::Enemies
         {
             if (_deathTimer != 0)
             {
-                _deathTimer = SubInt32Unchecked(_deathTimer, 1);
+                _deathTimer = UncheckedSubtract(_deathTimer, 1);
             }
             if (_deathTimer == 0)
             {
@@ -1646,7 +1622,7 @@ namespace MphRead::Entities::Enemies
             && source != nullptr
             && source->Type == EntityType::Bomb)
         {
-            _rollTimer = SubInt32Unchecked(_rollTimer, 30 * 2);
+            _rollTimer = UncheckedSubtract(_rollTimer, 30 * 2);
             if (_rollTimer == 0)
             {
                 _rollTimer = 1;
@@ -1659,7 +1635,7 @@ namespace MphRead::Entities::Enemies
                 }
                 else
                 {
-                    _rollTimer = AddInt32Unchecked(
+                    _rollTimer = UncheckedAdd(
                         _rollTimer,
                         static_cast<std::int32_t>(
                             (std::numeric_limits<std::uint16_t>::max() + 1U)

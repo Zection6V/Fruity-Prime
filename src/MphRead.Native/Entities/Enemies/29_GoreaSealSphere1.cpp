@@ -13,6 +13,8 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 
 namespace MphRead::Entities::Enemies
 {
@@ -43,21 +45,6 @@ namespace MphRead::Entities::Enemies
             return values[static_cast<std::size_t>(index)];
         }
 
-        [[nodiscard]] std::int32_t ManagedAdd(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t value = std::bit_cast<std::uint32_t>(left)
-                + std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(value);
-        }
-
-        [[nodiscard]] std::int32_t ManagedSubtract(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t value = std::bit_cast<std::uint32_t>(left)
-                - std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(value);
-        }
     }
 
     Enemy29Entity::Enemy29Entity(EnemyInstanceEntityData data,
@@ -158,12 +145,12 @@ namespace MphRead::Entities::Enemies
 
         const std::int32_t change
             = 65535 - static_cast<std::int32_t>(_health);
-        _damage = ManagedAdd(_damage, change);
+        _damage = UncheckedAdd(_damage, change);
         if (_damage > static_cast<std::int32_t>(_healthMax))
         {
             _damage = static_cast<std::int32_t>(_healthMax);
         }
-        std::int32_t prevDamage = ManagedSubtract(_damage, change);
+        std::int32_t prevDamage = UncheckedSubtract(_damage, change);
         _health = 65535;
 
         if (!TypeExtensions::TestFlag(

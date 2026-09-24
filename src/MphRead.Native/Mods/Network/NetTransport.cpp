@@ -2,6 +2,7 @@
 
 #include "NetLag.hpp"
 #include "NetProtocol.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <bit>
 #include <chrono>
@@ -35,6 +36,8 @@
 #include <unistd.h>
 #include <pthread.h>
 #endif
+
+using ::MphRead::NativeRuntime::UncheckedAdd;
 
 namespace
 {
@@ -129,13 +132,6 @@ namespace
     {
     }
 #endif
-
-    [[nodiscard]] std::int64_t AddInt64Unchecked(std::int64_t left, std::int64_t right) noexcept
-    {
-        const std::uint64_t a = std::bit_cast<std::uint64_t>(left);
-        const std::uint64_t b = std::bit_cast<std::uint64_t>(right);
-        return std::bit_cast<std::int64_t>(a + b);
-    }
 
     [[nodiscard]] std::int64_t StopwatchTimestamp() noexcept
     {
@@ -628,14 +624,14 @@ namespace MphRead::Mods::Network
                 {
                     return;
                 }
-                const std::int64_t holdFor = AddInt64Unchecked(NetLag::HoldTicks(), extraHoldTicks);
+                const std::int64_t holdFor = UncheckedAdd(NetLag::HoldTicks(), extraHoldTicks);
                 if (holdFor > 0)
                 {
                     auto copy = std::make_shared<std::vector<std::uint8_t>>(
                         buffer.begin(), buffer.begin() + length);
                     std::lock_guard lock(HeldLock);
                     HeldOutput.push_back(HeldOut{
-                        AddInt64Unchecked(StopwatchTimestamp(), holdFor),
+                        UncheckedAdd(StopwatchTimestamp(), holdFor),
                         target, std::move(copy), length});
                     return;
                 }
@@ -740,7 +736,7 @@ namespace MphRead::Mods::Network
                         {
                             std::lock_guard lock(HeldLock);
                             HeldInput.push_back(HeldIn{
-                                AddInt64Unchecked(StopwatchTimestamp(), holdFor),
+                                UncheckedAdd(StopwatchTimestamp(), holdFor),
                                 ReceivedPacket(sender, data,
                                     static_cast<std::int32_t>(data->size()))});
                             continue;

@@ -32,6 +32,10 @@
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UInt32ToInt32;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::CreateScale;
@@ -95,30 +99,6 @@ namespace
         {
             throw MphRead::Memory::Detail::InvalidCastException();
         }
-    }
-
-    [[nodiscard]] std::int32_t UInt32ToInt32(std::uint32_t value) noexcept
-    {
-        return std::bit_cast<std::int32_t>(value);
-    }
-
-    [[nodiscard]] std::int32_t ManagedAdd(std::int32_t left, std::int32_t right) noexcept
-    {
-        return MphRead::Memory::Detail::UncheckedAdd(left, right);
-    }
-
-    [[nodiscard]] std::int32_t ManagedMultiply(std::int32_t left, std::int32_t right) noexcept
-    {
-        return MphRead::Memory::Detail::UncheckedMultiply(left, right);
-    }
-
-    [[nodiscard]] std::int32_t ManagedSubtract(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t value
-            = static_cast<std::uint32_t>(left)
-            - static_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(value);
     }
 
     [[nodiscard]] std::uint16_t IncrementUInt16(std::uint16_t value) noexcept
@@ -364,7 +344,7 @@ namespace MphRead::Entities
             UpdateLinkedInverse(0);
         }
 
-        _beamInterval = ManagedMultiply(UInt32ToInt32(data.BeamInterval), 2);
+        _beamInterval = UncheckedMultiply(UInt32ToInt32(data.BeamInterval), 2);
         if (!_beams)
         {
             _beams = SceneSetup::CreateBeamList(64, scene);
@@ -1013,10 +993,10 @@ namespace MphRead::Entities
             && TestFlag(_flags, PlatformFlags::BeamSpawner)
             && _data.BeamId > -1)
         {
-            _beamIntervalTimer = ManagedAdd(_beamIntervalTimer, -1);
+            _beamIntervalTimer = UncheckedAdd(_beamIntervalTimer, -1);
             if (_beamIntervalTimer <= 0)
             {
-                _beamIntervalIndex = ManagedAdd(_beamIntervalIndex, 1);
+                _beamIntervalIndex = UncheckedAdd(_beamIntervalIndex, 1);
                 _beamIntervalIndex %= 16;
                 _beamActive = (_data.BeamOnIntervals
                     & (std::uint32_t{1}
@@ -1237,8 +1217,8 @@ namespace MphRead::Entities
         if (_data.ForCutscene != 0)
         {
             _moveTimer = ConvertToInt32Net9(30.0F / (speed * 2.0F));
-            factor = 1.0F / static_cast<float>(ManagedAdd(_moveTimer, 1));
-            _moveTimer = ManagedMultiply(_moveTimer, 2);
+            factor = 1.0F / static_cast<float>(UncheckedAdd(_moveTimer, 1));
+            _moveTimer = UncheckedMultiply(_moveTimer, 2);
             factor /= 2.0F;
         }
         else
@@ -1370,7 +1350,7 @@ namespace MphRead::Entities
             && _data.ForCutscene == 0)
         {
             _recoilTimer = 31 * 2;
-            _moveTimer = ManagedAdd(_moveTimer, 60 * 2);
+            _moveTimer = UncheckedAdd(_moveTimer, 60 * 2);
             _velocity.Y *= -1.0F;
         }
     }
@@ -1387,7 +1367,7 @@ namespace MphRead::Entities
         {
             if (_recoilTimer > 0)
             {
-                _recoilTimer = ManagedAdd(_recoilTimer, -1);
+                _recoilTimer = UncheckedAdd(_recoilTimer, -1);
                 if (_recoilTimer == 0)
                 {
                     _velocity.Y *= -1.0F;
@@ -1396,7 +1376,7 @@ namespace MphRead::Entities
 
             if (_moveTimer > 0)
             {
-                _moveTimer = ManagedAdd(_moveTimer, -1);
+                _moveTimer = UncheckedAdd(_moveTimer, -1);
                 const SfxData startSfx = _moveSfx.Start1;
                 if (TestFlag(startSfx.Flags, PlatSfxFlags::Environment))
                 {
@@ -1476,7 +1456,7 @@ namespace MphRead::Entities
         {
             if (_moveTimer > 0)
             {
-                _moveTimer = ManagedAdd(_moveTimer, -1);
+                _moveTimer = UncheckedAdd(_moveTimer, -1);
             }
             else
             {
@@ -1496,14 +1476,14 @@ namespace MphRead::Entities
                         {
                             _stateFlags |= PlatStateFlags::Reverse;
                         }
-                        _toIndex = ManagedAdd(
+                        _toIndex = UncheckedAdd(
                             _fromIndex,
                             TestFlag(_stateFlags, PlatStateFlags::Reverse) ? -1 : 1);
                         _state = PlatformState::Moving;
                     }
                     else if (_data.ReverseType == 1)
                     {
-                        const std::int32_t index = ManagedAdd(
+                        const std::int32_t index = UncheckedAdd(
                             _fromIndex,
                             TestFlag(_stateFlags, PlatStateFlags::Reverse) ? -1 : 1);
                         _toIndex = index
@@ -1527,7 +1507,7 @@ namespace MphRead::Entities
 
                         if (_state != PlatformState::Inactive)
                         {
-                            _toIndex = ManagedAdd(
+                            _toIndex = UncheckedAdd(
                                 _fromIndex,
                                 TestFlag(_stateFlags, PlatStateFlags::Reverse) ? -1 : 1);
                             _state = PlatformState::Moving;
@@ -1551,7 +1531,7 @@ namespace MphRead::Entities
         {
             if (_moveTimer > 0)
             {
-                _moveTimer = ManagedAdd(_moveTimer, -1);
+                _moveTimer = UncheckedAdd(_moveTimer, -1);
             }
             else if (TestFlag(_animFlags, PlatAnimFlags::Active))
             {
@@ -1773,7 +1753,7 @@ namespace MphRead::Entities
                             else
                             {
                                 effectId = _data.DamageEffectId;
-                                _health = ManagedSubtract(
+                                _health = UncheckedSubtract(
                                     _health, ConvertToInt32Net9(beam.Damage()));
 
                                 if (_health <= _halfHealth)
@@ -1904,7 +1884,7 @@ namespace MphRead::Entities
 
             if (info.Message == Message::SetPlatformIndex)
             {
-                const std::int32_t index = ManagedAdd(
+                const std::int32_t index = UncheckedAdd(
                     UnboxInt32(info.Param1), -1);
                 if (_fromIndex != index)
                 {
@@ -1960,7 +1940,7 @@ namespace MphRead::Entities
 
         if (_moveTimer > 0)
         {
-            _moveTimer = ManagedAdd(_moveTimer, -1);
+            _moveTimer = UncheckedAdd(_moveTimer, -1);
         }
         else
         {
@@ -1968,7 +1948,7 @@ namespace MphRead::Entities
             {
                 _state = MoveState::MoveForward;
                 UpdateMovement();
-                _fromIndex = ManagedAdd(_fromIndex, 1);
+                _fromIndex = UncheckedAdd(_fromIndex, 1);
             }
             else if (_state == MoveState::MoveForward)
             {
@@ -1977,12 +1957,12 @@ namespace MphRead::Entities
                 position = ListAt(_posList, _toIndex);
                 if (_fromIndex == static_cast<std::int32_t>(_posList.size()) - 1)
                 {
-                    _toIndex = ManagedAdd(_fromIndex, -1);
+                    _toIndex = UncheckedAdd(_fromIndex, -1);
                 }
                 else
                 {
-                    _fromIndex = ManagedAdd(_fromIndex, 1);
-                    _toIndex = ManagedAdd(_fromIndex, 1);
+                    _fromIndex = UncheckedAdd(_fromIndex, 1);
+                    _toIndex = UncheckedAdd(_fromIndex, 1);
                 }
                 _moveTimer = _delay;
             }
@@ -2000,8 +1980,8 @@ namespace MphRead::Entities
                 if (_toIndex > 0)
                 {
                     _state = MoveState::Wait;
-                    _fromIndex = ManagedAdd(_fromIndex, -1);
-                    _toIndex = ManagedAdd(_fromIndex, -1);
+                    _fromIndex = UncheckedAdd(_fromIndex, -1);
+                    _toIndex = UncheckedAdd(_fromIndex, -1);
                 }
                 else
                 {

@@ -13,6 +13,7 @@
 #include "../Utility/RepackCollision.hpp"
 #include "../Utility/Rng.hpp"
 #include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -39,6 +40,11 @@
 
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
+using ::MphRead::NativeRuntime::Int32ToUInt32;
+using ::MphRead::NativeRuntime::UInt32ToInt32;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 
 namespace MphRead::Export::ImagesInterop
 {
@@ -61,39 +67,14 @@ namespace
     using uint = std::uint32_t;
     using ulong = std::uint64_t;
 
-    [[nodiscard]] constexpr int ManagedInt32(uint value) noexcept
-    {
-        return std::bit_cast<std::int32_t>(value);
-    }
-
-    [[nodiscard]] constexpr uint ManagedUInt32(int value) noexcept
-    {
-        return std::bit_cast<std::uint32_t>(static_cast<std::int32_t>(value));
-    }
-
-    [[nodiscard]] constexpr int UncheckedAdd(int left, int right) noexcept
-    {
-        return ManagedInt32(ManagedUInt32(left) + ManagedUInt32(right));
-    }
-
-    [[nodiscard]] constexpr int UncheckedSubtract(int left, int right) noexcept
-    {
-        return ManagedInt32(ManagedUInt32(left) - ManagedUInt32(right));
-    }
-
-    [[nodiscard]] constexpr int UncheckedMultiply(int left, int right) noexcept
-    {
-        return ManagedInt32(ManagedUInt32(left) * ManagedUInt32(right));
-    }
-
     [[nodiscard]] constexpr int ArithmeticShiftRight(int value, unsigned count) noexcept
     {
-        const uint bits = ManagedUInt32(value);
+        const uint bits = Int32ToUInt32(value);
         if (value >= 0)
         {
-            return ManagedInt32(bits >> count);
+            return UInt32ToInt32(bits >> count);
         }
-        return ManagedInt32((bits >> count) | (~uint{0} << (32U - count)));
+        return UInt32ToInt32((bits >> count) | (~uint{0} << (32U - count)));
     }
 
     void ReadExactly(std::istream& stream, std::span<byte> destination)
@@ -936,7 +917,7 @@ namespace MphRead::Testing
                         byte v130 = byteBuf.Consume();
                         uint v131 = (uint)_dword206B2A0[v130];
                         ushort v132 = wordBuf.Consume();
-                        int v133 = ManagedInt32(static_cast<uint>(v132 | ((static_cast<uint>(v132) << 16))));
+                        int v133 = UInt32ToInt32(static_cast<uint>(v132 | ((static_cast<uint>(v132) << 16))));
                         uint prevOffset = v131 + outputPos;
                         Span<uint> outputSpan2Int = MemoryCast<byte, uint>(outputSpan2.Slice(outputPos));
                         Span<uint> outputSpan1Int = MemoryCast<byte, uint>(outputSpan1.Slice(prevOffset));
@@ -1328,7 +1309,7 @@ namespace MphRead::Testing
                         byte v130 = byteBuf.Consume();
                         uint v131 = (uint)_dword206B2A0[v130];
                         ushort v132 = wordBuf.Consume();
-                        int v133 = ManagedInt32(static_cast<uint>(v132 | ((static_cast<uint>(v132) << 16))));
+                        int v133 = UInt32ToInt32(static_cast<uint>(v132 | ((static_cast<uint>(v132) << 16))));
                         uint prevOffset = v131 + outputPos;
                         // todo: same as the 111 block in Sub206CA4, but stopping after x3 instead of going through x7
                         Span<uint> outputSpan2Int = MemoryCast<byte, uint>(outputSpan2.Slice(outputPos));
@@ -1633,7 +1614,7 @@ namespace MphRead::Testing
                         byte v57 = byteBuf.Consume();
                         uint v58 = (uint)_dword206B2A0[v57];
                         ushort v59 = wordBuf.Consume();
-                        int v60 = ManagedInt32(static_cast<uint>(v59 | ((static_cast<uint>(v59) << 16))));
+                        int v60 = UInt32ToInt32(static_cast<uint>(v59 | ((static_cast<uint>(v59) << 16))));
                         uint prevOffset = v58 + outputPos;
                         Span<uint> outputSpan2Int = MemoryCast<byte, uint>(outputSpan2.Slice(outputPos));
                         Span<uint> outputSpan1Int = MemoryCast<byte, uint>(outputSpan1.Slice(prevOffset));
@@ -1901,7 +1882,7 @@ namespace MphRead::Testing
                         byte v37 = byteBuf.Consume();
                         uint v38 = (uint)_dword206B2A0[v37];
                         ushort v39 = wordBuf.Consume();
-                        int v40 = ManagedInt32(static_cast<uint>(v39 | ((static_cast<uint>(v39) << 16))));
+                        int v40 = UInt32ToInt32(static_cast<uint>(v39 | ((static_cast<uint>(v39) << 16))));
                         uint prevOffset = v38 + outputPos;
                         // todo: similar to other blocks with the dword alignment thing
                         Span<ushort> outputSpan2Slice = MemoryCast<byte, ushort>(outputSpan2.Slice(outputPos));
@@ -2024,7 +2005,7 @@ namespace MphRead::Testing
                         byte v24 = byteBuf.Consume();
                         uint v25 = (uint)_dword206B2A0[v24];
                         ushort v26 = wordBuf.Consume();
-                        int v27 = ManagedInt32(static_cast<uint>(v26 | ((static_cast<uint>(v26) << 16))));
+                        int v27 = UInt32ToInt32(static_cast<uint>(v26 | ((static_cast<uint>(v26) << 16))));
                         uint prevOffset = v25 + outputPos;
                         Span<uint> outputSpan2Int = MemoryCast<byte, uint>(outputSpan2.Slice(outputPos));
                         Span<uint> outputSpan1Int = MemoryCast<byte, uint>(outputSpan1.Slice(prevOffset));
@@ -2093,7 +2074,7 @@ namespace MphRead::Testing
                         byte v77 = byteBuf.Consume();
                         uint v78 = (uint)_dword206B2A0[v77];
                         ushort v79 = wordBuf.Consume();
-                        int v80 = ManagedInt32(static_cast<uint>(v79 | ((static_cast<uint>(v79) << 16))));
+                        int v80 = UInt32ToInt32(static_cast<uint>(v79 | ((static_cast<uint>(v79) << 16))));
                         uint prevOffset = v78 + outputPos;
                         Span<uint> outputSpan2Int = MemoryCast<byte, uint>(outputSpan2.Slice(outputPos));
                         Span<uint> outputSpan1Int = MemoryCast<byte, uint>(outputSpan1.Slice(prevOffset));
@@ -2389,7 +2370,7 @@ namespace MphRead::Testing
                         byte v23 = byteBuf.Consume();
                         uint v24 = (uint)_dword206B2A0[v23];
                         ushort v25 = wordBuf.Consume();
-                        int v26 = ManagedInt32(static_cast<uint>(v25 | ((static_cast<uint>(v25) << 16))));
+                        int v26 = UInt32ToInt32(static_cast<uint>(v25 | ((static_cast<uint>(v25) << 16))));
                         uint prevOffset = v24 + outputPos;
                         Span<uint> outputSpan2Int = MemoryCast<byte, uint>(outputSpan2.Slice(outputPos));
                         Span<uint> outputSpan1Int = MemoryCast<byte, uint>(outputSpan1.Slice(prevOffset));
@@ -2564,7 +2545,7 @@ namespace MphRead::Testing
                         byte v28 = byteBuf.Consume();
                         uint v29 = (uint)_dword206B2A0[v28];
                         ushort v30 = wordBuf.Consume();
-                        int v31 = ManagedInt32(static_cast<uint>(v30 | ((static_cast<uint>(v30) << 16))));
+                        int v31 = UInt32ToInt32(static_cast<uint>(v30 | ((static_cast<uint>(v30) << 16))));
                         uint prevOffset = v29 + outputPos;
                         Span<uint> outputSpan2Int = MemoryCast<byte, uint>(outputSpan2.Slice(outputPos));
                         Span<uint> outputSpan1Int = MemoryCast<byte, uint>(outputSpan1.Slice(prevOffset));
@@ -2858,7 +2839,7 @@ namespace MphRead::Testing
                         byte v21 = byteBuf.Consume();
                         uint v22 = (uint)_dword206B2A0[v21];
                         ushort v23 = wordBuf.Consume();
-                        int v24 = ManagedInt32(static_cast<uint>(v23 | ((static_cast<uint>(v23) << 16))));
+                        int v24 = UInt32ToInt32(static_cast<uint>(v23 | ((static_cast<uint>(v23) << 16))));
                         uint prevOffset = v22 + outputPos;
                         Span<uint> outputSpan2Int = MemoryCast<byte, uint>(outputSpan2.Slice(outputPos));
                         Span<uint> outputSpan1Int = MemoryCast<byte, uint>(outputSpan1.Slice(prevOffset));
@@ -2945,7 +2926,7 @@ namespace MphRead::Testing
                         byte v19 = byteBuf.Consume();
                         uint v20 = (uint)_dword206B2A0[v19];
                         ushort v21 = wordBuf.Consume();
-                        int v22 = ManagedInt32(static_cast<uint>(v21 | ((static_cast<uint>(v21) << 16))));
+                        int v22 = UInt32ToInt32(static_cast<uint>(v21 | ((static_cast<uint>(v21) << 16))));
                         uint prevOffset = v20 + outputPos;
                         Span<uint> outputSpan2Int = MemoryCast<byte, uint>(outputSpan2.Slice(outputPos));
                         Span<uint> outputSpan1Int = MemoryCast<byte, uint>(outputSpan1.Slice(prevOffset));
@@ -3014,7 +2995,7 @@ namespace MphRead::Testing
                     {
                         // 1 1 0
                         ushort v23 = wordBuf.Consume();
-                        int v24 = ManagedInt32(static_cast<uint>(v23 | ((static_cast<uint>(v23) << 16))));
+                        int v24 = UInt32ToInt32(static_cast<uint>(v23 | ((static_cast<uint>(v23) << 16))));
                         Span<uint> outputSpan2Int = MemoryCast<byte, uint>(outputSpan2.Slice(outputPos));
                         outputSpan2Int[0] = (uint)v24;
                     }
@@ -3026,7 +3007,7 @@ namespace MphRead::Testing
                     byte v16 = byteBuf.Consume();
                     uint v17 = (uint)_dword206B2A0[v16];
                     ushort v18 = wordBuf.Consume();
-                    int v19 = ManagedInt32(static_cast<uint>(v18 | ((static_cast<uint>(v18) << 16))));
+                    int v19 = UInt32ToInt32(static_cast<uint>(v18 | ((static_cast<uint>(v18) << 16))));
                     uint prevOffset = v17 + outputPos;
                     Span<uint> outputSpan2Int = MemoryCast<byte, uint>(outputSpan2.Slice(outputPos));
                     Span<uint> outputSpan1Int = MemoryCast<byte, uint>(outputSpan1.Slice(prevOffset));
@@ -3131,7 +3112,7 @@ namespace MphRead::Testing
         {
             ushort word0 = wordBuf[0];
             ushort word1 = wordBuf[1];
-            int prevInt23 = ManagedInt32(static_cast<uint>(wordBuf[2])
+            int prevInt23 = UInt32ToInt32(static_cast<uint>(wordBuf[2])
                 | (static_cast<uint>(wordBuf[3]) << 16));
             int bits0A = (word0 >> 10) & 0x1F; // bits 10-14
             int bits1A = (word1 >> 10) & 0x1F;
@@ -3142,7 +3123,7 @@ namespace MphRead::Testing
             wordBuf[2] = (ushort)(_byte2067320[2 * bits0C + bits1C] + 32 * (_byte2067320[2 * bits0B + bits1B] + 32 * _byte2067320[bits1A + 2 * bits0A]));
             wordBuf[3] = (ushort)(_byte2067320[2 * bits1C + bits0C] + 32 * (_byte2067320[2 * bits1B + bits0B] + 32 * _byte2067320[2 * bits1A + bits0A]));
             // todo: clean this up once it's confirmed the indices work this way and we don't need to un-align
-            int wordIdx0 = ManagedInt32(ManagedUInt32(prevInt23) << 1) & 6;
+            int wordIdx0 = UInt32ToInt32(Int32ToUInt32(prevInt23) << 1) & 6;
             int wordIdx1 = (prevInt23 >> 1) & 6;
             int wordIdx2 = (prevInt23 >> 3) & 6;
             int wordIdx3 = (prevInt23 >> 5) & 6;
@@ -3214,7 +3195,7 @@ namespace MphRead::Testing
             // todo: this section is exactly the same as in Sub2067388
             ushort word0 = wordBuf[0];
             ushort word1 = wordBuf[1];
-            int prevInt23 = ManagedInt32(static_cast<uint>(wordBuf[2])
+            int prevInt23 = UInt32ToInt32(static_cast<uint>(wordBuf[2])
                 | (static_cast<uint>(wordBuf[3]) << 16));
             int bits0A = (word0 >> 10) & 0x1F; // bits 10-14
             int bits1A = (word1 >> 10) & 0x1F;
@@ -3227,7 +3208,7 @@ namespace MphRead::Testing
             // todo: ^
             Span<ushort> outputSpan2Slice = MemoryCast<byte, ushort>(outputSpan2.Slice(outputPos));
             // todo: clean this up once it's confirmed the indices work this way and we don't need to un-align
-            int wordIdx0 = ManagedInt32(ManagedUInt32(prevInt23) << 1) & 6;
+            int wordIdx0 = UInt32ToInt32(Int32ToUInt32(prevInt23) << 1) & 6;
             int wordIdx1 = (prevInt23 >> 1) & 6;
             int wordIdx2 = (prevInt23 >> 3) & 6;
             int wordIdx3 = (prevInt23 >> 5) & 6;
@@ -3497,7 +3478,7 @@ namespace MphRead::Testing
                         byte v26 = byteBuf.Consume();
                         uint v27 = (uint)_dword206B2A0[v26];
                         ushort v28 = wordBuf.Consume();
-                        int v29 = ManagedInt32(static_cast<uint>(v28 | ((static_cast<uint>(v28) << 16))));
+                        int v29 = UInt32ToInt32(static_cast<uint>(v28 | ((static_cast<uint>(v28) << 16))));
                         uint prevOffset = v27 + outputPos;
                         Span<uint> outputSpan2Int = MemoryCast<byte, uint>(outputSpan2.Slice(outputPos));
                         Span<uint> outputSpan1Int = MemoryCast<byte, uint>(outputSpan1.Slice(prevOffset));

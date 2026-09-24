@@ -30,8 +30,11 @@
 #include <locale.h>
 #endif
 
+using ::MphRead::NativeRuntime::IncrementInPlace;
 using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::OpenTK::Mathematics::IsZero;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
@@ -39,27 +42,6 @@ using ::OpenTK::Mathematics::Multiply;
 
 namespace
 {
-    [[nodiscard]] std::int32_t UncheckedAddInt32(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t result = static_cast<std::uint32_t>(left)
-            + static_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(result);
-    }
-
-    [[nodiscard]] std::int32_t UncheckedSubtractInt32(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t result = static_cast<std::uint32_t>(left)
-            - static_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(result);
-    }
-
-    void UncheckedIncrement(std::int32_t& value) noexcept
-    {
-        value = UncheckedAddInt32(value, 1);
-    }
-
     [[nodiscard]] std::string CurrentCultureDecimalSeparator()
     {
 #if defined(_WIN32)
@@ -321,7 +303,7 @@ namespace MphRead::Mods::Network
             return;
         }
 
-        UncheckedIncrement(Fired[static_cast<std::size_t>(slot)]);
+        IncrementInPlace(Fired[static_cast<std::size_t>(slot)]);
         if (LengthSquared(shotVec) > 0.0001F && LengthSquared(aimVec) > 0.0001F)
         {
             const float dot = MathClamp(
@@ -355,7 +337,7 @@ namespace MphRead::Mods::Network
         if (shooterSlot >= 0 && shooterSlot < Slots
             && targetSlot >= 0 && targetSlot < Slots)
         {
-            UncheckedIncrement(PlayerOverlapsByShooter[
+            IncrementInPlace(PlayerOverlapsByShooter[
                 static_cast<std::size_t>(shooterSlot)][
                 static_cast<std::size_t>(targetSlot)]);
         }
@@ -481,10 +463,10 @@ namespace MphRead::Mods::Network
 
         if (fromBomb)
         {
-            BombDamageDealt = UncheckedAddInt32(
+            BombDamageDealt = UncheckedAdd(
                 BombDamageDealt,
                 std::bit_cast<std::int32_t>(amount));
-            UncheckedIncrement(BombDamageHits);
+            IncrementInPlace(BombDamageHits);
         }
         else
         {
@@ -493,10 +475,10 @@ namespace MphRead::Mods::Network
                 && beamIndex < static_cast<std::int32_t>(DamageByBeam.size()))
             {
                 const std::size_t index = static_cast<std::size_t>(beamIndex);
-                DamageByBeam[index] = UncheckedAddInt32(
+                DamageByBeam[index] = UncheckedAdd(
                     DamageByBeam[index],
                     std::bit_cast<std::int32_t>(amount));
-                UncheckedIncrement(HitsByBeam[index]);
+                IncrementInPlace(HitsByBeam[index]);
             }
         }
 
@@ -508,7 +490,7 @@ namespace MphRead::Mods::Network
 
         const std::size_t index = static_cast<std::size_t>(slot);
         _sequence[index] = static_cast<std::uint8_t>(_sequence[index] + 1U);
-        UncheckedIncrement(Resolved[index]);
+        IncrementInPlace(Resolved[index]);
         _attacker[index] = attacker != nullptr
             && attacker->SlotIndex() >= 0 && attacker->SlotIndex() < Slots
             ? static_cast<std::uint8_t>(attacker->SlotIndex())
@@ -611,7 +593,7 @@ namespace MphRead::Mods::Network
             return;
         }
 
-        Replayed[index] = UncheckedAddInt32(
+        Replayed[index] = UncheckedAdd(
             Replayed[index], static_cast<std::int32_t>(landed));
         const bool lethal = state.Health == 0;
         const bool mine = static_cast<std::int32_t>(state.AttackerSlot)
@@ -638,14 +620,14 @@ namespace MphRead::Mods::Network
         }
 
         std::int32_t amount = std::max<std::int32_t>(
-            1, UncheckedSubtractInt32(
+            1, UncheckedSubtract(
                 player.Health(), static_cast<std::int32_t>(state.Health)));
         if (!lethal)
         {
             amount = std::min<std::int32_t>(
                 amount,
                 std::max<std::int32_t>(
-                    1, UncheckedSubtractInt32(player.Health(), 1)));
+                    1, UncheckedSubtract(player.Health(), 1)));
         }
 
         Entities::DamageFlags flags = static_cast<Entities::DamageFlags>(

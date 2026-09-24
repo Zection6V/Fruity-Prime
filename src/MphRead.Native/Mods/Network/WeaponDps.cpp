@@ -27,7 +27,10 @@
 #include <string>
 #include <utility>
 
+using ::MphRead::NativeRuntime::IncrementInPlace;
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::OpenTK::Mathematics::Add;
 using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::LengthSquared;
@@ -40,25 +43,6 @@ using ::OpenTK::Mathematics::Subtract;
 namespace
 {
     using OpenTK::Mathematics::Vector3;
-
-    [[nodiscard]] std::int32_t AddInt32Unchecked(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] std::int32_t SubtractInt32Unchecked(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) - static_cast<std::uint32_t>(right));
-    }
-
-    void IncrementInt32Unchecked(std::int32_t& value) noexcept
-    {
-        value = AddInt32Unchecked(value, 1);
-    }
 
     [[nodiscard]] std::string HunterName(MphRead::Hunter value)
     {
@@ -210,7 +194,7 @@ namespace MphRead::Mods::Network
         const auto& players = Entities::PlayerEntity::Players();
         for (std::int32_t i = 2;
             i < static_cast<std::int32_t>(players.size());
-            i = AddInt32Unchecked(i, 1))
+            i = UncheckedAdd(i, 1))
         {
             Entities::PlayerEntity& player
                 = RequireReference(players[static_cast<std::size_t>(i)]);
@@ -218,7 +202,7 @@ namespace MphRead::Mods::Network
         }
         for (std::int32_t i = 0;
             i < static_cast<std::int32_t>(players.size());
-            i = AddInt32Unchecked(i, 1))
+            i = UncheckedAdd(i, 1))
         {
             RequireReference(players[static_cast<std::size_t>(i)]).SetIsBot(false);
         }
@@ -254,14 +238,14 @@ namespace MphRead::Mods::Network
             return;
         }
 
-        IncrementInt32Unchecked(_frame);
+        IncrementInPlace(_frame);
         Step();
         SwapBuffers();
         _scene->AfterRenderFrame();
         _window->BaseOnRenderFrame(args);
 
         if (_placed
-            && static_cast<double>(SubtractInt32Unchecked(_frame, _placedFrame))
+            && static_cast<double>(UncheckedSubtract(_frame, _placedFrame))
                 >= _seconds * 60.0)
         {
             Close();
@@ -290,9 +274,9 @@ namespace MphRead::Mods::Network
         if (_lastHealth >= 0 && victim.Health() < _lastHealth)
         {
             const std::int32_t drop
-                = SubtractInt32Unchecked(_lastHealth, victim.Health());
-            _damage = AddInt32Unchecked(_damage, drop);
-            IncrementInt32Unchecked(_hits);
+                = UncheckedSubtract(_lastHealth, victim.Health());
+            _damage = UncheckedAdd(_damage, drop);
+            IncrementInPlace(_hits);
             _lastHitFrame = _firingFrames;
         }
 
@@ -392,14 +376,14 @@ namespace MphRead::Mods::Network
                 Entities::EntityBase& entity = RequireReference(entityReference);
                 if (entity.Type == EntityType::Bomb)
                 {
-                    IncrementInt32Unchecked(_beamFrames);
+                    IncrementInPlace(_beamFrames);
                     break;
                 }
             }
 
             _lastAmmo = (shooter).ModAmmo().first;
             HoldShooter(shooter);
-            IncrementInt32Unchecked(_firingFrames);
+            IncrementInPlace(_firingFrames);
             return;
         }
 
@@ -435,7 +419,7 @@ namespace MphRead::Mods::Network
                         entityReference);
                 if (shot && shot->Owner() == shooterReference)
                 {
-                    IncrementInt32Unchecked(_beamFrames);
+                    IncrementInPlace(_beamFrames);
                     break;
                 }
             }
@@ -443,19 +427,19 @@ namespace MphRead::Mods::Network
 
         _lastAmmo = (shooter).ModAmmo().first;
         HoldShooter(shooter);
-        IncrementInt32Unchecked(_firingFrames);
+        IncrementInPlace(_firingFrames);
     }
 
     void WeaponDps::HoldShooter(Entities::PlayerEntity& shooter)
     {
         const std::int32_t floor = std::max<std::int32_t>(
             1,
-            SubtractInt32Unchecked(FullHealth(shooter), HealHeadroom));
+            UncheckedSubtract(FullHealth(shooter), HealHeadroom));
         if (shooter.Health() > floor)
         {
-            _healed = AddInt32Unchecked(
+            _healed = UncheckedAdd(
                 _healed,
-                SubtractInt32Unchecked(shooter.Health(), floor));
+                UncheckedSubtract(shooter.Health(), floor));
         }
         shooter.SetHealth(floor);
     }

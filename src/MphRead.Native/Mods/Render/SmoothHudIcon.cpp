@@ -1,6 +1,7 @@
 #include "SmoothHudIcon.hpp"
 
 #include "../../Scene.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <bit>
 #include <cstddef>
@@ -8,20 +9,11 @@
 #include <memory>
 #include <vector>
 
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+
 namespace
 {
-    [[nodiscard]] std::int32_t WrappedAdd(std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] std::int32_t WrappedProduct(std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
-    }
-
     [[nodiscard]] MphRead::ColorRgba& TextureAt(
         std::vector<MphRead::ColorRgba>& texture, std::int32_t index)
     {
@@ -44,7 +36,7 @@ namespace MphRead::Mods::Render
         }
         auto inst = std::make_shared<Hud::HudObjectInstance>(
             sheet->Width, sheet->Height,
-            WrappedProduct(sheet->Width, Factor), WrappedProduct(sheet->Height, Factor));
+            UncheckedMultiply(sheet->Width, Factor), UncheckedMultiply(sheet->Height, Factor));
         inst->Smooth = true;
         inst->Enabled = true;
         return inst;
@@ -77,16 +69,16 @@ namespace MphRead::Mods::Render
     {
         const std::int32_t width = inst.Width;
         const std::int32_t height = inst.Height;
-        const std::int32_t outWidth = WrappedProduct(width, Factor);
-        const std::int32_t outHeight = WrappedProduct(height, Factor);
+        const std::int32_t outWidth = UncheckedMultiply(width, Factor);
+        const std::int32_t outHeight = UncheckedMultiply(height, Factor);
         std::vector<ColorRgba>& texture = *inst.Texture;
-        const std::int32_t requiredLength = WrappedProduct(outWidth, outHeight);
+        const std::int32_t requiredLength = UncheckedMultiply(outWidth, outHeight);
         if (static_cast<std::int32_t>(texture.size()) < requiredLength)
         {
             return;
         }
         const std::int32_t tilesX = width / 8;
-        const std::int32_t image = WrappedProduct(WrappedProduct(frame, width), height);
+        const std::int32_t image = UncheckedMultiply(UncheckedMultiply(frame, width), height);
         const ColorRgba transparent{};
         const ColorRgba ink(color.Red, color.Green, color.Blue, 255);
         for (std::int32_t y = 0; y < outHeight; ++y)
@@ -95,7 +87,7 @@ namespace MphRead::Mods::Render
             for (std::int32_t x = 0; x < outWidth; ++x)
             {
                 ColorRgba& target = TextureAt(
-                    texture, WrappedAdd(WrappedProduct(y, outWidth), x));
+                    texture, UncheckedAdd(UncheckedMultiply(y, outWidth), x));
                 target = Ink(data, image, tilesX, width, height, x / Factor, sourceY) > 0.0F
                     ? ink
                     : transparent;
@@ -120,10 +112,10 @@ namespace MphRead::Mods::Render
             return 0.0F;
         }
         std::int32_t index = image;
-        index = WrappedAdd(index, WrappedProduct(WrappedProduct(y / 8, tilesX), 64));
-        index = WrappedAdd(index, WrappedProduct(x / 8, 64));
-        index = WrappedAdd(index, WrappedProduct(y % 8, 8));
-        index = WrappedAdd(index, x % 8);
+        index = UncheckedAdd(index, UncheckedMultiply(UncheckedMultiply(y / 8, tilesX), 64));
+        index = UncheckedAdd(index, UncheckedMultiply(x / 8, 64));
+        index = UncheckedAdd(index, UncheckedMultiply(y % 8, 8));
+        index = UncheckedAdd(index, x % 8);
         if (index < 0)
         {
             return 0.0F;

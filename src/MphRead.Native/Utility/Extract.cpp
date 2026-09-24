@@ -13,6 +13,7 @@
 #include "../Program.hpp"
 #include "../Read.hpp"
 #include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -51,6 +52,7 @@ using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::UncheckedAdd;
 
 namespace MphRead::ExtractDependency
 {
@@ -544,12 +546,6 @@ namespace
 #endif
     }
 
-    [[nodiscard]] std::int32_t ManagedAdd(std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-    }
-
     [[nodiscard]] std::vector<std::uint8_t> Slice(
         const std::vector<std::uint8_t>& bytes, std::int32_t start, std::int32_t end)
     {
@@ -807,7 +803,7 @@ namespace
         const RomDataValues& fontModel = Require(data->FontModel);
         const std::vector<std::uint8_t> bytes = FileReadAllBytes(
             Paths::Combine("files", rootName, "_bin", fontModel.File));
-        const std::int32_t end = ManagedAdd(fontModel.Offset, fontModel.Size);
+        const std::int32_t end = UncheckedAdd(fontModel.Offset, fontModel.Size);
         const std::vector<std::uint8_t> fontBytes = Slice(bytes, fontModel.Offset, end);
         FileWriteAllBytes(
             Paths::Combine("files", rootName, "models\\hudfont_Model.bin"),
@@ -934,7 +930,7 @@ namespace
 
         auto writeFile = [&](const std::string& name, std::int32_t offset, std::int32_t size)
         {
-            const std::int32_t end = ManagedAdd(offset, size);
+            const std::int32_t end = UncheckedAdd(offset, size);
             std::vector<std::uint8_t> fileBytes = Slice(bytes, offset, end);
             FileWriteAllBytes(Paths::Combine(ftcDir, name), fileBytes);
             return fileBytes;
@@ -964,7 +960,7 @@ namespace
             {
                 const std::int32_t start = i * 32 + j * 4;
                 const std::vector<std::uint8_t> value
-                    = Slice(overlayInfo, start, ManagedAdd(start, 4));
+                    = Slice(overlayInfo, start, UncheckedAdd(start, 4));
                 std::array<std::uint8_t, 4> raw{};
                 std::copy(value.begin(), value.end(), raw.begin());
                 items.push_back(BitConverterToInt32(std::span<const std::uint8_t, 4>(raw)));
@@ -1007,7 +1003,7 @@ namespace
         const std::shared_ptr<RomDataValues>& data)
     {
         const RomDataValues& value = Require(data);
-        return Slice(bytes, value.Offset, ManagedAdd(value.Offset, value.Size));
+        return Slice(bytes, value.Offset, UncheckedAdd(value.Offset, value.Size));
     }
 }
 

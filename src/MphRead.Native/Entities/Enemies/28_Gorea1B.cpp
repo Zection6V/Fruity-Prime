@@ -9,6 +9,7 @@
 #include "../../Utility/Rng.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 #include <any>
 #include <array>
@@ -26,6 +27,10 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::UInt32ToInt32;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::OpenTK::Mathematics::CreateFromAxisAngle;
 using ::OpenTK::Mathematics::CreateRotationY;
 using ::OpenTK::Mathematics::Equal;
@@ -108,22 +113,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] Enemy28Entity &RequireEnemy(Enemy28Entity *enemy) { return RequireReference(enemy); }
         [[nodiscard]] PlayerEntity &MainPlayer() { return RequireReference(PlayerEntity::Main()); }
         [[nodiscard]] Vector3 DivideVector(Vector3 value, float divisor) noexcept { return Vector3(value.X / divisor, value.Y / divisor, value.Z / divisor); }
-        [[nodiscard]] std::int32_t AddInt32Unchecked(std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t sum = std::bit_cast<std::uint32_t>(left) + std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(sum);
-        }
-        [[nodiscard]] std::int32_t SubInt32Unchecked(std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t difference = std::bit_cast<std::uint32_t>(left) - std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(difference);
-        }
-        [[nodiscard]] std::int32_t MulInt32Unchecked(std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t product = std::bit_cast<std::uint32_t>(left) * std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(product);
-        }
-        [[nodiscard]] std::int32_t UInt32ToInt32Unchecked(std::uint32_t value) noexcept { return std::bit_cast<std::int32_t>(value); }
         [[nodiscard]] std::int32_t RoundToInt32ToEven(float value) noexcept
         {
             if (!std::isfinite(value))
@@ -212,7 +201,7 @@ namespace MphRead::Entities::Enemies
             _spineNode = RequireReference(_model->Model()).GetNodeByName("Spine_02");
             EnemySpawnEntity &spawner = RequireReference(owner->Spawner());
             _volume = CollisionVolume::Move(CollisionVolume(spawner.Data.Fields.S11().Sphere2Position.ToFloatVector(), spawner.Data.Fields.S11().Sphere2Radius.FloatValue()), Position);
-            _damageTimer = MulInt32Unchecked(UInt32ToInt32Unchecked(Rng::GetRandomInt2(13) + 7U), 2);
+            _damageTimer = UncheckedMultiply(UInt32ToInt32(Rng::GetRandomInt2(13) + 7U), 2);
             _swingTimer = 30 * 2;
             _phasesLeft = 3;
             if (Rng::GetRandomInt2(255) % 2U != 0U)
@@ -551,7 +540,7 @@ namespace MphRead::Entities::Enemies
         const float fractional = std::fmod(index, 1.0F);
         if (fractional != 0.0F)
         {
-            const Vector3 between = ArrayAt(_grappleVecs, AddInt32Unchecked(intIndex, 1)) - result;
+            const Vector3 between = ArrayAt(_grappleVecs, UncheckedAdd(intIndex, 1)) - result;
             result = result + ScaleVector(between, fractional);
         }
         return result;
@@ -680,7 +669,7 @@ namespace MphRead::Entities::Enemies
         }
         if (_damageTimer == 0)
         {
-            _damageTimer = MulInt32Unchecked(UInt32ToInt32Unchecked(Rng::GetRandomInt2(13) + 7U), 2);
+            _damageTimer = UncheckedMultiply(UInt32ToInt32(Rng::GetRandomInt2(13) + 7U), 2);
             MainPlayer().TakeDamage(2, DamageFlags::NoDmgInvuln, std::nullopt, this);
             SpawnEffect(179, MainPlayer().Position);
         }
@@ -923,9 +912,9 @@ namespace MphRead::Entities::Enemies
                     if (trocra->Field184 > 0)
                     {
                         --trocra->Field184;
-                        const float randomX = Fixed::ToFloat(UInt32ToInt32Unchecked(Rng::GetRandomInt2(4096) - 2048U));
-                        const float randomY = Fixed::ToFloat(UInt32ToInt32Unchecked(Rng::GetRandomInt2(4096) - 2048U));
-                        const float randomZ = Fixed::ToFloat(UInt32ToInt32Unchecked(Rng::GetRandomInt2(4096) - 2048U));
+                        const float randomX = Fixed::ToFloat(UInt32ToInt32(Rng::GetRandomInt2(4096) - 2048U));
+                        const float randomY = Fixed::ToFloat(UInt32ToInt32(Rng::GetRandomInt2(4096) - 2048U));
+                        const float randomZ = Fixed::ToFloat(UInt32ToInt32(Rng::GetRandomInt2(4096) - 2048U));
                         trocra->Position = Vector3(trocra->Field174.X + randomX, trocra->Field174.Y + randomY, trocra->Field174.Z + randomZ);
                     }
                     if (trocra->Field184 == 0)
@@ -1065,7 +1054,7 @@ namespace MphRead::Entities::Enemies
     bool Enemy28Entity::BehaviorXX() { return AnimationEnded(); }
     bool Enemy28Entity::Behavior00()
     {
-        _holdTimer = MulInt32Unchecked(UInt32ToInt32Unchecked(Rng::GetRandomInt2(150) + 150U), 2);
+        _holdTimer = UncheckedMultiply(UInt32ToInt32(Rng::GetRandomInt2(150) + 150U), 2);
         return true;
     }
     bool Enemy28Entity::Behavior01() { return _volume.TestPoint(Position); }
@@ -1125,13 +1114,13 @@ namespace MphRead::Entities::Enemies
     bool Enemy28Entity::Behavior03()
     {
         const std::int32_t damage = RequireReference(_sealSphere).Damage();
-        const std::int32_t threshold = MulInt32Unchecked(1000, SubInt32Unchecked(4, _phasesLeft));
+        const std::int32_t threshold = UncheckedMultiply(1000, UncheckedSubtract(4, _phasesLeft));
         if (damage < threshold)
         {
             return false;
         }
         StopGrappling();
-        _phasesLeft = SubInt32Unchecked(_phasesLeft, 1);
+        _phasesLeft = UncheckedSubtract(_phasesLeft, 1);
         if (_phasesLeft <= 0)
         {
             _soundSource.PlaySfx(SfxId::GOREA_1B_DIE2_SCR);
@@ -1190,7 +1179,7 @@ namespace MphRead::Entities::Enemies
         if (_field21E <= 0.0F)
         {
             StopGrappling();
-            _holdTimer = MulInt32Unchecked(UInt32ToInt32Unchecked(Rng::GetRandomInt2(150) + 150U), 2);
+            _holdTimer = UncheckedMultiply(UInt32ToInt32(Rng::GetRandomInt2(150) + 150U), 2);
             return true;
         }
         return false;
@@ -1204,7 +1193,7 @@ namespace MphRead::Entities::Enemies
         }
         return false;
     }
-    bool Enemy28Entity::Behavior08() { return SubInt32Unchecked(RequireReference(_sealSphere).Damage(), _field234) >= 35; }
+    bool Enemy28Entity::Behavior08() { return UncheckedSubtract(RequireReference(_sealSphere).Damage(), _field234) >= 35; }
     bool Enemy28Entity::Behavior09()
     {
         if (MainPlayer().Position.Y - Position.Y < 10.0F)
@@ -1285,7 +1274,7 @@ namespace MphRead::Entities::Enemies
             _soundSource.PlaySfx(SfxId::GOREA_ATTACK2C_SCR);
             MainPlayer().TakeDamage(30, DamageFlags::NoDmgInvuln, std::nullopt, this);
             RequireReference(MainPlayer().CameraInfo()).SetShake(0.75F);
-            _holdTimer = MulInt32Unchecked(UInt32ToInt32Unchecked(Rng::GetRandomInt2(150) + 150U), 2);
+            _holdTimer = UncheckedMultiply(UInt32ToInt32(Rng::GetRandomInt2(150) + 150U), 2);
         }
         return collided;
     }
@@ -1379,7 +1368,7 @@ namespace MphRead::Entities::Enemies
             std::shared_ptr<Material> material = RequireReference(RequireReference(_model).Model()).GetMaterialByName("ChestCore");
             Material &materialRef = RequireReference(material);
             const std::int32_t maxFrame = 10 * 2;
-            const std::int32_t frame = SubInt32Unchecked(maxFrame, RequireReference(_sealSphere).DamageTimer());
+            const std::int32_t frame = UncheckedSubtract(maxFrame, RequireReference(_sealSphere).DamageTimer());
             const ColorRgb ambient = RequireReference(_sealSphere).Ambient;
             const ColorRgb diffuse = RequireReference(_sealSphere).Diffuse;
             IncrementMaterialColors(&materialRef, ambient, diffuse, frame, maxFrame);

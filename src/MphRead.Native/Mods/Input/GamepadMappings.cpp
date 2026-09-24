@@ -3,6 +3,7 @@
 #include "GamepadLayout.hpp"
 #include "../Launcher/Portable/LauncherPrefs.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <bit>
 #include <cstddef>
@@ -44,6 +45,7 @@
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::UncheckedAdd;
 
 namespace
 {
@@ -691,13 +693,6 @@ namespace
             : std::optional<std::string>{DecodeUtf8(value)};
     }
 
-    [[nodiscard]] std::int32_t AddUnchecked(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            std::bit_cast<std::uint32_t>(left)
-            + std::bit_cast<std::uint32_t>(right));
-    }
 }
 
 namespace MphRead::Mods::Input
@@ -732,8 +727,8 @@ namespace MphRead::Mods::Input
             }
             if (Apply(*text))
             {
-                files = AddUnchecked(files, 1);
-                lines = AddUnchecked(lines, Count(*text));
+                files = UncheckedAdd(files, 1);
+                lines = UncheckedAdd(lines, Count(*text));
                 std::cout << "[input] gamepad mappings: "
                     << Count(*text) << " from " << path << '\n';
             }
@@ -744,8 +739,8 @@ namespace MphRead::Mods::Input
             && !TrimDotNetWhitespace(*config).empty()
             && Apply(*config))
         {
-            files = AddUnchecked(files, 1);
-            lines = AddUnchecked(lines, Count(*config));
+            files = UncheckedAdd(files, 1);
+            lines = UncheckedAdd(lines, Count(*config));
             std::cout << "[input] gamepad mappings: "
                 << Count(*config) << " from SDL_GAMECONTROLLERCONFIG\n";
         }

@@ -23,6 +23,9 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::OpenTK::Mathematics::CreateFromAxisAngle;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 
@@ -63,30 +66,6 @@ namespace MphRead::Entities::Enemies
             return array[static_cast<std::size_t>(index)];
         }
 
-        [[nodiscard]] std::int32_t AddInt32Unchecked(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t sum
-                = std::bit_cast<std::uint32_t>(left) + std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(sum);
-        }
-
-        [[nodiscard]] std::int32_t SubInt32Unchecked(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t difference
-                = std::bit_cast<std::uint32_t>(left) - std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(difference);
-        }
-
-        [[nodiscard]] std::int32_t MulInt32Unchecked(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t product
-                = std::bit_cast<std::uint32_t>(left) * std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(product);
-        }
-
         [[nodiscard]] std::int32_t DivideInt32(
             std::int32_t dividend, std::int32_t divisor)
         {
@@ -122,15 +101,15 @@ namespace MphRead::Entities::Enemies
     Enemy44Values Enemy44Entity::GetValues() const
     {
         const Enemy41Entity& slench = RequireReference(_slench);
-        const std::int32_t index = MulInt32Unchecked(slench.Subtype(), 3);
+        const std::int32_t index = UncheckedMultiply(slench.Subtype(), 3);
         return VectorAt(Metadata::Enemy44Values, index);
     }
 
     Enemy44Values Enemy44Entity::GetPhaseValues() const
     {
         const Enemy41Entity& slench = RequireReference(_slench);
-        const std::int32_t baseIndex = MulInt32Unchecked(slench.Subtype(), 3);
-        const std::int32_t index = AddInt32Unchecked(baseIndex, slench.Phase());
+        const std::int32_t baseIndex = UncheckedMultiply(slench.Subtype(), 3);
+        const std::int32_t index = UncheckedAdd(baseIndex, slench.Phase());
         return VectorAt(Metadata::Enemy44Values, index);
     }
 
@@ -228,7 +207,7 @@ namespace MphRead::Entities::Enemies
         }
         case SynapseState::Idle:
             Flags &= ~EnemyFlags::Invincible;
-            _timer = MulInt32Unchecked(static_cast<std::int32_t>(values.HealTimer), 2);
+            _timer = UncheckedMultiply(static_cast<std::int32_t>(values.HealTimer), 2);
             RequireReference(_model).SetAnimation(1);
             break;
         case SynapseState::Damaged:
@@ -251,7 +230,7 @@ namespace MphRead::Entities::Enemies
             Flags &= ~EnemyFlags::Visible;
             Flags |= EnemyFlags::Invincible;
             SetTurretActive(false);
-            _timer = MulInt32Unchecked(static_cast<std::int32_t>(values.ReappearTimer), 2);
+            _timer = UncheckedMultiply(static_cast<std::int32_t>(values.ReappearTimer), 2);
             break;
         }
         _state2 = static_cast<std::uint8_t>(state);
@@ -276,13 +255,13 @@ namespace MphRead::Entities::Enemies
         {
             if (_health < values.Health && _timer != 0)
             {
-                _timer = SubInt32Unchecked(_timer, 1);
+                _timer = UncheckedSubtract(_timer, 1);
                 if (_timer == 0)
                 {
                     ++_health;
                     if (_health < values.Health)
                     {
-                        _timer = MulInt32Unchecked(
+                        _timer = UncheckedMultiply(
                             static_cast<std::int32_t>(values.HealTimer), 2);
                     }
                 }
@@ -312,7 +291,7 @@ namespace MphRead::Entities::Enemies
         {
             if (RequireReference(_slench).CanSynapsesRespawn() && _timer != 0)
             {
-                _timer = SubInt32Unchecked(_timer, 1);
+                _timer = UncheckedSubtract(_timer, 1);
                 if (_timer == 0)
                 {
                     ChangeState(SynapseState::Appear);
@@ -339,7 +318,7 @@ namespace MphRead::Entities::Enemies
                 const std::int32_t increment = DivideInt32(healthDifference, segments);
                 if (increment != 0)
                 {
-                    const std::int32_t product = MulInt32Unchecked(increment, segments);
+                    const std::int32_t product = UncheckedMultiply(increment, segments);
                     const std::uint16_t delta
                         = static_cast<std::uint16_t>(static_cast<std::uint32_t>(product));
                     _healthForTurretUpdate = static_cast<std::uint16_t>(
@@ -350,7 +329,7 @@ namespace MphRead::Entities::Enemies
                     Message message;
                     if (increment < 0)
                     {
-                        param1 = SubInt32Unchecked(0, increment);
+                        param1 = UncheckedSubtract(0, increment);
                         message = Message::DecreaseTurretLights;
                     }
                     else

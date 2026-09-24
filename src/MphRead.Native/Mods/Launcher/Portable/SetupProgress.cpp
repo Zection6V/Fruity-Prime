@@ -12,6 +12,8 @@
 
 using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::RoundToEven;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedNegate;
 
 namespace
 {
@@ -30,19 +32,6 @@ namespace
     [[nodiscard]] bool IsAsciiDigit(char value) noexcept
     {
         return value >= '0' && value <= '9';
-    }
-
-    [[nodiscard]] std::int32_t WrapAdd(std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t a = std::bit_cast<std::uint32_t>(left);
-        const std::uint32_t b = std::bit_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(a + b);
-    }
-
-    [[nodiscard]] std::int32_t WrapNegate(std::int32_t value) noexcept
-    {
-        const std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
-        return std::bit_cast<std::int32_t>(std::uint32_t{0} - bits);
     }
 
     [[nodiscard]] bool TryParseInt32(std::string_view text, std::int32_t& result) noexcept
@@ -177,10 +166,10 @@ namespace MphRead::Mods::Launcher
             _band = std::move(next);
             _seen = 0;
         }
-        _seen = WrapAdd(_seen, 1);
+        _seen = UncheckedAdd(_seen, 1);
 
         const double span = _band.End - _band.Start;
-        const std::int32_t negatedSeen = WrapNegate(_seen);
+        const std::int32_t negatedSeen = UncheckedNegate(_seen);
         const double eased = 1 - std::exp(static_cast<double>(negatedSeen) / _band.Scale);
         return Set(_band.Start + span * eased, _band.Stage);
     }
@@ -256,7 +245,7 @@ namespace MphRead::Mods::Launcher
     std::string SetupProgress::Bar(std::int32_t width) const
     {
         const std::int32_t filled = static_cast<std::int32_t>(RoundToEven(_fraction * static_cast<double>(width)));
-        const std::int32_t capacity = WrapAdd(width, 8);
+        const std::int32_t capacity = UncheckedAdd(width, 8);
         if (capacity < 0)
         {
             throw std::out_of_range("capacity");

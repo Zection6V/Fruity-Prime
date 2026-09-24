@@ -8,6 +8,7 @@
 #include "../Scene.hpp"
 #include "../Utility/Rng.hpp"
 #include "Players/PlayerEntity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 #include "../Formats/Types.hpp"
 
 #include <any>
@@ -20,6 +21,8 @@
 #include <type_traits>
 #include <utility>
 
+using ::MphRead::NativeRuntime::UncheckedDecrement;
+using ::MphRead::NativeRuntime::UncheckedIncrement;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::ClearScale;
 using ::OpenTK::Mathematics::Length;
@@ -81,16 +84,6 @@ namespace
     {
         return MphRead::Memory::Detail::UncheckedMultiply(
             std::bit_cast<std::int32_t>(value), 2);
-    }
-
-    [[nodiscard]] constexpr std::int32_t UncheckedAddOne(std::int32_t value) noexcept
-    {
-        return MphRead::Memory::Detail::UncheckedAdd(value, 1);
-    }
-
-    [[nodiscard]] constexpr std::int32_t UncheckedSubtractOne(std::int32_t value) noexcept
-    {
-        return MphRead::Memory::Detail::UncheckedAdd(value, -1);
     }
 
     [[nodiscard]] bool MatrixEquals(Matrix4 left, Matrix4 right) noexcept
@@ -202,7 +195,7 @@ namespace MphRead::Entities
             std::shared_ptr<StorySave> setStorySave = GameState::StorySave;
             const std::int32_t setRoomId = GetRoomId(scene);
             const std::int32_t setId = Id;
-            const std::int32_t roomState = UncheckedAddOne(_state);
+            const std::int32_t roomState = UncheckedIncrement(_state);
             if (setStorySave == nullptr)
             {
                 throw Memory::Detail::NullReferenceException();
@@ -531,7 +524,7 @@ namespace MphRead::Entities
         std::shared_ptr<StorySave> storySave = GameState::StorySave;
         const std::int32_t roomId = GetRoomId(_scene);
         const std::int32_t id = Id;
-        const std::int32_t roomState = UncheckedAddOne(_state);
+        const std::int32_t roomState = UncheckedIncrement(_state);
         if (storySave == nullptr)
         {
             throw Memory::Detail::NullReferenceException();
@@ -711,7 +704,7 @@ namespace MphRead::Entities
                     UpdateNodeRefVolume();
                 }
 
-                _effectIntervalTimer = UncheckedSubtractOne(_effectIntervalTimer);
+                _effectIntervalTimer = UncheckedDecrement(_effectIntervalTimer);
                 if (_effectIntervalTimer > 0)
                 {
                     if (sfxInfo != nullptr

@@ -21,6 +21,7 @@
 #include "Metadata/Player.hpp"
 #include "Sound/Music.hpp"
 #include "Sound/Sfx.hpp"
+#include "NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <any>
@@ -40,6 +41,11 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::ShiftRight;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 
 namespace MphRead::GameStateDetail
 {
@@ -151,49 +157,12 @@ namespace
         return text;
     }
 
-    [[nodiscard]] std::int32_t WrapAdd(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] std::int32_t WrapSubtract(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) - static_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] std::int32_t WrapMultiply(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
-    }
-
     [[nodiscard]] std::int32_t ShiftLeftInt32(
         std::int32_t value, std::int32_t count) noexcept
     {
         const std::uint32_t shift = static_cast<std::uint32_t>(count) & 31U;
         return std::bit_cast<std::int32_t>(
             std::bit_cast<std::uint32_t>(value) << shift);
-    }
-
-    [[nodiscard]] std::int32_t ArithmeticShiftRight(
-        std::int32_t value, std::int32_t count) noexcept
-    {
-        const std::uint32_t shift = static_cast<std::uint32_t>(count) & 31U;
-        if (shift == 0)
-        {
-            return value;
-        }
-        std::uint32_t bits = std::bit_cast<std::uint32_t>(value) >> shift;
-        if (value < 0)
-        {
-            bits |= ~std::uint32_t{0} << (32U - shift);
-        }
-        return std::bit_cast<std::int32_t>(bits);
     }
 
     [[nodiscard]] bool HasLoadFlag(
@@ -513,7 +482,7 @@ namespace MphRead
         }
 
         const Entities::PlayerValues& values = Metadata::PlayerValues.at(0);
-        Health = HealthMax = WrapSubtract(values.EnergyTank, 1);
+        Health = HealthMax = UncheckedSubtract(values.EnergyTank, 1);
         ManagedAt(Ammo, 0) = ManagedAt(AmmoMax, 0) = 400;
         ManagedAt(Ammo, 1) = 0;
         ManagedAt(AmmoMax, 1) = 50;
@@ -563,12 +532,12 @@ namespace MphRead
             return 1;
         }
 
-        roomId = WrapSubtract(roomId, 27);
+        roomId = UncheckedSubtract(roomId, 27);
         activeState &= 3;
         inactiveState &= 3;
         const std::int32_t byteIndex = entityId / 4;
         std::int32_t pairIndex = entityId % 4;
-        pairIndex = WrapMultiply(pairIndex, 2);
+        pairIndex = UncheckedMultiply(pairIndex, 2);
         const std::int32_t pairMask = ShiftLeftInt32(3, pairIndex);
 
         ByteArray& row = ManagedAt(RoomState, roomId);
@@ -582,7 +551,7 @@ namespace MphRead
                 static_cast<std::int32_t>(value)
                 | ShiftLeftInt32(state, pairIndex));
         }
-        return GetRoomState(WrapAdd(roomId, 27), entityId);
+        return GetRoomState(UncheckedAdd(roomId, 27), entityId);
     }
 
     std::int32_t StorySave::GetRoomState(
@@ -597,14 +566,14 @@ namespace MphRead
             return 1;
         }
 
-        roomId = WrapSubtract(roomId, 27);
+        roomId = UncheckedSubtract(roomId, 27);
         const std::int32_t byteIndex = entityId / 4;
         std::int32_t pairIndex = entityId % 4;
-        pairIndex = WrapMultiply(pairIndex, 2);
+        pairIndex = UncheckedMultiply(pairIndex, 2);
         const ByteArray& row = ManagedAt(RoomState, roomId);
         const std::uint8_t value = ManagedAt(row, byteIndex);
-        return WrapSubtract(
-            ArithmeticShiftRight(
+        return UncheckedSubtract(
+            ShiftRight(
                 static_cast<std::int32_t>(value), pairIndex) & 3,
             1);
     }
@@ -617,11 +586,11 @@ namespace MphRead
             return;
         }
 
-        roomId = WrapSubtract(roomId, 27);
+        roomId = UncheckedSubtract(roomId, 27);
         state &= 3;
         const std::int32_t byteIndex = entityId / 4;
         std::int32_t pairIndex = entityId % 4;
-        pairIndex = WrapMultiply(pairIndex, 2);
+        pairIndex = UncheckedMultiply(pairIndex, 2);
         const std::int32_t pairMask = ShiftLeftInt32(3, pairIndex);
 
         ByteArray& row = ManagedAt(RoomState, roomId);
@@ -639,7 +608,7 @@ namespace MphRead
         {
             return false;
         }
-        roomId = WrapSubtract(roomId, 27);
+        roomId = UncheckedSubtract(roomId, 27);
         const std::int32_t byteIndex = roomId / 8;
         const std::int32_t bitIndex = roomId % 8;
         return (static_cast<std::int32_t>(ManagedAt(VisitedRooms, byteIndex))
@@ -652,7 +621,7 @@ namespace MphRead
         {
             return;
         }
-        roomId = WrapSubtract(roomId, 27);
+        roomId = UncheckedSubtract(roomId, 27);
         const std::int32_t byteIndex = roomId / 8;
         const std::int32_t bitIndex = roomId % 8;
         std::uint8_t& value = ManagedAt(VisitedRooms, byteIndex);
@@ -669,12 +638,12 @@ namespace MphRead
         }
         if (connectorId >= 32)
         {
-            const std::int32_t index = WrapAdd(areaId & ~1, 1);
+            const std::int32_t index = UncheckedAdd(areaId & ~1, 1);
             const std::int32_t value = ManagedAt(VisitedConnectors, index);
-            return (ArithmeticShiftRight(value, WrapSubtract(connectorId, 32)) & 1) != 0;
+            return (ShiftRight(value, UncheckedSubtract(connectorId, 32)) & 1) != 0;
         }
         const std::int32_t value = ManagedAt(VisitedConnectors, areaId & ~1);
-        return (ArithmeticShiftRight(value, connectorId) & 1) != 0;
+        return (ShiftRight(value, connectorId) & 1) != 0;
     }
 
     void StorySave::SetVisitedConnector(
@@ -686,12 +655,12 @@ namespace MphRead
         }
         if (connectorId >= 32)
         {
-            const std::int32_t index = WrapAdd(areaId & ~1, 1);
+            const std::int32_t index = UncheckedAdd(areaId & ~1, 1);
             std::int32_t& value = ManagedAt(VisitedConnectors, index);
             value = std::bit_cast<std::int32_t>(
                 std::bit_cast<std::uint32_t>(value)
                 | std::bit_cast<std::uint32_t>(
-                    ShiftLeftInt32(1, WrapSubtract(connectorId, 32))));
+                    ShiftLeftInt32(1, UncheckedSubtract(connectorId, 32))));
         }
         else
         {
@@ -715,7 +684,7 @@ namespace MphRead
         {
             if (CheckFoundOctolith(i))
             {
-                count = WrapAdd(count, 1);
+                count = UncheckedAdd(count, 1);
             }
         }
         return count;
@@ -732,7 +701,7 @@ namespace MphRead
     bool StorySave::CheckFoundArtifact(
         std::int32_t artifactId, std::int32_t modelId) const
     {
-        const std::int32_t shift = WrapAdd(artifactId, WrapMultiply(3, modelId));
+        const std::int32_t shift = UncheckedAdd(artifactId, UncheckedMultiply(3, modelId));
         return (Artifacts
             & std::bit_cast<std::uint32_t>(ShiftLeftInt32(1, shift))) != 0;
     }
@@ -744,7 +713,7 @@ namespace MphRead
         {
             if (CheckFoundArtifact(i, modelId))
             {
-                count = WrapAdd(count, 1);
+                count = UncheckedAdd(count, 1);
             }
         }
         return count;
@@ -753,7 +722,7 @@ namespace MphRead
     void StorySave::UpdateFoundArtifact(
         std::int32_t artifactId, std::int32_t modelId)
     {
-        const std::int32_t shift = WrapAdd(artifactId, WrapMultiply(3, modelId));
+        const std::int32_t shift = UncheckedAdd(artifactId, UncheckedMultiply(3, modelId));
         Artifacts |= std::bit_cast<std::uint32_t>(ShiftLeftInt32(1, shift));
     }
 
@@ -762,7 +731,7 @@ namespace MphRead
         for (std::int32_t i = 0; i < 8; ++i)
         {
             const std::uint32_t shift
-                = static_cast<std::uint32_t>(WrapMultiply(4, i)) & 31U;
+                = static_cast<std::uint32_t>(UncheckedMultiply(4, i)) & 31U;
             if (((LostOctoliths >> shift) & 15U)
                 == static_cast<std::uint32_t>(hunter))
             {
@@ -787,11 +756,11 @@ namespace MphRead
             const std::int32_t category = Text::Strings::GetScanEntryCategory(scanId);
             if (category < 3)
             {
-                ScanCount = WrapAdd(ScanCount, 1);
+                ScanCount = UncheckedAdd(ScanCount, 1);
             }
             else if (category == 3)
             {
-                EquipmentCount = WrapAdd(EquipmentCount, 1);
+                EquipmentCount = UncheckedAdd(EquipmentCount, 1);
             }
         }
     }
@@ -834,7 +803,7 @@ namespace MphRead
             }
             if (categoryMatch && (!unlockedOnly || CheckLogbook(i)))
             {
-                result = WrapAdd(result, 1);
+                result = UncheckedAdd(result, 1);
             }
         }
         return result;
@@ -866,19 +835,19 @@ namespace MphRead
             }
             if ((static_cast<std::int32_t>(Weapons) & ShiftLeftInt32(1, i)) != 0)
             {
-                count = WrapAdd(count, 1);
+                count = UncheckedAdd(count, 1);
             }
         }
         for (std::int32_t i = 0; i < 8; ++i)
         {
             for (std::int32_t j = 0; j < 3; ++j)
             {
-                const std::int32_t shift = WrapAdd(WrapMultiply(i, 3), j);
+                const std::int32_t shift = UncheckedAdd(UncheckedMultiply(i, 3), j);
                 if ((Artifacts
                     & std::bit_cast<std::uint32_t>(
                         ShiftLeftInt32(1, shift))) != 0)
                 {
-                    count = WrapAdd(count, 1);
+                    count = UncheckedAdd(count, 1);
                 }
             }
         }
@@ -887,19 +856,19 @@ namespace MphRead
             if ((static_cast<std::int32_t>(FoundOctoliths)
                 & ShiftLeftInt32(1, i)) != 0)
             {
-                count = WrapAdd(count, 1);
+                count = UncheckedAdd(count, 1);
             }
         }
 
         const std::int32_t energyTank = Metadata::PlayerValues.at(0).EnergyTank;
         const std::int32_t etankCount = HealthMax / energyTank;
         const std::int32_t missileCount
-            = WrapSubtract(ManagedAt(AmmoMax, 1), 50) / 100;
+            = UncheckedSubtract(ManagedAt(AmmoMax, 1), 50) / 100;
         const std::int32_t uaCount
-            = WrapSubtract(ManagedAt(AmmoMax, 0), 400) / 300;
-        count = WrapAdd(count, WrapAdd(etankCount, WrapAdd(missileCount, uaCount)));
+            = UncheckedSubtract(ManagedAt(AmmoMax, 0), 400) / 300;
+        count = UncheckedAdd(count, UncheckedAdd(etankCount, UncheckedAdd(missileCount, uaCount)));
 
-        return WrapMultiply(100, count) / WrapAdd(maxScans, 66);
+        return UncheckedMultiply(100, count) / UncheckedAdd(maxScans, 66);
     }
 
     void StorySave::CopyTo(StorySave* other) const
@@ -996,14 +965,14 @@ namespace MphRead
         _menuPause = true;
         SfxInstance()->StopAllSound();
         Sound::Sfx::TimedSfxMute
-            = WrapAdd(Sound::Sfx::TimedSfxMute, 1);
+            = UncheckedAdd(Sound::Sfx::TimedSfxMute, 1);
     }
 
     void GameState::UnpauseMenu()
     {
         _menuPause = false;
         Sound::Sfx::TimedSfxMute
-            = WrapSubtract(Sound::Sfx::TimedSfxMute, 1);
+            = UncheckedSubtract(Sound::Sfx::TimedSfxMute, 1);
     }
 
     void GameState::PauseDialog() noexcept
@@ -1228,7 +1197,7 @@ namespace MphRead
                     {
                         if (ArrayAt(teams, team))
                         {
-                            representedTeams = WrapAdd(representedTeams, 1);
+                            representedTeams = UncheckedAdd(representedTeams, 1);
                         }
                     }
                     invalid = representedTeams < 2;
@@ -1311,7 +1280,7 @@ namespace MphRead
                                 static_cast<std::int32_t>(SfxId::ALARM),
                                 nullptr, false, false, -1.0F, false, false);
                             _lastAlarmTime = scene->ElapsedTime();
-                            _nextAlarmIndex = WrapAdd(_nextAlarmIndex, 1);
+                            _nextAlarmIndex = UncheckedAdd(_nextAlarmIndex, 1);
                             if (_nextAlarmIndex
                                 >= static_cast<std::int32_t>(_alarmIntervals.size()))
                             {
@@ -1424,8 +1393,8 @@ namespace MphRead
         {
             return AreaState::None;
         }
-        const std::int32_t shift = WrapMultiply(2, areaId);
-        const std::int32_t value = ArithmeticShiftRight(
+        const std::int32_t shift = UncheckedMultiply(2, areaId);
+        const std::int32_t value = ShiftRight(
             std::bit_cast<std::int32_t>(
                 static_cast<std::uint32_t>(save->BossFlags)),
             shift) & 3;
@@ -1566,11 +1535,11 @@ namespace MphRead
                 ArrayAt(_time, i) += frameTime;
                 if (player->IsBot())
                 {
-                    botsAlive = WrapAdd(botsAlive, 1);
+                    botsAlive = UncheckedAdd(botsAlive, 1);
                 }
                 else
                 {
-                    playersAlive = WrapAdd(playersAlive, 1);
+                    playersAlive = UncheckedAdd(playersAlive, 1);
                 }
                 if (_teams)
                 {
@@ -1579,14 +1548,14 @@ namespace MphRead
                         && !ArrayAt(teamsAlive, player->TeamIndex()))
                     {
                         ArrayAt(teamsAlive, player->TeamIndex()) = true;
-                        aliveTeamCount = WrapAdd(aliveTeamCount, 1);
+                        aliveTeamCount = UncheckedAdd(aliveTeamCount, 1);
                     }
                 }
             }
         }
 
         if (Mods::Network::NetMatchEnd::MayEndOnScore()
-            && (WrapAdd(playersAlive, botsAlive) < 2
+            && (UncheckedAdd(playersAlive, botsAlive) < 2
                 || (_teams && aliveTeamCount < 2)))
         {
             _matchTime = 0.0F;
@@ -1601,7 +1570,7 @@ namespace MphRead
                 }
             }
         }
-        else if (WrapAdd(playersAlive, botsAlive) == 2
+        else if (UncheckedAdd(playersAlive, botsAlive) == 2
             && Entities::PlayerEntity::PlayerCount() > 2)
         {
             _radarPlayers = true;
@@ -1845,7 +1814,7 @@ namespace MphRead
                         && message.ExecuteFrame == scene->FrameCount())
                     {
                         UpdateEscapeState(
-                            WrapMultiply(UnboxInt(message.Param1), 30),
+                            UncheckedMultiply(UnboxInt(message.Param1), 30),
                             UnboxInt(message.Param2));
                     }
                 }
@@ -1962,7 +1931,7 @@ namespace MphRead
     {
         StorySaveValue* save = Require(StorySave.get());
         std::uint32_t flags = static_cast<std::uint32_t>(save->BossFlags);
-        const std::int32_t shift = WrapMultiply(2, areaId);
+        const std::int32_t shift = UncheckedMultiply(2, areaId);
         flags &= static_cast<std::uint32_t>(
             ~ShiftLeftInt32(3, shift));
         flags |= std::bit_cast<std::uint32_t>(
@@ -2104,11 +2073,11 @@ namespace MphRead
             }
 
             std::int32_t& teamPoints = ArrayAt(_teamPoints, player->TeamIndex());
-            teamPoints = WrapAdd(teamPoints, ArrayAt(_points, i));
+            teamPoints = UncheckedAdd(teamPoints, ArrayAt(_points, i));
             std::int32_t& teamDeaths = ArrayAt(_teamDeaths, player->TeamIndex());
-            teamDeaths = WrapAdd(teamDeaths, ArrayAt(_deaths, i));
+            teamDeaths = UncheckedAdd(teamDeaths, ArrayAt(_deaths, i));
             std::int32_t& teamKills = ArrayAt(_teamKills, player->TeamIndex());
-            teamKills = WrapAdd(teamKills, ArrayAt(_kills, i));
+            teamKills = UncheckedAdd(teamKills, ArrayAt(_kills, i));
 
             if (_mode == GameMode::Survival
                 || _mode == GameMode::SurvivalTeams)
@@ -2138,7 +2107,7 @@ namespace MphRead
             const std::int32_t teamIndex = MainPlayer()->TeamIndex();
             const std::int32_t teamPoints = ArrayAt(_teamPoints, teamIndex);
             if (teamPoints != ArrayAt(prevTeamPoints, teamIndex)
-                && teamPoints == WrapSubtract(_pointGoal, 1))
+                && teamPoints == UncheckedSubtract(_pointGoal, 1))
             {
                 Sound::Sfx::QueueStream(
                     VoiceId::VOICE_ONE_KILL_TO_WIN, 1.0F);
@@ -2164,7 +2133,7 @@ namespace MphRead
                         && (opponentMask & (1 << player->TeamIndex())) == 0)
                     {
                         opponentMask |= 1 << player->TeamIndex();
-                        opponents = WrapAdd(opponents, 1);
+                        opponents = UncheckedAdd(opponents, 1);
                         lastTeam = player->TeamIndex();
                     }
                 }
@@ -2307,7 +2276,7 @@ namespace MphRead
     {
         if (roomId >= 27 && roomId <= 92)
         {
-            ArrayAt(_completedRandomEncounterRooms, WrapSubtract(roomId, 27)) = true;
+            ArrayAt(_completedRandomEncounterRooms, UncheckedSubtract(roomId, 27)) = true;
         }
     }
 
@@ -2461,7 +2430,7 @@ namespace MphRead
 
         for (std::int32_t r = 91; r <= 92; ++r)
         {
-            auto& row = ManagedAt(storySave->RoomState, WrapSubtract(r, 27));
+            auto& row = ManagedAt(storySave->RoomState, UncheckedSubtract(r, 27));
             for (std::int32_t b = 0; b < 60; ++b)
             {
                 ManagedAt(row, b) = 0;

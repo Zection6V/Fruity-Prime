@@ -40,6 +40,8 @@
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
 using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::Length;
 
@@ -110,18 +112,6 @@ namespace
     [[nodiscard]] std::int32_t ToIntCount(std::size_t value) noexcept
     {
         return std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(value));
-    }
-
-    [[nodiscard]] std::int32_t ManagedAdd(std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] std::int32_t ManagedMul(std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
     }
 
     [[nodiscard]] bool Vector3Equals(Vector3 left, Vector3 right) noexcept
@@ -320,7 +310,7 @@ namespace
             editor->Plane = Vector4(normal, plane.W);
             for (std::int32_t i = 0; i < static_cast<std::int32_t>(data.PointIndexCount); ++i)
             {
-                const std::int32_t pointIndexPosition = ManagedAdd(
+                const std::int32_t pointIndexPosition = UncheckedAdd(
                     static_cast<std::int32_t>(data.PointStartIndex), i);
                 const std::uint16_t pointIndex = ManagedAt(
                     Require(info.PointIndices), pointIndexPosition);
@@ -367,9 +357,9 @@ namespace
             = static_cast<std::uint32_t>(info.Header.DataCount) - info.Header.PortalCount;
         for (std::int32_t i = 0;
             static_cast<std::int64_t>(i) < static_cast<std::int64_t>(sourceCount);
-            i = ManagedAdd(i, 1))
+            i = UncheckedAdd(i, 1))
         {
-            const std::int32_t dataIndex = ManagedAdd(
+            const std::int32_t dataIndex = UncheckedAdd(
                 i, std::bit_cast<std::int32_t>(info.Header.PortalCount));
             const FhCollisionData& data = ManagedAt(Require(info.Data), dataIndex);
             const Vector4 plane = ManagedAt(
@@ -381,7 +371,7 @@ namespace
             editor->Plane = Vector4(normal, plane.W);
             for (std::int32_t j = 0; j < static_cast<std::int32_t>(data.VectorCount); ++j)
             {
-                const std::int32_t vectorIndex = ManagedAdd(
+                const std::int32_t vectorIndex = UncheckedAdd(
                     static_cast<std::int32_t>(data.VectorStartIndex), j);
                 const FhCollisionVector& vector = ManagedAt(
                     Require(info.Vectors), vectorIndex);
@@ -454,8 +444,8 @@ namespace
         for (std::int32_t i = 0; i < count - 2; ++i)
         {
             const Vector3 v0 = ManagedAt(face, 0);
-            const Vector3 v1 = ManagedAt(face, ManagedAdd(i, 1));
-            const Vector3 v2 = ManagedAt(face, ManagedAdd(i, 2));
+            const Vector3 v1 = ManagedAt(face, UncheckedAdd(i, 1));
+            const Vector3 v2 = ManagedAt(face, UncheckedAdd(i, 2));
             float t = 0.0F;
             const bool intersect = TestIntersection(point1, point2, v0, v1, v2, t);
             if (intersect && t <= Length(between))
@@ -550,12 +540,12 @@ namespace
                     {
                         intersects |= CheckIntersection(
                             ManagedAt(itemPoints, k),
-                            ManagedAt(itemPoints, ManagedAdd(k, 1)), face);
+                            ManagedAt(itemPoints, UncheckedAdd(k, 1)), face);
                     }
                     if (!intersects)
                     {
                         intersects |= CheckIntersection(
-                            ManagedAt(itemPoints, ManagedAdd(pointCount, -1)),
+                            ManagedAt(itemPoints, UncheckedAdd(pointCount, -1)),
                             ManagedAt(itemPoints, 0), face);
                     }
                 }
@@ -761,41 +751,41 @@ namespace
             dataPack.emplace_back(item, planeIndex, idxCount, idxStart);
         }
 
-        while (minX + static_cast<float>(ManagedMul(partsX, 4)) <= maxX)
+        while (minX + static_cast<float>(UncheckedMultiply(partsX, 4)) <= maxX)
         {
-            partsX = ManagedAdd(partsX, 1);
+            partsX = UncheckedAdd(partsX, 1);
         }
-        while (minY + static_cast<float>(ManagedMul(partsY, 4)) <= maxY)
+        while (minY + static_cast<float>(UncheckedMultiply(partsY, 4)) <= maxY)
         {
-            partsY = ManagedAdd(partsY, 1);
+            partsY = UncheckedAdd(partsY, 1);
         }
-        while (minZ + static_cast<float>(ManagedMul(partsZ, 4)) <= maxZ)
+        while (minZ + static_cast<float>(UncheckedMultiply(partsZ, 4)) <= maxZ)
         {
-            partsZ = ManagedAdd(partsZ, 1);
+            partsZ = UncheckedAdd(partsZ, 1);
         }
 
-        for (std::int32_t py = 0; py < partsY; py = ManagedAdd(py, 1))
+        for (std::int32_t py = 0; py < partsY; py = UncheckedAdd(py, 1))
         {
-            for (std::int32_t pz = 0; pz < partsZ; pz = ManagedAdd(pz, 1))
+            for (std::int32_t pz = 0; pz < partsZ; pz = UncheckedAdd(pz, 1))
             {
-                for (std::int32_t px = 0; px < partsX; px = ManagedAdd(px, 1))
+                for (std::int32_t px = 0; px < partsX; px = UncheckedAdd(px, 1))
                 {
-                    const std::int32_t index = ManagedAdd(
-                        ManagedAdd(ManagedMul(ManagedMul(py, partsX), partsZ),
-                            ManagedMul(pz, partsX)), px);
+                    const std::int32_t index = UncheckedAdd(
+                        UncheckedAdd(UncheckedMultiply(UncheckedMultiply(py, partsX), partsZ),
+                            UncheckedMultiply(pz, partsX)), px);
                     (void)index;
-                    const float xStart = minX + static_cast<float>(ManagedMul(px, 4));
+                    const float xStart = minX + static_cast<float>(UncheckedMultiply(px, 4));
                     const float xEnd = xStart + 4.0F;
-                    const float yStart = minY + static_cast<float>(ManagedMul(py, 4));
+                    const float yStart = minY + static_cast<float>(UncheckedMultiply(py, 4));
                     const float yEnd = yStart + 4.0F;
-                    const float zStart = minZ + static_cast<float>(ManagedMul(pz, 4));
+                    const float zStart = minZ + static_cast<float>(UncheckedMultiply(pz, 4));
                     const float zEnd = zStart + 4.0F;
                     const Vector3 minBounds(xStart, yStart, zStart);
                     const Vector3 maxBounds(xEnd, yEnd, zEnd);
                     const std::int32_t idxStart = ToIntCount(dataIdxs.size());
                     std::vector<std::uint16_t> region = GetDataInRegion(minBounds, maxBounds, data);
                     dataIdxs.insert(dataIdxs.end(), region.begin(), region.end());
-                    const std::int32_t idxCount = ManagedAdd(ToIntCount(dataIdxs.size()), -idxStart);
+                    const std::int32_t idxCount = UncheckedAdd(ToIntCount(dataIdxs.size()), -idxStart);
                     entries.emplace_back(
                         static_cast<std::uint16_t>(idxCount),
                         static_cast<std::uint16_t>(idxStart));
@@ -909,7 +899,7 @@ namespace
             for (std::int32_t i = 0; i < count; ++i)
             {
                 const Vector3 point1 = ManagedAt(
-                    verts, i == 0 ? ManagedAdd(count, -1) : ManagedAdd(i, -1));
+                    verts, i == 0 ? UncheckedAdd(count, -1) : UncheckedAdd(i, -1));
                 const Vector3 point2 = ManagedAt(verts, i);
                 const Vector4 plane = GetPlane(point1, point2, normal);
                 std::int32_t point1Index = FindPoint(points, point1);
@@ -1057,7 +1047,7 @@ namespace
             std::vector<std::uint16_t> region
                 = GetDataInRegion(nodeValue.MinBounds, nodeValue.MaxBounds, data);
             dataIdxs.insert(dataIdxs.end(), region.begin(), region.end());
-            const std::int32_t idxCount = ManagedAdd(ToIntCount(dataIdxs.size()), -idxStart);
+            const std::int32_t idxCount = UncheckedAdd(ToIntCount(dataIdxs.size()), -idxStart);
             auto entry = std::make_shared<TreeNodePack>();
             entry->MinBounds = nodeValue.MinBounds;
             entry->MaxBounds = nodeValue.MaxBounds;
@@ -1068,7 +1058,7 @@ namespace
         for (std::int32_t i = 0; i < ToIntCount(dataIdxs.size()); ++i)
         {
             dataIdxs[static_cast<std::size_t>(i)] = static_cast<std::uint16_t>(
-                ManagedAdd(
+                UncheckedAdd(
                     static_cast<std::int32_t>(dataIdxs[static_cast<std::size_t>(i)]),
                     ToIntCount(Require(portals).size())));
         }
@@ -1168,7 +1158,7 @@ namespace
         writer.Write(ToIntCount(vectors.size()));
         writer.Write(vectorOffset);
         writer.Write(static_cast<std::uint16_t>(
-            ManagedAdd(ToIntCount(data.size()), ToIntCount(Require(portals).size()))));
+            UncheckedAdd(ToIntCount(data.size()), ToIntCount(Require(portals).size()))));
         writer.Write(padShort);
         writer.Write(dataOffset);
         writer.Write(ToIntCount(dataIdxs.size()));

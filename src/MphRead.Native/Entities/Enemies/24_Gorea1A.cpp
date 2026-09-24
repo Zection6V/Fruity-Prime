@@ -38,6 +38,10 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedDecrement;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::OpenTK::Mathematics::CreateRotationY;
 using ::OpenTK::Mathematics::CreateScale;
 using ::OpenTK::Mathematics::Equal;
@@ -114,35 +118,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] Vector3 DivideVector(Vector3 value, float divisor) noexcept
         {
             return Vector3(value.X / divisor, value.Y / divisor, value.Z / divisor);
-        }
-
-        [[nodiscard]] std::int32_t AddInt32Unchecked(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t sum
-                = std::bit_cast<std::uint32_t>(left) + std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(sum);
-        }
-
-        [[nodiscard]] std::int32_t MulInt32Unchecked(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t product
-                = std::bit_cast<std::uint32_t>(left) * std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(product);
-        }
-
-        [[nodiscard]] std::int32_t SubInt32Unchecked(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t difference
-                = std::bit_cast<std::uint32_t>(left) - std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(difference);
-        }
-
-        [[nodiscard]] std::int32_t DecrementInt32Unchecked(std::int32_t value) noexcept
-        {
-            return SubInt32Unchecked(value, 1);
         }
 
         [[nodiscard]] std::int32_t RoundToInt32ToEven(float value) noexcept
@@ -494,7 +469,7 @@ namespace MphRead::Entities::Enemies
     std::uint8_t GoreaEnemyEntityBase::InterpolateColor(
         std::int32_t frame, std::int32_t frameCount, std::int32_t color) const
     {
-        const std::int32_t diff = SubInt32Unchecked(frameCount, frame);
+        const std::int32_t diff = UncheckedSubtract(frameCount, frame);
         if (frame >= 0 && frame <= frameCount && diff != 0)
         {
             return RoundToByteUnchecked(
@@ -687,7 +662,7 @@ namespace MphRead::Entities::Enemies
 
     void Enemy24Entity::ChangeWeapon()
     {
-        _weaponIndex = AddInt32Unchecked(_weaponIndex, 1);
+        _weaponIndex = UncheckedAdd(_weaponIndex, 1);
         if (_weaponIndex >= 6)
         {
             _weaponIndex = 0;
@@ -758,11 +733,11 @@ namespace MphRead::Entities::Enemies
     void Enemy24Entity::IncrementAllMaterialColors()
     {
         ModelInstance& model = RequireReference(_model);
-        const std::int32_t frame = AddInt32Unchecked(
-            MulInt32Unchecked((*model.AnimInfo->Frame)[0], 2),
+        const std::int32_t frame = UncheckedAdd(
+            UncheckedMultiply((*model.AnimInfo->Frame)[0], 2),
             static_cast<std::int32_t>(RequireReference(_scene).FrameCount() % 2));
         const std::int32_t frameCount
-            = MulInt32Unchecked((*model.AnimInfo->FrameCount)[0], 2);
+            = UncheckedMultiply((*model.AnimInfo->FrameCount)[0], 2);
         Model& modelData = RequireReference(model.Model());
         for (std::int32_t i = 0; i < 2; ++i)
         {
@@ -863,11 +838,11 @@ namespace MphRead::Entities::Enemies
             if (materialRef.CurrentAlpha < 1.0F)
             {
                 const std::int32_t frame
-                    = SubInt32Unchecked((*model.AnimInfo->Frame)[0], 10);
+                    = UncheckedSubtract((*model.AnimInfo->Frame)[0], 10);
                 if (frame >= 0)
                 {
                     const float alpha = static_cast<float>(frame)
-                        / static_cast<float>(SubInt32Unchecked(
+                        / static_cast<float>(UncheckedSubtract(
                             (*model.AnimInfo->FrameCount)[0], 11)) * 31.0F;
                     SetArmMaterialAlpha(i, RoundToByteUnchecked(alpha));
                 }
@@ -975,8 +950,8 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy24Entity::CheckTargeting(Enemy26Entity* armValue)
     {
-        const std::int32_t frame = AddInt32Unchecked(
-            MulInt32Unchecked((*RequireReference(_model).AnimInfo->Frame)[0], 2),
+        const std::int32_t frame = UncheckedAdd(
+            UncheckedMultiply((*RequireReference(_model).AnimInfo->Frame)[0], 2),
             static_cast<std::int32_t>(RequireReference(_scene).FrameCount() % 2));
         Enemy26Entity& arm = RequireReference(armValue);
         if (WeaponIndex() == 0 || WeaponIndex() == 5)
@@ -990,9 +965,9 @@ namespace MphRead::Entities::Enemies
             {
                 WeaponInfo& weapon = RequireReference(RequireReference(arm.EquipInfo()).Weapon);
                 const std::int32_t shotCooldown
-                    = MulInt32Unchecked(weapon.ShotCooldown, 2);
+                    = UncheckedMultiply(weapon.ShotCooldown, 2);
                 const std::int32_t autoCooldown
-                    = MulInt32Unchecked(weapon.AutofireCooldown, 2);
+                    = UncheckedMultiply(weapon.AutofireCooldown, 2);
                 if (shotCooldown <= frame && frame <= autoCooldown
                     && (WeaponIndex() == 5 || frame % 8 == 7))
                 {
@@ -1001,10 +976,10 @@ namespace MphRead::Entities::Enemies
                 if (_field242 > 0)
                 {
                     if (frame == autoCooldown
-                        && _field242 > SubInt32Unchecked(
-                            MulInt32Unchecked(
+                        && _field242 > UncheckedSubtract(
+                            UncheckedMultiply(
                                 (*RequireReference(_model).AnimInfo->FrameCount)[0], 2),
-                            AddInt32Unchecked(shotCooldown, autoCooldown)))
+                            UncheckedAdd(shotCooldown, autoCooldown)))
                     {
                         (*RequireReference(_model).AnimInfo->Frame)[0] = shotCooldown / 2;
                     }
@@ -1348,7 +1323,7 @@ namespace MphRead::Entities::Enemies
     {
         ModelInstance& model = RequireReference(_model);
         if ((*model.AnimInfo->Frame)[0]
-                >= SubInt32Unchecked((*model.AnimInfo->FrameCount)[0], 1)
+                >= UncheckedSubtract((*model.AnimInfo->FrameCount)[0], 1)
             && RequireReference(_scene).FrameCount() > 0
             && RequireReference(_scene).FrameCount() % 2 == 0)
         {
@@ -1440,8 +1415,8 @@ namespace MphRead::Entities::Enemies
             = RequireReference(Weapons::GoreaWeapons);
         const std::shared_ptr<WeaponInfo> weapon = VectorAt(goreaWeapons, WeaponIndex());
         WeaponInfo& weaponRef = RequireReference(weapon);
-        RequireReference(armL).Cooldown = MulInt32Unchecked(weaponRef.ShotCooldown, 2);
-        RequireReference(armR).Cooldown = MulInt32Unchecked(weaponRef.AutofireCooldown, 2);
+        RequireReference(armL).Cooldown = UncheckedMultiply(weaponRef.ShotCooldown, 2);
+        RequireReference(armR).Cooldown = UncheckedMultiply(weaponRef.AutofireCooldown, 2);
         RequireReference(_head).RespawnFlashEffect();
         _field23C = 60 * 2;
     }
@@ -1462,8 +1437,8 @@ namespace MphRead::Entities::Enemies
             WeaponInfo& weapon = RequireReference(VectorAt(goreaWeapons, WeaponIndex()));
             RequireReference(RequireReference(armL).EquipInfo()).ChargeLevel
                 = IntToUInt16Unchecked(static_cast<std::int32_t>(weapon.FullCharge) * 2);
-            RequireReference(armL).Cooldown = MulInt32Unchecked(weapon.ShotCooldown, 2);
-            RequireReference(armR).Cooldown = MulInt32Unchecked(weapon.ShotCooldown, 2);
+            RequireReference(armL).Cooldown = UncheckedMultiply(weapon.ShotCooldown, 2);
+            RequireReference(armR).Cooldown = UncheckedMultiply(weapon.ShotCooldown, 2);
             _field242 = static_cast<std::int32_t>(Rng::GetRandomInt2(30) + 60U) * 2;
             RequireReference(_model).SetAnimation(15, 0, _animSetNoMat);
             if (!TypeExtensions::TestFlag(RequireReference(armL).ArmFlags, GoreaArmFlags::Bit0))
@@ -1751,7 +1726,7 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy24Entity::Behavior19()
     {
-        _field23C = DecrementInt32Unchecked(_field23C);
+        _field23C = UncheckedDecrement(_field23C);
         if (_field23C > 0)
         {
             return false;
@@ -1831,7 +1806,7 @@ namespace MphRead::Entities::Enemies
         std::int32_t phase = 0;
         if (_gorea1B)
         {
-            phase = SubInt32Unchecked(3, _gorea1B->PhasesLeft);
+            phase = UncheckedSubtract(3, _gorea1B->PhasesLeft);
             if (phase > 2)
             {
                 phase = 2;
@@ -1893,7 +1868,7 @@ namespace MphRead::Entities::Enemies
             Material& materialRef = RequireReference(material);
             const std::int32_t maxFrame = 10 * 2;
             const std::int32_t frame
-                = SubInt32Unchecked(maxFrame, RequireReference(arm).ColorTimer());
+                = UncheckedSubtract(maxFrame, RequireReference(arm).ColorTimer());
             IncrementMaterialColors(&materialRef, white, white, frame, maxFrame);
             if (frame == maxFrame)
             {

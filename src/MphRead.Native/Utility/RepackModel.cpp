@@ -43,6 +43,8 @@ using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::FileWriteAllBytes;
 using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::RoundToEven;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
 
 namespace
 {
@@ -91,18 +93,6 @@ namespace
                 "Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')");
         }
         return values[static_cast<std::size_t>(index)];
-    }
-
-    [[nodiscard]] std::int32_t ManagedMul(std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] std::int32_t ManagedAdd(std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
     }
 
     [[nodiscard]] std::int32_t Sign16(std::uint32_t value) noexcept
@@ -437,9 +427,9 @@ namespace MphRead::Utility
         for (std::uint16_t unit : units)
         {
             writer.Write(static_cast<std::uint8_t>(unit));
-            i = ManagedAdd(i, 1);
+            i = UncheckedAdd(i, 1);
         }
-        for (; i < length; i = ManagedAdd(i, 1))
+        for (; i < length; i = UncheckedAdd(i, 1))
         {
             writer.Write(static_cast<std::uint8_t>(0));
         }
@@ -883,9 +873,9 @@ namespace MphRead::Utility
                 const std::int32_t x = Sign10(xyz);
                 const std::int32_t y = Sign10(xyz >> 10);
                 const std::int32_t z = Sign10(xyz >> 20);
-                vtxX = ManagedMul(x, 64);
-                vtxY = ManagedMul(y, 64);
-                vtxZ = ManagedMul(z, 64);
+                vtxX = UncheckedMultiply(x, 64);
+                vtxY = UncheckedMultiply(y, 64);
+                vtxZ = UncheckedMultiply(z, 64);
                 update();
                 break;
             }
@@ -920,9 +910,9 @@ namespace MphRead::Utility
             {
                 const auto& arguments = Require(instruction.Arguments);
                 const std::uint32_t xyz = ManagedAt(arguments, 0);
-                vtxX = ManagedAdd(vtxX, Sign10(xyz));
-                vtxY = ManagedAdd(vtxY, Sign10(xyz >> 10));
-                vtxZ = ManagedAdd(vtxZ, Sign10(xyz >> 20));
+                vtxX = UncheckedAdd(vtxX, Sign10(xyz));
+                vtxY = UncheckedAdd(vtxY, Sign10(xyz >> 10));
+                vtxZ = UncheckedAdd(vtxZ, Sign10(xyz >> 20));
                 update();
                 break;
             }
@@ -976,36 +966,36 @@ namespace MphRead::Utility
             case InstructionCode::VTX_XZ:
             case InstructionCode::VTX_YZ:
             case InstructionCode::VTX_DIFF:
-                vertexCount = ManagedAdd(vertexCount, 1);
-                currentVertexCount = ManagedAdd(currentVertexCount, 1);
+                vertexCount = UncheckedAdd(vertexCount, 1);
+                currentVertexCount = UncheckedAdd(currentVertexCount, 1);
                 break;
             case InstructionCode::END_VTXS:
                 if (vertexType == 0)
                 {
                     REPACK_MODEL_DEBUG_ASSERT(
                         currentVertexCount >= 3 && currentVertexCount % 3 == 0);
-                    primitiveCount = ManagedAdd(
+                    primitiveCount = UncheckedAdd(
                         primitiveCount, currentVertexCount / 3);
                 }
                 else if (vertexType == 1)
                 {
                     REPACK_MODEL_DEBUG_ASSERT(
                         currentVertexCount >= 4 && currentVertexCount % 4 == 0);
-                    primitiveCount = ManagedAdd(
+                    primitiveCount = UncheckedAdd(
                         primitiveCount, currentVertexCount / 4);
                 }
                 else if (vertexType == 2)
                 {
                     REPACK_MODEL_DEBUG_ASSERT(currentVertexCount >= 3);
-                    primitiveCount = ManagedAdd(
-                        primitiveCount, ManagedAdd(1, currentVertexCount - 3));
+                    primitiveCount = UncheckedAdd(
+                        primitiveCount, UncheckedAdd(1, currentVertexCount - 3));
                 }
                 else if (vertexType == 3)
                 {
                     REPACK_MODEL_DEBUG_ASSERT(
                         currentVertexCount >= 4 && currentVertexCount % 2 == 0);
-                    primitiveCount = ManagedAdd(
-                        primitiveCount, ManagedAdd(1, (currentVertexCount - 4) / 2));
+                    primitiveCount = UncheckedAdd(
+                        primitiveCount, UncheckedAdd(1, (currentVertexCount - 4) / 2));
                 }
                 vertexType = -1;
                 currentVertexCount = 0;
@@ -1106,8 +1096,8 @@ namespace MphRead::Utility
         for (const auto& render : renderValues)
         {
             const auto [primitives, vertices] = GetDlistCounts(render);
-            primitiveCount = ManagedAdd(primitiveCount, primitives);
-            vertexCount = ManagedAdd(vertexCount, vertices);
+            primitiveCount = UncheckedAdd(primitiveCount, primitives);
+            vertexCount = UncheckedAdd(vertexCount, vertices);
         }
 
         const auto& nodeMtxIdValues = Require(nodeMtxIds);
@@ -1195,19 +1185,19 @@ namespace MphRead::Utility
                         maximum.Z = std::max(maximum.Z, meshMax.Z);
                     }
                     nodeMin.emplace_back(
-                        ManagedMul(minimum.X, scale),
-                        ManagedMul(minimum.Y, scale),
-                        ManagedMul(minimum.Z, scale));
+                        UncheckedMultiply(minimum.X, scale),
+                        UncheckedMultiply(minimum.Y, scale),
+                        UncheckedMultiply(minimum.Z, scale));
                     nodeMax.emplace_back(
-                        ManagedMul(maximum.X, scale),
-                        ManagedMul(maximum.Y, scale),
-                        ManagedMul(maximum.Z, scale));
+                        UncheckedMultiply(maximum.X, scale),
+                        UncheckedMultiply(maximum.Y, scale),
+                        UncheckedMultiply(maximum.Z, scale));
                 }
             }
 
-            const std::int32_t clampMin = ManagedMul(
+            const std::int32_t clampMin = UncheckedMultiply(
                 std::numeric_limits<std::int16_t>::min(), scale);
-            const std::int32_t clampMax = ManagedMul(
+            const std::int32_t clampMax = UncheckedMultiply(
                 std::numeric_limits<std::int16_t>::max(), scale);
             for (std::size_t i = 0; i < allMin.size(); ++i)
             {
@@ -1216,13 +1206,13 @@ namespace MphRead::Utility
                 if (optionValues.ComputeBounds == ComputeBounds::Capped)
                 {
                     dlistMin.emplace_back(
-                        MathClamp(ManagedMul(minimum.X, scale), clampMin, clampMax),
-                        MathClamp(ManagedMul(minimum.Y, scale), clampMin, clampMax),
-                        MathClamp(ManagedMul(minimum.Z, scale), clampMin, clampMax));
+                        MathClamp(UncheckedMultiply(minimum.X, scale), clampMin, clampMax),
+                        MathClamp(UncheckedMultiply(minimum.Y, scale), clampMin, clampMax),
+                        MathClamp(UncheckedMultiply(minimum.Z, scale), clampMin, clampMax));
                     dlistMax.emplace_back(
-                        MathClamp(ManagedMul(maximum.X, scale), clampMin, clampMax),
-                        MathClamp(ManagedMul(maximum.Y, scale), clampMin, clampMax),
-                        MathClamp(ManagedMul(maximum.Z, scale), clampMin, clampMax));
+                        MathClamp(UncheckedMultiply(maximum.X, scale), clampMin, clampMax),
+                        MathClamp(UncheckedMultiply(maximum.Y, scale), clampMin, clampMax),
+                        MathClamp(UncheckedMultiply(maximum.Z, scale), clampMin, clampMax));
                 }
                 else
                 {
@@ -1243,19 +1233,19 @@ namespace MphRead::Utility
             nodeMtxIdOffset = 0;
             if (nodePosScaleCountValues.empty())
             {
-                actualOffset = ManagedAdd(actualOffset, 4);
+                actualOffset = UncheckedAdd(actualOffset, 4);
             }
             else
             {
-                actualOffset = ManagedAdd(actualOffset,
-                    ManagedMul(ToIntCount(nodePosScaleCountValues.size()), 4));
+                actualOffset = UncheckedAdd(actualOffset,
+                    UncheckedMultiply(ToIntCount(nodePosScaleCountValues.size()), 4));
             }
         }
         else
         {
             nodeMtxIdOffset = actualOffset;
-            actualOffset = ManagedAdd(actualOffset,
-                ManagedMul(ToIntCount(nodeMtxIdValues.size()), 4));
+            actualOffset = UncheckedAdd(actualOffset,
+                UncheckedMultiply(ToIntCount(nodeMtxIdValues.size()), 4));
         }
 
         const std::int32_t nodePosCountOffset
@@ -1279,7 +1269,7 @@ namespace MphRead::Utility
                     ? 1 : ToIntCount(nodePosScaleCountValues.size());
                 for (std::int32_t i = 0; i < padCount; ++i)
                 {
-                    writer.Write(nodeValues.size() <= 1 ? 0 : ManagedAdd(i, 1));
+                    writer.Write(nodeValues.size() <= 1 ? 0 : UncheckedAdd(i, 1));
                 }
             }
         }
@@ -1338,7 +1328,7 @@ namespace MphRead::Utility
         {
             const PaletteInfo& palette = Require(ManagedAt(paletteValues, i));
             writer.Write(ManagedAt(paletteDataOffsets, i));
-            writer.Write(ManagedMul(ToIntCount(Require(palette.Data).size()), 2));
+            writer.Write(UncheckedMultiply(ToIntCount(Require(palette.Data).size()), 2));
             writer.Write(padInt);
             writer.Write(padInt);
         }
@@ -1837,11 +1827,11 @@ namespace MphRead::Utility
                     arguments.end(), instArguments.begin(), instArguments.end());
             }
             writer.Write(packedCommands);
-            bytesWritten = ManagedAdd(bytesWritten, 4);
+            bytesWritten = UncheckedAdd(bytesWritten, 4);
             for (std::uint32_t argument : arguments)
             {
                 writer.Write(argument);
-                bytesWritten = ManagedAdd(bytesWritten, 4);
+                bytesWritten = UncheckedAdd(bytesWritten, 4);
             }
         }
         return bytesWritten;
@@ -1862,7 +1852,7 @@ namespace MphRead::Utility
             return -1;
         }
         const std::int32_t result = indexCount;
-        indexCount = ManagedAdd(indexCount, 1);
+        indexCount = UncheckedAdd(indexCount, 1);
         return result;
     }
 

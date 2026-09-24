@@ -8,6 +8,7 @@
 #include "../Metadata/Rooms.hpp"
 #include "../Read.hpp"
 #include "../Utility/Rng.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 #include "../Formats/Types.hpp"
 
 #include <bit>
@@ -27,48 +28,30 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::Int32ToUInt32;
+using ::MphRead::NativeRuntime::UInt32ToInt32;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 
 namespace
 {
-    [[nodiscard]] constexpr std::int32_t ManagedInt32(std::uint32_t value) noexcept
-    {
-        return std::bit_cast<std::int32_t>(value);
-    }
-
-    [[nodiscard]] constexpr std::uint32_t ManagedUInt32(std::int32_t value) noexcept
-    {
-        return std::bit_cast<std::uint32_t>(value);
-    }
-
-    [[nodiscard]] constexpr std::int32_t AddInt32(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return ManagedInt32(ManagedUInt32(left) + ManagedUInt32(right));
-    }
-
     [[nodiscard]] constexpr std::int32_t SubtractInt32(
         std::int32_t left, std::int32_t right) noexcept
     {
-        return ManagedInt32(ManagedUInt32(left) - ManagedUInt32(right));
-    }
-
-    [[nodiscard]] constexpr std::int32_t MultiplyInt32(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return ManagedInt32(ManagedUInt32(left) * ManagedUInt32(right));
+        return UInt32ToInt32(Int32ToUInt32(left) - Int32ToUInt32(right));
     }
 
     [[nodiscard]] constexpr std::int32_t ShiftRightInt32(
         std::int32_t value, unsigned count) noexcept
     {
-        const std::uint32_t bits = ManagedUInt32(value);
+        const std::uint32_t bits = Int32ToUInt32(value);
         if (value >= 0)
         {
-            return ManagedInt32(bits >> count);
+            return UInt32ToInt32(bits >> count);
         }
-        return ManagedInt32((bits >> count) | (~std::uint32_t{0} << (32U - count)));
+        return UInt32ToInt32((bits >> count) | (~std::uint32_t{0} << (32U - count)));
     }
 
     [[nodiscard]] constexpr std::int64_t ShiftRightInt64(
@@ -313,7 +296,7 @@ namespace MphRead::Testing
         }
         const std::int64_t numerator = static_cast<std::int64_t>(a) * 4096;
         const std::int64_t quotient = numerator / static_cast<std::int64_t>(b);
-        return ManagedInt32(static_cast<std::uint32_t>(quotient));
+        return UInt32ToInt32(static_cast<std::uint32_t>(quotient));
     }
 
     std::int32_t TestEffects::TestFx41(
@@ -323,21 +306,21 @@ namespace MphRead::Testing
         std::int32_t next;
         std::int32_t index1 = -1;
         std::int32_t index2 = 0;
-        if (percent < At(parameters, AddInt32(index2, 0)))
+        if (percent < At(parameters, UncheckedAdd(index2, 0)))
         {
-            return At(parameters, AddInt32(index2, 1));
+            return At(parameters, UncheckedAdd(index2, 1));
         }
-        if (At(parameters, AddInt32(index2, 0)) != std::numeric_limits<std::int32_t>::min())
+        if (At(parameters, UncheckedAdd(index2, 0)) != std::numeric_limits<std::int32_t>::min())
         {
             do
             {
-                if (At(parameters, AddInt32(index2, 0)) > percent)
+                if (At(parameters, UncheckedAdd(index2, 0)) > percent)
                 {
                     break;
                 }
                 index1 = index2;
-                next = At(parameters, AddInt32(index2, 2));
-                index2 = AddInt32(index2, 2);
+                next = At(parameters, UncheckedAdd(index2, 2));
+                index2 = UncheckedAdd(index2, 2);
             }
             while (next != std::numeric_limits<std::int32_t>::min());
         }
@@ -345,37 +328,37 @@ namespace MphRead::Testing
         {
             return 0;
         }
-        const std::int32_t v7 = At(parameters, AddInt32(index1, 2));
+        const std::int32_t v7 = At(parameters, UncheckedAdd(index1, 2));
         if (v7 == std::numeric_limits<std::int32_t>::min())
         {
-            result = At(parameters, AddInt32(index1, 1));
+            result = At(parameters, UncheckedAdd(index1, 1));
         }
         else
         {
             const std::int32_t valueDelta = SubtractInt32(
-                At(parameters, AddInt32(index1, 3)),
-                At(parameters, AddInt32(index1, 1)));
+                At(parameters, UncheckedAdd(index1, 3)),
+                At(parameters, UncheckedAdd(index1, 1)));
             const std::int32_t percentDelta = SubtractInt32(
-                percent, At(parameters, AddInt32(index1, 0)));
+                percent, At(parameters, UncheckedAdd(index1, 0)));
             const std::int32_t pointDelta = SubtractInt32(
-                v7, At(parameters, AddInt32(index1, 0)));
+                v7, At(parameters, UncheckedAdd(index1, 0)));
             const std::int32_t fraction = FxDiv(percentDelta, pointDelta);
             const std::int64_t wide = static_cast<std::int64_t>(valueDelta)
                 * static_cast<std::int64_t>(fraction) + 2048;
-            const std::int32_t interpolated = ManagedInt32(
+            const std::int32_t interpolated = UInt32ToInt32(
                 static_cast<std::uint32_t>(ShiftRightInt64(wide, 12)));
-            result = AddInt32(At(parameters, AddInt32(index1, 1)), interpolated);
+            result = UncheckedAdd(At(parameters, UncheckedAdd(index1, 1)), interpolated);
 
             const std::int32_t left = SubtractInt32(
-                At(parameters, AddInt32(index1, 3)),
-                At(parameters, AddInt32(index1, 1)));
+                At(parameters, UncheckedAdd(index1, 3)),
+                At(parameters, UncheckedAdd(index1, 1)));
             const std::int32_t right = FxDiv(
-                SubtractInt32(percent, At(parameters, AddInt32(index1, 0))),
-                SubtractInt32(v7, At(parameters, AddInt32(index1, 0))));
+                SubtractInt32(percent, At(parameters, UncheckedAdd(index1, 0))),
+                SubtractInt32(v7, At(parameters, UncheckedAdd(index1, 0))));
             const std::int32_t prod = ShiftRightInt32(
-                AddInt32(MultiplyInt32(left, right), 2048), 12);
-            const std::int32_t parm = At(parameters, AddInt32(index1, 1));
-            [[maybe_unused]] const std::int32_t final = AddInt32(parm, prod);
+                UncheckedAdd(UncheckedMultiply(left, right), 2048), 12);
+            const std::int32_t parm = At(parameters, UncheckedAdd(index1, 1));
+            [[maybe_unused]] const std::int32_t final = UncheckedAdd(parm, prod);
             Nop();
         }
         return result;
@@ -386,7 +369,7 @@ namespace MphRead::Testing
         std::unordered_map<std::int32_t, std::shared_ptr<Effect>> effects;
         for (std::int32_t index = 0;
             index < static_cast<std::int32_t>(Metadata::Effects.size());
-            index = AddInt32(index, 1))
+            index = UncheckedAdd(index, 1))
         {
             const auto& [name, archive] = Metadata::Effects[static_cast<std::size_t>(index)];
             if (!name.empty() && name != "sparksFall" && name != "mortarSecondary"

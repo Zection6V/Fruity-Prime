@@ -41,6 +41,10 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UInt32ToInt32;
+using ::MphRead::NativeRuntime::UInt64ToInt32;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::ClearScale;
@@ -140,30 +144,6 @@ namespace
         return container[index];
     }
 
-    [[nodiscard]] std::int32_t ManagedInt32FromUInt64(std::uint64_t value) noexcept
-    {
-        return std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(value));
-    }
-
-    [[nodiscard]] std::int32_t ManagedAdd(std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t value = std::bit_cast<std::uint32_t>(left)
-            + std::bit_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(value);
-    }
-
-    [[nodiscard]] std::int32_t ManagedSubtract(std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t value = std::bit_cast<std::uint32_t>(left)
-            - std::bit_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(value);
-    }
-
-    [[nodiscard]] std::int32_t ManagedInt32FromUInt32(std::uint32_t value) noexcept
-    {
-        return std::bit_cast<std::int32_t>(value);
-    }
-
     struct EntityBaseSoundAccess final : EntityBase
     {
         using EntityBase::_soundSource;
@@ -188,7 +168,7 @@ namespace
 
     void GainPlayerHealth(MphRead::Entities::PlayerEntity& player, std::uint32_t health)
     {
-        const std::int32_t amount = ManagedInt32FromUInt32(health);
+        const std::int32_t amount = UInt32ToInt32(health);
         std::int32_t playerHealth = player.Health();
         if (playerHealth <= 0)
         {
@@ -201,13 +181,13 @@ namespace
             std::int32_t turretHealth = halfturret.Health();
             if (playerHealth <= turretHealth)
             {
-                playerHealth = ManagedAdd(playerHealth, ManagedSubtract(amount, amount / 2));
-                turretHealth = ManagedAdd(turretHealth, amount / 2);
+                playerHealth = UncheckedAdd(playerHealth, UncheckedSubtract(amount, amount / 2));
+                turretHealth = UncheckedAdd(turretHealth, amount / 2);
             }
             else
             {
-                playerHealth = ManagedAdd(playerHealth, amount / 2);
-                turretHealth = ManagedAdd(turretHealth, ManagedSubtract(amount, amount / 2));
+                playerHealth = UncheckedAdd(playerHealth, amount / 2);
+                turretHealth = UncheckedAdd(turretHealth, UncheckedSubtract(amount, amount / 2));
             }
             if (turretHealth > 100)
             {
@@ -217,7 +197,7 @@ namespace
         }
         else
         {
-            playerHealth = ManagedAdd(playerHealth, amount);
+            playerHealth = UncheckedAdd(playerHealth, amount);
         }
 
         if (playerHealth > player.HealthMax())
@@ -1579,9 +1559,9 @@ namespace MphRead::Entities
         }
         const std::int32_t count = 4 * segments;
         Scene& scene = RequireReference(_scene);
-        const std::int32_t frames = ManagedInt32FromUInt64(scene.LiveFrames()) / 2;
+        const std::int32_t frames = UInt64ToInt32(scene.LiveFrames()) / 2;
         const std::int32_t positionSeed = static_cast<std::int32_t>(Position.X * 4096.0F);
-        std::uint32_t rng = std::bit_cast<std::uint32_t>(ManagedAdd(frames, positionSeed));
+        std::uint32_t rng = std::bit_cast<std::uint32_t>(UncheckedAdd(frames, positionSeed));
         const std::int32_t index = frames & 15;
         const float halfRange = range / 2.0F;
         const Vector3 vec = static_cast<Vector3>(Position) - _pastPositions[8];
@@ -1747,7 +1727,7 @@ namespace MphRead::Entities
             return chargePct <= 0.0F
                 ? static_cast<float>(unchargedAmt)
                 : static_cast<float>(minChargeAmt)
-                    + static_cast<float>(ManagedSubtract(fullChargeAmt, minChargeAmt)) * chargePct;
+                    + static_cast<float>(UncheckedSubtract(fullChargeAmt, minChargeAmt)) * chargePct;
         };
 
         std::int32_t cost = static_cast<std::int32_t>(
@@ -1774,7 +1754,7 @@ namespace MphRead::Entities
         {
             return BeamResultFlags::NoSpawn;
         }
-        equipRef.Ammo(ManagedSubtract(ammo, cost));
+        equipRef.Ammo(UncheckedSubtract(ammo, cost));
 
         std::shared_ptr<Effects::EffectEntry> muzzleEffect{};
         if (!TestFlag(spawnFlags, BeamSpawnFlags::NoMuzzle))
@@ -2042,7 +2022,7 @@ namespace MphRead::Entities
                 PlayerEntity* ownerPlayer = static_cast<PlayerEntity*>(owner.get());
                 const std::size_t slotIndex = Index(ownerPlayer->SlotIndex());
                 std::int32_t& beamDamageMax = ManagedAt(GameState::BeamDamageMax(), slotIndex);
-                beamDamageMax = ManagedAdd(beamDamageMax, damage);
+                beamDamageMax = UncheckedAdd(beamDamageMax, damage);
             }
 
             if (instantAoe)
@@ -2089,7 +2069,7 @@ namespace MphRead::Entities
                 beamRef.Transform = transform;
                 AnimationInfo& animInfo = RequireReference(RequireReference(model).AnimInfo);
                 const std::int32_t frameCount = (*animInfo.FrameCount)[0];
-                (*animInfo.Frame)[0] = ManagedInt32FromUInt64(RequireReference(scene).FrameCount()) / 2 % frameCount;
+                (*animInfo.Frame)[0] = UInt64ToInt32(RequireReference(scene).FrameCount()) / 2 % frameCount;
             }
             else
             {
@@ -2311,7 +2291,7 @@ namespace MphRead::Entities
         float angle = chargePct <= 0.0F
             ? static_cast<float>(weapon.UnchargedSpread)
             : static_cast<float>(weapon.MinChargeSpread)
-                + static_cast<float>(ManagedSubtract(
+                + static_cast<float>(UncheckedSubtract(
                     weapon.ChargedSpread, weapon.MinChargeSpread)) * chargePct;
         angle /= 4096.0F;
         assert(angle == 60.0F);

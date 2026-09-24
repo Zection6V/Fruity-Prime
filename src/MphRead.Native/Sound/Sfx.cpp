@@ -8,6 +8,7 @@
 #include "../Mods/Headless.hpp"
 #include "../Mods/ThumbnailMode.hpp"
 #include "Music.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 #include "../Formats/Types.hpp"
 
 #if defined(__ANDROID__)
@@ -65,6 +66,7 @@ extern "C"
 }
 #endif
 
+using ::MphRead::NativeRuntime::UncheckedIncrement;
 using ::OpenTK::Mathematics::DistanceSquared;
 using ::OpenTK::Mathematics::Scale;
 
@@ -120,13 +122,6 @@ namespace MphRead::Sound
                 NullReference();
             }
             return instance;
-        }
-
-        std::int32_t ManagedIncrement(std::int32_t value) noexcept
-        {
-            std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
-            bits += 1U;
-            return std::bit_cast<std::int32_t>(bits);
         }
 
         class Audio final
@@ -1002,7 +997,7 @@ namespace MphRead::Sound
         inst->Cancellable = cancellable;
         inst->SfxId = id;
         inst->Handle = SoundInstance::NextHandle;
-        SoundInstance::NextHandle = ManagedIncrement(SoundInstance::NextHandle);
+        SoundInstance::NextHandle = UncheckedIncrement(SoundInstance::NextHandle);
         return true;
     }
 

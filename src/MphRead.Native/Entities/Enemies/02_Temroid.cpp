@@ -24,6 +24,8 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::Divide;
@@ -61,22 +63,6 @@ namespace MphRead::Entities::Enemies
                 throw System::NullReferenceException();
             }
             return *enemy;
-        }
-
-        [[nodiscard]] std::int32_t UncheckedAddInt32(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t bits
-                = static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(bits);
-        }
-
-        [[nodiscard]] std::int32_t UncheckedSubtractInt32(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t bits
-                = static_cast<std::uint32_t>(left) - static_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(bits);
         }
 
         [[nodiscard]] AnimationInfo& RequireAnimInfo(ModelInstance& model)
@@ -170,7 +156,7 @@ namespace MphRead::Entities::Enemies
                     = std::dynamic_pointer_cast<Enemy02Entity>(enemy);
                 if (temroid && temroid->Field1D0())
                 {
-                    count = UncheckedAddInt32(count, 1);
+                    count = UncheckedAdd(count, 1);
                 }
             }
             if (count >= 3)
@@ -587,7 +573,7 @@ namespace MphRead::Entities::Enemies
             const std::int32_t animFrame = RequireReference(animInfo.Frame)[0];
             const Vector3 cameraPos = RequireReference(MainPlayer().CameraInfo()).Position;
             const std::int32_t frameDelta
-                = UncheckedSubtractInt32(frameCount, animFrame);
+                = UncheckedSubtract(frameCount, animFrame);
             Vector3 position = Divide(
                 ScaleVector(AddY(playerPos, 0.625F), static_cast<float>(frameDelta))
                     + ScaleVector(cameraPos + Divide(playerFacing, 2.0F),

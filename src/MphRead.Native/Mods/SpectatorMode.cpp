@@ -17,6 +17,8 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::MphRead::TestFlag;
 
 namespace
@@ -34,19 +36,6 @@ namespace
         return std::forward<TContainer>(values)[static_cast<std::size_t>(index)];
     }
 
-    [[nodiscard]] constexpr std::int32_t AddInt32Unchecked(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] constexpr std::int32_t SubtractInt32Unchecked(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) - static_cast<std::uint32_t>(right));
-    }
 }
 
 namespace MphRead::Mods
@@ -227,8 +216,8 @@ namespace MphRead::Mods
             offset <= static_cast<std::int32_t>(players.size()); ++offset)
         {
             const std::int32_t index
-                = AddInt32Unchecked(
-                    SubtractInt32Unchecked(fromSlot, offset),
+                = UncheckedAdd(
+                    UncheckedSubtract(fromSlot, offset),
                     static_cast<std::int32_t>(players.size()))
                 % static_cast<std::int32_t>(players.size());
             if (index == localSlot)
@@ -256,7 +245,7 @@ namespace MphRead::Mods
             offset <= static_cast<std::int32_t>(players.size()); ++offset)
         {
             const std::int32_t index
-                = AddInt32Unchecked(fromSlot, offset)
+                = UncheckedAdd(fromSlot, offset)
                 % static_cast<std::int32_t>(players.size());
             if (index == localSlot)
             {

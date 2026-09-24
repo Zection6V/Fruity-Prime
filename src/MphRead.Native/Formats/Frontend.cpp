@@ -1,5 +1,6 @@
 #include "Frontend.hpp"
 #include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <bit>
 #include <cassert>
@@ -14,6 +15,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::FileReadAllBytes;
+using ::MphRead::NativeRuntime::UInt32ToInt32;
 
 namespace MphRead::Formats
 {
@@ -21,21 +23,16 @@ namespace MphRead::Formats
     {
         using ByteSpan = std::span<const std::uint8_t>;
 
-        std::int32_t UncheckedInt32(std::uint32_t value) noexcept
+        // int + uint wrapped back to an int: the one mixed-sign addition
+        // this file makes, kept apart from the shared UncheckedAdd.
+        std::int32_t UncheckedAddUInt32(std::int32_t value, std::uint32_t increment) noexcept
         {
-            return std::bit_cast<std::int32_t>(value);
-        }
-
-        std::int32_t UncheckedAdd(std::int32_t value, std::uint32_t increment) noexcept
-        {
-            std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
-            bits += increment;
-            return std::bit_cast<std::int32_t>(bits);
+            return std::bit_cast<std::int32_t>(std::bit_cast<std::uint32_t>(value) + increment);
         }
 
         ByteSpan Slice(ByteSpan bytes, std::int32_t start, std::uint32_t length)
         {
-            std::int32_t end = UncheckedAdd(start, length);
+            std::int32_t end = UncheckedAddUInt32(start, length);
             if (start < 0 || end < start || end < 0
                 || static_cast<std::size_t>(end) > bytes.size())
             {
@@ -64,7 +61,7 @@ namespace MphRead::Formats
             {
                 throw std::out_of_range("Read.DoOffset<T> received a null offset.");
             }
-            std::int32_t ioffset = UncheckedInt32(offset);
+            std::int32_t ioffset = UInt32ToInt32(offset);
             return ReadStruct<T>(Slice(bytes, ioffset, static_cast<std::uint32_t>(sizeof(T))));
         }
 
@@ -73,8 +70,8 @@ namespace MphRead::Formats
             std::vector<std::uint32_t> results;
             if (offset != 0)
             {
-                std::int32_t ioffset = UncheckedInt32(offset);
-                for (;; ioffset = UncheckedAdd(ioffset, sizeof(std::uint32_t)))
+                std::int32_t ioffset = UInt32ToInt32(offset);
+                for (;; ioffset = UncheckedAddUInt32(ioffset, sizeof(std::uint32_t)))
                 {
                     std::uint32_t result = ReadStruct<std::uint32_t>(
                         Slice(bytes, ioffset, sizeof(std::uint32_t)));

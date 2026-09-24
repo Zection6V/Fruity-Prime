@@ -11,6 +11,7 @@
 
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
+using ::MphRead::NativeRuntime::UncheckedAdd;
 
 namespace
 {
@@ -34,13 +35,6 @@ namespace
             return max;
         }
         return value;
-    }
-
-    [[nodiscard]] std::int32_t AddUnchecked(std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t sum = static_cast<std::uint32_t>(left)
-            + static_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(sum);
     }
 
     [[nodiscard]] std::int32_t RemainderInt32(std::int32_t left, std::int32_t right)
@@ -494,7 +488,7 @@ namespace MphRead::Mods::Launcher::Gui
         }
         _index = options->Count() == 0
             ? 0
-            : ClampInt32(index, 0, AddUnchecked(options->Count(), -1));
+            : ClampInt32(index, 0, UncheckedAdd(options->Count(), -1));
         _control.SetHeight(34.0);
         _interactive.SetFocusable(true);
         _interactive.SetHandCursor();
@@ -515,7 +509,7 @@ namespace MphRead::Mods::Launcher::Gui
     {
         const std::int32_t clamped = Options().Count() == 0
             ? 0
-            : ClampInt32(value, 0, AddUnchecked(Options().Count(), -1));
+            : ClampInt32(value, 0, UncheckedAdd(Options().Count(), -1));
         if (clamped != _index)
         {
             _index = clamped;
@@ -542,7 +536,7 @@ namespace MphRead::Mods::Launcher::Gui
         }
         const std::int32_t replacement = options->Count() == 0
             ? 0
-            : ClampInt32(index, 0, AddUnchecked(options->Count(), -1));
+            : ClampInt32(index, 0, UncheckedAdd(options->Count(), -1));
         _index = replacement;
         _control.InvalidateVisual();
     }
@@ -634,8 +628,8 @@ namespace MphRead::Mods::Launcher::Gui
     {
         if (Options().Count() == 0)
             return;
-        const std::int32_t partial = AddUnchecked(_index, direction);
-        const std::int32_t numerator = AddUnchecked(partial, Options().Count());
+        const std::int32_t partial = UncheckedAdd(_index, direction);
+        const std::int32_t numerator = UncheckedAdd(partial, Options().Count());
         const std::int32_t divisor = Options().Count();
         _index = RemainderInt32(numerator, divisor);
         _control.InvalidateVisual();

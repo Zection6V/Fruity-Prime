@@ -31,6 +31,9 @@ using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::RoundToEven;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 
 namespace
 {
@@ -150,25 +153,6 @@ namespace
             throw std::out_of_range("Index was outside the bounds of the array.");
         }
         return values.front();
-    }
-
-    [[nodiscard]] std::int32_t WrappedAdd(std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] std::int32_t WrappedSubtract(std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) - static_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] std::int32_t WrappedProduct(std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t product = static_cast<std::uint32_t>(left)
-            * static_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(product);
     }
 
     [[nodiscard]] std::size_t ArrayLength(std::int32_t length)
@@ -295,7 +279,7 @@ namespace MphRead::Hud
     HudObjectInstance::HudObjectInstance(std::int32_t width, std::int32_t height)
         : Width(width), Height(height),
           Texture(std::make_shared<std::vector<ColorRgba>>(
-              ArrayLength(WrappedProduct(width, height))))
+              ArrayLength(UncheckedMultiply(width, height))))
     {
     }
 
@@ -303,7 +287,7 @@ namespace MphRead::Hud
         std::int32_t maxWidth, std::int32_t maxHeight)
         : Width(width), Height(height),
           Texture(std::make_shared<std::vector<ColorRgba>>(
-              ArrayLength(WrappedProduct(maxWidth, maxHeight))))
+              ArrayLength(UncheckedMultiply(maxWidth, maxHeight))))
     {
     }
 
@@ -328,7 +312,7 @@ namespace MphRead::Hud
     void HudObjectInstance::SetCharacterData(ReadOnlyList<std::uint8_t> data,
         std::int32_t width, std::int32_t height, Scene& scene)
     {
-        assert(static_cast<std::int64_t>(WrappedProduct(Width, Height))
+        assert(static_cast<std::int64_t>(UncheckedMultiply(Width, Height))
             <= static_cast<std::int64_t>(Texture->size()));
         Width = width;
         Height = height;
@@ -429,15 +413,15 @@ namespace MphRead::Hud
     {
         assert(CharacterData);
         assert(PaletteData);
-        const std::int32_t paletteOffset = WrappedProduct(PaletteIndex, 16);
+        const std::int32_t paletteOffset = UncheckedMultiply(PaletteIndex, 16);
         const std::int32_t width = Width / 8;
         const std::int32_t height = Height / 8;
-        const std::int32_t image = WrappedProduct(WrappedProduct(CurrentFrame, Width), Height);
+        const std::int32_t image = UncheckedMultiply(UncheckedMultiply(CurrentFrame, Width), Height);
         for (std::int32_t tileY = 0; tileY < height; ++tileY)
         {
             for (std::int32_t tileX = 0; tileX < width; ++tileX)
             {
-                const std::int32_t start = WrappedAdd(WrappedProduct(WrappedProduct(WrappedProduct(tileY, width), 8), 8), WrappedProduct(tileX, 8));
+                const std::int32_t start = UncheckedAdd(UncheckedMultiply(UncheckedMultiply(UncheckedMultiply(tileY, width), 8), 8), UncheckedMultiply(tileX, 8));
                 for (std::int32_t pixelY = 0; pixelY < 8; ++pixelY)
                 {
                     for (std::int32_t pixelX = 0; pixelX < 8; ++pixelX)
@@ -447,11 +431,11 @@ namespace MphRead::Hud
                             throw System::NullReferenceException();
                         }
                         const std::uint8_t paletteIndex = CharacterData->at(
-                            static_cast<std::size_t>(WrappedAdd(image, WrappedAdd(
-                                WrappedProduct(WrappedProduct(WrappedProduct(tileY, width), 8), 8),
-                                WrappedAdd(WrappedProduct(WrappedProduct(tileX, 8), 8),
-                                    WrappedAdd(WrappedProduct(pixelY, 8), pixelX))))));
-                        const std::int32_t index = WrappedAdd(start, WrappedAdd(WrappedProduct(WrappedProduct(pixelY, width), 8), pixelX));
+                            static_cast<std::size_t>(UncheckedAdd(image, UncheckedAdd(
+                                UncheckedMultiply(UncheckedMultiply(UncheckedMultiply(tileY, width), 8), 8),
+                                UncheckedAdd(UncheckedMultiply(UncheckedMultiply(tileX, 8), 8),
+                                    UncheckedAdd(UncheckedMultiply(pixelY, 8), pixelX))))));
+                        const std::int32_t index = UncheckedAdd(start, UncheckedAdd(UncheckedMultiply(UncheckedMultiply(pixelY, width), 8), pixelX));
                         if (paletteIndex == 0)
                         {
                             Texture->at(static_cast<std::size_t>(index)) = ColorRgba();
@@ -467,7 +451,7 @@ namespace MphRead::Hud
                                 throw System::NullReferenceException();
                             }
                             Texture->at(static_cast<std::size_t>(index)) = PaletteData->at(
-                                static_cast<std::size_t>(WrappedAdd(
+                                static_cast<std::size_t>(UncheckedAdd(
                                     paletteOffset, static_cast<std::int32_t>(paletteIndex))));
                         }
                     }
@@ -575,7 +559,7 @@ namespace MphRead::Hud
             {
                 const float elapsedTime = Time - Timer;
                 const std::int32_t elapsedFrames = ConvertToInt32Net9(RoundToEven(elapsedTime * 30.0F));
-                const std::int32_t frame = WrappedAdd(StartFrame, elapsedFrames);
+                const std::int32_t frame = UncheckedAdd(StartFrame, elapsedFrames);
                 assert(AnimFrames);
                 if (!AnimFrames)
                 {
@@ -586,8 +570,8 @@ namespace MphRead::Hud
             }
             else
             {
-                const std::int32_t frame = WrappedAdd(StartFrame, ConvertToInt32Net9(RoundToEven(
-                    static_cast<float>(WrappedSubtract(TargetFrame, StartFrame)) * (1.0F - Timer / Time))));
+                const std::int32_t frame = UncheckedAdd(StartFrame, ConvertToInt32Net9(RoundToEven(
+                    static_cast<float>(UncheckedSubtract(TargetFrame, StartFrame)) * (1.0F - Timer / Time))));
                 CurrentFrame = !AnimFrames
                     ? frame : AnimFrames->at(static_cast<std::size_t>(frame));
             }
@@ -637,13 +621,13 @@ namespace MphRead::Hud
         std::int32_t offset = _layerHeaderSize;
         std::vector<std::uint8_t> characterData = ReadMany<std::uint8_t>(
             bytes, offset, header.CharDataSize);
-        offset = WrappedAdd(offset, header.CharDataSize);
+        offset = UncheckedAdd(offset, header.CharDataSize);
         assert(header.PalDataSize % 2 == 0);
         std::vector<std::uint16_t> paletteData = ReadMany<std::uint16_t>(
             bytes, offset, header.PalDataSize / 2);
-        offset = WrappedAdd(offset, header.PalDataSize);
+        offset = UncheckedAdd(offset, header.PalDataSize);
         const ScrDatInfo info = ReadOffset<ScrDatInfo>(bytes, offset);
-        offset = WrappedAdd(offset, _scrDatInfoSize);
+        offset = UncheckedAdd(offset, _scrDatInfoSize);
         assert(info.ScrDataSize % 2 == 0);
         const std::vector<std::uint16_t> screenValues = ReadMany<std::uint16_t>(
             bytes, offset, info.ScrDataSize / 2);
@@ -653,9 +637,9 @@ namespace MphRead::Hud
         {
             screenData.emplace_back(value);
         }
-        offset = WrappedAdd(offset, info.ScrDataSize);
+        offset = UncheckedAdd(offset, info.ScrDataSize);
         const std::vector<std::uint8_t> trailingData = ReadMany<std::uint8_t>(
-            bytes, offset, WrappedSubtract(static_cast<std::int32_t>(bytes.size()), offset));
+            bytes, offset, UncheckedSubtract(static_cast<std::int32_t>(bytes.size()), offset));
         assert(std::all_of(trailingData.begin(), trailingData.end(),
             [](std::uint8_t value) { return value == 0; }));
 
@@ -674,7 +658,7 @@ namespace MphRead::Hud
         std::int32_t paletteOffset = 0;
         if (paletteId != -1)
         {
-            paletteOffset = WrappedProduct(paletteId, 16);
+            paletteOffset = UncheckedMultiply(paletteId, 16);
         }
 
         std::vector<std::vector<ColorRgba>> characters;
@@ -697,7 +681,7 @@ namespace MphRead::Hud
                         if (index != 0 && (paletteId == -1 || index != 6))
                         {
                             color = ColorRgba(paletteData.at(
-                                static_cast<std::size_t>(WrappedAdd(index, paletteOffset))));
+                                static_cast<std::size_t>(UncheckedAdd(index, paletteOffset))));
                         }
                         character.push_back(color);
                     };
@@ -763,24 +747,24 @@ namespace MphRead::Hud
         {
             tilesY = info.CharsY;
         }
-        const std::uint16_t width = static_cast<std::uint16_t>(WrappedProduct(tilesX, 8));
-        const std::uint16_t height = static_cast<std::uint16_t>(WrappedProduct(tilesY, 8));
-        std::vector<ColorRgba> texture(ArrayLength(WrappedProduct(width, height)));
+        const std::uint16_t width = static_cast<std::uint16_t>(UncheckedMultiply(tilesX, 8));
+        const std::uint16_t height = static_cast<std::uint16_t>(UncheckedMultiply(tilesY, 8));
+        std::vector<ColorRgba> texture(ArrayLength(UncheckedMultiply(width, height)));
         for (std::int32_t cy = 0; cy < tilesY; ++cy)
         {
-            const std::int32_t icy = WrappedAdd(cy, startY);
+            const std::int32_t icy = UncheckedAdd(cy, startY);
             for (std::int32_t cx = 0; cx < tilesX; ++cx)
             {
-                const std::int32_t icx = WrappedAdd(cx, startX);
+                const std::int32_t icx = UncheckedAdd(cx, startX);
                 const std::int32_t split = (icx / 32) == 1
-                    ? WrappedAdd(0x400, WrappedSubtract(icx, 32)) : icx;
-                const std::int32_t index = WrappedAdd(
-                    WrappedProduct(icy, info.CharsX > 32 ? info.CharsX / 2 : info.CharsX), split);
+                    ? UncheckedAdd(0x400, UncheckedSubtract(icx, 32)) : icx;
+                const std::int32_t index = UncheckedAdd(
+                    UncheckedMultiply(icy, info.CharsX > 32 ? info.CharsX / 2 : info.CharsX), split);
                 const ScreenData& screen = screenData.at(static_cast<std::size_t>(index));
                 assert(screen.PaletteId == 0);
                 const std::vector<ColorRgba>& character
                     = characters.at(static_cast<std::size_t>(screen.CharacterId));
-                const std::int32_t start = WrappedAdd(WrappedProduct(WrappedProduct(WrappedProduct(cy, tilesX), 8), 8), WrappedProduct(cx, 8));
+                const std::int32_t start = UncheckedAdd(UncheckedMultiply(UncheckedMultiply(UncheckedMultiply(cy, tilesX), 8), 8), UncheckedMultiply(cx, 8));
                 for (std::int32_t py = 0; py < 8; ++py)
                 {
                     const std::int32_t iy = screen.FlipVertical ? 7 - py : py;
@@ -790,7 +774,7 @@ namespace MphRead::Hud
                         const ColorRgba pixel = character.at(
                             static_cast<std::size_t>(iy * 8 + ix));
                         texture.at(static_cast<std::size_t>(
-                            WrappedAdd(start, WrappedAdd(WrappedProduct(WrappedProduct(py, tilesX), 8), px)))) = pixel;
+                            UncheckedAdd(start, UncheckedAdd(UncheckedMultiply(UncheckedMultiply(py, tilesX), 8), px)))) = pixel;
                     }
                 }
             }
@@ -853,19 +837,19 @@ namespace MphRead::Hud
         assert(header.ParamDataSize % _animParamSize == 0);
         std::int32_t count = header.ParamDataSize / _animParamSize;
         std::vector<UiAnimParams> animParams = ReadMany<UiAnimParams>(bytes, offset, count);
-        offset = WrappedAdd(offset, header.ParamDataSize);
+        offset = UncheckedAdd(offset, header.ParamDataSize);
         assert(header.AttrDataSize % _oamAttrSize == 0);
         count = header.AttrDataSize / _oamAttrSize;
         const std::vector<RawUiOamAttrs> rawOamAttrs
             = ReadMany<RawUiOamAttrs>(bytes, offset, count);
-        offset = WrappedAdd(offset, header.AttrDataSize);
+        offset = UncheckedAdd(offset, header.AttrDataSize);
         const std::vector<std::uint8_t> characterData
             = ReadMany<std::uint8_t>(bytes, offset, header.CharDataSize);
-        offset = WrappedAdd(offset, header.CharDataSize);
+        offset = UncheckedAdd(offset, header.CharDataSize);
         assert(header.PalDataSize % 2 == 0);
         const std::vector<std::uint16_t> paletteData
             = ReadMany<std::uint16_t>(bytes, offset, header.PalDataSize / 2);
-        assert(WrappedAdd(offset, header.PalDataSize)
+        assert(UncheckedAdd(offset, header.PalDataSize)
             == static_cast<std::int32_t>(bytes.size()));
 
         std::vector<std::uint8_t> paletteIndexData;
@@ -913,8 +897,8 @@ namespace MphRead::Hud
 
         const auto setAnim = [&]()
         {
-            frame = WrappedSubtract(pStart, 1);
-            timer = WrappedSubtract(pTimer, 1);
+            frame = UncheckedSubtract(pStart, 1);
+            timer = UncheckedSubtract(pTimer, 1);
             target = pTarget;
             updating = true;
         };
@@ -922,17 +906,17 @@ namespace MphRead::Hud
         {
             if (updating)
             {
-                frame = WrappedAdd(frame, 1);
+                frame = UncheckedAdd(frame, 1);
                 if (frame == timer)
                 {
                     if (target >= 0)
                     {
                         updating = false;
-                        frame = WrappedSubtract(target, 1);
+                        frame = UncheckedSubtract(target, 1);
                     }
                     else
                     {
-                        frame = WrappedSubtract(-1, target);
+                        frame = UncheckedSubtract(-1, target);
                     }
                 }
             }
@@ -947,7 +931,7 @@ namespace MphRead::Hud
                 {
                     return {static_cast<std::int32_t>(i), animParams->at(i).ImageIndex};
                 }
-                pFrame = WrappedSubtract(pFrame, value);
+                pFrame = UncheckedSubtract(pFrame, value);
             }
             return {0, animParams->at(0).ImageIndex};
         };
@@ -958,7 +942,7 @@ namespace MphRead::Hud
         std::int32_t frameCount = -1;
         while (updating)
         {
-            frameCount = WrappedAdd(frameCount, 1);
+            frameCount = UncheckedAdd(frameCount, 1);
             processAnim();
             const auto [number, index] = checkThing(frame);
             std::cout << "f" << frameCount << ": " << number << " --> " << index << '\n';
@@ -1078,7 +1062,7 @@ namespace MphRead::Hud
             assert(count == header.FrameCount);
             std::vector<UiAnimParams> animParamsValues = ReadMany<UiAnimParams>(bytes, offset, count);
             ReadOnlyList<UiAnimParams> animParams = MakeReadOnlyList(std::move(animParamsValues));
-            offset = WrappedAdd(offset, header.ParamDataSize);
+            offset = UncheckedAdd(offset, header.ParamDataSize);
             assert(header.AttrDataSize % _oamAttrSize == 0);
             count = header.AttrDataSize / _oamAttrSize;
             const std::vector<RawUiOamAttrs> rawOamAttrs = ReadMany<RawUiOamAttrs>(bytes, offset, count);
@@ -1088,14 +1072,14 @@ namespace MphRead::Hud
             {
                 oamAttrs.emplace_back(raw);
             }
-            offset = WrappedAdd(offset, header.AttrDataSize);
+            offset = UncheckedAdd(offset, header.AttrDataSize);
             const std::vector<std::uint8_t> characterData
                 = ReadMany<std::uint8_t>(bytes, offset, header.CharDataSize);
-            offset = WrappedAdd(offset, header.CharDataSize);
+            offset = UncheckedAdd(offset, header.CharDataSize);
             assert(header.PalDataSize % 2 == 0);
             std::vector<std::uint16_t> paletteValues
                 = ReadMany<std::uint16_t>(bytes, offset, header.PalDataSize / 2);
-            offset = WrappedAdd(offset, header.PalDataSize);
+            offset = UncheckedAdd(offset, header.PalDataSize);
             assert(offset == static_cast<std::int32_t>(bytes.size()));
             ReadOnlyList<std::uint16_t> paletteData = MakeReadOnlyList(std::move(paletteValues));
 
@@ -1284,21 +1268,21 @@ namespace MphRead::Hud
             std::int32_t offset = _layerHeaderSize;
             const std::vector<std::uint8_t> characterData
                 = ReadMany<std::uint8_t>(bytes, offset, header.CharDataSize);
-            offset = WrappedAdd(offset, header.CharDataSize);
+            offset = UncheckedAdd(offset, header.CharDataSize);
             assert(header.PalDataSize % 2 == 0);
             const std::vector<std::uint16_t> paletteData
                 = ReadMany<std::uint16_t>(bytes, offset, header.PalDataSize / 2);
-            offset = WrappedAdd(offset, header.PalDataSize);
+            offset = UncheckedAdd(offset, header.PalDataSize);
             const ScrDatInfo info = ReadOffset<ScrDatInfo>(bytes, offset);
-            offset = WrappedAdd(offset, _scrDatInfoSize);
+            offset = UncheckedAdd(offset, _scrDatInfoSize);
             assert(info.ScrDataSize % 2 == 0);
             const std::vector<std::uint16_t> screenDataValues
                 = ReadMany<std::uint16_t>(bytes, offset, info.ScrDataSize / 2);
-            assert(WrappedProduct(info.CharsX, info.CharsY) >= 0
-                && static_cast<std::size_t>(WrappedProduct(info.CharsX, info.CharsY)) == screenDataValues.size());
+            assert(UncheckedMultiply(info.CharsX, info.CharsY) >= 0
+                && static_cast<std::size_t>(UncheckedMultiply(info.CharsX, info.CharsY)) == screenDataValues.size());
 
             std::vector<std::uint16_t> vramStuff;
-            const std::int32_t charSlot = WrappedAdd(header.CharDataSize, 32) / 32;
+            const std::int32_t charSlot = UncheckedAdd(header.CharDataSize, 32) / 32;
             const std::int32_t palSlot = 1;
             const std::int32_t size = info.ScrDataSize;
             const std::int32_t count = size / 2;
@@ -1368,28 +1352,28 @@ namespace MphRead::Hud
 
             const std::uint16_t width = static_cast<std::uint16_t>(info.CharsX * 8);
             const std::uint16_t height = static_cast<std::uint16_t>(info.CharsY * 8);
-            std::vector<ColorRgba> texture(ArrayLength(WrappedProduct(width, height)));
+            std::vector<ColorRgba> texture(ArrayLength(UncheckedMultiply(width, height)));
             for (std::int32_t cy = 0; cy < info.CharsY; ++cy)
             {
                 for (std::int32_t cx = 0; cx < info.CharsX; ++cx)
                 {
                     const std::int32_t split = (cx / 32) == 1
-                        ? WrappedAdd(0x400, WrappedSubtract(cx, 32)) : cx;
-                    const std::int32_t index = WrappedAdd(
-                        WrappedProduct(cy, info.CharsX > 32 ? info.CharsX / 2 : info.CharsX), split);
+                        ? UncheckedAdd(0x400, UncheckedSubtract(cx, 32)) : cx;
+                    const std::int32_t index = UncheckedAdd(
+                        UncheckedMultiply(cy, info.CharsX > 32 ? info.CharsX / 2 : info.CharsX), split);
                     const ScreenData& screen = screenData.at(static_cast<std::size_t>(index));
                     assert(screen.PaletteId == 0);
                     const std::vector<ColorRgba>& character
                         = characters.at(static_cast<std::size_t>(screen.CharacterId));
-                    const std::int32_t start = WrappedAdd(WrappedProduct(WrappedProduct(WrappedProduct(cy, info.CharsX), 8), 8), WrappedProduct(cx, 8));
+                    const std::int32_t start = UncheckedAdd(UncheckedMultiply(UncheckedMultiply(UncheckedMultiply(cy, info.CharsX), 8), 8), UncheckedMultiply(cx, 8));
                     for (std::int32_t py = 0; py < 8; ++py)
                     {
                         const std::int32_t iy = screen.FlipVertical ? 7 - py : py;
                         for (std::int32_t px = 0; px < 8; ++px)
                         {
                             const std::int32_t ix = screen.FlipHorizontal ? 7 - px : px;
-                            texture.at(static_cast<std::size_t>(WrappedAdd(start,
-                                WrappedAdd(WrappedProduct(WrappedProduct(py, info.CharsX), 8), px))))
+                            texture.at(static_cast<std::size_t>(UncheckedAdd(start,
+                                UncheckedAdd(UncheckedMultiply(UncheckedMultiply(py, info.CharsX), 8), px))))
                                 = character.at(static_cast<std::size_t>(iy * 8 + ix));
                         }
                     }
@@ -1416,9 +1400,9 @@ namespace MphRead::Hud
                 std::filesystem::create_directories(PathFromUtf8(directory));
                 Export::Images::SaveTexture(directory, name, width, height, texture);
             }
-            offset = WrappedAdd(offset, info.ScrDataSize);
+            offset = UncheckedAdd(offset, info.ScrDataSize);
             const std::vector<std::uint8_t> trailingData = ReadMany<std::uint8_t>(
-                bytes, offset, WrappedSubtract(static_cast<std::int32_t>(bytes.size()), offset));
+                bytes, offset, UncheckedSubtract(static_cast<std::int32_t>(bytes.size()), offset));
             assert(std::all_of(trailingData.begin(), trailingData.end(),
                 [](std::uint8_t value) { return value == 0; }));
             Nop();

@@ -5,6 +5,7 @@
 #include "../Renderer.hpp"
 
 #include "Chat/ChatBox.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <bit>
 #include <cstddef>
@@ -12,6 +13,8 @@
 #include <optional>
 #include <string_view>
 #include <utility>
+
+using ::MphRead::NativeRuntime::UncheckedDecrement;
 
 namespace MphRead::Mods::Detail
 {
@@ -220,13 +223,6 @@ namespace
         return true;
     }
 
-    [[nodiscard]] std::int32_t SubtractOneUnchecked(
-        std::int32_t value) noexcept
-    {
-        std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
-        bits -= 1U;
-        return std::bit_cast<std::int32_t>(bits);
-    }
 }
 
 namespace MphRead::Mods
@@ -338,7 +334,7 @@ namespace MphRead::Mods
         
             window.ClientSize(OpenTK::Mathematics::Vector2i{
                 monitor.Size.X,
-                SubtractOneUnchecked(monitor.Size.Y)});
+                UncheckedDecrement(monitor.Size.Y)});
 
         SetTopmost(window, true);
         // And written down, so the next session opens this way. See

@@ -42,8 +42,10 @@
 #include <locale.h>
 #endif
 
+using ::MphRead::NativeRuntime::IncrementInPlace;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
+using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::Length;
 
@@ -56,30 +58,11 @@ namespace
     using MphRead::Mods::Network::TestPhase;
     using OpenTK::Mathematics::Vector3;
 
-    [[nodiscard]] constexpr std::int32_t AddInt32(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-    }
-
     [[nodiscard]] constexpr std::int32_t SubInt32(
         std::int32_t left, std::int32_t right) noexcept
     {
         return std::bit_cast<std::int32_t>(
             static_cast<std::uint32_t>(left) - static_cast<std::uint32_t>(right));
-    }
-
-    void IncrementInt32(std::int32_t& value) noexcept
-    {
-        value = AddInt32(value, 1);
-    }
-
-    [[nodiscard]] constexpr std::int64_t AddInt64(
-        std::int64_t left, std::int64_t right) noexcept
-    {
-        return std::bit_cast<std::int64_t>(
-            static_cast<std::uint64_t>(left) + static_cast<std::uint64_t>(right));
     }
 
     [[nodiscard]] std::size_t ManagedArrayLength(std::int32_t length)
@@ -758,7 +741,7 @@ namespace MphRead::Mods::Network
         {
             if (pair.first == phase)
             {
-                pair.second = AddInt32(pair.second, 1);
+                pair.second = UncheckedAdd(pair.second, 1);
                 return;
             }
         }
@@ -786,7 +769,7 @@ namespace MphRead::Mods::Network
                 throw std::out_of_range("Index was outside the bounds of the array.");
             }
             std::int32_t& value = counts[static_cast<std::size_t>(index)];
-            value = AddInt32(value, 1);
+            value = UncheckedAdd(value, 1);
         }
         else if (auto* turret = dynamic_cast<Entities::HalfturretEntity*>(owner);
             turret != nullptr)
@@ -816,7 +799,7 @@ namespace MphRead::Mods::Network
                         throw std::out_of_range("Index was outside the bounds of the array.");
                     }
                     std::int32_t& value = counts[static_cast<std::size_t>(index)];
-                    value = AddInt32(value, 1);
+                    value = UncheckedAdd(value, 1);
                 }
             }
         }
@@ -879,17 +862,17 @@ namespace MphRead::Mods::Network
             {
                 const std::shared_ptr<Entities::ItemInstanceEntity> item = enumerator.Current();
                 static_cast<void>(item);
-                IncrementInt32(_itemsNow);
+                IncrementInPlace(_itemsNow);
             }
         }
         if (_lastItemCount > _itemsNow)
         {
-            _itemsPickedUp = AddInt32(
+            _itemsPickedUp = UncheckedAdd(
                 _itemsPickedUp, SubInt32(_lastItemCount, _itemsNow));
         }
         _lastItemCount = _itemsNow;
-        IncrementInt32(_itemSamples);
-        _itemTotal = AddInt64(_itemTotal, _itemsNow);
+        IncrementInPlace(_itemSamples);
+        _itemTotal = UncheckedAdd(_itemTotal, _itemsNow);
 
         for (std::int32_t slot = 0; slot < Entities::PlayerEntity::MaxPlayers(); ++slot)
         {
@@ -909,29 +892,29 @@ namespace MphRead::Mods::Network
 
             if (beams.at(static_cast<std::size_t>(slot)) > 0)
             {
-                IncrementInt32(record.BeamFrames);
+                IncrementInPlace(record.BeamFrames);
             }
 
             const std::int32_t firedTotal
                 = NetDamage::Fired.at(static_cast<std::size_t>(slot));
             if (firedTotal > record.LastFiredTotal)
             {
-                record.ShotsFired = AddInt32(
+                record.ShotsFired = UncheckedAdd(
                     record.ShotsFired, SubInt32(firedTotal, record.LastFiredTotal));
             }
             record.LastFiredTotal = firedTotal;
 
             if (bombs.at(static_cast<std::size_t>(slot)) > 0)
             {
-                IncrementInt32(record.BombFrames);
+                IncrementInPlace(record.BombFrames);
             }
             if (player.Controls().AltAttack().IsPressed())
             {
-                IncrementInt32(record.AltAttackPresses);
+                IncrementInPlace(record.AltAttackPresses);
             }
             if (turrets.at(static_cast<std::size_t>(slot)) > 0)
             {
-                IncrementInt32(record.HalfturretFrames);
+                IncrementInPlace(record.HalfturretFrames);
             }
 
             if (!TestFlag(player.LoadFlags(), LoadFlags::Spawned))
@@ -939,18 +922,18 @@ namespace MphRead::Mods::Network
                 continue;
             }
 
-            IncrementInt32(record.SpawnedFrames);
+            IncrementInPlace(record.SpawnedFrames);
             if (player.IsAltForm())
             {
-                IncrementInt32(record.AltFormFrames);
+                IncrementInPlace(record.AltFormFrames);
                 if (IsMorphPhase(phase))
                 {
-                    IncrementInt32(record.AltFormInMorphPhase);
+                    IncrementInPlace(record.AltFormInMorphPhase);
                 }
             }
             else if (IsUnmorphSamplePhase(phase))
             {
-                IncrementInt32(record.BipedInUnmorphPhase);
+                IncrementInPlace(record.BipedInUnmorphPhase);
             }
 
             const std::shared_ptr<EquipInfo> equipInfo = player.EquipInfo();
@@ -960,63 +943,63 @@ namespace MphRead::Mods::Network
             }
             if (equipInfo->Zoomed)
             {
-                IncrementInt32(record.ZoomFrames);
+                IncrementInPlace(record.ZoomFrames);
             }
             if (player.ModFrozen())
             {
-                IncrementInt32(record.FrozenFrames);
+                IncrementInPlace(record.FrozenFrames);
             }
             if (player.ModDisrupted())
             {
-                IncrementInt32(record.DisruptedFrames);
+                IncrementInPlace(record.DisruptedFrames);
             }
             if (player.ModBurning())
             {
-                IncrementInt32(record.BurningFrames);
+                IncrementInPlace(record.BurningFrames);
             }
             if (slot == _localSlot
                     ? SpectatorMode::IsSpectating()
                     : TestFlag(player.Flags2(), PlayerFlags2::Spectating))
             {
-                IncrementInt32(record.SpectatingFrames);
+                IncrementInPlace(record.SpectatingFrames);
             }
             if (player.DoubleDamage())
             {
-                IncrementInt32(record.DoubleDamageFrames);
+                IncrementInPlace(record.DoubleDamageFrames);
             }
             if (player.CurrentWeapon() != record.LastWeapon)
             {
                 if (record.LastWeapon != BeamType::None)
                 {
-                    IncrementInt32(record.WeaponChanges);
+                    IncrementInPlace(record.WeaponChanges);
                 }
                 record.LastWeapon = player.CurrentWeapon();
             }
             if (record.LastHealth > 0 && player.Health() > 0
                 && player.Health() < record.LastHealth)
             {
-                IncrementInt32(record.DamageEvents);
+                IncrementInPlace(record.DamageEvents);
                 if (player.IsAltForm())
                 {
-                    IncrementInt32(record.DamageInAltForm);
+                    IncrementInPlace(record.DamageInAltForm);
                 }
             }
             if (record.WasAlive && player.Health() == 0)
             {
-                IncrementInt32(record.Deaths);
+                IncrementInPlace(record.Deaths);
             }
 
             const std::int32_t jumpPads = Mods::WorldEvents::JumpPadsFor(slot);
             const std::int32_t teleports = Mods::WorldEvents::TeleportsFor(slot);
-            const std::int32_t worldEvents = AddInt32(jumpPads, teleports);
+            const std::int32_t worldEvents = UncheckedAdd(jumpPads, teleports);
             record.FramesSinceLaunch = worldEvents != record.LastWorldEvents
                 ? 0
-                : AddInt32(record.FramesSinceLaunch, 1);
+                : UncheckedAdd(record.FramesSinceLaunch, 1);
             record.LastWorldEvents = worldEvents;
             record.FramesSinceRespawn
                 = player.Health() > record.LastHealth || player.Health() == 0
                 ? 0
-                : AddInt32(record.FramesSinceRespawn, 1);
+                : UncheckedAdd(record.FramesSinceRespawn, 1);
             record.LastHealth = player.Health();
             record.WasAlive = player.Health() > 0;
 
@@ -1033,12 +1016,12 @@ namespace MphRead::Mods::Network
                 const float frameStep = Length(framePosition - record.LastFramePosition);
                 if (frameStep > 0.01F)
                 {
-                    IncrementInt32(record.MovedFrames);
+                    IncrementInPlace(record.MovedFrames);
                 }
                 if (frameStep > TeleportStep && record.FramesSinceRespawn > 60
                     && record.FramesSinceLaunch > LaunchGraceFrames)
                 {
-                    IncrementInt32(record.Teleports);
+                    IncrementInPlace(record.Teleports);
                     const double worstStepCurrent = record.WorstStep;
                     record.WorstStep
                         = MathMax(worstStepCurrent, static_cast<double>(frameStep));
@@ -1089,8 +1072,8 @@ namespace MphRead::Mods::Network
                 && (state.Flags & PlayerState::FlagSpawned) != 0;
             if (visible && wantAlt != player.IsAltForm())
             {
-                IncrementInt32(record.FormDisagreeFrames);
-                IncrementInt32(record.FormDisagreeRun);
+                IncrementInPlace(record.FormDisagreeFrames);
+                IncrementInPlace(record.FormDisagreeRun);
                 if (record.FormDisagreeRun > record.WorstFormDisagreeRun)
                 {
                     record.WorstFormDisagreeRun = record.FormDisagreeRun;
@@ -1187,7 +1170,7 @@ namespace MphRead::Mods::Network
             {
                 emit("saw", them, feature.Name, feature.Get(other));
             }
-            fails = AddInt32(fails, ReportOne(mine, other, them));
+            fails = UncheckedAdd(fails, ReportOne(mine, other, them));
         }
 
         if (!anyRemote)
@@ -1227,7 +1210,7 @@ namespace MphRead::Mods::Network
             const std::string text
                 = "    FAIL: no beam can hurt these players at all: " + Join(invulnerable);
             ConsoleWriteLine(text);
-            IncrementInt32(fails);
+            IncrementInPlace(fails);
         }
 
         std::vector<std::string> untouched;
@@ -1248,7 +1231,7 @@ namespace MphRead::Mods::Network
             const std::string text
                 = "    FAIL: never took a single hit: " + Join(untouched);
             ConsoleWriteLine(text);
-            IncrementInt32(fails);
+            IncrementInPlace(fails);
         }
 
         if (_localSlot < static_cast<std::int32_t>(Entities::PlayerEntity::Players().size()))
@@ -1266,7 +1249,7 @@ namespace MphRead::Mods::Network
             ConsoleWriteLine(text);
             if (!fits)
             {
-                IncrementInt32(fails);
+                IncrementInPlace(fails);
             }
         }
 
@@ -1437,7 +1420,7 @@ namespace MphRead::Mods::Network
             rejected += Int64Text(rejectedCount);
             rejected += " update(s) rejected for holding impossible values";
             ConsoleWriteLine(rejected);
-            IncrementInt32(fails);
+            IncrementInPlace(fails);
         }
 
         failures = fails;
@@ -1503,7 +1486,7 @@ namespace MphRead::Mods::Network
                 : "FAIL";
             if (tested && !pairwise && !ok)
             {
-                IncrementInt32(fails);
+                IncrementInPlace(fails);
             }
 
             std::string text = "    ";
@@ -1599,14 +1582,14 @@ namespace MphRead::Mods::Network
             failure += " frames in a row -- ";
             failure += other.WorstFormContext;
             ConsoleWriteLine(failure);
-            IncrementInt32(fails);
+            IncrementInPlace(fails);
         }
         if (other.WorstPositionGap > 8.0
             || !std::isfinite(other.WorstPositionGap))
         {
             ConsoleWriteLine(
                 "    FAIL: their position drifted far from the authority's");
-            IncrementInt32(fails);
+            IncrementInPlace(fails);
         }
         return fails;
     }

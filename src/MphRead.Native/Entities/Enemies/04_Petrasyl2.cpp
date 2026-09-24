@@ -5,6 +5,7 @@
 #include "../../Utility/Rng.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <bit>
@@ -17,6 +18,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::Equal;
 using ::OpenTK::Mathematics::LengthSquared;
@@ -55,13 +57,6 @@ namespace MphRead::Entities::Enemies
             return *player;
         }
 
-        [[nodiscard]] std::int32_t UncheckedSubtractInt32(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t bits
-                = static_cast<std::uint32_t>(left) - static_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(bits);
-        }
     }
 }
 
@@ -165,7 +160,7 @@ namespace MphRead::Entities::Enemies
         }
         else
         {
-            const std::int32_t frameComplement = UncheckedSubtractInt32(30, animFrame);
+            const std::int32_t frameComplement = UncheckedSubtract(30, animFrame);
             _weaveAngle += (1.5F * static_cast<float>(animFrame)
                 + static_cast<float>(frameComplement)) / 30.0F / 2.0F;
         }

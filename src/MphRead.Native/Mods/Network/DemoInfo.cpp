@@ -5,6 +5,7 @@
 #include "NetProtocol.hpp"
 #include "NetSession.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -26,6 +27,8 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 
 namespace MphRead::Mods::Network
 {
@@ -102,27 +105,6 @@ namespace MphRead::Mods::Network
         private:
             std::vector<Entry> _entries;
         };
-
-        [[nodiscard]] std::int32_t AddInt32(std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t result
-                = static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(result);
-        }
-
-        [[nodiscard]] std::int64_t AddInt64(std::int64_t left, std::int64_t right) noexcept
-        {
-            const std::uint64_t result
-                = static_cast<std::uint64_t>(left) + static_cast<std::uint64_t>(right);
-            return std::bit_cast<std::int64_t>(result);
-        }
-
-        [[nodiscard]] std::int64_t SubtractInt64(std::int64_t left, std::int64_t right) noexcept
-        {
-            const std::uint64_t result
-                = static_cast<std::uint64_t>(left) - static_cast<std::uint64_t>(right);
-            return std::bit_cast<std::int64_t>(result);
-        }
 
         [[nodiscard]] std::int64_t FileLength(const std::string& path)
         {
@@ -285,10 +267,10 @@ namespace MphRead::Mods::Network
                 }
 
                 DemoRecord record = *next;
-                records = AddInt64(records, 1);
+                records = UncheckedAdd(records, 1);
                 const std::int32_t dataLength
                     = static_cast<std::int32_t>(record.Data->size());
-                payload = AddInt64(payload, dataLength);
+                payload = UncheckedAdd(payload, dataLength);
 
                 if (first)
                 {
@@ -307,11 +289,11 @@ namespace MphRead::Mods::Network
 
                     std::int32_t count = 0;
                     counts.TryGetValue(type, count);
-                    counts.Set(type, AddInt32(count, 1));
+                    counts.Set(type, UncheckedAdd(count, 1));
 
                     std::int64_t size = 0;
                     bytes.TryGetValue(type, size);
-                    bytes.Set(type, AddInt64(size, dataLength));
+                    bytes.Set(type, UncheckedAdd(size, dataLength));
                 }
             }
 
@@ -417,28 +399,28 @@ namespace MphRead::Mods::Network
         {
             DemoPlayback::PumpFrame();
             NetSession::Update(static_cast<double>(frames) / 60.0);
-            frames = AddInt64(frames, 1);
+            frames = UncheckedAdd(frames, 1);
 
             const std::int64_t snapshots
-                = SubtractInt64(NetSession::SnapshotsReceived(), previousSnapshots);
+                = UncheckedSubtract(NetSession::SnapshotsReceived(), previousSnapshots);
             previousSnapshots = NetSession::SnapshotsReceived();
 
-            intents = AddInt64(intents,
-                SubtractInt64(NetSession::IntentsReceived(), previousIntents));
+            intents = UncheckedAdd(intents,
+                UncheckedSubtract(NetSession::IntentsReceived(), previousIntents));
             previousIntents = NetSession::IntentsReceived();
 
             if (snapshots == 0)
             {
-                gap = AddInt64(gap, 1);
+                gap = UncheckedAdd(gap, 1);
                 worstGap = std::max(worstGap, gap);
                 continue;
             }
 
             gap = 0;
-            framesWithSnapshot = AddInt64(framesWithSnapshot, 1);
+            framesWithSnapshot = UncheckedAdd(framesWithSnapshot, 1);
             if (snapshots > 1)
             {
-                framesWithSeveral = AddInt64(framesWithSeveral, 1);
+                framesWithSeveral = UncheckedAdd(framesWithSeveral, 1);
             }
         }
 

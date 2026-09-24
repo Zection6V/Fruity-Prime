@@ -23,6 +23,10 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UInt32ToInt32;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::Equal;
@@ -60,35 +64,6 @@ namespace MphRead::Entities::Enemies
             return RequireReference(PlayerEntity::Main());
         }
 
-        [[nodiscard]] std::int32_t AddInt32Unchecked(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t bits
-                = std::bit_cast<std::uint32_t>(left) + std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(bits);
-        }
-
-        [[nodiscard]] std::int32_t SubtractInt32Unchecked(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t bits
-                = std::bit_cast<std::uint32_t>(left) - std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(bits);
-        }
-
-        [[nodiscard]] std::int32_t MultiplyInt32Unchecked(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t bits
-                = std::bit_cast<std::uint32_t>(left) * std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(bits);
-        }
-
-        [[nodiscard]] std::int32_t UInt32ToInt32Unchecked(std::uint32_t value) noexcept
-        {
-            return std::bit_cast<std::int32_t>(value);
-        }
-
         [[nodiscard]] AnimationInfo& RequireAnimInfo(ModelInstance& model)
         {
             return RequireReference(model.AnimInfo);
@@ -108,8 +83,8 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] std::int32_t RandomTimer(std::int32_t limit,
             std::int32_t add, std::int32_t multiplier)
         {
-            const std::int32_t random = UInt32ToInt32Unchecked(Rng::GetRandomInt2(limit));
-            return MultiplyInt32Unchecked(AddInt32Unchecked(random, add), multiplier);
+            const std::int32_t random = UInt32ToInt32(Rng::GetRandomInt2(limit));
+            return UncheckedMultiply(UncheckedAdd(random, add), multiplier);
         }
     }
 
@@ -491,7 +466,7 @@ namespace MphRead::Entities::Enemies
             testPos, _boundingRadius, 8, false, Formats::TestFlags::None, _scene, &results);
         if (count > 0)
         {
-            for (std::int32_t i = 0; i < count; i = AddInt32Unchecked(i, 1))
+            for (std::int32_t i = 0; i < count; i = UncheckedAdd(i, 1))
             {
                 const Formats::CollisionResult result = results[static_cast<std::size_t>(i)];
                 float v37 = 0.0F;
@@ -536,7 +511,7 @@ namespace MphRead::Entities::Enemies
 
     void Enemy37Entity::Func214E750()
     {
-        _field238 = SubtractInt32Unchecked(_field238, 1);
+        _field238 = UncheckedSubtract(_field238, 1);
         if (_field238 <= 0)
         {
             Func214EDD0();
@@ -569,7 +544,7 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy37Entity::Func214E5EC()
     {
-        _field238 = SubtractInt32Unchecked(_field238, 1);
+        _field238 = UncheckedSubtract(_field238, 1);
         if (_field238 == 0)
         {
             _field238 = RandomTimer(60, 45, 2);
@@ -584,7 +559,7 @@ namespace MphRead::Entities::Enemies
     {
         if (_field23C > 0)
         {
-            _field23C = SubtractInt32Unchecked(_field23C, 1);
+            _field23C = UncheckedSubtract(_field23C, 1);
         }
         if (_field23C == 0)
         {
@@ -854,7 +829,7 @@ namespace MphRead::Entities::Enemies
     {
         assert(_target != nullptr);
         _soundSource.PlaySfx(SfxId::DRIPSTANK_ATTACK2, true);
-        _field238 = SubtractInt32Unchecked(_field238, 1);
+        _field238 = UncheckedSubtract(_field238, 1);
         if (_field238 < 0)
         {
             RequireReference(_target).TakeDamage(

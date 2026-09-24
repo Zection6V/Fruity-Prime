@@ -55,6 +55,7 @@ using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::RoundToEven;
+using ::MphRead::NativeRuntime::UncheckedAdd;
 
 namespace MphRead::Utility
 {
@@ -270,13 +271,6 @@ namespace
             throw std::length_error("List count exceeds Int32.MaxValue.");
         }
         return static_cast<std::int32_t>(count);
-    }
-
-    [[nodiscard]] constexpr std::int32_t WrapAdd(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
     }
 
     [[nodiscard]] std::int32_t ConvertToInt32Net(float value) noexcept
@@ -1190,7 +1184,7 @@ namespace
                     InstructionCode::TEXCOORD,
                     {PackTexcoord(texcoord.X, texcoord.Y)}));
                 instructions.push_back(PackVertex(ArrayAt(points, i), scale));
-                vertexCount = WrapAdd(vertexCount, 1);
+                vertexCount = UncheckedAdd(vertexCount, 1);
             }
         }
         instructions.push_back(Instruction(InstructionCode::END_VTXS));
@@ -1243,7 +1237,7 @@ namespace
                     triangles.push_back(face);
                 }
             }
-            vertexCount = WrapAdd(
+            vertexCount = UncheckedAdd(
                 vertexCount,
                 EmitPrimitives(*instructions, triangles, 0U, scale));
 
@@ -1255,7 +1249,7 @@ namespace
                     quads.push_back(face);
                 }
             }
-            vertexCount = WrapAdd(
+            vertexCount = UncheckedAdd(
                 vertexCount,
                 EmitPrimitives(*instructions, quads, 1U, scale));
 
@@ -1273,7 +1267,7 @@ namespace
                     }
                 }
             }
-            vertexCount = WrapAdd(
+            vertexCount = UncheckedAdd(
                 vertexCount,
                 EmitPrimitives(*instructions, fanFaces, 0U, scale));
 

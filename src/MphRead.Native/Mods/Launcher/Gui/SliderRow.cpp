@@ -16,26 +16,12 @@
 using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::RoundToEven;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 
 namespace
 {
     using namespace MphRead::Mods::Launcher::Gui;
-
-    [[nodiscard]] std::int32_t AddUnchecked(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t sum = static_cast<std::uint32_t>(left)
-            + static_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(sum);
-    }
-
-    [[nodiscard]] std::int32_t SubtractUnchecked(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t difference = static_cast<std::uint32_t>(left)
-            - static_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(difference);
-    }
 
     [[nodiscard]] std::int32_t ClampInt32(
         std::int32_t value, std::int32_t min, std::int32_t max)
@@ -256,7 +242,7 @@ namespace MphRead::Mods::Launcher::Gui
         _label = std::move(label);
         _labelWidth = labelWidth;
         _min = min;
-        _max = MathMax(AddUnchecked(min, 1), max);
+        _max = MathMax(UncheckedAdd(min, 1), max);
         _keyStep = MathMax(1, keyStep);
         _value = ClampInt32(value, _min, _max);
         _format = format ? std::move(format) : FormatHandler(DefaultFormat);
@@ -364,8 +350,8 @@ namespace MphRead::Mods::Launcher::Gui
         const GuiRect track = Track();
         const double fraction = (x - track.X) / MathMax(1.0, track.Width);
         const double scaled = MathClamp(fraction, 0.0, 1.0)
-            * static_cast<double>(SubtractUnchecked(_max, _min));
-        Value(AddUnchecked(_min, DoubleToInt32Unchecked(RoundToEven(scaled))));
+            * static_cast<double>(UncheckedSubtract(_max, _min));
+        Value(UncheckedAdd(_min, DoubleToInt32Unchecked(RoundToEven(scaled))));
     }
 
     void SliderRow::OnPointerPressed(SliderRowPointerEventArgs& e)
@@ -420,13 +406,13 @@ namespace MphRead::Mods::Launcher::Gui
         }
         if (e.Key == SliderRowKey::Left)
         {
-            Value(SubtractUnchecked(Value(), _keyStep));
+            Value(UncheckedSubtract(Value(), _keyStep));
             e.Handled = true;
             return;
         }
         if (e.Key == SliderRowKey::Right)
         {
-            Value(AddUnchecked(Value(), _keyStep));
+            Value(UncheckedAdd(Value(), _keyStep));
             e.Handled = true;
             return;
         }
@@ -464,8 +450,8 @@ namespace MphRead::Mods::Launcher::Gui
         const GuiRect track = Track();
         context.FillRectangle(SliderRowBrush::From(GuiTheme::PanelLightBrush), track);
         const double filled = track.Width
-            * (static_cast<double>(SubtractUnchecked(_value, _min))
-                / static_cast<double>(SubtractUnchecked(_max, _min)));
+            * (static_cast<double>(UncheckedSubtract(_value, _min))
+                / static_cast<double>(UncheckedSubtract(_max, _min)));
 
         const GuiBrush* accent = &dim;
         std::unique_ptr<GuiBrush> ownedAccent;

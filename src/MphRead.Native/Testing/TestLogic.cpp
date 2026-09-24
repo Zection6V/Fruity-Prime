@@ -2,6 +2,7 @@
 
 #include "../MemoryArrays.hpp"
 #include "../MemoryClasses.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <bit>
 #include <cassert>
@@ -10,6 +11,12 @@
 #include <memory>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::UInt32ToInt32;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedNegate;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 
 namespace
 {
@@ -30,41 +37,6 @@ namespace
         {
         }
     };
-
-    [[nodiscard]] std::int32_t UncheckedAdd(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t result = std::bit_cast<std::uint32_t>(left)
-            + std::bit_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(result);
-    }
-
-    [[nodiscard]] std::int32_t UncheckedSubtract(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t result = std::bit_cast<std::uint32_t>(left)
-            - std::bit_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(result);
-    }
-
-    [[nodiscard]] std::int32_t UncheckedNegate(std::int32_t value) noexcept
-    {
-        const std::uint32_t result = 0U - std::bit_cast<std::uint32_t>(value);
-        return std::bit_cast<std::int32_t>(result);
-    }
-
-    [[nodiscard]] std::int32_t UncheckedMultiply(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t result = std::bit_cast<std::uint32_t>(left)
-            * std::bit_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(result);
-    }
-
-    [[nodiscard]] std::int32_t UncheckedFromUInt32(std::uint32_t value) noexcept
-    {
-        return std::bit_cast<std::int32_t>(value);
-    }
 
     [[nodiscard]] std::int32_t ManagedDivide(
         std::int32_t left, std::int32_t right)
@@ -358,7 +330,7 @@ namespace MphRead::Testing
             ManagedDivide(UncheckedSubtract(missileCap, 50), 100));
 
         const std::int32_t denominator = UncheckedAdd(
-            UncheckedFromUInt32(Require(save).MaxScanCount()), 66);
+            UInt32ToInt32(Require(save).MaxScanCount()), 66);
         return ManagedDivide(UncheckedMultiply(100, counts), denominator);
     }
 

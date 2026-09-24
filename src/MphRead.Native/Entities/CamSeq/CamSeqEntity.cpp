@@ -22,6 +22,7 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::ShiftRight;
 using ::MphRead::TestFlag;
 
 namespace
@@ -73,21 +74,6 @@ namespace
         return index;
     }
 
-    [[nodiscard]] std::int32_t ArithmeticShiftRight(std::int32_t value, std::int32_t count) noexcept
-    {
-        const std::uint32_t shift = static_cast<std::uint32_t>(count) & 0x1FU;
-        if (shift == 0)
-        {
-            return value;
-        }
-        const std::uint32_t bits = static_cast<std::uint32_t>(value);
-        std::uint32_t shifted = bits >> shift;
-        if (value < 0)
-        {
-            shifted |= UINT32_MAX << (32U - shift);
-        }
-        return std::bit_cast<std::int32_t>(shifted);
-    }
 }
 
 namespace MphRead::Entities
@@ -256,7 +242,7 @@ namespace MphRead::Entities
                         const std::int32_t bossFlags
                             = static_cast<std::int32_t>(storySave.BossFlags);
                         playPausedMusic
-                            = (ArithmeticShiftRight(bossFlags, shift) & 3) == 0;
+                            = (ShiftRight(bossFlags, shift) & 3) == 0;
                     }
                     if (playPausedMusic && (musicValue & 0x400) != 0)
                     {
@@ -306,7 +292,7 @@ namespace MphRead::Entities
                 = Memory::Detail::UncheckedMultiply(2, areaId);
             const std::int32_t bossFlags
                 = static_cast<std::int32_t>(storySave.BossFlags);
-            hasMusic = (ArithmeticShiftRight(bossFlags, shift) & 3) == 0;
+            hasMusic = (ShiftRight(bossFlags, shift) & 3) == 0;
         }
         if (hasMusic && (musicValue & 0x400) != 0)
         {

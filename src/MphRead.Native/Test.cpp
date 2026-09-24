@@ -5,6 +5,7 @@
 #include "Metadata/Rooms.hpp"
 #include "Read.hpp"
 #include "NativeRuntime/System/IO.hpp"
+#include "NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -34,6 +35,12 @@
 #endif
 
 using ::MphRead::NativeRuntime::FileReadAllBytes;
+using ::MphRead::NativeRuntime::Int32ToUInt32;
+using ::MphRead::NativeRuntime::ShiftLeft;
+using ::MphRead::NativeRuntime::UInt32ToInt32;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 
 namespace MphRead
 {
@@ -296,41 +303,6 @@ namespace
         return *cast;
     }
 
-    [[nodiscard]] constexpr std::int32_t ManagedInt32(std::uint32_t value) noexcept
-    {
-        return std::bit_cast<std::int32_t>(value);
-    }
-
-    [[nodiscard]] constexpr std::uint32_t ManagedUInt32(std::int32_t value) noexcept
-    {
-        return std::bit_cast<std::uint32_t>(value);
-    }
-
-    [[nodiscard]] constexpr std::int32_t UncheckedAdd(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return ManagedInt32(ManagedUInt32(left) + ManagedUInt32(right));
-    }
-
-    [[nodiscard]] constexpr std::int32_t UncheckedSubtract(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return ManagedInt32(ManagedUInt32(left) - ManagedUInt32(right));
-    }
-
-    [[nodiscard]] constexpr std::int32_t UncheckedMultiply(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return ManagedInt32(ManagedUInt32(left) * ManagedUInt32(right));
-    }
-
-    [[nodiscard]] constexpr std::int32_t UncheckedShiftLeft(
-        std::int32_t value, std::int32_t count) noexcept
-    {
-        return ManagedInt32(
-            ManagedUInt32(value) << (static_cast<std::uint32_t>(count) & 0x1FU));
-    }
-
     [[nodiscard]] std::int32_t ManagedAbs(std::int32_t value)
     {
         if (value == std::numeric_limits<std::int32_t>::min())
@@ -347,7 +319,7 @@ namespace
         {
             result |= 0xFFFF0000U;
         }
-        return ManagedInt32(result);
+        return UInt32ToInt32(result);
     }
 
     [[nodiscard]] std::int32_t SignExtend10(std::uint32_t value) noexcept
@@ -357,7 +329,7 @@ namespace
         {
             result |= 0xFFFFFC00U;
         }
-        return ManagedInt32(result);
+        return UInt32ToInt32(result);
     }
 
     [[nodiscard]] std::string MessageToString(Message value)
@@ -1161,7 +1133,7 @@ namespace MphRead
                     switch (instruction.Code)
                     {
                     case InstructionCode::MTX_RESTORE:
-                        stackIndex = ManagedInt32(VectorAt(arguments, std::size_t{0}));
+                        stackIndex = UInt32ToInt32(VectorAt(arguments, std::size_t{0}));
                         break;
                     case InstructionCode::VTX_16:
                     {
@@ -1182,9 +1154,9 @@ namespace MphRead
                         const std::int32_t x = SignExtend10(xyz);
                         const std::int32_t y = SignExtend10(xyz >> 10U);
                         const std::int32_t z = SignExtend10(xyz >> 20U);
-                        vtxX = UncheckedShiftLeft(x, 6);
-                        vtxY = UncheckedShiftLeft(y, 6);
-                        vtxZ = UncheckedShiftLeft(z, 6);
+                        vtxX = ShiftLeft(x, 6);
+                        vtxY = ShiftLeft(y, 6);
+                        vtxZ = ShiftLeft(z, 6);
                         update();
                         break;
                     }

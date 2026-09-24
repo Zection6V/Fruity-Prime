@@ -47,6 +47,8 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::MphRead::TestAny;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::AddY;
@@ -153,20 +155,6 @@ namespace
     [[nodiscard]] MphRead::WeaponInfo& CurrentWeaponAt(std::int32_t index)
     {
         return RequireReference(CurrentWeaponPtrAt(index));
-    }
-
-    [[nodiscard]] constexpr std::int32_t UncheckedAddInt32(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            std::bit_cast<std::uint32_t>(left) + std::bit_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] constexpr std::int32_t UncheckedSubtractInt32(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            std::bit_cast<std::uint32_t>(left) - std::bit_cast<std::uint32_t>(right));
     }
 
     [[nodiscard]] constexpr bool ManagedInt32LessThanOrEqualUInt32(
@@ -1831,7 +1819,7 @@ namespace MphRead::Entities
         if (attacker != nullptr && attacker != this && beam != nullptr)
         {
             ManagedAt(GameState::BeamDamageDealt(), attacker->_slotIndex) = std::min(
-                UncheckedAddInt32(
+                UncheckedAdd(
                     ManagedAt(GameState::BeamDamageDealt(), attacker->_slotIndex),
                     std::bit_cast<std::int32_t>(damage)),
                 ManagedAt(GameState::BeamDamageMax(), attacker->_slotIndex));
@@ -1867,7 +1855,7 @@ namespace MphRead::Entities
             }
             else
             {
-                turret.SetHealth(UncheckedSubtractInt32(
+                turret.SetHealth(UncheckedSubtract(
                     turret.Health(), std::bit_cast<std::int32_t>(turretDamage)));
             }
             damage -= turretDamage;
@@ -1877,13 +1865,13 @@ namespace MphRead::Entities
                     && (static_cast<std::int64_t>(_health) - static_cast<std::int64_t>(damage))
                         <= RequireReference(AiData).HealthThreshold)
                 {
-                    damage = static_cast<std::uint32_t>(UncheckedSubtractInt32(
-                        UncheckedSubtractInt32(_health, RequireReference(AiData).HealthThreshold), 1));
+                    damage = static_cast<std::uint32_t>(UncheckedSubtract(
+                        UncheckedSubtract(_health, RequireReference(AiData).HealthThreshold), 1));
                 }
             }
             else if (ManagedInt32LessThanOrEqualUInt32(_health, damage))
             {
-                damage = static_cast<std::uint32_t>(UncheckedSubtractInt32(_health, 1));
+                damage = static_cast<std::uint32_t>(UncheckedSubtract(_health, 1));
             }
             turret.SetTimeSinceDamage(0);
             if (_isBot)
@@ -1922,7 +1910,7 @@ namespace MphRead::Entities
             }
             if (attacker != this)
             {
-                ManagedAt(GameState::DamageCount(), attacker->_slotIndex) = UncheckedAddInt32(
+                ManagedAt(GameState::DamageCount(), attacker->_slotIndex) = UncheckedAdd(
                     ManagedAt(GameState::DamageCount(), attacker->_slotIndex), 1);
                 attacker->_hidingTimer = 0;
                 _hidingTimer = 0;
@@ -2050,7 +2038,7 @@ namespace MphRead::Entities
             }
             if (_isBot && RequireReference(AiData).Flags1)
             {
-                _health = UncheckedAddInt32(RequireReference(AiData).HealthThreshold, 1);
+                _health = UncheckedAdd(RequireReference(AiData).HealthThreshold, 1);
                 RequireReference(AiData).Flags2 |= AiFlags2::Bit13;
             }
             else
@@ -2059,7 +2047,7 @@ namespace MphRead::Entities
             }
             UpdateZoom(false);
             _boostCharge = 0;
-            ManagedAt(GameState::Deaths(), _slotIndex) = UncheckedAddInt32(
+            ManagedAt(GameState::Deaths(), _slotIndex) = UncheckedAdd(
                 ManagedAt(GameState::Deaths(), _slotIndex), 1);
             if (this == Main().get() && beamType == MphRead::BeamType::OmegaCannon)
             {
@@ -2314,11 +2302,11 @@ namespace MphRead::Entities
                     }
                     if (attacker == this)
                     {
-                        ManagedAt(GameState::Suicides(), _slotIndex) = UncheckedAddInt32(
+                        ManagedAt(GameState::Suicides(), _slotIndex) = UncheckedAdd(
                                     ManagedAt(GameState::Suicides(), _slotIndex), 1);
                         if (GameState::Mode() == GameMode::Battle || GameState::Mode() == GameMode::BattleTeams)
                         {
-                            ManagedAt(GameState::Points(), _slotIndex) = UncheckedSubtractInt32(
+                            ManagedAt(GameState::Points(), _slotIndex) = UncheckedSubtract(
                                 ManagedAt(GameState::Points(), _slotIndex), 1);
                         }
                     }
@@ -2326,7 +2314,7 @@ namespace MphRead::Entities
                     {
                         if (attacker->_teamIndex == _teamIndex)
                         {
-                            ManagedAt(GameState::FriendlyKills(), attacker->_slotIndex) = UncheckedAddInt32(
+                            ManagedAt(GameState::FriendlyKills(), attacker->_slotIndex) = UncheckedAdd(
                                     ManagedAt(GameState::FriendlyKills(), attacker->_slotIndex), 1);
                             ManagedAt(GameState::KillStreak(), attacker->_slotIndex) = 0;
                             if (attacker == Main().get())
@@ -2349,14 +2337,14 @@ namespace MphRead::Entities
                             }
                             if (TestFlag(flags, DamageFlags::Headshot))
                             {
-                                ManagedAt(GameState::HeadshotKills(), attacker->_slotIndex) = UncheckedAddInt32(
+                                ManagedAt(GameState::HeadshotKills(), attacker->_slotIndex) = UncheckedAdd(
                                     ManagedAt(GameState::HeadshotKills(), attacker->_slotIndex), 1);
                             }
-                            ManagedAt(GameState::Kills(), attacker->_slotIndex) = UncheckedAddInt32(
+                            ManagedAt(GameState::Kills(), attacker->_slotIndex) = UncheckedAdd(
                                     ManagedAt(GameState::Kills(), attacker->_slotIndex), 1);
                             if (attacker->IsPrimeHunter())
                             {
-                                ManagedAt(GameState::KillsAsPrime(), attacker->_slotIndex) = UncheckedAddInt32(
+                                ManagedAt(GameState::KillsAsPrime(), attacker->_slotIndex) = UncheckedAdd(
                                     ManagedAt(GameState::KillsAsPrime(), attacker->_slotIndex), 1);
                             }
                             if (static_cast<std::int32_t>(beamType)
@@ -2364,7 +2352,7 @@ namespace MphRead::Entities
                             {
                                 ManagedAt(
                                     ManagedAt(GameState::BeamKills(), attacker->_slotIndex),
-                                    static_cast<std::int32_t>(beamType)) = UncheckedAddInt32(
+                                    static_cast<std::int32_t>(beamType)) = UncheckedAdd(
                                         ManagedAt(
                                             ManagedAt(GameState::BeamKills(), attacker->_slotIndex),
                                             static_cast<std::int32_t>(beamType)),
@@ -2372,7 +2360,7 @@ namespace MphRead::Entities
                             }
                             if (ManagedAt(GameState::KillStreak(), attacker->_slotIndex) < 255)
                             {
-                                ManagedAt(GameState::KillStreak(), attacker->_slotIndex) = UncheckedAddInt32(
+                                ManagedAt(GameState::KillStreak(), attacker->_slotIndex) = UncheckedAdd(
                                     ManagedAt(GameState::KillStreak(), attacker->_slotIndex), 1);
                             }
                             if (ManagedAt(GameState::KillStreak(), attacker->_slotIndex) == 5)
@@ -2400,7 +2388,7 @@ namespace MphRead::Entities
                                     && (GameState::PrimeHunter() == -1 || IsPrimeHunter()))
                                 {
                                     GameState::PrimeHunter(attacker->_slotIndex);
-                                    ManagedAt(GameState::PrimesKilled(), attacker->_slotIndex) = UncheckedAddInt32(
+                                    ManagedAt(GameState::PrimesKilled(), attacker->_slotIndex) = UncheckedAdd(
                                     ManagedAt(GameState::PrimesKilled(), attacker->_slotIndex), 1);
                                     if (RequireReference(Main()).IsPrimeHunter())
                                     {
@@ -2416,18 +2404,18 @@ namespace MphRead::Entities
                             {
                                 if (ManagedAt(GameState::Points(), attacker->_slotIndex) < 99999)
                                 {
-                                    ManagedAt(GameState::Points(), attacker->_slotIndex) = UncheckedAddInt32(
+                                    ManagedAt(GameState::Points(), attacker->_slotIndex) = UncheckedAdd(
                                         ManagedAt(GameState::Points(), attacker->_slotIndex), 1);
                                 }
                             }
                             else if (GameState::IsOctolithMode() && _octolithFlag != nullptr)
                             {
-                                ManagedAt(GameState::OctolithStops(), attacker->_slotIndex) = UncheckedAddInt32(
+                                ManagedAt(GameState::OctolithStops(), attacker->_slotIndex) = UncheckedAdd(
                                     ManagedAt(GameState::OctolithStops(), attacker->_slotIndex), 1);
                             }
                             if (TestFlag(flags, DamageFlags::FromAlt))
                             {
-                                ManagedAt(GameState::AltDamageCount(), attacker->_slotIndex) = UncheckedAddInt32(
+                                ManagedAt(GameState::AltDamageCount(), attacker->_slotIndex) = UncheckedAdd(
                                     ManagedAt(GameState::AltDamageCount(), attacker->_slotIndex), 1);
                             }
                         }
@@ -2435,11 +2423,11 @@ namespace MphRead::Entities
                 }
                 else
                 {
-                    ManagedAt(GameState::Suicides(), _slotIndex) = UncheckedAddInt32(
+                    ManagedAt(GameState::Suicides(), _slotIndex) = UncheckedAdd(
                                     ManagedAt(GameState::Suicides(), _slotIndex), 1);
                     if (GameState::Mode() == GameMode::Battle || GameState::Mode() == GameMode::BattleTeams)
                     {
-                        ManagedAt(GameState::Points(), _slotIndex) = UncheckedSubtractInt32(
+                        ManagedAt(GameState::Points(), _slotIndex) = UncheckedSubtract(
                                 ManagedAt(GameState::Points(), _slotIndex), 1);
                     }
                 }
@@ -2479,7 +2467,7 @@ namespace MphRead::Entities
         else
         {
             bool skipSfx = false;
-            _health = UncheckedSubtractInt32(_health, std::bit_cast<std::int32_t>(damage));
+            _health = UncheckedSubtract(_health, std::bit_cast<std::int32_t>(damage));
             if (beam != nullptr && !ignoreDamage)
             {
                 if (TestFlag(beam->Afflictions(), MphRead::Affliction::Freeze))

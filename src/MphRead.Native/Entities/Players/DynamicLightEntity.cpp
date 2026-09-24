@@ -2,10 +2,13 @@
 
 #include "../LightSourceEntity.hpp"
 #include "../../Scene.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <cmath>
 #include <cstdint>
 #include <limits>
+
+using ::MphRead::NativeRuntime::UncheckedDecrement;
 
 namespace
 {
@@ -31,15 +34,6 @@ namespace
         return static_cast<std::int32_t>(wide);
     }
 
-    [[nodiscard]] std::int32_t SubtractOneUnchecked(std::int32_t value) noexcept
-    {
-        if (value == std::numeric_limits<std::int32_t>::min())
-        {
-            return std::numeric_limits<std::int32_t>::max();
-        }
-
-        return value - 1;
-    }
 }
 
 namespace MphRead::Entities
@@ -95,7 +89,7 @@ namespace MphRead::Entities
                 if (factor <= -1)
                 {
                     const std::int32_t adjustedFactor
-                        = SubtractOneUnchecked(factor);
+                        = UncheckedDecrement(factor);
 
                     return current
                         + static_cast<float>(adjustedFactor)

@@ -1,4 +1,5 @@
 #include "FrameTiming.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -7,6 +8,8 @@
 #include <limits>
 #include <locale>
 #include <string_view>
+
+using ::MphRead::NativeRuntime::UncheckedAdd;
 
 namespace MphRead::Mods
 {
@@ -89,20 +92,6 @@ namespace
     {
         const unsigned char unit = static_cast<unsigned char>(value);
         return unit == 0x20U || (unit >= 0x09U && unit <= 0x0DU);
-    }
-
-    [[nodiscard]] constexpr std::int64_t AddInt64Unchecked(
-        std::int64_t left, std::int64_t right) noexcept
-    {
-        constexpr std::uint64_t SignBit = std::uint64_t{1} << 63;
-        const std::uint64_t bits = static_cast<std::uint64_t>(left)
-            + static_cast<std::uint64_t>(right);
-        if (bits < SignBit)
-        {
-            return static_cast<std::int64_t>(bits);
-        }
-        return std::numeric_limits<std::int64_t>::min()
-            + static_cast<std::int64_t>(bits - SignBit);
     }
 
     [[nodiscard]] bool TryParseInt32(std::string_view value, std::int32_t& parsed) noexcept
@@ -464,14 +453,14 @@ namespace MphRead::Mods::Render
     std::int32_t FrameTiming::Advance(double elapsedSeconds)
     {
         _active = true;
-        _totalFrames = AddInt64Unchecked(_totalFrames, 1);
+        _totalFrames = UncheckedAdd(_totalFrames, 1);
         if (elapsedSeconds > StallSeconds || elapsedSeconds < 0.0 || std::isnan(elapsedSeconds))
         {
-            _stalls = AddInt64Unchecked(_stalls, 1);
+            _stalls = UncheckedAdd(_stalls, 1);
             _accumulator = 0.0;
             _stepsThisFrame = 1;
-            _totalSteps = AddInt64Unchecked(_totalSteps, 1);
-            _stepHistogram[1] = AddInt64Unchecked(_stepHistogram[1], 1);
+            _totalSteps = UncheckedAdd(_totalSteps, 1);
+            _stepHistogram[1] = UncheckedAdd(_stepHistogram[1], 1);
             Tally(StepSeconds, 1);
             return 1;
         }
@@ -486,13 +475,13 @@ namespace MphRead::Mods::Render
         if (_accumulator >= StepSeconds)
         {
             const std::int32_t owed = static_cast<std::int32_t>(_accumulator / StepSeconds);
-            _droppedSteps = AddInt64Unchecked(_droppedSteps, owed);
+            _droppedSteps = UncheckedAdd(_droppedSteps, owed);
             _accumulator -= owed * StepSeconds;
         }
         _stepsThisFrame = steps;
-        _totalSteps = AddInt64Unchecked(_totalSteps, steps);
+        _totalSteps = UncheckedAdd(_totalSteps, steps);
         const std::size_t histogramIndex = static_cast<std::size_t>(steps);
-        _stepHistogram[histogramIndex] = AddInt64Unchecked(_stepHistogram[histogramIndex], 1);
+        _stepHistogram[histogramIndex] = UncheckedAdd(_stepHistogram[histogramIndex], 1);
         Tally(elapsedSeconds, steps);
         return steps;
     }
@@ -500,8 +489,8 @@ namespace MphRead::Mods::Render
     void FrameTiming::Tally(double elapsedSeconds, std::int32_t steps)
     {
         _windowSeconds += elapsedSeconds;
-        _windowSteps = AddInt64Unchecked(_windowSteps, steps);
-        _windowFrames = AddInt64Unchecked(_windowFrames, 1);
+        _windowSteps = UncheckedAdd(_windowSteps, steps);
+        _windowFrames = UncheckedAdd(_windowFrames, 1);
         if (_windowSeconds >= 2.0)
         {
             _measuredSimulationHz = _windowSteps / _windowSeconds;

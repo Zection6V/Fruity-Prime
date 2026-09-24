@@ -22,36 +22,16 @@
 #include <string_view>
 #include <utility>
 
+using ::MphRead::NativeRuntime::DecrementInPlace;
+using ::MphRead::NativeRuntime::IncrementInPlace;
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::Length;
 
 namespace
 {
-    [[nodiscard]] std::int32_t AddInt32Unchecked(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right));
-    }
-
-    [[nodiscard]] std::int32_t SubtractInt32Unchecked(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        return std::bit_cast<std::int32_t>(
-            static_cast<std::uint32_t>(left) - static_cast<std::uint32_t>(right));
-    }
-
-    void IncrementInt32Unchecked(std::int32_t& value) noexcept
-    {
-        value = AddInt32Unchecked(value, 1);
-    }
-
-    void DecrementInt32Unchecked(std::int32_t& value) noexcept
-    {
-        value = SubtractInt32Unchecked(value, 1);
-    }
-
     [[nodiscard]] std::size_t CheckedIndex(std::int32_t index, std::size_t length)
     {
         if (index < 0 || static_cast<std::size_t>(index) >= length)
@@ -238,7 +218,7 @@ namespace MphRead::Mods::Network
         {
             return;
         }
-        IncrementInt32Unchecked(_frame);
+        IncrementInPlace(_frame);
         Drive(player);
     }
 
@@ -444,7 +424,7 @@ namespace MphRead::Mods::Network
         }
 
         for (std::int32_t i = 0; i < static_cast<std::int32_t>(controls.All().size());
-            i = AddInt32Unchecked(i, 1))
+            i = UncheckedAdd(i, 1))
         {
             Entities::Keybind& bind = *controls.All()[i];
             _wasDown[CheckedIndex(i, _wasDown.size())]
@@ -463,7 +443,7 @@ namespace MphRead::Mods::Network
         for (std::int32_t i = 0;
             i < static_cast<std::int32_t>(controls.All().size())
                 && static_cast<std::size_t>(i) < _wasDown.size();
-            i = AddInt32Unchecked(i, 1))
+            i = UncheckedAdd(i, 1))
         {
             Entities::Keybind& bind = *controls.All()[i];
             const bool isDown = bind.IsDown();
@@ -512,7 +492,7 @@ namespace MphRead::Mods::Network
             = std::fabs(turnX) < FiringCone && std::fabs(turnY) < FiringCone;
         if (onTarget)
         {
-            IncrementInt32Unchecked(_framesOnTarget);
+            IncrementInPlace(_framesOnTarget);
         }
         return onTarget;
     }
@@ -563,7 +543,7 @@ namespace MphRead::Mods::Network
         const float moved = Length(playerPositionForMoved - _lastPosition);
         _lastPosition = static_cast<OpenTK::Mathematics::Vector3>(player.Position);
         _stuckFrames = moved < 0.02F
-            ? AddInt32Unchecked(_stuckFrames, 1)
+            ? UncheckedAdd(_stuckFrames, 1)
             : 0;
         const bool stuck = _stuckFrames > 20;
         if (stuck && _stuckFrames > 90)
@@ -607,7 +587,7 @@ namespace MphRead::Mods::Network
 
         if (_releaseFrames > 0)
         {
-            DecrementInt32Unchecked(_releaseFrames);
+            DecrementInPlace(_releaseFrames);
             return;
         }
         if (onTarget && player.ModChargeReady())
@@ -629,10 +609,10 @@ namespace MphRead::Mods::Network
             const std::int32_t count = static_cast<std::int32_t>(
                 Entities::PlayerEntity::Players().size());
             for (std::int32_t step = 1; step < count;
-                step = AddInt32Unchecked(step, 1))
+                step = UncheckedAdd(step, 1))
             {
                 const std::int32_t targetSlot
-                    = AddInt32Unchecked(RequireReference(self).SlotIndex(), step) % count;
+                    = UncheckedAdd(RequireReference(self).SlotIndex(), step) % count;
                 const auto& players = Entities::PlayerEntity::Players();
                 const std::shared_ptr<Entities::PlayerEntity> target
                     = players[CheckedIndex(targetSlot, players.size())];
@@ -653,7 +633,7 @@ namespace MphRead::Mods::Network
         float bestDistance = std::numeric_limits<float>::max();
         for (std::int32_t i = 0;
             i < static_cast<std::int32_t>(Entities::PlayerEntity::Players().size());
-            i = AddInt32Unchecked(i, 1))
+            i = UncheckedAdd(i, 1))
         {
             const auto& players = Entities::PlayerEntity::Players();
             const std::shared_ptr<Entities::PlayerEntity> other

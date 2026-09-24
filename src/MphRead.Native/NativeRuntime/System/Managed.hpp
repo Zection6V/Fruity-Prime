@@ -6,6 +6,7 @@
 
 #include "Exceptions.hpp"
 
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -167,4 +168,120 @@ namespace MphRead::NativeRuntime
     [[nodiscard]] inline double MathClamp(double value, double min, double max) { return Detail::Clamp(value, min, max); }
     [[nodiscard]] inline std::int32_t MathClamp(std::int32_t value, std::int32_t min, std::int32_t max) { return Detail::Clamp(value, min, max); }
     [[nodiscard]] inline std::uint32_t MathClamp(std::uint32_t value, std::uint32_t min, std::uint32_t max) { return Detail::Clamp(value, min, max); }
+
+    // C# integer arithmetic outside a checked block wraps around. In C++ a
+    // signed overflow is undefined, so each of these works in the unsigned
+    // type of the same width and reinterprets the bits -- which is two's
+    // complement wrapping, exactly what the CLR does.
+    [[nodiscard]] constexpr std::int32_t UncheckedAdd(std::int32_t left, std::int32_t right) noexcept
+    {
+        return std::bit_cast<std::int32_t>(std::bit_cast<std::uint32_t>(left) + std::bit_cast<std::uint32_t>(right));
+    }
+
+    [[nodiscard]] constexpr std::int64_t UncheckedAdd(std::int64_t left, std::int64_t right) noexcept
+    {
+        return std::bit_cast<std::int64_t>(std::bit_cast<std::uint64_t>(left) + std::bit_cast<std::uint64_t>(right));
+    }
+
+    // long + int: the int widens first, as in C#.
+    [[nodiscard]] constexpr std::int64_t UncheckedAdd(std::int64_t left, std::int32_t right) noexcept
+    {
+        return UncheckedAdd(left, static_cast<std::int64_t>(right));
+    }
+
+    [[nodiscard]] constexpr std::uint32_t UncheckedAdd(std::uint32_t left, std::uint32_t right) noexcept
+    {
+        return left + right;
+    }
+
+    [[nodiscard]] constexpr std::int32_t UncheckedSubtract(std::int32_t left, std::int32_t right) noexcept
+    {
+        return std::bit_cast<std::int32_t>(std::bit_cast<std::uint32_t>(left) - std::bit_cast<std::uint32_t>(right));
+    }
+
+    [[nodiscard]] constexpr std::int64_t UncheckedSubtract(std::int64_t left, std::int64_t right) noexcept
+    {
+        return std::bit_cast<std::int64_t>(std::bit_cast<std::uint64_t>(left) - std::bit_cast<std::uint64_t>(right));
+    }
+
+    [[nodiscard]] constexpr std::uint32_t UncheckedSubtract(std::uint32_t left, std::uint32_t right) noexcept
+    {
+        return left - right;
+    }
+
+    [[nodiscard]] constexpr std::int32_t UncheckedMultiply(std::int32_t left, std::int32_t right) noexcept
+    {
+        return std::bit_cast<std::int32_t>(std::bit_cast<std::uint32_t>(left) * std::bit_cast<std::uint32_t>(right));
+    }
+
+    [[nodiscard]] constexpr std::int64_t UncheckedMultiply(std::int64_t left, std::int64_t right) noexcept
+    {
+        return std::bit_cast<std::int64_t>(std::bit_cast<std::uint64_t>(left) * std::bit_cast<std::uint64_t>(right));
+    }
+
+    [[nodiscard]] constexpr std::uint32_t UncheckedMultiply(std::uint32_t left, std::uint32_t right) noexcept
+    {
+        return left * right;
+    }
+
+    [[nodiscard]] constexpr std::int32_t UncheckedNegate(std::int32_t value) noexcept
+    {
+        return std::bit_cast<std::int32_t>(0U - std::bit_cast<std::uint32_t>(value));
+    }
+
+    [[nodiscard]] constexpr std::int64_t UncheckedNegate(std::int64_t value) noexcept
+    {
+        return std::bit_cast<std::int64_t>(0ULL - std::bit_cast<std::uint64_t>(value));
+    }
+
+    [[nodiscard]] constexpr std::int32_t UncheckedIncrement(std::int32_t value) noexcept
+    {
+        return UncheckedAdd(value, std::int32_t{1});
+    }
+
+    [[nodiscard]] constexpr std::int64_t UncheckedIncrement(std::int64_t value) noexcept
+    {
+        return UncheckedAdd(value, std::int64_t{1});
+    }
+
+    [[nodiscard]] constexpr std::int32_t UncheckedDecrement(std::int32_t value) noexcept
+    {
+        return UncheckedSubtract(value, std::int32_t{1});
+    }
+
+    [[nodiscard]] constexpr std::int64_t UncheckedDecrement(std::int64_t value) noexcept
+    {
+        return UncheckedSubtract(value, std::int64_t{1});
+    }
+
+    // value++ / value-- as statements.
+    constexpr void IncrementInPlace(std::int32_t& value) noexcept { value = UncheckedIncrement(value); }
+    constexpr void IncrementInPlace(std::int64_t& value) noexcept { value = UncheckedIncrement(value); }
+    constexpr void DecrementInPlace(std::int32_t& value) noexcept { value = UncheckedDecrement(value); }
+    constexpr void DecrementInPlace(std::int64_t& value) noexcept { value = UncheckedDecrement(value); }
+
+    // unchecked((int)x) and friends: the low bits, reinterpreted.
+    [[nodiscard]] constexpr std::int32_t UInt32ToInt32(std::uint32_t value) noexcept { return std::bit_cast<std::int32_t>(value); }
+    [[nodiscard]] constexpr std::uint32_t Int32ToUInt32(std::int32_t value) noexcept { return std::bit_cast<std::uint32_t>(value); }
+    [[nodiscard]] constexpr std::int32_t Int64ToInt32(std::int64_t value) noexcept
+    {
+        return std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(std::bit_cast<std::uint64_t>(value)));
+    }
+    [[nodiscard]] constexpr std::int32_t UInt64ToInt32(std::uint64_t value) noexcept
+    {
+        return std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(value));
+    }
+
+    // value << count and value >> count on an int: the count is masked to
+    // five bits, the left shift wraps, the right shift carries the sign.
+    [[nodiscard]] constexpr std::int32_t ShiftLeft(std::int32_t value, std::int32_t count) noexcept
+    {
+        return std::bit_cast<std::int32_t>(std::bit_cast<std::uint32_t>(value) << (std::bit_cast<std::uint32_t>(count) & 31U));
+    }
+
+    [[nodiscard]] constexpr std::int32_t ShiftRight(std::int32_t value, std::int32_t count) noexcept
+    {
+        // C++20 defines >> on a negative signed value as arithmetic.
+        return value >> (std::bit_cast<std::uint32_t>(count) & 31U);
+    }
 }

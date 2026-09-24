@@ -25,6 +25,7 @@
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::OpenTK::Mathematics::CreateFromAxisAngle;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
@@ -48,14 +49,6 @@ namespace MphRead::Entities::Enemies
         [[nodiscard]] Vector3 DivideVector(Vector3 value, float divisor) noexcept
         {
             return Vector3(value.X / divisor, value.Y / divisor, value.Z / divisor);
-        }
-
-        [[nodiscard]] std::int32_t ManagedAdd(
-            std::int32_t left, std::int32_t right) noexcept
-        {
-            const std::uint32_t value = std::bit_cast<std::uint32_t>(left)
-                + std::bit_cast<std::uint32_t>(right);
-            return std::bit_cast<std::int32_t>(value);
         }
 
         [[nodiscard]] bool HitPlayerAt(
@@ -272,9 +265,9 @@ namespace MphRead::Entities::Enemies
         bool spawn = true;
         ItemType itemType = ItemType::None;
         const std::int32_t chance1 = _itemChance1;
-        const std::int32_t chance2 = ManagedAdd(chance1, _itemChance2);
-        const std::int32_t chance3 = ManagedAdd(chance2, _itemChance3);
-        const std::int32_t chance4 = ManagedAdd(chance3, _itemChance4);
+        const std::int32_t chance2 = UncheckedAdd(chance1, _itemChance2);
+        const std::int32_t chance3 = UncheckedAdd(chance2, _itemChance3);
+        const std::int32_t chance4 = UncheckedAdd(chance3, _itemChance4);
         const std::uint32_t rand = Rng::GetRandomInt2(chance4);
         if (static_cast<std::int64_t>(rand) >= static_cast<std::int64_t>(chance3))
         {

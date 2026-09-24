@@ -1,4 +1,5 @@
 #include "TestWeapons.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <array>
 #include <bit>
@@ -14,6 +15,8 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::UncheckedMultiply;
 
 namespace
 {
@@ -219,14 +222,6 @@ namespace
             offset += replacement.size();
         }
         return typeName + "." + value;
-    }
-
-    [[nodiscard]] constexpr std::int32_t UncheckedMultiplyInt32(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t product
-            = static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(product);
     }
 
 #if defined(DEBUG)
@@ -558,7 +553,7 @@ namespace MphRead::Testing
     {
 #if defined(DEBUG)
         DebugAssertFallback(size == 0xF0);
-        const std::int32_t expectedLength = UncheckedMultiplyInt32(count, size);
+        const std::int32_t expectedLength = UncheckedMultiply(count, size);
         DebugAssertFallback(
             expectedLength >= 0
             && array.size() == static_cast<std::size_t>(expectedLength));
@@ -567,7 +562,7 @@ namespace MphRead::Testing
         auto results = std::make_shared<std::vector<RawWeaponInfo>>();
         for (std::int32_t i = 0; i < count; ++i)
         {
-            const std::int32_t start = UncheckedMultiplyInt32(i, size);
+            const std::int32_t start = UncheckedMultiply(i, size);
             const auto* begin = array.data() + static_cast<std::size_t>(start);
             std::span<const std::uint8_t, 0xF0> raw(begin, 0xF0);
             RawWeaponInfo value(raw);

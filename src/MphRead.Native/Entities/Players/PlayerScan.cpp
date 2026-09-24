@@ -28,6 +28,8 @@
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
 using ::MphRead::TestFlag;
 
 namespace
@@ -93,22 +95,6 @@ namespace
             throw MphRead::SceneDetail::InvalidCastException();
         }
         return *cast;
-    }
-
-    [[nodiscard]] constexpr std::int32_t ManagedAdd(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t value
-            = static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(value);
-    }
-
-    [[nodiscard]] constexpr std::int32_t ManagedMultiply(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t value
-            = static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(value);
     }
 
 }
@@ -482,8 +468,8 @@ namespace MphRead::Entities
                     const float inv = value / target.Scale;
                     particleScale *= inv * inv;
                 }
-                const std::int32_t particleIndex = ManagedAdd(
-                    ManagedMultiply(2, target.Category), target.Dim ? 1 : 0);
+                const std::int32_t particleIndex = UncheckedAdd(
+                    UncheckedMultiply(2, target.Category), target.Dim ? 1 : 0);
                 const SingleType particle = ManagedAt(_scanParticles, particleIndex);
                 const float alpha = target.Dim ? 24.0F / 31.0F : 1.0F;
                 RequireReference(_scene).AddSingleParticle(
@@ -500,8 +486,8 @@ namespace MphRead::Entities
             const float iconScale = target.Scale * 90.0F;
             if (target.Entity == RequireReference(_curScanTarget).Entity && iconScale > 14.0F)
             {
-                const std::int32_t iconIndex = ManagedAdd(
-                    ManagedMultiply(2, target.Category), target.Dim ? 1 : 0);
+                const std::int32_t iconIndex = UncheckedAdd(
+                    UncheckedMultiply(2, target.Category), target.Dim ? 1 : 0);
                 if (iconIndex < 0 || static_cast<std::size_t>(iconIndex) >= _scanIconInsts.size())
                 {
                     throw MphRead::SceneDetail::IndexOutOfRangeException();

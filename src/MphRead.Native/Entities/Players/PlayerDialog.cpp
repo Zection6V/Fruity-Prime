@@ -29,44 +29,15 @@
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::RequireReference;
+using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::UncheckedDecrement;
+using ::MphRead::NativeRuntime::UncheckedIncrement;
+using ::MphRead::NativeRuntime::UncheckedMultiply;
+using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::MphRead::TestFlag;
 
 namespace
 {
-    [[nodiscard]] constexpr std::int32_t ManagedAdd(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t value
-            = static_cast<std::uint32_t>(left) + static_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(value);
-    }
-
-    [[nodiscard]] constexpr std::int32_t ManagedSubtract(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t value
-            = static_cast<std::uint32_t>(left) - static_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(value);
-    }
-
-    [[nodiscard]] constexpr std::int32_t ManagedMultiply(
-        std::int32_t left, std::int32_t right) noexcept
-    {
-        const std::uint32_t value
-            = static_cast<std::uint32_t>(left) * static_cast<std::uint32_t>(right);
-        return std::bit_cast<std::int32_t>(value);
-    }
-
-    [[nodiscard]] constexpr std::int32_t ManagedIncrement(std::int32_t value) noexcept
-    {
-        return ManagedAdd(value, 1);
-    }
-
-    [[nodiscard]] constexpr std::int32_t ManagedDecrement(std::int32_t value) noexcept
-    {
-        return ManagedSubtract(value, 1);
-    }
-
     template <typename TContainer>
     [[nodiscard]] decltype(auto) ManagedAt(TContainer& values, std::int32_t index)
     {
@@ -188,7 +159,7 @@ namespace
         while (offset < text.size())
         {
             const Utf8Character character = DecodeUtf8(text, offset);
-            length = ManagedAdd(length, character.Value > 0xFFFF ? 2 : 1);
+            length = UncheckedAdd(length, character.Value > 0xFFFF ? 2 : 1);
             offset += character.Length;
         }
         return length;
@@ -291,24 +262,24 @@ namespace MphRead::Entities
         {
             if (ch == u'\n')
             {
-                line = ManagedIncrement(line);
+                line = UncheckedIncrement(line);
                 if (line == 4)
                 {
                     ManagedAt(_dialogPageLengths, page) = length;
-                    page = ManagedIncrement(page);
+                    page = UncheckedIncrement(page);
                     length = 0;
                     line = 1;
                 }
                 else
                 {
-                    length = ManagedIncrement(length);
+                    length = UncheckedIncrement(length);
                 }
             }
             else
             {
-                length = ManagedIncrement(length);
+                length = UncheckedIncrement(length);
             }
-            index = ManagedIncrement(index);
+            index = UncheckedIncrement(index);
             if (index == static_cast<std::int32_t>(_overlayBuffer2.size()))
             {
                 break;
@@ -316,7 +287,7 @@ namespace MphRead::Entities
             ch = ManagedAt(_overlayBuffer2, index);
         }
         ManagedAt(_dialogPageLengths, page) = length;
-        _dialogPageCount = ManagedAdd(page, 1);
+        _dialogPageCount = UncheckedAdd(page, 1);
     }
 
     void PlayerEntity::ShowDialogOverlay(std::int32_t messageId,
@@ -348,7 +319,7 @@ namespace MphRead::Entities
         _dialogValue2.reset();
         _overlayBuffer1.fill(u'\0');
         const std::int32_t lineCount = WrapText(RequireOptional(_overlayMessage1), 142, _overlayBuffer1);
-        _overlayTextOffsetY = static_cast<float>(ManagedMultiply(lineCount, 5));
+        _overlayTextOffsetY = static_cast<float>(UncheckedMultiply(lineCount, 5));
         _overlayTimer = duration / 30.0F;
         _dialogCharTimer = 0.0F;
         _dialogPalette = warning ? 3 : 0;
@@ -379,7 +350,7 @@ namespace MphRead::Entities
         }
         _overlayBuffer1.fill(u'\0');
         const std::int32_t lineCount = WrapText(RequireOptional(_overlayMessage1), 142, _overlayBuffer1);
-        _overlayTextOffsetY = static_cast<float>(ManagedMultiply(lineCount, 5));
+        _overlayTextOffsetY = static_cast<float>(UncheckedMultiply(lineCount, 5));
         _overlayTimer = duration / 30.0F;
         _dialogCharTimer = 9999.0F;
         _prevScrollingChars = 9999;
@@ -424,7 +395,7 @@ namespace MphRead::Entities
         _overlayBuffer1.fill(u'\0');
         _overlayBuffer2.fill(u'\0');
         const std::int32_t lineCount = WrapText(RequireOptional(_overlayMessage1), 142, _overlayBuffer1);
-        _overlayTextOffsetY = static_cast<float>(ManagedMultiply(lineCount, 5));
+        _overlayTextOffsetY = static_cast<float>(UncheckedMultiply(lineCount, 5));
         BufferDialogPages();
         _dialogCharTimer = 0.0F;
         _dialogPalette = 0;
@@ -474,7 +445,7 @@ namespace MphRead::Entities
         _overlayBuffer1.fill(u'\0');
         _overlayBuffer2.fill(u'\0');
         const std::int32_t lineCount = WrapText(RequireOptional(_overlayMessage1), 142, _overlayBuffer1);
-        _overlayTextOffsetY = static_cast<float>(ManagedMultiply(lineCount, 5));
+        _overlayTextOffsetY = static_cast<float>(UncheckedMultiply(lineCount, 5));
         BufferDialogPages();
         _dialogCharTimer = 0.0F;
         _dialogPalette = 0;
@@ -656,10 +627,10 @@ namespace MphRead::Entities
             {
                 if (CheckButtonPressed(DialogButton::Right))
                 {
-                    if (_dialogPageIndex != ManagedSubtract(_dialogPageCount, 1))
+                    if (_dialogPageIndex != UncheckedSubtract(_dialogPageCount, 1))
                     {
                         _soundSource.PlayFreeSfx(SfxId::SCAN_SCROLL_BUTTONS);
-                        _dialogPageIndex = ManagedIncrement(_dialogPageIndex);
+                        _dialogPageIndex = UncheckedIncrement(_dialogPageIndex);
                     }
                 }
                 else if (CheckButtonPressed(DialogButton::Left))
@@ -667,14 +638,14 @@ namespace MphRead::Entities
                     if (_dialogPageIndex != 0)
                     {
                         _soundSource.PlayFreeSfx(SfxId::SCAN_SCROLL_BUTTONS);
-                        _dialogPageIndex = ManagedDecrement(_dialogPageIndex);
+                        _dialogPageIndex = UncheckedDecrement(_dialogPageIndex);
                     }
                 }
                 if (_dialogConfirmTimer > 0.0F)
                 {
                     _dialogConfirmTimer -= scene.FrameTime();
                 }
-                if (_dialogPageIndex == ManagedSubtract(_dialogPageCount, 1))
+                if (_dialogPageIndex == UncheckedSubtract(_dialogPageCount, 1))
                 {
                     _lastDialogPageSeen = true;
                 }
@@ -788,11 +759,11 @@ namespace MphRead::Entities
                 || _eventType == ::MphRead::Entities::EventType::UATank)
             {
                 auto& frame = RequireReference(_dialogFrameInst);
-                const std::int32_t posXInt = ManagedSubtract(
-                    ManagedAdd(64, messageBox.Width), frame.Width / 2);
+                const std::int32_t posXInt = UncheckedSubtract(
+                    UncheckedAdd(64, messageBox.Width), frame.Width / 2);
                 const float posX = static_cast<float>(posXInt);
                 const float posY = baseY
-                    + static_cast<float>(ManagedMultiply(2, messageBox.Height)) - 12.0F;
+                    + static_cast<float>(UncheckedMultiply(2, messageBox.Height)) - 12.0F;
                 frame.Alpha = 0.5F;
                 frame.PositionX = posX / 256.0F;
                 frame.PositionY = posY / 192.0F;
@@ -831,7 +802,7 @@ namespace MphRead::Entities
             auto text = Text::Strings::GetHudMessage(102);
             DrawText2D(128.0F + _objShiftX, 58.0F + _objShiftY,
                 Hud::Align::Center, 0, text);
-            auto iconInst = ManagedAt(_scanIconInsts, ManagedMultiply(_scanCategoryIndex, 2));
+            auto iconInst = ManagedAt(_scanIconInsts, UncheckedMultiply(_scanCategoryIndex, 2));
             auto& icon = RequireReference(iconInst);
             icon.PositionX = 20.0F / 256.0F;
             icon.PositionY = 96.0F / 192.0F;
@@ -856,9 +827,9 @@ namespace MphRead::Entities
             std::int32_t start = 0;
             for (std::int32_t i = 1; i <= _dialogPageIndex; ++i)
             {
-                start = ManagedAdd(start, ManagedAt(_dialogPageLengths, ManagedSubtract(i, 1)));
+                start = UncheckedAdd(start, ManagedAt(_dialogPageLengths, UncheckedSubtract(i, 1)));
             }
-            start = ManagedAdd(start, _dialogPageIndex);
+            start = UncheckedAdd(start, _dialogPageIndex);
             const auto text = ManagedSpan(_overlayBuffer2, start,
                 ManagedAt(_dialogPageLengths, _dialogPageIndex));
             RequireReference(_textInst).SetPaletteData(_dialogPaletteData, scene);
@@ -869,7 +840,7 @@ namespace MphRead::Entities
             RequireReference(scene.Layer5Info()).Alpha = 1.0F;
             RequireReference(scene.Layer5Info()).ScaleX = 1.0F;
             RequireReference(scene.Layer5Info()).ScaleY = 1.0F;
-            if (_dialogPageIndex != ManagedSubtract(_dialogPageCount, 1))
+            if (_dialogPageIndex != UncheckedSubtract(_dialogPageCount, 1))
             {
                 auto& arrow = RequireReference(_dialogArrowInst);
                 arrow.PositionX = 169.0F / 256.0F;

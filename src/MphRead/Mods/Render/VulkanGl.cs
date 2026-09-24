@@ -737,11 +737,17 @@ namespace MphRead.Mods.Render
             _commands.SetIndexBuffer(_indexBuffer!, IndexFormat.UInt32);
             if (_scissor)
             {
-                _commands.SetScissorRect(0, (uint)Math.Max(_scissorX, 0), (uint)Math.Max(_scissorY, 0),
-                    (uint)Math.Max(_scissorW, 1), (uint)Math.Max(_scissorH, 1));
+                int scissorWidth = Math.Max(_scissorW, 1);
+                int scissorHeight = Math.Max(_scissorH, 1);
+                int scissorY = (int)fb.Height - _scissorY - scissorHeight;
+                _commands.SetScissorRect(0, (uint)Math.Max(_scissorX, 0), (uint)Math.Max(scissorY, 0),
+                    (uint)scissorWidth, (uint)scissorHeight);
             }
-            _commands.SetViewport(0, new Veldrid.Viewport(_viewX, _viewY,
-                _viewW > 0 ? _viewW : fb.Width, _viewH > 0 ? _viewH : fb.Height, 0, 1));
+            float viewportWidth = _viewW > 0 ? _viewW : fb.Width;
+            float viewportHeight = _viewH > 0 ? _viewH : fb.Height;
+            float viewportY = fb.Height - _viewY - viewportHeight;
+            _commands.SetViewport(0, new Veldrid.Viewport(_viewX, viewportY,
+                viewportWidth, viewportHeight, 0, 1));
 
             byte[] ubo = BuildUniforms();
             _commands.UpdateBuffer(_ubo!, 0, ubo);

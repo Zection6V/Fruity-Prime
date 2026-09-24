@@ -76,14 +76,6 @@ namespace MphRead::Mods::Multiplayer
             return dynamic_cast<const ::MphRead::EntityOf<::MphRead::ItemSpawnEntityData>*>(&entity);
         }
 
-        [[nodiscard]] float DistanceSquared(
-            const OpenTK::Mathematics::Vector3& left, const OpenTK::Mathematics::Vector3& right)
-        {
-            const float x = left.X - right.X;
-            const float y = left.Y - right.Y;
-            const float z = left.Z - right.Z;
-            return x * x + y * y + z * z;
-        }
     }
 
     bool MapResourceRules::IsHealth(::MphRead::ItemType type) noexcept

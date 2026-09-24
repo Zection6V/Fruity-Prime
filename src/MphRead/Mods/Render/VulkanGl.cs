@@ -317,16 +317,8 @@ namespace MphRead.Mods.Render
 
         private static bool IsWayland()
         {
-            if (!OperatingSystem.IsLinux())
-            {
-                return false;
-            }
-            if (Environment.GetEnvironmentVariable("OPENTK_4_USE_WAYLAND") == "0")
-            {
-                return false;
-            }
-            return String.Equals(Environment.GetEnvironmentVariable("XDG_SESSION_TYPE"),
-                "wayland", StringComparison.OrdinalIgnoreCase);
+            return OperatingSystem.IsLinux()
+                && GLFW.GetPlatform() == OpenTK.Windowing.GraphicsLibraryFramework.Platform.Wayland;
         }
 
         public static void Shutdown()

@@ -10,6 +10,7 @@
 #include "../../Formats/RawFormats.hpp"
 #include "../EntityBase.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <any>
@@ -43,6 +44,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
+
+using ::MphRead::NativeRuntime::FileReadAllBytes;
 
 namespace
 {
@@ -172,18 +175,6 @@ namespace
             "I/O error occurred while reading file '" + path + "'.");
     }
 
-    [[noreturn]] void ThrowFileTooLong()
-    {
-        throw System::IO::IOException(
-            "The file is too long. This operation is currently limited to supporting "
-            "files less than 2 gigabytes in size.");
-    }
-
-    [[noreturn]] void ThrowEndOfStream()
-    {
-        throw System::IO::EndOfStreamException();
-    }
-
     [[noreturn]] void ThrowOutOfMemory()
     {
         throw System::OutOfMemoryException();
@@ -249,33 +240,6 @@ namespace
         HANDLE _value;
     };
 
-    [[nodiscard]] std::wstring ToWidePath(const std::string& path)
-    {
-        if (path.empty())
-        {
-            return {};
-        }
-        if (path.size() > static_cast<std::size_t>(std::numeric_limits<int>::max()))
-        {
-            throw System::IO::PathTooLongException("The path '" + path + "' is too long, or a component of the specified path is too long.");
-        }
-        const int length = static_cast<int>(path.size());
-        const int count = MultiByteToWideChar(
-            CP_UTF8, MB_ERR_INVALID_CHARS, path.data(), length, nullptr, 0);
-        if (count <= 0)
-        {
-            ThrowIOException(path);
-        }
-        std::wstring result(static_cast<std::size_t>(count), L'\0');
-        if (MultiByteToWideChar(
-                CP_UTF8, MB_ERR_INVALID_CHARS, path.data(), length,
-                result.data(), count) != count)
-        {
-            ThrowIOException(path);
-        }
-        return result;
-    }
-
     [[noreturn]] void ThrowWindowsError(const std::string& path, DWORD error)
     {
         if (error == ERROR_FILE_NOT_FOUND)
@@ -340,67 +304,6 @@ namespace
         }
     }
 
-    [[nodiscard]] std::vector<std::uint8_t> ReadAllBytes(const std::string& path)
-    {
-        const std::wstring widePath = ToWidePath(path);
-        FileHandle file(CreateFileW(
-            widePath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-            FILE_ATTRIBUTE_NORMAL, nullptr));
-        if (file.Get() == INVALID_HANDLE_VALUE)
-        {
-            ThrowWindowsError(path, GetLastError());
-        }
-
-        const DWORD fileType = GetFileType(file.Get());
-        if (fileType != FILE_TYPE_DISK)
-        {
-            return ReadUnknownLength(file.Get(), path);
-        }
-
-        LARGE_INTEGER length{};
-        if (!GetFileSizeEx(file.Get(), &length))
-        {
-            ThrowWindowsError(path, GetLastError());
-        }
-        if (length.QuadPart < 0)
-        {
-            ThrowIOException(path);
-        }
-        if (static_cast<std::uint64_t>(length.QuadPart) > MaxManagedByteArrayLength)
-        {
-            ThrowFileTooLong();
-        }
-        if (length.QuadPart == 0)
-        {
-            return ReadUnknownLength(file.Get(), path);
-        }
-
-        std::vector<std::uint8_t> bytes(static_cast<std::size_t>(length.QuadPart));
-        std::size_t offset = 0;
-        while (offset < bytes.size())
-        {
-            const DWORD requested = static_cast<DWORD>(std::min<std::size_t>(
-                bytes.size() - offset,
-                static_cast<std::size_t>(std::numeric_limits<DWORD>::max())));
-            DWORD readCount = 0;
-            if (!ReadFile(
-                    file.Get(), bytes.data() + offset, requested, &readCount, nullptr))
-            {
-                const DWORD error = GetLastError();
-                if (error == ERROR_HANDLE_EOF)
-                {
-                    ThrowEndOfStream();
-                }
-                ThrowWindowsError(path, error);
-            }
-            if (readCount == 0)
-            {
-                ThrowEndOfStream();
-            }
-            offset += readCount;
-        }
-        return bytes;
-    }
 #else
     class FileDescriptor final
     {
@@ -523,116 +426,6 @@ namespace
         }
     }
 
-    [[nodiscard]] std::vector<std::uint8_t> ReadAllBytes(const std::string& path)
-    {
-        int flags = O_RDONLY;
-#ifdef O_CLOEXEC
-        flags |= O_CLOEXEC;
-#endif
-        int descriptor = -1;
-        do
-        {
-            descriptor = open(path.c_str(), flags);
-        } while (descriptor < 0 && errno == EINTR);
-        FileDescriptor file(descriptor);
-        if (file.Get() < 0)
-        {
-            ThrowPosixError(path, errno);
-        }
-#ifndef O_CLOEXEC
-        int closeOnExecResult = -1;
-        do
-        {
-            closeOnExecResult = fcntl(file.Get(), F_SETFD, FD_CLOEXEC);
-        } while (closeOnExecResult < 0 && errno == EINTR);
-        if (closeOnExecResult < 0)
-        {
-            ThrowPosixError(path, errno);
-        }
-#endif
-
-        struct stat status{};
-        int statResult = -1;
-        do
-        {
-            statResult = fstat(file.Get(), &status);
-        } while (statResult < 0 && errno == EINTR);
-        if (statResult != 0)
-        {
-            ThrowPosixError(path, errno);
-        }
-        if (S_ISDIR(status.st_mode))
-        {
-            throw System::UnauthorizedAccessException("Access to the path '" + path + "' is denied.");
-        }
-
-        int lockResult = -1;
-        do
-        {
-            lockResult = flock(file.Get(), LOCK_SH | LOCK_NB);
-        } while (lockResult < 0 && errno == EINTR);
-        if (lockResult < 0)
-        {
-            const int lockError = errno;
-#if defined(EWOULDBLOCK)
-            if (lockError == EWOULDBLOCK)
-            {
-                ThrowSharingViolation(path);
-            }
-#endif
-#if defined(EAGAIN) && (!defined(EWOULDBLOCK) || EAGAIN != EWOULDBLOCK)
-            if (lockError == EAGAIN)
-            {
-                ThrowSharingViolation(path);
-            }
-#endif
-        }
-
-        off_t seekResult = -1;
-        do
-        {
-            seekResult = lseek(file.Get(), 0, SEEK_CUR);
-        } while (seekResult < 0 && errno == EINTR);
-        const bool canSeek = seekResult >= 0;
-        if (!canSeek)
-        {
-            return ReadUnknownLength(file.Get(), path);
-        }
-        if (status.st_size < 0)
-        {
-            ThrowIOException(path);
-        }
-        if (static_cast<std::uint64_t>(status.st_size) > MaxManagedByteArrayLength)
-        {
-            ThrowFileTooLong();
-        }
-        if (status.st_size == 0)
-        {
-            return ReadUnknownLength(file.Get(), path);
-        }
-
-        std::vector<std::uint8_t> bytes(static_cast<std::size_t>(status.st_size));
-        std::size_t offset = 0;
-        while (offset < bytes.size())
-        {
-            const ssize_t readCount = read(
-                file.Get(), bytes.data() + offset, bytes.size() - offset);
-            if (readCount < 0)
-            {
-                if (errno == EINTR)
-                {
-                    continue;
-                }
-                ThrowPosixError(path, errno);
-            }
-            if (readCount == 0)
-            {
-                ThrowEndOfStream();
-            }
-            offset += static_cast<std::size_t>(readCount);
-        }
-        return bytes;
-    }
 #endif
 
     template <typename T>
@@ -1588,7 +1381,7 @@ namespace MphRead::Formats
     {
         const std::string path = Paths::Combine(
             Paths::FileSystem(), "cameraEditor", name);
-        const std::vector<std::uint8_t> storage = ReadAllBytes(path);
+        const std::vector<std::uint8_t> storage = FileReadAllBytes(path);
         const std::span<const std::uint8_t> bytes(storage.data(), storage.size());
 
         const CameraSequenceHeader header

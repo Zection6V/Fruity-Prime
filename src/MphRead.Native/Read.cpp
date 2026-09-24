@@ -1,13 +1,12 @@
 #include "Read.hpp"
 
-#include "NativeRuntime/System/IO.hpp"
-
 #include "Export/Collada.hpp"
 #include "Formats/EntityEnemy.hpp"
 #include "Metadata/Rooms.hpp"
 #include "Mods/Headless.hpp"
 #include "Program.hpp"
 #include "Utility/Compress.hpp"
+#include "NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <array>
@@ -427,7 +426,7 @@ namespace
 
     [[nodiscard]] std::string FileNameWithoutExtension(const std::string& path)
     {
-        return std::filesystem::path(path).stem().string();
+        return ::MphRead::NativeRuntime::PathGetFileNameWithoutExtension(path);
     }
 
     [[nodiscard]] std::int32_t UncheckedAdd(std::int32_t left, std::int32_t right) noexcept
@@ -1914,12 +1913,12 @@ namespace MphRead
 
     void Read::ExtractArchive(const std::string& path)
     {
-        const std::filesystem::path input(path);
-        const std::string name = input.stem().string();
+        const std::filesystem::path input = ::MphRead::NativeRuntime::PathFromUtf8(path);
+        const std::string name = ::MphRead::NativeRuntime::PathToUtf8(input.stem());
         const std::filesystem::path parent = input.has_parent_path() ? input.parent_path() : std::filesystem::path();
         const std::filesystem::path outputPath = std::filesystem::absolute(
-            parent / ".." / "_archives" / name).lexically_normal();
-        const std::string output = outputPath.string();
+            parent / ".." / "_archives" / ::MphRead::NativeRuntime::PathFromUtf8(name)).lexically_normal();
+        const std::string output = ::MphRead::NativeRuntime::PathToUtf8(outputPath);
         try
         {
             std::int32_t filesWritten = 0;

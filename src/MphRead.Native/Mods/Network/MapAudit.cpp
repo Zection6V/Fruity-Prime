@@ -13,7 +13,7 @@
 #include "../../Formats/Entity.hpp"
 #include "../../GameState.hpp"
 #include "../../Scene.hpp"
-
+#include "../../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -30,6 +30,8 @@
 #include <typeinfo>
 #include <type_traits>
 #include <utility>
+
+using ::MphRead::NativeRuntime::PathCombine;
 
 namespace MphRead::Mods::Network
 {
@@ -197,12 +199,6 @@ namespace MphRead::Mods::Network
                 append(std::to_string(bits));
             }
             return result;
-        }
-
-        [[nodiscard]] std::string PathCombine(
-            const std::string& directory, const std::string& fileName)
-        {
-            return (std::filesystem::path(directory) / fileName).string();
         }
 
         [[nodiscard]] std::string ExceptionTypeName(const std::exception& ex)
@@ -1728,7 +1724,7 @@ namespace MphRead::Mods::Network
 
             if (shotDirectory.has_value())
             {
-                std::filesystem::create_directories(*shotDirectory);
+                MphRead::NativeRuntime::DirectoryCreateDirectory(*shotDirectory);
                 window->_shotDirectory = *shotDirectory;
             }
 

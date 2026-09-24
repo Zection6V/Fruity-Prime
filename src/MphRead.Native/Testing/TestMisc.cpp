@@ -12,6 +12,7 @@
 #include "../Utility/Repack.hpp"
 #include "../Utility/RepackCollision.hpp"
 #include "../Utility/Rng.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <array>
@@ -35,6 +36,9 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::FileReadAllBytes;
+using ::MphRead::NativeRuntime::FileWriteAllBytes;
 
 namespace MphRead::Export::ImagesInterop
 {
@@ -90,32 +94,6 @@ namespace
             return ManagedInt32(bits >> count);
         }
         return ManagedInt32((bits >> count) | (~uint{0} << (32U - count)));
-    }
-
-    [[nodiscard]] std::vector<byte> ReadAllBytes(const std::string& path)
-    {
-        std::ifstream stream(path, std::ios::binary | std::ios::ate);
-        if (!stream)
-        {
-            throw System::IO::FileNotFoundException(path);
-        }
-        const std::streampos end = stream.tellg();
-        if (end < 0)
-        {
-            throw System::IO::IOException("I/O error occurred.");
-        }
-        std::vector<byte> bytes(static_cast<std::size_t>(end));
-        stream.seekg(0, std::ios::beg);
-        if (!bytes.empty())
-        {
-            stream.read(reinterpret_cast<char*>(bytes.data()),
-                static_cast<std::streamsize>(bytes.size()));
-            if (stream.gcount() != static_cast<std::streamsize>(bytes.size()))
-            {
-                throw System::IO::EndOfStreamException();
-            }
-        }
-        return bytes;
     }
 
     void ReadExactly(std::istream& stream, std::span<byte> destination)
@@ -213,7 +191,7 @@ namespace
             }
             if (iterator->is_regular_file())
             {
-                result.push_back(iterator->path().string());
+                result.push_back(::MphRead::NativeRuntime::PathToUtf8(iterator->path()));
             }
         }
         return result;
@@ -226,7 +204,7 @@ namespace
             return;
         }
         std::error_code error;
-        std::filesystem::create_directories(path, error);
+        std::filesystem::create_directories(::MphRead::NativeRuntime::PathFromUtf8(path), error);
         if (error)
         {
             throw System::IO::IOException(error.message());
@@ -236,7 +214,7 @@ namespace
     void DeleteFile(const std::string& path)
     {
         std::error_code error;
-        std::filesystem::remove(path, error);
+        std::filesystem::remove(::MphRead::NativeRuntime::PathFromUtf8(path), error);
         if (error)
         {
             throw System::IO::IOException(error.message());
@@ -251,24 +229,6 @@ namespace
         if (!copied || error)
         {
             throw System::IO::IOException(error ? error.message() : "The file already exists.");
-        }
-    }
-
-    void WriteAllBytes(const std::string& path, std::span<const byte> bytes)
-    {
-        std::ofstream stream(path, std::ios::binary | std::ios::trunc);
-        if (!stream)
-        {
-            throw System::IO::IOException("I/O error occurred.");
-        }
-        if (!bytes.empty())
-        {
-            stream.write(reinterpret_cast<const char*>(bytes.data()),
-                static_cast<std::streamsize>(bytes.size()));
-        }
-        if (!stream)
-        {
-            throw System::IO::IOException("I/O error occurred.");
         }
     }
 
@@ -550,8 +510,8 @@ namespace MphRead::Testing
             _currentDecodeTimes.clear();
         }
 
-        const std::vector<byte> fileBytes = ReadAllBytes(*path);
-        std::ifstream fileStream(*path, std::ios::binary);
+        const std::vector<byte> fileBytes = FileReadAllBytes(*path);
+        std::ifstream fileStream(::MphRead::NativeRuntime::PathFromUtf8(*path), std::ios::binary);
         if (!fileStream)
         {
             throw System::IO::FileNotFoundException(*path);
@@ -698,7 +658,7 @@ namespace MphRead::Testing
                 const std::string imagePath =
                     R"(C:\Users\auser\Home\MPH\Data\_Export\_FV\_golden\)"
                     + movieName + "\\" + imageFilename;
-                std::ifstream imageStream(imagePath, std::ios::binary);
+                std::ifstream imageStream(::MphRead::NativeRuntime::PathFromUtf8(imagePath), std::ios::binary);
                 if (!imageStream)
                 {
                     throw System::IO::FileNotFoundException(imagePath);
@@ -716,7 +676,7 @@ namespace MphRead::Testing
                     R"(C:\Users\auser\Home\MPH\Data\_Export\_FV\)"
                     + movieName + "\\" + imageFilename;
                 CreateDirectory(GetDirectoryName(outputPath));
-                std::ofstream imageStream(outputPath, std::ios::binary | std::ios::trunc);
+                std::ofstream imageStream(::MphRead::NativeRuntime::PathFromUtf8(outputPath), std::ios::binary | std::ios::trunc);
                 if (!imageStream)
                 {
                     throw System::IO::IOException("I/O error occurred.");
@@ -875,7 +835,7 @@ namespace MphRead::Testing
                 R"(C:\Users\auser\Home\MPH\Data\_Export\_FV\)"
                 + movieName + R"(\audio.wav)";
             CreateDirectory(GetDirectoryName(audioOutput));
-            std::ofstream output(audioOutput, std::ios::binary | std::ios::trunc);
+            std::ofstream output(::MphRead::NativeRuntime::PathFromUtf8(audioOutput), std::ios::binary | std::ios::trunc);
             if (!output)
             {
                 throw System::IO::IOException("I/O error occurred.");
@@ -3780,14 +3740,14 @@ namespace MphRead::Testing
             folder,
             ReplaceAll(ReplaceAll(modelPath, "_Model.bin", "_Tex.bin"),
                 "_model.bin", "_tex.bin"));
-        WriteAllBytes(modelDest, model);
-        WriteAllBytes(texDest, texture);
+        FileWriteAllBytes(modelDest, model);
+        FileWriteAllBytes(texDest, texture);
 
         std::cout << "Converting collision...\n";
         const std::vector<byte> collision = Utility::RepackCollision::RepackMphRoom(room);
         const std::string colDest = Paths::Combine(
             folder, GetFileName(overMeta ? overMeta->CollisionPath : meta->CollisionPath));
-        WriteAllBytes(colDest, collision);
+        FileWriteAllBytes(colDest, collision);
 
         std::cout << "Converting animation...\n";
         const std::string animSrc = Paths::Combine(fileSystem, meta->AnimationPath);
@@ -3830,7 +3790,7 @@ namespace MphRead::Testing
                 GetFileName(overMeta
                     ? RequireString(overMeta->EntityPath, "path")
                     : RequireString(meta->EntityPath, "path")));
-            WriteAllBytes(entDest, entity);
+            FileWriteAllBytes(entDest, entity);
         }
 
         std::cout << "Creating archive...";
@@ -3873,13 +3833,13 @@ namespace MphRead::Testing
         (void)ignoredTexture;
         const std::string modelPath = GetFileName(overMeta ? overMeta->ModelPath : meta->ModelPath);
         const std::string modelDest = Paths::Combine(folder, modelPath);
-        WriteAllBytes(modelDest, model);
+        FileWriteAllBytes(modelDest, model);
 
         std::cout << "Converting collision...\n";
         const std::vector<byte> collision = Utility::RepackCollision::RepackFhRoom(room, filter);
         const std::string colDest = Paths::Combine(
             folder, GetFileName(overMeta ? overMeta->CollisionPath : meta->CollisionPath));
-        WriteAllBytes(colDest, collision);
+        FileWriteAllBytes(colDest, collision);
 
         std::cout << "Converting animation...\n";
         const std::string animSrc = Paths::Combine(fileSystem, meta->AnimationPath);
@@ -3923,7 +3883,7 @@ namespace MphRead::Testing
                 GetFileName(overMeta
                     ? RequireString(overMeta->EntityPath, "path")
                     : RequireString(meta->EntityPath, "path")));
-            WriteAllBytes(entDest, entity);
+            FileWriteAllBytes(entDest, entity);
         }
         std::cout << "Done.\n";
         Nop();

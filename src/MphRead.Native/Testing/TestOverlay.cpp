@@ -1,6 +1,7 @@
 #include "TestOverlay.hpp"
 
 #include "../Formats/Formats.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <deque>
@@ -16,39 +17,12 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::FileReadAllBytes;
+using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathToUtf8;
+
 namespace
 {
-    [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value)
-    {
-#if defined(__cpp_char8_t)
-        std::u8string converted;
-        converted.reserve(value.size());
-        for (unsigned char ch : value)
-        {
-            converted.push_back(static_cast<char8_t>(ch));
-        }
-        return std::filesystem::path(converted);
-#else
-        return std::filesystem::u8path(value.begin(), value.end());
-#endif
-    }
-
-    [[nodiscard]] std::string PathToUtf8(const std::filesystem::path& path)
-    {
-#if defined(__cpp_char8_t)
-        const std::u8string value = path.u8string();
-        std::string result;
-        result.reserve(value.size());
-        for (char8_t ch : value)
-        {
-            result.push_back(static_cast<char>(ch));
-        }
-        return result;
-#else
-        return path.u8string();
-#endif
-    }
-
     [[nodiscard]] std::string GetDirectoryName(const std::string& path)
     {
         if (path.empty())
@@ -144,20 +118,6 @@ namespace
                 files.push_back(GetFileName(PathToUtf8(entry.path())));
             }
         }
-    }
-
-    [[nodiscard]] std::vector<std::uint8_t> ReadAllBytes(const std::string& path)
-    {
-        std::ifstream stream(PathFromUtf8(path), std::ios::binary);
-        if (!stream.is_open())
-        {
-            throw std::ios_base::failure(
-                "Could not open file for reading: " + path);
-        }
-        stream.exceptions(std::ios::badbit);
-        return std::vector<std::uint8_t>(
-            std::istreambuf_iterator<char>(stream),
-            std::istreambuf_iterator<char>());
     }
 
     [[nodiscard]] std::recursive_mutex& ConsoleMutex()
@@ -346,9 +306,9 @@ namespace MphRead::Testing
                     continue;
                 }
                 const std::vector<std::uint8_t> bytes1 =
-                    ReadAllBytes(Paths::Combine(root1, directory, file));
+                    FileReadAllBytes(Paths::Combine(root1, directory, file));
                 const std::vector<std::uint8_t> bytes2 =
-                    ReadAllBytes(Paths::Combine(root2, directory, file));
+                    FileReadAllBytes(Paths::Combine(root2, directory, file));
                 if (bytes1 != bytes2)
                 {
                     changes.push_back(file);

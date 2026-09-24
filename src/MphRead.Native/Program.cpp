@@ -13,6 +13,7 @@
 #include "Renderer.hpp"
 #include "Utility/Console.hpp"
 #include "Utility/Extract.hpp"
+#include "NativeRuntime/System/IO.hpp"
 #include <array>
 #include <cerrno>
 #include <cstdint>
@@ -41,6 +42,11 @@
 #include <termios.h>
 #include <unistd.h>
 #endif
+
+using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathToUtf8;
+
 namespace
 {
     [[nodiscard]] bool IsDotNetTrimWhitespace(std::uint32_t codePoint) noexcept
@@ -215,67 +221,6 @@ namespace
             if (ch >= 'A' && ch <= 'Z')
                 ch = static_cast<char>(ch - 'A' + 'a');
         return result;
-    }
-    [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value)
-    {
-#if defined(__cpp_char8_t)
-        std::u8string converted;
-        converted.reserve(value.size());
-        for (unsigned char ch : value)
-            converted.push_back(static_cast<char8_t>(ch));
-        return std::filesystem::path(converted);
-#else
-        return std::filesystem::u8path(value.begin(), value.end());
-#endif
-    }
-    [[nodiscard]] std::string PathToUtf8(const std::filesystem::path &path)
-    {
-#if defined(__cpp_char8_t)
-        const std::u8string value = path.u8string();
-        std::string result;
-        result.reserve(value.size());
-        for (char8_t ch : value)
-            result.push_back(static_cast<char>(ch));
-        return result;
-#else
-        return path.u8string();
-#endif
-    }
-    [[nodiscard]] bool FileExists(std::string_view path) noexcept
-    {
-        if (path.empty() || path.find('\0') != std::string_view::npos)
-            return false;
-#if defined(_WIN32)
-        if (path.back() == '/' || path.back() == '\\')
-            return false;
-#else
-        if (path.back() == '/')
-            return false;
-#endif
-        try
-        {
-            const std::filesystem::path nativePath = PathFromUtf8(path);
-#if defined(_WIN32)
-            const DWORD attributes = GetFileAttributesW(nativePath.c_str());
-            return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
-#else
-            struct stat info{};
-            if (::lstat(nativePath.c_str(), &info) != 0)
-                return false;
-            if (S_ISLNK(info.st_mode))
-            {
-                struct stat target{};
-                if (::stat(nativePath.c_str(), &target) != 0)
-                    return true;
-                return !S_ISDIR(target.st_mode);
-            }
-            return !S_ISDIR(info.st_mode);
-#endif
-        }
-        catch (...)
-        {
-            return false;
-        }
     }
     void AppendUtf8(std::string &output, std::uint32_t codePoint)
     {

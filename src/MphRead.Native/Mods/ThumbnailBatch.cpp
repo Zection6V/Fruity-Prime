@@ -3,6 +3,7 @@
 #include "ThumbnailCapture.hpp"
 #include "ThumbnailGenerator.hpp"
 #include "ThumbnailLog.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <array>
@@ -52,6 +53,8 @@
 #include <sys/vfs.h>
 #endif
 #endif
+
+using ::MphRead::NativeRuntime::PathToUtf8;
 
 namespace
 {
@@ -860,12 +863,6 @@ namespace
         return inherited;
     }
 #endif
-
-    std::string PathToUtf8(const std::filesystem::path& path)
-    {
-        const auto value = path.u8string();
-        return std::string(reinterpret_cast<const char*>(value.data()), value.size());
-    }
 
     std::runtime_error ProcessStartFailure(
         const std::string& exePath,

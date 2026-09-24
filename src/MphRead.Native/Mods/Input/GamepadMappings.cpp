@@ -2,6 +2,7 @@
 
 #include "GamepadLayout.hpp"
 #include "../Launcher/Portable/LauncherPrefs.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
 
 #include <bit>
 #include <cstddef>
@@ -39,6 +40,10 @@
 #include <dlfcn.h>
 #endif
 #endif
+
+using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::NativeRuntime::PathFromUtf8;
 
 namespace
 {
@@ -316,21 +321,6 @@ namespace
         return text.substr(first, last - first);
     }
 
-    [[nodiscard]] std::filesystem::path FromUtf8(std::string_view text)
-    {
-#if defined(__cpp_char8_t)
-        std::u8string value;
-        value.reserve(text.size());
-        for (const unsigned char character : text)
-        {
-            value.push_back(static_cast<char8_t>(character));
-        }
-        return std::filesystem::path(value);
-#else
-        return std::filesystem::u8path(text);
-#endif
-    }
-
     [[nodiscard]] std::string ToUtf8(const std::filesystem::path& path)
     {
 #if defined(__cpp_char8_t)
@@ -380,7 +370,7 @@ namespace
         }
         std::error_code error;
         const std::filesystem::path canonical
-            = std::filesystem::canonical(FromUtf8(buffer.data()), error);
+            = std::filesystem::canonical(PathFromUtf8(buffer.data()), error);
         return error ? std::optional<std::filesystem::path>{}
             : std::optional<std::filesystem::path>{canonical};
 #elif defined(__linux__)
@@ -398,7 +388,7 @@ namespace
         {
             error.clear();
             const std::filesystem::path execPath
-                = std::filesystem::canonical(FromUtf8(executable), error);
+                = std::filesystem::canonical(PathFromUtf8(executable), error);
             if (!error)
             {
                 return execPath;
@@ -420,63 +410,9 @@ namespace
         return ToUtf8(std::filesystem::current_path());
     }
 
-    [[nodiscard]] bool IsSeparator(char value) noexcept
-    {
-#if defined(_WIN32)
-        return value == '\\' || value == '/';
-#else
-        return value == '/';
-#endif
-    }
-
-    [[nodiscard]] std::string Combine(
-        std::string_view directory, std::string_view file)
-    {
-        if (directory.empty())
-        {
-            return std::string(file);
-        }
-        std::string result(directory);
-        if (!IsSeparator(result.back())
-#if defined(_WIN32)
-            && result.back() != ':'
-#endif
-        )
-        {
-#if defined(_WIN32)
-            result.push_back('\\');
-#else
-            result.push_back('/');
-#endif
-        }
-        result.append(file);
-        return result;
-    }
-
-    [[nodiscard]] bool FileExists(std::string_view path) noexcept
-    {
-        if (path.empty() || path.find('\0') != std::string_view::npos)
-        {
-            return false;
-        }
-        try
-        {
-            std::error_code error;
-            const std::filesystem::file_status status
-                = std::filesystem::status(FromUtf8(path), error);
-            return !error
-                && std::filesystem::exists(status)
-                && !std::filesystem::is_directory(status);
-        }
-        catch (...)
-        {
-            return false;
-        }
-    }
-
     [[nodiscard]] std::string ReadAllText(std::string_view path)
     {
-        std::ifstream stream(FromUtf8(path), std::ios::binary);
+        std::ifstream stream(PathFromUtf8(path), std::ios::binary);
         if (!stream.is_open())
         {
             throw std::ios_base::failure("Could not open gamepad mappings.");
@@ -823,8 +759,8 @@ namespace MphRead::Mods::Input
 
     std::vector<std::string> GamepadMappings::Paths()
     {
-        const std::string beside = Combine(BaseDirectory(), FileName);
-        const std::string settings = Combine(
+        const std::string beside = PathCombine(BaseDirectory(), FileName);
+        const std::string settings = PathCombine(
             Launcher::LauncherPrefs::Directory(), FileName);
         return beside == settings
             ? std::vector<std::string>{beside}

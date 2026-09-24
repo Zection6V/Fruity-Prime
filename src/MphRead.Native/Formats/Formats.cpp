@@ -5,6 +5,7 @@
 #include "../Metadata/Metadata.hpp"
 #include "../Program.hpp"
 #include "../Strings.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -20,6 +21,10 @@
 #include <sstream>
 #include <stdexcept>
 #include <system_error>
+
+using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathToUtf8;
 
 namespace
 {
@@ -310,9 +315,6 @@ namespace
         return empty;
     }
 
-    [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value);
-    [[nodiscard]] std::string PathToUtf8(const std::filesystem::path& path);
-
     [[nodiscard]] std::string GetFileNameWithoutExtension(std::string_view name)
     {
         return PathToUtf8(PathFromUtf8(name).stem());
@@ -525,51 +527,6 @@ namespace
             start = index + 1;
         }
         return result;
-    }
-
-    [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value)
-    {
-#if defined(__cpp_char8_t)
-        std::u8string converted;
-        converted.reserve(value.size());
-        for (unsigned char byte : value)
-        {
-            converted.push_back(static_cast<char8_t>(byte));
-        }
-        return std::filesystem::path(converted);
-#else
-        return std::filesystem::u8path(value.begin(), value.end());
-#endif
-    }
-
-    [[nodiscard]] std::string PathToUtf8(const std::filesystem::path& path)
-    {
-#if defined(__cpp_char8_t)
-        const std::u8string value = path.u8string();
-        std::string result;
-        result.reserve(value.size());
-        for (char8_t byte : value)
-        {
-            result.push_back(static_cast<char>(byte));
-        }
-        return result;
-#else
-        return path.u8string();
-#endif
-    }
-
-    [[nodiscard]] bool FileExists(std::string_view path) noexcept
-    {
-        try
-        {
-            std::error_code error;
-            const auto status = std::filesystem::status(PathFromUtf8(path), error);
-            return !error && std::filesystem::is_regular_file(status);
-        }
-        catch (...)
-        {
-            return false;
-        }
     }
 
     void AppendUtf8(std::string& output, std::uint32_t codePoint)

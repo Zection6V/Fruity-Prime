@@ -1,6 +1,7 @@
 #include "FhSound.hpp"
 
 #include "../Read.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 
 #include <cstdint>
 #include <fstream>
@@ -10,6 +11,8 @@
 #include <string>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::FileReadAllBytes;
 
 namespace MphRead::Formats::Sound
 {
@@ -29,32 +32,6 @@ namespace MphRead::Formats::Sound
 
     namespace
     {
-        [[nodiscard]] std::vector<std::uint8_t> FileReadAllBytes(const std::string& path)
-        {
-            std::ifstream stream(path, std::ios::binary | std::ios::ate);
-            if (!stream)
-            {
-                throw std::ios_base::failure("Could not open file: " + path);
-            }
-            const std::streampos end = stream.tellg();
-            if (end < 0)
-            {
-                throw std::ios_base::failure("Could not determine file length: " + path);
-            }
-            std::vector<std::uint8_t> bytes(static_cast<std::size_t>(end));
-            stream.seekg(0, std::ios::beg);
-            if (!bytes.empty())
-            {
-                stream.read(
-                    reinterpret_cast<char*>(bytes.data()),
-                    static_cast<std::streamsize>(bytes.size()));
-                if (!stream)
-                {
-                    throw std::ios_base::failure("Could not read file: " + path);
-                }
-            }
-            return bytes;
-        }
     }
 
     void SoundRead::ExportAllFh(bool adpcmRoundingError)

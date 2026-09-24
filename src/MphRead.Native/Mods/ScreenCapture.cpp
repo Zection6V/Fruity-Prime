@@ -9,6 +9,7 @@
 #include "ThumbnailLog.hpp"
 #include "../Formats/Types.hpp"
 #include "../Scene.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 
 #include <bit>
 #include <cstdint>
@@ -22,6 +23,9 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathToUtf8;
 
 namespace MphRead::Export::ImagesInterop
 {
@@ -46,32 +50,6 @@ namespace
     constexpr std::int32_t GlContextFlagForwardCompatibleBit = 0x00000001;
     constexpr std::int32_t GlContextCoreProfileBit = 0x00000001;
     constexpr std::int32_t GlContextCompatibilityProfileBit = 0x00000002;
-
-    [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value)
-    {
-#if defined(__cpp_char8_t)
-        std::u8string converted;
-        converted.reserve(value.size());
-        for (unsigned char ch : value)
-        {
-            converted.push_back(static_cast<char8_t>(ch));
-        }
-        return std::filesystem::path(converted);
-#else
-        return std::filesystem::u8path(value.begin(), value.end());
-#endif
-    }
-
-    [[nodiscard]] std::string PathToUtf8(const std::filesystem::path& value)
-    {
-#if defined(__cpp_char8_t)
-        const std::u8string converted = value.u8string();
-        return std::string(
-            reinterpret_cast<const char*>(converted.data()), converted.size());
-#else
-        return value.u8string();
-#endif
-    }
 
     [[nodiscard]] std::ofstream CreateFile(const std::string& path)
     {

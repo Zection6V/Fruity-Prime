@@ -3,6 +3,7 @@
 
 #include "BuildVersion.hpp"
 #include "UpdateDownload.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
 
 #include <archive.h>
 #include <archive_entry.h>
@@ -55,6 +56,12 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #endif
+
+using ::MphRead::NativeRuntime::DirectoryExists;
+using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathToUtf8;
 
 namespace MphRead::Mods::Update
 {
@@ -142,24 +149,6 @@ namespace MphRead::Mods::Update
         }
 #endif
 
-        [[nodiscard]] fs::path NativePath(const std::string& value)
-        {
-#if defined(_WIN32)
-            return fs::path(Utf8ToWide(value));
-#else
-            return fs::path(value);
-#endif
-        }
-
-        [[nodiscard]] std::string PathText(const fs::path& value)
-        {
-#if defined(_WIN32)
-            return WideToUtf8(value.native());
-#else
-            return value.string();
-#endif
-        }
-
         [[nodiscard]] std::string CurrentExecutablePath()
         {
 #if defined(_WIN32)
@@ -226,9 +215,9 @@ namespace MphRead::Mods::Update
         {
             static const std::string value = []
             {
-                fs::path directory = NativePath(CurrentExecutablePath()).parent_path();
+                fs::path directory = PathFromUtf8(CurrentExecutablePath()).parent_path();
                 directory /= "";
-                std::string text = PathText(directory);
+                std::string text = PathToUtf8(directory);
                 if (text.empty() || (text.back() != '/' && text.back() != '\\'))
                 {
                     text.push_back(static_cast<char>(fs::path::preferred_separator));
@@ -236,18 +225,6 @@ namespace MphRead::Mods::Update
                 return text;
             }();
             return value;
-        }
-
-        [[nodiscard]] std::string Combine(
-            const std::string& left, std::string_view right)
-        {
-            fs::path result = NativePath(left);
-#if defined(_WIN32)
-            result /= fs::path(Utf8ToWide(right));
-#else
-            result /= fs::path(right);
-#endif
-            return PathText(result);
         }
 
         [[nodiscard]] bool IsAndroid() noexcept
@@ -268,47 +245,6 @@ namespace MphRead::Mods::Update
 #endif
         }
 
-        [[nodiscard]] bool FileExists(const std::string& path) noexcept
-        {
-#if defined(_WIN32)
-            try
-            {
-                WIN32_FILE_ATTRIBUTE_DATA data{};
-                const std::wstring native = Utf8ToWide(path);
-                if (!::GetFileAttributesExW(native.c_str(), GetFileExInfoStandard, &data))
-                {
-                    return false;
-                }
-                return (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
-            }
-            catch (...)
-            {
-                return false;
-            }
-#else
-            struct stat info{};
-            if (::lstat(NativePath(path).c_str(), &info) != 0)
-            {
-                return false;
-            }
-            if (S_ISLNK(info.st_mode))
-            {
-                if (::stat(NativePath(path).c_str(), &info) != 0)
-                {
-                    return true;
-                }
-            }
-            return !S_ISDIR(info.st_mode);
-#endif
-        }
-
-        [[nodiscard]] bool DirectoryExists(const std::string& path) noexcept
-        {
-            std::error_code error;
-            const fs::file_status status = fs::status(NativePath(path), error);
-            return !error && fs::is_directory(status);
-        }
-
         [[noreturn]] void ThrowFileError(
             const std::string& path, const std::error_code& error)
         {
@@ -323,7 +259,7 @@ namespace MphRead::Mods::Update
         void CreateDirectory(const std::string& path)
         {
             std::error_code error;
-            fs::create_directories(NativePath(path), error);
+            fs::create_directories(PathFromUtf8(path), error);
             if (error)
             {
                 ThrowFileError(path, error);
@@ -345,12 +281,12 @@ namespace MphRead::Mods::Update
                     std::error_code(static_cast<int>(error), std::system_category()));
             }
 #else
-            if (::unlink(NativePath(path).c_str()) != 0)
+            if (::unlink(PathFromUtf8(path).c_str()) != 0)
             {
                 const int error = errno;
                 if (error == ENOENT)
                 {
-                    const fs::path parent = NativePath(path).parent_path();
+                    const fs::path parent = PathFromUtf8(path).parent_path();
                     if (parent.empty())
                     {
                         return;
@@ -364,7 +300,7 @@ namespace MphRead::Mods::Update
                 if (error == EROFS)
                 {
                     struct stat info{};
-                    if (::lstat(NativePath(path).c_str(), &info) != 0 && errno == ENOENT)
+                    if (::lstat(PathFromUtf8(path).c_str(), &info) != 0 && errno == ENOENT)
                     {
                         return;
                     }
@@ -400,7 +336,7 @@ namespace MphRead::Mods::Update
 #ifdef O_CLOEXEC
             flags |= O_CLOEXEC;
 #endif
-            const int fd = ::open(NativePath(path).c_str(), flags, 0666);
+            const int fd = ::open(PathFromUtf8(path).c_str(), flags, 0666);
             if (fd < 0)
             {
                 ThrowFileError(path, std::error_code(errno, std::generic_category()));
@@ -551,7 +487,7 @@ namespace MphRead::Mods::Update
 
         [[nodiscard]] fs::path FullNormalizedPath(const std::string& value)
         {
-            return fs::absolute(NativePath(value)).lexically_normal();
+            return fs::absolute(PathFromUtf8(value)).lexically_normal();
         }
 
         [[nodiscard]] std::string SanitizeArchivePath(
@@ -588,7 +524,7 @@ namespace MphRead::Mods::Update
         {
             const std::string name = SanitizeArchivePath(rawName, !zip);
             const fs::path root = FullNormalizedPath(destination);
-            std::string extractionRoot = PathText(root);
+            std::string extractionRoot = PathToUtf8(root);
             if (extractionRoot.empty()
                 || !IsDotNetDirectorySeparator(extractionRoot.back()))
             {
@@ -617,7 +553,7 @@ namespace MphRead::Mods::Update
                 {
                     throw IOException("Extracting the Zip entry would have resulted in a file outside the specified destination directory.");
                 }
-                std::string directory = PathText(root);
+                std::string directory = PathToUtf8(root);
                 if (directory.empty()
                     || (directory.back() != '/' && directory.back() != '\\'))
                 {
@@ -650,7 +586,7 @@ namespace MphRead::Mods::Update
             {
                 combined = IsDotNetPathFullyQualified(linkName)
                     ? linkName
-                    : DotNetJoin(PathText(output.parent_path()), linkName);
+                    : DotNetJoin(PathToUtf8(output.parent_path()), linkName);
             }
             else
             {
@@ -660,7 +596,7 @@ namespace MphRead::Mods::Update
             const fs::path resolved = FullNormalizedPath(combined);
             if (!IsWithinDirectory(root, resolved))
             {
-                std::string directory = PathText(root);
+                std::string directory = PathToUtf8(root);
                 if (directory.empty()
                     || (directory.back() != '/' && directory.back() != '\\'))
                 {
@@ -676,7 +612,7 @@ namespace MphRead::Mods::Update
             }
             else
             {
-                const std::string target = PathText(resolved);
+                const std::string target = PathToUtf8(resolved);
                 archive_entry_set_hardlink(entry, target.c_str());
             }
         }
@@ -722,17 +658,17 @@ namespace MphRead::Mods::Update
             times[0].tv_nsec = UTIME_OMIT;
             times[1].tv_sec = static_cast<time_t>(archive_entry_mtime(entry));
             times[1].tv_nsec = archive_entry_mtime_nsec(entry);
-            (void)::utimensat(AT_FDCWD, NativePath(path).c_str(), times, 0);
+            (void)::utimensat(AT_FDCWD, PathFromUtf8(path).c_str(), times, 0);
 #endif
         }
 
         void ExtractZipFile(struct archive* reader, struct archive_entry* entry,
             const std::string& output, const std::optional<std::string>& linkText)
         {
-            const fs::path parent = NativePath(output).parent_path();
+            const fs::path parent = PathFromUtf8(output).parent_path();
             if (!parent.empty())
             {
-                CreateDirectory(PathText(parent));
+                CreateDirectory(PathToUtf8(parent));
             }
 
 #if defined(_WIN32)
@@ -825,7 +761,7 @@ namespace MphRead::Mods::Update
 #endif
             const mode_t archiveMode = static_cast<mode_t>(archive_entry_perm(entry) & 0777);
             const mode_t createMode = archiveMode == 0 ? 0666 : archiveMode;
-            int fd = ::open(NativePath(output).c_str(), flags, createMode);
+            int fd = ::open(PathFromUtf8(output).c_str(), flags, createMode);
             if (fd < 0)
             {
                 ThrowFileError(output, std::error_code(errno, std::generic_category()));
@@ -1018,7 +954,7 @@ namespace MphRead::Mods::Update
                 }
                 const std::string name(rawName);
                 const fs::path outputPath = ResolveArchivePath(destination, name, zip);
-                const std::string output = PathText(outputPath);
+                const std::string output = PathToUtf8(outputPath);
 
                 if (zip)
                 {
@@ -1232,7 +1168,7 @@ namespace MphRead::Mods::Update
         [[nodiscard]] bool IsUnixExecutable(const std::string& path)
         {
             struct stat info{};
-            const fs::path native = NativePath(path);
+            const fs::path native = PathFromUtf8(path);
             if (::stat(native.c_str(), &info) != 0 || S_ISDIR(info.st_mode))
             {
                 return false;
@@ -1249,15 +1185,15 @@ namespace MphRead::Mods::Update
             }
 
             const fs::path executableDirectory
-                = NativePath(CurrentExecutablePath()).parent_path();
-            std::string candidate = PathText(
-                executableDirectory / NativePath(executable));
+                = PathFromUtf8(CurrentExecutablePath()).parent_path();
+            std::string candidate = PathToUtf8(
+                executableDirectory / PathFromUtf8(executable));
             if (FileExists(candidate))
             {
                 return candidate;
             }
 
-            candidate = PathText(fs::current_path() / NativePath(executable));
+            candidate = PathToUtf8(fs::current_path() / PathFromUtf8(executable));
             if (FileExists(candidate))
             {
                 return candidate;
@@ -1276,7 +1212,7 @@ namespace MphRead::Mods::Update
                             ? paths.size() - start : end - start);
                     if (!directory.empty())
                     {
-                        candidate = Combine(std::string(directory), executable);
+                        candidate = PathCombine(std::string(directory), executable);
                         if (IsUnixExecutable(candidate))
                         {
                             return candidate;
@@ -1360,11 +1296,11 @@ namespace MphRead::Mods::Update
             {
                 throw std::system_error(ENOENT, std::generic_category());
             }
-            const fs::path nativeExecutable = NativePath(*resolvedExecutable);
+            const fs::path nativeExecutable = PathFromUtf8(*resolvedExecutable);
             std::optional<fs::path> nativeWorkingDirectory;
             if (hasWorkingDirectory)
             {
-                nativeWorkingDirectory = NativePath(workingDirectory);
+                nativeWorkingDirectory = PathFromUtf8(workingDirectory);
             }
 
             int errorPipe[2] = {-1, -1};
@@ -1522,7 +1458,7 @@ namespace MphRead::Mods::Update
 #ifdef O_CLOEXEC
             sourceFlags |= O_CLOEXEC;
 #endif
-            int sourceFd = ::open(NativePath(from).c_str(), sourceFlags);
+            int sourceFd = ::open(PathFromUtf8(from).c_str(), sourceFlags);
             if (sourceFd < 0)
             {
                 ThrowFileError(from, std::error_code(errno, std::generic_category()));
@@ -1540,7 +1476,7 @@ namespace MphRead::Mods::Update
 #ifdef O_CLOEXEC
             destinationFlags |= O_CLOEXEC;
 #endif
-            int destinationFd = ::open(NativePath(to).c_str(), destinationFlags,
+            int destinationFd = ::open(PathFromUtf8(to).c_str(), destinationFlags,
                 static_cast<mode_t>(initial.st_mode & 0777));
             if (destinationFd < 0)
             {
@@ -1666,12 +1602,12 @@ namespace MphRead::Mods::Update
 
     std::string DesktopUpdate::Staging()
     {
-        return Combine(BaseDirectory(), ".update");
+        return PathCombine(BaseDirectory(), ".update");
     }
 
     std::string DesktopUpdate::StagedBuild()
     {
-        return Combine(Staging(), "staged");
+        return PathCombine(Staging(), "staged");
     }
 
     std::string DesktopUpdate::StagedBuildPath()
@@ -1701,7 +1637,7 @@ namespace MphRead::Mods::Update
         }
         try
         {
-            const std::string probe = Combine(BaseDirectory(), ".update-probe");
+            const std::string probe = PathCombine(BaseDirectory(), ".update-probe");
             WriteEmptyFile(probe);
             DeleteFile(probe);
             return true;
@@ -1742,7 +1678,7 @@ namespace MphRead::Mods::Update
                 throw NullReferenceException();
             }
             const bool zip = EndsWithOrdinalIgnoreCaseAscii(*assetName, ".zip");
-            const std::string archive = Combine(staging,
+            const std::string archive = PathCombine(staging,
                 zip ? "package.zip" : "package.tar.gz");
 
             if (!UpdateDownload::Fetch(*assetUrl, archive,
@@ -1760,7 +1696,7 @@ namespace MphRead::Mods::Update
             ExtractArchive(archive, stagedBuild, zip);
             DeleteFile(archive);
 
-            const std::string binary = Combine(stagedBuild, UpdateCheck::BinaryName());
+            const std::string binary = PathCombine(stagedBuild, UpdateCheck::BinaryName());
             if (!FileExists(binary))
             {
                 SetLastError("the package does not contain " + UpdateCheck::BinaryName());
@@ -1790,7 +1726,7 @@ namespace MphRead::Mods::Update
         try
         {
             const std::string stagedBuild = StagedBuild();
-            const std::string binary = Combine(stagedBuild, UpdateCheck::BinaryName());
+            const std::string binary = PathCombine(stagedBuild, UpdateCheck::BinaryName());
             std::vector<std::string> arguments;
             arguments.emplace_back("-" + std::string(ApplyFlag));
             arguments.push_back(BaseDirectory());
@@ -1848,7 +1784,7 @@ namespace MphRead::Mods::Update
 
         try
         {
-            const std::string binary = Combine(target, UpdateCheck::BinaryName());
+            const std::string binary = PathCombine(target, UpdateCheck::BinaryName());
             MakeExecutable(binary);
             const std::span<const std::string> arguments = relaunchArgs.has_value()
                 ? *relaunchArgs : std::span<const std::string>{};
@@ -2007,7 +1943,7 @@ namespace MphRead::Mods::Update
 
     void DesktopUpdate::Copy(const std::string& source, const std::string& target)
     {
-        const fs::path sourcePath = NativePath(source);
+        const fs::path sourcePath = PathFromUtf8(source);
         std::queue<fs::path> pending;
         pending.push(sourcePath);
 
@@ -2020,14 +1956,14 @@ namespace MphRead::Mods::Update
             fs::directory_iterator iterator(directory, error);
             if (error)
             {
-                ThrowFileError(PathText(directory), error);
+                ThrowFileError(PathToUtf8(directory), error);
             }
             const fs::directory_iterator end;
             for (; iterator != end; iterator.increment(error))
             {
                 if (error)
                 {
-                    ThrowFileError(PathText(directory), error);
+                    ThrowFileError(PathToUtf8(directory), error);
                 }
 
                 std::error_code typeError;
@@ -2043,7 +1979,7 @@ namespace MphRead::Mods::Update
                 typeError.clear();
 
                 const fs::path relative = iterator->path().lexically_relative(sourcePath);
-                const fs::path destinationPath = NativePath(target) / relative;
+                const fs::path destinationPath = PathFromUtf8(target) / relative;
                 const fs::path directoryPath = destinationPath.parent_path();
                 if (!directoryPath.empty())
                 {
@@ -2051,14 +1987,14 @@ namespace MphRead::Mods::Update
                     fs::create_directories(directoryPath, createError);
                     if (createError)
                     {
-                        ThrowFileError(PathText(directoryPath), createError);
+                        ThrowFileError(PathToUtf8(directoryPath), createError);
                     }
                 }
-                CopyWithRetries(PathText(iterator->path()), PathText(destinationPath));
+                CopyWithRetries(PathToUtf8(iterator->path()), PathToUtf8(destinationPath));
             }
             if (error)
             {
-                ThrowFileError(PathText(directory), error);
+                ThrowFileError(PathToUtf8(directory), error);
             }
         }
     }
@@ -2099,7 +2035,7 @@ namespace MphRead::Mods::Update
             if (DirectoryExists(staging))
             {
                 std::error_code error;
-                fs::remove_all(NativePath(staging), error);
+                fs::remove_all(PathFromUtf8(staging), error);
                 if (error)
                 {
                     ThrowFileError(staging, error);
@@ -2120,7 +2056,7 @@ namespace MphRead::Mods::Update
         try
         {
             std::error_code error;
-            fs::permissions(NativePath(path),
+            fs::permissions(PathFromUtf8(path),
                 fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec,
                 fs::perm_options::add, error);
             if (error)

@@ -2,6 +2,7 @@
 
 #include "../../Branding.hpp"
 #include "../../ThumbnailGenerator.hpp"
+#include "../../../NativeRuntime/System/IO.hpp"
 
 #include <cmath>
 #include <condition_variable>
@@ -15,6 +16,10 @@
 #include <thread>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::FileReadAllBytes;
+using ::MphRead::NativeRuntime::PathFromUtf8;
 
 namespace
 {
@@ -45,62 +50,6 @@ namespace
             return val1;
         }
         return std::signbit(val1) ? val1 : val2;
-    }
-
-    [[nodiscard]] std::filesystem::path Utf8Path(std::string_view path)
-    {
-        std::u8string encoded;
-        encoded.reserve(path.size());
-        for (const char value : path)
-        {
-            encoded.push_back(static_cast<char8_t>(
-                static_cast<unsigned char>(value)));
-        }
-        return std::filesystem::path(encoded);
-    }
-
-    [[nodiscard]] bool FileExists(std::string_view path)
-    {
-        std::error_code error;
-        const std::filesystem::path native = Utf8Path(path);
-        const std::filesystem::file_status status = std::filesystem::status(native, error);
-        return !error && std::filesystem::exists(status)
-            && !std::filesystem::is_directory(status);
-    }
-
-    [[nodiscard]] std::vector<std::uint8_t> ReadAllBytes(std::string_view path)
-    {
-        const std::filesystem::path native = Utf8Path(path);
-        std::ifstream stream(native, std::ios::binary);
-        if (!stream)
-        {
-            throw std::runtime_error("Could not open file.");
-        }
-
-        stream.seekg(0, std::ios::end);
-        const std::streamoff end = stream.tellg();
-        if (end < 0)
-        {
-            throw std::runtime_error("Could not determine file length.");
-        }
-        if (static_cast<std::uintmax_t>(end)
-            > static_cast<std::uintmax_t>(std::numeric_limits<std::size_t>::max()))
-        {
-            throw std::length_error("File is too large.");
-        }
-
-        std::vector<std::uint8_t> bytes(static_cast<std::size_t>(end));
-        stream.seekg(0, std::ios::beg);
-        if (!bytes.empty())
-        {
-            stream.read(reinterpret_cast<char*>(bytes.data()),
-                static_cast<std::streamsize>(bytes.size()));
-            if (!stream || stream.gcount() != static_cast<std::streamsize>(bytes.size()))
-            {
-                throw std::runtime_error("Could not read file.");
-            }
-        }
-        return bytes;
     }
 
     [[nodiscard]] std::u16string Utf8ToUtf16(std::string_view text)
@@ -347,7 +296,7 @@ namespace MphRead::Mods::Launcher::Gui
             {
                 return {};
             }
-            const std::vector<std::uint8_t> bytes = ReadAllBytes(path);
+            const std::vector<std::uint8_t> bytes = FileReadAllBytes(std::string(path));
             return _control.CreateBitmapFromMemory(bytes);
         }
         catch (...)

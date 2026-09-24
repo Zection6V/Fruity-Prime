@@ -5,6 +5,7 @@
 #include "Q3Import.hpp"
 #include "../../Formats/Types.hpp"
 #include "../../Program.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <array>
@@ -41,6 +42,10 @@
 #include <sys/types.h>
 #endif
 
+using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathToUtf8;
+
 namespace MphRead::Mods::MapGen
 {
     // Transitional dependency surface. CustomRooms is a later dependency-order
@@ -57,37 +62,6 @@ namespace
 {
     using ByteVector = std::vector<std::uint8_t>;
     using MphRead::Mods::MapGen::MapBundle;
-
-    [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value)
-    {
-#if defined(__cpp_char8_t)
-        std::u8string converted;
-        converted.reserve(value.size());
-        for (unsigned char ch : value)
-        {
-            converted.push_back(static_cast<char8_t>(ch));
-        }
-        return std::filesystem::path(converted);
-#else
-        return std::filesystem::u8path(value.begin(), value.end());
-#endif
-    }
-
-    [[nodiscard]] std::string PathToUtf8(const std::filesystem::path& path)
-    {
-#if defined(__cpp_char8_t)
-        const std::u8string value = path.u8string();
-        std::string result;
-        result.reserve(value.size());
-        for (char8_t ch : value)
-        {
-            result.push_back(static_cast<char>(ch));
-        }
-        return result;
-#else
-        return path.u8string();
-#endif
-    }
 
     [[nodiscard]] std::string GetFileName(const std::string& path)
     {
@@ -115,11 +89,6 @@ namespace
             return {};
         }
         return fileName.substr(dot);
-    }
-
-    [[nodiscard]] std::string CombinePath(const std::string& left, const std::string& right)
-    {
-        return PathToUtf8(PathFromUtf8(left) / PathFromUtf8(right));
     }
 
     void AppendUtf8(std::string& output, std::uint32_t scalar)
@@ -2070,7 +2039,7 @@ namespace MphRead::Mods::MapGen
 
         const std::string path = outputPath
             ? *outputPath
-            : CombinePath(
+            : PathCombine(
                 CustomRooms::MapDirectory(),
                 GetFileNameWithoutExtension(recipePath) + Extension);
         const std::string recipeName = GetFileName(recipePath);

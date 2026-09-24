@@ -1,6 +1,7 @@
 #include "Archive.hpp"
 
 #include "../Read.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <array>
@@ -24,6 +25,11 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::FileReadAllBytes;
+using ::MphRead::NativeRuntime::FileWriteAllBytes;
+using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathToUtf8;
+
 namespace
 {
     template <typename T>
@@ -38,37 +44,6 @@ namespace
     {
         static ManagedRegistry<T>* registry = new ManagedRegistry<T>();
         return *registry;
-    }
-
-    [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value)
-    {
-#if defined(__cpp_char8_t)
-        std::u8string converted;
-        converted.reserve(value.size());
-        for (unsigned char ch : value)
-        {
-            converted.push_back(static_cast<char8_t>(ch));
-        }
-        return std::filesystem::path(converted);
-#else
-        return std::filesystem::u8path(value.begin(), value.end());
-#endif
-    }
-
-    [[nodiscard]] std::string PathToUtf8(const std::filesystem::path& path)
-    {
-#if defined(__cpp_char8_t)
-        const std::u8string value = path.u8string();
-        std::string result;
-        result.reserve(value.size());
-        for (char8_t ch : value)
-        {
-            result.push_back(static_cast<char>(ch));
-        }
-        return result;
-#else
-        return path.u8string();
-#endif
     }
 
     [[nodiscard]] std::optional<std::string> GetDirectoryName(const std::string& path)
@@ -93,52 +68,6 @@ namespace
     [[nodiscard]] std::string GetFileName(const std::string& path)
     {
         return PathToUtf8(PathFromUtf8(path).filename());
-    }
-
-    [[nodiscard]] std::vector<std::uint8_t> FileReadAllBytes(const std::string& path)
-    {
-        std::ifstream stream(PathFromUtf8(path), std::ios::binary | std::ios::ate);
-        if (!stream.is_open())
-        {
-            const int error = errno == 0 ? EIO : errno;
-            throw std::system_error(error, std::generic_category());
-        }
-        const std::streampos end = stream.tellg();
-        if (end < 0)
-        {
-            throw std::ios_base::failure("Could not determine file length");
-        }
-        if (static_cast<std::uint64_t>(end) > static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max()))
-        {
-            throw std::overflow_error("Array dimensions exceeded supported range.");
-        }
-        std::vector<std::uint8_t> bytes(static_cast<std::size_t>(end));
-        stream.seekg(0, std::ios::beg);
-        if (!bytes.empty())
-        {
-            stream.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-            if (!stream)
-            {
-                throw std::ios_base::failure("Could not read file");
-            }
-        }
-        return bytes;
-    }
-
-    void FileWriteAllBytes(const std::string& path, std::span<const std::uint8_t> bytes)
-    {
-        std::ofstream stream(PathFromUtf8(path), std::ios::binary | std::ios::trunc);
-        if (!stream.is_open())
-        {
-            const int error = errno == 0 ? EIO : errno;
-            throw std::system_error(error, std::generic_category());
-        }
-        stream.exceptions(std::ios::badbit | std::ios::failbit);
-        if (!bytes.empty())
-        {
-            stream.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-        }
-        stream.flush();
     }
 
     [[nodiscard]] std::uint32_t ReadUInt32Native(const std::uint8_t* bytes) noexcept

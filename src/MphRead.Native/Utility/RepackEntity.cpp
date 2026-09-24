@@ -9,6 +9,7 @@
 #include "../Metadata/Rooms.hpp"
 #include "../Program.hpp"
 #include "../Read.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <array>
@@ -42,6 +43,9 @@
 #else
 #define REPACK_DEBUG_ASSERT(condition) do { } while (false)
 #endif
+
+using ::MphRead::NativeRuntime::FileReadAllBytes;
+using ::MphRead::NativeRuntime::FileWriteAllBytes;
 
 namespace MphRead::Utility
 {
@@ -590,41 +594,6 @@ namespace MphRead::Utility
                 throw System::NullReferenceException();
             }
             return *meta.EntityPath;
-        }
-
-        [[nodiscard]] std::vector<std::uint8_t> ReadAllBytes(const std::string& path)
-        {
-            std::ifstream stream(std::filesystem::path(path), std::ios::binary);
-            if (!stream)
-            {
-                throw std::runtime_error("Could not find file '" + path + "'.");
-            }
-            stream.seekg(0, std::ios::end);
-            const std::streamoff length = stream.tellg();
-            if (length < 0)
-            {
-                throw std::runtime_error("Could not read file '" + path + "'.");
-            }
-            stream.seekg(0, std::ios::beg);
-            std::vector<std::uint8_t> bytes(static_cast<std::size_t>(length));
-            if (!bytes.empty())
-            {
-                stream.read(reinterpret_cast<char*>(bytes.data()), length);
-            }
-            return bytes;
-        }
-
-        void WriteAllBytes(const std::string& path, const std::vector<std::uint8_t>& bytes)
-        {
-            std::ofstream stream(std::filesystem::path(path), std::ios::binary | std::ios::trunc);
-            if (!stream)
-            {
-                throw std::runtime_error("Could not open file '" + path + "'.");
-            }
-            if (!bytes.empty())
-            {
-                stream.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-            }
         }
 
         void Nop() noexcept
@@ -3171,8 +3140,8 @@ namespace MphRead::Utility
             ? RepackFhEntityList(entities)
             : RepackEntities(entities);
         const std::string outputPath = Paths::Combine(
-            Paths::Export(), "_pack", std::filesystem::path(*entityPath).filename().string());
-        WriteAllBytes(outputPath, bytes);
+            Paths::Export(), "_pack", ::MphRead::NativeRuntime::PathGetFileName(*entityPath));
+        FileWriteAllBytes(outputPath, bytes);
         Nop();
         return bytes;
     }
@@ -3190,7 +3159,7 @@ namespace MphRead::Utility
             {
                 const EditorList entities = GetFhEntities(*meta.EntityPath);
                 const auto bytes = RepackFhEntityList(entities);
-                const auto fileBytes = ReadAllBytes(Paths::Combine(Paths::FhFileSystem(), *meta.EntityPath));
+                const auto fileBytes = FileReadAllBytes(Paths::Combine(Paths::FhFileSystem(), *meta.EntityPath));
                 CompareFhEntitiesBytes(bytes, fileBytes);
                 Nop();
             }
@@ -3198,7 +3167,7 @@ namespace MphRead::Utility
             {
                 const EditorList entities = GetEntities(*meta.EntityPath);
                 const auto bytes = RepackEntities(entities);
-                const auto fileBytes = ReadAllBytes(Paths::Combine(Paths::FileSystem(), *meta.EntityPath));
+                const auto fileBytes = FileReadAllBytes(Paths::Combine(Paths::FileSystem(), *meta.EntityPath));
                 CompareEntitiesBytes(bytes, fileBytes);
                 Nop();
             }
@@ -3222,7 +3191,7 @@ namespace MphRead::Utility
         {
             throw System::NullReferenceException();
         }
-        const std::string root = std::filesystem::path(Paths::FileSystem()).parent_path().string();
+        const std::string root = ::MphRead::NativeRuntime::PathToUtf8(::MphRead::NativeRuntime::PathFromUtf8(Paths::FileSystem()).parent_path());
         std::string path1;
         std::string path2;
         if (meta1.FirstHunt)
@@ -3235,8 +3204,8 @@ namespace MphRead::Utility
             path1 = Paths::Combine(root, game1, *meta1.EntityPath);
             path2 = Paths::Combine(root, game2, *meta2.EntityPath);
         }
-        const auto bytes1 = ReadAllBytes(path1);
-        const auto bytes2 = ReadAllBytes(path2);
+        const auto bytes1 = FileReadAllBytes(path1);
+        const auto bytes2 = FileReadAllBytes(path2);
         bool differences = false;
         if (bytes1.size() != bytes2.size())
         {

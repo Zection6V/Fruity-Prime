@@ -19,7 +19,7 @@
 #include "../../GameState.hpp"
 #include "../../Metadata/Metadata.hpp"
 #include "../../Scene.hpp"
-
+#include "../../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <array>
@@ -36,6 +36,8 @@
 #include <type_traits>
 #include <typeinfo>
 #include <utility>
+
+using ::MphRead::NativeRuntime::PathCombine;
 
 namespace
 {
@@ -71,12 +73,6 @@ namespace
         std::ostringstream stream;
         stream << std::setw(2) << std::setfill('0') << value;
         return stream.str();
-    }
-
-    [[nodiscard]] std::string PathCombine(
-        const std::string& directory, const std::string& filename)
-    {
-        return (std::filesystem::path(directory) / std::filesystem::path(filename)).string();
     }
 
     [[nodiscard]] const char* BoolText(bool value) noexcept

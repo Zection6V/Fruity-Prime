@@ -4,13 +4,31 @@
 // UTF-8 strings.
 
 #include <cstdint>
+#include <filesystem>
 #include <functional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace MphRead::NativeRuntime
 {
+    // A UTF-8 string as a std::filesystem::path, and back. Every path in the
+    // program is a UTF-8 std::string, as every path in the C# is a string;
+    // these are the only two places one crosses into std::filesystem.
+    // std::filesystem::path(std::string) and path::string() use the ANSI code
+    // page on Windows, so a path with any non-ASCII character in it -- a
+    // Japanese user name is enough -- names a different file or throws.
+    [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value);
+    [[nodiscard]] std::string PathToUtf8(const std::filesystem::path& value);
+    // Path.IsPathRooted(path).
+    [[nodiscard]] bool PathIsPathRooted(std::string_view path) noexcept;
+    // Path.Combine(first, second), as .NET (Core) does it: a rooted second
+    // wins, an empty side is the other side, and a separator is added only
+    // when neither side has one at the join.
+    [[nodiscard]] std::string PathCombine(std::string_view first, std::string_view second);
+    [[nodiscard]] std::string PathCombine(
+        std::string_view first, std::string_view second, std::string_view third);
     // File.ReadAllBytes(path).
     [[nodiscard]] std::vector<std::uint8_t> FileReadAllBytes(const std::string& path);
     // foreach (string file in Directory.EnumerateFiles(path)) visitor(file);
@@ -24,9 +42,9 @@ namespace MphRead::NativeRuntime
     // Path.GetFullPath(path).
     [[nodiscard]] std::string PathGetFullPath(const std::string& path);
     // File.Exists(path): false for a directory and for anything unreadable.
-    [[nodiscard]] bool FileExists(const std::string& path) noexcept;
+    [[nodiscard]] bool FileExists(std::string_view path) noexcept;
     // Directory.Exists(path).
-    [[nodiscard]] bool DirectoryExists(const std::string& path) noexcept;
+    [[nodiscard]] bool DirectoryExists(std::string_view path) noexcept;
     // File.ReadAllLines(path): UTF-8, with CR, LF and CRLF all ending a line
     // and the byte-order mark stripped.
     [[nodiscard]] std::vector<std::string> FileReadAllLines(const std::string& path);
@@ -36,6 +54,8 @@ namespace MphRead::NativeRuntime
     [[nodiscard]] std::string FileReadAllText(const std::string& path);
     // File.WriteAllText(path, text).
     void FileWriteAllText(const std::string& path, std::string_view text);
+    // File.WriteAllBytes(path, bytes).
+    void FileWriteAllBytes(const std::string& path, std::span<const std::uint8_t> bytes);
     // Directory.CreateDirectory(path), parents included.
     void DirectoryCreateDirectory(const std::string& path);
     // new FileInfo(path): the members the demo library reads.

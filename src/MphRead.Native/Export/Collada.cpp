@@ -7,6 +7,7 @@
 #include "../Metadata/Metadata.hpp"
 #include "../Program.hpp"
 #include "../Read.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -24,6 +25,8 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::PathFromUtf8;
+
 namespace
 {
     template <typename T>
@@ -39,21 +42,6 @@ namespace
     using MphRead::Export::Collada;
     using OpenTK::Mathematics::Vector2;
     using OpenTK::Mathematics::Vector3;
-
-    [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value)
-    {
-#if defined(__cpp_char8_t)
-        std::u8string converted;
-        converted.reserve(value.size());
-        for (unsigned char ch : value)
-        {
-            converted.push_back(static_cast<char8_t>(ch));
-        }
-        return std::filesystem::path(converted);
-#else
-        return std::filesystem::u8path(value.begin(), value.end());
-#endif
-    }
 
     void WriteAllText(std::string_view path, std::string_view text)
     {

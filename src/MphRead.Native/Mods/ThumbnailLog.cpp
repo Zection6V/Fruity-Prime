@@ -2,6 +2,7 @@
 #include "Launcher/Portable/GameFiles.hpp"
 #include "Branding.hpp"
 #include "Update/BuildVersion.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <cerrno>
@@ -51,6 +52,9 @@
 #include <unistd.h>
 #endif
 
+using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::NativeRuntime::PathFromUtf8;
+
 namespace MphRead::Mods::Launcher::Detail
 {
     // Narrow link boundary for Launcher.GameFiles.Root. GameFiles has not been
@@ -60,59 +64,6 @@ namespace MphRead::Mods::Launcher::Detail
 
 namespace
 {
-    [[nodiscard]] constexpr char DirectorySeparator() noexcept
-    {
-#if defined(_WIN32)
-        return '\\';
-#else
-        return '/';
-#endif
-    }
-
-    [[nodiscard]] constexpr bool EndsPathCombineBoundary(char value) noexcept
-    {
-#if defined(_WIN32)
-        // Path.Combine does not insert a separator after either directory
-        // separator or the Windows volume separator (for example, "C:").
-        return value == '\\' || value == '/' || value == ':';
-#else
-        return value == '/';
-#endif
-    }
-
-    [[nodiscard]] std::string CombinePath(std::string root, std::string_view leaf)
-    {
-        if (root.empty())
-        {
-            return std::string(leaf);
-        }
-        if (!EndsPathCombineBoundary(root.back()))
-        {
-            root.push_back(DirectorySeparator());
-        }
-        root.append(leaf);
-        return root;
-    }
-
-    [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value)
-    {
-        if (value.find('\0') != std::string_view::npos)
-        {
-            throw std::invalid_argument("path contains a null character");
-        }
-#if defined(__cpp_char8_t)
-        std::u8string converted;
-        converted.reserve(value.size());
-        for (const unsigned char byte : value)
-        {
-            converted.push_back(static_cast<char8_t>(byte));
-        }
-        return std::filesystem::path(converted);
-#else
-        return std::filesystem::u8path(value.begin(), value.end());
-#endif
-    }
-
     [[nodiscard]] std::optional<std::filesystem::path> ProcessPath()
     {
 #if defined(_WIN32)
@@ -765,7 +716,7 @@ namespace MphRead::Mods
 
     std::string ThumbnailLog::Path()
     {
-        return CombinePath(Launcher::GameFiles::Root(), "thumbnails.log");
+        return PathCombine(Launcher::GameFiles::Root(), "thumbnails.log");
     }
 
     void ThumbnailLog::Begin(std::int32_t rooms) noexcept

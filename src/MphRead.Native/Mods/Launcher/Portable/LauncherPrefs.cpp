@@ -6,6 +6,7 @@
 #include "../../Network/NetMaster.hpp"
 #include "../../Network/NetProtocol.hpp"
 #include "../../Network/PlayerColors.hpp"
+#include "../../../NativeRuntime/System/IO.hpp"
 
 #include <array>
 #include <charconv>
@@ -55,6 +56,8 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 #endif
+
+using ::MphRead::NativeRuntime::FileExists;
 
 namespace
 {
@@ -1069,28 +1072,6 @@ namespace
         }
         path.append(FileName);
         return path;
-    }
-
-    [[nodiscard]] bool FileExists(std::string_view path)
-    {
-        if (path.empty() || path.find('\0') != std::string_view::npos)
-        {
-            return false;
-        }
-
-        const std::filesystem::path nativePath = PathFromManagedString(path);
-#if defined(_WIN32)
-        const DWORD attributes = GetFileAttributesW(nativePath.c_str());
-        return attributes != INVALID_FILE_ATTRIBUTES
-            && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
-#else
-        struct stat info{};
-        if (::stat(nativePath.c_str(), &info) != 0)
-        {
-            return false;
-        }
-        return !S_ISDIR(info.st_mode);
-#endif
     }
 
     [[nodiscard]] std::string ReadAllText(std::string_view path)

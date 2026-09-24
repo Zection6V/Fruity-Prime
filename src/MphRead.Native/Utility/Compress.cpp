@@ -1,6 +1,7 @@
 #include "Compress.hpp"
 
 #include "../Program.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -253,12 +254,12 @@ namespace MphRead
 
     std::int64_t LZ10::Decompress(const std::string& input, const std::string& output)
     {
-        std::ifstream inStream(input, std::ios::binary);
+        std::ifstream inStream(::MphRead::NativeRuntime::PathFromUtf8(input), std::ios::binary);
         if (!inStream.is_open())
         {
             ThrowOpenError();
         }
-        std::fstream outStream(output,
+        std::fstream outStream(::MphRead::NativeRuntime::PathFromUtf8(output),
             std::ios::binary | std::ios::in | std::ios::out | std::ios::trunc);
         if (!outStream.is_open())
         {
@@ -411,13 +412,13 @@ namespace MphRead
 
     std::int32_t LZ10::Compress(const std::string& input, const std::string& output)
     {
-        std::fstream inStream(input, std::ios::binary | std::ios::in | std::ios::out);
+        std::fstream inStream(::MphRead::NativeRuntime::PathFromUtf8(input), std::ios::binary | std::ios::in | std::ios::out);
         if (!inStream.is_open())
         {
             ThrowOpenError();
         }
 
-        std::fstream outStream(output,
+        std::fstream outStream(::MphRead::NativeRuntime::PathFromUtf8(output),
             std::ios::binary | std::ios::in | std::ios::out | std::ios::trunc);
         if (!outStream.is_open())
         {
@@ -530,12 +531,12 @@ namespace MphRead
 
     std::int64_t LZBackward::Decompress(const std::string& input, const std::string& output)
     {
-        std::ifstream inStream(input, std::ios::binary);
+        std::ifstream inStream(::MphRead::NativeRuntime::PathFromUtf8(input), std::ios::binary);
         if (!inStream.is_open())
         {
             ThrowOpenError();
         }
-        std::fstream outStream(output,
+        std::fstream outStream(::MphRead::NativeRuntime::PathFromUtf8(output),
             std::ios::binary | std::ios::in | std::ios::out | std::ios::trunc);
         if (!outStream.is_open())
         {

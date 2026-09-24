@@ -14,6 +14,7 @@
 #include "NetLaunch.hpp"
 #include "NetLog.hpp"
 #include "NetUnlagged.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
 
 #include <bit>
 #include <chrono>
@@ -132,9 +133,7 @@ namespace MphRead::Mods::Network
         try
         {
             const std::string root = Paths::FileSystem();
-            std::error_code error;
-            const bool exists = !root.empty() && std::filesystem::is_directory(root, error);
-            if (root.empty() || error || !exists)
+            if (root.empty() || !MphRead::NativeRuntime::DirectoryExists(root))
             {
                 reason = "no game files are set up on this machine (see paths.txt)";
                 return false;

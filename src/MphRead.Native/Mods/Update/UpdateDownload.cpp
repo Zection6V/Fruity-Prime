@@ -3,6 +3,7 @@
 
 #include "../Branding.hpp"
 #include "BuildVersion.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
 
 #include <curl/curl.h>
 
@@ -36,6 +37,9 @@
 #include <sys/file.h>
 #include <unistd.h>
 #endif
+
+using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::PathFromUtf8;
 
 namespace MphRead::Mods::Update
 {
@@ -802,24 +806,6 @@ namespace MphRead::Mods::Update
             std::string _userAgent;
         };
 
-        [[nodiscard]] std::filesystem::path NativePath(const std::string& value)
-        {
-#if defined(_WIN32)
-            return std::filesystem::u8path(value);
-#else
-            return std::filesystem::path(value);
-#endif
-        }
-
-        [[nodiscard]] bool FileExists(const std::string& path) noexcept
-        {
-            std::error_code error;
-            const std::filesystem::file_status status
-                = std::filesystem::status(NativePath(path), error);
-            return !error && std::filesystem::exists(status)
-                && !std::filesystem::is_directory(status);
-        }
-
         [[noreturn]] void ThrowFileError(
             const std::string& path, const std::error_code& error)
         {
@@ -833,7 +819,7 @@ namespace MphRead::Mods::Update
 
         void CreateParentDirectory(const std::string& path)
         {
-            const std::filesystem::path native = NativePath(path);
+            const std::filesystem::path native = PathFromUtf8(path);
             const std::filesystem::path directory = native.parent_path();
             if (directory.empty())
             {
@@ -850,7 +836,7 @@ namespace MphRead::Mods::Update
         void DeleteFile(const std::string& path)
         {
             std::error_code error;
-            std::filesystem::remove(NativePath(path), error);
+            std::filesystem::remove(PathFromUtf8(path), error);
             if (error)
             {
                 ThrowFileError(path, error);
@@ -861,7 +847,7 @@ namespace MphRead::Mods::Update
         {
             std::error_code error;
             std::filesystem::rename(
-                NativePath(source), NativePath(destination), error);
+                PathFromUtf8(source), PathFromUtf8(destination), error);
             if (error)
             {
                 ThrowFileError(destination, error);
@@ -874,7 +860,7 @@ namespace MphRead::Mods::Update
             explicit OutputFile(const std::string& path)
             {
 #if defined(_WIN32)
-                const std::filesystem::path native = NativePath(path);
+                const std::filesystem::path native = PathFromUtf8(path);
                 _handle = CreateFileW(
                     native.c_str(),
                     GENERIC_WRITE,
@@ -893,7 +879,7 @@ namespace MphRead::Mods::Update
 #ifdef O_CLOEXEC
                 flags |= O_CLOEXEC;
 #endif
-                _fd = ::open(NativePath(path).c_str(), flags, 0666);
+                _fd = ::open(PathFromUtf8(path).c_str(), flags, 0666);
                 if (_fd < 0)
                 {
                     ThrowFileError(path,

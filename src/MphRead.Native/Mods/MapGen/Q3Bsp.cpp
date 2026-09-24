@@ -2,6 +2,7 @@
 
 #include "../../Formats/Types.hpp"
 #include "../../Program.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -30,6 +31,8 @@
 #include <locale.h>
 #include <dlfcn.h>
 #endif
+
+using ::MphRead::NativeRuntime::FileReadAllBytes;
 
 namespace
 {
@@ -408,35 +411,9 @@ namespace
         return DecodeAscii(bytes.data() + offset, count);
     }
 
-    [[nodiscard]] ByteVector ReadAllBytes(const std::string& path)
-    {
-        std::ifstream stream(path, std::ios::binary);
-        if (!stream)
-        {
-            throw std::runtime_error("Could not open file: " + path);
-        }
-        stream.seekg(0, std::ios::end);
-        const std::streamoff length = stream.tellg();
-        if (length < 0)
-        {
-            throw std::runtime_error("Could not read file: " + path);
-        }
-        stream.seekg(0, std::ios::beg);
-        ByteVector bytes(static_cast<std::size_t>(length));
-        if (!bytes.empty())
-        {
-            stream.read(reinterpret_cast<char*>(bytes.data()), length);
-            if (!stream)
-            {
-                throw std::runtime_error("Could not read file: " + path);
-            }
-        }
-        return bytes;
-    }
-
     [[nodiscard]] std::string FileName(const std::string& path)
     {
-        return std::filesystem::path(path).filename().string();
+        return MphRead::NativeRuntime::PathGetFileName(path);
     }
 
     [[nodiscard]] std::string FileNameWithoutExtension(const std::string& path)
@@ -1788,17 +1765,15 @@ namespace MphRead::Mods::MapGen
         const std::string* source, const std::optional<std::string>& mapName)
     {
         const std::string sourceText = source == nullptr ? std::string{} : *source;
-        std::error_code existsError;
-        const bool exists = source != nullptr && std::filesystem::is_regular_file(sourceText, existsError);
-        if (!exists || existsError)
+        if (source == nullptr || !MphRead::NativeRuntime::FileExists(sourceText))
         {
             throw ProgramException("No such file: " + sourceText);
         }
         if (OrdinalIgnoreCaseEquals(Extension(sourceText), ".bsp"))
         {
-            return ReadAllBytes(sourceText);
+            return FileReadAllBytes(sourceText);
         }
-        const ByteVector archive = ReadAllBytes(sourceText);
+        const ByteVector archive = FileReadAllBytes(sourceText);
         const std::vector<ZipEntry> entries = ReadZipEntries(archive);
         std::vector<const ZipEntry*> maps;
         for (const ZipEntry& entry : entries)
@@ -1864,7 +1839,7 @@ namespace MphRead::Mods::MapGen
         {
             return {FileNameWithoutExtension(sourceText)};
         }
-        const ByteVector archive = ReadAllBytes(sourceText);
+        const ByteVector archive = FileReadAllBytes(sourceText);
         const std::vector<ZipEntry> entries = ReadZipEntries(archive);
         std::vector<std::string> maps;
         for (const ZipEntry& entry : entries)

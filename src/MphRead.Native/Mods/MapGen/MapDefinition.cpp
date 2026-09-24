@@ -7,6 +7,7 @@
 #include "../../Formats/Types.hpp"
 #include "../Launcher/Portable/GameFiles.hpp"
 #include "../../Program.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <array>
@@ -27,6 +28,11 @@
 #include <system_error>
 #include <utility>
 #include <vector>
+
+using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathToUtf8;
 
 namespace System::Text::Json
 {
@@ -51,37 +57,6 @@ namespace
             throw System::NullReferenceException();
         }
         return *value;
-    }
-
-    [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value)
-    {
-#if defined(__cpp_char8_t)
-        std::u8string converted;
-        converted.reserve(value.size());
-        for (unsigned char ch : value)
-        {
-            converted.push_back(static_cast<char8_t>(ch));
-        }
-        return std::filesystem::path(converted);
-#else
-        return std::filesystem::u8path(value.begin(), value.end());
-#endif
-    }
-
-    [[nodiscard]] std::string PathToUtf8(const std::filesystem::path& path)
-    {
-#if defined(__cpp_char8_t)
-        const std::u8string value = path.u8string();
-        std::string result;
-        result.reserve(value.size());
-        for (char8_t ch : value)
-        {
-            result.push_back(static_cast<char>(ch));
-        }
-        return result;
-#else
-        return path.u8string();
-#endif
     }
 
     void AppendUtf8(std::string& output, std::uint32_t scalar)
@@ -367,18 +342,6 @@ namespace
     [[nodiscard]] bool IsPathRooted(const std::string& path)
     {
         return PathFromUtf8(path).has_root_path();
-    }
-
-    [[nodiscard]] std::string CombinePath(const std::string& left, const std::string& right)
-    {
-        return PathToUtf8(PathFromUtf8(left) / PathFromUtf8(right));
-    }
-
-    [[nodiscard]] bool FileExists(const std::string& path) noexcept
-    {
-        std::error_code error;
-        const bool result = std::filesystem::is_regular_file(PathFromUtf8(path), error);
-        return !error && result;
     }
 
     [[nodiscard]] bool EqualsIgnoreCaseAscii(std::string_view left, std::string_view right) noexcept
@@ -2167,21 +2130,21 @@ namespace MphRead::Mods::MapGen
         }
         if (_baseDirectory)
         {
-            std::string candidate = CombinePath(*_baseDirectory, name);
+            std::string candidate = PathCombine(*_baseDirectory, name);
             if (FileExists(candidate))
             {
                 return candidate;
             }
         }
         {
-            std::string candidate = CombinePath(CustomRooms::MapDirectory(), name);
+            std::string candidate = PathCombine(CustomRooms::MapDirectory(), name);
             if (FileExists(candidate))
             {
                 return candidate;
             }
         }
         {
-            std::string candidate = CombinePath(Launcher::GameFiles::Root(), name);
+            std::string candidate = PathCombine(Launcher::GameFiles::Root(), name);
             if (FileExists(candidate))
             {
                 return candidate;

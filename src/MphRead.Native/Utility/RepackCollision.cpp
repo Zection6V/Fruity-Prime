@@ -6,6 +6,7 @@
 #include "../Read.hpp"
 #include "../Scene.hpp"
 #include "../SceneSetup.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <array>
@@ -34,6 +35,7 @@
 #define REPACK_COLLISION_DEBUG_ASSERT(condition) do { } while (false)
 #endif
 
+using ::MphRead::NativeRuntime::FileWriteAllBytes;
 
 namespace
 {
@@ -271,24 +273,6 @@ namespace
         const std::vector<std::uint8_t>& bytes) noexcept
     {
         return std::span<const std::uint8_t>(bytes.data(), bytes.size());
-    }
-
-    void WriteAllBytes(const std::string& path, const std::vector<std::uint8_t>& bytes)
-    {
-        std::ofstream stream(path, std::ios::binary | std::ios::trunc);
-        if (!stream)
-        {
-            throw std::ios_base::failure("Could not open file: " + path);
-        }
-        if (!bytes.empty())
-        {
-            stream.write(reinterpret_cast<const char*>(bytes.data()),
-                static_cast<std::streamsize>(bytes.size()));
-            if (!stream)
-            {
-                throw std::ios_base::failure("Could not write file: " + path);
-            }
-        }
     }
 
     [[nodiscard]] RoomMetadata& GetRoomMetadata(const std::string& room)
@@ -1605,8 +1589,8 @@ namespace MphRead::Utility
                 = RepackMphCollision(editors, info.Portals);
             const std::string outPath = Paths::Combine(
                 Paths::Export(), "_pack",
-                "out_" + std::filesystem::path(path).filename().string());
-            WriteAllBytes(outPath, bytes);
+                "out_" + ::MphRead::NativeRuntime::PathGetFileName(path));
+            FileWriteAllBytes(outPath, bytes);
         }
         Nop();
     }

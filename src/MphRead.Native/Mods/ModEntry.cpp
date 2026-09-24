@@ -55,6 +55,7 @@
 #include "Update/UpdateInstall.hpp"
 #include "Update/Updater.hpp"
 #include "WindowMode.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <array>
@@ -93,6 +94,10 @@
 #include <limits.h>
 #include <unistd.h>
 #endif
+
+using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathToUtf8;
 
 // Environment.ExitCode is process state, not an immediate exit. The executable
 // wrapper is the Native equivalent of the CLR host and owns the eventual return
@@ -715,37 +720,6 @@ namespace
 #endif
     }
 
-    [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value)
-    {
-#if defined(__cpp_char8_t)
-        std::u8string converted;
-        converted.reserve(value.size());
-        for (unsigned char ch : value)
-        {
-            converted.push_back(static_cast<char8_t>(ch));
-        }
-        return std::filesystem::path(converted);
-#else
-        return std::filesystem::u8path(value.begin(), value.end());
-#endif
-    }
-
-    [[nodiscard]] std::string PathToUtf8(const std::filesystem::path& path)
-    {
-#if defined(__cpp_char8_t)
-        const std::u8string value = path.u8string();
-        std::string result;
-        result.reserve(value.size());
-        for (char8_t ch : value)
-        {
-            result.push_back(static_cast<char>(ch));
-        }
-        return result;
-#else
-        return path.u8string();
-#endif
-    }
-
     [[nodiscard]] std::string AppBaseDirectory()
     {
         const std::optional<std::string> path = ProcessPath();
@@ -798,11 +772,6 @@ namespace
     {
         const std::filesystem::path combined = PathFromUtf8(directory) / PathFromUtf8(value);
         return PathToUtf8(std::filesystem::absolute(combined).lexically_normal());
-    }
-
-    [[nodiscard]] std::string CombinePath(std::string_view left, std::string_view right)
-    {
-        return PathToUtf8(PathFromUtf8(left) / PathFromUtf8(right));
     }
 
     [[maybe_unused, nodiscard]] std::string FileNameWithoutExtension(const std::string& path)
@@ -1504,7 +1473,7 @@ namespace MphRead::Mods
         }
         else
         {
-            rotationPath = CombinePath(AppBaseDirectory(), "maprotation.txt");
+            rotationPath = PathCombine(AppBaseDirectory(), "maprotation.txt");
         }
         std::shared_ptr<Network::MapRotation> rotation = Network::MapRotation::LoadOrCreate(rotationPath);
         Network::DedicatedServer server(port, maxPlayers, rotation);

@@ -11,6 +11,7 @@
 #include "MapTextureBake.hpp"
 #include "MapTexturePack.hpp"
 #include "Q3Bsp.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -32,6 +33,9 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathToUtf8;
 
 namespace
 {
@@ -626,43 +630,6 @@ namespace
         }
         return Q3StringEqual{}(
             value.substr(0, prefix.size()), prefix);
-    }
-
-    [[nodiscard]] std::filesystem::path PathFromUtf8(std::string_view value)
-    {
-#if defined(__cpp_char8_t)
-        std::u8string converted;
-        converted.reserve(value.size());
-        for (unsigned char ch : value)
-        {
-            converted.push_back(static_cast<char8_t>(ch));
-        }
-        return std::filesystem::path(converted);
-#else
-        return std::filesystem::u8path(value.begin(), value.end());
-#endif
-    }
-
-    [[nodiscard]] std::string PathToUtf8(const std::filesystem::path& path)
-    {
-#if defined(__cpp_char8_t)
-        const std::u8string value = path.u8string();
-        std::string result;
-        result.reserve(value.size());
-        for (char8_t ch : value)
-        {
-            result.push_back(static_cast<char>(ch));
-        }
-        return result;
-#else
-        return path.u8string();
-#endif
-    }
-
-    [[nodiscard]] std::string CombinePath(
-        const std::string& first, const std::string& second)
-    {
-        return PathToUtf8(PathFromUtf8(first) / PathFromUtf8(second));
     }
 
     [[nodiscard]] std::string FileName(const std::string& path)
@@ -1571,7 +1538,7 @@ namespace MphRead::Mods::MapGen
         const std::string& baseDirectory = baseDirectoryValue.has_value()
             ? *baseDirectoryValue
             : CustomRooms::MapDirectory();
-        const std::string target = CombinePath(baseDirectory, *textures);
+        const std::string target = PathCombine(baseDirectory, *textures);
 
         try
         {

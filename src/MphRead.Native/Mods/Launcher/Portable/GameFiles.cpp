@@ -3,6 +3,7 @@
 #include "../../../Program.hpp"
 #include "../../../Formats/Formats.hpp"
 #include "../../../Utility/Extract.hpp"
+#include "../../../NativeRuntime/System/IO.hpp"
 
 #include <array>
 #include <cerrno>
@@ -92,6 +93,10 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #endif
+
+using ::MphRead::NativeRuntime::DirectoryExists;
+using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::PathCombine;
 
 namespace
 {
@@ -776,89 +781,6 @@ namespace
             }
         }
         return CurrentDirectoryWithSeparator();
-    }
-
-    [[nodiscard]] std::string CombinePath(std::string_view root, std::string_view name)
-    {
-        if (root.empty())
-        {
-            return std::string(name);
-        }
-        std::string result(root);
-#if defined(_WIN32)
-        if (result.back() != '\\' && result.back() != '/' && result.back() != ':')
-        {
-            result.push_back('\\');
-        }
-#else
-        if (result.back() != '/')
-        {
-            result.push_back('/');
-        }
-#endif
-        result.append(name);
-        return result;
-    }
-
-    [[nodiscard]] bool FileExists(std::string_view path) noexcept
-    {
-        if (path.empty() || path.find('\0') != std::string_view::npos)
-        {
-            return false;
-        }
-        try
-        {
-            const std::filesystem::path nativePath = PathFromManagedString(path);
-#if defined(_WIN32)
-            const DWORD attributes = GetFileAttributesW(nativePath.c_str());
-            return attributes != INVALID_FILE_ATTRIBUTES
-                && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
-#else
-            struct stat info{};
-            if (::lstat(nativePath.c_str(), &info) != 0)
-            {
-                return false;
-            }
-            if (S_ISLNK(info.st_mode))
-            {
-                struct stat target{};
-                if (::stat(nativePath.c_str(), &target) != 0)
-                {
-                    return false;
-                }
-                return !S_ISDIR(target.st_mode);
-            }
-            return !S_ISDIR(info.st_mode);
-#endif
-        }
-        catch (...)
-        {
-            return false;
-        }
-    }
-
-    [[nodiscard]] bool DirectoryExists(std::string_view path) noexcept
-    {
-        if (path.empty() || path.find('\0') != std::string_view::npos)
-        {
-            return false;
-        }
-        try
-        {
-            const std::filesystem::path nativePath = PathFromManagedString(path);
-#if defined(_WIN32)
-            const DWORD attributes = GetFileAttributesW(nativePath.c_str());
-            return attributes != INVALID_FILE_ATTRIBUTES
-                && (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-#else
-            struct stat info{};
-            return ::stat(nativePath.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
-#endif
-        }
-        catch (...)
-        {
-            return false;
-        }
     }
 
     [[noreturn]] void ThrowReadFailure(std::string_view path, int error)
@@ -1868,7 +1790,7 @@ namespace MphRead::Mods::Launcher
 
     std::string GameFiles::PathsFile()
     {
-        return CombinePath(_root, "paths.txt");
+        return PathCombine(_root, "paths.txt");
     }
 
     bool GameFiles::Ready()

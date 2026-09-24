@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace MphRead::Mods
 {
@@ -46,6 +47,11 @@ namespace MphRead::Mods
         // A line followed by the current call stack, for a state that should
         // not happen and is not an exception (Windows: with function names).
         static void Stack(std::string_view category, std::string_view message);
+        // The current call stack, to print later with StackFrom (empty where
+        // the platform cannot walk one).
+        [[nodiscard]] static std::vector<void*> CaptureStack();
+        static void StackFrom(std::string_view category, std::string_view message,
+            const std::vector<void*>& frames);
         static void Exception(std::string_view category, std::exception_ptr exception);
         static void Exception(std::string_view category, const std::exception& exception);
 

@@ -2157,6 +2157,51 @@ namespace MphRead::Mods
         }
     }
 
+    std::vector<void*> DebugLog::CaptureStack()
+    {
+        std::vector<void*> frames(32);
+#if defined(_WIN32)
+        frames.resize(::CaptureStackBackTrace(1, static_cast<DWORD>(frames.size()), frames.data(), nullptr));
+#elif !defined(__ANDROID__)
+        const int count = ::backtrace(frames.data(), static_cast<int>(frames.size()));
+        frames.resize(count > 1 ? static_cast<std::size_t>(count) : 0U);
+        if (!frames.empty())
+        {
+            frames.erase(frames.begin());
+        }
+#else
+        frames.clear();
+#endif
+        return frames;
+    }
+
+    void DebugLog::StackFrom(std::string_view category, std::string_view message,
+        const std::vector<void*>& frames)
+    {
+        if (!Active())
+        {
+            return;
+        }
+        Line(category, message);
+#if defined(_WIN32)
+        for (void* frame : frames)
+        {
+            Line(category, "   at " + DescribeAddress(frame));
+        }
+#elif !defined(__ANDROID__)
+        if (!frames.empty())
+        {
+            std::unique_ptr<char*, decltype(&std::free)> symbols(
+                ::backtrace_symbols(frames.data(), static_cast<int>(frames.size())), &std::free);
+            for (std::size_t index = 0; symbols && index < frames.size(); ++index)
+            {
+                Line(category, std::string("   at ") + (symbols.get()[index] ? symbols.get()[index] : "?"));
+            }
+        }
+#endif
+        FlushWriterNoThrow();
+    }
+
     void DebugLog::Stack(std::string_view category, std::string_view message)
     {
         if (!Active())

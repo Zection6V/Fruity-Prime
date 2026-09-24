@@ -62,6 +62,8 @@
 #include "Mods/WindowMode.hpp"
 
 #include <algorithm>
+#include <unordered_set>
+#include <unordered_map>
 #include <bit>
 #include <clocale>
 #include <charconv>
@@ -112,6 +114,21 @@ namespace
         {
             values.erase(it);
         }
+    }
+
+    // Diagnostic only, and only while the debug log is on: where each pooled
+    // effect element and entry was last released, and which entries are
+    // currently free, so a second release can name the first.
+    struct EffectPoolTrace final
+    {
+        std::unordered_map<const void*, std::vector<void*>> LastRelease;
+        std::unordered_set<const void*> FreeEntries;
+    };
+
+    EffectPoolTrace& PoolTrace()
+    {
+        static EffectPoolTrace& trace = *new EffectPoolTrace();
+        return trace;
     }
 
     [[nodiscard]] Vector3 Negate(Vector3 v) noexcept
@@ -2637,6 +2654,10 @@ namespace MphRead
         }
         auto entry = _inactiveEffects.front();
         _inactiveEffects.pop();
+        if (Mods::DebugLog::Active())
+        {
+            PoolTrace().FreeEntries.erase(entry.get());
+        }
         entry->EffectId = 0;
         MPHREAD_DEBUG_ASSERT(entry->Elements->empty());
         return entry;
@@ -2644,6 +2665,23 @@ namespace MphRead
 
     void Scene::UnlinkEffectEntry(const std::shared_ptr<EffectEntry>& entry)
     {
+        if (Mods::DebugLog::Active())
+        {
+            // Diagnostic only: an entry released while already free is then
+            // lent to two owners at once, and either one's release takes the
+            // other's elements with it.
+            if (!PoolTrace().FreeEntries.insert(entry.get()).second)
+            {
+                Mods::DebugLog::Stack("effects", "effect entry released while already free: effect "
+                    + std::to_string(entry->EffectId));
+                const auto previous = PoolTrace().LastRelease.find(entry.get());
+                if (previous != PoolTrace().LastRelease.end())
+                {
+                    Mods::DebugLog::StackFrom("effects", "   ... it had already been released here:", previous->second);
+                }
+            }
+            PoolTrace().LastRelease[entry.get()] = Mods::DebugLog::CaptureStack();
+        }
         for (std::size_t i = 0; i < entry->Elements->size(); ++i)
         {
             UnlinkEffectElement(entry->Elements->at(i));
@@ -2739,6 +2777,15 @@ namespace MphRead
             Mods::DebugLog::Stack("effects", "effect element released while not active: effect "
                 + std::to_string(element->EffectId) + " \"" + element->EffectName + "/"
                 + element->ElementName + "\"");
+            const auto previous = PoolTrace().LastRelease.find(element.get());
+            if (previous != PoolTrace().LastRelease.end())
+            {
+                Mods::DebugLog::StackFrom("effects", "   ... it had already been released here:", previous->second);
+            }
+        }
+        if (Mods::DebugLog::Active())
+        {
+            PoolTrace().LastRelease[element.get()] = Mods::DebugLog::CaptureStack();
         }
         while (!element->Particles->empty())
         {

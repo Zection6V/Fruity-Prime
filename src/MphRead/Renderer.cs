@@ -6786,7 +6786,7 @@ namespace MphRead
             UpdateFrequency = 0
         };
 
-        private static readonly NativeWindowSettings _nativeWindowSettings = Mods.Render.DesktopGlContext.Settings();
+        private static readonly NativeWindowSettings _nativeWindowSettings = Mods.Render.DesktopRenderWindow.Settings();
 
         /// <summary>
         /// The match, while there is one.
@@ -6892,16 +6892,10 @@ namespace MphRead
             // rather than catchable.
             IgnoreUnavailableGlfwFeatures();
 #if !ANDROID
-            // OpenGL is ready as soon as GameWindow's base constructor returns.
-            // Vulkan has no OpenTK graphics context, so bring its device and
-            // swapchain up here as the equivalent lifetime point. The shell
-            // builds and rasterizes its first UI screen before Run()/OnLoad();
-            // delaying Vulkan initialization until OnLoad therefore made the
-            // first UiOverlay upload dereference an uninitialized backend.
-            if (Mods.Render.RendererBackend.UseVulkan)
-            {
-                Mods.Render.RenderGl.Initialize(this);
-            }
+            // Lockstep with the native window lifetime: every backend is usable
+            // as soon as RenderWindow construction completes. This matters to
+            // the shell, which uploads its first UI frame before Run()/OnLoad().
+            Mods.Render.RenderApi.Initialize(this);
 #endif
             // The mark, on this window: it is the only one the program has
             // now, so it is the only one that can carry it. Set here rather
@@ -7258,7 +7252,7 @@ namespace MphRead
         protected override void OnLoad()
         {
 #if !ANDROID
-            Mods.Render.RenderGl.Initialize(this);
+            Mods.Render.RenderApi.Initialize(this);
 #endif
             Mods.Input.WindowsPenInput.Attach(this);
             // Not in the shell, which opens with no match in it: the scene is
@@ -7276,7 +7270,7 @@ namespace MphRead
         protected override void OnUnload()
         {
 #if !ANDROID
-            Mods.Render.RenderGl.Shutdown();
+            Mods.Render.RenderApi.Shutdown();
 #endif
             base.OnUnload();
         }
@@ -7284,9 +7278,9 @@ namespace MphRead
         public override void SwapBuffers()
         {
 #if !ANDROID
-            if (Mods.Render.RendererBackend.UseVulkan)
+            if (Mods.Render.RendererBackend.OwnsPresentation)
             {
-                Mods.Render.RenderGl.Present();
+                Mods.Render.RenderApi.Present();
                 return;
             }
 #endif
@@ -7317,21 +7311,19 @@ namespace MphRead
             if (cap == Mods.Render.FrameTiming.DisplayRate)
             {
 #if !ANDROID
-                if (Mods.Render.RendererBackend.UseVulkan)
-                    Mods.Render.RenderGl.SetVSync(true);
-                else
+                Mods.Render.RenderApi.SetVSync(true);
+#else
+                VSync = VSyncMode.On;
 #endif
-                    VSync = VSyncMode.On;
                 UpdateFrequency = 0;
             }
             else
             {
 #if !ANDROID
-                if (Mods.Render.RendererBackend.UseVulkan)
-                    Mods.Render.RenderGl.SetVSync(false);
-                else
+                Mods.Render.RenderApi.SetVSync(false);
+#else
+                VSync = VSyncMode.Off;
 #endif
-                    VSync = VSyncMode.Off;
                 UpdateFrequency = cap;
             }
         }
@@ -7602,7 +7594,7 @@ namespace MphRead
                 return;
             }
 #if !ANDROID
-            Mods.Render.RenderGl.Resize(size.X, size.Y);
+            Mods.Render.RenderApi.Resize(size.X, size.Y);
 #endif
             GL.Viewport(0, 0, size.X, size.Y);
             if (_scene != null && _scene.Size != size)

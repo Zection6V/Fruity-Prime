@@ -195,7 +195,7 @@
     <PackageReference Include="ReFuel.StbImage" Version="2.1.1" />
     <PackageReference Include="Veldrid" Version="4.9.0" />
     <PackageReference Include="Veldrid.SPIRV" Version="1.0.14" />
-    <Using Include="MphRead.Mods.Render.RenderGl" Alias="GL" />
+    <Using Include="MphRead.Mods.Render.RenderApi" Alias="GL" />
   </ItemGroup>
 
   <!-- OpenAL Soft, for the sound effects.

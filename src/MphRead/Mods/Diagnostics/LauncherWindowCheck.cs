@@ -47,9 +47,9 @@ namespace MphRead.Mods.Diagnostics
             {
                 if (_frames == 20)
                 {
-                    if (_requireVulkan && !Render.RendererBackend.UseVulkan)
+                    if (_requireVulkan && !Render.RendererBackend.IsActive(Render.RendererBackendKind.Vulkan))
                         throw new InvalidOperationException("Vulkan was requested but the window did not use Vulkan.");
-                    string api = Render.RendererBackend.UseVulkan ? "Vulkan" : "GL";
+                    string api = Render.RendererBackend.IsActive(Render.RendererBackendKind.Vulkan) ? "Vulkan" : "GL";
                     Console.WriteLine($"[windowcheck] {GL.GetString(StringName.Renderer)}; {api} {GL.GetString(StringName.Version)}");
                     Link(Shaders.VertexShader, Shaders.FragmentShader);
                     Link(Shaders.RttVertexShader, Shaders.RttFragmentShader);

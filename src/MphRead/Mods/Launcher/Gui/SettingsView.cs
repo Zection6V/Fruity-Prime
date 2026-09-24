@@ -406,7 +406,7 @@ namespace MphRead.Mods.Launcher.Gui
                     LauncherPrefs.WindowMode == WindowStartMode.BorderlessFullscreen ? 1 : 0));
                 _rendererRow = Add(page, new ChoiceRow("Renderer",
                     RendererBackend.Names, RendererBackend.RequestedIndex));
-                Explain(page, "Changing renderer takes effect the next time Fruity Prime starts.");
+                Explain(page, "Changing renderer takes effect immediately. During a match, the game returns to the launcher while the graphics window is rebuilt.");
             }
 
             // Its own heading, above the performance rows, because it is not
@@ -1083,6 +1083,7 @@ namespace MphRead.Mods.Launcher.Gui
 
         private void Commit()
         {
+            bool rendererRestart = false;
             // Display
             if (_windowRow != null)
             {
@@ -1110,6 +1111,7 @@ namespace MphRead.Mods.Launcher.Gui
                 _settings.Renderer = RendererBackend.Names[
                     Math.Clamp(_rendererRow.Index, 0, RendererBackend.Names.Length - 1)];
                 RendererBackend.Configure(_settings.Renderer);
+                rendererRestart = RendererBackend.RestartRequired;
             }
             if (_clipSecondsRow != null)
             {
@@ -1206,6 +1208,10 @@ namespace MphRead.Mods.Launcher.Gui
             // during a match as well as before one, since this same window
             // opens from the pause menu.
             Mods.GameSettings.Apply(_settings);
+            if (rendererRestart)
+            {
+                Shell.RequestRendererRestart();
+            }
             Saved = true;
             Close();
         }

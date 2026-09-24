@@ -91,40 +91,6 @@ namespace
         return std::make_shared<const std::any>(value);
     }
 
-    template <typename T>
-    [[nodiscard]] std::shared_ptr<T> ResolveSceneEntity(Scene& scene, T* value)
-    {
-        if (value == nullptr)
-        {
-            return nullptr;
-        }
-        auto enumerator = scene.Entities().GetEnumerator();
-        while (enumerator.MoveNext())
-        {
-            std::shared_ptr<MphRead::Entities::EntityBase> entity = enumerator.Current();
-            if (entity.get() == value)
-            {
-                std::shared_ptr<T> typed = std::dynamic_pointer_cast<T>(entity);
-                if (!typed)
-                {
-                    throw MphRead::SceneDetail::InvalidCastException();
-                }
-                return typed;
-            }
-        }
-        // Not in the scene yet is not an error: BeamProjectileEntity.Spawn
-        // runs SpawnIceWave, and so TakeDamage with the ice wave as its
-        // source, before it calls AddEntity -- the C# passes the reference
-        // regardless. The callers here only read the entity for the length of
-        // the call, so a non-owning pointer is the same thing.
-        T* typed = dynamic_cast<T*>(value);
-        if (typed == nullptr)
-        {
-            throw MphRead::SceneDetail::InvalidCastException();
-        }
-        return std::shared_ptr<T>(std::shared_ptr<T>(), typed);
-    }
-
     template <typename TEnum>
     [[nodiscard]] constexpr bool TestFlag(TEnum value, TEnum flag) noexcept
     {
@@ -597,7 +563,7 @@ namespace MphRead::Entities
     {
         if (_halfturret == nullptr)
         {
-            _halfturret = std::make_shared<HalfturretEntity>(shared_from_this(), _scene);
+            _halfturret = std::make_shared<HalfturretEntity>(SharedFrom(this), _scene);
             _halfturret->Create();
             RequireReference(_scene).InitEntity(_halfturret);
         }
@@ -801,7 +767,7 @@ namespace MphRead::Entities
     {
         if (respawn)
         {
-            Mods::RespawnChoice::ApplyOnSpawn(shared_from_this());
+            Mods::RespawnChoice::ApplyOnSpawn(SharedFrom(this));
         }
         _loadFlags |= LoadFlags::Spawned;
         if (IsMainPlayer())
@@ -1935,7 +1901,7 @@ namespace MphRead::Entities
         }
         if (TestFlag(_flags2, PlayerFlags2::Halfturret) && attacker != nullptr && !ignoreDamage)
         {
-            RequireReference(_halfturret).OnTakeDamage(attacker->shared_from_this(), damage);
+            RequireReference(_halfturret).OnTakeDamage(SharedFrom<EntityBase>(attacker), damage);
         }
         if (TestFlag(flags, DamageFlags::Halfturret) && !ignoreDamage)
         {
@@ -1982,12 +1948,8 @@ namespace MphRead::Entities
         if (_isBot && source != nullptr)
         {
             PlayerAiData& aiData = RequireReference(AiData);
-            const std::shared_ptr<EntityBase> damageSource
-                = ResolveSceneEntity(RequireReference(_scene), source);
-            const std::shared_ptr<PlayerEntity> damageAttacker
-                = ResolveSceneEntity(RequireReference(_scene), attacker);
             aiData.OnTakeDamage(
-                std::bit_cast<std::int32_t>(damage), damageSource, damageAttacker);
+                std::bit_cast<std::int32_t>(damage), *source, SharedFrom(attacker));
         }
 
         Mods::Network::NetDamage::Note(*this, attacker,

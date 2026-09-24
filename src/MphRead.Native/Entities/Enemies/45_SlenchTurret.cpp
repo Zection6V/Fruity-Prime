@@ -119,26 +119,6 @@ namespace MphRead::Entities::Enemies
             return value;
         }
 
-        [[nodiscard]] std::shared_ptr<EntityBase> SharedEntity(
-            Scene* scene, EntityBase* entity)
-        {
-            Scene& sceneRef = RequireReference(scene);
-            auto enumerator = sceneRef.Entities().GetEnumerator();
-            while (enumerator.MoveNext())
-            {
-                std::shared_ptr<EntityBase> current = enumerator.Current();
-                if (!current)
-                {
-                    throw System::NullReferenceException();
-                }
-                if (current.get() == entity)
-                {
-                    return current;
-                }
-            }
-            throw SceneDetail::InvalidOperationException();
-        }
-
         [[nodiscard]] std::int32_t UnboxInt32(const MessageObject& value)
         {
             if (!value)
@@ -353,7 +333,7 @@ namespace MphRead::Entities::Enemies
             SetAnimationReverse();
 
             const std::shared_ptr<EntityBase> owner
-                = SharedEntity(_scene, this);
+                = SharedFrom<EntityBase>(this);
             const std::shared_ptr<EquipInfo> equipPtr = _equipInfo;
             const Vector3 spawnPosition = Position;
             const BeamSpawnFlags spawnFlags = BeamSpawnFlags::None;

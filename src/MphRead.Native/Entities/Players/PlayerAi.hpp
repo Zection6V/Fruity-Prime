@@ -310,7 +310,7 @@ namespace MphRead::Entities
         static void UpdateVisibilityAndGlobals(Scene& scene);
         void ProcessInput();
         void Process();
-        void OnTakeDamage(std::int32_t damage, const std::shared_ptr<EntityBase>& source,
+        void OnTakeDamage(std::int32_t damage, EntityBase& source,
             const std::shared_ptr<PlayerEntity>& attacker);
 
         enum class AiEntRefType : std::int32_t

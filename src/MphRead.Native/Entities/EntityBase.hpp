@@ -13,6 +13,7 @@
 #include <optional>
 #include <string>
 #include <tuple>
+#include <type_traits>
 #include <vector>
 
 namespace MphRead
@@ -34,7 +35,19 @@ namespace MphRead::Entities
 {
     struct DamageResult;
 
-    class EntityBase
+    // Every entity is owned by a shared_ptr (the scene's lists, a pool, a
+    // player's halfturret), so an entity can always hand out its own owning
+    // pointer. That is what stands in for C#, where any reference to an
+    // entity can be kept for as long as the holder likes: take a raw pointer
+    // or a reference when the callee only uses the entity during the call,
+    // and call SharedFrom when it keeps it. Never look an entity up in the
+    // scene to recover its shared_ptr -- one that is being spawned or has
+    // been removed is not there, and C# does not care.
+    //
+    // Derived classes must not inherit enable_shared_from_this again: with
+    // two such bases the shared_ptr constructor finds neither, and
+    // shared_from_this throws bad_weak_ptr at run time.
+    class EntityBase : public std::enable_shared_from_this<EntityBase>
     {
     private:
         class MatrixProperty final
@@ -265,4 +278,23 @@ namespace MphRead::Entities
     public:
         ModelEntity(std::shared_ptr<ModelInstance> model, Scene* scene, std::int32_t recolor = 0);
     };
+
+    // The entity's own owning pointer, typed as the caller has it. Null in,
+    // null out, which is what a C# reference that happens to be null does.
+    template <typename T>
+    [[nodiscard]] std::shared_ptr<T> SharedFrom(T* entity)
+    {
+        static_assert(std::is_base_of_v<EntityBase, std::remove_const_t<T>>);
+        if (entity == nullptr)
+        {
+            return nullptr;
+        }
+        return std::static_pointer_cast<T>(entity->shared_from_this());
+    }
+
+    template <typename T>
+    [[nodiscard]] std::shared_ptr<T> SharedFrom(T& entity)
+    {
+        return SharedFrom(&entity);
+    }
 }

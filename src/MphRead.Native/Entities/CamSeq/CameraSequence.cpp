@@ -645,13 +645,7 @@ namespace
     template <typename T>
     [[nodiscard]] std::shared_ptr<MphRead::Entities::EntityBase> ToEntityShared(T* value)
     {
-        if (value == nullptr)
-        {
-            return nullptr;
-        }
-        return std::shared_ptr<MphRead::Entities::EntityBase>(
-            static_cast<MphRead::Entities::EntityBase*>(value),
-            [](MphRead::Entities::EntityBase*) { });
+        return MphRead::Entities::SharedFrom<MphRead::Entities::EntityBase>(value);
     }
 }
 

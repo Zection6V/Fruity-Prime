@@ -79,26 +79,6 @@ namespace MphRead::Entities::Enemies
             return RequireReference(PlayerEntity::Main());
         }
 
-        [[nodiscard]] std::shared_ptr<EntityBase> SharedEntity(
-            Scene* scene, EntityBase* entity)
-        {
-            Scene& sceneRef = RequireReference(scene);
-            auto enumerator = sceneRef.Entities().GetEnumerator();
-            while (enumerator.MoveNext())
-            {
-                std::shared_ptr<EntityBase> current = enumerator.Current();
-                if (!current)
-                {
-                    throw System::NullReferenceException();
-                }
-                if (current.get() == entity)
-                {
-                    return current;
-                }
-            }
-            throw SceneDetail::InvalidOperationException();
-        }
-
         template <typename T>
         [[nodiscard]] T& VectorAt(std::vector<T>& values, std::int32_t index)
         {
@@ -704,7 +684,7 @@ namespace MphRead::Entities::Enemies
                 const Vector3 spawnPos
                     = ScaleVector(facing, _shieldOffset) + static_cast<Vector3>(Position);
                 const BeamResultFlags result = BeamProjectileEntity::Spawn(
-                    SharedEntity(_scene, this),
+                    SharedFrom<EntityBase>(this),
                     _equipInfo,
                     spawnPos,
                     facing,
@@ -916,7 +896,7 @@ namespace MphRead::Entities::Enemies
                     = ScaleVector(facing, _shieldOffset)
                     + static_cast<Vector3>(Position);
                 const BeamResultFlags result = BeamProjectileEntity::Spawn(
-                    SharedEntity(_scene, this),
+                    SharedFrom<EntityBase>(this),
                     _equipInfo,
                     spawnPos,
                     facing,

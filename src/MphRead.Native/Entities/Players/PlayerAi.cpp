@@ -890,7 +890,7 @@ namespace MphRead::Entities
     }
 
 
-    void PlayerEntity::PlayerAiData::OnTakeDamage(std::int32_t damage, const std::shared_ptr<EntityBase>& source,
+    void PlayerEntity::PlayerAiData::OnTakeDamage(std::int32_t damage, EntityBase& source,
         const std::shared_ptr<PlayerEntity>& attacker)
     {
         for (auto _enumerator1 = _scene.GetPlayerEntities().GetEnumerator(); _enumerator1.MoveNext(); )
@@ -906,7 +906,7 @@ namespace MphRead::Entities
             {
                 if (player == _player)
                 {
-                    if (source->Type == EntityType::BeamProjectile
+                    if (source.Type == EntityType::BeamProjectile
                         && attacker->Hunter() == Hunter::Weavel && attacker->IsAltForm())
                     {
                         AggroFunc214864C(5, 2, 1, attacker, nullptr, damage, damage, 2, 2);
@@ -914,15 +914,15 @@ namespace MphRead::Entities
                     else
                     {
                         AggroFunc214864C(4, 2, 1, attacker, nullptr, damage, damage, 2, 2);
-                        if (source->Type == EntityType::BeamProjectile
-                            && std::static_pointer_cast<BeamProjectileEntity>(source)->Beam() == BeamType::ShockCoil
+                        if (source.Type == EntityType::BeamProjectile
+                            && static_cast<BeamProjectileEntity&>(source).Beam() == BeamType::ShockCoil
                             && attacker->ShockCoilTimer() > 10 * 2)
                         {
                             player->AiData->Flags2 |= AiFlags2::Bit21;
                         }
                     }
                 }
-                else if (source->Type == EntityType::BeamProjectile
+                else if (source.Type == EntityType::BeamProjectile
                     && attacker->Hunter() == Hunter::Weavel && attacker->IsAltForm())
                 {
                     AggroFunc214864C(5, 2, 2, attacker, _player,

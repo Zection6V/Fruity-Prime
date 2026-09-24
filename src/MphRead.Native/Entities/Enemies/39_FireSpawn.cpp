@@ -263,25 +263,6 @@ namespace MphRead::Entities::Enemies
                 + Rng::GetRandomInt2(static_cast<std::uint32_t>(range));
         }
 
-        [[nodiscard]] std::shared_ptr<EntityBase> SharedEntity(
-            Scene* scene, EntityBase* entity)
-        {
-            Scene& sceneRef = RequireReference(scene);
-            auto enumerator = sceneRef.Entities().GetEnumerator();
-            while (enumerator.MoveNext())
-            {
-                std::shared_ptr<EntityBase> current = enumerator.Current();
-                if (!current)
-                {
-                    throw System::NullReferenceException();
-                }
-                if (current.get() == entity)
-                {
-                    return current;
-                }
-            }
-            throw SceneDetail::InvalidOperationException();
-        }
     }
 
     const std::array<std::int32_t, 11> Enemy39Entity::_recolors{
@@ -557,7 +538,7 @@ namespace MphRead::Entities::Enemies
                 equip.HeadshotDamage(_values.BeamDamage);
 
                 (void)BeamProjectileEntity::Spawn(
-                    SharedEntity(_scene, this),
+                    SharedFrom<EntityBase>(this),
                     equipInfo,
                     ArrayAt(_wristPos, _wristId),
                     dir,

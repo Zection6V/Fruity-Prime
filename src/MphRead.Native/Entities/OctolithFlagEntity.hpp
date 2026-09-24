@@ -15,8 +15,7 @@ namespace MphRead::Entities
 {
     class PlayerEntity;
 
-    class OctolithFlagEntity : public EntityBase,
-                               public std::enable_shared_from_this<OctolithFlagEntity>
+    class OctolithFlagEntity : public EntityBase
     {
     public:
         OctolithFlagEntity(OctolithFlagEntityData data, Scene* scene);

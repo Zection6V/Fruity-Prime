@@ -410,7 +410,7 @@ namespace MphRead::Entities
                     const BeamSpawnFlags flags = owner.DoubleDamage()
                         ? BeamSpawnFlags::DoubleDamage : BeamSpawnFlags::None;
                     const BeamResultFlags result = BeamProjectileEntity::Spawn(
-                        std::static_pointer_cast<EntityBase>(shared_from_this()),
+                        SharedFrom<EntityBase>(this),
                         _equipInfo, muzzlePos, _aimVector, flags, NodeRef, _scene);
                     if (result != BeamResultFlags::NoSpawn)
                     {

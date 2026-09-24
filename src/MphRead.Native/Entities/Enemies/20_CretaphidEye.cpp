@@ -61,26 +61,6 @@ namespace MphRead::Entities::Enemies
             return RequireReference(PlayerEntity::Main());
         }
 
-        [[nodiscard]] std::shared_ptr<EntityBase> SharedEntity(
-            Scene* scene, EntityBase* entity)
-        {
-            Scene& sceneRef = RequireReference(scene);
-            auto enumerator = sceneRef.Entities().GetEnumerator();
-            while (enumerator.MoveNext())
-            {
-                std::shared_ptr<EntityBase> current = enumerator.Current();
-                if (!current)
-                {
-                    throw System::NullReferenceException();
-                }
-                if (current.get() == entity)
-                {
-                    return current;
-                }
-            }
-            throw SceneDetail::InvalidOperationException();
-        }
-
         template <typename T>
         [[nodiscard]] T& ManagedAt(
             const std::shared_ptr<ManagedArray<T>>& values, std::int32_t index)
@@ -566,7 +546,7 @@ namespace MphRead::Entities::Enemies
             spawnDir = facing;
         }
         (void)BeamProjectileEntity::Spawn(
-            SharedEntity(_scene, this), equipInfo,
+            SharedFrom<EntityBase>(this), equipInfo,
             Position, spawnDir, BeamSpawnFlags::None, NodeRef, _scene);
     }
 

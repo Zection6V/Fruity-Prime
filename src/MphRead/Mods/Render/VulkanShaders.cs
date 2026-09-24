@@ -409,10 +409,14 @@ void main()
 }";
 
         public static string ClearFragment { get; } = @"#version 450
+layout(set=0, binding=0) uniform ClearUniforms
+{
+    vec4 color;
+} clear_u;
 layout(location=0) out vec4 out_color;
 void main()
 {
-    out_color = vec4(0.0);
+    out_color = clear_u.color;
 }";
 
     }

@@ -146,6 +146,9 @@ namespace MphRead.Mods.Render
         private static bool _frameInFlight;
         private static ResourceLayout? _layout;
         private static DeviceBuffer? _ubo;
+        private static ResourceLayout? _clearLayout;
+        private static DeviceBuffer? _clearUbo;
+        private static ResourceSet? _clearSet;
         private static DeviceBuffer? _vertexBuffer;
         private static DeviceBuffer? _indexBuffer;
         private static uint _vertexBufferBytes;
@@ -286,6 +289,14 @@ namespace MphRead.Mods.Render
                 new ResourceLayoutElementDescription("Tex1", ResourceKind.TextureReadOnly, ShaderStages.Fragment),
                 new ResourceLayoutElementDescription("Samp1", ResourceKind.Sampler, ShaderStages.Fragment)));
 
+            _clearUbo = _factory.CreateBuffer(new BufferDescription(16,
+                BufferUsage.UniformBuffer | BufferUsage.Dynamic));
+            _clearLayout = _factory.CreateResourceLayout(new ResourceLayoutDescription(
+                new ResourceLayoutElementDescription("ClearUniforms", ResourceKind.UniformBuffer,
+                    ShaderStages.Fragment)));
+            _clearSet = _factory.CreateResourceSet(new ResourceSetDescription(
+                _clearLayout, _clearUbo));
+
             _sceneShaders = _factory.CreateFromSpirv(
                 new ShaderDescription(ShaderStages.Vertex, Encoding.UTF8.GetBytes(VulkanShaders.SceneVertex), "main"),
                 new ShaderDescription(ShaderStages.Fragment, Encoding.UTF8.GetBytes(VulkanShaders.SceneFragment), "main"));
@@ -350,6 +361,9 @@ namespace MphRead.Mods.Render
             if (_clearShaders != null) foreach (Shader shader in _clearShaders) shader.Dispose();
             _vertexBuffer?.Dispose();
             _indexBuffer?.Dispose();
+            _clearSet?.Dispose();
+            _clearUbo?.Dispose();
+            _clearLayout?.Dispose();
             _ubo?.Dispose();
             _layout?.Dispose();
             _commands?.Dispose();
@@ -374,6 +388,9 @@ namespace MphRead.Mods.Render
             _frameInFlight = false;
             _layout = null;
             _ubo = null;
+            _clearLayout = null;
+            _clearUbo = null;
+            _clearSet = null;
             _white = null;
         }
 
@@ -766,20 +783,27 @@ namespace MphRead.Mods.Render
             }
         }
 
-        private static Pipeline GetAspectClearPipeline(bool clearDepth, bool clearStencil,
+        private static Pipeline GetClearPipeline(bool clearColor, bool clearDepth, bool clearStencil,
             Veldrid.Framebuffer fb)
         {
-            string key = clearDepth
-                ? $"clear:depth:{fb.OutputDescription.GetHashCode()}"
-                : $"clear:stencil:{_clearStencil & 0xFF}:{_stencilWriteMask & 0xFF}:"
-                    + $"{fb.OutputDescription.GetHashCode()}";
+            string key = $"clear:{clearColor}:{clearDepth}:{clearStencil}:{_scissor}:"
+                + $"{_maskR}{_maskG}{_maskB}{_maskA}:{_clearStencil & 0xFF}:"
+                + $"{_stencilWriteMask & 0xFF}:{fb.OutputDescription.GetHashCode()}";
             if (_pipelines.TryGetValue(key, out Pipeline? pipeline))
             {
                 return pipeline;
             }
 
+            ColorWriteMask writeMask = 0;
+            if (clearColor)
+            {
+                if (_maskR) writeMask |= ColorWriteMask.Red;
+                if (_maskG) writeMask |= ColorWriteMask.Green;
+                if (_maskB) writeMask |= ColorWriteMask.Blue;
+                if (_maskA) writeMask |= ColorWriteMask.Alpha;
+            }
             BlendAttachmentDescription attachment = BlendAttachmentDescription.Disabled;
-            attachment.ColorWriteMask = 0;
+            attachment.ColorWriteMask = writeMask;
             var blendState = new BlendStateDescription(RgbaFloat.White, attachment);
 
             var depthState = new DepthStencilStateDescription(
@@ -803,14 +827,14 @@ namespace MphRead.Mods.Render
 
             var raster = new RasterizerStateDescription(
                 FaceCullMode.None, PolygonFillMode.Solid,
-                FrontFace.CounterClockwise, true, false);
+                FrontFace.CounterClockwise, true, _scissor);
             var description = new GraphicsPipelineDescription(
                 blendState,
                 depthState,
                 raster,
                 PrimitiveTopology.TriangleList,
                 new ShaderSetDescription(Array.Empty<VertexLayoutDescription>(), _clearShaders!),
-                Array.Empty<ResourceLayout>(),
+                new[] { _clearLayout! },
                 fb.OutputDescription);
             pipeline = _factory!.CreateGraphicsPipeline(description);
             _pipelines[key] = pipeline;
@@ -1738,33 +1762,60 @@ namespace MphRead.Mods.Render
         {
             if (_gd == null) return;
             BindCurrentFramebuffer();
-            if ((mask & ClearBufferMask.ColorBufferBit) != 0)
-            {
-                _commands!.ClearColorTarget(0, new RgbaFloat(_clearColor.R, _clearColor.G, _clearColor.B, _clearColor.A));
-            }
-
-            bool clearDepth = (mask & ClearBufferMask.DepthBufferBit) != 0;
-            bool clearStencil = (mask & ClearBufferMask.StencilBufferBit) != 0;
             Veldrid.Framebuffer fb = CurrentFramebuffer(_drawFramebuffer);
-            if ((!clearDepth && !clearStencil) || fb.DepthTarget == null)
-            {
-                return;
-            }
 
-            if (clearDepth && clearStencil)
+            bool clearColor = (mask & ClearBufferMask.ColorBufferBit) != 0
+                && (_maskR || _maskG || _maskB || _maskA);
+            bool clearDepth = (mask & ClearBufferMask.DepthBufferBit) != 0
+                && _depthWrite && fb.DepthTarget != null;
+            bool clearStencil = (mask & ClearBufferMask.StencilBufferBit) != 0
+                && (_stencilWriteMask & 0xFF) != 0 && fb.DepthTarget != null;
+
+            bool fullColorMask = _maskR && _maskG && _maskB && _maskA;
+            bool fullStencilMask = (_stencilWriteMask & 0xFF) == 0xFF;
+
+            // Keep the native clear path for the common full-frame cases.
+            // glClear obeys color/depth/stencil write masks and the scissor
+            // test, so anything more selective is drawn below instead.
+            if (!_scissor && clearColor && fullColorMask)
+            {
+                _commands!.ClearColorTarget(0,
+                    new RgbaFloat(_clearColor.R, _clearColor.G, _clearColor.B, _clearColor.A));
+                clearColor = false;
+            }
+            if (!_scissor && clearDepth && clearStencil && fullStencilMask)
             {
                 _commands!.ClearDepthStencil(1f, (byte)_clearStencil);
+                clearDepth = false;
+                clearStencil = false;
+            }
+            if (!clearColor && !clearDepth && !clearStencil)
+            {
                 return;
             }
 
-            // Veldrid 4.9 exposes only a combined depth-stencil clear for a D24S8
-            // attachment. OpenGL's glClear is aspect-selective, and Renderer pass 4
-            // depends on clearing depth while preserving the polygon IDs written to
-            // stencil in pass 3. Use a color-disabled fullscreen draw for the one-
-            // aspect cases so the untouched aspect remains bit-for-bit intact.
+            // Veldrid 4.9 only exposes whole-attachment clears. OpenGL allows
+            // aspect-only and scissored clears; the transparent-face pass needs
+            // depth-only, and the launcher/results hunter preview needs a
+            // scissored color+depth clear. A tiny fullscreen triangle preserves
+            // those semantics without reaching into Veldrid's Vulkan internals.
             _commands!.SetViewport(0, new Veldrid.Viewport(0, 0, fb.Width, fb.Height, 0, 1));
-            _commands.SetScissorRect(0, 0, 0, fb.Width, fb.Height);
-            _commands.SetPipeline(GetAspectClearPipeline(clearDepth, clearStencil, fb));
+            if (_scissor)
+            {
+                int width = Math.Max(_scissorW, 1);
+                int height = Math.Max(_scissorH, 1);
+                int y = (int)fb.Height - _scissorY - height;
+                _commands.SetScissorRect(0, (uint)Math.Max(_scissorX, 0), (uint)Math.Max(y, 0),
+                    (uint)width, (uint)height);
+            }
+            else
+            {
+                _commands.SetScissorRect(0, 0, 0, fb.Width, fb.Height);
+            }
+            float[] color = { _clearColor.R, _clearColor.G, _clearColor.B, _clearColor.A };
+            _commands.UpdateBuffer(_clearUbo!, 0, color);
+            _commands.SetPipeline(GetClearPipeline(clearColor, clearDepth, clearStencil, fb));
+            _commands.SetGraphicsResourceSet(0, _clearSet!);
             _commands.Draw(3);
         }
 

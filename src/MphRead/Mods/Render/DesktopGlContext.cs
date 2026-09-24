@@ -8,7 +8,9 @@ namespace MphRead.Mods.Render
 {
     internal static class DesktopGlContext
     {
+#if !ANDROID
         private static bool _vulkanLoaderPrepared;
+#endif
 
         public static void PreserveWorkingDirectory()
         {
@@ -18,6 +20,7 @@ namespace MphRead.Mods.Render
                 GLFW.InitHint(InitHintBool.CocoaChdirResources, false);
         }
 
+#if !ANDROID
         private static void PrepareVulkanLoader()
         {
             if (_vulkanLoaderPrepared || !OperatingSystem.IsLinux())
@@ -46,6 +49,8 @@ namespace MphRead.Mods.Render
                 // Leave it in charge rather than replacing another component's policy.
             }
         }
+
+#endif
 
         public static NativeWindowSettings Settings(bool background = false)
         {

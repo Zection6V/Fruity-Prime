@@ -79,6 +79,9 @@ void main()
     mat4 stack_mtx = u.mtx_stack[mid];
     mat4 model_mtx = stack_mtx * u.view_inv_mtx;
     gl_Position = u.proj_mtx * u.view_mtx * model_mtx * vec4(a_position, 1.0);
+    // OpenTK supplies OpenGL projection matrices with clip-space Z in [-w,+w].
+    // Vulkan clips Z to [0,+w], so preserve the same near/far planes explicitly.
+    gl_Position.z = (gl_Position.z + gl_Position.w) * 0.5;
 
     bool show_colors = u.params0.z > 0.5;
     bool use_light = u.scene0.x > 0.5;
@@ -227,7 +230,8 @@ layout(location=1) out vec2 fs_tex1;
 layout(location=2) out vec4 fs_color;
 void main()
 {
-    gl_Position = vec4(a_position.xy, 0.0, 1.0);
+    // OpenGL NDC z=0 maps to window depth 0.5.
+    gl_Position = vec4(a_position.xy, 0.5, 1.0);
     fs_tex = a_tex0.xy;
     fs_tex1 = a_tex1;
     fs_color = a_color_set > 0.5 ? a_color : u.imm_color;

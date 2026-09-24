@@ -90,6 +90,14 @@ namespace MphRead.Mods.Launcher.Gui
         private static bool _rendererRestarting;
 
         /// <summary>
+        /// True after this frame has committed to closing the native window
+        /// for a renderer change. RenderWindow uses it to stop that frame
+        /// immediately: renderer-owned launcher resources have already been
+        /// released and must not be recreated on the window being discarded.
+        /// </summary>
+        internal static bool RendererRestarting => _rendererRestarting;
+
+        /// <summary>
         /// Open the window and run until the player quits.
         ///
         /// False means there is nothing to run in: no display, no GL, or a

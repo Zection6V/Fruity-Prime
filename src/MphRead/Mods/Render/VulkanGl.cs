@@ -1696,7 +1696,62 @@ namespace MphRead.Mods.Render
         public static void GetFramebufferAttachmentParameter(FramebufferTarget target,
             GLFramebufferAttachment attachment, FramebufferParameterName pname, out int result)
         {
-            result = 24;
+            const int GlTextureObject = 0x1702;
+            const int GlRenderbufferObject = 0x8D41;
+            result = 0;
+
+            int id = target == FramebufferTarget.ReadFramebuffer ? _readFramebuffer : _drawFramebuffer;
+            if (pname == FramebufferParameterName.FramebufferAttachmentDepthSize)
+            {
+                if (id == 0)
+                {
+                    result = 24;
+                    return;
+                }
+                if (_framebuffers.TryGetValue(id, out FramebufferInfo? depthInfo)
+                    && (depthInfo.DepthTexture != 0 || depthInfo.DepthRenderbuffer != 0))
+                {
+                    result = 24;
+                }
+                return;
+            }
+
+            if (id == 0 || !_framebuffers.TryGetValue(id, out FramebufferInfo? fb))
+            {
+                return;
+            }
+
+            int objectName = 0;
+            int objectType = 0;
+            if (attachment == GLFramebufferAttachment.ColorAttachment0)
+            {
+                objectName = fb.ColorTexture;
+                if (objectName != 0) objectType = GlTextureObject;
+            }
+            else if (attachment == GLFramebufferAttachment.DepthAttachment
+                || attachment == GLFramebufferAttachment.StencilAttachment
+                || attachment == GLFramebufferAttachment.DepthStencilAttachment)
+            {
+                if (fb.DepthTexture != 0)
+                {
+                    objectName = fb.DepthTexture;
+                    objectType = GlTextureObject;
+                }
+                else if (fb.DepthRenderbuffer != 0)
+                {
+                    objectName = fb.DepthRenderbuffer;
+                    objectType = GlRenderbufferObject;
+                }
+            }
+
+            if (pname == FramebufferParameterName.FramebufferAttachmentObjectName)
+            {
+                result = objectName;
+            }
+            else if (pname == FramebufferParameterName.FramebufferAttachmentObjectType)
+            {
+                result = objectType;
+            }
         }
 
         public static int CreateShader(ShaderType type)

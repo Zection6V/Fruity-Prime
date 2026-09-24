@@ -230,6 +230,60 @@ namespace MphRead.Mods.Diagnostics
                 }
                 Console.WriteLine("[windowcheck] Vulkan scissor/depth-stencil clear semantics passed.");
 
+                // OpenGL has a single binding per framebuffer attachment point.
+                // Replacing a depth-stencil renderbuffer with a texture, then
+                // detaching that texture, must leave the attachment empty; the
+                // old renderbuffer must not silently come back.
+                int replacementDepth = GL.GenTexture();
+                try
+                {
+                    GL.ActiveTexture(TextureUnit.Texture0);
+                    GL.BindTexture(TextureTarget.Texture2D, replacementDepth);
+                    GL.TexImage2D(TextureTarget.Texture2D, 0,
+                        PixelInternalFormat.Depth24Stencil8, size, size, 0,
+                        PixelFormat.DepthStencil, PixelType.UnsignedInt248, IntPtr.Zero);
+                    GL.BindTexture(TextureTarget.Texture2D, 0);
+
+                    GL.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+                    GL.FramebufferTexture2D(FramebufferTarget.Framebuffer,
+                        FramebufferAttachment.DepthStencilAttachment,
+                        TextureTarget.Texture2D, replacementDepth, 0);
+                    GL.GetFramebufferAttachmentParameter(FramebufferTarget.Framebuffer,
+                        FramebufferAttachment.DepthStencilAttachment,
+                        FramebufferParameterName.FramebufferAttachmentObjectName,
+                        out int attachedDepth);
+                    if (attachedDepth != replacementDepth)
+                    {
+                        throw new InvalidOperationException(
+                            "Vulkan depth texture did not replace the renderbuffer attachment.");
+                    }
+
+                    GL.FramebufferTexture2D(FramebufferTarget.Framebuffer,
+                        FramebufferAttachment.DepthStencilAttachment,
+                        TextureTarget.Texture2D, 0, 0);
+                    GL.GetFramebufferAttachmentParameter(FramebufferTarget.Framebuffer,
+                        FramebufferAttachment.DepthStencilAttachment,
+                        FramebufferParameterName.FramebufferAttachmentObjectName,
+                        out attachedDepth);
+                    if (attachedDepth != 0)
+                    {
+                        throw new InvalidOperationException(
+                            "Vulkan resurrected a stale depth renderbuffer after texture detach.");
+                    }
+                    Console.WriteLine(
+                        "[windowcheck] Vulkan OpenGL-compatible depth attachment replacement passed.");
+                }
+                finally
+                {
+                    GL.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+                    GL.FramebufferRenderbuffer(FramebufferTarget.Framebuffer,
+                        FramebufferAttachment.DepthStencilAttachment,
+                        RenderbufferTarget.Renderbuffer, depth);
+                    GL.ActiveTexture(TextureUnit.Texture0);
+                    GL.BindTexture(TextureTarget.Texture2D, 0);
+                    GL.DeleteTexture(replacementDepth);
+                }
+
                 // The renderer inherits OpenGL's default CCW front-face rule.
                 // Veldrid maps the enum directly to Vulkan, while Vulkan's
                 // viewport Y handling can change winding if the backend is not

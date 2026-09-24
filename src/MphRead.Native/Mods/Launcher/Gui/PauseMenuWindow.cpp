@@ -770,6 +770,10 @@ namespace MphRead::Mods::Launcher::Gui
         }
         MphRead::Mods::PauseMenu::MarkClosed();
         _adapter->BaseOnClosed(e);
+        if (keepAlive)
+        {
+            _adapter->ReleaseAfterDispatch(std::move(keepAlive));
+        }
     }
 }
 

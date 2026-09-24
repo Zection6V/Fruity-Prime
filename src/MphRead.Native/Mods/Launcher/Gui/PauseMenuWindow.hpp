@@ -193,6 +193,12 @@ namespace MphRead::Mods::Launcher::Gui
         // exception back through the captured UI synchronization context rather
         // than throwing it to the event invoker.
         virtual void PostAsyncVoidException(std::exception_ptr error) noexcept = 0;
+        // Keeps an object alive until the event being dispatched has returned.
+        // A closed window is collected in C# only once nothing on the stack
+        // still uses it; here the last reference is let go on the
+        // dispatcher's next turn, not from inside the click or key handler
+        // whose button, view and window that reference owns.
+        virtual void ReleaseAfterDispatch(std::shared_ptr<void> keepAlive) noexcept = 0;
     };
 
     struct PauseMenuWindowEventTarget;

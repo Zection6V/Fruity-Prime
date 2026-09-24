@@ -704,6 +704,18 @@ namespace MphRead::NativeRuntime::Avalonia
                 (void)e;
             }
 
+            void ReleaseAfterDispatch(std::shared_ptr<void> keepAlive) noexcept override
+            {
+                try
+                {
+                    Toolkit::Dispatcher::Instance().Post(
+                        [keepAlive = std::move(keepAlive)]() mutable { keepAlive.reset(); });
+                }
+                catch (...)
+                {
+                }
+            }
+
             void PostAsyncVoidException(std::exception_ptr error) noexcept override
             {
                 Toolkit::Dispatcher::Instance().Post(

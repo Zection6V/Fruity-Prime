@@ -3,6 +3,7 @@
 #include "Backend.hpp"
 
 #include "../OpenTK/GL.hpp"
+#include "../System/Heartbeat.hpp"
 
 #include <GLFW/glfw3.h>
 
@@ -268,6 +269,7 @@ namespace MphRead::NativeRuntime::Gui
 
     void Dispatcher::PumpOnce()
     {
+        ::MphRead::NativeRuntime::FrameHeartbeat();
         if (EnsureGlfw())
         {
             ::glfwPollEvents();

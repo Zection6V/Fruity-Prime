@@ -7,6 +7,7 @@
 
 #include "../../Mods/Chat/ChatBox.hpp"
 #include "../System/Console.hpp"
+#include "../System/Heartbeat.hpp"
 
 #include <chrono>
 #include <iostream>
@@ -164,6 +165,7 @@ namespace
             auto previous = std::chrono::steady_clock::now();
             while (::glfwWindowShouldClose(_handle) == GLFW_FALSE)
             {
+                ::MphRead::NativeRuntime::FrameHeartbeat();
                 ::glfwPollEvents();
                 const auto now = std::chrono::steady_clock::now();
                 const double elapsed

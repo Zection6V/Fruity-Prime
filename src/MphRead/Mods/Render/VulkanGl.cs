@@ -501,6 +501,18 @@ namespace MphRead.Mods.Render
                 ? TextureUsage.DepthStencil | TextureUsage.Sampled
                 : TextureUsage.Sampled | TextureUsage.RenderTarget;
             VPixelFormat format = depth ? VPixelFormat.D24_UNorm_S8_UInt : VPixelFormat.R8_G8_B8_A8_UNorm;
+            if (depth && !_gd!.GetPixelFormatSupport(
+                format, TextureType.Texture2D, usage))
+            {
+                // Sampling a D24S8 attachment is optional in Vulkan. The
+                // renderer already treats an incomplete depth-texture FBO as
+                // "cel bands still work, outline disabled", so expose the
+                // unsupported attachment through CheckFramebufferStatus rather
+                // than turning a graphics option into a device-startup crash.
+                info.Version++;
+                InvalidateFramebuffers();
+                return;
+            }
             info.Texture = _factory!.CreateTexture(TextureDescription.Texture2D(
                 info.Width, info.Height, 1, 1, format, usage));
             info.View = _factory.CreateTextureView(info.Texture);
@@ -1497,7 +1509,49 @@ namespace MphRead.Mods.Render
         }
 
         public static FramebufferErrorCode CheckFramebufferStatus(FramebufferTarget target)
-            => FramebufferErrorCode.FramebufferComplete;
+        {
+            int id = target == FramebufferTarget.ReadFramebuffer ? _readFramebuffer : _drawFramebuffer;
+            if (id == 0)
+            {
+                return FramebufferErrorCode.FramebufferComplete;
+            }
+            if (!_framebuffers.TryGetValue(id, out FramebufferInfo? fb))
+            {
+                return FramebufferErrorCode.FramebufferIncompleteMissingAttachment;
+            }
+
+            bool attached = false;
+            if (fb.ColorTexture != 0)
+            {
+                attached = true;
+                if (!_textures.TryGetValue(fb.ColorTexture, out TextureInfo? color)
+                    || color.Texture == null)
+                {
+                    return FramebufferErrorCode.FramebufferIncompleteAttachment;
+                }
+            }
+            if (fb.DepthTexture != 0)
+            {
+                attached = true;
+                if (!_textures.TryGetValue(fb.DepthTexture, out TextureInfo? depth)
+                    || depth.Texture == null)
+                {
+                    return FramebufferErrorCode.FramebufferIncompleteAttachment;
+                }
+            }
+            if (fb.DepthRenderbuffer != 0)
+            {
+                attached = true;
+                if (!_renderbuffers.TryGetValue(fb.DepthRenderbuffer, out RenderbufferInfo? depth)
+                    || depth.Texture == null)
+                {
+                    return FramebufferErrorCode.FramebufferIncompleteAttachment;
+                }
+            }
+            return attached
+                ? FramebufferErrorCode.FramebufferComplete
+                : FramebufferErrorCode.FramebufferIncompleteMissingAttachment;
+        }
 
         public static void DeleteFramebuffer(int framebuffer)
         {

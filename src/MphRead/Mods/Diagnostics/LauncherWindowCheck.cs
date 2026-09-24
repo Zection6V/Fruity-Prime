@@ -326,6 +326,8 @@ namespace MphRead.Mods.Diagnostics
                     GL.UseProgram(0);
                     GL.DeleteProgram(sceneProgram);
                 }
+
+                CheckVulkanFramebufferSamplingOrientation(texture, framebuffer, size);
             }
             finally
             {
@@ -342,6 +344,94 @@ namespace MphRead.Mods.Diagnostics
                 GL.DeleteRenderbuffer(depth);
                 GL.DeleteFramebuffer(framebuffer);
                 GL.DeleteTexture(texture);
+            }
+        }
+
+        private static void CheckVulkanFramebufferSamplingOrientation(
+            int sourceTexture, int sourceFramebuffer, int size)
+        {
+            int targetTexture = GL.GenTexture();
+            int targetFramebuffer = GL.GenFramebuffer();
+            int program = 0;
+            try
+            {
+                // Build an asymmetric source in OpenGL framebuffer coordinates:
+                // red on top, black on bottom.
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, sourceFramebuffer);
+                GL.Viewport(0, 0, size, size);
+                GL.UseProgram(0);
+                GL.ActiveTexture(TextureUnit.Texture0);
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+                GL.Disable(EnableCap.Blend);
+                GL.Disable(EnableCap.DepthTest);
+                GL.Disable(EnableCap.StencilTest);
+                GL.Disable(EnableCap.CullFace);
+                GL.ColorMask(true, true, true, true);
+                GL.ClearColor(0f, 0f, 0f, 1f);
+                GL.Clear(ClearBufferMask.ColorBufferBit);
+                GL.Enable(EnableCap.ScissorTest);
+                GL.Scissor(0, size / 2, size, size / 2);
+                GL.ClearColor(1f, 0f, 0f, 1f);
+                GL.Clear(ClearBufferMask.ColorBufferBit);
+                GL.Disable(EnableCap.ScissorTest);
+
+                GL.BindTexture(TextureTarget.Texture2D, targetTexture);
+                GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgba,
+                    size, size, 0, PixelFormat.Rgba, PixelType.UnsignedByte, IntPtr.Zero);
+                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter,
+                    (int)TextureMinFilter.Nearest);
+                GL.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter,
+                    (int)TextureMagFilter.Nearest);
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, targetFramebuffer);
+                GL.FramebufferTexture2D(FramebufferTarget.Framebuffer,
+                    FramebufferAttachment.ColorAttachment0, TextureTarget.Texture2D,
+                    targetTexture, 0);
+                if (GL.CheckFramebufferStatus(FramebufferTarget.Framebuffer)
+                    != FramebufferErrorCode.FramebufferComplete)
+                {
+                    throw new InvalidOperationException(
+                        "Vulkan framebuffer-orientation regression target is incomplete.");
+                }
+
+                program = CreateProgram(Shaders.RttVertexShader, Shaders.RttFragmentShader);
+                GL.UseProgram(program);
+                GL.ActiveTexture(TextureUnit.Texture0);
+                GL.BindTexture(TextureTarget.Texture2D, sourceTexture);
+                GL.Viewport(0, 0, size, size);
+                GL.ClearColor(0f, 0f, 0f, 1f);
+                GL.Clear(ClearBufferMask.ColorBufferBit);
+                GL.Color4(1f, 1f, 1f, 1f);
+                GL.Begin(PrimitiveType.TriangleStrip);
+                GL.TexCoord3(1f, 1f, 0f); GL.Vertex3(1f, 1f, 0f);
+                GL.TexCoord3(0f, 1f, 0f); GL.Vertex3(-1f, 1f, 0f);
+                GL.TexCoord3(1f, 0f, 0f); GL.Vertex3(1f, -1f, 0f);
+                GL.TexCoord3(0f, 0f, 0f); GL.Vertex3(-1f, -1f, 0f);
+                GL.End();
+
+                byte[] pixels = new byte[size * size * 4];
+                GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, targetFramebuffer);
+                GL.ReadPixels(0, 0, size, size, PixelFormat.Rgba,
+                    PixelType.UnsignedByte, pixels);
+                if (!PixelIs(pixels, size, size / 2, size * 3 / 4, 255, 0, 0)
+                    || !PixelIs(pixels, size, size / 2, size / 4, 0, 0, 0))
+                {
+                    throw new InvalidOperationException(
+                        "Vulkan framebuffer texture sampling was vertically inverted.");
+                }
+                Console.WriteLine(
+                    "[windowcheck] Vulkan OpenGL-compatible framebuffer texture orientation passed.");
+            }
+            finally
+            {
+                GL.UseProgram(0);
+                GL.ActiveTexture(TextureUnit.Texture0);
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+                GL.Disable(EnableCap.ScissorTest);
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+                if (program != 0) GL.DeleteProgram(program);
+                GL.DeleteFramebuffer(targetFramebuffer);
+                GL.DeleteTexture(targetTexture);
             }
         }
 
@@ -365,13 +455,16 @@ namespace MphRead.Mods.Diagnostics
         }
 
         private static int CreateSceneProgram()
+            => CreateProgram(Shaders.VertexShader, Shaders.FragmentShader);
+
+        private static int CreateProgram(string vertex, string fragment)
         {
             int program = GL.CreateProgram();
             try
             {
                 foreach (var (type, source) in new[] {
-                    (ShaderType.VertexShader, Shaders.VertexShader),
-                    (ShaderType.FragmentShader, Shaders.FragmentShader) })
+                    (ShaderType.VertexShader, vertex),
+                    (ShaderType.FragmentShader, fragment) })
                 {
                     int shader = GL.CreateShader(type);
                     try

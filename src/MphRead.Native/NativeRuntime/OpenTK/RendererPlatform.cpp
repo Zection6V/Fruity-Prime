@@ -536,7 +536,13 @@ namespace MphRead::RendererPlatform
 
     std::int32_t GlfwFeatureUnavailableCode()
     {
+#if defined(GLFW_FEATURE_UNAVAILABLE)
         return static_cast<std::int32_t>(GLFW_FEATURE_UNAVAILABLE);
+#else
+        // GLFW before 3.4 has no such error and never reports it; this is the
+        // value 3.4 gives it, which OpenTK's ErrorCode.FeatureUnavailable is.
+        return 0x0001000C;
+#endif
     }
 
     void ConsoleClear()

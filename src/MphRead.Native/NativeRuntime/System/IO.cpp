@@ -149,12 +149,6 @@ namespace MphRead::NativeRuntime
             }
         }
 
-        [[nodiscard]] bool DirectoryExists(const std::string& path)
-        {
-            struct stat info{};
-            return ::stat(path.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
-        }
-
         [[nodiscard]] std::string DirectoryName(const std::string& fullPath)
         {
             const std::size_t slash = fullPath.find_last_of('/');

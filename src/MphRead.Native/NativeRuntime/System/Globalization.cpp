@@ -252,7 +252,6 @@ namespace MphRead::NativeRuntime
             }
         }
 
-    #if defined(_WIN32)
         [[nodiscard]] std::u16string Utf8ToUtf16(std::string_view value)
         {
             std::u16string result;
@@ -274,8 +273,6 @@ namespace MphRead::NativeRuntime
             }
             return result;
         }
-
-    #endif
 
         [[nodiscard]] std::string Utf16ToUtf8(std::u16string_view value)
         {

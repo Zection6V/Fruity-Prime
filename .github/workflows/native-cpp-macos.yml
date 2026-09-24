@@ -60,8 +60,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          brew install curl libarchive zlib
-          echo "CMAKE_PREFIX_PATH=$(brew --prefix curl);$(brew --prefix libarchive);$(brew --prefix zlib)" >> "$GITHUB_ENV"
+          brew install curl libarchive zlib glfw freetype openal-soft
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix curl);$(brew --prefix libarchive);$(brew --prefix zlib);$(brew --prefix glfw);$(brew --prefix freetype);$(brew --prefix openal-soft)" >> "$GITHUB_ENV"
 
       - name: Save Homebrew download cache
         if: steps.homebrew-cache.outputs.cache-hit != 'true'

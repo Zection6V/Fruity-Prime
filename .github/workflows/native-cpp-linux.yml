@@ -48,7 +48,7 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          versions="$(apt-cache policy libarchive-dev libcurl4-openssl-dev zlib1g-dev)"
+          versions="$(apt-cache policy libarchive-dev libcurl4-openssl-dev zlib1g-dev libgl-dev libglx-dev libopengl-dev libglfw3-dev libfreetype-dev libopenal-dev libicu-dev)"
           printf "%s\n" "$versions"
           digest="$(printf "%s" "$versions" | sha256sum | cut -d" " -f1)"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
@@ -76,7 +76,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$APT_CACHE_DIR/partial"
-          sudo apt-get -o Dir::Cache::archives="$APT_CACHE_DIR" install -y --no-install-recommends libarchive-dev libcurl4-openssl-dev zlib1g-dev
+          sudo apt-get -o Dir::Cache::archives="$APT_CACHE_DIR" install -y --no-install-recommends libarchive-dev libcurl4-openssl-dev zlib1g-dev libgl-dev libglx-dev libopengl-dev libglfw3-dev libfreetype-dev libopenal-dev libicu-dev
           sudo rm -f "$APT_CACHE_DIR/lock"
           sudo rm -rf "$APT_CACHE_DIR/partial"
           sudo chown -R "$(id -u):$(id -g)" "$APT_CACHE_DIR"

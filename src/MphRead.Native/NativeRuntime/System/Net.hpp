@@ -61,7 +61,7 @@ namespace MphRead::NativeRuntime
 
     struct EndPoint
     {
-        Address Address{};
+        ::MphRead::NativeRuntime::Address Address{};
         std::int32_t Port = 0;
     };
 

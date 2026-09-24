@@ -12,6 +12,40 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
 
+# std::stop_token, std::stop_source and std::jthread stand in for the C#
+# CancellationToken and the decoder/network worker threads. libc++ before 20
+# (the NDK's and Apple's) ships them only behind -fexperimental-library; GCC's
+# libstdc++ and MSVC's STL have them outright. Ask for the flag only where the
+# plain compile fails, and only if it then succeeds.
+include(CheckCXXSourceCompiles)
+set(_fruity_stop_token_probe [=[
+#include <stop_token>
+#include <thread>
+int main()
+{
+    std::stop_source source;
+    std::jthread worker([](std::stop_token token) { (void)token.stop_requested(); });
+    return source.stop_requested() ? 1 : 0;
+}
+]=])
+set(CMAKE_REQUIRED_FLAGS "${CMAKE_CXX20_STANDARD_COMPILE_OPTION}")
+check_cxx_source_compiles("${_fruity_stop_token_probe}" FRUITY_STOP_TOKEN_BUILTIN)
+set(FRUITY_STOP_TOKEN_OPTIONS "")
+if(NOT FRUITY_STOP_TOKEN_BUILTIN)
+    set(CMAKE_REQUIRED_FLAGS "${CMAKE_CXX20_STANDARD_COMPILE_OPTION} -fexperimental-library")
+    set(CMAKE_REQUIRED_LINK_OPTIONS "-fexperimental-library")
+    check_cxx_source_compiles("${_fruity_stop_token_probe}" FRUITY_STOP_TOKEN_EXPERIMENTAL)
+    unset(CMAKE_REQUIRED_LINK_OPTIONS)
+    if(FRUITY_STOP_TOKEN_EXPERIMENTAL)
+        set(FRUITY_STOP_TOKEN_OPTIONS "-fexperimental-library")
+    else()
+        message(FATAL_ERROR
+            "This standard library has no std::stop_token/std::jthread, even with "
+            "-fexperimental-library.")
+    endif()
+endif()
+unset(CMAKE_REQUIRED_FLAGS)
+
 function(fruity_collect_owner owner_root out_sources out_headers)
     file(GLOB_RECURSE _sources CONFIGURE_DEPENDS "${owner_root}/*.cpp")
     file(GLOB_RECURSE _headers CONFIGURE_DEPENDS "${owner_root}/*.hpp" "${owner_root}/*.h")
@@ -47,14 +81,29 @@ add_library(FruityPrime::NcsfPlay.Native ALIAS fruity_ncsfplay_native)
 target_sources(fruity_ncsfplay_native PRIVATE ${NCSFPLAY_NATIVE_SOURCES} ${NCSFPLAY_NATIVE_HEADERS})
 target_include_directories(fruity_ncsfplay_native PUBLIC "${FRUITY_NCSFPLAY_ROOT}")
 target_compile_features(fruity_ncsfplay_native PUBLIC cxx_std_20)
+if(FRUITY_STOP_TOKEN_OPTIONS)
+    target_compile_options(fruity_ncsfplay_native PUBLIC ${FRUITY_STOP_TOKEN_OPTIONS})
+    target_link_options(fruity_ncsfplay_native PUBLIC ${FRUITY_STOP_TOKEN_OPTIONS})
+endif()
 target_link_libraries(fruity_ncsfplay_native PUBLIC Threads::Threads ZLIB::ZLIB)
 set_target_properties(fruity_ncsfplay_native PROPERTIES OUTPUT_NAME "NcsfPlay.Native")
+
+# TagList's invariant collation: Windows and Apple ask the system, Android asks
+# the JVM, and everywhere else it is ICU's -- as it is for .NET on Linux.
+if(NOT WIN32 AND NOT APPLE AND NOT ANDROID)
+    find_package(ICU REQUIRED COMPONENTS uc i18n)
+    target_link_libraries(fruity_ncsfplay_native PUBLIC ICU::uc ICU::i18n)
+endif()
 
 add_library(fruity_mphread_native STATIC)
 add_library(FruityPrime::MphRead.Native ALIAS fruity_mphread_native)
 target_sources(fruity_mphread_native PRIVATE ${MPHREAD_NATIVE_SOURCES} ${MPHREAD_NATIVE_HEADERS})
 target_include_directories(fruity_mphread_native PUBLIC "${FRUITY_MPHREAD_ROOT}")
 target_compile_features(fruity_mphread_native PUBLIC cxx_std_20)
+if(FRUITY_STOP_TOKEN_OPTIONS)
+    target_compile_options(fruity_mphread_native PUBLIC ${FRUITY_STOP_TOKEN_OPTIONS})
+    target_link_options(fruity_mphread_native PUBLIC ${FRUITY_STOP_TOKEN_OPTIONS})
+endif()
 target_link_libraries(fruity_mphread_native PUBLIC fruity_ncsfplay_native Threads::Threads ZLIB::ZLIB)
 set_target_properties(fruity_mphread_native PROPERTIES OUTPUT_NAME "MphRead.Native")
 

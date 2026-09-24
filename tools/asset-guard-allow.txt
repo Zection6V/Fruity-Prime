@@ -18,6 +18,13 @@ src/MphRead/Assets/fruity-prime-mark-server.png
 # that limit as well as from the picture-format rule.
 src/MphRead/Assets/fruity-prime-intro.png
 
+# The same four pictures, byte for byte, where the C++ port keeps its copy of
+# src/MphRead/Assets.
+src/MphRead.Native/Assets/fruity-prime-logo.png
+src/MphRead.Native/Assets/fruity-prime-mark.png
+src/MphRead.Native/Assets/fruity-prime-mark-server.png
+src/MphRead.Native/Assets/fruity-prime-intro.png
+
 # The same mark again, scaled into an Android launcher icon: five densities of
 # the flat one and five of the adaptive foreground. Generated from
 # fruity-prime-mark.png above, committed so a build needs no image tooling.

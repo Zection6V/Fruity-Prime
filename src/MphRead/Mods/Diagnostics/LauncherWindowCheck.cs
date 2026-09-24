@@ -388,6 +388,8 @@ namespace MphRead.Mods.Diagnostics
 
                 CheckVulkanUniformIsolation(framebuffer, size);
                 CheckVulkanGeometryIsolation(framebuffer, size);
+                CheckVulkanDisplayListCurrentColor(framebuffer, size);
+                CheckVulkanRgbRenderTargetAlpha(framebuffer, size);
                 CheckVulkanSceneTextureUniformIsolation(framebuffer, size);
                 CheckVulkanFixedFunctionTextureState(framebuffer, size);
                 CheckVulkanCopyTexSubImageOrientation(framebuffer, size);
@@ -511,6 +513,166 @@ namespace MphRead.Mods.Diagnostics
             Console.WriteLine("[windowcheck] Vulkan per-draw geometry isolation passed.");
             GL.Enable(EnableCap.Texture2D);
             GL.DepthMask(true);
+        }
+
+        private static void CheckVulkanDisplayListCurrentColor(
+            int framebuffer, int size)
+        {
+            int program = CreateSceneProgram();
+            int list = GL.GenLists(1);
+            try
+            {
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+                GL.Viewport(0, 0, size, size);
+                GL.UseProgram(program);
+                GL.ActiveTexture(TextureUnit.Texture0);
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+                GL.Disable(EnableCap.Texture2D);
+                GL.Disable(EnableCap.Blend);
+                GL.Disable(EnableCap.DepthTest);
+                GL.Disable(EnableCap.StencilTest);
+                GL.Disable(EnableCap.CullFace);
+                GL.Disable(EnableCap.AlphaTest);
+                GL.Disable(EnableCap.ScissorTest);
+                GL.ColorMask(true, true, true, true);
+                GL.DepthMask(false);
+                GL.ClearColor(0f, 0f, 0f, 1f);
+                GL.Clear(ClearBufferMask.ColorBufferBit);
+
+                GL.Uniform1(GL.GetUniformLocation(program, "use_texture"), 0);
+                GL.Uniform1(GL.GetUniformLocation(program, "use_light"), 0);
+                GL.Uniform1(GL.GetUniformLocation(program, "show_colors"), 1);
+                GL.Uniform1(GL.GetUniformLocation(program, "use_override"), 0);
+                GL.Uniform1(GL.GetUniformLocation(program, "mat_mode"), 0);
+                GL.Uniform1(GL.GetUniformLocation(program, "mat_alpha"), 1f);
+
+                // GL_COMPILE does not capture state that was already current
+                // when NewList started. With no Color command in this list,
+                // glCallList must use the green color current at execution
+                // time, not the red color that happened to be current while
+                // the vertex data was compiled.
+                GL.Color4(1f, 0f, 0f, 1f);
+                GL.NewList(list, ListMode.Compile);
+                DrawTestQuad();
+                GL.EndList();
+
+                GL.Color4(0f, 1f, 0f, 1f);
+                GL.CallList(list);
+
+                byte[] pixels = new byte[size * size * 4];
+                GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, framebuffer);
+                GL.ReadPixels(0, 0, size, size, PixelFormat.Rgba,
+                    PixelType.UnsignedByte, pixels);
+                if (!PixelIs(pixels, size, size / 2, size / 2, 0, 255, 0))
+                {
+                    throw new InvalidOperationException(
+                        "Vulkan display lists captured a pre-list current color instead of using glCallList-time state.");
+                }
+                Console.WriteLine(
+                    "[windowcheck] Vulkan OpenGL display-list current-color semantics passed.");
+            }
+            finally
+            {
+                GL.UseProgram(0);
+                GL.DeleteLists(list, 1);
+                GL.Enable(EnableCap.Texture2D);
+                GL.DepthMask(true);
+            }
+        }
+
+        private static void CheckVulkanRgbRenderTargetAlpha(
+            int framebuffer, int size)
+        {
+            int rgbTexture = GL.GenTexture();
+            int rgbFramebuffer = GL.GenFramebuffer();
+            int rttProgram = CreateProgram(Shaders.RttVertexShader, Shaders.RttFragmentShader);
+            try
+            {
+                GL.ActiveTexture(TextureUnit.Texture0);
+                GL.BindTexture(TextureTarget.Texture2D, rgbTexture);
+                GL.TexImage2D(TextureTarget.Texture2D, 0, PixelInternalFormat.Rgb,
+                    size, size, 0, PixelFormat.Rgb, PixelType.UnsignedByte, IntPtr.Zero);
+                GL.TexParameter(TextureTarget.Texture2D,
+                    TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Nearest);
+                GL.TexParameter(TextureTarget.Texture2D,
+                    TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Nearest);
+                GL.TexParameter(TextureTarget.Texture2D,
+                    TextureParameterName.TextureWrapS, (int)TextureWrapMode.ClampToEdge);
+                GL.TexParameter(TextureTarget.Texture2D,
+                    TextureParameterName.TextureWrapT, (int)TextureWrapMode.ClampToEdge);
+
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, rgbFramebuffer);
+                GL.FramebufferTexture2D(FramebufferTarget.Framebuffer,
+                    FramebufferAttachment.ColorAttachment0, TextureTarget.Texture2D,
+                    rgbTexture, 0);
+                if (GL.CheckFramebufferStatus(FramebufferTarget.Framebuffer)
+                    != FramebufferErrorCode.FramebufferComplete)
+                {
+                    throw new InvalidOperationException(
+                        "Vulkan RGB-alpha regression framebuffer is incomplete.");
+                }
+
+                // Deliberately write alpha 0.25 into Vulkan's physical RGBA
+                // backing store. OpenGL's RGB internal format has no alpha
+                // component, so sampling this texture must still return 1.0.
+                GL.Viewport(0, 0, size, size);
+                GL.UseProgram(0);
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+                GL.Disable(EnableCap.Texture2D);
+                GL.Disable(EnableCap.Blend);
+                GL.Disable(EnableCap.DepthTest);
+                GL.Disable(EnableCap.StencilTest);
+                GL.Disable(EnableCap.CullFace);
+                GL.Disable(EnableCap.AlphaTest);
+                GL.Disable(EnableCap.ScissorTest);
+                GL.ColorMask(true, true, true, true);
+                GL.ClearColor(0f, 0f, 0f, 1f);
+                GL.Clear(ClearBufferMask.ColorBufferBit);
+                GL.Color4(1f, 0f, 0f, 0.25f);
+                DrawTestQuad();
+
+                // This is the same operation the game uses to put its RGB
+                // scene target on the window: RTT shader plus SrcAlpha blend.
+                // If the physical backing alpha leaks through, red lands near
+                // 25% instead of fully opaque.
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, framebuffer);
+                GL.Viewport(0, 0, size, size);
+                GL.ClearColor(0f, 0f, 0f, 1f);
+                GL.Clear(ClearBufferMask.ColorBufferBit);
+                GL.UseProgram(rttProgram);
+                GL.Uniform1(GL.GetUniformLocation(rttProgram, "alpha"), 1f);
+                GL.Uniform1(GL.GetUniformLocation(rttProgram, "use_mask"), 0);
+                GL.Uniform4(GL.GetUniformLocation(rttProgram, "fade_color"),
+                    0f, 0f, 0f, 0f);
+                GL.BindTexture(TextureTarget.Texture2D, rgbTexture);
+                GL.Enable(EnableCap.Blend);
+                GL.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+                GL.Color4(1f, 1f, 1f, 1f);
+                DrawTexturedTestQuad(-1f, 1f);
+
+                byte[] pixels = new byte[size * size * 4];
+                GL.BindFramebuffer(FramebufferTarget.ReadFramebuffer, framebuffer);
+                GL.ReadPixels(0, 0, size, size, PixelFormat.Rgba,
+                    PixelType.UnsignedByte, pixels);
+                if (!PixelIs(pixels, size, size / 2, size / 2, 255, 0, 0))
+                {
+                    throw new InvalidOperationException(
+                        "Vulkan leaked physical alpha from an OpenGL RGB render target.");
+                }
+                Console.WriteLine(
+                    "[windowcheck] Vulkan OpenGL RGB render-target alpha semantics passed.");
+            }
+            finally
+            {
+                GL.UseProgram(0);
+                GL.Disable(EnableCap.Blend);
+                GL.ActiveTexture(TextureUnit.Texture0);
+                GL.BindTexture(TextureTarget.Texture2D, 0);
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+                GL.DeleteProgram(rttProgram);
+                GL.DeleteFramebuffer(rgbFramebuffer);
+                GL.DeleteTexture(rgbTexture);
+            }
         }
 
         private static void CheckVulkanSceneTextureUniformIsolation(

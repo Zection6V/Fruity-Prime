@@ -77,6 +77,14 @@ namespace MphRead.Mods.Render
             public float[] Vertices = Array.Empty<float>();
             public uint[] Triangles = Array.Empty<uint>();
             public uint[] Lines = Array.Empty<uint>();
+            public bool SetsColor;
+            public Vector4 FinalColor;
+            public bool SetsNormal;
+            public Vector3 FinalNormal;
+            public bool SetsTex0;
+            public Vector3 FinalTex0;
+            public bool SetsTex1;
+            public Vector2 FinalTex1;
         }
 
         private sealed class ShaderInfo
@@ -278,6 +286,14 @@ namespace MphRead.Mods.Render
         private static int _recordList;
         private static PrimitiveType _primitive;
         private static int _primitiveStart;
+        private static Vector4 _preListColor;
+        private static Vector3 _preListNormal;
+        private static Vector3 _preListTex0;
+        private static Vector2 _preListTex1;
+        private static bool _listColorSet;
+        private static bool _listNormalSet;
+        private static bool _listTex0Set;
+        private static bool _listTex1Set;
 
         private static Vector4 _currentColor = Vector4.One;
         private static Vector3 _currentNormal = Vector3.UnitZ;
@@ -436,6 +452,14 @@ namespace MphRead.Mods.Render
             _recording = false;
             _recordList = 0;
             _primitiveStart = 0;
+            _preListColor = Vector4.One;
+            _preListNormal = Vector3.UnitZ;
+            _preListTex0 = Vector3.Zero;
+            _preListTex1 = Vector2.Zero;
+            _listColorSet = false;
+            _listNormalSet = false;
+            _listTex0Set = false;
+            _listTex1Set = false;
 
             _currentColor = Vector4.One;
             _currentNormal = Vector3.UnitZ;
@@ -803,7 +827,10 @@ namespace MphRead.Mods.Render
             v.Add(_currentNormal.X); v.Add(_currentNormal.Y); v.Add(_currentNormal.Z);
             v.Add(_currentTex0.X); v.Add(_currentTex0.Y); v.Add(_currentTex0.Z);
             v.Add(_currentTex1.X); v.Add(_currentTex1.Y);
-            v.Add(_vertexColorSet ? 1f : 0f);
+            // Immediate-mode vertices always capture the color current at the
+            // Vertex call. Only display-list vertices that precede the first
+            // list-local Color command defer to glCallList-time current color.
+            v.Add(!_recording || _vertexColorSet ? 1f : 0f);
             _batch.VertexCount++;
         }
 
@@ -813,6 +840,7 @@ namespace MphRead.Mods.Render
         {
             _currentColor = new Vector4(r, g, b, 1f);
             _vertexColorSet = true;
+            if (_recording) _listColorSet = true;
         }
 
         public static void Color3(Vector3 value) => Color3(value.X, value.Y, value.Z);
@@ -821,18 +849,46 @@ namespace MphRead.Mods.Render
         {
             _currentColor = new Vector4(r, g, b, a);
             _vertexColorSet = true;
+            if (_recording) _listColorSet = true;
         }
 
-        public static void Normal3(float x, float y, float z) => _currentNormal = new Vector3(x, y, z);
-        public static void TexCoord2(float s, float t) => _currentTex0 = new Vector3(s, t, 0f);
-        public static void TexCoord3(float s, float t, float r) => _currentTex0 = new Vector3(s, t, r);
-        public static void TexCoord3(Vector3 value) => _currentTex0 = value;
+        public static void Normal3(float x, float y, float z)
+        {
+            _currentNormal = new Vector3(x, y, z);
+            if (_recording) _listNormalSet = true;
+        }
+
+        public static void TexCoord2(float s, float t)
+        {
+            _currentTex0 = new Vector3(s, t, 0f);
+            if (_recording) _listTex0Set = true;
+        }
+
+        public static void TexCoord3(float s, float t, float r)
+        {
+            _currentTex0 = new Vector3(s, t, r);
+            if (_recording) _listTex0Set = true;
+        }
+
+        public static void TexCoord3(Vector3 value)
+        {
+            _currentTex0 = value;
+            if (_recording) _listTex0Set = true;
+        }
 
         public static void MultiTexCoord2(TextureUnit unit, float s, float t)
         {
             int index = Math.Clamp((int)unit - (int)TextureUnit.Texture0, 0, 1);
-            if (index == 0) _currentTex0 = new Vector3(s, t, 0f);
-            else _currentTex1 = new Vector2(s, t);
+            if (index == 0)
+            {
+                _currentTex0 = new Vector3(s, t, 0f);
+                if (_recording) _listTex0Set = true;
+            }
+            else
+            {
+                _currentTex1 = new Vector2(s, t);
+                if (_recording) _listTex1Set = true;
+            }
         }
 
         private static void EmitIndices(PrimitiveType mode, int b, int n)
@@ -892,6 +948,14 @@ namespace MphRead.Mods.Render
         public static void NewList(int list, ListMode mode)
         {
             _batch.Clear();
+            _preListColor = _currentColor;
+            _preListNormal = _currentNormal;
+            _preListTex0 = _currentTex0;
+            _preListTex1 = _currentTex1;
+            _listColorSet = false;
+            _listNormalSet = false;
+            _listTex0Set = false;
+            _listTex1Set = false;
             _recording = true;
             _recordList = list;
             _vertexColorSet = false;
@@ -904,8 +968,24 @@ namespace MphRead.Mods.Render
             {
                 Vertices = _batch.Vertices.ToArray(),
                 Triangles = _batch.Triangles.ToArray(),
-                Lines = _batch.Lines.ToArray()
+                Lines = _batch.Lines.ToArray(),
+                SetsColor = _listColorSet,
+                FinalColor = _currentColor,
+                SetsNormal = _listNormalSet,
+                FinalNormal = _currentNormal,
+                SetsTex0 = _listTex0Set,
+                FinalTex0 = _currentTex0,
+                SetsTex1 = _listTex1Set,
+                FinalTex1 = _currentTex1
             };
+            // GL_COMPILE records commands without executing them. Restore the
+            // current attributes that existed before NewList; they will change
+            // only when the list is actually called.
+            _currentColor = _preListColor;
+            _currentNormal = _preListNormal;
+            _currentTex0 = _preListTex0;
+            _currentTex1 = _preListTex1;
+            _vertexColorSet = false;
             _batch.Clear();
         }
 
@@ -914,6 +994,12 @@ namespace MphRead.Mods.Render
             if (_lists.TryGetValue(list, out DisplayList? data))
             {
                 DrawData(data.Vertices, data.Triangles, data.Lines);
+                // Executing a display list updates OpenGL current attributes
+                // for commands contained in the list.
+                if (data.SetsColor) _currentColor = data.FinalColor;
+                if (data.SetsNormal) _currentNormal = data.FinalNormal;
+                if (data.SetsTex0) _currentTex0 = data.FinalTex0;
+                if (data.SetsTex1) _currentTex1 = data.FinalTex1;
             }
         }
 

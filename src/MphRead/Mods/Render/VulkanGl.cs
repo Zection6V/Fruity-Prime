@@ -83,11 +83,15 @@ namespace MphRead.Mods.Render
         {
             public ShaderType Type;
             public string Source = "";
+            public bool Compiled;
+            public string InfoLog = "";
         }
 
         private sealed class ProgramInfo
         {
             public ProgramKind Kind = ProgramKind.Screen;
+            public bool Linked;
+            public string InfoLog = "";
             public readonly Dictionary<int, ShaderInfo> Shaders = new();
             public readonly Dictionary<string, object> Values = new(StringComparer.Ordinal);
         }
@@ -1796,11 +1800,49 @@ namespace MphRead.Mods.Render
 
         public static void ShaderSource(int shader, string source)
         {
-            if (_shaders.TryGetValue(shader, out ShaderInfo? info)) info.Source = source;
+            if (_shaders.TryGetValue(shader, out ShaderInfo? info))
+            {
+                info.Source = source;
+                info.Compiled = false;
+                info.InfoLog = "";
+            }
         }
-        public static void CompileShader(int shader) { }
-        public static void GetShader(int shader, ShaderParameter pname, out int value) => value = 1;
-        public static string GetShaderInfoLog(int shader) => "";
+
+        public static void CompileShader(int shader)
+        {
+            if (!_shaders.TryGetValue(shader, out ShaderInfo? info))
+            {
+                return;
+            }
+
+            bool known = info.Type switch
+            {
+                ShaderType.VertexShader =>
+                    String.Equals(info.Source, Shaders.VertexShader, StringComparison.Ordinal)
+                    || String.Equals(info.Source, Shaders.RttVertexShader, StringComparison.Ordinal)
+                    || String.Equals(info.Source, Shaders.BackdropVertexShader, StringComparison.Ordinal),
+                ShaderType.FragmentShader =>
+                    String.Equals(info.Source, Shaders.FragmentShader, StringComparison.Ordinal)
+                    || String.Equals(info.Source, Shaders.RttFragmentShader, StringComparison.Ordinal)
+                    || String.Equals(info.Source, Shaders.ShiftFragmentShader, StringComparison.Ordinal)
+                    || String.Equals(info.Source, Shaders.CelFragmentShader, StringComparison.Ordinal)
+                    || String.Equals(info.Source, Shaders.BackdropFragmentShader, StringComparison.Ordinal),
+                _ => false
+            };
+
+            info.Compiled = known;
+            info.InfoLog = known ? ""
+                : "The Vulkan compatibility backend has no translated equivalent for this shader source.";
+        }
+
+        public static void GetShader(int shader, ShaderParameter pname, out int value)
+        {
+            value = _shaders.TryGetValue(shader, out ShaderInfo? info) && info.Compiled ? 1 : 0;
+        }
+
+        public static string GetShaderInfoLog(int shader) =>
+            _shaders.TryGetValue(shader, out ShaderInfo? info) ? info.InfoLog : "Unknown shader object.";
+
         public static void DeleteShader(int shader) => _shaders.Remove(shader);
 
         public static int CreateProgram()
@@ -1826,30 +1868,72 @@ namespace MphRead.Mods.Render
 
         public static void LinkProgram(int program)
         {
-            if (!_programs.TryGetValue(program, out ProgramInfo? p)) return;
-            p.Kind = ProgramKind.Screen;
+            if (!_programs.TryGetValue(program, out ProgramInfo? p))
+            {
+                return;
+            }
+
+            p.Linked = false;
+            p.InfoLog = "";
+            ShaderInfo? vertex = null;
+            ShaderInfo? fragment = null;
             foreach (ShaderInfo shader in p.Shaders.Values)
             {
-                if (shader.Type == ShaderType.VertexShader
-                    && String.Equals(shader.Source, Shaders.VertexShader, StringComparison.Ordinal))
+                if (!shader.Compiled)
                 {
-                    p.Kind = ProgramKind.Scene;
+                    p.InfoLog = "An attached shader did not compile for the Vulkan backend.";
                     return;
                 }
-                if (shader.Type != ShaderType.FragmentShader) continue;
-                if (String.Equals(shader.Source, Shaders.RttFragmentShader, StringComparison.Ordinal))
-                    p.Kind = ProgramKind.Rtt;
-                else if (String.Equals(shader.Source, Shaders.ShiftFragmentShader, StringComparison.Ordinal))
-                    p.Kind = ProgramKind.Shift;
-                else if (String.Equals(shader.Source, Shaders.CelFragmentShader, StringComparison.Ordinal))
-                    p.Kind = ProgramKind.Cel;
-                else if (String.Equals(shader.Source, Shaders.BackdropFragmentShader, StringComparison.Ordinal))
-                    p.Kind = ProgramKind.Backdrop;
+                if (shader.Type == ShaderType.VertexShader) vertex = shader;
+                else if (shader.Type == ShaderType.FragmentShader) fragment = shader;
             }
+            if (vertex == null || fragment == null)
+            {
+                p.InfoLog = "A Vulkan program requires one translated vertex shader and one translated fragment shader.";
+                return;
+            }
+
+            if (String.Equals(vertex.Source, Shaders.VertexShader, StringComparison.Ordinal)
+                && String.Equals(fragment.Source, Shaders.FragmentShader, StringComparison.Ordinal))
+            {
+                p.Kind = ProgramKind.Scene;
+            }
+            else if (String.Equals(vertex.Source, Shaders.RttVertexShader, StringComparison.Ordinal)
+                && String.Equals(fragment.Source, Shaders.RttFragmentShader, StringComparison.Ordinal))
+            {
+                p.Kind = ProgramKind.Rtt;
+            }
+            else if (String.Equals(vertex.Source, Shaders.RttVertexShader, StringComparison.Ordinal)
+                && String.Equals(fragment.Source, Shaders.ShiftFragmentShader, StringComparison.Ordinal))
+            {
+                p.Kind = ProgramKind.Shift;
+            }
+            else if (String.Equals(vertex.Source, Shaders.RttVertexShader, StringComparison.Ordinal)
+                && String.Equals(fragment.Source, Shaders.CelFragmentShader, StringComparison.Ordinal))
+            {
+                p.Kind = ProgramKind.Cel;
+            }
+            else if (String.Equals(vertex.Source, Shaders.BackdropVertexShader, StringComparison.Ordinal)
+                && String.Equals(fragment.Source, Shaders.BackdropFragmentShader, StringComparison.Ordinal))
+            {
+                p.Kind = ProgramKind.Backdrop;
+            }
+            else
+            {
+                p.InfoLog = "The attached shader pair has no Vulkan compatibility pipeline.";
+                return;
+            }
+
+            p.Linked = true;
         }
 
-        public static void GetProgram(int program, GetProgramParameterName pname, out int value) => value = 1;
-        public static string GetProgramInfoLog(int program) => "";
+        public static void GetProgram(int program, GetProgramParameterName pname, out int value)
+        {
+            value = _programs.TryGetValue(program, out ProgramInfo? info) && info.Linked ? 1 : 0;
+        }
+
+        public static string GetProgramInfoLog(int program) =>
+            _programs.TryGetValue(program, out ProgramInfo? info) ? info.InfoLog : "Unknown program object.";
         public static void DeleteProgram(int program) => _programs.Remove(program);
         public static void UseProgram(int program) => _currentProgram = program;
 

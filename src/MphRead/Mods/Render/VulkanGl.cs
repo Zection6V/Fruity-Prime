@@ -1403,7 +1403,12 @@ namespace MphRead.Mods.Render
                     StringComparison.Ordinal);
                 for (int rowIndex = 0; rowIndex < height; rowIndex++)
                 {
-                    IntPtr rowPtr = IntPtr.Add(mapped.Data, checked((int)(rowIndex * mapped.RowPitch)));
+                    // OpenGL ReadPixels returns the bottom row first. Vulkan
+                    // staging textures on top-left-origin devices map the top
+                    // row first, so reverse only the mapped row order after
+                    // converting the requested source rectangle above.
+                    int sourceRow = _gd.IsUvOriginTopLeft ? height - 1 - rowIndex : rowIndex;
+                    IntPtr rowPtr = IntPtr.Add(mapped.Data, checked((int)(sourceRow * mapped.RowPitch)));
                     Marshal.Copy(rowPtr, row, 0, row.Length);
                     int dest = rowIndex * width * outputBpp;
                     for (int col = 0; col < width; col++)

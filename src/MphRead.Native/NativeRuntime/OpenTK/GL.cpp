@@ -17,7 +17,11 @@
 #include <GL/gl.h>
 #else
 #include <dlfcn.h>
+#if defined(__APPLE__)
+#include <OpenGL/gl.h>
+#else
 #include <GL/gl.h>
+#endif
 #endif
 
 // The GL entry points this file calls. Only the 1.1 set is exported by the

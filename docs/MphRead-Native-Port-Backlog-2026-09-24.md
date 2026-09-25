@@ -21,6 +21,38 @@
 `Mods/Diagnostics` は葉に見えて、`WindowGeometry`・`Render::UiOverlay`・
 `GuiLauncher`・`MapGen::CustomRooms` を呼ぶ**利用側**なので最後に近い。
 
+## 進捗ログ
+
+作業中に更新する。コミットは develop2。
+
+- 済: 1 Platform helpers / 3 Mods leaves の大半 / 8 Multiplayer・teams
+  （ea3398e9 まで）。
+- 9 Network — 進行中:
+  - 済 (f661cce0 ほか): NetProtocol（protocol 14）、NetSession・NetSessionLobby、
+    SessionProtocol、LobbyRules、MatchDefinition、NetLifecycleTracker、
+    NetPlayerLifecycle、ContinuousWeaponPhase、FormReconciliation、NetFaultQueue、
+    NetMatchTimeSync、NetHealthSync、NetHudHealth、NetShotDiagnostics、
+    NetTimingDiagnostics、NetSmoothing、NetHitClaims（C# と逐行照合済み）、
+    NetHitPrediction、NetDamage、NetUnlagged、NetPlayerBridge、NetHooks、
+    NetTransport＋NetLag、NetRoomChange、NetStatus、NetSlotManager、NetMatchSync、
+    NetDiagnostics、NetFeatureCheck、DemoPlayback、MechanicsDump、MapRotation、
+    MapAudit（＋Render/LockjawTrailProbe）、NetLog、ServerSim、ServerSimCheck、
+    NetTestScript、HitRig、NetCheckClient、NetLaunch（TickTerminalLobby を除く）、
+    Chat/NetChat、MapPick、PlayerEntityNetAim/NetHud の網関連分。
+  - 付随: BeamProjectile / ItemSpawn / ItemInstance / PlayerEntity・Process・
+    Collision・Draw の網関連差分、NativeRuntime に Guid・BinaryPrimitives・
+    CharIsControl・StringSplit・StringReplaceOrdinalIgnoreCase・
+    Console.KeyAvailable/ReadKeyInfo・EndPointEquals。
+  - 作業中: DedicatedServer＋LobbyCommands（全面書き直し）、HostPool（新規）。
+  - 残り: NetMaster、NetHostSession、LocalServer、NetCombatCheck、NetLobbyTest、
+    HealthSimulationTest、NetHealthSyncTest、MapAuditTeams、SpireAltPoseCheck。
+- 保留（依存先の移植待ち）:
+  - PlayerEntity::TakeDamage の AimAssistTelemetry::Hit と ModControllerFeedback、
+    PlayerSound の着地フィードバック、PlayerEntityNetAim::ApplyGamepadAim の
+    照準補助・スコープ感度 → 6（入力）の後。
+  - NetLaunch::TickTerminalLobby → Renderer の HasScene/EndScene と
+    MatchStart::Begin(window, …)（1 ウィンドウ化）の後。
+
 ## 1. Platform helpers — 2 ファイル (新規 2), C# +73 行
 
 | S | +/- | C# | C++ |

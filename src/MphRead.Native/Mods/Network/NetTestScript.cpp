@@ -1,4 +1,5 @@
 #include "NetTestScript.hpp"
+#include "HitRig.hpp"
 #include "../../NativeRuntime/System/Enum.hpp"
 
 #include "../../Entities/Players/PlayerEntity.hpp"
@@ -219,6 +220,11 @@ namespace MphRead::Mods::Network
         {
             return;
         }
+        if (HitRig::Active())
+        {
+            HitRig::Drive(RequireReference(player));
+            return;
+        }
         IncrementInPlace(_frame);
         Drive(player);
     }
@@ -229,6 +235,12 @@ namespace MphRead::Mods::Network
         Entities::PlayerEntity& playerValue = RequireReference(player);
         Entities::PlayerControls& controls = playerValue.Controls();
         Clear(controls);
+        if (playerValue.Health() == 0)
+        {
+            Hold(controls.Shoot(), true);
+            Finish(playerValue, controls);
+            return;
+        }
         std::shared_ptr<Entities::PlayerEntity> target = FindTarget(player);
         const bool onTarget = AimAt(playerValue, target);
         const TestPhase phase = Phase();
@@ -340,9 +352,47 @@ namespace MphRead::Mods::Network
         case TestPhase::Duel:
             Duel(playerValue, controls, target, onTarget);
             break;
+        case TestPhase::SelfDestruct:
+            SelfDestruct(playerValue, controls);
+            break;
         }
 
         Finish(playerValue, controls);
+    }
+
+    void NetTestScript::SelfDestruct(Entities::PlayerEntity& player, Entities::PlayerControls& c)
+    {
+        if (player.IsAltForm() || player.IsMorphing())
+        {
+            Hold(c.Morph(), Settled(player) && _frame % 40 == 0);
+            return;
+        }
+        if (player.CurrentWeapon() != SelfDestructBeam)
+        {
+            player.ModArmWeapon(SelfDestructBeam);
+        }
+        const OpenTK::Mathematics::Vector3 ahead(player.Field70(), 0.0F, player.Field74());
+        const OpenTK::Mathematics::Vector3 position = player.Position;
+        const OpenTK::Mathematics::Vector3 spot = position + OpenTK::Mathematics::Multiply(ahead, 1.0F);
+        const auto [turnX, turnY] = player.ModAimDeltaTowards(spot);
+        if (!std::isfinite(turnX) || !std::isfinite(turnY))
+        {
+            return;
+        }
+        _aimDeltaX = std::clamp(turnX, -TurnRate, TurnRate);
+        _aimDeltaY = std::clamp(turnY, -TurnRate, TurnRate);
+        const bool aimed = std::abs(turnX) < FiringCone && std::abs(turnY) < FiringCone;
+        if (_releaseFrames > 0)
+        {
+            _releaseFrames--;
+            return;
+        }
+        if (aimed && player.ModChargeReady())
+        {
+            _releaseFrames = 4;
+            return;
+        }
+        Hold(c.Shoot(), true);
     }
 
     bool NetTestScript::Settled(Entities::PlayerEntity& player)
@@ -691,6 +741,7 @@ namespace MphRead::Mods::Network
             {12ULL, "Zoom"},
             {13ULL, "Afflict"},
             {14ULL, "Duel"},
+            {15ULL, "SelfDestruct"},
         };
     }
 

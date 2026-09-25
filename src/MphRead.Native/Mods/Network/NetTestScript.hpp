@@ -33,7 +33,8 @@ namespace MphRead::Mods::Network
         Unmorph,
         Zoom,
         Afflict,
-        Duel
+        Duel,
+        SelfDestruct
     };
 
     // TestPhase.ToString().
@@ -109,13 +110,15 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static std::shared_ptr<Entities::PlayerEntity> FindTarget(
             const std::shared_ptr<Entities::PlayerEntity>& self);
         static void Hold(Entities::Keybind& bind, bool down);
+        static void SelfDestruct(Entities::PlayerEntity& player, Entities::PlayerControls& c);
+        static constexpr ::MphRead::BeamType SelfDestructBeam = ::MphRead::BeamType::Magmaul;
 
         static constexpr float TurnRate = 6.0F;
         static constexpr float FiringCone = 6.0F;
         static constexpr float PreferredRange = 4.0F;
 
         static double _phaseSeconds;
-        inline static const std::array<TestPhase, 15> _order{
+        inline static const std::array<TestPhase, 16> _order{
             TestPhase::Idle,
             TestPhase::Walk,
             TestPhase::Jump,
@@ -130,7 +133,8 @@ namespace MphRead::Mods::Network
             TestPhase::Unmorph,
             TestPhase::Zoom,
             TestPhase::Afflict,
-            TestPhase::Duel
+            TestPhase::Duel,
+            TestPhase::SelfDestruct
         };
 
         inline static bool _enabled = false;

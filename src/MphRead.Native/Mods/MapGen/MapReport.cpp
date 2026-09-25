@@ -112,33 +112,12 @@ namespace
 
     [[nodiscard]] std::string FormatTextureFormat(MphRead::TextureFormat value)
     {
-        switch (value)
-        {
-        case MphRead::TextureFormat::Palette2Bit: return "Palette2Bit";
-        case MphRead::TextureFormat::Palette4Bit: return "Palette4Bit";
-        case MphRead::TextureFormat::Palette8Bit: return "Palette8Bit";
-        case MphRead::TextureFormat::PaletteA5I3: return "PaletteA5I3";
-        case MphRead::TextureFormat::DirectRgb: return "DirectRgb";
-        case MphRead::TextureFormat::PaletteA3I5: return "PaletteA3I5";
-        default:
-            return std::to_string(
-                static_cast<unsigned int>(static_cast<std::uint8_t>(value)));
-        }
+        return ::MphRead::ToString(value);
     }
 
     [[nodiscard]] std::string FormatRenderMode(MphRead::RenderMode value)
     {
-        switch (value)
-        {
-        case MphRead::RenderMode::Normal: return "Normal";
-        case MphRead::RenderMode::Decal: return "Decal";
-        case MphRead::RenderMode::Translucent: return "Translucent";
-        case MphRead::RenderMode::Unknown3: return "Unknown3";
-        case MphRead::RenderMode::Unknown4: return "Unknown4";
-        default:
-            return std::to_string(
-                static_cast<unsigned int>(static_cast<std::uint8_t>(value)));
-        }
+        return ::MphRead::ToString(value);
     }
 
     void WriteLine(std::string_view value)

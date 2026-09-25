@@ -1,4 +1,5 @@
 #include "GL.hpp"
+#include "../System/Enum.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -735,5 +736,48 @@ namespace OpenTK::Graphics::OpenGL::GL
     void Viewport(std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height)
     {
         ::glViewport(x, y, width, height);
+    }
+}
+
+namespace OpenTK::Graphics::OpenGL
+{
+    namespace
+    {
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry FramebufferErrorCodeNames[] = {
+            {33305ULL, "FramebufferUndefined"},
+            {36053ULL, "FramebufferComplete"},
+            {36054ULL, "FramebufferIncompleteAttachment"},
+            {36055ULL, "FramebufferIncompleteMissingAttachment"},
+            {36059ULL, "FramebufferIncompleteDrawBuffer"},
+            {36060ULL, "FramebufferIncompleteReadBuffer"},
+            {36061ULL, "FramebufferUnsupported"},
+            {36182ULL, "FramebufferIncompleteMultisample"},
+            {36264ULL, "FramebufferIncompleteLayerTargets"},
+        };
+
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry ErrorCodeNames[] = {
+            {0ULL, "NoError"},
+            {1280ULL, "InvalidEnum"},
+            {1281ULL, "InvalidValue"},
+            {1282ULL, "InvalidOperation"},
+            {1283ULL, "StackOverflow"},
+            {1284ULL, "StackUnderflow"},
+            {1285ULL, "OutOfMemory"},
+            {1286ULL, "InvalidFramebufferOperation"},
+            {1287ULL, "ContextLost"},
+            {32817ULL, "TableTooLarge"},
+        };
+    }
+
+    std::string ToString(FramebufferErrorCode value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, FramebufferErrorCodeNames, std::size(FramebufferErrorCodeNames), false);
+    }
+
+    std::string ToString(ErrorCode value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, ErrorCodeNames, std::size(ErrorCodeNames), false);
     }
 }

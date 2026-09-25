@@ -184,20 +184,7 @@ namespace
 
     [[nodiscard]] std::string FramebufferErrorText(OpenTK::Graphics::OpenGL::FramebufferErrorCode value)
     {
-        using E = OpenTK::Graphics::OpenGL::FramebufferErrorCode;
-        switch (value)
-        {
-        case E::FramebufferUndefined: return "FramebufferUndefined";
-        case E::FramebufferComplete: return "FramebufferComplete";
-        case E::FramebufferIncompleteAttachment: return "FramebufferIncompleteAttachment";
-        case E::FramebufferIncompleteMissingAttachment: return "FramebufferIncompleteMissingAttachment";
-        case E::FramebufferIncompleteDrawBuffer: return "FramebufferIncompleteDrawBuffer";
-        case E::FramebufferIncompleteReadBuffer: return "FramebufferIncompleteReadBuffer";
-        case E::FramebufferUnsupported: return "FramebufferUnsupported";
-        case E::FramebufferIncompleteMultisample: return "FramebufferIncompleteMultisample";
-        case E::FramebufferIncompleteLayerTargets: return "FramebufferIncompleteLayerTargets";
-        }
-        return EnumNumber(value);
+        return OpenTK::Graphics::OpenGL::ToString(value);
     }
 
 #define MPH_ENUM_CASE(type, name) case type::name: return #name
@@ -269,55 +256,27 @@ namespace
 
     [[nodiscard]] std::string EnumText(MphRead::BillboardMode value)
     {
-        using E = MphRead::BillboardMode;
-        switch (value)
-        {
-            MPH_ENUM_CASE(E, None); MPH_ENUM_CASE(E, Sphere); MPH_ENUM_CASE(E, Cylinder);
-        }
-        return EnumNumber(value);
+        return ::MphRead::ToString(value);
     }
 
     [[nodiscard]] std::string EnumText(MphRead::RenderMode value)
     {
-        using E = MphRead::RenderMode;
-        switch (value)
-        {
-            MPH_ENUM_CASE(E, Normal); MPH_ENUM_CASE(E, Decal); MPH_ENUM_CASE(E, Translucent);
-            MPH_ENUM_CASE(E, Unknown3); MPH_ENUM_CASE(E, Unknown4);
-        }
-        return EnumNumber(value);
+        return ::MphRead::ToString(value);
     }
 
     [[nodiscard]] std::string EnumText(MphRead::PolygonMode value)
     {
-        using E = MphRead::PolygonMode;
-        switch (value)
-        {
-            MPH_ENUM_CASE(E, Modulate); MPH_ENUM_CASE(E, Decal); MPH_ENUM_CASE(E, Toon);
-            MPH_ENUM_CASE(E, Shadow);
-        }
-        return EnumNumber(value);
+        return ::MphRead::ToString(value);
     }
 
     [[nodiscard]] std::string EnumText(MphRead::TexgenMode value)
     {
-        using E = MphRead::TexgenMode;
-        switch (value)
-        {
-            MPH_ENUM_CASE(E, None); MPH_ENUM_CASE(E, Texcoord); MPH_ENUM_CASE(E, Normal);
-            MPH_ENUM_CASE(E, Vertex);
-        }
-        return EnumNumber(value);
+        return ::MphRead::ToString(value);
     }
 
     [[nodiscard]] std::string EnumText(MphRead::RepeatMode value)
     {
-        using E = MphRead::RepeatMode;
-        switch (value)
-        {
-            MPH_ENUM_CASE(E, Clamp); MPH_ENUM_CASE(E, Repeat); MPH_ENUM_CASE(E, Mirror);
-        }
-        return EnumNumber(value);
+        return ::MphRead::ToString(value);
     }
 
     [[nodiscard]] std::string BoolText(bool value)

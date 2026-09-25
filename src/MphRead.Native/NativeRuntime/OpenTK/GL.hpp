@@ -38,6 +38,10 @@ namespace OpenTK::Graphics::OpenGL
         TableTooLarge = 0x8031
     };
 
+    // FramebufferErrorCode.ToString() / ErrorCode.ToString().
+    [[nodiscard]] std::string ToString(FramebufferErrorCode value);
+    [[nodiscard]] std::string ToString(ErrorCode value);
+
     // OpenTK.Graphics.OpenGL.GL (OpenTK 4.9, compatibility profile) as the
     // renderer calls it. Enum values are the OpenGL constants; the functions are
     // the platform provider's GL entry points and are declared, not emulated.

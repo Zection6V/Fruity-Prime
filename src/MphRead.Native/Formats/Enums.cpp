@@ -433,4 +433,105 @@ namespace MphRead
         return ::MphRead::NativeRuntime::ManagedEnumTryParse(
             text, ignoreCase, ItemTypeNames, std::size(ItemTypeNames), value);
     }
+
+    namespace
+    {
+        // Enums.cs BillboardMode
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry BillboardModeNames[] = {
+            {0ULL, "None"},
+            {1ULL, "Sphere"},
+            {2ULL, "Cylinder"},
+        };
+
+        // Enums.cs PolygonMode
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry PolygonModeNames[] = {
+            {0ULL, "Modulate"},
+            {1ULL, "Decal"},
+            {2ULL, "Toon"},
+            {3ULL, "Shadow"},
+        };
+
+        // Enums.cs RepeatMode
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry RepeatModeNames[] = {
+            {0ULL, "Clamp"},
+            {1ULL, "Repeat"},
+            {2ULL, "Mirror"},
+        };
+
+        // Enums.cs RenderMode
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry RenderModeNames[] = {
+            {0ULL, "Normal"},
+            {1ULL, "Decal"},
+            {2ULL, "Translucent"},
+            {3ULL, "Unknown3"},
+            {4ULL, "Unknown4"},
+        };
+
+        // Enums.cs TexgenMode
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry TexgenModeNames[] = {
+            {0ULL, "None"},
+            {1ULL, "Texcoord"},
+            {2ULL, "Normal"},
+            {3ULL, "Vertex"},
+        };
+
+        // Enums.cs CullingMode
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry CullingModeNames[] = {
+            {0ULL, "Neither"},
+            {1ULL, "Front"},
+            {2ULL, "Back"},
+        };
+
+        // Enums.cs TextureFormat
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry TextureFormatNames[] = {
+            {0ULL, "Palette2Bit"},
+            {1ULL, "Palette4Bit"},
+            {2ULL, "Palette8Bit"},
+            {4ULL, "PaletteA5I3"},
+            {5ULL, "DirectRgb"},
+            {6ULL, "PaletteA3I5"},
+        };
+    }
+
+    std::string ToString(BillboardMode value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, BillboardModeNames, std::size(BillboardModeNames), false);
+    }
+
+    std::string ToString(PolygonMode value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, PolygonModeNames, std::size(PolygonModeNames), false);
+    }
+
+    std::string ToString(RepeatMode value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, RepeatModeNames, std::size(RepeatModeNames), false);
+    }
+
+    std::string ToString(RenderMode value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, RenderModeNames, std::size(RenderModeNames), false);
+    }
+
+    std::string ToString(TexgenMode value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, TexgenModeNames, std::size(TexgenModeNames), false);
+    }
+
+    std::string ToString(CullingMode value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, CullingModeNames, std::size(CullingModeNames), false);
+    }
+
+    std::string ToString(TextureFormat value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, TextureFormatNames, std::size(TextureFormatNames), false);
+    }
 }

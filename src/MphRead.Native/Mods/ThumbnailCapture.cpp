@@ -539,59 +539,13 @@ namespace
     [[nodiscard]] std::string FramebufferStatusName(
         OpenTK::Graphics::OpenGL::FramebufferErrorCode value)
     {
-        using OpenTK::Graphics::OpenGL::FramebufferErrorCode;
-        switch (value)
-        {
-        case FramebufferErrorCode::FramebufferUndefined:
-            return "FramebufferUndefined";
-        case FramebufferErrorCode::FramebufferComplete:
-            return "FramebufferComplete";
-        case FramebufferErrorCode::FramebufferIncompleteAttachment:
-            return "FramebufferIncompleteAttachment";
-        case FramebufferErrorCode::FramebufferIncompleteMissingAttachment:
-            return "FramebufferIncompleteMissingAttachment";
-        case FramebufferErrorCode::FramebufferIncompleteDrawBuffer:
-            return "FramebufferIncompleteDrawBuffer";
-        case FramebufferErrorCode::FramebufferIncompleteReadBuffer:
-            return "FramebufferIncompleteReadBuffer";
-        case FramebufferErrorCode::FramebufferUnsupported:
-            return "FramebufferUnsupported";
-        case FramebufferErrorCode::FramebufferIncompleteMultisample:
-            return "FramebufferIncompleteMultisample";
-        case FramebufferErrorCode::FramebufferIncompleteLayerTargets:
-            return "FramebufferIncompleteLayerTargets";
-        }
-        return std::to_string(static_cast<std::int32_t>(value));
+        return OpenTK::Graphics::OpenGL::ToString(value);
     }
 
     [[nodiscard]] std::string ErrorCodeName(
         OpenTK::Graphics::OpenGL::ErrorCode value)
     {
-        using OpenTK::Graphics::OpenGL::ErrorCode;
-        switch (value)
-        {
-        case ErrorCode::NoError:
-            return "NoError";
-        case ErrorCode::InvalidEnum:
-            return "InvalidEnum";
-        case ErrorCode::InvalidValue:
-            return "InvalidValue";
-        case ErrorCode::InvalidOperation:
-            return "InvalidOperation";
-        case ErrorCode::StackOverflow:
-            return "StackOverflow";
-        case ErrorCode::StackUnderflow:
-            return "StackUnderflow";
-        case ErrorCode::OutOfMemory:
-            return "OutOfMemory";
-        case ErrorCode::InvalidFramebufferOperation:
-            return "InvalidFramebufferOperation";
-        case ErrorCode::ContextLost:
-            return "ContextLost";
-        case ErrorCode::TableTooLarge:
-            return "TableTooLarge";
-        }
-        return std::to_string(static_cast<std::int32_t>(value));
+        return OpenTK::Graphics::OpenGL::ToString(value);
     }
 
     [[nodiscard]] float PreviewValue(

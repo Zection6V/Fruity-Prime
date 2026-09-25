@@ -120,32 +120,12 @@ namespace
     }
     [[nodiscard]] std::string PolygonModeName(MphRead::PolygonMode value)
     {
-        switch (value)
-        {
-        case MphRead::PolygonMode::Modulate:
-            return "Modulate";
-        case MphRead::PolygonMode::Decal:
-            return "Decal";
-        case MphRead::PolygonMode::Toon:
-            return "Toon";
-        case MphRead::PolygonMode::Shadow:
-            return "Shadow";
-        }
-        return ::MphRead::NativeRuntime::ToString(static_cast<std::uint32_t>(value));
+        return ::MphRead::ToString(value);
     }
 
     [[nodiscard]] std::string CullingModeName(MphRead::CullingMode value)
     {
-        switch (value)
-        {
-        case MphRead::CullingMode::Neither:
-            return "Neither";
-        case MphRead::CullingMode::Front:
-            return "Front";
-        case MphRead::CullingMode::Back:
-            return "Back";
-        }
-        return ::MphRead::NativeRuntime::ToString(static_cast<std::uint32_t>(value));
+        return ::MphRead::ToString(value);
     }
 
 // External parity blocker: no shared Native System.Diagnostics.DebugProvider /

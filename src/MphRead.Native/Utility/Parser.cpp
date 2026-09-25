@@ -40,20 +40,7 @@ namespace
     {
         if (enumType == typeid(MphRead::PolygonMode))
         {
-            const std::uint32_t raw = std::bit_cast<std::uint32_t>(value);
-            switch (raw)
-            {
-            case static_cast<std::uint32_t>(MphRead::PolygonMode::Modulate):
-                return "Modulate";
-            case static_cast<std::uint32_t>(MphRead::PolygonMode::Decal):
-                return "Decal";
-            case static_cast<std::uint32_t>(MphRead::PolygonMode::Toon):
-                return "Toon";
-            case static_cast<std::uint32_t>(MphRead::PolygonMode::Shadow):
-                return "Shadow";
-            default:
-                return ::MphRead::NativeRuntime::ToString(raw);
-            }
+            return ::MphRead::ToString(static_cast<MphRead::PolygonMode>(std::bit_cast<std::uint32_t>(value)));
         }
         return ::MphRead::NativeRuntime::ToString(value);
     }

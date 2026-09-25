@@ -498,6 +498,14 @@ namespace MphRead
     [[nodiscard]] bool TryParse(std::string_view text, bool ignoreCase, Terrain& value);
     // Enum.TryParse(text, ignoreCase, out ItemType).
     [[nodiscard]] bool TryParse(std::string_view text, bool ignoreCase, ItemType& value);
+    // The model and texture enums' ToString().
+    [[nodiscard]] std::string ToString(BillboardMode value);
+    [[nodiscard]] std::string ToString(PolygonMode value);
+    [[nodiscard]] std::string ToString(RepeatMode value);
+    [[nodiscard]] std::string ToString(RenderMode value);
+    [[nodiscard]] std::string ToString(TexgenMode value);
+    [[nodiscard]] std::string ToString(CullingMode value);
+    [[nodiscard]] std::string ToString(TextureFormat value);
     // Enum.TryParse(text, ignoreCase, out Hunter).
     [[nodiscard]] bool TryParse(std::string_view text, bool ignoreCase, Hunter& value);
     // ItemType.ToString().

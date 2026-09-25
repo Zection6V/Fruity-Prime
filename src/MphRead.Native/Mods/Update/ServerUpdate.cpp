@@ -2,9 +2,9 @@
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "BuildVersion.hpp"
 #include "DesktopUpdate.hpp"
+#include "../../NativeRuntime/System/Exceptions.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/Encoding.hpp"
-#include "../../NativeRuntime/System/Exceptions.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Runtime.hpp"
@@ -57,6 +57,7 @@ using ::MphRead::NativeRuntime::DirectoryExists;
 using ::MphRead::NativeRuntime::EnvironmentGetVariable;
 using ::MphRead::NativeRuntime::FileDelete;
 using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::PasteArgument;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathGetExtension;
 using ::MphRead::NativeRuntime::PathToUtf8;
@@ -324,51 +325,6 @@ namespace MphRead::Mods::Update
         }
 
 #ifdef _WIN32
-        std::wstring QuoteWindowsArgument(std::wstring_view value)
-        {
-            bool simple = !value.empty();
-            if (simple)
-            {
-                for (wchar_t ch : value)
-                {
-                    if (CharIsWhiteSpace(ch) || ch == L'"')
-                    {
-                        simple = false;
-                        break;
-                    }
-                }
-            }
-            if (simple)
-            {
-                return std::wstring(value);
-            }
-
-            std::wstring result;
-            result.push_back(L'"');
-            std::size_t slashes = 0;
-            for (wchar_t ch : value)
-            {
-                if (ch == L'\\')
-                {
-                    ++slashes;
-                    continue;
-                }
-                if (ch == L'"')
-                {
-                    result.append(slashes * 2 + 1, L'\\');
-                    result.push_back(L'"');
-                    slashes = 0;
-                    continue;
-                }
-                result.append(slashes, L'\\');
-                slashes = 0;
-                result.push_back(ch);
-            }
-            result.append(slashes * 2, L'\\');
-            result.push_back(L'"');
-            return result;
-        }
-
         std::string WindowsErrorMessage(DWORD error)
         {
             if (error == ERROR_BAD_EXE_FORMAT || error == ERROR_EXE_MACHINE_TYPE_MISMATCH)
@@ -413,7 +369,7 @@ namespace MphRead::Mods::Update
             for (const std::string& argument : arguments)
             {
                 command.push_back(L' ');
-                command += QuoteWindowsArgument(Utf8ToWide(argument));
+                command += PasteArgument(Utf8ToWide(argument));
             }
             std::vector<wchar_t> mutableCommand(command.begin(), command.end());
             mutableCommand.push_back(L'\0');

@@ -11,6 +11,7 @@
 #include <string_view>
 
 using ::MphRead::NativeRuntime::Int32TryParseCurrentCulture;
+using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 
 namespace MphRead::Mods
@@ -70,24 +71,6 @@ namespace
     [[nodiscard]] constexpr char FoldAscii(char value) noexcept
     {
         return value >= 'A' && value <= 'Z' ? static_cast<char>(value + ('a' - 'A')) : value;
-    }
-
-    [[nodiscard]] bool EqualsOrdinalIgnoreCaseAscii(
-        std::string_view left, std::string_view right) noexcept
-    {
-        if (left.size() != right.size())
-        {
-            return false;
-        }
-        for (std::size_t index = 0; index < left.size(); index++)
-        {
-            const unsigned char unit = static_cast<unsigned char>(left[index]);
-            if (unit >= 0x80U || FoldAscii(left[index]) != FoldAscii(right[index]))
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
     [[nodiscard]] std::string CurrentNumberDecimalSeparator()
@@ -447,15 +430,15 @@ namespace MphRead::Mods::Render
         {
             return fallback;
         }
-        if (EqualsOrdinalIgnoreCaseAscii(trimmed, "display")
-            || EqualsOrdinalIgnoreCaseAscii(trimmed, "vsync")
-            || EqualsOrdinalIgnoreCaseAscii(trimmed, "auto")
+        if (StringEqualsOrdinalIgnoreCase(trimmed, "display")
+            || StringEqualsOrdinalIgnoreCase(trimmed, "vsync")
+            || StringEqualsOrdinalIgnoreCase(trimmed, "auto")
             || trimmed == "0")
         {
             return DisplayRate;
         }
-        if (EqualsOrdinalIgnoreCaseAscii(trimmed, "uncapped")
-            || EqualsOrdinalIgnoreCaseAscii(trimmed, "unlimited"))
+        if (StringEqualsOrdinalIgnoreCase(trimmed, "uncapped")
+            || StringEqualsOrdinalIgnoreCase(trimmed, "unlimited"))
         {
             return MaxCap;
         }

@@ -72,6 +72,7 @@ using ::MphRead::NativeRuntime::FileDelete;
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::IsAndroid;
 using ::MphRead::NativeRuntime::IsWindows;
+using ::MphRead::NativeRuntime::PasteArgument;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathGetDirectoryName;
@@ -877,46 +878,6 @@ namespace MphRead::Mods::Update
             return value;
         }
 
-        [[nodiscard]] std::wstring QuoteWindowsArgument(std::wstring_view value)
-        {
-            bool simple = !value.empty();
-            for (const wchar_t ch : value)
-            {
-                if (ch == L'\"' || CharIsWhiteSpace(ch))
-                {
-                    simple = false;
-                    break;
-                }
-            }
-            if (simple)
-            {
-                return std::wstring(value);
-            }
-            std::wstring result;
-            result.push_back(L'\"');
-            std::size_t slashes = 0;
-            for (const wchar_t ch : value)
-            {
-                if (ch == L'\\')
-                {
-                    ++slashes;
-                    continue;
-                }
-                if (ch == L'\"')
-                {
-                    result.append(slashes * 2U + 1U, L'\\');
-                    result.push_back(L'\"');
-                    slashes = 0;
-                    continue;
-                }
-                result.append(slashes, L'\\');
-                slashes = 0;
-                result.push_back(ch);
-            }
-            result.append(slashes * 2U, L'\\');
-            result.push_back(L'\"');
-            return result;
-        }
 #else
         [[nodiscard]] bool IsDotNetNullOrWhiteSpaceUtf8(
             std::string_view value) noexcept
@@ -1049,7 +1010,7 @@ namespace MphRead::Mods::Update
             for (const std::string& argument : arguments)
             {
                 command.push_back(L' ');
-                command += QuoteWindowsArgument(Utf8ToWide(argument));
+                command += PasteArgument(Utf8ToWide(argument));
             }
             std::vector<wchar_t> mutableCommand(command.begin(), command.end());
             mutableCommand.push_back(L'\0');

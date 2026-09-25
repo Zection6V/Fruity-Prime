@@ -37,6 +37,7 @@
 using ::MphRead::NativeRuntime::AppendUtf8;
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::OperationStatus;
+using ::MphRead::NativeRuntime::PathGetFileName;
 using ::MphRead::NativeRuntime::RuneDecodeFromUtf8;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
@@ -232,21 +233,16 @@ namespace
         return DecodeAscii(bytes.data() + offset, count);
     }
 
-    [[nodiscard]] std::string FileName(const std::string& path)
-    {
-        return MphRead::NativeRuntime::PathGetFileName(path);
-    }
-
     [[nodiscard]] std::string FileNameWithoutExtension(const std::string& path)
     {
-        const std::string fileName = FileName(path);
+        const std::string fileName = PathGetFileName(path);
         const std::size_t dot = fileName.find_last_of('.');
         return dot == std::string::npos ? fileName : fileName.substr(0, dot);
     }
 
     [[nodiscard]] std::string Extension(const std::string& path)
     {
-        const std::string fileName = FileName(path);
+        const std::string fileName = PathGetFileName(path);
         const std::size_t dot = fileName.find_last_of('.');
         if (dot == std::string::npos || dot + 1 == fileName.size()) return {};
         return fileName.substr(dot);
@@ -1571,7 +1567,7 @@ namespace MphRead::Mods::MapGen
         }
         if (maps.empty())
         {
-            throw ProgramException(FileName(sourceText) + " contains no .bsp.");
+            throw ProgramException(PathGetFileName(sourceText) + " contains no .bsp.");
         }
         const ZipEntry* selected = nullptr;
         if (!mapName.has_value())
@@ -1604,7 +1600,7 @@ namespace MphRead::Mods::MapGen
                 if (i != 0) joined += ", ";
                 joined += available[i];
             }
-            throw ProgramException(FileName(sourceText) + " has no map " + *mapName + ". It has: " + joined);
+            throw ProgramException(PathGetFileName(sourceText) + " has no map " + *mapName + ". It has: " + joined);
         }
         return ReadZipEntry(archive, *selected);
     }

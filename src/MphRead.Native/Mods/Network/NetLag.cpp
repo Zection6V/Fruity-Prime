@@ -36,6 +36,7 @@
 #include <unistd.h>
 #endif
 
+using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 using ::MphRead::NativeRuntime::StringTrimView;
 
 namespace
@@ -60,37 +61,6 @@ namespace
     {
         const unsigned char unit = static_cast<unsigned char>(value);
         return unit == 0x20U || (unit >= 0x09U && unit <= 0x0DU);
-    }
-
-    [[nodiscard]] bool EqualsOrdinalIgnoreCaseAscii(
-        std::string_view left, std::string_view right) noexcept
-    {
-        if (left.size() != right.size())
-        {
-            return false;
-        }
-        for (std::size_t index = 0; index < left.size(); index++)
-        {
-            unsigned char a = static_cast<unsigned char>(left[index]);
-            unsigned char b = static_cast<unsigned char>(right[index]);
-            if (a >= 0x80U || b >= 0x80U)
-            {
-                return false;
-            }
-            if (a >= static_cast<unsigned char>('A') && a <= static_cast<unsigned char>('Z'))
-            {
-                a = static_cast<unsigned char>(a + ('a' - 'A'));
-            }
-            if (b >= static_cast<unsigned char>('A') && b <= static_cast<unsigned char>('Z'))
-            {
-                b = static_cast<unsigned char>(b + ('a' - 'A'));
-            }
-            if (a != b)
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
     [[nodiscard]] bool TryParseInt32InvariantInteger(
@@ -403,24 +373,24 @@ namespace
         // .NET's floating parser falls back to the culture's special symbols after
         // numeric parsing fails and trims them with Char.IsWhiteSpace semantics.
         std::string_view value = StringTrimView(*source);
-        if (EqualsOrdinalIgnoreCaseAscii(value, "Infinity"))
+        if (StringEqualsOrdinalIgnoreCase(value, "Infinity"))
         {
             parsed = std::numeric_limits<double>::infinity();
             return true;
         }
-        if (EqualsOrdinalIgnoreCaseAscii(value, "-Infinity"))
+        if (StringEqualsOrdinalIgnoreCase(value, "-Infinity"))
         {
             parsed = -std::numeric_limits<double>::infinity();
             return true;
         }
-        if (EqualsOrdinalIgnoreCaseAscii(value, "NaN")
-            || EqualsOrdinalIgnoreCaseAscii(value, "+NaN")
-            || EqualsOrdinalIgnoreCaseAscii(value, "-NaN"))
+        if (StringEqualsOrdinalIgnoreCase(value, "NaN")
+            || StringEqualsOrdinalIgnoreCase(value, "+NaN")
+            || StringEqualsOrdinalIgnoreCase(value, "-NaN"))
         {
             parsed = std::numeric_limits<double>::quiet_NaN();
             return true;
         }
-        if (EqualsOrdinalIgnoreCaseAscii(value, "+Infinity"))
+        if (StringEqualsOrdinalIgnoreCase(value, "+Infinity"))
         {
             parsed = std::numeric_limits<double>::infinity();
             return true;

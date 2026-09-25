@@ -789,6 +789,29 @@ namespace MphRead::NativeRuntime
         }
     }
 
+    std::int64_t FileInfoLength(const std::string& path)
+    {
+        const std::string fullPath = PathGetFullPath(path);
+#if defined(_WIN32)
+        const std::optional<DWORD> attributes = ReadAttributes(Wtf8ToWide(fullPath));
+        WIN32_FILE_ATTRIBUTE_DATA data{};
+        if (!attributes.has_value() || (*attributes & FILE_ATTRIBUTE_DIRECTORY) != 0
+            || GetFileAttributesExW(Wtf8ToWide(fullPath).c_str(), GetFileExInfoStandard, &data) == FALSE)
+        {
+            throw System::IO::FileNotFoundException("Could not find file '" + fullPath + "'.");
+        }
+        return (static_cast<std::int64_t>(data.nFileSizeHigh) << 32)
+            | static_cast<std::int64_t>(data.nFileSizeLow);
+#else
+        struct stat status{};
+        if (::stat(fullPath.c_str(), &status) != 0 || S_ISDIR(status.st_mode))
+        {
+            throw System::IO::FileNotFoundException("Could not find file '" + fullPath + "'.");
+        }
+        return static_cast<std::int64_t>(status.st_size);
+#endif
+    }
+
     FileInfo CreateFileInfo(const std::string& path)
     {
         FileInfo info;

@@ -111,3 +111,44 @@ namespace MphRead
             value, FhEnemyTypeNames, std::size(FhEnemyTypeNames), false);
     }
 }
+
+namespace MphRead
+{
+    namespace
+    {
+        // Enums.cs ItemType : int. None is -1, which the name table holds as
+        // the underlying type's unsigned bits.
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry ItemTypeNames[] = {
+            {0xFFFFFFFFULL, "None"},
+            {0x0ULL, "HealthMedium"},
+            {0x1ULL, "HealthSmall"},
+            {0x2ULL, "HealthBig"},
+            {0x3ULL, "DoubleDamage"},
+            {0x4ULL, "EnergyTank"},
+            {0x5ULL, "VoltDriver"},
+            {0x6ULL, "MissileExpansion"},
+            {0x7ULL, "Battlehammer"},
+            {0x8ULL, "Imperialist"},
+            {0x9ULL, "Judicator"},
+            {0xAULL, "Magmaul"},
+            {0xBULL, "ShockCoil"},
+            {0xCULL, "OmegaCannon"},
+            {0xDULL, "UASmall"},
+            {0xEULL, "UABig"},
+            {0xFULL, "MissileSmall"},
+            {0x10ULL, "MissileBig"},
+            {0x11ULL, "Cloak"},
+            {0x12ULL, "UAExpansion"},
+            {0x13ULL, "ArtifactKey"},
+            {0x14ULL, "Deathalt"},
+            {0x15ULL, "AffinityWeapon"},
+            {0x16ULL, "PickWpnMissile"},
+        };
+    }
+
+    std::string ToString(ItemType value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, ItemTypeNames, std::size(ItemTypeNames), false);
+    }
+}

@@ -37,11 +37,6 @@ namespace
     using OpenTK::Mathematics::Vector2;
     using OpenTK::Mathematics::Vector3;
 
-    [[noreturn]] void NullReference()
-    {
-        throw System::NullReferenceException();
-    }
-
     [[noreturn]] void ArrayBounds()
     {
         throw System::IndexOutOfRangeException();
@@ -51,7 +46,7 @@ namespace
     {
         if (values == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         if (index >= values->size())
         {
@@ -444,38 +439,6 @@ namespace
         }
     }
 
-    [[nodiscard]] std::string ItemTypeToString(ItemType value)
-    {
-        switch (value)
-        {
-        case ItemType::None: return "None";
-        case ItemType::HealthMedium: return "HealthMedium";
-        case ItemType::HealthSmall: return "HealthSmall";
-        case ItemType::HealthBig: return "HealthBig";
-        case ItemType::DoubleDamage: return "DoubleDamage";
-        case ItemType::EnergyTank: return "EnergyTank";
-        case ItemType::VoltDriver: return "VoltDriver";
-        case ItemType::MissileExpansion: return "MissileExpansion";
-        case ItemType::Battlehammer: return "Battlehammer";
-        case ItemType::Imperialist: return "Imperialist";
-        case ItemType::Judicator: return "Judicator";
-        case ItemType::Magmaul: return "Magmaul";
-        case ItemType::ShockCoil: return "ShockCoil";
-        case ItemType::OmegaCannon: return "OmegaCannon";
-        case ItemType::UASmall: return "UASmall";
-        case ItemType::UABig: return "UABig";
-        case ItemType::MissileSmall: return "MissileSmall";
-        case ItemType::MissileBig: return "MissileBig";
-        case ItemType::Cloak: return "Cloak";
-        case ItemType::UAExpansion: return "UAExpansion";
-        case ItemType::ArtifactKey: return "ArtifactKey";
-        case ItemType::Deathalt: return "Deathalt";
-        case ItemType::AffinityWeapon: return "AffinityWeapon";
-        case ItemType::PickWpnMissile: return "PickWpnMissile";
-        }
-        return std::to_string(static_cast<std::int32_t>(value));
-    }
-
     [[nodiscard]] std::string JoinMultiplayerItems(
         const MphRead::Mods::MapGen::ItemTypeHashSet& values)
     {
@@ -488,7 +451,7 @@ namespace
                 result += ", ";
             }
             first = false;
-            result += ItemTypeToString(value);
+            result += ::MphRead::ToString(value);
         }
         return result;
     }
@@ -498,7 +461,7 @@ namespace
     {
         if (item == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         try
         {
@@ -702,12 +665,12 @@ namespace MphRead::Mods::MapGen
 
         if (def == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         MapDefinition::BrushList* brushes = def->Brushes();
         if (brushes == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         for (const std::shared_ptr<MapBrush>& brush : *brushes)
         {
@@ -721,7 +684,7 @@ namespace MphRead::Mods::MapGen
     {
         if (brush == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
 
         const float x0Left = ArrayValue(brush->Min(), 0);
@@ -784,12 +747,12 @@ namespace MphRead::Mods::MapGen
             const std::int32_t materialForCount = brush->Material();
             if (def == nullptr)
             {
-                NullReference();
+                throw System::NullReferenceException();
             }
             MapDefinition::MaterialList* materialsForCount = def->Materials();
             if (materialsForCount == nullptr)
             {
-                NullReference();
+                throw System::NullReferenceException();
             }
             if (static_cast<std::int64_t>(materialForCount)
                 < static_cast<std::int64_t>(materialsForCount->size()))
@@ -798,7 +761,7 @@ namespace MphRead::Mods::MapGen
                 const std::int32_t materialForIndex = brush->Material();
                 if (materialsForIndex == nullptr)
                 {
-                    NullReference();
+                    throw System::NullReferenceException();
                 }
                 MapMaterial* material = &RequireReference(
                     materialsForIndex->at(static_cast<std::size_t>(materialForIndex)));
@@ -841,7 +804,7 @@ namespace MphRead::Mods::MapGen
 
             if (map == nullptr)
             {
-                NullReference();
+                throw System::NullReferenceException();
             }
             map->Faces().push_back(face);
             if (brush->Solid())
@@ -878,18 +841,18 @@ namespace MphRead::Mods::MapGen
     {
         if (map == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         std::int16_t id = TruncateToInt16(map->Entities().size());
 
         if (def == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         MapDefinition::SpawnList* spawns = def->Spawns();
         if (spawns == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         for (const std::shared_ptr<MapSpawn>& spawnValue : *spawns)
         {
@@ -913,7 +876,7 @@ namespace MphRead::Mods::MapGen
         MapDefinition::JumpPadList* jumpPads = def->JumpPads();
         if (jumpPads == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         for (const std::shared_ptr<MapJumpPad>& padValue : *jumpPads)
         {
@@ -945,7 +908,7 @@ namespace MphRead::Mods::MapGen
         MapDefinition::ItemList* items = def->Items();
         if (items == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         for (const std::shared_ptr<MapItem>& itemValue : *items)
         {
@@ -1000,7 +963,7 @@ namespace MphRead::Mods::MapGen
     {
         if (pad == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
 
         if (pad->Vector() != nullptr)

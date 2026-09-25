@@ -476,6 +476,8 @@ namespace MphRead
 
     // Hunter.ToString().
     [[nodiscard]] std::string ToString(Hunter value);
+    // ItemType.ToString().
+    [[nodiscard]] std::string ToString(ItemType value);
     // EnemyType.ToString().
     [[nodiscard]] std::string ToString(EnemyType value);
     // FhEnemyType.ToString().

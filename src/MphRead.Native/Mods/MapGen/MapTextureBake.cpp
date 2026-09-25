@@ -28,6 +28,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::FileInfoLength;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathGetExtension;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -812,19 +813,6 @@ namespace
         stream.close();
     }
 
-    [[nodiscard]] std::int64_t FileLength(const std::string& path)
-    {
-        const std::uintmax_t value
-            = std::filesystem::file_size(PathFromUtf8(path));
-        if (value > static_cast<std::uintmax_t>(
-            std::numeric_limits<std::int64_t>::max()))
-        {
-            throw std::overflow_error(
-                "File length exceeds Int64.MaxValue.");
-        }
-        return static_cast<std::int64_t>(value);
-    }
-
     [[nodiscard]] std::shared_ptr<const std::vector<std::string>>
         EmptyStrings()
     {
@@ -916,7 +904,7 @@ namespace MphRead::Mods::MapGen
         auto result = std::make_shared<Result>();
         result->Baked = static_cast<std::int32_t>(entries.size());
         result->Missing = missing;
-        result->Bytes = FileLength(path);
+        result->Bytes = FileInfoLength(path);
         return result;
     }
 }

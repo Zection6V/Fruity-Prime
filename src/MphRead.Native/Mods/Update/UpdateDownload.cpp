@@ -3,6 +3,7 @@
 
 #include "../Branding.hpp"
 #include "BuildVersion.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 
 #include <curl/curl.h>
@@ -41,6 +42,7 @@
 using ::MphRead::NativeRuntime::FileDelete;
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 
 namespace MphRead::Mods::Update
 {
@@ -75,40 +77,11 @@ namespace MphRead::Mods::Update
             }
         };
 
-        [[nodiscard]] bool EqualsOrdinalIgnoreCaseAscii(
-            std::string_view left, std::string_view right) noexcept
-        {
-            if (left.size() != right.size())
-            {
-                return false;
-            }
-            for (std::size_t i = 0; i < left.size(); ++i)
-            {
-                unsigned char a = static_cast<unsigned char>(left[i]);
-                unsigned char b = static_cast<unsigned char>(right[i]);
-                if (a >= static_cast<unsigned char>('A')
-                    && a <= static_cast<unsigned char>('Z'))
-                {
-                    a = static_cast<unsigned char>(a + ('a' - 'A'));
-                }
-                if (b >= static_cast<unsigned char>('A')
-                    && b <= static_cast<unsigned char>('Z'))
-                {
-                    b = static_cast<unsigned char>(b + ('a' - 'A'));
-                }
-                if (a != b)
-                {
-                    return false;
-                }
-            }
-            return true;
-        }
-
         [[nodiscard]] bool EndsWithOrdinalIgnoreCaseAscii(
             std::string_view value, std::string_view suffix) noexcept
         {
             return value.size() >= suffix.size()
-                && EqualsOrdinalIgnoreCaseAscii(
+                && StringEqualsOrdinalIgnoreCase(
                     value.substr(value.size() - suffix.size()), suffix);
         }
 
@@ -192,7 +165,7 @@ namespace MphRead::Mods::Update
         [[nodiscard]] bool HeaderNameEquals(
             std::string_view value, std::string_view expected) noexcept
         {
-            return EqualsOrdinalIgnoreCaseAscii(value, expected);
+            return StringEqualsOrdinalIgnoreCase(value, expected);
         }
 
         [[nodiscard]] std::optional<std::int64_t> ParseContentLength(
@@ -1258,12 +1231,12 @@ namespace MphRead::Mods::Update
         std::string scheme;
         std::string host;
         if (!TryGetUriSchemeAndHost(url, scheme, host)
-            || !EqualsOrdinalIgnoreCaseAscii(scheme, "https"))
+            || !StringEqualsOrdinalIgnoreCase(scheme, "https"))
         {
             return false;
         }
-        return EqualsOrdinalIgnoreCaseAscii(host, _releaseHost)
-            || EqualsOrdinalIgnoreCaseAscii(host, _assetHost)
+        return StringEqualsOrdinalIgnoreCase(host, _releaseHost)
+            || StringEqualsOrdinalIgnoreCase(host, _assetHost)
             || EndsWithOrdinalIgnoreCaseAscii(host,
                 std::string(".") + std::string(_releaseHost))
             || EndsWithOrdinalIgnoreCaseAscii(host, ".githubusercontent.com");

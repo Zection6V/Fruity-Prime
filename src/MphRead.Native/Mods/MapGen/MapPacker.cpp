@@ -216,11 +216,6 @@ namespace
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
 
-    [[noreturn]] void NullReference()
-    {
-        throw System::NullReferenceException();
-    }
-
     [[nodiscard]] std::int32_t ListCount(std::size_t count)
     {
         if (count > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max()))
@@ -257,12 +252,12 @@ namespace
     {
         if (face == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         auto* points = reinterpret_cast<ManagedArray<Vector3>*>(face->Points());
         if (points == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         return points;
     }
@@ -271,12 +266,12 @@ namespace
     {
         if (face == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         auto* texcoords = reinterpret_cast<ManagedArray<Vector2>*>(face->Texcoords());
         if (texcoords == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         return texcoords;
     }
@@ -936,7 +931,7 @@ namespace
         {
             if (face == nullptr)
             {
-                NullReference();
+                throw System::NullReferenceException();
             }
             instructions.push_back(
                 Instruction(InstructionCode::COLOR, {PackColor(face->Shade())}));
@@ -967,7 +962,7 @@ namespace
     {
         if (def == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         const float scale = std::pow(2.0F, static_cast<float>(def->ScaleFactor()));
         auto renders = std::make_shared<std::vector<
@@ -982,7 +977,7 @@ namespace
             {
                 if (face == nullptr)
                 {
-                    NullReference();
+                    throw System::NullReferenceException();
                 }
                 if (face->Material() == materialId)
                 {
@@ -1091,7 +1086,7 @@ namespace
     {
         if (map == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         MapDefinition* def = map->Definition();
 
@@ -1100,7 +1095,7 @@ namespace
         auto materials = std::make_shared<std::vector<std::shared_ptr<Material>>>();
         if (pack == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         for (const MapTexturePack::Entry& entry : pack->Entries())
         {
@@ -1146,12 +1141,12 @@ namespace
     {
         if (map == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         MapDefinition* def = map->Definition();
         if (def == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         MapImport* import = def->Import();
         std::shared_ptr<MapTexturePack> own = import == nullptr
@@ -1181,7 +1176,7 @@ namespace
         const MapDefinition::MaterialList* sourceMaterials = def->Materials();
         if (sourceMaterials == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         for (const std::shared_ptr<MapMaterial>& mapMaterialValue : *sourceMaterials)
         {
@@ -1227,7 +1222,7 @@ namespace
                 textureId = ListCount(textures->size());
                 if (recolor == nullptr)
                 {
-                    NullReference();
+                    throw System::NullReferenceException();
                 }
                 const auto* recolorTextures = &RequireReference(recolor->Textures);
                 const MphRead::Texture& texture
@@ -1250,7 +1245,7 @@ namespace
                 paletteId = ListCount(palettes->size());
                 if (recolor == nullptr)
                 {
-                    NullReference();
+                    throw System::NullReferenceException();
                 }
                 const auto* paletteDataLists = &RequireReference(recolor->PaletteData);
                 const std::shared_ptr<const std::vector<MphRead::PaletteData>>& sourcePalette
@@ -1298,13 +1293,13 @@ namespace
             std::vector<std::shared_ptr<CollisionDataEditor>>>();
         if (map == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         for (BuiltFace* face : map->Solid())
         {
             if (face == nullptr)
             {
-                NullReference();
+                throw System::NullReferenceException();
             }
             ManagedArray<Vector3>* facePoints = FacePoints(face);
             if (facePoints->Length() <= 10U)
@@ -1367,14 +1362,14 @@ namespace MphRead::Mods::MapGen
     {
         if (map == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         MapDefinition* def = map->Definition();
         DirectoryCreateDirectory(archiveDir);
         DirectoryCreateDirectory(entityDir);
         if (def == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         const std::string prefix = ToLowerInvariant(def->Name());
 
@@ -1426,7 +1421,7 @@ namespace MphRead::Mods::MapGen
     {
         if (def == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         std::shared_ptr<BuiltMap> map = def->Import() == nullptr
             ? MapBuilder::Build(def)

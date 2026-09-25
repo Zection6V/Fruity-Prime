@@ -1,5 +1,6 @@
 #include "ConsoleWindow.hpp"
 #include "../NativeRuntime/System/Encoding.hpp"
+#include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 
 #include <cstddef>
@@ -30,50 +31,11 @@ using ::MphRead::NativeRuntime::AppendUtf8;
 using ::MphRead::NativeRuntime::HasFlag;
 using ::MphRead::NativeRuntime::OperationStatus;
 using ::MphRead::NativeRuntime::RuneDecodeFromUtf8;
+using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 using ::MphRead::NativeRuntime::Utf8Scalar;
 
 namespace
 {
-    [[nodiscard]] bool EqualsOrdinalIgnoreCaseAscii(
-        std::string_view value, std::string_view asciiValue) noexcept
-    {
-        if (value.size() != asciiValue.size())
-        {
-            return false;
-        }
-
-        for (std::size_t index = 0; index < value.size(); ++index)
-        {
-            const auto left = static_cast<unsigned char>(value[index]);
-            const auto right = static_cast<unsigned char>(asciiValue[index]);
-            if (left > 0x7FU || right > 0x7FU)
-            {
-                return false;
-            }
-
-            if (left == right)
-            {
-                continue;
-            }
-
-            const unsigned char foldedLeft
-                = left >= 'A' && left <= 'Z'
-                ? static_cast<unsigned char>(left + ('a' - 'A'))
-                : left;
-            const unsigned char foldedRight
-                = right >= 'A' && right <= 'Z'
-                ? static_cast<unsigned char>(right + ('a' - 'A'))
-                : right;
-            if (foldedLeft != foldedRight
-                || foldedLeft < static_cast<unsigned char>('a')
-                || foldedLeft > static_cast<unsigned char>('z'))
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
 #if defined(_WIN32)
     constexpr int StdInputHandle = -10;
     constexpr int StdOutputHandle = -11;
@@ -1103,7 +1065,7 @@ namespace MphRead
                     ++first;
                 }
 
-                if (EqualsOrdinalIgnoreCaseAscii(
+                if (StringEqualsOrdinalIgnoreCase(
                         std::string_view(arg).substr(first), flag))
                 {
                     return true;

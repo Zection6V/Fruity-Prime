@@ -44,6 +44,7 @@ using ::MphRead::NativeRuntime::ManagedListAt;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathGetFileName;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
@@ -68,11 +69,6 @@ namespace
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
 
-    [[noreturn]] void NullReference()
-    {
-        throw System::NullReferenceException();
-    }
-
     [[noreturn]] void ArrayBounds()
     {
         throw System::IndexOutOfRangeException();
@@ -94,12 +90,12 @@ namespace
     {
         if (face == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         auto* points = reinterpret_cast<ManagedArray<Vector3>*>(face->Points());
         if (points == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         return points;
     }
@@ -108,12 +104,12 @@ namespace
     {
         if (face == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         auto* texcoords = reinterpret_cast<ManagedArray<Vector2>*>(face->Texcoords());
         if (texcoords == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         return texcoords;
     }
@@ -378,11 +374,6 @@ namespace
             value.substr(0, prefix.size()), prefix);
     }
 
-    [[nodiscard]] std::string FileName(const std::string& path)
-    {
-        return PathToUtf8(PathFromUtf8(path).filename());
-    }
-
     [[nodiscard]] std::string FormatOneOptional(float value)
     {
         std::ostringstream stream;
@@ -404,44 +395,12 @@ namespace
         return stream.str();
     }
 
-    [[nodiscard]] std::string ItemTypeToString(ItemType value)
-    {
-        switch (value)
-        {
-        case ItemType::None: return "None";
-        case ItemType::HealthMedium: return "HealthMedium";
-        case ItemType::HealthSmall: return "HealthSmall";
-        case ItemType::HealthBig: return "HealthBig";
-        case ItemType::DoubleDamage: return "DoubleDamage";
-        case ItemType::EnergyTank: return "EnergyTank";
-        case ItemType::VoltDriver: return "VoltDriver";
-        case ItemType::MissileExpansion: return "MissileExpansion";
-        case ItemType::Battlehammer: return "Battlehammer";
-        case ItemType::Imperialist: return "Imperialist";
-        case ItemType::Judicator: return "Judicator";
-        case ItemType::Magmaul: return "Magmaul";
-        case ItemType::ShockCoil: return "ShockCoil";
-        case ItemType::OmegaCannon: return "OmegaCannon";
-        case ItemType::UASmall: return "UASmall";
-        case ItemType::UABig: return "UABig";
-        case ItemType::MissileSmall: return "MissileSmall";
-        case ItemType::MissileBig: return "MissileBig";
-        case ItemType::Cloak: return "Cloak";
-        case ItemType::UAExpansion: return "UAExpansion";
-        case ItemType::ArtifactKey: return "ArtifactKey";
-        case ItemType::Deathalt: return "Deathalt";
-        case ItemType::AffinityWeapon: return "AffinityWeapon";
-        case ItemType::PickWpnMissile: return "PickWpnMissile";
-        }
-        return std::to_string(static_cast<std::int32_t>(value));
-    }
-
     [[nodiscard]] const std::string* EntityValue(
         const Q3Entity* entity, const std::string& key)
     {
         if (entity == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         const auto iterator = entity->find(key);
         if (iterator == entity->end())
@@ -486,7 +445,7 @@ namespace MphRead::Mods::MapGen
     {
         if (def == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
 
         MapImport* import = def->Import();
@@ -555,7 +514,7 @@ namespace MphRead::Mods::MapGen
         float skySpan = 100.0F;
         if (!bsp)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         if (!bsp->Models().empty())
         {
@@ -917,7 +876,7 @@ namespace MphRead::Mods::MapGen
             {
                 if (face == nullptr || bsp == nullptr)
                 {
-                    NullReference();
+                    throw System::NullReferenceException();
                 }
 
                 for (std::int32_t i = 0;
@@ -993,7 +952,7 @@ namespace MphRead::Mods::MapGen
             {
                 if (face == nullptr || bsp == nullptr)
                 {
-                    NullReference();
+                    throw System::NullReferenceException();
                 }
 
                 const std::vector<std::int32_t>* size = &RequireReference(face->Size());
@@ -1269,7 +1228,7 @@ namespace MphRead::Mods::MapGen
     {
         if (import == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
 
         const std::optional<std::string> level = import->Resolve();
@@ -1299,7 +1258,7 @@ namespace MphRead::Mods::MapGen
                     std::optional<std::string>(target));
             if (!result)
             {
-                NullReference();
+                throw System::NullReferenceException();
             }
 
             if (result->Baked == 0)
@@ -1312,8 +1271,8 @@ namespace MphRead::Mods::MapGen
             {
                 std::cout
                     << "  baked " << result->Baked
-                    << " textures from " << FileName(*level)
-                    << " -> " << FileName(target) << '\n';
+                    << " textures from " << PathGetFileName(*level)
+                    << " -> " << PathGetFileName(target) << '\n';
             }
             return target;
         }
@@ -1321,7 +1280,7 @@ namespace MphRead::Mods::MapGen
         {
             std::cout
                 << "[mapgen] could not bake textures from "
-                << FileName(*level) << ": "
+                << PathGetFileName(*level) << ": "
                 << exception.what() << '\n';
             return std::nullopt;
         }
@@ -1339,7 +1298,7 @@ namespace MphRead::Mods::MapGen
     {
         if (bsp == nullptr || brush == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
 
         for (std::int32_t i = 0; i < brush->SideCount(); ++i)
@@ -1362,7 +1321,7 @@ namespace MphRead::Mods::MapGen
     {
         if (map == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
 
         min = Vector3(
@@ -1438,7 +1397,7 @@ namespace MphRead::Mods::MapGen
     {
         if (def == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
 
         std::shared_ptr<ModelInstance> instance
@@ -1449,24 +1408,24 @@ namespace MphRead::Mods::MapGen
 
         if (!requiredSource->Recolors)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         Recolor* recolor
             = &RequireReference(ManagedListAt(*requiredSource->Recolors, 0));
 
         if (!requiredSource->Materials)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         if (!recolor->Textures)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
 
         MapDefinition::MaterialList* materials = def->Materials();
         if (materials == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
 
         std::vector<std::pair<std::int32_t, std::int32_t>> results;
@@ -1491,13 +1450,13 @@ namespace MphRead::Mods::MapGen
     {
         if (import == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         MapImport::ShaderMaterialDictionary* materials
             = import->ShaderMaterials();
         if (materials == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
 
         std::int32_t exact = 0;
@@ -1525,7 +1484,7 @@ namespace MphRead::Mods::MapGen
     {
         if (bsp == nullptr || brush == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
 
         std::vector<BrushPolygon> result;
@@ -1807,7 +1766,7 @@ namespace MphRead::Mods::MapGen
         if (map == nullptr || def == nullptr
             || bsp == nullptr || import == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
 
         std::unordered_map<
@@ -1872,7 +1831,7 @@ namespace MphRead::Mods::MapGen
                 MapDefinition::SpawnList* spawns = def->Spawns();
                 if (spawns == nullptr)
                 {
-                    NullReference();
+                    throw System::NullReferenceException();
                 }
                 auto spawn = std::make_shared<MapSpawn>();
                 spawn->Position(std::make_shared<std::vector<float>>(
@@ -1935,7 +1894,7 @@ namespace MphRead::Mods::MapGen
                     = def->JumpPads();
                 if (jumpPads == nullptr)
                 {
-                    NullReference();
+                    throw System::NullReferenceException();
                 }
                 auto pad = std::make_shared<MapJumpPad>();
                 pad->Position(std::make_shared<std::vector<float>>(
@@ -1975,13 +1934,13 @@ namespace MphRead::Mods::MapGen
                 MapDefinition::ItemList* mapItems = def->Items();
                 if (mapItems == nullptr)
                 {
-                    NullReference();
+                    throw System::NullReferenceException();
                 }
                 auto item = std::make_shared<MapItem>();
                 item->Position(std::make_shared<std::vector<float>>(
                     std::initializer_list<float>{
                         position.X, position.Y, position.Z}));
-                item->Type(ItemTypeToString(type));
+                item->Type(::MphRead::ToString(type));
                 mapItems->push_back(std::move(item));
                 ++items;
             }
@@ -1992,7 +1951,7 @@ namespace MphRead::Mods::MapGen
             MapDefinition::SpawnList* spawns = def->Spawns();
             if (spawns == nullptr)
             {
-                NullReference();
+                throw System::NullReferenceException();
             }
             std::cout
                 << "  " << spawns->size()

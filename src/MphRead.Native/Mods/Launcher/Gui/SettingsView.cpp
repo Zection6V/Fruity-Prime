@@ -24,6 +24,7 @@
 #include "../../WindowMode.hpp"
 #include "../Portable/GameFiles.hpp"
 #include "../Portable/LauncherPrefs.hpp"
+#include "../../../NativeRuntime/System/Encoding.hpp"
 #include "../../../NativeRuntime/System/Globalization.hpp"
 #include "../../../NativeRuntime/System/Managed.hpp"
 
@@ -46,6 +47,7 @@
 using ::MphRead::NativeRuntime::CharIsWhiteSpace;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
+using ::MphRead::NativeRuntime::Utf8ToUtf16;
 
 namespace
 {
@@ -56,82 +58,6 @@ namespace
     using namespace MphRead::Mods::Launcher::Gui;
     using namespace MphRead::Mods::Network;
     using namespace MphRead::Mods::Render;
-
-    [[nodiscard]] std::u16string ToUtf16(std::string_view text)
-    {
-        std::u16string result;
-        result.reserve(text.size());
-        std::size_t index = 0;
-        while (index < text.size())
-        {
-            const auto first = static_cast<unsigned char>(text[index]);
-            char32_t value = 0;
-            std::size_t length = 1;
-            if (first <= 0x7FU)
-            {
-                value = first;
-            }
-            else if ((first & 0xE0U) == 0xC0U && index + 1 < text.size())
-            {
-                value = first & 0x1FU;
-                length = 2;
-            }
-            else if ((first & 0xF0U) == 0xE0U && index + 2 < text.size())
-            {
-                value = first & 0x0FU;
-                length = 3;
-            }
-            else if ((first & 0xF8U) == 0xF0U && index + 3 < text.size())
-            {
-                value = first & 0x07U;
-                length = 4;
-            }
-            else
-            {
-                value = 0xFFFDU;
-                length = 1;
-            }
-
-            bool valid = value != 0xFFFDU || first == 0xEFU;
-            if (length > 1)
-            {
-                for (std::size_t i = 1; i < length; ++i)
-                {
-                    const auto continuation = static_cast<unsigned char>(text[index + i]);
-                    if ((continuation & 0xC0U) != 0x80U)
-                    {
-                        valid = false;
-                        break;
-                    }
-                    value = (value << 6) | (continuation & 0x3FU);
-                }
-                const char32_t minimum = length == 2 ? 0x80U : length == 3 ? 0x800U : 0x10000U;
-                if (value < minimum || value > 0x10FFFFU
-                    || (value >= 0xD800U && value <= 0xDFFFU))
-                {
-                    valid = false;
-                }
-            }
-            if (!valid)
-            {
-                value = 0xFFFDU;
-                length = 1;
-            }
-
-            if (value <= 0xFFFFU)
-            {
-                result.push_back(static_cast<char16_t>(value));
-            }
-            else
-            {
-                value -= 0x10000U;
-                result.push_back(static_cast<char16_t>(0xD800U + (value >> 10)));
-                result.push_back(static_cast<char16_t>(0xDC00U + (value & 0x3FFU)));
-            }
-            index += length;
-        }
-        return result;
-    }
 
     [[nodiscard]] std::string ToUtf8(std::u16string_view text)
     {
@@ -342,7 +268,7 @@ namespace
         {
             throw std::runtime_error("Floating-point formatting failed.");
         }
-        return ToUtf16(std::string_view(buffer.data(),
+        return Utf8ToUtf16(std::string_view(buffer.data(),
             static_cast<std::size_t>(converted.ptr - buffer.data())));
     }
 
@@ -437,7 +363,7 @@ namespace
             {
                 throw std::out_of_range("Index was outside the bounds of the array.");
             }
-            return ToUtf16(_values[static_cast<std::size_t>(index)]);
+            return Utf8ToUtf16(_values[static_cast<std::size_t>(index)]);
         }
 
     private:
@@ -462,7 +388,7 @@ namespace
 
     [[nodiscard]] std::u16string OptionalToUtf16(const std::optional<std::string>& value)
     {
-        return value.has_value() ? ToUtf16(*value) : std::u16string{};
+        return value.has_value() ? Utf8ToUtf16(*value) : std::u16string{};
     }
 
     [[nodiscard]] MenuSettings& RequireSettings(const std::shared_ptr<MenuSettings>& settings)
@@ -1141,13 +1067,13 @@ namespace MphRead::Mods::Launcher::Gui
     {
         const SettingsViewControlHandle page = AddSection(u"Credits");
         (void)Heading(page, u"Credits");
-        (void)Explain(page, ToUtf16(Mods::Credits::Summary()));
+        (void)Explain(page, Utf8ToUtf16(Mods::Credits::Summary()));
 
         SettingsViewControlRef<Caption> author =
-            _adapter.ConstructCaption(ToUtf16(Mods::Credits::Author));
+            _adapter.ConstructCaption(Utf8ToUtf16(Mods::Credits::Author));
         _adapter.AddPanelChild(page, author.Control);
         SettingsViewControlRef<Note> forkWork =
-            _adapter.ConstructNote(ToUtf16(Mods::Credits::ForkWork));
+            _adapter.ConstructNote(Utf8ToUtf16(Mods::Credits::ForkWork));
         _adapter.AddPanelChild(page, forkWork.Control);
 
         SettingsViewControlRef<MenuEntry> support =
@@ -1174,7 +1100,7 @@ namespace MphRead::Mods::Launcher::Gui
                 what.append(where);
             }
             SettingsViewControlRef<Note> note =
-                _adapter.ConstructNote(ToUtf16(what));
+                _adapter.ConstructNote(Utf8ToUtf16(what));
             _adapter.AddPanelChild(page, note.Control);
         }
     }
@@ -1198,7 +1124,7 @@ namespace MphRead::Mods::Launcher::Gui
             [](std::int32_t value) -> std::optional<std::u16string>
             {
                 const std::int32_t scale = std::max(RenderOptions::MinScale, value);
-                return ToUtf16(std::to_string(scale) + "%");
+                return Utf8ToUtf16(std::to_string(scale) + "%");
             });
         _adapter.AddPanelChild(page, _state->ResolutionScale.Control);
 
@@ -1306,7 +1232,7 @@ namespace MphRead::Mods::Launcher::Gui
         (void)Heading(page, u"Language");
         std::vector<std::u16string> languages = LanguageNames();
         const std::int32_t languageIndex = std::max<std::int32_t>(
-            0, IndexOf(languages, ToUtf16(settings.Language)));
+            0, IndexOf(languages, Utf8ToUtf16(settings.Language)));
         _state->LanguageRow = _adapter.ConstructChoiceRow(
             std::u16string(u"Text"), Strings(languages), languageIndex);
         _adapter.AddPanelChild(page, _state->LanguageRow.Control);
@@ -1422,7 +1348,7 @@ namespace MphRead::Mods::Launcher::Gui
         clipLengths.reserve(3);
         for (const std::int32_t length : DemoClip::Lengths)
         {
-            clipLengths.push_back(ToUtf16(std::to_string(length) + " seconds"));
+            clipLengths.push_back(Utf8ToUtf16(std::to_string(length) + " seconds"));
         }
         const std::int32_t clipSeconds = DemoClip::Seconds();
         std::int32_t clipIndex = -1;
@@ -1473,7 +1399,7 @@ namespace MphRead::Mods::Launcher::Gui
             RoundToInt32(static_cast<double>(StylusZone::Opacity() * 100.0F)),
             [](std::int32_t value) -> std::optional<std::u16string>
             {
-                return ToUtf16(std::to_string(value) + "%");
+                return Utf8ToUtf16(std::to_string(value) + "%");
             }, 120.0, 4, 60, 2);
         _adapter.AddPanelChild(page, _state->StylusOpacity.Control);
 
@@ -1512,7 +1438,7 @@ namespace MphRead::Mods::Launcher::Gui
         for (const TouchControlOrderEntry& item : TouchSettings::Order)
         {
             SettingsViewControlRef<ToggleRow> row = _adapter.ConstructToggleRow(
-                ToUtf16(item.Label), TouchSettings::IsEnabled(item.Control));
+                Utf8ToUtf16(item.Label), TouchSettings::IsEnabled(item.Control));
             _adapter.AddPanelChild(page, row.Control);
             _state->TouchRows.push_back(SettingsViewTouchRow{item.Control, std::move(row)});
         }
@@ -1529,17 +1455,17 @@ namespace MphRead::Mods::Launcher::Gui
         MenuSettings& settings = RequireSettings(_state->Settings);
 
         _state->PointGoal = _adapter.ConstructFieldRow(
-            std::u16string(u"Point goal"), ToUtf16(settings.PointGoal), 120.0);
+            std::u16string(u"Point goal"), Utf8ToUtf16(settings.PointGoal), 120.0);
         _adapter.AddPanelChild(page, _state->PointGoal.Control);
         _state->TimeLimit = _adapter.ConstructFieldRow(
-            std::u16string(u"Time limit"), ToUtf16(settings.TimeLimit), 120.0);
+            std::u16string(u"Time limit"), Utf8ToUtf16(settings.TimeLimit), 120.0);
         _adapter.AddPanelChild(page, _state->TimeLimit.Control);
         RequireReference(_state->TimeLimit.Value).Box()->Watermark(u"m:ss");
 
         std::vector<std::u16string> damage{u"low", u"medium", u"high"};
         _state->DamageRow = _adapter.ConstructChoiceRow(
             std::u16string(u"Damage"), Strings(damage),
-            std::max<std::int32_t>(0, IndexOf(damage, ToUtf16(settings.DamageLevel))));
+            std::max<std::int32_t>(0, IndexOf(damage, Utf8ToUtf16(settings.DamageLevel))));
         _adapter.AddPanelChild(page, _state->DamageRow.Control);
 
         _state->TeamPlay = _adapter.ConstructToggleRow(
@@ -1565,17 +1491,17 @@ namespace MphRead::Mods::Launcher::Gui
         (void)Heading(page, u"You");
 
         _state->PlayerName = _adapter.ConstructFieldRow(
-            std::u16string(u"Your name"), ToUtf16(LauncherPrefs::PlayerName()), 200.0);
+            std::u16string(u"Your name"), Utf8ToUtf16(LauncherPrefs::PlayerName()), 200.0);
         _adapter.AddPanelChild(page, _state->PlayerName.Control);
 
         std::vector<std::u16string> hunters;
         hunters.reserve(8);
         for (std::int32_t i = 0; i < 7; ++i)
         {
-            hunters.push_back(ToUtf16(::MphRead::ToString(static_cast<Hunter>(i))));
+            hunters.push_back(Utf8ToUtf16(::MphRead::ToString(static_cast<Hunter>(i))));
         }
-        hunters.push_back(ToUtf16(::MphRead::ToString(Hunter::Random)));
-        const std::u16string lastHunter = ToUtf16(::MphRead::ToString(LauncherPrefs::LastHunter()));
+        hunters.push_back(Utf8ToUtf16(::MphRead::ToString(Hunter::Random)));
+        const std::u16string lastHunter = Utf8ToUtf16(::MphRead::ToString(LauncherPrefs::LastHunter()));
         _state->HunterRow = _adapter.ConstructChoiceRow(
             std::u16string(u"Hunter"), Strings(hunters),
             std::max<std::int32_t>(0, IndexOf(hunters, lastHunter)));
@@ -1585,7 +1511,7 @@ namespace MphRead::Mods::Launcher::Gui
         colors.reserve(PlayerColors::Count);
         for (std::int32_t i = 1; i <= PlayerColors::Count; ++i)
         {
-            colors.push_back(ToUtf16(std::to_string(i)));
+            colors.push_back(Utf8ToUtf16(std::to_string(i)));
         }
         _state->ColorRow = _adapter.ConstructChoiceRow(
             std::u16string(u"Suit colour"), Strings(std::move(colors)),
@@ -1595,12 +1521,12 @@ namespace MphRead::Mods::Launcher::Gui
         (void)Heading(page, u"Servers");
         _state->ServerRow = _adapter.ConstructFieldRow(
             std::u16string(u"Default server"),
-            ToUtf16(LauncherPrefs::ServerAddress() + ":"
+            Utf8ToUtf16(LauncherPrefs::ServerAddress() + ":"
                 + std::to_string(LauncherPrefs::ServerPort())), 220.0);
         _adapter.AddPanelChild(page, _state->ServerRow.Control);
         _state->MasterRow = _adapter.ConstructFieldRow(
             std::u16string(u"Server directory"),
-            ToUtf16(LauncherPrefs::MasterHost() + ":"
+            Utf8ToUtf16(LauncherPrefs::MasterHost() + ":"
                 + std::to_string(LauncherPrefs::MasterPort())), 220.0);
         _adapter.AddPanelChild(page, _state->MasterRow.Control);
         _state->AutoUpdate = _adapter.ConstructToggleRow(
@@ -1609,7 +1535,7 @@ namespace MphRead::Mods::Launcher::Gui
 
         (void)Heading(page, u"Game files");
         SettingsViewControlRef<MenuEntry> files = _adapter.ConstructMenuEntry(
-            std::u16string(u"Game files"), ToUtf16(GameFiles::Describe()), 15.0);
+            std::u16string(u"Game files"), Utf8ToUtf16(GameFiles::Describe()), 15.0);
         RequireReference(files.Value).SubtitleColor(GameFiles::Ready() ? GuiTheme::Good : GuiTheme::Warm);
         _adapter.AddMenuEntryClick(files.Control,
             SettingsViewAction{_state.get(), &SettingsView::OnGameFilesClick});
@@ -1657,7 +1583,7 @@ namespace MphRead::Mods::Launcher::Gui
         catch (const std::exception& ex)
         {
             std::u16string text = u"Could not save: ";
-            text.append(ToUtf16(ex.what()));
+            text.append(Utf8ToUtf16(ex.what()));
             RequireReference(_state->SaveError.Value).Text(text);
             RequireReference(_state->SaveError.Value).IsVisible(true);
         }
@@ -1841,7 +1767,7 @@ namespace MphRead::Mods::Launcher::Gui
         auto& click = *static_cast<SettingsViewSupportClickTarget*>(target);
         if (!Mods::Update::Updater::OpenLink(std::string(Mods::Credits::SupportUrl)))
         {
-            RequireReference(click.Entry).Subtitle(ToUtf16(Mods::Credits::SupportUrl));
+            RequireReference(click.Entry).Subtitle(Utf8ToUtf16(Mods::Credits::SupportUrl));
         }
     }
 

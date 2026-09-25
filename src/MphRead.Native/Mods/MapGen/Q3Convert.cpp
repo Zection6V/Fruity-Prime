@@ -57,6 +57,7 @@ using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::PathGetFileName;
 using ::MphRead::NativeRuntime::PathGetFullPath;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::RequireReference;
@@ -74,11 +75,6 @@ namespace
     using MphRead::Mods::MapGen::Q3Entity;
     using MphRead::Mods::MapGen::Q3StringEqual;
 
-
-    [[noreturn]] void NullReference()
-    {
-        throw System::NullReferenceException();
-    }
 
     [[nodiscard]] bool IsAsciiWhitespace(unsigned char value) noexcept
     {
@@ -731,12 +727,6 @@ namespace
         return result;
     }
 
-    [[nodiscard]] std::string FileName(
-        const std::string& path)
-    {
-        return PathToUtf8(PathFromUtf8(path).filename());
-    }
-
     void ValidatePathText(const std::string& path)
     {
         if (path.find('\0') != std::string::npos)
@@ -802,7 +792,7 @@ namespace
     {
         if (entity == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         for (const auto& pair : *entity)
         {
@@ -1422,39 +1412,6 @@ namespace
         return FormatCustomFloat(value, 1, true);
     }
 
-    [[nodiscard]] std::string ItemTypeToString(ItemType value)
-    {
-        switch (value)
-        {
-        case ItemType::None: return "None";
-        case ItemType::HealthMedium: return "HealthMedium";
-        case ItemType::HealthSmall: return "HealthSmall";
-        case ItemType::HealthBig: return "HealthBig";
-        case ItemType::DoubleDamage: return "DoubleDamage";
-        case ItemType::EnergyTank: return "EnergyTank";
-        case ItemType::VoltDriver: return "VoltDriver";
-        case ItemType::MissileExpansion: return "MissileExpansion";
-        case ItemType::Battlehammer: return "Battlehammer";
-        case ItemType::Imperialist: return "Imperialist";
-        case ItemType::Judicator: return "Judicator";
-        case ItemType::Magmaul: return "Magmaul";
-        case ItemType::ShockCoil: return "ShockCoil";
-        case ItemType::OmegaCannon: return "OmegaCannon";
-        case ItemType::UASmall: return "UASmall";
-        case ItemType::UABig: return "UABig";
-        case ItemType::MissileSmall: return "MissileSmall";
-        case ItemType::MissileBig: return "MissileBig";
-        case ItemType::Cloak: return "Cloak";
-        case ItemType::UAExpansion: return "UAExpansion";
-        case ItemType::ArtifactKey: return "ArtifactKey";
-        case ItemType::Deathalt: return "Deathalt";
-        case ItemType::AffinityWeapon: return "AffinityWeapon";
-        case ItemType::PickWpnMissile: return "PickWpnMissile";
-        }
-        return std::to_string(
-            static_cast<std::int32_t>(value));
-    }
-
     [[nodiscard]] std::string JoinMultiplayerItems(
         const MphRead::Mods::MapGen::ItemTypeHashSet& values)
     {
@@ -1467,7 +1424,7 @@ namespace
                 result += ", ";
             }
             first = false;
-            result += ItemTypeToString(value);
+            result += ::MphRead::ToString(value);
         }
         return result;
     }
@@ -1579,7 +1536,7 @@ namespace MphRead::Mods::MapGen
         std::shared_ptr<std::vector<float>> reachMax;
         Bounds(&RequireReference(bsp), reachMin, reachMax, true);
 
-        const std::string levelName = FileName(sourceValue);
+        const std::string levelName = PathGetFileName(sourceValue);
         const std::string beside
             = PathCombine(directory, levelName);
         const std::string besideFullPath = PathGetFullPath(beside);
@@ -1607,7 +1564,7 @@ namespace MphRead::Mods::MapGen
             << " textures at "
             << FormatInteger(textureSize) << 'x' << FormatInteger(textureSize)
             << " -> " << FormatN0(bakedValue->Bytes)
-            << " B  " << FileName(texturePath)
+            << " B  " << PathGetFileName(texturePath)
             << '\n';
         if (!RequireReference(bakedValue->Missing).empty())
         {
@@ -1643,7 +1600,7 @@ namespace MphRead::Mods::MapGen
         import->Source(levelName);
         import->MapName(selectedMapName);
         import->UnitsPerUnit(unit);
-        import->Textures(FileName(texturePath));
+        import->Textures(PathGetFileName(texturePath));
         import->KeepSky(true);
         import->KeepClip(!dropClip);
         import->KeepSpawns(true);
@@ -1692,7 +1649,7 @@ namespace MphRead::Mods::MapGen
             = definition->Spawns();
         if (outputSpawns == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
 
         std::cout
@@ -1719,7 +1676,7 @@ namespace MphRead::Mods::MapGen
             = definition->Spawns();
         if (checkSpawns == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         if (checkSpawns->size() < 4)
         {
@@ -1727,7 +1684,7 @@ namespace MphRead::Mods::MapGen
                 = definition->Spawns();
             if (warningSpawns == nullptr)
             {
-                NullReference();
+                throw System::NullReferenceException();
             }
             std::cout
                 << "  only " << warningSpawns->size()
@@ -1763,7 +1720,7 @@ namespace MphRead::Mods::MapGen
     {
         if (bsp == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
 
         min = std::make_shared<std::vector<float>>(
@@ -1860,7 +1817,7 @@ namespace MphRead::Mods::MapGen
     {
         if (definition == nullptr || bsp == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
 
         std::vector<std::shared_ptr<std::vector<float>>> starts;
@@ -1937,14 +1894,14 @@ namespace MphRead::Mods::MapGen
         MapImport* import = definition->Import();
         if (import == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         import->KeepSpawns(starts.size() >= 4);
 
         import = definition->Import();
         if (import == nullptr)
         {
-            NullReference();
+            throw System::NullReferenceException();
         }
         if (import->KeepSpawns())
         {
@@ -1992,7 +1949,7 @@ namespace MphRead::Mods::MapGen
                 = definition->Spawns();
             if (spawns == nullptr)
             {
-                NullReference();
+                throw System::NullReferenceException();
             }
             spawns->push_back(std::move(spawn));
         }

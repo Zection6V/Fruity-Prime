@@ -87,6 +87,9 @@ namespace MphRead::NativeRuntime
     };
 
     [[nodiscard]] FileInfo CreateFileInfo(const std::string& path);
+    // new FileInfo(path).Length: FileNotFoundException when there is no file
+    // there, a directory included.
+    [[nodiscard]] std::int64_t FileInfoLength(const std::string& path);
     // Directory.EnumerateFiles(path, searchPattern) with the "*suffix" form.
     [[nodiscard]] std::vector<std::string> DirectoryEnumerateFilesWithSuffix(
         const std::string& path, const std::string& suffix);

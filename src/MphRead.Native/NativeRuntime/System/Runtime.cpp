@@ -1,6 +1,7 @@
 #include "Runtime.hpp"
 
 #include "Encoding.hpp"
+#include "Globalization.hpp"
 #include "Exceptions.hpp"
 
 #include <atomic>
@@ -131,6 +132,47 @@ namespace MphRead::NativeRuntime
             return std::nullopt;
 #endif
         }
+    }
+
+    std::wstring PasteArgument(std::wstring_view value)
+    {
+        bool simple = !value.empty();
+        for (const wchar_t ch : value)
+        {
+            if (ch == L'"' || CharIsWhiteSpace(static_cast<char32_t>(ch)))
+            {
+                simple = false;
+                break;
+            }
+        }
+        if (simple)
+        {
+            return std::wstring(value);
+        }
+        std::wstring result;
+        result.push_back(L'"');
+        std::size_t slashes = 0;
+        for (const wchar_t ch : value)
+        {
+            if (ch == L'\\')
+            {
+                ++slashes;
+                continue;
+            }
+            if (ch == L'"')
+            {
+                result.append(slashes * 2U + 1U, L'\\');
+                result.push_back(L'"');
+                slashes = 0;
+                continue;
+            }
+            result.append(slashes, L'\\');
+            slashes = 0;
+            result.push_back(ch);
+        }
+        result.append(slashes * 2U, L'\\');
+        result.push_back(L'"');
+        return result;
     }
 
     std::optional<std::string> EnvironmentProcessPath()

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace MphRead::NativeRuntime
 {
@@ -78,6 +79,12 @@ namespace MphRead::NativeRuntime
     // Environment.ProcessPath: the executable, resolved, or nullopt where the
     // platform will not say. WTF-8 on Windows (see Encoding.hpp).
     [[nodiscard]] std::optional<std::string> EnvironmentProcessPath();
+    // PasteArguments.AppendArgument: one argument of a Windows command line
+    // as Process builds it from ProcessStartInfo.ArgumentList. Left alone when
+    // it is not empty and has no white space or quote in it; otherwise quoted,
+    // with the backslashes before a quote -- or before the closing quote --
+    // doubled.
+    [[nodiscard]] std::wstring PasteArgument(std::wstring_view value);
     // AppContext.BaseDirectory: the directory the executable is in, ending in
     // a separator; the current directory where there is no executable path.
     [[nodiscard]] std::string AppContextBaseDirectory();

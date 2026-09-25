@@ -102,6 +102,7 @@ using ::MphRead::NativeRuntime::DirectoryExists;
 using ::MphRead::NativeRuntime::EnvironmentProcessPath;
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::FileReadAllText;
+using ::MphRead::NativeRuntime::PasteArgument;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::StringIsNullOrWhiteSpace;
 using ::MphRead::NativeRuntime::StringTrimView;
@@ -400,38 +401,6 @@ namespace
         HANDLE _value = nullptr;
     };
 
-    [[nodiscard]] std::wstring QuoteWindowsArgument(const std::wstring& value)
-    {
-        if (!value.empty() && value.find_first_of(L" \t\n\v\"") == std::wstring::npos)
-        {
-            return value;
-        }
-        std::wstring result;
-        result.push_back(L'"');
-        std::size_t slashes = 0;
-        for (wchar_t ch : value)
-        {
-            if (ch == L'\\')
-            {
-                ++slashes;
-                continue;
-            }
-            if (ch == L'"')
-            {
-                result.append(slashes * 2 + 1, L'\\');
-                result.push_back(L'"');
-                slashes = 0;
-                continue;
-            }
-            result.append(slashes, L'\\');
-            slashes = 0;
-            result.push_back(ch);
-        }
-        result.append(slashes * 2, L'\\');
-        result.push_back(L'"');
-        return result;
-    }
-
     struct WindowsChild final
     {
         UniqueHandle Process;
@@ -485,8 +454,8 @@ namespace
 
         const std::wstring executableWide = Wtf8ToWide(executable);
         const std::wstring romWide = Wtf8ToWide(romPath);
-        std::wstring commandLine = QuoteWindowsArgument(executableWide)
-            + L" " + QuoteWindowsArgument(romWide);
+        std::wstring commandLine = PasteArgument(executableWide)
+            + L" " + PasteArgument(romWide);
         std::vector<wchar_t> mutableCommand(commandLine.begin(), commandLine.end());
         mutableCommand.push_back(L'\0');
         const std::wstring directoryWide = Wtf8ToWide(workingDirectory);

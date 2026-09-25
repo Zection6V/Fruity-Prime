@@ -45,6 +45,7 @@
 #endif
 
 using ::MphRead::NativeRuntime::AppendUtf8;
+using ::MphRead::NativeRuntime::FileInfoLength;
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
@@ -1633,16 +1634,6 @@ namespace
 #endif
     }
 
-    [[nodiscard]] std::int64_t FileLength(const std::string& path)
-    {
-        const std::uintmax_t size = std::filesystem::file_size(PathFromUtf8(path));
-        if (size > static_cast<std::uintmax_t>(std::numeric_limits<std::int64_t>::max()))
-        {
-            throw std::overflow_error("File length is too large.");
-        }
-        return static_cast<std::int64_t>(size);
-    }
-
 }
 
 namespace MphRead::Mods::MapGen
@@ -1790,12 +1781,12 @@ namespace MphRead::Mods::MapGen
 
         if (verbose)
         {
-            const std::int64_t levelLength = FileLength(*level);
+            const std::int64_t levelLength = FileInfoLength(*level);
             const std::int64_t textureLength
-                = texturePath ? FileLength(*texturePath) : 0;
+                = texturePath ? FileInfoLength(*texturePath) : 0;
             const std::int64_t before = UncheckedAdd(levelLength, textureLength);
             std::cout << "[mapbundle] " << definition->Name() << " -> " << path
-                << " (" << FileLength(path) / 1024 << " KiB, from "
+                << " (" << FileInfoLength(path) / 1024 << " KiB, from "
                 << before / 1024 << " KiB)" << std::endl;
         }
         return path;

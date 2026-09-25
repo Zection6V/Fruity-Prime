@@ -1,6 +1,7 @@
 #include "KeyRow.hpp"
 
 #include "../../InputSettings.hpp"
+#include "../../../NativeRuntime/System/Encoding.hpp"
 #include "../../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
@@ -10,6 +11,7 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::Utf8ToUtf16;
 
 namespace
 {
@@ -34,17 +36,6 @@ namespace
             && point.X <= rect.X + rect.Width
             && point.Y >= rect.Y
             && point.Y <= rect.Y + rect.Height;
-    }
-
-    [[nodiscard]] std::u16string ToUtf16(std::string_view text)
-    {
-        std::u16string result;
-        result.reserve(text.size());
-        for (const unsigned char c : text)
-        {
-            result.push_back(static_cast<char16_t>(c));
-        }
-        return result;
     }
 
     [[nodiscard]] constexpr KeyRowGlfwKey Glfw(std::int32_t value) noexcept
@@ -666,7 +657,7 @@ namespace MphRead::Mods::Launcher::Gui
 
         const std::u16string labelText = _label.has_value()
             ? *_label
-            : ToUtf16(InputSettings::ActionName(RequireProperty()));
+            : Utf8ToUtf16(InputSettings::ActionName(RequireProperty()));
         const TrackedTextFormattedText label = TrackedText::Make(
             context, labelText, 12.0, true,
             TrackedTextBrush{&GuiTheme::TextBrush});
@@ -707,13 +698,13 @@ namespace MphRead::Mods::Launcher::Gui
             }
             else
             {
-                text = ToUtf16(InputSettings::KeyName(
+                text = Utf8ToUtf16(InputSettings::KeyName(
                     static_cast<InputKey>(_get.Invoke())));
             }
         }
         else
         {
-            text = ToUtf16(InputSettings::Describe(
+            text = Utf8ToUtf16(InputSettings::Describe(
                 InputSettings::Bind(RequireProperty())));
         }
 

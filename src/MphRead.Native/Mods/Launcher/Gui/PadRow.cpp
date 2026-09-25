@@ -2,6 +2,7 @@
 
 #include "../../Input/GamepadDesktop.hpp"
 #include "../../Input/GamepadInput.hpp"
+#include "../../../NativeRuntime/System/Encoding.hpp"
 #include "../../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
@@ -14,6 +15,7 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::MathMax;
+using ::MphRead::NativeRuntime::Utf8ToUtf16;
 
 namespace
 {
@@ -31,17 +33,6 @@ namespace
     {
         return static_cast<GamepadButtons>(
             static_cast<std::int32_t>(left) & ~static_cast<std::int32_t>(right));
-    }
-
-    [[nodiscard]] std::u16string ToUtf16(std::string_view text)
-    {
-        std::u16string result;
-        result.reserve(text.size());
-        for (unsigned char byte : text)
-        {
-            result.push_back(static_cast<char16_t>(byte));
-        }
-        return result;
     }
 
     constexpr std::array<GamepadButtons, 17> GamepadButtonValues{
@@ -476,7 +467,7 @@ namespace MphRead::Mods::Launcher::Gui
         context.FillRectangle(PadRowBrush::Transparent(),
             GuiRect{0.0, 0.0, fillWidth, fillHeight});
 
-        const std::u16string labelText = ToUtf16(PadBindings::Name(_action));
+        const std::u16string labelText = Utf8ToUtf16(PadBindings::Name(_action));
         const TrackedTextFormattedText label = TrackedText::Make(
             context, labelText, 12.0, true,
             TrackedTextBrush{&GuiTheme::TextBrush});
@@ -507,7 +498,7 @@ namespace MphRead::Mods::Launcher::Gui
 
         const std::u16string text = _listening
             ? std::u16string(u"press a button on the pad")
-            : ToUtf16(PadBindings::Describe(PadBindings::Get(_action)));
+            : Utf8ToUtf16(PadBindings::Describe(PadBindings::Get(_action)));
         const GuiColor valueColor = _listening ? GuiTheme::Warm : GuiTheme::Text;
         const PadRowBrush valueBrush = PadRowBrush::Solid(valueColor);
         TrackedTextFormattedText value = TrackedText::Make(

@@ -14,6 +14,7 @@
 #include "../Read.hpp"
 #include "../Formats/Types.hpp"
 #include "../NativeRuntime/System/Console.hpp"
+#include "../NativeRuntime/System/Encoding.hpp"
 #include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
@@ -66,6 +67,7 @@ using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::StringIsNullOrWhiteSpace;
 using ::MphRead::NativeRuntime::StringTrim;
 using ::MphRead::NativeRuntime::UncheckedAdd;
+using ::MphRead::NativeRuntime::Utf8ToUtf16;
 
 namespace MphRead::ExtractDependency
 {
@@ -1010,37 +1012,6 @@ namespace MphRead::ExtractDependency
     // boundary rather than inside.
     namespace
     {
-        [[nodiscard]] std::u16string ToUtf16(const std::string& value)
-        {
-            std::u16string result;
-            std::size_t index = 0;
-            while (index < value.size())
-            {
-                const unsigned char lead = static_cast<unsigned char>(value[index]);
-                char32_t code = lead;
-                std::size_t extra = 0;
-                if (lead >= 0xF0) { code = lead & 0x07U; extra = 3; }
-                else if (lead >= 0xE0) { code = lead & 0x0FU; extra = 2; }
-                else if (lead >= 0xC0) { code = lead & 0x1FU; extra = 1; }
-                ++index;
-                for (std::size_t i = 0; i < extra && index < value.size(); ++i, ++index)
-                {
-                    code = (code << 6) | (static_cast<unsigned char>(value[index]) & 0x3FU);
-                }
-                if (code > 0xFFFFU)
-                {
-                    code -= 0x10000U;
-                    result.push_back(static_cast<char16_t>(0xD800U + (code >> 10)));
-                    result.push_back(static_cast<char16_t>(0xDC00U + (code & 0x3FFU)));
-                }
-                else
-                {
-                    result.push_back(static_cast<char16_t>(code));
-                }
-            }
-            return result;
-        }
-
         [[nodiscard]] std::string ToUtf8(const std::u16string& value)
         {
             std::string result;
@@ -1097,7 +1068,7 @@ namespace MphRead::ExtractDependency
 
             void Read(const std::string& filename, std::span<const std::uint8_t> bytes) override
             {
-                _sdat->Read(ToUtf16(filename), bytes);
+                _sdat->Read(Utf8ToUtf16(filename), bytes);
             }
 
             [[nodiscard]] std::unique_ptr<NcsfSdat> Add(const NcsfSdat& other) const override
@@ -1142,7 +1113,7 @@ namespace MphRead::ExtractDependency
                 const auto sseq = Sequence(index);
                 if (sseq != nullptr)
                 {
-                    sseq->Filename(ToUtf16(filename));
+                    sseq->Filename(Utf8ToUtf16(filename));
                 }
             }
 
@@ -1210,7 +1181,7 @@ namespace MphRead::ExtractDependency
         std::span<const std::uint8_t> programSection)
     {
         NCSFCommon::NCSF::MakeNCSF(
-            ToUtf16(filename), reservedSection, programSection, nullptr);
+            Utf8ToUtf16(filename), reservedSection, programSection, nullptr);
     }
 
     void MakeNcsf(const std::string& filename,
@@ -1221,9 +1192,9 @@ namespace MphRead::ExtractDependency
         NCSFCommon::TagList list;
         for (const NcsfTag& tag : tags)
         {
-            list.AddOrReplace(NCSFCommon::TagList::Item{ToUtf16(tag.Name), ToUtf16(tag.Value)});
+            list.AddOrReplace(NCSFCommon::TagList::Item{Utf8ToUtf16(tag.Name), Utf8ToUtf16(tag.Value)});
         }
         NCSFCommon::NCSF::MakeNCSF(
-            ToUtf16(filename), reservedSection, programSection, &list);
+            Utf8ToUtf16(filename), reservedSection, programSection, &list);
     }
 }

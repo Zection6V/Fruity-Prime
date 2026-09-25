@@ -7,7 +7,7 @@
 列の意味 — **S**: C# 側の変更種別 (A 追加 / M 変更 / D 削除)、
 **+/-**: C# の追加・削除行数、**対**: 既にある C++ の対応物
 （`-` は新規に書き起こすもの）。
-**進捗**: `完了` / `進行中` / `一部完了` / `保留`。`—` は進捗ログ上で完了扱いになっていない項目。
+**進捗**: `完了` / `一部完了` / `保留` / `未反映（作業中）`。`—` は、現在の `develop2` でこのバックログ差分の移植を確認できていない項目。共通ランタイム化など別目的の変更だけでは進捗扱いにしない。
 
 作業の規則は `MphRead-Native-CSharp-to-Cpp-Basic-Policy.md` と
 `MphRead-Native-CSharp-to-Cpp-Pitfalls.md` のとおり。1つのバッチを終える
@@ -46,15 +46,34 @@
     Console.KeyAvailable/ReadKeyInfo・EndPointEquals。
   - 済: DedicatedServer＋LobbyCommands（全面書き直し）、HostPool（新規）、
     NetMaster（HostCandidate・FindHosts・所有者トークン・CanHost フラグ）、
-    NetHostSession、ModEntry の -server 部（-hostports・-affinityweapons）。
-  - 残り: LocalServer、NetCombatCheck、NetLobbyTest、
+    NetHostSession、ModEntry の -server 部（-hostports・-affinityweapons）、
     HealthSimulationTest、NetHealthSyncTest、MapAuditTeams、SpireAltPoseCheck。
+  - 残り: LocalServer、NetCombatCheck、NetLobbyTest。
 - 保留（依存先の移植待ち）:
   - PlayerEntity::TakeDamage の AimAssistTelemetry::Hit と ModControllerFeedback、
     PlayerSound の着地フィードバック、PlayerEntityNetAim::ApplyGamepadAim の
     照準補助・スコープ感度 → 6（入力）の後。
   - NetLaunch::TickTerminalLobby → Renderer の HasScene/EndScene と
     MatchStart::Begin(window, …)（1 ウィンドウ化）の後。
+
+### 2026-09-26 進捗監査
+
+`develop2` のコミット済み状態を、バックログ作成コミット（`75f30297`）以降の
+対象ファイル履歴と C# 側差分に突き合わせて再確認した。単なる
+`NativeRuntime` 共通化・文字列処理・数値処理などの横断リファクタは、
+対象バックログ差分そのものを移植していない限り進捗には数えない。
+
+- 追加で **完了** を確認: `Mods/Render/LockjawTrailNoise.cs`、
+  `Utility/Console.cs`、`Mods/DebugLog.cs`、`Entities/NodeDefenseEntity.cs`。
+- **一部完了 → 完了** に訂正: `Entities/BombEntity.cs`、
+  `Mods/Launcher/Portable/LauncherPrefs.cs`。
+- `DedicatedServer.cs` はバックログ作成後に専用のネットワーク移植コミットがなく、
+  変更履歴は共通ランタイム化のみ。`LobbyCommands.cs` と `HostPool.cs` は
+  対応する C++ ファイル自体がまだ存在しない。この3件は、作業中という記録は残しつつ
+  表では **未反映（作業中）** とする。
+- 追記（同日）: 上の3件は 3f7e8047 で移植済み。NetMaster・NetHostSession・
+  健全性テスト4件も完了。BeamProjectile・ItemSpawn・ItemInstance・
+  PlayerProcess・PlayerCollision・PlayerDraw は C# 差分の全ハンクを反映済みのため完了。
 
 ## 1. Platform helpers — 2 ファイル (新規 2), C# +73 行
 
@@ -185,7 +204,7 @@
 | M | +51/-0 | `Mods/Render/PlayerEntityStylusHud.cs` | .cpp,.hpp | — |
 | A | +43/-0 | `Mods/Render/DesktopGlContext.cs` | — 新規 | — |
 | M | +31/-0 | `Mods/Render/GlEs.cs` | .cpp,.hpp | — |
-| A | +28/-0 | `Mods/Render/LockjawTrailNoise.cs` | — 新規 | — |
+| A | +28/-0 | `Mods/Render/LockjawTrailNoise.cs` | — 新規 | 完了 |
 | M | +26/-0 | `Mods/Render/HunterPreview.cs` | .cpp,.hpp | — |
 | M | +17/-1 | `Mods/Render/PlayerEntityEndScreen.cs` | .cpp,.hpp | — |
 | M | +12/-9 | `Mods/Render/PlayerEntityProHud.cs` | .cpp,.hpp | — |
@@ -210,33 +229,33 @@
 | A | +1952/-0 | `Mods/Network/NetHitClaims.cs` | — 新規 | 完了 |
 | M | +934/-33 | `Mods/Network/NetProtocol.cs` | .cpp,.hpp | 完了 |
 | M | +883/-78 | `Mods/Network/NetHitPrediction.cs` | .cpp,.hpp | 完了 |
-| M | +704/-105 | `Mods/Network/DedicatedServer.cs` | .cpp,.hpp | 進行中 |
+| M | +704/-105 | `Mods/Network/DedicatedServer.cs` | .cpp,.hpp | 完了 |
 | A | +609/-0 | `Mods/Network/HitRig.cs` | — 新規 | 完了 |
 | A | +558/-0 | `Mods/Network/NetSmoothing.cs` | — 新規 | 完了 |
 | A | +536/-0 | `Mods/Network/LocalServer.cs` | — 新規 | — |
 | A | +536/-0 | `Mods/Network/NetLobbyTest.cs` | — 新規 | — |
 | M | +489/-116 | `Mods/Network/NetSession.cs` | .cpp,.hpp | 完了 |
 | M | +481/-22 | `Mods/Network/NetUnlagged.cs` | .cpp,.hpp | 完了 |
-| M | +384/-12 | `Mods/Network/NetMaster.cs` | .cpp,.hpp | — |
+| M | +384/-12 | `Mods/Network/NetMaster.cs` | .cpp,.hpp | 完了 |
 | M | +366/-389 | `Mods/Network/NetPlayerBridge.cs` | .cpp,.hpp | 完了 |
 | M | +307/-47 | `Mods/Network/NetDamage.cs` | .cpp,.hpp | 完了 |
-| A | +296/-0 | `Mods/Network/LobbyCommands.cs` | — 新規 | 進行中 |
+| A | +296/-0 | `Mods/Network/LobbyCommands.cs` | — 新規 | 完了 |
 | A | +284/-0 | `Mods/Network/NetCombatCheck.cs` | — 新規 | — |
-| A | +264/-0 | `Mods/Network/HostPool.cs` | — 新規 | 進行中 |
-| A | +200/-0 | `Mods/Network/MapAuditTeams.cs` | — 新規 | — |
+| A | +264/-0 | `Mods/Network/HostPool.cs` | — 新規 | 完了 |
+| A | +200/-0 | `Mods/Network/MapAuditTeams.cs` | — 新規 | 完了 |
 | M | +198/-11 | `Mods/Network/PlayerEntityNetAim.cs` | .cpp,.hpp | 一部完了（入力待ち） |
 | A | +194/-0 | `Mods/Network/NetSessionLobby.cs` | — 新規 | 完了 |
 | A | +180/-0 | `Mods/Network/NetPlayerLifecycle.cs` | — 新規 | 完了 |
 | A | +180/-0 | `Mods/Network/SessionProtocol.cs` | — 新規 | 完了 |
 | M | +160/-15 | `Mods/Network/NetHooks.cs` | .cpp,.hpp | 完了 |
 | M | +150/-2 | `Mods/Network/NetCheckClient.cs` | .cpp,.hpp | 完了 |
-| A | +138/-0 | `Mods/Network/SpireAltPoseCheck.cs` | — 新規 | — |
+| A | +138/-0 | `Mods/Network/SpireAltPoseCheck.cs` | — 新規 | 完了 |
 | M | +122/-2 | `Mods/Network/NetTestScript.cs` | .cpp,.hpp | 完了 |
 | A | +100/-0 | `Mods/Network/ContinuousWeaponPhase.cs` | — 新規 | 完了 |
 | A | +98/-0 | `Mods/Network/NetHealthSync.cs` | — 新規 | 完了 |
 | A | +95/-0 | `Mods/Network/FormReconciliation.cs` | — 新規 | 完了 |
 | A | +91/-0 | `Mods/Network/NetShotDiagnostics.cs` | — 新規 | 完了 |
-| A | +90/-0 | `Mods/Network/HealthSimulationTest.cs` | — 新規 | — |
+| A | +90/-0 | `Mods/Network/HealthSimulationTest.cs` | — 新規 | 完了 |
 | M | +90/-35 | `Mods/Network/NetLaunch.cs` | .cpp,.hpp | 一部完了（TickTerminalLobby保留） |
 | A | +82/-0 | `Mods/Network/NetLifecycleTracker.cs` | — 新規 | 完了 |
 | M | +82/-12 | `Mods/Network/PlayerEntityNetHud.cs` | .cpp,.hpp | 一部完了（ネット関連） |
@@ -248,7 +267,7 @@
 | A | +69/-0 | `Mods/Network/NetTimingDiagnostics.cs` | — 新規 | 完了 |
 | M | +66/-2 | `Mods/Network/ServerSim.cs` | .cpp,.hpp | 完了 |
 | A | +61/-0 | `Mods/Network/MatchDefinition.cs` | — 新規 | 完了 |
-| A | +58/-0 | `Mods/Network/NetHealthSyncTest.cs` | — 新規 | — |
+| A | +58/-0 | `Mods/Network/NetHealthSyncTest.cs` | — 新規 | 完了 |
 | M | +41/-5 | `Mods/Network/MapAudit.cs` | .cpp,.hpp | 完了 |
 | M | +39/-30 | `Mods/Network/NetLag.cs` | .cpp,.hpp | 完了 |
 | M | +37/-3 | `Mods/Network/NetMatchSync.cs` | .cpp,.hpp | 完了 |
@@ -260,7 +279,7 @@
 | M | +21/-29 | `Mods/Network/NetSlotManager.cs` | .cpp,.hpp | 完了 |
 | M | +21/-4 | `Mods/Network/NetStatus.cs` | .cpp,.hpp | 完了 |
 | M | +20/-0 | `Mods/Network/NetDiagnostics.cs` | .cpp,.hpp | 完了 |
-| M | +16/-1 | `Mods/Network/NetHostSession.cs` | .cpp,.hpp | — |
+| M | +16/-1 | `Mods/Network/NetHostSession.cs` | .cpp,.hpp | 完了 |
 | M | +5/-1 | `Mods/Network/DemoPlayback.cs` | .cpp,.hpp | 完了 |
 | M | +3/-2 | `Mods/Network/MechanicsDump.cs` | .cpp,.hpp | 完了 |
 
@@ -286,7 +305,7 @@
 |---|---|---|---|---|
 | A | +320/-0 | `Mods/Launcher/Portable/NativeFilePicker.cs` | — 新規 | — |
 | M | +98/-42 | `Mods/Launcher/Portable/MatchStart.cs` | .cpp,.hpp | — |
-| M | +87/-8 | `Mods/Launcher/Portable/LauncherPrefs.cs` | .cpp,.hpp | 一部完了（WindowGeometry関連） |
+| M | +87/-8 | `Mods/Launcher/Portable/LauncherPrefs.cs` | .cpp,.hpp | 完了 |
 | A | +67/-0 | `Mods/Launcher/Portable/RomWhitelist.cs` | — 新規 | 完了 |
 | M | +24/-7 | `Mods/Launcher/Portable/TextLauncher.cs` | .cpp,.hpp | — |
 | M | +15/-3 | `Mods/Launcher/Portable/GameFiles.cs` | .cpp,.hpp | — |
@@ -378,29 +397,29 @@
 | M | +102/-126 | `GameState.cs` | .cpp,.hpp | 一部完了（チーム関連） |
 | M | +95/-11 | `Entities/Players/PlayerAi.cs` | .cpp,.hpp | — |
 | M | +71/-3 | `Formats/Formats.cs` | .cpp,.hpp | — |
-| M | +66/-33 | `Entities/BeamProjectileEntity.cs` | .cpp,.hpp | 一部完了（ネット関連） |
+| M | +66/-33 | `Entities/BeamProjectileEntity.cs` | .cpp,.hpp | 完了 |
 | M | +54/-0 | `Shaders.cs` | .cpp,.hpp | — |
 | M | +48/-6 | `Entities/Players/PlayerEntity.cs` | .cpp,.hpp | 一部完了（ネット関連・入力待ち） |
 | M | +45/-12 | `Read.cs` | .cpp,.hpp | — |
-| M | +40/-6 | `Entities/Players/PlayerProcess.cs` | .cpp,.hpp | 一部完了（ネット関連） |
-| M | +39/-1 | `Entities/ItemSpawnEntity.cs` | .cpp,.hpp | 一部完了（ネット関連） |
-| M | +37/-8 | `Entities/BombEntity.cs` | .cpp,.hpp | 一部完了（チーム関連） |
+| M | +40/-6 | `Entities/Players/PlayerProcess.cs` | .cpp,.hpp | 完了 |
+| M | +39/-1 | `Entities/ItemSpawnEntity.cs` | .cpp,.hpp | 完了 |
+| M | +37/-8 | `Entities/BombEntity.cs` | .cpp,.hpp | 完了 |
 | M | +36/-2 | `Program.cs` | .cpp,.hpp | 完了 |
-| M | +36/-2 | `Utility/Console.cs` | .cpp,.hpp | — |
-| M | +30/-1 | `Entities/Players/PlayerCollision.cs` | .cpp,.hpp | 一部完了（ネット関連） |
-| M | +26/-20 | `Entities/NodeDefenseEntity.cs` | .cpp,.hpp | — |
+| M | +36/-2 | `Utility/Console.cs` | .cpp,.hpp | 完了 |
+| M | +30/-1 | `Entities/Players/PlayerCollision.cs` | .cpp,.hpp | 完了 |
+| M | +26/-20 | `Entities/NodeDefenseEntity.cs` | .cpp,.hpp | 完了 |
 | M | +19/-1 | `Features.cs` | .cpp,.hpp | — |
 | M | +11/-3 | `SceneSetup.cs` | .cpp,.hpp | — |
 | M | +6/-2 | `Mods/Credits.cs` | .cpp,.hpp | 完了 |
-| M | +6/-1 | `Mods/DebugLog.cs` | .cpp,.hpp | — |
+| M | +6/-1 | `Mods/DebugLog.cs` | .cpp,.hpp | 完了 |
 | M | +6/-2 | `Utility/Archive.cs` | .cpp,.hpp | — |
 | M | +5/-3 | `Metadata/Metadata.cs` | .cpp,.hpp | — |
 | M | +4/-3 | `Utility/Extract.cs` | .cpp,.hpp | — |
 | M | +3/-1 | `Sound/Sfx.cs` | .cpp,.hpp | — |
 | M | +2/-2 | `Entities/Enemies/18_AlimbicTurret.cs` | .cpp,.hpp | 完了 |
-| M | +2/-2 | `Entities/ItemInstanceEntity.cs` | .cpp,.hpp | 一部完了（ネット関連） |
+| M | +2/-2 | `Entities/ItemInstanceEntity.cs` | .cpp,.hpp | 完了 |
 | M | +2/-1 | `Entities/Players/HalfturretEntity.cs` | .cpp,.hpp | 完了 |
-| M | +1/-9 | `Entities/Players/PlayerDraw.cs` | .cpp,.hpp | 一部完了（ネット関連） |
+| M | +1/-9 | `Entities/Players/PlayerDraw.cs` | .cpp,.hpp | 完了 |
 | M | +1/-0 | `Entities/Players/PlayerSound.cs` | .cpp,.hpp | 保留（入力待ち） |
 | M | +1/-0 | `Menu.cs` | .cpp,.hpp | — |
 | M | +1/-1 | `Scene.cs` | .cpp,.hpp | — |

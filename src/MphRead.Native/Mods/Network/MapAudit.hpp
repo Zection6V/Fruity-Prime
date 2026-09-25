@@ -232,6 +232,17 @@ namespace MphRead::Mods::Network
     private:
         [[nodiscard]] std::int32_t Report();
 
+        // MapAuditTeams.cs
+    public:
+        [[nodiscard]] static bool TeamProbe() noexcept { return _teamProbe; }
+        static void TeamProbe(bool value) noexcept { _teamProbe = value; }
+
+    private:
+        inline static bool _teamProbe = false;
+        std::vector<std::string> _teamProbeProblems{};
+        void CaptureTeamResults();
+        [[nodiscard]] std::vector<std::string> RunTeamProbe();
+
     public:
         [[nodiscard]] static std::optional<Hunter> MainHunter() noexcept;
         static void MainHunter(std::optional<Hunter> value) noexcept;

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace MphRead
@@ -51,7 +52,13 @@ namespace MphRead
                 const std::string& roomKey, GameMode mode, float timeLimit,
                 std::int32_t pointGoal);
 
+            [[nodiscard]] static std::shared_ptr<MapRotation> FromList(
+                const std::vector<std::pair<std::string, GameMode>>& maps, float timeLimit, std::int32_t pointGoal);
+            static void WriteList(const std::string& path,
+                const std::vector<std::pair<std::string, GameMode>>& maps, float timeLimit, std::int32_t pointGoal);
+
             void PlayNext(const std::string& roomKey, GameMode mode);
+            void ClearPending();
             [[nodiscard]] std::shared_ptr<const RotationEntry> Advance();
 
             [[nodiscard]] static std::shared_ptr<MapRotation> Load(const std::string& path);

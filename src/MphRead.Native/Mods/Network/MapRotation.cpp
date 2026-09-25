@@ -1,4 +1,5 @@
 #include "MapRotation.hpp"
+#include "../Branding.hpp"
 
 #include "../../Formats/Formats.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
@@ -120,6 +121,52 @@ namespace MphRead::Mods::Network
         rotation->_entries.emplace_back(new RotationEntry(
             roomKey, actualMode, timeLimit, pointGoal));
         return rotation;
+    }
+
+    std::shared_ptr<MapRotation> MapRotation::FromList(
+        const std::vector<std::pair<std::string, GameMode>>& maps, float timeLimit, std::int32_t pointGoal)
+    {
+        auto rotation = std::make_shared<MapRotation>();
+        for (const auto& [room, mode] : maps)
+        {
+            if (room.empty())
+            {
+                continue;
+            }
+            rotation->_entries.emplace_back(new RotationEntry(
+                room, mode == GameMode::None ? GameMode::Battle : mode, timeLimit, pointGoal));
+        }
+        if (rotation->_entries.empty())
+        {
+            rotation->_entries.push_back(_fallback);
+        }
+        return rotation;
+    }
+
+    void MapRotation::WriteList(const std::string& path,
+        const std::vector<std::pair<std::string, GameMode>>& maps, float timeLimit, std::int32_t pointGoal)
+    {
+        std::vector<std::string> lines{
+            "# Written by " + std::string(Mods::Branding::Name) + "'s create-server screen.",
+            "# One match per line:  ROOM KEY | mode | minutes | points",
+            ""
+        };
+        for (const auto& [room, mode] : maps)
+        {
+            if (room.empty())
+            {
+                continue;
+            }
+            lines.push_back(room + " | " + ::MphRead::ToString(mode == GameMode::None ? GameMode::Battle : mode)
+                + " | " + NativeRuntime::ToStringInvariant(timeLimit / 60, "0.#")
+                + " | " + std::to_string(pointGoal));
+        }
+        NativeRuntime::FileWriteAllLines(path, lines);
+    }
+
+    void MapRotation::ClearPending()
+    {
+        _pending = nullptr;
     }
 
     void MapRotation::PlayNext(const std::string& roomKey, GameMode mode)

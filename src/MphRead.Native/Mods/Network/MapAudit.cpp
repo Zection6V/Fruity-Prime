@@ -1,4 +1,5 @@
 #include "MapAudit.hpp"
+#include "../../Entities/BombEntity.hpp"
 
 #include "NetLaunch.hpp"
 #include "NetTestScript.hpp"
@@ -330,6 +331,7 @@ namespace MphRead::Mods::Network
         _scene->OnSimulationFrame();
         const std::uint64_t frameCountBefore = _scene->FrameCount();
         const std::int32_t draws = std::max<std::int32_t>(1, _drawRate);
+        std::pair<std::uint64_t, std::int32_t> previousTrail{};
 
         for (std::int32_t i = 0; i < draws; ++i)
         {
@@ -338,6 +340,19 @@ namespace MphRead::Mods::Network
             {
                 return;
             }
+            if (_drawRate > 1)
+            {
+                const std::pair<std::uint64_t, std::int32_t> trail = _scene->ModLockjawTrailSignature();
+                if (i > 0 && (trail.second > 0 || previousTrail.second > 0))
+                {
+                    _lockjawTrailChecks++;
+                    if (trail != previousTrail)
+                    {
+                        _lockjawTrailMismatches++;
+                    }
+                }
+                previousTrail = trail;
+            }
             if (i < draws - 1)
             {
                 SwapBuffers();
@@ -345,6 +360,7 @@ namespace MphRead::Mods::Network
             }
         }
 
+        _lockjawDrawRngChanges = Entities::BombEntity::ModLockjawDrawRngChanges;
         if (_scene->FrameCount() != frameCountBefore)
         {
             ++_drawAdvancedTheGame;
@@ -1473,8 +1489,23 @@ namespace MphRead::Mods::Network
                 << " | " << _drawRate << " draws per step"
                 << " | " << _frame << " steps, " << _scene->FrameCount() << " counted"
                 << " | draws advancing the game: " << _drawAdvancedTheGame
+                << " | active Lockjaw trail checks: " << _lockjawTrailChecks
+                << " | trail mismatches: " << _lockjawTrailMismatches
+                << " | Lockjaw GetDrawInfo RNG changes: " << _lockjawDrawRngChanges
                 << '\n';
+            if (_lockjawTrailMismatches > 0)
+            {
+                std::cout << "MAPFAIL " << _room << " | Lockjaw trail geometry changed between"
+                    << " draws of the same simulation step (" << _lockjawTrailMismatches << " mismatches)\n";
+            }
+            if (_lockjawDrawRngChanges > 0)
+            {
+                std::cout << "MAPFAIL " << _room << " | Lockjaw GetDrawInfo changed"
+                    << " global RNG during " << _lockjawDrawRngChanges << " draw(s)\n";
+            }
         }
+        const std::int32_t lockjawFailures = (_lockjawTrailMismatches > 0 ? 1 : 0)
+            + (_lockjawDrawRngChanges > 0 ? 1 : 0);
 
         if (_itemProbe)
         {
@@ -1482,7 +1513,7 @@ namespace MphRead::Mods::Network
                 << "ITEMSWEEP " << _room
                 << " | " << _itemSpots.size() << " pickup(s) photographed"
                 << '\n';
-            return 0;
+            return lockjawFailures;
         }
 
         if (_renderProbe)
@@ -1501,7 +1532,7 @@ namespace MphRead::Mods::Network
                     << " spawn point(s) end in a frame with no room in it"
                     << '\n';
             }
-            return _spawnFailures;
+            return _spawnFailures + lockjawFailures;
         }
 
         std::vector<std::string> problems;
@@ -1605,7 +1636,7 @@ namespace MphRead::Mods::Network
             std::cout << "MAPFAIL " << _room << " | " << problem << '\n';
         }
 
-        return static_cast<std::int32_t>(problems.size());
+        return static_cast<std::int32_t>(problems.size()) + lockjawFailures;
     }
 
     std::int32_t MapAudit::Run(
@@ -1621,6 +1652,8 @@ namespace MphRead::Mods::Network
     {
         std::unique_ptr<MapAudit> window;
         std::int32_t result = 1;
+        Entities::BombEntity::ModLockjawDrawRngChanges = 0;
+        Entities::BombEntity::ModAuditLockjawDrawRng = DrawRate() > 1;
 
         try
         {
@@ -1660,6 +1693,7 @@ namespace MphRead::Mods::Network
             result = 1;
         }
 
+        Entities::BombEntity::ModAuditLockjawDrawRng = false;
         if (window)
         {
             window->Dispose();

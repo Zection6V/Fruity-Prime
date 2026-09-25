@@ -8,6 +8,7 @@
 #include "Messaging.hpp"
 #include "Mods/Render/PreviewCamera.hpp"
 #include "Mods/Render/PreviewPass.hpp"
+#include "Mods/Render/LockjawTrailProbe.hpp"
 #include "Renderer.hpp"
 
 #include <array>
@@ -889,6 +890,7 @@ namespace MphRead
         MPHREAD_SCENE_PREVIEW_CAMERA_MEMBERS
 
         MPHREAD_SCENE_PREVIEW_PASS_MEMBERS
+        MPHREAD_SCENE_LOCKJAW_TRAIL_PROBE_MEMBERS
 
     private:
         using EntityNode = LinkedListNode<Entities::EntityBase>;

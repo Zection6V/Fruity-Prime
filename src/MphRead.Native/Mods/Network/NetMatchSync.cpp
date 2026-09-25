@@ -1,4 +1,5 @@
 #include "NetMatchSync.hpp"
+#include "MatchDefinition.hpp"
 
 #include "../../GameState.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
@@ -49,16 +50,32 @@ namespace MphRead::Mods::Network
             return;
         }
 
-        if (state.PointGoal > 0
-            && GameState::PointGoal()
-                != static_cast<std::int32_t>(state.PointGoal))
+        const GameMode mode = ::MphRead::IsDefinedGameMode(state.Mode)
+            ? static_cast<GameMode>(state.Mode)
+            : GameState::Mode();
+        if (MatchGoalRules::UsesTimeTarget(mode))
         {
-            GameState::PointGoal(
-                static_cast<std::int32_t>(state.PointGoal));
+            if (GameState::TimeGoal() != static_cast<std::int32_t>(state.PointGoal))
+            {
+                GameState::TimeGoal(static_cast<std::int32_t>(state.PointGoal));
+            }
+        }
+        else if (GameState::PointGoal() != static_cast<std::int32_t>(state.PointGoal))
+        {
+            GameState::PointGoal(static_cast<std::int32_t>(state.PointGoal));
         }
 
         GameState::FriendlyFire(state.FriendlyFire());
         GameState::ShadowFreeze(state.ShadowFreeze());
+        // And whether weapon pickups are the picking hunter's affinity
+        // variant, which is a different row of the damage table. Silence is
+        // not a no: a server built before this says nothing, and nothing
+        // means "keep playing by the local setting". The damage level is
+        // pinned to medium on every machine. GameState.DamageLevel.
+        if (state.StatesRules())
+        {
+            GameState::AffinityWeapons(state.AffinityWeapons());
+        }
 
         if (NetMatchEnd::InIntermission())
         {
@@ -66,6 +83,14 @@ namespace MphRead::Mods::Network
             return;
         }
 
+        // Negative is the engine/HUD's no-timer sentinel. Infinity cannot
+        // be converted to TimeSpan by the music and HUD timer paths.
+        if (const std::optional<MatchDefinition> definition = NetSession::ActiveMatchDefinition();
+            definition.has_value() && definition->TimeLimitSeconds == 0 && !state.Ending())
+        {
+            GameState::MatchTime(-1.0F);
+            return;
+        }
         if (state.TimeRemaining <= 0.0f && state.TimeElapsed <= 0.0f)
         {
             return;

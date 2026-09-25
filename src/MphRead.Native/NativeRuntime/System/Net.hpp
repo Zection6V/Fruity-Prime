@@ -65,6 +65,13 @@ namespace MphRead::NativeRuntime
         std::int32_t Port = 0;
     };
 
+    // IPEndPoint.Equals(other): the same address family, bytes and port.
+    [[nodiscard]] inline bool EndPointEquals(const EndPoint& left, const EndPoint& right) noexcept
+    {
+        return left.Address.Family == right.Address.Family && left.Address.Bytes == right.Address.Bytes
+            && left.Port == right.Port;
+    }
+
     struct SocketState;
     using SocketHandle = SocketState*;
 

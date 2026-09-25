@@ -1043,7 +1043,7 @@ private: \
     std::vector<std::shared_ptr<MphRead::Entities::BombEntity>> _activeBombs{}; \
     static constexpr std::int32_t _renderItemAlloc = 200; \
     std::queue<std::shared_ptr<MphRead::RenderItem>> _freeRenderItems{}; \
-    std::queue<std::shared_ptr<MphRead::RenderItem>> _usedRenderItems{}; \
+    std::deque<std::shared_ptr<MphRead::RenderItem>> _usedRenderItems{}; \
     std::int32_t _pendingEffectSteps = 0; \
     std::uint64_t _effectFrame = 0; \
     std::int64_t _modEffectParticles = 0; \

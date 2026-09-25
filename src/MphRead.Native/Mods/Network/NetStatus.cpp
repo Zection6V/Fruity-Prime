@@ -164,6 +164,10 @@ namespace MphRead::Mods::Network
                     {
                         std::vector<std::uint8_t> reply
                             = ::MphRead::NativeRuntime::UdpClientReceive(socket, from);
+                        if (!::MphRead::NativeRuntime::EndPointEquals(from, endPoint))
+                        {
+                            continue;
+                        }
                         if (reply.size() >= 1U
                                 + static_cast<std::size_t>(ServerStatusPacket::Size)
                             && reply[0]
@@ -220,6 +224,10 @@ namespace MphRead::Mods::Network
             {
                 std::vector<std::uint8_t> reply
                     = ::MphRead::NativeRuntime::UdpClientReceive(socket, from);
+                if (!::MphRead::NativeRuntime::EndPointEquals(from, endPoint))
+                {
+                    continue;
+                }
                 if (!reply.empty()
                     && reply[0] == static_cast<std::uint8_t>(PacketType::Welcome))
                 {
@@ -337,6 +345,11 @@ namespace MphRead::Mods::Network
         result.Latency = latency;
         result.Legacy = legacy;
         result.Protocol = static_cast<std::int32_t>(status.Protocol);
+        result.Phase = status.Phase;
+        result.Format = status.Format;
+        result.LobbyEnabled = status.LobbyEnabled;
+        result.AllowJoinInProgress = status.AllowJoinInProgress;
+        result.CanHost = (status.Flags & ServerStatusPacket::FlagCanHost) != 0;
         result.Message = std::move(message);
         return result;
     }

@@ -26,6 +26,7 @@ namespace MphRead::Mods::Network
         static void ReleaseSlot(std::int32_t slot);
 
     private:
+        static void SyncTeam(Entities::PlayerEntity& player, std::int32_t slot);
         [[nodiscard]] static bool TeamIndexTaken(std::int32_t teamIndex, std::int32_t slot);
         static void Deactivate(Entities::PlayerEntity& player, std::int32_t slot);
     };

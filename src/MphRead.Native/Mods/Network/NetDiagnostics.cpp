@@ -1,4 +1,5 @@
 #include "NetDiagnostics.hpp"
+#include "NetPlayerLifecycle.hpp"
 
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Formats/Enums.hpp"
@@ -80,6 +81,8 @@ namespace MphRead::Mods::Network
         _lastReport = time;
 
         std::string line;
+        line += NetPlayerLifecycle::Describe();
+        line += " | ";
         line += "[netdbg] role=";
         line += NetRoleToString(NetSession::Role());
         line += " slot=";
@@ -272,6 +275,23 @@ namespace MphRead::Mods::Network
         {
             line += " placementsRefused=";
             line += ::MphRead::NativeRuntime::ToString(NetPlayerBridge::PlacementsRefused);
+        }
+        // Not a fault: a respawn this client and the authority placed on
+        // different spawn points is the normal case, and the number is
+        // how many of them this player was turned to face correctly for.
+        if (NetPlayerBridge::SpawnFacingsTurned > 0)
+        {
+            line += " spawnFacings=";
+            line += ::MphRead::NativeRuntime::ToString(NetPlayerBridge::SpawnFacingsTurned);
+            line += " worstSpawnFacing=";
+            line += ::MphRead::NativeRuntime::ToString(NetPlayerBridge::WorstSpawnFacing, "0.0");
+        }
+        // Snapshots about a life this player had already left, dropped
+        // rather than replayed onto the new one.
+        if (NetPlayerBridge::StaleDeathsIgnored > 0)
+        {
+            line += " staleDeaths=";
+            line += ::MphRead::NativeRuntime::ToString(NetPlayerBridge::StaleDeathsIgnored);
         }
 
         const std::optional<MatchStatePacket> match = NetSession::ServerMatch();

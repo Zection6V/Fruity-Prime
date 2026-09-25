@@ -1,4 +1,6 @@
 #include "NetSlotManager.hpp"
+#include "NetPlayerLifecycle.hpp"
+#include "../Multiplayer/TeamVisuals.hpp"
 
 #include "../../GameState.hpp"
 #include "../../Metadata/Metadata.hpp"
@@ -32,6 +34,7 @@ namespace MphRead::Mods::Network
     void NetSlotManager::Reset()
     {
         _activated.fill(false);
+        NetSession::ContinuousPhase.Reset();
     }
 
     void NetSlotManager::Sync()
@@ -57,6 +60,13 @@ namespace MphRead::Mods::Network
             const bool occupied = slot == NetSession::LocalSlot()
                 || (slot < static_cast<std::int32_t>(NetSession::SlotOccupied.size())
                     && NetSession::SlotOccupied[slot]);
+
+            // The final team roster can arrive after the match starts.
+            // Correct active players as well as newly activated slots.
+            if (occupied && _activated.at(static_cast<std::size_t>(slot)))
+            {
+                SyncTeam(*player, slot);
+            }
 
             if (occupied && !_activated.at(static_cast<std::size_t>(slot)))
             {
@@ -102,31 +112,13 @@ namespace MphRead::Mods::Network
     {
         _activated.at(static_cast<std::size_t>(slot)) = true;
 
-        NetPlayerBridge::ForgetSlot(slot);
-        NetDamage::ForgetSlot(slot);
-        NetSession::ForgetSlot(slot);
-        NetScoreboard::ForgetSlot(slot);
-        NetHitPrediction::ForgetSlot(slot);
-
         player.SetLoadFlags(player.LoadFlags() | Entities::LoadFlags::SlotActive);
         player.SetLoadFlags(player.LoadFlags() | Entities::LoadFlags::Active);
         player.SetLoadFlags(player.LoadFlags() | Entities::LoadFlags::Initial);
         player.SetIsBot(false);
         player.SetBotLevel(0);
 
-        const std::int32_t wanted = GameState::Teams()
-            ? slot % 2
-            : slot;
-        if (player.TeamIndex() != wanted
-            && (GameState::Teams()
-                ? player.TeamIndex() < 0 || player.TeamIndex() > 1
-                : player.TeamIndex() < 0
-                    || player.TeamIndex() >= Entities::PlayerEntity::MaxPlayers()
-                    || TeamIndexTaken(player.TeamIndex(), slot)))
-        {
-            player.SetTeamIndex(wanted);
-            player.SetTeam(player.TeamIndex() % 2 == 0 ? Team::Orange : Team::Green);
-        }
+        SyncTeam(player, slot);
 
         if (slot != NetSession::LocalSlot())
         {
@@ -191,6 +183,25 @@ namespace MphRead::Mods::Network
             Entities::PlayerEntity::Players().at(static_cast<std::size_t>(slot))), slot);
     }
 
+    void NetSlotManager::SyncTeam(Entities::PlayerEntity& player, std::int32_t slot)
+    {
+        const std::int32_t wanted = GameState::Teams() ? NetSession::SlotTeamIndex[static_cast<std::size_t>(slot)] : slot;
+        if (wanted < 0 || (GameState::Teams() && wanted >= GameState::TeamCount())
+            || player.TeamIndex() == wanted)
+        {
+            return;
+        }
+        player.SetTeamIndex(wanted);
+        if (GameState::Teams())
+        {
+            Mods::Multiplayer::TeamVisuals::Apply(player);
+        }
+        else
+        {
+            player.SetTeam(Team::None);
+        }
+    }
+
     bool NetSlotManager::TeamIndexTaken(std::int32_t teamIndex, std::int32_t slot)
     {
         for (std::int32_t i = 0;
@@ -216,10 +227,7 @@ namespace MphRead::Mods::Network
     {
         _activated.at(static_cast<std::size_t>(slot)) = false;
 
-        NetPlayerBridge::ForgetSlot(slot);
-        NetDamage::ForgetSlot(slot);
-        NetSession::ForgetSlot(slot);
-        NetHitPrediction::ForgetSlot(slot);
+        NetPlayerLifecycle::OnSlotChanged(slot);
         NetScoreboard::ForgetSlot(slot);
 
         player.SetLoadFlags(player.LoadFlags() & ~Entities::LoadFlags::Active);

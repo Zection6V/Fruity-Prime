@@ -1,6 +1,7 @@
 #include "NetFeatureCheck.hpp"
 
 #include "NetDamage.hpp"
+#include "NetHitPrediction.hpp"
 #include "NetPlayerBridge.hpp"
 #include "NetProtocol.hpp"
 #include "NetSession.hpp"
@@ -919,6 +920,20 @@ namespace MphRead::Mods::Network
         unresolved += ::MphRead::NativeRuntime::ToString(unresolvedCount);
         unresolved += " -- these players are drawn uncalled";
         ConsoleWriteLine(unresolved);
+        // The respawn this client took for itself, which is where two
+        // separate bugs lived and which the tour could not reach until it
+        // learned to blow itself up.
+        ConsoleWriteLine("    own respawn: " + std::to_string(NetHitPrediction::SelfDeathsPredicted()) + " self-kill(s) "
+            + "predicted, " + std::to_string(NetPlayerBridge::SpawnFacingsTurned) + " spawn facing(s) turned "
+            + "(worst " + ::MphRead::NativeRuntime::ToString(NetPlayerBridge::WorstSpawnFacing, "0.0") + " deg), "
+            + std::to_string(NetPlayerBridge::StaleDeathsIgnored) + " stale death(s) ignored");
+        if (NetHitPrediction::SelfDeathsPredicted() == 0)
+        {
+            // Said out loud rather than left as a zero: "never exercised" is
+            // not a pass.
+            ConsoleWriteLine("    note: nobody killed themselves, so the early respawn "
+                "-- and everything that only goes wrong there -- went untested");
+        }
 
         if (NetPlayerBridge::RejectedUpdates() > 0)
         {

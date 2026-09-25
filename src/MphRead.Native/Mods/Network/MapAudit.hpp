@@ -147,6 +147,9 @@ namespace MphRead::Mods::Network
         static constexpr std::int32_t _afflictFrameLimit = 320;
 
         std::int32_t _drawAdvancedTheGame = 0;
+        std::int32_t _lockjawTrailChecks = 0;
+        std::int32_t _lockjawTrailMismatches = 0;
+        std::int32_t _lockjawDrawRngChanges = 0;
 
         static MphRead::RendererPlatform::WindowSettings GameSettings();
         static MphRead::RendererPlatform::WindowSettings WindowSettings();

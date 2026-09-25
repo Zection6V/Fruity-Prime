@@ -1521,7 +1521,7 @@ namespace MphRead
         while (!_usedRenderItems.empty())
         {
             auto item = std::move(_usedRenderItems.front());
-            _usedRenderItems.pop();
+            _usedRenderItems.pop_front();
             if (item->Type != RenderItemType::Mesh)
             {
                 NativeRuntime::ReturnToSharedArrayPool(item->Points);
@@ -3127,7 +3127,7 @@ namespace MphRead
         if (_collectingPreview)
         {
             _previewItems.push_back(item);
-            _usedRenderItems.push(item);
+            _usedRenderItems.push_back(item);
             return;
         }
         if (item->RenderMode == RenderMode::Decal)
@@ -3142,7 +3142,7 @@ namespace MphRead
         {
             _translucentItems.push_back(item);
         }
-        _usedRenderItems.push(item);
+        _usedRenderItems.push_back(item);
     }
 
     std::int32_t Scene::GetNextPolygonId()

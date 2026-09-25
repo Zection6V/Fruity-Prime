@@ -1,5 +1,7 @@
 #pragma once
 
+#include "MatchDefinition.hpp"
+
 #include "../../NativeRuntime/System/Net.hpp"
 
 #include <cstdint>
@@ -21,6 +23,10 @@ namespace MphRead::Mods::Network
 
     struct ServerStatus
     {
+        SessionPhase Phase = SessionPhase::Lobby;
+        MatchFormat Format = MatchFormat::Auto;
+        bool LobbyEnabled = false;
+        bool AllowJoinInProgress = false;
         bool Online = false;
         std::string RoomKey{};
         GameMode Mode{};
@@ -32,6 +38,10 @@ namespace MphRead::Mods::Network
         std::string Message{};
         bool Legacy = false;
         std::int32_t Protocol = 0;
+        // Whether this server will open a *new* match for you, on a port of
+        // its own. False for a server that did not say: hosting is off
+        // unless an admin passed -hostports, so silence and no are the same.
+        bool CanHost = false;
 
         [[nodiscard]] static ServerStatus Offline(const std::string& message);
     };

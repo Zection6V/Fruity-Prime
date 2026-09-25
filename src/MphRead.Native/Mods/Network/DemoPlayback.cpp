@@ -49,8 +49,11 @@ namespace MphRead::Mods::Network
         {
             std::cout << "[demo] recorded with protocol "
                 << static_cast<std::uint32_t>(_reader->ProtocolVersion())
-                << ", this build is " << NetConfig::ProtocolVersion
-                << " -- it may not play back correctly\n";
+                << ", this build requires protocol " << static_cast<std::uint32_t>(NetConfig::ProtocolVersion) << '\n';
+            _lastError = "This demo uses an incompatible network protocol.";
+            _reader->Dispose();
+            _reader = nullptr;
+            return false;
         }
         NetSession::StartPlayback();
         _isActive = true;

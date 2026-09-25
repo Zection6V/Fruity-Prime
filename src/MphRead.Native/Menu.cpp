@@ -1,4 +1,5 @@
 #include "Menu.hpp"
+#include "NativeRuntime/System/Decimal.hpp"
 
 #include "Metadata/FrontendMeta.hpp"
 #include "Renderer.hpp"
@@ -158,22 +159,6 @@ namespace
         return std::string(text.substr(first));
     }
 
-    [[nodiscard]] std::string TrimNumberWhiteSpace(std::string_view text)
-    {
-        std::size_t first = 0;
-        while (first < text.size() && IsNumberWhiteSpace(static_cast<unsigned char>(text[first]))) ++first;
-        std::size_t last = text.size();
-        while (last > first && IsNumberWhiteSpace(static_cast<unsigned char>(text[last - 1]))) --last;
-        return std::string(text.substr(first, last - first));
-    }
-
-    [[nodiscard]] std::string TrimNumberTrailingWhiteSpace(std::string_view text)
-    {
-        std::size_t last = text.size();
-        while (last > 0 && IsNumberWhiteSpace(static_cast<unsigned char>(text[last - 1]))) --last;
-        return std::string(text.substr(0, last));
-    }
-
 #if !defined(_WIN32)
     [[nodiscard]] locale_t CurrentPosixLocale() noexcept
     {
@@ -274,670 +259,19 @@ namespace
         return DotNetCaseMap(text, true);
     }
 
-    struct NumberFormatInfo
-    {
-        std::string DecimalSeparator = ".";
-        std::string GroupSeparator = ",";
-        std::string NegativeSign = "-";
-        std::string PositiveSign = "+";
-    };
+    using Decimal = ::System::Decimal;
 
-#if !defined(_WIN32)
-    template <typename T>
-    [[nodiscard]] T ResolveIcuNumberSymbol(void* library, std::string_view name) noexcept
-    {
-        if (void* symbol = ::dlsym(library, std::string(name).c_str()))
-        {
-            return reinterpret_cast<T>(symbol);
-        }
-        for (std::int32_t version = 99; version >= 40; --version)
-        {
-            const std::string versioned = std::string(name) + "_" + std::to_string(version);
-            if (void* symbol = ::dlsym(library, versioned.c_str()))
-            {
-                return reinterpret_cast<T>(symbol);
-            }
-        }
-        return nullptr;
-    }
-
-    [[nodiscard]] void* OpenIcuNumberLibrary() noexcept
-    {
-        if (void* library = ::dlopen("libicui18n.so", RTLD_LAZY | RTLD_LOCAL)) return library;
-        for (std::int32_t version = 99; version >= 40; --version)
-        {
-            const std::string name = "libicui18n.so." + std::to_string(version);
-            if (void* library = ::dlopen(name.c_str(), RTLD_LAZY | RTLD_LOCAL)) return library;
-        }
-#if defined(__APPLE__)
-        if (void* library = ::dlopen("libicui18n.dylib", RTLD_LAZY | RTLD_LOCAL)) return library;
-#endif
-        return nullptr;
-    }
-
-    void ApplyIcuNumberSigns(NumberFormatInfo& result)
-    {
-        // .NET uses the current culture's NumberFormatInfo for Decimal, which on
-        // Unix is backed by ICU rather than POSIX LC_MONETARY. Resolve ICU at
-        // runtime so this adapter does not add a link-time dependency or cache
-        // a culture that may change between calls.
-        void* library = OpenIcuNumberLibrary();
-        if (library == nullptr) return;
-
-        using OpenNumberFormat = void* (*)(std::int32_t, const char16_t*, std::int32_t,
-            const char*, void*, std::int32_t*);
-        using GetNumberSymbol = std::int32_t (*)(const void*, std::int32_t, char16_t*,
-            std::int32_t, std::int32_t*);
-        using CloseNumberFormat = void (*)(void*);
-
-        const OpenNumberFormat openNumberFormat
-            = ResolveIcuNumberSymbol<OpenNumberFormat>(library, "unum_open");
-        const GetNumberSymbol getNumberSymbol
-            = ResolveIcuNumberSymbol<GetNumberSymbol>(library, "unum_getSymbol");
-        const CloseNumberFormat closeNumberFormat
-            = ResolveIcuNumberSymbol<CloseNumberFormat>(library, "unum_close");
-        if (openNumberFormat == nullptr || getNumberSymbol == nullptr || closeNumberFormat == nullptr)
-        {
-            ::dlclose(library);
-            return;
-        }
-
-        const std::string localeName = CurrentPosixNumericLocaleName();
-        std::int32_t status = 0;
-        // ICU UNUM_DECIMAL = 1. The parse-error pointer is unused without a pattern.
-        void* numberFormat = openNumberFormat(1, nullptr, 0, localeName.c_str(), nullptr, &status);
-        if (numberFormat == nullptr || status > 0)
-        {
-            if (numberFormat != nullptr) closeNumberFormat(numberFormat);
-            ::dlclose(library);
-            return;
-        }
-
-        auto ReadSymbol = [&](std::int32_t symbol) -> std::optional<std::string>
-        {
-            std::array<char16_t, 64> buffer{};
-            std::int32_t symbolStatus = 0;
-            const std::int32_t length = getNumberSymbol(numberFormat, symbol, buffer.data(),
-                static_cast<std::int32_t>(buffer.size()), &symbolStatus);
-            if (symbolStatus > 0 || length <= 0
-                || length > static_cast<std::int32_t>(buffer.size()))
-            {
-                return std::nullopt;
-            }
-            return Utf16ToUtf8(std::u16string_view(buffer.data(), static_cast<std::size_t>(length)));
-        };
-
-        // ICU UNumberFormatSymbol: MINUS_SIGN = 6, PLUS_SIGN = 7.
-        if (auto value = ReadSymbol(6); value && !value->empty()) result.NegativeSign = *value;
-        if (auto value = ReadSymbol(7); value && !value->empty()) result.PositiveSign = *value;
-
-        closeNumberFormat(numberFormat);
-        ::dlclose(library);
-    }
-#endif
-
-    [[nodiscard]] NumberFormatInfo CurrentNumberFormat()
-    {
-        NumberFormatInfo result;
-        try
-        {
-#if defined(_WIN32)
-            auto LocaleString = [](LCTYPE type) -> std::optional<std::string>
-            {
-                const int required = GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, type, nullptr, 0);
-                if (required <= 1) return std::nullopt;
-                std::wstring value(static_cast<std::size_t>(required), L'\0');
-                const int written = GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, type,
-                    value.data(), required);
-                if (written <= 1) return std::nullopt;
-                value.resize(static_cast<std::size_t>(written - 1));
-                return WideToUtf8(value);
-            };
-            if (auto value = LocaleString(LOCALE_SDECIMAL)) result.DecimalSeparator = *value;
-            if (auto value = LocaleString(LOCALE_STHOUSAND)) result.GroupSeparator = *value;
-            if (auto value = LocaleString(LOCALE_SNEGATIVESIGN); value && !value->empty()) result.NegativeSign = *value;
-            if (auto value = LocaleString(LOCALE_SPOSITIVESIGN); value && !value->empty()) result.PositiveSign = *value;
-#else
-#if defined(__ANDROID__)
-            if (const lconv* locale = ::localeconv(); locale != nullptr)
-            {
-                if (locale->decimal_point != nullptr && locale->decimal_point[0] != '\0')
-                {
-                    result.DecimalSeparator = locale->decimal_point;
-                }
-                if (locale->thousands_sep != nullptr)
-                {
-                    result.GroupSeparator = locale->thousands_sep;
-                }
-            }
-#else
-            locale_t locale = CurrentPosixLocale();
-            if (locale != static_cast<locale_t>(0))
-            {
-                auto LocaleString = [locale](nl_item item) -> std::optional<std::string>
-                {
-                    const char* value = ::nl_langinfo_l(item, locale);
-                    if (value == nullptr) return std::nullopt;
-                    return std::string(value);
-                };
-                if (auto value = LocaleString(RADIXCHAR); value && !value->empty()) result.DecimalSeparator = *value;
-                if (auto value = LocaleString(THOUSEP)) result.GroupSeparator = *value;
-                ::freelocale(locale);
-            }
-#endif
-            ApplyIcuNumberSigns(result);
-#endif
-        }
-        catch (...)
-        {
-        }
-        return result;
-    }
-
-    [[nodiscard]] const NumberFormatInfo& InvariantNumberFormat()
-    {
-        static const NumberFormatInfo info{};
-        return info;
-    }
-
-    [[nodiscard]] bool StartsWithText(std::string_view value, std::string_view prefix) noexcept
-    {
-        return value.size() >= prefix.size() && value.substr(0, prefix.size()) == prefix;
-    }
-
-    [[nodiscard]] bool EndsWithText(std::string_view value, std::string_view suffix) noexcept
-    {
-        return value.size() >= suffix.size()
-            && value.substr(value.size() - suffix.size()) == suffix;
-    }
-
-    class Decimal final
-    {
-    public:
-        Decimal() = default;
-
-        [[nodiscard]] static Decimal FromInt(std::int32_t value)
-        {
-            Decimal result;
-            if (value < 0)
-            {
-                result._negative = true;
-                result._digits = std::to_string(-static_cast<std::int64_t>(value));
-            }
-            else
-            {
-                result._digits = std::to_string(value);
-            }
-            result.NormalizeZero();
-            return result;
-        }
-
-        [[nodiscard]] static Decimal Literal(std::string_view value)
-        {
-            Decimal result;
-            const bool parsed = TryParseCore(value, InvariantNumberFormat(), result);
-            assert(parsed);
-            return result;
-        }
-
-        [[nodiscard]] static bool TryParse(std::string_view input, Decimal& result)
-        {
-            return TryParseCore(input, CurrentNumberFormat(), result);
-        }
-
-        [[nodiscard]] std::string ToString() const
-        {
-            return Format(CurrentNumberFormat(), std::nullopt);
-        }
-
-        [[nodiscard]] std::string ToFixed2() const
-        {
-            return Format(CurrentNumberFormat(), 2);
-        }
-
-        [[nodiscard]] float ToFloat() const
-        {
-            return std::strtof(Format(InvariantNumberFormat(), std::nullopt).c_str(), nullptr);
-        }
-
-        [[nodiscard]] std::int32_t ToInt32() const
-        {
-            std::string integer;
-            if (_scale >= static_cast<std::int32_t>(_digits.size())) integer = "0";
-            else integer = _digits.substr(0, _digits.size() - static_cast<std::size_t>(_scale));
-            StripLeadingZeros(integer);
-            if (integer.empty()) integer = "0";
-            const std::string limit = _negative ? "2147483648" : "2147483647";
-            if (integer.size() > limit.size() || (integer.size() == limit.size() && integer > limit))
-            {
-                throw System::OverflowException("Value was either too large or too small for an Int32.");
-            }
-            std::int64_t value = 0;
-            for (char ch : integer) value = value * 10 + (ch - '0');
-            if (_negative) value = -value;
-            return static_cast<std::int32_t>(value);
-        }
-
-        [[nodiscard]] friend bool operator==(const Decimal& left, const Decimal& right)
-        {
-            return Compare(left, right) == 0;
-        }
-        [[nodiscard]] friend bool operator<(const Decimal& left, const Decimal& right)
-        {
-            return Compare(left, right) < 0;
-        }
-        [[nodiscard]] friend bool operator>(const Decimal& left, const Decimal& right) { return right < left; }
-        [[nodiscard]] friend bool operator<=(const Decimal& left, const Decimal& right) { return !(right < left); }
-        [[nodiscard]] friend bool operator>=(const Decimal& left, const Decimal& right) { return !(left < right); }
-
-        [[nodiscard]] friend Decimal operator+(const Decimal& left, const Decimal& right)
-        {
-            return Add(left, right, false);
-        }
-        [[nodiscard]] friend Decimal operator-(const Decimal& left, const Decimal& right)
-        {
-            return Add(left, right, true);
-        }
-
-    private:
-        static constexpr std::string_view MaxCoefficient = "79228162514264337593543950335";
-
-        bool _negative = false;
-        std::string _digits = "0";
-        std::int32_t _scale = 0;
-
-        static void IncrementDigits(std::string& digits)
-        {
-            if (digits.empty())
-            {
-                digits = "1";
-                return;
-            }
-            for (std::size_t i = digits.size(); i-- > 0; )
-            {
-                if (digits[i] != '9')
-                {
-                    ++digits[i];
-                    return;
-                }
-                digits[i] = '0';
-            }
-            digits.insert(digits.begin(), '1');
-        }
-
-        [[nodiscard]] static std::string RoundedCoefficient(
-            const std::string& digits, std::int32_t drop)
-        {
-            if (drop <= 0) return digits;
-
-            std::string kept;
-            if (static_cast<std::size_t>(drop) < digits.size())
-            {
-                kept = digits.substr(0, digits.size() - static_cast<std::size_t>(drop));
-            }
-            else
-            {
-                kept = "0";
-            }
-
-            char firstDropped = '0';
-            bool remainingNonZero = false;
-            if (static_cast<std::size_t>(drop) <= digits.size())
-            {
-                const std::size_t first = digits.size() - static_cast<std::size_t>(drop);
-                firstDropped = digits[first];
-                for (std::size_t i = first + 1; i < digits.size(); ++i)
-                {
-                    if (digits[i] != '0')
-                    {
-                        remainingNonZero = true;
-                        break;
-                    }
-                }
-            }
-
-            StripLeadingZeros(kept);
-            if (kept.empty()) kept = "0";
-            const bool odd = kept.back() == '1' || kept.back() == '3' || kept.back() == '5'
-                || kept.back() == '7' || kept.back() == '9';
-            if (firstDropped > '5'
-                || (firstDropped == '5' && (remainingNonZero || odd)))
-            {
-                IncrementDigits(kept);
-            }
-            return kept;
-        }
-
-        [[nodiscard]] static bool ValueWithinDecimalRange(const std::string& digits, std::int32_t scale)
-        {
-            const std::int32_t integerDigits = static_cast<std::int32_t>(digits.size()) - scale;
-            if (integerDigits <= 0) return true;
-            if (integerDigits > static_cast<std::int32_t>(MaxCoefficient.size())) return false;
-            if (integerDigits < static_cast<std::int32_t>(MaxCoefficient.size())) return true;
-
-            const std::string_view integerPart(digits.data(), static_cast<std::size_t>(integerDigits));
-            if (integerPart > MaxCoefficient) return false;
-            if (integerPart < MaxCoefficient) return true;
-            for (std::size_t i = static_cast<std::size_t>(integerDigits); i < digits.size(); ++i)
-            {
-                if (digits[i] != '0') return false;
-            }
-            return true;
-        }
-
-        [[nodiscard]] static bool FitParsedValue(std::string& digits, std::int32_t& scale)
-        {
-            StripLeadingZeros(digits);
-            if (digits.empty()) digits = "0";
-
-            const std::int32_t minimumDrop = std::max(scale - 28, 0);
-            for (std::int32_t drop = minimumDrop; drop <= scale; ++drop)
-            {
-                std::string candidate = RoundedCoefficient(digits, drop);
-                StripLeadingZeros(candidate);
-                if (candidate.empty()) candidate = "0";
-                if (CoefficientInRange(candidate))
-                {
-                    digits = std::move(candidate);
-                    scale -= drop;
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        [[nodiscard]] static bool MatchAt(
-            std::string_view text, std::size_t offset, std::string_view token) noexcept
-        {
-            return !token.empty() && offset + token.size() <= text.size()
-                && text.substr(offset, token.size()) == token;
-        }
-
-        [[nodiscard]] static bool TryParseCore(
-            std::string_view input, const NumberFormatInfo& format, Decimal& result)
-        {
-            result = Decimal{};
-            std::string_view numeric = input;
-            while (!numeric.empty() && numeric.back() == '\0') numeric.remove_suffix(1);
-            std::string text = TrimNumberWhiteSpace(numeric);
-            if (text.empty()) return false;
-
-            bool negative = false;
-            bool signSeen = false;
-            bool trailingSign = false;
-            if (StartsWithText(text, format.NegativeSign))
-            {
-                negative = true;
-                signSeen = true;
-                text.erase(0, format.NegativeSign.size());
-            }
-            else if (format.NegativeSign != "-" && StartsWithText(text, "-"))
-            {
-                negative = true;
-                signSeen = true;
-                text.erase(0, 1);
-            }
-            else if (StartsWithText(text, format.PositiveSign))
-            {
-                signSeen = true;
-                text.erase(0, format.PositiveSign.size());
-            }
-
-            if (!text.empty())
-            {
-                if (!signSeen && EndsWithText(text, format.NegativeSign))
-                {
-                    negative = true;
-                    signSeen = true;
-                    trailingSign = true;
-                    text.erase(text.size() - format.NegativeSign.size());
-                }
-                else if (!signSeen && format.NegativeSign != "-" && EndsWithText(text, "-"))
-                {
-                    negative = true;
-                    signSeen = true;
-                    trailingSign = true;
-                    text.erase(text.size() - 1);
-                }
-                else if (!signSeen && EndsWithText(text, format.PositiveSign))
-                {
-                    signSeen = true;
-                    trailingSign = true;
-                    text.erase(text.size() - format.PositiveSign.size());
-                }
-            }
-            if (trailingSign) text = TrimNumberTrailingWhiteSpace(text);
-            if (text.empty()) return false;
-
-            std::string digits;
-            digits.reserve(text.size());
-            std::int32_t scale = 0;
-            bool decimalSeen = false;
-            bool digitSeen = false;
-            for (std::size_t i = 0; i < text.size(); )
-            {
-                const char ch = text[i];
-                if (ch >= '0' && ch <= '9')
-                {
-                    digitSeen = true;
-                    digits.push_back(ch);
-                    if (decimalSeen) ++scale;
-                    ++i;
-                    continue;
-                }
-                if (!decimalSeen && MatchAt(text, i, format.DecimalSeparator))
-                {
-                    decimalSeen = true;
-                    i += format.DecimalSeparator.size();
-                    continue;
-                }
-                if (!decimalSeen && !format.GroupSeparator.empty()
-                    && MatchAt(text, i, format.GroupSeparator))
-                {
-                    if (!digitSeen) return false;
-                    i += format.GroupSeparator.size();
-                    continue;
-                }
-                return false;
-            }
-            if (!digitSeen) return false;
-            {
-                std::string rangeDigits = digits;
-                StripLeadingZeros(rangeDigits);
-                if (rangeDigits.empty()) rangeDigits = "0";
-                if (!ValueWithinDecimalRange(rangeDigits, scale)) return false;
-            }
-            if (!FitParsedValue(digits, scale)) return false;
-
-            result._negative = negative;
-            result._digits = std::move(digits);
-            result._scale = scale;
-            result.NormalizeZero();
-            return true;
-        }
-
-        [[nodiscard]] std::string Format(
-            const NumberFormatInfo& format, std::optional<std::int32_t> fixedScale) const
-        {
-            std::string digits = _digits;
-            std::int32_t scale = _scale;
-            if (fixedScale.has_value())
-            {
-                const std::int32_t requested = *fixedScale;
-                if (scale > requested)
-                {
-                    digits = RoundedCoefficient(digits, scale - requested);
-                    scale = requested;
-                }
-                else if (scale < requested)
-                {
-                    digits.append(static_cast<std::size_t>(requested - scale), '0');
-                    scale = requested;
-                }
-            }
-
-            std::string value;
-            if (scale == 0)
-            {
-                value = digits;
-            }
-            else if (static_cast<std::int32_t>(digits.size()) <= scale)
-            {
-                value = "0" + format.DecimalSeparator;
-                value.append(static_cast<std::size_t>(scale - static_cast<std::int32_t>(digits.size())), '0');
-                value += digits;
-            }
-            else
-            {
-                const std::size_t point = digits.size() - static_cast<std::size_t>(scale);
-                value = digits.substr(0, point) + format.DecimalSeparator + digits.substr(point);
-            }
-            if (_negative && digits != "0") value.insert(0, format.NegativeSign);
-            return value;
-        }
-
-        static void StripLeadingZeros(std::string& digits)
-        {
-            const std::size_t first = digits.find_first_not_of('0');
-            if (first == std::string::npos) digits.clear();
-            else if (first != 0) digits.erase(0, first);
-        }
-
-        [[nodiscard]] static bool CoefficientInRange(const std::string& digits)
-        {
-            return digits.size() < MaxCoefficient.size()
-                || (digits.size() == MaxCoefficient.size() && digits <= MaxCoefficient);
-        }
-
-        void NormalizeZero()
-        {
-            if (_digits.empty() || std::all_of(_digits.begin(), _digits.end(), [](char ch){ return ch == '0'; }))
-            {
-                _digits = "0";
-                _negative = false;
-            }
-        }
-
-        [[nodiscard]] static std::string ScaledDigits(const Decimal& value, std::int32_t scale)
-        {
-            std::string digits = value._digits;
-            digits.append(static_cast<std::size_t>(scale - value._scale), '0');
-            return digits;
-        }
-
-        [[nodiscard]] static int CompareMagnitude(const Decimal& left, const Decimal& right)
-        {
-            const std::int32_t leftIntegerDigits = static_cast<std::int32_t>(left._digits.size()) - left._scale;
-            const std::int32_t rightIntegerDigits = static_cast<std::int32_t>(right._digits.size()) - right._scale;
-            if (leftIntegerDigits != rightIntegerDigits) return leftIntegerDigits < rightIntegerDigits ? -1 : 1;
-            const std::int32_t scale = std::max(left._scale, right._scale);
-            std::string a = ScaledDigits(left, scale);
-            std::string b = ScaledDigits(right, scale);
-            const std::size_t width = std::max(a.size(), b.size());
-            if (a.size() < width) a.insert(a.begin(), width - a.size(), '0');
-            if (b.size() < width) b.insert(b.begin(), width - b.size(), '0');
-            if (a == b) return 0;
-            return a < b ? -1 : 1;
-        }
-
-        [[nodiscard]] static int Compare(const Decimal& left, const Decimal& right)
-        {
-            const bool leftZero = left._digits == "0";
-            const bool rightZero = right._digits == "0";
-            if (leftZero && rightZero) return 0;
-            if (left._negative != right._negative) return left._negative ? -1 : 1;
-            const int magnitude = CompareMagnitude(left, right);
-            return left._negative ? -magnitude : magnitude;
-        }
-
-        [[nodiscard]] static std::string AddDigits(std::string a, std::string b)
-        {
-            const std::size_t width = std::max(a.size(), b.size());
-            if (a.size() < width) a.insert(a.begin(), width - a.size(), '0');
-            if (b.size() < width) b.insert(b.begin(), width - b.size(), '0');
-            std::string result(width, '0');
-            int carry = 0;
-            for (std::size_t i = width; i-- > 0; )
-            {
-                const int value = (a[i] - '0') + (b[i] - '0') + carry;
-                result[i] = static_cast<char>('0' + value % 10);
-                carry = value / 10;
-            }
-            if (carry != 0) result.insert(result.begin(), static_cast<char>('0' + carry));
-            StripLeadingZeros(result);
-            if (result.empty()) result = "0";
-            return result;
-        }
-
-        [[nodiscard]] static std::string SubtractDigits(std::string a, std::string b)
-        {
-            const std::size_t width = std::max(a.size(), b.size());
-            if (a.size() < width) a.insert(a.begin(), width - a.size(), '0');
-            if (b.size() < width) b.insert(b.begin(), width - b.size(), '0');
-            std::string result(width, '0');
-            int borrow = 0;
-            for (std::size_t i = width; i-- > 0; )
-            {
-                int value = (a[i] - '0') - (b[i] - '0') - borrow;
-                if (value < 0) { value += 10; borrow = 1; } else borrow = 0;
-                result[i] = static_cast<char>('0' + value);
-            }
-            StripLeadingZeros(result);
-            if (result.empty()) result = "0";
-            return result;
-        }
-
-        [[nodiscard]] static Decimal Add(const Decimal& left, const Decimal& rightValue, bool subtract)
-        {
-            Decimal right = rightValue;
-            if (subtract && right._digits != "0") right._negative = !right._negative;
-            const std::int32_t scale = std::max(left._scale, right._scale);
-            const std::string a = ScaledDigits(left, scale);
-            const std::string b = ScaledDigits(right, scale);
-
-            Decimal result;
-            result._scale = scale;
-            if (left._negative == right._negative)
-            {
-                result._negative = left._negative;
-                result._digits = AddDigits(a, b);
-            }
-            else
-            {
-                const int magnitude = CompareMagnitude(left, right);
-                if (magnitude == 0)
-                {
-                    result._negative = false;
-                    result._digits = "0";
-                }
-                else if (magnitude > 0)
-                {
-                    result._negative = left._negative;
-                    result._digits = SubtractDigits(a, b);
-                }
-                else
-                {
-                    result._negative = right._negative;
-                    result._digits = SubtractDigits(b, a);
-                }
-            }
-            if (!CoefficientInRange(result._digits)) throw System::OverflowException("Value was either too large or too small for a Decimal.");
-            result.NormalizeZero();
-            return result;
-        }
-    };
-
-    Decimal _sfxVolume = Decimal::Literal("0.35");
-    Decimal _musicVolume = Decimal::Literal("0.50");
+    Decimal _sfxVolume = Decimal::ParseInvariant("0.35");
+    Decimal _musicVolume = Decimal::ParseInvariant("0.50");
     std::string _mode = "auto-select";
     Language _language = Language::English;
     std::int32_t _movieId = -1;
 
     bool _applySettings = false;
     bool _teams = false;
-    Decimal _pointGoal = Decimal::FromInt(0);
-    Decimal _timeGoal = Decimal::FromInt(0);
-    Decimal _timeLimit = Decimal::FromInt(0);
+    Decimal _pointGoal = Decimal(0);
+    Decimal _timeGoal = Decimal(0);
+    Decimal _timeLimit = Decimal(0);
     bool _octolithReset = true;
     bool _radarPlayers = false;
     std::int32_t _damageLevel = 1;
@@ -967,12 +301,12 @@ namespace
         "Expansion: ", "Weapons  : ", "Complete : "
     };
 
-    const std::vector<Decimal> _battlePoints = []{ std::vector<Decimal> v; for (int n : {1,5,7,10,15,20,25,30,40,50,60,70,80,90,100}) v.push_back(Decimal::FromInt(n)); return v; }();
-    const std::vector<Decimal> _octolithPoints = []{ std::vector<Decimal> v; for (int n : {1,2,3,4,5,6,7,8,9,10,15,20,25}) v.push_back(Decimal::FromInt(n)); return v; }();
-    const std::vector<Decimal> _nodePoints = []{ std::vector<Decimal> v; for (int n : {40,50,60,70,80,90,100,120,140,160,180,190,200,250}) v.push_back(Decimal::FromInt(n)); return v; }();
-    const std::vector<Decimal> _extraLives = []{ std::vector<Decimal> v; for (int n : {0,1,2,3,4,5,6,7,8,9,10}) v.push_back(Decimal::FromInt(n)); return v; }();
-    const std::vector<Decimal> _timeGoals = []{ std::vector<Decimal> v; for (int n : {60,90,120,150,180,210,240,270,300,360,420,480,540,600}) v.push_back(Decimal::FromInt(n)); return v; }();
-    const std::vector<Decimal> _timeLimits = []{ std::vector<Decimal> v; for (int n : {180,300,420,540,600,900,1200,1500,1800,2100,2400,2700,3000,3300,3600}) v.push_back(Decimal::FromInt(n)); return v; }();
+    const std::vector<Decimal> _battlePoints = []{ std::vector<Decimal> v; for (int n : {1,5,7,10,15,20,25,30,40,50,60,70,80,90,100}) v.push_back(Decimal(n)); return v; }();
+    const std::vector<Decimal> _octolithPoints = []{ std::vector<Decimal> v; for (int n : {1,2,3,4,5,6,7,8,9,10,15,20,25}) v.push_back(Decimal(n)); return v; }();
+    const std::vector<Decimal> _nodePoints = []{ std::vector<Decimal> v; for (int n : {40,50,60,70,80,90,100,120,140,160,180,190,200,250}) v.push_back(Decimal(n)); return v; }();
+    const std::vector<Decimal> _extraLives = []{ std::vector<Decimal> v; for (int n : {0,1,2,3,4,5,6,7,8,9,10}) v.push_back(Decimal(n)); return v; }();
+    const std::vector<Decimal> _timeGoals = []{ std::vector<Decimal> v; for (int n : {60,90,120,150,180,210,240,270,300,360,420,480,540,600}) v.push_back(Decimal(n)); return v; }();
+    const std::vector<Decimal> _timeLimits = []{ std::vector<Decimal> v; for (int n : {180,300,420,540,600,900,1200,1500,1800,2100,2400,2700,3000,3300,3600}) v.push_back(Decimal(n)); return v; }();
 
     enum class ConsoleKey
     {
@@ -1099,7 +433,7 @@ namespace
 
     [[nodiscard]] std::string Fixed2(const Decimal& value)
     {
-        return value.ToFixed2();
+        return value.ToString("F2");
     }
 
     [[nodiscard]] std::string SaveWhenString(SaveWhen value)
@@ -1670,26 +1004,26 @@ namespace
 
     [[nodiscard]] bool GetTime(std::string input, Decimal& result)
     {
-        result = Decimal::FromInt(0);
+        result = Decimal(0);
         const std::vector<std::string> split = Split(input, ':', false, false);
         std::int32_t a = 0, b = 0, c = 0;
         auto Wrap = [](std::uint32_t value) { return static_cast<std::int32_t>(value); };
         if (split.size() == 1)
         {
-            if (Int32TryParseCurrentCulture(split[0], a)) { result = Decimal::FromInt(Wrap(static_cast<std::uint32_t>(a) * 60U)); return true; }
+            if (Int32TryParseCurrentCulture(split[0], a)) { result = Decimal(Wrap(static_cast<std::uint32_t>(a) * 60U)); return true; }
         }
         else if (split.size() == 2)
         {
             if (Int32TryParseCurrentCulture(split[0], a) && Int32TryParseCurrentCulture(split[1], b))
             {
-                result = Decimal::FromInt(Wrap(static_cast<std::uint32_t>(a) * 60U + static_cast<std::uint32_t>(b))); return true;
+                result = Decimal(Wrap(static_cast<std::uint32_t>(a) * 60U + static_cast<std::uint32_t>(b))); return true;
             }
         }
         else if (split.size() == 3)
         {
             if (Int32TryParseCurrentCulture(split[0], a) && Int32TryParseCurrentCulture(split[1], b) && Int32TryParseCurrentCulture(split[2], c))
             {
-                result = Decimal::FromInt(Wrap(static_cast<std::uint32_t>(a) * 3600U
+                result = Decimal(Wrap(static_cast<std::uint32_t>(a) * 3600U
                     + static_cast<std::uint32_t>(b) * 60U + static_cast<std::uint32_t>(c))); return true;
             }
         }
@@ -1698,7 +1032,7 @@ namespace
 
     [[nodiscard]] std::string FormatTime(const Decimal& value)
     {
-        const float secondsFloat = value.ToFloat();
+        const float secondsFloat = value.ToSingle();
         const auto ticks = static_cast<std::int64_t>(static_cast<double>(secondsFloat) * 10000000.0);
         const std::int64_t totalSeconds = ticks / 10000000LL;
         const std::int32_t hours = static_cast<std::int32_t>((totalSeconds / 3600LL) % 24LL);
@@ -1713,21 +1047,21 @@ namespace
 
     void ResetGoal()
     {
-        if (_mode == "auto-select" || StartsWith(_mode, "Battle")) _pointGoal = Decimal::FromInt(7);
-        else if (StartsWith(_mode, "Survival")) _pointGoal = Decimal::FromInt(2);
-        else if (_mode == "Capture") _pointGoal = Decimal::FromInt(5);
-        else if (StartsWith(_mode, "Bounty")) _pointGoal = Decimal::FromInt(3);
-        else if (StartsWith(_mode, "Nodes")) _pointGoal = Decimal::FromInt(70);
-        else if (StartsWith(_mode, "Defender") || _mode == "Prime Hunter") _timeGoal = Decimal::FromInt(90);
+        if (_mode == "auto-select" || StartsWith(_mode, "Battle")) _pointGoal = Decimal(7);
+        else if (StartsWith(_mode, "Survival")) _pointGoal = Decimal(2);
+        else if (_mode == "Capture") _pointGoal = Decimal(5);
+        else if (StartsWith(_mode, "Bounty")) _pointGoal = Decimal(3);
+        else if (StartsWith(_mode, "Nodes")) _pointGoal = Decimal(70);
+        else if (StartsWith(_mode, "Defender") || _mode == "Prime Hunter") _timeGoal = Decimal(90);
     }
     void ResetTimeLimit()
     {
-        _timeLimit = Decimal::FromInt((_mode == "auto-select" || StartsWith(_mode, "Battle")) ? 420 : 900);
+        _timeLimit = Decimal((_mode == "auto-select" || StartsWith(_mode, "Battle")) ? 420 : 900);
     }
     void UpdateSettings()
     {
         _teams = false;
-        _pointGoal = Decimal::FromInt(0); _timeGoal = Decimal::FromInt(0); _timeLimit = Decimal::FromInt(0);
+        _pointGoal = Decimal(0); _timeGoal = Decimal(0); _timeLimit = Decimal(0);
         _octolithReset = true;
         ResetGoal(); ResetTimeLimit();
         if (_mode == "auto-select" || StartsWith(_mode, "Battle") || StartsWith(_mode, "Nodes")) _goalType = "Point Goal";
@@ -1752,7 +1086,7 @@ namespace
             if (Decimal::TryParse(text, result))
             {
                 const std::int32_t integer = result.ToInt32();
-                _pointGoal = Decimal::FromInt(std::clamp(integer, _goalType == "Extra Lives" ? 0 : 1, 99999));
+                _pointGoal = Decimal(std::clamp(integer, _goalType == "Extra Lives" ? 0 : 1, 99999));
             }
         }
     }
@@ -2112,15 +1446,15 @@ namespace MphRead
             if (Decimal::TryParse(settings.SfxVolume, decimalValue))
             {
                 _sfxVolume = decimalValue;
-                Sound::Sfx::Volume = _sfxVolume.ToFloat();
+                Sound::Sfx::Volume = _sfxVolume.ToSingle();
             }
             if (Decimal::TryParse(settings.MusicVolume, decimalValue))
             {
                 _musicVolume = decimalValue;
-                Music::UserVolume(_musicVolume.ToFloat());
+                Music::UserVolume(_musicVolume.ToSingle());
             }
             std::int32_t integer = 0;
-            if (Int32TryParseCurrentCulture(settings.PointGoal, integer)) _pointGoal = Decimal::FromInt(integer);
+            if (Int32TryParseCurrentCulture(settings.PointGoal, integer)) _pointGoal = Decimal(integer);
             _octolithReset = settings.PointGoal != "off";
             _teams = settings.TeamPlay != "off";
             _radarPlayers = settings.HunterRadar != "off";
@@ -2371,8 +1705,8 @@ namespace MphRead
                         else if (selection == 7) Paths::ChooseMphPath();
                         else if (selection == 8) Paths::ChooseFhPath();
                         else if (selection == 9) SetDefaultLanguage();
-                        else if (selection == 10) { _sfxVolume = Decimal::Literal("0.35"); Sound::Sfx::Volume = _sfxVolume.ToFloat(); }
-                        else if (selection == 11) { _musicVolume = Decimal::Literal("0.50"); Music::UserVolume(_musicVolume.ToFloat()); }
+                        else if (selection == 10) { _sfxVolume = Decimal::ParseInvariant("0.35"); Sound::Sfx::Volume = _sfxVolume.ToSingle(); }
+                        else if (selection == 11) { _musicVolume = Decimal::ParseInvariant("0.50"); Music::UserVolume(_musicVolume.ToSingle()); }
                         else if (selection == 12) _movieId = -1;
                     }
                     else if (keyInfo.Key == ConsoleKey::Add || keyInfo.Key == ConsoleKey::OemPlus || keyInfo.Key == ConsoleKey::RightArrow)
@@ -2455,13 +1789,13 @@ namespace MphRead
                         }
                         else if (selection == 10)
                         {
-                            _sfxVolume = std::min(_sfxVolume + Decimal::Literal("0.05"), Decimal::Literal("1.5"));
-                            Sound::Sfx::Volume = _sfxVolume.ToFloat();
+                            _sfxVolume = std::min(_sfxVolume + Decimal::ParseInvariant("0.05"), Decimal::ParseInvariant("1.5"));
+                            Sound::Sfx::Volume = _sfxVolume.ToSingle();
                         }
                         else if (selection == 11)
                         {
-                            _musicVolume = std::min(_musicVolume + Decimal::Literal("0.05"), Decimal::Literal("1.0"));
-                            Music::UserVolume(_musicVolume.ToFloat());
+                            _musicVolume = std::min(_musicVolume + Decimal::ParseInvariant("0.05"), Decimal::ParseInvariant("1.0"));
+                            Music::UserVolume(_musicVolume.ToSingle());
                         }
                         else if (selection == 12)
                         {
@@ -2548,13 +1882,13 @@ namespace MphRead
                         }
                         else if (selection == 10)
                         {
-                            _sfxVolume = std::max(_sfxVolume - Decimal::Literal("0.05"), Decimal::FromInt(0));
-                            Sound::Sfx::Volume = _sfxVolume.ToFloat();
+                            _sfxVolume = std::max(_sfxVolume - Decimal::ParseInvariant("0.05"), Decimal(0));
+                            Sound::Sfx::Volume = _sfxVolume.ToSingle();
                         }
                         else if (selection == 11)
                         {
-                            _musicVolume = std::max(_musicVolume - Decimal::Literal("0.05"), Decimal::FromInt(0));
-                            Music::UserVolume(_musicVolume.ToFloat());
+                            _musicVolume = std::max(_musicVolume - Decimal::ParseInvariant("0.05"), Decimal(0));
+                            Music::UserVolume(_musicVolume.ToSingle());
                         }
                         else if (selection == 12)
                         {
@@ -2622,8 +1956,8 @@ namespace MphRead
         {
             GameState::Teams(_teams);
             GameState::PointGoal(_pointGoal.ToInt32());
-            GameState::TimeGoal(_timeGoal.ToFloat());
-            GameState::MatchTime(_timeLimit.ToFloat());
+            GameState::TimeGoal(_timeGoal.ToSingle());
+            GameState::MatchTime(_timeLimit.ToSingle());
             GameState::OctolithReset(_octolithReset);
             GameState::RadarPlayers(_radarPlayers);
             GameState::DamageLevel(_damageLevel);
@@ -3295,7 +2629,7 @@ namespace MphRead
             }
             MusicPlayer::Load(seqToPlay, tracks);
             MusicPlayer::WaitForLoad();
-            MusicPlayer::Play(_musicVolume.ToFloat());
+            MusicPlayer::Play(_musicVolume.ToSingle());
         };
         auto PlayMusic = [&]()
         {
@@ -3305,7 +2639,7 @@ namespace MphRead
             tracks = item->Tracks;
             MusicPlayer::Load(item->SeqId, tracks);
             MusicPlayer::WaitForLoad();
-            MusicPlayer::Play(_musicVolume.ToFloat());
+            MusicPlayer::Play(_musicVolume.ToSingle());
         };
         auto PlaySeq = [&]()
         {
@@ -3314,7 +2648,7 @@ namespace MphRead
             tracks = std::numeric_limits<std::uint16_t>::max();
             MusicPlayer::Load(seq);
             MusicPlayer::WaitForLoad();
-            MusicPlayer::Play(_musicVolume.ToFloat());
+            MusicPlayer::Play(_musicVolume.ToSingle());
         };
         auto PlaySfx = [&]()
         {

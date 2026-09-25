@@ -850,11 +850,11 @@ namespace MphRead::NativeRuntime
         }
 
         void FormatGeneral(std::string& output, const NumberBuffer& number, std::int32_t maxDigits,
-            const NumberFormatInfo& info, char exponentChar)
+            const NumberFormatInfo& info, char exponentChar, bool suppressScientific = false)
         {
             std::int32_t position = number.Scale;
             bool scientific = false;
-            if (position > maxDigits || position < -3)
+            if (!suppressScientific && (position > maxDigits || position < -3))
             {
                 position = 1;
                 scientific = true;
@@ -1526,8 +1526,10 @@ namespace MphRead::NativeRuntime
 
         // Number.TryParseNumber followed by the TrailingZeros check its
         // callers make: the whole text, or the text and then only NULs.
+        // `decimalKind` keeps what a decimal keeps and a float drops: the
+        // trailing zeros ("1.50") and the scale of a zero ("0.00").
         [[nodiscard]] bool TryParseNumber(std::string_view text, NumberStyles styles,
-            const NumberFormatInfo& info, NumberBuffer& number)
+            const NumberFormatInfo& info, NumberBuffer& number, bool decimalKind = false)
         {
             constexpr std::uint32_t StateSign = 0x01;
             constexpr std::uint32_t StateParens = 0x02;
@@ -1676,11 +1678,14 @@ namespace MphRead::NativeRuntime
             {
                 return false;
             }
-            if ((state & StateNonZero) == 0)
+            if (!decimalKind)
             {
-                number.Scale = 0;
+                if ((state & StateNonZero) == 0)
+                {
+                    number.Scale = 0;
+                }
+                number.Digits.erase(number.Digits.find_last_not_of('0') + 1);
             }
-            number.Digits.erase(number.Digits.find_last_not_of('0') + 1);
             // Number.TrailingZeros.
             return text.find_first_not_of('\0', p) == std::string_view::npos;
         }
@@ -1972,6 +1977,190 @@ namespace MphRead::NativeRuntime
             maxDigits = static_cast<std::int32_t>(number.Digits.size());
         }
         return StandardFormat(number, specifier.Format, maxDigits, info, false);
+    }
+
+    namespace
+    {
+        // Number.DecimalToNumber: every digit of the coefficient, trailing
+        // zeros included, which is how 1.50m prints as "1.50".
+        [[nodiscard]] NumberBuffer DecimalDigits(const DecimalBits& value)
+        {
+            std::array<std::uint32_t, 3> limbs{ value.Lo, value.Mid, value.Hi };
+            std::string reversed;
+            while ((limbs[0] | limbs[1] | limbs[2]) != 0)
+            {
+                std::uint64_t remainder = 0;
+                for (std::size_t i = limbs.size(); i-- > 0;)
+                {
+                    const std::uint64_t current = (remainder << 32) | limbs[i];
+                    limbs[i] = static_cast<std::uint32_t>(current / 10);
+                    remainder = current % 10;
+                }
+                reversed.push_back(static_cast<char>('0' + remainder));
+            }
+            NumberBuffer number;
+            number.Negative = value.Negative;
+            number.Digits.assign(reversed.rbegin(), reversed.rend());
+            number.Scale = static_cast<std::int32_t>(number.Digits.size()) - value.Scale;
+            return number;
+        }
+
+        void TrimTrailingZeros(NumberBuffer& number)
+        {
+            number.Digits.erase(number.Digits.find_last_not_of('0') + 1);
+        }
+    }
+
+    std::string DecimalToString(const DecimalBits& value, std::string_view format, const NumberFormatInfo& info)
+    {
+        NumberBuffer number = DecimalDigits(value);
+        const Specifier specifier = ParseSpecifier(format);
+        if (specifier.Format == '\0')
+        {
+            TrimTrailingZeros(number);
+            return CustomFormat(number, format, info);
+        }
+        if ((specifier.Format == 'G' || specifier.Format == 'g') && specifier.Precision <= 0)
+        {
+            // Every digit, never in E notation, and no sign on a zero.
+            std::string output;
+            if (number.Negative && !number.Digits.empty())
+            {
+                output += info.NegativeSign;
+            }
+            FormatGeneral(output, number, -1, info, 'E', true);
+            return output;
+        }
+        switch (specifier.Format)
+        {
+        case 'F': case 'f': case 'N': case 'n': case 'E': case 'e':
+        case 'G': case 'g': case 'P': case 'p':
+            TrimTrailingZeros(number);
+            return StandardFormat(number, specifier.Format, specifier.Precision, info, false);
+        default:
+            throw System::FormatException("Format specifier was invalid.");
+        }
+    }
+
+    bool TryParseDecimal(std::string_view text, NumberStyles styles, const NumberFormatInfo& info,
+        DecimalBits& value)
+    {
+        value = DecimalBits{};
+        NumberBuffer number;
+        if (!TryParseNumber(text, styles, info, number, true))
+        {
+            return false;
+        }
+        // Number.NumberToDecimal.
+        constexpr std::int32_t DecimalPrecision = 29;
+        const std::string& digits = number.Digits;
+        std::size_t p = 0;
+        const auto digit = [&]() -> std::uint32_t
+        {
+            return p < digits.size() ? static_cast<std::uint32_t>(digits[p]) : 0U;
+        };
+        std::int32_t e = number.Scale;
+        const bool sign = number.Negative;
+        std::uint32_t c = digit();
+        if (c == 0)
+        {
+            value.Negative = sign;
+            value.Scale = static_cast<std::uint8_t>(std::clamp(-e, 0, 28));
+            return true;
+        }
+        if (e > DecimalPrecision)
+        {
+            return false;
+        }
+
+        std::uint64_t low64 = 0;
+        while (e > -28)
+        {
+            --e;
+            low64 *= 10;
+            low64 += c - '0';
+            ++p;
+            c = digit();
+            if (low64 >= UINT64_MAX / 10)
+            {
+                break;
+            }
+            if (c == 0)
+            {
+                while (e > 0)
+                {
+                    --e;
+                    low64 *= 10;
+                    if (low64 >= UINT64_MAX / 10)
+                    {
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+
+        std::uint32_t high = 0;
+        while ((e > 0 || (c != 0 && e > -28))
+            && (high < UINT32_MAX / 10 || (high == UINT32_MAX / 10
+                && (low64 < 0x9999999999999999ULL || (low64 == 0x9999999999999999ULL && c <= '5')))))
+        {
+            const std::uint64_t tmpLow = static_cast<std::uint64_t>(static_cast<std::uint32_t>(low64)) * 10U;
+            const std::uint64_t tmp64 = (low64 >> 32) * 10U + (tmpLow >> 32);
+            low64 = static_cast<std::uint32_t>(tmpLow) + (tmp64 << 32);
+            high = static_cast<std::uint32_t>(tmp64 >> 32) + high * 10U;
+            if (c != 0)
+            {
+                c -= '0';
+                low64 += c;
+                if (low64 < c)
+                {
+                    ++high;
+                }
+                ++p;
+                c = digit();
+            }
+            --e;
+        }
+
+        bool round = c >= '5';
+        if (round && c == '5' && (low64 & 1) == 0)
+        {
+            ++p;
+            c = digit();
+            bool hasZeroTail = true;
+            while (c != 0 && hasZeroTail)
+            {
+                hasZeroTail &= c == '0';
+                ++p;
+                c = digit();
+            }
+            round = !hasZeroTail;
+        }
+        if (round && ++low64 == 0 && ++high == 0)
+        {
+            low64 = 0x999999999999999AULL;
+            high = UINT32_MAX / 10;
+            ++e;
+        }
+
+        if (e > 0)
+        {
+            return false;
+        }
+        value.Negative = sign;
+        if (e <= -DecimalPrecision)
+        {
+            value.Scale = DecimalPrecision - 1;
+        }
+        else
+        {
+            value.Lo = static_cast<std::uint32_t>(low64);
+            value.Mid = static_cast<std::uint32_t>(low64 >> 32);
+            value.Hi = high;
+            value.Scale = static_cast<std::uint8_t>(-e);
+        }
+        return true;
     }
 
     bool TryParseDouble(std::string_view text, NumberStyles styles, const NumberFormatInfo& info, double& value)

@@ -137,7 +137,28 @@ namespace MphRead::NativeRuntime
         return NumberToString(value, format, NumberFormatInfo::InvariantInfo());
     }
 
+    // System.Decimal's fields: a 96-bit coefficient, a scale of 0 to 28, and
+    // a sign (which a zero may carry).
+    struct DecimalBits final
+    {
+        std::uint32_t Lo = 0;
+        std::uint32_t Mid = 0;
+        std::uint32_t Hi = 0;
+        std::uint8_t Scale = 0;
+        bool Negative = false;
+    };
+
+    // value.ToString(format, info) for a decimal: no format keeps every
+    // digit the value carries, trailing zeros included ("1.50").
+    [[nodiscard]] std::string DecimalToString(const DecimalBits& value, std::string_view format,
+        const NumberFormatInfo& info);
+
     // ---- Parse -------------------------------------------------------------
+
+    // decimal.TryParse(text, styles, info, out value): false for text that
+    // is not a number, or one outside decimal's range.
+    [[nodiscard]] bool TryParseDecimal(std::string_view text, NumberStyles styles,
+        const NumberFormatInfo& info, DecimalBits& value);
 
     // double.TryParse(text, styles, info, out value). A failed parse leaves 0.
     [[nodiscard]] bool TryParseDouble(std::string_view text, NumberStyles styles,

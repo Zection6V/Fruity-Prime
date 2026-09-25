@@ -2,6 +2,7 @@
 
 #include "../NativeRuntime/System/Streams.hpp"
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
+#include "../NativeRuntime/System/Decimal.hpp"
 #include "Formats.hpp"
 #include "Sound.hpp"
 #include "Types.hpp"
@@ -37,7 +38,6 @@ namespace System
 
 
 
-    class Decimal;
 
     namespace Globalization
     {
@@ -52,71 +52,9 @@ namespace System
         private:
             std::locale _locale;
             [[nodiscard]] const std::locale& NativeLocale() const noexcept { return _locale; }
-            friend class ::System::Decimal;
         };
     }
 
-    // Mechanical value-type representation of System.Decimal. The 96-bit integer,
-    // sign and scale fields match the CLR decimal value domain without binary-FP loss.
-    class Decimal final
-    {
-    public:
-        constexpr Decimal() noexcept = default;
-        explicit Decimal(std::int32_t value) noexcept;
-        explicit Decimal(std::uint32_t value) noexcept;
-        explicit Decimal(std::int64_t value) noexcept;
-        explicit Decimal(std::uint64_t value) noexcept;
-        Decimal(std::int32_t lo, std::int32_t mid, std::int32_t hi,
-            bool isNegative, std::uint8_t scale);
-
-        static const Decimal Zero;
-        static const Decimal One;
-        static const Decimal MinusOne;
-        static const Decimal MaxValue;
-        static const Decimal MinValue;
-
-        [[nodiscard]] static Decimal DivideInt32By65536(std::int32_t value) noexcept;
-        [[nodiscard]] static Decimal Add(const Decimal& left, const Decimal& right);
-        [[nodiscard]] static Decimal Subtract(const Decimal& left, const Decimal& right);
-        [[nodiscard]] static Decimal Multiply(const Decimal& left, const Decimal& right);
-        [[nodiscard]] static Decimal Divide(const Decimal& left, const Decimal& right);
-        [[nodiscard]] static Decimal Remainder(const Decimal& left, const Decimal& right);
-        [[nodiscard]] static Decimal Negate(const Decimal& value);
-        [[nodiscard]] static Decimal Abs(const Decimal& value);
-        [[nodiscard]] static std::int32_t Compare(const Decimal& left, const Decimal& right);
-        [[nodiscard]] static bool Equals(const Decimal& left, const Decimal& right);
-        [[nodiscard]] std::int32_t CompareTo(const Decimal& other) const;
-        [[nodiscard]] bool Equals(const Decimal& other) const;
-        [[nodiscard]] static std::array<std::int32_t, 4> GetBits(const Decimal& value) noexcept;
-        [[nodiscard]] float ToSingle() const noexcept;
-        [[nodiscard]] double ToDouble() const noexcept;
-        [[nodiscard]] std::string ToString() const;
-        [[nodiscard]] std::string ToString(const Globalization::CultureInfo& culture) const;
-
-        friend bool operator==(const Decimal& left, const Decimal& right);
-        friend bool operator!=(const Decimal& left, const Decimal& right);
-        friend bool operator<(const Decimal& left, const Decimal& right);
-        friend bool operator<=(const Decimal& left, const Decimal& right);
-        friend bool operator>(const Decimal& left, const Decimal& right);
-        friend bool operator>=(const Decimal& left, const Decimal& right);
-        friend Decimal operator-(const Decimal& value);
-        friend Decimal operator+(const Decimal& left, const Decimal& right);
-        friend Decimal operator-(const Decimal& left, const Decimal& right);
-        friend Decimal operator*(const Decimal& left, const Decimal& right);
-        friend Decimal operator/(const Decimal& left, const Decimal& right);
-        friend Decimal operator%(const Decimal& left, const Decimal& right);
-
-    private:
-        std::uint32_t _lo = 0;
-        std::uint32_t _mid = 0;
-        std::uint32_t _hi = 0;
-        std::uint8_t _scale = 0;
-        bool _negative = false;
-
-        [[nodiscard]] static Decimal FromParts(
-            std::uint32_t lo, std::uint32_t mid, std::uint32_t hi,
-            std::uint8_t scale, bool negative) noexcept;
-    };
 }
 
 namespace MphRead::Formats::MovieNativeRuntime

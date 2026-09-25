@@ -1,4 +1,5 @@
 #include "ModEntry.hpp"
+#include "Platform/AppPaths.hpp"
 
 #include "../Entities/Players/PlayerEntity.hpp"
 #include "../Features.hpp"
@@ -1119,7 +1120,7 @@ namespace MphRead::Mods
         }
         else
         {
-            rotationPath = PathCombine(AppBaseDirectory(), "maprotation.txt");
+            rotationPath = PathCombine(Mods::Platform::AppPaths::UserDataDirectory(), "maprotation.txt");
         }
         std::shared_ptr<Network::MapRotation> rotation = Network::MapRotation::LoadOrCreate(rotationPath);
         Network::DedicatedServer server(port, maxPlayers, rotation);
@@ -1139,9 +1140,34 @@ namespace MphRead::Mods
         server.ServerName(serverName);
         server.FriendlyFire(::HasFlag(args, "friendlyfire"));
         server.ShadowFreeze(!::HasFlag(args, "noshadowfreeze"));
+        server.AffinityWeapons(::HasFlag(args, "affinityweapons"));
         server.AllowMapVotes(!::HasFlag(args, "novote"));
         server.AutoUpdate(true);
-        server.Simulate(::HasFlag(args, "simulate") || ::HasFlag(args, "authority"));
+        // Whether this server will also open *extra* matches, on ports of its
+        // own, for players who ask. Off unless an admin says a range.
+        if (const std::optional<std::string> serverHostPorts = ValueAfter(args, "hostports");
+            serverHostPorts.has_value() && !NativeRuntime::StringEqualsOrdinalIgnoreCase(*serverHostPorts, "none"))
+        {
+            const std::vector<std::string> halves = NativeRuntime::StringSplit(*serverHostPorts, '-');
+            std::int32_t hostFirst = 0;
+            std::int32_t hostLast = 0;
+            if (halves.size() == 2 && Int32TryParseCurrentCulture(halves[0], hostFirst)
+                && Int32TryParseCurrentCulture(halves[1], hostLast) && hostLast >= hostFirst)
+            {
+                server.Hosts().SetPorts(hostFirst, hostLast);
+            }
+            else
+            {
+                WriteLine("[server] ignoring -hostports " + *serverHostPorts + " (expected FIRST-LAST)");
+            }
+        }
+        // -simulate and -authority are accepted and ignored: a server always
+        // runs the match itself now.
+        if (::HasFlag(args, "simulate") || ::HasFlag(args, "authority"))
+        {
+            WriteLine("[net] -simulate is the default now and does "
+                "nothing; a server always runs the match itself");
+        }
 
         if (!::HasFlag(args, "nomaster") && !::HasFlag(args, "unlisted"))
         {
@@ -1166,7 +1192,16 @@ namespace MphRead::Mods
             cancel.request_stop();
             server.Stop();
         });
-        server.Run(cancel.get_token());
+        try
+        {
+            server.Run(cancel.get_token());
+        }
+        catch (const ProgramException& ex)
+        {
+            // The reason and what to do about it are already on the log.
+            WriteLine(std::string("[server] ") + ex.what());
+            std::exit(1);
+        }
         return true;
     }
 

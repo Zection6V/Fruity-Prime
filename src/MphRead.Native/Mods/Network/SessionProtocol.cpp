@@ -19,6 +19,20 @@ namespace MphRead::Mods::Network
         }
     }
 
+    std::string ToString(LobbyCommandType value)
+    {
+        switch (value)
+        {
+        case LobbyCommandType::SetReady: return "SetReady";
+        case LobbyCommandType::SetTeam: return "SetTeam";
+        case LobbyCommandType::UpdateMatch: return "UpdateMatch";
+        case LobbyCommandType::StartMatch: return "StartMatch";
+        case LobbyCommandType::KickPlayer: return "KickPlayer";
+        case LobbyCommandType::TransferOwner: return "TransferOwner";
+        }
+        return std::to_string(static_cast<std::int32_t>(value));
+    }
+
     bool SessionStatePacket::LockTeams() const noexcept { return HasRule(RuleFlags, SessionRules::LockTeams); }
     bool SessionStatePacket::RequireReady() const noexcept { return HasRule(RuleFlags, SessionRules::RequireReady); }
     bool SessionStatePacket::AllowJoinInProgress() const noexcept

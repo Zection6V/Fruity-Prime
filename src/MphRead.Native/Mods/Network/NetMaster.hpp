@@ -1,5 +1,10 @@
 #pragma once
 
+#include "MatchDefinition.hpp"
+#include "../../NativeRuntime/System/Guid.hpp"
+
+#include <functional>
+
 #include "../../NativeRuntime/System/Net.hpp"
 
 #include "NetProtocol.hpp"
@@ -57,6 +62,8 @@ namespace MphRead::Mods::Network
             std::uint8_t players, std::uint8_t maxPlayers, std::uint8_t mode,
             const std::string& roomKey);
         void Farewell(std::uint16_t port);
+        [[nodiscard]] const std::string& Host() const noexcept { return _host; }
+        [[nodiscard]] std::int32_t Port() const noexcept { return _port; }
         void Dispose();
 
     private:
@@ -149,28 +156,68 @@ namespace MphRead::Mods::Network
     {
         std::shared_ptr<const std::vector<MasterListing>> Servers{};
         bool Answered = false;
+        // Whether that directory starts games; nothing for one too old to say.
+        std::optional<bool> CanHost{};
+
+        // Silence is not a no: only an explicit no is a no.
+        [[nodiscard]] bool WillHost() const noexcept { return Answered && CanHost != false; }
+    };
+
+    class MasterFlags final
+    {
+    public:
+        MasterFlags() = delete;
+        static constexpr std::uint8_t CanHost = 1;
     };
 
     struct HostedGame
     {
+        ::MphRead::NativeRuntime::Guid OwnerToken{};
         bool Started = false;
         std::string Host{};
         std::int32_t Port = 0;
         std::string Reason{};
     };
 
+    // One box that could run a match: the directory, or a server it lists.
+    struct HostCandidate
+    {
+        std::string Label{};
+        std::string Host{};
+        std::int32_t Port = 0;
+        bool Answered = false;
+        std::optional<bool> CanHost{};
+        std::int32_t Latency = 0;
+
+        [[nodiscard]] bool WillHost() const noexcept { return Answered && CanHost != false; }
+        [[nodiscard]] std::string Describe() const;
+    };
+
     class NetMasterClient final
     {
     public:
+        static void FindHosts(const std::string& masterHost, std::int32_t masterPort,
+            std::function<void(HostCandidate)> onFound, std::function<void()> onDone = {},
+            std::int32_t timeoutMs = 1500);
+        static void Merge(std::vector<HostCandidate>& into, const HostCandidate& candidate);
+
         [[nodiscard]] static HostedGame RequestGame(const std::string& masterHost,
             std::int32_t masterPort, const std::string& roomKey, GameMode mode,
             float timeLimit, std::int32_t pointGoal, std::int32_t maxPlayers,
-            const std::string& serverName, std::int32_t timeoutMs = 6000);
+            const std::string& serverName, std::int32_t timeoutMs = 6000,
+            const std::optional<std::vector<std::pair<std::string, GameMode>>>& rotation = std::nullopt,
+            ServerSessionPolicy policy = ServerSessionPolicy::Continuous);
 
         [[nodiscard]] static MasterListResult Query(const std::string& host,
             std::int32_t port = NetMasterConfig::DefaultPort,
             std::int32_t timeoutMs = 1500);
 
         NetMasterClient() = delete;
+
+    private:
+        static void Safely(const std::function<void()>& action);
+        [[nodiscard]] static std::pair<HostCandidate, MasterListResult> Probe(const std::string& host,
+            std::int32_t port, std::int32_t timeoutMs, const std::string& label);
+        [[nodiscard]] static std::string Resolve(const std::string& host);
     };
 }

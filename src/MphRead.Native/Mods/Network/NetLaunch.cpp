@@ -71,9 +71,9 @@ namespace MphRead::Mods::Network
     bool NetLaunch::Connect(const std::string& address, std::int32_t port,
         const std::string& playerName, Hunter hunter,
         std::int32_t timeoutMs, std::int32_t color,
-        NativeRuntime::Guid ownerToken, NativeRuntime::CancellationToken cancellationToken)
+        NativeRuntime::Guid ownerToken, std::stop_token cancellationToken)
     {
-        if (cancellationToken.IsCancellationRequested())
+        if (cancellationToken.stop_requested())
         {
             _lastJoinError = "Join cancelled.";
             return false;
@@ -94,7 +94,7 @@ namespace MphRead::Mods::Network
         std::int32_t lastIdentify = 0;
         while (ElapsedMilliseconds(clock) < timeoutMs)
         {
-            if (cancellationToken.IsCancellationRequested())
+            if (cancellationToken.stop_requested())
             {
                 NetSession::Stop();
                 _lastJoinError = "Join cancelled.";
@@ -124,7 +124,7 @@ namespace MphRead::Mods::Network
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
-        if (cancellationToken.IsCancellationRequested())
+        if (cancellationToken.stop_requested())
         {
             NetSession::Stop();
             _lastJoinError = "Join cancelled.";

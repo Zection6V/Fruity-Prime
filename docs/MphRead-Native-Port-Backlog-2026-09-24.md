@@ -43,8 +43,10 @@
     Collision・Draw の網関連差分、NativeRuntime に Guid・BinaryPrimitives・
     CharIsControl・StringSplit・StringReplaceOrdinalIgnoreCase・
     Console.KeyAvailable/ReadKeyInfo・EndPointEquals。
-  - 作業中: DedicatedServer＋LobbyCommands（全面書き直し）、HostPool（新規）。
-  - 残り: NetMaster、NetHostSession、LocalServer、NetCombatCheck、NetLobbyTest、
+  - 済: DedicatedServer＋LobbyCommands（全面書き直し）、HostPool（新規）、
+    NetMaster（HostCandidate・FindHosts・所有者トークン・CanHost フラグ）、
+    NetHostSession、ModEntry の -server 部（-hostports・-affinityweapons）。
+  - 残り: LocalServer、NetCombatCheck、NetLobbyTest、
     HealthSimulationTest、NetHealthSyncTest、MapAuditTeams、SpireAltPoseCheck。
 - 保留（依存先の移植待ち）:
   - PlayerEntity::TakeDamage の AimAssistTelemetry::Hit と ModControllerFeedback、

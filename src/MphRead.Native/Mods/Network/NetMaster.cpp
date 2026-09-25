@@ -1,4 +1,9 @@
 #include "NetMaster.hpp"
+#include "NetStatus.hpp"
+#include "../../NativeRuntime/System/Random.hpp"
+
+#include <atomic>
+#include <set>
 
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Formats/Formats.hpp"
@@ -466,13 +471,26 @@ namespace MphRead::Mods::Network
         const std::string& requestedName = request.ServerName.value();
         const std::string name = !requestedName.empty() ? requestedName : "Hosted game";
         const std::string& roomKey = request.RoomKey.value();
-        const std::shared_ptr<MapRotation> rotation = MapRotation::SingleMatch(roomKey, mode,
-            static_cast<float>(request.TimeLimit), request.PointGoal);
+        const std::shared_ptr<MapRotation> rotation = request.Rotation.has_value() && !request.Rotation->empty()
+            ? MapRotation::FromList(*request.Rotation, static_cast<float>(request.TimeLimit), request.PointGoal)
+            : MapRotation::SingleMatch(roomKey, mode, static_cast<float>(request.TimeLimit), request.PointGoal);
+        NativeRuntime::Guid ownerToken{};
+        if (request.Policy == ServerSessionPolicy::Lobby)
+        {
+            std::array<std::uint8_t, 16> bytes{};
+            NativeRuntime::RandomNumberGeneratorFill(bytes.data(), bytes.size());
+            ownerToken = NativeRuntime::Guid(bytes);
+        }
         const auto server = std::make_shared<DedicatedServer>(port,
             std::clamp(static_cast<std::int32_t>(request.MaxPlayers), 2,
                 Entities::PlayerEntity::SlotCapacity), rotation);
         server->ServerName(name);
+        server->SessionPolicy(request.Policy);
+        server->Format(request.Format);
+        server->OwnerToken(ownerToken);
         server->Reporter(std::make_shared<MasterReporter>("127.0.0.1", _port));
+        server->RunsTheMatch(false);
+        server->SetSessionOptions(request.RequireReady, request.AllowJoinInProgress);
 
         const auto cancel = std::make_shared<std::stop_source>();
         const auto entry = std::make_shared<Hosted>();
@@ -518,11 +536,12 @@ namespace MphRead::Mods::Network
         Log("started \"" + name + "\" on port "
             + ::MphRead::NativeRuntime::ToString(port) + " for "
             + IPv4ToString(askerAddress) + " (" + roomKey + ", "
-            + ::MphRead::ToString(mode) + ")");
+            + ::MphRead::ToString(mode) + ", " + std::to_string(rotation->Entries().size()) + " map(s))");
         HostReplyPacket result{};
         result.Started = true;
         result.Port = static_cast<std::uint16_t>(port);
         result.Reason = "";
+        result.OwnerToken = ownerToken;
         return result;
     }
 
@@ -696,6 +715,7 @@ namespace MphRead::Mods::Network
                     _scratch.size() - static_cast<std::size_t>(offset)));
                 offset += MasterEntryPacket::Size;
             }
+            _scratch[static_cast<std::size_t>(offset++)] = static_cast<std::uint8_t>(CanHost() ? MasterFlags::CanHost : 0);
             if (_transport != nullptr)
             {
                 _transport->Send(sender, PacketType::MasterList,
@@ -720,10 +740,177 @@ namespace MphRead::Mods::Network
             : Address + ":" + ::MphRead::NativeRuntime::ToString(Port);
     }
 
+    std::string HostCandidate::Describe() const
+    {
+        if (!Answered)
+        {
+            return "not answering";
+        }
+        const std::string ping = Latency >= 0 ? std::to_string(Latency) + " ms" : std::string("-- ms");
+        return CanHost == false ? ping + " -- cannot open new games" : ping;
+    }
+
+    void NetMasterClient::FindHosts(const std::string& masterHost, std::int32_t masterPort,
+        std::function<void(HostCandidate)> onFound, std::function<void()> onDone, std::int32_t timeoutMs)
+    {
+        NativeRuntime::TaskRun([masterHost, masterPort, onFound, onDone, timeoutMs]()
+        {
+            try
+            {
+                const auto started = std::chrono::steady_clock::now();
+                const MasterListResult listing = Query(masterHost, masterPort, timeoutMs);
+                const auto elapsed = static_cast<std::int32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - started).count());
+                HostCandidate directory{};
+                directory.Label = masterHost;
+                directory.Host = masterHost;
+                directory.Port = masterPort;
+                directory.Answered = listing.Answered;
+                directory.CanHost = listing.CanHost;
+                directory.Latency = listing.Answered ? elapsed : -1;
+                onFound(directory);
+                std::vector<MasterListing> rows;
+                std::set<std::string, NativeRuntime::OrdinalIgnoreCaseLess> seen;
+                if (listing.Servers != nullptr)
+                {
+                    for (const MasterListing& server : *listing.Servers)
+                    {
+                        if (server.Address.empty()
+                            || !seen.insert(server.Address + ":" + std::to_string(server.Port)).second)
+                        {
+                            continue;
+                        }
+                        rows.push_back(server);
+                    }
+                }
+                if (rows.empty())
+                {
+                    Safely(onDone);
+                    return;
+                }
+                // Task.WhenAll(jobs).ContinueWith(onDone): the last job to
+                // finish is the one that says so.
+                auto remaining = std::make_shared<std::atomic<std::int32_t>>(static_cast<std::int32_t>(rows.size()));
+                for (const MasterListing& row : rows)
+                {
+                    NativeRuntime::TaskRun([row, onFound, onDone, remaining]()
+                    {
+                        const auto clock = std::chrono::steady_clock::now();
+                        ServerStatus status{};
+                        try
+                        {
+                            status = NetStatus::Query(row.Address, row.Port, false);
+                        }
+                        catch (const std::exception&)
+                        {
+                            status = ServerStatus{};
+                        }
+                        const auto took = static_cast<std::int32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - clock).count());
+                        HostCandidate candidate{};
+                        candidate.Label = !row.ServerName.empty() ? row.ServerName : row.Endpoint();
+                        candidate.Host = row.Address;
+                        candidate.Port = row.Port;
+                        candidate.Answered = status.Online;
+                        candidate.CanHost = status.Online ? std::optional<bool>(status.CanHost) : std::nullopt;
+                        candidate.Latency = status.Online ? (status.Latency >= 0 ? status.Latency : took) : -1;
+                        try
+                        {
+                            onFound(candidate);
+                        }
+                        catch (...)
+                        {
+                        }
+                        if (remaining->fetch_sub(1) == 1)
+                        {
+                            Safely(onDone);
+                        }
+                    });
+                }
+            }
+            catch (const std::exception&)
+            {
+                Safely(onDone);
+            }
+        });
+    }
+
+    void NetMasterClient::Merge(std::vector<HostCandidate>& into, const HostCandidate& candidate)
+    {
+        const std::string machine = Resolve(candidate.Host);
+        for (HostCandidate& existing : into)
+        {
+            if (!NativeRuntime::StringEqualsOrdinalIgnoreCase(Resolve(existing.Host), machine))
+            {
+                continue;
+            }
+            if (candidate.WillHost() && !existing.WillHost())
+            {
+                existing = candidate;
+            }
+            return;
+        }
+        into.push_back(candidate);
+    }
+
+    void NetMasterClient::Safely(const std::function<void()>& action)
+    {
+        try
+        {
+            if (action)
+            {
+                action();
+            }
+        }
+        catch (...)
+        {
+        }
+    }
+
+    std::pair<HostCandidate, MasterListResult> NetMasterClient::Probe(const std::string& host,
+        std::int32_t port, std::int32_t timeoutMs, const std::string& label)
+    {
+        const auto clock = std::chrono::steady_clock::now();
+        MasterListResult answer{};
+        try
+        {
+            answer = Query(host, port, timeoutMs);
+        }
+        catch (const std::exception&)
+        {
+            answer = MasterListResult{std::make_shared<std::vector<MasterListing>>(), false, std::nullopt};
+        }
+        const auto elapsed = static_cast<std::int32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - clock).count());
+        HostCandidate candidate{};
+        candidate.Label = label;
+        candidate.Host = host;
+        candidate.Port = port;
+        candidate.Answered = answer.Answered;
+        candidate.CanHost = answer.CanHost;
+        candidate.Latency = answer.Answered ? elapsed : -1;
+        return {candidate, answer};
+    }
+
+    std::string NetMasterClient::Resolve(const std::string& host)
+    {
+        try
+        {
+            const std::vector<std::array<std::uint8_t, 4>> found = DnsGetIPv4Addresses(host);
+            return !found.empty() ? IPv4ToString(found.front()) : host;
+        }
+        catch (const std::exception&)
+        {
+            return host;
+        }
+    }
+
     HostedGame NetMasterClient::RequestGame(const std::string& masterHost,
         std::int32_t masterPort, const std::string& roomKey, GameMode mode,
         float timeLimit, std::int32_t pointGoal, std::int32_t maxPlayers,
-        const std::string& serverName, std::int32_t timeoutMs)
+        const std::string& serverName, std::int32_t timeoutMs,
+        const std::optional<std::vector<std::pair<std::string, GameMode>>>& rotation,
+        ServerSessionPolicy policy)
     {
         std::shared_ptr<System::Net::IPEndPoint> endPoint;
         try
@@ -763,11 +950,14 @@ namespace MphRead::Mods::Network
                     static_cast<std::int32_t>(std::numeric_limits<std::uint16_t>::max())));
                 request.RoomKey = roomKey;
                 request.ServerName = serverName;
+                request.Policy = policy;
+                request.AllowJoinInProgress = true;
+                request.RequireReady = true;
+                request.Rotation = rotation;
 
-                std::array<std::uint8_t, 1 + HostRequestPacket::Size> datagram{};
+                std::vector<std::uint8_t> datagram(static_cast<std::size_t>(1 + request.Length()));
                 datagram[0] = static_cast<std::uint8_t>(PacketType::HostRequest);
-                request.Write(std::span<std::uint8_t>(datagram.data() + 1,
-                    HostRequestPacket::Size));
+                request.Write(std::span<std::uint8_t>(datagram).subspan(1));
                 ::MphRead::NativeRuntime::UdpClientSend(socket, datagram, endPoint);
                 std::shared_ptr<System::Net::IPEndPoint> from = System::Net::IPEndPoint::Any();
                 const std::int64_t deadline = NativeRuntime::DateTimeUtcNowTicks()
@@ -777,7 +967,8 @@ namespace MphRead::Mods::Network
                     const std::vector<std::uint8_t> reply
                         = ::MphRead::NativeRuntime::UdpClientReceive(socket, from);
                     if (reply.size() < static_cast<std::size_t>(1 + HostReplyPacket::Size)
-                        || reply[0] != static_cast<std::uint8_t>(PacketType::HostReply))
+                        || reply[0] != static_cast<std::uint8_t>(PacketType::HostReply)
+                        || from == nullptr || !from->Equals(*endPoint))
                     {
                         continue;
                     }
@@ -785,6 +976,7 @@ namespace MphRead::Mods::Network
                         std::span<const std::uint8_t>(reply).subspan(1));
                     HostedGame result{};
                     result.Started = answer.Started;
+                    result.OwnerToken = answer.OwnerToken;
                     result.Host = masterHost;
                     result.Port = answer.Port;
                     result.Reason = answer.Reason.value_or(std::string{});
@@ -816,6 +1008,7 @@ namespace MphRead::Mods::Network
     {
         auto found = std::make_shared<std::vector<MasterListing>>();
         bool answered = false;
+        std::optional<bool> canHost{};
         std::shared_ptr<System::Net::IPEndPoint> endPoint;
         try
         {
@@ -891,12 +1084,16 @@ namespace MphRead::Mods::Network
                         listing.Protocol = entry.Protocol;
                         found->push_back(std::move(listing));
                     }
+                    if (offset < static_cast<std::int32_t>(reply.size()))
+                    {
+                        canHost = (reply[static_cast<std::size_t>(offset)] & MasterFlags::CanHost) != 0;
+                    }
                     if (total == 0)
                     {
                         break;
                     }
                 }
-                return {found, answered};
+                return MasterListResult{found, answered, canHost};
             });
         }
         catch (const ::MphRead::NativeRuntime::SocketException&)

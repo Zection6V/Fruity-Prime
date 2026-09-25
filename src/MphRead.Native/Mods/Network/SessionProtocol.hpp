@@ -38,6 +38,8 @@ namespace MphRead::Mods::Network
     };
 
     enum class LobbyCommandType : std::uint8_t { SetReady, SetTeam, UpdateMatch, StartMatch, KickPlayer, TransferOwner };
+    // LobbyCommandType.ToString().
+    [[nodiscard]] std::string ToString(LobbyCommandType value);
     enum class LobbyResultCode : std::uint8_t
     {
         Ok, NotOwner, InvalidPhase, StaleRevision, InvalidConfiguration, InvalidTeam,

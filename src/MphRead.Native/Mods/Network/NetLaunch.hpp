@@ -5,7 +5,7 @@
 #include <string>
 
 #include "../Multiplayer/MatchWorldProfile.hpp"
-#include "../../NativeRuntime/System/CancellationToken.hpp"
+#include <stop_token>
 #include "../../NativeRuntime/System/Guid.hpp"
 
 namespace MphRead
@@ -32,7 +32,7 @@ namespace MphRead::Mods::Network
             const std::string& playerName, Hunter hunter,
             std::int32_t timeoutMs = 8000, std::int32_t color = -1,
             NativeRuntime::Guid ownerToken = {},
-            NativeRuntime::CancellationToken cancellationToken = {});
+            std::stop_token cancellationToken = {});
         static bool Join(const std::string& address, std::int32_t port,
             const std::string& playerName, Hunter hunter,
             std::int32_t timeoutMs = 8000, std::int32_t color = -1);

@@ -1,17 +1,28 @@
 #include "DedicatedServer.hpp"
 
 #include "../../GameState.hpp"
+#include "../../Metadata/Metadata.hpp"
+#include "../../Program.hpp"
+#include "../../NativeRuntime/System/BinaryPrimitives.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/DateTime.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
+#include "../../NativeRuntime/System/Number.hpp"
+#include "../../NativeRuntime/System/Runtime.hpp"
+#include "../Launcher/Portable/LaunchPlan.hpp"
 #include "../Update/ServerUpdate.hpp"
-#include "NetMaster.hpp"
-#include "NetSession.hpp"
-#include "ServerSim.hpp"
-
+#include "LobbyRules.hpp"
 #include "MapRotation.hpp"
+#include "NetHealthSync.hpp"
+#include "NetHitClaims.hpp"
+#include "NetLifecycleTracker.hpp"
+#include "NetMaster.hpp"
+#include "NetMatchTimeSync.hpp"
+#include "NetPlayerLifecycle.hpp"
+#include "NetSession.hpp"
 #include "NetTransport.hpp"
-#include "../../Metadata/Metadata.hpp"
+#include "ServerSim.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -19,15 +30,35 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <stdexcept>
 #include <string>
-#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
 
 namespace MphRead::Mods::Network
 {
+    namespace Runtime = ::MphRead::NativeRuntime;
+
+    namespace
+    {
+        [[nodiscard]] std::span<const std::uint8_t> First(
+            const std::array<std::uint8_t, NetConfig::MaxPacketSize>& scratch, std::size_t count)
+        {
+            return std::span<const std::uint8_t>(scratch.data(), count);
+        }
+
+        [[nodiscard]] std::span<std::uint8_t> From(
+            std::array<std::uint8_t, NetConfig::MaxPacketSize>& scratch, std::size_t start)
+        {
+            return std::span<std::uint8_t>(scratch).subspan(start);
+        }
+    }
+
+    double DedicatedServer::EndSequenceSeconds()
+    {
+        return 3.0 + GameState::MatchEndingSeconds + 1.0;
+    }
+
     DedicatedServer::DedicatedServer(std::int32_t port, std::int32_t maxPlayers,
         std::shared_ptr<MapRotation> rotation)
         : _voteMode(GameMode::Battle),
@@ -35,101 +66,19 @@ namespace MphRead::Mods::Network
           _maxPlayers(std::clamp(maxPlayers, 2, Entities::PlayerEntity::SlotCapacity)),
           _rotation(rotation != nullptr ? std::move(rotation) : std::make_shared<MapRotation>()),
           _boundPort(port),
-          _serverName(NativeRuntime::EnvironmentMachineName())
+          _authorityEpoch(static_cast<std::uint64_t>(Runtime::DateTimeUtcNowTicks())),
+          _serverName(Runtime::EnvironmentMachineName())
     {
+        _hosts.Log = [](const std::string& message) { Log(message); };
+        _hosts.ReporterFactory = [this]() -> std::shared_ptr<MasterReporter>
+        {
+            return _reporter == nullptr
+                ? nullptr
+                : std::make_shared<MasterReporter>(_reporter->Host(), _reporter->Port());
+        };
     }
 
     DedicatedServer::~DedicatedServer() = default;
-
-    bool DedicatedServer::AllowMapVotes() const noexcept
-    {
-        return _allowMapVotes;
-    }
-
-    void DedicatedServer::AllowMapVotes(bool value) noexcept
-    {
-        _allowMapVotes = value;
-    }
-
-    const std::string& DedicatedServer::ServerName() const noexcept
-    {
-        return _serverName;
-    }
-
-    void DedicatedServer::ServerName(std::string value)
-    {
-        _serverName = std::move(value);
-    }
-
-    std::int32_t DedicatedServer::PeerCount() const noexcept
-    {
-        return _peerCount.load();
-    }
-
-    bool DedicatedServer::EverOccupied() const noexcept
-    {
-        return _everOccupied.load();
-    }
-
-    bool DedicatedServer::Listening() const noexcept
-    {
-        return _listening.load();
-    }
-
-    std::int32_t DedicatedServer::BoundPort() const noexcept
-    {
-        return _boundPort.load();
-    }
-
-    std::shared_ptr<MasterReporter> DedicatedServer::Reporter() const noexcept
-    {
-        return _reporter;
-    }
-
-    void DedicatedServer::Reporter(std::shared_ptr<MasterReporter> value) noexcept
-    {
-        _reporter = std::move(value);
-    }
-
-    bool DedicatedServer::FriendlyFire() const noexcept
-    {
-        return _friendlyFire;
-    }
-
-    void DedicatedServer::FriendlyFire(bool value) noexcept
-    {
-        _friendlyFire = value;
-    }
-
-    bool DedicatedServer::ShadowFreeze() const noexcept
-    {
-        return _shadowFreeze;
-    }
-
-    void DedicatedServer::ShadowFreeze(bool value) noexcept
-    {
-        _shadowFreeze = value;
-    }
-
-    bool DedicatedServer::AutoUpdate() const noexcept
-    {
-        return _autoUpdate;
-    }
-
-    void DedicatedServer::AutoUpdate(bool value) noexcept
-    {
-        _autoUpdate = value;
-    }
-
-    bool DedicatedServer::Simulate() const noexcept
-    {
-        return _simulate;
-    }
-
-    void DedicatedServer::Simulate(bool value) noexcept
-    {
-        _simulate = value;
-    }
 
     bool DedicatedServer::Simulating() const
     {
@@ -140,18 +89,17 @@ namespace MphRead::Mods::Network
     {
         bool all = true;
         std::int32_t counted = 0;
-        for (std::size_t i = 0; i < _peers.size(); i++)
+        for (const std::shared_ptr<Peer>& peer : _peers)
         {
             counted++;
-            if (!_peers[i]->Ready)
+            if (!peer->PostMatchReady)
             {
                 all = false;
                 break;
             }
         }
         const double wait = counted == 0 || all ? AllReadySeconds : ReadyWaitSeconds;
-        const double endSequenceSeconds = 3.0 + GameState::MatchEndingSeconds + 1.0;
-        return std::max(endSequenceSeconds, wait);
+        return std::max(EndSequenceSeconds(), wait);
     }
 
     void DedicatedServer::Run(std::stop_token cancel)
@@ -160,122 +108,129 @@ namespace MphRead::Mods::Network
         _boundPort.store(_transport->LocalPort());
         _listening.store(true);
         _running.store(true);
-        Log("listening on UDP "
-            + ::MphRead::NativeRuntime::ToString((_transport->LocalPort()))
-            + ", up to " + ::MphRead::NativeRuntime::ToString(_maxPlayers)
-            + " players");
-        StartSimulation();
-        Log(Simulating()
-            ? "authority mode: this server simulates the match itself"
-            : "relay mode: the first client to connect is the simulation authority");
-        Log("rotation: "
-            + ::MphRead::NativeRuntime::ToString((static_cast<std::int32_t>(_rotation->Entries().size())))
-            + " map(s), starting on " + _rotation->Current()->ToString());
-
+        Log("listening on UDP " + std::to_string(_transport->LocalPort()) + ", up to "
+            + std::to_string(_maxPlayers) + " players");
+        _lobbyMatch = DefinitionFor(*_rotation->Current());
+        _phase = _sessionPolicy == ServerSessionPolicy::Lobby ? SessionPhase::Lobby : SessionPhase::InMatch;
         const std::uint16_t listenPort = static_cast<std::uint16_t>(_transport->LocalPort());
-        const auto clock = std::chrono::steady_clock::now();
-        double lastReport = 0.0;
-        double lastStateBroadcast = 0.0;
-        _matchStarted = 0.0;
-
         try
         {
+            if (_phase == SessionPhase::InMatch)
+            {
+                StartSimulation();
+            }
+            Log(Simulating()
+                ? "this server runs the match itself"
+                : "hosted game: the first client to connect runs the match");
+            Log("rotation: " + std::to_string(_rotation->Entries().size()) + " map(s), starting on "
+                + _rotation->Current()->ToString());
+            Log(_hosts.Describe());
+            const auto clock = std::chrono::steady_clock::now();
+            double lastReport = 0;
+            double lastStateBroadcast = 0;
+            _matchStarted = 0;
             while (_running.load() && !cancel.stop_requested())
             {
-                const double now = std::chrono::duration<double>(
-                    std::chrono::steady_clock::now() - clock).count();
+                const double now = std::chrono::duration<double>(std::chrono::steady_clock::now() - clock).count();
                 _now = now;
                 for (ReceivedPacket packet : _transport->Drain())
                 {
                     Handle(packet, now);
                 }
                 DropTimedOut(now);
-                if (_sim != nullptr)
+                CheckLoadBarrier(now);
+                if ((_phase == SessionPhase::InMatch || _phase == SessionPhase::PostMatch) && _sim != nullptr)
                 {
                     _sim->Advance(now);
                 }
-
-                const float limit = _rotation->Current()->TimeLimit;
-                if (_matchEndedAt < 0.0 && limit > 0.0F && !_peers.empty()
+                const float limit = CurrentDefinition().TimeLimitSeconds;
+                if (_phase == SessionPhase::InMatch && _matchEndedAt < 0 && limit > 0 && !_peers.empty()
                     && now - _matchStarted >= limit)
                 {
                     EndMatch(now, "time limit");
                 }
-                else if (_matchEndedAt >= 0.0 && now - _matchEndedAt >= EndSequenceFor())
+                else if (_matchEndedAt >= 0 && now - _matchEndedAt >= EndSequenceFor())
                 {
-                    AdvanceMap(now);
+                    if (_sessionPolicy == ServerSessionPolicy::Lobby)
+                    {
+                        ReturnToLobby();
+                    }
+                    else
+                    {
+                        AdvanceMap(now);
+                    }
                 }
-
                 if (now - lastStateBroadcast >= 1.0)
                 {
                     lastStateBroadcast = now;
                     PingPeers(now);
-                    BroadcastMatchState(now);
+                    BroadcastSessionState();
+                    if (_phase == SessionPhase::InMatch || _phase == SessionPhase::PostMatch)
+                    {
+                        BroadcastMatchState(now);
+                    }
                     BroadcastRoster();
                     Tally(now);
                     BroadcastVoteState(now);
-                    if (_authority != nullptr && !Simulating())
+                    if (_ballotOpen)
+                    {
+                        BroadcastMapChoices();
+                    }
+                    if (_authority != nullptr && !_runsTheMatch)
                     {
                         NotifyAuthority(_authority);
                     }
                     if (_reporter != nullptr)
                     {
-                        _reporter->Beat(now, _serverName,
-                            listenPort, static_cast<std::uint8_t>(_peers.size()),
-                            static_cast<std::uint8_t>(_maxPlayers),
-                            static_cast<std::uint8_t>(_rotation->Current()->Mode),
-                            _rotation->Current()->RoomKey);
+                        const MatchDefinition definition = CurrentDefinition();
+                        _reporter->Beat(now, _serverName, listenPort, static_cast<std::uint8_t>(_peers.size()),
+                            static_cast<std::uint8_t>(_maxPlayers), static_cast<std::uint8_t>(definition.Mode),
+                            definition.RoomKey.value_or(""));
                     }
                 }
-
-                if (_autoUpdate
-                    && Update::ServerUpdate::ShouldRestart(
-                        static_cast<std::int32_t>(_peers.size())))
+                _hosts.Reap(now);
+                if (_autoUpdate && Update::ServerUpdate::ShouldRestart(
+                    static_cast<std::int32_t>(_peers.size()) + _hosts.Count()))
                 {
                     Log("shutting down to come back on the new build");
                     _running.store(false);
                     break;
                 }
-
-                if (now - lastReport >= 30.0)
+                if (now - lastReport >= 30)
                 {
                     lastReport = now;
-                    std::string authority;
-                    if (Simulating())
+                    std::string line = std::to_string(_peers.size()) + " peer(s) connected"
+                        + (Simulating() ? std::string(", authority = this server")
+                            : _authority != nullptr ? ", authority = slot " + std::to_string(_authority->SlotIndex)
+                            : std::string(", no authority"))
+                        + ", map " + CurrentDefinition().RoomKey.value_or("");
+                    if (limit > 0)
                     {
-                        authority = ", authority = this server";
-                    }
-                    else if (_authority != nullptr)
-                    {
-                        authority = ", authority = slot "
-                            + ::MphRead::NativeRuntime::ToString(_authority->SlotIndex);
-                    }
-                    else
-                    {
-                        authority = ", no authority";
-                    }
-                    std::string line = ::MphRead::NativeRuntime::ToString((static_cast<std::int32_t>(_peers.size())))
-                        + " peer(s) connected" + authority
-                        + ", map " + _rotation->Current()->RoomKey;
-                    if (limit > 0.0F)
-                    {
-                        line += ", " + ::MphRead::NativeRuntime::ToString((std::max(0.0, static_cast<double>(limit) - (now - _matchStarted))), "0")
+                        line += ", " + Runtime::ToString(std::max(0.0, static_cast<double>(limit) - (now - _matchStarted)), "0")
                             + " s left";
                     }
                     if (_transport != nullptr && _transport->PacketsDropped() > 0)
                     {
-                        line += ", " + ::MphRead::NativeRuntime::ToString((_transport->PacketsDropped())) + " packet(s) dropped";
+                        line += ", " + std::to_string(_transport->PacketsDropped()) + " packet(s) dropped";
                     }
                     Log(line);
                     if (_sim != nullptr)
                     {
                         Log("sim: " + _sim->Describe());
                         Log("sim: " + _sim->DescribeUnlagged());
+                        Log("sim: " + _sim->DescribeRewindDepths());
+                        if (const std::optional<std::string> claimLine = _sim->DescribeClaims(); claimLine.has_value())
+                        {
+                            Log("sim: " + *claimLine);
+                        }
+                        Log("sim: " + _sim->DescribeShots());
+                        for (const std::string& agreement : Runtime::StringSplit(_sim->DescribeAgreement(), '\n'))
+                        {
+                            Log("sim: " + agreement);
+                        }
                     }
                 }
-
-                std::this_thread::sleep_for(std::chrono::milliseconds(
-                    _peers.empty() && !Simulating() ? 20 : 1));
+                std::this_thread::sleep_for(std::chrono::milliseconds(_peers.empty() && !Simulating() ? 20 : 1));
             }
         }
         catch (...)
@@ -289,6 +244,7 @@ namespace MphRead::Mods::Network
     void DedicatedServer::Shutdown(std::uint16_t listenPort)
     {
         Log("shutting down");
+        _hosts.StopAll("the server is shutting down");
         _running.store(false);
         try
         {
@@ -317,41 +273,60 @@ namespace MphRead::Mods::Network
             _sim->Stop();
         }
         _sim.reset();
+        NetHitClaims::VerdictSink(nullptr);
     }
 
     void DedicatedServer::EndMatch(double now, const std::string& reason)
     {
-        if (_matchEndedAt >= 0.0)
+        if (_matchEndedAt >= 0 || _phase != SessionPhase::InMatch)
         {
             return;
         }
         _matchEndedAt = now;
-        Log("match over on " + _rotation->Current()->RoomKey + " (" + reason + "); "
-            + _rotation->Next()->RoomKey + " in "
-            + ::MphRead::NativeRuntime::ToString((EndSequenceFor()), "0") + " s");
+        for (const std::shared_ptr<Peer>& peer : _peers)
+        {
+            peer->PostMatchReady = false;
+        }
+        SetPhase(SessionPhase::PostMatch);
+        OpenBallot();
+        Log("match over on " + CurrentDefinition().RoomKey.value_or("") + " (" + reason + "); "
+            + _rotation->Next()->RoomKey + " in " + Runtime::ToString(EndSequenceFor(), "0") + " s"
+            + (_ballotOpen ? "; ballot open" : ""));
         BroadcastMatchState(now);
+        BroadcastMapChoices();
     }
 
     void DedicatedServer::AdvanceMap(double now)
     {
         const std::shared_ptr<const RotationEntry> entry = _rotation->Advance();
+        _phase = SessionPhase::InMatch;
+        NormalizeTeams();
         _matchStarted = now;
-        _matchEndedAt = -1.0;
-        _matchId++;
+        _matchEndedAt = -1;
+        _matchId = NetLifecycleTracker::Next(_matchId);
+        _snapshotSeen = false;
+        _slotLives.fill(0);
+        for (const std::shared_ptr<Peer>& connected : _peers)
+        {
+            connected->LastIntentFrame = 0;
+        }
+        TouchLobbyRevision("rotation advanced");
         if (_voteRunning)
         {
             _voteRunning = false;
             _voteResolvedAt = now;
             _voteResult = VoteStatePacket::StateFailed;
-            for (std::size_t i = 0; i < _peers.size(); i++)
+            for (const std::shared_ptr<Peer>& peer : _peers)
             {
-                _peers[i]->Ballot = 0;
+                peer->Ballot = 0;
             }
         }
-        for (std::size_t i = 0; i < _peers.size(); i++)
+        for (const std::shared_ptr<Peer>& peer : _peers)
         {
-            _peers[i]->Ready = false;
+            peer->PostMatchReady = false;
         }
+        CloseBallot();
+        BroadcastMapChoices();
         Log("rotating to " + entry->ToString());
         MatchStatePacket state = BuildState(now);
         if (_sim != nullptr)
@@ -359,42 +334,46 @@ namespace MphRead::Mods::Network
             NetSession::ApplyMatchState(state, true);
         }
         state.Write(_scratch);
-        for (std::size_t i = 0; i < _peers.size(); i++)
+        for (const std::shared_ptr<Peer>& peer : _peers)
         {
             if (_transport != nullptr)
             {
-                _transport->Send(_peers[i]->EndPoint, PacketType::MapChange,
-                    std::span<const std::uint8_t>(_scratch.data(), MatchStatePacket::Size));
+                _transport->Send(peer->EndPoint, PacketType::MapChange, First(_scratch, MatchStatePacket::Size));
             }
         }
     }
 
     MatchStatePacket DedicatedServer::BuildState(double now) const
     {
-        const std::shared_ptr<const RotationEntry> entry = _rotation->Current();
-        const float elapsed = static_cast<float>(now - _matchStarted);
-        const bool ending = _matchEndedAt >= 0.0;
+        const MatchDefinition entry = CurrentDefinition();
+        const float elapsed = _phase == SessionPhase::Lobby || _phase == SessionPhase::Starting
+            ? 0.0F : static_cast<float>(now - _matchStarted);
+        const bool ending = _matchEndedAt >= 0;
         MatchStatePacket state{};
-        state.Mode = static_cast<std::uint8_t>(entry->Mode);
-        state.TimeRemaining = ending || entry->TimeLimit <= 0.0F
+        state.Mode = static_cast<std::uint8_t>(entry.Mode);
+        state.TimeRemaining = ending || entry.TimeLimitSeconds <= 0
             ? 0.0F
-            : std::max(0.0F, entry->TimeLimit - elapsed);
+            : std::max(0.0F, static_cast<float>(entry.TimeLimitSeconds) - elapsed);
         state.TimeElapsed = elapsed;
         state.PlayerCount = static_cast<std::uint8_t>(_peers.size());
-        state.Flags = static_cast<std::uint8_t>(
-            (ending ? MatchStatePacket::FlagEnding : MatchStatePacket::FlagInProgress)
-            | (_friendlyFire ? MatchStatePacket::FlagFriendlyFire : 0)
-            | (_shadowFreeze ? 0 : MatchStatePacket::FlagNoShadowFreeze));
-        state.PointGoal = static_cast<std::uint16_t>(
-            std::clamp(entry->PointGoal, 0, static_cast<std::int32_t>(std::numeric_limits<std::uint16_t>::max())));
+        state.Flags = static_cast<std::uint8_t>((ending ? MatchStatePacket::FlagEnding : MatchStatePacket::FlagInProgress)
+            | (entry.FriendlyFire ? MatchStatePacket::FlagFriendlyFire : 0)
+            | (entry.ShadowFreeze ? 0 : MatchStatePacket::FlagNoShadowFreeze)
+            | MatchStatePacket::RuleFlags(DamageLevel(), entry.AffinityWeapons));
+        state.PointGoal = entry.PointGoal;
         state.MatchId = _matchId;
-        state.RoomKey = entry->RoomKey;
+        state.AuthorityEpoch = _authorityEpoch;
+        state.RoomKey = entry.RoomKey;
         state.NextRoomKey = _rotation->Next()->RoomKey;
         return state;
     }
 
     void DedicatedServer::BroadcastMatchState(double now)
     {
+        if (_sim != nullptr)
+        {
+            NetSession::ApplySessionState(BuildSessionState());
+        }
         MatchStatePacket state = BuildState(now);
         if (_sim != nullptr)
         {
@@ -405,51 +384,56 @@ namespace MphRead::Mods::Network
             return;
         }
         state.Write(_scratch);
-        for (std::size_t i = 0; i < _peers.size(); i++)
+        for (const std::shared_ptr<Peer>& peer : _peers)
         {
             if (_transport != nullptr)
             {
-                _transport->Send(_peers[i]->EndPoint, PacketType::MatchState,
-                    std::span<const std::uint8_t>(_scratch.data(), MatchStatePacket::Size));
+                _transport->Send(peer->EndPoint, PacketType::MatchState, First(_scratch, MatchStatePacket::Size));
             }
         }
     }
 
     void DedicatedServer::StartSimulation()
     {
-        if (!_simulate)
+        if (!_runsTheMatch)
         {
             return;
         }
         std::string why;
         if (!ServerSim::Available(why))
         {
-            Log("-simulate asked for, but " + why);
-            Log("carrying on as a relay; the first client to connect will be the authority");
-            return;
+            Log("cannot run the match: " + why);
+            Log("a dedicated server runs the match itself now, so this one will not "
+                "start. Put the game files on this machine and paths.txt beside "
+                "the binary -- see SERVER.md");
+            throw ProgramException("the server cannot run the match: " + why);
         }
-        std::shared_ptr<ServerSim> sim = std::make_shared<ServerSim>();
-        const std::shared_ptr<const RotationEntry> entry = _rotation->Current();
-        if (!sim->Start(entry->RoomKey, entry->Mode,
-            _maxPlayers,
-            [this](std::span<const std::uint8_t> payload) { SendSnapshot(payload); },
-            [this]() { EndMatch(_now, "score"); }))
+        auto sim = std::make_shared<ServerSim>();
+        const MatchDefinition entry = CurrentDefinition();
+        const std::string room = entry.RoomKey.value_or("");
+        if (!sim->Start(room, entry.Mode, _maxPlayers,
+                [this](std::span<const std::uint8_t> payload) { SendSnapshot(payload); },
+                [this]() { EndMatch(_now, "score"); }, BuildRoster(), BuildSessionState()))
         {
-            Log("carrying on as a relay; the first client to connect will be the authority");
-            return;
+            Log("cannot run the match: the room \"" + room + "\" would not load");
+            throw ProgramException("the server could not load \"" + room + "\"");
         }
-        _sim = std::move(sim);
+        _sim = sim;
+        NetHitClaims::VerdictSink([this](std::int32_t slot, std::span<const std::pair<std::uint16_t, std::uint8_t>> verdicts)
+        {
+            SendVerdicts(slot, verdicts);
+        });
         SyncSimulationState(_now);
     }
 
     void DedicatedServer::SendSnapshot(std::span<const std::uint8_t> payload)
     {
         _lastSnapshot = std::make_shared<std::vector<std::uint8_t>>(payload.begin(), payload.end());
-        for (std::size_t i = 0; i < _peers.size(); i++)
+        for (const std::shared_ptr<Peer>& peer : _peers)
         {
             if (_transport != nullptr)
             {
-                _transport->Send(_peers[i]->EndPoint, PacketType::Snapshot, payload);
+                _transport->Send(peer->EndPoint, PacketType::Snapshot, payload);
             }
         }
     }
@@ -460,8 +444,9 @@ namespace MphRead::Mods::Network
         {
             return;
         }
-        NetSession::ApplyRoster(BuildRoster());
+        NetSession::ApplySessionState(BuildSessionState());
         NetSession::ApplyMatchState(BuildState(now), false);
+        NetSession::ApplyRoster(BuildRoster());
     }
 
     void DedicatedServer::Stop() noexcept
@@ -473,6 +458,15 @@ namespace MphRead::Mods::Network
     {
         switch (packet.Type())
         {
+        case PacketType::LobbyCommand:
+            HandleLobbyCommand(packet, now);
+            break;
+        case PacketType::MatchLoaded:
+            HandleMatchLoaded(packet, now);
+            break;
+        case PacketType::MatchLoadFailed:
+            HandleMatchLoadFailed(packet);
+            break;
         case PacketType::Hello:
             HandleHello(packet, now);
             break;
@@ -491,11 +485,14 @@ namespace MphRead::Mods::Network
         case PacketType::Ping:
             if (_transport != nullptr)
             {
-                _transport->Send(packet.Sender, PacketType::Pong, std::span<const std::uint8_t>{});
+                _transport->Send(packet.Sender, PacketType::Pong, {});
             }
             break;
         case PacketType::Pong:
             HandlePong(packet, now);
+            break;
+        case PacketType::HostRequest:
+            HandleHostRequest(packet, now);
             break;
         case PacketType::StatusQuery:
             SendStatus(packet.Sender, now);
@@ -509,17 +506,58 @@ namespace MphRead::Mods::Network
         case PacketType::Vote:
             HandleVote(packet, now);
             break;
+        case PacketType::MapPick:
+            HandleMapPick(packet, now);
+            break;
+        case PacketType::HitClaim:
+            HandleHitClaim(packet, now);
+            break;
         default:
             break;
         }
     }
 
+    void DedicatedServer::HandleHitClaim(const ReceivedPacket& packet, double now)
+    {
+        if (_phase != SessionPhase::InMatch)
+        {
+            return;
+        }
+        const std::shared_ptr<Peer> peer = Find(packet.Sender);
+        if (peer == nullptr || peer->SlotIndex < 0 || !Simulating())
+        {
+            return;
+        }
+        peer->LastSeen = now;
+        NetHitClaims::Receive(peer->SlotIndex, packet.Payload());
+    }
+
+    void DedicatedServer::SendVerdicts(std::int32_t slot,
+        std::span<const std::pair<std::uint16_t, std::uint8_t>> verdicts)
+    {
+        if (verdicts.empty() || _transport == nullptr)
+        {
+            return;
+        }
+        for (const std::shared_ptr<Peer>& peer : _peers)
+        {
+            if (peer->SlotIndex != slot)
+            {
+                continue;
+            }
+            HitVerdictPacket::Write(_scratch, verdicts, NetSession::CurrentMatchId(), NetSession::AuthorityEpoch(),
+                NetPlayerLifecycle::Generation(slot), NetPlayerLifecycle::Get(slot));
+            _transport->Send(peer->EndPoint, PacketType::HitVerdict,
+                First(_scratch, HitVerdictPacket::HeaderSize + verdicts.size() * HitVerdictPacket::EntrySize));
+            return;
+        }
+    }
+
     void DedicatedServer::HandleVote(const ReceivedPacket& packet, double now)
     {
-        std::shared_ptr<Peer> peer = Find(packet.Sender);
+        const std::shared_ptr<Peer> peer = Find(packet.Sender);
         const std::span<const std::uint8_t> payload = packet.Payload();
-        if (peer == nullptr || peer->SlotIndex < 0
-            || payload.size() < static_cast<std::size_t>(VotePacket::Size))
+        if (peer == nullptr || peer->SlotIndex < 0 || payload.size() < static_cast<std::size_t>(VotePacket::Size))
         {
             return;
         }
@@ -531,11 +569,10 @@ namespace MphRead::Mods::Network
         const VotePacket vote = VotePacket::Read(payload);
         if (vote.Kind == VotePacket::KindPropose)
         {
-            StartVote(peer, vote.RoomKey.value_or(std::string{}), now);
+            StartVote(peer, vote.RoomKey.value_or(""), now);
             return;
         }
-        if (!_voteRunning
-            || (vote.Kind != VotePacket::KindYes && vote.Kind != VotePacket::KindNo))
+        if (!_voteRunning || (vote.Kind != VotePacket::KindYes && vote.Kind != VotePacket::KindNo))
         {
             return;
         }
@@ -548,9 +585,183 @@ namespace MphRead::Mods::Network
         Tally(now);
     }
 
-    void DedicatedServer::StartVote(const std::shared_ptr<Peer>& peer,
-        const std::string& roomKey, double now)
+    void DedicatedServer::OpenBallot()
     {
+        _ballotOpen = _allowMapVotes;
+        _tallyRooms.clear();
+        _tallyVotes.clear();
+        for (const std::shared_ptr<Peer>& peer : _peers)
+        {
+            peer->Pick.clear();
+        }
+    }
+
+    void DedicatedServer::CloseBallot()
+    {
+        _ballotOpen = false;
+        _tallyRooms.clear();
+        _tallyVotes.clear();
+        for (const std::shared_ptr<Peer>& peer : _peers)
+        {
+            peer->Pick.clear();
+        }
+    }
+
+    void DedicatedServer::HandleMapPick(const ReceivedPacket& packet, double now)
+    {
+        const std::shared_ptr<Peer> peer = Find(packet.Sender);
+        const std::span<const std::uint8_t> payload = packet.Payload();
+        if (peer == nullptr || peer->SlotIndex < 0 || payload.size() < static_cast<std::size_t>(MapPickPacket::Size))
+        {
+            return;
+        }
+        peer->LastSeen = now;
+        if (!_ballotOpen)
+        {
+            return;
+        }
+        std::string key = MapPickPacket::Read(payload).RoomKey.value_or("");
+        if (!key.empty())
+        {
+            const std::optional<std::string> resolved = ResolveRoomKey(key);
+            if (!resolved.has_value()
+                || Runtime::StringEqualsOrdinalIgnoreCase(*resolved, CurrentDefinition().RoomKey.value_or("")))
+            {
+                Tell(peer, !resolved.has_value() ? "no map called \"" + key + "\"" : std::string("that is the map you are on"));
+                return;
+            }
+            key = *resolved;
+        }
+        if (Runtime::StringEqualsOrdinalIgnoreCase(peer->Pick, key))
+        {
+            return;
+        }
+        const std::string was = peer->Pick;
+        peer->Pick = key;
+        Recount();
+        if (!key.empty() && VotesFor(key) == 1)
+        {
+            const std::string who = !peer->Name.empty() ? peer->Name : "Player" + std::to_string(peer->SlotIndex + 1);
+            Announce(who + " wants " + key + " next -- pick it to agree; "
+                "the map with the most votes is the one loaded");
+        }
+        else if (key.empty() && !was.empty())
+        {
+            Log("slot " + std::to_string(peer->SlotIndex) + " took back its pick of " + was);
+        }
+        ApplyLeader();
+        BroadcastMapChoices();
+    }
+
+    std::int32_t DedicatedServer::VotesFor(const std::string& roomKey) const
+    {
+        for (std::size_t i = 0; i < _tallyRooms.size(); i++)
+        {
+            if (Runtime::StringEqualsOrdinalIgnoreCase(_tallyRooms[i], roomKey))
+            {
+                return _tallyVotes[i];
+            }
+        }
+        return 0;
+    }
+
+    void DedicatedServer::Recount()
+    {
+        _tallyRooms.clear();
+        _tallyVotes.clear();
+        for (const std::shared_ptr<Peer>& peer : _peers)
+        {
+            const std::string& key = peer->Pick;
+            if (key.empty())
+            {
+                continue;
+            }
+            std::int32_t at = -1;
+            for (std::size_t j = 0; j < _tallyRooms.size(); j++)
+            {
+                if (Runtime::StringEqualsOrdinalIgnoreCase(_tallyRooms[j], key))
+                {
+                    at = static_cast<std::int32_t>(j);
+                    break;
+                }
+            }
+            if (at < 0)
+            {
+                _tallyRooms.push_back(key);
+                _tallyVotes.push_back(1);
+            }
+            else
+            {
+                _tallyVotes[static_cast<std::size_t>(at)]++;
+            }
+        }
+        for (std::size_t i = 1; i < _tallyRooms.size(); i++)
+        {
+            for (std::size_t j = i; j > 0 && _tallyVotes[j] > _tallyVotes[j - 1]; j--)
+            {
+                std::swap(_tallyVotes[j], _tallyVotes[j - 1]);
+                std::swap(_tallyRooms[j], _tallyRooms[j - 1]);
+            }
+        }
+    }
+
+    void DedicatedServer::ApplyLeader()
+    {
+        if (_tallyRooms.empty() || _tallyVotes[0] <= 0)
+        {
+            _rotation->ClearPending();
+            return;
+        }
+        _rotation->PlayNext(_tallyRooms[0], ModeForRoom(_tallyRooms[0]));
+    }
+
+    void DedicatedServer::BroadcastMapChoices()
+    {
+        if (_peers.empty())
+        {
+            return;
+        }
+        const std::size_t count = std::min(_tallyRooms.size(), static_cast<std::size_t>(MapChoicesPacket::MaxChoices));
+        auto keys = std::make_shared<std::vector<std::optional<std::string>>>(count);
+        auto votes = std::make_shared<std::vector<std::uint8_t>>(count);
+        for (std::size_t i = 0; i < count; i++)
+        {
+            (*keys)[i] = _tallyRooms[i];
+            (*votes)[i] = static_cast<std::uint8_t>(std::clamp(_tallyVotes[i], 0, 255));
+        }
+        MapChoicesPacket packet{};
+        packet.Open = static_cast<std::uint8_t>(_ballotOpen ? 1 : 0);
+        packet.Count = static_cast<std::uint8_t>(count);
+        packet.RoomKeys = keys;
+        packet.Votes = votes;
+        packet.Eligible = static_cast<std::uint8_t>(std::clamp(static_cast<std::int32_t>(_peers.size()), 0, 255));
+        packet.Write(_scratch);
+        for (const std::shared_ptr<Peer>& peer : _peers)
+        {
+            if (_transport != nullptr)
+            {
+                _transport->Send(peer->EndPoint, PacketType::MapChoices, First(_scratch, MapChoicesPacket::Size));
+            }
+        }
+    }
+
+    void DedicatedServer::ReviewPicks()
+    {
+        if (!_ballotOpen)
+        {
+            return;
+        }
+        Recount();
+        ApplyLeader();
+        BroadcastMapChoices();
+    }
+
+    void DedicatedServer::StartVote(const std::shared_ptr<Peer>& peer, const std::string& roomKey, double now)
+    {
+        if (_phase != SessionPhase::InMatch)
+        {
+            return;
+        }
         if (_voteRunning)
         {
             Tell(peer, "a vote is already running");
@@ -564,17 +775,13 @@ namespace MphRead::Mods::Network
         const double sinceVote = now - _voteResolvedAt;
         if (sinceVote < VoteCooldownSeconds)
         {
-            Tell(peer, "another vote may be called in "
-                + ::MphRead::NativeRuntime::ToString((VoteCooldownSeconds - sinceVote), "0")
-                + " s");
+            Tell(peer, "another vote may be called in " + Runtime::ToString(VoteCooldownSeconds - sinceVote, "0") + " s");
             return;
         }
         const double sinceMine = now - peer->LastProposal;
         if (sinceMine < ProposalCooldownSeconds)
         {
-            Tell(peer, "you may propose again in "
-                + ::MphRead::NativeRuntime::ToString((ProposalCooldownSeconds - sinceMine), "0")
-                + " s");
+            Tell(peer, "you may propose again in " + Runtime::ToString(ProposalCooldownSeconds - sinceMine, "0") + " s");
             return;
         }
         const std::optional<std::string> resolved = ResolveRoomKey(roomKey);
@@ -583,7 +790,7 @@ namespace MphRead::Mods::Network
             Tell(peer, "no map called \"" + roomKey + "\"");
             return;
         }
-        if (NativeRuntime::StringEqualsOrdinalIgnoreCase((*resolved), (_rotation->Current()->RoomKey)))
+        if (Runtime::StringEqualsOrdinalIgnoreCase(*resolved, CurrentDefinition().RoomKey.value_or("")))
         {
             Tell(peer, "that is the map you are on");
             return;
@@ -591,23 +798,18 @@ namespace MphRead::Mods::Network
         _voteRunning = true;
         _voteRoom = *resolved;
         _voteMode = ModeForRoom(*resolved);
-        _voteProposer = !peer->Name.empty()
-            ? peer->Name
-            : "Player" + ::MphRead::NativeRuntime::ToString((peer->SlotIndex + 1));
+        _voteProposer = !peer->Name.empty() ? peer->Name : "Player" + std::to_string(peer->SlotIndex + 1);
         _voteProposerSlot = peer->SlotIndex;
         _voteStartedAt = now;
         _voteResult = VoteStatePacket::StateIdle;
         peer->LastProposal = now;
-        for (std::size_t i = 0; i < _peers.size(); i++)
+        for (const std::shared_ptr<Peer>& other : _peers)
         {
-            _peers[i]->Ballot = 0;
+            other->Ballot = 0;
         }
         peer->Ballot = VotePacket::KindYes;
-        Announce(_voteProposer + " proposes " + *resolved
-            + " -- F1 to accept, F2 to deny");
-        Log("vote started by slot "
-            + ::MphRead::NativeRuntime::ToString(peer->SlotIndex)
-            + " for " + *resolved + " ("
+        Announce(_voteProposer + " proposes " + *resolved + " -- F1 to accept, F2 to deny");
+        Log("vote started by slot " + std::to_string(peer->SlotIndex) + " for " + *resolved + " ("
             + ::MphRead::ToString(_voteMode) + ")");
         BroadcastVoteState(now);
         Tally(now);
@@ -620,47 +822,40 @@ namespace MphRead::Mods::Network
             return;
         }
         const auto [yes, no, eligible, needed] = CountVotes();
+        const std::string count = std::to_string(yes) + " of " + std::to_string(eligible);
         if (yes >= needed)
         {
-            ResolveVote(now, true,
-                ::MphRead::NativeRuntime::ToString(yes) + " of "
-                    + ::MphRead::NativeRuntime::ToString(eligible));
+            ResolveVote(now, true, count);
             return;
         }
         if (eligible - no < needed)
         {
-            ResolveVote(now, false,
-                ::MphRead::NativeRuntime::ToString(yes) + " of "
-                    + ::MphRead::NativeRuntime::ToString(eligible));
+            ResolveVote(now, false, count);
             return;
         }
         if (now - _voteStartedAt >= VoteSeconds)
         {
-            ResolveVote(now, false,
-                ::MphRead::NativeRuntime::ToString(yes) + " of "
-                    + ::MphRead::NativeRuntime::ToString(eligible));
+            ResolveVote(now, false, count);
         }
     }
 
-    std::tuple<std::int32_t, std::int32_t, std::int32_t, std::int32_t>
-        DedicatedServer::CountVotes() const
+    std::tuple<std::int32_t, std::int32_t, std::int32_t, std::int32_t> DedicatedServer::CountVotes() const
     {
         std::int32_t yes = 0;
         std::int32_t no = 0;
-        for (std::size_t i = 0; i < _peers.size(); i++)
+        for (const std::shared_ptr<Peer>& peer : _peers)
         {
-            if (_peers[i]->Ballot == VotePacket::KindYes)
+            if (peer->Ballot == VotePacket::KindYes)
             {
                 yes++;
             }
-            else if (_peers[i]->Ballot == VotePacket::KindNo)
+            else if (peer->Ballot == VotePacket::KindNo)
             {
                 no++;
             }
         }
         const std::int32_t eligible = static_cast<std::int32_t>(_peers.size());
-        const std::int32_t needed = std::max(1,
-            static_cast<std::int32_t>(std::ceil(eligible * VoteThreshold)));
+        const std::int32_t needed = std::max(1, static_cast<std::int32_t>(std::ceil(eligible * VoteThreshold)));
         return {yes, no, eligible, needed};
     }
 
@@ -671,21 +866,27 @@ namespace MphRead::Mods::Network
         _voteRunning = false;
         _voteResolvedAt = now;
         _voteResult = passed ? VoteStatePacket::StatePassed : VoteStatePacket::StateFailed;
-        for (std::size_t i = 0; i < _peers.size(); i++)
+        for (const std::shared_ptr<Peer>& peer : _peers)
         {
-            _peers[i]->Ballot = 0;
+            peer->Ballot = 0;
         }
         if (passed)
         {
             Announce("vote passed (" + count + ") -- changing to " + room);
             Log("vote passed (" + count + ") for " + room);
             _rotation->PlayNext(room, mode);
-            AdvanceMap(now);
+            if (_sessionPolicy == ServerSessionPolicy::Lobby)
+            {
+                EndMatch(now, "map vote passed");
+            }
+            else
+            {
+                AdvanceMap(now);
+            }
         }
         else
         {
-            Announce("vote failed (" + count + ") -- staying on "
-                + _rotation->Current()->RoomKey);
+            Announce("vote failed (" + count + ") -- staying on " + CurrentDefinition().RoomKey.value_or(""));
             Log("vote failed (" + count + ") for " + room);
         }
         BroadcastVoteState(now);
@@ -707,19 +908,15 @@ namespace MphRead::Mods::Network
 
     std::optional<std::string> DedicatedServer::ResolveRoomKey(const std::string& roomKey)
     {
-        if (NativeRuntime::StringIsNullOrWhiteSpace(roomKey))
+        if (Runtime::StringIsNullOrWhiteSpace(roomKey))
         {
             return std::nullopt;
         }
-        const std::string wanted = NativeRuntime::StringTrim(std::string(roomKey));
+        const std::string wanted = Runtime::StringTrim(roomKey);
         for (const auto& entry : Metadata::RoomMetadata)
         {
-            if (entry.second == nullptr)
-            {
-                throw std::runtime_error("Metadata.RoomMetadata contains a null value.");
-            }
-            if (entry.second->Multiplayer
-                && NativeRuntime::StringEqualsOrdinalIgnoreCase(entry.first, wanted))
+            if (Runtime::RequireReference(entry.second).Multiplayer
+                && Runtime::StringEqualsOrdinalIgnoreCase(entry.first, wanted))
             {
                 return entry.first;
             }
@@ -731,12 +928,12 @@ namespace MphRead::Mods::Network
     {
         for (const std::shared_ptr<const RotationEntry>& entry : _rotation->Entries())
         {
-            if (NativeRuntime::StringEqualsOrdinalIgnoreCase(entry->RoomKey, roomKey))
+            if (Runtime::StringEqualsOrdinalIgnoreCase(entry->RoomKey, roomKey))
             {
                 return entry->Mode;
             }
         }
-        return _rotation->Current()->Mode;
+        return CurrentDefinition().Mode;
     }
 
     void DedicatedServer::BroadcastVoteState(double now)
@@ -756,26 +953,23 @@ namespace MphRead::Mods::Network
             state.No = static_cast<std::uint8_t>(no);
             state.Eligible = static_cast<std::uint8_t>(eligible);
             state.Needed = static_cast<std::uint8_t>(needed);
-            state.Seconds = static_cast<std::uint16_t>(
-                std::max(0.0, VoteSeconds - (now - _voteStartedAt)));
+            state.Seconds = static_cast<std::uint16_t>(std::max(0.0, VoteSeconds - (now - _voteStartedAt)));
         }
         else if (_allowMapVotes)
         {
             const double wait = VoteCooldownSeconds - (now - _voteResolvedAt);
-            state.Seconds = static_cast<std::uint16_t>(
-                std::clamp(wait, 0.0, static_cast<double>(std::numeric_limits<std::uint16_t>::max())));
+            state.Seconds = static_cast<std::uint16_t>(std::clamp(wait, 0.0, 65535.0));
         }
         else
         {
-            state.Seconds = std::numeric_limits<std::uint16_t>::max();
+            state.Seconds = 0xFFFF;
         }
         state.Write(_scratch);
-        for (std::size_t i = 0; i < _peers.size(); i++)
+        for (const std::shared_ptr<Peer>& peer : _peers)
         {
             if (_transport != nullptr)
             {
-                _transport->Send(_peers[i]->EndPoint, PacketType::VoteState,
-                    std::span<const std::uint8_t>(_scratch.data(), VoteStatePacket::Size));
+                _transport->Send(peer->EndPoint, PacketType::VoteState, First(_scratch, VoteStatePacket::Size));
             }
         }
     }
@@ -790,17 +984,15 @@ namespace MphRead::Mods::Network
         chat.Write(_scratch);
         if (_transport != nullptr)
         {
-            _transport->Send(peer->EndPoint, PacketType::Chat,
-                std::span<const std::uint8_t>(_scratch.data(), ChatPacket::Size));
+            _transport->Send(peer->EndPoint, PacketType::Chat, First(_scratch, ChatPacket::Size));
         }
     }
 
     void DedicatedServer::HandleChat(const ReceivedPacket& packet, double now)
     {
-        std::shared_ptr<Peer> peer = Find(packet.Sender);
+        const std::shared_ptr<Peer> peer = Find(packet.Sender);
         const std::span<const std::uint8_t> payload = packet.Payload();
-        if (peer == nullptr || peer->SlotIndex < 0
-            || payload.size() < static_cast<std::size_t>(ChatPacket::Size))
+        if (peer == nullptr || peer->SlotIndex < 0 || payload.size() < static_cast<std::size_t>(ChatPacket::Size))
         {
             return;
         }
@@ -811,36 +1003,30 @@ namespace MphRead::Mods::Network
         {
             return;
         }
-        peer->ChatCredit = std::min(ChatBurst,
-            peer->ChatCredit + (now - peer->ChatCreditAt) * ChatRatePerSecond);
+        peer->ChatCredit = std::min(ChatBurst, peer->ChatCredit + (now - peer->ChatCreditAt) * ChatRatePerSecond);
         peer->ChatCreditAt = now;
-        if (peer->ChatCredit < 1.0)
+        if (peer->ChatCredit < 1)
         {
-            const std::int32_t oldDropped = peer->ChatDropped;
-            peer->ChatDropped = static_cast<std::int32_t>(
-                static_cast<std::uint32_t>(peer->ChatDropped) + 1U);
-            if (oldDropped == 0)
+            if (peer->ChatDropped++ == 0)
             {
-                Log("chat from slot "
-                    + ::MphRead::NativeRuntime::ToString(peer->SlotIndex)
-                    + " (" + peer->EndPoint->ToString() + ") dropped: too fast");
+                Log("chat from slot " + std::to_string(peer->SlotIndex) + " (" + peer->EndPoint->ToString()
+                    + ") dropped: too fast");
             }
             return;
         }
-        peer->ChatCredit -= 1.0;
+        peer->ChatCredit -= 1;
         peer->ChatDropped = 0;
         chat.Slot = static_cast<std::uint8_t>(peer->SlotIndex);
-        chat.Name = !peer->Name.empty()
-            ? peer->Name
-            : "Player" + ::MphRead::NativeRuntime::ToString(peer->SlotIndex);
-        chat.Kind = ChatPacket::KindSay;
+        chat.Name = !peer->Name.empty() ? peer->Name : "Player" + std::to_string(peer->SlotIndex);
+        const bool teamOnly = chat.Kind == ChatPacket::KindTeam && GameState::IsTeamMode(CurrentDefinition().Mode)
+            && peer->TeamIndex >= 0;
+        chat.Kind = teamOnly ? ChatPacket::KindTeam : ChatPacket::KindSay;
         chat.Write(_scratch);
-        for (std::size_t i = 0; i < _peers.size(); i++)
+        for (const std::shared_ptr<Peer>& other : _peers)
         {
-            if (_peers[i] != peer && _transport != nullptr)
+            if (other != peer && (!teamOnly || other->TeamIndex == peer->TeamIndex) && _transport != nullptr)
             {
-                _transport->Send(_peers[i]->EndPoint, PacketType::Chat,
-                    std::span<const std::uint8_t>(_scratch.data(), ChatPacket::Size));
+                _transport->Send(other->EndPoint, PacketType::Chat, First(_scratch, ChatPacket::Size));
             }
         }
         Log("chat " + chat.Name.value_or(std::string{}) + ": " + text);
@@ -858,58 +1044,97 @@ namespace MphRead::Mods::Network
         chat.Name = std::string{};
         chat.Text = text;
         chat.Write(_scratch);
-        for (std::size_t i = 0; i < _peers.size(); i++)
+        for (const std::shared_ptr<Peer>& peer : _peers)
         {
             if (_transport != nullptr)
             {
-                _transport->Send(_peers[i]->EndPoint, PacketType::Chat,
-                    std::span<const std::uint8_t>(_scratch.data(), ChatPacket::Size));
+                _transport->Send(peer->EndPoint, PacketType::Chat, First(_scratch, ChatPacket::Size));
             }
         }
     }
 
-    void DedicatedServer::SendStatus(const std::shared_ptr<System::Net::IPEndPoint>& sender,
-        double now)
+    void DedicatedServer::SendStatus(const std::shared_ptr<System::Net::IPEndPoint>& sender, double now)
     {
+        const MatchDefinition definition = CurrentDefinition();
         ServerStatusPacket status{};
         status.Match = BuildState(now);
+        status.Phase = _phase;
+        status.Format = definition.Format;
+        status.LobbyEnabled = _sessionPolicy == ServerSessionPolicy::Lobby;
+        status.AllowJoinInProgress = _allowJoinInProgress;
         status.MaxPlayers = static_cast<std::uint8_t>(_maxPlayers);
         status.Protocol = static_cast<std::uint8_t>(NetConfig::ProtocolVersion);
         status.ServerName = _serverName;
+        status.Flags = static_cast<std::uint8_t>(_hosts.CanHost() ? ServerStatusPacket::FlagCanHost : 0);
         status.Write(_scratch);
         if (_transport != nullptr)
         {
-            _transport->Send(sender, PacketType::StatusReply,
-                std::span<const std::uint8_t>(_scratch.data(), ServerStatusPacket::Size));
+            _transport->Send(sender, PacketType::StatusReply, First(_scratch, ServerStatusPacket::SizeWithFlags));
+        }
+    }
+
+    void DedicatedServer::HandleHostRequest(const ReceivedPacket& packet, double now)
+    {
+        HostReplyPacket reply{};
+        const std::span<const std::uint8_t> payload = packet.Payload();
+        if (payload.size() < static_cast<std::size_t>(HostRequestPacket::Size))
+        {
+            reply.Reason = "malformed request";
+        }
+        else
+        {
+            const HostRequestPacket request = HostRequestPacket::Read(payload);
+            if (request.Protocol != NetConfig::ProtocolVersion)
+            {
+                reply.Reason = "this server speaks protocol " + std::to_string(NetConfig::ProtocolVersion)
+                    + ", your build speaks " + std::to_string(request.Protocol);
+            }
+            else if (!_hosts.CanHost())
+            {
+                reply.Reason = "this server does not open new games";
+            }
+            else
+            {
+                reply = _hosts.Start(request, packet.Sender, now);
+            }
+        }
+        reply.Write(_scratch);
+        if (_transport != nullptr)
+        {
+            _transport->Send(packet.Sender, PacketType::HostReply, First(_scratch, HostReplyPacket::Size));
+        }
+        if (!reply.Started)
+        {
+            Log("refused a game for " + packet.Sender->ToString() + ": " + reply.Reason.value_or(""));
         }
     }
 
     void DedicatedServer::HandleHello(const ReceivedPacket& packet, double now)
     {
         const std::span<const std::uint8_t> payload = packet.Payload();
-        if (payload.size() < 1 || payload[0] != NetConfig::ProtocolVersion)
+        if (payload.empty() || payload[0] != NetConfig::ProtocolVersion)
         {
             Log("rejected " + packet.Sender->ToString() + ": protocol mismatch");
             SendRefusal(packet.Sender, RefusedPacket::ReasonProtocol);
             return;
         }
         const std::uint32_t clientId = payload.size() >= 6
-            ? static_cast<std::uint32_t>(payload[2])
-                | (static_cast<std::uint32_t>(payload[3]) << 8)
-                | (static_cast<std::uint32_t>(payload[4]) << 16)
-                | (static_cast<std::uint32_t>(payload[5]) << 24)
-            : 0U;
+            ? Runtime::ReadUInt32LittleEndian(payload.subspan(2, 4)) : 0U;
         std::shared_ptr<Peer> peer = Find(packet.Sender);
+        if (peer != nullptr && peer->ClientId != clientId)
+        {
+            Remove(peer, "replaced connection");
+            peer = nullptr;
+        }
         if (peer == nullptr && clientId != 0)
         {
-            for (std::size_t i = 0; i < _peers.size(); i++)
+            for (const std::shared_ptr<Peer>& candidate : _peers)
             {
-                if (_peers[i]->ClientId == clientId)
+                if (candidate->ClientId == clientId)
                 {
-                    peer = _peers[i];
-                    Log("slot " + ::MphRead::NativeRuntime::ToString(peer->SlotIndex)
-                        + " (" + peer->Name + ") came back on " + packet.Sender->ToString()
-                        + ", was " + peer->EndPoint->ToString());
+                    peer = candidate;
+                    Log("slot " + std::to_string(peer->SlotIndex) + " (" + peer->Name + ") came back on "
+                        + packet.Sender->ToString() + ", was " + peer->EndPoint->ToString());
                     peer->EndPoint = packet.Sender;
                     break;
                 }
@@ -918,8 +1143,7 @@ namespace MphRead::Mods::Network
         if (peer == nullptr)
         {
             std::int32_t slot = -1;
-            if (payload.size() >= 2 && payload[1] != 0xFF
-                && payload[1] < _maxPlayers && SlotFree(payload[1]))
+            if (payload.size() >= 2 && payload[1] != 0xFF && payload[1] < _maxPlayers && SlotFree(payload[1]))
             {
                 slot = payload[1];
             }
@@ -933,29 +1157,50 @@ namespace MphRead::Mods::Network
                 SendRefusal(packet.Sender, RefusedPacket::ReasonFull);
                 return;
             }
-            if (_peers.empty())
+            if (_peers.empty() && _sessionPolicy == ServerSessionPolicy::Continuous)
             {
                 _matchStarted = now;
-                _matchEndedAt = -1.0;
-                _matchId++;
+                _matchEndedAt = -1;
+                _phase = SessionPhase::InMatch;
+                CloseBallot();
+                _matchId = NetLifecycleTracker::Next(_matchId);
+                _snapshotSeen = false;
+                _lastSnapshot = nullptr;
+                _slotLives.fill(0);
             }
+            if (_phase == SessionPhase::InMatch && !_allowJoinInProgress)
+            {
+                SendRefusal(packet.Sender, RefusedPacket::ReasonInMatch);
+                return;
+            }
+            const std::int8_t team = ChooseTeam(CurrentDefinition());
+            if (LobbyRules::TeamCount(CurrentDefinition()) > 0 && team < 0)
+            {
+                SendRefusal(packet.Sender, RefusedPacket::ReasonFull);
+                return;
+            }
+            const auto s = static_cast<std::size_t>(slot);
+            _slotGenerations[s] = NetLifecycleTracker::Next(_slotGenerations[s]);
+            _slotLives[s] = 0;
             peer = std::make_shared<Peer>();
             peer->EndPoint = packet.Sender;
             peer->SlotIndex = slot;
+            peer->ClientId = clientId;
+            peer->TeamIndex = team;
             _peers.push_back(peer);
             _peerCount.store(static_cast<std::int32_t>(_peers.size()));
             _everOccupied.store(true);
-            if (_authority == nullptr && !Simulating())
+            if (_authority == nullptr && !_runsTheMatch)
             {
                 _authority = peer;
-                Log(packet.Sender->ToString() + " joined as slot "
-                    + ::MphRead::NativeRuntime::ToString(slot) + " (authority)");
+                _authorityEpoch++;
+                _snapshotSeen = false;
+                Log(packet.Sender->ToString() + " joined as slot " + std::to_string(slot) + " (authority)");
                 NotifyAuthority(peer);
             }
             else
             {
-                Log(packet.Sender->ToString() + " joined as slot "
-                    + ::MphRead::NativeRuntime::ToString(slot));
+                Log(packet.Sender->ToString() + " joined as slot " + std::to_string(slot));
                 if (Simulating() && _lastSnapshot != nullptr && _transport != nullptr)
                 {
                     _transport->Send(peer->EndPoint, PacketType::Snapshot, *_lastSnapshot);
@@ -963,26 +1208,29 @@ namespace MphRead::Mods::Network
             }
         }
         peer->ClientId = clientId;
+        ClaimOwner(peer, payload);
         peer->LastSeen = now;
         _scratch[0] = static_cast<std::uint8_t>(peer->SlotIndex);
+        Runtime::WriteUInt32LittleEndian(From(_scratch, 1), clientId);
+        Runtime::WriteUInt16LittleEndian(From(_scratch, 5), _matchId);
+        Runtime::WriteUInt64LittleEndian(From(_scratch, 7), _authorityEpoch);
+        Runtime::WriteUInt16LittleEndian(From(_scratch, 15), _slotGenerations[static_cast<std::size_t>(peer->SlotIndex)]);
         if (_transport != nullptr)
         {
-            _transport->Send(peer->EndPoint, PacketType::Welcome,
-                std::span<const std::uint8_t>(_scratch.data(), 1));
+            _transport->Send(peer->EndPoint, PacketType::Welcome, First(_scratch, 17));
         }
         MatchStatePacket state = BuildState(now);
         state.Write(_scratch);
         if (_transport != nullptr)
         {
-            _transport->Send(peer->EndPoint, PacketType::MatchState,
-                std::span<const std::uint8_t>(_scratch.data(), MatchStatePacket::Size));
+            _transport->Send(peer->EndPoint, PacketType::MatchState, First(_scratch, MatchStatePacket::Size));
         }
-        BroadcastRoster();
+        TouchLobbyRevision("peer slot " + std::to_string(peer->SlotIndex) + " connected");
     }
 
     void DedicatedServer::HandleMatchEnd(const ReceivedPacket& packet, double now)
     {
-        std::shared_ptr<Peer> peer = Find(packet.Sender);
+        const std::shared_ptr<Peer> peer = Find(packet.Sender);
         if (peer == nullptr)
         {
             return;
@@ -992,11 +1240,17 @@ namespace MphRead::Mods::Network
         {
             return;
         }
+        const std::span<const std::uint8_t> payload = packet.Payload();
+        if (payload.size() != 10
+            || Runtime::ReadUInt16LittleEndian(payload) != _matchId
+            || Runtime::ReadUInt64LittleEndian(payload.subspan(2)) != _authorityEpoch)
+        {
+            return;
+        }
         EndMatch(now, "a player reached the goal");
     }
 
-    void DedicatedServer::SendRefusal(const std::shared_ptr<System::Net::IPEndPoint>& to,
-        std::uint8_t reason)
+    void DedicatedServer::SendRefusal(const std::shared_ptr<System::Net::IPEndPoint>& to, std::uint8_t reason)
     {
         RefusedPacket refusal{};
         refusal.Reason = reason;
@@ -1005,83 +1259,105 @@ namespace MphRead::Mods::Network
         refusal.Write(_scratch);
         if (_transport != nullptr)
         {
-            _transport->Send(to, PacketType::Refused,
-                std::span<const std::uint8_t>(_scratch.data(), RefusedPacket::Size));
+            _transport->Send(to, PacketType::Refused, First(_scratch, RefusedPacket::Size));
         }
     }
 
     void DedicatedServer::HandleIdentify(const ReceivedPacket& packet, double now)
     {
-        std::shared_ptr<Peer> peer = Find(packet.Sender);
+        const std::shared_ptr<Peer> peer = Find(packet.Sender);
         if (peer == nullptr)
         {
             return;
         }
         peer->LastSeen = now;
         const std::span<const std::uint8_t> payload = packet.Payload();
-        if (payload.size() < 1)
+        if (payload.size() < 2)
         {
             return;
         }
-        if (payload.size() < 2)
+        if (_phase == SessionPhase::Starting && (_expectedLoadedSlots & (1 << peer->SlotIndex)) != 0)
         {
             return;
         }
         const std::uint8_t hunter = payload[0];
         const std::uint8_t color = payload[1];
-        std::string name = NativeRuntime::AsciiGetString(payload.subspan(2));
+        if (hunter >= Launcher::Hunters::Playable || color > 3)
+        {
+            return;
+        }
+        // Encoding.ASCII.GetString(...).TrimEnd('\0').Trim()
+        std::string name = Runtime::AsciiGetString(payload.subspan(2));
         while (!name.empty() && name.back() == '\0')
         {
             name.pop_back();
         }
-        name = NativeRuntime::StringTrim(std::string(name));
+        name = Runtime::StringTrim(name);
         if (name.empty())
         {
             return;
         }
-        if (name.size() > static_cast<std::size_t>(RosterPacket::MaxNameBytes))
+        if (static_cast<std::int32_t>(name.size()) > RosterPacket::MaxNameBytes)
         {
-            name.resize(RosterPacket::MaxNameBytes);
+            name = name.substr(0, RosterPacket::MaxNameBytes);
         }
         if (peer->Name == name && peer->Hunter == hunter && peer->Color == color)
         {
             return;
         }
         const bool firstName = peer->Name.empty();
+        if (peer->Hunter != hunter || peer->Color != color)
+        {
+            peer->LobbyReady = false;
+        }
         peer->Name = name;
         peer->Hunter = hunter;
         peer->Color = color;
-        Log("slot " + ::MphRead::NativeRuntime::ToString(peer->SlotIndex)
-            + " is \"" + name + "\" playing "
-            + ::MphRead::ToString(static_cast<MphRead::Hunter>(hunter))
-            + " in suit " + ::MphRead::NativeRuntime::ToString((color + 1)));
+        Log("slot " + std::to_string(peer->SlotIndex) + " is \"" + name + "\" playing "
+            + ::MphRead::ToString(static_cast<Hunter>(hunter)) + " in suit " + std::to_string(color + 1));
         if (firstName)
         {
             Announce(name + " joined");
         }
-        BroadcastRoster();
+        TouchLobbyRevision("slot " + std::to_string(peer->SlotIndex) + " identity changed");
     }
 
     void DedicatedServer::NotifyAuthority(const std::shared_ptr<Peer>& peer)
     {
-        if (_lastSnapshot != nullptr && _transport != nullptr)
+        MatchStatePacket match = BuildState(_now);
+        match.Write(_scratch);
+        if (_transport == nullptr)
         {
-            _transport->Send(peer->EndPoint, PacketType::Snapshot, *_lastSnapshot);
+            return;
         }
-        _scratch[0] = 1;
-        if (_transport != nullptr)
+        _transport->Send(peer->EndPoint, PacketType::MatchState, First(_scratch, MatchStatePacket::Size));
+        RosterPacket roster = BuildRoster();
+        roster.Write(_scratch);
+        _transport->Send(peer->EndPoint, PacketType::Roster, First(_scratch, RosterPacket::Size));
+        if (_lastSnapshot != nullptr)
         {
-            _transport->Send(peer->EndPoint, PacketType::Authority,
-                std::span<const std::uint8_t>(_scratch.data(), 1));
+            SnapshotHeader header = SnapshotHeader::Read(*_lastSnapshot);
+            if (header.MatchId == _matchId)
+            {
+                std::vector<std::uint8_t> seed = *_lastSnapshot;
+                header.AuthorityEpoch = _authorityEpoch;
+                header.Frame = 0;
+                header.Write(seed);
+                _transport->Send(peer->EndPoint, PacketType::Snapshot, seed);
+            }
         }
+        _scratch[0] = static_cast<std::uint8_t>(peer->SlotIndex);
+        Runtime::WriteUInt16LittleEndian(From(_scratch, 1), _matchId);
+        Runtime::WriteUInt64LittleEndian(From(_scratch, 3), _authorityEpoch);
+        Runtime::WriteUInt16LittleEndian(From(_scratch, 11), _slotGenerations[static_cast<std::size_t>(peer->SlotIndex)]);
+        _transport->Send(peer->EndPoint, PacketType::Authority, First(_scratch, 13));
     }
 
     void DedicatedServer::PingPeers(double now)
     {
-        for (std::size_t i = 0; i < _peers.size(); i++)
+        for (const std::shared_ptr<Peer>& peer : _peers)
         {
-            const std::shared_ptr<Peer>& peer = _peers[i];
-            if (peer->PingPending && now - peer->PingSentAt < 5.0)
+            if (peer->PingPending && now - peer->PingSentAt < 5)
             {
                 continue;
             }
@@ -1091,45 +1367,57 @@ namespace MphRead::Mods::Network
             _scratch[0] = peer->PingId;
             if (_transport != nullptr)
             {
-                _transport->Send(peer->EndPoint, PacketType::Ping,
-                    std::span<const std::uint8_t>(_scratch.data(), 1));
+                _transport->Send(peer->EndPoint, PacketType::Ping, First(_scratch, 1));
             }
         }
     }
 
     void DedicatedServer::HandlePong(const ReceivedPacket& packet, double now)
     {
-        std::shared_ptr<Peer> peer = Find(packet.Sender);
+        const std::shared_ptr<Peer> peer = Find(packet.Sender);
         if (peer == nullptr || !peer->PingPending)
         {
             return;
         }
         const std::span<const std::uint8_t> payload = packet.Payload();
-        if (payload.size() < 1 || payload[0] != peer->PingId)
+        if (payload.empty() || payload[0] != peer->PingId)
         {
             return;
         }
         peer->PingPending = false;
         peer->LastSeen = now;
-        std::int32_t rtt = NativeRuntime::MathRoundToInt32(((now - peer->PingSentAt) * 1000.0));
+        std::int32_t rtt = static_cast<std::int32_t>(Runtime::RoundToEven((now - peer->PingSentAt) * 1000));
         rtt = std::clamp(rtt, 0, 9999);
         peer->Ping = peer->Ping == 0 ? rtt : (peer->Ping * 2 + rtt) / 3;
     }
 
-    RosterPacket DedicatedServer::BuildRoster() const
+    RosterPacket DedicatedServer::BuildRoster()
     {
         RosterPacket roster = RosterPacket::Create();
-        for (std::size_t i = 0;
-            i < _peers.size() && i < static_cast<std::size_t>(RosterPacket::MaxSlots); i++)
+        roster.MatchId = _matchId;
+        roster.AuthorityEpoch = _authorityEpoch;
+        roster.Revision = ++_rosterRevision;
+        roster.SessionRevision = _sessionRevision;
+        auto& slots = Runtime::RequireReference(roster.Slots);
+        auto& generations = Runtime::RequireReference(roster.Generations);
+        auto& teams = Runtime::RequireReference(roster.Teams);
+        auto& ready = Runtime::RequireReference(roster.LobbyReady);
+        auto& hunters = Runtime::RequireReference(roster.Hunters);
+        auto& colors = Runtime::RequireReference(roster.Colors);
+        auto& pings = Runtime::RequireReference(roster.Pings);
+        auto& names = Runtime::RequireReference(roster.Names);
+        for (std::size_t i = 0; i < _peers.size() && i < static_cast<std::size_t>(RosterPacket::MaxSlots); i++)
         {
-            (*roster.Slots)[roster.Count] = static_cast<std::uint8_t>(_peers[i]->SlotIndex);
-            (*roster.Hunters)[roster.Count] = _peers[i]->Hunter;
-            (*roster.Colors)[roster.Count] = _peers[i]->Color;
-            (*roster.Pings)[roster.Count] = static_cast<std::uint16_t>(
-                std::clamp(_peers[i]->Ping, 0, 9999));
-            (*roster.Names)[roster.Count] = !_peers[i]->Name.empty()
-                ? _peers[i]->Name
-                : "Player" + ::MphRead::NativeRuntime::ToString((_peers[i]->SlotIndex + 1));
+            const Peer& peer = *_peers[i];
+            const auto at = static_cast<std::size_t>(roster.Count);
+            slots[at] = static_cast<std::uint8_t>(peer.SlotIndex);
+            generations[at] = _slotGenerations[static_cast<std::size_t>(peer.SlotIndex)];
+            teams[at] = peer.TeamIndex;
+            ready[at] = peer.LobbyReady;
+            hunters[at] = peer.Hunter;
+            colors[at] = peer.Color;
+            pings[at] = static_cast<std::uint16_t>(std::clamp(peer.Ping, 0, 9999));
+            names[at] = !peer.Name.empty() ? peer.Name : "Player" + std::to_string(peer.SlotIndex + 1);
             roster.Count++;
         }
         return roster;
@@ -1140,6 +1428,7 @@ namespace MphRead::Mods::Network
         RosterPacket roster = BuildRoster();
         if (_sim != nullptr)
         {
+            NetSession::ApplyMatchState(BuildState(_now), false);
             NetSession::ApplyRoster(roster);
         }
         if (_peers.empty())
@@ -1147,59 +1436,69 @@ namespace MphRead::Mods::Network
             return;
         }
         roster.Write(_scratch);
-        for (std::size_t i = 0; i < _peers.size(); i++)
+        for (const std::shared_ptr<Peer>& peer : _peers)
         {
             if (_transport != nullptr)
             {
-                _transport->Send(_peers[i]->EndPoint, PacketType::Roster,
-                    std::span<const std::uint8_t>(_scratch.data(), RosterPacket::Size));
+                _transport->Send(peer->EndPoint, PacketType::Roster, First(_scratch, RosterPacket::Size));
             }
         }
     }
 
     void DedicatedServer::HandleIntent(const ReceivedPacket& packet, double now)
     {
-        std::shared_ptr<Peer> peer = Find(packet.Sender);
+        if (_phase == SessionPhase::Lobby || _phase == SessionPhase::Starting)
+        {
+            return;
+        }
+        const std::shared_ptr<Peer> peer = Find(packet.Sender);
         if (peer == nullptr || (_authority == nullptr && !Simulating()))
         {
             return;
         }
-        peer->LastSeen = now;
         const std::span<const std::uint8_t> payload = packet.Payload();
-        if (payload.size() >= static_cast<std::size_t>(IntentPacket::Size))
+        if (payload.size() < static_cast<std::size_t>(IntentPacket::Size)
+            || payload.size() > static_cast<std::size_t>(IntentPacket::FullSize))
         {
-            const IntentPacket intent = IntentPacket::Read(payload);
-            if (_sim != nullptr)
-            {
-                NetSession::AcceptSlotIntent(peer->SlotIndex, intent);
-            }
-            if (peer->LastIntentFrame != 0 && intent.Frame <= peer->LastIntentFrame
-                && peer->LastIntentFrame - intent.Frame < IntentResetGap)
-            {
-                return;
-            }
-            peer->LastIntentFrame = intent.Frame;
-            peer->Ready = (intent.Buttons & IntentButtons::ReadyState) == IntentButtons::ReadyState;
+            return;
         }
+        peer->LastSeen = now;
+        const auto s = static_cast<std::size_t>(peer->SlotIndex);
+        const IntentPacket intent = IntentPacket::Read(payload);
+        const std::uint16_t life = _sim != nullptr ? NetPlayerLifecycle::Get(peer->SlotIndex) : _slotLives[s];
+        if (intent.MatchId != _matchId || intent.AuthorityEpoch != _authorityEpoch
+            || intent.SlotGeneration != _slotGenerations[s] || intent.LifeId != life)
+        {
+            return;
+        }
+        if (_sim != nullptr)
+        {
+            NetSession::AcceptSlotIntent(peer->SlotIndex, intent);
+        }
+        if (peer->LastIntentFrame != 0 && !NetLifecycleTracker::Newer(intent.Frame, peer->LastIntentFrame))
+        {
+            return;
+        }
+        peer->LastIntentFrame = intent.Frame;
+        peer->PostMatchReady = Runtime::HasFlag(intent.Buttons, IntentButtons::ReadyState);
         _scratch[0] = static_cast<std::uint8_t>(peer->SlotIndex);
-        if (payload.size() > _scratch.size() - 1)
-        {
-            throw std::length_error("Intent payload does not fit the SlotIntent scratch buffer.");
-        }
         std::copy(payload.begin(), payload.end(), _scratch.begin() + 1);
-        for (std::size_t i = 0; i < _peers.size(); i++)
+        for (const std::shared_ptr<Peer>& other : _peers)
         {
-            if (_peers[i] != peer && _transport != nullptr)
+            if (other != peer && _transport != nullptr)
             {
-                _transport->Send(_peers[i]->EndPoint, PacketType::SlotIntent,
-                    std::span<const std::uint8_t>(_scratch.data(), payload.size() + 1));
+                _transport->Send(other->EndPoint, PacketType::SlotIntent, First(_scratch, payload.size() + 1));
             }
         }
     }
 
     void DedicatedServer::HandleSnapshot(const ReceivedPacket& packet, double now)
     {
-        std::shared_ptr<Peer> peer = Find(packet.Sender);
+        if (_phase == SessionPhase::Lobby || _phase == SessionPhase::Starting)
+        {
+            return;
+        }
+        const std::shared_ptr<Peer> peer = Find(packet.Sender);
         if (peer == nullptr)
         {
             return;
@@ -1210,19 +1509,56 @@ namespace MphRead::Mods::Network
             return;
         }
         const std::span<const std::uint8_t> payload = packet.Payload();
-        _lastSnapshot = std::make_shared<std::vector<std::uint8_t>>(payload.begin(), payload.end());
-        for (std::size_t i = 0; i < _peers.size(); i++)
+        if (payload.size() < static_cast<std::size_t>(SnapshotHeader::Size))
         {
-            if (_peers[i] != peer && _transport != nullptr)
+            return;
+        }
+        const SnapshotHeader header = SnapshotHeader::Read(payload);
+        const std::size_t timeOffset = SnapshotHeader::Size + static_cast<std::size_t>(header.PlayerCount) * PlayerState::Size;
+        const std::size_t healthOffset = timeOffset + NetMatchTimeSync::Size;
+        if (header.MatchId != _matchId || header.AuthorityEpoch != _authorityEpoch
+            || header.PlayerCount > Entities::PlayerEntity::SlotCapacity
+            || healthOffset > payload.size()
+            || !NetMatchTimeSync::Validate(payload.subspan(timeOffset, NetMatchTimeSync::Size))
+            || !NetHealthSync::Validate(payload.subspan(healthOffset))
+            || Runtime::ReadUInt16LittleEndian(payload.subspan(healthOffset)) != _matchId
+            || (_snapshotSeen && !NetLifecycleTracker::Newer(header.Frame, _snapshotFrame)))
+        {
+            return;
+        }
+        std::int32_t occupied = 0;
+        for (std::int32_t i = 0; i < header.PlayerCount; i++)
+        {
+            const PlayerState state = PlayerState::Read(
+                payload.subspan(SnapshotHeader::Size + static_cast<std::size_t>(i) * PlayerState::Size));
+            if (state.SlotIndex >= _slotLives.size() || (occupied & (1 << state.SlotIndex)) != 0
+                || state.SlotGeneration != _slotGenerations[state.SlotIndex])
             {
-                _transport->Send(_peers[i]->EndPoint, PacketType::Snapshot, payload);
+                return;
+            }
+            occupied |= 1 << state.SlotIndex;
+        }
+        for (std::int32_t i = 0; i < header.PlayerCount; i++)
+        {
+            const PlayerState state = PlayerState::Read(
+                payload.subspan(SnapshotHeader::Size + static_cast<std::size_t>(i) * PlayerState::Size));
+            _slotLives[state.SlotIndex] = state.LifeId;
+        }
+        _snapshotSeen = true;
+        _snapshotFrame = header.Frame;
+        _lastSnapshot = std::make_shared<std::vector<std::uint8_t>>(payload.begin(), payload.end());
+        for (const std::shared_ptr<Peer>& other : _peers)
+        {
+            if (other != peer && _transport != nullptr)
+            {
+                _transport->Send(other->EndPoint, PacketType::Snapshot, payload);
             }
         }
     }
 
     void DedicatedServer::HandleBye(const ReceivedPacket& packet)
     {
-        std::shared_ptr<Peer> peer = Find(packet.Sender);
+        const std::shared_ptr<Peer> peer = Find(packet.Sender);
         if (peer != nullptr)
         {
             Remove(peer, "left");
@@ -1233,38 +1569,48 @@ namespace MphRead::Mods::Network
     {
         for (std::int32_t i = static_cast<std::int32_t>(_peers.size()) - 1; i >= 0; i--)
         {
-            if (now - _peers[static_cast<std::size_t>(i)]->LastSeen > NetConfig::TimeoutSeconds)
+            if (i >= static_cast<std::int32_t>(_peers.size()))
             {
-                Remove(_peers[static_cast<std::size_t>(i)], "timed out");
+                continue;
+            }
+            const std::shared_ptr<Peer> peer = _peers[static_cast<std::size_t>(i)];
+            if (now - peer->LastSeen > NetConfig::TimeoutSeconds)
+            {
+                Remove(peer, "timed out");
             }
         }
     }
 
     void DedicatedServer::Remove(const std::shared_ptr<Peer>& peer, const std::string& reason)
     {
-        const auto it = std::find(_peers.begin(), _peers.end(), peer);
-        if (it != _peers.end())
+        const std::shared_ptr<Peer> removed = peer;
+        const auto found = std::find(_peers.begin(), _peers.end(), removed);
+        if (found != _peers.end())
         {
-            _peers.erase(it);
-            _peerCount.store(static_cast<std::int32_t>(_peers.size()));
+            _peers.erase(found);
         }
+        _peerCount.store(static_cast<std::int32_t>(_peers.size()));
+        LobbyPeerRemoved(removed);
         BroadcastRoster();
         ReviewVote(_now);
-        Log(peer->EndPoint->ToString() + " " + reason + " (slot "
-            + ::MphRead::NativeRuntime::ToString(peer->SlotIndex) + ")");
-        if (!peer->Name.empty())
+        ReviewPicks();
+        Log(removed->EndPoint->ToString() + " " + reason + " (slot " + std::to_string(removed->SlotIndex) + ")");
+        if (!removed->Name.empty())
         {
-            Announce(peer->Name + " " + reason);
+            Announce(removed->Name + " " + reason);
         }
-        if (Simulating() || _authority != peer)
+        if (_runsTheMatch || _authority != removed)
         {
             return;
         }
         _authority = !_peers.empty() ? _peers[0] : nullptr;
+        _authorityEpoch++;
+        _snapshotSeen = false;
+        BroadcastMatchState(_now);
+        BroadcastRoster();
         Log(_authority != nullptr
-            ? "authority moved to slot "
-                + ::MphRead::NativeRuntime::ToString(_authority->SlotIndex)
-            : "no peers left; waiting for a new authority");
+            ? "authority moved to slot " + std::to_string(_authority->SlotIndex)
+            : std::string("no peers left; waiting for a new authority"));
         if (_authority != nullptr)
         {
             NotifyAuthority(_authority);
@@ -1274,11 +1620,11 @@ namespace MphRead::Mods::Network
     std::shared_ptr<DedicatedServer::Peer> DedicatedServer::Find(
         const std::shared_ptr<System::Net::IPEndPoint>& endPoint) const
     {
-        for (std::size_t i = 0; i < _peers.size(); i++)
+        for (const std::shared_ptr<Peer>& peer : _peers)
         {
-            if (_peers[i]->EndPoint->Equals(*endPoint))
+            if (peer->EndPoint != nullptr && endPoint != nullptr && peer->EndPoint->Equals(*endPoint))
             {
-                return _peers[i];
+                return peer;
             }
         }
         return nullptr;
@@ -1286,30 +1632,15 @@ namespace MphRead::Mods::Network
 
     bool DedicatedServer::SlotFree(std::int32_t slot) const
     {
-        for (std::size_t i = 0; i < _peers.size(); i++)
-        {
-            if (_peers[i]->SlotIndex == slot)
-            {
-                return false;
-            }
-        }
-        return true;
+        return std::none_of(_peers.begin(), _peers.end(),
+            [slot](const std::shared_ptr<Peer>& peer) { return peer->SlotIndex == slot; });
     }
 
     std::int32_t DedicatedServer::NextFreeSlot() const
     {
         for (std::int32_t slot = 0; slot < _maxPlayers; slot++)
         {
-            bool taken = false;
-            for (std::size_t i = 0; i < _peers.size(); i++)
-            {
-                if (_peers[i]->SlotIndex == slot)
-                {
-                    taken = true;
-                    break;
-                }
-            }
-            if (!taken)
+            if (SlotFree(slot))
             {
                 return slot;
             }
@@ -1319,8 +1650,7 @@ namespace MphRead::Mods::Network
 
     void DedicatedServer::Log(const std::string& message)
     {
-        NativeRuntime::ConsoleWriteLine(("["
-            + NativeRuntime::DateTimeToString(NativeRuntime::DateTimeNow(), "HH:mm:ss")
-            + "] [server] " + message));
+        Runtime::ConsoleWriteLine("[" + Runtime::DateTimeToString(Runtime::DateTimeNow(), "HH:mm:ss")
+            + "] [server] " + message);
     }
 }

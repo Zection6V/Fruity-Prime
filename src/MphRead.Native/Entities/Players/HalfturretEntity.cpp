@@ -1,4 +1,5 @@
 #include "HalfturretEntity.hpp"
+#include "../../Mods/Multiplayer/TeamLayout.hpp"
 
 #include "../BeamProjectileEntity.hpp"
 #include "../RoomEntity.hpp"
@@ -316,7 +317,7 @@ namespace MphRead::Entities
                     }
                     PlayerEntity& player = RequireReference(playerValue);
                     if (player.Health() == 0
-                        || player.TeamIndex() == owner.TeamIndex()
+                        || Mods::Multiplayer::TeamRules::AreAllies(player.TeamIndex(), owner.TeamIndex())
                         || player.CurAlpha() < 6.0F / 31.0F)
                     {
                         continue;

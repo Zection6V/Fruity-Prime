@@ -120,7 +120,8 @@ namespace MphRead::Entities
             OpenTK::Mathematics::Vector3 point1,
             OpenTK::Mathematics::Vector3 point2,
             float height,
-            std::int32_t segments);
+            std::int32_t segments,
+            std::int32_t targetBombIndex);
 
         BombFlags _flags = BombFlags::None;
         PlayerEntity* _owner = nullptr;
@@ -139,5 +140,13 @@ namespace MphRead::Entities
         std::shared_ptr<Effects::EffectEntry> _effect{};
         std::shared_ptr<ModelInstance> _trailModel{};
         std::int32_t _bindingId = 0;
+        std::uint64_t _lockjawVisualTick = 0;
+
+    public:
+        // Map-audit hooks stay inert outside -maptest -drawrate checks. The
+        // RNG check is scoped here because other draw work advances effects.
+        [[nodiscard]] std::int32_t ModLockjawTrailBindingId() const noexcept { return _bindingId; }
+        inline static bool ModAuditLockjawDrawRng = false;
+        inline static std::int32_t ModLockjawDrawRngChanges = 0;
     };
 }

@@ -1,4 +1,6 @@
 #include "BombEntity.hpp"
+#include "../Mods/Multiplayer/TeamLayout.hpp"
+#include "../Mods/Render/LockjawTrailNoise.hpp"
 
 #include "../NativeRuntime/System/Buffers.hpp"
 
@@ -308,6 +310,10 @@ namespace MphRead::Entities
 
     bool BombEntity::Process()
     {
+        if (_bombType == MphRead::BombType::Lockjaw)
+        {
+            ++_lockjawVisualTick;
+        }
         EntityBase* hitEntity = nullptr;
         _soundSource.Update(static_cast<Vector3>(Position), 5);
         UpdateNodeRefVolume();
@@ -327,7 +333,8 @@ namespace MphRead::Entities
                 PlayerEntity& player = RequireReference(playerEnumerator.Current());
                 if (&player == _owner
                     || player.Health() == 0
-                    || player.TeamIndex() == RequireReference(_owner).TeamIndex())
+                    || Mods::Multiplayer::TeamRules::AreAllies(
+                        player.TeamIndex(), RequireReference(_owner).TeamIndex()))
                 {
                     if (&player != _owner && player.Health() > 0)
                     {
@@ -914,6 +921,9 @@ namespace MphRead::Entities
 
     void BombEntity::GetDrawInfo()
     {
+        const std::uint32_t rngBefore
+            = ModAuditLockjawDrawRng && _bombType == MphRead::BombType::Lockjaw
+            ? Rng::Rng1() : 0U;
         if (_bombType == MphRead::BombType::Lockjaw)
         {
             if (_bombIndex == 1)
@@ -924,7 +934,8 @@ namespace MphRead::Entities
                     static_cast<Vector3>(Position),
                     static_cast<Vector3>(bombZero.Position),
                     Fixed::ToFloat(614),
-                    10);
+                    10,
+                    0);
             }
             else if (_bombIndex == 2)
             {
@@ -934,23 +945,31 @@ namespace MphRead::Entities
                     static_cast<Vector3>(Position),
                     static_cast<Vector3>(bombOne.Position),
                     Fixed::ToFloat(614),
-                    10);
+                    10,
+                    1);
                 BombEntity& bombZero = RequireReference(BombAt(owner, 0));
                 DrawLockjawTrail(
                     static_cast<Vector3>(Position),
                     static_cast<Vector3>(bombZero.Position),
                     Fixed::ToFloat(614),
-                    10);
+                    10,
+                    0);
             }
         }
         EntityBase::GetDrawInfo();
+        if (ModAuditLockjawDrawRng && _bombType == MphRead::BombType::Lockjaw
+            && Rng::Rng1() != rngBefore)
+        {
+            ++ModLockjawDrawRngChanges;
+        }
     }
 
     void BombEntity::DrawLockjawTrail(
         Vector3 point1,
         Vector3 point2,
         float height,
-        std::int32_t segments)
+        std::int32_t segments,
+        std::int32_t targetBombIndex)
     {
         assert(_trailModel != nullptr);
         if (segments < 2)
@@ -984,9 +1003,13 @@ namespace MphRead::Entities
             float z = vec.Z * pct;
             if (i > 0 && i < segments - 1)
             {
-                x += Rng::GetRandomInt1(0x800) / 4096.0F - 0.25F;
-                y += Rng::GetRandomInt1(0x800) / 4096.0F - 0.25F;
-                z += Rng::GetRandomInt1(0x800) / 4096.0F - 0.25F;
+                const std::int32_t ownerSlot = RequireReference(_owner).SlotIndex();
+                x += Mods::Render::LockjawTrailNoise::Sample(_lockjawVisualTick, ownerSlot,
+                    _bombIndex, targetBombIndex, i, 0);
+                y += Mods::Render::LockjawTrailNoise::Sample(_lockjawVisualTick, ownerSlot,
+                    _bombIndex, targetBombIndex, i, 1);
+                z += Mods::Render::LockjawTrailNoise::Sample(_lockjawVisualTick, ownerSlot,
+                    _bombIndex, targetBombIndex, i, 2);
             }
             (*uvsAndVerts)[static_cast<std::size_t>(4 * i)]
                 = Vector3(uvS, 0.0F, 0.0F);
@@ -1092,6 +1115,8 @@ namespace MphRead::Entities
         }
         bomb->_owner = owner;
         bomb->_bombType = type;
+        // Bomb entities are pooled; a new placement starts a new visual clock.
+        bomb->_lockjawVisualTick = 0;
         bomb->Transform = transform;
         bomb->SetRecolor(ownerRef.Recolor());
         bomb->_flags = BombFlags::None;

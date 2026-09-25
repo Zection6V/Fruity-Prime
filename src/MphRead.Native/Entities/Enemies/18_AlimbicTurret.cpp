@@ -293,7 +293,7 @@ namespace MphRead::Entities::Enemies
                 if (playerRef.IsBot() && GameState::SinglePlayer()
                     || playerRef.Health() == 0
                     || !_rangeVolume.TestPoint(playerRef.Position)
-                    || GameState::Mode() == GameMode::BountyTeams && playerRef.TeamIndex() == 0)
+                    || GameState::Mode() == GameMode::BountyTeams && GameState::TeamCount() == 2 && playerRef.TeamIndex() == 0)
                 {
                     continue;
                 }
@@ -343,7 +343,7 @@ namespace MphRead::Entities::Enemies
             PlayerEntity& playerRef = RequireReference(player);
             if (playerRef.Health() == 0
                 || !_rangeVolume.TestPoint(playerRef.Position)
-                || GameState::Mode() == GameMode::BountyTeams && playerRef.TeamIndex() == 0)
+                || GameState::Mode() == GameMode::BountyTeams && GameState::TeamCount() == 2 && playerRef.TeamIndex() == 0)
             {
                 continue;
             }

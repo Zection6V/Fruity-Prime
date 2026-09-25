@@ -10,6 +10,7 @@
 #include "../Utility/Rng.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 #include "../Formats/Types.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <bit>
 #include <cassert>
@@ -65,33 +66,6 @@ namespace
         }
         return std::bit_cast<std::int64_t>(
             (bits >> count) | (~std::uint64_t{0} << (64U - count)));
-    }
-
-    [[nodiscard]] std::string FormatSingle(float value)
-    {
-        if (std::isnan(value))
-        {
-            return "NaN";
-        }
-        if (std::isinf(value))
-        {
-            return std::signbit(value) ? "-Infinity" : "Infinity";
-        }
-
-        char buffer[64]{};
-        const auto converted = std::to_chars(
-            buffer, buffer + sizeof(buffer), value, std::chars_format::general);
-        if (converted.ec != std::errc{})
-        {
-            throw std::runtime_error("Failed to format Single value.");
-        }
-        std::string result(buffer, converted.ptr);
-        const std::size_t exponent = result.find('e');
-        if (exponent != std::string::npos)
-        {
-            result[exponent] = 'E';
-        }
-        return result;
     }
 
     [[nodiscard]] const char* VecsName(std::int32_t id) noexcept
@@ -263,11 +237,11 @@ namespace MphRead::Testing
                 }
                 if (material->XRepeat == RepeatMode::Mirror)
                 {
-                    std::cout << "S: " << FormatSingle(material->ScaleS) << '\n';
+                    std::cout << "S: " << ::MphRead::NativeRuntime::ToString(material->ScaleS) << '\n';
                 }
                 if (material->YRepeat == RepeatMode::Mirror)
                 {
-                    std::cout << "T: " << FormatSingle(material->ScaleT) << '\n';
+                    std::cout << "T: " << ::MphRead::NativeRuntime::ToString(material->ScaleT) << '\n';
                 }
                 if (material->XRepeat == RepeatMode::Mirror || material->YRepeat == RepeatMode::Mirror)
                 {

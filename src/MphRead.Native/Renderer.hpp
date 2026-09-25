@@ -56,10 +56,7 @@ namespace OpenTK::Mathematics
         }
     };
 
-
 }
-
-
 
 namespace MphRead::RendererDetail
 {
@@ -478,8 +475,6 @@ namespace MphRead
         [[nodiscard]] OpenTK::Mathematics::Vector2i WorkAreaForWindow(Window& window);
         void InstallGlfwErrorCallback(std::function<void(std::int32_t, std::string)> callback);
         [[nodiscard]] std::int32_t GlfwFeatureUnavailableCode();
-        void ConsoleClear();
-        [[nodiscard]] std::optional<std::string> ConsoleReadLine();
     }
 
     template <typename T>
@@ -625,7 +620,6 @@ namespace MphRead
         bool _sceneReady = false;
         std::int32_t _appliedFrameRateCap = -1;
     };
-
 
 }
 

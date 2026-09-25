@@ -1,6 +1,5 @@
 #include "ModEntry.hpp"
 
-
 #include "../Entities/Players/PlayerEntity.hpp"
 #include "../Features.hpp"
 #include "../Formats/Enums.hpp"
@@ -242,52 +241,20 @@ namespace
     template <typename Float>
     [[nodiscard]] bool TryParseFloatingClassic(std::string_view text, Float& value, bool allowThousands)
     {
-        text = TrimNumberWhitespace(text);
-        if (text.empty())
+        using ::MphRead::NativeRuntime::NumberFormatInfo;
+        using ::MphRead::NativeRuntime::NumberStyles;
+        const NumberStyles styles = allowThousands
+            ? NumberStyles::Float | NumberStyles::AllowThousands
+            : NumberStyles::Float;
+        if constexpr (std::is_same_v<Float, float>)
         {
-            value = 0;
-            return false;
+            return ::MphRead::NativeRuntime::TryParseSingle(text, styles, NumberFormatInfo::InvariantInfo(), value);
         }
-        std::string work(text);
-        if (allowThousands)
+        else
         {
-            work.erase(std::remove(work.begin(), work.end(), ','), work.end());
+            return ::MphRead::NativeRuntime::TryParseDouble(text, styles, NumberFormatInfo::InvariantInfo(), value);
         }
-        const std::string lower = ToLowerAscii(work);
-        if (lower == "nan" || lower == "+nan" || lower == "-nan")
-        {
-            value = std::numeric_limits<Float>::quiet_NaN();
-            return true;
-        }
-        if (lower == "infinity" || lower == "+infinity")
-        {
-            value = std::numeric_limits<Float>::infinity();
-            return true;
-        }
-        if (lower == "-infinity")
-        {
-            value = -std::numeric_limits<Float>::infinity();
-            return true;
-        }
-        std::istringstream stream(work);
-        stream.imbue(std::locale::classic());
-        Float parsed = 0;
-        stream >> parsed;
-        if (stream.fail())
-        {
-            value = 0;
-            return false;
-        }
-        stream >> std::ws;
-        if (!stream.eof())
-        {
-            value = 0;
-            return false;
-        }
-        value = parsed;
-        return true;
     }
-
     [[nodiscard]] bool TryParseDoubleInvariant(
         const std::optional<std::string>& text, double& value, bool allowThousands = true)
     {
@@ -312,54 +279,8 @@ namespace
 
     [[nodiscard]] bool TryParseDoubleCurrent(std::string_view text, double& value)
     {
-        text = TrimNumberWhitespace(text);
-        if (text.empty())
-        {
-            value = 0;
-            return false;
-        }
-        const std::string lower = ToLowerAscii(text);
-        if (lower == "nan" || lower == "+nan" || lower == "-nan")
-        {
-            value = std::numeric_limits<double>::quiet_NaN();
-            return true;
-        }
-        if (lower == "infinity" || lower == "+infinity")
-        {
-            value = std::numeric_limits<double>::infinity();
-            return true;
-        }
-        if (lower == "-infinity")
-        {
-            value = -std::numeric_limits<double>::infinity();
-            return true;
-        }
-        std::istringstream stream{std::string(text)};
-        try
-        {
-            stream.imbue(std::locale(""));
-        }
-        catch (const std::runtime_error&)
-        {
-            stream.imbue(std::locale::classic());
-        }
-        double parsed = 0;
-        stream >> parsed;
-        if (stream.fail())
-        {
-            value = 0;
-            return false;
-        }
-        stream >> std::ws;
-        if (!stream.eof())
-        {
-            value = 0;
-            return false;
-        }
-        value = parsed;
-        return true;
+        return ::MphRead::NativeRuntime::DoubleTryParseCurrentCulture(text, value);
     }
-
     template <typename Enum>
     struct EnumName final
     {

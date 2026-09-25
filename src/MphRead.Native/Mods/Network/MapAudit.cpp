@@ -17,6 +17,7 @@
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -65,18 +66,6 @@ namespace MphRead::Mods::Network
             std::replace(value.begin(), value.end(), ' ', '_');
             std::replace(value.begin(), value.end(), '-', '_');
             return value;
-        }
-
-        [[nodiscard]] std::string Fixed(double value, std::int32_t digits)
-        {
-            std::ostringstream stream;
-            stream << std::fixed << std::setprecision(digits) << value;
-            return stream.str();
-        }
-
-        [[nodiscard]] std::string Fixed(float value, std::int32_t digits)
-        {
-            return Fixed(static_cast<double>(value), digits);
         }
 
         [[nodiscard]] std::string TwoDigits(std::int32_t value)
@@ -1110,9 +1099,9 @@ namespace MphRead::Mods::Network
         std::cout
             << "RENDERSPAWN " << _room
             << " | spawn " << _spawnIndex
-            << " at " << Fixed(at.X, 1) << ',' << Fixed(at.Y, 1) << ',' << Fixed(at.Z, 1)
-            << " | at spawn " << Fixed(_spawnLitAtSpawn * 100.0, 1) << '%'
-            << " | worst while walking " << Fixed(_spawnLitWorst * 100.0, 1) << '%'
+            << " at " << ::MphRead::NativeRuntime::ToString(at.X, "0.0") << ',' << ::MphRead::NativeRuntime::ToString(at.Y, "0.0") << ',' << ::MphRead::NativeRuntime::ToString(at.Z, "0.0")
+            << " | at spawn " << ::MphRead::NativeRuntime::ToString(_spawnLitAtSpawn * 100.0, "0.0") << '%'
+            << " | worst while walking " << ::MphRead::NativeRuntime::ToString(_spawnLitWorst * 100.0, "0.0") << '%'
             << " | part " << main->NodeRef.PartIndex
             << (failed ? " | FAIL" : "")
             << '\n';
@@ -1178,7 +1167,7 @@ namespace MphRead::Mods::Network
             << "ITEMSHOT " << _room
             << " | " << _itemIndex << ' '
             << _itemNames[static_cast<std::size_t>(_itemIndex)]
-            << " at " << Fixed(at.X, 1) << ',' << Fixed(at.Y, 1) << ',' << Fixed(at.Z, 1)
+            << " at " << ::MphRead::NativeRuntime::ToString(at.X, "0.0") << ',' << ::MphRead::NativeRuntime::ToString(at.Y, "0.0") << ',' << ::MphRead::NativeRuntime::ToString(at.Z, "0.0")
             << '\n';
 
         ++_itemIndex;
@@ -1427,7 +1416,7 @@ namespace MphRead::Mods::Network
         }
 
         line << " | moved " << moved << '/' << _players
-             << " (furthest " << Fixed(furthest, 0) << " units)"
+             << " (furthest " << ::MphRead::NativeRuntime::ToString(furthest, "0") << " units)"
              << " | alt form " << altEver << '/' << _players
              << " | fired " << firedEver << '/' << _players
              << " | deaths " << totalDeaths
@@ -1468,7 +1457,7 @@ namespace MphRead::Mods::Network
              << " artifacts " << artifacts
              << " triggers " << triggers
              << " areas " << areaVolumes
-             << " | lowest Y " << Fixed(_lowestY, 1);
+             << " | lowest Y " << ::MphRead::NativeRuntime::ToString(_lowestY, "0.0");
 
         if (_nodeLookupSamples > 0)
         {
@@ -1495,10 +1484,10 @@ namespace MphRead::Mods::Network
 
         if (_litSamples > 0)
         {
-            line << " | lit first " << Fixed(_litFirst * 100.0, 1) << '%'
-                 << " min " << Fixed(_litMin * 100.0, 1) << '%'
-                 << " max " << Fixed(_litMax * 100.0, 1) << '%'
-                 << " mean " << Fixed(_litTotal / _litSamples * 100.0, 1) << '%'
+            line << " | lit first " << ::MphRead::NativeRuntime::ToString(_litFirst * 100.0, "0.0") << '%'
+                 << " min " << ::MphRead::NativeRuntime::ToString(_litMin * 100.0, "0.0") << '%'
+                 << " max " << ::MphRead::NativeRuntime::ToString(_litMax * 100.0, "0.0") << '%'
+                 << " mean " << ::MphRead::NativeRuntime::ToString(_litTotal / _litSamples * 100.0, "0.0") << '%'
                  << " (" << _litSamples << " samples)";
         }
 
@@ -1592,16 +1581,16 @@ namespace MphRead::Mods::Network
         if (_litSamples > 0 && _litMax < _renderFloor)
         {
             problems.push_back(
-                "the room never drew: at most " + Fixed(_litMax * 100.0, 1)
+                "the room never drew: at most " + ::MphRead::NativeRuntime::ToString(_litMax * 100.0, "0.0")
                 + "% of the frame was lit across " + std::to_string(_litSamples)
-                + " samples (first " + Fixed(_litFirst * 100.0, 1) + "%)");
+                + " samples (first " + ::MphRead::NativeRuntime::ToString(_litFirst * 100.0, "0.0") + "%)");
         }
         else if (_litSamples > 1 && _litMin < _renderFloor)
         {
             problems.push_back(
-                "the room stopped drawing: " + Fixed(_litMin * 100.0, 1)
+                "the room stopped drawing: " + ::MphRead::NativeRuntime::ToString(_litMin * 100.0, "0.0")
                 + "% of the frame lit at its worst against "
-                + Fixed(_litMax * 100.0, 1) + "% at its best");
+                + ::MphRead::NativeRuntime::ToString(_litMax * 100.0, "0.0") + "% at its best");
         }
 
         for (std::int32_t i = 0; i < _players; ++i)

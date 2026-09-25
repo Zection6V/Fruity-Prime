@@ -16,6 +16,7 @@
 #include "NetUnlagged.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <bit>
 #include <chrono>
@@ -32,17 +33,6 @@
 
 using ::MphRead::NativeRuntime::IncrementInPlace;
 using ::MphRead::NativeRuntime::UncheckedAdd;
-
-namespace
-{
-    [[nodiscard]] std::string FormatFixed(double value, std::int32_t digits)
-    {
-        std::ostringstream stream;
-        stream << std::fixed << std::setprecision(digits) << value;
-        return stream.str();
-    }
-
-}
 
 namespace MphRead::Mods::Network
 {
@@ -251,8 +241,8 @@ namespace MphRead::Mods::Network
 
         std::string result = Room() + " (" + ::MphRead::ToString(GameState::Mode())
             + "), " + std::to_string(_frames) + " step(s), "
-            + FormatFixed(mean, 2) + " ms mean, "
-            + FormatFixed(_worstStepSeconds * 1000.0, 1) + " ms worst, "
+            + ::MphRead::NativeRuntime::ToString(mean, "0.00") + " ms mean, "
+            + ::MphRead::NativeRuntime::ToString(_worstStepSeconds * 1000.0, "0.0") + " ms worst, "
             + std::to_string(_overrunSteps) + " overrun, "
             + std::to_string(_droppedSteps) + " dropped, "
             + std::to_string(_stalls) + " stall(s)";

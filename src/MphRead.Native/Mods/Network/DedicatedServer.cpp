@@ -161,15 +161,15 @@ namespace MphRead::Mods::Network
         _listening.store(true);
         _running.store(true);
         Log("listening on UDP "
-            + NativeRuntime::Int32ToString((_transport->LocalPort()))
-            + ", up to " + NativeRuntime::Int32ToString(_maxPlayers)
+            + ::MphRead::NativeRuntime::ToString((_transport->LocalPort()))
+            + ", up to " + ::MphRead::NativeRuntime::ToString(_maxPlayers)
             + " players");
         StartSimulation();
         Log(Simulating()
             ? "authority mode: this server simulates the match itself"
             : "relay mode: the first client to connect is the simulation authority");
         Log("rotation: "
-            + NativeRuntime::Int32ToString((static_cast<std::int32_t>(_rotation->Entries().size())))
+            + ::MphRead::NativeRuntime::ToString((static_cast<std::int32_t>(_rotation->Entries().size())))
             + " map(s), starting on " + _rotation->Current()->ToString());
 
         const std::uint16_t listenPort = static_cast<std::uint16_t>(_transport->LocalPort());
@@ -248,23 +248,23 @@ namespace MphRead::Mods::Network
                     else if (_authority != nullptr)
                     {
                         authority = ", authority = slot "
-                            + NativeRuntime::Int32ToString(_authority->SlotIndex);
+                            + ::MphRead::NativeRuntime::ToString(_authority->SlotIndex);
                     }
                     else
                     {
                         authority = ", no authority";
                     }
-                    std::string line = NativeRuntime::Int32ToString((static_cast<std::int32_t>(_peers.size())))
+                    std::string line = ::MphRead::NativeRuntime::ToString((static_cast<std::int32_t>(_peers.size())))
                         + " peer(s) connected" + authority
                         + ", map " + _rotation->Current()->RoomKey;
                     if (limit > 0.0F)
                     {
-                        line += ", " + NativeRuntime::DoubleToStringNoDecimals((std::max(0.0, static_cast<double>(limit) - (now - _matchStarted))))
+                        line += ", " + ::MphRead::NativeRuntime::ToString((std::max(0.0, static_cast<double>(limit) - (now - _matchStarted))), "0")
                             + " s left";
                     }
                     if (_transport != nullptr && _transport->PacketsDropped() > 0)
                     {
-                        line += ", " + NativeRuntime::Int64ToString((_transport->PacketsDropped())) + " packet(s) dropped";
+                        line += ", " + ::MphRead::NativeRuntime::ToString((_transport->PacketsDropped())) + " packet(s) dropped";
                     }
                     Log(line);
                     if (_sim != nullptr)
@@ -328,7 +328,7 @@ namespace MphRead::Mods::Network
         _matchEndedAt = now;
         Log("match over on " + _rotation->Current()->RoomKey + " (" + reason + "); "
             + _rotation->Next()->RoomKey + " in "
-            + NativeRuntime::DoubleToStringNoDecimals((EndSequenceFor())) + " s");
+            + ::MphRead::NativeRuntime::ToString((EndSequenceFor()), "0") + " s");
         BroadcastMatchState(now);
     }
 
@@ -565,7 +565,7 @@ namespace MphRead::Mods::Network
         if (sinceVote < VoteCooldownSeconds)
         {
             Tell(peer, "another vote may be called in "
-                + NativeRuntime::DoubleToStringNoDecimals((VoteCooldownSeconds - sinceVote))
+                + ::MphRead::NativeRuntime::ToString((VoteCooldownSeconds - sinceVote), "0")
                 + " s");
             return;
         }
@@ -573,7 +573,7 @@ namespace MphRead::Mods::Network
         if (sinceMine < ProposalCooldownSeconds)
         {
             Tell(peer, "you may propose again in "
-                + NativeRuntime::DoubleToStringNoDecimals((ProposalCooldownSeconds - sinceMine))
+                + ::MphRead::NativeRuntime::ToString((ProposalCooldownSeconds - sinceMine), "0")
                 + " s");
             return;
         }
@@ -593,7 +593,7 @@ namespace MphRead::Mods::Network
         _voteMode = ModeForRoom(*resolved);
         _voteProposer = !peer->Name.empty()
             ? peer->Name
-            : "Player" + NativeRuntime::Int32ToString((peer->SlotIndex + 1));
+            : "Player" + ::MphRead::NativeRuntime::ToString((peer->SlotIndex + 1));
         _voteProposerSlot = peer->SlotIndex;
         _voteStartedAt = now;
         _voteResult = VoteStatePacket::StateIdle;
@@ -606,7 +606,7 @@ namespace MphRead::Mods::Network
         Announce(_voteProposer + " proposes " + *resolved
             + " -- F1 to accept, F2 to deny");
         Log("vote started by slot "
-            + NativeRuntime::Int32ToString(peer->SlotIndex)
+            + ::MphRead::NativeRuntime::ToString(peer->SlotIndex)
             + " for " + *resolved + " ("
             + ::MphRead::ToString(_voteMode) + ")");
         BroadcastVoteState(now);
@@ -623,22 +623,22 @@ namespace MphRead::Mods::Network
         if (yes >= needed)
         {
             ResolveVote(now, true,
-                NativeRuntime::Int32ToString(yes) + " of "
-                    + NativeRuntime::Int32ToString(eligible));
+                ::MphRead::NativeRuntime::ToString(yes) + " of "
+                    + ::MphRead::NativeRuntime::ToString(eligible));
             return;
         }
         if (eligible - no < needed)
         {
             ResolveVote(now, false,
-                NativeRuntime::Int32ToString(yes) + " of "
-                    + NativeRuntime::Int32ToString(eligible));
+                ::MphRead::NativeRuntime::ToString(yes) + " of "
+                    + ::MphRead::NativeRuntime::ToString(eligible));
             return;
         }
         if (now - _voteStartedAt >= VoteSeconds)
         {
             ResolveVote(now, false,
-                NativeRuntime::Int32ToString(yes) + " of "
-                    + NativeRuntime::Int32ToString(eligible));
+                ::MphRead::NativeRuntime::ToString(yes) + " of "
+                    + ::MphRead::NativeRuntime::ToString(eligible));
         }
     }
 
@@ -822,7 +822,7 @@ namespace MphRead::Mods::Network
             if (oldDropped == 0)
             {
                 Log("chat from slot "
-                    + NativeRuntime::Int32ToString(peer->SlotIndex)
+                    + ::MphRead::NativeRuntime::ToString(peer->SlotIndex)
                     + " (" + peer->EndPoint->ToString() + ") dropped: too fast");
             }
             return;
@@ -832,7 +832,7 @@ namespace MphRead::Mods::Network
         chat.Slot = static_cast<std::uint8_t>(peer->SlotIndex);
         chat.Name = !peer->Name.empty()
             ? peer->Name
-            : "Player" + NativeRuntime::Int32ToString(peer->SlotIndex);
+            : "Player" + ::MphRead::NativeRuntime::ToString(peer->SlotIndex);
         chat.Kind = ChatPacket::KindSay;
         chat.Write(_scratch);
         for (std::size_t i = 0; i < _peers.size(); i++)
@@ -907,7 +907,7 @@ namespace MphRead::Mods::Network
                 if (_peers[i]->ClientId == clientId)
                 {
                     peer = _peers[i];
-                    Log("slot " + NativeRuntime::Int32ToString(peer->SlotIndex)
+                    Log("slot " + ::MphRead::NativeRuntime::ToString(peer->SlotIndex)
                         + " (" + peer->Name + ") came back on " + packet.Sender->ToString()
                         + ", was " + peer->EndPoint->ToString());
                     peer->EndPoint = packet.Sender;
@@ -949,13 +949,13 @@ namespace MphRead::Mods::Network
             {
                 _authority = peer;
                 Log(packet.Sender->ToString() + " joined as slot "
-                    + NativeRuntime::Int32ToString(slot) + " (authority)");
+                    + ::MphRead::NativeRuntime::ToString(slot) + " (authority)");
                 NotifyAuthority(peer);
             }
             else
             {
                 Log(packet.Sender->ToString() + " joined as slot "
-                    + NativeRuntime::Int32ToString(slot));
+                    + ::MphRead::NativeRuntime::ToString(slot));
                 if (Simulating() && _lastSnapshot != nullptr && _transport != nullptr)
                 {
                     _transport->Send(peer->EndPoint, PacketType::Snapshot, *_lastSnapshot);
@@ -1051,10 +1051,10 @@ namespace MphRead::Mods::Network
         peer->Name = name;
         peer->Hunter = hunter;
         peer->Color = color;
-        Log("slot " + NativeRuntime::Int32ToString(peer->SlotIndex)
+        Log("slot " + ::MphRead::NativeRuntime::ToString(peer->SlotIndex)
             + " is \"" + name + "\" playing "
             + ::MphRead::ToString(static_cast<MphRead::Hunter>(hunter))
-            + " in suit " + NativeRuntime::Int32ToString((color + 1)));
+            + " in suit " + ::MphRead::NativeRuntime::ToString((color + 1)));
         if (firstName)
         {
             Announce(name + " joined");
@@ -1129,7 +1129,7 @@ namespace MphRead::Mods::Network
                 std::clamp(_peers[i]->Ping, 0, 9999));
             (*roster.Names)[roster.Count] = !_peers[i]->Name.empty()
                 ? _peers[i]->Name
-                : "Player" + NativeRuntime::Int32ToString((_peers[i]->SlotIndex + 1));
+                : "Player" + ::MphRead::NativeRuntime::ToString((_peers[i]->SlotIndex + 1));
             roster.Count++;
         }
         return roster;
@@ -1251,7 +1251,7 @@ namespace MphRead::Mods::Network
         BroadcastRoster();
         ReviewVote(_now);
         Log(peer->EndPoint->ToString() + " " + reason + " (slot "
-            + NativeRuntime::Int32ToString(peer->SlotIndex) + ")");
+            + ::MphRead::NativeRuntime::ToString(peer->SlotIndex) + ")");
         if (!peer->Name.empty())
         {
             Announce(peer->Name + " " + reason);
@@ -1263,7 +1263,7 @@ namespace MphRead::Mods::Network
         _authority = !_peers.empty() ? _peers[0] : nullptr;
         Log(_authority != nullptr
             ? "authority moved to slot "
-                + NativeRuntime::Int32ToString(_authority->SlotIndex)
+                + ::MphRead::NativeRuntime::ToString(_authority->SlotIndex)
             : "no peers left; waiting for a new authority");
         if (_authority != nullptr)
         {

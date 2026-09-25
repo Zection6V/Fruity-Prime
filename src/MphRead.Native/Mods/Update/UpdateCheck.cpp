@@ -4,6 +4,7 @@
 
 #include "../Branding.hpp"
 #include "../../NativeRuntime/System/Encoding.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <curl/curl.h>
 
@@ -150,35 +151,11 @@ namespace MphRead::Mods::Update
             return value;
         }
 
-        [[nodiscard]] std::string FormatHex(char32_t value)
-        {
-            char buffer[8]{};
-            auto [last, error] = std::to_chars(buffer, buffer + sizeof(buffer),
-                static_cast<std::uint32_t>(value), 16);
-            if (error != std::errc{})
-            {
-                throw std::runtime_error("hex formatting failed");
-            }
-            std::string result(buffer, last);
-            for (char& character : result)
-            {
-                if (character >= 'a' && character <= 'f')
-                {
-                    character = static_cast<char>(character - ('a' - 'A'));
-                }
-            }
-            if (result.size() < 2)
-            {
-                result.insert(result.begin(), 2 - result.size(), '0');
-            }
-            return "0x" + result;
-        }
-
         [[noreturn]] void ThrowInvalidUtf16(char32_t value)
         {
             throw InvalidOperationException(
-                "Cannot read invalid UTF-16 JSON text as string. Invalid surrogate value: '"
-                + FormatHex(value) + "'.");
+                "Cannot read invalid UTF-16 JSON text as string. Invalid surrogate value: '0x"
+                + ::MphRead::NativeRuntime::ToStringInvariant(static_cast<std::uint32_t>(value), "X2") + "'.");
         }
 
         [[noreturn]] void ThrowIncompleteUtf16()

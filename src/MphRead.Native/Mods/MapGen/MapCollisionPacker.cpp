@@ -6,6 +6,7 @@
 #include "../../Utility/RepackCollision.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -169,10 +170,6 @@ namespace
         return editor;
     }
 
-    [[nodiscard]] std::string FormatInt(std::int32_t value)
-    {
-        return MphRead::Fixed(value).ToString();
-    }
 }
 
 namespace MphRead::Mods::MapGen
@@ -215,7 +212,7 @@ namespace MphRead::Mods::MapGen
             if (editorPointCount < 3 || editorPointCount > 10)
             {
                 throw MphRead::ProgramException(
-                    "A collision face has " + FormatInt(editorPointCount)
+                    "A collision face has " + ::MphRead::NativeRuntime::ToString(editorPointCount)
                     + " points; the format allows 3 to 10.");
             }
 
@@ -340,9 +337,9 @@ namespace MphRead::Mods::MapGen
             if (start > std::numeric_limits<std::uint16_t>::max())
             {
                 throw MphRead::ProgramException(
-                    "The collision grid needs " + FormatInt(references) + " face references "
-                    "(" + FormatInt(partsX) + "x" + FormatInt(partsY) + "x"
-                    + FormatInt(partsZ) + " cells over " + FormatInt(dataCount) + " faces), "
+                    "The collision grid needs " + ::MphRead::NativeRuntime::ToString(references) + " face references "
+                    "(" + ::MphRead::NativeRuntime::ToString(partsX) + "x" + ::MphRead::NativeRuntime::ToString(partsY) + "x"
+                    + ::MphRead::NativeRuntime::ToString(partsZ) + " cells over " + ::MphRead::NativeRuntime::ToString(dataCount) + " faces), "
                     "and the format indexes them with 16 bits. "
                     "Convert at a larger scale, or with fewer solid surfaces.");
             }

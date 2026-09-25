@@ -7,6 +7,7 @@
 #include "../InputSettings.hpp"
 #include "../../NativeRuntime/OpenTK/GLFW.hpp"
 #include "../../NativeRuntime/System/Encoding.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -31,189 +32,6 @@ namespace Glfw = ::OpenTK::Windowing::GraphicsLibraryFramework;
 
 namespace
 {
-    template <typename T>
-    [[nodiscard]] std::string FormatFixed(T value, std::int32_t decimals)
-    {
-        static_assert(std::is_same_v<T, float> || std::is_same_v<T, double>);
-        if (std::isnan(value))
-        {
-            return "NaN";
-        }
-        if (std::isinf(value))
-        {
-            return std::signbit(value) ? "-Infinity" : "Infinity";
-        }
-
-        const auto zero = [decimals]()
-        {
-            std::string result = "0";
-            if (decimals > 0)
-            {
-                result.push_back('.');
-                result.append(static_cast<std::size_t>(decimals), '0');
-            }
-            return result;
-        };
-
-        const bool negative = std::signbit(value);
-        if (value == static_cast<T>(0))
-        {
-            return zero();
-        }
-
-        const T magnitude = negative ? -value : value;
-        constexpr int significant = std::is_same_v<T, float> ? 7 : 15;
-        char buffer[64];
-        const auto converted = std::to_chars(
-            buffer, buffer + sizeof(buffer), magnitude,
-            std::chars_format::scientific, significant - 1);
-        if (converted.ec != std::errc{})
-        {
-            throw std::runtime_error("Floating-point formatting failed.");
-        }
-
-        const std::string_view scientific(
-            buffer, static_cast<std::size_t>(converted.ptr - buffer));
-        const std::size_t exponentAt = scientific.find('e');
-        if (exponentAt == std::string_view::npos)
-        {
-            throw std::runtime_error("Floating-point formatting omitted the exponent.");
-        }
-
-        std::string digits;
-        digits.reserve(significant);
-        for (std::size_t index = 0; index < exponentAt; ++index)
-        {
-            if (scientific[index] != '.')
-            {
-                digits.push_back(scientific[index]);
-            }
-        }
-
-        const char* exponentFirst = scientific.data() + exponentAt + 1;
-        const char* exponentLast = scientific.data() + scientific.size();
-        bool exponentNegative = false;
-        if (exponentFirst != exponentLast
-            && (*exponentFirst == '+' || *exponentFirst == '-'))
-        {
-            exponentNegative = *exponentFirst == '-';
-            ++exponentFirst;
-        }
-        std::int32_t exponent = 0;
-        const auto parsed = std::from_chars(
-            exponentFirst, exponentLast, exponent);
-        if (parsed.ec != std::errc{} || parsed.ptr != exponentLast)
-        {
-            throw std::runtime_error("Floating-point exponent parsing failed.");
-        }
-        if (exponentNegative)
-        {
-            exponent = -exponent;
-        }
-
-        std::int32_t scale = exponent + 1;
-        const std::int32_t roundAt = scale + decimals;
-        std::size_t kept = roundAt > 0
-            ? std::min<std::size_t>(
-                static_cast<std::size_t>(roundAt), digits.size())
-            : 0;
-
-        if (roundAt >= 0
-            && static_cast<std::size_t>(roundAt) < digits.size()
-            && digits[static_cast<std::size_t>(roundAt)] >= '5')
-        {
-            std::size_t index = static_cast<std::size_t>(roundAt);
-            while (index > 0 && digits[index - 1] == '9')
-            {
-                --index;
-            }
-            if (index > 0)
-            {
-                ++digits[index - 1];
-                kept = index;
-            }
-            else
-            {
-                digits.assign("1");
-                kept = 1;
-                ++scale;
-            }
-        }
-        else
-        {
-            while (kept > 0 && digits[kept - 1] == '0')
-            {
-                --kept;
-            }
-        }
-
-        if (kept == 0)
-        {
-            return zero();
-        }
-        digits.resize(kept);
-
-        std::string result;
-        if (negative)
-        {
-            result.push_back('-');
-        }
-        if (scale <= 0)
-        {
-            result.push_back('0');
-            if (decimals > 0)
-            {
-                result.push_back('.');
-                const std::int32_t leading = std::min(-scale, decimals);
-                result.append(static_cast<std::size_t>(leading), '0');
-                const std::int32_t remaining = decimals - leading;
-                if (remaining > 0)
-                {
-                    const std::size_t take = std::min<std::size_t>(
-                        digits.size(), static_cast<std::size_t>(remaining));
-                    result.append(digits.data(), take);
-                    result.append(
-                        static_cast<std::size_t>(remaining) - take, '0');
-                }
-            }
-        }
-        else
-        {
-            const std::size_t integerDigits = static_cast<std::size_t>(scale);
-            const std::size_t takeInteger
-                = std::min(integerDigits, digits.size());
-            result.append(digits.data(), takeInteger);
-            if (integerDigits > takeInteger)
-            {
-                result.append(integerDigits - takeInteger, '0');
-            }
-            if (decimals > 0)
-            {
-                result.push_back('.');
-                const std::size_t available = takeInteger < digits.size()
-                    ? digits.size() - takeInteger
-                    : 0;
-                const std::size_t take = std::min<std::size_t>(
-                    available, static_cast<std::size_t>(decimals));
-                if (take > 0)
-                {
-                    result.append(digits.data() + takeInteger, take);
-                }
-                result.append(static_cast<std::size_t>(decimals) - take, '0');
-            }
-        }
-        return result;
-    }
-
-    [[nodiscard]] std::string AlignRight(std::string value, std::size_t width)
-    {
-        if (value.size() < width)
-        {
-            value.insert(value.begin(), width - value.size(), ' ');
-        }
-        return value;
-    }
-
     [[nodiscard]] std::int32_t Bits(MphRead::Mods::Input::GamepadButtons value) noexcept
     {
         return static_cast<std::int32_t>(value);
@@ -315,11 +133,11 @@ namespace MphRead::Mods::Input
 
     std::int32_t GamepadProbe::Watch(double seconds)
     {
-        const std::string formattedSeconds = FormatFixed(seconds, 0);
+        const std::string formattedSeconds = ::MphRead::NativeRuntime::ToString(seconds, "0");
         const std::string formattedDeadZone
-            = FormatFixed(InputSettings::GamepadDeadZone(), 2);
+            = ::MphRead::NativeRuntime::ToString(InputSettings::GamepadDeadZone(), "0.00");
         const std::string formattedLook
-            = FormatFixed(InputSettings::GamepadLookSensitivity(), 2);
+            = ::MphRead::NativeRuntime::ToString(InputSettings::GamepadLookSensitivity(), "0.00");
         const bool invertY = InputSettings::GamepadInvertY();
         std::string watchLine = "[gamepad] watching for ";
         watchLine.append(formattedSeconds);
@@ -369,7 +187,7 @@ namespace MphRead::Mods::Input
             {
                 last = line;
                 const std::string elapsed
-                    = AlignRight(FormatFixed(elapsedSeconds(), 1), 5);
+                    = ::MphRead::NativeRuntime::StringPadLeft(::MphRead::NativeRuntime::ToString(elapsedSeconds(), "0.0"), 5);
                 std::string output = "  ";
                 output.append(elapsed);
                 output.append("s ");
@@ -452,21 +270,21 @@ namespace MphRead::Mods::Input
 
         std::string text = state.Name.value_or("");
         text.append("  L(");
-        text.append(AlignRight(FormatFixed(state.LeftX, 2), 5));
+        text.append(::MphRead::NativeRuntime::StringPadLeft(::MphRead::NativeRuntime::ToString(state.LeftX, "0.00"), 5));
         text.push_back(',');
-        text.append(AlignRight(FormatFixed(state.LeftY, 2), 5));
+        text.append(::MphRead::NativeRuntime::StringPadLeft(::MphRead::NativeRuntime::ToString(state.LeftY, "0.00"), 5));
         text.append(") R(");
-        text.append(AlignRight(FormatFixed(state.RightX, 2), 5));
+        text.append(::MphRead::NativeRuntime::StringPadLeft(::MphRead::NativeRuntime::ToString(state.RightX, "0.00"), 5));
         text.push_back(',');
-        text.append(AlignRight(FormatFixed(state.RightY, 2), 5));
+        text.append(::MphRead::NativeRuntime::StringPadLeft(::MphRead::NativeRuntime::ToString(state.RightY, "0.00"), 5));
         text.append(") LT");
-        text.append(FormatFixed(state.LeftTrigger, 2));
+        text.append(::MphRead::NativeRuntime::ToString(state.LeftTrigger, "0.00"));
         text.append(" RT");
-        text.append(FormatFixed(state.RightTrigger, 2));
+        text.append(::MphRead::NativeRuntime::ToString(state.RightTrigger, "0.00"));
         text.append("  aim(");
-        text.append(AlignRight(FormatFixed(GamepadInput::AimDeltaX(), 2), 6));
+        text.append(::MphRead::NativeRuntime::StringPadLeft(::MphRead::NativeRuntime::ToString(GamepadInput::AimDeltaX(), "0.00"), 6));
         text.push_back(',');
-        text.append(AlignRight(FormatFixed(GamepadInput::AimDeltaY(), 2), 6));
+        text.append(::MphRead::NativeRuntime::StringPadLeft(::MphRead::NativeRuntime::ToString(GamepadInput::AimDeltaY(), "0.00"), 6));
         text.push_back(')');
         if (state.Buttons != GamepadButtons::None)
         {

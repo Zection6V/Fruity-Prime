@@ -1,10 +1,10 @@
 #include "Output.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Console.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <array>
 #include <chrono>
-#include <clocale>
 #include <cstring>
 #include <deque>
 #include <iostream>
@@ -12,7 +12,6 @@
 #include <random>
 #include <system_error>
 
-#include <locale.h>
 
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -32,84 +31,6 @@ using ::MphRead::NativeRuntime::ConsoleWriteLineNullable;
 namespace
 {
     using namespace std::chrono_literals;
-
-    void SetInvariantCultureForCurrentThread()
-    {
-#if defined(_WIN32)
-        if (::_configthreadlocale(_ENABLE_PER_THREAD_LOCALE) != -1)
-        {
-            (void)::setlocale(LC_ALL, "C");
-        }
-#elif defined(LC_ALL_MASK)
-        static locale_t invariantLocale = ::newlocale(LC_ALL_MASK, "C", nullptr);
-        if (invariantLocale != static_cast<locale_t>(0))
-        {
-            (void)::uselocale(invariantLocale);
-        }
-#else
-        static const std::locale invariantCulture = std::locale::classic();
-        (void)invariantCulture;
-#endif
-    }
-
-    void ConsoleClear()
-    {
-#if defined(_WIN32)
-        HANDLE output = ::GetStdHandle(STD_OUTPUT_HANDLE);
-        if (output == nullptr || output == INVALID_HANDLE_VALUE)
-        {
-            throw std::ios_base::failure("No console is available.");
-        }
-
-        CONSOLE_SCREEN_BUFFER_INFO info{};
-        if (::GetConsoleScreenBufferInfo(output, &info) == 0)
-        {
-            throw std::ios_base::failure("No console is available.");
-        }
-
-        const DWORD cellCount = static_cast<DWORD>(info.dwSize.X)
-            * static_cast<DWORD>(info.dwSize.Y);
-        const COORD home{0, 0};
-        DWORD written = 0;
-        if (::FillConsoleOutputCharacterW(output, L' ', cellCount, home, &written) == 0
-            || ::FillConsoleOutputAttribute(
-                output, info.wAttributes, cellCount, home, &written) == 0
-            || ::SetConsoleCursorPosition(output, home) == 0)
-        {
-            throw std::ios_base::failure("The console could not be cleared.");
-        }
-#elif defined(__unix__) || defined(__APPLE__)
-        if (::isatty(STDOUT_FILENO) == 0)
-        {
-            throw std::ios_base::failure("No console is available.");
-        }
-        ConsoleWrite("\x1B[2J\x1B[H");
-#else
-        ConsoleWrite("\x1B[2J\x1B[H");
-#endif
-    }
-
-    [[nodiscard]] std::string ConsoleReadLine()
-    {
-        std::string input;
-        if (!std::getline(std::cin, input))
-        {
-            if (std::cin.bad())
-            {
-                throw std::ios_base::failure("Console input failed.");
-            }
-            if (std::cin.eof())
-            {
-                return std::string();
-            }
-            throw std::ios_base::failure("Console input failed.");
-        }
-        if (!input.empty() && input.back() == '\r')
-        {
-            input.pop_back();
-        }
-        return input;
-    }
 
     class Delay100Awaiter final
     {
@@ -345,7 +266,7 @@ namespace MphRead
             cts_ = std::make_unique<Detail::CancellationTokenSource>();
             (void)Task<void>::Run([]()
             {
-                SetInvariantCultureForCurrentThread();
+                ::MphRead::NativeRuntime::UseInvariantCultureOnThisThread();
                 if (!cts_)
                 {
                     throw NullReferenceException("Object reference not set to an instance of an object: _cts.");
@@ -489,7 +410,7 @@ namespace MphRead
                 }
                 else if (item.OperationValue == Operation::Clear)
                 {
-                    ConsoleClear();
+                    ::MphRead::NativeRuntime::ConsoleClear();
                 }
                 else if (item.OperationValue == Operation::Read)
                 {
@@ -502,7 +423,7 @@ namespace MphRead
                                 "Object reference not set to an instance of an object: _input.");
                         }
                         const std::int32_t count = static_cast<std::int32_t>(input_->size());
-                        std::string message = ConsoleReadLine();
+                        std::string message = ::MphRead::NativeRuntime::ConsoleReadLine().value_or(std::string());
                         input_->emplace_back(count, std::move(message));
                     }
                 }

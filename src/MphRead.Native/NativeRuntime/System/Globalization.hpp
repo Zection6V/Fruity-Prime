@@ -1,8 +1,11 @@
 #pragma once
 
-// Culture-dependent string and number operations (System.String,
-// System.Globalization, Int32/Single parsing) as .NET performs them for the
-// current culture. Strings are UTF-8.
+// System.String and System.Globalization's text operations: white space,
+// trimming, the invariant culture's case mapping, OrdinalIgnoreCase, and the
+// current culture's comparisons. Strings are UTF-8, compared by code point.
+// Numbers are in Number.hpp, which this includes.
+
+#include "Number.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -16,11 +19,11 @@ namespace MphRead::NativeRuntime
     // UTF-16 unit or a code point alike.
     [[nodiscard]] constexpr bool CharIsWhiteSpace(char32_t value) noexcept
     {
-        return (value >= U'\u0009' && value <= U'\u000D') || value == U'\u0020'
-            || value == U'\u0085' || value == U'\u00A0' || value == U'\u1680'
-            || (value >= U'\u2000' && value <= U'\u200A') || value == U'\u2028'
-            || value == U'\u2029' || value == U'\u202F' || value == U'\u205F'
-            || value == U'\u3000';
+        return (value >= U'\u0009' && value <= U'\u000D') || value == U' '
+            || value == U'\u0085' || value == U' ' || value == U' '
+            || (value >= U' ' && value <= U' ') || value == U' '
+            || value == U' ' || value == U' ' || value == U' '
+            || value == U'　';
     }
     // The white space int.Parse and float.Parse skip around a number
     // (NumberStyles.AllowLeadingWhite/AllowTrailingWhite): tab to carriage
@@ -36,60 +39,103 @@ namespace MphRead::NativeRuntime
     [[nodiscard]] bool StringIsNullOrWhiteSpace(const std::optional<std::string>& value) noexcept;
     // value.Trim() without the copy: the same characters, as a view into value.
     [[nodiscard]] std::string_view StringTrimView(std::string_view value) noexcept;
+    // value.Trim(): leading and trailing char.IsWhiteSpace characters off.
+    [[nodiscard]] std::string StringTrim(std::string_view value);
     // value.Replace(oldValue, newValue): ordinal, every occurrence, left to
     // right; ArgumentException for an empty oldValue, as .NET throws.
     [[nodiscard]] std::string StringReplace(
         std::string value, std::string_view oldValue, std::string_view newValue);
-    // string.Equals(left, right, StringComparison.OrdinalIgnoreCase).
-    [[nodiscard]] bool StringEqualsOrdinalIgnoreCase(
-        std::string_view left, std::string_view right) noexcept;
-    // (int)Math.Round(value): to even on a tie, as Math.Round defaults.
+    // value.PadLeft(totalWidth, padding) / value.PadRight(...): widths are in
+    // UTF-16 units, as a C# string's Length is. `{x,6}` in a composite format
+    // is PadLeft(6) and `{x,-6}` is PadRight(6).
+    [[nodiscard]] std::string StringPadLeft(std::string value, std::size_t totalWidth, char padding = ' ');
+    [[nodiscard]] std::string StringPadRight(std::string value, std::size_t totalWidth, char padding = ' ');
+    // (int)Math.Round(value): to even on a tie, as Math.Round defaults, and
+    // saturating where the value does not fit.
     [[nodiscard]] std::int32_t MathRoundToInt32(double value) noexcept;
     // Encoding.ASCII.GetString(bytes): every byte over 0x7F becomes '?'.
     [[nodiscard]] std::string AsciiGetString(std::span<const std::uint8_t> bytes);
-    // value.Trim(): leading and trailing char.IsWhiteSpace characters off.
-    [[nodiscard]] std::string StringTrim(std::string_view value);
-    // float.TryParse(text, out value): NumberStyles.Float | AllowThousands, current culture.
-    [[nodiscard]] bool SingleTryParseCurrentCulture(std::string text, float& value);
-    // float.ToString(): the shortest round-trippable form, current culture.
-    [[nodiscard]] std::string SingleToString(float value);
-    // float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value).
-    [[nodiscard]] bool SingleTryParseInvariantFloat(std::string text, float& value);
-    // double.TryParse(text, NumberStyles.Float | AllowThousands,
-    // CultureInfo.InvariantCulture, out value).
-    [[nodiscard]] bool DoubleTryParseInvariant(std::string text, double& value);
-    // double.ToString("0.0"), "0.00" and so on: exactly `decimals` places,
-    // rounded half away from zero, current culture.
-    [[nodiscard]] std::string DoubleToStringFixed(double value, std::int32_t decimals);
-    // double.ToString("F2"), current culture.
-    [[nodiscard]] std::string DoubleToStringFixed2(double value);
-    // float.ToString("0.#"), current culture.
-    [[nodiscard]] std::string SingleToStringZeroPointHash(float value);
-    // int.ToString() / long.ToString(), current culture.
-    [[nodiscard]] std::string Int32ToString(std::int32_t value);
-    [[nodiscard]] std::string Int64ToString(std::int64_t value);
-    // double.ToString("0") / ToString("F0"): rounded to no decimals,
-    // current culture.
-    [[nodiscard]] std::string DoubleToStringNoDecimals(double value);
-    // NumberFormatInfo.NumberDecimalSeparator for the current culture.
-    [[nodiscard]] std::string CurrentDecimalSeparator();
-    // int.TryParse(text, NumberStyles.HexNumber, null, out value).
-    [[nodiscard]] bool Int32TryParseHexNumber(std::string text, std::int32_t& value);
 
-    // value.EndsWith(suffix): culture-sensitive, current culture.
-    [[nodiscard]] bool StringEndsWithCurrentCulture(
-        const std::string& value, const std::string& suffix);
-    // value.StartsWith(prefix): culture-sensitive, current culture.
-    [[nodiscard]] bool StringStartsWithCurrentCulture(
-        std::u32string_view value,
-        std::u32string_view prefix);
-    // int.TryParse(value, out result): NumberStyles.Integer, current culture.
-    [[nodiscard]] bool Int32TryParseCurrentCulture(
-        std::u32string_view value,
-        std::int32_t& result);
-    [[nodiscard]] bool Int32TryParseCurrentCulture(
-        std::string_view value,
-        std::int32_t& result);
+    // ---- Case --------------------------------------------------------------
+
+    // char.ToUpperInvariant / char.ToLowerInvariant: Unicode's simple case
+    // mapping (from ICU where there is one), except that the dotless i and
+    // the dotted I are left alone, as .NET's invariant culture leaves them.
+    [[nodiscard]] char32_t ToUpperInvariant(char32_t value) noexcept;
+    [[nodiscard]] char32_t ToLowerInvariant(char32_t value) noexcept;
+    // string.ToUpperInvariant() / ToLowerInvariant().
+    [[nodiscard]] std::string ToUpperInvariant(std::string_view value);
+    [[nodiscard]] std::string ToLowerInvariant(std::string_view value);
+    // string.ToUpper() / ToLower(): the current culture's casing -- the
+    // invariant one, except that a Turkish or Azeri culture maps i to İ and
+    // I to ı, and any other culture maps ı to I and İ to i.
+    [[nodiscard]] std::string ToUpperCurrentCulture(std::string_view value);
+    [[nodiscard]] std::string ToLowerCurrentCulture(std::string_view value);
+    // What OrdinalIgnoreCase compares: the upper case of each character,
+    // where the long s and the dotless i are not the S and the I.
+    [[nodiscard]] char32_t OrdinalCasingToUpper(char32_t value) noexcept;
+
+    // string.Equals / StartsWith / EndsWith / Compare / IndexOf with
+    // StringComparison.OrdinalIgnoreCase.
+    [[nodiscard]] bool StringEqualsOrdinalIgnoreCase(
+        std::string_view left, std::string_view right) noexcept;
+    [[nodiscard]] bool StringStartsWithOrdinalIgnoreCase(
+        std::string_view value, std::string_view prefix) noexcept;
+    [[nodiscard]] bool StringEndsWithOrdinalIgnoreCase(
+        std::string_view value, std::string_view suffix) noexcept;
+    [[nodiscard]] std::int32_t StringCompareOrdinalIgnoreCase(
+        std::string_view left, std::string_view right) noexcept;
+    // -1 when absent; otherwise the byte offset of the match.
+    [[nodiscard]] std::ptrdiff_t StringIndexOfOrdinalIgnoreCase(
+        std::string_view value, std::string_view search) noexcept;
+    [[nodiscard]] inline bool StringContainsOrdinalIgnoreCase(
+        std::string_view value, std::string_view search) noexcept
+    {
+        return StringIndexOfOrdinalIgnoreCase(value, search) >= 0;
+    }
+    // StringComparer.OrdinalIgnoreCase.GetHashCode: equal for any two strings
+    // StringEqualsOrdinalIgnoreCase calls equal, seeded once per process.
+    [[nodiscard]] std::int32_t StringHashOrdinalIgnoreCase(std::string_view value) noexcept;
+    // StringComparer.OrdinalIgnoreCase, for ordered and hashed containers.
+    struct OrdinalIgnoreCaseLess final
+    {
+        using is_transparent = void;
+        [[nodiscard]] bool operator()(std::string_view left, std::string_view right) const noexcept
+        {
+            return StringCompareOrdinalIgnoreCase(left, right) < 0;
+        }
+    };
+    struct OrdinalIgnoreCaseEqual final
+    {
+        using is_transparent = void;
+        [[nodiscard]] bool operator()(std::string_view left, std::string_view right) const noexcept
+        {
+            return StringEqualsOrdinalIgnoreCase(left, right);
+        }
+    };
+    struct OrdinalIgnoreCaseHash final
+    {
+        using is_transparent = void;
+        [[nodiscard]] std::size_t operator()(std::string_view value) const noexcept
+        {
+            return static_cast<std::size_t>(static_cast<std::uint32_t>(StringHashOrdinalIgnoreCase(value)));
+        }
+    };
+
+    // ---- The current culture -----------------------------------------------
+
+    // CultureInfo.CurrentCulture.Name: "" for the invariant culture.
+    [[nodiscard]] const std::string& CurrentCultureName();
+    // value.StartsWith(prefix) / value.EndsWith(suffix): culture-sensitive,
+    // CompareOptions.None, current culture.
+    [[nodiscard]] bool StringStartsWithCurrentCulture(std::string_view value, std::string_view prefix);
+    [[nodiscard]] bool StringEndsWithCurrentCulture(std::string_view value, std::string_view suffix);
+    // string.Compare(left, right) / left.CompareTo(right): the current
+    // culture's collation, negative, zero or positive.
+    [[nodiscard]] std::int32_t StringCompareCurrentCulture(std::string_view left, std::string_view right);
+
+    // ---- bool --------------------------------------------------------------
+
     // bool.TryParse(value, out result): "True" or "False" ignoring case,
     // after white space and NUL characters are trimmed from both ends; result
     // is false whenever it returns false. A null value is not a boolean.
@@ -103,7 +149,4 @@ namespace MphRead::NativeRuntime
     {
         return BooleanTryParse(std::string_view(value), result);
     }
-    // int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture,
-    // out result).
-    [[nodiscard]] bool Int32TryParseInvariant(std::string_view value, std::int32_t& result);
 }

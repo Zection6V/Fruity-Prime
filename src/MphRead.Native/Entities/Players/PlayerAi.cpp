@@ -9,6 +9,9 @@
 #include "../../Metadata/Weapons.hpp"
 #include "../../Scene.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
 
 #include <bit>
 #include <csignal>
@@ -22,11 +25,6 @@
 #endif
 
 using ::MphRead::NativeRuntime::HasFlag;
-
-namespace
-{
-}
-
 
 namespace MphRead::Entities
 {
@@ -893,7 +891,6 @@ namespace MphRead::Entities
         }
     }
 
-
     void PlayerEntity::PlayerAiData::OnTakeDamage(std::int32_t damage, EntityBase& source,
         const std::shared_ptr<PlayerEntity>& attacker)
     {
@@ -987,15 +984,19 @@ namespace MphRead::Entities
                         }
                         std::int32_t weight = _executionTree[i - 1]->Weights[static_cast<std::size_t>(index)];
                         float pct = weight / 100000.0F * 100.0F;
-                        out << "w: " << std::setw(6) << weight << " / 100000 ("
-                            << std::setw(5) << std::fixed << std::setprecision(1) << pct << "%) -> " << target << '\n';
+                        out << "w: " << NativeRuntime::StringPadLeft(NativeRuntime::ToString(weight), 6) << " / 100000 ("
+                            << NativeRuntime::StringPadLeft(NativeRuntime::ToString(pct, "f1"), 5) << "%) -> " << target
+                            << NativeRuntime::EnvironmentNewLine();
                         if (data2->Func3Id >= 70 && data2->Func3Id <= 72)
                         {
                             std::int32_t param1 = data2->Parameters->Param1 * 2;
-                            std::int32_t padding = static_cast<std::int32_t>(std::to_string(param1).size());
+                            const std::string paramText = NativeRuntime::ToString(param1);
+                            const std::string calls = NativeRuntime::StringPadLeft(
+                                NativeRuntime::ToString(item->CallCount), NativeRuntime::Utf16Length(paramText));
                             float callPct = item->CallCount / static_cast<float>(param1) * 100.0F;
-                            out << "c: " << std::setw(padding) << item->CallCount << " / " << param1 << " ("
-                                << std::setw(5) << std::fixed << std::setprecision(1) << callPct << "%) -> " << target << '\n';
+                            out << "c: " << calls << " / " << paramText << " ("
+                                << NativeRuntime::StringPadLeft(NativeRuntime::ToString(callPct, "f1"), 5) << "%) -> " << target
+                                << NativeRuntime::EnvironmentNewLine();
                         }
                     }
                 }

@@ -72,7 +72,7 @@ namespace MphRead::Mods::Input
             ::MphRead::Mods::DebugLog::Line(
                 "input",
                 "pointer jumped "
-                    + ::MphRead::NativeRuntime::DoubleToStringNoDecimals(delta)
+                    + ::MphRead::NativeRuntime::ToString(delta, "0")
                     + " px in a frame and was "
                     + "ignored -- a pen, a touchscreen, or a cursor warp");
         }

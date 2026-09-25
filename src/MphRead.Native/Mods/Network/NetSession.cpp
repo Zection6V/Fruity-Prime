@@ -26,6 +26,7 @@
 #include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <array>
@@ -55,8 +56,6 @@
 #include <windows.h>
 #else
 #include <fcntl.h>
-#include <langinfo.h>
-#include <locale.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -78,333 +77,6 @@ namespace
 {
     using MphRead::Mods::Network::NetRole;
 
-    struct NumberSymbols
-    {
-        std::string Decimal = ".";
-        std::string Negative = "-";
-        std::string NaN = "NaN";
-        std::string PositiveInfinity = "\xE2\x88\x9E";
-        std::string NegativeInfinity = "-\xE2\x88\x9E";
-    };
-
-    [[nodiscard]] bool GlobalizationInvariantRequested() noexcept
-    {
-        const char* value = std::getenv("DOTNET_SYSTEM_GLOBALIZATION_INVARIANT");
-        if (value == nullptr)
-        {
-            return false;
-        }
-        const std::string_view text(value);
-        if (text == "1")
-        {
-            return true;
-        }
-        return text.size() == 4
-            && (text[0] == 't' || text[0] == 'T')
-            && (text[1] == 'r' || text[1] == 'R')
-            && (text[2] == 'u' || text[2] == 'U')
-            && (text[3] == 'e' || text[3] == 'E');
-    }
-
-#if defined(_WIN32)
-    [[nodiscard]] std::string LocaleString(LCTYPE type, std::string fallback)
-    {
-        wchar_t buffer[128]{};
-        const int count = GetLocaleInfoEx(
-            LOCALE_NAME_USER_DEFAULT, type, buffer, static_cast<int>(std::size(buffer)));
-        if (count <= 1)
-        {
-            return fallback;
-        }
-        std::string result = WideToUtf8(buffer);
-        return result.empty() ? fallback : result;
-    }
-#endif
-
-    [[nodiscard]] NumberSymbols CurrentNumberSymbols()
-    {
-        NumberSymbols symbols{};
-        if (GlobalizationInvariantRequested())
-        {
-            symbols.PositiveInfinity = "Infinity";
-            symbols.NegativeInfinity = "-Infinity";
-            return symbols;
-        }
-#if defined(_WIN32)
-        symbols.Decimal = LocaleString(LOCALE_SDECIMAL, ".");
-        symbols.Negative = LocaleString(LOCALE_SNEGATIVESIGN, "-");
-#ifdef LOCALE_SNAN
-        symbols.NaN = LocaleString(LOCALE_SNAN, "NaN");
-#endif
-#ifdef LOCALE_SPOSINFINITY
-        symbols.PositiveInfinity = LocaleString(LOCALE_SPOSINFINITY, "\xE2\x88\x9E");
-#endif
-#ifdef LOCALE_SNEGINFINITY
-        symbols.NegativeInfinity = LocaleString(
-            LOCALE_SNEGINFINITY, symbols.Negative + "\xE2\x88\x9E");
-#endif
-#else
-#if defined(__ANDROID__)
-        if (const lconv* locale = ::localeconv(); locale != nullptr)
-        {
-            if (locale->decimal_point != nullptr && locale->decimal_point[0] != '\0')
-            {
-                symbols.Decimal = locale->decimal_point;
-            }
-            if (locale->negative_sign != nullptr && locale->negative_sign[0] != '\0')
-            {
-                symbols.Negative = locale->negative_sign;
-            }
-        }
-#else
-        locale_t numericLocale = newlocale(LC_NUMERIC_MASK, "", nullptr);
-        if (numericLocale != static_cast<locale_t>(0))
-        {
-            const char* decimal = nl_langinfo_l(RADIXCHAR, numericLocale);
-            if (decimal != nullptr && *decimal != '\0')
-            {
-                symbols.Decimal = decimal;
-            }
-            freelocale(numericLocale);
-        }
-        locale_t monetaryLocale = newlocale(LC_MONETARY_MASK, "", nullptr);
-        if (monetaryLocale != static_cast<locale_t>(0))
-        {
-#if defined(NEGATIVE_SIGN)
-            const char* negative = nl_langinfo_l(NEGATIVE_SIGN, monetaryLocale);
-            if (negative != nullptr && *negative != '\0')
-            {
-                symbols.Negative = negative;
-            }
-#endif
-            freelocale(monetaryLocale);
-        }
-#endif
-        symbols.NegativeInfinity = symbols.Negative + symbols.PositiveInfinity;
-#endif
-        return symbols;
-    }
-
-    [[nodiscard]] std::string ApplyCurrentSymbols(
-        std::string text, const NumberSymbols& symbols)
-    {
-        if (!text.empty() && text.front() == '-')
-        {
-            text.erase(text.begin());
-            text.insert(0, symbols.Negative);
-        }
-        const std::size_t dot = text.find('.');
-        if (dot != std::string::npos)
-        {
-            text.replace(dot, 1, symbols.Decimal);
-        }
-        return text;
-    }
-
-    [[nodiscard]] std::string Int32Text(std::int32_t value)
-    {
-        std::array<char, 32> buffer{};
-        const auto converted = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
-        if (converted.ec != std::errc{})
-        {
-            throw std::runtime_error("Int32 formatting failed.");
-        }
-        return ApplyCurrentSymbols(
-            std::string(buffer.data(), static_cast<std::size_t>(converted.ptr - buffer.data())),
-            CurrentNumberSymbols());
-    }
-
-    void IncrementDecimal(std::string& digits)
-    {
-        std::size_t index = digits.size();
-        while (index > 0 && digits[index - 1] == '9')
-        {
-            digits[index - 1] = '0';
-            --index;
-        }
-        if (index == 0)
-        {
-            digits.insert(digits.begin(), '1');
-        }
-        else
-        {
-            digits[index - 1]++;
-        }
-    }
-
-    template <typename TFloat>
-    [[nodiscard]] std::string NumberTextCore(
-        TFloat value, std::int32_t minDecimals, std::int32_t maxDecimals,
-        std::int32_t precision)
-    {
-        const NumberSymbols symbols = CurrentNumberSymbols();
-        if (std::isnan(value))
-        {
-            return symbols.NaN;
-        }
-        if (std::isinf(value))
-        {
-            return std::signbit(value)
-                ? symbols.NegativeInfinity
-                : symbols.PositiveInfinity;
-        }
-
-        const bool negative = std::signbit(value);
-        const TFloat magnitude = std::fabs(value);
-        std::string scaled = "0";
-
-        if (magnitude != static_cast<TFloat>(0))
-        {
-            std::array<char, 96> buffer{};
-            const auto converted = std::to_chars(
-                buffer.data(), buffer.data() + buffer.size(), magnitude,
-                std::chars_format::scientific, precision - 1);
-            if (converted.ec != std::errc{})
-            {
-                throw std::runtime_error("Floating-point formatting failed.");
-            }
-
-            const std::string_view scientific(
-                buffer.data(), static_cast<std::size_t>(converted.ptr - buffer.data()));
-            std::size_t exponentMarker = scientific.find('e');
-            if (exponentMarker == std::string_view::npos)
-            {
-                exponentMarker = scientific.find('E');
-            }
-            if (exponentMarker == std::string_view::npos)
-            {
-                throw std::runtime_error("Floating-point formatting failed.");
-            }
-
-            std::string significant;
-            significant.reserve(static_cast<std::size_t>(precision));
-            for (std::size_t index = 0; index < exponentMarker; ++index)
-            {
-                const char unit = scientific[index];
-                if (unit == '.')
-                {
-                    continue;
-                }
-                if (unit < '0' || unit > '9')
-                {
-                    throw std::runtime_error("Floating-point formatting failed.");
-                }
-                significant.push_back(unit);
-            }
-
-            const char* exponentFirst = scientific.data() + exponentMarker + 1;
-            const char* const exponentLast = scientific.data() + scientific.size();
-            bool exponentNegative = false;
-            if (exponentFirst != exponentLast
-                && (*exponentFirst == '+' || *exponentFirst == '-'))
-            {
-                exponentNegative = *exponentFirst == '-';
-                ++exponentFirst;
-            }
-            std::int32_t exponent = 0;
-            const auto parsed = std::from_chars(exponentFirst, exponentLast, exponent);
-            if (parsed.ec != std::errc{} || parsed.ptr != exponentLast)
-            {
-                throw std::runtime_error("Floating-point formatting failed.");
-            }
-            if (exponentNegative)
-            {
-                exponent = -exponent;
-            }
-
-            const std::int32_t shift = exponent - (precision - 1) + maxDecimals;
-            if (shift >= 0)
-            {
-                scaled = significant;
-                scaled.append(static_cast<std::size_t>(shift), '0');
-            }
-            else
-            {
-                const std::int32_t discarded = -shift;
-                const std::int32_t kept
-                    = static_cast<std::int32_t>(significant.size()) - discarded;
-                bool roundUp = false;
-                if (kept > 0)
-                {
-                    scaled.assign(significant, 0, static_cast<std::size_t>(kept));
-                    if (static_cast<std::size_t>(kept) < significant.size())
-                    {
-                        roundUp = significant[static_cast<std::size_t>(kept)] >= '5';
-                    }
-                }
-                else if (kept == 0)
-                {
-                    scaled = "0";
-                    roundUp = !significant.empty() && significant.front() >= '5';
-                }
-                else
-                {
-                    scaled = "0";
-                }
-                if (roundUp)
-                {
-                    IncrementDecimal(scaled);
-                }
-            }
-
-            const std::size_t firstNonZero = scaled.find_first_not_of('0');
-            if (firstNonZero == std::string::npos)
-            {
-                scaled = "0";
-            }
-            else if (firstNonZero != 0)
-            {
-                scaled.erase(0, firstNonZero);
-            }
-        }
-
-        std::string result = scaled;
-        if (maxDecimals > 0)
-        {
-            const std::size_t decimals = static_cast<std::size_t>(maxDecimals);
-            if (result.size() <= decimals)
-            {
-                result.insert(0, decimals + 1 - result.size(), '0');
-            }
-            result.insert(result.end() - static_cast<std::ptrdiff_t>(decimals), '.');
-            if (maxDecimals > minDecimals)
-            {
-                const std::size_t decimalPoint = result.find('.');
-                while (result.size() > decimalPoint + 1U
-                        + static_cast<std::size_t>(minDecimals)
-                    && result.back() == '0')
-                {
-                    result.pop_back();
-                }
-                if (minDecimals == 0 && result.back() == '.')
-                {
-                    result.pop_back();
-                }
-            }
-        }
-
-        if (negative && scaled != "0")
-        {
-            result.insert(0, symbols.Negative);
-        }
-        const std::size_t decimalPoint = result.find('.');
-        if (decimalPoint != std::string::npos)
-        {
-            result.replace(decimalPoint, 1, symbols.Decimal);
-        }
-        return result;
-    }
-
-    [[nodiscard]] std::string OneDecimal(double value)
-    {
-        return NumberTextCore(value, 1, 1, 15);
-    }
-
-    [[nodiscard]] std::string ZeroDecimals(float value)
-    {
-        return NumberTextCore(value, 0, 0, 7);
-    }
-
     [[nodiscard]] std::string RoleName(NetRole role)
     {
         switch (role)
@@ -414,9 +86,8 @@ namespace
         case NetRole::Client: return "Client";
         case NetRole::Server: return "Server";
         }
-        return Int32Text(static_cast<std::int32_t>(role));
+        return ::MphRead::NativeRuntime::ToString(static_cast<std::int32_t>(role));
     }
-
 
     [[nodiscard]] std::vector<std::uint8_t> AsciiBytes(std::string_view text)
     {
@@ -610,7 +281,7 @@ namespace MphRead::Mods::Network
             _localSlot = 0;
             _netFrame = 0;
             _lastError.reset();
-            ConsoleWriteLine("[net] hosting on UDP " + Int32Text(_transport->LocalPort()));
+            ConsoleWriteLine("[net] hosting on UDP " + ::MphRead::NativeRuntime::ToString(_transport->LocalPort()));
         }
         catch (const std::exception& ex)
         {
@@ -634,11 +305,11 @@ namespace MphRead::Mods::Network
             _netFrame = 0;
             _lastError.reset();
             NetLog::Open(_playerName);
-            NetLog::Event("joining " + address + ":" + Int32Text(port)
+            NetLog::Event("joining " + address + ":" + ::MphRead::NativeRuntime::ToString(port)
                 + " as \"" + _playerName + "\"");
             SendHello();
             SendIdentify();
-            ConsoleWriteLine("[net] joining " + address + ":" + Int32Text(port)
+            ConsoleWriteLine("[net] joining " + address + ":" + ::MphRead::NativeRuntime::ToString(port)
                 + " as \"" + _playerName + "\"");
         }
         catch (const std::exception& ex)
@@ -826,8 +497,8 @@ namespace MphRead::Mods::Network
         const std::int32_t wasPort = _transport->LocalPort();
         _transport->Dispose();
         _transport = std::make_unique<NetTransport>(0);
-        ConsoleWriteLine("[net] rebound the socket: " + Int32Text(wasPort)
-            + " -> " + Int32Text(_transport->LocalPort()));
+        ConsoleWriteLine("[net] rebound the socket: " + ::MphRead::NativeRuntime::ToString(wasPort)
+            + " -> " + ::MphRead::NativeRuntime::ToString(_transport->LocalPort()));
         SendHello();
         SendIdentify();
     }
@@ -876,8 +547,8 @@ namespace MphRead::Mods::Network
                 Mods::Chat::ChatBox::System("Connection lost, retrying...");
             }
             ConsoleWriteLine("[net] no word from the server; re-announcing (#"
-                + Int32Text(_reAnnouncements) + ", silent for "
-                + OneDecimal(time - _lastServerPacket) + " s)");
+                + ::MphRead::NativeRuntime::ToString(_reAnnouncements) + ", silent for "
+                + ::MphRead::NativeRuntime::ToString(time - _lastServerPacket, "0.0") + " s)");
             NetLog::Event("server silent, re-announcing");
             SendHello();
             SendIdentify();
@@ -942,16 +613,16 @@ namespace MphRead::Mods::Network
                     const std::int32_t assigned = payload[0];
                     if (_localSlot >= 0 && assigned != _localSlot)
                     {
-                        ConsoleWriteLine("[net] came back as slot " + Int32Text(assigned)
-                            + ", was slot " + Int32Text(_localSlot)
+                        ConsoleWriteLine("[net] came back as slot " + ::MphRead::NativeRuntime::ToString(assigned)
+                            + ", was slot " + ::MphRead::NativeRuntime::ToString(_localSlot)
                             + "; releasing the old one");
-                        NetLog::Event("reconnected into slot " + Int32Text(assigned)
-                            + ", was " + Int32Text(_localSlot));
+                        NetLog::Event("reconnected into slot " + ::MphRead::NativeRuntime::ToString(assigned)
+                            + ", was " + ::MphRead::NativeRuntime::ToString(_localSlot));
                         NetSlotManager::ReleaseSlot(_localSlot);
                     }
                     _localSlot = assigned;
-                    ConsoleWriteLine("[net] joined as slot " + Int32Text(_localSlot));
-                    NetLog::Event("server assigned slot " + Int32Text(_localSlot));
+                    ConsoleWriteLine("[net] joined as slot " + ::MphRead::NativeRuntime::ToString(_localSlot));
+                    NetLog::Event("server assigned slot " + ::MphRead::NativeRuntime::ToString(_localSlot));
                 }
             }
             break;
@@ -1137,7 +808,7 @@ namespace MphRead::Mods::Network
                 if (_peers[i]->ClientId == clientId)
                 {
                     peer = _peers[i];
-                    ConsoleWriteLine("[net] slot " + Int32Text(peer->SlotIndex)
+                    ConsoleWriteLine("[net] slot " + ::MphRead::NativeRuntime::ToString(peer->SlotIndex)
                         + " came back on " + packet.Sender->ToString()
                         + " (was " + peer->EndPoint->ToString() + ")");
                     peer->EndPoint = packet.Sender;
@@ -1157,7 +828,7 @@ namespace MphRead::Mods::Network
             peer->SlotIndex = slot;
             _peers.push_back(peer);
             ConsoleWriteLine("[net] peer " + packet.Sender->ToString()
-                + " -> slot " + Int32Text(slot));
+                + " -> slot " + ::MphRead::NativeRuntime::ToString(slot));
         }
         peer->ClientId = clientId;
         peer->LastSeenTime = time;
@@ -1326,7 +997,7 @@ namespace MphRead::Mods::Network
         {
             const std::string room = state.RoomKey.value_or(std::string{});
             ConsoleWriteLine("[net] server map: " + room + " ("
-                + ::MphRead::ToString(static_cast<GameMode>(state.Mode)) + ", " + ZeroDecimals(state.TimeRemaining)
+                + ::MphRead::ToString(static_cast<GameMode>(state.Mode)) + ", " + ::MphRead::NativeRuntime::ToString(state.TimeRemaining, "0")
                 + " s left)");
             const std::vector<MapChangedHandler> handlers = MapChanged;
             for (const MapChangedHandler& handler : handlers)
@@ -1353,7 +1024,7 @@ namespace MphRead::Mods::Network
             {
                 return;
             }
-            NetLog::Event("snapshot stream re-based: " + Int32Text(_lateSnapshotRun)
+            NetLog::Event("snapshot stream re-based: " + ::MphRead::NativeRuntime::ToString(_lateSnapshotRun)
                 + " in a row older than " + std::to_string(_lastSnapshotFrame)
                 + " (now " + std::to_string(header.Frame) + ")");
             IncrementInPlace(_snapshotStreamResets);
@@ -1391,7 +1062,7 @@ namespace MphRead::Mods::Network
             if (peer != nullptr)
             {
                 ConsoleWriteLine("[net] peer " + peer->EndPoint->ToString()
-                    + " left (slot " + Int32Text(peer->SlotIndex) + ")");
+                    + " left (slot " + ::MphRead::NativeRuntime::ToString(peer->SlotIndex) + ")");
                 RemoteIntentValid.at(static_cast<std::size_t>(peer->SlotIndex)) = false;
                 const auto found = std::find(_peers.begin(), _peers.end(), peer);
                 if (found != _peers.end())
@@ -1415,7 +1086,7 @@ namespace MphRead::Mods::Network
             if (time - peer->LastSeenTime > NetConfig::TimeoutSeconds)
             {
                 ConsoleWriteLine("[net] peer " + peer->EndPoint->ToString()
-                    + " timed out (slot " + Int32Text(peer->SlotIndex) + ")");
+                    + " timed out (slot " + ::MphRead::NativeRuntime::ToString(peer->SlotIndex) + ")");
                 RemoteIntentValid.at(static_cast<std::size_t>(peer->SlotIndex)) = false;
                 _peers.erase(_peers.begin() + i);
             }
@@ -1528,7 +1199,7 @@ namespace MphRead::Mods::Network
                 || !std::isfinite(player.Position.Y)
                 || !std::isfinite(player.Position.Z))
             {
-                NetLog::Event("slot " + Int32Text(static_cast<std::int32_t>(i))
+                NetLog::Event("slot " + ::MphRead::NativeRuntime::ToString(static_cast<std::int32_t>(i))
                     + " not published: position is "
                     + static_cast<OpenTK::Mathematics::Vector3>(player.Position).ToString());
                 continue;

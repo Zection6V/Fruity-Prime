@@ -1,6 +1,8 @@
 #include "Frontend.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
+#include "../NativeRuntime/System/Console.hpp"
 
 #include <bit>
 #include <cassert>
@@ -90,13 +92,6 @@ namespace MphRead::Formats
             return std::string_view(header.Type, sizeof(header.Type)) == "MARM";
         }
 
-        void WriteLine(std::uint32_t value)
-        {
-            char buffer[10];
-            std::to_chars_result result = std::to_chars(buffer, buffer + sizeof(buffer), value);
-            std::cout.write(buffer, result.ptr - buffer);
-            std::cout.put('\n');
-        }
     }
 
     void Frontend::Parse()
@@ -116,7 +111,7 @@ namespace MphRead::Formats
             list1.push_back(item);
             for (std::uint32_t subOffset : DoListNullEnd(bytes, item.Offset2))
             {
-                WriteLine(subOffset);
+                ::MphRead::NativeRuntime::ConsoleWriteLine(::MphRead::NativeRuntime::ToString(subOffset));
                 MenuStruct1A subItem = DoOffset<MenuStruct1A>(bytes, subOffset);
                 assert(subItem.Offset1 == 0);
             }

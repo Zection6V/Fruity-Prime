@@ -8,6 +8,7 @@
 #include "Types.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 #include "../NativeRuntime/OpenTK/Mathematics.hpp"
+#include "../NativeRuntime/System/Encoding.hpp"
 
 #include <bit>
 #include <cassert>
@@ -648,7 +649,7 @@ namespace MphRead
             const std::u32string_view nameView = name.empty()
                 ? std::u32string_view{}
                 : std::u32string_view(name.data(), name.size());
-            if (!NativeRuntime::StringStartsWithCurrentCulture(nameView, U"_"))
+            if (!NativeRuntime::StringStartsWithCurrentCulture(NativeRuntime::Utf32ToUtf8(nameView), "_"))
             {
                 continue;
             }
@@ -658,9 +659,9 @@ namespace MphRead
             {
                 const std::u32string_view chunk(name.data() + i, 4);
                 std::int32_t id = 0;
-                if (NativeRuntime::StringStartsWithCurrentCulture(chunk, U"_s")
+                if (NativeRuntime::StringStartsWithCurrentCulture(NativeRuntime::Utf32ToUtf8(chunk), "_s")
                     && NativeRuntime::Int32TryParseCurrentCulture(
-                        chunk.substr(2), id))
+                        NativeRuntime::Utf32ToUtf8(chunk.substr(2)), id))
                 {
                     const std::uint32_t oldFlags
                         = std::bit_cast<std::uint32_t>(flags);

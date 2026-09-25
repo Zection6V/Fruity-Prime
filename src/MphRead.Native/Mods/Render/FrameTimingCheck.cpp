@@ -15,6 +15,7 @@
 #include <string>
 
 #include "FrameTiming.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 namespace MphRead::Mods::Render
 {
@@ -117,23 +118,6 @@ namespace MphRead::Mods::Render
             std::int32_t _inextp = 0;
         };
 
-        [[nodiscard]] std::string FormatCurrentCultureFixed(double value, std::int32_t precision)
-        {
-            std::ostringstream formatted;
-            try
-            {
-                // C# custom numeric interpolation uses CurrentCulture. The Native executable has no
-                // CLR CultureInfo, so the narrow adapter is the process/user locale from the C++ runtime.
-                formatted.imbue(std::locale(""));
-            }
-            catch (...)
-            {
-                // If the requested native locale is unavailable, preserve the stream's existing locale
-                // rather than introducing a formatting-only failure that the C# interpolation cannot raise.
-            }
-            formatted << std::fixed << std::setprecision(precision) << value;
-            return formatted.str();
-        }
     }
 
     class FrameTimingCheck::Case final
@@ -249,11 +233,11 @@ namespace MphRead::Mods::Render
 
         std::ostringstream line;
         line << "FRAMETIMING " << (ok ? "ok  " : "FAIL") << ' ' << test.Name
-            << " | " << frame << " frames over " << FormatCurrentCultureFixed(elapsed, 1)
+            << " | " << frame << " frames over " << ::MphRead::NativeRuntime::ToString(elapsed, "0.0")
             << " s"
-            << " | " << steps << " steps = " << FormatCurrentCultureFixed(rate, 3)
-            << " Hz (drift " << FormatCurrentCultureFixed(drift, 3) << "%)"
-            << " | game ran " << FormatCurrentCultureFixed(gameSeconds / elapsed, 4)
+            << " | " << steps << " steps = " << ::MphRead::NativeRuntime::ToString(rate, "0.000")
+            << " Hz (drift " << ::MphRead::NativeRuntime::ToString(drift, "0.000") << "%)"
+            << " | game ran " << ::MphRead::NativeRuntime::ToString(gameSeconds / elapsed, "0.0000")
             << "x real time"
             << " | worst frame " << worstFrame << " step(s)"
             << " | dropped " << FrameTiming::DroppedSteps();

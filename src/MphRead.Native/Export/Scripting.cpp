@@ -9,6 +9,7 @@
 #include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -63,41 +64,6 @@ namespace
     {
         sb.append(text);
         sb.append(ManagedNewLine);
-    }
-
-    [[nodiscard]] std::string ManagedSingleToString(float value)
-    {
-        if (std::isnan(value))
-        {
-            return "NaN";
-        }
-        if (std::isinf(value))
-        {
-            return std::signbit(value) ? "-Infinity" : "Infinity";
-        }
-        if (value == 0.0F)
-        {
-            return std::signbit(value) ? "-0" : "0";
-        }
-
-        char buffer[64]{};
-        const auto result = std::to_chars(
-            std::begin(buffer), std::end(buffer), value, std::chars_format::general);
-        if (result.ec != std::errc{})
-        {
-            throw std::runtime_error("Failed to format Single.");
-        }
-        std::string text(buffer, result.ptr);
-        const std::size_t exponent = text.find('e');
-        if (exponent != std::string::npos)
-        {
-            text[exponent] = 'E';
-            if (exponent + 1 < text.size() && text[exponent + 1] != '+' && text[exponent + 1] != '-')
-            {
-                text.insert(exponent + 1, 1, '+');
-            }
-        }
-        return text;
     }
 
     [[nodiscard]] bool Vector3Equal(Vector3 left, Vector3 right) noexcept
@@ -217,7 +183,7 @@ namespace MphRead::Export
                     const float translateT = model.InterpolateAnimation(group.Translations, anim.TranslateLutIndexT, frame,
                                                                         anim.TranslateBlendT, anim.TranslateLutLengthT, group.FrameCount);
                     StringBuilderExtensions::AppendIndent(sb,
-                                                          "[" + ManagedSingleToString(scaleS) + ", " + ManagedSingleToString(scaleT) + ", " + ManagedSingleToString(rotate) + ", " + ManagedSingleToString(translateS) + ", " + ManagedSingleToString(translateT) + "],", indent + 3);
+                                                          "[" + ::MphRead::NativeRuntime::ToString(scaleS) + ", " + ::MphRead::NativeRuntime::ToString(scaleT) + ", " + ::MphRead::NativeRuntime::ToString(rotate) + ", " + ::MphRead::NativeRuntime::ToString(translateS) + ", " + ::MphRead::NativeRuntime::ToString(translateT) + "],", indent + 3);
                 }
                 StringBuilderExtensions::AppendIndent(sb, "],", indent + 2);
             }
@@ -250,7 +216,7 @@ namespace MphRead::Export
                     const float alpha = model.InterpolateAnimation(group.Colors, anim.AlphaLutIndex, frame,
                                                                    anim.AlphaBlend, anim.AlphaLutLength, group.FrameCount);
                     StringBuilderExtensions::AppendIndent(sb,
-                                                          "[" + ManagedSingleToString(red / 31.0F) + ", " + ManagedSingleToString(green / 31.0F) + ", " + ManagedSingleToString(blue / 31.0F) + ", " + ManagedSingleToString(alpha / 31.0F) + "],", indent + 3);
+                                                          "[" + ::MphRead::NativeRuntime::ToString(red / 31.0F) + ", " + ::MphRead::NativeRuntime::ToString(green / 31.0F) + ", " + ::MphRead::NativeRuntime::ToString(blue / 31.0F) + ", " + ::MphRead::NativeRuntime::ToString(alpha / 31.0F) + "],", indent + 3);
                 }
                 StringBuilderExtensions::AppendIndent(sb, "],", indent + 2);
             }
@@ -343,7 +309,7 @@ namespace MphRead::Export
                     const float translateZ = model.InterpolateAnimation(group.Translations, anim.TranslateLutIndexZ, frame,
                                                                         anim.TranslateBlendZ, anim.TranslateLutLengthZ, group.FrameCount);
                     StringBuilderExtensions::AppendIndent(sb,
-                                                          "[" + ManagedSingleToString(scaleX) + ", " + ManagedSingleToString(scaleY) + ", " + ManagedSingleToString(scaleZ) + ", " + ManagedSingleToString(rotateX) + ", " + ManagedSingleToString(rotateY) + ", " + ManagedSingleToString(rotateZ) + ", " + ManagedSingleToString(translateX) + ", " + ManagedSingleToString(translateY) + ", " + ManagedSingleToString(translateZ) + "],", indent + 3);
+                                                          "[" + ::MphRead::NativeRuntime::ToString(scaleX) + ", " + ::MphRead::NativeRuntime::ToString(scaleY) + ", " + ::MphRead::NativeRuntime::ToString(scaleZ) + ", " + ::MphRead::NativeRuntime::ToString(rotateX) + ", " + ::MphRead::NativeRuntime::ToString(rotateY) + ", " + ::MphRead::NativeRuntime::ToString(rotateZ) + ", " + ::MphRead::NativeRuntime::ToString(translateX) + ", " + ::MphRead::NativeRuntime::ToString(translateY) + ", " + ::MphRead::NativeRuntime::ToString(translateZ) + "],", indent + 3);
                 }
                 StringBuilderExtensions::AppendIndent(sb, "],", indent + 2);
             }
@@ -486,7 +452,7 @@ namespace MphRead::Export
             if (!noColor.empty())
             {
                 const auto diffuse = material.Diffuse;
-                const std::string color = ManagedSingleToString(diffuse.Red / 31.0F) + ", " + ManagedSingleToString(diffuse.Green / 31.0F) + ", " + ManagedSingleToString(diffuse.Blue / 31.0F);
+                const std::string color = ::MphRead::NativeRuntime::ToString(diffuse.Red / 31.0F) + ", " + ::MphRead::NativeRuntime::ToString(diffuse.Green / 31.0F) + ", " + ::MphRead::NativeRuntime::ToString(diffuse.Blue / 31.0F);
                 if (!withColor.empty())
                 {
                     std::string objects;
@@ -623,19 +589,19 @@ namespace MphRead::Export
                 if (!Vector3Equal(scale, Vector3(1.0F, 1.0F, 1.0F)))
                 {
                     StringBuilderExtensions::AppendIndent(sb,
-                                                          "bone.scale = mathutils.Vector((" + ManagedSingleToString(scale.X) + ", " + ManagedSingleToString(scale.Y) + ", " + ManagedSingleToString(scale.Z) + "))");
+                                                          "bone.scale = mathutils.Vector((" + ::MphRead::NativeRuntime::ToString(scale.X) + ", " + ::MphRead::NativeRuntime::ToString(scale.Y) + ", " + ::MphRead::NativeRuntime::ToString(scale.Z) + "))");
                 }
                 const Vector3 angle = node.Angle;
                 if (!Vector3Equal(angle, Vector3::Zero))
                 {
                     StringBuilderExtensions::AppendIndent(sb,
-                                                          "bone.rotation_euler = mathutils.Vector((" + ManagedSingleToString(angle.X) + ", " + ManagedSingleToString(angle.Y) + ", " + ManagedSingleToString(angle.Z) + "))");
+                                                          "bone.rotation_euler = mathutils.Vector((" + ::MphRead::NativeRuntime::ToString(angle.X) + ", " + ::MphRead::NativeRuntime::ToString(angle.Y) + ", " + ::MphRead::NativeRuntime::ToString(angle.Z) + "))");
                 }
                 const Vector3 position = node.Position;
                 if (!Vector3Equal(position, Vector3::Zero))
                 {
                     StringBuilderExtensions::AppendIndent(sb,
-                                                          "bone.location = mathutils.Vector((" + ManagedSingleToString(position.X) + ", " + ManagedSingleToString(position.Y) + ", " + ManagedSingleToString(position.Z) + "))");
+                                                          "bone.location = mathutils.Vector((" + ::MphRead::NativeRuntime::ToString(position.X) + ", " + ::MphRead::NativeRuntime::ToString(position.Y) + ", " + ::MphRead::NativeRuntime::ToString(position.Z) + "))");
                 }
             }
         }

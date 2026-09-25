@@ -58,6 +58,11 @@ namespace System
             : std::invalid_argument("Input string was not in a correct format.")
         {
         }
+
+        explicit FormatException(std::string_view message)
+            : std::invalid_argument(std::string(message))
+        {
+        }
     };
 
     class OverflowException final : public std::overflow_error

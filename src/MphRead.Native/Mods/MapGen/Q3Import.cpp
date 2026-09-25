@@ -16,6 +16,7 @@
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -112,287 +113,6 @@ namespace
             throw System::NullReferenceException();
         }
         return texcoords;
-    }
-
-    [[nodiscard]] bool IsAsciiWhitespace(unsigned char value) noexcept
-    {
-        return value == 0x20U || (value >= 0x09U && value <= 0x0DU);
-    }
-
-    [[nodiscard]] bool IsFloatNumber(
-        std::string_view text, bool& negative) noexcept
-    {
-        negative = false;
-        if (text.empty())
-        {
-            return false;
-        }
-        std::size_t position = 0;
-        if (text[position] == '+' || text[position] == '-')
-        {
-            negative = text[position] == '-';
-            ++position;
-        }
-        if (position == text.size())
-        {
-            return false;
-        }
-
-        bool digits = false;
-        while (position < text.size()
-            && text[position] >= '0' && text[position] <= '9')
-        {
-            digits = true;
-            ++position;
-        }
-        if (position < text.size() && text[position] == '.')
-        {
-            ++position;
-            while (position < text.size()
-                && text[position] >= '0' && text[position] <= '9')
-            {
-                digits = true;
-                ++position;
-            }
-        }
-        if (!digits)
-        {
-            return false;
-        }
-        if (position < text.size()
-            && (text[position] == 'e' || text[position] == 'E'))
-        {
-            ++position;
-            if (position < text.size()
-                && (text[position] == '+' || text[position] == '-'))
-            {
-                ++position;
-            }
-            const std::size_t exponentStart = position;
-            while (position < text.size()
-                && text[position] >= '0' && text[position] <= '9')
-            {
-                ++position;
-            }
-            if (position == exponentStart)
-            {
-                return false;
-            }
-        }
-        return position == text.size();
-    }
-
-    [[nodiscard]] bool DecimalIsBelowOne(std::string_view text) noexcept
-    {
-        std::size_t position = 0;
-        if (!text.empty() && (text.front() == '+' || text.front() == '-'))
-        {
-            position = 1;
-        }
-
-        std::int64_t digitsBeforeDecimal = 0;
-        std::int64_t digitIndex = 0;
-        std::int64_t firstNonzero = -1;
-        bool beforeDecimal = true;
-        while (position < text.size()
-            && text[position] != 'e' && text[position] != 'E')
-        {
-            const char ch = text[position++];
-            if (ch == '.')
-            {
-                beforeDecimal = false;
-                continue;
-            }
-            if (beforeDecimal)
-            {
-                ++digitsBeforeDecimal;
-            }
-            if (firstNonzero < 0 && ch != '0')
-            {
-                firstNonzero = digitIndex;
-            }
-            ++digitIndex;
-        }
-        if (firstNonzero < 0)
-        {
-            return true;
-        }
-
-        std::int64_t exponent = 0;
-        if (position < text.size())
-        {
-            ++position;
-            bool exponentNegative = false;
-            if (position < text.size()
-                && (text[position] == '+' || text[position] == '-'))
-            {
-                exponentNegative = text[position] == '-';
-                ++position;
-            }
-            constexpr std::int64_t Limit = 1'000'000;
-            while (position < text.size())
-            {
-                const std::int64_t digit = text[position++] - '0';
-                exponent = std::min(Limit, exponent * 10 + digit);
-            }
-            if (exponentNegative)
-            {
-                exponent = -exponent;
-            }
-        }
-
-        const std::int64_t scientificExponent
-            = digitsBeforeDecimal - firstNonzero - 1 + exponent;
-        return scientificExponent < 0;
-    }
-
-    [[nodiscard]] bool TryParseSingleInvariant(
-        std::string_view text, float& result) noexcept
-    {
-        result = 0.0F;
-        while (!text.empty()
-            && IsAsciiWhitespace(static_cast<unsigned char>(text.front())))
-        {
-            text.remove_prefix(1);
-        }
-        if (text.empty())
-        {
-            return false;
-        }
-
-        // Number.TryParseFloat first parses NumberStyles.Float, then checks
-        // the culture's NaN/infinity symbols against a whitespace-trimmed
-        // view. InvariantCulture uses +, -, NaN and Infinity. All signed NaN
-        // spellings return Single.NaN, whose canonical .NET bit pattern is
-        // 0xFFC00000.
-        std::string_view special = text;
-        while (!special.empty()
-            && IsAsciiWhitespace(static_cast<unsigned char>(special.back())))
-        {
-            special.remove_suffix(1);
-        }
-        if (StringEqualsOrdinalIgnoreCase(special, "NaN")
-            || StringEqualsOrdinalIgnoreCase(special, "+NaN")
-            || StringEqualsOrdinalIgnoreCase(special, "-NaN"))
-        {
-            result = std::bit_cast<float>(std::uint32_t{0xFFC00000U});
-            return true;
-        }
-        if (StringEqualsOrdinalIgnoreCase(special, "Infinity")
-            || StringEqualsOrdinalIgnoreCase(special, "+Infinity"))
-        {
-            result = std::numeric_limits<float>::infinity();
-            return true;
-        }
-        if (StringEqualsOrdinalIgnoreCase(special, "-Infinity"))
-        {
-            result = -std::numeric_limits<float>::infinity();
-            return true;
-        }
-
-        // TryStringToNumber permits trailing whitespace and, for compatibility,
-        // then permits only embedded NUL characters to the end of the input.
-        // Strip in that order from the outside: NULs first, then whitespace.
-        // A NUL followed by whitespace must remain invalid.
-        while (!text.empty() && text.back() == '\0')
-        {
-            text.remove_suffix(1);
-        }
-        while (!text.empty()
-            && IsAsciiWhitespace(static_cast<unsigned char>(text.back())))
-        {
-            text.remove_suffix(1);
-        }
-        if (text.empty())
-        {
-            return false;
-        }
-
-        bool negative = false;
-        if (!IsFloatNumber(text, negative))
-        {
-            return false;
-        }
-        std::string_view magnitude = text;
-        if (magnitude.front() == '+' || magnitude.front() == '-')
-        {
-            magnitude.remove_prefix(1);
-        }
-
-        float parsed = 0.0F;
-        const char* first = magnitude.data();
-        const char* last = first + magnitude.size();
-        const auto conversion = ::MphRead::NativeRuntime::FromChars(
-            first, last, parsed, std::chars_format::general);
-        if (conversion.ptr == last && conversion.ec == std::errc{})
-        {
-            result = negative ? -parsed : parsed;
-            return true;
-        }
-        if (conversion.ptr != last
-            || conversion.ec != std::errc::result_out_of_range)
-        {
-            return false;
-        }
-
-        long double wide = 0.0L;
-        const auto wideConversion = ::MphRead::NativeRuntime::FromChars(
-            first, last, wide, std::chars_format::general);
-        if (wideConversion.ptr == last && wideConversion.ec == std::errc{})
-        {
-            parsed = static_cast<float>(wide);
-            result = negative ? -parsed : parsed;
-            return true;
-        }
-        if (wideConversion.ptr != last
-            || wideConversion.ec != std::errc::result_out_of_range)
-        {
-            return false;
-        }
-
-        if (DecimalIsBelowOne(text))
-        {
-            result = negative ? -0.0F : 0.0F;
-        }
-        else
-        {
-            result = negative
-                ? -std::numeric_limits<float>::infinity()
-                : std::numeric_limits<float>::infinity();
-        }
-        return true;
-    }
-
-    [[nodiscard]] bool StartsWithOrdinalIgnoreCase(
-        const std::string& value, const std::string& prefix) noexcept
-    {
-        if (prefix.size() > value.size())
-        {
-            return false;
-        }
-        return Q3StringEqual{}(
-            value.substr(0, prefix.size()), prefix);
-    }
-
-    [[nodiscard]] std::string FormatOneOptional(float value)
-    {
-        std::ostringstream stream;
-        stream << std::fixed << std::setprecision(1) << value;
-        std::string text = stream.str();
-        if (text.size() >= 2
-            && text[text.size() - 2] == '.'
-            && text.back() == '0')
-        {
-            text.resize(text.size() - 2);
-        }
-        return text;
-    }
-
-    [[nodiscard]] std::string FormatOneRequired(float value)
-    {
-        std::ostringstream stream;
-        stream << std::fixed << std::setprecision(1) << value;
-        return stream.str();
     }
 
     [[nodiscard]] const std::string* EntityValue(
@@ -802,13 +522,13 @@ namespace MphRead::Mods::MapGen
                 const std::vector<float>* target = preview->Target();
                 std::cout
                     << "  \"preview\": { \"position\": ["
-                    << FormatOneOptional(ManagedAt(position, 0)) << ", "
-                    << FormatOneOptional(ManagedAt(position, 1)) << ", "
-                    << FormatOneOptional(ManagedAt(position, 2))
+                    << ::MphRead::NativeRuntime::ToString(ManagedAt(position, 0), "0.#") << ", "
+                    << ::MphRead::NativeRuntime::ToString(ManagedAt(position, 1), "0.#") << ", "
+                    << ::MphRead::NativeRuntime::ToString(ManagedAt(position, 2), "0.#")
                     << "], \"target\": ["
-                    << FormatOneOptional(ManagedAt(target, 0)) << ", "
-                    << FormatOneOptional(ManagedAt(target, 1)) << ", "
-                    << FormatOneOptional(ManagedAt(target, 2))
+                    << ::MphRead::NativeRuntime::ToString(ManagedAt(target, 0), "0.#") << ", "
+                    << ::MphRead::NativeRuntime::ToString(ManagedAt(target, 1), "0.#") << ", "
+                    << ::MphRead::NativeRuntime::ToString(ManagedAt(target, 2), "0.#")
                     << "] },\n";
             }
         }
@@ -851,10 +571,10 @@ namespace MphRead::Mods::MapGen
             Vector3 max;
             Bounds(map.get(), min, max);
             std::cout
-                << "  extent " << FormatOneRequired(max.X - min.X)
-                << " x " << FormatOneRequired(max.Y - min.Y)
-                << " x " << FormatOneRequired(max.Z - min.Z)
-                << " units at " << FormatOneOptional(unit)
+                << "  extent " << ::MphRead::NativeRuntime::ToString(max.X - min.X, "0.0")
+                << " x " << ::MphRead::NativeRuntime::ToString(max.Y - min.Y, "0.0")
+                << " x " << ::MphRead::NativeRuntime::ToString(max.Z - min.Z, "0.0")
+                << " units at " << ::MphRead::NativeRuntime::ToString(unit, "0.#")
                 << " Quake units each\n";
         }
 
@@ -1468,7 +1188,7 @@ namespace MphRead::Mods::MapGen
         std::optional<std::string> best;
         for (const std::string& key : materials->Keys())
         {
-            if (StartsWithOrdinalIgnoreCase(shader, key)
+            if (::MphRead::NativeRuntime::StringStartsWithOrdinalIgnoreCase(shader, key)
                 && (!best.has_value() || key.size() > best->size()))
             {
                 best = key;
@@ -1819,7 +1539,7 @@ namespace MphRead::Mods::MapGen
                     = EntityValue(entity, "angle");
                 float parsed = 0.0F;
                 if (value != nullptr
-                    && TryParseSingleInvariant(*value, parsed))
+                    && ::MphRead::NativeRuntime::SingleTryParseInvariant(*value, parsed))
                 {
                     angle = parsed;
                 }
@@ -1850,8 +1570,7 @@ namespace MphRead::Mods::MapGen
                 const std::string* target
                     = EntityValue(entity, "target");
                 if (model == nullptr
-                    || model->empty()
-                    || model->front() != '*'
+                    || !::MphRead::NativeRuntime::StringStartsWithCurrentCulture(*model, "*")
                     || target == nullptr)
                 {
                     continue;
@@ -2022,9 +1741,7 @@ namespace MphRead::Mods::MapGen
             }
 
             float parsed = 0.0F;
-            (void)TryParseSingleInvariant(
-                std::string_view(value).substr(start, index - start),
-                parsed);
+            (void)::MphRead::NativeRuntime::SingleTryParseInvariant(std::string_view(value).substr(start, index - start), parsed);
             (*result)[static_cast<std::size_t>(partIndex)] = parsed;
             ++partIndex;
         }

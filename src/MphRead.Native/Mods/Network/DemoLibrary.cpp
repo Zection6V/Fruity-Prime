@@ -7,6 +7,7 @@
 
 #include "DemoFile.hpp"
 #include "../../Read.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <array>
@@ -102,18 +103,6 @@ namespace
             + static_cast<std::int64_t>(second) * TicksPerSecond;
         parsed = ::MphRead::NativeRuntime::ManagedDateTime(ticks);
         return true;
-    }
-
-    [[nodiscard]] std::string FormatInvariantOneDecimal(float value)
-    {
-        std::array<char, 64> buffer{};
-        const auto result = std::to_chars(buffer.data(), buffer.data() + buffer.size(),
-            value, std::chars_format::fixed, 1);
-        if (result.ec != std::errc{})
-        {
-            throw std::runtime_error("Could not format demo size.");
-        }
-        return std::string(buffer.data(), result.ptr);
     }
 
     void WriteListFailure(const std::exception& ex)
@@ -241,12 +230,12 @@ namespace MphRead::Mods::Network
         if (bytes >= 1024 * 1024)
         {
             const float megabytes = static_cast<float>(bytes) / (1024.0F * 1024.0F);
-            return FormatInvariantOneDecimal(megabytes) + " MB";
+            return ::MphRead::NativeRuntime::ToStringInvariant(megabytes, "0.0") + " MB";
         }
         if (bytes >= 1024)
         {
-            return NativeRuntime::Int64ToString(bytes / 1024) + " KB";
+            return ::MphRead::NativeRuntime::ToString(bytes / 1024) + " KB";
         }
-        return NativeRuntime::Int64ToString(bytes) + " bytes";
+        return ::MphRead::NativeRuntime::ToString(bytes) + " bytes";
     }
 }

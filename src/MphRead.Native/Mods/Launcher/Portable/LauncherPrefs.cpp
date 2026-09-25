@@ -12,6 +12,7 @@
 #include "../../../NativeRuntime/System/Globalization.hpp"
 #include "../../../NativeRuntime/System/IO.hpp"
 #include "../../../NativeRuntime/System/Runtime.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <array>
 #include <charconv>
@@ -258,18 +259,6 @@ namespace
         if (error != std::errc{})
         {
             throw std::runtime_error("Could not format Hunter.");
-        }
-        return std::string(buffer.data(), end);
-    }
-
-    [[nodiscard]] std::string Int32ToInvariant(std::int32_t value)
-    {
-        std::array<char, 12> buffer{};
-        const auto [end, error] = std::to_chars(
-            buffer.data(), buffer.data() + buffer.size(), value);
-        if (error != std::errc{})
-        {
-            throw std::runtime_error("Could not format Int32.");
         }
         return std::string(buffer.data(), end);
     }
@@ -758,24 +747,24 @@ namespace MphRead::Mods::Launcher
                 "# " + std::string(Branding::Name) + " launcher preferences.");
             lines.emplace_back("server_address=" + _serverAddress);
             lines.emplace_back(
-                "server_port=" + Int32ToInvariant(_serverPort));
+                "server_port=" + ::MphRead::NativeRuntime::ToStringInvariant(_serverPort));
             lines.emplace_back("master_host=" + _masterHost);
             lines.emplace_back(
-                "master_port=" + Int32ToInvariant(_masterPort));
-            lines.emplace_back("last_role=" + Int32ToInvariant(_lastRole));
+                "master_port=" + ::MphRead::NativeRuntime::ToStringInvariant(_masterPort));
+            lines.emplace_back("last_role=" + ::MphRead::NativeRuntime::ToStringInvariant(_lastRole));
             lines.emplace_back("player_name=" + _playerName);
             lines.emplace_back("hunter=" + HunterToString(_lastHunter));
-            lines.emplace_back("color=" + Int32ToInvariant(_lastColor));
-            lines.emplace_back("bots=" + Int32ToInvariant(_bots));
-            lines.emplace_back("bot_level=" + Int32ToInvariant(_botLevel));
-            lines.emplace_back("host_port=" + Int32ToInvariant(_hostPort));
+            lines.emplace_back("color=" + ::MphRead::NativeRuntime::ToStringInvariant(_lastColor));
+            lines.emplace_back("bots=" + ::MphRead::NativeRuntime::ToStringInvariant(_bots));
+            lines.emplace_back("bot_level=" + ::MphRead::NativeRuntime::ToStringInvariant(_botLevel));
+            lines.emplace_back("host_port=" + ::MphRead::NativeRuntime::ToStringInvariant(_hostPort));
             lines.emplace_back(
                 std::string("list_hosted=")
                     + (_listHostedGame ? "true" : "false"));
             lines.emplace_back(
                 std::string("host_on_master=")
                     + (_hostOnMaster ? "true" : "false"));
-            lines.emplace_back("last_kind=" + Int32ToInvariant(_lastKind));
+            lines.emplace_back("last_kind=" + ::MphRead::NativeRuntime::ToStringInvariant(_lastKind));
             lines.emplace_back(
                 std::string("auto_update=")
                     + (_autoUpdate ? "true" : "false"));
@@ -787,10 +776,10 @@ namespace MphRead::Mods::Launcher
                     + (static_cast<std::int32_t>(_windowMode) == 1
                         ? "borderless"
                         : "windowed"));
-            lines.emplace_back("window_size=" + Int32ToInvariant(_windowWidth)
-                + "x" + Int32ToInvariant(_windowHeight));
-            lines.emplace_back("window_pos=" + Int32ToInvariant(_windowX)
-                + "," + Int32ToInvariant(_windowY));
+            lines.emplace_back("window_size=" + ::MphRead::NativeRuntime::ToStringInvariant(_windowWidth)
+                + "x" + ::MphRead::NativeRuntime::ToStringInvariant(_windowHeight));
+            lines.emplace_back("window_pos=" + ::MphRead::NativeRuntime::ToStringInvariant(_windowX)
+                + "," + ::MphRead::NativeRuntime::ToStringInvariant(_windowY));
             lines.emplace_back(
                 std::string("window_maximized=")
                     + (_windowMaximized ? "true" : "false"));

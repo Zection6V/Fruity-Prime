@@ -5,12 +5,13 @@
 #include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
+#include "NativeRuntime/System/HashCode.hpp"
 
 #include <algorithm>
 #include <atomic>
 #include <bit>
 #include <cctype>
-#include <clocale>
 #include <cwchar>
 #include <cwctype>
 #include <cstring>
@@ -30,8 +31,6 @@
 #define NOMINMAX
 #include <windows.h>
 #else
-#include <locale.h>
-#include <dlfcn.h>
 #endif
 
 using ::MphRead::NativeRuntime::AppendUtf8;
@@ -52,117 +51,6 @@ using ::MphRead::NativeRuntime::WideToUtf8;
 namespace
 {
     using ByteVector = std::vector<std::uint8_t>;
-
-
-#if !defined(_WIN32)
-    [[nodiscard]] void* FindVersionedIcuSymbol(void* library, const char* base) noexcept
-    {
-        if (library == nullptr) return nullptr;
-        if (void* symbol = dlsym(library, base); symbol != nullptr) return symbol;
-        char name[96]{};
-        for (int version = 99; version >= 50; --version)
-        {
-            const int count = std::snprintf(name, sizeof(name), "%s_%d", base, version);
-            if (count <= 0 || static_cast<std::size_t>(count) >= sizeof(name)) continue;
-            if (void* symbol = dlsym(library, name); symbol != nullptr) return symbol;
-        }
-        return nullptr;
-    }
-
-    [[nodiscard]] std::uint32_t IcuUpper(std::uint32_t scalar) noexcept
-    {
-        using UpperFunction = std::int32_t (*)(std::int32_t);
-        static UpperFunction upper = []() noexcept -> UpperFunction
-        {
-            void* library = dlopen("libicuuc.so", RTLD_LAZY | RTLD_LOCAL);
-#if defined(__APPLE__)
-            if (library == nullptr) library = dlopen("/usr/lib/libicucore.A.dylib", RTLD_LAZY | RTLD_LOCAL);
-#endif
-            return reinterpret_cast<UpperFunction>(FindVersionedIcuSymbol(library, "u_toupper"));
-        }();
-        if (upper == nullptr || scalar > 0x10FFFFU) return scalar;
-        const std::int32_t mapped = upper(static_cast<std::int32_t>(scalar));
-        return mapped < 0 ? scalar : static_cast<std::uint32_t>(mapped);
-    }
-#endif
-
-    [[nodiscard]] std::uint32_t InvariantUpper(std::uint32_t scalar) noexcept
-    {
-        // .NET OrdinalIgnoreCase intentionally disables these two ICU uppercase
-        // mappings so that dotless-i and long-s remain distinct in ordinal comparisons.
-        if (scalar == 0x0131U || scalar == 0x017FU) return scalar;
-        if (scalar >= 'a' && scalar <= 'z') return scalar - ('a' - 'A');
-#if defined(_WIN32)
-        if (scalar <= 0xFFFFU)
-        {
-            const wchar_t source = static_cast<wchar_t>(scalar);
-            wchar_t target = source;
-            if (LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_UPPERCASE,
-                &source, 1, &target, 1, nullptr, nullptr, 0) == 1)
-            {
-                return static_cast<std::uint32_t>(target);
-            }
-        }
-#else
-        const std::uint32_t icuMapped = IcuUpper(scalar);
-        if (icuMapped != scalar) return icuMapped;
-        static locale_t locale = []() noexcept
-        {
-            locale_t value = newlocale(LC_CTYPE_MASK, "C.UTF-8", nullptr);
-            if (value == nullptr) value = newlocale(LC_CTYPE_MASK, "en_US.UTF-8", nullptr);
-            return value;
-        }();
-        if (locale != nullptr && scalar <= static_cast<std::uint32_t>(WCHAR_MAX))
-        {
-            const wint_t mapped = towupper_l(static_cast<wint_t>(scalar), locale);
-            if (mapped != WEOF) return static_cast<std::uint32_t>(mapped);
-        }
-#endif
-        // Unicode simple-uppercase fallbacks used when the platform has no Unicode locale.
-        if (scalar >= 0x00E0U && scalar <= 0x00F6U) return scalar - 0x20U;
-        if (scalar >= 0x00F8U && scalar <= 0x00FEU) return scalar - 0x20U;
-        if (scalar == 0x00FFU) return 0x0178U;
-        if (scalar >= 0x03B1U && scalar <= 0x03C1U) return scalar - 0x20U;
-        if (scalar >= 0x03C3U && scalar <= 0x03CBU) return scalar - 0x20U;
-        if (scalar >= 0x0430U && scalar <= 0x044FU) return scalar - 0x20U;
-        return scalar;
-    }
-
-    [[nodiscard]] std::vector<std::uint32_t> FoldOrdinalIgnoreCase(const std::string& value)
-    {
-        const std::u32string decoded = Utf8ToUtf32(value);
-        std::vector<std::uint32_t> result(decoded.begin(), decoded.end());
-        for (std::uint32_t& scalar : result) scalar = InvariantUpper(scalar);
-        return result;
-    }
-
-    [[nodiscard]] bool OrdinalIgnoreCaseEquals(const std::string& left, const std::string& right) noexcept
-    {
-        try
-        {
-            return FoldOrdinalIgnoreCase(left) == FoldOrdinalIgnoreCase(right);
-        }
-        catch (...)
-        {
-            return left == right;
-        }
-    }
-
-    [[nodiscard]] bool OrdinalIgnoreCaseEndsWith(const std::string& value, const std::string& suffix) noexcept
-    {
-        try
-        {
-            const std::vector<std::uint32_t> foldedValue = FoldOrdinalIgnoreCase(value);
-            const std::vector<std::uint32_t> foldedSuffix = FoldOrdinalIgnoreCase(suffix);
-            if (foldedSuffix.size() > foldedValue.size()) return false;
-            return std::equal(foldedSuffix.begin(), foldedSuffix.end(),
-                foldedValue.end() - static_cast<std::ptrdiff_t>(foldedSuffix.size()));
-        }
-        catch (...)
-        {
-            return false;
-        }
-    }
 
     [[nodiscard]] std::uint16_t ReadU16(const ByteVector& bytes, std::size_t position)
     {
@@ -937,70 +825,7 @@ namespace
 
     [[nodiscard]] bool CultureLess(const std::string& left, const std::string& right)
     {
-#if defined(_WIN32)
-        const std::wstring leftWide = Utf8ToWide(left);
-        const std::wstring rightWide = Utf8ToWide(right);
-        const int result = CompareStringEx(LOCALE_NAME_USER_DEFAULT, 0,
-            leftWide.data(), static_cast<int>(leftWide.size()),
-            rightWide.data(), static_cast<int>(rightWide.size()),
-            nullptr, nullptr, 0);
-        if (result != 0) return result == CSTR_LESS_THAN;
-#else
-        struct IcuCollation final
-        {
-            using Open = void* (*)(const char*, std::int32_t*);
-            using Compare = std::int32_t (*)(const void*, const char*, std::int32_t,
-                const char*, std::int32_t, std::int32_t*);
-            using Close = void (*)(void*);
-            void* library = nullptr;
-            Open open = nullptr;
-            Compare compare = nullptr;
-            Close close = nullptr;
-
-            IcuCollation() noexcept
-            {
-                library = dlopen("libicui18n.so", RTLD_LAZY | RTLD_LOCAL);
-#if defined(__APPLE__)
-                if (library == nullptr) library = dlopen("/usr/lib/libicucore.A.dylib", RTLD_LAZY | RTLD_LOCAL);
-#endif
-                open = reinterpret_cast<Open>(FindVersionedIcuSymbol(library, "ucol_open"));
-                compare = reinterpret_cast<Compare>(FindVersionedIcuSymbol(library, "ucol_strcollUTF8"));
-                close = reinterpret_cast<Close>(FindVersionedIcuSymbol(library, "ucol_close"));
-            }
-        };
-        static const IcuCollation icu{};
-        if (icu.open != nullptr && icu.compare != nullptr && icu.close != nullptr)
-        {
-            std::int32_t status = 0;
-            void* collator = icu.open(nullptr, &status);
-            if (collator != nullptr && status <= 0)
-            {
-                status = 0;
-                const std::int32_t result = icu.compare(collator,
-                    left.data(), static_cast<std::int32_t>(left.size()),
-                    right.data(), static_cast<std::int32_t>(right.size()), &status);
-                icu.close(collator);
-                if (status <= 0) return result < 0;
-            }
-            else if (collator != nullptr)
-            {
-                icu.close(collator);
-            }
-        }
-#endif
-        try
-        {
-            const std::locale locale("");
-            const std::wstring leftWide = Utf8ToWide(left);
-            const std::wstring rightWide = Utf8ToWide(right);
-            const auto& collate = std::use_facet<std::collate<wchar_t>>(locale);
-            return collate.compare(leftWide.data(), leftWide.data() + leftWide.size(),
-                rightWide.data(), rightWide.data() + rightWide.size()) < 0;
-        }
-        catch (const std::runtime_error&)
-        {
-            return Utf8ToUtf32(left) < Utf8ToUtf32(right);
-        }
+        return ::MphRead::NativeRuntime::StringCompareCurrentCulture(left, right) < 0;
     }
 
     template <typename T, typename Read>
@@ -1026,343 +851,33 @@ namespace
 
 namespace MphRead::Mods::MapGen::Q3RecordRuntime
 {
-    namespace
-    {
-        [[nodiscard]] std::uint32_t ProcessSeed() noexcept
-        {
-            static const std::uint32_t seed = []() noexcept
-            {
-                try
-                {
-                    std::random_device device;
-                    const std::uint32_t first = device();
-                    const std::uint32_t second = device();
-                    return first ^ std::rotl(second, 13) ^ 0x9E3779B9U;
-                }
-                catch (...)
-                {
-                    const std::uintptr_t address = reinterpret_cast<std::uintptr_t>(&ProcessSeed);
-                    return static_cast<std::uint32_t>(address)
-                        ^ static_cast<std::uint32_t>(address >> 32) ^ 0x9E3779B9U;
-                }
-            }();
-            return seed;
-        }
-
-        [[nodiscard]] std::uint32_t Mix(std::uint32_t hash, std::uint32_t value) noexcept
-        {
-            hash ^= value + 0x9E3779B9U + (hash << 6) + (hash >> 2);
-            hash = std::rotl(hash, 13) * 0x85EBCA6BU;
-            return hash;
-        }
-
-        [[nodiscard]] std::uint32_t HashUtf16(const std::string& value) noexcept
-        {
-            try
-            {
-                std::uint32_t hash = ProcessSeed() ^ 0x6D2B79F5U;
-                for (const char16_t unit : Utf8ToUtf16(value))
-                {
-                    hash = Mix(hash, unit);
-                }
-                return hash;
-            }
-            catch (...)
-            {
-                return ProcessSeed();
-            }
-        }
-
-        struct NumberSymbols final
-        {
-            std::string decimalSeparator = ".";
-            std::string negativeSign = "-";
-            std::string positiveSign = "+";
-            std::string nan = "NaN";
-            std::string positiveInfinity = "Infinity";
-            std::string negativeInfinity = "-Infinity";
-        };
-
-#if defined(_WIN32)
-        [[nodiscard]] std::string WindowsLocaleString(LCTYPE type, const std::string& fallback)
-        {
-            wchar_t buffer[128]{};
-            const int count = GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, type,
-                buffer, static_cast<int>(std::size(buffer)));
-            if (count <= 1) return fallback;
-            return WideToUtf8(std::wstring_view(buffer, static_cast<std::size_t>(count - 1)));
-        }
-#endif
-
-        [[nodiscard]] NumberSymbols CurrentNumberSymbols() noexcept
-        {
-            NumberSymbols symbols;
-            try
-            {
-#if defined(_WIN32)
-                symbols.decimalSeparator = WindowsLocaleString(LOCALE_SDECIMAL, symbols.decimalSeparator);
-                symbols.negativeSign = WindowsLocaleString(LOCALE_SNEGATIVESIGN, symbols.negativeSign);
-                symbols.positiveSign = WindowsLocaleString(LOCALE_SPOSITIVESIGN, symbols.positiveSign);
-#if defined(LOCALE_SNAN)
-                symbols.nan = WindowsLocaleString(LOCALE_SNAN, symbols.nan);
-#endif
-#if defined(LOCALE_SPOSINFINITY)
-                symbols.positiveInfinity = WindowsLocaleString(LOCALE_SPOSINFINITY, symbols.positiveInfinity);
-#endif
-#if defined(LOCALE_SNEGINFINITY)
-                symbols.negativeInfinity = WindowsLocaleString(LOCALE_SNEGINFINITY,
-                    symbols.negativeSign + symbols.positiveInfinity);
-#else
-                symbols.negativeInfinity = symbols.negativeSign + symbols.positiveInfinity;
-#endif
-#else
-                struct IcuNumbers final
-                {
-                    using Open = void* (*)(std::int32_t, const std::uint16_t*, std::int32_t,
-                        const char*, void*, std::int32_t*);
-                    using GetSymbol = std::int32_t (*)(const void*, std::int32_t,
-                        std::uint16_t*, std::int32_t, std::int32_t*);
-                    using Close = void (*)(void*);
-                    void* library = nullptr;
-                    Open open = nullptr;
-                    GetSymbol getSymbol = nullptr;
-                    Close close = nullptr;
-
-                    IcuNumbers() noexcept
-                    {
-                        library = dlopen("libicui18n.so", RTLD_LAZY | RTLD_LOCAL);
-#if defined(__APPLE__)
-                        if (library == nullptr)
-                        {
-                            library = dlopen("/usr/lib/libicucore.A.dylib", RTLD_LAZY | RTLD_LOCAL);
-                        }
-#endif
-                        open = reinterpret_cast<Open>(FindVersionedIcuSymbol(library, "unum_open"));
-                        getSymbol = reinterpret_cast<GetSymbol>(FindVersionedIcuSymbol(library, "unum_getSymbol"));
-                        close = reinterpret_cast<Close>(FindVersionedIcuSymbol(library, "unum_close"));
-                    }
-                };
-                static const IcuNumbers icu{};
-                if (icu.open != nullptr && icu.getSymbol != nullptr && icu.close != nullptr)
-                {
-                    std::int32_t status = 0;
-                    // UNUM_DECIMAL = 1. A null locale selects ICU's current default locale,
-                    // which is the same culture source used by .NET's ICU globalization path.
-                    void* formatter = icu.open(1, nullptr, 0, nullptr, nullptr, &status);
-                    if (formatter != nullptr && status <= 0)
-                    {
-                        const auto readSymbol = [&](std::int32_t symbol, const std::string& fallback)
-                        {
-                            std::uint16_t buffer[128]{};
-                            std::int32_t localStatus = 0;
-                            const std::int32_t length = icu.getSymbol(formatter, symbol, buffer,
-                                static_cast<std::int32_t>(std::size(buffer)), &localStatus);
-                            if (localStatus > 0 || length < 0
-                                || length > static_cast<std::int32_t>(std::size(buffer)))
-                            {
-                                return fallback;
-                            }
-                            return Utf16ToUtf8(std::u16string_view(reinterpret_cast<const char16_t*>(buffer), static_cast<std::size_t>(length)));
-                        };
-                        // UNumberFormatSymbol values from ICU: decimal=0, minus=6,
-                        // plus=7, infinity=14, NaN=15.
-                        symbols.decimalSeparator = readSymbol(0, symbols.decimalSeparator);
-                        symbols.negativeSign = readSymbol(6, symbols.negativeSign);
-                        symbols.positiveSign = readSymbol(7, symbols.positiveSign);
-                        symbols.positiveInfinity = readSymbol(14, symbols.positiveInfinity);
-                        symbols.nan = readSymbol(15, symbols.nan);
-                        // .NET's ICU CultureData has no separate negative-infinity
-                        // symbol and synthesizes it as NegativeSign + PositiveInfinitySymbol.
-                        symbols.negativeInfinity = symbols.negativeSign + symbols.positiveInfinity;
-                        icu.close(formatter);
-                        return symbols;
-                    }
-                    if (formatter != nullptr) icu.close(formatter);
-                }
-                try
-                {
-                    const auto& punctuation = std::use_facet<std::numpunct<char>>(std::locale(""));
-                    symbols.decimalSeparator.assign(1, punctuation.decimal_point());
-                }
-                catch (...)
-                {
-                }
-                symbols.negativeInfinity = symbols.negativeSign + symbols.positiveInfinity;
-#endif
-            }
-            catch (...)
-            {
-            }
-            return symbols;
-        }
-
-        struct ShortestFloat final
-        {
-            bool negative = false;
-            std::string digits;
-            std::int32_t scale = 0;
-        };
-
-        [[nodiscard]] ShortestFloat DecomposeShortestFloat(float value)
-        {
-            ShortestFloat result;
-            result.negative = std::signbit(value);
-            const float magnitude = std::fabs(value);
-            char buffer[64]{};
-            const auto conversion = std::to_chars(std::begin(buffer), std::end(buffer),
-                magnitude, std::chars_format::general);
-            std::string text = conversion.ec == std::errc{}
-                ? std::string(buffer, conversion.ptr) : std::to_string(magnitude);
-
-            const std::size_t exponentPosition = text.find_first_of("eE");
-            std::int32_t exponent = 0;
-            if (exponentPosition != std::string::npos)
-            {
-                const char* first = text.data() + static_cast<std::ptrdiff_t>(exponentPosition + 1);
-                const char* last = text.data() + static_cast<std::ptrdiff_t>(text.size());
-                if (first != last && *first == '+') ++first;
-                (void)std::from_chars(first, last, exponent);
-                text.resize(exponentPosition);
-            }
-
-            const std::size_t decimalPosition = text.find('.');
-            const std::size_t integerDigits = decimalPosition == std::string::npos
-                ? text.size() : decimalPosition;
-            if (decimalPosition != std::string::npos) text.erase(decimalPosition, 1);
-
-            std::size_t leadingZeros = 0;
-            while (leadingZeros < text.size() && text[leadingZeros] == '0') ++leadingZeros;
-            if (leadingZeros == text.size())
-            {
-                result.digits.clear();
-                result.scale = 0;
-                return result;
-            }
-            result.digits = text.substr(leadingZeros);
-            while (!result.digits.empty() && result.digits.back() == '0') result.digits.pop_back();
-            result.scale = static_cast<std::int32_t>(integerDigits)
-                - static_cast<std::int32_t>(leadingZeros) + exponent;
-            return result;
-        }
-
-        [[nodiscard]] std::string DotNetGeneralFloat(float value, const NumberSymbols& symbols)
-        {
-            const ShortestFloat number = DecomposeShortestFloat(value);
-            std::string result;
-            if (number.negative) result += symbols.negativeSign;
-            if (number.digits.empty())
-            {
-                result += '0';
-                return result;
-            }
-
-            // Single's default G format uses the shortest round-trippable digits,
-            // but does not switch to scientific notation until Scale > max(DigitsCount, 9)
-            // or Scale < -3. This is the exact FormatGeneral threshold in .NET 9.
-            const std::int32_t maxDigits = std::max<std::int32_t>(
-                static_cast<std::int32_t>(number.digits.size()), 9);
-            const bool scientific = number.scale > maxDigits || number.scale < -3;
-            if (!scientific)
-            {
-                if (number.scale > 0)
-                {
-                    const std::size_t whole = static_cast<std::size_t>(number.scale);
-                    if (whole >= number.digits.size())
-                    {
-                        result += number.digits;
-                        result.append(whole - number.digits.size(), '0');
-                    }
-                    else
-                    {
-                        result.append(number.digits.data(), whole);
-                        result += symbols.decimalSeparator;
-                        result.append(number.digits.data() + static_cast<std::ptrdiff_t>(whole),
-                            number.digits.size() - whole);
-                    }
-                }
-                else
-                {
-                    result += '0';
-                    result += symbols.decimalSeparator;
-                    result.append(static_cast<std::size_t>(-number.scale), '0');
-                    result += number.digits;
-                }
-                return result;
-            }
-
-            result.push_back(number.digits.front());
-            if (number.digits.size() > 1)
-            {
-                result += symbols.decimalSeparator;
-                result.append(number.digits.begin() + 1, number.digits.end());
-            }
-            result += 'E';
-            const std::int32_t exponent = number.scale - 1;
-            const std::uint32_t magnitude = exponent < 0
-                ? static_cast<std::uint32_t>(-static_cast<std::int64_t>(exponent))
-                : static_cast<std::uint32_t>(exponent);
-            result += exponent < 0 ? symbols.negativeSign : symbols.positiveSign;
-            char exponentBuffer[16]{};
-            const auto exponentConversion = std::to_chars(
-                std::begin(exponentBuffer), std::end(exponentBuffer), magnitude);
-            std::string exponentText(exponentBuffer, exponentConversion.ptr);
-            if (exponentText.size() < 2) result.append(2 - exponentText.size(), '0');
-            result += exponentText;
-            return result;
-        }
-    }
-
     std::uint32_t TypeHash(const std::type_info& type) noexcept
     {
-        std::uint32_t hash = ProcessSeed() ^ 0xA5A5A5A5U;
-        for (const unsigned char c : std::string_view(type.name()))
-        {
-            hash = Mix(hash, c);
-        }
-        return hash;
+        return static_cast<std::uint32_t>(::MphRead::NativeRuntime::HashCodeCombine(
+            static_cast<std::int32_t>(type.hash_code()),
+            static_cast<std::int32_t>(static_cast<std::uint64_t>(type.hash_code()) >> 32)));
     }
 
     std::uint32_t StringHash(const Q3String& value) noexcept
     {
-        return value.HasValue() ? HashUtf16(value.Value()) : 0U;
+        return value.HasValue()
+            ? static_cast<std::uint32_t>(::MphRead::NativeRuntime::StringGetHashCode(value.Value()))
+            : 0U;
     }
 
     std::uint32_t ReferenceHash(const void* value) noexcept
     {
-        if (value == nullptr) return 0U;
-        const std::uintptr_t address = reinterpret_cast<std::uintptr_t>(value);
-        std::uint32_t hash = ProcessSeed() ^ 0xC2B2AE35U;
-        hash = Mix(hash, static_cast<std::uint32_t>(address));
-        if constexpr (sizeof(std::uintptr_t) > sizeof(std::uint32_t))
-        {
-            hash = Mix(hash, static_cast<std::uint32_t>(address >> 32));
-        }
-        return hash;
+        return static_cast<std::uint32_t>(::MphRead::NativeRuntime::ReferenceGetHashCode(value));
     }
 
     std::string IntString(std::int32_t value)
     {
-        const NumberSymbols symbols = CurrentNumberSymbols();
-        const bool negative = value < 0;
-        const std::uint32_t magnitude = negative
-            ? static_cast<std::uint32_t>(-static_cast<std::int64_t>(value))
-            : static_cast<std::uint32_t>(value);
-        char buffer[32]{};
-        const auto result = std::to_chars(std::begin(buffer), std::end(buffer), magnitude);
-        std::string text = result.ec == std::errc{}
-            ? std::string(buffer, result.ptr) : std::to_string(magnitude);
-        return negative ? symbols.negativeSign + text : text;
+        return ::MphRead::NativeRuntime::ToString(value);
     }
 
     std::string FloatString(float value)
     {
-        const NumberSymbols symbols = CurrentNumberSymbols();
-        if (std::isnan(value)) return symbols.nan;
-        if (std::isinf(value))
-        {
-            return std::signbit(value) ? symbols.negativeInfinity : symbols.positiveInfinity;
-        }
-        return DotNetGeneralFloat(value, symbols);
+        return ::MphRead::NativeRuntime::ToString(value);
     }
 }
 
@@ -1372,28 +887,12 @@ namespace MphRead::Mods::MapGen
 
     std::size_t Q3StringHash::operator()(const std::string& value) const noexcept
     {
-        try
-        {
-            std::size_t hash = 1469598103934665603ULL;
-            for (std::uint32_t scalar : FoldOrdinalIgnoreCase(value))
-            {
-                for (std::int32_t shift = 0; shift < 32; shift += 8)
-                {
-                    hash ^= static_cast<std::uint8_t>(scalar >> shift);
-                    hash *= 1099511628211ULL;
-                }
-            }
-            return hash;
-        }
-        catch (...)
-        {
-            return 0;
-        }
+        return ::MphRead::NativeRuntime::OrdinalIgnoreCaseHash{}(value);
     }
 
     bool Q3StringEqual::operator()(const std::string& left, const std::string& right) const noexcept
     {
-        return OrdinalIgnoreCaseEquals(left, right);
+        return ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase(left, right);
     }
 
     Q3Texture::Q3Texture(Q3String name, std::int32_t flags, std::int32_t contents) noexcept
@@ -1551,7 +1050,7 @@ namespace MphRead::Mods::MapGen
         {
             throw ProgramException("No such file: " + sourceText);
         }
-        if (OrdinalIgnoreCaseEquals(Extension(sourceText), ".bsp"))
+        if (::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase(Extension(sourceText), ".bsp"))
         {
             return FileReadAllBytes(sourceText);
         }
@@ -1560,7 +1059,7 @@ namespace MphRead::Mods::MapGen
         std::vector<const ZipEntry*> maps;
         for (const ZipEntry& entry : entries)
         {
-            if (OrdinalIgnoreCaseEndsWith(entry.name, ".bsp"))
+            if (::MphRead::NativeRuntime::StringEndsWithOrdinalIgnoreCase(entry.name, ".bsp"))
             {
                 maps.push_back(&entry);
             }
@@ -1578,7 +1077,7 @@ namespace MphRead::Mods::MapGen
         {
             for (const ZipEntry* entry : maps)
             {
-                if (OrdinalIgnoreCaseEquals(FileNameWithoutExtension(entry->name), *mapName))
+                if (::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase(FileNameWithoutExtension(entry->name), *mapName))
                 {
                     selected = entry;
                     break;
@@ -1617,7 +1116,7 @@ namespace MphRead::Mods::MapGen
             throw System::NullReferenceException();
         }
         const std::string& sourceText = *source;
-        if (OrdinalIgnoreCaseEquals(Extension(sourceText), ".bsp"))
+        if (::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase(Extension(sourceText), ".bsp"))
         {
             return {FileNameWithoutExtension(sourceText)};
         }
@@ -1626,7 +1125,7 @@ namespace MphRead::Mods::MapGen
         std::vector<std::string> maps;
         for (const ZipEntry& entry : entries)
         {
-            if (OrdinalIgnoreCaseEndsWith(entry.name, ".bsp"))
+            if (::MphRead::NativeRuntime::StringEndsWithOrdinalIgnoreCase(entry.name, ".bsp"))
             {
                 maps.push_back(FileNameWithoutExtension(entry.name));
             }

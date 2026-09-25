@@ -1,5 +1,7 @@
 #include "TestWeapons.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
+#include "../NativeRuntime/System/Console.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <array>
 #include <bit>
@@ -20,93 +22,14 @@ using ::MphRead::NativeRuntime::UncheckedMultiply;
 
 namespace
 {
-    template <typename T>
-    [[nodiscard]] std::string Decimal(T value)
-    {
-        char buffer[32]{};
-        const auto [end, error] = std::to_chars(buffer, buffer + sizeof(buffer), value);
-        if (error != std::errc{})
-        {
-            throw std::runtime_error("Failed to format numeric value.");
-        }
-        return std::string(buffer, end);
-    }
-
-    [[nodiscard]] std::string FormatByte(std::uint8_t value)
-    {
-        return Decimal(static_cast<unsigned int>(value));
-    }
-
-    [[nodiscard]] std::string FormatUInt16(std::uint16_t value)
-    {
-        return Decimal(static_cast<unsigned int>(value));
-    }
-
-    [[nodiscard]] std::string FormatUInt32(std::uint32_t value)
-    {
-        return Decimal(value);
-    }
-
-    [[nodiscard]] std::string FormatInt32(std::int32_t value)
-    {
-        return MphRead::Fixed(value).ToString();
-    }
-
-    [[nodiscard]] std::string FormatHexUInt32(std::uint32_t value)
-    {
-        char buffer[16]{};
-        const auto [end, error] = std::to_chars(buffer, buffer + sizeof(buffer), value, 16);
-        if (error != std::errc{})
-        {
-            throw std::runtime_error("Failed to format hexadecimal value.");
-        }
-        std::string result(buffer, end);
-        for (char& c : result)
-        {
-            if (c >= 'a' && c <= 'f')
-            {
-                c = static_cast<char>(c - ('a' - 'A'));
-            }
-        }
-        return result;
-    }
-
-    [[nodiscard]] constexpr std::string_view EnvironmentNewLine() noexcept
-    {
-#if defined(_WIN32)
-        return "\r\n";
-#else
-        return "\n";
-#endif
-    }
-
-    void WriteConsoleLine(std::string_view value)
-    {
-        static std::recursive_mutex mutex;
-        const std::lock_guard<std::recursive_mutex> guard(mutex);
-
-        std::ostream& output = std::cout;
-        if (!value.empty())
-        {
-            output.write(value.data(), static_cast<std::streamsize>(value.size()));
-        }
-        const std::string_view newLine = EnvironmentNewLine();
-        output.write(newLine.data(), static_cast<std::streamsize>(newLine.size()));
-        output.flush();
-        if (!output)
-        {
-            throw std::ios_base::failure("Failed to write Console output.");
-        }
-    }
-
     void WriteLine(const std::string& value)
     {
-        WriteConsoleLine(value);
+        ::MphRead::NativeRuntime::ConsoleWriteLine(value);
     }
 
     void WriteLine()
     {
-        WriteConsoleLine({});
+        ::MphRead::NativeRuntime::ConsoleWriteLine();
     }
 
     [[nodiscard]] std::string BeamTypeToString(MphRead::BeamType value)
@@ -126,7 +49,7 @@ namespace
         case MphRead::BeamType::Platform: return "Platform";
         case MphRead::BeamType::Enemy: return "Enemy";
         }
-        return FormatInt32(static_cast<std::int8_t>(value));
+        return ::MphRead::NativeRuntime::ToString(static_cast<std::int8_t>(value));
     }
 
     [[nodiscard]] std::string JoinFlagNames(
@@ -155,7 +78,7 @@ namespace
         }
         if (remaining != 0)
         {
-            return FormatUInt32(bits);
+            return ::MphRead::NativeRuntime::ToString(bits);
         }
         return result;
     }
@@ -415,18 +338,18 @@ namespace MphRead::Testing
             const WeaponInfo& multiAffinity = *weaponsMP.at(static_cast<std::size_t>(i + 9));
 
             WriteLine(singleNormal.Name());
-            WriteLine("1P Nrm: " + FormatInt32(singleNormal.UnchargedSpread)
-                + " / " + FormatInt32(singleNormal.MinChargeSpread)
-                + " / " + FormatInt32(singleNormal.ChargedSpread));
-            WriteLine("MP Nrm: " + FormatInt32(multiNormal.UnchargedSpread)
-                + " / " + FormatInt32(multiNormal.MinChargeSpread)
-                + " / " + FormatInt32(multiNormal.ChargedSpread));
-            WriteLine("1P Aff: " + FormatInt32(singleAffinity.UnchargedSpread)
-                + " / " + FormatInt32(singleAffinity.MinChargeSpread)
-                + " / " + FormatInt32(singleAffinity.ChargedSpread));
-            WriteLine("MP Aff: " + FormatInt32(multiAffinity.UnchargedSpread)
-                + " / " + FormatInt32(multiAffinity.MinChargeSpread)
-                + " / " + FormatInt32(multiAffinity.ChargedSpread));
+            WriteLine("1P Nrm: " + ::MphRead::NativeRuntime::ToString(singleNormal.UnchargedSpread)
+                + " / " + ::MphRead::NativeRuntime::ToString(singleNormal.MinChargeSpread)
+                + " / " + ::MphRead::NativeRuntime::ToString(singleNormal.ChargedSpread));
+            WriteLine("MP Nrm: " + ::MphRead::NativeRuntime::ToString(multiNormal.UnchargedSpread)
+                + " / " + ::MphRead::NativeRuntime::ToString(multiNormal.MinChargeSpread)
+                + " / " + ::MphRead::NativeRuntime::ToString(multiNormal.ChargedSpread));
+            WriteLine("1P Aff: " + ::MphRead::NativeRuntime::ToString(singleAffinity.UnchargedSpread)
+                + " / " + ::MphRead::NativeRuntime::ToString(singleAffinity.MinChargeSpread)
+                + " / " + ::MphRead::NativeRuntime::ToString(singleAffinity.ChargedSpread));
+            WriteLine("MP Aff: " + ::MphRead::NativeRuntime::ToString(multiAffinity.UnchargedSpread)
+                + " / " + ::MphRead::NativeRuntime::ToString(multiAffinity.MinChargeSpread)
+                + " / " + ::MphRead::NativeRuntime::ToString(multiAffinity.ChargedSpread));
             WriteLine();
         }
 
@@ -443,106 +366,106 @@ namespace MphRead::Testing
         output += "                beam: BeamType." + BeamTypeToString(weapon.Beam) + ",\n";
         output += "                beamKind: BeamType." + BeamTypeToString(weapon.BeamKind) + ",\n";
         output += "                drawFuncIds: new byte[] { "
-            + FormatByte(RequireArray(weapon.DrawFuncIds)[0]) + ", "
-            + FormatByte(RequireArray(weapon.DrawFuncIds)[1]) + " },\n";
+            + ::MphRead::NativeRuntime::ToString(RequireArray(weapon.DrawFuncIds)[0]) + ", "
+            + ::MphRead::NativeRuntime::ToString(RequireArray(weapon.DrawFuncIds)[1]) + " },\n";
         output += "                colors: new ushort[] { "
-            + FormatUInt16(RequireArray(weapon.Colors)[0]) + ", "
-            + FormatUInt16(RequireArray(weapon.Colors)[1]) + " },\n";
-        output += "                priority: " + FormatByte(weapon.Priority()) + ",\n";
+            + ::MphRead::NativeRuntime::ToString(RequireArray(weapon.Colors)[0]) + ", "
+            + ::MphRead::NativeRuntime::ToString(RequireArray(weapon.Colors)[1]) + " },\n";
+        output += "                priority: " + ::MphRead::NativeRuntime::ToString(weapon.Priority()) + ",\n";
         output += "                flags: " + EnumToString(weapon.Flags()) + ",\n";
-        output += "                splashDamage: " + FormatUInt16(weapon.SplashDamage) + ",\n";
-        output += "                minChargeSplashDamage: " + FormatUInt16(weapon.MinChargeSplashDamage) + ",\n";
-        output += "                chargedSplashDamage: " + FormatUInt16(weapon.ChargedSplashDamage) + ",\n";
+        output += "                splashDamage: " + ::MphRead::NativeRuntime::ToString(weapon.SplashDamage) + ",\n";
+        output += "                minChargeSplashDamage: " + ::MphRead::NativeRuntime::ToString(weapon.MinChargeSplashDamage) + ",\n";
+        output += "                chargedSplashDamage: " + ::MphRead::NativeRuntime::ToString(weapon.ChargedSplashDamage) + ",\n";
         output += "                splashDmgTypes: new byte[] { "
-            + FormatByte(RequireArray(weapon.SplashDmgTypes)[0]) + ", "
-            + FormatByte(RequireArray(weapon.SplashDmgTypes)[1]) + " },\n";
-        output += "                shotCooldown: " + FormatByte(weapon.ShotCooldown) + ",\n";
-        output += "                autofireCooldown: " + FormatByte(weapon.ShotCooldownRelated) + ",\n";
-        output += "                ammoType: " + FormatByte(weapon.AmmoType) + ",\n";
+            + ::MphRead::NativeRuntime::ToString(RequireArray(weapon.SplashDmgTypes)[0]) + ", "
+            + ::MphRead::NativeRuntime::ToString(RequireArray(weapon.SplashDmgTypes)[1]) + " },\n";
+        output += "                shotCooldown: " + ::MphRead::NativeRuntime::ToString(weapon.ShotCooldown) + ",\n";
+        output += "                autofireCooldown: " + ::MphRead::NativeRuntime::ToString(weapon.ShotCooldownRelated) + ",\n";
+        output += "                ammoType: " + ::MphRead::NativeRuntime::ToString(weapon.AmmoType) + ",\n";
         output += "                colEffects: new byte[] { "
-            + FormatByte(RequireArray(weapon.BeamTypes)[0]) + ", "
-            + FormatByte(RequireArray(weapon.BeamTypes)[1]) + " },\n";
+            + ::MphRead::NativeRuntime::ToString(RequireArray(weapon.BeamTypes)[0]) + ", "
+            + ::MphRead::NativeRuntime::ToString(RequireArray(weapon.BeamTypes)[1]) + " },\n";
         output += "                muzzleEffects: new byte[] { "
-            + FormatByte(RequireArray(weapon.MuzzleEffects)[0]) + ", "
-            + FormatByte(RequireArray(weapon.MuzzleEffects)[1]) + " },\n";
+            + ::MphRead::NativeRuntime::ToString(RequireArray(weapon.MuzzleEffects)[0]) + ", "
+            + ::MphRead::NativeRuntime::ToString(RequireArray(weapon.MuzzleEffects)[1]) + " },\n";
         output += "                dmgDirTypes: new byte[] { "
-            + FormatByte(RequireArray(weapon.DmgDirTypes)[0]) + ", "
-            + FormatByte(RequireArray(weapon.DmgDirTypes)[1]) + " },\n";
+            + ::MphRead::NativeRuntime::ToString(RequireArray(weapon.DmgDirTypes)[0]) + ", "
+            + ::MphRead::NativeRuntime::ToString(RequireArray(weapon.DmgDirTypes)[1]) + " },\n";
         output += "                dmgInterp: new byte[] { "
-            + FormatByte(RequireArray(weapon.DamageInterpolations)[0]) + ", "
-            + FormatByte(RequireArray(weapon.DamageInterpolations)[1]) + " },\n";
+            + ::MphRead::NativeRuntime::ToString(RequireArray(weapon.DamageInterpolations)[0]) + ", "
+            + ::MphRead::NativeRuntime::ToString(RequireArray(weapon.DamageInterpolations)[1]) + " },\n";
         output += "                afflictions: new Affliction[] { "
             + EnumToString(RequireArray(weapon.Afflictions)[0]) + ", "
             + EnumToString(RequireArray(weapon.Afflictions)[1]) + " },\n";
-        output += "                padding21: " + FormatByte(weapon.Padding21) + ",\n";
-        output += "                minCharge: " + FormatUInt16(weapon.MinCharge) + ",\n";
-        output += "                fullCharge: " + FormatUInt16(weapon.FullCharge) + ",\n";
-        output += "                ammoCost: " + FormatUInt16(weapon.AmmoCost) + ",\n";
-        output += "                minChargeCost: " + FormatUInt16(weapon.MinChargeCost) + ",\n";
-        output += "                chargeCost: " + FormatUInt16(weapon.ChargeCost) + ",\n";
-        output += "                unchargedDamage: " + FormatUInt16(weapon.UnchargedDamage) + ",\n";
-        output += "                minChargeDamage: " + FormatUInt16(weapon.MinChargeDamage) + ",\n";
-        output += "                chargedDamage: " + FormatUInt16(weapon.ChargedDamage) + ",\n";
-        output += "                headshotDamage: " + FormatUInt16(weapon.HeadshotDamage) + ",\n";
-        output += "                minChargeHeadshotDamage: " + FormatUInt16(weapon.MinChargeHeadshotDamage) + ",\n";
-        output += "                chargedHeadshotDamage: " + FormatUInt16(weapon.ChargedHeadshotDamage) + ",\n";
-        output += "                unchargedLifespan: " + FormatUInt16(weapon.UnchargedLifespan) + ",\n";
-        output += "                minChargeLifespan: " + FormatUInt16(weapon.MinChargeLifespan) + ",\n";
-        output += "                chargedLifespan: " + FormatUInt16(weapon.ChargedLifespan) + ",\n";
+        output += "                padding21: " + ::MphRead::NativeRuntime::ToString(weapon.Padding21) + ",\n";
+        output += "                minCharge: " + ::MphRead::NativeRuntime::ToString(weapon.MinCharge) + ",\n";
+        output += "                fullCharge: " + ::MphRead::NativeRuntime::ToString(weapon.FullCharge) + ",\n";
+        output += "                ammoCost: " + ::MphRead::NativeRuntime::ToString(weapon.AmmoCost) + ",\n";
+        output += "                minChargeCost: " + ::MphRead::NativeRuntime::ToString(weapon.MinChargeCost) + ",\n";
+        output += "                chargeCost: " + ::MphRead::NativeRuntime::ToString(weapon.ChargeCost) + ",\n";
+        output += "                unchargedDamage: " + ::MphRead::NativeRuntime::ToString(weapon.UnchargedDamage) + ",\n";
+        output += "                minChargeDamage: " + ::MphRead::NativeRuntime::ToString(weapon.MinChargeDamage) + ",\n";
+        output += "                chargedDamage: " + ::MphRead::NativeRuntime::ToString(weapon.ChargedDamage) + ",\n";
+        output += "                headshotDamage: " + ::MphRead::NativeRuntime::ToString(weapon.HeadshotDamage) + ",\n";
+        output += "                minChargeHeadshotDamage: " + ::MphRead::NativeRuntime::ToString(weapon.MinChargeHeadshotDamage) + ",\n";
+        output += "                chargedHeadshotDamage: " + ::MphRead::NativeRuntime::ToString(weapon.ChargedHeadshotDamage) + ",\n";
+        output += "                unchargedLifespan: " + ::MphRead::NativeRuntime::ToString(weapon.UnchargedLifespan) + ",\n";
+        output += "                minChargeLifespan: " + ::MphRead::NativeRuntime::ToString(weapon.MinChargeLifespan) + ",\n";
+        output += "                chargedLifespan: " + ::MphRead::NativeRuntime::ToString(weapon.ChargedLifespan) + ",\n";
         output += "                speedDecay: new ushort[] { "
-            + FormatUInt16(RequireArray(weapon.SpeedDecay)[0]) + ", "
-            + FormatUInt16(RequireArray(weapon.SpeedDecay)[1]) + " },\n";
-        output += "                padding42: " + FormatUInt16(weapon.Padding42) + ",\n";
+            + ::MphRead::NativeRuntime::ToString(RequireArray(weapon.SpeedDecay)[0]) + ", "
+            + ::MphRead::NativeRuntime::ToString(RequireArray(weapon.SpeedDecay)[1]) + " },\n";
+        output += "                padding42: " + ::MphRead::NativeRuntime::ToString(weapon.Padding42) + ",\n";
         output += "                speedInterp: new ushort[] { "
-            + FormatUInt16(RequireArray(weapon.SpeedInterp)[0]) + ", "
-            + FormatUInt16(RequireArray(weapon.SpeedInterp)[1]) + " },\n";
-        output += "                unchargedDmgDirMag: " + FormatInt32(weapon.UnchargedDmgDirMag) + ",\n";
-        output += "                minChargeDmgDirMag: " + FormatInt32(weapon.MinChargeDmgDirMag) + ",\n";
-        output += "                chargedDmgDirMag: " + FormatInt32(weapon.ChargedDmgDirMag) + ",\n";
-        output += "                zoomFov: " + FormatInt32(weapon.ZoomFov) + ",\n";
-        output += "                unchargedCylRadius: " + FormatInt32(weapon.UnchargedCylRadius) + ",\n";
-        output += "                minChargeCylRadius: " + FormatInt32(weapon.MinChargeCylRadius) + ",\n";
-        output += "                chargedCylRadius: " + FormatInt32(weapon.ChargedCylRadius) + ",\n";
-        output += "                unchargedSpeed: " + FormatInt32(weapon.UnchargedSpeed) + ",\n";
-        output += "                minChargeSpeed: " + FormatInt32(weapon.MinChargeSpeed) + ",\n";
-        output += "                chargedSpeed: " + FormatInt32(weapon.ChargedSpeed) + ",\n";
-        output += "                unchargedFinalSpeed: " + FormatInt32(weapon.UnchargedFinalSpeed) + ",\n";
-        output += "                minChargeFinalSpeed: " + FormatInt32(weapon.MinChargeFinalSpeed) + ",\n";
-        output += "                chargedFinalSpeed: " + FormatInt32(weapon.ChargedFinalSpeed) + ",\n";
-        output += "                unchargedGravity: " + FormatInt32(weapon.UnchargedGravity) + ",\n";
-        output += "                minChargeGravity: " + FormatInt32(weapon.MinChargeGravity) + ",\n";
-        output += "                chargedGravity: " + FormatInt32(weapon.ChargedGravity) + ",\n";
-        output += "                unchargedHoming: " + FormatInt32(weapon.UnchargedHoming) + ",\n";
-        output += "                minChargeHoming: " + FormatInt32(weapon.MinChargeHoming) + ",\n";
-        output += "                chargedHoming: " + FormatInt32(weapon.ChargedHoming) + ",\n";
-        output += "                homingRange: " + FormatInt32(weapon.HomingRange) + ",\n";
-        output += "                homingTolerance: " + FormatInt32(weapon.HomingTolerance) + ",\n";
-        output += "                unchargedSplashRadius: " + FormatInt32(weapon.UnchargedScale) + ",\n";
-        output += "                minChargeSplashRadius: " + FormatInt32(weapon.MinChargeScale) + ",\n";
-        output += "                chargedSplashRadius: " + FormatInt32(weapon.ChargedScale) + ",\n";
-        output += "                unchargedDistance: " + FormatInt32(weapon.UnchargedDistance) + ",\n";
-        output += "                minChargeDistance: " + FormatInt32(weapon.MinChargeDistance) + ",\n";
-        output += "                chargedDistance: " + FormatInt32(weapon.ChargedDistance) + ",\n";
-        output += "                unchargedSpread: " + FormatInt32(weapon.UnchargedSpread) + ",\n";
-        output += "                minChargeSpread: " + FormatInt32(weapon.MinChargeSpread) + ",\n";
-        output += "                chargedSpread: " + FormatInt32(weapon.ChargedSpread) + ",\n";
-        output += "                unRicoLossH: " + FormatInt32(weapon.UnchargedRicochetLossH) + ",\n";
-        output += "                minRicoLossH: " + FormatInt32(weapon.MinChargeRicochetLossH) + ",\n";
-        output += "                chRicoLossH: " + FormatInt32(weapon.ChargedRicochetLossH) + ",\n";
-        output += "                unRicoLossV: " + FormatInt32(weapon.UnchargedRicochetLossV) + ",\n";
-        output += "                minRicoLossV: " + FormatInt32(weapon.MinChargeRicochetLossV) + ",\n";
-        output += "                chRicoLossV: " + FormatInt32(weapon.ChargedRicochetLossV) + ",\n";
+            + ::MphRead::NativeRuntime::ToString(RequireArray(weapon.SpeedInterp)[0]) + ", "
+            + ::MphRead::NativeRuntime::ToString(RequireArray(weapon.SpeedInterp)[1]) + " },\n";
+        output += "                unchargedDmgDirMag: " + ::MphRead::NativeRuntime::ToString(weapon.UnchargedDmgDirMag) + ",\n";
+        output += "                minChargeDmgDirMag: " + ::MphRead::NativeRuntime::ToString(weapon.MinChargeDmgDirMag) + ",\n";
+        output += "                chargedDmgDirMag: " + ::MphRead::NativeRuntime::ToString(weapon.ChargedDmgDirMag) + ",\n";
+        output += "                zoomFov: " + ::MphRead::NativeRuntime::ToString(weapon.ZoomFov) + ",\n";
+        output += "                unchargedCylRadius: " + ::MphRead::NativeRuntime::ToString(weapon.UnchargedCylRadius) + ",\n";
+        output += "                minChargeCylRadius: " + ::MphRead::NativeRuntime::ToString(weapon.MinChargeCylRadius) + ",\n";
+        output += "                chargedCylRadius: " + ::MphRead::NativeRuntime::ToString(weapon.ChargedCylRadius) + ",\n";
+        output += "                unchargedSpeed: " + ::MphRead::NativeRuntime::ToString(weapon.UnchargedSpeed) + ",\n";
+        output += "                minChargeSpeed: " + ::MphRead::NativeRuntime::ToString(weapon.MinChargeSpeed) + ",\n";
+        output += "                chargedSpeed: " + ::MphRead::NativeRuntime::ToString(weapon.ChargedSpeed) + ",\n";
+        output += "                unchargedFinalSpeed: " + ::MphRead::NativeRuntime::ToString(weapon.UnchargedFinalSpeed) + ",\n";
+        output += "                minChargeFinalSpeed: " + ::MphRead::NativeRuntime::ToString(weapon.MinChargeFinalSpeed) + ",\n";
+        output += "                chargedFinalSpeed: " + ::MphRead::NativeRuntime::ToString(weapon.ChargedFinalSpeed) + ",\n";
+        output += "                unchargedGravity: " + ::MphRead::NativeRuntime::ToString(weapon.UnchargedGravity) + ",\n";
+        output += "                minChargeGravity: " + ::MphRead::NativeRuntime::ToString(weapon.MinChargeGravity) + ",\n";
+        output += "                chargedGravity: " + ::MphRead::NativeRuntime::ToString(weapon.ChargedGravity) + ",\n";
+        output += "                unchargedHoming: " + ::MphRead::NativeRuntime::ToString(weapon.UnchargedHoming) + ",\n";
+        output += "                minChargeHoming: " + ::MphRead::NativeRuntime::ToString(weapon.MinChargeHoming) + ",\n";
+        output += "                chargedHoming: " + ::MphRead::NativeRuntime::ToString(weapon.ChargedHoming) + ",\n";
+        output += "                homingRange: " + ::MphRead::NativeRuntime::ToString(weapon.HomingRange) + ",\n";
+        output += "                homingTolerance: " + ::MphRead::NativeRuntime::ToString(weapon.HomingTolerance) + ",\n";
+        output += "                unchargedSplashRadius: " + ::MphRead::NativeRuntime::ToString(weapon.UnchargedScale) + ",\n";
+        output += "                minChargeSplashRadius: " + ::MphRead::NativeRuntime::ToString(weapon.MinChargeScale) + ",\n";
+        output += "                chargedSplashRadius: " + ::MphRead::NativeRuntime::ToString(weapon.ChargedScale) + ",\n";
+        output += "                unchargedDistance: " + ::MphRead::NativeRuntime::ToString(weapon.UnchargedDistance) + ",\n";
+        output += "                minChargeDistance: " + ::MphRead::NativeRuntime::ToString(weapon.MinChargeDistance) + ",\n";
+        output += "                chargedDistance: " + ::MphRead::NativeRuntime::ToString(weapon.ChargedDistance) + ",\n";
+        output += "                unchargedSpread: " + ::MphRead::NativeRuntime::ToString(weapon.UnchargedSpread) + ",\n";
+        output += "                minChargeSpread: " + ::MphRead::NativeRuntime::ToString(weapon.MinChargeSpread) + ",\n";
+        output += "                chargedSpread: " + ::MphRead::NativeRuntime::ToString(weapon.ChargedSpread) + ",\n";
+        output += "                unRicoLossH: " + ::MphRead::NativeRuntime::ToString(weapon.UnchargedRicochetLossH) + ",\n";
+        output += "                minRicoLossH: " + ::MphRead::NativeRuntime::ToString(weapon.MinChargeRicochetLossH) + ",\n";
+        output += "                chRicoLossH: " + ::MphRead::NativeRuntime::ToString(weapon.ChargedRicochetLossH) + ",\n";
+        output += "                unRicoLossV: " + ::MphRead::NativeRuntime::ToString(weapon.UnchargedRicochetLossV) + ",\n";
+        output += "                minRicoLossV: " + ::MphRead::NativeRuntime::ToString(weapon.MinChargeRicochetLossV) + ",\n";
+        output += "                chRicoLossV: " + ::MphRead::NativeRuntime::ToString(weapon.ChargedRicochetLossV) + ",\n";
         output += "                ricochetWeapon: new uint[] { 0x"
-            + FormatHexUInt32(RequireArray(weapon.RicochetWeaponPtr)[0]) + ", 0x"
-            + FormatHexUInt32(RequireArray(weapon.RicochetWeaponPtr)[1]) + " },\n";
-        output += "                projectileCount: " + FormatUInt16(weapon.ProjectileCount) + ",\n";
-        output += "                minChargedProjectileCount: " + FormatUInt16(weapon.MinChargedProjectileCount) + ",\n";
-        output += "                chargeProjectileCount: " + FormatUInt16(weapon.ChargeProjectileCount) + ",\n";
-        output += "                smokeStart: " + FormatUInt16(weapon.SmokeStart) + ",\n";
-        output += "                smokeMinimum: " + FormatUInt16(weapon.SmokeMinimum) + ",\n";
-        output += "                smokeDrain: " + FormatUInt16(weapon.SmokeDrain) + ",\n";
-        output += "                smokeShotAmount: " + FormatUInt16(weapon.SmokeShotAmount) + ",\n";
-        output += "                smokeChargeAmount: " + FormatUInt16(weapon.SmokeChargeAmount) + "\n";
+            + ::MphRead::NativeRuntime::ToString(RequireArray(weapon.RicochetWeaponPtr)[0], "X") + ", 0x"
+            + ::MphRead::NativeRuntime::ToString(RequireArray(weapon.RicochetWeaponPtr)[1], "X") + " },\n";
+        output += "                projectileCount: " + ::MphRead::NativeRuntime::ToString(weapon.ProjectileCount) + ",\n";
+        output += "                minChargedProjectileCount: " + ::MphRead::NativeRuntime::ToString(weapon.MinChargedProjectileCount) + ",\n";
+        output += "                chargeProjectileCount: " + ::MphRead::NativeRuntime::ToString(weapon.ChargeProjectileCount) + ",\n";
+        output += "                smokeStart: " + ::MphRead::NativeRuntime::ToString(weapon.SmokeStart) + ",\n";
+        output += "                smokeMinimum: " + ::MphRead::NativeRuntime::ToString(weapon.SmokeMinimum) + ",\n";
+        output += "                smokeDrain: " + ::MphRead::NativeRuntime::ToString(weapon.SmokeDrain) + ",\n";
+        output += "                smokeShotAmount: " + ::MphRead::NativeRuntime::ToString(weapon.SmokeShotAmount) + ",\n";
+        output += "                smokeChargeAmount: " + ::MphRead::NativeRuntime::ToString(weapon.SmokeChargeAmount) + "\n";
         output += "            ),";
 
         WriteLine(output);

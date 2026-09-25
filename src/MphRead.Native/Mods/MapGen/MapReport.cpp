@@ -6,6 +6,7 @@
 #include "../../Read.hpp"
 #include "../../Formats/Types.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -107,11 +108,6 @@ namespace
         {
             output.append(width - length, ' ');
         }
-    }
-
-    [[nodiscard]] std::string FormatInt32(std::int32_t value)
-    {
-        return MphRead::Fixed(value).ToString();
     }
 
     [[nodiscard]] std::string FormatTextureFormat(MphRead::TextureFormat value)
@@ -216,7 +212,7 @@ namespace MphRead::Mods::MapGen
 
         std::string summary = mapName.has_value() ? *mapName : source;
         summary += ": ";
-        summary += FormatInt32(static_cast<std::int32_t>(counts.size()));
+        summary += ::MphRead::NativeRuntime::ToString(static_cast<std::int32_t>(counts.size()));
         summary += " shaders drawn";
         WriteLine(summary);
 
@@ -235,7 +231,7 @@ namespace MphRead::Mods::MapGen
         for (const ShaderCount* pair : ordered)
         {
             std::string line = "  ";
-            const std::string count = FormatInt32(pair->Count);
+            const std::string count = ::MphRead::NativeRuntime::ToString(pair->Count);
             AppendRightAligned(line, count, 6);
             line += " triangles  ";
             line += pair->Name;
@@ -299,9 +295,9 @@ namespace MphRead::Mods::MapGen
 
         std::string summary = room;
         summary += ": ";
-        summary += FormatInt32(materialCount);
+        summary += ::MphRead::NativeRuntime::ToString(materialCount);
         summary += " materials, ";
-        summary += FormatInt32(textureCount);
+        summary += ::MphRead::NativeRuntime::ToString(textureCount);
         summary += " textures";
         WriteLine(summary);
 
@@ -320,22 +316,22 @@ namespace MphRead::Mods::MapGen
             {
                 const Texture& texture
                     = ManagedAt(*recolor->Textures, material.TextureId);
-                size = FormatInt32(static_cast<std::int32_t>(texture.Width));
+                size = ::MphRead::NativeRuntime::ToString(static_cast<std::int32_t>(texture.Width));
                 size += 'x';
-                size += FormatInt32(static_cast<std::int32_t>(texture.Height));
+                size += ::MphRead::NativeRuntime::ToString(static_cast<std::int32_t>(texture.Height));
                 format = FormatTextureFormat(texture.Format);
             }
 
             std::string line = "  ";
-            const std::string index = FormatInt32(i);
+            const std::string index = ::MphRead::NativeRuntime::ToString(i);
             AppendRightAligned(line, index, 3);
             line += "  ";
             AppendLeftAligned(line, material.Name, 32);
             line += " tex ";
-            const std::string textureId = FormatInt32(material.TextureId);
+            const std::string textureId = ::MphRead::NativeRuntime::ToString(material.TextureId);
             AppendRightAligned(line, textureId, 3);
             line += " pal ";
-            const std::string paletteId = FormatInt32(material.PaletteId);
+            const std::string paletteId = ::MphRead::NativeRuntime::ToString(material.PaletteId);
             AppendRightAligned(line, paletteId, 3);
             line += "  ";
             AppendLeftAligned(line, size, 9);

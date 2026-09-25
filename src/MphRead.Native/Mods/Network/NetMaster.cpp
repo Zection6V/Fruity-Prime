@@ -220,7 +220,7 @@ namespace MphRead::Mods::Network
         }
         _complained = true;
         NativeRuntime::ConsoleWriteLine(("[master] not listed on " + _host + ":"
-            + NativeRuntime::Int32ToString(_port) + " -- " + message));
+            + ::MphRead::NativeRuntime::ToString(_port) + " -- " + message));
         NativeRuntime::ConsoleWriteLine(("[master] the server is running normally; "
             "pass -nomaster to stop trying, or -master HOST to point elsewhere"));
     }
@@ -304,7 +304,7 @@ namespace MphRead::Mods::Network
         _transport = std::make_unique<NetTransport>(_port);
         _running.store(true);
         Log("listening on UDP "
-            + NativeRuntime::Int32ToString((_transport->LocalPort())));
+            + ::MphRead::NativeRuntime::ToString((_transport->LocalPort())));
         Log("servers are dropped after 50 s of silence");
         if (_publicAddress != 0)
         {
@@ -312,8 +312,8 @@ namespace MphRead::Mods::Network
         }
         Log(CanHost()
             ? "can start games on ports "
-                + NativeRuntime::Int32ToString(_hostPortFirst) + "-"
-                + NativeRuntime::Int32ToString(_hostPortLast)
+                + ::MphRead::NativeRuntime::ToString(_hostPortFirst) + "-"
+                + ::MphRead::NativeRuntime::ToString(_hostPortLast)
                 + " for players who cannot open one of their own"
             : "not starting games for anybody (no host port range)");
         _clockStart = std::chrono::steady_clock::now();
@@ -337,10 +337,10 @@ namespace MphRead::Mods::Network
             if (now - lastReport >= 60.0)
             {
                 lastReport = now;
-                std::string message = NativeRuntime::Int32ToString((static_cast<std::int32_t>(_entries.size()))) + " server(s) listed";
+                std::string message = ::MphRead::NativeRuntime::ToString((static_cast<std::int32_t>(_entries.size()))) + " server(s) listed";
                 if (!_hosted.empty())
                 {
-                    message += ", " + NativeRuntime::Int32ToString((static_cast<std::int32_t>(_hosted.size()))) + " started here";
+                    message += ", " + ::MphRead::NativeRuntime::ToString((static_cast<std::int32_t>(_hosted.size()))) + " started here";
                 }
                 Log(message);
             }
@@ -415,9 +415,9 @@ namespace MphRead::Mods::Network
             if (request.Protocol != static_cast<std::uint8_t>(NetConfig::ProtocolVersion))
             {
                 reply.Reason = "this directory speaks protocol "
-                    + NativeRuntime::Int32ToString(NetConfig::ProtocolVersion)
+                    + ::MphRead::NativeRuntime::ToString(NetConfig::ProtocolVersion)
                     + ", your build speaks "
-                    + NativeRuntime::Int32ToString(request.Protocol);
+                    + ::MphRead::NativeRuntime::ToString(request.Protocol);
             }
             else if (!CanHost())
             {
@@ -457,7 +457,7 @@ namespace MphRead::Mods::Network
         if (port < 0)
         {
             HostReplyPacket result{};
-            result.Reason = "all " + NativeRuntime::Int32ToString((UncheckedSlotCount(_hostPortFirst, _hostPortLast))) + " game slots are busy";
+            result.Reason = "all " + ::MphRead::NativeRuntime::ToString((UncheckedSlotCount(_hostPortFirst, _hostPortLast))) + " game slots are busy";
             return result;
         }
         const GameMode mode = ::MphRead::IsDefinedGameMode(request.Mode)
@@ -487,7 +487,7 @@ namespace MphRead::Mods::Network
         std::thread thread([server, cancel, port]()
         {
             NativeRuntime::SetCurrentThreadName("MphRead hosted "
-                + NativeRuntime::Int32ToString(port));
+                + ::MphRead::NativeRuntime::ToString(port));
             try
             {
                 server->Run(cancel->get_token());
@@ -495,7 +495,7 @@ namespace MphRead::Mods::Network
             catch (const std::exception& ex)
             {
                 MasterServer::Log("game on "
-                    + NativeRuntime::Int32ToString(port)
+                    + ::MphRead::NativeRuntime::ToString(port)
                     + " stopped: " + ex.what());
             }
         });
@@ -511,12 +511,12 @@ namespace MphRead::Mods::Network
             server->Stop();
             HostReplyPacket result{};
             result.Reason = "could not listen on port "
-                + NativeRuntime::Int32ToString(port);
+                + ::MphRead::NativeRuntime::ToString(port);
             return result;
         }
         _hosted.push_back(entry);
         Log("started \"" + name + "\" on port "
-            + NativeRuntime::Int32ToString(port) + " for "
+            + ::MphRead::NativeRuntime::ToString(port) + " for "
             + IPv4ToString(askerAddress) + " (" + roomKey + ", "
             + ::MphRead::ToString(mode) + ")");
         HostReplyPacket result{};
@@ -582,7 +582,7 @@ namespace MphRead::Mods::Network
         const std::string& why)
     {
         Log("stopping \"" + entry->Name + "\" on port "
-            + NativeRuntime::Int32ToString(entry->Port) + ": " + why);
+            + ::MphRead::NativeRuntime::ToString(entry->Port) + ": " + why);
         entry->Cancel->request_stop();
         entry->Server->Stop();
         for (std::int32_t i = 0; i < 100 && entry->Server->Listening(); ++i)
@@ -717,7 +717,7 @@ namespace MphRead::Mods::Network
     {
         return Port == NetConfig::DefaultPort
             ? Address
-            : Address + ":" + NativeRuntime::Int32ToString(Port);
+            : Address + ":" + ::MphRead::NativeRuntime::ToString(Port);
     }
 
     HostedGame NetMasterClient::RequestGame(const std::string& masterHost,
@@ -799,7 +799,7 @@ namespace MphRead::Mods::Network
         {
             HostedGame result{};
             result.Reason = "no answer from " + masterHost + ":"
-                + NativeRuntime::Int32ToString(masterPort)
+                + ::MphRead::NativeRuntime::ToString(masterPort)
                 + " -- it may be down, or UDP may not reach it";
             return result;
         }

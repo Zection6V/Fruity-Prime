@@ -9,6 +9,7 @@
 #include "Types.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 #include "../NativeRuntime/OpenTK/Mathematics.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -136,13 +137,6 @@ namespace
         // conversion.  Feed it the original value after its fixed-point
         // scaling so this cast has the same source scale as C#.
         return Fixed::ToInt(value / 4096.0F);
-    }
-
-    [[nodiscard]] std::string FormatOneDecimal(float value)
-    {
-        std::ostringstream stream;
-        stream << std::fixed << std::setprecision(1) << value;
-        return stream.str();
     }
 
     [[nodiscard]] Vector4 MovePlane(
@@ -1646,17 +1640,17 @@ namespace MphRead::Formats
                                         + ".."
                                         + std::to_string(maxZPart)
                                         + " limits=("
-                                        + FormatOneDecimal(limitMin.X)
+                                        + ::MphRead::NativeRuntime::ToString(limitMin.X, "0.0")
                                         + ","
-                                        + FormatOneDecimal(limitMin.Y)
+                                        + ::MphRead::NativeRuntime::ToString(limitMin.Y, "0.0")
                                         + ","
-                                        + FormatOneDecimal(limitMin.Z)
+                                        + ::MphRead::NativeRuntime::ToString(limitMin.Z, "0.0")
                                         + ")..("
-                                        + FormatOneDecimal(limitMax.X)
+                                        + ::MphRead::NativeRuntime::ToString(limitMax.X, "0.0")
                                         + ","
-                                        + FormatOneDecimal(limitMax.Y)
+                                        + ::MphRead::NativeRuntime::ToString(limitMax.Y, "0.0")
                                         + ","
-                                        + FormatOneDecimal(limitMax.Z)
+                                        + ::MphRead::NativeRuntime::ToString(limitMax.Z, "0.0")
                                         + ")";
 
                                     MphRead::Mods::Network::NetLog::Event(

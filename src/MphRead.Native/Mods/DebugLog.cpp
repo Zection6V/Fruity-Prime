@@ -96,11 +96,6 @@ using ::MphRead::NativeRuntime::Wtf8ToWide;
 
 namespace
 {
-#if defined(_WIN32)
-    constexpr std::string_view NewLine = "\r\n";
-#else
-    constexpr std::string_view NewLine = "\n";
-#endif
 
     constexpr std::int32_t KeepFiles = 8;
 
@@ -284,13 +279,13 @@ namespace
         void WriteLine(std::string_view value)
         {
             _stream->Write(value);
-            _stream->Write(NewLine);
+            _stream->Write(::MphRead::NativeRuntime::EnvironmentNewLine());
             _stream->Flush();
         }
 
         void WriteNullLine()
         {
-            _stream->Write(NewLine);
+            _stream->Write(::MphRead::NativeRuntime::EnvironmentNewLine());
             _stream->Flush();
         }
 
@@ -1012,7 +1007,7 @@ namespace
         {
             if (index != first || thrown)
             {
-                result << NewLine;
+                result << ::MphRead::NativeRuntime::EnvironmentNewLine();
             }
             result << "   at " << DescribeAddress(frames[index]);
         }
@@ -1040,7 +1035,7 @@ namespace
         {
             if (!result.empty())
             {
-                result.append(NewLine);
+                result.append(::MphRead::NativeRuntime::EnvironmentNewLine());
             }
             result.append("   at ");
             result.append(symbols[index] == nullptr ? "(unknown)" : symbols[index]);

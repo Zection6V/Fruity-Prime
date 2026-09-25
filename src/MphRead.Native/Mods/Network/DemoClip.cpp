@@ -138,7 +138,7 @@ namespace MphRead::Mods::Network
         {
             const std::string& nextExportPath = Paths::Export();
             const std::string nextFileName
-                = stamp + "_" + NativeRuntime::Int32ToString(i)
+                = stamp + "_" + ::MphRead::NativeRuntime::ToString(i)
                 + std::string(DemoFile::Extension);
             path = Paths::Combine(nextExportPath, "_demos", nextFileName);
         }

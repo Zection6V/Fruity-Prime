@@ -20,6 +20,7 @@
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <array>
@@ -42,8 +43,6 @@
 #define NOMINMAX
 #include <windows.h>
 #else
-#include <langinfo.h>
-#include <locale.h>
 #endif
 
 using ::MphRead::NativeRuntime::ConsoleWrite;
@@ -104,357 +103,6 @@ namespace
         return value;
     }
 
-    struct NumberSymbols
-    {
-        std::string Decimal = ".";
-        std::string Negative = "-";
-        std::string NaN = "NaN";
-        std::string PositiveInfinity = "\xE2\x88\x9E";
-        std::string NegativeInfinity = "-\xE2\x88\x9E";
-    };
-
-    [[nodiscard]] bool GlobalizationInvariantRequested() noexcept
-    {
-        const char* value = std::getenv("DOTNET_SYSTEM_GLOBALIZATION_INVARIANT");
-        if (value == nullptr)
-        {
-            return false;
-        }
-        std::string_view text(value);
-        if (text == "1")
-        {
-            return true;
-        }
-        if (text.size() != 4)
-        {
-            return false;
-        }
-        return (text[0] == 't' || text[0] == 'T')
-            && (text[1] == 'r' || text[1] == 'R')
-            && (text[2] == 'u' || text[2] == 'U')
-            && (text[3] == 'e' || text[3] == 'E');
-    }
-
-#if defined(_WIN32)
-    [[nodiscard]] std::string LocaleString(LCTYPE type, std::string fallback)
-    {
-        wchar_t buffer[128]{};
-        const int count = GetLocaleInfoEx(
-            LOCALE_NAME_USER_DEFAULT, type, buffer, static_cast<int>(std::size(buffer)));
-        if (count <= 1)
-        {
-            return fallback;
-        }
-        std::string result = WideToUtf8(buffer);
-        return result.empty() ? fallback : result;
-    }
-#endif
-
-    [[nodiscard]] NumberSymbols CurrentNumberSymbols()
-    {
-        NumberSymbols symbols{};
-        if (GlobalizationInvariantRequested())
-        {
-            symbols.PositiveInfinity = "Infinity";
-            symbols.NegativeInfinity = "-Infinity";
-            return symbols;
-        }
-#if defined(_WIN32)
-        symbols.Decimal = LocaleString(LOCALE_SDECIMAL, ".");
-        symbols.Negative = LocaleString(LOCALE_SNEGATIVESIGN, "-");
-#ifdef LOCALE_SNAN
-        symbols.NaN = LocaleString(LOCALE_SNAN, "NaN");
-#endif
-#ifdef LOCALE_SPOSINFINITY
-        symbols.PositiveInfinity = LocaleString(LOCALE_SPOSINFINITY, "\xE2\x88\x9E");
-#endif
-#ifdef LOCALE_SNEGINFINITY
-        symbols.NegativeInfinity = LocaleString(LOCALE_SNEGINFINITY, symbols.Negative + "\xE2\x88\x9E");
-#endif
-#else
-#if defined(__ANDROID__)
-        if (const lconv* locale = ::localeconv(); locale != nullptr)
-        {
-            if (locale->decimal_point != nullptr && locale->decimal_point[0] != '\0')
-            {
-                symbols.Decimal = locale->decimal_point;
-            }
-            if (locale->negative_sign != nullptr && locale->negative_sign[0] != '\0')
-            {
-                symbols.Negative = locale->negative_sign;
-            }
-        }
-#else
-        locale_t numericLocale = newlocale(LC_NUMERIC_MASK, "", nullptr);
-        if (numericLocale != static_cast<locale_t>(0))
-        {
-            const char* decimal = nl_langinfo_l(RADIXCHAR, numericLocale);
-            if (decimal != nullptr && *decimal != '\0')
-            {
-                symbols.Decimal = decimal;
-            }
-            freelocale(numericLocale);
-        }
-        locale_t monetaryLocale = newlocale(LC_MONETARY_MASK, "", nullptr);
-        if (monetaryLocale != static_cast<locale_t>(0))
-        {
-#if defined(NEGATIVE_SIGN)
-            const char* negative = nl_langinfo_l(NEGATIVE_SIGN, monetaryLocale);
-            if (negative != nullptr && *negative != '\0')
-            {
-                symbols.Negative = negative;
-            }
-#endif
-            freelocale(monetaryLocale);
-        }
-#endif
-        symbols.NegativeInfinity = symbols.Negative + symbols.PositiveInfinity;
-#endif
-        return symbols;
-    }
-
-    [[nodiscard]] std::string ApplyCurrentSymbols(
-        std::string text, const NumberSymbols& symbols)
-    {
-        if (!text.empty() && text.front() == '-')
-        {
-            text.erase(text.begin());
-            text.insert(0, symbols.Negative);
-        }
-        const std::size_t dot = text.find('.');
-        if (dot != std::string::npos)
-        {
-            text.replace(dot, 1, symbols.Decimal);
-        }
-        return text;
-    }
-
-    [[nodiscard]] std::string Int32Text(std::int32_t value)
-    {
-        std::array<char, 32> buffer{};
-        auto result = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
-        return ApplyCurrentSymbols(
-            std::string(buffer.data(), static_cast<std::size_t>(result.ptr - buffer.data())),
-            CurrentNumberSymbols());
-    }
-
-    [[nodiscard]] std::string UInt32Text(std::uint32_t value)
-    {
-        std::array<char, 32> buffer{};
-        auto result = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
-        return std::string(
-            buffer.data(), static_cast<std::size_t>(result.ptr - buffer.data()));
-    }
-
-    [[nodiscard]] std::string Int64Text(std::int64_t value)
-    {
-        std::array<char, 64> buffer{};
-        auto result = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
-        return ApplyCurrentSymbols(
-            std::string(buffer.data(), static_cast<std::size_t>(result.ptr - buffer.data())),
-            CurrentNumberSymbols());
-    }
-
-    void IncrementDecimal(std::string& digits)
-    {
-        std::size_t index = digits.size();
-        while (index > 0 && digits[index - 1] == '9')
-        {
-            digits[index - 1] = '0';
-            --index;
-        }
-        if (index == 0)
-        {
-            digits.insert(digits.begin(), '1');
-        }
-        else
-        {
-            digits[index - 1]++;
-        }
-    }
-
-    template <typename TFloat>
-    [[nodiscard]] std::string NumberTextCore(
-        TFloat value, std::int32_t minDecimals, std::int32_t maxDecimals,
-        std::int32_t precision)
-    {
-        const NumberSymbols symbols = CurrentNumberSymbols();
-        if (std::isnan(value))
-        {
-            return symbols.NaN;
-        }
-        if (std::isinf(value))
-        {
-            return std::signbit(value)
-                ? symbols.NegativeInfinity
-                : symbols.PositiveInfinity;
-        }
-
-        const bool negative = std::signbit(value);
-        const TFloat magnitude = std::fabs(value);
-        std::string scaled = "0";
-
-        if (magnitude != static_cast<TFloat>(0))
-        {
-            // .NET 9 intentionally generates MaxPrecisionCustomFormat significant
-            // digits first (15 for Double, 7 for Single), then NumberToStringFormat
-            // rounds that decimal buffer for the custom format. This preserves the
-            // runtime's historical double-rounding behavior.
-            std::array<char, 96> buffer{};
-            const auto converted = std::to_chars(
-                buffer.data(), buffer.data() + buffer.size(), magnitude,
-                std::chars_format::scientific, precision - 1);
-            if (converted.ec != std::errc{})
-            {
-                throw std::runtime_error("Floating-point formatting failed.");
-            }
-
-            const std::string_view scientific(
-                buffer.data(), static_cast<std::size_t>(converted.ptr - buffer.data()));
-            std::size_t exponentMarker = scientific.find('e');
-            if (exponentMarker == std::string_view::npos)
-            {
-                exponentMarker = scientific.find('E');
-            }
-            if (exponentMarker == std::string_view::npos)
-            {
-                throw std::runtime_error("Floating-point formatting failed.");
-            }
-
-            std::string significant;
-            significant.reserve(static_cast<std::size_t>(precision));
-            for (std::size_t index = 0; index < exponentMarker; ++index)
-            {
-                const char unit = scientific[index];
-                if (unit == '.')
-                {
-                    continue;
-                }
-                if (unit < '0' || unit > '9')
-                {
-                    throw std::runtime_error("Floating-point formatting failed.");
-                }
-                significant.push_back(unit);
-            }
-
-            const char* exponentFirst = scientific.data() + exponentMarker + 1;
-            const char* const exponentLast = scientific.data() + scientific.size();
-            bool exponentNegative = false;
-            if (exponentFirst != exponentLast
-                && (*exponentFirst == '+' || *exponentFirst == '-'))
-            {
-                exponentNegative = *exponentFirst == '-';
-                ++exponentFirst;
-            }
-            std::int32_t exponent = 0;
-            const auto parsed = std::from_chars(exponentFirst, exponentLast, exponent);
-            if (parsed.ec != std::errc{} || parsed.ptr != exponentLast)
-            {
-                throw std::runtime_error("Floating-point formatting failed.");
-            }
-            if (exponentNegative)
-            {
-                exponent = -exponent;
-            }
-
-            const std::int32_t shift
-                = exponent - (precision - 1) + maxDecimals;
-            if (shift >= 0)
-            {
-                scaled = significant;
-                scaled.append(static_cast<std::size_t>(shift), '0');
-            }
-            else
-            {
-                const std::int32_t discarded = -shift;
-                const std::int32_t kept
-                    = static_cast<std::int32_t>(significant.size()) - discarded;
-                bool roundUp = false;
-                if (kept > 0)
-                {
-                    scaled.assign(significant, 0, static_cast<std::size_t>(kept));
-                    if (static_cast<std::size_t>(kept) < significant.size())
-                    {
-                        roundUp = significant[static_cast<std::size_t>(kept)] >= '5';
-                    }
-                }
-                else if (kept == 0)
-                {
-                    scaled = "0";
-                    roundUp = !significant.empty() && significant.front() >= '5';
-                }
-                else
-                {
-                    scaled = "0";
-                }
-                if (roundUp)
-                {
-                    IncrementDecimal(scaled);
-                }
-            }
-
-            const std::size_t firstNonZero = scaled.find_first_not_of('0');
-            if (firstNonZero == std::string::npos)
-            {
-                scaled = "0";
-            }
-            else if (firstNonZero != 0)
-            {
-                scaled.erase(0, firstNonZero);
-            }
-        }
-
-        std::string result = scaled;
-        if (maxDecimals > 0)
-        {
-            const std::size_t decimals = static_cast<std::size_t>(maxDecimals);
-            if (result.size() <= decimals)
-            {
-                result.insert(0, decimals + 1 - result.size(), '0');
-            }
-            result.insert(result.end() - static_cast<std::ptrdiff_t>(decimals), '.');
-            if (maxDecimals > minDecimals)
-            {
-                const std::size_t decimalPoint = result.find('.');
-                while (result.size() > decimalPoint + 1U
-                        + static_cast<std::size_t>(minDecimals)
-                    && result.back() == '0')
-                {
-                    result.pop_back();
-                }
-                if (minDecimals == 0 && result.back() == '.')
-                {
-                    result.pop_back();
-                }
-            }
-        }
-
-        // NumberToStringFormat clears the visible sign when custom-format
-        // rounding produces zero, including negative zero itself.
-        if (negative && scaled != "0")
-        {
-            result.insert(0, symbols.Negative);
-        }
-        const std::size_t decimalPoint = result.find('.');
-        if (decimalPoint != std::string::npos)
-        {
-            result.replace(decimalPoint, 1, symbols.Decimal);
-        }
-        return result;
-    }
-
-    [[nodiscard]] std::string NumberText(
-        double value, std::int32_t minDecimals, std::int32_t maxDecimals)
-    {
-        return NumberTextCore(value, minDecimals, maxDecimals, 15);
-    }
-
-    [[nodiscard]] std::string NumberText(
-        float value, std::int32_t minDecimals, std::int32_t maxDecimals)
-    {
-        return NumberTextCore(value, minDecimals, maxDecimals, 7);
-    }
-
     [[nodiscard]] std::string TestPhaseName(TestPhase phase)
     {
         switch (phase)
@@ -475,7 +123,7 @@ namespace
             case TestPhase::Afflict: return "Afflict";
             case TestPhase::Duel: return "Duel";
         }
-        return Int32Text(static_cast<std::int32_t>(phase));
+        return ::MphRead::NativeRuntime::ToString(static_cast<std::int32_t>(phase));
     }
 
     [[nodiscard]] bool IsMorphPhase(TestPhase phase) noexcept
@@ -963,7 +611,7 @@ namespace MphRead::Mods::Network
                     context += formState;
                     context += ", hp ";
                     const std::int32_t health = player.Health();
-                    context += Int32Text(health);
+                    context += ::MphRead::NativeRuntime::ToString(health);
                     record.WorstFormContext = std::move(context);
                 }
             }
@@ -1015,7 +663,7 @@ namespace MphRead::Mods::Network
             text += ' ';
             text += feature;
             text += ' ';
-            text += NumberText(value, 0, 2);
+            text += ::MphRead::NativeRuntime::ToString(value, "0.##");
             ConsoleWriteLine(text);
         };
 
@@ -1038,7 +686,7 @@ namespace MphRead::Mods::Network
             std::string heading = "    --- as I saw ";
             heading += them;
             heading += " (slot ";
-            heading += Int32Text(slot);
+            heading += ::MphRead::NativeRuntime::ToString(slot);
             heading += ", ";
             heading += ::MphRead::ToString(other.Hunter);
             heading += ") ---";
@@ -1078,7 +726,7 @@ namespace MphRead::Mods::Network
                     const std::string nickname
                         = GameState::Nicknames().at(static_cast<std::size_t>(slot));
                     invulnerable.push_back(
-                        nickname + " (slot " + Int32Text(slot) + ")");
+                        nickname + " (slot " + ::MphRead::NativeRuntime::ToString(slot) + ")");
                 }
             }
         }
@@ -1100,7 +748,7 @@ namespace MphRead::Mods::Network
                 const std::string nickname
                     = GameState::Nicknames().at(static_cast<std::size_t>(slot));
                 untouched.push_back(
-                    nickname + " (slot " + Int32Text(slot) + ")");
+                    nickname + " (slot " + ::MphRead::NativeRuntime::ToString(slot) + ")");
             }
         }
         if (!untouched.empty())
@@ -1118,9 +766,9 @@ namespace MphRead::Mods::Network
             const auto [rows, height] = player.ModScoreboardSize();
             const bool fits = height <= 192.0F;
             std::string text = "    scoreboard: ";
-            text += Int32Text(rows);
+            text += ::MphRead::NativeRuntime::ToString(rows);
             text += " row(s), ";
-            text += NumberText(height, 0, 0);
+            text += ::MphRead::NativeRuntime::ToString(height, "0");
             text += " px tall ";
             text += fits ? "(fits)" : "(OVERFLOWS the screen)";
             ConsoleWriteLine(text);
@@ -1142,11 +790,11 @@ namespace MphRead::Mods::Network
         }
         const std::int32_t itemsPickedUp = _itemsPickedUp;
         std::string items = "    items: ";
-        items += Int32Text(itemsNow);
+        items += ::MphRead::NativeRuntime::ToString(itemsNow);
         items += " on the map now, ";
-        items += NumberText(itemAverage, 1, 1);
+        items += ::MphRead::NativeRuntime::ToString(itemAverage, "0.0");
         items += " on average, ";
-        items += Int32Text(itemsPickedUp);
+        items += ::MphRead::NativeRuntime::ToString(itemsPickedUp);
         items += " taken or expired";
         ConsoleWriteLine(items);
 
@@ -1166,7 +814,7 @@ namespace MphRead::Mods::Network
             std::string entry = " ";
             entry += TestPhaseName(pair.first);
             entry += '=';
-            entry += Int32Text(pair.second);
+            entry += ::MphRead::NativeRuntime::ToString(pair.second);
             phases += entry;
         }
         ConsoleWriteLine(phases);
@@ -1180,13 +828,13 @@ namespace MphRead::Mods::Network
             }
             const std::size_t index = static_cast<std::size_t>(slot);
             std::string entry = " [";
-            entry += Int32Text(slot);
+            entry += ::MphRead::NativeRuntime::ToString(slot);
             entry += "] ";
             const std::int32_t resolved = NetDamage::Resolved.at(index);
-            entry += Int32Text(resolved);
+            entry += ::MphRead::NativeRuntime::ToString(resolved);
             entry += '/';
             const std::int32_t replayed = NetDamage::Replayed.at(index);
-            entry += Int32Text(replayed);
+            entry += ::MphRead::NativeRuntime::ToString(replayed);
             pipeline += entry;
         }
         ConsoleWriteLine(pipeline);
@@ -1208,15 +856,15 @@ namespace MphRead::Mods::Network
                 avg = aimDrift / divisorFired;
             }
             std::string entry = " [";
-            entry += Int32Text(slot);
+            entry += ::MphRead::NativeRuntime::ToString(slot);
             entry += "] ";
             const std::int32_t displayedFired = NetDamage::Fired.at(index);
-            entry += Int32Text(displayedFired);
+            entry += ::MphRead::NativeRuntime::ToString(displayedFired);
             entry += "(drift ";
-            entry += NumberText(avg, 1, 1);
+            entry += ::MphRead::NativeRuntime::ToString(avg, "0.0");
             entry += '/';
             const double worstDrift = NetDamage::WorstDrift.at(index);
-            entry += NumberText(worstDrift, 1, 1);
+            entry += ::MphRead::NativeRuntime::ToString(worstDrift, "0.0");
             entry += " deg)";
             fired += entry;
         }
@@ -1231,16 +879,16 @@ namespace MphRead::Mods::Network
             }
             const std::size_t index = static_cast<std::size_t>(slot);
             std::string entry = " [";
-            entry += Int32Text(slot);
+            entry += ::MphRead::NativeRuntime::ToString(slot);
             entry += "] ";
             const std::int32_t checks = NetDamage::PlayerChecks.at(index);
-            entry += Int32Text(checks);
+            entry += ::MphRead::NativeRuntime::ToString(checks);
             entry += '/';
             const std::int32_t overlaps = NetDamage::PlayerOverlaps.at(index);
-            entry += Int32Text(overlaps);
+            entry += ::MphRead::NativeRuntime::ToString(overlaps);
             entry += '/';
             const std::int32_t accepted = NetDamage::PlayerAccepted.at(index);
-            entry += Int32Text(accepted);
+            entry += ::MphRead::NativeRuntime::ToString(accepted);
             collision += entry;
         }
         ConsoleWriteLine(collision);
@@ -1256,11 +904,11 @@ namespace MphRead::Mods::Network
                 if (count > 0)
                 {
                     std::string entry = " [";
-                    entry += Int32Text(shooter);
+                    entry += ::MphRead::NativeRuntime::ToString(shooter);
                     entry += "->";
-                    entry += Int32Text(target);
+                    entry += ::MphRead::NativeRuntime::ToString(target);
                     entry += "] ";
-                    entry += Int32Text(count);
+                    entry += ::MphRead::NativeRuntime::ToString(count);
                     pairs += entry;
                 }
             }
@@ -1269,24 +917,24 @@ namespace MphRead::Mods::Network
 
         std::string authority = "    authority for ";
         const std::int64_t authorityFrames = NetSession::AuthorityFrames();
-        authority += Int64Text(authorityFrames);
+        authority += ::MphRead::NativeRuntime::ToString(authorityFrames);
         authority += " frame(s) of ";
         const std::uint32_t netFrame = NetSession::NetFrame();
-        authority += UInt32Text(netFrame);
+        authority += ::MphRead::NativeRuntime::ToString(netFrame);
         ConsoleWriteLine(authority);
 
         std::string snaps = "    remote position snaps: ";
         const std::int64_t snapCount = NetPlayerBridge::Snaps();
-        snaps += Int64Text(snapCount);
+        snaps += ::MphRead::NativeRuntime::ToString(snapCount);
         snaps += " (worst ";
         const float worstSnap = NetPlayerBridge::WorstSnap();
-        snaps += NumberText(worstSnap, 1, 1);
+        snaps += ::MphRead::NativeRuntime::ToString(worstSnap, "0.0");
         snaps += " units) -- these are the visible teleports";
         ConsoleWriteLine(snaps);
 
         std::string unresolved = "    node lookups unresolved: ";
         const std::int64_t unresolvedCount = NetPlayerBridge::NodeLookupsUnresolved;
-        unresolved += Int64Text(unresolvedCount);
+        unresolved += ::MphRead::NativeRuntime::ToString(unresolvedCount);
         unresolved += " -- these players are drawn uncalled";
         ConsoleWriteLine(unresolved);
 
@@ -1294,7 +942,7 @@ namespace MphRead::Mods::Network
         {
             std::string rejected = "    FAIL: ";
             const std::int64_t rejectedCount = NetPlayerBridge::RejectedUpdates();
-            rejected += Int64Text(rejectedCount);
+            rejected += ::MphRead::NativeRuntime::ToString(rejectedCount);
             rejected += " update(s) rejected for holding impossible values";
             ConsoleWriteLine(rejected);
             IncrementInPlace(fails);
@@ -1307,7 +955,7 @@ namespace MphRead::Mods::Network
     void NetFeatureCheck::SampleScoreboard(std::int32_t serverSecond)
     {
         std::string prefix = "    scoreboard at t=";
-        prefix += Int32Text(serverSecond);
+        prefix += ::MphRead::NativeRuntime::ToString(serverSecond);
         prefix += "s:";
         const std::string board = Scoreboard(prefix);
         Boards[serverSecond] = board;
@@ -1324,19 +972,19 @@ namespace MphRead::Mods::Network
             }
             const std::size_t index = static_cast<std::size_t>(slot);
             std::string entry = " [";
-            entry += Int32Text(slot);
+            entry += ::MphRead::NativeRuntime::ToString(slot);
             entry += "] ";
             const std::string nickname = GameState::Nicknames().at(index);
             entry += nickname;
             entry += ' ';
             const std::int32_t kills = GameState::Kills().at(index);
-            entry += Int32Text(kills);
+            entry += ::MphRead::NativeRuntime::ToString(kills);
             entry += "k/";
             const std::int32_t deaths = GameState::Deaths().at(index);
-            entry += Int32Text(deaths);
+            entry += ::MphRead::NativeRuntime::ToString(deaths);
             entry += "d/";
             const std::int32_t points = GameState::Points().at(index);
-            entry += Int32Text(points);
+            entry += ::MphRead::NativeRuntime::ToString(points);
             entry += 'p';
             board += entry;
         }
@@ -1369,11 +1017,11 @@ namespace MphRead::Mods::Network
             std::string text = "    ";
             text += PadRightManaged(feature, 16);
             text += " mine ";
-            text += PadLeftManaged(NumberText(self, 0, 0), 7);
+            text += PadLeftManaged(::MphRead::NativeRuntime::ToString(self, "0"), 7);
             text += ' ';
             text += PadRightManaged(unit, 6);
             text += " theirs ";
-            text += PadLeftManaged(NumberText(seen, 0, 0), 7);
+            text += PadLeftManaged(::MphRead::NativeRuntime::ToString(seen, "0"), 7);
             text += ' ';
             text += PadRightManaged(unit, 6);
             text += ' ';
@@ -1425,9 +1073,9 @@ namespace MphRead::Mods::Network
         std::string jump = "    ";
         jump += them;
         jump += ": ";
-        jump += Int32Text(other.Teleports);
+        jump += ::MphRead::NativeRuntime::ToString(other.Teleports);
         jump += " teleport(s), worst jump ";
-        jump += NumberText(other.WorstStep, 1, 1);
+        jump += ::MphRead::NativeRuntime::ToString(other.WorstStep, "0.0");
         jump += " units";
         ConsoleWriteLine(jump);
 
@@ -1443,11 +1091,11 @@ namespace MphRead::Mods::Network
             std::string agreement = "    ";
             agreement += them;
             agreement += ": form disagreed on ";
-            agreement += Int32Text(other.FormDisagreeFrames);
+            agreement += ::MphRead::NativeRuntime::ToString(other.FormDisagreeFrames);
             agreement += " frame(s) (longest run ";
-            agreement += Int32Text(other.WorstFormDisagreeRun);
+            agreement += ::MphRead::NativeRuntime::ToString(other.WorstFormDisagreeRun);
             agreement += "), worst position gap ";
-            agreement += NumberText(other.WorstPositionGap, 2, 2);
+            agreement += ::MphRead::NativeRuntime::ToString(other.WorstPositionGap, "0.00");
             agreement += " units";
             ConsoleWriteLine(agreement);
         }
@@ -1455,7 +1103,7 @@ namespace MphRead::Mods::Network
         if (other.WorstFormDisagreeRun > 60)
         {
             std::string failure = "    FAIL: their form stayed wrong for ";
-            failure += Int32Text(other.WorstFormDisagreeRun);
+            failure += ::MphRead::NativeRuntime::ToString(other.WorstFormDisagreeRun);
             failure += " frames in a row -- ";
             failure += other.WorstFormContext;
             ConsoleWriteLine(failure);

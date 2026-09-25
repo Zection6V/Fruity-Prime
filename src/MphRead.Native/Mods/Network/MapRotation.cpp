@@ -62,9 +62,9 @@ namespace MphRead::Mods::Network
         value += " (";
         value += ::MphRead::ToString(Mode);
         value += ", ";
-        value += NativeRuntime::SingleToStringZeroPointHash(TimeLimit / 60.0f);
+        value += ::MphRead::NativeRuntime::ToString(TimeLimit / 60.0f, "0.#");
         value += " min, ";
-        value += NativeRuntime::Int32ToString(PointGoal);
+        value += ::MphRead::NativeRuntime::ToString(PointGoal);
         value += " pts)";
         return value;
     }
@@ -193,7 +193,7 @@ namespace MphRead::Mods::Network
             {
                 const std::string minutesText = NativeRuntime::StringTrim(std::string(parts[2]));
                 float minutes = 0.0f;
-                if (NativeRuntime::SingleTryParseInvariantFloat(std::string(minutesText), minutes))
+                if (::MphRead::NativeRuntime::SingleTryParseInvariant(std::string(minutesText), minutes))
                 {
                     timeLimit = minutes * 60.0f;
                 }

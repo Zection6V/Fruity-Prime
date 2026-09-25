@@ -13,6 +13,7 @@
 #include "PlayerEntity.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <array>
@@ -396,7 +397,7 @@ namespace MphRead::Entities
         if (_owner == PlayerEntity::Main())
         {
             std::string message = Text::Strings::GetHudMessage(233);
-            const std::string replacement = Fixed(_health).ToString();
+            const std::string replacement = ::MphRead::NativeRuntime::ToString(_health);
             std::size_t pos = 0;
             while ((pos = message.find("%d", pos)) != std::string::npos)
             {

@@ -9,6 +9,7 @@
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <string_view>
 
 namespace MphRead::NativeRuntime
 {
@@ -88,4 +89,13 @@ namespace MphRead::NativeRuntime
         }
         return std::bit_cast<std::int32_t>(MixFinal(hash));
     }
+
+    // string.GetHashCode(): over the UTF-16 code units, seeded once per
+    // process, so two equal strings hash alike within a run and nothing may
+    // rely on the number across runs -- which is .NET's contract too.
+    [[nodiscard]] std::int32_t StringGetHashCode(std::string_view value) noexcept;
+
+    // RuntimeHelpers.GetHashCode(object) / object.GetHashCode() for a
+    // reference type that does not override it: the identity of the object.
+    [[nodiscard]] std::int32_t ReferenceGetHashCode(const void* value) noexcept;
 }

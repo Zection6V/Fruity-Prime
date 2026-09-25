@@ -3,6 +3,7 @@
 #include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 #include "../NativeRuntime/OpenTK/Mathematics.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <bit>
 #include <cmath>
@@ -14,7 +15,6 @@
 #include <utility>
 #include <vector>
 
-using ::MphRead::NativeRuntime::IsNumberWhiteSpace;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::MathHelper::RadiansToDegrees;
@@ -35,87 +35,6 @@ namespace
         float Z = 0.0F;
         float W = 0.0F;
     };
-
-    [[nodiscard]] constexpr std::int32_t HexValue(char ch) noexcept
-    {
-        if (ch >= '0' && ch <= '9')
-        {
-            return ch - '0';
-        }
-        if (ch >= 'A' && ch <= 'F')
-        {
-            return ch - 'A' + 10;
-        }
-        if (ch >= 'a' && ch <= 'f')
-        {
-            return ch - 'a' + 10;
-        }
-        return -1;
-    }
-
-    [[nodiscard]] std::int32_t ParseHexInt32(std::string_view value)
-    {
-        std::size_t index = 0;
-        while (index < value.size() && IsNumberWhiteSpace(value[index]))
-        {
-            index++;
-        }
-        if (index == value.size())
-        {
-            throw System::FormatException();
-        }
-
-        bool hadDigits = false;
-        while (index < value.size() && value[index] == '0')
-        {
-            hadDigits = true;
-            index++;
-        }
-
-        std::uint32_t parsed = 0;
-        std::size_t significantDigits = 0;
-        while (index < value.size())
-        {
-            const std::int32_t digit = HexValue(value[index]);
-            if (digit < 0)
-            {
-                break;
-            }
-            hadDigits = true;
-            if (significantDigits < 8)
-            {
-                parsed = (parsed << 4) | static_cast<std::uint32_t>(digit);
-            }
-            significantDigits++;
-            index++;
-        }
-
-        if (!hadDigits)
-        {
-            throw System::FormatException();
-        }
-
-        const bool overflow = significantDigits > 8;
-
-        while (index < value.size() && IsNumberWhiteSpace(value[index]))
-        {
-            index++;
-        }
-        while (index < value.size() && value[index] == '\0')
-        {
-            index++;
-        }
-        if (index != value.size())
-        {
-            throw System::FormatException();
-        }
-        if (overflow)
-        {
-            throw System::OverflowException();
-        }
-
-        return std::bit_cast<std::int32_t>(parsed);
-    }
 
     [[nodiscard]] std::shared_ptr<StringArray> Split(
         const std::optional<std::string>& value, char separator)
@@ -172,7 +91,7 @@ namespace
         {
             throw System::ArgumentNullException("s");
         }
-        return static_cast<float>(ParseHexInt32(*value)) / 4096.0F;
+        return static_cast<float>(::MphRead::NativeRuntime::Int32ParseHexNumber(*value)) / 4096.0F;
     }
 
     [[nodiscard]] Matrix4x3 MakeMatrix4x3(
@@ -467,14 +386,11 @@ namespace MphRead::Testing
         }
 
         return Vector3(
-            ParseHexInt32(
-                split->at(3).value() + split->at(2).value()
+            ::MphRead::NativeRuntime::Int32ParseHexNumber(split->at(3).value() + split->at(2).value()
                 + split->at(1).value() + split->at(0).value()) / 4096.0F,
-            ParseHexInt32(
-                split->at(7).value() + split->at(6).value()
+            ::MphRead::NativeRuntime::Int32ParseHexNumber(split->at(7).value() + split->at(6).value()
                 + split->at(5).value() + split->at(4).value()) / 4096.0F,
-            ParseHexInt32(
-                split->at(11).value() + split->at(10).value()
+            ::MphRead::NativeRuntime::Int32ParseHexNumber(split->at(11).value() + split->at(10).value()
                 + split->at(9).value() + split->at(8).value()) / 4096.0F);
     }
 

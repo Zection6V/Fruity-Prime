@@ -9,6 +9,7 @@
 #include "NetSession.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <array>
@@ -30,8 +31,6 @@
 #define NOMINMAX
 #include <windows.h>
 #else
-#include <langinfo.h>
-#include <locale.h>
 #endif
 
 using ::MphRead::NativeRuntime::HasFlag;
@@ -82,163 +81,6 @@ namespace
             return std::numeric_limits<std::uint16_t>::max();
         }
         return static_cast<std::uint16_t>(value);
-    }
-
-#if defined(_WIN32)
-    [[nodiscard]] std::string LocaleInfoUtf8(LCTYPE type, std::string fallback)
-    {
-        wchar_t buffer[32]{};
-        const int length = GetLocaleInfoEx(
-            LOCALE_NAME_USER_DEFAULT, type, buffer,
-            static_cast<int>(std::size(buffer)));
-        if (length <= 1)
-        {
-            return fallback;
-        }
-        const int bytes = WideCharToMultiByte(
-            CP_UTF8, 0, buffer, length - 1, nullptr, 0, nullptr, nullptr);
-        if (bytes <= 0)
-        {
-            return fallback;
-        }
-        std::string result(static_cast<std::size_t>(bytes), '\0');
-        WideCharToMultiByte(
-            CP_UTF8, 0, buffer, length - 1, result.data(), bytes, nullptr, nullptr);
-        return result;
-    }
-#endif
-
-    [[nodiscard]] std::string DecimalSeparator()
-    {
-#if defined(_WIN32)
-        return LocaleInfoUtf8(LOCALE_SDECIMAL, ".");
-#else
-#if defined(__ANDROID__)
-        const lconv* locale = ::localeconv();
-        const char* value = locale != nullptr ? locale->decimal_point : nullptr;
-        return value != nullptr && value[0] != '\0' ? value : ".";
-#else
-        locale_t locale = newlocale(LC_NUMERIC_MASK, "", nullptr);
-        if (locale == static_cast<locale_t>(0))
-        {
-            return ".";
-        }
-        const char* value = nl_langinfo_l(RADIXCHAR, locale);
-        std::string result = value != nullptr && value[0] != '\0' ? value : ".";
-        freelocale(locale);
-        return result;
-#endif
-#endif
-    }
-
-    [[nodiscard]] std::string NegativeSign()
-    {
-#if defined(_WIN32)
-        return LocaleInfoUtf8(LOCALE_SNEGATIVESIGN, "-");
-#else
-#if defined(__ANDROID__)
-        const lconv* locale = ::localeconv();
-        const char* value = locale != nullptr ? locale->negative_sign : nullptr;
-        return value != nullptr && value[0] != '\0' ? value : "-";
-#else
-        locale_t locale = newlocale(LC_MONETARY_MASK, "", nullptr);
-        if (locale == static_cast<locale_t>(0))
-        {
-            return "-";
-        }
-#if defined(NEGATIVE_SIGN)
-        const char* value = nl_langinfo_l(NEGATIVE_SIGN, locale);
-        std::string result = value != nullptr && value[0] != '\0' ? value : "-";
-#else
-        std::string result = "-";
-#endif
-        freelocale(locale);
-        return result;
-#endif
-#endif
-    }
-
-    [[nodiscard]] std::string NaNSymbol()
-    {
-#if defined(_WIN32) && defined(LOCALE_SNAN)
-        return LocaleInfoUtf8(LOCALE_SNAN, "NaN");
-#else
-        return "NaN";
-#endif
-    }
-
-    [[nodiscard]] std::string PositiveInfinitySymbol()
-    {
-#if defined(_WIN32) && defined(LOCALE_SPOSINFINITY)
-        return LocaleInfoUtf8(LOCALE_SPOSINFINITY, "\xE2\x88\x9E");
-#else
-        return "\xE2\x88\x9E";
-#endif
-    }
-
-    [[nodiscard]] std::string NegativeInfinitySymbol()
-    {
-#if defined(_WIN32) && defined(LOCALE_SNEGINFINITY)
-        return LocaleInfoUtf8(LOCALE_SNEGINFINITY, NegativeSign() + "\xE2\x88\x9E");
-#else
-        return NegativeSign() + "\xE2\x88\x9E";
-#endif
-    }
-
-    [[nodiscard]] std::string Int32Text(std::int32_t value)
-    {
-        std::array<char, 32> buffer{};
-        const auto converted = std::to_chars(
-            buffer.data(), buffer.data() + buffer.size(), value);
-        if (converted.ec != std::errc{})
-        {
-            throw std::runtime_error("Int32 formatting failed.");
-        }
-        std::string result(buffer.data(), converted.ptr);
-        if (!result.empty() && result[0] == '-')
-        {
-            result.erase(result.begin());
-            result.insert(0, NegativeSign());
-        }
-        return result;
-    }
-
-    [[nodiscard]] std::string SingleText(float value)
-    {
-        if (std::isnan(value))
-        {
-            return NaNSymbol();
-        }
-        if (std::isinf(value))
-        {
-            return std::signbit(value) ? NegativeInfinitySymbol() : PositiveInfinitySymbol();
-        }
-        std::array<char, 64> buffer{};
-        const auto converted = std::to_chars(
-            buffer.data(), buffer.data() + buffer.size(), value,
-            std::chars_format::general);
-        if (converted.ec != std::errc{})
-        {
-            throw std::runtime_error("Single formatting failed.");
-        }
-        std::string result(buffer.data(), converted.ptr);
-        if (!result.empty() && result[0] == '-')
-        {
-            result.erase(result.begin());
-            result.insert(0, NegativeSign());
-        }
-        const std::size_t point = result.find('.');
-        if (point != std::string::npos)
-        {
-            result.replace(point, 1, DecimalSeparator());
-        }
-        return result;
-    }
-
-    [[nodiscard]] std::string VectorText(OpenTK::Mathematics::Vector3 value)
-    {
-        return "(" + SingleText(value.X) + ", " + SingleText(value.Y)
-            + ", " + SingleText(value.Z) + ")";
     }
 
     [[nodiscard]] bool IsPressedOn(const MphRead::Entities::Keybind& bind)
@@ -436,8 +278,8 @@ namespace MphRead::Mods::Network
         if (!Sane(intent.Aim))
         {
             _rejectedUpdates = UncheckedIncrement(_rejectedUpdates);
-            NetLog::Event("slot " + Int32Text(player.SlotIndex())
-                + " intent rejected: aim=" + VectorText(intent.Aim));
+            NetLog::Event("slot " + ::MphRead::NativeRuntime::ToString(player.SlotIndex())
+                + " intent rejected: aim=" + intent.Aim.ToString());
             return;
         }
 
@@ -453,7 +295,7 @@ namespace MphRead::Mods::Network
         Set(ControlFor(controls, Control::Morph), HasFlag(intent.Buttons, IntentButtons::Morph), HasFlag(missed, IntentButtons::Morph));
         if (IsPressedOn(ControlFor(controls, Control::Morph)))
         {
-            NetLog::Event("slot " + Int32Text(player.SlotIndex())
+            NetLog::Event("slot " + ::MphRead::NativeRuntime::ToString(player.SlotIndex())
                 + " morph press received, now " + player.ModFormState());
         }
         Set(ControlFor(controls, Control::Boost), HasFlag(intent.Buttons, IntentButtons::Boost), HasFlag(missed, IntentButtons::Boost));
@@ -532,10 +374,10 @@ namespace MphRead::Mods::Network
         if (!Sane(state.Position) || !Sane(state.Speed) || !Sane(state.Facing))
         {
             _rejectedUpdates = UncheckedIncrement(_rejectedUpdates);
-            NetLog::Event("slot " + Int32Text(player.SlotIndex())
-                + " snapshot rejected: pos=" + VectorText(state.Position)
-                + " speed=" + VectorText(state.Speed)
-                + " facing=" + VectorText(state.Facing));
+            NetLog::Event("slot " + ::MphRead::NativeRuntime::ToString(player.SlotIndex())
+                + " snapshot rejected: pos=" + state.Position.ToString()
+                + " speed=" + state.Speed.ToString()
+                + " facing=" + state.Facing.ToString());
             return;
         }
         const bool spawned = (state.Flags & PlayerState::FlagSpawned) != 0;
@@ -598,9 +440,9 @@ namespace MphRead::Mods::Network
                 else
                 {
                     PlacementsRefused = UncheckedIncrement(PlacementsRefused);
-                    NetLog::Event("slot " + Int32Text(player.SlotIndex())
+                    NetLog::Event("slot " + ::MphRead::NativeRuntime::ToString(player.SlotIndex())
                         + " kept its own spawn: the authority placed it at "
-                        + VectorText(state.Position)
+                        + state.Position.ToString()
                         + ", which is not near any spawn point in this room");
                     _authoritySpawned[static_cast<std::size_t>(slot)] = false;
                 }
@@ -608,9 +450,9 @@ namespace MphRead::Mods::Network
             }
             else if (Diverged(player, state, slot))
             {
-                NetLog::Event("slot " + Int32Text(player.SlotIndex())
+                NetLog::Event("slot " + ::MphRead::NativeRuntime::ToString(player.SlotIndex())
                     + " pulled back to the authority from "
-                    + VectorText(player.Position) + " to " + VectorText(state.Position));
+                    + OpenTK::Mathematics::Vector3(player.Position).ToString() + " to " + state.Position.ToString());
                 Move(player, state.Position);
                 player.SetSpeed(state.Speed);
                 _divergedFrames[static_cast<std::size_t>(slot)] = 0;
@@ -843,9 +685,9 @@ namespace MphRead::Mods::Network
         {
             return true;
         }
-        NetLog::Event("slot " + Int32Text(slot)
+        NetLog::Event("slot " + ::MphRead::NativeRuntime::ToString(slot)
             + " still reporting pre-spawn frames after "
-            + Int32Text(_staleFrames[index]) + " of them; following it anyway");
+            + ::MphRead::NativeRuntime::ToString(_staleFrames[index]) + " of them; following it anyway");
         _spawnIntentFrame[index] = intent.Frame;
         _staleFrames[index] = 0;
         return false;

@@ -11,6 +11,7 @@
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 #include "../NativeRuntime/OpenTK/Mathematics.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -50,51 +51,6 @@ namespace
     [[nodiscard]] bool IsNullOrEmpty(const std::string &value) noexcept
     {
         return value.empty();
-    }
-
-    [[nodiscard]] std::string PadLeft3(std::int32_t value)
-    {
-        const std::string text = std::to_string(value);
-        if (text.size() >= 3)
-        {
-            return text;
-        }
-        return std::string(3 - text.size(), '0') + text;
-    }
-
-    [[nodiscard]] std::string ManagedSingleToString(float value)
-    {
-        if (std::isnan(value))
-        {
-            return "NaN";
-        }
-        if (std::isinf(value))
-        {
-            return std::signbit(value) ? "-Infinity" : "Infinity";
-        }
-        if (value == 0.0F)
-        {
-            return std::signbit(value) ? "-0" : "0";
-        }
-
-        char buffer[64]{};
-        const auto result = std::to_chars(
-            std::begin(buffer), std::end(buffer), value, std::chars_format::general);
-        if (result.ec != std::errc{})
-        {
-            throw std::runtime_error("Failed to format Single.");
-        }
-        std::string text(buffer, result.ptr);
-        const std::size_t exponent = text.find('e');
-        if (exponent != std::string::npos)
-        {
-            text[exponent] = 'E';
-            if (exponent + 1 < text.size() && text[exponent + 1] != '+' && text[exponent + 1] != '-')
-            {
-                text.insert(exponent + 1, 1, '+');
-            }
-        }
-        return text;
     }
 
     [[nodiscard]] float RoundAwayFromZeroSix(float value) noexcept
@@ -182,24 +138,7 @@ namespace MphRead::Export
 
     std::string Collada::FloatFormat(float input)
     {
-        const float rounded = RoundAwayFromZeroSix(input);
-        if (std::isnan(rounded))
-        {
-            return "NaN";
-        }
-        if (std::isinf(rounded))
-        {
-            return std::signbit(rounded) ? "-Infinity" : "Infinity";
-        }
-
-        char buffer[128]{};
-        const auto result = std::to_chars(
-            std::begin(buffer), std::end(buffer), rounded, std::chars_format::fixed, 6);
-        if (result.ec != std::errc{})
-        {
-            throw std::runtime_error("Failed to format Single.");
-        }
-        return std::string(buffer, result.ptr);
+        return ::MphRead::NativeRuntime::ToStringInvariant(RoundAwayFromZeroSix(input), "F6");
     }
 
     void Collada::ExportModel(const Model &model, bool transformRoom)
@@ -289,7 +228,7 @@ namespace MphRead::Export
                 }
                 else
                 {
-                    output += recolor.Name + "/anim__" + PadLeft3(id) + ".png";
+                    output += recolor.Name + "/anim__" + ::MphRead::NativeRuntime::StringPadLeft(::MphRead::NativeRuntime::ToString(id), 3, '0') + ".png";
                 }
                 output += "</init_from>\n\t\t</image>";
             }
@@ -614,11 +553,11 @@ namespace MphRead::Export
                 AppendTabs(output, indent);
                 output += "<node id=\"" + node.Name + "\" type=\"NODE\">\n";
                 AppendTabs(output, indent + 1);
-                output += "<rotate>1.0 0.0 0.0 " + ManagedSingleToString(angle.X) + "</rotate>\n";
+                output += "<rotate>1.0 0.0 0.0 " + ::MphRead::NativeRuntime::ToString(angle.X) + "</rotate>\n";
                 AppendTabs(output, indent + 1);
-                output += "<rotate>0.0 1.0 0.0 " + ManagedSingleToString(angle.Y) + "</rotate>\n";
+                output += "<rotate>0.0 1.0 0.0 " + ::MphRead::NativeRuntime::ToString(angle.Y) + "</rotate>\n";
                 AppendTabs(output, indent + 1);
-                output += "<rotate>0.0 0.0 1.0 " + ManagedSingleToString(angle.Z) + "</rotate>\n";
+                output += "<rotate>0.0 0.0 1.0 " + ::MphRead::NativeRuntime::ToString(angle.Z) + "</rotate>\n";
                 AppendTabs(output, indent + 1);
                 output += "<scale>" + FloatFormat(scale) + "</scale>\n";
                 AppendTabs(output, indent + 1);

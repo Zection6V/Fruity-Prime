@@ -6,6 +6,7 @@
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -82,36 +83,6 @@ namespace
         }
     }
 
-    [[nodiscard]] std::string FormatFixed(double value, std::int32_t decimals)
-    {
-        if (std::isnan(value))
-        {
-            return "NaN";
-        }
-        if (std::isinf(value))
-        {
-            return std::signbit(value) ? "-\xE2\x88\x9E" : "\xE2\x88\x9E";
-        }
-        if (value == 0.0)
-        {
-            value = 0.0;
-        }
-        std::ostringstream stream;
-        stream.imbue(std::locale::classic());
-        stream << std::fixed << std::setprecision(decimals) << value;
-        std::string text = stream.str();
-        const char decimal = CurrentDecimalPoint();
-        if (decimal != '.')
-        {
-            const std::size_t dot = text.find('.');
-            if (dot != std::string::npos)
-            {
-                text[dot] = decimal;
-            }
-        }
-        return text;
-    }
-
     [[nodiscard]] std::int32_t RoundToEvenInt32(double value) noexcept
     {
         if (!std::isfinite(value)
@@ -173,7 +144,7 @@ namespace MphRead::Mods::Network
     {
         players = std::clamp(players, 1, PlayerEntity::SlotCapacity);
         std::cout << "[simcheck] \"" << room << "\" (" << ::MphRead::ToString(mode) << "), "
-            << IntegerText(players) << " player(s), " << FormatFixed(seconds, 0) << " s\n";
+            << IntegerText(players) << " player(s), " << ::MphRead::NativeRuntime::ToString(seconds, "0") << " s\n";
 
         std::int64_t snapshotBytes = 0;
         std::int64_t snapshots = 0;
@@ -249,18 +220,18 @@ namespace MphRead::Mods::Network
             << " | steps " << IntegerText(sim.Frames())
             << " | spawned " << IntegerText(spawned) << '/' << IntegerText(players)
             << " | snapshots " << IntegerText(snapshots) << " ("
-            << FormatFixed(snapshots > 0
+            << ::MphRead::NativeRuntime::ToString(snapshots > 0
                 ? static_cast<double>(snapshotBytes) / static_cast<double>(snapshots)
-                : 0.0, 0)
+                : 0.0, "0")
             << " B mean)"
             << (matchEnds > 0 ? " | match ended" : "")
-            << " | load " << FormatFixed(loadSeconds, 1) << " s"
-            << " | step mean " << FormatFixed(meanStep, 2) << " ms ("
-            << FormatFixed(budget, 0) << "% of budget)"
-            << " worst " << FormatFixed(sim.WorstStepSeconds() * 1000.0, 1)
+            << " | load " << ::MphRead::NativeRuntime::ToString(loadSeconds, "0.0") << " s"
+            << " | step mean " << ::MphRead::NativeRuntime::ToString(meanStep, "0.00") << " ms ("
+            << ::MphRead::NativeRuntime::ToString(budget, "0") << "% of budget)"
+            << " worst " << ::MphRead::NativeRuntime::ToString(sim.WorstStepSeconds() * 1000.0, "0.0")
             << " ms overrun " << IntegerText(sim.OverrunSteps())
-            << " | wall " << FormatFixed(wallSeconds, 1) << " s for "
-            << FormatFixed(seconds, 0) << " s simulated"
+            << " | wall " << ::MphRead::NativeRuntime::ToString(wallSeconds, "0.0") << " s for "
+            << ::MphRead::NativeRuntime::ToString(seconds, "0") << " s simulated"
             << " | rss " << Mb(beforeLoad) << "->" << Mb(afterLoad) << "->"
             << Mb(afterRun) << " MB"
             << " | peak " << Mb(PeakWorkingSetBytes()) << " MB\n";
@@ -404,6 +375,6 @@ namespace MphRead::Mods::Network
 
     std::string ServerSimCheck::Mb(std::int64_t bytes)
     {
-        return FormatFixed(static_cast<double>(bytes) / 1024.0 / 1024.0, 0);
+        return ::MphRead::NativeRuntime::ToString(static_cast<double>(bytes) / 1024.0 / 1024.0, "0");
     }
 }

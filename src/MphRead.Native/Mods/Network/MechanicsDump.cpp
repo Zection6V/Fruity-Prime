@@ -7,6 +7,7 @@
 #include "../../Metadata/Weapons.hpp"
 #include "../../Formats/Types.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <charconv>
 #include <cmath>
@@ -36,91 +37,6 @@ namespace MphRead::Mods::Network
             #endif
         }
 
-        template <typename T>
-        std::string IntegralString(T value)
-            requires std::is_integral_v<T>
-        {
-            char buffer[32]{};
-            const auto [end, error] = std::to_chars(buffer, buffer + sizeof(buffer), value);
-            if (error != std::errc{})
-            {
-                throw std::runtime_error("Numeric formatting failed.");
-            }
-            return std::string(buffer, end);
-        }
-
-        std::string FloatString(float value)
-        {
-            if (std::isnan(value))
-            {
-                return "NaN";
-            }
-            if (std::isinf(value))
-            {
-                return std::signbit(value) ? "-Infinity" : "Infinity";
-            }
-
-            char buffer[64]{};
-            const auto [end, error] = std::to_chars(
-                buffer, buffer + sizeof(buffer), value, std::chars_format::general);
-            if (error != std::errc{})
-            {
-                throw std::runtime_error("Numeric formatting failed.");
-            }
-
-            std::string result(buffer, end);
-            const std::size_t exponent = result.find('e');
-            if (exponent != std::string::npos)
-            {
-                result[exponent] = 'E';
-                std::size_t digit = exponent + 1;
-                if (digit < result.size() && (result[digit] == '+' || result[digit] == '-'))
-                {
-                    ++digit;
-                }
-                if (result.size() - digit == 1)
-                {
-                    result.insert(digit, 1, '0');
-                }
-            }
-            return result;
-        }
-
-        std::string FixedString(float value, int precision)
-        {
-            if (std::isnan(value))
-            {
-                return "NaN";
-            }
-            if (std::isinf(value))
-            {
-                return std::signbit(value) ? "-Infinity" : "Infinity";
-            }
-
-            char buffer[64]{};
-            const auto [end, error] = std::to_chars(
-                buffer, buffer + sizeof(buffer), value, std::chars_format::fixed, precision);
-            if (error != std::errc{})
-            {
-                throw std::runtime_error("Numeric formatting failed.");
-            }
-
-            std::string result(buffer, end);
-            const std::size_t decimal = result.find('.');
-            if (decimal != std::string::npos)
-            {
-                while (!result.empty() && result.back() == '0')
-                {
-                    result.pop_back();
-                }
-                if (!result.empty() && result.back() == '.')
-                {
-                    result.pop_back();
-                }
-            }
-            return result;
-        }
-
         std::string HunterString(Hunter value)
         {
             switch (value)
@@ -135,7 +51,7 @@ namespace MphRead::Mods::Network
             case Hunter::Guardian: return "Guardian";
             case Hunter::Random: return "Random";
             }
-            return IntegralString(static_cast<std::uint8_t>(value));
+            return ::MphRead::NativeRuntime::ToString(static_cast<std::uint8_t>(value));
         }
 
         std::string BeamString(BeamType value)
@@ -155,7 +71,7 @@ namespace MphRead::Mods::Network
             case BeamType::Platform: return "Platform";
             case BeamType::Enemy: return "Enemy";
             }
-            return IntegralString(static_cast<std::int32_t>(value));
+            return ::MphRead::NativeRuntime::ToString(static_cast<std::int32_t>(value));
         }
 
         std::string AfflictionString(Affliction value)
@@ -180,7 +96,7 @@ namespace MphRead::Mods::Network
             const auto raw = static_cast<std::uint8_t>(value);
             if ((raw & ~std::uint8_t{7}) != 0)
             {
-                return IntegralString(raw);
+                return ::MphRead::NativeRuntime::ToString(raw);
             }
 
             std::string result;
@@ -211,7 +127,7 @@ namespace MphRead::Mods::Network
         void AppendIntegral(std::string& text, T value)
             requires std::is_integral_v<T>
         {
-            text += IntegralString(value);
+            text += ::MphRead::NativeRuntime::ToString(value);
         }
     }
 
@@ -365,11 +281,11 @@ namespace MphRead::Mods::Network
         AppendLine(text, "| Quadruple Damage cheat | x4 | `BeamProjectileEntity`, from settings.json. Disabled automatically while connected to a server |");
 
         std::string damageLevel = "| Match damage level | x";
-        damageLevel += FloatString(Metadata::DamageLevels[0]);
+        damageLevel += ::MphRead::NativeRuntime::ToString(Metadata::DamageLevels[0]);
         damageLevel += " low / x";
-        damageLevel += FloatString(Metadata::DamageLevels[1]);
+        damageLevel += ::MphRead::NativeRuntime::ToString(Metadata::DamageLevels[1]);
         damageLevel += " medium / x";
-        damageLevel += FloatString(Metadata::DamageLevels[2]);
+        damageLevel += ::MphRead::NativeRuntime::ToString(Metadata::DamageLevels[2]);
         damageLevel += " high | `PlayerEntity.TakeDamage` |";
         AppendLine(text, damageLevel);
 
@@ -456,25 +372,25 @@ namespace MphRead::Mods::Network
             std::string line = "| ";
             line += HunterString(static_cast<Hunter>(i));
             line += " | ";
-            line += FixedString(Fixed::ToFloat(value.WalkSpeedCap), 3);
+            line += ::MphRead::NativeRuntime::ToString(Fixed::ToFloat(value.WalkSpeedCap), "0.###");
             line += " | ";
-            line += FixedString(Fixed::ToFloat(value.StrafeSpeedCap), 3);
+            line += ::MphRead::NativeRuntime::ToString(Fixed::ToFloat(value.StrafeSpeedCap), "0.###");
             line += " | ";
-            line += FixedString(Fixed::ToFloat(value.JumpSpeed), 3);
+            line += ::MphRead::NativeRuntime::ToString(Fixed::ToFloat(value.JumpSpeed), "0.###");
             line += " | ";
-            line += FixedString(Fixed::ToFloat(value.BipedGravity), 4);
+            line += ::MphRead::NativeRuntime::ToString(Fixed::ToFloat(value.BipedGravity), "0.####");
             line += " | ";
-            line += FixedString(Fixed::ToFloat(value.AltAirGravity), 4);
+            line += ::MphRead::NativeRuntime::ToString(Fixed::ToFloat(value.AltAirGravity), "0.####");
             line += "/";
-            line += FixedString(Fixed::ToFloat(value.AltGroundGravity), 4);
+            line += ::MphRead::NativeRuntime::ToString(Fixed::ToFloat(value.AltGroundGravity), "0.####");
             line += " | ";
-            line += FixedString(Fixed::ToFloat(value.BoostSpeedCap), 3);
+            line += ::MphRead::NativeRuntime::ToString(Fixed::ToFloat(value.BoostSpeedCap), "0.###");
             line += " | ";
             AppendIntegral(line, value.BoostChargeMin);
             line += "-";
             AppendIntegral(line, value.BoostChargeMax);
             line += " | ";
-            line += FixedString(Fixed::ToFloat(value.AltColRadius), 3);
+            line += ::MphRead::NativeRuntime::ToString(Fixed::ToFloat(value.AltColRadius), "0.###");
             line += " |";
             AppendLine(text, line);
         }

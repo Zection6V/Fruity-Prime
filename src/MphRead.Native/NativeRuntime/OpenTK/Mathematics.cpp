@@ -29,12 +29,13 @@ namespace OpenTK::Mathematics
     {
         // MathHelper.GetListSeparator: a comma, unless the culture already
         // spells a decimal point that way.
-        const std::string decimalSeparator = MphRead::NativeRuntime::CurrentDecimalSeparator();
+        using MphRead::NativeRuntime::NumberFormatInfo;
+        const std::string& decimalSeparator = NumberFormatInfo::CurrentInfo().NumberDecimalSeparator;
         const char listSeparator
             = (!decimalSeparator.empty() && decimalSeparator.front() == ',') ? ';' : ',';
-        return "(" + MphRead::NativeRuntime::SingleToString(X) + listSeparator + " "
-            + MphRead::NativeRuntime::SingleToString(Y) + listSeparator + " "
-            + MphRead::NativeRuntime::SingleToString(Z) + ")";
+        return "(" + MphRead::NativeRuntime::ToString(X) + listSeparator + " "
+            + MphRead::NativeRuntime::ToString(Y) + listSeparator + " "
+            + MphRead::NativeRuntime::ToString(Z) + ")";
     }
 
     Vector3 Vector3::Cross(Vector3 left, Vector3 right) noexcept

@@ -27,6 +27,7 @@
 #include "../../../NativeRuntime/System/Encoding.hpp"
 #include "../../../NativeRuntime/System/Globalization.hpp"
 #include "../../../NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <array>
@@ -118,203 +119,6 @@ namespace
             --last;
         }
         return std::u16string(text.substr(first, last - first));
-    }
-
-    [[nodiscard]] std::string_view TrimNumberWhiteSpace(std::string_view text) noexcept
-    {
-        auto isWhite = [](unsigned char c) noexcept
-        {
-            return c == 0x20U || (c >= 0x09U && c <= 0x0DU);
-        };
-        std::size_t first = 0;
-        while (first < text.size() && isWhite(static_cast<unsigned char>(text[first])))
-        {
-            ++first;
-        }
-        std::size_t last = text.size();
-        while (last > first && text[last - 1] == '\0')
-        {
-            --last;
-        }
-        while (last > first && isWhite(static_cast<unsigned char>(text[last - 1])))
-        {
-            --last;
-        }
-        return text.substr(first, last - first);
-    }
-
-    [[nodiscard]] bool TryParseSingleInvariant(std::string_view text, float& result)
-    {
-        text = TrimNumberWhiteSpace(text);
-        if (text.empty())
-        {
-            result = 0.0F;
-            return false;
-        }
-        if (StringEqualsOrdinalIgnoreCase(text, "NaN")
-            || StringEqualsOrdinalIgnoreCase(text, "+NaN")
-            || StringEqualsOrdinalIgnoreCase(text, "-NaN"))
-        {
-            result = std::numeric_limits<float>::quiet_NaN();
-            return true;
-        }
-        if (StringEqualsOrdinalIgnoreCase(text, "Infinity")
-            || StringEqualsOrdinalIgnoreCase(text, "+Infinity"))
-        {
-            result = std::numeric_limits<float>::infinity();
-            return true;
-        }
-        if (StringEqualsOrdinalIgnoreCase(text, "-Infinity"))
-        {
-            result = -std::numeric_limits<float>::infinity();
-            return true;
-        }
-
-        bool positiveSign = false;
-        if (!text.empty() && text.front() == '+')
-        {
-            positiveSign = true;
-            text.remove_prefix(1);
-            if (text.empty())
-            {
-                result = 0.0F;
-                return false;
-            }
-        }
-
-        float value = 0.0F;
-        const char* first = text.data();
-        const char* last = text.data() + text.size();
-        const auto parsed = ::MphRead::NativeRuntime::FromChars(first, last, value, std::chars_format::general);
-        if (parsed.ec == std::errc{} && parsed.ptr == last)
-        {
-            result = value;
-            return true;
-        }
-        if (parsed.ec == std::errc::result_out_of_range && parsed.ptr == last)
-        {
-            const bool negative = !positiveSign && !text.empty() && text.front() == '-';
-            std::size_t exponentPosition = text.find_first_of("eE");
-            bool overflow = false;
-            if (exponentPosition != std::string_view::npos)
-            {
-                std::string_view exponent = text.substr(exponentPosition + 1);
-                bool exponentNegative = false;
-                if (!exponent.empty() && (exponent.front() == '+' || exponent.front() == '-'))
-                {
-                    exponentNegative = exponent.front() == '-';
-                    exponent.remove_prefix(1);
-                }
-                overflow = !exponentNegative;
-            }
-            else
-            {
-                const std::size_t dot = text.find('.');
-                const std::size_t digitCount = dot == std::string_view::npos
-                    ? text.size() - (negative ? 1U : 0U)
-                    : dot - (negative ? 1U : 0U);
-                overflow = digitCount > 1;
-            }
-            result = overflow
-                ? (negative ? -std::numeric_limits<float>::infinity()
-                            : std::numeric_limits<float>::infinity())
-                : (negative ? -0.0F : 0.0F);
-            return true;
-        }
-        result = 0.0F;
-        return false;
-    }
-
-    [[nodiscard]] std::int32_t RoundToInt32(double value) noexcept
-    {
-        if (std::isnan(value) || value > static_cast<double>(std::numeric_limits<std::int32_t>::max())
-            || value < static_cast<double>(std::numeric_limits<std::int32_t>::min()))
-        {
-            return std::numeric_limits<std::int32_t>::min();
-        }
-        const double floorValue = std::floor(value);
-        const double fraction = value - floorValue;
-        double rounded = floorValue;
-        if (fraction > 0.5)
-        {
-            rounded = floorValue + 1.0;
-        }
-        else if (fraction == 0.5)
-        {
-            const auto integer = static_cast<std::int64_t>(floorValue);
-            rounded = (integer & 1LL) == 0 ? floorValue : floorValue + 1.0;
-        }
-        return static_cast<std::int32_t>(rounded);
-    }
-
-    [[nodiscard]] std::string FloatInvariant(float value)
-    {
-        std::array<char, 64> buffer{};
-        const auto converted = std::to_chars(
-            buffer.data(), buffer.data() + buffer.size(), value, std::chars_format::general);
-        if (converted.ec != std::errc{})
-        {
-            throw std::runtime_error("Floating-point formatting failed.");
-        }
-        return std::string(buffer.data(), converted.ptr);
-    }
-
-    [[nodiscard]] std::u16string Fixed2(float value)
-    {
-        std::array<char, 64> buffer{};
-        const auto converted = std::to_chars(
-            buffer.data(), buffer.data() + buffer.size(), value, std::chars_format::fixed, 2);
-        if (converted.ec != std::errc{})
-        {
-            throw std::runtime_error("Floating-point formatting failed.");
-        }
-        return Utf8ToUtf16(std::string_view(buffer.data(),
-            static_cast<std::size_t>(converted.ptr - buffer.data())));
-    }
-
-    [[nodiscard]] bool TryParseInt32Invariant(std::u16string_view source, std::int32_t& result) noexcept
-    {
-        while (!source.empty() && source.back() == u'\0')
-        {
-            source.remove_suffix(1);
-        }
-        const std::u16string trimmed = Trim(source);
-        if (trimmed.empty())
-        {
-            result = 0;
-            return false;
-        }
-        std::string ascii;
-        ascii.reserve(trimmed.size());
-        for (char16_t c : trimmed)
-        {
-            if (c > 0x7FU)
-            {
-                result = 0;
-                return false;
-            }
-            ascii.push_back(static_cast<char>(c));
-        }
-        const char* first = ascii.data();
-        const char* last = ascii.data() + ascii.size();
-        if (first != last && *first == '+')
-        {
-            ++first;
-            if (first == last)
-            {
-                result = 0;
-                return false;
-            }
-        }
-        std::int32_t parsed = 0;
-        const auto conversion = std::from_chars(first, last, parsed, 10);
-        if (conversion.ec != std::errc{} || conversion.ptr != last)
-        {
-            result = 0;
-            return false;
-        }
-        result = parsed;
-        return true;
     }
 
     class VectorStringList final : public RowsStringList
@@ -412,7 +216,7 @@ namespace
         if (value == u"Guardian") return Hunter::Guardian;
         if (value == u"Random") return Hunter::Random;
         std::int32_t numeric = 0;
-        if (TryParseInt32Invariant(value, numeric))
+        if (::MphRead::NativeRuntime::Int32TryParseInvariant(::MphRead::NativeRuntime::Utf16ToUtf8(value), numeric))
         {
             return static_cast<Hunter>(numeric);
         }
@@ -1217,8 +1021,8 @@ namespace MphRead::Mods::Launcher::Gui
         auto percent = [](const std::string& stored, std::int32_t fallback)
         {
             float parsed = 0.0F;
-            if (!TryParseSingleInvariant(stored, parsed)) return fallback;
-            const std::int32_t rounded = RoundToInt32(static_cast<double>(parsed * 100.0F));
+            if (!::MphRead::NativeRuntime::SingleTryParseInvariant(stored, parsed)) return fallback;
+            const std::int32_t rounded = ::MphRead::NativeRuntime::MathRoundToInt32(static_cast<double>(parsed * 100.0F));
             return std::clamp(rounded, 0, 100);
         };
 
@@ -1245,8 +1049,7 @@ namespace MphRead::Mods::Launcher::Gui
 
         const auto sensitivityToSlider = [](float sensitivity)
         {
-            return std::clamp(RoundToInt32(
-                static_cast<double>((sensitivity - 0.1F) / 2.9F * 100.0F)), 0, 100);
+            return std::clamp(::MphRead::NativeRuntime::MathRoundToInt32(static_cast<double>((sensitivity - 0.1F) / 2.9F * 100.0F)), 0, 100);
         };
         const auto sliderToSensitivity = [](std::int32_t value)
         {
@@ -1254,8 +1057,7 @@ namespace MphRead::Mods::Launcher::Gui
         };
         const auto lookToSlider = [](float look)
         {
-            return std::clamp(RoundToInt32(
-                static_cast<double>((look - 0.25F) / 2.75F * 100.0F)), 0, 100);
+            return std::clamp(::MphRead::NativeRuntime::MathRoundToInt32(static_cast<double>((look - 0.25F) / 2.75F * 100.0F)), 0, 100);
         };
         const auto sliderToLook = [](std::int32_t value)
         {
@@ -1263,8 +1065,7 @@ namespace MphRead::Mods::Launcher::Gui
         };
         const auto deadZoneToSlider = [](float dead)
         {
-            return std::clamp(RoundToInt32(
-                static_cast<double>(dead / 0.5F * 100.0F)), 0, 100);
+            return std::clamp(::MphRead::NativeRuntime::MathRoundToInt32(static_cast<double>(dead / 0.5F * 100.0F)), 0, 100);
         };
         const auto sliderToDeadZone = [](std::int32_t value)
         {
@@ -1276,7 +1077,7 @@ namespace MphRead::Mods::Launcher::Gui
             sensitivityToSlider(InputSettings::MouseSensitivity()),
             [sliderToSensitivity](std::int32_t value) -> std::optional<std::u16string>
             {
-                std::u16string result = Fixed2(sliderToSensitivity(value));
+                std::u16string result = ::MphRead::NativeRuntime::Utf8ToUtf16(::MphRead::NativeRuntime::ToStringInvariant(sliderToSensitivity(value), "0.00"));
                 result.push_back(u'x');
                 return result;
             });
@@ -1304,7 +1105,7 @@ namespace MphRead::Mods::Launcher::Gui
             lookToSlider(InputSettings::GamepadLookSensitivity()),
             [sliderToLook](std::int32_t value) -> std::optional<std::u16string>
             {
-                std::u16string result = Fixed2(sliderToLook(value));
+                std::u16string result = ::MphRead::NativeRuntime::Utf8ToUtf16(::MphRead::NativeRuntime::ToStringInvariant(sliderToLook(value), "0.00"));
                 result.push_back(u'x');
                 return result;
             });
@@ -1315,7 +1116,7 @@ namespace MphRead::Mods::Launcher::Gui
             deadZoneToSlider(InputSettings::GamepadDeadZone()),
             [sliderToDeadZone](std::int32_t value) -> std::optional<std::u16string>
             {
-                return Fixed2(sliderToDeadZone(value));
+                return ::MphRead::NativeRuntime::Utf8ToUtf16(::MphRead::NativeRuntime::ToStringInvariant(sliderToDeadZone(value), "0.00"));
             });
         _adapter.AddPanelChild(page, _state->GamepadDeadZone.Control);
 
@@ -1396,7 +1197,7 @@ namespace MphRead::Mods::Launcher::Gui
 
         _state->StylusOpacity = _adapter.ConstructSliderRow(
             std::u16string(u"Bottom screen opacity"),
-            RoundToInt32(static_cast<double>(StylusZone::Opacity() * 100.0F)),
+            ::MphRead::NativeRuntime::MathRoundToInt32(static_cast<double>(StylusZone::Opacity() * 100.0F)),
             [](std::int32_t value) -> std::optional<std::u16string>
             {
                 return Utf8ToUtf16(std::to_string(value) + "%");
@@ -1629,10 +1430,8 @@ namespace MphRead::Mods::Launcher::Gui
         Crosshair::Style = static_cast<CrosshairStyle>(RequireReference(_state->CrosshairStyleRow.Value).Index());
         Features::ProHudFixedWeapon(RequireReference(_state->WeaponStyleRow.Value).Index() == 0);
 
-        settings.SfxVolume = FloatInvariant(
-            static_cast<float>(RequireReference(_state->SfxVolume.Value).Value()) / 100.0F);
-        settings.MusicVolume = FloatInvariant(
-            static_cast<float>(RequireReference(_state->MusicVolume.Value).Value()) / 100.0F);
+        settings.SfxVolume = ::MphRead::NativeRuntime::ToStringInvariant(static_cast<float>(RequireReference(_state->SfxVolume.Value).Value()) / 100.0F);
+        settings.MusicVolume = ::MphRead::NativeRuntime::ToStringInvariant(static_cast<float>(RequireReference(_state->MusicVolume.Value).Value()) / 100.0F);
         settings.Language = ToUtf8(RequireReference(_state->LanguageRow.Value).Value().value_or(std::u16string{}));
 
         const auto sliderToSensitivity = [](std::int32_t value)
@@ -1697,8 +1496,7 @@ namespace MphRead::Mods::Launcher::Gui
         LauncherPrefs::LastHunter(ParseHunter(
             RequireReference(_state->HunterRow.Value).Value().value_or(std::u16string{})));
         std::int32_t suit = 0;
-        if (TryParseInt32Invariant(
-            RequireReference(_state->ColorRow.Value).Value().value_or(std::u16string{}), suit))
+        if (::MphRead::NativeRuntime::Int32TryParseInvariant(::MphRead::NativeRuntime::Utf16ToUtf8(RequireReference(_state->ColorRow.Value).Value().value_or(std::u16string{})), suit))
         {
             LauncherPrefs::LastColor(PlayerColors::Clamp(suit - 1));
         }
@@ -1715,8 +1513,7 @@ namespace MphRead::Mods::Launcher::Gui
                 return true;
             }
             std::int32_t parsed = 0;
-            if (!TryParseInt32Invariant(
-                std::u16string_view(text).substr(colon + 1), parsed)
+            if (!::MphRead::NativeRuntime::Int32TryParseInvariant(::MphRead::NativeRuntime::Utf16ToUtf8(std::u16string_view(text).substr(colon + 1)), parsed)
                 || parsed < 1 || parsed > 65535)
             {
                 return false;
@@ -1778,18 +1575,15 @@ namespace MphRead::Mods::Launcher::Gui
 
         const auto sensitivityToSlider = [](float sensitivity)
         {
-            return std::clamp(RoundToInt32(
-                static_cast<double>((sensitivity - 0.1F) / 2.9F * 100.0F)), 0, 100);
+            return std::clamp(::MphRead::NativeRuntime::MathRoundToInt32(static_cast<double>((sensitivity - 0.1F) / 2.9F * 100.0F)), 0, 100);
         };
         const auto lookToSlider = [](float look)
         {
-            return std::clamp(RoundToInt32(
-                static_cast<double>((look - 0.25F) / 2.75F * 100.0F)), 0, 100);
+            return std::clamp(::MphRead::NativeRuntime::MathRoundToInt32(static_cast<double>((look - 0.25F) / 2.75F * 100.0F)), 0, 100);
         };
         const auto deadZoneToSlider = [](float dead)
         {
-            return std::clamp(RoundToInt32(
-                static_cast<double>(dead / 0.5F * 100.0F)), 0, 100);
+            return std::clamp(::MphRead::NativeRuntime::MathRoundToInt32(static_cast<double>(dead / 0.5F * 100.0F)), 0, 100);
         };
 
         RequireReference(state.Sensitivity.Value).Value(
@@ -1801,7 +1595,7 @@ namespace MphRead::Mods::Launcher::Gui
         {
             RequireReference(state.StylusZone.Value).On(StylusZone::Enabled());
             RequireReference(state.StylusOpacity.Value).Value(
-                RoundToInt32(static_cast<double>(StylusZone::Opacity() * 100.0F)));
+                ::MphRead::NativeRuntime::MathRoundToInt32(static_cast<double>(StylusZone::Opacity() * 100.0F)));
         }
         RequireReference(state.ScrollAllWeapons.Value).On(InputSettings::ScrollAllWeapons());
         RequireReference(state.GamepadLook.Value).Value(

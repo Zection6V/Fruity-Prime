@@ -6,6 +6,7 @@
 #include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <climits>
 #include <cstddef>
@@ -27,8 +28,6 @@
 #endif
 #include <windows.h>
 #else
-#include <dlfcn.h>
-#include <locale.h>
 #include <wctype.h>
 #endif
 
@@ -47,184 +46,6 @@ namespace
         target.~Hit();
         ::new (static_cast<void*>(std::addressof(target)))
             MphRead::Mods::EndScreen::Hit(source);
-    }
-
-
-#if !defined(_WIN32)
-    [[nodiscard]] void* FindVersionedIcuSymbol(
-        void* library, const char* base) noexcept
-    {
-        if (library == nullptr)
-        {
-            return nullptr;
-        }
-        if (void* symbol = dlsym(library, base); symbol != nullptr)
-        {
-            return symbol;
-        }
-        char name[96]{};
-        for (int version = 99; version >= 50; --version)
-        {
-            const int count = std::snprintf(
-                name, sizeof(name), "%s_%d", base, version);
-            if (count <= 0 || static_cast<std::size_t>(count) >= sizeof(name))
-            {
-                continue;
-            }
-            if (void* symbol = dlsym(library, name); symbol != nullptr)
-            {
-                return symbol;
-            }
-        }
-        return nullptr;
-    }
-
-    [[nodiscard]] std::uint32_t IcuUpper(std::uint32_t scalar) noexcept
-    {
-        using CaseFunction = std::int32_t (*)(std::int32_t);
-        static const CaseFunction function = []() noexcept
-        {
-            void* library = dlopen("libicuuc.so", RTLD_LAZY | RTLD_LOCAL);
-#if defined(__APPLE__)
-            if (library == nullptr)
-            {
-                library = dlopen(
-                    "/usr/lib/libicucore.A.dylib",
-                    RTLD_LAZY | RTLD_LOCAL);
-            }
-#endif
-            return reinterpret_cast<CaseFunction>(
-                FindVersionedIcuSymbol(library, "u_toupper"));
-        }();
-
-        if (function == nullptr || scalar > 0x10FFFFU)
-        {
-            return scalar;
-        }
-        const std::int32_t mapped = function(static_cast<std::int32_t>(scalar));
-        return mapped < 0 ? scalar : static_cast<std::uint32_t>(mapped);
-    }
-#endif
-
-    [[nodiscard]] std::uint32_t InvariantUpperScalar(std::uint32_t scalar) noexcept
-    {
-        if (scalar >= 'a' && scalar <= 'z')
-        {
-            return scalar - ('a' - 'A');
-        }
-
-        // .NET invariant casing keeps dotless i unchanged.
-        if (scalar == 0x0131U)
-        {
-            return scalar;
-        }
-
-#if defined(_WIN32)
-        wchar_t source[2]{};
-        int sourceLength = 0;
-        if (scalar <= 0xFFFFU)
-        {
-            source[0] = static_cast<wchar_t>(scalar);
-            sourceLength = 1;
-        }
-        else if (scalar <= 0x10FFFFU)
-        {
-            const std::uint32_t value = scalar - 0x10000U;
-            source[0] = static_cast<wchar_t>(0xD800U + (value >> 10));
-            source[1] = static_cast<wchar_t>(0xDC00U + (value & 0x3FFU));
-            sourceLength = 2;
-        }
-        if (sourceLength != 0)
-        {
-            wchar_t target[2]{};
-            const int mapped = LCMapStringEx(
-                LOCALE_NAME_INVARIANT,
-                LCMAP_UPPERCASE,
-                source,
-                sourceLength,
-                target,
-                2,
-                nullptr,
-                nullptr,
-                0);
-            if (mapped == 1)
-            {
-                return static_cast<std::uint32_t>(target[0]);
-            }
-            if (mapped == 2
-                && target[0] >= 0xD800 && target[0] <= 0xDBFF
-                && target[1] >= 0xDC00 && target[1] <= 0xDFFF)
-            {
-                return 0x10000U
-                    + ((static_cast<std::uint32_t>(target[0]) - 0xD800U) << 10)
-                    + (static_cast<std::uint32_t>(target[1]) - 0xDC00U);
-            }
-        }
-#else
-        const std::uint32_t icu = IcuUpper(scalar);
-        if (icu != scalar)
-        {
-            return icu;
-        }
-
-        static locale_t locale = []() noexcept
-        {
-            locale_t value = newlocale(LC_CTYPE_MASK, "C.UTF-8", nullptr);
-            if (value == nullptr)
-            {
-                value = newlocale(LC_CTYPE_MASK, "en_US.UTF-8", nullptr);
-            }
-            return value;
-        }();
-        if (locale != nullptr
-            && scalar <= static_cast<std::uint32_t>(WCHAR_MAX))
-        {
-            const wint_t mapped = towupper_l(static_cast<wint_t>(scalar), locale);
-            if (mapped != WEOF)
-            {
-                return static_cast<std::uint32_t>(mapped);
-            }
-        }
-#endif
-
-        if (scalar >= 0x00E0U && scalar <= 0x00F6U)
-        {
-            return scalar - 0x20U;
-        }
-        if (scalar >= 0x00F8U && scalar <= 0x00FEU)
-        {
-            return scalar - 0x20U;
-        }
-        if (scalar == 0x00FFU)
-        {
-            return 0x0178U;
-        }
-        if (scalar >= 0x03B1U && scalar <= 0x03C1U)
-        {
-            return scalar - 0x20U;
-        }
-        if (scalar >= 0x03C3U && scalar <= 0x03CBU)
-        {
-            return scalar - 0x20U;
-        }
-        if (scalar >= 0x0430U && scalar <= 0x044FU)
-        {
-            return scalar - 0x20U;
-        }
-        return scalar;
-    }
-
-    [[nodiscard]] std::string ToUpperInvariant(const std::string& value)
-    {
-        std::string result;
-        result.reserve(value.size());
-        for (std::size_t index = 0; index < value.size();)
-        {
-            const Utf8Scalar unit = DecodeUtf8Scalar(value, index);
-            index += unit.Length;
-            AppendUtf8(result, InvariantUpperScalar(unit.Value));
-        }
-        return result;
     }
 
     [[nodiscard]] const std::string& OrEmpty(
@@ -388,7 +209,7 @@ namespace MphRead::Mods::Network
             return "";
         }
         const std::string proposer = OrEmpty(_proposer);
-        return proposer + " PROPOSES " + ToUpperInvariant(RequireReference(_roomKey));
+        return proposer + " PROPOSES " + ::MphRead::NativeRuntime::ToUpperInvariant(RequireReference(_roomKey));
     }
 
     std::string MapVote::TallyLine()

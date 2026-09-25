@@ -27,6 +27,8 @@
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Encoding.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <array>
@@ -196,7 +198,6 @@ namespace
         return time;
     }
 }
-
 
 namespace MphRead::Entities
 {
@@ -2444,10 +2445,10 @@ namespace MphRead::Entities
 
     void PlayerEntity::DrawFps()
     {
-        char buffer[12]{};
-        const std::int32_t written = std::snprintf(buffer, sizeof(buffer), "%.0f",
-            static_cast<double>(RequireReference(_scene).FramesPerSecond()));
-        if (written < 0 || written >= static_cast<std::int32_t>(sizeof(buffer)))
+        // FramesPerSecond.TryFormat(buffer[12], out written, "0"): a number
+        // too long for the buffer draws nothing.
+        const std::string fps = NativeRuntime::ToString(RequireReference(_scene).FramesPerSecond(), "0");
+        if (NativeRuntime::Utf16Length(fps) > 12)
         {
             return;
         }
@@ -2456,7 +2457,7 @@ namespace MphRead::Entities
             NumberY + (NumberScale - UnitScale) * 8, Hud::Align::Right,
             0, std::string("fps"), color, 1.0F, 8.0F, -1, UnitScale);
         DrawText2D(unit.X - HudAspectFix(), NumberY, Hud::Align::Right, 0,
-            std::string(buffer, static_cast<std::size_t>(written)), color,
+            fps, color,
             1.0F, 8.0F, -1, NumberScale);
     }
 

@@ -81,7 +81,7 @@ namespace MphRead::Mods::Network
             if (!_everSynced || newMatch)
             {
                 std::string message = "[net] match clock synced to server: ";
-                message += NativeRuntime::DoubleToStringNoDecimals(state.TimeRemaining);
+                message += ::MphRead::NativeRuntime::ToString(state.TimeRemaining, "0");
                 message += " s remaining on ";
                 message += roomKey;
                 NativeRuntime::ConsoleWriteLine(message);

@@ -31,14 +31,41 @@ namespace MphRead::NativeRuntime
         const EnumNameEntry* names,
         std::size_t count);
 
-    // Enum.TryParse(text, ignoreCase, out result) for a non-[Flags] enum: a
-    // name match, or the decimal digits of the underlying type.
+    // Enum.TryParse(text, ignoreCase, out result): leading white space off;
+    // then a number when it starts with a digit or a sign (in range for the
+    // underlying type, which is `bits` wide), or else one or more names
+    // separated by commas, each trimmed, whose values are or'ed together.
+    // `raw` is the underlying value's bits, zero on failure.
     [[nodiscard]] bool ManagedEnumTryParse(
         std::string_view text,
         bool ignoreCase,
         const EnumNameEntry* names,
         std::size_t count,
+        bool isSigned,
+        std::int32_t bits,
         std::uint64_t& raw);
+    // The same for an int-backed enum.
+    [[nodiscard]] inline bool ManagedEnumTryParse(
+        std::string_view text,
+        bool ignoreCase,
+        const EnumNameEntry* names,
+        std::size_t count,
+        std::uint64_t& raw)
+    {
+        return ManagedEnumTryParse(text, ignoreCase, names, count, true, 32, raw);
+    }
+
+    template <typename T>
+    [[nodiscard]] bool ManagedEnumTryParse(
+        std::string_view text, bool ignoreCase, const EnumNameEntry* names, std::size_t count, T& result)
+    {
+        using Underlying = std::underlying_type_t<T>;
+        std::uint64_t raw = 0;
+        const bool ok = ManagedEnumTryParse(text, ignoreCase, names, count,
+            std::is_signed_v<Underlying>, static_cast<std::int32_t>(sizeof(Underlying) * 8), raw);
+        result = static_cast<T>(static_cast<Underlying>(raw));
+        return ok;
+    }
 
     template <typename T>
     [[nodiscard]] std::string ManagedEnumToString(

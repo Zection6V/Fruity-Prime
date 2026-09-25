@@ -58,9 +58,9 @@ namespace MphRead::Mods::Network
         }
 
         std::string message = "[net] player slots prepared -- local slot ";
-        message += NativeRuntime::Int32ToString(local);
+        message += ::MphRead::NativeRuntime::ToString(local);
         message += ", ";
-        message += NativeRuntime::Int32ToString(CountActive());
+        message += ::MphRead::NativeRuntime::ToString(CountActive());
         message += " active, AI disabled on remote slots";
         NativeRuntime::ConsoleWriteLine(message);
     }

@@ -14,6 +14,7 @@
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 #include "../NativeRuntime/System/Runtime.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <array>
@@ -235,182 +236,11 @@ namespace MphRead::Mods
             {1 << 15, "RightTrigger"}
         }};
 
-        std::string TrimCopy(std::string_view value)
-        {
-            const std::string_view trimmed = StringTrimView(value);
-            return std::string(trimmed);
-        }
-
         char AsciiLower(char value)
         {
             return value >= 'A' && value <= 'Z'
                 ? static_cast<char>(value + ('a' - 'A'))
                 : value;
-        }
-
-        bool TryParseSingle(std::string_view value, float& parsed)
-        {
-            value = StringTrimView(value);
-            if (value.empty())
-            {
-                return false;
-            }
-
-            if (StringEqualsOrdinalIgnoreCase(value, "NaN"))
-            {
-                parsed = std::numeric_limits<float>::quiet_NaN();
-                return true;
-            }
-            if (StringEqualsOrdinalIgnoreCase(value, "Infinity")
-                || StringEqualsOrdinalIgnoreCase(value, "+Infinity"))
-            {
-                parsed = std::numeric_limits<float>::infinity();
-                return true;
-            }
-            if (StringEqualsOrdinalIgnoreCase(value, "-Infinity"))
-            {
-                parsed = -std::numeric_limits<float>::infinity();
-                return true;
-            }
-
-            bool positiveSign = false;
-            if (value.front() == '+')
-            {
-                positiveSign = true;
-                value.remove_prefix(1);
-                if (value.empty())
-                {
-                    return false;
-                }
-            }
-
-            float result = 0.0F;
-            const char* const end = value.data() + value.size();
-            const auto [ptr, error] = ::MphRead::NativeRuntime::FromChars(
-                value.data(), end, result, std::chars_format::general);
-            if (ptr != end)
-            {
-                return false;
-            }
-            if (error == std::errc::result_out_of_range)
-            {
-                // .NET Single.TryParse saturates overflow to infinity but
-                // underflows toward signed zero. A double parse separates the
-                // two ranges without introducing locale-sensitive strtof.
-                double wide = 0.0;
-                const auto [widePtr, wideError] = ::MphRead::NativeRuntime::FromChars(
-                    value.data(), end, wide, std::chars_format::general);
-                if (widePtr != end)
-                {
-                    return false;
-                }
-                if (wideError == std::errc{})
-                {
-                    if (wide > std::numeric_limits<float>::max())
-                    {
-                        parsed = std::numeric_limits<float>::infinity();
-                    }
-                    else if (wide < -std::numeric_limits<float>::max())
-                    {
-                        parsed = -std::numeric_limits<float>::infinity();
-                    }
-                    else
-                    {
-                        parsed = static_cast<float>(wide);
-                    }
-                    return true;
-                }
-                if (wideError != std::errc::result_out_of_range)
-                {
-                    return false;
-                }
-
-                const bool negative = !value.empty() && value.front() == '-';
-                std::string_view magnitude = value;
-                if (!magnitude.empty()
-                    && (magnitude.front() == '-' || magnitude.front() == '+'))
-                {
-                    magnitude.remove_prefix(1);
-                }
-                const std::size_t exponentAt = magnitude.find_first_of("eE");
-                const std::string_view mantissa = magnitude.substr(0, exponentAt);
-                const std::size_t dot = mantissa.find('.');
-                const std::size_t decimalIndex = dot == std::string_view::npos
-                    ? mantissa.size()
-                    : dot;
-                std::size_t digitIndex = 0;
-                std::size_t firstNonZero = std::string_view::npos;
-                for (const char ch : mantissa)
-                {
-                    if (ch == '.')
-                    {
-                        continue;
-                    }
-                    if (ch != '0' && firstNonZero == std::string_view::npos)
-                    {
-                        firstNonZero = digitIndex;
-                    }
-                    ++digitIndex;
-                }
-                if (firstNonZero == std::string_view::npos)
-                {
-                    parsed = negative ? -0.0F : 0.0F;
-                    return true;
-                }
-
-                std::int64_t exponent = 0;
-                if (exponentAt != std::string_view::npos)
-                {
-                    std::string_view exponentText = magnitude.substr(exponentAt + 1);
-                    bool exponentNegative = false;
-                    if (!exponentText.empty()
-                        && (exponentText.front() == '+' || exponentText.front() == '-'))
-                    {
-                        exponentNegative = exponentText.front() == '-';
-                        exponentText.remove_prefix(1);
-                    }
-                    const auto [expPtr, expError] = std::from_chars(
-                        exponentText.data(), exponentText.data() + exponentText.size(), exponent, 10);
-                    if (expError == std::errc::result_out_of_range)
-                    {
-                        exponent = exponentNegative ? -1000000 : 1000000;
-                    }
-                    else if (expError != std::errc{}
-                        || expPtr != exponentText.data() + exponentText.size())
-                    {
-                        return false;
-                    }
-                    else if (exponentNegative)
-                    {
-                        exponent = -exponent;
-                    }
-                }
-
-                const std::int64_t scientificExponent = exponent
-                    + static_cast<std::int64_t>(decimalIndex)
-                    - static_cast<std::int64_t>(firstNonZero) - 1;
-                if (scientificExponent >= 0)
-                {
-                    parsed = negative
-                        ? -std::numeric_limits<float>::infinity()
-                        : std::numeric_limits<float>::infinity();
-                }
-                else
-                {
-                    parsed = negative ? -0.0F : 0.0F;
-                }
-                return true;
-            }
-            if (error != std::errc{})
-            {
-                return false;
-            }
-            if (positiveSign && std::signbit(result))
-            {
-                return false;
-            }
-            parsed = result;
-            return true;
         }
 
         template <typename TEnum>
@@ -582,66 +412,6 @@ namespace MphRead::Mods
         std::string BoolToLower(bool value)
         {
             return value ? "true" : "false";
-        }
-
-        std::string FloatToInvariant(float value)
-        {
-            if (std::isnan(value))
-            {
-                return "NaN";
-            }
-            if (std::isinf(value))
-            {
-                return std::signbit(value) ? "-Infinity" : "Infinity";
-            }
-
-            char buffer[64];
-            const auto [ptr, error] = std::to_chars(
-                std::begin(buffer), std::end(buffer),
-                value, std::chars_format::general);
-            if (error != std::errc{})
-            {
-                throw std::runtime_error("Could not format Single.");
-            }
-            std::string result(buffer, ptr);
-            const std::size_t exponent = result.find('e');
-            if (exponent != std::string::npos)
-            {
-                result[exponent] = 'E';
-            }
-            return result;
-        }
-
-        std::string FloatToCustom(float value, int decimals)
-        {
-            if (std::isnan(value) || std::isinf(value))
-            {
-                return FloatToInvariant(value);
-            }
-
-            char buffer[128];
-            const auto [ptr, error] = std::to_chars(
-                std::begin(buffer), std::end(buffer),
-                value, std::chars_format::fixed, decimals);
-            if (error != std::errc{})
-            {
-                throw std::runtime_error("Could not format Single.");
-            }
-
-            std::string result(buffer, ptr);
-            const std::size_t dot = result.find('.');
-            if (dot != std::string::npos)
-            {
-                while (!result.empty() && result.back() == '0')
-                {
-                    result.pop_back();
-                }
-                if (!result.empty() && result.back() == '.')
-                {
-                    result.pop_back();
-                }
-            }
-            return result;
         }
 
         bool IsAsciiUpper(char value) noexcept
@@ -1024,7 +794,7 @@ namespace MphRead::Mods
             const std::vector<std::string> lines = FileReadAllLines(PathToUtf8(path));
             for (const std::string& raw : lines)
             {
-                const std::string line = TrimCopy(raw);
+                const std::string line = ::MphRead::NativeRuntime::StringTrim(raw);
                 const std::size_t split = line.find('=');
                 if (line.empty() || line[0] == '#'
                     || split == std::string::npos || split == 0)
@@ -1033,14 +803,14 @@ namespace MphRead::Mods
                 }
 
                 const std::string key =
-                    TrimCopy(std::string_view(line).substr(0, split));
+                    ::MphRead::NativeRuntime::StringTrim(std::string_view(line).substr(0, split));
                 const std::string value =
-                    TrimCopy(std::string_view(line).substr(split + 1));
+                    ::MphRead::NativeRuntime::StringTrim(std::string_view(line).substr(split + 1));
 
                 if (key == "sensitivity")
                 {
                     float parsed = 0.0F;
-                    if (TryParseSingle(value, parsed))
+                    if (::MphRead::NativeRuntime::SingleTryParseInvariant(value, parsed))
                     {
                         MouseSensitivity(MathClamp(parsed, 0.05F, 10.0F));
                     }
@@ -1070,7 +840,7 @@ namespace MphRead::Mods
                 if (key == "stylus_zone_opacity")
                 {
                     float opacity = 0.0F;
-                    if (TryParseSingle(value, opacity))
+                    if (::MphRead::NativeRuntime::SingleTryParseInvariant(value, opacity))
                     {
                         Input::StylusZone::Opacity(
                             MathClamp(opacity, 0.02F, 1.0F));
@@ -1101,9 +871,9 @@ namespace MphRead::Mods
                     float top = 0.0F;
                     float width = 0.0F;
                     if (exactlyThree
-                        && TryParseSingle(parts[0], left)
-                        && TryParseSingle(parts[1], top)
-                        && TryParseSingle(parts[2], width))
+                        && ::MphRead::NativeRuntime::SingleTryParseInvariant(parts[0], left)
+                        && ::MphRead::NativeRuntime::SingleTryParseInvariant(parts[1], top)
+                        && ::MphRead::NativeRuntime::SingleTryParseInvariant(parts[2], width))
                     {
                         Input::StylusZone::SetRect(left, top, width);
                     }
@@ -1154,7 +924,7 @@ namespace MphRead::Mods
                 if (key == "gamepad_deadzone")
                 {
                     float deadZone = 0.0F;
-                    if (TryParseSingle(value, deadZone))
+                    if (::MphRead::NativeRuntime::SingleTryParseInvariant(value, deadZone))
                     {
                         GamepadDeadZone(deadZone);
                         continue;
@@ -1163,7 +933,7 @@ namespace MphRead::Mods
                 if (key == "gamepad_look")
                 {
                     float look = 0.0F;
-                    if (TryParseSingle(value, look))
+                    if (::MphRead::NativeRuntime::SingleTryParseInvariant(value, look))
                     {
                         GamepadLookSensitivity(look);
                         continue;
@@ -1214,13 +984,12 @@ namespace MphRead::Mods
         const InputBindingProperty& property, std::string_view value)
     {
         const std::size_t split = value.find(':');
-        const std::string type = TrimCopy(
-            split == std::string_view::npos
+        const std::string type = ::MphRead::NativeRuntime::StringTrim(split == std::string_view::npos
                 ? value
                 : value.substr(0, split));
         const std::string name = split == std::string_view::npos
             ? std::string()
-            : TrimCopy(value.substr(split + 1));
+            : ::MphRead::NativeRuntime::StringTrim(value.substr(split + 1));
 
         if (type == "ScrollUp")
         {
@@ -1256,7 +1025,7 @@ namespace MphRead::Mods
             {
                 "# " + std::string(Branding::Name)
                     + " controls. Delete a line to go back to the default.",
-                "sensitivity=" + FloatToCustom(MouseSensitivity(), 3),
+                "sensitivity=" + ::MphRead::NativeRuntime::ToStringInvariant(MouseSensitivity(), "0.###"),
                 "invert_y=" + BoolToLower(InvertMouseY()),
                 "invert_x=" + BoolToLower(InvertMouseX()),
                 "scroll_all_weapons=" + BoolToLower(ScrollAllWeapons()),
@@ -1265,11 +1034,11 @@ namespace MphRead::Mods
                 "stylus_zone="
                     + BoolToLower(Input::StylusZone::Enabled()),
                 "stylus_zone_opacity="
-                    + FloatToCustom(Input::StylusZone::Opacity(), 3),
+                    + ::MphRead::NativeRuntime::ToStringInvariant(Input::StylusZone::Opacity(), "0.###"),
                 "stylus_zone_rect="
-                    + FloatToCustom(Input::StylusZone::Left(), 4) + ","
-                    + FloatToCustom(Input::StylusZone::Top(), 4) + ","
-                    + FloatToCustom(Input::StylusZone::Width(), 4),
+                    + ::MphRead::NativeRuntime::ToStringInvariant(Input::StylusZone::Left(), "0.####") + ","
+                    + ::MphRead::NativeRuntime::ToStringInvariant(Input::StylusZone::Top(), "0.####") + ","
+                    + ::MphRead::NativeRuntime::ToStringInvariant(Input::StylusZone::Width(), "0.####"),
                 "chat_key="
                     + (ChatKey() == KeyUnknown
                         ? std::string("none")
@@ -1281,9 +1050,9 @@ namespace MphRead::Mods
                 "clip_seconds="
                     + std::to_string(Network::DemoClip::Seconds()),
                 "gamepad_deadzone="
-                    + FloatToInvariant(GamepadDeadZone()),
+                    + ::MphRead::NativeRuntime::ToStringInvariant(GamepadDeadZone()),
                 "gamepad_look="
-                    + FloatToInvariant(GamepadLookSensitivity()),
+                    + ::MphRead::NativeRuntime::ToStringInvariant(GamepadLookSensitivity()),
                 "gamepad_invert_y="
                     + BoolToLower(GamepadInvertY())
             };

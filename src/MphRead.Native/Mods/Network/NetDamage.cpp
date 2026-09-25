@@ -7,6 +7,7 @@
 #include "NetSession.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <array>
@@ -26,8 +27,6 @@
 #define NOMINMAX
 #include <windows.h>
 #else
-#include <langinfo.h>
-#include <locale.h>
 #endif
 
 using ::MphRead::NativeRuntime::IncrementInPlace;
@@ -39,254 +38,6 @@ using ::OpenTK::Mathematics::IsZero;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
 using ::OpenTK::Mathematics::Multiply;
-
-namespace
-{
-    [[nodiscard]] std::string CurrentCultureDecimalSeparator()
-    {
-#if defined(_WIN32)
-        wchar_t buffer[16]{};
-        const int length = GetLocaleInfoEx(
-            LOCALE_NAME_USER_DEFAULT, LOCALE_SDECIMAL, buffer,
-            static_cast<int>(sizeof(buffer) / sizeof(buffer[0])));
-        if (length <= 1)
-        {
-            return ".";
-        }
-        const int utf8Length = WideCharToMultiByte(
-            CP_UTF8, 0, buffer, length - 1, nullptr, 0, nullptr, nullptr);
-        if (utf8Length <= 0)
-        {
-            return ".";
-        }
-        std::string result(static_cast<std::size_t>(utf8Length), '\0');
-        WideCharToMultiByte(
-            CP_UTF8, 0, buffer, length - 1, result.data(), utf8Length, nullptr, nullptr);
-        return result;
-#else
-#if defined(__ANDROID__)
-        const lconv* locale = ::localeconv();
-        const char* separator = locale != nullptr ? locale->decimal_point : nullptr;
-        return separator != nullptr && separator[0] != '\0' ? separator : ".";
-#else
-        locale_t locale = newlocale(LC_NUMERIC_MASK, "", nullptr);
-        if (locale == static_cast<locale_t>(0))
-        {
-            return ".";
-        }
-        const char* separator = nl_langinfo_l(RADIXCHAR, locale);
-        std::string result = separator != nullptr && separator[0] != '\0'
-            ? separator
-            : ".";
-        freelocale(locale);
-        return result;
-#endif
-#endif
-    }
-
-    [[nodiscard]] bool IsTruthyDotNetInvariantSetting(std::string_view value) noexcept
-    {
-        if (value == "1")
-        {
-            return true;
-        }
-        return value.size() == 4
-            && (value[0] == 't' || value[0] == 'T')
-            && (value[1] == 'r' || value[1] == 'R')
-            && (value[2] == 'u' || value[2] == 'U')
-            && (value[3] == 'e' || value[3] == 'E');
-    }
-
-    [[nodiscard]] bool IsInvariantLocaleName(std::string_view name) noexcept
-    {
-        return name.empty() || name == "C" || name == "POSIX" || name.starts_with("C.");
-    }
-
-    [[nodiscard]] std::string CurrentCulturePositiveInfinitySymbol()
-    {
-#if defined(_WIN32)
-        wchar_t buffer[32]{};
-        const int length = GetLocaleInfoEx(
-            LOCALE_NAME_USER_DEFAULT, LOCALE_SPOSINFINITY, buffer,
-            static_cast<int>(sizeof(buffer) / sizeof(buffer[0])));
-        if (length <= 1)
-        {
-            return "Infinity";
-        }
-        const int utf8Length = WideCharToMultiByte(
-            CP_UTF8, 0, buffer, length - 1, nullptr, 0, nullptr, nullptr);
-        if (utf8Length <= 0)
-        {
-            return "Infinity";
-        }
-        std::string result(static_cast<std::size_t>(utf8Length), '\0');
-        WideCharToMultiByte(
-            CP_UTF8, 0, buffer, length - 1, result.data(), utf8Length, nullptr, nullptr);
-        return result;
-#else
-        const char* invariantSetting = std::getenv("DOTNET_SYSTEM_GLOBALIZATION_INVARIANT");
-        if (invariantSetting != nullptr
-            && IsTruthyDotNetInvariantSetting(invariantSetting))
-        {
-            return "Infinity";
-        }
-
-        const char* localeName = std::getenv("LC_ALL");
-        if (localeName == nullptr || localeName[0] == '\0')
-        {
-            localeName = std::getenv("LC_NUMERIC");
-        }
-        if (localeName == nullptr || localeName[0] == '\0')
-        {
-            localeName = std::getenv("LANG");
-        }
-        if (localeName == nullptr || IsInvariantLocaleName(localeName))
-        {
-            return "Infinity";
-        }
-        return "\xE2\x88\x9E";
-#endif
-    }
-
-    [[nodiscard]] std::string FormatZeroPointHashHash(float value)
-    {
-        if (std::isnan(value))
-        {
-            return "NaN";
-        }
-        if (std::isinf(value))
-        {
-            return std::signbit(value) ? "-\xE2\x88\x9E" : CurrentCulturePositiveInfinitySymbol();
-        }
-
-        const float magnitude = std::fabs(value);
-        if (magnitude == 0.0F)
-        {
-            return "0";
-        }
-
-        // .NET 9 custom Single formatting first materializes a seven-
-        // significant-digit NumberBuffer, then applies the custom-format
-        // rounding. Reproduce that staging before the 0.## two-place round.
-        std::array<char, 64> buffer{};
-        const auto converted = std::to_chars(
-            buffer.data(), buffer.data() + buffer.size(), magnitude,
-            std::chars_format::scientific, 6);
-        if (converted.ec != std::errc{})
-        {
-            throw std::runtime_error("Single formatting failed.");
-        }
-
-        const std::string_view scientific(
-            buffer.data(), static_cast<std::size_t>(converted.ptr - buffer.data()));
-        std::size_t exponentMarker = scientific.find('e');
-        if (exponentMarker == std::string_view::npos
-            && (exponentMarker = scientific.find('E')) == std::string_view::npos)
-        {
-            throw std::runtime_error("Single formatting failed.");
-        }
-
-        std::uint32_t digits = 0;
-        for (std::size_t index = 0; index < exponentMarker; index++)
-        {
-            const char unit = scientific[index];
-            if (unit == '.')
-            {
-                continue;
-            }
-            if (unit < '0' || unit > '9')
-            {
-                throw std::runtime_error("Single formatting failed.");
-            }
-            digits = digits * 10U + static_cast<std::uint32_t>(unit - '0');
-        }
-
-        const char* exponentFirst = scientific.data() + exponentMarker + 1;
-        const char* const exponentEnd = scientific.data() + scientific.size();
-        bool negativeExponent = false;
-        if (exponentFirst != exponentEnd && (*exponentFirst == '+' || *exponentFirst == '-'))
-        {
-            negativeExponent = *exponentFirst == '-';
-            exponentFirst++;
-        }
-
-        std::int32_t exponent = 0;
-        const auto parsed = std::from_chars(exponentFirst, exponentEnd, exponent);
-        if (parsed.ec != std::errc{} || parsed.ptr != exponentEnd)
-        {
-            throw std::runtime_error("Single formatting failed.");
-        }
-        if (negativeExponent)
-        {
-            exponent = -exponent;
-        }
-
-        std::string hundredthsText;
-        if (exponent >= 4)
-        {
-            hundredthsText = std::to_string(digits);
-            hundredthsText.append(static_cast<std::size_t>(exponent - 4), '0');
-        }
-        else
-        {
-            const std::int32_t divisorPower = 4 - exponent;
-            std::uint32_t hundredths = 0;
-            if (divisorPower <= 7)
-            {
-                std::uint32_t divisor = 1;
-                for (std::int32_t power = 0; power < divisorPower; power++)
-                {
-                    divisor *= 10U;
-                }
-                hundredths = digits / divisor;
-                const std::uint32_t remainder = digits % divisor;
-                if (remainder * 2U >= divisor)
-                {
-                    hundredths++;
-                }
-            }
-            hundredthsText = std::to_string(hundredths);
-        }
-
-        if (hundredthsText.size() < 3)
-        {
-            hundredthsText.insert(
-                hundredthsText.begin(), 3 - hundredthsText.size(), '0');
-        }
-
-        const std::size_t fractionStart = hundredthsText.size() - 2;
-        std::string result = hundredthsText.substr(0, fractionStart);
-        const char tenths = hundredthsText[fractionStart];
-        const char hundredths = hundredthsText[fractionStart + 1];
-        if (hundredths != '0')
-        {
-            result += CurrentCultureDecimalSeparator();
-            result.push_back(tenths);
-            result.push_back(hundredths);
-        }
-        else if (tenths != '0')
-        {
-            result += CurrentCultureDecimalSeparator();
-            result.push_back(tenths);
-        }
-
-        if (std::signbit(value) && result != "0")
-        {
-            result.insert(result.begin(), '-');
-        }
-        return result;
-    }
-
-    [[nodiscard]] std::string Int32ToString(std::int32_t value)
-    {
-        return std::to_string(value);
-    }
-
-    [[nodiscard]] std::string ByteToString(std::uint8_t value)
-    {
-        return std::to_string(static_cast<unsigned int>(value));
-    }
-}
 
 namespace MphRead::Mods::Network
 {
@@ -520,9 +271,9 @@ namespace MphRead::Mods::Network
         }
 
         std::string message = "knockback clamped from ";
-        message += FormatZeroPointHashHash(length);
+        message += ::MphRead::NativeRuntime::ToString(length, "0.##");
         message += " to ";
-        message += FormatZeroPointHashHash(MaxImpulse);
+        message += ::MphRead::NativeRuntime::ToString(MaxImpulse);
         NetLog::Event(message);
 
         return Multiply(impulse, MaxImpulse / length);
@@ -585,9 +336,9 @@ namespace MphRead::Mods::Network
         if (landed > MaxCatchUp)
         {
             std::string message = "slot ";
-            message += Int32ToString(slot);
+            message += ::MphRead::NativeRuntime::ToString(slot);
             message += " damage sequence jumped ";
-            message += ByteToString(landed);
+            message += ::MphRead::NativeRuntime::ToString(landed);
             message += "; resynced";
             NetLog::Event(message);
             return;

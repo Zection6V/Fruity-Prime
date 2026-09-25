@@ -578,27 +578,4 @@ namespace MphRead::RendererPlatform
         return 0x0001000C;
 #endif
     }
-
-    void ConsoleClear()
-    {
-        // Console.Clear: the terminal's own erase-and-home, which is what the
-        // runtime writes on every platform that has one.
-        NativeRuntime::ConsoleWrite("\x1B[2J\x1B[H");
-    }
-
-    std::optional<std::string> ConsoleReadLine()
-    {
-        // Console.ReadLine returns null at end of input.
-        std::string line;
-        if (!std::getline(std::cin, line))
-        {
-            return std::nullopt;
-        }
-        // The runtime strips the terminator, including a CR left by CRLF.
-        while (!line.empty() && (line.back() == '\r' || line.back() == '\n'))
-        {
-            line.pop_back();
-        }
-        return line;
-    }
 }

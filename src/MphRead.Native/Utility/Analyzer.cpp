@@ -4,6 +4,7 @@
 #include "../Read.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <array>
 #include <bit>
@@ -56,37 +57,6 @@ namespace
             rounded = std::copysign(0.0F, scaled);
         }
         return rounded / scale;
-    }
-
-    [[nodiscard]] std::string FloatString(float value)
-    {
-        if (std::isnan(value))
-        {
-            return "NaN";
-        }
-        if (std::isinf(value))
-        {
-            return std::signbit(value) ? "-Infinity" : "Infinity";
-        }
-
-        std::array<char, 64> buffer{};
-        const auto result = std::to_chars(
-            buffer.data(), buffer.data() + buffer.size(),
-            value, std::chars_format::general);
-        if (result.ec != std::errc{})
-        {
-            std::ostringstream stream;
-            stream << value;
-            return stream.str();
-        }
-
-        std::string text(buffer.data(), result.ptr);
-        const std::size_t exponent = text.find('e');
-        if (exponent != std::string::npos)
-        {
-            text[exponent] = 'E';
-        }
-        return text;
     }
 
     [[nodiscard]] std::string HexX2(std::uint32_t value)
@@ -200,7 +170,7 @@ namespace MphRead::Utility
         const std::span<const std::uint8_t> bytes(storage);
         const std::uint32_t elapsed = Read::SpanReadUint(bytes, _elapsedGlobal);
         const float time = static_cast<float>(elapsed) / 4096.0F;
-        std::cout << FloatString(RoundToEven3(time)) << '\n';
+        std::cout << ::MphRead::NativeRuntime::ToString(RoundToEven3(time)) << '\n';
 
         const EffectElementEntry head = Read::DoOffset<EffectElementEntry>(bytes, _elemList);
         std::uint32_t offset = static_cast<std::uint32_t>(head.Prev) - _fileOffset;
@@ -233,7 +203,7 @@ namespace MphRead::Utility
             const float expiration = RoundToEven3(
                 static_cast<float>(entry.ExpirationTime / 4096));
             std::cout << "0x" << HexX2(offset) << ' '
-                << FloatString(creation) << " - " << FloatString(expiration)
+                << ::MphRead::NativeRuntime::ToString(creation) << " - " << ::MphRead::NativeRuntime::ToString(expiration)
                 << " x" << particles.size() << " (" << elem.NameString() << ")\n";
 
             std::cout << " -- ";
@@ -243,7 +213,7 @@ namespace MphRead::Utility
                 {
                     std::cout << ", ";
                 }
-                std::cout << FloatString(RoundToEven3(particles[index].Rotation.FloatValue()));
+                std::cout << ::MphRead::NativeRuntime::ToString(RoundToEven3(particles[index].Rotation.FloatValue()));
             }
             std::cout << '\n';
 
@@ -253,9 +223,9 @@ namespace MphRead::Utility
         std::cout << '\n';
         for (const EffectElementEntry& entry : entries)
         {
-            std::cout << FloatString(entry.Position.X.FloatValue()) << ", "
-                << FloatString(entry.Position.Y.FloatValue()) << ", "
-                << FloatString(entry.Position.Z.FloatValue()) << '\n';
+            std::cout << ::MphRead::NativeRuntime::ToString(entry.Position.X.FloatValue()) << ", "
+                << ::MphRead::NativeRuntime::ToString(entry.Position.Y.FloatValue()) << ", "
+                << ::MphRead::NativeRuntime::ToString(entry.Position.Z.FloatValue()) << '\n';
             std::cout << '\n';
 
             const std::shared_ptr<std::vector<EffectParticle>>& particles = effParts->at(entry);
@@ -266,12 +236,12 @@ namespace MphRead::Utility
                 const float age = time - creation;
                 const float lifespan = expiration - creation;
                 const float percent = age / lifespan;
-                std::cout << FloatString(RoundToEven3(percent * 100.0F)) << "%\n";
-                std::cout << FloatString(particle.Position.X.FloatValue()) << ", "
-                    << FloatString(particle.Position.Y.FloatValue()) << ", "
-                    << FloatString(particle.Position.Z.FloatValue()) << '\n';
-                std::cout << FloatString(particle.Scale.FloatValue()) << '\n';
-                std::cout << FloatString(particle.Rotation.FloatValue()) << '\n';
+                std::cout << ::MphRead::NativeRuntime::ToString(RoundToEven3(percent * 100.0F)) << "%\n";
+                std::cout << ::MphRead::NativeRuntime::ToString(particle.Position.X.FloatValue()) << ", "
+                    << ::MphRead::NativeRuntime::ToString(particle.Position.Y.FloatValue()) << ", "
+                    << ::MphRead::NativeRuntime::ToString(particle.Position.Z.FloatValue()) << '\n';
+                std::cout << ::MphRead::NativeRuntime::ToString(particle.Scale.FloatValue()) << '\n';
+                std::cout << ::MphRead::NativeRuntime::ToString(particle.Rotation.FloatValue()) << '\n';
                 std::cout << '\n';
             }
             std::cout << "-----------------------------------\n";

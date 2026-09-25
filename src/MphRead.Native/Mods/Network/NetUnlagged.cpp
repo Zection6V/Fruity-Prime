@@ -6,6 +6,7 @@
 #include "../../Metadata/Weapons.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -23,17 +24,6 @@ using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedIncrement;
 using ::MphRead::TestFlag;
-
-namespace
-{
-    [[nodiscard]] std::string FixedText(double value, std::int32_t digits)
-    {
-        std::ostringstream stream;
-        stream.imbue(std::locale(""));
-        stream << std::fixed << std::setprecision(digits) << value;
-        return stream.str();
-    }
-}
 
 namespace MphRead::Mods::Network::Detail
 {
@@ -330,8 +320,8 @@ namespace MphRead::Mods::Network
         const double mean = static_cast<double>(_framesRewound)
             / static_cast<double>(_shotsCompensated);
         return "lag compensation: " + std::to_string(_shotsCompensated)
-            + " shots rewound, mean " + FixedText(mean, 1)
-            + " frames (" + FixedText(mean * 1000.0 / 60.0, 0)
+            + " shots rewound, mean " + ::MphRead::NativeRuntime::ToString(mean, "F1")
+            + " frames (" + ::MphRead::NativeRuntime::ToString(mean * 1000.0 / 60.0, "F0")
             + " ms), worst " + std::to_string(_worstRewind)
             + ", catch-up " + std::to_string(_catchUpSteps)
             + " steps / " + std::to_string(_catchUpHits)

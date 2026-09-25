@@ -14,6 +14,7 @@
 #include "../NativeRuntime/System/Encoding.hpp"
 #include "../NativeRuntime/System/ExceptionText.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <array>
 #include <bit>
@@ -511,7 +512,6 @@ namespace
             return 0;
         }
 
-
     [[nodiscard]] std::locale CurrentUserLocale()
     {
         try
@@ -522,14 +522,6 @@ namespace
         {
             return std::locale::classic();
         }
-    }
-
-    [[nodiscard]] std::string FixedTwo(double value)
-    {
-        std::ostringstream stream;
-        stream.imbue(CurrentUserLocale());
-        stream << std::fixed << std::setprecision(2) << value;
-        return stream.str();
     }
 
     [[nodiscard]] std::string EntryAssemblyVersion()
@@ -926,7 +918,7 @@ namespace MphRead::Mods
             const double seconds = std::chrono::duration<double>(
                 std::chrono::steady_clock::now() - started).count();
             std::cout << first
-                      << "  " << FixedTwo(seconds) << "s" << std::endl;
+                      << "  " << ::MphRead::NativeRuntime::ToString(seconds, "0.00") << "s" << std::endl;
         }
         return captured;
     }

@@ -9,6 +9,7 @@
 #include "NetSession.hpp"
 #include "../../Formats/Types.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <array>
@@ -27,153 +28,12 @@
 #define NOMINMAX
 #include <windows.h>
 #else
-#include <langinfo.h>
-#include <locale.h>
 #endif
 
 using ::MphRead::NativeRuntime::HasFlag;
 using ::MphRead::NativeRuntime::IncrementInPlace;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedSubtract;
-
-namespace
-{
-    [[nodiscard]] std::string CurrentCultureDecimalSeparator()
-    {
-#if defined(_WIN32)
-        wchar_t buffer[16]{};
-        const int length = GetLocaleInfoEx(
-            LOCALE_NAME_USER_DEFAULT, LOCALE_SDECIMAL, buffer,
-            static_cast<int>(sizeof(buffer) / sizeof(buffer[0])));
-        if (length <= 1)
-        {
-            return ".";
-        }
-        const int utf8Length = WideCharToMultiByte(
-            CP_UTF8, 0, buffer, length - 1, nullptr, 0, nullptr, nullptr);
-        if (utf8Length <= 0)
-        {
-            return ".";
-        }
-        std::string result(static_cast<std::size_t>(utf8Length), '\0');
-        WideCharToMultiByte(
-            CP_UTF8, 0, buffer, length - 1, result.data(), utf8Length, nullptr, nullptr);
-        return result;
-#else
-#if defined(__ANDROID__)
-        const lconv* locale = ::localeconv();
-        const char* separator = locale != nullptr ? locale->decimal_point : nullptr;
-        return separator != nullptr && separator[0] != '\0' ? separator : ".";
-#else
-        locale_t locale = newlocale(LC_NUMERIC_MASK, "", nullptr);
-        if (locale == static_cast<locale_t>(0))
-        {
-            return ".";
-        }
-        const char* separator = nl_langinfo_l(RADIXCHAR, locale);
-        std::string result = separator != nullptr && separator[0] != '\0'
-            ? separator
-            : ".";
-        freelocale(locale);
-        return result;
-#endif
-#endif
-    }
-
-    [[nodiscard]] std::string CurrentCultureNegativeSign()
-    {
-#if defined(_WIN32)
-        wchar_t buffer[16]{};
-        const int length = GetLocaleInfoEx(
-            LOCALE_NAME_USER_DEFAULT, LOCALE_SNEGATIVESIGN, buffer,
-            static_cast<int>(sizeof(buffer) / sizeof(buffer[0])));
-        if (length <= 1)
-        {
-            return "-";
-        }
-        const int utf8Length = WideCharToMultiByte(
-            CP_UTF8, 0, buffer, length - 1, nullptr, 0, nullptr, nullptr);
-        if (utf8Length <= 0)
-        {
-            return "-";
-        }
-        std::string result(static_cast<std::size_t>(utf8Length), '\0');
-        WideCharToMultiByte(
-            CP_UTF8, 0, buffer, length - 1, result.data(), utf8Length, nullptr, nullptr);
-        return result;
-#else
-#if defined(__ANDROID__)
-        const lconv* locale = ::localeconv();
-        const char* sign = locale != nullptr ? locale->negative_sign : nullptr;
-        return sign != nullptr && sign[0] != '\0' ? sign : "-";
-#else
-        locale_t locale = newlocale(LC_MONETARY_MASK, "", nullptr);
-        if (locale == static_cast<locale_t>(0))
-        {
-            return "-";
-        }
-#if defined(NEGATIVE_SIGN)
-        const char* sign = nl_langinfo_l(NEGATIVE_SIGN, locale);
-        std::string result = sign != nullptr && sign[0] != '\0' ? sign : "-";
-#else
-        std::string result = "-";
-#endif
-        freelocale(locale);
-        return result;
-#endif
-#endif
-    }
-
-    [[nodiscard]] std::string UInt64ToDigits(std::uint64_t value)
-    {
-        std::array<char, 32> buffer{};
-        const auto converted = std::to_chars(
-            buffer.data(), buffer.data() + buffer.size(), value);
-        if (converted.ec != std::errc{})
-        {
-            throw std::runtime_error("Integer formatting failed.");
-        }
-        return std::string(buffer.data(), converted.ptr);
-    }
-
-    [[nodiscard]] std::string Int64ToCurrentCulture(std::int64_t value)
-    {
-        const std::uint64_t bits = static_cast<std::uint64_t>(value);
-        if (value >= 0)
-        {
-            return UInt64ToDigits(bits);
-        }
-        const std::uint64_t magnitude = 0ULL - bits;
-        return CurrentCultureNegativeSign() + UInt64ToDigits(magnitude);
-    }
-
-    [[nodiscard]] std::string FormatDoubleF1(double value)
-    {
-        const bool negative = std::signbit(value);
-        const double magnitude = std::fabs(value);
-
-        std::array<char, 128> buffer{};
-        const auto converted = std::to_chars(
-            buffer.data(), buffer.data() + buffer.size(), magnitude,
-            std::chars_format::fixed, 1);
-        if (converted.ec != std::errc{})
-        {
-            throw std::runtime_error("Double formatting failed.");
-        }
-
-        std::string result(buffer.data(), converted.ptr);
-        const std::size_t point = result.find('.');
-        if (point != std::string::npos)
-        {
-            result.replace(point, 1, CurrentCultureDecimalSeparator());
-        }
-        if (negative)
-        {
-            result.insert(0, CurrentCultureNegativeSign());
-        }
-        return result;
-    }
-}
 
 namespace MphRead::Mods::Network
 {
@@ -723,17 +583,17 @@ namespace MphRead::Mods::Network
             if (_selfPredicted > 0)
             {
                 own = ", ";
-                own += Int64ToCurrentCulture(_selfPredicted);
+                own += ::MphRead::NativeRuntime::ToString(_selfPredicted);
                 own += " self-hits predicted (";
-                own += Int64ToCurrentCulture(_selfConfirmed);
+                own += ::MphRead::NativeRuntime::ToString(_selfConfirmed);
                 own += " confirmed, ";
-                own += Int64ToCurrentCulture(_selfDeathsPredicted);
+                own += ::MphRead::NativeRuntime::ToString(_selfDeathsPredicted);
                 own += " of them lethal)";
             }
 
             std::string result
                 = "hit prediction: on, nothing predicted here (";
-            result += Int64ToCurrentCulture(_unpredicted);
+            result += ::MphRead::NativeRuntime::ToString(_unpredicted);
             result += " hits arrived from the authority)";
             result += own;
             return result;
@@ -746,21 +606,21 @@ namespace MphRead::Mods::Network
         std::string deaths;
         if (_deathEnabled)
         {
-            deaths = Int64ToCurrentCulture(_deathsPredicted);
+            deaths = ::MphRead::NativeRuntime::ToString(_deathsPredicted);
             deaths += " kills predicted, ";
-            deaths += Int64ToCurrentCulture(_deathsUndone);
+            deaths += ::MphRead::NativeRuntime::ToString(_deathsUndone);
             deaths += " undone";
         }
         else
         {
-            deaths = Int64ToCurrentCulture(_lethalHeld);
+            deaths = ::MphRead::NativeRuntime::ToString(_lethalHeld);
             deaths += " kills left to the authority";
         }
 
         if (_selfDeathsPredicted > 0)
         {
             deaths += ", ";
-            deaths += Int64ToCurrentCulture(_selfDeathsPredicted);
+            deaths += ::MphRead::NativeRuntime::ToString(_selfDeathsPredicted);
             deaths += " self-kills predicted";
         }
 
@@ -768,7 +628,7 @@ namespace MphRead::Mods::Network
         if (_drainPredicted > 0)
         {
             drain = ", ";
-            drain += Int64ToCurrentCulture(_drainPredicted);
+            drain += ::MphRead::NativeRuntime::ToString(_drainPredicted);
             drain += " health drained ahead";
         }
 
@@ -776,22 +636,22 @@ namespace MphRead::Mods::Network
         if (_selfPredicted > 0)
         {
             self = ", ";
-            self += Int64ToCurrentCulture(_selfPredicted);
+            self += ::MphRead::NativeRuntime::ToString(_selfPredicted);
             self += " self-hits predicted (";
-            self += Int64ToCurrentCulture(_selfConfirmed);
+            self += ::MphRead::NativeRuntime::ToString(_selfConfirmed);
             self += " confirmed)";
         }
 
         std::string result = "hit prediction: ";
-        result += Int64ToCurrentCulture(_predicted);
+        result += ::MphRead::NativeRuntime::ToString(_predicted);
         result += " predicted, ";
-        result += Int64ToCurrentCulture(_confirmed);
+        result += ::MphRead::NativeRuntime::ToString(_confirmed);
         result += " confirmed (";
-        result += FormatDoubleF1(agreed);
+        result += ::MphRead::NativeRuntime::ToString(agreed, "F1");
         result += "%), ";
-        result += Int64ToCurrentCulture(_denied);
+        result += ::MphRead::NativeRuntime::ToString(_denied);
         result += " denied, ";
-        result += Int64ToCurrentCulture(_unpredicted);
+        result += ::MphRead::NativeRuntime::ToString(_unpredicted);
         result += " unpredicted, ";
         result += deaths;
         result += drain;

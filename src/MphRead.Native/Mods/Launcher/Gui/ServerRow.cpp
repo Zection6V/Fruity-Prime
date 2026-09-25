@@ -1,6 +1,7 @@
 #include "ServerRow.hpp"
 #include "../../../NativeRuntime/System/Encoding.hpp"
 #include "../../../NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <array>
@@ -20,21 +21,6 @@ using ::MphRead::NativeRuntime::Utf8ToUtf16;
 namespace
 {
     using namespace MphRead::Mods::Launcher::Gui;
-
-    [[nodiscard]] std::u16string InvariantInt32(std::int32_t value)
-    {
-        std::array<char, 16> buffer{};
-        const auto result = std::to_chars(
-            buffer.data(), buffer.data() + buffer.size(), value);
-        std::u16string text;
-        text.reserve(static_cast<std::size_t>(result.ptr - buffer.data()));
-        for (const char* current = buffer.data(); current != result.ptr; ++current)
-        {
-            text.push_back(static_cast<char16_t>(
-                static_cast<unsigned char>(*current)));
-        }
-        return text;
-    }
 
     [[nodiscard]] std::optional<std::u16string_view> ViewOf(
         const ServerRowStringRef& text) noexcept
@@ -341,12 +327,12 @@ namespace MphRead::Mods::Launcher::Gui
         }
         else
         {
-            _players = InvariantInt32(status.Players);
+            _players = ::MphRead::NativeRuntime::Utf8ToUtf16(::MphRead::NativeRuntime::ToStringInvariant(status.Players));
         }
 
         if (status.Latency >= 0)
         {
-            _ping = InvariantInt32(status.Latency);
+            _ping = ::MphRead::NativeRuntime::Utf8ToUtf16(::MphRead::NativeRuntime::ToStringInvariant(status.Latency));
             _pingBrush = status.Latency < 80
                 ? &GuiTheme::GoodBrush
                 : status.Latency < 160

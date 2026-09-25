@@ -37,6 +37,12 @@ namespace MphRead::NativeRuntime
     void ConsoleReadKeyIntercept();
     // Console.IsInputRedirected.
     [[nodiscard]] bool ConsoleIsInputRedirected();
+    // Console.ReadLine(): one line without its terminator, or null at the end
+    // of the input. A console on Windows is read as UTF-16, so typed text
+    // keeps every character; redirected input is UTF-8.
+    [[nodiscard]] std::optional<std::string> ConsoleReadLine();
+    // Console.Clear(): IOException when there is no console to clear.
+    void ConsoleClear();
 
     // Environment.GetEnvironmentVariable(name): null when it is not set.
     [[nodiscard]] std::optional<std::string> EnvironmentGetVariable(const std::string& name);

@@ -10,6 +10,7 @@
 #include "../../../NativeRuntime/System/IO.hpp"
 #include "../../../NativeRuntime/System/Globalization.hpp"
 #include "../../../NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 using ::MphRead::NativeRuntime::Int32TryParseCurrentCulture;
 using ::MphRead::NativeRuntime::MathClamp;
@@ -31,16 +32,6 @@ namespace
         return value >= '0' && value <= '9';
     }
 
-    [[nodiscard]] std::string FormatInt32(std::int32_t value)
-    {
-        char buffer[16];
-        const auto [end, error] = std::to_chars(buffer, buffer + sizeof(buffer), value);
-        if (error != std::errc{})
-        {
-            throw std::runtime_error("failed to format Int32");
-        }
-        return std::string(buffer, end);
-    }
 }
 
 namespace MphRead::Mods::Launcher
@@ -85,7 +76,7 @@ namespace MphRead::Mods::Launcher
                 _previewStart,
                 1,
                 1,
-                "Rendering map previews (" + FormatInt32(done) + "/" + FormatInt32(total) + ")");
+                "Rendering map previews (" + ::MphRead::NativeRuntime::ToString(done) + "/" + ::MphRead::NativeRuntime::ToString(total) + ")");
             return Set(
                 _previewStart + (1 - _previewStart) * static_cast<double>(done) / static_cast<double>(total),
                 _band.Stage);
@@ -196,7 +187,7 @@ namespace MphRead::Mods::Launcher
         text.append("] ");
 
         const std::int32_t percent = static_cast<std::int32_t>(RoundToEven(_fraction * 100));
-        const std::string percentText = FormatInt32(percent);
+        const std::string percentText = ::MphRead::NativeRuntime::ToString(percent);
         if (percentText.size() < 3)
         {
             text.append(3 - percentText.size(), ' ');

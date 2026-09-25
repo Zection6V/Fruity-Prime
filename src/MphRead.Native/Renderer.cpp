@@ -70,7 +70,6 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <bit>
-#include <clocale>
 #include <charconv>
 #include <cmath>
 #include <condition_variable>
@@ -827,12 +826,10 @@ namespace MphRead
             GL::Enable(GL::EnableCap::DepthTest);
             GL::Enable(GL::EnableCap::Texture2D);
             GL::DepthFunc(GL::DepthFunction::Lequal);
-            std::ostringstream celEdge;
-            celEdge.imbue(std::locale::classic());
-            celEdge << std::fixed << std::setprecision(2) << Mods::RenderOptions::CelEdge();
             std::cout << "[render] cel shading " << (Mods::RenderOptions::CelShading() ? "on" : "off")
                 << ", " << Mods::RenderOptions::CelBands() << " bands, outline "
-                << celEdge.str() << ", fog " << BoolOnOff(Mods::RenderOptions::Fog()) << '\n';
+                << NativeRuntime::ToStringInvariant(Mods::RenderOptions::CelEdge(), "0.00")
+                << ", fog " << BoolOnOff(Mods::RenderOptions::Fog()) << '\n';
             InitShaders();
         }
         AllocateEffects();
@@ -2034,11 +2031,11 @@ namespace MphRead
         const char* howBad = ratio < 2.0F ? "which is what the buffer stores"
             : ratio < 64.0F ? "which is coarser than it stores, and the ink threshold rises to match"
             : "which is far coarser than it stores; only strong creases and silhouettes will ink";
-        std::cout << std::scientific << std::setprecision(7)
-            << "[render] cel outline: a flat surface's depth is off by " << measured
-            << " here, " << std::fixed << std::setprecision(1) << ratio << "x the "
-            << std::scientific << std::setprecision(7) << _claimedQuantum << " the driver stores -- "
-            << howBad << ".\n" << std::defaultfloat;
+        std::cout << "[render] cel outline: a flat surface's depth is off by "
+            << NativeRuntime::ToStringInvariant(measured, "0.#######e+0") << " here, "
+            << NativeRuntime::ToStringInvariant(ratio, "0.#") << "x the "
+            << NativeRuntime::ToStringInvariant(_claimedQuantum, "0.#######e+0")
+            << " the driver stores -- " << howBad << ".\n";
     }
 
     float Scene::FramesPerSecond() const noexcept { return _framesPerSecond; }
@@ -4932,7 +4929,7 @@ namespace MphRead
             const std::string output = OutputGetAll();
             if (output != _currentOutput)
             {
-                RendererPlatform::ConsoleClear();
+                NativeRuntime::ConsoleClear();
                 ::MphRead::NativeRuntime::ConsoleWriteLine(output);
                 _currentOutput = output;
             }
@@ -4943,9 +4940,9 @@ namespace MphRead
 
     void Scene::OutputLoadPrompt()
     {
-        RendererPlatform::ConsoleClear();
+        NativeRuntime::ConsoleClear();
         ::MphRead::NativeRuntime::ConsoleWrite("Enter model name: ");
-        std::string line = RendererPlatform::ConsoleReadLine().value_or(std::string{});
+        std::string line = NativeRuntime::ConsoleReadLine().value_or(std::string{});
         auto trim = [](std::string value)
         {
             const auto first = value.find_first_not_of(" \t\r\n");
@@ -4996,10 +4993,10 @@ namespace MphRead
 
     void Scene::OutputCameraPrompt()
     {
-        RendererPlatform::ConsoleClear();
+        NativeRuntime::ConsoleClear();
         ::MphRead::NativeRuntime::ConsoleWrite("Enter camera position: ");
         std::string line = NativeRuntime::StringTrim(
-            RendererPlatform::ConsoleReadLine().value_or(std::string{}));
+            NativeRuntime::ConsoleReadLine().value_or(std::string{}));
         line.erase(std::remove(line.begin(), line.end(), ','), line.end());
         std::vector<std::string> input;
         std::size_t start = 0;
@@ -5886,10 +5883,8 @@ namespace MphRead
             auto clip = Mods::Network::DemoClip::Save();
             if (clip.has_value())
             {
-                std::ostringstream line;
-                line << "saved the last " << std::fixed << std::setprecision(0) << held << " s to "
-                    << NativeRuntime::PathGetFileName(*clip);
-                Mods::Chat::ChatBox::System(line.str());
+                Mods::Chat::ChatBox::System("saved the last " + NativeRuntime::ToString(held, "0") + " s to "
+                    + NativeRuntime::PathGetFileName(*clip));
             }
             else
             {

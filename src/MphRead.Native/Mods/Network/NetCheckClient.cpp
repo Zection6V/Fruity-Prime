@@ -24,6 +24,7 @@
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <array>
@@ -55,13 +56,6 @@ namespace
     using MphRead::Entities::PlayerFlags2;
     using MphRead::Mods::Network::TestPhase;
     using OpenTK::Mathematics::Vector3;
-
-    [[nodiscard]] std::string FormatFixed(double value, std::int32_t digits)
-    {
-        std::ostringstream stream;
-        stream << std::fixed << std::setprecision(digits) << value;
-        return stream.str();
-    }
 
     [[nodiscard]] std::string TwoDigits(std::int32_t value)
     {
@@ -705,8 +699,8 @@ namespace MphRead::Mods::Network
     {
         std::cout
             << "  ran " << _frame << " frame(s) in "
-            << FormatFixed(ElapsedSeconds(), 1) << " s -- "
-            << FormatFixed(FramesPerSecond(), 1) << " fps\n";
+            << ::MphRead::NativeRuntime::ToString(ElapsedSeconds(), "0.0") << " s -- "
+            << ::MphRead::NativeRuntime::ToString(FramesPerSecond(), "0.0") << " fps\n";
         const std::int32_t local = std::max(NetSession::LocalSlot(), 0);
         std::cout << '\n';
         std::cout << "=== " << _name << ": what this client saw ===\n";
@@ -767,14 +761,12 @@ namespace MphRead::Mods::Network
             std::cout
                 << "  server silence: " << NetSession::ReAnnouncements()
                 << " re-announce(s), longest gap "
-                << FormatFixed(NetSession::LongestServerSilence(), 1)
+                << ::MphRead::NativeRuntime::ToString(NetSession::LongestServerSilence(), "0.0")
                 << " s of engine time ("
-                << FormatFixed(
-                    NetSession::LongestServerSilence() * 60.0
-                        / std::max(FramesPerSecond(), 1.0),
-                    1)
+                << ::MphRead::NativeRuntime::ToString(NetSession::LongestServerSilence() * 60.0
+                        / std::max(FramesPerSecond(), 1.0), "0.0")
                 << " s of wall clock at this client's "
-                << FormatFixed(FramesPerSecond(), 0) << " fps), "
+                << ::MphRead::NativeRuntime::ToString(FramesPerSecond(), "0") << " fps), "
                 << NetSession::AuthorityStandDowns() << " authority stand-down(s)\n";
         }
         if (pings.tellp() > 0)
@@ -804,9 +796,9 @@ namespace MphRead::Mods::Network
                 << "spawned="
                 << (TestFlag(player->LoadFlags(), LoadFlags::Spawned) ? "y" : "n") << ' '
                 << "hp=" << PadRightManaged(std::to_string(player->Health()), 4) << ' '
-                << "pos=(" << FormatFixed(player->Position.X, 1)
-                << ',' << FormatFixed(player->Position.Y, 1)
-                << ',' << FormatFixed(player->Position.Z, 1) << ")\n";
+                << "pos=(" << ::MphRead::NativeRuntime::ToString(player->Position.X, "0.0")
+                << ',' << ::MphRead::NativeRuntime::ToString(player->Position.Y, "0.0")
+                << ',' << ::MphRead::NativeRuntime::ToString(player->Position.Z, "0.0") << ")\n";
         }
 
         std::cout << "  my player: ";
@@ -846,7 +838,7 @@ namespace MphRead::Mods::Network
                 << " (authority said alt form on " << view.AltFormWantedFrames
                 << ", disagreed on " << view.AltFormDisagreeFrames << ")\n";
             std::cout
-                << "    moved " << FormatFixed(view.Travelled, 1) << " units over "
+                << "    moved " << ::MphRead::NativeRuntime::ToString(view.Travelled, "0.0") << " units over "
                 << view.DistinctPositions << " distinct position(s); I saw them hit "
                 << view.Hits << " time(s), killed " << view.Deaths
                 << " time(s), lowest health "
@@ -885,7 +877,7 @@ namespace MphRead::Mods::Network
                 << OptionalInterpolation(_shotDirectory)
                 << ", of which " << _duelShots
                 << " with an opponent in view, busiest frame "
-                << FormatFixed(_litFraction * 100.0, 1) << "% lit\n";
+                << ::MphRead::NativeRuntime::ToString(_litFraction * 100.0, "0.0") << "% lit\n";
         }
         std::int32_t featureFailures = 0;
         const bool featuresOk = _features->Report(featureFailures);
@@ -984,7 +976,7 @@ namespace MphRead::Mods::Network
             const std::optional<std::string> first = DemoClip::Save();
             std::cout
                 << "[netcheck] " << name << " clip held "
-                << FormatFixed(held, 1) << " s, "
+                << ::MphRead::NativeRuntime::ToString(held, "0.0") << " s, "
                 << (first.has_value() ? *first : std::string("nothing saved")) << '\n';
             const std::optional<std::string> second = DemoClip::Save();
             std::cout

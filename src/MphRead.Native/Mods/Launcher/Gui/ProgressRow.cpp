@@ -6,6 +6,7 @@
 #include <string>
 #include "../../../NativeRuntime/System/IO.hpp"
 #include "../../../NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::RoundToEven;
@@ -42,13 +43,6 @@ namespace
         return static_cast<std::int32_t>(value);
     }
 
-    [[nodiscard]] std::string FormatInt32Invariant(std::int32_t value)
-    {
-        char buffer[16];
-        const auto result = std::to_chars(buffer, buffer + sizeof(buffer), value);
-        return std::string(buffer, result.ptr);
-    }
-
 }
 
 namespace MphRead::Mods::Launcher::Gui
@@ -80,7 +74,7 @@ namespace MphRead::Mods::Launcher::Gui
         context.DrawText(stage, ProgressRowPoint{0.0, 2.0});
 
         const std::int32_t percentValue = DoubleToInt32(RoundToEven(_fraction * 100.0));
-        const std::string percent = FormatInt32Invariant(percentValue) + "%";
+        const std::string percent = ::MphRead::NativeRuntime::ToStringInvariant(percentValue) + "%";
         const ProgressRowFormattedText number = context.CreateFormattedText(percent,
             ProgressRowCulture::Invariant, ProgressRowFlowDirection::LeftToRight,
             ProgressRowFace::FaceTrue, 12.0, ProgressRowBrush::TextBrush);

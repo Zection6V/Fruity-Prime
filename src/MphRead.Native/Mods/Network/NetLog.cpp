@@ -12,6 +12,7 @@
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/System/Runtime.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <array>
 #include <cerrno>
@@ -86,83 +87,6 @@ namespace
     }
 #endif
 
-    [[nodiscard]] std::string DecimalSeparator()
-    {
-#if defined(_WIN32)
-        return LocaleInfoUtf8(LOCALE_SDECIMAL, ".");
-#else
-#if defined(__ANDROID__)
-        const lconv* locale = ::localeconv();
-        const char* value = locale != nullptr ? locale->decimal_point : nullptr;
-        return value != nullptr && value[0] != '\0' ? value : ".";
-#else
-        locale_t locale = newlocale(LC_NUMERIC_MASK, "", nullptr);
-        if (locale == static_cast<locale_t>(0))
-        {
-            return ".";
-        }
-        const char* value = nl_langinfo_l(RADIXCHAR, locale);
-        std::string result = value != nullptr && value[0] != '\0' ? value : ".";
-        freelocale(locale);
-        return result;
-#endif
-#endif
-    }
-
-    [[nodiscard]] std::string NegativeSign()
-    {
-#if defined(_WIN32)
-        return LocaleInfoUtf8(LOCALE_SNEGATIVESIGN, "-");
-#else
-#if defined(__ANDROID__)
-        const lconv* locale = ::localeconv();
-        const char* value = locale != nullptr ? locale->negative_sign : nullptr;
-        return value != nullptr && value[0] != '\0' ? value : "-";
-#else
-        locale_t locale = newlocale(LC_MONETARY_MASK, "", nullptr);
-        if (locale == static_cast<locale_t>(0))
-        {
-            return "-";
-        }
-#if defined(NEGATIVE_SIGN)
-        const char* value = nl_langinfo_l(NEGATIVE_SIGN, locale);
-        std::string result = value != nullptr && value[0] != '\0' ? value : "-";
-#else
-        std::string result = "-";
-#endif
-        freelocale(locale);
-        return result;
-#endif
-#endif
-    }
-
-    [[nodiscard]] std::string NaNSymbol()
-    {
-#if defined(_WIN32) && defined(LOCALE_SNAN)
-        return LocaleInfoUtf8(LOCALE_SNAN, "NaN");
-#else
-        return "NaN";
-#endif
-    }
-
-    [[nodiscard]] std::string PositiveInfinitySymbol()
-    {
-#if defined(_WIN32) && defined(LOCALE_SPOSINFINITY)
-        return LocaleInfoUtf8(LOCALE_SPOSINFINITY, "\xE2\x88\x9E");
-#else
-        return "\xE2\x88\x9E";
-#endif
-    }
-
-    [[nodiscard]] std::string NegativeInfinitySymbol()
-    {
-#if defined(_WIN32) && defined(LOCALE_SNEGINFINITY)
-        return LocaleInfoUtf8(LOCALE_SNEGINFINITY, NegativeSign() + "\xE2\x88\x9E");
-#else
-        return NegativeSign() + "\xE2\x88\x9E";
-#endif
-    }
-
     [[nodiscard]] std::string TimeSeparator()
     {
 #if defined(_WIN32)
@@ -222,79 +146,6 @@ namespace
 #endif
 #endif
     }
-
-    [[nodiscard]] std::string Int32Text(std::int32_t value)
-    {
-        std::array<char, 32> buffer{};
-        const auto converted = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
-        if (converted.ec != std::errc{})
-        {
-            throw std::runtime_error("Int32 formatting failed.");
-        }
-        std::string result(buffer.data(), converted.ptr);
-        if (!result.empty() && result[0] == '-')
-        {
-            result.erase(result.begin());
-            result.insert(0, NegativeSign());
-        }
-        return result;
-    }
-
-    [[nodiscard]] std::string UInt16Text(std::uint16_t value)
-    {
-        std::array<char, 16> buffer{};
-        const auto converted = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
-        if (converted.ec != std::errc{})
-        {
-            throw std::runtime_error("UInt16 formatting failed.");
-        }
-        return std::string(buffer.data(), converted.ptr);
-    }
-
-    [[nodiscard]] std::string ByteText(std::uint8_t value)
-    {
-        std::array<char, 8> buffer{};
-        const auto converted = std::to_chars(
-            buffer.data(), buffer.data() + buffer.size(), static_cast<unsigned int>(value));
-        if (converted.ec != std::errc{})
-        {
-            throw std::runtime_error("Byte formatting failed.");
-        }
-        return std::string(buffer.data(), converted.ptr);
-    }
-
-    [[nodiscard]] std::string FixedText(float value, int decimals)
-    {
-        if (std::isnan(value))
-        {
-            return NaNSymbol();
-        }
-        if (std::isinf(value))
-        {
-            return std::signbit(value) ? NegativeInfinitySymbol() : PositiveInfinitySymbol();
-        }
-        std::array<char, 96> buffer{};
-        const auto converted = std::to_chars(
-            buffer.data(), buffer.data() + buffer.size(), value,
-            std::chars_format::fixed, decimals);
-        if (converted.ec != std::errc{})
-        {
-            throw std::runtime_error("Single formatting failed.");
-        }
-        std::string result(buffer.data(), converted.ptr);
-        if (!result.empty() && result[0] == '-')
-        {
-            result.erase(result.begin());
-            result.insert(0, NegativeSign());
-        }
-        const std::size_t point = result.find('.');
-        if (point != std::string::npos)
-        {
-            result.replace(point, 1, DecimalSeparator());
-        }
-        return result;
-    }
-
 
     [[nodiscard]] std::string AlignLeft(std::string text, std::size_t width)
     {
@@ -524,21 +375,21 @@ namespace MphRead::Mods::Network
         std::string message = "collision ";
         message += label;
         message += " slot=";
-        message += Int32Text(slot);
+        message += ::MphRead::NativeRuntime::ToString(slot);
         message += " prev=(";
-        message += FixedText(prev.X, 2);
+        message += ::MphRead::NativeRuntime::ToString(prev.X, "0.00");
         message += ",";
-        message += FixedText(prev.Y, 2);
+        message += ::MphRead::NativeRuntime::ToString(prev.Y, "0.00");
         message += ",";
-        message += FixedText(prev.Z, 2);
+        message += ::MphRead::NativeRuntime::ToString(prev.Z, "0.00");
         message += ") cur=(";
-        message += FixedText(current.X, 2);
+        message += ::MphRead::NativeRuntime::ToString(current.X, "0.00");
         message += ",";
-        message += FixedText(current.Y, 2);
+        message += ::MphRead::NativeRuntime::ToString(current.Y, "0.00");
         message += ",";
-        message += FixedText(current.Z, 2);
+        message += ::MphRead::NativeRuntime::ToString(current.Z, "0.00");
         message += ") delta=";
-        message += FixedText(delta, 2);
+        message += ::MphRead::NativeRuntime::ToString(delta, "0.00");
         Event(message);
     }
 
@@ -571,30 +422,30 @@ namespace MphRead::Mods::Network
         state += "] STATE  role=";
         state += ToString(NetSession::Role());
         state += " slot=";
-        state += Int32Text(NetSession::LocalSlot());
+        state += ::MphRead::NativeRuntime::ToString(NetSession::LocalSlot());
         state += " authority=";
         state += NetSession::IsAuthority() ? "True" : "False";
         state += " main=";
-        state += Int32Text(Entities::PlayerEntity::MainPlayerIndex());
+        state += ::MphRead::NativeRuntime::ToString(Entities::PlayerEntity::MainPlayerIndex());
         state += " mode=";
         state += ::MphRead::ToString(GameState::Mode());
         state += " matchTime=";
-        state += FixedText(GameState::MatchTime(), 1);
+        state += ::MphRead::NativeRuntime::ToString(GameState::MatchTime(), "0.0");
         state += " matchState=";
         state += ::MphRead::ToString(GameState::MatchState());
         state += " goal=";
-        state += Int32Text(GameState::PointGoal());
+        state += ::MphRead::NativeRuntime::ToString(GameState::PointGoal());
         state += " ";
 
         const std::optional<MatchStatePacket> match = NetSession::ServerMatch();
         if (match.has_value())
         {
             state += "serverTime=";
-            state += FixedText(match->TimeRemaining, 1);
+            state += ::MphRead::NativeRuntime::ToString(match->TimeRemaining, "0.0");
             state += " serverMap=";
             state += NullableText(match->RoomKey);
             state += " serverPeers=";
-            state += ByteText(match->PlayerCount);
+            state += ::MphRead::NativeRuntime::ToString(match->PlayerCount);
             state += " ";
         }
         Line(state);
@@ -605,7 +456,7 @@ namespace MphRead::Mods::Network
             const std::shared_ptr<Entities::PlayerEntity> player = PlayerAt(slot);
             if (player == nullptr)
             {
-                Line("           slot " + Int32Text(slot) + ": (no entity)");
+                Line("           slot " + ::MphRead::NativeRuntime::ToString(slot) + ": (no entity)");
                 continue;
             }
             const bool active = HasFlag(
@@ -619,7 +470,7 @@ namespace MphRead::Mods::Network
 
             std::string line;
             line += "           slot ";
-            line += Int32Text(slot);
+            line += ::MphRead::NativeRuntime::ToString(slot);
             line += ": name=";
             line += AlignLeft(GameState::Nicknames()[slot], 10);
             line += " occupied=";
@@ -631,23 +482,23 @@ namespace MphRead::Mods::Network
             line += " bot=";
             line += player->IsBot() ? "y" : "n";
             line += " hp=";
-            line += AlignLeft(Int32Text(player->Health()), 3);
+            line += AlignLeft(::MphRead::NativeRuntime::ToString(player->Health()), 3);
             line += " score=";
-            line += Int32Text(GameState::Points()[slot]);
+            line += ::MphRead::NativeRuntime::ToString(GameState::Points()[slot]);
             line += "/";
-            line += Int32Text(GameState::TeamPoints()[slot]);
+            line += ::MphRead::NativeRuntime::ToString(GameState::TeamPoints()[slot]);
             line += "p ";
-            line += Int32Text(GameState::Kills()[slot]);
+            line += ::MphRead::NativeRuntime::ToString(GameState::Kills()[slot]);
             line += "k";
-            line += Int32Text(GameState::Deaths()[slot]);
+            line += ::MphRead::NativeRuntime::ToString(GameState::Deaths()[slot]);
             line += "d respawnTimer=";
-            line += AlignLeft(UInt16Text(player->RespawnTimer()), 5);
+            line += AlignLeft(::MphRead::NativeRuntime::ToString(player->RespawnTimer()), 5);
             line += " pos=(";
-            line += FixedText(player->Position.X, 2);
+            line += ::MphRead::NativeRuntime::ToString(player->Position.X, "0.00");
             line += ",";
-            line += FixedText(player->Position.Y, 2);
+            line += ::MphRead::NativeRuntime::ToString(player->Position.Y, "0.00");
             line += ",";
-            line += FixedText(player->Position.Z, 2);
+            line += ::MphRead::NativeRuntime::ToString(player->Position.Z, "0.00");
             line += ") form=";
             line += AlignLeft(player->ModFormState(), 24);
             line += " nodeRef=";
@@ -691,9 +542,9 @@ namespace MphRead::Mods::Network
             }
             std::string result = nodeRef.RoomName.HasValue() ? *nodeRef.RoomName : "?";
             result += ":";
-            result += Int32Text(nodeRef.PartIndex);
+            result += ::MphRead::NativeRuntime::ToString(nodeRef.PartIndex);
             result += "/";
-            result += Int32Text(nodeRef.NodeIndex);
+            result += ::MphRead::NativeRuntime::ToString(nodeRef.NodeIndex);
             return result;
         }
         catch (...)

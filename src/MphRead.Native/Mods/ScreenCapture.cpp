@@ -220,8 +220,7 @@ namespace MphRead::Mods
                 first += " came out black ";
 
                 std::string second = "(";
-                second += NativeRuntime::DoubleToStringFixed2(
-                    LitFraction(*pixels) * 100.0);
+                second += ::MphRead::NativeRuntime::ToString(LitFraction(*pixels) * 100.0, "0.00");
                 second += "% lit, ";
                 second += std::to_string(width);
                 second += "x";

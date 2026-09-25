@@ -4,6 +4,7 @@
 #include "../NativeRuntime/System/ThreadStatic.hpp"
 #include "../NativeRuntime/System/HashCode.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <array>
 #include <bit>
@@ -21,102 +22,6 @@ using ::MphRead::NativeRuntime::HashCodeCombine;
 
 namespace
 {
-
-    std::string MakeManagedCurrentNegativeSign()
-    {
-        return "-";
-    }
-
-    // A [ThreadStatic] field. See NativeRuntime/System/ThreadStatic.hpp.
-    ::MphRead::NativeRuntime::ThreadStatic<std::string> ManagedCurrentNegativeSignSlot(
-        &MakeManagedCurrentNegativeSign);
-
-    [[nodiscard]] constexpr bool IsNumberWhiteSpace(char ch) noexcept
-    {
-        const auto value = static_cast<unsigned char>(ch);
-        return value == 0x20 || (value >= 0x09 && value <= 0x0D);
-    }
-
-    [[nodiscard]] constexpr std::int32_t HexValue(char ch) noexcept
-    {
-        if (ch >= '0' && ch <= '9')
-        {
-            return ch - '0';
-        }
-        if (ch >= 'A' && ch <= 'F')
-        {
-            return ch - 'A' + 10;
-        }
-        if (ch >= 'a' && ch <= 'f')
-        {
-            return ch - 'a' + 10;
-        }
-        return -1;
-    }
-
-    [[nodiscard]] std::int32_t ParseHexInt32(std::string_view value)
-    {
-        std::size_t index = 0;
-        while (index < value.size() && IsNumberWhiteSpace(value[index]))
-        {
-            index++;
-        }
-        if (index == value.size())
-        {
-            throw System::FormatException();
-        }
-
-        bool hadDigits = false;
-        while (index < value.size() && value[index] == '0')
-        {
-            hadDigits = true;
-            index++;
-        }
-
-        std::uint32_t parsed = 0;
-        std::size_t significantDigits = 0;
-        while (index < value.size())
-        {
-            const std::int32_t digit = HexValue(value[index]);
-            if (digit < 0)
-            {
-                break;
-            }
-            hadDigits = true;
-            if (significantDigits < 8)
-            {
-                parsed = (parsed << 4) | static_cast<std::uint32_t>(digit);
-            }
-            significantDigits++;
-            index++;
-        }
-
-        if (!hadDigits)
-        {
-            throw System::FormatException();
-        }
-
-        const bool overflow = significantDigits > 8;
-
-        while (index < value.size() && IsNumberWhiteSpace(value[index]))
-        {
-            index++;
-        }
-        while (index < value.size() && value[index] == '\0')
-        {
-            index++;
-        }
-        if (index != value.size())
-        {
-            throw System::FormatException();
-        }
-        if (overflow)
-        {
-            throw System::OverflowException("Value was either too large or too small for an Int32.");
-        }
-
-        return std::bit_cast<std::int32_t>(parsed);
-    }
 
     [[nodiscard]] std::string RemoveLowercaseHexPrefixes(
         std::optional<std::string_view> value)
@@ -152,28 +57,6 @@ namespace
         return static_cast<std::uint8_t>(rounded);
     }
 
-    [[nodiscard]] std::string FormatInt32CurrentCulture(std::int32_t value)
-    {
-        char digits[16]{};
-        const std::uint32_t magnitude = value < 0
-            ? 0U - static_cast<std::uint32_t>(value)
-            : static_cast<std::uint32_t>(value);
-        const auto [end, error] = std::to_chars(
-            digits, digits + sizeof(digits), magnitude);
-        if (error != std::errc{})
-        {
-            throw std::runtime_error("Failed to format Int32.");
-        }
-
-        std::string result;
-        if (value < 0)
-        {
-            result += ManagedCurrentNegativeSignSlot.Value();
-        }
-        result.append(digits, end);
-        return result;
-    }
-
 #if defined(DEBUG)
     [[noreturn]] void DebugAssertFailed() noexcept
     {
@@ -188,14 +71,6 @@ namespace
         }
     }
 #endif
-}
-
-namespace MphRead::NativeRuntime
-{
-    void SetManagedCurrentNegativeSign(std::string negativeSign)
-    {
-        ManagedCurrentNegativeSignSlot.Value() = negativeSign;
-    }
 }
 
 namespace MphRead
@@ -249,7 +124,7 @@ namespace MphRead
         {
             throw System::ArgumentNullException("s");
         }
-        return ToFloat(ParseHexInt32(*value));
+        return ToFloat(::MphRead::NativeRuntime::Int32ParseHexNumber(*value));
     }
 
     std::int32_t Fixed::ToInt(float value) noexcept
@@ -259,16 +134,16 @@ namespace MphRead
 
     std::string Fixed::ToString() const
     {
-        return FormatInt32CurrentCulture(Value);
+        return ::MphRead::NativeRuntime::ToString(Value);
     }
 
     Vector3Fx::Vector3Fx(
         std::optional<std::string_view> x,
         std::optional<std::string_view> y,
         std::optional<std::string_view> z)
-        : X(ParseHexInt32(RemoveLowercaseHexPrefixes(x))),
-          Y(ParseHexInt32(RemoveLowercaseHexPrefixes(y))),
-          Z(ParseHexInt32(RemoveLowercaseHexPrefixes(z)))
+        : X(::MphRead::NativeRuntime::Int32ParseHexNumber(RemoveLowercaseHexPrefixes(x))),
+          Y(::MphRead::NativeRuntime::Int32ParseHexNumber(RemoveLowercaseHexPrefixes(y))),
+          Z(::MphRead::NativeRuntime::Int32ParseHexNumber(RemoveLowercaseHexPrefixes(z)))
     {
     }
 

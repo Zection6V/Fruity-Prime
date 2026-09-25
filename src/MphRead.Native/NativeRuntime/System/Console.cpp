@@ -361,4 +361,85 @@ namespace MphRead::NativeRuntime
         return ::isatty(STDIN_FILENO) == 0;
 #endif
     }
+
+    std::optional<std::string> ConsoleReadLine()
+    {
+#if defined(_WIN32)
+        const HANDLE input = ::GetStdHandle(STD_INPUT_HANDLE);
+        DWORD mode = 0;
+        if (input != nullptr && input != INVALID_HANDLE_VALUE && ::GetConsoleMode(input, &mode) != 0)
+        {
+            std::wstring line;
+            wchar_t buffer[512];
+            while (true)
+            {
+                DWORD read = 0;
+                if (::ReadConsoleW(input, buffer, static_cast<DWORD>(std::size(buffer)), &read, nullptr) == 0)
+                {
+                    throw System::IO::IOException("The console could not be read.");
+                }
+                if (read == 0)
+                {
+                    if (line.empty())
+                    {
+                        return std::nullopt;
+                    }
+                    break;
+                }
+                line.append(buffer, read);
+                if (line.back() == L'\n')
+                {
+                    break;
+                }
+            }
+            while (!line.empty() && (line.back() == L'\n' || line.back() == L'\r'))
+            {
+                line.pop_back();
+            }
+            return WideToUtf8(line);
+        }
+#endif
+        std::string line;
+        if (!std::getline(std::cin, line))
+        {
+            if (std::cin.bad())
+            {
+                throw System::IO::IOException("The console could not be read.");
+            }
+            return std::nullopt;
+        }
+        if (!line.empty() && line.back() == '\r')
+        {
+            line.pop_back();
+        }
+        return Utf8GetString(line);
+    }
+
+    void ConsoleClear()
+    {
+#if defined(_WIN32)
+        const HANDLE output = ::GetStdHandle(STD_OUTPUT_HANDLE);
+        CONSOLE_SCREEN_BUFFER_INFO info{};
+        if (output == nullptr || output == INVALID_HANDLE_VALUE
+            || ::GetConsoleScreenBufferInfo(output, &info) == 0)
+        {
+            throw System::IO::IOException("The handle is invalid.");
+        }
+        const DWORD cells = static_cast<DWORD>(info.dwSize.X) * static_cast<DWORD>(info.dwSize.Y);
+        const COORD home{ 0, 0 };
+        DWORD written = 0;
+        if (::FillConsoleOutputCharacterW(output, L' ', cells, home, &written) == 0
+            || ::FillConsoleOutputAttribute(output, info.wAttributes, cells, home, &written) == 0
+            || ::SetConsoleCursorPosition(output, home) == 0)
+        {
+            throw System::IO::IOException("The handle is invalid.");
+        }
+#else
+        if (::isatty(STDOUT_FILENO) == 0)
+        {
+            throw System::IO::IOException("The handle is invalid.");
+        }
+        ConsoleWrite("\x1B[3J\x1B[H\x1B[2J");
+#endif
+    }
 }

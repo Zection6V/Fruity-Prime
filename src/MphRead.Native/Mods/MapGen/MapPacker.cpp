@@ -16,6 +16,7 @@
 #include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <array>
@@ -47,8 +48,6 @@
 #define NOMINMAX
 #include <windows.h>
 #else
-#include <dlfcn.h>
-#include <locale.h>
 #include <wchar.h>
 #endif
 
@@ -287,7 +286,6 @@ namespace
     {
         return reinterpret_cast<MphRead::Interop::ManagedArray<Vector2>*>(texcoords);
     }
-
 
     struct LowerInvariantEntry final
     {
@@ -662,129 +660,6 @@ namespace
         {0x1E920U, 0x1E942U}, {0x1E921U, 0x1E943U}
     }};
 
-    [[nodiscard]] std::uint32_t InvariantLower(std::uint32_t scalar) noexcept
-    {
-        const auto it = std::lower_bound(
-            LowerInvariantMap.begin(),
-            LowerInvariantMap.end(),
-            scalar,
-            [](const LowerInvariantEntry& entry, std::uint32_t value)
-            {
-                return entry.From < value;
-            });
-        return it != LowerInvariantMap.end() && it->From == scalar
-            ? it->To
-            : scalar;
-    }
-
-    [[nodiscard]] std::string ToLowerInvariant(const std::string& value)
-    {
-        std::string result;
-        result.reserve(value.size());
-        for (const char32_t scalar : Utf8ToUtf32(value))
-        {
-            AppendUtf8(result, InvariantLower(scalar));
-        }
-        return result;
-    }
-
-    [[nodiscard]] std::string FormatN0(std::size_t value)
-    {
-        std::ostringstream stream;
-        try
-        {
-            stream.imbue(std::locale(""));
-        }
-        catch (...)
-        {
-        }
-        stream << value;
-        return stream.str();
-    }
-
-    [[nodiscard]] std::string CurrentNegativeSign()
-    {
-        std::string result = Fixed(-1).ToString();
-        if (!result.empty() && result.back() == '1')
-        {
-            result.pop_back();
-        }
-        return result.empty() ? std::string("-") : result;
-    }
-
-    [[nodiscard]] char CurrentDecimalSeparator() noexcept
-    {
-        try
-        {
-            return std::use_facet<std::numpunct<char>>(std::locale("")).decimal_point();
-        }
-        catch (...)
-        {
-            return '.';
-        }
-    }
-
-    [[nodiscard]] std::string FormatSingleCurrentCulture(float value)
-    {
-        const std::string negativeSign = CurrentNegativeSign();
-        if (std::isnan(value))
-        {
-            return "NaN";
-        }
-        if (std::isinf(value))
-        {
-            return std::signbit(value)
-                ? negativeSign + "Infinity"
-                : std::string("Infinity");
-        }
-
-        char buffer[64]{};
-        const auto [end, error] = std::to_chars(
-            buffer,
-            buffer + sizeof(buffer),
-            value,
-            std::chars_format::general);
-        if (error != std::errc{})
-        {
-            throw std::runtime_error("Failed to format Single.");
-        }
-
-        std::string result(buffer, end);
-        if (!result.empty() && result.front() == '-')
-        {
-            result.erase(result.begin());
-            result.insert(0, negativeSign);
-        }
-
-        const std::size_t exponent = result.find_first_of("eE");
-        if (exponent != std::string::npos)
-        {
-            result[exponent] = 'E';
-            const std::size_t sign = exponent + 1;
-            if (sign < result.size() && result[sign] == '-')
-            {
-                result.erase(sign, 1);
-                result.insert(sign, negativeSign);
-            }
-        }
-
-        const char decimal = CurrentDecimalSeparator();
-        if (decimal != '.')
-        {
-            const std::size_t dot = result.find('.');
-            if (dot != std::string::npos)
-            {
-                result[dot] = decimal;
-            }
-        }
-        return result;
-    }
-
-    [[nodiscard]] std::string FormatInt32CurrentCulture(std::int32_t value)
-    {
-        return Fixed(value).ToString();
-    }
-
     [[nodiscard]] std::shared_ptr<RenderInstruction> Instruction(
         InstructionCode code,
         std::initializer_list<std::uint32_t> arguments = {})
@@ -902,8 +777,8 @@ namespace
                 || packed > std::numeric_limits<std::int16_t>::max())
             {
                 throw ProgramException(
-                    "Vertex " + FormatSingleCurrentCulture(value)
-                    + " does not fit at scale " + FormatSingleCurrentCulture(scale)
+                    "Vertex " + ::MphRead::NativeRuntime::ToString(value)
+                    + " does not fit at scale " + ::MphRead::NativeRuntime::ToString(scale)
                     + "; raise the map's scaleFactor.");
             }
             return static_cast<std::uint32_t>(packed) & 0xFFFFU;
@@ -1187,7 +1062,7 @@ namespace
                 const std::int32_t invalidMaterial = mapMaterial->SourceMaterial();
                 throw ProgramException(
                     textureSource + " has no material "
-                    + FormatInt32CurrentCulture(invalidMaterial) + ".");
+                    + ::MphRead::NativeRuntime::ToString(invalidMaterial) + ".");
             }
 
             const std::int32_t materialForUpperBound = mapMaterial->SourceMaterial();
@@ -1198,7 +1073,7 @@ namespace
                 const std::int32_t invalidMaterial = mapMaterial->SourceMaterial();
                 throw ProgramException(
                     textureSource + " has no material "
-                    + FormatInt32CurrentCulture(invalidMaterial) + ".");
+                    + ::MphRead::NativeRuntime::ToString(invalidMaterial) + ".");
             }
 
             const auto* modelMaterialsForIndex = &RequireReference(sourceValue->Materials);
@@ -1211,7 +1086,7 @@ namespace
                 const std::int32_t invalidMaterial = mapMaterial->SourceMaterial();
                 const std::string& textureSource = def->TextureSource();
                 throw ProgramException(
-                    "Material " + FormatInt32CurrentCulture(invalidMaterial)
+                    "Material " + ::MphRead::NativeRuntime::ToString(invalidMaterial)
                     + " of " + textureSource + " has no texture.");
             }
 
@@ -1371,7 +1246,7 @@ namespace MphRead::Mods::MapGen
         {
             throw System::NullReferenceException();
         }
-        const std::string prefix = ToLowerInvariant(def->Name());
+        const std::string prefix = ::MphRead::NativeRuntime::ToLowerInvariant(def->Name());
 
         auto [model, vertices] = BuildModel(map);
         std::vector<std::uint8_t> collision = BuildCollision(map);
@@ -1405,10 +1280,10 @@ namespace MphRead::Mods::MapGen
                 << "  " << nodeCount << " bot waypoints, " << edges
                 << " routes between them\n";
             std::cout
-                << "  model " << FormatN0(model.size())
-                << " B, collision " << FormatN0(collision.size())
-                << " B, entities " << FormatN0(entities.size())
-                << " B, nodes " << FormatN0(nodes.size()) << " B\n";
+                << "  model " << ::MphRead::NativeRuntime::ToString(model.size(), "N0")
+                << " B, collision " << ::MphRead::NativeRuntime::ToString(collision.size(), "N0")
+                << " B, entities " << ::MphRead::NativeRuntime::ToString(entities.size(), "N0")
+                << " B, nodes " << ::MphRead::NativeRuntime::ToString(nodes.size(), "N0") << " B\n";
         }
     }
 

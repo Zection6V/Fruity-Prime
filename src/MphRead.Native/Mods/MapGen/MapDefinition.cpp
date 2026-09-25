@@ -614,115 +614,20 @@ namespace
         return static_cast<T>(parsed);
     }
 
-    [[nodiscard]] int DecimalMagnitudeExponent(std::string_view text) noexcept
-    {
-        std::size_t position = (!text.empty() && text.front() == '-') ? 1U : 0U;
-        const std::size_t exponentPosition = text.find_first_of("eE", position);
-        const std::size_t mantissaEnd = exponentPosition == std::string_view::npos
-            ? text.size() : exponentPosition;
-        const std::size_t dotPosition = text.find('.', position);
-        const std::size_t integerDigits = (dotPosition != std::string_view::npos && dotPosition < mantissaEnd)
-            ? dotPosition - position : mantissaEnd - position;
-
-        std::size_t digitIndex = 0;
-        std::size_t firstNonZero = std::string_view::npos;
-        for (std::size_t i = position; i < mantissaEnd; ++i)
-        {
-            if (text[i] == '.')
-            {
-                continue;
-            }
-            if (firstNonZero == std::string_view::npos && text[i] != '0')
-            {
-                firstNonZero = digitIndex;
-            }
-            ++digitIndex;
-        }
-        if (firstNonZero == std::string_view::npos)
-        {
-            return 0;
-        }
-
-        long long exponent = static_cast<long long>(integerDigits)
-            - static_cast<long long>(firstNonZero) - 1;
-        if (exponentPosition != std::string_view::npos)
-        {
-            std::size_t i = exponentPosition + 1;
-            bool negative = false;
-            if (i < text.size() && (text[i] == '+' || text[i] == '-'))
-            {
-                negative = text[i] == '-';
-                ++i;
-            }
-            long long explicitExponent = 0;
-            constexpr long long Limit = 1000000;
-            for (; i < text.size(); ++i)
-            {
-                if (explicitExponent < Limit)
-                {
-                    explicitExponent = std::min(
-                        Limit, explicitExponent * 10 + static_cast<long long>(text[i] - '0'));
-                }
-            }
-            exponent += negative ? -explicitExponent : explicitExponent;
-            exponent = std::clamp(exponent, -Limit, Limit);
-        }
-        return static_cast<int>(exponent);
-    }
-
     [[nodiscard]] float JsonFloat(const JsonValue& value)
     {
-        if (value.Kind != JsonKind::Number)
-        {
-            ConversionError();
-        }
+        // Utf8JsonReader.TryGetSingle: the number as float.Parse reads it, and
+        // a value that comes out infinite -- too large for a float -- is not
+        // one.
         float parsed = 0.0F;
-        const char* const first = value.Text.data();
-        const char* const last = first + value.Text.size();
-        const auto result = ::MphRead::NativeRuntime::FromChars(first, last, parsed, std::chars_format::general);
-        if (result.ptr != last)
+        if (value.Kind != JsonKind::Number
+            || !::MphRead::NativeRuntime::SingleTryParseInvariant(value.Text, parsed)
+            || !std::isfinite(parsed))
         {
             ConversionError();
         }
-        if (result.ec == std::errc{})
-        {
-            return parsed;
-        }
-        if (result.ec != std::errc::result_out_of_range)
-        {
-            ConversionError();
-        }
-
-        double wide = 0.0;
-        const auto wideResult = ::MphRead::NativeRuntime::FromChars(first, last, wide, std::chars_format::general);
-        if (wideResult.ptr != last)
-        {
-            ConversionError();
-        }
-        if (wideResult.ec == std::errc{})
-        {
-            if (std::fabs(wide) > static_cast<double>(std::numeric_limits<float>::max()))
-            {
-                return std::signbit(wide)
-                    ? -std::numeric_limits<float>::infinity()
-                    : std::numeric_limits<float>::infinity();
-            }
-            return std::copysign(0.0F, wide);
-        }
-        if (wideResult.ec != std::errc::result_out_of_range)
-        {
-            ConversionError();
-        }
-
-        const bool negative = !value.Text.empty() && value.Text.front() == '-';
-        if (DecimalMagnitudeExponent(value.Text) >= 0)
-        {
-            return negative ? -std::numeric_limits<float>::infinity()
-                : std::numeric_limits<float>::infinity();
-        }
-        return std::copysign(0.0F, negative ? -1.0F : 1.0F);
+        return parsed;
     }
-
     template <typename T, typename Converter>
     [[nodiscard]] std::shared_ptr<std::vector<T>> JsonArray(
         const JsonValue& value, Converter&& converter)
@@ -848,54 +753,20 @@ namespace
 
     void WriteInteger(std::string& output, std::int64_t value)
     {
-        std::array<char, 32> buffer{};
-        const auto result = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
-        if (result.ec != std::errc{})
-        {
-            throw std::runtime_error("Could not format integer.");
-        }
-        output.append(buffer.data(), result.ptr);
+        output += ::MphRead::NativeRuntime::ToStringInvariant(value);
     }
-
     void WriteUnsigned(std::string& output, std::uint64_t value)
     {
-        std::array<char, 32> buffer{};
-        const auto result = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
-        if (result.ec != std::errc{})
-        {
-            throw std::runtime_error("Could not format unsigned integer.");
-        }
-        output.append(buffer.data(), result.ptr);
+        output += ::MphRead::NativeRuntime::ToStringInvariant(value);
     }
-
     void WriteFloat(std::string& output, float value)
     {
+        // Utf8JsonWriter: the shortest invariant text, and no NaN or infinity.
         if (!std::isfinite(value))
         {
             throw System::ArgumentException();
         }
-        const float magnitude = std::fabs(value);
-        const std::chars_format format = magnitude != 0.0F
-            && (magnitude < 1.0e-4F || magnitude >= 1.0e9F)
-            ? std::chars_format::scientific
-            : std::chars_format::fixed;
-
-        std::array<char, 64> buffer{};
-        const auto result = std::to_chars(
-            buffer.data(), buffer.data() + buffer.size(), value, format);
-        if (result.ec != std::errc{})
-        {
-            throw std::runtime_error("Could not format floating point value.");
-        }
-        for (char* position = buffer.data(); position != result.ptr; ++position)
-        {
-            if (*position == 'e')
-            {
-                *position = 'E';
-                break;
-            }
-        }
-        output.append(buffer.data(), result.ptr);
+        output += ::MphRead::NativeRuntime::ToStringInvariant(value);
     }
 }
 

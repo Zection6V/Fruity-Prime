@@ -72,26 +72,26 @@ namespace MphRead::Mods::Network
                 _applied[static_cast<std::size_t>(slot)] = color;
 
                 std::string consoleMessage = "[net] slot ";
-                consoleMessage += NativeRuntime::Int32ToString(slot);
+                consoleMessage += ::MphRead::NativeRuntime::ToString(slot);
                 consoleMessage += " (";
                 consoleMessage += ::MphRead::ToString(player->Hunter());
                 consoleMessage += ") wears suit ";
-                consoleMessage += NativeRuntime::Int32ToString(color + 1);
+                consoleMessage += ::MphRead::NativeRuntime::ToString(color + 1);
                 if (color != want)
                 {
                     consoleMessage += " -- asked for ";
-                    consoleMessage += NativeRuntime::Int32ToString(want + 1);
+                    consoleMessage += ::MphRead::NativeRuntime::ToString(want + 1);
                 }
                 NativeRuntime::ConsoleWriteLine(consoleMessage);
 
                 std::string logMessage = "slot ";
-                logMessage += NativeRuntime::Int32ToString(slot);
+                logMessage += ::MphRead::NativeRuntime::ToString(slot);
                 logMessage += " ";
                 logMessage += ::MphRead::ToString(player->Hunter());
                 logMessage += " suit ";
-                logMessage += NativeRuntime::Int32ToString(color + 1);
+                logMessage += ::MphRead::NativeRuntime::ToString(color + 1);
                 logMessage += " (asked ";
-                logMessage += NativeRuntime::Int32ToString(want + 1);
+                logMessage += ::MphRead::NativeRuntime::ToString(want + 1);
                 logMessage += ")";
                 NetLog::Event(logMessage);
             }

@@ -12,6 +12,8 @@
 #include <utility>
 #include "../../../NativeRuntime/System/IO.hpp"
 #include "../../../NativeRuntime/System/Managed.hpp"
+#include "../../../NativeRuntime/System/Encoding.hpp"
+#include "../../../NativeRuntime/System/Globalization.hpp"
 
 using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::MathMax;
@@ -323,16 +325,7 @@ namespace MphRead::Mods::Launcher::Gui
 
     std::optional<std::u16string> SliderRow::DefaultFormat(std::int32_t value)
     {
-        std::array<char, 16> buffer{};
-        const auto result = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
-        std::u16string text;
-        text.reserve(static_cast<std::size_t>(result.ptr - buffer.data()) + 1);
-        for (const char* it = buffer.data(); it != result.ptr; ++it)
-        {
-            text.push_back(static_cast<char16_t>(*it));
-        }
-        text.push_back(u'%');
-        return text;
+        return ::MphRead::NativeRuntime::Utf8ToUtf16(::MphRead::NativeRuntime::ToString(value) + "%");
     }
 
     GuiRect SliderRow::Track() const

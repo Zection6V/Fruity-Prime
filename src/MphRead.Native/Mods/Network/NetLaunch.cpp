@@ -112,7 +112,7 @@ namespace MphRead::Mods::Network
                 message += " (";
                 message += ::MphRead::ToString(static_cast<GameMode>(state.Mode));
                 message += "), ";
-                message += NativeRuntime::DoubleToStringNoDecimals(state.TimeRemaining);
+                message += ::MphRead::NativeRuntime::ToString(state.TimeRemaining, "0");
                 message += " s remaining, slot ";
                 message += std::to_string(NetSession::LocalSlot());
                 NativeRuntime::ConsoleWriteLine(message);

@@ -1,5 +1,8 @@
 #include "Enum.hpp"
 
+#include "Encoding.hpp"
+#include "Globalization.hpp"
+
 #include <algorithm>
 #include <vector>
 
@@ -74,87 +77,70 @@ namespace MphRead::NativeRuntime
         bool ignoreCase,
         const EnumNameEntry* names,
         std::size_t count,
+        bool isSigned,
+        std::int32_t bits,
         std::uint64_t& raw)
     {
-        // Enum.TryParse rejects null and empty outright, and trims nothing but
-        // leading white space.
-        std::size_t start = 0;
-        while (start < text.size()
-            && (text[start] == ' ' || text[start] == '\t' || text[start] == '\n'
-                || text[start] == '\r'))
+        raw = 0;
+        // Enum.TryParse: value.TrimStart(), and nothing at all is a failure.
+        while (!text.empty())
         {
-            ++start;
+            const Utf8Scalar first = DecodeUtf8Scalar(text, 0);
+            if (!CharIsWhiteSpace(first.Value))
+            {
+                break;
+            }
+            text.remove_prefix(first.Length);
         }
-        const std::string_view value = text.substr(start);
-        if (value.empty())
+        if (text.empty())
         {
-            raw = 0;
             return false;
         }
 
-        // A leading digit or sign means the number path; otherwise a name.
-        const char first = value.front();
-        if (!((first >= '0' && first <= '9') || first == '-' || first == '+'))
+        // A digit or a sign in front is a number, if it parses as one; a
+        // number out of range is a failure rather than a name.
+        const char first = text.front();
+        if ((first >= '0' && first <= '9') || first == '-' || first == '+')
         {
-            for (std::size_t i = 0; i < count; ++i)
+            std::int64_t value = 0;
+            if (TryParseInteger(text, NumberStyles::AllowLeadingSign | NumberStyles::AllowTrailingWhite,
+                    NumberFormatInfo::InvariantInfo(), isSigned, bits, value))
+            {
+                const std::uint64_t mask = bits >= 64 ? ~std::uint64_t(0) : (std::uint64_t(1) << bits) - 1;
+                raw = static_cast<std::uint64_t>(value) & mask;
+                return true;
+            }
+        }
+
+        // Enum.TryParseByName: "A, B" is A | B.
+        std::uint64_t result = 0;
+        std::size_t start = 0;
+        while (true)
+        {
+            const std::size_t comma = text.find(',', start);
+            const std::string_view part = StringTrimView(text.substr(start,
+                comma == std::string_view::npos ? std::string_view::npos : comma - start));
+            bool found = false;
+            for (std::size_t i = 0; i < count && !found; ++i)
             {
                 const std::string_view name = names[i].Name;
-                if (name.size() != value.size())
+                if (ignoreCase ? StringEqualsOrdinalIgnoreCase(name, part) : name == part)
                 {
-                    continue;
-                }
-                bool equal = true;
-                for (std::size_t c = 0; c < name.size(); ++c)
-                {
-                    char left = name[c];
-                    char right = value[c];
-                    if (ignoreCase)
-                    {
-                        if (left >= 'a' && left <= 'z')
-                        {
-                            left = static_cast<char>(left - ('a' - 'A'));
-                        }
-                        if (right >= 'a' && right <= 'z')
-                        {
-                            right = static_cast<char>(right - ('a' - 'A'));
-                        }
-                    }
-                    if (left != right)
-                    {
-                        equal = false;
-                        break;
-                    }
-                }
-                if (equal)
-                {
-                    raw = names[i].Value;
-                    return true;
+                    result |= names[i].Value;
+                    found = true;
                 }
             }
-            raw = 0;
-            return false;
-        }
-
-        const bool negative = first == '-';
-        std::size_t index = (first == '-' || first == '+') ? 1U : 0U;
-        if (index >= value.size())
-        {
-            raw = 0;
-            return false;
-        }
-        std::uint64_t magnitude = 0;
-        for (; index < value.size(); ++index)
-        {
-            const char digit = value[index];
-            if (digit < '0' || digit > '9')
+            if (!found)
             {
-                raw = 0;
                 return false;
             }
-            magnitude = magnitude * 10U + static_cast<std::uint64_t>(digit - '0');
+            if (comma == std::string_view::npos)
+            {
+                break;
+            }
+            start = comma + 1;
         }
-        raw = negative ? ~magnitude + 1U : magnitude;
+        raw = result;
         return true;
     }
-
 }

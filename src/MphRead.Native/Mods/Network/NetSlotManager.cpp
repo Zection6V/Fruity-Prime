@@ -25,10 +25,6 @@
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
 
-namespace
-{
-}
-
 namespace MphRead::Mods::Network
 {
     std::array<bool, Entities::PlayerEntity::SlotCapacity> NetSlotManager::_activated{};
@@ -81,13 +77,13 @@ namespace MphRead::Mods::Network
                     player->Initialize();
 
                     std::string consoleMessage = "[net] slot ";
-                    consoleMessage += NativeRuntime::Int32ToString(slot);
+                    consoleMessage += ::MphRead::NativeRuntime::ToString(slot);
                     consoleMessage += " is playing ";
                     consoleMessage += ::MphRead::ToString(player->Hunter());
                     NativeRuntime::ConsoleWriteLine(consoleMessage);
 
                     std::string logMessage = "slot ";
-                    logMessage += NativeRuntime::Int32ToString(slot);
+                    logMessage += ::MphRead::NativeRuntime::ToString(slot);
                     logMessage += " is playing ";
                     logMessage += ::MphRead::ToString(player->Hunter());
                     NetLog::Event(logMessage);
@@ -146,22 +142,20 @@ namespace MphRead::Mods::Network
         Entities::PlayerEntity::SetPlayerCount(CountActive());
 
         std::string consoleMessage = "[net] slot ";
-        consoleMessage += NativeRuntime::Int32ToString(slot);
+        consoleMessage += ::MphRead::NativeRuntime::ToString(slot);
         consoleMessage += " activated (";
         consoleMessage += GameState::Nicknames()[slot];
         consoleMessage += ") -- ";
-        consoleMessage += NativeRuntime::Int32ToString(
-            Entities::PlayerEntity::PlayerCount());
+        consoleMessage += ::MphRead::NativeRuntime::ToString(Entities::PlayerEntity::PlayerCount());
         consoleMessage += " player(s) in scene";
         NativeRuntime::ConsoleWriteLine(consoleMessage);
 
         std::string logMessage = "slot ";
-        logMessage += NativeRuntime::Int32ToString(slot);
+        logMessage += ::MphRead::NativeRuntime::ToString(slot);
         logMessage += " activated (";
         logMessage += GameState::Nicknames()[slot];
         logMessage += "), ";
-        logMessage += NativeRuntime::Int32ToString(
-            Entities::PlayerEntity::PlayerCount());
+        logMessage += ::MphRead::NativeRuntime::ToString(Entities::PlayerEntity::PlayerCount());
         logMessage += " player(s) in scene";
         NetLog::Event(logMessage);
     }
@@ -234,12 +228,12 @@ namespace MphRead::Mods::Network
         Entities::PlayerEntity::SetPlayerCount(std::max(CountActive(), 1));
 
         std::string consoleMessage = "[net] slot ";
-        consoleMessage += NativeRuntime::Int32ToString(slot);
+        consoleMessage += ::MphRead::NativeRuntime::ToString(slot);
         consoleMessage += " deactivated -- player left";
         NativeRuntime::ConsoleWriteLine(consoleMessage);
 
         std::string logMessage = "slot ";
-        logMessage += NativeRuntime::Int32ToString(slot);
+        logMessage += ::MphRead::NativeRuntime::ToString(slot);
         logMessage += " deactivated";
         NetLog::Event(logMessage);
     }

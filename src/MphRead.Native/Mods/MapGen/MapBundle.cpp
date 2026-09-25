@@ -8,6 +8,7 @@
 #include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <array>
@@ -40,7 +41,6 @@
 #include <windows.h>
 #else
 #include <dlfcn.h>
-#include <locale.h>
 #include <sys/types.h>
 #endif
 
@@ -102,129 +102,7 @@ namespace
         return nullptr;
     }
 
-    [[nodiscard]] std::uint32_t IcuUpper(std::uint32_t scalar) noexcept
-    {
-        using UpperFunction = std::int32_t (*)(std::int32_t);
-        static UpperFunction upper = []() noexcept -> UpperFunction
-        {
-            void* library = dlopen("libicuuc.so", RTLD_LAZY | RTLD_LOCAL);
-#if defined(__APPLE__)
-            if (library == nullptr)
-            {
-                library = dlopen("/usr/lib/libicucore.A.dylib", RTLD_LAZY | RTLD_LOCAL);
-            }
 #endif
-            return reinterpret_cast<UpperFunction>(FindVersionedIcuSymbol(library, "u_toupper"));
-        }();
-        if (upper == nullptr || scalar > 0x10FFFFU)
-        {
-            return scalar;
-        }
-        const std::int32_t mapped = upper(static_cast<std::int32_t>(scalar));
-        return mapped < 0 ? scalar : static_cast<std::uint32_t>(mapped);
-    }
-#endif
-
-    [[nodiscard]] std::uint32_t InvariantUpper(std::uint32_t scalar) noexcept
-    {
-        // .NET OrdinalIgnoreCase deliberately keeps these two code points
-        // distinct from their ordinary Latin uppercase counterparts.
-        if (scalar == 0x0131U || scalar == 0x017FU)
-        {
-            return scalar;
-        }
-        if (scalar >= 'a' && scalar <= 'z')
-        {
-            return scalar - static_cast<std::uint32_t>('a' - 'A');
-        }
-#if defined(_WIN32)
-        if (scalar <= 0xFFFFU)
-        {
-            const wchar_t source = static_cast<wchar_t>(scalar);
-            wchar_t target = source;
-            if (LCMapStringEx(LOCALE_NAME_INVARIANT, LCMAP_UPPERCASE,
-                    &source, 1, &target, 1, nullptr, nullptr, 0) == 1)
-            {
-                return static_cast<std::uint32_t>(target);
-            }
-        }
-#else
-        const std::uint32_t icuMapped = IcuUpper(scalar);
-        if (icuMapped != scalar)
-        {
-            return icuMapped;
-        }
-        static locale_t locale = []() noexcept
-        {
-            locale_t value = newlocale(LC_CTYPE_MASK, "C.UTF-8", nullptr);
-            if (value == nullptr)
-            {
-                value = newlocale(LC_CTYPE_MASK, "en_US.UTF-8", nullptr);
-            }
-            return value;
-        }();
-        if (locale != nullptr && scalar <= static_cast<std::uint32_t>(WCHAR_MAX))
-        {
-            const wint_t mapped = towupper_l(static_cast<wint_t>(scalar), locale);
-            if (mapped != WEOF)
-            {
-                return static_cast<std::uint32_t>(mapped);
-            }
-        }
-#endif
-        if (scalar >= 0x00E0U && scalar <= 0x00F6U) return scalar - 0x20U;
-        if (scalar >= 0x00F8U && scalar <= 0x00FEU) return scalar - 0x20U;
-        if (scalar == 0x00FFU) return 0x0178U;
-        if (scalar >= 0x03B1U && scalar <= 0x03C1U) return scalar - 0x20U;
-        if (scalar >= 0x03C3U && scalar <= 0x03CBU) return scalar - 0x20U;
-        if (scalar >= 0x0430U && scalar <= 0x044FU) return scalar - 0x20U;
-        return scalar;
-    }
-
-    [[nodiscard]] std::vector<std::uint32_t> FoldOrdinalIgnoreCase(const std::string& value)
-    {
-        const std::u32string decoded = Utf8ToUtf32(value);
-        std::vector<std::uint32_t> result(decoded.begin(), decoded.end());
-        for (std::uint32_t& scalar : result)
-        {
-            scalar = InvariantUpper(scalar);
-        }
-        return result;
-    }
-
-    [[nodiscard]] bool OrdinalIgnoreCaseEquals(
-        const std::string& left, const std::string& right) noexcept
-    {
-        try
-        {
-            return FoldOrdinalIgnoreCase(left) == FoldOrdinalIgnoreCase(right);
-        }
-        catch (...)
-        {
-            return left == right;
-        }
-    }
-
-    [[nodiscard]] bool OrdinalIgnoreCaseEndsWith(
-        const std::string& value, const std::string& suffix) noexcept
-    {
-        try
-        {
-            const std::vector<std::uint32_t> foldedValue = FoldOrdinalIgnoreCase(value);
-            const std::vector<std::uint32_t> foldedSuffix = FoldOrdinalIgnoreCase(suffix);
-            if (foldedSuffix.size() > foldedValue.size())
-            {
-                return false;
-            }
-            return std::equal(
-                foldedSuffix.begin(), foldedSuffix.end(),
-                foldedValue.end() - static_cast<std::ptrdiff_t>(foldedSuffix.size()));
-        }
-        catch (...)
-        {
-            return false;
-        }
-    }
 
     struct EncodedZipName final
     {
@@ -1640,7 +1518,7 @@ namespace MphRead::Mods::MapGen
 {
     bool MapBundle::Is(const std::string& path)
     {
-        return OrdinalIgnoreCaseEquals(PathGetExtension(path), Extension);
+        return ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase(PathGetExtension(path), Extension);
     }
 
     std::string MapBundle::Cook(
@@ -1799,7 +1677,7 @@ namespace MphRead::Mods::MapGen
         const auto found = std::find_if(entries.begin(), entries.end(),
             [](const ZipEntry& entry)
             {
-                return OrdinalIgnoreCaseEndsWith(entry.Name, ".json");
+                return ::MphRead::NativeRuntime::StringEndsWithOrdinalIgnoreCase(entry.Name, ".json");
             });
         if (found == entries.end())
         {
@@ -1821,7 +1699,7 @@ namespace MphRead::Mods::MapGen
         auto found = std::find_if(entries.begin(), entries.end(),
             [&](const ZipEntry& entry)
             {
-                return OrdinalIgnoreCaseEquals(entry.Name, name);
+                return ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase(entry.Name, name);
             });
         if (found == entries.end())
         {
@@ -1829,7 +1707,7 @@ namespace MphRead::Mods::MapGen
             found = std::find_if(entries.begin(), entries.end(),
                 [&](const ZipEntry& entry)
                 {
-                    return OrdinalIgnoreCaseEndsWith(entry.Name, suffix);
+                    return ::MphRead::NativeRuntime::StringEndsWithOrdinalIgnoreCase(entry.Name, suffix);
                 });
         }
         if (found == entries.end())

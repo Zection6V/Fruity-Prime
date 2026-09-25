@@ -5,6 +5,7 @@
 #include "../../../Menu.hpp"
 #include "../../../Metadata/Metadata.hpp"
 #include "../../../Metadata/Rooms.hpp"
+#include "../../../NativeRuntime/System/Globalization.hpp"
 
 #include <new>
 #include <string>
@@ -35,7 +36,7 @@ namespace MphRead::Mods::Launcher
         {
             return "Empty";
         }
-        return Area.value_or("") + " — " + MphRead::Fixed(Octoliths).ToString() + "/8 octoliths";
+        return Area.value_or("") + " — " + ::MphRead::NativeRuntime::ToString(Octoliths) + "/8 octoliths";
     }
 
     AdventureSave::SlotInfo AdventureSave::Read(std::uint8_t slot)

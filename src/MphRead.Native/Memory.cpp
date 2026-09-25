@@ -9,6 +9,7 @@
 #include "NativeRuntime/System/Globalization.hpp"
 #include "NativeRuntime/System/IO.hpp"
 #include "NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/System/Console.hpp"
 
 #include <algorithm>
 #include <array>
@@ -164,265 +165,15 @@ namespace
         return static_cast<std::intptr_t>(value);
     }
 
-    [[nodiscard]] constexpr std::int32_t HexDigitValue(char value) noexcept
-    {
-        if (value >= '0' && value <= '9')
-        {
-            return value - '0';
-        }
-        if (value >= 'A' && value <= 'F')
-        {
-            return value - 'A' + 10;
-        }
-        if (value >= 'a' && value <= 'f')
-        {
-            return value - 'a' + 10;
-        }
-        return -1;
-    }
-
-    [[nodiscard]] bool HasOnlyAllowedNumberSuffix(
-        std::string_view text, std::size_t index) noexcept
-    {
-        while (index < text.size() && IsNumberWhiteSpace(text[index]))
-        {
-            ++index;
-        }
-        while (index < text.size() && text[index] == '\0')
-        {
-            ++index;
-        }
-        return index == text.size();
-    }
-
-    [[nodiscard]] bool TryParseInt64Decimal(std::string_view text, std::int64_t& value)
-    {
-        value = 0;
-        if (text.empty())
-        {
-            return false;
-        }
-
-        std::size_t index = 0;
-        while (index < text.size() && IsNumberWhiteSpace(text[index]))
-        {
-            ++index;
-        }
-        if (index == text.size())
-        {
-            return false;
-        }
-
-        bool negative = false;
-        if (text[index] == '+' || text[index] == '-')
-        {
-            negative = text[index] == '-';
-            ++index;
-        }
-        if (index == text.size() || text[index] < '0' || text[index] > '9')
-        {
-            return false;
-        }
-
-        const std::size_t digitStart = index;
-        while (index < text.size() && text[index] >= '0' && text[index] <= '9')
-        {
-            ++index;
-        }
-        const std::size_t digitEnd = index;
-        if (!HasOnlyAllowedNumberSuffix(text, index))
-        {
-            return false;
-        }
-
-        std::size_t significantStart = digitStart;
-        while (significantStart < digitEnd && text[significantStart] == '0')
-        {
-            ++significantStart;
-        }
-        if (significantStart == digitEnd)
-        {
-            value = 0;
-            return true;
-        }
-
-        std::uint64_t magnitude = 0;
-        const auto parsed = std::from_chars(
-            text.data() + significantStart,
-            text.data() + digitEnd,
-            magnitude,
-            10);
-        if (parsed.ec != std::errc{} || parsed.ptr != text.data() + digitEnd)
-        {
-            return false;
-        }
-
-        constexpr std::uint64_t minMagnitude = UINT64_C(0x8000000000000000);
-        if (negative)
-        {
-            if (magnitude > minMagnitude)
-            {
-                return false;
-            }
-            value = magnitude == minMagnitude
-                ? std::numeric_limits<std::int64_t>::min()
-                : -static_cast<std::int64_t>(magnitude);
-            return true;
-        }
-
-        if (magnitude > static_cast<std::uint64_t>(
-                std::numeric_limits<std::int64_t>::max()))
-        {
-            return false;
-        }
-        value = static_cast<std::int64_t>(magnitude);
-        return true;
-    }
-
-    [[nodiscard]] bool TryParseInt64Hex(std::string text, std::int64_t& value)
-    {
-        text = StringReplace(std::move(text), "0x", "");
-        value = 0;
-        if (text.empty())
-        {
-            return false;
-        }
-
-        std::size_t index = 0;
-        while (index < text.size() && IsNumberWhiteSpace(text[index]))
-        {
-            ++index;
-        }
-        if (index == text.size() || HexDigitValue(text[index]) < 0)
-        {
-            return false;
-        }
-
-        while (index < text.size() && text[index] == '0')
-        {
-            ++index;
-        }
-        if (index == text.size())
-        {
-            value = 0;
-            return true;
-        }
-        if (HexDigitValue(text[index]) < 0)
-        {
-            return HasOnlyAllowedNumberSuffix(text, index);
-        }
-
-        std::uint64_t bits = 0;
-        std::size_t digitCount = 0;
-        while (index < text.size())
-        {
-            const std::int32_t digit = HexDigitValue(text[index]);
-            if (digit < 0)
-            {
-                break;
-            }
-            if (digitCount == 16)
-            {
-                return false;
-            }
-            bits = (bits << 4U) | static_cast<std::uint64_t>(digit);
-            ++digitCount;
-            ++index;
-        }
-        if (!HasOnlyAllowedNumberSuffix(text, index))
-        {
-            return false;
-        }
-        value = std::bit_cast<std::int64_t>(bits);
-        return true;
-    }
-
-    [[nodiscard]] std::string FormatPointerHex(std::intptr_t value)
-    {
-        using UnsignedIntPtr = std::make_unsigned_t<std::intptr_t>;
-        std::ostringstream stream;
-        stream << "0x" << std::uppercase << std::hex << std::setfill('0')
-               << std::setw(2) << static_cast<UnsignedIntPtr>(value);
-        return stream.str();
-    }
-
-    [[nodiscard]] std::locale CurrentLocale()
-    {
-        try
-        {
-            return std::locale("");
-        }
-        catch (const std::runtime_error&)
-        {
-            return std::locale::classic();
-        }
-    }
-
-    [[nodiscard]] std::string FormatIntCurrentCulture(std::int32_t value)
-    {
-        std::ostringstream stream;
-        stream.imbue(CurrentLocale());
-        stream << value;
-        return stream.str();
-    }
-
-    [[nodiscard]] std::string FormatIntPtrForArgument(std::intptr_t value)
-    {
-        char buffer[32]{};
-        const auto [end, error] = std::to_chars(
-            std::begin(buffer), std::end(buffer), value);
-        if (error != std::errc{})
-        {
-            throw std::runtime_error("Failed to format IntPtr.");
-        }
-        return std::string(buffer, end);
-    }
-
     [[nodiscard]] std::string FormatWeightLine(
         std::int32_t weight, float percentage, std::string_view target)
     {
-        std::ostringstream stream;
-        stream.imbue(CurrentLocale());
-        stream << "w: " << std::setw(6) << weight << " / 100000 ("
-               << std::setw(5) << std::fixed << std::setprecision(1) << percentage
-               << "%) -> " << target;
-        return stream.str();
+        // $"w: {weight,6} / 100000 ({pct,5:f1}%) -> {target}"
+        return "w: " + ::MphRead::NativeRuntime::StringPadLeft(::MphRead::NativeRuntime::ToString(weight), 6)
+            + " / 100000 ("
+            + ::MphRead::NativeRuntime::StringPadLeft(::MphRead::NativeRuntime::ToString(percentage, "f1"), 5)
+            + "%) -> " + std::string(target);
     }
-
-    void AppendEnvironmentNewLine(std::string& value)
-    {
-#ifdef _WIN32
-        value += "\r\n";
-#else
-        value.push_back('\n');
-#endif
-    }
-
-    void ClearConsole()
-    {
-#ifdef _WIN32
-        HANDLE output = ::GetStdHandle(STD_OUTPUT_HANDLE);
-        if (output == nullptr || output == INVALID_HANDLE_VALUE)
-        {
-            return;
-        }
-        CONSOLE_SCREEN_BUFFER_INFO info{};
-        if (!::GetConsoleScreenBufferInfo(output, &info))
-        {
-            return;
-        }
-        const DWORD cells = static_cast<DWORD>(info.dwSize.X)
-            * static_cast<DWORD>(info.dwSize.Y);
-        DWORD written = 0;
-        const COORD home{0, 0};
-        ::FillConsoleOutputCharacterW(output, L' ', cells, home, &written);
-        ::FillConsoleOutputAttribute(output, info.wAttributes, cells, home, &written);
-        ::SetConsoleCursorPosition(output, home);
-#else
-        std::cout << "\x1B[2J\x1B[H";
-#endif
-    }
-
     struct ProcessCandidate final
     {
         std::int32_t Id = 0;
@@ -1041,7 +792,6 @@ namespace
 
 }
 
-
 namespace MphRead::Memory
 {
     std::shared_ptr<Memory::AddressInfo> Memory::Addresses{};
@@ -1200,9 +950,9 @@ namespace MphRead::Memory
         std::int64_t timestamp = 0;
         std::int64_t saved = 0;
         if (lines.size() >= 2
-            && TryParseInt64Decimal(lines[0], timestamp)
+            && ::MphRead::NativeRuntime::TryParseInteger(lines[0], ::MphRead::NativeRuntime::NumberStyles::Integer, ::MphRead::NativeRuntime::NumberFormatInfo::CurrentInfo(), timestamp)
             && startTime == timestamp
-            && TryParseInt64Hex(lines[1], saved))
+            && ::MphRead::NativeRuntime::TryParseInteger(::MphRead::NativeRuntime::StringReplace(lines[1], "0x", ""), ::MphRead::NativeRuntime::NumberStyles::HexNumber, ::MphRead::NativeRuntime::NumberFormatInfo::CurrentInfo(), saved))
         {
             _baseAddress = Int64ToIntPtr(saved);
             return;
@@ -1280,7 +1030,7 @@ namespace MphRead::Memory
                             _baseAddress = Int64ToIntPtr(found);
                             FileWriteAllLines(PathToUtf8(path), {
                                 std::to_string(startTime),
-                                FormatPointerHex(_baseAddress)
+                                "0x" + ::MphRead::NativeRuntime::ToString(_baseAddress, "X2")
                             });
                             // The C# source never closes this OpenProcess handle.
                             static_cast<void>(processHandle);
@@ -1369,7 +1119,7 @@ namespace MphRead::Memory
             if (newOutput != output)
             {
                 output = newOutput;
-                ClearConsole();
+                ::MphRead::NativeRuntime::ConsoleClear();
                 std::cout << output;
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(15));
@@ -1466,12 +1216,12 @@ namespace MphRead::Memory
             {
                 tree += " -> ";
             }
-            tree += FormatIntCurrentCulture(childIndex);
+            tree += ::MphRead::NativeRuntime::ToString(childIndex);
             _sb += "d";
-            _sb += FormatIntCurrentCulture(i);
+            _sb += ::MphRead::NativeRuntime::ToString(i);
             _sb += ": ";
-            _sb += FormatIntCurrentCulture(childIndex);
-            AppendEnvironmentNewLine(_sb);
+            _sb += ::MphRead::NativeRuntime::ToString(childIndex);
+            _sb += ::MphRead::NativeRuntime::EnvironmentNewLine();
 
             const auto parentData1ForOptional
                 = RequireReference(parent).AIData1();
@@ -1500,7 +1250,7 @@ namespace MphRead::Memory
                     }
                     else
                     {
-                        target = FormatIntCurrentCulture(index);
+                        target = ::MphRead::NativeRuntime::ToString(index);
                     }
 
                     const std::int32_t weight
@@ -1508,7 +1258,7 @@ namespace MphRead::Memory
                     const float percentage
                         = static_cast<float>(weight) / 100000.0F * 100.0F;
                     _sb += FormatWeightLine(weight, percentage, target);
-                    AppendEnvironmentNewLine(_sb);
+                    _sb += ::MphRead::NativeRuntime::EnvironmentNewLine();
                 }
             }
 
@@ -1518,7 +1268,7 @@ namespace MphRead::Memory
                 break;
             }
 
-            AppendEnvironmentNewLine(_sb);
+            _sb += ::MphRead::NativeRuntime::EnvironmentNewLine();
             static_cast<void>(5);
         }
 
@@ -1537,14 +1287,14 @@ namespace MphRead::Memory
         if (add)
         {
             _mem.push_back(
-                FormatIntCurrentCulture(frameCount) + ": " + tree);
+                ::MphRead::NativeRuntime::ToString(frameCount) + ": " + tree);
         }
 
-        AppendEnvironmentNewLine(_sb);
+        _sb += ::MphRead::NativeRuntime::EnvironmentNewLine();
         for (const std::string& line : _mem)
         {
             _sb += line;
-            AppendEnvironmentNewLine(_sb);
+            _sb += ::MphRead::NativeRuntime::EnvironmentNewLine();
         }
     }
 
@@ -1561,7 +1311,7 @@ namespace MphRead::Memory
             {
                 throw ArgumentException(
                     "An item with the same key has already been added. Key: "
-                    + FormatIntPtrForArgument(address));
+                    + ::MphRead::NativeRuntime::ToString(address));
             }
         }
 

@@ -434,12 +434,11 @@ namespace MphRead::Mods::Network
             ? static_cast<double>(_killFrames) / 60.0
             : seconds;
         const std::string kill = _killFrames > 0
-            ? "killed " + NativeRuntime::Int32ToString(_startHealth) + " hp in "
-                + NativeRuntime::DoubleToStringFixed(
-                    static_cast<double>(_killFrames) / 60.0, 2)
+            ? "killed " + ::MphRead::NativeRuntime::ToString(_startHealth) + " hp in "
+                + ::MphRead::NativeRuntime::ToString(static_cast<double>(_killFrames) / 60.0, "0.00")
                 + " s"
-            : "did not kill " + NativeRuntime::Int32ToString(_startHealth) + " hp in "
-                + NativeRuntime::DoubleToStringFixed(seconds, 1)
+            : "did not kill " + ::MphRead::NativeRuntime::ToString(_startHealth) + " hp in "
+                + ::MphRead::NativeRuntime::ToString(seconds, "0.0")
                 + " s";
         const std::string action = _bombs
             ? std::string("laying bombs")
@@ -448,33 +447,28 @@ namespace MphRead::Mods::Network
         NativeRuntime::ConsoleWriteLine(("DPS " + _room
             + " | " + ::MphRead::ToString(_hunter) + " " + action
             + " at "
-            + NativeRuntime::DoubleToStringFixed(
-                static_cast<double>(_bombs ? 0.6F : _distance), 1)
+            + ::MphRead::NativeRuntime::ToString(_bombs ? 0.6F : _distance, "0.0")
             + " units | " + kill
-            + " | damage " + NativeRuntime::Int32ToString(_damage)
-            + " | hits " + NativeRuntime::Int32ToString(_hits)
+            + " | damage " + ::MphRead::NativeRuntime::ToString(_damage)
+            + " | hits " + ::MphRead::NativeRuntime::ToString(_hits)
             + " | "
-            + NativeRuntime::DoubleToStringFixed(
-                static_cast<double>(_damage) / window, 1)
+            + ::MphRead::NativeRuntime::ToString(static_cast<double>(_damage) / window, "0.0")
             + " per second | "
-            + NativeRuntime::DoubleToStringFixed(
-                _hits > 0
+            + ::MphRead::NativeRuntime::ToString(_hits > 0
                     ? static_cast<double>(_damage) / static_cast<double>(_hits)
-                    : 0.0,
-                1)
+                    : 0.0, "0.0")
             + " per hit | "
-            + NativeRuntime::DoubleToStringFixed(
-                static_cast<double>(_hits) / window, 1)
+            + ::MphRead::NativeRuntime::ToString(static_cast<double>(_hits) / window, "0.0")
             + " hits per second | beam alive on "
-            + NativeRuntime::Int32ToString(_beamFrames) + " of "
-            + NativeRuntime::Int32ToString(_firingFrames) + " frame(s)"
-            + " | shockCoilTimer " + NativeRuntime::Int32ToString(_worstShockCoilTimer)
+            + ::MphRead::NativeRuntime::ToString(_beamFrames) + " of "
+            + ::MphRead::NativeRuntime::ToString(_firingFrames) + " frame(s)"
+            + " | shockCoilTimer " + ::MphRead::NativeRuntime::ToString(_worstShockCoilTimer)
             + " (ramp needs 60 for +1, 240 for +4)"
-            + " | victim ended on " + NativeRuntime::Int32ToString(_lastHealth)
-            + " hp | healed shooter " + NativeRuntime::Int32ToString(_healed)
-            + " hp | shooter ammo " + NativeRuntime::Int32ToString(_lastAmmo)
-            + " | last hit on firing frame " + NativeRuntime::Int32ToString(_lastHitFrame)
-            + " of " + NativeRuntime::Int32ToString(_firingFrames)));
+            + " | victim ended on " + ::MphRead::NativeRuntime::ToString(_lastHealth)
+            + " hp | healed shooter " + ::MphRead::NativeRuntime::ToString(_healed)
+            + " hp | shooter ammo " + ::MphRead::NativeRuntime::ToString(_lastAmmo)
+            + " | last hit on firing frame " + ::MphRead::NativeRuntime::ToString(_lastHitFrame)
+            + " of " + ::MphRead::NativeRuntime::ToString(_firingFrames)));
         return 0;
     }
 

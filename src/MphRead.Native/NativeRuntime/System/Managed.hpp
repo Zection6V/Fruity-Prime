@@ -230,6 +230,23 @@ namespace MphRead::NativeRuntime
         return static_cast<std::int32_t>(std::trunc(wide));
     }
 
+    [[nodiscard]] inline std::int32_t ConvertToInt32Net9(double value) noexcept
+    {
+        if (std::isnan(value))
+        {
+            return 0;
+        }
+        if (value <= static_cast<double>(std::numeric_limits<std::int32_t>::min()))
+        {
+            return std::numeric_limits<std::int32_t>::min();
+        }
+        if (value >= static_cast<double>(std::numeric_limits<std::int32_t>::max()))
+        {
+            return std::numeric_limits<std::int32_t>::max();
+        }
+        return static_cast<std::int32_t>(std::trunc(value));
+    }
+
     namespace Detail
     {
         template <typename T>

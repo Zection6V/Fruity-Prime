@@ -10,6 +10,7 @@
 #include "../../Formats/Types.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <array>
 #include <charconv>
@@ -30,8 +31,6 @@
 #define NOMINMAX
 #include <windows.h>
 #else
-#include <langinfo.h>
-#include <locale.h>
 #endif
 
 using ::MphRead::NativeRuntime::EnvironmentGetVariable;
@@ -39,309 +38,6 @@ using ::MphRead::NativeRuntime::HasFlag;
 
 namespace
 {
-    [[nodiscard]] std::string CurrentCultureDecimalSeparator()
-    {
-#if defined(_WIN32)
-        wchar_t buffer[16]{};
-        const int length = GetLocaleInfoEx(
-            LOCALE_NAME_USER_DEFAULT, LOCALE_SDECIMAL, buffer,
-            static_cast<int>(sizeof(buffer) / sizeof(buffer[0])));
-        if (length <= 1)
-        {
-            return ".";
-        }
-        const int utf8Length = WideCharToMultiByte(
-            CP_UTF8, 0, buffer, length - 1, nullptr, 0, nullptr, nullptr);
-        if (utf8Length <= 0)
-        {
-            return ".";
-        }
-        std::string result(static_cast<std::size_t>(utf8Length), '\0');
-        WideCharToMultiByte(
-            CP_UTF8, 0, buffer, length - 1, result.data(), utf8Length, nullptr, nullptr);
-        return result;
-#else
-#if defined(__ANDROID__)
-        const lconv* locale = ::localeconv();
-        const char* separator = locale != nullptr ? locale->decimal_point : nullptr;
-        return separator != nullptr && separator[0] != '\0' ? separator : ".";
-#else
-        locale_t locale = newlocale(LC_NUMERIC_MASK, "", nullptr);
-        if (locale == static_cast<locale_t>(0))
-        {
-            return ".";
-        }
-        const char* separator = nl_langinfo_l(RADIXCHAR, locale);
-        std::string result = separator != nullptr && separator[0] != '\0'
-            ? separator
-            : ".";
-        freelocale(locale);
-        return result;
-#endif
-#endif
-    }
-
-    [[nodiscard]] std::string CurrentCultureNegativeSign()
-    {
-#if defined(_WIN32)
-        wchar_t buffer[16]{};
-        const int length = GetLocaleInfoEx(
-            LOCALE_NAME_USER_DEFAULT, LOCALE_SNEGATIVESIGN, buffer,
-            static_cast<int>(sizeof(buffer) / sizeof(buffer[0])));
-        if (length <= 1)
-        {
-            return "-";
-        }
-        const int utf8Length = WideCharToMultiByte(
-            CP_UTF8, 0, buffer, length - 1, nullptr, 0, nullptr, nullptr);
-        if (utf8Length <= 0)
-        {
-            return "-";
-        }
-        std::string result(static_cast<std::size_t>(utf8Length), '\0');
-        WideCharToMultiByte(
-            CP_UTF8, 0, buffer, length - 1, result.data(), utf8Length, nullptr, nullptr);
-        return result;
-#else
-#if defined(__ANDROID__)
-        const lconv* locale = ::localeconv();
-        const char* sign = locale != nullptr ? locale->negative_sign : nullptr;
-        return sign != nullptr && sign[0] != '\0' ? sign : "-";
-#else
-        locale_t locale = newlocale(LC_MONETARY_MASK, "", nullptr);
-        if (locale == static_cast<locale_t>(0))
-        {
-            return "-";
-        }
-#if defined(NEGATIVE_SIGN)
-        const char* sign = nl_langinfo_l(NEGATIVE_SIGN, locale);
-        std::string result = sign != nullptr && sign[0] != '\0' ? sign : "-";
-#else
-        std::string result = "-";
-#endif
-        freelocale(locale);
-        return result;
-#endif
-#endif
-    }
-
-    [[nodiscard]] std::string CurrentCultureNaNSymbol()
-    {
-#if defined(_WIN32) && defined(LOCALE_SNAN)
-        wchar_t buffer[32]{};
-        const int length = GetLocaleInfoEx(
-            LOCALE_NAME_USER_DEFAULT, LOCALE_SNAN, buffer,
-            static_cast<int>(sizeof(buffer) / sizeof(buffer[0])));
-        if (length > 1)
-        {
-            const int utf8Length = WideCharToMultiByte(
-                CP_UTF8, 0, buffer, length - 1, nullptr, 0, nullptr, nullptr);
-            if (utf8Length > 0)
-            {
-                std::string result(static_cast<std::size_t>(utf8Length), '\0');
-                WideCharToMultiByte(
-                    CP_UTF8, 0, buffer, length - 1, result.data(), utf8Length, nullptr, nullptr);
-                return result;
-            }
-        }
-#endif
-        return "NaN";
-    }
-
-    [[nodiscard]] std::string CurrentCulturePositiveInfinitySymbol()
-    {
-#if defined(_WIN32) && defined(LOCALE_SPOSINFINITY)
-        wchar_t buffer[32]{};
-        const int length = GetLocaleInfoEx(
-            LOCALE_NAME_USER_DEFAULT, LOCALE_SPOSINFINITY, buffer,
-            static_cast<int>(sizeof(buffer) / sizeof(buffer[0])));
-        if (length > 1)
-        {
-            const int utf8Length = WideCharToMultiByte(
-                CP_UTF8, 0, buffer, length - 1, nullptr, 0, nullptr, nullptr);
-            if (utf8Length > 0)
-            {
-                std::string result(static_cast<std::size_t>(utf8Length), '\0');
-                WideCharToMultiByte(
-                    CP_UTF8, 0, buffer, length - 1, result.data(), utf8Length, nullptr, nullptr);
-                return result;
-            }
-        }
-#endif
-        return "\xE2\x88\x9E";
-    }
-
-    [[nodiscard]] std::string CurrentCultureNegativeInfinitySymbol()
-    {
-#if defined(_WIN32) && defined(LOCALE_SNEGINFINITY)
-        wchar_t buffer[32]{};
-        const int length = GetLocaleInfoEx(
-            LOCALE_NAME_USER_DEFAULT, LOCALE_SNEGINFINITY, buffer,
-            static_cast<int>(sizeof(buffer) / sizeof(buffer[0])));
-        if (length > 1)
-        {
-            const int utf8Length = WideCharToMultiByte(
-                CP_UTF8, 0, buffer, length - 1, nullptr, 0, nullptr, nullptr);
-            if (utf8Length > 0)
-            {
-                std::string result(static_cast<std::size_t>(utf8Length), '\0');
-                WideCharToMultiByte(
-                    CP_UTF8, 0, buffer, length - 1, result.data(), utf8Length, nullptr, nullptr);
-                return result;
-            }
-        }
-#endif
-        return CurrentCultureNegativeSign() + "\xE2\x88\x9E";
-    }
-
-    [[nodiscard]] std::string UInt32ToDigits(std::uint32_t value)
-    {
-        std::array<char, 16> buffer{};
-        const auto converted = std::to_chars(buffer.data(), buffer.data() + buffer.size(), value);
-        if (converted.ec != std::errc{})
-        {
-            throw std::runtime_error("Integer formatting failed.");
-        }
-        return std::string(buffer.data(), converted.ptr);
-    }
-
-    [[nodiscard]] std::string Int32ToCurrentCulture(std::int32_t value)
-    {
-        const std::uint32_t bits = static_cast<std::uint32_t>(value);
-        if (value >= 0)
-        {
-            return UInt32ToDigits(bits);
-        }
-        const std::uint32_t magnitude = 0U - bits;
-        return CurrentCultureNegativeSign() + UInt32ToDigits(magnitude);
-    }
-
-    [[nodiscard]] std::string ByteToCurrentCulture(std::uint8_t value)
-    {
-        return UInt32ToDigits(static_cast<std::uint32_t>(value));
-    }
-
-    [[nodiscard]] std::string FormatSingleZeroPointZeroZero(float value)
-    {
-        if (std::isnan(value))
-        {
-            return CurrentCultureNaNSymbol();
-        }
-        if (std::isinf(value))
-        {
-            return std::signbit(value)
-                ? CurrentCultureNegativeInfinitySymbol()
-                : CurrentCulturePositiveInfinitySymbol();
-        }
-
-        const bool negative = std::signbit(value);
-        const float magnitude = std::fabs(value);
-
-        std::uint32_t digits = 0;
-        std::int32_t exponent = 0;
-        if (magnitude != 0.0F)
-        {
-            std::array<char, 64> buffer{};
-            const auto converted = std::to_chars(
-                buffer.data(), buffer.data() + buffer.size(), magnitude,
-                std::chars_format::scientific, 6);
-            if (converted.ec != std::errc{})
-            {
-                throw std::runtime_error("Single formatting failed.");
-            }
-
-            const std::string_view scientific(
-                buffer.data(), static_cast<std::size_t>(converted.ptr - buffer.data()));
-            std::size_t exponentMarker = scientific.find('e');
-            if (exponentMarker == std::string_view::npos
-                && (exponentMarker = scientific.find('E')) == std::string_view::npos)
-            {
-                throw std::runtime_error("Single formatting failed.");
-            }
-
-            for (std::size_t index = 0; index < exponentMarker; index++)
-            {
-                const char unit = scientific[index];
-                if (unit == '.')
-                {
-                    continue;
-                }
-                if (unit < '0' || unit > '9')
-                {
-                    throw std::runtime_error("Single formatting failed.");
-                }
-                digits = digits * 10U + static_cast<std::uint32_t>(unit - '0');
-            }
-
-            const char* exponentFirst = scientific.data() + exponentMarker + 1;
-            const char* const exponentEnd = scientific.data() + scientific.size();
-            bool negativeExponent = false;
-            if (exponentFirst != exponentEnd
-                && (*exponentFirst == '+' || *exponentFirst == '-'))
-            {
-                negativeExponent = *exponentFirst == '-';
-                exponentFirst++;
-            }
-
-            const auto parsed = std::from_chars(exponentFirst, exponentEnd, exponent);
-            if (parsed.ec != std::errc{} || parsed.ptr != exponentEnd)
-            {
-                throw std::runtime_error("Single formatting failed.");
-            }
-            if (negativeExponent)
-            {
-                exponent = -exponent;
-            }
-        }
-
-        std::string hundredthsText;
-        if (magnitude == 0.0F)
-        {
-            hundredthsText = "000";
-        }
-        else if (exponent >= 4)
-        {
-            hundredthsText = UInt32ToDigits(digits);
-            hundredthsText.append(static_cast<std::size_t>(exponent - 4), '0');
-        }
-        else
-        {
-            const std::int32_t divisorPower = 4 - exponent;
-            std::uint32_t hundredths = 0;
-            if (divisorPower <= 7)
-            {
-                std::uint32_t divisor = 1;
-                for (std::int32_t power = 0; power < divisorPower; power++)
-                {
-                    divisor *= 10U;
-                }
-                hundredths = digits / divisor;
-                const std::uint32_t remainder = digits % divisor;
-                if (remainder * 2U >= divisor)
-                {
-                    hundredths++;
-                }
-            }
-            hundredthsText = UInt32ToDigits(hundredths);
-        }
-
-        if (hundredthsText.size() < 3)
-        {
-            hundredthsText.insert(
-                hundredthsText.begin(), 3 - hundredthsText.size(), '0');
-        }
-
-        const std::size_t fractionStart = hundredthsText.size() - 2;
-        std::string result = hundredthsText.substr(0, fractionStart);
-        result += CurrentCultureDecimalSeparator();
-        result.append(hundredthsText, fractionStart, 2);
-        if (negative)
-        {
-            result.insert(0, CurrentCultureNegativeSign());
-        }
-        return result;
-    }
-
     [[nodiscard]] std::string NetRoleToString(MphRead::Mods::Network::NetRole value)
     {
         using MphRead::Mods::Network::NetRole;
@@ -356,7 +52,7 @@ namespace
         case NetRole::Server:
             return "Server";
         }
-        return Int32ToCurrentCulture(static_cast<std::int32_t>(value));
+        return ::MphRead::NativeRuntime::ToString(static_cast<std::int32_t>(value));
     }
 
     [[nodiscard]] std::string BeamTypeToString(MphRead::BeamType value)
@@ -388,7 +84,7 @@ namespace
         case MphRead::BeamType::Enemy:
             return "Enemy";
         }
-        return Int32ToCurrentCulture(static_cast<std::int32_t>(value));
+        return ::MphRead::NativeRuntime::ToString(static_cast<std::int32_t>(value));
     }
 }
 
@@ -426,7 +122,7 @@ namespace MphRead::Mods::Network
         line += "[netdbg] role=";
         line += NetRoleToString(NetSession::Role());
         line += " slot=";
-        line += Int32ToCurrentCulture(NetSession::LocalSlot());
+        line += ::MphRead::NativeRuntime::ToString(NetSession::LocalSlot());
 
         std::int32_t active = 0;
         std::int32_t created = 0;
@@ -451,11 +147,11 @@ namespace MphRead::Mods::Network
                 : HasFlag(player->LoadFlags(), Entities::LoadFlags::SlotActive) ? 's' : '.');
         }
         line += "] active=";
-        line += Int32ToCurrentCulture(active);
+        line += ::MphRead::NativeRuntime::ToString(active);
         line += " scoreboard=";
-        line += Int32ToCurrentCulture(GameState::ActivePlayers());
+        line += ::MphRead::NativeRuntime::ToString(GameState::ActivePlayers());
         line += " created=";
-        line += Int32ToCurrentCulture(created);
+        line += ::MphRead::NativeRuntime::ToString(created);
 
         line += " remoteState=[";
         for (std::size_t i = 0; i < NetSession::RemoteStateValid.size(); i++)
@@ -483,7 +179,7 @@ namespace MphRead::Mods::Network
         if (botRemotes > 0)
         {
             line += "  !! ";
-            line += Int32ToCurrentCulture(botRemotes);
+            line += ::MphRead::NativeRuntime::ToString(botRemotes);
             line += " remote slot(s) still AI-driven";
         }
 
@@ -498,7 +194,7 @@ namespace MphRead::Mods::Network
             }
             line += player == nullptr
                 ? "-"
-                : Int32ToCurrentCulture(player->TeamIndex());
+                : ::MphRead::NativeRuntime::ToString(player->TeamIndex());
         }
         line.push_back(']');
 
@@ -529,7 +225,7 @@ namespace MphRead::Mods::Network
             if (shared > 0)
             {
                 line += "  !! ";
-                line += Int32ToCurrentCulture(shared);
+                line += ::MphRead::NativeRuntime::ToString(shared);
                 line += " pair(s) share a team index in a free-for-all: "
                     "bombs and life drain will do nothing between them";
             }
@@ -552,15 +248,15 @@ namespace MphRead::Mods::Network
         line += NetPlayerBridge::FormSaidByAuthority();
         line.push_back(']');
         line += " shockcoil=";
-        line += Int32ToCurrentCulture(NetDamage::ShockCoilAcquired);
+        line += ::MphRead::NativeRuntime::ToString(NetDamage::ShockCoilAcquired);
         line.push_back('/');
-        line += Int32ToCurrentCulture(NetDamage::ShockCoilSpawned);
+        line += ::MphRead::NativeRuntime::ToString(NetDamage::ShockCoilSpawned);
         line += " bomb=";
-        line += Int32ToCurrentCulture(NetDamage::BombHits);
+        line += ::MphRead::NativeRuntime::ToString(NetDamage::BombHits);
         line.push_back('/');
-        line += Int32ToCurrentCulture(NetDamage::BombPlayerChecks);
+        line += ::MphRead::NativeRuntime::ToString(NetDamage::BombPlayerChecks);
         line += " bombTeamSkips=";
-        line += Int32ToCurrentCulture(NetDamage::BombTeamSkips);
+        line += ::MphRead::NativeRuntime::ToString(NetDamage::BombTeamSkips);
 
         line += " dmg[";
         bool first = true;
@@ -577,9 +273,9 @@ namespace MphRead::Mods::Network
             first = false;
             line += BeamTypeToString(static_cast<MphRead::BeamType>(i));
             line.push_back('=');
-            line += Int32ToCurrentCulture(NetDamage::DamageByBeam[i]);
+            line += ::MphRead::NativeRuntime::ToString(NetDamage::DamageByBeam[i]);
             line.push_back('/');
-            line += Int32ToCurrentCulture(NetDamage::HitsByBeam[i]);
+            line += ::MphRead::NativeRuntime::ToString(NetDamage::HitsByBeam[i]);
         }
         if (NetDamage::BombDamageHits > 0)
         {
@@ -588,33 +284,33 @@ namespace MphRead::Mods::Network
                 line.push_back(' ');
             }
             line += "Bomb=";
-            line += Int32ToCurrentCulture(NetDamage::BombDamageDealt);
+            line += ::MphRead::NativeRuntime::ToString(NetDamage::BombDamageDealt);
             line.push_back('/');
-            line += Int32ToCurrentCulture(NetDamage::BombDamageHits);
+            line += ::MphRead::NativeRuntime::ToString(NetDamage::BombDamageHits);
         }
         line.push_back(']');
 
         line += " bombSpawn=";
-        line += Int32ToCurrentCulture(NetDamage::BombSpawnMade);
+        line += ::MphRead::NativeRuntime::ToString(NetDamage::BombSpawnMade);
         line.push_back('/');
-        line += Int32ToCurrentCulture(NetDamage::BombSpawnCalls);
+        line += ::MphRead::NativeRuntime::ToString(NetDamage::BombSpawnCalls);
         line += " det=";
-        line += Int32ToCurrentCulture(NetDamage::BombSpawnDetonated);
+        line += ::MphRead::NativeRuntime::ToString(NetDamage::BombSpawnDetonated);
         line += " stale=";
-        line += Int32ToCurrentCulture(NetDamage::BombSpawnStaleCount);
+        line += ::MphRead::NativeRuntime::ToString(NetDamage::BombSpawnStaleCount);
         line += " poolEmpty=";
-        line += Int32ToCurrentCulture(NetDamage::BombSpawnPoolEmpty);
+        line += ::MphRead::NativeRuntime::ToString(NetDamage::BombSpawnPoolEmpty);
         line += " bombNearest=";
         line += NetDamage::BombNearest == std::numeric_limits<float>::max()
             ? "n/a"
-            : FormatSingleZeroPointZeroZero(NetDamage::BombNearest);
+            : ::MphRead::NativeRuntime::ToString(NetDamage::BombNearest, "0.00");
         line += " bombRadius=";
-        line += FormatSingleZeroPointZeroZero(NetDamage::BombRadiusSeen);
+        line += ::MphRead::NativeRuntime::ToString(NetDamage::BombRadiusSeen, "0.00");
 
         if (NetPlayerBridge::PlacementsRefused > 0)
         {
             line += " placementsRefused=";
-            line += Int32ToCurrentCulture(NetPlayerBridge::PlacementsRefused);
+            line += ::MphRead::NativeRuntime::ToString(NetPlayerBridge::PlacementsRefused);
         }
 
         const std::optional<MatchStatePacket> match = NetSession::ServerMatch();
@@ -626,7 +322,7 @@ namespace MphRead::Mods::Network
                 line += *match->RoomKey;
             }
             line += " serverPlayers=";
-            line += ByteToCurrentCulture(match->PlayerCount);
+            line += ::MphRead::NativeRuntime::ToString(match->PlayerCount);
         }
         std::cout << line << '\n';
     }

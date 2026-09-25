@@ -40,6 +40,8 @@
 #include "../../../NativeRuntime/System/Encoding.hpp"
 #include "../../../NativeRuntime/System/Globalization.hpp"
 #include "../../../NativeRuntime/System/IO.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
+#include "../../../NativeRuntime/System/Console.hpp"
 
 #include <algorithm>
 #include <array>
@@ -54,7 +56,6 @@
 #include <iostream>
 #include <limits>
 #include <locale>
-#include <locale.h>
 #include <memory>
 #include <cwchar>
 #include <cwctype>
@@ -73,7 +74,6 @@
 #include <io.h>
 #include <windows.h>
 #else
-#include <dlfcn.h>
 #include <wctype.h>
 #include <sys/stat.h>
 #if !defined(__ANDROID__)
@@ -159,7 +159,6 @@ namespace
     [[nodiscard]] GameMode DefenderTeams() { return GameMode::DefenderTeams; }
     [[nodiscard]] GameMode PrimeHunter() { return GameMode::PrimeHunter; }
 
-
     [[nodiscard]] std::string TrimQuotes(std::string value)
     {
         std::size_t first = 0;
@@ -173,180 +172,6 @@ namespace
             --last;
         }
         return value.substr(first, last - first);
-    }
-
-#if !defined(_WIN32)
-    [[nodiscard]] void* FindVersionedIcuSymbol(void* library, const char* base) noexcept
-    {
-        if (library == nullptr)
-        {
-            return nullptr;
-        }
-        if (void* symbol = ::dlsym(library, base); symbol != nullptr)
-        {
-            return symbol;
-        }
-        char name[96]{};
-        for (int version = 99; version >= 50; --version)
-        {
-            const int count = std::snprintf(name, sizeof(name), "%s_%d", base, version);
-            if (count <= 0 || static_cast<std::size_t>(count) >= sizeof(name))
-            {
-                continue;
-            }
-            if (void* symbol = ::dlsym(library, name); symbol != nullptr)
-            {
-                return symbol;
-            }
-        }
-        return nullptr;
-    }
-
-    [[nodiscard]] std::uint32_t IcuLower(std::uint32_t scalar) noexcept
-    {
-        using CaseFunction = std::int32_t (*)(std::int32_t);
-        static const CaseFunction lower = []() noexcept
-        {
-            void* library = ::dlopen("libicuuc.so", RTLD_LAZY | RTLD_LOCAL);
-#if defined(__APPLE__)
-            if (library == nullptr)
-            {
-                library = ::dlopen("/usr/lib/libicucore.A.dylib", RTLD_LAZY | RTLD_LOCAL);
-            }
-#endif
-            return reinterpret_cast<CaseFunction>(
-                FindVersionedIcuSymbol(library, "u_tolower"));
-        }();
-        if (lower == nullptr || scalar > 0x10FFFFU)
-        {
-            return scalar;
-        }
-        const std::int32_t mapped = lower(static_cast<std::int32_t>(scalar));
-        return mapped < 0 ? scalar : static_cast<std::uint32_t>(mapped);
-    }
-#endif
-
-    [[nodiscard]] std::uint32_t LowerInvariantScalar(std::uint32_t scalar) noexcept
-    {
-        if (scalar >= 'A' && scalar <= 'Z')
-        {
-            return scalar + ('a' - 'A');
-        }
-
-        // .NET invariant casing keeps LATIN CAPITAL LETTER I WITH DOT ABOVE
-        // unchanged instead of applying Turkish-specific casing.
-        if (scalar == 0x0130U)
-        {
-            return scalar;
-        }
-
-#if defined(_WIN32)
-        wchar_t source[2]{};
-        int sourceLength = 0;
-        if (scalar <= 0xFFFFU)
-        {
-            source[0] = static_cast<wchar_t>(scalar);
-            sourceLength = 1;
-        }
-        else if (scalar <= 0x10FFFFU)
-        {
-            const std::uint32_t value = scalar - 0x10000U;
-            source[0] = static_cast<wchar_t>(0xD800U + (value >> 10));
-            source[1] = static_cast<wchar_t>(0xDC00U + (value & 0x3FFU));
-            sourceLength = 2;
-        }
-        if (sourceLength != 0)
-        {
-            wchar_t target[2]{};
-            const int mapped = ::LCMapStringEx(
-                LOCALE_NAME_INVARIANT, LCMAP_LOWERCASE, source, sourceLength,
-                target, 2, nullptr, nullptr, 0);
-            if (mapped == 1)
-            {
-                return static_cast<std::uint32_t>(target[0]);
-            }
-            if (mapped == 2
-                && target[0] >= 0xD800 && target[0] <= 0xDBFF
-                && target[1] >= 0xDC00 && target[1] <= 0xDFFF)
-            {
-                return 0x10000U
-                    + ((static_cast<std::uint32_t>(target[0]) - 0xD800U) << 10)
-                    + (static_cast<std::uint32_t>(target[1]) - 0xDC00U);
-            }
-        }
-#else
-        const std::uint32_t mapped = IcuLower(scalar);
-        if (mapped != scalar)
-        {
-            return mapped;
-        }
-
-        static locale_t locale = []() noexcept
-        {
-            locale_t value = ::newlocale(LC_CTYPE_MASK, "C.UTF-8", nullptr);
-            if (value == nullptr)
-            {
-                value = ::newlocale(LC_CTYPE_MASK, "en_US.UTF-8", nullptr);
-            }
-            return value;
-        }();
-        if (locale != nullptr && scalar <= static_cast<std::uint32_t>(WCHAR_MAX))
-        {
-            const wint_t wide = ::towlower_l(static_cast<wint_t>(scalar), locale);
-            if (wide != WEOF)
-            {
-                return static_cast<std::uint32_t>(wide);
-            }
-        }
-#endif
-
-        if (scalar >= 0x00C0U && scalar <= 0x00D6U)
-        {
-            return scalar + 0x20U;
-        }
-        if (scalar >= 0x00D8U && scalar <= 0x00DEU)
-        {
-            return scalar + 0x20U;
-        }
-        if (scalar == 0x0178U)
-        {
-            return 0x00FFU;
-        }
-        if (scalar >= 0x0391U && scalar <= 0x03A1U)
-        {
-            return scalar + 0x20U;
-        }
-        if (scalar >= 0x03A3U && scalar <= 0x03ABU)
-        {
-            return scalar + 0x20U;
-        }
-        if (scalar >= 0x0410U && scalar <= 0x042FU)
-        {
-            return scalar + 0x20U;
-        }
-        return scalar;
-    }
-
-    [[nodiscard]] std::string LowerInvariantForCommand(const std::string& value)
-    {
-        std::string result;
-        result.reserve(value.size());
-        for (std::size_t position = 0; position < value.size();)
-        {
-            const Utf8Scalar unit = DecodeUtf8Scalar(value, position);
-            const std::size_t length = unit.Length == 0 ? 1 : unit.Length;
-            if (unit.Value == 0xFFFDU && length == 1
-                && static_cast<unsigned char>(value[position]) >= 0x80U)
-            {
-                result.push_back(value[position]);
-            }
-            else
-            {
-                AppendUtf8(result, LowerInvariantScalar(unit.Value));
-            }
-            position += length;
-        }
-        return result;
     }
 
     [[nodiscard]] std::string_view TrimNumberWhitespace(std::string_view text) noexcept
@@ -491,7 +316,7 @@ namespace
         }
         std::cout.flush();
         const std::optional<std::string> line
-            = MphRead::RendererPlatform::ConsoleReadLine();
+            = MphRead::NativeRuntime::ConsoleReadLine();
         if (!line.has_value())
         {
             std::cout << '\n';
@@ -585,8 +410,7 @@ namespace
 
     [[nodiscard]] bool AskYesNo(const std::string& prompt, bool current)
     {
-        const std::string answer = LowerInvariantForCommand(
-            Ask(prompt + " (y/n)", current ? "y" : "n"));
+        const std::string answer = ::MphRead::NativeRuntime::ToLowerInvariant(Ask(prompt + " (y/n)", current ? "y" : "n"));
         return !answer.empty() ? answer[0] == 'y' : current;
     }
 
@@ -807,7 +631,7 @@ namespace
             }
             std::cout << "  [b] Back" << '\n';
             std::cout << '\n';
-            const std::string choice = LowerInvariantForCommand(Ask("  Choose a slot", "1"));
+            const std::string choice = ::MphRead::NativeRuntime::ToLowerInvariant(Ask("  Choose a slot", "1"));
             if (choice == "b" || choice == "back")
             {
                 return false;
@@ -829,7 +653,7 @@ namespace
                 std::cout << "  [2] New game    (overwrites this slot once you save)" << '\n';
                 std::cout << "  [b] Back" << '\n';
                 std::cout << '\n';
-                const std::string what = LowerInvariantForCommand(Ask("  Choose", "1"));
+                const std::string what = ::MphRead::NativeRuntime::ToLowerInvariant(Ask("  Choose", "1"));
                 if (what == "b" || what == "back")
                 {
                     continue;
@@ -912,7 +736,7 @@ namespace
         std::cout << "  [b] browse the servers on " << LauncherPrefs::MasterHost() << '\n';
         std::cout << "  [enter] use " << address << ':' << port << '\n';
         std::cout << "  [c] cancel" << '\n';
-        const std::string answer = LowerInvariantForCommand(Ask("  Server", ""));
+        const std::string answer = ::MphRead::NativeRuntime::ToLowerInvariant(Ask("  Server", ""));
         if (answer == "c")
         {
             return false;
@@ -1119,7 +943,7 @@ namespace
                 std::cout << '\n';
                 std::cout << "  " << MphRead::Mods::Credits::Summary() << '\n';
                 std::cout << '\n';
-                const std::string only = LowerInvariantForCommand(Ask("  Choose", "1"));
+                const std::string only = ::MphRead::NativeRuntime::ToLowerInvariant(Ask("  Choose", "1"));
                 if (only == "q" || only == "quit")
                 {
                     return false;
@@ -1155,7 +979,7 @@ namespace
                 << " -credits for the full list." << '\n';
             std::cout << '\n';
 
-            const std::string choice = LowerInvariantForCommand(Ask("  Choose", "1"));
+            const std::string choice = ::MphRead::NativeRuntime::ToLowerInvariant(Ask("  Choose", "1"));
             if (choice == "q" || choice == "quit")
             {
                 return false;

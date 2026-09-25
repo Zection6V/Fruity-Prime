@@ -6,6 +6,7 @@
 #include "NetSession.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -120,25 +121,6 @@ namespace MphRead::Mods::Network
         [[nodiscard]] char CurrentDecimalPoint()
         {
             return std::use_facet<std::numpunct<char>>(std::locale("")).decimal_point();
-        }
-
-        [[nodiscard]] std::string FormatFixed(double value, std::int32_t precision)
-        {
-            std::ostringstream stream;
-            stream.imbue(std::locale::classic());
-            stream << std::fixed << std::setprecision(precision) << value;
-            std::string result = stream.str();
-
-            const char decimalPoint = CurrentDecimalPoint();
-            if (decimalPoint != '.')
-            {
-                const std::size_t position = result.find('.');
-                if (position != std::string::npos)
-                {
-                    result[position] = decimalPoint;
-                }
-            }
-            return result;
         }
 
         [[nodiscard]] std::string PacketTypeToString(PacketType type)
@@ -317,7 +299,7 @@ namespace MphRead::Mods::Network
             }
             WriteLine(protocolLine);
 
-            const std::string secondsText = FormatFixed(seconds, 1);
+            const std::string secondsText = ::MphRead::NativeRuntime::ToString(seconds, "0.0");
             WriteLine("  " + std::to_string(records) + " record(s) over frames "
                 + std::to_string(firstFrame) + "-" + std::to_string(lastFrame)
                 + " (" + secondsText + " s at 60 fps)");
@@ -327,12 +309,12 @@ namespace MphRead::Mods::Network
                 ? static_cast<double>(payload) / static_cast<double>(onDisk)
                 : 0.0;
             const std::string onDiskKiBText
-                = FormatFixed(static_cast<double>(onDisk) / 1024.0, 1);
+                = ::MphRead::NativeRuntime::ToString(static_cast<double>(onDisk) / 1024.0, "0.0");
             const std::string payloadKiBText
-                = FormatFixed(static_cast<double>(payload) / 1024.0, 1);
-            const std::string ratioText = FormatFixed(ratio, 2);
+                = ::MphRead::NativeRuntime::ToString(static_cast<double>(payload) / 1024.0, "0.0");
+            const std::string ratioText = ::MphRead::NativeRuntime::ToString(ratio, "0.00");
             const std::string diskRateText
-                = FormatFixed(static_cast<double>(onDisk) / denominator / 1024.0, 1);
+                = ::MphRead::NativeRuntime::ToString(static_cast<double>(onDisk) / denominator / 1024.0, "0.0");
             WriteLine("  " + onDiskKiBText + " KiB on disk, "
                 + payloadKiBText + " KiB of packets -- " + ratioText + "x, "
                 + diskRateText + " KiB/s");
@@ -344,10 +326,10 @@ namespace MphRead::Mods::Network
                 const std::string typeText = PacketTypeToString(entry.Key);
                 const std::string countText = std::to_string(entry.Value);
                 const double rate = static_cast<double>(entry.Value) / denominator;
-                const std::string rateText = FormatFixed(rate, 1);
+                const std::string rateText = ::MphRead::NativeRuntime::ToString(rate, "0.0");
                 const std::int64_t byteCount = bytes.At(entry.Key);
                 const std::string byteText
-                    = FormatFixed(static_cast<double>(byteCount) / 1024.0, 1);
+                    = ::MphRead::NativeRuntime::ToString(static_cast<double>(byteCount) / 1024.0, "0.0");
                 WriteLine("  " + AlignLeft(typeText, 14) + " "
                     + AlignRight(countText, 7) + " ("
                     + AlignRight(rateText, 6) + "/s, " + byteText + " KiB)");
@@ -433,7 +415,7 @@ namespace MphRead::Mods::Network
         WriteLine("  " + std::to_string(frames) + " frame(s) replayed, "
             + std::to_string(intents) + " slot intent(s) applied");
         WriteLine("  " + std::to_string(framesWithSnapshot)
-            + " frame(s) got a snapshot (" + FormatFixed(percent, 1) + "%), "
+            + " frame(s) got a snapshot (" + ::MphRead::NativeRuntime::ToString(percent, "0.0") + "%), "
             + std::to_string(framesWithSeveral) + " got more than one");
         WriteLine("  longest run of frames with no snapshot: " + std::to_string(worstGap));
 

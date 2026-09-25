@@ -23,11 +23,6 @@
 #include <utility>
 #include <vector>
 
-namespace MphRead::NativeRuntime
-{
-    void SetManagedCurrentNegativeSign(std::string negativeSign);
-}
-
 namespace OpenTK::Mathematics
 {
     // MphRead's Vector3 extensions (Formats/Types.cs): WithX(x) and the rest.

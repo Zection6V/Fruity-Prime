@@ -105,25 +105,7 @@ namespace
 
     [[nodiscard]] std::string TestPhaseName(TestPhase phase)
     {
-        switch (phase)
-        {
-            case TestPhase::Idle: return "Idle";
-            case TestPhase::Walk: return "Walk";
-            case TestPhase::Jump: return "Jump";
-            case TestPhase::Turn: return "Turn";
-            case TestPhase::Shoot: return "Shoot";
-            case TestPhase::SwitchWeapons: return "SwitchWeapons";
-            case TestPhase::Charge: return "Charge";
-            case TestPhase::MorphA: return "MorphA";
-            case TestPhase::AltAttackA: return "AltAttackA";
-            case TestPhase::MorphB: return "MorphB";
-            case TestPhase::AltAttackB: return "AltAttackB";
-            case TestPhase::Unmorph: return "Unmorph";
-            case TestPhase::Zoom: return "Zoom";
-            case TestPhase::Afflict: return "Afflict";
-            case TestPhase::Duel: return "Duel";
-        }
-        return ::MphRead::NativeRuntime::ToString(static_cast<std::int32_t>(phase));
+        return ::MphRead::Mods::Network::ToString(phase);
     }
 
     [[nodiscard]] bool IsMorphPhase(TestPhase phase) noexcept

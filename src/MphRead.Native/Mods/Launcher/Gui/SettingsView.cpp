@@ -206,21 +206,14 @@ namespace
 
     [[nodiscard]] Hunter ParseHunter(std::u16string_view value)
     {
-        if (value == u"Samus") return Hunter::Samus;
-        if (value == u"Kanden") return Hunter::Kanden;
-        if (value == u"Trace") return Hunter::Trace;
-        if (value == u"Sylux") return Hunter::Sylux;
-        if (value == u"Noxus") return Hunter::Noxus;
-        if (value == u"Spire") return Hunter::Spire;
-        if (value == u"Weavel") return Hunter::Weavel;
-        if (value == u"Guardian") return Hunter::Guardian;
-        if (value == u"Random") return Hunter::Random;
-        std::int32_t numeric = 0;
-        if (::MphRead::NativeRuntime::Int32TryParseInvariant(::MphRead::NativeRuntime::Utf16ToUtf8(value), numeric))
+        // Enum.Parse<Hunter>(value).
+        const std::string text = ::MphRead::NativeRuntime::Utf16ToUtf8(value);
+        Hunter result{};
+        if (!::MphRead::TryParse(text, false, result))
         {
-            return static_cast<Hunter>(numeric);
+            throw std::invalid_argument("Requested value '" + text + "' was not found.");
         }
-        throw std::invalid_argument("Requested value was not found.");
+        return result;
     }
 
     [[nodiscard]] std::vector<std::u16string> LanguageNames()

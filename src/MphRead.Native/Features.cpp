@@ -37,36 +37,12 @@ namespace MphRead
 
         std::string CrosshairStyleToString(Mods::Render::CrosshairStyle value)
         {
-            switch (value)
-            {
-            case Mods::Render::CrosshairStyle::Cross:
-                return "Cross";
-            case Mods::Render::CrosshairStyle::Dot:
-                return "Dot";
-            case Mods::Render::CrosshairStyle::CrossDot:
-                return "CrossDot";
-            case Mods::Render::CrosshairStyle::Circle:
-                return "Circle";
-            case Mods::Render::CrosshairStyle::Brackets:
-                return "Brackets";
-            default:
-                return std::to_string(static_cast<std::int32_t>(value));
-            }
+            return Mods::Render::ToString(value);
         }
 
         std::string CrosshairSizeToString(Mods::Render::CrosshairSize value)
         {
-            switch (value)
-            {
-            case Mods::Render::CrosshairSize::Small:
-                return "Small";
-            case Mods::Render::CrosshairSize::Medium:
-                return "Medium";
-            case Mods::Render::CrosshairSize::Big:
-                return "Big";
-            default:
-                return std::to_string(static_cast<std::int32_t>(value));
-            }
+            return Mods::Render::ToString(value);
         }
     }
 

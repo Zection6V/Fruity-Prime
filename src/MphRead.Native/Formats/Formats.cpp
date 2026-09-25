@@ -1594,15 +1594,9 @@ namespace MphRead
 
     bool TryParse(std::string_view value, bool ignoreCase, GameMode& result)
     {
-        std::uint64_t raw = 0;
-        if (!::MphRead::NativeRuntime::ManagedEnumTryParse(
-                value, ignoreCase, GameModeNames, std::size(GameModeNames), raw))
-        {
-            result = GameMode::None;
-            return false;
-        }
-        result = static_cast<GameMode>(static_cast<std::uint8_t>(raw));
-        return true;
+        // GameMode is a byte: a number outside 0-255 does not parse.
+        return ::MphRead::NativeRuntime::ManagedEnumTryParse(
+            value, ignoreCase, GameModeNames, std::size(GameModeNames), result);
     }
 
     std::string ToString(GameMode value)

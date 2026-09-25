@@ -160,4 +160,8 @@ namespace MphRead::Entities
         PlayerBiped = 0x2,
         PlayerAlt = 0x4
     };
+
+    // TriggerFlags.ToString() ([Flags]) / FhTriggerFlags.ToString() (not).
+    [[nodiscard]] std::string ToString(TriggerFlags value);
+    [[nodiscard]] std::string ToString(FhTriggerFlags value);
 }

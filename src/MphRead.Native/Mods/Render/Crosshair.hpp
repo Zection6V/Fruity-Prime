@@ -27,6 +27,10 @@ namespace MphRead::Mods::Render
         Brackets = 4
     };
 
+    // CrosshairSize.ToString() / CrosshairStyle.ToString().
+    [[nodiscard]] std::string ToString(CrosshairSize value);
+    [[nodiscard]] std::string ToString(CrosshairStyle value);
+
     struct CrosshairBar final
     {
         const float X = 0.0F;

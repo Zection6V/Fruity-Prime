@@ -29,19 +29,7 @@ namespace
 
 std::string HunterString(Hunter hunter)
 {
-    switch (hunter)
-    {
-    case Hunter::Samus: return "Samus";
-    case Hunter::Kanden: return "Kanden";
-    case Hunter::Trace: return "Trace";
-    case Hunter::Sylux: return "Sylux";
-    case Hunter::Noxus: return "Noxus";
-    case Hunter::Spire: return "Spire";
-    case Hunter::Weavel: return "Weavel";
-    case Hunter::Guardian: return "Guardian";
-    case Hunter::Random: return "Random";
-    }
-    return std::to_string(static_cast<unsigned int>(static_cast<std::uint8_t>(hunter)));
+    return ::MphRead::ToString(hunter);
 }
 }
 

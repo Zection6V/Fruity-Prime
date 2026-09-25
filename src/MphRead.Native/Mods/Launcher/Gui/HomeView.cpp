@@ -2434,45 +2434,18 @@ namespace MphRead::Mods::Launcher::Gui
 
     std::string HomeView::HunterName(Hunter hunter)
     {
-        switch (hunter)
-        {
-        case Hunter::Samus: return "Samus";
-        case Hunter::Kanden: return "Kanden";
-        case Hunter::Trace: return "Trace";
-        case Hunter::Sylux: return "Sylux";
-        case Hunter::Noxus: return "Noxus";
-        case Hunter::Spire: return "Spire";
-        case Hunter::Weavel: return "Weavel";
-        case Hunter::Guardian: return "Guardian";
-        case Hunter::Random: return "Random";
-        default:
-            return std::to_string(static_cast<std::uint8_t>(hunter));
-        }
+        return ::MphRead::ToString(hunter);
     }
 
     Hunter HomeView::ParseHunter(std::string_view text)
     {
-        if (text == "Samus") return Hunter::Samus;
-        if (text == "Kanden") return Hunter::Kanden;
-        if (text == "Trace") return Hunter::Trace;
-        if (text == "Sylux") return Hunter::Sylux;
-        if (text == "Noxus") return Hunter::Noxus;
-        if (text == "Spire") return Hunter::Spire;
-        if (text == "Weavel") return Hunter::Weavel;
-        if (text == "Guardian") return Hunter::Guardian;
-        if (text == "Random") return Hunter::Random;
-
-        std::int32_t value = 0;
-        const char* first = text.data();
-        const char* last = first + text.size();
-        auto parsed = std::from_chars(first, last, value, 10);
-        if (parsed.ec == std::errc{} && parsed.ptr == last
-            && value >= std::numeric_limits<std::uint8_t>::min()
-            && value <= std::numeric_limits<std::uint8_t>::max())
+        // Enum.Parse<Hunter>(text).
+        Hunter value{};
+        if (!::MphRead::TryParse(text, false, value))
         {
-            return static_cast<Hunter>(static_cast<std::uint8_t>(value));
+            throw std::invalid_argument(
+                "Requested value '" + std::string(text) + "' was not found.");
         }
-        throw std::invalid_argument(
-            "Requested value '" + std::string(text) + "' was not found.");
+        return value;
     }
 }

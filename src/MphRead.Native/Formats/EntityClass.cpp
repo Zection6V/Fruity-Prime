@@ -1,5 +1,6 @@
 #include "EntityClass.hpp"
 
+#include "../Entities/TriggerVolumeEntity.hpp"
 #include "../NativeRuntime/System/Enum.hpp"
 
 #include <algorithm>
@@ -31,96 +32,6 @@ namespace
     using MphRead::NativeRuntime::EnumNameEntry;
     template <typename T>
     struct ManagedEnumInfo;
-    // Formats\Enums.cs Message : uint
-    constexpr EnumNameEntry MessageNames[] = {
-        {0x0ULL, "None"},
-        {0x5ULL, "SetActive"},
-        {0x6ULL, "Destroyed"},
-        {0x7ULL, "Damage"},
-        {0x9ULL, "Trigger"},
-        {0xCULL, "UpdateMusic"},
-        {0xFULL, "Gravity"},
-        {0x10ULL, "Unlock"},
-        {0x11ULL, "Lock"},
-        {0x12ULL, "Activate"},
-        {0x13ULL, "Complete"},
-        {0x14ULL, "Impact"},
-        {0x15ULL, "Death"},
-        {0x16ULL, "Unused22"},
-        {0x17ULL, "ShipHatch"},
-        {0x18ULL, "Unused24"},
-        {0x19ULL, "Unused25"},
-        {0x1AULL, "ShowPrompt"},
-        {0x1BULL, "ShowWarning"},
-        {0x1CULL, "ShowOverlay"},
-        {0x1DULL, "MoveItemSpawner"},
-        {0x1EULL, "SetCamSeqAi"},
-        {0x1FULL, "PlayerCollideWith"},
-        {0x20ULL, "BeamCollideWith"},
-        {0x21ULL, "UnlockConnectors"},
-        {0x22ULL, "LockConnectors"},
-        {0x23ULL, "PreventFormSwitch"},
-        {0x24ULL, "Gorea2Trigger"},
-        {0x2AULL, "SetTriggerState"},
-        {0x2BULL, "ClearTriggerState"},
-        {0x2CULL, "PlatformWakeup"},
-        {0x2DULL, "PlatformSleep"},
-        {0x2EULL, "DripMoatPlatform"},
-        {0x30ULL, "ActivateTurret"},
-        {0x31ULL, "DecreaseTurretLights"},
-        {0x32ULL, "IncreaseTurretLights"},
-        {0x33ULL, "DeactivateTurret"},
-        {0x34ULL, "SetBeamReflection"},
-        {0x35ULL, "SetPlatformIndex"},
-        {0x36ULL, "PlaySfxScript"},
-        {0x38ULL, "UnlockOubliette"},
-        {0x39ULL, "Checkpoint"},
-        {0x3AULL, "EscapeUpdate1"},
-        {0x3BULL, "SetSeekPlayerY"},
-        {0x3CULL, "LoadOubliette"},
-        {0x3DULL, "EscapeUpdate2"},
-    };
-    template <> struct ManagedEnumInfo<MphRead::Message>
-    {
-        static constexpr bool IsFlags = false;
-        static constexpr bool IsSigned = false;
-        static constexpr const EnumNameEntry* Names = MessageNames;
-        static constexpr std::size_t Count = std::size(MessageNames);
-    };
-    // Formats\Enums.cs ItemType : int
-    constexpr EnumNameEntry ItemTypeNames[] = {
-        {0xFFFFFFFFULL, "None"},
-        {0x0ULL, "HealthMedium"},
-        {0x1ULL, "HealthSmall"},
-        {0x2ULL, "HealthBig"},
-        {0x3ULL, "DoubleDamage"},
-        {0x4ULL, "EnergyTank"},
-        {0x5ULL, "VoltDriver"},
-        {0x6ULL, "MissileExpansion"},
-        {0x7ULL, "Battlehammer"},
-        {0x8ULL, "Imperialist"},
-        {0x9ULL, "Judicator"},
-        {0xAULL, "Magmaul"},
-        {0xBULL, "ShockCoil"},
-        {0xCULL, "OmegaCannon"},
-        {0xDULL, "UASmall"},
-        {0xEULL, "UABig"},
-        {0xFULL, "MissileSmall"},
-        {0x10ULL, "MissileBig"},
-        {0x11ULL, "Cloak"},
-        {0x12ULL, "UAExpansion"},
-        {0x13ULL, "ArtifactKey"},
-        {0x14ULL, "Deathalt"},
-        {0x15ULL, "AffinityWeapon"},
-        {0x16ULL, "PickWpnMissile"},
-    };
-    template <> struct ManagedEnumInfo<MphRead::ItemType>
-    {
-        static constexpr bool IsFlags = false;
-        static constexpr bool IsSigned = true;
-        static constexpr const EnumNameEntry* Names = ItemTypeNames;
-        static constexpr std::size_t Count = std::size(ItemTypeNames);
-    };
     // Entities\PlatformEntity.cs [Flags] PlatformFlags : uint
     constexpr EnumNameEntry PlatformFlagsNames[] = {
         {0x0ULL, "None"},
@@ -164,34 +75,6 @@ namespace
         static constexpr const EnumNameEntry* Names = PlatformFlagsNames;
         static constexpr std::size_t Count = std::size(PlatformFlagsNames);
     };
-    // Formats\Enums.cs DoorType : uint
-    constexpr EnumNameEntry DoorTypeNames[] = {
-        {0x0ULL, "Standard"},
-        {0x1ULL, "MorphBall"},
-        {0x2ULL, "Boss"},
-        {0x3ULL, "Thin"},
-    };
-    template <> struct ManagedEnumInfo<MphRead::DoorType>
-    {
-        static constexpr bool IsFlags = false;
-        static constexpr bool IsSigned = false;
-        static constexpr const EnumNameEntry* Names = DoorTypeNames;
-        static constexpr std::size_t Count = std::size(DoorTypeNames);
-    };
-    // Entities\TriggerVolumeEntity.cs FhTriggerFlags : uint
-    constexpr EnumNameEntry FhTriggerFlagsNames[] = {
-        {0x0ULL, "None"},
-        {0x1ULL, "Beam"},
-        {0x2ULL, "PlayerBiped"},
-        {0x4ULL, "PlayerAlt"},
-    };
-    template <> struct ManagedEnumInfo<MphRead::Entities::FhTriggerFlags>
-    {
-        static constexpr bool IsFlags = false;
-        static constexpr bool IsSigned = false;
-        static constexpr const EnumNameEntry* Names = FhTriggerFlagsNames;
-        static constexpr std::size_t Count = std::size(FhTriggerFlagsNames);
-    };
     // Entities\ObjectEntity.cs [Flags] ObjEffFlags : uint
     constexpr EnumNameEntry ObjEffFlagsNames[] = {
         {0x0ULL, "None"},
@@ -227,100 +110,6 @@ namespace
         static constexpr bool IsSigned = false;
         static constexpr const EnumNameEntry* Names = ObjectFlagsNames;
         static constexpr std::size_t Count = std::size(ObjectFlagsNames);
-    };
-    // Entities\TriggerVolumeEntity.cs [Flags] TriggerFlags : uint
-    constexpr EnumNameEntry TriggerFlagsNames[] = {
-        {0x0ULL, "None"},
-        {0x1ULL, "PowerBeam"},
-        {0x2ULL, "VoltDriver"},
-        {0x4ULL, "Missile"},
-        {0x8ULL, "Battlehammer"},
-        {0x10ULL, "Imperialist"},
-        {0x20ULL, "Judicator"},
-        {0x40ULL, "Magmaul"},
-        {0x80ULL, "ShockCoil"},
-        {0x100ULL, "BeamCharged"},
-        {0x200ULL, "PlayerBiped"},
-        {0x400ULL, "PlayerAlt"},
-        {0x800ULL, "Bit11"},
-        {0x1000ULL, "IncludeBots"},
-    };
-    template <> struct ManagedEnumInfo<MphRead::Entities::TriggerFlags>
-    {
-        static constexpr bool IsFlags = true;
-        static constexpr bool IsSigned = false;
-        static constexpr const EnumNameEntry* Names = TriggerFlagsNames;
-        static constexpr std::size_t Count = std::size(TriggerFlagsNames);
-    };
-    // Formats\Enums.cs FhItemType : int
-    constexpr EnumNameEntry FhItemTypeNames[] = {
-        {0xFFFFFFFFULL, "None"},
-        {0x0ULL, "AmmoSmall"},
-        {0x1ULL, "AmmoBig"},
-        {0x2ULL, "HealthSmall"},
-        {0x3ULL, "HealthBig"},
-        {0x4ULL, "DoubleDamage"},
-        {0x5ULL, "PowerBeam"},
-        {0x6ULL, "ElectroLob"},
-        {0x7ULL, "Missile"},
-    };
-    template <> struct ManagedEnumInfo<MphRead::FhItemType>
-    {
-        static constexpr bool IsFlags = false;
-        static constexpr bool IsSigned = true;
-        static constexpr const EnumNameEntry* Names = FhItemTypeNames;
-        static constexpr std::size_t Count = std::size(FhItemTypeNames);
-    };
-    // Formats\Enums.cs FhMessage : uint
-    constexpr EnumNameEntry FhMessageNames[] = {
-        {0x0ULL, "None"},
-        {0x5ULL, "Activate"},
-        {0x6ULL, "Destroyed"},
-        {0x7ULL, "Damage"},
-        {0x9ULL, "Trigger"},
-        {0xFULL, "Gravity"},
-        {0x10ULL, "Unlock"},
-        {0x11ULL, "SetActive"},
-        {0x12ULL, "Complete"},
-        {0x13ULL, "Impact"},
-        {0x14ULL, "Death"},
-        {0x15ULL, "Unknown21"},
-    };
-    template <> struct ManagedEnumInfo<MphRead::FhMessage>
-    {
-        static constexpr bool IsFlags = false;
-        static constexpr bool IsSigned = false;
-        static constexpr const EnumNameEntry* Names = FhMessageNames;
-        static constexpr std::size_t Count = std::size(FhMessageNames);
-    };
-    // Formats\Enums.cs FhTriggerType : uint
-    constexpr EnumNameEntry FhTriggerTypeNames[] = {
-        {0x0ULL, "Sphere"},
-        {0x1ULL, "Box"},
-        {0x2ULL, "Cylinder"},
-        {0x3ULL, "Threshold"},
-    };
-    template <> struct ManagedEnumInfo<MphRead::FhTriggerType>
-    {
-        static constexpr bool IsFlags = false;
-        static constexpr bool IsSigned = false;
-        static constexpr const EnumNameEntry* Names = FhTriggerTypeNames;
-        static constexpr std::size_t Count = std::size(FhTriggerTypeNames);
-    };
-    // Formats\Enums.cs TriggerType : uint
-    constexpr EnumNameEntry TriggerTypeNames[] = {
-        {0x0ULL, "Volume"},
-        {0x1ULL, "Threshold"},
-        {0x2ULL, "Relay"},
-        {0x3ULL, "Automatic"},
-        {0x4ULL, "StateBits"},
-    };
-    template <> struct ManagedEnumInfo<MphRead::TriggerType>
-    {
-        static constexpr bool IsFlags = false;
-        static constexpr bool IsSigned = false;
-        static constexpr const EnumNameEntry* Names = TriggerTypeNames;
-        static constexpr std::size_t Count = std::size(TriggerTypeNames);
     };
 
     template <typename T>
@@ -407,6 +196,10 @@ namespace
         {
             // The enum's own ToString, declared beside its declaration.
             return ::MphRead::ToString(value);
+        }
+        else if constexpr (requires { ::MphRead::Entities::ToString(value); })
+        {
+            return ::MphRead::Entities::ToString(value);
         }
         else if constexpr (std::is_enum_v<T>)
         {

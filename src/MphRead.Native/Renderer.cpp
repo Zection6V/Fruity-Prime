@@ -204,27 +204,7 @@ namespace
 
     [[nodiscard]] std::string EnumText(MphRead::EntityType value)
     {
-        using E = MphRead::EntityType;
-        switch (value)
-        {
-            MPH_ENUM_CASE(E, Platform); MPH_ENUM_CASE(E, Object); MPH_ENUM_CASE(E, PlayerSpawn);
-            MPH_ENUM_CASE(E, Door); MPH_ENUM_CASE(E, ItemSpawn); MPH_ENUM_CASE(E, ItemInstance);
-            MPH_ENUM_CASE(E, EnemySpawn); MPH_ENUM_CASE(E, TriggerVolume); MPH_ENUM_CASE(E, AreaVolume);
-            MPH_ENUM_CASE(E, JumpPad); MPH_ENUM_CASE(E, PointModule); MPH_ENUM_CASE(E, MorphCamera);
-            MPH_ENUM_CASE(E, OctolithFlag); MPH_ENUM_CASE(E, FlagBase); MPH_ENUM_CASE(E, Teleporter);
-            MPH_ENUM_CASE(E, NodeDefense); MPH_ENUM_CASE(E, LightSource); MPH_ENUM_CASE(E, Artifact);
-            MPH_ENUM_CASE(E, CameraSequence); MPH_ENUM_CASE(E, ForceField); MPH_ENUM_CASE(E, BeamEffect);
-            MPH_ENUM_CASE(E, Bomb); MPH_ENUM_CASE(E, EnemyInstance); MPH_ENUM_CASE(E, Halfturret);
-            MPH_ENUM_CASE(E, Player); MPH_ENUM_CASE(E, BeamProjectile); MPH_ENUM_CASE(E, ListHead);
-            MPH_ENUM_CASE(E, FhUnknown0); MPH_ENUM_CASE(E, FhPlayerSpawn); MPH_ENUM_CASE(E, FhUnknown2);
-            MPH_ENUM_CASE(E, FhDoor); MPH_ENUM_CASE(E, FhItemSpawn); MPH_ENUM_CASE(E, FhItemInstance);
-            MPH_ENUM_CASE(E, FhEnemySpawn); MPH_ENUM_CASE(E, FhEffectInstance); MPH_ENUM_CASE(E, FhBomb);
-            MPH_ENUM_CASE(E, FhTriggerVolume); MPH_ENUM_CASE(E, FhAreaVolume); MPH_ENUM_CASE(E, FhPlatform);
-            MPH_ENUM_CASE(E, FhJumpPad); MPH_ENUM_CASE(E, FhPointModule); MPH_ENUM_CASE(E, FhMorphCamera);
-            MPH_ENUM_CASE(E, FhEnemyInstance); MPH_ENUM_CASE(E, FhPlayer); MPH_ENUM_CASE(E, FhBeamProjectile);
-            MPH_ENUM_CASE(E, Room); MPH_ENUM_CASE(E, Model); MPH_ENUM_CASE(E, All);
-        }
-        return EnumNumber(value);
+        return ::MphRead::ToString(value);
     }
 
     [[nodiscard]] std::string EnumText(MphRead::CollisionType value)
@@ -249,135 +229,42 @@ namespace
 
     [[nodiscard]] std::string EnumText(MphRead::Terrain value)
     {
-        using E = MphRead::Terrain;
-        switch (value)
-        {
-            MPH_ENUM_CASE(E, Metal); MPH_ENUM_CASE(E, OrangeHolo); MPH_ENUM_CASE(E, GreenHolo);
-            MPH_ENUM_CASE(E, BlueHolo); MPH_ENUM_CASE(E, Ice); MPH_ENUM_CASE(E, Snow);
-            MPH_ENUM_CASE(E, Sand); MPH_ENUM_CASE(E, Rock); MPH_ENUM_CASE(E, Lava);
-            MPH_ENUM_CASE(E, Acid); MPH_ENUM_CASE(E, Gorea); MPH_ENUM_CASE(E, Unknown11);
-            MPH_ENUM_CASE(E, All);
-        }
-        return EnumNumber(value);
+        return ::MphRead::ToString(value);
     }
 
     [[nodiscard]] std::string EnumText(MphRead::Hunter value)
     {
-        using E = MphRead::Hunter;
-        switch (value)
-        {
-            MPH_ENUM_CASE(E, Samus); MPH_ENUM_CASE(E, Kanden); MPH_ENUM_CASE(E, Trace);
-            MPH_ENUM_CASE(E, Sylux); MPH_ENUM_CASE(E, Noxus); MPH_ENUM_CASE(E, Spire);
-            MPH_ENUM_CASE(E, Weavel); MPH_ENUM_CASE(E, Guardian); MPH_ENUM_CASE(E, Random);
-        }
-        return EnumNumber(value);
+        return ::MphRead::ToString(value);
     }
 
     [[nodiscard]] std::string EnumText(MphRead::ItemType value)
     {
-        using E = MphRead::ItemType;
-        switch (value)
-        {
-            MPH_ENUM_CASE(E, None); MPH_ENUM_CASE(E, HealthMedium); MPH_ENUM_CASE(E, HealthSmall);
-            MPH_ENUM_CASE(E, HealthBig); MPH_ENUM_CASE(E, DoubleDamage); MPH_ENUM_CASE(E, EnergyTank);
-            MPH_ENUM_CASE(E, VoltDriver); MPH_ENUM_CASE(E, MissileExpansion); MPH_ENUM_CASE(E, Battlehammer);
-            MPH_ENUM_CASE(E, Imperialist); MPH_ENUM_CASE(E, Judicator); MPH_ENUM_CASE(E, Magmaul);
-            MPH_ENUM_CASE(E, ShockCoil); MPH_ENUM_CASE(E, OmegaCannon); MPH_ENUM_CASE(E, UASmall);
-            MPH_ENUM_CASE(E, UABig); MPH_ENUM_CASE(E, MissileSmall); MPH_ENUM_CASE(E, MissileBig);
-            MPH_ENUM_CASE(E, Cloak); MPH_ENUM_CASE(E, UAExpansion); MPH_ENUM_CASE(E, ArtifactKey);
-            MPH_ENUM_CASE(E, Deathalt); MPH_ENUM_CASE(E, AffinityWeapon); MPH_ENUM_CASE(E, PickWpnMissile);
-        }
-        return EnumNumber(value);
+        return ::MphRead::ToString(value);
     }
 
     [[nodiscard]] std::string EnumText(MphRead::EnemyType value)
     {
-        using E = MphRead::EnemyType;
-        switch (value)
-        {
-            MPH_ENUM_CASE(E, WarWasp); MPH_ENUM_CASE(E, Zoomer); MPH_ENUM_CASE(E, Temroid);
-            MPH_ENUM_CASE(E, Petrasyl1); MPH_ENUM_CASE(E, Petrasyl2); MPH_ENUM_CASE(E, Petrasyl3);
-            MPH_ENUM_CASE(E, Petrasyl4); MPH_ENUM_CASE(E, Unknown7); MPH_ENUM_CASE(E, Unknown8);
-            MPH_ENUM_CASE(E, Unknown9); MPH_ENUM_CASE(E, BarbedWarWasp); MPH_ENUM_CASE(E, Shriekbat);
-            MPH_ENUM_CASE(E, Geemer); MPH_ENUM_CASE(E, Unknown13); MPH_ENUM_CASE(E, Unknown14);
-            MPH_ENUM_CASE(E, Unknown15); MPH_ENUM_CASE(E, Blastcap); MPH_ENUM_CASE(E, Unknown17);
-            MPH_ENUM_CASE(E, AlimbicTurret); MPH_ENUM_CASE(E, Cretaphid); MPH_ENUM_CASE(E, CretaphidEye);
-            MPH_ENUM_CASE(E, CretaphidCrystal); MPH_ENUM_CASE(E, Unknown22); MPH_ENUM_CASE(E, PsychoBit1);
-            MPH_ENUM_CASE(E, Gorea1A); MPH_ENUM_CASE(E, GoreaHead); MPH_ENUM_CASE(E, GoreaArm);
-            MPH_ENUM_CASE(E, GoreaLeg); MPH_ENUM_CASE(E, Gorea1B); MPH_ENUM_CASE(E, GoreaSealSphere1);
-            MPH_ENUM_CASE(E, Trocra); MPH_ENUM_CASE(E, Gorea2); MPH_ENUM_CASE(E, GoreaSealSphere2);
-            MPH_ENUM_CASE(E, GoreaMeteor); MPH_ENUM_CASE(E, PsychoBit2); MPH_ENUM_CASE(E, Voldrum2);
-            MPH_ENUM_CASE(E, Voldrum1); MPH_ENUM_CASE(E, Quadtroid); MPH_ENUM_CASE(E, CrashPillar);
-            MPH_ENUM_CASE(E, FireSpawn); MPH_ENUM_CASE(E, Spawner); MPH_ENUM_CASE(E, Slench);
-            MPH_ENUM_CASE(E, SlenchShield); MPH_ENUM_CASE(E, SlenchNest); MPH_ENUM_CASE(E, SlenchSynapse);
-            MPH_ENUM_CASE(E, SlenchTurret); MPH_ENUM_CASE(E, LesserIthrak); MPH_ENUM_CASE(E, GreaterIthrak);
-            MPH_ENUM_CASE(E, Hunter); MPH_ENUM_CASE(E, ForceFieldLock); MPH_ENUM_CASE(E, HitZone);
-            MPH_ENUM_CASE(E, CarnivorousPlant);
-        }
-        return EnumNumber(value);
+        return ::MphRead::ToString(value);
     }
 
     [[nodiscard]] std::string EnumText(MphRead::TriggerType value)
     {
-        using E = MphRead::TriggerType;
-        switch (value)
-        {
-            MPH_ENUM_CASE(E, Volume); MPH_ENUM_CASE(E, Threshold); MPH_ENUM_CASE(E, Relay);
-            MPH_ENUM_CASE(E, Automatic); MPH_ENUM_CASE(E, StateBits);
-        }
-        return EnumNumber(value);
+        return ::MphRead::ToString(value);
     }
 
     [[nodiscard]] std::string EnumText(MphRead::FhTriggerType value)
     {
-        using E = MphRead::FhTriggerType;
-        switch (value)
-        {
-            MPH_ENUM_CASE(E, Sphere); MPH_ENUM_CASE(E, Box); MPH_ENUM_CASE(E, Cylinder);
-            MPH_ENUM_CASE(E, Threshold);
-        }
-        return EnumNumber(value);
+        return ::MphRead::ToString(value);
     }
 
     [[nodiscard]] std::string EnumText(MphRead::Message value)
     {
-        using E = MphRead::Message;
-        switch (value)
-        {
-            MPH_ENUM_CASE(E, None); MPH_ENUM_CASE(E, SetActive); MPH_ENUM_CASE(E, Destroyed);
-            MPH_ENUM_CASE(E, Damage); MPH_ENUM_CASE(E, Trigger); MPH_ENUM_CASE(E, UpdateMusic);
-            MPH_ENUM_CASE(E, Gravity); MPH_ENUM_CASE(E, Unlock); MPH_ENUM_CASE(E, Lock);
-            MPH_ENUM_CASE(E, Activate); MPH_ENUM_CASE(E, Complete); MPH_ENUM_CASE(E, Impact);
-            MPH_ENUM_CASE(E, Death); MPH_ENUM_CASE(E, Unused22); MPH_ENUM_CASE(E, ShipHatch);
-            MPH_ENUM_CASE(E, Unused24); MPH_ENUM_CASE(E, Unused25); MPH_ENUM_CASE(E, ShowPrompt);
-            MPH_ENUM_CASE(E, ShowWarning); MPH_ENUM_CASE(E, ShowOverlay); MPH_ENUM_CASE(E, MoveItemSpawner);
-            MPH_ENUM_CASE(E, SetCamSeqAi); MPH_ENUM_CASE(E, PlayerCollideWith); MPH_ENUM_CASE(E, BeamCollideWith);
-            MPH_ENUM_CASE(E, UnlockConnectors); MPH_ENUM_CASE(E, LockConnectors);
-            MPH_ENUM_CASE(E, PreventFormSwitch); MPH_ENUM_CASE(E, Gorea2Trigger);
-            MPH_ENUM_CASE(E, SetTriggerState); MPH_ENUM_CASE(E, ClearTriggerState);
-            MPH_ENUM_CASE(E, PlatformWakeup); MPH_ENUM_CASE(E, PlatformSleep);
-            MPH_ENUM_CASE(E, DripMoatPlatform); MPH_ENUM_CASE(E, ActivateTurret);
-            MPH_ENUM_CASE(E, DecreaseTurretLights); MPH_ENUM_CASE(E, IncreaseTurretLights);
-            MPH_ENUM_CASE(E, DeactivateTurret); MPH_ENUM_CASE(E, SetBeamReflection);
-            MPH_ENUM_CASE(E, SetPlatformIndex); MPH_ENUM_CASE(E, PlaySfxScript);
-            MPH_ENUM_CASE(E, UnlockOubliette); MPH_ENUM_CASE(E, Checkpoint);
-            MPH_ENUM_CASE(E, EscapeUpdate1); MPH_ENUM_CASE(E, SetSeekPlayerY);
-            MPH_ENUM_CASE(E, LoadOubliette); MPH_ENUM_CASE(E, EscapeUpdate2);
-        }
-        return EnumNumber(value);
+        return ::MphRead::ToString(value);
     }
 
     [[nodiscard]] std::string EnumText(MphRead::FhMessage value)
     {
-        using E = MphRead::FhMessage;
-        switch (value)
-        {
-            MPH_ENUM_CASE(E, None); MPH_ENUM_CASE(E, Activate); MPH_ENUM_CASE(E, Destroyed);
-            MPH_ENUM_CASE(E, Damage); MPH_ENUM_CASE(E, Trigger); MPH_ENUM_CASE(E, Gravity);
-            MPH_ENUM_CASE(E, Unlock); MPH_ENUM_CASE(E, SetActive); MPH_ENUM_CASE(E, Complete);
-            MPH_ENUM_CASE(E, Impact); MPH_ENUM_CASE(E, Death); MPH_ENUM_CASE(E, Unknown21);
-        }
-        return EnumNumber(value);
+        return ::MphRead::ToString(value);
     }
 
     [[nodiscard]] std::string EnumText(MphRead::BillboardMode value)
@@ -438,54 +325,14 @@ namespace
         return value ? "True" : "False";
     }
 
-    template <typename E>
-    [[nodiscard]] std::string FlagNames(
-        E value, std::initializer_list<std::pair<E, const char*>> flags, const char* zeroName)
-    {
-        using U = std::underlying_type_t<E>;
-        const U raw = static_cast<U>(value);
-        if (raw == 0)
-        {
-            return zeroName;
-        }
-        U remaining = raw;
-        std::string text;
-        for (const auto& [flag, name] : flags)
-        {
-            const U bit = static_cast<U>(flag);
-            if (bit != 0 && (remaining & bit) == bit)
-            {
-                if (!text.empty())
-                {
-                    text += ", ";
-                }
-                text += name;
-                remaining = static_cast<U>(remaining & ~bit);
-            }
-        }
-        if (remaining != 0)
-        {
-            return EnumNumber(value);
-        }
-        return text;
-    }
-
     [[nodiscard]] std::string EnumText(MphRead::Entities::TriggerFlags value)
     {
-        using E = MphRead::Entities::TriggerFlags;
-        return FlagNames(value, {
-            {E::PowerBeam, "PowerBeam"}, {E::VoltDriver, "VoltDriver"}, {E::Missile, "Missile"},
-            {E::Battlehammer, "Battlehammer"}, {E::Imperialist, "Imperialist"}, {E::Judicator, "Judicator"},
-            {E::Magmaul, "Magmaul"}, {E::ShockCoil, "ShockCoil"}, {E::BeamCharged, "BeamCharged"},
-            {E::PlayerBiped, "PlayerBiped"}, {E::PlayerAlt, "PlayerAlt"}, {E::Bit11, "Bit11"},
-            {E::IncludeBots, "IncludeBots"}}, "None");
+        return ::MphRead::Entities::ToString(value);
     }
 
     [[nodiscard]] std::string EnumText(MphRead::Entities::FhTriggerFlags value)
     {
-        using E = MphRead::Entities::FhTriggerFlags;
-        return FlagNames(value, {
-            {E::Beam, "Beam"}, {E::PlayerBiped, "PlayerBiped"}, {E::PlayerAlt, "PlayerAlt"}}, "None");
+        return ::MphRead::Entities::ToString(value);
     }
 
 #undef MPH_ENUM_CASE

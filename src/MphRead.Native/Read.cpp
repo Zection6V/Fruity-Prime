@@ -262,58 +262,7 @@ namespace
 
     [[nodiscard]] std::string EntityTypeString(EntityType type)
     {
-        switch (type)
-        {
-        case EntityType::Platform: return "Platform";
-        case EntityType::Object: return "Object";
-        case EntityType::PlayerSpawn: return "PlayerSpawn";
-        case EntityType::Door: return "Door";
-        case EntityType::ItemSpawn: return "ItemSpawn";
-        case EntityType::ItemInstance: return "ItemInstance";
-        case EntityType::EnemySpawn: return "EnemySpawn";
-        case EntityType::TriggerVolume: return "TriggerVolume";
-        case EntityType::AreaVolume: return "AreaVolume";
-        case EntityType::JumpPad: return "JumpPad";
-        case EntityType::PointModule: return "PointModule";
-        case EntityType::MorphCamera: return "MorphCamera";
-        case EntityType::OctolithFlag: return "OctolithFlag";
-        case EntityType::FlagBase: return "FlagBase";
-        case EntityType::Teleporter: return "Teleporter";
-        case EntityType::NodeDefense: return "NodeDefense";
-        case EntityType::LightSource: return "LightSource";
-        case EntityType::Artifact: return "Artifact";
-        case EntityType::CameraSequence: return "CameraSequence";
-        case EntityType::ForceField: return "ForceField";
-        case EntityType::BeamEffect: return "BeamEffect";
-        case EntityType::Bomb: return "Bomb";
-        case EntityType::EnemyInstance: return "EnemyInstance";
-        case EntityType::Halfturret: return "Halfturret";
-        case EntityType::Player: return "Player";
-        case EntityType::BeamProjectile: return "BeamProjectile";
-        case EntityType::ListHead: return "ListHead";
-        case EntityType::FhUnknown0: return "FhUnknown0";
-        case EntityType::FhPlayerSpawn: return "FhPlayerSpawn";
-        case EntityType::FhUnknown2: return "FhUnknown2";
-        case EntityType::FhDoor: return "FhDoor";
-        case EntityType::FhItemSpawn: return "FhItemSpawn";
-        case EntityType::FhItemInstance: return "FhItemInstance";
-        case EntityType::FhEnemySpawn: return "FhEnemySpawn";
-        case EntityType::FhEffectInstance: return "FhEffectInstance";
-        case EntityType::FhBomb: return "FhBomb";
-        case EntityType::FhTriggerVolume: return "FhTriggerVolume";
-        case EntityType::FhAreaVolume: return "FhAreaVolume";
-        case EntityType::FhPlatform: return "FhPlatform";
-        case EntityType::FhJumpPad: return "FhJumpPad";
-        case EntityType::FhPointModule: return "FhPointModule";
-        case EntityType::FhMorphCamera: return "FhMorphCamera";
-        case EntityType::FhEnemyInstance: return "FhEnemyInstance";
-        case EntityType::FhPlayer: return "FhPlayer";
-        case EntityType::FhBeamProjectile: return "FhBeamProjectile";
-        case EntityType::Room: return "Room";
-        case EntityType::Model: return "Model";
-        case EntityType::All: return "All";
-        }
-        return std::to_string(static_cast<std::uint16_t>(type));
+        return ::MphRead::ToString(type);
     }
 
     template <typename T>

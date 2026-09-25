@@ -311,112 +311,12 @@ namespace
 
     [[nodiscard]] std::string MessageToString(Message value)
     {
-        switch (value)
-        {
-        case Message::None: return "None";
-        case Message::SetActive: return "SetActive";
-        case Message::Destroyed: return "Destroyed";
-        case Message::Damage: return "Damage";
-        case Message::Trigger: return "Trigger";
-        case Message::UpdateMusic: return "UpdateMusic";
-        case Message::Gravity: return "Gravity";
-        case Message::Unlock: return "Unlock";
-        case Message::Lock: return "Lock";
-        case Message::Activate: return "Activate";
-        case Message::Complete: return "Complete";
-        case Message::Impact: return "Impact";
-        case Message::Death: return "Death";
-        case Message::Unused22: return "Unused22";
-        case Message::ShipHatch: return "ShipHatch";
-        case Message::Unused24: return "Unused24";
-        case Message::Unused25: return "Unused25";
-        case Message::ShowPrompt: return "ShowPrompt";
-        case Message::ShowWarning: return "ShowWarning";
-        case Message::ShowOverlay: return "ShowOverlay";
-        case Message::MoveItemSpawner: return "MoveItemSpawner";
-        case Message::SetCamSeqAi: return "SetCamSeqAi";
-        case Message::PlayerCollideWith: return "PlayerCollideWith";
-        case Message::BeamCollideWith: return "BeamCollideWith";
-        case Message::UnlockConnectors: return "UnlockConnectors";
-        case Message::LockConnectors: return "LockConnectors";
-        case Message::PreventFormSwitch: return "PreventFormSwitch";
-        case Message::Gorea2Trigger: return "Gorea2Trigger";
-        case Message::SetTriggerState: return "SetTriggerState";
-        case Message::ClearTriggerState: return "ClearTriggerState";
-        case Message::PlatformWakeup: return "PlatformWakeup";
-        case Message::PlatformSleep: return "PlatformSleep";
-        case Message::DripMoatPlatform: return "DripMoatPlatform";
-        case Message::ActivateTurret: return "ActivateTurret";
-        case Message::DecreaseTurretLights: return "DecreaseTurretLights";
-        case Message::IncreaseTurretLights: return "IncreaseTurretLights";
-        case Message::DeactivateTurret: return "DeactivateTurret";
-        case Message::SetBeamReflection: return "SetBeamReflection";
-        case Message::SetPlatformIndex: return "SetPlatformIndex";
-        case Message::PlaySfxScript: return "PlaySfxScript";
-        case Message::UnlockOubliette: return "UnlockOubliette";
-        case Message::Checkpoint: return "Checkpoint";
-        case Message::EscapeUpdate1: return "EscapeUpdate1";
-        case Message::SetSeekPlayerY: return "SetSeekPlayerY";
-        case Message::LoadOubliette: return "LoadOubliette";
-        case Message::EscapeUpdate2: return "EscapeUpdate2";
-        }
-        return std::to_string(static_cast<std::uint32_t>(value));
+        return ::MphRead::ToString(value);
     }
 
     [[nodiscard]] std::string EntityTypeToString(EntityType value)
     {
-        switch (value)
-        {
-        case EntityType::Platform: return "Platform";
-        case EntityType::Object: return "Object";
-        case EntityType::PlayerSpawn: return "PlayerSpawn";
-        case EntityType::Door: return "Door";
-        case EntityType::ItemSpawn: return "ItemSpawn";
-        case EntityType::ItemInstance: return "ItemInstance";
-        case EntityType::EnemySpawn: return "EnemySpawn";
-        case EntityType::TriggerVolume: return "TriggerVolume";
-        case EntityType::AreaVolume: return "AreaVolume";
-        case EntityType::JumpPad: return "JumpPad";
-        case EntityType::PointModule: return "PointModule";
-        case EntityType::MorphCamera: return "MorphCamera";
-        case EntityType::OctolithFlag: return "OctolithFlag";
-        case EntityType::FlagBase: return "FlagBase";
-        case EntityType::Teleporter: return "Teleporter";
-        case EntityType::NodeDefense: return "NodeDefense";
-        case EntityType::LightSource: return "LightSource";
-        case EntityType::Artifact: return "Artifact";
-        case EntityType::CameraSequence: return "CameraSequence";
-        case EntityType::ForceField: return "ForceField";
-        case EntityType::BeamEffect: return "BeamEffect";
-        case EntityType::Bomb: return "Bomb";
-        case EntityType::EnemyInstance: return "EnemyInstance";
-        case EntityType::Halfturret: return "Halfturret";
-        case EntityType::Player: return "Player";
-        case EntityType::BeamProjectile: return "BeamProjectile";
-        case EntityType::ListHead: return "ListHead";
-        case EntityType::FhUnknown0: return "FhUnknown0";
-        case EntityType::FhPlayerSpawn: return "FhPlayerSpawn";
-        case EntityType::FhUnknown2: return "FhUnknown2";
-        case EntityType::FhDoor: return "FhDoor";
-        case EntityType::FhItemSpawn: return "FhItemSpawn";
-        case EntityType::FhItemInstance: return "FhItemInstance";
-        case EntityType::FhEnemySpawn: return "FhEnemySpawn";
-        case EntityType::FhEffectInstance: return "FhEffectInstance";
-        case EntityType::FhBomb: return "FhBomb";
-        case EntityType::FhTriggerVolume: return "FhTriggerVolume";
-        case EntityType::FhAreaVolume: return "FhAreaVolume";
-        case EntityType::FhPlatform: return "FhPlatform";
-        case EntityType::FhJumpPad: return "FhJumpPad";
-        case EntityType::FhPointModule: return "FhPointModule";
-        case EntityType::FhMorphCamera: return "FhMorphCamera";
-        case EntityType::FhEnemyInstance: return "FhEnemyInstance";
-        case EntityType::FhPlayer: return "FhPlayer";
-        case EntityType::FhBeamProjectile: return "FhBeamProjectile";
-        case EntityType::Room: return "Room";
-        case EntityType::Model: return "Model";
-        case EntityType::All: return "All";
-        }
-        return std::to_string(static_cast<std::uint16_t>(value));
+        return ::MphRead::ToString(value);
     }
 
     [[nodiscard]] bool EndsWith(std::string_view value, std::string_view suffix) noexcept

@@ -416,19 +416,7 @@ namespace
 
     [[nodiscard]] std::string HunterString(Hunter value)
     {
-        switch (value)
-        {
-        case Hunter::Samus: return "Samus";
-        case Hunter::Kanden: return "Kanden";
-        case Hunter::Trace: return "Trace";
-        case Hunter::Sylux: return "Sylux";
-        case Hunter::Noxus: return "Noxus";
-        case Hunter::Spire: return "Spire";
-        case Hunter::Weavel: return "Weavel";
-        case Hunter::Guardian: return "Guardian";
-        case Hunter::Random: return "Random";
-        }
-        return std::to_string(static_cast<std::int32_t>(value));
+        return ::MphRead::ToString(value);
     }
 
     [[nodiscard]] bool IsDefinedHunter(Hunter value) noexcept
@@ -439,30 +427,7 @@ namespace
 
     [[nodiscard]] bool TryParseHunter(std::string_view value, Hunter& result)
     {
-        if (TryParseEnumNumeric(value, result)) return true;
-        const std::string text = StringTrim(value);
-
-        std::int32_t combined = 0;
-        const std::vector<std::string> parts = Split(text, ',', false, false);
-        if (parts.empty()) return false;
-        for (const std::string& partValue : parts)
-        {
-            const std::string part = StringTrim(partValue);
-            bool matched = false;
-            for (std::int32_t i = 0; i <= 8; ++i)
-            {
-                const Hunter candidate = static_cast<Hunter>(i);
-                if (HunterString(candidate) == part)
-                {
-                    combined |= i;
-                    matched = true;
-                    break;
-                }
-            }
-            if (!matched) return false;
-        }
-        result = static_cast<Hunter>(combined);
-        return true;
+        return ::MphRead::TryParse(value, false, result);
     }
 
     [[nodiscard]] std::optional<MetaDir> TryParseMetaDir(std::string_view value)

@@ -1,4 +1,5 @@
 #include "Crosshair.hpp"
+#include "../../NativeRuntime/System/Enum.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 
 #include <charconv>
@@ -14,97 +15,42 @@ namespace MphRead::Mods::Render
 {
     namespace
     {
-        template <typename TEnum>
-        struct EnumName
-        {
-            std::string_view Name;
-            TEnum Value;
+        // Crosshair.cs CrosshairSize : int
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry CrosshairSizeNames[] = {
+            {0ULL, "Small"},
+            {1ULL, "Medium"},
+            {2ULL, "Big"},
+        };
+
+        // Crosshair.cs CrosshairStyle : int
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry CrosshairStyleNames[] = {
+            {0ULL, "Cross"},
+            {1ULL, "Dot"},
+            {2ULL, "CrossDot"},
+            {3ULL, "Circle"},
+            {4ULL, "Brackets"},
         };
 
         template <typename TEnum, std::size_t N>
         bool TryParseEnum(std::optional<std::string_view> value,
-            const std::array<EnumName<TEnum>, N>& names, TEnum& parsed)
+            const ::MphRead::NativeRuntime::EnumNameEntry (&names)[N], TEnum& parsed)
         {
-            if (!value.has_value())
-            {
-                return false;
-            }
-
-            std::string_view text = StringTrimView(*value);
-            if (text.empty())
-            {
-                return false;
-            }
-
-            const char first = text.front();
-            if ((first >= '0' && first <= '9') || first == '+' || first == '-')
-            {
-                std::int32_t numeric = 0;
-                if (!Int32TryParseInvariant(text, numeric))
-                {
-                    return false;
-                }
-                parsed = static_cast<TEnum>(numeric);
-                return true;
-            }
-
-            using Underlying = std::underlying_type_t<TEnum>;
-            std::uint32_t combined = 0;
-            std::size_t start = 0;
-            while (true)
-            {
-                const std::size_t comma = text.find(',', start);
-                const std::size_t count = comma == std::string_view::npos
-                    ? std::string_view::npos
-                    : comma - start;
-                const std::string_view part = StringTrimView(text.substr(start, count));
-                if (part.empty())
-                {
-                    return false;
-                }
-
-                bool found = false;
-                for (const EnumName<TEnum>& name : names)
-                {
-                    if (StringEqualsOrdinalIgnoreCase(part, name.Name))
-                    {
-                        combined |= static_cast<std::uint32_t>(
-                            static_cast<Underlying>(name.Value));
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found)
-                {
-                    return false;
-                }
-
-                if (comma == std::string_view::npos)
-                {
-                    break;
-                }
-                start = comma + 1;
-            }
-
-            parsed = static_cast<TEnum>(static_cast<std::int32_t>(combined));
-            return true;
+            // Enum.TryParse(value, ignoreCase: true, out parsed); null is false.
+            return value.has_value()
+                && ::MphRead::NativeRuntime::ManagedEnumTryParse(*value, true, names, N, parsed);
         }
+    }
 
-        constexpr std::array<EnumName<CrosshairSize>, 3> CrosshairSizeNames =
-        {{
-            {"Small", CrosshairSize::Small},
-            {"Medium", CrosshairSize::Medium},
-            {"Big", CrosshairSize::Big}
-        }};
+    std::string ToString(CrosshairSize value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, CrosshairSizeNames, std::size(CrosshairSizeNames), false);
+    }
 
-        constexpr std::array<EnumName<CrosshairStyle>, 5> CrosshairStyleNames =
-        {{
-            {"Cross", CrosshairStyle::Cross},
-            {"Dot", CrosshairStyle::Dot},
-            {"CrossDot", CrosshairStyle::CrossDot},
-            {"Circle", CrosshairStyle::Circle},
-            {"Brackets", CrosshairStyle::Brackets}
-        }};
+    std::string ToString(CrosshairStyle value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, CrosshairStyleNames, std::size(CrosshairStyleNames), false);
     }
 
     CrosshairSize Crosshair::Size = CrosshairSize::Medium;

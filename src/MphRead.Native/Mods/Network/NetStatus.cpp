@@ -64,26 +64,7 @@ namespace MphRead::Mods::Network::Detail
 
     bool NetStatusIsDefinedGameMode(std::int32_t value)
     {
-        switch (value)
-        {
-            case static_cast<std::int32_t>(GameMode::None):
-            case static_cast<std::int32_t>(GameMode::SinglePlayer):
-            case static_cast<std::int32_t>(GameMode::Battle):
-            case static_cast<std::int32_t>(GameMode::BattleTeams):
-            case static_cast<std::int32_t>(GameMode::Survival):
-            case static_cast<std::int32_t>(GameMode::SurvivalTeams):
-            case static_cast<std::int32_t>(GameMode::Capture):
-            case static_cast<std::int32_t>(GameMode::Bounty):
-            case static_cast<std::int32_t>(GameMode::BountyTeams):
-            case static_cast<std::int32_t>(GameMode::Nodes):
-            case static_cast<std::int32_t>(GameMode::NodesTeams):
-            case static_cast<std::int32_t>(GameMode::Defender):
-            case static_cast<std::int32_t>(GameMode::DefenderTeams):
-            case static_cast<std::int32_t>(GameMode::PrimeHunter):
-            case static_cast<std::int32_t>(GameMode::Unknown15):
-                return true;
-        }
-        return false;
+        return value >= 0 && ::MphRead::IsDefinedGameMode(static_cast<std::uint64_t>(value));
     }
 
     GameMode NetStatusBattleGameMode()
@@ -93,26 +74,7 @@ namespace MphRead::Mods::Network::Detail
 
     std::string NetStatusGameModeToString(GameMode mode)
     {
-        switch (mode)
-        {
-            case GameMode::None: return "None";
-            case GameMode::SinglePlayer: return "SinglePlayer";
-            case GameMode::Battle: return "Battle";
-            case GameMode::BattleTeams: return "BattleTeams";
-            case GameMode::Survival: return "Survival";
-            case GameMode::SurvivalTeams: return "SurvivalTeams";
-            case GameMode::Capture: return "Capture";
-            case GameMode::Bounty: return "Bounty";
-            case GameMode::BountyTeams: return "BountyTeams";
-            case GameMode::Nodes: return "Nodes";
-            case GameMode::NodesTeams: return "NodesTeams";
-            case GameMode::Defender: return "Defender";
-            case GameMode::DefenderTeams: return "DefenderTeams";
-            case GameMode::PrimeHunter: return "PrimeHunter";
-            case GameMode::Unknown15: return "Unknown15";
-        }
-        return std::to_string(
-            static_cast<unsigned int>(static_cast<std::uint8_t>(mode)));
+        return ::MphRead::ToString(mode);
     }
 }
 namespace

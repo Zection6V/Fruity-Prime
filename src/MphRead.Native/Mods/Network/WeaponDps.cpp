@@ -49,22 +49,7 @@ namespace
 
     [[nodiscard]] std::string BeamName(MphRead::BeamType value)
     {
-        switch (value)
-        {
-        case MphRead::BeamType::None: return "None";
-        case MphRead::BeamType::PowerBeam: return "PowerBeam";
-        case MphRead::BeamType::VoltDriver: return "VoltDriver";
-        case MphRead::BeamType::Missile: return "Missile";
-        case MphRead::BeamType::Battlehammer: return "Battlehammer";
-        case MphRead::BeamType::Imperialist: return "Imperialist";
-        case MphRead::BeamType::Judicator: return "Judicator";
-        case MphRead::BeamType::Magmaul: return "Magmaul";
-        case MphRead::BeamType::ShockCoil: return "ShockCoil";
-        case MphRead::BeamType::OmegaCannon: return "OmegaCannon";
-        case MphRead::BeamType::Platform: return "Platform";
-        case MphRead::BeamType::Enemy: return "Enemy";
-        }
-        return std::to_string(static_cast<std::int32_t>(value));
+        return ::MphRead::ToString(value);
     }
 
     [[nodiscard]] float ClampDistance(float value) noexcept

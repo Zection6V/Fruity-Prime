@@ -39,39 +39,12 @@ namespace MphRead::Mods::Network
 
         std::string HunterString(Hunter value)
         {
-            switch (value)
-            {
-            case Hunter::Samus: return "Samus";
-            case Hunter::Kanden: return "Kanden";
-            case Hunter::Trace: return "Trace";
-            case Hunter::Sylux: return "Sylux";
-            case Hunter::Noxus: return "Noxus";
-            case Hunter::Spire: return "Spire";
-            case Hunter::Weavel: return "Weavel";
-            case Hunter::Guardian: return "Guardian";
-            case Hunter::Random: return "Random";
-            }
-            return ::MphRead::NativeRuntime::ToString(static_cast<std::uint8_t>(value));
+            return ::MphRead::ToString(value);
         }
 
         std::string BeamString(BeamType value)
         {
-            switch (value)
-            {
-            case BeamType::None: return "None";
-            case BeamType::PowerBeam: return "PowerBeam";
-            case BeamType::VoltDriver: return "VoltDriver";
-            case BeamType::Missile: return "Missile";
-            case BeamType::Battlehammer: return "Battlehammer";
-            case BeamType::Imperialist: return "Imperialist";
-            case BeamType::Judicator: return "Judicator";
-            case BeamType::Magmaul: return "Magmaul";
-            case BeamType::ShockCoil: return "ShockCoil";
-            case BeamType::OmegaCannon: return "OmegaCannon";
-            case BeamType::Platform: return "Platform";
-            case BeamType::Enemy: return "Enemy";
-            }
-            return ::MphRead::NativeRuntime::ToString(static_cast<std::int32_t>(value));
+            return ::MphRead::ToString(value);
         }
 
         std::string AfflictionString(Affliction value)

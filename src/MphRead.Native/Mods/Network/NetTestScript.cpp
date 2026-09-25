@@ -1,4 +1,5 @@
 #include "NetTestScript.hpp"
+#include "../../NativeRuntime/System/Enum.hpp"
 
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
@@ -666,5 +667,36 @@ namespace MphRead::Mods::Network
     void NetTestScript::Hold(Entities::Keybind& bind, bool down)
     {
         bind.SetIsDown(down);
+    }
+}
+
+namespace MphRead::Mods::Network
+{
+    namespace
+    {
+        // NetTestScript.cs TestPhase : int
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry TestPhaseNames[] = {
+            {0ULL, "Idle"},
+            {1ULL, "Walk"},
+            {2ULL, "Jump"},
+            {3ULL, "Turn"},
+            {4ULL, "Shoot"},
+            {5ULL, "SwitchWeapons"},
+            {6ULL, "Charge"},
+            {7ULL, "MorphA"},
+            {8ULL, "AltAttackA"},
+            {9ULL, "MorphB"},
+            {10ULL, "AltAttackB"},
+            {11ULL, "Unmorph"},
+            {12ULL, "Zoom"},
+            {13ULL, "Afflict"},
+            {14ULL, "Duel"},
+        };
+    }
+
+    std::string ToString(TestPhase value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, TestPhaseNames, std::size(TestPhaseNames), false);
     }
 }

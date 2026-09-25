@@ -247,249 +247,42 @@ namespace MphRead::Utility
 
         [[nodiscard]] std::string EntityTypeText(EntityType type)
         {
-            switch (type)
-            {
-            case EntityType::Platform: return "Platform";
-            case EntityType::Object: return "Object";
-            case EntityType::PlayerSpawn: return "PlayerSpawn";
-            case EntityType::Door: return "Door";
-            case EntityType::ItemSpawn: return "ItemSpawn";
-            case EntityType::ItemInstance: return "ItemInstance";
-            case EntityType::EnemySpawn: return "EnemySpawn";
-            case EntityType::TriggerVolume: return "TriggerVolume";
-            case EntityType::AreaVolume: return "AreaVolume";
-            case EntityType::JumpPad: return "JumpPad";
-            case EntityType::PointModule: return "PointModule";
-            case EntityType::MorphCamera: return "MorphCamera";
-            case EntityType::OctolithFlag: return "OctolithFlag";
-            case EntityType::FlagBase: return "FlagBase";
-            case EntityType::Teleporter: return "Teleporter";
-            case EntityType::NodeDefense: return "NodeDefense";
-            case EntityType::LightSource: return "LightSource";
-            case EntityType::Artifact: return "Artifact";
-            case EntityType::CameraSequence: return "CameraSequence";
-            case EntityType::ForceField: return "ForceField";
-            case EntityType::BeamEffect: return "BeamEffect";
-            case EntityType::Bomb: return "Bomb";
-            case EntityType::EnemyInstance: return "EnemyInstance";
-            case EntityType::Halfturret: return "Halfturret";
-            case EntityType::Player: return "Player";
-            case EntityType::BeamProjectile: return "BeamProjectile";
-            case EntityType::ListHead: return "ListHead";
-            case EntityType::FhUnknown0: return "FhUnknown0";
-            case EntityType::FhPlayerSpawn: return "FhPlayerSpawn";
-            case EntityType::FhUnknown2: return "FhUnknown2";
-            case EntityType::FhDoor: return "FhDoor";
-            case EntityType::FhItemSpawn: return "FhItemSpawn";
-            case EntityType::FhItemInstance: return "FhItemInstance";
-            case EntityType::FhEnemySpawn: return "FhEnemySpawn";
-            case EntityType::FhEffectInstance: return "FhEffectInstance";
-            case EntityType::FhBomb: return "FhBomb";
-            case EntityType::FhTriggerVolume: return "FhTriggerVolume";
-            case EntityType::FhAreaVolume: return "FhAreaVolume";
-            case EntityType::FhPlatform: return "FhPlatform";
-            case EntityType::FhJumpPad: return "FhJumpPad";
-            case EntityType::FhPointModule: return "FhPointModule";
-            case EntityType::FhMorphCamera: return "FhMorphCamera";
-            case EntityType::FhEnemyInstance: return "FhEnemyInstance";
-            case EntityType::FhPlayer: return "FhPlayer";
-            case EntityType::FhBeamProjectile: return "FhBeamProjectile";
-            case EntityType::Room: return "Room";
-            case EntityType::Model: return "Model";
-            case EntityType::All: return "All";
-            }
-            return std::to_string(static_cast<std::uint16_t>(type));
+            return ::MphRead::ToString(type);
         }
 
         [[nodiscard]] std::string FhItemTypeText(FhItemType type)
         {
-            switch (type)
-            {
-            case FhItemType::None: return "None";
-            case FhItemType::AmmoSmall: return "AmmoSmall";
-            case FhItemType::AmmoBig: return "AmmoBig";
-            case FhItemType::HealthSmall: return "HealthSmall";
-            case FhItemType::HealthBig: return "HealthBig";
-            case FhItemType::DoubleDamage: return "DoubleDamage";
-            case FhItemType::PowerBeam: return "PowerBeam";
-            case FhItemType::ElectroLob: return "ElectroLob";
-            case FhItemType::Missile: return "Missile";
-            }
-            return std::to_string(static_cast<std::int32_t>(type));
+            return ::MphRead::ToString(type);
         }
 
         [[nodiscard]] std::string EnemyTypeText(EnemyType type)
         {
-            switch (type)
-            {
-            case EnemyType::WarWasp: return "WarWasp";
-            case EnemyType::Zoomer: return "Zoomer";
-            case EnemyType::Temroid: return "Temroid";
-            case EnemyType::Petrasyl1: return "Petrasyl1";
-            case EnemyType::Petrasyl2: return "Petrasyl2";
-            case EnemyType::Petrasyl3: return "Petrasyl3";
-            case EnemyType::Petrasyl4: return "Petrasyl4";
-            case EnemyType::Unknown7: return "Unknown7";
-            case EnemyType::Unknown8: return "Unknown8";
-            case EnemyType::Unknown9: return "Unknown9";
-            case EnemyType::BarbedWarWasp: return "BarbedWarWasp";
-            case EnemyType::Shriekbat: return "Shriekbat";
-            case EnemyType::Geemer: return "Geemer";
-            case EnemyType::Unknown13: return "Unknown13";
-            case EnemyType::Unknown14: return "Unknown14";
-            case EnemyType::Unknown15: return "Unknown15";
-            case EnemyType::Blastcap: return "Blastcap";
-            case EnemyType::Unknown17: return "Unknown17";
-            case EnemyType::AlimbicTurret: return "AlimbicTurret";
-            case EnemyType::Cretaphid: return "Cretaphid";
-            case EnemyType::CretaphidEye: return "CretaphidEye";
-            case EnemyType::CretaphidCrystal: return "CretaphidCrystal";
-            case EnemyType::Unknown22: return "Unknown22";
-            case EnemyType::PsychoBit1: return "PsychoBit1";
-            case EnemyType::Gorea1A: return "Gorea1A";
-            case EnemyType::GoreaHead: return "GoreaHead";
-            case EnemyType::GoreaArm: return "GoreaArm";
-            case EnemyType::GoreaLeg: return "GoreaLeg";
-            case EnemyType::Gorea1B: return "Gorea1B";
-            case EnemyType::GoreaSealSphere1: return "GoreaSealSphere1";
-            case EnemyType::Trocra: return "Trocra";
-            case EnemyType::Gorea2: return "Gorea2";
-            case EnemyType::GoreaSealSphere2: return "GoreaSealSphere2";
-            case EnemyType::GoreaMeteor: return "GoreaMeteor";
-            case EnemyType::PsychoBit2: return "PsychoBit2";
-            case EnemyType::Voldrum2: return "Voldrum2";
-            case EnemyType::Voldrum1: return "Voldrum1";
-            case EnemyType::Quadtroid: return "Quadtroid";
-            case EnemyType::CrashPillar: return "CrashPillar";
-            case EnemyType::FireSpawn: return "FireSpawn";
-            case EnemyType::Spawner: return "Spawner";
-            case EnemyType::Slench: return "Slench";
-            case EnemyType::SlenchShield: return "SlenchShield";
-            case EnemyType::SlenchNest: return "SlenchNest";
-            case EnemyType::SlenchSynapse: return "SlenchSynapse";
-            case EnemyType::SlenchTurret: return "SlenchTurret";
-            case EnemyType::LesserIthrak: return "LesserIthrak";
-            case EnemyType::GreaterIthrak: return "GreaterIthrak";
-            case EnemyType::Hunter: return "Hunter";
-            case EnemyType::ForceFieldLock: return "ForceFieldLock";
-            case EnemyType::HitZone: return "HitZone";
-            case EnemyType::CarnivorousPlant: return "CarnivorousPlant";
-            }
-            return std::to_string(static_cast<std::uint32_t>(static_cast<std::uint8_t>(type)));
+            return ::MphRead::ToString(type);
         }
 
         [[nodiscard]] std::string FhEnemyTypeText(FhEnemyType type)
         {
-            switch (type)
-            {
-            case FhEnemyType::WarWasp: return "WarWasp";
-            case FhEnemyType::Zoomer: return "Zoomer";
-            case FhEnemyType::Metroid: return "Metroid";
-            case FhEnemyType::Mochtroid1: return "Mochtroid1";
-            case FhEnemyType::Mochtroid2: return "Mochtroid2";
-            case FhEnemyType::Mochtroid3: return "Mochtroid3";
-            case FhEnemyType::Mochtroid4: return "Mochtroid4";
-            }
-            return std::to_string(static_cast<std::uint32_t>(type));
+            return ::MphRead::ToString(type);
         }
 
         [[nodiscard]] std::string TriggerTypeText(TriggerType type)
         {
-            switch (type)
-            {
-            case TriggerType::Volume: return "Volume";
-            case TriggerType::Threshold: return "Threshold";
-            case TriggerType::Relay: return "Relay";
-            case TriggerType::Automatic: return "Automatic";
-            case TriggerType::StateBits: return "StateBits";
-            }
-            return std::to_string(static_cast<std::uint32_t>(type));
+            return ::MphRead::ToString(type);
         }
 
         [[nodiscard]] std::string FhTriggerTypeText(FhTriggerType type)
         {
-            switch (type)
-            {
-            case FhTriggerType::Sphere: return "Sphere";
-            case FhTriggerType::Box: return "Box";
-            case FhTriggerType::Cylinder: return "Cylinder";
-            case FhTriggerType::Threshold: return "Threshold";
-            }
-            return std::to_string(static_cast<std::uint32_t>(type));
+            return ::MphRead::ToString(type);
         }
 
         [[nodiscard]] std::string MessageText(Message message)
         {
-            switch (message)
-            {
-            case Message::None: return "None";
-            case Message::SetActive: return "SetActive";
-            case Message::Destroyed: return "Destroyed";
-            case Message::Damage: return "Damage";
-            case Message::Trigger: return "Trigger";
-            case Message::UpdateMusic: return "UpdateMusic";
-            case Message::Gravity: return "Gravity";
-            case Message::Unlock: return "Unlock";
-            case Message::Lock: return "Lock";
-            case Message::Activate: return "Activate";
-            case Message::Complete: return "Complete";
-            case Message::Impact: return "Impact";
-            case Message::Death: return "Death";
-            case Message::Unused22: return "Unused22";
-            case Message::ShipHatch: return "ShipHatch";
-            case Message::Unused24: return "Unused24";
-            case Message::Unused25: return "Unused25";
-            case Message::ShowPrompt: return "ShowPrompt";
-            case Message::ShowWarning: return "ShowWarning";
-            case Message::ShowOverlay: return "ShowOverlay";
-            case Message::MoveItemSpawner: return "MoveItemSpawner";
-            case Message::SetCamSeqAi: return "SetCamSeqAi";
-            case Message::PlayerCollideWith: return "PlayerCollideWith";
-            case Message::BeamCollideWith: return "BeamCollideWith";
-            case Message::UnlockConnectors: return "UnlockConnectors";
-            case Message::LockConnectors: return "LockConnectors";
-            case Message::PreventFormSwitch: return "PreventFormSwitch";
-            case Message::Gorea2Trigger: return "Gorea2Trigger";
-            case Message::SetTriggerState: return "SetTriggerState";
-            case Message::ClearTriggerState: return "ClearTriggerState";
-            case Message::PlatformWakeup: return "PlatformWakeup";
-            case Message::PlatformSleep: return "PlatformSleep";
-            case Message::DripMoatPlatform: return "DripMoatPlatform";
-            case Message::ActivateTurret: return "ActivateTurret";
-            case Message::DecreaseTurretLights: return "DecreaseTurretLights";
-            case Message::IncreaseTurretLights: return "IncreaseTurretLights";
-            case Message::DeactivateTurret: return "DeactivateTurret";
-            case Message::SetBeamReflection: return "SetBeamReflection";
-            case Message::SetPlatformIndex: return "SetPlatformIndex";
-            case Message::PlaySfxScript: return "PlaySfxScript";
-            case Message::UnlockOubliette: return "UnlockOubliette";
-            case Message::Checkpoint: return "Checkpoint";
-            case Message::EscapeUpdate1: return "EscapeUpdate1";
-            case Message::SetSeekPlayerY: return "SetSeekPlayerY";
-            case Message::LoadOubliette: return "LoadOubliette";
-            case Message::EscapeUpdate2: return "EscapeUpdate2";
-            }
-            return std::to_string(static_cast<std::uint32_t>(message));
+            return ::MphRead::ToString(message);
         }
 
         [[nodiscard]] std::string FhMessageText(FhMessage message)
         {
-            switch (message)
-            {
-            case FhMessage::None: return "None";
-            case FhMessage::Activate: return "Activate";
-            case FhMessage::Destroyed: return "Destroyed";
-            case FhMessage::Damage: return "Damage";
-            case FhMessage::Trigger: return "Trigger";
-            case FhMessage::Gravity: return "Gravity";
-            case FhMessage::Unlock: return "Unlock";
-            case FhMessage::SetActive: return "SetActive";
-            case FhMessage::Complete: return "Complete";
-            case FhMessage::Impact: return "Impact";
-            case FhMessage::Death: return "Death";
-            case FhMessage::Unknown21: return "Unknown21";
-            }
-            return std::to_string(static_cast<std::uint32_t>(message));
+            return ::MphRead::ToString(message);
         }
 
         [[nodiscard]] bool IsDefinedEntityType(EntityType type) noexcept

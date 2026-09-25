@@ -2,6 +2,7 @@
 
 #include "../../Formats/Types.hpp"
 
+#include <string>
 #include <array>
 #include <cstdint>
 #include <memory>
@@ -34,6 +35,9 @@ namespace MphRead::Mods::Network
         Afflict,
         Duel
     };
+
+    // TestPhase.ToString().
+    [[nodiscard]] std::string ToString(TestPhase value);
 
     class NetTestScript final
     {

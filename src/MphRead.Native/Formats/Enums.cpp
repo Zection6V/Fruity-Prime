@@ -25,6 +25,12 @@ namespace MphRead
         return ::MphRead::NativeRuntime::ManagedEnumToString(
             value, HunterNames, std::size(HunterNames), false);
     }
+
+    bool TryParse(std::string_view text, bool ignoreCase, Hunter& value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumTryParse(
+            text, ignoreCase, HunterNames, std::size(HunterNames), value);
+    }
 }
 
 namespace MphRead
@@ -150,5 +156,281 @@ namespace MphRead
     {
         return ::MphRead::NativeRuntime::ManagedEnumToString(
             value, ItemTypeNames, std::size(ItemTypeNames), false);
+    }
+}
+
+namespace MphRead
+{
+    namespace
+    {
+        // Formats\Enums.cs Message : uint
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry MessageNames[] = {
+            {0x0ULL, "None"},
+            {0x5ULL, "SetActive"},
+            {0x6ULL, "Destroyed"},
+            {0x7ULL, "Damage"},
+            {0x9ULL, "Trigger"},
+            {0xCULL, "UpdateMusic"},
+            {0xFULL, "Gravity"},
+            {0x10ULL, "Unlock"},
+            {0x11ULL, "Lock"},
+            {0x12ULL, "Activate"},
+            {0x13ULL, "Complete"},
+            {0x14ULL, "Impact"},
+            {0x15ULL, "Death"},
+            {0x16ULL, "Unused22"},
+            {0x17ULL, "ShipHatch"},
+            {0x18ULL, "Unused24"},
+            {0x19ULL, "Unused25"},
+            {0x1AULL, "ShowPrompt"},
+            {0x1BULL, "ShowWarning"},
+            {0x1CULL, "ShowOverlay"},
+            {0x1DULL, "MoveItemSpawner"},
+            {0x1EULL, "SetCamSeqAi"},
+            {0x1FULL, "PlayerCollideWith"},
+            {0x20ULL, "BeamCollideWith"},
+            {0x21ULL, "UnlockConnectors"},
+            {0x22ULL, "LockConnectors"},
+            {0x23ULL, "PreventFormSwitch"},
+            {0x24ULL, "Gorea2Trigger"},
+            {0x2AULL, "SetTriggerState"},
+            {0x2BULL, "ClearTriggerState"},
+            {0x2CULL, "PlatformWakeup"},
+            {0x2DULL, "PlatformSleep"},
+            {0x2EULL, "DripMoatPlatform"},
+            {0x30ULL, "ActivateTurret"},
+            {0x31ULL, "DecreaseTurretLights"},
+            {0x32ULL, "IncreaseTurretLights"},
+            {0x33ULL, "DeactivateTurret"},
+            {0x34ULL, "SetBeamReflection"},
+            {0x35ULL, "SetPlatformIndex"},
+            {0x36ULL, "PlaySfxScript"},
+            {0x38ULL, "UnlockOubliette"},
+            {0x39ULL, "Checkpoint"},
+            {0x3AULL, "EscapeUpdate1"},
+            {0x3BULL, "SetSeekPlayerY"},
+            {0x3CULL, "LoadOubliette"},
+            {0x3DULL, "EscapeUpdate2"},
+        };
+
+        // Formats\Enums.cs DoorType : uint
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry DoorTypeNames[] = {
+            {0x0ULL, "Standard"},
+            {0x1ULL, "MorphBall"},
+            {0x2ULL, "Boss"},
+            {0x3ULL, "Thin"},
+        };
+
+        // Formats\Enums.cs FhItemType : int
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry FhItemTypeNames[] = {
+            {0xFFFFFFFFULL, "None"},
+            {0x0ULL, "AmmoSmall"},
+            {0x1ULL, "AmmoBig"},
+            {0x2ULL, "HealthSmall"},
+            {0x3ULL, "HealthBig"},
+            {0x4ULL, "DoubleDamage"},
+            {0x5ULL, "PowerBeam"},
+            {0x6ULL, "ElectroLob"},
+            {0x7ULL, "Missile"},
+        };
+
+        // Formats\Enums.cs FhMessage : uint
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry FhMessageNames[] = {
+            {0x0ULL, "None"},
+            {0x5ULL, "Activate"},
+            {0x6ULL, "Destroyed"},
+            {0x7ULL, "Damage"},
+            {0x9ULL, "Trigger"},
+            {0xFULL, "Gravity"},
+            {0x10ULL, "Unlock"},
+            {0x11ULL, "SetActive"},
+            {0x12ULL, "Complete"},
+            {0x13ULL, "Impact"},
+            {0x14ULL, "Death"},
+            {0x15ULL, "Unknown21"},
+        };
+
+        // Formats\Enums.cs FhTriggerType : uint
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry FhTriggerTypeNames[] = {
+            {0x0ULL, "Sphere"},
+            {0x1ULL, "Box"},
+            {0x2ULL, "Cylinder"},
+            {0x3ULL, "Threshold"},
+        };
+
+        // Formats\Enums.cs TriggerType : uint
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry TriggerTypeNames[] = {
+            {0x0ULL, "Volume"},
+            {0x1ULL, "Threshold"},
+            {0x2ULL, "Relay"},
+            {0x3ULL, "Automatic"},
+            {0x4ULL, "StateBits"},
+        };
+    }
+
+    std::string ToString(Message value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, MessageNames, std::size(MessageNames), false);
+    }
+
+    std::string ToString(DoorType value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, DoorTypeNames, std::size(DoorTypeNames), false);
+    }
+
+    std::string ToString(FhItemType value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, FhItemTypeNames, std::size(FhItemTypeNames), false);
+    }
+
+    std::string ToString(FhMessage value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, FhMessageNames, std::size(FhMessageNames), false);
+    }
+
+    std::string ToString(FhTriggerType value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, FhTriggerTypeNames, std::size(FhTriggerTypeNames), false);
+    }
+
+    std::string ToString(TriggerType value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, TriggerTypeNames, std::size(TriggerTypeNames), false);
+    }
+
+    namespace
+    {
+        // Enums.cs EntityType : ushort
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry EntityTypeNames[] = {
+            {0ULL, "Platform"},
+            {1ULL, "Object"},
+            {2ULL, "PlayerSpawn"},
+            {3ULL, "Door"},
+            {4ULL, "ItemSpawn"},
+            {5ULL, "ItemInstance"},
+            {6ULL, "EnemySpawn"},
+            {7ULL, "TriggerVolume"},
+            {8ULL, "AreaVolume"},
+            {9ULL, "JumpPad"},
+            {10ULL, "PointModule"},
+            {11ULL, "MorphCamera"},
+            {12ULL, "OctolithFlag"},
+            {13ULL, "FlagBase"},
+            {14ULL, "Teleporter"},
+            {15ULL, "NodeDefense"},
+            {16ULL, "LightSource"},
+            {17ULL, "Artifact"},
+            {18ULL, "CameraSequence"},
+            {19ULL, "ForceField"},
+            {21ULL, "BeamEffect"},
+            {22ULL, "Bomb"},
+            {23ULL, "EnemyInstance"},
+            {24ULL, "Halfturret"},
+            {25ULL, "Player"},
+            {26ULL, "BeamProjectile"},
+            {27ULL, "ListHead"},
+            {100ULL, "FhUnknown0"},
+            {101ULL, "FhPlayerSpawn"},
+            {102ULL, "FhUnknown2"},
+            {103ULL, "FhDoor"},
+            {104ULL, "FhItemSpawn"},
+            {105ULL, "FhItemInstance"},
+            {106ULL, "FhEnemySpawn"},
+            {107ULL, "FhEffectInstance"},
+            {108ULL, "FhBomb"},
+            {109ULL, "FhTriggerVolume"},
+            {110ULL, "FhAreaVolume"},
+            {111ULL, "FhPlatform"},
+            {112ULL, "FhJumpPad"},
+            {113ULL, "FhPointModule"},
+            {114ULL, "FhMorphCamera"},
+            {115ULL, "FhEnemyInstance"},
+            {116ULL, "FhPlayer"},
+            {117ULL, "FhBeamProjectile"},
+            {200ULL, "Room"},
+            {201ULL, "Model"},
+            {255ULL, "All"},
+        };
+    }
+
+    std::string ToString(EntityType value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, EntityTypeNames, std::size(EntityTypeNames), false);
+    }
+
+    namespace
+    {
+        // Enums.cs BeamType : sbyte
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry BeamTypeNames[] = {
+            {0xFFFFFFFFFFFFFFFFULL, "None"},
+            {0ULL, "PowerBeam"},
+            {1ULL, "VoltDriver"},
+            {2ULL, "Missile"},
+            {3ULL, "Battlehammer"},
+            {4ULL, "Imperialist"},
+            {5ULL, "Judicator"},
+            {6ULL, "Magmaul"},
+            {7ULL, "ShockCoil"},
+            {8ULL, "OmegaCannon"},
+            {9ULL, "Platform"},
+            {10ULL, "Enemy"},
+        };
+    }
+
+    std::string ToString(BeamType value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, BeamTypeNames, std::size(BeamTypeNames), false);
+    }
+
+    bool TryParse(std::string_view text, bool ignoreCase, BeamType& value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumTryParse(
+            text, ignoreCase, BeamTypeNames, std::size(BeamTypeNames), value);
+    }
+
+    namespace
+    {
+        // Enums.cs Terrain : byte
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry TerrainNames[] = {
+            {0ULL, "Metal"},
+            {1ULL, "OrangeHolo"},
+            {2ULL, "GreenHolo"},
+            {3ULL, "BlueHolo"},
+            {4ULL, "Ice"},
+            {5ULL, "Snow"},
+            {6ULL, "Sand"},
+            {7ULL, "Rock"},
+            {8ULL, "Lava"},
+            {9ULL, "Acid"},
+            {10ULL, "Gorea"},
+            {11ULL, "Unknown11"},
+            {12ULL, "All"},
+        };
+    }
+
+    std::string ToString(Terrain value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, TerrainNames, std::size(TerrainNames), false);
+    }
+
+    bool TryParse(std::string_view text, bool ignoreCase, Terrain& value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumTryParse(
+            text, ignoreCase, TerrainNames, std::size(TerrainNames), value);
+    }
+
+    bool TryParse(std::string_view text, bool ignoreCase, ItemType& value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumTryParse(
+            text, ignoreCase, ItemTypeNames, std::size(ItemTypeNames), value);
     }
 }

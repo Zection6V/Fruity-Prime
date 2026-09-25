@@ -263,109 +263,13 @@ namespace
     {
         return ::MphRead::NativeRuntime::DoubleTryParseCurrentCulture(text, value);
     }
-    template <typename Enum>
-    struct EnumName final
-    {
-        std::string_view Name;
-        std::int32_t Value;
-    };
-
-    constexpr std::array<EnumName<GameMode>, 15> GameModeNames{{
-        {"None", 0},
-        {"SinglePlayer", 2},
-        {"Battle", 3},
-        {"BattleTeams", 4},
-        {"Survival", 5},
-        {"SurvivalTeams", 6},
-        {"Capture", 7},
-        {"Bounty", 8},
-        {"BountyTeams", 9},
-        {"Nodes", 10},
-        {"NodesTeams", 11},
-        {"Defender", 12},
-        {"DefenderTeams", 13},
-        {"PrimeHunter", 14},
-        {"Unknown15", 15}
-    }};
-
-    constexpr std::array<EnumName<Hunter>, 9> HunterNames{{
-        {"Samus", 0}, {"Kanden", 1}, {"Trace", 2}, {"Sylux", 3},
-        {"Noxus", 4}, {"Spire", 5}, {"Weavel", 6}, {"Guardian", 7},
-        {"Random", 8}
-    }};
-
-    constexpr std::array<EnumName<BeamType>, 12> BeamNames{{
-        {"None", -1}, {"PowerBeam", 0}, {"VoltDriver", 1}, {"Missile", 2},
-        {"Battlehammer", 3}, {"Imperialist", 4}, {"Judicator", 5},
-        {"Magmaul", 6}, {"ShockCoil", 7}, {"OmegaCannon", 8},
-        {"Platform", 9}, {"Enemy", 10}
-    }};
-
-    template <typename Enum, std::size_t N>
-    [[nodiscard]] bool TryParseEnum(std::string_view text,
-        const std::array<EnumName<Enum>, N>& names, std::int32_t minValue,
-        std::int32_t maxValue, Enum& value)
-    {
-        text = TrimAscii(text);
-        if (text.empty())
-        {
-            return false;
-        }
-
-        const char first = text.front();
-        if ((first >= '0' && first <= '9') || first == '+' || first == '-')
-        {
-            std::int32_t number = 0;
-            if (!Int32TryParseCurrentCulture(text, number) || number < minValue || number > maxValue)
-            {
-                return false;
-            }
-            value = static_cast<Enum>(number);
-            return true;
-        }
-
-        std::int32_t combined = 0;
-        std::size_t start = 0;
-        bool foundAny = false;
-        while (true)
-        {
-            const std::size_t comma = text.find(',', start);
-            std::string_view part = comma == std::string_view::npos
-                ? text.substr(start)
-                : text.substr(start, comma - start);
-            part = TrimAscii(part);
-            bool found = false;
-            for (const auto& item : names)
-            {
-                if (StringEqualsOrdinalIgnoreCase(part, item.Name))
-                {
-                    combined |= item.Value;
-                    found = true;
-                    foundAny = true;
-                    break;
-                }
-            }
-            if (!found)
-            {
-                return false;
-            }
-            if (comma == std::string_view::npos)
-            {
-                break;
-            }
-            start = comma + 1;
-        }
-        value = static_cast<Enum>(combined);
-        return foundAny;
-    }
-
     [[nodiscard]] bool TryParseGameMode(const std::optional<std::string>& text, GameMode& value)
     {
         if (!text.has_value())
         {
             return false;
         }
-        return TryParseEnum(*text, GameModeNames, 0, 255, value);
+        return ::MphRead::TryParse(*text, true, value);
     }
 
     [[nodiscard]] bool TryParseHunter(const std::optional<std::string>& text, Hunter& value)
@@ -374,7 +278,7 @@ namespace
         {
             return false;
         }
-        return TryParseEnum(*text, HunterNames, 0, 255, value);
+        return ::MphRead::TryParse(*text, true, value);
     }
 
     [[nodiscard]] bool TryParseBeam(const std::optional<std::string>& text, BeamType& value)
@@ -383,7 +287,7 @@ namespace
         {
             return false;
         }
-        return TryParseEnum(*text, BeamNames, -128, 127, value);
+        return ::MphRead::TryParse(*text, true, value);
     }
 
     [[nodiscard]] std::vector<std::string> GetCommandLineArguments()

@@ -1,4 +1,5 @@
 #include "TriggerVolumeEntity.hpp"
+#include "../NativeRuntime/System/Enum.hpp"
 
 #include "../Formats/CollisionDetection.hpp"
 #include "../GameState.hpp"
@@ -455,5 +456,49 @@ namespace MphRead::Entities
     EntityBase* FhTriggerVolumeEntity::GetChild()
     {
         return _child.get();
+    }
+}
+
+namespace MphRead::Entities
+{
+    namespace
+    {
+        // Entities\TriggerVolumeEntity.cs FhTriggerFlags : uint
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry FhTriggerFlagsNames[] = {
+            {0x0ULL, "None"},
+            {0x1ULL, "Beam"},
+            {0x2ULL, "PlayerBiped"},
+            {0x4ULL, "PlayerAlt"},
+        };
+
+        // Entities\TriggerVolumeEntity.cs [Flags] TriggerFlags : uint
+        constexpr ::MphRead::NativeRuntime::EnumNameEntry TriggerFlagsNames[] = {
+            {0x0ULL, "None"},
+            {0x1ULL, "PowerBeam"},
+            {0x2ULL, "VoltDriver"},
+            {0x4ULL, "Missile"},
+            {0x8ULL, "Battlehammer"},
+            {0x10ULL, "Imperialist"},
+            {0x20ULL, "Judicator"},
+            {0x40ULL, "Magmaul"},
+            {0x80ULL, "ShockCoil"},
+            {0x100ULL, "BeamCharged"},
+            {0x200ULL, "PlayerBiped"},
+            {0x400ULL, "PlayerAlt"},
+            {0x800ULL, "Bit11"},
+            {0x1000ULL, "IncludeBots"},
+        };
+    }
+
+    std::string ToString(FhTriggerFlags value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, FhTriggerFlagsNames, std::size(FhTriggerFlagsNames), false);
+    }
+
+    std::string ToString(TriggerFlags value)
+    {
+        return ::MphRead::NativeRuntime::ManagedEnumToString(
+            value, TriggerFlagsNames, std::size(TriggerFlagsNames), true);
     }
 }

@@ -34,22 +34,7 @@ namespace
 
     [[nodiscard]] std::string BeamTypeToString(MphRead::BeamType value)
     {
-        switch (value)
-        {
-        case MphRead::BeamType::None: return "None";
-        case MphRead::BeamType::PowerBeam: return "PowerBeam";
-        case MphRead::BeamType::VoltDriver: return "VoltDriver";
-        case MphRead::BeamType::Missile: return "Missile";
-        case MphRead::BeamType::Battlehammer: return "Battlehammer";
-        case MphRead::BeamType::Imperialist: return "Imperialist";
-        case MphRead::BeamType::Judicator: return "Judicator";
-        case MphRead::BeamType::Magmaul: return "Magmaul";
-        case MphRead::BeamType::ShockCoil: return "ShockCoil";
-        case MphRead::BeamType::OmegaCannon: return "OmegaCannon";
-        case MphRead::BeamType::Platform: return "Platform";
-        case MphRead::BeamType::Enemy: return "Enemy";
-        }
-        return ::MphRead::NativeRuntime::ToString(static_cast<std::int8_t>(value));
+        return ::MphRead::ToString(value);
     }
 
     [[nodiscard]] std::string JoinFlagNames(

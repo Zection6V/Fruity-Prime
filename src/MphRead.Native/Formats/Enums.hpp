@@ -476,6 +476,30 @@ namespace MphRead
 
     // Hunter.ToString().
     [[nodiscard]] std::string ToString(Hunter value);
+    // EntityType.ToString().
+    [[nodiscard]] std::string ToString(EntityType value);
+    // Message.ToString().
+    [[nodiscard]] std::string ToString(Message value);
+    // DoorType.ToString().
+    [[nodiscard]] std::string ToString(DoorType value);
+    // FhItemType.ToString().
+    [[nodiscard]] std::string ToString(FhItemType value);
+    // FhMessage.ToString().
+    [[nodiscard]] std::string ToString(FhMessage value);
+    // FhTriggerType.ToString().
+    [[nodiscard]] std::string ToString(FhTriggerType value);
+    // TriggerType.ToString().
+    [[nodiscard]] std::string ToString(TriggerType value);
+    // BeamType.ToString() / Enum.TryParse(text, ignoreCase, out BeamType).
+    [[nodiscard]] std::string ToString(BeamType value);
+    [[nodiscard]] bool TryParse(std::string_view text, bool ignoreCase, BeamType& value);
+    // Terrain.ToString() / Enum.TryParse(text, ignoreCase, out Terrain).
+    [[nodiscard]] std::string ToString(Terrain value);
+    [[nodiscard]] bool TryParse(std::string_view text, bool ignoreCase, Terrain& value);
+    // Enum.TryParse(text, ignoreCase, out ItemType).
+    [[nodiscard]] bool TryParse(std::string_view text, bool ignoreCase, ItemType& value);
+    // Enum.TryParse(text, ignoreCase, out Hunter).
+    [[nodiscard]] bool TryParse(std::string_view text, bool ignoreCase, Hunter& value);
     // ItemType.ToString().
     [[nodiscard]] std::string ToString(ItemType value);
     // EnemyType.ToString().

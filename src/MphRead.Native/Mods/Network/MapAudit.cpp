@@ -77,34 +77,7 @@ namespace MphRead::Mods::Network
 
         [[nodiscard]] std::string ItemTypeName(ItemType value)
         {
-            switch (value)
-            {
-                case ItemType::None: return "None";
-                case ItemType::HealthMedium: return "HealthMedium";
-                case ItemType::HealthSmall: return "HealthSmall";
-                case ItemType::HealthBig: return "HealthBig";
-                case ItemType::DoubleDamage: return "DoubleDamage";
-                case ItemType::EnergyTank: return "EnergyTank";
-                case ItemType::VoltDriver: return "VoltDriver";
-                case ItemType::MissileExpansion: return "MissileExpansion";
-                case ItemType::Battlehammer: return "Battlehammer";
-                case ItemType::Imperialist: return "Imperialist";
-                case ItemType::Judicator: return "Judicator";
-                case ItemType::Magmaul: return "Magmaul";
-                case ItemType::ShockCoil: return "ShockCoil";
-                case ItemType::OmegaCannon: return "OmegaCannon";
-                case ItemType::UASmall: return "UASmall";
-                case ItemType::UABig: return "UABig";
-                case ItemType::MissileSmall: return "MissileSmall";
-                case ItemType::MissileBig: return "MissileBig";
-                case ItemType::Cloak: return "Cloak";
-                case ItemType::UAExpansion: return "UAExpansion";
-                case ItemType::ArtifactKey: return "ArtifactKey";
-                case ItemType::Deathalt: return "Deathalt";
-                case ItemType::AffinityWeapon: return "AffinityWeapon";
-                case ItemType::PickWpnMissile: return "PickWpnMissile";
-            }
-            return std::to_string(static_cast<std::int32_t>(value));
+            return ::MphRead::ToString(value);
         }
 
         [[nodiscard]] std::string AfflictionName(Affliction value)

@@ -4,6 +4,7 @@
 #include "../InputSettings.hpp"
 #include "../Network/NetProtocol.hpp"
 #include "../Network/NetSession.hpp"
+#include "../../NativeRuntime/System/Exceptions.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 
@@ -285,8 +286,16 @@ namespace MphRead::Mods::Chat
 
     void ChatBox::Send(const std::optional<std::string>& text)
     {
+        if (!text.has_value())
+        {
+            throw System::NullReferenceException();
+        }
+        const bool prefix = ::MphRead::NativeRuntime::StringStartsWithOrdinalIgnoreCase(*text, "/team ");
+        const std::optional<Network::MatchDefinition> definition = Network::NetSession::ActiveMatchDefinition();
+        const bool team = prefix && GameState::IsTeamMode(definition.has_value() ? definition->Mode : GameState::Mode());
         Add(Network::NetSession::Active() ? Network::NetSession::PlayerName() : "You",
-            text, Network::ChatPacket::KindSay);
+            prefix ? ::MphRead::NativeRuntime::StringTrim(text->substr(6)) : *text,
+            team ? Network::ChatPacket::KindTeam : Network::ChatPacket::KindSay);
         if (Network::NetSession::Active())
         {
             if (text.has_value())

@@ -124,7 +124,7 @@
 | S | +/- | C# | C++ | 進捗 |
 |---|---|---|---|---|
 | A | +32/-0 | `Mods/Chat/NetChat.cs` | — 新規 | 完了 |
-| M | +4/-1 | `Mods/Chat/ChatBox.cs` | .cpp,.hpp | — |
+| M | +4/-1 | `Mods/Chat/ChatBox.cs` | .cpp,.hpp | 完了 |
 
 ## 6. Input and gamepad — 52 ファイル (新規 44), C# +4665 行
 

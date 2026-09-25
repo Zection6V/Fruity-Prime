@@ -58,6 +58,8 @@ namespace MphRead::NativeRuntime
     [[nodiscard]] std::string EnvironmentVersion();
     // Environment.Is64BitProcess.
     [[nodiscard]] bool EnvironmentIs64BitProcess() noexcept;
+    // Environment.ProcessorCount.
+    [[nodiscard]] std::int32_t EnvironmentProcessorCount();
     // Environment.ProcessId.
     [[nodiscard]] std::int32_t EnvironmentProcessId() noexcept;
     // Environment.CommandLine: the executable and its arguments, quoted the

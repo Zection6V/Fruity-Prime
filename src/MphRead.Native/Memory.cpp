@@ -464,13 +464,6 @@ namespace
         return *result;
     }
 
-    [[nodiscard]] bool StartsWithAsciiIgnoreCase(
-        std::string_view value, std::string_view prefix) noexcept
-    {
-        return value.size() >= prefix.size()
-            && StringEqualsOrdinalIgnoreCase(value.substr(0, prefix.size()), prefix);
-    }
-
     [[nodiscard]] std::string LinuxProcessName(
         std::int32_t processId, const LinuxProcessStat& stat)
     {
@@ -501,7 +494,7 @@ namespace
             const std::size_t slash = arg.find_last_of('/');
             const std::string_view name = slash == std::string_view::npos
                 ? arg : arg.substr(slash + 1);
-            if (StartsWithAsciiIgnoreCase(name, stat.Name))
+            if (::MphRead::NativeRuntime::StringStartsWithOrdinalIgnoreCase(name, stat.Name))
             {
                 return std::string(name);
             }

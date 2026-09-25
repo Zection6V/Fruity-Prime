@@ -2,6 +2,7 @@
 // Avalonia's RenderTargetBitmap is on the managed side. The screens are the
 // same adapters the launcher uses, drawn into a framebuffer of their own.
 
+#include "NativeRuntime/System/Globalization.hpp"
 #include "HostScreens.hpp"
 #include "HomeViewHost.hpp"
 
@@ -11,6 +12,7 @@
 #include "../../GameState.hpp"
 #include "../../Metadata/Rooms.hpp"
 #include "../../Mods/Launcher/Gui/UiCapture.hpp"
+#include "../System/Encoding.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -160,24 +162,7 @@ namespace MphRead::NativeRuntime::Avalonia
 
             void SortOrdinalIgnoreCase(Launcher::UiCaptureRoomList& rooms) const override
             {
-                std::sort(rooms.begin(), rooms.end(),
-                    [](const std::string& left, const std::string& right)
-                    {
-                        const std::size_t count
-                            = std::min(left.size(), right.size());
-                        for (std::size_t i = 0; i < count; ++i)
-                        {
-                            const unsigned char a = static_cast<unsigned char>(
-                                std::toupper(static_cast<unsigned char>(left[i])));
-                            const unsigned char b = static_cast<unsigned char>(
-                                std::toupper(static_cast<unsigned char>(right[i])));
-                            if (a != b)
-                            {
-                                return a < b;
-                            }
-                        }
-                        return left.size() < right.size();
-                    });
+                std::sort(rooms.begin(), rooms.end(), ::MphRead::NativeRuntime::OrdinalIgnoreCaseLess{});
             }
 
             [[nodiscard]] Launcher::UiCaptureControlHandle ConstructHomeView(

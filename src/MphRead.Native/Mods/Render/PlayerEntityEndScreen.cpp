@@ -7,6 +7,7 @@
 #include "../Launcher/Portable/LaunchPlan.hpp"
 #include "../Network/PlayerColors.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -45,17 +46,6 @@ namespace
         return std::to_string(static_cast<std::uint8_t>(hunter));
     }
 
-    [[nodiscard]] std::string ToUpperInvariantAscii(std::string value)
-    {
-        for (char& ch : value)
-        {
-            if (ch >= 'a' && ch <= 'z')
-            {
-                ch = static_cast<char>(ch - ('a' - 'A'));
-            }
-        }
-        return value;
-    }
 }
 
 namespace MphRead::Entities
@@ -188,7 +178,7 @@ namespace MphRead::Entities
         if (!next.empty())
         {
             static_cast<void>(DrawText2D(centre, EndRow(EndRowNext), Hud::Align::Center, 0,
-                std::string("NEXT: ") + ToUpperInvariantAscii(next),
+                std::string("NEXT: ") + ::MphRead::NativeRuntime::ToUpperInvariant(next),
                 _endDim, 1.0F, 8.0F, -1, 0.45F * scale));
         }
     }

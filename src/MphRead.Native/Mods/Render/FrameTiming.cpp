@@ -69,11 +69,6 @@ namespace
         return value;
     }
 
-    [[nodiscard]] constexpr char FoldAscii(char value) noexcept
-    {
-        return value >= 'A' && value <= 'Z' ? static_cast<char>(value + ('a' - 'A')) : value;
-    }
-
 }
 
 namespace MphRead::Mods::Render

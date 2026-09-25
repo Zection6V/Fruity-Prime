@@ -16,6 +16,7 @@
 #include "../NativeRuntime/System/ExceptionText.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Runtime.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <array>
@@ -539,30 +540,6 @@ namespace
     }
 
 #if defined(_WIN32)
-    [[nodiscard]] char AsciiLower(char value) noexcept
-    {
-        return value >= 'A' && value <= 'Z'
-            ? static_cast<char>(value + ('a' - 'A'))
-            : value;
-    }
-
-    [[nodiscard]] bool EndsWithAsciiIgnoreCase(std::string_view value,
-        std::string_view suffix) noexcept
-    {
-        if (value.size() < suffix.size())
-        {
-            return false;
-        }
-        const std::size_t start = value.size() - suffix.size();
-        for (std::size_t index = 0; index < suffix.size(); ++index)
-        {
-            if (AsciiLower(value[start + index]) != AsciiLower(suffix[index]))
-            {
-                return false;
-            }
-        }
-        return true;
-    }
 #endif
 
     [[nodiscard]] bool MatchesPattern(std::string_view name,
@@ -582,7 +559,7 @@ namespace
             return false;
         }
 #if defined(_WIN32)
-        return EndsWithAsciiIgnoreCase(name, suffix);
+        return ::MphRead::NativeRuntime::StringEndsWithOrdinalIgnoreCase(name, suffix);
 #else
         return EndsWithAscii(name, suffix);
 #endif
@@ -744,54 +721,6 @@ namespace
         }
         return "Unix";
 #endif
-    }
-
-    [[nodiscard]] std::int32_t ProcessorCount()
-    {
-        if (const char* overrideValue = std::getenv("DOTNET_PROCESSOR_COUNT"))
-        {
-            try
-            {
-                const long parsed = std::stol(overrideValue);
-                if (parsed > 0 && parsed <= std::numeric_limits<std::int32_t>::max())
-                {
-                    return static_cast<std::int32_t>(parsed);
-                }
-            }
-            catch (const std::exception&)
-            {
-            }
-        }
-#if defined(__linux__) || defined(__ANDROID__)
-        cpu_set_t set;
-        CPU_ZERO(&set);
-        if (::sched_getaffinity(0, sizeof(set), &set) == 0)
-        {
-            const int count = CPU_COUNT(&set);
-            if (count > 0)
-            {
-                return count;
-            }
-        }
-#elif defined(_WIN32)
-        DWORD_PTR processMask = 0;
-        DWORD_PTR systemMask = 0;
-        if (GetProcessAffinityMask(GetCurrentProcess(), &processMask, &systemMask))
-        {
-            std::int32_t count = 0;
-            while (processMask != 0)
-            {
-                count += static_cast<std::int32_t>(processMask & 1U);
-                processMask >>= 1U;
-            }
-            if (count > 0)
-            {
-                return count;
-            }
-        }
-#endif
-        const unsigned int hardware = std::thread::hardware_concurrency();
-        return hardware == 0 ? 1 : static_cast<std::int32_t>(hardware);
     }
 
     [[nodiscard]] std::string CultureName()
@@ -1729,7 +1658,7 @@ namespace
         DebugLog::Line("build", "protocol " + std::to_string(NetConfig::ProtocolVersion)
             + ", log started " + HeaderTimestamp());
         DebugLog::Line("system", OsVersion() + " " + RuntimeArchitecture()
-            + ", .NET native, " + std::to_string(ProcessorCount()) + " cpu(s)");
+            + ", .NET native, " + std::to_string(::MphRead::NativeRuntime::EnvironmentProcessorCount()) + " cpu(s)");
         DebugLog::Line("system", "64-bit process=" + BooleanText(sizeof(void*) == 8)
             + ", culture=" + CultureName());
         DebugLog::Line("paths", "base=" + AppContextBaseDirectory());

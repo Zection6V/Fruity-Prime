@@ -225,27 +225,14 @@ namespace MphRead::Mods::Update
 
         bool EndsWithSuffix(std::string_view value, std::string_view suffix) noexcept
         {
-            if (value.size() < suffix.size())
-            {
-                return false;
-            }
-            const std::size_t offset = value.size() - suffix.size();
-            for (std::size_t i = 0; i < suffix.size(); ++i)
-            {
-                unsigned char left = static_cast<unsigned char>(value[offset + i]);
-                unsigned char right = static_cast<unsigned char>(suffix[i]);
+            // PathInternal.StringComparison: file names ignore case on
+            // Windows and macOS and nowhere else.
 #if defined(_WIN32) || defined(__APPLE__)
-                if (left >= 'A' && left <= 'Z') left = static_cast<unsigned char>(left + ('a' - 'A'));
-                if (right >= 'A' && right <= 'Z') right = static_cast<unsigned char>(right + ('a' - 'A'));
+            return ::MphRead::NativeRuntime::StringEndsWithOrdinalIgnoreCase(value, suffix);
+#else
+            return value.ends_with(suffix);
 #endif
-                if (left != right)
-                {
-                    return false;
-                }
-            }
-            return true;
         }
-
         template <typename Action>
         void EnumerateFiles(const FileSystemPath& root, Action&& action)
         {

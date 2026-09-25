@@ -656,36 +656,6 @@ namespace MphRead::Mods::Update
 
         [[nodiscard]] std::optional<Asset> PickAsset(const std::vector<Asset>& assets);
 
-        [[nodiscard]] std::string LowerForInvariantAsciiContains(std::string_view input)
-        {
-            std::string output;
-            output.reserve(input.size());
-            std::size_t offset = 0;
-            while (offset < input.size())
-            {
-                const auto first = static_cast<unsigned char>(input[offset]);
-                if (first >= 'A' && first <= 'Z')
-                {
-                    output.push_back(static_cast<char>(first + ('a' - 'A')));
-                    ++offset;
-                    continue;
-                }
-                if (offset + 3 <= input.size()
-                    && static_cast<unsigned char>(input[offset]) == 0xE2U
-                    && static_cast<unsigned char>(input[offset + 1]) == 0x84U
-                    && static_cast<unsigned char>(input[offset + 2]) == 0xAAU)
-                {
-                    output.push_back('k');
-                    offset += 3;
-                    continue;
-                }
-                const std::size_t length = Utf8SequenceLength(input, offset);
-                output.append(input.substr(offset, length));
-                offset += length;
-            }
-            return output;
-        }
-
         class CurlRequestMessage final : public HttpRequestMessage
         {
         public:
@@ -923,7 +893,7 @@ namespace MphRead::Mods::Update
             const std::string rid = UpdateCheck::Rid();
             for (const Asset& asset : assets)
             {
-                const std::string name = LowerForInvariantAsciiContains(asset.Name);
+                const std::string name = ::MphRead::NativeRuntime::ToLowerInvariant(asset.Name);
                 if (name.find(rid) == std::string::npos)
                 {
                     continue;

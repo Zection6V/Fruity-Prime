@@ -58,6 +58,7 @@
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 #include "../NativeRuntime/System/Runtime.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <array>
@@ -134,25 +135,6 @@ namespace
             value.remove_suffix(1);
         }
         return value;
-    }
-
-    [[nodiscard]] char AsciiLower(char ch) noexcept
-    {
-        if (ch >= 'A' && ch <= 'Z')
-        {
-            return static_cast<char>(ch + ('a' - 'A'));
-        }
-        return ch;
-    }
-
-    [[nodiscard]] std::string ToLowerAscii(std::string_view value)
-    {
-        std::string result(value);
-        for (char& ch : result)
-        {
-            ch = AsciiLower(ch);
-        }
-        return result;
     }
 
     [[nodiscard]] std::string_view TrimAscii(std::string_view value) noexcept
@@ -1540,7 +1522,7 @@ namespace MphRead::Mods
             const std::optional<std::string> sizeValue = ValueAfter(args, "size");
             if (sizeValue.has_value())
             {
-                const std::string lowered = ToLowerAscii(*sizeValue);
+                const std::string lowered = ::MphRead::NativeRuntime::ToLowerInvariant(*sizeValue);
                 std::vector<std::string_view> split;
                 std::size_t start = 0;
                 for (std::size_t i = 0; i <= lowered.size(); ++i)

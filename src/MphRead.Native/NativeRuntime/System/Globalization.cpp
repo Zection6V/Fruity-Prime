@@ -634,31 +634,63 @@ namespace MphRead::NativeRuntime
             }
         }
 
-        // pal_collation.c SimpleAffix.
-        [[nodiscard]] bool SimpleAffix(std::u16string_view pattern, std::u16string_view text, bool forwardSearch)
+        // pal_collation.c SimpleAffix, with a given collator.
+        [[nodiscard]] bool SimpleAffixWith(void* collator, std::u16string_view pattern, std::u16string_view text,
+            bool forwardSearch)
         {
             const Collation& api = CurrentCollation();
-            if (api.Collator == nullptr)
+            if (collator == nullptr || api.OpenElements == nullptr)
             {
                 return false;
             }
             bool result = false;
             std::int32_t errorCode = 0;
-            void* patternIterator = api.OpenElements(api.Collator, pattern.data(),
+            void* patternIterator = api.OpenElements(collator, pattern.data(),
                 static_cast<std::int32_t>(pattern.size()), &errorCode);
             if (errorCode <= 0)
             {
-                void* sourceIterator = api.OpenElements(api.Collator, text.data(),
+                void* sourceIterator = api.OpenElements(collator, text.data(),
                     static_cast<std::int32_t>(text.size()), &errorCode);
                 if (errorCode <= 0)
                 {
                     result = SimpleAffixIterators(api, patternIterator, sourceIterator,
-                        api.GetStrength(api.Collator), forwardSearch);
+                        api.GetStrength(collator), forwardSearch);
                     api.CloseElements(sourceIterator);
                 }
                 api.CloseElements(patternIterator);
             }
             return result;
+        }
+
+        // pal_collation.c SimpleAffix: the current culture's collator.
+        [[nodiscard]] bool SimpleAffix(std::u16string_view pattern, std::u16string_view text, bool forwardSearch)
+        {
+            return SimpleAffixWith(CurrentCollation().Collator, pattern, text, forwardSearch);
+        }
+
+        // The invariant culture's collator with CompareOptions.IgnoreCase:
+        // the root collation at secondary strength.
+        [[nodiscard]] void* InvariantIgnoreCaseCollator()
+        {
+            static void* const collator = []() -> void*
+            {
+                using SetStrengthFn = void (*)(void*, std::int32_t);
+                const Collation& api = CurrentCollation();
+                const auto setStrength = Icu::Function<SetStrengthFn>("ucol_setStrength");
+                if (api.Open == nullptr || setStrength == nullptr)
+                {
+                    return nullptr;
+                }
+                std::int32_t status = 0;
+                void* value = api.Open("", &status);
+                if (value == nullptr || status > 0)
+                {
+                    return nullptr;
+                }
+                setStrength(value, UColSecondary);
+                return value;
+            }();
+            return collator;
         }
 
 #if defined(_WIN32)
@@ -824,6 +856,46 @@ namespace MphRead::NativeRuntime
             return source.ends_with(end);
         }
         return IsAsciiEqualityOrdinal() ? EndsWithOrdinalHelper(source, end) : EndsWithCore(source, end);
+    }
+
+    bool StringStartsWithInvariantCultureIgnoreCase(std::string_view value, std::string_view prefix)
+    {
+        // CompareInfo.Invariant.IsPrefix(value, prefix, IgnoreCase). ASCII
+        // letters and digits are decided ordinally, as .NET's fast path does;
+        // anything else -- the control characters and NULs the collation
+        // ignores among them -- goes to ICU.
+        const std::u16string source = Utf8ToUtf16(value);
+        const std::u16string start = Utf8ToUtf16(prefix);
+        const auto plain = [](std::u16string_view text)
+        {
+            return std::none_of(text.begin(), text.end(), [](char16_t ch) { return IsHighChar(ch); });
+        };
+        if (Icu::InvariantMode() || (plain(source) && plain(start)))
+        {
+            return StringStartsWithOrdinalIgnoreCase(value, prefix);
+        }
+        if (void* collator = InvariantIgnoreCaseCollator(); collator != nullptr)
+        {
+            return SimpleAffixWith(collator, start, source, true);
+        }
+        // No ICU: what the collation would ignore, dropped, then ordinally.
+        const auto significant = [](std::string_view text)
+        {
+            std::string kept;
+            for (const char ch : text)
+            {
+                const auto unit = static_cast<unsigned char>(ch);
+                if (unit >= 0x20U || unit == '\t' || unit == '\v' || unit == '\f')
+                {
+                    if (unit != 0x7FU)
+                    {
+                        kept.push_back(ch);
+                    }
+                }
+            }
+            return kept;
+        };
+        return StringStartsWithOrdinalIgnoreCase(significant(value), significant(prefix));
     }
 
     std::int32_t StringCompareCurrentCulture(std::string_view left, std::string_view right)

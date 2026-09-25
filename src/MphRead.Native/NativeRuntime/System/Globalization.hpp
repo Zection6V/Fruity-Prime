@@ -130,6 +130,10 @@ namespace MphRead::NativeRuntime
     // CompareOptions.None, current culture.
     [[nodiscard]] bool StringStartsWithCurrentCulture(std::string_view value, std::string_view prefix);
     [[nodiscard]] bool StringEndsWithCurrentCulture(std::string_view value, std::string_view suffix);
+    // value.StartsWith(prefix, StringComparison.InvariantCultureIgnoreCase):
+    // the root collation, ignoring case -- and ignoring what it ignores, NUL
+    // among it, so "ROOM" starts with "room\0\0".
+    [[nodiscard]] bool StringStartsWithInvariantCultureIgnoreCase(std::string_view value, std::string_view prefix);
     // string.Compare(left, right) / left.CompareTo(right): the current
     // culture's collation, negative, zero or positive.
     [[nodiscard]] std::int32_t StringCompareCurrentCulture(std::string_view left, std::string_view right);

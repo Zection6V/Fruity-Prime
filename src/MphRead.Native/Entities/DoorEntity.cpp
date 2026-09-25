@@ -13,6 +13,7 @@
 #include "../NativeRuntime/System/Managed.hpp"
 #include "../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../Formats/Types.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <array>
 #include <cassert>
@@ -46,35 +47,6 @@ namespace
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
-
-    [[nodiscard]] unsigned char FoldInvariantAscii(unsigned char value) noexcept
-    {
-        if (value >= static_cast<unsigned char>('A')
-            && value <= static_cast<unsigned char>('Z'))
-        {
-            return static_cast<unsigned char>(value + ('a' - 'A'));
-        }
-        return value;
-    }
-
-    [[nodiscard]] bool StartsWithInvariantIgnoreCase(
-        std::string_view room, const char* data, std::size_t count) noexcept
-    {
-        if (room.size() < count)
-        {
-            return false;
-        }
-        for (std::size_t i = 0; i < count; ++i)
-        {
-            const auto left = FoldInvariantAscii(static_cast<unsigned char>(room[i]));
-            const auto right = FoldInvariantAscii(static_cast<unsigned char>(data[i]));
-            if (left != right)
-            {
-                return false;
-            }
-        }
-        return true;
-    }
 
     template <typename T, std::size_t Size>
     [[nodiscard]] const T& GetChecked(
@@ -345,7 +317,7 @@ namespace MphRead::Entities
 
     bool DoorEntity::Compare(const char (&data)[16], const std::string& room) const
     {
-        return StartsWithInvariantIgnoreCase(room, data, 15);
+        return ::MphRead::NativeRuntime::StringStartsWithInvariantCultureIgnoreCase(room, std::string_view(data, 15));
     }
 
     void DoorEntity::Initialize()

@@ -5574,10 +5574,7 @@ namespace MphRead
         {
             return false;
         }
-        std::string lowered = *session;
-        std::transform(lowered.begin(), lowered.end(), lowered.begin(),
-            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-        if (lowered != "wayland")
+        if (!NativeRuntime::StringEqualsOrdinalIgnoreCase(*session, "wayland"))
         {
             return false;
         }

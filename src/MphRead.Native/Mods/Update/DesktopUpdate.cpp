@@ -8,6 +8,7 @@
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Runtime.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <archive.h>
 #include <archive_entry.h>
@@ -158,34 +159,6 @@ namespace MphRead::Mods::Update
                 ThrowFileError(path, std::error_code(errno, std::generic_category()));
             }
 #endif
-        }
-
-        [[nodiscard]] bool EndsWithOrdinalIgnoreCaseAscii(
-            std::string_view value, std::string_view suffix) noexcept
-        {
-            if (value.size() < suffix.size())
-            {
-                return false;
-            }
-            value.remove_prefix(value.size() - suffix.size());
-            for (std::size_t i = 0; i < suffix.size(); ++i)
-            {
-                unsigned char left = static_cast<unsigned char>(value[i]);
-                unsigned char right = static_cast<unsigned char>(suffix[i]);
-                if (left >= 'A' && left <= 'Z')
-                {
-                    left = static_cast<unsigned char>(left + ('a' - 'A'));
-                }
-                if (right >= 'A' && right <= 'Z')
-                {
-                    right = static_cast<unsigned char>(right + ('a' - 'A'));
-                }
-                if (left != right)
-                {
-                    return false;
-                }
-            }
-            return true;
         }
 
         [[noreturn]] void ThrowArchive(struct archive* reader)
@@ -1435,7 +1408,7 @@ namespace MphRead::Mods::Update
             {
                 throw NullReferenceException();
             }
-            const bool zip = EndsWithOrdinalIgnoreCaseAscii(*assetName, ".zip");
+            const bool zip = ::MphRead::NativeRuntime::StringEndsWithOrdinalIgnoreCase(*assetName, ".zip");
             const std::string archive = PathCombine(staging,
                 zip ? "package.zip" : "package.tar.gz");
 

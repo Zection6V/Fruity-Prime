@@ -14,6 +14,7 @@
 #include "../NativeRuntime/System/Managed.hpp"
 #include "../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../Formats/Types.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <any>
 #include <bit>
@@ -55,37 +56,6 @@ namespace
             throw MphRead::Memory::Detail::IndexOutOfRangeException();
         }
         return static_cast<std::size_t>(index);
-    }
-
-    [[nodiscard]] unsigned char FoldInvariantAscii(unsigned char value) noexcept
-    {
-        if (value >= static_cast<unsigned char>('A')
-            && value <= static_cast<unsigned char>('Z'))
-        {
-            return static_cast<unsigned char>(value + ('a' - 'A'));
-        }
-        return value;
-    }
-
-    [[nodiscard]] bool StartsWithInvariantIgnoreCase(
-        std::span<const char> room, std::span<const char> data) noexcept
-    {
-        if (room.size() < data.size())
-        {
-            return false;
-        }
-        for (std::size_t i = 0; i < data.size(); ++i)
-        {
-            const auto left = FoldInvariantAscii(
-                static_cast<unsigned char>(room[i]));
-            const auto right = FoldInvariantAscii(
-                static_cast<unsigned char>(data[i]));
-            if (left != right)
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
 }
@@ -251,7 +221,7 @@ namespace MphRead::Entities
         {
             throw Memory::Detail::ArgumentOutOfRangeException();
         }
-        return StartsWithInvariantIgnoreCase(room, data.first(15));
+        return ::MphRead::NativeRuntime::StringStartsWithInvariantCultureIgnoreCase(std::string_view(room.data(), room.size()), std::string_view(data.data(), 15));
     }
 
     void TeleporterEntity::Initialize()

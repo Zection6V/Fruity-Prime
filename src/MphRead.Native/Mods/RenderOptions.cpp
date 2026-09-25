@@ -1,5 +1,6 @@
 #include "RenderOptions.hpp"
 #include "../NativeRuntime/System/Globalization.hpp"
+#include "NativeRuntime/System/Globalization.hpp"
 
 #include <bit>
 #include <cstddef>
@@ -12,28 +13,6 @@ using ::MphRead::NativeRuntime::StringTrimView;
 
 namespace
 {
-    bool EqualsLowerInvariantAscii(std::string_view text,
-        std::string_view expected) noexcept
-    {
-        if (text.size() != expected.size())
-        {
-            return false;
-        }
-        for (std::size_t index = 0; index < text.size(); ++index)
-        {
-            unsigned char value = static_cast<unsigned char>(text[index]);
-            if (value >= 'A' && value <= 'Z')
-            {
-                value = static_cast<unsigned char>(value + ('a' - 'A'));
-            }
-            if (value != static_cast<unsigned char>(expected[index]))
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
     bool TryParseInt32IntegerInvariant(std::string_view text,
         std::int32_t& result) noexcept
     {
@@ -259,15 +238,15 @@ namespace MphRead::Mods
         }
 
         const std::string_view text = StringTrimView(*value);
-        if (EqualsLowerInvariantAscii(text, "on")
-            || EqualsLowerInvariantAscii(text, "true")
-            || EqualsLowerInvariantAscii(text, "yes"))
+        if ((::MphRead::NativeRuntime::ToLowerInvariant(text) == "on")
+            || (::MphRead::NativeRuntime::ToLowerInvariant(text) == "true")
+            || (::MphRead::NativeRuntime::ToLowerInvariant(text) == "yes"))
         {
             return true;
         }
-        if (EqualsLowerInvariantAscii(text, "off")
-            || EqualsLowerInvariantAscii(text, "false")
-            || EqualsLowerInvariantAscii(text, "no"))
+        if ((::MphRead::NativeRuntime::ToLowerInvariant(text) == "off")
+            || (::MphRead::NativeRuntime::ToLowerInvariant(text) == "false")
+            || (::MphRead::NativeRuntime::ToLowerInvariant(text) == "no"))
         {
             return false;
         }

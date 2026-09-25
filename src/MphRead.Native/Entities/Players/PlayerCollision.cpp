@@ -1092,7 +1092,16 @@ namespace MphRead::Entities
                 {
                     factor = 2.0F * 2.0F;
                 }
-                position.Y += result.Plane.Y * v2 * factor;
+                // A correction may not be a teleport. The factor above is a
+                // gain on the penetration depth, and at 4x a ceiling it is
+                // sound only while that depth is small. Clamping to the
+                // collision radius keeps the gain intact for every
+                // penetration the hack is actually about and costs a deep one
+                // nothing but another frame to resolve in. -altprobe is the
+                // measurement.
+                const float step = result.Plane.Y * v2 * factor;
+                const float reach = Fixed::ToFloat(IsAltForm() ? Values().AltColRadius : Values().BipedColRadius);
+                position.Y += std::clamp(step, -reach, reach);
             }
             float dot = Vector3::Dot(Speed(), result.Plane.Xyz());
             if (dot < 0.0F)

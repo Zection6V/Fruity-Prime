@@ -853,6 +853,9 @@ namespace MphRead::Entities
         bool _swipeBoostRequested = false;
         float _swipeBoostX = 0.0F;
         float _swipeBoostY = 0.0F;
+        // Frames of committed travel left on a boost a flick aimed, during
+        // which the roll binds do not steer.
+        std::uint16_t _boostAimLock = 0;
         std::uint16_t _altAttackCooldown = 0;
         std::uint16_t _altAttackTime = 0;
         float _altSpinSpeed = 0.0F;

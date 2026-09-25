@@ -12,6 +12,11 @@
 #include "../Mods/Network/NetDamage.hpp"
 #include "../Mods/Network/NetHitPrediction.hpp"
 #include "../Mods/Network/NetLog.hpp"
+#include "../Mods/Network/ContinuousWeaponPhase.hpp"
+#include "../Mods/Network/NetPlayerLifecycle.hpp"
+#include "../Mods/Network/NetSession.hpp"
+#include "../Mods/Network/NetShotDiagnostics.hpp"
+#include "../Mods/Multiplayer/TeamLayout.hpp"
 #include "../Read.hpp"
 #include "../Scene.hpp"
 #include "../SceneSetup.hpp"
@@ -855,7 +860,8 @@ namespace MphRead::Entities
                     if (TestFlag(_flags, BeamFlags::LifeDrain) && owner.Type == EntityType::Player)
                     {
                         PlayerEntity* ownerPlayer = static_cast<PlayerEntity*>(_owner.get());
-                        if (!ownerPlayer->IsPrimeHunter() && ownerPlayer->TeamIndex() != player->TeamIndex())
+                        if (ownerPlayer != player && !ownerPlayer->IsPrimeHunter()
+                            && !Mods::Multiplayer::TeamRules::AreAllies(ownerPlayer->TeamIndex(), player->TeamIndex()))
                         {
                             const std::int32_t before = ownerPlayer->Health();
                             GainPlayerHealth(*ownerPlayer, wholeDamage);
@@ -901,7 +907,8 @@ namespace MphRead::Entities
                         const float pct = Vector3::Distance(Position, _spawnPosition) / _maxDistance;
                         damage = GetInterpolatedValue(_damageInterpolation, _damage, 0.0F, pct);
                     }
-                    if (damage > 0.0F && (_beam != BeamType::ShockCoil || scene.FrameCount() % 2 == 0))
+                    if (damage > 0.0F && (_beam != BeamType::ShockCoil
+                        || (ModHasSharedContinuousPhase ? ModContinuousPhase : scene.FrameCount()) % 2 == 0))
                     {
                         enemy->TakeDamage(static_cast<std::uint32_t>(damage), this);
                         SpawnCollisionEffect(anyRes, true);
@@ -1202,7 +1209,7 @@ namespace MphRead::Entities
                     flags |= BeamSpawnFlags::Charged;
                 }
                 static_cast<void>(Spawn(
-                    _owner, _ricochetEquip, colRes.Position, spawnDir, flags, NodeRef, _scene));
+                    _owner, _ricochetEquip, colRes.Position, spawnDir, flags, NodeRef, _scene, this));
             }
         }
         if (!TestFlag(_flags, BeamFlags::Continuous))
@@ -1664,8 +1671,14 @@ namespace MphRead::Entities
         Vector3 direction,
         BeamSpawnFlags spawnFlags,
         Formats::Culling::NodeRef nodeRef,
-        Scene* scene)
+        Scene* scene,
+        BeamProjectileEntity* parent)
     {
+        if (Mods::Network::NetSession::Active() && parent != nullptr
+            && !Mods::Network::NetPlayerLifecycle::CurrentProjectile(*parent))
+        {
+            return BeamResultFlags::NoSpawn;
+        }
         BeamResultFlags result = BeamResultFlags::Spawned;
         EquipInfo& equipRef = RequireReference(equip);
         const std::shared_ptr<WeaponInfo> weaponPtr = equipRef.Weapon;
@@ -1702,22 +1715,29 @@ namespace MphRead::Entities
 
         std::int32_t cost = static_cast<std::int32_t>(
             getAmount(weapon.AmmoCost, weapon.MinChargeCost, weapon.ChargeCost));
+        std::uint64_t phase = RequireReference(scene).FrameCount();
+        bool sharedPhase = false;
+        auto* firingPlayer = dynamic_cast<PlayerEntity*>(owner.get());
+        if (TestFlag(weapon.Flags, WeaponFlags::Continuous) && firingPlayer != nullptr)
+        {
+            namespace Net = Mods::Network;
+            const std::int32_t slot = firingPlayer->SlotIndex();
+            const bool remoteSlot = slot >= 0 && slot < static_cast<std::int32_t>(Net::NetSession::RemoteIntents.size());
+            // NetFrame advances before input and Spawn. The owner's intent is
+            // captured on that same step; a remote intent supplies its own
+            // frame plus the number of local steps since it arrived.
+            phase = Net::NetSession::ContinuousPhase.Resolve(slot, RequireReference(scene).FrameCount(),
+                Net::NetSession::Active() && !firingPlayer->IsBot(),
+                Net::NetSession::LocalSlot() >= 0 && slot == Net::NetSession::LocalSlot(),
+                Net::NetSession::NetFrame(),
+                remoteSlot && Net::NetSession::RemoteIntentValid[static_cast<std::size_t>(slot)],
+                remoteSlot ? Net::NetSession::RemoteIntents[static_cast<std::size_t>(slot)].Frame : 0U,
+                remoteSlot ? Net::NetSession::RemoteIntentAge(slot) : std::numeric_limits<std::uint32_t>::max(),
+                sharedPhase);
+        }
         if (TestFlag(weapon.Flags, WeaponFlags::Continuous))
         {
-            if (RequireReference(scene).FrameCount() % 2 == 0)
-            {
-                const std::uint64_t bits = static_cast<std::uint64_t>(cost & 31);
-                cost /= 32;
-                if (RequireReference(scene).FrameCount() % 2 == 0 && bits != 0
-                    && ((bits * (RequireReference(scene).FrameCount() / 2)) & 31U) > 32U - bits)
-                {
-                    ++cost;
-                }
-            }
-            else
-            {
-                cost = 0;
-            }
+            cost = Mods::Network::ContinuousWeaponPhase::Amount(cost, phase, false);
         }
         const std::int32_t ammo = equipRef.Ammo();
         if (ammo >= 0 && cost > ammo)
@@ -1852,19 +1872,7 @@ namespace MphRead::Entities
         }
         if (TestFlag(weapon.Flags, WeaponFlags::Continuous))
         {
-            if (RequireReference(scene).FrameCount() % 2 == 0)
-            {
-                const std::uint64_t bits = static_cast<std::uint64_t>(damage & 31);
-                damage /= 32;
-                if (bits != 0 && ((bits * (RequireReference(scene).FrameCount() / 2)) & 31U) >= 32U - bits)
-                {
-                    ++damage;
-                }
-            }
-            else
-            {
-                damage = 0;
-            }
+            damage = Mods::Network::ContinuousWeaponPhase::Amount(damage, phase, true);
         }
         if (Cheats::QuadrupleDamage())
         {
@@ -1948,8 +1956,15 @@ namespace MphRead::Entities
             }
 
             beamRef._owner = owner;
+            beamRef.ModContinuousPhase = phase;
+            beamRef.ModHasSharedContinuousPhase = sharedPhase;
+            Mods::Network::NetPlayerLifecycle::StampProjectile(beamRef, parent);
             beamRef._beam = weapon.Beam;
             beamRef._beamKind = weapon.BeamKind;
+            if (Mods::Network::NetLog::Enabled())
+            {
+                Mods::Network::NetShotDiagnostics::Trace("spawn", beamRef.ModLaunchKey(), beamRef._beam);
+            }
             beamRef._flags = flags;
             beamRef.NodeRef = nodeRef;
             beamRef._age = 0.0F;
@@ -2022,6 +2037,16 @@ namespace MphRead::Entities
             }
             beamRef._velocity = velocity;
             beamRef._acceleration = acceleration;
+            // A beam comes off a free list and keeps whatever transform the
+            // last one left on it until the draw pass computes a new one.
+            // Only draw functions 3 and 17 set one here, so every other
+            // weapon draws its first frame at its predecessor's position --
+            // and across a death that predecessor belongs to the previous
+            // life, which is the "phantom shots from where I died".
+            // Harmless for 17, which overwrites this with the same thing.
+            Matrix4 spawnTransform = GetTransformMatrix(beamRef._direction, beamRef._up);
+            SetRow3(spawnTransform, position);
+            beamRef.Transform = spawnTransform;
 
             if (beamRef._drawFuncId == 3)
             {
@@ -2076,7 +2101,7 @@ namespace MphRead::Entities
                     PlayerEntity* ownerPlayer = static_cast<PlayerEntity*>(owner.get());
                     if ((GameState::Multiplayer() || !ownerPlayer->IsBot())
                         && ownerPlayer->ShockCoilTarget() == beamRef._target
-                        && RequireReference(scene).FrameCount() % 2 == 0)
+                        && phase % 2 == 0)
                     {
                         const std::uint16_t timer = ownerPlayer->ShockCoilTimer();
                         if (timer >= 120 * 2)
@@ -2103,6 +2128,10 @@ namespace MphRead::Entities
                 {
                     ++Mods::Network::NetDamage::ShockCoilAcquired;
                 }
+            }
+            if (Mods::Network::NetSession::Active() && TestFlag(weapon.Flags, WeaponFlags::Continuous))
+            {
+                Mods::Network::NetShotDiagnostics::Continuous(beamRef, cost);
             }
             beamRef._soundSource.Update(beamRef.Position, 0);
             RequireReference(scene).AddEntity(beam);
@@ -2155,7 +2184,7 @@ namespace MphRead::Entities
                     {
                         PlayerEntity& ownerPlayer
                             = static_cast<PlayerEntity&>(RequireReference(beamRef._owner));
-                        tryTarget = player.TeamIndex() != ownerPlayer.TeamIndex();
+                        tryTarget = !Mods::Multiplayer::TeamRules::AreAllies(player.TeamIndex(), ownerPlayer.TeamIndex());
                     }
                 }
                 else if (type == EntityType::Halfturret)
@@ -2169,7 +2198,8 @@ namespace MphRead::Entities
                     {
                         PlayerEntity& ownerPlayer
                             = static_cast<PlayerEntity&>(RequireReference(beamRef._owner));
-                        tryTarget = RequireReference(halfturret.Owner()).TeamIndex() != ownerPlayer.TeamIndex();
+                        tryTarget = halfturret.Owner().get() != &ownerPlayer
+                            && !Mods::Multiplayer::TeamRules::AreAllies(RequireReference(halfturret.Owner()).TeamIndex(), ownerPlayer.TeamIndex());
                     }
                 }
                 else if (type == EntityType::EnemyInstance)

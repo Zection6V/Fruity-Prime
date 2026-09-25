@@ -1,4 +1,6 @@
 #include "NetRoomChange.hpp"
+#include "NetHitClaims.hpp"
+#include "NetSmoothing.hpp"
 
 #include "../../GameState.hpp"
 #include "../../Scene.hpp"
@@ -30,8 +32,16 @@ namespace MphRead::Mods::Network
 {
     std::string NetRoomChange::_requested{};
     std::uint32_t NetRoomChange::_requestedFrame = 0;
+    bool NetRoomChange::_loadPending = false;
+    std::uint16_t NetRoomChange::_requestedMatch = 0;
     std::uint16_t NetRoomChange::_loadedMatch = 0;
     std::uint32_t NetRoomChange::_loadedFrame = 0;
+
+    bool NetRoomChange::GameplayReady()
+    {
+        return !_loadPending
+            && (_loadedMatch == 0 || _loadedMatch == NetSession::CurrentMatchId());
+    }
 
     bool NetRoomChange::Settling()
     {
@@ -51,8 +61,10 @@ namespace MphRead::Mods::Network
 
     void NetRoomChange::Reset()
     {
+        _loadPending = false;
         _requested = "";
         _requestedFrame = 0;
+        _requestedMatch = 0;
         _loadedMatch = 0;
         _loadedFrame = 0;
     }
@@ -77,6 +89,10 @@ namespace MphRead::Mods::Network
             return;
         }
         const std::uint16_t match = state.value().MatchId;
+        if (_loadPending)
+        {
+            return;
+        }
         const RoomMetadata* currentMeta = Metadata::GetRoomById(
             scene.RoomId(), true);
         const std::string current = currentMeta == nullptr
@@ -106,7 +122,8 @@ namespace MphRead::Mods::Network
         }
         _requested = wanted;
         _requestedFrame = NetSession::NetFrame();
-        _loadedMatch = match;
+        _loadPending = true;
+        _requestedMatch = match;
         NativeRuntime::ConsoleWriteLine((current == wanted
             ? "[net] server started a new match on " + wanted + "; loading it"
             : "[net] server rotated to " + wanted + "; loading it"));
@@ -120,6 +137,10 @@ namespace MphRead::Mods::Network
         Scene& scene, Hunter hunter, std::int32_t recolor)
     {
         static_cast<void>(scene);
+        // Loading is synchronous from here through AfterRebuild. Allow the
+        // authority's initial Spawn while constructing the requested room.
+        _loadedMatch = _requestedMatch;
+        _loadPending = false;
         const std::int32_t localSlot
             = std::max(NetSession::LocalSlot(), 0);
         for (std::int32_t slot = 0; slot < Entities::PlayerEntity::MaxPlayers(); ++slot)
@@ -156,6 +177,7 @@ namespace MphRead::Mods::Network
         NetPlayerSetup::Reset();
         NetDamage::ResetForRoomChange();
         NetHitPrediction::ForgetPending();
+        NetHitClaims::ForgetPending();
         ResetScores();
         NativeRuntime::ConsoleWriteLine(("[net] player slots rebuilt for the new room, main player = slot "
             + ::MphRead::NativeRuntime::ToString(localSlot)));
@@ -165,8 +187,12 @@ namespace MphRead::Mods::Network
 
     void NetRoomChange::AfterRebuild(Scene& scene)
     {
+        _loadedMatch = _requestedMatch;
         _loadedFrame = std::max(NetSession::NetFrame(), 1U);
+        _loadPending = false;
+        _requested = "";
         NetPlayerBridge::NoteRoomChanged();
+        NetSmoothing::NoteRoomChanged();
         NetLaunch::DisableCheatsForMatch();
         ReloadIntroCamSeq(scene);
         for (std::int32_t slot = 0;

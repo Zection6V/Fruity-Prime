@@ -24,6 +24,10 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static std::int32_t LocalSlot();
         [[nodiscard]] static bool IsPuppet(Entities::PlayerEntity& player);
         [[nodiscard]] static bool KeepSlotAlive(Entities::PlayerEntity& player);
+        [[nodiscard]] static bool PinPuppetsOnClients() noexcept { return _pinPuppetsOnClients; }
+        static void PinPuppetsOnClients(bool value) noexcept { _pinPuppetsOnClients = value; }
+        [[nodiscard]] static bool SnapshotOwnsPuppets() noexcept { return _snapshotOwnsPuppets; }
+        static void SnapshotOwnsPuppets(bool value) noexcept { _snapshotOwnsPuppets = value; }
         static void AfterRemoteMovement(Entities::PlayerEntity& player);
         [[nodiscard]] static OpenTK::Mathematics::Vector3 RemoteShotOrigin(
             Entities::PlayerEntity& player, OpenTK::Mathematics::Vector3 current);
@@ -36,7 +40,13 @@ namespace MphRead::Mods::Network
         static void AfterSimulation();
 
     private:
+        static constexpr std::uint32_t SnapshotStaleFrames = 12U;
         static constexpr std::uint32_t StaleIntentFrames = 30U;
+
+        inline static bool _pinPuppetsOnClients = false;
+        inline static bool _snapshotOwnsPuppets = true;
+
+        [[nodiscard]] static bool SnapshotPositions();
 
         static void ApplyRemoteStates();
     };

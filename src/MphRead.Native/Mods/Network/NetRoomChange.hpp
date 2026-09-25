@@ -30,6 +30,7 @@ namespace MphRead::Mods::Network
         NetRoomChange& operator=(const NetRoomChange&) = delete;
         NetRoomChange& operator=(NetRoomChange&&) = delete;
 
+        [[nodiscard]] static bool GameplayReady();
         [[nodiscard]] static bool Settling();
         [[nodiscard]] static std::int32_t RoomPlayerCount();
         [[nodiscard]] static bool Rebuilding();
@@ -48,6 +49,8 @@ namespace MphRead::Mods::Network
 
         static std::string _requested;
         static std::uint32_t _requestedFrame;
+        static bool _loadPending;
+        static std::uint16_t _requestedMatch;
         static std::uint16_t _loadedMatch;
         static std::uint32_t _loadedFrame;
     };

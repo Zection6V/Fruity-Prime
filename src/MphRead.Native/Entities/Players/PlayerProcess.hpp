@@ -36,6 +36,13 @@ private:                                                                        
     void CheckSyluxBombCount();                                                                \
     void PickUpItems();                                                                        \
     void PickUpWeapon(::MphRead::ItemType itemType);                                           \
+    void AnimateSpireAltAttack();                                                              \
+    void UpdateSpireAltCollisionPose();                                                        \
+public:                                                                                        \
+    void PlayHealthPickupSfx(::MphRead::ItemType itemType);                                    \
+    [[nodiscard]] std::pair<::OpenTK::Mathematics::Vector3, ::OpenTK::Mathematics::Vector3>    \
+        ModSpireAltCollisionPose() const;                                                      \
+private:                                                                                       \
     [[nodiscard]] bool TrySwitchForms(bool force = false);                                     \
     void UpdateAimVecs();                                                                      \
     void InitAltTransform();                                                                   \

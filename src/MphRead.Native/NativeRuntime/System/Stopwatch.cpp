@@ -45,4 +45,15 @@ namespace MphRead::NativeRuntime
         return 1'000'000'000LL;
 #endif
     }
+
+    std::int64_t StopwatchGetElapsedTicks(std::int64_t start, std::int64_t end) noexcept
+    {
+        const double tickFrequency = 10000000.0 / static_cast<double>(StopwatchFrequency());
+        return static_cast<std::int64_t>(static_cast<double>(end - start) * tickFrequency);
+    }
+
+    std::int64_t StopwatchGetElapsedTicks(std::int64_t start) noexcept
+    {
+        return StopwatchGetElapsedTicks(start, StopwatchGetTimestamp());
+    }
 }

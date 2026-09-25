@@ -1,26 +1,74 @@
 #include "PlayerEntityNetHud.hpp"
 
 #include "../../HUD/HudInfo.hpp"
+#include "NetHudHealth.hpp"
 #include "NetSession.hpp"
+#include "../EndScreen.hpp"
+
+#include <algorithm>
+#include <optional>
 
 #include <cstdint>
 #include <string>
 
 namespace MphRead::Entities
 {
+    bool PlayerEntity::ModHideOpponentHealth()
+    {
+        const std::optional<Mods::Network::MatchDefinition> match = Mods::Network::NetSession::ActiveMatchDefinition();
+        return match.has_value() && match->HideOpponentHealth;
+    }
+
+    std::int32_t PlayerEntity::ModOpponentHudHealth(PlayerEntity& opponent)
+    {
+        return Mods::Network::NetHudHealth::Sample(opponent).Health;
+    }
+
+    bool PlayerEntity::ModHudHealthVisible() const
+    {
+        return Mods::Network::NetHudHealth::Visible(SlotIndex());
+    }
+
+    std::int32_t PlayerEntity::ModHudHealth()
+    {
+        return !Mods::Network::NetSession::Active() || SlotIndex() == Mods::Network::NetSession::LocalSlot()
+            ? Health() : ModOpponentHudHealth(*this);
+    }
+
+    float PlayerEntity::ModScoreSqueeze() const
+    {
+        if (!Mods::EndScreen::Available())
+        {
+            return 0.0F;
+        }
+        const float panelLeft = 254.0F - EndPanelWidth() * HudAspectFix();
+        const float rightmost = (Mods::Network::NetSession::Active() ? _scoreColumn2Net : _scoreColumn2Solo) + 24.0F;
+        return std::clamp(rightmost - (panelLeft - 3.0F), 0.0F, 64.0F);
+    }
+
     float PlayerEntity::ModScoreColumn1() const
     {
-        return Mods::Network::NetSession::Active() ? 145.0F : 160.0F;
+        return (Mods::Network::NetSession::Active() ? _scoreColumn1Net : _scoreColumn1Solo) - ModScoreSqueeze();
     }
 
     float PlayerEntity::ModScoreColumn2() const
     {
-        return Mods::Network::NetSession::Active() ? 193.0F : 215.0F;
+        return (Mods::Network::NetSession::Active() ? _scoreColumn2Net : _scoreColumn2Solo) - ModScoreSqueeze();
+    }
+
+    float PlayerEntity::ModScoreNameColumn() const
+    {
+        return 60.0F - ModScoreSqueeze() / 2.0F;
+    }
+
+    bool PlayerEntity::ModPingColumnDrawn()
+    {
+        return Mods::Network::NetSession::Active() && !Mods::EndScreen::Available();
     }
 
     void PlayerEntity::ModDrawPingHeader(float posY)
     {
-        if (!Mods::Network::NetSession::Active())
+        if (!ModPingColumnDrawn())
         {
             return;
         }
@@ -37,7 +85,7 @@ namespace MphRead::Entities
     void PlayerEntity::ModDrawPingRow(
         float posY, ColorRgba, std::int32_t slot)
     {
-        if (!Mods::Network::NetSession::Active())
+        if (!ModPingColumnDrawn())
         {
             return;
         }

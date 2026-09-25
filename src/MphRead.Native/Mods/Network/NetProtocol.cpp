@@ -1,5 +1,7 @@
 #include "NetProtocol.hpp"
 
+#include "../../NativeRuntime/System/Managed.hpp"
+
 #include <algorithm>
 #include <bit>
 #include <cstddef>
@@ -123,6 +125,24 @@ namespace
         L(source, 4);
         return (static_cast<std::uint32_t>(source[0]) << 24) | (static_cast<std::uint32_t>(source[1]) << 16) | (static_cast<std::uint32_t>(source[2]) << 8) | static_cast<std::uint32_t>(source[3]);
     }
+    void W64(std::span<std::uint8_t> destination, std::uint64_t value)
+    {
+        L(destination, 8);
+        for (std::size_t i = 0; i < 8; ++i)
+        {
+            destination[i] = static_cast<std::uint8_t>(value >> (8 * i));
+        }
+    }
+    std::uint64_t R64(std::span<const std::uint8_t> source)
+    {
+        L(source, 8);
+        std::uint64_t value = 0;
+        for (std::size_t i = 0; i < 8; ++i)
+        {
+            value |= static_cast<std::uint64_t>(source[i]) << (8 * i);
+        }
+        return value;
+    }
     void WF(std::span<std::uint8_t> destination, float value) { W32(destination, std::bit_cast<std::uint32_t>(value)); }
     float RF(std::span<const std::uint8_t> source) { return std::bit_cast<float>(R32(source)); }
     std::vector<std::uint16_t> U16(std::string_view utf8)
@@ -199,6 +219,18 @@ namespace
         }
         return result;
     }
+    bool ReadyAt(const std::shared_ptr<std::vector<bool>> &array, std::size_t index)
+    {
+        if (array == nullptr)
+        {
+            throw System::NullReferenceException();
+        }
+        if (index >= array->size())
+        {
+            R();
+        }
+        return (*array)[index];
+    }
     template <typename T>
     const T &AA(const std::shared_ptr<std::vector<T>> &array, std::size_t index)
     {
@@ -245,6 +277,14 @@ namespace MphRead::Mods::Network
     std::string RefusedPacket::Describe(const std::optional<std::string> &where) const
     {
         const std::string prefix = where.value_or("");
+        if (Reason == ReasonKicked)
+        {
+            return "You were removed by the lobby owner.";
+        }
+        if (Reason == ReasonInMatch)
+        {
+            return "This server does not allow joining a match in progress.";
+        }
         if (Reason == ReasonFull)
         {
             return prefix + " is full (" + std::to_string(static_cast<unsigned int>(Players)) + "/" + std::to_string(static_cast<unsigned int>(MaxPlayers)) + " players). Try again when somebody leaves.";
@@ -255,6 +295,21 @@ namespace MphRead::Mods::Network
         }
         return prefix + " would not admit this client.";
     }
+    std::int32_t HostRequestPacket::Length() const noexcept
+    {
+        const std::int32_t count = std::min(
+            Rotation.has_value() ? static_cast<std::int32_t>(Rotation->size()) : 0, MaxRotation);
+        return Size + 1 + count * RotationEntrySize + 4;
+    }
+    HostRequestPacket HostRequestPacket::ZeroInitialized()
+    {
+        HostRequestPacket packet;
+        packet.RoomKey.reset();
+        packet.ServerName.reset();
+        packet.AllowJoinInProgress = false;
+        packet.RequireReady = false;
+        return packet;
+    }
     void HostRequestPacket::Write(std::span<std::uint8_t> dest) const
     {
         At(dest, 0) = Protocol;
@@ -264,9 +319,34 @@ namespace MphRead::Mods::Network
         W16(Slice(dest, 5), PointGoal);
         NetText::Write(Slice(dest, 7, MaxRoomBytes), RoomKey);
         NetText::Write(Slice(dest, 7 + MaxRoomBytes, MaxNameBytes), ServerName);
+        const std::int32_t count = std::min(
+            Rotation.has_value() ? static_cast<std::int32_t>(Rotation->size()) : 0, MaxRotation);
+        At(dest, Size) = static_cast<std::uint8_t>(count);
+        for (std::int32_t i = 0; i < count; i++)
+        {
+            const std::size_t at = static_cast<std::size_t>(Size + 1 + i * RotationEntrySize);
+            const auto& entry = (*Rotation)[static_cast<std::size_t>(i)];
+            NetText::Write(Slice(dest, at, MaxRoomBytes), entry.first);
+            At(dest, at + MaxRoomBytes) = static_cast<std::uint8_t>(entry.second);
+        }
+        const std::size_t tail = static_cast<std::size_t>(Size + 1 + count * RotationEntrySize);
+        At(dest, tail) = static_cast<std::uint8_t>(Policy);
+        At(dest, tail + 1) = AllowJoinInProgress ? static_cast<std::uint8_t>(1) : static_cast<std::uint8_t>(0);
+        At(dest, tail + 2) = RequireReady ? static_cast<std::uint8_t>(1) : static_cast<std::uint8_t>(0);
+        At(dest, tail + 3) = static_cast<std::uint8_t>(Format);
     }
     HostRequestPacket HostRequestPacket::Read(std::span<const std::uint8_t> src)
     {
+        if (src.size() < static_cast<std::size_t>(Size + 5) || src[Size] > MaxRotation)
+        {
+            return ZeroInitialized();
+        }
+        const std::size_t tail = static_cast<std::size_t>(Size + 1 + src[Size] * RotationEntrySize);
+        if (src.size() != tail + 4 || src[tail] > 1 || src[tail + 1] > 1
+            || src[tail + 2] > 1 || src[tail + 3] > static_cast<std::uint8_t>(MatchFormat::TwoVsTwoVsTwoVsTwo))
+        {
+            return ZeroInitialized();
+        }
         HostRequestPacket packet;
         packet.Protocol = At(src, 0);
         packet.MaxPlayers = At(src, 1);
@@ -275,18 +355,63 @@ namespace MphRead::Mods::Network
         packet.PointGoal = R16(Slice(src, 5));
         packet.RoomKey = NetText::Read(Slice(src, 7, MaxRoomBytes));
         packet.ServerName = NetText::Read(Slice(src, 7 + MaxRoomBytes, MaxNameBytes));
+        packet.Policy = static_cast<ServerSessionPolicy>(src[tail]);
+        packet.AllowJoinInProgress = src[tail + 1] != 0;
+        packet.RequireReady = src[tail + 2] != 0;
+        packet.Format = static_cast<MatchFormat>(src[tail + 3]);
+        packet.Rotation = ReadRotation(src);
         return packet;
+    }
+    std::optional<std::vector<std::pair<std::string, ::MphRead::GameMode>>> HostRequestPacket::ReadRotation(
+        std::span<const std::uint8_t> src)
+    {
+        // Every length is checked rather than trusted: the count byte is the
+        // asker's and a truncated datagram must not read past what arrived.
+        if (src.size() <= static_cast<std::size_t>(Size))
+        {
+            return std::nullopt;
+        }
+        const std::int32_t count = std::min(static_cast<std::int32_t>(src[Size]), MaxRotation);
+        if (count == 0)
+        {
+            return std::nullopt;
+        }
+        std::vector<std::pair<std::string, ::MphRead::GameMode>> maps;
+        maps.reserve(static_cast<std::size_t>(count));
+        for (std::int32_t i = 0; i < count; i++)
+        {
+            const std::size_t at = static_cast<std::size_t>(Size + 1 + i * RotationEntrySize);
+            if (at + RotationEntrySize > src.size())
+            {
+                break;
+            }
+            std::string room = NetText::Read(Slice(src, at, MaxRoomBytes));
+            if (room.empty())
+            {
+                continue;
+            }
+            const std::uint8_t mode = src[at + MaxRoomBytes];
+            maps.emplace_back(std::move(room), ::MphRead::IsDefinedGameMode(mode)
+                ? static_cast<::MphRead::GameMode>(mode) : ::MphRead::GameMode::Battle);
+        }
+        if (maps.empty())
+        {
+            return std::nullopt;
+        }
+        return maps;
     }
     void HostReplyPacket::Write(std::span<std::uint8_t> dest) const
     {
         At(dest, 0) = Started ? static_cast<std::uint8_t>(1) : static_cast<std::uint8_t>(0);
         W16(Slice(dest, 1), Port);
         NetText::Write(Slice(dest, 3, MaxReasonBytes), Reason);
+        (void)OwnerToken.TryWriteBytes(Slice(dest, 3 + MaxReasonBytes, 16));
     }
     HostReplyPacket HostReplyPacket::Read(std::span<const std::uint8_t> src)
     {
         HostReplyPacket packet;
         packet.Started = At(src, 0) != 0;
+        packet.OwnerToken = ::MphRead::NativeRuntime::Guid(Slice(src, 3 + MaxReasonBytes, 16));
         packet.Port = R16(Slice(src, 1));
         packet.Reason = NetText::Read(Slice(src, 3, MaxReasonBytes));
         return packet;
@@ -364,8 +489,29 @@ namespace MphRead::Mods::Network
     bool MatchStatePacket::Ending() const noexcept { return (Flags & FlagEnding) != 0; }
     bool MatchStatePacket::FriendlyFire() const noexcept { return (Flags & FlagFriendlyFire) != 0; }
     bool MatchStatePacket::ShadowFreeze() const noexcept { return (Flags & FlagNoShadowFreeze) == 0; }
+    std::int32_t MatchStatePacket::DamageLevel() const noexcept
+    {
+        const std::int32_t stated = (Flags & FlagDamageMask) >> FlagDamageShift;
+        return stated == 0 ? -1 : stated - 1;
+    }
+    bool MatchStatePacket::StatesRules() const noexcept { return (Flags & FlagDamageMask) != 0; }
+    bool MatchStatePacket::AffinityWeapons() const noexcept { return (Flags & FlagAffinityWeapons) != 0; }
+    std::uint8_t MatchStatePacket::RuleFlags(std::int32_t damageLevel, bool affinityWeapons) noexcept
+    {
+        if (damageLevel < 0 || damageLevel > 2)
+        {
+            return 0;
+        }
+        std::uint8_t flags = static_cast<std::uint8_t>((damageLevel + 1) << FlagDamageShift);
+        if (affinityWeapons)
+        {
+            flags = static_cast<std::uint8_t>(flags | FlagAffinityWeapons);
+        }
+        return flags;
+    }
     void MatchStatePacket::Write(std::span<std::uint8_t> dest) const
     {
+        W64(Slice(dest, 95), AuthorityEpoch);
         At(dest, 0) = Mode;
         WF(Slice(dest, 1), TimeRemaining);
         WF(Slice(dest, 5), TimeElapsed);
@@ -379,6 +525,7 @@ namespace MphRead::Mods::Network
     MatchStatePacket MatchStatePacket::Read(std::span<const std::uint8_t> src)
     {
         MatchStatePacket packet;
+        packet.AuthorityEpoch = R64(Slice(src, 95));
         packet.Mode = At(src, 0);
         packet.TimeRemaining = RF(Slice(src, 1));
         packet.TimeElapsed = RF(Slice(src, 5));
@@ -419,6 +566,14 @@ namespace MphRead::Mods::Network
         At(dest, MatchStatePacket::Size) = MaxPlayers;
         At(dest, MatchStatePacket::Size + 1) = Protocol;
         NetText::Write(Slice(dest, MatchStatePacket::Size + 2, MaxNameBytes), ServerName);
+        if (dest.size() >= static_cast<std::size_t>(SizeWithFlags))
+        {
+            dest[Size] = Flags;
+            dest[Size + 1] = static_cast<std::uint8_t>(Phase);
+            dest[Size + 2] = static_cast<std::uint8_t>(Format);
+            dest[Size + 3] = LobbyEnabled ? static_cast<std::uint8_t>(1) : static_cast<std::uint8_t>(0);
+            dest[Size + 4] = AllowJoinInProgress ? static_cast<std::uint8_t>(1) : static_cast<std::uint8_t>(0);
+        }
     }
     ServerStatusPacket ServerStatusPacket::Read(std::span<const std::uint8_t> src)
     {
@@ -427,13 +582,22 @@ namespace MphRead::Mods::Network
         packet.MaxPlayers = At(src, MatchStatePacket::Size);
         packet.Protocol = At(src, MatchStatePacket::Size + 1);
         packet.ServerName = src.size() >= static_cast<std::size_t>(Size) ? std::optional<std::string>(NetText::Read(Slice(src, MatchStatePacket::Size + 2, MaxNameBytes))) : std::optional<std::string>(std::string{});
+        const bool withFlags = src.size() >= static_cast<std::size_t>(SizeWithFlags);
+        packet.Flags = src.size() > static_cast<std::size_t>(Size) ? src[Size] : static_cast<std::uint8_t>(0);
+        packet.Phase = withFlags ? static_cast<SessionPhase>(src[Size + 1]) : SessionPhase::InMatch;
+        packet.Format = withFlags ? static_cast<MatchFormat>(src[Size + 2]) : MatchFormat::Auto;
+        packet.LobbyEnabled = withFlags && src[Size + 3] != 0;
+        packet.AllowJoinInProgress = !withFlags || src[Size + 4] != 0;
         return packet;
     }
     RosterPacket RosterPacket::Create()
     {
         RosterPacket packet;
         packet.Count = 0;
+        packet.Generations = std::make_shared<std::vector<std::uint16_t>>(MaxSlots);
         packet.Slots = std::make_shared<std::vector<std::uint8_t>>(MaxSlots);
+        packet.Teams = std::make_shared<std::vector<std::int8_t>>(MaxSlots);
+        packet.LobbyReady = std::make_shared<std::vector<bool>>(MaxSlots);
         packet.Hunters = std::make_shared<std::vector<std::uint8_t>>(MaxSlots);
         packet.Colors = std::make_shared<std::vector<std::uint8_t>>(MaxSlots);
         packet.Pings = std::make_shared<std::vector<std::uint16_t>>(MaxSlots);
@@ -444,7 +608,11 @@ namespace MphRead::Mods::Network
     {
         CP(dest, Size);
         dest[0] = Count;
-        std::size_t offset = 1;
+        W16(Slice(dest, 1), MatchId);
+        W64(Slice(dest, 3), AuthorityEpoch);
+        W32(Slice(dest, 11), Revision);
+        W16(Slice(dest, 15), SessionRevision);
+        std::size_t offset = HeaderSize;
         for (std::size_t index = 0; index < static_cast<std::size_t>(Count) && index < static_cast<std::size_t>(MaxSlots); index++)
         {
             dest[offset] = AA(Slots, index);
@@ -452,14 +620,44 @@ namespace MphRead::Mods::Network
             dest[offset + 2] = AA(Colors, index);
             W16(Slice(dest, offset + 3), AA(Pings, index));
             WriteName(Slice(dest, offset + 5, MaxNameBytes), AA(Names, index));
+            dest[offset + 7 + MaxNameBytes] = static_cast<std::uint8_t>(AA(Teams, index));
+            dest[offset + 8 + MaxNameBytes] = ReadyAt(LobbyReady, index) ? static_cast<std::uint8_t>(1) : static_cast<std::uint8_t>(0);
+            W16(Slice(dest, offset + 21), AA(Generations, index));
             offset += EntrySize;
         }
+    }
+    bool RosterPacket::TryRead(std::span<const std::uint8_t> src, RosterPacket& roster)
+    {
+        roster = RosterPacket{};
+        if (src.size() != static_cast<std::size_t>(Size) || src[0] > MaxSlots)
+        {
+            return false;
+        }
+        std::int32_t seen = 0;
+        for (std::size_t i = 0; i < src[0]; i++)
+        {
+            const std::size_t offset = HeaderSize + i * EntrySize;
+            const std::int32_t slot = src[offset];
+            const std::int32_t team = static_cast<std::int8_t>(src[offset + 7 + MaxNameBytes]);
+            if (slot >= MaxSlots || (seen & (1 << slot)) != 0 || src[offset + 1] >= 7
+                || src[offset + 2] > 3 || team < -1 || team > 3 || src[offset + 8 + MaxNameBytes] > 1)
+            {
+                return false;
+            }
+            seen |= 1 << slot;
+        }
+        roster = Read(src);
+        return true;
     }
     RosterPacket RosterPacket::Read(std::span<const std::uint8_t> src)
     {
         RosterPacket packet = Create();
         packet.Count = std::min<std::uint8_t>(At(src, 0), static_cast<std::uint8_t>(MaxSlots));
-        std::size_t offset = 1;
+        packet.MatchId = R16(Slice(src, 1));
+        packet.AuthorityEpoch = R64(Slice(src, 3));
+        packet.Revision = R32(Slice(src, 11));
+        packet.SessionRevision = R16(Slice(src, 15));
+        std::size_t offset = HeaderSize;
         for (std::size_t index = 0; index < packet.Count; index++)
         {
             AAM(packet.Slots, index) = At(src, offset);
@@ -467,6 +665,10 @@ namespace MphRead::Mods::Network
             AAM(packet.Colors, index) = At(src, offset + 2);
             AAM(packet.Pings, index) = R16(Slice(src, offset + 3));
             AAM(packet.Names, index) = ReadName(Slice(src, offset + 5, MaxNameBytes));
+            AAM(packet.Teams, index) = static_cast<std::int8_t>(At(src, offset + 7 + MaxNameBytes));
+            ReadyAt(packet.LobbyReady, index);
+            (*packet.LobbyReady)[index] = At(src, offset + 8 + MaxNameBytes) != 0;
+            AAM(packet.Generations, index) = R16(Slice(src, offset + 21));
             offset += EntrySize;
         }
         return packet;
@@ -549,6 +751,10 @@ namespace MphRead::Mods::Network
     }
     void IntentPacket::Write(std::span<std::uint8_t> dest) const
     {
+        W16(Slice(dest, 74), MatchId);
+        W64(Slice(dest, 76), AuthorityEpoch);
+        W16(Slice(dest, 84), SlotGeneration);
+        W16(Slice(dest, 86), LifeId);
         W32(Slice(dest, 0), Frame);
         W32(Slice(dest, 4), static_cast<std::uint32_t>(Buttons));
         WF(Slice(dest, 8), Aim.X);
@@ -571,6 +777,14 @@ namespace MphRead::Mods::Network
         W16(Slice(dest, at + 12), AmmoUa);
         W16(Slice(dest, at + 14), AmmoMissiles);
         W32(Slice(dest, at + 16), AckFrame);
+        At(dest, at + 20) = AckSubFrame;
+        if (dest.size() >= static_cast<std::size_t>(FullSize))
+        {
+            dest[Size] = ChargeLevel;
+            dest[Size + 1] = BoostDamage;
+            dest[Size + 2] = ShotFlags;
+            dest[Size + 3] = 0;
+        }
     }
     IntentPacket IntentPacket::Read(std::span<const std::uint8_t> src)
     {
@@ -580,6 +794,10 @@ namespace MphRead::Mods::Network
             (*presses)[index] = R32(Slice(src, 21 + index * 4));
         }
         IntentPacket packet;
+        packet.MatchId = R16(Slice(src, 74));
+        packet.AuthorityEpoch = R64(Slice(src, 76));
+        packet.SlotGeneration = R16(Slice(src, 84));
+        packet.LifeId = R16(Slice(src, 86));
         packet.Frame = R32(Slice(src, 0));
         packet.Buttons = static_cast<IntentButtons>(R32(Slice(src, 4)));
         packet.Aim = ::OpenTK::Mathematics::Vector3(RF(Slice(src, 8)), RF(Slice(src, 12)), RF(Slice(src, 16)));
@@ -589,7 +807,61 @@ namespace MphRead::Mods::Network
         packet.AmmoUa = R16(Slice(src, 33 + PressHistory * 4));
         packet.AmmoMissiles = R16(Slice(src, 35 + PressHistory * 4));
         packet.AckFrame = R32(Slice(src, 37 + PressHistory * 4));
+        packet.AckSubFrame = At(src, 41 + PressHistory * 4);
+        const bool full = src.size() >= static_cast<std::size_t>(FullSize);
+        packet.HasState = full;
+        packet.ChargeLevel = full ? src[Size] : static_cast<std::uint8_t>(0);
+        packet.BoostDamage = full ? src[Size + 1] : static_cast<std::uint8_t>(0);
+        packet.ShotFlags = full ? src[Size + 2] : static_cast<std::uint8_t>(0);
         return packet;
+    }
+    std::int16_t DamageEvent::PackDirection(float value) noexcept
+    {
+        const std::int32_t rounded = ::MphRead::NativeRuntime::ConvertToInt32Net9(
+            ::MphRead::NativeRuntime::RoundToEven(value * DirectionScale));
+        return static_cast<std::int16_t>(std::clamp<std::int32_t>(rounded, -32768, 32767));
+    }
+    float DamageEvent::UnpackDirection(std::int16_t value) noexcept
+    {
+        return static_cast<float>(value) / DirectionScale;
+    }
+    void DamageEvent::Write(std::span<std::uint8_t> dest) const
+    {
+        W16(dest, EventId);
+        W16(Slice(dest, 2), AttackerGeneration);
+        W16(Slice(dest, 4), Damage);
+        At(dest, 6) = AttackerSlot;
+        At(dest, 7) = Beam;
+        At(dest, 8) = Flags;
+        WI16(Slice(dest, 9), PackDirection(Direction.X));
+        WI16(Slice(dest, 11), PackDirection(Direction.Y));
+        WI16(Slice(dest, 13), PackDirection(Direction.Z));
+    }
+    DamageEvent DamageEvent::Read(std::span<const std::uint8_t> src)
+    {
+        DamageEvent value;
+        value.EventId = R16(src);
+        value.AttackerGeneration = R16(Slice(src, 2));
+        value.Damage = R16(Slice(src, 4));
+        value.AttackerSlot = At(src, 6);
+        value.Beam = At(src, 7);
+        value.Flags = At(src, 8);
+        value.Direction = ::OpenTK::Mathematics::Vector3(
+            UnpackDirection(RI16(Slice(src, 9))),
+            UnpackDirection(RI16(Slice(src, 11))),
+            UnpackDirection(RI16(Slice(src, 13))));
+        return value;
+    }
+    DamageEvent PlayerState::EventAt(std::int32_t index) const
+    {
+        switch (index)
+        {
+        case 0: return Damage0;
+        case 1: return Damage1;
+        case 2: return Damage2;
+        case 3: return Damage3;
+        default: throw System::ArgumentOutOfRangeException("index");
+        }
     }
     void PlayerState::Write(std::span<std::uint8_t> dest) const
     {
@@ -601,35 +873,54 @@ namespace MphRead::Mods::Network
         W16(Slice(dest, 38), Health);
         At(dest, 40) = CurrentWeapon;
         At(dest, 41) = Team;
-        At(dest, 42) = DamageSeq;
-        At(dest, 43) = AttackerSlot;
-        At(dest, 44) = DamageBeam;
-        At(dest, 45) = DamageFlags;
-        WriteVec(Slice(dest, 46), HitDirection);
-        WI16(Slice(dest, 58), Points);
-        W16(Slice(dest, 60), Kills);
-        W16(Slice(dest, 62), Deaths);
+        WI16(Slice(dest, 42), Points);
+        W16(Slice(dest, 44), Kills);
+        W16(Slice(dest, 46), Deaths);
+        W16(Slice(dest, 48), SlotGeneration);
+        W16(Slice(dest, 50), LifeId);
+        W16(Slice(dest, 52), DamageEventId);
+        for (std::int32_t i = 0; i < DamageHistory; i++)
+        {
+            EventAt(i).Write(Slice(dest, 54 + static_cast<std::size_t>(i) * DamageEvent::Size));
+        }
     }
     PlayerState PlayerState::Read(std::span<const std::uint8_t> src)
     {
-        PlayerState packet;
-        packet.SlotIndex = At(src, 0);
-        packet.Flags = At(src, 1);
-        packet.Position = ReadVec(Slice(src, 2));
-        packet.Speed = ReadVec(Slice(src, 14));
-        packet.Facing = ReadVec(Slice(src, 26));
-        packet.Health = R16(Slice(src, 38));
-        packet.CurrentWeapon = At(src, 40);
-        packet.Team = At(src, 41);
-        packet.DamageSeq = At(src, 42);
-        packet.AttackerSlot = At(src, 43);
-        packet.DamageBeam = At(src, 44);
-        packet.DamageFlags = At(src, 45);
-        packet.HitDirection = ReadVec(Slice(src, 46));
-        packet.Points = RI16(Slice(src, 58));
-        packet.Kills = R16(Slice(src, 60));
-        packet.Deaths = R16(Slice(src, 62));
-        return packet;
+        PlayerState state;
+        state.SlotIndex = At(src, 0);
+        state.Flags = At(src, 1);
+        state.Position = ReadVec(Slice(src, 2));
+        state.Speed = ReadVec(Slice(src, 14));
+        state.Facing = ReadVec(Slice(src, 26));
+        state.Health = R16(Slice(src, 38));
+        state.CurrentWeapon = At(src, 40);
+        state.Team = At(src, 41);
+        state.Points = RI16(Slice(src, 42));
+        state.Kills = R16(Slice(src, 44));
+        state.Deaths = R16(Slice(src, 46));
+        state.SlotGeneration = R16(Slice(src, 48));
+        state.LifeId = R16(Slice(src, 50));
+        state.DamageEventId = R16(Slice(src, 52));
+        state.Damage0 = DamageEvent::Read(Slice(src, 54));
+        state.Damage1 = DamageEvent::Read(Slice(src, 54 + DamageEvent::Size));
+        state.Damage2 = DamageEvent::Read(Slice(src, 54 + 2 * DamageEvent::Size));
+        state.Damage3 = DamageEvent::Read(Slice(src, 54 + 3 * DamageEvent::Size));
+
+        DamageEvent latest{};
+        for (std::int32_t i = DamageHistory - 1; i >= 0; i--)
+        {
+            const DamageEvent candidate = state.EventAt(i);
+            if (candidate.EventId == state.DamageEventId)
+            {
+                latest = candidate;
+                break;
+            }
+        }
+        state.AttackerSlot = latest.EventId == 0 ? static_cast<std::uint8_t>(0xFF) : latest.AttackerSlot;
+        state.DamageBeam = latest.EventId == 0 ? static_cast<std::uint8_t>(0xFF) : latest.Beam;
+        state.DamageFlags = latest.Flags;
+        state.HitDirection = latest.Direction;
+        return state;
     }
     void PlayerState::WriteVec(std::span<std::uint8_t> dest, ::OpenTK::Mathematics::Vector3 value)
     {
@@ -640,6 +931,8 @@ namespace MphRead::Mods::Network
     ::OpenTK::Mathematics::Vector3 PlayerState::ReadVec(std::span<const std::uint8_t> src) { return ::OpenTK::Mathematics::Vector3(RF(Slice(src, 0)), RF(Slice(src, 4)), RF(Slice(src, 8))); }
     void SnapshotHeader::Write(std::span<std::uint8_t> dest) const
     {
+        W16(Slice(dest, 13), MatchId);
+        W64(Slice(dest, 15), AuthorityEpoch);
         W32(Slice(dest, 0), Frame);
         W32(Slice(dest, 4), Rng1);
         W32(Slice(dest, 8), Rng2);
@@ -648,6 +941,8 @@ namespace MphRead::Mods::Network
     SnapshotHeader SnapshotHeader::Read(std::span<const std::uint8_t> src)
     {
         SnapshotHeader packet;
+        packet.MatchId = R16(Slice(src, 13));
+        packet.AuthorityEpoch = R64(Slice(src, 15));
         packet.Frame = R32(Slice(src, 0));
         packet.Rng1 = R32(Slice(src, 4));
         packet.Rng2 = R32(Slice(src, 8));
@@ -692,6 +987,128 @@ namespace MphRead::Mods::Network
         packet.Eligible = At(src, at + 2);
         packet.Needed = At(src, at + 3);
         packet.Seconds = R16(Slice(src, at + 4, 2));
+        return packet;
+    }
+    void HitClaimPacket::Write(std::span<std::uint8_t> dest) const
+    {
+        W16(Slice(dest, 31), MatchId);
+        W64(Slice(dest, 33), AuthorityEpoch);
+        W16(Slice(dest, 41), ShooterGeneration);
+        W16(Slice(dest, 43), ShooterLifeId);
+        W16(Slice(dest, 45), VictimGeneration);
+        W16(Slice(dest, 47), VictimLifeId);
+        W16(Slice(dest, 0), ClaimId);
+        W32(Slice(dest, 2), Frame);
+        W32(Slice(dest, 6), AckFrame);
+        W32(Slice(dest, 10), LaunchFrame);
+        At(dest, 14) = VictimSlot;
+        At(dest, 15) = Beam;
+        W16(Slice(dest, 16), Damage);
+        At(dest, 18) = Flags;
+        WF(Slice(dest, 19), HitPoint.X);
+        WF(Slice(dest, 23), HitPoint.Y);
+        WF(Slice(dest, 27), HitPoint.Z);
+    }
+    HitClaimPacket HitClaimPacket::Read(std::span<const std::uint8_t> src)
+    {
+        HitClaimPacket packet;
+        packet.MatchId = R16(Slice(src, 31));
+        packet.AuthorityEpoch = R64(Slice(src, 33));
+        packet.ShooterGeneration = R16(Slice(src, 41));
+        packet.ShooterLifeId = R16(Slice(src, 43));
+        packet.VictimGeneration = R16(Slice(src, 45));
+        packet.VictimLifeId = R16(Slice(src, 47));
+        packet.ClaimId = R16(Slice(src, 0));
+        packet.Frame = R32(Slice(src, 2));
+        packet.AckFrame = R32(Slice(src, 6));
+        packet.LaunchFrame = R32(Slice(src, 10));
+        packet.VictimSlot = At(src, 14);
+        packet.Beam = At(src, 15);
+        packet.Damage = R16(Slice(src, 16));
+        packet.Flags = At(src, 18);
+        packet.HitPoint = ::OpenTK::Mathematics::Vector3(
+            RF(Slice(src, 19)), RF(Slice(src, 23)), RF(Slice(src, 27)));
+        return packet;
+    }
+    void HitVerdictPacket::Write(std::span<std::uint8_t> dest,
+        std::span<const std::pair<std::uint16_t, std::uint8_t>> entries,
+        std::uint16_t matchId, std::uint64_t epoch, std::uint16_t generation,
+        std::uint16_t lifeId)
+    {
+        At(dest, 0) = static_cast<std::uint8_t>(entries.size());
+        W16(Slice(dest, 1), matchId);
+        W64(Slice(dest, 3), epoch);
+        W16(Slice(dest, 11), generation);
+        W16(Slice(dest, 13), lifeId);
+        for (std::size_t i = 0; i < entries.size(); i++)
+        {
+            const std::size_t at = HeaderSize + i * EntrySize;
+            W16(Slice(dest, at), entries[i].first);
+            At(dest, at + 2) = entries[i].second;
+        }
+    }
+    std::string HitVerdictPacket::Describe(std::uint8_t result)
+    {
+        switch (result)
+        {
+        case ResultWrongLife: return "wrong lifecycle";
+        case ResultGeometry: return "hit point outside reconciliation radius";
+        case ResultDamageLimit: return "damage exceeds weapon limit";
+        case ResultInvalidLaunch: return "launch frame follows hit frame";
+        case ResultNoDamage: return "authority damage rules prevented the hit";
+        case ResultApplied: return "applied";
+        case ResultDuplicate: return "already resolved";
+        case ResultDeadShooter: return "shooter was already dead when it fired";
+        case ResultDeadVictim: return "victim was already down";
+        case ResultRefused: return "refused";
+        case ResultTooOld: return "older than the history";
+        default: return "unknown";
+        }
+    }
+    void MapChoicesPacket::Write(std::span<std::uint8_t> dest) const
+    {
+        CP(dest, Size);
+        const std::int32_t count = std::clamp(static_cast<std::int32_t>(Count), 0, MaxChoices);
+        dest[0] = static_cast<std::uint8_t>(count);
+        dest[1] = Eligible;
+        dest[2] = Open;
+        for (std::int32_t i = 0; i < count; i++)
+        {
+            const std::size_t at = static_cast<std::size_t>(4 + i * (MaxRoomBytes + 1));
+            const std::size_t index = static_cast<std::size_t>(i);
+            ChatPacket::WriteAscii(Slice(dest, at, MaxRoomBytes),
+                RoomKeys != nullptr && index < RoomKeys->size() ? (*RoomKeys)[index] : std::optional<std::string>(std::string()));
+            dest[at + MaxRoomBytes] = Votes != nullptr && index < Votes->size() ? (*Votes)[index] : static_cast<std::uint8_t>(0);
+        }
+    }
+    MapChoicesPacket MapChoicesPacket::Read(std::span<const std::uint8_t> src)
+    {
+        const std::int32_t count = std::clamp(static_cast<std::int32_t>(At(src, 0)), 0, MaxChoices);
+        auto keys = std::make_shared<std::vector<std::optional<std::string>>>(static_cast<std::size_t>(count));
+        auto votes = std::make_shared<std::vector<std::uint8_t>>(static_cast<std::size_t>(count));
+        for (std::int32_t i = 0; i < count; i++)
+        {
+            const std::size_t at = static_cast<std::size_t>(4 + i * (MaxRoomBytes + 1));
+            (*keys)[static_cast<std::size_t>(i)] = ChatPacket::ReadAscii(Slice(src, at, MaxRoomBytes));
+            (*votes)[static_cast<std::size_t>(i)] = At(src, at + MaxRoomBytes);
+        }
+        MapChoicesPacket packet;
+        packet.Count = static_cast<std::uint8_t>(count);
+        packet.RoomKeys = std::move(keys);
+        packet.Votes = std::move(votes);
+        packet.Eligible = At(src, 1);
+        packet.Open = At(src, 2);
+        return packet;
+    }
+    void MapPickPacket::Write(std::span<std::uint8_t> dest) const
+    {
+        CP(dest, Size);
+        ChatPacket::WriteAscii(Slice(dest, 0, MaxRoomBytes), RoomKey);
+    }
+    MapPickPacket MapPickPacket::Read(std::span<const std::uint8_t> src)
+    {
+        MapPickPacket packet;
+        packet.RoomKey = ChatPacket::ReadAscii(Slice(src, 0, MaxRoomBytes));
         return packet;
     }
 }

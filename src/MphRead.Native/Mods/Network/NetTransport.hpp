@@ -26,10 +26,12 @@ namespace MphRead::Mods::Network
         const std::shared_ptr<System::Net::IPEndPoint> Sender{};
         const std::shared_ptr<std::vector<std::uint8_t>> Data{};
         const std::int32_t Length = 0;
+        const std::int64_t ArrivedAt = 0;
 
         ReceivedPacket() noexcept = default;
         ReceivedPacket(std::shared_ptr<System::Net::IPEndPoint> sender,
-            std::shared_ptr<std::vector<std::uint8_t>> data, std::int32_t length) noexcept;
+            std::shared_ptr<std::vector<std::uint8_t>> data, std::int32_t length,
+            std::int64_t arrivedAt = 0) noexcept;
         ReceivedPacket(const ReceivedPacket&) noexcept = default;
         ReceivedPacket(ReceivedPacket&& other) noexcept;
         ReceivedPacket& operator=(const ReceivedPacket& other) noexcept;

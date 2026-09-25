@@ -12,6 +12,8 @@
 #include "NetRoomChange.hpp"
 #include "NetSession.hpp"
 #include "NetSlotManager.hpp"
+#include "NetSmoothing.hpp"
+#include "NetTimingDiagnostics.hpp"
 #include "NetTestScript.hpp"
 #include "PlayerColors.hpp"
 #include "../SpectatorMode.hpp"
@@ -58,17 +60,21 @@ namespace MphRead::Mods::Network
         return NetSession::Active();
     }
 
+    bool NetHooks::SnapshotPositions()
+    {
+        return _snapshotOwnsPuppets && !NetSession::IsAuthority() && !NetSession::IsHost()
+            && NetSession::SnapshotAge() <= SnapshotStaleFrames;
+    }
+
     void NetHooks::AfterRemoteMovement(Entities::PlayerEntity& player)
     {
-        if (!NetSession::Active() || !NetSession::IsAuthority()
-            || player.SlotIndex() == NetSession::LocalSlot() || NetRoomChange::Settling())
+        if (!NetSession::Active() || !NetRoomChange::GameplayReady()
+            || player.SlotIndex() == NetSession::LocalSlot())
         {
             return;
         }
         const std::int32_t slot = player.SlotIndex();
-        if (slot < 0
-            || static_cast<std::size_t>(slot) >= NetSession::RemoteIntents.size()
-            || !NetSession::RemoteIntentValid.at(static_cast<std::size_t>(slot)))
+        if (slot < 0 || static_cast<std::size_t>(slot) >= NetSession::RemoteIntents.size())
         {
             return;
         }
@@ -76,8 +82,29 @@ namespace MphRead::Mods::Network
         {
             return;
         }
-        NetPlayerBridge::RestoreReportedPosition(
-            player, NetSession::RemoteIntents.at(static_cast<std::size_t>(slot)));
+        const auto s = static_cast<std::size_t>(slot);
+        if (SnapshotPositions())
+        {
+            if (NetSession::RemoteStateValid[s])
+            {
+                NetTimingDiagnostics::Position(slot, true);
+                NetPlayerBridge::RestoreSnapshotPosition(player, NetSession::RemoteStates[s]);
+            }
+            return;
+        }
+        if (!NetSession::IsAuthority() && !_pinPuppetsOnClients)
+        {
+            return;
+        }
+        if (!NetSession::RemoteIntentValid[s])
+        {
+            return;
+        }
+        if (!NetSession::IsHost() && !NetSession::IsAuthority())
+        {
+            NetTimingDiagnostics::Position(slot, false);
+        }
+        NetPlayerBridge::RestoreReportedPosition(player, NetSession::RemoteIntents[s]);
     }
 
     OpenTK::Mathematics::Vector3 NetHooks::RemoteShotOrigin(
@@ -99,7 +126,8 @@ namespace MphRead::Mods::Network
     {
         if (NetSession::IsAuthority() && player.SlotIndex() != NetSession::LocalSlot()
             && player.SlotIndex() >= 0
-            && static_cast<std::size_t>(player.SlotIndex()) < NetSession::RemoteIntents.size())
+            && static_cast<std::size_t>(player.SlotIndex()) < NetSession::RemoteIntents.size()
+            && NetPlayerBridge::AimTrusted(player.SlotIndex()))
         {
             const OpenTK::Mathematics::Vector3 aim
                 = NetSession::RemoteIntents.at(
@@ -120,12 +148,19 @@ namespace MphRead::Mods::Network
         {
             return false;
         }
+        if (TestFlag(player.LoadFlags(), Entities::LoadFlags::Spawned) && player.Health() > 0
+            && NetRoomChange::GameplayReady() && SnapshotPositions()
+            && NetSession::RemoteStateValid.at(static_cast<std::size_t>(slot)))
+        {
+            NetPlayerBridge::RestoreSnapshotPosition(player, NetSession::RemoteStates[static_cast<std::size_t>(slot)]);
+        }
         if (TestFlag(player.LoadFlags(), Entities::LoadFlags::Active)
             && NetSession::RemoteIntentValid.at(static_cast<std::size_t>(slot)))
         {
             if (TestFlag(player.LoadFlags(), Entities::LoadFlags::Spawned)
                 && player.Health() > 0
-                && !NetRoomChange::Settling()
+                && NetRoomChange::GameplayReady()
+                && !SnapshotPositions()
                 && NetSession::RemoteIntentAge(slot) <= StaleIntentFrames)
             {
                 NetPlayerBridge::ApplyReportedPosition(
@@ -167,12 +202,17 @@ namespace MphRead::Mods::Network
             return;
         }
 
+        NetTimingDiagnostics::Simulation();
         NetMatchEnd::Sync();
         NetRoomChange::Sync(scene);
         NetDiagnostics::Report(static_cast<double>(NetSession::NetFrame()) / 60.0);
         NetPlayerSetup::ApplyOnce();
         NetMatchSync::Apply();
         NetSlotManager::Sync();
+        if (NetSession::IsClient() && !NetSession::IsAuthority() && NetRoomChange::GameplayReady())
+        {
+            ApplyRemoteStates();
+        }
         PlayerColors::Resolve();
         NetLog::Snapshot(static_cast<double>(NetSession::NetFrame()) / 60.0, scene);
 
@@ -180,7 +220,7 @@ namespace MphRead::Mods::Network
         {
             ApplyRemoteStates();
         }
-        if (NetSession::LocalSlot() < 0 || !NetSession::IsClient())
+        if (NetSession::LocalSlot() < 0 || !NetSession::IsClient() || !NetRoomChange::GameplayReady())
         {
             return;
         }
@@ -215,10 +255,11 @@ namespace MphRead::Mods::Network
 
     void NetHooks::AfterSimulation()
     {
-        if (!NetSession::Active())
+        if (!NetSession::Active() || !NetRoomChange::GameplayReady())
         {
             return;
         }
+        NetSmoothing::Tick();
 
         for (std::int32_t i = 0;
             i < static_cast<std::int32_t>(Entities::PlayerEntity::Players().size());
@@ -245,6 +286,10 @@ namespace MphRead::Mods::Network
 
     void NetHooks::ApplyRemoteStates()
     {
+        if (!NetRoomChange::GameplayReady())
+        {
+            return;
+        }
         for (std::int32_t i = 0;
             i < static_cast<std::int32_t>(Entities::PlayerEntity::Players().size());
             ++i)

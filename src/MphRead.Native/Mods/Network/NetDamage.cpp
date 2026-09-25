@@ -1,39 +1,35 @@
 #include "NetDamage.hpp"
 
 #include "../../GameState.hpp"
+#include "../../Entities/BeamProjectileEntity.hpp"
+#include "../../Entities/Players/HalfturretEntity.hpp"
+#include "NetHitClaims.hpp"
 #include "NetHitPrediction.hpp"
 #include "NetHooks.hpp"
+#include "NetLifecycleTracker.hpp"
 #include "NetLog.hpp"
+#include "NetPlayerBridge.hpp"
+#include "NetPlayerLifecycle.hpp"
 #include "NetSession.hpp"
+#include "NetShotDiagnostics.hpp"
+#include "NetTimingDiagnostics.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/System/Number.hpp"
 #include "../../Formats/Types.hpp"
-#include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
 #include <array>
 #include <bit>
-#include <charconv>
 #include <cmath>
 #include <cstdint>
-#include <cstdlib>
 #include <limits>
 #include <numbers>
-#include <stdexcept>
 #include <string>
-#include <string_view>
-#include <system_error>
-
-#if defined(_WIN32)
-#define NOMINMAX
-#include <windows.h>
-#else
-#endif
 
 using ::MphRead::NativeRuntime::IncrementInPlace;
 using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::UncheckedAdd;
-using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::OpenTK::Mathematics::IsZero;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
@@ -41,6 +37,21 @@ using ::OpenTK::Mathematics::Multiply;
 
 namespace MphRead::Mods::Network
 {
+    namespace
+    {
+        namespace Runtime = ::MphRead::NativeRuntime;
+
+        [[nodiscard]] std::string F2(float value)
+        {
+            return Runtime::ToString(value, "F2");
+        }
+
+        [[nodiscard]] std::string Coordinates(OpenTK::Mathematics::Vector3 value)
+        {
+            return "(" + F2(value.X) + "," + F2(value.Y) + "," + F2(value.Z) + ")";
+        }
+    }
+
     void NetDamage::NoteFired(Entities::PlayerEntity& shooter,
         OpenTK::Mathematics::Vector3 shotVec, OpenTK::Mathematics::Vector3 aimVec)
     {
@@ -53,44 +64,63 @@ namespace MphRead::Mods::Network
         {
             return;
         }
-
-        IncrementInPlace(Fired[static_cast<std::size_t>(slot)]);
+        const auto index = static_cast<std::size_t>(slot);
+        IncrementInPlace(Fired[index]);
+        if (slot == NetHooks::LocalSlot())
+        {
+            if (LengthSquared(shooter.Speed()) > 0.0004F)
+            {
+                FiredMoving++;
+            }
+            else
+            {
+                FiredStill++;
+            }
+        }
+        if (NetLog::Enabled())
+        {
+            const OpenTK::Mathematics::Vector3 muzzle = shooter.ModMuzzlePos();
+            const OpenTK::Mathematics::Vector3 position = shooter.Position;
+            const float gap = Length(muzzle - position);
+            if (gap > 3.0F)
+            {
+                NetLog::Event("[muzzle] slot " + std::to_string(slot) + " fired from "
+                    + Coordinates(muzzle) + " while standing at " + Coordinates(position)
+                    + " -- " + Runtime::ToString(gap, "F1") + " units apart");
+            }
+            const std::uint32_t spawned = NetPlayerBridge::SpawnFrame[index];
+            if (spawned != 0 && NetSession::NetFrame() - spawned < 60)
+            {
+                NetLog::Event("[spawnfire] slot " + std::to_string(slot) + " fired "
+                    + std::to_string(NetSession::NetFrame() - spawned) + " frame(s) after spawning, from "
+                    + Coordinates(position) + " hp=" + std::to_string(shooter.Health())
+                    + " shot=" + Coordinates(shotVec)
+                    + " aim=" + Coordinates(aimVec));
+            }
+        }
         if (LengthSquared(shotVec) > 0.0001F && LengthSquared(aimVec) > 0.0001F)
         {
             const float dot = MathClamp(
-                OpenTK::Mathematics::Vector3::Dot(
-                    shotVec.Normalized(), aimVec.Normalized()),
-                -1.0F, 1.0F);
-            const double degrees = std::acos(static_cast<double>(dot))
-                * 180.0 / std::numbers::pi;
-            AimDrift[static_cast<std::size_t>(slot)] += degrees;
-            WorstDrift[static_cast<std::size_t>(slot)] = MathMax(
-                WorstDrift[static_cast<std::size_t>(slot)], degrees);
+                OpenTK::Mathematics::Vector3::Dot(shotVec.Normalized(), aimVec.Normalized()), -1.0F, 1.0F);
+            const double degrees = std::acos(static_cast<double>(dot)) * 180.0 / std::numbers::pi;
+            AimDrift[index] += degrees;
+            WorstDrift[index] = MathMax(WorstDrift[index], degrees);
         }
     }
 
-    void NetDamage::NotePlayerOverlap(
-        Entities::EntityBase* owner, Entities::PlayerEntity& target)
+    void NetDamage::NotePlayerOverlap(Entities::EntityBase* owner, Entities::PlayerEntity& target)
     {
-        if (!NetSession::Active())
-        {
-            return;
-        }
-
         auto* shooter = dynamic_cast<Entities::PlayerEntity*>(owner);
-        if (shooter == nullptr)
+        if (!NetSession::Active() || shooter == nullptr)
         {
             return;
         }
-
         const std::int32_t shooterSlot = shooter->SlotIndex();
         const std::int32_t targetSlot = target.SlotIndex();
-        if (shooterSlot >= 0 && shooterSlot < Slots
-            && targetSlot >= 0 && targetSlot < Slots)
+        if (shooterSlot >= 0 && shooterSlot < Slots && targetSlot >= 0 && targetSlot < Slots)
         {
-            IncrementInPlace(PlayerOverlapsByShooter[
-                static_cast<std::size_t>(shooterSlot)][
-                static_cast<std::size_t>(targetSlot)]);
+            IncrementInPlace(PlayerOverlapsByShooter[static_cast<std::size_t>(shooterSlot)]
+                [static_cast<std::size_t>(targetSlot)]);
         }
     }
 
@@ -99,6 +129,8 @@ namespace MphRead::Mods::Network
         Resolved.fill(0);
         Replayed.fill(0);
         Fired.fill(0);
+        NetShotDiagnostics::Reset();
+        NetTimingDiagnostics::Reset();
         PlayerChecks.fill(0);
         PlayerOverlaps.fill(0);
         PlayerAccepted.fill(0);
@@ -134,10 +166,11 @@ namespace MphRead::Mods::Network
         {
             return;
         }
-        const std::size_t index = static_cast<std::size_t>(slot);
+        const auto index = static_cast<std::size_t>(slot);
+        _history[index].fill(DamageEvent{});
         _sequence[index] = 0;
-        _attacker[index] = 0;
-        _beam[index] = 0;
+        _attacker[index] = NoSlot;
+        _beam[index] = NoBeam;
         _flags[index] = 0;
         _direction[index] = OpenTK::Mathematics::Vector3::Zero;
         _lastSeen[index] = 0;
@@ -146,11 +179,25 @@ namespace MphRead::Mods::Network
         Replayed[index] = 0;
     }
 
+    void NetDamage::NoteRespawn(std::int32_t slot, std::uint16_t sequence)
+    {
+        if (slot < 0 || slot >= Slots)
+        {
+            return;
+        }
+        _everSeen[static_cast<std::size_t>(slot)] = true;
+        _lastSeen[static_cast<std::size_t>(slot)] = sequence;
+    }
+
     void NetDamage::Reset()
     {
+        for (auto& row : _history)
+        {
+            row.fill(DamageEvent{});
+        }
         _sequence.fill(0);
-        _attacker.fill(0);
-        _beam.fill(0);
+        _attacker.fill(NoSlot);
+        _beam.fill(NoBeam);
         _flags.fill(0);
         _direction.fill(OpenTK::Mathematics::Vector3::Zero);
         _lastSeen.fill(0);
@@ -158,6 +205,8 @@ namespace MphRead::Mods::Network
         Resolved.fill(0);
         Replayed.fill(0);
         Fired.fill(0);
+        NetShotDiagnostics::Reset();
+        NetTimingDiagnostics::Reset();
         PlayerChecks.fill(0);
         PlayerOverlaps.fill(0);
         PlayerAccepted.fill(0);
@@ -194,9 +243,34 @@ namespace MphRead::Mods::Network
         {
             return false;
         }
+        auto* projectile = dynamic_cast<Entities::BeamProjectileEntity*>(source);
+        if (projectile != nullptr && !NetPlayerLifecycle::CurrentProjectile(*projectile))
+        {
+            return true;
+        }
         if (NetSession::IsHost() || NetSession::IsAuthority())
         {
+            if (projectile != nullptr && projectile->ModLaunchFrame != 0)
+            {
+                Entities::PlayerEntity* owner = dynamic_cast<Entities::PlayerEntity*>(projectile->Owner().get());
+                if (owner == nullptr)
+                {
+                    auto* turret = dynamic_cast<Entities::HalfturretEntity*>(projectile->Owner().get());
+                    owner = turret != nullptr ? turret->Owner().get() : nullptr;
+                }
+                if (owner != nullptr && NetHitClaims::AlreadyRescued(
+                    owner->SlotIndex(), victim.SlotIndex(), projectile->ModLaunchFrame, projectile->ModLaunchKey()))
+                {
+                    return true;
+                }
+            }
             return false;
+        }
+        if (projectile != nullptr && projectile->ModLaunchKey().ShooterSlot >= 0
+            && !NetPlayerLifecycle::Matches(projectile->ModLaunchKey().ShooterSlot,
+                projectile->ModLaunchKey().Generation, projectile->ModLaunchKey().LifeId))
+        {
+            return true;
         }
         return !NetHitPrediction::Predicts(victim, source, flags);
     }
@@ -205,78 +279,141 @@ namespace MphRead::Mods::Network
         Entities::PlayerEntity* attacker, MphRead::BeamType beam,
         Entities::DamageFlags flags,
         std::optional<OpenTK::Mathematics::Vector3> direction,
-        std::uint32_t amount, bool fromBomb)
+        std::uint32_t amount, bool fromBomb, std::uint32_t launchFrame, std::optional<ShotKey> launchKey)
     {
+        if (beam == MphRead::BeamType::None && _claimedBeam != MphRead::BeamType::None)
+        {
+            beam = _claimedBeam;
+        }
+        if (_applyingClaim)
+        {
+            launchFrame = NetHitClaims::CurrentClaimLaunch();
+        }
         if (!NetSession::Active() || _replaying || NetHitPrediction::Predicting())
         {
             return;
         }
-
         if (fromBomb)
         {
-            BombDamageDealt = UncheckedAdd(
-                BombDamageDealt,
-                std::bit_cast<std::int32_t>(amount));
+            BombDamageDealt = UncheckedAdd(BombDamageDealt, std::bit_cast<std::int32_t>(amount));
             IncrementInPlace(BombDamageHits);
         }
         else
         {
             const std::int32_t beamIndex = static_cast<std::int32_t>(beam);
-            if (beamIndex >= 0
-                && beamIndex < static_cast<std::int32_t>(DamageByBeam.size()))
+            if (beamIndex >= 0 && beamIndex < static_cast<std::int32_t>(DamageByBeam.size()))
             {
-                const std::size_t index = static_cast<std::size_t>(beamIndex);
-                DamageByBeam[index] = UncheckedAdd(
-                    DamageByBeam[index],
-                    std::bit_cast<std::int32_t>(amount));
+                const auto index = static_cast<std::size_t>(beamIndex);
+                DamageByBeam[index] = UncheckedAdd(DamageByBeam[index], std::bit_cast<std::int32_t>(amount));
                 IncrementInPlace(HitsByBeam[index]);
             }
         }
-
         const std::int32_t slot = victim.SlotIndex();
         if (slot < 0 || slot >= Slots)
         {
             return;
         }
-
-        const std::size_t index = static_cast<std::size_t>(slot);
-        _sequence[index] = static_cast<std::uint8_t>(_sequence[index] + 1U);
+        const auto index = static_cast<std::size_t>(slot);
+        const auto weapon = static_cast<std::size_t>(NetShotDiagnostics::Bucket(beam));
+        NetShotDiagnostics::AuthorityHits[weapon]++;
+        NetShotDiagnostics::AuthorityDamage[weapon] += amount;
+        if (Runtime::HasFlag(flags, Entities::DamageFlags::Headshot))
+        {
+            NetShotDiagnostics::AuthorityHeadshots[weapon]++;
+        }
+        if (attacker != nullptr && NetLog::Enabled())
+        {
+            NetShotDiagnostics::Trace("authority-hit",
+                launchKey.value_or(ShotKey::For(attacker->SlotIndex(), launchFrame)), beam,
+                "victim=" + std::to_string(slot) + " damage=" + std::to_string(amount));
+        }
+        _sequence[index] = NetLifecycleTracker::Next(_sequence[index]);
+        if (NetLog::Enabled())
+        {
+            NetLog::Event("[damage-publish] epoch=" + std::to_string(NetSession::AuthorityEpoch())
+                + " match=" + std::to_string(NetSession::CurrentMatchId())
+                + " victim=" + std::to_string(slot) + "/" + std::to_string(NetPlayerLifecycle::Generation(slot))
+                + "/" + std::to_string(NetPlayerLifecycle::Get(slot))
+                + " event=" + std::to_string(_sequence[index])
+                + " shooter=" + (attacker != nullptr ? std::to_string(attacker->SlotIndex()) : std::string())
+                + " launch=" + std::to_string(launchFrame));
+        }
         IncrementInPlace(Resolved[index]);
-        _attacker[index] = attacker != nullptr
-            && attacker->SlotIndex() >= 0 && attacker->SlotIndex() < Slots
+        if (NetLog::Enabled())
+        {
+            std::string line = "[resolve] slot " + std::to_string(attacker != nullptr ? attacker->SlotIndex() : -1)
+                + " hit slot " + std::to_string(slot) + " for " + std::to_string(amount) + " with "
+                + ::MphRead::ToString(beam) + " (launch " + std::to_string(launchFrame) + "), health "
+                + std::to_string(victim.Health()) + " -> "
+                + std::to_string(std::max(0, victim.Health() - static_cast<std::int32_t>(amount)));
+            if (attacker != nullptr)
+            {
+                const OpenTK::Mathematics::Vector3 position = attacker->Position;
+                line += " | shooter " + Coordinates(position) + " hp=" + std::to_string(attacker->Health());
+            }
+            const OpenTK::Mathematics::Vector3 victimPosition = victim.Position;
+            line += " | victim " + Coordinates(victimPosition);
+            NetLog::Event(line);
+        }
+        NetHitClaims::NoteAuthorityHit(attacker != nullptr ? attacker->SlotIndex() : -1, slot, launchFrame,
+            static_cast<std::int32_t>(amount));
+        _attacker[index] = attacker != nullptr && attacker->SlotIndex() >= 0 && attacker->SlotIndex() < Slots
             ? static_cast<std::uint8_t>(attacker->SlotIndex())
             : NoSlot;
-        _beam[index] = beam == MphRead::BeamType::None
-            ? NoBeam
-            : static_cast<std::uint8_t>(beam);
-        _flags[index] = static_cast<std::uint8_t>(
-            static_cast<std::int32_t>(flags) & RelayedFlags);
-        _direction[index] = ClampImpulse(
-            direction.value_or(OpenTK::Mathematics::Vector3::Zero));
+        _beam[index] = beam == MphRead::BeamType::None ? NoBeam : static_cast<std::uint8_t>(beam);
+        _flags[index] = static_cast<std::uint8_t>(static_cast<std::int32_t>(flags) & RelayedFlags);
+        _direction[index] = ClampImpulse(direction.value_or(OpenTK::Mathematics::Vector3::Zero));
+        auto& history = _history[index];
+        for (std::size_t i = 0; i < PlayerState::DamageHistory - 1; i++)
+        {
+            history[i] = history[i + 1];
+        }
+        DamageEvent latest{};
+        latest.EventId = _sequence[index];
+        latest.AttackerSlot = _attacker[index];
+        latest.AttackerGeneration = launchKey.has_value() ? launchKey->Generation
+            : attacker != nullptr ? NetPlayerLifecycle::Generation(attacker->SlotIndex()) : std::uint16_t{0};
+        latest.Damage = static_cast<std::uint16_t>(std::min<std::uint32_t>(amount, 0xFFFFU));
+        latest.Beam = _beam[index];
+        latest.Flags = _flags[index];
+        latest.Direction = _direction[index];
+        history[PlayerState::DamageHistory - 1] = latest;
     }
 
-    OpenTK::Mathematics::Vector3 NetDamage::ClampImpulse(
-        OpenTK::Mathematics::Vector3 impulse)
+    OpenTK::Mathematics::Vector3 NetDamage::ClampImpulse(OpenTK::Mathematics::Vector3 impulse)
     {
-        if (!std::isfinite(impulse.X) || !std::isfinite(impulse.Y)
-            || !std::isfinite(impulse.Z))
+        if (!std::isfinite(impulse.X) || !std::isfinite(impulse.Y) || !std::isfinite(impulse.Z))
         {
             return OpenTK::Mathematics::Vector3::Zero;
         }
-
         const float length = Length(impulse);
         if (length <= MaxImpulse)
         {
             return impulse;
         }
-
-        std::string message = "knockback clamped from ";
-        message += ::MphRead::NativeRuntime::ToString(length, "0.##");
-        message += " to ";
-        message += ::MphRead::NativeRuntime::ToString(MaxImpulse);
-        NetLog::Event(message);
-
+        NetLog::Event("knockback clamped from " + Runtime::ToString(length, "0.##") + " to "
+            + Runtime::ToString(MaxImpulse));
         return Multiply(impulse, MaxImpulse / length);
+    }
+
+    void NetDamage::ReplayDeath(Entities::PlayerEntity& player)
+    {
+        const bool wasReplaying = _replaying;
+        _replaying = true;
+        SaveScores();
+        try
+        {
+            player.TakeDamage(1, Entities::DamageFlags::Death | Entities::DamageFlags::NoDmgInvuln,
+                std::nullopt, nullptr);
+        }
+        catch (...)
+        {
+            RestoreScores();
+            _replaying = wasReplaying;
+            throw;
+        }
+        RestoreScores();
+        _replaying = wasReplaying;
     }
 
     void NetDamage::SaveScores()
@@ -299,13 +436,25 @@ namespace MphRead::Mods::Network
         {
             return;
         }
-
-        const std::size_t index = static_cast<std::size_t>(slot);
-        state.DamageSeq = _sequence[index];
+        const auto index = static_cast<std::size_t>(slot);
+        state.DamageEventId = _sequence[index];
+        state.Damage0 = _history[index][0];
+        state.Damage1 = _history[index][1];
+        state.Damage2 = _history[index][2];
+        state.Damage3 = _history[index][3];
         state.AttackerSlot = _attacker[index];
         state.DamageBeam = _beam[index];
         state.DamageFlags = _flags[index];
         state.HitDirection = _direction[index];
+    }
+
+    void NetDamage::BeginLife(std::int32_t slot, const PlayerState& state)
+    {
+        const auto index = static_cast<std::size_t>(slot);
+        Runtime::ManagedAt(_lastLife, slot) = state.LifeId;
+        _lastGeneration[index] = state.SlotGeneration;
+        _everSeen[index] = true;
+        _lastSeen[index] = state.DamageEventId;
     }
 
     void NetDamage::Replay(Entities::PlayerEntity& player, const PlayerState& state)
@@ -315,98 +464,90 @@ namespace MphRead::Mods::Network
         {
             return;
         }
-        const std::size_t index = static_cast<std::size_t>(slot);
-
-        if (!_everSeen[index])
+        if (!NetPlayerLifecycle::Matches(slot, state.SlotGeneration, state.LifeId))
         {
-            _everSeen[index] = true;
-            _lastSeen[index] = state.DamageSeq;
+            NetPlayerLifecycle::OldLifeDamage++;
             return;
         }
-
-        const std::uint8_t landed = static_cast<std::uint8_t>(
-            static_cast<std::int32_t>(state.DamageSeq)
-            - static_cast<std::int32_t>(_lastSeen[index]));
-        if (landed == 0)
+        const auto index = static_cast<std::size_t>(slot);
+        if (!_everSeen[index] || _lastLife[index] != state.LifeId || _lastGeneration[index] != state.SlotGeneration)
         {
+            BeginLife(slot, state);
             return;
         }
-
-        _lastSeen[index] = state.DamageSeq;
-        if (landed > MaxCatchUp)
+        for (std::int32_t i = 0; i < PlayerState::DamageHistory; i++)
         {
-            std::string message = "slot ";
-            message += ::MphRead::NativeRuntime::ToString(slot);
-            message += " damage sequence jumped ";
-            message += ::MphRead::NativeRuntime::ToString(landed);
-            message += "; resynced";
-            NetLog::Event(message);
-            return;
+            const DamageEvent hit = state.EventAt(i);
+            if (hit.EventId == 0
+                || (_lastSeen[index] != 0 && !NetLifecycleTracker::Newer(hit.EventId, _lastSeen[index])))
+            {
+                continue;
+            }
+            _lastSeen[index] = hit.EventId;
+            PlayerState feedback = state;
+            feedback.AttackerSlot = hit.AttackerGeneration != 0
+                && NetPlayerLifecycle::Generation(hit.AttackerSlot) == hit.AttackerGeneration
+                ? hit.AttackerSlot : NoSlot;
+            feedback.DamageBeam = hit.Beam;
+            feedback.DamageFlags = hit.Flags;
+            feedback.HitDirection = hit.Direction;
+            feedback.Health = hit.EventId == state.DamageEventId ? state.Health
+                : static_cast<std::uint16_t>(std::max(1, player.Health() - static_cast<std::int32_t>(hit.Damage)));
+            if (NetLog::Enabled())
+            {
+                NetLog::Event("[damage-replay] epoch=" + std::to_string(NetSession::AuthorityEpoch())
+                    + " match=" + std::to_string(NetSession::CurrentMatchId())
+                    + " victim=" + std::to_string(slot) + "/" + std::to_string(state.SlotGeneration)
+                    + "/" + std::to_string(state.LifeId) + " event=" + std::to_string(hit.EventId)
+                    + " shooter=" + std::to_string(hit.AttackerSlot) + "/" + std::to_string(hit.AttackerGeneration));
+            }
+            ReplayEvent(player, feedback);
         }
+    }
 
-        Replayed[index] = UncheckedAdd(
-            Replayed[index], static_cast<std::int32_t>(landed));
+    void NetDamage::ReplayEvent(Entities::PlayerEntity& player, const PlayerState& state)
+    {
+        const std::int32_t slot = player.SlotIndex();
+        constexpr std::int32_t landed = 1;
+        IncrementInPlace(Runtime::ManagedAt(Replayed, slot));
         const bool lethal = state.Health == 0;
-        const bool mine = static_cast<std::int32_t>(state.AttackerSlot)
-            == NetHooks::LocalSlot();
-        const bool predicted = mine
-            && NetHitPrediction::Confirm(slot, landed);
-
+        const bool mine = static_cast<std::int32_t>(state.AttackerSlot) == NetHooks::LocalSlot();
+        const bool authorityHeadshot = (state.DamageFlags & static_cast<std::int32_t>(Entities::DamageFlags::Headshot)) != 0;
+        const bool predicted = mine && NetHitPrediction::Confirm(slot, landed, authorityHeadshot);
         if (player.Health() <= 0)
         {
-            return;
+            return; // already down here; the respawn is what matters next
         }
-
-        Entities::PlayerEntity* attacker = nullptr;
-        if (static_cast<std::size_t>(state.AttackerSlot)
-            < Entities::PlayerEntity::Players().size())
-        {
-            attacker = Entities::PlayerEntity::Players()[
-                static_cast<std::size_t>(state.AttackerSlot)].get();
-        }
-
+        Entities::PlayerEntity* attacker = static_cast<std::size_t>(state.AttackerSlot)
+                < Entities::PlayerEntity::Players().size()
+            ? Entities::PlayerEntity::Players()[static_cast<std::size_t>(state.AttackerSlot)].get()
+            : nullptr;
         if (predicted && !lethal)
         {
             return;
         }
-
-        std::int32_t amount = std::max<std::int32_t>(
-            1, UncheckedSubtract(
-                player.Health(), static_cast<std::int32_t>(state.Health)));
+        std::int32_t amount = std::max(1, player.Health() - static_cast<std::int32_t>(state.Health));
         if (!lethal)
         {
-            amount = std::min<std::int32_t>(
-                amount,
-                std::max<std::int32_t>(
-                    1, UncheckedSubtract(player.Health(), 1)));
+            amount = std::min(amount, std::max(0, player.Health() - 1));
         }
-
-        Entities::DamageFlags flags = static_cast<Entities::DamageFlags>(
-            static_cast<std::int32_t>(state.DamageFlags))
+        Entities::DamageFlags flags = static_cast<Entities::DamageFlags>(static_cast<std::int32_t>(state.DamageFlags))
             | Entities::DamageFlags::NoDmgInvuln;
         if (lethal)
         {
             flags |= Entities::DamageFlags::Death;
         }
-
-        const OpenTK::Mathematics::Vector3 impulse
-            = ClampImpulse(state.HitDirection);
-        const std::optional<OpenTK::Mathematics::Vector3> direction
-            = IsZero(impulse)
-            ? std::nullopt
-            : std::optional<OpenTK::Mathematics::Vector3>(impulse);
-
+        const OpenTK::Mathematics::Vector3 impulse = ClampImpulse(state.HitDirection);
+        const std::optional<OpenTK::Mathematics::Vector3> direction = IsZero(impulse)
+            ? std::nullopt : std::optional<OpenTK::Mathematics::Vector3>(impulse);
         _replaying = true;
         _replayBeam = state.DamageBeam == NoBeam
             ? MphRead::BeamType::None
-            : static_cast<MphRead::BeamType>(
-                std::bit_cast<std::int8_t>(state.DamageBeam));
+            : static_cast<MphRead::BeamType>(std::bit_cast<std::int8_t>(state.DamageBeam));
         SaveScores();
-
         try
         {
-            player.TakeDamage(
-                static_cast<std::uint32_t>(amount), flags, direction, attacker);
+            player.TakeDamage(static_cast<std::uint32_t>(amount), flags, direction, attacker);
         }
         catch (...)
         {
@@ -415,7 +556,6 @@ namespace MphRead::Mods::Network
             _replayBeam = MphRead::BeamType::None;
             throw;
         }
-
         RestoreScores();
         _replaying = false;
         _replayBeam = MphRead::BeamType::None;

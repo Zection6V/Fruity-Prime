@@ -200,7 +200,7 @@ namespace MphRead::Entities
         }
         if (Hunter() == MphRead::Hunter::Spire && TestFlag(Flags2(), PlayerFlags2::AltAttack))
         {
-            UpdateSpireAltAttack();
+            AnimateSpireAltAttack();
         }
 
         std::int32_t lod = 0;
@@ -433,18 +433,6 @@ namespace MphRead::Entities
         model.UpdateMatrixStack();
         UpdateMaterials(alt, Recolor());
         GetDrawItems(alt, RequireReference(ManagedAt(model.Nodes, 0)), _curAlpha);
-    }
-
-    void PlayerEntity::UpdateSpireAltAttack()
-    {
-        const Matrix4 transform = GetTransformMatrix(_spireAltFacing, _spireAltUp);
-        ModelInstance& alt = RequireReference(_altModel.get());
-        Model& model = RequireReference(alt.Model());
-        model.AnimateNodes(0, false, transform, Vector3(1.0F, 1.0F, 1.0F), alt.AnimInfo);
-        _spireRockPosL = MatrixRow3(RequireReference(ManagedAt(_spireAltNodes, 0).get()).Animation)
-            + static_cast<Vector3>(Position);
-        _spireRockPosR = MatrixRow3(RequireReference(ManagedAt(_spireAltNodes, 1).get()).Animation)
-            + static_cast<Vector3>(Position);
     }
 
     void PlayerEntity::DrawSpireAltAttack()

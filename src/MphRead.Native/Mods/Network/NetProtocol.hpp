@@ -1,12 +1,15 @@
 #pragma once
 
+#include "MatchDefinition.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Guid.hpp"
 
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace MphRead::Mods::Network
@@ -37,7 +40,23 @@ namespace MphRead::Mods::Network
         Refused = 22,
         Chat = 23,
         Vote = 26,
-        VoteState = 27
+        VoteState = 27,
+        MapChoices = 28,
+        MapPick = 29,
+        HitClaim = 30,
+        HitVerdict = 31,
+        // Map transfer is negotiated before loading a custom room. All
+        // requests are bounded and identify package hashes rather than peer
+        // filenames.
+        MapOffer = 32,
+        MapWant = 33,
+        MapChunk = 34,
+        SessionState = 36,
+        LobbyCommand = 37,
+        LobbyCommandResult = 38,
+        MatchLoaded = 39,
+        MatchLoadFailed = 40,
+        MapDone = 35
     };
 
     struct RefusedPacket
@@ -45,6 +64,8 @@ namespace MphRead::Mods::Network
         static constexpr std::int32_t Size = 3;
         static constexpr std::uint8_t ReasonFull = 1;
         static constexpr std::uint8_t ReasonProtocol = 2;
+        static constexpr std::uint8_t ReasonKicked = 3;
+        static constexpr std::uint8_t ReasonInMatch = 4;
 
         std::uint8_t Reason = 0;
         std::uint8_t Players = 0;
@@ -61,23 +82,51 @@ namespace MphRead::Mods::Network
         static constexpr std::int32_t MaxNameBytes = 32;
         static constexpr std::int32_t Size = 1 + 1 + 1 + 2 + 2 + MaxRoomBytes + MaxNameBytes;
 
+        // How many maps a requested rotation may carry, and what one costs on
+        // the wire. The cap is the datagram rather than a policy.
+        static constexpr std::int32_t MaxRotation = 16;
+        static constexpr std::int32_t RotationEntrySize = MaxRoomBytes + 1;
+
         std::uint8_t Protocol = 0;
         std::uint8_t MaxPlayers = 0;
         std::uint8_t Mode = 0;
         std::uint16_t TimeLimit = 0;
         std::uint16_t PointGoal = 0;
-        std::optional<std::string> RoomKey{};
-        std::optional<std::string> ServerName{};
+        // The C# parameterless constructor sets both to "" and the two flags
+        // to true; `default` (ZeroInitialized) leaves them null and false.
+        std::optional<std::string> RoomKey = std::string();
+        std::optional<std::string> ServerName = std::string();
+
+        // Every map the asker wants played, in order, or nothing. Written
+        // *after* the fixed block, so a directory from before rotations reads
+        // exactly Size bytes and plays RoomKey on a loop.
+        std::optional<std::vector<std::pair<std::string, ::MphRead::GameMode>>> Rotation{};
+
+        ServerSessionPolicy Policy = ServerSessionPolicy::Continuous;
+        bool AllowJoinInProgress = true;
+        bool RequireReady = true;
+        MatchFormat Format = MatchFormat::Auto;
+
+        // How many bytes this request takes, tail included.
+        [[nodiscard]] std::int32_t Length() const noexcept;
 
         void Write(std::span<std::uint8_t> dest) const;
         [[nodiscard]] static HostRequestPacket Read(std::span<const std::uint8_t> src);
+        // default(HostRequestPacket): every field zero, bypassing the
+        // constructor's defaults.
+        [[nodiscard]] static HostRequestPacket ZeroInitialized();
+
+    private:
+        [[nodiscard]] static std::optional<std::vector<std::pair<std::string, ::MphRead::GameMode>>>
+            ReadRotation(std::span<const std::uint8_t> src);
     };
 
     struct HostReplyPacket
     {
         static constexpr std::int32_t MaxReasonBytes = 96;
-        static constexpr std::int32_t Size = 1 + 2 + MaxReasonBytes;
+        static constexpr std::int32_t Size = 1 + 2 + MaxReasonBytes + 16;
 
+        ::MphRead::NativeRuntime::Guid OwnerToken{};
         bool Started = false;
         std::uint16_t Port = 0;
         std::optional<std::string> Reason{};
@@ -133,8 +182,9 @@ namespace MphRead::Mods::Network
 
     struct MatchStatePacket
     {
+        std::uint64_t AuthorityEpoch = 0;
         static constexpr std::int32_t MaxNameBytes = 40;
-        static constexpr std::int32_t Size = 1 + 4 + 4 + 1 + 1 + 2 + 2 + MaxNameBytes + MaxNameBytes;
+        static constexpr std::int32_t Size = 1 + 4 + 4 + 1 + 1 + 2 + 2 + MaxNameBytes + MaxNameBytes + 8;
 
         std::uint8_t Mode = 0;
         float TimeRemaining = 0.0F;
@@ -150,10 +200,26 @@ namespace MphRead::Mods::Network
         static constexpr std::uint8_t FlagEnding = 1U << 1;
         static constexpr std::uint8_t FlagFriendlyFire = 1U << 2;
         static constexpr std::uint8_t FlagNoShadowFreeze = 1U << 3;
+        // Bits 4-5: the damage level every machine in this match scales its
+        // hits by, as the level plus one, so that zero means "this server did
+        // not say".
+        static constexpr std::uint8_t FlagDamageShift = 4;
+        static constexpr std::uint8_t FlagDamageMask = 0b11U << FlagDamageShift;
+        // Bit 6: weapon pickups are the picking hunter's affinity variant.
+        static constexpr std::uint8_t FlagAffinityWeapons = 1U << 6;
 
         [[nodiscard]] bool Ending() const noexcept;
         [[nodiscard]] bool FriendlyFire() const noexcept;
         [[nodiscard]] bool ShadowFreeze() const noexcept;
+        // The damage level this server plays at, or -1 when it did not say.
+        [[nodiscard]] std::int32_t DamageLevel() const noexcept;
+        // Whether this server states its damage rules at all.
+        [[nodiscard]] bool StatesRules() const noexcept;
+        [[nodiscard]] bool AffinityWeapons() const noexcept;
+        // Pack the two rules into the spare bits of the flags byte. A level
+        // outside 0-2 is "do not say", which is what an older server sends.
+        [[nodiscard]] static std::uint8_t RuleFlags(
+            std::int32_t damageLevel, bool affinityWeapons) noexcept;
 
         void Write(std::span<std::uint8_t> dest) const;
         [[nodiscard]] static MatchStatePacket Read(std::span<const std::uint8_t> src);
@@ -168,10 +234,22 @@ namespace MphRead::Mods::Network
     {
         static constexpr std::int32_t MaxNameBytes = 32;
         static constexpr std::int32_t Size = MatchStatePacket::Size + 2 + MaxNameBytes;
+        // The same packet with five bytes of capability and session on the
+        // end, after the name so that the length check separates old from new.
+        static constexpr std::int32_t SizeWithFlags = Size + 5;
+        // Bit 0: this server will open a new match on a port of its own.
+        static constexpr std::uint8_t FlagCanHost = 1;
 
+        SessionPhase Phase = SessionPhase::Lobby;
+        MatchFormat Format = MatchFormat::Auto;
+        bool LobbyEnabled = false;
+        bool AllowJoinInProgress = false;
         MatchStatePacket Match{};
         std::uint8_t MaxPlayers = 0;
         std::uint8_t Protocol = 0;
+        // What this server can do beyond running the match it is running.
+        // Zero for a server that did not say, which reads as "cannot".
+        std::uint8_t Flags = 0;
         std::optional<std::string> ServerName{};
 
         void Write(std::span<std::uint8_t> dest) const;
@@ -250,10 +328,18 @@ namespace MphRead::Mods::Network
     {
         static constexpr std::int32_t MaxNameBytes = 16;
         static constexpr std::int32_t MaxSlots = 8;
-        static constexpr std::int32_t EntrySize = 1 + 1 + 1 + 2 + MaxNameBytes;
-        static constexpr std::int32_t Size = 1 + MaxSlots * EntrySize;
+        static constexpr std::int32_t EntrySize = 1 + 1 + 1 + 2 + MaxNameBytes + 4;
+        static constexpr std::int32_t HeaderSize = 17;
+        static constexpr std::int32_t Size = HeaderSize + MaxSlots * EntrySize;
+        std::uint16_t SessionRevision = 0;
+        std::uint16_t MatchId = 0;
+        std::uint64_t AuthorityEpoch = 0;
+        std::uint32_t Revision = 0;
+        std::shared_ptr<std::vector<std::uint16_t>> Generations{};
 
         std::uint8_t Count = 0;
+        std::shared_ptr<std::vector<std::int8_t>> Teams{};
+        std::shared_ptr<std::vector<bool>> LobbyReady{};
         std::shared_ptr<std::vector<std::uint8_t>> Slots{};
         std::shared_ptr<std::vector<std::uint8_t>> Hunters{};
         std::shared_ptr<std::vector<std::uint8_t>> Colors{};
@@ -262,6 +348,7 @@ namespace MphRead::Mods::Network
 
         [[nodiscard]] static RosterPacket Create();
         void Write(std::span<std::uint8_t> dest) const;
+        [[nodiscard]] static bool TryRead(std::span<const std::uint8_t> src, RosterPacket& roster);
         [[nodiscard]] static RosterPacket Read(std::span<const std::uint8_t> src);
 
     private:
@@ -295,8 +382,31 @@ namespace MphRead::Mods::Network
 
     struct IntentPacket
     {
+        std::uint16_t MatchId = 0;
+        std::uint64_t AuthorityEpoch = 0;
+        std::uint16_t SlotGeneration = 0;
+        std::uint16_t LifeId = 0;
         static constexpr std::int32_t PressHistory = 8;
-        static constexpr std::int32_t Size = 4 + 4 + 12 + 1 + 4 * PressHistory + 12 + 2 + 2 + 4;
+        static constexpr std::int32_t Size = 4 + 4 + 12 + 1 + 4 * PressHistory + 12 + 2 + 2 + 4 + 1 + 14;
+
+        // Four bytes appended past Size, carrying the state that decides what
+        // this player's next shot is worth: the charge, the alt-form ram's
+        // strength and the two multipliers. Appended rather than folded in, so
+        // a build from before finds none and behaves as it always did.
+        static constexpr std::int32_t StateSize = 4;
+        static constexpr std::int32_t FullSize = Size + StateSize;
+
+        std::uint8_t ChargeLevel = 0;
+        std::uint8_t BoostDamage = 0;
+        std::uint8_t ShotFlags = 0;
+
+        static constexpr std::uint8_t FlagDoubleDamage = 1U << 0;
+        // Sent but not applied: who the Prime Hunter is is the authority's
+        // own state. It travels so that a mismatch shows up in a log.
+        static constexpr std::uint8_t FlagPrimeHunter = 1U << 1;
+
+        // Whether the sender included the block at all.
+        bool HasState = false;
 
         std::uint32_t Frame = 0;
         IntentButtons Buttons = IntentButtons::None;
@@ -307,15 +417,42 @@ namespace MphRead::Mods::Network
         std::uint16_t AmmoUa = 0;
         std::uint16_t AmmoMissiles = 0;
         std::uint32_t AckFrame = 0;
+        // How far past AckFrame the world this client was looking at actually
+        // sat, in 1/256ths of a frame. Zero from a client that does not
+        // interpolate.
+        std::uint8_t AckSubFrame = 0;
 
         void Write(std::span<std::uint8_t> dest) const;
         [[nodiscard]] static IntentPacket Read(std::span<const std::uint8_t> src);
     };
 
+    struct DamageEvent
+    {
+        static constexpr std::int32_t Size = 15;
+
+        std::uint16_t EventId = 0;
+        std::uint16_t AttackerGeneration = 0;
+        std::uint16_t Damage = 0;
+        std::uint8_t AttackerSlot = 0;
+        std::uint8_t Beam = 0;
+        std::uint8_t Flags = 0;
+        ::OpenTK::Mathematics::Vector3 Direction{};
+
+        void Write(std::span<std::uint8_t> dest) const;
+        [[nodiscard]] static DamageEvent Read(std::span<const std::uint8_t> src);
+
+    private:
+        static constexpr float DirectionScale = 16384.0F;
+        [[nodiscard]] static std::int16_t PackDirection(float value) noexcept;
+        [[nodiscard]] static float UnpackDirection(std::int16_t value) noexcept;
+    };
+
     struct PlayerState
     {
-        static constexpr std::int32_t Size
-            = 1 + 1 + 12 + 12 + 12 + 2 + 1 + 1 + 1 + 1 + 1 + 1 + 12 + 2 + 2 + 2;
+        std::uint16_t SlotGeneration = 0;
+        std::uint16_t LifeId = 0;
+        static constexpr std::int32_t DamageHistory = 4;
+        static constexpr std::int32_t Size = 54 + DamageEvent::Size * DamageHistory;
 
         std::uint8_t SlotIndex = 0;
         std::uint8_t Flags = 0;
@@ -325,7 +462,13 @@ namespace MphRead::Mods::Network
         std::uint16_t Health = 0;
         std::uint8_t CurrentWeapon = 0;
         std::uint8_t Team = 0;
-        std::uint8_t DamageSeq = 0;
+        std::uint16_t DamageEventId = 0;
+        DamageEvent Damage0{};
+        DamageEvent Damage1{};
+        DamageEvent Damage2{};
+        DamageEvent Damage3{};
+        [[nodiscard]] DamageEvent EventAt(std::int32_t index) const;
+        // Derived on Read from the newest damage event.
         std::uint8_t AttackerSlot = 0;
         std::uint8_t DamageBeam = 0;
         std::uint8_t DamageFlags = 0;
@@ -355,7 +498,9 @@ namespace MphRead::Mods::Network
 
     struct SnapshotHeader
     {
-        static constexpr std::int32_t Size = 4 + 4 + 4 + 1;
+        std::uint16_t MatchId = 0;
+        std::uint64_t AuthorityEpoch = 0;
+        static constexpr std::int32_t Size = 4 + 4 + 4 + 1 + 10;
 
         std::uint32_t Frame = 0;
         std::uint32_t Rng1 = 0;
@@ -366,12 +511,74 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static SnapshotHeader Read(std::span<const std::uint8_t> src);
     };
 
+    struct HitClaimPacket
+    {
+        std::uint16_t MatchId = 0;
+        std::uint64_t AuthorityEpoch = 0;
+        std::uint16_t ShooterGeneration = 0;
+        std::uint16_t ShooterLifeId = 0;
+        std::uint16_t VictimGeneration = 0;
+        std::uint16_t VictimLifeId = 0;
+        static constexpr std::int32_t Size = 2 + 4 + 4 + 4 + 1 + 1 + 2 + 1 + 12 + 18;
+
+        static constexpr std::int32_t MaxPerPacket = 6;
+
+        static constexpr std::uint8_t NoBeam = 0xFF;
+
+        static constexpr std::uint8_t FlagHeadshot = 1U << 0;
+        static constexpr std::uint8_t FlagLethal = 1U << 1;
+        static constexpr std::uint8_t FlagFrozen = 1U << 2;
+        static constexpr std::uint8_t FlagBurning = 1U << 3;
+        static constexpr std::uint8_t FlagDisrupted = 1U << 4;
+
+        std::uint16_t ClaimId = 0;
+        std::uint32_t Frame = 0;
+        std::uint32_t AckFrame = 0;
+        std::uint32_t LaunchFrame = 0;
+        std::uint8_t VictimSlot = 0;
+        std::uint8_t Beam = 0;
+        std::uint16_t Damage = 0;
+        std::uint8_t Flags = 0;
+        ::OpenTK::Mathematics::Vector3 HitPoint{};
+
+        void Write(std::span<std::uint8_t> dest) const;
+        [[nodiscard]] static HitClaimPacket Read(std::span<const std::uint8_t> src);
+    };
+
+    struct HitVerdictPacket
+    {
+        static constexpr std::int32_t HeaderSize = 15;
+        static constexpr std::int32_t EntrySize = 3;
+        static constexpr std::int32_t MaxPerPacket = 16;
+
+        static constexpr std::uint8_t ResultApplied = 0;
+        static constexpr std::uint8_t ResultDuplicate = 1;
+        static constexpr std::uint8_t ResultDeadShooter = 2;
+        static constexpr std::uint8_t ResultDeadVictim = 3;
+        static constexpr std::uint8_t ResultRefused = 4;
+        static constexpr std::uint8_t ResultTooOld = 5;
+        static constexpr std::uint8_t ResultWrongLife = 6;
+        static constexpr std::uint8_t ResultGeometry = 7;
+        static constexpr std::uint8_t ResultDamageLimit = 8;
+        static constexpr std::uint8_t ResultInvalidLaunch = 9;
+        static constexpr std::uint8_t ResultNoDamage = 10;
+
+        std::uint16_t ClaimId = 0;
+        std::uint8_t Result = 0;
+
+        static void Write(std::span<std::uint8_t> dest,
+            std::span<const std::pair<std::uint16_t, std::uint8_t>> entries,
+            std::uint16_t matchId, std::uint64_t epoch, std::uint16_t generation,
+            std::uint16_t lifeId);
+        [[nodiscard]] static std::string Describe(std::uint8_t result);
+    };
+
     class NetConfig final
     {
     public:
         static constexpr std::uint16_t DefaultPort = 27888;
-        static constexpr std::int32_t MaxPacketSize = 1024;
-        static constexpr std::int32_t ProtocolVersion = 6;
+        static constexpr std::int32_t MaxPacketSize = 1232;
+        static constexpr std::int32_t ProtocolVersion = 14;
         static constexpr std::int32_t IntentSendInterval = 1;
         static constexpr double TimeoutSeconds = 30.0;
 
@@ -416,5 +623,33 @@ namespace MphRead::Mods::Network
 
         void Write(std::span<std::uint8_t> dest) const;
         [[nodiscard]] static VoteStatePacket Read(std::span<const std::uint8_t> src);
+    };
+
+    struct MapChoicesPacket
+    {
+        static constexpr std::int32_t MaxChoices = 8;
+        static constexpr std::int32_t MaxRoomBytes = MatchStatePacket::MaxNameBytes;
+        static constexpr std::int32_t Size = 4 + MaxChoices * (MaxRoomBytes + 1);
+
+        std::uint8_t Open = 0;
+
+        std::uint8_t Count = 0;
+        std::shared_ptr<std::vector<std::optional<std::string>>> RoomKeys{};
+        std::shared_ptr<std::vector<std::uint8_t>> Votes{};
+        std::uint8_t Eligible = 0;
+
+        void Write(std::span<std::uint8_t> dest) const;
+        [[nodiscard]] static MapChoicesPacket Read(std::span<const std::uint8_t> src);
+    };
+
+    struct MapPickPacket
+    {
+        static constexpr std::int32_t MaxRoomBytes = MatchStatePacket::MaxNameBytes;
+        static constexpr std::int32_t Size = MaxRoomBytes;
+
+        std::optional<std::string> RoomKey{};
+
+        void Write(std::span<std::uint8_t> dest) const;
+        [[nodiscard]] static MapPickPacket Read(std::span<const std::uint8_t> src);
     };
 }

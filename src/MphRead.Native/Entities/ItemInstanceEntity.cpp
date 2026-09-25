@@ -422,12 +422,12 @@ namespace MphRead::Entities
         return SpinningEntityBase::Process();
     }
 
-    void ItemInstanceEntity::OnPickedUp()
+    void ItemInstanceEntity::OnPickedUp(PlayerEntity* picker)
     {
         _despawnTimer = 0;
         if (_owner != nullptr)
         {
-            _owner->OnItemPickedUp();
+            _owner->OnItemPickedUp(picker);
         }
         if (GameState::SinglePlayer())
         {

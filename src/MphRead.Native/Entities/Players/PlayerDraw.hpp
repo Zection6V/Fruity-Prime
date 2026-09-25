@@ -17,7 +17,6 @@ public: \
     void Draw(); \
 private: \
     void DrawKandenAlt(); \
-    void UpdateSpireAltAttack(); \
     void DrawSpireAltAttack(); \
     void GetDrawItems(::MphRead::ModelInstance& inst, ::MphRead::Node& node, float alpha, \
         std::int32_t polygonId = -1, std::int32_t recolor = -1); \

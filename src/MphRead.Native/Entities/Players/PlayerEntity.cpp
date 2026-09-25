@@ -26,6 +26,10 @@
 #include "../../Metadata/Weapons.hpp"
 #include "../../Mods/Network/NetDamage.hpp"
 #include "../../Mods/Network/NetHitPrediction.hpp"
+#include "../../Mods/Network/NetPlayerBridge.hpp"
+#include "../../Mods/Network/NetPlayerLifecycle.hpp"
+#include "../../Mods/Network/NetSession.hpp"
+#include "../../Mods/Multiplayer/TeamLayout.hpp"
 #include "../../Mods/RespawnChoice.hpp"
 #include "../../Sound/Music.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
@@ -668,6 +672,13 @@ namespace MphRead::Entities
     void PlayerEntity::Spawn(Vector3 pos, Vector3 facing, Vector3 up,
         MphRead::Formats::Culling::NodeRef nodeRef, bool respawn)
     {
+        if (!Mods::Network::NetPlayerLifecycle::CanSpawn())
+        {
+            return;
+        }
+        Mods::Network::NetPlayerLifecycle::OnSpawn(*this);
+        Mods::Network::NetSession::ContinuousPhase.ResetSlot(SlotIndex());
+        Mods::Network::NetPlayerBridge::NoteSpawn(SlotIndex());
         if (respawn)
         {
             Mods::RespawnChoice::ApplyOnSpawn(SharedFrom(this));
@@ -868,6 +879,7 @@ namespace MphRead::Entities
             _spawnInvulnTimer = static_cast<std::uint16_t>(_values.SpawnInvulnerability * 2);
         }
         _boostCharge = 0;
+        _boostAimLock = 0;
         _altAttackCooldown = 0;
         _field4E8 = Vector3::Zero;
         _modelTransform = IdentityMatrix();
@@ -1678,6 +1690,8 @@ namespace MphRead::Entities
     void PlayerEntity::TakeDamage(std::uint32_t damage, DamageFlags flags,
         std::optional<Vector3> direction, EntityBase* source)
     {
+        const Mods::Network::NetDamage::PredictionScoreScope predictedScores(
+            Mods::Network::NetHitPrediction::Predicting());
         if (Mods::Network::NetDamage::Suppress(*this, source, flags))
         {
             return;
@@ -1760,7 +1774,10 @@ namespace MphRead::Entities
             else if (source->Type == MphRead::EntityType::Player)
             {
                 attacker = static_cast<PlayerEntity*>(source);
-                if (attacker->_doubleDmgTimer > 0)
+                // Not again for a rescued hit claim: the shooter's own
+                // machine already doubled it before it sent the number.
+                // Mods.Network.NetDamage.ApplyingClaim.
+                if (attacker->_doubleDmgTimer > 0 && !Mods::Network::NetDamage::ApplyingClaim())
                 {
                     damage *= 2;
                 }
@@ -1775,7 +1792,8 @@ namespace MphRead::Entities
         bool ignoreDamage = false;
         if ((GameState::SinglePlayer() && _isBot && attacker == this)
             || (GameState::Teams() && !GameState::FriendlyFire()
-                && attacker != nullptr && attacker != this && attacker->_teamIndex == _teamIndex))
+                && attacker != nullptr && attacker != this
+                && Mods::Multiplayer::TeamRules::AreAllies(attacker->_teamIndex, _teamIndex)))
         {
             ignoreDamage = true;
             damage = 0;
@@ -1793,7 +1811,9 @@ namespace MphRead::Entities
                     std::bit_cast<std::int32_t>(damage)),
                 ManagedAt(GameState::BeamDamageMax(), attacker->_slotIndex));
         }
-        if (damage > 0)
+        // Likewise: the damage level is in the number a claim carries
+        // already. Mods.Network.NetDamage.ApplyingClaim.
+        if (damage > 0 && !Mods::Network::NetDamage::ApplyingClaim())
         {
             damage = static_cast<std::uint32_t>(
                 damage * ManagedReadOnlyListAt(Metadata::DamageLevels, GameState::DamageLevel()));
@@ -1855,10 +1875,16 @@ namespace MphRead::Entities
                 std::bit_cast<std::int32_t>(damage), *source, SharedFrom(attacker));
         }
 
+        // beam.ModLaunchFrame identifies the *shot*, not the moment it
+        // landed, so the authority's record of this hit and a claim for the
+        // same shot can be paired however long the projectile was in the
+        // air. Mods.Network.NetHitClaims.
         Mods::Network::NetDamage::Note(*this, attacker,
             beam != nullptr ? beam->Beam() : MphRead::BeamType::None,
-            flags, direction, damage, bomb != nullptr);
-        Mods::Network::NetHitPrediction::NoteHit(*this, attacker, flags, damage);
+            flags, direction, damage, bomb != nullptr, beam != nullptr ? beam->ModLaunchFrame : 0U);
+        Mods::Network::NetHitPrediction::NoteHit(*this, attacker, flags, damage,
+            beam != nullptr ? beam->Beam() : MphRead::BeamType::None,
+            beam != nullptr ? beam->ModLaunchFrame : 0U, beam != nullptr ? beam->Age() : 0.0F);
 
         bool dead = false;
         if (_isBot && GameState::SinglePlayer() && RequireReference(AiData).Flags1
@@ -2281,7 +2307,7 @@ namespace MphRead::Entities
                     }
                     else
                     {
-                        if (attacker->_teamIndex == _teamIndex)
+                        if (Mods::Multiplayer::TeamRules::AreAllies(attacker->_teamIndex, _teamIndex))
                         {
                             ManagedAt(GameState::FriendlyKills(), attacker->_slotIndex) = UncheckedAdd(
                                     ManagedAt(GameState::FriendlyKills(), attacker->_slotIndex), 1);

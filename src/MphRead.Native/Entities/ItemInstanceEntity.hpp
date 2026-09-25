@@ -23,6 +23,7 @@ namespace MphRead
 namespace MphRead::Entities
 {
     class ItemSpawnEntity;
+    class PlayerEntity;
 
     struct ItemInstanceEntityData
     {
@@ -132,7 +133,7 @@ namespace MphRead::Entities
             OpenTK::Mathematics::Vector3& up,
             OpenTK::Mathematics::Vector3& facing) override;
         [[nodiscard]] bool Process() override;
-        void OnPickedUp();
+        void OnPickedUp(PlayerEntity* picker = nullptr);
         void GetDrawInfo() override;
         void Destroy() override;
 

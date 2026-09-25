@@ -566,6 +566,54 @@ namespace MphRead::NativeRuntime
         return std::bit_cast<std::int32_t>(MixFinal(hash));
     }
 
+    std::string StringReplaceOrdinalIgnoreCase(std::string_view value, std::string_view oldValue, std::string_view newValue)
+    {
+        if (oldValue.empty())
+        {
+            throw System::ArgumentException("String cannot be of zero length. (Parameter 'oldValue')");
+        }
+        std::string result;
+        std::size_t start = 0;
+        while (start <= value.size())
+        {
+            const std::ptrdiff_t found = StringIndexOfOrdinalIgnoreCase(value.substr(start), oldValue);
+            if (found < 0)
+            {
+                break;
+            }
+            result.append(value.substr(start, static_cast<std::size_t>(found)));
+            result.append(newValue);
+            start += static_cast<std::size_t>(found) + oldValue.size();
+        }
+        result.append(value.substr(std::min(start, value.size())));
+        return result;
+    }
+
+    std::vector<std::string> StringSplit(std::string_view value, char separator, bool removeEmptyEntries, bool trimEntries)
+    {
+        std::vector<std::string> parts;
+        std::size_t start = 0;
+        while (true)
+        {
+            const std::size_t found = value.find(separator, start);
+            std::string_view part = value.substr(start, found == std::string_view::npos ? std::string_view::npos : found - start);
+            if (trimEntries)
+            {
+                part = StringTrimView(part);
+            }
+            if (!removeEmptyEntries || !part.empty())
+            {
+                parts.emplace_back(part);
+            }
+            if (found == std::string_view::npos)
+            {
+                break;
+            }
+            start = found + 1;
+        }
+        return parts;
+    }
+
     std::ptrdiff_t StringIndexOfOrdinalIgnoreCase(std::string_view value, std::string_view search) noexcept
     {
         if (search.empty())

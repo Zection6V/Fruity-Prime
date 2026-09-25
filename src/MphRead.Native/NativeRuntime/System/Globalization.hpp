@@ -12,6 +12,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace MphRead::NativeRuntime
 {
@@ -48,6 +49,13 @@ namespace MphRead::NativeRuntime
     // right; ArgumentException for an empty oldValue, as .NET throws.
     [[nodiscard]] std::string StringReplace(
         std::string value, std::string_view oldValue, std::string_view newValue);
+    // value.Replace(oldValue, newValue, StringComparison.OrdinalIgnoreCase).
+    [[nodiscard]] std::string StringReplaceOrdinalIgnoreCase(
+        std::string_view value, std::string_view oldValue, std::string_view newValue);
+    // value.Split(separator, options): RemoveEmptyEntries and TrimEntries as
+    // .NET applies them -- each entry trimmed first, then empties dropped.
+    [[nodiscard]] std::vector<std::string> StringSplit(
+        std::string_view value, char separator, bool removeEmptyEntries = false, bool trimEntries = false);
     // value.PadLeft(totalWidth, padding) / value.PadRight(...): widths are in
     // UTF-16 units, as a C# string's Length is. `{x,6}` in a composite format
     // is PadLeft(6) and `{x,-6}` is PadRight(6).

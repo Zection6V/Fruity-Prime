@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../Mods/Network/NetShotDiagnostics.hpp"
+
 #include "../Formats/CollisionDetection.hpp"
 #include "../Formats/Culling.hpp"
 #include "../Formats/Effects.hpp"
@@ -128,6 +130,20 @@ namespace MphRead::Entities
 
         [[nodiscard]] BeamFlags Flags() const noexcept;
         void SetFlags(BeamFlags value) noexcept;
+        // The authority frame the shooter's world was at when this shot was
+        // launched -- the one thing that identifies a shot across two
+        // machines. Stamped by Mods.Network.NetUnlagged on every machine that
+        // spawns it. Zero for anything nobody aimed.
+        std::uint32_t ModLaunchFrame = 0;
+        [[nodiscard]] const Mods::Network::ShotKey& ModLaunchKey() const noexcept { return _modLaunchKey; }
+        void ModLaunchKey(const Mods::Network::ShotKey& value) noexcept { _modLaunchKey = value; }
+        // Spawn's firing phase must survive until a Shock Coil beam tests an enemy.
+        std::uint64_t ModContinuousPhase = 0;
+        bool ModHasSharedContinuousPhase = false;
+        std::uint16_t ModLaunchMatch = 0;
+        std::uint64_t ModLaunchAuthority = 0;
+        std::uint16_t ModLaunchGeneration = 0;
+        std::uint16_t ModLaunchLife = 0;
         [[nodiscard]] BeamType Beam() const noexcept;
         void SetBeam(BeamType value) noexcept;
         [[nodiscard]] BeamType BeamKind() const noexcept;
@@ -224,13 +240,15 @@ namespace MphRead::Entities
             ::OpenTK::Mathematics::Vector3 direction,
             BeamSpawnFlags spawnFlags,
             Formats::Culling::NodeRef nodeRef,
-            Scene* scene);
+            Scene* scene,
+            BeamProjectileEntity* parent = nullptr);
 
     protected:
         [[nodiscard]] ::OpenTK::Mathematics::Matrix4 GetModelTransform(
             ModelInstance& inst, std::int32_t index) override;
 
     private:
+        Mods::Network::ShotKey _modLaunchKey{};
         void CheckCollision();
         void ProcessRicochet(Formats::CollisionResult colRes);
         void PlayRicochetSfx();

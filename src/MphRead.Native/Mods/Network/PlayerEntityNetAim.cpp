@@ -4,10 +4,12 @@
 #include "../../Entities/Players/PlayerCamera.hpp"
 #include "../../Entities/PlayerSpawnEntity.hpp"
 #include "../../Formats/Model.hpp"
+#include "../../Entities/CamSeq/CameraSequence.hpp"
 #include "../../GameState.hpp"
 #include "../../Metadata/Metadata.hpp"
 #include "../Input/GamepadInput.hpp"
 #include "../SpectatorMode.hpp"
+#include "NetDamage.hpp"
 #include "NetHooks.hpp"
 #include "NetLog.hpp"
 #include "NetPlayerBridge.hpp"
@@ -189,7 +191,8 @@ namespace MphRead::Entities
             return;
         }
         const std::int32_t slotForValid = (*this).SlotIndex();
-        if (!Mods::Network::NetSession::RemoteIntentValid[slotForValid])
+        if (!Mods::Network::NetSession::RemoteIntentValid[slotForValid]
+            || !Mods::Network::NetPlayerBridge::AimTrusted(slotForValid))
         {
             return;
         }
@@ -272,21 +275,48 @@ namespace MphRead::Entities
 
     bool PlayerEntity::ModPlacementBelongsHere(OpenTK::Mathematics::Vector3 position)
     {
-        constexpr float reach = 12.0F;
         bool any = false;
+        return ModNearestSpawn(position, any) != nullptr
+            // A room with no spawn points at all is not a room this rule
+            // can say anything about, so it says nothing.
+            || !any;
+    }
+
+    std::shared_ptr<PlayerSpawnEntity> PlayerEntity::ModNearestSpawn(OpenTK::Mathematics::Vector3 position, bool& any)
+    {
+        // Generous: the authority may have published a frame or two after
+        // the placement, by which time the player has begun to fall to
+        // the floor, and a spawn point sits above it.
+        constexpr float reach = 12.0F;
+        std::shared_ptr<PlayerSpawnEntity> nearest{};
+        float nearestDist = reach * reach;
         auto enumerator = (*(*this)._scene).GetPlayerSpawnEntities().GetEnumerator();
         while (enumerator.MoveNext())
         {
             const std::shared_ptr<PlayerSpawnEntity> spawn = enumerator.Current();
             any = true;
-            const Vector3 between
-                = static_cast<Vector3>(spawn->Position) - position;
-            if (LengthSquared(between) <= reach * reach)
+            const Vector3 between = static_cast<Vector3>(spawn->Position) - position;
+            const float dist = LengthSquared(between);
+            if (dist <= nearestDist)
             {
-                return true;
+                nearestDist = dist;
+                nearest = spawn;
             }
         }
-        return !any;
+        return nearest;
+    }
+
+    std::optional<OpenTK::Mathematics::Vector3> PlayerEntity::ModSpawnFacingAt(OpenTK::Mathematics::Vector3 position)
+    {
+        bool any = false;
+        const std::shared_ptr<PlayerSpawnEntity> spawn = ModNearestSpawn(position, any);
+        return spawn != nullptr ? std::optional<Vector3>(spawn->FacingVector()) : std::nullopt;
+    }
+
+    void PlayerEntity::ModSetSpawnFacing(OpenTK::Mathematics::Vector3 facing)
+    {
+        ModSetFacing(facing);
+        ModSetAim(facing);
     }
 
     void PlayerEntity::ModRefreshNodeRef(OpenTK::Mathematics::Vector3 previousPosition)
@@ -539,6 +569,44 @@ namespace MphRead::Entities
     {
         if (altForm == (*this).IsAltForm())
         {
+            // Unmorph changes the form bit before its animation ends. If
+            // that animation stalls, UpdateForm must not run a second time:
+            // it would shift the position by the collision-centre offset.
+            // A stalled morph being cancelled back to biped also needs
+            // ExitAltForm to remove Weavel's halfturret and other effects.
+            if (IsMorphing() && !altForm)
+            {
+                ExitAltForm();
+            }
+            if (IsUnmorphing() && !altForm)
+            {
+                Mods::Network::NetLog::Event("slot " + std::to_string(SlotIndex())
+                    + " stalled unmorph completed from " + ModFormState());
+                if (IsMainPlayer() && Formats::CameraSequence::Current() != nullptr)
+                {
+                    Formats::CameraSequence::Current()->InitialCamInfo().NodeRef = NodeRef;
+                }
+                else
+                {
+                    ::MphRead::NativeRuntime::RequireReference(_cameraInfo).NodeRef = NodeRef;
+                }
+                _flags1 &= ~PlayerFlags1::Unmorphing;
+                SetBipedAnimation(PlayerAnimation::Idle, AnimFlags::None);
+                if (_burnTimer > 0)
+                {
+                    CreateBurnEffect();
+                }
+                if (_cameraType != CameraType::First)
+                {
+                    SwitchCamera(CameraType::First, _facingVector);
+                }
+            }
+            else if (IsMorphing())
+            {
+                // The form was already applied; only the stale animation
+                // flag remains. Preserve the alt model and camera.
+                _flags1 &= ~PlayerFlags1::Morphing;
+            }
             return;
         }
         const std::int32_t slot = (*this).SlotIndex();
@@ -593,6 +661,31 @@ namespace MphRead::Entities
         const std::int32_t ua = (*this)._ammo[0];
         const std::int32_t missiles = (*this)._ammo[1];
         return {ua, missiles};
+    }
+
+    void PlayerEntity::ModSetShotState(std::int32_t chargeLevel, std::int32_t boostDamage, bool doubleDamage)
+    {
+        if (SlotIndex() == Mods::Network::NetHooks::LocalSlot())
+        {
+            // Never the machine's own player: this is its own state coming
+            // back to it a round trip later.
+            return;
+        }
+        ::MphRead::NativeRuntime::RequireReference(EquipInfo()).ChargeLevel = static_cast<std::uint16_t>(std::clamp(chargeLevel, 0, 0xFFFF));
+        _boostDamage = static_cast<std::uint16_t>(std::clamp(boostDamage, 0, 0xFFFF));
+        if (doubleDamage)
+        {
+            // Held up rather than counted down: the owner says so again
+            // every couple of frames for as long as it lasts.
+            if (_doubleDmgTimer < 8)
+            {
+                _doubleDmgTimer = 8;
+            }
+        }
+        else
+        {
+            _doubleDmgTimer = 0;
+        }
     }
 
     void PlayerEntity::ModSetAmmo(std::int32_t ua, std::int32_t missiles)
@@ -910,9 +1003,7 @@ namespace MphRead::Entities
 
     void PlayerEntity::ModNetDie()
     {
-        constexpr std::int32_t NoDmgInvuln = 1;
-        constexpr std::int32_t Death = 4;
-        (*this).TakeDamage(1, static_cast<DamageFlags>(Death | NoDmgInvuln), std::nullopt, nullptr);
+        Mods::Network::NetDamage::ReplayDeath(*this);
     }
 
     std::pair<std::int32_t, float> PlayerEntity::ModScoreboardSize() const
@@ -957,7 +1048,8 @@ namespace MphRead::Entities
             return;
         }
         const std::int32_t slotForValid = (*this).SlotIndex();
-        if (!Mods::Network::NetSession::RemoteIntentValid[slotForValid])
+        if (!Mods::Network::NetSession::RemoteIntentValid[slotForValid]
+            || !Mods::Network::NetPlayerBridge::AimTrusted(slotForValid))
         {
             return;
         }

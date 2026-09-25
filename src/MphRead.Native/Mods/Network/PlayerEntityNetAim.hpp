@@ -16,6 +16,8 @@ namespace MphRead
 
 #define MPHREAD_PLAYER_ENTITY_NET_AIM_MEMBERS \
 public: \
+    [[nodiscard]] OpenTK::Mathematics::Vector3 ModMuzzlePos() const noexcept { return _muzzlePos; } \
+    void ModResetNetworkHistory() noexcept { _networkPositionHistoryCount = 0; } \
     void ModRecordNetworkPosition(std::uint32_t frame); \
     [[nodiscard]] bool ModGetNetworkPosition( \
         std::uint32_t frame, OpenTK::Mathematics::Vector3& position); \
@@ -32,6 +34,9 @@ public: \
  \
     void ModPlaceAt(OpenTK::Mathematics::Vector3 position); \
     [[nodiscard]] bool ModPlacementBelongsHere(OpenTK::Mathematics::Vector3 position); \
+    [[nodiscard]] std::optional<OpenTK::Mathematics::Vector3> ModSpawnFacingAt( \
+        OpenTK::Mathematics::Vector3 position); \
+    void ModSetSpawnFacing(OpenTK::Mathematics::Vector3 facing); \
     void ModRefreshNodeRef(OpenTK::Mathematics::Vector3 previousPosition); \
     [[nodiscard]] bool ModNodeUnresolved() const noexcept; \
  \
@@ -59,6 +64,9 @@ public: \
  \
     void ModSetWeapon(MphRead::BeamType weapon); \
     [[nodiscard]] std::pair<std::int32_t, std::int32_t> ModAmmo() const; \
+    [[nodiscard]] std::int32_t ModAmmoCap() const { return _ammoMax[UA]; } \
+    [[nodiscard]] std::int32_t ModBoostDamage() const noexcept { return _boostDamage; } \
+    void ModSetShotState(std::int32_t chargeLevel, std::int32_t boostDamage, bool doubleDamage); \
     void ModSetAmmo(std::int32_t ua, std::int32_t missiles); \
     void ModSetZoom(bool zoomed); \
  \
@@ -107,6 +115,8 @@ private: \
     [[nodiscard]] OpenTK::Mathematics::Vector3 ModAimVectorTowards( \
         OpenTK::Mathematics::Vector3 target) const; \
     [[nodiscard]] static bool Finite(OpenTK::Mathematics::Vector3 value) noexcept; \
+    [[nodiscard]] std::shared_ptr<PlayerSpawnEntity> ModNearestSpawn( \
+        OpenTK::Mathematics::Vector3 position, bool& any); \
  \
     void ApplyModAim(); \
     void ApplyGamepadAim();

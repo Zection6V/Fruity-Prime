@@ -49,13 +49,14 @@ using ::MphRead::NativeRuntime::UdpSocket;
 namespace MphRead::Mods::Network
 {
     ReceivedPacket::ReceivedPacket(std::shared_ptr<System::Net::IPEndPoint> sender,
-        std::shared_ptr<std::vector<std::uint8_t>> data, std::int32_t length) noexcept
-        : Sender(std::move(sender)), Data(std::move(data)), Length(length)
+        std::shared_ptr<std::vector<std::uint8_t>> data, std::int32_t length, std::int64_t arrivedAt) noexcept
+        : Sender(std::move(sender)), Data(std::move(data)), Length(length),
+          ArrivedAt(arrivedAt == 0 ? StopwatchGetTimestamp() : arrivedAt)
     {
     }
 
     ReceivedPacket::ReceivedPacket(ReceivedPacket&& other) noexcept
-        : Sender(other.Sender), Data(other.Data), Length(other.Length)
+        : Sender(other.Sender), Data(other.Data), Length(other.Length), ArrivedAt(other.ArrivedAt)
     {
     }
 
@@ -105,19 +106,19 @@ namespace MphRead::Mods::Network
 
     struct NetTransport::State
     {
-        struct HeldIn
-        {
-            std::int64_t DueAt = 0;
-            ReceivedPacket Packet{};
-        };
-
+        // (IPEndPoint Target, byte[] Data, int Length)
         struct HeldOut
         {
-            std::int64_t DueAt = 0;
             std::shared_ptr<System::Net::IPEndPoint> Target{};
             std::shared_ptr<std::vector<std::uint8_t>> Data{};
             std::int32_t Length = 0;
         };
+
+        [[nodiscard]] static double NowMs() noexcept
+        {
+            return static_cast<double>(StopwatchGetTimestamp()) * 1000.0
+                / static_cast<double>(::MphRead::NativeRuntime::StopwatchFrequency());
+        }
 
         [[nodiscard]] bool TryDequeueInbox(std::optional<ReceivedPacket>& packet)
         {
@@ -158,20 +159,18 @@ namespace MphRead::Mods::Network
 
         void PromoteHeldArrivals()
         {
-            const std::int64_t now = StopwatchGetTimestamp();
+            const double now = NowMs();
             while (true)
             {
-                std::optional<ReceivedPacket> packet;
+                ReceivedPacket packet;
                 {
                     std::lock_guard lock(HeldLock);
-                    if (HeldInput.empty() || HeldInput.front().DueAt > now)
+                    if (!HeldInput.TryDequeue(now, packet))
                     {
                         return;
                     }
-                    packet.emplace(HeldInput.front().Packet);
-                    HeldInput.pop_front();
                 }
-                EnqueueInbox(*packet);
+                EnqueueInbox(ReceivedPacket(packet.Sender, packet.Data, packet.Length));
             }
         }
 
@@ -210,21 +209,12 @@ namespace MphRead::Mods::Network
 
             if (LagWorkerPresent.load(std::memory_order_seq_cst))
             {
-                if (NetLag::Drops())
-                {
-                    return;
-                }
-                const std::int64_t holdFor = UncheckedAdd(NetLag::HoldTicks(), extraHoldTicks);
-                if (holdFor > 0)
-                {
-                    auto copy = std::make_shared<std::vector<std::uint8_t>>(
-                        buffer.begin(), buffer.begin() + length);
-                    std::lock_guard lock(HeldLock);
-                    HeldOutput.push_back(HeldOut{
-                        UncheckedAdd(StopwatchGetTimestamp(), holdFor),
-                        target, std::move(copy), length});
-                    return;
-                }
+                auto copy = std::make_shared<std::vector<std::uint8_t>>(buffer.begin(), buffer.begin() + length);
+                std::lock_guard lock(HeldLock);
+                HeldOutput.Enqueue(NowMs(), HeldOut{target, std::move(copy), length},
+                    static_cast<double>(extraHoldTicks) * 1000.0
+                        / static_cast<double>(::MphRead::NativeRuntime::StopwatchFrequency()));
+                return;
             }
 
             SendNow(target,
@@ -236,22 +226,19 @@ namespace MphRead::Mods::Network
             SetCurrentThreadName("MphRead net lag");
             while (Running.load(std::memory_order_seq_cst))
             {
-                const std::int64_t now = StopwatchGetTimestamp();
+                const double now = NowMs();
                 while (true)
                 {
-                    std::optional<HeldOut> held;
+                    HeldOut held;
                     {
                         std::lock_guard lock(HeldLock);
-                        if (HeldOutput.empty() || HeldOutput.front().DueAt > now)
+                        if (!HeldOutput.TryDequeue(now, held))
                         {
                             break;
                         }
-                        held.emplace(std::move(HeldOutput.front()));
-                        HeldOutput.pop_front();
                     }
-                    SendNow(held->Target,
-                        std::span<const std::uint8_t>(held->Data->data(),
-                            static_cast<std::size_t>(held->Length)));
+                    SendNow(held.Target,
+                        std::span<const std::uint8_t>(held.Data->data(), static_cast<std::size_t>(held.Length)));
                 }
                 ::MphRead::NativeRuntime::ThreadSleep(1);
             }
@@ -291,7 +278,7 @@ namespace MphRead::Mods::Network
                         throw;
                     }
 
-                    if (data->empty())
+                    if (data->empty() || data->size() > static_cast<std::size_t>(NetConfig::MaxPacketSize))
                     {
                         continue;
                     }
@@ -299,8 +286,10 @@ namespace MphRead::Mods::Network
                     if (AutoPong.load(std::memory_order_seq_cst)
                         && static_cast<PacketType>((*data)[0]) == PacketType::Ping)
                     {
-                        const std::int64_t extraHold = LagWorkerPresent.load(
-                            std::memory_order_seq_cst) ? NetLag::HoldTicks() : 0;
+                        const std::int64_t extraHold = LagWorkerPresent.load(std::memory_order_seq_cst)
+                            ? static_cast<std::int64_t>(NetLag::RoundTripMs() / 2.0
+                                * static_cast<double>(::MphRead::NativeRuntime::StopwatchFrequency()) / 1000)
+                            : 0;
                         SendPacket(sender, PacketType::Pong,
                             std::span<const std::uint8_t>(data->data() + 1, data->size() - 1),
                             extraHold);
@@ -317,20 +306,10 @@ namespace MphRead::Mods::Network
 
                     if (LagWorkerPresent.load(std::memory_order_seq_cst))
                     {
-                        if (NetLag::Drops())
-                        {
-                            continue;
-                        }
-                        const std::int64_t holdFor = NetLag::HoldTicks();
-                        if (holdFor > 0)
-                        {
-                            std::lock_guard lock(HeldLock);
-                            HeldInput.push_back(HeldIn{
-                                UncheckedAdd(StopwatchGetTimestamp(), holdFor),
-                                ReceivedPacket(sender, data,
-                                    static_cast<std::int32_t>(data->size()))});
-                            continue;
-                        }
+                        std::lock_guard lock(HeldLock);
+                        HeldInput.Enqueue(NowMs(),
+                            ReceivedPacket(sender, data, static_cast<std::int32_t>(data->size())));
+                        continue;
                     }
 
                     EnqueueInbox(ReceivedPacket(sender, data,
@@ -372,8 +351,8 @@ namespace MphRead::Mods::Network
         std::deque<ReceivedPacket> Inbox;
 
         std::mutex HeldLock;
-        std::deque<HeldIn> HeldInput;
-        std::deque<HeldOut> HeldOutput;
+        NetFaultQueue<ReceivedPacket> HeldInput = NetLag::CreateQueue<ReceivedPacket>(false);
+        NetFaultQueue<HeldOut> HeldOutput = NetLag::CreateQueue<HeldOut>(true);
 
         std::mutex WorkerExitLock;
         std::condition_variable WorkerExitCondition;

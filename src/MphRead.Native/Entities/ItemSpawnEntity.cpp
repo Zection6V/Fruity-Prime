@@ -1,4 +1,8 @@
 #include "ItemSpawnEntity.hpp"
+#include "Players/PlayerEntity.hpp"
+#include "../Mods/Multiplayer/MapResourceRules.hpp"
+#include "../Mods/Network/NetHealthSync.hpp"
+#include "../Mods/Network/NetSession.hpp"
 
 #include "../GameState.hpp"
 #include "../MemoryArrays.hpp"
@@ -124,9 +128,16 @@ namespace MphRead::Entities
     void ItemSpawnEntity::Initialize()
     {
         EntityBase::Initialize();
+        Mods::Network::NetHealthSync::Register(*this);
         (void)RequireReference(_scene).TryGetEntity(
             _data.NotifyEntityId,
             _pickupNotifyEntity);
+    }
+
+    Mods::Network::HealthSpawnState ItemSpawnEntity::ModHealthState() const
+    {
+        return Mods::Network::HealthSpawnState{
+            _item != nullptr && _item->DespawnTimer() != 0, Active, _spawnCooldown, _spawnCount, _lastPickerSlot};
     }
 
     bool ItemSpawnEntity::Process()
@@ -152,6 +163,37 @@ namespace MphRead::Entities
                 _invPos,
                 _parent->CollisionTransform());
         }
+        if (Mods::Network::NetHealthSync::IsReplica() && Mods::Multiplayer::MapResourceRules::IsHealth(_data.ItemType))
+        {
+            Mods::Network::HealthSpawnState state{};
+            if (Mods::Network::NetHealthSync::TryGet(static_cast<std::int16_t>(Id), state))
+            {
+                Active = state.Active;
+                _spawnCooldown = state.Cooldown;
+                _spawnCount = state.SpawnCount;
+                if (!state.Available && _item != nullptr)
+                {
+                    const std::int32_t localSlot = Mods::Network::NetSession::LocalSlot();
+                    if (_item->DespawnTimer() != 0 && state.PickerSlot == localSlot
+                        && localSlot >= 0 && localSlot < static_cast<std::int32_t>(PlayerEntity::Players().size()))
+                    {
+                        RequireReference(PlayerEntity::Players()[static_cast<std::size_t>(localSlot)])
+                            .PlayHealthPickupSfx(_item->ItemType());
+                    }
+                    _item->SetDespawnTimer(0);
+                }
+                else if (state.Available && _item == nullptr)
+                {
+                    _item = SpawnItem(_data.ItemType, TypeExtensions::AddY(Position, 0.65F), NodeRef, _scene);
+                    if (_item != nullptr)
+                    {
+                        _item->SetOwner(this);
+                        _item->SetParentId(_data.ParentId);
+                    }
+                }
+            }
+            return EntityBase::Process();
+        }
         if (!Active)
         {
             return true;
@@ -174,6 +216,10 @@ namespace MphRead::Entities
                 _spawnCooldown = static_cast<std::uint16_t>(
                     static_cast<std::int32_t>(_data.SpawnInterval) * 2);
                 ++_spawnCount;
+                if (Mods::Multiplayer::MapResourceRules::IsHealth(_data.ItemType))
+                {
+                    _lastPickerSlot = -1;
+                }
                 _item->SetOwner(this);
                 _item->SetParentId(_data.ParentId);
                 if (_data.ItemType != ItemType::ArtifactKey)
@@ -192,8 +238,13 @@ namespace MphRead::Entities
         return EntityBase::Process();
     }
 
-    void ItemSpawnEntity::OnItemPickedUp()
+    void ItemSpawnEntity::OnItemPickedUp(PlayerEntity* picker)
     {
+        if (Mods::Multiplayer::MapResourceRules::IsHealth(_data.ItemType))
+        {
+            _lastPickerSlot = picker == nullptr ? static_cast<std::int8_t>(-1)
+                : static_cast<std::int8_t>(picker->SlotIndex());
+        }
         if (_data.CollectedMessage != Message::None)
         {
             Scene* scene = _scene;

@@ -1,182 +1,132 @@
 #include "NetLag.hpp"
-#include "../../NativeRuntime/System/Stopwatch.hpp"
-#include "../../NativeRuntime/System/Random.hpp"
-#include "NativeRuntime/System/Charconv.hpp"
-#include "../../NativeRuntime/System/Globalization.hpp"
-#include "NativeRuntime/System/Globalization.hpp"
 
-#include <array>
-#include <bit>
-#include <charconv>
+#include "../../NativeRuntime/System/Globalization.hpp"
+#include "../../NativeRuntime/System/Number.hpp"
+
 #include <cmath>
-#include <cstddef>
-#include <cstdint>
-#include <cstdlib>
-#include <exception>
-#include <cstring>
-#include <limits>
-#include <new>
-#include <stdexcept>
 #include <string>
 #include <string_view>
-#include <system_error>
-
-#if defined(_WIN32)
-#define NOMINMAX
-#include <windows.h>
-#include <bcrypt.h>
-#ifdef _MSC_VER
-#pragma comment(lib, "bcrypt.lib")
-#endif
-#else
-#include <cerrno>
-#include <fcntl.h>
-#if defined(__APPLE__)
-#include <xlocale.h>
-#endif
-#include <unistd.h>
-#endif
-
-using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
-using ::MphRead::NativeRuntime::StringTrimView;
-
-namespace
-{
-    [[nodiscard]] bool IsNullOrWhiteSpaceLikeDotNet(
-        const std::optional<std::string>& value) noexcept
-    {
-        return !value.has_value() || StringTrimView(*value).empty();
-    }
-
-    class NetLagRuntime final
-    {
-    public:
-        NetLagRuntime() noexcept
-        {
-            try
-            {
-                _random.emplace();
-            }
-            catch (...)
-            {
-                _initializationFailure = std::current_exception();
-            }
-        }
-
-        [[nodiscard]] ::MphRead::NativeRuntime::Random& Random()
-        {
-            if (_initializationFailure)
-            {
-                std::rethrow_exception(_initializationFailure);
-            }
-            return *_random;
-        }
-
-    private:
-        std::optional<::MphRead::NativeRuntime::Random> _random{};
-        std::exception_ptr _initializationFailure{};
-    };
-
-    [[nodiscard]] ::MphRead::NativeRuntime::Random& RandomState()
-    {
-        // Mirrors CLR type initialization: the one Random is initialized when
-        // NetLag is first touched, and an initialization failure remains sticky.
-        static NetLagRuntime runtime;
-        return runtime.Random();
-    }
-
-}
+#include <vector>
 
 namespace MphRead::Mods::Network
 {
-    static_assert(sizeof(double) == 8 && std::numeric_limits<double>::is_iec559,
-        "NetLag requires .NET Double-compatible IEEE-754 binary64.");
-    static_assert(sizeof(void*) == 4 || sizeof(void*) == 8,
-        "NetLag requires a 32-bit or 64-bit target for .NET Random parity.");
+    namespace Runtime = ::MphRead::NativeRuntime;
 
     std::int32_t NetLag::_roundTripMs = 0;
     std::int32_t NetLag::_jitterMs = 0;
-    double NetLag::_lossPercent = 0.0;
+    double NetLag::_lossPercent = 0;
+    double NetLag::_reorderRate = 0;
+    double NetLag::_duplicateRate = 0;
+    std::int32_t NetLag::_seed = 1;
 
-    std::int32_t NetLag::RoundTripMs()
+    bool NetLag::Active() noexcept
     {
-        (void)RandomState();
-        return _roundTripMs;
+        return _roundTripMs > 0 || _jitterMs > 0 || _lossPercent > 0 || _reorderRate > 0 || _duplicateRate > 0;
     }
 
-    std::int32_t NetLag::JitterMs()
+    bool NetLag::ConfigureSeed(const std::optional<std::string>& value)
     {
-        (void)RandomState();
-        return _jitterMs;
-    }
-
-    double NetLag::LossPercent()
-    {
-        (void)RandomState();
-        return _lossPercent;
-    }
-
-    bool NetLag::Active()
-    {
-        (void)RandomState();
-        return _roundTripMs > 0 || _lossPercent > 0.0;
-    }
-
-    std::int64_t NetLag::HoldTicks()
-    {
-        ::MphRead::NativeRuntime::Random& random = RandomState();
-        if (_roundTripMs <= 0 && _jitterMs <= 0)
+        std::int32_t seed = 0;
+        if (!value.has_value() || !Runtime::Int32TryParseInvariant(*value, seed))
         {
-            return 0;
+            return false;
         }
-        double ms = _roundTripMs / 2.0;
-        if (_jitterMs > 0)
-        {
-            ms += random.NextDouble() * _jitterMs;
-        }
-        return static_cast<std::int64_t>(
-            ms * static_cast<double>(::MphRead::NativeRuntime::StopwatchFrequency()) / 1000.0);
+        _seed = seed;
+        return true;
     }
 
-    bool NetLag::Drops()
+    bool NetLag::ConfigureJitter(const std::optional<std::string>& value)
     {
-        ::MphRead::NativeRuntime::Random& random = RandomState();
-        return _lossPercent > 0.0 && random.NextDouble() * 100.0 < _lossPercent;
+        std::int32_t jitter = 0;
+        if (!value.has_value() || !Runtime::Int32TryParseInvariant(*value, jitter) || jitter < 0 || jitter > 5000)
+        {
+            return false;
+        }
+        _jitterMs = jitter;
+        return true;
+    }
+
+    bool NetLag::ConfigureReorder(const std::optional<std::string>& value)
+    {
+        double rate = 0;
+        if (!Rate(value, rate))
+        {
+            return false;
+        }
+        _reorderRate = rate;
+        return true;
+    }
+
+    bool NetLag::ConfigureDuplicate(const std::optional<std::string>& value)
+    {
+        double rate = 0;
+        if (!Rate(value, rate))
+        {
+            return false;
+        }
+        _duplicateRate = rate;
+        return true;
+    }
+
+    bool NetLag::Rate(const std::optional<std::string>& value, double& rate)
+    {
+        rate = 0;
+        const bool percent = value.has_value() && !value->empty() && value->back() == '%';
+        if (!value.has_value())
+        {
+            return false;
+        }
+        // value.TrimEnd('%')
+        std::string_view text = *value;
+        while (!text.empty() && text.back() == '%')
+        {
+            text.remove_suffix(1);
+        }
+        if (!Runtime::DoubleTryParseInvariant(text, rate) || !std::isfinite(rate) || rate < 0 || rate > 100)
+        {
+            return false;
+        }
+        if (percent || rate > 1)
+        {
+            rate /= 100;
+        }
+        return true;
     }
 
     bool NetLag::Configure(const std::optional<std::string>& value)
     {
-        (void)RandomState();
-        if (IsNullOrWhiteSpaceLikeDotNet(value))
+        if (Runtime::StringIsNullOrWhiteSpace(value))
         {
             return false;
         }
-
-        const std::string_view text = *value;
-        const std::size_t firstSeparator = text.find_first_of(":,");
-        const std::string_view rttPart = firstSeparator == std::string_view::npos
-            ? text
-            : text.substr(0, firstSeparator);
-
-        std::int32_t rtt = 0;
-        if (!::MphRead::NativeRuntime::Int32TryParseInvariant(rttPart, rtt) || rtt < 0 || rtt > 10000)
+        // value.Split(':', ',')
+        std::vector<std::string> parts;
+        std::string current;
+        for (const char ch : *value)
         {
-            return false;
-        }
-
-        std::int32_t jitter = 0;
-        if (firstSeparator != std::string_view::npos)
-        {
-            const std::size_t secondSeparator = text.find_first_of(":,", firstSeparator + 1);
-            const std::string_view jitterPart = secondSeparator == std::string_view::npos
-                ? text.substr(firstSeparator + 1)
-                : text.substr(firstSeparator + 1, secondSeparator - firstSeparator - 1);
-            if (!::MphRead::NativeRuntime::Int32TryParseInvariant(jitterPart, jitter) || jitter < 0 || jitter > 5000)
+            if (ch == ':' || ch == ',')
             {
-                return false;
+                parts.push_back(current);
+                current.clear();
+                continue;
             }
+            current.push_back(ch);
         }
-
+        parts.push_back(current);
+        if (parts.size() > 2)
+        {
+            return false;
+        }
+        std::int32_t rtt = 0;
+        if (!Runtime::Int32TryParseInvariant(parts[0], rtt) || rtt < 0 || rtt > 10000)
+        {
+            return false;
+        }
+        std::int32_t jitter = 0;
+        if (parts.size() > 1 && (!Runtime::Int32TryParseInvariant(parts[1], jitter) || jitter < 0 || jitter > 5000))
+        {
+            return false;
+        }
         _roundTripMs = rtt;
         _jitterMs = jitter;
         return true;
@@ -184,36 +134,33 @@ namespace MphRead::Mods::Network
 
     bool NetLag::ConfigureLoss(const std::optional<std::string>& value)
     {
-        (void)RandomState();
-        double percent = 0.0;
-        if (!value.has_value() && ::MphRead::NativeRuntime::DoubleTryParseInvariant(*value, percent) || percent < 0.0 || percent > 100.0)
+        double rate = 0;
+        if (!Rate(value, rate))
         {
             return false;
         }
-        _lossPercent = percent;
+        _lossPercent = rate * 100;
         return true;
     }
 
     std::optional<std::string> NetLag::Describe()
     {
-        (void)RandomState();
-        if (!(_roundTripMs > 0 || _lossPercent > 0.0))
+        if (!Active())
         {
             return std::nullopt;
         }
-
         std::string text = _roundTripMs > 0
             ? "+" + std::to_string(_roundTripMs) + " ms round trip"
-            : "no added latency";
+            : std::string("no added latency");
         if (_jitterMs > 0)
         {
             text += " (jitter up to " + std::to_string(_jitterMs) + " ms each way)";
         }
-        if (_lossPercent > 0.0)
+        if (_lossPercent > 0)
         {
-            text += ", " + ::MphRead::NativeRuntime::ToString(_lossPercent, "0.##")
-                + "% packet loss each way";
+            text += ", " + Runtime::ToString(_lossPercent, "0.##") + "% packet loss each way";
         }
-        return text;
+        return text + ", reorder " + Runtime::ToString(_reorderRate, "P1") + ", duplicate "
+            + Runtime::ToString(_duplicateRate, "P1") + ", seed " + std::to_string(_seed);
     }
 }

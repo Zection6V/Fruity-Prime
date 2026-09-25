@@ -22,6 +22,9 @@
 #include "../../Metadata/Metadata.hpp"
 #include "../../Metadata/Weapons.hpp"
 #include "../../Mods/Network/NetHooks.hpp"
+#include "../../Mods/Network/NetHealthSync.hpp"
+#include "../../Mods/Network/NetPlayerBridge.hpp"
+#include "../../Mods/Multiplayer/MapResourceRules.hpp"
 #include "../../Sound/Sfx.hpp"
 #include "../../Utility/Rng.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
@@ -433,7 +436,8 @@ namespace MphRead::Entities
                         }
                     }
                 }
-                if (GameState::SinglePlayer() || _controls.Shoot().IsDown() || time <= 0 || _isBot
+                if (GameState::SinglePlayer() || _controls.Shoot().IsDown()
+                    || Mods::Network::NetPlayerBridge::RespawnRequested(SlotIndex()) || time <= 0 || _isBot
                     || Mods::Network::NetHooks::ForceSpawn(*this))
                 {
                     std::shared_ptr<PlayerSpawnEntity> respawn = GetRespawnPoint();
@@ -547,6 +551,10 @@ namespace MphRead::Entities
         if (_altAttackCooldown > 0)
         {
             --_altAttackCooldown;
+        }
+        if (_boostAimLock > 0)
+        {
+            --_boostAimLock;
         }
         if (_jumpPadControlLock > 0)
         {
@@ -994,6 +1002,10 @@ namespace MphRead::Entities
         if ((IsAltForm() || IsMorphing()) && _frozenTimer == 0)
         {
             UpdateAnimFrames(RequireReference(_altModel));
+        }
+        if (_hunter == Hunter::Spire && TestFlag(_flags2, PlayerFlags2::AltAttack))
+        {
+            UpdateSpireAltCollisionPose();
         }
         if (_boostEffect)
         {
@@ -1515,6 +1527,10 @@ namespace MphRead::Entities
         {
             std::shared_ptr<ItemInstanceEntity> itemPtr = enumerator.Current();
             ItemInstanceEntity& item = RequireReference(itemPtr);
+            if (!Mods::Network::NetHealthSync::OwnsPickup(item) || item.DespawnTimer() == 0)
+            {
+                continue;
+            }
             bool inRange = false;
             if (IsAltForm())
             {
@@ -1560,11 +1576,7 @@ namespace MphRead::Entities
                     pickedUp = true;
                     _timeSinceHeal = 0;
                     GainHealth(ManagedAt(_healthPickupAmounts, static_cast<std::int32_t>(itemType)));
-                    if (Sound::Sfx::TimedSfxMute == 0)
-                    {
-                        playSfx(itemType == ItemType::HealthSmall
-                            ? SfxId::POWER_UP1 : SfxId::POWER_UP2);
-                    }
+                    PlayHealthPickupSfx(itemType);
                 }
                 break;
             case ItemType::UASmall:
@@ -1703,9 +1715,19 @@ namespace MphRead::Entities
             }
             if (pickedUp)
             {
-                item.OnPickedUp();
+                item.OnPickedUp(this);
             }
         }
+    }
+
+    void PlayerEntity::PlayHealthPickupSfx(ItemType itemType)
+    {
+        if (!IsMainPlayer() || Sound::Sfx::TimedSfxMute != 0
+            || !Mods::Multiplayer::MapResourceRules::IsHealth(itemType))
+        {
+            return;
+        }
+        (void)_soundSource.PlayFreeSfx(itemType == ItemType::HealthSmall ? SfxId::POWER_UP1 : SfxId::POWER_UP2);
     }
 
     void PlayerEntity::PickUpWeapon(ItemType itemType)
@@ -2046,6 +2068,29 @@ namespace MphRead::Entities
         {
             _modelTransform = GetTransformMatrix(Vector3(_field80, 0.0F, _field84), UnitY);
         }
+    }
+
+    void PlayerEntity::AnimateSpireAltAttack()
+    {
+        const Matrix4 transform = GetTransformMatrix(_spireAltFacing, _spireAltUp);
+        ModelInstance& alt = RequireReference(_altModel.get());
+        Model& model = RequireReference(alt.Model());
+        model.AnimateNodes(0, false, transform, Vector3(1.0F, 1.0F, 1.0F), alt.AnimInfo);
+    }
+
+    void PlayerEntity::UpdateSpireAltCollisionPose()
+    {
+        // Keep collision pose advancing even when no draw pass runs.
+        AnimateSpireAltAttack();
+        _spireRockPosL = RequireReference(ManagedAt(_spireAltNodes, 0).get()).Animation.Row3().Xyz()
+            + static_cast<Vector3>(Position);
+        _spireRockPosR = RequireReference(ManagedAt(_spireAltNodes, 1).get()).Animation.Row3().Xyz()
+            + static_cast<Vector3>(Position);
+    }
+
+    std::pair<Vector3, Vector3> PlayerEntity::ModSpireAltCollisionPose() const
+    {
+        return {_spireRockPosL, _spireRockPosR};
     }
 
     void PlayerEntity::UpdateStinglarvaSegments()

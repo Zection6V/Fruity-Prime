@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../Mods/Network/NetHealthSync.hpp"
+
 #include "../Formats/Entity.hpp"
 #include "EntityBase.hpp"
 
@@ -17,6 +19,7 @@ namespace MphRead::Entities
 {
     class FhItemEntity;
     class ItemInstanceEntity;
+    class PlayerEntity;
 
     class ItemSpawnEntity : public EntityBase
     {
@@ -41,7 +44,8 @@ namespace MphRead::Entities
 
         void Initialize() override;
         [[nodiscard]] bool Process() override;
-        void OnItemPickedUp();
+        [[nodiscard]] Mods::Network::HealthSpawnState ModHealthState() const;
+        void OnItemPickedUp(PlayerEntity* picker = nullptr);
         void HandleMessage(MessageInfo info) override;
         void GetDrawInfo() override;
 
@@ -74,6 +78,7 @@ namespace MphRead::Entities
         bool _playKeySfx = false;
         std::uint16_t _spawnCount = 0;
         std::uint16_t _spawnCooldown = 0;
+        std::int8_t _lastPickerSlot = -1;
         bool _linkDone = false;
         std::shared_ptr<EntityBase> _parent{};
         OpenTK::Mathematics::Vector3 _invPos{};

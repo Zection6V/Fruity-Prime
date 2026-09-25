@@ -25,6 +25,9 @@ namespace MphRead::NativeRuntime
             || value == U' ' || value == U' ' || value == U' '
             || value == U'　';
     }
+    // char.IsLetterOrDigit(c) for one UTF-16 unit: the Unicode letter and
+    // decimal-digit categories, which no culture changes.
+    [[nodiscard]] bool CharIsLetterOrDigit(char16_t value) noexcept;
     // The white space int.Parse and float.Parse skip around a number
     // (NumberStyles.AllowLeadingWhite/AllowTrailingWhite): tab to carriage
     // return and the space, nothing wider.

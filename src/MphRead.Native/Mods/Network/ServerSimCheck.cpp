@@ -71,18 +71,6 @@ namespace
         return std::to_string(value);
     }
 
-    [[nodiscard]] char CurrentDecimalPoint() noexcept
-    {
-        try
-        {
-            return std::use_facet<std::numpunct<char>>(std::locale("")).decimal_point();
-        }
-        catch (...)
-        {
-            return '.';
-        }
-    }
-
     [[nodiscard]] std::int32_t RoundToEvenInt32(double value) noexcept
     {
         if (!std::isfinite(value)

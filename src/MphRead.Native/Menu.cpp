@@ -159,106 +159,6 @@ namespace
         return std::string(text.substr(first));
     }
 
-#if !defined(_WIN32)
-    [[nodiscard]] locale_t CurrentPosixLocale() noexcept
-    {
-        locale_t active = ::uselocale(static_cast<locale_t>(0));
-        if (active != static_cast<locale_t>(0))
-        {
-            // duplocale(LC_GLOBAL_LOCALE) snapshots the process-global locale,
-            // while a thread locale is copied directly. Do this per call so a
-            // later culture/locale change is observed instead of cached.
-            if (locale_t copy = ::duplocale(active); copy != static_cast<locale_t>(0)) return copy;
-        }
-        return ::newlocale(LC_ALL_MASK, "C", static_cast<locale_t>(0));
-    }
-
-    [[nodiscard]] std::string CurrentPosixNumericLocaleName()
-    {
-        const char* name = nullptr;
-        locale_t active = ::uselocale(static_cast<locale_t>(0));
-#if defined(__GLIBC__)
-        if (active != static_cast<locale_t>(0) && active != LC_GLOBAL_LOCALE)
-        {
-            name = ::nl_langinfo_l(_NL_LOCALE_NAME(LC_NUMERIC), active);
-        }
-#endif
-        if (name == nullptr || *name == '\0') name = ::setlocale(LC_NUMERIC, nullptr);
-        if (name == nullptr || *name == '\0') return "en_US_POSIX";
-
-        std::string localeName(name);
-        if (localeName == "C" || localeName == "POSIX") return "en_US_POSIX";
-
-        const std::size_t at = localeName.find('@');
-        const std::size_t dot = localeName.find('.');
-        if (dot != std::string::npos)
-        {
-            if (at != std::string::npos && at > dot)
-            {
-                localeName.erase(dot, at - dot);
-            }
-            else
-            {
-                localeName.erase(dot);
-            }
-        }
-        return localeName;
-    }
-#endif
-
-    [[nodiscard]] std::string DotNetCaseMap(std::string_view text, bool upper)
-    {
-        try
-        {
-            std::wstring wide = Utf8ToWide(text);
-#if defined(_WIN32)
-            if (wide.empty()) return {};
-            const DWORD flags = (upper ? LCMAP_UPPERCASE : LCMAP_LOWERCASE) | LCMAP_LINGUISTIC_CASING;
-            const int required = LCMapStringEx(LOCALE_NAME_USER_DEFAULT, flags,
-                wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr, 0);
-            if (required > 0)
-            {
-                std::wstring mapped(static_cast<std::size_t>(required), L'\0');
-                const int written = LCMapStringEx(LOCALE_NAME_USER_DEFAULT, flags,
-                    wide.data(), static_cast<int>(wide.size()), mapped.data(), required,
-                    nullptr, nullptr, 0);
-                if (written > 0)
-                {
-                    mapped.resize(static_cast<std::size_t>(written));
-                    return WideToUtf8(mapped);
-                }
-            }
-#else
-            locale_t locale = CurrentPosixLocale();
-            if (locale != static_cast<locale_t>(0))
-            {
-                for (wchar_t& value : wide)
-                {
-                    value = upper ? ::towupper_l(value, locale) : ::towlower_l(value, locale);
-                }
-                ::freelocale(locale);
-                return WideToUtf8(wide);
-            }
-#endif
-        }
-        catch (...)
-        {
-        }
-        // Managed strings are valid Unicode. If the platform locale adapter
-        // cannot represent a supplied console byte sequence, leave it unchanged.
-        return std::string(text);
-    }
-
-    [[nodiscard]] std::string DotNetToLower(std::string_view text)
-    {
-        return DotNetCaseMap(text, false);
-    }
-
-    [[nodiscard]] std::string DotNetToUpper(std::string_view text)
-    {
-        return DotNetCaseMap(text, true);
-    }
-
     using Decimal = ::System::Decimal;
 
     Decimal _sfxVolume = Decimal::ParseInvariant("0.35");
@@ -326,21 +226,22 @@ namespace
 
     [[nodiscard]] std::string ToLower(std::string value)
     {
-        return DotNetToLower(value);
+        return ::MphRead::NativeRuntime::ToLowerCurrentCulture(value);
     }
 
     [[nodiscard]] std::string ToUpper(std::string value)
     {
-        return DotNetToUpper(value);
+        return ::MphRead::NativeRuntime::ToUpperCurrentCulture(value);
     }
 
-    [[nodiscard]] bool StartsWith(std::string_view value, std::string_view prefix) noexcept
+    // string.StartsWith(string) / EndsWith(string): current culture.
+    [[nodiscard]] bool StartsWith(std::string_view value, std::string_view prefix)
     {
-        return value.size() >= prefix.size() && value.substr(0, prefix.size()) == prefix;
+        return ::MphRead::NativeRuntime::StringStartsWithCurrentCulture(value, prefix);
     }
-    [[nodiscard]] bool EndsWith(std::string_view value, std::string_view suffix) noexcept
+    [[nodiscard]] bool EndsWith(std::string_view value, std::string_view suffix)
     {
-        return value.size() >= suffix.size() && value.substr(value.size() - suffix.size()) == suffix;
+        return ::MphRead::NativeRuntime::StringEndsWithCurrentCulture(value, suffix);
     }
 
     [[nodiscard]] std::vector<std::string> Split(const std::string& value, char separator, bool trim, bool removeEmpty)

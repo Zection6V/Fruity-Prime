@@ -74,36 +74,6 @@ namespace
         return text;
     }
 
-    [[nodiscard]] bool IsLetterOrDigit(char32_t codePoint)
-    {
-        if ((codePoint >= U'0' && codePoint <= U'9')
-            || (codePoint >= U'A' && codePoint <= U'Z')
-            || (codePoint >= U'a' && codePoint <= U'z'))
-        {
-            return true;
-        }
-        if (codePoint > 0xFFFFU
-            || (codePoint >= 0xD800U && codePoint <= 0xDFFFU))
-        {
-            return false;
-        }
-#if defined(_WIN32)
-        const wchar_t value = static_cast<wchar_t>(codePoint);
-        WORD type = 0;
-        if (GetStringTypeW(CT_CTYPE1, &value, 1, &type) == 0)
-        {
-            throw std::system_error(
-                static_cast<int>(GetLastError()), std::system_category());
-        }
-        return (type & (C1_ALPHA | C1_DIGIT)) != 0;
-#else
-        static const std::locale locale("");
-        return std::use_facet<std::ctype<wchar_t>>(locale).is(
-            std::ctype_base::alpha | std::ctype_base::digit,
-            static_cast<wchar_t>(codePoint));
-#endif
-    }
-
     [[nodiscard]] std::string SafeClientName(std::string_view clientName)
     {
         std::string safe;
@@ -118,7 +88,7 @@ namespace
             {
                 safe += "__";
             }
-            else if (IsLetterOrDigit(unit.Value))
+            else if (::MphRead::NativeRuntime::CharIsLetterOrDigit(static_cast<char16_t>(unit.Value)))
             {
                 safe.append(clientName.substr(index, unit.Length));
             }

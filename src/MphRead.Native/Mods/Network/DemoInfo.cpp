@@ -118,11 +118,6 @@ namespace MphRead::Mods::Network
             return static_cast<std::int64_t>(length);
         }
 
-        [[nodiscard]] char CurrentDecimalPoint()
-        {
-            return std::use_facet<std::numpunct<char>>(std::locale("")).decimal_point();
-        }
-
         [[nodiscard]] std::string PacketTypeToString(PacketType type)
         {
             switch (type)

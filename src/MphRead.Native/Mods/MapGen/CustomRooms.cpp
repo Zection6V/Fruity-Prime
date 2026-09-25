@@ -280,17 +280,12 @@ namespace MphRead::Mods::MapGen
         std::vector<std::string> paths =
             MaterializeMapFiles(MapFiles());
 
-        // Enumerable.OrderBy(string) uses the current culture's string
-        // comparer. std::collate is the native current-locale equivalent.
-        const std::locale locale("");
-        const auto& collate = std::use_facet<std::collate<char>>(locale);
+        // Enumerable.OrderBy(string): stable, by the current culture.
         std::stable_sort(
             paths.begin(), paths.end(),
-            [&collate](const std::string& left, const std::string& right)
+            [](const std::string& left, const std::string& right)
             {
-                return collate.compare(
-                    left.data(), left.data() + left.size(),
-                    right.data(), right.data() + right.size()) < 0;
+                return ::MphRead::NativeRuntime::StringCompareCurrentCulture(left, right) < 0;
             });
 
         for (const std::string& path : paths)

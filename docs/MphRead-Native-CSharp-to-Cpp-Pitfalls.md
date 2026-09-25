@@ -367,34 +367,60 @@ C++ で対応する配列・メンバは `{}` で初期化する。「C# は未�
 | `(int)float` が NaN・範囲外で `int.MinValue`（.NET 9 は NaN→0、範囲外は飽和） | `Petrasyl1`・`GoreaMeteor`・`BarbedWarWasp`・`Shriekbat`・`HudInfo` |
 
 **修正**: 共通の定義を1か所に置き、コピーを削除して呼び出しをそちらに向けた。
+置き場所の規則は「C# がライブラリ（.NET・OpenTK）から得ているものは `NativeRuntime`、
+C# のソース（`Formats/Types.cs` など）が宣言しているものは対応する C++ ファイル」。
 
-| 置き場所 | 中身 |
+| 置き場所 | 中身（C# の対応） |
 |---|---|
-| `NativeRuntime/System/IO.hpp` | `PathFromUtf8`・`PathToUtf8`・`PathCombine`（.NET の `Path.Combine`）・`PathIsPathRooted`・`FileExists`・`DirectoryExists`・`FileReadAllBytes`・`FileWriteAllBytes` |
-| `NativeRuntime/System/Managed.hpp` | `RequireReference`・`RoundToEven`（`std::nearbyint`）・`ConvertToInt32Net9` |
-| `Formats/Types.hpp`（`OpenTK::Mathematics`） | `MathHelper::DegreesToRadians/RadiansToDegrees`・`Length`・`Normalize`・`Multiply`・`Divide`・`Add`・`Subtract`・`Negate`・`Scale`・`Equal`・`IsZero`・`AddY`/`WithY` など・`IdentityMatrix`・`CreateScale`・`CreateTranslation`・`CreateRotationY`・`ClearScale`・`SetRow3` |
-| `Formats/Types.hpp`（`MphRead`） | `TestFlag`・`TestAny`・`HasFlag`（C# と同じく `TestFlag`/`HasFlag` は全ビット） |
-
-ベクトル・行列を引数に取るものは実引数依存の名前探索（ADL）で見つかるので、呼び出し側は
-変更不要。`float` だけを取るもの（`DegreesToRadians`・`CreateRotationY` など）と
-`NativeRuntime` のものはファイル先頭の `using` で見える。
+| `NativeRuntime/System/IO.hpp` | `PathFromUtf8`/`PathToUtf8`（Windows では WTF-8）、`Path.*`（`Combine` 2〜4引数と `params`、`GetFileName`、`GetFileNameWithoutExtension`、`GetExtension`、`GetDirectoryName`（null は `nullopt`）、`GetFullPath`、`IsPathRooted`）、`File.*`（`Exists`（null 可）、`ReadAllBytes/Text/Lines`、`WriteAllBytes/Text/Lines`、`AppendAllText`、`Delete`）、`Directory.Exists/CreateDirectory`、`FileInfo`・`FileInfoLength` |
+| `NativeRuntime/System/Encoding.hpp` | `Rune.DecodeFromUtf8`・`DecodeUtf8Scalar`・`AppendUtf8`・`Encoding.UTF8/Unicode/UTF32.GetString`・`StreamReaderDecode`（BOM 判定）・UTF-8/16/32 相互変換・`Utf16Length`（`string.Length`）・`WideToUtf8`/`Utf8ToWide`・WTF-8（`WideToWtf8`/`Wtf8ToWide`） |
+| `NativeRuntime/System/Globalization.hpp` | `char.IsWhiteSpace`・`string.Trim`/`IsNullOrWhiteSpace`/`Replace`/`Equals(OrdinalIgnoreCase)`・`int.TryParse`（現在カルチャ／インバリアント）・`bool.TryParse` |
+| `NativeRuntime/System/Managed.hpp` | `RequireReference`（ポインタ・`shared_ptr`・`optional`）・`ManagedAs`（`as`）・`ManagedCast`（`(T)x`）・`CSharpTryFinally`・`AssignReadonly`・`RoundToEven`・`ConvertToInt32Net9`・`Math.Max/Min/Clamp`・`unchecked` 演算・`ManagedAt`/`ManagedListAt`・`HasFlag` |
+| `NativeRuntime/System/HashCode.hpp` | `HashCode.Combine`（プロセスで種は1つ） |
+| `NativeRuntime/System/Runtime.hpp` | `Environment.ProcessPath`・`AppContext.BaseDirectory`・`OperatingSystem.IsAndroid/IsMacOS/IsLinux/IsWindows`・`PasteArguments`（`PasteArgument`） |
+| `NativeRuntime/System/Console.hpp` | `Console.Write/WriteLine`・`Environment.NewLine`・`Environment.GetEnvironmentVariable` |
+| `NativeRuntime/System/ExceptionText.hpp` | `GetType().Name`・`Exception.ToString()`・`Message` |
+| `NativeRuntime/OpenTK/Mathematics.hpp` | OpenTK の型と演算（`Vector3.Dot/Cross/UnitY`、`Vector4.Dot`、`Matrix4.LookAt/Transpose/CreatePerspectiveFieldOfView/CreateOrthographic/ClearTranslation/ExtractScale/Invert`、`MathHelper.Clamp` など） |
+| `NativeRuntime/OpenTK/GLFW.hpp` | OpenTK の `GLFW`（ジョイスティック・ゲームパッド） |
+| `Formats/Types.hpp` | `TestFlag`・`TestAny`・`WithX/Y/Z`・`AddX/Y/Z`・`MarshalExtensions`（固定長フィールド用の `MarshalUtf8` を含む） |
+| `Formats/Enums.hpp`・`Formats.hpp` | `Hunter`・`ItemType`・`GameMode` の `ToString()` |
+| `Messaging.hpp` | `BoxInt32`/`UnboxInt32`（`(object)i`・`(int)o`） |
 
 **注意点**:
 - 共通処理が欲しくなったら、まず上の表の場所を探す。無ければそこに足す（ファイル内に書かない）。
 - パスは必ず `PathFromUtf8`/`PathToUtf8` を通す。`std::filesystem::path(str)`・`path.string()`・
-  `std::ifstream(str)` は禁止（Linux では動くので気づけない）。
+  `std::ifstream(str)` は禁止（Linux では動くので気づけない）。`std::getenv` も Windows では ANSI なので
+  `EnvironmentGetVariable` を使う。
 - 共通関数を `MphRead` 名前空間に置くと、グローバル無名名前空間にある同名のファイル内関数を
   `MphRead::...` の中から**隠す**（項目2と同じ名前探索）。`ModEntry` の `HasFlag(args, name)` と
   `PlayerEntityNetAim` の `HasFlag(uint32, uint32)` は `::HasFlag` で呼ぶようにした。
-- メンバー（例: `EntityBase::Scale` プロパティ）と同名の共通関数は、メンバー関数の中からは
-  修飾して呼ぶ（`::OpenTK::Mathematics::Scale(...)`）。
+- メンバー（例: `EntityBase::Scale`、`ToString`）と同名の共通関数は、メンバー関数の中からは
+  修飾して呼ぶ（`::OpenTK::Mathematics::Scale(...)`、`::MphRead::ToString(...)`）。
+- `std::string` 引数は `string_view` と `optional<string>` の両方に変換できるので、`optional` を
+  受ける多重定義を足すときは `const std::string&`・`const char*` の多重定義も足す（曖昧になる）。
+- `std::filesystem::path` は Linux では `std::string` に暗黙変換されるが Windows ではされない。
+  MinGW での構文チェックを必ず通す。
 - `tools/native-audit/helper_copies.py` が、共通化済みの名前をファイル内で再定義している箇所を出す。
-  残る 12 件は引数が別物（`Matrix4x3`、WTF-8 パス、`std::istream`、コマンドライン引数など）で対象外。
 
-**未整理（共通化していない重複）**: UTF-8/UTF-16 変換（`AppendUtf8`・`DecodeUtf8`・`Utf8ToUtf16`）は
-サロゲートの扱いがファイルごとに違うが、WTF-8 を意図的に扱うファイル（ランチャー）があるため、
-呼び出し元ごとの判断が要る。ほかに `TrimDotNetWhitespace`・`IsNullOrWhiteSpace`・`TryParseInt32`・
-`ManagedAt`/`VectorAt`（例外の型）・`MainPlayer`・`CastSpawner` などが複数ファイルにある。
+**共通化の際に見つけた C# とのずれ（修正済み）**: 不正な UTF-8 を1バイトごとに U+FFFD にしていた
+（.NET は最大部分列ごと）、`File.ReadAllText` が UTF-16/32 の BOM を見ていなかった、`File.Delete` が
+すべてのエラーを握りつぶしていた、`Path.GetDirectoryName` がルートで null を返さなかった、
+`HashCode.Combine` の種がファイルごとに別だった、`Matrix4.LookAt` の一つが上方向を正規化していなかった、
+例外の型名が GCC のマングル名のまま出ていた、ランチャーの `Path.Combine` が .NET Framework の規則
+（ドライブ文字の後に区切りを入れない）だった、`CustomRooms` のマップフォルダが macOS のバンドルを
+見ていなかった、など（コミットメッセージに個別の記録）。
+
+**未整理（別作業として残っているもの）**:
+- 現在カルチャの数値記号・照合（ICU/`GetLocaleInfoEx` の読み出しと `FormatFixed` などの書式化）が
+  約10ファイルにある。
+- `ToUpperInvariant`/`OrdinalIgnoreCase` の大文字小文字表がファイルごとに部分的（`Q3Bsp`・`MapBundle`・
+  `MapVote`・`TextLauncher`・サムネイル系）。Globalization の畳み込みは ICU 依存で Windows では ASCII のみ。
+- ZIP の読み出しが `Q3Bsp` と `MapBundle` に別々にある（`ZipArchive` がある）。
+- `System` の例外と同名の例外クラスがファイルごとに約50個ある（`catch` が効かない組み合わせがある）。
+- `std::cout` 直書きが約520か所（`Console` を通すと Windows コンソールで UTF-16 になる）。
+- `List.Sort`/`Array.Sort` のイントロソートが2ファイルにあり、`std::sort` の25か所は未監査。
+- `MapGen` の数値解析（`TryParseSingleInvariant`・Unicode 空白の切り詰め）が `Q3Convert`・`Q3Import`・
+  `MapBuilder`・`Features`・`SettingsView` に重複。
 
 ---
 

@@ -31,11 +31,6 @@ namespace MphRead::Entities::Enemies
     {
         using OpenTK::Mathematics::Vector3;
 
-        [[nodiscard]] float Dot(Vector3 left, Vector3 right) noexcept
-        {
-            return left.X * right.X + left.Y * right.Y + left.Z * right.Z;
-        }
-
         [[nodiscard]] bool AnimationEnded(ModelInstance& model)
         {
             AnimationInfo& animInfo = RequireReference(model.AnimInfo);
@@ -178,7 +173,7 @@ namespace MphRead::Entities::Enemies
         }
 
         const Vector3 cameraPosition = RequireReference(RequireReference(PlayerEntity::Main()).CameraInfo()).Position;
-        if (Dot(cameraPosition - _fieldPosition, _vec2) < 0.0F)
+        if (Vector3::Dot(cameraPosition - _fieldPosition, _vec2) < 0.0F)
         {
             _vec2 = ScaleVector(_vec2, -1.0F);
             const Vector3 position
@@ -217,15 +212,15 @@ namespace MphRead::Entities::Enemies
         const float width = forceField.Width() - 0.3F;
         const float height = forceField.Height() - 0.3F;
         Vector3 between = static_cast<Vector3>(Position) - _fieldPosition;
-        const float rightPct = Dot(between, forceField.FieldRightVector()) / width;
-        const float upPct = Dot(between, forceField.FieldUpVector()) / height;
+        const float rightPct = Vector3::Dot(between, forceField.FieldRightVector()) / width;
+        const float upPct = Vector3::Dot(between, forceField.FieldUpVector()) / height;
         const float pct = rightPct * rightPct + upPct * upPct;
         if (pct >= 1.0F)
         {
             const Vector3 fieldFacing = forceField.FieldFacingVector();
-            const float dot1 = Dot(between, fieldFacing);
+            const float dot1 = Vector3::Dot(between, fieldFacing);
             between = (between - ScaleVector(fieldFacing, dot1)).Normalized();
-            const float dot2 = Dot(_ownSpeed, between) * 2.0F;
+            const float dot2 = Vector3::Dot(_ownSpeed, between) * 2.0F;
             _ownSpeed = _ownSpeed - ScaleVector(between, dot2);
             const float inv = 1.0F / std::sqrt(pct);
             const float rf = rightPct * inv * width;

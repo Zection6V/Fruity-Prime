@@ -1,4 +1,5 @@
 #include "UpdateCheck.hpp"
+#include "../../NativeRuntime/System/ExceptionText.hpp"
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 
 #include "../Branding.hpp"
@@ -938,33 +939,8 @@ namespace MphRead::Mods::Update
             {
                 return named->Name();
             }
-            if (dynamic_cast<const NullReferenceException*>(&ex) != nullptr)
-            {
-                return "NullReferenceException";
-            }
-            if (dynamic_cast<const ArgumentNullException*>(&ex) != nullptr)
-            {
-                return "ArgumentNullException";
-            }
-            if (dynamic_cast<const InvalidOperationException*>(&ex) != nullptr)
-            {
-                return "InvalidOperationException";
-            }
-            if (dynamic_cast<const std::bad_alloc*>(&ex) != nullptr)
-            {
-                return "OutOfMemoryException";
-            }
-            if (dynamic_cast<const std::out_of_range*>(&ex) != nullptr)
-            {
-                return "ArgumentOutOfRangeException";
-            }
-            if (dynamic_cast<const std::invalid_argument*>(&ex) != nullptr)
-            {
-                return "ArgumentException";
-            }
-            return "Exception";
+            return ::MphRead::NativeRuntime::ExceptionTypeName(ex);
         }
-
         [[nodiscard]] std::optional<Asset> PickAsset(const std::vector<Asset>& assets)
         {
             const std::string rid = UpdateCheck::Rid();

@@ -1,5 +1,6 @@
 #include "Mathematics.hpp"
 
+#include "../System/Exceptions.hpp"
 #include "../System/Globalization.hpp"
 
 #include <array>
@@ -47,6 +48,118 @@ namespace OpenTK::Mathematics
     float Vector3::Dot(Vector3 left, Vector3 right) noexcept
     {
         return (left.X * right.X) + (left.Y * right.Y) + (left.Z * right.Z);
+    }
+
+    Matrix4 Matrix4::Transpose(const Matrix4& value) noexcept
+    {
+        return Matrix4(
+            Vector4(value.M11, value.M21, value.M31, value.M41),
+            Vector4(value.M12, value.M22, value.M32, value.M42),
+            Vector4(value.M13, value.M23, value.M33, value.M43),
+            Vector4(value.M14, value.M24, value.M34, value.M44));
+    }
+
+    Matrix4 Matrix4::CreatePerspectiveFieldOfView(float fovy, float aspect, float depthNear, float depthFar)
+    {
+        if (fovy <= 0 || fovy > MathHelper::Pi)
+        {
+            throw System::ArgumentOutOfRangeException("fovy");
+        }
+        if (aspect <= 0)
+        {
+            throw System::ArgumentOutOfRangeException("aspect");
+        }
+        if (depthNear <= 0)
+        {
+            throw System::ArgumentOutOfRangeException("depthNear");
+        }
+        if (depthFar <= 0)
+        {
+            throw System::ArgumentOutOfRangeException("depthFar");
+        }
+        const float maxY = depthNear * std::tan(0.5F * fovy);
+        const float minY = -maxY;
+        const float minX = minY * aspect;
+        const float maxX = maxY * aspect;
+        return CreatePerspectiveOffCenter(minX, maxX, minY, maxY, depthNear, depthFar);
+    }
+
+    Matrix4 Matrix4::CreatePerspectiveOffCenter(
+        float left, float right, float bottom, float top, float depthNear, float depthFar)
+    {
+        if (depthNear <= 0)
+        {
+            throw System::ArgumentOutOfRangeException("depthNear");
+        }
+        if (depthFar <= 0)
+        {
+            throw System::ArgumentOutOfRangeException("depthFar");
+        }
+        if (depthNear >= depthFar)
+        {
+            throw System::ArgumentOutOfRangeException("depthNear");
+        }
+        const float x = 2.0F * depthNear / (right - left);
+        const float y = 2.0F * depthNear / (top - bottom);
+        const float a = (right + left) / (right - left);
+        const float b = (top + bottom) / (top - bottom);
+        const float c = -(depthFar + depthNear) / (depthFar - depthNear);
+        const float d = -(2.0F * depthFar * depthNear) / (depthFar - depthNear);
+        return Matrix4(
+            Vector4(x, 0, 0, 0),
+            Vector4(0, y, 0, 0),
+            Vector4(a, b, c, -1),
+            Vector4(0, 0, d, 0));
+    }
+
+    Matrix4 Matrix4::CreateOrthographic(float width, float height, float depthNear, float depthFar) noexcept
+    {
+        return CreateOrthographicOffCenter(-width / 2, width / 2, -height / 2, height / 2, depthNear, depthFar);
+    }
+
+    Matrix4 Matrix4::CreateOrthographicOffCenter(
+        float left, float right, float bottom, float top, float depthNear, float depthFar) noexcept
+    {
+        Matrix4 result = IdentityMatrix();
+        const float invRL = 1.0F / (right - left);
+        const float invTB = 1.0F / (top - bottom);
+        const float invFN = 1.0F / (depthFar - depthNear);
+        result.M11 = 2 * invRL;
+        result.M22 = 2 * invTB;
+        result.M33 = -2 * invFN;
+        result.M41 = -(right + left) * invRL;
+        result.M42 = -(top + bottom) * invTB;
+        result.M43 = -(depthFar + depthNear) * invFN;
+        return result;
+    }
+
+    Matrix4 Matrix4::ClearTranslation() const noexcept
+    {
+        Matrix4 result = *this;
+        result.M41 = 0.0F;
+        result.M42 = 0.0F;
+        result.M43 = 0.0F;
+        return result;
+    }
+
+    Vector3 Matrix4::ExtractScale() const
+    {
+        return Vector3(Length(Row0().Xyz()), Length(Row1().Xyz()), Length(Row2().Xyz()));
+    }
+
+    Matrix4 Matrix4::LookAt(Vector3 eye, Vector3 target, Vector3 up)
+    {
+        const Vector3 z = (eye - target).Normalized();
+        const Vector3 x = Vector3::Cross(up, z).Normalized();
+        const Vector3 y = Vector3::Cross(z, x).Normalized();
+        return Matrix4(
+            Vector4(x.X, y.X, z.X, 0.0F),
+            Vector4(x.Y, y.Y, z.Y, 0.0F),
+            Vector4(x.Z, y.Z, z.Z, 0.0F),
+            Vector4(-(x.X * eye.X + x.Y * eye.Y + x.Z * eye.Z),
+                -(y.X * eye.X + y.Y * eye.Y + y.Z * eye.Z),
+                -(z.X * eye.X + z.Y * eye.Y + z.Z * eye.Z),
+                1.0F));
     }
 
     float Vector3::Distance(Vector3 left, Vector3 right)

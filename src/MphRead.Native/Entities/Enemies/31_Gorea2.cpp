@@ -33,6 +33,7 @@ using ::MphRead::TestAny;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::AddY;
 using ::OpenTK::Mathematics::CreateFromAxisAngle;
+using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
@@ -63,11 +64,6 @@ namespace MphRead::Entities::Enemies
         {
             return static_cast<std::int32_t>(
                 static_cast<std::uint32_t>(value & mask) >> shift);
-        }
-
-        [[nodiscard]] Vector3 DivideVector(Vector3 value, float divisor) noexcept
-        {
-            return Vector3(value.X / divisor, value.Y / divisor, value.Z / divisor);
         }
 
         void ScaleRow2Xyz(Matrix4& value, float scale) noexcept
@@ -261,7 +257,7 @@ namespace MphRead::Entities::Enemies
         PlayerEntity& player = RequireReference(PlayerEntity::Main());
         const Vector3 speed = player.Speed();
         player.SetSpeed(
-            speed + DivideVector(DivideVector(between, 4.0F), 2.0F));
+            speed + Divide(Divide(between, 4.0F), 2.0F));
         RequireReference(PlayerEntity::Main()).TakeDamage(
             10, DamageFlags::None, std::nullopt, this);
     }
@@ -1351,7 +1347,7 @@ namespace MphRead::Entities::Enemies
             return Vector3::Zero;
         }
         const float dot2 = Vector3::Dot(vec, axis);
-        return DivideVector(ScaleVector(axis, dot2), dot1);
+        return Divide(ScaleVector(axis, dot2), dot1);
     }
 
     Vector3 Enemy31Entity::Func213FA58()

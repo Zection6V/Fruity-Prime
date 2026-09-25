@@ -14,7 +14,9 @@
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Formats/Culling.hpp"
 #include "../../Scene.hpp"
+#include "../../NativeRuntime/System/ExceptionText.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -27,6 +29,7 @@
 #include <string>
 #include <utility>
 
+using ::MphRead::NativeRuntime::ExceptionTypeName;
 using ::MphRead::NativeRuntime::IncrementInPlace;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -80,17 +83,6 @@ namespace
 
 namespace
 {
-    // `catch (Exception ex)`: the three members the report prints.
-    [[nodiscard]] std::string ExceptionTypeName(const std::exception& ex)
-    {
-        return typeid(ex).name();
-    }
-
-    [[nodiscard]] std::string ExceptionMessage(const std::exception& ex)
-    {
-        return ex.what();
-    }
-
     // Exception.StackTrace, which C++ exceptions do not carry.
     [[nodiscard]] std::optional<std::string> ExceptionStackTrace(const std::exception& ex)
     {
@@ -514,7 +506,7 @@ namespace MphRead::Mods::Network
             {
                 NativeRuntime::ConsoleWriteLine(("DPSCRASH " + room + " | "
                     + ExceptionTypeName(ex) + ": "
-                    + ExceptionMessage(ex)));
+                    + std::string(ex.what())));
                 NativeRuntime::ConsoleWriteLineNullable(ExceptionStackTrace(ex));
                 result = 1;
             }

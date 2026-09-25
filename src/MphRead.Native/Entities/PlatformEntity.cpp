@@ -79,12 +79,6 @@ namespace
         return static_cast<std::uint16_t>(static_cast<std::uint32_t>(value) + 1U);
     }
 
-    [[nodiscard]] float Dot(Vector4 left, Vector4 right) noexcept
-    {
-        return left.X * right.X + left.Y * right.Y
-            + left.Z * right.Z + left.W * right.W;
-    }
-
     [[nodiscard]] Vector3 Row3(Matrix4 value) noexcept
     {
         return Vector3(value.M41, value.M42, value.M43);
@@ -1245,7 +1239,7 @@ namespace MphRead::Entities
         Vector4 fromRot, Vector4 toRot, float pct)
     {
         pct = std::clamp(pct, 0.0F, 1.0F);
-        float dot = Dot(fromRot, toRot);
+        float dot = Vector4::Dot(fromRot, toRot);
         const bool negDot = dot < 0.0F;
         dot = std::fabs(dot);
 

@@ -10,6 +10,7 @@
 #include "../../Utility/Rng.hpp"
 #include "PlayerEntity.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -52,19 +53,6 @@ namespace
     [[nodiscard]] constexpr Vector3 ComponentMultiply(Vector3 left, Vector3 right) noexcept
     {
         return Vector3(left.X * right.X, left.Y * right.Y, left.Z * right.Z);
-    }
-
-    [[nodiscard]] Matrix4 LookAt(Vector3 eye, Vector3 target, Vector3 up)
-    {
-        const Vector3 z = (eye - target).Normalized();
-        const Vector3 x = Vector3::Cross(up, z).Normalized();
-        const Vector3 y = Vector3::Cross(z, x).Normalized();
-        return Matrix4(
-            Vector4(x.X, y.X, z.X, 0.0F),
-            Vector4(x.Y, y.Y, z.Y, 0.0F),
-            Vector4(x.Z, y.Z, z.Z, 0.0F),
-            Vector4(-Vector3::Dot(x, eye), -Vector3::Dot(y, eye),
-                -Vector3::Dot(z, eye), 1.0F));
     }
 
     [[nodiscard]] Vector4 PlaneFromDirection(Vector3 direction) noexcept
@@ -1090,7 +1078,7 @@ namespace MphRead::Entities
         Field4C = facingZ / hMag;
         Field50 = Field4C;
         Field54 = -Field48;
-        ViewMatrix = LookAt(Position, Target, camUp);
+        ViewMatrix = Matrix4::LookAt(Position, Target, camUp);
         TrueUp = camUp;
     }
 

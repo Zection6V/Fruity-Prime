@@ -47,6 +47,7 @@ using ::MphRead::NativeRuntime::UncheckedMultiply;
 using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::OpenTK::Mathematics::CreateRotationY;
 using ::OpenTK::Mathematics::CreateScale;
+using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::Equal;
 using ::OpenTK::Mathematics::IdentityMatrix;
 using ::OpenTK::Mathematics::LengthSquared;
@@ -60,11 +61,6 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
-
-        [[nodiscard]] Vector3 DivideVector(Vector3 value, float divisor) noexcept
-        {
-            return Vector3(value.X / divisor, value.Y / divisor, value.Z / divisor);
-        }
 
         [[nodiscard]] std::int32_t RoundToInt32ToEven(float value) noexcept
         {
@@ -844,7 +840,7 @@ namespace MphRead::Entities::Enemies
         {
             (void)SeekTargetFacing(_targetFacing, 3.0F);
         }
-        _speed = DivideVector(
+        _speed = Divide(
             ScaleVector(TypeExtensions::WithY(FacingVector(), 0.0F), _speedFactor), 2.0F);
         EnsureAnimation(25, 0, _animSetNoMat);
         (void)CallSubroutine<Enemy24Entity>(Metadata::Enemy24Subroutines, this);
@@ -854,7 +850,7 @@ namespace MphRead::Entities::Enemies
     {
         _targetFacing = SeekTargetSetAnim(
             _targetFacing, (*RequireReference(_model).AnimInfo->Index)[0], 0, _animSetNoMat);
-        _speed = DivideVector(
+        _speed = Divide(
             ScaleVector(ScaleVector(FacingVector(), _speedFactor), 5.0F), 2.0F);
         (void)CallSubroutine<Enemy24Entity>(Metadata::Enemy24Subroutines, this);
     }

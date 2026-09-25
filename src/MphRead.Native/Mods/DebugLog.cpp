@@ -13,6 +13,7 @@
 #include "Update/BuildVersion.hpp"
 #include "../NativeRuntime/System/Console.hpp"
 #include "../NativeRuntime/System/Encoding.hpp"
+#include "../NativeRuntime/System/ExceptionText.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Runtime.hpp"
 
@@ -87,6 +88,7 @@
 using ::MphRead::NativeRuntime::AppContextBaseDirectory;
 using ::MphRead::NativeRuntime::EnvironmentGetVariable;
 using ::MphRead::NativeRuntime::EnvironmentProcessPath;
+using ::MphRead::NativeRuntime::ExceptionTypeName;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathGetDirectoryName;
 using ::MphRead::NativeRuntime::WideToUtf8;
@@ -946,21 +948,6 @@ namespace
     [[nodiscard]] std::string ProgramVersionText()
     {
         return MphRead::Program::Version.ToString();
-    }
-
-    [[nodiscard]] std::string ExceptionTypeName(const std::exception& exception)
-    {
-        const char* raw = typeid(exception).name();
-#if defined(__GNUG__)
-        int status = 0;
-        std::unique_ptr<char, decltype(&std::free)> demangled(
-            abi::__cxa_demangle(raw, nullptr, nullptr, &status), &std::free);
-        if (status == 0 && demangled)
-        {
-            return demangled.get();
-        }
-#endif
-        return raw == nullptr ? "std::exception" : std::string(raw);
     }
 
     [[nodiscard]] std::exception_ptr InnerException(const std::exception& exception) noexcept

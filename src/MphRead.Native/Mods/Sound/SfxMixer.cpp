@@ -1,6 +1,7 @@
 #include "SfxMixer.hpp"
-#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #if defined(__ANDROID__)
 #include "../../Sound/Music.hpp"
@@ -53,23 +54,6 @@ namespace MphRead::Mods::Sound
             return static_cast<std::int32_t>(value);
         }
 
-        float Dot(const Vector3& left, const Vector3& right)
-        {
-            return left.X * right.X + left.Y * right.Y + left.Z * right.Z;
-        }
-
-        Vector3 Cross(const Vector3& left, const Vector3& right)
-        {
-            return Vector3(
-                left.Y * right.Z - left.Z * right.Y,
-                left.Z * right.X - left.X * right.Z,
-                left.X * right.Y - left.Y * right.X);
-        }
-
-        Vector3 Normalized(const Vector3& value)
-        {
-            return Divide(value, Length(value));
-        }
     }
 
     struct SfxMixer::Buffer
@@ -779,10 +763,10 @@ namespace MphRead::Mods::Sound
         {
             const Vector3 facing = voice.Relative ? Vector3(0.0F, 0.0F, -1.0F) : _listenerFacing;
             const Vector3 up = voice.Relative ? Vector3(0.0F, 1.0F, 0.0F) : _listenerUp;
-            const Vector3 side = Cross(facing, up);
+            const Vector3 side = Vector3::Cross(facing, up);
             if (LengthSquared(side) > 0.0001F)
             {
-                pan = MathClamp(Dot(Divide(relative, distance), Normalized(side)), -1.0F, 1.0F);
+                pan = MathClamp(Vector3::Dot(Divide(relative, distance), side.Normalized()), -1.0F, 1.0F);
             }
         }
         left = MathMin(1.0F, std::sqrt(0.5F * (1.0F - pan)) * 1.41421356F) * attenuation;

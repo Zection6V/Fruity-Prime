@@ -10,8 +10,9 @@
 #include "../Renderer.hpp"
 #include "../Scene.hpp"
 #include "../Selection.hpp"
-#include "../NativeRuntime/System/Managed.hpp"
 #include "../Formats/Types.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -66,14 +67,6 @@ namespace
             result.push_back(values[i]);
         }
         return result;
-    }
-
-    [[nodiscard]] Vector3 ExtractScale(Matrix4 value) noexcept
-    {
-        return Vector3(
-            Length(Vector3(value.M11, value.M12, value.M13)),
-            Length(Vector3(value.M21, value.M22, value.M23)),
-            Length(Vector3(value.M31, value.M32, value.M33)));
     }
 
     struct Quaternion
@@ -345,7 +338,7 @@ namespace MphRead::Entities
     {
         if (!Equal(_transform, value))
         {
-            _scale = ExtractScale(value);
+            _scale = value.ExtractScale();
             _rotation = ExtractEulerAngles(value);
             _position = Vector3(value.M41, value.M42, value.M43);
             _transform = value;

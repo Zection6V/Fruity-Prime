@@ -7,8 +7,9 @@
 #include "../Renderer.hpp"
 #include "../Scene.hpp"
 #include "../Utility/Rng.hpp"
-#include "../NativeRuntime/System/Managed.hpp"
 #include "Types.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <bit>
 #include <cmath>
@@ -109,11 +110,6 @@ namespace
         return Vector3(1.0F, 0.0F, 0.0F);
     }
 
-    [[nodiscard]] constexpr Vector3 UnitY() noexcept
-    {
-        return Vector3(0.0F, 1.0F, 0.0F);
-    }
-
     [[nodiscard]] constexpr Vector3 UnitZ() noexcept
     {
         return Vector3(0.0F, 0.0F, 1.0F);
@@ -134,14 +130,6 @@ namespace
             Vector4(0.0F, 1.0F, 0.0F, 0.0F),
             Vector4(0.0F, 0.0F, 1.0F, 0.0F),
             Vector4(0.0F, 0.0F, 0.0F, 1.0F));
-    }
-
-    [[nodiscard]] constexpr Matrix4 ClearTranslation(Matrix4 value) noexcept
-    {
-        value.M41 = 0.0F;
-        value.M42 = 0.0F;
-        value.M43 = 0.0F;
-        return value;
     }
 
     void SetTranslation(Matrix4& value, Vector3 position) noexcept
@@ -1495,7 +1483,7 @@ namespace MphRead::Effects
     void EffectParticle::SetVecsB0()
     {
         _effectVec1 = UnitX();
-        _effectVec2 = Negate(UnitY());
+        _effectVec2 = Negate(::OpenTK::Mathematics::Vector3::UnitY);
         _billboardMode = BillboardMode::Sphere;
     }
 
@@ -1575,7 +1563,7 @@ namespace MphRead::Effects
             Vector3 sourcePosition = Position;
             EffectElementEntry& ownerForTransform = Require(Owner);
             Vector3 position = MphRead::Matrix::Vec3MultMtx4(
-                sourcePosition, ClearTranslation(ownerForTransform.Transform));
+                sourcePosition, ownerForTransform.Transform.ClearTranslation());
             float v19 = position.X + (-ev1.X / 2.0F) + (ev2.X / 2.0F);
             float v22 = position.Y + (-ev1.Y / 2.0F) + (ev2.Y / 2.0F);
             float v23 = position.Z + (-ev1.Z / 2.0F) + (ev2.Z / 2.0F);
@@ -1651,7 +1639,7 @@ namespace MphRead::Effects
             Vector3 sourcePosition = Position;
             EffectElementEntry& ownerForTransform = Require(Owner);
             Vector3 position = MphRead::Matrix::Vec3MultMtx4(
-                sourcePosition, ClearTranslation(ownerForTransform.Transform));
+                sourcePosition, ownerForTransform.Transform.ClearTranslation());
             float v27 = position.X + (-v20 / 2.0F) + (v26 / 2.0F);
             float v30 = position.Y + (-v24 / 2.0F) + (v28 / 2.0F);
             float v31 = position.Z + (-v25 / 2.0F) + (v29 / 2.0F);
@@ -1961,7 +1949,7 @@ namespace MphRead::Effects
                     EffectElementEntry& ownerForFirstTransform = Require(Owner);
                     Vector3 position = MphRead::Matrix::Vec3MultMtx4(
                         sourcePosition,
-                        ClearTranslation(ownerForFirstTransform.Transform));
+                        ownerForFirstTransform.Transform.ClearTranslation());
                     EffectElementEntry& ownerForSecondTransform = Require(Owner);
                     Vector3 translation(
                         ownerForSecondTransform.Transform.M41,

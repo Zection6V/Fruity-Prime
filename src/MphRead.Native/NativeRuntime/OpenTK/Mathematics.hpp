@@ -120,6 +120,12 @@ namespace OpenTK::Mathematics
         {
         }
 
+        // Vector4.Dot(left, right).
+        [[nodiscard]] static constexpr float Dot(Vector4 left, Vector4 right) noexcept
+        {
+            return left.X * right.X + left.Y * right.Y + left.Z * right.Z + left.W * right.W;
+        }
+
         [[nodiscard]] constexpr Vector3 Xyz() const noexcept
         {
             return Vector3(X, Y, Z);
@@ -287,6 +293,27 @@ namespace OpenTK::Mathematics
               M41(row3.X), M42(row3.Y), M43(row3.Z), M44(row3.W)
         {
         }
+
+        // Matrix4.LookAt(eye, target, up): a view matrix, every axis normalised.
+        [[nodiscard]] static Matrix4 LookAt(Vector3 eye, Vector3 target, Vector3 up);
+        // Matrix4.Transpose(mat).
+        [[nodiscard]] static Matrix4 Transpose(const Matrix4& value) noexcept;
+        // Matrix4.CreatePerspectiveFieldOfView / CreatePerspectiveOffCenter,
+        // with OpenTK's ArgumentOutOfRangeException for a field of view outside
+        // (0, pi] and for a depth that is not positive or not increasing.
+        [[nodiscard]] static Matrix4 CreatePerspectiveFieldOfView(
+            float fovy, float aspect, float depthNear, float depthFar);
+        [[nodiscard]] static Matrix4 CreatePerspectiveOffCenter(
+            float left, float right, float bottom, float top, float depthNear, float depthFar);
+        // Matrix4.CreateOrthographic / CreateOrthographicOffCenter.
+        [[nodiscard]] static Matrix4 CreateOrthographic(
+            float width, float height, float depthNear, float depthFar) noexcept;
+        [[nodiscard]] static Matrix4 CreateOrthographicOffCenter(
+            float left, float right, float bottom, float top, float depthNear, float depthFar) noexcept;
+        // matrix.ClearTranslation(): Row3's xyz zeroed.
+        [[nodiscard]] Matrix4 ClearTranslation() const noexcept;
+        // matrix.ExtractScale(): the lengths of the upper three rows' xyz.
+        [[nodiscard]] Vector3 ExtractScale() const;
 
         [[nodiscard]] constexpr Vector4 Row0() const noexcept { return Vector4(M11, M12, M13, M14); }
         [[nodiscard]] constexpr Vector4 Row1() const noexcept { return Vector4(M21, M22, M23, M24); }

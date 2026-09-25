@@ -152,11 +152,6 @@ namespace MphRead
             return {1.0F, 0.0F, 0.0F};
         }
 
-        [[nodiscard]] constexpr OpenTK::Mathematics::Vector3 UnitY() noexcept
-        {
-            return {0.0F, 1.0F, 0.0F};
-        }
-
         [[nodiscard]] constexpr OpenTK::Mathematics::Vector3 UnitZ() noexcept
         {
             return {0.0F, 0.0F, 1.0F};
@@ -569,7 +564,7 @@ namespace MphRead
                 {
                     const EntityDataHeader header(
                         static_cast<std::uint16_t>(EntityType::Artifact), -1,
-                        OpenTK::Mathematics::Vector3{}, UnitY(), UnitX());
+                        OpenTK::Mathematics::Vector3{}, ::OpenTK::Mathematics::Vector3::UnitY, UnitX());
                     const ArtifactEntityData data(header, 8,
                         static_cast<std::uint8_t>(dropId), 0, 0,
                         0, Message::None, 0, Message::None, 0, Message::None, -1);
@@ -1337,10 +1332,10 @@ namespace MphRead
             const Fixed heightFx(Fixed::ToInt(height));
             const EntityDataHeader header(
                 static_cast<std::uint16_t>(EntityType::JumpPad), nextId++,
-                position, UnitY(), UnitZ());
+                position, ::OpenTK::Mathematics::Vector3::UnitY, UnitZ());
             const Vector3Fx cylPos(0, Fixed::ToInt(offset), 0);
-            const RawCollisionVolume volume(TypeExtensions::ToVector3Fx(UnitY()), cylPos, radiusFx, heightFx);
-            const JumpPadEntityData data(header, -1, volume, TypeExtensions::ToVector3Fx(UnitY()),
+            const RawCollisionVolume volume(TypeExtensions::ToVector3Fx(::OpenTK::Mathematics::Vector3::UnitY), cylPos, radiusFx, heightFx);
+            const JumpPadEntityData data(header, -1, volume, TypeExtensions::ToVector3Fx(::OpenTK::Mathematics::Vector3::UnitY),
                 Fixed(Fixed::ToInt(speed)), 0, frames, 1, 0, 0, flags);
             return std::make_shared<Entities::JumpPadEntity>(data, nodeName, scene);
         };
@@ -1354,7 +1349,7 @@ namespace MphRead
         {
             const EntityDataHeader header(
                 static_cast<std::uint16_t>(EntityType::Teleporter), nextId++,
-                position, UnitY(), facing);
+                position, ::OpenTK::Mathematics::Vector3::UnitY, facing);
             const TeleporterEntityData data(header, 0, 0, 8, 1, 1,
                 std::nullopt, TypeExtensions::ToVector3Fx(targetPos), targetNode);
             return std::make_shared<Entities::TeleporterEntity>(

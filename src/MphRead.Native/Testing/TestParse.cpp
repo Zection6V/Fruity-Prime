@@ -343,14 +343,6 @@ namespace
         return Vector3(value.M41, value.M42, value.M43);
     }
 
-    [[nodiscard]] Vector3 ExtractScale(Matrix4 value)
-    {
-        return Vector3(
-            Length(Vector3(value.M11, value.M12, value.M13)),
-            Length(Vector3(value.M21, value.M22, value.M23)),
-            Length(Vector3(value.M31, value.M32, value.M33)));
-    }
-
     void SetRow1(Matrix3& matrix, Vector3 value) noexcept
     {
         matrix.M21 = value.X;
@@ -422,7 +414,7 @@ namespace MphRead::Testing
             RadiansToDegrees(rot.X),
             RadiansToDegrees(rot.Y),
             RadiansToDegrees(rot.Z));
-        const Vector3 scale = ExtractScale(trans);
+        const Vector3 scale = trans.ExtractScale();
 
         static_cast<void>(currentTextureMatrix);
         static_cast<void>(mult);

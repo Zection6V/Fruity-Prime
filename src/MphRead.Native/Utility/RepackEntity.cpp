@@ -200,7 +200,6 @@ namespace MphRead::Utility
 
         [[nodiscard]] Vec3 Zero3() noexcept { return Vec3(0.0F, 0.0F, 0.0F); }
         [[nodiscard]] Vec3 One3() noexcept { return Vec3(1.0F, 1.0F, 1.0F); }
-        [[nodiscard]] Vec3 UnitY() noexcept { return Vec3(0.0F, 1.0F, 0.0F); }
         [[nodiscard]] Vec3 UnitZ() noexcept { return Vec3(0.0F, 0.0F, 1.0F); }
         [[nodiscard]] Vec4 UnitW() noexcept { return Vec4(0.0F, 0.0F, 0.0F, 1.0F); }
 
@@ -2997,7 +2996,7 @@ namespace MphRead::Utility
                 auto teleporter = std::make_shared<TeleporterEntityEditor>();
                 teleporter->Id = id;
                 teleporter->LayerMask = 7;
-                teleporter->Up = UnitY();
+                teleporter->Up = ::OpenTK::Mathematics::Vector3::UnitY;
                 teleporter->Facing = UnitZ();
                 teleporter->Position = Vec3(-19.889404F, 0.0F, 0.0F);
                 teleporter->NodeName = S("rmMain");
@@ -3017,7 +3016,7 @@ namespace MphRead::Utility
                 auto teleporter = std::make_shared<TeleporterEntityEditor>();
                 teleporter->Id = id;
                 teleporter->LayerMask = 7;
-                teleporter->Up = UnitY();
+                teleporter->Up = ::OpenTK::Mathematics::Vector3::UnitY;
                 teleporter->Facing = UnitZ();
                 teleporter->Position = Vec3(13.573242F, 2.576416F, -13.726074F);
                 teleporter->NodeName = S("rmMain");

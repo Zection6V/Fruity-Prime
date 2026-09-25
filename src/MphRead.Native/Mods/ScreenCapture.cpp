@@ -9,6 +9,7 @@
 #include "ThumbnailLog.hpp"
 #include "../Formats/Types.hpp"
 #include "../Scene.hpp"
+#include "../NativeRuntime/System/ExceptionText.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 
@@ -25,6 +26,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ExceptionTypeName;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -152,16 +154,6 @@ namespace
         return ::OpenTK::Graphics::OpenGL::GL::GetInteger(pname);
     }
 
-    // `catch (Exception ex)`: the two members this file prints.
-    [[nodiscard]] std::string ExceptionMessage(const std::exception& ex)
-    {
-        return ex.what();
-    }
-
-    [[nodiscard]] std::string ExceptionTypeName(const std::exception& ex)
-    {
-        return typeid(ex).name();
-    }
 }
 
 namespace MphRead::Mods
@@ -288,7 +280,7 @@ namespace MphRead::Mods
         {
             NativeRuntime::ConsoleWriteLine(
                 "[capture] could not save " + path + ": "
-                    + ExceptionMessage(exception));
+                    + std::string(exception.what()));
             return false;
         }
     }
@@ -402,7 +394,7 @@ namespace MphRead::Mods
         catch (const std::exception& exception)
         {
             return "could not query the GL context: "
-                + ExceptionMessage(exception);
+                + std::string(exception.what());
         }
     }
 

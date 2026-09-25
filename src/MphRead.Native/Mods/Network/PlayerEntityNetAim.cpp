@@ -15,6 +15,7 @@
 #include "NetTestScript.hpp"
 #include "../../Scene.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -54,11 +55,6 @@ namespace
     [[nodiscard]] constexpr Vector3 NegativeUnitZ() noexcept
     {
         return Vector3(0.0F, 0.0F, -1.0F);
-    }
-
-    [[nodiscard]] constexpr Vector3 UnitY() noexcept
-    {
-        return Vector3(0.0F, 1.0F, 0.0F);
     }
 
     [[nodiscard]] constexpr bool HasFlag(std::uint32_t value, std::uint32_t flag) noexcept
@@ -333,12 +329,12 @@ namespace MphRead::Entities
         if (found.PartIndex == -1)
         {
             const Vector3 upperPosition = static_cast<Vector3>((*this).Position);
-            found = scene.GetNodeRefByPosition(upperPosition + Multiply(UnitY(), 0.5F));
+            found = scene.GetNodeRefByPosition(upperPosition + Multiply(::OpenTK::Mathematics::Vector3::UnitY, 0.5F));
         }
         if (found.PartIndex == -1)
         {
             const Vector3 lowerPosition = static_cast<Vector3>((*this).Position);
-            found = scene.GetNodeRefByPosition(lowerPosition - Multiply(UnitY(), 0.5F));
+            found = scene.GetNodeRefByPosition(lowerPosition - Multiply(::OpenTK::Mathematics::Vector3::UnitY, 0.5F));
         }
         if (found.PartIndex != -1)
         {
@@ -422,7 +418,7 @@ namespace MphRead::Entities
         const Vector3 forward = LengthSquared(facing) > 0.0001F
             ? facing.Normalized()
             : NegativeUnitZ();
-        const Vector3 up = UnitY();
+        const Vector3 up = ::OpenTK::Mathematics::Vector3::UnitY;
         MphRead::Scene& scene = (*(*this)._scene);
         const Formats::Culling::NodeRef nodeRef = ModSpawnNodeRef(scene, position);
         (*this).Spawn(position, forward, up, nodeRef, true);

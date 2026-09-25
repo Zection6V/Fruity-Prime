@@ -144,56 +144,6 @@ namespace
 
     namespace GLMath
     {
-        [[nodiscard]] Matrix4 Transpose(Matrix4 value) noexcept
-        {
-            return Matrix4(
-                Vector4(value.M11, value.M21, value.M31, value.M41),
-                Vector4(value.M12, value.M22, value.M32, value.M42),
-                Vector4(value.M13, value.M23, value.M33, value.M43),
-                Vector4(value.M14, value.M24, value.M34, value.M44));
-        }
-
-        [[nodiscard]] Matrix4 ClearTranslation(Matrix4 value) noexcept
-        {
-            value.M41 = 0.0F;
-            value.M42 = 0.0F;
-            value.M43 = 0.0F;
-            return value;
-        }
-
-        [[nodiscard]] Matrix4 LookAt(Vector3 eye, Vector3 target, Vector3 up)
-        {
-            const Vector3 z = Vector3(eye.X - target.X, eye.Y - target.Y, eye.Z - target.Z).Normalized();
-            const Vector3 x = Vector3::Cross(up, z).Normalized();
-            const Vector3 y = Vector3::Cross(z, x);
-            return Matrix4(
-                Vector4(x.X, y.X, z.X, 0.0F),
-                Vector4(x.Y, y.Y, z.Y, 0.0F),
-                Vector4(x.Z, y.Z, z.Z, 0.0F),
-                Vector4(-Vector3::Dot(x, eye), -Vector3::Dot(y, eye), -Vector3::Dot(z, eye), 1.0F));
-        }
-
-        [[nodiscard]] Matrix4 CreatePerspectiveFieldOfView(float fov, float aspect, float nearClip, float farClip)
-        {
-            const float yScale = 1.0F / std::tan(fov * 0.5F);
-            const float xScale = yScale / aspect;
-            const float range = nearClip - farClip;
-            return Matrix4(
-                Vector4(xScale, 0, 0, 0),
-                Vector4(0, yScale, 0, 0),
-                Vector4(0, 0, (farClip + nearClip) / range, -1.0F),
-                Vector4(0, 0, (2.0F * farClip * nearClip) / range, 0));
-        }
-
-        [[nodiscard]] Matrix4 CreateOrthographic(float width, float height, float nearClip, float farClip)
-        {
-            const float invDepth = 1.0F / (farClip - nearClip);
-            return Matrix4(
-                Vector4(2.0F / width, 0, 0, 0),
-                Vector4(0, 2.0F / height, 0, 0),
-                Vector4(0, 0, -2.0F * invDepth, 0),
-                Vector4(0, 0, -(farClip + nearClip) * invDepth, 1.0F));
-        }
     }
 
     template <typename E>
@@ -1797,7 +1747,7 @@ namespace MphRead
     Matrix4 Scene::GetPerspectiveMatrix(float fov) const
     {
         const float aspect = static_cast<float>(_rendererSize.X) / static_cast<float>(_rendererSize.Y);
-        return GLMath::CreatePerspectiveFieldOfView(fov, aspect, _nearClip, _useClip ? _farClip : 10000.0F);
+        return Matrix4::CreatePerspectiveFieldOfView(fov, aspect, _nearClip, _useClip ? _farClip : 10000.0F);
     }
 
     void Scene::UpdateProjection()
@@ -2346,9 +2296,9 @@ namespace MphRead
             }
             else
             {
-                _viewMatrix = GLMath::LookAt(_cameraPosition, _cameraPosition + _cameraFacing, _cameraUp);
+                _viewMatrix = Matrix4::LookAt(_cameraPosition, _cameraPosition + _cameraFacing, _cameraUp);
             }
-            _viewInvRotMatrix = GLMath::Transpose(GLMath::ClearTranslation(_viewMatrix));
+            _viewInvRotMatrix = Matrix4::Transpose(_viewMatrix.ClearTranslation());
             if (_viewInvRotMatrix.M11 != 0.0F || _viewInvRotMatrix.M13 != 0.0F)
             {
                 const Vector3 row0 = Vector3(_viewInvRotMatrix.M11, 0.0F, _viewInvRotMatrix.M13).Normalized();
@@ -4063,7 +4013,7 @@ namespace MphRead
             GL::CullFace(GL::TriangleFace::Back);
         }
         GL::UniformMatrix4(_shaderLocations->ViewMatrix, false, identity);
-        const Matrix4 orthoMatrix = GLMath::CreateOrthographic(
+        const Matrix4 orthoMatrix = Matrix4::CreateOrthographic(
             static_cast<float>(_rendererSize.X), static_cast<float>(_rendererSize.Y), 0.5F, 1.5F);
         GL::UniformMatrix4(_shaderLocations->ProjectionMatrix, false, orthoMatrix);
     }

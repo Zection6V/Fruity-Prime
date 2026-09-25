@@ -9,8 +9,9 @@
 #include "../../Utility/Rng.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
-#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include <any>
 #include <array>
 #include <bit>
@@ -33,6 +34,7 @@ using ::MphRead::NativeRuntime::UncheckedMultiply;
 using ::MphRead::NativeRuntime::UncheckedSubtract;
 using ::OpenTK::Mathematics::CreateFromAxisAngle;
 using ::OpenTK::Mathematics::CreateRotationY;
+using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::Equal;
 using ::OpenTK::Mathematics::IdentityMatrix;
 using ::OpenTK::Mathematics::Length;
@@ -112,7 +114,6 @@ namespace MphRead::Entities::Enemies
         }
         [[nodiscard]] Enemy28Entity &RequireEnemy(Enemy28Entity *enemy) { return RequireReference(enemy); }
         [[nodiscard]] PlayerEntity &MainPlayer() { return RequireReference(PlayerEntity::Main()); }
-        [[nodiscard]] Vector3 DivideVector(Vector3 value, float divisor) noexcept { return Vector3(value.X / divisor, value.Y / divisor, value.Z / divisor); }
         [[nodiscard]] std::int32_t RoundToInt32ToEven(float value) noexcept
         {
             if (!std::isfinite(value))
@@ -293,7 +294,7 @@ namespace MphRead::Entities::Enemies
         const Vector3 between = TypeExtensions::WithY(static_cast<Vector3>(MainPlayer().Position) - static_cast<Vector3>(Position), 0.0F);
         PlayerEntity &player = MainPlayer();
         const Vector3 speed = player.Speed();
-        const Vector3 speedDelta = DivideVector(between, 4.0F);
+        const Vector3 speedDelta = Divide(between, 4.0F);
         player.SetSpeed(speed + speedDelta);
         MainPlayer().TakeDamage(15, DamageFlags::None, std::nullopt, this);
     }
@@ -320,7 +321,7 @@ namespace MphRead::Entities::Enemies
         const Vector3 toCenter = TypeExtensions::WithY(_volume.SpherePosition - static_cast<Vector3>(Position), 0.0F);
         if (LengthSquared(toCenter) > 1.0F / 128.0F)
         {
-            _speed = DivideVector(ScaleVector(toCenter.Normalized(), Fixed::ToFloat(109)), 2.0F);
+            _speed = Divide(ScaleVector(toCenter.Normalized(), Fixed::ToFloat(109)), 2.0F);
         }
         UpdateTargetFacing();
         if (CallSubroutine<Enemy28Entity>(Metadata::Enemy28Subroutines, this))
@@ -359,7 +360,7 @@ namespace MphRead::Entities::Enemies
     void Enemy28Entity::State03()
     {
         Func2139F54();
-        _speed = DivideVector(ScaleVector(TypeExtensions::WithY(FacingVector(), 0.0F), Fixed::ToFloat(54)), 2.0F);
+        _speed = Divide(ScaleVector(TypeExtensions::WithY(FacingVector(), 0.0F), Fixed::ToFloat(54)), 2.0F);
         (void)CallSubroutine<Enemy28Entity>(Metadata::Enemy28Subroutines, this);
     }
     void Enemy28Entity::Func2139F54()
@@ -487,7 +488,7 @@ namespace MphRead::Entities::Enemies
         if (LengthSquared(between) >= 0.25F * 0.25F)
         {
             between = between.Normalized();
-            ArrayAt(_grappleVecs, 23) = ArrayAt(_grappleVecs, 23) + DivideVector(ScaleVector(between, 0.3F), 2.0F);
+            ArrayAt(_grappleVecs, 23) = ArrayAt(_grappleVecs, 23) + Divide(ScaleVector(between, 0.3F), 2.0F);
             Formats::CollisionResult result{};
             if (Formats::CollisionDetection::CheckBetweenPoints(
                 ArrayAt(_grappleVecs, 0), ArrayAt(_grappleVecs, 23),
@@ -633,7 +634,7 @@ namespace MphRead::Entities::Enemies
     void Enemy28Entity::Func213C4DC()
     {
         const float dist = Vector3::Distance(ArrayAt(_grappleVecs, 0), ArrayAt(_grappleVecs, 1));
-        ArrayAt(_grappleVecs, 1) = ArrayAt(_grappleVecs, 1) + DivideVector(_field10, 2.0F);
+        ArrayAt(_grappleVecs, 1) = ArrayAt(_grappleVecs, 1) + Divide(_field10, 2.0F);
         if (dist > 1.0F / 128.0F)
         {
             Vector3 start = ArrayAt(_grappleVecs, 1) - ArrayAt(_grappleVecs, 0);
@@ -659,7 +660,7 @@ namespace MphRead::Entities::Enemies
             return Vector3::Zero;
         }
         const float dot2 = Vector3::Dot(vec, axis);
-        return DivideVector(ScaleVector(axis, dot2), dot1);
+        return Divide(ScaleVector(axis, dot2), dot1);
     }
     void Enemy28Entity::TickGrappleDamage()
     {
@@ -799,7 +800,7 @@ namespace MphRead::Entities::Enemies
         Func213B2B4();
         Func213AF2C();
         Func2139F54();
-        _speed = DivideVector(ScaleVector(TypeExtensions::WithY(FacingVector(), 0.0F), Fixed::ToFloat(54)), 2.0F);
+        _speed = Divide(ScaleVector(TypeExtensions::WithY(FacingVector(), 0.0F), Fixed::ToFloat(54)), 2.0F);
         if (!Equal(_speed, Vector3::Zero) && CheckMovementOutsideVolume())
         {
             _speed = Vector3::Zero;
@@ -924,7 +925,7 @@ namespace MphRead::Entities::Enemies
                         {
                             speed = ScaleVector(speed.Normalized(), 0.7F);
                         }
-                        trocra->SetSpeed(DivideVector(speed, 2.0F));
+                        trocra->SetSpeed(Divide(speed, 2.0F));
                         trocra->State = 3;
                         _soundSource.PlaySfx(SfxId::GOREA_ATTACK3A);
                         ArrayAt(_trocra, i).reset();
@@ -944,7 +945,7 @@ namespace MphRead::Entities::Enemies
             if (LengthSquared(direction) > 1.0F / 128.0F)
             {
                 direction = direction.Normalized();
-                trocraRef.Position = static_cast<Vector3>(trocraRef.Position) + DivideVector(ScaleVector(direction, 1.0F / 7.0F), 2.0F);
+                trocraRef.Position = static_cast<Vector3>(trocraRef.Position) + Divide(ScaleVector(direction, 1.0F / 7.0F), 2.0F);
                 return true;
             }
         }
@@ -1207,7 +1208,7 @@ namespace MphRead::Entities::Enemies
         const Vector3 toCenter = TypeExtensions::WithY(static_cast<Vector3>(MainPlayer().Position) - _volume.SpherePosition, 0.0F);
         if (LengthSquared(toCenter) > 1.0F / 128.0F)
         {
-            _speed = DivideVector(ScaleVector(toCenter.Normalized(), Fixed::ToFloat(68)), 2.0F);
+            _speed = Divide(ScaleVector(toCenter.Normalized(), Fixed::ToFloat(68)), 2.0F);
             if (CheckMovementOutsideVolume())
             {
                 _speed = Vector3::Zero;

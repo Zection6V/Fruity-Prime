@@ -93,12 +93,6 @@ namespace
                 + vector.Z * matrix.M33 + vector.W * matrix.M43);
     }
 
-    [[nodiscard]] constexpr float Dot(Vector4 left, Vector4 right) noexcept
-    {
-        return left.X * right.X + left.Y * right.Y
-            + left.Z * right.Z + left.W * right.W;
-    }
-
     [[nodiscard]] bool IsCockpitLoop(std::int32_t id) noexcept
     {
         return id == 102 || id == 103 || id == 104
@@ -1043,7 +1037,7 @@ namespace MphRead::Formats
             (curFrame.PrevFrameInfluence & 1) == 0 ? 1.0F / 3.0F : 0.0F,
             (curFrame.AfterFrameInfluence & 1) == 0 ? 2.0F / 3.0F : 1.0F,
             1.0F);
-        const float factorDot = Dot(factorVec, moveVec);
+        const float factorDot = Vector4::Dot(factorVec, moveVec);
 
         CameraSequenceKeyframe* nextFrame = nullptr;
         if (_keyframeIndex + 1 < static_cast<std::int32_t>(_keyframes.size()))

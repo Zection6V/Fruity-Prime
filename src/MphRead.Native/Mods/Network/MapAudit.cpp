@@ -13,7 +13,9 @@
 #include "../../Formats/Entity.hpp"
 #include "../../GameState.hpp"
 #include "../../Scene.hpp"
+#include "../../NativeRuntime/System/ExceptionText.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -32,6 +34,7 @@
 #include <type_traits>
 #include <utility>
 
+using ::MphRead::NativeRuntime::ExceptionTypeName;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::AddY;
@@ -153,10 +156,6 @@ namespace MphRead::Mods::Network
             return result;
         }
 
-        [[nodiscard]] std::string ExceptionTypeName(const std::exception& ex)
-        {
-            return typeid(ex).name();
-        }
     }
 
     bool MapAudit::_showWindow = false;

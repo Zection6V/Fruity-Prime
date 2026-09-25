@@ -28,6 +28,7 @@ using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::OpenTK::Mathematics::CreateFromAxisAngle;
+using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::LengthSquared;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
@@ -41,11 +42,6 @@ namespace MphRead::Entities::Enemies
         using OpenTK::Mathematics::Matrix4;
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
-
-        [[nodiscard]] Vector3 DivideVector(Vector3 value, float divisor) noexcept
-        {
-            return Vector3(value.X / divisor, value.Y / divisor, value.Z / divisor);
-        }
 
         [[nodiscard]] bool HitPlayerAt(
             const std::array<bool, 8>& hitPlayers, std::int32_t index)
@@ -178,7 +174,7 @@ namespace MphRead::Entities::Enemies
                 _effectFacing, _effectUp);
             speed = ScaleVector(speed, _field1A4);
         }
-        _speed = DivideVector(speed, 2.0F);
+        _speed = Divide(speed, 2.0F);
     }
 
     void Enemy33Entity::CheckCollision()

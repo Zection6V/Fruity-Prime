@@ -67,35 +67,6 @@ namespace MphRead::Entities::Enemies
             return static_cast<std::uint16_t>(count);
         }
 
-        [[nodiscard]] Matrix4 Transpose(Matrix4 value) noexcept
-        {
-            Matrix4 result{};
-            result.M11 = value.M11;
-            result.M12 = value.M21;
-            result.M13 = value.M31;
-            result.M14 = value.M41;
-            result.M21 = value.M12;
-            result.M22 = value.M22;
-            result.M23 = value.M32;
-            result.M24 = value.M42;
-            result.M31 = value.M13;
-            result.M32 = value.M23;
-            result.M33 = value.M33;
-            result.M34 = value.M43;
-            result.M41 = value.M14;
-            result.M42 = value.M24;
-            result.M43 = value.M34;
-            result.M44 = value.M44;
-            return result;
-        }
-
-        [[nodiscard]] Matrix4 ClearTranslation(Matrix4 value) noexcept
-        {
-            value.M41 = 0.0F;
-            value.M42 = 0.0F;
-            value.M43 = 0.0F;
-            return value;
-        }
     }
 
     const std::array<std::int32_t, 11> Enemy18Entity::_recolors{
@@ -438,13 +409,13 @@ namespace MphRead::Entities::Enemies
             const Matrix4 rotY = CreateRotationY(DegreesToRadians(_angleY));
             aimTransform = Multiply(rotX, rotY);
             _aimVec = Matrix::Vec3MultMtx4(_initialFacing, aimTransform);
-            const Matrix4 transpose = Transpose(ClearTranslation(Transform));
+            const Matrix4 transpose = Matrix4::Transpose(static_cast<Matrix4>(Transform).ClearTranslation());
             aimTransform = Multiply(aimTransform, transpose);
         }
         else
         {
             aimTransform = GetTransformMatrix(_aimVec, upVector);
-            const Matrix4 transpose = Transpose(ClearTranslation(Transform));
+            const Matrix4 transpose = Matrix4::Transpose(static_cast<Matrix4>(Transform).ClearTranslation());
             aimTransform = Multiply(aimTransform, transpose);
             aimTransform.M41 = 0.0F;
             aimTransform.M42 = 0.0F;

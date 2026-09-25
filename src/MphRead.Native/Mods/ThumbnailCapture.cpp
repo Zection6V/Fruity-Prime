@@ -12,6 +12,7 @@
 #include "../Scene.hpp"
 #include "../Utility/Rng.hpp"
 #include "../NativeRuntime/System/Encoding.hpp"
+#include "../NativeRuntime/System/ExceptionText.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 
 #include <array>
@@ -37,6 +38,7 @@
 #include <cstdlib>
 #endif
 
+using ::MphRead::NativeRuntime::ExceptionTypeName;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::Utf8ToUtf16;
 
@@ -540,41 +542,6 @@ namespace
         // fallback instead of inventing an assembly version in this file.
         return "?";
 #endif
-    }
-
-    [[nodiscard]] std::string ExceptionTypeName(const std::exception& exception)
-    {
-        std::string name;
-#if defined(__GNUG__)
-        int status = 0;
-        std::unique_ptr<char, void(*)(void*)> demangled(
-            abi::__cxa_demangle(typeid(exception).name(), nullptr, nullptr, &status),
-            std::free);
-        name = status == 0 && demangled ? demangled.get() : typeid(exception).name();
-#else
-        name = typeid(exception).name();
-#endif
-        constexpr std::string_view classPrefix = "class ";
-        constexpr std::string_view structPrefix = "struct ";
-        if (name.starts_with(classPrefix))
-        {
-            name.erase(0, classPrefix.size());
-        }
-        else if (name.starts_with(structPrefix))
-        {
-            name.erase(0, structPrefix.size());
-        }
-        const std::size_t namespacePos = name.rfind("::");
-        if (namespacePos != std::string::npos)
-        {
-            name.erase(0, namespacePos + 2);
-        }
-        const std::size_t templatePos = name.find('<');
-        if (templatePos != std::string::npos)
-        {
-            name.erase(templatePos);
-        }
-        return name;
     }
 
     [[nodiscard]] std::string FramebufferStatusName(

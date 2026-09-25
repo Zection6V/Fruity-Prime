@@ -16,10 +16,13 @@
 #include <string>
 #include <memory>
 #include "../../NativeRuntime/System/IO.hpp"
-#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/ExceptionText.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::ExceptionMessage;
 using ::MphRead::NativeRuntime::RoundToEven;
 using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 
@@ -27,22 +30,6 @@ namespace
 {
     namespace GL = ::OpenTK::Graphics::OpenGL::GL;
 
-    // `catch (Exception ex) { ... ex.Message ... }`
-    [[nodiscard]] std::string ExceptionMessage(std::exception_ptr exception)
-    {
-        try
-        {
-            std::rethrow_exception(exception);
-        }
-        catch (const std::exception& ex)
-        {
-            return ex.what();
-        }
-        catch (...)
-        {
-            return std::string();
-        }
-    }
 }
 
 namespace
@@ -65,38 +52,6 @@ namespace
     constexpr std::int32_t OneMinusSrcAlpha = 0x0303;
     constexpr std::int32_t FrontAndBack = 0x0408;
     constexpr std::int32_t Fill = 0x1B02;
-
-    [[nodiscard]] Matrix4 CreatePerspectiveFieldOfView(
-        float fov, float aspect, float nearClip, float farClip)
-    {
-        const float maxY = nearClip * std::tan(0.5F * fov);
-        const float minY = -maxY;
-        const float minX = minY * aspect;
-        const float maxX = maxY * aspect;
-        const float x = 2.0F * nearClip / (maxX - minX);
-        const float y = 2.0F * nearClip / (maxY - minY);
-        const float a = (maxX + minX) / (maxX - minX);
-        const float b = (maxY + minY) / (maxY - minY);
-        const float z = -(farClip + nearClip) / (farClip - nearClip);
-        const float d = -(2.0F * farClip * nearClip) / (farClip - nearClip);
-        return Matrix4(
-            Vector4(x, 0.0F, 0.0F, 0.0F),
-            Vector4(0.0F, y, 0.0F, 0.0F),
-            Vector4(a, b, z, -1.0F),
-            Vector4(0.0F, 0.0F, d, 0.0F));
-    }
-
-    [[nodiscard]] Matrix4 LookAt(Vector3 eye, Vector3 target, Vector3 up)
-    {
-        const Vector3 z = Vector3(eye.X - target.X, eye.Y - target.Y, eye.Z - target.Z).Normalized();
-        const Vector3 x = Vector3::Cross(up, z).Normalized();
-        const Vector3 y = Vector3::Cross(z, x).Normalized();
-        return Matrix4(
-            Vector4(x.X, y.X, z.X, 0.0F),
-            Vector4(x.Y, y.Y, z.Y, 0.0F),
-            Vector4(x.Z, y.Z, z.Z, 0.0F),
-            Vector4(-Vector3::Dot(x, eye), -Vector3::Dot(y, eye), -Vector3::Dot(z, eye), 1.0F));
-    }
 
     [[nodiscard]] std::int32_t RoundPixel(float value) noexcept
     {
@@ -263,9 +218,9 @@ namespace MphRead
         GL::Clear(GL::ClearBufferMask::ColorBufferBit | GL::ClearBufferMask::DepthBufferBit);
         GL::ClearColor(0.0F, 0.0F, 0.0F, 0.0F);
         GL::Viewport(x, y, width, height);
-        Matrix4 projection = CreatePerspectiveFieldOfView(
+        Matrix4 projection = Matrix4::CreatePerspectiveFieldOfView(
             DegreesToRadians(PreviewFov), width / static_cast<float>(height), 0.1F, 100.0F);
-        Matrix4 view = ::LookAt(_previewEye, _previewTarget, Vector3(0.0F, 1.0F, 0.0F));
+        Matrix4 view = Matrix4::LookAt(_previewEye, _previewTarget, Vector3(0.0F, 1.0F, 0.0F));
         if (!_shaderLocations)
         {
             throw System::NullReferenceException();

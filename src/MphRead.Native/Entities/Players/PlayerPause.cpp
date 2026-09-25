@@ -90,27 +90,6 @@ namespace
             value.X * matrix.M14 + value.Y * matrix.M24 + value.Z * matrix.M34 + value.W * matrix.M44);
     }
 
-    [[nodiscard]] Matrix4 CreateOrthographic(float width, float height, float zNear, float zFar) noexcept
-    {
-        return Matrix4(
-            Vector4(2.0F / width, 0.0F, 0.0F, 0.0F),
-            Vector4(0.0F, 2.0F / height, 0.0F, 0.0F),
-            Vector4(0.0F, 0.0F, -2.0F / (zFar - zNear), 0.0F),
-            Vector4(0.0F, 0.0F, -(zFar + zNear) / (zFar - zNear), 1.0F));
-    }
-
-    [[nodiscard]] Matrix4 LookAt(Vector3 eye, Vector3 target, Vector3 up)
-    {
-        const Vector3 z = (eye - target).Normalized();
-        const Vector3 x = Vector3::Cross(up, z).Normalized();
-        const Vector3 y = Vector3::Cross(z, x).Normalized();
-        return Matrix4(
-            Vector4(x.X, y.X, z.X, 0.0F),
-            Vector4(x.Y, y.Y, z.Y, 0.0F),
-            Vector4(x.Z, y.Z, z.Z, 0.0F),
-            Vector4(-Vector3::Dot(x, eye), -Vector3::Dot(y, eye), -Vector3::Dot(z, eye), 1.0F));
-    }
-
     [[nodiscard]] float ProjectPosition(
         Vector3 position, Matrix4 viewMatrix, Matrix4 projectionMatrix, Vector2& projected) noexcept
     {
@@ -936,11 +915,11 @@ namespace MphRead::Entities
 
     std::pair<Matrix4, Matrix4> PlayerEntity::GetPauseMapMatrices()
     {
-        const Matrix4 orthoMtx = CreateOrthographic(
+        const Matrix4 orthoMtx = Matrix4::CreateOrthographic(
             256.0F * _navDrawZoom, 192.0F / 256.0F * 256.0F * _navDrawZoom,
             -400.0F, 400.0F);
         const auto look = GetPauseMapLookVectors();
-        const Matrix4 viewMtx = LookAt(look.first, look.second, Vector3(0.0F, 1.0F, 0.0F));
+        const Matrix4 viewMtx = Matrix4::LookAt(look.first, look.second, Vector3(0.0F, 1.0F, 0.0F));
         return {viewMtx, orthoMtx};
     }
 

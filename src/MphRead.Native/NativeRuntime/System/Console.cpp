@@ -124,8 +124,29 @@ namespace MphRead::NativeRuntime
             std::fflush(stderr);
         }
 
+        // The buffers std::cout and std::cerr started with. Console.SetOut,
+        // the debug log's tee and the setup report each replace the stream's
+        // buffer, and in this port std::cout is Console.Out: while one of
+        // them is in place a write has to go through the stream to reach it.
+        // Left alone, the handle is written directly, which on Windows is
+        // the UTF-16 console path.
+        std::streambuf* const OriginalOut = std::cout.rdbuf();
+        std::streambuf* const OriginalErr = std::cerr.rdbuf();
+
+        void WriteThrough(std::ostream& stream, std::string_view value)
+        {
+            stream.write(value.data(), static_cast<std::streamsize>(value.size()));
+            stream.flush();
+        }
+
         void WriteOut(std::string_view value)
         {
+            if (std::cout.rdbuf() != OriginalOut)
+            {
+                const std::lock_guard<std::mutex> guard(ConsoleLock());
+                WriteThrough(std::cout, value);
+                return;
+            }
             FlushStreams();
             const std::lock_guard<std::mutex> guard(ConsoleLock());
 #if defined(_WIN32)
@@ -137,6 +158,12 @@ namespace MphRead::NativeRuntime
 
         void WriteErr(std::string_view value)
         {
+            if (std::cerr.rdbuf() != OriginalErr)
+            {
+                const std::lock_guard<std::mutex> guard(ConsoleLock());
+                WriteThrough(std::cerr, value);
+                return;
+            }
             FlushStreams();
             const std::lock_guard<std::mutex> guard(ConsoleLock());
 #if defined(_WIN32)

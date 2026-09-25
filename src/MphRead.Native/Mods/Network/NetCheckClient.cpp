@@ -1,4 +1,12 @@
 #include "NetCheckClient.hpp"
+#include "HitRig.hpp"
+#include "NetHitClaims.hpp"
+#include "NetShotDiagnostics.hpp"
+#include "NetSmoothing.hpp"
+#include "NetTimingDiagnostics.hpp"
+#include "../EndScreen.hpp"
+#include "../MapPick.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 
 #include "DemoClip.hpp"
 #include "DemoRecorder.hpp"
@@ -244,7 +252,7 @@ namespace MphRead::Mods::Network
         settings.Flags = RendererPlatform::WindowSettings::ContextFlags::Default;
         settings.ApiMajor = 3;
         settings.ApiMinor = 2;
-        settings.StartVisible = false;
+        settings.StartVisible = ShowWindow;
         return settings;
     }
 
@@ -352,11 +360,19 @@ namespace MphRead::Mods::Network
         {
             const std::string path = PathCombine(
                 *_shotDirectory, _name + "-" + TwoDigits(_shots) + ".png");
-            if (Mods::ScreenCapture::Save(_scene.get(), path))
+            if (Capture(path))
             {
                 ++_shots;
                 _litFraction = std::max(
                     _litFraction, Mods::ScreenCapture::NonBlackFraction(_scene.get()));
+            }
+        }
+        if (_shotDirectory.has_value() && ShowWindow && Mods::EndScreen::Available()
+            && _frame % 60 == 0 && _endShots < 12)
+        {
+            if (Capture(PathCombine(*_shotDirectory, _name + "-end-" + TwoDigits(_endShots) + ".png")))
+            {
+                ++_endShots;
             }
         }
         if (_shotDirectory.has_value() && _opponentInView && _duelShots < 8
@@ -500,9 +516,47 @@ namespace MphRead::Mods::Network
         NetSession::RebindSocket();
     }
 
+    bool NetCheckClient::Capture(const std::string& path)
+    {
+        return ShowWindow
+            ? Mods::ScreenCapture::SaveWindow(_scene.get(), path)
+            : Mods::ScreenCapture::Save(_scene.get(), path);
+    }
+
+    void NetCheckClient::VoteOnMap()
+    {
+        if (MapVoteRow < 0 || !Mods::MapPick::Available())
+        {
+            return;
+        }
+        const std::vector<std::string>& order = Mods::MapPick::Order();
+        std::string want = order[0];
+        if (Mods::MapPick::VotesFor(want) == 0)
+        {
+            want = order[static_cast<std::size_t>(std::min(MapVoteRow, static_cast<std::int32_t>(order.size()) - 1))];
+        }
+        if (!::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase(Mods::MapPick::Picked(), want))
+        {
+            if (want != _lastBallotRoom)
+            {
+                _lastBallotRoom = want;
+                _mapVotesCast++;
+                std::cout << "[mapvote] " << _name << " picked " << want << '\n';
+            }
+            Mods::MapPick::Choose(Mods::MapPick::IndexOf(want));
+        }
+        if (::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase(Mods::EndScreen::NextRoomKey(), want)
+            && _mapVotesCarried < _mapVotesCast)
+        {
+            _mapVotesCarried++;
+            std::cout << "[mapvote] " << _name << " sees the server agree: next is " << want << '\n';
+        }
+    }
+
     void NetCheckClient::Observe()
     {
         _opponentInView = false;
+        VoteOnMap();
         if (_scene->RoomId() != _lastRoomId)
         {
             if (_lastRoomId != -1)
@@ -697,8 +751,30 @@ namespace MphRead::Mods::Network
             << "  slot " << local
             << ", authority=" << BoolText(NetSession::IsAuthority())
             << ", frames=" << _frame << '\n';
+        std::cout << NetShotDiagnostics::Describe() << '\n';
+        std::cout << NetTimingDiagnostics::Describe() << '\n';
         std::cout << "  " << NetUnlagged::Describe() << '\n';
+        std::cout << "  " << NetUnlagged::DescribeDepths() << '\n';
         std::cout << "  " << NetHitPrediction::Describe() << '\n';
+        std::cout << "  " << NetHitPrediction::DescribeHeadshots() << '\n';
+        std::cout << "  " << NetHitPrediction::DescribeHealth() << '\n';
+        std::cout << "  " << NetHitPrediction::DescribeDamageLedger() << '\n';
+        for (const std::string& line : ::MphRead::NativeRuntime::StringSplit(NetHitPrediction::DescribeByWeapon(), '\n'))
+        {
+            std::cout << "  " << line << '\n';
+        }
+        if (const std::optional<std::string> claims = NetHitClaims::Describe(); claims.has_value())
+        {
+            std::cout << "  " << *claims << '\n';
+        }
+        if (const std::optional<std::string> smoothing = NetSmoothing::Describe(); smoothing.has_value())
+        {
+            std::cout << "  " << *smoothing << '\n';
+        }
+        if (HitRig::Active())
+        {
+            std::cout << "  " << HitRig::Describe() << '\n';
+        }
 
         const RoomMetadata* roomMetadata
             = Metadata::GetRoomById(_scene->RoomId(), true);
@@ -710,6 +786,11 @@ namespace MphRead::Mods::Network
             << "  room: " << (roomMetadata ? roomMetadata->Name : std::string("?"))
             << " (server says " << serverRoom << "), "
             << _roomChanges << " rotation(s) followed\n";
+        if (MapVoteRow >= 0)
+        {
+            std::cout << "  map votes: " << _mapVotesCast << " cast, "
+                << _mapVotesCarried << " carried by the server\n";
+        }
         std::cout
             << "  packets: snapshots sent=" << NetSession::SnapshotsSent()
             << " received=" << NetSession::SnapshotsReceived()

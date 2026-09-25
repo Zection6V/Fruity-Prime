@@ -95,6 +95,12 @@ namespace MphRead::Mods::Network
         std::int32_t _featureFailures = 0;
         bool _votedOnce = false;
         bool _rebound = false;
+        std::int32_t _endShots = 0;
+        std::int32_t _mapVotesCast = 0;
+        std::int32_t _mapVotesCarried = 0;
+        std::string _lastBallotRoom{};
+        [[nodiscard]] bool Capture(const std::string& path);
+        void VoteOnMap();
         std::unique_ptr<MphRead::Scene> _scene{};
 
         [[nodiscard]] static MphRead::RendererPlatform::WindowSettings GameSettings();
@@ -141,6 +147,9 @@ namespace MphRead::Mods::Network
 
         [[nodiscard]] MphRead::Scene& Scene() noexcept;
         [[nodiscard]] const MphRead::Scene& Scene() const noexcept;
+
+        inline static std::int32_t MapVoteRow = -1;
+        inline static bool ShowWindow = false;
 
         [[nodiscard]] static std::int32_t Run(
             std::string host,

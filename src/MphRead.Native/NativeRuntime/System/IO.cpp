@@ -1114,6 +1114,12 @@ namespace MphRead::NativeRuntime
 #endif
     }
 
+    std::string PathGetFullPath(const std::string& path, const std::string& basePath)
+    {
+        // Path.Combine keeps a rooted path as it is.
+        return PathGetFullPath(PathCombine(basePath, path));
+    }
+
     void FileDelete(const std::string& path)
     {
         const std::string fullPath = PathGetFullPath(path);

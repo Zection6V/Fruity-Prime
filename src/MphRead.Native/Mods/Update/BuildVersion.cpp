@@ -390,11 +390,6 @@ namespace MphRead::Mods::Update
         {
             return std::nullopt;
         }
-        if (version->Major() == 1 && version->Minor() == 0
-            && version->Build() <= 0)
-        {
-            return std::nullopt;
-        }
         return Normalise(*version);
     }
 

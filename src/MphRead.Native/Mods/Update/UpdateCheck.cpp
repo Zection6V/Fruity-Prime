@@ -638,6 +638,8 @@ namespace MphRead::Mods::Update
         };
 
         [[nodiscard]] std::optional<Asset> PickAsset(const std::vector<Asset>& assets);
+        [[nodiscard]] std::optional<Asset> PickAsset(const std::vector<Asset>& assets,
+            const std::string& rid, bool server);
 
         class CurlRequestMessage final : public HttpRequestMessage
         {
@@ -873,7 +875,16 @@ namespace MphRead::Mods::Update
         }
         [[nodiscard]] std::optional<Asset> PickAsset(const std::vector<Asset>& assets)
         {
-            const std::string rid = UpdateCheck::Rid();
+            return PickAsset(assets, UpdateCheck::Rid(), UpdateCheck::IsServerBuild());
+        }
+
+        [[nodiscard]] std::optional<Asset> PickAsset(const std::vector<Asset>& assets,
+            const std::string& rid, bool server)
+        {
+            if (rid.empty())
+            {
+                return std::nullopt;
+            }
             for (const Asset& asset : assets)
             {
                 const std::string name = ::MphRead::NativeRuntime::ToLowerInvariant(asset.Name);
@@ -882,7 +893,7 @@ namespace MphRead::Mods::Update
                     continue;
                 }
                 const bool containsServer = name.find("-server-") != std::string::npos;
-                if (containsServer != UpdateCheck::IsServerBuild())
+                if (containsServer != server)
                 {
                     continue;
                 }
@@ -917,7 +928,12 @@ namespace MphRead::Mods::Update
             SetLastReason("this is a local build, so it is left alone");
             return std::nullopt;
         }
+        const std::optional<std::string> json = FetchLatest(cancel);
+        return !json.has_value() ? std::nullopt : Parse(*json);
+    }
 
+    std::optional<std::string> UpdateCheck::FetchLatest(CancellationToken cancel)
+    {
         std::string json;
         try
         {
@@ -960,7 +976,124 @@ namespace MphRead::Mods::Update
             SetLastReason("could not reach GitHub (Exception)");
             return std::nullopt;
         }
-        return Parse(json);
+        return json;
+    }
+
+    std::optional<UpdateInfo> UpdateCheck::ServerAsset(CancellationToken cancel)
+    {
+        SetLastReason(std::nullopt);
+        const std::optional<std::string> json = FetchLatest(cancel);
+        if (!json.has_value())
+        {
+            return std::nullopt;
+        }
+        return ServerAsset(std::string_view(*json));
+    }
+
+    std::optional<UpdateInfo> UpdateCheck::ServerAsset(std::string_view json)
+    {
+        std::string tag;
+        std::string page;
+        std::vector<Asset> assets;
+        try
+        {
+            const JsonValue root = JsonParser(json).ParseDocument();
+            if (const JsonValue* value = TryGetProperty(root, "tag_name"))
+            {
+                tag = GetString(*value).value_or("");
+            }
+            if (const JsonValue* value = TryGetProperty(root, "html_url"))
+            {
+                page = GetString(*value).value_or("");
+            }
+            if (const JsonValue* list = TryGetProperty(root, "assets"))
+            {
+                if (list->Kind != JsonKind::Array)
+                {
+                    ThrowWrongType("Array", *list);
+                }
+                for (const JsonValue& item : list->Array)
+                {
+                    std::string name;
+                    std::string url;
+                    std::int64_t size = 0;
+                    if (const JsonValue* value = TryGetProperty(item, "name"))
+                    {
+                        name = GetString(*value).value_or("");
+                    }
+                    if (const JsonValue* value = TryGetProperty(item, "browser_download_url"))
+                    {
+                        url = GetString(*value).value_or("");
+                    }
+                    if (const JsonValue* value = TryGetProperty(item, "size"))
+                    {
+                        std::int64_t parsedSize = 0;
+                        if (TryGetInt64(*value, parsedSize))
+                        {
+                            size = parsedSize;
+                        }
+                    }
+                    if (!name.empty())
+                    {
+                        assets.push_back(Asset{std::move(name), std::move(url), size});
+                    }
+                }
+            }
+        }
+        catch (const NamedException& ex)
+        {
+            if (ex.Name() == "JsonException")
+            {
+                SetLastReason("GitHub's answer could not be read");
+                return std::nullopt;
+            }
+            throw;
+        }
+        const std::optional<Asset> package = PickAsset(assets, ServerRid(), true);
+        if (!package.has_value())
+        {
+            SetLastReason(ServerRid().empty()
+                ? std::string("there is no dedicated-server package for macOS")
+                : "the latest release (" + tag + ") has no server package for " + ServerRid());
+            return std::nullopt;
+        }
+        const std::optional<Version> published = BuildVersion::Parse(tag);
+        return UpdateInfo{
+            .Tag = std::move(tag),
+            .Version = published.has_value() ? *published : Version(0, 0, 0, 0),
+            .AssetName = package->Name,
+            .AssetUrl = package->Url,
+            .AssetSize = package->Size,
+            .PageUrl = !page.empty() ? std::move(page) : std::string(ReleasesPage),
+            .Notes = std::string()
+        };
+    }
+
+    std::string UpdateCheck::ServerRid()
+    {
+#if defined(__ANDROID__) || defined(__APPLE__)
+        return "";
+#else
+    #if defined(__aarch64__) || defined(_M_ARM64)
+        constexpr bool arm = true;
+    #else
+        constexpr bool arm = false;
+    #endif
+    #if defined(_WIN32)
+        return arm ? "" : "win-x64";
+    #else
+        return arm ? "linux-arm64" : "linux-x64";
+    #endif
+#endif
+    }
+
+    std::string UpdateCheck::ServerBinaryName()
+    {
+#if defined(_WIN32)
+        return std::string(Mods::Branding::FileName) + "Server.exe";
+#else
+        return std::string(Mods::Branding::FileName);
+#endif
     }
 
     std::optional<UpdateInfo> UpdateCheck::Parse(std::string_view json,

@@ -80,6 +80,23 @@ namespace MphRead::Mods::Update
         [[nodiscard]] static std::optional<UpdateInfo> Latest(
             CancellationToken cancel = nullptr);
 
+        // The latest release as GitHub describes it, or nullopt with
+        // LastReason saying why.
+        [[nodiscard]] static std::optional<std::string> FetchLatest(
+            CancellationToken cancel = nullptr);
+
+        // The dedicated-server package for this machine, out of the latest
+        // release, or nullopt.
+        [[nodiscard]] static std::optional<UpdateInfo> ServerAsset(
+            CancellationToken cancel = nullptr);
+        [[nodiscard]] static std::optional<UpdateInfo> ServerAsset(std::string_view json);
+
+        // Which server package this machine would run, or "" where none is
+        // published.
+        [[nodiscard]] static std::string ServerRid();
+        // The binary inside a server package for this machine.
+        [[nodiscard]] static std::string ServerBinaryName();
+
         [[nodiscard]] static std::optional<UpdateInfo> Parse(
             std::string_view json,
             std::optional<Version> installed = std::nullopt);

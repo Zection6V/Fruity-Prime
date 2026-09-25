@@ -45,6 +45,8 @@ namespace MphRead::NativeRuntime
     [[nodiscard]] std::size_t PathRootLength(std::string_view path) noexcept;
     // Path.GetFullPath(path).
     [[nodiscard]] std::string PathGetFullPath(const std::string& path);
+    // Path.GetFullPath(path, basePath): a relative path resolved against basePath.
+    [[nodiscard]] std::string PathGetFullPath(const std::string& path, const std::string& basePath);
     // File.Exists(path): false for a directory and for anything unreadable.
     [[nodiscard]] bool FileExists(std::string_view path) noexcept;
     [[nodiscard]] inline bool FileExists(const std::string& path) noexcept

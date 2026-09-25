@@ -1,5 +1,6 @@
 #include "Updater.hpp"
 #include "BuildVersion.hpp"
+#include "../Platform/WebLink.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/Encoding.hpp"
 
@@ -463,6 +464,13 @@ namespace MphRead::Mods::Update
 
         try
         {
+            // The platform's own, where there is one: a phone has no
+            // browser to start as a process and no display variable to
+            // answer the question below with.
+            if (const std::shared_ptr<Mods::Platform::IWebLink> link = Mods::Platform::WebLink::Current())
+            {
+                return link->Open(url);
+            }
 #ifdef _WIN32
             return StartWindowsUrl(url);
 #elif defined(__APPLE__)

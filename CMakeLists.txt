@@ -137,7 +137,7 @@ endif()
 if(WIN32)
     target_compile_definitions(fruity_mphread_native PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     # The launcher's file picker is the platform's own common dialog.
-    target_link_libraries(fruity_mphread_native PUBLIC ws2_32 bcrypt comdlg32)
+    target_link_libraries(fruity_mphread_native PUBLIC ws2_32 bcrypt comdlg32 iphlpapi)
 endif()
 
 # The renderer's GL entry points and the sound mixer's OpenAL ones, which the

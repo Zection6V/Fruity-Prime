@@ -114,10 +114,10 @@
 
 | S | +/- | C# | C++ | 進捗 |
 |---|---|---|---|---|
-| M | +139/-3 | `Mods/Update/UpdateCheck.cs` | .cpp,.hpp | — |
-| M | +7/-0 | `Mods/Update/Updater.cs` | .cpp,.hpp | — |
-| M | +4/-1 | `Mods/Update/DesktopUpdate.cs` | .cpp,.hpp | — |
-| M | +2/-10 | `Mods/Update/BuildVersion.cs` | .cpp,.hpp | — |
+| M | +139/-3 | `Mods/Update/UpdateCheck.cs` | .cpp,.hpp | 完了 |
+| M | +7/-0 | `Mods/Update/Updater.cs` | .cpp,.hpp | 完了 |
+| M | +4/-1 | `Mods/Update/DesktopUpdate.cs` | .cpp,.hpp | 完了 |
+| M | +2/-10 | `Mods/Update/BuildVersion.cs` | .cpp,.hpp | 完了 |
 
 ## 5. Chat — 2 ファイル (新規 1), C# +36 行
 
@@ -232,7 +232,7 @@
 | M | +704/-105 | `Mods/Network/DedicatedServer.cs` | .cpp,.hpp | 完了 |
 | A | +609/-0 | `Mods/Network/HitRig.cs` | — 新規 | 完了 |
 | A | +558/-0 | `Mods/Network/NetSmoothing.cs` | — 新規 | 完了 |
-| A | +536/-0 | `Mods/Network/LocalServer.cs` | — 新規 | — |
+| A | +536/-0 | `Mods/Network/LocalServer.cs` | — 新規 | 完了 |
 | A | +536/-0 | `Mods/Network/NetLobbyTest.cs` | — 新規 | 完了 |
 | M | +489/-116 | `Mods/Network/NetSession.cs` | .cpp,.hpp | 完了 |
 | M | +481/-22 | `Mods/Network/NetUnlagged.cs` | .cpp,.hpp | 完了 |

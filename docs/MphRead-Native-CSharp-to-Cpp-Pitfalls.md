@@ -374,7 +374,17 @@ C# のソース（`Formats/Types.cs` など）が宣言しているものは対�
 |---|---|
 | `NativeRuntime/System/IO.hpp` | `PathFromUtf8`/`PathToUtf8`（Windows では WTF-8）、`Path.*`（`Combine` 2〜4引数と `params`、`GetFileName`、`GetFileNameWithoutExtension`、`GetExtension`、`GetDirectoryName`（null は `nullopt`）、`GetFullPath`、`IsPathRooted`）、`File.*`（`Exists`（null 可）、`ReadAllBytes/Text/Lines`、`WriteAllBytes/Text/Lines`、`AppendAllText`、`Delete`）、`Directory.Exists/CreateDirectory`、`FileInfo`・`FileInfoLength` |
 | `NativeRuntime/System/Encoding.hpp` | `Rune.DecodeFromUtf8`・`DecodeUtf8Scalar`・`AppendUtf8`・`Encoding.UTF8/Unicode/UTF32.GetString`・`StreamReaderDecode`（BOM 判定）・UTF-8/16/32 相互変換・`Utf16Length`（`string.Length`）・`WideToUtf8`/`Utf8ToWide`・WTF-8（`WideToWtf8`/`Wtf8ToWide`） |
-| `NativeRuntime/System/Globalization.hpp` | `char.IsWhiteSpace`・`string.Trim`/`IsNullOrWhiteSpace`/`Replace`/`Equals(OrdinalIgnoreCase)`・`int.TryParse`（現在カルチャ／インバリアント）・`bool.TryParse` |
+| `NativeRuntime/System/Globalization.hpp` | `char.IsWhiteSpace`・`char.IsLetterOrDigit`・`string.Trim`/`IsNullOrWhiteSpace`/`Replace`・大文字小文字（インバリアント／現在カルチャ）・`OrdinalIgnoreCase` の比較・ハッシュ・`StringComparer`・現在カルチャの `StartsWith`/`EndsWith`/`Compare` |
+| `NativeRuntime/System/Number.hpp`・`Icu.hpp` | `NumberFormatInfo`（現在カルチャは ICU/NLS から）、数値型・`decimal` の `ToString`/`TryParse`/`Parse` |
+| `NativeRuntime/System/Decimal.hpp` | `System.Decimal`（96ビット、演算・丸め・`(float)`・`(int)`） |
+| `NativeRuntime/System/Sort.hpp` | `Array.Sort`/`List.Sort`/`Span.Sort` の introsort（同値の並びが .NET と同じ。`float`/`double` は NaN を先頭へ） |
+| `NativeRuntime/System/Random.hpp` | `new Random()`（xoshiro）・`new Random(seed)`（Knuth）・`Random.Shared`・`RandomNumberGenerator.Fill` |
+| `NativeRuntime/System/DateTime.hpp` | `DateTime.Now/UtcNow`・`ToLocalTime`・カスタム書式（`:` は現在カルチャの時刻区切り） |
+| `NativeRuntime/System/Stopwatch.hpp`・`Tasks.hpp` | `Stopwatch.GetTimestamp/Frequency`・`Thread.Name`・`Thread.Sleep` |
+| `NativeRuntime/System/Streams.hpp`・`ZipArchive.hpp` | `Stream`・`FileStream`・`MemoryStream`・`DeflateStream`・`ZipArchive`（Deflate64・ZIP64 を含む） |
+| `NativeRuntime/System/Net.hpp` | `IPAddress`・`Dns`・`UdpClient`・ネットワーク転送が使う `UdpSocket`・`SocketException` |
+| `NativeRuntime/System/Exceptions.hpp` | `System` の例外。ファイル内の例外クラスは作らず、必要なら別名（`using X = ::System::...`）にする |
+| `NativeRuntime/System/Enum.hpp` | `Enum.ToString`/`TryParse` のアルゴリズム（名前の表は列挙型を宣言しているファイルの側） |
 | `NativeRuntime/System/Managed.hpp` | `RequireReference`（ポインタ・`shared_ptr`・`optional`）・`ManagedAs`（`as`）・`ManagedCast`（`(T)x`）・`CSharpTryFinally`・`AssignReadonly`・`RoundToEven`・`ConvertToInt32Net9`・`Math.Max/Min/Clamp`・`unchecked` 演算・`ManagedAt`/`ManagedListAt`・`HasFlag` |
 | `NativeRuntime/System/HashCode.hpp` | `HashCode.Combine`（プロセスで種は1つ） |
 | `NativeRuntime/System/Runtime.hpp` | `Environment.ProcessPath`・`AppContext.BaseDirectory`・`OperatingSystem.IsAndroid/IsMacOS/IsLinux/IsWindows`・`PasteArguments`（`PasteArgument`） |
@@ -383,7 +393,8 @@ C# のソース（`Formats/Types.cs` など）が宣言しているものは対�
 | `NativeRuntime/OpenTK/Mathematics.hpp` | OpenTK の型と演算（`Vector3.Dot/Cross/UnitY`、`Vector4.Dot`、`Matrix4.LookAt/Transpose/CreatePerspectiveFieldOfView/CreateOrthographic/ClearTranslation/ExtractScale/Invert`、`MathHelper.Clamp` など） |
 | `NativeRuntime/OpenTK/GLFW.hpp` | OpenTK の `GLFW`（ジョイスティック・ゲームパッド） |
 | `Formats/Types.hpp` | `TestFlag`・`TestAny`・`WithX/Y/Z`・`AddX/Y/Z`・`MarshalExtensions`（固定長フィールド用の `MarshalUtf8` を含む） |
-| `Formats/Enums.hpp`・`Formats.hpp` | `Hunter`・`ItemType`・`GameMode` の `ToString()` |
+| `Formats/Enums.hpp`・`Formats.hpp` | `Enums.cs`・`Formats.cs` の列挙型の `ToString()`（`Hunter`・`BeamType`・`ItemType`・`EntityType`・`Message`・`Terrain`・モデル/テクスチャ系など）と `TryParse` |
+| 列挙型を宣言している各ファイル | その型の名前の表（`TriggerVolumeEntity`・`NetTestScript`・`Crosshair`・`NetSession`、OpenTK の `GL`） |
 | `Messaging.hpp` | `BoxInt32`/`UnboxInt32`（`(object)i`・`(int)o`） |
 
 **注意点**:
@@ -410,14 +421,15 @@ C# のソース（`Formats/Types.cs` など）が宣言しているものは対�
 （ドライブ文字の後に区切りを入れない）だった、`CustomRooms` のマップフォルダが macOS のバンドルを
 見ていなかった、など（コミットメッセージに個別の記録）。
 
-**未整理（別作業として残っているもの）**:
-- 現在カルチャの数値記号・照合（ICU/`GetLocaleInfoEx` の読み出しと `FormatFixed` などの書式化）が
-  約10ファイルにある。
-- `ToUpperInvariant`/`OrdinalIgnoreCase` の大文字小文字表がファイルごとに部分的（`Q3Bsp`・`MapBundle`・
-  `MapVote`・`TextLauncher`・サムネイル系）。Globalization の畳み込みは ICU 依存で Windows では ASCII のみ。
-- ZIP の読み出しが `Q3Bsp` と `MapBundle` に別々にある（`ZipArchive` がある）。
-- `System` の例外と同名の例外クラスがファイルごとに約50個ある（`catch` が効かない組み合わせがある）。
-- `std::cout` 直書きが約520か所（`Console` を通すと Windows コンソールで UTF-16 になる）。
+**その後の共通化で見つけたずれ（修正済み）**: `decimal` の `F2` が偶数丸めだった（.NET は四捨五入）、
+`(float)decimal` が文字列経由だった（.NET は `VarR8FromDec`）、`FhTriggerFlags` を `[Flags]` として
+表示していた（C# では違う）、`GameMode` の数値解析が byte の範囲を見ていなかった、`Math.Clamp` の
+例外文が `float` を `1.000000` と書いていた、サムネイルのログがビルド日時の前に余分な `:` を付けていた、など。
+
+**`std::cout` と `Console`**: この移植では `std::cout` が `Console.Out` そのもの（`Console.SetOut`・
+デバッグログのティー・セットアップの報告はどれも `rdbuf` の差し替え）。`ConsoleWrite` は差し替えが
+あれば `std::cout` を通り、無ければハンドルに直接（Windows コンソールでは UTF-16）書く。どちらで
+書いても同じ行き先に届くので、`std::cout << ...` を書き換える必要はない。
 - `List.Sort`/`Array.Sort` のイントロソートが2ファイルにあり、`std::sort` の25か所は未監査。
 - `MapGen` の数値解析（`TryParseSingleInvariant`・Unicode 空白の切り詰め）が `Q3Convert`・`Q3Import`・
   `MapBuilder`・`Features`・`SettingsView` に重複。

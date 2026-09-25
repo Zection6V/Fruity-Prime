@@ -62,6 +62,17 @@ SHARED = {
                                          'CreatePerspectiveFieldOfView', 'CreateOrthographic',
                                          'DivideVector', 'UnitY'],
     'NativeRuntime/OpenTK/GLFW': ['GlfwModule', 'GlfwProc'],
+    'NativeRuntime/System/Sort': ['IntroSort', 'HeapSort', 'InsertionSort', 'DownHeap',
+                                  'SwapIfGreater', 'PickPivotAndPartition', 'DotNetSort'],
+    'NativeRuntime/System/Random': ['InternalSample', 'RuntimeRandomBytes', 'NextUInt64'],
+    'NativeRuntime/System/Stopwatch': ['StopwatchTimestamp', 'StopwatchGetTimestamp',
+                                       'RuntimeStopwatchFrequency'],
+    'NativeRuntime/System/Tasks': ['SetCurrentThreadName', 'SleepOneMillisecond'],
+    'NativeRuntime/System/DateTime': ['LocalTime', 'LocalUtcOffsetSeconds', 'FileTimestamp',
+                                      'LineTimestamp', 'HeaderTimestamp', 'NowWithMilliseconds'],
+    'NativeRuntime/System/Net': ['EnsureWinsock', 'LastSocketError'],
+    'NativeRuntime/System/Number': ['CurrentDecimalPoint', 'CurrentNumberFormat',
+                                    'InvariantNumberFormat', 'TrimNumberWhiteSpace'],
 }
 
 

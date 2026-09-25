@@ -1,4 +1,5 @@
 #include "Movie.hpp"
+#include "../NativeRuntime/System/HashCode.hpp"
 #include "../NativeRuntime/System/ThreadStatic.hpp"
 
 #include "../GameState.hpp"
@@ -1101,48 +1102,7 @@ namespace MphRead::Formats::MovieNativeRuntime
             return scheduler;
         }
 
-        constexpr std::uint32_t Prime2 = 2246822519U;
-        constexpr std::uint32_t Prime3 = 3266489917U;
-        constexpr std::uint32_t Prime4 = 668265263U;
-        constexpr std::uint32_t Prime5 = 374761393U;
 
-        [[nodiscard]] std::uint32_t GlobalHashSeed() noexcept
-        {
-            static const std::uint32_t seed = []() noexcept
-            {
-                try
-                {
-                    std::random_device device;
-                    return (static_cast<std::uint32_t>(device()) << 16)
-                        ^ static_cast<std::uint32_t>(device());
-                }
-                catch (...)
-                {
-                    return 0U;
-                }
-            }();
-            return seed;
-        }
-
-        [[nodiscard]] constexpr std::uint32_t RotateLeft(std::uint32_t value, int offset) noexcept
-        {
-            return std::rotl(value, offset);
-        }
-
-        [[nodiscard]] std::uint32_t QueueRound(std::uint32_t hash, std::uint32_t queued) noexcept
-        {
-            return RotateLeft(hash + queued * Prime3, 17) * Prime4;
-        }
-
-        [[nodiscard]] std::uint32_t MixFinal(std::uint32_t hash) noexcept
-        {
-            hash ^= hash >> 15;
-            hash *= Prime2;
-            hash ^= hash >> 13;
-            hash *= Prime3;
-            hash ^= hash >> 16;
-            return hash;
-        }
     }
 
     std::shared_ptr<SynchronizationContext> SynchronizationContext::Current() noexcept
@@ -1184,15 +1144,6 @@ namespace MphRead::Formats::MovieNativeRuntime
             }
             CurrentTaskSchedulerRef() = std::move(previous);
         });
-    }
-
-    std::int32_t HashCombine(std::int32_t first, std::int32_t second) noexcept
-    {
-        std::uint32_t hash = GlobalHashSeed() + Prime5;
-        hash += 8U;
-        hash = QueueRound(hash, std::bit_cast<std::uint32_t>(first));
-        hash = QueueRound(hash, std::bit_cast<std::uint32_t>(second));
-        return std::bit_cast<std::int32_t>(MixFinal(hash));
     }
 
     BinaryReader::BinaryReader(std::shared_ptr<Stream> stream)
@@ -2685,13 +2636,13 @@ namespace MphRead::Formats
     std::int32_t BitStreamReader::ReadVLC2(const VLCData& vlc)
     {
         std::int32_t bitCount = 1;
-        std::int32_t hashCode = MovieNativeRuntime::HashCombine(0, ReadBit());
+        std::int32_t hashCode = ::MphRead::NativeRuntime::HashCodeCombine(0, ReadBit());
         std::int32_t index = vlc.FindBitPattern(hashCode);
         while (index == -1)
         {
             assert(bitCount < vlc.MaxBitCount());
             bitCount = UncheckedAdd(bitCount, 1);
-            hashCode = MovieNativeRuntime::HashCombine(hashCode, ReadBit());
+            hashCode = ::MphRead::NativeRuntime::HashCodeCombine(hashCode, ReadBit());
             index = vlc.FindBitPattern(hashCode);
         }
         return index;
@@ -4405,7 +4356,7 @@ namespace MphRead::Formats
                 std::int32_t hashCode = 0;
                 for (char c : bitString)
                 {
-                    hashCode = MovieNativeRuntime::HashCombine(hashCode, c - '0');
+                    hashCode = ::MphRead::NativeRuntime::HashCodeCombine(hashCode, c - '0');
                 }
                 const auto [it, inserted] = _bitDict.emplace(
                     hashCode, static_cast<std::int32_t>(i));

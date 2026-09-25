@@ -63,6 +63,7 @@
 #endif
 
 using ::MphRead::NativeRuntime::AppContextBaseDirectory;
+using ::MphRead::NativeRuntime::BooleanTryParse;
 using ::MphRead::NativeRuntime::EnvironmentProcessPath;
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::FileReadAllLines;
@@ -77,49 +78,6 @@ using ::MphRead::NativeRuntime::WideToWtf8;
 
 namespace
 {
-
-    [[nodiscard]] std::string_view TrimBooleanInput(
-        std::string_view value) noexcept
-    {
-        for (;;)
-        {
-            const std::string_view trimmed = StringTrimView(value);
-            if (trimmed.data() != value.data() || trimmed.size() != value.size())
-            {
-                value = trimmed;
-                continue;
-            }
-            if (!value.empty() && value.front() == '\0')
-            {
-                value.remove_prefix(1);
-                continue;
-            }
-            if (!value.empty() && value.back() == '\0')
-            {
-                value.remove_suffix(1);
-                continue;
-            }
-            return value;
-        }
-    }
-
-    [[nodiscard]] bool TryParseBoolean(
-        std::string_view value, bool& result) noexcept
-    {
-        value = TrimBooleanInput(value);
-        if (StringEqualsOrdinalIgnoreCase(value, "true"))
-        {
-            result = true;
-            return true;
-        }
-        if (StringEqualsOrdinalIgnoreCase(value, "false"))
-        {
-            result = false;
-            return true;
-        }
-        result = false;
-        return false;
-    }
 
     [[nodiscard]] bool IsIntegerWhitespace(char value) noexcept
     {
@@ -708,7 +666,7 @@ namespace MphRead::Mods::Launcher
                 else if (key == "host_on_master")
                 {
                     bool hostOnMaster = false;
-                    if (TryParseBoolean(value, hostOnMaster))
+                    if (BooleanTryParse(value, hostOnMaster))
                     {
                         _hostOnMaster = hostOnMaster;
                     }
@@ -716,7 +674,7 @@ namespace MphRead::Mods::Launcher
                 else if (key == "list_hosted")
                 {
                     bool listHosted = false;
-                    if (TryParseBoolean(value, listHosted))
+                    if (BooleanTryParse(value, listHosted))
                     {
                         _listHostedGame = listHosted;
                     }
@@ -753,7 +711,7 @@ namespace MphRead::Mods::Launcher
                 else if (key == "window_maximized")
                 {
                     bool maximized = false;
-                    if (TryParseBoolean(value, maximized))
+                    if (BooleanTryParse(value, maximized))
                     {
                         _windowMaximized = maximized;
                     }
@@ -761,7 +719,7 @@ namespace MphRead::Mods::Launcher
                 else if (key == "auto_update")
                 {
                     bool autoUpdate = false;
-                    if (TryParseBoolean(value, autoUpdate))
+                    if (BooleanTryParse(value, autoUpdate))
                     {
                         _autoUpdate = autoUpdate;
                     }
@@ -769,7 +727,7 @@ namespace MphRead::Mods::Launcher
                 else if (key == "debug_logs")
                 {
                     bool debugLogs = false;
-                    if (TryParseBoolean(value, debugLogs))
+                    if (BooleanTryParse(value, debugLogs))
                     {
                         _debugLogs = debugLogs;
                     }

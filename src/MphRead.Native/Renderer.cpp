@@ -1,4 +1,6 @@
 #include "Renderer.hpp"
+#include "NativeRuntime/System/Runtime.hpp"
+#include "NativeRuntime/System/Console.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
 #include "NativeRuntime/System/IO.hpp"
 #include "NativeRuntime/System/SceneGate.hpp"
@@ -498,16 +500,6 @@ namespace MphRead
     using Formats::CollisionDetection;
     using Formats::TestFlags;
 
-    template <typename T>
-    [[nodiscard]] T& Deref(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
     // WindowStartMode.ToString().
     [[nodiscard]] std::string WindowStartModeName(Mods::WindowStartMode mode)
     {
@@ -642,7 +634,7 @@ namespace MphRead
             throw System::NullReferenceException();
         }
         const RoomMetadata& meta = *metaRef;
-        const auto& entities = Deref(entitiesRef);
+        const auto& entities = RequireReference(entitiesRef);
         Mods::DebugLog::Line("room", "\"" + name + "\" read: " + std::to_string(entities.size())
             + " entit(ies), id=" + std::to_string(RoomId()) + ", area=" + std::to_string(AreaId()));
         RequireReference(::MphRead::GameState::StorySave).SetVisitedRoom(_roomId);
@@ -1234,7 +1226,7 @@ namespace MphRead
             switch (instruction.Code)
             {
             case InstructionCode::BEGIN_VTXS:
-                switch (Deref(instruction.Arguments).at(static_cast<std::size_t>(0)))
+                switch (RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0)))
                 {
                 case 0: GL::Begin(GL::PrimitiveType::Triangles); break;
                 case 1: GL::Begin(GL::PrimitiveType::Quads); break;
@@ -1245,14 +1237,14 @@ namespace MphRead
                 break;
             case InstructionCode::COLOR:
             {
-                const std::uint32_t rgb = Deref(instruction.Arguments).at(static_cast<std::size_t>(0));
+                const std::uint32_t rgb = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
                 GL::Color3(((rgb >> 0) & 0x1F) / 31.0F,
                     ((rgb >> 5) & 0x1F) / 31.0F, ((rgb >> 10) & 0x1F) / 31.0F);
                 break;
             }
             case InstructionCode::DIF_AMB:
             {
-                const std::uint32_t rgb = Deref(instruction.Arguments).at(static_cast<std::size_t>(0));
+                const std::uint32_t rgb = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
                 const std::uint32_t dr = (rgb >> 0) & 0x1F;
                 const std::uint32_t dg = (rgb >> 5) & 0x1F;
                 const std::uint32_t db = (rgb >> 10) & 0x1F;
@@ -1273,7 +1265,7 @@ namespace MphRead
             }
             case InstructionCode::NORMAL:
             {
-                const std::uint32_t xyz = Deref(instruction.Arguments).at(static_cast<std::size_t>(0));
+                const std::uint32_t xyz = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
                 auto sx10 = [](std::uint32_t v)
                 {
                     std::int32_t n = static_cast<std::int32_t>(v & 0x3FFU);
@@ -1286,7 +1278,7 @@ namespace MphRead
             case InstructionCode::TEXCOORD:
             {
                 MPHREAD_DEBUG_ASSERT(textureWidth > 0 && textureHeight > 0);
-                const std::uint32_t st = Deref(instruction.Arguments).at(static_cast<std::size_t>(0));
+                const std::uint32_t st = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
                 auto sx16 = [](std::uint32_t v)
                 {
                     std::int32_t n = static_cast<std::int32_t>(v & 0xFFFFU);
@@ -1306,10 +1298,10 @@ namespace MphRead
                     if ((n & 0x8000) != 0) n |= static_cast<std::int32_t>(0xFFFF0000U);
                     return n;
                 };
-                const std::uint32_t xy = Deref(instruction.Arguments).at(static_cast<std::size_t>(0));
+                const std::uint32_t xy = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
                 vtxX = Fixed::ToFloat(sx16(xy));
                 vtxY = Fixed::ToFloat(sx16(xy >> 16));
-                vtxZ = Fixed::ToFloat(sx16(Deref(instruction.Arguments).at(static_cast<std::size_t>(1))));
+                vtxZ = Fixed::ToFloat(sx16(RequireReference(instruction.Arguments).at(static_cast<std::size_t>(1))));
                 GL::Vertex3(vtxX, vtxY, vtxZ);
                 break;
             }
@@ -1321,7 +1313,7 @@ namespace MphRead
                     if ((n & 0x200) != 0) n |= static_cast<std::int32_t>(0xFFFFFC00U);
                     return n;
                 };
-                const std::uint32_t xyz = Deref(instruction.Arguments).at(static_cast<std::size_t>(0));
+                const std::uint32_t xyz = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
                 vtxX = sx10(xyz) / 64.0F;
                 vtxY = sx10(xyz >> 10) / 64.0F;
                 vtxZ = sx10(xyz >> 20) / 64.0F;
@@ -1338,7 +1330,7 @@ namespace MphRead
                     if ((n & 0x8000) != 0) n |= static_cast<std::int32_t>(0xFFFF0000U);
                     return n;
                 };
-                const std::uint32_t pair = Deref(instruction.Arguments).at(static_cast<std::size_t>(0));
+                const std::uint32_t pair = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
                 if (instruction.Code == InstructionCode::VTX_XY)
                 {
                     vtxX = Fixed::ToFloat(sx16(pair));
@@ -1365,7 +1357,7 @@ namespace MphRead
                     if ((n & 0x200) != 0) n |= static_cast<std::int32_t>(0xFFFFFC00U);
                     return n;
                 };
-                const std::uint32_t xyz = Deref(instruction.Arguments).at(static_cast<std::size_t>(0));
+                const std::uint32_t xyz = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
                 vtxX += Fixed::ToFloat(sx10(xyz));
                 vtxY += Fixed::ToFloat(sx10(xyz >> 10));
                 vtxZ += Fixed::ToFloat(sx10(xyz >> 20));
@@ -1374,7 +1366,7 @@ namespace MphRead
             }
             case InstructionCode::END_VTXS: GL::End(); break;
             case InstructionCode::MTX_RESTORE:
-                if (!isRoom) matrixId = Deref(instruction.Arguments).at(static_cast<std::size_t>(0));
+                if (!isRoom) matrixId = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
                 GL::TexCoord3(texX, texY, matrixId);
                 break;
             case InstructionCode::NOP: break;
@@ -1755,7 +1747,7 @@ namespace MphRead
         _perspectiveMatrix = GetPerspectiveMatrix(_cameraFov);
         GL::UniformMatrix4(_shaderLocations->ProjectionMatrix, false, _perspectiveMatrix);
         auto main = Entities::PlayerEntity::Main();
-        const Vector3 camPos = Deref(main->CameraInfo()).Position;
+        const Vector3 camPos = RequireReference(main->CameraInfo()).Position;
         const Vector3 camRight(_viewMatrix.M11, _viewMatrix.M12, -_viewMatrix.M13);
         const Vector3 camUp(_viewMatrix.M21, _viewMatrix.M22, -_viewMatrix.M23);
         const Vector3 camFacing(_viewMatrix.M31, _viewMatrix.M32, -_viewMatrix.M33);
@@ -2290,8 +2282,8 @@ namespace MphRead
             if (_cameraMode == MphRead::CameraMode::Player)
             {
                 const auto main = Entities::PlayerEntity::Main();
-                _viewMatrix = Deref(main->CameraInfo()).ViewMatrix;
-                const float fov = Deref(main->CameraInfo()).Fov > 0.0F ? Deref(main->CameraInfo()).Fov : 78.0F;
+                _viewMatrix = RequireReference(main->CameraInfo()).ViewMatrix;
+                const float fov = RequireReference(main->CameraInfo()).Fov > 0.0F ? RequireReference(main->CameraInfo()).Fov : 78.0F;
                 _cameraFov = DegreesToRadians(fov);
             }
             else
@@ -2337,7 +2329,7 @@ namespace MphRead
         }
         else if (_cameraMode == MphRead::CameraMode::Player)
         {
-            _cameraPosition = Deref(Entities::PlayerEntity::Main()->CameraInfo()).Position;
+            _cameraPosition = RequireReference(Entities::PlayerEntity::Main()->CameraInfo()).Position;
         }
     }
 
@@ -3745,7 +3737,7 @@ namespace MphRead
         UseLight2(item->LightInfo.Light2Vector, item->LightInfo.Light2Color);
         if (item->MatrixStackCount > 0)
         {
-            GL::UniformMatrix4(_shaderLocations->MatrixStack, item->MatrixStackCount, false, Deref(item->MatrixStack).Data());
+            GL::UniformMatrix4(_shaderLocations->MatrixStack, item->MatrixStackCount, false, RequireReference(item->MatrixStack).Data());
         }
         else
         {
@@ -4460,8 +4452,8 @@ namespace MphRead
             return;
         }
         const auto main = Entities::PlayerEntity::Main();
-        _cameraPosition = Deref(main->CameraInfo()).Position;
-        _cameraFacing = Deref(main->CameraInfo()).Facing;
+        _cameraPosition = RequireReference(main->CameraInfo()).Position;
+        _cameraFacing = RequireReference(main->CameraInfo()).Facing;
         if (LengthSquared(_cameraFacing) < 0.0001F)
         {
             _cameraFacing = Vector3(0.0F, 0.0F, -1.0F);
@@ -4941,7 +4933,7 @@ namespace MphRead
             if (output != _currentOutput)
             {
                 RendererPlatform::ConsoleClear();
-                RendererPlatform::ConsoleWriteLine(output);
+                ::MphRead::NativeRuntime::ConsoleWriteLine(output);
                 _currentOutput = output;
             }
             std::unique_lock lock(delayMutex);
@@ -4952,7 +4944,7 @@ namespace MphRead
     void Scene::OutputLoadPrompt()
     {
         RendererPlatform::ConsoleClear();
-        RendererPlatform::ConsoleWrite("Enter model name: ");
+        ::MphRead::NativeRuntime::ConsoleWrite("Enter model name: ");
         std::string line = RendererPlatform::ConsoleReadLine().value_or(std::string{});
         auto trim = [](std::string value)
         {
@@ -5005,7 +4997,7 @@ namespace MphRead
     void Scene::OutputCameraPrompt()
     {
         RendererPlatform::ConsoleClear();
-        RendererPlatform::ConsoleWrite("Enter camera position: ");
+        ::MphRead::NativeRuntime::ConsoleWrite("Enter camera position: ");
         std::string line = NativeRuntime::StringTrim(
             RendererPlatform::ConsoleReadLine().value_or(std::string{}));
         line.erase(std::remove(line.begin(), line.end(), ','), line.end());
@@ -5576,11 +5568,11 @@ namespace MphRead
 
     bool RenderWindow::OnWayland()
     {
-        if (!RendererPlatform::IsLinux())
+        if (!::MphRead::NativeRuntime::IsLinux())
         {
             return false;
         }
-        auto session = RendererPlatform::EnvironmentVariable("XDG_SESSION_TYPE");
+        auto session = ::MphRead::NativeRuntime::EnvironmentGetVariable("XDG_SESSION_TYPE");
         if (!session.has_value())
         {
             return false;
@@ -5592,7 +5584,7 @@ namespace MphRead
         {
             return false;
         }
-        const auto useWayland = RendererPlatform::EnvironmentVariable("OPENTK_4_USE_WAYLAND");
+        const auto useWayland = ::MphRead::NativeRuntime::EnvironmentGetVariable("OPENTK_4_USE_WAYLAND");
         return !useWayland.has_value() || *useWayland != "0";
     }
 

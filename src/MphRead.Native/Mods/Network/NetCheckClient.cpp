@@ -75,28 +75,6 @@ namespace
         return value ? "True" : "False";
     }
 
-    [[nodiscard]] std::string GameModeName(GameMode mode)
-    {
-        switch (mode)
-        {
-            case GameMode::None: return "None";
-            case GameMode::SinglePlayer: return "SinglePlayer";
-            case GameMode::Battle: return "Battle";
-            case GameMode::BattleTeams: return "BattleTeams";
-            case GameMode::Survival: return "Survival";
-            case GameMode::SurvivalTeams: return "SurvivalTeams";
-            case GameMode::Bounty: return "Bounty";
-            case GameMode::BountyTeams: return "BountyTeams";
-            case GameMode::Capture: return "Capture";
-            case GameMode::Defender: return "Defender";
-            case GameMode::DefenderTeams: return "DefenderTeams";
-            case GameMode::Nodes: return "Nodes";
-            case GameMode::NodesTeams: return "NodesTeams";
-            case GameMode::PrimeHunter: return "PrimeHunter";
-        }
-        return std::to_string(static_cast<std::int32_t>(mode));
-    }
-
     [[nodiscard]] std::string TestPhaseName(TestPhase phase)
     {
         switch (phase)
@@ -956,7 +934,7 @@ namespace MphRead::Mods::Network
         std::cout
             << "[netcheck] " << name
             << " joined slot " << NetSession::LocalSlot()
-            << ", loading " << roomKey << " (" << GameModeName(roomMode) << ")\n";
+            << ", loading " << roomKey << " (" << ::MphRead::ToString(roomMode) << ")\n";
         if (recordDemo && DemoRecorder::Start())
         {
             std::cout

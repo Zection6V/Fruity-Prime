@@ -126,17 +126,6 @@ namespace
         return result;
     }
 
-    template <std::size_t Size>
-    [[nodiscard]] std::string MarshalString(const char (&value)[Size])
-    {
-        std::size_t length = 0;
-        while (length < Size && value[length] != '\0')
-        {
-            ++length;
-        }
-        return std::string(value, length);
-    }
-
     [[nodiscard]] bool StartsWith(std::string_view value, std::string_view prefix) noexcept
     {
         return value.size() >= prefix.size() && value.compare(0, prefix.size(), prefix) == 0;
@@ -535,7 +524,7 @@ namespace MphRead::Entities
         std::shared_ptr<ModelInstance> conInstValue = Read::GetRoomModelInstance(RequireReference(meta).Name);
         ModelInstance& conInst = RequireReference(conInstValue);
         const auto& conNodes = RequireReference(RequireReference((conInst).Model()).Nodes);
-        const std::string connectorName = MarshalString(door.Data().RoomName);
+        const std::string connectorName = ::MphRead::MarshalExtensions::MarshalUtf8(door.Data().RoomName);
         for (const std::shared_ptr<Node>& nodeValue : conNodes)
         {
             Node& node = RequireReference(nodeValue);
@@ -585,7 +574,7 @@ namespace MphRead::Entities
         std::shared_ptr<CollisionInstance> collisionValue
             = Formats::Collision::Collision::GetCollision(meta, -1);
         CollisionInstance& collision = RequireReference(collisionValue);
-        collision.ConnectorName = MarshalString(door.Data().RoomName);
+        collision.ConnectorName = ::MphRead::MarshalExtensions::MarshalUtf8(door.Data().RoomName);
         collision.Translation = Add(static_cast<Vector3>(door.Position), Divide(size, 2.0F));
         _roomCollision.push_back(collisionValue);
         conInst.Active = false;

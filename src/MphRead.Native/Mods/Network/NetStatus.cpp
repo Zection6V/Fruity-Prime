@@ -5,6 +5,7 @@
 #include "../../Formats/Formats.hpp"
 #include "../../Metadata/Metadata.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <array>
 #include <bit>
@@ -41,6 +42,7 @@
 #include <unistd.h>
 #endif
 
+using ::MphRead::NativeRuntime::CSharpTryFinally;
 using ::MphRead::NativeRuntime::CharIsWhiteSpace;
 using ::MphRead::NativeRuntime::StringIsNullOrWhiteSpace;
 
@@ -116,32 +118,6 @@ namespace MphRead::Mods::Network::Detail
 namespace
 {
     using MphRead::Mods::Network::ServerStatus;
-
-    template <typename TBody, typename TFinally>
-    ServerStatus CSharpTryFinally(TBody&& body, TFinally&& finalizer)
-    {
-        std::optional<ServerStatus> result;
-        std::exception_ptr bodyException;
-        try
-        {
-            result.emplace(body());
-        }
-        catch (...)
-        {
-            bodyException = std::current_exception();
-        }
-
-        // A C# using declaration lowers to try/finally. The finalizer runs on
-        // both return and throw, and a finalizer failure replaces the pending
-        // result or exception.
-        finalizer();
-
-        if (bodyException != nullptr)
-        {
-            std::rethrow_exception(bodyException);
-        }
-        return std::move(*result);
-    }
 
     [[nodiscard]] std::int32_t StopwatchElapsedMilliseconds(
         std::chrono::steady_clock::time_point started) noexcept

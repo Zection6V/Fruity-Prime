@@ -21,6 +21,8 @@
 #include "NetUnlagged.hpp"
 #include "PlayerColors.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
@@ -61,6 +63,8 @@
 #include <unistd.h>
 #endif
 
+using ::MphRead::NativeRuntime::ConsoleWrite;
+using ::MphRead::NativeRuntime::ConsoleWriteLine;
 using ::MphRead::NativeRuntime::DecodeUtf8Scalar;
 using ::MphRead::NativeRuntime::HasFlag;
 using ::MphRead::NativeRuntime::IncrementInPlace;
@@ -401,29 +405,6 @@ namespace
         return NumberTextCore(value, 0, 0, 7);
     }
 
-    [[nodiscard]] std::string GameModeName(std::uint8_t mode)
-    {
-        switch (mode)
-        {
-        case 0: return "None";
-        case 2: return "SinglePlayer";
-        case 3: return "Battle";
-        case 4: return "BattleTeams";
-        case 5: return "Survival";
-        case 6: return "SurvivalTeams";
-        case 7: return "Capture";
-        case 8: return "Bounty";
-        case 9: return "BountyTeams";
-        case 10: return "Nodes";
-        case 11: return "NodesTeams";
-        case 12: return "Defender";
-        case 13: return "DefenderTeams";
-        case 14: return "PrimeHunter";
-        case 15: return "Unknown15";
-        default: return Int32Text(static_cast<std::int32_t>(mode));
-        }
-    }
-
     [[nodiscard]] std::string RoleName(NetRole role)
     {
         switch (role)
@@ -537,10 +518,6 @@ namespace
         data[3] = static_cast<std::uint8_t>(value >> 24U);
     }
 
-    void ConsoleWriteLine(const std::string& text)
-    {
-        std::cout << text << '\n';
-    }
 }
 
 namespace MphRead::Mods::Network
@@ -1349,7 +1326,7 @@ namespace MphRead::Mods::Network
         {
             const std::string room = state.RoomKey.value_or(std::string{});
             ConsoleWriteLine("[net] server map: " + room + " ("
-                + GameModeName(state.Mode) + ", " + ZeroDecimals(state.TimeRemaining)
+                + ::MphRead::ToString(static_cast<GameMode>(state.Mode)) + ", " + ZeroDecimals(state.TimeRemaining)
                 + " s left)");
             const std::vector<MapChangedHandler> handlers = MapChanged;
             for (const MapChangedHandler& handler : handlers)

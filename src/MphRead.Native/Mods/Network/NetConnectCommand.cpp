@@ -7,30 +7,15 @@
 #include "NetLaunch.hpp"
 #include "NetLog.hpp"
 #include "NetSession.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <optional>
 #include <string>
 
+using ::MphRead::NativeRuntime::CSharpTryFinally;
+
 namespace
 {
-    // C++ destructors cannot reproduce a throwing C# Dispose/finally while an
-    // earlier exception is active. Calling the finalizer explicitly preserves
-    // C# exception replacement as well as the exact ordering of nested finally
-    // blocks.
-    template <typename TBody, typename TFinally>
-    void CSharpTryFinally(TBody&& body, TFinally&& finalizer)
-    {
-        try
-        {
-            body();
-        }
-        catch (...)
-        {
-            finalizer();
-            throw;
-        }
-        finalizer();
-    }
 }
 
 namespace MphRead::Mods::Network

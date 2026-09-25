@@ -11,9 +11,11 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <new>
 #include <optional>
 #include <span>
 #include <string>
@@ -92,6 +94,96 @@ namespace MphRead::NativeRuntime
     [[nodiscard]] T& RequireReference(T& value) noexcept
     {
         return value;
+    }
+
+    // (T)value for a reference type: null stays null, and anything that is
+    // not a T is InvalidCastException.
+    template <typename T, typename U>
+    [[nodiscard]] T* ManagedCast(U* value)
+    {
+        if (value == nullptr)
+        {
+            return nullptr;
+        }
+        if (T* const cast = dynamic_cast<T*>(value))
+        {
+            return cast;
+        }
+        throw System::InvalidCastException();
+    }
+
+    template <typename T, typename U>
+    [[nodiscard]] std::shared_ptr<T> ManagedCast(const std::shared_ptr<U>& value)
+    {
+        if (!value)
+        {
+            return nullptr;
+        }
+        if (std::shared_ptr<T> cast = std::dynamic_pointer_cast<T>(value))
+        {
+            return cast;
+        }
+        throw System::InvalidCastException();
+    }
+
+    // try { return body(); } finally { finalizer(); }: the finally runs
+    // however the body leaves, and an exception it throws replaces the
+    // body's, as C# has it. A destructor cannot do this -- one that throws
+    // while another exception is in flight ends the process.
+    template <typename TBody, typename TFinally>
+    std::invoke_result_t<TBody&> CSharpTryFinally(TBody&& body, TFinally&& finalizer)
+    {
+        using Result = std::invoke_result_t<TBody&>;
+        std::exception_ptr bodyException;
+        if constexpr (std::is_void_v<Result>)
+        {
+            try
+            {
+                body();
+            }
+            catch (...)
+            {
+                bodyException = std::current_exception();
+            }
+            finalizer();
+            if (bodyException)
+            {
+                std::rethrow_exception(bodyException);
+            }
+        }
+        else
+        {
+            std::optional<Result> result;
+            try
+            {
+                result.emplace(body());
+            }
+            catch (...)
+            {
+                bodyException = std::current_exception();
+            }
+            finalizer();
+            if (bodyException)
+            {
+                std::rethrow_exception(bodyException);
+            }
+            return std::move(*result);
+        }
+    }
+
+    // Assignment to a struct whose fields are readonly (const here): C#
+    // copies the whole value over the old one, which C++ cannot do through
+    // operator= on const members, so the old value is destroyed and the new
+    // one constructed in its place.
+    template <typename T>
+    T& AssignReadonly(T& self, const T& other) noexcept(std::is_nothrow_copy_constructible_v<T>)
+    {
+        if (std::addressof(self) != std::addressof(other))
+        {
+            self.~T();
+            ::new (static_cast<void*>(std::addressof(self))) T(other);
+        }
+        return self;
     }
 
     // value as T: the object when it is a T, null when it is not.

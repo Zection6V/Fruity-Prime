@@ -47,17 +47,6 @@ namespace
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
 
-    template <std::size_t Size>
-    [[nodiscard]] std::string MarshalString(const char (&value)[Size])
-    {
-        std::size_t length = 0;
-        while (length < Size && value[length] != '\0')
-        {
-            ++length;
-        }
-        return std::string(value, length);
-    }
-
     [[nodiscard]] unsigned char FoldInvariantAscii(unsigned char value) noexcept
     {
         if (value >= static_cast<unsigned char>('A')
@@ -369,7 +358,7 @@ namespace MphRead::Entities
         }
         else
         {
-            const std::string portalName = MarshalString(_data.NodeName) + "_" + *_nodeName;
+            const std::string portalName = ::MphRead::MarshalExtensions::MarshalUtf8(_data.NodeName) + "_" + *_nodeName;
             std::shared_ptr<Formats::Collision::Portal> portal = _scene->Room() != nullptr
                 ? _scene->Room()->GetPortalByName(portalName)
                 : nullptr;

@@ -2,6 +2,7 @@
 
 #include "Collision.hpp"
 #include "Entity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <cstring>
 #include <memory>
@@ -9,54 +10,10 @@
 #include <string>
 #include <type_traits>
 
+using ::MphRead::NativeRuntime::AssignReadonly;
+
 namespace
 {
-    template <std::size_t N>
-    [[nodiscard]] std::string MarshalString(
-        const MphRead::NativeRuntime::ByValByteArray<N>& array)
-    {
-        // C# MarshalExtensions.MarshalString checks null before constructing
-        // the managed string or inspecting any element.
-        if (array.IsNull())
-        {
-            throw System::ArgumentNullException("array");
-        }
-
-        std::string result;
-        result.reserve(N);
-        for (std::uint8_t value : array)
-        {
-            if (value == 0)
-            {
-                break;
-            }
-
-            const std::uint32_t codePoint = value;
-            if (codePoint <= 0x7FU)
-            {
-                result.push_back(static_cast<char>(codePoint));
-            }
-            else
-            {
-                result.push_back(static_cast<char>(0xC0U | (codePoint >> 6)));
-                result.push_back(static_cast<char>(0x80U | (codePoint & 0x3FU)));
-            }
-        }
-        return result;
-    }
-
-    template <typename T>
-    T& AssignReadonly(T& target, const T& source)
-        noexcept(std::is_nothrow_copy_constructible_v<T>)
-    {
-        if (std::addressof(target) != std::addressof(source))
-        {
-            target.~T();
-            ::new (static_cast<void*>(std::addressof(target))) T(source);
-        }
-        return target;
-    }
-
     template <std::size_t Offset>
     [[nodiscard]] std::int32_t ReadInt32(
         const std::array<std::uint8_t, 64>& bytes) noexcept
@@ -176,17 +133,17 @@ namespace MphRead
 
     std::string RawMaterial::NameString() const
     {
-        return MarshalString(Name);
+        return ::MphRead::MarshalExtensions::MarshalUtf8(Name);
     }
 
     std::string MaterialAnimation::NameString() const
     {
-        return MarshalString(Name);
+        return ::MphRead::MarshalExtensions::MarshalUtf8(Name);
     }
 
     std::string TexcoordAnimation::NameString() const
     {
-        return MarshalString(Name);
+        return ::MphRead::MarshalExtensions::MarshalUtf8(Name);
     }
 
     Texture::Texture(
@@ -213,7 +170,7 @@ namespace MphRead
 
     std::string RawNode::NameString() const
     {
-        return MarshalString(Name);
+        return ::MphRead::MarshalExtensions::MarshalUtf8(Name);
     }
 
     RawCollisionVolume::RawCollisionVolume(
@@ -348,21 +305,21 @@ namespace MphRead
 
     std::string RawCameraSequenceKeyframe::NodeNameString() const
     {
-        return MarshalString(NodeName);
+        return ::MphRead::MarshalExtensions::MarshalUtf8(NodeName);
     }
 
     std::string RawEffectElement::NameString() const
     {
-        return MarshalString(Name);
+        return ::MphRead::MarshalExtensions::MarshalUtf8(Name);
     }
 
     std::string RawEffectElement::ModelNameString() const
     {
-        return MarshalString(ModelName);
+        return ::MphRead::MarshalExtensions::MarshalUtf8(ModelName);
     }
 
     std::string RawStringTableEntry::IdString() const
     {
-        return MarshalString(Id);
+        return ::MphRead::MarshalExtensions::MarshalUtf8(Id);
     }
 }

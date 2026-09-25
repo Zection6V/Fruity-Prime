@@ -77,42 +77,6 @@ namespace MphRead::Entities
         using OpenTK::Mathematics::Vector3;
         using OpenTK::Mathematics::Vector4;
 
-        [[nodiscard]] std::string MarshalString(
-            const std::shared_ptr<ManagedArray<char16_t>>& value)
-        {
-            if (!value)
-            {
-                throw System::ArgumentNullException("array");
-            }
-            ManagedArray<char16_t>& chars = *value;
-            std::string result;
-            for (std::size_t i = 0; i < chars.Length(); ++i)
-            {
-                const char16_t current = chars[i];
-                if (current == u'\0')
-                {
-                    break;
-                }
-                const std::uint32_t code = static_cast<std::uint32_t>(current);
-                if (code <= 0x7FU)
-                {
-                    result.push_back(static_cast<char>(code));
-                }
-                else if (code <= 0x7FFU)
-                {
-                    result.push_back(static_cast<char>(0xC0U | (code >> 6)));
-                    result.push_back(static_cast<char>(0x80U | (code & 0x3FU)));
-                }
-                else
-                {
-                    result.push_back(static_cast<char>(0xE0U | (code >> 12)));
-                    result.push_back(static_cast<char>(0x80U | ((code >> 6) & 0x3FU)));
-                    result.push_back(static_cast<char>(0x80U | (code & 0x3FU)));
-                }
-            }
-            return result;
-        }
-
         template <typename T>
         [[nodiscard]] std::shared_ptr<EnemyInstanceEntity> MakeEnemy(
             EntityBase* spawner,
@@ -135,7 +99,7 @@ namespace MphRead::Entities
           ParentEntCol(_parentEntCol)
     {
         Id = data.Header.EntityId;
-        std::string marshaledNodeName = MarshalString(data.NodeName);
+        std::string marshaledNodeName = ::MphRead::NativeRuntime::Utf16ToUtf8(::MphRead::MarshalExtensions::MarshalString(data.NodeName));
         _rangeNodeRef = RequireReference(scene).GetNodeRefByName(
             std::move(marshaledNodeName));
         _cooldownTimer = static_cast<std::int32_t>(_data.InitialCooldown) * 2;

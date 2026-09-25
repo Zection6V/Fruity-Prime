@@ -8,6 +8,7 @@
 #include "../EnemyInstanceEntity.hpp"
 #include "PlayerEntity.hpp"
 #include "PlayerHud.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 
@@ -27,6 +28,7 @@
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::ManagedCast;
 using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -59,21 +61,6 @@ namespace
             throw System::NullReferenceException();
         }
         return *value;
-    }
-
-    template <typename TTarget, typename TSource>
-    [[nodiscard]] TTarget& ManagedCast(const std::shared_ptr<TSource>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        auto* cast = dynamic_cast<TTarget*>(value.get());
-        if (cast == nullptr)
-        {
-            throw MphRead::SceneDetail::InvalidCastException();
-        }
-        return *cast;
     }
 
 }
@@ -189,7 +176,7 @@ namespace MphRead::Entities
             bool noMaxDist = false;
             if (entity.Type == EntityType::EnemyInstance)
             {
-                EnemyInstanceEntity& enemy = ManagedCast<EnemyInstanceEntity>(entityRef);
+                EnemyInstanceEntity& enemy = RequireReference(ManagedCast<EnemyInstanceEntity>(entityRef));
                 noMaxDist = TestFlag(static_cast<EnemyFlags>(enemy.Flags), EnemyFlags::NoMaxDistance);
             }
             if (dist >= 24.0F && !noMaxDist)

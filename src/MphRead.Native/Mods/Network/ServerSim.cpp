@@ -42,28 +42,6 @@ namespace
         return stream.str();
     }
 
-    [[nodiscard]] std::string GameModeName(MphRead::GameMode mode)
-    {
-        switch (static_cast<std::int32_t>(mode))
-        {
-        case 0: return "None";
-        case 2: return "SinglePlayer";
-        case 3: return "Battle";
-        case 4: return "BattleTeams";
-        case 5: return "Survival";
-        case 6: return "SurvivalTeams";
-        case 7: return "Capture";
-        case 8: return "Bounty";
-        case 9: return "BountyTeams";
-        case 10: return "Nodes";
-        case 11: return "NodesTeams";
-        case 12: return "Defender";
-        case 13: return "DefenderTeams";
-        case 14: return "PrimeHunter";
-        case 15: return "Unknown15";
-        default: return std::to_string(static_cast<std::int32_t>(mode));
-        }
-    }
 }
 
 namespace MphRead::Mods::Network
@@ -271,7 +249,7 @@ namespace MphRead::Mods::Network
             ? _stepSeconds / static_cast<double>(_frames) * 1000.0
             : 0.0;
 
-        std::string result = Room() + " (" + GameModeName(GameState::Mode())
+        std::string result = Room() + " (" + ::MphRead::ToString(GameState::Mode())
             + "), " + std::to_string(_frames) + " step(s), "
             + FormatFixed(mean, 2) + " ms mean, "
             + FormatFixed(_worstStepSeconds * 1000.0, 1) + " ms worst, "

@@ -7,6 +7,7 @@
 #include "../BeamProjectileEntity.hpp"
 #include "../EnemySpawnEntity.hpp"
 #include "../Players/PlayerEntity.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
@@ -21,6 +22,7 @@
 
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
 using ::MphRead::NativeRuntime::ManagedAs;
+using ::MphRead::NativeRuntime::ManagedCast;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -37,21 +39,6 @@ namespace MphRead::Entities::Enemies
     namespace
     {
         using OpenTK::Mathematics::Vector3;
-
-        template <typename T>
-        [[nodiscard]] T* ManagedCast(EntityBase* value)
-        {
-            if (value == nullptr)
-            {
-                return nullptr;
-            }
-            T* result = dynamic_cast<T*>(value);
-            if (result == nullptr)
-            {
-                throw SceneDetail::InvalidCastException();
-            }
-            return result;
-        }
 
         [[nodiscard]] std::int32_t ShiftRightInt32(std::int32_t value, std::uint32_t count) noexcept
         {

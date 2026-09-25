@@ -70,6 +70,8 @@ using ::MphRead::NativeRuntime::EnvironmentGetVariable;
 using ::MphRead::NativeRuntime::EnvironmentProcessPath;
 using ::MphRead::NativeRuntime::FileDelete;
 using ::MphRead::NativeRuntime::FileExists;
+using ::MphRead::NativeRuntime::IsAndroid;
+using ::MphRead::NativeRuntime::IsWindows;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathGetDirectoryName;
@@ -112,24 +114,6 @@ namespace MphRead::Mods::Update
             {
             }
         };
-
-        [[nodiscard]] bool IsAndroid() noexcept
-        {
-#if defined(__ANDROID__)
-            return true;
-#else
-            return false;
-#endif
-        }
-
-        [[nodiscard]] bool IsWindows() noexcept
-        {
-#if defined(_WIN32)
-            return true;
-#else
-            return false;
-#endif
-        }
 
         [[noreturn]] void ThrowFileError(
             const std::string& path, const std::error_code& error)

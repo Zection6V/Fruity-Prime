@@ -57,6 +57,7 @@
 #include "../NativeRuntime/System/Encoding.hpp"
 #include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 #include "../NativeRuntime/System/Runtime.hpp"
 
 #include <algorithm>
@@ -102,6 +103,7 @@ using ::MphRead::NativeRuntime::Int32TryParseCurrentCulture;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 using ::MphRead::NativeRuntime::WideToWtf8;
 
@@ -113,16 +115,6 @@ using ::MphRead::NativeRuntime::WideToWtf8;
 
 namespace
 {
-    template <typename T>
-    [[nodiscard]] T& Deref(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
     using MphRead::BeamType;
     using MphRead::GameMode;
     using MphRead::Hunter;
@@ -918,14 +910,14 @@ namespace
                 + " -- it may be down, or UDP may not reach it");
             return;
         }
-        if (Deref(result.Servers).empty())
+        if (RequireReference(result.Servers).empty())
         {
             WriteLine("[servers] the directory is up and has nobody listed");
             return;
         }
-        WriteLine("[servers] " + std::to_string(Deref(result.Servers).size())
+        WriteLine("[servers] " + std::to_string(RequireReference(result.Servers).size())
             + " listed; asking each one");
-        for (const auto& listing : Deref(result.Servers))
+        for (const auto& listing : RequireReference(result.Servers))
         {
             const auto status = NetStatus::Query(listing.Address, listing.Port,
                 false /* allowJoinProbe */);
@@ -1130,24 +1122,24 @@ namespace MphRead::Mods
             int failed = 0;
             for (const auto& definition : MapGen::CustomRooms::Definitions())
             {
-                if (which.has_value() && !StringEqualsOrdinalIgnoreCase(*which, Deref(definition).Name())
+                if (which.has_value() && !StringEqualsOrdinalIgnoreCase(*which, RequireReference(definition).Name())
                     && !StringEqualsOrdinalIgnoreCase(*which, "all"))
                 {
                     continue;
                 }
-                if (!Deref(definition).SourcePath().has_value() || Deref(definition).BundlePath().has_value()
-                    || Deref(definition).Import() == nullptr)
+                if (!RequireReference(definition).SourcePath().has_value() || RequireReference(definition).BundlePath().has_value()
+                    || RequireReference(definition).Import() == nullptr)
                 {
                     continue;
                 }
                 try
                 {
-                    MapGen::MapBundle::Cook(definition.get(), *Deref(definition).SourcePath(), outPath);
+                    MapGen::MapBundle::Cook(definition.get(), *RequireReference(definition).SourcePath(), outPath);
                     ++cooked;
                 }
                 catch (const std::exception& ex)
                 {
-                    WriteLine(Deref(definition).Name() + ": " + ex.what());
+                    WriteLine(RequireReference(definition).Name() + ": " + ex.what());
                     ++failed;
                 }
             }
@@ -1461,7 +1453,7 @@ namespace MphRead::Mods
             int failed = 0;
             for (const auto& definition : MapGen::CustomRooms::Definitions())
             {
-                if (only.has_value() && !StringEqualsOrdinalIgnoreCase(*only, Deref(definition).Name())
+                if (only.has_value() && !StringEqualsOrdinalIgnoreCase(*only, RequireReference(definition).Name())
                     && !StringEqualsOrdinalIgnoreCase(*only, "all"))
                 {
                     continue;
@@ -1476,7 +1468,7 @@ namespace MphRead::Mods
                 }
                 catch (const std::exception& ex)
                 {
-                    WriteLine(Deref(definition).Name() + ": " + ex.what());
+                    WriteLine(RequireReference(definition).Name() + ": " + ex.what());
                     ++failed;
                 }
             }

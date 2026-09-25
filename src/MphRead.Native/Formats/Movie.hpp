@@ -521,7 +521,6 @@ namespace MphRead::Formats
             std::shared_ptr<DecoderLifetime> Lifetime{};
         };
 
-        [[nodiscard]] std::int32_t HashCombine(std::int32_t first, std::int32_t second) noexcept;
 
         template <typename T>
         class ManagedNullableReference final

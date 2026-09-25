@@ -31,6 +31,7 @@
 #endif
 
 using ::MphRead::NativeRuntime::HasFlag;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::CreateRotationZ;
 using ::OpenTK::Mathematics::CreateScale;
 using ::OpenTK::Mathematics::CreateTranslation;
@@ -62,46 +63,16 @@ namespace
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
 
-    template <typename T>
-    [[nodiscard]] T& Require(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& Require(const std::shared_ptr<const T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& Require(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
     [[nodiscard]] const std::vector<std::int32_t>& ParametersOf(const FxFuncInfo& info)
     {
-        return Require(info.Parameters);
+        return RequireReference(info.Parameters);
     }
 
     [[nodiscard]] std::shared_ptr<FxFuncInfo> FuncAt(
         const std::shared_ptr<const EffectFuncDictionary>& funcs,
         std::uint32_t key)
     {
-        const EffectFuncDictionary& dictionary = Require(funcs);
+        const EffectFuncDictionary& dictionary = RequireReference(funcs);
         return dictionary.at(key);
     }
 
@@ -243,22 +214,22 @@ namespace MphRead::Effects
         (*uvsAndVerts)[6] = Vector3(_texcoord3.X, _texcoord3.Y, 0.0F);
         (*uvsAndVerts)[7] = _vertex3;
 
-        Particle& particleForModel = Require(ParticleDefinition);
-        Model& materialModel = Require(particleForModel.Model);
-        Particle& particleForMaterialId = Require(ParticleDefinition);
-        std::shared_ptr<Material> materialRef = Require(materialModel.Materials).at(
+        Particle& particleForModel = RequireReference(ParticleDefinition);
+        Model& materialModel = RequireReference(particleForModel.Model);
+        Particle& particleForMaterialId = RequireReference(ParticleDefinition);
+        std::shared_ptr<Material> materialRef = RequireReference(materialModel.Materials).at(
             static_cast<std::size_t>(particleForMaterialId.MaterialId));
 
         // C# evaluates the instance expression, then arguments, and only then
         // performs the instance call. Preserve that order without dereferencing
         // scene before the ParticleDefinition.Model argument is re-evaluated.
         Scene* sceneTarget = scene;
-        Particle& particleForBinding = Require(ParticleDefinition);
-        Model& bindingModel = Require(particleForBinding.Model);
-        Material& material = Require(materialRef);
+        Particle& particleForBinding = RequireReference(ParticleDefinition);
+        Model& bindingModel = RequireReference(particleForBinding.Model);
+        Material& material = RequireReference(materialRef);
         std::int32_t textureId = material.TextureId;
         std::int32_t paletteId = material.PaletteId;
-        Scene& sceneRef = Require(sceneTarget);
+        Scene& sceneRef = RequireReference(sceneTarget);
         std::int32_t bindingId = sceneRef.BindGetTexture(
             particleForBinding.Model, textureId, paletteId, 0);
         RepeatMode xRepeat = material.XRepeat;
@@ -404,7 +375,7 @@ namespace MphRead::Effects
         while (true)
         {
             std::shared_ptr<const EffectFuncDictionary> funcsForContains = Funcs();
-            const EffectFuncDictionary& dictionary = Require(funcsForContains);
+            const EffectFuncDictionary& dictionary = RequireReference(funcsForContains);
             if (dictionary.find(offset) != dictionary.end())
             {
                 break;
@@ -417,7 +388,7 @@ namespace MphRead::Effects
         std::uint32_t funcId = static_cast<std::uint32_t>(param.at(0));
         std::shared_ptr<const EffectFuncDictionary> funcsForParameters = Funcs();
         std::shared_ptr<FxFuncInfo> info = FuncAt(funcsForParameters, offset);
-        const FxFuncInfo& infoValue = Require(info);
+        const FxFuncInfo& infoValue = RequireReference(info);
         const std::vector<std::int32_t>& parameters = ParametersOf(infoValue);
         float value = InvokeFloatFunc(funcId, parameters, times);
         float percent = times.Elapsed / value;
@@ -746,7 +717,7 @@ namespace MphRead::Effects
         TimeValues times,
         Vector3& vec)
     {
-        const FxFuncInfo& infoValue = Require(info);
+        const FxFuncInfo& infoValue = RequireReference(info);
         switch (infoValue.FuncId)
         {
         case 1:
@@ -813,7 +784,7 @@ namespace MphRead::Effects
         std::shared_ptr<FxFuncInfo> info,
         TimeValues times)
     {
-        const FxFuncInfo& infoValue = Require(info);
+        const FxFuncInfo& infoValue = RequireReference(info);
         std::uint32_t funcId = infoValue.FuncId;
         const std::vector<std::int32_t>& parameters = ParametersOf(infoValue);
         return InvokeFloatFunc(funcId, parameters, times);
@@ -939,7 +910,7 @@ namespace MphRead::Effects
     {
         for (std::size_t i = 0; i < Elements->size(); ++i)
         {
-            EffectElementEntry& element = Require(Elements->at(i));
+            EffectElementEntry& element = RequireReference(Elements->at(i));
             if (!element.Expired || !element.Particles->empty())
             {
                 return false;
@@ -965,7 +936,7 @@ namespace MphRead::Effects
         SetTranslation(transform, position);
         for (std::size_t i = 0; i < Elements->size(); ++i)
         {
-            Require(Elements->at(i)).OwnTransform = transform;
+            RequireReference(Elements->at(i)).OwnTransform = transform;
         }
     }
 
@@ -997,7 +968,7 @@ namespace MphRead::Effects
     {
         for (std::size_t i = 0; i < Elements->size(); ++i)
         {
-            Require(Elements->at(i)).Flags |= EffElemFlags::ElementExtension;
+            RequireReference(Elements->at(i)).Flags |= EffElemFlags::ElementExtension;
         }
     }
 
@@ -1005,7 +976,7 @@ namespace MphRead::Effects
     {
         for (std::size_t i = 0; i < Elements->size(); ++i)
         {
-            Require(Elements->at(i)).Flags &= ~EffElemFlags::ElementExtension;
+            RequireReference(Elements->at(i)).Flags &= ~EffElemFlags::ElementExtension;
         }
     }
 
@@ -1013,7 +984,7 @@ namespace MphRead::Effects
     {
         for (std::size_t i = 0; i < Elements->size(); ++i)
         {
-            Require(Elements->at(i)).Flags |= EffElemFlags::DrawEnabled;
+            RequireReference(Elements->at(i)).Flags |= EffElemFlags::DrawEnabled;
         }
     }
 
@@ -1021,7 +992,7 @@ namespace MphRead::Effects
     {
         for (std::size_t i = 0; i < Elements->size(); ++i)
         {
-            Require(Elements->at(i)).Flags &= ~EffElemFlags::DrawEnabled;
+            RequireReference(Elements->at(i)).Flags &= ~EffElemFlags::DrawEnabled;
         }
     }
 
@@ -1031,28 +1002,28 @@ namespace MphRead::Effects
         {
             for (std::size_t i = 0; i < Elements->size(); ++i)
             {
-                Require(Elements->at(i)).RoField1 = value;
+                RequireReference(Elements->at(i)).RoField1 = value;
             }
         }
         else if (index == 1)
         {
             for (std::size_t i = 0; i < Elements->size(); ++i)
             {
-                Require(Elements->at(i)).RoField2 = value;
+                RequireReference(Elements->at(i)).RoField2 = value;
             }
         }
         else if (index == 2)
         {
             for (std::size_t i = 0; i < Elements->size(); ++i)
             {
-                Require(Elements->at(i)).RoField3 = value;
+                RequireReference(Elements->at(i)).RoField3 = value;
             }
         }
         else if (index == 3)
         {
             for (std::size_t i = 0; i < Elements->size(); ++i)
             {
-                Require(Elements->at(i)).RoField4 = value;
+                RequireReference(Elements->at(i)).RoField4 = value;
             }
         }
     }
@@ -1061,7 +1032,7 @@ namespace MphRead::Effects
     {
         for (std::size_t i = 0; i < Elements->size(); ++i)
         {
-            EffectElementEntry& element = Require(Elements->at(i));
+            EffectElementEntry& element = RequireReference(Elements->at(i));
             element.Expired = false;
             element.Func39Called = false;
             element.CreationTime = elapsedTime;
@@ -1301,24 +1272,24 @@ namespace MphRead::Effects
 
     std::shared_ptr<const EffectFuncDictionary> EffectParticle::Funcs() const
     {
-        return Require(Owner).Funcs();
+        return RequireReference(Owner).Funcs();
     }
 
     void EffectParticle::SetFuncs(
         std::shared_ptr<const EffectFuncDictionary> value)
     {
-        Require(Owner).SetFuncs(std::move(value));
+        RequireReference(Owner).SetFuncs(std::move(value));
     }
 
     std::shared_ptr<const EffectActionDictionary> EffectParticle::Actions() const
     {
-        return Require(Owner).Actions();
+        return RequireReference(Owner).Actions();
     }
 
     void EffectParticle::SetActions(
         std::shared_ptr<const EffectActionDictionary> value)
     {
-        Require(Owner).SetActions(std::move(value));
+        RequireReference(Owner).SetActions(std::move(value));
     }
 
     void EffectParticle::FxFunc01(
@@ -1356,7 +1327,7 @@ namespace MphRead::Effects
         const std::vector<std::int32_t>&,
         TimeValues)
     {
-        return Require(Owner).Lifespan;
+        return RequireReference(Owner).Lifespan;
     }
 
     float EffectParticle::FxFunc23(
@@ -1364,7 +1335,7 @@ namespace MphRead::Effects
         TimeValues times)
     {
         float global = times.Global;
-        float creationTime = Require(Owner).CreationTime;
+        float creationTime = RequireReference(Owner).CreationTime;
         return global - creationTime;
     }
 
@@ -1470,12 +1441,12 @@ namespace MphRead::Effects
         const std::vector<std::int32_t>& param,
         TimeValues)
     {
-        EffectElementEntry& ownerForCheck = Require(Owner);
+        EffectElementEntry& ownerForCheck = RequireReference(Owner);
         if (ownerForCheck.Func39Called)
         {
             return 0.0F;
         }
-        EffectElementEntry& ownerForSet = Require(Owner);
+        EffectElementEntry& ownerForSet = RequireReference(Owner);
         ownerForSet.Func39Called = true;
         return Fixed::ToFloat(param.at(0));
     }
@@ -1561,7 +1532,7 @@ namespace MphRead::Effects
             Vector3 ev2 = Multiply(_effectVec2, Scale);
 
             Vector3 sourcePosition = Position;
-            EffectElementEntry& ownerForTransform = Require(Owner);
+            EffectElementEntry& ownerForTransform = RequireReference(Owner);
             Vector3 position = MphRead::Matrix::Vec3MultMtx4(
                 sourcePosition, ownerForTransform.Transform.ClearTranslation());
             float v19 = position.X + (-ev1.X / 2.0F) + (ev2.X / 2.0F);
@@ -1637,7 +1608,7 @@ namespace MphRead::Effects
             float v29 = (vec1.Z * sin1 + vec2.Z * cos1) * Scale;
 
             Vector3 sourcePosition = Position;
-            EffectElementEntry& ownerForTransform = Require(Owner);
+            EffectElementEntry& ownerForTransform = RequireReference(Owner);
             Vector3 position = MphRead::Matrix::Vec3MultMtx4(
                 sourcePosition, ownerForTransform.Transform.ClearTranslation());
             float v27 = position.X + (-v20 / 2.0F) + (v26 / 2.0F);
@@ -1692,11 +1663,11 @@ namespace MphRead::Effects
             _drawNode = true;
             _color = Vector3(Red, Green, Blue);
             Vector4 ev4;
-            EffectElementEntry& ownerForFlags = Require(Owner);
+            EffectElementEntry& ownerForFlags = RequireReference(Owner);
             if (HasFlag(ownerForFlags.Flags, EffElemFlags::UseTransform))
             {
                 Vector3 position = Position;
-                EffectElementEntry& ownerForTransform = Require(Owner);
+                EffectElementEntry& ownerForTransform = RequireReference(Owner);
                 ev4 = Vector4(
                     position + Vector3(
                         ownerForTransform.Transform.M41,
@@ -1806,8 +1777,8 @@ namespace MphRead::Effects
 
     void EffectParticle::SetFuncIds()
     {
-        EffElemFlags flags = Require(Owner).Flags;
-        std::int32_t drawType = Require(Owner).DrawType;
+        EffElemFlags flags = RequireReference(Owner).Flags;
+        std::int32_t drawType = RequireReference(Owner).DrawType;
         auto ids = GetFuncIds(flags, drawType);
         SetVecsId = ids.first;
         DrawId = ids.second;
@@ -1817,30 +1788,30 @@ namespace MphRead::Effects
     {
         if (_drawNode)
         {
-            EffectElementEntry& ownerForModel = Require(Owner);
+            EffectElementEntry& ownerForModel = RequireReference(Owner);
             std::shared_ptr<Model> modelRef = ownerForModel.Model;
 
-            EffectElementEntry& ownerForNode = Require(Owner);
+            EffectElementEntry& ownerForNode = RequireReference(Owner);
             std::int32_t particleIdForNode = ParticleId;
             std::shared_ptr<Node> nodeRef = ownerForNode.Nodes->at(
                 static_cast<std::size_t>(particleIdForNode));
 
-            EffectElementEntry& ownerForMeshModel = Require(Owner);
-            Model& meshModel = Require(ownerForMeshModel.Model);
-            Node& node = Require(nodeRef);
+            EffectElementEntry& ownerForMeshModel = RequireReference(Owner);
+            Model& meshModel = RequireReference(ownerForMeshModel.Model);
+            Node& node = RequireReference(nodeRef);
             std::int32_t meshIndex = node.MeshId / 2;
-            std::shared_ptr<Mesh> meshRef = Require(meshModel.Meshes).at(
+            std::shared_ptr<Mesh> meshRef = RequireReference(meshModel.Meshes).at(
                 static_cast<std::size_t>(meshIndex));
 
-            EffectElementEntry& ownerForMaterialModel = Require(Owner);
-            Model& materialModel = Require(ownerForMaterialModel.Model);
+            EffectElementEntry& ownerForMaterialModel = RequireReference(Owner);
+            Model& materialModel = RequireReference(ownerForMaterialModel.Model);
             std::int32_t materialIdForMaterial = MaterialId;
-            std::shared_ptr<Material> materialRef = Require(materialModel.Materials).at(
+            std::shared_ptr<Material> materialRef = RequireReference(materialModel.Materials).at(
                 static_cast<std::size_t>(materialIdForMaterial));
 
             Matrix4 transform = _nodeTransform;
             Matrix4 texcoordMtx = IdentityMatrix4();
-            Material& material = Require(materialRef);
+            Material& material = RequireReference(materialRef);
             if (material.TexgenMode == TexgenMode::Texcoord)
             {
                 texcoordMtx = CreateTranslation(
@@ -1856,9 +1827,9 @@ namespace MphRead::Effects
             }
             material.CurrentDiffuse = _color;
             material.CurrentAlpha = Alpha;
-            Model& model = Require(modelRef);
-            MPH_EFFECTS_DEBUG_ASSERT(Require(model.NodeMatrixIds).empty());
-            Scene& updateScene = Require(scene);
+            Model& model = RequireReference(modelRef);
+            MPH_EFFECTS_DEBUG_ASSERT(RequireReference(model.NodeMatrixIds).empty());
+            Scene& updateScene = RequireReference(scene);
             updateScene.UpdateMaterials(modelRef, 0);
 
             // C# evaluates AddRenderItem arguments left-to-right.
@@ -1869,7 +1840,7 @@ namespace MphRead::Effects
             MphRead::LightInfo renderLightInfo = MphRead::LightInfo::Zero;
             Matrix4 renderTexcoordMtx = texcoordMtx;
             Matrix4 renderTransform = transform;
-            Mesh& mesh = Require(meshRef);
+            Mesh& mesh = RequireReference(meshRef);
             std::int32_t renderListId = mesh.ListId;
             std::int32_t matrixStackCount = 0;
             const std::vector<float> matrixStack{};
@@ -1897,10 +1868,10 @@ namespace MphRead::Effects
         {
             // C#: MaterialId is evaluated before Owner.Model.Materials.Count.
             std::int32_t materialIdForCount = MaterialId;
-            EffectElementEntry& ownerForCount = Require(Owner);
-            Model& modelForCount = Require(ownerForCount.Model);
+            EffectElementEntry& ownerForCount = RequireReference(Owner);
+            Model& modelForCount = RequireReference(ownerForCount.Model);
             if (materialIdForCount
-                >= static_cast<std::int32_t>(Require(modelForCount.Materials).size()))
+                >= static_cast<std::int32_t>(RequireReference(modelForCount.Materials).size()))
             {
                 return;
             }
@@ -1915,17 +1886,17 @@ namespace MphRead::Effects
             (*uvsAndVerts)[6] = Vector3(_texcoord3.X, _texcoord3.Y, 0.0F);
             (*uvsAndVerts)[7] = _vertex3;
 
-            EffectElementEntry& ownerForMaterial = Require(Owner);
-            Model& materialModel = Require(ownerForMaterial.Model);
+            EffectElementEntry& ownerForMaterial = RequireReference(Owner);
+            Model& materialModel = RequireReference(ownerForMaterial.Model);
             std::int32_t materialIdForMaterial = MaterialId;
-            std::shared_ptr<Material> materialRef = Require(materialModel.Materials).at(
+            std::shared_ptr<Material> materialRef = RequireReference(materialModel.Materials).at(
                 static_cast<std::size_t>(materialIdForMaterial));
 
-            EffectElementEntry& ownerForBinding = Require(Owner);
+            EffectElementEntry& ownerForBinding = RequireReference(Owner);
             std::int32_t particleIdForBinding = ParticleId;
             std::int32_t bindingId = ownerForBinding.TextureBindingIds->at(
                 static_cast<std::size_t>(particleIdForBinding));
-            Material& material = Require(materialRef);
+            Material& material = RequireReference(materialRef);
             RepeatMode xRepeat = material.XRepeat;
             RepeatMode yRepeat = material.YRepeat;
             float scaleS = 1.0F;
@@ -1940,17 +1911,17 @@ namespace MphRead::Effects
             }
 
             Matrix4 transform;
-            EffectElementEntry& ownerForFlags = Require(Owner);
+            EffectElementEntry& ownerForFlags = RequireReference(Owner);
             if (HasFlag(ownerForFlags.Flags, EffElemFlags::UseTransform))
             {
                 if (_billboardMode != BillboardMode::None)
                 {
                     Vector3 sourcePosition = Position;
-                    EffectElementEntry& ownerForFirstTransform = Require(Owner);
+                    EffectElementEntry& ownerForFirstTransform = RequireReference(Owner);
                     Vector3 position = MphRead::Matrix::Vec3MultMtx4(
                         sourcePosition,
                         ownerForFirstTransform.Transform.ClearTranslation());
-                    EffectElementEntry& ownerForSecondTransform = Require(Owner);
+                    EffectElementEntry& ownerForSecondTransform = RequireReference(Owner);
                     Vector3 translation(
                         ownerForSecondTransform.Transform.M41,
                         ownerForSecondTransform.Transform.M42,
@@ -1960,7 +1931,7 @@ namespace MphRead::Effects
                 else
                 {
                     Matrix4 positionTransform = CreateTranslation(Position);
-                    EffectElementEntry& ownerForTransform = Require(Owner);
+                    EffectElementEntry& ownerForTransform = RequireReference(Owner);
                     transform = Multiply(positionTransform, ownerForTransform.Transform);
                 }
             }
@@ -1973,7 +1944,7 @@ namespace MphRead::Effects
             Scene* sceneTarget = scene;
             MphRead::RenderItemType type = MphRead::RenderItemType::Particle;
             float alpha = Alpha;
-            std::int32_t polygonId = Require(sceneTarget).GetNextPolygonId();
+            std::int32_t polygonId = RequireReference(sceneTarget).GetNextPolygonId();
             Vector3 color = _color;
             RepeatMode renderXRepeat = xRepeat;
             RepeatMode renderYRepeat = yRepeat;
@@ -1983,7 +1954,7 @@ namespace MphRead::Effects
             auto renderPoints = uvsAndVerts;
             std::int32_t renderBindingId = bindingId;
             MphRead::BillboardMode renderBillboardMode = _billboardMode;
-            Scene& sceneRef = Require(sceneTarget);
+            Scene& sceneRef = RequireReference(sceneTarget);
             sceneRef.AddRenderItem(
                 type,
                 alpha,

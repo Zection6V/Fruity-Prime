@@ -40,6 +40,7 @@ using ::MphRead::NativeRuntime::EnvironmentNewLine;
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::Int32ToUInt32;
 using ::MphRead::NativeRuntime::PathGetFileName;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::ShiftLeft;
 using ::MphRead::NativeRuntime::StringReplace;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
@@ -247,26 +248,6 @@ namespace
     }
 
     template <typename T>
-    [[nodiscard]] const T& Require(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& Require(const T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
     [[nodiscard]] const T& VectorAt(const std::vector<T>& values, std::int32_t index)
     {
         if (index < 0 || static_cast<std::size_t>(index) >= values.size())
@@ -290,7 +271,7 @@ namespace
     template <typename T>
     [[nodiscard]] const EntityOf<T>& CastEntity(const std::shared_ptr<Entity>& entity)
     {
-        Require(entity);
+        RequireReference(entity);
         const std::shared_ptr<EntityOf<T>> cast = std::dynamic_pointer_cast<EntityOf<T>>(entity);
         if (!cast)
         {
@@ -558,19 +539,19 @@ namespace
         for (const auto& meta : Metadata::ModelMetadata)
         {
             const std::shared_ptr<ModelInstance> instance = Read::GetModelInstance(meta.first);
-            co_yield Require(instance).Model();
+            co_yield RequireReference(instance).Model();
         }
         for (const auto& meta : Metadata::FirstHuntModels)
         {
             const std::shared_ptr<ModelInstance> instance
                 = Read::GetModelInstance(meta.first, true);
-            co_yield Require(instance).Model();
+            co_yield RequireReference(instance).Model();
         }
         for (const auto& meta : Metadata::RoomMetadata)
         {
             const std::shared_ptr<ModelInstance> instance
                 = Read::GetRoomModelInstance(meta.first);
-            co_yield Require(instance).Model();
+            co_yield RequireReference(instance).Model();
         }
     }
 
@@ -581,7 +562,7 @@ namespace
         {
             const std::shared_ptr<ModelInstance> instance
                 = Read::GetRoomModelInstance(meta.first);
-            co_yield Require(instance).Model();
+            co_yield RequireReference(instance).Model();
         }
     }
 }
@@ -679,11 +660,11 @@ namespace MphRead
         {
             const std::shared_ptr<ModelInstance> instance
                 = Read::GetRoomModelInstance(meta.first);
-            const std::shared_ptr<Model> roomPtr = Require(instance).Model();
-            const Model& room = Require(roomPtr);
+            const std::shared_ptr<Model> roomPtr = RequireReference(instance).Model();
+            const Model& room = RequireReference(roomPtr);
 
             WriteLine(meta.first);
-            const auto& nodes = Require(room.Nodes);
+            const auto& nodes = RequireReference(room.Nodes);
             for (std::int32_t i = 0;
                 i < static_cast<std::int32_t>(nodes.size());
                 i = UncheckedAdd(i, 1))
@@ -701,14 +682,14 @@ namespace MphRead
     {
         for (const auto& meta : Metadata::RoomMetadata)
         {
-            const RoomMetadata& room = Require(meta.second);
+            const RoomMetadata& room = RequireReference(meta.second);
             if (room.EntityPath.has_value() && !room.FirstHunt)
             {
                 const std::shared_ptr<const std::vector<std::shared_ptr<Entity>>> entities
                     = Read::GetEntities(*room.EntityPath, -1, room.FirstHunt);
-                for (const std::shared_ptr<Entity>& entity : Require(entities))
+                for (const std::shared_ptr<Entity>& entity : RequireReference(entities))
                 {
-                    const Entity& entityRef = Require(entity);
+                    const Entity& entityRef = RequireReference(entity);
                     if (entityRef.Type == EntityType::Object)
                     {
                         const ObjectEntityData data
@@ -728,14 +709,14 @@ namespace MphRead
 
         for (const auto& meta : Metadata::RoomMetadata)
         {
-            const RoomMetadata& room = Require(meta.second);
+            const RoomMetadata& room = RequireReference(meta.second);
             if (room.EntityPath.has_value() && !room.FirstHunt)
             {
                 const std::shared_ptr<const std::vector<std::shared_ptr<Entity>>> entities
                     = Read::GetEntities(*room.EntityPath, -1, room.FirstHunt);
-                for (const std::shared_ptr<Entity>& entity : Require(entities))
+                for (const std::shared_ptr<Entity>& entity : RequireReference(entities))
                 {
-                    const Entity& entityRef = Require(entity);
+                    const Entity& entityRef = RequireReference(entity);
                     const auto add = [&](Message message)
                     {
                         used[message].emplace_back(
@@ -816,12 +797,12 @@ namespace MphRead
             {
                 const std::shared_ptr<Formats::CameraSequence> seq
                     = Formats::CameraSequence::Load(i, nullptr);
-                const Formats::CameraSequence& sequence = Require(seq);
+                const Formats::CameraSequence& sequence = RequireReference(seq);
                 for (const std::shared_ptr<CameraSequenceKeyframe>& frame :
                     sequence.Keyframes())
                 {
                     const Message message
-                        = static_cast<Message>(Require(frame).MessageId);
+                        = static_cast<Message>(RequireReference(frame).MessageId);
                     used[message].emplace_back("Keyframe", sequence.Name());
                 }
             }
@@ -855,14 +836,14 @@ namespace MphRead
     {
         for (const auto& meta : Metadata::RoomMetadata)
         {
-            const RoomMetadata& room = Require(meta.second);
+            const RoomMetadata& room = RequireReference(meta.second);
             if (room.EntityPath.has_value())
             {
                 const std::shared_ptr<const std::vector<std::shared_ptr<Entity>>> entities
                     = Read::GetEntities(*room.EntityPath, -1, room.FirstHunt);
-                for (const std::shared_ptr<Entity>& entity : Require(entities))
+                for (const std::shared_ptr<Entity>& entity : RequireReference(entities))
                 {
-                    const Entity& entityRef = Require(entity);
+                    const Entity& entityRef = RequireReference(entity);
                     if (entityRef.Type == EntityType::TriggerVolume)
                     {
                         const TriggerVolumeEntityData data
@@ -879,14 +860,14 @@ namespace MphRead
     {
         for (const auto& meta : Metadata::RoomMetadata)
         {
-            const RoomMetadata& room = Require(meta.second);
+            const RoomMetadata& room = RequireReference(meta.second);
             if (room.EntityPath.has_value())
             {
                 const std::shared_ptr<const std::vector<std::shared_ptr<Entity>>> entities
                     = Read::GetEntities(*room.EntityPath, -1, room.FirstHunt);
-                for (const std::shared_ptr<Entity>& entity : Require(entities))
+                for (const std::shared_ptr<Entity>& entity : RequireReference(entities))
                 {
-                    const Entity& entityRef = Require(entity);
+                    const Entity& entityRef = RequireReference(entity);
                     if (entityRef.Type == EntityType::AreaVolume)
                     {
                         const AreaVolumeEntityData data
@@ -1070,15 +1051,15 @@ namespace MphRead
     {
         for (const std::shared_ptr<Model>& modelPtr : GetAllModels())
         {
-            const Model& model = Require(modelPtr);
-            const auto& nodeMatrixIds = Require(model.NodeMatrixIds);
+            const Model& model = RequireReference(modelPtr);
+            const auto& nodeMatrixIds = RequireReference(model.NodeMatrixIds);
             if (!nodeMatrixIds.empty())
             {
                 continue;
             }
 
-            const auto& displayLists = Require(model.DisplayLists);
-            const auto& instructionLists = Require(model.RenderInstructionLists);
+            const auto& displayLists = RequireReference(model.DisplayLists);
+            const auto& instructionLists = RequireReference(model.RenderInstructionLists);
             for (std::int32_t i = 0;
                 i < static_cast<std::int32_t>(displayLists.size());
                 i = UncheckedAdd(i, 1))
@@ -1089,7 +1070,7 @@ namespace MphRead
                 const std::shared_ptr<const std::vector<std::shared_ptr<RenderInstruction>>>&
                     instructionListPtr
                     = VectorAt(instructionLists, static_cast<std::size_t>(i));
-                const auto& list = Require(instructionListPtr);
+                const auto& list = RequireReference(instructionListPtr);
 
                 std::int32_t stackIndex = 0;
                 std::int32_t vtxX = 0;
@@ -1102,8 +1083,8 @@ namespace MphRead
 
                 for (const std::shared_ptr<RenderInstruction>& instructionPtr : list)
                 {
-                    const RenderInstruction& instruction = Require(instructionPtr);
-                    const auto& arguments = Require(instruction.Arguments);
+                    const RenderInstruction& instruction = RequireReference(instructionPtr);
+                    const auto& arguments = RequireReference(instruction.Arguments);
                     switch (instruction.Code)
                     {
                     case InstructionCode::MTX_RESTORE:
@@ -1252,17 +1233,17 @@ namespace MphRead
     {
         for (const std::shared_ptr<Model>& modelPtr : GetAllModels())
         {
-            const Model& model = Require(modelPtr);
+            const Model& model = RequireReference(modelPtr);
             if (model.Name == "Level MP5")
             {
                 continue;
             }
 
             const bool uncapped = model.Name == "filter" || model.Name == "trail";
-            const auto& nodes = Require(model.Nodes);
-            const auto& rawNodes = Require(model.RawNodes);
-            const auto& meshes = Require(model.Meshes);
-            const auto& displayLists = Require(model.DisplayLists);
+            const auto& nodes = RequireReference(model.Nodes);
+            const auto& rawNodes = RequireReference(model.RawNodes);
+            const auto& meshes = RequireReference(model.Meshes);
+            const auto& displayLists = RequireReference(model.DisplayLists);
 
             for (std::int32_t i = 0;
                 i < static_cast<std::int32_t>(nodes.size());
@@ -1270,7 +1251,7 @@ namespace MphRead
             {
                 const std::shared_ptr<Node>& nodePtr
                     = VectorAt(nodes, static_cast<std::size_t>(i));
-                const Node& node = Require(nodePtr);
+                const Node& node = RequireReference(nodePtr);
                 const RawNode rawNode
                     = VectorAt(rawNodes, static_cast<std::size_t>(i));
 
@@ -1303,11 +1284,11 @@ namespace MphRead
                 {
                     anyMesh = true;
                     const std::shared_ptr<Mesh>& listMeshPtr = VectorAt(meshes, meshId);
-                    dlists.push_back(Require(listMeshPtr).DlistId);
+                    dlists.push_back(RequireReference(listMeshPtr).DlistId);
 
                     const std::shared_ptr<Mesh>& displayMeshPtr = VectorAt(meshes, meshId);
                     const DisplayList dlist
-                        = VectorAt(displayLists, Require(displayMeshPtr).DlistId);
+                        = VectorAt(displayLists, RequireReference(displayMeshPtr).DlistId);
                     minX = std::min(minX, dlist.MinBounds.X.Value);
                     minY = std::min(minY, dlist.MinBounds.Y.Value);
                     minZ = std::min(minZ, dlist.MinBounds.Z.Value);

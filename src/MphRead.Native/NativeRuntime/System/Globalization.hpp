@@ -90,6 +90,19 @@ namespace MphRead::NativeRuntime
     [[nodiscard]] bool Int32TryParseCurrentCulture(
         std::string_view value,
         std::int32_t& result);
+    // bool.TryParse(value, out result): "True" or "False" ignoring case,
+    // after white space and NUL characters are trimmed from both ends; result
+    // is false whenever it returns false. A null value is not a boolean.
+    [[nodiscard]] bool BooleanTryParse(std::string_view value, bool& result) noexcept;
+    [[nodiscard]] bool BooleanTryParse(const std::optional<std::string_view>& value, bool& result) noexcept;
+    [[nodiscard]] inline bool BooleanTryParse(const std::string& value, bool& result) noexcept
+    {
+        return BooleanTryParse(std::string_view(value), result);
+    }
+    [[nodiscard]] inline bool BooleanTryParse(const char* value, bool& result) noexcept
+    {
+        return BooleanTryParse(std::string_view(value), result);
+    }
     // int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture,
     // out result).
     [[nodiscard]] bool Int32TryParseInvariant(std::string_view value, std::int32_t& result);

@@ -62,6 +62,7 @@ using ::MphRead::NativeRuntime::PathGetExtension;
 using ::MphRead::NativeRuntime::PathGetFileName;
 using ::MphRead::NativeRuntime::PathGetFullPath;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::StringIsNullOrWhiteSpace;
 using ::MphRead::NativeRuntime::StringTrim;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -313,15 +314,6 @@ namespace
         const auto& table = RomDataTable();
         const auto iterator = table.find(key);
         return iterator == table.end() ? nullptr : std::addressof(iterator->second);
-    }
-
-    [[nodiscard]] const RomDataValues& Require(const std::shared_ptr<RomDataValues>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
     }
 
     void FileWriteAllText(const std::string& path, std::string_view text)
@@ -628,7 +620,7 @@ namespace
             return;
         }
 
-        const RomDataValues& fontModel = Require(data->FontModel);
+        const RomDataValues& fontModel = RequireReference(data->FontModel);
         const std::vector<std::uint8_t> bytes = FileReadAllBytes(
             Paths::Combine("files", rootName, "_bin", fontModel.File));
         const std::int32_t end = UncheckedAdd(fontModel.Offset, fontModel.Size);
@@ -830,7 +822,7 @@ namespace
         const std::vector<std::uint8_t>& bytes,
         const std::shared_ptr<RomDataValues>& data)
     {
-        const RomDataValues& value = Require(data);
+        const RomDataValues& value = RequireReference(data);
         return Slice(bytes, value.Offset, UncheckedAdd(value.Offset, value.Size));
     }
 }
@@ -959,7 +951,7 @@ namespace MphRead
             return;
         }
 
-        const RomDataValues& fontWidthsValue = Require(data->FontWidths);
+        const RomDataValues& fontWidthsValue = RequireReference(data->FontWidths);
         std::vector<std::uint8_t> bytes = FileReadAllBytes(
             Paths::Combine(
                 Paths::FileSystem(),
@@ -979,7 +971,7 @@ namespace MphRead
             std::make_shared<std::vector<std::uint8_t>>(offsets),
             std::make_shared<std::vector<std::uint8_t>>(characters), 32);
 
-        const RomDataValues& beamSfxValue = Require(data->BeamSfx);
+        const RomDataValues& beamSfxValue = RequireReference(data->BeamSfx);
         bytes = FileReadAllBytes(
             Paths::Combine(
                 Paths::FileSystem(),
@@ -999,7 +991,7 @@ namespace MphRead
         Metadata::SetEnemyDamageSfxData(enemyDamageSfx);
         Metadata::SetEnemyDeathSfxData(enemyDeathSfx);
 
-        const RomDataValues& platformSfxValue = Require(data->PlatformSfx);
+        const RomDataValues& platformSfxValue = RequireReference(data->PlatformSfx);
         bytes = FileReadAllBytes(
             Paths::Combine(
                 Paths::FileSystem(),

@@ -26,12 +26,14 @@
 #include <stdexcept>
 #include <system_error>
 
+using ::MphRead::NativeRuntime::AssignReadonly;
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::FileReadAllLines;
-using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathCombine;
+using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathGetFileNameWithoutExtension;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::StringReplace;
 using ::MphRead::NativeRuntime::StringTrim;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
@@ -56,76 +58,10 @@ namespace
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
 
-    template <typename T>
-    T& AssignReadonly(T& self, const T& other) noexcept
-    {
-        if (std::addressof(self) != std::addressof(other))
-        {
-            self.~T();
-            ::new (static_cast<void*>(std::addressof(self))) T(other);
-        }
-        return self;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& Require(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& Require(const std::shared_ptr<const T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename TArray>
-    [[nodiscard]] std::string MarshalString(const TArray& array)
-    {
-        std::string result;
-        for (const auto raw : array)
-        {
-            const std::uint32_t value = static_cast<std::uint32_t>(
-                static_cast<std::make_unsigned_t<std::remove_cv_t<decltype(raw)>>>(raw));
-            if (value == 0)
-            {
-                break;
-            }
-
-            // MarshalString(byte[]) maps each byte directly to a UTF-16 char.
-            // Native strings in this tree are UTF-8, so retain the same scalar
-            // value when materializing the managed string.
-            if (value <= 0x7FU)
-            {
-                result.push_back(static_cast<char>(value));
-            }
-            else if (value <= 0x7FFU)
-            {
-                result.push_back(static_cast<char>(0xC0U | (value >> 6)));
-                result.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
-            }
-            else
-            {
-                result.push_back(static_cast<char>(0xE0U | (value >> 12)));
-                result.push_back(static_cast<char>(0x80U | ((value >> 6) & 0x3FU)));
-                result.push_back(static_cast<char>(0x80U | (value & 0x3FU)));
-            }
-        }
-        return result;
-    }
-
     template <typename TArray>
     [[nodiscard]] std::shared_ptr<const std::string> MarshalManagedString(const TArray& array)
     {
-        return std::make_shared<const std::string>(MarshalString(array));
+        return std::make_shared<const std::string>(::MphRead::MarshalExtensions::MarshalUtf8(array));
     }
 
     template <typename TArray>
@@ -319,7 +255,7 @@ namespace
             InstructionCode code,
             const std::shared_ptr<std::vector<std::uint32_t>>& arguments)
     {
-        const auto& source = Require(arguments);
+        const auto& source = RequireReference(arguments);
         const std::int32_t arity = MphRead::RenderInstruction::GetArity(code);
         if (source.size() != static_cast<std::size_t>(arity))
         {
@@ -362,7 +298,7 @@ namespace
     template <typename T>
     [[nodiscard]] const T& EntityDataOf(const std::shared_ptr<MphRead::EntityOf<T>>& entity)
     {
-        return Require(entity).Data;
+        return RequireReference(entity).Data;
     }
 
     [[nodiscard]] MphRead::NativeRuntime::CoroutineSequence<std::int32_t>
@@ -389,9 +325,9 @@ namespace
 
         if (!root && node->NextIndex != -1)
         {
-            const auto& list = Require(nodes);
+            const auto& list = RequireReference(nodes);
             const auto& next = list.at(static_cast<std::size_t>(node->NextIndex));
-            Require(next);
+            RequireReference(next);
             for (std::int32_t value : next->GetAllMeshIds(nodes, false))
             {
                 co_yield value;
@@ -400,9 +336,9 @@ namespace
 
         if (node->ChildIndex != -1)
         {
-            const auto& list = Require(nodes);
+            const auto& list = RequireReference(nodes);
             const auto& child = list.at(static_cast<std::size_t>(node->ChildIndex));
-            Require(child);
+            RequireReference(child);
             for (std::int32_t value : child->GetAllMeshIds(nodes, false))
             {
                 co_yield value;
@@ -415,7 +351,7 @@ namespace
 namespace MphRead
 {
     Node::Node(RawNode raw)
-        : Name(MarshalString(raw.Name)),
+        : Name(::MphRead::MarshalExtensions::MarshalUtf8(raw.Name)),
           ParentIndex(raw.ParentId),
           ChildIndex(raw.ChildId),
           NextIndex(raw.NextId),
@@ -503,7 +439,7 @@ namespace MphRead
     }
 
     Material::Material(RawMaterial raw)
-        : Name(MarshalString(raw.Name)),
+        : Name(::MphRead::MarshalExtensions::MarshalUtf8(raw.Name)),
           Lighting(raw.Lighting),
           InitLighting(raw.Lighting),
           Culling(raw.Culling),
@@ -713,8 +649,8 @@ namespace MphRead
         std::shared_ptr<const Effects::EffectActionDictionary> actions)
     {
         Init init{};
-        init.Name = MarshalString(raw.Name);
-        init.ModelName = MarshalString(raw.ModelName);
+        init.Name = ::MphRead::MarshalExtensions::MarshalUtf8(raw.Name);
+        init.ModelName = ::MphRead::MarshalExtensions::MarshalUtf8(raw.ModelName);
         init.Flags = raw.Flags;
         init.Acceleration = raw.Acceleration.ToFloatVector();
         init.ChildEffectId = raw.ChildEffectId;
@@ -1386,7 +1322,7 @@ namespace MphRead
           MessageId(raw.MessageId),
           MessageParam(raw.MessageParam),
           Easing(raw.Easing.FloatValue()),
-          NodeName(MarshalString(raw.NodeName))
+          NodeName(::MphRead::MarshalExtensions::MarshalUtf8(raw.NodeName))
     {
     }
 

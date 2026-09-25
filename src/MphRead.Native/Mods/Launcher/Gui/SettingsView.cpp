@@ -25,6 +25,7 @@
 #include "../Portable/GameFiles.hpp"
 #include "../Portable/LauncherPrefs.hpp"
 #include "../../../NativeRuntime/System/Globalization.hpp"
+#include "../../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -43,6 +44,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::CharIsWhiteSpace;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 
 namespace
@@ -472,16 +474,6 @@ namespace
         return *settings;
     }
 
-    template <typename T>
-    [[nodiscard]] T& Require(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw SettingsViewNullReferenceException();
-        }
-        return *value;
-    }
-
     [[nodiscard]] Hunter ParseHunter(std::u16string_view value)
     {
         if (value == u"Samus") return Hunter::Samus;
@@ -900,7 +892,7 @@ namespace MphRead::Mods::Launcher::Gui
             _state.get(), &SettingsView::OnSizeChanged});
 
         _state->Heading = _adapter.ConstructCaption(std::u16string(u"Settings"));
-        Require(_state->Heading.Value).Height(34.0);
+        RequireReference(_state->Heading.Value).Height(34.0);
         _adapter.AddPanelChild(_state->Rail, _state->Heading.Control);
         BuildPages();
 
@@ -1077,7 +1069,7 @@ namespace MphRead::Mods::Launcher::Gui
 
         SettingsViewControlRef<MenuEntry> button =
             _adapter.ConstructMenuEntry(std::move(name), std::u16string{}, 15.0);
-        Require(button.Value).Height(32.0);
+        RequireReference(button.Value).Height(32.0);
         auto target = std::make_shared<SettingsViewSectionClickTarget>(
             SettingsViewSectionClickTarget{_state.get(), scroll});
         _adapter.AddMenuEntryClick(button.Control,
@@ -1093,7 +1085,7 @@ namespace MphRead::Mods::Launcher::Gui
     {
         for (const SettingsViewSection& section : _state->Sections)
         {
-            const std::optional<std::u16string> title = Require(section.Button.Value).Title();
+            const std::optional<std::u16string> title = RequireReference(section.Button.Value).Title();
             const std::optional<std::u16string_view> titleView = title.has_value()
                 ? std::optional<std::u16string_view>(*title) : std::nullopt;
             if (_adapter.OrdinalIgnoreCaseEquals(titleView, name))
@@ -1110,7 +1102,7 @@ namespace MphRead::Mods::Launcher::Gui
         {
             const bool selected = section.Page == page;
             _adapter.SetControlIsVisible(section.Page, selected);
-            Require(section.Button.Value).Selected(selected);
+            RequireReference(section.Button.Value).Selected(selected);
         }
     }
 
@@ -1119,8 +1111,8 @@ namespace MphRead::Mods::Launcher::Gui
     {
         SettingsViewControlRef<Caption> caption =
             _adapter.ConstructCaption(std::move(text));
-        Require(caption.Value).Height(30.0);
-        Require(caption.Value).Margin(RowsThickness{0.0, 8.0, 0.0, 4.0});
+        RequireReference(caption.Value).Height(30.0);
+        RequireReference(caption.Value).Margin(RowsThickness{0.0, 8.0, 0.0, 4.0});
         _adapter.AddPanelChild(page, caption.Control);
         return caption;
     }
@@ -1256,7 +1248,7 @@ namespace MphRead::Mods::Launcher::Gui
         _adapter.AddPanelChild(page, _state->CrosshairStyleRow.Control);
 
         const std::weak_ptr<SettingsViewState> weak = _state;
-        Require(_state->CrosshairStyleRow.Value).Preview(
+        RequireReference(_state->CrosshairStyleRow.Value).Preview(
             std::make_shared<const ChoiceRow::PreviewHandler>(
                 [weak](RowsDrawingContext& context, GuiRect area)
                 {
@@ -1265,10 +1257,10 @@ namespace MphRead::Mods::Launcher::Gui
                     PreviewContext preview(context);
                     CrosshairPreview::Draw(preview,
                         CrosshairPreviewRect{area.X, area.Y, area.Width, area.Height},
-                        static_cast<CrosshairStyle>(Require(state->CrosshairStyleRow.Value).Index()),
-                        static_cast<CrosshairSize>(Require(state->CrosshairSizeRow.Value).Index()));
+                        static_cast<CrosshairStyle>(RequireReference(state->CrosshairStyleRow.Value).Index()),
+                        static_cast<CrosshairSize>(RequireReference(state->CrosshairSizeRow.Value).Index()));
                 }));
-        Require(_state->CrosshairSizeRow.Value).AddChanged(
+        RequireReference(_state->CrosshairSizeRow.Value).AddChanged(
             RowsEventHandler(_state.get(), &SettingsView::OnCrosshairSizeChanged));
 
         _state->WeaponStyleRow = _adapter.ConstructChoiceRow(
@@ -1277,17 +1269,17 @@ namespace MphRead::Mods::Launcher::Gui
             Features::ProHudFixedWeapon() ? 0 : 1);
         _adapter.AddPanelChild(page, _state->WeaponStyleRow.Control);
 
-        Require(_state->ProHud.Value).AddChanged(
+        RequireReference(_state->ProHud.Value).AddChanged(
             RowsEventHandler(_state.get(), &SettingsView::OnProHudChanged));
         ShowCrosshairRows();
     }
 
     void SettingsView::ShowCrosshairRows()
     {
-        const bool visible = Require(_state->ProHud.Value).On();
-        Require(_state->CrosshairSizeRow.Value).IsVisible(visible);
-        Require(_state->CrosshairStyleRow.Value).IsVisible(visible);
-        Require(_state->WeaponStyleRow.Value).IsVisible(visible);
+        const bool visible = RequireReference(_state->ProHud.Value).On();
+        RequireReference(_state->CrosshairSizeRow.Value).IsVisible(visible);
+        RequireReference(_state->CrosshairStyleRow.Value).IsVisible(visible);
+        RequireReference(_state->WeaponStyleRow.Value).IsVisible(visible);
     }
 
     void SettingsView::BuildAudio()
@@ -1456,8 +1448,8 @@ namespace MphRead::Mods::Launcher::Gui
 
         SettingsViewControlRef<MenuEntry> reset = _adapter.ConstructMenuEntry(
             std::u16string(u"Reset to defaults"), std::u16string{}, 13.0);
-        Require(reset.Value).Height(30.0);
-        Require(reset.Value).Accent(GuiTheme::Warm);
+        RequireReference(reset.Value).Height(30.0);
+        RequireReference(reset.Value).Accent(GuiTheme::Warm);
         _adapter.SetControlMargin(reset.Control,
             SettingsViewThickness{0.0, 8.0, 0.0, 0.0});
         _adapter.AddMenuEntryClick(reset.Control,
@@ -1487,7 +1479,7 @@ namespace MphRead::Mods::Launcher::Gui
 
         SettingsViewControlRef<MenuEntry> place = _adapter.ConstructMenuEntry(
             std::u16string(u"Place the bottom screen"), std::u16string{}, 13.0);
-        Require(place.Value).Height(30.0);
+        RequireReference(place.Value).Height(30.0);
         _adapter.SetControlMargin(place.Control,
             SettingsViewThickness{0.0, 6.0, 0.0, 0.0});
         _adapter.AddMenuEntryClick(place.Control,
@@ -1525,7 +1517,7 @@ namespace MphRead::Mods::Launcher::Gui
             _state->TouchRows.push_back(SettingsViewTouchRow{item.Control, std::move(row)});
         }
 
-        Require(_state->TouchButtonsRow.Value).AddChanged(
+        RequireReference(_state->TouchButtonsRow.Value).AddChanged(
             RowsEventHandler(_state.get(), &SettingsView::OnTouchButtonsChanged));
         OnTouchButtonsChanged(_state.get(), nullptr, RowsEventArgs::Empty);
     }
@@ -1542,7 +1534,7 @@ namespace MphRead::Mods::Launcher::Gui
         _state->TimeLimit = _adapter.ConstructFieldRow(
             std::u16string(u"Time limit"), ToUtf16(settings.TimeLimit), 120.0);
         _adapter.AddPanelChild(page, _state->TimeLimit.Control);
-        Require(_state->TimeLimit.Value).Box()->Watermark(u"m:ss");
+        RequireReference(_state->TimeLimit.Value).Box()->Watermark(u"m:ss");
 
         std::vector<std::u16string> damage{u"low", u"medium", u"high"};
         _state->DamageRow = _adapter.ConstructChoiceRow(
@@ -1618,7 +1610,7 @@ namespace MphRead::Mods::Launcher::Gui
         (void)Heading(page, u"Game files");
         SettingsViewControlRef<MenuEntry> files = _adapter.ConstructMenuEntry(
             std::u16string(u"Game files"), ToUtf16(GameFiles::Describe()), 15.0);
-        Require(files.Value).SubtitleColor(GameFiles::Ready() ? GuiTheme::Good : GuiTheme::Warm);
+        RequireReference(files.Value).SubtitleColor(GameFiles::Ready() ? GuiTheme::Good : GuiTheme::Warm);
         _adapter.AddMenuEntryClick(files.Control,
             SettingsViewAction{_state.get(), &SettingsView::OnGameFilesClick});
         _adapter.AddPanelChild(page, files.Control);
@@ -1629,20 +1621,20 @@ namespace MphRead::Mods::Launcher::Gui
         SettingsViewControlRef<MenuEntry> save = _adapter.ConstructMenuEntry(
             std::u16string(_state->InGame ? u"Apply" : u"Save and close"),
             std::u16string{}, 15.0);
-        Require(save.Value).Primary(true);
-        Require(save.Value).Height(40.0);
+        RequireReference(save.Value).Primary(true);
+        RequireReference(save.Value).Height(40.0);
         _adapter.AddMenuEntryClick(save.Control,
             SettingsViewAction{_state.get(), &SettingsView::OnSaveClick});
 
         SettingsViewControlRef<MenuEntry> cancel = _adapter.ConstructMenuEntry(
             std::u16string(u"Cancel"), std::u16string{}, 13.0);
-        Require(cancel.Value).Height(26.0);
-        Require(cancel.Value).Accent(GuiTheme::TextDim);
+        RequireReference(cancel.Value).Height(26.0);
+        RequireReference(cancel.Value).Accent(GuiTheme::TextDim);
         _adapter.AddMenuEntryClick(cancel.Control,
             SettingsViewAction{_state.get(), &SettingsView::OnCancelClick});
 
         _state->SaveError = _adapter.ConstructNote(std::u16string{}, GuiTheme::Warm);
-        Require(_state->SaveError.Value).IsVisible(false);
+        RequireReference(_state->SaveError.Value).IsVisible(false);
 
         const SettingsViewControlHandle footer = _adapter.ConstructStackPanel();
         _adapter.SetStackPanelSpacing(footer, 6.0);
@@ -1666,8 +1658,8 @@ namespace MphRead::Mods::Launcher::Gui
         {
             std::u16string text = u"Could not save: ";
             text.append(ToUtf16(ex.what()));
-            Require(_state->SaveError.Value).Text(text);
-            Require(_state->SaveError.Value).IsVisible(true);
+            RequireReference(_state->SaveError.Value).Text(text);
+            RequireReference(_state->SaveError.Value).IsVisible(true);
         }
     }
 
@@ -1677,7 +1669,7 @@ namespace MphRead::Mods::Launcher::Gui
 
         if (_state->WindowRow.Value)
         {
-            LauncherPrefs::WindowMode(Require(_state->WindowRow.Value).Index() == 1
+            LauncherPrefs::WindowMode(RequireReference(_state->WindowRow.Value).Index() == 1
                 ? WindowStartMode::BorderlessFullscreen
                 : WindowStartMode::Windowed);
             Mods::WindowMode::Startup(LauncherPrefs::WindowMode());
@@ -1686,36 +1678,36 @@ namespace MphRead::Mods::Launcher::Gui
         if (_state->ClipSecondsRow.Value)
         {
             const std::int32_t index = std::clamp(
-                Require(_state->ClipSecondsRow.Value).Index(), 0,
+                RequireReference(_state->ClipSecondsRow.Value).Index(), 0,
                 static_cast<std::int32_t>(std::size(DemoClip::Lengths)) - 1);
             DemoClip::Seconds(DemoClip::Lengths[static_cast<std::size_t>(index)]);
         }
 
         settings.ResolutionScale = std::to_string(std::max(RenderOptions::MinScale,
-            Require(_state->ResolutionScale.Value).Value()));
-        settings.Lighting = std::string(RenderOptions::OnOff(Require(_state->LightingRow.Value).On()));
-        settings.Fog = std::string(RenderOptions::OnOff(Require(_state->FogRow.Value).On()));
-        settings.TextureFiltering = std::string(RenderOptions::OnOff(Require(_state->FilteringRow.Value).On()));
-        settings.ShowFps = std::string(RenderOptions::OnOff(Require(_state->FpsRow.Value).On()));
+            RequireReference(_state->ResolutionScale.Value).Value()));
+        settings.Lighting = std::string(RenderOptions::OnOff(RequireReference(_state->LightingRow.Value).On()));
+        settings.Fog = std::string(RenderOptions::OnOff(RequireReference(_state->FogRow.Value).On()));
+        settings.TextureFiltering = std::string(RenderOptions::OnOff(RequireReference(_state->FilteringRow.Value).On()));
+        settings.ShowFps = std::string(RenderOptions::OnOff(RequireReference(_state->FpsRow.Value).On()));
         const std::int32_t capIndex = std::clamp(
-            Require(_state->FpsLimitRow.Value).Value(), 0,
+            RequireReference(_state->FpsLimitRow.Value).Value(), 0,
             static_cast<std::int32_t>(FpsStops.size()) - 1);
         const std::int32_t cap = FpsStops[static_cast<std::size_t>(capIndex)].Cap;
         FrameTiming::SetFrameRateCap(cap);
         settings.FrameRateCap = FrameTiming::CapString(cap);
-        settings.CelShading = std::string(RenderOptions::OnOff(Require(_state->CelRow.Value).On()));
+        settings.CelShading = std::string(RenderOptions::OnOff(RequireReference(_state->CelRow.Value).On()));
         settings.CelBands = "8";
         settings.CelEdge = "50";
-        Features::ProHud(Require(_state->ProHud.Value).On());
-        Crosshair::Size = static_cast<CrosshairSize>(Require(_state->CrosshairSizeRow.Value).Index());
-        Crosshair::Style = static_cast<CrosshairStyle>(Require(_state->CrosshairStyleRow.Value).Index());
-        Features::ProHudFixedWeapon(Require(_state->WeaponStyleRow.Value).Index() == 0);
+        Features::ProHud(RequireReference(_state->ProHud.Value).On());
+        Crosshair::Size = static_cast<CrosshairSize>(RequireReference(_state->CrosshairSizeRow.Value).Index());
+        Crosshair::Style = static_cast<CrosshairStyle>(RequireReference(_state->CrosshairStyleRow.Value).Index());
+        Features::ProHudFixedWeapon(RequireReference(_state->WeaponStyleRow.Value).Index() == 0);
 
         settings.SfxVolume = FloatInvariant(
-            static_cast<float>(Require(_state->SfxVolume.Value).Value()) / 100.0F);
+            static_cast<float>(RequireReference(_state->SfxVolume.Value).Value()) / 100.0F);
         settings.MusicVolume = FloatInvariant(
-            static_cast<float>(Require(_state->MusicVolume.Value).Value()) / 100.0F);
-        settings.Language = ToUtf8(Require(_state->LanguageRow.Value).Value().value_or(std::u16string{}));
+            static_cast<float>(RequireReference(_state->MusicVolume.Value).Value()) / 100.0F);
+        settings.Language = ToUtf8(RequireReference(_state->LanguageRow.Value).Value().value_or(std::u16string{}));
 
         const auto sliderToSensitivity = [](std::int32_t value)
         {
@@ -1731,56 +1723,56 @@ namespace MphRead::Mods::Launcher::Gui
         };
 
         InputSettings::MouseSensitivity(sliderToSensitivity(
-            Require(_state->Sensitivity.Value).Value()));
-        InputSettings::InvertMouseY(Require(_state->InvertY.Value).On());
-        InputSettings::InvertMouseX(Require(_state->InvertX.Value).On());
-        PointerInput::GuardJumps(Require(_state->PenTablet.Value).On());
+            RequireReference(_state->Sensitivity.Value).Value()));
+        InputSettings::InvertMouseY(RequireReference(_state->InvertY.Value).On());
+        InputSettings::InvertMouseX(RequireReference(_state->InvertX.Value).On());
+        PointerInput::GuardJumps(RequireReference(_state->PenTablet.Value).On());
         if (_state->StylusZone.Value && _state->StylusOpacity.Value)
         {
-            StylusZone::Enabled(Require(_state->StylusZone.Value).On());
+            StylusZone::Enabled(RequireReference(_state->StylusZone.Value).On());
             StylusZone::Opacity(std::clamp(
-                static_cast<float>(Require(_state->StylusOpacity.Value).Value()) / 100.0F,
+                static_cast<float>(RequireReference(_state->StylusOpacity.Value).Value()) / 100.0F,
                 0.02F, 1.0F));
         }
-        InputSettings::ScrollAllWeapons(Require(_state->ScrollAllWeapons.Value).On());
+        InputSettings::ScrollAllWeapons(RequireReference(_state->ScrollAllWeapons.Value).On());
         InputSettings::GamepadLookSensitivity(sliderToLook(
-            Require(_state->GamepadLook.Value).Value()));
+            RequireReference(_state->GamepadLook.Value).Value()));
         InputSettings::GamepadDeadZone(sliderToDeadZone(
-            Require(_state->GamepadDeadZone.Value).Value()));
-        InputSettings::GamepadInvertY(Require(_state->GamepadInvertY.Value).On());
+            RequireReference(_state->GamepadDeadZone.Value).Value()));
+        InputSettings::GamepadInvertY(RequireReference(_state->GamepadInvertY.Value).On());
         if (_state->TouchButtonsRow.Value)
         {
-            TouchSettings::ButtonsVisible = Require(_state->TouchButtonsRow.Value).On();
+            TouchSettings::ButtonsVisible = RequireReference(_state->TouchButtonsRow.Value).On();
             for (const SettingsViewTouchRow& item : _state->TouchRows)
             {
-                TouchSettings::SetEnabled(item.Control, Require(item.Row.Value).On());
+                TouchSettings::SetEnabled(item.Control, RequireReference(item.Row.Value).On());
             }
         }
         InputSettings::Save();
         InputSettings::ApplyToPlayers();
 
-        settings.PointGoal = ToUtf8(Require(_state->PointGoal.Value).Value());
-        settings.TimeLimit = ToUtf8(Require(_state->TimeLimit.Value).Value());
-        settings.DamageLevel = ToUtf8(Require(_state->DamageRow.Value).Value().value_or(std::u16string{}));
-        settings.TeamPlay = Require(_state->TeamPlay.Value).On() ? "on" : "off";
-        settings.FriendlyFire = Require(_state->FriendlyFire.Value).On() ? "on" : "off";
-        settings.HunterRadar = Require(_state->Radar.Value).On() ? "on" : "off";
-        settings.AffinityWeapons = Require(_state->Affinity.Value).On() ? "on" : "off";
-        settings.ShadowFreeze = Require(_state->ShadowFreeze.Value).On() ? "on" : "off";
+        settings.PointGoal = ToUtf8(RequireReference(_state->PointGoal.Value).Value());
+        settings.TimeLimit = ToUtf8(RequireReference(_state->TimeLimit.Value).Value());
+        settings.DamageLevel = ToUtf8(RequireReference(_state->DamageRow.Value).Value().value_or(std::u16string{}));
+        settings.TeamPlay = RequireReference(_state->TeamPlay.Value).On() ? "on" : "off";
+        settings.FriendlyFire = RequireReference(_state->FriendlyFire.Value).On() ? "on" : "off";
+        settings.HunterRadar = RequireReference(_state->Radar.Value).On() ? "on" : "off";
+        settings.AffinityWeapons = RequireReference(_state->Affinity.Value).On() ? "on" : "off";
+        settings.ShadowFreeze = RequireReference(_state->ShadowFreeze.Value).On() ? "on" : "off";
 
-        const std::u16string playerValue = Require(_state->PlayerName.Value).Value();
+        const std::u16string playerValue = RequireReference(_state->PlayerName.Value).Value();
         const std::u16string playerTrimmedForLength = Trim(playerValue);
         if (!playerTrimmedForLength.empty())
         {
-            const std::u16string secondValue = Require(_state->PlayerName.Value).Value();
+            const std::u16string secondValue = RequireReference(_state->PlayerName.Value).Value();
             LauncherPrefs::PlayerName(ToUtf8(Trim(secondValue)));
         }
 
         LauncherPrefs::LastHunter(ParseHunter(
-            Require(_state->HunterRow.Value).Value().value_or(std::u16string{})));
+            RequireReference(_state->HunterRow.Value).Value().value_or(std::u16string{})));
         std::int32_t suit = 0;
         if (TryParseInt32Invariant(
-            Require(_state->ColorRow.Value).Value().value_or(std::u16string{}), suit))
+            RequireReference(_state->ColorRow.Value).Value().value_or(std::u16string{}), suit))
         {
             LauncherPrefs::LastColor(PlayerColors::Clamp(suit - 1));
         }
@@ -1810,7 +1802,7 @@ namespace MphRead::Mods::Launcher::Gui
 
         std::string host = LauncherPrefs::ServerAddress();
         std::int32_t port = LauncherPrefs::ServerPort();
-        if (parseEndpoint(Require(_state->ServerRow.Value).Value(), host, port))
+        if (parseEndpoint(RequireReference(_state->ServerRow.Value).Value(), host, port))
         {
             LauncherPrefs::ServerAddress(host);
             LauncherPrefs::ServerPort(port);
@@ -1818,13 +1810,13 @@ namespace MphRead::Mods::Launcher::Gui
 
         std::string masterHost = LauncherPrefs::MasterHost();
         std::int32_t masterPort = LauncherPrefs::MasterPort();
-        if (parseEndpoint(Require(_state->MasterRow.Value).Value(), masterHost, masterPort))
+        if (parseEndpoint(RequireReference(_state->MasterRow.Value).Value(), masterHost, masterPort))
         {
             LauncherPrefs::MasterHost(masterHost);
             LauncherPrefs::MasterPort(masterPort);
         }
 
-        LauncherPrefs::AutoUpdate(Require(_state->AutoUpdate.Value).On());
+        LauncherPrefs::AutoUpdate(RequireReference(_state->AutoUpdate.Value).On());
         GameState::CommitSettings(_state->Settings);
         LauncherPrefs::Save();
         Mods::GameSettings::Apply(_state->Settings);
@@ -1849,7 +1841,7 @@ namespace MphRead::Mods::Launcher::Gui
         auto& click = *static_cast<SettingsViewSupportClickTarget*>(target);
         if (!Mods::Update::Updater::OpenLink(std::string(Mods::Credits::SupportUrl)))
         {
-            Require(click.Entry).Subtitle(ToUtf16(Mods::Credits::SupportUrl));
+            RequireReference(click.Entry).Subtitle(ToUtf16(Mods::Credits::SupportUrl));
         }
     }
 
@@ -1874,38 +1866,38 @@ namespace MphRead::Mods::Launcher::Gui
                 static_cast<double>(dead / 0.5F * 100.0F)), 0, 100);
         };
 
-        Require(state.Sensitivity.Value).Value(
+        RequireReference(state.Sensitivity.Value).Value(
             sensitivityToSlider(InputSettings::MouseSensitivity()));
-        Require(state.InvertY.Value).On(InputSettings::InvertMouseY());
-        Require(state.InvertX.Value).On(InputSettings::InvertMouseX());
-        Require(state.PenTablet.Value).On(PointerInput::GuardJumps());
+        RequireReference(state.InvertY.Value).On(InputSettings::InvertMouseY());
+        RequireReference(state.InvertX.Value).On(InputSettings::InvertMouseX());
+        RequireReference(state.PenTablet.Value).On(PointerInput::GuardJumps());
         if (state.StylusZone.Value && state.StylusOpacity.Value)
         {
-            Require(state.StylusZone.Value).On(StylusZone::Enabled());
-            Require(state.StylusOpacity.Value).Value(
+            RequireReference(state.StylusZone.Value).On(StylusZone::Enabled());
+            RequireReference(state.StylusOpacity.Value).Value(
                 RoundToInt32(static_cast<double>(StylusZone::Opacity() * 100.0F)));
         }
-        Require(state.ScrollAllWeapons.Value).On(InputSettings::ScrollAllWeapons());
-        Require(state.GamepadLook.Value).Value(
+        RequireReference(state.ScrollAllWeapons.Value).On(InputSettings::ScrollAllWeapons());
+        RequireReference(state.GamepadLook.Value).Value(
             lookToSlider(InputSettings::GamepadLookSensitivity()));
-        Require(state.GamepadDeadZone.Value).Value(
+        RequireReference(state.GamepadDeadZone.Value).Value(
             deadZoneToSlider(InputSettings::GamepadDeadZone()));
-        Require(state.GamepadInvertY.Value).On(InputSettings::GamepadInvertY());
+        RequireReference(state.GamepadInvertY.Value).On(InputSettings::GamepadInvertY());
         for (const SettingsViewControlRef<PadRow>& row : state.PadRows)
         {
-            Require(row.Value).InvalidateVisual();
+            RequireReference(row.Value).InvalidateVisual();
         }
         for (const SettingsViewControlRef<KeyRow>& row : state.KeyRows)
         {
-            Require(row.Value).InvalidateVisual();
+            RequireReference(row.Value).InvalidateVisual();
         }
         if (state.TouchButtonsRow.Value)
         {
-            Require(state.TouchButtonsRow.Value).On(TouchSettings::ButtonsVisible);
+            RequireReference(state.TouchButtonsRow.Value).On(TouchSettings::ButtonsVisible);
         }
         for (const SettingsViewTouchRow& item : state.TouchRows)
         {
-            Require(item.Row.Value).On(TouchSettings::IsEnabled(item.Control));
+            RequireReference(item.Row.Value).On(TouchSettings::IsEnabled(item.Control));
         }
     }
 
@@ -1956,17 +1948,17 @@ namespace MphRead::Mods::Launcher::Gui
         void* target, void*, const RowsEventArgs&)
     {
         auto& state = *static_cast<SettingsViewState*>(target);
-        Require(state.CrosshairStyleRow.Value).InvalidateVisual();
+        RequireReference(state.CrosshairStyleRow.Value).InvalidateVisual();
     }
 
     void SettingsView::OnTouchButtonsChanged(
         void* target, void*, const RowsEventArgs&)
     {
         auto& state = *static_cast<SettingsViewState*>(target);
-        const bool visible = Require(state.TouchButtonsRow.Value).On();
+        const bool visible = RequireReference(state.TouchButtonsRow.Value).On();
         for (const SettingsViewTouchRow& item : state.TouchRows)
         {
-            Require(item.Row.Value).IsVisible(visible);
+            RequireReference(item.Row.Value).IsVisible(visible);
         }
     }
 }

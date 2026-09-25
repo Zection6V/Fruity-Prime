@@ -33,6 +33,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
 
@@ -146,16 +147,6 @@ namespace
             text.insert(text.begin(), 3 - text.size(), '0');
         }
         return text;
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& Require(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
     }
 
     class BytePool final
@@ -363,10 +354,10 @@ namespace MphRead::Export
     void Images::ExportImages(const Model& model)
     {
         const std::string exportPath = Paths::Combine(Paths::Export(), model.Name);
-        const auto& recolors = Require(model.Recolors);
+        const auto& recolors = RequireReference(model.Recolors);
         for (const std::shared_ptr<Recolor>& recolorPointer : recolors)
         {
-            const Recolor& recolor = Require(recolorPointer);
+            const Recolor& recolor = RequireReference(recolorPointer);
             const std::string colorPath = Paths::Combine(exportPath, recolor.Name);
             std::filesystem::create_directories(PathFromUtf8(colorPath));
             std::unordered_set<std::int32_t> usedTextures;
@@ -380,7 +371,7 @@ namespace MphRead::Export
                 {
                     return;
                 }
-                const auto& textures = Require(recolor.Textures);
+                const auto& textures = RequireReference(recolor.Textures);
                 const Texture texture = textures.at(static_cast<std::size_t>(textureId));
                 const std::vector<ColorRgba> pixels = recolor.GetPixels(textureId, paletteId);
                 if (texture.Width == 0 || texture.Height == 0 || pixels.empty())
@@ -420,8 +411,8 @@ namespace MphRead::Export
                 [](const std::shared_ptr<Material>& leftPointer,
                     const std::shared_ptr<Material>& rightPointer)
                 {
-                    const Material& left = Require(leftPointer);
-                    const Material& right = Require(rightPointer);
+                    const Material& left = RequireReference(leftPointer);
+                    const Material& right = RequireReference(rightPointer);
                     if (left.TextureId != right.TextureId)
                     {
                         return left.TextureId < right.TextureId;
@@ -430,18 +421,18 @@ namespace MphRead::Export
                 });
             for (const std::shared_ptr<Material>& materialPointer : orderedMaterials)
             {
-                const Material& material = Require(materialPointer);
+                const Material& material = RequireReference(materialPointer);
                 doTexture(material.TextureId, material.PaletteId);
             }
 
             id = 1;
             usedCombos.clear();
-            const AnimationGroups& animationGroups = Require(model.AnimationGroups);
-            const auto& textureGroups = Require(animationGroups.Texture);
+            const AnimationGroups& animationGroups = RequireReference(model.AnimationGroups);
+            const auto& textureGroups = RequireReference(animationGroups.Texture);
             for (const std::shared_ptr<TextureAnimationGroup>& groupPointer : textureGroups)
             {
-                const TextureAnimationGroup& group = Require(groupPointer);
-                const auto& animations = Require(group.Animations);
+                const TextureAnimationGroup& group = RequireReference(groupPointer);
+                const auto& animations = RequireReference(group.Animations);
                 for (const auto& [name, animation] : animations)
                 {
                     (void)name;
@@ -450,21 +441,21 @@ namespace MphRead::Export
                     for (std::int32_t i = animation.StartIndex; i < end; ++i)
                     {
                         const std::uint16_t textureId
-                            = Require(group.TextureIds).at(static_cast<std::size_t>(i));
+                            = RequireReference(group.TextureIds).at(static_cast<std::size_t>(i));
                         const std::uint16_t paletteId
-                            = Require(group.PaletteIds).at(static_cast<std::size_t>(i));
+                            = RequireReference(group.PaletteIds).at(static_cast<std::size_t>(i));
                         doTexture(textureId, paletteId);
                         id = UncheckedAdd(id, 1);
                     }
                 }
             }
 
-            const auto& textures = Require(recolor.Textures);
+            const auto& textures = RequireReference(recolor.Textures);
             if (usedTextures.size() != textures.size())
             {
                 const std::string unusedPath = Paths::Combine(colorPath, "unused");
                 std::filesystem::create_directories(PathFromUtf8(unusedPath));
-                const auto& palettes = Require(recolor.Palettes);
+                const auto& palettes = RequireReference(recolor.Palettes);
                 for (std::int32_t t = 0;
                     t < static_cast<std::int32_t>(textures.size());
                     ++t)
@@ -478,10 +469,10 @@ namespace MphRead::Export
                         p < static_cast<std::int32_t>(palettes.size());
                         ++p)
                     {
-                        const auto& allTextureData = Require(recolor.TextureData);
+                        const auto& allTextureData = RequireReference(recolor.TextureData);
                         const auto textureDataPointer
                             = allTextureData.at(static_cast<std::size_t>(t));
-                        const auto& allPaletteData = Require(recolor.PaletteData);
+                        const auto& allPaletteData = RequireReference(recolor.PaletteData);
                         const auto palettePointer
                             = allPaletteData.at(static_cast<std::size_t>(p));
                         if (!textureDataPointer)
@@ -521,14 +512,14 @@ namespace MphRead::Export
     void Images::ExportPalettes(const Model& model)
     {
         const std::string exportPath = Paths::Combine(Paths::Export(), model.Name);
-        const auto& recolors = Require(model.Recolors);
+        const auto& recolors = RequireReference(model.Recolors);
         for (const std::shared_ptr<Recolor>& recolorPointer : recolors)
         {
-            const Recolor& recolor = Require(recolorPointer);
+            const Recolor& recolor = RequireReference(recolorPointer);
             const std::string palettePath
                 = Paths::Combine(exportPath, recolor.Name, "palettes");
             std::filesystem::create_directories(PathFromUtf8(palettePath));
-            const auto& palettes = Require(recolor.Palettes);
+            const auto& palettes = RequireReference(recolor.Palettes);
             for (std::int32_t p = 0;
                 p < static_cast<std::int32_t>(palettes.size());
                 ++p)

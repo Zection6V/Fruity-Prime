@@ -112,28 +112,6 @@ namespace
         return text;
     }
 
-    [[nodiscard]] std::string GameModeName(GameMode mode)
-    {
-        switch (mode)
-        {
-            case GameMode::None: return "None";
-            case GameMode::SinglePlayer: return "SinglePlayer";
-            case GameMode::Battle: return "Battle";
-            case GameMode::BattleTeams: return "BattleTeams";
-            case GameMode::Survival: return "Survival";
-            case GameMode::SurvivalTeams: return "SurvivalTeams";
-            case GameMode::Bounty: return "Bounty";
-            case GameMode::BountyTeams: return "BountyTeams";
-            case GameMode::Capture: return "Capture";
-            case GameMode::Defender: return "Defender";
-            case GameMode::DefenderTeams: return "DefenderTeams";
-            case GameMode::Nodes: return "Nodes";
-            case GameMode::NodesTeams: return "NodesTeams";
-            case GameMode::PrimeHunter: return "PrimeHunter";
-        }
-        return IntegerText(static_cast<std::int32_t>(mode));
-    }
-
     [[nodiscard]] std::int32_t RoundToEvenInt32(double value) noexcept
     {
         if (!std::isfinite(value)
@@ -194,7 +172,7 @@ namespace MphRead::Mods::Network
         const std::string& room, std::int32_t players, double seconds, GameMode mode)
     {
         players = std::clamp(players, 1, PlayerEntity::SlotCapacity);
-        std::cout << "[simcheck] \"" << room << "\" (" << GameModeName(mode) << "), "
+        std::cout << "[simcheck] \"" << room << "\" (" << ::MphRead::ToString(mode) << "), "
             << IntegerText(players) << " player(s), " << FormatFixed(seconds, 0) << " s\n";
 
         std::int64_t snapshotBytes = 0;

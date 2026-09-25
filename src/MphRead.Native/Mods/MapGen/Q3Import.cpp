@@ -45,6 +45,7 @@ using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
@@ -75,26 +76,6 @@ namespace
     [[noreturn]] void ArrayBounds()
     {
         throw System::IndexOutOfRangeException();
-    }
-
-    template <typename T>
-    [[nodiscard]] T* Require(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            NullReference();
-        }
-        return value.get();
-    }
-
-    template <typename T>
-    [[nodiscard]] const T* Require(const std::shared_ptr<const T>& value)
-    {
-        if (!value)
-        {
-            NullReference();
-        }
-        return value.get();
     }
 
     [[nodiscard]] MphRead::Interop::ManagedArray<Vector3>* BuiltPoints(
@@ -578,9 +559,9 @@ namespace MphRead::Mods::MapGen
         }
         if (!bsp->Models().empty())
         {
-            Q3Model* model = Require(bsp->Models().front());
-            const std::vector<float>* mins = Require(model->Mins());
-            const std::vector<float>* maxs = Require(model->Maxs());
+            Q3Model* model = &RequireReference(bsp->Models().front());
+            const std::vector<float>* mins = &RequireReference(model->Mins());
+            const std::vector<float>* maxs = &RequireReference(model->Maxs());
             const float spanX = ManagedAt(maxs, 0) - ManagedAt(mins, 0);
             const float spanY = ManagedAt(maxs, 1) - ManagedAt(mins, 1);
             skySpan = MathMax(spanX, spanY) / unit;
@@ -600,14 +581,14 @@ namespace MphRead::Mods::MapGen
 
         for (const std::shared_ptr<Q3Face>& faceValue : bsp->Faces())
         {
-            Q3Face* face = Require(faceValue);
+            Q3Face* face = &RequireReference(faceValue);
             if (face->Type() != 1 && face->Type() != 2 && face->Type() != 3)
             {
                 ++skipped;
                 continue;
             }
 
-            Q3Texture* texture = Require(ManagedListAt(bsp->Textures(), face->Texture()));
+            Q3Texture* texture = &RequireReference(ManagedListAt(bsp->Textures(), face->Texture()));
             if ((texture->Flags()
                 & (Q3Bsp::SurfaceNoDraw | Q3Bsp::SurfaceHint | Q3Bsp::SurfaceSkip)) != 0)
             {
@@ -703,7 +684,7 @@ namespace MphRead::Mods::MapGen
         std::int32_t brushCount = static_cast<std::int32_t>(bsp->Brushes().size());
         if (!bsp->Models().empty())
         {
-            Q3Model* levelModel = Require(bsp->Models().front());
+            Q3Model* levelModel = &RequireReference(bsp->Models().front());
             firstBrush = levelModel->Brush();
             brushCount = levelModel->BrushCount();
         }
@@ -713,8 +694,8 @@ namespace MphRead::Mods::MapGen
             brushIndex < brushEnd;
             brushIndex = UncheckedAdd(brushIndex, 1))
         {
-            Q3Brush* brush = Require(ManagedListAt(bsp->Brushes(), brushIndex));
-            Q3Texture* texture = Require(ManagedListAt(bsp->Textures(), brush->Texture()));
+            Q3Brush* brush = &RequireReference(ManagedListAt(bsp->Brushes(), brushIndex));
+            Q3Texture* texture = &RequireReference(ManagedListAt(bsp->Textures(), brush->Texture()));
 
             const bool solid = (texture->Contents() & Q3Bsp::ContentsSolid) != 0;
             const bool clip = (texture->Contents() & Q3Bsp::ContentsPlayerClip) != 0;
@@ -771,8 +752,8 @@ namespace MphRead::Mods::MapGen
             for (std::int32_t i = 0; i < brush->SideCount(); ++i)
             {
                 const std::int32_t sideIndex = UncheckedAdd(brush->FirstSide(), i);
-                Q3BrushSide* side = Require(ManagedListAt(bsp->BrushSides(), sideIndex));
-                Q3Plane* plane = Require(ManagedListAt(bsp->Planes(), side->Plane()));
+                Q3BrushSide* side = &RequireReference(ManagedListAt(bsp->BrushSides(), sideIndex));
+                Q3Plane* plane = &RequireReference(ManagedListAt(bsp->Planes(), side->Plane()));
                 planes[static_cast<std::size_t>(i)] = Vector4(
                     plane->X(), plane->Y(), plane->Z(), plane->Distance());
             }
@@ -957,22 +938,22 @@ namespace MphRead::Mods::MapGen
                         const std::int32_t vertexIndex
                             = UncheckedAdd(face->Vertex(), vertexOffset);
                         Q3Vertex* vertex
-                            = Require(ManagedListAt(bsp->Vertices(), vertexIndex));
+                            = &RequireReference(ManagedListAt(bsp->Vertices(), vertexIndex));
 
                         points[static_cast<std::size_t>(j)]
-                            = ToWorld(Require(vertex->Position()), unit);
+                            = ToWorld(&RequireReference(vertex->Position()), unit);
                         const std::vector<float>* surface
-                            = Require(vertex->Surface());
+                            = &RequireReference(vertex->Surface());
                         uvs[static_cast<std::size_t>(j)] = Vector2(
                             ManagedAt(surface, 0) * static_cast<float>(width),
                             ManagedAt(surface, 1) * static_cast<float>(height));
 
                         normal = Add(
                             normal,
-                            ToDirection(Require(vertex->Normal())));
+                            ToDirection(&RequireReference(vertex->Normal())));
 
                         const std::vector<std::uint8_t>* color
-                            = Require(vertex->Color());
+                            = &RequireReference(vertex->Color());
                         const std::int32_t colorSum
                             = static_cast<std::int32_t>(ManagedAt(color, 0))
                             + static_cast<std::int32_t>(ManagedAt(color, 1))
@@ -983,7 +964,7 @@ namespace MphRead::Mods::MapGen
 
                     if (LengthSquared(normal) < 0.0001F)
                     {
-                        normal = ToDirection(Require(face->Normal()));
+                        normal = ToDirection(&RequireReference(face->Normal()));
                     }
                     normal = normal.Normalized();
                     co_yield MakeFace(
@@ -1015,7 +996,7 @@ namespace MphRead::Mods::MapGen
                     NullReference();
                 }
 
-                const std::vector<std::int32_t>* size = Require(face->Size());
+                const std::vector<std::int32_t>* size = &RequireReference(face->Size());
                 const std::int32_t w = ManagedAt(size, 0);
                 const std::int32_t h = ManagedAt(size, 1);
                 if (w < 3 || h < 3 || w % 2 == 0 || h % 2 == 0)
@@ -1078,7 +1059,7 @@ namespace MphRead::Mods::MapGen
                                             = UncheckedAdd(
                                                 face->Vertex(),
                                                 controlOffset);
-                                        Q3Vertex* vertex = Require(
+                                        Q3Vertex* vertex = &RequireReference(
                                             ManagedListAt(
                                                 bsp->Vertices(),
                                                 vertexIndex));
@@ -1087,12 +1068,12 @@ namespace MphRead::Mods::MapGen
                                             position,
                                             Multiply(
                                                 ToWorld(
-                                                    Require(vertex->Position()),
+                                                    &RequireReference(vertex->Position()),
                                                     unit),
                                                 weight));
 
                                         const std::vector<float>* surface
-                                            = Require(vertex->Surface());
+                                            = &RequireReference(vertex->Surface());
                                         uv = Add(
                                             uv,
                                             Multiply(
@@ -1107,11 +1088,11 @@ namespace MphRead::Mods::MapGen
                                             normal,
                                             Multiply(
                                                 ToDirection(
-                                                    Require(vertex->Normal())),
+                                                    &RequireReference(vertex->Normal())),
                                                 weight));
 
                                         const std::vector<std::uint8_t>* color
-                                            = Require(vertex->Color());
+                                            = &RequireReference(vertex->Color());
                                         const std::int32_t colorSum
                                             = static_cast<std::int32_t>(
                                                 ManagedAt(color, 0))
@@ -1131,7 +1112,7 @@ namespace MphRead::Mods::MapGen
                                 points[index] = position;
                                 uvs[index] = uv;
                                 normals[index] = LengthSquared(normal) < 0.0001F
-                                    ? ToDirection(Require(face->Normal()))
+                                    ? ToDirection(&RequireReference(face->Normal()))
                                     : normal.Normalized();
                                 shades[index] = shade;
                             }
@@ -1366,9 +1347,9 @@ namespace MphRead::Mods::MapGen
             const std::int32_t sideIndex
                 = UncheckedAdd(brush->FirstSide(), i);
             Q3BrushSide* side
-                = Require(ManagedListAt(bsp->BrushSides(), sideIndex));
+                = &RequireReference(ManagedListAt(bsp->BrushSides(), sideIndex));
             Q3Texture* texture
-                = Require(ManagedListAt(bsp->Textures(), side->Texture()));
+                = &RequireReference(ManagedListAt(bsp->Textures(), side->Texture()));
             if ((texture->Flags() & Q3Bsp::SurfaceSky) == 0)
             {
                 return false;
@@ -1462,16 +1443,16 @@ namespace MphRead::Mods::MapGen
 
         std::shared_ptr<ModelInstance> instance
             = Read::GetRoomModelInstance(def->TextureSource());
-        ModelInstance* requiredInstance = Require(instance);
+        ModelInstance* requiredInstance = &RequireReference(instance);
         std::shared_ptr<Model> source = requiredInstance->Model();
-        Model* requiredSource = Require(source);
+        Model* requiredSource = &RequireReference(source);
 
         if (!requiredSource->Recolors)
         {
             NullReference();
         }
         Recolor* recolor
-            = Require(ManagedListAt(*requiredSource->Recolors, 0));
+            = &RequireReference(ManagedListAt(*requiredSource->Recolors, 0));
 
         if (!requiredSource->Materials)
         {
@@ -1492,9 +1473,9 @@ namespace MphRead::Mods::MapGen
         results.reserve(materials->size());
         for (const std::shared_ptr<MapMaterial>& materialValue : *materials)
         {
-            MapMaterial* material = Require(materialValue);
+            MapMaterial* material = &RequireReference(materialValue);
             const std::int32_t sourceMaterialId = material->SourceMaterial();
-            Material* sourceMaterial = Require(
+            Material* sourceMaterial = &RequireReference(
                 ManagedListAt(*requiredSource->Materials, sourceMaterialId));
             const Texture& texture
                 = ManagedListAt(*recolor->Textures, sourceMaterial->TextureId);
@@ -1553,9 +1534,9 @@ namespace MphRead::Mods::MapGen
             const std::int32_t firstIndex
                 = UncheckedAdd(brush->FirstSide(), i);
             Q3BrushSide* firstSide
-                = Require(ManagedListAt(bsp->BrushSides(), firstIndex));
+                = &RequireReference(ManagedListAt(bsp->BrushSides(), firstIndex));
             Q3Plane* plane
-                = Require(ManagedListAt(bsp->Planes(), firstSide->Plane()));
+                = &RequireReference(ManagedListAt(bsp->Planes(), firstSide->Plane()));
             const Vector3 normal(
                 plane->X(), plane->Y(), plane->Z());
 
@@ -1573,9 +1554,9 @@ namespace MphRead::Mods::MapGen
                 const std::int32_t otherIndex
                     = UncheckedAdd(brush->FirstSide(), j);
                 Q3BrushSide* otherSide
-                    = Require(ManagedListAt(bsp->BrushSides(), otherIndex));
+                    = &RequireReference(ManagedListAt(bsp->BrushSides(), otherIndex));
                 Q3Plane* other
-                    = Require(ManagedListAt(bsp->Planes(), otherSide->Plane()));
+                    = &RequireReference(ManagedListAt(bsp->Planes(), otherSide->Plane()));
                 points = Clip(
                     points,
                     Vector3(other->X(), other->Y(), other->Z()),
@@ -1837,7 +1818,7 @@ namespace MphRead::Mods::MapGen
 
         for (const std::shared_ptr<Q3Entity>& entityValue : bsp->Entities())
         {
-            const Q3Entity* entity = Require(entityValue);
+            const Q3Entity* entity = &RequireReference(entityValue);
             const std::string* name
                 = EntityValue(entity, "targetname");
             const std::string* origin
@@ -1854,7 +1835,7 @@ namespace MphRead::Mods::MapGen
         std::int32_t items = 0;
         for (const std::shared_ptr<Q3Entity>& entityValue : bsp->Entities())
         {
-            const Q3Entity* entity = Require(entityValue);
+            const Q3Entity* entity = &RequireReference(entityValue);
             const std::string* classname
                 = EntityValue(entity, "classname");
             if (classname == nullptr)
@@ -1936,12 +1917,12 @@ namespace MphRead::Mods::MapGen
                 }
 
                 Q3Model* volume
-                    = Require(ManagedListAt(bsp->Models(), modelIndex));
+                    = &RequireReference(ManagedListAt(bsp->Models(), modelIndex));
                 const Vector3 min = ToWorld(
-                    Require(volume->Mins()),
+                    &RequireReference(volume->Mins()),
                     import->UnitsPerUnit());
                 const Vector3 max = ToWorld(
-                    Require(volume->Maxs()),
+                    &RequireReference(volume->Maxs()),
                     import->UnitsPerUnit());
                 const Vector3 lower = ComponentMin(min, max);
                 const Vector3 upper = ComponentMax(min, max);

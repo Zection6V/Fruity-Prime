@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Enums.hpp"
+#include "../NativeRuntime/System/Encoding.hpp"
 #include "../NativeRuntime/System/Exceptions.hpp"
 #include "../NativeRuntime/OpenTK/Mathematics.hpp"
 
@@ -484,6 +485,34 @@ namespace MphRead
             const std::shared_ptr<ManagedArray<std::uint8_t>>& array);
         [[nodiscard]] static std::u16string MarshalString(
             const std::shared_ptr<ManagedArray<char16_t>>& array);
+
+        // The same for a fixed-size field held inline -- a char[N], a
+        // std::array, the raw formats' ByValByteArray -- returned as UTF-8.
+        // Every element is the char of the same value, so a byte over 0x7F is
+        // its Latin-1 character and not a fragment of a UTF-8 sequence.
+        template <typename TRange>
+        [[nodiscard]] static std::string MarshalUtf8(const TRange& array)
+        {
+            if constexpr (requires { array.IsNull(); })
+            {
+                if (array.IsNull())
+                {
+                    throw System::ArgumentNullException("array");
+                }
+            }
+            std::u16string units;
+            for (const auto raw : array)
+            {
+                using Element = std::remove_cv_t<decltype(raw)>;
+                const auto value = static_cast<char16_t>(static_cast<std::make_unsigned_t<Element>>(raw));
+                if (value == u'\0')
+                {
+                    break;
+                }
+                units.push_back(value);
+            }
+            return ::MphRead::NativeRuntime::Utf16ToUtf8(units);
+        }
     };
 
     static_assert(std::is_standard_layout_v<LightInfo>);

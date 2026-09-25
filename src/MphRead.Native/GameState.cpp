@@ -44,6 +44,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::ShiftRight;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
@@ -73,16 +74,6 @@ namespace MphRead
 
 namespace
 {
-    template <typename T>
-    [[nodiscard]] T* Require(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return value;
-    }
-
     template <typename T>
     [[nodiscard]] const std::shared_ptr<T>& RequireShared(const std::shared_ptr<T>& value)
     {
@@ -150,7 +141,7 @@ namespace
 
     [[nodiscard]] MphRead::Entities::PlayerEntity* MainPlayer()
     {
-        return Require(RequireShared(MphRead::Entities::PlayerEntity::Main()).get());
+        return &RequireReference(MphRead::Entities::PlayerEntity::Main());
     }
 
     [[nodiscard]] MphRead::Sound::SfxInstanceBase* SfxInstance()
@@ -202,7 +193,7 @@ namespace
     void OrCamFlag(MphRead::Formats::CameraSequence* sequence,
         MphRead::Formats::CamSeqFlags flag)
     {
-        Require(sequence);
+        (void)RequireReference(sequence);
         sequence->Flags(static_cast<MphRead::Formats::CamSeqFlags>(
             static_cast<std::int32_t>(sequence->Flags())
             | static_cast<std::int32_t>(flag)));
@@ -827,7 +818,7 @@ namespace MphRead
              i < static_cast<std::int32_t>(sourceRooms->Length()); ++i)
         {
             const ByteArray source = ManagedAt(RoomState, i);
-            StorySave* destinationSave = Require(other);
+            StorySave* destinationSave = &RequireReference(other);
             const ByteArray destination = ManagedAt(destinationSave->RoomState, i);
             const std::size_t sourceLength = RequireShared(source)->Length();
             CopyManagedArray(source, destination, sourceLength, "destinationArray");
@@ -838,13 +829,13 @@ namespace MphRead
              i < static_cast<std::int32_t>(sourceEncounters->Length()); ++i)
         {
             const ByteArray source = ManagedAt(EnemyEncounters, i);
-            StorySave* destinationSave = Require(other);
+            StorySave* destinationSave = &RequireReference(other);
             const ByteArray destination = ManagedAt(destinationSave->EnemyEncounters, i);
             const std::size_t sourceLength = RequireShared(source)->Length();
             CopyManagedArray(source, destination, sourceLength, "destinationArray");
         }
 
-        StorySave* destinationSave = Require(other);
+        StorySave* destinationSave = &RequireReference(other);
         CopyManagedArray(VisitedRooms, destinationSave->VisitedRooms,
             RequireShared(VisitedRooms)->Length(), "array");
         CopyManagedArray(VisitedConnectors, destinationSave->VisitedConnectors,
@@ -966,7 +957,7 @@ namespace MphRead
 
     void GameState::Setup(Scene* scene)
     {
-        Require(scene);
+        (void)RequireReference(scene);
         if (IsTeamMode(_mode))
         {
             _teams = true;
@@ -1031,9 +1022,9 @@ namespace MphRead
 
         if (Formats::CameraSequence::Intro() != nullptr)
         {
-            Require(Formats::CameraSequence::Intro())->Initialize();
+            RequireReference(Formats::CameraSequence::Intro()).Initialize();
             auto camera = RequireShared(MainPlayer()->CameraInfo());
-            Require(Formats::CameraSequence::Intro())->SetUp(*camera, 0);
+            RequireReference(Formats::CameraSequence::Intro()).SetUp(*camera, 0);
             OrCamFlag(Formats::CameraSequence::Intro(), Formats::CamSeqFlags::Loop);
             scene->SetFade(FadeType::FadeInBlack, 20.0F / 30.0F, true);
         }
@@ -1058,7 +1049,7 @@ namespace MphRead
 
     void GameState::UpdateTime(Scene* scene)
     {
-        Require(scene);
+        (void)RequireReference(scene);
         if (_matchTime > 0.0F)
         {
             _matchTime = std::max(
@@ -1068,7 +1059,7 @@ namespace MphRead
 
     void GameState::ProcessFrame(Scene* scene)
     {
-        Require(scene);
+        (void)RequireReference(scene);
 
         Formats::CameraSequence* current = Formats::CameraSequence::Current();
         if (Multiplayer() && current != nullptr && current->IsIntro()
@@ -1325,7 +1316,7 @@ namespace MphRead
             && Formats::CameraSequence::Current() == nullptr
             && Formats::CameraSequence::Intro() != nullptr)
         {
-            Require(Formats::CameraSequence::Intro())->SetUp(
+            RequireReference(Formats::CameraSequence::Intro()).SetUp(
                 *RequireShared(MainPlayer()->CameraInfo()), 0);
             RequireShared(MainPlayer()->CameraInfo())->Update();
             OrCamFlag(Formats::CameraSequence::Intro(), Formats::CamSeqFlags::Loop);
@@ -1352,10 +1343,10 @@ namespace MphRead
 
     void GameState::ModeStateAdventure(Scene* scene)
     {
-        Require(scene);
+        (void)RequireReference(scene);
         MainPlayer()->SaveStatus();
 
-        StorySaveValue* save = Require(StorySave.get());
+        StorySaveValue* save = &RequireReference(StorySave.get());
         if ((save->Areas & 0x100) == 0)
         {
             if (_queuedOublietteUnlockMessage
@@ -1411,7 +1402,7 @@ namespace MphRead
                     assert((scene->Room() != nullptr));
                     scene->SendMessage(Message::SetActive, nullptr,
                         message.Sender, BoxInt32(0), BoxInt32(0));
-                    save->CheckpointEntityId = Require(message.Sender)->Id;
+                    save->CheckpointEntityId = RequireReference(message.Sender).Id;
                     save->CheckpointRoomId = scene->RoomId();
                     UpdateCleanSave(false);
                     break;
@@ -1462,7 +1453,7 @@ namespace MphRead
 
     void GameState::ModeStateSurvival(Scene* scene)
     {
-        Require(scene);
+        (void)RequireReference(scene);
         UpdateSurvival(scene->FrameTime());
     }
 
@@ -1565,7 +1556,7 @@ namespace MphRead
 
     void GameState::ModeStatePrimeHunter(Scene* scene)
     {
-        Require(scene);
+        (void)RequireReference(scene);
         if (_primeHunter == -1)
         {
             return;
@@ -1595,7 +1586,7 @@ namespace MphRead
 
     void GameState::UpdateFrame(Scene* scene)
     {
-        Require(scene);
+        (void)RequireReference(scene);
         const Entities::PromptType prompt = MainPlayer()->DialogPromptType();
         const Entities::ConfirmState confirm = MainPlayer()->DialogConfirmState();
 
@@ -1660,7 +1651,7 @@ namespace MphRead
                 else if (prompt == Entities::PromptType::GameOver)
                 {
                     RestoreCleanSave();
-                    StorySaveValue* save = Require(StorySave.get());
+                    StorySaveValue* save = &RequireReference(StorySave.get());
                     assert((scene->Room() != nullptr));
 
                     if (Cheats::ContinueFromCurrentRoom())
@@ -1743,8 +1734,8 @@ namespace MphRead
                         assert((scene->Room() != nullptr));
                         ResetEscapeState(false);
                         MainPlayer()->DialogPromptType(Entities::PromptType::ShipHatch);
-                        StorySaveValue* save = Require(StorySave.get());
-                        save->CheckpointEntityId = Require(message.Sender)->Id;
+                        StorySaveValue* save = &RequireReference(StorySave.get());
+                        save->CheckpointEntityId = RequireReference(message.Sender).Id;
                         save->CheckpointRoomId = scene->RoomId();
                         UpdateCleanSave(true);
                         MainPlayer()->ShowDialog(Entities::DialogType::YesNo, 1);
@@ -1878,7 +1869,7 @@ namespace MphRead
 
     void GameState::UpdateBossFlags(std::int32_t areaId)
     {
-        StorySaveValue* save = Require(StorySave.get());
+        StorySaveValue* save = &RequireReference(StorySave.get());
         std::uint32_t flags = static_cast<std::uint32_t>(save->BossFlags);
         const std::int32_t shift = UncheckedMultiply(2, areaId);
         flags &= static_cast<std::uint32_t>(
@@ -1890,7 +1881,7 @@ namespace MphRead
 
     void GameState::EnterShip()
     {
-        StorySaveValue* save = Require(StorySave.get());
+        StorySaveValue* save = &RequireReference(StorySave.get());
         std::uint8_t& triggerState = ManagedAt(save->TriggerState, 2);
         triggerState = static_cast<std::uint8_t>(triggerState & 0x7F);
 
@@ -1956,7 +1947,7 @@ namespace MphRead
                 Sound::Sfx::QueueStream(VoiceId::VOICE_EVACUATE, 6.0F);
                 Music::PlayMusic(MusicId::SEQ_OREGANO_M55);
                 Music::UpdateTempo(245, 0.0F);
-                StorySaveValue* save = Require(StorySave.get());
+                StorySaveValue* save = &RequireReference(StorySave.get());
                 std::uint8_t& triggerState = ManagedAt(save->TriggerState, 2);
                 triggerState = static_cast<std::uint8_t>(triggerState | 0x80);
             }

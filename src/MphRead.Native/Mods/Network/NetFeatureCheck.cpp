@@ -14,6 +14,8 @@
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../GameState.hpp"
 #include "../../Scene.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/Encoding.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
@@ -44,6 +46,9 @@
 #include <locale.h>
 #endif
 
+using ::MphRead::NativeRuntime::ConsoleWrite;
+using ::MphRead::NativeRuntime::EnvironmentNewLine;
+using ::MphRead::NativeRuntime::ConsoleWriteLine;
 using ::MphRead::NativeRuntime::IncrementInPlace;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
@@ -77,31 +82,6 @@ namespace
             throw System::OverflowException();
         }
         return static_cast<std::size_t>(length);
-    }
-
-    [[nodiscard]] constexpr std::string_view ManagedNewLine() noexcept
-    {
-#if defined(_WIN32)
-        return "\r\n";
-#else
-        return "\n";
-#endif
-    }
-
-    void ConsoleWrite(std::string_view value)
-    {
-        std::cout.write(value.data(), static_cast<std::streamsize>(value.size()));
-    }
-
-    void ConsoleWriteLine()
-    {
-        ConsoleWrite(ManagedNewLine());
-    }
-
-    void ConsoleWriteLine(std::string_view value)
-    {
-        ConsoleWrite(value);
-        ConsoleWrite(ManagedNewLine());
     }
 
     [[nodiscard]] std::string PadLeftManaged(std::string value, std::size_t width)
@@ -1399,7 +1379,7 @@ namespace MphRead::Mods::Network
             text += ' ';
             text += verdict;
             report += text;
-            report += ManagedNewLine();
+            report += EnvironmentNewLine();
         };
 
         line("spawn", mine.SpawnedFrames, other.SpawnedFrames, 30, "frames");

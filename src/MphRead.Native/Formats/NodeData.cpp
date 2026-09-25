@@ -7,8 +7,9 @@
 #include "Formats.hpp"
 #include "../Program.hpp"
 #include "../Read.hpp"
-#include "../NativeRuntime/System/Managed.hpp"
 #include "Types.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -18,6 +19,7 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::CreateTranslation;
 using ::OpenTK::Mathematics::DistanceSquared;
 
@@ -33,26 +35,6 @@ namespace
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
-
-    template <typename T>
-    [[nodiscard]] const T& Require(const std::shared_ptr<const T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& Require(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
 
     [[nodiscard]] constexpr std::int32_t ManagedInt32(std::uint32_t value) noexcept
     {
@@ -115,8 +97,8 @@ namespace MphRead::Formats
 
     bool NodeData::Simple() const
     {
-        const auto& data = Require(Data);
-        return data.size() == 1 && Require(data[0]).size() == 1;
+        const auto& data = RequireReference(Data);
+        return data.size() == 1 && RequireReference(data[0]).size() == 1;
     }
 
     NodeData3::NodeData3(
@@ -216,17 +198,17 @@ namespace MphRead::Formats
 
         const auto str1s = MphRead::Read::DoOffsets<NodeDataStruct1>(
             bytes, header.DataOffset, static_cast<std::int32_t>(header.DataCount));
-        for (const NodeDataStruct1& str1 : Require(str1s))
+        for (const NodeDataStruct1& str1 : RequireReference(str1s))
         {
             auto sub = std::make_shared<std::vector<
                 std::shared_ptr<const std::vector<NodeDataStruct3>>>>();
             const auto str2s = MphRead::Read::DoOffsets<NodeDataStruct2>(
                 bytes, str1.Offset2, static_cast<std::int32_t>(str1.Count));
-            for (const NodeDataStruct2& str2 : Require(str2s))
+            for (const NodeDataStruct2& str2 : RequireReference(str2s))
             {
                 const auto str3s = MphRead::Read::DoOffsets<NodeDataStruct3>(
                     bytes, str2.Offset3, static_cast<std::int32_t>(str2.Count));
-                for (const NodeDataStruct3& str3 : Require(str3s))
+                for (const NodeDataStruct3& str3 : RequireReference(str3s))
                 {
                     min = std::min(min, str3.Offset1);
                     types.insert(str3.NodeType);
@@ -249,10 +231,10 @@ namespace MphRead::Formats
         {
             auto newSub = std::make_shared<std::vector<
                 std::shared_ptr<const std::vector<std::shared_ptr<NodeData3>>>>>();
-            for (const auto& str3s : Require(sub))
+            for (const auto& str3s : RequireReference(sub))
             {
                 auto cast3s = std::make_shared<std::vector<std::shared_ptr<NodeData3>>>();
-                for (const NodeDataStruct3& str3 : Require(str3s))
+                for (const NodeDataStruct3& str3 : RequireReference(str3s))
                 {
                     const std::int32_t index1 = ManagedInt32((str3.Offset1 - min) / 2U);
                     const std::int32_t index2 = ManagedInt32((str3.Offset2 - min) / 2U);
@@ -275,8 +257,8 @@ namespace MphRead::Formats
             bytes, 4U, static_cast<std::uint32_t>(count));
 
         auto cast3s = std::make_shared<std::vector<std::shared_ptr<NodeData3>>>();
-        cast3s->reserve(Require(headers).size());
-        for (const FhNodeData& header : Require(headers))
+        cast3s->reserve(RequireReference(headers).size());
+        for (const FhNodeData& header : RequireReference(headers))
         {
             cast3s->push_back(std::make_shared<NodeData3>(header.Position));
         }
@@ -301,23 +283,23 @@ namespace MphRead::Formats
         Vector3 position,
         bool useMaxDist)
     {
-        NodeData& dataObject = Require(nodeData);
-        const auto& outer = Require(dataObject.Data);
+        NodeData& dataObject = RequireReference(nodeData);
+        const auto& outer = RequireReference(dataObject.Data);
 #ifndef NDEBUG
         const bool hasFirstList
-            = !outer.empty() && !Require(outer[0]).empty();
+            = !outer.empty() && !RequireReference(outer[0]).empty();
         MphRead::NativeRuntime::DebugAssert(hasFirstList);
 #endif
 
-        const auto& middle = Require(ManagedAt(outer, 0));
-        const auto& list = Require(ManagedAt(middle, 0));
+        const auto& middle = RequireReference(ManagedAt(outer, 0));
+        const auto& list = RequireReference(ManagedAt(middle, 0));
 
         std::shared_ptr<NodeData3> result{};
         float minDist = std::numeric_limits<float>::max();
         for (std::size_t i = 0; i < list.size(); ++i)
         {
             const std::shared_ptr<NodeData3>& data = list[i];
-            NodeData3& item = Require(data);
+            NodeData3& item = RequireReference(data);
             const float dist = DistanceSquared(position, item.Position);
             if (dist < minDist)
             {

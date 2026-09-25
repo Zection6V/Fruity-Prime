@@ -11,7 +11,9 @@
 #include "EnemySpawnEntity.hpp"
 #include "ItemSpawnEntity.hpp"
 #include "Players/PlayerEntity.hpp"
+#include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
+#include "../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../Formats/Types.hpp"
 
 #include <any>
@@ -24,6 +26,7 @@
 #include <type_traits>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedCast;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
 using ::OpenTK::Mathematics::AddY;
@@ -63,21 +66,6 @@ namespace
             throw MphRead::SceneDetail::IndexOutOfRangeException();
         }
         return array[static_cast<std::size_t>(index)];
-    }
-
-    template <typename T>
-    [[nodiscard]] T* ManagedCast(EntityBase* value)
-    {
-        if (value == nullptr)
-        {
-            return nullptr;
-        }
-        T* result = dynamic_cast<T*>(value);
-        if (result == nullptr)
-        {
-            throw MphRead::SceneDetail::InvalidCastException();
-        }
-        return result;
     }
 
     [[nodiscard]] MphRead::MessageObject BoxEntity(EntityBase* value)

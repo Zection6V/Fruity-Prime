@@ -59,6 +59,7 @@ using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathGetFullPath;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::RoundToEven;
 using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -77,26 +78,6 @@ namespace
     [[noreturn]] void NullReference()
     {
         throw System::NullReferenceException();
-    }
-
-    template <typename T>
-    [[nodiscard]] T* Require(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            NullReference();
-        }
-        return value.get();
-    }
-
-    template <typename T>
-    [[nodiscard]] const T* Require(const std::shared_ptr<const T>& value)
-    {
-        if (!value)
-        {
-            NullReference();
-        }
-        return value.get();
     }
 
     [[nodiscard]] bool IsAsciiWhitespace(unsigned char value) noexcept
@@ -856,12 +837,12 @@ namespace
         }
 
         double sum = static_cast<double>(
-            ManagedAt(Require(values.front()), axis));
+            ManagedAt(&RequireReference(values.front()), axis));
         std::int64_t count = 1;
         for (std::size_t i = 1; i < values.size(); ++i)
         {
             sum += static_cast<double>(
-                ManagedAt(Require(values[i]), axis));
+                ManagedAt(&RequireReference(values[i]), axis));
             count = std::bit_cast<std::int64_t>(
                 static_cast<std::uint64_t>(count) + 1U);
         }
@@ -1568,7 +1549,7 @@ namespace MphRead::Mods::MapGen
 
         std::shared_ptr<std::vector<float>> min;
         std::shared_ptr<std::vector<float>> max;
-        Bounds(Require(bsp), min, max, false);
+        Bounds(&RequireReference(bsp), min, max, false);
         if (ManagedAt(min.get(), 0) > ManagedAt(max.get(), 0))
         {
             std::cout
@@ -1596,7 +1577,7 @@ namespace MphRead::Mods::MapGen
 
         std::shared_ptr<std::vector<float>> reachMin;
         std::shared_ptr<std::vector<float>> reachMax;
-        Bounds(Require(bsp), reachMin, reachMax, true);
+        Bounds(&RequireReference(bsp), reachMin, reachMax, true);
 
         const std::string levelName = FileName(sourceValue);
         const std::string beside
@@ -1619,7 +1600,7 @@ namespace MphRead::Mods::MapGen
                 archivePaths,
                 std::optional<std::string>(texturePath),
                 textureSize);
-        MapTextureBake::Result* bakedValue = Require(baked);
+        MapTextureBake::Result* bakedValue = &RequireReference(baked);
 
         std::cout
             << "  " << bakedValue->Baked
@@ -1628,12 +1609,12 @@ namespace MphRead::Mods::MapGen
             << " -> " << FormatN0(bakedValue->Bytes)
             << " B  " << FileName(texturePath)
             << '\n';
-        if (!Require(bakedValue->Missing)->empty())
+        if (!RequireReference(bakedValue->Missing).empty())
         {
             std::cout
-                << "  no image for " << Require(bakedValue->Missing)->size()
-                << ": " << JoinStrings(*Require(bakedValue->Missing), 6)
-                << (Require(bakedValue->Missing)->size() > 6 ? " ..." : "")
+                << "  no image for " << RequireReference(bakedValue->Missing).size()
+                << ": " << JoinStrings(*(&RequireReference(bakedValue->Missing)), 6)
+                << (RequireReference(bakedValue->Missing).size() > 6 ? " ..." : "")
                 << '\n';
             std::cout
                 << "  those surfaces are dropped rather than painted with somebody else's"
@@ -1670,21 +1651,21 @@ namespace MphRead::Mods::MapGen
 
         std::int32_t clipBrushes = 0;
         for (const std::shared_ptr<Q3Brush>& brushRef
-            : Require(bsp)->Brushes())
+            : RequireReference(bsp).Brushes())
         {
-            Q3Brush* brush = Require(brushRef);
-            Q3Texture* solidTexture = Require(
+            Q3Brush* brush = &RequireReference(brushRef);
+            Q3Texture* solidTexture = &RequireReference(
                 ManagedListAt(
-                    Require(bsp)->Textures(),
+                    RequireReference(bsp).Textures(),
                     brush->Texture()));
             if ((solidTexture->Contents()
                     & Q3Bsp::ContentsSolid) != 0)
             {
                 continue;
             }
-            Q3Texture* clipTexture = Require(
+            Q3Texture* clipTexture = &RequireReference(
                 ManagedListAt(
-                    Require(bsp)->Textures(),
+                    RequireReference(bsp).Textures(),
                     brush->Texture()));
             if ((clipTexture->Contents()
                     & Q3Bsp::ContentsPlayerClip) != 0)
@@ -1699,8 +1680,8 @@ namespace MphRead::Mods::MapGen
         }
 
         AddSpawns(
-            Require(definition),
-            Require(bsp),
+            &RequireReference(definition),
+            &RequireReference(bsp),
             unit);
 
         const std::string path
@@ -1799,7 +1780,7 @@ namespace MphRead::Mods::MapGen
         for (const std::shared_ptr<Q3Face>& faceRef
             : bsp->Faces())
         {
-            Q3Face* face = Require(faceRef);
+            Q3Face* face = &RequireReference(faceRef);
             if (face->Type() != 1
                 && face->Type() != 2
                 && face->Type() != 3)
@@ -1807,7 +1788,7 @@ namespace MphRead::Mods::MapGen
                 continue;
             }
 
-            Q3Texture* texture = Require(
+            Q3Texture* texture = &RequireReference(
                 ManagedListAt(bsp->Textures(), face->Texture()));
             if ((texture->Flags()
                     & (Q3Bsp::SurfaceNoDraw
@@ -1826,10 +1807,10 @@ namespace MphRead::Mods::MapGen
                     face->VertexCount());
                 i = UncheckedAdd(i, 1))
             {
-                Q3Vertex* vertex = Require(
+                Q3Vertex* vertex = &RequireReference(
                     ManagedListAt(bsp->Vertices(), i));
                 const std::vector<float>* position
-                    = Require(vertex->Position());
+                    = &RequireReference(vertex->Position());
                 for (std::size_t axis = 0; axis < 3; ++axis)
                 {
                     ManagedAt(min.get(), axis) = MathMin(
@@ -1888,7 +1869,7 @@ namespace MphRead::Mods::MapGen
         for (const std::shared_ptr<Q3Entity>& entityRef
             : bsp->Entities())
         {
-            const Q3Entity* entity = Require(entityRef);
+            const Q3Entity* entity = &RequireReference(entityRef);
             const std::string* classname
                 = EntityValue(entity, "classname");
             if (classname == nullptr)
@@ -1985,7 +1966,7 @@ namespace MphRead::Mods::MapGen
             : *chosen)
         {
             const std::vector<float>* position
-                = Require(positionRef);
+                = &RequireReference(positionRef);
             const float x = ManagedAt(position, 0) / unit;
             const float y = ManagedAt(position, 2) / unit
                 - 24.0F / unit;

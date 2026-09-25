@@ -56,16 +56,6 @@ namespace
         }
     };
 
-    template <typename T>
-    [[nodiscard]] T& Require(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
     [[nodiscard]] const std::string& InterpolationString(
         const std::optional<std::string>& value) noexcept
     {
@@ -1633,7 +1623,7 @@ namespace MphRead::Testing
         const std::shared_ptr<MphRead::Model>& model,
         std::int32_t polygonId)
     {
-        Model& modelRef = Require(model);
+        Model& modelRef = RequireReference(model);
         if (!modelRef.Materials)
         {
             throw System::NullReferenceException();
@@ -1650,8 +1640,8 @@ namespace MphRead::Testing
         std::int32_t polygonId)
     {
         MPH_TESTPRINT_DEBUG_ASSERT(polygonId >= 0);
-        Model& modelRef = Require(model);
-        Material& materialRef = Require(material);
+        Model& modelRef = RequireReference(model);
+        Material& materialRef = RequireReference(material);
 
         const std::uint32_t v19 = polygonId == 1 ? 0x4000U : 0U;
         const std::uint32_t v20 = v19 | 0x8000U;

@@ -5,8 +5,9 @@
 
 #include "../Program.hpp"
 #include "../Read.hpp"
-#include "../NativeRuntime/System/Managed.hpp"
 #include "Types.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <bit>
 #include <cassert>
@@ -22,6 +23,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::ShiftLeft;
 using ::MphRead::NativeRuntime::ShiftRight;
 using ::MphRead::NativeRuntime::UncheckedAdd;
@@ -40,26 +42,6 @@ namespace
     using OpenTK::Mathematics::Matrix4;
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
-
-    template <typename T>
-    [[nodiscard]] T& Require(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& Require(const std::shared_ptr<const T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
 
     [[nodiscard]] Matrix4 Identity() noexcept
     {
@@ -210,42 +192,42 @@ namespace MphRead
 
     std::int32_t AnimationInfo::NodeFrame() const
     {
-        return (*Frame)[static_cast<std::size_t>(Require(Node).Slot)];
+        return (*Frame)[static_cast<std::size_t>(RequireReference(Node).Slot)];
     }
 
     std::int32_t AnimationInfo::MaterialFrame() const
     {
-        return (*Frame)[static_cast<std::size_t>(Require(Material).Slot)];
+        return (*Frame)[static_cast<std::size_t>(RequireReference(Material).Slot)];
     }
 
     std::int32_t AnimationInfo::TextureFrame() const
     {
-        return (*Frame)[static_cast<std::size_t>(Require(Texture).Slot)];
+        return (*Frame)[static_cast<std::size_t>(RequireReference(Texture).Slot)];
     }
 
     std::int32_t AnimationInfo::TexcoordFrame() const
     {
-        return (*Frame)[static_cast<std::size_t>(Require(Texcoord).Slot)];
+        return (*Frame)[static_cast<std::size_t>(RequireReference(Texcoord).Slot)];
     }
 
     std::int32_t AnimationInfo::NodeIndex() const
     {
-        return (*Index)[static_cast<std::size_t>(Require(Node).Slot)];
+        return (*Index)[static_cast<std::size_t>(RequireReference(Node).Slot)];
     }
 
     std::int32_t AnimationInfo::MaterialIndex() const
     {
-        return (*Index)[static_cast<std::size_t>(Require(Material).Slot)];
+        return (*Index)[static_cast<std::size_t>(RequireReference(Material).Slot)];
     }
 
     std::int32_t AnimationInfo::TextureIndex() const
     {
-        return (*Index)[static_cast<std::size_t>(Require(Texture).Slot)];
+        return (*Index)[static_cast<std::size_t>(RequireReference(Texture).Slot)];
     }
 
     std::int32_t AnimationInfo::TexcoordIndex() const
     {
-        return (*Index)[static_cast<std::size_t>(Require(Texcoord).Slot)];
+        return (*Index)[static_cast<std::size_t>(RequireReference(Texcoord).Slot)];
     }
 
     AnimationOffsets::AnimationOffsets(
@@ -299,17 +281,17 @@ namespace MphRead
         std::shared_ptr<const std::vector<std::shared_ptr<TextureAnimationGroup>>> texture
             = animations->TextureAnimationGroups;
 
-        const bool any = !Require(node).empty()
-            || !Require(material).empty()
-            || !Require(texcoord).empty()
-            || !Require(texture).empty();
+        const bool any = !RequireReference(node).empty()
+            || !RequireReference(material).empty()
+            || !RequireReference(texcoord).empty()
+            || !RequireReference(texture).empty();
 
         auto offsets = std::make_shared<AnimationOffsets>(animations);
 #ifndef NDEBUG
-        assert(Require(offsets->Node).size() >= Require(node).size());
-        assert(Require(offsets->Material).size() >= Require(material).size());
-        assert(Require(offsets->Texcoord).size() >= Require(texcoord).size());
-        assert(Require(offsets->Texture).size() >= Require(texture).size());
+        assert(RequireReference(offsets->Node).size() >= RequireReference(node).size());
+        assert(RequireReference(offsets->Material).size() >= RequireReference(material).size());
+        assert(RequireReference(offsets->Texcoord).size() >= RequireReference(texcoord).size());
+        assert(RequireReference(offsets->Texture).size() >= RequireReference(texture).size());
 #endif
 
         return Init{
@@ -349,9 +331,9 @@ namespace MphRead
 
     void ModelInstance::SetAnimation(std::int32_t index, AnimFlags animFlags)
     {
-        auto& model = Require(_model);
-        auto& groups = Require(model.AnimationGroups);
-        auto& info = Require(AnimInfo);
+        auto& model = RequireReference(_model);
+        auto& groups = RequireReference(model.AnimationGroups);
+        auto& info = RequireReference(AnimInfo);
 
         if (groups.Any && index >= 0)
         {
@@ -359,31 +341,31 @@ namespace MphRead
             (*info.Flags)[0] = animFlags;
             (*info.PrevIndex)[0] = (*info.Index)[0];
             (*info.Index)[0] = index;
-            Require(info.Material).Slot = 0;
-            Require(info.Texture).Slot = 0;
-            Require(info.Texcoord).Slot = 0;
-            Require(info.Node).Slot = 0;
+            RequireReference(info.Material).Slot = 0;
+            RequireReference(info.Texture).Slot = 0;
+            RequireReference(info.Texcoord).Slot = 0;
+            RequireReference(info.Node).Slot = 0;
 
-            Require(info.Material).Group = ManagedAt(groups.Material, index);
-            Require(info.Texture).Group = ManagedAt(groups.Texture, index);
-            Require(info.Texcoord).Group = ManagedAt(groups.Texcoord, index);
-            Require(info.Node).Group = ManagedAt(groups.Node, index);
+            RequireReference(info.Material).Group = ManagedAt(groups.Material, index);
+            RequireReference(info.Texture).Group = ManagedAt(groups.Texture, index);
+            RequireReference(info.Texcoord).Group = ManagedAt(groups.Texcoord, index);
+            RequireReference(info.Node).Group = ManagedAt(groups.Node, index);
 
-            if (Require(Require(info.Node).Group).Count > 0)
+            if (RequireReference(RequireReference(info.Node).Group).Count > 0)
             {
-                (*info.FrameCount)[0] = Require(Require(info.Node).Group).FrameCount;
+                (*info.FrameCount)[0] = RequireReference(RequireReference(info.Node).Group).FrameCount;
             }
-            else if (Require(Require(info.Material).Group).Count > 0)
+            else if (RequireReference(RequireReference(info.Material).Group).Count > 0)
             {
-                (*info.FrameCount)[0] = Require(Require(info.Material).Group).FrameCount;
+                (*info.FrameCount)[0] = RequireReference(RequireReference(info.Material).Group).FrameCount;
             }
-            else if (Require(Require(info.Texture).Group).Count > 0)
+            else if (RequireReference(RequireReference(info.Texture).Group).Count > 0)
             {
-                (*info.FrameCount)[0] = Require(Require(info.Texture).Group).FrameCount;
+                (*info.FrameCount)[0] = RequireReference(RequireReference(info.Texture).Group).FrameCount;
             }
-            else if (Require(Require(info.Texcoord).Group).Count > 0)
+            else if (RequireReference(RequireReference(info.Texcoord).Group).Count > 0)
             {
-                (*info.FrameCount)[0] = Require(Require(info.Texcoord).Group).FrameCount;
+                (*info.FrameCount)[0] = RequireReference(RequireReference(info.Texcoord).Group).FrameCount;
             }
 
             (*info.Frame)[0] = TypeExtensions::TestFlag(animFlags, AnimFlags::Reverse)
@@ -392,10 +374,10 @@ namespace MphRead
         }
         else
         {
-            Require(info.Material).Group.reset();
-            Require(info.Texture).Group.reset();
-            Require(info.Texcoord).Group.reset();
-            Require(info.Node).Group.reset();
+            RequireReference(info.Material).Group.reset();
+            RequireReference(info.Texture).Group.reset();
+            RequireReference(info.Texcoord).Group.reset();
+            RequireReference(info.Node).Group.reset();
         }
     }
 
@@ -405,9 +387,9 @@ namespace MphRead
         SetFlags setFlags,
         AnimFlags animFlags)
     {
-        auto& model = Require(_model);
-        auto& groups = Require(model.AnimationGroups);
-        auto& info = Require(AnimInfo);
+        auto& model = RequireReference(_model);
+        auto& groups = RequireReference(model.AnimationGroups);
+        auto& info = RequireReference(AnimInfo);
         const std::size_t slotIndex = static_cast<std::size_t>(slot);
 
         if (groups.Any && index >= 0)
@@ -419,42 +401,42 @@ namespace MphRead
 
             if (TypeExtensions::TestFlag(setFlags, SetFlags::Material))
             {
-                Require(info.Material).Slot = slot;
-                Require(info.Material).Group = ManagedAt(groups.Material, index);
-                if (Require(Require(info.Material).Group).Count > 0)
+                RequireReference(info.Material).Slot = slot;
+                RequireReference(info.Material).Group = ManagedAt(groups.Material, index);
+                if (RequireReference(RequireReference(info.Material).Group).Count > 0)
                 {
                     (*info.FrameCount)[slotIndex]
-                        = Require(Require(info.Material).Group).FrameCount;
+                        = RequireReference(RequireReference(info.Material).Group).FrameCount;
                 }
             }
             if (TypeExtensions::TestFlag(setFlags, SetFlags::Texcoord))
             {
-                Require(info.Texcoord).Slot = slot;
-                Require(info.Texcoord).Group = ManagedAt(groups.Texcoord, index);
-                if (Require(Require(info.Texcoord).Group).Count > 0)
+                RequireReference(info.Texcoord).Slot = slot;
+                RequireReference(info.Texcoord).Group = ManagedAt(groups.Texcoord, index);
+                if (RequireReference(RequireReference(info.Texcoord).Group).Count > 0)
                 {
                     (*info.FrameCount)[slotIndex]
-                        = Require(Require(info.Texcoord).Group).FrameCount;
+                        = RequireReference(RequireReference(info.Texcoord).Group).FrameCount;
                 }
             }
             if (TypeExtensions::TestFlag(setFlags, SetFlags::Texture))
             {
-                Require(info.Texture).Slot = slot;
-                Require(info.Texture).Group = ManagedAt(groups.Texture, index);
-                if (Require(Require(info.Texture).Group).Count > 0)
+                RequireReference(info.Texture).Slot = slot;
+                RequireReference(info.Texture).Group = ManagedAt(groups.Texture, index);
+                if (RequireReference(RequireReference(info.Texture).Group).Count > 0)
                 {
                     (*info.FrameCount)[slotIndex]
-                        = Require(Require(info.Texture).Group).FrameCount;
+                        = RequireReference(RequireReference(info.Texture).Group).FrameCount;
                 }
             }
             if (TypeExtensions::TestFlag(setFlags, SetFlags::Node))
             {
-                Require(info.Node).Slot = slot;
-                Require(info.Node).Group = ManagedAt(groups.Node, index);
-                if (Require(Require(info.Node).Group).Count > 0)
+                RequireReference(info.Node).Slot = slot;
+                RequireReference(info.Node).Group = ManagedAt(groups.Node, index);
+                if (RequireReference(RequireReference(info.Node).Group).Count > 0)
                 {
                     (*info.FrameCount)[slotIndex]
-                        = Require(Require(info.Node).Group).FrameCount;
+                        = RequireReference(RequireReference(info.Node).Group).FrameCount;
                 }
             }
 
@@ -465,27 +447,27 @@ namespace MphRead
         }
         else
         {
-            Require(info.Material).Group.reset();
-            Require(info.Texture).Group.reset();
-            Require(info.Texcoord).Group.reset();
-            Require(info.Node).Group.reset();
+            RequireReference(info.Material).Group.reset();
+            RequireReference(info.Texture).Group.reset();
+            RequireReference(info.Texcoord).Group.reset();
+            RequireReference(info.Node).Group.reset();
         }
     }
 
     void ModelInstance::UpdateAnimFrames()
     {
-        auto& info = Require(AnimInfo);
-        if (Require(info.Node).Slot == 0
-            || Require(info.Material).Slot == 0
-            || Require(info.Texcoord).Slot == 0
-            || Require(info.Texture).Slot == 0)
+        auto& info = RequireReference(AnimInfo);
+        if (RequireReference(info.Node).Slot == 0
+            || RequireReference(info.Material).Slot == 0
+            || RequireReference(info.Texcoord).Slot == 0
+            || RequireReference(info.Texture).Slot == 0)
         {
             UpdateAnimFrames(0);
         }
-        if (Require(info.Node).Slot == 1
-            || Require(info.Material).Slot == 1
-            || Require(info.Texcoord).Slot == 1
-            || Require(info.Texture).Slot == 1)
+        if (RequireReference(info.Node).Slot == 1
+            || RequireReference(info.Material).Slot == 1
+            || RequireReference(info.Texcoord).Slot == 1
+            || RequireReference(info.Texture).Slot == 1)
         {
             UpdateAnimFrames(1);
         }
@@ -493,7 +475,7 @@ namespace MphRead
 
     void ModelInstance::UpdateAnimFrames(std::int32_t slot)
     {
-        auto& info = Require(AnimInfo);
+        auto& info = RequireReference(AnimInfo);
         const std::size_t slotIndex = static_cast<std::size_t>(slot);
         const AnimFlags flags = (*info.Flags)[slotIndex];
         const std::int32_t frame = (*info.Frame)[slotIndex];
@@ -573,8 +555,8 @@ namespace MphRead
 
     void ModelInstance::SetNodeAnim(std::int32_t index)
     {
-        auto& info = Require(AnimInfo);
-        auto& nodeInfo = Require(info.Node);
+        auto& info = RequireReference(AnimInfo);
+        auto& nodeInfo = RequireReference(info.Node);
 
         if (index <= -1)
         {
@@ -583,9 +565,9 @@ namespace MphRead
             return;
         }
 
-        auto& model = Require(_model);
-        auto& groups = Require(model.AnimationGroups);
-        if (index >= static_cast<std::int32_t>(Require(groups.Node).size()))
+        auto& model = RequireReference(_model);
+        auto& groups = RequireReference(model.AnimationGroups);
+        if (index >= static_cast<std::int32_t>(RequireReference(groups.Node).size()))
         {
             (*info.Index)[static_cast<std::size_t>(nodeInfo.Slot)] = -1;
             nodeInfo.Group.reset();
@@ -598,8 +580,8 @@ namespace MphRead
 
     void ModelInstance::SetMaterialAnim(std::int32_t index)
     {
-        auto& info = Require(AnimInfo);
-        auto& materialInfo = Require(info.Material);
+        auto& info = RequireReference(AnimInfo);
+        auto& materialInfo = RequireReference(info.Material);
 
         if (index <= -1)
         {
@@ -608,9 +590,9 @@ namespace MphRead
             return;
         }
 
-        auto& model = Require(_model);
-        auto& groups = Require(model.AnimationGroups);
-        if (index >= static_cast<std::int32_t>(Require(groups.Material).size()))
+        auto& model = RequireReference(_model);
+        auto& groups = RequireReference(model.AnimationGroups);
+        if (index >= static_cast<std::int32_t>(RequireReference(groups.Material).size()))
         {
             (*info.Index)[static_cast<std::size_t>(materialInfo.Slot)] = -1;
             materialInfo.Group.reset();
@@ -657,9 +639,9 @@ namespace MphRead
 
     void Model::FilterNodes(std::int32_t layerMask)
     {
-        for (const auto& nodePointer : Require(Nodes))
+        for (const auto& nodePointer : RequireReference(Nodes))
         {
-            auto& node = Require(nodePointer);
+            auto& node = RequireReference(nodePointer);
             node.Enabled = true;
 
             const std::vector<char32_t> name = DecodeManagedByteString(node.Name);
@@ -720,7 +702,7 @@ namespace MphRead
 
     void Model::ComputeNodeMatrices(std::int32_t index)
     {
-        const auto& nodes = Require(Nodes);
+        const auto& nodes = RequireReference(Nodes);
         if (nodes.empty() || index == -1)
         {
             return;
@@ -728,7 +710,7 @@ namespace MphRead
 
         for (std::int32_t i = index; i != -1;)
         {
-            auto& node = Require(nodes.at(static_cast<std::size_t>(i)));
+            auto& node = RequireReference(nodes.at(static_cast<std::size_t>(i)));
             const Vector3 position(
                 node.Position.X / Scale.X,
                 node.Position.Y / Scale.Y,
@@ -743,7 +725,7 @@ namespace MphRead
             {
                 node.Transform = Multiply(
                     transform,
-                    Require(nodes.at(
+                    RequireReference(nodes.at(
                         static_cast<std::size_t>(node.ParentIndex))).Transform);
             }
             if (node.ChildIndex != -1)
@@ -806,17 +788,17 @@ namespace MphRead
         Vector3 scale,
         const std::shared_ptr<AnimationInfo>& info)
     {
-        const auto& nodes = Require(Nodes);
+        const auto& nodes = RequireReference(Nodes);
         for (std::int32_t i = index; i != -1;)
         {
-            auto& node = Require(nodes.at(static_cast<std::size_t>(i)));
+            auto& node = RequireReference(nodes.at(static_cast<std::size_t>(i)));
             Matrix4 transform = useNodeTransform ? node.Transform : Identity();
 
-            auto& animationInfo = Require(info);
-            const auto group = Require(animationInfo.Node).Group;
+            auto& animationInfo = RequireReference(info);
+            const auto group = RequireReference(animationInfo.Node).Group;
             if (group)
             {
-                const auto& animations = Require(group->Animations);
+                const auto& animations = RequireReference(group->Animations);
                 const auto found = animations.find(node.Name);
                 if (found != animations.end())
                 {
@@ -826,7 +808,7 @@ namespace MphRead
                     {
                         transform = Multiply(
                             transform,
-                            Require(nodes.at(static_cast<std::size_t>(
+                            RequireReference(nodes.at(static_cast<std::size_t>(
                                 node.ParentIndex))).Animation);
                     }
                 }
@@ -866,17 +848,17 @@ namespace MphRead
         Vector3 scale,
         const std::shared_ptr<AnimationInfo>& info)
     {
-        const auto& nodes = Require(Nodes);
+        const auto& nodes = RequireReference(Nodes);
         for (std::int32_t i = index; i != -1;)
         {
-            auto& node = Require(nodes.at(static_cast<std::size_t>(i)));
+            auto& node = RequireReference(nodes.at(static_cast<std::size_t>(i)));
             Matrix4 transform = useNodeTransform ? node.Transform : Identity();
 
-            auto& animationInfo = Require(info);
-            const auto group = Require(animationInfo.Node).Group;
+            auto& animationInfo = RequireReference(info);
+            const auto group = RequireReference(animationInfo.Node).Group;
             if (group)
             {
-                const auto& animations = Require(group->Animations);
+                const auto& animations = RequireReference(group->Animations);
                 const auto found = animations.find(node.Name);
                 if (found != animations.end())
                 {
@@ -886,7 +868,7 @@ namespace MphRead
                     {
                         transform = Multiply(
                             transform,
-                            Require(nodes.at(static_cast<std::size_t>(
+                            RequireReference(nodes.at(static_cast<std::size_t>(
                                 node.ParentIndex))).Animation);
                     }
                 }
@@ -925,7 +907,7 @@ namespace MphRead
         Vector3 modelScale,
         std::int32_t currentFrame) const
     {
-        auto& value = Require(group);
+        auto& value = RequireReference(group);
 
         const float scaleX = InterpolateAnimation(
             value.Scales, animation.ScaleLutIndexX, currentFrame,
@@ -980,20 +962,20 @@ namespace MphRead
 
     void Model::AnimateMaterials(const std::shared_ptr<AnimationInfo>& info)
     {
-        const auto& materials = Require(Materials);
+        const auto& materials = RequireReference(Materials);
         for (std::size_t i = 0; i < materials.size(); ++i)
         {
-            auto& material = Require(materials[i]);
+            auto& material = RequireReference(materials[i]);
             material.CurrentDiffuse = material.Diffuse / 31.0F;
             material.CurrentAmbient = material.Ambient / 31.0F;
             material.CurrentSpecular = material.Specular / 31.0F;
             material.CurrentAlpha = material.Alpha / 31.0F;
 
-            auto& animationInfo = Require(info);
-            const auto group = Require(animationInfo.Material).Group;
+            auto& animationInfo = RequireReference(info);
+            const auto group = RequireReference(animationInfo.Material).Group;
             if (group)
             {
-                const auto& animations = Require(group->Animations);
+                const auto& animations = RequireReference(group->Animations);
                 const auto found = animations.find(material.Name);
                 if (found != animations.end())
                 {
@@ -1075,7 +1057,7 @@ namespace MphRead
         TexcoordAnimation animation,
         std::int32_t currentFrame)
     {
-        auto& value = Require(group);
+        auto& value = RequireReference(group);
         const float scaleS = InterpolateAnimation(
             value.Scales, animation.ScaleLutIndexS, currentFrame,
             animation.ScaleBlendS, animation.ScaleLutLengthS, value.FrameCount);
@@ -1117,18 +1099,18 @@ namespace MphRead
 
     void Model::AnimateTextures(const std::shared_ptr<AnimationInfo>& info)
     {
-        const auto& materials = Require(Materials);
+        const auto& materials = RequireReference(Materials);
         for (std::size_t i = 0; i < materials.size(); ++i)
         {
-            auto& material = Require(materials[i]);
+            auto& material = RequireReference(materials[i]);
             material.CurrentTextureId = material.TextureId;
             material.CurrentPaletteId = material.PaletteId;
 
-            auto& animationInfo = Require(info);
-            const auto group = Require(animationInfo.Texture).Group;
+            auto& animationInfo = RequireReference(info);
+            const auto group = RequireReference(animationInfo.Texture).Group;
             if (group)
             {
-                const auto& animations = Require(group->Animations);
+                const auto& animations = RequireReference(group->Animations);
                 const auto found = animations.find(material.Name);
                 if (found != animations.end())
                 {
@@ -1221,11 +1203,11 @@ namespace MphRead
 
     void Model::UpdateMatrixStack()
     {
-        const auto& ids = Require(NodeMatrixIds);
-        const auto& nodes = Require(Nodes);
+        const auto& ids = RequireReference(NodeMatrixIds);
+        const auto& nodes = RequireReference(Nodes);
         for (std::size_t i = 0; i < ids.size(); ++i)
         {
-            auto& node = Require(nodes.at(static_cast<std::size_t>(ids[i])));
+            auto& node = RequireReference(nodes.at(static_cast<std::size_t>(ids[i])));
             Matrix4 transform = node.Animation;
             if (node.BillboardMode == BillboardMode::Sphere
                 || node.BillboardMode == BillboardMode::Cylinder)
@@ -1238,7 +1220,7 @@ namespace MphRead
 
     void Model::SetMatrixStackValues(std::int32_t index, Matrix4 matrix)
     {
-        auto& values = Require(_matrixStackValues);
+        auto& values = RequireReference(_matrixStackValues);
         const std::int32_t offset = UncheckedMultiply(16, index);
         values[static_cast<std::size_t>(UncheckedAdd(offset, 0))] = matrix.M11;
         values[static_cast<std::size_t>(UncheckedAdd(offset, 1))] = matrix.M12;
@@ -1260,11 +1242,11 @@ namespace MphRead
 
     bool Model::NodeParentsEnabled(const std::shared_ptr<Node>& node) const
     {
-        const auto& nodes = Require(Nodes);
-        std::int32_t parentIndex = Require(node).ParentIndex;
+        const auto& nodes = RequireReference(Nodes);
+        std::int32_t parentIndex = RequireReference(node).ParentIndex;
         while (parentIndex != -1)
         {
-            auto& parent = Require(
+            auto& parent = RequireReference(
                 nodes.at(static_cast<std::size_t>(parentIndex)));
             if (!parent.Enabled)
             {
@@ -1277,9 +1259,9 @@ namespace MphRead
 
     std::shared_ptr<Node> Model::GetNodeByName(const std::string& name) const
     {
-        for (const auto& node : Require(Nodes))
+        for (const auto& node : RequireReference(Nodes))
         {
-            if (Require(node).Name == name)
+            if (RequireReference(node).Name == name)
             {
                 return node;
             }
@@ -1289,10 +1271,10 @@ namespace MphRead
 
     std::int32_t Model::GetNodeIndexByName(const std::string& name) const
     {
-        const auto& nodes = Require(Nodes);
+        const auto& nodes = RequireReference(Nodes);
         for (std::size_t i = 0; i < nodes.size(); ++i)
         {
-            if (Require(nodes[i]).Name == name)
+            if (RequireReference(nodes[i]).Name == name)
             {
                 return static_cast<std::int32_t>(i);
             }
@@ -1303,9 +1285,9 @@ namespace MphRead
     std::shared_ptr<Material> Model::GetMaterialByName(
         const std::string& name) const
     {
-        for (const auto& material : Require(Materials))
+        for (const auto& material : RequireReference(Materials))
         {
-            if (Require(material).Name == name)
+            if (RequireReference(material).Name == name)
             {
                 return material;
             }
@@ -1318,15 +1300,15 @@ namespace MphRead
         std::int32_t paletteId,
         std::int32_t recolorId) const
     {
-        const auto& recolors = Require(Recolors);
-        auto& recolor = Require(
+        const auto& recolors = RequireReference(Recolors);
+        auto& recolor = RequireReference(
             recolors.at(static_cast<std::size_t>(recolorId)));
 
         if (textureId < 0)
         {
             throw std::invalid_argument("textureId");
         }
-        const auto& textureData = Require(recolor.TextureData);
+        const auto& textureData = RequireReference(recolor.TextureData);
         if (textureId >= static_cast<std::int32_t>(textureData.size()))
         {
             throw std::invalid_argument("textureId");
@@ -1339,7 +1321,7 @@ namespace MphRead
         if (textureFormat == TextureFormat::DirectRgb)
         {
             const auto& source
-                = Require(textureData.at(static_cast<std::size_t>(textureId)));
+                = RequireReference(textureData.at(static_cast<std::size_t>(textureId)));
             pixels.reserve(source.size());
             for (const MphRead::TextureData& data : source)
             {
@@ -1352,19 +1334,19 @@ namespace MphRead
             {
                 throw std::invalid_argument("paletteId");
             }
-            const auto& paletteData = Require(recolor.PaletteData);
+            const auto& paletteData = RequireReference(recolor.PaletteData);
             if (paletteId >= static_cast<std::int32_t>(paletteData.size()))
             {
                 throw std::invalid_argument("paletteId");
             }
 
             const auto& source
-                = Require(textureData.at(static_cast<std::size_t>(textureId)));
+                = RequireReference(textureData.at(static_cast<std::size_t>(textureId)));
             pixels.reserve(source.size());
             for (const MphRead::TextureData& data : source)
             {
                 const std::int32_t index = std::bit_cast<std::int32_t>(data.Data);
-                const auto& palette = Require(
+                const auto& palette = RequireReference(
                     paletteData.at(static_cast<std::size_t>(paletteId)));
                 const std::uint16_t color
                     = palette.at(static_cast<std::size_t>(index)).Data;
@@ -1411,8 +1393,8 @@ namespace MphRead
     {
         ThrowIfInvalidEnums(textures);
 #ifndef NDEBUG
-        assert(Require(textures).size() == Require(textureData).size());
-        assert(Require(palettes).size() == Require(paletteData).size());
+        assert(RequireReference(textures).size() == RequireReference(textureData).size());
+        assert(RequireReference(palettes).size() == RequireReference(paletteData).size());
 #endif
         return Init{
             std::move(name),
@@ -1430,7 +1412,7 @@ namespace MphRead
         {
             throw std::invalid_argument("textureId");
         }
-        const auto& textureData = Require(TextureData);
+        const auto& textureData = RequireReference(TextureData);
         if (textureId >= static_cast<std::int32_t>(textureData.size()))
         {
             throw std::invalid_argument("textureId");
@@ -1441,7 +1423,7 @@ namespace MphRead
 
         if (textureFormat == TextureFormat::DirectRgb)
         {
-            const auto& source = Require(
+            const auto& source = RequireReference(
                 textureData.at(static_cast<std::size_t>(textureId)));
             pixels.reserve(source.size());
             for (const MphRead::TextureData& data : source)
@@ -1455,19 +1437,19 @@ namespace MphRead
             {
                 throw std::invalid_argument("palettteId");
             }
-            const auto& paletteData = Require(PaletteData);
+            const auto& paletteData = RequireReference(PaletteData);
             if (palettteId >= static_cast<std::int32_t>(paletteData.size()))
             {
                 throw std::invalid_argument("palettteId");
             }
 
-            const auto& source = Require(
+            const auto& source = RequireReference(
                 textureData.at(static_cast<std::size_t>(textureId)));
             pixels.reserve(source.size());
             for (const MphRead::TextureData& data : source)
             {
                 const std::int32_t index = std::bit_cast<std::int32_t>(data.Data);
-                const auto& palette = Require(
+                const auto& palette = RequireReference(
                     paletteData.at(static_cast<std::size_t>(palettteId)));
                 const std::uint16_t color
                     = palette.at(static_cast<std::size_t>(index)).Data;
@@ -1484,13 +1466,13 @@ namespace MphRead
         {
             throw std::invalid_argument("palettteId");
         }
-        const auto& paletteData = Require(PaletteData);
+        const auto& paletteData = RequireReference(PaletteData);
         if (palettteId >= static_cast<std::int32_t>(paletteData.size()))
         {
             throw std::invalid_argument("palettteId");
         }
 
-        const auto& palette = Require(
+        const auto& palette = RequireReference(
             paletteData.at(static_cast<std::size_t>(palettteId)));
         std::vector<ColorRgba> pixels;
         pixels.reserve(palette.size());
@@ -1511,7 +1493,7 @@ namespace MphRead
     void Recolor::ThrowIfInvalidEnums(
         const std::shared_ptr<const std::vector<Texture>>& textures)
     {
-        for (const Texture& texture : Require(textures))
+        for (const Texture& texture : RequireReference(textures))
         {
             if (!IsDefinedTextureFormat(texture.Format))
             {

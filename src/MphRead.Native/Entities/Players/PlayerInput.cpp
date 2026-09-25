@@ -24,8 +24,10 @@
 #include "../../Mods/Network/NetUnlagged.hpp"
 #include "../../Mods/SpectatorMode.hpp"
 #include "../../Utility/Rng.hpp"
+#include "../../NativeRuntime/System/HashCode.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -43,7 +45,9 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::HashCodeCombine;
 using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::ManagedCast;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::RoundToEven;
 using ::MphRead::TestAny;
@@ -81,63 +85,6 @@ namespace
     [[nodiscard]] constexpr bool VectorEquals(Vector3 a, Vector3 b) noexcept
     {
         return a.X == b.X && a.Y == b.Y && a.Z == b.Z;
-    }
-
-    constexpr std::uint32_t Prime2 = 2246822519U;
-    constexpr std::uint32_t Prime3 = 3266489917U;
-    constexpr std::uint32_t Prime4 = 668265263U;
-    constexpr std::uint32_t Prime5 = 374761393U;
-
-    [[nodiscard]] std::uint32_t GlobalHashSeed()
-    {
-        static const std::uint32_t seed = []
-        {
-            std::random_device device;
-            std::uniform_int_distribution<std::uint32_t> distribution;
-            return distribution(device);
-        }();
-        return seed;
-    }
-
-    [[nodiscard]] std::uint32_t QueueRound(std::uint32_t hash, std::uint32_t queuedValue) noexcept
-    {
-        return std::rotl(hash + queuedValue * Prime3, 17) * Prime4;
-    }
-
-    [[nodiscard]] std::uint32_t MixFinal(std::uint32_t hash) noexcept
-    {
-        hash ^= hash >> 15;
-        hash *= Prime2;
-        hash ^= hash >> 13;
-        hash *= Prime3;
-        hash ^= hash >> 16;
-        return hash;
-    }
-
-    [[nodiscard]] std::int32_t CombineHashCodes(
-        std::int32_t value1, std::int32_t value2, std::int32_t value3)
-    {
-        std::uint32_t hash = GlobalHashSeed() + Prime5;
-        hash += 12U;
-        hash = QueueRound(hash, static_cast<std::uint32_t>(value1));
-        hash = QueueRound(hash, static_cast<std::uint32_t>(value2));
-        hash = QueueRound(hash, static_cast<std::uint32_t>(value3));
-        return std::bit_cast<std::int32_t>(MixFinal(hash));
-    }
-
-    template <typename T>
-    [[nodiscard]] std::shared_ptr<T> ManagedCast(const std::shared_ptr<MphRead::Entities::EntityBase>& value)
-    {
-        if (!value)
-        {
-            return nullptr;
-        }
-        std::shared_ptr<T> cast = std::dynamic_pointer_cast<T>(value);
-        if (!cast)
-        {
-            throw MphRead::SceneDetail::InvalidCastException();
-        }
-        return cast;
     }
 
     [[nodiscard]] std::size_t BeamIndex(MphRead::BeamType beam)
@@ -227,7 +174,7 @@ namespace MphRead::Entities
 
     std::int32_t Keybind::GetHashCode() const
     {
-        return CombineHashCodes(
+        return HashCodeCombine(
             static_cast<std::int32_t>(_type),
             static_cast<std::int32_t>(_key),
             static_cast<std::int32_t>(_mouseButton));

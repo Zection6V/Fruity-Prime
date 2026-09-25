@@ -7,7 +7,9 @@
 #include "Metadata/Metadata.hpp"
 #include "Read.hpp"
 #include "Strings.hpp"
+#include "NativeRuntime/System/IO.hpp"
 #include "NativeRuntime/System/Managed.hpp"
+#include "NativeRuntime/OpenTK/Mathematics.hpp"
 #include "Formats/Types.hpp"
 
 #include <bit>
@@ -20,6 +22,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::ManagedCast;
 using ::MphRead::NativeRuntime::ShiftRight;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
@@ -46,20 +49,6 @@ namespace
     }
 
 
-    template <typename T, typename U>
-    [[nodiscard]] std::shared_ptr<T> ManagedCast(const std::shared_ptr<U>& value)
-    {
-        if (!value)
-        {
-            return nullptr;
-        }
-        std::shared_ptr<T> cast = std::dynamic_pointer_cast<T>(value);
-        if (!cast)
-        {
-            throw MphRead::SceneDetail::InvalidCastException();
-        }
-        return cast;
-    }
 }
 
 namespace MphRead

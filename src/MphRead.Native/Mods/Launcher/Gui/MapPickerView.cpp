@@ -6,6 +6,7 @@
 #include "../../../Metadata/Rooms.hpp"
 #include "../../../NativeRuntime/System/Encoding.hpp"
 #include "../../../NativeRuntime/System/IO.hpp"
+#include "../../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -17,6 +18,7 @@
 #include <sstream>
 #include <utility>
 
+using ::MphRead::NativeRuntime::CSharpTryFinally;
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::Utf8ToUtf16;
@@ -49,27 +51,6 @@ namespace
         std::shared_ptr<MapTile> Tile;
         std::shared_ptr<MapTileControlAdapter> Control;
     };
-
-    template <typename TBody, typename TFinally>
-    void CSharpTryFinally(TBody&& body, TFinally&& finalizer)
-    {
-        std::exception_ptr bodyException;
-        try
-        {
-            body();
-        }
-        catch (...)
-        {
-            bodyException = std::current_exception();
-        }
-
-        finalizer();
-
-        if (bodyException != nullptr)
-        {
-            std::rethrow_exception(bodyException);
-        }
-    }
 
     [[nodiscard]] std::shared_ptr<MapPickerRoomEnumerator> RequireEnumerator(
         const MapPickerRoomListRef& rooms)

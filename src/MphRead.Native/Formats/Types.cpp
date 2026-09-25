@@ -2,6 +2,7 @@
 
 #include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/ThreadStatic.hpp"
+#include "../NativeRuntime/System/HashCode.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 
 #include <array>
@@ -14,15 +15,12 @@
 #include <random>
 #include <stdexcept>
 
+using ::MphRead::NativeRuntime::AssignReadonly;
 using ::MphRead::NativeRuntime::ConvertToInt32Net9;
+using ::MphRead::NativeRuntime::HashCodeCombine;
 
 namespace
 {
-    constexpr std::uint32_t Prime1 = 2654435761U;
-    constexpr std::uint32_t Prime2 = 2246822519U;
-    constexpr std::uint32_t Prime3 = 3266489917U;
-    constexpr std::uint32_t Prime4 = 668265263U;
-    constexpr std::uint32_t Prime5 = 374761393U;
 
     std::string MakeManagedCurrentNegativeSign()
     {
@@ -32,91 +30,6 @@ namespace
     // A [ThreadStatic] field. See NativeRuntime/System/ThreadStatic.hpp.
     ::MphRead::NativeRuntime::ThreadStatic<std::string> ManagedCurrentNegativeSignSlot(
         &MakeManagedCurrentNegativeSign);
-
-    template <typename T>
-    T& AssignReadonly(T& self, const T& other) noexcept
-    {
-        if (std::addressof(self) != std::addressof(other))
-        {
-            self.~T();
-            ::new (static_cast<void*>(std::addressof(self))) T(other);
-        }
-        return self;
-    }
-
-    [[nodiscard]] std::uint32_t GlobalHashSeed()
-    {
-        static const std::uint32_t seed = []
-        {
-            std::random_device device;
-            std::uniform_int_distribution<std::uint32_t> distribution;
-            return distribution(device);
-        }();
-        return seed;
-    }
-
-    [[nodiscard]] constexpr std::uint32_t HashRound(
-        std::uint32_t hash, std::uint32_t input) noexcept
-    {
-        return std::rotl(hash + input * Prime2, 13) * Prime1;
-    }
-
-    [[nodiscard]] constexpr std::uint32_t QueueRound(
-        std::uint32_t hash, std::uint32_t queuedValue) noexcept
-    {
-        return std::rotl(hash + queuedValue * Prime3, 17) * Prime4;
-    }
-
-    [[nodiscard]] constexpr std::uint32_t MixState(
-        std::uint32_t v1, std::uint32_t v2,
-        std::uint32_t v3, std::uint32_t v4) noexcept
-    {
-        return std::rotl(v1, 1)
-            + std::rotl(v2, 7)
-            + std::rotl(v3, 12)
-            + std::rotl(v4, 18);
-    }
-
-    [[nodiscard]] constexpr std::uint32_t MixFinal(std::uint32_t hash) noexcept
-    {
-        hash ^= hash >> 15;
-        hash *= Prime2;
-        hash ^= hash >> 13;
-        hash *= Prime3;
-        hash ^= hash >> 16;
-        return hash;
-    }
-
-    [[nodiscard]] std::int32_t CombineHashCodes3(
-        std::int32_t value1, std::int32_t value2, std::int32_t value3)
-    {
-        std::uint32_t hash = GlobalHashSeed() + Prime5;
-        hash += 12U;
-        hash = QueueRound(hash, static_cast<std::uint32_t>(value1));
-        hash = QueueRound(hash, static_cast<std::uint32_t>(value2));
-        hash = QueueRound(hash, static_cast<std::uint32_t>(value3));
-        return std::bit_cast<std::int32_t>(MixFinal(hash));
-    }
-
-    [[nodiscard]] std::int32_t CombineHashCodes4(
-        std::int32_t value1, std::int32_t value2,
-        std::int32_t value3, std::int32_t value4)
-    {
-        const std::uint32_t seed = GlobalHashSeed();
-        std::uint32_t v1 = seed + Prime1 + Prime2;
-        std::uint32_t v2 = seed + Prime2;
-        std::uint32_t v3 = seed;
-        std::uint32_t v4 = seed - Prime1;
-
-        v1 = HashRound(v1, static_cast<std::uint32_t>(value1));
-        v2 = HashRound(v2, static_cast<std::uint32_t>(value2));
-        v3 = HashRound(v3, static_cast<std::uint32_t>(value3));
-        v4 = HashRound(v4, static_cast<std::uint32_t>(value4));
-
-        std::uint32_t hash = MixState(v1, v2, v3, v4);
-        hash += 16U;
-        return std::bit_cast<std::int32_t>(MixFinal(hash));
-    }
 
     [[nodiscard]] constexpr bool IsNumberWhiteSpace(char ch) noexcept
     {
@@ -284,7 +197,6 @@ namespace MphRead::NativeRuntime
         ManagedCurrentNegativeSignSlot.Value() = negativeSign;
     }
 }
-
 
 namespace MphRead
 {
@@ -690,7 +602,7 @@ namespace MphRead
 
     std::int32_t ColorRgb::GetHashCode() const
     {
-        return CombineHashCodes3(Red, Green, Blue);
+        return HashCodeCombine(Red, Green, Blue);
     }
 
     ColorRgba::ColorRgba(std::uint32_t value, std::uint8_t alpha) noexcept
@@ -734,7 +646,7 @@ namespace MphRead
 
     std::int32_t ColorRgba::GetHashCode() const
     {
-        return CombineHashCodes4(Red, Green, Blue, Alpha);
+        return HashCodeCombine(Red, Green, Blue, Alpha);
     }
 
     OpenTK::Mathematics::Vector2 TypeExtensions::WithX(

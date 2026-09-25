@@ -58,6 +58,7 @@ using ::MphRead::NativeRuntime::FileWriteAllBytes;
 using ::MphRead::NativeRuntime::ManagedAt;
 using ::MphRead::NativeRuntime::PathCombine;
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::RoundToEven;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::Utf8ToUtf16;
@@ -218,26 +219,6 @@ namespace
     [[noreturn]] void NullReference()
     {
         throw System::NullReferenceException();
-    }
-
-    template <typename T>
-    [[nodiscard]] T* Require(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            NullReference();
-        }
-        return value.get();
-    }
-
-    template <typename T>
-    [[nodiscard]] const T* Require(const std::shared_ptr<const T>& value)
-    {
-        if (!value)
-        {
-            NullReference();
-        }
-        return value.get();
     }
 
     [[nodiscard]] std::int32_t ListCount(std::size_t count)
@@ -1183,10 +1164,10 @@ namespace
 
         const std::shared_ptr<MphRead::ModelInstance> instance
             = MphRead::Read::GetRoomModelInstance(def->TextureSource());
-        MphRead::ModelInstance* instanceValue = Require(instance);
+        MphRead::ModelInstance* instanceValue = &RequireReference(instance);
         const std::shared_ptr<MphRead::Model> source = instanceValue->Model();
-        MphRead::Model* sourceValue = Require(source);
-        const auto* recolors = Require(sourceValue->Recolors);
+        MphRead::Model* sourceValue = &RequireReference(source);
+        const auto* recolors = &RequireReference(sourceValue->Recolors);
         const std::shared_ptr<MphRead::Recolor>& recolorValue
             = ManagedAt(*recolors, 0);
         MphRead::Recolor* recolor = recolorValue.get();
@@ -1204,7 +1185,7 @@ namespace
         }
         for (const std::shared_ptr<MapMaterial>& mapMaterialValue : *sourceMaterials)
         {
-            MapMaterial* mapMaterial = Require(mapMaterialValue);
+            MapMaterial* mapMaterial = &RequireReference(mapMaterialValue);
             if (mapMaterial->SourceMaterial() < 0)
             {
                 const std::string& textureSource = def->TextureSource();
@@ -1215,7 +1196,7 @@ namespace
             }
 
             const std::int32_t materialForUpperBound = mapMaterial->SourceMaterial();
-            const auto* modelMaterialsForCount = Require(sourceValue->Materials);
+            const auto* modelMaterialsForCount = &RequireReference(sourceValue->Materials);
             if (materialForUpperBound >= ListCount(modelMaterialsForCount->size()))
             {
                 const std::string& textureSource = def->TextureSource();
@@ -1225,11 +1206,11 @@ namespace
                     + FormatInt32CurrentCulture(invalidMaterial) + ".");
             }
 
-            const auto* modelMaterialsForIndex = Require(sourceValue->Materials);
+            const auto* modelMaterialsForIndex = &RequireReference(sourceValue->Materials);
             const std::int32_t materialForIndex = mapMaterial->SourceMaterial();
             const std::shared_ptr<Material>& srcMaterialValue
                 = ManagedAt(*modelMaterialsForIndex, materialForIndex);
-            Material* srcMaterial = Require(srcMaterialValue);
+            Material* srcMaterial = &RequireReference(srcMaterialValue);
             if (srcMaterial->TextureId < 0 || srcMaterial->PaletteId < 0)
             {
                 const std::int32_t invalidMaterial = mapMaterial->SourceMaterial();
@@ -1248,10 +1229,10 @@ namespace
                 {
                     NullReference();
                 }
-                const auto* recolorTextures = Require(recolor->Textures);
+                const auto* recolorTextures = &RequireReference(recolor->Textures);
                 const MphRead::Texture& texture
                     = ManagedAt(*recolorTextures, srcMaterial->TextureId);
-                const auto* textureDataLists = Require(recolor->TextureData);
+                const auto* textureDataLists = &RequireReference(recolor->TextureData);
                 const std::shared_ptr<const std::vector<MphRead::TextureData>>& textureData
                     = ManagedAt(*textureDataLists, srcMaterial->TextureId);
                 textures->push_back(Repack::ConvertData(texture, textureData));
@@ -1271,7 +1252,7 @@ namespace
                 {
                     NullReference();
                 }
-                const auto* paletteDataLists = Require(recolor->PaletteData);
+                const auto* paletteDataLists = &RequireReference(recolor->PaletteData);
                 const std::shared_ptr<const std::vector<MphRead::PaletteData>>& sourcePalette
                     = ManagedAt(*paletteDataLists, srcMaterial->PaletteId);
                 if (!sourcePalette)

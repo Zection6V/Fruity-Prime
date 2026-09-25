@@ -6,9 +6,10 @@
 #include "../Read.hpp"
 #include "../Scene.hpp"
 #include "../SceneSetup.hpp"
+#include "../Formats/Types.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
-#include "../Formats/Types.hpp"
+#include "../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <algorithm>
 #include <array>
@@ -41,6 +42,7 @@ using ::MphRead::NativeRuntime::FileWriteAllBytes;
 using ::MphRead::NativeRuntime::ManagedListAt;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
 using ::OpenTK::Mathematics::Divide;
@@ -69,26 +71,6 @@ namespace
     using MphRead::Formats::Collision::RawCollisionPortal;
     using OpenTK::Mathematics::Vector3;
     using OpenTK::Mathematics::Vector4;
-
-    template <typename T>
-    [[nodiscard]] T& Require(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& Require(const std::shared_ptr<const T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
 
     [[nodiscard]] std::int32_t ToIntCount(std::size_t value) noexcept
     {
@@ -207,7 +189,7 @@ namespace
         {
             throw MphRead::SceneDetail::KeyNotFoundException();
         }
-        return Require(iterator->second);
+        return RequireReference(iterator->second);
     }
 
     struct CollisionDataPack final
@@ -278,11 +260,11 @@ namespace
         const MphCollisionInfo& info)
     {
         std::vector<std::shared_ptr<CollisionDataEditor>> editors;
-        const auto& dataValues = Require(info.Data);
+        const auto& dataValues = RequireReference(info.Data);
         for (const CollisionData& data : dataValues)
         {
             const Vector4 plane = ManagedListAt(
-                Require(info.Planes), static_cast<std::int32_t>(data.PlaneIndex));
+                RequireReference(info.Planes), static_cast<std::int32_t>(data.PlaneIndex));
             const Vector3 normal = plane.Xyz();
             auto editor = std::make_shared<CollisionDataEditor>();
             editor->LayerMask = static_cast<std::uint16_t>(
@@ -294,9 +276,9 @@ namespace
                 const std::int32_t pointIndexPosition = UncheckedAdd(
                     static_cast<std::int32_t>(data.PointStartIndex), i);
                 const std::uint16_t pointIndex = ManagedListAt(
-                    Require(info.PointIndices), pointIndexPosition);
+                    RequireReference(info.PointIndices), pointIndexPosition);
                 editor->Points->push_back(ManagedListAt(
-                    Require(info.Points), static_cast<std::int32_t>(pointIndex)));
+                    RequireReference(info.Points), static_cast<std::int32_t>(pointIndex)));
             }
             editors.push_back(std::move(editor));
         }
@@ -307,9 +289,9 @@ namespace
         const FhCollisionInfo& info)
     {
 #if defined(DEBUG)
-        const auto& dataIndices = Require(info.DataIndices);
+        const auto& dataIndices = RequireReference(info.DataIndices);
         REPACK_COLLISION_DEBUG_ASSERT(info.Header.DataCount == dataIndices.size());
-        const auto& debugDataValues = Require(info.Data);
+        const auto& debugDataValues = RequireReference(info.Data);
         REPACK_COLLISION_DEBUG_ASSERT(info.Header.DataCount == debugDataValues.size());
         std::size_t nonPortalCount = 0;
         std::size_t portalPaddingCount = 0;
@@ -342,9 +324,9 @@ namespace
         {
             const std::int32_t dataIndex = UncheckedAdd(
                 i, std::bit_cast<std::int32_t>(info.Header.PortalCount));
-            const FhCollisionData& data = ManagedListAt(Require(info.Data), dataIndex);
+            const FhCollisionData& data = ManagedListAt(RequireReference(info.Data), dataIndex);
             const Vector4 plane = ManagedListAt(
-                Require(info.Planes), static_cast<std::int32_t>(data.PlaneIndex));
+                RequireReference(info.Planes), static_cast<std::int32_t>(data.PlaneIndex));
             const Vector3 normal = plane.Xyz();
             const std::int32_t axis = GetPrimaryAxis(normal);
             auto editor = std::make_shared<CollisionDataEditor>();
@@ -355,9 +337,9 @@ namespace
                 const std::int32_t vectorIndex = UncheckedAdd(
                     static_cast<std::int32_t>(data.VectorStartIndex), j);
                 const FhCollisionVector& vector = ManagedListAt(
-                    Require(info.Vectors), vectorIndex);
+                    RequireReference(info.Vectors), vectorIndex);
                 editor->Points->push_back(ManagedListAt(
-                    Require(info.Points), static_cast<std::int32_t>(vector.Point2Index)));
+                    RequireReference(info.Points), static_cast<std::int32_t>(vector.Point2Index)));
             }
             editors.push_back(std::move(editor));
         }
@@ -367,8 +349,8 @@ namespace
     [[nodiscard]] std::vector<std::shared_ptr<CollisionDataEditor>> GetEditors(
         const std::shared_ptr<CollisionInstance>& collision)
     {
-        CollisionInstance& value = Require(collision);
-        CollisionInfo& info = Require(value.Info);
+        CollisionInstance& value = RequireReference(collision);
+        CollisionInfo& info = RequireReference(value.Info);
         if (auto* mphInfo = dynamic_cast<MphCollisionInfo*>(std::addressof(info)))
         {
             return GetEditors(*mphInfo);
@@ -439,7 +421,7 @@ namespace
 
     void ThrowIfInvalid(const std::shared_ptr<CollisionDataEditor>& data)
     {
-        CollisionDataEditor& value = Require(data);
+        CollisionDataEditor& value = RequireReference(data);
         const std::int32_t count = ToIntCount(value.Points->size());
         if (count < 3)
         {
@@ -486,7 +468,7 @@ namespace
 
         for (std::int32_t i = 0; i < ToIntCount(data.size()); ++i)
         {
-            CollisionDataEditor& item = Require(ManagedListAt(data, i));
+            CollisionDataEditor& item = RequireReference(ManagedListAt(data, i));
             const std::vector<Vector3>& itemPoints = *item.Points;
             if (ComponentMin(itemPoints, 0) > xEnd
                 || ComponentMax(itemPoints, 0) < xStart
@@ -563,9 +545,9 @@ namespace
 
     void WriteMphPortal(BinaryWriter& writer, const std::shared_ptr<Portal>& portal)
     {
-        Portal& value = Require(portal);
-        const auto& points = Require(value.Points);
-        const auto& planes = Require(value.Planes);
+        Portal& value = RequireReference(portal);
+        const auto& points = RequireReference(value.Points);
+        const auto& planes = RequireReference(value.Planes);
         REPACK_COLLISION_DEBUG_ASSERT(points.size() == 4);
         REPACK_COLLISION_DEBUG_ASSERT(planes.size() == 4);
         writer.WriteString(value.Name, 40);
@@ -597,17 +579,17 @@ namespace
         writer.Position(sizeof(CollisionHeader));
 
         const std::int32_t pointOffset = ToIntCount(writer.Position());
-        for (Vector3 point : Require(info.Points))
+        for (Vector3 point : RequireReference(info.Points))
         {
             writer.WriteVector3(point);
         }
         const std::int32_t planeOffset = ToIntCount(writer.Position());
-        for (Vector4 plane : Require(info.Planes))
+        for (Vector4 plane : RequireReference(info.Planes))
         {
             writer.WriteVector4(plane);
         }
         const std::int32_t pointIdxOffset = ToIntCount(writer.Position());
-        for (std::uint16_t index : Require(info.PointIndices))
+        for (std::uint16_t index : RequireReference(info.PointIndices))
         {
             writer.Write(index);
         }
@@ -616,7 +598,7 @@ namespace
             writer.Write(padByte);
         }
         const std::int32_t dataOffset = ToIntCount(writer.Position());
-        for (const CollisionData& data : Require(info.Data))
+        for (const CollisionData& data : RequireReference(info.Data))
         {
             writer.Write(padInt);
             writer.Write(data.PlaneIndex);
@@ -627,7 +609,7 @@ namespace
             writer.Write(data.PointStartIndex);
         }
         const std::int32_t dataIdxOffset = ToIntCount(writer.Position());
-        for (std::uint16_t index : Require(info.DataIndices))
+        for (std::uint16_t index : RequireReference(info.DataIndices))
         {
             writer.Write(index);
         }
@@ -636,13 +618,13 @@ namespace
             writer.Write(padByte);
         }
         const std::int32_t entryOffset = ToIntCount(writer.Position());
-        for (const CollisionEntry& entry : Require(info.Entries))
+        for (const CollisionEntry& entry : RequireReference(info.Entries))
         {
             writer.Write(entry.DataCount);
             writer.Write(entry.DataStartIndex);
         }
         const std::int32_t portalOffset = ToIntCount(writer.Position());
-        for (const auto& portal : Require(info.Portals))
+        for (const auto& portal : RequireReference(info.Portals))
         {
             WriteMphPortal(writer, portal);
         }
@@ -652,23 +634,23 @@ namespace
         writer.Write(static_cast<std::uint8_t>('c'));
         writer.Write(static_cast<std::uint8_t>('0'));
         writer.Write(static_cast<std::uint8_t>('1'));
-        writer.Write(ToIntCount(Require(info.Points).size()));
+        writer.Write(ToIntCount(RequireReference(info.Points).size()));
         writer.Write(pointOffset);
-        writer.Write(ToIntCount(Require(info.Planes).size()));
+        writer.Write(ToIntCount(RequireReference(info.Planes).size()));
         writer.Write(planeOffset);
-        writer.Write(ToIntCount(Require(info.PointIndices).size()));
+        writer.Write(ToIntCount(RequireReference(info.PointIndices).size()));
         writer.Write(pointIdxOffset);
-        writer.Write(ToIntCount(Require(info.Data).size()));
+        writer.Write(ToIntCount(RequireReference(info.Data).size()));
         writer.Write(dataOffset);
-        writer.Write(ToIntCount(Require(info.DataIndices).size()));
+        writer.Write(ToIntCount(RequireReference(info.DataIndices).size()));
         writer.Write(dataIdxOffset);
         writer.Write(info.Header.PartsX);
         writer.Write(info.Header.PartsY);
         writer.Write(info.Header.PartsZ);
         writer.WriteVector3(info.MinPosition);
-        writer.Write(ToIntCount(Require(info.Entries).size()));
+        writer.Write(ToIntCount(RequireReference(info.Entries).size()));
         writer.Write(entryOffset);
-        writer.Write(ToIntCount(Require(info.Portals).size()));
+        writer.Write(ToIntCount(RequireReference(info.Portals).size()));
         writer.Write(portalOffset);
         return writer.ToArray();
     }
@@ -701,7 +683,7 @@ namespace
         {
             const auto& item = ManagedListAt(data, i);
             ThrowIfInvalid(item);
-            CollisionDataEditor& itemValue = Require(item);
+            CollisionDataEditor& itemValue = RequireReference(item);
             for (Vector3 point : *itemValue.Points)
             {
                 if (FindPoint(points, point) == -1)
@@ -798,7 +780,7 @@ namespace
         const std::int32_t dataOffset = ToIntCount(writer.Position());
         for (const CollisionDataPack& pack : dataPack)
         {
-            CollisionDataEditor& editor = Require(pack.Editor);
+            CollisionDataEditor& editor = RequireReference(pack.Editor);
             writer.Write(padInt);
             writer.Write(pack.PlaneIndex);
             writer.Write(static_cast<std::uint16_t>(editor.Flags));
@@ -823,7 +805,7 @@ namespace
             writer.Write(entry.second);
         }
         const std::int32_t portalOffset = ToIntCount(writer.Position());
-        for (const auto& portal : Require(portals))
+        for (const auto& portal : RequireReference(portals))
         {
             WriteMphPortal(writer, portal);
         }
@@ -851,7 +833,7 @@ namespace
         writer.WriteFloat(minZ);
         writer.Write(ToIntCount(entries.size()));
         writer.Write(entryOffset);
-        writer.Write(ToIntCount(Require(portals).size()));
+        writer.Write(ToIntCount(RequireReference(portals).size()));
         writer.Write(portalOffset);
         return writer.ToArray();
     }
@@ -911,9 +893,9 @@ namespace
             }
         };
 
-        for (const auto& portal : Require(portals))
+        for (const auto& portal : RequireReference(portals))
         {
-            Portal& value = Require(portal);
+            Portal& value = RequireReference(portal);
             std::int32_t planeIndex = FindPlane(planes, value.Plane);
             if (planeIndex == -1)
             {
@@ -921,14 +903,14 @@ namespace
                 planes.push_back(value.Plane);
             }
             const std::int32_t vectorIndex = ToIntCount(vectors.size());
-            const auto& portalPoints = Require(value.Points);
+            const auto& portalPoints = RequireReference(value.Points);
             addItems(portalPoints, value.Plane.Xyz());
             portalPacks.emplace_back(
                 portal, planeIndex, ToIntCount(portalPoints.size()), vectorIndex);
         }
         for (const auto& item : data)
         {
-            CollisionDataEditor& value = Require(item);
+            CollisionDataEditor& value = RequireReference(item);
             std::int32_t planeIndex = FindPlane(planes, value.Plane);
             if (planeIndex == -1)
             {
@@ -954,7 +936,7 @@ namespace
         std::function<void(const std::shared_ptr<TreeNodePack>&)> makeNodes;
         makeNodes = [&](const std::shared_ptr<TreeNodePack>& parent)
         {
-            TreeNodePack& parentValue = Require(parent);
+            TreeNodePack& parentValue = RequireReference(parent);
             const float sizeX = parentValue.MaxBounds.X - parentValue.MinBounds.X;
             const float sizeY = parentValue.MaxBounds.Y - parentValue.MinBounds.Y;
             const float sizeZ = parentValue.MaxBounds.Z - parentValue.MinBounds.Z;
@@ -1018,7 +1000,7 @@ namespace
         std::vector<std::shared_ptr<TreeNodePack>> entries;
         for (const auto& node : treeNodes)
         {
-            TreeNodePack& nodeValue = Require(node);
+            TreeNodePack& nodeValue = RequireReference(node);
             if (nodeValue.RightIndex != 0x8000)
             {
                 continue;
@@ -1041,7 +1023,7 @@ namespace
             dataIdxs[static_cast<std::size_t>(i)] = static_cast<std::uint16_t>(
                 UncheckedAdd(
                     static_cast<std::int32_t>(dataIdxs[static_cast<std::size_t>(i)]),
-                    ToIntCount(Require(portals).size())));
+                    ToIntCount(RequireReference(portals).size())));
         }
 
         using FhCollisionHeader = MphRead::Formats::Collision::FhCollisionHeader;
@@ -1097,7 +1079,7 @@ namespace
         const std::int32_t entryOffset = ToIntCount(writer.Position());
         for (const auto& entry : entries)
         {
-            TreeNodePack& value = Require(entry);
+            TreeNodePack& value = RequireReference(entry);
             writer.WriteVector3(value.MinBounds);
             writer.WriteVector3(value.MaxBounds);
             writer.Write(static_cast<std::uint16_t>(value.LeftIndex));
@@ -1110,7 +1092,7 @@ namespace
         const std::int32_t treeNodeOffset = ToIntCount(writer.Position());
         for (const auto& treeNode : treeNodes)
         {
-            TreeNodePack& value = Require(treeNode);
+            TreeNodePack& value = RequireReference(treeNode);
             writer.WriteVector3(value.MinBounds);
             writer.WriteVector3(value.MaxBounds);
             writer.Write(static_cast<std::uint16_t>(value.LeftIndex));
@@ -1119,7 +1101,7 @@ namespace
         const std::int32_t portalOffset = ToIntCount(writer.Position());
         for (const CollisionPortalPack& portal : portalPacks)
         {
-            Portal& value = Require(portal.PortalValue);
+            Portal& value = RequireReference(portal.PortalValue);
             writer.WriteString(value.Name, 40);
             writer.WriteString(value.NodeName1, 16);
             writer.WriteString(value.NodeName2, 16);
@@ -1139,7 +1121,7 @@ namespace
         writer.Write(ToIntCount(vectors.size()));
         writer.Write(vectorOffset);
         writer.Write(static_cast<std::uint16_t>(
-            UncheckedAdd(ToIntCount(data.size()), ToIntCount(Require(portals).size()))));
+            UncheckedAdd(ToIntCount(data.size()), ToIntCount(RequireReference(portals).size()))));
         writer.Write(padShort);
         writer.Write(dataOffset);
         writer.Write(ToIntCount(dataIdxs.size()));
@@ -1150,7 +1132,7 @@ namespace
         writer.Write(treeNodeIndexOffset);
         writer.Write(ToIntCount(treeNodes.size()));
         writer.Write(treeNodeOffset);
-        writer.Write(ToIntCount(Require(portals).size()));
+        writer.Write(ToIntCount(RequireReference(portals).size()));
         writer.Write(portalOffset);
         return writer.ToArray();
     }
@@ -1168,7 +1150,7 @@ namespace
         const std::vector<std::uint8_t>& file)
     {
         const std::shared_ptr<MphCollisionInfo> packPointer = GetCollision(bytes);
-        MphCollisionInfo& pack = Require(packPointer);
+        MphCollisionInfo& pack = RequireReference(packPointer);
         REPACK_COLLISION_DEBUG_ASSERT(pack.Header.Type == info.Header.Type);
         REPACK_COLLISION_DEBUG_ASSERT(pack.Header.PointCount == info.Header.PointCount);
         REPACK_COLLISION_DEBUG_ASSERT(pack.Header.PointOffset == info.Header.PointOffset);
@@ -1191,40 +1173,40 @@ namespace
         REPACK_COLLISION_DEBUG_ASSERT(pack.Header.PortalCount == info.Header.PortalCount);
         REPACK_COLLISION_DEBUG_ASSERT(pack.Header.PortalOffset == info.Header.PortalOffset);
 
-        const auto& packPoints = Require(pack.Points);
+        const auto& packPoints = RequireReference(pack.Points);
 #if defined(DEBUG)
         REPACK_COLLISION_DEBUG_ASSERT(
-            packPoints.size() == Require(info.Points).size());
+            packPoints.size() == RequireReference(info.Points).size());
 #endif
         for (std::int32_t i = 0; i < ToIntCount(packPoints.size()); ++i)
         {
             const Vector3 left = ManagedListAt(packPoints, i);
-            const Vector3 right = ManagedListAt(Require(info.Points), i);
+            const Vector3 right = ManagedListAt(RequireReference(info.Points), i);
             REPACK_COLLISION_DEBUG_ASSERT(left.X == right.X);
             REPACK_COLLISION_DEBUG_ASSERT(left.Y == right.Y);
             REPACK_COLLISION_DEBUG_ASSERT(left.Z == right.Z);
         }
-        const auto& packPlanes = Require(pack.Planes);
+        const auto& packPlanes = RequireReference(pack.Planes);
 #if defined(DEBUG)
         REPACK_COLLISION_DEBUG_ASSERT(
-            packPlanes.size() == Require(info.Planes).size());
+            packPlanes.size() == RequireReference(info.Planes).size());
 #endif
         for (std::int32_t i = 0; i < ToIntCount(packPlanes.size()); ++i)
         {
             const Vector4 left = ManagedListAt(packPlanes, i);
-            const Vector4 right = ManagedListAt(Require(info.Planes), i);
+            const Vector4 right = ManagedListAt(RequireReference(info.Planes), i);
             REPACK_COLLISION_DEBUG_ASSERT(left.X == right.X);
             REPACK_COLLISION_DEBUG_ASSERT(left.Y == right.Y);
             REPACK_COLLISION_DEBUG_ASSERT(left.Z == right.Z);
             REPACK_COLLISION_DEBUG_ASSERT(left.W == right.W);
         }
         REPACK_COLLISION_DEBUG_ASSERT(
-            Require(pack.PointIndices).size() == Require(info.PointIndices).size());
-        REPACK_COLLISION_DEBUG_ASSERT(Require(pack.PointIndices) == Require(info.PointIndices));
+            RequireReference(pack.PointIndices).size() == RequireReference(info.PointIndices).size());
+        REPACK_COLLISION_DEBUG_ASSERT(RequireReference(pack.PointIndices) == RequireReference(info.PointIndices));
 
-        const auto& packData = Require(pack.Data);
+        const auto& packData = RequireReference(pack.Data);
 #if defined(DEBUG)
-        const auto& infoData = Require(info.Data);
+        const auto& infoData = RequireReference(info.Data);
         REPACK_COLLISION_DEBUG_ASSERT(packData.size() == infoData.size());
 #endif
         for (std::int32_t i = 0; i < ToIntCount(packData.size()); ++i)
@@ -1233,7 +1215,7 @@ namespace
 #if defined(DEBUG)
             const CollisionData& other = ManagedListAt(infoData, i);
 #else
-            const CollisionData& other = ManagedListAt(Require(info.Data), i);
+            const CollisionData& other = ManagedListAt(RequireReference(info.Data), i);
 #endif
             REPACK_COLLISION_DEBUG_ASSERT(data.Counter == other.Counter);
             REPACK_COLLISION_DEBUG_ASSERT(data.PlaneIndex == other.PlaneIndex);
@@ -1244,18 +1226,18 @@ namespace
             REPACK_COLLISION_DEBUG_ASSERT(data.PointStartIndex == other.PointStartIndex);
         }
         REPACK_COLLISION_DEBUG_ASSERT(
-            Require(pack.DataIndices).size() == Require(info.DataIndices).size());
-        REPACK_COLLISION_DEBUG_ASSERT(Require(pack.DataIndices) == Require(info.DataIndices));
+            RequireReference(pack.DataIndices).size() == RequireReference(info.DataIndices).size());
+        REPACK_COLLISION_DEBUG_ASSERT(RequireReference(pack.DataIndices) == RequireReference(info.DataIndices));
 
-        const auto& packEntries = Require(pack.Entries);
+        const auto& packEntries = RequireReference(pack.Entries);
 #if defined(DEBUG)
         REPACK_COLLISION_DEBUG_ASSERT(
-            packEntries.size() == Require(info.Entries).size());
+            packEntries.size() == RequireReference(info.Entries).size());
 #endif
         for (std::int32_t i = 0; i < ToIntCount(packEntries.size()); ++i)
         {
             const CollisionEntry& left = ManagedListAt(packEntries, i);
-            const CollisionEntry& right = ManagedListAt(Require(info.Entries), i);
+            const CollisionEntry& right = ManagedListAt(RequireReference(info.Entries), i);
             REPACK_COLLISION_DEBUG_ASSERT(left.DataCount == right.DataCount);
             REPACK_COLLISION_DEBUG_ASSERT(left.DataStartIndex == right.DataStartIndex);
         }
@@ -1264,11 +1246,11 @@ namespace
             Span(bytes), pack.Header.PortalOffset, pack.Header.PortalCount);
         const auto otherPortals = MphRead::Read::DoOffsets<RawCollisionPortal>(
             Span(bytes), info.Header.PortalOffset, info.Header.PortalCount);
-        const auto& portalValues = Require(portals);
+        const auto& portalValues = RequireReference(portals);
         for (std::int32_t i = 0; i < ToIntCount(portalValues.size()); ++i)
         {
             const RawCollisionPortal& portal = ManagedListAt(portalValues, i);
-            const RawCollisionPortal& other = ManagedListAt(Require(otherPortals), i);
+            const RawCollisionPortal& other = ManagedListAt(RequireReference(otherPortals), i);
             REPACK_COLLISION_DEBUG_ASSERT(portal.Name == other.Name);
             REPACK_COLLISION_DEBUG_ASSERT(portal.NodeName1 == other.NodeName1);
             REPACK_COLLISION_DEBUG_ASSERT(portal.NodeName2 == other.NodeName2);
@@ -1430,8 +1412,8 @@ namespace MphRead::Utility
         const std::shared_ptr<CollisionInstance> collision
             = Collision::GetCollision(std::addressof(meta), -1);
         const auto editors = GetEditors(collision);
-        CollisionInstance& collisionValue = Require(collision);
-        CollisionInfo& info = Require(collisionValue.Info);
+        CollisionInstance& collisionValue = RequireReference(collision);
+        CollisionInfo& info = RequireReference(collisionValue.Info);
         return RepackMphCollision(editors, info.Portals);
     }
 
@@ -1449,8 +1431,8 @@ namespace MphRead::Utility
         const std::shared_ptr<CollisionInstance> collision
             = Collision::GetCollision(std::addressof(meta), roomLayerMask);
         const auto editors = GetEditors(collision);
-        CollisionInstance& collisionValue = Require(collision);
-        CollisionInfo& info = Require(collisionValue.Info);
+        CollisionInstance& collisionValue = RequireReference(collision);
+        CollisionInfo& info = RequireReference(collisionValue.Info);
         return RepackFhCollision(editors, info.Portals);
     }
 
@@ -1461,7 +1443,7 @@ namespace MphRead::Utility
         {
             for (const auto& pair : Metadata::RoomMetadata)
             {
-                RoomMetadata& meta = Require(pair.second);
+                RoomMetadata& meta = RequireReference(pair.second);
                 if (!meta.FirstHunt && !meta.Hybrid)
                 {
                     bool alreadyAdded = false;
@@ -1508,8 +1490,8 @@ namespace MphRead::Utility
             const std::shared_ptr<CollisionInstance>& collision = item.first;
             const std::string& path = item.second;
             const auto editors = GetEditors(collision);
-            CollisionInstance& collisionValue = Require(collision);
-            CollisionInfo& info = Require(collisionValue.Info);
+            CollisionInstance& collisionValue = RequireReference(collision);
+            CollisionInfo& info = RequireReference(collisionValue.Info);
             const std::vector<std::uint8_t> bytes
                 = RepackMphCollision(editors, info.Portals);
             const std::string outPath = Paths::Combine(

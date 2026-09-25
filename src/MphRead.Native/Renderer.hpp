@@ -475,14 +475,10 @@ namespace MphRead
         void ProcessEvents();
 
         [[nodiscard]] std::shared_ptr<Window> CreateWindow(const WindowSettings& settings);
-        [[nodiscard]] bool IsLinux();
-        [[nodiscard]] std::optional<std::string> EnvironmentVariable(std::string_view name);
         [[nodiscard]] OpenTK::Mathematics::Vector2i WorkAreaForWindow(Window& window);
         void InstallGlfwErrorCallback(std::function<void(std::int32_t, std::string)> callback);
         [[nodiscard]] std::int32_t GlfwFeatureUnavailableCode();
         void ConsoleClear();
-        void ConsoleWrite(std::string_view text);
-        void ConsoleWriteLine(std::string_view text);
         [[nodiscard]] std::optional<std::string> ConsoleReadLine();
     }
 

@@ -22,6 +22,7 @@
 #include <time.h>
 #endif
 
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 
 namespace MphRead
@@ -87,16 +88,6 @@ namespace MphRead
                 percentage = 1.0F - percentage;
             }
             return percentage;
-        }
-
-        template <typename T>
-        [[nodiscard]] T& Require(const std::shared_ptr<T>& value)
-        {
-            if (!value)
-            {
-                throw System::NullReferenceException();
-            }
-            return *value;
         }
 
         template <typename T>
@@ -496,7 +487,7 @@ namespace MphRead
             else if (_instance != nullptr && _node->MeshCount > 0)
             {
                 const std::shared_ptr<Model> model = _instance->Model();
-                const auto& meshes = Require(model).Meshes;
+                const auto& meshes = RequireReference(model).Meshes;
                 const std::int32_t index = _node->MeshId / 2;
                 if (!meshes)
                 {
@@ -514,7 +505,7 @@ namespace MphRead
             else
             {
                 const std::shared_ptr<Model> model = _instance->Model();
-                const auto& nodes = Require(model).Nodes;
+                const auto& nodes = RequireReference(model).Nodes;
                 if (!nodes)
                 {
                     throw System::ArgumentNullException("source");
@@ -533,7 +524,7 @@ namespace MphRead
                 bool anyNonPlaceholder = false;
                 for (const std::shared_ptr<ModelInstance>& model : Entity()->GetModels())
                 {
-                    if (!Require(model).IsPlaceholder)
+                    if (!RequireReference(model).IsPlaceholder)
                     {
                         anyNonPlaceholder = true;
                         break;
@@ -566,7 +557,7 @@ namespace MphRead
         }
         if (inst != nullptr)
         {
-            AnimationInfo& animInfo = Require(inst->AnimInfo);
+            AnimationInfo& animInfo = RequireReference(inst->AnimInfo);
             if (control)
             {
                 std::int32_t index = UncheckedAdd(animInfo.MaterialIndex(), 1);
@@ -578,7 +569,7 @@ namespace MphRead
                     {
                         break;
                     }
-                    MaterialAnimationInfo& material = Require(animInfo.Material);
+                    MaterialAnimationInfo& material = RequireReference(animInfo.Material);
                     if (material.Group == nullptr || material.Group->Count != 0)
                     {
                         break;
@@ -596,7 +587,7 @@ namespace MphRead
                     {
                         break;
                     }
-                    NodeAnimationInfo& node = Require(animInfo.Node);
+                    NodeAnimationInfo& node = RequireReference(animInfo.Node);
                     if (node.Group == nullptr || node.Group->Count != 0)
                     {
                         break;
@@ -620,14 +611,14 @@ namespace MphRead
         }
         if (inst != nullptr)
         {
-            AnimationInfo& animInfo = Require(inst->AnimInfo);
+            AnimationInfo& animInfo = RequireReference(inst->AnimInfo);
             if (control)
             {
                 std::int32_t index = UncheckedAdd(animInfo.MaterialIndex(), -1);
                 if (index < -1)
                 {
                     const std::shared_ptr<Model> model = inst->Model();
-                    const auto& groups = Require(model).AnimationGroups;
+                    const auto& groups = RequireReference(model).AnimationGroups;
                     if (!groups || !groups->Material)
                     {
                         throw System::NullReferenceException();
@@ -642,7 +633,7 @@ namespace MphRead
                     {
                         break;
                     }
-                    MaterialAnimationInfo& material = Require(animInfo.Material);
+                    MaterialAnimationInfo& material = RequireReference(animInfo.Material);
                     if (material.Group == nullptr || material.Group->Count != 0)
                     {
                         break;
@@ -655,7 +646,7 @@ namespace MphRead
                 if (index < -1)
                 {
                     const std::shared_ptr<Model> model = inst->Model();
-                    const auto& groups = Require(model).AnimationGroups;
+                    const auto& groups = RequireReference(model).AnimationGroups;
                     if (!groups || !groups->Node)
                     {
                         throw System::NullReferenceException();
@@ -670,7 +661,7 @@ namespace MphRead
                     {
                         break;
                     }
-                    NodeAnimationInfo& node = Require(animInfo.Node);
+                    NodeAnimationInfo& node = RequireReference(animInfo.Node);
                     if (node.Group == nullptr || node.Group->Count != 0)
                     {
                         break;
@@ -689,7 +680,7 @@ namespace MphRead
             if (instance != nullptr)
             {
                 const std::shared_ptr<Model> model = instance->Model();
-                const auto& recolors = Require(model).Recolors;
+                const auto& recolors = RequireReference(model).Recolors;
                 if (!recolors)
                 {
                     throw System::NullReferenceException();
@@ -713,7 +704,7 @@ namespace MphRead
             if (instance != nullptr)
             {
                 const std::shared_ptr<Model> model = instance->Model();
-                const auto& recolors = Require(model).Recolors;
+                const auto& recolors = RequireReference(model).Recolors;
                 if (!recolors)
                 {
                     throw System::NullReferenceException();
@@ -778,7 +769,7 @@ namespace MphRead
             for (std::int32_t i = 0; i < _node->MeshCount; ++i)
             {
                 const std::shared_ptr<Model> model = _instance->Model();
-                const auto& meshes = Require(model).Meshes;
+                const auto& meshes = RequireReference(model).Meshes;
                 const std::int32_t index = UncheckedAdd(start, i);
                 if (!meshes)
                 {
@@ -819,7 +810,7 @@ namespace MphRead
         {
             std::shared_ptr<::MphRead::Node> node{};
             const std::shared_ptr<Model> model = _instance->Model();
-            const auto& nodesPtr = Require(model).Nodes;
+            const auto& nodesPtr = RequireReference(model).Nodes;
             if (!nodesPtr)
             {
                 throw System::NullReferenceException();
@@ -838,7 +829,7 @@ namespace MphRead
                     index = 0;
                 }
                 node = AtNativeCollection(nodes, index);
-                if (!control || FilterNode(Require(node), control))
+                if (!control || FilterNode(RequireReference(node), control))
                 {
                     _node = node;
                     break;
@@ -913,17 +904,17 @@ namespace MphRead
         const std::shared_ptr<Entities::EntityBase>& entity,
         const Scene& scene)
     {
-        Entities::EntityBase& value = Require(entity);
+        Entities::EntityBase& value = RequireReference(entity);
         if (value.Type == EntityType::BeamEffect || value.Type == EntityType::BeamProjectile)
         {
             return true;
         }
         for (const std::shared_ptr<ModelInstance>& model : value.GetModels())
         {
-            if ((scene.ShowAllEntities() || Require(model).Active)
+            if ((scene.ShowAllEntities() || RequireReference(model).Active)
                 && (scene.ShowAllEntities()
                     || scene.ShowInvisibleEntities()
-                    || !Require(model).IsPlaceholder))
+                    || !RequireReference(model).IsPlaceholder))
             {
                 return true;
             }

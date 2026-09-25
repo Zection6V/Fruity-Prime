@@ -1374,6 +1374,48 @@ namespace MphRead::NativeRuntime
         }
     }
 
+    bool BooleanTryParse(std::string_view value, bool& result) noexcept
+    {
+        // Boolean.TrimWhiteSpaceAndNull, then the two names, ordinal and
+        // case-insensitive.
+        const auto trimmed = [](char32_t c) { return c == U'\0' || IsManagedWhiteSpace(c); };
+        while (!value.empty())
+        {
+            const Utf8Scalar first = DecodeUtf8Scalar(value, 0);
+            if (!trimmed(first.Value))
+            {
+                break;
+            }
+            value.remove_prefix(first.Length);
+        }
+        while (!value.empty())
+        {
+            const Utf8Scalar last = DecodeLastUtf8Scalar(value, value.size());
+            if (!trimmed(last.Value))
+            {
+                break;
+            }
+            value.remove_suffix(last.Length);
+        }
+        if (StringEqualsOrdinalIgnoreCase(value, "True"))
+        {
+            result = true;
+            return true;
+        }
+        result = false;
+        return StringEqualsOrdinalIgnoreCase(value, "False");
+    }
+
+    bool BooleanTryParse(const std::optional<std::string_view>& value, bool& result) noexcept
+    {
+        if (!value.has_value())
+        {
+            result = false;
+            return false;
+        }
+        return BooleanTryParse(*value, result);
+    }
+
     bool StringIsNullOrWhiteSpace(std::string_view value) noexcept
     {
         // Character by character, as string.IsNullOrWhiteSpace does: a UTF-8

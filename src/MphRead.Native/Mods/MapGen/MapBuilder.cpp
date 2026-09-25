@@ -25,6 +25,7 @@
 
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 using ::OpenTK::Mathematics::Divide;
 using ::OpenTK::Mathematics::Length;
@@ -529,16 +530,6 @@ namespace
         return old;
     }
 
-    template <typename T>
-    [[nodiscard]] T* Require(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            NullReference();
-        }
-        return value.get();
-    }
-
     [[nodiscard]] const std::shared_ptr<std::string>& RmMainString()
     {
         static const auto value = std::make_shared<std::string>("rmMain");
@@ -809,7 +800,7 @@ namespace MphRead::Mods::MapGen
                 {
                     NullReference();
                 }
-                MapMaterial* material = Require(
+                MapMaterial* material = &RequireReference(
                     materialsForIndex->at(static_cast<std::size_t>(materialForIndex)));
                 texScale = material->TexScale();
             }
@@ -902,7 +893,7 @@ namespace MphRead::Mods::MapGen
         }
         for (const std::shared_ptr<MapSpawn>& spawnValue : *spawns)
         {
-            MapSpawn* spawn = Require(spawnValue);
+            MapSpawn* spawn = &RequireReference(spawnValue);
             constexpr float DegreesToRadians = 0.017453292519943295769F;
             const float yaw = spawn->Yaw() * DegreesToRadians;
 
@@ -926,7 +917,7 @@ namespace MphRead::Mods::MapGen
         }
         for (const std::shared_ptr<MapJumpPad>& padValue : *jumpPads)
         {
-            MapJumpPad* pad = Require(padValue);
+            MapJumpPad* pad = &RequireReference(padValue);
             const auto [beam, speed] = SolveJumpPad(pad);
 
             auto* entity = new Editor::JumpPadEntityEditor();
@@ -958,7 +949,7 @@ namespace MphRead::Mods::MapGen
         }
         for (const std::shared_ptr<MapItem>& itemValue : *items)
         {
-            MapItem* item = Require(itemValue);
+            MapItem* item = &RequireReference(itemValue);
             const std::optional<std::string> typeText = MapItemTypeText(item);
             ItemType itemType{};
             if (!TryParseItemType(

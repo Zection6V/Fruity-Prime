@@ -1,23 +1,15 @@
 #include "Entity.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <memory>
 #include <new>
 #include <stdexcept>
 
+using ::MphRead::NativeRuntime::AssignReadonly;
+
 namespace
 {
-    template <typename T>
-    T& AssignReadonly(T& self, const T& other) noexcept
-    {
-        if (std::addressof(self) != std::addressof(other))
-        {
-            self.~T();
-            ::new (static_cast<void*>(std::addressof(self))) T(other);
-        }
-        return self;
-    }
-
     template <std::size_t N>
     void CopyExact(std::optional<std::string_view> source, char (&destination)[N])
     {

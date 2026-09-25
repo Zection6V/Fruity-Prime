@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UInt32ToInt32;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
@@ -50,16 +51,6 @@ namespace
             throw TestLogicOverflowException();
         }
         return left / right;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& Require(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
     }
 
     [[nodiscard]] OpenTK::Mathematics::Matrix4x3 Matrix4x3CreateScale(float scale) noexcept
@@ -252,7 +243,7 @@ namespace MphRead::Testing
         std::int32_t octolithCount = 0;
         for (std::int32_t i = 0; i < 8; i = UncheckedAdd(i, 1))
         {
-            const std::uint8_t foundOctos = Require(save).FoundOctos();
+            const std::uint8_t foundOctos = RequireReference(save).FoundOctos();
             if ((static_cast<std::int32_t>(foundOctos) & (1 << i)) != 0)
             {
                 octolithCount = UncheckedAdd(octolithCount, 1);
@@ -263,14 +254,14 @@ namespace MphRead::Testing
         values->Completion(GetCompletionPercentage(save));
         values->Octolith(ManagedDivide(UncheckedMultiply(100, octolithCount), 8));
         values->EnergyTanks(ManagedDivide(
-            static_cast<std::int32_t>(Require(save).EnergyCap()), 100));
+            static_cast<std::int32_t>(RequireReference(save).EnergyCap()), 100));
 
-        std::shared_ptr<Memory::UInt16Array> ammoCaps = Require(save).AmmoCaps();
-        const std::int32_t uaCap = static_cast<std::int32_t>(Require(ammoCaps).Item(0));
+        std::shared_ptr<Memory::UInt16Array> ammoCaps = RequireReference(save).AmmoCaps();
+        const std::int32_t uaCap = static_cast<std::int32_t>(RequireReference(ammoCaps).Item(0));
         values->UaExpansions(ManagedDivide(UncheckedSubtract(uaCap, 400), 300));
 
-        ammoCaps = Require(save).AmmoCaps();
-        const std::int32_t missileCap = static_cast<std::int32_t>(Require(ammoCaps).Item(1));
+        ammoCaps = RequireReference(save).AmmoCaps();
+        const std::int32_t missileCap = static_cast<std::int32_t>(RequireReference(ammoCaps).Item(1));
         values->MissileExpansions(ManagedDivide(UncheckedSubtract(missileCap, 50), 100));
         return values;
     }
@@ -278,17 +269,17 @@ namespace MphRead::Testing
     std::int32_t TestLogic::GetCompletionPercentage(
         std::shared_ptr<Memory::StorySaveData> save)
     {
-        if (Require(save).MaxScanCount() == 0)
+        if (RequireReference(save).MaxScanCount() == 0)
         {
             return 0;
         }
 
         std::int32_t counts = 0;
-        counts = UncheckedAdd(counts, Require(save).ScanCount());
+        counts = UncheckedAdd(counts, RequireReference(save).ScanCount());
 
         for (std::int32_t i = 1; i < 8; i = UncheckedAdd(i, 1))
         {
-            const std::uint16_t weapons = Require(save).Weapons();
+            const std::uint16_t weapons = RequireReference(save).Weapons();
             if (i != 2 && (static_cast<std::int32_t>(weapons) & (1 << i)) != 0)
             {
                 counts = UncheckedAdd(counts, 1);
@@ -297,7 +288,7 @@ namespace MphRead::Testing
 
         for (std::int32_t i = 0; i < 8; i = UncheckedAdd(i, 1))
         {
-            const std::uint8_t foundOctos = Require(save).FoundOctos();
+            const std::uint8_t foundOctos = RequireReference(save).FoundOctos();
             if ((static_cast<std::int32_t>(foundOctos) & (1 << i)) != 0)
             {
                 counts = UncheckedAdd(counts, 1);
@@ -306,7 +297,7 @@ namespace MphRead::Testing
 
         for (std::int32_t i = 0; i < 24; i = UncheckedAdd(i, 1))
         {
-            const std::uint32_t artifacts = Require(save).Artifacts();
+            const std::uint32_t artifacts = RequireReference(save).Artifacts();
             if ((artifacts & (std::uint32_t{1} << i)) != 0)
             {
                 counts = UncheckedAdd(counts, 1);
@@ -315,22 +306,22 @@ namespace MphRead::Testing
 
         counts = UncheckedAdd(
             counts,
-            ManagedDivide(static_cast<std::int32_t>(Require(save).EnergyCap()), 100));
+            ManagedDivide(static_cast<std::int32_t>(RequireReference(save).EnergyCap()), 100));
 
-        std::shared_ptr<Memory::UInt16Array> ammoCaps = Require(save).AmmoCaps();
-        const std::int32_t uaCap = static_cast<std::int32_t>(Require(ammoCaps).Item(0));
+        std::shared_ptr<Memory::UInt16Array> ammoCaps = RequireReference(save).AmmoCaps();
+        const std::int32_t uaCap = static_cast<std::int32_t>(RequireReference(ammoCaps).Item(0));
         counts = UncheckedAdd(
             counts,
             ManagedDivide(UncheckedSubtract(uaCap, 400), 300));
 
-        ammoCaps = Require(save).AmmoCaps();
-        const std::int32_t missileCap = static_cast<std::int32_t>(Require(ammoCaps).Item(1));
+        ammoCaps = RequireReference(save).AmmoCaps();
+        const std::int32_t missileCap = static_cast<std::int32_t>(RequireReference(ammoCaps).Item(1));
         counts = UncheckedAdd(
             counts,
             ManagedDivide(UncheckedSubtract(missileCap, 50), 100));
 
         const std::int32_t denominator = UncheckedAdd(
-            UInt32ToInt32(Require(save).MaxScanCount()), 66);
+            UInt32ToInt32(RequireReference(save).MaxScanCount()), 66);
         return ManagedDivide(UncheckedMultiply(100, counts), denominator);
     }
 
@@ -389,7 +380,7 @@ namespace MphRead::Testing
         std::shared_ptr<CModel> model,
         OpenTK::Mathematics::Matrix4x3 someMatrix)
     {
-        CModel& value = Require(model);
+        CModel& value = RequireReference(model);
         std::shared_ptr<MModel> innerModel = value.Model();
         const std::int16_t someFlag = value.SomeFlag();
         DrawAnimatedModel(std::move(innerModel), someMatrix, static_cast<std::uint8_t>(someFlag));
@@ -400,7 +391,7 @@ namespace MphRead::Testing
         OpenTK::Mathematics::Matrix4x3 texMatrix,
         std::uint8_t flags)
     {
-        MModel& value = Require(model);
+        MModel& value = RequireReference(model);
         OpenTK::Mathematics::Matrix4x3 currentTextureMatrix;
         if ((value.Flags() & 1) > 0)
         {
@@ -453,10 +444,10 @@ namespace MphRead::Testing
 
     void TestLogic::CModelInitializeAnimationData(std::shared_ptr<CModel> model)
     {
-        CModel& value = Require(model);
+        CModel& value = RequireReference(model);
         std::shared_ptr<MModel> innerModel = value.Model();
         std::shared_ptr<CNodeAnimation> animation = value.NodeAnimation();
-        const std::uintptr_t nodeAnimation = Require(animation).NodeAnimation();
+        const std::uintptr_t nodeAnimation = RequireReference(animation).NodeAnimation();
         CNodeAnimationSetData(std::move(innerModel), nodeAnimation);
     }
 
@@ -464,12 +455,12 @@ namespace MphRead::Testing
         std::shared_ptr<MModel> model,
         std::uintptr_t nodeAnimation)
     {
-        Require(model).NodeAnimation(nodeAnimation);
+        RequireReference(model).NodeAnimation(nodeAnimation);
     }
 
     void TestLogic::TestLogic2(std::shared_ptr<CPlayer> player, std::int32_t playerId)
     {
-        CPlayer& value = Require(player);
+        CPlayer& value = RequireReference(player);
         if (!TypeExtensions::TestFlag(value.MoreFlags(), MoreFlags::HideModel))
         {
             if (value.Hunter() == MphRead::Hunter::Spire
@@ -491,17 +482,17 @@ namespace MphRead::Testing
                     {
                         {
                             const std::shared_ptr<CModel> playerModel = value.Model();
-                            const std::shared_ptr<MModel> innerModel = Require(playerModel).Model();
+                            const std::shared_ptr<MModel> innerModel = RequireReference(playerModel).Model();
                             CNodeAnimationSetData(innerModel, 0);
                         }
                         CModelDraw(value.Model(), _mtx20D955C);
                         {
                             const std::shared_ptr<CModel> playerModelForModel = value.Model();
-                            const std::shared_ptr<MModel> innerModel = Require(playerModelForModel).Model();
+                            const std::shared_ptr<MModel> innerModel = RequireReference(playerModelForModel).Model();
                             const std::shared_ptr<CModel> playerModelForAnimation = value.Model();
                             const std::shared_ptr<CNodeAnimation> animation =
-                                Require(playerModelForAnimation).NodeAnimation();
-                            const std::uintptr_t nodeAnimation = Require(animation).NodeAnimation();
+                                RequireReference(playerModelForAnimation).NodeAnimation();
+                            const std::uintptr_t nodeAnimation = RequireReference(animation).NodeAnimation();
                             CNodeAnimationSetData(innerModel, nodeAnimation);
                         }
                     }
@@ -512,13 +503,13 @@ namespace MphRead::Testing
                             CModelInitializeAnimationData(value.Model());
                             {
                                 const std::shared_ptr<CModel> playerModel = value.Model();
-                                const std::shared_ptr<MModel> innerModel = Require(playerModel).Model();
+                                const std::shared_ptr<MModel> innerModel = RequireReference(playerModel).Model();
                                 CNodeAnimationSetData(innerModel, 0);
                             }
                             const OpenTK::Mathematics::Matrix4x3 matrix =
                                 Matrix4x3CreateTranslation(value.Position());
                             const std::shared_ptr<CModel> playerModel = value.Model();
-                            const std::int16_t someFlag = Require(playerModel).SomeFlag();
+                            const std::int16_t someFlag = RequireReference(playerModel).SomeFlag();
                             DrawAnimatedModel(
                                 _mdl200D960,
                                 matrix,

@@ -3,6 +3,7 @@
 
 #include <cstddef>
 
+using ::MphRead::NativeRuntime::BooleanTryParse;
 using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 
 namespace
@@ -104,39 +105,6 @@ namespace
         return 0;
     }
 
-    std::string_view TrimBooleanInput(std::string_view value)
-    {
-        while (const std::size_t width = LeadingTrimWidth(value))
-        {
-            value.remove_prefix(width);
-        }
-        while (const std::size_t width = TrailingTrimWidth(value))
-        {
-            value.remove_suffix(width);
-        }
-        return value;
-    }
-
-    bool TryParseBoolean(std::optional<std::string_view> value, bool& result)
-    {
-        result = false;
-        if (!value.has_value())
-        {
-            return false;
-        }
-
-        const std::string_view trimmed = TrimBooleanInput(*value);
-        if (StringEqualsOrdinalIgnoreCase(trimmed, "true"))
-        {
-            result = true;
-            return true;
-        }
-        if (StringEqualsOrdinalIgnoreCase(trimmed, "false"))
-        {
-            return true;
-        }
-        return false;
-    }
 }
 
 namespace MphRead::Mods::Input
@@ -242,7 +210,7 @@ namespace MphRead::Mods::Input
         if (key.has_value() && *key == ButtonsSettingKey)
         {
             bool visible = false;
-            if (TryParseBoolean(value, visible))
+            if (BooleanTryParse(value, visible))
             {
                 ButtonsVisible = visible;
             }
@@ -254,7 +222,7 @@ namespace MphRead::Mods::Input
             if (key.has_value() && *key == SettingKey(entry.Control))
             {
                 bool enabled = false;
-                if (TryParseBoolean(value, enabled))
+                if (BooleanTryParse(value, enabled))
                 {
                     SetEnabled(entry.Control, enabled);
                 }

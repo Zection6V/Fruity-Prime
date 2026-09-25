@@ -6,8 +6,9 @@
 #include "../Entities/EntityBase.hpp"
 #include "../Renderer.hpp"
 #include "../Mods/Network/NetLog.hpp"
-#include "../NativeRuntime/System/Managed.hpp"
 #include "Types.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
+#include "../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -24,8 +25,10 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::HasFlag;
+using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedIncrement;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
@@ -63,19 +66,6 @@ namespace
     [[nodiscard]] constexpr Vector4 AddW(Vector4 value, float amount) noexcept
     {
         value.W += amount;
-        return value;
-    }
-
-    [[nodiscard]] constexpr float Clamp01(float value) noexcept
-    {
-        if (value > 1.0F)
-        {
-            return 1.0F;
-        }
-        if (value < 0.0F)
-        {
-            return 0.0F;
-        }
         return value;
     }
 
@@ -119,41 +109,11 @@ namespace
         return false;
     }
 
-    template <typename T>
-    [[nodiscard]] T& Require(T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] const T& Require(const T* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
-    template <typename T>
-    [[nodiscard]] T& Require(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
     [[nodiscard]] MphCollisionInfo& GetMphInfo(
         const std::shared_ptr<CollisionInstance>& instance)
     {
-        CollisionInstance& inst = Require(instance);
-        CollisionInfo& info = Require(inst.Info);
+        CollisionInstance& inst = RequireReference(instance);
+        CollisionInfo& info = RequireReference(inst.Info);
         auto* mphInfo = dynamic_cast<MphCollisionInfo*>(&info);
         if (mphInfo == nullptr)
         {
@@ -166,7 +126,7 @@ namespace
         MphRead::ManagedArray<CollisionResult>* results,
         std::int32_t index)
     {
-        auto& array = Require(results);
+        auto& array = RequireReference(results);
         return array[static_cast<std::size_t>(index)];
     }
 
@@ -331,14 +291,14 @@ namespace MphRead::Formats
                 scene);
         }
 
-        const auto& candidateList = Require(candidates);
+        const auto& candidateList = RequireReference(candidates);
 
         for (std::size_t i = 0; i < candidateList.size(); i++)
         {
             const std::shared_ptr<CollisionCandidate>& candidatePtr
                 = candidateList[i];
-            CollisionCandidate& candidate = Require(candidatePtr);
-            CollisionInstance& inst = Require(candidate.Collision);
+            CollisionCandidate& candidate = RequireReference(candidatePtr);
+            CollisionInstance& inst = RequireReference(candidate.Collision);
             MphCollisionInfo& info = GetMphInfo(candidate.Collision);
 
             assert(candidate.Entry.DataCount > 0);
@@ -365,9 +325,9 @@ namespace MphRead::Formats
                     = static_cast<std::size_t>(
                         candidate.Entry.DataStartIndex + j);
                 const std::uint16_t dataIndex
-                    = Require(info.DataIndices).at(dataIndexListIndex);
+                    = RequireReference(info.DataIndices).at(dataIndexListIndex);
                 const CollisionData data
-                    = Require(info.Data).at(dataIndex);
+                    = RequireReference(info.Data).at(dataIndex);
 
                 if ((ToBits(data.Flags) & mask) != 0
                     || SeenContains(_seenData, data))
@@ -380,7 +340,7 @@ namespace MphRead::Formats
                     _seenData.push_back(data);
                 }
 
-                Vector4 plane = Require(info.Planes).at(data.PlaneIndex);
+                Vector4 plane = RequireReference(info.Planes).at(data.PlaneIndex);
                 const float dot1
                     = Vector3::Dot(transPoint1, plane.Xyz())
                     - plane.W;
@@ -507,8 +467,8 @@ namespace MphRead::Formats
         const float pointB = secondCoordinate(point);
 
         Vector3 curVert
-            = Require(info.Points).at(
-                Require(info.PointIndices).at(data.PointStartIndex));
+            = RequireReference(info.Points).at(
+                RequireReference(info.PointIndices).at(data.PointStartIndex));
         const Vector3 firstVert = curVert;
 
         std::int32_t v8 = 0;
@@ -535,8 +495,8 @@ namespace MphRead::Formats
                 v8 = 0;
             }
 
-            nextVert = Require(info.Points).at(
-                Require(info.PointIndices).at(
+            nextVert = RequireReference(info.Points).at(
+                RequireReference(info.PointIndices).at(
                     static_cast<std::size_t>(
                         data.PointStartIndex + v8)));
 
@@ -689,17 +649,17 @@ namespace MphRead::Formats
                 scene);
         }
 
-        const auto& candidateList = Require(candidates);
+        const auto& candidateList = RequireReference(candidates);
 
         for (std::size_t i = 0;
             i < candidateList.size();
             i++)
         {
             CollisionCandidate& candidate
-                = Require(candidateList[i]);
+                = RequireReference(candidateList[i]);
 
             CollisionInstance& inst
-                = Require(candidate.Collision);
+                = RequireReference(candidate.Collision);
 
             MphCollisionInfo& info
                 = GetMphInfo(candidate.Collision);
@@ -730,12 +690,12 @@ namespace MphRead::Formats
                 }
 
                 const std::uint16_t dataIndex
-                    = Require(info.DataIndices).at(
+                    = RequireReference(info.DataIndices).at(
                         static_cast<std::size_t>(
                             candidate.Entry.DataStartIndex + j));
 
                 const CollisionData data
-                    = Require(info.Data).at(dataIndex);
+                    = RequireReference(info.Data).at(dataIndex);
 
                 if ((ToBits(data.Flags) & mask) != 0
                     || SeenContains(_seenData, data))
@@ -749,7 +709,7 @@ namespace MphRead::Formats
                 }
 
                 const Vector4 plane
-                    = Require(info.Planes).at(data.PlaneIndex);
+                    = RequireReference(info.Planes).at(data.PlaneIndex);
 
                 const float dot1
                     = Vector3::Dot(
@@ -778,8 +738,8 @@ namespace MphRead::Formats
                 if (std::fabs(dot1 - dot2)
                     >= 1.0F / 4096.0F)
                 {
-                    pct = Clamp01(
-                        dot1 / (dot1 - dot2));
+                    pct = MathClamp(
+                        dot1 / (dot1 - dot2), 0.0F, 1.0F);
                 }
 
                 const Vector3 vec = Add(
@@ -798,12 +758,12 @@ namespace MphRead::Formats
                             data.PointStartIndex + pIndex);
 
                     const Vector3 dataPoint1
-                        = Require(info.Points).at(
-                            Require(info.PointIndices).at(index));
+                        = RequireReference(info.Points).at(
+                            RequireReference(info.PointIndices).at(index));
 
                     const Vector3 dataPoint2
-                        = Require(info.Points).at(
-                            Require(info.PointIndices).at(index + 1));
+                        = RequireReference(info.Points).at(
+                            RequireReference(info.PointIndices).at(index + 1));
 
                     const Vector3 edgeDir
                         = Normalize(
@@ -852,12 +812,12 @@ namespace MphRead::Formats
                                     data.PointStartIndex + p1);
 
                             const Vector3 edgePoint1
-                                = Require(info.Points).at(
-                                    Require(info.PointIndices).at(epIndex));
+                                = RequireReference(info.Points).at(
+                                    RequireReference(info.PointIndices).at(epIndex));
 
                             const Vector3 edgePoint2
-                                = Require(info.Points).at(
-                                    Require(info.PointIndices).at(
+                                = RequireReference(info.Points).at(
+                                    RequireReference(info.PointIndices).at(
                                         epIndex + 1));
 
                             CollisionResult result
@@ -1096,7 +1056,7 @@ namespace MphRead::Formats
             result.Position
                 = Subtract(cylPos, vec2);
             result.Distance
-                = Clamp01(dot / length);
+                = MathClamp(dot / length, 0.0F, 1.0F);
             result.Plane
                 = Vector4(
                     Negate(travel),
@@ -1159,10 +1119,10 @@ namespace MphRead::Formats
             i++)
         {
             CollisionCandidate& candidate
-                = Require(candidates[i]);
+                = RequireReference(candidates[i]);
 
             CollisionInstance& inst
-                = Require(candidate.Collision);
+                = RequireReference(candidate.Collision);
 
             MphCollisionInfo& info
                 = GetMphInfo(candidate.Collision);
@@ -1184,12 +1144,12 @@ namespace MphRead::Formats
                 }
 
                 const std::uint16_t dataIndex
-                    = Require(info.DataIndices).at(
+                    = RequireReference(info.DataIndices).at(
                         static_cast<std::size_t>(
                             candidate.Entry.DataStartIndex + j));
 
                 const CollisionData data
-                    = Require(info.Data).at(dataIndex);
+                    = RequireReference(info.Data).at(dataIndex);
 
                 if ((ToBits(data.Flags) & mask) != 0
                     || SeenContains(_seenData, data))
@@ -1204,7 +1164,7 @@ namespace MphRead::Formats
                 }
 
                 const Vector4 plane
-                    = Require(info.Planes).at(
+                    = RequireReference(info.Planes).at(
                         data.PlaneIndex);
 
                 const float dot
@@ -1230,12 +1190,12 @@ namespace MphRead::Formats
                             + pIndex);
 
                     const Vector3 point1
-                        = Require(info.Points).at(
-                            Require(info.PointIndices).at(index));
+                        = RequireReference(info.Points).at(
+                            RequireReference(info.PointIndices).at(index));
 
                     const Vector3 point2
-                        = Require(info.Points).at(
-                            Require(info.PointIndices).at(
+                        = RequireReference(info.Points).at(
+                            RequireReference(info.PointIndices).at(
                                 index + 1));
 
                     const Vector3 edgeDir
@@ -1316,12 +1276,12 @@ namespace MphRead::Formats
                                     + p2);
 
                             const Vector3 point1
-                                = Require(info.Points).at(
-                                    Require(info.PointIndices).at(index));
+                                = RequireReference(info.Points).at(
+                                    RequireReference(info.PointIndices).at(index));
 
                             const Vector3 point2
-                                = Require(info.Points).at(
-                                    Require(info.PointIndices).at(
+                                = RequireReference(info.Points).at(
+                                    RequireReference(info.PointIndices).at(
                                         index + 1));
 
                             const Vector3 edge
@@ -1543,7 +1503,7 @@ namespace MphRead::Formats
         Vector3 limitMax,
         Scene* scene)
     {
-        Scene& sceneRef = Require(scene);
+        Scene& sceneRef = RequireReference(scene);
 
         if (sceneRef.Room() == nullptr)
         {
@@ -1557,8 +1517,8 @@ namespace MphRead::Formats
             const std::shared_ptr<CollisionInstance>& instPtr
                 = sceneRef.Room()->RoomCollision()[i];
 
-            CollisionInstance& inst = Require(instPtr);
-            CollisionInfo& baseInfo = Require(inst.Info);
+            CollisionInstance& inst = RequireReference(instPtr);
+            CollisionInfo& baseInfo = RequireReference(inst.Info);
 
             if (baseInfo.FirstHunt
                 || !inst.Active)
@@ -1664,7 +1624,7 @@ namespace MphRead::Formats
                                     xIndex);
 
                             const CollisionEntry entry
-                                = Require(info.Entries).at(
+                                = RequireReference(info.Entries).at(
                                     static_cast<std::size_t>(
                                         UncheckedPostIncrement(entryIndex)));
 
@@ -1804,14 +1764,14 @@ namespace MphRead::Formats
         Vector3 limitMax,
         Scene* scene)
     {
-        Scene& sceneRef = Require(scene);
+        Scene& sceneRef = RequireReference(scene);
 
         auto entityEnumerator = sceneRef.Entities().GetEnumerator();
         while (entityEnumerator.MoveNext())
         {
             const std::shared_ptr<MphRead::Entities::EntityBase> entityPtr = entityEnumerator.Current();
             MphRead::Entities::EntityBase& entity
-                = Require(entityPtr);
+                = RequireReference(entityPtr);
 
             if (entity.Type != MphRead::EntityType::Object
                 && entity.Type != MphRead::EntityType::Platform)
@@ -1830,7 +1790,7 @@ namespace MphRead::Formats
                 if (entCol == nullptr
                     || entCol->Collision == nullptr
                     || !entCol->Collision->Active
-                    || Require(
+                    || RequireReference(
                         entCol->Collision->Info)
                         .FirstHunt)
                 {
@@ -1890,7 +1850,7 @@ namespace MphRead::Formats
                             while (xIndex < info.Header.PartsX)
                             {
                                 const CollisionEntry entry
-                                    = Require(info.Entries).at(
+                                    = RequireReference(info.Entries).at(
                                         static_cast<std::size_t>(
                                             UncheckedPostIncrement(entryIndex)));
 
@@ -1943,7 +1903,7 @@ namespace MphRead::Formats
         Vector3 point2,
         Scene* scene)
     {
-        Scene& sceneRef = Require(scene);
+        Scene& sceneRef = RequireReference(scene);
 
         if (sceneRef.Room() == nullptr)
         {
@@ -1957,8 +1917,8 @@ namespace MphRead::Formats
             const std::shared_ptr<CollisionInstance>& instPtr
                 = sceneRef.Room()->RoomCollision()[roomIndex];
 
-            CollisionInstance& inst = Require(instPtr);
-            CollisionInfo& baseInfo = Require(inst.Info);
+            CollisionInstance& inst = RequireReference(instPtr);
+            CollisionInfo& baseInfo = RequireReference(inst.Info);
 
             if (baseInfo.FirstHunt
                 || !inst.Active)
@@ -2308,7 +2268,7 @@ namespace MphRead::Formats
                                         partsZ))));
 
                     const CollisionEntry entry
-                        = Require(info.Entries).at(
+                        = RequireReference(info.Entries).at(
                             static_cast<std::size_t>(
                                 entryIndex));
 
@@ -2407,7 +2367,7 @@ namespace MphRead::Formats
         CollisionResult& result)
     {
         const CollisionVolume& volume
-            = Require(other);
+            = RequireReference(other);
 
         if (volume.Type == VolumeType::Cylinder)
         {
@@ -2575,7 +2535,7 @@ namespace MphRead::Formats
         CollisionResult& result)
     {
         const CollisionVolume& volume
-            = Require(other);
+            = RequireReference(other);
 
         if (volume.Type == VolumeType::Cylinder)
         {
@@ -2821,7 +2781,7 @@ namespace MphRead::Formats
         CollisionResult& result)
     {
         const CollisionVolume& volume
-            = Require(other);
+            = RequireReference(other);
 
         if (volume.Type == VolumeType::Cylinder)
         {
@@ -2933,9 +2893,9 @@ namespace MphRead::Formats
         CollisionResult& result)
     {
         const CollisionVolume& first
-            = Require(one);
+            = RequireReference(one);
         const CollisionVolume& second
-            = Require(two);
+            = RequireReference(two);
 
         if (second.Type == VolumeType::Box)
         {
@@ -3151,7 +3111,7 @@ namespace MphRead::Formats
         Vector3 point2,
         bool otherSide)
     {
-        const Portal& value = Require(portal);
+        const Portal& value = RequireReference(portal);
 
         float dotPrev
             = Vector3::Dot(
@@ -3188,17 +3148,17 @@ namespace MphRead::Formats
                         div));
 
             assert(
-                Require(value.Points).size()
-                == Require(value.Planes).size());
+                RequireReference(value.Points).size()
+                == RequireReference(value.Planes).size());
 
-            assert(!Require(value.Planes).empty());
+            assert(!RequireReference(value.Planes).empty());
 
             for (std::size_t i = 0;
-                i < Require(value.Planes).size();
+                i < RequireReference(value.Planes).size();
                 i++)
             {
                 const Vector4 sidePlane
-                    = Require(value.Planes)[i];
+                    = RequireReference(value.Planes)[i];
 
                 if (Vector3::Dot(
                         vec,

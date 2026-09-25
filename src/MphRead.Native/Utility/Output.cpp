@@ -1,4 +1,6 @@
 #include "Output.hpp"
+#include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Console.hpp"
 
 #include <array>
 #include <chrono>
@@ -23,6 +25,10 @@
 #include <unistd.h>
 #endif
 
+using ::MphRead::NativeRuntime::ConsoleWrite;
+using ::MphRead::NativeRuntime::ConsoleWriteLine;
+using ::MphRead::NativeRuntime::ConsoleWriteLineNullable;
+
 namespace
 {
     using namespace std::chrono_literals;
@@ -44,32 +50,6 @@ namespace
         static const std::locale invariantCulture = std::locale::classic();
         (void)invariantCulture;
 #endif
-    }
-
-    void CheckConsoleOutput()
-    {
-        if (!std::cout.good())
-        {
-            throw std::ios_base::failure("Console output failed.");
-        }
-    }
-
-    void ConsoleWriteLine(const std::optional<std::string>& message)
-    {
-        if (message.has_value())
-        {
-            std::cout.write(message->data(), static_cast<std::streamsize>(message->size()));
-        }
-        std::cout.put('\n');
-        std::cout.flush();
-        CheckConsoleOutput();
-    }
-
-    void ConsoleWrite(const std::string& message)
-    {
-        std::cout.write(message.data(), static_cast<std::streamsize>(message.size()));
-        std::cout.flush();
-        CheckConsoleOutput();
     }
 
     void ConsoleClear()
@@ -103,13 +83,9 @@ namespace
         {
             throw std::ios_base::failure("No console is available.");
         }
-        std::cout.write("\x1B[2J\x1B[H", 7);
-        std::cout.flush();
-        CheckConsoleOutput();
+        ConsoleWrite("\x1B[2J\x1B[H");
 #else
-        std::cout.write("\x1B[2J\x1B[H", 7);
-        std::cout.flush();
-        CheckConsoleOutput();
+        ConsoleWrite("\x1B[2J\x1B[H");
 #endif
     }
 
@@ -509,7 +485,7 @@ namespace MphRead
                 QueueItem item = (*items_)[0];
                 if (item.OperationValue == Operation::Write)
                 {
-                    ConsoleWriteLine(item.Message);
+                    ConsoleWriteLineNullable(item.Message);
                 }
                 else if (item.OperationValue == Operation::Clear)
                 {

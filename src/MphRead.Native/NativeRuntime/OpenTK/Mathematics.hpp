@@ -7,6 +7,7 @@
 // Formats/Types.hpp.
 
 #include "../System/Exceptions.hpp"
+#include "../System/Managed.hpp"
 
 #include <any>
 #include <concepts>
@@ -144,6 +145,13 @@ namespace OpenTK::Mathematics
     namespace MathHelper
     {
         inline constexpr float Pi = 3.1415927F;
+        // MathHelper.Clamp(n, min, max): Math.Max(Math.Min(n, max), min), in
+        // that order, so it is not Math.Clamp -- it never throws, and a -0
+        // clamped at 0 comes out +0.
+        [[nodiscard]] inline float Clamp(float n, float min, float max) noexcept
+        {
+            return ::MphRead::NativeRuntime::MathMax(::MphRead::NativeRuntime::MathMin(n, max), min);
+        }
         inline constexpr float RadToDeg = 180.0F / Pi;
         inline constexpr float DegToRad = Pi / 180.0F;
 

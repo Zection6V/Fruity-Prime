@@ -6,8 +6,9 @@
 #include "../../Renderer.hpp"
 
 #include "../../Mods/Chat/ChatBox.hpp"
-#include "../System/Console.hpp"
 #include "../System/Heartbeat.hpp"
+#include "../System/IO.hpp"
+#include "../System/Console.hpp"
 
 #include <chrono>
 #include <iostream>
@@ -19,6 +20,9 @@
 #include <utility>
 
 #include <GLFW/glfw3.h>
+
+using ::MphRead::NativeRuntime::ConsoleWrite;
+using ::MphRead::NativeRuntime::ConsoleWriteLine;
 
 namespace
 {
@@ -545,20 +549,6 @@ namespace MphRead::RendererPlatform
         return std::make_shared<GlfwWindow>(settings);
     }
 
-    bool IsLinux()
-    {
-#if defined(__linux__)
-        return true;
-#else
-        return false;
-#endif
-    }
-
-    std::optional<std::string> EnvironmentVariable(std::string_view name)
-    {
-        return NativeRuntime::EnvironmentGetVariable(std::string(name));
-    }
-
     OpenTK::Mathematics::Vector2i WorkAreaForWindow(Window& window)
     {
         EnsureGlfw();
@@ -594,16 +584,6 @@ namespace MphRead::RendererPlatform
         // Console.Clear: the terminal's own erase-and-home, which is what the
         // runtime writes on every platform that has one.
         NativeRuntime::ConsoleWrite("\x1B[2J\x1B[H");
-    }
-
-    void ConsoleWrite(std::string_view text)
-    {
-        NativeRuntime::ConsoleWrite(text);
-    }
-
-    void ConsoleWriteLine(std::string_view text)
-    {
-        NativeRuntime::ConsoleWriteLine(text);
     }
 
     std::optional<std::string> ConsoleReadLine()

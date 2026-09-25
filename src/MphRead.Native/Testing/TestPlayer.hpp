@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../NativeRuntime/System/Managed.hpp"
+
 #include "../Formats/Enums.hpp"
 #include "../Formats/Types.hpp"
 
@@ -34,17 +36,6 @@ namespace MphRead::Testing
             std::memcpy(static_cast<void*>(std::addressof(value)),
                 raw.data() + offset, sizeof(T));
             return value;
-        }
-
-        template <typename T>
-        static T& AssignReadonly(T& self, const T& other) noexcept
-        {
-            if (std::addressof(self) != std::addressof(other))
-            {
-                self.~T();
-                ::new (static_cast<void*>(std::addressof(self))) T(other);
-            }
-            return self;
         }
 
     public:
@@ -146,7 +137,7 @@ namespace MphRead::Testing
 
             ButtonControl& operator=(const ButtonControl& other) noexcept
             {
-                return TestPlayer::AssignReadonly(*this, other);
+                return ::MphRead::NativeRuntime::AssignReadonly(*this, other);
             }
 
         private:
@@ -214,7 +205,7 @@ namespace MphRead::Testing
 
             PlayerControls& operator=(const PlayerControls& other) noexcept
             {
-                return TestPlayer::AssignReadonly(*this, other);
+                return ::MphRead::NativeRuntime::AssignReadonly(*this, other);
             }
 
         private:
@@ -382,7 +373,7 @@ namespace MphRead::Testing
 
             PlayerValues& operator=(const PlayerValues& other) noexcept
             {
-                return TestPlayer::AssignReadonly(*this, other);
+                return ::MphRead::NativeRuntime::AssignReadonly(*this, other);
             }
 
         private:

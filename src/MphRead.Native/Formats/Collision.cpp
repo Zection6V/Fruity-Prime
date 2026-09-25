@@ -67,18 +67,6 @@ namespace MphRead::Formats::Collision
             return *self;
         }
 
-        template <std::size_t N>
-        std::string MarshalString(
-            const std::array<char, N>& value)
-        {
-            std::size_t length = 0;
-            while (length < N && value[length] != '\0')
-            {
-                ++length;
-            }
-            return std::string(value.data(), length);
-        }
-
         template <typename T>
         std::size_t Count(
             const std::shared_ptr<const std::vector<T>>& values)
@@ -351,9 +339,9 @@ namespace MphRead::Formats::Collision
 
         Initializer result{};
 
-        result.Name = MarshalString(raw.Name);
-        result.NodeName1 = MarshalString(raw.NodeName1);
-        result.NodeName2 = MarshalString(raw.NodeName2);
+        result.Name = ::MphRead::MarshalExtensions::MarshalUtf8(raw.Name);
+        result.NodeName1 = ::MphRead::MarshalExtensions::MarshalUtf8(raw.NodeName1);
+        result.NodeName2 = ::MphRead::MarshalExtensions::MarshalUtf8(raw.NodeName2);
 
         result.LayerMask = raw.LayerMask;
         result.IsForceField
@@ -402,9 +390,9 @@ namespace MphRead::Formats::Collision
     {
         Initializer result{};
 
-        result.Name = MarshalString(raw.Name);
-        result.NodeName1 = MarshalString(raw.NodeName1);
-        result.NodeName2 = MarshalString(raw.NodeName2);
+        result.Name = ::MphRead::MarshalExtensions::MarshalUtf8(raw.Name);
+        result.NodeName1 = ::MphRead::MarshalExtensions::MarshalUtf8(raw.NodeName1);
+        result.NodeName2 = ::MphRead::MarshalExtensions::MarshalUtf8(raw.NodeName2);
         result.LayerMask = 4;
 
         auto points = std::make_shared<
@@ -1491,7 +1479,7 @@ namespace MphRead::Formats::Collision
 
         std::shared_ptr<CollisionInfo> info;
 
-        if (MarshalString(header.Type)
+        if (::MphRead::MarshalExtensions::MarshalUtf8(header.Type)
             == "wc01")
         {
             info = ReadMphCollision(

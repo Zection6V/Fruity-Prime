@@ -12,6 +12,7 @@
 #include <limits>
 #include <utility>
 
+using ::MphRead::NativeRuntime::CSharpTryFinally;
 using ::MphRead::NativeRuntime::MathMax;
 using ::MphRead::NativeRuntime::MathMin;
 using ::MphRead::NativeRuntime::Utf8ToUtf16;
@@ -55,28 +56,6 @@ namespace
         return *text;
     }
 
-    template <typename TBody, typename TFinally>
-    void CSharpTryFinally(TBody&& body, TFinally&& finalizer)
-    {
-        std::exception_ptr bodyException;
-        try
-        {
-            body();
-        }
-        catch (...)
-        {
-            bodyException = std::current_exception();
-        }
-
-        // A C# using statement lowers to try/finally. If Dispose throws while
-        // another exception is pending, the Dispose exception replaces it.
-        finalizer();
-
-        if (bodyException != nullptr)
-        {
-            std::rethrow_exception(bodyException);
-        }
-    }
 }
 
 namespace MphRead::Mods::Launcher::Gui

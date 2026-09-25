@@ -8,6 +8,7 @@
 #include "../Read.hpp"
 #include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -28,19 +29,11 @@
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathGetFullPath;
 using ::MphRead::NativeRuntime::PathToUtf8;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::NativeRuntime::StringTrimView;
 
 namespace
 {
-    template <typename T>
-    [[nodiscard]] T& Deref(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
     using MphRead::BillboardMode;
     using MphRead::CullingMode;
     using MphRead::InstructionCode;
@@ -198,15 +191,15 @@ namespace MphRead::Export
     {
         const std::int32_t indent = 1;
         StringBuilderExtensions::AppendIndent(sb, "uv_anims = [", indent);
-        for (const auto &groupRef : Deref(Deref(model.AnimationGroups).Texcoord))
+        for (const auto &groupRef : RequireReference(RequireReference(model.AnimationGroups).Texcoord))
         {
-            const TexcoordAnimationGroup &group = Deref(groupRef);
-            if (Deref(group.Animations).empty())
+            const TexcoordAnimationGroup &group = RequireReference(groupRef);
+            if (RequireReference(group.Animations).empty())
             {
                 continue;
             }
             StringBuilderExtensions::AppendIndent(sb, "{", indent + 1);
-            for (const auto &kvp : Deref(group.Animations))
+            for (const auto &kvp : RequireReference(group.Animations))
             {
                 const TexcoordAnimation &anim = kvp.second;
                 StringBuilderExtensions::AppendIndent(sb, "'" + kvp.first + "':", indent + 2);
@@ -233,15 +226,15 @@ namespace MphRead::Export
         StringBuilderExtensions::AppendIndent(sb, "]", indent);
 
         StringBuilderExtensions::AppendIndent(sb, "mat_anims = [", indent);
-        for (const auto &groupRef : Deref(Deref(model.AnimationGroups).Material))
+        for (const auto &groupRef : RequireReference(RequireReference(model.AnimationGroups).Material))
         {
-            const MaterialAnimationGroup &group = Deref(groupRef);
-            if (Deref(group.Animations).empty())
+            const MaterialAnimationGroup &group = RequireReference(groupRef);
+            if (RequireReference(group.Animations).empty())
             {
                 continue;
             }
             StringBuilderExtensions::AppendIndent(sb, "{", indent + 1);
-            for (const auto &kvp : Deref(group.Animations))
+            for (const auto &kvp : RequireReference(group.Animations))
             {
                 const MaterialAnimation &anim = kvp.second;
                 StringBuilderExtensions::AppendIndent(sb, "'" + kvp.first + "_mat':", indent + 2);
@@ -267,16 +260,16 @@ namespace MphRead::Export
 
         StringBuilderExtensions::AppendIndent(sb, "tex_anims = [", indent);
         std::vector<std::pair<std::int32_t, std::int32_t>> combos;
-        for (const auto &groupRef : Deref(Deref(model.AnimationGroups).Texture))
+        for (const auto &groupRef : RequireReference(RequireReference(model.AnimationGroups).Texture))
         {
-            const TextureAnimationGroup &group = Deref(groupRef);
-            for (const auto &kvp : Deref(group.Animations))
+            const TextureAnimationGroup &group = RequireReference(groupRef);
+            for (const auto &kvp : RequireReference(group.Animations))
             {
                 for (std::int32_t i = kvp.second.StartIndex; i < kvp.second.StartIndex + kvp.second.Count; ++i)
                 {
                     const auto pair = std::make_pair(
-                        static_cast<std::int32_t>(Deref(group.TextureIds).at(static_cast<std::size_t>(i))),
-                        static_cast<std::int32_t>(Deref(group.PaletteIds).at(static_cast<std::size_t>(i))));
+                        static_cast<std::int32_t>(RequireReference(group.TextureIds).at(static_cast<std::size_t>(i))),
+                        static_cast<std::int32_t>(RequireReference(group.PaletteIds).at(static_cast<std::size_t>(i))));
                     if (std::find(combos.begin(), combos.end(), pair) == combos.end())
                     {
                         combos.push_back(pair);
@@ -284,15 +277,15 @@ namespace MphRead::Export
                 }
             }
         }
-        for (const auto &groupRef : Deref(Deref(model.AnimationGroups).Texture))
+        for (const auto &groupRef : RequireReference(RequireReference(model.AnimationGroups).Texture))
         {
-            const TextureAnimationGroup &group = Deref(groupRef);
-            if (Deref(group.Animations).empty())
+            const TextureAnimationGroup &group = RequireReference(groupRef);
+            if (RequireReference(group.Animations).empty())
             {
                 continue;
             }
             StringBuilderExtensions::AppendIndent(sb, "{", indent + 1);
-            for (const auto &kvp : Deref(group.Animations))
+            for (const auto &kvp : RequireReference(group.Animations))
             {
                 const TextureAnimation &anim = kvp.second;
                 StringBuilderExtensions::AppendIndent(sb, "'" + kvp.first + "_mat':", indent + 2);
@@ -300,10 +293,10 @@ namespace MphRead::Export
                 for (std::int32_t i = anim.StartIndex; i < anim.StartIndex + anim.Count; ++i)
                 {
                     const std::int32_t frame = static_cast<std::int32_t>(
-                        Deref(group.FrameIndices).at(static_cast<std::size_t>(i)));
+                        RequireReference(group.FrameIndices).at(static_cast<std::size_t>(i)));
                     const auto pair = std::make_pair(
-                        static_cast<std::int32_t>(Deref(group.TextureIds).at(static_cast<std::size_t>(i))),
-                        static_cast<std::int32_t>(Deref(group.PaletteIds).at(static_cast<std::size_t>(i))));
+                        static_cast<std::int32_t>(RequireReference(group.TextureIds).at(static_cast<std::size_t>(i))),
+                        static_cast<std::int32_t>(RequireReference(group.PaletteIds).at(static_cast<std::size_t>(i))));
                     const std::int32_t index = FindCombo(combos, pair);
                     assert(index != -1);
                     StringBuilderExtensions::AppendIndent(sb,
@@ -316,15 +309,15 @@ namespace MphRead::Export
         StringBuilderExtensions::AppendIndent(sb, "]", indent);
 
         StringBuilderExtensions::AppendIndent(sb, "node_anims = [", indent);
-        for (const auto &groupRef : Deref(Deref(model.AnimationGroups).Node))
+        for (const auto &groupRef : RequireReference(RequireReference(model.AnimationGroups).Node))
         {
-            const NodeAnimationGroup &group = Deref(groupRef);
-            if (Deref(group.Animations).empty())
+            const NodeAnimationGroup &group = RequireReference(groupRef);
+            if (RequireReference(group.Animations).empty())
             {
                 continue;
             }
             StringBuilderExtensions::AppendIndent(sb, "{", indent + 1);
-            for (const auto &kvp : Deref(group.Animations))
+            for (const auto &kvp : RequireReference(group.Animations))
             {
                 const NodeAnimation &anim = kvp.second;
                 StringBuilderExtensions::AppendIndent(sb, "'" + kvp.first + "':", indent + 2);
@@ -371,33 +364,33 @@ namespace MphRead::Export
         AppendLine(sb, "export_version = '" + Program::Version.ToString() + "'");
 
         std::string recolors;
-        for (std::size_t i = 0; i < Deref(model.Recolors).size(); ++i)
+        for (std::size_t i = 0; i < RequireReference(model.Recolors).size(); ++i)
         {
             if (i != 0)
             {
                 recolors += ", ";
             }
-            recolors += Deref(Deref(model.Recolors).at(i)).Name;
+            recolors += RequireReference(RequireReference(model.Recolors).at(i)).Name;
         }
         AppendLine(sb, "# recolors: " + recolors);
-        AppendLine(sb, "recolor = '" + Deref(Deref(model.Recolors).at(0)).Name + "'");
+        AppendLine(sb, "recolor = '" + RequireReference(RequireReference(model.Recolors).at(0)).Name + "'");
 
         const auto uvAnimCount = static_cast<std::int32_t>(std::count_if(
-            Deref(Deref(model.AnimationGroups).Texcoord).begin(), Deref(Deref(model.AnimationGroups).Texcoord).end(),
+            RequireReference(RequireReference(model.AnimationGroups).Texcoord).begin(), RequireReference(RequireReference(model.AnimationGroups).Texcoord).end(),
             [](const std::shared_ptr<TexcoordAnimationGroup> &group)
-            { return !Deref(Deref(group).Animations).empty(); }));
+            { return !RequireReference(RequireReference(group).Animations).empty(); }));
         const auto matAnimCount = static_cast<std::int32_t>(std::count_if(
-            Deref(Deref(model.AnimationGroups).Material).begin(), Deref(Deref(model.AnimationGroups).Material).end(),
+            RequireReference(RequireReference(model.AnimationGroups).Material).begin(), RequireReference(RequireReference(model.AnimationGroups).Material).end(),
             [](const std::shared_ptr<MaterialAnimationGroup> &group)
-            { return !Deref(Deref(group).Animations).empty(); }));
+            { return !RequireReference(RequireReference(group).Animations).empty(); }));
         const auto nodeAnimCount = static_cast<std::int32_t>(std::count_if(
-            Deref(Deref(model.AnimationGroups).Node).begin(), Deref(Deref(model.AnimationGroups).Node).end(),
+            RequireReference(RequireReference(model.AnimationGroups).Node).begin(), RequireReference(RequireReference(model.AnimationGroups).Node).end(),
             [](const std::shared_ptr<NodeAnimationGroup> &group)
-            { return !Deref(Deref(group).Animations).empty(); }));
+            { return !RequireReference(RequireReference(group).Animations).empty(); }));
         const auto texAnimCount = static_cast<std::int32_t>(std::count_if(
-            Deref(Deref(model.AnimationGroups).Texture).begin(), Deref(Deref(model.AnimationGroups).Texture).end(),
+            RequireReference(RequireReference(model.AnimationGroups).Texture).begin(), RequireReference(RequireReference(model.AnimationGroups).Texture).end(),
             [](const std::shared_ptr<TextureAnimationGroup> &group)
-            { return !Deref(Deref(group).Animations).empty(); }));
+            { return !RequireReference(RequireReference(group).Animations).empty(); }));
         AppendLine(sb, "# uv anims: " + std::to_string(uvAnimCount) + ", mat anims: " + std::to_string(matAnimCount) + ", node anims: " + std::to_string(nodeAnimCount) + ", tex anims: " + std::to_string(texAnimCount));
 
         const std::int32_t texcoordId = uvAnimCount > 0 ? 0 : -1;
@@ -424,13 +417,13 @@ namespace MphRead::Export
         AppendLine(sb, "set_common()");
 
         std::unordered_set<std::int32_t> invertMeshIds;
-        for (std::int32_t i = 0; i < static_cast<std::int32_t>(Deref(model.Materials).size()); ++i)
+        for (std::int32_t i = 0; i < static_cast<std::int32_t>(RequireReference(model.Materials).size()); ++i)
         {
-            const Material &material = Deref(Deref(model.Materials).at(static_cast<std::size_t>(i)));
+            const Material &material = RequireReference(RequireReference(model.Materials).at(static_cast<std::size_t>(i)));
             if (material.TextureId != -1)
             {
                 StringBuilderExtensions::AppendIndent(sb);
-                const auto &pixels = Deref(Deref(model.Recolors).at(0)).GetPixels(material.TextureId, material.PaletteId);
+                const auto &pixels = RequireReference(RequireReference(model.Recolors).at(0)).GetPixels(material.TextureId, material.PaletteId);
                 const bool alphaPixels = std::any_of(pixels.begin(), pixels.end(),
                                                      [](const auto &pixel)
                                                      { return pixel.Alpha < 255; });
@@ -455,9 +448,9 @@ namespace MphRead::Export
                 AppendLine(sb, "set_back_culling('" + material.Name + "_mat')");
                 if (material.Culling == CullingMode::Front)
                 {
-                    for (std::int32_t j = 0; j < static_cast<std::int32_t>(Deref(model.Meshes).size()); ++j)
+                    for (std::int32_t j = 0; j < static_cast<std::int32_t>(RequireReference(model.Meshes).size()); ++j)
                     {
-                        const Mesh &mesh = Deref(Deref(model.Meshes).at(static_cast<std::size_t>(j)));
+                        const Mesh &mesh = RequireReference(RequireReference(model.Meshes).at(static_cast<std::size_t>(j)));
                         if (mesh.MaterialId == i)
                         {
                             invertMeshIds.insert(j);
@@ -468,17 +461,17 @@ namespace MphRead::Export
 
             std::vector<std::int32_t> withColor;
             std::vector<std::int32_t> noColor;
-            for (std::int32_t j = 0; j < static_cast<std::int32_t>(Deref(model.Meshes).size()); ++j)
+            for (std::int32_t j = 0; j < static_cast<std::int32_t>(RequireReference(model.Meshes).size()); ++j)
             {
-                const Mesh &mesh = Deref(Deref(model.Meshes).at(static_cast<std::size_t>(j)));
+                const Mesh &mesh = RequireReference(RequireReference(model.Meshes).at(static_cast<std::size_t>(j)));
                 if (mesh.MaterialId == i)
                 {
-                    const auto &instructions = Deref(model.RenderInstructionLists).at(
+                    const auto &instructions = RequireReference(model.RenderInstructionLists).at(
                         static_cast<std::size_t>(mesh.DlistId));
-                    const bool hasColor = std::any_of(Deref(instructions).begin(), Deref(instructions).end(),
+                    const bool hasColor = std::any_of(RequireReference(instructions).begin(), RequireReference(instructions).end(),
                                                       [](const std::shared_ptr<RenderInstruction> &instruction)
                                                       {
-                                                          return Deref(instruction).Code == InstructionCode::COLOR;
+                                                          return RequireReference(instruction).Code == InstructionCode::COLOR;
                                                       });
                     if (hasColor)
                     {
@@ -516,9 +509,9 @@ namespace MphRead::Export
             }
         }
 
-        for (const auto &nodeRef : Deref(model.Nodes))
+        for (const auto &nodeRef : RequireReference(model.Nodes))
         {
-            const Node &node = Deref(nodeRef);
+            const Node &node = RequireReference(nodeRef);
             for (std::int32_t meshId : node.GetMeshIds())
             {
                 if (invertMeshIds.find(meshId) != invertMeshIds.end())
@@ -528,14 +521,14 @@ namespace MphRead::Export
                 }
             }
         }
-        if (!Deref(model.NodeMatrixIds).empty())
+        if (!RequireReference(model.NodeMatrixIds).empty())
         {
             StringBuilderExtensions::AppendIndent(sb, "bone_setup()");
         }
         StringBuilderExtensions::AppendIndent(sb, "anim_setup()");
-        for (const auto &nodeRef : Deref(model.Nodes))
+        for (const auto &nodeRef : RequireReference(model.Nodes))
         {
-            const Node &node = Deref(nodeRef);
+            const Node &node = RequireReference(nodeRef);
             if (node.BillboardMode == BillboardMode::None)
             {
                 continue;
@@ -547,7 +540,7 @@ namespace MphRead::Export
             }
         }
 
-        if (!Deref(model.NodeMatrixIds).empty())
+        if (!RequireReference(model.NodeMatrixIds).empty())
         {
             AppendLine(sb);
             AppendLine(sb, "def bone_setup():");
@@ -557,23 +550,23 @@ namespace MphRead::Export
                                                   "bpy.ops.armature.select_all(action='SELECT')\n"
                                                   "bpy.ops.armature.delete()");
 
-            for (const auto &nodeRef : Deref(model.Nodes))
+            for (const auto &nodeRef : RequireReference(model.Nodes))
             {
-                const Node &node = Deref(nodeRef);
+                const Node &node = RequireReference(nodeRef);
                 StringBuilderExtensions::AppendIndent(sb,
                                                       "bpy.ops.armature.bone_primitive_add(name='" + node.Name + "')");
             }
             StringBuilderExtensions::AppendIndent(sb, "bpy.ops.armature.select_all(action='DESELECT')");
             StringBuilderExtensions::AppendIndent(sb, "bones = bpy.data.armatures[0].edit_bones");
 
-            for (const auto &childRef : Deref(model.Nodes))
+            for (const auto &childRef : RequireReference(model.Nodes))
             {
-                const Node &child = Deref(childRef);
+                const Node &child = RequireReference(childRef);
                 if (child.ParentIndex == -1)
                 {
                     continue;
                 }
-                const Node &parent = Deref(Deref(model.Nodes).at(static_cast<std::size_t>(child.ParentIndex)));
+                const Node &parent = RequireReference(RequireReference(model.Nodes).at(static_cast<std::size_t>(child.ParentIndex)));
                 StringBuilderExtensions::AppendIndent(sb,
                                                       "bones.get('" + child.Name + "').parent = bones.get('" + parent.Name + "')");
             }
@@ -596,9 +589,9 @@ namespace MphRead::Export
                 std::int32_t i = 0;
                 for (const Collada::Vertex &vertex : obj.second)
                 {
-                    const std::int32_t nodeIndex = Deref(model.NodeMatrixIds).at(
+                    const std::int32_t nodeIndex = RequireReference(model.NodeMatrixIds).at(
                         static_cast<std::size_t>(vertex.MatrixId));
-                    const Node &node = Deref(Deref(model.Nodes).at(static_cast<std::size_t>(nodeIndex)));
+                    const Node &node = RequireReference(RequireReference(model.Nodes).at(static_cast<std::size_t>(nodeIndex)));
                     const auto existing = std::find_if(vertices.begin(), vertices.end(),
                                                        [&node](const auto &item)
                                                        { return item.first == node.Name; });
@@ -620,9 +613,9 @@ namespace MphRead::Export
                 }
             }
 
-            for (const auto &nodeRef : Deref(model.Nodes))
+            for (const auto &nodeRef : RequireReference(model.Nodes))
             {
-                const Node &node = Deref(nodeRef);
+                const Node &node = RequireReference(nodeRef);
                 StringBuilderExtensions::AppendIndent(sb,
                                                       "bone = bpy.data.objects['Armature'].pose.bones['" + node.Name + "']");
                 StringBuilderExtensions::AppendIndent(sb, "bone.rotation_mode = 'XYZ'");

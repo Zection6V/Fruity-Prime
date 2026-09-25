@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <iostream>
 #include <optional>
 #include <mutex>
 #include <string>
@@ -113,8 +114,19 @@ namespace MphRead::NativeRuntime
         }
 #endif
 
+        // Anything still sitting in the C++ or C stream buffers was written
+        // first; it has to reach the handle first.
+        void FlushStreams() noexcept
+        {
+            std::cout.flush();
+            std::cerr.flush();
+            std::fflush(stdout);
+            std::fflush(stderr);
+        }
+
         void WriteOut(std::string_view value)
         {
+            FlushStreams();
             const std::lock_guard<std::mutex> guard(ConsoleLock());
 #if defined(_WIN32)
             WriteToHandle(STD_OUTPUT_HANDLE, value);
@@ -125,6 +137,7 @@ namespace MphRead::NativeRuntime
 
         void WriteErr(std::string_view value)
         {
+            FlushStreams();
             const std::lock_guard<std::mutex> guard(ConsoleLock());
 #if defined(_WIN32)
             WriteToHandle(STD_ERROR_HANDLE, value);

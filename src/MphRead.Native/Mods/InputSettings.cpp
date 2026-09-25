@@ -13,6 +13,7 @@
 #include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
+#include "../NativeRuntime/System/Runtime.hpp"
 
 #include <algorithm>
 #include <array>
@@ -30,10 +31,12 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::BooleanTryParse;
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::FileReadAllLines;
 using ::MphRead::NativeRuntime::FileWriteAllLines;
 using ::MphRead::NativeRuntime::Int32TryParseInvariant;
+using ::MphRead::NativeRuntime::IsAndroid;
 using ::MphRead::NativeRuntime::MathClamp;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
@@ -243,22 +246,6 @@ namespace MphRead::Mods
             return value >= 'A' && value <= 'Z'
                 ? static_cast<char>(value + ('a' - 'A'))
                 : value;
-        }
-
-        bool TryParseBoolean(std::string_view value, bool& parsed)
-        {
-            value = StringTrimView(value);
-            if (StringEqualsOrdinalIgnoreCase(value, "true"))
-            {
-                parsed = true;
-                return true;
-            }
-            if (StringEqualsOrdinalIgnoreCase(value, "false"))
-            {
-                parsed = false;
-                return true;
-            }
-            return false;
         }
 
         bool TryParseSingle(std::string_view value, float& parsed)
@@ -667,14 +654,6 @@ namespace MphRead::Mods
             return value >= '0' && value <= '9';
         }
 
-        bool IsAndroid() noexcept
-        {
-#if defined(__ANDROID__)
-            return true;
-#else
-            return false;
-#endif
-        }
     }
 
     float InputSettings::_mouseSensitivity = 1.0F;
@@ -1069,22 +1048,22 @@ namespace MphRead::Mods
                 }
 
                 bool boolean = false;
-                if (key == "invert_y" && TryParseBoolean(value, boolean))
+                if (key == "invert_y" && BooleanTryParse(value, boolean))
                 {
                     InvertMouseY(boolean);
                     continue;
                 }
-                if (key == "invert_x" && TryParseBoolean(value, boolean))
+                if (key == "invert_x" && BooleanTryParse(value, boolean))
                 {
                     InvertMouseX(boolean);
                     continue;
                 }
                 if (key == "pointer_jump_guard"
-                    && TryParseBoolean(value, boolean))
+                    && BooleanTryParse(value, boolean))
                 {
                     Input::PointerInput::GuardJumps(boolean);
                 }
-                if (key == "stylus_zone" && TryParseBoolean(value, boolean))
+                if (key == "stylus_zone" && BooleanTryParse(value, boolean))
                 {
                     Input::StylusZone::Enabled(boolean && !IsAndroid());
                 }
@@ -1130,7 +1109,7 @@ namespace MphRead::Mods
                     }
                 }
                 if (key == "scroll_all_weapons"
-                    && TryParseBoolean(value, boolean))
+                    && BooleanTryParse(value, boolean))
                 {
                     ScrollAllWeapons(boolean);
                     continue;
@@ -1191,7 +1170,7 @@ namespace MphRead::Mods
                     }
                 }
                 if (key == "gamepad_invert_y"
-                    && TryParseBoolean(value, boolean))
+                    && BooleanTryParse(value, boolean))
                 {
                     GamepadInvertY(boolean);
                     continue;

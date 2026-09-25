@@ -14,6 +14,7 @@
 #include "../../Network/NetSession.hpp"
 #include "../../../GameState.hpp"
 #include "../../../NativeRuntime/System/Console.hpp"
+#include "../../../NativeRuntime/System/Runtime.hpp"
 
 #include <cstdlib>
 #include <exception>
@@ -29,6 +30,8 @@
 #endif
 
 using ::MphRead::NativeRuntime::EnvironmentGetVariable;
+using ::MphRead::NativeRuntime::IsAndroid;
+using ::MphRead::NativeRuntime::IsWindows;
 
 namespace MphRead::Mods::Launcher::Gui
 {
@@ -82,15 +85,6 @@ namespace MphRead::Mods::Launcher::Gui
 
     namespace
     {
-        [[nodiscard]] constexpr bool IsWindows() noexcept
-        {
-#if defined(_WIN32)
-            return true;
-#else
-            return false;
-#endif
-        }
-
         [[nodiscard]] constexpr bool IsMacOS() noexcept
         {
 #if defined(__APPLE__) && defined(__MACH__)
@@ -99,15 +93,6 @@ namespace MphRead::Mods::Launcher::Gui
 #else
             return TARGET_OS_MAC != 0 && TARGET_OS_IPHONE == 0;
 #endif
-#else
-            return false;
-#endif
-        }
-
-        [[nodiscard]] constexpr bool IsAndroid() noexcept
-        {
-#if defined(ANDROID) || defined(__ANDROID__)
-            return true;
 #else
             return false;
 #endif

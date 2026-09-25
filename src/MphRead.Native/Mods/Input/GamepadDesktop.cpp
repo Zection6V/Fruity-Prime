@@ -5,6 +5,7 @@
 #include "GamepadMappings.hpp"
 #include "../../NativeRuntime/OpenTK/GLFW.hpp"
 #include "../../NativeRuntime/System/Encoding.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
 #include <array>
@@ -19,6 +20,8 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::MathClamp;
+
 namespace Glfw = ::OpenTK::Windowing::GraphicsLibraryFramework;
 
 namespace
@@ -31,18 +34,6 @@ namespace
             static_cast<std::int32_t>(left) | static_cast<std::int32_t>(right));
     }
 
-    [[nodiscard]] float Clamp01(float value) noexcept
-    {
-        if (value < 0.0F)
-        {
-            return 0.0F;
-        }
-        if (value > 1.0F)
-        {
-            return 1.0F;
-        }
-        return value;
-    }
 }
 
 namespace MphRead::Mods::Input::GamepadLayoutAdapters
@@ -294,7 +285,7 @@ namespace MphRead::Mods::Input
             floor = value;
         }
         const float span = 1.0F - floor;
-        return span <= 0.0F ? 0.0F : Clamp01((value - floor) / span);
+        return span <= 0.0F ? 0.0F : MathClamp((value - floor) / span, 0.0F, 1.0F);
     }
 
     void GamepadDesktop::AddRaw(GamepadButtons& into,

@@ -9,6 +9,7 @@
 #include "../Read.hpp"
 #include "../Formats/Types.hpp"
 #include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 #include "../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <algorithm>
@@ -29,20 +30,11 @@
 
 using ::MphRead::NativeRuntime::FileWriteAllText;
 using ::MphRead::NativeRuntime::PathFromUtf8;
+using ::MphRead::NativeRuntime::RequireReference;
 using ::OpenTK::Mathematics::MathHelper::RadiansToDegrees;
 
 namespace
 {
-    template <typename T>
-    [[nodiscard]] T& Deref(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
     using MphRead::Export::Collada;
     using OpenTK::Mathematics::Vector2;
     using OpenTK::Mathematics::Vector3;
@@ -179,11 +171,6 @@ namespace
         return result;
     }
 
-    [[nodiscard]] float Clamp01(float value) noexcept
-    {
-        return std::min(std::max(value, 0.0F), 1.0F);
-    }
-
 }
 
 namespace MphRead::Export
@@ -221,8 +208,8 @@ namespace MphRead::Export
         std::filesystem::create_directories(PathFromUtf8(exportPath));
 
         std::vector<VertexDictionary> lists;
-        lists.reserve(Deref(model.Recolors).size());
-        for (std::int32_t i = 0; i < static_cast<std::int32_t>(Deref(model.Recolors).size()); ++i)
+        lists.reserve(RequireReference(model.Recolors).size());
+        for (std::int32_t i = 0; i < static_cast<std::int32_t>(RequireReference(model.Recolors).size()); ++i)
         {
             lists.push_back(ExportRecolor(model, transformRoom, i));
         }
@@ -272,7 +259,7 @@ namespace MphRead::Export
         const Model &model, bool transformRoom, std::int32_t recolorIndex)
     {
         VertexDictionary results;
-        const Recolor &recolor = Deref(Deref(model.Recolors).at(static_cast<std::size_t>(recolorIndex)));
+        const Recolor &recolor = RequireReference(RequireReference(model.Recolors).at(static_cast<std::size_t>(recolorIndex)));
         std::string output;
 
         output += "<?xml version=\"1.0\" encoding=\"utf-8\"?>";
@@ -308,25 +295,25 @@ namespace MphRead::Export
             }
         };
 
-        for (const auto &materialRef : Deref(model.Materials))
+        for (const auto &materialRef : RequireReference(model.Materials))
         {
-            const Material &material = Deref(materialRef);
+            const Material &material = RequireReference(materialRef);
             addLibraryImage(material.TextureId, material.PaletteId, material.Name);
         }
 
         id = 1;
         imagesInLibrary.clear();
-        for (const auto &groupRef : Deref(Deref(model.AnimationGroups).Texture))
+        for (const auto &groupRef : RequireReference(RequireReference(model.AnimationGroups).Texture))
         {
-            const TextureAnimationGroup &group = Deref(groupRef);
-            for (const auto &animationItem : Deref(group.Animations))
+            const TextureAnimationGroup &group = RequireReference(groupRef);
+            for (const auto &animationItem : RequireReference(group.Animations))
             {
                 const TextureAnimation &animation = animationItem.second;
                 for (std::int32_t i = animation.StartIndex;
                      i < animation.StartIndex + animation.Count; ++i)
                 {
-                    const std::int32_t textureId = Deref(group.TextureIds).at(static_cast<std::size_t>(i));
-                    const std::int32_t paletteId = Deref(group.PaletteIds).at(static_cast<std::size_t>(i));
+                    const std::int32_t textureId = RequireReference(group.TextureIds).at(static_cast<std::size_t>(i));
+                    const std::int32_t paletteId = RequireReference(group.PaletteIds).at(static_cast<std::size_t>(i));
                     addLibraryImage(
                         textureId, paletteId,
                         "anim__" + std::to_string(textureId) + "-" + std::to_string(paletteId));
@@ -337,9 +324,9 @@ namespace MphRead::Export
         output += "\n\t</library_images>";
 
         output += "\n\t<library_materials>";
-        for (const auto &materialRef : Deref(model.Materials))
+        for (const auto &materialRef : RequireReference(model.Materials))
         {
-            const Material &material = Deref(materialRef);
+            const Material &material = RequireReference(materialRef);
             const std::string textureName = IsNullOrEmpty(material.Name) ? "null" : material.Name;
             output += "\n\t\t<material id=\"" + textureName + "-material\" name=\"" + textureName + "_mat\">";
             output += "\n\t\t\t<instance_effect url=\"#" + textureName + "-effect\" />";
@@ -352,23 +339,23 @@ namespace MphRead::Export
         VertexList tempMeshVerts;
 
         std::int32_t meshCounter = 0;
-        for (const auto &meshRef : Deref(model.Meshes))
+        for (const auto &meshRef : RequireReference(model.Meshes))
         {
-            const Mesh &mesh = Deref(meshRef);
+            const Mesh &mesh = RequireReference(meshRef);
             ++meshCounter;
             meshVerts.clear();
             tempMeshVerts.clear();
 
-            const DisplayList &dlist = Deref(model.DisplayLists).at(
+            const DisplayList &dlist = RequireReference(model.DisplayLists).at(
                 static_cast<std::size_t>(mesh.DlistId));
             (void)dlist;
-            const Material &material = Deref(Deref(model.Materials).at(
+            const Material &material = RequireReference(RequireReference(model.Materials).at(
                 static_cast<std::size_t>(mesh.MaterialId)));
 
             Texture tex{};
             if (material.TextureId != -1)
             {
-                tex = Deref(recolor.Textures).at(static_cast<std::size_t>(material.TextureId));
+                tex = RequireReference(recolor.Textures).at(static_cast<std::size_t>(material.TextureId));
             }
 
             ExportDlist(model, mesh.DlistId, tempMeshVerts, meshVerts);
@@ -457,7 +444,7 @@ namespace MphRead::Export
                 {
                     float factorS = 1.0F;
                     float factorT = 1.0F;
-                    if (material.TexgenMode != TexgenMode::None && Deref(model.TextureMatrices).empty())
+                    if (material.TexgenMode != TexgenMode::None && RequireReference(model.TextureMatrices).empty())
                     {
                         factorS = material.ScaleS;
                         factorT = material.ScaleT;
@@ -468,11 +455,11 @@ namespace MphRead::Export
                         vert.Uv.Y * factorT * (1.0F / tex.Height));
                     if (material.XRepeat == RepeatMode::Clamp)
                     {
-                        newUv = Vector2(Clamp01(newUv.X), newUv.Y);
+                        newUv = Vector2(::OpenTK::Mathematics::MathHelper::Clamp(newUv.X, 0.0F, 1.0F), newUv.Y);
                     }
                     if (material.YRepeat == RepeatMode::Clamp)
                     {
-                        newUv = Vector2(newUv.X, Clamp01(newUv.Y));
+                        newUv = Vector2(newUv.X, ::OpenTK::Mathematics::MathHelper::Clamp(newUv.Y, 0.0F, 1.0F));
                     }
 
                     updated.emplace_back(
@@ -517,9 +504,9 @@ namespace MphRead::Export
 
         output += "\n\t<library_effects>";
         std::unordered_map<std::int32_t, std::string> effectsInLibrary;
-        for (const auto &materialRef : Deref(model.Materials))
+        for (const auto &materialRef : RequireReference(model.Materials))
         {
-            const Material &material = Deref(materialRef);
+            const Material &material = RequireReference(materialRef);
             const std::string textureName = IsNullOrEmpty(material.Name) ? "null" : material.Name;
             output += "\n\t\t<effect id=\"" + textureName + "-effect\">";
             output += "\n\t\t\t<profile_COMMON>";
@@ -599,9 +586,9 @@ namespace MphRead::Export
         const Model &model, std::int32_t parentId, std::string &output,
         std::int32_t indent, bool transformRoom)
     {
-        for (std::int32_t i = 0; i < static_cast<std::int32_t>(Deref(model.Nodes).size()); ++i)
+        for (std::int32_t i = 0; i < static_cast<std::int32_t>(RequireReference(model.Nodes).size()); ++i)
         {
-            const Node &node = Deref(Deref(model.Nodes).at(static_cast<std::size_t>(i)));
+            const Node &node = RequireReference(RequireReference(model.Nodes).at(static_cast<std::size_t>(i)));
             if (node.ParentIndex == parentId)
             {
                 Vector3 angle = Vector3::Zero;
@@ -651,7 +638,7 @@ namespace MphRead::Export
         const Model &model, std::int32_t nodeId, std::string &output, std::int32_t indent)
     {
         for (std::int32_t meshId :
-             Deref(Deref(model.Nodes).at(static_cast<std::size_t>(nodeId))).GetMeshIds())
+             RequireReference(RequireReference(model.Nodes).at(static_cast<std::size_t>(nodeId))).GetMeshIds())
         {
             AppendTabs(output, indent);
             output += "<node id=\"geom" + std::to_string(meshId + 1) + "_obj\" type=\"NODE\">\n";
@@ -664,7 +651,7 @@ namespace MphRead::Export
     void Collada::ExportMeshes(
         const Model &model, std::string &output, std::int32_t indent)
     {
-        for (std::int32_t i = 0; i < static_cast<std::int32_t>(Deref(model.Meshes).size()); ++i)
+        for (std::int32_t i = 0; i < static_cast<std::int32_t>(RequireReference(model.Meshes).size()); ++i)
         {
             AppendTabs(output, indent);
             output += "<node id=\"geom" + std::to_string(i + 1) + "_obj\" type=\"NODE\">\n";
@@ -677,8 +664,8 @@ namespace MphRead::Export
     void Collada::ExportMesh(
         const Model &model, std::int32_t meshId, std::string &output, std::int32_t indent)
     {
-        const Mesh &mesh = Deref(Deref(model.Meshes).at(static_cast<std::size_t>(meshId)));
-        const Material &material = Deref(Deref(model.Materials).at(static_cast<std::size_t>(mesh.MaterialId)));
+        const Mesh &mesh = RequireReference(RequireReference(model.Meshes).at(static_cast<std::size_t>(meshId)));
+        const Material &material = RequireReference(RequireReference(model.Materials).at(static_cast<std::size_t>(mesh.MaterialId)));
         const std::string textureName = IsNullOrEmpty(material.Name) ? "null" : material.Name;
 
         AppendTabs(output, indent);
@@ -713,29 +700,29 @@ namespace MphRead::Export
         std::int32_t curMeshType = 0;
         bool curMeshActive = false;
 
-        const auto &list = Deref(Deref(model.RenderInstructionLists).at(static_cast<std::size_t>(dlistId)));
+        const auto &list = RequireReference(RequireReference(model.RenderInstructionLists).at(static_cast<std::size_t>(dlistId)));
         for (const auto &instructionRef : list)
         {
-            const RenderInstruction &instruction = Deref(instructionRef);
+            const RenderInstruction &instruction = RequireReference(instructionRef);
             switch (instruction.Code)
             {
             case InstructionCode::MTX_RESTORE:
-                mtxState = static_cast<std::int32_t>(Deref(instruction.Arguments).at(0));
+                mtxState = static_cast<std::int32_t>(RequireReference(instruction.Arguments).at(0));
                 break;
 
             case InstructionCode::BEGIN_VTXS:
-                if (Deref(instruction.Arguments).at(0) > 3U)
+                if (RequireReference(instruction.Arguments).at(0) > 3U)
                 {
                     throw ProgramException("Invalid geo type");
                 }
-                curMeshType = static_cast<std::int32_t>(Deref(instruction.Arguments).at(0)) + 1;
+                curMeshType = static_cast<std::int32_t>(RequireReference(instruction.Arguments).at(0)) + 1;
                 curMeshActive = true;
                 meshVerts.clear();
                 break;
 
             case InstructionCode::COLOR:
             {
-                const std::uint32_t rgb = Deref(instruction.Arguments).at(0);
+                const std::uint32_t rgb = RequireReference(instruction.Arguments).at(0);
                 const std::uint32_t r = (rgb >> 0) & 0x1FU;
                 const std::uint32_t g = (rgb >> 5) & 0x1FU;
                 const std::uint32_t b = (rgb >> 10) & 0x1FU;
@@ -747,7 +734,7 @@ namespace MphRead::Export
 
             case InstructionCode::NORMAL:
             {
-                const std::uint32_t xyz = Deref(instruction.Arguments).at(0);
+                const std::uint32_t xyz = RequireReference(instruction.Arguments).at(0);
                 const std::int32_t x = SignExtend10(xyz >> 0);
                 const std::int32_t y = SignExtend10(xyz >> 10);
                 const std::int32_t z = SignExtend10(xyz >> 20);
@@ -759,7 +746,7 @@ namespace MphRead::Export
 
             case InstructionCode::TEXCOORD:
             {
-                const std::uint32_t st = Deref(instruction.Arguments).at(0);
+                const std::uint32_t st = RequireReference(instruction.Arguments).at(0);
                 const std::int32_t s = SignExtend16(st >> 0);
                 const std::int32_t t = SignExtend16(st >> 16);
                 uvState[0] = s / 16.0F;
@@ -769,10 +756,10 @@ namespace MphRead::Export
 
             case InstructionCode::VTX_16:
             {
-                const std::uint32_t xy = Deref(instruction.Arguments).at(0);
+                const std::uint32_t xy = RequireReference(instruction.Arguments).at(0);
                 const std::int32_t x = SignExtend16(xy >> 0);
                 const std::int32_t y = SignExtend16(xy >> 16);
-                const std::int32_t z = SignExtend16(Deref(instruction.Arguments).at(1));
+                const std::int32_t z = SignExtend16(RequireReference(instruction.Arguments).at(1));
                 vtxState[0] = Fixed::ToFloat(x);
                 vtxState[1] = Fixed::ToFloat(y);
                 vtxState[2] = Fixed::ToFloat(z);
@@ -786,7 +773,7 @@ namespace MphRead::Export
 
             case InstructionCode::VTX_10:
             {
-                const std::uint32_t xyz = Deref(instruction.Arguments).at(0);
+                const std::uint32_t xyz = RequireReference(instruction.Arguments).at(0);
                 const std::int32_t x = SignExtend10(xyz >> 0);
                 const std::int32_t y = SignExtend10(xyz >> 10);
                 const std::int32_t z = SignExtend10(xyz >> 20);
@@ -803,7 +790,7 @@ namespace MphRead::Export
 
             case InstructionCode::VTX_XY:
             {
-                const std::uint32_t xy = Deref(instruction.Arguments).at(0);
+                const std::uint32_t xy = RequireReference(instruction.Arguments).at(0);
                 const std::int32_t x = SignExtend16(xy >> 0);
                 const std::int32_t y = SignExtend16(xy >> 16);
                 vtxState[0] = Fixed::ToFloat(x);
@@ -818,7 +805,7 @@ namespace MphRead::Export
 
             case InstructionCode::VTX_XZ:
             {
-                const std::uint32_t xz = Deref(instruction.Arguments).at(0);
+                const std::uint32_t xz = RequireReference(instruction.Arguments).at(0);
                 const std::int32_t x = SignExtend16(xz >> 0);
                 const std::int32_t z = SignExtend16(xz >> 16);
                 vtxState[0] = Fixed::ToFloat(x);
@@ -833,7 +820,7 @@ namespace MphRead::Export
 
             case InstructionCode::VTX_YZ:
             {
-                const std::uint32_t yz = Deref(instruction.Arguments).at(0);
+                const std::uint32_t yz = RequireReference(instruction.Arguments).at(0);
                 const std::int32_t y = SignExtend16(yz >> 0);
                 const std::int32_t z = SignExtend16(yz >> 16);
                 vtxState[1] = Fixed::ToFloat(y);
@@ -848,7 +835,7 @@ namespace MphRead::Export
 
             case InstructionCode::VTX_DIFF:
             {
-                const std::uint32_t xyz = Deref(instruction.Arguments).at(0);
+                const std::uint32_t xyz = RequireReference(instruction.Arguments).at(0);
                 const std::int32_t x = SignExtend10(xyz >> 0);
                 const std::int32_t y = SignExtend10(xyz >> 10);
                 const std::int32_t z = SignExtend10(xyz >> 20);

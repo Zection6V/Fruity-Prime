@@ -24,6 +24,7 @@
 #include "../Enemies/41_Slench.hpp"
 #include "../Enemies/42_SlenchShield.hpp"
 #include "PlayerEntity.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
 
@@ -47,6 +48,7 @@
 #include <vector>
 
 using ::MphRead::NativeRuntime::ManagedAt;
+using ::MphRead::NativeRuntime::ManagedCast;
 using ::MphRead::NativeRuntime::RequireReference;
 using ::MphRead::TestFlag;
 
@@ -157,21 +159,6 @@ namespace
             }
         }
         return result;
-    }
-
-    template <typename TTarget, typename TSource>
-    [[nodiscard]] TTarget& ManagedCast(TSource* value)
-    {
-        if (value == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        auto* cast = dynamic_cast<TTarget*>(value);
-        if (cast == nullptr)
-        {
-            throw MphRead::SceneDetail::InvalidCastException();
-        }
-        return *cast;
     }
 
     [[nodiscard]] std::string FormatInt(std::int32_t value)
@@ -2239,7 +2226,7 @@ namespace MphRead::Entities
         std::int32_t lowHealth = 0;
         if (targetRef.Type == EntityType::EnemyInstance)
         {
-            auto& enemy = ManagedCast<EnemyInstanceEntity>(target);
+            auto& enemy = RequireReference(ManagedCast<EnemyInstanceEntity>(target));
             const EnemyType enemyType = enemy.EnemyType();
             if (enemyType != EnemyType::FireSpawn && enemyType != EnemyType::CretaphidCrystal
                 && enemyType != EnemyType::Slench && enemyType != EnemyType::SlenchShield
@@ -2254,31 +2241,31 @@ namespace MphRead::Entities
             current = enemy.Health();
             if (enemyType == EnemyType::SlenchShield)
             {
-                auto& shield = ManagedCast<Enemies::Enemy42Entity>(target);
+                auto& shield = RequireReference(ManagedCast<Enemies::Enemy42Entity>(target));
                 EnemyInstanceEntity& slench = RequireReference(shield.Slench());
                 max = slench.HealthMax();
                 current = slench.Health();
             }
             else if (enemyType == EnemyType::GoreaArm)
             {
-                auto& arm = ManagedCast<Enemies::Enemy26Entity>(target);
+                auto& arm = RequireReference(ManagedCast<Enemies::Enemy26Entity>(target));
                 current = max - arm.Damage;
             }
             else if (enemyType == EnemyType::GoreaSealSphere1)
             {
-                auto& sphere = ManagedCast<Enemies::Enemy29Entity>(target);
+                auto& sphere = RequireReference(ManagedCast<Enemies::Enemy29Entity>(target));
                 current = max - sphere.Damage();
             }
             else if (enemyType == EnemyType::GoreaSealSphere2)
             {
-                auto& sphere = ManagedCast<Enemies::Enemy32Entity>(target);
+                auto& sphere = RequireReference(ManagedCast<Enemies::Enemy32Entity>(target));
                 current = max - sphere.Damage();
             }
             lowHealth = max / 4;
         }
         else if (targetRef.Type == EntityType::Player)
         {
-            auto& player = ManagedCast<PlayerEntity>(target);
+            auto& player = RequireReference(ManagedCast<PlayerEntity>(target));
             max = player.HealthMax();
             current = player.Health();
             text = ManagedAt(_hunterNames, static_cast<std::int32_t>(player.Hunter()));
@@ -2286,7 +2273,7 @@ namespace MphRead::Entities
         }
         else if (targetRef.Type == EntityType::Halfturret)
         {
-            auto& turret = ManagedCast<HalfturretEntity>(target);
+            auto& turret = RequireReference(ManagedCast<HalfturretEntity>(target));
             max = RequireReference(turret.Owner()).HealthMax() / 2;
             current = turret.Health();
             text = ManagedAt(_altAttackNames, static_cast<std::int32_t>(Hunter::Weavel));

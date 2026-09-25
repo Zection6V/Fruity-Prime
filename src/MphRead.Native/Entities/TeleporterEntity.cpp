@@ -57,17 +57,6 @@ namespace
         return static_cast<std::size_t>(index);
     }
 
-    template <std::size_t Size>
-    [[nodiscard]] std::string MarshalString(const char (&value)[Size])
-    {
-        std::size_t length = 0;
-        while (length < Size && value[length] != '\0')
-        {
-            ++length;
-        }
-        return std::string(value, length);
-    }
-
     [[nodiscard]] unsigned char FoldInvariantAscii(unsigned char value) noexcept
     {
         if (value >= static_cast<unsigned char>('A')
@@ -271,7 +260,7 @@ namespace MphRead::Entities
         if (_data.NodeName[0] != '\0')
         {
             _targetNodeRef = RequireReference(_scene).GetNodeRefByName(
-                MarshalString(_data.NodeName));
+                ::MphRead::MarshalExtensions::MarshalUtf8(_data.NodeName));
         }
     }
 

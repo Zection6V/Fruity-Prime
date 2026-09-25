@@ -26,6 +26,24 @@ namespace MphRead::NativeRuntime
     [[nodiscard]] bool IsAndroid();
     // OperatingSystem.IsMacOS().
     [[nodiscard]] bool IsMacOS();
+    // OperatingSystem.IsLinux(): false on Android, which is its own answer.
+    [[nodiscard]] constexpr bool IsLinux() noexcept
+    {
+#if defined(__linux__) && !defined(__ANDROID__)
+        return true;
+#else
+        return false;
+#endif
+    }
+    // OperatingSystem.IsWindows().
+    [[nodiscard]] constexpr bool IsWindows() noexcept
+    {
+#if defined(_WIN32)
+        return true;
+#else
+        return false;
+#endif
+    }
 
     // Environment.GetFolderPath(Environment.SpecialFolder.UserProfile): the
     // home directory, or an empty string where there is none, as .NET returns.

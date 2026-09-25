@@ -3,6 +3,7 @@
 #include "../../NativeRuntime/System/DateTime.hpp"
 #include "../../NativeRuntime/System/Net.hpp"
 #include "NetProtocol.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 
 #include <cstdint>
 #include <exception>
@@ -12,34 +13,11 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::CSharpTryFinally;
+
 namespace
 {
     using MphRead::Mods::Network::NetProbeResult;
-
-    template <typename TBody, typename TFinally>
-    NetProbeResult CSharpTryFinally(TBody&& body, TFinally&& finalizer)
-    {
-        std::optional<NetProbeResult> result;
-        std::exception_ptr bodyException;
-        try
-        {
-            result.emplace(body());
-        }
-        catch (...)
-        {
-            bodyException = std::current_exception();
-        }
-
-        // A C# finally runs for both returns and exceptions. If the finalizer
-        // itself throws, that exception replaces the pending result/exception.
-        finalizer();
-
-        if (bodyException != nullptr)
-        {
-            std::rethrow_exception(bodyException);
-        }
-        return std::move(*result);
-    }
 
     std::string EndPointPrefix(
         const ::MphRead::NativeRuntime::EndPoint& endPoint,

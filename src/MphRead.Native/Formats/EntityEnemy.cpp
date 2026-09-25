@@ -1,5 +1,6 @@
 #include "EntityEnemy.hpp"
 #include "../NativeRuntime/System/Encoding.hpp"
+#include "../NativeRuntime/System/Managed.hpp"
 
 #include <array>
 #include <cstddef>
@@ -12,20 +13,10 @@
 #include <utility>
 
 using ::MphRead::NativeRuntime::AppendUtf8;
+using ::MphRead::NativeRuntime::AssignReadonly;
 
 namespace
 {
-    template <typename T>
-    T& AssignReadonly(T& self, const T& other) noexcept
-    {
-        if (std::addressof(self) != std::addressof(other))
-        {
-            self.~T();
-            ::new (static_cast<void*>(std::addressof(self))) T(other);
-        }
-        return self;
-    }
-
     // Editor string references hold the managed string as UTF-8; unpaired
     // surrogates become U+FFFD, as .NET's UTF-8 encoding does.
     std::shared_ptr<std::string> BindManagedEditorString(const std::u16string& value)

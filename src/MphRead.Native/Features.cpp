@@ -16,6 +16,7 @@
 #include <string_view>
 #include <system_error>
 
+using ::MphRead::NativeRuntime::BooleanTryParse;
 using ::MphRead::NativeRuntime::IsNumberWhiteSpace;
 using ::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase;
 using ::MphRead::NativeRuntime::StringTrimView;
@@ -113,39 +114,6 @@ namespace MphRead
             return 0;
         }
 
-        std::string_view TrimDotNetWhitespaceAndNull(std::string_view value)
-        {
-            while (!value.empty())
-            {
-                if (value.front() == '\0')
-                {
-                    value.remove_prefix(1);
-                    continue;
-                }
-                const std::size_t count = DotNetWhitespacePrefixLength(value);
-                if (count == 0)
-                {
-                    break;
-                }
-                value.remove_prefix(count);
-            }
-            while (!value.empty())
-            {
-                if (value.back() == '\0')
-                {
-                    value.remove_suffix(1);
-                    continue;
-                }
-                const std::size_t count = DotNetWhitespaceSuffixLength(value);
-                if (count == 0)
-                {
-                    break;
-                }
-                value.remove_suffix(count);
-            }
-            return value;
-        }
-
         std::string_view TrimNumberInput(std::string_view value)
         {
             while (!value.empty() && IsNumberWhiteSpace(value.front()))
@@ -161,22 +129,6 @@ namespace MphRead
                 value.remove_suffix(1);
             }
             return value;
-        }
-
-        bool TryParseBoolean(std::string_view value, bool& parsed)
-        {
-            value = TrimDotNetWhitespaceAndNull(value);
-            if (StringEqualsOrdinalIgnoreCase(value, "true"))
-            {
-                parsed = true;
-                return true;
-            }
-            if (StringEqualsOrdinalIgnoreCase(value, "false"))
-            {
-                parsed = false;
-                return true;
-            }
-            return false;
         }
 
         float DotNetSingleNaN()
@@ -623,32 +575,32 @@ namespace MphRead
     {
         bool parsed = false;
         if (const auto it = values.find("SmoothCamSeqHandoff");
-            it != values.end() && TryParseBoolean(it->second, parsed))
+            it != values.end() && BooleanTryParse(it->second, parsed))
         {
             SmoothCamSeqHandoff(parsed);
         }
         if (const auto it = values.find("BetterCamSeqNodeRef");
-            it != values.end() && TryParseBoolean(it->second, parsed))
+            it != values.end() && BooleanTryParse(it->second, parsed))
         {
             BetterCamSeqNodeRef(parsed);
         }
         if (const auto it = values.find("NoStrayRespawnText");
-            it != values.end() && TryParseBoolean(it->second, parsed))
+            it != values.end() && BooleanTryParse(it->second, parsed))
         {
             NoStrayRespawnText(parsed);
         }
         if (const auto it = values.find("CorrectBountySfx");
-            it != values.end() && TryParseBoolean(it->second, parsed))
+            it != values.end() && BooleanTryParse(it->second, parsed))
         {
             CorrectBountySfx(parsed);
         }
         if (const auto it = values.find("NoDoubleEnemyDeath");
-            it != values.end() && TryParseBoolean(it->second, parsed))
+            it != values.end() && BooleanTryParse(it->second, parsed))
         {
             NoDoubleEnemyDeath(parsed);
         }
         if (const auto it = values.find("NoSlenchRollTimerUnderflow");
-            it != values.end() && TryParseBoolean(it->second, parsed))
+            it != values.end() && BooleanTryParse(it->second, parsed))
         {
             NoSlenchRollTimerUnderflow(parsed);
         }
@@ -977,12 +929,12 @@ namespace MphRead
 
         bool parsed = false;
         if (const auto it = values.find("ProHud");
-            it != values.end() && TryParseBoolean(it->second, parsed))
+            it != values.end() && BooleanTryParse(it->second, parsed))
         {
             ProHud(parsed);
         }
         if (const auto it = values.find("ProHudFixedWeapon");
-            it != values.end() && TryParseBoolean(it->second, parsed))
+            it != values.end() && BooleanTryParse(it->second, parsed))
         {
             ProHudFixedWeapon(parsed);
         }
@@ -1137,57 +1089,57 @@ namespace MphRead
     {
         bool parsed = false;
         if (const auto it = values.find("FreeWeaponSelect");
-            it != values.end() && TryParseBoolean(it->second, parsed))
+            it != values.end() && BooleanTryParse(it->second, parsed))
         {
             FreeWeaponSelect(parsed);
         }
         if (const auto it = values.find("UnlimitedJumps");
-            it != values.end() && TryParseBoolean(it->second, parsed))
+            it != values.end() && BooleanTryParse(it->second, parsed))
         {
             UnlimitedJumps(parsed);
         }
         if (const auto it = values.find("NoRandomEncounters");
-            it != values.end() && TryParseBoolean(it->second, parsed))
+            it != values.end() && BooleanTryParse(it->second, parsed))
         {
             NoRandomEncounters(parsed);
         }
         if (const auto it = values.find("UnlockAllDoors");
-            it != values.end() && TryParseBoolean(it->second, parsed))
+            it != values.end() && BooleanTryParse(it->second, parsed))
         {
             UnlockAllDoors(parsed);
         }
         if (const auto it = values.find("ContinueFromCurrentRoom");
-            it != values.end() && TryParseBoolean(it->second, parsed))
+            it != values.end() && BooleanTryParse(it->second, parsed))
         {
             ContinueFromCurrentRoom(parsed);
         }
         if (const auto it = values.find("SkipPlanetIntros");
-            it != values.end() && TryParseBoolean(it->second, parsed))
+            it != values.end() && BooleanTryParse(it->second, parsed))
         {
             SkipPlanetIntros(parsed);
         }
         if (const auto it = values.find("StartWithAllUpgrades");
-            it != values.end() && TryParseBoolean(it->second, parsed))
+            it != values.end() && BooleanTryParse(it->second, parsed))
         {
             StartWithAllUpgrades(parsed);
         }
         if (const auto it = values.find("StartWithAllOctoliths");
-            it != values.end() && TryParseBoolean(it->second, parsed))
+            it != values.end() && BooleanTryParse(it->second, parsed))
         {
             StartWithAllOctoliths(parsed);
         }
         if (const auto it = values.find("WalkThroughWalls");
-            it != values.end() && TryParseBoolean(it->second, parsed))
+            it != values.end() && BooleanTryParse(it->second, parsed))
         {
             WalkThroughWalls(parsed);
         }
         if (const auto it = values.find("AlwaysFightGorea2");
-            it != values.end() && TryParseBoolean(it->second, parsed))
+            it != values.end() && BooleanTryParse(it->second, parsed))
         {
             AlwaysFightGorea2(parsed);
         }
         if (const auto it = values.find("QuadrupleDamage");
-            it != values.end() && TryParseBoolean(it->second, parsed))
+            it != values.end() && BooleanTryParse(it->second, parsed))
         {
             QuadrupleDamage(parsed);
         }

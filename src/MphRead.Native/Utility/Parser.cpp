@@ -1,6 +1,8 @@
 #include "Parser.hpp"
 
 #include "../Formats/Enums.hpp"
+#include "../NativeRuntime/System/IO.hpp"
+#include "../NativeRuntime/System/Console.hpp"
 
 #include <array>
 #include <bit>
@@ -28,6 +30,9 @@
 #include <unistd.h>
 #endif
 
+using ::MphRead::NativeRuntime::ConsoleWrite;
+using ::MphRead::NativeRuntime::ConsoleWriteLine;
+
 namespace
 {
 #if defined(_WIN32)
@@ -35,36 +40,6 @@ namespace
 #else
     constexpr std::string_view EnvironmentNewLine = "\n";
 #endif
-
-    void CheckConsoleOutput()
-    {
-        if (!std::cout.good())
-        {
-            throw std::ios_base::failure("Console output failed.");
-        }
-    }
-
-    void ConsoleWriteLine(const std::string& message)
-    {
-        std::cout.write(message.data(), static_cast<std::streamsize>(message.size()));
-        std::cout.put('\n');
-        std::cout.flush();
-        CheckConsoleOutput();
-    }
-
-    void ConsoleWriteLine()
-    {
-        std::cout.put('\n');
-        std::cout.flush();
-        CheckConsoleOutput();
-    }
-
-    void ConsoleWrite(const std::string& message)
-    {
-        std::cout.write(message.data(), static_cast<std::streamsize>(message.size()));
-        std::cout.flush();
-        CheckConsoleOutput();
-    }
 
     void ConsoleClear()
     {
@@ -97,13 +72,9 @@ namespace
         {
             throw std::ios_base::failure("No console is available.");
         }
-        std::cout.write("\x1B[2J\x1B[H", 7);
-        std::cout.flush();
-        CheckConsoleOutput();
+        ConsoleWrite("\x1B[2J\x1B[H");
 #else
-        std::cout.write("\x1B[2J\x1B[H", 7);
-        std::cout.flush();
-        CheckConsoleOutput();
+        ConsoleWrite("\x1B[2J\x1B[H");
 #endif
     }
 

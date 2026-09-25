@@ -206,16 +206,6 @@ namespace
         return (found->second);
     }
 
-    template <typename T>
-    [[nodiscard]] T& Require(const std::shared_ptr<T>& value)
-    {
-        if (!value)
-        {
-            throw System::NullReferenceException();
-        }
-        return *value;
-    }
-
     [[nodiscard]] const std::string& RequireString(
         const std::optional<std::string>& value, const char* parameter)
     {

@@ -25,22 +25,12 @@
 #include <utility>
 #include <vector>
 
+using ::MphRead::NativeRuntime::AssignReadonly;
 using ::MphRead::NativeRuntime::FileReadAllBytes;
 using ::MphRead::NativeRuntime::UncheckedNegate;
 
 namespace
 {
-    template <typename T>
-    T& AssignReadonly(T& target, const T& source) noexcept
-    {
-        if (std::addressof(target) != std::addressof(source))
-        {
-            target.~T();
-            ::new (static_cast<void*>(std::addressof(target))) T(source);
-        }
-        return target;
-    }
-
     [[nodiscard]] float RoundToEven3(float value) noexcept
     {
         if (!std::isfinite(value) || value == 0.0F)

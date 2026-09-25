@@ -1522,198 +1522,6 @@ namespace MphRead::Formats
             return UncheckedAdd(UncheckedAdd(a, b), c);
         }
 
-        class FileStream final : public MovieNativeRuntime::Stream
-        {
-        public:
-            explicit FileStream(const std::filesystem::path& path)
-            {
-                if (path.empty())
-                {
-                    throw System::ArgumentException("The path is empty.");
-                }
-                std::error_code ec;
-                if (std::filesystem::is_directory(path, ec) && !ec)
-                {
-                    throw System::UnauthorizedAccessException(
-                        "Access to the path is denied.");
-                }
-                errno = 0;
-                _stream.open(path, std::ios::binary);
-                if (!_stream.is_open())
-                {
-                    ThrowOpenFailure(path, errno);
-                }
-            }
-
-            [[nodiscard]] bool CanRead() const noexcept override
-            {
-                return !_disposed && _stream.is_open();
-            }
-
-            [[nodiscard]] bool CanSeek() const noexcept override
-            {
-                return !_disposed && _stream.is_open();
-            }
-
-            [[nodiscard]] std::size_t Read(std::span<std::uint8_t> destination) override
-            {
-                ThrowIfDisposed();
-                _stream.read(
-                    reinterpret_cast<char*>(destination.data()),
-                    static_cast<std::streamsize>(destination.size()));
-                return static_cast<std::size_t>(_stream.gcount());
-            }
-
-            [[nodiscard]] std::int64_t Position() const override
-            {
-                ThrowIfDisposed();
-                const std::streampos position = _stream.tellg();
-                if (position == std::streampos(-1))
-                {
-                    throw System::IO::IOException("Stream position is unavailable.");
-                }
-                return static_cast<std::int64_t>(position);
-            }
-
-            void Position(std::int64_t value) override
-            {
-                ThrowIfDisposed();
-                if (value < 0)
-                {
-                    throw System::ArgumentOutOfRangeException("value");
-                }
-                _stream.clear();
-                _stream.seekg(static_cast<std::streamoff>(value), std::ios::beg);
-                if (!_stream.good())
-                {
-                    throw System::IO::IOException("An I/O error occurred while seeking.");
-                }
-            }
-
-            void Dispose() override
-            {
-                if (!_disposed)
-                {
-                    _stream.close();
-                    _disposed = true;
-                }
-            }
-
-        private:
-            mutable std::ifstream _stream;
-            bool _disposed = false;
-
-            [[noreturn]] static void ThrowOpenFailure(
-                const std::filesystem::path& path, int error)
-            {
-                if (error == ENAMETOOLONG)
-                {
-                    throw System::IO::PathTooLongException("The specified path is too long.");
-                }
-                if (error == EACCES || error == EPERM || error == EISDIR)
-                {
-                    throw System::UnauthorizedAccessException("Access to the path is denied.");
-                }
-                if (error == ENOTDIR)
-                {
-                    throw System::IO::DirectoryNotFoundException(
-                        "Could not find a part of the path.");
-                }
-                if (error == ENOENT || error == 0)
-                {
-                    const std::filesystem::path parent = path.parent_path();
-                    if (!parent.empty())
-                    {
-                        std::error_code ec;
-                        if (!std::filesystem::exists(parent, ec) || ec)
-                        {
-                            throw System::IO::DirectoryNotFoundException(
-                                "Could not find a part of the path.");
-                        }
-                    }
-                    throw System::IO::FileNotFoundException(
-                        "Could not find the specified file.");
-                }
-                throw System::IO::IOException("The file could not be opened.");
-            }
-
-            void ThrowIfDisposed() const
-            {
-                if (_disposed)
-                {
-                    throw System::ObjectDisposedException("FileStream");
-                }
-            }
-        };
-
-        class ArrayStream final : public MovieNativeRuntime::Stream
-        {
-        public:
-            explicit ArrayStream(std::shared_ptr<ClrArray<std::uint8_t>> data)
-                : _data(std::move(data)), _length(_data ? _data->Length() : 0)
-            {
-                if (!_data)
-                {
-                    throw System::ArgumentNullException("buffer");
-                }
-            }
-
-            [[nodiscard]] bool CanRead() const noexcept override { return !_disposed; }
-            [[nodiscard]] bool CanSeek() const noexcept override { return !_disposed; }
-
-            [[nodiscard]] std::size_t Read(std::span<std::uint8_t> destination) override
-            {
-                ThrowIfDisposed();
-                if (_position >= _length || destination.empty())
-                {
-                    return 0;
-                }
-                const std::int32_t available = _length - _position;
-                const std::size_t count = std::min(
-                    destination.size(), static_cast<std::size_t>(available));
-                for (std::size_t i = 0; i < count; ++i)
-                {
-                    destination[i] = (*_data)[_position + static_cast<std::int32_t>(i)];
-                }
-                _position += static_cast<std::int32_t>(count);
-                return count;
-            }
-
-            [[nodiscard]] std::int64_t Position() const override
-            {
-                ThrowIfDisposed();
-                return _position;
-            }
-
-            void Position(std::int64_t value) override
-            {
-                ThrowIfDisposed();
-                if (value < 0 || value > std::numeric_limits<std::int32_t>::max())
-                {
-                    throw System::ArgumentOutOfRangeException("value");
-                }
-                _position = static_cast<std::int32_t>(value);
-            }
-
-            void Dispose() override
-            {
-                _disposed = true;
-            }
-
-        private:
-            std::shared_ptr<ClrArray<std::uint8_t>> _data;
-            const std::int32_t _length;
-            std::int32_t _position = 0;
-            bool _disposed = false;
-
-            void ThrowIfDisposed() const
-            {
-                if (_disposed)
-                {
-                    throw System::ObjectDisposedException("MemoryStream");
-                }
-            }
-        };
 
         [[nodiscard]] std::string Extension(const std::filesystem::path& path)
         {
@@ -2061,7 +1869,9 @@ namespace MphRead::Formats
         const std::string& filePath, bool writeFiles, std::stop_token token)
     {
         co_await MovieNativeRuntime::MovieTask::TrackLifetime(_lifetime);
-        auto stream = std::make_shared<FileStream>(PathFromUtf8(filePath));
+        auto stream = std::make_shared<::MphRead::NativeRuntime::FileStream>(filePath,
+            ::MphRead::NativeRuntime::FileMode::Open, ::MphRead::NativeRuntime::FileAccess::Read,
+            ::MphRead::NativeRuntime::FileShare::Read);
         co_await Decode(std::static_pointer_cast<MovieNativeRuntime::Stream>(stream),
             FileName(PathFromUtf8(filePath)), writeFiles, token);
         co_return;
@@ -2077,7 +1887,13 @@ namespace MphRead::Formats
             // MemoryStream(byte[]) faults the async method with ArgumentNullException.
             throw System::ArgumentNullException("buffer");
         }
-        auto stream = std::make_shared<ArrayStream>(data);
+        std::vector<std::uint8_t> bytes(static_cast<std::size_t>(data->Length()));
+        for (std::int32_t i = 0; i < data->Length(); ++i)
+        {
+            bytes[static_cast<std::size_t>(i)] = (*data)[i];
+        }
+        // new MemoryStream(byte[]): fixed in size and writable.
+        auto stream = std::make_shared<::MphRead::NativeRuntime::MemoryStream>(std::move(bytes));
         co_await Decode(std::static_pointer_cast<MovieNativeRuntime::Stream>(stream),
             filename, writeFiles, token);
         co_return;

@@ -2,6 +2,7 @@
 // Avalonia's RenderTargetBitmap is on the managed side. The screens are the
 // same adapters the launcher uses, drawn into a framebuffer of their own.
 
+#include "NativeRuntime/System/IO.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
 #include "HostScreens.hpp"
 #include "HomeViewHost.hpp"
@@ -70,20 +71,19 @@ namespace MphRead::NativeRuntime::Avalonia
             {
                 std::error_code error;
                 std::filesystem::create_directories(
-                    std::filesystem::path(directory), error);
+                    ::MphRead::NativeRuntime::PathFromUtf8(directory), error);
             }
 
             [[nodiscard]] std::string PathCombine(
                 std::string_view left, std::string_view right) const override
             {
-                return (std::filesystem::path(left) / std::filesystem::path(right))
-                    .string();
+                return ::MphRead::NativeRuntime::PathCombine(left, right);
             }
 
             [[nodiscard]] std::string PathGetFileName(
                 std::string_view path) const override
             {
-                return std::filesystem::path(path).filename().string();
+                return ::MphRead::NativeRuntime::PathGetFileName(std::string(path));
             }
 
             [[nodiscard]] std::string FormatCurrentInt32(
@@ -405,7 +405,7 @@ namespace MphRead::NativeRuntime::Avalonia
                 {
                     return;
                 }
-                std::ofstream file(std::filesystem::path(path), std::ios::binary);
+                std::ofstream file(::MphRead::NativeRuntime::PathFromUtf8(path), std::ios::binary);
                 if (!file)
                 {
                     return;

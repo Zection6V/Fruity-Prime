@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../NativeRuntime/System/Streams.hpp"
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "Formats.hpp"
 #include "Sound.hpp"
@@ -385,17 +386,7 @@ namespace MphRead::Formats
             }
         };
 
-        class Stream
-        {
-        public:
-            virtual ~Stream() = default;
-            [[nodiscard]] virtual bool CanRead() const noexcept = 0;
-            [[nodiscard]] virtual bool CanSeek() const noexcept = 0;
-            [[nodiscard]] virtual std::size_t Read(std::span<std::uint8_t> destination) = 0;
-            [[nodiscard]] virtual std::int64_t Position() const = 0;
-            virtual void Position(std::int64_t value) = 0;
-            virtual void Dispose() = 0;
-        };
+        using Stream = ::MphRead::NativeRuntime::Stream;
 
         class BinaryReader final
         {

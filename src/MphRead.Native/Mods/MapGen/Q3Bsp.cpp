@@ -7,6 +7,7 @@
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
 #include "NativeRuntime/System/HashCode.hpp"
+#include "NativeRuntime/System/ZipArchive.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -224,604 +225,6 @@ namespace
             return value;
         }
     };
-
-    struct HuffmanNode
-    {
-        std::int32_t child[2] = {-1, -1};
-        std::int32_t symbol = -1;
-    };
-
-    class BitReader
-    {
-    public:
-        explicit BitReader(const ByteVector& bytes) noexcept : _bytes(bytes) {}
-
-        [[nodiscard]] std::uint32_t ReadBits(std::int32_t count)
-        {
-            std::uint32_t value = 0;
-            for (std::int32_t i = 0; i < count; ++i)
-            {
-                if (_bitPosition >= _bytes.size() * 8ULL)
-                {
-                    throw System::IO::InvalidDataException("Invalid deflate stream.");
-                }
-                const std::size_t byteIndex = _bitPosition >> 3;
-                const std::size_t bitIndex = _bitPosition & 7;
-                value |= static_cast<std::uint32_t>((_bytes[byteIndex] >> bitIndex) & 1U) << i;
-                ++_bitPosition;
-            }
-            return value;
-        }
-
-        void AlignByte() noexcept
-        {
-            _bitPosition = (_bitPosition + 7U) & ~std::size_t(7U);
-        }
-
-        [[nodiscard]] std::size_t BytePosition() const noexcept { return _bitPosition >> 3; }
-        void BytePosition(std::size_t value) noexcept { _bitPosition = value << 3; }
-
-    private:
-        const ByteVector& _bytes;
-        std::size_t _bitPosition = 0;
-    };
-
-    [[nodiscard]] std::vector<HuffmanNode> BuildHuffman(const std::vector<std::uint8_t>& lengths)
-    {
-        constexpr std::int32_t MaxBits = 15;
-        std::array<std::int32_t, MaxBits + 1> counts{};
-        for (std::uint8_t length : lengths)
-        {
-            if (length > MaxBits)
-            {
-                throw System::IO::InvalidDataException("Invalid deflate Huffman code length.");
-            }
-            if (length != 0)
-            {
-                ++counts[length];
-            }
-        }
-
-        std::array<std::int32_t, MaxBits + 1> next{};
-        std::int32_t code = 0;
-        for (std::int32_t bits = 1; bits <= MaxBits; ++bits)
-        {
-            code = (code + counts[bits - 1]) << 1;
-            next[bits] = code;
-        }
-
-        std::vector<HuffmanNode> nodes(1);
-        for (std::size_t symbol = 0; symbol < lengths.size(); ++symbol)
-        {
-            const std::int32_t length = lengths[symbol];
-            if (length == 0)
-            {
-                continue;
-            }
-            const std::int32_t assigned = next[length]++;
-            std::int32_t node = 0;
-            for (std::int32_t bitIndex = length - 1; bitIndex >= 0; --bitIndex)
-            {
-                const std::int32_t bit = (assigned >> bitIndex) & 1;
-                if (nodes[node].child[bit] < 0)
-                {
-                    nodes[node].child[bit] = static_cast<std::int32_t>(nodes.size());
-                    nodes.emplace_back();
-                }
-                node = nodes[node].child[bit];
-            }
-            if (nodes[node].symbol >= 0)
-            {
-                throw System::IO::InvalidDataException("Invalid deflate Huffman tree.");
-            }
-            nodes[node].symbol = static_cast<std::int32_t>(symbol);
-        }
-        return nodes;
-    }
-
-    [[nodiscard]] std::int32_t DecodeSymbol(BitReader& reader, const std::vector<HuffmanNode>& tree)
-    {
-        std::int32_t node = 0;
-        for (std::int32_t depth = 0; depth <= 15; ++depth)
-        {
-            if (tree[node].symbol >= 0)
-            {
-                return tree[node].symbol;
-            }
-            const std::int32_t bit = static_cast<std::int32_t>(reader.ReadBits(1));
-            node = tree[node].child[bit];
-            if (node < 0)
-            {
-                throw System::IO::InvalidDataException("Invalid deflate Huffman code.");
-            }
-        }
-        throw System::IO::InvalidDataException("Invalid deflate Huffman code.");
-    }
-
-    [[nodiscard]] bool InflateCodes(BitReader& reader, ByteVector& output,
-        const std::vector<HuffmanNode>& literalTree,
-        const std::vector<HuffmanNode>& distanceTree, bool deflate64, std::size_t outputLimit)
-    {
-        static constexpr std::array<std::int32_t, 29> LengthBase{
-            3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258};
-        static constexpr std::array<std::int32_t, 29> LengthExtra{
-            0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0};
-        static constexpr std::array<std::int32_t, 32> DistanceBase{
-            1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,
-            1025,1537,2049,3073,4097,6145,8193,12289,16385,24577,32769,49153};
-        static constexpr std::array<std::int32_t, 32> DistanceExtra{
-            0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13,14,14};
-
-        while (true)
-        {
-            const std::int32_t symbol = DecodeSymbol(reader, literalTree);
-            if (symbol < 256)
-            {
-                output.push_back(static_cast<std::uint8_t>(symbol));
-                if (output.size() >= outputLimit) return true;
-                continue;
-            }
-            if (symbol == 256)
-            {
-                return false;
-            }
-            if (symbol < 257 || symbol > 285)
-            {
-                throw System::IO::InvalidDataException("Invalid deflate length code.");
-            }
-            const std::size_t lengthIndex = static_cast<std::size_t>(symbol - 257);
-            std::int32_t length = LengthBase[lengthIndex];
-            std::int32_t lengthExtra = LengthExtra[lengthIndex];
-            if (deflate64 && symbol == 285)
-            {
-                length = 3;
-                lengthExtra = 16;
-            }
-            if (lengthExtra != 0)
-            {
-                length += static_cast<std::int32_t>(reader.ReadBits(lengthExtra));
-            }
-
-            const std::int32_t distanceSymbol = DecodeSymbol(reader, distanceTree);
-            const std::int32_t distanceCodeCount = deflate64 ? 32 : 30;
-            if (distanceSymbol < 0 || distanceSymbol >= distanceCodeCount)
-            {
-                throw System::IO::InvalidDataException("Invalid deflate distance code.");
-            }
-            std::int32_t distance = DistanceBase[distanceSymbol];
-            if (DistanceExtra[distanceSymbol] != 0)
-            {
-                distance += static_cast<std::int32_t>(reader.ReadBits(DistanceExtra[distanceSymbol]));
-            }
-            if (distance <= 0 || static_cast<std::size_t>(distance) > output.size())
-            {
-                throw System::IO::InvalidDataException("Invalid deflate distance.");
-            }
-            for (std::int32_t i = 0; i < length; ++i)
-            {
-                output.push_back(output[output.size() - static_cast<std::size_t>(distance)]);
-                if (output.size() >= outputLimit) return true;
-            }
-        }
-    }
-
-    [[nodiscard]] ByteVector InflateRaw(const ByteVector& input, std::size_t outputLimit, bool deflate64 = false)
-    {
-        ByteVector output;
-        if (outputLimit == 0) return output;
-        BitReader reader(input);
-        bool finalBlock = false;
-        while (!finalBlock)
-        {
-            finalBlock = reader.ReadBits(1) != 0;
-            const std::uint32_t type = reader.ReadBits(2);
-            if (type == 0)
-            {
-                reader.AlignByte();
-                std::size_t position = reader.BytePosition();
-                if (position > input.size() || input.size() - position < 4)
-                {
-                    throw System::IO::InvalidDataException("Invalid stored deflate block.");
-                }
-                const std::uint16_t length = ReadU16(input, position);
-                const std::uint16_t complement = ReadU16(input, position + 2);
-                position += 4;
-                if (static_cast<std::uint16_t>(~length) != complement)
-                {
-                    throw System::IO::InvalidDataException("Invalid stored deflate block.");
-                }
-                const std::size_t remaining = outputLimit - output.size();
-                const std::size_t copyCount = std::min<std::size_t>(length, remaining);
-                if (position > input.size() || copyCount > input.size() - position)
-                {
-                    throw System::IO::InvalidDataException("Invalid stored deflate block.");
-                }
-                output.insert(output.end(),
-                    input.begin() + static_cast<std::ptrdiff_t>(position),
-                    input.begin() + static_cast<std::ptrdiff_t>(position + copyCount));
-                if (copyCount < length || output.size() >= outputLimit) return output;
-                reader.BytePosition(position + length);
-            }
-            else if (type == 1)
-            {
-                std::vector<std::uint8_t> literalLengths(288);
-                for (std::int32_t i = 0; i <= 143; ++i) literalLengths[i] = 8;
-                for (std::int32_t i = 144; i <= 255; ++i) literalLengths[i] = 9;
-                for (std::int32_t i = 256; i <= 279; ++i) literalLengths[i] = 7;
-                for (std::int32_t i = 280; i <= 287; ++i) literalLengths[i] = 8;
-                std::vector<std::uint8_t> distanceLengths(32, 5);
-                if (InflateCodes(reader, output, BuildHuffman(literalLengths),
-                    BuildHuffman(distanceLengths), deflate64, outputLimit)) return output;
-            }
-            else if (type == 2)
-            {
-                const std::int32_t literalCount = static_cast<std::int32_t>(reader.ReadBits(5)) + 257;
-                const std::int32_t distanceCount = static_cast<std::int32_t>(reader.ReadBits(5)) + 1;
-                const std::int32_t codeCount = static_cast<std::int32_t>(reader.ReadBits(4)) + 4;
-                static constexpr std::array<std::int32_t, 19> Order{
-                    16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15};
-                std::vector<std::uint8_t> codeLengths(19, 0);
-                for (std::int32_t i = 0; i < codeCount; ++i)
-                {
-                    codeLengths[Order[i]] = static_cast<std::uint8_t>(reader.ReadBits(3));
-                }
-                const std::vector<HuffmanNode> codeTree = BuildHuffman(codeLengths);
-                std::vector<std::uint8_t> lengths;
-                lengths.reserve(static_cast<std::size_t>(literalCount + distanceCount));
-                while (static_cast<std::int32_t>(lengths.size()) < literalCount + distanceCount)
-                {
-                    const std::int32_t symbol = DecodeSymbol(reader, codeTree);
-                    if (symbol <= 15)
-                    {
-                        lengths.push_back(static_cast<std::uint8_t>(symbol));
-                    }
-                    else if (symbol == 16)
-                    {
-                        if (lengths.empty()) throw System::IO::InvalidDataException("Invalid deflate repeat code.");
-                        const std::int32_t repeat = static_cast<std::int32_t>(reader.ReadBits(2)) + 3;
-                        const std::uint8_t value = lengths.back();
-                        for (std::int32_t i = 0; i < repeat; ++i) lengths.push_back(value);
-                    }
-                    else if (symbol == 17)
-                    {
-                        const std::int32_t repeat = static_cast<std::int32_t>(reader.ReadBits(3)) + 3;
-                        for (std::int32_t i = 0; i < repeat; ++i) lengths.push_back(0);
-                    }
-                    else if (symbol == 18)
-                    {
-                        const std::int32_t repeat = static_cast<std::int32_t>(reader.ReadBits(7)) + 11;
-                        for (std::int32_t i = 0; i < repeat; ++i) lengths.push_back(0);
-                    }
-                    else
-                    {
-                        throw System::IO::InvalidDataException("Invalid deflate code-length symbol.");
-                    }
-                    if (static_cast<std::int32_t>(lengths.size()) > literalCount + distanceCount)
-                    {
-                        throw System::IO::InvalidDataException("Invalid deflate code lengths.");
-                    }
-                }
-                std::vector<std::uint8_t> literalLengths(lengths.begin(), lengths.begin() + literalCount);
-                std::vector<std::uint8_t> distanceLengths(lengths.begin() + literalCount, lengths.end());
-                if (InflateCodes(reader, output, BuildHuffman(literalLengths),
-                    BuildHuffman(distanceLengths), deflate64, outputLimit)) return output;
-            }
-            else
-            {
-                throw System::IO::InvalidDataException("Invalid deflate block type.");
-            }
-        }
-        return output;
-    }
-
-    struct ZipEntry
-    {
-        std::string name;
-        std::uint16_t flags = 0;
-        std::uint16_t method = 0;
-        std::uint64_t compressedSize = 0;
-        std::uint64_t uncompressedSize = 0;
-        std::uint64_t localOffset = 0;
-        std::uint32_t diskNumberStart = 0;
-        std::uint32_t archiveDiskNumber = 0;
-    };
-
-    [[nodiscard]] std::uint64_t ReadZip64SignedValue(
-        const ByteVector& field, std::size_t& position)
-    {
-        if (position > field.size() || field.size() - position < 8)
-        {
-            throw System::IO::InvalidDataException("Invalid ZIP64 extra field.");
-        }
-        const std::uint64_t value = ReadU64(field, position);
-        position += 8;
-        if (value > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()))
-        {
-            throw System::IO::InvalidDataException("ZIP64 field is too large.");
-        }
-        return value;
-    }
-
-    void ApplyZip64Extra(ZipEntry& entry, const ByteVector& extra,
-        bool needUncompressed, bool needCompressed, bool needOffset, bool needDisk)
-    {
-        std::size_t cursor = 0;
-        while (cursor + 4 <= extra.size())
-        {
-            const std::uint16_t tag = ReadU16(extra, cursor);
-            const std::uint16_t size = ReadU16(extra, cursor + 2);
-            cursor += 4;
-            if (size > extra.size() - cursor)
-            {
-                return;
-            }
-            if (tag != 0x0001U)
-            {
-                cursor += size;
-                continue;
-            }
-            if (size < 8)
-            {
-                return;
-            }
-
-            ByteVector field(
-                extra.begin() + static_cast<std::ptrdiff_t>(cursor),
-                extra.begin() + static_cast<std::ptrdiff_t>(cursor + size));
-            const bool readAllFields = size >= 28;
-            std::size_t position = 0;
-
-            if (needUncompressed)
-            {
-                entry.uncompressedSize = ReadZip64SignedValue(field, position);
-            }
-            else if (readAllFields)
-            {
-                position += 8;
-            }
-
-            if (position > field.size() - 8)
-            {
-                return;
-            }
-            if (needCompressed)
-            {
-                entry.compressedSize = ReadZip64SignedValue(field, position);
-            }
-            else if (readAllFields)
-            {
-                position += 8;
-            }
-
-            if (position > field.size() - 8)
-            {
-                return;
-            }
-            if (needOffset)
-            {
-                entry.localOffset = ReadZip64SignedValue(field, position);
-            }
-            else if (readAllFields)
-            {
-                position += 8;
-            }
-
-            if (position > field.size() - 4)
-            {
-                return;
-            }
-            if (needDisk)
-            {
-                entry.diskNumberStart = ReadU32(field, position);
-            }
-            return;
-        }
-    }
-
-    [[nodiscard]] std::vector<ZipEntry> ReadZipEntries(const ByteVector& archive)
-    {
-        if (archive.size() < 22)
-        {
-            throw System::IO::InvalidDataException("Central Directory corrupt.");
-        }
-        const std::size_t searchStart = archive.size() > 65557
-            ? archive.size() - 65557 : 0;
-        std::size_t eocd = std::numeric_limits<std::size_t>::max();
-        for (std::size_t position = archive.size() - 22;; --position)
-        {
-            if (ReadU32(archive, position) == 0x06054B50U)
-            {
-                eocd = position;
-                break;
-            }
-            if (position == searchStart)
-            {
-                break;
-            }
-        }
-        if (eocd == std::numeric_limits<std::size_t>::max())
-        {
-            throw System::IO::InvalidDataException("End of Central Directory record could not be found.");
-        }
-
-        const std::uint16_t eocdDisk = ReadU16(archive, eocd + 4);
-        const std::uint16_t eocdCentralDisk = ReadU16(archive, eocd + 6);
-        if (eocdDisk != eocdCentralDisk)
-        {
-            throw System::IO::InvalidDataException("Split or spanned ZIP archives are not supported.");
-        }
-        const std::uint16_t entriesOnDisk = ReadU16(archive, eocd + 8);
-        const std::uint16_t totalEntries = ReadU16(archive, eocd + 10);
-        if (entriesOnDisk != totalEntries)
-        {
-            throw System::IO::InvalidDataException("Split or spanned ZIP archives are not supported.");
-        }
-
-        std::uint32_t archiveDiskNumber = eocdDisk;
-        std::uint64_t entryCount = totalEntries;
-        std::uint64_t centralOffset = ReadU32(archive, eocd + 16);
-
-        const bool suspectZip64 = eocdDisk == 0xFFFFU
-            || centralOffset == 0xFFFFFFFFULL || entryCount == 0xFFFFU;
-        if (suspectZip64 && eocd >= 20 && ReadU32(archive, eocd - 20) == 0x07064B50U)
-        {
-            const std::uint64_t zip64Offset = ReadU64(archive, eocd - 12);
-            if (zip64Offset > static_cast<std::uint64_t>(
-                    std::numeric_limits<std::int64_t>::max()))
-            {
-                throw System::IO::InvalidDataException("ZIP64 End of Central Directory offset is too large.");
-            }
-            if (zip64Offset > archive.size()
-                || archive.size() - static_cast<std::size_t>(zip64Offset) < 56
-                || ReadU32(archive, static_cast<std::size_t>(zip64Offset)) != 0x06064B50U)
-            {
-                throw System::IO::InvalidDataException("ZIP64 End of Central Directory record is invalid.");
-            }
-
-            const std::size_t offset = static_cast<std::size_t>(zip64Offset);
-            archiveDiskNumber = ReadU32(archive, offset + 16);
-            const std::uint64_t zip64EntriesOnDisk = ReadU64(archive, offset + 24);
-            const std::uint64_t zip64EntryCount = ReadU64(archive, offset + 32);
-            const std::uint64_t zip64CentralOffset = ReadU64(archive, offset + 48);
-            if (zip64EntryCount > static_cast<std::uint64_t>(
-                    std::numeric_limits<std::int64_t>::max()))
-            {
-                throw System::IO::InvalidDataException("ZIP64 entry count is too large.");
-            }
-            if (zip64CentralOffset > static_cast<std::uint64_t>(
-                    std::numeric_limits<std::int64_t>::max()))
-            {
-                throw System::IO::InvalidDataException("ZIP64 Central Directory offset is too large.");
-            }
-            if (zip64EntryCount != zip64EntriesOnDisk)
-            {
-                throw System::IO::InvalidDataException("Split or spanned ZIP archives are not supported.");
-            }
-            entryCount = zip64EntryCount;
-            centralOffset = zip64CentralOffset;
-        }
-
-        if (centralOffset > archive.size())
-        {
-            throw System::IO::InvalidDataException("Central Directory corrupt.");
-        }
-        if (entryCount > static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())
-            || entryCount > static_cast<std::uint64_t>(
-                std::numeric_limits<std::size_t>::max()))
-        {
-            throw System::IO::InvalidDataException("Too many ZIP entries.");
-        }
-
-        std::vector<ZipEntry> entries;
-        std::size_t cursor = static_cast<std::size_t>(centralOffset);
-        while (cursor + 4 <= archive.size()
-            && ReadU32(archive, cursor) == 0x02014B50U)
-        {
-            if (archive.size() - cursor < 46)
-            {
-                throw System::IO::InvalidDataException("Central Directory corrupt.");
-            }
-
-            ZipEntry entry;
-            entry.flags = ReadU16(archive, cursor + 8);
-            entry.method = ReadU16(archive, cursor + 10);
-            const std::uint32_t compressed32 = ReadU32(archive, cursor + 20);
-            const std::uint32_t uncompressed32 = ReadU32(archive, cursor + 24);
-            const std::uint16_t nameLength = ReadU16(archive, cursor + 28);
-            const std::uint16_t extraLength = ReadU16(archive, cursor + 30);
-            const std::uint16_t commentLength = ReadU16(archive, cursor + 32);
-            const std::uint16_t diskNumberStart16 = ReadU16(archive, cursor + 34);
-            const std::uint32_t offset32 = ReadU32(archive, cursor + 42);
-            const std::size_t variable = static_cast<std::size_t>(nameLength)
-                + static_cast<std::size_t>(extraLength)
-                + static_cast<std::size_t>(commentLength);
-            if (46 + variable > archive.size() - cursor)
-            {
-                throw System::IO::InvalidDataException("Central Directory corrupt.");
-            }
-
-            entry.name = Utf8GetString(std::span<const std::uint8_t>(archive.data() + cursor + 46, nameLength));
-            entry.compressedSize = compressed32;
-            entry.uncompressedSize = uncompressed32;
-            entry.localOffset = offset32;
-            entry.diskNumberStart = diskNumberStart16;
-            entry.archiveDiskNumber = archiveDiskNumber;
-
-            ByteVector extra(
-                archive.begin() + static_cast<std::ptrdiff_t>(cursor + 46 + nameLength),
-                archive.begin() + static_cast<std::ptrdiff_t>(
-                    cursor + 46 + nameLength + extraLength));
-            ApplyZip64Extra(entry, extra,
-                uncompressed32 == 0xFFFFFFFFU,
-                compressed32 == 0xFFFFFFFFU,
-                offset32 == 0xFFFFFFFFU,
-                diskNumberStart16 == 0xFFFFU);
-            entries.push_back(std::move(entry));
-            cursor += 46 + variable;
-        }
-
-        if (entries.size() != static_cast<std::size_t>(entryCount))
-        {
-            throw System::IO::InvalidDataException("Central Directory entry count is incorrect.");
-        }
-        return entries;
-    }
-
-    [[nodiscard]] ByteVector ReadZipEntry(const ByteVector& archive, const ZipEntry& entry)
-    {
-        if (entry.method != 0 && entry.method != 8 && entry.method != 9)
-        {
-            throw System::IO::InvalidDataException("The ZIP entry uses an unsupported compression method.");
-        }
-        if (entry.diskNumberStart != entry.archiveDiskNumber)
-        {
-            throw System::IO::InvalidDataException("Split or spanned ZIP archives are not supported.");
-        }
-        if (entry.localOffset > archive.size()
-            || archive.size() - static_cast<std::size_t>(entry.localOffset) < 30)
-        {
-            throw System::IO::InvalidDataException("Local file header is invalid.");
-        }
-        const std::size_t local = static_cast<std::size_t>(entry.localOffset);
-        if (ReadU32(archive, local) != 0x04034B50U)
-        {
-            throw System::IO::InvalidDataException("Local file header is invalid.");
-        }
-        const std::uint16_t nameLength = ReadU16(archive, local + 26);
-        const std::uint16_t extraLength = ReadU16(archive, local + 28);
-        const std::uint64_t dataOffset64 = entry.localOffset + 30ULL + nameLength + extraLength;
-        if (dataOffset64 > archive.size()
-            || entry.compressedSize > archive.size() - static_cast<std::size_t>(dataOffset64))
-        {
-            throw System::IO::InvalidDataException("ZIP entry data is invalid.");
-        }
-        if (entry.compressedSize
-            > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max())
-            || entry.uncompressedSize
-            > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max()))
-        {
-            throw System::IO::InvalidDataException("ZIP entry is too large.");
-        }
-
-        const std::size_t dataOffset = static_cast<std::size_t>(dataOffset64);
-        const std::size_t compressedSize = static_cast<std::size_t>(entry.compressedSize);
-        ByteVector compressed(
-            archive.begin() + static_cast<std::ptrdiff_t>(dataOffset),
-            archive.begin() + static_cast<std::ptrdiff_t>(dataOffset + compressedSize));
-        if (entry.method == 0)
-        {
-            return compressed;
-        }
-        if (entry.method == 8)
-        {
-            return InflateRaw(compressed, static_cast<std::size_t>(entry.uncompressedSize));
-        }
-        if (entry.method == 9)
-        {
-            return InflateRaw(compressed, static_cast<std::size_t>(entry.uncompressedSize), true);
-        }
-        throw System::IO::InvalidDataException("The ZIP entry uses an unsupported compression method.");
-    }
 
     [[nodiscard]] bool CultureLess(const std::string& left, const std::string& right)
     {
@@ -1054,30 +457,30 @@ namespace MphRead::Mods::MapGen
         {
             return FileReadAllBytes(sourceText);
         }
-        const ByteVector archive = FileReadAllBytes(sourceText);
-        const std::vector<ZipEntry> entries = ReadZipEntries(archive);
-        std::vector<const ZipEntry*> maps;
-        for (const ZipEntry& entry : entries)
+        const auto archive = ::MphRead::NativeRuntime::ZipArchive::OpenRead(sourceText);
+        const auto& entries = archive->Entries();
+        std::vector<const ::MphRead::NativeRuntime::ZipArchiveEntry*> maps;
+        for (const auto& entry : entries)
         {
-            if (::MphRead::NativeRuntime::StringEndsWithOrdinalIgnoreCase(entry.name, ".bsp"))
+            if (::MphRead::NativeRuntime::StringEndsWithOrdinalIgnoreCase(entry->FullName(), ".bsp"))
             {
-                maps.push_back(&entry);
+                maps.push_back(entry.get());
             }
         }
         if (maps.empty())
         {
             throw ProgramException(PathGetFileName(sourceText) + " contains no .bsp.");
         }
-        const ZipEntry* selected = nullptr;
+        const ::MphRead::NativeRuntime::ZipArchiveEntry* selected = nullptr;
         if (!mapName.has_value())
         {
             selected = maps.front();
         }
         else
         {
-            for (const ZipEntry* entry : maps)
+            for (const auto* entry : maps)
             {
-                if (::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase(FileNameWithoutExtension(entry->name), *mapName))
+                if (::MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase(FileNameWithoutExtension(entry->FullName()), *mapName))
                 {
                     selected = entry;
                     break;
@@ -1088,9 +491,9 @@ namespace MphRead::Mods::MapGen
         {
             std::vector<std::string> available;
             available.reserve(maps.size());
-            for (const ZipEntry* entry : maps)
+            for (const auto* entry : maps)
             {
-                available.push_back(FileNameWithoutExtension(entry->name));
+                available.push_back(FileNameWithoutExtension(entry->FullName()));
             }
             std::stable_sort(available.begin(), available.end(), CultureLess);
             std::string joined;
@@ -1101,7 +504,7 @@ namespace MphRead::Mods::MapGen
             }
             throw ProgramException(PathGetFileName(sourceText) + " has no map " + *mapName + ". It has: " + joined);
         }
-        return ReadZipEntry(archive, *selected);
+        return selected->ReadAllBytes();
     }
 
     std::vector<std::string> Q3Bsp::ListMaps(const std::string& source)
@@ -1120,14 +523,14 @@ namespace MphRead::Mods::MapGen
         {
             return {FileNameWithoutExtension(sourceText)};
         }
-        const ByteVector archive = FileReadAllBytes(sourceText);
-        const std::vector<ZipEntry> entries = ReadZipEntries(archive);
+        const auto archive = ::MphRead::NativeRuntime::ZipArchive::OpenRead(sourceText);
+        const auto& entries = archive->Entries();
         std::vector<std::string> maps;
-        for (const ZipEntry& entry : entries)
+        for (const auto& entry : entries)
         {
-            if (::MphRead::NativeRuntime::StringEndsWithOrdinalIgnoreCase(entry.name, ".bsp"))
+            if (::MphRead::NativeRuntime::StringEndsWithOrdinalIgnoreCase(entry->FullName(), ".bsp"))
             {
-                maps.push_back(FileNameWithoutExtension(entry.name));
+                maps.push_back(FileNameWithoutExtension(entry->FullName()));
             }
         }
         std::stable_sort(maps.begin(), maps.end(), CultureLess);

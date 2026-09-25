@@ -209,6 +209,20 @@ namespace System
         }
     };
 
+    class NotSupportedException final : public std::logic_error
+    {
+    public:
+        NotSupportedException()
+            : std::logic_error("Specified method is not supported.")
+        {
+        }
+
+        explicit NotSupportedException(std::string_view message)
+            : std::logic_error(std::string(message))
+        {
+        }
+    };
+
     class ObjectDisposedException final : public std::runtime_error
     {
     public:

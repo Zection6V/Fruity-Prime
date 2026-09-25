@@ -1172,4 +1172,16 @@ namespace MphRead::NativeRuntime
         }
         return std::make_shared<DirectoryInfo>(_fullName.substr(0, end == root ? root : end));
     }
+
+#if defined(_WIN32)
+    void ThrowForLastIOError(unsigned long win32Error, const std::string& path)
+    {
+        ThrowForWin32Error(static_cast<DWORD>(win32Error), path);
+    }
+#else
+    void ThrowForLastIOError(int error, const std::string& path, bool isDirectory)
+    {
+        ThrowForErrno(error, path, isDirectory);
+    }
+#endif
 }

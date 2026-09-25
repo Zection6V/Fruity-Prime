@@ -118,6 +118,14 @@ namespace MphRead::NativeRuntime
     // DirectoryNotFoundException when its directory is not.
     void FileDelete(const std::string& path);
 
+    // The exception .NET throws for a failed file-system call on `path`:
+    // Interop.GetExceptionForIoErrno on Unix, Win32Marshal on Windows.
+#if defined(_WIN32)
+    [[noreturn]] void ThrowForLastIOError(unsigned long win32Error, const std::string& path);
+#else
+    [[noreturn]] void ThrowForLastIOError(int error, const std::string& path, bool isDirectory = false);
+#endif
+
     // new DirectoryInfo(path): the members the game reads. A trailing
     // separator is not part of the name, as it is not in .NET.
     class DirectoryInfo final

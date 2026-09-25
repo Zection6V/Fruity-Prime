@@ -1,4 +1,12 @@
 #include "NetLog.hpp"
+#include "NetDamage.hpp"
+#include "NetHitClaims.hpp"
+#include "NetHitPrediction.hpp"
+#include "NetHudHealth.hpp"
+#include "NetPlayerLifecycle.hpp"
+#include "NetSmoothing.hpp"
+#include "NetUnlagged.hpp"
+#include "../Platform/AppPaths.hpp"
 #include "../../NativeRuntime/System/DateTime.hpp"
 
 #include "../../Entities/Players/PlayerEntity.hpp"
@@ -161,7 +169,7 @@ namespace MphRead::Mods::Network
         try
         {
             const std::string safe = SafeClientName(clientName);
-            const std::filesystem::path baseDirectory = PathFromUtf8(AppContextBaseDirectory());
+            const std::filesystem::path baseDirectory = PathFromUtf8(Platform::AppPaths::UserDataDirectory());
             const std::string fileName = "netlog-" + safe + ".txt";
             const std::u8string utf8FileName(
                 reinterpret_cast<const char8_t*>(fileName.data()), fileName.size());
@@ -277,6 +285,7 @@ namespace MphRead::Mods::Network
             state += " ";
         }
         Line(state);
+        HitReg();
 
         for (std::int32_t slot = 0;
             slot < Entities::PlayerEntity::MaxPlayers(); slot++)
@@ -331,6 +340,22 @@ namespace MphRead::Mods::Network
             line += AlignLeft(player->ModFormState(), 24);
             line += " nodeRef=";
             line += DescribeNodeRef(*player);
+            line += " ";
+            const HudHealthSample health = NetHudHealth::Sample(*player);
+            line += "health slot=" + std::to_string(player->SlotIndex())
+                + " generation=" + std::to_string(NetPlayerLifecycle::Generation(player->SlotIndex()))
+                + " life=" + std::to_string(NetPlayerLifecycle::Get(player->SlotIndex()))
+                + " authorityHP=" + (health.Authoritative ? std::to_string(health.Health) : std::string("unknown"))
+                + " entityHP=" + std::to_string(player->Health())
+                + " hpFrame=" + std::to_string(health.SnapshotFrame)
+                + " snapshotAge=" + std::to_string(NetSession::SnapshotAge())
+                + " " + NetHitPrediction::HealthDetails(player->SlotIndex()) + " ";
+            if (NetSession::RemoteStateValid[static_cast<std::size_t>(player->SlotIndex())])
+            {
+                const PlayerState& remote = NetSession::RemoteStates[static_cast<std::size_t>(player->SlotIndex())];
+                line += "lastDamageEvent=" + std::to_string(remote.DamageEventId)
+                    + " lastAttacker=" + std::to_string(remote.AttackerSlot) + " ";
+            }
             line += " inScene=";
             line += InScene(scene, *player) ? "y" : "n";
             line += " stateValid=";
@@ -339,6 +364,63 @@ namespace MphRead::Mods::Network
             line += NetSession::RemoteIntentValid[slot] ? "y" : "n";
             Line(line);
         }
+    }
+
+    void NetLog::HitReg()
+    {
+        namespace Runtime = ::MphRead::NativeRuntime;
+        std::string line = "           hitreg ";
+        std::uint32_t readFrame = 0;
+        std::uint8_t readSub = 0;
+        if (NetSmoothing::AckPoint(readFrame, readSub))
+        {
+            line += "read=" + std::to_string(readFrame) + "+" + Runtime::ToString(readSub / 256.0, "0.00") + " ";
+            line += "buffer=" + std::to_string(NetSmoothing::Delay()) + "f ";
+            line += "newestSnap=" + std::to_string(NetSession::LastSnapshotFrame()) + " ";
+            line += "starved=" + std::to_string(NetSmoothing::Starved()) + " snaps=" + std::to_string(NetSmoothing::Snaps()) + " ";
+        }
+        else
+        {
+            line += "read=off ack=" + std::to_string(NetSession::AppliedSnapshotFrame()) + " ";
+        }
+        if (NetUnlagged::ShotsCompensated() > 0)
+        {
+            line += "rewound=" + std::to_string(NetUnlagged::ShotsCompensated()) + " ";
+            line += "meanRewind=" + Runtime::ToString(static_cast<double>(NetUnlagged::FramesRewound())
+                / static_cast<double>(NetUnlagged::ShotsCompensated()), "0.0") + "f ";
+            line += "worst=" + std::to_string(NetUnlagged::WorstRewind()) + "f ";
+            line += "ceiling=" + std::to_string(NetUnlagged::MaxRewindFrames()) + "f ";
+            line += "clamped=" + std::to_string(NetUnlagged::ShotsClamped()) + " ";
+            line += "historyMiss=" + std::to_string(NetUnlagged::HistoryMisses()) + " ";
+        }
+        if (NetHitClaims::Declared() > 0)
+        {
+            line += "claims=" + std::to_string(NetHitClaims::Declared()) + " applied=" + std::to_string(NetHitClaims::Applied()) + " ";
+            line += "dup=" + std::to_string(NetHitClaims::Duplicate()) + " ";
+            line += "voidShooter=" + std::to_string(NetHitClaims::RefusedDeadShooter()) + " ";
+            line += "voidVictim=" + std::to_string(NetHitClaims::RefusedDeadVictim()) + " ";
+            line += "refused=" + std::to_string(NetHitClaims::RefusedOther()) + " ";
+            line += "unanswered=" + std::to_string(NetHitClaims::Unanswered()) + " ";
+        }
+        if (NetHitClaims::Received() > 0)
+        {
+            line += "claimsIn=" + std::to_string(NetHitClaims::Received()) + " ";
+            line += "rescued=" + std::to_string(NetHitClaims::AppliedHere()) + " ";
+            line += "(" + std::to_string(NetHitClaims::RescuedKills()) + "k "
+                + std::to_string(NetHitClaims::RescuedHeadshots()) + "hs) ";
+            line += "dupIn=" + std::to_string(NetHitClaims::DuplicateHere()) + " ";
+            line += "voidShooterIn=" + std::to_string(NetHitClaims::VoidedDeadShooter()) + " ";
+            line += "refusedIn=" + std::to_string(NetHitClaims::RefusedHere()) + " ";
+        }
+        line += "predicted=" + std::to_string(NetHitPrediction::Predicted()) + " ";
+        line += "confirmed=" + std::to_string(NetHitPrediction::Confirmed()) + " ";
+        line += "denied=" + std::to_string(NetHitPrediction::Denied()) + " ";
+        line += "unpredicted=" + std::to_string(NetHitPrediction::Unpredicted());
+        line += " unpredMoving=" + std::to_string(NetHitPrediction::UnpredictedMoving());
+        line += " unpredStill=" + std::to_string(NetHitPrediction::UnpredictedStill());
+        line += " firedMoving=" + std::to_string(NetDamage::FiredMoving);
+        line += " firedStill=" + std::to_string(NetDamage::FiredStill);
+        Line(line);
     }
 
     bool NetLog::InScene(MphRead::Scene* scene, Entities::PlayerEntity& player)

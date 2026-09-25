@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <coroutine>
 #include <cstdint>
+#include <cstring>
 #include <exception>
 #include <functional>
 #include <iterator>
@@ -792,6 +793,11 @@ namespace MphRead
         float BoxDot3;
 
         CollisionVolume() noexcept;
+        // ValueType.Equals on this blittable, explicit-layout struct: the bytes.
+        [[nodiscard]] bool Equals(const CollisionVolume& other) const noexcept
+        {
+            return std::memcmp(this, &other, sizeof(CollisionVolume)) == 0;
+        }
         explicit CollisionVolume(RawCollisionVolume raw);
         explicit CollisionVolume(FhRawCollisionVolume raw);
         CollisionVolume(

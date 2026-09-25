@@ -1,5 +1,10 @@
 #pragma once
 
+#include "NetProtocol.hpp"
+#include "SessionProtocol.hpp"
+
+#include <optional>
+
 #include "../../Formats/Enums.hpp"
 #include "NetSession.hpp"
 
@@ -32,12 +37,18 @@ namespace MphRead::Mods::Network
 
         [[nodiscard]] bool Start(const std::string& roomKey, GameMode mode,
             std::int32_t maxPlayers, SnapshotSink sink,
-            std::function<void()> matchEnded);
+            std::function<void()> matchEnded,
+            std::optional<RosterPacket> roster = std::nullopt,
+            std::optional<SessionStatePacket> session = std::nullopt);
 
         void Step();
         void Stop();
 
         [[nodiscard]] std::string DescribeUnlagged() const;
+        [[nodiscard]] std::string DescribeRewindDepths() const;
+        [[nodiscard]] std::optional<std::string> DescribeClaims() const;
+        [[nodiscard]] std::string DescribeAgreement() const;
+        [[nodiscard]] std::string DescribeShots() const;
         [[nodiscard]] std::string Describe() const;
 
         [[nodiscard]] std::int64_t Frames() const noexcept { return _frames; }

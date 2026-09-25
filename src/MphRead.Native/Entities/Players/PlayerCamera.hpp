@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 #include "../../Formats/Culling.hpp"
 #include "../../Formats/Types.hpp"
 
@@ -18,6 +20,20 @@ namespace MphRead::Entities
         Free = 3,
         Spectator = 4
     };
+
+    // CameraType.ToString().
+    [[nodiscard]] inline std::string ToString(CameraType value)
+    {
+        switch (value)
+        {
+        case CameraType::First: return "First";
+        case CameraType::Third1: return "Third1";
+        case CameraType::Third2: return "Third2";
+        case CameraType::Free: return "Free";
+        case CameraType::Spectator: return "Spectator";
+        }
+        return std::to_string(static_cast<std::int32_t>(value));
+    }
 
     class CameraInfo
     {

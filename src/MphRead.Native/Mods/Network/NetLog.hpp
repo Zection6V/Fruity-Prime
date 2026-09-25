@@ -46,6 +46,7 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static std::string DescribeNodeRef(
             Entities::PlayerEntity& player);
         static void Line(const std::string& text);
+        static void HitReg();
 
         static std::unique_ptr<std::ofstream> _writer;
         static double _lastWrite;

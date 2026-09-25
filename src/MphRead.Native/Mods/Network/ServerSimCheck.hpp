@@ -23,7 +23,8 @@ namespace MphRead::Mods::Network
         ServerSimCheck& operator=(ServerSimCheck&&) = delete;
 
         [[nodiscard]] static std::int32_t Run(
-            const std::string& room, std::int32_t players, double seconds, MphRead::GameMode mode);
+            const std::string& room, std::int32_t players, double seconds, MphRead::GameMode mode,
+            bool formCheck = false);
 
     private:
         class IntentDriver final
@@ -42,6 +43,7 @@ namespace MphRead::Mods::Network
             std::vector<::OpenTK::Mathematics::Vector3> _at;
         };
 
+        [[nodiscard]] static bool CheckStalledUnmorph();
         static void ApplyRoster(std::int32_t players);
         [[nodiscard]] static std::int64_t WorkingSetBytes();
         [[nodiscard]] static std::int64_t PeakWorkingSetBytes();

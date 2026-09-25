@@ -1,4 +1,8 @@
 #include "ServerSim.hpp"
+#include "NetDamage.hpp"
+#include "NetHitClaims.hpp"
+#include "NetShotDiagnostics.hpp"
+#include "NetTimingDiagnostics.hpp"
 
 #include "../../Formats/Formats.hpp"
 #include "../../GameState.hpp"
@@ -117,7 +121,8 @@ namespace MphRead::Mods::Network
     }
 
     bool ServerSim::Start(const std::string& roomKey, GameMode mode,
-        std::int32_t maxPlayers, SnapshotSink sink, std::function<void()> matchEnded)
+        std::int32_t maxPlayers, SnapshotSink sink, std::function<void()> matchEnded,
+        std::optional<RosterPacket> roster, std::optional<SessionStatePacket> session)
     {
         Stop();
         Mods::Headless::Enter();
@@ -133,6 +138,14 @@ namespace MphRead::Mods::Network
             Entities::PlayerEntity::SetMaxPlayers(clampedPlayers);
 
             NetSession::StartServerAuthority(sink, matchEnded);
+            if (roster.has_value())
+            {
+                NetSession::ApplyRoster(*roster);
+            }
+            if (session.has_value())
+            {
+                NetSession::ApplySessionState(*session);
+            }
 
             auto keyboard = Mods::Input::SyntheticInput::CreateKeyboard();
             auto mouse = Mods::Input::SyntheticInput::CreateMouse();
@@ -165,6 +178,8 @@ namespace MphRead::Mods::Network
             std::cout << "[sim] could not load \"" << roomKey << "\": " << error << '\n';
             NetLog::Event("server simulation failed to start: " + error);
             Stop();
+            NetSession::Stop();
+            Read::ClearCache();
             return false;
         }
     }
@@ -225,7 +240,38 @@ namespace MphRead::Mods::Network
 
     std::string ServerSim::DescribeUnlagged() const
     {
-        return NetUnlagged::Describe();
+        return NetUnlagged::Describe() + "\n" + NetShotDiagnostics::Describe() + NetTimingDiagnostics::Describe();
+    }
+
+    std::string ServerSim::DescribeRewindDepths() const
+    {
+        return NetUnlagged::DescribeDepths();
+    }
+
+    std::optional<std::string> ServerSim::DescribeClaims() const
+    {
+        return NetHitClaims::Describe();
+    }
+
+    std::string ServerSim::DescribeAgreement() const
+    {
+        return NetHitClaims::DescribeAgreement();
+    }
+
+    std::string ServerSim::DescribeShots() const
+    {
+        std::string text = "shots spawned here (slot: beams):";
+        bool any = false;
+        for (std::size_t i = 0; i < NetDamage::Fired.size(); i++)
+        {
+            if (NetDamage::Fired[i] == 0)
+            {
+                continue;
+            }
+            any = true;
+            text += " " + std::to_string(i) + ":" + std::to_string(NetDamage::Fired[i]);
+        }
+        return any ? text : std::string("shots spawned here: none");
     }
 
     std::string ServerSim::Describe() const

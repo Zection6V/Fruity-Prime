@@ -1385,7 +1385,7 @@ namespace MphRead::Mods
             }
             GameMode mode = GameMode::Battle;
             (void)TryParseGameMode(ValueAfter(args, "mode"), mode);
-            SetExitCode(Network::ServerSimCheck::Run(*simCheck, players, seconds, mode));
+            SetExitCode(Network::ServerSimCheck::Run(*simCheck, players, seconds, mode, HasFlag(args, "formcheck")));
             return true;
         }
 

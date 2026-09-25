@@ -1,4 +1,6 @@
 #include "ServerSimCheck.hpp"
+#include "FormReconciliation.hpp"
+#include "NetPlayerLifecycle.hpp"
 
 #include "NetProtocol.hpp"
 #include "NetSession.hpp"
@@ -128,7 +130,7 @@ namespace
 namespace MphRead::Mods::Network
 {
     std::int32_t ServerSimCheck::Run(
-        const std::string& room, std::int32_t players, double seconds, GameMode mode)
+        const std::string& room, std::int32_t players, double seconds, GameMode mode, bool formCheck)
     {
         players = std::clamp(players, 1, PlayerEntity::SlotCapacity);
         std::cout << "[simcheck] \"" << room << "\" (" << ::MphRead::ToString(mode) << "), "
@@ -224,17 +226,92 @@ namespace MphRead::Mods::Network
             << Mb(afterRun) << " MB"
             << " | peak " << Mb(PeakWorkingSetBytes()) << " MB\n";
 
+        const bool formPassed = !formCheck || CheckStalledUnmorph();
         sim.Stop();
-        return spawned == players ? 0 : 1;
+        return spawned == players && formPassed ? 0 : 1;
+    }
+
+    bool ServerSimCheck::CheckStalledUnmorph()
+    {
+        if (PlayerEntity::Players().empty())
+        {
+            std::cout << "FORMCHECK FAIL: no player\n";
+            return false;
+        }
+        PlayerEntity& player = ::MphRead::NativeRuntime::RequireReference(PlayerEntity::Players()[0]);
+        if (!::MphRead::TestFlag(player.LoadFlags(), Entities::LoadFlags::Spawned) || player.Health() == 0)
+        {
+            std::cout << "FORMCHECK FAIL: player did not spawn alive\n";
+            return false;
+        }
+
+        player.ModForceForm(true);
+        player.ExitAltForm();
+        player.ModRefreshNodeRef(player.Position);
+        const CollisionVolume expectedBiped = CollisionVolume::Move(
+            PlayerEntity::PlayerVolumes[static_cast<std::size_t>(player.Hunter())][0], player.Position);
+        const auto bipedIndex = [&player]()
+        {
+            return (*::MphRead::NativeRuntime::RequireReference(::MphRead::NativeRuntime::RequireReference(player.BipedModel2()).AnimInfo).Index)[0];
+        };
+        const bool prepared = !player.IsAltForm() && player.IsUnmorphing()
+            && player.NodeRef != Formats::Culling::NodeRef::None
+            && player.Volume().Equals(expectedBiped)
+            && player.CameraType() == Entities::CameraType::First
+            && bipedIndex() == static_cast<std::int32_t>(Entities::PlayerAnimation::Unmorph);
+        const OpenTK::Mathematics::Vector3 position = player.Position;
+        const CollisionVolume volume = player.Volume();
+        ::MphRead::NativeRuntime::RequireReference(player.CameraInfo()).NodeRef = Formats::Culling::NodeRef::None;
+
+        FormReconciliation reconciliation{};
+        bool earlyForce = false;
+        for (std::uint32_t frame = 0; frame <= 90; frame++)
+        {
+            const FormCorrection correction = reconciliation.Step(frame, false,
+                player.IsAltForm(), player.IsMorphing(), player.IsUnmorphing(), 300);
+            if (correction == FormCorrection::Force)
+            {
+                if (frame != 90)
+                {
+                    earlyForce = true;
+                }
+                player.ModForceForm(false);
+            }
+        }
+        const OpenTK::Mathematics::Vector3 now = player.Position;
+        const bool positionHeld = now.X == position.X && now.Y == position.Y && now.Z == position.Z;
+        const bool nodeMatches = ::MphRead::NativeRuntime::RequireReference(player.CameraInfo()).NodeRef == player.NodeRef;
+        const bool passed = prepared && !earlyForce && !player.IsAltForm()
+            && !player.IsMorphing() && !player.IsUnmorphing()
+            && positionHeld && player.Volume().Equals(volume)
+            && player.Volume().Equals(expectedBiped)
+            && player.CameraType() == Entities::CameraType::First
+            && nodeMatches
+            && bipedIndex() == static_cast<std::int32_t>(Entities::PlayerAnimation::Idle);
+        const auto text = [](bool value) { return value ? "True" : "False"; };
+        std::cout << "FORMCHECK " << (passed ? "PASS" : "FAIL") << ": "
+            << "prepared=" << text(prepared) << " earlyForce=" << text(earlyForce)
+            << " form=" << player.ModFormState() << " positionHeld=" << text(positionHeld)
+            << " volumeHeld=" << text(player.Volume().Equals(volume))
+            << " camera=" << ::MphRead::Entities::ToString(player.CameraType()) << " node=" << text(nodeMatches) << '\n';
+        return passed;
     }
 
     void ServerSimCheck::ApplyRoster(std::int32_t players)
     {
+        MatchStatePacket match{};
+        match.MatchId = 1;
+        match.AuthorityEpoch = 1;
+        NetSession::ApplyMatchState(match, false);
         RosterPacket roster = RosterPacket::Create();
+        roster.MatchId = 1;
+        roster.AuthorityEpoch = 1;
+        roster.Revision = 1;
         for (std::int32_t i = 0; i < players && i < RosterPacket::MaxSlots; ++i)
         {
             const std::size_t index = static_cast<std::size_t>(roster.Count);
             RequireVector(roster.Slots).at(index) = static_cast<std::uint8_t>(i);
+            RequireVector(roster.Generations).at(index) = 1;
             RequireVector(roster.Hunters).at(index) = static_cast<std::uint8_t>(i % 7);
             RequireVector(roster.Colors).at(index) = 0;
             RequireVector(roster.Pings).at(index) = 0;
@@ -279,6 +356,10 @@ namespace MphRead::Mods::Network
 
             IntentPacket intent{};
             intent.Frame = frame;
+            intent.MatchId = NetSession::CurrentMatchId();
+            intent.AuthorityEpoch = NetSession::AuthorityEpoch();
+            intent.SlotGeneration = NetPlayerLifecycle::Generation(slot);
+            intent.LifeId = NetPlayerLifecycle::Get(slot);
             intent.Buttons = buttons;
             intent.Presses = std::make_shared<std::vector<std::uint32_t>>(
                 static_cast<std::size_t>(IntentPacket::PressHistory));

@@ -33,6 +33,26 @@ namespace MphRead::Mods::Network
         return std::to_string(static_cast<std::int32_t>(value));
     }
 
+    std::string ToString(LobbyResultCode value)
+    {
+        switch (value)
+        {
+        case LobbyResultCode::Ok: return "Ok";
+        case LobbyResultCode::NotOwner: return "NotOwner";
+        case LobbyResultCode::InvalidPhase: return "InvalidPhase";
+        case LobbyResultCode::StaleRevision: return "StaleRevision";
+        case LobbyResultCode::InvalidConfiguration: return "InvalidConfiguration";
+        case LobbyResultCode::InvalidTeam: return "InvalidTeam";
+        case LobbyResultCode::TeamFull: return "TeamFull";
+        case LobbyResultCode::PlayersNotReady: return "PlayersNotReady";
+        case LobbyResultCode::NotEnoughPlayers: return "NotEnoughPlayers";
+        case LobbyResultCode::TargetNotFound: return "TargetNotFound";
+        case LobbyResultCode::ServerBusy: return "ServerBusy";
+        case LobbyResultCode::MapUnavailable: return "MapUnavailable";
+        }
+        return std::to_string(static_cast<std::int32_t>(value));
+    }
+
     bool SessionStatePacket::LockTeams() const noexcept { return HasRule(RuleFlags, SessionRules::LockTeams); }
     bool SessionStatePacket::RequireReady() const noexcept { return HasRule(RuleFlags, SessionRules::RequireReady); }
     bool SessionStatePacket::AllowJoinInProgress() const noexcept

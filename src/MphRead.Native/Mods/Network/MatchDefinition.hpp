@@ -17,6 +17,8 @@ namespace MphRead::Mods::Network
     {
         Auto, FreeForAll, OneVsOne, TwoVsTwo, ThreeVsThree, FourVsFour, TwoVsTwoVsTwoVsTwo, Custom
     };
+    // MatchFormat.ToString().
+    [[nodiscard]] std::string ToString(MatchFormat value);
 
     // The wire keeps one ushort for a mode's win condition. Point-scored modes
     // use it directly, Survival stores spare lives, and Defender / Prime
@@ -49,6 +51,21 @@ namespace MphRead::Mods::Network
     {
         return static_cast<SessionRules>(
             static_cast<std::uint16_t>(left) & static_cast<std::uint16_t>(right));
+    }
+
+    [[nodiscard]] constexpr SessionRules operator~(SessionRules value) noexcept
+    {
+        return static_cast<SessionRules>(static_cast<std::uint16_t>(~static_cast<std::uint16_t>(value)));
+    }
+
+    constexpr SessionRules& operator|=(SessionRules& left, SessionRules right) noexcept
+    {
+        return left = left | right;
+    }
+
+    constexpr SessionRules& operator&=(SessionRules& left, SessionRules right) noexcept
+    {
+        return left = left & right;
     }
 
     struct MatchDefinition final

@@ -233,7 +233,7 @@
 | A | +609/-0 | `Mods/Network/HitRig.cs` | — 新規 | 完了 |
 | A | +558/-0 | `Mods/Network/NetSmoothing.cs` | — 新規 | 完了 |
 | A | +536/-0 | `Mods/Network/LocalServer.cs` | — 新規 | — |
-| A | +536/-0 | `Mods/Network/NetLobbyTest.cs` | — 新規 | — |
+| A | +536/-0 | `Mods/Network/NetLobbyTest.cs` | — 新規 | 完了 |
 | M | +489/-116 | `Mods/Network/NetSession.cs` | .cpp,.hpp | 完了 |
 | M | +481/-22 | `Mods/Network/NetUnlagged.cs` | .cpp,.hpp | 完了 |
 | M | +384/-12 | `Mods/Network/NetMaster.cs` | .cpp,.hpp | 完了 |

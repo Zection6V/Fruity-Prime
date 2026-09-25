@@ -28,6 +28,7 @@
 #include <fstream>
 #include <vector>
 #include <system_error>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -1067,6 +1068,50 @@ namespace MphRead::NativeRuntime
         {
             throw System::IO::IOException("Could not write to '" + path + "'.");
         }
+    }
+
+    std::int64_t FileOpenExclusiveLength(const std::string& path)
+    {
+        const std::string fullPath = PathGetFullPath(path);
+#if defined(_WIN32)
+        const HANDLE handle = ::CreateFileW(Wtf8ToWide(fullPath).c_str(), GENERIC_READ | GENERIC_WRITE,
+            0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (handle == INVALID_HANDLE_VALUE)
+        {
+            ThrowForWin32Error(::GetLastError(), fullPath);
+        }
+        LARGE_INTEGER size{};
+        const BOOL ok = ::GetFileSizeEx(handle, &size);
+        const DWORD error = ok == FALSE ? ::GetLastError() : 0;
+        ::CloseHandle(handle);
+        if (ok == FALSE)
+        {
+            ThrowForWin32Error(error, fullPath);
+        }
+        return size.QuadPart;
+#else
+        // FileShare.None on Unix is an advisory flock(LOCK_EX | LOCK_NB).
+        const int fd = ::open(fullPath.c_str(), O_RDWR | O_CLOEXEC);
+        if (fd < 0)
+        {
+            ThrowForErrno(errno, fullPath, false);
+        }
+        if (::flock(fd, LOCK_EX | LOCK_NB) != 0)
+        {
+            const int error = errno;
+            ::close(fd);
+            ThrowForErrno(error, fullPath, false);
+        }
+        struct stat info{};
+        const int result = ::fstat(fd, &info);
+        const int error = errno;
+        ::close(fd);
+        if (result != 0)
+        {
+            ThrowForErrno(error, fullPath, false);
+        }
+        return static_cast<std::int64_t>(info.st_size);
+#endif
     }
 
     void FileDelete(const std::string& path)

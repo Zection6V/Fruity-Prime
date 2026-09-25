@@ -45,6 +45,8 @@ namespace MphRead::Mods::Network
         Ok, NotOwner, InvalidPhase, StaleRevision, InvalidConfiguration, InvalidTeam,
         TeamFull, PlayersNotReady, NotEnoughPlayers, TargetNotFound, ServerBusy, MapUnavailable
     };
+    // LobbyResultCode.ToString().
+    [[nodiscard]] std::string ToString(LobbyResultCode value);
 
     struct LobbyCommandPacket final
     {

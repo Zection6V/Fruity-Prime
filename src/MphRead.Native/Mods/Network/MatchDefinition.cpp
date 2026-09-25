@@ -2,6 +2,22 @@
 
 namespace MphRead::Mods::Network
 {
+    std::string ToString(MatchFormat value)
+    {
+        switch (value)
+        {
+        case MatchFormat::Auto: return "Auto";
+        case MatchFormat::FreeForAll: return "FreeForAll";
+        case MatchFormat::OneVsOne: return "OneVsOne";
+        case MatchFormat::TwoVsTwo: return "TwoVsTwo";
+        case MatchFormat::ThreeVsThree: return "ThreeVsThree";
+        case MatchFormat::FourVsFour: return "FourVsFour";
+        case MatchFormat::TwoVsTwoVsTwoVsTwo: return "TwoVsTwoVsTwoVsTwo";
+        case MatchFormat::Custom: return "Custom";
+        }
+        return std::to_string(static_cast<std::int32_t>(value));
+    }
+
     std::string ToString(SessionPhase value)
     {
         switch (value)

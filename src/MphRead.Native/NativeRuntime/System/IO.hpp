@@ -117,6 +117,10 @@ namespace MphRead::NativeRuntime
     // File.Delete(path): nothing when the file is not there, and
     // DirectoryNotFoundException when its directory is not.
     void FileDelete(const std::string& path);
+    // new FileStream(path, FileMode.Open, FileAccess.ReadWrite,
+    // FileShare.None).Length, the handle closed again: throws when another
+    // handle still holds the file.
+    [[nodiscard]] std::int64_t FileOpenExclusiveLength(const std::string& path);
 
     // The exception .NET throws for a failed file-system call on `path`:
     // Interop.GetExceptionForIoErrno on Unix, Win32Marshal on Windows.

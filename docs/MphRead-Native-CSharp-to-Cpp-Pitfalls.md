@@ -436,6 +436,18 @@ C# のソース（`Formats/Types.cs` など）が宣言しているものは対�
 
 ---
 
+## 12e. C# のリフレクションで private を触るテスト
+
+`NetCombatCheck.cs` のような検査コードは `GetField("_spawnInvulnTimer", NonPublic)`、
+`GetMethod("Judge", NonPublic)` で private なメンバーを直接読み書きする。C++ では
+これを **公開アクセサを足して** 移すと、C# にない公開 API が増えてしまう。
+
+- 対象クラスに `friend class <検査クラス>;` を1行足し、検査側から直接触る
+  （例: `PlayerEntity`・`ServerSim`・`NetHitClaims` の `friend class NetCombatCheck;`）。
+- friend 宣言の横に「C# ではリフレクションで読んでいる」と一言残す。
+- `SetValue(obj, (ushort)1000)` のような型指定はそのまま代入で済むが、
+  フィールドの型が C# と違っていないか（`ushort` → `std::uint16_t`）は確認する。
+
 ## 13. 調べたが問題がなかった項目（再調査の手間を省くため）
 
 2026-09-24 に機械的に全体を調べ、実害のある箇所がなかったもの。

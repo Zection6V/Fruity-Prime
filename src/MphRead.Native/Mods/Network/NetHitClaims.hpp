@@ -24,8 +24,13 @@ namespace MphRead::Mods::Network
 {
     // A shot the authority cannot find is declared, checked and arbitrated.
     // See .claude/multiplayer/NETWORK-HITCLAIMS.md.
+    class NetCombatCheck;
+
     class NetHitClaims final
     {
+        // NetCombatCheck calls Judge and NoteRescued the way the C# does by reflection.
+        friend class NetCombatCheck;
+
     public:
         NetHitClaims() = delete;
 

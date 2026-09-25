@@ -64,6 +64,11 @@ namespace MphRead
     }
 }
 
+namespace MphRead::Mods::Network
+{
+    class NetCombatCheck;
+}
+
 namespace MphRead::Entities
 {
     class BeamProjectileEntity;
@@ -576,6 +581,9 @@ namespace MphRead::Entities
 
     class PlayerEntity : public DynamicLightEntityBase
     {
+        // NetCombatCheck reads private state the way the C# reads it by reflection.
+        friend class ::MphRead::Mods::Network::NetCombatCheck;
+
     public:
         static constexpr std::int32_t SlotCapacity = 8;
         [[nodiscard]] static constexpr std::uint16_t RespawnTime() noexcept { return 90 * 2; }

@@ -19,8 +19,13 @@ namespace MphRead
 
 namespace MphRead::Mods::Network
 {
+    class NetCombatCheck;
+
     class ServerSim final
     {
+        // NetCombatCheck reads _scene the way the C# reads it by reflection.
+        friend class NetCombatCheck;
+
     public:
         ServerSim() = default;
         ServerSim(const ServerSim&) = delete;

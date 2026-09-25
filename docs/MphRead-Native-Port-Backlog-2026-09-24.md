@@ -48,7 +48,7 @@
     NetMaster（HostCandidate・FindHosts・所有者トークン・CanHost フラグ）、
     NetHostSession、ModEntry の -server 部（-hostports・-affinityweapons）、
     HealthSimulationTest、NetHealthSyncTest、MapAuditTeams、SpireAltPoseCheck。
-  - 残り: LocalServer、NetCombatCheck、NetLobbyTest。
+  - 残り: LocalServer、NetLobbyTest。
 - 保留（依存先の移植待ち）:
   - PlayerEntity::TakeDamage の AimAssistTelemetry::Hit と ModControllerFeedback、
     PlayerSound の着地フィードバック、PlayerEntityNetAim::ApplyGamepadAim の
@@ -240,7 +240,7 @@
 | M | +366/-389 | `Mods/Network/NetPlayerBridge.cs` | .cpp,.hpp | 完了 |
 | M | +307/-47 | `Mods/Network/NetDamage.cs` | .cpp,.hpp | 完了 |
 | A | +296/-0 | `Mods/Network/LobbyCommands.cs` | — 新規 | 完了 |
-| A | +284/-0 | `Mods/Network/NetCombatCheck.cs` | — 新規 | — |
+| A | +284/-0 | `Mods/Network/NetCombatCheck.cs` | — 新規 | 完了 |
 | A | +264/-0 | `Mods/Network/HostPool.cs` | — 新規 | 完了 |
 | A | +200/-0 | `Mods/Network/MapAuditTeams.cs` | — 新規 | 完了 |
 | M | +198/-11 | `Mods/Network/PlayerEntityNetAim.cs` | .cpp,.hpp | 一部完了（入力待ち） |

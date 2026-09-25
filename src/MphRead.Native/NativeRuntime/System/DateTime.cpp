@@ -1,17 +1,115 @@
 #include "DateTime.hpp"
 
 #include "Exceptions.hpp"
+#include "Number.hpp"
 
+#include <array>
 #include <chrono>
+#include <string_view>
 #include <cstdlib>
 #include <ctime>
 #include <ratio>
 #include <string>
 
+#if defined(_WIN32)
+#define NOMINMAX
+#include <windows.h>
+#else
+#include <langinfo.h>
+#include <locale.h>
+#endif
+
 namespace MphRead::NativeRuntime
 {
     namespace
     {
+        // CultureInfo.CurrentCulture.DateTimeFormat.TimeSeparator, which ':'
+        // in a custom format stands for.
+#if defined(_WIN32)
+        [[nodiscard]] std::string LocaleInfoUtf8(LCTYPE type, std::string fallback)
+        {
+            wchar_t buffer[32]{};
+            const int length = GetLocaleInfoEx(
+                LOCALE_NAME_USER_DEFAULT, type, buffer,
+                static_cast<int>(std::size(buffer)));
+            if (length <= 1)
+            {
+                return fallback;
+            }
+            const int bytes = WideCharToMultiByte(
+                CP_UTF8, 0, buffer, length - 1, nullptr, 0, nullptr, nullptr);
+            if (bytes <= 0)
+            {
+                return fallback;
+            }
+            std::string result(static_cast<std::size_t>(bytes), '\0');
+            WideCharToMultiByte(
+                CP_UTF8, 0, buffer, length - 1, result.data(), bytes, nullptr, nullptr);
+            return result;
+        }
+#endif
+
+        [[nodiscard]] std::string CurrentTimeSeparator()
+        {
+#if defined(_WIN32)
+            return LocaleInfoUtf8(LOCALE_STIME, ":");
+#else
+#if defined(__ANDROID__)
+            std::tm sample{};
+            sample.tm_hour = 11;
+            sample.tm_min = 22;
+            sample.tm_sec = 33;
+            std::array<char, 64> buffer{};
+            if (std::strftime(buffer.data(), buffer.size(), "%X", &sample) == 0)
+            {
+                return ":";
+            }
+            const std::string_view formatted(buffer.data());
+            const std::size_t hour = formatted.find("11");
+            if (hour == std::string_view::npos)
+            {
+                return ":";
+            }
+            const std::size_t minute = formatted.find("22", hour + 2);
+            if (minute == std::string_view::npos || minute <= hour + 2)
+            {
+                return ":";
+            }
+            const std::string_view separator = formatted.substr(hour + 2, minute - (hour + 2));
+            return separator.empty() ? ":" : std::string(separator);
+#else
+            locale_t locale = newlocale(LC_TIME_MASK, "", nullptr);
+            if (locale == static_cast<locale_t>(0))
+            {
+                return ":";
+            }
+            const char* raw = nl_langinfo_l(T_FMT, locale);
+            std::string result = ":";
+            if (raw != nullptr)
+            {
+                const std::string_view format(raw);
+                std::size_t first = format.find("%H");
+                if (first == std::string_view::npos)
+                {
+                    first = format.find("%I");
+                }
+                if (first != std::string_view::npos)
+                {
+                    first += 2;
+                    const std::size_t next = format.find('%', first);
+                    if (next != std::string_view::npos && next > first)
+                    {
+                        result.assign(format.substr(first, next - first));
+                    }
+                }
+            }
+            freelocale(locale);
+            return result;
+#endif
+#endif
+        }
+
+
         // DateTime.UnixEpoch.Ticks.
         constexpr std::int64_t UnixEpochTicks = 621355968000000000LL;
         constexpr std::int64_t TicksPerSecond = 10000000LL;
@@ -96,7 +194,12 @@ namespace MphRead::NativeRuntime
 
     ManagedDateTime DateTimeUtcNow()
     {
-        const auto now = std::chrono::system_clock::now().time_since_epoch();
+        return DateTimeFromSystemClock(std::chrono::system_clock::now());
+    }
+
+    ManagedDateTime DateTimeFromSystemClock(std::chrono::system_clock::time_point value)
+    {
+        const auto now = value.time_since_epoch();
         const auto ticks = std::chrono::duration_cast<
             std::chrono::duration<std::int64_t, std::ratio<1, 10000000>>>(now).count();
         ManagedDateTime result;
@@ -112,7 +215,15 @@ namespace MphRead::NativeRuntime
 
     ManagedDateTime DateTimeNow()
     {
-        const ManagedDateTime utc = DateTimeUtcNow();
+        return DateTimeToLocalTime(DateTimeUtcNow());
+    }
+
+    ManagedDateTime DateTimeToLocalTime(const ManagedDateTime& utc)
+    {
+        if (utc.Kind == 2)
+        {
+            return utc;
+        }
         const std::int64_t utcSeconds = (utc.Ticks - UnixEpochTicks) / TicksPerSecond;
         ManagedDateTime result;
         result.Ticks = utc.Ticks + LocalOffsetSeconds(utcSeconds) * TicksPerSecond;
@@ -192,13 +303,21 @@ namespace MphRead::NativeRuntime
                 result += ':';
                 result += PadLeft((magnitude / 60) % 60, 2);
             }
-            else if (run == 1 && (specifier == '-' || specifier == '_' || specifier == ':'
-                || specifier == ' ' || specifier == '.' || specifier == '/'
-                || specifier == ','))
+            else if (run == 1 && specifier == ':')
             {
-                // A literal in every format this program uses. The culture's
-                // date and time separators are not substituted here because
-                // nothing asks for them.
+                if (CurrentCultureIsInvariantOnThisThread())
+                {
+                    result += ':';
+                }
+                else
+                {
+                    static const std::string separator = CurrentTimeSeparator();
+                    result += separator;
+                }
+            }
+            else if (run == 1 && (specifier == '-' || specifier == '_'
+                || specifier == ' ' || specifier == '.' || specifier == ','))
+            {
                 result += specifier;
             }
             else

@@ -1,4 +1,5 @@
 #include "ThumbnailLog.hpp"
+#include "../NativeRuntime/System/DateTime.hpp"
 #include "Launcher/Portable/GameFiles.hpp"
 #include "Branding.hpp"
 #include "Update/BuildVersion.hpp"
@@ -68,56 +69,6 @@ namespace MphRead::Mods::Launcher::Detail
 
 namespace
 {
-    [[nodiscard]] std::tm LocalTime(std::time_t value)
-    {
-        std::tm result{};
-#if defined(_WIN32)
-        if (::localtime_s(&result, &value) != 0)
-        {
-            throw std::runtime_error("Could not convert local time.");
-        }
-#elif defined(__unix__) || defined(__APPLE__)
-        if (::localtime_r(&value, &result) == nullptr)
-        {
-            throw std::runtime_error("Could not convert local time.");
-        }
-#else
-        static std::mutex localTimeLock;
-        const std::lock_guard<std::mutex> guard(localTimeLock);
-        const std::tm* converted = std::localtime(&value);
-        if (converted == nullptr)
-        {
-            throw std::runtime_error("Could not convert local time.");
-        }
-        result = *converted;
-#endif
-        return result;
-    }
-
-    [[nodiscard]] std::string FormatDateTime(const std::tm& value, bool seconds)
-    {
-        char buffer[32]{};
-        const int written = seconds
-            ? std::snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d %02d:%02d:%02d",
-                value.tm_year + 1900, value.tm_mon + 1, value.tm_mday,
-                value.tm_hour, value.tm_min, value.tm_sec)
-            : std::snprintf(buffer, sizeof(buffer), "%04d-%02d-%02d %02d:%02d",
-                value.tm_year + 1900, value.tm_mon + 1, value.tm_mday,
-                value.tm_hour, value.tm_min);
-        if (written < 0 || static_cast<std::size_t>(written) >= sizeof(buffer))
-        {
-            throw std::runtime_error("Could not format local time.");
-        }
-        return std::string(buffer, static_cast<std::size_t>(written));
-    }
-
-    [[nodiscard]] std::string Now(bool seconds)
-    {
-        const std::time_t value = std::chrono::system_clock::to_time_t(
-            std::chrono::system_clock::now());
-        return FormatDateTime(LocalTime(value), seconds);
-    }
-
     [[nodiscard]] std::chrono::system_clock::time_point ToSystemClock(
         std::filesystem::file_time_type value)
     {
@@ -131,12 +82,10 @@ namespace
     {
         const std::filesystem::file_time_type fileTime
             = std::filesystem::last_write_time(PathFromUtf8(AppContextBaseDirectory()));
-        const std::time_t value = std::chrono::system_clock::to_time_t(
-            ToSystemClock(fileTime));
-        // The C# interpolation deliberately uses a format string beginning in
-        // ':': $"{date::yyyy-MM-dd HH:mm}". ConsoleSetup installs invariant
-        // culture in Native, whose time separator is ':'.
-        return ":" + FormatDateTime(LocalTime(value), false);
+        return ::MphRead::NativeRuntime::DateTimeToString(
+            ::MphRead::NativeRuntime::DateTimeToLocalTime(
+                ::MphRead::NativeRuntime::DateTimeFromSystemClock(ToSystemClock(fileTime))),
+            "yyyy-MM-dd HH:mm");
     }
 
     [[nodiscard]] std::string EntryAssemblyVersion()
@@ -634,7 +583,7 @@ namespace MphRead::Mods
             contents += "=== ";
             contents += Branding::Name;
             contents += " preview generation, ";
-            contents += Now(true);
+            contents += ::MphRead::NativeRuntime::DateTimeToString(::MphRead::NativeRuntime::DateTimeNow(), "yyyy-MM-dd HH:mm:ss");
             contents += " ===";
             contents += NewLine();
             contents += "build ";
@@ -676,7 +625,7 @@ namespace MphRead::Mods
                 std::string text;
                 text.reserve(line.size() + 13);
                 text.push_back('[');
-                text += Now(true).substr(11);
+                text += ::MphRead::NativeRuntime::DateTimeToString(::MphRead::NativeRuntime::DateTimeNow(), "HH:mm:ss");
                 text += "] ";
                 text += line;
                 text += NewLine();

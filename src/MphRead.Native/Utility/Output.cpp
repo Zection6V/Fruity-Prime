@@ -1,4 +1,5 @@
 #include "Output.hpp"
+#include "../NativeRuntime/System/Random.hpp"
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Console.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
@@ -202,11 +203,7 @@ namespace MphRead
     Guid Guid::NewGuid()
     {
         std::array<unsigned char, 16> bytes{};
-        std::random_device random;
-        for (unsigned char& value : bytes)
-        {
-            value = static_cast<unsigned char>(random());
-        }
+        ::MphRead::NativeRuntime::RandomNumberGeneratorFill(bytes.data(), bytes.size());
 
         bytes[6] = static_cast<unsigned char>((bytes[6] & 0x0FU) | 0x40U);
         bytes[8] = static_cast<unsigned char>((bytes[8] & 0x3FU) | 0x80U);

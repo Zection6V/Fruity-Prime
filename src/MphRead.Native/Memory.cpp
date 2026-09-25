@@ -1,4 +1,5 @@
 #include "Memory.hpp"
+#include "NativeRuntime/System/DateTime.hpp"
 
 #include "MemoryArrays.hpp"
 #include "MemoryClasses.hpp"
@@ -199,48 +200,12 @@ namespace
     }
 
 #if !defined(_WIN32)
-    [[nodiscard]] constexpr std::int64_t DaysFromCivil(
-        std::int32_t year, std::uint32_t month, std::uint32_t day) noexcept
-    {
-        year -= month <= 2U ? 1 : 0;
-        const std::int64_t era = (year >= 0 ? year : year - 399) / 400;
-        const std::uint32_t yearOfEra = static_cast<std::uint32_t>(
-            year - static_cast<std::int32_t>(era * 400));
-        const std::uint32_t dayOfYear = (153U * (month > 2U ? month - 3U : month + 9U) + 2U) / 5U
-            + day - 1U;
-        const std::uint32_t dayOfEra = yearOfEra * 365U + yearOfEra / 4U
-            - yearOfEra / 100U + dayOfYear;
-        return era * 146097 + static_cast<std::int64_t>(dayOfEra) - 719468;
-    }
-
     [[nodiscard]] std::int64_t UnixTicksToLocalDateTimeTicks(std::int64_t unixTicks)
     {
-        std::int64_t seconds = unixTicks / TicksPerSecond;
-        std::int64_t fractionTicks = unixTicks % TicksPerSecond;
-        if (fractionTicks < 0)
-        {
-            fractionTicks += TicksPerSecond;
-            --seconds;
-        }
-
-        const std::time_t time = static_cast<std::time_t>(seconds);
-        std::tm local{};
-        if (::localtime_r(&time, &local) == nullptr)
-        {
-            throw std::system_error(errno == 0 ? EOVERFLOW : errno,
-                std::generic_category());
-        }
-
-        const std::int64_t daysSinceUnixEpoch = DaysFromCivil(
-            local.tm_year + 1900,
-            static_cast<std::uint32_t>(local.tm_mon + 1),
-            static_cast<std::uint32_t>(local.tm_mday));
-        const std::int64_t wholeSeconds =
-            ((daysSinceUnixEpoch + INT64_C(719162)) * INT64_C(86400))
-            + static_cast<std::int64_t>(local.tm_hour) * INT64_C(3600)
-            + static_cast<std::int64_t>(local.tm_min) * INT64_C(60)
-            + static_cast<std::int64_t>(local.tm_sec);
-        return wholeSeconds * TicksPerSecond + fractionTicks;
+        ::MphRead::NativeRuntime::ManagedDateTime utc;
+        utc.Ticks = UnixEpochDateTimeTicks + unixTicks;
+        utc.Kind = 1;
+        return ::MphRead::NativeRuntime::DateTimeToLocalTime(utc).Ticks;
     }
 #endif
 

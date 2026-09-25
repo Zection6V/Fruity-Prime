@@ -1,4 +1,5 @@
 #include "LaunchPlan.hpp"
+#include "../../../NativeRuntime/System/Random.hpp"
 
 #include <random>
 
@@ -8,10 +9,8 @@ namespace
 
     MphRead::Hunter RollPlayableHunter()
     {
-        thread_local std::mt19937 engine{std::random_device{}()};
-        std::uniform_int_distribution<std::int32_t> distribution(
-            0, MphRead::Mods::Launcher::Hunters::Playable - 1);
-        return static_cast<MphRead::Hunter>(distribution(engine));
+        return static_cast<MphRead::Hunter>(
+            MphRead::NativeRuntime::RandomSharedNext(MphRead::Mods::Launcher::Hunters::Playable));
     }
 }
 

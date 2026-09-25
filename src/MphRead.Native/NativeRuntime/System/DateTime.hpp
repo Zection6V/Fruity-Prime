@@ -5,6 +5,7 @@
 // are recognised; an unknown one is a FormatException rather than a silently
 // different string.
 
+#include <chrono>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -25,6 +26,10 @@ namespace MphRead::NativeRuntime
     // DateTime.UtcNow / DateTime.Now.
     [[nodiscard]] ManagedDateTime DateTimeUtcNow();
     [[nodiscard]] ManagedDateTime DateTimeNow();
+    // A system_clock instant as a Utc DateTime.
+    [[nodiscard]] ManagedDateTime DateTimeFromSystemClock(std::chrono::system_clock::time_point value);
+    // value.ToLocalTime() for a Utc (or Unspecified) value.
+    [[nodiscard]] ManagedDateTime DateTimeToLocalTime(const ManagedDateTime& value);
     // DateTime.UtcNow.Ticks.
     [[nodiscard]] std::int64_t DateTimeUtcNowTicks();
 

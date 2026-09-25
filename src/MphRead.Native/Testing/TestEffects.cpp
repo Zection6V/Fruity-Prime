@@ -1,4 +1,5 @@
 #include "TestEffects.hpp"
+#include "../NativeRuntime/System/Random.hpp"
 
 #include "../Entities/ObjectEntity.hpp"
 #include "../Formats/Effects.hpp"
@@ -129,33 +130,10 @@ namespace MphRead::Testing
     class TestEffects::RandomState final
     {
     public:
-        RandomState()
-            : _engine(MakeSeed())
-        {
-        }
-
-        [[nodiscard]] std::int32_t Next(std::int32_t maxValue)
-        {
-            if (maxValue < 0)
-            {
-                throw std::out_of_range("'maxValue' must be greater than zero.");
-            }
-            if (maxValue == 0)
-            {
-                return 0;
-            }
-            std::uniform_int_distribution<std::int32_t> distribution(0, maxValue - 1);
-            return distribution(_engine);
-        }
+        [[nodiscard]] std::int32_t Next(std::int32_t maxValue) { return _random.Next(maxValue); }
 
     private:
-        [[nodiscard]] static std::mt19937::result_type MakeSeed()
-        {
-            std::random_device randomDevice;
-            return randomDevice();
-        }
-
-        std::mt19937 _engine;
+        ::MphRead::NativeRuntime::Random _random;
     };
 
     const std::shared_ptr<TestEffects::RandomState> TestEffects::_random

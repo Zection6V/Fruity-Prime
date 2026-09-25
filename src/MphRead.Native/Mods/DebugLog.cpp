@@ -18,6 +18,7 @@
 #include "../NativeRuntime/System/Runtime.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/Sort.hpp"
+#include "../NativeRuntime/System/DateTime.hpp"
 
 #include <algorithm>
 #include <array>
@@ -402,122 +403,6 @@ namespace
             writer->Flush();
         }
         return 0;
-    }
-
-    [[nodiscard]] std::tm LocalTime(std::time_t time)
-    {
-        std::tm result{};
-#if defined(_WIN32)
-        if (localtime_s(&result, &time) != 0)
-        {
-            throw std::runtime_error("Could not read local time.");
-        }
-#else
-        if (localtime_r(&time, &result) == nullptr)
-        {
-            throw std::runtime_error("Could not read local time.");
-        }
-#endif
-        return result;
-    }
-
-    [[nodiscard]] long LocalUtcOffsetSeconds(std::time_t time, const std::tm& local)
-    {
-#if defined(_WIN32)
-        std::tm localCopy = local;
-        const std::time_t asUtc = _mkgmtime(&localCopy);
-        if (asUtc == static_cast<std::time_t>(-1))
-        {
-            return 0;
-        }
-        const double difference = std::difftime(asUtc, time);
-        if (difference > static_cast<double>(LONG_MAX))
-        {
-            return LONG_MAX;
-        }
-        if (difference < static_cast<double>(LONG_MIN))
-        {
-            return LONG_MIN;
-        }
-        return static_cast<long>(difference);
-#elif defined(__APPLE__) || defined(__linux__) || defined(__ANDROID__) \
-    || defined(__FreeBSD__) || defined(__OpenBSD__)
-        (void)time;
-        return static_cast<long>(local.tm_gmtoff);
-#else
-        std::tm localCopy = local;
-        std::tm utc{};
-        if (gmtime_r(&time, &utc) == nullptr)
-        {
-            return 0;
-        }
-        const std::time_t localValue = std::mktime(&localCopy);
-        const std::time_t utcAsLocal = std::mktime(&utc);
-        return static_cast<long>(std::difftime(localValue, utcAsLocal));
-#endif
-    }
-
-    [[nodiscard]] std::string FileTimestamp()
-    {
-        const auto now = std::chrono::system_clock::now();
-        const std::time_t time = std::chrono::system_clock::to_time_t(now);
-        const std::tm local = LocalTime(time);
-        std::array<char, 32> buffer{};
-        if (std::strftime(buffer.data(), buffer.size(), "%Y%m%d-%H%M%S", &local) == 0)
-        {
-            throw std::runtime_error("Could not format local time.");
-        }
-        return std::string(buffer.data());
-    }
-
-    [[nodiscard]] std::string LineTimestamp()
-    {
-        const auto now = std::chrono::system_clock::now();
-        const std::time_t time = std::chrono::system_clock::to_time_t(now);
-        const std::tm local = LocalTime(time);
-        std::array<char, 32> buffer{};
-        if (std::strftime(buffer.data(), buffer.size(), "%H:%M:%S", &local) == 0)
-        {
-            throw std::runtime_error("Could not format local time.");
-        }
-        auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now.time_since_epoch()) % 1000;
-        if (milliseconds.count() < 0)
-        {
-            milliseconds += std::chrono::milliseconds(1000);
-        }
-        std::ostringstream result;
-        result.imbue(std::locale::classic());
-        result << buffer.data() << '.' << std::setw(3) << std::setfill('0')
-            << milliseconds.count();
-        return result.str();
-    }
-
-    [[nodiscard]] std::string HeaderTimestamp()
-    {
-        const auto now = std::chrono::system_clock::now();
-        const std::time_t time = std::chrono::system_clock::to_time_t(now);
-        const std::tm local = LocalTime(time);
-        std::array<char, 32> date{};
-        if (std::strftime(date.data(), date.size(), "%Y-%m-%d %H:%M:%S", &local) == 0)
-        {
-            throw std::runtime_error("Could not format local time.");
-        }
-
-        long offset = LocalUtcOffsetSeconds(time, local);
-        const char sign = offset < 0 ? '-' : '+';
-        if (offset < 0)
-        {
-            offset = -offset;
-        }
-        const long hours = offset / 3600;
-        const long minutes = (offset % 3600) / 60;
-
-        std::ostringstream result;
-        result.imbue(std::locale::classic());
-        result << date.data() << ' ' << sign << std::setw(2) << std::setfill('0')
-            << hours << ':' << std::setw(2) << std::setfill('0') << minutes;
-        return result.str();
     }
 
     [[nodiscard]] std::string ReplaceSpaces(std::string_view value)
@@ -1658,7 +1543,7 @@ namespace
         DebugLog::Line("build", std::string(Branding::Name) + " "
             + BuildVersion::Display() + ", data format " + ProgramVersionText());
         DebugLog::Line("build", "protocol " + std::to_string(NetConfig::ProtocolVersion)
-            + ", log started " + HeaderTimestamp());
+            + ", log started " + ::MphRead::NativeRuntime::DateTimeToString(::MphRead::NativeRuntime::DateTimeNow(), "yyyy-MM-dd HH:mm:ss zzz"));
         DebugLog::Line("system", OsVersion() + " " + RuntimeArchitecture()
             + ", .NET native, " + std::to_string(::MphRead::NativeRuntime::EnvironmentProcessorCount()) + " cpu(s)");
         DebugLog::Line("system", "64-bit process=" + BooleanText(sizeof(void*) == 8)
@@ -1740,7 +1625,7 @@ namespace MphRead::Mods
             // file at once -- which reads as a corrupted log rather than
             // as several.
             const std::string name = ReplaceSpaces(Branding::Name) + "-"
-                + FileTimestamp() + "-"
+                + ::MphRead::NativeRuntime::DateTimeToString(::MphRead::NativeRuntime::DateTimeNow(), "yyyyMMdd-HHmmss") + "-"
                 + std::to_string(::MphRead::NativeRuntime::EnvironmentProcessId()) + ".log";
             const std::string path = PathCombine(directory, name);
             state.Path.store(std::make_shared<const std::string>(path));
@@ -1793,7 +1678,7 @@ namespace MphRead::Mods
         std::lock_guard<std::recursive_mutex> guard(state.Lock);
         if (std::shared_ptr<Utf8Writer> writer = state.Writer.load())
         {
-            writer->WriteLine("[" + LineTimestamp() + "] [" + std::string(category)
+            writer->WriteLine("[" + ::MphRead::NativeRuntime::DateTimeToString(::MphRead::NativeRuntime::DateTimeNow(), "HH:mm:ss.fff") + "] [" + std::string(category)
                 + "] " + std::string(message));
         }
     }

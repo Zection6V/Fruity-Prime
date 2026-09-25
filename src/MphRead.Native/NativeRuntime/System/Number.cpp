@@ -1889,6 +1889,11 @@ namespace MphRead::NativeRuntime
         InvariantThread = true;
     }
 
+    bool CurrentCultureIsInvariantOnThisThread() noexcept
+    {
+        return InvariantThread;
+    }
+
     std::string NumberToString(double value, std::string_view format, const NumberFormatInfo& info)
     {
         return FloatToString(value, format, info);

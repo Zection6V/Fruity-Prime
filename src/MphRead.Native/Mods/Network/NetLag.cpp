@@ -1,4 +1,5 @@
 #include "NetLag.hpp"
+#include "../../NativeRuntime/System/Random.hpp"
 #include "NativeRuntime/System/Charconv.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
@@ -46,162 +47,6 @@ namespace
         return !value.has_value() || StringTrimView(*value).empty();
     }
 
-    void RuntimeRandomBytes(void* buffer, std::size_t size)
-    {
-#if defined(_WIN32)
-        const NTSTATUS status = BCryptGenRandom(
-            nullptr, static_cast<PUCHAR>(buffer), static_cast<ULONG>(size),
-            BCRYPT_USE_SYSTEM_PREFERRED_RNG);
-        if (status != 0)
-        {
-            if (status == static_cast<NTSTATUS>(0xC0000017L))
-            {
-                throw std::bad_alloc();
-            }
-            throw std::runtime_error("BCryptGenRandom failed");
-        }
-#else
-        int descriptor;
-        do
-        {
-            descriptor = ::open("/dev/urandom", O_RDONLY
-#ifdef O_CLOEXEC
-                | O_CLOEXEC
-#endif
-            );
-        }
-        while (descriptor == -1 && errno == EINTR);
-        if (descriptor == -1)
-        {
-            throw std::runtime_error("/dev/urandom unavailable");
-        }
-
-        auto* output = static_cast<unsigned char*>(buffer);
-        std::size_t offset = 0;
-        while (offset < size)
-        {
-            const ssize_t count = ::read(descriptor, output + offset, size - offset);
-            if (count < 0)
-            {
-                if (errno == EINTR)
-                {
-                    continue;
-                }
-                const int savedErrno = errno;
-                ::close(descriptor);
-                throw std::system_error(savedErrno, std::generic_category(), "read /dev/urandom");
-            }
-            if (count == 0)
-            {
-                ::close(descriptor);
-                throw std::runtime_error("short read from /dev/urandom");
-            }
-            offset += static_cast<std::size_t>(count);
-        }
-        ::close(descriptor);
-#endif
-    }
-
-    class DotNetRandom final
-    {
-    public:
-        DotNetRandom()
-        {
-            do
-            {
-                if constexpr (sizeof(void*) == 8)
-                {
-                    RuntimeRandomBytes(_state64.data(), sizeof(_state64));
-                }
-                else
-                {
-                    RuntimeRandomBytes(_state32.data(), sizeof(_state32));
-                }
-            }
-            while (AllZero());
-        }
-
-        [[nodiscard]] double NextDouble() noexcept
-        {
-            if constexpr (sizeof(void*) == 8)
-            {
-                return static_cast<double>(NextUInt64() >> 11)
-                    * (1.0 / static_cast<double>(std::uint64_t{1} << 53));
-            }
-            else
-            {
-                const std::uint32_t high = NextUInt32();
-                const std::uint32_t low = NextUInt32();
-                const std::uint64_t value =
-                    (static_cast<std::uint64_t>(high) << 32) | low;
-                return static_cast<double>(value >> 11)
-                    * (1.0 / static_cast<double>(std::uint64_t{1} << 53));
-            }
-        }
-
-    private:
-        [[nodiscard]] bool AllZero() const noexcept
-        {
-            if constexpr (sizeof(void*) == 8)
-            {
-                return (_state64[0] | _state64[1] | _state64[2] | _state64[3]) == 0;
-            }
-            else
-            {
-                return (_state32[0] | _state32[1] | _state32[2] | _state32[3]) == 0;
-            }
-        }
-
-        [[nodiscard]] std::uint64_t NextUInt64() noexcept
-        {
-            std::uint64_t s0 = _state64[0];
-            std::uint64_t s1 = _state64[1];
-            std::uint64_t s2 = _state64[2];
-            std::uint64_t s3 = _state64[3];
-
-            const std::uint64_t result = std::rotl(s1 * 5U, 7) * 9U;
-            const std::uint64_t t = s1 << 17;
-            s2 ^= s0;
-            s3 ^= s1;
-            s1 ^= s2;
-            s0 ^= s3;
-            s2 ^= t;
-            s3 = std::rotl(s3, 45);
-
-            _state64[0] = s0;
-            _state64[1] = s1;
-            _state64[2] = s2;
-            _state64[3] = s3;
-            return result;
-        }
-
-        [[nodiscard]] std::uint32_t NextUInt32() noexcept
-        {
-            std::uint32_t s0 = _state32[0];
-            std::uint32_t s1 = _state32[1];
-            std::uint32_t s2 = _state32[2];
-            std::uint32_t s3 = _state32[3];
-
-            const std::uint32_t result = std::rotl(s1 * 5U, 7) * 9U;
-            const std::uint32_t t = s1 << 9;
-            s2 ^= s0;
-            s3 ^= s1;
-            s1 ^= s2;
-            s0 ^= s3;
-            s2 ^= t;
-            s3 = std::rotl(s3, 11);
-
-            _state32[0] = s0;
-            _state32[1] = s1;
-            _state32[2] = s2;
-            _state32[3] = s3;
-            return result;
-        }
-
-        std::array<std::uint64_t, 4> _state64{};
-        std::array<std::uint32_t, 4> _state32{};
-    };
-
     [[nodiscard]] std::int64_t RuntimeStopwatchFrequency() noexcept
     {
 #if defined(_WIN32)
@@ -228,7 +73,7 @@ namespace
             }
         }
 
-        [[nodiscard]] DotNetRandom& Random()
+        [[nodiscard]] ::MphRead::NativeRuntime::Random& Random()
         {
             if (_initializationFailure)
             {
@@ -238,11 +83,11 @@ namespace
         }
 
     private:
-        std::optional<DotNetRandom> _random{};
+        std::optional<::MphRead::NativeRuntime::Random> _random{};
         std::exception_ptr _initializationFailure{};
     };
 
-    [[nodiscard]] DotNetRandom& RandomState()
+    [[nodiscard]] ::MphRead::NativeRuntime::Random& RandomState()
     {
         // Mirrors CLR type initialization: the one Random is initialized when
         // NetLag is first touched, and an initialization failure remains sticky.
@@ -294,7 +139,7 @@ namespace MphRead::Mods::Network
 
     std::int64_t NetLag::HoldTicks()
     {
-        DotNetRandom& random = RandomState();
+        ::MphRead::NativeRuntime::Random& random = RandomState();
         if (_roundTripMs <= 0 && _jitterMs <= 0)
         {
             return 0;
@@ -310,7 +155,7 @@ namespace MphRead::Mods::Network
 
     bool NetLag::Drops()
     {
-        DotNetRandom& random = RandomState();
+        ::MphRead::NativeRuntime::Random& random = RandomState();
         return _lossPercent > 0.0 && random.NextDouble() * 100.0 < _lossPercent;
     }
 

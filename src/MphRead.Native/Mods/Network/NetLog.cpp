@@ -1,4 +1,5 @@
 #include "NetLog.hpp"
+#include "../../NativeRuntime/System/DateTime.hpp"
 
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Formats/Culling.hpp"
@@ -63,90 +64,6 @@ using ::MphRead::NativeRuntime::Utf8Scalar;
 
 namespace
 {
-#if defined(_WIN32)
-    [[nodiscard]] std::string LocaleInfoUtf8(LCTYPE type, std::string fallback)
-    {
-        wchar_t buffer[32]{};
-        const int length = GetLocaleInfoEx(
-            LOCALE_NAME_USER_DEFAULT, type, buffer,
-            static_cast<int>(std::size(buffer)));
-        if (length <= 1)
-        {
-            return fallback;
-        }
-        const int bytes = WideCharToMultiByte(
-            CP_UTF8, 0, buffer, length - 1, nullptr, 0, nullptr, nullptr);
-        if (bytes <= 0)
-        {
-            return fallback;
-        }
-        std::string result(static_cast<std::size_t>(bytes), '\0');
-        WideCharToMultiByte(
-            CP_UTF8, 0, buffer, length - 1, result.data(), bytes, nullptr, nullptr);
-        return result;
-    }
-#endif
-
-    [[nodiscard]] std::string TimeSeparator()
-    {
-#if defined(_WIN32)
-        return LocaleInfoUtf8(LOCALE_STIME, ":");
-#else
-#if defined(__ANDROID__)
-        std::tm sample{};
-        sample.tm_hour = 11;
-        sample.tm_min = 22;
-        sample.tm_sec = 33;
-        std::array<char, 64> buffer{};
-        if (std::strftime(buffer.data(), buffer.size(), "%X", &sample) == 0)
-        {
-            return ":";
-        }
-        const std::string_view formatted(buffer.data());
-        const std::size_t hour = formatted.find("11");
-        if (hour == std::string_view::npos)
-        {
-            return ":";
-        }
-        const std::size_t minute = formatted.find("22", hour + 2);
-        if (minute == std::string_view::npos || minute <= hour + 2)
-        {
-            return ":";
-        }
-        const std::string_view separator = formatted.substr(hour + 2, minute - (hour + 2));
-        return separator.empty() ? ":" : std::string(separator);
-#else
-        locale_t locale = newlocale(LC_TIME_MASK, "", nullptr);
-        if (locale == static_cast<locale_t>(0))
-        {
-            return ":";
-        }
-        const char* raw = nl_langinfo_l(T_FMT, locale);
-        std::string result = ":";
-        if (raw != nullptr)
-        {
-            const std::string_view format(raw);
-            std::size_t first = format.find("%H");
-            if (first == std::string_view::npos)
-            {
-                first = format.find("%I");
-            }
-            if (first != std::string_view::npos)
-            {
-                first += 2;
-                const std::size_t next = format.find('%', first);
-                if (next != std::string_view::npos && next > first)
-                {
-                    result.assign(format.substr(first, next - first));
-                }
-            }
-        }
-        freelocale(locale);
-        return result;
-#endif
-#endif
-    }
-
     [[nodiscard]] std::string AlignLeft(std::string text, std::size_t width)
     {
         const std::size_t length = Utf16Length(text);
@@ -212,65 +129,6 @@ namespace
             index += unit.Length;
         }
         return safe;
-    }
-
-    struct LocalClock final
-    {
-        std::tm Calendar{};
-        int Millisecond = 0;
-    };
-
-    [[nodiscard]] LocalClock LocalNow()
-    {
-        const auto now = std::chrono::system_clock::now();
-        const auto wholeSeconds = std::chrono::floor<std::chrono::seconds>(now);
-        const auto millis = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - wholeSeconds).count();
-        const std::time_t time = std::chrono::system_clock::to_time_t(wholeSeconds);
-        LocalClock result{};
-#if defined(_WIN32)
-        if (localtime_s(&result.Calendar, &time) != 0)
-#else
-        if (localtime_r(&time, &result.Calendar) == nullptr)
-#endif
-        {
-            throw std::runtime_error("DateTime.Now conversion failed.");
-        }
-        result.Millisecond = static_cast<int>(millis);
-        return result;
-    }
-
-    [[nodiscard]] std::string Digits(int value, int count)
-    {
-        std::string result(static_cast<std::size_t>(count), '0');
-        for (int index = count - 1; index >= 0; index--)
-        {
-            result[static_cast<std::size_t>(index)] = static_cast<char>('0' + value % 10);
-            value /= 10;
-        }
-        return result;
-    }
-
-    [[nodiscard]] std::string NowWithMilliseconds()
-    {
-        const LocalClock now = LocalNow();
-        const std::string separator = TimeSeparator();
-        return Digits(now.Calendar.tm_hour, 2)
-            + separator + Digits(now.Calendar.tm_min, 2)
-            + separator + Digits(now.Calendar.tm_sec, 2)
-            + "." + Digits(now.Millisecond, 3);
-    }
-
-    [[nodiscard]] std::string StartedNow()
-    {
-        const LocalClock now = LocalNow();
-        const std::string separator = TimeSeparator();
-        return Digits(now.Calendar.tm_year + 1900, 4)
-            + "-" + Digits(now.Calendar.tm_mon + 1, 2)
-            + "-" + Digits(now.Calendar.tm_mday, 2)
-            + " " + Digits(now.Calendar.tm_hour, 2)
-            + separator + Digits(now.Calendar.tm_min, 2)
-            + separator + Digits(now.Calendar.tm_sec, 2);
     }
 
     [[nodiscard]] std::string NullableText(const std::optional<std::string>& value)
@@ -345,7 +203,7 @@ namespace MphRead::Mods::Network
             _writer = std::move(writer);
             _enabled = true;
             Line("=== MphRead net log for \"" + clientName + "\" ===");
-            Line("started " + StartedNow());
+            Line("started " + ::MphRead::NativeRuntime::DateTimeToString(::MphRead::NativeRuntime::DateTimeNow(), "yyyy-MM-dd HH:mm:ss"));
         }
         catch (const std::ios_base::failure& ex)
         {
@@ -395,7 +253,7 @@ namespace MphRead::Mods::Network
 
     void NetLog::Event(const std::string& message)
     {
-        Line("[" + NowWithMilliseconds() + "] EVENT  " + message);
+        Line("[" + ::MphRead::NativeRuntime::DateTimeToString(::MphRead::NativeRuntime::DateTimeNow(), "HH:mm:ss.fff") + "] EVENT  " + message);
     }
 
     void NetLog::Snapshot(double time)
@@ -418,7 +276,7 @@ namespace MphRead::Mods::Network
 
         std::string state;
         state += "[";
-        state += NowWithMilliseconds();
+        state += ::MphRead::NativeRuntime::DateTimeToString(::MphRead::NativeRuntime::DateTimeNow(), "HH:mm:ss.fff");
         state += "] STATE  role=";
         state += ToString(NetSession::Role());
         state += " slot=";

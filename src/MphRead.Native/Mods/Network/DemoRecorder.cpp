@@ -1,4 +1,5 @@
 #include "DemoRecorder.hpp"
+#include "../../NativeRuntime/System/DateTime.hpp"
 
 #include "DemoClip.hpp"
 #include "DemoFile.hpp"
@@ -50,17 +51,8 @@ namespace MphRead::Mods::Network
                 ? serverMatch->RoomKey.value()
                 : std::string("match"));
 
-        const auto now = std::chrono::system_clock::now();
-        const std::time_t nowTime = std::chrono::system_clock::to_time_t(now);
-        std::tm localTime{};
-#if defined(_WIN32)
-        static_cast<void>(localtime_s(&localTime, &nowTime));
-#else
-        static_cast<void>(localtime_r(&nowTime, &localTime));
-#endif
-        char timestamp[20]{};
-        static_cast<void>(
-            std::strftime(timestamp, sizeof(timestamp), "%Y-%m-%d_%H-%M-%S", &localTime));
+        const std::string timestamp = ::MphRead::NativeRuntime::DateTimeToString(
+            ::MphRead::NativeRuntime::DateTimeNow(), "yyyy-MM-dd_HH-mm-ss");
 
         const std::string fileName
             = room + "_" + timestamp + std::string(DemoFile::Extension);

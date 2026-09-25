@@ -91,6 +91,8 @@ namespace MphRead::NativeRuntime
     // Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture:
     // CurrentInfo() on this thread is the invariant one from now on.
     void UseInvariantCultureOnThisThread() noexcept;
+    // Whether this thread has been switched to the invariant culture.
+    [[nodiscard]] bool CurrentCultureIsInvariantOnThisThread() noexcept;
 
     // ---- ToString ----------------------------------------------------------
 

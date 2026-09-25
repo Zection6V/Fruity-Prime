@@ -1,4 +1,5 @@
 #include "FrameTimingCheck.hpp"
+#include "../../NativeRuntime/System/Random.hpp"
 
 #include <algorithm>
 #include <array>
@@ -19,106 +20,6 @@
 
 namespace MphRead::Mods::Render
 {
-    namespace
-    {
-        class DotNetRandom final
-        {
-        public:
-            explicit DotNetRandom(std::int32_t seed) noexcept
-            {
-                const std::int32_t subtraction = seed == std::numeric_limits<std::int32_t>::min()
-                    ? std::numeric_limits<std::int32_t>::max()
-                    : (seed < 0 ? -seed : seed);
-                std::int32_t mj = 161803398 - subtraction;
-                _seedArray[55] = mj;
-                std::int32_t mk = 1;
-
-                std::int32_t ii = 0;
-                for (std::int32_t i = 1; i < 55; i++)
-                {
-                    if ((ii += 21) >= 55)
-                    {
-                        ii -= 55;
-                    }
-
-                    _seedArray[static_cast<std::size_t>(ii)] = mk;
-                    mk = mj - mk;
-                    if (mk < 0)
-                    {
-                        mk += std::numeric_limits<std::int32_t>::max();
-                    }
-
-                    mj = _seedArray[static_cast<std::size_t>(ii)];
-                }
-
-                for (std::int32_t k = 1; k < 5; k++)
-                {
-                    for (std::int32_t i = 1; i < 56; i++)
-                    {
-                        std::int32_t n = i + 30;
-                        if (n >= 55)
-                        {
-                            n -= 55;
-                        }
-
-                        _seedArray[static_cast<std::size_t>(i)]
-                            -= _seedArray[static_cast<std::size_t>(1 + n)];
-                        if (_seedArray[static_cast<std::size_t>(i)] < 0)
-                        {
-                            _seedArray[static_cast<std::size_t>(i)]
-                                += std::numeric_limits<std::int32_t>::max();
-                        }
-                    }
-                }
-
-                _inext = 0;
-                _inextp = 21;
-            }
-
-            [[nodiscard]] double NextDouble() noexcept
-            {
-                return InternalSample()
-                    * (1.0 / static_cast<double>(std::numeric_limits<std::int32_t>::max()));
-            }
-
-        private:
-            [[nodiscard]] std::int32_t InternalSample() noexcept
-            {
-                std::int32_t locINext = _inext;
-                if (++locINext >= 56)
-                {
-                    locINext = 1;
-                }
-
-                std::int32_t locINextp = _inextp;
-                if (++locINextp >= 56)
-                {
-                    locINextp = 1;
-                }
-
-                std::int32_t retVal = _seedArray[static_cast<std::size_t>(locINext)]
-                    - _seedArray[static_cast<std::size_t>(locINextp)];
-                if (retVal == std::numeric_limits<std::int32_t>::max())
-                {
-                    retVal--;
-                }
-                if (retVal < 0)
-                {
-                    retVal += std::numeric_limits<std::int32_t>::max();
-                }
-
-                _seedArray[static_cast<std::size_t>(locINext)] = retVal;
-                _inext = locINext;
-                _inextp = locINextp;
-                return retVal;
-            }
-
-            std::array<std::int32_t, 56> _seedArray{};
-            std::int32_t _inext = 0;
-            std::int32_t _inextp = 0;
-        };
-
-    }
 
     class FrameTimingCheck::Case final
     {
@@ -139,7 +40,7 @@ namespace MphRead::Mods::Render
 
     std::int32_t FrameTimingCheck::Run()
     {
-        DotNetRandom rng(20260905);
+        ::MphRead::NativeRuntime::Random rng(20260905);
         std::array<std::unique_ptr<Case>, 7> cases{};
 
         cases[0] = std::make_unique<Case>();

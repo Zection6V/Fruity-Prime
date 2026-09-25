@@ -8,6 +8,7 @@
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/DateTime.hpp"
 #include "../NativeRuntime/System/ZipArchive.hpp"
+#include "../NativeRuntime/System/Sort.hpp"
 
 #include <algorithm>
 #include <array>
@@ -50,6 +51,7 @@ using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::Utf16ToUtf8;
 using ::MphRead::NativeRuntime::Utf8ToUtf16;
 
+using ::MphRead::NativeRuntime::ManagedSort;
 namespace
 {
     using TickDuration = std::chrono::duration<std::int64_t, std::ratio<1, 10000000>>;
@@ -223,161 +225,6 @@ namespace
 #endif
     }
 
-    template <typename T, typename Compare>
-    void SwapIfGreater(std::vector<T>& values, std::size_t left, std::size_t right,
-        Compare compare)
-    {
-        if (left != right && compare(values[left], values[right]) > 0)
-        {
-            std::swap(values[left], values[right]);
-        }
-    }
-
-    template <typename T, typename Compare>
-    void InsertionSort(std::vector<T>& values, std::size_t lo, std::size_t hi, Compare compare)
-    {
-        for (std::size_t index = lo; index < hi; ++index)
-        {
-            std::size_t next = index + 1;
-            T value = std::move(values[next]);
-            while (next > lo && compare(value, values[next - 1]) < 0)
-            {
-                values[next] = std::move(values[next - 1]);
-                --next;
-            }
-            values[next] = std::move(value);
-        }
-    }
-
-    template <typename T, typename Compare>
-    void DownHeap(std::vector<T>& values, std::size_t index, std::size_t count,
-        std::size_t lo, Compare compare)
-    {
-        T value = std::move(values[lo + index - 1]);
-        while (index <= count / 2)
-        {
-            std::size_t child = 2 * index;
-            if (child < count
-                && compare(values[lo + child - 1], values[lo + child]) < 0)
-            {
-                ++child;
-            }
-            if (compare(value, values[lo + child - 1]) >= 0)
-            {
-                break;
-            }
-            values[lo + index - 1] = std::move(values[lo + child - 1]);
-            index = child;
-        }
-        values[lo + index - 1] = std::move(value);
-    }
-
-    template <typename T, typename Compare>
-    void HeapSort(std::vector<T>& values, std::size_t lo, std::size_t hi, Compare compare)
-    {
-        const std::size_t count = hi - lo + 1;
-        for (std::size_t index = count / 2; index >= 1; --index)
-        {
-            DownHeap(values, index, count, lo, compare);
-            if (index == 1)
-            {
-                break;
-            }
-        }
-        for (std::size_t index = count; index > 1; --index)
-        {
-            std::swap(values[lo], values[lo + index - 1]);
-            DownHeap(values, 1, index - 1, lo, compare);
-        }
-    }
-
-    template <typename T, typename Compare>
-    std::size_t PickPivotAndPartition(std::vector<T>& values, std::size_t lo,
-        std::size_t hi, Compare compare)
-    {
-        const std::size_t middle = lo + ((hi - lo) >> 1);
-        SwapIfGreater(values, lo, middle, compare);
-        SwapIfGreater(values, lo, hi, compare);
-        SwapIfGreater(values, middle, hi, compare);
-
-        T pivot = values[middle];
-        std::swap(values[middle], values[hi - 1]);
-        std::size_t left = lo;
-        std::size_t right = hi - 1;
-        while (left < right)
-        {
-            while (compare(values[++left], pivot) < 0)
-            {
-            }
-            while (compare(pivot, values[--right]) < 0)
-            {
-            }
-            if (left >= right)
-            {
-                break;
-            }
-            std::swap(values[left], values[right]);
-        }
-        if (left != hi - 1)
-        {
-            std::swap(values[left], values[hi - 1]);
-        }
-        return left;
-    }
-
-    template <typename T, typename Compare>
-    void IntroSort(std::vector<T>& values, std::size_t lo, std::size_t hi,
-        int depthLimit, Compare compare)
-    {
-        constexpr std::size_t IntrosortSizeThreshold = 16;
-        while (hi > lo)
-        {
-            const std::size_t partitionSize = hi - lo + 1;
-            if (partitionSize <= IntrosortSizeThreshold)
-            {
-                if (partitionSize == 2)
-                {
-                    SwapIfGreater(values, lo, hi, compare);
-                    return;
-                }
-                if (partitionSize == 3)
-                {
-                    SwapIfGreater(values, lo, hi - 1, compare);
-                    SwapIfGreater(values, lo, hi, compare);
-                    SwapIfGreater(values, hi - 1, hi, compare);
-                    return;
-                }
-                InsertionSort(values, lo, hi, compare);
-                return;
-            }
-            if (depthLimit == 0)
-            {
-                HeapSort(values, lo, hi, compare);
-                return;
-            }
-            --depthLimit;
-            const std::size_t pivot = PickPivotAndPartition(values, lo, hi, compare);
-            IntroSort(values, pivot + 1, hi, depthLimit, compare);
-            hi = pivot == 0 ? 0 : pivot - 1;
-        }
-    }
-
-    template <typename T, typename Compare>
-    void DotNetSort(std::vector<T>& values, Compare compare)
-    {
-        if (values.size() <= 1)
-        {
-            return;
-        }
-        std::size_t n = values.size();
-        int floorLog2 = 0;
-        while (n >>= 1U)
-        {
-            ++floorLog2;
-        }
-        IntroSort(values, 0, values.size() - 1, 2 * (floorLog2 + 1), compare);
-    }
-
     [[nodiscard]] std::u16string ExceptionMessage(const std::exception& ex)
     {
         return Utf8ToUtf16(ex.what());
@@ -480,7 +327,7 @@ namespace MphRead::Mods
                 files.push_back(LogFileInfo(
                     entry.path(), ManagedPath(entry.path()), name, ticks));
             }
-            DotNetSort(files, [](const LogFileInfo& left, const LogFileInfo& right) noexcept
+            ManagedSort(files, [](const LogFileInfo& left, const LogFileInfo& right) noexcept
             {
                 if (right._lastWriteTicks > left._lastWriteTicks)
                 {

@@ -17,6 +17,7 @@
 #include "../NativeRuntime/System/IO.hpp"
 #include "../NativeRuntime/System/Runtime.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
+#include "../NativeRuntime/System/Sort.hpp"
 
 #include <algorithm>
 #include <array>
@@ -95,6 +96,7 @@ using ::MphRead::NativeRuntime::PathGetDirectoryName;
 using ::MphRead::NativeRuntime::WideToUtf8;
 using ::MphRead::NativeRuntime::Wtf8ToWide;
 
+using ::MphRead::NativeRuntime::ManagedSort;
 namespace
 {
 
@@ -594,9 +596,9 @@ namespace
             files.push_back(Entry{entry.path(), entry.last_write_time()});
         }
 
-        std::sort(files.begin(), files.end(), [](const Entry& left, const Entry& right)
+        ManagedSort(files, [](const Entry& left, const Entry& right)
         {
-            return right.LastWrite < left.LastWrite;
+            return right.LastWrite < left.LastWrite ? -1 : (left.LastWrite < right.LastWrite ? 1 : 0);
         });
 
         for (std::size_t index = static_cast<std::size_t>(KeepFiles - 1);

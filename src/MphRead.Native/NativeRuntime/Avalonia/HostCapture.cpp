@@ -25,6 +25,7 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "../System/Sort.hpp"
 
 namespace MphRead::NativeRuntime::Avalonia
 {
@@ -162,7 +163,10 @@ namespace MphRead::NativeRuntime::Avalonia
 
             void SortOrdinalIgnoreCase(Launcher::UiCaptureRoomList& rooms) const override
             {
-                std::sort(rooms.begin(), rooms.end(), ::MphRead::NativeRuntime::OrdinalIgnoreCaseLess{});
+                ::MphRead::NativeRuntime::ManagedSort(rooms, [](const auto& left, const auto& right)
+                {
+                    return ::MphRead::NativeRuntime::StringCompareOrdinalIgnoreCase(left, right);
+                });
             }
 
             [[nodiscard]] Launcher::UiCaptureControlHandle ConstructHomeView(

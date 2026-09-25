@@ -25,12 +25,14 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+#include "../NativeRuntime/System/Sort.hpp"
 
 using ::MphRead::NativeRuntime::PathFromUtf8;
 using ::MphRead::NativeRuntime::PathToUtf8;
 using ::MphRead::NativeRuntime::Utf16ToUtf8;
 using ::MphRead::NativeRuntime::Utf8ToUtf16;
 
+using ::MphRead::NativeRuntime::ManagedSort;
 namespace
 {
     struct CodeUnitRange
@@ -1060,10 +1062,9 @@ namespace MphRead::Mods
             rooms.push_back(roomKey);
         }
 
-        std::sort(rooms.begin(), rooms.end(),
-            [](const std::string& left, const std::string& right)
+        ManagedSort(rooms, [](const std::string& left, const std::string& right)
             {
-                return CompareOrdinalIgnoreCase(left, right) < 0;
+                return CompareOrdinalIgnoreCase(left, right);
             });
         return rooms;
     }

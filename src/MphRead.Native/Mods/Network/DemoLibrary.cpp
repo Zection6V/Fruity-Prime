@@ -15,7 +15,9 @@
 #include <cstddef>
 #include <iostream>
 #include <system_error>
+#include "../../NativeRuntime/System/Sort.hpp"
 
+using ::MphRead::NativeRuntime::ManagedSort;
 namespace
 {
     constexpr std::int64_t TicksPerSecond = 10'000'000;
@@ -189,11 +191,11 @@ namespace MphRead::Mods::Network
             WriteListFailure(ex);
         }
 
-        // List<T>.Sort(Comparison<T>) is unstable; std::sort intentionally keeps
-        // that contract rather than imposing stable ordering on equal stamps.
-        std::sort(found->begin(), found->end(), [](const DemoRecording& a, const DemoRecording& b)
+        ManagedSort(*found, [](const DemoRecording& a, const DemoRecording& b)
         {
-            return b.Recorded().Ticks < a.Recorded().Ticks;
+            const auto left = b.Recorded().Ticks;
+            const auto right = a.Recorded().Ticks;
+            return left < right ? -1 : (left > right ? 1 : 0);
         });
         return found;
     }

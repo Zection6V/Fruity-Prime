@@ -26,6 +26,7 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+#include "../../NativeRuntime/System/Sort.hpp"
 
 using ::MphRead::NativeRuntime::FileExists;
 using ::MphRead::NativeRuntime::FileInfoLength;
@@ -34,6 +35,7 @@ using ::MphRead::NativeRuntime::PathGetExtension;
 using ::MphRead::NativeRuntime::UncheckedAdd;
 using ::MphRead::NativeRuntime::UncheckedMultiply;
 
+using ::MphRead::NativeRuntime::ManagedSort;
 namespace MphRead::Mods::MapGen::MapTextureBakeInterop
 {
     // ZipFile.OpenRead and ReFuel.Stb's RGB decode, as MapTextureBake.cs calls
@@ -400,179 +402,6 @@ namespace
         std::int32_t _channel;
     };
 
-    template <typename Compare>
-    void SwapIfGreater(
-        std::span<std::int32_t> keys,
-        const Compare& compare,
-        std::size_t i,
-        std::size_t j)
-    {
-        if (compare(keys[i], keys[j]) > 0)
-        {
-            std::swap(keys[i], keys[j]);
-        }
-    }
-
-    template <typename Compare>
-    void InsertionSort(
-        std::span<std::int32_t> keys,
-        const Compare& compare)
-    {
-        for (std::size_t i = 0; i + 1 < keys.size(); ++i)
-        {
-            const std::int32_t value = keys[i + 1];
-            std::ptrdiff_t j = static_cast<std::ptrdiff_t>(i);
-            while (j >= 0
-                && compare(value, keys[static_cast<std::size_t>(j)]) < 0)
-            {
-                keys[static_cast<std::size_t>(j + 1)]
-                    = keys[static_cast<std::size_t>(j)];
-                --j;
-            }
-            keys[static_cast<std::size_t>(j + 1)] = value;
-        }
-    }
-
-    template <typename Compare>
-    void DownHeap(
-        std::span<std::int32_t> keys,
-        std::size_t i,
-        std::size_t n,
-        const Compare& compare)
-    {
-        const std::int32_t value = keys[i - 1];
-        while (i <= n >> 1)
-        {
-            std::size_t child = 2 * i;
-            if (child < n
-                && compare(keys[child - 1], keys[child]) < 0)
-            {
-                ++child;
-            }
-            if (!(compare(value, keys[child - 1]) < 0))
-            {
-                break;
-            }
-            keys[i - 1] = keys[child - 1];
-            i = child;
-        }
-        keys[i - 1] = value;
-    }
-
-    template <typename Compare>
-    void HeapSort(
-        std::span<std::int32_t> keys,
-        const Compare& compare)
-    {
-        const std::size_t n = keys.size();
-        for (std::size_t i = n >> 1; i >= 1; --i)
-        {
-            DownHeap(keys, i, n, compare);
-            if (i == 1)
-            {
-                break;
-            }
-        }
-        for (std::size_t i = n; i > 1; --i)
-        {
-            std::swap(keys[0], keys[i - 1]);
-            DownHeap(keys, 1, i - 1, compare);
-        }
-    }
-
-    template <typename Compare>
-    [[nodiscard]] std::size_t PickPivotAndPartition(
-        std::span<std::int32_t> keys,
-        const Compare& compare)
-    {
-        const std::size_t hi = keys.size() - 1;
-        const std::size_t middle = hi >> 1;
-
-        SwapIfGreater(keys, compare, 0, middle);
-        SwapIfGreater(keys, compare, 0, hi);
-        SwapIfGreater(keys, compare, middle, hi);
-
-        const std::int32_t pivot = keys[middle];
-        std::swap(keys[middle], keys[hi - 1]);
-        std::size_t left = 0;
-        std::size_t right = hi - 1;
-
-        while (left < right)
-        {
-            do
-            {
-                ++left;
-            }
-            while (compare(keys[left], pivot) < 0);
-
-            do
-            {
-                --right;
-            }
-            while (compare(pivot, keys[right]) < 0);
-
-            if (left >= right)
-            {
-                break;
-            }
-            std::swap(keys[left], keys[right]);
-        }
-
-        if (left != hi - 1)
-        {
-            std::swap(keys[left], keys[hi - 1]);
-        }
-        return left;
-    }
-
-    template <typename Compare>
-    void IntroSort(
-        std::span<std::int32_t> keys,
-        std::int32_t depthLimit,
-        const Compare& compare)
-    {
-        std::size_t partitionSize = keys.size();
-        while (partitionSize > 1)
-        {
-            if (partitionSize <= 16)
-            {
-                const std::span<std::int32_t> partition
-                    = keys.first(partitionSize);
-                if (partitionSize == 2)
-                {
-                    SwapIfGreater(partition, compare, 0, 1);
-                    return;
-                }
-                if (partitionSize == 3)
-                {
-                    SwapIfGreater(partition, compare, 0, 1);
-                    SwapIfGreater(partition, compare, 0, 2);
-                    SwapIfGreater(partition, compare, 1, 2);
-                    return;
-                }
-                InsertionSort(partition, compare);
-                return;
-            }
-
-            if (depthLimit == 0)
-            {
-                HeapSort(keys.first(partitionSize), compare);
-                return;
-            }
-            --depthLimit;
-
-            const std::size_t pivot = PickPivotAndPartition(
-                keys.first(partitionSize), compare);
-            IntroSort(
-                keys.subspan(
-                    pivot + 1,
-                    partitionSize - (pivot + 1)),
-                depthLimit,
-                compare);
-            partitionSize = pivot;
-        }
-    }
-
     void DotNetArraySort(
         std::vector<std::int32_t>& values,
         std::int32_t start,
@@ -595,9 +424,7 @@ namespace
         std::span<std::int32_t> keys(
             values.data() + static_cast<std::size_t>(start),
             static_cast<std::size_t>(length));
-        const std::int32_t depth = static_cast<std::int32_t>(
-            2U * std::bit_width(static_cast<std::uint32_t>(length)));
-        IntroSort(keys, depth, compare);
+        ManagedSort(keys, compare);
     }
 
     [[nodiscard]] std::pair<

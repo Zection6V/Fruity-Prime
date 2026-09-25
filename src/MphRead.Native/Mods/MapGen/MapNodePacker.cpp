@@ -20,6 +20,7 @@
 #include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
+#include "../../NativeRuntime/System/Sort.hpp"
 
 using ::MphRead::NativeRuntime::EnvironmentGetVariable;
 using ::MphRead::NativeRuntime::MathMax;
@@ -34,6 +35,7 @@ using ::OpenTK::Mathematics::Length;
 using ::OpenTK::Mathematics::Multiply;
 using ::OpenTK::Mathematics::Subtract;
 
+using ::MphRead::NativeRuntime::ManagedSort;
 namespace MphRead::Mods::MapGen
 {
     namespace
@@ -83,196 +85,6 @@ namespace MphRead::Mods::MapGen
                 return std::numeric_limits<std::int32_t>::max();
             }
             return static_cast<std::int32_t>(std::trunc(wide));
-        }
-
-        void SwapFloats(std::vector<float>& values, std::int32_t left, std::int32_t right) noexcept
-        {
-            const float value = values[static_cast<std::size_t>(left)];
-            values[static_cast<std::size_t>(left)] = values[static_cast<std::size_t>(right)];
-            values[static_cast<std::size_t>(right)] = value;
-        }
-
-        void SwapIfGreater(std::vector<float>& values, std::int32_t left, std::int32_t right) noexcept
-        {
-            if (values[static_cast<std::size_t>(left)] > values[static_cast<std::size_t>(right)])
-            {
-                SwapFloats(values, left, right);
-            }
-        }
-
-        void InsertionSort(
-            std::vector<float>& values,
-            std::int32_t offset,
-            std::int32_t length) noexcept
-        {
-            for (std::int32_t i = 0; i < length - 1; i++)
-            {
-                const float value = values[static_cast<std::size_t>(offset + i + 1)];
-                std::int32_t j = i;
-                while (j >= 0 && value < values[static_cast<std::size_t>(offset + j)])
-                {
-                    values[static_cast<std::size_t>(offset + j + 1)]
-                        = values[static_cast<std::size_t>(offset + j)];
-                    j--;
-                }
-                values[static_cast<std::size_t>(offset + j + 1)] = value;
-            }
-        }
-
-        void DownHeap(
-            std::vector<float>& values,
-            std::int32_t offset,
-            std::int32_t i,
-            std::int32_t count) noexcept
-        {
-            const float value = values[static_cast<std::size_t>(offset + i - 1)];
-            while (i <= count >> 1)
-            {
-                std::int32_t child = 2 * i;
-                if (child < count
-                    && values[static_cast<std::size_t>(offset + child - 1)]
-                        < values[static_cast<std::size_t>(offset + child)])
-                {
-                    child++;
-                }
-                if (!(value < values[static_cast<std::size_t>(offset + child - 1)]))
-                {
-                    break;
-                }
-                values[static_cast<std::size_t>(offset + i - 1)]
-                    = values[static_cast<std::size_t>(offset + child - 1)];
-                i = child;
-            }
-            values[static_cast<std::size_t>(offset + i - 1)] = value;
-        }
-
-        void HeapSort(
-            std::vector<float>& values,
-            std::int32_t offset,
-            std::int32_t length) noexcept
-        {
-            for (std::int32_t i = length >> 1; i >= 1; i--)
-            {
-                DownHeap(values, offset, i, length);
-            }
-            for (std::int32_t i = length; i > 1; i--)
-            {
-                SwapFloats(values, offset, offset + i - 1);
-                DownHeap(values, offset, 1, i - 1);
-            }
-        }
-
-        [[nodiscard]] std::int32_t PickPivotAndPartition(
-            std::vector<float>& values,
-            std::int32_t offset,
-            std::int32_t length) noexcept
-        {
-            const std::int32_t last = offset + length - 1;
-            const std::int32_t middle = offset + ((length - 1) >> 1);
-            SwapIfGreater(values, offset, middle);
-            SwapIfGreater(values, offset, last);
-            SwapIfGreater(values, middle, last);
-
-            const float pivot = values[static_cast<std::size_t>(middle)];
-            const std::int32_t nextToLast = last - 1;
-            SwapFloats(values, middle, nextToLast);
-            std::int32_t left = offset;
-            std::int32_t right = nextToLast;
-            while (left < right)
-            {
-                do
-                {
-                    left++;
-                }
-                while (pivot > values[static_cast<std::size_t>(left)]);
-
-                do
-                {
-                    right--;
-                }
-                while (pivot < values[static_cast<std::size_t>(right)]);
-
-                if (left >= right)
-                {
-                    break;
-                }
-                SwapFloats(values, left, right);
-            }
-            if (left != nextToLast)
-            {
-                SwapFloats(values, left, nextToLast);
-            }
-            return left - offset;
-        }
-
-        void IntroSort(
-            std::vector<float>& values,
-            std::int32_t offset,
-            std::int32_t length,
-            std::int32_t depthLimit) noexcept
-        {
-            std::int32_t partitionSize = length;
-            while (partitionSize > 1)
-            {
-                if (partitionSize <= 16)
-                {
-                    if (partitionSize == 2)
-                    {
-                        SwapIfGreater(values, offset, offset + 1);
-                        return;
-                    }
-                    if (partitionSize == 3)
-                    {
-                        SwapIfGreater(values, offset, offset + 1);
-                        SwapIfGreater(values, offset, offset + 2);
-                        SwapIfGreater(values, offset + 1, offset + 2);
-                        return;
-                    }
-                    InsertionSort(values, offset, partitionSize);
-                    return;
-                }
-                if (depthLimit == 0)
-                {
-                    HeapSort(values, offset, partitionSize);
-                    return;
-                }
-                depthLimit--;
-                const std::int32_t pivot = PickPivotAndPartition(values, offset, partitionSize);
-                IntroSort(
-                    values,
-                    offset + pivot + 1,
-                    partitionSize - pivot - 1,
-                    depthLimit);
-                partitionSize = pivot;
-            }
-        }
-
-        void ManagedSort(std::vector<float>& values)
-        {
-            if (values.size() <= 1)
-            {
-                return;
-            }
-
-            std::int32_t nanLeft = 0;
-            const std::int32_t length = static_cast<std::int32_t>(values.size());
-            for (std::int32_t i = 0; i < length; i++)
-            {
-                if (std::isnan(values[static_cast<std::size_t>(i)]))
-                {
-                    SwapFloats(values, nanLeft, i);
-                    nanLeft++;
-                }
-            }
-            if (nanLeft == length)
-            {
-                return;
-            }
-
-            const std::int32_t remaining = length - nanLeft;
-            const std::int32_t depthLimit = 2 * static_cast<std::int32_t>(
-                std::bit_width(static_cast<std::uint32_t>(remaining)));
-            IntroSort(values, nanLeft, remaining, depthLimit);
         }
 
         [[nodiscard]] float LinqMin(

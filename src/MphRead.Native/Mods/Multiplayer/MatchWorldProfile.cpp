@@ -1,6 +1,9 @@
 #include "MatchWorldProfile.hpp"
 
+#include "../../NativeRuntime/System/Enum.hpp"
+
 #include <algorithm>
+#include <array>
 
 namespace MphRead::Mods::Multiplayer
 {
@@ -12,5 +15,12 @@ namespace MphRead::Mods::Multiplayer
             players == 2 ? ResourceSpawnProfile::Low
                 : players <= 4 ? ResourceSpawnProfile::Standard
                 : ResourceSpawnProfile::High);
+    }
+
+    std::string ToString(ResourceSpawnProfile value)
+    {
+        static constexpr std::array<::MphRead::NativeRuntime::EnumNameEntry, 3> Names = {{
+            {0, "Low"}, {1, "Standard"}, {2, "High"}}};
+        return ::MphRead::NativeRuntime::ManagedEnumToString(value, Names.data(), Names.size(), false);
     }
 }

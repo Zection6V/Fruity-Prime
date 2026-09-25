@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 namespace MphRead::Mods::Multiplayer
 {
@@ -10,6 +11,9 @@ namespace MphRead::Mods::Multiplayer
         Standard = 1,
         High = 2
     };
+
+    // ResourceSpawnProfile.ToString().
+    [[nodiscard]] std::string ToString(ResourceSpawnProfile value);
 
     struct MatchWorldProfile final
     {

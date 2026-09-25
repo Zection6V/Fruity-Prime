@@ -51,7 +51,7 @@ namespace MphRead::Mods::Network
 
     std::int32_t NetRoomChange::RoomPlayerCount()
     {
-        return NetSession::Active() ? NetLaunch::RoomPlayerCount : 0;
+        return NetSession::Active() ? NetLaunch::RoomPlayerCount() : 0;
     }
 
     bool NetRoomChange::Rebuilding()

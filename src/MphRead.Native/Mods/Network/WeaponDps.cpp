@@ -169,7 +169,7 @@ namespace MphRead::Mods::Network
 
         Entities::PlayerEntity::SetPlayerCount(2);
         Entities::PlayerEntity::SetMainPlayerIndex(0);
-        _scene->AddRoom(_room, GameMode::Battle, NetLaunch::RoomPlayerCount);
+        _scene->AddRoom(_room, GameMode::Battle, NetLaunch::RoomPlayerCount());
     }
 
     WeaponDps::~WeaponDps() = default;

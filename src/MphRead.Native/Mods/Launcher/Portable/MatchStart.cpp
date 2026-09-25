@@ -145,7 +145,7 @@ namespace MphRead::Mods::Launcher
 
         renderer.AddRoom(roomKey, mode,
             MphRead::Mods::Network::NetSession::Active()
-                ? MphRead::Mods::Network::NetLaunch::RoomPlayerCount
+                ? MphRead::Mods::Network::NetLaunch::RoomPlayerCount()
                 : 0);
         renderer.Run();
     }
@@ -201,7 +201,7 @@ namespace MphRead::Mods::Launcher
             renderer.Scene(), MphRead::Hunter::Samus, 0,
             MphRead::GameState::IsTeamMode(room->Mode), -1);
         renderer.AddRoom(room->RoomKey, room->Mode,
-            MphRead::Mods::Network::NetLaunch::RoomPlayerCount);
+            MphRead::Mods::Network::NetLaunch::RoomPlayerCount());
         renderer.Run();
         MphRead::Mods::Network::DemoPlayback::Stop();
     }

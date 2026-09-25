@@ -10,6 +10,8 @@
 namespace MphRead::Mods::Network
 {
     enum class SessionPhase : std::uint8_t { Lobby, Starting, InMatch, PostMatch };
+    // SessionPhase.ToString().
+    [[nodiscard]] std::string ToString(SessionPhase value);
     enum class ServerSessionPolicy : std::uint8_t { Continuous, Lobby };
     enum class MatchFormat : std::uint8_t
     {

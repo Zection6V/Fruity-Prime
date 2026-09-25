@@ -74,6 +74,11 @@ namespace MphRead::NativeRuntime
     // the dotted I are left alone, as .NET's invariant culture leaves them.
     [[nodiscard]] char32_t ToUpperInvariant(char32_t value) noexcept;
     [[nodiscard]] char32_t ToLowerInvariant(char32_t value) noexcept;
+    // char.IsControl: U+0000-U+001F and U+007F-U+009F.
+    [[nodiscard]] constexpr bool CharIsControl(char32_t value) noexcept
+    {
+        return value <= 0x1FU || (value >= 0x7FU && value <= 0x9FU);
+    }
     // string.ToUpperInvariant() / ToLowerInvariant().
     [[nodiscard]] std::string ToUpperInvariant(std::string_view value);
     [[nodiscard]] std::string ToLowerInvariant(std::string_view value);

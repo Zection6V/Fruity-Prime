@@ -317,7 +317,7 @@ namespace MphRead::Mods::Network
             [](auto&&) {},
             [this]() { Close(); });
         NetLaunch::BuildPlayers(*_scene, hunter, color, GameState::IsTeamMode(mode));
-        _scene->AddRoom(roomKey, mode, NetLaunch::RoomPlayerCount);
+        _scene->AddRoom(roomKey, mode, NetLaunch::RoomPlayerCount());
     }
 
     NetCheckClient::~NetCheckClient() = default;

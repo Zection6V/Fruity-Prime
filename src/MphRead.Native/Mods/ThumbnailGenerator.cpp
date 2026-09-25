@@ -144,7 +144,7 @@ namespace MphRead::Mods
             if (meta.EntityPath.has_value())
             {
                 const std::int32_t layerId = Metadata::GetMultiplayerEntityLayer(
-                    GameMode::Battle, Network::NetLaunch::RoomPlayerCount);
+                    GameMode::Battle, Network::NetLaunch::RoomPlayerCount());
 
                 // The list has to be held: iterating over the dereferenced
                 // return value frees it before the first step, and reading a

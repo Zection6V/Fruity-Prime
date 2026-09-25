@@ -40,7 +40,7 @@ namespace MphRead::Mods::Network
                 RenderWindow renderer;
                 NetLaunch::BuildPlayers(renderer.Scene(), hunter, recolor,
                     GameState::IsTeamMode(room.Mode));
-                renderer.AddRoom(room.RoomKey, room.Mode, NetLaunch::RoomPlayerCount);
+                renderer.AddRoom(room.RoomKey, room.Mode, NetLaunch::RoomPlayerCount());
                 NativeRuntime::ConsoleWriteLine(
                     "[net] loading " + room.RoomKey
                     + " (" + ::MphRead::ToString(room.Mode) + ")");

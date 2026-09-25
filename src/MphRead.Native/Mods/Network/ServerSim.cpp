@@ -157,7 +157,7 @@ namespace MphRead::Mods::Network
 
             NetLaunch::BuildPlayers(*scene, Hunter::Samus, 0,
                 GameState::IsTeamMode(mode), -1);
-            scene->AddRoom(roomKey, mode, NetLaunch::RoomPlayerCount);
+            scene->AddRoom(roomKey, mode, NetLaunch::RoomPlayerCount());
             scene->OnLoad();
 
             _scene = std::move(scene);

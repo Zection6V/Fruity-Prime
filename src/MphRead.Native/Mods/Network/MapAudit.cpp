@@ -311,7 +311,7 @@ namespace MphRead::Mods::Network
 
         Entities::PlayerEntity::SetPlayerCount(players);
         Entities::PlayerEntity::SetMainPlayerIndex(0);
-        _scene->AddRoom(_room, mode, NetLaunch::RoomPlayerCount);
+        _scene->AddRoom(_room, mode, NetLaunch::RoomPlayerCount());
     }
 
     MapAudit::~MapAudit() = default;

@@ -4,6 +4,10 @@
 #include <optional>
 #include <string>
 
+#include "../Multiplayer/MatchWorldProfile.hpp"
+#include "../../NativeRuntime/System/CancellationToken.hpp"
+#include "../../NativeRuntime/System/Guid.hpp"
+
 namespace MphRead
 {
     enum class GameMode : std::uint8_t;
@@ -24,6 +28,11 @@ namespace MphRead::Mods::Network
     public:
         NetLaunch() = delete;
 
+        static bool Connect(const std::string& address, std::int32_t port,
+            const std::string& playerName, Hunter hunter,
+            std::int32_t timeoutMs = 8000, std::int32_t color = -1,
+            NativeRuntime::Guid ownerToken = {},
+            NativeRuntime::CancellationToken cancellationToken = {});
         static bool Join(const std::string& address, std::int32_t port,
             const std::string& playerName, Hunter hunter,
             std::int32_t timeoutMs = 8000, std::int32_t color = -1);
@@ -32,13 +41,18 @@ namespace MphRead::Mods::Network
         static void DisableCheatsForMatch();
         static std::optional<NetLaunchServerRoom> ServerRoom();
 
-        static constexpr std::int32_t RoomPlayerCount = 2;
+        [[nodiscard]] static Multiplayer::MatchWorldProfile WorldProfile();
+        [[nodiscard]] static std::int32_t RoomPlayerCount();
 
         static void BuildPlayers(Scene& scene, Hunter localHunter,
             std::int32_t localRecolor, bool teams = false,
             std::optional<std::int32_t> localSlot = std::nullopt);
 
     private:
+        static void PollTerminalInput();
+
+        static bool _terminalLobby;
+        static std::string _terminalInput;
         static std::string _lastJoinError;
 
         static std::string DescribeJoinFailure(const std::string& address,

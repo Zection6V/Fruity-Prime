@@ -13,6 +13,7 @@
 #include <vector>
 
 #if !defined(_WIN32)
+#include <poll.h>
 #include <termios.h>
 #include <unistd.h>
 #endif
@@ -313,8 +314,9 @@ namespace MphRead::NativeRuntime
 
     namespace
     {
-        void ReadKey(bool intercept)
+        ConsoleKeyInfo ReadKey(bool intercept)
         {
+            ConsoleKeyInfo info{};
 #if defined(_WIN32)
             const HANDLE input = ::GetStdHandle(STD_INPUT_HANDLE);
             DWORD mode = 0;
@@ -338,6 +340,8 @@ namespace MphRead::NativeRuntime
                     && record.Event.KeyEvent.wVirtualKeyCode != VK_CONTROL
                     && record.Event.KeyEvent.wVirtualKeyCode != VK_MENU)
                 {
+                    info.Key = static_cast<ConsoleKey>(record.Event.KeyEvent.wVirtualKeyCode);
+                    info.KeyChar = static_cast<char32_t>(record.Event.KeyEvent.uChar.UnicodeChar);
                     break;
                 }
             }
@@ -360,18 +364,69 @@ namespace MphRead::NativeRuntime
             char value = 0;
             (void)::read(STDIN_FILENO, &value, 1);
             (void)::tcsetattr(STDIN_FILENO, TCSANOW, &previous);
+            const auto byte = static_cast<unsigned char>(value);
+            info.KeyChar = byte == '\n' ? U'\r' : static_cast<char32_t>(byte);
+            info.Key = byte == '\n' || byte == '\r' ? ConsoleKey::Enter
+                : byte == 127 || byte == 8 ? ConsoleKey::Backspace
+                : byte == 27 ? ConsoleKey::Escape
+                : ConsoleKey::None;
 #endif
+            return info;
         }
     }
 
     void ConsoleReadKey()
     {
-        ReadKey(false);
+        static_cast<void>(ReadKey(false));
     }
 
     void ConsoleReadKeyIntercept()
     {
-        ReadKey(true);
+        static_cast<void>(ReadKey(true));
+    }
+
+    ConsoleKeyInfo ConsoleReadKeyInfo(bool intercept)
+    {
+        return ReadKey(intercept);
+    }
+
+    bool ConsoleKeyAvailable()
+    {
+#if defined(_WIN32)
+        const HANDLE input = ::GetStdHandle(STD_INPUT_HANDLE);
+        DWORD mode = 0;
+        if (input == nullptr || input == INVALID_HANDLE_VALUE || ::GetConsoleMode(input, &mode) == 0)
+        {
+            throw System::InvalidOperationException();
+        }
+        // As .NET does: events that are not key presses are read and dropped.
+        while (true)
+        {
+            INPUT_RECORD record{};
+            DWORD read = 0;
+            if (::PeekConsoleInputW(input, &record, 1, &read) == 0 || read == 0)
+            {
+                return false;
+            }
+            if (record.EventType == KEY_EVENT && record.Event.KeyEvent.bKeyDown != 0
+                && record.Event.KeyEvent.wVirtualKeyCode != VK_SHIFT
+                && record.Event.KeyEvent.wVirtualKeyCode != VK_CONTROL
+                && record.Event.KeyEvent.wVirtualKeyCode != VK_MENU)
+            {
+                return true;
+            }
+            (void)::ReadConsoleInputW(input, &record, 1, &read);
+        }
+#else
+        if (::isatty(STDIN_FILENO) == 0)
+        {
+            throw System::InvalidOperationException();
+        }
+        struct pollfd descriptor{};
+        descriptor.fd = STDIN_FILENO;
+        descriptor.events = POLLIN;
+        return ::poll(&descriptor, 1, 0) > 0 && (descriptor.revents & POLLIN) != 0;
+#endif
     }
 
     bool ConsoleIsInputRedirected()

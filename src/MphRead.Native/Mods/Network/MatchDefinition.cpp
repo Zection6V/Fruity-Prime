@@ -2,6 +2,18 @@
 
 namespace MphRead::Mods::Network
 {
+    std::string ToString(SessionPhase value)
+    {
+        switch (value)
+        {
+        case SessionPhase::Lobby: return "Lobby";
+        case SessionPhase::Starting: return "Starting";
+        case SessionPhase::InMatch: return "InMatch";
+        case SessionPhase::PostMatch: return "PostMatch";
+        }
+        return std::to_string(static_cast<std::int32_t>(value));
+    }
+
     bool MatchGoalRules::UsesLives(::MphRead::GameMode mode) noexcept
     {
         return mode == ::MphRead::GameMode::Survival || mode == ::MphRead::GameMode::SurvivalTeams;

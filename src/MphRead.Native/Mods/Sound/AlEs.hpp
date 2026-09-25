@@ -1,6 +1,7 @@
 #pragma once
 
 #if defined(__ANDROID__)
+#include "../../NativeRuntime/System/Exceptions.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <cstddef>
@@ -13,14 +14,7 @@
 
 namespace System
 {
-    class DllNotFoundException final : public std::runtime_error
-    {
-    public:
-        explicit DllNotFoundException(const char* message)
-            : std::runtime_error(message)
-        {
-        }
-    };
+    using DllNotFoundException = ::System::DllNotFoundException;
 }
 
 namespace OpenTK::Audio::OpenAL

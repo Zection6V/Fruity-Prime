@@ -1,4 +1,5 @@
 #include "Menu.hpp"
+#include "NativeRuntime/System/Exceptions.hpp"
 #include "NativeRuntime/System/Decimal.hpp"
 
 #include "Metadata/FrontendMeta.hpp"

@@ -1,4 +1,5 @@
 #include "TestLogic.hpp"
+#include "../NativeRuntime/System/Exceptions.hpp"
 
 #include "../MemoryArrays.hpp"
 #include "../MemoryClasses.hpp"
@@ -21,23 +22,9 @@ using ::MphRead::NativeRuntime::UncheckedSubtract;
 
 namespace
 {
-    class TestLogicDivideByZeroException final : public std::runtime_error
-    {
-    public:
-        TestLogicDivideByZeroException()
-            : std::runtime_error("Attempted to divide by zero.")
-        {
-        }
-    };
+    using TestLogicDivideByZeroException = ::System::DivideByZeroException;
 
-    class TestLogicOverflowException final : public std::overflow_error
-    {
-    public:
-        TestLogicOverflowException()
-            : std::overflow_error("Arithmetic operation resulted in an overflow.")
-        {
-        }
-    };
+    using TestLogicOverflowException = ::System::OverflowException;
 
     [[nodiscard]] std::int32_t ManagedDivide(
         std::int32_t left, std::int32_t right)

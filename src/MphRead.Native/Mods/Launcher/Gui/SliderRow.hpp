@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../../NativeRuntime/System/Exceptions.hpp"
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "GuiTheme.hpp"
 #include "TrackedText.hpp"
@@ -16,18 +17,8 @@
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    class SliderRowNullReferenceException final : public std::runtime_error
-    {
-    public:
-        SliderRowNullReferenceException();
-    };
+    using SliderRowNullReferenceException = ::System::NullReferenceException;
 
-    class SliderRowArgumentException final : public std::invalid_argument
-    {
-    public:
-        SliderRowArgumentException();
-        SliderRowArgumentException(std::int32_t min, std::int32_t max);
-    };
 
     enum class SliderRowKey : std::uint8_t
     {

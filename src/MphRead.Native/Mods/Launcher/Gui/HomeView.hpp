@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../../NativeRuntime/System/Exceptions.hpp"
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "../Portable/LaunchPlan.hpp"
 #include "../../../Formats/Formats.hpp"
@@ -37,17 +38,9 @@ namespace MphRead::Mods::Update
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    class HomeViewNullReferenceException final : public std::runtime_error
-    {
-    public:
-        HomeViewNullReferenceException();
-    };
+    using HomeViewNullReferenceException = ::System::NullReferenceException;
 
-    class HomeViewIOException : public std::runtime_error
-    {
-    public:
-        using std::runtime_error::runtime_error;
-    };
+    using HomeViewIOException = ::System::IO::IOException;
 
     enum class HomeViewKey : std::uint8_t
     {

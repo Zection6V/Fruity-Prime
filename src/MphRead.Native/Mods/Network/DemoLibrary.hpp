@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../NativeRuntime/System/Exceptions.hpp"
 #include "../../NativeRuntime/System/DateTime.hpp"
 
 #include <cstdint>
@@ -16,17 +17,9 @@ namespace MphRead::Mods::Network
 
     namespace Detail
     {
-        class DemoLibraryIOException : public std::runtime_error
-        {
-        public:
-            using std::runtime_error::runtime_error;
-        };
+        using DemoLibraryIOException = ::System::IO::IOException;
 
-        class DemoLibraryUnauthorizedAccessException : public std::runtime_error
-        {
-        public:
-            using std::runtime_error::runtime_error;
-        };
+        using DemoLibraryUnauthorizedAccessException = ::System::UnauthorizedAccessException;
 
         // Pair-local runtime closure for the System.IO and current-culture
         // services used by DemoLibrary.cs. These operations intentionally keep

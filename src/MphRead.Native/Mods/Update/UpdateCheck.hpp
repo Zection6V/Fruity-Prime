@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../NativeRuntime/System/Exceptions.hpp"
 #include "BuildVersion.hpp"
 #include "SyncHttp.hpp"
 
@@ -15,21 +16,9 @@
 
 namespace MphRead::Mods::Update
 {
-    class ArgumentNullException final : public std::invalid_argument
-    {
-    public:
-        explicit ArgumentNullException(std::string parameterName);
-        [[nodiscard]] const std::string& ParameterName() const noexcept;
+    using ArgumentNullException = ::System::ArgumentNullException;
 
-    private:
-        std::string _parameterName;
-    };
-
-    class InvalidOperationException final : public std::runtime_error
-    {
-    public:
-        explicit InvalidOperationException(std::string message);
-    };
+    using InvalidOperationException = ::System::InvalidOperationException;
 
     struct UpdateInfo;
 

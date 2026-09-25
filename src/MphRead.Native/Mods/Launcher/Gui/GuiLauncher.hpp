@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../../NativeRuntime/System/Exceptions.hpp"
 #include "HomeWindow.hpp"
 
 #include <atomic>
@@ -25,11 +26,7 @@ namespace MphRead::Mods::Launcher::Gui
 {
     class LauncherApp;
 
-    class GuiLauncherNullReferenceException final : public std::runtime_error
-    {
-    public:
-        GuiLauncherNullReferenceException();
-    };
+    using GuiLauncherNullReferenceException = ::System::NullReferenceException;
 
     enum class GuiLauncherDispatcherPriority : unsigned char
     {

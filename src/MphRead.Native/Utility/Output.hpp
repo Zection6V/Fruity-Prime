@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../NativeRuntime/System/Exceptions.hpp"
 #include <atomic>
 #include <condition_variable>
 #include <coroutine>
@@ -17,32 +18,11 @@
 
 namespace MphRead
 {
-    class NullReferenceException final : public std::runtime_error
-    {
-    public:
-        explicit NullReferenceException(const std::string& message)
-            : std::runtime_error(message)
-        {
-        }
-    };
+    using NullReferenceException = ::System::NullReferenceException;
 
-    class InvalidOperationException final : public std::runtime_error
-    {
-    public:
-        explicit InvalidOperationException(const std::string& message)
-            : std::runtime_error(message)
-        {
-        }
-    };
+    using InvalidOperationException = ::System::InvalidOperationException;
 
-    class SemaphoreFullException final : public std::runtime_error
-    {
-    public:
-        explicit SemaphoreFullException(const std::string& message)
-            : std::runtime_error(message)
-        {
-        }
-    };
+    using SemaphoreFullException = ::System::Threading::SemaphoreFullException;
 
     namespace Detail
     {

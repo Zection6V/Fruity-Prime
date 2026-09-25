@@ -1,4 +1,5 @@
 #include "UpdateDownload.hpp"
+#include "../../NativeRuntime/System/Exceptions.hpp"
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 
 #include "../Branding.hpp"
@@ -50,32 +51,11 @@ namespace MphRead::Mods::Update
     {
         ::MphRead::NativeRuntime::AtomicSharedPtr<const std::string> LastErrorValue{nullptr};
 
-        class OperationCanceledException final : public std::runtime_error
-        {
-        public:
-            explicit OperationCanceledException(std::string message)
-                : std::runtime_error(std::move(message))
-            {
-            }
-        };
+        using OperationCanceledException = ::System::OperationCanceledException;
 
-        class IOException final : public std::runtime_error
-        {
-        public:
-            explicit IOException(std::string message)
-                : std::runtime_error(std::move(message))
-            {
-            }
-        };
+        using IOException = ::System::IO::IOException;
 
-        class UnauthorizedAccessException final : public std::runtime_error
-        {
-        public:
-            explicit UnauthorizedAccessException(std::string message)
-                : std::runtime_error(std::move(message))
-            {
-            }
-        };
+        using UnauthorizedAccessException = ::System::UnauthorizedAccessException;
 
         [[nodiscard]] bool EndsWithOrdinalIgnoreCaseAscii(
             std::string_view value, std::string_view suffix) noexcept

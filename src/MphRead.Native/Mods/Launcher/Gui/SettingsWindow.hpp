@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../../NativeRuntime/System/Exceptions.hpp"
 #include "GuiTheme.hpp"
 #include "SettingsView.hpp"
 
@@ -15,11 +16,7 @@ namespace MphRead
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    class SettingsWindowNullReferenceException final : public std::runtime_error
-    {
-    public:
-        SettingsWindowNullReferenceException();
-    };
+    using SettingsWindowNullReferenceException = ::System::NullReferenceException;
 
     enum class SettingsWindowThemeVariant : unsigned char
     {

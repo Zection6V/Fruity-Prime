@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../../NativeRuntime/System/Exceptions.hpp"
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "GuiTheme.hpp"
 #include "TrackedText.hpp"
@@ -27,11 +28,7 @@ namespace MphRead::Mods::Launcher::Gui
 {
     using KeyRowGlfwKey = ::OpenTK::Windowing::GraphicsLibraryFramework::Keys;
 
-    class KeyRowNullReferenceException final : public std::runtime_error
-    {
-    public:
-        KeyRowNullReferenceException();
-    };
+    using KeyRowNullReferenceException = ::System::NullReferenceException;
 
     // Keep the surrogate numerically identical to Avalonia 11.3.11 Key.
     // This preserves enum aliases (for example Return == Enter) and lets an

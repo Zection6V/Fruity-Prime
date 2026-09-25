@@ -1,4 +1,5 @@
 #include "DesktopUpdate.hpp"
+#include "../../NativeRuntime/System/Exceptions.hpp"
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 
 #include "BuildVersion.hpp"
@@ -90,23 +91,9 @@ namespace MphRead::Mods::Update
 
         ::MphRead::NativeRuntime::AtomicSharedPtr<const std::string> LastErrorValue{nullptr};
 
-        class IOException final : public std::runtime_error
-        {
-        public:
-            explicit IOException(std::string message)
-                : std::runtime_error(std::move(message))
-            {
-            }
-        };
+        using IOException = ::System::IO::IOException;
 
-        class UnauthorizedAccessException final : public std::runtime_error
-        {
-        public:
-            explicit UnauthorizedAccessException(std::string message)
-                : std::runtime_error(std::move(message))
-            {
-            }
-        };
+        using UnauthorizedAccessException = ::System::UnauthorizedAccessException;
 
         class ArchiveException final : public std::runtime_error
         {

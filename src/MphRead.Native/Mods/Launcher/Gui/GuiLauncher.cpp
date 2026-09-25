@@ -38,11 +38,6 @@ namespace MphRead::Mods::Launcher::Gui
     std::atomic_bool GuiLauncher::_setUp{false};
     std::atomic_bool GuiLauncher::_failed{false};
 
-    GuiLauncherNullReferenceException::GuiLauncherNullReferenceException()
-        : std::runtime_error("Object reference not set to an instance of an object.")
-    {
-    }
-
     GuiLauncherDispatcherFrame::GuiLauncherDispatcherFrame(
         bool exitWhenRequested) noexcept
         : _exitWhenRequested(exitWhenRequested)

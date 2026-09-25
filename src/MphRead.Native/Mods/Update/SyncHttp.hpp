@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../NativeRuntime/System/Exceptions.hpp"
 #include <cstdint>
 #include <exception>
 #include <memory>
@@ -29,13 +30,7 @@ namespace MphRead::Mods::Update
         virtual ~HttpResponseMessage() = default;
     };
 
-    // Native counterpart for a managed null-reference failure while evaluating
-    // the SendAsync(...).GetAwaiter().GetResult() call chain.
-    class NullReferenceException final : public std::exception
-    {
-    public:
-        [[nodiscard]] const char* what() const noexcept override;
-    };
+    using NullReferenceException = ::System::NullReferenceException;
 
     class HttpResponseAwaiter
     {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../../NativeRuntime/System/Exceptions.hpp"
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "GuiTheme.hpp"
 #include "TrackedText.hpp"
@@ -15,11 +16,7 @@
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    class UpdateBadgeNullReferenceException final : public std::runtime_error
-    {
-    public:
-        UpdateBadgeNullReferenceException();
-    };
+    using UpdateBadgeNullReferenceException = ::System::NullReferenceException;
 
     // Keep the surrogate numerically identical to Avalonia 11.3.11 Key so
     // adapters can pass raw Key values through without remapping or collision.

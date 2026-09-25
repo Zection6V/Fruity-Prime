@@ -1,6 +1,8 @@
 #include "Net.hpp"
+#include "Exceptions.hpp"
 
 #include <array>
+#include <atomic>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
@@ -587,7 +589,8 @@ namespace MphRead::NativeRuntime
 #if defined(_WIN32)
         return error.code().value() == WSAETIMEDOUT;
 #else
-        return error.code().value() == EAGAIN || error.code().value() == EWOULDBLOCK;
+        return error.code().value() == EAGAIN || error.code().value() == EWOULDBLOCK
+            || error.code().value() == ETIMEDOUT;
 #endif
     }
 }
@@ -712,4 +715,282 @@ namespace MphRead::NativeRuntime
     {
         UdpClientSend(socket, datagram.data(), static_cast<std::int32_t>(datagram.size()), endPoint);
     }
+
+    struct UdpSocket::Impl final
+    {
+        Impl()
+        {
+            EnsureWinsock();
+            const NativeSocket handle = ::socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+            if (handle == InvalidSocket)
+            {
+                throw SocketException(LastSocketError(), "socket");
+            }
+            _handle.store(ToBits(handle), std::memory_order_seq_cst);
+        }
+
+        ~Impl()
+        {
+            Dispose();
+        }
+
+        Impl(const Impl&) = delete;
+        Impl& operator=(const Impl&) = delete;
+
+        void DisableUdpConnectionResetOnWindows()
+        {
+#if defined(_WIN32)
+            const NativeSocket handle = GetHandleOrThrow();
+            DWORD disabled = FALSE;
+            DWORD bytesReturned = 0;
+            constexpr DWORD SioUdpConnReset = 0x9800000CU;
+            const int result = WSAIoctl(handle, SioUdpConnReset,
+                &disabled, static_cast<DWORD>(sizeof(disabled)), nullptr, 0,
+                &bytesReturned, nullptr, nullptr);
+            if (result == SOCKET_ERROR)
+            {
+                throw SocketException(LastSocketError(), "WSAIoctl(SIO_UDP_CONNRESET)");
+            }
+#endif
+        }
+
+        void SetReceiveBufferSize(std::int32_t bytes)
+        {
+            SetIntOption(SO_RCVBUF, bytes, "setsockopt(SO_RCVBUF)");
+        }
+
+        void SetSendBufferSize(std::int32_t bytes)
+        {
+            SetIntOption(SO_SNDBUF, bytes, "setsockopt(SO_SNDBUF)");
+        }
+
+        void SetReceiveTimeout(std::int32_t milliseconds)
+        {
+            const NativeSocket handle = GetHandleOrThrow();
+#if defined(_WIN32)
+            const DWORD timeout = static_cast<DWORD>(milliseconds);
+            if (setsockopt(handle, SOL_SOCKET, SO_RCVTIMEO,
+                    reinterpret_cast<const char*>(&timeout), sizeof(timeout)) == SOCKET_ERROR)
+            {
+                throw SocketException(LastSocketError(), "setsockopt(SO_RCVTIMEO)");
+            }
+#else
+            timeval timeout{};
+            timeout.tv_sec = milliseconds / 1000;
+            timeout.tv_usec = (milliseconds % 1000) * 1000;
+            if (setsockopt(handle, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) != 0)
+            {
+                throw SocketException(LastSocketError(), "setsockopt(SO_RCVTIMEO)");
+            }
+#endif
+        }
+
+        void Bind(std::int32_t port)
+        {
+            if (port < 0 || port > 65535)
+            {
+                throw System::ArgumentOutOfRangeException("port");
+            }
+            const NativeSocket handle = GetHandleOrThrow();
+            sockaddr_in address{};
+            address.sin_family = AF_INET;
+            address.sin_addr.s_addr = htonl(INADDR_ANY);
+            address.sin_port = htons(static_cast<std::uint16_t>(port));
+#if defined(_WIN32)
+            if (::bind(handle, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == SOCKET_ERROR)
+#else
+            if (::bind(handle, reinterpret_cast<const sockaddr*>(&address), sizeof(address)) != 0)
+#endif
+            {
+                throw SocketException(LastSocketError(), "bind");
+            }
+        }
+
+        [[nodiscard]] std::int32_t LocalPort() const
+        {
+            const NativeSocket handle = GetHandleOrThrow();
+            sockaddr_in address{};
+#if defined(_WIN32)
+            int length = sizeof(address);
+            if (getsockname(handle, reinterpret_cast<sockaddr*>(&address), &length) == SOCKET_ERROR)
+#else
+            socklen_t length = sizeof(address);
+            if (getsockname(handle, reinterpret_cast<sockaddr*>(&address), &length) != 0)
+#endif
+            {
+                throw SocketException(LastSocketError(), "getsockname");
+            }
+            return static_cast<std::int32_t>(ntohs(address.sin_port));
+        }
+
+        [[nodiscard]] std::shared_ptr<std::vector<std::uint8_t>> Receive(
+            std::shared_ptr<System::Net::IPEndPoint>& sender)
+        {
+            const NativeSocket handle = GetHandleOrThrow();
+            auto data = std::make_shared<std::vector<std::uint8_t>>(65535);
+            sockaddr_in from{};
+#if defined(_WIN32)
+            int fromLength = sizeof(from);
+            const int count = recvfrom(handle,
+                reinterpret_cast<char*>(data->data()), static_cast<int>(data->size()), 0,
+                reinterpret_cast<sockaddr*>(&from), &fromLength);
+            if (count == SOCKET_ERROR)
+#else
+            socklen_t fromLength = sizeof(from);
+            const ssize_t count = recvfrom(handle, data->data(), data->size(), 0,
+                reinterpret_cast<sockaddr*>(&from), &fromLength);
+            if (count < 0)
+#endif
+            {
+                const int error = LastSocketError();
+                if (_disposed.load(std::memory_order_seq_cst))
+                {
+                    throw System::ObjectDisposedException("System.Net.Sockets.Socket", "Cannot access a disposed object.");
+                }
+                throw SocketException(error, "recvfrom");
+            }
+            data->resize(static_cast<std::size_t>(count));
+            std::array<std::uint8_t, 4> bytes{};
+            std::memcpy(bytes.data(), &from.sin_addr.s_addr, bytes.size());
+            sender = std::make_shared<System::Net::IPEndPoint>(
+                bytes, static_cast<std::int32_t>(ntohs(from.sin_port)));
+            return data;
+        }
+
+        void Send(std::span<const std::uint8_t> datagram,
+            const std::shared_ptr<System::Net::IPEndPoint>& target)
+        {
+            if (!target)
+            {
+                throw System::ArgumentNullException("remoteEP");
+            }
+            std::lock_guard sendLock(_sendLock);
+            const NativeSocket handle = GetHandleOrThrow();
+            const sockaddr_in address = ToSockAddr(CreateIPEndPoint(Address{AddressFamily::InterNetwork, target->AddressBytes()}, target->Port()));
+#if defined(_WIN32)
+            const int count = sendto(handle,
+                reinterpret_cast<const char*>(datagram.data()),
+                static_cast<int>(datagram.size()), 0,
+                reinterpret_cast<const sockaddr*>(&address), sizeof(address));
+            if (count == SOCKET_ERROR)
+#else
+            const ssize_t count = sendto(handle, datagram.data(), datagram.size(), 0,
+                reinterpret_cast<const sockaddr*>(&address), sizeof(address));
+            if (count < 0)
+#endif
+            {
+                const int error = LastSocketError();
+                if (_disposed.load(std::memory_order_seq_cst))
+                {
+                    throw System::ObjectDisposedException("System.Net.Sockets.Socket", "Cannot access a disposed object.");
+                }
+                throw SocketException(error, "sendto");
+            }
+        }
+
+        void Dispose() noexcept
+        {
+            if (_disposed.exchange(true, std::memory_order_seq_cst))
+            {
+                return;
+            }
+            std::lock_guard sendLock(_sendLock);
+            const std::uintptr_t oldBits = _handle.exchange(InvalidBits(), std::memory_order_seq_cst);
+            const NativeSocket handle = FromBits(oldBits);
+            if (handle == InvalidSocket)
+            {
+                return;
+            }
+#if defined(_WIN32)
+            (void)shutdown(handle, SD_BOTH);
+            (void)closesocket(handle);
+#else
+            (void)shutdown(handle, SHUT_RDWR);
+            (void)::close(handle);
+#endif
+        }
+
+        [[nodiscard]] static std::uintptr_t ToBits(NativeSocket handle) noexcept
+        {
+#if defined(_WIN32)
+            return static_cast<std::uintptr_t>(handle);
+#else
+            return static_cast<std::uintptr_t>(static_cast<std::intptr_t>(handle));
+#endif
+        }
+
+        [[nodiscard]] static NativeSocket FromBits(std::uintptr_t bits) noexcept
+        {
+#if defined(_WIN32)
+            return static_cast<NativeSocket>(bits);
+#else
+            return static_cast<NativeSocket>(static_cast<std::intptr_t>(bits));
+#endif
+        }
+
+        [[nodiscard]] static constexpr std::uintptr_t InvalidBits() noexcept
+        {
+#if defined(_WIN32)
+            return static_cast<std::uintptr_t>(INVALID_SOCKET);
+#else
+            return static_cast<std::uintptr_t>(static_cast<std::intptr_t>(-1));
+#endif
+        }
+
+        [[nodiscard]] NativeSocket GetHandleOrThrow() const
+        {
+            const NativeSocket handle = FromBits(_handle.load(std::memory_order_seq_cst));
+            if (handle == InvalidSocket || _disposed.load(std::memory_order_seq_cst))
+            {
+                throw System::ObjectDisposedException("System.Net.Sockets.Socket", "Cannot access a disposed object.");
+            }
+            return handle;
+        }
+
+        void SetIntOption(int option, std::int32_t value, const char* operation)
+        {
+            const NativeSocket handle = GetHandleOrThrow();
+#if defined(_WIN32)
+            if (setsockopt(handle, SOL_SOCKET, option,
+                    reinterpret_cast<const char*>(&value), sizeof(value)) == SOCKET_ERROR)
+#else
+            if (setsockopt(handle, SOL_SOCKET, option, &value, sizeof(value)) != 0)
+#endif
+            {
+                throw SocketException(LastSocketError(), operation);
+            }
+        }
+
+        std::atomic<std::uintptr_t> _handle{InvalidBits()};
+        std::atomic<bool> _disposed{false};
+        std::mutex _sendLock;
+    };
+
+    UdpSocket::UdpSocket()
+        : _impl(std::make_unique<Impl>())
+    {
+    }
+
+    UdpSocket::~UdpSocket() = default;
+
+    void UdpSocket::DisableUdpConnectionResetOnWindows() { _impl->DisableUdpConnectionResetOnWindows(); }
+    void UdpSocket::SetReceiveBufferSize(std::int32_t bytes) { _impl->SetReceiveBufferSize(bytes); }
+    void UdpSocket::SetSendBufferSize(std::int32_t bytes) { _impl->SetSendBufferSize(bytes); }
+    void UdpSocket::SetReceiveTimeout(std::int32_t milliseconds) { _impl->SetReceiveTimeout(milliseconds); }
+    void UdpSocket::Bind(std::int32_t port) { _impl->Bind(port); }
+    std::int32_t UdpSocket::LocalPort() const { return _impl->LocalPort(); }
+
+    std::shared_ptr<std::vector<std::uint8_t>> UdpSocket::Receive(
+        std::shared_ptr<System::Net::IPEndPoint>& sender)
+    {
+        return _impl->Receive(sender);
+    }
+
+    void UdpSocket::Send(std::span<const std::uint8_t> datagram,
+        const std::shared_ptr<System::Net::IPEndPoint>& target)
+    {
+        _impl->Send(datagram, target);
+    }
+
+    void UdpSocket::Dispose() noexcept { _impl->Dispose(); }
 }

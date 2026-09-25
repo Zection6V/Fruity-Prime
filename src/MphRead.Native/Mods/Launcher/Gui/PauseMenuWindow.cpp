@@ -55,11 +55,6 @@ namespace MphRead::Mods::Launcher::Gui
             PauseMenuWindowTransparencyLevel::None
         };
 
-    PauseMenuWindowNullReferenceException::PauseMenuWindowNullReferenceException()
-        : std::runtime_error("Object reference not set to an instance of an object.")
-    {
-    }
-
     PauseMenuWindowDialogCompletion::PauseMenuWindowDialogCompletion(
         void* context, Callback function, std::shared_ptr<void> keepAlive)
         : _context(context), _function(function), _keepAlive(std::move(keepAlive))

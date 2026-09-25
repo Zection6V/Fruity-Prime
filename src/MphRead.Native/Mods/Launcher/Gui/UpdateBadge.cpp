@@ -49,11 +49,6 @@ namespace
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    UpdateBadgeNullReferenceException::UpdateBadgeNullReferenceException()
-        : std::runtime_error("Object reference not set to an instance of an object.")
-    {
-    }
-
     const UpdateBadgeEventArgs UpdateBadgeEventArgs::Empty{};
 
     UpdateBadgeEventHandler::UpdateBadgeEventHandler(

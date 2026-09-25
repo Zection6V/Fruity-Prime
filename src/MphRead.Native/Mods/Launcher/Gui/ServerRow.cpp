@@ -46,11 +46,6 @@ namespace
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    ServerRowNullReferenceException::ServerRowNullReferenceException()
-        : std::runtime_error("Object reference not set to an instance of an object.")
-    {
-    }
-
     const ServerRowEventArgs ServerRowEventArgs::Empty{};
 
     ServerRowEventHandler::ServerRowEventHandler(

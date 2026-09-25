@@ -112,4 +112,37 @@ namespace MphRead::NativeRuntime
 
     // Whether a SocketException carries SocketError.TimedOut.
     [[nodiscard]] bool SocketErrorIsTimeout(const std::system_error& error) noexcept;
+
+    // The one socket behind `new UdpClient(port)` and its `Client` options,
+    // as the network transport drives it: bound once, received from on one
+    // thread and sent to from others, and disposed from any of them -- which
+    // is what unblocks a receive, as closing a managed Socket does.
+    class UdpSocket final
+    {
+    public:
+        UdpSocket();
+        ~UdpSocket();
+        UdpSocket(const UdpSocket&) = delete;
+        UdpSocket& operator=(const UdpSocket&) = delete;
+
+        // SIO_UDP_CONNRESET off, so an ICMP port-unreachable does not fail
+        // the next receive. Nothing elsewhere.
+        void DisableUdpConnectionResetOnWindows();
+        void SetReceiveBufferSize(std::int32_t bytes);
+        void SetSendBufferSize(std::int32_t bytes);
+        void SetReceiveTimeout(std::int32_t milliseconds);
+        void Bind(std::int32_t port);
+        [[nodiscard]] std::int32_t LocalPort() const;
+        // Receive(ref sender): SocketException on failure, ObjectDisposedException
+        // once disposed.
+        [[nodiscard]] std::shared_ptr<std::vector<std::uint8_t>> Receive(
+            std::shared_ptr<System::Net::IPEndPoint>& sender);
+        void Send(std::span<const std::uint8_t> datagram,
+            const std::shared_ptr<System::Net::IPEndPoint>& target);
+        void Dispose() noexcept;
+
+    private:
+        struct Impl;
+        std::unique_ptr<Impl> _impl;
+    };
 }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../../NativeRuntime/System/Exceptions.hpp"
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "GuiTheme.hpp"
 #include "TrackedText.hpp"
@@ -15,11 +16,7 @@
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    class MenuEntryNullReferenceException final : public std::runtime_error
-    {
-    public:
-        MenuEntryNullReferenceException();
-    };
+    using MenuEntryNullReferenceException = ::System::NullReferenceException;
 
     enum class MenuEntryProperty : std::uint8_t
     {

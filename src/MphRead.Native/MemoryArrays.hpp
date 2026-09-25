@@ -1,5 +1,6 @@
 #pragma once
 
+#include "NativeRuntime/System/Exceptions.hpp"
 #include "MemoryClasses.hpp"
 #include "NativeRuntime/System/Managed.hpp"
 
@@ -44,61 +45,17 @@ namespace MphRead::Memory
             std::intptr_t _value;
         };
 
-        class IndexOutOfRangeException final : public std::out_of_range
-        {
-        public:
-            IndexOutOfRangeException()
-                : std::out_of_range("Index was outside the bounds of the array.")
-            {
-            }
-        };
+        using IndexOutOfRangeException = ::System::IndexOutOfRangeException;
 
-        class ArgumentOutOfRangeException final : public std::out_of_range
-        {
-        public:
-            ArgumentOutOfRangeException()
-                : std::out_of_range(
-                    "Index was out of range. Must be non-negative and less than the size "
-                    "of the collection. (Parameter 'index')")
-            {
-            }
-        };
+        using ArgumentOutOfRangeException = ::System::ArgumentOutOfRangeException;
 
-        class InvalidCastException final : public std::runtime_error
-        {
-        public:
-            InvalidCastException()
-                : std::runtime_error("Specified cast is not valid.")
-            {
-            }
-        };
+        using InvalidCastException = ::System::InvalidCastException;
 
-        class NullReferenceException final : public std::runtime_error
-        {
-        public:
-            NullReferenceException()
-                : std::runtime_error("Object reference not set to an instance of an object.")
-            {
-            }
-        };
+        using NullReferenceException = ::System::NullReferenceException;
 
-        class NotImplementedException final : public std::logic_error
-        {
-        public:
-            explicit NotImplementedException(const char* message)
-                : std::logic_error(message)
-            {
-            }
-        };
+        using NotImplementedException = ::System::NotImplementedException;
 
-        class OverflowException final : public std::overflow_error
-        {
-        public:
-            OverflowException()
-                : std::overflow_error("Arithmetic operation resulted in an overflow.")
-            {
-            }
-        };
+        using OverflowException = ::System::OverflowException;
 
         class IEnumerator
         {

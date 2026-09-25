@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../../NativeRuntime/System/Exceptions.hpp"
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "GuiTheme.hpp"
 #include "TrackedText.hpp"
@@ -19,11 +20,7 @@ namespace MphRead::Mods::Launcher::Gui
 {
     using ServerRowStringRef = std::shared_ptr<const std::u16string>;
 
-    class ServerRowNullReferenceException final : public std::runtime_error
-    {
-    public:
-        ServerRowNullReferenceException();
-    };
+    using ServerRowNullReferenceException = ::System::NullReferenceException;
 
     // Keep the surrogate numerically identical to Avalonia 11.3.11 Key so
     // adapters can pass raw Key values through without remapping or collision.

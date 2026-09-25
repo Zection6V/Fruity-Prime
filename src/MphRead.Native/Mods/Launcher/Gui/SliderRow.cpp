@@ -28,19 +28,7 @@ namespace
     [[nodiscard]] std::int32_t ClampInt32(
         std::int32_t value, std::int32_t min, std::int32_t max)
     {
-        if (min > max)
-        {
-            throw SliderRowArgumentException(min, max);
-        }
-        if (value < min)
-        {
-            return min;
-        }
-        if (value > max)
-        {
-            return max;
-        }
-        return value;
+        return ::MphRead::NativeRuntime::MathClamp(value, min, max);
     }
 
     [[nodiscard]] std::int32_t DoubleToInt32Unchecked(double value) noexcept
@@ -63,23 +51,6 @@ namespace
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    SliderRowNullReferenceException::SliderRowNullReferenceException()
-        : std::runtime_error("Object reference not set to an instance of an object.")
-    {
-    }
-
-    SliderRowArgumentException::SliderRowArgumentException()
-        : std::invalid_argument("'min' cannot be greater than max.")
-    {
-    }
-
-    SliderRowArgumentException::SliderRowArgumentException(
-        std::int32_t min, std::int32_t max)
-        : std::invalid_argument("'" + std::to_string(min)
-            + "' cannot be greater than " + std::to_string(max) + ".")
-    {
-    }
-
     const SliderRowEventArgs SliderRowEventArgs::Empty{};
 
     SliderRowEventHandler::SliderRowEventHandler(

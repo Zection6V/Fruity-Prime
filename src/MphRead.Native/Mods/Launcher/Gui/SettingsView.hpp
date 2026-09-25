@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../../NativeRuntime/System/Exceptions.hpp"
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "GuiTheme.hpp"
 #include "KeyRow.hpp"
@@ -31,11 +32,7 @@ namespace MphRead::Mods
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    class SettingsViewNullReferenceException final : public std::runtime_error
-    {
-    public:
-        SettingsViewNullReferenceException();
-    };
+    using SettingsViewNullReferenceException = ::System::NullReferenceException;
 
     enum class SettingsViewScrollBarVisibility : std::uint8_t
     {

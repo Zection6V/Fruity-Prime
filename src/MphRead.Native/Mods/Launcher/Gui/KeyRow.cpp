@@ -46,11 +46,6 @@ namespace
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    KeyRowNullReferenceException::KeyRowNullReferenceException()
-        : std::runtime_error("Object reference not set to an instance of an object.")
-    {
-    }
-
     KeyRowBrush::KeyRowBrush(KeyRowBrushKind kind, GuiBrush* shared,
         std::shared_ptr<GuiBrush> owned) noexcept
         : _kind(kind), _shared(shared), _owned(std::move(owned))

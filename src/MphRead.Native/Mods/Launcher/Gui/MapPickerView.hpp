@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../../NativeRuntime/System/Exceptions.hpp"
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "GuiTheme.hpp"
 #include "TrackedText.hpp"
@@ -21,21 +22,9 @@ namespace MphRead::Mods::Launcher::Gui
 
     using MapPickerStringRef = std::shared_ptr<const std::string>;
 
-    class MapPickerNullReferenceException final : public std::runtime_error
-    {
-    public:
-        MapPickerNullReferenceException();
-    };
+    using MapPickerNullReferenceException = ::System::NullReferenceException;
 
-    class MapPickerArgumentNullException final : public std::invalid_argument
-    {
-    public:
-        explicit MapPickerArgumentNullException(std::string parameterName);
-        [[nodiscard]] const std::string& ParameterName() const noexcept;
-
-    private:
-        std::string _parameterName;
-    };
+    using MapPickerArgumentNullException = ::System::ArgumentNullException;
 
     enum class MapPickerKey : std::uint8_t
     {

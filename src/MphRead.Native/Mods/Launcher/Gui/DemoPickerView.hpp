@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../../NativeRuntime/System/Exceptions.hpp"
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "GuiTheme.hpp"
 #include "../../Network/DemoLibrary.hpp"
@@ -15,11 +16,7 @@
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    class DemoPickerViewNullReferenceException final : public std::runtime_error
-    {
-    public:
-        DemoPickerViewNullReferenceException();
-    };
+    using DemoPickerViewNullReferenceException = ::System::NullReferenceException;
 
     enum class DemoPickerViewTextWrapping : std::uint8_t
     {

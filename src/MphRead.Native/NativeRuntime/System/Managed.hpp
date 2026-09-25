@@ -5,6 +5,7 @@
 // C# wrote p.Member, for a raw pointer or a shared_ptr alike.
 
 #include "Exceptions.hpp"
+#include "Number.hpp"
 
 #include <array>
 #include <bit>
@@ -300,8 +301,9 @@ namespace MphRead::NativeRuntime
         {
             if (min > max)
             {
+                // SR.Argument_MinMaxValue, formatted by the current culture.
                 throw System::ArgumentException(
-                    "'" + std::to_string(min) + "' cannot be greater than " + std::to_string(max) + ".");
+                    "'" + ToString(min) + "' cannot be greater than " + ToString(max) + ".");
             }
             if (value < min)
             {

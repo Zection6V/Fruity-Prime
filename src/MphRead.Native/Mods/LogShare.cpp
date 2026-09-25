@@ -1,4 +1,5 @@
 #include "LogShare.hpp"
+#include "../NativeRuntime/System/Exceptions.hpp"
 
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 
@@ -61,11 +62,7 @@ namespace
     constexpr std::uint16_t ZipMethodDeflate = 8U;
     constexpr std::uint32_t Zip32Max = 0xFFFFFFFFU;
 
-    class DotNetArgumentException final : public std::runtime_error
-    {
-    public:
-        explicit DotNetArgumentException(const char* message) : std::runtime_error(message) {}
-    };
+    using DotNetArgumentException = ::System::ArgumentException;
 
     [[nodiscard]] std::filesystem::path NativePath(std::u16string_view value)
     {

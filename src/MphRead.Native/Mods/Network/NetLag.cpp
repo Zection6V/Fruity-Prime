@@ -1,4 +1,5 @@
 #include "NetLag.hpp"
+#include "../../NativeRuntime/System/Stopwatch.hpp"
 #include "../../NativeRuntime/System/Random.hpp"
 #include "NativeRuntime/System/Charconv.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
@@ -47,17 +48,6 @@ namespace
         return !value.has_value() || StringTrimView(*value).empty();
     }
 
-    [[nodiscard]] std::int64_t RuntimeStopwatchFrequency() noexcept
-    {
-#if defined(_WIN32)
-        LARGE_INTEGER frequency{};
-        (void)QueryPerformanceFrequency(&frequency);
-        return static_cast<std::int64_t>(frequency.QuadPart);
-#else
-        return 1'000'000'000LL;
-#endif
-    }
-
     class NetLagRuntime final
     {
     public:
@@ -95,11 +85,6 @@ namespace
         return runtime.Random();
     }
 
-    [[nodiscard]] std::int64_t StopwatchFrequency() noexcept
-    {
-        static const std::int64_t frequency = RuntimeStopwatchFrequency();
-        return frequency;
-    }
 }
 
 namespace MphRead::Mods::Network
@@ -150,7 +135,7 @@ namespace MphRead::Mods::Network
             ms += random.NextDouble() * _jitterMs;
         }
         return static_cast<std::int64_t>(
-            ms * static_cast<double>(StopwatchFrequency()) / 1000.0);
+            ms * static_cast<double>(::MphRead::NativeRuntime::StopwatchFrequency()) / 1000.0);
     }
 
     bool NetLag::Drops()

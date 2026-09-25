@@ -1,5 +1,6 @@
 #pragma once
 
+#include "NativeRuntime/System/Exceptions.hpp"
 #include "Entities/EntityBase.hpp"
 #include "Formats/Enums.hpp"
 #include "Formats/Types.hpp"
@@ -62,32 +63,11 @@ namespace MphRead
 {
     namespace SceneDetail
     {
-        class InvalidOperationException final : public std::logic_error
-        {
-        public:
-            InvalidOperationException()
-                : std::logic_error("Operation is not valid due to the current state of the object.")
-            {
-            }
-        };
+        using InvalidOperationException = ::System::InvalidOperationException;
 
-        class InvalidCastException final : public std::runtime_error
-        {
-        public:
-            InvalidCastException()
-                : std::runtime_error("Specified cast is not valid.")
-            {
-            }
-        };
+        using InvalidCastException = ::System::InvalidCastException;
 
-        class KeyNotFoundException final : public std::out_of_range
-        {
-        public:
-            KeyNotFoundException()
-                : std::out_of_range("The given key was not present in the dictionary.")
-            {
-            }
-        };
+        using KeyNotFoundException = ::System::Collections::Generic::KeyNotFoundException;
 
         class DuplicateKeyException final : public std::invalid_argument
         {
@@ -98,14 +78,7 @@ namespace MphRead
             }
         };
 
-        class IndexOutOfRangeException final : public std::out_of_range
-        {
-        public:
-            IndexOutOfRangeException()
-                : std::out_of_range("Index was outside the bounds of the array.")
-            {
-            }
-        };
+        using IndexOutOfRangeException = ::System::IndexOutOfRangeException;
 
         template <typename K, typename V>
         class ManagedDictionary final

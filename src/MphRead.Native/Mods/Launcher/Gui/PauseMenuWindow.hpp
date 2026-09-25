@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../../NativeRuntime/System/Exceptions.hpp"
 #include "GuiTheme.hpp"
 #include "MapPickerView.hpp"
 #include "PauseMenuView.hpp"
@@ -19,11 +20,7 @@ namespace MphRead::Mods::Launcher::Gui
     class PauseMenuWindow;
     class PauseMenuWindowAdapter;
 
-    class PauseMenuWindowNullReferenceException final : public std::runtime_error
-    {
-    public:
-        PauseMenuWindowNullReferenceException();
-    };
+    using PauseMenuWindowNullReferenceException = ::System::NullReferenceException;
 
     enum class PauseMenuWindowSystemDecorations : std::uint8_t
     {

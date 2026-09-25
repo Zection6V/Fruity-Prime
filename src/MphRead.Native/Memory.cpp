@@ -1,4 +1,5 @@
 #include "Memory.hpp"
+#include "NativeRuntime/System/Exceptions.hpp"
 #include "NativeRuntime/System/DateTime.hpp"
 
 #include "MemoryArrays.hpp"
@@ -67,34 +68,11 @@ using ::MphRead::NativeRuntime::UncheckedSubtract;
 
 namespace
 {
-    class DllNotFoundException final : public std::runtime_error
-    {
-    public:
-        DllNotFoundException()
-            : std::runtime_error("Unable to load shared library 'kernel32.dll'.")
-        {
-        }
-    };
+    using DllNotFoundException = ::System::DllNotFoundException;
 
-    class IndexOutOfRangeException final : public std::out_of_range
-    {
-    public:
-        IndexOutOfRangeException()
-            : std::out_of_range("Index was outside the bounds of the array.")
-        {
-        }
-    };
+    using IndexOutOfRangeException = ::System::IndexOutOfRangeException;
 
-    class ArgumentOutOfRangeException final : public std::out_of_range
-    {
-    public:
-        explicit ArgumentOutOfRangeException(std::string parameter)
-            : std::out_of_range(
-                "Specified argument was out of the range of valid values. (Parameter '"
-                + std::move(parameter) + "')")
-        {
-        }
-    };
+    using ArgumentOutOfRangeException = ::System::ArgumentOutOfRangeException;
 
     class ArgumentException final : public std::invalid_argument
     {
@@ -111,14 +89,7 @@ namespace
         }
     };
 
-    class OverflowException final : public std::overflow_error
-    {
-    public:
-        OverflowException()
-            : std::overflow_error("Arithmetic operation resulted in an overflow.")
-        {
-        }
-    };
+    using OverflowException = ::System::OverflowException;
 
     template <typename T>
     [[nodiscard]] T& VectorArrayAt(std::vector<T>& array, std::int32_t index)
@@ -1578,7 +1549,7 @@ namespace MphRead::Memory
         lpSystemInfo.ProcessorRevision = info.wProcessorRevision;
 #else
         static_cast<void>(lpSystemInfo);
-        throw DllNotFoundException();
+        throw DllNotFoundException("Unable to load shared library 'kernel32.dll'.");
 #endif
     }
 
@@ -1597,7 +1568,7 @@ namespace MphRead::Memory
         static_cast<void>(dwDesiredAccess);
         static_cast<void>(bInheritHandle);
         static_cast<void>(dwProcessId);
-        throw DllNotFoundException();
+        throw DllNotFoundException("Unable to load shared library 'kernel32.dll'.");
 #endif
     }
 
@@ -1635,7 +1606,7 @@ namespace MphRead::Memory
         static_cast<void>(lpAddress);
         static_cast<void>(lpBuffer);
         static_cast<void>(dwLength);
-        throw DllNotFoundException();
+        throw DllNotFoundException("Unable to load shared library 'kernel32.dll'.");
 #endif
     }
 
@@ -1662,7 +1633,7 @@ namespace MphRead::Memory
         static_cast<void>(lpBuffer);
         static_cast<void>(nSize);
         static_cast<void>(lpNumberOfBytesRead);
-        throw DllNotFoundException();
+        throw DllNotFoundException("Unable to load shared library 'kernel32.dll'.");
 #endif
     }
 
@@ -1689,7 +1660,7 @@ namespace MphRead::Memory
         static_cast<void>(lpBuffer);
         static_cast<void>(nSize);
         static_cast<void>(lpNumberOfBytesRead);
-        throw DllNotFoundException();
+        throw DllNotFoundException("Unable to load shared library 'kernel32.dll'.");
 #endif
     }
 
@@ -1698,7 +1669,7 @@ namespace MphRead::Memory
 #ifdef _WIN32
         return static_cast<std::uint32_t>(::GetLastError());
 #else
-        throw DllNotFoundException();
+        throw DllNotFoundException("Unable to load shared library 'kernel32.dll'.");
 #endif
     }
 }

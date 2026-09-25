@@ -25,11 +25,6 @@ namespace MphRead::Mods::Launcher::Gui
 
     const DemoPickerViewEventArgs DemoPickerViewEventArgs::Empty{};
 
-    DemoPickerViewNullReferenceException::DemoPickerViewNullReferenceException()
-        : std::runtime_error("Object reference not set to an instance of an object.")
-    {
-    }
-
     DemoPickerViewEventHandler::DemoPickerViewEventHandler(
         std::shared_ptr<void> target, Callback function)
     {

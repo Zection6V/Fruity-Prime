@@ -1,4 +1,5 @@
 #include "TestPrint.hpp"
+#include "../NativeRuntime/System/Exceptions.hpp"
 
 #include "../Formats/Formats.hpp"
 #include "../Formats/Model.hpp"
@@ -48,14 +49,7 @@ using ::MphRead::NativeRuntime::Utf8Scalar;
 
 namespace
 {
-    class ManagedIndexOutOfRangeException final : public std::out_of_range
-    {
-    public:
-        ManagedIndexOutOfRangeException()
-            : std::out_of_range("Index was outside the bounds of the array.")
-        {
-        }
-    };
+    using ManagedIndexOutOfRangeException = ::System::IndexOutOfRangeException;
 
     [[nodiscard]] const std::string& InterpolationString(
         const std::optional<std::string>& value) noexcept

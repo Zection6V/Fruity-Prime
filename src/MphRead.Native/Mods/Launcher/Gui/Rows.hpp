@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../../NativeRuntime/System/Exceptions.hpp"
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 #include "GuiTheme.hpp"
 
@@ -16,29 +17,12 @@
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    class RowsNullReferenceException final : public std::runtime_error
-    {
-    public:
-        RowsNullReferenceException();
-    };
+    using RowsNullReferenceException = ::System::NullReferenceException;
 
-    class RowsArgumentException final : public std::invalid_argument
-    {
-    public:
-        RowsArgumentException(std::int32_t min, std::int32_t max);
-    };
 
-    class RowsDivideByZeroException final : public std::runtime_error
-    {
-    public:
-        RowsDivideByZeroException();
-    };
+    using RowsDivideByZeroException = ::System::DivideByZeroException;
 
-    class RowsOverflowException final : public std::overflow_error
-    {
-    public:
-        RowsOverflowException();
-    };
+    using RowsOverflowException = ::System::OverflowException;
 
     enum class RowsCulture : std::uint8_t { Invariant };
     enum class RowsFlowDirection : std::uint8_t { LeftToRight };

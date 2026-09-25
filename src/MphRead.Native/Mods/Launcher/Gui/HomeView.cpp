@@ -90,11 +90,6 @@ namespace MphRead::Mods::Launcher::Gui
         }
     }
 
-    HomeViewNullReferenceException::HomeViewNullReferenceException()
-        : std::runtime_error("Object reference not set to an instance of an object.")
-    {
-    }
-
     HomeViewEventHandler::HomeViewEventHandler(
         std::shared_ptr<void> target, Callback function)
     {

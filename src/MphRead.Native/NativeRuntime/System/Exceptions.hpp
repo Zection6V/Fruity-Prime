@@ -44,6 +44,11 @@ namespace System
     class ArgumentNullException final : public std::invalid_argument
     {
     public:
+        ArgumentNullException()
+            : std::invalid_argument("Value cannot be null.")
+        {
+        }
+
         explicit ArgumentNullException(std::string_view paramName)
             : std::invalid_argument(
                 "Value cannot be null. (Parameter '" + std::string(paramName) + "')")
@@ -157,6 +162,11 @@ namespace System
             : std::logic_error("The method or operation is not implemented.")
         {
         }
+
+        explicit NotImplementedException(std::string_view message)
+            : std::logic_error(std::string(message))
+        {
+        }
     };
 
     class NullReferenceException final : public std::runtime_error
@@ -164,6 +174,11 @@ namespace System
     public:
         NullReferenceException()
             : std::runtime_error("Object reference not set to an instance of an object.")
+        {
+        }
+
+        explicit NullReferenceException(std::string_view message)
+            : std::runtime_error(std::string(message))
         {
         }
     };
@@ -189,6 +204,11 @@ namespace System
             : std::runtime_error("Specified cast is not valid.")
         {
         }
+
+        explicit InvalidCastException(std::string_view message)
+            : std::runtime_error(std::string(message))
+        {
+        }
     };
 
     class IndexOutOfRangeException final : public std::out_of_range
@@ -198,6 +218,11 @@ namespace System
             : std::out_of_range("Index was outside the bounds of the array.")
         {
         }
+
+        explicit IndexOutOfRangeException(std::string_view message)
+            : std::out_of_range(std::string(message))
+        {
+        }
     };
 
     class DivideByZeroException final : public std::runtime_error
@@ -205,6 +230,11 @@ namespace System
     public:
         DivideByZeroException()
             : std::runtime_error("Attempted to divide by zero.")
+        {
+        }
+
+        explicit DivideByZeroException(std::string_view message)
+            : std::runtime_error(std::string(message))
         {
         }
     };
@@ -226,8 +256,15 @@ namespace System
     class ObjectDisposedException final : public std::runtime_error
     {
     public:
+        // What a closed stream throws: "Cannot access a closed file."
         explicit ObjectDisposedException(std::string_view objectName)
             : std::runtime_error("Cannot access a closed " + std::string(objectName) + ".")
+        {
+        }
+
+        // new ObjectDisposedException(objectName, message).
+        ObjectDisposedException(std::string_view objectName, std::string_view message)
+            : std::runtime_error(std::string(message) + "\nObject name: '" + std::string(objectName) + "'.")
         {
         }
     };
@@ -237,6 +274,11 @@ namespace System
     public:
         OperationCanceledException()
             : std::runtime_error("The operation was canceled.")
+        {
+        }
+
+        explicit OperationCanceledException(std::string_view message)
+            : std::runtime_error(std::string(message))
         {
         }
     };
@@ -250,4 +292,59 @@ namespace System
         {
         }
     };
+
+    class DllNotFoundException final : public std::runtime_error
+    {
+    public:
+        explicit DllNotFoundException(std::string_view message)
+            : std::runtime_error(std::string(message))
+        {
+        }
+    };
+
+    namespace Collections::Generic
+    {
+        class KeyNotFoundException final : public std::out_of_range
+        {
+        public:
+            KeyNotFoundException()
+                : std::out_of_range("The given key was not present in the dictionary.")
+            {
+            }
+
+            explicit KeyNotFoundException(std::string_view message)
+                : std::out_of_range(std::string(message))
+            {
+            }
+        };
+    }
+
+    namespace Threading
+    {
+        class SemaphoreFullException final : public std::runtime_error
+        {
+        public:
+            SemaphoreFullException()
+                : std::runtime_error("Adding the specified count to the semaphore would cause it to exceed its maximum count.")
+            {
+            }
+
+            explicit SemaphoreFullException(std::string_view message)
+                : std::runtime_error(std::string(message))
+            {
+            }
+        };
+    }
+
+    namespace Text::Json
+    {
+        class JsonException final : public std::runtime_error
+        {
+        public:
+            explicit JsonException(std::string_view message)
+                : std::runtime_error(std::string(message))
+            {
+            }
+        };
+    }
 }

@@ -15,11 +15,6 @@ namespace MphRead::Mods::Launcher::Gui
         SettingsWindowAdapter& Adapter;
     };
 
-    SettingsWindowNullReferenceException::SettingsWindowNullReferenceException()
-        : std::runtime_error("Object reference not set to an instance of an object.")
-    {
-    }
-
     void SettingsWindowAdapter::DispatchOpened(
         SettingsWindow& window, SettingsWindowOpenedEventArgs& e)
     {

@@ -22,19 +22,7 @@ namespace
     [[nodiscard]] std::int32_t ClampInt32(
         std::int32_t value, std::int32_t min, std::int32_t max)
     {
-        if (min > max)
-        {
-            throw RowsArgumentException(min, max);
-        }
-        if (value < min)
-        {
-            return min;
-        }
-        if (value > max)
-        {
-            return max;
-        }
-        return value;
+        return ::MphRead::NativeRuntime::MathClamp(value, min, max);
     }
 
     [[nodiscard]] std::int32_t RemainderInt32(std::int32_t left, std::int32_t right)
@@ -59,27 +47,6 @@ namespace
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    RowsNullReferenceException::RowsNullReferenceException()
-        : std::runtime_error("Object reference not set to an instance of an object.")
-    {
-    }
-
-    RowsArgumentException::RowsArgumentException(std::int32_t min, std::int32_t max)
-        : std::invalid_argument("'" + std::to_string(min) + "' cannot be greater than "
-            + std::to_string(max) + ".")
-    {
-    }
-
-    RowsDivideByZeroException::RowsDivideByZeroException()
-        : std::runtime_error("Attempted to divide by zero.")
-    {
-    }
-
-    RowsOverflowException::RowsOverflowException()
-        : std::overflow_error("Arithmetic operation resulted in an overflow.")
-    {
-    }
-
     RowsBrush::RowsBrush(
         RowsBrushKind kind, GuiBrush* shared, std::shared_ptr<GuiBrush> owned) noexcept
         : _kind(kind), _shared(shared), _owned(std::move(owned))

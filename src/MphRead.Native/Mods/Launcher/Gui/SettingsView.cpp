@@ -449,11 +449,6 @@ namespace MphRead::Mods::Launcher::Gui
 
     const SettingsViewEventArgs SettingsViewEventArgs::Empty{};
 
-    SettingsViewNullReferenceException::SettingsViewNullReferenceException()
-        : std::runtime_error("Object reference not set to an instance of an object.")
-    {
-    }
-
     SettingsViewEventHandler::SettingsViewEventHandler(
         std::shared_ptr<void> target, Callback function)
     {

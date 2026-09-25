@@ -75,11 +75,6 @@ namespace MphRead::Mods::Launcher::Gui
 
     const MenuEntryEventArgs MenuEntryEventArgs::Empty{};
 
-    MenuEntryNullReferenceException::MenuEntryNullReferenceException()
-        : std::runtime_error("Object reference not set to an instance of an object.")
-    {
-    }
-
     MenuEntryEventHandler::MenuEntryEventHandler(
         void* context, Callback function, std::shared_ptr<void> keepAlive)
     {

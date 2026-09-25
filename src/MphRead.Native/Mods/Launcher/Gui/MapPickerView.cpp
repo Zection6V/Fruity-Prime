@@ -70,23 +70,6 @@ namespace
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    MapPickerNullReferenceException::MapPickerNullReferenceException()
-        : std::runtime_error("Object reference not set to an instance of an object.")
-    {
-    }
-
-    MapPickerArgumentNullException::MapPickerArgumentNullException(
-        std::string parameterName)
-        : std::invalid_argument("Value cannot be null. (Parameter '" + parameterName + "')"),
-          _parameterName(std::move(parameterName))
-    {
-    }
-
-    const std::string& MapPickerArgumentNullException::ParameterName() const noexcept
-    {
-        return _parameterName;
-    }
-
     const MapPickerEventArgs MapPickerEventArgs::Empty{};
 
     MapPickerEventHandler::MapPickerEventHandler(

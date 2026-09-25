@@ -1,4 +1,5 @@
 #include "MapDefinition.hpp"
+#include "../../NativeRuntime/System/Exceptions.hpp"
 #include "NativeRuntime/System/Charconv.hpp"
 
 #include "CustomRooms.hpp"
@@ -50,14 +51,7 @@ using ::MphRead::NativeRuntime::Utf8Scalar;
 
 namespace System::Text::Json
 {
-    class JsonException final : public std::runtime_error
-    {
-    public:
-        explicit JsonException(const std::string& message)
-            : std::runtime_error(message)
-        {
-        }
-    };
+    using JsonException = ::System::Text::Json::JsonException;
 }
 
 namespace

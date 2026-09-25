@@ -31,23 +31,6 @@ using ::MphRead::NativeRuntime::Utf8Scalar;
 
 namespace MphRead::Mods::Update
 {
-    ArgumentNullException::ArgumentNullException(std::string parameterName)
-        : std::invalid_argument("Value cannot be null. (Parameter '"
-            + parameterName + "')"),
-          _parameterName(std::move(parameterName))
-    {
-    }
-
-    const std::string& ArgumentNullException::ParameterName() const noexcept
-    {
-        return _parameterName;
-    }
-
-    InvalidOperationException::InvalidOperationException(std::string message)
-        : std::runtime_error(std::move(message))
-    {
-    }
-
     namespace
     {
         constexpr std::chrono::seconds Timeout(20);

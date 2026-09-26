@@ -71,7 +71,7 @@
   MapPacker（ApplyCollision・面属性）・BuiltFace 属性・MapBundle・CustomRooms。
   NativeRuntime に JsonNamingPolicyCamelCase。
 - 10: Q3Import（三角形法線・Clip クランプ・Weld 許容誤差・Pickups）・Q3Convert（-noitems・AddItems）・
-  MapReport.ListItems。-mapitems の ModEntry 配線は 13。残り MapCheck・AltFormProbe。
+  MapReport.ListItems。-mapitems の ModEntry 配線は 13。MapCheck 完了（-mapcheck 配線は 13）。残り AltFormProbe。
 - 保留（依存先の移植待ち）:
   - NetLaunch::TickTerminalLobby → Renderer の HasScene/EndScene と
     MatchStart::Begin(window, …)（1 ウィンドウ化）の後。
@@ -307,7 +307,7 @@
 
 | S | +/- | C# | C++ | 進捗 |
 |---|---|---|---|---|
-| A | +609/-0 | `Mods/MapGen/MapCheck.cs` | — 新規 | — |
+| A | +609/-0 | `Mods/MapGen/MapCheck.cs` | — 新規 | 完了 |
 | A | +430/-0 | `Mods/MapGen/CollisionObj.cs` | — 新規 | 完了 |
 | A | +369/-0 | `Mods/MapGen/AltFormProbe.cs` | — 新規 | — |
 | M | +213/-20 | `Mods/MapGen/Q3Import.cs` | .cpp,.hpp | 完了 |

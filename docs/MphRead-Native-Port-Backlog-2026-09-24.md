@@ -64,6 +64,9 @@
   PlayerHud.cs 差分（13 の行）を移植。Scene に DrawFlat{Disc,Ring,Line,Square,Polygon}（Renderer.cs 分）。
 - 7: MapThumbnail・PlayerEntityMapPick・EndScreen 部分クラス、EndScreen.cs（PanelUp・Tick・結果画面の
   パッド操作）。Scene::DrawHudTexture。呼び出し側（EndScreen::Tick・MapThumbnail::BeginFrame）は 13 の Renderer。
+- 7: PreviewPass（ランチャー用プレビュー）・FrameTimingCheck・NoiseField・HunterShot。残る 6 本
+  （LauncherPhoto・UiOverlay・LauncherHunter・LauncherNoise・AppIcon・DesktopGlContext）は
+  ランチャーをゲームウィンドウへ合成する仕組みそのものなので 12 と同時に移す。
 - 保留（依存先の移植待ち）:
   - NetLaunch::TickTerminalLobby → Renderer の HasScene/EndScene と
     MatchStart::Begin(window, …)（1 ウィンドウ化）の後。
@@ -199,22 +202,22 @@
 
 | S | +/- | C# | C++ | 進捗 |
 |---|---|---|---|---|
-| A | +416/-0 | `Mods/Render/LauncherPhoto.cs` | — 新規 | — |
+| A | +416/-0 | `Mods/Render/LauncherPhoto.cs` | — 新規 | 保留（12 の 1 ウィンドウ化と一緒） |
 | A | +277/-0 | `Mods/Render/PlayerEntityMapPick.cs` | — 新規 | 完了 |
 | A | +256/-0 | `Mods/Render/MapThumbnail.cs` | — 新規 | 完了 |
-| A | +244/-0 | `Mods/Render/UiOverlay.cs` | — 新規 | — |
-| A | +226/-0 | `Mods/Render/NoiseField.cs` | — 新規 | — |
-| A | +174/-0 | `Mods/Render/LauncherHunter.cs` | — 新規 | — |
-| A | +160/-0 | `Mods/Render/LauncherNoise.cs` | — 新規 | — |
+| A | +244/-0 | `Mods/Render/UiOverlay.cs` | — 新規 | 保留（12 の 1 ウィンドウ化と一緒） |
+| A | +226/-0 | `Mods/Render/NoiseField.cs` | — 新規 | 完了 |
+| A | +174/-0 | `Mods/Render/LauncherHunter.cs` | — 新規 | 保留（12 の 1 ウィンドウ化と一緒） |
+| A | +160/-0 | `Mods/Render/LauncherNoise.cs` | — 新規 | 保留（12 の 1 ウィンドウ化と一緒） |
 | M | +138/-3 | `Mods/Render/PreviewPass.cs` | .cpp,.hpp | 完了 |
-| A | +132/-0 | `Mods/Render/AppIcon.cs` | — 新規 | — |
+| A | +132/-0 | `Mods/Render/AppIcon.cs` | — 新規 | 保留（12 の 1 ウィンドウ化と一緒） |
 | A | +116/-0 | `Mods/Render/Radar.cs` | — 新規 | 完了 |
-| A | +97/-0 | `Mods/Render/HunterShot.cs` | — 新規 | — |
+| A | +97/-0 | `Mods/Render/HunterShot.cs` | — 新規 | 完了 |
 | M | +77/-0 | `Mods/Render/FrameTimingCheck.cs` | .cpp,.hpp | 完了 |
 | A | +70/-0 | `Mods/Render/PlayerEntityTeamScoreboard.cs` | — 新規 | 完了 |
 | A | +62/-0 | `Mods/Render/LockjawTrailProbe.cs` | — 新規 | 完了 |
 | M | +51/-0 | `Mods/Render/PlayerEntityStylusHud.cs` | .cpp,.hpp | 完了 |
-| A | +43/-0 | `Mods/Render/DesktopGlContext.cs` | — 新規 | — |
+| A | +43/-0 | `Mods/Render/DesktopGlContext.cs` | — 新規 | 保留（12 の 1 ウィンドウ化と一緒） |
 | M | +31/-0 | `Mods/Render/GlEs.cs` | .cpp,.hpp | 完了 |
 | A | +28/-0 | `Mods/Render/LockjawTrailNoise.cs` | — 新規 | 完了 |
 | M | +26/-0 | `Mods/Render/HunterPreview.cs` | .cpp,.hpp | 完了 |

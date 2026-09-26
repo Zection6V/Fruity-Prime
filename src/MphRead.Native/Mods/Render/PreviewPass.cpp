@@ -1,5 +1,6 @@
 #include "PreviewPass.hpp"
 
+#include "../DebugLog.hpp"
 #include "../../Scene.hpp"
 #include "../../Shaders.hpp"
 
@@ -141,9 +142,14 @@ namespace MphRead
         _previewWanted = value;
     }
 
+    bool Scene::PreviewAsked()
+    {
+        return Mods::EndScreen::Available() || LauncherPreview;
+    }
+
     void Scene::ModStepPreview()
     {
-        if (!Mods::EndScreen::Available())
+        if (!PreviewAsked())
         {
             if (_preview)
             {
@@ -158,16 +164,26 @@ namespace MphRead
             _preview = std::make_shared<Mods::Render::HunterPreviewEntity>(this);
         }
         const std::shared_ptr<Mods::Render::HunterPreviewEntity> preview = _preview;
-        const MphRead::Hunter hunter = Mods::EndScreen::Hunter();
-        const std::int32_t suit = Mods::EndScreen::Suit();
-        preview->SetUp(hunter, suit);
+        const MphRead::Hunter want = LauncherPreview ? LauncherHunter : Mods::EndScreen::Hunter();
+        const std::int32_t suit = LauncherPreview ? LauncherSuit : Mods::EndScreen::Suit();
+        preview->SetUp(want, suit);
+        // Textures and display lists, which nobody else is going to make on
+        // the launcher: there is no player standing in a room to have made them.
+        if (_previewInited != want)
+        {
+            _previewInited = want;
+            if (_preview->Ready())
+            {
+                InitEntity(_preview);
+            }
+        }
         _preview->Step();
     }
 
     void Scene::ModCollectPreview()
     {
         _previewItems.clear();
-        if (!Mods::EndScreen::Available() || !_preview || !_preview->Ready())
+        if (!PreviewAsked() || !_preview || !_preview->Ready())
         {
             return;
         }
@@ -194,9 +210,54 @@ namespace MphRead
             && _previewBottom - _previewTop > 0.001F;
     }
 
+    // The same hunter, in a frame with no match behind it: the launcher's own
+    // screens. Straight into the back buffer. Returns whether anything was
+    // drawn, which the screens read before leaving a hole for it.
+    bool Scene::ModDrawPreviewAlone(OpenTK::Mathematics::Vector2i windowSize)
+    {
+        if (!LauncherPreview || windowSize.X <= 0 || windowSize.Y <= 0)
+        {
+            return false;
+        }
+        _targetSize = windowSize;
+        try
+        {
+            ModStepPreview();
+            ModCollectPreview();
+            if (!ModPreviewDrawn())
+            {
+                return false;
+            }
+            GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, 0);
+            GL::UseProgram(_shaderProgramId);
+            ModDrawPreview();
+            GL::UseProgram(0);
+            return true;
+        }
+        catch (const std::exception& ex)
+        {
+            // A preview that will not draw is the launcher's boxes again, not
+            // a dead launcher. Said once: this is a per-frame path.
+            if (!_previewComplained)
+            {
+                _previewComplained = true;
+                Mods::DebugLog::Line("ui", std::string("the hunter preview could not be drawn: ") + ex.what());
+            }
+            LauncherPreview = false;
+            return false;
+        }
+    }
+
     void Scene::ModDrawPreview()
     {
         if (_previewItems.empty() || !_previewWanted)
+        {
+            _previewDrawnLastFrame = false;
+            return;
+        }
+        // Not from inside the world's render while the deck panel is up: the
+        // panel is opaque, so it would be a hunter behind a card.
+        if (Mods::EndScreen::PanelUp() && !LauncherPreview)
         {
             return;
         }
@@ -245,5 +306,8 @@ namespace MphRead
         GL::UniformMatrix4(_shaderLocations->ViewMatrix, false, _viewMatrix);
         GL::Uniform1(_shaderLocations->UseFog, _hasFog && FogOn() ? 1 : 0);
         GL::PolygonMode(GL::TriangleFace::FrontAndBack, GL::PolygonMode::Fill);
+        _previewDrawnLastFrame = true;
+        _previewDrawnHunter = _preview != nullptr ? _preview->Shown() : MphRead::Hunter::Random;
+        _previewDrawnSuit = _preview != nullptr ? _preview->ShownSuit() : -1;
     }
 }

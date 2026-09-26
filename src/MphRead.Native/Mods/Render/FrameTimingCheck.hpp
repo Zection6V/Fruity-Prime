@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 namespace MphRead::Mods::Render
 {
@@ -20,5 +21,7 @@ namespace MphRead::Mods::Render
 
         static bool RunCase(const Case& test);
         static bool RunStallCase();
+        [[nodiscard]] static std::int32_t RunLockjawNoiseCases();
+        [[nodiscard]] static std::int32_t ReportNoiseCase(const std::string& name, bool passed);
     };
 }

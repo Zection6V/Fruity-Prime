@@ -206,11 +206,11 @@
 | A | +226/-0 | `Mods/Render/NoiseField.cs` | — 新規 | — |
 | A | +174/-0 | `Mods/Render/LauncherHunter.cs` | — 新規 | — |
 | A | +160/-0 | `Mods/Render/LauncherNoise.cs` | — 新規 | — |
-| M | +138/-3 | `Mods/Render/PreviewPass.cs` | .cpp,.hpp | — |
+| M | +138/-3 | `Mods/Render/PreviewPass.cs` | .cpp,.hpp | 完了 |
 | A | +132/-0 | `Mods/Render/AppIcon.cs` | — 新規 | — |
 | A | +116/-0 | `Mods/Render/Radar.cs` | — 新規 | 完了 |
 | A | +97/-0 | `Mods/Render/HunterShot.cs` | — 新規 | — |
-| M | +77/-0 | `Mods/Render/FrameTimingCheck.cs` | .cpp,.hpp | — |
+| M | +77/-0 | `Mods/Render/FrameTimingCheck.cs` | .cpp,.hpp | 完了 |
 | A | +70/-0 | `Mods/Render/PlayerEntityTeamScoreboard.cs` | — 新規 | 完了 |
 | A | +62/-0 | `Mods/Render/LockjawTrailProbe.cs` | — 新規 | 完了 |
 | M | +51/-0 | `Mods/Render/PlayerEntityStylusHud.cs` | .cpp,.hpp | 完了 |

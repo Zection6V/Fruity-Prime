@@ -80,6 +80,7 @@ fruity_collect_owner("${FRUITY_MPHREAD_ROOT}" MPHREAD_NATIVE_SOURCES MPHREAD_NAT
 if(ANDROID)
     list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/Avalonia/.*\\.cpp$")
     list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/Gui/.*\\.cpp$")
+    list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/Skia/.*\\.cpp$")
     list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/OpenTK/RendererPlatform\\.cpp$")
     list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/OpenTK/GL\\.cpp$")
     list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/SoundFlow/MiniAudio\\.cpp$")
@@ -152,6 +153,10 @@ if(NOT ANDROID)
     # The launcher's text, which Avalonia rasterises on the C# side.
     find_package(Freetype REQUIRED)
     target_link_libraries(fruity_mphread_native PUBLIC Freetype::Freetype)
+
+    # The launcher's photograph is a JPEG, which Skia decodes on the C# side.
+    find_package(JPEG REQUIRED)
+    target_link_libraries(fruity_mphread_native PUBLIC JPEG::JPEG)
 
     find_library(FRUITY_OPENAL_LIBRARY NAMES openal OpenAL OpenAL32)
     if(FRUITY_OPENAL_LIBRARY)

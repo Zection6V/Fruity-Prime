@@ -35,6 +35,19 @@ namespace MphRead::Mods::MapGen
         [[nodiscard]] static std::shared_ptr<BuiltMap> Build(
             MapDefinition* def, bool verbose = true);
 
+        // One of the level's pickups: what it is in Quake, what this game has
+        // in its place, where that lands, and the name the level's scripts
+        // hand it out by, when they do.
+        struct Q3Pickup
+        {
+            std::string Classname{};
+            ItemType Type{};
+            OpenTK::Mathematics::Vector3 Position{};
+            std::optional<std::string> TargetName{};
+        };
+
+        [[nodiscard]] static std::vector<Q3Pickup> Pickups(Q3Bsp* bsp, float unitsPerUnit);
+
         [[nodiscard]] static std::optional<std::string> BakeTextures(
             const std::shared_ptr<Q3Bsp>& bsp, MapImport* import, bool verbose);
 
@@ -43,6 +56,9 @@ namespace MphRead::Mods::MapGen
         Q3Import& operator=(const Q3Import&) = delete;
 
     private:
+        [[nodiscard]] static OpenTK::Mathematics::Vector3 TriangleNormal(
+            const std::vector<OpenTK::Mathematics::Vector3>& points, OpenTK::Mathematics::Vector3 vertexNormal,
+            OpenTK::Mathematics::Vector3 faceNormal);
         struct GridPoint final
         {
             std::int32_t A = 0;

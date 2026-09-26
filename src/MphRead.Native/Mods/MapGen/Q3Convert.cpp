@@ -1,4 +1,5 @@
 #include "Q3Convert.hpp"
+#include "Q3Import.hpp"
 #include "NativeRuntime/System/Charconv.hpp"
 
 #include "../../Formats/Enums.hpp"
@@ -189,6 +190,7 @@ namespace MphRead::Mods::MapGen
         const std::optional<std::string>& roomName,
         const std::optional<std::string>& outputDir,
         bool dropClip,
+        bool dropItems,
         const std::optional<float>& forcedScale,
         std::int32_t textureSize)
     {
@@ -260,9 +262,7 @@ namespace MphRead::Mods::MapGen
             MathMax(yExtent, zExtent));
         const float unit = forcedScale.has_value()
             ? *forcedScale
-            : RoundToEven(MathMax(
-                35.0F,
-                widest / TargetExtent));
+            : AutoScale(widest);
 
         std::shared_ptr<std::vector<float>> reachMin;
         std::shared_ptr<std::vector<float>> reachMax;
@@ -372,6 +372,7 @@ namespace MphRead::Mods::MapGen
             &RequireReference(definition),
             &RequireReference(bsp),
             unit);
+        AddItems(&RequireReference(definition), &RequireReference(bsp), unit, dropItems);
 
         const std::string path
             = PathCombine(directory, prefix + ".json");
@@ -427,18 +428,79 @@ namespace MphRead::Mods::MapGen
                 << " player-clip brushes kept. They are the level's invisible"
                 << " walls; on a race map they fence the route. -noclip converts without them.\n";
         }
-        std::cout
-            << "  no weapons or powerups were placed: where those go decides how the map"
-            << " plays. Add them under \"items\", from:\n";
+        const std::vector<Q3Import::Q3Pickup> pickups = Q3Import::Pickups(bsp.get(), unit);
+        const std::size_t itemCount = RequireReference(definition->Items()).size();
+        if (dropItems)
+        {
+            std::cout << "  -noitems: the level's " << pickups.size() << " pickups were left out, and"
+                << " \"keepItems\" turned off so they stay out. Add your own under \"items\", from:\n";
+        }
+        else if (itemCount > 0)
+        {
+            std::cout << "  " << itemCount << " of the level's own pickups written under"
+                << " \"items\", and \"keepItems\" turned off so the recipe is the only place they"
+                << " live. Move them, drop them, or change what they are, from:\n";
+        }
+        else
+        {
+            std::cout << "  no pickups: this level holds none this game has an answer for."
+                << " Where weapons and powerups go decides how the map plays, so none were"
+                << " invented. Add them under \"items\", from:\n";
+        }
         std::cout
             << "  "
             << JoinMultiplayerItems(MapBuilder::MultiplayerItems)
             << '\n';
+        const auto scripted = dropItems ? 0 : std::count_if(pickups.begin(), pickups.end(),
+            [](const Q3Import::Q3Pickup& p) { return p.TargetName.has_value(); });
+        if (scripted > 0)
+        {
+            std::cout << "  " << scripted << " of them are handed out by the level's own scripts"
+                << " rather than walked over, and are usually stood in a closet nobody can reach."
+                << " FruityPrime -mapitems \"" << room << "\" says which.\n";
+        }
         std::cout
             << "  then: FruityPrime -mapgen \""
             << room
             << "\"\n";
         return 0;
+    }
+
+    float Q3Convert::AutoScale(float widestExtent)
+    {
+        return RoundToEven(MathMax(35.0F, widestExtent / TargetExtent));
+    }
+
+    float Q3Convert::WidestExtent(Q3Bsp* bsp)
+    {
+        std::shared_ptr<std::vector<float>> min;
+        std::shared_ptr<std::vector<float>> max;
+        Bounds(bsp, min, max, false);
+        if (ManagedAt(min.get(), 0) > ManagedAt(max.get(), 0))
+        {
+            return 0;
+        }
+        return MathMax(ManagedAt(max.get(), 0) - ManagedAt(min.get(), 0),
+            MathMax(ManagedAt(max.get(), 1) - ManagedAt(min.get(), 1), ManagedAt(max.get(), 2) - ManagedAt(min.get(), 2)));
+    }
+
+    // The level's own pickups, written into the recipe; either way the recipe
+    // is now the only source, so keepItems goes off.
+    void Q3Convert::AddItems(MapDefinition* definition, Q3Bsp* bsp, float unit, bool dropItems)
+    {
+        RequireReference(definition->Import()).KeepItems(false);
+        if (dropItems)
+        {
+            return;
+        }
+        for (const Q3Import::Q3Pickup& pickup : Q3Import::Pickups(bsp, unit))
+        {
+            auto item = std::make_shared<MapItem>();
+            item->Position(std::make_shared<std::vector<float>>(std::initializer_list<float>{
+                Round(pickup.Position.X), Round(pickup.Position.Y), Round(pickup.Position.Z)}));
+            item->Type(::MphRead::ToString(pickup.Type));
+            RequireReference(definition->Items()).push_back(std::move(item));
+        }
     }
 
     void Q3Convert::Bounds(

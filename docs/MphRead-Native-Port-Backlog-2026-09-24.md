@@ -70,6 +70,8 @@
 - 10 マップ生成 前半: CollisionObj（新規）・MapDefinition（Collision・KeepItems・camelCase 出力）・
   MapPacker（ApplyCollision・面属性）・BuiltFace 属性・MapBundle・CustomRooms。
   NativeRuntime に JsonNamingPolicyCamelCase。
+- 10: Q3Import（三角形法線・Clip クランプ・Weld 許容誤差・Pickups）・Q3Convert（-noitems・AddItems）・
+  MapReport.ListItems。-mapitems の ModEntry 配線は 13。残り MapCheck・AltFormProbe。
 - 保留（依存先の移植待ち）:
   - NetLaunch::TickTerminalLobby → Renderer の HasScene/EndScene と
     MatchStart::Begin(window, …)（1 ウィンドウ化）の後。
@@ -308,10 +310,10 @@
 | A | +609/-0 | `Mods/MapGen/MapCheck.cs` | — 新規 | — |
 | A | +430/-0 | `Mods/MapGen/CollisionObj.cs` | — 新規 | 完了 |
 | A | +369/-0 | `Mods/MapGen/AltFormProbe.cs` | — 新規 | — |
-| M | +213/-20 | `Mods/MapGen/Q3Import.cs` | .cpp,.hpp | — |
+| M | +213/-20 | `Mods/MapGen/Q3Import.cs` | .cpp,.hpp | 完了 |
 | M | +120/-0 | `Mods/MapGen/MapDefinition.cs` | .cpp,.hpp | 完了 |
-| M | +113/-2 | `Mods/MapGen/MapReport.cs` | .cpp,.hpp | — |
-| M | +91/-8 | `Mods/MapGen/Q3Convert.cs` | .cpp,.hpp | — |
+| M | +113/-2 | `Mods/MapGen/MapReport.cs` | .cpp,.hpp | 完了 |
+| M | +91/-8 | `Mods/MapGen/Q3Convert.cs` | .cpp,.hpp | 完了 |
 | M | +48/-1 | `Mods/MapGen/MapPacker.cs` | .cpp,.hpp | 完了 |
 | M | +19/-0 | `Mods/MapGen/BuiltMap.cs` | .cpp,.hpp | 完了 |
 | M | +19/-0 | `Mods/MapGen/MapBundle.cs` | .cpp,.hpp | 完了 |

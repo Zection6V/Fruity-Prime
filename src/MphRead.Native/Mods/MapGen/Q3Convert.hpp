@@ -22,8 +22,12 @@ namespace MphRead::Mods::MapGen
             const std::optional<std::string>& roomName,
             const std::optional<std::string>& outputDir,
             bool dropClip,
+            bool dropItems,
             const std::optional<float>& forcedScale,
             std::int32_t textureSize);
+
+        [[nodiscard]] static float AutoScale(float widestExtent);
+        [[nodiscard]] static float WidestExtent(Q3Bsp* bsp);
 
         Q3Convert() = delete;
         Q3Convert(const Q3Convert&) = delete;
@@ -40,6 +44,8 @@ namespace MphRead::Mods::MapGen
             const std::vector<float>* min,
             const std::vector<float>* max,
             float unit);
+
+        static void AddItems(MapDefinition* definition, Q3Bsp* bsp, float unit, bool dropItems);
 
         static void AddSpawns(
             MapDefinition* definition,

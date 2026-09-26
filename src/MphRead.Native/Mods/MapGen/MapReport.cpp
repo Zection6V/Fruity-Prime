@@ -1,6 +1,12 @@
 #include "MapReport.hpp"
 
+#include "CustomRooms.hpp"
+#include "MapDefinition.hpp"
 #include "Q3Bsp.hpp"
+#include "Q3Convert.hpp"
+#include "Q3Import.hpp"
+#include "../../NativeRuntime/System/IO.hpp"
+#include "../../NativeRuntime/System/Number.hpp"
 #include "../../Formats/Enums.hpp"
 #include "../../Formats/Model.hpp"
 #include "../../Read.hpp"
@@ -10,6 +16,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -324,5 +331,139 @@ namespace MphRead::Mods::MapGen
             WriteLine(line);
         }
         return 0;
+    }
+
+    std::int32_t MapReport::ListItems(const std::string& target, std::optional<std::string> mapName,
+        std::optional<float> forcedScale)
+    {
+        namespace Runtime = ::MphRead::NativeRuntime;
+        MapDefinition* def = nullptr;
+        for (const std::shared_ptr<MapDefinition>& candidate : CustomRooms::Definitions())
+        {
+            if (candidate != nullptr && Runtime::StringEqualsOrdinalIgnoreCase(candidate->Name(), target)
+                && candidate->Import() != nullptr)
+            {
+                def = candidate.get();
+                break;
+            }
+        }
+        std::string source;
+        float unit = 0;
+        if (def != nullptr)
+        {
+            MapImport* import = def->Import();
+            source = import->Resolve().value_or(import->Source());
+            if (!mapName.has_value())
+            {
+                mapName = import->MapName();
+            }
+            unit = forcedScale.has_value() ? *forcedScale : import->UnitsPerUnit();
+        }
+        else
+        {
+            source = target;
+        }
+        std::shared_ptr<Q3Bsp> bsp;
+        try
+        {
+            bsp = Q3Bsp::Load(source, mapName);
+        }
+        catch (const std::exception& ex)
+        {
+            std::cout << ex.what() << '\n';
+            return 1;
+        }
+        if (unit <= 0)
+        {
+            unit = forcedScale.has_value() ? *forcedScale : Q3Convert::AutoScale(Q3Convert::WidestExtent(bsp.get()));
+        }
+        const std::vector<Q3Import::Q3Pickup> pickups = Q3Import::Pickups(bsp.get(), unit);
+        const std::string label = def != nullptr ? def->Name() : mapName.has_value() ? *mapName : source;
+        std::cout << label << ": " << pickups.size() << " pickups in "
+            << (mapName.has_value() ? *mapName : Runtime::PathGetFileName(source)) << " at "
+            << Runtime::ToString(unit, "0.#") << " Quake units per unit\n";
+        if (def != nullptr)
+        {
+            const std::size_t own = def->Items() != nullptr ? def->Items()->size() : 0;
+            if (def->Import()->KeepItems())
+            {
+                std::cout << "  keepItems is on: these are added to the recipe's own " << own
+                    << ", for " << own + pickups.size() << " in the room.\n";
+            }
+            else
+            {
+                std::cout << "  keepItems is off: none of these reach the room. It has the recipe's own " << own << ".\n";
+            }
+        }
+        if (pickups.empty())
+        {
+            std::cout << "  Nothing here is a pickup this game has an answer for.\n";
+            return 0;
+        }
+        std::cout << '\n';
+        // GroupBy in first-seen order, then a stable OrderByDescending(count).
+        std::vector<std::vector<const Q3Import::Q3Pickup*>> groups;
+        for (const Q3Import::Q3Pickup& pickup : pickups)
+        {
+            auto found = std::find_if(groups.begin(), groups.end(),
+                [&pickup](const auto& group) { return group.front()->Classname == pickup.Classname; });
+            if (found == groups.end())
+            {
+                groups.push_back({&pickup});
+            }
+            else
+            {
+                found->push_back(&pickup);
+            }
+        }
+        std::stable_sort(groups.begin(), groups.end(),
+            [](const auto& a, const auto& b) { return a.size() > b.size(); });
+        const auto pad = [](std::string text, std::size_t width, bool right)
+        {
+            if (text.size() < width)
+            {
+                text = right ? std::string(width - text.size(), ' ') + text : text + std::string(width - text.size(), ' ');
+            }
+            return text;
+        };
+        for (const auto& group : groups)
+        {
+            const auto scripted = std::count_if(group.begin(), group.end(),
+                [](const Q3Import::Q3Pickup* p) { return p->TargetName.has_value(); });
+            const std::string note = scripted == 0 ? std::string()
+                : static_cast<std::size_t>(scripted) == group.size()
+                    ? std::string("  handed out by the level's own scripts, not walked over")
+                    : "  " + std::to_string(scripted) + " handed out by the level's own scripts, not walked over";
+            std::string line = "  " + pad(std::to_string(group.size()), 4, true) + "  " + pad(group.front()->Classname, 24, false)
+                + " " + pad(::MphRead::ToString(group.front()->Type), 14, false) + note;
+            while (!line.empty() && line.back() == ' ')
+            {
+                line.pop_back();
+            }
+            std::cout << line << '\n';
+        }
+        std::cout << '\n';
+        std::cout << "  \"items\": [\n";
+        for (std::size_t i = 0; i < pickups.size(); i++)
+        {
+            const Q3Import::Q3Pickup& pickup = pickups[i];
+            const std::string comma = i < pickups.size() - 1 ? "," : "";
+            std::cout << "    { \"position\": [ " << Round(pickup.Position.X) << ", " << Round(pickup.Position.Y) << ", "
+                << Round(pickup.Position.Z) << " ], \"type\": \"" << ::MphRead::ToString(pickup.Type) << "\" }" << comma
+                << (pickup.TargetName.has_value() ? "   // " + pickup.Classname + ", given by " + *pickup.TargetName : std::string())
+                << '\n';
+        }
+        std::cout << "  ]\n\n";
+        std::cout << "  Paste that into the recipe and set \"keepItems\": false under \"import\",\n";
+        std::cout << "  or the room gets one of each from the recipe and one from the level.\n";
+        std::cout << "  A recipe may carry // comments, so those lines can go in as they are.\n";
+        return 0;
+    }
+
+    // Two decimals, invariant, and never "-0".
+    std::string MapReport::Round(float value)
+    {
+        const float rounded = static_cast<float>(std::nearbyint(static_cast<double>(value) * 100.0) / 100.0);
+        return ::MphRead::NativeRuntime::ToStringInvariant(rounded == 0 ? 0.0F : rounded, "0.##");
     }
 }

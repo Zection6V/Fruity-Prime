@@ -1364,7 +1364,7 @@ namespace MphRead::Mods
             {
                 SetExitCode(MapGen::Q3Convert::Run(*q3Convert,
                     ValueAfter(args, "map"), ValueAfter(args, "name"),
-                    ValueAfter(args, "out"), ::HasFlag(args, "noclip"), scale,
+                    ValueAfter(args, "out"), ::HasFlag(args, "noclip"), ::HasFlag(args, "noitems"), scale,
                     textureSize));
             }
             catch (const std::exception& ex)

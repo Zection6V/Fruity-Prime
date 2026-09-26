@@ -323,6 +323,7 @@ namespace MphRead::Mods::MapGen
                         built,
                         static_cast<float>(width) * SkyTiles
                             / MathMax(1.0F, skySpan));
+                    built->Sky = true;
                 }
 
                 map->Faces().push_back(built);
@@ -605,7 +606,7 @@ namespace MphRead::Mods::MapGen
                 {
                     std::vector<Vector3> points(3);
                     std::vector<Vector2> uvs(3);
-                    Vector3 normal(0.0F, 0.0F, 0.0F);
+                    Vector3 vertexNormal(0.0F, 0.0F, 0.0F);
                     float shade = 0.0F;
 
                     for (std::int32_t j = 0; j < 3; ++j)
@@ -627,8 +628,8 @@ namespace MphRead::Mods::MapGen
                             ManagedAt(surface, 0) * static_cast<float>(width),
                             ManagedAt(surface, 1) * static_cast<float>(height));
 
-                        normal = Add(
-                            normal,
+                        vertexNormal = Add(
+                            vertexNormal,
                             ToDirection(&RequireReference(vertex->Normal())));
 
                         const std::vector<std::uint8_t>* color
@@ -641,11 +642,8 @@ namespace MphRead::Mods::MapGen
                             / (3.0F * 255.0F);
                     }
 
-                    if (LengthSquared(normal) < 0.0001F)
-                    {
-                        normal = ToDirection(&RequireReference(face->Normal()));
-                    }
-                    normal = normal.Normalized();
+                    const Vector3 normal = TriangleNormal(points, vertexNormal,
+                        ToDirection(&RequireReference(face->Normal())));
                     co_yield MakeFace(
                         std::move(points),
                         std::move(uvs),
@@ -829,6 +827,31 @@ namespace MphRead::Mods::MapGen
             t * t);
     }
 
+    // Which way a drawn triangle faces: its own plane, not the average of its
+    // vertices' normals, which for a welded model mesh belong to no single
+    // triangle. Quake winds a front face clockwise, so the cross product is
+    // negated; the vertex normals break a tie the other way and are the
+    // fallback for a degenerate triangle, then the lump's own face normal.
+    Vector3 Q3Import::TriangleNormal(const std::vector<Vector3>& points, Vector3 vertexNormal, Vector3 faceNormal)
+    {
+        Vector3 geometric = Vector3::Cross(Subtract(points.at(1), points.at(0)), Subtract(points.at(2), points.at(0)));
+        if (LengthSquared(geometric) >= 1e-10F)
+        {
+            geometric = Negate(geometric.Normalized());
+            if (LengthSquared(vertexNormal) >= 0.0001F
+                && Vector3::Dot(geometric, vertexNormal.Normalized()) < -0.2F)
+            {
+                geometric = Negate(geometric);
+            }
+            return geometric;
+        }
+        if (LengthSquared(vertexNormal) >= 0.0001F)
+        {
+            return vertexNormal.Normalized();
+        }
+        return LengthSquared(faceNormal) >= 0.0001F ? faceNormal.Normalized() : Vector3(0.0F, 1.0F, 0.0F);
+    }
+
     BuiltFace* Q3Import::Cell(
         const std::vector<Vector3>& points,
         const std::vector<Vector2>& uvs,
@@ -856,6 +879,14 @@ namespace MphRead::Mods::MapGen
         normal = LengthSquared(normal) < 0.0001F
             ? Vector3(0.0F, 1.0F, 0.0F)
             : normal.Normalized();
+        // The cell's own plane, pointed the way the interpolated normals say:
+        // a tessellated patch is collision as well as geometry.
+        Vector3 plane = Vector3::Cross(Subtract(corners.at(1), corners.at(0)), Subtract(corners.at(2), corners.at(0)));
+        if (LengthSquared(plane) >= 1e-10F)
+        {
+            plane = plane.Normalized();
+            normal = Vector3::Dot(plane, normal) < 0 ? Negate(plane) : plane;
+        }
 
         const float shade
             = (shades.at(i0) + shades.at(i1) + shades.at(i2))
@@ -1442,11 +1473,15 @@ namespace MphRead::Mods::MapGen
             if ((distCurrent > Epsilon) != (distNext > Epsilon)
                 && std::fabs(distCurrent - distNext) > 1.0e-6F)
             {
+                // Clamped: a pair straddling the epsilon gap solves to a t
+                // outside 0..1, and unclamped that point lands beyond the far
+                // end of the edge and the polygon reads as a bowtie.
+                const float t = std::clamp(distCurrent / (distCurrent - distNext), 0.0F, 1.0F);
                 result.push_back(Add(
                     current,
                     Multiply(
                         Subtract(next, current),
-                        distCurrent / (distCurrent - distNext))));
+                        t)));
             }
         }
         return result;
@@ -1455,6 +1490,18 @@ namespace MphRead::Mods::MapGen
     std::vector<Vector3> Q3Import::Weld(
         const std::vector<Vector3>& points)
     {
+        // The hair is a thousandth of the polygon's own extent, with the old
+        // constant as the floor: clipping a 131,072-unit sheet leaves
+        // accidental edges far longer than a fixed 0.02.
+        Vector3 min(std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), std::numeric_limits<float>::max());
+        Vector3 max(std::numeric_limits<float>::lowest(), std::numeric_limits<float>::lowest(), std::numeric_limits<float>::lowest());
+        for (const Vector3 point : points)
+        {
+            min = Vector3(std::min(min.X, point.X), std::min(min.Y, point.Y), std::min(min.Z, point.Z));
+            max = Vector3(std::max(max.X, point.X), std::max(max.Y, point.Y), std::max(max.Z, point.Z));
+        }
+        const float tolerance = std::max(0.02F, std::sqrt(LengthSquared(Subtract(max, min))) * 0.001F);
+        const float square = tolerance * tolerance;
         std::vector<Vector3> result;
         for (const Vector3 point : points)
         {
@@ -1462,7 +1509,7 @@ namespace MphRead::Mods::MapGen
             for (const Vector3 existing : result)
             {
                 if (LengthSquared(
-                        Subtract(existing, point)) < 0.0004F)
+                        Subtract(existing, point)) < square)
                 {
                     found = true;
                     break;
@@ -1630,36 +1677,25 @@ namespace MphRead::Mods::MapGen
                 jumpPads->push_back(std::move(pad));
                 ++pads;
             }
-            else
+        }
+
+        // The level's own pickups, after the loop: whether they are wanted at
+        // all is one question about the level.
+        const std::vector<Q3Pickup> pickups = Pickups(bsp, import->UnitsPerUnit());
+        MapDefinition::ItemList* mapItems = def->Items();
+        if (mapItems == nullptr)
+        {
+            throw System::NullReferenceException();
+        }
+        if (import->KeepItems())
+        {
+            for (const Q3Pickup& pickup : pickups)
             {
-                const std::string* itemOrigin
-                    = EntityValue(entity, "origin");
-                if (itemOrigin == nullptr)
-                {
-                    continue;
-                }
-
-                const ItemType type
-                    = MapItemType(*classname);
-                if (type == ItemType::None)
-                {
-                    continue;
-                }
-
-                const Vector3 position = ToWorld(
-                    ParseVector(*itemOrigin).get(),
-                    import->UnitsPerUnit());
-
-                MapDefinition::ItemList* mapItems = def->Items();
-                if (mapItems == nullptr)
-                {
-                    throw System::NullReferenceException();
-                }
                 auto item = std::make_shared<MapItem>();
                 item->Position(std::make_shared<std::vector<float>>(
                     std::initializer_list<float>{
-                        position.X, position.Y, position.Z}));
-                item->Type(::MphRead::ToString(type));
+                        pickup.Position.X, pickup.Position.Y, pickup.Position.Z}));
+                item->Type(::MphRead::ToString(pickup.Type));
                 mapItems->push_back(std::move(item));
                 ++items;
             }
@@ -1672,14 +1708,47 @@ namespace MphRead::Mods::MapGen
             {
                 throw System::NullReferenceException();
             }
+            const std::string note = import->KeepItems()
+                ? (items > 0 ? " (" + std::to_string(items) + " of them the level's own)" : std::string())
+                : (!pickups.empty() ? ", the level's " + std::to_string(pickups.size()) + " ignored" : std::string());
             std::cout
                 << "  " << spawns->size()
                 << " spawns, " << pads
-                << " jump pads, " << items
-                << " items\n";
+                << " jump pads, " << mapItems->size()
+                << " items" << note << "\n";
         }
 
         MapBuilder::AddEntities(map, def);
+    }
+
+    // The level's pickups, in world units: one definition of what counts as
+    // one and where it is, for the importer, the converter and -mapitems.
+    std::vector<Q3Import::Q3Pickup> Q3Import::Pickups(Q3Bsp* bsp, float unitsPerUnit)
+    {
+        if (bsp == nullptr)
+        {
+            throw System::NullReferenceException();
+        }
+        std::vector<Q3Pickup> pickups;
+        for (const std::shared_ptr<Q3Entity>& entityValue : bsp->Entities())
+        {
+            const Q3Entity* entity = entityValue.get();
+            const std::string* classname = EntityValue(entity, "classname");
+            const std::string* origin = EntityValue(entity, "origin");
+            if (classname == nullptr || origin == nullptr)
+            {
+                continue;
+            }
+            const ItemType type = MapItemType(*classname);
+            if (type == ItemType::None)
+            {
+                continue;
+            }
+            const std::string* targetName = EntityValue(entity, "targetname");
+            pickups.push_back(Q3Pickup{*classname, type, ToWorld(ParseVector(*origin).get(), unitsPerUnit),
+                targetName != nullptr ? std::optional<std::string>(*targetName) : std::nullopt});
+        }
+        return pickups;
     }
 
     ItemType Q3Import::MapItemType(

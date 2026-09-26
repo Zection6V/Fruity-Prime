@@ -53,6 +53,13 @@ namespace MphRead::NativeRuntime
         std::int32_t _exitCode = 0;
     };
 
+    // Process.Start with RedirectStandardOutput and RedirectStandardError,
+    // UseShellExecute false: StandardOutput.ReadToEnd() into output, standard
+    // error read and thrown away, WaitForExit(), and the exit code. Throws
+    // when the file cannot be started.
+    [[nodiscard]] std::int32_t ProcessRunCaptureOutput(
+        const std::string& fileName, const std::vector<std::string>& arguments, std::string& output);
+
     // IPGlobalProperties.GetIPGlobalProperties().GetActiveUdpListeners(),
     // ports only: IPv4 and IPv6. Throws where the platform will not say.
     [[nodiscard]] std::vector<std::int32_t> ActiveUdpListenerPorts();

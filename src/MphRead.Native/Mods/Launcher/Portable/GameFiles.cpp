@@ -1,4 +1,6 @@
 #include "GameFiles.hpp"
+#include "RomWhitelist.hpp"
+#include "../../Platform/AppPaths.hpp"
 
 #include "../../../Program.hpp"
 #include "../../../Formats/Formats.hpp"
@@ -1085,7 +1087,8 @@ namespace MphRead::Mods::Launcher
         std::string _line;
     };
 
-    std::string GameFiles::_root = AppContextBaseDirectory();
+    // Application Support on macOS, beside the executable on Windows/Linux.
+    std::string GameFiles::_root = ::MphRead::Mods::Platform::AppPaths::UserDataDirectory();
     const MphRead::Mods::Update::Version GameFiles::_minExtractVersion(0, 19, 0, 0);
 
     std::string GameFiles::Root()
@@ -1172,6 +1175,17 @@ namespace MphRead::Mods::Launcher
 
     bool GameFiles::RunSetup(const std::string& romPath, const Report& report)
     {
+        // Checked here rather than in each caller: every setup path funnels
+        // through this one entry point. A file that isn't one of the seven
+        // known dumps is refused before anything is extracted.
+        std::optional<std::string> label;
+        if (!RomWhitelist::TryIdentify(romPath, label))
+        {
+            report("This .nds file doesn't match a known Metroid Prime Hunters "
+                "dump (checked by MD5) -- nothing was extracted.");
+            return false;
+        }
+        report("Recognised: Metroid Prime Hunters, " + label.value_or(std::string()));
         if (InProcessSetup())
         {
             return RunSetupHere(romPath, report);

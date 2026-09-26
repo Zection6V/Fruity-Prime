@@ -72,6 +72,9 @@
   NativeRuntime に JsonNamingPolicyCamelCase。
 - 10: Q3Import（三角形法線・Clip クランプ・Weld 許容誤差・Pickups）・Q3Convert（-noitems・AddItems）・
   MapReport.ListItems。-mapitems の ModEntry 配線は 13。MapCheck 完了（-mapcheck 配線は 13）。AltFormProbe 完了（-altprobe 配線は 13）。セクション10 完了。
+- 11 Launcher portable: LaunchPlan（LobbyContext）、GameFiles（Root=AppPaths、RomWhitelist 照合）、
+  TextLauncher（InputEnded・insane・StartupForced）、NativeFilePicker（NativeRuntime に
+  ProcessRunCaptureOutput）完了。MatchStart は 13 の RenderWindow 1 ウィンドウ化待ちで保留。
 - 保留（依存先の移植待ち）:
   - NetLaunch::TickTerminalLobby → Renderer の HasScene/EndScene と
     MatchStart::Begin(window, …)（1 ウィンドウ化）の後。
@@ -323,13 +326,13 @@
 
 | S | +/- | C# | C++ | 進捗 |
 |---|---|---|---|---|
-| A | +320/-0 | `Mods/Launcher/Portable/NativeFilePicker.cs` | — 新規 | — |
-| M | +98/-42 | `Mods/Launcher/Portable/MatchStart.cs` | .cpp,.hpp | — |
+| A | +320/-0 | `Mods/Launcher/Portable/NativeFilePicker.cs` | — 新規 | 完了 |
+| M | +98/-42 | `Mods/Launcher/Portable/MatchStart.cs` | .cpp,.hpp | 保留 (13: RenderWindow HasScene/BeginScene/LoadScene) |
 | M | +87/-8 | `Mods/Launcher/Portable/LauncherPrefs.cs` | .cpp,.hpp | 完了 |
 | A | +67/-0 | `Mods/Launcher/Portable/RomWhitelist.cs` | — 新規 | 完了 |
-| M | +24/-7 | `Mods/Launcher/Portable/TextLauncher.cs` | .cpp,.hpp | — |
-| M | +15/-3 | `Mods/Launcher/Portable/GameFiles.cs` | .cpp,.hpp | — |
-| M | +4/-0 | `Mods/Launcher/Portable/LaunchPlan.cs` | .cpp,.hpp | — |
+| M | +24/-7 | `Mods/Launcher/Portable/TextLauncher.cs` | .cpp,.hpp | 完了 |
+| M | +15/-3 | `Mods/Launcher/Portable/GameFiles.cs` | .cpp,.hpp | 完了 |
+| M | +4/-0 | `Mods/Launcher/Portable/LaunchPlan.cs` | .cpp,.hpp | 完了 |
 
 ## 12. Launcher GUI — 70 ファイル (新規 50), C# +22132 行
 

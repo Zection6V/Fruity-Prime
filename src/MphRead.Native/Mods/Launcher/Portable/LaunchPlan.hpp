@@ -2,8 +2,10 @@
 
 #include <atomic>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 
 namespace MphRead
 {
@@ -25,6 +27,22 @@ namespace MphRead::Mods::Launcher
 
     private:
         static std::atomic<MphRead::Hunter> _rolled;
+    };
+
+    // Client-only identity carried through the persistent lobby; never serialized.
+    class LobbyContext final
+    {
+    public:
+        LobbyContext(std::string serverName, std::string endpoint, bool createdLocally = false)
+            : ServerName(std::move(serverName)), Endpoint(std::move(endpoint)), CreatedLocally(createdLocally)
+        {
+        }
+
+        std::string ServerName;
+        std::string Endpoint;
+        bool CreatedLocally = false;
+
+        [[nodiscard]] bool operator==(const LobbyContext&) const = default;
     };
 
     enum class LaunchKind : std::int32_t
@@ -56,6 +74,7 @@ namespace MphRead::Mods::Launcher
         struct Init
         {
             LaunchKind Kind = LaunchKind::None;
+            std::shared_ptr<LobbyContext> Lobby{};
             HunterInit Hunter{};
             std::optional<std::string> RoomKey{};
             MphRead::GameMode Mode = static_cast<MphRead::GameMode>(0);
@@ -77,6 +96,7 @@ namespace MphRead::Mods::Launcher
         LaunchPlan& operator=(LaunchPlan&& other);
 
         [[nodiscard]] LaunchKind Kind() const noexcept;
+        [[nodiscard]] const std::shared_ptr<LobbyContext>& Lobby() const noexcept;
         [[nodiscard]] MphRead::Hunter Hunter() const noexcept;
         [[nodiscard]] const std::optional<std::string>& RoomKey() const noexcept;
         [[nodiscard]] MphRead::GameMode Mode() const noexcept;
@@ -90,6 +110,7 @@ namespace MphRead::Mods::Launcher
 
     private:
         LaunchKind _kind = LaunchKind::None;
+        std::shared_ptr<LobbyContext> _lobby{};
         MphRead::Hunter _hunter = static_cast<MphRead::Hunter>(0);
         std::optional<std::string> _roomKey{};
         MphRead::GameMode _mode = static_cast<MphRead::GameMode>(0);

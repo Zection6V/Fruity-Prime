@@ -54,6 +54,7 @@ namespace MphRead::Mods::Launcher
 
     LaunchPlan::LaunchPlan(const Init& init)
         : _kind(init.Kind),
+          _lobby(init.Lobby),
           _hunter(init.Hunter),
           _roomKey(init.RoomKey),
           _mode(init.Mode),
@@ -80,6 +81,11 @@ namespace MphRead::Mods::Launcher
     LaunchKind LaunchPlan::Kind() const noexcept
     {
         return _kind;
+    }
+
+    const std::shared_ptr<LobbyContext>& LaunchPlan::Lobby() const noexcept
+    {
+        return _lobby;
     }
 
     MphRead::Hunter LaunchPlan::Hunter() const noexcept

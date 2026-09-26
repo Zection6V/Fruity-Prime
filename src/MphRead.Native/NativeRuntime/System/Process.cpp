@@ -386,4 +386,132 @@ namespace MphRead::NativeRuntime
 #endif
         return ports;
     }
+
+    std::int32_t ProcessRunCaptureOutput(
+        const std::string& fileName, const std::vector<std::string>& arguments, std::string& output)
+    {
+        output.clear();
+#if defined(_WIN32)
+        SECURITY_ATTRIBUTES security{};
+        security.nLength = sizeof(security);
+        security.bInheritHandle = TRUE;
+        HANDLE readOut = nullptr;
+        HANDLE writeOut = nullptr;
+        if (::CreatePipe(&readOut, &writeOut, &security, 0) == FALSE)
+        {
+            ThrowStartFailure(fileName, LastErrorMessage());
+        }
+        ::SetHandleInformation(readOut, HANDLE_FLAG_INHERIT, 0);
+        const HANDLE nul = ::CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &security,
+            OPEN_EXISTING, 0, nullptr);
+        std::wstring commandLine = PasteArgument(Wtf8ToWide(fileName));
+        for (const std::string& argument : arguments)
+        {
+            commandLine += L' ' + PasteArgument(Wtf8ToWide(argument));
+        }
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        startup.dwFlags = STARTF_USESTDHANDLES;
+        startup.hStdInput = ::GetStdHandle(STD_INPUT_HANDLE);
+        startup.hStdOutput = writeOut;
+        startup.hStdError = nul;
+        PROCESS_INFORMATION information{};
+        const BOOL started = ::CreateProcessW(nullptr, commandLine.data(), nullptr, nullptr, TRUE,
+            CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW, nullptr, nullptr, &startup, &information);
+        ::CloseHandle(writeOut);
+        if (nul != INVALID_HANDLE_VALUE)
+        {
+            ::CloseHandle(nul);
+        }
+        if (started == FALSE)
+        {
+            const std::string reason = LastErrorMessage();
+            ::CloseHandle(readOut);
+            ThrowStartFailure(fileName, reason);
+        }
+        ::CloseHandle(information.hThread);
+        char buffer[4096];
+        DWORD read = 0;
+        while (::ReadFile(readOut, buffer, sizeof(buffer), &read, nullptr) != FALSE && read > 0)
+        {
+            output.append(buffer, read);
+        }
+        ::CloseHandle(readOut);
+        ::WaitForSingleObject(information.hProcess, INFINITE);
+        DWORD exitCode = 0;
+        ::GetExitCodeProcess(information.hProcess, &exitCode);
+        ::CloseHandle(information.hProcess);
+        return static_cast<std::int32_t>(exitCode);
+#else
+        std::vector<std::string> strings;
+        strings.push_back(fileName);
+        strings.insert(strings.end(), arguments.begin(), arguments.end());
+        std::vector<char*> argv;
+        for (std::string& value : strings)
+        {
+            argv.push_back(value.data());
+        }
+        argv.push_back(nullptr);
+        int out[2];
+        int status[2];
+        if (::pipe(out) != 0)
+        {
+            ThrowStartFailure(fileName, std::strerror(errno));
+        }
+        if (::pipe(status) != 0)
+        {
+            const int error = errno;
+            ::close(out[0]);
+            ::close(out[1]);
+            ThrowStartFailure(fileName, std::strerror(error));
+        }
+        const pid_t pid = ::fork();
+        if (pid < 0)
+        {
+            const int error = errno;
+            ::close(out[0]);
+            ::close(out[1]);
+            ::close(status[0]);
+            ::close(status[1]);
+            ThrowStartFailure(fileName, std::strerror(error));
+        }
+        if (pid == 0)
+        {
+            ::close(out[0]);
+            ::close(status[0]);
+            ::fcntl(status[1], F_SETFD, FD_CLOEXEC);
+            ::dup2(out[1], STDOUT_FILENO);
+            const int devNull = ::open("/dev/null", O_WRONLY);
+            if (devNull >= 0)
+            {
+                ::dup2(devNull, STDERR_FILENO);
+            }
+            ::execvp(argv[0], argv.data());
+            const int error = errno;
+            static_cast<void>(::write(status[1], &error, sizeof(error)));
+            ::_exit(127);
+        }
+        ::close(out[1]);
+        ::close(status[1]);
+        int childError = 0;
+        const ssize_t failed = ::read(status[0], &childError, sizeof(childError));
+        ::close(status[0]);
+        if (failed == sizeof(childError))
+        {
+            ::close(out[0]);
+            ::waitpid(pid, nullptr, 0);
+            ThrowStartFailure(fileName, std::strerror(childError));
+        }
+        char buffer[4096];
+        ssize_t read = 0;
+        while ((read = ::read(out[0], buffer, sizeof(buffer))) > 0)
+        {
+            output.append(buffer, static_cast<std::size_t>(read));
+        }
+        ::close(out[0]);
+        int waitStatus = 0;
+        ::waitpid(pid, &waitStatus, 0);
+        return WIFEXITED(waitStatus) ? WEXITSTATUS(waitStatus) : 128 + WTERMSIG(waitStatus);
+#endif
+    }
 }

@@ -105,6 +105,14 @@ namespace MphRead::GameStateDetail
     [[nodiscard]] GameMode GameModePrimeHunter();
 }
 
+namespace MphRead::Mods::Launcher
+{
+    struct TextLauncherAccess final
+    {
+        static void SetInputEnded() noexcept { TextLauncher::_inputEnded = true; }
+    };
+}
+
 namespace
 {
     // Exception.StackTrace, which a C++ exception does not carry.
@@ -306,6 +314,7 @@ namespace
 
     [[nodiscard]] std::string Ask(const std::string& prompt, const std::string& fallback)
     {
+        using ::MphRead::Mods::Launcher::TextLauncherAccess;
         if (!fallback.empty())
         {
             std::cout << prompt << " [" << fallback << "]: ";
@@ -319,6 +328,7 @@ namespace
             = MphRead::NativeRuntime::ConsoleReadLine();
         if (!line.has_value())
         {
+            TextLauncherAccess::SetInputEnded();
             std::cout << '\n';
             return fallback;
         }
@@ -632,7 +642,7 @@ namespace
             std::cout << "  [b] Back" << '\n';
             std::cout << '\n';
             const std::string choice = ::MphRead::NativeRuntime::ToLowerInvariant(Ask("  Choose a slot", "1"));
-            if (choice == "b" || choice == "back")
+            if (choice == "b" || choice == "back" || ::MphRead::Mods::Launcher::TextLauncher::InputEnded())
             {
                 return false;
             }
@@ -806,7 +816,7 @@ namespace
         const std::int32_t bots = AskInt(
             "  Bots (0-7)", LauncherPrefs::Bots(), 0, PlayerSlotCapacity - 1);
         const std::int32_t level = AskInt(
-            "  Bot skill (0 easy, 1 normal, 2 hard)", LauncherPrefs::BotLevel(), 0, 2);
+            "  Bot skill (0 easy, 1 normal, 2 hard, 3 insane)", LauncherPrefs::BotLevel(), 0, 3);
         const Hunter hunter = AskHunter();
         LauncherPrefs::Bots(bots);
         LauncherPrefs::BotLevel(level);
@@ -944,7 +954,7 @@ namespace
                 std::cout << "  " << MphRead::Mods::Credits::Summary() << '\n';
                 std::cout << '\n';
                 const std::string only = ::MphRead::NativeRuntime::ToLowerInvariant(Ask("  Choose", "1"));
-                if (only == "q" || only == "quit")
+                if (only == "q" || only == "quit" || ::MphRead::Mods::Launcher::TextLauncher::InputEnded())
                 {
                     return false;
                 }
@@ -980,7 +990,7 @@ namespace
             std::cout << '\n';
 
             const std::string choice = ::MphRead::NativeRuntime::ToLowerInvariant(Ask("  Choose", "1"));
-            if (choice == "q" || choice == "quit")
+            if (choice == "q" || choice == "quit" || ::MphRead::Mods::Launcher::TextLauncher::InputEnded())
             {
                 return false;
             }
@@ -1066,7 +1076,10 @@ namespace MphRead::Mods::Launcher
             std::shared_ptr<MenuSettings> settings = MphRead::GameState::LoadSettings();
             MphRead::Mods::GameSettings::Apply(settings);
             LauncherPrefs::Load();
-            MphRead::Mods::WindowMode::Startup(LauncherPrefs::WindowMode());
+            if (!MphRead::Mods::WindowMode::StartupForced())
+            {
+                MphRead::Mods::WindowMode::Startup(LauncherPrefs::WindowMode());
+            }
             if (rooms.empty() && GameFiles::Ready())
             {
                 rooms = MphRead::Mods::ThumbnailGenerator::MultiplayerRooms();

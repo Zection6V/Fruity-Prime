@@ -733,6 +733,11 @@ namespace MphRead::Mods::Render
         return ManagedName(glCreateProgram());
     }
 
+    void GlEs::DeleteProgram(std::int32_t program)
+    {
+        glDeleteProgram(GlName(program));
+    }
+
     void GlEs::AttachShader(std::int32_t program, std::int32_t shader)
     {
         glAttachShader(GlName(program), GlName(shader));
@@ -827,6 +832,12 @@ namespace MphRead::Mods::Render
     {
         (void)face;
         (void)mode;
+    }
+
+    void GlEs::LineWidth(float width)
+    {
+        // Goes with PolygonMode above -- no wireframe to widen on ES.
+        (void)width;
     }
 
     void GlEs::DebugMessageCallback(void* callback, void* userParam)
@@ -1041,6 +1052,18 @@ namespace MphRead::Mods::Render
     std::int32_t GlEs::CheckFramebufferStatus(std::int32_t target)
     {
         return static_cast<std::int32_t>(glCheckFramebufferStatus(GlEnum(target)));
+    }
+
+    void GlEs::DeleteFramebuffer(std::int32_t framebuffer)
+    {
+        const GLuint name = GlName(framebuffer);
+        glDeleteFramebuffers(1, &name);
+    }
+
+    void GlEs::DeleteRenderbuffer(std::int32_t renderbuffer)
+    {
+        const GLuint name = GlName(renderbuffer);
+        glDeleteRenderbuffers(1, &name);
     }
 
     void GlEs::Uniform1(std::int32_t location, std::int32_t value)

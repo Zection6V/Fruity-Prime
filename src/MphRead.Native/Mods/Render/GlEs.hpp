@@ -49,6 +49,8 @@ namespace MphRead::Mods::Render
         static std::string GetShaderInfoLog(std::int32_t shader);
         static void DeleteShader(std::int32_t shader);
         static std::int32_t CreateProgram();
+        // Release a linked program; the renderer is torn down with every surface on Android.
+        static void DeleteProgram(std::int32_t program);
         static void AttachShader(std::int32_t program, std::int32_t shader);
         static void DetachShader(std::int32_t program, std::int32_t shader);
         static void LinkProgram(std::int32_t program);
@@ -59,6 +61,7 @@ namespace MphRead::Mods::Render
         static void Disable(std::int32_t cap);
         static void AlphaFunc(std::int32_t func, float reference);
         static void PolygonMode(std::int32_t face, std::int32_t mode);
+        static void LineWidth(float width);
         static void DebugMessageCallback(void* callback, void* userParam);
         static void Clear(std::int32_t mask);
         static void ClearColor(const std::array<float, 4>& color);
@@ -130,6 +133,9 @@ namespace MphRead::Mods::Render
         static void GetFramebufferAttachmentParameter(std::int32_t target,
             std::int32_t attachment, std::int32_t pname, std::int32_t& result);
         static std::int32_t CheckFramebufferStatus(std::int32_t target);
+        // The offscreen target and its depth attachment: driver names, passed straight through.
+        static void DeleteFramebuffer(std::int32_t framebuffer);
+        static void DeleteRenderbuffer(std::int32_t renderbuffer);
 
         static void Uniform1(std::int32_t location, std::int32_t value);
         static void Uniform1(std::int32_t location, float value);

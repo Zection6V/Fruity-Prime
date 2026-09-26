@@ -776,6 +776,16 @@ public: \
     [[nodiscard]] std::shared_ptr<MphRead::Hud::LayerInfo> Layer5Info() const noexcept; \
     void DrawCustomCrosshair(OpenTK::Mathematics::Vector3 color, float posX = 0.5F, float posY = 0.5F); \
     void DrawHitMarker(OpenTK::Mathematics::Vector4 color, float posX = 0.5F, float posY = 0.5F); \
+    void DrawFlatDisc(float posX, float posY, OpenTK::Mathematics::Vector2 localCenter, float radius, \
+        OpenTK::Mathematics::Vector4 color, std::int32_t segments = 32); \
+    void DrawFlatRing(float posX, float posY, OpenTK::Mathematics::Vector2 localCenter, float radius, \
+        float thickness, OpenTK::Mathematics::Vector4 color, std::int32_t segments = 48); \
+    void DrawFlatLine(float posX, float posY, OpenTK::Mathematics::Vector2 from, OpenTK::Mathematics::Vector2 to, \
+        float thickness, OpenTK::Mathematics::Vector4 color); \
+    void DrawFlatSquare(float posX, float posY, OpenTK::Mathematics::Vector2 localCenter, float halfSize, \
+        OpenTK::Mathematics::Vector4 color); \
+    void DrawFlatPolygon(float posX, float posY, OpenTK::Mathematics::Vector2 localCenter, \
+        std::span<const OpenTK::Mathematics::Vector2> localPoints, OpenTK::Mathematics::Vector4 color); \
     void DrawHudFlatBox(float left, float top, float right, float bottom, OpenTK::Mathematics::Vector4 color); \
     void DrawHudObject(const std::shared_ptr<MphRead::Hud::HudObjectInstance>& inst, std::int32_t mode = 0, float scale = 1.0F); \
     void DrawIconModel(OpenTK::Mathematics::Vector2 position, float angle, \

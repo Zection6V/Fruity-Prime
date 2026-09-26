@@ -1,5 +1,8 @@
 #include "PlayerEntityVoteHud.hpp"
 
+#include "../Input/InputSourceTracker.hpp"
+#include "../Input/PadBindings.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../Entities/Players/DynamicLightEntity.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../HUD/HudInfo.hpp"
@@ -88,6 +91,12 @@ namespace MphRead::Entities
         float aspect = HudAspectFix();
         std::string prompt = MapVote::PromptLine();
         std::string tally = MapVote::TallyLine();
+        if (!MapVote::Answered() && Mods::Input::InputSourceTracker::Current() == Mods::Input::InputSource::Gamepad)
+        {
+            tally = ::MphRead::NativeRuntime::StringReplace(tally, "F1 YES / F2 NO",
+                ::MphRead::NativeRuntime::ToUpperInvariant(Mods::Input::PadBindings::Describe(
+                    Mods::Input::PadBindings::Get(Mods::Input::PadAction::Menu))) + " MENU TO VOTE");
+        }
         bool buttons = VoteByTouch() && !MapVote::Answered();
         float height = VoteLineHeight * 2.0F + 4.0F
             + (buttons ? VoteButtonHeight() + VoteButtonGap() : 0.0F);

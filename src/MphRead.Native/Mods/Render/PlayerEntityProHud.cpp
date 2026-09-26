@@ -41,12 +41,17 @@ namespace MphRead::Entities
     void PlayerEntity::DrawProHud()
     {
         const float aspect = HudAspectFix();
-        const OpenTK::Mathematics::Vector4 health = ProHealthColor();
-        RequireReference(_scene).DrawHudFlatBox(
-            2.0F * aspect, 170.0F, 46.0F * aspect, 190.0F, ProHudPanel);
-        ProNumber(6.0F * aspect, 172.0F, Hud::Align::Left,
-            std::to_string(_health), ProInk(health), 1.5F);
-        ProBar(4.0F * aspect, 186.0F, 40.0F, 3.0F, ProHealthFraction(), health);
+        if (ModHudHealthVisible())
+        {
+            const OpenTK::Mathematics::Vector4 health = ProHealthColor();
+            // The left foot of the screen, under the weapon list and the same
+            // width as it: score, weapons and energy then read as one column.
+            RequireReference(_scene).DrawHudFlatBox(
+                2.0F * aspect, 170.0F, 46.0F * aspect, 190.0F, ProHudPanel);
+            ProNumber(6.0F * aspect, 172.0F, Hud::Align::Left,
+                std::to_string(ModHudHealth()), ProInk(health), 1.5F);
+            ProBar(4.0F * aspect, 186.0F, 40.0F, 3.0F, ProHealthFraction(), health);
+        }
         DrawProAmmo();
         ProScore(4.0F * aspect, 12.0F, Hud::Align::Left, 1.1F);
     }
@@ -99,7 +104,7 @@ namespace MphRead::Entities
 
     float PlayerEntity::ProHealthFraction()
     {
-        return std::clamp(_health / static_cast<float>(ProHealthSpan()), 0.0F, 1.0F);
+        return std::clamp(static_cast<float>(ModHudHealth()) / static_cast<float>(ProHealthSpan()), 0.0F, 1.0F);
     }
 
     std::int32_t PlayerEntity::ProHealthSpan()

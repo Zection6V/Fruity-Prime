@@ -3940,6 +3940,117 @@ namespace MphRead
         GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
     }
 
+    // A filled circle; localCenter is a pixel offset from (posX, posY), y up.
+    void Scene::DrawFlatDisc(float posX, float posY, OpenTK::Mathematics::Vector2 localCenter, float radius,
+        Vector4 color, std::int32_t segments)
+    {
+        const float halfW = _rendererSize.X / 2.0F;
+        const float halfH = _rendererSize.Y / 2.0F;
+        const float offX = posX * 2.0F - 1.0F + localCenter.X / halfW;
+        const float offY = 1.0F - posY * 2.0F + localCenter.Y / halfH;
+        GL::Uniform4(_shaderLocations->FadeColor, color);
+        GL::Begin(GL::PrimitiveType::TriangleFan);
+        GL::Vertex3(offX, offY, 0);
+        for (std::int32_t i = 0; i <= segments; i++)
+        {
+            const float angle = ::OpenTK::Mathematics::MathHelper::Pi * 2 * static_cast<float>(i) / static_cast<float>(segments);
+            GL::Vertex3(offX + radius * std::cos(angle) / halfW, offY + radius * std::sin(angle) / halfH, 0);
+        }
+        GL::End();
+        GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
+    }
+
+    // An unfilled ring; radius is to the middle of the stroke.
+    void Scene::DrawFlatRing(float posX, float posY, OpenTK::Mathematics::Vector2 localCenter, float radius,
+        float thickness, Vector4 color, std::int32_t segments)
+    {
+        const float halfW = _rendererSize.X / 2.0F;
+        const float halfH = _rendererSize.Y / 2.0F;
+        const float offX = posX * 2.0F - 1.0F + localCenter.X / halfW;
+        const float offY = 1.0F - posY * 2.0F + localCenter.Y / halfH;
+        const float inner = radius - thickness / 2;
+        const float outer = radius + thickness / 2;
+        GL::Uniform4(_shaderLocations->FadeColor, color);
+        GL::Begin(GL::PrimitiveType::TriangleStrip);
+        for (std::int32_t i = 0; i <= segments; i++)
+        {
+            const float angle = ::OpenTK::Mathematics::MathHelper::Pi * 2 * static_cast<float>(i) / static_cast<float>(segments);
+            const float cos = std::cos(angle);
+            const float sin = std::sin(angle);
+            GL::Vertex3(offX + outer * cos / halfW, offY + outer * sin / halfH, 0);
+            GL::Vertex3(offX + inner * cos / halfW, offY + inner * sin / halfH, 0);
+        }
+        GL::End();
+        GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
+    }
+
+    // A straight bar between two points local to (posX, posY), in pixels, y up.
+    void Scene::DrawFlatLine(float posX, float posY, OpenTK::Mathematics::Vector2 from, OpenTK::Mathematics::Vector2 to,
+        float thickness, Vector4 color)
+    {
+        const float dirX = to.X - from.X;
+        const float dirY = to.Y - from.Y;
+        const float len = std::sqrt(dirX * dirX + dirY * dirY);
+        if (len < 0.0001F)
+        {
+            return;
+        }
+        const float halfW = _rendererSize.X / 2.0F;
+        const float halfH = _rendererSize.Y / 2.0F;
+        const float offX = posX * 2.0F - 1.0F;
+        const float offY = 1.0F - posY * 2.0F;
+        const float perpX = -dirY / len * (thickness / 2.0F);
+        const float perpY = dirX / len * (thickness / 2.0F);
+        GL::Uniform4(_shaderLocations->FadeColor, color);
+        GL::Begin(GL::PrimitiveType::TriangleStrip);
+        GL::Vertex3(offX + (from.X + perpX) / halfW, offY + (from.Y + perpY) / halfH, 0);
+        GL::Vertex3(offX + (from.X - perpX) / halfW, offY + (from.Y - perpY) / halfH, 0);
+        GL::Vertex3(offX + (to.X + perpX) / halfW, offY + (to.Y + perpY) / halfH, 0);
+        GL::Vertex3(offX + (to.X - perpX) / halfW, offY + (to.Y - perpY) / halfH, 0);
+        GL::End();
+        GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
+    }
+
+    // A filled, axis-aligned square local to (posX, posY), in pixels.
+    void Scene::DrawFlatSquare(float posX, float posY, OpenTK::Mathematics::Vector2 localCenter, float halfSize,
+        Vector4 color)
+    {
+        const float halfW = _rendererSize.X / 2.0F;
+        const float halfH = _rendererSize.Y / 2.0F;
+        const float offX = posX * 2.0F - 1.0F;
+        const float offY = 1.0F - posY * 2.0F;
+        const float cx = localCenter.X;
+        const float cy = localCenter.Y;
+        GL::Uniform4(_shaderLocations->FadeColor, color);
+        GL::Begin(GL::PrimitiveType::TriangleStrip);
+        GL::Vertex3(offX + (cx + halfSize) / halfW, offY + (cy + halfSize) / halfH, 0);
+        GL::Vertex3(offX + (cx - halfSize) / halfW, offY + (cy + halfSize) / halfH, 0);
+        GL::Vertex3(offX + (cx + halfSize) / halfW, offY + (cy - halfSize) / halfH, 0);
+        GL::Vertex3(offX + (cx - halfSize) / halfW, offY + (cy - halfSize) / halfH, 0);
+        GL::End();
+        GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
+    }
+
+    // A filled convex polygon, points local to localCenter and already in fan order.
+    void Scene::DrawFlatPolygon(float posX, float posY, OpenTK::Mathematics::Vector2 localCenter,
+        std::span<const OpenTK::Mathematics::Vector2> localPoints, Vector4 color)
+    {
+        const float halfW = _rendererSize.X / 2.0F;
+        const float halfH = _rendererSize.Y / 2.0F;
+        const float offX = posX * 2.0F - 1.0F;
+        const float offY = 1.0F - posY * 2.0F;
+        GL::Uniform4(_shaderLocations->FadeColor, color);
+        GL::Begin(GL::PrimitiveType::TriangleFan);
+        for (const OpenTK::Mathematics::Vector2& point : localPoints)
+        {
+            const float x = localCenter.X + point.X;
+            const float y = localCenter.Y + point.Y;
+            GL::Vertex3(offX + x / halfW, offY + y / halfH, 0);
+        }
+        GL::End();
+        GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
+    }
+
     void Scene::DrawHudFlatBox(float left, float top, float right, float bottom, Vector4 color)
     {
         const float halfW = _rendererSize.X / 2.0F;

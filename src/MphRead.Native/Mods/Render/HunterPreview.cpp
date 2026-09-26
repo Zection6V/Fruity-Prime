@@ -57,6 +57,12 @@ void HunterPreviewEntity::SetUp(Hunter hunter, std::int32_t recolor)
     {
         return;
     }
+    if (_missing == hunter)
+    {
+        // Already tried and it is not there: asking again is asking the disk
+        // the same question sixty times a second.
+        return;
+    }
     if (hunter != _hunter || _model == nullptr)
     {
         try
@@ -75,8 +81,10 @@ void HunterPreviewEntity::SetUp(Hunter hunter, std::int32_t recolor)
         }
         catch (const std::exception& ex)
         {
+            // Once per hunter, not once per frame. See the guard above.
             std::cout << "[endscreen] no model for " << HunterString(hunter)
                 << ": " << ex.what() << '\n';
+            _missing = hunter;
             _model.reset();
             return;
         }

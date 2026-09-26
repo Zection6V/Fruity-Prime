@@ -1,3 +1,13 @@
+#include "../../Mods/Input/GamepadInput.hpp"
+#include "../../Mods/Input/StylusZone.hpp"
+#include "../../Mods/Input/WeaponSelectionDirection.hpp"
+#include "../../Mods/Input/WeaponWheel.hpp"
+#include "../../Mods/Multiplayer/TeamVisuals.hpp"
+#include "../../Mods/Network/NetHudHealth.hpp"
+#include "../../Mods/Render/Radar.hpp"
+#include "../CamSeq/CameraSequence.hpp"
+#include "../NodeDefenseEntity.hpp"
+#include "../ItemInstanceEntity.hpp"
 #include "PlayerHud.hpp"
 
 #include "../../Features.hpp"
@@ -318,6 +328,10 @@ namespace MphRead::Entities
             weaponInst->PositionY = position.Y;
             boxInst->PositionX = position.X;
             boxInst->PositionY = position.Y;
+            // Kept, because with a pen zone marked out the wheel is drawn
+            // inside it and has to be re-derived every frame from these.
+            // See ModPlaceWeaponSelect.
+            _weaponSelectHome[static_cast<std::size_t>(i)] = OpenTK::Mathematics::Vector2(position.X, position.Y);
             _weaponSelectInsts[static_cast<std::size_t>(i)] = weaponInst;
             _selectBoxInsts[static_cast<std::size_t>(i)] = boxInst;
         }
@@ -781,6 +795,9 @@ namespace MphRead::Entities
         else
         {
             _hudWeaponMenuOpen = false;
+            // The drag has no state worth keeping between two holds: the
+            // next one starts from the weapon in the player's hands.
+            Mods::Input::WeaponWheel::Close();
         }
         if (_scanVisor) UpdateScanHud();
         InitHudState();
@@ -855,7 +872,7 @@ namespace MphRead::Entities
 
     void PlayerEntity::UpdateHealthbars()
     {
-        if (_health < 25)
+        if (ModHudHealth() < 25)
         {
             if (!_healthbarChangedColor) { _healthbarPalette = 2; _healthbarChangedColor = true; }
         }
@@ -900,40 +917,10 @@ namespace MphRead::Entities
 
     void PlayerEntity::UpdateWeaponSelect()
     {
-        const BeamType previousWeapon = _weaponSelection;
-        static_cast<void>(previousWeapon);
-        std::int32_t selection = -1;
-        const float x = _input.MouseState.has_value() ? _input.MouseState->X : 0.0F;
-        const float y = _input.MouseState.has_value() ? _input.MouseState->Y : 0.0F;
-        const float ratioX = RequireReference(_scene).Size().X / 256.0F;
-        const float ratioY = RequireReference(_scene).Size().Y / 192.0F;
-        const float distX = 224.0F * ratioX - x;
-        const float distY = y - 38.0F * ratioY;
-        if (distX > 0 && distY > 0 && distX * distX + distY * distY > 20.0F * ratioY * 20.0F * ratioY)
-        {
-            const float div = distX / distY;
-            if (div >= Fixed::ToFloat(1060) * ratioX / (Fixed::ToFloat(3956) * ratioY))
-            {
-                if (div >= Fixed::ToFloat(2048) * ratioX / (Fixed::ToFloat(3547) * ratioY))
-                {
-                    if (div >= Fixed::ToFloat(2896) * ratioX / (Fixed::ToFloat(2896) * ratioY))
-                    {
-                        if (div >= Fixed::ToFloat(3547) * ratioX / (Fixed::ToFloat(2048) * ratioY))
-                        {
-                            if (div >= Fixed::ToFloat(3956) * ratioX / (Fixed::ToFloat(1060) * ratioY))
-                            {
-                                if (_availableWeapons[BeamType::ShockCoil]) { selection = 5; _weaponSelection = BeamType::ShockCoil; }
-                            }
-                            else if (_availableWeapons[BeamType::Magmaul]) { selection = 4; _weaponSelection = BeamType::Magmaul; }
-                        }
-                        else if (_availableWeapons[BeamType::Judicator]) { selection = 3; _weaponSelection = BeamType::Judicator; }
-                    }
-                    else if (_availableWeapons[BeamType::Imperialist]) { selection = 2; _weaponSelection = BeamType::Imperialist; }
-                }
-                else if (_availableWeapons[BeamType::Battlehammer]) { selection = 1; _weaponSelection = BeamType::Battlehammer; }
-            }
-            else if (_availableWeapons[BeamType::VoltDriver]) { selection = 0; _weaponSelection = BeamType::VoltDriver; }
-        }
+        const std::int32_t selection = Mods::Input::GamepadInput::WheelHeld() ? ModControllerWeaponSelection()
+            : Mods::Input::WeaponWheel::Absolute()
+            ? UpdateWeaponArc()
+            : UpdateWeaponDrag();
         for (std::int32_t i = 0; i < 6; ++i)
         {
             auto& weaponInst = RequireReference(_weaponSelectInsts[static_cast<std::size_t>(i)]);
@@ -947,6 +934,201 @@ namespace MphRead::Entities
             _soundSource.PlayFreeSfx(SfxId::HUD_WEAPON_SWITCH2);
             _hudPreviousWeaponSelection = selection;
         }
+    }
+
+    // The wheel answered by dragging: hold, move up or down, let go. A tenth
+    // of the window's height per weapon. See Mods::Input::WeaponWheel.
+    std::int32_t PlayerEntity::UpdateWeaponDrag()
+    {
+        std::int32_t current = -1;
+        for (std::int32_t i = 0; i < Mods::Input::WeaponWheel::Slots; i++)
+        {
+            const Hud::HudObjectInstance& inst = RequireReference(_weaponSelectInsts[static_cast<std::size_t>(i)]);
+            _wheelAvailable[static_cast<std::size_t>(i)] = _availableWeapons[inst.CurrentFrame];
+            if (static_cast<BeamType>(inst.CurrentFrame) == _currentWeapon)
+            {
+                current = i;
+            }
+        }
+        const std::int32_t selection = Mods::Input::WeaponWheel::Drag(_input.MouseDeltaY(),
+            static_cast<float>(RequireReference(_scene).Size().Y) / 10.0F, _wheelAvailable, current);
+        if (selection >= 0)
+        {
+            _weaponSelection = static_cast<BeamType>(
+                RequireReference(_weaponSelectInsts[static_cast<std::size_t>(selection)]).CurrentFrame);
+        }
+        return selection;
+    }
+
+    // The DS's own: the weapon is the segment of the arc the pointer is
+    // standing in, which needs a pointer that stands somewhere.
+    std::int32_t PlayerEntity::UpdateWeaponArc()
+    {
+        std::int32_t selection = -1;
+        const float x = _input.PointerX();
+        const float y = _input.PointerY();
+        const auto size = RequireReference(_scene).Size();
+        float ratioX = size.X / 256.0F;
+        float ratioY = size.Y / 192.0F;
+        float originX = 0;
+        float originY = 0;
+        // With a pen zone marked out the wheel is the zone, not the window:
+        // measured from its corner, in its units. See ModPlaceWeaponSelect.
+        if (Mods::Input::StylusZone::Enabled())
+        {
+            originX = Mods::Input::StylusZone::Left() * size.X;
+            originY = Mods::Input::StylusZone::Top() * size.Y;
+            ratioX = Mods::Input::StylusZone::Width() * size.X / 256.0F;
+            ratioY = Mods::Input::StylusZone::Height() * size.Y / 192.0F;
+            if (x < originX || x >= originX + 256 * ratioX || y < originY || y >= originY + 192 * ratioY)
+            {
+                return -1;
+            }
+        }
+        const float distX = originX + 224.0F * ratioX - x;
+        const float distY = y - (originY + 38.0F * ratioY);
+        if (distX > 0 && distY > 0 && distX * distX + distY * distY > 20.0F * ratioY * 20.0F * ratioY)
+        {
+            const float angleX = distX / ratioX;
+            const float angleY = distY / ratioY;
+            selection = ModResolveWeaponSlot(Mods::Input::WeaponSelectionDirection::Resolve(angleX, angleY));
+        }
+        return selection;
+    }
+
+    // The round motion-tracker overlay, top-right under the FPS counter.
+    // Heading-up: this player's facing is always straight up on the dial.
+    void PlayerEntity::DrawRadar()
+    {
+        using OpenTK::Mathematics::Vector2;
+        using OpenTK::Mathematics::Vector4;
+        if (!Mods::Render::Radar::Enabled || (GameState::Teams() && ShowScoreboard()))
+        {
+            return;
+        }
+        // Not during the match's own intro fly-through.
+        const Formats::CameraSequence* sequence = Formats::CameraSequence::Current();
+        if (sequence != nullptr && sequence->IsIntro())
+        {
+            return;
+        }
+        // Nor once the match is over: the results screen's pickers own the corner.
+        if (GameState::Multiplayer() && GameState::MatchState() != MatchState::InProgress)
+        {
+            return;
+        }
+        Scene& scene = RequireReference(_scene);
+        const auto size = scene.Size();
+        const float u = size.Y / 192.0F;
+        constexpr float dialGrow = 1.3F * 0.8F;
+        constexpr float blipGrow = 1.3F * 1.2F;
+        const float radius = 19.44F * dialGrow * u;
+        const float rightGap = 5.0F * u;
+        const float topGap = 10.0F * u;
+        const float posX = (size.X - rightGap - radius) / size.X;
+        const float posY = (topGap + radius) / size.Y;
+        // The camera's own view direction, which is what is on screen.
+        const OpenTK::Mathematics::Vector3 facing = RequireReference(CameraInfo()).Facing;
+        float fx = facing.X;
+        float fz = facing.Z;
+        const float faceLen = std::sqrt(fx * fx + fz * fz);
+        if (faceLen < 0.0001F)
+        {
+            fx = 0.0F;
+            fz = 1.0F;
+        }
+        else
+        {
+            fx /= faceLen;
+            fz /= faceLen;
+        }
+        const float rx = -fz;
+        const float rz = fx;
+        const Mods::Render::Radar::Palette& pal = Mods::Render::Radar::PaletteOf;
+        if (Mods::Render::Radar::ShowBackground)
+        {
+            scene.DrawFlatDisc(posX, posY, Vector2::Zero, radius, pal.Background);
+        }
+        if (Mods::Render::Radar::ShowOutlines)
+        {
+            scene.DrawFlatRing(posX, posY, Vector2::Zero, radius, 0.35F * dialGrow * u, pal.Ring);
+            scene.DrawFlatRing(posX, posY, Vector2::Zero, radius * 0.55F, 0.25F * dialGrow * u, pal.Ring);
+            const float coneAngle = OpenTK::Mathematics::MathHelper::DegreesToRadians(55.0F);
+            const Vector2 left(-radius * std::sin(coneAngle), radius * std::cos(coneAngle));
+            const Vector2 right(radius * std::sin(coneAngle), radius * std::cos(coneAngle));
+            scene.DrawFlatLine(posX, posY, Vector2::Zero, left, 0.25F * dialGrow * u, pal.Cone);
+            scene.DrawFlatLine(posX, posY, Vector2::Zero, right, 0.25F * dialGrow * u, pal.Cone);
+        }
+        const float worldToPixel = radius / Mods::Render::Radar::Range;
+        const OpenTK::Mathematics::Vector3 self = Position;
+        const auto placeBlip = [&](OpenTK::Mathematics::Vector3 worldPos, bool isHunter, bool isWeapon, std::int32_t teamIndex)
+        {
+            const float dx = worldPos.X - self.X;
+            const float dz = worldPos.Z - self.Z;
+            const float sx = dx * rx + dz * rz;
+            const float sy = dx * fx + dz * fz;
+            if (sx * sx + sy * sy < 0.0004F)
+            {
+                return;
+            }
+            float px = sx * worldToPixel;
+            float py = sy * worldToPixel;
+            const float pixelLen = std::sqrt(px * px + py * py);
+            if (pixelLen > radius)
+            {
+                // Beyond range: clamp to the rim rather than drop it.
+                px *= radius / pixelLen;
+                py *= radius / pixelLen;
+            }
+            const Vector2 local(px, py);
+            if (isHunter)
+            {
+                Vector4 color = pal.Hunter;
+                if (GameState::Teams())
+                {
+                    const Vector4 team = Mods::Multiplayer::TeamVisuals::Get(teamIndex).RadarColor().AsVector4();
+                    color = Vector4(team.X * (255.0F / 31), team.Y * (255.0F / 31), team.Z * (255.0F / 31), team.W);
+                }
+                scene.DrawFlatRing(posX, posY, local, 0.59F * blipGrow * u, 0.2F * blipGrow * u, color);
+            }
+            else if (isWeapon)
+            {
+                const float d = 0.49F * blipGrow * u;
+                const std::array<Vector2, 4> diamond{Vector2(0, d), Vector2(d, 0), Vector2(0, -d), Vector2(-d, 0)};
+                scene.DrawFlatPolygon(posX, posY, local, diamond, pal.Weapon);
+            }
+            else
+            {
+                scene.DrawFlatDisc(posX, posY, local, 0.39F * blipGrow * u, pal.Powerup);
+            }
+        };
+        for (const std::shared_ptr<PlayerEntity>& entry : Players())
+        {
+            PlayerEntity* other = entry.get();
+            if (other == nullptr)
+            {
+                continue;
+            }
+            if (other == this || other->Health() <= 0 || !TestFlag(other->LoadFlags(), Entities::LoadFlags::Spawned))
+            {
+                continue;
+            }
+            placeBlip(other->Position, true, false, other->TeamIndex());
+        }
+        for (auto it = scene.GetItemInstanceEntities().GetEnumerator(); it.MoveNext(); )
+        {
+            const auto item = it.Current();
+            if (item->Hidden || item->DespawnTimer() == 0)
+            {
+                continue;
+            }
+            placeBlip(item->Position, false, Mods::Render::Radar::IsWeaponItem(item->ItemType()), -1);
+        }
+        // The player's own marker, always last and always drawn.
+        const float triSize = 1.25F * u;
+        const std::array<Vector2, 3> tri{Vector2(0, triSize), Vector2(-triSize * 0.75F, -triSize * 0.7F),
+            Vector2(triSize * 0.75F, -triSize * 0.7F)};
+        scene.DrawFlatPolygon(posX, posY, Vector2::Zero, tri, pal.Player);
     }
 
     void PlayerEntity::UpdateDamageIndicators()
@@ -1180,6 +1362,7 @@ namespace MphRead::Entities
     {
         if (Mods::ThumbnailMode::Active()) return;
         if (Mods::RenderOptions::ShowFps()) DrawFps();
+        DrawRadar();
         ModDrawStylusZone();
         ModDrawChat();
         ModDrawVote();
@@ -1218,10 +1401,11 @@ namespace MphRead::Entities
         }
         else if (TestFlag(_flags1, PlayerFlags1::WeaponMenuOpen))
         {
+            const float wheelScale = ModPlaceWeaponSelect();
             for (std::int32_t i = 0; i < 6; ++i)
             {
-                RequireReference(_scene).DrawHudObject(_selectBoxInsts[static_cast<std::size_t>(i)], 1);
-                RequireReference(_scene).DrawHudObject(_weaponSelectInsts[static_cast<std::size_t>(i)], 1);
+                RequireReference(_scene).DrawHudObject(_selectBoxInsts[static_cast<std::size_t>(i)], 1, wheelScale);
+                RequireReference(_scene).DrawHudObject(_weaponSelectInsts[static_cast<std::size_t>(i)], 1, wheelScale);
             }
         }
         else if (ShowScoreboard())
@@ -1423,7 +1607,7 @@ namespace MphRead::Entities
         if (rows <= 4) return _scorePlayerSpace;
         float available = 168.0F - _scoreStartSpace;
         if (GameState::MatchState() == MatchState::Ending) available -= _scoreStartSpace;
-        if (GameState::Teams()) available -= 2.0F * _scoreTeamLineSpace;
+        if (GameState::Teams()) available -= static_cast<float>(GameState::TeamCount()) * _scoreTeamLineSpace;
         return std::clamp(available / static_cast<float>(rows), _scoreMinPlayerSpace, _scorePlayerSpace);
     }
 
@@ -1455,6 +1639,11 @@ namespace MphRead::Entities
 
     void PlayerEntity::DrawScoreboard()
     {
+        if (GameState::Teams())
+        {
+            ModDrawTeamScoreboard();
+            return;
+        }
         const GameMode mode = GameState::Mode();
         const float rowSpace = GetScoreboardRowSpace();
         float posY = 104.0F - GetScoreboardHeight() / 2.0F;
@@ -1507,9 +1696,9 @@ namespace MphRead::Entities
                 curTeam = player.TeamIndex();
                 const std::string teamValue1 = chooseValue1(ManagedAt(GameState::TeamTime(), curTeam), ManagedAt(GameState::TeamPoints(), curTeam));
                 const std::string teamValue2 = chooseValue2(ManagedAt(GameState::TeamDeaths(), curTeam), ManagedAt(GameState::TeamKills(), curTeam));
-                const ColorRgba teamColor(player.Team() == Team::Orange ? 0x23FU : 0x2BEAU);
-                const std::string teamName = teamText + " " + std::to_string(player.TeamIndex() + 1);
-                DrawText2D(42, posY, Hud::Align::Center, 0, teamName, teamColor, 1.0F, 8.0F);
+                const ColorRgba teamColor = Mods::Multiplayer::TeamVisuals::Get(curTeam).Color;
+                const std::string teamName = Mods::Multiplayer::TeamVisuals::Get(curTeam).Label;
+                DrawText2D(ModScoreNameColumn() - 18, posY, Hud::Align::Center, 0, teamName, teamColor, 1.0F, 8.0F);
                 DrawText2D(ModScoreColumn1(), posY, Hud::Align::Center, 0, teamValue1, teamColor, 1.0F, 8.0F);
                 DrawText2D(ModScoreColumn2(), posY, Hud::Align::Center, 0, teamValue2, teamColor, 1.0F, 8.0F);
                 posY += _scoreTeamLineSpace;
@@ -1526,7 +1715,8 @@ namespace MphRead::Entities
                 const auto component = static_cast<std::uint8_t>(rg * 255.0F);
                 color = ColorRgba(component, component, 255, 255);
             }
-            DrawScoreboardPlayer(60, posY, color, _hunterInsts[static_cast<std::size_t>(player.Hunter())], slot);
+            DrawScoreboardPlayer(ModScoreNameColumn(), posY, color,
+                _hunterInsts[static_cast<std::size_t>(player.Hunter())], slot);
             DrawText2D(ModScoreColumn1(), posY, Hud::Align::Center, 0, value1, color, 1.0F, 8.0F);
             DrawText2D(ModScoreColumn2(), posY, Hud::Align::Center, 0, value2, color, 1.0F, 8.0F);
             ModDrawPingRow(posY, color, slot);
@@ -1554,15 +1744,17 @@ namespace MphRead::Entities
 
     void PlayerEntity::DrawHealthbars()
     {
+        if (!ModHudHealthVisible()) return;
+        const std::int32_t displayHealth = ModHudHealth();
         _healthbarMainMeter->TankAmount = Values().EnergyTank;
         _healthbarMainMeter->TankCount = _healthMax / Values().EnergyTank;
         DrawMeter(_hudObjects->HealthMainPosX + _objShiftX,
             _hudObjects->HealthMainPosY + _healthbarYOffset + _objShiftY,
-            Values().EnergyTank - 1, _health, _healthbarPalette, _healthbarMainMeter,
+            Values().EnergyTank - 1, displayHealth, _healthbarPalette, _healthbarMainMeter,
             true, GameState::SinglePlayer(), Features::HudOpacity());
         if (GameState::Multiplayer())
         {
-            std::int32_t amount = _health >= Values().EnergyTank ? _health - Values().EnergyTank : 0;
+            std::int32_t amount = displayHealth >= Values().EnergyTank ? displayHealth - Values().EnergyTank : 0;
             _healthbarSubMeter->TankAmount = Values().EnergyTank;
             _healthbarSubMeter->TankCount = _healthMax / Values().EnergyTank;
             DrawMeter(_hudObjects->HealthSubPosX + _objShiftX,
@@ -1610,9 +1802,12 @@ namespace MphRead::Entities
         const float iconBoxX = iconBox * aspectFix;
         const float ammoRightX = panelX + panelWidth - 1.5F * scale * aspectFix;
         float y = 46.0F;
-        for (std::int32_t i = 0; i < static_cast<std::int32_t>(_weaponListIcons.size()); ++i)
+        // Drawn in _weaponOrder, the cartridge's cycling order, not BeamType's
+        // numeric order; every other table is still indexed by the beam.
+        for (std::size_t row = 0; row < _weaponOrder.size(); ++row)
         {
-            const BeamType beam = static_cast<BeamType>(i);
+            const BeamType beam = _weaponOrder[row];
+            const auto i = static_cast<std::int32_t>(beam);
             if (!_availableWeapons[beam]) continue;
             const bool equipped = beam == _currentWeapon;
             const auto& info = RequireReference(ManagedAt(RequireReference(Weapons::Current), i));
@@ -1772,7 +1967,8 @@ namespace MphRead::Entities
             }
             OpenTK::Mathematics::Vector3 pos = player->Position;
             if (!player->IsAltForm()) pos.Y += 0.75F;
-            AddLocatorInfo(pos, _playerLocator, ColorRgb(31, 31, 31), alpha);
+            AddLocatorInfo(pos, _playerLocator, GameState::Teams()
+                ? Mods::Multiplayer::TeamVisuals::Get(player->TeamIndex()).RadarColor() : ColorRgb(31, 31, 31), alpha);
         }
         if (reveal == 1)
         {
@@ -1799,7 +1995,8 @@ namespace MphRead::Entities
                 auto flag = it.Current();
                 ColorRgb color(31, 31, 31);
                 if (flag->Carrier() && (RequireReference(_scene).FrameCount() & 8) != 0)
-                    color = flag->Carrier()->TeamIndex() == TeamIndex() ? goodColor : ColorRgb(31, 0, 0);
+                    color = GameState::Teams() ? Mods::Multiplayer::TeamVisuals::Get(flag->Carrier()->TeamIndex()).ObjectiveColor
+                        : flag->Carrier().get() == this ? goodColor : ColorRgb(31, 0, 0);
                 AddLocatorInfo(flag->Position, _octolithLocator, color);
             }
         }
@@ -1815,7 +2012,8 @@ namespace MphRead::Entities
             {
                 ColorRgb color = ManagedAt(Metadata::TeamColors, flag->Data().TeamId);
                 if (flag->Carrier() && (RequireReference(_scene).FrameCount() & 8) != 0)
-                    color = flag->Carrier()->TeamIndex() == TeamIndex() ? goodColor : ColorRgb(31, 0, 0);
+                    color = GameState::Teams() ? Mods::Multiplayer::TeamVisuals::Get(flag->Carrier()->TeamIndex()).ObjectiveColor
+                        : flag->Carrier().get() == this ? goodColor : ColorRgb(31, 0, 0);
                 AddLocatorInfo(flag->Position, _octolithLocator, color);
                 if (_octolithFlag && flag->Data().TeamId == TeamIndex()) AddLocatorInfo(flag->BasePosition(), _nodeLocator, goodColor);
             }
@@ -1828,10 +2026,10 @@ namespace MphRead::Entities
         {
             auto defense = it.Current();
             ColorRgb color;
-            if (defense->CurrentTeam() == 4) color = ColorRgb(31, 31, 31);
+            if (defense->CurrentTeam() == NodeDefenseEntity::NoTeam) color = ColorRgb(31, 31, 31);
             else if (GameState::Teams())
             {
-                assert(defense->CurrentTeam() == 0 || defense->CurrentTeam() == 1);
+                assert(static_cast<std::uint32_t>(defense->CurrentTeam()) < static_cast<std::uint32_t>(GameState::TeamCount()));
                 color = ManagedAt(Metadata::TeamColors, defense->CurrentTeam());
             }
             else if (defense->CurrentTeam() == TeamIndex()) color = ColorRgb(15, 15, 31);
@@ -1850,13 +2048,13 @@ namespace MphRead::Entities
         {
             auto defense = it.Current();
             ColorRgb color;
-            if (defense->CurrentTeam() == 4)
+            if (defense->CurrentTeam() == NodeDefenseEntity::NoTeam)
             {
                 if (defense->Blinking())
                 {
                     if (GameState::Teams())
                     {
-                        assert(defense->OccupyingTeam() == 0 || defense->OccupyingTeam() == 1);
+                        assert(static_cast<std::uint32_t>(defense->OccupyingTeam()) < static_cast<std::uint32_t>(GameState::TeamCount()));
                         color = ManagedAt(Metadata::TeamColors, defense->OccupyingTeam());
                     }
                     else if (defense->OccupyingTeam() == TeamIndex()) color = ColorRgb(15, 15, 31);
@@ -1871,7 +2069,7 @@ namespace MphRead::Entities
             else if (defense->Blinking() && defense->OccupyingTeam() == TeamIndex()) color = ColorRgb(15, 15, 31);
             else color = ColorRgb(31, 0, 0);
             AddLocatorInfo(defense->Position, _nodeLocator, color);
-            if (defense->CurrentTeam() != 4 && defense->OccupyingTeam() == 4)
+            if (defense->CurrentTeam() != NodeDefenseEntity::NoTeam && defense->OccupyingTeam() == NodeDefenseEntity::NoTeam)
             {
                 const std::int32_t team = defense->CurrentTeam();
                 const std::int32_t count = ++_teamNodeCounts[static_cast<std::size_t>(team)];
@@ -2065,6 +2263,20 @@ namespace MphRead::Entities
 
     void PlayerEntity::DrawNodesBonuses()
     {
+        if (GameState::Teams())
+        {
+            float y = _hudObjects->NodeBonusPosY + _objShiftY;
+            for (std::int32_t team = 0; team < GameState::TeamCount(); team++)
+            {
+                if (_teamNodeCounts[static_cast<std::size_t>(team)] < 2) continue;
+                const Mods::Multiplayer::TeamPresentation& visual = Mods::Multiplayer::TeamVisuals::Get(team);
+                static_cast<void>(DrawText2D(_hudObjects->NodeBonusPosX + _objShiftX, y, Hud::Align::Left, 0,
+                    visual.Label + " x " + std::to_string(_teamNodeCounts[static_cast<std::size_t>(team)]),
+                    visual.Color, 1.0F, -1.0F, -1, 0.8F));
+                y += 10;
+            }
+            return;
+        }
         const std::string message = Text::Strings::GetHudMessage(210);
         if (_mainNodeBonus)
         {
@@ -2102,8 +2314,23 @@ namespace MphRead::Entities
         for (auto it = RequireReference(_scene).GetNodeDefenseEntities().GetEnumerator(); it.MoveNext(); )
         {
             auto defense = it.Current();
+            if (GameState::Teams())
+            {
+                const std::int32_t owner = defense->Blinking() ? defense->OccupyingTeam() : defense->CurrentTeam();
+                const Mods::Multiplayer::TeamPresentation& visual = Mods::Multiplayer::TeamVisuals::Get(owner);
+                const float x = _hudObjects->NodeIconPosX + startX - posX + _objShiftX;
+                const float y = _hudObjects->NodeIconPosY - 8 + _objShiftY;
+                const OpenTK::Mathematics::Vector4 objective = visual.ObjectiveColor.AsVector4();
+                RequireReference(_scene).DrawHudFlatBox(x, y, x + 12, y + 12, OpenTK::Mathematics::Vector4(
+                    objective.X * (255.0F / 31), objective.Y * (255.0F / 31), objective.Z * (255.0F / 31), objective.W));
+                static_cast<void>(DrawText2D(x + 2, y + 2, Hud::Align::Left, 0,
+                    owner == NodeDefenseEntity::NoTeam ? std::string("-") : std::string(1, static_cast<char>('A' + owner)),
+                    ColorRgba(0, 0, 0, 255)));
+                posX += 16;
+                continue;
+            }
             std::int32_t frame;
-            if (defense->CurrentTeam() == 4)
+            if (defense->CurrentTeam() == NodeDefenseEntity::NoTeam)
             {
                 if (defense->Blinking())
                     frame = GameState::Teams() ? (defense->OccupyingTeam() == 0 ? 2 : 4)
@@ -2225,6 +2452,7 @@ namespace MphRead::Entities
         std::int32_t current = 0;
         std::optional<std::string> text{};
         std::int32_t lowHealth = 0;
+        bool showHealth = true;
         if (targetRef.Type == EntityType::EnemyInstance)
         {
             auto& enemy = RequireReference(ManagedCast<EnemyInstanceEntity>(target));
@@ -2268,7 +2496,8 @@ namespace MphRead::Entities
         {
             auto& player = RequireReference(ManagedCast<PlayerEntity>(target));
             max = player.HealthMax();
-            current = player.Health();
+            current = ModOpponentHudHealth(player);
+            showHealth = Mods::Network::NetHudHealth::Visible(player.SlotIndex());
             text = ManagedAt(_hunterNames, static_cast<std::int32_t>(player.Hunter()));
             lowHealth = 25;
         }
@@ -2277,17 +2506,21 @@ namespace MphRead::Entities
             auto& turret = RequireReference(ManagedCast<HalfturretEntity>(target));
             max = RequireReference(turret.Owner()).HealthMax() / 2;
             current = turret.Health();
+            showHealth = Mods::Network::NetHudHealth::Visible(RequireReference(turret.Owner()).SlotIndex());
             text = ManagedAt(_altAttackNames, static_cast<std::int32_t>(Hunter::Weavel));
             lowHealth = 25;
         }
-        const std::int32_t palette = current > lowHealth ? 0 : 2;
+        const std::int32_t palette = !showHealth || current > lowHealth ? 0 : 2;
         RequireReference(_enemyHealthMeter).TankAmount = max;
         RequireReference(_enemyHealthMeter).TankCount = 0;
         RequireReference(_enemyHealthMeter).Length = RequireReference(
             ManagedAt(*Hud::HudElements::SubHealthbars, 0)).Length;
-        DrawMeter(RequireReference(_hudObjects).EnemyHealthPosX + _objShiftX,
-            RequireReference(_hudObjects).EnemyHealthPosY + _objShiftY,
-            max, current, palette, _enemyHealthMeter, false, false);
+        if (showHealth)
+        {
+            DrawMeter(RequireReference(_hudObjects).EnemyHealthPosX + _objShiftX,
+                RequireReference(_hudObjects).EnemyHealthPosY + _objShiftY,
+                max, current, palette, _enemyHealthMeter, false, false);
+        }
         const std::int32_t scanId = targetRef.GetScanId();
         if (scanId != 0 && GameState::SinglePlayer()
             && !RequireReference(GameState::StorySave).CheckLogbook(scanId))
@@ -2340,8 +2573,14 @@ namespace MphRead::Entities
             posX += _objShiftX;
             posY += _objShiftY;
         }
-        DrawText2D(posX, posY, Hud::Align::Center, 0,
-            ManagedAt(GameState::Nicknames(), _opponentIndex));
+        std::string nickname = ManagedAt(GameState::Nicknames(), _opponentIndex);
+        if (GameState::Teams())
+        {
+            nickname = Mods::Multiplayer::TeamVisuals::Get(opponent.TeamIndex()).Label + ": " + nickname;
+        }
+        static_cast<void>(DrawText2D(posX, posY, Hud::Align::Center, 0, nickname,
+            GameState::Teams() ? std::optional<ColorRgba>(Mods::Multiplayer::TeamVisuals::Get(opponent.TeamIndex()).Color)
+                : std::nullopt));
         const auto& portrait = ManagedAt(_hunterInsts,
             static_cast<std::int32_t>(opponent.Hunter()));
         RequireReference(portrait).PositionX = (posX - 16 * HudAspectFix()) / 256.0F;
@@ -2349,15 +2588,19 @@ namespace MphRead::Entities
         RequireReference(_scene).DrawHudObject(portrait, 1);
         posX += 18;
         posY -= 26;
-        const std::int32_t remainingAmount = opponent.Health() >= Values().EnergyTank
-            ? opponent.Health() - Values().EnergyTank : 0;
-        RequireReference(_enemyHealthMeter).TankAmount = Values().EnergyTank;
-        RequireReference(_enemyHealthMeter).TankCount = opponent.HealthMax() / Values().EnergyTank;
-        RequireReference(_enemyHealthMeter).Length = 72;
-        DrawMeter(posX, posY, Values().EnergyTank - 1, opponent.Health(), 0,
-            _enemyHealthMeter, false, false);
-        DrawMeter(posX, posY + 5, Values().EnergyTank - 1, remainingAmount, 0,
-            _enemyHealthMeter, false, false);
+        if (Mods::Network::NetHudHealth::Visible(opponent.SlotIndex()))
+        {
+            const std::int32_t displayHealth = ModOpponentHudHealth(opponent);
+            const std::int32_t remainingAmount = displayHealth >= Values().EnergyTank
+                ? displayHealth - Values().EnergyTank : 0;
+            RequireReference(_enemyHealthMeter).TankAmount = Values().EnergyTank;
+            RequireReference(_enemyHealthMeter).TankCount = opponent.HealthMax() / Values().EnergyTank;
+            RequireReference(_enemyHealthMeter).Length = 72;
+            DrawMeter(posX, posY, Values().EnergyTank - 1, displayHealth, 0,
+                _enemyHealthMeter, false, false);
+            DrawMeter(posX, posY + 5, Values().EnergyTank - 1, remainingAmount, 0,
+                _enemyHealthMeter, false, false);
+        }
         DrawText2D(posX + 5, posY + 14, Hud::Align::Left, 0,
             FormatModeScore(opponent.SlotIndex()));
     }

@@ -3,10 +3,14 @@
 #include "../../Entities/Players/DynamicLightEntity.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Scene.hpp"
+#include "../Input/GamepadInput.hpp"
 #include "../Input/StylusZone.hpp"
+#include "../../Hud/HudInfo.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <numbers>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -83,6 +87,37 @@ namespace MphRead::Entities
             DrawStylusCircle(left + button.X * scaleX, top + button.Y * scaleY,
                 button.Radius * scaleX, button.Radius * scaleY, colour);
         }
+    }
+
+    // Put the weapon wheel where the bottom screen is, and say how big to draw
+    // it: with a pen zone the wheel is drawn in the zone, and the scale is the
+    // zone's height as a fraction of the window. UpdateWeaponArc measures the
+    // arc in the same rectangle, from the same four numbers.
+    float PlayerEntity::ModPlaceWeaponSelect()
+    {
+        const auto size = ::MphRead::NativeRuntime::RequireReference(_scene).Size();
+        for (std::size_t i = 0; i < _weaponSelectHome.size(); i++)
+        {
+            const ::OpenTK::Mathematics::Vector2 home = _weaponSelectHome[i];
+            float x = home.X;
+            float y = home.Y;
+            if (Mods::Input::GamepadInput::WheelHeld())
+            {
+                const float angle = (static_cast<float>(i) + .5F) * std::numbers::pi_v<float> / 3;
+                x = .5F + std::sin(angle) * .23F * static_cast<float>(size.Y) / static_cast<float>(std::max(1, size.X));
+                y = .5F - std::cos(angle) * .23F;
+            }
+            else if (Mods::Input::StylusZone::Enabled())
+            {
+                x = Mods::Input::StylusZone::Left() + home.X * Mods::Input::StylusZone::Width();
+                y = Mods::Input::StylusZone::Top() + home.Y * Mods::Input::StylusZone::Height();
+            }
+            ::MphRead::NativeRuntime::RequireReference(_weaponSelectInsts[i]).PositionX = x;
+            ::MphRead::NativeRuntime::RequireReference(_weaponSelectInsts[i]).PositionY = y;
+            ::MphRead::NativeRuntime::RequireReference(_selectBoxInsts[i]).PositionX = x;
+            ::MphRead::NativeRuntime::RequireReference(_selectBoxInsts[i]).PositionY = y;
+        }
+        return Mods::Input::StylusZone::Enabled() && !Mods::Input::GamepadInput::WheelHeld() ? Mods::Input::StylusZone::Height() : 1;
     }
 
     void PlayerEntity::DrawStylusCircle(float centreX, float centreY, float radiusX, float radiusY,

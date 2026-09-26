@@ -293,6 +293,11 @@ private:                                                                        
     bool _ammoBarChangedColor = false;                                                         \
     float _boostBombsYOffset = 0.0F;                                                           \
     std::int32_t _hudPreviousWeaponSelection = -1;                                            \
+    std::array<bool, 6> _wheelAvailable{};                                                     \
+    std::array<::OpenTK::Mathematics::Vector2, 6> _weaponSelectHome{};                         \
+    [[nodiscard]] std::int32_t UpdateWeaponDrag();                                             \
+    [[nodiscard]] std::int32_t UpdateWeaponArc();                                              \
+    void DrawRadar();                                                                          \
     bool _smallReticle = false;                                                                \
     std::uint16_t _smallReticleTimer = 0;                                                      \
     bool _sniperReticle = false;                                                               \
@@ -329,7 +334,7 @@ private:                                                                        
     };                                                                                         \
     std::int32_t _nodeBonusOpponent = -1;                                                     \
     bool _mainNodeBonus = false;                                                               \
-    std::array<std::int32_t, 4> _teamNodeCounts{};                                            \
+    std::array<std::int32_t, 8> _teamNodeCounts{};                                            \
     bool _hudIsPrimeHunter = false;                                                            \
     float _primeHunterTextTimer = 0.0F;                                                        \
     std::int32_t _doubleDamageSpeed = 0;                                                       \

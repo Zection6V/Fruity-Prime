@@ -34,6 +34,7 @@ private: \
 #include "../../Mods/Render/PlayerEntityAmmoClear.hpp"
 #include "../../Mods/Render/PlayerEntityEndScreen.hpp"
 #include "../../Mods/Render/PlayerEntityStylusHud.hpp"
+#include "../../Mods/Render/PlayerEntityTeamScoreboard.hpp"
 #include "../../Mods/Render/PlayerEntityVoteHud.hpp"
 #include "../EnemyInstanceEntity.hpp"
 #include "../../Formats/Culling.hpp"
@@ -772,6 +773,7 @@ namespace MphRead::Entities
         MPHREAD_PLAYER_ENTITY_AMMO_CLEAR_MEMBERS
         MPHREAD_PLAYER_ENTITY_END_SCREEN_MEMBERS
         MPHREAD_PLAYER_STYLUS_HUD_MEMBERS
+        MPHREAD_PLAYER_TEAM_SCOREBOARD_MEMBERS
         MPHREAD_PLAYER_VOTE_HUD_MEMBERS
         MPHREAD_PLAYER_ENTITY_AIM_ASSIST_MEMBERS
         MPHREAD_PLAYER_ENTITY_HAPTICS_MEMBERS

@@ -60,6 +60,8 @@
   AimAssistDebug.Draw は 13、ModEntry の -gamepadassisttelemetry は 13。
 - 6 完了: 検査系 6 本（PointerCheck は Scene/PlayerEntity に friend、GamepadUiChecks 呼び出しは 12 で）。
   NativeRuntime に DirectoryDelete・DirectoryGetFiles。
+- 7 描画 着手: HunterPreview・ProHud・VoteHud・GlEs・Radar・TeamScoreboard・StylusHud と、それらが載る
+  PlayerHud.cs 差分（13 の行）を移植。Scene に DrawFlat{Disc,Ring,Line,Square,Polygon}（Renderer.cs 分）。
 - 保留（依存先の移植待ち）:
   - NetLaunch::TickTerminalLobby → Renderer の HasScene/EndScene と
     MatchStart::Begin(window, …)（1 ウィンドウ化）の後。
@@ -204,19 +206,19 @@
 | A | +160/-0 | `Mods/Render/LauncherNoise.cs` | — 新規 | — |
 | M | +138/-3 | `Mods/Render/PreviewPass.cs` | .cpp,.hpp | — |
 | A | +132/-0 | `Mods/Render/AppIcon.cs` | — 新規 | — |
-| A | +116/-0 | `Mods/Render/Radar.cs` | — 新規 | — |
+| A | +116/-0 | `Mods/Render/Radar.cs` | — 新規 | 完了 |
 | A | +97/-0 | `Mods/Render/HunterShot.cs` | — 新規 | — |
 | M | +77/-0 | `Mods/Render/FrameTimingCheck.cs` | .cpp,.hpp | — |
-| A | +70/-0 | `Mods/Render/PlayerEntityTeamScoreboard.cs` | — 新規 | — |
+| A | +70/-0 | `Mods/Render/PlayerEntityTeamScoreboard.cs` | — 新規 | 完了 |
 | A | +62/-0 | `Mods/Render/LockjawTrailProbe.cs` | — 新規 | 完了 |
-| M | +51/-0 | `Mods/Render/PlayerEntityStylusHud.cs` | .cpp,.hpp | — |
+| M | +51/-0 | `Mods/Render/PlayerEntityStylusHud.cs` | .cpp,.hpp | 完了 |
 | A | +43/-0 | `Mods/Render/DesktopGlContext.cs` | — 新規 | — |
-| M | +31/-0 | `Mods/Render/GlEs.cs` | .cpp,.hpp | — |
+| M | +31/-0 | `Mods/Render/GlEs.cs` | .cpp,.hpp | 完了 |
 | A | +28/-0 | `Mods/Render/LockjawTrailNoise.cs` | — 新規 | 完了 |
-| M | +26/-0 | `Mods/Render/HunterPreview.cs` | .cpp,.hpp | — |
+| M | +26/-0 | `Mods/Render/HunterPreview.cs` | .cpp,.hpp | 完了 |
 | M | +17/-1 | `Mods/Render/PlayerEntityEndScreen.cs` | .cpp,.hpp | — |
-| M | +12/-9 | `Mods/Render/PlayerEntityProHud.cs` | .cpp,.hpp | — |
-| M | +5/-0 | `Mods/Render/PlayerEntityVoteHud.cs` | .cpp,.hpp | — |
+| M | +12/-9 | `Mods/Render/PlayerEntityProHud.cs` | .cpp,.hpp | 完了 |
+| M | +5/-0 | `Mods/Render/PlayerEntityVoteHud.cs` | .cpp,.hpp | 完了 |
 
 ## 8. Multiplayer and teams — 7 ファイル (新規 7), C# +503 行
 
@@ -400,7 +402,7 @@
 |---|---|---|---|---|
 | M | +1050/-99 | `Renderer.cs` | .cpp,.hpp | 一部完了 |
 | M | +872/-49 | `Mods/ModEntry.cs` | .cpp,.hpp | 一部完了 |
-| M | +376/-94 | `Entities/Players/PlayerHud.cs` | .cpp,.hpp | — |
+| M | +376/-94 | `Entities/Players/PlayerHud.cs` | .cpp,.hpp | 完了 |
 | M | +185/-40 | `Entities/Players/PlayerInput.cs` | .cpp,.hpp | 完了 |
 | M | +102/-126 | `GameState.cs` | .cpp,.hpp | 一部完了（チーム関連） |
 | M | +95/-11 | `Entities/Players/PlayerAi.cs` | .cpp,.hpp | — |

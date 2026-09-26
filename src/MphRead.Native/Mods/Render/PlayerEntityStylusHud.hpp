@@ -5,6 +5,7 @@
 #define MPHREAD_PLAYER_STYLUS_HUD_MEMBERS \
 public: \
     void ModDrawStylusZone(); \
+    [[nodiscard]] float ModPlaceWeaponSelect(); \
 private: \
     static const ::OpenTK::Mathematics::Vector4 _stylusInk; \
     static const ::OpenTK::Mathematics::Vector4 _stylusFill; \

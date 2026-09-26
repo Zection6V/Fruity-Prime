@@ -362,8 +362,8 @@ namespace MphRead::Mods::Launcher::Gui
     void PadRow::Listen()
     {
         _listening = true;
-        GamepadDesktop::PollForMenu();
-        _baseline = GamepadInput::State.Buttons;
+        GamepadDesktop::Poll();
+        _baseline = GamepadInput::State().Buttons;
         if (_watch)
         {
             _watch->Stop();
@@ -387,10 +387,10 @@ namespace MphRead::Mods::Launcher::Gui
             return;
         }
 
-        GamepadDesktop::PollForMenu();
+        GamepadDesktop::Poll();
         const GamepadButtons pressed = AndNot(
-            GamepadInput::State.Buttons, _baseline);
-        _baseline = BitAnd(_baseline, GamepadInput::State.Buttons);
+            GamepadInput::State().Buttons, _baseline);
+        _baseline = BitAnd(_baseline, GamepadInput::State().Buttons);
         if (pressed == GamepadButtons::None)
         {
             return;

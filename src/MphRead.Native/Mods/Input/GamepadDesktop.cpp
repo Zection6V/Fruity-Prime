@@ -1,320 +1,207 @@
 #include "GamepadDesktop.hpp"
 
-#include "GamepadInput.hpp"
-#include "GamepadLayout.hpp"
+#include "GamepadGlyphs.hpp"
+#include "GamepadHaptics.hpp"
+#include "GamepadManager.hpp"
+#include "GamepadMappingWizard.hpp"
 #include "GamepadMappings.hpp"
+#include "WindowsGamepadHaptics.hpp"
 #include "../../NativeRuntime/OpenTK/GLFW.hpp"
-#include "../../NativeRuntime/System/Encoding.hpp"
-#include "../../NativeRuntime/System/Managed.hpp"
-
-#include <algorithm>
-#include <array>
-#include <cstddef>
-#include <cstdint>
-#include <filesystem>
-#include <iostream>
-#include <optional>
-#include <stdexcept>
-#include <string>
-#include <string_view>
-#include <utility>
-#include <vector>
-
-using ::MphRead::NativeRuntime::MathClamp;
-
-namespace Glfw = ::OpenTK::Windowing::GraphicsLibraryFramework;
-
-namespace
-{
-    [[nodiscard]] MphRead::Mods::Input::GamepadButtons Or(
-        MphRead::Mods::Input::GamepadButtons left,
-        MphRead::Mods::Input::GamepadButtons right) noexcept
-    {
-        return static_cast<MphRead::Mods::Input::GamepadButtons>(
-            static_cast<std::int32_t>(left) | static_cast<std::int32_t>(right));
-    }
-
-}
-
-namespace MphRead::Mods::Input::GamepadLayoutAdapters
-{
-    std::optional<std::vector<float>> GetJoystickAxes(std::int32_t slot)
-    {
-        try
-        {
-            return Glfw::GLFW::GetJoystickAxes(slot);
-        }
-        catch (const Glfw::GlfwUnavailableException&)
-        {
-            return std::nullopt;
-        }
-    }
-}
+#include "../../NativeRuntime/System/Globalization.hpp"
+#include "../../NativeRuntime/System/Runtime.hpp"
 
 namespace MphRead::Mods::Input
 {
-    std::int32_t GamepadDesktop::_slot = -1;
-    std::int32_t GamepadDesktop::_rescanCountdown = 0;
-    bool GamepadDesktop::_rawSlot = false;
-    bool GamepadDesktop::_initialised = false;
-    std::int32_t GamepadDesktop::_floorSlot = -1;
-    float GamepadDesktop::_leftFloor = 0.0F;
-    float GamepadDesktop::_rightFloor = 0.0F;
+    namespace Glfw = ::OpenTK::Windowing::GraphicsLibraryFramework;
 
-    void GamepadDesktop::PollForMenu()
+    std::array<GamepadDesktop::Slot, 16> GamepadDesktop::Slots{};
+
+    void GamepadDesktop::DeviceChanged(std::int32_t index)
     {
-#if defined(__ANDROID__)
-        return;
-#else
-        try
+        if (static_cast<std::uint32_t>(index) >= Slots.size())
         {
-            if (!_initialised)
-            {
-                (void)Glfw::GLFW::Init();
-                _initialised = true;
-            }
-            Glfw::GLFW::PollEvents();
-        }
-        catch (const Glfw::GlfwUnavailableException&)
-        {
-            _slot = -2;
             return;
         }
-        Poll();
-#endif
+        Slot& slot = Slots[static_cast<std::size_t>(index)];
+        if (slot.Id.has_value())
+        {
+            GamepadHaptics::Unregister(*slot.Id);
+            GamepadManager::RemoveDevice(*slot.Id);
+        }
+        slot.Id = std::nullopt;
     }
 
     void GamepadDesktop::Poll()
     {
-#if defined(__ANDROID__)
-        return;
-#else
+        if (::MphRead::NativeRuntime::IsAndroid())
+        {
+            return;
+        }
         try
         {
             PollUnsafe();
         }
         catch (const Glfw::GlfwUnavailableException&)
         {
-            GamepadInput::State = GamepadState{};
-            _slot = -2;
+            for (const Slot& slot : Slots)
+            {
+                if (slot.Id.has_value())
+                {
+                    GamepadManager::RemoveDevice(*slot.Id);
+                }
+            }
+            _unavailable = true;
         }
-#endif
     }
 
     void GamepadDesktop::PollUnsafe()
     {
-        if (_slot == -2)
+        if (_unavailable)
         {
             return;
+        }
+        if (GamepadMappings::ReloadRequested)
+        {
+            GamepadMappings::ReloadRequested = false;
+            for (std::int32_t slot = 0; slot < static_cast<std::int32_t>(Slots.size()); slot++)
+            {
+                DeviceChanged(slot);
+            }
         }
         GamepadMappings::EnsureLoaded();
-        if (_slot >= 0 && (_rawSlot ? TryReadRaw(_slot) : TryRead(_slot)))
+        for (std::int32_t i = 0; i < static_cast<std::int32_t>(Slots.size()); i++)
         {
-            return;
-        }
-        _slot = -1;
-        GamepadInput::State = GamepadState{};
-        if (_rescanCountdown-- > 0)
-        {
-            return;
-        }
-        _rescanCountdown = RescanFrames;
-
-        for (std::int32_t i = 0; i < 16; ++i)
-        {
-            if (TryRead(i))
+            Slot& slot = Slots[static_cast<std::size_t>(i)];
+            if (!Glfw::GLFW::JoystickPresent(i))
             {
-                _slot = i;
-                _rawSlot = false;
-                std::cout << "[input] gamepad: "
-                    << GamepadInput::State.Name.value_or("gamepad") << '\n';
-                return;
+                if (slot.Id.has_value())
+                {
+                    GamepadManager::RemoveDevice(*slot.Id);
+                }
+                slot.Id = std::nullopt;
+                continue;
+            }
+            if (!slot.Id.has_value())
+            {
+                slot.Generation++;
+                const std::string guid = Glfw::GLFW::GetJoystickGUID(i).value_or("");
+                slot.XInput = ::MphRead::NativeRuntime::StringStartsWithOrdinalIgnoreCase(guid, "78696e707574");
+                slot.Id = "glfw:" + guid + ":" + std::to_string(i) + ":" + std::to_string(slot.Generation);
+                const bool compatible = GamepadMappings::TryMapMacXbox(i);
+                slot.Mapped = Glfw::GLFW::JoystickIsGamepad(i);
+                slot.Mapping = compatible ? "Xbox Bluetooth compatibility" : slot.Mapped ? "GLFW mapping" : "Unmapped fallback";
+                slot.Name = (slot.Mapped ? Glfw::GLFW::GetGamepadName(i) : Glfw::GLFW::GetJoystickName(i)).value_or("gamepad");
+                if (!slot.Mapped)
+                {
+                    slot.Name += " (unmapped)";
+                }
+                slot.Family = GamepadGlyphs::Detect(slot.Name, guid);
+                slot.Layout = GamepadLayout::For(i);
+                slot.Capabilities = GamepadMappings::Capabilities(guid,
+                    slot.Layout.Capabilities(static_cast<std::int32_t>(Glfw::GLFW::GetJoystickAxes(i).size())));
+                slot.LeftFloor = slot.RightFloor = 0;
+            }
+            if (GamepadMappingWizard::RequestedDevice == slot.Id)
+            {
+                auto sample = std::make_shared<GamepadRawSample>();
+                sample->DeviceId = *slot.Id;
+                sample->Guid = Glfw::GLFW::GetJoystickGUID(i).value_or("");
+                sample->Name = slot.Name;
+                sample->Axes = Glfw::GLFW::GetJoystickAxes(i);
+                for (const std::uint8_t button : Glfw::GLFW::GetJoystickButtons(i))
+                {
+                    sample->Buttons.push_back(button == 1);
+                }
+                sample->Hats = Glfw::GLFW::GetJoystickHats(i);
+                GamepadMappingWizard::Latest = sample;
+            }
+            if (!(slot.Mapped ? TryRead(i) : TryReadRaw(i)))
+            {
+                GamepadManager::RemoveDevice(*slot.Id);
+                slot.Id = std::nullopt;
             }
         }
-        for (std::int32_t i = 0; i < 16; ++i)
+        std::optional<std::string> uniqueId;
+        std::int32_t xinputCount = 0;
+        for (const Slot& slot : Slots)
         {
-            if (TryReadRaw(i))
+            if (slot.Id.has_value() && slot.XInput)
             {
-                _slot = i;
-                _rawSlot = true;
-                std::cout << "[input] gamepad: "
-                    << GamepadInput::State.Name.value_or("gamepad")
-                    << " -- no mapping for this device, reading it raw."
-                    << " Run -gamepad to check the buttons, and rebind in"
-                    << " Settings, Controls if any are in the wrong place.\n";
-                return;
+                uniqueId = slot.Id;
+                xinputCount++;
             }
         }
+        WindowsGamepadHaptics::Synchronize(xinputCount == 1 ? uniqueId : std::nullopt);
     }
 
-    bool GamepadDesktop::TryRead(std::int32_t slot)
+    bool GamepadDesktop::TryRead(std::int32_t index)
     {
-        if (!Glfw::GLFW::JoystickIsGamepad(slot))
-        {
-            return false;
-        }
         Glfw::GamepadState raw{};
-        if (!Glfw::GLFW::GetGamepadState(slot, raw))
+        if (!Glfw::GLFW::JoystickIsGamepad(index) || !Glfw::GLFW::GetGamepadState(index, raw))
         {
             return false;
         }
-
+        Slot& slot = Slots[static_cast<std::size_t>(index)];
         GamepadState state{};
         state.Connected = true;
-        state.Name = Glfw::GLFW::GetGamepadName(slot).value_or("gamepad");
-        state.LeftX = raw.Axes[0];
-        state.LeftY = -raw.Axes[1];
-        state.RightX = raw.Axes[2];
-        state.RightY = -raw.Axes[3];
-        state.LeftTrigger = (raw.Axes[4] + 1.0F) / 2.0F;
-        state.RightTrigger = (raw.Axes[5] + 1.0F) / 2.0F;
-
+        state.Name = slot.Name;
+        state.LeftX = raw.Axes[AxisLeftX];
+        state.LeftY = -raw.Axes[AxisLeftY];
+        state.RightX = raw.Axes[AxisRightX];
+        state.RightY = -raw.Axes[AxisRightY];
+        state.LeftTrigger = (raw.Axes[AxisLeftTrigger] + 1) / 2;
+        state.RightTrigger = (raw.Axes[AxisRightTrigger] + 1) / 2;
         GamepadButtons buttons = GamepadButtons::None;
-        Add(buttons, raw.Buttons.data(), 0, GamepadButtons::A);
-        Add(buttons, raw.Buttons.data(), 1, GamepadButtons::B);
-        Add(buttons, raw.Buttons.data(), 2, GamepadButtons::X);
-        Add(buttons, raw.Buttons.data(), 3, GamepadButtons::Y);
-        Add(buttons, raw.Buttons.data(), 4, GamepadButtons::LeftBumper);
-        Add(buttons, raw.Buttons.data(), 5, GamepadButtons::RightBumper);
-        Add(buttons, raw.Buttons.data(), 6, GamepadButtons::Back);
-        Add(buttons, raw.Buttons.data(), 7, GamepadButtons::Start);
-        Add(buttons, raw.Buttons.data(), 9, GamepadButtons::LeftThumb);
-        Add(buttons, raw.Buttons.data(), 10, GamepadButtons::RightThumb);
-        Add(buttons, raw.Buttons.data(), 11, GamepadButtons::DpadUp);
-        Add(buttons, raw.Buttons.data(), 12, GamepadButtons::DpadRight);
-        Add(buttons, raw.Buttons.data(), 13, GamepadButtons::DpadDown);
-        Add(buttons, raw.Buttons.data(), 14, GamepadButtons::DpadLeft);
-        if (state.LeftTrigger > TriggerPress)
-        {
-            buttons = Or(buttons, GamepadButtons::LeftTrigger);
-        }
-        if (state.RightTrigger > TriggerPress)
-        {
-            buttons = Or(buttons, GamepadButtons::RightTrigger);
-        }
+        Add(buttons, raw.Buttons, ButtonA, GamepadButtons::A);
+        Add(buttons, raw.Buttons, ButtonB, GamepadButtons::B);
+        Add(buttons, raw.Buttons, ButtonX, GamepadButtons::X);
+        Add(buttons, raw.Buttons, ButtonY, GamepadButtons::Y);
+        Add(buttons, raw.Buttons, ButtonLeftBumper, GamepadButtons::LeftBumper);
+        Add(buttons, raw.Buttons, ButtonRightBumper, GamepadButtons::RightBumper);
+        Add(buttons, raw.Buttons, ButtonBack, GamepadButtons::Back);
+        Add(buttons, raw.Buttons, ButtonStart, GamepadButtons::Start);
+        Add(buttons, raw.Buttons, ButtonLeftThumb, GamepadButtons::LeftThumb);
+        Add(buttons, raw.Buttons, ButtonRightThumb, GamepadButtons::RightThumb);
+        Add(buttons, raw.Buttons, ButtonDpadUp, GamepadButtons::DpadUp);
+        Add(buttons, raw.Buttons, ButtonDpadRight, GamepadButtons::DpadRight);
+        Add(buttons, raw.Buttons, ButtonDpadDown, GamepadButtons::DpadDown);
+        Add(buttons, raw.Buttons, ButtonDpadLeft, GamepadButtons::DpadLeft);
         state.Buttons = buttons;
-        GamepadInput::State = std::move(state);
+        GamepadManager::UpdateDevice(*slot.Id, state, slot.Mapped, slot.Family,
+            slot.Capabilities | (GamepadHaptics::Available(*slot.Id) ? GamepadCapabilities::Rumble : GamepadCapabilities::None),
+            slot.Mapping);
         return true;
     }
 
-    bool GamepadDesktop::TryReadRaw(std::int32_t slot)
+    bool GamepadDesktop::TryReadRaw(std::int32_t index)
     {
-        if (!Glfw::GLFW::JoystickPresent(slot) || Glfw::GLFW::JoystickIsGamepad(slot))
+        if (!Glfw::GLFW::JoystickPresent(index) || Glfw::GLFW::JoystickIsGamepad(index))
         {
             return false;
         }
-        const std::vector<float> axes = Glfw::GLFW::GetJoystickAxes(slot);
-        const std::vector<std::uint8_t> buttons = Glfw::GLFW::GetJoystickButtons(slot);
+        const std::vector<float> axes = Glfw::GLFW::GetJoystickAxes(index);
+        const std::vector<std::uint8_t> buttons = Glfw::GLFW::GetJoystickButtons(index);
         if (axes.size() < 2 || buttons.size() < 4)
         {
             return false;
         }
-        if (_floorSlot != slot)
-        {
-            _floorSlot = slot;
-            _leftFloor = 0.0F;
-            _rightFloor = 0.0F;
-        }
-        const GamepadLayout layout = GamepadLayout::For(slot);
-
-        GamepadState state{};
-        state.Connected = true;
-        state.Name = Glfw::GLFW::GetJoystickName(slot).value_or("gamepad")
-            + " (unmapped)";
-        state.LeftX = Axis(axes, layout.AxisLeftX);
-        state.LeftY = -Axis(axes, layout.AxisLeftY);
-        state.RightX = Axis(axes, layout.AxisRightX);
-        state.RightY = -Axis(axes, layout.AxisRightY);
-        state.LeftTrigger = Trigger(axes, layout.AxisLeftTrigger, _leftFloor);
-        state.RightTrigger = Trigger(axes, layout.AxisRightTrigger, _rightFloor);
-
-        GamepadButtons flags = GamepadButtons::None;
-        AddRaw(flags, buttons, layout.ButtonA, GamepadButtons::A);
-        AddRaw(flags, buttons, layout.ButtonB, GamepadButtons::B);
-        AddRaw(flags, buttons, layout.ButtonX, GamepadButtons::X);
-        AddRaw(flags, buttons, layout.ButtonY, GamepadButtons::Y);
-        AddRaw(flags, buttons, layout.ButtonLeftBumper, GamepadButtons::LeftBumper);
-        AddRaw(flags, buttons, layout.ButtonRightBumper, GamepadButtons::RightBumper);
-        AddRaw(flags, buttons, layout.ButtonBack, GamepadButtons::Back);
-        AddRaw(flags, buttons, layout.ButtonStart, GamepadButtons::Start);
-        AddRaw(flags, buttons, layout.ButtonLeftThumb, GamepadButtons::LeftThumb);
-        AddRaw(flags, buttons, layout.ButtonRightThumb, GamepadButtons::RightThumb);
-        AddRaw(flags, buttons, layout.ButtonLeftTrigger, GamepadButtons::LeftTrigger);
-        AddRaw(flags, buttons, layout.ButtonRightTrigger, GamepadButtons::RightTrigger);
-
-        const std::vector<std::uint8_t> hats = Glfw::GLFW::GetJoystickHats(slot);
-        if (!hats.empty())
-        {
-            const std::uint8_t hat = hats[0];
-            AddHat(flags, hat, 1, GamepadButtons::DpadUp);
-            AddHat(flags, hat, 2, GamepadButtons::DpadRight);
-            AddHat(flags, hat, 4, GamepadButtons::DpadDown);
-            AddHat(flags, hat, 8, GamepadButtons::DpadLeft);
-        }
-        if (state.LeftTrigger > TriggerPress)
-        {
-            flags = Or(flags, GamepadButtons::LeftTrigger);
-        }
-        if (state.RightTrigger > TriggerPress)
-        {
-            flags = Or(flags, GamepadButtons::RightTrigger);
-        }
-        state.Buttons = flags;
-        GamepadInput::State = std::move(state);
+        Slot& slot = Slots[static_cast<std::size_t>(index)];
+        GamepadState state = slot.Layout.Read(axes, buttons, Glfw::GLFW::GetJoystickHats(index),
+            slot.LeftFloor, slot.RightFloor);
+        state.Name = slot.Name;
+        GamepadManager::UpdateDevice(*slot.Id, state, slot.Mapped, slot.Family,
+            slot.Layout.Capabilities(static_cast<std::int32_t>(axes.size()))
+                | (GamepadHaptics::Available(*slot.Id) ? GamepadCapabilities::Rumble : GamepadCapabilities::None),
+            slot.Mapping);
         return true;
     }
 
-    float GamepadDesktop::Axis(
-        const std::vector<float>& axes, std::int32_t index) noexcept
-    {
-        return index >= 0 && static_cast<std::size_t>(index) < axes.size()
-            ? axes[static_cast<std::size_t>(index)]
-            : 0.0F;
-    }
-
-    float GamepadDesktop::Trigger(
-        const std::vector<float>& axes, std::int32_t index, float& floor) noexcept
-    {
-        if (index < 0 || static_cast<std::size_t>(index) >= axes.size())
-        {
-            return 0.0F;
-        }
-        const float value = axes[static_cast<std::size_t>(index)];
-        if (value < floor)
-        {
-            floor = value;
-        }
-        const float span = 1.0F - floor;
-        return span <= 0.0F ? 0.0F : MathClamp((value - floor) / span, 0.0F, 1.0F);
-    }
-
-    void GamepadDesktop::AddRaw(GamepadButtons& into,
-        const std::vector<std::uint8_t>& buttons,
-        std::int32_t index, GamepadButtons flag) noexcept
-    {
-        if (index >= 0 && static_cast<std::size_t>(index) < buttons.size()
-            && buttons[static_cast<std::size_t>(index)] == 1)
-        {
-            into = Or(into, flag);
-        }
-    }
-
-    void GamepadDesktop::AddHat(GamepadButtons& into,
-        std::uint8_t hat, std::uint8_t match, GamepadButtons flag) noexcept
-    {
-        if ((hat & match) != 0)
-        {
-            into = Or(into, flag);
-        }
-    }
-
-    void GamepadDesktop::Add(GamepadButtons& into,
-        const std::uint8_t* buttons, std::int32_t index,
+    void GamepadDesktop::Add(GamepadButtons& into, const std::array<std::uint8_t, 15>& buttons, std::int32_t index,
         GamepadButtons flag) noexcept
     {
-        if (buttons[index] == 1)
+        if (buttons[static_cast<std::size_t>(index)] == 1)
         {
-            into = Or(into, flag);
+            into |= flag;
         }
     }
 }

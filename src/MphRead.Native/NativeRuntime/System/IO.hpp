@@ -119,6 +119,8 @@ namespace MphRead::NativeRuntime
     // File.Delete(path): nothing when the file is not there, and
     // DirectoryNotFoundException when its directory is not.
     void FileDelete(const std::string& path);
+    // File.Move(source, destination, overwrite).
+    void FileMove(const std::string& source, const std::string& destination, bool overwrite);
     // new FileStream(path, FileMode.Open, FileAccess.ReadWrite,
     // FileShare.None).Length, the handle closed again: throws when another
     // handle still holds the file.

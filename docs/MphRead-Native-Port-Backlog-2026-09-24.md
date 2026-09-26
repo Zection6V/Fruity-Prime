@@ -1,6 +1,6 @@
 # C# 側の新規コミットを C++ へ移す作業表（2026-09-24 時点）
 
-`origin/newest` の 212 コミットを develop2 に取り込んだ時点で、
+`origin/newest` の 212 コミットを develop2 に取り込んだ時点(https://github.com/Zection6V/Fruity-Prime/pull/1)で、
 `src/MphRead.Native/` は `src/MphRead/` より 302 ファイル分古い。
 その差分を、下から（依存される側から）順に埋めるための一覧。
 
@@ -49,6 +49,10 @@
     NetHostSession、ModEntry の -server 部（-hostports・-affinityweapons）、
     HealthSimulationTest、NetHealthSyncTest、MapAuditTeams、SpireAltPoseCheck。
   - 残り: LocalServer、NetLobbyTest。
+- 6 入力 前半: ゲームパッド層を実行時設定オブジェクト化（PadBindingState/GamepadOptionState/
+  GamepadRuntimeConfig/GamepadManager/Profiles/Haptics/UiRouter ほか 29 ファイル）。NativeRuntime に
+  Numerics(Vector2/3)・Event・ProcessExit・JsonWriteIndented・FileMove・EnvironmentTickCount64。
+  GamepadProbe の DesktopGlContext.PreserveWorkingDirectory は 7 の後。PadRow は 12 まで暫定で新 API 呼び。
 - 保留（依存先の移植待ち）:
   - PlayerEntity::TakeDamage の AimAssistTelemetry::Hit と ModControllerFeedback、
     PlayerSound の着地フィードバック、PlayerEntityNetAim::ApplyGamepadAim の
@@ -131,54 +135,54 @@
 | S | +/- | C# | C++ | 進捗 |
 |---|---|---|---|---|
 | A | +350/-0 | `Mods/Input/PointerCheck.cs` | — 新規 | — |
-| A | +309/-0 | `Mods/Input/PadBindingState.cs` | — 新規 | — |
+| A | +309/-0 | `Mods/Input/PadBindingState.cs` | — 新規 | 完了 |
 | A | +301/-0 | `Mods/Input/GamepadChecks.cs` | — 新規 | — |
 | A | +264/-0 | `Mods/Input/WindowsPenInput.cs` | — 新規 | — |
 | M | +261/-34 | `Mods/Input/StylusZone.cs` | .cpp,.hpp | — |
 | A | +258/-0 | `Mods/Input/MouseFlick.cs` | — 新規 | — |
-| A | +210/-0 | `Mods/Input/GamepadManager.cs` | — 新規 | — |
-| A | +199/-0 | `Mods/Input/GamepadProfiles.cs` | — 新規 | — |
+| A | +210/-0 | `Mods/Input/GamepadManager.cs` | — 新規 | 完了 |
+| A | +199/-0 | `Mods/Input/GamepadProfiles.cs` | — 新規 | 完了 |
 | A | +158/-0 | `Mods/Input/GamepadEnhancementChecks.cs` | — 新規 | — |
 | A | +141/-0 | `Mods/Input/WeaponWheel.cs` | — 新規 | — |
-| A | +117/-0 | `Mods/Input/GamepadOptionState.cs` | — 新規 | — |
-| A | +116/-0 | `Mods/Input/GamepadUiRouter.cs` | — 新規 | — |
+| A | +117/-0 | `Mods/Input/GamepadOptionState.cs` | — 新規 | 完了 |
+| A | +116/-0 | `Mods/Input/GamepadUiRouter.cs` | — 新規 | 完了 |
 | A | +115/-0 | `Mods/Input/AimAssist/AimAssistWorld.cs` | — 新規 | — |
 | A | +111/-0 | `Mods/Input/PointerDevice.cs` | — 新規 | — |
 | A | +101/-0 | `Mods/Input/ControllerRuntimeChecks.cs` | — 新規 | — |
-| M | +99/-11 | `Mods/Input/GamepadMappings.cs` | .cpp,.hpp | — |
+| M | +99/-11 | `Mods/Input/GamepadMappings.cs` | .cpp,.hpp | 完了 |
 | A | +87/-0 | `Mods/Input/AimAssist/AimAssistTelemetry.cs` | — 新規 | — |
-| A | +85/-0 | `Mods/Input/GamepadMappingWizard.cs` | — 新規 | — |
-| M | +82/-117 | `Mods/Input/GamepadInput.cs` | .cpp,.hpp | — |
-| M | +79/-274 | `Mods/Input/GamepadDesktop.cs` | .cpp,.hpp | — |
-| A | +77/-0 | `Mods/Input/WindowsGamepadHaptics.cs` | — 新規 | — |
+| A | +85/-0 | `Mods/Input/GamepadMappingWizard.cs` | — 新規 | 完了 |
+| M | +82/-117 | `Mods/Input/GamepadInput.cs` | .cpp,.hpp | 完了 |
+| M | +79/-274 | `Mods/Input/GamepadDesktop.cs` | .cpp,.hpp | 完了 |
+| A | +77/-0 | `Mods/Input/WindowsGamepadHaptics.cs` | — 新規 | 完了 |
 | A | +76/-0 | `Mods/Input/AimAssist/AimAssistChecks.cs` | — 新規 | — |
 | A | +76/-0 | `Mods/Input/GamepadPlatformChecks.cs` | — 新規 | — |
 | A | +72/-0 | `Mods/Input/AimAssist/AimAssist.cs` | — 新規 | — |
-| M | +71/-47 | `Mods/Input/GamepadLayout.cs` | .cpp,.hpp | — |
-| A | +69/-0 | `Mods/Input/GamepadAnalog.cs` | — 新規 | — |
-| A | +62/-0 | `Mods/Input/GamepadCalibration.cs` | — 新規 | — |
-| A | +56/-0 | `Mods/Input/GamepadGlyphs.cs` | — 新規 | — |
+| M | +71/-47 | `Mods/Input/GamepadLayout.cs` | .cpp,.hpp | 完了 |
+| A | +69/-0 | `Mods/Input/GamepadAnalog.cs` | — 新規 | 完了 |
+| A | +62/-0 | `Mods/Input/GamepadCalibration.cs` | — 新規 | 完了 |
+| A | +56/-0 | `Mods/Input/GamepadGlyphs.cs` | — 新規 | 完了 |
 | A | +55/-0 | `Mods/Input/AimAssist/AimAssistDebug.cs` | — 新規 | — |
-| A | +54/-0 | `Mods/Input/PadAction.cs` | — 新規 | — |
+| A | +54/-0 | `Mods/Input/PadAction.cs` | — 新規 | 完了 |
 | A | +54/-0 | `Mods/Input/PlayerEntityMouseFlick.cs` | — 新規 | — |
-| A | +51/-0 | `Mods/Input/GamepadHaptics.cs` | — 新規 | — |
-| A | +40/-0 | `Mods/Input/GamepadOptions.cs` | — 新規 | — |
-| A | +39/-0 | `Mods/Input/GamepadActions.cs` | — 新規 | — |
+| A | +51/-0 | `Mods/Input/GamepadHaptics.cs` | — 新規 | 完了 |
+| A | +40/-0 | `Mods/Input/GamepadOptions.cs` | — 新規 | 完了 |
+| A | +39/-0 | `Mods/Input/GamepadActions.cs` | — 新規 | 完了 |
 | A | +32/-0 | `Mods/Input/WeaponSelectionDirection.cs` | — 新規 | — |
 | A | +30/-0 | `Mods/Input/PlayerEntityHaptics.cs` | — 新規 | — |
-| A | +27/-0 | `Mods/Input/AimInputSourceTracker.cs` | — 新規 | — |
+| A | +27/-0 | `Mods/Input/AimInputSourceTracker.cs` | — 新規 | 完了 |
 | A | +25/-0 | `Mods/Input/AimAssist/AimAssistTuning.cs` | — 新規 | — |
-| M | +25/-18 | `Mods/Input/GamepadProbe.cs` | .cpp,.hpp | — |
-| M | +25/-213 | `Mods/Input/PadBindings.cs` | .cpp,.hpp | — |
-| A | +24/-0 | `Mods/Input/GamepadRuntimeConfig.cs` | — 新規 | — |
+| M | +25/-18 | `Mods/Input/GamepadProbe.cs` | .cpp,.hpp | 完了 |
+| M | +25/-213 | `Mods/Input/PadBindings.cs` | .cpp,.hpp | 完了 |
+| A | +24/-0 | `Mods/Input/GamepadRuntimeConfig.cs` | — 新規 | 完了 |
 | A | +24/-0 | `Mods/Input/SpectatorInput.cs` | — 新規 | — |
-| A | +23/-0 | `Mods/Input/GamepadDeviceSnapshot.cs` | — 新規 | — |
-| A | +20/-0 | `Mods/Input/HapticScheduler.cs` | — 新規 | — |
-| A | +19/-0 | `Mods/Input/InputPrompt.cs` | — 新規 | — |
-| A | +19/-0 | `Mods/Input/InputSourceTracker.cs` | — 新規 | — |
+| A | +23/-0 | `Mods/Input/GamepadDeviceSnapshot.cs` | — 新規 | 完了 |
+| A | +20/-0 | `Mods/Input/HapticScheduler.cs` | — 新規 | 完了 |
+| A | +19/-0 | `Mods/Input/InputPrompt.cs` | — 新規 | 完了 |
+| A | +19/-0 | `Mods/Input/InputSourceTracker.cs` | — 新規 | 完了 |
 | A | +17/-0 | `Mods/Input/AimAssist/AimAssistMath.cs` | — 新規 | — |
-| A | +15/-0 | `Mods/Input/ControllerLayoutState.cs` | — 新規 | — |
-| A | +13/-0 | `Mods/Input/StickCalibration.cs` | — 新規 | — |
+| A | +15/-0 | `Mods/Input/ControllerLayoutState.cs` | — 新規 | 完了 |
+| A | +13/-0 | `Mods/Input/StickCalibration.cs` | — 新規 | 完了 |
 | A | +12/-0 | `Mods/Input/AimAssist/AimAssistState.cs` | — 新規 | — |
 | A | +10/-0 | `Mods/Input/AimAssist/AimAssistTarget.cs` | — 新規 | — |
 | M | +10/-77 | `Mods/Input/PointerInput.cs` | .cpp,.hpp | — |

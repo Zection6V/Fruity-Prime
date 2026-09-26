@@ -18,4 +18,8 @@ namespace MphRead::NativeRuntime
     // the order they were added, as .NET runs them, and a handler that throws
     // does not stop the ones after it.
     void AppDomainAddUnhandledExceptionHandler(UnhandledExceptionHandler handler);
+
+    // AppDomain.CurrentDomain.ProcessExit += handler: run once, in the order
+    // added, as the process exits normally.
+    void AppDomainAddProcessExitHandler(std::function<void()> handler);
 }

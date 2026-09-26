@@ -1,154 +1,164 @@
 #include "GamepadInput.hpp"
 
+#include "AimInputSourceTracker.hpp"
+#include "GamepadActions.hpp"
+#include "GamepadAnalog.hpp"
+#include "GamepadOptions.hpp"
+#include "GamepadRuntimeConfig.hpp"
+#include "GamepadUiRouter.hpp"
 #include "PadBindings.hpp"
-#include "../InputSettings.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Entities/Players/PlayerInput.hpp"
-#include "../../NativeRuntime/System/Managed.hpp"
-
-#include <bit>
-#include <cmath>
-#include <cstdint>
-
-using ::MphRead::NativeRuntime::MathMin;
-
-namespace
-{
-    float DotNetAbs(float value) noexcept
-    {
-        const std::uint32_t bits = std::bit_cast<std::uint32_t>(value) & 0x7FFFFFFFU;
-        return std::bit_cast<float>(bits);
-    }
-
-}
 
 namespace MphRead::Mods::Input
 {
-    GamepadState GamepadInput::State{};
-    GamepadButtons GamepadInput::_previous = GamepadButtons::None;
-    GamepadButtons GamepadInput::_pressed = GamepadButtons::None;
-    float GamepadInput::_aimDeltaX = 0.0F;
-    float GamepadInput::_aimDeltaY = 0.0F;
-
-    bool GamepadInput::Active() noexcept
+    GamepadEdges& GamepadInput::Edges()
     {
-        return State.Connected;
+        static GamepadEdges edges{};
+        return edges;
+    }
+
+    GamepadActions& GamepadInput::Actions()
+    {
+        static GamepadActions actions{};
+        return actions;
+    }
+
+    GamepadState GamepadInput::State()
+    {
+        return GamepadManager::ActiveState();
+    }
+
+    bool GamepadInput::WheelHeld()
+    {
+        return _context == GamepadContext::Gameplay && Actions().WheelOpen();
+    }
+
+    std::pair<float, float> GamepadInput::AimStick()
+    {
+        return GamepadOptions::Southpaw()
+            ? GamepadAnalog::ApplyRadialDeadZone(_frame.LeftX, _frame.LeftY, GamepadOptions::LeftInner(), GamepadOptions::LeftOuter())
+            : GamepadAnalog::ApplyRadialDeadZone(_frame.RightX, _frame.RightY, GamepadOptions::RightInner(), GamepadOptions::RightOuter());
+    }
+
+    bool GamepadInput::Active()
+    {
+        return State().Connected;
     }
 
     bool GamepadInput::InUse()
     {
-        if (!Active())
+        const GamepadState state = State();
+        if (!state.Connected)
         {
             return false;
         }
-        if (State.Buttons != GamepadButtons::None)
-        {
-            return true;
-        }
-        const auto [leftX, leftY] = ApplyDeadZone(State.LeftX, State.LeftY);
-        const auto [rightX, rightY] = ApplyDeadZone(State.RightX, State.RightY);
-        return leftX != 0.0F || leftY != 0.0F || rightX != 0.0F || rightY != 0.0F
-            || State.LeftTrigger > TriggerThreshold
-            || State.RightTrigger > TriggerThreshold;
-    }
-
-    float GamepadInput::AimDeltaX() noexcept
-    {
-        return _aimDeltaX;
-    }
-
-    float GamepadInput::AimDeltaY() noexcept
-    {
-        return _aimDeltaY;
+        const auto left = GamepadAnalog::ApplyRadialDeadZone(state.LeftX, state.LeftY, GamepadOptions::LeftInner(), GamepadOptions::LeftOuter());
+        const auto right = GamepadAnalog::ApplyRadialDeadZone(state.RightX, state.RightY, GamepadOptions::RightInner(), GamepadOptions::RightOuter());
+        const std::pair<float, float> zero{0.0F, 0.0F};
+        return state.Buttons != GamepadButtons::None || left != zero || right != zero;
     }
 
     void GamepadInput::BeginFrame()
     {
-        if (!Active())
+        const GamepadSnapshot snapshot = GamepadManager::Snapshot();
+        _frameSnapshot = snapshot;
+        GamepadRuntimeConfig::Frame() = snapshot.Runtime;
+        _frame = snapshot.State;
+        const GamepadContext context = GamepadContexts::Current();
+        _pressed = Edges().Update(snapshot);
+        const std::int64_t contextRevision = GamepadContexts::Revision();
+        if (_context != context || _revision != snapshot.Revision || _contextRevision != contextRevision
+            || _bindingsRevision != PadBindings::Revision())
         {
+            Actions().Reset();
+            _bindingsRevision = PadBindings::Revision();
+            _blocked = _frame.Buttons;
             _pressed = GamepadButtons::None;
-            _previous = GamepadButtons::None;
-            _aimDeltaX = 0.0F;
-            _aimDeltaY = 0.0F;
+        }
+        _context = context;
+        _revision = snapshot.Revision;
+        _contextRevision = contextRevision;
+        _blocked &= _frame.Buttons;
+        _frame.Buttons &= ~_blocked;
+        _aimDeltaX = _aimDeltaY = 0;
+        const std::int32_t main = Entities::PlayerEntity::MainPlayerIndex();
+        const auto& players = Entities::PlayerEntity::Players();
+        if (context != GamepadContext::Gameplay || !GamepadContexts::Focused() || !_frame.Connected
+            || (main >= 0 && main < static_cast<std::int32_t>(players.size())
+                && players[static_cast<std::size_t>(main)] != nullptr
+                && players[static_cast<std::size_t>(main)]->Health() == 0))
+        {
+            AimInputSourceTracker::Reset();
+        }
+        if (!GamepadContexts::Focused())
+        {
+            _frame = {};
+            _pressed = GamepadButtons::None;
             return;
         }
-        _pressed = static_cast<GamepadButtons>(
-            static_cast<std::int32_t>(State.Buttons)
-            & ~static_cast<std::int32_t>(_previous)
-        );
-        _previous = State.Buttons;
-        const auto [x, y] = ApplyDeadZone(State.RightX, State.RightY);
-        const float sensitivity = InputSettings::GamepadLookSensitivity();
-        _aimDeltaX = -x * DotNetAbs(x) * TurnRate * sensitivity;
-        _aimDeltaY = y * DotNetAbs(y) * TurnRate * sensitivity
-            * (InputSettings::GamepadInvertY() ? -1 : 1);
-    }
-
-    std::pair<float, float> GamepadInput::ApplyDeadZone(float x, float y)
-    {
-        const float dead = InputSettings::GamepadDeadZone();
-        const float length = std::sqrt(x * x + y * y);
-        if (length <= dead)
+        if (!_frame.Connected)
         {
-            return {0.0F, 0.0F};
+            Actions().Reset();
+            return;
         }
-        if (length == 0.0F)
+        Actions().Update(_frame.Buttons);
+        if (context != GamepadContext::Gameplay || WheelHeld())
         {
-            return {0.0F, 0.0F};
+            return;
         }
-        const float scaled = MathMin((length - dead) / (1.0F - dead), 1.0F);
-        return {x / length * scaled, y / length * scaled};
+        const auto [x, y] = AimStick();
+        _aimDeltaX = -GamepadAnalog::ApplyResponseCurve(x, GamepadOptions::Curve()) * TurnRate * GamepadOptions::LookX()
+            * (GamepadOptions::InvertX() ? -1 : 1);
+        _aimDeltaY = GamepadAnalog::ApplyResponseCurve(y, GamepadOptions::Curve()) * TurnRate * GamepadOptions::LookY()
+            * (GamepadOptions::InvertY() ? -1 : 1);
     }
 
     bool GamepadInput::TakeMenuPress()
     {
-        const GamepadButtons menu = PadBindings::Get(PadAction::Menu);
-        if (menu == GamepadButtons::None
-            || (static_cast<std::int32_t>(_pressed) & static_cast<std::int32_t>(menu)) == 0)
+        if (_context != GamepadContext::Gameplay && _context != GamepadContext::Results)
         {
             return false;
         }
-        _pressed = static_cast<GamepadButtons>(
-            static_cast<std::int32_t>(_pressed) & ~static_cast<std::int32_t>(menu)
-        );
-        return true;
+        return Actions().Take(PadAction::Menu)
+            || (_context == GamepadContext::Results && TakePress(GamepadButtons::B));
     }
 
     bool GamepadInput::TakeChatPress()
     {
-        const GamepadButtons chat = PadBindings::Get(PadAction::Chat);
-        if (chat == GamepadButtons::None
-            || (static_cast<std::int32_t>(_pressed) & static_cast<std::int32_t>(chat)) == 0)
+        if (_context != GamepadContext::Gameplay)
         {
             return false;
         }
-        _pressed = static_cast<GamepadButtons>(
-            static_cast<std::int32_t>(_pressed) & ~static_cast<std::int32_t>(chat)
-        );
-        return true;
+        return Actions().Take(PadAction::Chat);
     }
 
     bool GamepadInput::TakePress(GamepadButtons buttons)
     {
-        if ((static_cast<std::int32_t>(_pressed) & static_cast<std::int32_t>(buttons)) == 0)
+        if (!Any(_pressed & buttons))
         {
             return false;
         }
-        _pressed = static_cast<GamepadButtons>(
-            static_cast<std::int32_t>(_pressed) & ~static_cast<std::int32_t>(buttons)
-        );
+        _pressed &= ~buttons;
         return true;
     }
 
     void GamepadInput::Apply(Entities::PlayerEntity* player)
     {
-        if (player == nullptr || !Active() || player->IsBot()
-            || (player->LoadFlags() & Entities::LoadFlags::Active) == Entities::LoadFlags::None)
+        if (!GamepadContexts::Focused() || _context != GamepadContext::Gameplay || player == nullptr || !Active()
+            || player->IsBot() || (player->LoadFlags() & Entities::LoadFlags::Active) == Entities::LoadFlags::None)
         {
             return;
         }
-        auto& controls = player->Controls();
-        const auto [moveX, moveY] = ApplyDeadZone(State.LeftX, State.LeftY);
+        if (player->Health() == 0 || player->IsAltForm())
+        {
+            Actions().CloseWheel();
+        }
+        Entities::PlayerControls& controls = player->Controls();
+        const auto move = GamepadOptions::Southpaw()
+            ? GamepadAnalog::ApplyRadialDeadZone(_frame.RightX, _frame.RightY, GamepadOptions::RightInner(), GamepadOptions::RightOuter())
+            : GamepadAnalog::ApplyRadialDeadZone(_frame.LeftX, _frame.LeftY, GamepadOptions::LeftInner(), GamepadOptions::LeftOuter());
+        const auto [moveX, moveY] = GamepadAnalog::QuantizeMovement(move.first, move.second);
         Hold(controls.MoveUp(), moveY > WalkThreshold);
         Hold(controls.RollUp(), moveY > WalkThreshold);
         Hold(controls.MoveDown(), moveY < -WalkThreshold);
@@ -157,37 +167,49 @@ namespace MphRead::Mods::Input
         Hold(controls.RolltLeft(), moveX < -WalkThreshold);
         Hold(controls.MoveRight(), moveX > WalkThreshold);
         Hold(controls.RollRight(), moveX > WalkThreshold);
-
-        const GamepadButtons shoot = PadBindings::Get(PadAction::Shoot);
-        Hold(controls.Shoot(), shoot);
-        Hold(controls.AltAttack(), shoot);
-        Hold(controls.Zoom(), PadBindings::Get(PadAction::Zoom));
-        const GamepadButtons jump = PadBindings::Get(PadAction::Jump);
-        Hold(controls.Jump(), jump);
-        Hold(controls.Boost(), jump);
-        Hold(controls.Morph(), PadBindings::Get(PadAction::Morph));
-        Hold(controls.Scan(), PadBindings::Get(PadAction::Scan));
-        Hold(controls.ScanVisor(), PadBindings::Get(PadAction::ScanVisor));
-        Hold(controls.Pause(), PadBindings::Get(PadAction::Scoreboard));
-
-        Hold(controls.NextWeapon(), PadBindings::Get(PadAction::NextWeapon));
-        Hold(controls.PrevWeapon(), PadBindings::Get(PadAction::PrevWeapon));
-        Hold(controls.Missile(), PadBindings::Get(PadAction::Missile));
-        Hold(controls.PowerBeam(), PadBindings::Get(PadAction::PowerBeam));
-
+        ApplyBindings(controls);
+        if (Actions().WasPressed(PadAction::LastWeapon) && player->PreviousWeapon() != player->CurrentWeapon())
+        {
+            if (Entities::Keybind* last = GamepadActions::WeaponBind(controls, player->PreviousWeapon()))
+            {
+                Hold(*last, true, true);
+            }
+        }
         if (InUse())
         {
             player->ModNoteInput();
         }
     }
 
-    void GamepadInput::Hold(Entities::Keybind& bind, GamepadButtons buttons)
+    void GamepadInput::ApplyBindings(Entities::PlayerControls& controls)
     {
-        const bool down = (static_cast<std::int32_t>(State.Buttons)
-            & static_cast<std::int32_t>(buttons)) != 0;
-        const bool pressed = (static_cast<std::int32_t>(_pressed)
-            & static_cast<std::int32_t>(buttons)) != 0;
-        Hold(bind, down, pressed);
+        GamepadActions& actions = Actions();
+        const auto bind = [&actions](Entities::Keybind& keybind, PadAction action)
+        {
+            Hold(keybind, actions.Down(action), actions.WasPressed(action));
+        };
+        bind(controls.Shoot(), PadAction::Shoot);
+        bind(controls.AltAttack(), PadAction::Shoot);
+        bind(controls.Jump(), PadAction::Jump);
+        bind(controls.Boost(), PadAction::Jump);
+        bind(controls.Zoom(), PadAction::Zoom);
+        bind(controls.Morph(), PadAction::Morph);
+        bind(controls.Scan(), PadAction::Scan);
+        bind(controls.ScanVisor(), PadAction::ScanVisor);
+        Hold(controls.WeaponMenu(), WheelHeld(), actions.WasPressed(PadAction::WeaponWheel));
+        bind(controls.Pause(), PadAction::Scoreboard);
+        bind(controls.NextWeapon(), PadAction::NextWeapon);
+        bind(controls.PrevWeapon(), PadAction::PrevWeapon);
+        bind(controls.Missile(), PadAction::Missile);
+        bind(controls.PowerBeam(), PadAction::PowerBeam);
+        bind(controls.VoltDriver(), PadAction::VoltDriver);
+        bind(controls.Battlehammer(), PadAction::Battlehammer);
+        bind(controls.Imperialist(), PadAction::Imperialist);
+        bind(controls.Judicator(), PadAction::Judicator);
+        bind(controls.Magmaul(), PadAction::Magmaul);
+        bind(controls.ShockCoil(), PadAction::ShockCoil);
+        bind(controls.OmegaCannon(), PadAction::OmegaCannon);
+        bind(controls.AffinitySlot(), PadAction::AffinitySlot);
     }
 
     void GamepadInput::Hold(Entities::Keybind& bind, bool down)
@@ -200,6 +222,7 @@ namespace MphRead::Mods::Input
         if (down)
         {
             bind.SetIsDown(true);
+            bind.SetIsReleased(false);
         }
         if (pressed)
         {

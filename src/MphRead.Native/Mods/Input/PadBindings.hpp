@@ -1,60 +1,50 @@
 #pragma once
 
 #include "GamepadState.hpp"
+#include "PadAction.hpp"
 
 #include <array>
 #include <cstdint>
-#include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace MphRead::Mods::Input
 {
-    enum class PadAction : std::int32_t
-    {
-        Shoot = 0,
-        Zoom = 1,
-        Jump = 2,
-        Morph = 3,
-        Scan = 4,
-        ScanVisor = 5,
-        Scoreboard = 6,
-        NextWeapon = 7,
-        PrevWeapon = 8,
-        Missile = 9,
-        PowerBeam = 10,
-        Menu = 11,
-        Chat = 12
-    };
-
+    // The bindings of whichever controller is in force.
     class PadBindings final
     {
     public:
-        static const std::array<PadAction, 13>& Actions() noexcept;
-
-        static GamepadButtons Get(PadAction action);
-        static void Set(PadAction action, GamepadButtons buttons);
-        static GamepadButtons Default(PadAction action);
-        static void Reset();
-        static std::string Name(PadAction action);
-        static std::string Describe(GamepadButtons buttons);
-        static std::string ButtonName(GamepadButtons button);
-        static std::string SettingKey(PadAction action);
-        static bool TryLoad(
-            std::optional<std::string_view> key,
-            std::optional<std::string_view> value
-        );
-
-    private:
         PadBindings() = delete;
-        ~PadBindings() = delete;
-        PadBindings(const PadBindings&) = delete;
-        PadBindings& operator=(const PadBindings&) = delete;
-        PadBindings(PadBindings&&) = delete;
-        PadBindings& operator=(PadBindings&&) = delete;
 
-        static std::array<GamepadButtons, 13> _defaults;
-        static std::array<GamepadButtons, 13> _current;
-        static std::array<PadAction, 13> _actions;
+        [[nodiscard]] static std::string Preset();
+        static void Preset(std::string value);
+        [[nodiscard]] static std::int64_t Revision();
+        [[nodiscard]] static const std::array<PadAction, PadActionCount>& Actions();
+        [[nodiscard]] static GamepadButtons Get(PadAction action);
+        static void Set(PadAction action, GamepadButtons buttons);
+        [[nodiscard]] static GamepadButtons Default(PadAction action);
+        [[nodiscard]] static GamepadButtons Slot(PadAction action, std::int32_t slot);
+        static void SetSlot(PadAction action, std::int32_t slot, GamepadButtons button,
+            GamepadButtons modifier = GamepadButtons::None);
+        [[nodiscard]] static bool Single(GamepadButtons button);
+        [[nodiscard]] static GamepadButtons Modifier(PadAction action, std::int32_t slot);
+        [[nodiscard]] static std::string DescribeSlot(PadAction action, std::int32_t slot);
+        [[nodiscard]] static std::uint64_t Evaluate(GamepadButtons buttons,
+            GamepadButtons suppressed = GamepadButtons::None);
+        [[nodiscard]] static GamepadButtons ChordButtons(GamepadButtons buttons);
+        static void Write(std::vector<std::string>& lines);
+        static void LoadSlots(const std::vector<std::string>& lines);
+        [[nodiscard]] static std::vector<PadAction> Conflicts(PadAction action, GamepadButtons button,
+            GamepadButtons modifier = GamepadButtons::None);
+        static void Assign(PadAction action, std::int32_t slot, GamepadButtons button, std::string_view resolution,
+            GamepadButtons modifier = GamepadButtons::None);
+        static void ApplyPreset(const std::string& name);
+        static void Reset();
+        [[nodiscard]] static std::string Name(PadAction action);
+        [[nodiscard]] static std::string Describe(GamepadButtons buttons);
+        [[nodiscard]] static std::string ButtonName(GamepadButtons button);
+        [[nodiscard]] static std::string SettingKey(PadAction action);
+        [[nodiscard]] static bool TryLoad(std::string_view key, std::string_view value);
     };
 }

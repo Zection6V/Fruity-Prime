@@ -1120,6 +1120,28 @@ namespace MphRead::NativeRuntime
         return PathGetFullPath(PathCombine(basePath, path));
     }
 
+    void FileMove(const std::string& source, const std::string& destination, bool overwrite)
+    {
+        const std::string from = PathGetFullPath(source);
+        const std::string to = PathGetFullPath(destination);
+#if defined(_WIN32)
+        if (::MoveFileExW(Wtf8ToWide(from).c_str(), Wtf8ToWide(to).c_str(),
+            MOVEFILE_COPY_ALLOWED | (overwrite ? MOVEFILE_REPLACE_EXISTING : 0)) == FALSE)
+        {
+            ThrowForWin32Error(::GetLastError(), from);
+        }
+#else
+        if (!overwrite && ::access(to.c_str(), F_OK) == 0)
+        {
+            ThrowForErrno(EEXIST, to, false);
+        }
+        if (::rename(from.c_str(), to.c_str()) != 0)
+        {
+            ThrowForErrno(errno, from, false);
+        }
+#endif
+    }
+
     void FileDelete(const std::string& path)
     {
         const std::string fullPath = PathGetFullPath(path);

@@ -91,6 +91,9 @@ namespace MphRead::NativeRuntime
     // a separator; the current directory where there is no executable path.
     [[nodiscard]] std::string AppContextBaseDirectory();
 
+    // Environment.TickCount64: milliseconds since the system started.
+    [[nodiscard]] std::int64_t EnvironmentTickCount64() noexcept;
+
     // Environment.ExitCode.
     [[nodiscard]] std::int32_t EnvironmentExitCode() noexcept;
     void SetEnvironmentExitCode(std::int32_t value) noexcept;

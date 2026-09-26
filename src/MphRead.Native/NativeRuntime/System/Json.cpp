@@ -1,5 +1,7 @@
 #include "Json.hpp"
 
+#include "Console.hpp"
+
 #include <cstdlib>
 
 namespace MphRead::NativeRuntime
@@ -359,6 +361,54 @@ namespace MphRead::NativeRuntime
         }
     }
 
+    namespace
+    {
+        // Utf8JsonWriter with Indented: two spaces a level, "name": value,
+        // Environment.NewLine between lines, and an empty container on one line.
+        void WriteIndented(std::string& out, const JsonPtr& value, std::size_t depth)
+        {
+            const std::string_view newLine = EnvironmentNewLine();
+            const auto indent = [&out](std::size_t level) { out.append(level * 2, ' '); };
+            if (value != nullptr && value->Type() == JsonValue::Kind::Array && !value->Items().empty())
+            {
+                out += '[';
+                bool first = true;
+                for (const JsonPtr& item : value->Items())
+                {
+                    out += first ? "" : ",";
+                    first = false;
+                    out += newLine;
+                    indent(depth + 1);
+                    WriteIndented(out, item, depth + 1);
+                }
+                out += newLine;
+                indent(depth);
+                out += ']';
+                return;
+            }
+            if (value != nullptr && value->Type() == JsonValue::Kind::Object && !value->Members().empty())
+            {
+                out += '{';
+                bool first = true;
+                for (const auto& [name, member] : value->Members())
+                {
+                    out += first ? "" : ",";
+                    first = false;
+                    out += newLine;
+                    indent(depth + 1);
+                    WriteString(out, name);
+                    out += ": ";
+                    WriteIndented(out, member, depth + 1);
+                }
+                out += newLine;
+                indent(depth);
+                out += '}';
+                return;
+            }
+            Write(out, value);
+        }
+    }
+
     JsonPtr JsonValue::MakeObject()
     {
         auto value = std::make_shared<JsonValue>();
@@ -446,6 +496,13 @@ namespace MphRead::NativeRuntime
     {
         std::string out;
         Write(out, value);
+        return out;
+    }
+
+    std::string JsonWriteIndented(const JsonPtr& value)
+    {
+        std::string out;
+        WriteIndented(out, value, 0);
         return out;
     }
 }

@@ -64,4 +64,6 @@ namespace MphRead::NativeRuntime
     [[nodiscard]] JsonPtr JsonParse(const std::string& text);
     // JsonSerializer.Serialize with WriteIndented left off.
     [[nodiscard]] std::string JsonWrite(const JsonPtr& value);
+    // The same with WriteIndented = true.
+    [[nodiscard]] std::string JsonWriteIndented(const JsonPtr& value);
 }

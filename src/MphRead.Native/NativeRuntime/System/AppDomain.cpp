@@ -121,4 +121,44 @@ namespace MphRead::NativeRuntime
 #endif
         }
     }
+
+    void AppDomainAddProcessExitHandler(std::function<void()> handler)
+    {
+        if (!handler)
+        {
+            return;
+        }
+        // Never destroyed, for the same reason as the registry above.
+        struct ExitRegistry final
+        {
+            std::mutex Lock;
+            std::vector<std::function<void()>> Handlers;
+        };
+        static ExitRegistry& exits = *new ExitRegistry();
+        static const bool hooked = []()
+        {
+            std::atexit([]()
+            {
+                std::vector<std::function<void()>> handlers;
+                {
+                    const std::lock_guard<std::mutex> guard(exits.Lock);
+                    handlers.swap(exits.Handlers);
+                }
+                for (const std::function<void()>& run : handlers)
+                {
+                    try
+                    {
+                        run();
+                    }
+                    catch (...)
+                    {
+                    }
+                }
+            });
+            return true;
+        }();
+        static_cast<void>(hooked);
+        const std::lock_guard<std::mutex> guard(exits.Lock);
+        exits.Handlers.push_back(std::move(handler));
+    }
 }

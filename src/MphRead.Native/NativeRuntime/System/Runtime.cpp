@@ -32,6 +32,7 @@
 #include <mach-o/dyld.h>
 #endif
 #include <csignal>
+#include <time.h>
 #include <fstream>
 #include <stdlib.h>
 #if defined(__linux__)
@@ -602,5 +603,16 @@ namespace MphRead::NativeRuntime
     void ThrowListIndexOutOfRange()
     {
         throw System::ArgumentOutOfRangeException();
+    }
+
+    std::int64_t EnvironmentTickCount64() noexcept
+    {
+#if defined(_WIN32)
+        return static_cast<std::int64_t>(::GetTickCount64());
+#else
+        timespec now{};
+        ::clock_gettime(CLOCK_MONOTONIC, &now);
+        return static_cast<std::int64_t>(now.tv_sec) * 1000 + now.tv_nsec / 1000000;
+#endif
     }
 }

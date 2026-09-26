@@ -725,12 +725,14 @@ namespace MphRead::NativeRuntime::Avalonia::Media
 
     void DrawingContext::DrawText(const FormattedText& text, Point origin)
     {
+        DrawCount++;
         text.Layout().Draw(_canvas, origin);
     }
 
     void DrawingContext::DrawRectangle(const IBrushPtr& brush, const IPenPtr& pen, const Rect& rect, double radiusX,
         double radiusY, const BoxShadows& boxShadows)
     {
+        DrawCount++;
         std::array<Skia::Point, 4> radii{};
         for (Skia::Point& r : radii)
         {
@@ -761,6 +763,7 @@ namespace MphRead::NativeRuntime::Avalonia::Media
     void DrawingContext::DrawRectangle(const IBrushPtr& brush, const IPenPtr& pen, const Rect& rect,
         const CornerRadius& radius, const BoxShadows& boxShadows)
     {
+        DrawCount++;
         const std::array<Skia::Point, 4> radii{Skia::Point{radius.TopLeft, radius.TopLeft},
             Skia::Point{radius.TopRight, radius.TopRight}, Skia::Point{radius.BottomRight, radius.BottomRight},
             Skia::Point{radius.BottomLeft, radius.BottomLeft}};
@@ -799,6 +802,7 @@ namespace MphRead::NativeRuntime::Avalonia::Media
     void DrawingContext::DrawEllipse(const IBrushPtr& brush, const IPenPtr& pen, Point center, double radiusX,
         double radiusY)
     {
+        DrawCount++;
         Skia::Path path;
         path.AddEllipse({center.X, center.Y}, radiusX, radiusY);
         const Rect bounds{center.X - radiusX, center.Y - radiusY, radiusX * 2, radiusY * 2};
@@ -813,6 +817,7 @@ namespace MphRead::NativeRuntime::Avalonia::Media
 
     void DrawingContext::DrawLine(const IPenPtr& pen, Point p1, Point p2)
     {
+        DrawCount++;
         Skia::Path path;
         path.MoveTo({p1.X, p1.Y});
         path.LineTo({p2.X, p2.Y});
@@ -821,6 +826,7 @@ namespace MphRead::NativeRuntime::Avalonia::Media
 
     void DrawingContext::DrawGeometry(const IBrushPtr& brush, const IPenPtr& pen, const Geometry& geometry)
     {
+        DrawCount++;
         const Skia::Path path = geometry.ToPath();
         const Rect bounds = geometry.Bounds();
         if (geometry.Transform != nullptr)
@@ -836,6 +842,7 @@ namespace MphRead::NativeRuntime::Avalonia::Media
 
     void DrawingContext::DrawImage(const IImage& source, const Rect& sourceRect, const Rect& destRect)
     {
+        DrawCount++;
         const Skia::Bitmap* pixels = source.Pixels();
         if (pixels == nullptr)
         {

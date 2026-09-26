@@ -607,6 +607,9 @@ namespace MphRead::NativeRuntime::Avalonia::Media
         [[nodiscard]] PushedState PushRenderOptions(const RenderOptions& options);
 
         [[nodiscard]] Skia::Canvas& Canvas() noexcept { return _canvas; }
+        // Every draw call counts, transparent or not: what a visual drew is
+        // what Avalonia hit-tests it by.
+        std::size_t DrawCount = 0;
         [[nodiscard]] const Avalonia::Matrix& CurrentTransform() const noexcept { return _transform.back(); }
 
     private:

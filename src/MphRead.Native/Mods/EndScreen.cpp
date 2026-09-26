@@ -1,5 +1,11 @@
 #include "EndScreen.hpp"
 
+#include "MapPick.hpp"
+#include "Input/GamepadManager.hpp"
+#include "Input/GamepadUiRouter.hpp"
+#include "Network/NetSession.hpp"
+#include "Render/MapThumbnail.hpp"
+#include "../NativeRuntime/System/Runtime.hpp"
 #include "../Entities/Players/PlayerEntity.hpp"
 #include "../Entities/Players/PlayerInput.hpp"
 #include "../Formats/Types.hpp"
@@ -163,6 +169,32 @@ namespace MphRead::Mods
         }
     }
 
+    void EndScreen::Tick(const std::string& roomKey, double time)
+    {
+        const bool up = Available();
+        if (up == _wasUp)
+        {
+            if (up && time - _resentAt >= 1)
+            {
+                _resentAt = time;
+                MapPick::Resend();
+            }
+            return;
+        }
+        _wasUp = up;
+        _resentAt = time;
+        // The previews are textures in the scene's own counted names, and the
+        // counter restarts with every room: nothing may survive a map change.
+        Render::MapThumbnail::Clear();
+        if (!up)
+        {
+            MapPick::Reset();
+            return;
+        }
+        // Open straight away offline; online it waits for the server.
+        MapPick::Begin(roomKey, !Network::NetSession::Active());
+    }
+
     std::int32_t EndScreen::HoveredSuit()
     {
         if (!Available())
@@ -223,7 +255,9 @@ namespace MphRead::Mods
                 return true;
             }
         }
-        return false;
+        // The ballot under the picker. Last only because it is the cheapest
+        // test to reach; the two layouts do not overlap.
+        return MapPick::HandleClick();
     }
 
     bool EndScreen::HandleKeyDown(
@@ -244,11 +278,18 @@ namespace MphRead::Mods
             Step(1, 0);
             return true;
         case Keys::Up:
-            Step(0, -1);
+            StepList(-1);
             return true;
         case Keys::Down:
-            Step(0, 1);
+            StepList(1);
             return true;
+        case Keys::Space:
+            if (MapPick::Available())
+            {
+                MapPick::ChooseCursor();
+                return true;
+            }
+            return false;
         default:
             break;
         }
@@ -260,32 +301,51 @@ namespace MphRead::Mods
         return false;
     }
 
+    Input::GamepadUiRouter& EndScreen::ResultPad()
+    {
+        static Input::GamepadUiRouter& router = []() -> Input::GamepadUiRouter&
+        {
+            static Input::GamepadUiRouter created{};
+            static_cast<void>(created.Action.Add([](Input::UiAction action)
+            {
+                switch (action)
+                {
+                case Input::UiAction::Left: Step(-1, 0); break;
+                case Input::UiAction::Right: Step(1, 0); break;
+                case Input::UiAction::Up: StepList(-1); break;
+                case Input::UiAction::Down: StepList(1); break;
+                case Input::UiAction::Accept: ToggleReady(); break;
+                case Input::UiAction::NextTab:
+                    if (MapPick::Available())
+                    {
+                        MapPick::ChooseCursor();
+                    }
+                    break;
+                default: break;
+                }
+            }));
+            return created;
+        }();
+        return router;
+    }
+
     void EndScreen::PollGamepad()
     {
-        if (!Available())
+        ResultPad().Update(Input::GamepadManager::Snapshot(), Available() && Input::GamepadContexts::Focused()
+            && Input::GamepadContexts::Current() == Input::GamepadContext::Results
+            ? Input::GamepadContext::Results : Input::GamepadContext::Gameplay,
+            ::MphRead::NativeRuntime::EnvironmentTickCount64());
+    }
+
+    // Up and down: the map ballot while there is one, and the suit otherwise.
+    void EndScreen::StepList(std::int32_t by)
+    {
+        if (MapPick::Available())
         {
+            MapPick::Step(by);
             return;
         }
-        if (Input::GamepadInput::TakePress(Input::GamepadButtons::DpadLeft))
-        {
-            Step(-1, 0);
-        }
-        if (Input::GamepadInput::TakePress(Input::GamepadButtons::DpadRight))
-        {
-            Step(1, 0);
-        }
-        if (Input::GamepadInput::TakePress(Input::GamepadButtons::DpadUp))
-        {
-            Step(0, -1);
-        }
-        if (Input::GamepadInput::TakePress(Input::GamepadButtons::A))
-        {
-            ToggleReady();
-        }
-        if (Input::GamepadInput::TakePress(Input::GamepadButtons::DpadDown))
-        {
-            Step(0, 1);
-        }
+        Step(0, by);
     }
 
     void EndScreen::Step(std::int32_t hunterBy, std::int32_t suitBy)
@@ -303,6 +363,11 @@ namespace MphRead::Mods
                 + Network::PlayerColors::Count) % Network::PlayerColors::Count;
         }
         Choose(static_cast<MphRead::Hunter>(hunter), suit);
+    }
+
+    void EndScreen::Pick(MphRead::Hunter hunter, std::int32_t suit)
+    {
+        Choose(hunter, suit);
     }
 
     void EndScreen::Choose(MphRead::Hunter hunter, std::int32_t suit)

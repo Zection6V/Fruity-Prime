@@ -2,6 +2,7 @@
 
 #include "../Formats/Enums.hpp"
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -10,6 +11,11 @@
 namespace OpenTK::Windowing::GraphicsLibraryFramework
 {
     enum class Keys : std::int32_t;
+}
+
+namespace MphRead::Mods::Input
+{
+    class GamepadUiRouter;
 }
 
 namespace MphRead::Mods
@@ -40,6 +46,14 @@ namespace MphRead::Mods
         };
 
         [[nodiscard]] static bool Available();
+        // Whether the deck panel is drawn over the results, so the HUD's own
+        // picker knows to leave the right-hand side alone. Written on the
+        // toolkit's thread and read inside the render loop.
+        [[nodiscard]] static bool PanelUp() noexcept { return _panelUp.load(); }
+        static void PanelUp(bool value) noexcept { _panelUp.store(value); }
+        // The screen coming up and going away again: the map ballot and its
+        // previews hang off it. Called once a frame by the window.
+        static void Tick(const std::string& roomKey, double time);
         [[nodiscard]] static bool Ready();
         static void ClearReady();
         static void ToggleReady();
@@ -67,12 +81,19 @@ namespace MphRead::Mods
         [[nodiscard]] static bool HandleKeyDown(
             OpenTK::Windowing::GraphicsLibraryFramework::Keys key);
         static void PollGamepad();
+        // Set both, from a screen that offers them as rows rather than arrows.
+        static void Pick(MphRead::Hunter hunter, std::int32_t suit);
 
     private:
+        [[nodiscard]] static Input::GamepadUiRouter& ResultPad();
+        static void StepList(std::int32_t by);
         static void Step(std::int32_t hunterBy, std::int32_t suitBy);
         static void Choose(MphRead::Hunter hunter, std::int32_t suit);
 
         static bool _ready;
+        inline static std::atomic_bool _panelUp{false};
+        inline static bool _wasUp = false;
+        inline static double _resentAt = 0;
         static Hit _hitPrev;
         static Hit _hitNext;
         static Hit _hitReady;

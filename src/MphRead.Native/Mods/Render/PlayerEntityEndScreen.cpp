@@ -1,5 +1,7 @@
 #include "PlayerEntityEndScreen.hpp"
 
+#include "../Input/GamepadGlyphs.hpp"
+#include "../Input/InputSourceTracker.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../HUD/HudInfo.hpp"
 #include "../../Scene.hpp"
@@ -99,6 +101,12 @@ namespace MphRead::Entities
         {
             return;
         }
+        // The deck panel is up over this and asks the same two questions with
+        // the program's own controls. The scoreboard beside it is untouched.
+        if (Mods::EndScreen::PanelUp())
+        {
+            return;
+        }
         const float aspect = HudAspectFix();
         const float scale = EndScale();
         const float right = 254.0F;
@@ -181,6 +189,9 @@ namespace MphRead::Entities
                 std::string("NEXT: ") + ::MphRead::NativeRuntime::ToUpperInvariant(next),
                 _endDim, 1.0F, 8.0F, -1, 0.45F * scale));
         }
+        // The ballot, under the picker and in the same column, given the
+        // panel's floor rather than working it out again.
+        ModDrawMapPick(bottom);
     }
 
     void PlayerEntity::DrawEndFrame(
@@ -225,7 +236,10 @@ namespace MphRead::Entities
             on ? _endReadyOn
                : Mods::EndScreen::HoveredReady() ? _endArrowHover : _endArrowWell);
         static_cast<void>(DrawText2D(centre, top + 3.5F * EndScale(), Hud::Align::Center, 0,
-            on ? "WAITING FOR OTHERS" : "READY",
+            on ? std::string("WAITING FOR OTHERS")
+               : Mods::Input::InputSourceTracker::Current() == Mods::Input::InputSource::Gamepad
+               ? ::MphRead::NativeRuntime::ToUpperInvariant(Mods::Input::GamepadGlyphs::Resolve(Mods::Input::GamepadButtons::A)) + " READY"
+               : std::string("READY"),
             on ? _endReadyInk : _endArrow, 1.0F, 8.0F, -1, 0.42F * EndScale()));
         return ModHudHit(left, top, right, bottom);
     }

@@ -3940,6 +3940,46 @@ namespace MphRead
         GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
     }
 
+    // A bound texture over a HUD rectangle, in the 256x192 space. Linear: a
+    // photograph reduced to a thumbnail has no DS pixel grid to preserve.
+    void Scene::DrawHudTexture(float left, float top, float right, float bottom, std::int32_t bindingId,
+        float alpha, bool smooth)
+    {
+        if (bindingId <= 0)
+        {
+            return;
+        }
+        const float halfW = _rendererSize.X / 2.0F;
+        const float halfH = _rendererSize.Y / 2.0F;
+        const float x0 = (left / 256.0F * _rendererSize.X - halfW) / halfW;
+        const float x1 = (right / 256.0F * _rendererSize.X - halfW) / halfW;
+        const float y0 = (halfH - top / 192.0F * _rendererSize.Y) / halfH;
+        const float y1 = (halfH - bottom / 192.0F * _rendererSize.Y) / halfH;
+        GL::Uniform1(_shaderLocations->LayerAlpha, alpha);
+        GL::Uniform1(_shaderLocations->UseMask, 0);
+        GL::BindTexture(GL::TextureTarget::Texture2D, bindingId);
+        const auto min = static_cast<std::int32_t>(smooth ? GL::TextureMinFilter::Linear : GL::TextureMinFilter::Nearest);
+        const auto mag = static_cast<std::int32_t>(smooth ? GL::TextureMagFilter::Linear : GL::TextureMagFilter::Nearest);
+        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter, min);
+        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter, mag);
+        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
+            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
+        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
+            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
+        GL::Begin(GL::PrimitiveType::TriangleStrip);
+        GL::TexCoord3(1.0F, 0.0F, 0.0F);
+        GL::Vertex3(x1, y0, 0);
+        GL::TexCoord3(0.0F, 0.0F, 0.0F);
+        GL::Vertex3(x0, y0, 0);
+        GL::TexCoord3(1.0F, 1.0F, 0.0F);
+        GL::Vertex3(x1, y1, 0);
+        GL::TexCoord3(0.0F, 1.0F, 0.0F);
+        GL::Vertex3(x0, y1, 0);
+        GL::End();
+        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+        GL::Uniform1(_shaderLocations->LayerAlpha, 1.0F);
+    }
+
     // A filled circle; localCenter is a pixel offset from (posX, posY), y up.
     void Scene::DrawFlatDisc(float posX, float posY, OpenTK::Mathematics::Vector2 localCenter, float radius,
         Vector4 color, std::int32_t segments)

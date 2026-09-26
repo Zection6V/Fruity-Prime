@@ -62,6 +62,8 @@
   NativeRuntime に DirectoryDelete・DirectoryGetFiles。
 - 7 描画 着手: HunterPreview・ProHud・VoteHud・GlEs・Radar・TeamScoreboard・StylusHud と、それらが載る
   PlayerHud.cs 差分（13 の行）を移植。Scene に DrawFlat{Disc,Ring,Line,Square,Polygon}（Renderer.cs 分）。
+- 7: MapThumbnail・PlayerEntityMapPick・EndScreen 部分クラス、EndScreen.cs（PanelUp・Tick・結果画面の
+  パッド操作）。Scene::DrawHudTexture。呼び出し側（EndScreen::Tick・MapThumbnail::BeginFrame）は 13 の Renderer。
 - 保留（依存先の移植待ち）:
   - NetLaunch::TickTerminalLobby → Renderer の HasScene/EndScene と
     MatchStart::Begin(window, …)（1 ウィンドウ化）の後。
@@ -110,7 +112,7 @@
 | A | +339/-0 | `Mods/WindowGeometry.cs` | — 新規 | 完了 |
 | M | +164/-89 | `Mods/ThumbnailBatch.cs` | .cpp,.hpp | — |
 | A | +150/-0 | `Mods/CrashReport.cs` | — 新規 | 完了 |
-| M | +135/-28 | `Mods/EndScreen.cs` | .cpp,.hpp | — |
+| M | +135/-28 | `Mods/EndScreen.cs` | .cpp,.hpp | 完了 |
 | M | +76/-5 | `Mods/WindowMode.cs` | .cpp,.hpp | 完了 |
 | M | +63/-6 | `Mods/ScreenCapture.cs` | .cpp,.hpp | — |
 | M | +47/-15 | `Mods/InputSettings.cs` | .cpp,.hpp | 完了 |
@@ -198,8 +200,8 @@
 | S | +/- | C# | C++ | 進捗 |
 |---|---|---|---|---|
 | A | +416/-0 | `Mods/Render/LauncherPhoto.cs` | — 新規 | — |
-| A | +277/-0 | `Mods/Render/PlayerEntityMapPick.cs` | — 新規 | — |
-| A | +256/-0 | `Mods/Render/MapThumbnail.cs` | — 新規 | — |
+| A | +277/-0 | `Mods/Render/PlayerEntityMapPick.cs` | — 新規 | 完了 |
+| A | +256/-0 | `Mods/Render/MapThumbnail.cs` | — 新規 | 完了 |
 | A | +244/-0 | `Mods/Render/UiOverlay.cs` | — 新規 | — |
 | A | +226/-0 | `Mods/Render/NoiseField.cs` | — 新規 | — |
 | A | +174/-0 | `Mods/Render/LauncherHunter.cs` | — 新規 | — |
@@ -216,7 +218,7 @@
 | M | +31/-0 | `Mods/Render/GlEs.cs` | .cpp,.hpp | 完了 |
 | A | +28/-0 | `Mods/Render/LockjawTrailNoise.cs` | — 新規 | 完了 |
 | M | +26/-0 | `Mods/Render/HunterPreview.cs` | .cpp,.hpp | 完了 |
-| M | +17/-1 | `Mods/Render/PlayerEntityEndScreen.cs` | .cpp,.hpp | — |
+| M | +17/-1 | `Mods/Render/PlayerEntityEndScreen.cs` | .cpp,.hpp | 完了 |
 | M | +12/-9 | `Mods/Render/PlayerEntityProHud.cs` | .cpp,.hpp | 完了 |
 | M | +5/-0 | `Mods/Render/PlayerEntityVoteHud.cs` | .cpp,.hpp | 完了 |
 

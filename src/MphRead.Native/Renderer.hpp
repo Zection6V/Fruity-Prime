@@ -776,6 +776,8 @@ public: \
     [[nodiscard]] std::shared_ptr<MphRead::Hud::LayerInfo> Layer5Info() const noexcept; \
     void DrawCustomCrosshair(OpenTK::Mathematics::Vector3 color, float posX = 0.5F, float posY = 0.5F); \
     void DrawHitMarker(OpenTK::Mathematics::Vector4 color, float posX = 0.5F, float posY = 0.5F); \
+    void DrawHudTexture(float left, float top, float right, float bottom, std::int32_t bindingId, \
+        float alpha = 1.0F, bool smooth = true); \
     void DrawFlatDisc(float posX, float posY, OpenTK::Mathematics::Vector2 localCenter, float radius, \
         OpenTK::Mathematics::Vector4 color, std::int32_t segments = 32); \
     void DrawFlatRing(float posX, float posY, OpenTK::Mathematics::Vector2 localCenter, float radius, \

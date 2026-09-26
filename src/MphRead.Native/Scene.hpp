@@ -22,6 +22,11 @@
 #include <utility>
 #include <vector>
 
+namespace MphRead::Mods::Input
+{
+    class PointerCheck;
+}
+
 namespace MphRead::Entities
 {
     class PlatformEntity;
@@ -823,6 +828,9 @@ namespace MphRead
 
     class Scene
     {
+        // C# reflection on _cameraMode; see pitfall 12e.
+        friend class ::MphRead::Mods::Input::PointerCheck;
+
     public:
         Scene() = delete;
         Scene(const Scene&) = delete;

@@ -72,6 +72,11 @@ namespace MphRead::Mods::Network
     class NetCombatCheck;
 }
 
+namespace MphRead::Mods::Input
+{
+    class PointerCheck;
+}
+
 namespace MphRead::Entities
 {
     class BeamProjectileEntity;
@@ -586,6 +591,7 @@ namespace MphRead::Entities
     {
         // NetCombatCheck reads private state the way the C# reads it by reflection.
         friend class ::MphRead::Mods::Network::NetCombatCheck;
+        friend class ::MphRead::Mods::Input::PointerCheck;
 
     public:
         static constexpr std::int32_t SlotCapacity = 8;

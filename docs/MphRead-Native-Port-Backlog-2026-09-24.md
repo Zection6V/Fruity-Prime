@@ -57,7 +57,9 @@
   （Haptics・MouseFlick・AimAssistWorld）、InputSettings、PlayerInput.cs 差分全部。保留だった
   TakeDamage の Telemetry/Feedback・着地フィードバック・ApplyGamepadAim も解消。
   残り: PlayerHud の UpdateWeaponSelect（WheelHeld/Drag）は 13、Renderer の WindowsPenInput.Attach/Read と
-  AimAssistDebug.Draw は 13、ModEntry の -gamepadassisttelemetry は 13。6 の検査系ファイルは次。
+  AimAssistDebug.Draw は 13、ModEntry の -gamepadassisttelemetry は 13。
+- 6 完了: 検査系 6 本（PointerCheck は Scene/PlayerEntity に friend、GamepadUiChecks 呼び出しは 12 で）。
+  NativeRuntime に DirectoryDelete・DirectoryGetFiles。
 - 保留（依存先の移植待ち）:
   - NetLaunch::TickTerminalLobby → Renderer の HasScene/EndScene と
     MatchStart::Begin(window, …)（1 ウィンドウ化）の後。
@@ -136,29 +138,29 @@
 
 | S | +/- | C# | C++ | 進捗 |
 |---|---|---|---|---|
-| A | +350/-0 | `Mods/Input/PointerCheck.cs` | — 新規 | — |
+| A | +350/-0 | `Mods/Input/PointerCheck.cs` | — 新規 | 完了 |
 | A | +309/-0 | `Mods/Input/PadBindingState.cs` | — 新規 | 完了 |
-| A | +301/-0 | `Mods/Input/GamepadChecks.cs` | — 新規 | — |
+| A | +301/-0 | `Mods/Input/GamepadChecks.cs` | — 新規 | 完了 |
 | A | +264/-0 | `Mods/Input/WindowsPenInput.cs` | — 新規 | 完了 |
 | M | +261/-34 | `Mods/Input/StylusZone.cs` | .cpp,.hpp | 完了 |
 | A | +258/-0 | `Mods/Input/MouseFlick.cs` | — 新規 | 完了 |
 | A | +210/-0 | `Mods/Input/GamepadManager.cs` | — 新規 | 完了 |
 | A | +199/-0 | `Mods/Input/GamepadProfiles.cs` | — 新規 | 完了 |
-| A | +158/-0 | `Mods/Input/GamepadEnhancementChecks.cs` | — 新規 | — |
+| A | +158/-0 | `Mods/Input/GamepadEnhancementChecks.cs` | — 新規 | 完了 |
 | A | +141/-0 | `Mods/Input/WeaponWheel.cs` | — 新規 | 完了 |
 | A | +117/-0 | `Mods/Input/GamepadOptionState.cs` | — 新規 | 完了 |
 | A | +116/-0 | `Mods/Input/GamepadUiRouter.cs` | — 新規 | 完了 |
 | A | +115/-0 | `Mods/Input/AimAssist/AimAssistWorld.cs` | — 新規 | 完了 |
 | A | +111/-0 | `Mods/Input/PointerDevice.cs` | — 新規 | 完了 |
-| A | +101/-0 | `Mods/Input/ControllerRuntimeChecks.cs` | — 新規 | — |
+| A | +101/-0 | `Mods/Input/ControllerRuntimeChecks.cs` | — 新規 | 完了 |
 | M | +99/-11 | `Mods/Input/GamepadMappings.cs` | .cpp,.hpp | 完了 |
 | A | +87/-0 | `Mods/Input/AimAssist/AimAssistTelemetry.cs` | — 新規 | 完了 |
 | A | +85/-0 | `Mods/Input/GamepadMappingWizard.cs` | — 新規 | 完了 |
 | M | +82/-117 | `Mods/Input/GamepadInput.cs` | .cpp,.hpp | 完了 |
 | M | +79/-274 | `Mods/Input/GamepadDesktop.cs` | .cpp,.hpp | 完了 |
 | A | +77/-0 | `Mods/Input/WindowsGamepadHaptics.cs` | — 新規 | 完了 |
-| A | +76/-0 | `Mods/Input/AimAssist/AimAssistChecks.cs` | — 新規 | — |
-| A | +76/-0 | `Mods/Input/GamepadPlatformChecks.cs` | — 新規 | — |
+| A | +76/-0 | `Mods/Input/AimAssist/AimAssistChecks.cs` | — 新規 | 完了 |
+| A | +76/-0 | `Mods/Input/GamepadPlatformChecks.cs` | — 新規 | 完了 |
 | A | +72/-0 | `Mods/Input/AimAssist/AimAssist.cs` | — 新規 | 完了 |
 | M | +71/-47 | `Mods/Input/GamepadLayout.cs` | .cpp,.hpp | 完了 |
 | A | +69/-0 | `Mods/Input/GamepadAnalog.cs` | — 新規 | 完了 |

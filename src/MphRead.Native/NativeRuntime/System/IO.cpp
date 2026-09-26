@@ -1142,6 +1142,40 @@ namespace MphRead::NativeRuntime
 #endif
     }
 
+    void DirectoryDelete(const std::string& path)
+    {
+        const std::string fullPath = PathGetFullPath(path);
+#if defined(_WIN32)
+        if (::RemoveDirectoryW(Wtf8ToWide(fullPath).c_str()) == FALSE)
+        {
+            ThrowForWin32Error(::GetLastError(), fullPath);
+        }
+#else
+        if (::rmdir(fullPath.c_str()) != 0)
+        {
+            ThrowForErrno(errno, fullPath, true);
+        }
+#endif
+    }
+
+    std::vector<std::string> DirectoryGetFiles(const std::string& path)
+    {
+        std::vector<std::string> files;
+        std::error_code error;
+        for (const auto& entry : std::filesystem::directory_iterator(PathFromUtf8(path), error))
+        {
+            if (entry.is_regular_file(error))
+            {
+                files.push_back(PathCombine(path, PathToUtf8(entry.path().filename())));
+            }
+        }
+        if (error)
+        {
+            throw System::IO::DirectoryNotFoundException("Could not find a part of the path '" + PathGetFullPath(path) + "'.");
+        }
+        return files;
+    }
+
     void FileDelete(const std::string& path)
     {
         const std::string fullPath = PathGetFullPath(path);

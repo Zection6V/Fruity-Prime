@@ -79,6 +79,10 @@ namespace MphRead::NativeRuntime
     void FileWriteAllBytes(const std::string& path, std::span<const std::uint8_t> bytes);
     // Directory.CreateDirectory(path), parents included.
     void DirectoryCreateDirectory(const std::string& path);
+    // Directory.Delete(path): an empty directory; IOException when it is not.
+    void DirectoryDelete(const std::string& path);
+    // Directory.GetFiles(path): full paths of the files directly inside it.
+    [[nodiscard]] std::vector<std::string> DirectoryGetFiles(const std::string& path);
     // new FileInfo(path): the members the demo library reads.
     struct FileInfo final
     {

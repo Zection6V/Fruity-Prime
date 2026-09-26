@@ -75,6 +75,16 @@
 - 11 Launcher portable: LaunchPlan（LobbyContext）、GameFiles（Root=AppPaths、RomWhitelist 照合）、
   TextLauncher（InputEnded・insane・StartupForced）、NativeFilePicker（NativeRuntime に
   ProcessRunCaptureOutput）完了。MatchStart は 13 の RenderWindow 1 ウィンドウ化待ちで保留。
+- 12 着手。方針: C# は Avalonia headless + Skia CPU ラスタ → GL 転送（UiTopLevel/UiSurface/UiOverlay）。
+  旧 NativeRuntime/Gui（Element ツリー + GL 直描画、グラデーション・楕円・パス・影なし）では足りないので、
+  C# と同じ形で NativeRuntime に再現する:
+  (A) NativeRuntime/Skia: CPU RGBA premul キャンバス（AA パス塗り、ストローク、線形/放射グラデーション、
+      角丸、楕円、BoxShadow ぼかし、クリップ、変換、不透明度レイヤ、画像、FreeType 文字）。
+  (B) NativeRuntime/Avalonia: Control/Panel/Grid/StackPanel/DockPanel/Border/Decorator/UserControl/
+      TextBlock/ScrollViewer/Image 等のレイアウト・入力ルーティング・フォーカス・DrawingContext・
+      Dispatcher/DispatcherTimer・TopLevel（UiTopLevelImpl 相当）。
+  (C) Mods/Launcher/Gui の 50 新規ファイルを (B) の上に一対一移植、(D) 削除 9 ファイルと旧ホストを撤去。
+  Tap・TapCheck 完了（GuiTheme に GuiSize）。
 - 保留（依存先の移植待ち）:
   - NetLaunch::TickTerminalLobby → Renderer の HasScene/EndScene と
     MatchStart::Begin(window, …)（1 ウィンドウ化）の後。
@@ -362,7 +372,7 @@
 | M | +268/-64 | `Mods/Launcher/Gui/UiCapture.cs` | .cpp,.hpp | — |
 | A | +239/-0 | `Mods/Launcher/Gui/GamepadUiChecks.cs` | — 新規 | — |
 | A | +227/-0 | `Mods/Launcher/Gui/Flags.cs` | — 新規 | — |
-| A | +222/-0 | `Mods/Launcher/Gui/TapCheck.cs` | — 新規 | — |
+| A | +222/-0 | `Mods/Launcher/Gui/TapCheck.cs` | — 新規 | 完了 |
 | M | +220/-26 | `Mods/Launcher/Gui/Rows.cs` | .cpp,.hpp | — |
 | A | +202/-0 | `Mods/Launcher/Gui/InGameMenu.cs` | — 新規 | — |
 | A | +197/-0 | `Mods/Launcher/Gui/UiWord.cs` | — 新規 | — |
@@ -372,7 +382,7 @@
 | A | +181/-0 | `Mods/Launcher/Gui/DeckSide.cs` | — 新規 | — |
 | M | +181/-41 | `Mods/Launcher/Gui/PadRow.cs` | .cpp,.hpp | — |
 | M | +178/-123 | `Mods/Launcher/Gui/PauseMenuView.cs` | .cpp,.hpp | — |
-| A | +166/-0 | `Mods/Launcher/Gui/Tap.cs` | — 新規 | — |
+| A | +166/-0 | `Mods/Launcher/Gui/Tap.cs` | — 新規 | 完了 |
 | A | +165/-0 | `Mods/Launcher/Gui/UiMark.cs` | — 新規 | — |
 | A | +162/-0 | `Mods/Launcher/Gui/UiScaleHost.cs` | — 新規 | — |
 | A | +159/-0 | `Mods/Launcher/Gui/ServerBadge.cs` | — 新規 | — |

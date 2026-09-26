@@ -170,6 +170,20 @@ namespace MphRead::Mods::Launcher::Gui
         friend constexpr bool operator==(const GuiVector&, const GuiVector&) noexcept = default;
     };
 
+    // Avalonia.Size.
+    struct GuiSize final
+    {
+        double Width;
+        double Height;
+
+        friend constexpr bool operator==(const GuiSize&, const GuiSize&) noexcept = default;
+    };
+
+    [[nodiscard]] constexpr GuiVector operator-(GuiPoint left, GuiPoint right) noexcept
+    {
+        return GuiVector{left.X - right.X, left.Y - right.Y};
+    }
+
     struct GuiRoundedRect final
     {
         GuiRect Rect;

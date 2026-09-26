@@ -1,5 +1,6 @@
 #include "PlayerEntity.hpp"
 
+#include "../../Mods/Input/AimAssist/AimAssistTelemetry.hpp"
 #include "../../NativeRuntime/System/Enum.hpp"
 
 #include "HalfturretEntity.hpp"
@@ -1885,6 +1886,11 @@ namespace MphRead::Entities
         Mods::Network::NetHitPrediction::NoteHit(*this, attacker, flags, damage,
             beam != nullptr ? beam->Beam() : MphRead::BeamType::None,
             beam != nullptr ? beam->ModLaunchFrame : 0U, beam != nullptr ? beam->Age() : 0.0F);
+        if (attacker != this)
+        {
+            Mods::Input::AimAssist::AimAssistTelemetry::Hit(attacker,
+                beam != nullptr ? beam->Beam() : MphRead::BeamType::None, damage);
+        }
 
         bool dead = false;
         if (_isBot && GameState::SinglePlayer() && RequireReference(AiData).Flags1
@@ -1910,6 +1916,13 @@ namespace MphRead::Entities
                 attacker->_hidingTimer = 0;
                 _hidingTimer = 0;
             }
+        }
+        if (damage > 0 || dead)
+        {
+            ModControllerFeedback(dead ? Mods::Input::GamepadFeedback::Death
+                : bomb != nullptr || (beam != nullptr && (beam->Beam() == MphRead::BeamType::Missile
+                    || beam->Beam() == MphRead::BeamType::Magmaul)) ? Mods::Input::GamepadFeedback::Explosion
+                : Mods::Input::GamepadFeedback::Damage);
         }
 
         if (dead)

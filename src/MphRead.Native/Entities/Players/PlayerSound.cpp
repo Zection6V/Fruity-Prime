@@ -396,6 +396,10 @@ namespace MphRead::Entities
 
     void PlayerEntity::PlayLandingSfx()
     {
+        if (_timeBeforeLanding > 30)
+        {
+            ModControllerFeedback(Mods::Input::GamepadFeedback::Landing);
+        }
         const std::int32_t sfxId = TerrainSfxValue(_standTerrain, TerrainSfx::Land);
         const float amountA = static_cast<float>(
             UncheckedMultiply(0xFFFF, static_cast<std::int32_t>(_timeBeforeLanding)))

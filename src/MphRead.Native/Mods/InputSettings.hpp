@@ -58,14 +58,14 @@ namespace MphRead::Mods
         [[nodiscard]] static InputKey ClipKey() noexcept;
         static void ClipKey(InputKey value);
 
-        [[nodiscard]] static float GamepadDeadZone() noexcept;
-        static void GamepadDeadZone(float value) noexcept;
+        [[nodiscard]] static float GamepadDeadZone();
+        static void GamepadDeadZone(float value);
 
-        [[nodiscard]] static float GamepadLookSensitivity() noexcept;
-        static void GamepadLookSensitivity(float value) noexcept;
+        [[nodiscard]] static float GamepadLookSensitivity();
+        static void GamepadLookSensitivity(float value);
 
-        [[nodiscard]] static bool GamepadInvertY() noexcept;
-        static void GamepadInvertY(bool value) noexcept;
+        [[nodiscard]] static bool GamepadInvertY();
+        static void GamepadInvertY(bool value);
 
         [[nodiscard]] static Entities::PlayerControls& Current();
         [[nodiscard]] static const std::array<InputBindingProperty, 35>& Bindings();
@@ -98,9 +98,6 @@ namespace MphRead::Mods
         static bool _scrollAllWeapons;
         static InputKey _chatKey;
         static InputKey _clipKey;
-        static float _gamepadDeadZone;
-        static float _gamepadLook;
-        static bool _gamepadInvertY;
         static bool _creating;
         static std::unique_ptr<Entities::PlayerControls> _current;
         static std::optional<std::array<InputBindingProperty, 35>> _bindings;

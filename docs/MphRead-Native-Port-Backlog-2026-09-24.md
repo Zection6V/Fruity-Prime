@@ -53,10 +53,12 @@
   GamepadRuntimeConfig/GamepadManager/Profiles/Haptics/UiRouter ほか 29 ファイル）。NativeRuntime に
   Numerics(Vector2/3)・Event・ProcessExit・JsonWriteIndented・FileMove・EnvironmentTickCount64。
   GamepadProbe の DesktopGlContext.PreserveWorkingDirectory は 7 の後。PadRow は 12 まで暫定で新 API 呼び。
+- 6 入力 後半: Stylus/Pointer/Pen/WeaponWheel/MouseFlick/AimAssist 一式と PlayerEntity 部分クラス
+  （Haptics・MouseFlick・AimAssistWorld）、InputSettings、PlayerInput.cs 差分全部。保留だった
+  TakeDamage の Telemetry/Feedback・着地フィードバック・ApplyGamepadAim も解消。
+  残り: PlayerHud の UpdateWeaponSelect（WheelHeld/Drag）は 13、Renderer の WindowsPenInput.Attach/Read と
+  AimAssistDebug.Draw は 13、ModEntry の -gamepadassisttelemetry は 13。6 の検査系ファイルは次。
 - 保留（依存先の移植待ち）:
-  - PlayerEntity::TakeDamage の AimAssistTelemetry::Hit と ModControllerFeedback、
-    PlayerSound の着地フィードバック、PlayerEntityNetAim::ApplyGamepadAim の
-    照準補助・スコープ感度 → 6（入力）の後。
   - NetLaunch::TickTerminalLobby → Renderer の HasScene/EndScene と
     MatchStart::Begin(window, …)（1 ウィンドウ化）の後。
 
@@ -107,7 +109,7 @@
 | M | +135/-28 | `Mods/EndScreen.cs` | .cpp,.hpp | — |
 | M | +76/-5 | `Mods/WindowMode.cs` | .cpp,.hpp | 完了 |
 | M | +63/-6 | `Mods/ScreenCapture.cs` | .cpp,.hpp | — |
-| M | +47/-15 | `Mods/InputSettings.cs` | .cpp,.hpp | — |
+| M | +47/-15 | `Mods/InputSettings.cs` | .cpp,.hpp | 完了 |
 | M | +43/-0 | `Mods/RenderOptions.cs` | .cpp,.hpp | 完了 |
 | M | +40/-0 | `Mods/SpectatorMode.cs` | .cpp,.hpp | 完了 |
 | M | +10/-18 | `Mods/ThumbnailCapture.cs` | .cpp,.hpp | — |
@@ -137,55 +139,55 @@
 | A | +350/-0 | `Mods/Input/PointerCheck.cs` | — 新規 | — |
 | A | +309/-0 | `Mods/Input/PadBindingState.cs` | — 新規 | 完了 |
 | A | +301/-0 | `Mods/Input/GamepadChecks.cs` | — 新規 | — |
-| A | +264/-0 | `Mods/Input/WindowsPenInput.cs` | — 新規 | — |
-| M | +261/-34 | `Mods/Input/StylusZone.cs` | .cpp,.hpp | — |
-| A | +258/-0 | `Mods/Input/MouseFlick.cs` | — 新規 | — |
+| A | +264/-0 | `Mods/Input/WindowsPenInput.cs` | — 新規 | 完了 |
+| M | +261/-34 | `Mods/Input/StylusZone.cs` | .cpp,.hpp | 完了 |
+| A | +258/-0 | `Mods/Input/MouseFlick.cs` | — 新規 | 完了 |
 | A | +210/-0 | `Mods/Input/GamepadManager.cs` | — 新規 | 完了 |
 | A | +199/-0 | `Mods/Input/GamepadProfiles.cs` | — 新規 | 完了 |
 | A | +158/-0 | `Mods/Input/GamepadEnhancementChecks.cs` | — 新規 | — |
-| A | +141/-0 | `Mods/Input/WeaponWheel.cs` | — 新規 | — |
+| A | +141/-0 | `Mods/Input/WeaponWheel.cs` | — 新規 | 完了 |
 | A | +117/-0 | `Mods/Input/GamepadOptionState.cs` | — 新規 | 完了 |
 | A | +116/-0 | `Mods/Input/GamepadUiRouter.cs` | — 新規 | 完了 |
-| A | +115/-0 | `Mods/Input/AimAssist/AimAssistWorld.cs` | — 新規 | — |
-| A | +111/-0 | `Mods/Input/PointerDevice.cs` | — 新規 | — |
+| A | +115/-0 | `Mods/Input/AimAssist/AimAssistWorld.cs` | — 新規 | 完了 |
+| A | +111/-0 | `Mods/Input/PointerDevice.cs` | — 新規 | 完了 |
 | A | +101/-0 | `Mods/Input/ControllerRuntimeChecks.cs` | — 新規 | — |
 | M | +99/-11 | `Mods/Input/GamepadMappings.cs` | .cpp,.hpp | 完了 |
-| A | +87/-0 | `Mods/Input/AimAssist/AimAssistTelemetry.cs` | — 新規 | — |
+| A | +87/-0 | `Mods/Input/AimAssist/AimAssistTelemetry.cs` | — 新規 | 完了 |
 | A | +85/-0 | `Mods/Input/GamepadMappingWizard.cs` | — 新規 | 完了 |
 | M | +82/-117 | `Mods/Input/GamepadInput.cs` | .cpp,.hpp | 完了 |
 | M | +79/-274 | `Mods/Input/GamepadDesktop.cs` | .cpp,.hpp | 完了 |
 | A | +77/-0 | `Mods/Input/WindowsGamepadHaptics.cs` | — 新規 | 完了 |
 | A | +76/-0 | `Mods/Input/AimAssist/AimAssistChecks.cs` | — 新規 | — |
 | A | +76/-0 | `Mods/Input/GamepadPlatformChecks.cs` | — 新規 | — |
-| A | +72/-0 | `Mods/Input/AimAssist/AimAssist.cs` | — 新規 | — |
+| A | +72/-0 | `Mods/Input/AimAssist/AimAssist.cs` | — 新規 | 完了 |
 | M | +71/-47 | `Mods/Input/GamepadLayout.cs` | .cpp,.hpp | 完了 |
 | A | +69/-0 | `Mods/Input/GamepadAnalog.cs` | — 新規 | 完了 |
 | A | +62/-0 | `Mods/Input/GamepadCalibration.cs` | — 新規 | 完了 |
 | A | +56/-0 | `Mods/Input/GamepadGlyphs.cs` | — 新規 | 完了 |
-| A | +55/-0 | `Mods/Input/AimAssist/AimAssistDebug.cs` | — 新規 | — |
+| A | +55/-0 | `Mods/Input/AimAssist/AimAssistDebug.cs` | — 新規 | 完了 |
 | A | +54/-0 | `Mods/Input/PadAction.cs` | — 新規 | 完了 |
-| A | +54/-0 | `Mods/Input/PlayerEntityMouseFlick.cs` | — 新規 | — |
+| A | +54/-0 | `Mods/Input/PlayerEntityMouseFlick.cs` | — 新規 | 完了 |
 | A | +51/-0 | `Mods/Input/GamepadHaptics.cs` | — 新規 | 完了 |
 | A | +40/-0 | `Mods/Input/GamepadOptions.cs` | — 新規 | 完了 |
 | A | +39/-0 | `Mods/Input/GamepadActions.cs` | — 新規 | 完了 |
-| A | +32/-0 | `Mods/Input/WeaponSelectionDirection.cs` | — 新規 | — |
-| A | +30/-0 | `Mods/Input/PlayerEntityHaptics.cs` | — 新規 | — |
+| A | +32/-0 | `Mods/Input/WeaponSelectionDirection.cs` | — 新規 | 完了 |
+| A | +30/-0 | `Mods/Input/PlayerEntityHaptics.cs` | — 新規 | 完了 |
 | A | +27/-0 | `Mods/Input/AimInputSourceTracker.cs` | — 新規 | 完了 |
-| A | +25/-0 | `Mods/Input/AimAssist/AimAssistTuning.cs` | — 新規 | — |
+| A | +25/-0 | `Mods/Input/AimAssist/AimAssistTuning.cs` | — 新規 | 完了 |
 | M | +25/-18 | `Mods/Input/GamepadProbe.cs` | .cpp,.hpp | 完了 |
 | M | +25/-213 | `Mods/Input/PadBindings.cs` | .cpp,.hpp | 完了 |
 | A | +24/-0 | `Mods/Input/GamepadRuntimeConfig.cs` | — 新規 | 完了 |
-| A | +24/-0 | `Mods/Input/SpectatorInput.cs` | — 新規 | — |
+| A | +24/-0 | `Mods/Input/SpectatorInput.cs` | — 新規 | 完了 |
 | A | +23/-0 | `Mods/Input/GamepadDeviceSnapshot.cs` | — 新規 | 完了 |
 | A | +20/-0 | `Mods/Input/HapticScheduler.cs` | — 新規 | 完了 |
 | A | +19/-0 | `Mods/Input/InputPrompt.cs` | — 新規 | 完了 |
 | A | +19/-0 | `Mods/Input/InputSourceTracker.cs` | — 新規 | 完了 |
-| A | +17/-0 | `Mods/Input/AimAssist/AimAssistMath.cs` | — 新規 | — |
+| A | +17/-0 | `Mods/Input/AimAssist/AimAssistMath.cs` | — 新規 | 完了 |
 | A | +15/-0 | `Mods/Input/ControllerLayoutState.cs` | — 新規 | 完了 |
 | A | +13/-0 | `Mods/Input/StickCalibration.cs` | — 新規 | 完了 |
-| A | +12/-0 | `Mods/Input/AimAssist/AimAssistState.cs` | — 新規 | — |
-| A | +10/-0 | `Mods/Input/AimAssist/AimAssistTarget.cs` | — 新規 | — |
-| M | +10/-77 | `Mods/Input/PointerInput.cs` | .cpp,.hpp | — |
+| A | +12/-0 | `Mods/Input/AimAssist/AimAssistState.cs` | — 新規 | 完了 |
+| A | +10/-0 | `Mods/Input/AimAssist/AimAssistTarget.cs` | — 新規 | 完了 |
+| M | +10/-77 | `Mods/Input/PointerInput.cs` | .cpp,.hpp | 完了 |
 
 ## 7. Render — 22 ファイル (新規 14), C# +2658 行
 
@@ -397,7 +399,7 @@
 | M | +1050/-99 | `Renderer.cs` | .cpp,.hpp | 一部完了 |
 | M | +872/-49 | `Mods/ModEntry.cs` | .cpp,.hpp | 一部完了 |
 | M | +376/-94 | `Entities/Players/PlayerHud.cs` | .cpp,.hpp | — |
-| M | +185/-40 | `Entities/Players/PlayerInput.cs` | .cpp,.hpp | — |
+| M | +185/-40 | `Entities/Players/PlayerInput.cs` | .cpp,.hpp | 完了 |
 | M | +102/-126 | `GameState.cs` | .cpp,.hpp | 一部完了（チーム関連） |
 | M | +95/-11 | `Entities/Players/PlayerAi.cs` | .cpp,.hpp | — |
 | M | +71/-3 | `Formats/Formats.cs` | .cpp,.hpp | — |

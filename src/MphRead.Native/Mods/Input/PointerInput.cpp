@@ -1,82 +1,25 @@
 #include "PointerInput.hpp"
 
-#include "../../NativeRuntime/System/Globalization.hpp"
 #include "../DebugLog.hpp"
-
-#include <bit>
-#include <cmath>
-#include <cstdint>
-#include <string_view>
-
-// DebugLog has not been ported yet. Keep its only dependency in this translation
-// unit; there is deliberately no fallback logger or substitute behavior. The
-// bridge must apply valueFormat with the calling thread's current .NET culture
-// before calling DebugLog.Line so C# interpolation semantics are preserved.
-namespace MphRead::Mods::Input::PointerInputAdapters
-{
-}
+#include "../../NativeRuntime/System/Number.hpp"
 
 namespace MphRead::Mods::Input
 {
-    float PointerInput::_jumpPixels = 600.0F;
-    bool PointerInput::_guardJumps = true;
-    std::int32_t PointerInput::_jumpsIgnored = 0;
-    bool PointerInput::_jumpingPointerSeen = false;
-
-    float PointerInput::JumpPixels() noexcept
+    std::pair<float, float> PointerInput::Filter(float x, float y)
     {
-        return _jumpPixels;
-    }
-
-    void PointerInput::JumpPixels(float value) noexcept
-    {
-        _jumpPixels = value;
-    }
-
-    bool PointerInput::GuardJumps() noexcept
-    {
-        return _guardJumps;
-    }
-
-    void PointerInput::GuardJumps(bool value) noexcept
-    {
-        _guardJumps = value;
-    }
-
-    std::int32_t PointerInput::JumpsIgnored() noexcept
-    {
-        return _jumpsIgnored;
-    }
-
-    bool PointerInput::JumpingPointerSeen() noexcept
-    {
-        return _jumpingPointerSeen;
-    }
-
-    float PointerInput::Filter(float delta)
-    {
-        if (!GuardJumps() || JumpPixels() <= 0.0F)
+        if (!_stylusMode || !_guardJumps || _jumpPixels <= 0
+            || x * x + y * y < _jumpPixels * _jumpPixels)
         {
-            return delta;
+            return {x, y};
         }
-        if (std::fabs(delta) < JumpPixels())
-        {
-            return delta;
-        }
-
-        const std::uint32_t incremented = static_cast<std::uint32_t>(_jumpsIgnored) + 1U;
-        _jumpsIgnored = std::bit_cast<std::int32_t>(incremented);
-        if (!JumpingPointerSeen())
+        _jumpsIgnored++;
+        if (!_jumpingPointerSeen)
         {
             _jumpingPointerSeen = true;
-            ::MphRead::Mods::DebugLog::Line(
-                "input",
-                "pointer jumped "
-                    + ::MphRead::NativeRuntime::ToString(delta, "0")
-                    + " px in a frame and was "
-                    + "ignored -- a pen, a touchscreen, or a cursor warp");
+            DebugLog::Line("input", "pointer jumped (" + ::MphRead::NativeRuntime::ToString(x, "0") + ", "
+                + ::MphRead::NativeRuntime::ToString(y, "0") + ") px in a frame; sample ignored");
         }
-        return 0.0F;
+        return {0.0F, 0.0F};
     }
 
     void PointerInput::Reset() noexcept

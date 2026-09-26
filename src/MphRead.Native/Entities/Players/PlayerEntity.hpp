@@ -26,6 +26,9 @@ private: \
 #include "PlayerScan.hpp"
 #include "PlayerSound.hpp"
 #include "../../Mods/Chat/PlayerEntityChatHud.hpp"
+#include "../../Mods/Input/AimAssist/AimAssistWorld.hpp"
+#include "../../Mods/Input/PlayerEntityHaptics.hpp"
+#include "../../Mods/Input/PlayerEntityMouseFlick.hpp"
 #include "../../Mods/Network/PlayerEntityNetAim.hpp"
 #include "../../Mods/Network/PlayerEntityNetHud.hpp"
 #include "../../Mods/Render/PlayerEntityAmmoClear.hpp"
@@ -764,6 +767,9 @@ namespace MphRead::Entities
         MPHREAD_PLAYER_ENTITY_END_SCREEN_MEMBERS
         MPHREAD_PLAYER_STYLUS_HUD_MEMBERS
         MPHREAD_PLAYER_VOTE_HUD_MEMBERS
+        MPHREAD_PLAYER_ENTITY_AIM_ASSIST_MEMBERS
+        MPHREAD_PLAYER_ENTITY_HAPTICS_MEMBERS
+        MPHREAD_PLAYER_ENTITY_MOUSE_FLICK_MEMBERS
 
     private:
         explicit PlayerEntity(std::int32_t slotIndex, MphRead::Scene* scene);

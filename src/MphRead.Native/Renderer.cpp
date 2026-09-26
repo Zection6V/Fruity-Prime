@@ -41,6 +41,7 @@
 #include "Mods/SpectatorMode.hpp"
 #include "Mods/Chat/ChatBox.hpp"
 #include "Mods/Input/GamepadInput.hpp"
+#include "Mods/Input/InputSourceTracker.hpp"
 #include "Mods/Input/PointerInput.hpp"
 #include "Mods/Input/StylusZone.hpp"
 #include "Mods/Network/DemoClip.hpp"
@@ -5633,8 +5634,15 @@ namespace MphRead
 
     void RenderWindow::OnMouseMove(const RendererPlatform::MouseMoveEventArgs& e)
     {
-        _scene->OnMouseMove(Mods::Input::PointerInput::Filter(e.DeltaX),
-            Mods::Input::PointerInput::Filter(e.DeltaY));
+        if (std::abs(e.DeltaX) + std::abs(e.DeltaY) > 2)
+        {
+            Mods::Input::InputSourceTracker::Note(Mods::Input::InputSource::KeyboardMouse);
+        }
+        // Filtered for the same reason the player's aim is: the free
+        // camera is reached from a match, with the same pointer.
+        const auto [deltaX, deltaY] = _scene->IsFreeCam()
+            ? Mods::Input::PointerInput::Filter(e.DeltaX, e.DeltaY) : std::pair<float, float>(e.DeltaX, e.DeltaY);
+        _scene->OnMouseMove(deltaX, deltaY);
         _window->BaseOnMouseMove(e);
     }
 

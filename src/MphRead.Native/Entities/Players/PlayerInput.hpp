@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../Mods/Input/PointerDevice.hpp"
 #include "../../Formats/Enums.hpp"
 #include "../../Formats/Types.hpp"
 
@@ -76,6 +77,19 @@ namespace MphRead::Entities
         ScrollDown = 3
     };
 
+    // ButtonType.ToString().
+    [[nodiscard]] inline const char* ToString(ButtonType value) noexcept
+    {
+        switch (value)
+        {
+        case ButtonType::Key: return "Key";
+        case ButtonType::Mouse: return "Mouse";
+        case ButtonType::ScrollUp: return "ScrollUp";
+        case ButtonType::ScrollDown: return "ScrollDown";
+        }
+        return "";
+    }
+
     class Keybind
     {
     public:
@@ -86,6 +100,8 @@ namespace MphRead::Entities
         explicit Keybind(MouseButtonType mouseButton) noexcept;
         explicit Keybind(ButtonType scrollType);
 
+        // object.ToString(): Keybind declares none, so it is the type name.
+        [[nodiscard]] std::string ToString() const { return "MphRead.Entities.Keybind"; }
         [[nodiscard]] ButtonType Type() const noexcept { return _type; }
         void SetType(ButtonType value) noexcept { _type = value; }
         [[nodiscard]] Keys Key() const noexcept { return _key; }
@@ -296,8 +312,17 @@ private:                                                                        
         float ClickX = -1.0F;                                                                   \
         float ClickY = -1.0F;                                                                   \
         bool HasInput = false;                                                                  \
-        [[nodiscard]] float MouseDeltaX() const;                                                \
-        [[nodiscard]] float MouseDeltaY() const;                                                \
+        bool StylusWeaponMenuDown = false;                                                      \
+        ::MphRead::Mods::Input::PointerBindings Primary{};                                      \
+        [[nodiscard]] float MouseDeltaX() const noexcept { return _mouseDeltaX; }               \
+        [[nodiscard]] float MouseDeltaY() const noexcept { return _mouseDeltaY; }               \
+        [[nodiscard]] float PointerX() const;                                                   \
+        [[nodiscard]] float PointerY() const;                                                   \
+        void UpdatePointer();                                                                   \
+    private:                                                                                    \
+        float _mouseDeltaX = 0.0F;                                                              \
+        float _mouseDeltaY = 0.0F;                                                              \
+        bool _loggedCapture = false;                                                            \
     };                                                                                          \
     ::MphRead::Entities::PlayerControls _controls = ::MphRead::Entities::PlayerControls::GetDefault(); \
     PlayerInput _input{};                                                                       \

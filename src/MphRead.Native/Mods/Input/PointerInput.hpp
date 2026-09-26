@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <utility>
 
 namespace MphRead::Mods::Input
 {
@@ -8,25 +9,24 @@ namespace MphRead::Mods::Input
     {
     public:
         PointerInput() = delete;
-        PointerInput(const PointerInput&) = delete;
-        PointerInput& operator=(const PointerInput&) = delete;
 
-        [[nodiscard]] static float JumpPixels() noexcept;
-        static void JumpPixels(float value) noexcept;
+        [[nodiscard]] static bool StylusMode() noexcept { return _stylusMode; }
+        static void StylusMode(bool value) noexcept { _stylusMode = value; }
+        [[nodiscard]] static bool GuardJumps() noexcept { return _guardJumps; }
+        static void GuardJumps(bool value) noexcept { _guardJumps = value; }
+        [[nodiscard]] static float JumpPixels() noexcept { return _jumpPixels; }
+        static void JumpPixels(float value) noexcept { _jumpPixels = value; }
+        [[nodiscard]] static std::int32_t JumpsIgnored() noexcept { return _jumpsIgnored; }
+        [[nodiscard]] static bool JumpingPointerSeen() noexcept { return _jumpingPointerSeen; }
 
-        [[nodiscard]] static bool GuardJumps() noexcept;
-        static void GuardJumps(bool value) noexcept;
-
-        [[nodiscard]] static std::int32_t JumpsIgnored() noexcept;
-        [[nodiscard]] static bool JumpingPointerSeen() noexcept;
-
-        [[nodiscard]] static float Filter(float delta);
+        [[nodiscard]] static std::pair<float, float> Filter(float x, float y);
         static void Reset() noexcept;
 
     private:
-        static float _jumpPixels;
-        static bool _guardJumps;
-        static std::int32_t _jumpsIgnored;
-        static bool _jumpingPointerSeen;
+        inline static bool _stylusMode = false;
+        inline static bool _guardJumps = true;
+        inline static float _jumpPixels = 600;
+        inline static std::int32_t _jumpsIgnored = 0;
+        inline static bool _jumpingPointerSeen = false;
     };
 }

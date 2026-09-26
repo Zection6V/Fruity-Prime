@@ -1,5 +1,6 @@
 #include "PlayerEntityNetAim.hpp"
 
+#include "../Input/GamepadOptions.hpp"
 #include "../../Entities/EntityBase.hpp"
 #include "../../Entities/Players/PlayerCamera.hpp"
 #include "../../Entities/PlayerSpawnEntity.hpp"
@@ -1059,28 +1060,20 @@ namespace MphRead::Entities
 
     void PlayerEntity::ApplyGamepadAim()
     {
-        if ((*this).IsBot())
-        {
-            return;
-        }
-        const std::int32_t slot = (*this).SlotIndex();
-        const std::int32_t mainPlayerIndex = PlayerEntity::MainPlayerIndex();
-        if (slot != mainPlayerIndex)
-        {
-            return;
-        }
-        if (Mods::SpectatorMode::IsSpectating())
-        {
-            return;
-        }
         const std::uint32_t flags1 = static_cast<std::uint32_t>((*this).Flags1());
-        if (::HasFlag(flags1, PlayerFlagNoAimInput))
+        if ((*this).IsBot() || (*this).SlotIndex() != PlayerEntity::MainPlayerIndex()
+            || Mods::SpectatorMode::IsSpectating()
+            || ::HasFlag(flags1, PlayerFlagNoAimInput))
         {
+            _controllerAssist.Reset();
             return;
         }
-
-        const float x = Mods::Input::GamepadInput::AimDeltaX();
-        const float y = Mods::Input::GamepadInput::AimDeltaY();
+        const bool zoomed = ::MphRead::NativeRuntime::RequireReference(_equipInfo).Zoomed;
+        float x = Mods::Input::GamepadInput::AimDeltaX() * (zoomed ? Mods::Input::GamepadOptions::ScopedX() : 1);
+        float y = Mods::Input::GamepadInput::AimDeltaY() * (zoomed ? Mods::Input::GamepadOptions::ScopedY() : 1);
+        const auto assisted = ApplyControllerAssist(x, y);
+        x = assisted.X;
+        y = assisted.Y;
         if (x == 0.0F && y == 0.0F)
         {
             return;

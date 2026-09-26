@@ -1,7 +1,11 @@
 #include "InputSettings.hpp"
 #include "NativeRuntime/System/Charconv.hpp"
 
+#include "Input/GamepadAnalog.hpp"
+#include "Input/GamepadOptions.hpp"
+#include "Input/GamepadProfiles.hpp"
 #include "Input/PadBindings.hpp"
+#include "Input/PointerDevice.hpp"
 #include "Input/PointerInput.hpp"
 #include "Input/StylusZone.hpp"
 #include "Input/TouchSettings.hpp"
@@ -18,6 +22,8 @@
 
 #include <algorithm>
 #include <array>
+#include <optional>
+#include <set>
 #include <charconv>
 #include <cmath>
 #include <cstdint>
@@ -214,28 +220,6 @@ namespace MphRead::Mods
             {7, "Last"}
         };
 
-        constexpr std::array<std::pair<std::int32_t, std::string_view>, 17>
-            GamepadButtonNames =
-        {{
-            {0, "None"},
-            {1 << 0, "A"},
-            {1 << 1, "B"},
-            {1 << 2, "X"},
-            {1 << 3, "Y"},
-            {1 << 4, "LeftBumper"},
-            {1 << 5, "RightBumper"},
-            {1 << 6, "Back"},
-            {1 << 7, "Start"},
-            {1 << 8, "LeftThumb"},
-            {1 << 9, "RightThumb"},
-            {1 << 10, "DpadUp"},
-            {1 << 11, "DpadRight"},
-            {1 << 12, "DpadDown"},
-            {1 << 13, "DpadLeft"},
-            {1 << 14, "LeftTrigger"},
-            {1 << 15, "RightTrigger"}
-        }};
-
         char AsciiLower(char value)
         {
             return value >= 'A' && value <= 'Z'
@@ -364,51 +348,6 @@ namespace MphRead::Mods
             return true;
         }
 
-        std::string GamepadButtonsToString(Input::GamepadButtons buttons)
-        {
-            const std::int32_t value = static_cast<std::int32_t>(buttons);
-            for (const auto& entry : GamepadButtonNames)
-            {
-                if (entry.first == value)
-                {
-                    return std::string(entry.second);
-                }
-            }
-
-            std::uint32_t remaining = static_cast<std::uint32_t>(value);
-            std::array<std::string_view, 16> found{};
-            std::size_t foundCount = 0;
-            for (std::size_t i = GamepadButtonNames.size(); i-- > 1;)
-            {
-                const std::uint32_t flag =
-                    static_cast<std::uint32_t>(GamepadButtonNames[i].first);
-                if ((remaining & flag) == flag)
-                {
-                    remaining &= ~flag;
-                    found[foundCount++] = GamepadButtonNames[i].second;
-                    if (remaining == 0)
-                    {
-                        break;
-                    }
-                }
-            }
-            if (remaining != 0 || foundCount == 0)
-            {
-                return std::to_string(value);
-            }
-
-            std::string result;
-            for (std::size_t i = foundCount; i-- > 0;)
-            {
-                if (!result.empty())
-                {
-                    result += ", ";
-                }
-                result += found[i];
-            }
-            return result;
-        }
-
         std::string BoolToLower(bool value)
         {
             return value ? "true" : "false";
@@ -432,9 +371,6 @@ namespace MphRead::Mods
     bool InputSettings::_scrollAllWeapons = true;
     InputKey InputSettings::_chatKey = KeyT;
     InputKey InputSettings::_clipKey = KeyF10;
-    float InputSettings::_gamepadDeadZone = 0.2F;
-    float InputSettings::_gamepadLook = 1.0F;
-    bool InputSettings::_gamepadInvertY = false;
     bool InputSettings::_creating = false;
     std::unique_ptr<Entities::PlayerControls> InputSettings::_current{};
     std::optional<std::array<InputBindingProperty, 35>> InputSettings::_bindings{};
@@ -511,34 +447,38 @@ namespace MphRead::Mods
         _clipKey = value;
     }
 
-    float InputSettings::GamepadDeadZone() noexcept
+    float InputSettings::GamepadDeadZone()
     {
-        return _gamepadDeadZone;
+        return Input::GamepadOptions::LeftInner();
     }
 
-    void InputSettings::GamepadDeadZone(float value) noexcept
+    void InputSettings::GamepadDeadZone(float value)
     {
-        _gamepadDeadZone = MathClamp(value, 0.0F, 0.9F);
+        const float finite = Input::GamepadAnalog::Finite(value, 0, 0.9F);
+        Input::GamepadOptions::RightInner(finite);
+        Input::GamepadOptions::LeftInner(finite);
     }
 
-    float InputSettings::GamepadLookSensitivity() noexcept
+    float InputSettings::GamepadLookSensitivity()
     {
-        return _gamepadLook;
+        return Input::GamepadOptions::LookX();
     }
 
-    void InputSettings::GamepadLookSensitivity(float value) noexcept
+    void InputSettings::GamepadLookSensitivity(float value)
     {
-        _gamepadLook = MathClamp(value, 0.1F, 5.0F);
+        const float finite = Input::GamepadAnalog::Finite(value, 0.1F, 5);
+        Input::GamepadOptions::LookY(finite);
+        Input::GamepadOptions::LookX(finite);
     }
 
-    bool InputSettings::GamepadInvertY() noexcept
+    bool InputSettings::GamepadInvertY()
     {
-        return _gamepadInvertY;
+        return Input::GamepadOptions::InvertY();
     }
 
-    void InputSettings::GamepadInvertY(bool value) noexcept
+    void InputSettings::GamepadInvertY(bool value)
     {
-        _gamepadInvertY = value;
+        Input::GamepadOptions::InvertY(value);
     }
 
     Entities::PlayerControls& InputSettings::Current()
@@ -783,6 +723,7 @@ namespace MphRead::Mods
 
     void InputSettings::Load()
     {
+        Input::GamepadProfiles::Initialize();
         const std::filesystem::path path = Path();
         if (!FileExists(PathToUtf8(path)))
         {
@@ -791,6 +732,8 @@ namespace MphRead::Mods
 
         try
         {
+            std::optional<bool> stylusMode;
+            std::optional<bool> legacyGuard;
             const std::vector<std::string> lines = FileReadAllLines(PathToUtf8(path));
             for (const std::string& raw : lines)
             {
@@ -812,7 +755,7 @@ namespace MphRead::Mods
                     float parsed = 0.0F;
                     if (::MphRead::NativeRuntime::SingleTryParseInvariant(value, parsed))
                     {
-                        MouseSensitivity(MathClamp(parsed, 0.05F, 10.0F));
+                        MouseSensitivity(MathClamp(parsed, 0.01F, 10.0F));
                     }
                     continue;
                 }
@@ -831,7 +774,12 @@ namespace MphRead::Mods
                 if (key == "pointer_jump_guard"
                     && BooleanTryParse(value, boolean))
                 {
+                    legacyGuard = boolean;
                     Input::PointerInput::GuardJumps(boolean);
+                }
+                if (key == "stylus_mode" && BooleanTryParse(value, boolean))
+                {
+                    stylusMode = boolean;
                 }
                 if (key == "stylus_zone" && BooleanTryParse(value, boolean))
                 {
@@ -974,6 +922,25 @@ namespace MphRead::Mods
                     ParseBind(*property, value);
                 }
             }
+            // Old files used pointer_jump_guard as the stylus master. Explicit
+            // new settings win regardless of line order.
+            Input::PointerInput::StylusMode(!IsAndroid()
+                && (stylusMode.has_value() ? *stylusMode : legacyGuard.has_value() ? *legacyGuard : false));
+            Input::GamepadOptions::Load(lines);
+            Input::PadBindings::LoadSlots(lines);
+            for (auto line = lines.rbegin(); line != lines.rend(); ++line)
+            {
+                if (line->starts_with("gamepad_preset="))
+                {
+                    const std::string preset = line->substr(15);
+                    if (preset == "Default" || preset == "Bumper Jumper" || preset == "Southpaw"
+                        || preset == "Classic" || preset == "Custom")
+                    {
+                        Input::PadBindings::Preset(preset);
+                    }
+                    break;
+                }
+            }
         }
         catch (...)
         {
@@ -1029,10 +996,13 @@ namespace MphRead::Mods
                 "invert_y=" + BoolToLower(InvertMouseY()),
                 "invert_x=" + BoolToLower(InvertMouseX()),
                 "scroll_all_weapons=" + BoolToLower(ScrollAllWeapons()),
+                "stylus_mode=" + BoolToLower(Input::PointerInput::StylusMode()),
                 "pointer_jump_guard="
                     + BoolToLower(Input::PointerInput::GuardJumps()),
+                // What was asked for, not what is in force: the zone's
+                // switch survives stylus mode being turned off and on.
                 "stylus_zone="
-                    + BoolToLower(Input::StylusZone::Enabled()),
+                    + BoolToLower(Input::StylusZone::Wanted()),
                 "stylus_zone_opacity="
                     + ::MphRead::NativeRuntime::ToStringInvariant(Input::StylusZone::Opacity(), "0.###"),
                 "stylus_zone_rect="
@@ -1057,12 +1027,7 @@ namespace MphRead::Mods
                     + BoolToLower(GamepadInvertY())
             };
 
-            for (const Input::PadAction action : Input::PadBindings::Actions())
-            {
-                lines.push_back(Input::PadBindings::SettingKey(action)
-                    + "="
-                    + GamepadButtonsToString(Input::PadBindings::Get(action)));
-            }
+            Input::PadBindings::Write(lines);
 
             Input::TouchSettings::WriteSettings(lines);
 
@@ -1088,6 +1053,30 @@ namespace MphRead::Mods
                 }
                 lines.push_back(std::string(property.Name) + "=" + value);
             }
+            Input::GamepadOptions::Write(lines);
+            lines.push_back("gamepad_preset=" + Input::PadBindings::Preset());
+            // Retain keys from newer versions and extensions when updating known settings.
+            std::set<std::string> keys;
+            for (const std::string& line : lines)
+            {
+                const std::size_t split = line.find('=');
+                if (split != std::string::npos)
+                {
+                    keys.insert(::MphRead::NativeRuntime::StringTrim(line.substr(0, split)));
+                }
+            }
+            if (FileExists(PathToUtf8(Path())))
+            {
+                for (const std::string& original : FileReadAllLines(PathToUtf8(Path())))
+                {
+                    const std::size_t split = original.find('=');
+                    if (split != std::string::npos && split > 0
+                        && !keys.contains(::MphRead::NativeRuntime::StringTrim(original.substr(0, split))))
+                    {
+                        lines.push_back(original);
+                    }
+                }
+            }
 
             FileWriteAllLines(PathToUtf8(Path()), lines);
         }
@@ -1112,6 +1101,11 @@ namespace MphRead::Mods
         Network::DemoClip::Seconds(10);
         Input::PadBindings::Reset();
         Input::TouchSettings::Reset();
+        Input::PointerInput::StylusMode(false);
+        Input::PointerInput::GuardJumps(true);
+        Input::StylusZone::Enabled(false);
+        Input::PointerDevice::Reset();
+        Input::GamepadOptions::Reset();
         GamepadDeadZone(0.2F);
         GamepadLookSensitivity(1.0F);
         GamepadInvertY(false);

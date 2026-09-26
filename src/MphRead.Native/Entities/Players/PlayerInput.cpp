@@ -16,7 +16,17 @@
 #include "../../Metadata/SoundMeta.hpp"
 #include "../../Metadata/Weapons.hpp"
 #include "../../Mods/InputSettings.hpp"
+#include "../../Mods/DebugLog.hpp"
+#include "../../Mods/Input/GamepadHaptics.hpp"
+#include "../../Mods/Input/GamepadInput.hpp"
+#include "../../Mods/Input/GamepadUiRouter.hpp"
+#include "../../Mods/Input/PointerDevice.hpp"
 #include "../../Mods/Input/PointerInput.hpp"
+#include "../../Mods/Input/WeaponWheel.hpp"
+#include "../../Mods/Network/ContinuousWeaponPhase.hpp"
+#include "../../Mods/Network/NetSession.hpp"
+#include "../../Mods/Network/NetShotDiagnostics.hpp"
+#include "../../NativeRuntime/System/Number.hpp"
 #include "../../Mods/Input/StylusZone.hpp"
 #include "../../Mods/Network/NetDamage.hpp"
 #include "../../Mods/Network/NetHooks.hpp"
@@ -40,6 +50,7 @@
 #include <limits>
 #include <memory>
 #include <random>
+#include <tuple>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
@@ -320,38 +331,55 @@ namespace MphRead::Entities
             std::move(affinitySlot), std::move(pause), std::move(hudOverlay));
     }
 
-    float PlayerEntity::PlayerInput::MouseDeltaX() const
+    float PlayerEntity::PlayerInput::PointerX() const
     {
-        if (MphRead::Mods::Input::StylusZone::OnButton())
-        {
-            return 0.0F;
-        }
-        const float current = MouseState.has_value() ? MouseState->X : 0.0F;
-        const float previous = PrevMouseState.has_value() ? PrevMouseState->X : 0.0F;
-        if (!MouseState.has_value() || !PrevMouseState.has_value())
-        {
-            return MphRead::Mods::Input::PointerInput::Filter(0.0F);
-        }
-        return MphRead::Mods::Input::PointerInput::Filter(current - previous);
+        return Mods::Input::PointerDevice::Active()
+            ? Mods::Input::PointerDevice::Current().X : MouseState.has_value() ? MouseState->X : 0.0F;
     }
 
-    float PlayerEntity::PlayerInput::MouseDeltaY() const
+    float PlayerEntity::PlayerInput::PointerY() const
     {
-        if (MphRead::Mods::Input::StylusZone::OnButton())
+        return Mods::Input::PointerDevice::Active()
+            ? Mods::Input::PointerDevice::Current().Y : MouseState.has_value() ? MouseState->Y : 0.0F;
+    }
+
+    void PlayerEntity::PlayerInput::UpdatePointer()
+    {
+        const bool active = Mods::Input::PointerDevice::Active();
+        const bool captured = Mods::Input::StylusZone::CapturingPrimaryButton() || Mods::Input::StylusZone::Placing();
+        Primary.Update(active ? Mods::Input::PointerDevice::PrimaryDown()
+            : MouseState.has_value() && MouseState->IsButtonDown(MouseButton::Left), !active && captured);
+        // (MouseState?.X - PrevMouseState?.X) ?? 0: null when either is.
+        const bool both = MouseState.has_value() && PrevMouseState.has_value();
+        std::tie(_mouseDeltaX, _mouseDeltaY) = active ? Mods::Input::PointerDevice::TakeDelta()
+            : Mods::Input::PointerInput::Filter(both ? MouseState->X - PrevMouseState->X : 0.0F,
+                both ? MouseState->Y - PrevMouseState->Y : 0.0F);
+        if (Mods::DebugLog::Active() && captured && !_loggedCapture)
         {
-            return 0.0F;
+            PlayerControls& controls = Mods::InputSettings::Current();
+            Mods::DebugLog::Line("input", "stylus firing sources preserved: Shoot="
+                + std::string(ToString(controls.Shoot().Type())) + ":" + controls.Shoot().ToString()
+                + " AltAttack=" + std::string(ToString(controls.AltAttack().Type())) + ":" + controls.AltAttack().ToString());
         }
-        const float current = MouseState.has_value() ? MouseState->Y : 0.0F;
-        const float previous = PrevMouseState.has_value() ? PrevMouseState->Y : 0.0F;
-        if (!MouseState.has_value() || !PrevMouseState.has_value())
-        {
-            return MphRead::Mods::Input::PointerInput::Filter(0.0F);
-        }
-        return MphRead::Mods::Input::PointerInput::Filter(current - previous);
+        _loggedCapture = captured;
     }
 
     void PlayerEntity::ProcessInput()
     {
+        if (Mods::Network::NetSession::Active() && !_isBot)
+        {
+            const bool local = _slotIndex == Mods::Network::NetSession::LocalSlot()
+                && Mods::Network::NetSession::LocalSlot() >= 0;
+            const bool fresh = local || (_slotIndex >= 0
+                && _slotIndex < static_cast<std::int32_t>(Mods::Network::NetSession::RemoteIntentValid.size())
+                && Mods::Network::NetSession::RemoteIntentValid[static_cast<std::size_t>(_slotIndex)]
+                && Mods::Network::NetSession::RemoteIntents[static_cast<std::size_t>(_slotIndex)].Frame != 0
+                && Mods::Network::NetSession::RemoteIntentAge(_slotIndex)
+                    <= Mods::Network::ContinuousWeaponPhase::MaxIntentAge);
+            Mods::Network::NetSession::ContinuousPhase.Observe(_slotIndex, RequireReference(_scene).FrameCount(),
+                TestFlag(EquipWeapon().Flags, WeaponFlags::Continuous) && _controls.Shoot().IsDown(),
+                fresh);
+        }
         if (_health > 0)
         {
             if (TestFlag(_flags1, PlayerFlags1::FreeLook))
@@ -429,15 +457,22 @@ namespace MphRead::Entities
 
     void PlayerEntity::ApplyStylusZone(PlayerEntity& player)
     {
-        if (!Mods::Input::StylusZone::OnButton())
+        PlayerControls& controls = player._controls;
+        // Keep the stylus hold as its own input source instead of writing it
+        // into the shared WeaponMenu bind. That shared bind is also used by
+        // keyboard, mouse and controller input, and leaving a virtual hold in
+        // it can keep the menu open after pen contact ends.
+        player._input.StylusWeaponMenuDown = Mods::Input::StylusZone::MenuHeld();
+        if (!Mods::Input::StylusZone::CapturingPointer())
         {
             return;
         }
-        PlayerControls& controls = player._controls;
-        controls.Shoot().SetIsDown(false);
-        controls.Shoot().SetIsPressed(false);
-        controls.Shoot().SetIsReleased(false);
-        const Mods::Input::StylusRegion pressed = Mods::Input::StylusZone::Pressed();
+        if (player._input.StylusWeaponMenuDown)
+        {
+            player._input.HasInput = true;
+            return;
+        }
+        const Mods::Input::StylusRegion pressed = Mods::Input::StylusZone::TakePressed();
         if (pressed == Mods::Input::StylusRegion::None)
         {
             return;
@@ -448,7 +483,6 @@ namespace MphRead::Entities
         case Mods::Input::StylusRegion::PowerBeam: bind = controls._powerBeam.get(); break;
         case Mods::Input::StylusRegion::Missile: bind = controls._missile.get(); break;
         case Mods::Input::StylusRegion::Weapons: bind = controls._nextWeapon.get(); break;
-        case Mods::Input::StylusRegion::WeaponSelect: bind = controls._weaponMenu.get(); break;
         case Mods::Input::StylusRegion::AltForm: bind = controls._morph.get(); break;
         default: break;
         }
@@ -477,15 +511,17 @@ namespace MphRead::Entities
                 UpdateZoom(false);
             }
         }
+        const bool weaponMenuDown = _controls.WeaponMenu().IsDown()
+            || (IsMainPlayer() && _input.StylusWeaponMenuDown);
         if ((GameState::Multiplayer() || _weaponSlots[2] != BeamType::OmegaCannon)
-            && _controls.WeaponMenu().IsDown())
+            && weaponMenuDown)
         {
             _flags1 |= PlayerFlags1::NoAimInput;
             _flags1 |= PlayerFlags1::WeaponMenuOpen;
             _showScoreboard = false;
         }
         bool selected = false;
-        if (!_controls.WeaponMenu().IsDown())
+        if (!weaponMenuDown)
         {
             selected = EndWeaponMenu();
         }
@@ -603,6 +639,7 @@ namespace MphRead::Entities
         }
         _flags1 &= ~PlayerFlags1::NoAimInput;
         _flags1 &= ~PlayerFlags1::WeaponMenuOpen;
+        Mods::Input::WeaponWheel::Close();
         return selected;
     }
 
@@ -1335,13 +1372,16 @@ namespace MphRead::Entities
         const BeamResultFlags result = BeamProjectileEntity::Spawn(
             SharedFrom<EntityBase>(this), _equipInfo, shotOrigin, shotVec, flags, NodeRef, _scene);
         Mods::Network::NetUnlagged::EndShot(*this);
-        Mods::Network::NetDamage::NoteFired(*this, shotVec, _gunVec1);
         if (result == BeamResultFlags::NoSpawn)
         {
             _equipInfo->Weapon = curWeapon;
             PlayBeamEmptySfx(RequireReference(_equipInfo->Weapon).Beam);
-            return false;
+            return Mods::Network::NetShotDiagnostics::Finish(*this, Mods::Network::ShotAttemptResult::NoAmmo);
         }
+        static_cast<void>(Mods::Network::NetShotDiagnostics::Finish(*this, Mods::Network::ShotAttemptResult::Spawned,
+            shotVec, _gunVec1));
+        ModControllerFeedback(EquipWeapon().MinCharge > 0 && _equipInfo->ChargeLevel >= EquipWeapon().MinCharge * 2
+            ? Mods::Input::GamepadFeedback::ChargedShot : Mods::Input::GamepadFeedback::Fire);
         _timeSinceShot = 0;
         if (IsMainPlayer())
         {
@@ -1616,6 +1656,13 @@ namespace MphRead::Entities
                 {
                     traction *= Fixed::ToFloat(_values.JumpPadSlideFactor);
                 }
+                // A boost a flick aimed travels where it was aimed. See
+                // _boostAimLock: roll traction across a dash rotates it, so it
+                // is held off for a short while after an aimed one only.
+                if (_boostAimLock > 0)
+                {
+                    traction = 0;
+                }
                 if (_controls.RollUp().IsDown())
                 {
                     speedDelta.X += _altRollFbX * traction;
@@ -1768,6 +1815,10 @@ namespace MphRead::Entities
                 }
                 if (TestFlag(_abilities, AbilityFlags::Boost) && _attachedEnemy == nullptr)
                 {
+                    // A whip of the mouse is the same gesture from the
+                    // desktop's end, and asks through the same one-shot.
+                    // See Mods::Input::MouseFlick.
+                    ModCheckMouseFlick();
                     const bool swipeBoost = _swipeBoostRequested;
                     _swipeBoostRequested = false;
                     float boostDirX = _field70;
@@ -1785,6 +1836,19 @@ namespace MphRead::Entities
                             boostDirX = dirX / dirMag;
                             boostDirZ = dirZ / dirMag;
                             boostAimed = true;
+                            // Long enough to read as the direction asked for,
+                            // short enough that the ball stays steerable.
+                            _boostAimLock = 18;
+                            if (Mods::DebugLog::Active())
+                            {
+                                Mods::DebugLog::Line("input", "boost flick screen ("
+                                    + ::MphRead::NativeRuntime::ToString(_swipeBoostX, "0.00") + ", "
+                                    + ::MphRead::NativeRuntime::ToString(_swipeBoostY, "0.00") + ") -> ("
+                                    + ::MphRead::NativeRuntime::ToString(forward, "0.00") + " fwd, "
+                                    + ::MphRead::NativeRuntime::ToString(left, "0.00") + " left) -> world ("
+                                    + ::MphRead::NativeRuntime::ToString(boostDirX, "0.00") + ", "
+                                    + ::MphRead::NativeRuntime::ToString(boostDirZ, "0.00") + ")");
+                            }
                         }
                     }
                     _swipeBoostX = 0.0F;
@@ -1824,9 +1888,24 @@ namespace MphRead::Entities
                                 + _boostCharge * (Fixed::ToFloat(_values.BoostSpeedMax)
                                     - Fixed::ToFloat(_values.BoostSpeedMin))
                                 / static_cast<float>(_values.BoostChargeMax * 2);
+                            if (boostAimed)
+                            {
+                                // What the roll binds put into this frame goes
+                                // first, and the ball leaves along the flick
+                                // with the momentum it already had that way.
+                                speedDelta.X = 0;
+                                speedDelta.Z = 0;
+                                float along = _speed.X * boostDirX + _speed.Z * boostDirZ;
+                                if (along < 0)
+                                {
+                                    along = 0;
+                                }
+                                _speed = WithZ(WithX(_speed, boostDirX * along), boostDirZ * along);
+                            }
                             speedDelta = AddZ(AddX(speedDelta, boostDirX * factor), boostDirZ * factor);
                             _altAttackCooldown = static_cast<std::uint16_t>(_values.AltAttackCooldown * 2);
                             _flags1 |= PlayerFlags1::Boosting;
+                            ModControllerFeedback(Mods::Input::GamepadFeedback::Boost);
                             _boostDamage = static_cast<std::uint16_t>(
                                 _values.AltAttackDamage * _boostCharge / (_values.BoostChargeMax * 2));
                             if (IsMainPlayer())
@@ -2395,7 +2474,9 @@ namespace MphRead::Entities
         if (Mods::SpectatorMode::IsSpectating())
         {
             Mods::SpectatorMode::NoteScoreboard(
-                IsDown(Mods::InputSettings::Current().Pause(), keyboardSnap, mouseSnap));
+                IsDown(Mods::InputSettings::Current().Pause(), keyboardSnap, mouseSnap)
+                || (Mods::Input::GamepadContexts::Current() == Mods::Input::GamepadContext::Gameplay
+                    && Mods::Input::GamepadInput::State().Down(Mods::Input::GamepadButtons::Back)));
         }
         const auto& players = Players();
         for (std::int32_t i = 0; i < static_cast<std::int32_t>(players.size()); ++i)
@@ -2434,6 +2515,7 @@ namespace MphRead::Entities
             player._input.PrevMouseState = prevMouseSnap;
             player._input.KeyboardState = keyboardSnap;
             player._input.MouseState = mouseSnap;
+            player._input.UpdatePointer();
             _isScrollingUp = false;
             _isScrollingDown = false;
             const float curScrollY = mouseSnap.Scroll.Y;
@@ -2480,9 +2562,10 @@ namespace MphRead::Entities
                         {
                             control.SetNeedsRepress(true);
                         }
-                        const bool down = mouseSnap.IsButtonDown(control.MouseButton());
-                        const bool prevDown = prevMouseSnap.has_value()
-                            ? prevMouseSnap->IsButtonDown(control.MouseButton()) : false;
+                        const bool primary = control.MouseButton() == MouseButton::Left;
+                        const bool down = primary ? player._input.Primary.Down() : mouseSnap.IsButtonDown(control.MouseButton());
+                        const bool prevDown = primary ? player._input.Primary.PreviousDown()
+                            : prevMouseSnap.has_value() ? prevMouseSnap->IsButtonDown(control.MouseButton()) : false;
                         if (control.NeedsRepress() && !player._ignoreClick)
                         {
                             if (!down || !prevDown)
@@ -2490,11 +2573,20 @@ namespace MphRead::Entities
                                 control.SetNeedsRepress(false);
                             }
                         }
-                        if (!control.NeedsRepress())
+                        if (control.NeedsRepress())
                         {
-                            control.SetIsDown(down);
-                            control.SetIsPressed(control.IsDown() && !prevDown);
-                            control.SetIsReleased(!control.IsDown() && prevDown);
+                            control.SetIsDown(false);
+                            control.SetIsPressed(false);
+                            control.SetIsReleased(false);
+                        }
+                        else
+                        {
+                            if (!player._input.Primary.Resolve(control))
+                            {
+                                control.SetIsDown(down);
+                                control.SetIsPressed(down && !prevDown);
+                                control.SetIsReleased(!down && prevDown);
+                            }
                             if (control.IsDown() || control.IsPressed() || control.IsReleased())
                             {
                                 player._input.HasInput = true;

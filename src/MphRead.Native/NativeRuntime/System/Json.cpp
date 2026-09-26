@@ -499,6 +499,40 @@ namespace MphRead::NativeRuntime
         return out;
     }
 
+    std::string JsonNamingPolicyCamelCase(std::string_view name)
+    {
+        // JsonCamelCaseNamingPolicy: lower the leading run of capitals, but
+        // leave the last one of a run alone when a lower-case letter follows
+        // it ("URLValue" -> "urlValue").
+        const auto upper = [](char c) { return c >= 'A' && c <= 'Z'; };
+        std::string chars(name);
+        if (chars.empty() || !upper(chars[0]))
+        {
+            return chars;
+        }
+        for (std::size_t i = 0; i < chars.size(); i++)
+        {
+            if (i == 1 && !upper(chars[i]))
+            {
+                break;
+            }
+            const bool hasNext = i + 1 < chars.size();
+            if (i > 0 && hasNext && !upper(chars[i + 1]))
+            {
+                if (chars[i + 1] == ' ')
+                {
+                    chars[i] = static_cast<char>(chars[i] - 'A' + 'a');
+                }
+                break;
+            }
+            if (upper(chars[i]))
+            {
+                chars[i] = static_cast<char>(chars[i] - 'A' + 'a');
+            }
+        }
+        return chars;
+    }
+
     std::string JsonWriteIndented(const JsonPtr& value)
     {
         std::string out;

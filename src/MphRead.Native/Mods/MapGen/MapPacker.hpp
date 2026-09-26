@@ -27,6 +27,8 @@ namespace MphRead::Mods::MapGen
             const std::string& nodeDir,
             bool verbose = true);
 
+        static void ApplyCollision(BuiltMap* map, MapDefinition* def, bool verbose);
+
         [[nodiscard]] static std::int32_t GetPrimaryAxis(
             OpenTK::Mathematics::Vector3 normal) noexcept;
 

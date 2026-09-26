@@ -14,6 +14,7 @@ namespace MphRead::Mods::MapGen
     class MapTexturePack;
     class MapImport;
     class MapPreview;
+    class MapCollision;
     class MapMaterial;
     class MapBrush;
     class MapSpawn;
@@ -85,6 +86,11 @@ namespace MphRead::Mods::MapGen
         [[nodiscard]] MapImport* Import() noexcept;
         [[nodiscard]] const MapImport* Import() const noexcept;
         void Import(std::shared_ptr<MapImport> value) noexcept;
+        // Collision read from a Wavefront OBJ, replacing whatever the geometry
+        // would have produced. See MapCollision.
+        [[nodiscard]] MapCollision* Collision() noexcept;
+        [[nodiscard]] const MapCollision* Collision() const noexcept;
+        void Collision(std::shared_ptr<MapCollision> value) noexcept;
         [[nodiscard]] MapPreview* Preview() noexcept;
         [[nodiscard]] const MapPreview* Preview() const noexcept;
         void Preview(std::shared_ptr<MapPreview> value) noexcept;
@@ -136,6 +142,7 @@ namespace MphRead::Mods::MapGen
         std::uint32_t _battleTimeLimit = 7U * 60U * 30U;
         std::int16_t _pointLimit = 7;
         std::shared_ptr<MapImport> _import{};
+        std::shared_ptr<MapCollision> _collision{};
         std::shared_ptr<MapPreview> _preview{};
         std::shared_ptr<MaterialList> _materials;
         std::shared_ptr<BrushList> _brushes;
@@ -145,6 +152,28 @@ namespace MphRead::Mods::MapGen
         std::optional<std::string> _baseDirectory{};
         std::optional<std::string> _bundlePath{};
         std::optional<std::string> _sourcePath{};
+    };
+
+    // Collision read from a Wavefront OBJ rather than derived from the
+    // geometry. It replaces what the geometry produced: a converted level
+    // carries collision nobody can ever reach, and adding could never delete it.
+    class MapCollision
+    {
+    public:
+        // The .obj, looked for beside the recipe, then in maps/, then beside
+        // the game files.
+        std::string Source{};
+        // Written with the exporter's --zup.
+        bool ZUp = false;
+        std::optional<std::string> BaseDirectory{};
+        std::optional<std::string> BundlePath{};
+
+        // The bytes, out of the bundle or off the disk, or nullopt.
+        [[nodiscard]] std::optional<std::vector<std::uint8_t>> ReadBytes() const;
+        [[nodiscard]] std::optional<std::string> Resolve() const;
+
+    private:
+        [[nodiscard]] std::vector<std::string> Candidates() const;
     };
 
     class MapPreview
@@ -230,6 +259,9 @@ namespace MphRead::Mods::MapGen
         void PatchLevel(std::int32_t value) noexcept;
         [[nodiscard]] bool KeepSpawns() const noexcept;
         void KeepSpawns(bool value) noexcept;
+        // Take the level's own pickups as items, on top of the recipe's own.
+        [[nodiscard]] bool KeepItems() const noexcept;
+        void KeepItems(bool value) noexcept;
 
     private:
         friend class MapDefinitionJson;
@@ -249,6 +281,7 @@ namespace MphRead::Mods::MapGen
         bool _keepClip = true;
         std::int32_t _patchLevel = 3;
         bool _keepSpawns = true;
+        bool _keepItems = true;
     };
 
     class MapMaterial

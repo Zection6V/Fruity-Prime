@@ -193,12 +193,29 @@ namespace MphRead::Mods::MapGen
         const std::string textureName = texturePath
             ? PathGetFileName(*texturePath) : std::string{};
 
+        // A hand-edited collision mesh is the map, not a working file: the room
+        // cannot be built without it, so it travels with the recipe.
+        std::optional<std::string> collisionPath;
+        if (const MapCollision* collision = definition->Collision();
+            collision != nullptr && !collision->Source.empty())
+        {
+            collisionPath = collision->Resolve();
+            if (!collisionPath.has_value())
+            {
+                throw ProgramException(definition->Name() + ": its collision mesh " + collision->Source
+                    + " is not beside its recipe, and a bundle without it is a map that cannot be generated.");
+            }
+        }
         std::shared_ptr<MapDefinition> inside = MapDefinition::Load(recipePath);
         if (MapImport* insideImport = inside->Import(); insideImport != nullptr)
         {
             insideImport->Source(std::string(LevelDirectory) + mapName + ".bsp");
             insideImport->MapName(mapName);
             insideImport->Textures(textureName);
+        }
+        if (inside->Collision() != nullptr && collisionPath.has_value())
+        {
+            inside->Collision()->Source = PathGetFileName(*collisionPath);
         }
 
         const std::string temporary = path + ".tmp";
@@ -224,6 +241,10 @@ namespace MphRead::Mods::MapGen
             if (texturePath)
             {
                 write(textureName, FileReadAllBytes(*texturePath));
+            }
+            if (collisionPath.has_value())
+            {
+                write(PathGetFileName(*collisionPath), FileReadAllBytes(*collisionPath));
             }
             archive.Dispose();
         }

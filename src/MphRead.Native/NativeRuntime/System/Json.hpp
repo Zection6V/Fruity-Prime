@@ -66,4 +66,6 @@ namespace MphRead::NativeRuntime
     [[nodiscard]] std::string JsonWrite(const JsonPtr& value);
     // The same with WriteIndented = true.
     [[nodiscard]] std::string JsonWriteIndented(const JsonPtr& value);
+    // JsonNamingPolicy.CamelCase.ConvertName(name).
+    [[nodiscard]] std::string JsonNamingPolicyCamelCase(std::string_view name);
 }

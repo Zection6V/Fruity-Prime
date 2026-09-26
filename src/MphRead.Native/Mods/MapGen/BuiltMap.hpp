@@ -77,6 +77,17 @@ namespace MphRead::Mods::MapGen
         [[nodiscard]] MphRead::Terrain Terrain() const noexcept;
         void Terrain(MphRead::Terrain value) noexcept;
 
+        // The rest of what the collision format holds per face. Nothing in
+        // the importers sets these; a hand-edited OBJ does (CollisionObj).
+        // Sky: drawn sky, which is never collision, so the check that every
+        // drawn surface has something solid behind it skips it.
+        bool Sky = false;
+        std::int32_t Slipperiness = 0;
+        bool ReflectBeams = false;
+        bool IgnorePlayers = false;
+        bool IgnoreBeams = false;
+        bool IgnoreScan = false;
+
     private:
         Interop::ManagedArray<OpenTK::Mathematics::Vector3>* const _points;
         Interop::ManagedArray<OpenTK::Mathematics::Vector2>* const _texcoords;

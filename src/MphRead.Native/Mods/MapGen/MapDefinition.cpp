@@ -3,6 +3,7 @@
 #include "NativeRuntime/System/Charconv.hpp"
 
 #include "CustomRooms.hpp"
+#include "../../NativeRuntime/System/Json.hpp"
 #include "MapBundle.hpp"
 #include "MapTexturePack.hpp"
 #include "../../Formats/Types.hpp"
@@ -708,8 +709,9 @@ namespace
         output.append(static_cast<std::size_t>(depth) * 2U, ' ');
     }
 
+    // A dictionary's key, written as it is: DictionaryKeyPolicy is not set.
     template <typename Writer>
-    void Property(std::string& output, int depth, bool& first, std::string_view name, Writer&& writer)
+    void DictionaryProperty(std::string& output, int depth, bool& first, std::string_view name, Writer&& writer)
     {
         if (!first)
         {
@@ -721,6 +723,15 @@ namespace
         output += ": ";
         writer();
         first = false;
+    }
+
+    // A property, named by PropertyNamingPolicy = JsonNamingPolicy.CamelCase:
+    // every recipe in the repository is camelCase.
+    template <typename Writer>
+    void Property(std::string& output, int depth, bool& first, std::string_view name, Writer&& writer)
+    {
+        DictionaryProperty(output, depth, first, ::MphRead::NativeRuntime::JsonNamingPolicyCamelCase(name),
+            std::forward<Writer>(writer));
     }
 
     template <typename T, typename Writer>
@@ -913,6 +924,10 @@ namespace MphRead::Mods::MapGen
                 {
                     result._import = ReadObject<MapImport>(item, ReadMapImport);
                 }
+                else if (StringEqualsOrdinalIgnoreCase(name, "Collision"))
+                {
+                    result._collision = ReadObject<MapCollision>(item, ReadMapCollision);
+                }
                 else if (StringEqualsOrdinalIgnoreCase(name, "Preview"))
                 {
                     result._preview = ReadObject<MapPreview>(item, ReadMapPreview);
@@ -938,6 +953,22 @@ namespace MphRead::Mods::MapGen
                     result._items = ReadObjectList<MapItem>(item, ReadMapItem);
                 }
                 // JsonIgnore properties and unknown properties are ignored.
+            }
+        }
+
+        static void ReadMapCollision(const JsonValue& value, MapCollision& result)
+        {
+            for (const auto& [name, item] : value.Object)
+            {
+                if (StringEqualsOrdinalIgnoreCase(name, "Source"))
+                {
+                    result.Source = JsonString(item);
+                }
+                else if (StringEqualsOrdinalIgnoreCase(name, "ZUp"))
+                {
+                    result.ZUp = JsonBool(item);
+                }
+                // BaseDirectory and BundlePath are JsonIgnore.
             }
         }
 
@@ -1027,6 +1058,10 @@ namespace MphRead::Mods::MapGen
                 else if (StringEqualsOrdinalIgnoreCase(name, "KeepSpawns"))
                 {
                     result._keepSpawns = JsonBool(item);
+                }
+                else if (StringEqualsOrdinalIgnoreCase(name, "KeepItems"))
+                {
+                    result._keepItems = JsonBool(item);
                 }
                 // BaseDirectory and BundlePath are JsonIgnore.
             }
@@ -1245,6 +1280,17 @@ namespace MphRead::Mods::MapGen
             {
                 Property(output, depth, first, "Import", [&] { WriteMapImport(output, depth + 1, *value._import); });
             }
+            if (value._collision)
+            {
+                Property(output, depth, first, "Collision", [&]
+                {
+                    output.push_back('{');
+                    bool collisionFirst = true;
+                    Property(output, depth + 1, collisionFirst, "Source", [&] { WriteJsonString(output, value._collision->Source); });
+                    Property(output, depth + 1, collisionFirst, "ZUp", [&] { output += value._collision->ZUp ? "true" : "false"; });
+                    FinishObject(output, depth + 1, collisionFirst);
+                });
+            }
             if (value._preview)
             {
                 Property(output, depth, first, "Preview", [&] { WriteMapPreview(output, depth + 1, *value._preview); });
@@ -1322,7 +1368,7 @@ namespace MphRead::Mods::MapGen
                     bool dictionaryFirst = true;
                     for (const auto& [key, dictionaryValue] : *value._shaderMaterials)
                     {
-                        Property(output, depth + 1, dictionaryFirst, key,
+                        DictionaryProperty(output, depth + 1, dictionaryFirst, key,
                             [&] { WriteInteger(output, dictionaryValue); });
                     }
                     FinishObject(output, depth + 1, dictionaryFirst);
@@ -1334,6 +1380,7 @@ namespace MphRead::Mods::MapGen
             Property(output, depth, first, "KeepClip", [&] { output += value._keepClip ? "true" : "false"; });
             Property(output, depth, first, "PatchLevel", [&] { WriteInteger(output, value._patchLevel); });
             Property(output, depth, first, "KeepSpawns", [&] { output += value._keepSpawns ? "true" : "false"; });
+            Property(output, depth, first, "KeepItems", [&] { output += value._keepItems ? "true" : "false"; });
             FinishObject(output, depth, first);
         }
 
@@ -1549,6 +1596,11 @@ namespace MphRead::Mods::MapGen
             result->_import->BaseDirectory(result->_baseDirectory);
             result->_import->BundlePath(result->_bundlePath);
         }
+        if (result->_collision)
+        {
+            result->_collision->BaseDirectory = result->_baseDirectory;
+            result->_collision->BundlePath = result->_bundlePath;
+        }
         return result;
     }
 
@@ -1742,6 +1794,63 @@ namespace MphRead::Mods::MapGen
     void MapImport::KeepClip(bool value) noexcept { _keepClip = value; }
     std::int32_t MapImport::PatchLevel() const noexcept { return _patchLevel; }
     void MapImport::PatchLevel(std::int32_t value) noexcept { _patchLevel = value; }
+    MapCollision* MapDefinition::Collision() noexcept { return _collision.get(); }
+    const MapCollision* MapDefinition::Collision() const noexcept { return _collision.get(); }
+    void MapDefinition::Collision(std::shared_ptr<MapCollision> value) noexcept { _collision = std::move(value); }
+
+    std::optional<std::vector<std::uint8_t>> MapCollision::ReadBytes() const
+    {
+        if (Source.empty())
+        {
+            return std::nullopt;
+        }
+        if (BundlePath.has_value())
+        {
+            std::optional<std::vector<std::uint8_t>> bundled = MapBundle::ReadEntry(*BundlePath, Source);
+            if (bundled.has_value())
+            {
+                return bundled;
+            }
+        }
+        const std::optional<std::string> path = Resolve();
+        return path.has_value() ? std::optional<std::vector<std::uint8_t>>(::MphRead::NativeRuntime::FileReadAllBytes(*path)) : std::nullopt;
+    }
+
+    std::optional<std::string> MapCollision::Resolve() const
+    {
+        if (Source.empty())
+        {
+            return std::nullopt;
+        }
+        for (const std::string& candidate : Candidates())
+        {
+            if (FileExists(candidate))
+            {
+                return candidate;
+            }
+        }
+        return std::nullopt;
+    }
+
+    std::vector<std::string> MapCollision::Candidates() const
+    {
+        std::vector<std::string> candidates{Source};
+        if (::MphRead::NativeRuntime::PathIsPathRooted(Source))
+        {
+            return candidates;
+        }
+        if (BaseDirectory.has_value())
+        {
+            candidates.push_back(PathCombine(*BaseDirectory, Source));
+        }
+        candidates.push_back(PathCombine(CustomRooms::MapDirectory(), Source));
+        candidates.push_back(PathCombine(Launcher::GameFiles::Root(), Source));
+        return candidates;
+    }
+
+    bool MapImport::KeepItems() const noexcept { return _keepItems; }
+    void MapImport::KeepItems(bool value) noexcept { _keepItems = value; }
+
     bool MapImport::KeepSpawns() const noexcept { return _keepSpawns; }
     void MapImport::KeepSpawns(bool value) noexcept { _keepSpawns = value; }
 

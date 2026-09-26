@@ -1,5 +1,7 @@
 #include "MapPacker.hpp"
 
+#include "CollisionObj.hpp"
+#include "CustomRooms.hpp"
 #include "../../Formats/Collision.hpp"
 #include "../../Formats/Model.hpp"
 #include "../../Program.hpp"
@@ -1188,6 +1190,13 @@ namespace
                     Vector3::Dot(normal, ManagedAt(facePoints, 0)));
                 editor->Damaging(face->Damaging());
                 editor->Terrain(face->Terrain());
+                editor->Slipperiness(face->Slipperiness);
+                editor->Reflect(face->ReflectBeams);
+                // the editor asks whether a face is there for players, beams
+                // and the scan visor; the file stores whether to ignore it
+                editor->Players(!face->IgnorePlayers);
+                editor->Beams(!face->IgnoreBeams);
+                editor->Scan(!face->IgnoreScan);
                 for (std::size_t i = 0; i < facePoints->Length(); ++i)
                 {
                     editor->Points->push_back(ManagedAt(facePoints, i));
@@ -1210,6 +1219,11 @@ namespace
                         Vector3::Dot(normal, ManagedAt(partPoints, 0)));
                     editor->Damaging(face->Damaging());
                     editor->Terrain(face->Terrain());
+                    editor->Slipperiness(face->Slipperiness);
+                    editor->Reflect(face->ReflectBeams);
+                    editor->Players(!face->IgnorePlayers);
+                    editor->Beams(!face->IgnoreBeams);
+                    editor->Scan(!face->IgnoreScan);
                     for (std::size_t i = 0; i < partPoints->Length(); ++i)
                     {
                         editor->Points->push_back(ManagedAt(partPoints, i));
@@ -1301,7 +1315,39 @@ namespace MphRead::Mods::MapGen
         std::shared_ptr<BuiltMap> map = def->Import() == nullptr
             ? MapBuilder::Build(def)
             : Q3Import::Build(def, verbose);
+        ApplyCollision(map.get(), def, verbose);
         Generate(map.get(), archiveDir, entityDir, nodeDir, verbose);
+    }
+
+    // Swap the room's collision for the one in the map's .obj, if it names
+    // one: the same answer for both builders. MapNodePacker reads the same
+    // list, so the bots' waypoints follow the edit.
+    void MapPacker::ApplyCollision(BuiltMap* map, MapDefinition* def, bool verbose)
+    {
+        MapCollision* collision = def->Collision();
+        if (collision == nullptr || collision->Source.empty())
+        {
+            return;
+        }
+        const std::optional<std::vector<std::uint8_t>> bytes = collision->ReadBytes();
+        if (!bytes.has_value())
+        {
+            throw ProgramException(def->Name() + " says its collision is " + collision->Source
+                + ", which is not beside the map file, in " + CustomRooms::MapDirectory()
+                + ", or with the game files. Write one with tools/collision-to-obj.py, or take the \"collision\" key out "
+                "to go back to the collision the geometry makes.");
+        }
+        const CollisionObj::Result read = CollisionObj::Read(*bytes, collision->Source, collision->ZUp);
+        const auto replaced = static_cast<std::int32_t>(map->Solid().size());
+        map->Solid().clear();
+        map->Solid().insert(map->Solid().end(), read.Faces.begin(), read.Faces.end());
+        if (verbose)
+        {
+            std::cout << "  collision from " << collision->Source << ": " << read.Faces.size() << " faces"
+                << " over " << read.Vertices << " vertices, in place of the geometry's " << replaced
+                << (read.Degenerate > 0 ? " (" + std::to_string(read.Degenerate) + " enclosing no area, skipped)" : std::string())
+                << '\n';
+        }
     }
 
     std::int32_t MapPacker::GetPrimaryAxis(Vector3 normal) noexcept

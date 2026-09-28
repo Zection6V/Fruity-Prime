@@ -444,24 +444,35 @@ passes the required validation gates. Phase 1 remains out of scope.
 
 ### Build evidence
 
-No local build was executed: the task is GitHub-integration-only and no clone/local tree was used.
+The Phase 0 helper source was compile-fixed at
+`416452d633d326429d82184ec2bf5bbf2b063897` by qualifying the fixture allocation as
+`std::shared_ptr<::MphRead::RenderItem>`; this removes the nested-name lookup collision with
+`Scene::RenderItem`.
 
-The latest source-changing/native-CI reference used for build evidence is
-`c8f6119436f509c0eb67605dcdb96ddc979851bb`. GitHub compare shows
-`c8f6119... -> bb8f619...` changes only
-`docs/app_design/Fruity-Prime-CPP-MultiBackend-RHI-Work-Instructions-2026-09-28.md`; therefore the
-native source tested at `c8f6119...` is the same native source used by this Phase 0 baseline.
-At that commit these GitHub Actions runs were green:
+Independent local Windows MinGW verification succeeded with:
 
-- Native C++ Windows / MSVC: run `36404292573`
-- Native C++ Linux / GCC: run `36404292608`
-- Native C++ macOS / Clang: run `36404292580`
-- Native C++ Android: run `36404292590`
+```text
+cmake --build tools/build/out/msys2-mingw64-RelWithDebInfo --target fruity_prime --parallel 8
+```
 
-The current pre-document branch HEAD `92b2734...` also has general `build` run
-`36410035630` completed successfully. The native workflows are configured to auto-run on pushes
-to `develop2`, not `develop3_rendering`; exact-commit CI for the documentation commit therefore
-must be reported according to the runs GitHub actually creates for that SHA.
+Exact-head native GitHub Actions verification for `416452d...` also completed successfully:
+
+- Native C++ Windows / MSVC: run `36423503365`
+- Native C++ Linux / GCC: run `36423503342`
+- Native C++ macOS / Clang: run `36423503345`
+- Native C++ Android: run `36423503249`
+  - Android native build contract: success
+  - arm64-v8a NDK build: success
+  - x86_64 NDK build: success
+
+The general exact-head `build` workflow also completed successfully:
+
+- pull-request run `36423503284`: success
+- push run `36423357905`, attempt 2: success
+
+The native workflows normally auto-run only for `develop2`. For Phase 0 verification, a temporary
+draft pull request from `develop3_rendering` to its ancestor `develop2` was used to invoke those
+existing native gates; the recorded workflow `head_sha` is exactly `416452d...`.
 
 ### Runtime / golden capture validation
 

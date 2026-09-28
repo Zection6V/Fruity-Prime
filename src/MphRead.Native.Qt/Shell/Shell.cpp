@@ -7,6 +7,7 @@
 #include "../../MphRead.Native/Mods/Launcher/Gui/Shell.hpp"
 
 #include "ShellBridge.hpp"
+#include "UiCapture.hpp"
 #include "UiHost.hpp"
 #include "../Platform/QtApp.hpp"
 
@@ -134,6 +135,12 @@ namespace MphRead::Mods::Launcher::Gui
                 Shell::CloseMenu();
                 Shell::RequestEndMatch();
             };
+            actions.ToggleFullscreen = []()
+            {
+                // InGameMenu: the toggle waits for the frame, then the menu closes.
+                MphRead::Mods::PauseMenu::RequestFullscreenToggle();
+                Shell::CloseMenu();
+            };
             g_bridge = std::make_unique<MphRead::Qt::ShellBridge>(std::move(actions));
         }
 
@@ -238,6 +245,55 @@ namespace MphRead::Mods::Launcher::Gui
             if (qEnvironmentVariableIntValue("FP_QT_SHOT_QUIT") != 0)
             {
                 window.Close();
+            }
+        }
+
+        // FP_QT_DEMO=DIR: a scripted check in the real window -- the front
+        // screen, then an offline match, then the pause menu over it, each
+        // captured to DIR, then quit.
+        void DemoStep(MphRead::RenderWindow& window)
+        {
+            static const QString dir = qEnvironmentVariable("FP_QT_DEMO");
+            static int frame = 0;
+            if (dir.isEmpty())
+            {
+                return;
+            }
+            ++frame;
+            const auto shoot = [&](const char* name)
+            {
+                const OpenTK::Mathematics::Vector2i size = window.FramebufferSize();
+                QImage image(size.X, size.Y, QImage::Format_RGBA8888);
+                QOpenGLContext::currentContext()->functions()->glReadPixels(
+                    0, 0, size.X, size.Y, GL_RGBA, GL_UNSIGNED_BYTE, image.bits());
+                const QString path = dir + QLatin1Char('/') + QLatin1String(name) + QStringLiteral(".png");
+                image.flipped(::Qt::Vertical).convertToFormat(QImage::Format_RGB32).save(path);
+                std::cout << "[demo] " << path.toStdString() << '\n';
+            };
+            if (frame == 60)
+            {
+                shoot("window-start");
+                if (!g_rooms.empty())
+                {
+                    LaunchPlan::Init init;
+                    init.Kind = LaunchKind::Offline;
+                    init.RoomKey = g_rooms.front();
+                    init.Mode = static_cast<MphRead::GameMode>(3);
+                    init.Hunter = static_cast<MphRead::Hunter>(0);
+                    init.Bots = 3;
+                    init.BotLevel = 1;
+                    Decided(LaunchPlan(init));
+                }
+            }
+            else if (frame == 400)
+            {
+                shoot("window-match");
+                (void)Shell::OpenPauseMenu();
+            }
+            else if (frame == 430)
+            {
+                shoot("window-pause");
+                Shell::RequestQuit();
             }
         }
 
@@ -446,6 +502,7 @@ namespace MphRead::Mods::Launcher::Gui
     void Shell::AfterDraw(MphRead::RenderWindow& window)
     {
         MaybeShoot(window);
+        DemoStep(window);
     }
 
     void Shell::PlayAnother(std::string roomKey)
@@ -509,9 +566,24 @@ namespace MphRead::Mods::Launcher::Gui
         {
             return false;
         }
+        // FP_QT_UISHOT=DIR: photograph the menus and stop (see UiCapture).
+        if (const QString shots = qEnvironmentVariable("FP_QT_UISHOT"); !shots.isEmpty())
+        {
+            if (Portable::GameFiles::Ready())
+            {
+                Portable::GameFiles::ApplyPaths();
+                g_rooms = MphRead::Mods::ThumbnailGenerator::MultiplayerRooms();
+            }
+            (void)MphRead::Qt::UiCapture::Run(shots, RoomChoices());
+            MphRead::Qt::ShutdownApplication();
+            return true;
+        }
         try
         {
-            return Shell::Run();
+            const bool ran = Shell::Run();
+            g_bridge.reset();
+            MphRead::Qt::ShutdownApplication();
+            return ran;
         }
         catch (...)
         {

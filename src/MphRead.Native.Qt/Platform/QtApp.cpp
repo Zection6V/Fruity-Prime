@@ -8,6 +8,21 @@
 
 namespace MphRead::Qt
 {
+    namespace
+    {
+        std::unique_ptr<QGuiApplication>& Application()
+        {
+            static std::unique_ptr<QGuiApplication> app;
+            return app;
+        }
+    }
+
+    void ShutdownApplication()
+    {
+        // Before static destruction: Qt's own thread storage is gone by then.
+        Application().reset();
+    }
+
     void EnsureApplication()
     {
         if (QCoreApplication::instance() != nullptr)
@@ -29,6 +44,6 @@ namespace MphRead::Qt
         {
             qputenv("QT_WAYLAND_DISABLE_WINDOWDECORATION", "1");
         }
-        static std::unique_ptr<QGuiApplication> app = std::make_unique<QGuiApplication>(argc, argv);
+        Application() = std::make_unique<QGuiApplication>(argc, argv);
     }
 }

@@ -34,6 +34,7 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -181,6 +182,7 @@ namespace
         double _updateFrequency = 0.0;
         bool _closeRequested = false;
         bool _grabbed = false;
+        bool _boundExposed = false;
         bool _maximized = false;
         MphRead::RendererPlatform::KeyboardState _keyboard{};
         MphRead::RendererPlatform::MouseState _mouse{};
@@ -210,12 +212,19 @@ namespace
 
         QSurfaceFormat format;
         format.setRenderableType(QSurfaceFormat::OpenGL);
-        format.setVersion(settings.ApiMajor, settings.ApiMinor);
-        // ContextProfile.Compatability, by name: the renderer still draws in
-        // immediate mode, which a core profile does not have.
-        format.setProfile(settings.Profile == WindowSettings::ContextProfile::Compatability
-            ? QSurfaceFormat::CompatibilityProfile
-            : QSurfaceFormat::NoProfile);
+        // ContextProfile.Compatability: the renderer still draws in immediate
+        // mode, which a core profile does not have. Asked as 3.2 compatibility,
+        // Qt's EGL path (Wayland) comes back core; asked as a legacy 2.1
+        // context every driver returns its highest compatibility version.
+        if (settings.Profile == WindowSettings::ContextProfile::Compatability)
+        {
+            format.setVersion(2, 1);
+            format.setProfile(QSurfaceFormat::NoProfile);
+        }
+        else
+        {
+            format.setVersion(settings.ApiMajor, settings.ApiMinor);
+        }
         format.setDepthBufferSize(24);
         format.setStencilBufferSize(8);
         format.setSwapInterval(1);
@@ -246,6 +255,13 @@ namespace
             {
                 throw GLFWException("The OpenGL context could not be made current.", 0x00010008);
             }
+            const QSurfaceFormat made = _context->format();
+            std::cout << "[window] OpenGL " << made.majorVersion() << '.' << made.minorVersion()
+                      << (made.profile() == QSurfaceFormat::CompatibilityProfile ? " compatibility"
+                          : made.profile() == QSurfaceFormat::CoreProfile ? " core" : " no profile")
+                      << " (asked " << format.majorVersion() << '.' << format.minorVersion()
+                      << (format.profile() == QSurfaceFormat::CompatibilityProfile ? " compatibility)" : ")")
+                      << '\n';
         }
         _updateFrequency = settings.UpdateFrequency;
         const QPointF cursor = _window->mapFromGlobal(QCursor::pos());
@@ -307,6 +323,12 @@ namespace
                 continue;
             }
             previous = now;
+            // Qt creates a window's EGL surface when it is first exposed; a
+            // context made current before that has no surface to draw to.
+            if (_context != nullptr && _window->isExposed() && !_boundExposed)
+            {
+                _boundExposed = _context->makeCurrent(_window.get());
+            }
             FrameEventArgs args;
             args.Time = elapsed;
             events.OnRenderFrame(args);

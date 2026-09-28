@@ -7,6 +7,9 @@
 namespace MphRead::Qt
 {
     void EnsureApplication();
+
+    // Ends Qt while the process still can; the launcher calls it when done.
+    void ShutdownApplication();
 }
 
 class QEvent;

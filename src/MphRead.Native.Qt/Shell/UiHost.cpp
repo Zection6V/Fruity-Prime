@@ -6,6 +6,7 @@
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QUrl>
+#include <QtGui/QImage>
 #include <QtGui/QInputMethodEvent>
 #include <QtGui/QKeyEvent>
 #include <QtGui/QMouseEvent>
@@ -173,18 +174,50 @@ namespace MphRead::Qt
         if (_dirty)
         {
             _dirty = false;
+            QOpenGLContext* const context = QOpenGLContext::currentContext();
+            QSurface* const surface = context->surface();
             _control->polishItems();
             _control->beginFrame();
             _control->sync();
             _control->render();
             _control->endFrame();
+            // An offscreen frame leaves the context current on Qt's own
+            // fallback surface; the game draws to its window.
+            context->makeCurrent(surface);
             // Qt Quick leaves its own GL state bound; the game expects the
             // defaults it starts every pass from.
             QQuickOpenGLUtils::resetOpenGLState();
+            DumpOnce();
             UiOverlay::UseTexture(static_cast<std::int32_t>(_texture),
                 _targetSize.width(), _targetSize.height());
         }
         UiOverlay::Visible(true);
+    }
+
+    void UiHost::DumpOnce()
+    {
+        // FP_QT_UI_DUMP=path: the menus' texture as rendered, once, to tell a
+        // scene problem from a compositing one.
+        static const QString path = qEnvironmentVariable("FP_QT_UI_DUMP");
+        static bool done = false;
+        if (path.isEmpty() || done)
+        {
+            return;
+        }
+        done = true;
+        QOpenGLFunctions* const gl = QOpenGLContext::currentContext()->functions();
+        GLuint fbo = 0;
+        gl->glGenFramebuffers(1, &fbo);
+        gl->glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        gl->glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, _texture, 0);
+        QImage image(_targetSize, QImage::Format_RGBA8888);
+        gl->glReadPixels(0, 0, _targetSize.width(), _targetSize.height(), GL_RGBA,
+            GL_UNSIGNED_BYTE, image.bits());
+        gl->glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        gl->glDeleteFramebuffers(1, &fbo);
+        image.save(path);
+        std::cout << "[ui] dumped " << path.toStdString() << " status "
+                  << gl->glCheckFramebufferStatus(GL_FRAMEBUFFER) << '\n';
     }
 
     void UiHost::Deliver(QEvent& event)

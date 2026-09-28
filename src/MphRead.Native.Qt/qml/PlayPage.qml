@@ -1,8 +1,10 @@
 import QtQuick
 
-// The front screen: pick an arena, a mode and opponents, then play offline.
+// Stand-in for PlayScreen until its Offline tab (the map cards) is ported:
+// pick an arena, a mode and opponents, then play offline.
 Item {
     id: page
+    signal back()
 
     Image {
         anchors.fill: parent
@@ -81,10 +83,10 @@ Item {
             }
             UiButton {
                 id: quit
-                text: "Quit"
-                onClicked: shell.quit()
+                text: "Back"
+                onClicked: page.back()
             }
         }
     }
-    Keys.onEscapePressed: shell.quit()
+    Keys.onEscapePressed: page.back()
 }

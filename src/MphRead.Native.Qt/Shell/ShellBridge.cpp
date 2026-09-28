@@ -1,5 +1,12 @@
 #include "ShellBridge.hpp"
 
+#include "../../MphRead.Native/Mods/Credits.hpp"
+#include "../../MphRead.Native/Mods/Launcher/Portable/LauncherPrefs.hpp"
+#include "../../MphRead.Native/Mods/Update/BuildVersion.hpp"
+#include "../../MphRead.Native/Mods/Update/Updater.hpp"
+#include "../../MphRead.Native/Mods/WindowMode.hpp"
+#include "../../MphRead.Native/NativeRuntime/System/Managed.hpp"
+
 #include <QtCore/QVariantMap>
 
 #include <utility>
@@ -66,6 +73,49 @@ namespace MphRead::Qt
         {
             _actions.Play(room, mode, hunter, bots, botLevel);
         }
+    }
+
+    QString ShellBridge::PlayerName() const
+    {
+        // StartScreen.PlayerNameOrDefault.
+        const QString name = QString::fromStdString(
+            ::MphRead::Mods::Launcher::LauncherPrefs::PlayerName()).trimmed();
+        return name.isEmpty() ? QStringLiteral("Player") : name;
+    }
+
+    QString ShellBridge::Version() const
+    {
+        // StartScreen.VersionNumber.
+        const auto& current = ::MphRead::Mods::Update::BuildVersion::Current();
+        return current.has_value() ? QString::fromStdString(current->ToString(3))
+                                   : QStringLiteral("a local build");
+    }
+
+    void ShellBridge::openSupport()
+    {
+        (void)::MphRead::Mods::Update::Updater::OpenLink(
+            std::string(::MphRead::Mods::Credits::SupportUrl));
+    }
+
+    QString ShellBridge::WindowLabel() const
+    {
+        // PauseMenuView.WindowLabel.
+        return ::MphRead::Mods::WindowMode::IsFullscreen() ? QStringLiteral("Windowed")
+                                                           : QStringLiteral("Fullscreen");
+    }
+
+    void ShellBridge::toggleFullscreen()
+    {
+        if (_actions.ToggleFullscreen)
+        {
+            _actions.ToggleFullscreen();
+        }
+        emit windowChanged();
+    }
+
+    void ShellBridge::openSettings()
+    {
+        // The settings screens are not ported to QML yet.
     }
 
     void ShellBridge::quit()

@@ -19,6 +19,9 @@ namespace MphRead::Qt
         Q_PROPERTY(QVariantList modes READ Modes CONSTANT)
         Q_PROPERTY(QVariantList hunters READ Hunters CONSTANT)
         Q_PROPERTY(bool gameFilesReady READ GameFilesReady NOTIFY roomsChanged)
+        Q_PROPERTY(QString playerName READ PlayerName NOTIFY profileChanged)
+        Q_PROPERTY(QString version READ Version CONSTANT)
+        Q_PROPERTY(QString windowLabel READ WindowLabel NOTIFY windowChanged)
 
     public:
         struct Actions
@@ -27,6 +30,7 @@ namespace MphRead::Qt
             std::function<void()> Quit;
             std::function<void()> Resume;
             std::function<void()> LeaveMatch;
+            std::function<void()> ToggleFullscreen;
         };
 
         explicit ShellBridge(Actions actions);
@@ -39,15 +43,23 @@ namespace MphRead::Qt
         [[nodiscard]] QVariantList Modes() const;
         [[nodiscard]] QVariantList Hunters() const;
         [[nodiscard]] bool GameFilesReady() const noexcept { return _gameFilesReady; }
+        [[nodiscard]] QString PlayerName() const;
+        [[nodiscard]] QString Version() const;
+        [[nodiscard]] QString WindowLabel() const;
 
         Q_INVOKABLE void play(const QString& room, int mode, int hunter, int bots, int botLevel);
         Q_INVOKABLE void quit();
         Q_INVOKABLE void resume();
         Q_INVOKABLE void leaveMatch();
+        Q_INVOKABLE void openSupport();
+        Q_INVOKABLE void toggleFullscreen();
+        Q_INVOKABLE void openSettings();
 
     signals:
         void pageChanged();
         void roomsChanged();
+        void profileChanged();
+        void windowChanged();
 
     private:
         Actions _actions;

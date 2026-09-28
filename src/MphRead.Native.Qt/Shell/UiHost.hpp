@@ -40,6 +40,7 @@ namespace MphRead::Qt
         bool Initialise();
         void EnsureTarget(QSize pixels);
         void ReleaseTarget();
+        void DumpOnce();
 
         QWindow& _gameWindow;
         ShellBridge& _bridge;

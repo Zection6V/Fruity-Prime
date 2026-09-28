@@ -322,7 +322,7 @@ endif()
 # objects go into the MphRead.Native archive, since the renderer calls the
 # shell and the window platform from inside it.
 if(FRUITY_UI STREQUAL "qt" AND NOT ANDROID)
-    find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick)
+    find_package(Qt6 6.9 REQUIRED COMPONENTS Core Gui Qml Quick QuickShapes QuickEffects)
     fruity_collect_owner("${FRUITY_QT_ROOT}" MPHREAD_QT_SOURCES MPHREAD_QT_HEADERS)
     fruity_report_owner("MphRead.Native.Qt" MPHREAD_QT_SOURCES MPHREAD_QT_HEADERS)
     add_library(fruity_mphread_qt OBJECT ${MPHREAD_QT_SOURCES} ${MPHREAD_QT_HEADERS})
@@ -364,6 +364,13 @@ if(NOT ANDROID)
         endforeach()
         set_source_files_properties(src/MphRead/Assets/Backgrounds/launcher-bg.jpg
             PROPERTIES QT_RESOURCE_ALIAS launcher-bg.jpg)
+        set(FRUITY_QML_FONTS "")
+        foreach(_font IN ITEMS PixelifySans-Regular PixelifySans-SemiBold PixelifySans-Bold
+                JetBrainsMono-Regular JetBrainsMono-Bold heyNovember Roboto-Bold)
+            set(_path src/MphRead/Assets/Fonts/${_font}.ttf)
+            set_source_files_properties(${_path} PROPERTIES QT_RESOURCE_ALIAS fonts/${_font}.ttf)
+            list(APPEND FRUITY_QML_FONTS ${_path})
+        endforeach()
         qt_add_qml_module(fruity_prime
             URI FruityPrime.Ui
             VERSION 1.0
@@ -371,7 +378,7 @@ if(NOT ANDROID)
             NO_RESOURCE_TARGET_PATH
             RESOURCE_PREFIX /qt/qml/FruityPrime/Ui
             QML_FILES ${FRUITY_QML_RELATIVE}
-            RESOURCES src/MphRead/Assets/Backgrounds/launcher-bg.jpg)
+            RESOURCES src/MphRead/Assets/Backgrounds/launcher-bg.jpg ${FRUITY_QML_FONTS})
     endif()
 
     # The launcher's window icon and front-screen logo. The C# build embeds

@@ -30,7 +30,9 @@ QtObject {
     readonly property var step: ({ fill: "#2a3140", lip: "#151a23" })
 
     // The faces. Pixelify Sans at 400/600/700 are three files of one family.
-    readonly property string pixel: pixelRegular.name
+    readonly property string pixel: labelOverride.status === FontLoader.Ready ? labelOverride.name : pixelRegular.name
+    // FP_QT_FONT=file: try another label face without a rebuild.
+    readonly property FontLoader labelOverride: FontLoader { source: shell.fontOverride }
     readonly property string mono: monoRegular.name
     readonly property string title: heyNovember.name
     readonly property string prose: roboto.name

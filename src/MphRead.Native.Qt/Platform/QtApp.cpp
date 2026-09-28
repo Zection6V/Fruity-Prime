@@ -1,5 +1,6 @@
 #include "QtApp.hpp"
 
+#include <QtGui/QFont>
 #include <QtGui/QGuiApplication>
 #include <QtQuick/QQuickWindow>
 #include <QtQuick/QSGRendererInterface>
@@ -38,6 +39,13 @@ namespace MphRead::Qt
         // The menus render through QRhi into a texture the game composites, on
         // the same API as the game: OpenGL until the RHI's Vulkan backend.
         QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
+        // Glyphs rasterised by the font engine at their size, as Skia does
+        // for Avalonia: the distance-field default softens a pixel face at
+        // the launcher's small sizes until it reads as blurred.
+        const QByteArray text = qgetenv("FP_QT_TEXT");
+        QQuickWindow::setTextRenderType(text == "qt" ? QQuickWindow::QtTextRendering
+                                        : text == "curve" ? QQuickWindow::CurveTextRendering
+                                                          : QQuickWindow::NativeTextRendering);
         // Wayland's client-side decorations move an OpenGL window's default
         // framebuffer off 0 into Qt's own FBO; the renderer draws to 0.
         if (!qEnvironmentVariableIsSet("QT_WAYLAND_DISABLE_WINDOWDECORATION"))
@@ -45,5 +53,13 @@ namespace MphRead::Qt
             qputenv("QT_WAYLAND_DISABLE_WINDOWDECORATION", "1");
         }
         Application() = std::make_unique<QGuiApplication>(argc, argv);
+        // Whole pixels: no antialiasing on the menus' text (the user found the
+        // softened glyphs blurred), and never subpixel colour, which would
+        // sit on the wrong pixels of a texture blended over the game.
+        QFont font = QGuiApplication::font();
+        font.setStyleStrategy(qEnvironmentVariableIsSet("FP_QT_TEXT_AA")
+            ? QFont::StyleStrategy(QFont::PreferAntialias | QFont::NoSubpixelAntialias)
+            : QFont::StyleStrategy(QFont::NoAntialias | QFont::NoSubpixelAntialias));
+        QGuiApplication::setFont(font);
     }
 }

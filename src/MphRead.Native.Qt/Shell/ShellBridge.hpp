@@ -36,6 +36,7 @@ namespace MphRead::Qt
         Q_PROPERTY(QColor versionColour READ VersionColour NOTIFY versionChanged)
         Q_PROPERTY(QString windowLabel READ WindowLabel NOTIFY windowChanged)
         Q_PROPERTY(QString brand READ Brand CONSTANT)
+        Q_PROPERTY(QString fontOverride READ FontOverride CONSTANT)
 
     public:
         using LaunchPlan = ::MphRead::Mods::Launcher::LaunchPlan;
@@ -65,6 +66,7 @@ namespace MphRead::Qt
         [[nodiscard]] QColor VersionColour() const;
         [[nodiscard]] QString WindowLabel() const;
         [[nodiscard]] QString Brand() const;
+        [[nodiscard]] QString FontOverride() const;
 
         void SetSettings(std::shared_ptr<::MphRead::MenuSettings> settings);
         [[nodiscard]] const std::shared_ptr<::MphRead::MenuSettings>& Settings() const noexcept { return _settings; }

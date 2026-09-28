@@ -127,6 +127,12 @@ namespace MphRead::Qt
             static_cast<qsizetype>(::MphRead::Mods::Branding::Name.size()));
     }
 
+    QString ShellBridge::FontOverride() const
+    {
+        const QString path = qEnvironmentVariable("FP_QT_FONT");
+        return path.isEmpty() ? QString() : QUrl::fromLocalFile(path).toString();
+    }
+
     void ShellBridge::SetSettings(std::shared_ptr<::MphRead::MenuSettings> settings)
     {
         _settings = std::move(settings);

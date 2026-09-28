@@ -29,13 +29,12 @@ Objectif : toute l'UI du launcher en QML, 1 pour 1 avec les 26 écrans de réfé
       offline 3.8 %, vote 3.9 %, online ~8 % (rendu du texte)
 
 ## Décisions utilisateur (2026-09-28)
-- Police des libellés : **Inter** (choix F dans `.qt-screenshots/polices.png`) à la place de Pixelify ;
-  JetBrains Mono reste pour champs/chiffres. À intégrer : copier Inter (OFL, google/fonts
-  `ofl/inter/Inter[opsz,wght].ttf`, téléchargé dans `~/.local/share/fp-fonts`) sous
-  `src/MphRead/Assets/Fonts/Inter-Variable.ttf`, l'ajouter à la liste de polices du CMakeLists et
-  faire pointer `Theme.pixel` dessus. Test sans rebuild : `FP_QT_FONT=<ttf>`.
-- Texte sans anticrénelage ni sous-pixel (QtApp.cpp ; `FP_QT_TEXT_AA=1` pour le remettre).
-  L'ombre sous les noms de serveurs reste (elle est dans l'original).
+- Police des libellés : **Inter** (`Assets/Fonts/Inter-Variable.ttf`, `Theme.pixel`) — intégrée.
+  Pixelify ne reste que pour le logo (`Theme.wordmark`). JetBrains Mono pour champs/chiffres.
+  Test d'une autre police sans rebuild : `FP_QT_FONT=<ttf>`.
+- Texte : anticrénelage gris + hinting vertical (l'aliasé faisait trop pixelisé, retour utilisateur
+  2026-09-28) ; jamais de sous-pixel. `FP_QT_TEXT_AA=0` remet l'aliasé.
+  Captures à la taille d'un vrai écran : `FP_QT_UISHOT_SIZE=1920x1080`.
 - Le flou ressenti vient surtout de la capture en 940×528 : vérifier en plein écran dans la vraie fenêtre.
 
 ## En cours / à faire

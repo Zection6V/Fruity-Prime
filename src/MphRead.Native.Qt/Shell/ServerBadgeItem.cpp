@@ -112,7 +112,7 @@ namespace MphRead::Qt
             if (found == Table().end())
             {
                 Fill(p, 0x1b2736U, x, y, W, H);
-                QFont font(QStringLiteral("Pixelify Sans"));
+                QFont font(QStringLiteral("Inter"));
                 font.setWeight(QFont::DemiBold);
                 font.setPixelSize(12);
                 p.setFont(font);

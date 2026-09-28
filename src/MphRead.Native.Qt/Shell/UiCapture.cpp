@@ -52,7 +52,14 @@ namespace MphRead::Qt
             bool Phone;
         };
 
-        const QSize Window(940, 528);
+        // FP_QT_UISHOT_SIZE=WxH: the desktop screens at another size, to judge
+        // the text at a real window's resolution; 940x528 matches -uishot.
+        const QSize Window = []() {
+            const QStringList parts = qEnvironmentVariable("FP_QT_UISHOT_SIZE").split(u'x');
+            const int w = parts.size() == 2 ? parts[0].toInt() : 0;
+            const int h = parts.size() == 2 ? parts[1].toInt() : 0;
+            return w > 0 && h > 0 ? QSize(w, h) : QSize(940, 528);
+        }();
         const QSize PhonePortrait(360, 800);
         const QSize PhoneLandscape(800, 360);
 

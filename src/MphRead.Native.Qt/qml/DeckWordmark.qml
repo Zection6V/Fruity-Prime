@@ -12,7 +12,7 @@ Item {
 
     TextMetrics { id: top; font: face.font; text: "FRUITY" }
     TextMetrics { id: bottom; font: face.font; text: "PRIME" }
-    FontMetrics { id: face; font.family: Theme.pixel; font.weight: Font.Bold; font.pixelSize: root.size }
+    FontMetrics { id: face; font.family: Theme.wordmark; font.weight: Font.Bold; font.pixelSize: root.size }
 
     implicitWidth: Math.max(top.advanceWidth, bottom.advanceWidth) + outline * 2
     implicitHeight: face.height + face.height * 0.88 + outline * 2 + drop

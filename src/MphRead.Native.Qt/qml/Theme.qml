@@ -29,8 +29,11 @@ QtObject {
     readonly property var slate: ({ fill: "#232a36", lip: "#12161e" })
     readonly property var step: ({ fill: "#2a3140", lip: "#151a23" })
 
-    // The faces. Pixelify Sans at 400/600/700 are three files of one family.
-    readonly property string pixel: labelOverride.status === FontLoader.Ready ? labelOverride.name : pixelRegular.name
+    // The faces. Labels are Inter (the user's pick over Pixelify Sans): one
+    // variable file carries every weight. Pixelify stays for the wordmark.
+    readonly property string pixel: labelOverride.status === FontLoader.Ready ? labelOverride.name : inter.name
+    readonly property FontLoader inter: FontLoader { source: "fonts/Inter-Variable.ttf" }
+    readonly property string wordmark: pixelRegular.name
     // FP_QT_FONT=file: try another label face without a rebuild.
     readonly property FontLoader labelOverride: FontLoader { source: shell.fontOverride }
     readonly property string mono: monoRegular.name

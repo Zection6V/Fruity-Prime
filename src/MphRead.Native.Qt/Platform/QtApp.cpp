@@ -53,13 +53,14 @@ namespace MphRead::Qt
             qputenv("QT_WAYLAND_DISABLE_WINDOWDECORATION", "1");
         }
         Application() = std::make_unique<QGuiApplication>(argc, argv);
-        // Whole pixels: no antialiasing on the menus' text (the user found the
-        // softened glyphs blurred), and never subpixel colour, which would
-        // sit on the wrong pixels of a texture blended over the game.
+        // Grey antialiasing with hinting: aliased glyphs read as pixelated
+        // (FP_QT_TEXT_AA=0 brings them back). Never subpixel colour, which
+        // would sit on the wrong pixels of a texture blended over the game.
         QFont font = QGuiApplication::font();
-        font.setStyleStrategy(qEnvironmentVariableIsSet("FP_QT_TEXT_AA")
-            ? QFont::StyleStrategy(QFont::PreferAntialias | QFont::NoSubpixelAntialias)
-            : QFont::StyleStrategy(QFont::NoAntialias | QFont::NoSubpixelAntialias));
+        font.setStyleStrategy(qgetenv("FP_QT_TEXT_AA") == "0"
+            ? QFont::StyleStrategy(QFont::NoAntialias | QFont::NoSubpixelAntialias)
+            : QFont::StyleStrategy(QFont::PreferAntialias | QFont::NoSubpixelAntialias));
+        font.setHintingPreference(QFont::PreferVerticalHinting);
         QGuiApplication::setFont(font);
     }
 }

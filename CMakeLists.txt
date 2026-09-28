@@ -367,7 +367,7 @@ if(NOT ANDROID)
         set_source_files_properties(src/MphRead/Assets/Backgrounds/launcher-bg.jpg
             PROPERTIES QT_RESOURCE_ALIAS launcher-bg.jpg)
         set(FRUITY_QML_FONTS "")
-        foreach(_font IN ITEMS PixelifySans-Regular PixelifySans-SemiBold PixelifySans-Bold
+        foreach(_font IN ITEMS Inter-Variable PixelifySans-Regular PixelifySans-SemiBold PixelifySans-Bold
                 JetBrainsMono-Regular JetBrainsMono-Bold heyNovember Roboto-Bold)
             set(_path src/MphRead/Assets/Fonts/${_font}.ttf)
             set_source_files_properties(${_path} PROPERTIES QT_RESOURCE_ALIAS fonts/${_font}.ttf)

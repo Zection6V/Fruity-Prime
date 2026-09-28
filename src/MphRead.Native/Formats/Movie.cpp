@@ -4040,16 +4040,16 @@ namespace MphRead
                 GL::TexSubImage2D(GL::TextureTarget::Texture2D, 0, 0, 0, _frameWidth, _frameHeight,
                     GL::PixelFormat::Rgb, GL::PixelType::UnsignedByte, BufferData(imageBuffer));
             }
-            GL::Begin(GL::PrimitiveType::TriangleStrip);
-            GL::TexCoord3(1.0F, 0.0F, 0.0F);
-            GL::Vertex3(0.5F, y, 0.0F);
-            GL::TexCoord3(0.0F, 0.0F, 0.0F);
-            GL::Vertex3(-0.5F, y, 0.0F);
-            GL::TexCoord3(1.0F, 1.0F, 0.0F);
-            GL::Vertex3(0.5F, y - 1, 0.0F);
-            GL::TexCoord3(0.0F, 1.0F, 0.0F);
-            GL::Vertex3(-0.5F, y - 1, 0.0F);
-            GL::End();
+            BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+            TransientTexCoord3(1.0F, 0.0F, 0.0F);
+            TransientVertex3(0.5F, y, 0.0F);
+            TransientTexCoord3(0.0F, 0.0F, 0.0F);
+            TransientVertex3(-0.5F, y, 0.0F);
+            TransientTexCoord3(1.0F, 1.0F, 0.0F);
+            TransientVertex3(0.5F, y - 1, 0.0F);
+            TransientTexCoord3(0.0F, 1.0F, 0.0F);
+            TransientVertex3(-0.5F, y - 1, 0.0F);
+            EndTransient();
             GL::BindTexture(GL::TextureTarget::Texture2D, 0);
         };
 
@@ -4058,16 +4058,16 @@ namespace MphRead
         // earlier in the frame (alpha 0) stays; sending 1.0F instead paints the
         // whole movie with the rtt shader's solid fade colour.
         GL::Uniform4(_shaderLocations->FadeColor, 0, 0, 0, 1);
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::TexCoord3(1.0F, 1.0F, 0.0F);
-        GL::Vertex3(1.0F, 1.0F, 0.0F);
-        GL::TexCoord3(0.0F, 1.0F, 0.0F);
-        GL::Vertex3(-1.0F, 1.0F, 0.0F);
-        GL::TexCoord3(1.0F, 0.0F, 0.0F);
-        GL::Vertex3(1.0F, -1.0F, 0.0F);
-        GL::TexCoord3(0.0F, 0.0F, 0.0F);
-        GL::Vertex3(-1.0F, -1.0F, 0.0F);
-        GL::End();
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientTexCoord3(1.0F, 1.0F, 0.0F);
+        TransientVertex3(1.0F, 1.0F, 0.0F);
+        TransientTexCoord3(0.0F, 1.0F, 0.0F);
+        TransientVertex3(-1.0F, 1.0F, 0.0F);
+        TransientTexCoord3(1.0F, 0.0F, 0.0F);
+        TransientVertex3(1.0F, -1.0F, 0.0F);
+        TransientTexCoord3(0.0F, 0.0F, 0.0F);
+        TransientVertex3(-1.0F, -1.0F, 0.0F);
+        EndTransient();
         drawScreen(_topMovieBinding, _topImageBuffer, 1.0F);
         drawScreen(_botMovieBinding, _botImageBuffer, 0.0F);
     }

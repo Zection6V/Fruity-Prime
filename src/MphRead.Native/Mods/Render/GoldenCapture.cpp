@@ -621,7 +621,7 @@ namespace MphRead
             bool textured,
             std::int32_t binding)
         {
-            std::shared_ptr<RenderItem> item = GetRenderItem();
+            std::shared_ptr<::MphRead::RenderItem> item = GetRenderItem();
             item->Type = type;
             item->PolygonId = GetNextPolygonId();
             item->Alpha = alpha;

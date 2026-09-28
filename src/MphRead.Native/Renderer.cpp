@@ -1,4 +1,5 @@
 #include "Renderer.hpp"
+#include "RendererGeometry.hpp"
 #include "NativeRuntime/System/Runtime.hpp"
 #include "NativeRuntime/Rhi/BackendFactory.hpp"
 #include "NativeRuntime/System/Console.hpp"
@@ -1067,177 +1068,86 @@ namespace MphRead
         std::int32_t textureWidth, std::int32_t textureHeight, bool texgen, bool isRoom)
     {
         const auto& list = model->RenderInstructionLists->at(static_cast<std::size_t>(mesh.DlistId));
-        float vtxX = 0.0F;
-        float vtxY = 0.0F;
-        float vtxZ = 0.0F;
-        float texX = texgen ? 0.5F : 0.0F;
-        float texY = texgen ? 0.5F : 0.0F;
-        std::uint32_t matrixId = 0;
-        GL::TexCoord3(texX, texY, 0.0F);
-        for (const auto& instructionPtr : *list)
+        RendererGeometry geometry;
+        try
         {
-            const RenderInstruction& instruction = *instructionPtr;
-            switch (instruction.Code)
-            {
-            case InstructionCode::BEGIN_VTXS:
-                switch (RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0)))
-                {
-                case 0: GL::Begin(GL::PrimitiveType::Triangles); break;
-                case 1: GL::Begin(GL::PrimitiveType::Quads); break;
-                case 2: GL::Begin(GL::PrimitiveType::TriangleStrip); break;
-                case 3: GL::Begin(GL::PrimitiveType::QuadStrip); break;
-                default: throw ProgramException("Invalid geometry type");
-                }
-                break;
-            case InstructionCode::COLOR:
-            {
-                const std::uint32_t rgb = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
-                GL::Color3(((rgb >> 0) & 0x1F) / 31.0F,
-                    ((rgb >> 5) & 0x1F) / 31.0F, ((rgb >> 10) & 0x1F) / 31.0F);
-                break;
-            }
-            case InstructionCode::DIF_AMB:
-            {
-                const std::uint32_t rgb = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
-                const std::uint32_t dr = (rgb >> 0) & 0x1F;
-                const std::uint32_t dg = (rgb >> 5) & 0x1F;
-                const std::uint32_t db = (rgb >> 10) & 0x1F;
-                const std::uint32_t set = (rgb >> 15) & 1;
-                const std::uint32_t ar = (rgb >> 16) & 0x1F;
-                const std::uint32_t ag = (rgb >> 21) & 0x1F;
-                const std::uint32_t ab = (rgb >> 26) & 0x1F;
-                Vector4 diffuse(dr / 31.0F, dg / 31.0F, db / 31.0F, 1.0F);
-                Vector4 ambient(ar / 31.0F, ag / 31.0F, ab / 31.0F, 1.0F);
-                MPHREAD_DEBUG_ASSERT(ambient.X == 0.0F && ambient.Y == 0.0F && ambient.Z == 0.0F);
-                GL::Color4(diffuse.X, diffuse.Y, diffuse.Z, 0.0F);
-                if (set != 0)
-                {
-                    MPHREAD_DEBUG_ASSERT(false);
-                    GL::Color3(dr / 31.0F, dg / 31.0F, db / 31.0F);
-                }
-                break;
-            }
-            case InstructionCode::NORMAL:
-            {
-                const std::uint32_t xyz = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
-                auto sx10 = [](std::uint32_t v)
-                {
-                    std::int32_t n = static_cast<std::int32_t>(v & 0x3FFU);
-                    if ((n & 0x200) != 0) n |= static_cast<std::int32_t>(0xFFFFFC00U);
-                    return n;
-                };
-                GL::Normal3(sx10(xyz >> 0) / 512.0F, sx10(xyz >> 10) / 512.0F, sx10(xyz >> 20) / 512.0F);
-                break;
-            }
-            case InstructionCode::TEXCOORD:
-            {
-                MPHREAD_DEBUG_ASSERT(textureWidth > 0 && textureHeight > 0);
-                const std::uint32_t st = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
-                auto sx16 = [](std::uint32_t v)
-                {
-                    std::int32_t n = static_cast<std::int32_t>(v & 0xFFFFU);
-                    if ((n & 0x8000) != 0) n |= static_cast<std::int32_t>(0xFFFF0000U);
-                    return n;
-                };
-                texX = sx16(st) / 16.0F / textureWidth;
-                texY = sx16(st >> 16) / 16.0F / textureHeight;
-                GL::TexCoord3(texX, texY, matrixId);
-                break;
-            }
-            case InstructionCode::VTX_16:
-            {
-                auto sx16 = [](std::uint32_t v)
-                {
-                    std::int32_t n = static_cast<std::int32_t>(v & 0xFFFFU);
-                    if ((n & 0x8000) != 0) n |= static_cast<std::int32_t>(0xFFFF0000U);
-                    return n;
-                };
-                const std::uint32_t xy = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
-                vtxX = Fixed::ToFloat(sx16(xy));
-                vtxY = Fixed::ToFloat(sx16(xy >> 16));
-                vtxZ = Fixed::ToFloat(sx16(RequireReference(instruction.Arguments).at(static_cast<std::size_t>(1))));
-                GL::Vertex3(vtxX, vtxY, vtxZ);
-                break;
-            }
-            case InstructionCode::VTX_10:
-            {
-                auto sx10 = [](std::uint32_t v)
-                {
-                    std::int32_t n = static_cast<std::int32_t>(v & 0x3FFU);
-                    if ((n & 0x200) != 0) n |= static_cast<std::int32_t>(0xFFFFFC00U);
-                    return n;
-                };
-                const std::uint32_t xyz = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
-                vtxX = sx10(xyz) / 64.0F;
-                vtxY = sx10(xyz >> 10) / 64.0F;
-                vtxZ = sx10(xyz >> 20) / 64.0F;
-                GL::Vertex3(vtxX, vtxY, vtxZ);
-                break;
-            }
-            case InstructionCode::VTX_XY:
-            case InstructionCode::VTX_XZ:
-            case InstructionCode::VTX_YZ:
-            {
-                auto sx16 = [](std::uint32_t v)
-                {
-                    std::int32_t n = static_cast<std::int32_t>(v & 0xFFFFU);
-                    if ((n & 0x8000) != 0) n |= static_cast<std::int32_t>(0xFFFF0000U);
-                    return n;
-                };
-                const std::uint32_t pair = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
-                if (instruction.Code == InstructionCode::VTX_XY)
-                {
-                    vtxX = Fixed::ToFloat(sx16(pair));
-                    vtxY = Fixed::ToFloat(sx16(pair >> 16));
-                }
-                else if (instruction.Code == InstructionCode::VTX_XZ)
-                {
-                    vtxX = Fixed::ToFloat(sx16(pair));
-                    vtxZ = Fixed::ToFloat(sx16(pair >> 16));
-                }
-                else
-                {
-                    vtxY = Fixed::ToFloat(sx16(pair));
-                    vtxZ = Fixed::ToFloat(sx16(pair >> 16));
-                }
-                GL::Vertex3(vtxX, vtxY, vtxZ);
-                break;
-            }
-            case InstructionCode::VTX_DIFF:
-            {
-                auto sx10 = [](std::uint32_t v)
-                {
-                    std::int32_t n = static_cast<std::int32_t>(v & 0x3FFU);
-                    if ((n & 0x200) != 0) n |= static_cast<std::int32_t>(0xFFFFFC00U);
-                    return n;
-                };
-                const std::uint32_t xyz = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
-                vtxX += Fixed::ToFloat(sx10(xyz));
-                vtxY += Fixed::ToFloat(sx10(xyz >> 10));
-                vtxZ += Fixed::ToFloat(sx10(xyz >> 20));
-                GL::Vertex3(vtxX, vtxY, vtxZ);
-                break;
-            }
-            case InstructionCode::END_VTXS: GL::End(); break;
-            case InstructionCode::MTX_RESTORE:
-                if (!isRoom)
-                {
-                    // NDS MTX_RESTORE uses only parameter bits 0-4. Passing the
-                    // complete 32-bit word through to the shader can turn ignored
-                    // hardware bits into an out-of-range mtx_stack[] index.
-                    const std::uint32_t requested
-                        = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0)) & 0x1FU;
-                    const std::size_t matrixCount = RequireReference(model->NodeMatrixIds).size();
-                    matrixId = matrixCount == 0
-                        ? 0U
-                        : static_cast<std::uint32_t>(std::min<std::size_t>(requested, matrixCount - 1U));
-                }
-                GL::TexCoord3(texX, texY, matrixId);
-                break;
-            case InstructionCode::NOP: break;
-            default: throw ProgramException("Unknown opcode");
-            }
+            geometry = DecodeRendererGeometry(*list, textureWidth, textureHeight, texgen, isRoom,
+                RequireReference(model->NodeMatrixIds).size());
         }
+        catch (const RendererGeometryException& ex)
+        {
+            throw ProgramException(ex.what());
+        }
+
+        for (const ScenePrimitiveRange& range : geometry.Ranges)
+        {
+            switch (range.Topology)
+            {
+            case ScenePrimitiveTopology::Triangles:
+                GL::Begin(GL::PrimitiveType::Triangles);
+                break;
+            case ScenePrimitiveTopology::Quads:
+                GL::Begin(GL::PrimitiveType::Quads);
+                break;
+            case ScenePrimitiveTopology::TriangleStrip:
+                GL::Begin(GL::PrimitiveType::TriangleStrip);
+                break;
+            case ScenePrimitiveTopology::QuadStrip:
+                GL::Begin(GL::PrimitiveType::QuadStrip);
+                break;
+            }
+
+            const std::size_t first = static_cast<std::size_t>(range.FirstIndex);
+            const std::size_t count = static_cast<std::size_t>(range.IndexCount);
+            for (std::size_t i = 0; i < count; ++i)
+            {
+                const std::uint32_t vertexIndex = geometry.Indices.at(first + i);
+                const SceneVertex& vertex = geometry.Vertices.at(static_cast<std::size_t>(vertexIndex));
+                const SceneVertexAttributeState state
+                    = geometry.VertexAttributeStates.at(static_cast<std::size_t>(vertexIndex));
+
+                // Color and normal are not initialized by DoDlist itself. Until
+                // their first instruction they inherit the OpenGL state that was
+                // current when this display list is executed (DoMaterial sets the
+                // material color this way). Do not replace that legacy inheritance
+                // with a fabricated CPU default.
+                if (HasSceneVertexAttributeState(state, SceneVertexAttributeState::Color))
+                {
+                    GL::Color4(vertex.Color.X, vertex.Color.Y, vertex.Color.Z, vertex.Color.W);
+                }
+                if (HasSceneVertexAttributeState(state, SceneVertexAttributeState::Normal))
+                {
+                    GL::Normal3(vertex.Normal.X, vertex.Normal.Y, vertex.Normal.Z);
+                }
+
+                // MatrixIndex is explicit in CPU geometry. The compatibility
+                // shader still consumes it through gl_MultiTexCoord0.z until the
+                // Phase 4 buffer migration changes the OpenGL boundary.
+                GL::TexCoord3(vertex.TexCoord.X, vertex.TexCoord.Y,
+                    static_cast<float>(vertex.MatrixIndex));
+                GL::Vertex3(vertex.Position.X, vertex.Position.Y, vertex.Position.Z);
+            }
+            GL::End();
+        }
+
+        // State-only instructions after the final vertex still change OpenGL's
+        // current color/normal for whatever is drawn next. Preserve that side
+        // effect even though they do not contribute another CPU vertex.
+        if (HasSceneVertexAttributeState(
+            geometry.TerminalAttributeState, SceneVertexAttributeState::Color))
+        {
+            GL::Color4(geometry.TerminalState.Color.X, geometry.TerminalState.Color.Y,
+                geometry.TerminalState.Color.Z, geometry.TerminalState.Color.W);
+        }
+        if (HasSceneVertexAttributeState(
+            geometry.TerminalAttributeState, SceneVertexAttributeState::Normal))
+        {
+            GL::Normal3(geometry.TerminalState.Normal.X, geometry.TerminalState.Normal.Y,
+                geometry.TerminalState.Normal.Z);
+        }
+
+        // Legacy DoDlist deliberately leaves matrix selection at zero so the
+        // next draw cannot accidentally reuse this model's matrix stack.
         GL::TexCoord3(0.0F, 0.0F, 0.0F);
     }
 

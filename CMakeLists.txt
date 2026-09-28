@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.25)
 
 project(FruityPrimeNative LANGUAGES CXX)
 
+include(CTest)
+
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/FruityNativeConfig.cmake")
 
 set(CMAKE_CXX_STANDARD 20)
@@ -73,6 +75,13 @@ set(FRUITY_ANDROID_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src/MphRead.Native.Android"
 fruity_collect_owner("${FRUITY_NCSFPLAY_ROOT}" NCSFPLAY_NATIVE_SOURCES NCSFPLAY_NATIVE_HEADERS)
 fruity_collect_owner("${FRUITY_MPHREAD_ROOT}" MPHREAD_NATIVE_SOURCES MPHREAD_NATIVE_HEADERS)
 
+# Runtime decoder tests have their own executable below. Keep its main() out
+# of the production archive while retaining the repository's Native/Testing
+# source location.
+set(FRUITY_RENDERER_GEOMETRY_TEST_SOURCE
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestRendererGeometry.cpp")
+list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES "${FRUITY_RENDERER_GEOMETRY_TEST_SOURCE}")
+
 # Android has its own activity, views, input bridge and EGL/GLES renderer under
 # MphRead.Native.Android. The desktop Avalonia/GLFW/Freetype owners must not be
 # pulled into the Android common archive merely because the source list is a
@@ -128,6 +137,28 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
     target_compile_options(fruity_mphread_native PUBLIC -ffp-contract=off)
 endif()
 set_target_properties(fruity_mphread_native PROPERTIES OUTPUT_NAME "MphRead.Native")
+
+# Phase 3's geometry decoder is deliberately pure CPU code. Build and run its
+# focused tests whenever a host native owner is built; Android cross-compiles
+# the production decoder but cannot execute the host test binary.
+if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
+    add_executable(fruity_renderer_geometry_tests
+        "${FRUITY_RENDERER_GEOMETRY_TEST_SOURCE}"
+        "${FRUITY_MPHREAD_ROOT}/RendererGeometry.cpp")
+    target_include_directories(fruity_renderer_geometry_tests PRIVATE "${FRUITY_MPHREAD_ROOT}")
+    target_compile_features(fruity_renderer_geometry_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(fruity_renderer_geometry_tests PRIVATE -ffp-contract=off)
+    endif()
+
+    add_test(NAME FruityPrime.RendererGeometry COMMAND fruity_renderer_geometry_tests)
+    add_custom_target(fruity_renderer_geometry_check
+        COMMAND "$<TARGET_FILE:fruity_renderer_geometry_tests>"
+        DEPENDS fruity_renderer_geometry_tests
+        COMMENT "Running native renderer geometry decoder tests"
+        VERBATIM)
+    add_dependencies(fruity_mphread_native fruity_renderer_geometry_check)
+endif()
 
 # The native desktop executable carries the launcher toolkit and the one-window
 # shell. Android uses its activity/view integration in the C# head instead.

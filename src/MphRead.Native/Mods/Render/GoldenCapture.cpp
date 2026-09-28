@@ -315,9 +315,16 @@ namespace
                 }
                 else
                 {
-                    _scene->SetPreviewCamera(
-                        GoldenCameraPosition(),
-                        GoldenCameraTarget());
+                    const auto main = MphRead::Entities::PlayerEntity::Main();
+                    if (!main || !main->CameraInfo())
+                    {
+                        Fail("synthetic fixture requires the production player camera");
+                        _window->BaseOnRenderFrame(args);
+                        return;
+                    }
+                    const auto camera = main->CameraInfo();
+                    _scene->ModGoldenSetPlayerCamera(
+                        camera->Position, camera->Target, camera->Fov);
                 }
 
                 _scene->OnDrawFrame();
@@ -462,26 +469,24 @@ namespace
             {
             case GoldenCandidate::TransparentObject:
                 return
-                    "synthetic translucent RenderItemType::Quad; "
-                    "alpha=0.45; vertices=(-2,2,0),(2,2,0),"
-                    "(2,6,0),(-2,6,0)";
+                    "camera-relative translucent RenderItemType::Quad; "
+                    "material alpha=0.45 and override alpha=0.45; "
+                    "centered 2.5 units in front of the production camera";
             case GoldenCandidate::Decal:
                 return
-                    "synthetic RenderMode::Decal quad on TEST ARENA "
-                    "floor; alpha=1.0; vertices=(-4,0.02,6),"
-                    "(4,0.02,6),(4,0.02,10),(-4,0.02,10)";
+                    "camera-relative RenderMode::Decal quad; alpha=1.0; "
+                    "centered 2.7 units in front of the production camera";
             case GoldenCandidate::Particle:
                 return
-                    "synthetic RenderItemType::Particle using a "
-                    "Scene-owned 2x2 cyan/white checker texture; "
-                    "alpha=0.85; vertices=(-2,2,0),(2,2,0),"
-                    "(2,6,0),(-2,6,0)";
+                    "camera-relative RenderItemType::Particle using a "
+                    "Scene-owned 2x2 cyan/white checker texture; alpha=0.85; "
+                    "centered 2.2 units in front of the production camera";
             case GoldenCandidate::Trail:
                 return
-                    "synthetic RenderItemType::TrailMulti using a "
+                    "camera-relative RenderItemType::TrailMulti using a "
                     "Scene-owned 2x2 cyan/white checker texture; "
-                    "8 strip vertices from x=-4 to x=4 around "
-                    "y=3.2..4.8,z=0";
+                    "8 strip vertices centered 2.4 units in front of "
+                    "the production camera";
             case GoldenCandidate::Hud:
                 return
                     "real Samus production HUD; debug-only player "
@@ -539,13 +544,23 @@ namespace
                 << GoldenCaptureUpdate
                 << ", immediately before OnRenderFrame\n";
             out << "camera_mode="
-                << (UsesPlayerCamera(_candidate)
-                    ? "player-debug-override"
-                    : "preview")
+                << (UsesSyntheticFixture(_candidate)
+                    ? "production-player-camera-after-warmup"
+                    : "player-debug-override")
                 << "\n";
-            out << "camera_position=0,16,30\n";
-            out << "camera_target=0,1,0\n";
-            out << "fov_degrees=78\n";
+            if (UsesSyntheticFixture(_candidate))
+            {
+                out << "camera_position=production-player-camera-after-warmup\n";
+                out << "camera_target=production-player-camera-after-warmup\n";
+                out << "fov_degrees=production-player-camera-after-warmup\n";
+            }
+            else
+            {
+                out << "camera_position=0,16,30\n";
+                out << "camera_target=0,1,0\n";
+                out << "fov_degrees=78\n";
+            }
+            out << "synthetic_fixture_space=camera-relative\n";
             out << "resolution_scale=100\n";
             out << "lighting=on\n";
             out << "cel=off\n";
@@ -653,7 +668,8 @@ namespace MphRead
             item->TextureBindingId = textured ? binding : 0;
             item->TexcoordMatrix = RendererDetail::IdentityMatrix();
             item->Transform = RendererDetail::IdentityMatrix();
-            item->ListId = 0;
+            item->MeshModel.reset();
+            item->MeshObject.reset();
             item->MatrixStackCount = 0;
             item->OverrideColor.reset();
             item->PaletteOverride.reset();
@@ -674,6 +690,14 @@ namespace MphRead
                 "texture binding.");
         }
 
+        const auto cameraPoint = [this](float x, float y, float distance)
+        {
+            return _cameraPosition
+                + Multiply(_cameraRight, x)
+                + Multiply(_cameraUp, y)
+                + Multiply(_cameraFacing, distance);
+        };
+
         if (fixture
             == Mods::Render::GoldenFixture::TransparentObject)
         {
@@ -685,11 +709,11 @@ namespace MphRead
                 false,
                 0);
             item->OverrideColor
-                = Vector4(0.10F, 0.85F, 1.0F, 1.0F);
-            (*item->Points)[0] = Vector3(-2.0F, 2.0F, 0.0F);
-            (*item->Points)[1] = Vector3(2.0F, 2.0F, 0.0F);
-            (*item->Points)[2] = Vector3(2.0F, 6.0F, 0.0F);
-            (*item->Points)[3] = Vector3(-2.0F, 6.0F, 0.0F);
+                = Vector4(0.10F, 0.85F, 1.0F, 0.45F);
+            (*item->Points)[0] = cameraPoint(-0.8F, 0.8F, 2.5F);
+            (*item->Points)[1] = cameraPoint(0.8F, 0.8F, 2.5F);
+            (*item->Points)[2] = cameraPoint(0.8F, -0.8F, 2.5F);
+            (*item->Points)[3] = cameraPoint(-0.8F, -0.8F, 2.5F);
             AddRenderItem(item);
             return;
         }
@@ -705,14 +729,10 @@ namespace MphRead
                 0);
             item->OverrideColor
                 = Vector4(1.0F, 0.15F, 0.05F, 1.0F);
-            (*item->Points)[0]
-                = Vector3(-4.0F, 0.02F, 6.0F);
-            (*item->Points)[1]
-                = Vector3(4.0F, 0.02F, 6.0F);
-            (*item->Points)[2]
-                = Vector3(4.0F, 0.02F, 10.0F);
-            (*item->Points)[3]
-                = Vector3(-4.0F, 0.02F, 10.0F);
+            (*item->Points)[0] = cameraPoint(-1.0F, 0.45F, 2.7F);
+            (*item->Points)[1] = cameraPoint(1.0F, 0.45F, 2.7F);
+            (*item->Points)[2] = cameraPoint(1.0F, -0.45F, 2.7F);
+            (*item->Points)[3] = cameraPoint(-1.0F, -0.45F, 2.7F);
             AddRenderItem(item);
             return;
         }
@@ -727,13 +747,13 @@ namespace MphRead
                 true,
                 textureBindingId);
             (*item->Points)[0] = Vector3(0.0F, 0.0F, 0.0F);
-            (*item->Points)[1] = Vector3(-2.0F, 2.0F, 0.0F);
+            (*item->Points)[1] = cameraPoint(-0.7F, 0.7F, 2.2F);
             (*item->Points)[2] = Vector3(1.0F, 0.0F, 0.0F);
-            (*item->Points)[3] = Vector3(2.0F, 2.0F, 0.0F);
+            (*item->Points)[3] = cameraPoint(0.7F, 0.7F, 2.2F);
             (*item->Points)[4] = Vector3(1.0F, 1.0F, 0.0F);
-            (*item->Points)[5] = Vector3(2.0F, 6.0F, 0.0F);
+            (*item->Points)[5] = cameraPoint(0.7F, -0.7F, 2.2F);
             (*item->Points)[6] = Vector3(0.0F, 1.0F, 0.0F);
-            (*item->Points)[7] = Vector3(-2.0F, 6.0F, 0.0F);
+            (*item->Points)[7] = cameraPoint(-0.7F, -0.7F, 2.2F);
             AddRenderItem(item);
             return;
         }
@@ -746,14 +766,14 @@ namespace MphRead
             true,
             textureBindingId);
         const std::array<Vector3, 8> trailVertices{
-            Vector3(-4.0F, 4.0F, 0.0F),
-            Vector3(-4.0F, 3.2F, 0.0F),
-            Vector3(-1.5F, 4.6F, 0.0F),
-            Vector3(-1.5F, 3.6F, 0.0F),
-            Vector3(1.5F, 4.8F, 0.0F),
-            Vector3(1.5F, 3.8F, 0.0F),
-            Vector3(4.0F, 4.2F, 0.0F),
-            Vector3(4.0F, 3.4F, 0.0F)
+            cameraPoint(-1.4F, 0.35F, 2.4F),
+            cameraPoint(-1.4F, -0.25F, 2.4F),
+            cameraPoint(-0.5F, 0.50F, 2.4F),
+            cameraPoint(-0.5F, -0.15F, 2.4F),
+            cameraPoint(0.5F, 0.55F, 2.4F),
+            cameraPoint(0.5F, -0.10F, 2.4F),
+            cameraPoint(1.4F, 0.40F, 2.4F),
+            cameraPoint(1.4F, -0.20F, 2.4F)
         };
         for (std::size_t i = 0;
             i < trailVertices.size();

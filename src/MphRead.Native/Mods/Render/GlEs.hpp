@@ -32,12 +32,6 @@ namespace MphRead::Mods::Render
         static void TexCoord3(float s, float t, float matrixId);
         static void TexCoord3(const std::array<float, 3>& texcoord);
 
-        static std::int32_t GenLists(std::int32_t range);
-        static void NewList(std::int32_t list, std::int32_t mode);
-        static void EndList();
-        static void CallList(std::int32_t list);
-        static void DeleteLists(std::int32_t list, std::int32_t range);
-
         static std::int32_t GenTexture();
         static void DeleteTexture(std::int32_t name);
         static void BindTexture(std::int32_t target, std::int32_t name);
@@ -167,15 +161,6 @@ namespace MphRead::Mods::Render
             void Clear();
         };
 
-        struct CompiledList final
-        {
-            std::int32_t Vao = 0;
-            std::int32_t Vbo = 0;
-            std::int32_t Ibo = 0;
-            std::int32_t TriCount = 0;
-            std::int32_t LineCount = 0;
-        };
-
         struct ProgramLocations final
         {
             std::int32_t ImmColor;
@@ -191,11 +176,6 @@ namespace MphRead::Mods::Render
         static std::int32_t _primStart;
 
         static Batch _batch;
-        static bool _recording;
-        static std::int32_t _recordListId;
-
-        static std::unordered_map<std::int32_t, CompiledList> _lists;
-        static std::int32_t _nextListId;
 
         static std::int32_t _dynVao;
         static std::int32_t _dynVbo;

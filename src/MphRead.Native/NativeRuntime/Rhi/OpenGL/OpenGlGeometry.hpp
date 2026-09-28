@@ -8,4 +8,6 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 {
     [[nodiscard]] std::shared_ptr<MphRead::GpuMeshResource> CreateGpuMeshResource(
         const MphRead::RendererGeometry& geometry);
+    [[nodiscard]] std::shared_ptr<MphRead::TransientGeometryResource>
+        CreateTransientGeometryResource();
 }

@@ -37,6 +37,26 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             throw std::invalid_argument("Unknown scene primitive topology.");
         }
 
+        [[nodiscard]] GL::PrimitiveType ToGlTopology(TransientPrimitiveTopology topology)
+        {
+            switch (topology)
+            {
+            case TransientPrimitiveTopology::LineLoop:
+                return GL::PrimitiveType::LineLoop;
+            case TransientPrimitiveTopology::Triangles:
+                return GL::PrimitiveType::Triangles;
+            case TransientPrimitiveTopology::TriangleStrip:
+                return GL::PrimitiveType::TriangleStrip;
+            case TransientPrimitiveTopology::TriangleFan:
+                return GL::PrimitiveType::TriangleFan;
+            case TransientPrimitiveTopology::Quads:
+                return GL::PrimitiveType::Quads;
+            case TransientPrimitiveTopology::QuadStrip:
+                return GL::PrimitiveType::QuadStrip;
+            }
+            throw std::invalid_argument("Unknown transient primitive topology.");
+        }
+
         [[nodiscard]] OpenGlMeshVertex PackVertex(const SceneVertex& vertex)
         {
             OpenGlMeshVertex packed{};
@@ -225,7 +245,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     GL::Normal3(_terminalState.Normal.X, _terminalState.Normal.Y,
                         _terminalState.Normal.Z);
                 }
-                GL::TexCoord3(0.0F, 0.0F, 0.0F);
+                GL::TexCoord3(_terminalState.TexCoord.X, _terminalState.TexCoord.Y,
+                    static_cast<float>(_terminalState.MatrixIndex));
             }
 
         private:
@@ -319,11 +340,137 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             std::int32_t _colorBuffer = 0;
             std::int32_t _normalBuffer = 0;
         };
+
+        struct OpenGlTransientVertex final
+        {
+            float Position[3]{};
+            float TexCoord[3]{};
+        };
+
+        class OpenGlTransientGeometry final : public TransientGeometryResource
+        {
+        public:
+            OpenGlTransientGeometry()
+            {
+                try
+                {
+                    _vertexBuffer = GL::GenBuffer();
+                    _indexBuffer = GL::GenBuffer();
+                    if (_vertexBuffer == 0 || _indexBuffer == 0)
+                    {
+                        throw std::runtime_error("OpenGL returned transient buffer object 0.");
+                    }
+                }
+                catch (...)
+                {
+                    Release();
+                    throw;
+                }
+            }
+
+            ~OpenGlTransientGeometry() override
+            {
+                Release();
+            }
+
+            void BeginFrame() override
+            {
+                // The same two stream buffers are orphaned by each Draw call.
+                // Keeping them scene-owned avoids per-draw GL object churn.
+            }
+
+            void Draw(TransientPrimitiveTopology topology,
+                std::span<const TransientVertex> vertices, bool hasTexCoords) override
+            {
+                if (vertices.empty())
+                {
+                    return;
+                }
+
+                _vertices.resize(vertices.size());
+                _indices.resize(vertices.size());
+                for (std::size_t i = 0; i < vertices.size(); ++i)
+                {
+                    const TransientVertex& source = vertices[i];
+                    OpenGlTransientVertex& target = _vertices[i];
+                    target.Position[0] = source.Position.X;
+                    target.Position[1] = source.Position.Y;
+                    target.Position[2] = source.Position.Z;
+                    target.TexCoord[0] = source.TexCoord.X;
+                    target.TexCoord[1] = source.TexCoord.Y;
+                    target.TexCoord[2] = source.TexCoord.Z;
+                    _indices[i] = static_cast<std::uint32_t>(i);
+                }
+
+                GL::BindBuffer(GL::BufferTarget::ArrayBuffer, _vertexBuffer);
+                GL::BufferData(GL::BufferTarget::ArrayBuffer,
+                    _vertices.size() * sizeof(OpenGlTransientVertex), _vertices.data(),
+                    GL::BufferUsageHint::StreamDraw);
+                GL::BindBuffer(GL::BufferTarget::ElementArrayBuffer, _indexBuffer);
+                GL::BufferData(GL::BufferTarget::ElementArrayBuffer,
+                    _indices.size() * sizeof(std::uint32_t), _indices.data(),
+                    GL::BufferUsageHint::StreamDraw);
+
+                GL::DisableClientState(GL::ClientState::ColorArray);
+                GL::DisableClientState(GL::ClientState::NormalArray);
+                GL::EnableClientState(GL::ClientState::VertexArray);
+                GL::VertexPointer(3, GL::PointerType::Float,
+                    static_cast<std::int32_t>(sizeof(OpenGlTransientVertex)),
+                    reinterpret_cast<const void*>(offsetof(OpenGlTransientVertex, Position)));
+                if (hasTexCoords)
+                {
+                    GL::EnableClientState(GL::ClientState::TextureCoordArray);
+                    GL::TexCoordPointer(3, GL::PointerType::Float,
+                        static_cast<std::int32_t>(sizeof(OpenGlTransientVertex)),
+                        reinterpret_cast<const void*>(offsetof(OpenGlTransientVertex, TexCoord)));
+                }
+                else
+                {
+                    GL::DisableClientState(GL::ClientState::TextureCoordArray);
+                }
+
+                GL::DrawElements(ToGlTopology(topology),
+                    static_cast<std::int32_t>(_indices.size()),
+                    GL::DrawElementsType::UnsignedInt, nullptr);
+
+                GL::DisableClientState(GL::ClientState::VertexArray);
+                GL::DisableClientState(GL::ClientState::TextureCoordArray);
+                GL::BindBuffer(GL::BufferTarget::ArrayBuffer, 0);
+                GL::BindBuffer(GL::BufferTarget::ElementArrayBuffer, 0);
+            }
+
+        private:
+            void Release() noexcept
+            {
+                try
+                {
+                    if (_indexBuffer != 0) GL::DeleteBuffer(_indexBuffer);
+                    if (_vertexBuffer != 0) GL::DeleteBuffer(_vertexBuffer);
+                }
+                catch (...)
+                {
+                    // Scene::UnloadGl releases this while the context is current.
+                }
+                _indexBuffer = 0;
+                _vertexBuffer = 0;
+            }
+
+            std::vector<OpenGlTransientVertex> _vertices{};
+            std::vector<std::uint32_t> _indices{};
+            std::int32_t _vertexBuffer = 0;
+            std::int32_t _indexBuffer = 0;
+        };
     }
 
     std::shared_ptr<MphRead::GpuMeshResource> CreateGpuMeshResource(
         const MphRead::RendererGeometry& geometry)
     {
         return std::make_shared<OpenGlGpuMesh>(geometry);
+    }
+
+    std::shared_ptr<MphRead::TransientGeometryResource>
+        CreateTransientGeometryResource()
+    {
+        return std::make_shared<OpenGlTransientGeometry>();
     }
 }

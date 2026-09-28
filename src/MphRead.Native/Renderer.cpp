@@ -682,6 +682,8 @@ namespace MphRead
                 << NativeRuntime::ToStringInvariant(Mods::RenderOptions::CelEdge(), "0.00")
                 << ", fog " << BoolOnOff(Mods::RenderOptions::Fog()) << '\n';
             InitShaders();
+            _transientGeometry
+                = NativeRuntime::Rhi::OpenGL::CreateTransientGeometryResource();
         }
         AllocateEffects();
         CollisionDetection::Init();
@@ -1720,12 +1722,12 @@ namespace MphRead
         GL::Disable(GL::EnableCap::DepthTest);
         GL::Disable(GL::EnableCap::Blend);
         GL::Disable(GL::EnableCap::CullFace);
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::TexCoord3(1.0F, 1.0F, 0.0F); GL::Vertex3(1.0F, 1.0F, 0.0F);
-        GL::TexCoord3(0.0F, 1.0F, 0.0F); GL::Vertex3(-1.0F, 1.0F, 0.0F);
-        GL::TexCoord3(1.0F, 0.0F, 0.0F); GL::Vertex3(1.0F, -1.0F, 0.0F);
-        GL::TexCoord3(0.0F, 0.0F, 0.0F); GL::Vertex3(-1.0F, -1.0F, 0.0F);
-        GL::End();
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientTexCoord3(1.0F, 1.0F, 0.0F); TransientVertex3(1.0F, 1.0F, 0.0F);
+        TransientTexCoord3(0.0F, 1.0F, 0.0F); TransientVertex3(-1.0F, 1.0F, 0.0F);
+        TransientTexCoord3(1.0F, 0.0F, 0.0F); TransientVertex3(1.0F, -1.0F, 0.0F);
+        TransientTexCoord3(0.0F, 0.0F, 0.0F); TransientVertex3(-1.0F, -1.0F, 0.0F);
+        EndTransient();
         GL::BindTexture(GL::TextureTarget::Texture2D, 0);
         GL::ActiveTexture(GL::TextureUnit::Texture1); GL::BindTexture(GL::TextureTarget::Texture2D, 0);
         GL::ActiveTexture(GL::TextureUnit::Texture0);
@@ -1801,6 +1803,10 @@ namespace MphRead
     {
         const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
         CountFrame();
+        if (_transientGeometry)
+        {
+            _transientGeometry->BeginFrame();
+        }
         GL::Clear(GL::ClearBufferMask::ColorBufferBit | GL::ClearBufferMask::DepthBufferBit | GL::ClearBufferMask::StencilBufferBit);
         GL::ClearStencil(0);
         UpdateUniforms();
@@ -1876,9 +1882,9 @@ namespace MphRead
         GL::Viewport(0, 0, _rendererSize.X, _rendererSize.Y);
         GL::Clear(GL::ClearBufferMask::ColorBufferBit); GL::Disable(GL::EnableCap::DepthTest); GL::Enable(GL::EnableCap::Blend);
         GL::BindTexture(GL::TextureTarget::Texture2D, _screenTexture);
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::TexCoord3(1,1,0); GL::Vertex3(1,1,0); GL::TexCoord3(0,1,0); GL::Vertex3(-1,1,0);
-        GL::TexCoord3(1,0,0); GL::Vertex3(1,-1,0); GL::TexCoord3(0,0,0); GL::Vertex3(-1,-1,0); GL::End();
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientTexCoord3(1,1,0); TransientVertex3(1,1,0); TransientTexCoord3(0,1,0); TransientVertex3(-1,1,0);
+        TransientTexCoord3(1,0,0); TransientVertex3(1,-1,0); TransientTexCoord3(0,0,0); TransientVertex3(-1,-1,0); EndTransient();
         GL::BindTexture(GL::TextureTarget::Texture2D, 0);
         if (main->HudDisruptedState() != 0 || main->HudWhiteoutState() != -1) GL::UseProgram(_rttShaderProgramId);
         GL::Uniform4(_shaderLocations->FadeColor, _fadeColor, _fadeColor, _fadeColor, 0.0F);
@@ -1909,9 +1915,9 @@ namespace MphRead
             if (percent > 0.0F)
             {
                 GL::Uniform4(_shaderLocations->FadeColor, _fadeColor, _fadeColor, _fadeColor, percent);
-                GL::Begin(GL::PrimitiveType::TriangleStrip);
-                GL::TexCoord3(1,1,0); GL::Vertex3(1,1,0); GL::TexCoord3(0,1,0); GL::Vertex3(-1,1,0);
-                GL::TexCoord3(1,0,0); GL::Vertex3(1,-1,0); GL::TexCoord3(0,0,0); GL::Vertex3(-1,-1,0); GL::End();
+                BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+                TransientTexCoord3(1,1,0); TransientVertex3(1,1,0); TransientTexCoord3(0,1,0); TransientVertex3(-1,1,0);
+                TransientTexCoord3(1,0,0); TransientVertex3(1,-1,0); TransientTexCoord3(0,0,0); TransientVertex3(-1,-1,0); EndTransient();
             }
         }
         GL::Enable(GL::EnableCap::DepthTest); GL::Disable(GL::EnableCap::Blend);
@@ -3464,6 +3470,8 @@ namespace MphRead
         _ownedTextures.clear();
         _flatColors.clear();
         _gpuMeshCache.Clear();
+        _transientGeometry.reset();
+        _transientVertices.clear();
         Read::ClearCache();
         if (_frameBuffer != 0)
         {
@@ -3563,6 +3571,64 @@ namespace MphRead
             _fadePercent = 0.0F;
             _fadeStart = 0.0F;
             _fadeLength = 0.0F;
+        }
+    }
+
+    void Scene::BeginTransient(TransientPrimitiveTopology topology)
+    {
+        if (!_transientGeometry)
+        {
+            throw ProgramException("Transient geometry resource is unavailable.");
+        }
+        _transientTopology = topology;
+        _transientVertices.clear();
+        _transientHasTexCoords = false;
+    }
+
+    void Scene::TransientVertex3(float x, float y, float z)
+    {
+        _transientVertices.push_back(TransientVertex{
+            Vector3(x, y, z),
+            _transientTexCoord
+        });
+    }
+
+    void Scene::TransientVertex3(Vector3 vector)
+    {
+        _transientVertices.push_back(TransientVertex{
+            vector,
+            _transientTexCoord
+        });
+    }
+
+    void Scene::TransientTexCoord3(float sCoord, float tCoord, float rCoord)
+    {
+        _transientTexCoord = Vector3(sCoord, tCoord, rCoord);
+        _transientHasTexCoords = true;
+    }
+
+    void Scene::TransientTexCoord3(Vector3 coord)
+    {
+        _transientTexCoord = coord;
+        _transientHasTexCoords = true;
+    }
+
+    void Scene::EndTransient()
+    {
+        if (!_transientGeometry)
+        {
+            throw ProgramException("Transient geometry resource is unavailable.");
+        }
+        _transientGeometry->Draw(_transientTopology,
+            std::span<const TransientVertex>(
+                _transientVertices.data(), _transientVertices.size()),
+            _transientHasTexCoords);
+        if (_transientHasTexCoords)
+        {
+            // Client arrays do not update fixed-function current texcoord.
+            // The immediate path did, so explicitly retain its terminal state.
+            GL::TexCoord3(_transientTexCoord.X, _transientTexCoord.Y,
+                _transientTexCoord.Z);
         }
     }
 
@@ -3666,47 +3732,47 @@ namespace MphRead
 
     void Scene::RenderBox(const ManagedArray<Vector3>& verts)
     {
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::Vertex3(verts[2]); GL::Vertex3(verts[6]); GL::Vertex3(verts[0]); GL::Vertex3(verts[4]);
-        GL::Vertex3(verts[1]); GL::Vertex3(verts[5]); GL::Vertex3(verts[3]); GL::Vertex3(verts[7]);
-        GL::Vertex3(verts[2]); GL::Vertex3(verts[6]);
-        GL::End();
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::Vertex3(verts[5]); GL::Vertex3(verts[4]); GL::Vertex3(verts[7]); GL::Vertex3(verts[6]);
-        GL::End();
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::Vertex3(verts[3]); GL::Vertex3(verts[2]); GL::Vertex3(verts[1]); GL::Vertex3(verts[0]);
-        GL::End();
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientVertex3(verts[2]); TransientVertex3(verts[6]); TransientVertex3(verts[0]); TransientVertex3(verts[4]);
+        TransientVertex3(verts[1]); TransientVertex3(verts[5]); TransientVertex3(verts[3]); TransientVertex3(verts[7]);
+        TransientVertex3(verts[2]); TransientVertex3(verts[6]);
+        EndTransient();
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientVertex3(verts[5]); TransientVertex3(verts[4]); TransientVertex3(verts[7]); TransientVertex3(verts[6]);
+        EndTransient();
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientVertex3(verts[3]); TransientVertex3(verts[2]); TransientVertex3(verts[1]); TransientVertex3(verts[0]);
+        EndTransient();
     }
 
     void Scene::RenderCylinder(const ManagedArray<Vector3>& verts)
     {
-        GL::Begin(GL::PrimitiveType::TriangleFan);
-        GL::Vertex3(verts[32]);
-        for (std::int32_t i = 0; i < 16; ++i) GL::Vertex3(verts[static_cast<std::size_t>(i)]);
-        GL::Vertex3(verts[0]);
-        GL::End();
-        GL::Begin(GL::PrimitiveType::TriangleFan);
-        GL::Vertex3(verts[33]);
-        for (std::int32_t i = 31; i >= 16; --i) GL::Vertex3(verts[static_cast<std::size_t>(i)]);
-        GL::Vertex3(verts[31]);
-        GL::End();
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
+        BeginTransient(TransientPrimitiveTopology::TriangleFan);
+        TransientVertex3(verts[32]);
+        for (std::int32_t i = 0; i < 16; ++i) TransientVertex3(verts[static_cast<std::size_t>(i)]);
+        TransientVertex3(verts[0]);
+        EndTransient();
+        BeginTransient(TransientPrimitiveTopology::TriangleFan);
+        TransientVertex3(verts[33]);
+        for (std::int32_t i = 31; i >= 16; --i) TransientVertex3(verts[static_cast<std::size_t>(i)]);
+        TransientVertex3(verts[31]);
+        EndTransient();
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
         for (std::int32_t i = 0; i < 16; ++i)
         {
-            GL::Vertex3(verts[static_cast<std::size_t>(i)]);
-            GL::Vertex3(verts[static_cast<std::size_t>(i + 16)]);
+            TransientVertex3(verts[static_cast<std::size_t>(i)]);
+            TransientVertex3(verts[static_cast<std::size_t>(i + 16)]);
         }
-        GL::Vertex3(verts[0]);
-        GL::Vertex3(verts[16]);
-        GL::End();
+        TransientVertex3(verts[0]);
+        TransientVertex3(verts[16]);
+        EndTransient();
     }
 
     void Scene::RenderSphere(const ManagedArray<Vector3>& verts)
     {
         const std::int32_t stackCount = DisplaySphereStacks;
         const std::int32_t sectorCount = DisplaySphereSectors;
-        GL::Begin(GL::PrimitiveType::Triangles);
+        BeginTransient(TransientPrimitiveTopology::Triangles);
         for (std::int32_t i = 0; i < stackCount; ++i)
         {
             std::int32_t k1 = i * (sectorCount + 1);
@@ -3715,33 +3781,33 @@ namespace MphRead
             {
                 if (i != 0)
                 {
-                    GL::Vertex3(verts[static_cast<std::size_t>(k1 + 1)]);
-                    GL::Vertex3(verts[static_cast<std::size_t>(k2)]);
-                    GL::Vertex3(verts[static_cast<std::size_t>(k1)]);
+                    TransientVertex3(verts[static_cast<std::size_t>(k1 + 1)]);
+                    TransientVertex3(verts[static_cast<std::size_t>(k2)]);
+                    TransientVertex3(verts[static_cast<std::size_t>(k1)]);
                 }
                 if (i != stackCount - 1)
                 {
-                    GL::Vertex3(verts[static_cast<std::size_t>(k2 + 1)]);
-                    GL::Vertex3(verts[static_cast<std::size_t>(k2)]);
-                    GL::Vertex3(verts[static_cast<std::size_t>(k1 + 1)]);
+                    TransientVertex3(verts[static_cast<std::size_t>(k2 + 1)]);
+                    TransientVertex3(verts[static_cast<std::size_t>(k2)]);
+                    TransientVertex3(verts[static_cast<std::size_t>(k1 + 1)]);
                 }
             }
         }
-        GL::End();
+        EndTransient();
     }
 
     void Scene::RenderQuad(const ManagedArray<Vector3>& verts)
     {
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::Vertex3(verts[0]); GL::Vertex3(verts[3]); GL::Vertex3(verts[1]); GL::Vertex3(verts[2]);
-        GL::End();
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientVertex3(verts[0]); TransientVertex3(verts[3]); TransientVertex3(verts[1]); TransientVertex3(verts[2]);
+        EndTransient();
     }
 
     void Scene::RenderNgon(const ManagedArray<Vector3>& verts, std::int32_t count)
     {
-        GL::Begin(GL::PrimitiveType::TriangleFan);
-        for (std::int32_t i = 0; i < count; ++i) GL::Vertex3(verts[static_cast<std::size_t>(i)]);
-        GL::End();
+        BeginTransient(TransientPrimitiveTopology::TriangleFan);
+        for (std::int32_t i = 0; i < count; ++i) TransientVertex3(verts[static_cast<std::size_t>(i)]);
+        EndTransient();
     }
 
     void Scene::RenderNgonLines(const ManagedArray<Vector3>& verts, std::int32_t count)
@@ -3749,43 +3815,43 @@ namespace MphRead
         const Vector4 color = _showCollision && _colDisplayColor == CollisionColor::None && _colDisplayAlpha == 1.0F
             ? Vector4(0.0F, 0.0F, 1.0F, 1.0F) : Vector4(1.0F, 0.0F, 0.0F, 1.0F);
         GL::Uniform4(_shaderLocations->OverrideColor, color);
-        GL::Begin(GL::PrimitiveType::LineLoop);
-        for (std::int32_t i = 0; i < count; ++i) GL::Vertex3(verts[static_cast<std::size_t>(i)]);
-        GL::End();
+        BeginTransient(TransientPrimitiveTopology::LineLoop);
+        for (std::int32_t i = 0; i < count; ++i) TransientVertex3(verts[static_cast<std::size_t>(i)]);
+        EndTransient();
     }
 
     void Scene::RenderParticle(const MphRead::RenderItem& item)
     {
         const auto& p = *item.Points;
-        GL::Begin(GL::PrimitiveType::Quads);
-        GL::TexCoord3(p[0].X * item.ScaleS, p[0].Y * item.ScaleT, 0.0F); GL::Vertex3(p[1]);
-        GL::TexCoord3(p[2].X * item.ScaleS, p[2].Y * item.ScaleT, 0.0F); GL::Vertex3(p[3]);
-        GL::TexCoord3(p[4].X * item.ScaleS, p[4].Y * item.ScaleT, 0.0F); GL::Vertex3(p[5]);
-        GL::TexCoord3(p[6].X * item.ScaleS, p[6].Y * item.ScaleT, 0.0F); GL::Vertex3(p[7]);
-        GL::End();
+        BeginTransient(TransientPrimitiveTopology::Quads);
+        TransientTexCoord3(p[0].X * item.ScaleS, p[0].Y * item.ScaleT, 0.0F); TransientVertex3(p[1]);
+        TransientTexCoord3(p[2].X * item.ScaleS, p[2].Y * item.ScaleT, 0.0F); TransientVertex3(p[3]);
+        TransientTexCoord3(p[4].X * item.ScaleS, p[4].Y * item.ScaleT, 0.0F); TransientVertex3(p[5]);
+        TransientTexCoord3(p[6].X * item.ScaleS, p[6].Y * item.ScaleT, 0.0F); TransientVertex3(p[7]);
+        EndTransient();
     }
 
     void Scene::RenderTrailSingle(const MphRead::RenderItem& item)
     {
         const auto& p = *item.Points;
-        GL::Begin(GL::PrimitiveType::QuadStrip);
-        GL::TexCoord3(p[0]); GL::Vertex3(p[1]);
-        GL::TexCoord3(p[2]); GL::Vertex3(p[3]);
-        GL::TexCoord3(p[4]); GL::Vertex3(p[5]);
-        GL::TexCoord3(p[6]); GL::Vertex3(p[7]);
-        GL::End();
+        BeginTransient(TransientPrimitiveTopology::QuadStrip);
+        TransientTexCoord3(p[0]); TransientVertex3(p[1]);
+        TransientTexCoord3(p[2]); TransientVertex3(p[3]);
+        TransientTexCoord3(p[4]); TransientVertex3(p[5]);
+        TransientTexCoord3(p[6]); TransientVertex3(p[7]);
+        EndTransient();
     }
 
     void Scene::RenderTrailMulti(const MphRead::RenderItem& item)
     {
         MPHREAD_DEBUG_ASSERT(item.ItemCount >= 4 && item.ItemCount % 2 == 0);
-        GL::Begin(GL::PrimitiveType::QuadStrip);
+        BeginTransient(TransientPrimitiveTopology::QuadStrip);
         for (std::int32_t i = 0; i < item.ItemCount; i += 2)
         {
-            GL::TexCoord3((*item.Points)[static_cast<std::size_t>(i)]);
-            GL::Vertex3((*item.Points)[static_cast<std::size_t>(i + 1)]);
+            TransientTexCoord3((*item.Points)[static_cast<std::size_t>(i)]);
+            TransientVertex3((*item.Points)[static_cast<std::size_t>(i + 1)]);
         }
-        GL::End();
+        EndTransient();
     }
 
     void Scene::RenderTrailStack(const MphRead::RenderItem& item)
@@ -3793,12 +3859,12 @@ namespace MphRead
         for (std::int32_t i = 0; i < item.ItemCount; ++i)
         {
             const std::size_t base = static_cast<std::size_t>(i * 8);
-            GL::Begin(GL::PrimitiveType::Quads);
-            GL::TexCoord3((*item.Points)[base]); GL::Vertex3((*item.Points)[base + 1]);
-            GL::TexCoord3((*item.Points)[base + 2]); GL::Vertex3((*item.Points)[base + 3]);
-            GL::TexCoord3((*item.Points)[base + 4]); GL::Vertex3((*item.Points)[base + 5]);
-            GL::TexCoord3((*item.Points)[base + 6]); GL::Vertex3((*item.Points)[base + 7]);
-            GL::End();
+            BeginTransient(TransientPrimitiveTopology::Quads);
+            TransientTexCoord3((*item.Points)[base]); TransientVertex3((*item.Points)[base + 1]);
+            TransientTexCoord3((*item.Points)[base + 2]); TransientVertex3((*item.Points)[base + 3]);
+            TransientTexCoord3((*item.Points)[base + 4]); TransientVertex3((*item.Points)[base + 5]);
+            TransientTexCoord3((*item.Points)[base + 6]); TransientVertex3((*item.Points)[base + 7]);
+            EndTransient();
         }
     }
 
@@ -3891,12 +3957,12 @@ namespace MphRead
             width = viewWidth * info->ScaleX / 2.0F / (viewWidth / 2.0F);
             height = viewHeight * info->ScaleY / 2.0F / (viewHeight / 2.0F);
         }
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::TexCoord3(1,0,0); GL::Vertex3(width + info->ShiftX, height + info->ShiftY, 0);
-        GL::TexCoord3(0,0,0); GL::Vertex3(-width + info->ShiftX, height + info->ShiftY, 0);
-        GL::TexCoord3(1,1,0); GL::Vertex3(width + info->ShiftX, -height + info->ShiftY, 0);
-        GL::TexCoord3(0,1,0); GL::Vertex3(-width + info->ShiftX, -height + info->ShiftY, 0);
-        GL::End();
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientTexCoord3(1,0,0); TransientVertex3(width + info->ShiftX, height + info->ShiftY, 0);
+        TransientTexCoord3(0,0,0); TransientVertex3(-width + info->ShiftX, height + info->ShiftY, 0);
+        TransientTexCoord3(1,1,0); TransientVertex3(width + info->ShiftX, -height + info->ShiftY, 0);
+        TransientTexCoord3(0,1,0); TransientVertex3(-width + info->ShiftX, -height + info->ShiftY, 0);
+        EndTransient();
         GL::BindTexture(GL::TextureTarget::Texture2D, 0);
     }
 
@@ -3917,12 +3983,12 @@ namespace MphRead
             const float right = std::get<1>(edges);
             const float bottom = std::get<2>(edges);
             const float top = std::get<3>(edges);
-            GL::Begin(GL::PrimitiveType::TriangleStrip);
-            GL::Vertex3(offX + right / halfW, offY + top / halfH, 0);
-            GL::Vertex3(offX + left / halfW, offY + top / halfH, 0);
-            GL::Vertex3(offX + right / halfW, offY + bottom / halfH, 0);
-            GL::Vertex3(offX + left / halfW, offY + bottom / halfH, 0);
-            GL::End();
+            BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+            TransientVertex3(offX + right / halfW, offY + top / halfH, 0);
+            TransientVertex3(offX + left / halfW, offY + top / halfH, 0);
+            TransientVertex3(offX + right / halfW, offY + bottom / halfH, 0);
+            TransientVertex3(offX + left / halfW, offY + bottom / halfH, 0);
+            EndTransient();
         }
         const auto ring = Mods::Render::Crosshair::RingOf(style, scale);
         const float radius = std::get<0>(ring);
@@ -3932,16 +3998,16 @@ namespace MphRead
             constexpr std::int32_t segments = 40;
             const float inner = radius - thickness / 2.0F;
             const float outer = radius + thickness / 2.0F;
-            GL::Begin(GL::PrimitiveType::TriangleStrip);
+            BeginTransient(TransientPrimitiveTopology::TriangleStrip);
             for (std::int32_t i = 0; i <= segments; ++i)
             {
                 const float angle = TwoPi * static_cast<float>(i) / static_cast<float>(segments);
                 const float c = std::cos(angle);
                 const float s = std::sin(angle);
-                GL::Vertex3(offX + outer * c / halfW, offY + outer * s / halfH, 0);
-                GL::Vertex3(offX + inner * c / halfW, offY + inner * s / halfH, 0);
+                TransientVertex3(offX + outer * c / halfW, offY + outer * s / halfH, 0);
+                TransientVertex3(offX + inner * c / halfW, offY + inner * s / halfH, 0);
             }
-            GL::End();
+            EndTransient();
         }
         GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
     }
@@ -3968,12 +4034,12 @@ namespace MphRead
             const float y1 = dy * (gap + length) * scale;
             const float hx = -dy * thickness * scale / 2.0F;
             const float hy = dx * thickness * scale / 2.0F;
-            GL::Begin(GL::PrimitiveType::TriangleStrip);
-            GL::Vertex3(offX + (x0 + hx) / halfW, offY + (y0 + hy) / halfH, 0);
-            GL::Vertex3(offX + (x0 - hx) / halfW, offY + (y0 - hy) / halfH, 0);
-            GL::Vertex3(offX + (x1 + hx) / halfW, offY + (y1 + hy) / halfH, 0);
-            GL::Vertex3(offX + (x1 - hx) / halfW, offY + (y1 - hy) / halfH, 0);
-            GL::End();
+            BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+            TransientVertex3(offX + (x0 + hx) / halfW, offY + (y0 + hy) / halfH, 0);
+            TransientVertex3(offX + (x0 - hx) / halfW, offY + (y0 - hy) / halfH, 0);
+            TransientVertex3(offX + (x1 + hx) / halfW, offY + (y1 + hy) / halfH, 0);
+            TransientVertex3(offX + (x1 - hx) / halfW, offY + (y1 - hy) / halfH, 0);
+            EndTransient();
         }
         GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
     }
@@ -4004,16 +4070,16 @@ namespace MphRead
             static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
         GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
             static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::TexCoord3(1.0F, 0.0F, 0.0F);
-        GL::Vertex3(x1, y0, 0);
-        GL::TexCoord3(0.0F, 0.0F, 0.0F);
-        GL::Vertex3(x0, y0, 0);
-        GL::TexCoord3(1.0F, 1.0F, 0.0F);
-        GL::Vertex3(x1, y1, 0);
-        GL::TexCoord3(0.0F, 1.0F, 0.0F);
-        GL::Vertex3(x0, y1, 0);
-        GL::End();
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientTexCoord3(1.0F, 0.0F, 0.0F);
+        TransientVertex3(x1, y0, 0);
+        TransientTexCoord3(0.0F, 0.0F, 0.0F);
+        TransientVertex3(x0, y0, 0);
+        TransientTexCoord3(1.0F, 1.0F, 0.0F);
+        TransientVertex3(x1, y1, 0);
+        TransientTexCoord3(0.0F, 1.0F, 0.0F);
+        TransientVertex3(x0, y1, 0);
+        EndTransient();
         GL::BindTexture(GL::TextureTarget::Texture2D, 0);
         GL::Uniform1(_shaderLocations->LayerAlpha, 1.0F);
     }
@@ -4027,14 +4093,14 @@ namespace MphRead
         const float offX = posX * 2.0F - 1.0F + localCenter.X / halfW;
         const float offY = 1.0F - posY * 2.0F + localCenter.Y / halfH;
         GL::Uniform4(_shaderLocations->FadeColor, color);
-        GL::Begin(GL::PrimitiveType::TriangleFan);
-        GL::Vertex3(offX, offY, 0);
+        BeginTransient(TransientPrimitiveTopology::TriangleFan);
+        TransientVertex3(offX, offY, 0);
         for (std::int32_t i = 0; i <= segments; i++)
         {
             const float angle = ::OpenTK::Mathematics::MathHelper::Pi * 2 * static_cast<float>(i) / static_cast<float>(segments);
-            GL::Vertex3(offX + radius * std::cos(angle) / halfW, offY + radius * std::sin(angle) / halfH, 0);
+            TransientVertex3(offX + radius * std::cos(angle) / halfW, offY + radius * std::sin(angle) / halfH, 0);
         }
-        GL::End();
+        EndTransient();
         GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
     }
 
@@ -4049,16 +4115,16 @@ namespace MphRead
         const float inner = radius - thickness / 2;
         const float outer = radius + thickness / 2;
         GL::Uniform4(_shaderLocations->FadeColor, color);
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
         for (std::int32_t i = 0; i <= segments; i++)
         {
             const float angle = ::OpenTK::Mathematics::MathHelper::Pi * 2 * static_cast<float>(i) / static_cast<float>(segments);
             const float cos = std::cos(angle);
             const float sin = std::sin(angle);
-            GL::Vertex3(offX + outer * cos / halfW, offY + outer * sin / halfH, 0);
-            GL::Vertex3(offX + inner * cos / halfW, offY + inner * sin / halfH, 0);
+            TransientVertex3(offX + outer * cos / halfW, offY + outer * sin / halfH, 0);
+            TransientVertex3(offX + inner * cos / halfW, offY + inner * sin / halfH, 0);
         }
-        GL::End();
+        EndTransient();
         GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
     }
 
@@ -4080,12 +4146,12 @@ namespace MphRead
         const float perpX = -dirY / len * (thickness / 2.0F);
         const float perpY = dirX / len * (thickness / 2.0F);
         GL::Uniform4(_shaderLocations->FadeColor, color);
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::Vertex3(offX + (from.X + perpX) / halfW, offY + (from.Y + perpY) / halfH, 0);
-        GL::Vertex3(offX + (from.X - perpX) / halfW, offY + (from.Y - perpY) / halfH, 0);
-        GL::Vertex3(offX + (to.X + perpX) / halfW, offY + (to.Y + perpY) / halfH, 0);
-        GL::Vertex3(offX + (to.X - perpX) / halfW, offY + (to.Y - perpY) / halfH, 0);
-        GL::End();
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientVertex3(offX + (from.X + perpX) / halfW, offY + (from.Y + perpY) / halfH, 0);
+        TransientVertex3(offX + (from.X - perpX) / halfW, offY + (from.Y - perpY) / halfH, 0);
+        TransientVertex3(offX + (to.X + perpX) / halfW, offY + (to.Y + perpY) / halfH, 0);
+        TransientVertex3(offX + (to.X - perpX) / halfW, offY + (to.Y - perpY) / halfH, 0);
+        EndTransient();
         GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
     }
 
@@ -4100,12 +4166,12 @@ namespace MphRead
         const float cx = localCenter.X;
         const float cy = localCenter.Y;
         GL::Uniform4(_shaderLocations->FadeColor, color);
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::Vertex3(offX + (cx + halfSize) / halfW, offY + (cy + halfSize) / halfH, 0);
-        GL::Vertex3(offX + (cx - halfSize) / halfW, offY + (cy + halfSize) / halfH, 0);
-        GL::Vertex3(offX + (cx + halfSize) / halfW, offY + (cy - halfSize) / halfH, 0);
-        GL::Vertex3(offX + (cx - halfSize) / halfW, offY + (cy - halfSize) / halfH, 0);
-        GL::End();
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientVertex3(offX + (cx + halfSize) / halfW, offY + (cy + halfSize) / halfH, 0);
+        TransientVertex3(offX + (cx - halfSize) / halfW, offY + (cy + halfSize) / halfH, 0);
+        TransientVertex3(offX + (cx + halfSize) / halfW, offY + (cy - halfSize) / halfH, 0);
+        TransientVertex3(offX + (cx - halfSize) / halfW, offY + (cy - halfSize) / halfH, 0);
+        EndTransient();
         GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
     }
 
@@ -4118,14 +4184,14 @@ namespace MphRead
         const float offX = posX * 2.0F - 1.0F;
         const float offY = 1.0F - posY * 2.0F;
         GL::Uniform4(_shaderLocations->FadeColor, color);
-        GL::Begin(GL::PrimitiveType::TriangleFan);
+        BeginTransient(TransientPrimitiveTopology::TriangleFan);
         for (const OpenTK::Mathematics::Vector2& point : localPoints)
         {
             const float x = localCenter.X + point.X;
             const float y = localCenter.Y + point.Y;
-            GL::Vertex3(offX + x / halfW, offY + y / halfH, 0);
+            TransientVertex3(offX + x / halfW, offY + y / halfH, 0);
         }
-        GL::End();
+        EndTransient();
         GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
     }
 
@@ -4138,9 +4204,9 @@ namespace MphRead
         const float y0 = (halfH - top / 192.0F * _rendererSize.Y) / halfH;
         const float y1 = (halfH - bottom / 192.0F * _rendererSize.Y) / halfH;
         GL::Uniform4(_shaderLocations->FadeColor, color);
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::Vertex3(x1, y0, 0); GL::Vertex3(x0, y0, 0); GL::Vertex3(x1, y1, 0); GL::Vertex3(x0, y1, 0);
-        GL::End();
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientVertex3(x1, y0, 0); TransientVertex3(x0, y0, 0); TransientVertex3(x1, y1, 0); TransientVertex3(x0, y1, 0);
+        EndTransient();
         GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
     }
 
@@ -4208,12 +4274,12 @@ namespace MphRead
         {
             std::swap(bottomPos, topPos);
         }
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::TexCoord3(1,0,0); GL::Vertex3(rightPos, topPos, 0);
-        GL::TexCoord3(0,0,0); GL::Vertex3(leftPos, topPos, 0);
-        GL::TexCoord3(1,1,0); GL::Vertex3(rightPos, bottomPos, 0);
-        GL::TexCoord3(0,1,0); GL::Vertex3(leftPos, bottomPos, 0);
-        GL::End();
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientTexCoord3(1,0,0); TransientVertex3(rightPos, topPos, 0);
+        TransientTexCoord3(0,0,0); TransientVertex3(leftPos, topPos, 0);
+        TransientTexCoord3(1,1,0); TransientVertex3(rightPos, bottomPos, 0);
+        TransientTexCoord3(0,1,0); TransientVertex3(leftPos, bottomPos, 0);
+        EndTransient();
         GL::BindTexture(GL::TextureTarget::Texture2D, 0);
     }
 
@@ -4262,12 +4328,12 @@ namespace MphRead
             static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
         const float viewWidth = static_cast<float>(_rendererSize.X);
         const float viewHeight = static_cast<float>(_rendererSize.Y);
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::TexCoord3(1,0,0); GL::Vertex3(viewWidth, viewHeight, -1);
-        GL::TexCoord3(0,0,0); GL::Vertex3(-viewWidth, viewHeight, -1);
-        GL::TexCoord3(1,1,0); GL::Vertex3(viewWidth, -viewHeight, -1);
-        GL::TexCoord3(0,1,0); GL::Vertex3(-viewWidth, -viewHeight, -1);
-        GL::End();
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientTexCoord3(1,0,0); TransientVertex3(viewWidth, viewHeight, -1);
+        TransientTexCoord3(0,0,0); TransientVertex3(-viewWidth, viewHeight, -1);
+        TransientTexCoord3(1,1,0); TransientVertex3(viewWidth, -viewHeight, -1);
+        TransientTexCoord3(0,1,0); TransientVertex3(-viewWidth, -viewHeight, -1);
+        EndTransient();
         GL::BindTexture(GL::TextureTarget::Texture2D, 0);
     }
 

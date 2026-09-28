@@ -20,6 +20,7 @@
 #include <mutex>
 #include <optional>
 #include <queue>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -956,6 +957,12 @@ private: \
     void QuitGame(bool enteringShip); \
     void EndFade(); \
     void RenderItem(const std::shared_ptr<MphRead::RenderItem>& item); \
+    void BeginTransient(MphRead::TransientPrimitiveTopology topology); \
+    void TransientVertex3(float x, float y, float z); \
+    void TransientVertex3(OpenTK::Mathematics::Vector3 vector); \
+    void TransientTexCoord3(float s, float t, float r); \
+    void TransientTexCoord3(OpenTK::Mathematics::Vector3 coord); \
+    void EndTransient(); \
     void RenderBox(const MphRead::ManagedArray<OpenTK::Mathematics::Vector3>& verts); \
     void RenderCylinder(const MphRead::ManagedArray<OpenTK::Mathematics::Vector3>& verts); \
     void RenderSphere(const MphRead::ManagedArray<OpenTK::Mathematics::Vector3>& verts); \
@@ -1037,6 +1044,11 @@ private: \
     std::unordered_map<std::int32_t, std::shared_ptr<MphRead::TextureMap>> _texPalMap{}; \
     std::unordered_set<std::int32_t> _ownedTextures{}; \
     MphRead::GpuMeshCache _gpuMeshCache{}; \
+    std::shared_ptr<MphRead::TransientGeometryResource> _transientGeometry{}; \
+    std::vector<MphRead::TransientVertex> _transientVertices{}; \
+    MphRead::TransientPrimitiveTopology _transientTopology = MphRead::TransientPrimitiveTopology::Triangles; \
+    OpenTK::Mathematics::Vector3 _transientTexCoord{}; \
+    bool _transientHasTexCoords = false; \
     std::int32_t _shaderProgramId = 0; \
     std::int32_t _rttShaderProgramId = 0; \
     std::int32_t _shiftShaderProgramId = 0; \

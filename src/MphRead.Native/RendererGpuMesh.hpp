@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <span>
 #include <unordered_map>
 #include <vector>
 
@@ -45,6 +46,39 @@ namespace MphRead
     // DlistId remains only the source render-instruction-list selector. GPU
     // ownership is keyed by the live Model object and the live Mesh object so
     // distinct meshes never alias merely because they reference the same list.
+    enum class TransientPrimitiveTopology : std::uint8_t
+    {
+        LineLoop,
+        Triangles,
+        TriangleStrip,
+        TriangleFan,
+        Quads,
+        QuadStrip
+    };
+
+    struct TransientVertex final
+    {
+        OpenTK::Mathematics::Vector3 Position{};
+        OpenTK::Mathematics::Vector3 TexCoord{};
+    };
+
+    class TransientGeometryResource
+    {
+    public:
+        virtual ~TransientGeometryResource() = default;
+        TransientGeometryResource(const TransientGeometryResource&) = delete;
+        TransientGeometryResource& operator=(const TransientGeometryResource&) = delete;
+        TransientGeometryResource(TransientGeometryResource&&) = delete;
+        TransientGeometryResource& operator=(TransientGeometryResource&&) = delete;
+
+        virtual void BeginFrame() = 0;
+        virtual void Draw(TransientPrimitiveTopology topology,
+            std::span<const TransientVertex> vertices, bool hasTexCoords) = 0;
+
+    protected:
+        TransientGeometryResource() = default;
+    };
+
     class GpuMeshCache final
     {
     public:

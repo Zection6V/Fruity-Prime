@@ -205,11 +205,6 @@ namespace MphRead::Mods::Render
     std::int32_t GlEs::_primStart = 0;
 
     GlEs::Batch GlEs::_batch;
-    bool GlEs::_recording = false;
-    std::int32_t GlEs::_recordListId = 0;
-
-    std::unordered_map<std::int32_t, GlEs::CompiledList> GlEs::_lists;
-    std::int32_t GlEs::_nextListId = 1;
 
     std::int32_t GlEs::_dynVao = 0;
     std::int32_t GlEs::_dynVbo = 0;
@@ -243,10 +238,8 @@ namespace MphRead::Mods::Render
 
     void GlEs::Reset()
     {
-        _lists.clear();
         _textures.clear();
         _programLocs.clear();
-        _nextListId = 1;
         _textureHighWater = 0;
         _dynVao = _dynVbo = _dynIbo = 0;
         _dynVboSize = _dynIboSize = 0;
@@ -254,16 +247,12 @@ namespace MphRead::Mods::Render
         _immColorLoc = -1;
         _alphaTestLoc = -1;
         _batch.Clear();
-        _recording = false;
     }
 
     void GlEs::Begin(std::int32_t mode)
     {
-        if (!_recording)
-        {
-            _batch.Clear();
-            _colorSet = false;
-        }
+        _batch.Clear();
+        _colorSet = false;
         _primMode = mode;
         _primStart = _batch.VertexCount;
     }
@@ -272,10 +261,7 @@ namespace MphRead::Mods::Render
     {
         const std::int32_t count = UncheckedSubtract(_batch.VertexCount, _primStart);
         EmitIndices(_primMode, _primStart, count);
-        if (!_recording)
-        {
-            FlushDynamic();
-        }
+        FlushDynamic();
     }
 
     void GlEs::Vertex3(float x, float y, float z)
@@ -408,109 +394,6 @@ namespace MphRead::Mods::Render
         default:
             throw MphRead::ProgramException(
                 "No ES translation for primitive type " + PrimitiveTypeText(mode) + ".");
-        }
-    }
-
-    std::int32_t GlEs::GenLists(std::int32_t range)
-    {
-        const std::int32_t id = _nextListId;
-        _nextListId = UncheckedAdd(_nextListId, range);
-        return id;
-    }
-
-    void GlEs::NewList(std::int32_t list, std::int32_t mode)
-    {
-        (void)mode;
-        _batch.Clear();
-        _recording = true;
-        _recordListId = list;
-        _colorSet = false;
-    }
-
-    void GlEs::EndList()
-    {
-        _recording = false;
-        CompiledList compiled{};
-        compiled.TriCount = static_cast<std::int32_t>(_batch.TriIndices.size());
-        compiled.LineCount = static_cast<std::int32_t>(_batch.LineIndices.size());
-        if (compiled.TriCount == 0 && compiled.LineCount == 0)
-        {
-            _lists[_recordListId] = compiled;
-            _batch.Clear();
-            return;
-        }
-
-        GLuint vao = 0;
-        GLuint vbo = 0;
-        GLuint ibo = 0;
-        glGenVertexArrays(1, &vao);
-        glGenBuffers(1, &vbo);
-        glGenBuffers(1, &ibo);
-        compiled.Vao = ManagedName(vao);
-        compiled.Vbo = ManagedName(vbo);
-        compiled.Ibo = ManagedName(ibo);
-        glBindVertexArray(vao);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        const std::int32_t vertexBytes = UncheckedMultiply(
-            static_cast<std::int32_t>(_batch.Vertices.size()), static_cast<std::int32_t>(sizeof(float)));
-        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(vertexBytes), _batch.Vertices.data(), GL_STATIC_DRAW);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
-        const std::vector<std::int32_t> indices = BuildIndexArray();
-        const std::int32_t indexBytes = UncheckedMultiply(
-            static_cast<std::int32_t>(indices.size()), static_cast<std::int32_t>(sizeof(std::int32_t)));
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(indexBytes), indices.data(), GL_STATIC_DRAW);
-        SetupAttributes();
-        glBindVertexArray(0);
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-        _lists[_recordListId] = compiled;
-        _batch.Clear();
-    }
-
-    void GlEs::CallList(std::int32_t list)
-    {
-        const auto found = _lists.find(list);
-        if (found == _lists.end() || found->second.Vao == 0)
-        {
-            return;
-        }
-        const CompiledList& compiled = found->second;
-        ApplyDrawState();
-        glBindVertexArray(GlName(compiled.Vao));
-        if (compiled.TriCount > 0)
-        {
-            glDrawElements(GL_TRIANGLES, compiled.TriCount, GL_UNSIGNED_INT, nullptr);
-        }
-        if (compiled.LineCount > 0)
-        {
-            const std::int32_t offset = UncheckedMultiply(compiled.TriCount,
-                static_cast<std::int32_t>(sizeof(std::int32_t)));
-            glDrawElements(GL_LINES, compiled.LineCount, GL_UNSIGNED_INT,
-                reinterpret_cast<const void*>(static_cast<std::intptr_t>(offset)));
-        }
-        glBindVertexArray(0);
-    }
-
-    void GlEs::DeleteLists(std::int32_t list, std::int32_t range)
-    {
-        for (std::int32_t i = 0; i < range; ++i)
-        {
-            const std::int32_t id = UncheckedAdd(list, i);
-            const auto found = _lists.find(id);
-            if (found != _lists.end())
-            {
-                const CompiledList compiled = found->second;
-                _lists.erase(found);
-                if (compiled.Vao != 0)
-                {
-                    const GLuint vao = GlName(compiled.Vao);
-                    const GLuint vbo = GlName(compiled.Vbo);
-                    const GLuint ibo = GlName(compiled.Ibo);
-                    glDeleteVertexArrays(1, &vao);
-                    glDeleteBuffers(1, &vbo);
-                    glDeleteBuffers(1, &ibo);
-                }
-            }
         }
     }
 

@@ -6,6 +6,7 @@
 #include "ServerBadgeItem.hpp"
 #include "SettingsModel.hpp"
 #include "SetupModel.hpp"
+#include "CreateServerModel.hpp"
 #include "RowModel.hpp"
 
 #include <QtQml/qqml.h>
@@ -27,6 +28,7 @@ namespace MphRead::Qt
         qmlRegisterType<ServerBadgeItem>(uri, 1, 0, "ServerBadge");
         qmlRegisterType<SettingsModel>(uri, 1, 0, "SettingsModel");
         qmlRegisterType<SetupModel>(uri, 1, 0, "SetupModel");
+        qmlRegisterType<CreateServerModel>(uri, 1, 0, "CreateServerModel");
         qmlRegisterUncreatableType<RowModel>(uri, 1, 0, "RowModel", QStringLiteral("owned by a screen model"));
     }
 }

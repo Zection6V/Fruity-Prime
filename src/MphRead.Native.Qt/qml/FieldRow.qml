@@ -18,8 +18,8 @@ FocusScope {
         font.family: Theme.pixel; font.pixelSize: 13
         color: Theme.textDim
     }
-    // The Fluent dark TextBox: a faint fill, a light hairline and, with the
-    // keyboard, the accent along its foot.
+    // The Fluent dark TextBox: a faint fill and a light hairline; with the
+    // keyboard, black inside the system accent, heavier along its foot.
     Rectangle {
         id: box
         x: row.width - width
@@ -27,14 +27,14 @@ FocusScope {
         height: Math.round(metrics.height) + 8 + 2
         anchors.verticalCenter: parent.verticalCenter
         radius: 4
-        color: input.activeFocus ? "#1f1f1f" : Qt.rgba(1, 1, 1, 0.045)
+        color: input.activeFocus ? "#000000" : Qt.rgba(1, 1, 1, 0.045)
         border.width: 1
-        border.color: input.activeFocus ? Qt.rgba(1, 1, 1, 0.08) : Qt.rgba(1, 1, 1, 0.55)
+        border.color: input.activeFocus ? "#0078d7" : Qt.rgba(1, 1, 1, 0.55)
         Rectangle {
             visible: input.activeFocus
-            x: 1; width: parent.width - 2
-            y: parent.height - 2; height: 2
-            color: Theme.accent
+            x: 2; width: parent.width - 4
+            y: parent.height - 2; height: 1
+            color: "#0078d7"
         }
         FontMetrics { id: metrics; font: input.font }
         TextInput {

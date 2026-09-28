@@ -1,5 +1,6 @@
 #include "SetupModel.hpp"
 
+#include "Await.hpp"
 #include "ShellBridge.hpp"
 
 #include "../../MphRead.Native/Mods/Branding.hpp"
@@ -26,30 +27,6 @@ namespace MphRead::Qt
         [[nodiscard]] QString Q(const std::string& text)
         {
             return QString::fromStdString(text);
-        }
-
-        // Wait for a future on the UI thread without blocking it.
-        template <typename Result, typename Then>
-        void Await(QObject* owner, std::shared_future<Result> task, Then then)
-        {
-            if (task.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
-            {
-                then(task.get());
-                return;
-            }
-            auto* const timer = new QTimer(owner);
-            timer->setInterval(16);
-            QObject::connect(timer, &QTimer::timeout, owner, [timer, task, then]() mutable
-            {
-                if (task.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
-                {
-                    return;
-                }
-                timer->stop();
-                timer->deleteLater();
-                then(task.get());
-            });
-            timer->start();
         }
     }
 

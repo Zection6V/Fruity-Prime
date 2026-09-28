@@ -86,6 +86,10 @@ foreach(FRUITY_PHASE4_SOURCE IN LISTS MPHREAD_NATIVE_SOURCES MPHREAD_NATIVE_HEAD
         message(FATAL_ERROR
             "Phase 4 display-list static gate failed: ${FRUITY_PHASE4_SOURCE}")
     endif()
+    if(FRUITY_PHASE4_SOURCE_TEXT MATCHES "GL::Begin\\(")
+        message(FATAL_ERROR
+            "Phase 4 immediate-mode static gate failed: ${FRUITY_PHASE4_SOURCE}")
+    endif()
 endforeach()
 unset(FRUITY_PHASE4_SOURCE_TEXT)
 unset(FRUITY_PHASE4_SOURCE)

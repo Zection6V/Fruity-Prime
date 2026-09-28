@@ -44,9 +44,9 @@ expression word boundary. The initial Phase 0 document incorrectly rendered that
 literal backslashes and only counted a graphics-focused subset. The post-push audit corrected both
 issues.
 
-No clone was used for this task. The complete repository-wide `rg` result was independently
-reproduced against the Phase 0 source snapshot, and every one of the 16 matching paths and its
-count was cross-checked against the GitHub-visible `develop3_rendering` blobs. Because
+No clone was used for this task. The complete repository-wide `rg` result from the independent
+post-push audit was cross-checked path-by-path against the GitHub-visible `develop3_rendering`
+blobs; all 16 matching paths and their counts are recorded below. Because
 `bb8f619... -> 92b2734...` changes no `src/MphRead.Native` file, these counts apply to both the
 plan baseline source and the branch-start source snapshot.
 
@@ -139,7 +139,7 @@ the deletion.
 
 | Resource | Owner / storage | Allocation / acquisition | Release / lifetime evidence |
 |---|---|---|---|
-| Main shader program | `Scene::_shaderProgramId` | `Renderer.cpp:796` | `Scene::UnloadGl`; delete helper at `Renderer.cpp:3686-3692`, invoked for all four program IDs at `Renderer.cpp:3708-3711` |
+| Main shader program | `Scene::_shaderProgramId` | `Renderer.cpp:796` | `Scene::UnloadGl`; delete helper at `Renderer.cpp:3686-3693`, invoked for all four program IDs at `Renderer.cpp:3707-3710` |
 | RTT shader program | `Scene::_rttShaderProgramId` | `Renderer.cpp:826` | `Scene::UnloadGl` |
 | Shift/whiteout shader program | `Scene::_shiftShaderProgramId` | `Renderer.cpp:850` | `Scene::UnloadGl` |
 | Cel shader program | `Scene::_celShaderProgramId` | `Renderer.cpp:866` | `Scene::UnloadGl` |
@@ -399,7 +399,7 @@ No runtime result is implied by the static/source and CI evidence above.
 - [x] Actual frame order traced and recorded.
 - [x] GPU resource ownership table completed.
 - [x] Golden-image candidate set and reproducible capture contract fixed.
-- [x] Renderer behavior unchanged by Phase 0: Phase 0 delivery is documentation-only; confirm again by exact post-push commit diff.
+- [x] Renderer behavior unchanged by Phase 0: all Phase 0 changes are documentation-only; the exact post-push commit diff is part of the final audit.
 - [x] Phase 1 implementation/design not started.
 
 Phase 0 is the boundary. No RHI types, backend factory, Vulkan code, geometry conversion, shader

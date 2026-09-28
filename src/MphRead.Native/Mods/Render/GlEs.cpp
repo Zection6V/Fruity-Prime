@@ -238,6 +238,21 @@ namespace MphRead::Mods::Render
 
     void GlEs::Reset()
     {
+        if (_dynIbo != 0)
+        {
+            const GLuint ibo = GlName(_dynIbo);
+            glDeleteBuffers(1, &ibo);
+        }
+        if (_dynVbo != 0)
+        {
+            const GLuint vbo = GlName(_dynVbo);
+            glDeleteBuffers(1, &vbo);
+        }
+        if (_dynVao != 0)
+        {
+            const GLuint vao = GlName(_dynVao);
+            glDeleteVertexArrays(1, &vao);
+        }
         _textures.clear();
         _programLocs.clear();
         _textureHighWater = 0;

@@ -165,6 +165,7 @@ namespace MphRead::Qt
             {"pausemenu-small", "pause", "", {}, QSize(560, 320), false},
             {"pausemenu-phone", "pause", "", {}, PhoneLandscape, true},
             {"serverbrowser", "front", "ServerBrowserSample.qml", {}, Window, false},
+            {"lobby", "front", "LobbyPage.qml", {}, Window, false},
         };
         const QString only = qEnvironmentVariable("FP_QT_UISHOT_ONLY");
 

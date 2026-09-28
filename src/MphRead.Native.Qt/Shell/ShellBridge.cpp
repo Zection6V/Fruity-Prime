@@ -183,6 +183,19 @@ namespace MphRead::Qt
             std::string(::MphRead::Mods::Credits::SupportUrl));
     }
 
+    void ShellBridge::StartMatch(LaunchPlan plan)
+    {
+        if (_actions.Launch)
+        {
+            _actions.Launch(std::move(plan));
+        }
+    }
+
+    void ShellBridge::OpenLobby()
+    {
+        emit lobbyOpened();
+    }
+
     void ShellBridge::GameFilesChanged()
     {
         if (_actions.GameFilesChanged)

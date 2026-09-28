@@ -8,6 +8,8 @@ Page {
     property var nav
     // 0 Online, 1 Offline, 2 Story, 3 Clips, 4 Vote.
     property int face: 0
+    // Why the lobby this page opened has closed, told on the note line.
+    property string endedReason
     readonly property int current: face === 4 ? 4 : tabs.index
     // UiLayout.ShortBox: shorter than this the options sit beside the list.
     readonly property bool compact: height < 560
@@ -435,6 +437,8 @@ Page {
         }
     }
     Component.onCompleted: {
+        if (endedReason.length > 0)
+            playModel.sessionEnded(endedReason)
         if (current === 0)
             backMark.forceActiveFocus()
         else

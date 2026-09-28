@@ -7,6 +7,7 @@
 #include "SettingsModel.hpp"
 #include "SetupModel.hpp"
 #include "CreateServerModel.hpp"
+#include "LobbyModel.hpp"
 #include "RowModel.hpp"
 
 #include <QtQml/qqml.h>
@@ -29,6 +30,7 @@ namespace MphRead::Qt
         qmlRegisterType<SettingsModel>(uri, 1, 0, "SettingsModel");
         qmlRegisterType<SetupModel>(uri, 1, 0, "SetupModel");
         qmlRegisterType<CreateServerModel>(uri, 1, 0, "CreateServerModel");
+        qmlRegisterType<LobbyModel>(uri, 1, 0, "LobbyModel");
         qmlRegisterUncreatableType<RowModel>(uri, 1, 0, "RowModel", QStringLiteral("owned by a screen model"));
     }
 }

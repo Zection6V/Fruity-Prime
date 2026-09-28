@@ -54,6 +54,14 @@ Item {
     function openLobby() {
         push("LobbyPage.qml", {})
     }
+    // The lobby closed: back to the screen under it, told why.
+    function lobbyClosed(reason) {
+        stack = stack.slice(0, stack.length - 1)
+        if (stack.length > 0 && reason.length > 0) {
+            const last = stack[stack.length - 1]
+            stack = stack.slice(0, stack.length - 1).concat([{ url: last.url, props: Object.assign({}, last.props, { endedReason: reason }) }])
+        }
+    }
     function openVote() {
         const why = shell.whyNotVoting()
         if (why.length > 0) {

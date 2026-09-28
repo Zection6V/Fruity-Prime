@@ -89,6 +89,10 @@ namespace MphRead::Qt
         Q_INVOKABLE void openSupport();
         Q_INVOKABLE void toggleFullscreen();
         void GameFilesChanged();
+        // The lobby's match is loading: start it, whatever the lobby rule.
+        void StartMatch(LaunchPlan plan);
+        // Back from a lobby's match: the lobby screen again.
+        void OpenLobby();
         // A map's picture as a URL, or empty when there is none yet.
         Q_INVOKABLE QString mapShot(const QString& room) const;
         Q_INVOKABLE QString roomName(const QString& room) const;

@@ -194,6 +194,19 @@ namespace MphRead::Mods::Launcher::Gui
             }
         }
 
+        // Shell.EndNetworkMatchToLobby: a persistent lobby's match is over;
+        // its players are back in the lobby screen, still connected.
+        void EndNetworkMatchToLobby(MphRead::RenderWindow& window)
+        {
+            Shell::CloseMenu();
+            window.EndScene();
+            Portable::MatchStart::AfterMatch();
+            MphRead::Mods::Network::NetSession::ResetMatchState();
+            MphRead::Mods::PauseMenu::Reset();
+            ShowPage("front");
+            g_bridge->OpenLobby();
+        }
+
         void EndMatch(MphRead::RenderWindow& window)
         {
             Shell::CloseMenu();
@@ -390,6 +403,11 @@ namespace MphRead::Mods::Launcher::Gui
             g_quit = false;
             window.Close();
             return;
+        }
+        if (window.HasScene() && MphRead::Mods::Network::NetSession::PersistentLobby()
+            && MphRead::Mods::Network::NetSession::IsInLobby() && !g_endMatch)
+        {
+            EndNetworkMatchToLobby(window);
         }
         if (window.HasScene() && (MphRead::Mods::Network::NetSession::Refused()
             || MphRead::Mods::Network::NetSession::SessionTimedOut()))

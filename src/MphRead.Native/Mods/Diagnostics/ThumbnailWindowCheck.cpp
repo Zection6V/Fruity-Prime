@@ -56,6 +56,8 @@ namespace MphRead::Mods::Diagnostics
 
             const std::int32_t texture = GL::GenTexture();
             const std::int32_t framebuffer = GL::GenFramebuffer();
+            const std::int32_t vertexBuffer = GL::GenBuffer();
+            const std::int32_t indexBuffer = GL::GenBuffer();
             try
             {
                 GL::BindTexture(GL::TextureTarget::Texture2D, texture);
@@ -75,14 +77,30 @@ namespace MphRead::Mods::Diagnostics
                 GL::Viewport(0, 0, 64, 64);
                 GL::ClearColor(0, 0, 0, 1);
                 GL::Clear(GL::ClearBufferMask::ColorBufferBit);
-                // Immediate mode is required by the real thumbnail renderer.
-                GL::Begin(GL::PrimitiveType::Quads);
+                // Exercise the compatibility-profile VBO/IBO path used by
+                // Phase 4 thumbnail rendering without relying on immediate mode.
+                constexpr float vertices[]{
+                    -1.0F, -1.0F,
+                     1.0F, -1.0F,
+                     1.0F,  1.0F,
+                    -1.0F,  1.0F
+                };
+                constexpr std::uint32_t indices[]{0U, 1U, 2U, 3U};
+                GL::BindBuffer(GL::BufferTarget::ArrayBuffer, vertexBuffer);
+                GL::BufferData(GL::BufferTarget::ArrayBuffer, sizeof(vertices),
+                    vertices, GL::BufferUsageHint::StaticDraw);
+                GL::BindBuffer(GL::BufferTarget::ElementArrayBuffer, indexBuffer);
+                GL::BufferData(GL::BufferTarget::ElementArrayBuffer, sizeof(indices),
+                    indices, GL::BufferUsageHint::StaticDraw);
                 GL::Color3(1.0F, 0.25F, 0.5F);
-                GL::Vertex2(-1.0F, -1.0F);
-                GL::Vertex2(1.0F, -1.0F);
-                GL::Vertex2(1.0F, 1.0F);
-                GL::Vertex2(-1.0F, 1.0F);
-                GL::End();
+                GL::DisableClientState(GL::ClientState::ColorArray);
+                GL::EnableClientState(GL::ClientState::VertexArray);
+                GL::VertexPointer(2, GL::PointerType::Float, 0, nullptr);
+                GL::DrawElements(GL::PrimitiveType::Quads, 4,
+                    GL::DrawElementsType::UnsignedInt, nullptr);
+                GL::DisableClientState(GL::ClientState::VertexArray);
+                GL::BindBuffer(GL::BufferTarget::ArrayBuffer, 0);
+                GL::BindBuffer(GL::BufferTarget::ElementArrayBuffer, 0);
                 std::vector<std::uint8_t> pixel(4);
                 GL::ReadPixels(32, 32, 1, 1, GL::PixelFormat::Rgba,
                     GL::PixelType::UnsignedByte, pixel.data());
@@ -96,11 +114,15 @@ namespace MphRead::Mods::Diagnostics
             catch (...)
             {
                 GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, 0);
+                GL::DeleteBuffer(indexBuffer);
+                GL::DeleteBuffer(vertexBuffer);
                 GL::DeleteFramebuffer(framebuffer);
                 GL::DeleteTexture(texture);
                 throw;
             }
             GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, 0);
+            GL::DeleteBuffer(indexBuffer);
+            GL::DeleteBuffer(vertexBuffer);
             GL::DeleteFramebuffer(framebuffer);
             GL::DeleteTexture(texture);
             NativeRuntime::ConsoleWriteLine("Thumbnail window check passed.");

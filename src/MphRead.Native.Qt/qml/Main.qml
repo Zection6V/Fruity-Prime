@@ -11,7 +11,7 @@ Item {
 
     // The captures hold everything still and switch the phone curve on.
     property bool still: false
-    property bool phone: false
+    property bool phone: Qt.platform.os === "android" || Qt.platform.os === "ios"
     // What the base screen is asked to show (the end panel's tab).
     property var baseProps: ({})
     Binding { target: Theme; property: "still"; value: root.still }

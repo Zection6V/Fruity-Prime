@@ -34,49 +34,62 @@ FocusScope {
         }
     }
 
-    // The foot: chip | bar | heart, bottom-aligned.
+    // The foot: chip | bar | heart, bottom-aligned; narrower than
+    // BarTurnsWidth the chip, then the bar, stack full width and the heart
+    // moves to the top-left corner.
     Item {
         id: foot
         anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
         anchors.leftMargin: page.column ? 14 : 26
         anchors.rightMargin: page.column ? 14 : 26
         anchors.bottomMargin: page.column ? 18 : 24
-        height: Math.max(chip.height, bar.height, heart.height)
+        height: page.column ? chip.height + 9 + bar.height : Math.max(chip.height, bar.height, heart.height)
 
         DeckChip {
             id: chip
-            anchors.bottom: parent.bottom
+            y: page.column ? 0 : foot.height - height
+            width: page.column ? foot.width : implicitWidth
+            height: implicitHeight
             key: "Profile"
             value: shell.playerName
         }
-        Row {
+        Grid {
             id: bar
-            anchors.bottom: parent.bottom
+            readonly property real columnWidth: Math.max(160, Math.min(320, page.width - 48))
+            columns: page.column ? 1 : 3
+            spacing: page.column ? 9 : 12
+            y: foot.height - height
             // Centred in the grid's middle column, between chip and heart.
-            x: chip.width + Theme.roundEven((foot.width - chip.width - heart.width - width) / 2)
-            spacing: 12
+            x: page.column ? Theme.roundEven((foot.width - width) / 2)
+                           : chip.width + Theme.roundEven((foot.width - chip.width - heart.width - width) / 2)
             DeckButton {
                 id: playButton
                 text: "PLAY"; face: Theme.blue; em: page.em; idle: true
+                width: page.column ? bar.columnWidth : implicitWidth
                 focus: true
-                KeyNavigation.right: settingsButton
+                KeyNavigation.right: settingsButton; KeyNavigation.down: settingsButton
                 onClicked: page.play()
             }
             DeckButton {
                 id: settingsButton
                 text: "SETTINGS"; face: Theme.brass; em: page.em
+                width: page.column ? bar.columnWidth : implicitWidth
                 KeyNavigation.left: playButton; KeyNavigation.right: quitButton
+                KeyNavigation.up: playButton; KeyNavigation.down: quitButton
                 onClicked: page.settings()
             }
             DeckButton {
                 id: quitButton
                 text: "QUIT"; face: Theme.rust; em: page.em
+                width: page.column ? bar.columnWidth : implicitWidth
                 KeyNavigation.left: settingsButton; KeyNavigation.right: heart
+                KeyNavigation.up: settingsButton
                 onClicked: page.quit()
             }
         }
         DeckButton {
             id: heart
+            visible: !page.column
             anchors.right: parent.right
             anchors.bottom: parent.bottom
             face: Theme.rust; em: page.em
@@ -87,20 +100,38 @@ FocusScope {
             onClicked: shell.openSupport()
         }
     }
+    DeckButton {
+        id: heartCorner
+        visible: page.column
+        x: 14; y: 14
+        face: Theme.rust; em: page.em
+        sizeEms: 1.55; padXEms: 0.9; padYEms: 0.7; lip: 5
+        heart: true
+        tip: "Support this project <3"
+        onClicked: shell.openSupport()
+    }
 
+    // The version line; with an update waiting it can be pressed.
     Text {
+        id: versionLine
         anchors.right: parent.right; anchors.top: parent.top
         anchors.rightMargin: 24; anchors.topMargin: 18
         text: shell.version
         font.family: Theme.pixel; font.pixelSize: 12
-        color: Theme.textDim
+        color: shell.versionColour
+        activeFocusOnTab: shell.updatable
+        MouseArea {
+            anchors.fill: parent
+            enabled: shell.updatable
+            cursorShape: shell.updatable ? Qt.PointingHandCursor : Qt.ArrowCursor
+            onClicked: shell.updateNow()
+        }
+        Keys.onReturnPressed: shell.updateNow()
+        Keys.onSpacePressed: shell.updateNow()
     }
-    Text {
-        anchors.left: parent.left; anchors.bottom: parent.bottom
-        anchors.leftMargin: 20; anchors.bottomMargin: 3
-        text: "Enter Select   Esc Back"
-        font.pixelSize: 12
-        color: Theme.textDim
+    Component.onCompleted: {
+        shell.startUpdateCheck()
+        shell.refreshVersionLine()
     }
 
     Keys.onPressed: event => {

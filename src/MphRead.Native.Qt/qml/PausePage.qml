@@ -55,7 +55,8 @@ FocusScope {
                 Entry { text: "Vote map"; visible: page.state.net; onClicked: page.voteMap() }
                 Entry { text: "Rejoin match"; visible: page.state.spectating; onClicked: shell.rejoin() }
                 Entry { text: "Spectate"; visible: page.state.canSpectate; onClicked: shell.spectate() }
-                Entry { text: shell.windowLabel; onClicked: shell.toggleFullscreen() }
+                // A phone has no window to change.
+                Entry { text: shell.windowLabel; visible: !Theme.phone; onClicked: shell.toggleFullscreen() }
                 Entry { text: page.state.recording ? "Stop recording" : "Record demo"; visible: page.state.net
                         onClicked: shell.toggleRecording() }
                 Entry { text: "Settings"; onClicked: page.settings() }

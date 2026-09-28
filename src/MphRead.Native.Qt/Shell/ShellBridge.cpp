@@ -17,7 +17,11 @@
 #include "../../MphRead.Native/Mods/SpectatorMode.hpp"
 #include "../../MphRead.Native/Mods/ThumbnailGenerator.hpp"
 #include "../../MphRead.Native/Mods/Update/BuildVersion.hpp"
+#include "../../MphRead.Native/Mods/Update/UpdateInstall.hpp"
 #include "../../MphRead.Native/Mods/Update/Updater.hpp"
+#include "../../MphRead.Native/NativeRuntime/System/Tasks.hpp"
+
+#include <atomic>
 #include "../../MphRead.Native/Mods/WindowMode.hpp"
 #include "../../MphRead.Native/NativeRuntime/System/IO.hpp"
 #include "../../MphRead.Native/NativeRuntime/System/HashCode.hpp"
@@ -43,6 +47,7 @@ namespace MphRead::Qt
     ShellBridge::ShellBridge(Actions actions) : _actions(std::move(actions))
     {
         g_current = this;
+        refreshVersionLine();
     }
 
     ShellBridge::~ShellBridge()
@@ -100,25 +105,192 @@ namespace MphRead::Qt
 
     QString ShellBridge::Version() const
     {
-        // StartScreen.RefreshVersionLine.
-        const auto& current = ::MphRead::Mods::Update::BuildVersion::Current();
-        const QString number = current.has_value() ? QString::fromStdString(current->ToString(3))
-                                                   : QStringLiteral("a local build");
-        if (::MphRead::Mods::Update::Updater::Available().has_value())
-        {
-            return number + QStringLiteral(" -- update available, click here");
-        }
-        return number;
+        return _version;
     }
 
     QColor ShellBridge::VersionColour() const
     {
+        return _versionColour;
+    }
+
+    namespace
+    {
+        [[nodiscard]] QString VersionNumber()
+        {
+            const auto& current = ::MphRead::Mods::Update::BuildVersion::Current();
+            return current.has_value() ? QString::fromStdString(current->ToString(3)) : QStringLiteral("a local build");
+        }
+
+        const QColor VersionDim(138, 147, 166);
+        const QColor VersionWarm(255, 179, 71);
+        const QColor VersionGood(0x5f, 0x9e, 0x72);
+    }
+
+    void ShellBridge::Say(QString text, QColor colour, bool pressable)
+    {
+        _version = std::move(text);
+        _versionColour = colour;
+        _updatable = pressable;
+        emit versionChanged();
+    }
+
+    void ShellBridge::refreshVersionLine()
+    {
+        if (_updating)
+        {
+            return;
+        }
+        const QString number = VersionNumber();
         if (::MphRead::Mods::Update::Updater::Available().has_value())
         {
-            return QColor(255, 179, 71);
+            Say(number + QStringLiteral(" -- update available, click here"), VersionWarm, true);
+            return;
         }
-        return ::MphRead::Mods::Update::BuildVersion::IsRelease() && ::MphRead::Mods::Update::Updater::Checked()
-            ? QColor(0x5f, 0x9e, 0x72) : QColor(138, 147, 166);
+        Say(number, ::MphRead::Mods::Update::BuildVersion::IsRelease() && ::MphRead::Mods::Update::Updater::Checked()
+                ? VersionGood : VersionDim);
+    }
+
+    void ShellBridge::startUpdateCheck()
+    {
+        if (_updateCheckStarted || !::MphRead::Mods::Launcher::LauncherPrefs::AutoUpdate())
+        {
+            return;
+        }
+        _updateCheckStarted = true;
+        const std::weak_ptr<int> alive = _lifetime;
+        const auto refresh = [this, alive]()
+        {
+            QMetaObject::invokeMethod(this, [this, alive]()
+            {
+                if (!alive.expired())
+                {
+                    refreshVersionLine();
+                }
+            }, ::Qt::QueuedConnection);
+        };
+        ::MphRead::Mods::Update::Updater::CheckInBackground(
+            [refresh](::MphRead::Mods::Update::UpdateInfo) { refresh(); }, [refresh]() { refresh(); });
+    }
+
+    void ShellBridge::updateNow()
+    {
+        namespace Update = ::MphRead::Mods::Update;
+        if (!_updatable || _updating)
+        {
+            return;
+        }
+        const std::optional<Update::UpdateInfo> found = Update::Updater::Available();
+        if (!found.has_value())
+        {
+            return;
+        }
+        const Update::UpdateInfo update = *found;
+        const QString number = VersionNumber();
+        if (!Update::UpdateInstall::CanInstall(update))
+        {
+            if (!Update::Updater::OpenPage(update))
+            {
+                Say(QString::fromStdString(update.PageUrl.Get().value_or("")), VersionWarm);
+            }
+            return;
+        }
+        const std::shared_ptr<Update::IUpdateInstaller> installer = Update::UpdateInstall::Current();
+        if (installer == nullptr)
+        {
+            return;
+        }
+        if (!installer->Allowed())
+        {
+            Say(number + QStringLiteral(" -- allow installs from this app, then press again"), VersionWarm, true);
+            (void)installer->RequestPermission();
+            return;
+        }
+        _updating = true;
+        const std::weak_ptr<int> alive = _lifetime;
+        const auto post = [this, alive](std::function<void()> work)
+        {
+            QMetaObject::invokeMethod(this, [alive, work = std::move(work)]()
+            {
+                if (!alive.expired())
+                {
+                    work();
+                }
+            }, ::Qt::QueuedConnection);
+        };
+        installer->Finished([this, post, number](bool ok, std::string message)
+        {
+            post([this, number, ok, message]()
+            {
+                _updating = false;
+                Say(ok ? number : number + QStringLiteral(" -- ") + QString::fromStdString(message),
+                    ok ? VersionDim : VersionWarm, !ok);
+            });
+        });
+        const std::string label = update.AssetName.Get().value_or("").empty() ? update.Tag.Get().value_or("")
+                                                                               : update.AssetName.Get().value_or("");
+        const QString shown = QString::fromStdString(label);
+        Say(number + QStringLiteral(" -- downloading ") + shown + QStringLiteral("..."), VersionWarm);
+        const auto reported = std::make_shared<std::atomic<int>>(-1);
+        const std::function<void(float)> progress = [this, post, number, shown, reported](float fraction)
+        {
+            const int percent = fraction < 0 ? -1 : static_cast<int>(fraction * 100);
+            if (reported->exchange(percent) == percent)
+            {
+                return;
+            }
+            post([this, number, shown, percent]()
+            {
+                Say(number + QStringLiteral(" -- downloading ") + shown + QStringLiteral("...")
+                        + (percent < 0 ? QString() : QStringLiteral(" ") + QString::number(percent) + QStringLiteral("%")),
+                    VersionWarm);
+            });
+        };
+        ::MphRead::NativeRuntime::TaskRun([this, post, installer, update, progress, number]()
+        {
+            std::string error;
+            bool ready = false;
+            try
+            {
+                ready = installer->Prepare(update, progress, error);
+            }
+            catch (...)
+            {
+                return;
+            }
+            post([this, installer, number, ready, error]() mutable
+            {
+                if (!ready)
+                {
+                    _updating = false;
+                    Say(number + QStringLiteral(" -- ")
+                            + QString::fromStdString(error.empty() ? std::string("the download failed") : error),
+                        VersionWarm, true);
+                    return;
+                }
+                try
+                {
+                    Say(installer->ExitAfterInstall() ? number + QStringLiteral(" -- restarting to finish...")
+                                                      : number + QStringLiteral(" -- waiting for the system installer..."),
+                        VersionWarm);
+                    if (!installer->Install(error))
+                    {
+                        _updating = false;
+                        Say(number + QStringLiteral(" -- ")
+                                + QString::fromStdString(error.empty() ? std::string("the install could not be started") : error),
+                            VersionWarm, true);
+                        return;
+                    }
+                    if (installer->ExitAfterInstall())
+                    {
+                        quit();
+                    }
+                }
+                catch (...)
+                {
+                    // Fire and forget, as the C# async method was.
+                }
+            });
+        });
     }
 
     QString ShellBridge::Brand() const

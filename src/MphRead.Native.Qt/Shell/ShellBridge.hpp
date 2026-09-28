@@ -34,6 +34,8 @@ namespace MphRead::Qt
         Q_PROPERTY(QString playerName READ PlayerName NOTIFY profileChanged)
         Q_PROPERTY(QString version READ Version NOTIFY versionChanged)
         Q_PROPERTY(QColor versionColour READ VersionColour NOTIFY versionChanged)
+        // The version line can be pressed to update.
+        Q_PROPERTY(bool updatable READ Updatable NOTIFY versionChanged)
         Q_PROPERTY(QString windowLabel READ WindowLabel NOTIFY windowChanged)
         Q_PROPERTY(QString brand READ Brand CONSTANT)
         Q_PROPERTY(QString fontOverride READ FontOverride CONSTANT)
@@ -66,6 +68,7 @@ namespace MphRead::Qt
         [[nodiscard]] QString PlayerName() const;
         [[nodiscard]] QString Version() const;
         [[nodiscard]] QColor VersionColour() const;
+        [[nodiscard]] bool Updatable() const noexcept { return _updatable; }
         [[nodiscard]] QString WindowLabel() const;
         [[nodiscard]] QString Brand() const;
         [[nodiscard]] QString FontOverride() const;
@@ -88,6 +91,10 @@ namespace MphRead::Qt
         Q_INVOKABLE void quitFromMatch();
         Q_INVOKABLE void openSupport();
         Q_INVOKABLE void toggleFullscreen();
+        // StartScreen.StartUpdateCheck / RefreshVersionLine / UpdateNow.
+        Q_INVOKABLE void startUpdateCheck();
+        Q_INVOKABLE void refreshVersionLine();
+        Q_INVOKABLE void updateNow();
         void GameFilesChanged();
         // The lobby's match is loading: start it, whatever the lobby rule.
         void StartMatch(LaunchPlan plan);
@@ -132,5 +139,12 @@ namespace MphRead::Qt
         bool _gameFilesReady = false;
         std::shared_ptr<::MphRead::MenuSettings> _settings;
         std::optional<LaunchPlan> _lobbyPlan;
+        void Say(QString text, QColor colour, bool pressable = false);
+        QString _version;
+        QColor _versionColour;
+        bool _updatable = false;
+        bool _updating = false;
+        bool _updateCheckStarted = false;
+        std::shared_ptr<int> _lifetime = std::make_shared<int>(0);
     };
 }

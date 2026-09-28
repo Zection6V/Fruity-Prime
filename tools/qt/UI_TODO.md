@@ -35,6 +35,7 @@ Objectif : toute l'UI du launcher en QML, 1 pour 1 avec les 26 écrans de réfé
 - Texte : anticrénelage gris + hinting vertical (l'aliasé faisait trop pixelisé, retour utilisateur
   2026-09-28) ; jamais de sous-pixel. `FP_QT_TEXT_AA=0` remet l'aliasé.
   Captures à la taille d'un vrai écran : `FP_QT_UISHOT_SIZE=1920x1080`.
+- Pas d'aide « Enter Select / Esc Back » en bas à gauche de l'écran d'accueil (inutile, retirée).
 - Le flou ressenti vient surtout de la capture en 940×528 : vérifier en plein écran dans la vraie fenêtre.
 
 ## En cours / à faire

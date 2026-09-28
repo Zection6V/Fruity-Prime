@@ -75,6 +75,22 @@ set(FRUITY_ANDROID_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src/MphRead.Native.Android"
 fruity_collect_owner("${FRUITY_NCSFPLAY_ROOT}" NCSFPLAY_NATIVE_SOURCES NCSFPLAY_NATIVE_HEADERS)
 fruity_collect_owner("${FRUITY_MPHREAD_ROOT}" MPHREAD_NATIVE_SOURCES MPHREAD_NATIVE_HEADERS)
 
+# Phase 4 terminal static gate. The phase plan requires the equivalent of:
+#   rg -n "GenLists|NewList|EndList|CallList|DeleteLists" src/MphRead.Native
+# to return zero. Enforce that invariant during every configure so CI cannot
+# build a tree that accidentally reintroduces OpenGL display-list ownership.
+set(FRUITY_PHASE4_DISPLAY_LIST_REGEX "GenLists|NewList|EndList|CallList|DeleteLists")
+foreach(FRUITY_PHASE4_SOURCE IN LISTS MPHREAD_NATIVE_SOURCES MPHREAD_NATIVE_HEADERS)
+    file(READ "${FRUITY_PHASE4_SOURCE}" FRUITY_PHASE4_SOURCE_TEXT)
+    if(FRUITY_PHASE4_SOURCE_TEXT MATCHES "${FRUITY_PHASE4_DISPLAY_LIST_REGEX}")
+        message(FATAL_ERROR
+            "Phase 4 display-list static gate failed: ${FRUITY_PHASE4_SOURCE}")
+    endif()
+endforeach()
+unset(FRUITY_PHASE4_SOURCE_TEXT)
+unset(FRUITY_PHASE4_SOURCE)
+unset(FRUITY_PHASE4_DISPLAY_LIST_REGEX)
+
 # Runtime decoder tests have their own executable below. Keep its main() out
 # of the production archive while retaining the repository's Native/Testing
 # source location.

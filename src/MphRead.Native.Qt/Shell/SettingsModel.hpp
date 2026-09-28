@@ -110,6 +110,7 @@ namespace MphRead::Qt
         void SetupTick();
         void SetupApply();
         void SetupStop(const QString& message);
+        void ShareLogs();
         [[nodiscard]] Row* Get(RowModel& model, const QString& id);
         [[nodiscard]] int IndexOf(RowModel& model, const QString& id) const;
 
@@ -133,6 +134,9 @@ namespace MphRead::Qt
         QTimer _setupTimer;
         QString _setupStatus;
         QString _profileStatus;
+        bool _sharing = false;
+        QString _shareError;
+        std::shared_ptr<int> _lifetime = std::make_shared<int>(0);
         QTimer _padTimer;
         QTimer _deviceTimer;
         std::string _deviceList;

@@ -48,6 +48,7 @@
 #include <iterator>
 #include <stdexcept>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -1772,6 +1773,55 @@ namespace MphRead::Qt
         };
         rows.push_back(std::move(signInNote));
         _profile.Reset(std::move(rows));
+    }
+
+    void SettingsModel::ShareLogs()
+    {
+        if (_sharing)
+        {
+            return;
+        }
+        const std::shared_ptr<Mods::ILogShare> sharer = Mods::LogShare::Current();
+        if (sharer == nullptr)
+        {
+            return;
+        }
+        _sharing = true;
+        _profile.Refresh();
+        const std::u16string name = Mods::LogArchive::FileName();
+        const std::weak_ptr<int> alive = _lifetime;
+        std::thread([this, alive, sharer, name]()
+        {
+            std::u16string path;
+            std::u16string error;
+            bool built = false;
+            try
+            {
+                path = sharer->StagingPath(name);
+            }
+            catch (const std::exception& exception)
+            {
+                error = Runtime::Utf8ToUtf16(exception.what());
+            }
+            if (error.empty())
+            {
+                built = Mods::LogArchive::Create(path, error);
+            }
+            QMetaObject::invokeMethod(this, [this, alive, sharer, name, path, error, built]() mutable
+            {
+                if (alive.expired())
+                {
+                    return;
+                }
+                if (built)
+                {
+                    built = sharer->Share(path, name, error);
+                }
+                _sharing = false;
+                _shareError = built ? QString() : QString::fromStdU16String(error);
+                _profile.Refresh();
+            }, ::Qt::QueuedConnection);
+        }).detach();
     }
 
     // ------------------------------------------------------------ Credits

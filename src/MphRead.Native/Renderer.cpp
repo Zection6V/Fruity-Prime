@@ -6180,6 +6180,12 @@ namespace MphRead
         {
             Mods::WindowGeometry::Note(*this);
         }
+        if (e.Size.X > 0 && e.Size.Y > 0 && _swapchain != nullptr)
+        {
+            _swapchain->Resize(
+                static_cast<std::uint32_t>(e.Size.X),
+                static_cast<std::uint32_t>(e.Size.Y));
+        }
         if (!_sceneReady)
         {
             return;

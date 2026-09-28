@@ -1,6 +1,7 @@
 #include "RendererGeometry.hpp"
 
 #include "NativeRuntime/System/Exceptions.hpp"
+#include "NativeRuntime/System/Runtime.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -132,16 +133,27 @@ namespace MphRead
                 const std::uint32_t dg = (rgb >> 5U) & 0x1FU;
                 const std::uint32_t db = (rgb >> 10U) & 0x1FU;
                 const std::uint32_t set = (rgb >> 15U) & 1U;
+                const std::uint32_t ar = (rgb >> 16U) & 0x1FU;
+                const std::uint32_t ag = (rgb >> 21U) & 0x1FU;
+                const std::uint32_t ab = (rgb >> 26U) & 0x1FU;
 
                 // The current GLSL path uses alpha 0 as a sentinel: use this
-                // per-vertex diffuse RGB and force ambient to zero. If bit 15
-                // is set, the legacy Color3 call immediately restores alpha 1.
-                // Ambient bits are deliberately not folded into SceneVertex;
-                // current dlist semantics assert they are zero and the shader
-                // sentinel path ignores them.
+                // per-vertex diffuse RGB and force ambient to zero. Keep the
+                // two legacy Debug.Assert calls here as part of the decoder
+                // semantics; neither changes release behavior.
+#if defined(DEBUG)
+                NativeRuntime::DebugAssert(ar == 0U && ag == 0U && ab == 0U);
+#endif
                 current.Color = OpenTK::Mathematics::Vector4(
-                    dr / 31.0F, dg / 31.0F, db / 31.0F,
-                    set != 0U ? 1.0F : 0.0F);
+                    dr / 31.0F, dg / 31.0F, db / 31.0F, 0.0F);
+                if (set != 0U)
+                {
+#if defined(DEBUG)
+                    NativeRuntime::DebugAssert(false);
+#endif
+                    // Legacy GL.Color3 restores current alpha to 1.
+                    current.Color.W = 1.0F;
+                }
                 attributeState = attributeState | SceneVertexAttributeState::Color;
                 break;
             }

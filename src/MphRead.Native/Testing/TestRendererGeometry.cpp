@@ -367,22 +367,32 @@ namespace
     void TestDifAmbSentinel()
     {
         const std::uint32_t diffuse = PackColor5(31, 16, 1);
-        const RendererGeometry geometry = Decode({
+        std::vector<TestInstruction> instructions{
             Op(InstructionCode::BEGIN_VTXS, {0}),
             Op(InstructionCode::DIF_AMB, {diffuse}),
-            Op(InstructionCode::VTX_10, {Pack10(0, 0, 0)}),
-            Op(InstructionCode::DIF_AMB, {diffuse | (1U << 15U)}),
-            Op(InstructionCode::VTX_10, {Pack10(64, 0, 0)}),
-            Op(InstructionCode::DIF_AMB, {diffuse}),
-            Op(InstructionCode::VTX_10, {Pack10(0, 64, 0)}),
-            Op(InstructionCode::END_VTXS)
-        });
+            Op(InstructionCode::VTX_10, {Pack10(0, 0, 0)})
+        };
+#if !defined(DEBUG)
+        // In DEBUG the legacy code asserts before the bit-15 Color3 path.
+        // Release behavior is still required to restore alpha to 1.
+        instructions.push_back(Op(InstructionCode::DIF_AMB, {diffuse | (1U << 15U)}));
+        instructions.push_back(Op(InstructionCode::VTX_10, {Pack10(64, 0, 0)}));
+#endif
+        instructions.push_back(Op(InstructionCode::DIF_AMB, {diffuse}));
+        instructions.push_back(Op(InstructionCode::VTX_10, {Pack10(0, 64, 0)}));
+        instructions.push_back(Op(InstructionCode::END_VTXS));
+
+        const RendererGeometry geometry = Decode(instructions);
 
         ExpectVector4(geometry.Vertices[0].Color,
             {1.0F, 16.0F / 31.0F, 1.0F / 31.0F, 0.0F},
             "DIF_AMB alpha sentinel");
+#if !defined(DEBUG)
         ExpectFloat(geometry.Vertices[1].Color.W, 1.0F, "DIF_AMB set bit Color3 alpha");
         ExpectFloat(geometry.Vertices[2].Color.W, 0.0F, "DIF_AMB sentinel restored");
+#else
+        ExpectFloat(geometry.Vertices[1].Color.W, 0.0F, "DIF_AMB sentinel retained");
+#endif
         for (SceneVertexAttributeState state : geometry.VertexAttributeStates)
         {
             Expect(HasSceneVertexAttributeState(state, SceneVertexAttributeState::Color),

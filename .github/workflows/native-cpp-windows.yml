@@ -39,13 +39,18 @@ jobs:
         shell: pwsh
         run: New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
 
+      - name: Locate vcpkg
+        id: vcpkg
+        shell: bash
+        run: echo "commit=$(git -C "$VCPKG_INSTALLATION_ROOT" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
         continue-on-error: true
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: native-vcpkg-v1-${{ runner.os }}-${{ runner.arch }}-msvc-x64-windows-${{ hashFiles('CMakeLists.txt', 'cmake/**', '.github/workflows/native-cpp-windows.yml') }}
+          key: native-vcpkg-v1-${{ runner.os }}-${{ runner.arch }}-msvc-x64-windows-${{ steps.vcpkg.outputs.commit }}
           restore-keys: |
             native-vcpkg-v1-${{ runner.os }}-${{ runner.arch }}-msvc-x64-windows-
 
@@ -83,7 +88,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: native-vcpkg-v1-${{ runner.os }}-${{ runner.arch }}-msvc-x64-windows-${{ hashFiles('CMakeLists.txt', 'cmake/**', '.github/workflows/native-cpp-windows.yml') }}
+          key: native-vcpkg-v1-${{ runner.os }}-${{ runner.arch }}-msvc-x64-windows-${{ steps.vcpkg.outputs.commit }}
 
       - name: Configure with MSVC
         shell: pwsh
@@ -100,7 +105,7 @@ jobs:
           set -euo pipefail
           cmake --build build/native \
             --config RelWithDebInfo \
-            --parallel 2 \
+            --parallel "$NUMBER_OF_PROCESSORS" \
             --verbose \
             --target fruity_ncsfplay_native fruity_mphread_native 2>&1 | tee build/native/build.log
 

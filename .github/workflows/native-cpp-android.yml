@@ -194,6 +194,12 @@ jobs:
           path: ${{ env.APT_CACHE_DIR }}
           key: native-android-apt-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.apt-deps.outputs.digest }}-${{ hashFiles('.github/workflows/native-cpp-android.yml') }}
 
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: native-ccache-android-${{ matrix.abi }}
+          max-size: 1G
+
       - name: Verify pinned NDK toolchain
         shell: bash
         run: |
@@ -221,11 +227,13 @@ jobs:
             -DANDROID_PLATFORM="android-${ANDROID_MIN_API}" \
             -DANDROID_STL=c++_static \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DFRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR="$FRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR" 2>&1 | tee "$build_dir/configure.log"
 
           cmake --build "$build_dir" \
             --config RelWithDebInfo \
-            --parallel 2 \
+            --parallel "$(nproc)" \
             --verbose \
             --target fruity_mphread_native_android 2>&1 | tee "$build_dir/build.log"
 

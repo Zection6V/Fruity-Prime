@@ -8,9 +8,20 @@ on:
         required: true
         type: string
         default: cpp_v0.8.2
+  # build_cpp.yml and release_cpp.yml reuse this as the one definition of
+  # "build the C++ game". An empty ref builds the caller's own commit.
+  workflow_call:
+    inputs:
+      checkout_ref:
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
+
+env:
+  VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.cache/vcpkg/archives
 
 jobs:
   windows:
@@ -21,7 +32,22 @@ jobs:
       - name: Checkout C++ source
         uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.checkout_ref }}
+          ref: ${{ inputs.checkout_ref || github.sha }}
+
+      # Shares archives with the per-platform native workflows: Skia is
+      # rebuilt only when its vcpkg ABI hash changes.
+      - name: Cache vcpkg binary archives
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: native-vcpkg-all-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: |
+            native-vcpkg-all-${{ runner.os }}-${{ runner.arch }}-
+            native-vcpkg-v1-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Prepare vcpkg binary cache directory
+        shell: bash
+        run: mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
 
       - name: Install native dependencies
         shell: pwsh
@@ -49,7 +75,7 @@ jobs:
       - name: Build C++ FruityPrime
         shell: pwsh
         run: |
-          cmake --build build/native --config RelWithDebInfo --parallel 2 --target fruity_prime
+          cmake --build build/native --config RelWithDebInfo --parallel $env:NUMBER_OF_PROCESSORS --target fruity_prime
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
@@ -73,7 +99,22 @@ jobs:
       - name: Checkout C++ source
         uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.checkout_ref }}
+          ref: ${{ inputs.checkout_ref || github.sha }}
+
+      # Shares archives with the per-platform native workflows: Skia is
+      # rebuilt only when its vcpkg ABI hash changes.
+      - name: Cache vcpkg binary archives
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: native-vcpkg-all-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: |
+            native-vcpkg-all-${{ runner.os }}-${{ runner.arch }}-
+            native-vcpkg-v1-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Prepare vcpkg binary cache directory
+        shell: bash
+        run: mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
 
       - name: Install native dependencies
         shell: bash
@@ -112,18 +153,24 @@ jobs:
           "$root/vcpkg" install "skia[gl,freetype]:x64-linux" --clean-after-build
           echo "FRUITY_SKIA_PREFIX=$root/installed/x64-linux" >> "$GITHUB_ENV"
 
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: native-ccache-${{ runner.os }}-${{ runner.arch }}-gcc-game
+          max-size: 1G
+
       - name: Configure
         shell: bash
         run: |
           set -euo pipefail
-          cmake -S . -B build/native -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+          cmake -S . -B build/native -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_PREFIX_PATH="${FRUITY_SKIA_PREFIX}"
 
       - name: Build C++ FruityPrime
         shell: bash
         run: |
           set -euo pipefail
-          cmake --build build/native --config RelWithDebInfo --parallel 2 --target fruity_prime
+          cmake --build build/native --config RelWithDebInfo --parallel "$(nproc)" --target fruity_prime
 
       - name: Upload Linux build
         uses: actions/upload-artifact@v4
@@ -143,7 +190,22 @@ jobs:
       - name: Checkout C++ source
         uses: actions/checkout@v5
         with:
-          ref: ${{ inputs.checkout_ref }}
+          ref: ${{ inputs.checkout_ref || github.sha }}
+
+      # Shares archives with the per-platform native workflows: Skia is
+      # rebuilt only when its vcpkg ABI hash changes.
+      - name: Cache vcpkg binary archives
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: native-vcpkg-all-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: |
+            native-vcpkg-all-${{ runner.os }}-${{ runner.arch }}-
+            native-vcpkg-v1-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Prepare vcpkg binary cache directory
+        shell: bash
+        run: mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
 
       - name: Install native dependencies
         shell: bash
@@ -171,18 +233,24 @@ jobs:
           "$root/vcpkg" install "skia[gl,freetype]:$triplet" --clean-after-build
           echo "FRUITY_SKIA_PREFIX=$root/installed/$triplet" >> "$GITHUB_ENV"
 
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: native-ccache-${{ runner.os }}-${{ runner.arch }}-clang-game
+          max-size: 1G
+
       - name: Configure
         shell: bash
         run: |
           set -euo pipefail
-          cmake -S . -B build/native -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+          cmake -S . -B build/native -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_PREFIX_PATH="${FRUITY_SKIA_PREFIX};$CMAKE_PREFIX_PATH"
 
       - name: Build C++ FruityPrime
         shell: bash
         run: |
           set -euo pipefail
-          cmake --build build/native --config RelWithDebInfo --parallel 2 --target fruity_prime
+          cmake --build build/native --config RelWithDebInfo --parallel "$(sysctl -n hw.ncpu)" --target fruity_prime
 
       - name: Upload macOS build
         uses: actions/upload-artifact@v4

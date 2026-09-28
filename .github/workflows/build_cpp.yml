@@ -1,0 +1,28 @@
+# Build the C++ port on every push and PR.
+#
+# The build steps themselves live in native-cpp-all.yml (the game on Windows,
+# Linux and macOS) and native-cpp-android.yml (the Android native library).
+# This file only decides *when* they run, so there is one definition of each.
+name: build_cpp
+
+on:
+  push:
+    branches: ["**"]
+    tags-ignore: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch makes the older run's result worthless.
+concurrency:
+  group: build_cpp-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    uses: ./.github/workflows/native-cpp-all.yml
+
+  android:
+    uses: ./.github/workflows/native-cpp-android.yml

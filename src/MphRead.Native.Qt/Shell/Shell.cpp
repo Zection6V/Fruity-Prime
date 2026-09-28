@@ -32,6 +32,7 @@
 #include "../../MphRead.Native/NativeRuntime/System/ExceptionText.hpp"
 #include "../../MphRead.Native/NativeRuntime/System/Runtime.hpp"
 
+#include <QtCore/QDir>
 #include <QtCore/QVariantMap>
 #include <QtGui/QImage>
 #include <QtGui/QOpenGLContext>
@@ -266,9 +267,10 @@ namespace MphRead::Mods::Launcher::Gui
                 QImage image(size.X, size.Y, QImage::Format_RGBA8888);
                 QOpenGLContext::currentContext()->functions()->glReadPixels(
                     0, 0, size.X, size.Y, GL_RGBA, GL_UNSIGNED_BYTE, image.bits());
-                const QString path = dir + QLatin1Char('/') + QLatin1String(name) + QStringLiteral(".png");
-                image.flipped(::Qt::Vertical).convertToFormat(QImage::Format_RGB32).save(path);
-                std::cout << "[demo] " << path.toStdString() << '\n';
+                QDir().mkpath(dir);
+                const QString path = QDir(dir).filePath(QLatin1String(name) + QStringLiteral(".png"));
+                const bool saved = image.flipped(::Qt::Vertical).convertToFormat(QImage::Format_RGB32).save(path);
+                std::cout << "[demo] " << path.toStdString() << (saved ? "" : " (not written)") << '\n';
             };
             if (frame == 60)
             {

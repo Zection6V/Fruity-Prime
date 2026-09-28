@@ -28,10 +28,11 @@ namespace MphRead::Mods::Network
     {
     private:
         std::shared_ptr<MphRead::RendererPlatform::Window> _window;
+        std::unique_ptr<MphRead::NativeRuntime::Rhi::Swapchain> _swapchain;
 
         [[nodiscard]] OpenTK::Mathematics::Vector2i ClientSize() const;
         void Close();
-        void SwapBuffers();
+        void Present();
 
     public:
         void Run();

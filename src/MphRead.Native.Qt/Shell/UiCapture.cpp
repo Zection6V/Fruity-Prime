@@ -224,7 +224,22 @@ namespace MphRead::Qt
             {
                 for (const QString& name : keys.split(QLatin1Char(',')))
                 {
-                    const QKeySequence sequence(name);
+                    // PadA: the pad's A, which some controls answer themselves.
+                    if (name == QStringLiteral("PadA") && FocusNav::PadAccept(*window))
+                    {
+                        bridge.KeyboardDriving();
+                        for (int i = 0; i < 2; ++i)
+                        {
+                            QCoreApplication::processEvents();
+                            control->polishItems();
+                            control->beginFrame();
+                            control->sync();
+                            control->render();
+                            control->endFrame();
+                        }
+                        continue;
+                    }
+                    const QKeySequence sequence(name == QStringLiteral("PadA") ? QStringLiteral("Return") : name);
                     const int key = sequence.isEmpty() ? 0 : sequence[0].key();
                     QKeyEvent press(QEvent::KeyPress, key, ::Qt::NoModifier);
                     QCoreApplication::sendEvent(window.get(), &press);

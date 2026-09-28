@@ -22,6 +22,9 @@ namespace MphRead::Qt
 
         // After a key went to the scene: the arrows and pages nothing took.
         static void Unhandled(QQuickWindow& window, int key);
+        // The pad's A on a control with its own answer (padAccept()); false
+        // when it has none and A is Enter.
+        static bool PadAccept(QQuickWindow& window);
         // Move the focus one step; false when nothing lies that way.
         static bool Move(QQuickWindow& window, Direction direction);
         // Scroll the list holding the focus by most of its height.

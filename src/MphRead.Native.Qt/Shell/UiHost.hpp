@@ -46,6 +46,7 @@ namespace MphRead::Qt
         // The pad in the menus: GamepadNavigation's actions, as keys.
         void PadActions();
         void SendKey(int key);
+        [[nodiscard]] bool PadAccept();
         void Navigated(int key, bool accepted);
 
         QWindow& _gameWindow;

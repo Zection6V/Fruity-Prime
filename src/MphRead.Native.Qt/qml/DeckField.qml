@@ -12,6 +12,18 @@ FocusScope {
     readonly property real padX: Theme.roundEven(size * 0.7)
     readonly property real padY: Theme.roundEven(size * 0.4)
     signal editingFinished()
+    readonly property int maxLength: input.maximumLength
+    // The pad's A: the on-screen keyboard fills this field.
+    function padAccept() {
+        if (!Theme.keyboard)
+            return false
+        Theme.keyboard.open(field)
+        return true
+    }
+    function keyboardText(value) {
+        input.text = value
+        editingFinished()
+    }
     signal accepted()
 
     implicitWidth: widthEms > 0 ? Theme.roundEven(size * widthEms) : 100

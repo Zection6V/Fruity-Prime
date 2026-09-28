@@ -18,6 +18,19 @@ Page {
         id: settings
         inGame: page.overGame
         onClosed: saved => { if (page.nav) page.nav.pop() }
+        // A key row handed over: the gamepad page, that pad row focused.
+        onPadRowRequested: row => {
+            tabs.index = 2
+            subTabs.index = 1
+            Qt.callLater(() => {
+                // The new page's rows are placed now, not at the next polish.
+                pageRows.forceLayout()
+                column.forceLayout()
+                const item = pageRows.focusRow(row)
+                if (item)
+                    shell.reveal(item)
+            })
+        }
         // InGameMenu: over a match the menus step aside for the placement.
         onStylusPlacementRequested: if (page.overGame && page.nav) page.nav.reset()
         onGameFilesRequested: {
@@ -61,6 +74,7 @@ Page {
                     }
                 }
                 SettingsRows {
+                    id: pageRows
                     width: parent.width
                     settings: settings
                     model: [settings.display, settings.audio,

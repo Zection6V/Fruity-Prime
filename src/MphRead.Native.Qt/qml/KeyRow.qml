@@ -13,6 +13,12 @@ FocusScope {
     signal listen()
     signal mouse(int button)
     signal wheel(bool up)
+    // The pad's A: the matching pad row, or a word that there is none.
+    signal padAccepted()
+    function padAccept() {
+        padAccepted()
+        return true
+    }
 
     activeFocusOnTab: true
     implicitWidth: 300

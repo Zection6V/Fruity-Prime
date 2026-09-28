@@ -10,7 +10,15 @@ Column {
     property bool keys: false
     spacing: 2
 
+    // Focus the row at an index (a pad row the key rows hand over to).
+    function focusRow(index) {
+        const item = repeater.itemAt(index)
+        if (item && item.content)
+            item.content.forceActiveFocus()
+        return item ? item.content : null
+    }
     Repeater {
+        id: repeater
         model: rows.model
         Item {
             id: slot
@@ -20,6 +28,7 @@ Column {
             visible: row.shown
             // Room above and below: Heading's margins, a button's, a panel's gap.
             height: visible && loader.item ? row.top + loader.item.height + row.bottom : 0
+            readonly property Item content: loader.item
           Loader {
             id: loader
             y: slot.row.top
@@ -154,6 +163,7 @@ Column {
                     onListen: rows.settings.listenKey(slot.index)
                     onMouse: b => rows.settings.pressMouse(b)
                     onWheel: up => rows.settings.wheel(up)
+                    onPadAccepted: rows.settings.keyToPad(slot.index)
                     onActiveFocusChanged: if (!activeFocus && listening) rows.settings.stopKey()
                 }
             }

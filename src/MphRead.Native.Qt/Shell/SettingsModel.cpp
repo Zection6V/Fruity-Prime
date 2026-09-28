@@ -318,6 +318,9 @@ namespace MphRead::Qt
     {
         _setupStatus = QStringLiteral(
             "Calibration measures drift and trigger travel. Manual mapping is available on desktop.");
+        _keyEdges = std::make_unique<Input::GamepadEdges>();
+        _keyTimer.setInterval(16);
+        connect(&_keyTimer, &QTimer::timeout, this, [this]() { KeyTick(); });
         _setupTimer.setInterval(50);
         connect(&_setupTimer, &QTimer::timeout, this, [this]() { SetupTick(); });
         if (ShellBridge* const bridge = ShellBridge::Current())
@@ -563,14 +566,22 @@ namespace MphRead::Qt
         chat.Type = QStringLiteral("key");
         chat.Id = QStringLiteral("key.chat");
         chat.Label = QStringLiteral("Chat");
-        chat.Live = [keyName]() { return keyName(Mods::InputSettings::ChatKey()); };
+        chat.Live = [this, keyName]()
+        {
+            return _keyHintRow == IndexOf(_keyboard, QStringLiteral("key.chat"))
+                ? QStringLiteral("Keyboard only; configure sticks under Gamepad") : keyName(Mods::InputSettings::ChatKey());
+        };
         chat.Binding = -2;
         rows.push_back(std::move(chat));
         Row clip;
         clip.Type = QStringLiteral("key");
         clip.Id = QStringLiteral("key.clip");
         clip.Label = QStringLiteral("Save clip");
-        clip.Live = [keyName]() { return keyName(Mods::InputSettings::ClipKey()); };
+        clip.Live = [this, keyName]()
+        {
+            return _keyHintRow == IndexOf(_keyboard, QStringLiteral("key.clip"))
+                ? QStringLiteral("Keyboard only; configure sticks under Gamepad") : keyName(Mods::InputSettings::ClipKey());
+        };
         clip.Binding = -3;
         rows.push_back(std::move(clip));
 
@@ -595,8 +606,13 @@ namespace MphRead::Qt
             key.Id = QStringLiteral("key.") + Q(bindings[i].Name);
             key.Label = Q(Mods::InputSettings::ActionName(bindings[i]));
             key.Binding = static_cast<int>(i);
-            key.Live = [i]()
+            const QString id = key.Id;
+            key.Live = [this, i, id]()
             {
+                if (_keyHintRow >= 0 && _keyHintRow == IndexOf(_keyboard, id))
+                {
+                    return QStringLiteral("Keyboard only; configure sticks under Gamepad");
+                }
                 const auto& property = Mods::InputSettings::Bindings()[i];
                 return Q(Mods::InputSettings::Describe(Mods::InputSettings::Bind(property)));
             };
@@ -612,8 +628,89 @@ namespace MphRead::Qt
             return;
         }
         _keyRow = row;
+        _keyHintRow = -1;
+        (void)_keyEdges->Update(Input::GamepadManager::Snapshot());
+        _keyTimer.start();
         emit listeningChanged();
         _keyboard.Refresh();
+    }
+
+    void SettingsModel::KeyTick()
+    {
+        if (_keyRow < 0)
+        {
+            _keyTimer.stop();
+            return;
+        }
+        const Input::GamepadButtons pressed = _keyEdges->Update(Input::GamepadManager::Snapshot());
+        if (pressed != Input::GamepadButtons::None)
+        {
+            KeyToPad(_keyRow, static_cast<std::int32_t>(pressed));
+        }
+    }
+
+    void SettingsModel::keyToPad(int row)
+    {
+        KeyToPad(row, 0);
+    }
+
+    void SettingsModel::KeyToPad(int row, std::int32_t pressedValue)
+    {
+        if (row < 0 || row >= _keyboard.Count())
+        {
+            return;
+        }
+        const Row& key = _keyboard.Rows()[static_cast<std::size_t>(row)];
+        const std::string binding = key.Binding >= 0
+            ? std::string(Mods::InputSettings::Bindings()[static_cast<std::size_t>(key.Binding)].Name)
+            : key.Binding == -2 ? std::string("Chat") : std::string("SaveClip");
+        using Action = Input::PadAction;
+        static const std::vector<std::pair<const char*, Action>> actions{
+            {"Shoot", Action::Shoot}, {"AltAttack", Action::Shoot}, {"Jump", Action::Jump}, {"Boost", Action::Jump},
+            {"Zoom", Action::Zoom}, {"Morph", Action::Morph}, {"Scan", Action::Scan}, {"ScanVisor", Action::ScanVisor},
+            {"WeaponMenu", Action::WeaponWheel}, {"Pause", Action::Scoreboard}, {"NextWeapon", Action::NextWeapon},
+            {"PrevWeapon", Action::PrevWeapon}, {"Missile", Action::Missile}, {"PowerBeam", Action::PowerBeam},
+            {"Chat", Action::Chat}, {"VoltDriver", Action::VoltDriver}, {"Battlehammer", Action::Battlehammer},
+            {"Imperialist", Action::Imperialist}, {"Judicator", Action::Judicator}, {"Magmaul", Action::Magmaul},
+            {"ShockCoil", Action::ShockCoil}, {"OmegaCannon", Action::OmegaCannon},
+            {"AffinitySlot", Action::AffinitySlot}};
+        const auto found = std::find_if(actions.begin(), actions.end(),
+            [&binding](const auto& entry) { return binding == entry.first; });
+        stopKey();
+        if (found == actions.end())
+        {
+            _keyHintRow = row;
+            _keyboard.Refresh();
+            return;
+        }
+        int padRow = -1;
+        for (std::size_t i = 0; i < _gamepad.Rows().size(); ++i)
+        {
+            const Row& candidate = _gamepad.Rows()[i];
+            if (candidate.Type == QStringLiteral("pad") && candidate.Binding == static_cast<int>(found->second))
+            {
+                padRow = static_cast<int>(i);
+                break;
+            }
+        }
+        if (padRow < 0)
+        {
+            return;
+        }
+        emit padRowRequested(padRow);
+        padListen(padRow);
+        const auto pressed = static_cast<Input::GamepadButtons>(pressedValue);
+        if (pressed != Input::GamepadButtons::None)
+        {
+            for (const Input::GamepadButtons button : Input::GamepadButtonValues)
+            {
+                if (button != Input::GamepadButtons::None && (pressed & button) != Input::GamepadButtons::None)
+                {
+                    PadChooseButton(padRow, static_cast<std::int32_t>(button));
+                    break;
+                }
+            }
+        }
     }
 
     void SettingsModel::stopKey()
@@ -623,6 +720,7 @@ namespace MphRead::Qt
             return;
         }
         _keyRow = -1;
+        _keyTimer.stop();
         emit listeningChanged();
         _keyboard.Refresh();
     }

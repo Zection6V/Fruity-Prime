@@ -1,5 +1,7 @@
 #include "ShellBridge.hpp"
 
+#include "FocusNav.hpp"
+
 #include "../../MphRead.Native/Menu.hpp"
 #include "../../MphRead.Native/Metadata/Metadata.hpp"
 #include "../../MphRead.Native/Mods/Branding.hpp"
@@ -132,6 +134,14 @@ namespace MphRead::Qt
         _versionColour = colour;
         _updatable = pressable;
         emit versionChanged();
+    }
+
+    void ShellBridge::reveal(QQuickItem* item)
+    {
+        if (item != nullptr)
+        {
+            FocusNav::Reveal(*item);
+        }
     }
 
     void ShellBridge::refreshVersionLine()

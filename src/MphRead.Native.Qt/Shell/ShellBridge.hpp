@@ -14,6 +14,8 @@
 #include <string>
 #include <vector>
 
+class QQuickItem;
+
 namespace MphRead
 {
     class MenuSettings;
@@ -95,6 +97,8 @@ namespace MphRead::Qt
         Q_INVOKABLE void startUpdateCheck();
         Q_INVOKABLE void refreshVersionLine();
         Q_INVOKABLE void updateNow();
+        // Scroll the lists around an item until it is in view.
+        Q_INVOKABLE void reveal(QQuickItem* item);
         void GameFilesChanged();
         // The lobby's match is loading: start it, whatever the lobby rule.
         void StartMatch(LaunchPlan plan);

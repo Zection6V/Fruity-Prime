@@ -139,5 +139,6 @@ Item {
         onLoaded: item.forceActiveFocus()
     }
     onShowingChanged: if (showing === "form") nameRow.forceActiveFocus()
-    Component.onCompleted: nameRow.forceActiveFocus()
+    // After Main hands the page the focus: the name box takes it.
+    Component.onCompleted: Qt.callLater(() => nameRow.forceActiveFocus())
 }

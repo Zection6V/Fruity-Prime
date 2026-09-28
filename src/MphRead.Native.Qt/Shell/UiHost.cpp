@@ -72,7 +72,12 @@ namespace MphRead::Qt
             case UiAction::Down: SendKey(::Qt::Key_Down); break;
             case UiAction::Left: SendKey(::Qt::Key_Left); break;
             case UiAction::Right: SendKey(::Qt::Key_Right); break;
-            case UiAction::Accept: SendKey(::Qt::Key_Return); break;
+            case UiAction::Accept:
+                if (!PadAccept())
+                {
+                    SendKey(::Qt::Key_Return);
+                }
+                break;
             case UiAction::Back: SendKey(::Qt::Key_Escape); break;
             case UiAction::PreviousTab: _bridge.StepTabs(-1); break;
             case UiAction::NextTab: _bridge.StepTabs(1); break;
@@ -93,6 +98,22 @@ namespace MphRead::Qt
         Navigated(key, press.isAccepted());
         QKeyEvent release(QEvent::KeyRelease, key, ::Qt::NoModifier);
         QCoreApplication::sendEvent(_window.get(), &release);
+    }
+
+    bool UiHost::PadAccept()
+    {
+        // A control with its own answer to the pad's A (a text field opens
+        // the on-screen keyboard, a key row hands over to its pad row).
+        if (!_initialised)
+        {
+            return false;
+        }
+        const bool handled = FocusNav::PadAccept(*_window);
+        if (handled)
+        {
+            _bridge.KeyboardDriving();
+        }
+        return handled;
     }
 
     void UiHost::Navigated(int key, bool accepted)

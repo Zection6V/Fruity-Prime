@@ -5,6 +5,8 @@
 #include <QtCore/QObject>
 #include <QtCore/QTimer>
 
+#include "../../MphRead.Native/Mods/Input/GamepadUiRouter.hpp"
+
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -65,6 +67,9 @@ namespace MphRead::Qt
         Q_INVOKABLE void pressMouse(int button);
         Q_INVOKABLE void wheel(bool up);
         [[nodiscard]] Q_INVOKABLE int keyRow() const noexcept { return _keyRow; }
+        // KeyRow.OpenControllerBinding: the pad's A on a key row opens the
+        // matching pad row and listens there.
+        Q_INVOKABLE void keyToPad(int row);
 
         // PadRow on the gamepad page: which slot, listening, the conflict's choice.
         Q_INVOKABLE void padSlot(int row, int slot);
@@ -85,6 +90,8 @@ namespace MphRead::Qt
         void closed(bool saved);
         void gameFilesRequested();
         void stylusPlacementRequested();
+        // Show the gamepad page with this pad row focused.
+        void padRowRequested(int row);
 
     private:
         struct PadCapture;
@@ -111,6 +118,8 @@ namespace MphRead::Qt
         void SetupApply();
         void SetupStop(const QString& message);
         void ShareLogs();
+        void KeyToPad(int row, std::int32_t pressed);
+        void KeyTick();
         [[nodiscard]] Row* Get(RowModel& model, const QString& id);
         [[nodiscard]] int IndexOf(RowModel& model, const QString& id) const;
 
@@ -129,6 +138,10 @@ namespace MphRead::Qt
         bool _gamepadAdvanced = false;
         bool _stylusAdvanced = false;
         int _keyRow = -1;
+        // The key row that told the pad it is keyboard only.
+        int _keyHintRow = -1;
+        std::unique_ptr<::MphRead::Mods::Input::GamepadEdges> _keyEdges;
+        QTimer _keyTimer;
         std::unique_ptr<PadCapture> _pad;
         std::unique_ptr<PadSetup> _setup;
         QTimer _setupTimer;

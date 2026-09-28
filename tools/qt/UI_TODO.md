@@ -52,7 +52,11 @@ Objectif : toute l'UI du launcher en QML, 1 pour 1 avec les 26 écrans de réfé
 - Le flou ressenti vient surtout de la capture en 940×528 : vérifier en plein écran dans la vraie fenêtre.
 
 ## Reste
-- [ ] Clavier virtuel manette pour les champs texte (ControllerKeyboard) — utile surtout Android/TV
-- [ ] KeyRow + manette : A sur une touche clavier renvoie vers la ligne manette équivalente
-      (KeyRow::OpenControllerBinding)
-- [ ] Captures de référence à régénérer avec Inter si on veut des écarts proches de 0
+- Rien de bloquant. Optionnel : régénérer les captures de référence avec Inter pour des écarts proches de 0.
+
+## Manette (fait)
+- Clavier virtuel (`ControllerKeyboard.qml`, modal : `navModal` garde le focus dedans) : A sur un champ
+  texte (FieldRow, DeckField) via `padAccept()`, appelé par UiHost/FocusNav::PadAccept avant Entrée.
+- A sur une touche clavier (KeyRow) ou bouton pressé pendant l'écoute : ouvre la ligne manette
+  correspondante et écoute (SettingsModel::KeyToPad), sinon « Keyboard only; configure sticks under Gamepad ».
+- Captures : `PadA` dans `FP_QT_UISHOT_KEYS` simule le A de la manette.

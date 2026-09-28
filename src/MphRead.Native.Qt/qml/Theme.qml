@@ -118,6 +118,8 @@ QtObject {
         }
         return 3 * y1 * t * (1 - t) * (1 - t) + 3 * y2 * t * t * (1 - t) + t * t * t
     }
+    // The on-screen keyboard Main keeps, for the fields the pad fills.
+    property var keyboard: null
     // The state behind :focus-visible: the keyboard, not a pointer, is driving.
     property bool keyboardDriving: false
     // Deck.Spring, cubic-bezier(.18, 1.55, .35, 1).

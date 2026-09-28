@@ -53,6 +53,27 @@ namespace MphRead::Qt
             return rect;
         }
 
+        // A modal layer (the on-screen keyboard) keeps the focus inside it.
+        [[nodiscard]] QQuickItem* ModalRoot(QQuickItem& item)
+        {
+            if (!item.isVisible())
+            {
+                return nullptr;
+            }
+            if (item.property("navModal").toBool())
+            {
+                return &item;
+            }
+            for (QQuickItem* child : item.childItems())
+            {
+                if (QQuickItem* found = ModalRoot(*child))
+                {
+                    return found;
+                }
+            }
+            return nullptr;
+        }
+
         [[nodiscard]] QQuickItem* Current(QQuickWindow& window)
         {
             for (QQuickItem* item = window.activeFocusItem(); item != nullptr; item = item->parentItem())
@@ -69,7 +90,8 @@ namespace MphRead::Qt
     bool FocusNav::Move(QQuickWindow& window, Direction direction)
     {
         std::vector<QQuickItem*> candidates;
-        Collect(*window.contentItem(), candidates);
+        QQuickItem* const modal = ModalRoot(*window.contentItem());
+        Collect(modal != nullptr ? *modal : *window.contentItem(), candidates);
         QQuickItem* const current = Current(window);
         if (current == nullptr)
         {
@@ -154,6 +176,21 @@ namespace MphRead::Qt
         chosen->forceActiveFocus(::Qt::TabFocusReason);
         Reveal(*chosen);
         return true;
+    }
+
+    bool FocusNav::PadAccept(QQuickWindow& window)
+    {
+        for (QQuickItem* item = window.activeFocusItem(); item != nullptr; item = item->parentItem())
+        {
+            if (item->metaObject()->indexOfMethod("padAccept()") < 0)
+            {
+                continue;
+            }
+            QVariant handled;
+            QMetaObject::invokeMethod(item, "padAccept", Q_RETURN_ARG(QVariant, handled));
+            return handled.toBool();
+        }
+        return false;
     }
 
     void FocusNav::Unhandled(QQuickWindow& window, int key)

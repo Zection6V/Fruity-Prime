@@ -142,4 +142,9 @@ Item {
         }
         onLoaded: item.forceActiveFocus()
     }
+
+    ControllerKeyboard {
+        id: controllerKeyboard
+        Component.onCompleted: Theme.keyboard = controllerKeyboard
+    }
 }

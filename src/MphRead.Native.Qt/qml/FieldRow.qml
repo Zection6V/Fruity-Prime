@@ -7,6 +7,18 @@ FocusScope {
     property alias text: input.text
     property real boxWidth: 150
     signal edited(string text)
+    readonly property int maxLength: input.maximumLength
+    // The pad's A: the on-screen keyboard fills this box.
+    function padAccept() {
+        if (!Theme.keyboard)
+            return false
+        Theme.keyboard.open(row)
+        return true
+    }
+    function keyboardText(value) {
+        input.text = value
+        edited(value)
+    }
     implicitWidth: 300
     implicitHeight: 36
     height: implicitHeight

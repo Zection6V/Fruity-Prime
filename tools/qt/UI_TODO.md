@@ -28,6 +28,16 @@ Objectif : toute l'UI du launcher en QML, 1 pour 1 avec les 26 écrans de réfé
 - [x] Écarts actuels : confirm 0.9 %, pause 0.9 %, end 0.6 %, story 1.4 %, clips 1.5 %,
       offline 3.8 %, vote 3.9 %, online ~8 % (rendu du texte)
 
+## Décisions utilisateur (2026-09-28)
+- Police des libellés : **Inter** (choix F dans `.qt-screenshots/polices.png`) à la place de Pixelify ;
+  JetBrains Mono reste pour champs/chiffres. À intégrer : copier Inter (OFL, google/fonts
+  `ofl/inter/Inter[opsz,wght].ttf`, téléchargé dans `~/.local/share/fp-fonts`) sous
+  `src/MphRead/Assets/Fonts/Inter-Variable.ttf`, l'ajouter à la liste de polices du CMakeLists et
+  faire pointer `Theme.pixel` dessus. Test sans rebuild : `FP_QT_FONT=<ttf>`.
+- Texte sans anticrénelage ni sous-pixel (QtApp.cpp ; `FP_QT_TEXT_AA=1` pour le remettre).
+  L'ombre sous les noms de serveurs reste (elle est dans l'original).
+- Le flou ressenti vient surtout de la capture en 940×528 : vérifier en plein écran dans la vraie fenêtre.
+
 ## En cours / à faire
 - [ ] Settings : SettingsModel (RowModel) + SettingsPage.qml ; Display, Audio, Controls
       (Keyboard/Gamepad/Stylus), Profile, Credits ; items peints KeyRow, PadRow, GamepadMonitor,

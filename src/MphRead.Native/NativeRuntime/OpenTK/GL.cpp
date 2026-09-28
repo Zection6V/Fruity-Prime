@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -40,12 +41,14 @@ namespace
     using PFN_ActiveTexture = void(APIENTRY*)(GLenum);
     using PFN_AttachShader = void(APIENTRY*)(GLuint, GLuint);
     using PFN_BindBuffer = void(APIENTRY*)(GLenum, GLuint);
+    using PFN_BufferData = void(APIENTRY*)(GLenum, GLsizeiptr, const void*, GLenum);
     using PFN_BindFramebuffer = void(APIENTRY*)(GLenum, GLuint);
     using PFN_BindRenderbuffer = void(APIENTRY*)(GLenum, GLuint);
     using PFN_CheckFramebufferStatus = GLenum(APIENTRY*)(GLenum);
     using PFN_CompileShader = void(APIENTRY*)(GLuint);
     using PFN_CreateProgram = GLuint(APIENTRY*)();
     using PFN_CreateShader = GLuint(APIENTRY*)(GLenum);
+    using PFN_DeleteBuffers = void(APIENTRY*)(GLsizei, const GLuint*);
     using PFN_DeleteFramebuffers = void(APIENTRY*)(GLsizei, const GLuint*);
     using PFN_DeleteProgram = void(APIENTRY*)(GLuint);
     using PFN_DeleteRenderbuffers = void(APIENTRY*)(GLsizei, const GLuint*);
@@ -53,6 +56,7 @@ namespace
     using PFN_DetachShader = void(APIENTRY*)(GLuint, GLuint);
     using PFN_FramebufferRenderbuffer = void(APIENTRY*)(GLenum, GLenum, GLenum, GLuint);
     using PFN_FramebufferTexture2D = void(APIENTRY*)(GLenum, GLenum, GLenum, GLuint, GLint);
+    using PFN_GenBuffers = void(APIENTRY*)(GLsizei, GLuint*);
     using PFN_GenFramebuffers = void(APIENTRY*)(GLsizei, GLuint*);
     using PFN_GenRenderbuffers = void(APIENTRY*)(GLsizei, GLuint*);
     using PFN_GetFramebufferAttachmentParameteriv
@@ -98,6 +102,9 @@ namespace
         }
         return reinterpret_cast<void*>(::GetProcAddress(library, name));
 #else
+#if defined(__APPLE__)
+        return ::dlsym(RTLD_DEFAULT, name);
+#else
         static void* library = ::dlopen("libGL.so.1", RTLD_LAZY | RTLD_LOCAL);
         if (library == nullptr)
         {
@@ -108,6 +115,7 @@ namespace
             return nullptr;
         }
         return ::dlsym(library, name);
+#endif
 #endif
     }
 
@@ -124,12 +132,14 @@ namespace
     MPHREAD_GL_ENTRY(PFN_ActiveTexture, ActiveTexture)
     MPHREAD_GL_ENTRY(PFN_AttachShader, AttachShader)
     MPHREAD_GL_ENTRY(PFN_BindBuffer, BindBuffer)
+    MPHREAD_GL_ENTRY(PFN_BufferData, BufferData)
     MPHREAD_GL_ENTRY(PFN_BindFramebuffer, BindFramebuffer)
     MPHREAD_GL_ENTRY(PFN_BindRenderbuffer, BindRenderbuffer)
     MPHREAD_GL_ENTRY(PFN_CheckFramebufferStatus, CheckFramebufferStatus)
     MPHREAD_GL_ENTRY(PFN_CompileShader, CompileShader)
     MPHREAD_GL_ENTRY(PFN_CreateProgram, CreateProgram)
     MPHREAD_GL_ENTRY(PFN_CreateShader, CreateShader)
+    MPHREAD_GL_ENTRY(PFN_DeleteBuffers, DeleteBuffers)
     MPHREAD_GL_ENTRY(PFN_DeleteFramebuffers, DeleteFramebuffers)
     MPHREAD_GL_ENTRY(PFN_DeleteProgram, DeleteProgram)
     MPHREAD_GL_ENTRY(PFN_DeleteRenderbuffers, DeleteRenderbuffers)
@@ -137,6 +147,7 @@ namespace
     MPHREAD_GL_ENTRY(PFN_DetachShader, DetachShader)
     MPHREAD_GL_ENTRY(PFN_FramebufferRenderbuffer, FramebufferRenderbuffer)
     MPHREAD_GL_ENTRY(PFN_FramebufferTexture2D, FramebufferTexture2D)
+    MPHREAD_GL_ENTRY(PFN_GenBuffers, GenBuffers)
     MPHREAD_GL_ENTRY(PFN_GenFramebuffers, GenFramebuffers)
     MPHREAD_GL_ENTRY(PFN_GenRenderbuffers, GenRenderbuffers)
     MPHREAD_GL_ENTRY(PFN_GetFramebufferAttachmentParameteriv, GetFramebufferAttachmentParameteriv)
@@ -199,10 +210,22 @@ namespace OpenTK::Graphics::OpenGL::GL
 
     void BindBuffer(BufferTarget target, std::int32_t buffer)
     {
-        if (const auto fn = GetBindBuffer())
+        const auto fn = GetBindBuffer();
+        if (fn == nullptr)
         {
-            fn(ToEnum(target), static_cast<GLuint>(buffer));
+            throw std::runtime_error("glBindBuffer is unavailable.");
         }
+        fn(ToEnum(target), static_cast<GLuint>(buffer));
+    }
+
+    void BufferData(BufferTarget target, std::size_t size, const void* data, BufferUsageHint usage)
+    {
+        const auto fn = GetBufferData();
+        if (fn == nullptr)
+        {
+            throw std::runtime_error("glBufferData is unavailable.");
+        }
+        fn(ToEnum(target), static_cast<GLsizeiptr>(size), data, ToEnum(usage));
     }
 
     void BindFramebuffer(FramebufferTarget target, std::int32_t framebuffer)
@@ -229,11 +252,6 @@ namespace OpenTK::Graphics::OpenGL::GL
     void BlendFunc(BlendingFactor sfactor, BlendingFactor dfactor)
     {
         ::glBlendFunc(ToEnum(sfactor), ToEnum(dfactor));
-    }
-
-    void CallList(std::int32_t list)
-    {
-        ::glCallList(static_cast<GLuint>(list));
     }
 
     FramebufferErrorCode CheckFramebufferStatus(FramebufferTarget target)
@@ -326,9 +344,19 @@ namespace OpenTK::Graphics::OpenGL::GL
         ::glCullFace(ToEnum(mode));
     }
 
-    void DeleteLists(std::int32_t list, std::int32_t range)
+    void DeleteBuffer(std::int32_t buffer)
     {
-        ::glDeleteLists(static_cast<GLuint>(list), range);
+        if (buffer == 0)
+        {
+            return;
+        }
+        const auto fn = GetDeleteBuffers();
+        if (fn == nullptr)
+        {
+            throw std::runtime_error("glDeleteBuffers is unavailable.");
+        }
+        const GLuint value = static_cast<GLuint>(buffer);
+        fn(1, &value);
     }
 
     void DeleteProgram(std::int32_t program)
@@ -376,9 +404,19 @@ namespace OpenTK::Graphics::OpenGL::GL
         ::glDisable(ToEnum(cap));
     }
 
+    void DisableClientState(ClientState array)
+    {
+        ::glDisableClientState(ToEnum(array));
+    }
+
     void DrawBuffer(DrawBufferMode mode)
     {
         ::glDrawBuffer(ToEnum(mode));
+    }
+
+    void DrawElements(PrimitiveType mode, std::int32_t count, DrawElementsType type, const void* indices)
+    {
+        ::glDrawElements(ToEnum(mode), static_cast<GLsizei>(count), ToEnum(type), indices);
     }
 
     void Enable(EnableCap cap)
@@ -386,14 +424,14 @@ namespace OpenTK::Graphics::OpenGL::GL
         ::glEnable(ToEnum(cap));
     }
 
+    void EnableClientState(ClientState array)
+    {
+        ::glEnableClientState(ToEnum(array));
+    }
+
     void End()
     {
         ::glEnd();
-    }
-
-    void EndList()
-    {
-        ::glEndList();
     }
 
     void FramebufferRenderbuffer(FramebufferTarget target, FramebufferAttachment attachment,
@@ -425,6 +463,18 @@ namespace OpenTK::Graphics::OpenGL::GL
         }
     }
 
+    std::int32_t GenBuffer()
+    {
+        const auto fn = GetGenBuffers();
+        if (fn == nullptr)
+        {
+            throw std::runtime_error("glGenBuffers is unavailable.");
+        }
+        GLuint value = 0;
+        fn(1, &value);
+        return static_cast<std::int32_t>(value);
+    }
+
     std::int32_t GenFramebuffer()
     {
         GLuint name = 0;
@@ -433,11 +483,6 @@ namespace OpenTK::Graphics::OpenGL::GL
             fn(1, &name);
         }
         return static_cast<std::int32_t>(name);
-    }
-
-    std::int32_t GenLists(std::int32_t range)
-    {
-        return static_cast<std::int32_t>(::glGenLists(range));
     }
 
     std::int32_t GenRenderbuffer()
@@ -486,6 +531,11 @@ namespace OpenTK::Graphics::OpenGL::GL
     ErrorCode GetError()
     {
         return static_cast<ErrorCode>(static_cast<std::int32_t>(::glGetError()));
+    }
+
+    void GetFloat(GetPName pname, float* values)
+    {
+        ::glGetFloatv(ToEnum(pname), values);
     }
 
     void GetFramebufferAttachmentParameter(FramebufferTarget target,
@@ -614,14 +664,19 @@ namespace OpenTK::Graphics::OpenGL::GL
         }
     }
 
-    void NewList(std::int32_t list, ListMode mode)
-    {
-        ::glNewList(static_cast<GLuint>(list), ToEnum(mode));
-    }
-
     void Normal3(float nx, float ny, float nz)
     {
         ::glNormal3f(nx, ny, nz);
+    }
+
+    void NormalPointer(PointerType type, std::int32_t stride, const void* pointer)
+    {
+        ::glNormalPointer(ToEnum(type), static_cast<GLsizei>(stride), pointer);
+    }
+
+    void ColorPointer(std::int32_t size, PointerType type, std::int32_t stride, const void* pointer)
+    {
+        ::glColorPointer(size, ToEnum(type), static_cast<GLsizei>(stride), pointer);
     }
 
     void PixelStore(PixelStoreParameter pname, std::int32_t param)
@@ -692,6 +747,11 @@ namespace OpenTK::Graphics::OpenGL::GL
     void TexEnv(TextureEnvTarget target, TextureEnvParameter pname, std::int32_t param)
     {
         ::glTexEnvi(ToEnum(target), ToEnum(pname), param);
+    }
+
+    void TexCoordPointer(std::int32_t size, PointerType type, std::int32_t stride, const void* pointer)
+    {
+        ::glTexCoordPointer(size, ToEnum(type), static_cast<GLsizei>(stride), pointer);
     }
 
     void TexCoord2(float s, float t)
@@ -823,6 +883,11 @@ namespace OpenTK::Graphics::OpenGL::GL
         {
             fn(static_cast<GLuint>(program));
         }
+    }
+
+    void VertexPointer(std::int32_t size, PointerType type, std::int32_t stride, const void* pointer)
+    {
+        ::glVertexPointer(size, ToEnum(type), static_cast<GLsizei>(stride), pointer);
     }
 
     void Vertex2(float x, float y)

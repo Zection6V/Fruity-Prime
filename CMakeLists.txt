@@ -80,7 +80,11 @@ fruity_collect_owner("${FRUITY_MPHREAD_ROOT}" MPHREAD_NATIVE_SOURCES MPHREAD_NAT
 # source location.
 set(FRUITY_RENDERER_GEOMETRY_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestRendererGeometry.cpp")
-list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES "${FRUITY_RENDERER_GEOMETRY_TEST_SOURCE}")
+set(FRUITY_RENDERER_GPU_MESH_TEST_SOURCE
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestRendererGpuMesh.cpp")
+list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES
+    "${FRUITY_RENDERER_GEOMETRY_TEST_SOURCE}"
+    "${FRUITY_RENDERER_GPU_MESH_TEST_SOURCE}")
 
 # Android has its own activity, views, input bridge and EGL/GLES renderer under
 # MphRead.Native.Android. The desktop Avalonia/GLFW/Freetype owners must not be
@@ -157,7 +161,25 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         DEPENDS fruity_renderer_geometry_tests
         COMMENT "Running native renderer geometry decoder tests"
         VERBATIM)
-    add_dependencies(fruity_mphread_native fruity_renderer_geometry_check)
+
+    add_executable(fruity_renderer_gpu_mesh_tests
+        "${FRUITY_RENDERER_GPU_MESH_TEST_SOURCE}"
+        "${FRUITY_MPHREAD_ROOT}/RendererGpuMesh.cpp")
+    target_include_directories(fruity_renderer_gpu_mesh_tests PRIVATE "${FRUITY_MPHREAD_ROOT}")
+    target_compile_features(fruity_renderer_gpu_mesh_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(fruity_renderer_gpu_mesh_tests PRIVATE -ffp-contract=off)
+    endif()
+
+    add_test(NAME FruityPrime.RendererGpuMesh COMMAND fruity_renderer_gpu_mesh_tests)
+    add_custom_target(fruity_renderer_gpu_mesh_check
+        COMMAND "$<TARGET_FILE:fruity_renderer_gpu_mesh_tests>"
+        DEPENDS fruity_renderer_gpu_mesh_tests
+        COMMENT "Running native renderer GPU mesh cache tests"
+        VERBATIM)
+    add_dependencies(fruity_mphread_native
+        fruity_renderer_geometry_check
+        fruity_renderer_gpu_mesh_check)
 endif()
 
 # The native desktop executable carries the launcher toolkit and the one-window

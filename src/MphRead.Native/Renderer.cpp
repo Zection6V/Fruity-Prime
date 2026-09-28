@@ -2,6 +2,7 @@
 #include "RendererGeometry.hpp"
 #include "NativeRuntime/System/Runtime.hpp"
 #include "NativeRuntime/Rhi/BackendFactory.hpp"
+#include "NativeRuntime/Rhi/OpenGL/OpenGlGeometry.hpp"
 #include "NativeRuntime/System/Console.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
 #include "NativeRuntime/System/IO.hpp"
@@ -1013,142 +1014,71 @@ namespace MphRead
         for (const auto& inst : entity->GetModels())
         {
             InitTextures(inst->Model());
-            GenerateLists(inst->Model(), entity->Type == EntityType::Room);
+            GenerateGpuMeshes(inst->Model(), entity->Type == EntityType::Room);
         }
     }
 
-    void Scene::GenerateLists(const std::shared_ptr<Model>& model, bool isRoom)
+    void Scene::GenerateGpuMeshes(const std::shared_ptr<Model>& model, bool isRoom)
     {
         if (Mods::Headless::Active())
         {
             return;
         }
-        std::unordered_map<std::int32_t, std::int32_t> tempListIds;
-        for (const auto& mesh : *model->Meshes)
+        for (const std::shared_ptr<Mesh>& meshValue : *model->Meshes)
         {
-            if (mesh->ListId != 0)
+            Mesh& mesh = RequireReference(meshValue);
+            if (_gpuMeshCache.Find(model.get(), mesh.DlistId))
             {
                 continue;
             }
-            std::int32_t listId = 0;
-            auto found = tempListIds.find(mesh->DlistId);
-            if (found == tempListIds.end())
+
+            std::int32_t textureWidth = 0;
+            std::int32_t textureHeight = 0;
+            Material& material = *model->Materials->at(static_cast<std::size_t>(mesh.MaterialId));
+            if (material.TextureId != -1)
             {
-                std::int32_t textureWidth = 0;
-                std::int32_t textureHeight = 0;
-                Material& material = *model->Materials->at(static_cast<std::size_t>(mesh->MaterialId));
-                if (material.TextureId != -1)
-                {
-                    const auto& recolor = model->Recolors->at(0);
-                    const auto& texture = recolor->Textures->at(static_cast<std::size_t>(material.TextureId));
-                    textureWidth = texture.Width;
-                    textureHeight = texture.Height;
-                }
-                listId = GL::GenLists(1);
-                _displayLists.insert(listId);
-                if (std::find(_displayListModels.begin(), _displayListModels.end(), model)
-                    == _displayListModels.end())
-                {
-                    _displayListModels.push_back(model);
-                }
-                GL::NewList(listId, GL::ListMode::Compile);
-                const bool texgen = material.TexgenMode == TexgenMode::Normal;
-                DoDlist(model, *mesh, textureWidth, textureHeight, texgen, isRoom);
-                GL::EndList();
+                const auto& recolor = model->Recolors->at(0);
+                const auto& texture = recolor->Textures->at(static_cast<std::size_t>(material.TextureId));
+                textureWidth = texture.Width;
+                textureHeight = texture.Height;
             }
-            else
+
+            const auto& list = model->RenderInstructionLists->at(
+                static_cast<std::size_t>(mesh.DlistId));
+            RendererGeometry geometry;
+            try
             {
-                listId = found->second;
+                geometry = DecodeRendererGeometry(*list, textureWidth, textureHeight,
+                    material.TexgenMode == TexgenMode::Normal, isRoom,
+                    RequireReference(model->NodeMatrixIds).size());
             }
-            mesh->ListId = listId;
+            catch (const RendererGeometryException& ex)
+            {
+                throw ProgramException(ex.what());
+            }
+
+            const std::shared_ptr<const void> lifetime = model;
+            (void)_gpuMeshCache.GetOrCreate(lifetime, mesh.DlistId,
+                [&geometry]()
+                {
+                    return NativeRuntime::Rhi::OpenGL::CreateGpuMeshResource(geometry);
+                });
         }
     }
 
-    void Scene::DoDlist(const std::shared_ptr<Model>& model, const Mesh& mesh,
-        std::int32_t textureWidth, std::int32_t textureHeight, bool texgen, bool isRoom)
+    void Scene::DrawGpuMesh(const std::shared_ptr<Model>& model, std::int32_t geometryId)
     {
-        const auto& list = model->RenderInstructionLists->at(static_cast<std::size_t>(mesh.DlistId));
-        RendererGeometry geometry;
-        try
+        if (!model)
         {
-            geometry = DecodeRendererGeometry(*list, textureWidth, textureHeight, texgen, isRoom,
-                RequireReference(model->NodeMatrixIds).size());
+            throw ProgramException("GPU mesh draw requires a model.");
         }
-        catch (const RendererGeometryException& ex)
+        const std::shared_ptr<GpuMeshResource> gpuMesh
+            = _gpuMeshCache.Find(model.get(), geometryId);
+        if (!gpuMesh)
         {
-            throw ProgramException(ex.what());
+            throw ProgramException("GPU mesh cache entry is missing.");
         }
-
-        for (const ScenePrimitiveRange& range : geometry.Ranges)
-        {
-            switch (range.Topology)
-            {
-            case ScenePrimitiveTopology::Triangles:
-                GL::Begin(GL::PrimitiveType::Triangles);
-                break;
-            case ScenePrimitiveTopology::Quads:
-                GL::Begin(GL::PrimitiveType::Quads);
-                break;
-            case ScenePrimitiveTopology::TriangleStrip:
-                GL::Begin(GL::PrimitiveType::TriangleStrip);
-                break;
-            case ScenePrimitiveTopology::QuadStrip:
-                GL::Begin(GL::PrimitiveType::QuadStrip);
-                break;
-            }
-
-            const std::size_t first = static_cast<std::size_t>(range.FirstIndex);
-            const std::size_t count = static_cast<std::size_t>(range.IndexCount);
-            for (std::size_t i = 0; i < count; ++i)
-            {
-                const std::uint32_t vertexIndex = geometry.Indices.at(first + i);
-                const SceneVertex& vertex = geometry.Vertices.at(static_cast<std::size_t>(vertexIndex));
-                const SceneVertexAttributeState state
-                    = geometry.VertexAttributeStates.at(static_cast<std::size_t>(vertexIndex));
-
-                // Color and normal are not initialized by DoDlist itself. Until
-                // their first instruction they inherit the OpenGL state that was
-                // current when this display list is executed (DoMaterial sets the
-                // material color this way). Do not replace that legacy inheritance
-                // with a fabricated CPU default.
-                if (HasSceneVertexAttributeState(state, SceneVertexAttributeState::Color))
-                {
-                    GL::Color4(vertex.Color.X, vertex.Color.Y, vertex.Color.Z, vertex.Color.W);
-                }
-                if (HasSceneVertexAttributeState(state, SceneVertexAttributeState::Normal))
-                {
-                    GL::Normal3(vertex.Normal.X, vertex.Normal.Y, vertex.Normal.Z);
-                }
-
-                // MatrixIndex is explicit in CPU geometry. The compatibility
-                // shader still consumes it through gl_MultiTexCoord0.z until the
-                // Phase 4 buffer migration changes the OpenGL boundary.
-                GL::TexCoord3(vertex.TexCoord.X, vertex.TexCoord.Y,
-                    static_cast<float>(vertex.MatrixIndex));
-                GL::Vertex3(vertex.Position.X, vertex.Position.Y, vertex.Position.Z);
-            }
-            GL::End();
-        }
-
-        // State-only instructions after the final vertex still change OpenGL's
-        // current color/normal for whatever is drawn next. Preserve that side
-        // effect even though they do not contribute another CPU vertex.
-        if (HasSceneVertexAttributeState(
-            geometry.TerminalAttributeState, SceneVertexAttributeState::Color))
-        {
-            GL::Color4(geometry.TerminalState.Color.X, geometry.TerminalState.Color.Y,
-                geometry.TerminalState.Color.Z, geometry.TerminalState.Color.W);
-        }
-        if (HasSceneVertexAttributeState(
-            geometry.TerminalAttributeState, SceneVertexAttributeState::Normal))
-        {
-            GL::Normal3(geometry.TerminalState.Normal.X, geometry.TerminalState.Normal.Y,
-                geometry.TerminalState.Normal.Z);
-        }
-
-        // Legacy DoDlist deliberately leaves matrix selection at zero so the
-        // next draw cannot accidentally reuse this model's matrix stack.
-        GL::TexCoord3(0.0F, 0.0F, 0.0F);
+        gpuMesh->Draw();
     }
 
     void Scene::LoadModel(std::string name, bool firstHunt)
@@ -1159,7 +1089,7 @@ namespace MphRead
     void Scene::LoadModel(const std::shared_ptr<Model>& model, bool isRoom)
     {
         InitTextures(model);
-        GenerateLists(model, isRoom);
+        GenerateGpuMeshes(model, isRoom);
     }
 
     void Scene::InitTextures(const std::shared_ptr<Model>& model)
@@ -2069,27 +1999,7 @@ namespace MphRead
                 }
                 _texPalMap.erase(mapIt);
             }
-            std::unordered_set<std::int32_t> ownedLists;
-            for (const auto& mesh : *model->Meshes)
-            {
-                if (mesh->ListId != 0 && _displayLists.contains(mesh->ListId))
-                {
-                    ownedLists.insert(mesh->ListId);
-                }
-            }
-            for (const std::int32_t listId : ownedLists)
-            {
-                GL::DeleteLists(listId, 1);
-                _displayLists.erase(listId);
-            }
-            for (const auto& mesh : *model->Meshes)
-            {
-                if (ownedLists.contains(mesh->ListId))
-                {
-                    mesh->ListId = 0;
-                }
-            }
-            std::erase(_displayListModels, model);
+            _gpuMeshCache.EraseModel(model.get());
         }
         Read::RemoveModel(model->Name, model->FirstHunt);
     }
@@ -2541,7 +2451,7 @@ namespace MphRead
         {
             const auto model = Read::GetModelInstance(element->ModelName)->Model();
             InitTextures(model);
-            GenerateLists(model, false);
+            GenerateGpuMeshes(model, false);
         }
     }
 
@@ -2961,7 +2871,8 @@ namespace MphRead
 
     void Scene::AddRenderItem(const Material& material, std::int32_t polygonId, float alphaScale,
         Vector3 emission, const LightInfo& lightInfo, Matrix4 texcoordMatrix, Matrix4 transform,
-        std::int32_t listId, std::int32_t matrixStackCount, const std::vector<float>& matrixStack,
+        const std::shared_ptr<Model>& model, std::int32_t geometryId,
+        std::int32_t matrixStackCount, const std::vector<float>& matrixStack,
         std::optional<Vector4> overrideColor, std::optional<Vector4> paletteOverride,
         SelectionType selectionType, BillboardMode billboardMode, float scaleFactor,
         std::optional<std::int32_t> bindingOverride)
@@ -3007,7 +2918,8 @@ namespace MphRead
         }
         item->TexcoordMatrix = texcoordMatrix;
         item->Transform = transform;
-        item->ListId = listId;
+        item->MeshModel = model;
+        item->GeometryId = geometryId;
         MPHREAD_DEBUG_ASSERT(matrixStack.size() == static_cast<std::size_t>(16 * matrixStackCount));
         item->MatrixStackCount = matrixStackCount;
         for (std::size_t i = 0; i < matrixStack.size(); ++i)
@@ -3058,7 +2970,8 @@ namespace MphRead
         item->TextureBindingId = 0;
         item->TexcoordMatrix = RendererDetail::IdentityMatrix();
         item->Transform = RendererDetail::IdentityMatrix();
-        item->ListId = 0;
+        item->MeshModel.reset();
+        item->GeometryId = 0;
         item->MatrixStackCount = 0;
         item->OverrideColor = overrideColor;
         item->PaletteOverride.reset();
@@ -3098,7 +3011,8 @@ namespace MphRead
         item->TextureBindingId = bindingId;
         item->TexcoordMatrix = RendererDetail::IdentityMatrix();
         item->Transform = transform;
-        item->ListId = 0;
+        item->MeshModel.reset();
+        item->GeometryId = 0;
         item->MatrixStackCount = 0;
         item->OverrideColor.reset();
         item->PaletteOverride.reset();
@@ -3138,7 +3052,8 @@ namespace MphRead
         item->TextureBindingId = bindingId;
         item->TexcoordMatrix = RendererDetail::IdentityMatrix();
         item->Transform = RendererDetail::IdentityMatrix();
-        item->ListId = 0;
+        item->MeshModel.reset();
+        item->GeometryId = 0;
         MPHREAD_DEBUG_ASSERT(matrixStack.size() >= static_cast<std::size_t>(16 * matrixStackCount));
         item->MatrixStackCount = matrixStackCount;
         for (std::int32_t i = 0; i < 16 * matrixStackCount; ++i)
@@ -3546,29 +3461,7 @@ namespace MphRead
         }
         _ownedTextures.clear();
         _flatColors.clear();
-        for (const std::int32_t listId : _displayLists)
-        {
-            if (listId != 0)
-            {
-                GL::DeleteLists(listId, 1);
-            }
-        }
-        for (const std::shared_ptr<Model>& model : _displayListModels)
-        {
-            if (!model)
-            {
-                continue;
-            }
-            for (const std::shared_ptr<Mesh>& mesh : *model->Meshes)
-            {
-                if (mesh && _displayLists.contains(mesh->ListId))
-                {
-                    mesh->ListId = 0;
-                }
-            }
-        }
-        _displayLists.clear();
-        _displayListModels.clear();
+        _gpuMeshCache.Clear();
         Read::ClearCache();
         if (_frameBuffer != 0)
         {
@@ -3722,7 +3615,7 @@ namespace MphRead
         GL::LineWidth(static_cast<float>(wireframe ? std::max(1, _wireframeLevel) : 1));
         if (item->Type == RenderItemType::Mesh)
         {
-            GL::CallList(item->ListId);
+            DrawGpuMesh(item->MeshModel, item->GeometryId);
         }
         else if (item->Type == RenderItemType::Box)
         {
@@ -4345,7 +4238,7 @@ namespace MphRead
         GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
             static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
         GL::Color3(Vector3(color.Red / 31.0F, color.Green / 31.0F, color.Blue / 31.0F));
-        GL::CallList(model->Meshes->at(0)->ListId);
+        DrawGpuMesh(model, model->Meshes->at(0)->DlistId);
         GL::BindTexture(GL::TextureTarget::Texture2D, 0);
         GL::UniformMatrix4(_shaderLocations->MatrixStack, false, RendererDetail::IdentityMatrix());
     }
@@ -4428,7 +4321,7 @@ namespace MphRead
             if (node.Enabled)
             {
                 const Mesh& mesh = *model->Meshes->at(static_cast<std::size_t>(node.MeshId / 2));
-                GL::CallList(mesh.ListId);
+                DrawGpuMesh(model, mesh.DlistId);
             }
         }
         GL::BindTexture(GL::TextureTarget::Texture2D, 0);

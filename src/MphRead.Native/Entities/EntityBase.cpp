@@ -800,7 +800,7 @@ namespace MphRead::Entities
                     const LightInfo resolvedLightInfo = lightInfo.has_value()
                         ? *lightInfo : GetLightInfo();
                     const Matrix4 nodeAnimation = node.Animation;
-                    const std::int32_t listId = mesh.ListId;
+                    const std::int32_t geometryId = mesh.DlistId;
                     const auto& nodeMatrixIds
                         = RequireReference(model.NodeMatrixIds);
                     const std::int32_t matrixStackCount
@@ -816,8 +816,8 @@ namespace MphRead::Entities
 
                     RequireReference(renderScene).AddRenderItem(
                         material, polygonId, alpha, emission, resolvedLightInfo,
-                        texcoordMatrix, nodeAnimation, listId, matrixStackCount,
-                        matrixStack, color, paletteOverride, selectionType,
+                        texcoordMatrix, nodeAnimation, modelValue, geometryId,
+                        matrixStackCount, matrixStack, color, paletteOverride, selectionType,
                         billboardMode, drawScale, bindingOverride);
                 }
                 if (node.ChildIndex != -1)

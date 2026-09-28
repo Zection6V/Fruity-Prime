@@ -126,6 +126,8 @@ namespace MphRead
         std::vector<T> _values;
     };
 
+    class Model;
+
     class RenderItem
     {
     public:
@@ -151,7 +153,8 @@ namespace MphRead
         std::int32_t TextureBindingId = 0;
         OpenTK::Mathematics::Matrix4 TexcoordMatrix{};
         OpenTK::Mathematics::Matrix4 Transform{};
-        std::int32_t ListId = 0;
+        std::shared_ptr<Model> MeshModel{};
+        std::int32_t GeometryId = 0;
         std::int32_t MatrixStackCount = 0;
         const std::shared_ptr<ManagedArray<float>> MatrixStack;
         std::optional<OpenTK::Mathematics::Vector4> OverrideColor{};

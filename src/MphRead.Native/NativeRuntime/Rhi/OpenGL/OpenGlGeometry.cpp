@@ -1,0 +1,329 @@
+#include "OpenGlGeometry.hpp"
+
+#include "../../OpenTK/GL.hpp"
+
+#include <cstddef>
+#include <cstdint>
+#include <stdexcept>
+#include <vector>
+
+namespace MphRead::NativeRuntime::Rhi::OpenGL
+{
+    namespace
+    {
+        namespace GL = ::OpenTK::Graphics::OpenGL::GL;
+
+        struct OpenGlMeshVertex final
+        {
+            float Position[3]{};
+            float Normal[3]{};
+            float Color[4]{};
+            float TexCoord[3]{};
+        };
+
+        [[nodiscard]] GL::PrimitiveType ToGlTopology(ScenePrimitiveTopology topology)
+        {
+            switch (topology)
+            {
+            case ScenePrimitiveTopology::Triangles:
+                return GL::PrimitiveType::Triangles;
+            case ScenePrimitiveTopology::Quads:
+                return GL::PrimitiveType::Quads;
+            case ScenePrimitiveTopology::TriangleStrip:
+                return GL::PrimitiveType::TriangleStrip;
+            case ScenePrimitiveTopology::QuadStrip:
+                return GL::PrimitiveType::QuadStrip;
+            }
+            throw std::invalid_argument("Unknown scene primitive topology.");
+        }
+
+        [[nodiscard]] OpenGlMeshVertex PackVertex(const SceneVertex& vertex)
+        {
+            OpenGlMeshVertex packed{};
+            packed.Position[0] = vertex.Position.X;
+            packed.Position[1] = vertex.Position.Y;
+            packed.Position[2] = vertex.Position.Z;
+            packed.Normal[0] = vertex.Normal.X;
+            packed.Normal[1] = vertex.Normal.Y;
+            packed.Normal[2] = vertex.Normal.Z;
+            packed.Color[0] = vertex.Color.X;
+            packed.Color[1] = vertex.Color.Y;
+            packed.Color[2] = vertex.Color.Z;
+            packed.Color[3] = vertex.Color.W;
+            packed.TexCoord[0] = vertex.TexCoord.X;
+            packed.TexCoord[1] = vertex.TexCoord.Y;
+            packed.TexCoord[2] = static_cast<float>(vertex.MatrixIndex);
+            return packed;
+        }
+
+        class OpenGlGpuMesh final : public GpuMeshResource
+        {
+        public:
+            explicit OpenGlGpuMesh(const RendererGeometry& geometry)
+                : _drawPlan(BuildGpuMeshDrawPlan(geometry)),
+                  _terminalState(geometry.TerminalState),
+                  _terminalAttributeState(geometry.TerminalAttributeState),
+                  _attributeStates(geometry.VertexAttributeStates)
+            {
+                if (_attributeStates.size() != geometry.Vertices.size())
+                {
+                    throw std::invalid_argument(
+                        "GPU mesh vertex attribute-state count does not match the vertex count.");
+                }
+
+                _vertices.reserve(geometry.Vertices.size());
+                bool anyColor = false;
+                bool allColor = true;
+                bool anyNormal = false;
+                bool allNormal = true;
+                for (std::size_t i = 0; i < geometry.Vertices.size(); ++i)
+                {
+                    _vertices.push_back(PackVertex(geometry.Vertices[i]));
+                    const SceneVertexAttributeState state = _attributeStates[i];
+                    const bool hasColor = HasSceneVertexAttributeState(
+                        state, SceneVertexAttributeState::Color);
+                    const bool hasNormal = HasSceneVertexAttributeState(
+                        state, SceneVertexAttributeState::Normal);
+                    anyColor = anyColor || hasColor;
+                    allColor = allColor && hasColor;
+                    anyNormal = anyNormal || hasNormal;
+                    allNormal = allNormal && hasNormal;
+                }
+                _colorMode = !anyColor ? AttributeMode::Inherited
+                    : allColor ? AttributeMode::Static : AttributeMode::Mixed;
+                _normalMode = !anyNormal ? AttributeMode::Inherited
+                    : allNormal ? AttributeMode::Static : AttributeMode::Mixed;
+
+                if (_colorMode == AttributeMode::Mixed)
+                {
+                    _colorScratch.resize(_vertices.size() * 4U);
+                }
+                if (_normalMode == AttributeMode::Mixed)
+                {
+                    _normalScratch.resize(_vertices.size() * 3U);
+                }
+
+                try
+                {
+                    _vertexBuffer = GL::GenBuffer();
+                    _indexBuffer = GL::GenBuffer();
+                    if (_vertexBuffer == 0 || _indexBuffer == 0)
+                    {
+                        throw std::runtime_error("OpenGL returned buffer object 0.");
+                    }
+                    if (_colorMode == AttributeMode::Mixed)
+                    {
+                        _colorBuffer = GL::GenBuffer();
+                        if (_colorBuffer == 0)
+                        {
+                            throw std::runtime_error("OpenGL returned color buffer object 0.");
+                        }
+                    }
+                    if (_normalMode == AttributeMode::Mixed)
+                    {
+                        _normalBuffer = GL::GenBuffer();
+                        if (_normalBuffer == 0)
+                        {
+                            throw std::runtime_error("OpenGL returned normal buffer object 0.");
+                        }
+                    }
+
+                    GL::BindBuffer(GL::BufferTarget::ArrayBuffer, _vertexBuffer);
+                    GL::BufferData(GL::BufferTarget::ArrayBuffer,
+                        _vertices.size() * sizeof(OpenGlMeshVertex), _vertices.data(),
+                        GL::BufferUsageHint::StaticDraw);
+                    GL::BindBuffer(GL::BufferTarget::ElementArrayBuffer, _indexBuffer);
+                    GL::BufferData(GL::BufferTarget::ElementArrayBuffer,
+                        geometry.Indices.size() * sizeof(std::uint32_t), geometry.Indices.data(),
+                        GL::BufferUsageHint::StaticDraw);
+                    GL::BindBuffer(GL::BufferTarget::ArrayBuffer, 0);
+                    GL::BindBuffer(GL::BufferTarget::ElementArrayBuffer, 0);
+                }
+                catch (...)
+                {
+                    Release();
+                    throw;
+                }
+            }
+
+            ~OpenGlGpuMesh() override
+            {
+                Release();
+            }
+
+            void Draw() override
+            {
+                float inheritedColor[4]{};
+                float inheritedNormal[3]{};
+                if (_colorMode == AttributeMode::Mixed)
+                {
+                    GL::GetFloat(GL::GetPName::CurrentColor, inheritedColor);
+                    for (std::size_t i = 0; i < _vertices.size(); ++i)
+                    {
+                        const bool explicitColor = HasSceneVertexAttributeState(
+                            _attributeStates[i], SceneVertexAttributeState::Color);
+                        for (std::size_t component = 0; component < 4U; ++component)
+                        {
+                            _colorScratch[i * 4U + component] = explicitColor
+                                ? _vertices[i].Color[component] : inheritedColor[component];
+                        }
+                    }
+                }
+                if (_normalMode == AttributeMode::Mixed)
+                {
+                    GL::GetFloat(GL::GetPName::CurrentNormal, inheritedNormal);
+                    for (std::size_t i = 0; i < _vertices.size(); ++i)
+                    {
+                        const bool explicitNormal = HasSceneVertexAttributeState(
+                            _attributeStates[i], SceneVertexAttributeState::Normal);
+                        for (std::size_t component = 0; component < 3U; ++component)
+                        {
+                            _normalScratch[i * 3U + component] = explicitNormal
+                                ? _vertices[i].Normal[component] : inheritedNormal[component];
+                        }
+                    }
+                }
+
+                GL::BindBuffer(GL::BufferTarget::ArrayBuffer, _vertexBuffer);
+                GL::EnableClientState(GL::ClientState::VertexArray);
+                GL::VertexPointer(3, GL::PointerType::Float,
+                    static_cast<std::int32_t>(sizeof(OpenGlMeshVertex)),
+                    reinterpret_cast<const void*>(offsetof(OpenGlMeshVertex, Position)));
+                GL::EnableClientState(GL::ClientState::TextureCoordArray);
+                GL::TexCoordPointer(3, GL::PointerType::Float,
+                    static_cast<std::int32_t>(sizeof(OpenGlMeshVertex)),
+                    reinterpret_cast<const void*>(offsetof(OpenGlMeshVertex, TexCoord)));
+
+                ConfigureColorArray();
+                ConfigureNormalArray();
+
+                GL::BindBuffer(GL::BufferTarget::ElementArrayBuffer, _indexBuffer);
+                for (const GpuMeshDrawRange& range : _drawPlan.Ranges)
+                {
+                    GL::DrawElements(ToGlTopology(range.Topology),
+                        static_cast<std::int32_t>(range.IndexCount),
+                        GL::DrawElementsType::UnsignedInt,
+                        reinterpret_cast<const void*>(range.IndexByteOffset));
+                }
+
+                GL::DisableClientState(GL::ClientState::VertexArray);
+                GL::DisableClientState(GL::ClientState::TextureCoordArray);
+                GL::DisableClientState(GL::ClientState::ColorArray);
+                GL::DisableClientState(GL::ClientState::NormalArray);
+                GL::BindBuffer(GL::BufferTarget::ArrayBuffer, 0);
+                GL::BindBuffer(GL::BufferTarget::ElementArrayBuffer, 0);
+
+                if (HasSceneVertexAttributeState(
+                    _terminalAttributeState, SceneVertexAttributeState::Color))
+                {
+                    GL::Color4(_terminalState.Color.X, _terminalState.Color.Y,
+                        _terminalState.Color.Z, _terminalState.Color.W);
+                }
+                if (HasSceneVertexAttributeState(
+                    _terminalAttributeState, SceneVertexAttributeState::Normal))
+                {
+                    GL::Normal3(_terminalState.Normal.X, _terminalState.Normal.Y,
+                        _terminalState.Normal.Z);
+                }
+                GL::TexCoord3(0.0F, 0.0F, 0.0F);
+            }
+
+        private:
+            enum class AttributeMode : std::uint8_t
+            {
+                Inherited,
+                Static,
+                Mixed
+            };
+
+            void ConfigureColorArray()
+            {
+                if (_colorMode == AttributeMode::Inherited)
+                {
+                    GL::DisableClientState(GL::ClientState::ColorArray);
+                    return;
+                }
+                GL::EnableClientState(GL::ClientState::ColorArray);
+                if (_colorMode == AttributeMode::Static)
+                {
+                    GL::BindBuffer(GL::BufferTarget::ArrayBuffer, _vertexBuffer);
+                    GL::ColorPointer(4, GL::PointerType::Float,
+                        static_cast<std::int32_t>(sizeof(OpenGlMeshVertex)),
+                        reinterpret_cast<const void*>(offsetof(OpenGlMeshVertex, Color)));
+                }
+                else
+                {
+                    GL::BindBuffer(GL::BufferTarget::ArrayBuffer, _colorBuffer);
+                    GL::BufferData(GL::BufferTarget::ArrayBuffer,
+                        _colorScratch.size() * sizeof(float), _colorScratch.data(),
+                        GL::BufferUsageHint::StreamDraw);
+                    GL::ColorPointer(4, GL::PointerType::Float, 0, nullptr);
+                }
+            }
+
+            void ConfigureNormalArray()
+            {
+                if (_normalMode == AttributeMode::Inherited)
+                {
+                    GL::DisableClientState(GL::ClientState::NormalArray);
+                    return;
+                }
+                GL::EnableClientState(GL::ClientState::NormalArray);
+                if (_normalMode == AttributeMode::Static)
+                {
+                    GL::BindBuffer(GL::BufferTarget::ArrayBuffer, _vertexBuffer);
+                    GL::NormalPointer(GL::PointerType::Float,
+                        static_cast<std::int32_t>(sizeof(OpenGlMeshVertex)),
+                        reinterpret_cast<const void*>(offsetof(OpenGlMeshVertex, Normal)));
+                }
+                else
+                {
+                    GL::BindBuffer(GL::BufferTarget::ArrayBuffer, _normalBuffer);
+                    GL::BufferData(GL::BufferTarget::ArrayBuffer,
+                        _normalScratch.size() * sizeof(float), _normalScratch.data(),
+                        GL::BufferUsageHint::StreamDraw);
+                    GL::NormalPointer(GL::PointerType::Float, 0, nullptr);
+                }
+            }
+
+            void Release() noexcept
+            {
+                try
+                {
+                    if (_normalBuffer != 0) GL::DeleteBuffer(_normalBuffer);
+                    if (_colorBuffer != 0) GL::DeleteBuffer(_colorBuffer);
+                    if (_indexBuffer != 0) GL::DeleteBuffer(_indexBuffer);
+                    if (_vertexBuffer != 0) GL::DeleteBuffer(_vertexBuffer);
+                }
+                catch (...)
+                {
+                    // Scene::UnloadGl clears the cache while the context is live.
+                }
+                _normalBuffer = 0;
+                _colorBuffer = 0;
+                _indexBuffer = 0;
+                _vertexBuffer = 0;
+            }
+
+            GpuMeshDrawPlan _drawPlan{};
+            SceneVertex _terminalState{};
+            SceneVertexAttributeState _terminalAttributeState = SceneVertexAttributeState::None;
+            std::vector<SceneVertexAttributeState> _attributeStates{};
+            std::vector<OpenGlMeshVertex> _vertices{};
+            AttributeMode _colorMode = AttributeMode::Inherited;
+            AttributeMode _normalMode = AttributeMode::Inherited;
+            std::vector<float> _colorScratch{};
+            std::vector<float> _normalScratch{};
+            std::int32_t _vertexBuffer = 0;
+            std::int32_t _indexBuffer = 0;
+            std::int32_t _colorBuffer = 0;
+            std::int32_t _normalBuffer = 0;
+        };
+    }
+
+    std::shared_ptr<MphRead::GpuMeshResource> CreateGpuMeshResource(
+        const MphRead::RendererGeometry& geometry)
+    {
+        return std::make_shared<OpenGlGpuMesh>(geometry);
+    }
+}

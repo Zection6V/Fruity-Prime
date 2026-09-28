@@ -6,6 +6,7 @@
 
 #include "../../Formats/Types.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -64,8 +65,29 @@ namespace OpenTK::Graphics::OpenGL
         }
         enum class BufferTarget : std::int32_t
         {
+            ArrayBuffer = 0x8892,
+            ElementArrayBuffer = 0x8893,
             PixelPackBuffer = 0x88EB,
             PixelUnpackBuffer = 0x88EC
+        };
+        enum class BufferUsageHint : std::int32_t
+        {
+            StreamDraw = 0x88E0,
+            StaticDraw = 0x88E4
+        };
+        enum class ClientState : std::int32_t
+        {
+            VertexArray = 0x8074,
+            NormalArray = 0x8075,
+            ColorArray = 0x8076,
+            TextureCoordArray = 0x8078
+        };
+        enum class PointerType : std::int32_t { Float = 0x1406 };
+        enum class DrawElementsType : std::int32_t { UnsignedInt = 0x1405 };
+        enum class GetPName : std::int32_t
+        {
+            CurrentColor = 0x0B00,
+            CurrentNormal = 0x0B02
         };
         enum class DrawBufferMode : std::int32_t
         {
@@ -102,7 +124,6 @@ namespace OpenTK::Graphics::OpenGL
         enum class FramebufferParameterName : std::int32_t { FramebufferAttachmentDepthSize = 0x8216 };
         enum class FramebufferTarget : std::int32_t { ReadFramebuffer = 0x8CA8, Framebuffer = 0x8D40 };
         enum class GetProgramParameterName : std::int32_t { LinkStatus = 0x8B82 };
-        enum class ListMode : std::int32_t { Compile = 0x1300 };
         enum class MatrixMode : std::int32_t { Modelview = 0x1700, Projection = 0x1701 };
         enum class PixelFormat : std::int32_t
         {
@@ -185,11 +206,11 @@ namespace OpenTK::Graphics::OpenGL
         void AttachShader(std::int32_t program, std::int32_t shader);
         void Begin(PrimitiveType mode);
         void BindBuffer(BufferTarget target, std::int32_t buffer);
+        void BufferData(BufferTarget target, std::size_t size, const void* data, BufferUsageHint usage);
         void BindFramebuffer(FramebufferTarget target, std::int32_t framebuffer);
         void BindRenderbuffer(RenderbufferTarget target, std::int32_t renderbuffer);
         void BindTexture(TextureTarget target, std::int32_t texture);
         void BlendFunc(BlendingFactor sfactor, BlendingFactor dfactor);
-        void CallList(std::int32_t list);
         [[nodiscard]] FramebufferErrorCode CheckFramebufferStatus(FramebufferTarget target);
         void Clear(ClearBufferMask mask);
         void ClearColor(::OpenTK::Mathematics::Vector4 color);
@@ -205,7 +226,7 @@ namespace OpenTK::Graphics::OpenGL
         [[nodiscard]] std::int32_t CreateProgram();
         [[nodiscard]] std::int32_t CreateShader(ShaderType type);
         void CullFace(TriangleFace mode);
-        void DeleteLists(std::int32_t list, std::int32_t range);
+        void DeleteBuffer(std::int32_t buffer);
         void DeleteProgram(std::int32_t program);
         void DeleteShader(std::int32_t shader);
         void DeleteTexture(std::int32_t texture);
@@ -213,18 +234,20 @@ namespace OpenTK::Graphics::OpenGL
         void DepthMask(bool flag);
         void DetachShader(std::int32_t program, std::int32_t shader);
         void Disable(EnableCap cap);
+        void DisableClientState(ClientState array);
         void DrawBuffer(DrawBufferMode mode);
+        void DrawElements(PrimitiveType mode, std::int32_t count, DrawElementsType type, const void* indices);
         void Enable(EnableCap cap);
+        void EnableClientState(ClientState array);
         void End();
-        void EndList();
         void FramebufferRenderbuffer(FramebufferTarget target, FramebufferAttachment attachment,
             RenderbufferTarget renderbuffertarget, std::int32_t renderbuffer);
         void FramebufferTexture2D(FramebufferTarget target, FramebufferAttachment attachment,
             TextureTarget textarget, std::int32_t texture, std::int32_t level);
         void DeleteFramebuffer(std::int32_t framebuffer);
         void DeleteRenderbuffer(std::int32_t renderbuffer);
+        [[nodiscard]] std::int32_t GenBuffer();
         [[nodiscard]] std::int32_t GenFramebuffer();
-        [[nodiscard]] std::int32_t GenLists(std::int32_t range);
         [[nodiscard]] std::int32_t GenRenderbuffer();
         [[nodiscard]] std::int32_t GenTexture();
         [[nodiscard]] ErrorCode GetError();
@@ -232,6 +255,7 @@ namespace OpenTK::Graphics::OpenGL
         // capture path uses for the debug-output extension.
         [[nodiscard]] std::int32_t GetInteger(std::int32_t pname);
         void GetIntegers(std::int32_t pname, std::int32_t* values);
+        void GetFloat(GetPName pname, float* values);
         [[nodiscard]] bool IsEnabled(EnableCap cap);
         void DebugMessageCallback(void* callback, const void* userParam);
         void GetFramebufferAttachmentParameter(FramebufferTarget target, FramebufferAttachment attachment,
@@ -246,8 +270,9 @@ namespace OpenTK::Graphics::OpenGL
         void LoadIdentity();
         void MatrixMode(enum MatrixMode mode);
         void MultiTexCoord2(TextureUnit texture, float s, float t);
-        void NewList(std::int32_t list, ListMode mode);
         void Normal3(float nx, float ny, float nz);
+        void NormalPointer(PointerType type, std::int32_t stride, const void* pointer);
+        void ColorPointer(std::int32_t size, PointerType type, std::int32_t stride, const void* pointer);
         void PixelStore(PixelStoreParameter pname, std::int32_t param);
         void LineWidth(float width);
         void PolygonMode(TriangleFace face, PolygonMode mode);
@@ -262,6 +287,7 @@ namespace OpenTK::Graphics::OpenGL
         void StencilMask(std::int32_t mask);
         void StencilOp(StencilOp sfail, StencilOp dpfail, StencilOp dppass);
         void TexEnv(TextureEnvTarget target, TextureEnvParameter pname, std::int32_t param);
+        void TexCoordPointer(std::int32_t size, PointerType type, std::int32_t stride, const void* pointer);
         void TexCoord2(float s, float t);
         void TexCoord3(float s, float t, float r);
         void TexCoord3(::OpenTK::Mathematics::Vector3 coord);
@@ -283,6 +309,7 @@ namespace OpenTK::Graphics::OpenGL
         void UniformMatrix4(std::int32_t location, bool transpose, const ::OpenTK::Mathematics::Matrix4& matrix);
         void UniformMatrix4(std::int32_t location, std::int32_t count, bool transpose, const float* value);
         void UseProgram(std::int32_t program);
+        void VertexPointer(std::int32_t size, PointerType type, std::int32_t stride, const void* pointer);
         void Vertex2(float x, float y);
         void Vertex3(float x, float y, float z);
         void Vertex3(::OpenTK::Mathematics::Vector3 vector);

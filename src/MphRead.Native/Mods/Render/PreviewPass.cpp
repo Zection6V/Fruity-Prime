@@ -167,14 +167,11 @@ namespace MphRead
         const MphRead::Hunter want = LauncherPreview ? LauncherHunter : Mods::EndScreen::Hunter();
         const std::int32_t suit = LauncherPreview ? LauncherSuit : Mods::EndScreen::Suit();
         preview->SetUp(want, suit);
-        // Textures and display lists, which nobody else is going to make on
-        // the launcher: there is no player standing in a room to have made them.
-        // Every step, not once per hunter: a match's UnloadGl deletes the
-        // display lists on every cached model -- this one included, since
-        // the match reused the lists this preview generated -- and zeroes
-        // their ids. Asked once, the launcher's own scene then drew the
-        // same hunter through list 0 for ever: a black box. Both calls
-        // return at once when there is nothing to make.
+        // Textures and GPU meshes are scene-owned. The launcher has no room
+        // player to initialize this preview for it, so keep this idempotent
+        // initialization on every step. A match scene can now tear down its
+        // own GPU mesh cache without mutating the shared Model/Mesh objects
+        // used by this preview scene.
         _previewInited = want;
         if (_preview->Ready())
         {

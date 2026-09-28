@@ -6,6 +6,7 @@
 #include "Selection.hpp"
 #include "NativeRuntime/OpenTK/GL.hpp"
 #include "NativeRuntime/System/Buffers.hpp"
+#include "RendererGpuMesh.hpp"
 #include "NativeRuntime/System/Runtime.hpp"
 
 #include <array>
@@ -801,7 +802,8 @@ public: \
     void AddRenderItem(const MphRead::Material& material, std::int32_t polygonId, float alphaScale, \
         OpenTK::Mathematics::Vector3 emission, const MphRead::LightInfo& lightInfo, \
         OpenTK::Mathematics::Matrix4 texcoordMatrix, OpenTK::Mathematics::Matrix4 transform, \
-        std::int32_t listId, std::int32_t matrixStackCount, const std::vector<float>& matrixStack, \
+        const std::shared_ptr<MphRead::Model>& model, std::int32_t geometryId, \
+        std::int32_t matrixStackCount, const std::vector<float>& matrixStack, \
         std::optional<OpenTK::Mathematics::Vector4> overrideColor, \
         std::optional<OpenTK::Mathematics::Vector4> paletteOverride, MphRead::SelectionType selectionType, \
         MphRead::BillboardMode billboardMode, float scaleFactor = 1.0F, \
@@ -909,9 +911,8 @@ private: \
     }; \
     void SetShaderFog(); \
     void InitShaders(); \
-    void GenerateLists(const std::shared_ptr<MphRead::Model>& model, bool isRoom); \
-    void DoDlist(const std::shared_ptr<MphRead::Model>& model, const MphRead::Mesh& mesh, \
-        std::int32_t textureWidth, std::int32_t textureHeight, bool texgen, bool isRoom); \
+    void GenerateGpuMeshes(const std::shared_ptr<MphRead::Model>& model, bool isRoom); \
+    void DrawGpuMesh(const std::shared_ptr<MphRead::Model>& model, std::int32_t geometryId); \
     void InitTextures(const std::shared_ptr<MphRead::Model>& model); \
     std::pair<std::int32_t, bool> BindTexture(const std::shared_ptr<MphRead::Model>& model, \
         std::int32_t textureId, std::int32_t paletteId, std::int32_t recolorId); \
@@ -1035,8 +1036,7 @@ private: \
     bool _outputCameraPos = false; \
     std::unordered_map<std::int32_t, std::shared_ptr<MphRead::TextureMap>> _texPalMap{}; \
     std::unordered_set<std::int32_t> _ownedTextures{}; \
-    std::unordered_set<std::int32_t> _displayLists{}; \
-    std::vector<std::shared_ptr<MphRead::Model>> _displayListModels{}; \
+    MphRead::GpuMeshCache _gpuMeshCache{}; \
     std::int32_t _shaderProgramId = 0; \
     std::int32_t _rttShaderProgramId = 0; \
     std::int32_t _shiftShaderProgramId = 0; \

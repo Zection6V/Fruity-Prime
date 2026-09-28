@@ -1784,7 +1784,8 @@ namespace MphRead::Entities
                         if (_drawnNodeData.find(&str3) == _drawnNodeData.end())
                         {
                             ModelInstance& nodeInst = RequireReference(nodeInstValue);
-                            Model& model = RequireReference((nodeInst).Model());
+                            const std::shared_ptr<Model> nodeModel = nodeInst.Model();
+                            Model& model = RequireReference(nodeModel);
                             Node& node = RequireReference(ManagedListAt(RequireReference(model.Nodes), 3));
                             if (node.Enabled)
                             {
@@ -1797,7 +1798,8 @@ namespace MphRead::Entities
                                         = RequireReference(ManagedListAt(RequireReference(model.Materials), mesh.MaterialId));
                                     scene.AddRenderItem(material, polygonId, 1.0F, Vector3::Zero,
                                         GetLightInfo(), IdentityMatrix(), str3.Transform,
-                                        mesh.ListId, 0, CopyManagedArray(RequireReference(_emptyMatrixStack)), str3.Color, std::nullopt,
+                                        nodeModel, mesh.DlistId, 0,
+                                        CopyManagedArray(RequireReference(_emptyMatrixStack)), str3.Color, std::nullopt,
                                         SelectionType::None, node.BillboardMode);
                                 }
                             }
@@ -2015,7 +2017,7 @@ namespace MphRead::Entities
             const Matrix4 texcoordMatrix = GetTexcoordMatrix(inst, material, mesh.MaterialId, node);
             const SelectionType selectionType = Selection::CheckSelection(this, inst, node, mesh);
             RequireReference(_scene).AddRenderItem(material, polygonId, alpha, Vector3::Zero, GetLightInfo(),
-                texcoordMatrix, node.Animation, mesh.ListId,
+                texcoordMatrix, node.Animation, modelValue, mesh.DlistId,
                 static_cast<std::int32_t>(RequireReference(model.NodeMatrixIds).size()),
                 CopyManagedArray(RequireReference(model.MatrixStackValues)), std::nullopt, std::nullopt,
                 selectionType, node.BillboardMode);

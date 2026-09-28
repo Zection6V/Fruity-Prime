@@ -1,8 +1,6 @@
 #include "Skia.hpp"
 
-#if !defined(__ANDROID__)
-#error "SkiaGpuAndroid is only valid for Android builds."
-#endif
+#if defined(__ANDROID__)
 
 #include <stdexcept>
 #include <utility>
@@ -145,3 +143,5 @@ namespace MphRead::NativeRuntime::Skia
     {
     }
 }
+
+#endif

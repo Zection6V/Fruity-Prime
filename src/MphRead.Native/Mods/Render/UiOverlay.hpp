@@ -26,6 +26,8 @@ namespace MphRead::Mods::Render
     private:
         static constexpr std::int32_t Name = 1'000'000;
         static std::int32_t _texture;
+        static std::int32_t _vertexBuffer;
+        static std::int32_t _indexBuffer;
         static std::int32_t _width;
         static std::int32_t _height;
         static bool _hasFrame;

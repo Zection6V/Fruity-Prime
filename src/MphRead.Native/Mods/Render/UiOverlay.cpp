@@ -6,12 +6,16 @@
 #include "../../NativeRuntime/OpenTK/GL.hpp"
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
 
 namespace MphRead::Mods::Render
 {
     namespace GL = ::OpenTK::Graphics::OpenGL::GL;
 
     std::int32_t UiOverlay::_texture = 0;
+    std::int32_t UiOverlay::_vertexBuffer = 0;
+    std::int32_t UiOverlay::_indexBuffer = 0;
     std::int32_t UiOverlay::_width = 0;
     std::int32_t UiOverlay::_height = 0;
     bool UiOverlay::_hasFrame = false;
@@ -137,16 +141,48 @@ namespace MphRead::Mods::Render
         GL::LoadIdentity();
         const float topT = _topRowAtTextureZero ? 0.0F : 1.0F;
         const float bottomT = _topRowAtTextureZero ? 1.0F : 0.0F;
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::TexCoord2(1, topT);
-        GL::Vertex3(1, 1, 0);
-        GL::TexCoord2(0, topT);
-        GL::Vertex3(-1, 1, 0);
-        GL::TexCoord2(1, bottomT);
-        GL::Vertex3(1, -1, 0);
-        GL::TexCoord2(0, bottomT);
-        GL::Vertex3(-1, -1, 0);
-        GL::End();
+        struct OverlayVertex final
+        {
+            float Position[3];
+            float TexCoord[2];
+        };
+        const OverlayVertex vertices[]{
+            {{ 1.0F,  1.0F, 0.0F}, {1.0F, topT}},
+            {{-1.0F,  1.0F, 0.0F}, {0.0F, topT}},
+            {{ 1.0F, -1.0F, 0.0F}, {1.0F, bottomT}},
+            {{-1.0F, -1.0F, 0.0F}, {0.0F, bottomT}}
+        };
+        constexpr std::uint32_t indices[]{0U, 1U, 2U, 3U};
+        if (_vertexBuffer == 0)
+        {
+            _vertexBuffer = GL::GenBuffer();
+        }
+        if (_indexBuffer == 0)
+        {
+            _indexBuffer = GL::GenBuffer();
+        }
+        GL::BindBuffer(GL::BufferTarget::ArrayBuffer, _vertexBuffer);
+        GL::BufferData(GL::BufferTarget::ArrayBuffer, sizeof(vertices),
+            vertices, GL::BufferUsageHint::StreamDraw);
+        GL::BindBuffer(GL::BufferTarget::ElementArrayBuffer, _indexBuffer);
+        GL::BufferData(GL::BufferTarget::ElementArrayBuffer, sizeof(indices),
+            indices, GL::BufferUsageHint::StreamDraw);
+        GL::EnableClientState(GL::ClientState::VertexArray);
+        GL::VertexPointer(3, GL::PointerType::Float,
+            static_cast<std::int32_t>(sizeof(OverlayVertex)),
+            reinterpret_cast<const void*>(offsetof(OverlayVertex, Position)));
+        GL::ClientActiveTexture(GL::TextureUnit::Texture0);
+        GL::EnableClientState(GL::ClientState::TextureCoordArray);
+        GL::TexCoordPointer(2, GL::PointerType::Float,
+            static_cast<std::int32_t>(sizeof(OverlayVertex)),
+            reinterpret_cast<const void*>(offsetof(OverlayVertex, TexCoord)));
+        GL::DrawElements(GL::PrimitiveType::TriangleStrip, 4,
+            GL::DrawElementsType::UnsignedInt, nullptr);
+        GL::DisableClientState(GL::ClientState::TextureCoordArray);
+        GL::DisableClientState(GL::ClientState::VertexArray);
+        GL::BindBuffer(GL::BufferTarget::ArrayBuffer, 0);
+        GL::BindBuffer(GL::BufferTarget::ElementArrayBuffer, 0);
+        GL::TexCoord2(0.0F, bottomT);
         GL::PopMatrix();
         GL::MatrixMode(GL::MatrixMode::Projection);
         GL::PopMatrix();
@@ -171,6 +207,16 @@ namespace MphRead::Mods::Render
 
     void UiOverlay::Release()
     {
+        if (_indexBuffer != 0)
+        {
+            GL::DeleteBuffer(_indexBuffer);
+            _indexBuffer = 0;
+        }
+        if (_vertexBuffer != 0)
+        {
+            GL::DeleteBuffer(_vertexBuffer);
+            _vertexBuffer = 0;
+        }
         if (_texture != 0 && _ownsTexture)
         {
             GL::DeleteTexture(_texture);

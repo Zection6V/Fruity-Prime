@@ -4,6 +4,7 @@
 - Repository: `Zection6V/Fruity-Prime`
 - Branch: `develop3_rendering`
 - Phase: **0 only**
+- Phase 0 gate: **INCOMPLETE — golden-capture conditions are not fully source-fixed yet**
 - Plan baseline SHA: `bb8f619da7abbe614ea60765006f290a60938f98`
 - Branch HEAD immediately before Phase 0 documentation: `92b2734da568593de4be809cc40efd1039486ea0`
 - Initial Phase 0 documentation commit: `08c8a6c8b405b44398bb261533db34ed11737873`
@@ -281,67 +282,151 @@ rather than model these vectors as mutually exclusive pass buckets.
 
 ## 5. Golden-image candidates and capture contract
 
-### 5.1 Common fixed conditions
+### 5.1 What is actually fixed by source today
 
-These are **candidate baseline conditions**. No image was captured in Phase 0.
+The previous version deferred exact gameplay camera/frame values to a future manifest. That is not
+sufficient for the Phase 0 DoD. This audit therefore distinguishes conditions that are already
+deterministic from source/harness code from conditions that still require runtime characterization.
 
-- Plan/source baseline: `bb8f619da7abbe614ea60765006f290a60938f98`; branch-start source snapshot `92b2734da568593de4be809cc40efd1039486ea0` is source-identical for `src/MphRead.Native`.
-- Renderer/backend: desktop **OpenGL**.
-- Output framebuffer: **1280 x 720**.
-- Resolution scale: **100%**.
-- Window mode: windowed; do not resize between paired captures.
-- Hunter: **Samus** unless the candidate explicitly requires another subject.
-- Gameplay reference map: **Combat Hall**, room id **95**, internal room name
-  `MP3 PROVING GROUND` (`Metadata/Rooms.cpp:1129`).
-- Camera FOV: renderer default `1.361356816555577` rad
-  (`Renderer.hpp:1012`).
-- Baseline render settings:
-  - lighting on;
-  - cel shading off;
-  - cel bands 8;
-  - cel edge 0.5;
-  - fog on;
-  - texture filtering off;
-  - resolution scale 100.
-  These are the current defaults in `Mods/RenderOptions.cpp:117-125`.
-- Input: no camera/player input during a paired capture.
-- Capture timing: use the same saved room/session state and the same simulation-frame offset for
-  both reference and future-backend images. Dynamic candidates (particle/trail/fade/whiteout)
-  must record the exact trigger and frame offset in the capture manifest before the first reference
-  image is accepted.
-- Camera: for gameplay candidates, record the exact position, facing vector, FOV, and simulation
-  frame in the capture manifest. Backend comparisons must reuse those exact values.
-- Disable unrelated overlays/diagnostics except where the candidate explicitly targets them.
-- Do not compare captures produced at different framebuffer sizes, resolution scales, camera
-  transforms, map/recolor/hunter selections, or simulation frames.
+No image was captured during this audit.
 
-### 5.2 Candidate set
+#### UI capture anchor
 
-| Candidate | Fixed variant / purpose | Status |
-|---|---|---|
-| Launcher | 1280x720 initial launcher view, no Scene | candidate; not captured |
-| Offline map | Offline flow with Combat Hall selected | candidate; not captured |
-| Hunter | Samus launcher/selection preview at the manifest-recorded orientation | candidate; not captured |
-| Room geometry | Combat Hall, fixed manifest camera | candidate; not captured |
-| Transparent object | Combat Hall, fixed object/camera/frame manifest entry | candidate; not captured |
-| Decal | Combat Hall, fixed decal/camera/frame manifest entry | candidate; not captured |
-| Particle | fixed trigger + exact post-trigger frame offset | candidate; not captured |
-| Trail | fixed trigger + exact post-trigger frame offset | candidate; not captured |
-| HUD | Samus normal HUD, no pause/menu overlay | candidate; not captured |
-| Pause menu | same gameplay state/camera as HUD candidate, pause open | candidate; not captured |
-| Map Vote | fixed vote contents and same underlying gameplay frame | candidate; not captured |
-| Cel off | common baseline, cel shading off | candidate; not captured |
-| Cel on | same shot as cel-off, cel shading on, edge 0 | candidate; not captured |
-| Cel outline | same shot, cel shading on, cel edge 0.5 | candidate; not captured |
-| Fog on | fixed room/camera, fog on | candidate; not captured |
-| Fog off | same room/camera/frame, fog off | candidate; not captured |
-| Fade | fixed fade direction/color and exact frame offset | candidate; not captured |
-| Whiteout/disruption | fixed effect parameters and exact frame offset | candidate; not captured |
-| End screen | fixed completed-match state and scoreboard contents | candidate; not captured |
+The existing UI harness defines a fixed desktop capture size of **940 x 528**
+(`Mods/Launcher/Gui/UiCapture.cpp:58`) and constructs named views directly
+(`UiCapture.cpp:376-496`). UI candidates use **camera: N/A**.
 
-The first accepted OpenGL reference capture for each dynamic/object-specific candidate must populate
-the manifest fields above; a candidate is not a golden reference until those fields and the image
-exist together. This Phase only freezes the protocol and candidate set.
+For deterministic UI state, use a clean launcher preference state so persisted user choices do not
+override the source defaults. The source defaults are Samus / suit 0 for a fresh `HunterStand`
+(`HunterStand.hpp:84-85`), while a fresh `MenuSettings` selects
+`MP3 PROVING GROUND` / Combat Hall (`Menu.hpp:22`). Persisted launcher preferences can
+otherwise change hunter/suit/bot selections, so a non-clean preference state is not an accepted
+golden-capture condition.
+
+The `UiCapture` helper itself is software/off-screen (`UiCapture.cpp:528-552`), so it is a
+deterministic **layout/state reference**, not proof of the live Ganesh/OpenGL compositor. A future
+accepted GPU golden for these states must reproduce the same named state in the live launcher.
+
+#### Canonical static gameplay anchor: TEST ARENA
+
+For scene-only static geometry/cel comparisons, use the committed custom map `TEST ARENA`.
+
+Source-fixed conditions:
+
+- map: `TEST ARENA`;
+- mode: Battle;
+- player: Samus, suit/recolor 0;
+- framebuffer: **1600 x 900**;
+- camera position: **(0.0, 16.0, 30.0)**;
+- camera target: **(0.0, 1.0, 0.0)**;
+- camera mode: the preview camera created by `Scene::SetPreviewCamera`;
+- settle count: **12 update frames** before the first capture attempt;
+- lighting: on;
+- cel bands: 8;
+- texture filtering: off;
+- unrelated overlays/diagnostics: off.
+
+Evidence:
+
+- `maps/arena/arena.json:32-43` fixes the preview position/target.
+- `ThumbnailCapture.cpp:615-616` adds Samus and the room in Battle mode.
+- `ThumbnailCapture.cpp:701-727` applies the map preview camera.
+- `ThumbnailCapture.hpp:42` fixes `SettleFrames = 12`.
+- `ThumbnailGenerator.hpp:17-18` fixes the default thumbnail size to 1600 x 900.
+- `RenderOptions.cpp:117-125` supplies the baseline renderer defaults.
+
+Canonical command shape:
+
+```text
+FruityPrime -thumbnail "TEST ARENA" -size 1600x900 <render overrides>
+```
+
+#### Canonical fog anchor: DUST2
+
+For fog comparisons, use committed `DUST2`, because its map definition explicitly enables fog.
+
+Source-fixed conditions:
+
+- map: `DUST2`;
+- framebuffer: **1600 x 900**;
+- player/mode/settle rules: same `ThumbnailCapture` rules as above;
+- camera position: **(20.0, 24.0, 33.0)**;
+- camera target: **(-8.0, -6.0, -12.0)**;
+- map fog definition: enabled, color **(25,22,16)**, slope **3**, offset **65100**;
+- cel shading: off for the fog pair.
+
+Evidence: `maps/dust2/dust2.json:8-15,38-49`.
+
+### 5.2 Per-candidate fixed conditions
+
+| Candidate | Exact source/harness condition | Camera | Status |
+|---|---|---|---|
+| Launcher | live launcher equivalent of `UiCapture` state `start`, 940x528, fresh `MenuSettings`, clean launcher preferences | N/A | **fixed** |
+| Offline map | live launcher equivalent of `play-offline`, 940x528; fresh `MenuSettings::RoomKey = MP3 PROVING GROUND`; clean prefs => Samus, suit 0, bots 3, bot level Normal | N/A | **fixed** |
+| Hunter | live launcher equivalent of `end-panel-hunter`, 940x528, clean prefs / no active player choice => Samus, suit 0 | N/A | **fixed** |
+| Room geometry | `TEST ARENA`, 1600x900, preview camera, 12 settle frames, `-cel off -fog off` | position (0,16,30), target (0,1,0) | **fixed** |
+| Transparent object | no current source/harness selects a named translucent scene object and fixes a capture frame in which it is visible | not fixed | **BLOCKED** |
+| Decal | no current source/harness forces a specific decal instance and exact capture frame | not fixed | **BLOCKED** |
+| Particle | `MapAudit` verifies that effect particles occurred (`ModEffectParticles()`) but does not identify/save an exact first visible particle frame | not fixed | **BLOCKED** |
+| Trail | `MapAudit`/Lockjaw audit can detect active trail geometry via `ModLockjawTrailSignature()`, but no exact active capture frame is source-fixed | not fixed | **BLOCKED** |
+| HUD | current preview-camera harness is Roam/camera-only and therefore is not an exact player-HUD camera; no source-only numeric player-camera transform/frame is pinned | not fixed | **BLOCKED** |
+| Pause menu | live UI state equivalent of `UiCapture` `pausemenu`, 940x528, `PauseMenuView(true)`, no active network vote | N/A | **fixed** |
+| Map Vote | live UI state equivalent of `UiCapture` `play-vote`, 940x528, `PlayScreen::Face::Vote`, `overGame=true`, fresh Combat Hall settings | N/A | **fixed** |
+| Cel off | `TEST ARENA`, common static anchor, `-cel off -celbands 8 -celedge 50` | position (0,16,30), target (0,1,0) | **fixed** |
+| Cel on | same shot, `-cel on -celbands 8 -celedge 0` | position (0,16,30), target (0,1,0) | **fixed** |
+| Cel outline | same shot, `-cel on -celbands 8 -celedge 50` | position (0,16,30), target (0,1,0) | **fixed** |
+| Fog on | `DUST2`, common fog anchor, `-cel off -fog on` | position (20,24,33), target (-8,-6,-12) | **fixed** |
+| Fog off | identical DUST2 shot, `-cel off -fog off` | position (20,24,33), target (-8,-6,-12) | **fixed** |
+| Fade | renderer has fade state, but no current capture harness fixes fade direction/color/percentage at a known frame | not fixed | **BLOCKED** |
+| Whiteout/disruption | `MapAudit` can drive disruption until it lands, but the landed frame is runtime-dependent and no exact whiteout/disruption factor/frame is fixed for capture | not fixed | **BLOCKED** |
+| End screen | live UI state equivalent of `UiCapture` `end-panel`, 940x528, freshly constructed `EndPanelView` | N/A | **fixed** |
+
+The `-cel`, `-celedge`, `-celbands`, and `-fog` overrides are parsed by
+`Mods/ModEntry.cpp:609-672`. Thumbnail size uses the `WIDTHxHEIGHT` parser in
+`Mods/ModEntry.cpp:529-557`.
+
+### 5.3 Why the blocked candidates are not declared fixed
+
+The existing source provides useful deterministic probes, but they are not equivalent to fixed
+golden-image conditions:
+
+- `MapAudit::StepSpawnRender` teleports a player to source-defined spawns and waits 30 frames, but
+  its saved spawn image is the scene target, not an exact live player-HUD/window golden, and the
+  player camera transform can include runtime camera state.
+- `MapAudit` counts effect particles but does not expose the exact render frame of the candidate
+  particle.
+- Lockjaw trail auditing compares signatures across repeated draws of the same simulation step, but
+  does not define a specific simulation step at which the trail is guaranteed active.
+- the affliction probe actively seeks freeze/burn/disrupt and stops when an effect lands or times
+  out; therefore the exact landed frame cannot be known from source inspection alone.
+- no existing source-only capture path forces a particular decal, fade percentage, or
+  whiteout/disruption factor and then captures that exact state.
+
+Choosing arbitrary frame numbers for those rows would be invented evidence. Runtime
+characterization or a dedicated debug-only golden harness is required before those conditions can
+be frozen.
+
+### 5.4 Golden-condition gate
+
+At this commit, **12 of the 19 minimum candidates have source-fixed conditions and 7 remain
+blocked**:
+
+```text
+BLOCKED:
+transparent object
+decal
+particle
+trail
+HUD
+fade
+whiteout/disruption
+```
+
+No golden images have been captured.
+
+Because the plan's Phase 0 completion condition requires the golden capture conditions to be fixed,
+**Phase 0 is not complete and must not advance to Phase 1** until these seven rows are made
+deterministic and the document is updated with their exact conditions.
 
 ---
 
@@ -388,7 +473,7 @@ must be reported according to the runs GitHub actually creates for that SHA.
 - Golden screenshots: **not captured**.
 - Pixel comparison: **not performed**.
 
-No runtime result is implied by the static/source and CI evidence above.
+No runtime result is implied by the static/source and CI evidence above. The source-only golden-condition audit leaves seven candidates blocked; that limitation is now part of the Phase 0 gate rather than deferred to a future manifest.
 
 ---
 
@@ -398,9 +483,9 @@ No runtime result is implied by the static/source and CI evidence above.
 - [x] Fresh OpenGL dependency counts recorded and categorized.
 - [x] Actual frame order traced and recorded.
 - [x] GPU resource ownership table completed.
-- [x] Golden-image candidate set and reproducible capture contract fixed.
+- [ ] Golden-image candidate set and reproducible capture contract fixed — **BLOCKED:** 7 candidates still lack source-fixed exact capture conditions.
 - [x] Renderer behavior unchanged by Phase 0: all Phase 0 changes are documentation-only; the exact post-push commit diff is part of the final audit.
 - [x] Phase 1 implementation/design not started.
 
-Phase 0 is the boundary. No RHI types, backend factory, Vulkan code, geometry conversion, shader
+Phase 0 is the boundary. **Do not start Phase 1 while the golden-condition checkbox above is open.** No RHI types, backend factory, Vulkan code, geometry conversion, shader
 migration, window/presentation changes, or renderer behavior changes belong in this commit.

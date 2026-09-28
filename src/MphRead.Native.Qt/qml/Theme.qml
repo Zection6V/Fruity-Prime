@@ -51,6 +51,13 @@ QtObject {
             return Math.min(13, Math.max(9, width * (width > height ? 0.0155 : 0.0315)))
         return Math.min(15, Math.max(9, width * 0.0115))
     }
+    // DeckStage's em, stamped from the frame by Main.
+    property real em: 10.81
+    // A size in points for a size in pixels: Qt Quick keeps a point size
+    // fractional where a pixel size is whole, and Avalonia's are fractional.
+    function pt(px) {
+        return Math.max(0.75, px * 0.75)
+    }
     // GuiTheme.PixelSize: the nearest even point, floor of nine.
     function pixelSize(wanted) {
         return Math.max(9, roundEven(wanted / 2) * 2)
@@ -69,12 +76,34 @@ QtObject {
     }
     // DeckPaint: CSS brightness() and saturate().
     function brightness(c, k) {
+        c = Qt.lighter(c, 1.0)
         return Qt.rgba(Math.min(1, c.r * k), Math.min(1, c.g * k), Math.min(1, c.b * k), c.a)
     }
     function saturate(c, s) {
+        c = Qt.lighter(c, 1.0)
         const l = c.r * 0.2126 + c.g * 0.7152 + c.b * 0.0722
         const f = v => Math.max(0, Math.min(1, l + (v - l) * s))
         return Qt.rgba(f(c.r), f(c.g), f(c.b), c.a)
+    }
+    // Deck.Still: everything at rest -- no spring in flight, no idle bob --
+    // for the screens being photographed.
+    property bool still: false
+    // The hover ring on cards and rows.
+    readonly property color hoverRing: "#4a6f8c"
+    // .sheet's ground, rgba(5,7,10,.72).
+    readonly property color sheet: Qt.rgba(5 / 255, 7 / 255, 10 / 255, 184 / 255)
+    // Deck.Bezier: a CSS cubic-bezier solved for a progress.
+    function bezier(p, x1, y1, x2, y2) {
+        if (p <= 0) return 0
+        if (p >= 1) return 1
+        let t = p
+        for (let i = 0; i < 8; i++) {
+            const x = 3 * x1 * t * (1 - t) * (1 - t) + 3 * x2 * t * t * (1 - t) + t * t * t - p
+            const dx = 3 * x1 * (1 - t) * (1 - t) + 6 * (x2 - x1) * t * (1 - t) + 3 * (1 - x2) * t * t
+            if (Math.abs(dx) < 1e-6) break
+            t -= x / dx
+        }
+        return 3 * y1 * t * (1 - t) * (1 - t) + 3 * y2 * t * t * (1 - t) + t * t * t
     }
     // The state behind :focus-visible: the keyboard, not a pointer, is driving.
     property bool keyboardDriving: false

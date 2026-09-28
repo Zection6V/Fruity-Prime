@@ -1,5 +1,10 @@
 #include "UiHost.hpp"
 
+#include "HunterStandItem.hpp"
+#include "QmlTypes.hpp"
+
+#include "../../MphRead.Native/Mods/Render/LauncherHunter.hpp"
+
 #include "ShellBridge.hpp"
 
 #include "../../MphRead.Native/Mods/Render/UiOverlay.hpp"
@@ -94,6 +99,7 @@ namespace MphRead::Qt
             [this]() { _dirty = true; });
 
         _engine = std::make_unique<QQmlEngine>();
+        RegisterQmlTypes();
         _engine->rootContext()->setContextProperty(QStringLiteral("shell"), &_bridge);
         QQmlComponent component(_engine.get(),
             QUrl(QStringLiteral("qrc:/qt/qml/FruityPrime/Ui/Main.qml")));
@@ -163,6 +169,7 @@ namespace MphRead::Qt
         if (!_bridge.Showing() || framebufferWidth <= 0 || framebufferHeight <= 0)
         {
             UiOverlay::Visible(false);
+            ::MphRead::Mods::Render::LauncherHunter::Wanted(false);
             return;
         }
         if (!Initialise())
@@ -192,6 +199,7 @@ namespace MphRead::Qt
                 _targetSize.width(), _targetSize.height());
         }
         UiOverlay::Visible(true);
+        HunterStandItem::Publish(_window->width(), _window->height());
     }
 
     void UiHost::DumpOnce()

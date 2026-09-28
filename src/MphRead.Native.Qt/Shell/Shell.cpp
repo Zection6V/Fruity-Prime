@@ -64,6 +64,7 @@ namespace MphRead::Mods::Launcher::Gui
         bool g_endMatch = false;
         bool g_quit = false;
         bool g_menuOpen = false;
+        bool g_endPanel = false;
         std::unique_ptr<MphRead::Qt::ShellBridge> g_bridge;
         std::unique_ptr<MphRead::Qt::UiHost> g_host;
 
@@ -95,22 +96,6 @@ namespace MphRead::Mods::Launcher::Gui
             g_pending = std::move(plan);
         }
 
-        [[nodiscard]] QVariantList RoomChoices()
-        {
-            QVariantList rooms;
-            for (const std::string& room : g_rooms)
-            {
-                const auto [meta, ignored] = ::MphRead::Metadata::GetRoomByName(room);
-                (void)ignored;
-                QVariantMap entry;
-                entry.insert(QStringLiteral("key"), QString::fromStdString(room));
-                entry.insert(QStringLiteral("name"), QString::fromStdString(
-                    meta != nullptr && meta->InGameName.has_value() ? *meta->InGameName : room));
-                rooms.push_back(entry);
-            }
-            return rooms;
-        }
-
         void EnsureBridge()
         {
             if (g_bridge != nullptr)
@@ -118,24 +103,9 @@ namespace MphRead::Mods::Launcher::Gui
                 return;
             }
             MphRead::Qt::ShellBridge::Actions actions;
-            actions.Play = [](QString room, int mode, int hunter, int bots, int botLevel)
-            {
-                LaunchPlan::Init init;
-                init.Kind = LaunchKind::Offline;
-                init.RoomKey = room.toStdString();
-                init.Mode = static_cast<MphRead::GameMode>(mode);
-                init.Hunter = static_cast<MphRead::Hunter>(hunter);
-                init.Bots = bots;
-                init.BotLevel = botLevel;
-                Decided(LaunchPlan(init));
-            };
+            actions.Launch = [](LaunchPlan plan) { Decided(std::move(plan)); };
             actions.Quit = []() { Shell::RequestQuit(); };
             actions.Resume = []() { Shell::CloseMenu(); };
-            actions.LeaveMatch = []()
-            {
-                Shell::CloseMenu();
-                Shell::RequestEndMatch();
-            };
             actions.ToggleFullscreen = []()
             {
                 // InGameMenu: the toggle waits for the frame, then the menu closes.
@@ -179,7 +149,9 @@ namespace MphRead::Mods::Launcher::Gui
                 g_window->Title(std::string(MphRead::Mods::Branding::Name));
             }
             EnsureBridge();
-            g_bridge->SetRooms(RoomChoices(), Portable::GameFiles::Ready());
+            g_bridge->SetSettings(g_settings);
+            g_bridge->SetRooms(g_rooms, Portable::GameFiles::Ready());
+            g_bridge->refreshProfile();
             ShowPage("front");
         }
 
@@ -330,7 +302,7 @@ namespace MphRead::Mods::Launcher::Gui
 
     bool Shell::EndPanelUp() noexcept
     {
-        return false;
+        return g_endPanel;
     }
 
     bool Shell::CanPlayAnother()
@@ -437,8 +409,24 @@ namespace MphRead::Mods::Launcher::Gui
 
     void Shell::TickEndPanel()
     {
-        // The results panel (vote, next map) is not ported to QML yet; the
-        // match's own results screen still runs.
+        // The results' side panel: up while the end screen is, unless the
+        // pause menu is over the match.
+        const bool want = MphRead::Mods::EndScreen::Available() && !g_menuOpen;
+        if (want && !g_endPanel)
+        {
+            g_endPanel = true;
+            MphRead::Mods::EndScreen::PanelUp(true);
+            ShowPage("end");
+        }
+        else if (!want && g_endPanel)
+        {
+            g_endPanel = false;
+            MphRead::Mods::EndScreen::PanelUp(false);
+            if (!g_menuOpen)
+            {
+                HidePage();
+            }
+        }
     }
 
     void Shell::RequestEndMatch()
@@ -492,8 +480,10 @@ namespace MphRead::Mods::Launcher::Gui
             return;
         }
         g_menuOpen = false;
+        // The results panel, if the match is on its end screen, comes back.
+        g_endPanel = false;
         HidePage();
-        MphRead::Mods::PauseMenu::Reset();
+        MphRead::Mods::PauseMenu::MarkClosed();
     }
 
     void Shell::RequestShots(std::string directory)
@@ -576,7 +566,7 @@ namespace MphRead::Mods::Launcher::Gui
                 Portable::GameFiles::ApplyPaths();
                 g_rooms = MphRead::Mods::ThumbnailGenerator::MultiplayerRooms();
             }
-            (void)MphRead::Qt::UiCapture::Run(shots, RoomChoices());
+            (void)MphRead::Qt::UiCapture::Run(shots);
             MphRead::Qt::ShutdownApplication();
             return true;
         }

@@ -118,6 +118,8 @@ if(FRUITY_UI STREQUAL "qt" AND NOT ANDROID)
     list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/Skia/.*\\.cpp$")
     list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/OpenTK/RendererPlatform\\.cpp$")
     list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/Mods/Launcher/Gui/.*\\.cpp$")
+    # Except the address-to-country table, which draws nothing.
+    list(APPEND MPHREAD_NATIVE_SOURCES "${FRUITY_MPHREAD_ROOT}/Mods/Launcher/Gui/GeoCountry.cpp")
     # The front screen's photograph is a QML Image.
     list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/Mods/Render/LauncherPhoto\\.cpp$")
 elseif(NOT FRUITY_UI STREQUAL "avalonia")
@@ -389,6 +391,7 @@ if(NOT ANDROID)
             "${FRUITY_MPHREAD_ROOT}/Assets/fruity-prime-logo.png"
             "${FRUITY_MPHREAD_ROOT}/Assets/fruity-prime-mark.png"
             "${CMAKE_CURRENT_SOURCE_DIR}/src/MphRead/Assets/Backgrounds/launcher-bg.jpg"
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/MphRead/Assets/Geo/ipcountry.bin.gz"
             "$<TARGET_FILE_DIR:fruity_prime>"
         VERBATIM)
 

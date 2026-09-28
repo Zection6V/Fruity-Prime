@@ -21,6 +21,8 @@ FocusScope {
     property real glyphHeightEms: 1.27
     property color glyphColour: "#e8a0a0"
     property string tip
+    // The key that does the same thing, in a chip on the face.
+    property string keyCap
     signal clicked()
 
     readonly property real size: em * sizeEms
@@ -33,7 +35,7 @@ FocusScope {
 
     activeFocusOnTab: true
     implicitWidth: heart ? Theme.roundEven(size * (glyphWidthEms + padXEms * 2))
-                         : Theme.roundEven(labelWidth + size * padXEms * 2)
+                         : Theme.roundEven(labelWidth + size * padXEms * 2 + (keyWidth > 0 ? keyGap + keyWidth : 0))
     implicitHeight: heart ? Theme.roundEven(size * (glyphHeightEms + padYEms * 2))
                           : Theme.roundEven(metrics.height + size * padYEms * 2)
 
@@ -41,7 +43,7 @@ FocusScope {
         id: metrics
         font.family: Theme.pixel
         font.weight: Font.DemiBold
-        font.pixelSize: Math.round(root.size)
+        font.pointSize: Theme.pt(root.size)
     }
     // DeckText.MeasureTracked: each glyph's advance plus the tracking, and a
     // fixed 0.42 em for a space.
@@ -52,6 +54,14 @@ FocusScope {
         return pen
     }
 
+    // DeckChip.DrawKey: the body face at half the label's size.
+    readonly property real keyGap: size * 0.5
+    readonly property real capSize: size * 0.5
+    FontMetrics { id: capMetrics; font.family: Theme.mono; font.bold: true; font.pointSize: Theme.pt(root.capSize) }
+    readonly property real keyTextWidth: keyCap.length > 0 ? capMetrics.advanceWidth(keyCap) : 0
+    readonly property real keyWidth: keyCap.length > 0 ? Math.max(capSize * 1.5, keyTextWidth + capSize * 0.7) : 0
+    readonly property real keyHeight: Math.max(capSize * 1.5, capMetrics.height)
+
     function shade(c) {
         if (!enabled)
             return Theme.brightness(Theme.saturate(c, 0.3), 0.55)
@@ -60,9 +70,9 @@ FocusScope {
 
     // The idle bob: a raised cosine over 3.4 s, two and a half points deep.
     property real bobPhase: 0
-    readonly property real bob: idle && !hot ? -1.25 * (1 - Math.cos(bobPhase * Math.PI * 2)) : 0
+    readonly property real bob: idle && !hot && !Theme.still ? -1.25 * (1 - Math.cos(bobPhase * Math.PI * 2)) : 0
     NumberAnimation on bobPhase {
-        running: root.idle && root.visible && !root.hot
+        running: root.idle && root.visible && !root.hot && !Theme.still
         from: 0; to: 1; duration: 3400; loops: Animation.Infinite
     }
 
@@ -99,6 +109,13 @@ FocusScope {
                 PathLine { x: wedge.wedgeMid; y: wedge.wedgeTop + wedge.wedgeHalf }
             }
         }
+        // 0 lip 0 the lip colour
+        Rectangle {
+            width: root.width; height: root.height
+            y: root.lipNow
+            radius: root.radius
+            color: root.shade(root.face.lip)
+        }
         // 0 lip+4px 12px rgba(0,0,0,.55)
         RectangularShadow {
             anchors.fill: faceRect
@@ -106,13 +123,6 @@ FocusScope {
             blur: 12
             radius: root.radius
             color: Qt.rgba(0, 0, 0, 0.55)
-        }
-        // 0 lip 0 the lip colour
-        Rectangle {
-            width: root.width; height: root.height
-            y: root.lipNow
-            radius: root.radius
-            color: root.shade(root.face.lip)
         }
         // The focus ring: 0 0 0 2px accent.
         Rectangle {
@@ -136,10 +146,27 @@ FocusScope {
                 GradientStop { position: 1; color: Qt.rgba(1, 1, 1, 0) }
             }
         }
+        // The key chip, after the label.
+        Rectangle {
+            visible: root.keyWidth > 0 && root.enabled && !root.heart
+            x: Theme.roundEven(Theme.roundEven((root.width - root.labelWidth - (root.keyWidth > 0 ? root.keyGap + root.keyWidth : 0)) / 2)
+                               + root.labelWidth + root.keyGap)
+            y: Theme.roundEven((root.height - root.keyHeight) / 2)
+            width: root.keyWidth; height: root.keyHeight
+            radius: root.capSize * 0.3
+            color: Qt.rgba(0, 0, 0, 107 / 255)
+            Text {
+                x: Theme.roundEven((parent.width - root.keyTextWidth) / 2)
+                y: Theme.roundEven((parent.height - capMetrics.height) / 2)
+                text: root.keyCap
+                font: capMetrics.font
+                color: Theme.accent
+            }
+        }
         // The label, one glyph at a time so each can hop.
         Item {
             visible: !root.heart
-            x: Theme.roundEven((root.width - root.labelWidth) / 2)
+            x: Theme.roundEven((root.width - root.labelWidth - (root.keyWidth > 0 ? root.keyGap + root.keyWidth : 0)) / 2)
             width: root.labelWidth
             height: root.height
             Repeater {

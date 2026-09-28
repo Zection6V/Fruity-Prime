@@ -43,6 +43,7 @@ cmake --build "$BUILD_DIR" "$@"
 rm -rf "$OUT"
 mkdir -p "$OUT/plugins/platforms" "$OUT/qml"
 cp "$BUILD_DIR/FruityPrime.exe" "$OUT/"
+for f in fruity-prime-logo.png fruity-prime-mark.png launcher-bg.jpg ipcountry.bin.gz; do [ -f "$BUILD_DIR/$f" ] && cp "$BUILD_DIR/$f" "$OUT/"; done
 for m in Core Gui Network OpenGL Qml QmlMeta QmlModels QmlWorkerScript Quick QuickShapes QuickEffects Svg; do
     [ -f "$QT_WIN/bin/Qt6$m.dll" ] && cp "$QT_WIN/bin/Qt6$m.dll" "$OUT/"
 done

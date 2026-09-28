@@ -10,7 +10,7 @@ namespace MphRead::Qt
     public:
         UiCapture() = delete;
 
-        // Writes DIR/<screen>.png for each ported screen; 0 when all were.
-        [[nodiscard]] static int Run(const QString& directory, QVariantList rooms);
+        // Writes DIR/<screen>.png for each screen -uishot knows; 0 when all were.
+        [[nodiscard]] static int Run(const QString& directory);
     };
 }

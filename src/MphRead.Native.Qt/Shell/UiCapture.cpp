@@ -4,7 +4,15 @@
 
 #include "UiCapture.hpp"
 
+#include "QmlTypes.hpp"
+
+#include "PlayModel.hpp"
 #include "ShellBridge.hpp"
+
+#include "../../MphRead.Native/Menu.hpp"
+#include "../../MphRead.Native/Metadata/Metadata.hpp"
+#include "../../MphRead.Native/Metadata/Rooms.hpp"
+#include "../../MphRead.Native/NativeRuntime/System/Globalization.hpp"
 #include "../Platform/QtApp.hpp"
 
 #include <QtCore/QCoreApplication>
@@ -25,6 +33,7 @@
 
 #include <iostream>
 #include <memory>
+#include <algorithm>
 #include <vector>
 
 namespace MphRead::Qt
@@ -34,16 +43,50 @@ namespace MphRead::Qt
         struct Shot
         {
             const char* Name;
+            // The base under the stack: "front", "pause" or "end".
             const char* Page;
-            const char* Screen;
+            // The screen over it, or none for the base alone.
+            const char* Url;
+            QVariantMap Props;
+            QSize Size;
+            bool Phone;
         };
+
+        const QSize Window(940, 528);
+        const QSize PhonePortrait(360, 800);
+        const QSize PhoneLandscape(800, 360);
+
+        // UiCapture.RoomList: every multiplayer room the metadata knows, in
+        // ordinal-ignore-case order.
+        [[nodiscard]] std::vector<std::string> RoomList()
+        {
+            std::vector<std::string> rooms;
+            for (const auto& entry : ::MphRead::Metadata::RoomMetadata)
+            {
+                if (entry.second != nullptr && entry.second->Multiplayer)
+                {
+                    rooms.push_back(entry.second->Name);
+                }
+            }
+            std::sort(rooms.begin(), rooms.end(), ::MphRead::NativeRuntime::OrdinalIgnoreCaseLess{});
+            return rooms;
+        }
+
+        [[nodiscard]] QVariantMap P(std::initializer_list<std::pair<QString, QVariant>> values)
+        {
+            QVariantMap map;
+            for (const auto& [key, value] : values)
+            {
+                map.insert(key, value);
+            }
+            return map;
+        }
     }
 
-    int UiCapture::Run(const QString& directory, QVariantList rooms)
+    int UiCapture::Run(const QString& directory)
     {
         EnsureApplication();
         QDir().mkpath(directory);
-        const QSize size(940, 528);
 
         QSurfaceFormat format;
         format.setRenderableType(QSurfaceFormat::OpenGL);
@@ -57,31 +100,25 @@ namespace MphRead::Qt
             std::cout << "[qtuishot] no OpenGL context\n";
             return 1;
         }
-
         QOpenGLFunctions* const gl = context->functions();
-        GLuint texture = 0;
-        gl->glGenTextures(1, &texture);
-        gl->glBindTexture(GL_TEXTURE_2D, texture);
-        gl->glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, size.width(), size.height(), 0, GL_RGBA,
-            GL_UNSIGNED_BYTE, nullptr);
-        gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        gl->glBindTexture(GL_TEXTURE_2D, 0);
 
         ShellBridge bridge(ShellBridge::Actions{});
-        bridge.SetRooms(std::move(rooms), true);
+        bridge.SetSettings(std::make_shared<::MphRead::MenuSettings>());
+        bridge.SetRooms(RoomList(), true);
+        PlayModel::UseSample = true;
+
         auto control = std::make_unique<QQuickRenderControl>();
         auto window = std::make_unique<QQuickWindow>(control.get());
         window->setGraphicsDevice(QQuickGraphicsDevice::fromOpenGLContext(context.get()));
-        window->setRenderTarget(QQuickRenderTarget::fromOpenGLTexture(texture, size));
-        window->resize(size);
-        // -uishot photographs over black.
-        window->setColor(::Qt::black);
+        // -uishot photographs over the panel colour.
+        window->setColor(QColor(18, 21, 28));
         if (!control->initialize())
         {
             std::cout << "[qtuishot] Qt Quick could not start\n";
             return 1;
         }
         auto engine = std::make_unique<QQmlEngine>();
+        RegisterQmlTypes();
         engine->rootContext()->setContextProperty(QStringLiteral("shell"), &bridge);
         QQmlComponent component(engine.get(), QUrl(QStringLiteral("qrc:/qt/qml/FruityPrime/Ui/Main.qml")));
         std::unique_ptr<QObject> object(component.create());
@@ -92,21 +129,75 @@ namespace MphRead::Qt
             return 1;
         }
         root->setParentItem(window->contentItem());
-        root->setSize(size);
-        window->contentItem()->setSize(size);
+        root->setProperty("still", true);
 
         const std::vector<Shot> shots = {
-            {"start", "front", "start"},
-            {"pausemenu", "pause", "start"},
-            {"play-offline", "front", "play"},
+            {"start", "front", "", {}, Window, false},
+            {"start-phone-portrait", "front", "", {}, PhonePortrait, true},
+            {"start-phone-landscape", "front", "", {}, PhoneLandscape, true},
+            {"play-online", "front", "PlayPage.qml", P({{"face", 0}}), Window, false},
+            {"play-online-phone-portrait", "front", "PlayPage.qml", P({{"face", 0}}), PhonePortrait, true},
+            {"play-online-phone-landscape", "front", "PlayPage.qml", P({{"face", 0}}), PhoneLandscape, true},
+            {"play-offline", "front", "PlayPage.qml", P({{"face", 1}}), Window, false},
+            {"play-story", "front", "PlayPage.qml", P({{"face", 2}}), Window, false},
+            {"play-clips", "front", "PlayPage.qml", P({{"face", 3}}), Window, false},
+            {"play-vote", "pause", "PlayPage.qml", P({{"face", 4}, {"overGame", true}}), Window, false},
+            {"create-server", "front", "CreateServerPage.qml", {}, Window, false},
+            {"create-server-dedicated", "front", "CreateServerPage.qml", P({{"dedicated", true}}), Window, false},
+            {"create-server-maps", "front", "MapRotationPage.qml", {}, Window, false},
+            {"create-server-hosts", "front", "HostPickerPage.qml", P({{"sample", true}}), Window, false},
+            {"settings", "front", "SettingsPage.qml", {}, Window, false},
+            {"settings-player", "front", "SettingsPage.qml", P({{"section", 3}}), Window, false},
+            {"settings-controls", "front", "SettingsPage.qml", P({{"section", 2}}), Window, false},
+            {"settings-gamepad", "front", "SettingsPage.qml", P({{"section", 2}, {"subsection", 1}}), Window, false},
+            {"end-panel", "end", "", {}, Window, false},
+            {"end-panel-hunter", "end", "", P({{"hunterTab", true}}), Window, false},
+            {"setup", "front", "SetupPage.qml", {}, Window, false},
+            {"confirm", "front", "ConfirmPage.qml", P({{"question", QStringLiteral("Quit ") + bridge.Brand() + QStringLiteral("?")}}), Window, false},
+            {"pausemenu", "pause", "", {}, Window, false},
+            {"pausemenu-small", "pause", "", {}, QSize(560, 320), false},
+            {"pausemenu-phone", "pause", "", {}, PhoneLandscape, true},
+            {"serverbrowser", "front", "ServerBrowserSample.qml", {}, Window, false},
         };
+        const QString only = qEnvironmentVariable("FP_QT_UISHOT_ONLY");
+
+        GLuint texture = 0;
+        QSize current;
         int written = 0;
+        int wanted = 0;
         for (const Shot& shot : shots)
         {
-            root->setProperty("screen", QString::fromUtf8(shot.Screen));
+            if (!only.isEmpty() && !only.split(QLatin1Char(',')).contains(QString::fromUtf8(shot.Name)))
+            {
+                continue;
+            }
+            ++wanted;
+            context->makeCurrent(surface.get());
+            if (shot.Size != current)
+            {
+                if (texture != 0)
+                {
+                    gl->glDeleteTextures(1, &texture);
+                }
+                gl->glGenTextures(1, &texture);
+                gl->glBindTexture(GL_TEXTURE_2D, texture);
+                gl->glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, shot.Size.width(), shot.Size.height(), 0, GL_RGBA,
+                    GL_UNSIGNED_BYTE, nullptr);
+                gl->glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                gl->glBindTexture(GL_TEXTURE_2D, 0);
+                window->setRenderTarget(QQuickRenderTarget::fromOpenGLTexture(texture, shot.Size));
+                window->resize(shot.Size);
+                window->contentItem()->setSize(shot.Size);
+                root->setSize(shot.Size);
+                current = shot.Size;
+            }
+            root->setProperty("phone", shot.Phone);
+            bridge.SetPage(QString());
+            QCoreApplication::processEvents();
             bridge.SetPage(QString::fromUtf8(shot.Page));
+            bridge.RequestScreen(QString::fromUtf8(shot.Url), shot.Props);
             // A few passes so images, fonts and bindings settle.
-            for (int i = 0; i < 4; ++i)
+            for (int i = 0; i < 6; ++i)
             {
                 QCoreApplication::processEvents();
                 control->polishItems();
@@ -120,8 +211,8 @@ namespace MphRead::Qt
             gl->glGenFramebuffers(1, &fbo);
             gl->glBindFramebuffer(GL_FRAMEBUFFER, fbo);
             gl->glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
-            QImage image(size, QImage::Format_RGBA8888_Premultiplied);
-            gl->glReadPixels(0, 0, size.width(), size.height(), GL_RGBA, GL_UNSIGNED_BYTE, image.bits());
+            QImage image(shot.Size, QImage::Format_RGBA8888_Premultiplied);
+            gl->glReadPixels(0, 0, shot.Size.width(), shot.Size.height(), GL_RGBA, GL_UNSIGNED_BYTE, image.bits());
             gl->glBindFramebuffer(GL_FRAMEBUFFER, 0);
             gl->glDeleteFramebuffers(1, &fbo);
             image = image.flipped(::Qt::Vertical).convertToFormat(QImage::Format_RGB32);
@@ -132,15 +223,19 @@ namespace MphRead::Qt
                 std::cout << "[qtuishot] " << path.toStdString() << '\n';
             }
         }
+        PlayModel::UseSample = false;
         // Qt Quick first, on its context, then the context itself.
         object.reset();
         engine.reset();
         window.reset();
         control.reset();
         context->makeCurrent(surface.get());
-        gl->glDeleteTextures(1, &texture);
+        if (texture != 0)
+        {
+            gl->glDeleteTextures(1, &texture);
+        }
         context->doneCurrent();
         std::cout << "[qtuishot] " << written << " screen(s) written to " << directory.toStdString() << '\n';
-        return written == static_cast<int>(shots.size()) ? 0 : 1;
+        return written == wanted ? 0 : 1;
     }
 }

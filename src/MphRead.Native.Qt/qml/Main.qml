@@ -1,30 +1,136 @@
 import QtQuick
 
-// The menus' root. Only the page the shell asks for exists; the others are
-// unloaded, so a closed menu leaves nothing in the scene graph. Moving
-// between launcher screens is the launcher's own business.
+// The menus' root: the front screen or the pause menu under a stack of
+// screens, as StartScreen and InGameMenu keep one. Only the top of the stack
+// exists; a closed menu leaves nothing in the scene graph.
 Item {
     id: root
-    property string screen: "start"
+    // [{ url, props }], the last one showing.
+    property var stack: []
+    readonly property bool stacked: stack.length > 0
+
+    // The captures hold everything still and switch the phone curve on.
+    property bool still: false
+    property bool phone: false
+    // What the base screen is asked to show (the end panel's tab).
+    property var baseProps: ({})
+    Binding { target: Theme; property: "still"; value: root.still }
+    Binding { target: Theme; property: "phone"; value: root.phone }
+    Binding { target: Theme; property: "em"; value: Theme.emFor(root.width, root.height) }
+
+    function push(url, props) {
+        stack = stack.concat([{ url: url, props: props || {} }])
+    }
+    function pop() {
+        stack = stack.slice(0, stack.length - 1)
+        if (!stacked && shell.page === "pause" && !base.item)
+            shell.resume()
+    }
+    function reset() {
+        stack = []
+    }
+    // Replace everything with one screen: the captures' way in.
+    function only(url, props) {
+        stack = [{ url: url, props: props || {} }]
+    }
+
+    // StartScreen's ways out of the front screen.
+    function openPlay() {
+        if (!shell.gameFilesReady) {
+            openSetup()
+            return
+        }
+        push("PlayPage.qml", { face: 0 })
+    }
+    function openSettings(overGame) {
+        push("SettingsPage.qml", { overGame: !!overGame })
+    }
+    function openSetup() {
+        push("SetupPage.qml", {})
+    }
+    function openCreateServer() {
+        push("CreateServerPage.qml", {})
+    }
+    function openLobby() {
+        push("LobbyPage.qml", {})
+    }
+    function openVote() {
+        const why = shell.whyNotVoting()
+        if (why.length > 0) {
+            shell.systemMessage(why)
+            shell.resume()
+            return
+        }
+        push("PlayPage.qml", { face: 4, overGame: true })
+    }
+    function askToQuit() {
+        push("ConfirmPage.qml", { question: "Quit " + shell.brand + "?", yesAction: () => shell.quit() })
+    }
+
+    Connections {
+        target: shell
+        function onPageChanged() {
+            root.reset()
+            if (shell.page === "front" && !shell.gameFilesReady)
+                root.openSetup()
+        }
+        function onLobbyOpened() { root.openLobby() }
+        function onScreenRequested(url, props) {
+            if (url.length > 0) {
+                root.only(url, props)
+            } else {
+                root.reset()
+                root.baseProps = props
+            }
+        }
+    }
 
     Loader {
-        id: pages
+        id: base
         anchors.fill: parent
-        focus: true
-        sourceComponent: shell.page === "front" ? (root.screen === "play" ? play : start)
+        visible: !root.stacked
+        enabled: visible
+        focus: !root.stacked
+        sourceComponent: shell.page === "front" ? start
                        : shell.page === "pause" ? pause
+                       : shell.page === "end" ? end
                        : null
-        onLoaded: item.forceActiveFocus()
+        onLoaded: if (!root.stacked) item.forceActiveFocus()
     }
     Component {
         id: start
         StartPage {
             focus: true
-            onPlay: root.screen = "play"
-            onSettings: { }
-            onQuit: shell.quit()
+            onPlay: root.openPlay()
+            onSettings: root.openSettings(false)
+            onQuit: root.askToQuit()
         }
     }
-    Component { id: play; PlayPage { focus: true; onBack: root.screen = "start" } }
-    Component { id: pause; PausePage { focus: true } }
+    Component {
+        id: pause
+        PausePage {
+            focus: true
+            onSettings: root.openSettings(true)
+            onVoteMap: root.openVote()
+        }
+    }
+    Component { id: end; EndPanel { focus: true; hunterTab: !!root.baseProps.hunterTab } }
+
+    Loader {
+        id: top
+        anchors.fill: parent
+        focus: root.stacked
+        readonly property var entry: root.stacked ? root.stack[root.stack.length - 1] : null
+        onEntryChanged: {
+            if (entry) {
+                const props = Object.assign({ nav: root }, entry.props)
+                setSource(entry.url, props)
+            } else {
+                source = ""
+                if (base.item)
+                    base.item.forceActiveFocus()
+            }
+        }
+        onLoaded: item.forceActiveFocus()
+    }
 }

@@ -11,6 +11,7 @@
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
+#include "../../NativeRuntime/Rhi/BackendFactory.hpp"
 
 #include <algorithm>
 
@@ -54,6 +55,7 @@ namespace MphRead::Mods::MapGen
         settings.ApiMajor = 3;
         settings.ApiMinor = 2;
         settings.StartVisible = false;
+        settings.GraphicsMode = RendererPlatform::GraphicsWindowMode::OpenGL;
         return settings;
     }
 
@@ -63,6 +65,12 @@ namespace MphRead::Mods::MapGen
           _start(start),
           _hunter(hunter)
     {
+        NativeRuntime::Rhi::SwapchainDesc swapchainDesc{};
+        const Vector2i framebufferSize = _window->Size();
+        swapchainDesc.width = static_cast<std::uint32_t>(std::max(framebufferSize.X, 1));
+        swapchainDesc.height = static_cast<std::uint32_t>(std::max(framebufferSize.Y, 1));
+        _swapchain = NativeRuntime::Rhi::BackendFactory::CreateSwapchain(
+            NativeRuntime::Rhi::GraphicsBackend::OpenGl, *_window, swapchainDesc);
         _delay = _traceDelay.value_or(0);
         Network::MapAudit::ForceEveryone(true);
         PlayerEntity::SetMaxPlayers(std::max<std::int32_t>(PlayerEntity::MaxPlayers(), Slot + 1));
@@ -110,9 +118,9 @@ namespace MphRead::Mods::MapGen
         _window->Close();
     }
 
-    void AltFormProbe::SwapBuffers()
+    void AltFormProbe::Present()
     {
-        _window->SwapBuffers();
+        _swapchain->Present();
     }
 
     void AltFormProbe::Run()
@@ -139,7 +147,7 @@ namespace MphRead::Mods::MapGen
             return;
         }
         Step();
-        SwapBuffers();
+        Present();
         _scene->AfterRenderFrame();
         _window->BaseOnRenderFrame(args);
         if (_delay > MaxDelay())

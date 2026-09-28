@@ -31,6 +31,7 @@ namespace MphRead::Mods::MapGen
     {
     private:
         std::shared_ptr<MphRead::RendererPlatform::Window> _window;
+        std::unique_ptr<MphRead::NativeRuntime::Rhi::Swapchain> _swapchain;
 
         const std::string _room;
         const OpenTK::Mathematics::Vector3 _start;
@@ -68,7 +69,7 @@ namespace MphRead::Mods::MapGen
 
         [[nodiscard]] OpenTK::Mathematics::Vector2i ClientSize() const;
         void Close();
-        void SwapBuffers();
+        void Present();
         void Run();
         void Step();
         void Place(Entities::PlayerEntity& player);

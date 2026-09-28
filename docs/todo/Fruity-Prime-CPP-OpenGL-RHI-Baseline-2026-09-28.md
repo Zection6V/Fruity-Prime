@@ -332,15 +332,15 @@ DPI-induced framebuffer drift), the helper fails instead of accepting another si
 Invocation:
 
 ```text
-FruityPrime -goldencapture all -goldendir <output-directory>
+FruityPrime -mapdir maps -goldencapture all -goldendir <output-directory>
 
-FruityPrime -goldencapture transparent-object -goldendir <output-directory>
-FruityPrime -goldencapture decal -goldendir <output-directory>
-FruityPrime -goldencapture particle -goldendir <output-directory>
-FruityPrime -goldencapture trail -goldendir <output-directory>
-FruityPrime -goldencapture hud -goldendir <output-directory>
-FruityPrime -goldencapture fade -goldendir <output-directory>
-FruityPrime -goldencapture whiteout-disruption -goldendir <output-directory>
+FruityPrime -mapdir maps -goldencapture transparent-object -goldendir <output-directory>
+FruityPrime -mapdir maps -goldencapture decal -goldendir <output-directory>
+FruityPrime -mapdir maps -goldencapture particle -goldendir <output-directory>
+FruityPrime -mapdir maps -goldencapture trail -goldendir <output-directory>
+FruityPrime -mapdir maps -goldencapture hud -goldendir <output-directory>
+FruityPrime -mapdir maps -goldencapture fade -goldendir <output-directory>
+FruityPrime -mapdir maps -goldencapture whiteout-disruption -goldendir <output-directory>
 ```
 
 Each successful invocation writes `<candidate>.png` and `<candidate>.txt`. The manifest records

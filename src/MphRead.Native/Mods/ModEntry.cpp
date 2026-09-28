@@ -1057,18 +1057,6 @@ namespace MphRead::Mods
         Update::Updater::Disabled(::HasFlag(args, "noupdate"));
         ApplyRenderOverrides(args);
 
-#if defined(MPHREAD_SHELL)
-        if (const std::optional<std::string> golden = ValueAfter(args, "goldencapture");
-            golden.has_value())
-        {
-            const std::string directory = ValueAfter(args, "goldendir").value_or(
-                NativeRuntime::PathCombine(
-                    NativeRuntime::EnvironmentCurrentDirectory(), "golden-rhi"));
-            SetExitCode(Render::GoldenCapture::Run(*golden, directory));
-            return true;
-        }
-#endif
-
         if (::HasFlag(args, "pointercheck"))
         {
             SetExitCode(Input::PointerCheck::Run());
@@ -1261,6 +1249,18 @@ namespace MphRead::Mods
             MapGen::CustomRooms::MapDirectory(
                 FullPathCombine(ConsoleSetup::LaunchDirectory(), *mapDir));
         }
+
+#if defined(MPHREAD_SHELL)
+        if (const std::optional<std::string> golden = ValueAfter(args, "goldencapture");
+            golden.has_value())
+        {
+            const std::string directory = ValueAfter(args, "goldendir").value_or(
+                NativeRuntime::PathCombine(
+                    NativeRuntime::EnvironmentCurrentDirectory(), "golden-rhi"));
+            SetExitCode(Render::GoldenCapture::Run(*golden, directory));
+            return true;
+        }
+#endif
 
         if (::HasFlag(args, "mapbundle"))
         {

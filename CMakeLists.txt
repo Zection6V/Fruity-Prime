@@ -315,12 +315,60 @@ if(NOT ANDROID)
     endif()
 endif()
 
+# FRUITY_UI=qt: the window platform, the shell and its Qt Quick menus. Their
+# objects go into the MphRead.Native archive, since the renderer calls the
+# shell and the window platform from inside it.
+if(FRUITY_UI STREQUAL "qt" AND NOT ANDROID)
+    find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Qml Quick)
+    fruity_collect_owner("${FRUITY_QT_ROOT}" MPHREAD_QT_SOURCES MPHREAD_QT_HEADERS)
+    fruity_report_owner("MphRead.Native.Qt" MPHREAD_QT_SOURCES MPHREAD_QT_HEADERS)
+    add_library(fruity_mphread_qt OBJECT ${MPHREAD_QT_SOURCES} ${MPHREAD_QT_HEADERS})
+    set_target_properties(fruity_mphread_qt PROPERTIES AUTOMOC ON)
+    target_compile_features(fruity_mphread_qt PUBLIC cxx_std_20)
+    target_compile_definitions(fruity_mphread_qt PRIVATE MPHREAD_QT MPHREAD_SHELL)
+    target_include_directories(fruity_mphread_qt PRIVATE
+        "${FRUITY_MPHREAD_ROOT}" "${FRUITY_NCSFPLAY_ROOT}")
+    target_link_libraries(fruity_mphread_qt PUBLIC Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick)
+    if(FRUITY_STOP_TOKEN_OPTIONS)
+        target_compile_options(fruity_mphread_qt PRIVATE ${FRUITY_STOP_TOKEN_OPTIONS})
+    endif()
+    target_sources(fruity_mphread_native PRIVATE $<TARGET_OBJECTS:fruity_mphread_qt>)
+    target_link_libraries(fruity_mphread_native PUBLIC Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick)
+endif()
+
 # The game binary. Its only source is the entry-point shim; everything else is
 # the library above.
 if(NOT ANDROID)
     add_executable(fruity_prime "${CMAKE_CURRENT_SOURCE_DIR}/src/FruityPrime/Main.cpp")
     target_link_libraries(fruity_prime PRIVATE fruity_mphread_native)
     set_target_properties(fruity_prime PROPERTIES OUTPUT_NAME "FruityPrime")
+
+    if(FRUITY_UI STREQUAL "qt")
+        # The menus, compiled into the binary (qrc:/qt/qml/FruityPrime/Ui).
+        qt_policy(SET QTP0001 NEW)
+        qt_policy(SET QTP0004 NEW)
+        set_target_properties(fruity_prime PROPERTIES AUTOMOC ON)
+        set_source_files_properties(src/MphRead.Native.Qt/qml/Theme.qml
+            PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+        file(GLOB FRUITY_QML_FILES CONFIGURE_DEPENDS "${FRUITY_QT_ROOT}/qml/*.qml")
+        set(FRUITY_QML_RELATIVE "")
+        foreach(_qml IN LISTS FRUITY_QML_FILES)
+            file(RELATIVE_PATH _rel "${CMAKE_CURRENT_SOURCE_DIR}" "${_qml}")
+            get_filename_component(_name "${_qml}" NAME)
+            # Flat in the module, beside its qmldir.
+            set_source_files_properties("${_rel}" PROPERTIES QT_RESOURCE_ALIAS "${_name}")
+            list(APPEND FRUITY_QML_RELATIVE "${_rel}")
+        endforeach()
+        set_source_files_properties(src/MphRead/Assets/Backgrounds/launcher-bg.jpg
+            PROPERTIES QT_RESOURCE_ALIAS launcher-bg.jpg)
+        qt_add_qml_module(fruity_prime
+            URI FruityPrime.Ui
+            VERSION 1.0
+            NO_RESOURCE_TARGET_PATH
+            RESOURCE_PREFIX /qt/qml/FruityPrime/Ui
+            QML_FILES ${FRUITY_QML_RELATIVE}
+            RESOURCES src/MphRead/Assets/Backgrounds/launcher-bg.jpg)
+    endif()
 
     # The launcher's window icon and front-screen logo. The C# build embeds
     # them as Avalonia resources; here they are the files beside the binary

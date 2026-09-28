@@ -6,7 +6,11 @@
 // backend lands this window becomes a VulkanSurface whose native handle the RHI
 // builds its own swapchain on; the event side below stays as it is.
 
+#include "QtSwapchain.hpp"
+
 #include "../../MphRead.Native/Renderer.hpp"
+#include "../../MphRead.Native/Mods/Chat/ChatBox.hpp"
+#include "../../MphRead.Native/NativeRuntime/Rhi/Swapchain.hpp"
 
 #include "../../MphRead.Native/NativeRuntime/System/Heartbeat.hpp"
 #include "QtApp.hpp"
@@ -30,14 +34,19 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
 
 namespace
 {
+    QWindow* g_gameWindow = nullptr;
+    QEvent* g_currentEvent = nullptr;
+
     using MphRead::RendererPlatform::CursorState;
     using MphRead::RendererPlatform::FrameEventArgs;
+    using MphRead::RendererPlatform::GraphicsWindowMode;
     using MphRead::RendererPlatform::GLFWException;
     using MphRead::RendererPlatform::MonitorArea;
     using MphRead::RendererPlatform::MouseButtonEventArgs;
@@ -45,7 +54,6 @@ namespace
     using MphRead::RendererPlatform::MouseWheelEventArgs;
     using MphRead::RendererPlatform::ResizeEventArgs;
     using MphRead::RendererPlatform::TextInputEventArgs;
-    using MphRead::RendererPlatform::VSyncMode;
     using MphRead::RendererPlatform::WindowBorderValue;
     using MphRead::RendererPlatform::WindowEvents;
     using MphRead::RendererPlatform::WindowPositionEventArgs;
@@ -83,7 +91,19 @@ namespace
         return area;
     }
 
-    class GameQWindow;
+    class QtWindow;
+
+    class GameQWindow final : public QWindow
+    {
+    public:
+        explicit GameQWindow(QtWindow& owner) : _owner(owner) {}
+
+    protected:
+        bool event(QEvent* event) override;
+
+    private:
+        QtWindow& _owner;
+    };
 
     class QtWindow final : public MphRead::RendererPlatform::Window
     {
@@ -98,13 +118,16 @@ namespace
         void Title(std::string value) override;
         void MinimumSize(Vector2i value) override;
         void Cursor(CursorState value) override;
-        void VSync(VSyncMode value) override;
         void UpdateFrequency(double value) override { _updateFrequency = value; }
         void Visible(bool value) override;
         void SetIcon(const MphRead::RendererPlatform::WindowIcon& icon) override;
         [[nodiscard]] void* NativeHandle() const override;
+        [[nodiscard]] GraphicsWindowMode GraphicsMode() const noexcept override { return _graphicsMode; }
         void Close() override { _closeRequested = true; }
-        void SwapBuffers() override;
+
+        // For QtOpenGlSwapchain.
+        void SetSwapInterval(int interval);
+        void SwapBuffers();
 
         void BaseOnClosing() override {}
         void BaseOnLoad() override {}
@@ -152,6 +175,7 @@ namespace
 
         std::unique_ptr<GameQWindow> _window;
         std::unique_ptr<QOpenGLContext> _context;
+        GraphicsWindowMode _graphicsMode = GraphicsWindowMode::OpenGL;
         WindowEvents* _events = nullptr;
         double _updateFrequency = 0.0;
         bool _closeRequested = false;
@@ -170,24 +194,14 @@ namespace
         bool _warping = false;
     };
 
-    class GameQWindow final : public QWindow
+    bool GameQWindow::event(QEvent* event)
     {
-    public:
-        explicit GameQWindow(QtWindow& owner) : _owner(owner) {}
-
-    protected:
-        bool event(QEvent* event) override
-        {
-            if (_owner.HandleEvent(event))
-            {
-                return true;
-            }
-            return QWindow::event(event);
-        }
-
-    private:
-        QtWindow& _owner;
-    };
+        QEvent* const outer = g_currentEvent;
+        g_currentEvent = event;
+        const bool handled = _owner.HandleEvent(event);
+        g_currentEvent = outer;
+        return handled || QWindow::event(event);
+    }
 
     QtWindow::QtWindow(const WindowSettings& settings)
     {
@@ -205,22 +219,32 @@ namespace
         format.setStencilBufferSize(8);
         format.setSwapInterval(1);
 
+        _graphicsMode = settings.GraphicsMode;
+        const bool gl = _graphicsMode == GraphicsWindowMode::OpenGL;
         _window = std::make_unique<GameQWindow>(*this);
-        _window->setSurfaceType(QSurface::OpenGLSurface);
-        _window->setFormat(format);
+        // NoApi: a bare native surface the RHI builds its own swapchain on.
+        _window->setSurfaceType(gl ? QSurface::OpenGLSurface : QSurface::VulkanSurface);
+        if (gl)
+        {
+            _window->setFormat(format);
+        }
         _window->setTitle(QString::fromStdString(settings.Title));
         _window->resize(settings.ClientSize.X, settings.ClientSize.Y);
         _window->create();
+        g_gameWindow = _window.get();
 
-        _context = std::make_unique<QOpenGLContext>();
-        _context->setFormat(format);
-        if (!_context->create())
+        if (gl)
         {
-            throw GLFWException("The OpenGL context could not be created.", 0x00010006);
-        }
-        if (!_context->makeCurrent(_window.get()))
-        {
-            throw GLFWException("The OpenGL context could not be made current.", 0x00010008);
+            _context = std::make_unique<QOpenGLContext>();
+            _context->setFormat(format);
+            if (!_context->create())
+            {
+                throw GLFWException("The OpenGL context could not be created.", 0x00010006);
+            }
+            if (!_context->makeCurrent(_window.get()))
+            {
+                throw GLFWException("The OpenGL context could not be made current.", 0x00010008);
+            }
         }
         _updateFrequency = settings.UpdateFrequency;
         const QPointF cursor = _window->mapFromGlobal(QCursor::pos());
@@ -241,13 +265,20 @@ namespace
             _context->doneCurrent();
         }
         _context.reset();
+        if (g_gameWindow == _window.get())
+        {
+            g_gameWindow = nullptr;
+        }
         _window.reset();
     }
 
     void QtWindow::Run(WindowEvents& events)
     {
         _events = &events;
-        _context->makeCurrent(_window.get());
+        if (_context != nullptr)
+        {
+            _context->makeCurrent(_window.get());
+        }
         events.OnLoad();
         ResizeEventArgs resize;
         resize.Size = Size();
@@ -320,12 +351,12 @@ namespace
         }
     }
 
-    void QtWindow::VSync(VSyncMode value)
+    void QtWindow::SetSwapInterval(int interval)
     {
-        // The GLX and WGL contexts apply a changed swap interval on the next
-        // makeCurrent against the window's format.
+        // The GLX, EGL and WGL contexts apply a changed swap interval on the
+        // next makeCurrent against the window's format.
         QSurfaceFormat format = _window->format();
-        format.setSwapInterval(value == VSyncMode::On ? 1 : 0);
+        format.setSwapInterval(interval);
         _window->setFormat(format);
         _context->makeCurrent(_window.get());
     }
@@ -384,7 +415,7 @@ namespace
         _window->setFlag(Qt::FramelessWindowHint, border == WindowBorderValue::Hidden);
         if (border == WindowBorderValue::Resizable)
         {
-            _window->setMaximumSize(QSize(QWINDOWSIZE_MAX, QWINDOWSIZE_MAX));
+            _window->setMaximumSize(QSize(16777215, 16777215));
         }
         else
         {
@@ -657,6 +688,99 @@ namespace
             args.OffsetY = y;
             _events->OnMouseWheel(args);
         }
+    }
+}
+
+namespace
+{
+    namespace Rhi = ::MphRead::NativeRuntime::Rhi;
+
+    class BackbufferTexture final : public Rhi::Texture
+    {
+    public:
+        explicit BackbufferTexture(const Rhi::SwapchainDesc& desc) { Resize(desc); }
+
+        [[nodiscard]] const Rhi::TextureDesc& Desc() const noexcept override { return _desc; }
+
+        void Resize(const Rhi::SwapchainDesc& desc) noexcept
+        {
+            _desc.width = desc.width;
+            _desc.height = desc.height;
+            _desc.depth = 1;
+            _desc.mipLevels = 1;
+            _desc.arrayLayers = 1;
+            _desc.sampleCount = 1;
+            _desc.format = desc.format;
+            _desc.usage = Rhi::TextureUsage::ColorAttachment;
+            _desc.memoryUsage = Rhi::MemoryUsage::GpuOnly;
+            _desc.initialState = Rhi::ResourceState::Present;
+        }
+
+    private:
+        Rhi::TextureDesc _desc{};
+    };
+
+    // The OpenGL swapchain over the QWindow's own context: the GLFW one's
+    // counterpart, presenting the implicit default framebuffer.
+    class QtOpenGlSwapchain final : public Rhi::Swapchain
+    {
+    public:
+        QtOpenGlSwapchain(QtWindow& window, Rhi::SwapchainDesc desc)
+            : _window(window), _desc(std::move(desc)), _backbuffer(_desc)
+        {
+        }
+
+        [[nodiscard]] const Rhi::SwapchainDesc& Desc() const noexcept override { return _desc; }
+
+        void Resize(std::uint32_t width, std::uint32_t height) override
+        {
+            _desc.width = width;
+            _desc.height = height;
+            _backbuffer.Resize(_desc);
+        }
+
+        [[nodiscard]] Rhi::Texture& AcquireNextTexture() override { return _backbuffer; }
+
+        void SetPresentMode(Rhi::PresentMode mode) override
+        {
+            if (mode == Rhi::PresentMode::Mailbox)
+            {
+                throw std::runtime_error("Mailbox presentation is not available through OpenGL.");
+            }
+            _window.SetSwapInterval(mode == Rhi::PresentMode::Fifo ? 1 : 0);
+            _desc.presentMode = mode;
+        }
+
+        void Present() override { _window.SwapBuffers(); }
+
+    private:
+        QtWindow& _window;
+        Rhi::SwapchainDesc _desc{};
+        BackbufferTexture _backbuffer;
+    };
+}
+
+namespace MphRead::Qt
+{
+    QWindow* GameWindow() noexcept
+    {
+        return g_gameWindow;
+    }
+
+    QEvent* CurrentEvent() noexcept
+    {
+        return g_currentEvent;
+    }
+
+    std::unique_ptr<NativeRuntime::Rhi::Swapchain> CreateOpenGlSwapchain(
+        RendererPlatform::Window& window, const NativeRuntime::Rhi::SwapchainDesc& desc)
+    {
+        auto* const qt = dynamic_cast<QtWindow*>(&window);
+        if (qt == nullptr || window.GraphicsMode() != RendererPlatform::GraphicsWindowMode::OpenGL)
+        {
+            throw std::invalid_argument("An OpenGL swapchain requires an OpenGL Qt window.");
+        }
+        return std::make_unique<QtOpenGlSwapchain>(*qt, desc);
     }
 }
 

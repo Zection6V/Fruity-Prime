@@ -8,3 +8,17 @@ namespace MphRead::Qt
 {
     void EnsureApplication();
 }
+
+class QEvent;
+class QWindow;
+
+namespace MphRead::Qt
+{
+    // The game's QWindow (null before the RenderWindow exists).
+    [[nodiscard]] QWindow* GameWindow() noexcept;
+
+    // The Qt event the game window is dispatching right now, so the menus can
+    // take it whole (text, modifiers, touch points) instead of its GLFW-shaped
+    // summary. Null outside that dispatch.
+    [[nodiscard]] QEvent* CurrentEvent() noexcept;
+}

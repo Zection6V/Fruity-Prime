@@ -94,7 +94,7 @@ namespace MphRead::NativeRuntime::Rhi
         Green = 1U << 1,
         Blue = 1U << 2,
         Alpha = 1U << 3,
-        All = Red | Green | Blue | Alpha
+        All = (1U << 0) | (1U << 1) | (1U << 2) | (1U << 3)
     };
 
     enum class VertexFormat : std::uint8_t

@@ -67,7 +67,7 @@ namespace MphRead::NativeRuntime::Rhi
         Vertex = 1U << 0,
         Fragment = 1U << 1,
         Compute = 1U << 2,
-        AllGraphics = Vertex | Fragment
+        AllGraphics = (1U << 0) | (1U << 1)
     };
 
     enum class Filter : std::uint8_t

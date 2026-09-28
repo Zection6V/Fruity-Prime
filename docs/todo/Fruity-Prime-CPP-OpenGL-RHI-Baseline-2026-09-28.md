@@ -358,8 +358,8 @@ production `Scene::OnRenderFrame` pass implementation.
   `RenderMode::Translucent`, alpha **0.45**, cyan override; vertices
   `(-2,2,0),(2,2,0),(2,6,0),(-2,6,0)`.
 - **Decal**: synthetic `RenderItemType::Quad`, `RenderMode::Decal`, alpha **1.0**,
-  orange/red override; TEST ARENA floor vertices
-  `(-3,0.02,-3),(3,0.02,-3),(3,0.02,3),(-3,0.02,3)`.
+  orange/red override; unobstructed TEST ARENA floor patch in front of the central block, vertices
+  `(-4,0.02,6),(4,0.02,6),(4,0.02,10),(-4,0.02,10)`.
 - **Particle**: synthetic `RenderItemType::Particle`, translucent alpha **0.85**,
   Scene-owned deterministic 2x2 cyan/white checker texture, upright quad at z=0.
 - **Trail**: synthetic `RenderItemType::TrailMulti`, translucent alpha **0.90**,

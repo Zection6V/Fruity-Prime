@@ -460,8 +460,8 @@ namespace
             case GoldenCandidate::Decal:
                 return
                     "synthetic RenderMode::Decal quad on TEST ARENA "
-                    "floor; alpha=1.0; vertices=(-3,0.02,-3),"
-                    "(3,0.02,-3),(3,0.02,3),(-3,0.02,3)";
+                    "floor; alpha=1.0; vertices=(-4,0.02,6),"
+                    "(4,0.02,6),(4,0.02,10),(-4,0.02,10)";
             case GoldenCandidate::Particle:
                 return
                     "synthetic RenderItemType::Particle using a "
@@ -697,13 +697,13 @@ namespace MphRead
             item->OverrideColor
                 = Vector4(1.0F, 0.15F, 0.05F, 1.0F);
             (*item->Points)[0]
-                = Vector3(-3.0F, 0.02F, -3.0F);
+                = Vector3(-4.0F, 0.02F, 6.0F);
             (*item->Points)[1]
-                = Vector3(3.0F, 0.02F, -3.0F);
+                = Vector3(4.0F, 0.02F, 6.0F);
             (*item->Points)[2]
-                = Vector3(3.0F, 0.02F, 3.0F);
+                = Vector3(4.0F, 0.02F, 10.0F);
             (*item->Points)[3]
-                = Vector3(-3.0F, 0.02F, 3.0F);
+                = Vector3(-4.0F, 0.02F, 10.0F);
             AddRenderItem(item);
             return;
         }

@@ -233,6 +233,12 @@ namespace MphRead::Mods::Launcher::Gui
         _quit = false;
         MphRead::Mods::Network::NetSession::Stop();
         MphRead::Mods::Network::NetHostSession::Stop();
+        if (window != nullptr)
+        {
+            // UiOverlay owns Phase 4 VBO/IBO objects. Release them while the
+            // launcher context is still alive, before RenderWindow destruction.
+            MphRead::Mods::Render::UiOverlay::Release();
+        }
         window.reset();
         return ran;
     }

@@ -44,6 +44,8 @@ namespace MphRead::Qt
         map.insert(QStringLiteral("binding"), row.Binding);
         map.insert(QStringLiteral("shown"), row.Shown ? row.Shown() : true);
         map.insert(QStringLiteral("valueText"), row.Format ? row.Format(row.Value) : QString());
+        map.insert(QStringLiteral("live"), row.Live ? row.Live() : row.Text);
+        map.insert(QStringLiteral("extra"), row.Extra ? row.Extra() : QVariantMap());
         return map;
     }
 

@@ -1,8 +1,11 @@
 #include "QmlTypes.hpp"
 
+#include "GamepadMonitorItem.hpp"
 #include "HunterStandItem.hpp"
 #include "PlayModel.hpp"
 #include "ServerBadgeItem.hpp"
+#include "SettingsModel.hpp"
+#include "RowModel.hpp"
 
 #include <QtQml/qqml.h>
 
@@ -19,6 +22,9 @@ namespace MphRead::Qt
         const char* const uri = "FruityPrime.Launcher";
         qmlRegisterType<PlayModel>(uri, 1, 0, "PlayModel");
         qmlRegisterType<HunterStandItem>(uri, 1, 0, "HunterStand");
+        qmlRegisterType<GamepadMonitorItem>(uri, 1, 0, "GamepadMonitor");
         qmlRegisterType<ServerBadgeItem>(uri, 1, 0, "ServerBadge");
+        qmlRegisterType<SettingsModel>(uri, 1, 0, "SettingsModel");
+        qmlRegisterUncreatableType<RowModel>(uri, 1, 0, "RowModel", QStringLiteral("owned by a screen model"));
     }
 }

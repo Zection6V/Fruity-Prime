@@ -79,6 +79,14 @@ QtObject {
     function voidAt(alpha) {
         return Qt.rgba(5 / 255, 7 / 255, 10 / 255, roundEven(Math.max(0, Math.min(1, alpha)) * 255) / 255)
     }
+    // GuiTheme.Shade: toward white by a fraction, or toward black for a negative one.
+    function shade(c, amount) {
+        c = Qt.lighter(c, 1.0)
+        const t = Math.abs(amount)
+        const target = amount >= 0 ? 1 : 0
+        const f = v => Math.floor((v + (target - v) * t) * 255) / 255
+        return Qt.rgba(f(c.r), f(c.g), f(c.b), c.a)
+    }
     // DeckPaint: CSS brightness() and saturate().
     function brightness(c, k) {
         c = Qt.lighter(c, 1.0)

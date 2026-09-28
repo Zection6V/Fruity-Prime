@@ -40,6 +40,10 @@ namespace MphRead::Qt
         // The binding a key or pad row stands for.
         int Binding = -1;
         std::function<QString(int)> Format;
+        // Text read afresh on every refresh (a key's binding, a pad row's state).
+        std::function<QString()> Live;
+        // Whatever else one kind of row needs (a pad row's capture state).
+        std::function<QVariantMap()> Extra;
         std::function<void(Row&)> Changed;
         std::function<void()> Clicked;
         std::function<bool()> Shown;
@@ -65,7 +69,7 @@ namespace MphRead::Qt
         [[nodiscard]] Row* Find(const QString& id);
         [[nodiscard]] std::vector<Row>& Rows() noexcept { return _rows; }
         // Re-read every row (visibility, labels) after something changed.
-        void Refresh();
+        Q_INVOKABLE void Refresh();
 
         Q_INVOKABLE void setIndex(int row, int index);
         Q_INVOKABLE void setValue(int row, int value);

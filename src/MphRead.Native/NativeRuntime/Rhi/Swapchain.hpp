@@ -36,6 +36,7 @@ namespace MphRead::NativeRuntime::Rhi
         [[nodiscard]] virtual const SwapchainDesc& Desc() const noexcept = 0;
         virtual void Resize(std::uint32_t width, std::uint32_t height) = 0;
         [[nodiscard]] virtual Texture& AcquireNextTexture() = 0;
+        virtual void SetPresentMode(PresentMode mode) = 0;
         virtual void Present() = 0;
 
     protected:

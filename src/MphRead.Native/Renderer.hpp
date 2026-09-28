@@ -250,6 +250,7 @@ namespace MphRead
     }
     class LightInfo;
     class Node;
+    namespace NativeRuntime::Rhi { class Swapchain; }
 
     namespace Entities
     {
@@ -343,7 +344,7 @@ namespace MphRead
         inline constexpr Key F1Key = static_cast<Key>(290);
         inline constexpr Key F2Key = static_cast<Key>(291);
         enum class CursorState : std::int32_t { Normal, Grabbed };
-        enum class VSyncMode : std::int32_t { Off, On };
+        enum class GraphicsWindowMode : std::uint8_t { OpenGL, NoApi };
 
         class GLFWException final : public std::runtime_error
         {
@@ -385,6 +386,7 @@ namespace MphRead
             ContextFlags Flags = ContextFlags::Default;
             std::int32_t ApiMajor = 3;
             std::int32_t ApiMinor = 2;
+            GraphicsWindowMode GraphicsMode = GraphicsWindowMode::OpenGL;
         };
 
         struct WindowIconImage final
@@ -453,13 +455,12 @@ namespace MphRead
             virtual void Title(std::string value) = 0;
             virtual void MinimumSize(OpenTK::Mathematics::Vector2i value) = 0;
             virtual void Cursor(RendererPlatform::CursorState value) = 0;
-            virtual void VSync(RendererPlatform::VSyncMode value) = 0;
             virtual void UpdateFrequency(double value) = 0;
             virtual void Visible(bool value) = 0;
             virtual void SetIcon(const WindowIcon& icon) = 0;
             [[nodiscard]] virtual void* NativeHandle() const = 0;
+            [[nodiscard]] virtual GraphicsWindowMode GraphicsMode() const noexcept = 0;
             virtual void Close() = 0;
-            virtual void SwapBuffers() = 0;
             virtual void BaseOnClosing() = 0;
             virtual void BaseOnLoad() = 0;
             virtual void BaseOnRenderFrame(const FrameEventArgs& args) = 0;
@@ -662,6 +663,7 @@ namespace MphRead
         static std::function<void(std::int32_t, std::string)> _glfwErrorCallback;
         static constexpr OpenTK::Mathematics::Vector2i _minimumSize{1024, 720};
         std::shared_ptr<RendererPlatform::Window> _window{};
+        std::unique_ptr<NativeRuntime::Rhi::Swapchain> _swapchain{};
         std::shared_ptr<MphRead::Scene> _scene{};
         bool _shell = false;
         bool _sceneLoaded = false;

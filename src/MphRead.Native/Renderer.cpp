@@ -1,5 +1,6 @@
 #include "Renderer.hpp"
 #include "NativeRuntime/System/Runtime.hpp"
+#include "NativeRuntime/Rhi/BackendFactory.hpp"
 #include "NativeRuntime/System/Console.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
 #include "NativeRuntime/System/IO.hpp"
@@ -5728,7 +5729,8 @@ namespace MphRead
 
     const RendererPlatform::WindowSettings& RenderWindow::Settings()
     {
-        static const RendererPlatform::WindowSettings settings = Mods::Render::DesktopGlContext::Settings();
+        static const RendererPlatform::WindowSettings settings = Mods::Render::DesktopGlContext::Settings(
+            false, RendererPlatform::GraphicsWindowMode::OpenGL);
         return settings;
     }
 
@@ -5747,6 +5749,12 @@ namespace MphRead
     RenderWindow::RenderWindow(bool shell)
         : _window(RendererPlatform::CreateWindow(Settings())), _shell(shell)
     {
+        NativeRuntime::Rhi::SwapchainDesc swapchainDesc{};
+        const Vector2i framebufferSize = _window->Size();
+        swapchainDesc.width = static_cast<std::uint32_t>(std::max(framebufferSize.X, 1));
+        swapchainDesc.height = static_cast<std::uint32_t>(std::max(framebufferSize.Y, 1));
+        _swapchain = NativeRuntime::Rhi::BackendFactory::CreateSwapchain(
+            NativeRuntime::Rhi::GraphicsBackend::OpenGl, *_window, swapchainDesc);
         IgnoreUnavailableGlfwFeatures();
 #if !defined(__ANDROID__)
         if (const RendererPlatform::WindowIcon* icon = Mods::Render::AppIcon::Load())
@@ -6009,12 +6017,12 @@ namespace MphRead
         _appliedFrameRateCap = cap;
         if (cap == Mods::Render::FrameTiming::DisplayRate)
         {
-            _window->VSync(RendererPlatform::VSyncMode::On);
+            _swapchain->SetPresentMode(NativeRuntime::Rhi::PresentMode::Fifo);
             _window->UpdateFrequency(0.0);
         }
         else
         {
-            _window->VSync(RendererPlatform::VSyncMode::Off);
+            _swapchain->SetPresentMode(NativeRuntime::Rhi::PresentMode::Immediate);
             _window->UpdateFrequency(static_cast<double>(cap));
         }
     }
@@ -6043,7 +6051,7 @@ namespace MphRead
         if (Mods::Network::NetLaunch::TickTerminalLobby(*this))
         {
             GL::Clear(GL::ClearBufferMask::ColorBufferBit);
-            _window->SwapBuffers();
+            _swapchain->Present();
             _window->BaseOnRenderFrame(args);
             return;
         }
@@ -6060,7 +6068,7 @@ namespace MphRead
             const Vector2i framebuffer = FramebufferSize();
             Mods::Render::UiOverlay::DrawAlone(*this, framebuffer.X, framebuffer.Y);
             Mods::Launcher::Gui::Shell::AfterDraw(*this);
-            _window->SwapBuffers();
+            _swapchain->Present();
             Reveal();
             Mods::PauseMenu::Poll(*this);
             _window->BaseOnRenderFrame(args);
@@ -6159,7 +6167,7 @@ namespace MphRead
         Mods::Render::LauncherHunter::Draw(*this, framebuffer.X, framebuffer.Y);
         Mods::Launcher::Gui::Shell::AfterDraw(*this);
 #endif
-        _window->SwapBuffers();
+        _swapchain->Present();
         Reveal();
         Mods::PauseMenu::Poll(*this);
         _scene->AfterRenderFrame();

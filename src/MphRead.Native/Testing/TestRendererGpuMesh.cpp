@@ -28,19 +28,10 @@ namespace
     {
     public:
         FakeGpuMesh(std::int32_t& destroyed, std::int32_t& drawn)
-            : _destroyed(destroyed), _drawn(drawn)
-        {
-        }
+            : _destroyed(destroyed), _drawn(drawn) {}
 
-        ~FakeGpuMesh() override
-        {
-            ++_destroyed;
-        }
-
-        void Draw() override
-        {
-            ++_drawn;
-        }
+        ~FakeGpuMesh() override { ++_destroyed; }
+        void Draw() override { ++_drawn; }
 
     private:
         std::int32_t& _destroyed;
@@ -61,31 +52,33 @@ namespace
         const GpuMeshDrawPlan plan = BuildGpuMeshDrawPlan(geometry);
         Expect(plan.IndexCount == 18, "draw plan index count");
         Expect(plan.Ranges.size() == 4, "draw plan range count");
-        Expect(plan.Ranges[0].Topology == ScenePrimitiveTopology::Triangles,
-            "triangle topology");
-        Expect(plan.Ranges[1].Topology == ScenePrimitiveTopology::Quads,
-            "quad topology");
-        Expect(plan.Ranges[2].Topology == ScenePrimitiveTopology::TriangleStrip,
-            "triangle strip topology");
-        Expect(plan.Ranges[3].Topology == ScenePrimitiveTopology::QuadStrip,
-            "quad strip topology");
-        Expect(plan.Ranges[0].FirstIndex == 0 && plan.Ranges[0].IndexCount == 3
-            && plan.Ranges[0].IndexByteOffset == 0, "range zero");
-        Expect(plan.Ranges[1].FirstIndex == 3 && plan.Ranges[1].IndexCount == 4
-            && plan.Ranges[1].IndexByteOffset == 3 * sizeof(std::uint32_t), "range one");
-        Expect(plan.Ranges[2].FirstIndex == 7 && plan.Ranges[2].IndexCount == 5
-            && plan.Ranges[2].IndexByteOffset == 7 * sizeof(std::uint32_t), "range two");
-        Expect(plan.Ranges[3].FirstIndex == 12 && plan.Ranges[3].IndexCount == 6
-            && plan.Ranges[3].IndexByteOffset == 12 * sizeof(std::uint32_t), "range three");
+        Expect(plan.Ranges[0].Topology == ScenePrimitiveTopology::Triangles
+            && plan.Ranges[0].FirstIndex == 0 && plan.Ranges[0].IndexCount == 3
+            && plan.Ranges[0].IndexByteOffset == 0, "triangle range");
+        Expect(plan.Ranges[1].Topology == ScenePrimitiveTopology::Quads
+            && plan.Ranges[1].FirstIndex == 3 && plan.Ranges[1].IndexCount == 4
+            && plan.Ranges[1].IndexByteOffset == 3 * sizeof(std::uint32_t), "quad range");
+        Expect(plan.Ranges[2].Topology == ScenePrimitiveTopology::TriangleStrip
+            && plan.Ranges[2].FirstIndex == 7 && plan.Ranges[2].IndexCount == 5
+            && plan.Ranges[2].IndexByteOffset == 7 * sizeof(std::uint32_t), "triangle-strip range");
+        Expect(plan.Ranges[3].Topology == ScenePrimitiveTopology::QuadStrip
+            && plan.Ranges[3].FirstIndex == 12 && plan.Ranges[3].IndexCount == 6
+            && plan.Ranges[3].IndexByteOffset == 12 * sizeof(std::uint32_t), "quad-strip range");
     }
 
-    void TestCacheIdentityAndLifetime()
+    void TestCacheUsesLiveModelAndMeshIdentity()
     {
         GpuMeshCache cache{};
         auto modelA = std::make_shared<std::int32_t>(1);
         auto modelB = std::make_shared<std::int32_t>(2);
-        std::shared_ptr<const void> lifetimeA = modelA;
-        std::shared_ptr<const void> lifetimeB = modelB;
+        auto meshA0 = std::make_shared<std::int32_t>(7);
+        auto meshA1 = std::make_shared<std::int32_t>(7);
+        auto meshB0 = std::make_shared<std::int32_t>(7);
+        std::shared_ptr<const void> modelLifeA = modelA;
+        std::shared_ptr<const void> modelLifeB = modelB;
+        std::shared_ptr<const void> meshLifeA0 = meshA0;
+        std::shared_ptr<const void> meshLifeA1 = meshA1;
+        std::shared_ptr<const void> meshLifeB0 = meshB0;
         std::int32_t destroyed = 0;
         std::int32_t drawn = 0;
         std::int32_t factoryCalls = 0;
@@ -98,41 +91,39 @@ namespace
 
         std::weak_ptr<GpuMeshResource> firstWeak;
         {
-            const auto first = cache.GetOrCreate(lifetimeA, 7, make);
+            const auto first = cache.GetOrCreate(modelLifeA, meshLifeA0, make);
             firstWeak = first;
-            const auto again = cache.GetOrCreate(lifetimeA, 7, make);
-            Expect(first == again, "same live model and geometry identity must hit cache");
-            Expect(factoryCalls == 1, "cache hit must not rebuild resource");
+            const auto again = cache.GetOrCreate(modelLifeA, meshLifeA0, make);
+            const auto sameDlistDifferentMesh = cache.GetOrCreate(modelLifeA, meshLifeA1, make);
+            const auto sameDlistDifferentModel = cache.GetOrCreate(modelLifeB, meshLifeB0, make);
+            Expect(first == again, "same live model/mesh identity must hit cache");
+            Expect(first != sameDlistDifferentMesh,
+                "distinct Mesh objects must not alias even when DlistId matches");
+            Expect(first != sameDlistDifferentModel,
+                "distinct Model objects must not alias");
+            Expect(factoryCalls == 3, "three distinct model/mesh identities");
             first->Draw();
             Expect(drawn == 1, "cached resource draw");
         }
 
-        {
-            const auto secondMesh = cache.GetOrCreate(lifetimeA, 8, make);
-            const auto secondModel = cache.GetOrCreate(lifetimeB, 7, make);
-            Expect(secondMesh != cache.Find(modelA.get(), 7),
-                "different geometry identity must not alias");
-            Expect(secondModel != cache.Find(modelA.get(), 7),
-                "different model identity must not alias");
-            Expect(cache.Size() == 3, "three cache identities");
-        }
-
         cache.EraseModel(modelA.get());
-        Expect(cache.Size() == 1, "erase model removes all of its mesh entries");
+        Expect(cache.Size() == 1, "erase model removes all model-A meshes");
         Expect(firstWeak.expired(), "erased model releases its GPU resource");
-        Expect(destroyed == 2, "model erase destroys each owned resource once");
+        Expect(destroyed == 2, "model erase destroys both model-A mesh resources");
 
         modelB.reset();
-        Expect(cache.Size() == 1, "separate lifetime token keeps model identity live");
-        lifetimeB.reset();
+        modelLifeB.reset();
+        meshB0.reset();
+        meshLifeB0.reset();
         cache.PruneExpired();
-        Expect(cache.Size() == 0, "expired model is pruned");
-        Expect(destroyed == 3, "expired model releases resource once");
+        Expect(cache.Size() == 0, "expired model/mesh identity is pruned");
+        Expect(destroyed == 3, "expired identity releases resource once");
 
         auto modelC = std::make_shared<std::int32_t>(3);
-        std::shared_ptr<const void> lifetimeC = modelC;
-        (void)cache.GetOrCreate(lifetimeC, 1, make);
-        Expect(cache.Size() == 1, "cache refill");
+        auto meshC = std::make_shared<std::int32_t>(9);
+        std::shared_ptr<const void> modelLifeC = modelC;
+        std::shared_ptr<const void> meshLifeC = meshC;
+        (void)cache.GetOrCreate(modelLifeC, meshLifeC, make);
         cache.Clear();
         Expect(cache.Size() == 0, "cache clear");
         Expect(destroyed == 4, "clear releases resource exactly once");
@@ -144,7 +135,7 @@ int main()
     try
     {
         TestDrawPlanPreservesRanges();
-        TestCacheIdentityAndLifetime();
+        TestCacheUsesLiveModelAndMeshIdentity();
         std::cout << "RendererGpuMesh tests passed.\n";
         return 0;
     }

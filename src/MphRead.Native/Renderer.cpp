@@ -1027,7 +1027,7 @@ namespace MphRead
         for (const std::shared_ptr<Mesh>& meshValue : *model->Meshes)
         {
             Mesh& mesh = RequireReference(meshValue);
-            if (_gpuMeshCache.Find(model.get(), mesh.DlistId))
+            if (_gpuMeshCache.Find(model.get(), meshValue.get()))
             {
                 continue;
             }
@@ -1057,8 +1057,9 @@ namespace MphRead
                 throw ProgramException(ex.what());
             }
 
-            const std::shared_ptr<const void> lifetime = model;
-            (void)_gpuMeshCache.GetOrCreate(lifetime, mesh.DlistId,
+            const std::shared_ptr<const void> modelLifetime = model;
+            const std::shared_ptr<const void> meshLifetime = meshValue;
+            (void)_gpuMeshCache.GetOrCreate(modelLifetime, meshLifetime,
                 [&geometry]()
                 {
                     return NativeRuntime::Rhi::OpenGL::CreateGpuMeshResource(geometry);
@@ -1066,14 +1067,15 @@ namespace MphRead
         }
     }
 
-    void Scene::DrawGpuMesh(const std::shared_ptr<Model>& model, std::int32_t geometryId)
+    void Scene::DrawGpuMesh(
+        const std::shared_ptr<Model>& model, const std::shared_ptr<Mesh>& mesh)
     {
-        if (!model)
+        if (!model || !mesh)
         {
-            throw ProgramException("GPU mesh draw requires a model.");
+            throw ProgramException("GPU mesh draw requires a live model and mesh.");
         }
         const std::shared_ptr<GpuMeshResource> gpuMesh
-            = _gpuMeshCache.Find(model.get(), geometryId);
+            = _gpuMeshCache.Find(model.get(), mesh.get());
         if (!gpuMesh)
         {
             throw ProgramException("GPU mesh cache entry is missing.");
@@ -2871,7 +2873,7 @@ namespace MphRead
 
     void Scene::AddRenderItem(const Material& material, std::int32_t polygonId, float alphaScale,
         Vector3 emission, const LightInfo& lightInfo, Matrix4 texcoordMatrix, Matrix4 transform,
-        const std::shared_ptr<Model>& model, std::int32_t geometryId,
+        const std::shared_ptr<Model>& model, const std::shared_ptr<Mesh>& mesh,
         std::int32_t matrixStackCount, const std::vector<float>& matrixStack,
         std::optional<Vector4> overrideColor, std::optional<Vector4> paletteOverride,
         SelectionType selectionType, BillboardMode billboardMode, float scaleFactor,
@@ -2919,7 +2921,7 @@ namespace MphRead
         item->TexcoordMatrix = texcoordMatrix;
         item->Transform = transform;
         item->MeshModel = model;
-        item->GeometryId = geometryId;
+        item->MeshObject = mesh;
         MPHREAD_DEBUG_ASSERT(matrixStack.size() == static_cast<std::size_t>(16 * matrixStackCount));
         item->MatrixStackCount = matrixStackCount;
         for (std::size_t i = 0; i < matrixStack.size(); ++i)
@@ -2971,7 +2973,7 @@ namespace MphRead
         item->TexcoordMatrix = RendererDetail::IdentityMatrix();
         item->Transform = RendererDetail::IdentityMatrix();
         item->MeshModel.reset();
-        item->GeometryId = 0;
+        item->MeshObject.reset();
         item->MatrixStackCount = 0;
         item->OverrideColor = overrideColor;
         item->PaletteOverride.reset();
@@ -3012,7 +3014,7 @@ namespace MphRead
         item->TexcoordMatrix = RendererDetail::IdentityMatrix();
         item->Transform = transform;
         item->MeshModel.reset();
-        item->GeometryId = 0;
+        item->MeshObject.reset();
         item->MatrixStackCount = 0;
         item->OverrideColor.reset();
         item->PaletteOverride.reset();
@@ -3053,7 +3055,7 @@ namespace MphRead
         item->TexcoordMatrix = RendererDetail::IdentityMatrix();
         item->Transform = RendererDetail::IdentityMatrix();
         item->MeshModel.reset();
-        item->GeometryId = 0;
+        item->MeshObject.reset();
         MPHREAD_DEBUG_ASSERT(matrixStack.size() >= static_cast<std::size_t>(16 * matrixStackCount));
         item->MatrixStackCount = matrixStackCount;
         for (std::int32_t i = 0; i < 16 * matrixStackCount; ++i)
@@ -3615,7 +3617,7 @@ namespace MphRead
         GL::LineWidth(static_cast<float>(wireframe ? std::max(1, _wireframeLevel) : 1));
         if (item->Type == RenderItemType::Mesh)
         {
-            DrawGpuMesh(item->MeshModel, item->GeometryId);
+            DrawGpuMesh(item->MeshModel, item->MeshObject);
         }
         else if (item->Type == RenderItemType::Box)
         {
@@ -4238,7 +4240,7 @@ namespace MphRead
         GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
             static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
         GL::Color3(Vector3(color.Red / 31.0F, color.Green / 31.0F, color.Blue / 31.0F));
-        DrawGpuMesh(model, model->Meshes->at(0)->DlistId);
+        DrawGpuMesh(model, model->Meshes->at(0));
         GL::BindTexture(GL::TextureTarget::Texture2D, 0);
         GL::UniformMatrix4(_shaderLocations->MatrixStack, false, RendererDetail::IdentityMatrix());
     }
@@ -4320,8 +4322,9 @@ namespace MphRead
             const Node& node = *model->Nodes->at(static_cast<std::size_t>(i));
             if (node.Enabled)
             {
-                const Mesh& mesh = *model->Meshes->at(static_cast<std::size_t>(node.MeshId / 2));
-                DrawGpuMesh(model, mesh.DlistId);
+                const std::shared_ptr<Mesh>& mesh
+                    = model->Meshes->at(static_cast<std::size_t>(node.MeshId / 2));
+                DrawGpuMesh(model, mesh);
             }
         }
         GL::BindTexture(GL::TextureTarget::Texture2D, 0);

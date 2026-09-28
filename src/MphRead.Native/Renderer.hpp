@@ -802,7 +802,7 @@ public: \
     void AddRenderItem(const MphRead::Material& material, std::int32_t polygonId, float alphaScale, \
         OpenTK::Mathematics::Vector3 emission, const MphRead::LightInfo& lightInfo, \
         OpenTK::Mathematics::Matrix4 texcoordMatrix, OpenTK::Mathematics::Matrix4 transform, \
-        const std::shared_ptr<MphRead::Model>& model, std::int32_t geometryId, \
+        const std::shared_ptr<MphRead::Model>& model, const std::shared_ptr<MphRead::Mesh>& mesh, \
         std::int32_t matrixStackCount, const std::vector<float>& matrixStack, \
         std::optional<OpenTK::Mathematics::Vector4> overrideColor, \
         std::optional<OpenTK::Mathematics::Vector4> paletteOverride, MphRead::SelectionType selectionType, \
@@ -912,7 +912,7 @@ private: \
     void SetShaderFog(); \
     void InitShaders(); \
     void GenerateGpuMeshes(const std::shared_ptr<MphRead::Model>& model, bool isRoom); \
-    void DrawGpuMesh(const std::shared_ptr<MphRead::Model>& model, std::int32_t geometryId); \
+    void DrawGpuMesh(const std::shared_ptr<MphRead::Model>& model, const std::shared_ptr<MphRead::Mesh>& mesh); \
     void InitTextures(const std::shared_ptr<MphRead::Model>& model); \
     std::pair<std::int32_t, bool> BindTexture(const std::shared_ptr<MphRead::Model>& model, \
         std::int32_t textureId, std::int32_t paletteId, std::int32_t recolorId); \

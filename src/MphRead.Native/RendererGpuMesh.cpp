@@ -36,13 +36,13 @@ namespace MphRead
     std::size_t GpuMeshCache::KeyHash::operator()(const Key& key) const noexcept
     {
         const std::size_t modelHash = std::hash<const void*>{}(key.ModelIdentity);
-        const std::size_t meshHash = std::hash<std::int32_t>{}(key.MeshIdentity);
+        const std::size_t meshHash = std::hash<const void*>{}(key.MeshIdentity);
         return modelHash ^ (meshHash + static_cast<std::size_t>(0x9e3779b9U)
             + (modelHash << 6U) + (modelHash >> 2U));
     }
 
     std::shared_ptr<GpuMeshResource> GpuMeshCache::Find(
-        const void* modelIdentity, std::int32_t meshIdentity)
+        const void* modelIdentity, const void* meshIdentity)
     {
         const Key key{modelIdentity, meshIdentity};
         const auto found = _entries.find(key);
@@ -50,7 +50,8 @@ namespace MphRead
         {
             return {};
         }
-        if (found->second.ModelLifetime.expired())
+        if (found->second.ModelLifetime.expired()
+            || found->second.MeshLifetime.expired())
         {
             _entries.erase(found);
             return {};
@@ -60,19 +61,25 @@ namespace MphRead
 
     std::shared_ptr<GpuMeshResource> GpuMeshCache::GetOrCreate(
         const std::shared_ptr<const void>& modelLifetime,
-        std::int32_t meshIdentity, const Factory& factory)
+        const std::shared_ptr<const void>& meshLifetime,
+        const Factory& factory)
     {
         if (!modelLifetime)
         {
             throw std::invalid_argument("GPU mesh cache requires a live model identity.");
+        }
+        if (!meshLifetime)
+        {
+            throw std::invalid_argument("GPU mesh cache requires a live mesh identity.");
         }
         if (!factory)
         {
             throw std::invalid_argument("GPU mesh cache requires a resource factory.");
         }
 
-        const Key key{modelLifetime.get(), meshIdentity};
-        if (const std::shared_ptr<GpuMeshResource> existing = Find(key.ModelIdentity, meshIdentity))
+        const Key key{modelLifetime.get(), meshLifetime.get()};
+        if (const std::shared_ptr<GpuMeshResource> existing
+            = Find(key.ModelIdentity, key.MeshIdentity))
         {
             return existing;
         }
@@ -82,7 +89,7 @@ namespace MphRead
         {
             throw std::runtime_error("GPU mesh factory returned no resource.");
         }
-        _entries.insert_or_assign(key, Entry{modelLifetime, resource});
+        _entries.insert_or_assign(key, Entry{modelLifetime, meshLifetime, resource});
         return resource;
     }
 
@@ -105,7 +112,8 @@ namespace MphRead
     {
         for (auto it = _entries.begin(); it != _entries.end();)
         {
-            if (it->second.ModelLifetime.expired())
+            if (it->second.ModelLifetime.expired()
+                || it->second.MeshLifetime.expired())
             {
                 it = _entries.erase(it);
             }

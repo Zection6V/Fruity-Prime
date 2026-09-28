@@ -42,20 +42,20 @@ namespace MphRead
         GpuMeshResource() = default;
     };
 
-    // Mesh::DlistId is the source render-instruction-list identity. The legacy
-    // renderer already shared one compiled geometry object among meshes with the
-    // same DlistId inside one Model, so live Model identity + DlistId preserves
-    // that exact ownership identity without putting a backend handle in Model/Mesh.
+    // DlistId remains only the source render-instruction-list selector. GPU
+    // ownership is keyed by the live Model object and the live Mesh object so
+    // distinct meshes never alias merely because they reference the same list.
     class GpuMeshCache final
     {
     public:
         using Factory = std::function<std::shared_ptr<GpuMeshResource>()>;
 
         [[nodiscard]] std::shared_ptr<GpuMeshResource> Find(
-            const void* modelIdentity, std::int32_t meshIdentity);
+            const void* modelIdentity, const void* meshIdentity);
         [[nodiscard]] std::shared_ptr<GpuMeshResource> GetOrCreate(
             const std::shared_ptr<const void>& modelLifetime,
-            std::int32_t meshIdentity, const Factory& factory);
+            const std::shared_ptr<const void>& meshLifetime,
+            const Factory& factory);
 
         void EraseModel(const void* modelIdentity);
         void PruneExpired();
@@ -66,7 +66,7 @@ namespace MphRead
         struct Key final
         {
             const void* ModelIdentity = nullptr;
-            std::int32_t MeshIdentity = 0;
+            const void* MeshIdentity = nullptr;
 
             bool operator==(const Key&) const noexcept = default;
         };
@@ -79,6 +79,7 @@ namespace MphRead
         struct Entry final
         {
             std::weak_ptr<const void> ModelLifetime{};
+            std::weak_ptr<const void> MeshLifetime{};
             std::shared_ptr<GpuMeshResource> Resource{};
         };
 

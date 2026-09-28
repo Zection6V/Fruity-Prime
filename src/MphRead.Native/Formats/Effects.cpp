@@ -1841,7 +1841,7 @@ namespace MphRead::Effects
             Matrix4 renderTexcoordMtx = texcoordMtx;
             Matrix4 renderTransform = transform;
             Mesh& mesh = RequireReference(meshRef);
-            std::int32_t renderGeometryId = mesh.DlistId;
+            (void)mesh;
             std::int32_t matrixStackCount = 0;
             const std::vector<float> matrixStack{};
             std::optional<Vector4> overrideColor = std::nullopt;
@@ -1857,7 +1857,7 @@ namespace MphRead::Effects
                 renderTexcoordMtx,
                 renderTransform,
                 modelRef,
-                renderGeometryId,
+                meshRef,
                 matrixStackCount,
                 matrixStack,
                 overrideColor,

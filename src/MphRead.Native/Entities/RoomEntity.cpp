@@ -1792,13 +1792,15 @@ namespace MphRead::Entities
                                 const std::int32_t start = node.MeshId / 2;
                                 for (std::int32_t k = 0; k < node.MeshCount; ++k)
                                 {
-                                    Mesh& mesh = RequireReference(ManagedListAt(RequireReference(model.Meshes), start + k));
+                                    const std::shared_ptr<Mesh> meshValue
+                                        = ManagedListAt(RequireReference(model.Meshes), start + k);
+                                    Mesh& mesh = RequireReference(meshValue);
                                     if (!mesh.Visible) continue;
                                     Material& material
                                         = RequireReference(ManagedListAt(RequireReference(model.Materials), mesh.MaterialId));
                                     scene.AddRenderItem(material, polygonId, 1.0F, Vector3::Zero,
                                         GetLightInfo(), IdentityMatrix(), str3.Transform,
-                                        nodeModel, mesh.DlistId, 0,
+                                        nodeModel, meshValue, 0,
                                         CopyManagedArray(RequireReference(_emptyMatrixStack)), str3.Color, std::nullopt,
                                         SelectionType::None, node.BillboardMode);
                                 }
@@ -2000,7 +2002,9 @@ namespace MphRead::Entities
         {
             Model& model = RequireReference(modelValue);
             std::int32_t polygonId = 0;
-            Mesh& mesh = RequireReference(ManagedListAt(RequireReference(model.Meshes), start + k));
+            const std::shared_ptr<Mesh> meshValue
+                = ManagedListAt(RequireReference(model.Meshes), start + k);
+            Mesh& mesh = RequireReference(meshValue);
             if (!mesh.Visible) continue;
             Material& material = RequireReference(ManagedListAt(RequireReference(model.Materials), mesh.MaterialId));
             float alpha = 1.0F;
@@ -2017,7 +2021,7 @@ namespace MphRead::Entities
             const Matrix4 texcoordMatrix = GetTexcoordMatrix(inst, material, mesh.MaterialId, node);
             const SelectionType selectionType = Selection::CheckSelection(this, inst, node, mesh);
             RequireReference(_scene).AddRenderItem(material, polygonId, alpha, Vector3::Zero, GetLightInfo(),
-                texcoordMatrix, node.Animation, modelValue, mesh.DlistId,
+                texcoordMatrix, node.Animation, modelValue, meshValue,
                 static_cast<std::int32_t>(RequireReference(model.NodeMatrixIds).size()),
                 CopyManagedArray(RequireReference(model.MatrixStackValues)), std::nullopt, std::nullopt,
                 selectionType, node.BillboardMode);

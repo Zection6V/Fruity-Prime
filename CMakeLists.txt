@@ -106,18 +106,16 @@ list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES
     "${FRUITY_RENDERER_GEOMETRY_TEST_SOURCE}"
     "${FRUITY_RENDERER_GPU_MESH_TEST_SOURCE}")
 
-# Android has its own activity, views, input bridge and EGL/GLES renderer under
-# MphRead.Native.Android. The desktop Avalonia/GLFW/Freetype owners must not be
-# pulled into the Android common archive merely because the source list is a
-# recursive glob.
+# Android owns the Activity/View/EGL shell under MphRead.Native.Android, but
+# the launcher controls and their CPU Skia/Avalonia implementation are shared
+# C++ code and must be present in the final .so. Only the desktop window/Ganesh
+# pieces stay out of the Android common archive.
 if(ANDROID)
-    list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/Avalonia/.*\\.cpp$")
     list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/Gui/.*\\.cpp$")
-    list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/Skia/.*\\.cpp$")
+    list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/Skia/SkiaGpu\\.cpp$")
     list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/OpenTK/RendererPlatform\\.cpp$")
     list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/OpenTK/GL\\.cpp$")
     list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/OpenTK/GpuTrace\\.cpp$")
-    list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/SoundFlow/MiniAudio\\.cpp$")
 endif()
 
 fruity_report_owner("NcsfPlay.Native" NCSFPLAY_NATIVE_SOURCES NCSFPLAY_NATIVE_HEADERS)
@@ -202,9 +200,11 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         fruity_renderer_gpu_mesh_check)
 endif()
 
-# The native desktop executable carries the launcher toolkit and the one-window
-# shell. Android uses its activity/view integration in the C# head instead.
-if(NOT ANDROID)
+# Both native heads compile the launcher's in-tree Avalonia-compatible controls.
+# MPHREAD_SHELL is desktop-only: Android supplies its own Activity/View stack.
+if(ANDROID)
+    target_compile_definitions(fruity_mphread_native PUBLIC MPHREAD_AVALONIA)
+else()
     target_compile_definitions(fruity_mphread_native PUBLIC MPHREAD_AVALONIA MPHREAD_SHELL)
 endif()
 
@@ -352,20 +352,6 @@ if(CMAKE_DL_LIBS)
 endif()
 
 if(ANDROID)
-    set(FRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR "" CACHE PATH
-        "Header root containing curl/curl.h, archive.h, and archive_entry.h for the Android static compile target")
-
-    foreach(_required_header IN ITEMS curl/curl.h archive.h archive_entry.h)
-        if(NOT EXISTS "${FRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR}/${_required_header}")
-            message(FATAL_ERROR
-                "Android native compilation requires ${_required_header} under "
-                "FRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR. The repository has no Android "
-                "runtime owner for libcurl/libarchive, so CI supplies headers only and "
-                "does not pretend those runtime libraries are packaged.")
-        endif()
-    endforeach()
-    target_include_directories(fruity_mphread_native PRIVATE "${FRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR}")
-
     list(FIND FRUITY_ANDROID_ABIS "${ANDROID_ABI}" _android_abi_index)
     if(_android_abi_index EQUAL -1)
         message(FATAL_ERROR
@@ -379,17 +365,34 @@ if(ANDROID)
         endif()
     endif()
 
+    # The final shared object owns the complete runtime dependency graph.
+    # vcpkg supplies these libraries for the selected Android ABI; unlike the
+    # old header-only compile gate this is a real link and therefore catches
+    # missing runtime ownership before an APK is produced.
+    find_package(CURL REQUIRED)
+    find_package(LibArchive REQUIRED)
+    find_package(Freetype REQUIRED)
+    find_package(JPEG REQUIRED)
+
     find_library(FRUITY_ANDROID_LOG_LIBRARY log REQUIRED)
     find_library(FRUITY_ANDROID_PLATFORM_LIBRARY android REQUIRED)
     find_library(FRUITY_ANDROID_EGL_LIBRARY EGL REQUIRED)
     find_library(FRUITY_ANDROID_GLESV3_LIBRARY GLESv3 REQUIRED)
+    find_library(FRUITY_ANDROID_JNIGRAPHICS_LIBRARY jnigraphics REQUIRED)
+    find_library(FRUITY_ANDROID_OPENSL_LIBRARY OpenSLES REQUIRED)
 
-    target_link_libraries(fruity_mphread_native PUBLIC "${FRUITY_ANDROID_GLESV3_LIBRARY}")
+    target_link_libraries(fruity_mphread_native PUBLIC
+        CURL::libcurl
+        LibArchive::LibArchive
+        Freetype::Freetype
+        JPEG::JPEG
+        "${FRUITY_ANDROID_GLESV3_LIBRARY}"
+        "${FRUITY_ANDROID_OPENSL_LIBRARY}")
 
     fruity_collect_owner("${FRUITY_ANDROID_ROOT}" MPHREAD_ANDROID_SOURCES MPHREAD_ANDROID_HEADERS)
     fruity_report_owner("MphRead.Native.Android" MPHREAD_ANDROID_SOURCES MPHREAD_ANDROID_HEADERS)
 
-    add_library(fruity_mphread_native_android STATIC)
+    add_library(fruity_mphread_native_android SHARED)
     add_library(FruityPrime::MphRead.Native.Android ALIAS fruity_mphread_native_android)
     target_sources(fruity_mphread_native_android PRIVATE ${MPHREAD_ANDROID_SOURCES} ${MPHREAD_ANDROID_HEADERS})
     target_include_directories(fruity_mphread_native_android PUBLIC
@@ -397,14 +400,18 @@ if(ANDROID)
         "${FRUITY_MPHREAD_ROOT}"
         "${FRUITY_NCSFPLAY_ROOT}")
     target_compile_features(fruity_mphread_native_android PUBLIC cxx_std_20)
-    target_link_libraries(fruity_mphread_native_android PUBLIC
+    target_link_libraries(fruity_mphread_native_android PRIVATE
         fruity_mphread_native
         fruity_ncsfplay_native
         "${FRUITY_ANDROID_PLATFORM_LIBRARY}"
         "${FRUITY_ANDROID_LOG_LIBRARY}"
         "${FRUITY_ANDROID_EGL_LIBRARY}"
-        "${FRUITY_ANDROID_GLESV3_LIBRARY}")
-    set_target_properties(fruity_mphread_native_android PROPERTIES OUTPUT_NAME "MphRead.Native.Android")
+        "${FRUITY_ANDROID_GLESV3_LIBRARY}"
+        "${FRUITY_ANDROID_JNIGRAPHICS_LIBRARY}"
+        "${FRUITY_ANDROID_OPENSL_LIBRARY}")
+    target_link_options(fruity_mphread_native_android PRIVATE "-Wl,--no-undefined")
+    set_target_properties(fruity_mphread_native_android PROPERTIES
+        OUTPUT_NAME "FruityPrime")
 else()
     find_package(CURL REQUIRED)
     find_package(LibArchive REQUIRED)

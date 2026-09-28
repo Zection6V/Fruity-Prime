@@ -22,6 +22,17 @@ namespace MphRead::NativeRuntime::Avalonia::Platform
         {
             path = path.substr(0, hash);
         }
+#if defined(__ANDROID__)
+        // The native Android host copies the packaged Assets/ tree into the
+        // app's writable game root and makes that root the current directory.
+        // /proc/self/exe points into the package runtime, not at those files.
+        const std::string current = EnvironmentCurrentDirectory();
+        const std::string androidDirect = PathCombine(current, path);
+        if (FileExists(androidDirect))
+        {
+            return androidDirect;
+        }
+#endif
         const std::string base = AppContextBaseDirectory();
         const std::string direct = PathCombine(base, path);
         if (FileExists(direct))

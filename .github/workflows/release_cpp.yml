@@ -100,8 +100,14 @@ jobs:
     with:
       checkout_ref: refs/tags/${{ needs.resolve.outputs.tag }}
 
+  android:
+    needs: resolve
+    uses: ./.github/workflows/native-cpp-android.yml
+    with:
+      checkout_ref: refs/tags/${{ needs.resolve.outputs.tag }}
+
   publish:
-    needs: [resolve, build]
+    needs: [resolve, build, android]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -121,6 +127,9 @@ jobs:
             case "$platform" in
               windows)
                 ( cd "$dir" && zip -qr "$GITHUB_WORKSPACE/dist/$name.zip" . ) ;;
+              android)
+                test -f "$dir/FruityPrime.apk"
+                cp "$dir/FruityPrime.apk" "dist/$name.apk" ;;
               *)
                 chmod +x "$dir/FruityPrime"
                 tar -C "$dir" -czf "dist/$name.tar.gz" . ;;
@@ -143,6 +152,7 @@ jobs:
           - **Windows** -- the `windows` zip, run `FruityPrime.exe`
           - **Linux** -- the `linux` tarball, run `./FruityPrime`
           - **macOS** -- the `macos` tarball, run `./FruityPrime`
+          - **Android** -- the `android` APK; it contains arm64-v8a and x86_64 native libraries
           NOTE
           CHANGES=$(gh api -X POST "repos/$GH_REPO/releases/generate-notes" \
             -f tag_name="$TAG" --jq .body 2>/dev/null || true)

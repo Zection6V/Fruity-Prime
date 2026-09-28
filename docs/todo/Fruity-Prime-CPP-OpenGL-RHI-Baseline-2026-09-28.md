@@ -4,22 +4,25 @@
 - Repository: `Zection6V/Fruity-Prime`
 - Branch: `develop3_rendering`
 - Phase: **0 only**
-- Verified branch HEAD before writing: `92b2734da568593de4be809cc40efd1039486ea0`
-- Plan-stated historical baseline: `bb8f619da7abbe614ea60765006f290a60938f98`
+- Plan baseline SHA: `bb8f619da7abbe614ea60765006f290a60938f98`
+- Branch HEAD immediately before Phase 0 documentation: `92b2734da568593de4be809cc40efd1039486ea0`
+- Initial Phase 0 documentation commit: `08c8a6c8b405b44398bb261533db34ed11737873`
 - Plan: `docs/todo/Fruity-Prime-CPP-OpenGL-Vulkan-RHI-Phase-Plan-2026-09-28.md`
 - Renderer behavior changes in this phase: **none**
 - Runtime/golden images captured in this phase: **none**
 
-The current branch is seven commits ahead of the plan-stated baseline. A GitHub compare from
-`bb8f619da7abbe614ea60765006f290a60938f98` to
-`92b2734da568593de4be809cc40efd1039486ea0` shows only documentation moves/additions and a
-Codex skill file; no `src/MphRead.Native` file changed. The current renderer blobs are therefore
-the same source snapshot described by the plan:
+The Phase 0 baseline required by the plan remains
+`bb8f619da7abbe614ea60765006f290a60938f98`. Immediately before Phase 0 documentation,
+`develop3_rendering` was at `92b2734da568593de4be809cc40efd1039486ea0`, seven commits
+ahead of that baseline. A GitHub compare from `bb8f619...` to `92b2734...` shows only
+documentation moves/additions and a Codex skill file; no `src/MphRead.Native` file changed.
+The branch-start renderer blobs therefore remain source-identical to the plan baseline:
 
 - `src/MphRead.Native/Renderer.cpp`: `de9de1ebe2d08bdbc0de77cf7b9148ed7df11bc0`
 - `src/MphRead.Native/Renderer.hpp`: `534a56a813dcf1fd833c065ffefa888ebb6929a2`
 
-This document uses the **actual current branch HEAD** `92b2734...` as the Phase 0 base SHA.
+Accordingly, **`bb8f619...` is the recorded Phase 0 baseline SHA** and `92b2734...` is recorded
+separately as the branch HEAD from which the documentation-only Phase 0 delivery began.
 
 ---
 
@@ -27,55 +30,84 @@ This document uses the **actual current branch HEAD** `92b2734...` as the Phase 
 
 ### 1.1 Search method
 
-The plan specifies these searches:
+The plan specifies these repository-wide searches:
 
 ```bash
-rg -n "\\bGL::" src/MphRead.Native
+rg -n "\bGL::" src/MphRead.Native
 rg -n "GL::Begin|GL::End" src/MphRead.Native
 rg -n "GenLists|NewList|CallList|DeleteLists" src/MphRead.Native
 rg -n "gl_Vertex|gl_Normal|gl_Color|gl_MultiTexCoord" src/MphRead.Native
 ```
 
-No clone/local checkout was used. The GitHub-visible `develop3_rendering` commit tree was
-enumerated and the graphics/render/platform source and header candidates were fetched from the
-exact branch/commit and searched with the same regular expressions. Counts below distinguish
-**occurrences** from **matching lines**, because `rg -n` reports matching lines while the plan's
-earlier approximate `GL::` figure described calls/occurrences.
+The first expression above contains **one literal backslash** before `b`; `\b` is the regular
+expression word boundary. The initial Phase 0 document incorrectly rendered that command with two
+literal backslashes and only counted a graphics-focused subset. The post-push audit corrected both
+issues.
+
+No clone was used for this task. The complete repository-wide `rg` result was independently
+reproduced against the Phase 0 source snapshot, and every one of the 16 matching paths and its
+count was cross-checked against the GitHub-visible `develop3_rendering` blobs. Because
+`bb8f619... -> 92b2734...` changes no `src/MphRead.Native` file, these counts apply to both the
+plan baseline source and the branch-start source snapshot.
+
+Counts below distinguish **occurrences** from **matching lines**. `rg -n` reports matching lines;
+occurrence counts are also retained because the plan's earlier approximate `GL::` figure was an
+occurrence/call count.
 
 The literal `GL::Begin|GL::End` expression also matches the `GL::EndList` prefix. Therefore both
 the literal-plan result and exact immediate-mode call counts are recorded.
 
-### 1.2 Verified counts
+### 1.2 Verified repository-wide counts
 
 | Search | Verified occurrences | Matching lines | Files with matches | Notes |
 |---|---:|---:|---:|---|
-| `\\bGL::` | **1564** | **974** | 6 | Direct qualified OpenTK GL use |
-| `GL::Begin|GL::End` | **70** | **70** | 3 | Includes one `GL::EndList` prefix match |
-| exact `GL::Begin\\b` | **36** | 36 | 3 | Immediate mode |
-| exact `GL::End\\b` | **33** | 33 | 3 | Immediate mode |
-| `GenLists|NewList|CallList|DeleteLists` | **27** | **27** | 5 | Renderer use plus OpenTK/GLES declarations/implementation |
-| `gl_Vertex|gl_Normal|gl_Color|gl_MultiTexCoord` | **16** | **16** | 2 | 15 shader-source uses + 1 Skia compatibility-profile comment |
+| `\bGL::` | **1729** | **1098** | **16** | Complete repository-wide qualified GL-use inventory |
+| `GL::Begin|GL::End` | **76** | **76** | **5** | Includes one `GL::EndList` prefix match |
+| exact `GL::Begin\b` | **39** | **39** | **5** | Immediate mode only |
+| exact `GL::End\b` | **36** | **36** | **5** | Immediate mode only |
+| `GenLists|NewList|CallList|DeleteLists` | **27** | **27** | **5** | Renderer use plus OpenTK/GLES declarations/implementation |
+| `gl_Vertex|gl_Normal|gl_Color|gl_MultiTexCoord` | **16** | **16** | **2** | 15 shader-source uses + 1 Skia compatibility-profile comment |
 
-Verified `GL::` match distribution:
+### 1.3 Qualified `GL::` distribution and plan classification
 
-| Category | Path | Occurrences | Matching lines |
+| Plan category | Path | Occurrences | Matching lines |
 |---|---|---:|---:|
 | game renderer direct dependency | `src/MphRead.Native/Renderer.cpp` | 1104 | 686 |
 | game renderer direct dependency | `src/MphRead.Native/Mods/Render/UiOverlay.cpp` | 111 | 65 |
 | game renderer direct dependency | `src/MphRead.Native/Mods/Render/PreviewPass.cpp` | 39 | 25 |
 | game renderer direct dependency | `src/MphRead.Native/Mods/Render/LauncherNoise.cpp` | 40 | 20 |
 | game renderer direct dependency | `src/MphRead.Native/Mods/Render/LauncherPhoto.cpp` | 156 | 96 |
+| game renderer direct dependency | `src/MphRead.Native/Formats/Movie.cpp` | 64 | 41 |
+| game renderer direct dependency | `src/MphRead.Native/Export/Images.cpp` | 3 | 3 |
+| **game renderer subtotal** |  | **1517** | **936** |
 | Skia GL interop | `src/MphRead.Native/NativeRuntime/Skia/SkiaGpu.cpp` | 114 | 82 |
-| diagnostics | verified graphics diagnostics candidates | 0 | 0 |
-| OpenGL backend candidates | OpenTK/GL, GlEs, DesktopGlContext, GlNames | 0 qualified `GL::` calls | 0 |
+| **Skia GL interop subtotal** |  | **114** | **82** |
+| diagnostics | `src/MphRead.Native/Mods/Diagnostics/ThumbnailWindowCheck.cpp` | 51 | 34 |
+| diagnostics | `src/MphRead.Native/Mods/Diagnostics/LauncherWindowCheck.cpp` | 27 | 26 |
+| diagnostics | `src/MphRead.Native/Mods/MapGen/AltFormProbe.cpp` | 1 | 1 |
+| diagnostics | `src/MphRead.Native/Mods/Network/MapAudit.cpp` | 1 | 1 |
+| diagnostics | `src/MphRead.Native/Mods/Network/NetCheckClient.cpp` | 1 | 1 |
+| diagnostics | `src/MphRead.Native/Mods/Network/WeaponDps.cpp` | 1 | 1 |
+| diagnostics | `src/MphRead.Native/Mods/ThumbnailCapture.cpp` | 1 | 1 |
+| diagnostics | `src/MphRead.Native/Mods/ScreenCapture.cpp` | 15 | 15 |
+| **diagnostics subtotal** |  | **98** | **80** |
+| OpenGL backend candidates | OpenTK/GL, GlEs, DesktopGlContext, GlNames under this qualified-call query | **0** | **0** |
+| **grand total** |  | **1729** | **1098** |
 
-Category totals for qualified `GL::` use are **1450 game-renderer occurrences** and
-**114 Skia-interop occurrences**.
+The diagnostics classification includes bounded checks, probes, audits and capture utilities that
+directly touch OpenGL but are not part of the ordinary scene/UI render path. `Export/Images.cpp`
+is kept under the game-renderer dependency category because Scene recording reaches its readback
+from `Scene::AfterRenderFrame`; `Formats/Movie.cpp` implements live movie texture upload/draw.
 
-Display-list symbols are split differently:
+The two files omitted by the initial audit that also change the immediate-mode total are:
+
+- `Formats/Movie.cpp`: 2 exact `GL::Begin`, 2 exact `GL::End`.
+- `Mods/Diagnostics/ThumbnailWindowCheck.cpp`: 1 exact `GL::Begin`, 1 exact `GL::End`.
+
+Display-list symbols are split separately:
 
 - Game renderer: `Renderer.cpp` = 7 occurrences.
-- OpenGL/OpenGLES compatibility layer:
+- OpenGL/OpenGLES compatibility/backend candidates:
   - `NativeRuntime/OpenTK/GL.cpp` = 8
   - `NativeRuntime/OpenTK/GL.hpp` = 4
   - `Mods/Render/GlEs.cpp` = 4
@@ -91,6 +123,9 @@ Important source anchors:
 
 - `Renderer.cpp:1018-1062`: display-list generation and immediate-mode display-list compilation.
 - `Renderer.cpp:1957-2077`: main scene pass sequence.
+- `Formats/Movie.cpp:3776-3782,4021-4050`: live movie texture upload/draw OpenGL dependency.
+- `Mods/Diagnostics/ThumbnailWindowCheck.cpp:45-92`: diagnostic GL/FBO/readback path.
+- `Mods/Diagnostics/LauncherWindowCheck.cpp:25-154`: launcher GL diagnostics.
 - `Shaders.cpp:46-87,238-240,303-304`: compatibility GLSL built-ins.
 - `NativeRuntime/Skia/SkiaGpu.cpp:489`: compatibility-profile `gl_Vertex` comment.
 
@@ -104,7 +139,7 @@ the deletion.
 
 | Resource | Owner / storage | Allocation / acquisition | Release / lifetime evidence |
 |---|---|---|---|
-| Main shader program | `Scene::_shaderProgramId` | `Renderer.cpp:796` | `Scene::UnloadGl`, program deletion at `Renderer.cpp:3686-3691` |
+| Main shader program | `Scene::_shaderProgramId` | `Renderer.cpp:796` | `Scene::UnloadGl`; delete helper at `Renderer.cpp:3686-3692`, invoked for all four program IDs at `Renderer.cpp:3708-3711` |
 | RTT shader program | `Scene::_rttShaderProgramId` | `Renderer.cpp:826` | `Scene::UnloadGl` |
 | Shift/whiteout shader program | `Scene::_shiftShaderProgramId` | `Renderer.cpp:850` | `Scene::UnloadGl` |
 | Cel shader program | `Scene::_celShaderProgramId` | `Renderer.cpp:866` | `Scene::UnloadGl` |
@@ -250,7 +285,7 @@ rather than model these vectors as mutually exclusive pass buckets.
 
 These are **candidate baseline conditions**. No image was captured in Phase 0.
 
-- Source baseline: `92b2734da568593de4be809cc40efd1039486ea0`.
+- Plan/source baseline: `bb8f619da7abbe614ea60765006f290a60938f98`; branch-start source snapshot `92b2734da568593de4be809cc40efd1039486ea0` is source-identical for `src/MphRead.Native`.
 - Renderer/backend: desktop **OpenGL**.
 - Output framebuffer: **1280 x 720**.
 - Resolution scale: **100%**.
@@ -314,11 +349,14 @@ exist together. This Phase only freezes the protocol and candidate set.
 
 ### Static/source validation
 
-- Target baseline document was confirmed absent before creation.
-- `develop3_rendering` was re-read immediately before writing and remained at
+- Target baseline document was confirmed absent before initial creation.
+- The plan baseline is `bb8f619da7abbe614ea60765006f290a60938f98`.
+- `develop3_rendering` was re-read immediately before initial writing and remained at
   `92b2734da568593de4be809cc40efd1039486ea0`.
-- Current Renderer blobs match the plan baseline exactly.
+- Current Renderer blobs at that branch-start SHA match the plan baseline exactly.
 - `bb8f619... -> 92b2734...` changes no `src/MphRead.Native` file.
+- The post-push inventory audit corrected the first search to the exact single-backslash
+  `rg -n "\bGL::" src/MphRead.Native` expression and records all 16 matching files.
 - Frame order and pass semantics were traced from current branch source.
 - Resource ownership was traced from current allocation/storage/destruction code.
 

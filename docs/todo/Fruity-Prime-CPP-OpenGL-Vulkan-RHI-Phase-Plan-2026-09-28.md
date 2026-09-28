@@ -2,7 +2,7 @@
 ## Phase-by-Phase Worker AI Execution Plan
 
 - Repository: `Zection6V/Fruity-Prime`
-- Branch: `develop2`
+- Branch: `develop3_rendering`
 - Baseline HEAD: `bb8f619da7abbe614ea60765006f290a60938f98`
 - Baseline date: 2026-09-28
 - Scope: **C++版のみ**
@@ -145,12 +145,12 @@ Performance tuning
 
 ---
 
-# 3. 現行develop2の重要なBaseline
+# 3. 現行develop3_renderingの重要なBaseline
 
 Baseline:
 
 ```text
-develop2
+develop3_rendering
 bb8f619da7abbe614ea60765006f290a60938f98
 ```
 
@@ -662,7 +662,7 @@ Vulkan/
 
 ## 作業開始前
 
-1. `develop2` 最新HEADを取得
+1. `develop3_rendering` 最新HEADを取得
 2. 前PhaseのcommitがHEADに含まれることを確認
 3. 対象ファイルを全読
 4. 関連直接caller/calleeを確認
@@ -4000,7 +4000,7 @@ Repository:
 https://github.com/Zection6V/Fruity-Prime
 
 Branch:
-develop2
+develop3_rendering
 
 Task:
 OpenGL/Vulkan RHI移行計画の Phase N を完遂してください。
@@ -4010,7 +4010,7 @@ docs/app_design/Fruity-Prime-CPP-OpenGL-Vulkan-RHI-Phase-Plan-2026-09-28.md
 
 Requirements:
 - Phase Nの範囲だけ実装
-- develop2の最新HEADから開始
+- develop3_renderingの最新HEADから開始
 - 他作業者のcommitを保持
 - C#版は変更禁止
 - force-push禁止

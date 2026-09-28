@@ -183,6 +183,14 @@ namespace MphRead::Qt
             std::string(::MphRead::Mods::Credits::SupportUrl));
     }
 
+    void ShellBridge::GameFilesChanged()
+    {
+        if (_actions.GameFilesChanged)
+        {
+            _actions.GameFilesChanged();
+        }
+    }
+
     void ShellBridge::toggleFullscreen()
     {
         if (_actions.ToggleFullscreen)

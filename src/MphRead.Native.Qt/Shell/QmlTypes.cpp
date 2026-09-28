@@ -5,6 +5,7 @@
 #include "PlayModel.hpp"
 #include "ServerBadgeItem.hpp"
 #include "SettingsModel.hpp"
+#include "SetupModel.hpp"
 #include "RowModel.hpp"
 
 #include <QtQml/qqml.h>
@@ -25,6 +26,7 @@ namespace MphRead::Qt
         qmlRegisterType<GamepadMonitorItem>(uri, 1, 0, "GamepadMonitor");
         qmlRegisterType<ServerBadgeItem>(uri, 1, 0, "ServerBadge");
         qmlRegisterType<SettingsModel>(uri, 1, 0, "SettingsModel");
+        qmlRegisterType<SetupModel>(uri, 1, 0, "SetupModel");
         qmlRegisterUncreatableType<RowModel>(uri, 1, 0, "RowModel", QStringLiteral("owned by a screen model"));
     }
 }

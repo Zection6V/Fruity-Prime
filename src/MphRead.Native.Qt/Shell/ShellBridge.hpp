@@ -47,6 +47,8 @@ namespace MphRead::Qt
             std::function<void()> Quit;
             std::function<void()> Resume;
             std::function<void()> ToggleFullscreen;
+            // Setup finished: the rooms are there to be listed now.
+            std::function<void()> GameFilesChanged;
         };
 
         explicit ShellBridge(Actions actions);
@@ -86,6 +88,7 @@ namespace MphRead::Qt
         Q_INVOKABLE void quitFromMatch();
         Q_INVOKABLE void openSupport();
         Q_INVOKABLE void toggleFullscreen();
+        void GameFilesChanged();
         // A map's picture as a URL, or empty when there is none yet.
         Q_INVOKABLE QString mapShot(const QString& room) const;
         Q_INVOKABLE QString roomName(const QString& room) const;

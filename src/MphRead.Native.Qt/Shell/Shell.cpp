@@ -106,6 +106,19 @@ namespace MphRead::Mods::Launcher::Gui
             actions.Launch = [](LaunchPlan plan) { Decided(std::move(plan)); };
             actions.Quit = []() { Shell::RequestQuit(); };
             actions.Resume = []() { Shell::CloseMenu(); };
+            actions.GameFilesChanged = []()
+            {
+                if (!Portable::GameFiles::Ready())
+                {
+                    return;
+                }
+                Portable::GameFiles::ApplyPaths();
+                g_rooms = MphRead::Mods::ThumbnailGenerator::MultiplayerRooms();
+                if (g_bridge != nullptr)
+                {
+                    g_bridge->SetRooms(g_rooms, true);
+                }
+            };
             actions.ToggleFullscreen = []()
             {
                 // InGameMenu: the toggle waits for the frame, then the menu closes.

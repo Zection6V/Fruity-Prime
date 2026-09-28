@@ -64,8 +64,6 @@ namespace MphRead::NativeRuntime::Rhi
                     throw std::invalid_argument(
                         "An OpenGL swapchain requires a native GLFW window handle.");
                 }
-                ::glfwMakeContextCurrent(_handle);
-                SetPresentMode(_desc.presentMode);
             }
 
             [[nodiscard]] const SwapchainDesc& Desc() const noexcept override

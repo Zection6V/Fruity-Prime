@@ -200,6 +200,7 @@ namespace
             if (_graphicsMode == GraphicsWindowMode::OpenGL)
             {
                 ::glfwMakeContextCurrent(_handle);
+                ::glfwSwapInterval(1);
             }
             ::glfwSetWindowUserPointer(_handle, this);
             ::glfwSetFramebufferSizeCallback(_handle, &OnFramebufferSize);

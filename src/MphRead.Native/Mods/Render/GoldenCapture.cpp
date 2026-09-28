@@ -7,6 +7,7 @@
 #include "../../NativeRuntime/System/ExceptionText.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Runtime.hpp"
+#include "../../NativeRuntime/Rhi/BackendFactory.hpp"
 #include "../../Scene.hpp"
 #include "../Branding.hpp"
 #include "../MapGen/CustomRooms.hpp"
@@ -196,7 +197,8 @@ namespace
               _directory(std::move(directory))
         {
             MphRead::RendererPlatform::WindowSettings settings
-                = MphRead::Mods::Render::DesktopGlContext::Settings(false);
+                = MphRead::Mods::Render::DesktopGlContext::Settings(
+                    false, MphRead::RendererPlatform::GraphicsWindowMode::OpenGL);
             settings.ClientSize = Vector2i(GoldenWidth, GoldenHeight);
             settings.Title = std::string(MphRead::Mods::Branding::Name)
                 + " Phase 0 golden capture";
@@ -204,6 +206,12 @@ namespace
             settings.UpdateFrequency = 0.0;
 
             _window = MphRead::RendererPlatform::CreateWindow(settings);
+            MphRead::NativeRuntime::Rhi::SwapchainDesc swapchainDesc{};
+            const Vector2i framebufferSize = _window->Size();
+            swapchainDesc.width = static_cast<std::uint32_t>(std::max(framebufferSize.X, 1));
+            swapchainDesc.height = static_cast<std::uint32_t>(std::max(framebufferSize.Y, 1));
+            _swapchain = MphRead::NativeRuntime::Rhi::BackendFactory::CreateSwapchain(
+                MphRead::NativeRuntime::Rhi::GraphicsBackend::OpenGl, *_window, swapchainDesc);
             _scene = std::make_shared<MphRead::Scene>(
                 _window->Size(),
                 _window->Keyboard(),
@@ -399,7 +407,7 @@ namespace
                 }
 
                 WriteManifest();
-                _window->SwapBuffers();
+                _swapchain->Present();
                 _scene->AfterRenderFrame();
                 _window->BaseOnRenderFrame(args);
                 Close();
@@ -573,6 +581,7 @@ namespace
         std::string _imagePath;
         std::string _manifestPath;
         std::shared_ptr<MphRead::RendererPlatform::Window> _window{};
+        std::unique_ptr<MphRead::NativeRuntime::Rhi::Swapchain> _swapchain{};
         std::shared_ptr<MphRead::Scene> _scene{};
         std::int32_t _fixtureTexture = 0;
         std::int32_t _updateOrdinal = 0;

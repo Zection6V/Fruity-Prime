@@ -15,6 +15,7 @@
 #include "../NativeRuntime/System/Encoding.hpp"
 #include "../NativeRuntime/System/ExceptionText.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
+#include "../NativeRuntime/Rhi/BackendFactory.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
 
 #include <array>
@@ -587,7 +588,8 @@ namespace MphRead::Mods
         std::int32_t width,
         std::int32_t height)
     {
-        RendererPlatform::WindowSettings settings = Render::DesktopGlContext::Settings(true);
+        RendererPlatform::WindowSettings settings = Render::DesktopGlContext::Settings(
+            true, RendererPlatform::GraphicsWindowMode::OpenGL);
         settings.ClientSize = OpenTK::Mathematics::Vector2i(width, height);
         settings.Title = std::string(Branding::Name) + " thumbnails";
         return settings;
@@ -599,6 +601,12 @@ namespace MphRead::Mods
         std::int32_t height)
         : _window(RendererPlatform::CreateWindow(WindowSettings(width, height)))
     {
+        NativeRuntime::Rhi::SwapchainDesc swapchainDesc{};
+        const OpenTK::Mathematics::Vector2i framebufferSize = _window->Size();
+        swapchainDesc.width = static_cast<std::uint32_t>(std::max(framebufferSize.X, 1));
+        swapchainDesc.height = static_cast<std::uint32_t>(std::max(framebufferSize.Y, 1));
+        _swapchain = NativeRuntime::Rhi::BackendFactory::CreateSwapchain(
+            NativeRuntime::Rhi::GraphicsBackend::OpenGl, *_window, swapchainDesc);
         _asked = OpenTK::Mathematics::Vector2i(width, height);
         _roomKey = roomKey;
         _settleFrames = SettleFrames;
@@ -644,9 +652,9 @@ namespace MphRead::Mods
         _isVisible = value;
     }
 
-    void ThumbnailCapture::SwapBuffers()
+    void ThumbnailCapture::Present()
     {
-        _window->SwapBuffers();
+        _swapchain->Present();
     }
 
     void ThumbnailCapture::Close()
@@ -806,7 +814,7 @@ namespace MphRead::Mods
             giveUp = _attempts >= MaxAttempts;
         }
 
-        SwapBuffers();
+        Present();
         _scene->AfterRenderFrame();
         _window->BaseOnRenderFrame(args);
 

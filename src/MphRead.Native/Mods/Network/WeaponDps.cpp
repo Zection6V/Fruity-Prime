@@ -17,6 +17,7 @@
 #include "../../NativeRuntime/System/ExceptionText.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
+#include "../../NativeRuntime/Rhi/BackendFactory.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -103,6 +104,7 @@ namespace MphRead::Mods::Network
         settings.ApiMajor = 3;
         settings.ApiMinor = 2;
         settings.StartVisible = false;
+        settings.GraphicsMode = RendererPlatform::GraphicsWindowMode::OpenGL;
         return settings;
     }
 
@@ -121,9 +123,9 @@ namespace MphRead::Mods::Network
         _window->Close();
     }
 
-    void WeaponDps::SwapBuffers()
+    void WeaponDps::Present()
     {
-        _window->SwapBuffers();
+        _swapchain->Present();
     }
 
     WeaponDps::WeaponDps(
@@ -142,6 +144,12 @@ namespace MphRead::Mods::Network
           _bombs(bombs),
           _scene(nullptr)
     {
+        NativeRuntime::Rhi::SwapchainDesc swapchainDesc{};
+        const Vector2i framebufferSize = _window->Size();
+        swapchainDesc.width = static_cast<std::uint32_t>(std::max(framebufferSize.X, 1));
+        swapchainDesc.height = static_cast<std::uint32_t>(std::max(framebufferSize.Y, 1));
+        _swapchain = NativeRuntime::Rhi::BackendFactory::CreateSwapchain(
+            NativeRuntime::Rhi::GraphicsBackend::OpenGl, *_window, swapchainDesc);
         Entities::PlayerEntity::SetMaxPlayers(
             std::max<std::int32_t>(Entities::PlayerEntity::MaxPlayers(), 2));
         MapAudit::ForceEveryone(true);
@@ -200,7 +208,7 @@ namespace MphRead::Mods::Network
 
         IncrementInPlace(_frame);
         Step();
-        SwapBuffers();
+        Present();
         _scene->AfterRenderFrame();
         _window->BaseOnRenderFrame(args);
 

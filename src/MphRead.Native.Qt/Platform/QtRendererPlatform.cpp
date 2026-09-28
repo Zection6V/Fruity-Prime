@@ -24,6 +24,7 @@
 #include <QtGui/QKeyEvent>
 #include <QtGui/QMouseEvent>
 #include <QtGui/QOpenGLContext>
+#include <QtGui/QOpenGLFunctions>
 #include <QtGui/QScreen>
 #include <QtGui/QSurfaceFormat>
 #include <QtGui/QWheelEvent>
@@ -392,6 +393,13 @@ namespace
 
     void QtWindow::SwapBuffers()
     {
+        // The renderer draws its first frames before revealing the window;
+        // GLFW swaps a hidden window harmlessly, Qt's Wayland one does not.
+        if (!_window->isExposed())
+        {
+            _context->functions()->glFlush();
+            return;
+        }
         _context->swapBuffers(_window.get());
     }
 

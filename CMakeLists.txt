@@ -113,10 +113,13 @@ set(FRUITY_UI "avalonia" CACHE STRING "Window and menu toolkit: avalonia or qt")
 set_property(CACHE FRUITY_UI PROPERTY STRINGS avalonia qt)
 set(FRUITY_QT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src/MphRead.Native.Qt")
 if(FRUITY_UI STREQUAL "qt" AND NOT ANDROID)
-    list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/Avalonia/.*\\.cpp$")
+    # Avalonia's asset resolver is plain file lookup the game uses too.
+    list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/Avalonia/(Base|Controls|Media|Panels|Scroll|Text|Threading|TopLevel)\\.cpp$")
     list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/Skia/.*\\.cpp$")
     list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/OpenTK/RendererPlatform\\.cpp$")
     list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/Mods/Launcher/Gui/.*\\.cpp$")
+    # The front screen's photograph is a QML Image.
+    list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/Mods/Render/LauncherPhoto\\.cpp$")
 elseif(NOT FRUITY_UI STREQUAL "avalonia")
     message(FATAL_ERROR "FRUITY_UI must be avalonia or qt, not '${FRUITY_UI}'")
 endif()
@@ -364,6 +367,7 @@ if(NOT ANDROID)
         qt_add_qml_module(fruity_prime
             URI FruityPrime.Ui
             VERSION 1.0
+            OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/qml/FruityPrime/Ui"
             NO_RESOURCE_TARGET_PATH
             RESOURCE_PREFIX /qt/qml/FruityPrime/Ui
             QML_FILES ${FRUITY_QML_RELATIVE}

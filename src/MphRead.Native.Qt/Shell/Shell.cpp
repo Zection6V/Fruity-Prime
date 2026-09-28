@@ -32,6 +32,9 @@
 #include "../../MphRead.Native/NativeRuntime/System/Runtime.hpp"
 
 #include <QtCore/QVariantMap>
+#include <QtGui/QImage>
+#include <QtGui/QOpenGLContext>
+#include <QtGui/QOpenGLFunctions>
 #include <QtGui/QWindow>
 
 #include <exception>
@@ -206,6 +209,36 @@ namespace MphRead::Mods::Launcher::Gui
             MphRead::Mods::Network::NetHostSession::Stop();
             Portable::MatchStart::AfterMatch();
             ShowFrontScreen();
+        }
+
+        // FP_QT_SHOT=path[,frame]: save the presented frame once, for checks
+        // without a screen; FP_QT_SHOT_QUIT=1 closes the window after it.
+        void MaybeShoot(MphRead::RenderWindow& window)
+        {
+            static const QString spec = qEnvironmentVariable("FP_QT_SHOT");
+            static int frame = 0;
+            static bool done = false;
+            if (spec.isEmpty() || done)
+            {
+                return;
+            }
+            const QStringList parts = spec.split(QLatin1Char(','));
+            const int at = parts.size() > 1 ? parts[1].toInt() : 120;
+            if (++frame < at)
+            {
+                return;
+            }
+            done = true;
+            const OpenTK::Mathematics::Vector2i size = window.FramebufferSize();
+            QImage image(size.X, size.Y, QImage::Format_RGBA8888);
+            QOpenGLContext::currentContext()->functions()->glReadPixels(
+                0, 0, size.X, size.Y, GL_RGBA, GL_UNSIGNED_BYTE, image.bits());
+            image.mirrored(false, true).save(parts[0]);
+            std::cout << "[shot] " << parts[0].toStdString() << '\n';
+            if (qEnvironmentVariableIntValue("FP_QT_SHOT_QUIT") != 0)
+            {
+                window.Close();
+            }
         }
 
         // The game window's current Qt event, handed to the menus whole.
@@ -412,7 +445,7 @@ namespace MphRead::Mods::Launcher::Gui
 
     void Shell::AfterDraw(MphRead::RenderWindow& window)
     {
-        (void)window;
+        MaybeShoot(window);
     }
 
     void Shell::PlayAnother(std::string roomKey)

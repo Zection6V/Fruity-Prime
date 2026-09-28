@@ -23,6 +23,12 @@ namespace MphRead::Qt
         // The menus render through QRhi into a texture the game composites, on
         // the same API as the game: OpenGL until the RHI's Vulkan backend.
         QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
+        // Wayland's client-side decorations move an OpenGL window's default
+        // framebuffer off 0 into Qt's own FBO; the renderer draws to 0.
+        if (!qEnvironmentVariableIsSet("QT_WAYLAND_DISABLE_WINDOWDECORATION"))
+        {
+            qputenv("QT_WAYLAND_DISABLE_WINDOWDECORATION", "1");
+        }
         static std::unique_ptr<QGuiApplication> app = std::make_unique<QGuiApplication>(argc, argv);
     }
 }

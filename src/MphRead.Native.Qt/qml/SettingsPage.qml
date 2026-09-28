@@ -101,7 +101,8 @@ Page {
             return
         }
         if (event.key === Qt.Key_Escape) {
-            settings.cancel()
+            if (!settings.escape())
+                settings.cancel()
             event.accepted = true
         }
     }

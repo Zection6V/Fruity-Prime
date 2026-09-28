@@ -9,7 +9,10 @@
 #include "../../MphRead.Native/Mods/Credits.hpp"
 #include "../../MphRead.Native/Mods/DebugLog.hpp"
 #include "../../MphRead.Native/Mods/GameSettings.hpp"
+#include "../../MphRead.Native/Mods/Input/GamepadCalibration.hpp"
 #include "../../MphRead.Native/Mods/Input/GamepadHaptics.hpp"
+#include "../../MphRead.Native/Mods/Input/GamepadMappingWizard.hpp"
+#include "../../MphRead.Native/Mods/Input/GamepadMappings.hpp"
 #include "../../MphRead.Native/Mods/Input/GamepadManager.hpp"
 #include "../../MphRead.Native/Mods/Input/GamepadOptions.hpp"
 #include "../../MphRead.Native/Mods/Input/GamepadProfiles.hpp"
@@ -32,6 +35,8 @@
 #include "../../MphRead.Native/Mods/Update/Updater.hpp"
 #include "../../MphRead.Native/Mods/WindowMode.hpp"
 #include "../../MphRead.Native/NativeRuntime/System/Globalization.hpp"
+#include "../../MphRead.Native/NativeRuntime/System/IO.hpp"
+#include "../../MphRead.Native/NativeRuntime/System/Runtime.hpp"
 #include "../../MphRead.Native/NativeRuntime/System/Number.hpp"
 
 #include <QtGui/QKeyEvent>
@@ -293,8 +298,27 @@ namespace MphRead::Qt
         std::optional<std::string> Message;
     };
 
-    SettingsModel::SettingsModel(QObject* parent) : QObject(parent), _pad(std::make_unique<PadCapture>())
+    // GamepadSetupPanel's run: calibration or manual mapping.
+    struct SettingsModel::PadSetup
     {
+        Input::GamepadButtons Buttons = Input::GamepadButtons::None;
+        std::unique_ptr<Input::GamepadCalibration> Calibration;
+        std::unique_ptr<Input::GamepadMappingWizard> Mapping;
+        std::optional<std::string> Device;
+        std::int64_t Started = 0;
+        std::int64_t Revision = 0;
+        bool MappingMode = false;
+        bool Complete = false;
+        bool CanApply = false;
+    };
+
+    SettingsModel::SettingsModel(QObject* parent)
+        : QObject(parent), _pad(std::make_unique<PadCapture>()), _setup(std::make_unique<PadSetup>())
+    {
+        _setupStatus = QStringLiteral(
+            "Calibration measures drift and trigger travel. Manual mapping is available on desktop.");
+        _setupTimer.setInterval(50);
+        connect(&_setupTimer, &QTimer::timeout, this, [this]() { SetupTick(); });
         if (ShellBridge* const bridge = ShellBridge::Current())
         {
             _settings = bridge->Settings();
@@ -330,6 +354,11 @@ namespace MphRead::Qt
 
     SettingsModel::~SettingsModel()
     {
+        if (_setup->Device.has_value())
+        {
+            Input::GamepadContexts::Capturing(false);
+            Input::GamepadMappingWizard::RequestedDevice.reset();
+        }
         if (_pad->Listening)
         {
             Input::GamepadContexts::Capturing(false);
@@ -892,6 +921,9 @@ namespace MphRead::Qt
             },
             true, open);
 
+        AddSetupRows(rows, [open]() { return *open; });
+        AddProfileRows(rows, [open]() { return *open; });
+
         rows.push_back(Heading(QStringLiteral("Controller buttons")));
         for (const Input::PadAction action : Input::PadBindings::Actions())
         {
@@ -1273,6 +1305,312 @@ namespace MphRead::Qt
         Input::GamepadContexts::Capturing(false);
         _padTimer.stop();
         _gamepad.Refresh();
+    }
+
+    // ----------------------------------------------- Controller setup
+
+    void SettingsModel::AddSetupRows(std::vector<Row>& rows, const std::function<bool()>& open)
+    {
+        const auto word = [&rows, &open](const QString& id, const QString& text, std::function<void()> action)
+        {
+            Row row = Word(id, text);
+            row.TextSize = 13;
+            row.Top = 6;
+            row.Shown = open;
+            row.Clicked = std::move(action);
+            rows.push_back(std::move(row));
+            return rows.size() - 1;
+        };
+        word(QStringLiteral("setup.calibrate"), QStringLiteral("Calibrate sticks and triggers"), [this]() { SetupStart(false); });
+        if (!Runtime::IsAndroid())
+        {
+            word(QStringLiteral("setup.map"), QStringLiteral("Map controller buttons and axes"), [this]() { SetupStart(true); });
+            word(QStringLiteral("setup.reset"), QStringLiteral("Reset custom controller mappings"), [this]()
+            {
+                try
+                {
+                    Input::GamepadMappings::ResetOverrides();
+                    SetupStop(QStringLiteral("Custom mappings reset. Restart the game to restore platform mappings."));
+                }
+                catch (const std::exception& ex)
+                {
+                    _setupStatus = QString::fromUtf8(ex.what());
+                }
+            });
+        }
+        const std::size_t apply = word(QStringLiteral("setup.apply"), QStringLiteral("Apply measured setup"),
+            [this]() { SetupApply(); });
+        rows[apply].Enabled = [this]() { return _setup->CanApply; };
+        word(QStringLiteral("setup.cancel"), QStringLiteral("Cancel setup"),
+            [this]() { SetupStop(QStringLiteral("Setup canceled. Settings unchanged.")); });
+        Row status = NoteRow(QString());
+        status.Top = 6;
+        status.Shown = open;
+        status.Live = [this]() { return _setupStatus; };
+        rows.push_back(std::move(status));
+    }
+
+    void SettingsModel::SetupStart(bool mapping)
+    {
+        SetupStop(QString());
+        const Input::GamepadSnapshot snapshot = Input::GamepadManager::Snapshot();
+        if (!snapshot.DeviceId.has_value())
+        {
+            _setupStatus = QStringLiteral("Connect and select a controller first.");
+            return;
+        }
+        PadSetup& setup = *_setup;
+        setup.Buttons = snapshot.State.Buttons;
+        setup.Device = snapshot.DeviceId;
+        setup.Revision = snapshot.Revision;
+        setup.MappingMode = mapping;
+        setup.Started = Runtime::EnvironmentTickCount64();
+        setup.Complete = false;
+        setup.Calibration = mapping ? nullptr : std::make_unique<Input::GamepadCalibration>();
+        setup.Mapping.reset();
+        Input::GamepadContexts::Capturing(true);
+        if (mapping)
+        {
+            Input::GamepadMappingWizard::Latest.reset();
+            Input::GamepadMappingWizard::RequestedDevice = setup.Device;
+        }
+        _setupStatus = QStringLiteral("Release all controls. Keep both sticks centered. Esc or Cancel stops setup.");
+        _setupTimer.start();
+    }
+
+    void SettingsModel::SetupTick()
+    {
+        PadSetup& setup = *_setup;
+        if (!setup.Device.has_value() || setup.Complete)
+        {
+            return;
+        }
+        const Input::GamepadSnapshot snapshot = Input::GamepadManager::Snapshot();
+        if (!Input::GamepadContexts::Focused() || snapshot.DeviceId != setup.Device || snapshot.Revision != setup.Revision)
+        {
+            SetupStop(QStringLiteral("Controller or focus changed. Restart setup."));
+            return;
+        }
+        const std::int64_t elapsed = Runtime::EnvironmentTickCount64() - setup.Started;
+        const Input::GamepadButtons pressed = snapshot.State.Buttons & ~setup.Buttons;
+        setup.Buttons = snapshot.State.Buttons;
+        if (!setup.MappingMode && Input::Any(pressed & Input::GamepadButtons::B))
+        {
+            SetupStop(QStringLiteral("Calibration canceled. Settings unchanged."));
+            return;
+        }
+        if (setup.MappingMode)
+        {
+            const std::shared_ptr<Input::GamepadRawSample> sample = Input::GamepadMappingWizard::Latest;
+            if (sample == nullptr || sample->DeviceId != *setup.Device)
+            {
+                return;
+            }
+            if (setup.Mapping == nullptr)
+            {
+                if (std::any_of(sample->Buttons.begin(), sample->Buttons.end(), [](bool value) { return value; })
+                    || std::any_of(sample->Hats.begin(), sample->Hats.end(), [](std::uint8_t value) { return value != 0; }))
+                {
+                    setup.Started = Runtime::EnvironmentTickCount64();
+                    return;
+                }
+                if (elapsed < 1500)
+                {
+                    return;
+                }
+                setup.Mapping = std::make_unique<Input::GamepadMappingWizard>(*sample);
+            }
+            try
+            {
+                setup.Mapping->Sample(*sample);
+            }
+            catch (const std::exception& ex)
+            {
+                SetupStop(QString::fromUtf8(ex.what()));
+                return;
+            }
+            _setupStatus = Q(setup.Mapping->Prompt()) + QStringLiteral(" Esc or Cancel stops setup.");
+            setup.Complete = setup.Mapping->Complete();
+        }
+        else
+        {
+            const std::optional<Input::GamepadDeviceSnapshot> device = Input::GamepadManager::ActiveDevice();
+            if (!device.has_value() || elapsed < 1000)
+            {
+                // The button that opened setup is released before rest is measured.
+                return;
+            }
+            setup.Calibration->Sample(device->RawState(), elapsed < 3500);
+            if (elapsed < 3500)
+            {
+                _setupStatus = QStringLiteral("Keep sticks and triggers released. Measuring rest\u2026 B cancels.");
+            }
+            else
+            {
+                const std::int64_t seconds = std::max<std::int64_t>(0, (10500 - elapsed) / 1000);
+                _setupStatus = QStringLiteral("Rotate both sticks fully and squeeze/release both triggers. ")
+                    + QString::number(seconds) + QStringLiteral(" seconds remaining. B cancels.");
+            }
+            if (elapsed >= 10500)
+            {
+                setup.Complete = true;
+                _setupStatus = Q(setup.Calibration->Summary());
+            }
+        }
+        if (setup.Complete)
+        {
+            _setupTimer.stop();
+            Input::GamepadContexts::Capturing(false);
+            Input::GamepadMappingWizard::RequestedDevice.reset();
+            setup.CanApply = setup.MappingMode || setup.Calibration->Valid();
+        }
+        _gamepad.Refresh();
+    }
+
+    void SettingsModel::SetupApply()
+    {
+        PadSetup& setup = *_setup;
+        if (!setup.Complete)
+        {
+            return;
+        }
+        if (Input::GamepadManager::Snapshot().DeviceId != setup.Device)
+        {
+            SetupStop(QStringLiteral("Controller changed. Restart setup."));
+            return;
+        }
+        try
+        {
+            if (setup.MappingMode)
+            {
+                Input::GamepadMappings::SaveOverride(setup.Mapping->Mapping());
+            }
+            else
+            {
+                setup.Calibration->Apply();
+            }
+            SetupStop(QStringLiteral("Setup applied. Save settings or a named profile to retain calibration."));
+            QTimer::singleShot(0, this, [this]() { BuildGamepad(); });
+        }
+        catch (const std::exception& ex)
+        {
+            _setupStatus = QStringLiteral("Could not apply setup: ") + QString::fromUtf8(ex.what());
+        }
+    }
+
+    void SettingsModel::SetupStop(const QString& message)
+    {
+        PadSetup& setup = *_setup;
+        if (setup.Device.has_value())
+        {
+            Input::GamepadContexts::Capturing(false);
+        }
+        setup.Device.reset();
+        setup.Complete = false;
+        setup.CanApply = false;
+        _setupTimer.stop();
+        Input::GamepadMappingWizard::RequestedDevice.reset();
+        Input::GamepadMappingWizard::Latest.reset();
+        _setupStatus = message;
+        _gamepad.Refresh();
+    }
+
+    bool SettingsModel::escape()
+    {
+        if (!_setup->Device.has_value())
+        {
+            return false;
+        }
+        SetupStop(QStringLiteral("Setup canceled. Settings unchanged."));
+        return true;
+    }
+
+    // ----------------------------------------------- Controller profiles
+
+    void SettingsModel::AddProfileRows(std::vector<Row>& rows, const std::function<bool()>& open)
+    {
+        Input::GamepadProfiles::Initialize();
+        if (_profileStatus.isEmpty())
+        {
+            _profileStatus = Q(Input::GamepadProfiles::Status());
+        }
+        const auto add = [&rows, &open](Row row)
+        {
+            row.Top = 6;
+            row.Shown = open;
+            rows.push_back(std::move(row));
+        };
+        add(NoteRow(QStringLiteral("Controller profiles \u2014 ") + Q(Input::GamepadProfiles::ActiveName())));
+        QStringList names;
+        for (const Input::GamepadProfile& profile : Input::GamepadProfiles::Profiles())
+        {
+            names.push_back(Q(profile.Name));
+        }
+        if (names.isEmpty())
+        {
+            names.push_back(QStringLiteral("No saved profiles"));
+        }
+        add(Choice(QStringLiteral("profile.saved"), QStringLiteral("Saved profile"), names, 0));
+        add(Field(QStringLiteral("profile.name"), QStringLiteral("Profile name"), QStringLiteral("My controller"), 260));
+        add(Field(QStringLiteral("profile.file"), QStringLiteral("Import / export file"),
+            Q(Runtime::PathCombine(LauncherPrefs::Directory(), "controller-profile.json")), 360));
+
+        const auto value = [this](const char* id)
+        {
+            const Row* row = _gamepad.Find(QString::fromLatin1(id));
+            if (row == nullptr)
+            {
+                return std::string();
+            }
+            return row->Type == QStringLiteral("choice") ? row->Options.value(row->Index).toStdString()
+                                                         : row->Text.toStdString();
+        };
+        const auto word = [this, &add](const QString& id, const QString& text, std::function<void()> action)
+        {
+            Row row = Word(id, text);
+            row.TextSize = 13;
+            row.Clicked = [this, action = std::move(action)]()
+            {
+                try
+                {
+                    action();
+                    _profileStatus = QStringLiteral("Done.");
+                }
+                catch (const std::exception& ex)
+                {
+                    _profileStatus = QString::fromUtf8(ex.what());
+                }
+            };
+            add(std::move(row));
+        };
+        const auto rebuild = [this]() { QTimer::singleShot(0, this, [this]() { BuildGamepad(); }); };
+        const auto active = []()
+        {
+            const std::optional<Input::GamepadDeviceSnapshot> device = Input::GamepadManager::ActiveDevice();
+            if (!device.has_value())
+            {
+                throw std::runtime_error("Connect and select a controller first.");
+            }
+            return *device;
+        };
+        word(QStringLiteral("profile.save"), QStringLiteral("Save current as named profile"),
+            [value, rebuild]() { Input::GamepadProfiles::Save(value("profile.name")); rebuild(); });
+        word(QStringLiteral("profile.load"), QStringLiteral("Load selected profile"),
+            [value, rebuild]() { Input::GamepadProfiles::Load(value("profile.saved")); rebuild(); });
+        word(QStringLiteral("profile.assign"), QStringLiteral("Use selected profile for this controller"),
+            [value, rebuild, active]() { Input::GamepadProfiles::Assign(value("profile.saved"), active()); rebuild(); });
+        word(QStringLiteral("profile.unassign"), QStringLiteral("Remove automatic profile assignment"),
+            [rebuild, active]() { Input::GamepadProfiles::Unassign(active()); rebuild(); });
+        word(QStringLiteral("profile.export"), QStringLiteral("Export selected profile to file"),
+            [value]() { Input::GamepadProfiles::Export(value("profile.saved"), value("profile.file")); });
+        word(QStringLiteral("profile.import"), QStringLiteral("Import profile from file"),
+            [value, rebuild]() { Input::GamepadProfiles::Import(value("profile.file")); rebuild(); });
+        Row status = NoteRow(QString());
+        status.Live = [this]() { return _profileStatus; };
+        add(std::move(status));
+        add(NoteRow(QStringLiteral("Profiles contain controller settings only. Save replaces a profile with the same name. "
+                                   "Import adds a profile; load it to apply. Desktop automatic selection identifies the "
+                                   "controller model and firmware; identical controllers share that assignment."), QColor(), 0));
     }
 
     // ------------------------------------------------------------- Stylus

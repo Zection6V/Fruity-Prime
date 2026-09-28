@@ -73,6 +73,8 @@ namespace MphRead::Qt
         Q_INVOKABLE void padChoose(int row, int choice);
         Q_INVOKABLE void padLeave(int row);
 
+        // Escape while a controller setup runs stops it; true when it did.
+        Q_INVOKABLE bool escape();
         // Crosshair preview: the bars and ring for a style and size index.
         Q_INVOKABLE QVariantMap crosshair(int style, int size) const;
 
@@ -86,6 +88,7 @@ namespace MphRead::Qt
 
     private:
         struct PadCapture;
+        struct PadSetup;
 
         void BuildDisplay();
         void BuildAudio();
@@ -101,6 +104,12 @@ namespace MphRead::Qt
         void PadDone(int row);
         void PadChooseButton(int row, std::int32_t button);
         void PadResolve(int row);
+        void AddSetupRows(std::vector<Row>& rows, const std::function<bool()>& open);
+        void AddProfileRows(std::vector<Row>& rows, const std::function<bool()>& open);
+        void SetupStart(bool mapping);
+        void SetupTick();
+        void SetupApply();
+        void SetupStop(const QString& message);
         [[nodiscard]] Row* Get(RowModel& model, const QString& id);
         [[nodiscard]] int IndexOf(RowModel& model, const QString& id) const;
 
@@ -120,6 +129,10 @@ namespace MphRead::Qt
         bool _stylusAdvanced = false;
         int _keyRow = -1;
         std::unique_ptr<PadCapture> _pad;
+        std::unique_ptr<PadSetup> _setup;
+        QTimer _setupTimer;
+        QString _setupStatus;
+        QString _profileStatus;
         QTimer _padTimer;
         QTimer _deviceTimer;
         std::string _deviceList;

@@ -121,6 +121,8 @@ Column {
                     height: link.height
                     WordLink {
                         id: link
+                        size: slot.row.textSize
+                        enabled: slot.row.enabled
                         text: slot.row.live
                         colour: slot.row.colour !== undefined ? slot.row.colour : Theme.text
                         onClicked: rows.model.click(slot.index)

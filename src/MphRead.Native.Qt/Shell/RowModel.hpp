@@ -47,6 +47,9 @@ namespace MphRead::Qt
         std::function<void(Row&)> Changed;
         std::function<void()> Clicked;
         std::function<bool()> Shown;
+        std::function<bool()> Enabled;
+        // A word's size in points.
+        double TextSize = 15;
     };
 
     // A page of rows. Every row keeps its delegate while its fields change:

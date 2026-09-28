@@ -1,6 +1,6 @@
 ---
 
-name: chatgpt-sol-review
+name: chatgpt-sol-review-general
 
 description: Use a fresh ChatGPT Sol high conversation per work item to implement tracked-file changes directly in the designated GitHub repository, audit and correct them in the same conversation, and verify the resulting commit. Use when the user wants work carried out in ChatGPT rather than a Codex task.
 

@@ -73,6 +73,7 @@
 #include "Render/Crosshair.hpp"
 #include "Render/FrameTiming.hpp"
 #include "Render/FrameTimingCheck.hpp"
+#include "Render/GoldenCapture.hpp"
 #include "Render/Radar.hpp"
 #include "RenderOptions.hpp"
 #include "ShutdownSignals.hpp"
@@ -1055,6 +1056,18 @@ namespace MphRead::Mods
 
         Update::Updater::Disabled(::HasFlag(args, "noupdate"));
         ApplyRenderOverrides(args);
+
+#if defined(MPHREAD_SHELL)
+        if (const std::optional<std::string> golden = ValueAfter(args, "goldencapture");
+            golden.has_value())
+        {
+            const std::string directory = ValueAfter(args, "goldendir").value_or(
+                NativeRuntime::PathCombine(
+                    NativeRuntime::EnvironmentCurrentDirectory(), "golden-rhi"));
+            SetExitCode(Render::GoldenCapture::Run(*golden, directory));
+            return true;
+        }
+#endif
 
         if (::HasFlag(args, "pointercheck"))
         {

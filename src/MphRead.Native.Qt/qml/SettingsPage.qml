@@ -51,6 +51,7 @@ Page {
                     height: subTabs.height + 8
                     Tabs {
                         id: subTabs
+                        padTabs: false
                         x: Theme.roundEven((parent.width - width) / 2)
                         names: ["Keyboard", "Gamepad", "Stylus"]
                         index: page.subsection

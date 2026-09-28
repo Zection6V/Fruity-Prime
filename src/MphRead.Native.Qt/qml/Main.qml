@@ -83,6 +83,7 @@ Item {
                 root.openSetup()
         }
         function onLobbyOpened() { root.openLobby() }
+        function onKeyboardDriving() { Theme.keyboardDriving = true }
         function onScreenRequested(url, props) {
             if (url.length > 0) {
                 root.only(url, props)

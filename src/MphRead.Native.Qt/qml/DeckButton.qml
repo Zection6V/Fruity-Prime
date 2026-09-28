@@ -173,6 +173,7 @@ FocusScope {
                 id: glyphs
                 model: root.letters.length
                 Text {
+                    id: glyph
                     required property int index
                     readonly property string ch: root.letters[index]
                     readonly property int hopIndex: {
@@ -200,11 +201,11 @@ FocusScope {
                         id: letterHop
                         PauseAnimation { duration: 22 * hopIndex }
                         NumberAnimation {
-                            target: parent; property: "amount"; from: 0; to: 1; duration: 160
+                            target: glyph; property: "amount"; from: 0; to: 1; duration: 160
                             easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.spring
                         }
                         NumberAnimation {
-                            target: parent; property: "amount"; to: 0; duration: 260
+                            target: glyph; property: "amount"; to: 0; duration: 260
                             easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.spring
                         }
                     }

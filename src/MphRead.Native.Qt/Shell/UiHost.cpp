@@ -1,5 +1,6 @@
 #include "UiHost.hpp"
 
+#include "FocusNav.hpp"
 #include "HunterStandItem.hpp"
 #include "QmlTypes.hpp"
 
@@ -28,6 +29,9 @@
 #include <QtQuick/QQuickRenderControl>
 #include <QtQuick/QQuickRenderTarget>
 #include <QtQuick/QQuickWindow>
+
+#include "../../MphRead.Native/Mods/Input/GamepadManager.hpp"
+#include "../../MphRead.Native/NativeRuntime/System/Runtime.hpp"
 
 #include <iostream>
 
@@ -59,6 +63,59 @@ namespace MphRead::Qt
     UiHost::UiHost(QWindow& gameWindow, ShellBridge& bridge)
         : _gameWindow(gameWindow), _bridge(bridge)
     {
+        using ::MphRead::Mods::Input::UiAction;
+        _router.Action.Add([this](UiAction action)
+        {
+            switch (action)
+            {
+            case UiAction::Up: SendKey(::Qt::Key_Up); break;
+            case UiAction::Down: SendKey(::Qt::Key_Down); break;
+            case UiAction::Left: SendKey(::Qt::Key_Left); break;
+            case UiAction::Right: SendKey(::Qt::Key_Right); break;
+            case UiAction::Accept: SendKey(::Qt::Key_Return); break;
+            case UiAction::Back: SendKey(::Qt::Key_Escape); break;
+            case UiAction::PreviousTab: _bridge.StepTabs(-1); break;
+            case UiAction::NextTab: _bridge.StepTabs(1); break;
+            case UiAction::PageUp: FocusNav::Page(*_window, false); break;
+            case UiAction::PageDown: FocusNav::Page(*_window, true); break;
+            }
+        });
+    }
+
+    void UiHost::SendKey(int key)
+    {
+        if (!_initialised)
+        {
+            return;
+        }
+        QKeyEvent press(QEvent::KeyPress, key, ::Qt::NoModifier);
+        QCoreApplication::sendEvent(_window.get(), &press);
+        Navigated(key, press.isAccepted());
+        QKeyEvent release(QEvent::KeyRelease, key, ::Qt::NoModifier);
+        QCoreApplication::sendEvent(_window.get(), &release);
+    }
+
+    void UiHost::Navigated(int key, bool accepted)
+    {
+        _bridge.KeyboardDriving();
+        if (accepted)
+        {
+            return;
+        }
+        FocusNav::Unhandled(*_window, key);
+    }
+
+    void UiHost::PadActions()
+    {
+        namespace Input = ::MphRead::Mods::Input;
+        if (!Input::GamepadContexts::Focused())
+        {
+            _router.Reset();
+            return;
+        }
+        _router.Update(Input::GamepadManager::Snapshot(),
+            Input::GamepadContexts::Capturing() ? Input::GamepadContext::BindingCapture : Input::GamepadContext::Menu,
+            ::MphRead::NativeRuntime::EnvironmentTickCount64());
     }
 
     UiHost::~UiHost()
@@ -166,7 +223,14 @@ namespace MphRead::Qt
     void UiHost::Tick(int framebufferWidth, int framebufferHeight)
     {
         using ::MphRead::Mods::Render::UiOverlay;
-        if (!_bridge.Showing() || framebufferWidth <= 0 || framebufferHeight <= 0)
+        const bool showing = _bridge.Showing() && framebufferWidth > 0 && framebufferHeight > 0;
+        if (showing != _menuVisible)
+        {
+            _menuVisible = showing;
+            ::MphRead::Mods::Input::GamepadContexts::MenuVisible(showing);
+            _router.Reset();
+        }
+        if (!showing)
         {
             UiOverlay::Visible(false);
             ::MphRead::Mods::Render::LauncherHunter::Wanted(false);
@@ -178,6 +242,7 @@ namespace MphRead::Qt
             return;
         }
         EnsureTarget(QSize(framebufferWidth, framebufferHeight));
+        PadActions();
         if (_dirty)
         {
             _dirty = false;
@@ -238,5 +303,9 @@ namespace MphRead::Qt
         // event is the game window's, so the scene gets its own copy.
         const std::unique_ptr<QEvent> copy(event.clone());
         QCoreApplication::sendEvent(_window.get(), copy.get());
+        if (copy->type() == QEvent::KeyPress)
+        {
+            Navigated(static_cast<QKeyEvent&>(*copy).key(), copy->isAccepted());
+        }
     }
 }

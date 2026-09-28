@@ -67,7 +67,7 @@ FocusScope {
                 text: "PLAY"; face: Theme.blue; em: page.em; idle: true
                 width: page.column ? bar.columnWidth : implicitWidth
                 focus: true
-                KeyNavigation.right: settingsButton; KeyNavigation.down: settingsButton
+                KeyNavigation.right: settingsButton; KeyNavigation.down: page.column ? settingsButton : null
                 onClicked: page.play()
             }
             DeckButton {
@@ -75,7 +75,7 @@ FocusScope {
                 text: "SETTINGS"; face: Theme.brass; em: page.em
                 width: page.column ? bar.columnWidth : implicitWidth
                 KeyNavigation.left: playButton; KeyNavigation.right: quitButton
-                KeyNavigation.up: playButton; KeyNavigation.down: quitButton
+                KeyNavigation.up: page.column ? playButton : null; KeyNavigation.down: page.column ? quitButton : null
                 onClicked: page.settings()
             }
             DeckButton {
@@ -83,7 +83,7 @@ FocusScope {
                 text: "QUIT"; face: Theme.rust; em: page.em
                 width: page.column ? bar.columnWidth : implicitWidth
                 KeyNavigation.left: settingsButton; KeyNavigation.right: heart
-                KeyNavigation.up: settingsButton
+                KeyNavigation.up: page.column ? settingsButton : null
                 onClicked: page.quit()
             }
         }

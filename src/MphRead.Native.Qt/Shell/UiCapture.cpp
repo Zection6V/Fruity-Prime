@@ -4,6 +4,7 @@
 
 #include "UiCapture.hpp"
 
+#include "FocusNav.hpp"
 #include "QmlTypes.hpp"
 
 #include "PlayModel.hpp"
@@ -16,6 +17,8 @@
 #include "../Platform/QtApp.hpp"
 
 #include <QtCore/QCoreApplication>
+#include <QtGui/QKeyEvent>
+#include <QtGui/QKeySequence>
 #include <QtCore/QDir>
 #include <QtCore/QUrl>
 #include <QtGui/QImage>
@@ -213,6 +216,35 @@ namespace MphRead::Qt
                 control->sync();
                 control->render();
                 control->endFrame();
+            }
+            // FP_QT_UISHOT_KEYS=Down,Down,Return: keys pressed before the
+            // photograph, to check where the focus goes.
+            const QString keys = qEnvironmentVariable("FP_QT_UISHOT_KEYS");
+            if (!keys.isEmpty())
+            {
+                for (const QString& name : keys.split(QLatin1Char(',')))
+                {
+                    const QKeySequence sequence(name);
+                    const int key = sequence.isEmpty() ? 0 : sequence[0].key();
+                    QKeyEvent press(QEvent::KeyPress, key, ::Qt::NoModifier);
+                    QCoreApplication::sendEvent(window.get(), &press);
+                    bridge.KeyboardDriving();
+                    if (!press.isAccepted())
+                    {
+                        FocusNav::Unhandled(*window, key);
+                    }
+                    QKeyEvent release(QEvent::KeyRelease, key, ::Qt::NoModifier);
+                    QCoreApplication::sendEvent(window.get(), &release);
+                    for (int i = 0; i < 2; ++i)
+                    {
+                        QCoreApplication::processEvents();
+                        control->polishItems();
+                        control->beginFrame();
+                        control->sync();
+                        control->render();
+                        control->endFrame();
+                    }
+                }
             }
             context->makeCurrent(surface.get());
             GLuint fbo = 0;

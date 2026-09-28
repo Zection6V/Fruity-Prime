@@ -3,6 +3,8 @@
 #include <QtCore/QObject>
 #include <QtCore/QSize>
 
+#include "../../MphRead.Native/Mods/Input/GamepadUiRouter.hpp"
+
 #include <memory>
 
 class QEvent;
@@ -41,6 +43,10 @@ namespace MphRead::Qt
         void EnsureTarget(QSize pixels);
         void ReleaseTarget();
         void DumpOnce();
+        // The pad in the menus: GamepadNavigation's actions, as keys.
+        void PadActions();
+        void SendKey(int key);
+        void Navigated(int key, bool accepted);
 
         QWindow& _gameWindow;
         ShellBridge& _bridge;
@@ -53,5 +59,7 @@ namespace MphRead::Qt
         bool _dirty = true;
         unsigned _texture = 0;
         QSize _targetSize{};
+        ::MphRead::Mods::Input::GamepadUiRouter _router;
+        bool _menuVisible = false;
     };
 }

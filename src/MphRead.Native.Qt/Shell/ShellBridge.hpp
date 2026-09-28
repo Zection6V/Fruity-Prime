@@ -100,6 +100,10 @@ namespace MphRead::Qt
         void StartMatch(LaunchPlan plan);
         // Back from a lobby's match: the lobby screen again.
         void OpenLobby();
+        // The pad's shoulder buttons: the page's tabs step.
+        void StepTabs(int direction) { emit tabStep(direction); }
+        // A key or the pad moved the focus: show the focus ring.
+        void KeyboardDriving() { emit keyboardDriving(); }
         // A map's picture as a URL, or empty when there is none yet.
         Q_INVOKABLE QString mapShot(const QString& room) const;
         Q_INVOKABLE QString roomName(const QString& room) const;
@@ -131,6 +135,8 @@ namespace MphRead::Qt
         void versionChanged();
         void lobbyOpened();
         void screenRequested(QString url, QVariantMap props);
+        void tabStep(int direction);
+        void keyboardDriving();
 
     private:
         Actions _actions;

@@ -8,6 +8,14 @@ Row {
     property int index: 0
     property real em: Theme.em
     signal changed()
+    // Whether the pad's shoulder buttons step these (the page's own tabs,
+    // not a sub-page's).
+    property bool padTabs: true
+    Connections {
+        target: shell
+        enabled: tabs.padTabs && tabs.visible
+        function onTabStep(direction) { tabs.step(direction) }
+    }
     spacing: Theme.roundEven(em * 0.4)
 
     function step(direction) {

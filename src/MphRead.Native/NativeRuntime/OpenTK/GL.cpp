@@ -45,6 +45,7 @@ namespace
     using PFN_BindFramebuffer = void(APIENTRY*)(GLenum, GLuint);
     using PFN_BindRenderbuffer = void(APIENTRY*)(GLenum, GLuint);
     using PFN_CheckFramebufferStatus = GLenum(APIENTRY*)(GLenum);
+    using PFN_ClientActiveTexture = void(APIENTRY*)(GLenum);
     using PFN_CompileShader = void(APIENTRY*)(GLuint);
     using PFN_CreateProgram = GLuint(APIENTRY*)();
     using PFN_CreateShader = GLuint(APIENTRY*)(GLenum);
@@ -136,6 +137,7 @@ namespace
     MPHREAD_GL_ENTRY(PFN_BindFramebuffer, BindFramebuffer)
     MPHREAD_GL_ENTRY(PFN_BindRenderbuffer, BindRenderbuffer)
     MPHREAD_GL_ENTRY(PFN_CheckFramebufferStatus, CheckFramebufferStatus)
+    MPHREAD_GL_ENTRY(PFN_ClientActiveTexture, ClientActiveTexture)
     MPHREAD_GL_ENTRY(PFN_CompileShader, CompileShader)
     MPHREAD_GL_ENTRY(PFN_CreateProgram, CreateProgram)
     MPHREAD_GL_ENTRY(PFN_CreateShader, CreateShader)
@@ -282,6 +284,16 @@ namespace OpenTK::Graphics::OpenGL::GL
     void ClearStencil(std::int32_t s)
     {
         ::glClearStencil(static_cast<GLint>(s));
+    }
+
+    void ClientActiveTexture(TextureUnit texture)
+    {
+        const auto fn = GetClientActiveTexture();
+        if (fn == nullptr)
+        {
+            throw std::runtime_error("glClientActiveTexture is unavailable.");
+        }
+        fn(ToEnum(texture));
     }
 
     void Color3(float red, float green, float blue)

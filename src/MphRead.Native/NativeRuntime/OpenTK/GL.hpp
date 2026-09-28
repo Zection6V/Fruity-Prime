@@ -216,6 +216,7 @@ namespace OpenTK::Graphics::OpenGL
         void ClearColor(::OpenTK::Mathematics::Vector4 color);
         void ClearColor(float red, float green, float blue, float alpha);
         void ClearStencil(std::int32_t s);
+        void ClientActiveTexture(TextureUnit texture);
         void Color3(float red, float green, float blue);
         void Color3(::OpenTK::Mathematics::Vector3 color);
         void Color4(float red, float green, float blue, float alpha);

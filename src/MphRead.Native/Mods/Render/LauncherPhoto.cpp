@@ -8,6 +8,8 @@
 #include "../../NativeRuntime/System/ExceptionText.hpp"
 #include "../../NativeRuntime/System/Stopwatch.hpp"
 
+#include <cstddef>
+#include <cstdint>
 #include <exception>
 #include <memory>
 #include <string>
@@ -22,6 +24,30 @@ namespace MphRead::Mods::Render
 
     namespace
     {
+        struct BufferCleanup final
+        {
+            std::int32_t Vertex = 0;
+            std::int32_t Index = 0;
+
+            ~BufferCleanup()
+            {
+                try
+                {
+                    if (Index != 0)
+                    {
+                        GL::DeleteBuffer(Index);
+                    }
+                    if (Vertex != 0)
+                    {
+                        GL::DeleteBuffer(Vertex);
+                    }
+                }
+                catch (...)
+                {
+                }
+            }
+        };
+
         struct ShaderCleanup final
         {
             std::int32_t Vertex = 0;
@@ -188,20 +214,61 @@ namespace MphRead::Mods::Render
         GL::MatrixMode(GL::MatrixMode::Modelview);
         GL::PushMatrix();
         GL::LoadIdentity();
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::MultiTexCoord2(GL::TextureUnit::Texture0, u1, v0);
-        GL::MultiTexCoord2(GL::TextureUnit::Texture1, 1, 0);
-        GL::Vertex3(1, 1, 0);
-        GL::MultiTexCoord2(GL::TextureUnit::Texture0, u0, v0);
-        GL::MultiTexCoord2(GL::TextureUnit::Texture1, 0, 0);
-        GL::Vertex3(-1, 1, 0);
-        GL::MultiTexCoord2(GL::TextureUnit::Texture0, u1, v1);
-        GL::MultiTexCoord2(GL::TextureUnit::Texture1, 1, 1);
-        GL::Vertex3(1, -1, 0);
+
+        struct BackdropVertex final
+        {
+            float Position[3];
+            float PhotoCoord[2];
+            float NoiseCoord[2];
+        };
+        const BackdropVertex vertices[]{
+            {{ 1.0F,  1.0F, 0.0F}, {u1, v0}, {1.0F, 0.0F}},
+            {{-1.0F,  1.0F, 0.0F}, {u0, v0}, {0.0F, 0.0F}},
+            {{ 1.0F, -1.0F, 0.0F}, {u1, v1}, {1.0F, 1.0F}},
+            {{-1.0F, -1.0F, 0.0F}, {u0, v1}, {0.0F, 1.0F}}
+        };
+        constexpr std::uint32_t indices[]{0U, 1U, 2U, 3U};
+        BufferCleanup buffers{};
+        buffers.Vertex = GL::GenBuffer();
+        buffers.Index = GL::GenBuffer();
+        GL::BindBuffer(GL::BufferTarget::ArrayBuffer, buffers.Vertex);
+        GL::BufferData(GL::BufferTarget::ArrayBuffer, sizeof(vertices),
+            vertices, GL::BufferUsageHint::StreamDraw);
+        GL::BindBuffer(GL::BufferTarget::ElementArrayBuffer, buffers.Index);
+        GL::BufferData(GL::BufferTarget::ElementArrayBuffer, sizeof(indices),
+            indices, GL::BufferUsageHint::StreamDraw);
+
+        GL::EnableClientState(GL::ClientState::VertexArray);
+        GL::VertexPointer(3, GL::PointerType::Float,
+            static_cast<std::int32_t>(sizeof(BackdropVertex)),
+            reinterpret_cast<const void*>(offsetof(BackdropVertex, Position)));
+
+        GL::ClientActiveTexture(GL::TextureUnit::Texture0);
+        GL::EnableClientState(GL::ClientState::TextureCoordArray);
+        GL::TexCoordPointer(2, GL::PointerType::Float,
+            static_cast<std::int32_t>(sizeof(BackdropVertex)),
+            reinterpret_cast<const void*>(offsetof(BackdropVertex, PhotoCoord)));
+        GL::ClientActiveTexture(GL::TextureUnit::Texture1);
+        GL::EnableClientState(GL::ClientState::TextureCoordArray);
+        GL::TexCoordPointer(2, GL::PointerType::Float,
+            static_cast<std::int32_t>(sizeof(BackdropVertex)),
+            reinterpret_cast<const void*>(offsetof(BackdropVertex, NoiseCoord)));
+
+        GL::DrawElements(GL::PrimitiveType::TriangleStrip, 4,
+            GL::DrawElementsType::UnsignedInt, nullptr);
+
+        GL::ClientActiveTexture(GL::TextureUnit::Texture1);
+        GL::DisableClientState(GL::ClientState::TextureCoordArray);
+        GL::ClientActiveTexture(GL::TextureUnit::Texture0);
+        GL::DisableClientState(GL::ClientState::TextureCoordArray);
+        GL::DisableClientState(GL::ClientState::VertexArray);
+        GL::BindBuffer(GL::BufferTarget::ArrayBuffer, 0);
+        GL::BindBuffer(GL::BufferTarget::ElementArrayBuffer, 0);
+        // Client arrays do not update fixed-function current texture
+        // coordinates. Preserve the terminal state of the former immediate path.
         GL::MultiTexCoord2(GL::TextureUnit::Texture0, u0, v1);
-        GL::MultiTexCoord2(GL::TextureUnit::Texture1, 0, 1);
-        GL::Vertex3(-1, -1, 0);
-        GL::End();
+        GL::MultiTexCoord2(GL::TextureUnit::Texture1, 0.0F, 1.0F);
+
         GL::PopMatrix();
         GL::MatrixMode(GL::MatrixMode::Projection);
         GL::PopMatrix();

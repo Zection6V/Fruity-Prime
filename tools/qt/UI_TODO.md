@@ -22,11 +22,24 @@ Objectif : toute l'UI du launcher en QML, 1 pour 1 avec les 26 écrans de réfé
 - Tailles de police fractionnaires : `font.pointSize: Theme.pt(px)`
 
 ## Fait
-- [x] Start, Pause (dynamique : vote, spectate, record), Confirm
-- [x] Play : Online (liste serveurs, drapeaux), Offline (cartes + panneau latéral), Story, Clips, Vote
-- [x] EndPanel (bulletin + chasseur + READY), Shell::TickEndPanel
-- [x] Écarts actuels : confirm 0.9 %, pause 0.9 %, end 0.6 %, story 1.4 %, clips 1.5 %,
-      offline 3.8 %, vote 3.9 %, online ~8 % (rendu du texte)
+- [x] Start (+ téléphone portrait/paysage : barre en colonne, cœur en coin), Pause (+ téléphone sans
+      Fullscreen), Confirm, EndPanel
+- [x] Play : Online, Offline, Story, Clips, Vote ; échantillon serverbrowser
+- [x] Settings : Display, Audio, Controls (Keyboard/Gamepad/Stylus), Profile, Credits — `SettingsModel`
+      (C++, un `RowModel` par page) + `SettingsPage.qml`/`SettingsRows.qml` ; capture touches/souris/molette
+      (KeyRow), capture manette avec conflits (PadRow), moniteur manette (`GamepadMonitorItem`), calibration,
+      mapping manuel, profils manette, aperçu du viseur, partage des logs
+- [x] Setup (fichiers du jeu) — `SetupModel`
+- [x] CreateServer (+ dedicated, rotation, choix d'hôte) — `CreateServerModel`, `HostPickerPage`, `MapRotationPage`
+- [x] Lobby (roster, choix du joueur, brouillon du match sauvé auto, actions propriétaire, chat, choix de
+      carte, équipes perso) — `LobbyModel` ; retour au lobby après un match (Shell.cpp EndNetworkMatchToLobby)
+- [x] Ligne de version cliquable + vérification de mise à jour (ShellBridge)
+- [x] Navigation clavier/manette : `FocusNav` (déplacement spatial du focus, défilement des listes),
+      `GamepadUiRouter` dans UiHost (flèches, A=Entrée, B=Échap, gâchettes hautes = onglets, pages)
+- [x] Vérifié en vraie fenêtre (Linux + Windows/Arc, FP_QT_DEMO) ; build Windows déployé dans C:\fruityprime
+- Écarts : 1–5 % partout (police Inter vs Pixelify des références), start ~13 % (fond C# ≠ C++, voulu),
+  play-online ~8 %
+- Vérifier une navigation sans écran : `FP_QT_UISHOT_KEYS=Down,Down,Return` avec FP_QT_UISHOT.
 
 ## Décisions utilisateur (2026-09-28)
 - Police des libellés : **Inter** (`Assets/Fonts/Inter-Variable.ttf`, `Theme.pixel`) — intégrée.
@@ -38,15 +51,8 @@ Objectif : toute l'UI du launcher en QML, 1 pour 1 avec les 26 écrans de réfé
 - Pas d'aide « Enter Select / Esc Back » en bas à gauche de l'écran d'accueil (inutile, retirée).
 - Le flou ressenti vient surtout de la capture en 940×528 : vérifier en plein écran dans la vraie fenêtre.
 
-## En cours / à faire
-- [ ] Settings : SettingsModel (RowModel) + SettingsPage.qml ; Display, Audio, Controls
-      (Keyboard/Gamepad/Stylus), Profile, Credits ; items peints KeyRow, PadRow, GamepadMonitor,
-      CrosshairPreview ; GamepadSetupPanel, GamepadProfilePanel
-- [ ] Setup (fichiers du jeu)
-- [ ] CreateServer (+ dedicated, rotation de cartes, choix d'hôte)
-- [ ] Lobby (LobbyScreen, LobbyPlayerRow)
-- [ ] Variantes téléphone (start/play-online/pause phone, pausemenu-small)
-- [ ] serverbrowser (page d'échantillon ServerBrowserSample.qml)
-- [ ] Ligne de version cliquable (mise à jour), heart en coin (bar vertical)
-- [ ] Navigation manette (ControllerNav/GamepadNavigation)
-- [ ] Vérif fenêtre réelle (FP_QT_DEMO) + build Windows
+## Reste
+- [ ] Clavier virtuel manette pour les champs texte (ControllerKeyboard) — utile surtout Android/TV
+- [ ] KeyRow + manette : A sur une touche clavier renvoie vers la ligne manette équivalente
+      (KeyRow::OpenControllerBinding)
+- [ ] Captures de référence à régénérer avec Inter si on veut des écarts proches de 0

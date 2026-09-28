@@ -18,6 +18,8 @@ Page {
         id: settings
         inGame: page.overGame
         onClosed: saved => { if (page.nav) page.nav.pop() }
+        // InGameMenu: over a match the menus step aside for the placement.
+        onStylusPlacementRequested: if (page.overGame && page.nav) page.nav.reset()
         onGameFilesRequested: {
             if (page.nav) {
                 page.nav.pop()

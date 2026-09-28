@@ -270,7 +270,7 @@ namespace MphRead::Mods::Launcher::Gui
                 const bool saved = image.flipped(::Qt::Vertical).convertToFormat(QImage::Format_RGB32).save(path);
                 std::cout << "[demo] " << path.toStdString() << (saved ? "" : " (not written)") << '\n';
             };
-            if (frame == 60)
+            if (frame == 150)
             {
                 shoot("window-start");
                 if (!g_rooms.empty())
@@ -285,12 +285,12 @@ namespace MphRead::Mods::Launcher::Gui
                     Decided(LaunchPlan(init));
                 }
             }
-            else if (frame == 400)
+            else if (frame == 500)
             {
                 shoot("window-match");
                 (void)Shell::OpenPauseMenu();
             }
-            else if (frame == 430)
+            else if (frame == 530)
             {
                 shoot("window-pause");
                 Shell::RequestQuit();

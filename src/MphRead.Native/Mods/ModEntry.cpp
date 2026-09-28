@@ -11,7 +11,7 @@
 #include "DebugLog.hpp"
 #include "Diagnostics/CompatibilityCheck.hpp"
 #include "Diagnostics/PlatformDiagnostics.hpp"
-#if defined(MPHREAD_SHELL)
+#if defined(MPHREAD_AVALONIA)
 #include "Diagnostics/GlfwPathCheck.hpp"
 #include "Diagnostics/LauncherWindowCheck.hpp"
 #include "Diagnostics/ThumbnailWindowCheck.hpp"
@@ -31,11 +31,14 @@
 #include "Launcher/Gui/UiCapture.hpp"
 #include "Launcher/Gui/UiDesigns.hpp"
 #endif
-#if defined(MPHREAD_SHELL)
+#if defined(MPHREAD_AVALONIA)
 #include "Launcher/Gui/DeckTile.hpp"
-#include "Launcher/Gui/Shell.hpp"
 #include "Launcher/Gui/UiBench.hpp"
 #include "Launcher/Gui/UiSurface.hpp"
+#endif
+#if defined(MPHREAD_SHELL)
+#include "Launcher/Gui/GuiLauncher.hpp"
+#include "Launcher/Gui/Shell.hpp"
 #endif
 #include "Launcher/Portable/LauncherPrefs.hpp"
 #include "Launcher/Portable/TextLauncher.hpp"
@@ -886,7 +889,7 @@ namespace
 #endif
     int RunUiBench(const std::vector<std::string>& args)
     {
-#if defined(MPHREAD_SHELL)
+#if defined(MPHREAD_AVALONIA)
         try
         {
             using namespace MphRead::Mods::Launcher::Gui;
@@ -1019,7 +1022,7 @@ namespace MphRead::Mods
 {
     bool ModEntry::TryHandleHeadless(const std::vector<std::string>& args)
     {
-#if defined(MPHREAD_SHELL)
+#if defined(MPHREAD_AVALONIA)
         if (::HasFlag(args, "glfwpathcheck"))
         {
             SetExitCode(Diagnostics::GlfwPathCheck::Run());
@@ -1371,7 +1374,7 @@ namespace MphRead::Mods
 #endif
         if ((::HasFlag(args, "launcher") || doubleClicked) && !::HasFlag(args, "menu"))
         {
-#if defined(MPHREAD_AVALONIA)
+#if defined(MPHREAD_SHELL)
             if (!::HasFlag(args, "text") && Launcher::Gui::GuiLauncher::TryRun())
             {
                 return true;
@@ -1667,7 +1670,7 @@ namespace MphRead::Mods
         }
         if (::HasFlag(args, "uinativeres"))
         {
-#if defined(MPHREAD_SHELL)
+#if defined(MPHREAD_AVALONIA)
             Launcher::Gui::UiSurface::NativeRaster(true);
 #endif
         }

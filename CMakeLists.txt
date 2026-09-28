@@ -106,6 +106,21 @@ list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES
     "${FRUITY_RENDERER_GEOMETRY_TEST_SOURCE}"
     "${FRUITY_RENDERER_GPU_MESH_TEST_SOURCE}")
 
+# The window, event loop and menus. "avalonia" is the Skia-drawn Avalonia port
+# over GLFW; "qt" is a QWindow with Qt Quick menus rendered into a texture the
+# game composites (MphRead.Native.Qt). Both keep the renderer's own frame loop.
+set(FRUITY_UI "avalonia" CACHE STRING "Window and menu toolkit: avalonia or qt")
+set_property(CACHE FRUITY_UI PROPERTY STRINGS avalonia qt)
+set(FRUITY_QT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src/MphRead.Native.Qt")
+if(FRUITY_UI STREQUAL "qt" AND NOT ANDROID)
+    list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/Avalonia/.*\\.cpp$")
+    list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/Skia/.*\\.cpp$")
+    list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/OpenTK/RendererPlatform\\.cpp$")
+    list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/Mods/Launcher/Gui/.*\\.cpp$")
+elseif(NOT FRUITY_UI STREQUAL "avalonia")
+    message(FATAL_ERROR "FRUITY_UI must be avalonia or qt, not '${FRUITY_UI}'")
+endif()
+
 # Android has its own activity, views, input bridge and EGL/GLES renderer under
 # MphRead.Native.Android. The desktop Avalonia/GLFW/Freetype owners must not be
 # pulled into the Android common archive merely because the source list is a
@@ -204,7 +219,9 @@ endif()
 
 # The native desktop executable carries the launcher toolkit and the one-window
 # shell. Android uses its activity/view integration in the C# head instead.
-if(NOT ANDROID)
+if(NOT ANDROID AND FRUITY_UI STREQUAL "qt")
+    target_compile_definitions(fruity_mphread_native PUBLIC MPHREAD_QT MPHREAD_SHELL)
+elseif(NOT ANDROID)
     target_compile_definitions(fruity_mphread_native PUBLIC MPHREAD_AVALONIA MPHREAD_SHELL)
 endif()
 
@@ -223,6 +240,9 @@ if(NOT ANDROID)
     # The native launcher is rendered by real Skia Ganesh into the current
     # OpenGL context. vcpkg exports unofficial::skia::skia, while MSYS2 ships
     # Skia through pkg-config as skia.pc.
+    if(FRUITY_UI STREQUAL "qt")
+        # Qt Quick draws the menus and decodes the images; no Skia.
+    else()
     find_package(unofficial-skia CONFIG QUIET)
     if(TARGET unofficial::skia::skia)
         target_link_libraries(fruity_mphread_native PUBLIC unofficial::skia::skia)
@@ -266,9 +286,6 @@ if(NOT ANDROID)
         target_link_libraries(fruity_mphread_native PUBLIC ${FRUITY_SKIA_TARGET})
     endif()
 
-    find_package(glfw3 CONFIG REQUIRED)
-    target_link_libraries(fruity_mphread_native PUBLIC glfw)
-
     # The launcher's text, which Avalonia rasterises on the C# side.
     find_package(Freetype REQUIRED)
     target_link_libraries(fruity_mphread_native PUBLIC Freetype::Freetype)
@@ -276,6 +293,11 @@ if(NOT ANDROID)
     # The launcher's photograph is a JPEG, which Skia decodes on the C# side.
     find_package(JPEG REQUIRED)
     target_link_libraries(fruity_mphread_native PUBLIC JPEG::JPEG)
+    endif()
+
+    # The window (avalonia) and, for now, the desktop gamepads (both).
+    find_package(glfw3 CONFIG REQUIRED)
+    target_link_libraries(fruity_mphread_native PUBLIC glfw)
 
     if(APPLE)
         # The C# build resolves OpenAL from the executable directory on macOS.

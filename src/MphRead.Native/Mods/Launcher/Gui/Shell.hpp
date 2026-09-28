@@ -1,7 +1,9 @@
 #pragma once
 
 #include "../Portable/LaunchPlan.hpp"
+#if defined(MPHREAD_AVALONIA)
 #include "../../../NativeRuntime/Avalonia/Avalonia.hpp"
+#endif
 
 #include <cstdint>
 #include <functional>
@@ -68,6 +70,7 @@ namespace MphRead::Mods::Launcher::Gui
         static void KeyUp(const OpenTK::Windowing::Common::KeyboardKeyEventArgs& e);
         static void TextInput(const std::string& text);
 
+#if defined(MPHREAD_AVALONIA)
     private:
         using ControlPredicate = std::function<bool(
             MphRead::NativeRuntime::Avalonia::Controls::Control&)>;
@@ -122,5 +125,6 @@ namespace MphRead::Mods::Launcher::Gui
         static std::int32_t _shotStep;
         static std::int32_t _shotWait;
         static std::int32_t _shotMisses;
+#endif
     };
 }

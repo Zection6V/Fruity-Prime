@@ -1,22 +1,24 @@
 name: Native C++ Linux / GCC
 
 on:
-  push:
-    branches: [develop2]
-    paths:
-      - "CMakeLists.txt"
-      - "cmake/**"
-      - "src/MphRead.Native/**"
-      - "src/NcsfPlay.Native/**"
-      - ".github/workflows/native-cpp-linux.yml"
-  pull_request:
-    branches: [develop2]
-    paths:
-      - "CMakeLists.txt"
-      - "cmake/**"
-      - "src/MphRead.Native/**"
-      - "src/NcsfPlay.Native/**"
-      - ".github/workflows/native-cpp-linux.yml"
+  # build_cpp.yml calls this on every push and PR; firing it here too
+  # built the same commit twice.
+  # push:
+  #   branches: [develop2]
+  #   paths:
+  #     - "CMakeLists.txt"
+  #     - "cmake/**"
+  #     - "src/MphRead.Native/**"
+  #     - "src/NcsfPlay.Native/**"
+  #     - ".github/workflows/native-cpp-linux.yml"
+  # pull_request:
+  #   branches: [develop2]
+  #   paths:
+  #     - "CMakeLists.txt"
+  #     - "cmake/**"
+  #     - "src/MphRead.Native/**"
+  #     - "src/NcsfPlay.Native/**"
+  #     - ".github/workflows/native-cpp-linux.yml"
   workflow_dispatch:
   workflow_call:
 

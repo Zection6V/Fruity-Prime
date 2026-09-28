@@ -15,9 +15,10 @@ on:
 permissions:
   contents: read
 
-# A newer push to the same branch makes the older run's result worthless.
+# One run per branch: a push and the PR it updates build the same commit,
+# and a newer push makes an older run's result worthless.
 concurrency:
-  group: build_cpp-${{ github.ref }}
+  group: build_cpp-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:

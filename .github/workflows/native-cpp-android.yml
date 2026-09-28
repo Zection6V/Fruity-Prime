@@ -1,26 +1,28 @@
 name: Native C++ Android
 
 on:
-  push:
-    branches: [develop2]
-    paths:
-      - "CMakeLists.txt"
-      - "cmake/**"
-      - "src/MphRead.Native.Android/**"
-      - "src/MphRead.Native/**"
-      - "src/NcsfPlay.Native/**"
-      - "src/MphRead.Android/MphRead.Android.csproj"
-      - ".github/workflows/native-cpp-android.yml"
-  pull_request:
-    branches: [develop2]
-    paths:
-      - "CMakeLists.txt"
-      - "cmake/**"
-      - "src/MphRead.Native.Android/**"
-      - "src/MphRead.Native/**"
-      - "src/NcsfPlay.Native/**"
-      - "src/MphRead.Android/MphRead.Android.csproj"
-      - ".github/workflows/native-cpp-android.yml"
+  # build_cpp.yml calls this on every push and PR; firing it here too
+  # built the same commit twice.
+  # push:
+  #   branches: [develop2]
+  #   paths:
+  #     - "CMakeLists.txt"
+  #     - "cmake/**"
+  #     - "src/MphRead.Native.Android/**"
+  #     - "src/MphRead.Native/**"
+  #     - "src/NcsfPlay.Native/**"
+  #     - "src/MphRead.Android/MphRead.Android.csproj"
+  #     - ".github/workflows/native-cpp-android.yml"
+  # pull_request:
+  #   branches: [develop2]
+  #   paths:
+  #     - "CMakeLists.txt"
+  #     - "cmake/**"
+  #     - "src/MphRead.Native.Android/**"
+  #     - "src/MphRead.Native/**"
+  #     - "src/NcsfPlay.Native/**"
+  #     - "src/MphRead.Android/MphRead.Android.csproj"
+  #     - ".github/workflows/native-cpp-android.yml"
   workflow_dispatch:
   workflow_call:
 

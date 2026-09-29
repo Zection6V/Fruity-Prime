@@ -9,6 +9,7 @@
 
 #include "../MphRead.Native/Formats/Types.hpp"
 #include "../MphRead.Native/Renderer.hpp"
+#include "../MphRead.Native/Scene.hpp"
 #include "../MphRead.Native/NativeRuntime/System/Exceptions.hpp"
 
 #include <android/bitmap.h>

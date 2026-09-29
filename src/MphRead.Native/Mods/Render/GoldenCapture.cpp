@@ -424,17 +424,6 @@ namespace
                     {
                         _scene->ModGoldenSetHudPassEnabled(true);
                     }
-                    else if (_candidate == GoldenCandidate::Fade)
-                    {
-                        _scene->ModGoldenArmFadeObservation();
-                        _scene->ModGoldenSetFadeState(1.0F, 0.5F);
-                        if (!_scene->ModGoldenFadeStateMatches(1.0F, 0.5F))
-                        {
-                            Fail("fade fixture state did not latch");
-                            _window->BaseOnRenderFrame(args);
-                            return;
-                        }
-                    }
                     else if (_candidate
                         == GoldenCandidate::WhiteoutDisruption)
                     {
@@ -483,6 +472,21 @@ namespace
                             "the intended render");
                         _window->BaseOnRenderFrame(args);
                         return;
+                    }
+
+                    if (_candidate == GoldenCandidate::Fade)
+                    {
+                        // Inject only after draw preparation so the next
+                        // production UpdateFade in OnRenderFrame is the first
+                        // consumer of the deterministic timing fixture.
+                        _scene->ModGoldenArmFadeObservation();
+                        _scene->ModGoldenSetFadeState(1.0F, 0.5F);
+                        if (!_scene->ModGoldenFadeStateMatches(1.0F, 0.5F))
+                        {
+                            Fail("fade fixture state did not latch");
+                            _window->BaseOnRenderFrame(args);
+                            return;
+                        }
                     }
                 }
 
@@ -684,8 +688,9 @@ namespace
             out << "trigger=after OnDrawFrame on update ordinal "
                 << GoldenCaptureUpdate
                 << "; final-stage candidates render a control, re-run "
-                   "OnDrawFrame without advancing simulation, then render "
-                   "the intended production final-stage path\n";
+                   "OnDrawFrame without advancing simulation, inject any "
+                   "candidate-only final-stage state, then render the intended "
+                   "production final-stage path\n";
             out << "camera_mode="
                 << (UsesSyntheticFixture(_candidate)
                     ? "production-player-camera-after-warmup"

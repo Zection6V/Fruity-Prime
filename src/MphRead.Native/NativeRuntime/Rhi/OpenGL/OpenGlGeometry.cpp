@@ -389,6 +389,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
                 _vertices.resize(vertices.size());
                 _indices.resize(vertices.size());
+                BuildTransientIndexSequence(_indices);
                 for (std::size_t i = 0; i < vertices.size(); ++i)
                 {
                     const TransientVertex& source = vertices[i];
@@ -399,7 +400,6 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     target.TexCoord[0] = source.TexCoord.X;
                     target.TexCoord[1] = source.TexCoord.Y;
                     target.TexCoord[2] = source.TexCoord.Z;
-                    _indices[i] = static_cast<std::uint32_t>(i);
                 }
 
                 GL::BindBuffer(GL::BufferTarget::ArrayBuffer, _vertexBuffer);

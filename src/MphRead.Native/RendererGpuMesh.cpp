@@ -33,6 +33,18 @@ namespace MphRead
         return plan;
     }
 
+    void BuildTransientIndexSequence(std::span<std::uint32_t> indices)
+    {
+        if (indices.size() > std::numeric_limits<std::uint32_t>::max())
+        {
+            throw std::overflow_error("Transient geometry vertex count exceeds uint32_t.");
+        }
+        for (std::size_t i = 0; i < indices.size(); ++i)
+        {
+            indices[i] = static_cast<std::uint32_t>(i);
+        }
+    }
+
     std::size_t GpuMeshCache::KeyHash::operator()(const Key& key) const noexcept
     {
         const std::size_t modelHash = std::hash<const void*>{}(key.ModelIdentity);

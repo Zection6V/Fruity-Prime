@@ -62,6 +62,11 @@ namespace MphRead
         OpenTK::Mathematics::Vector3 TexCoord{};
     };
 
+    // Dynamic geometry preserves the caller's submitted vertex order for every
+    // supported transient topology. Fill the scene-owned IBO with that stable
+    // sequence without exposing backend buffer names to renderer/domain types.
+    void BuildTransientIndexSequence(std::span<std::uint32_t> indices);
+
     class TransientGeometryResource
     {
     public:

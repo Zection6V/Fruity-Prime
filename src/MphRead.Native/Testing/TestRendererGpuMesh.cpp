@@ -11,6 +11,15 @@ namespace
 {
     using namespace MphRead;
 
+    template <typename T>
+    concept HasLegacyListId = requires(T value)
+    {
+        value.ListId;
+    };
+
+    static_assert(!HasLegacyListId<Mesh>,
+        "Mesh must not own a backend/display-list identifier.");
+
     [[noreturn]] void Fail(std::string_view message)
     {
         throw std::runtime_error(std::string(message));
@@ -64,6 +73,20 @@ namespace
         Expect(plan.Ranges[3].Topology == ScenePrimitiveTopology::QuadStrip
             && plan.Ranges[3].FirstIndex == 12 && plan.Ranges[3].IndexCount == 6
             && plan.Ranges[3].IndexByteOffset == 12 * sizeof(std::uint32_t), "quad-strip range");
+    }
+
+    void TestTransientIndexSequencePreservesSubmissionOrder()
+    {
+        std::vector<std::uint32_t> indices(8, 0xFFFFFFFFU);
+        BuildTransientIndexSequence(indices);
+        for (std::size_t i = 0; i < indices.size(); ++i)
+        {
+            Expect(indices[i] == i, "transient IBO must preserve submitted vertex order");
+        }
+
+        std::vector<std::uint32_t> empty{};
+        BuildTransientIndexSequence(empty);
+        Expect(empty.empty(), "empty transient draw keeps an empty IBO");
     }
 
     void TestCacheUsesLiveModelAndMeshIdentity()
@@ -152,6 +175,7 @@ int main()
     try
     {
         TestDrawPlanPreservesRanges();
+        TestTransientIndexSequencePreservesSubmissionOrder();
         TestCacheUsesLiveModelAndMeshIdentity();
         std::cout << "RendererGpuMesh tests passed.\n";
         return 0;

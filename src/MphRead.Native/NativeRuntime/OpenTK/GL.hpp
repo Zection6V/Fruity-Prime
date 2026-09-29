@@ -201,6 +201,11 @@ namespace OpenTK::Graphics::OpenGL
         enum class TextureWrapMode : std::int32_t { Repeat = 0x2901, ClampToEdge = 0x812F, MirroredRepeat = 0x8370 };
         enum class TriangleFace : std::int32_t { Front = 0x0404, Back = 0x0405, FrontAndBack = 0x0408 };
 
+#if defined(__ANDROID__)
+        // Reset CPU-side compatibility state when GameView creates a fresh EGL context.
+        void ResetAndroidState();
+#endif
+
         void ActiveTexture(TextureUnit texture);
         void AlphaFunc(AlphaFunction func, float reference);
         void AttachShader(std::int32_t program, std::int32_t shader);

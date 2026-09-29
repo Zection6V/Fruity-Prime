@@ -1282,6 +1282,7 @@ namespace MphRead::Droid
             {
                 MphRead::Mods::Render::EsBindings::Load();
                 MphRead::Mods::Render::GlEs::Reset();
+                OpenTK::Graphics::OpenGL::GL::ResetAndroidState();
                 glClearColor(
                     10.0F / 255.0F,
                     12.0F / 255.0F,

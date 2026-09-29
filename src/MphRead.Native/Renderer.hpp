@@ -5,6 +5,7 @@
 #include "Metadata/Metadata.hpp"
 #include "Selection.hpp"
 #include "NativeRuntime/OpenTK/GL.hpp"
+#include "NativeRuntime/Rhi/GraphicsDevice.hpp"
 #include "NativeRuntime/System/Buffers.hpp"
 #include "RendererGpuMesh.hpp"
 #include "NativeRuntime/System/Runtime.hpp"
@@ -929,7 +930,25 @@ private: \
     void UpdateDepthAttachment(OpenTK::Mathematics::Vector2i target); \
     float MeasureDepthQuantum(); \
     void DrawCelOutline(); \
-    std::int32_t CelFrameBuffer(); \
+    void CreateSceneTargets(OpenTK::Mathematics::Vector2i size); \
+    [[nodiscard]] MphRead::NativeRuntime::Rhi::RenderingInfo SceneRenderingInfo( \
+        std::array<MphRead::NativeRuntime::Rhi::RenderingColorAttachment, 1>& color, \
+        MphRead::NativeRuntime::Rhi::RenderingDepthStencilAttachment& depth) const; \
+    void BeginSceneRendering(); \
+    void BeginCelRendering(); \
+    void BeginWindowRendering(); \
+    [[nodiscard]] MphRead::NativeRuntime::Rhi::Texture* TextureFor(std::int32_t bindingId) const; \
+    [[nodiscard]] const MphRead::NativeRuntime::Rhi::Sampler& SamplerFor(bool linear, \
+        MphRead::RepeatMode s, MphRead::RepeatMode t); \
+    void BindSceneTexture(std::uint32_t slot, std::int32_t bindingId, \
+        const MphRead::NativeRuntime::Rhi::Sampler& sampler); \
+    void BindSceneTexture(std::uint32_t slot, const MphRead::NativeRuntime::Rhi::Texture& texture, \
+        const MphRead::NativeRuntime::Rhi::Sampler& sampler); \
+    void UnbindSceneTexture(std::uint32_t slot); \
+    [[nodiscard]] std::int32_t CreateOwnedTexture(std::int32_t width, std::int32_t height, \
+        MphRead::NativeRuntime::Rhi::TextureFormat format, const void* pixels); \
+    void WriteOwnedTexture(std::int32_t bindingId, std::int32_t width, std::int32_t height, \
+        MphRead::NativeRuntime::Rhi::TextureFormat format, const void* pixels); \
     void DrawCelQuad(OpenTK::Mathematics::Vector2i target, bool probe); \
     void CalibrateInk(OpenTK::Mathematics::Vector2i target); \
     void CountFrame(); \
@@ -1049,7 +1068,7 @@ private: \
     bool _transformRoomNodes = false; \
     bool _outputCameraPos = false; \
     std::unordered_map<std::int32_t, std::shared_ptr<MphRead::TextureMap>> _texPalMap{}; \
-    std::unordered_set<std::int32_t> _ownedTextures{}; \
+    std::unordered_map<std::int32_t, std::unique_ptr<MphRead::NativeRuntime::Rhi::Texture>> _ownedTextures{}; \
     MphRead::GpuMeshCache _gpuMeshCache{}; \
     bool _modelReloadProbeRequested = false; \
     bool _modelReloadProbeAwaitingRedraw = false; \
@@ -1103,14 +1122,17 @@ private: \
     MphRead::RendererPlatform::MouseState* _mouseState = nullptr; \
     std::function<void(std::string)> _setTitle{}; \
     std::function<void()> _close{}; \
-    std::int32_t _frameBuffer = 0; \
-    std::int32_t _screenTexture = 0; \
-    std::int32_t _renderBuffer = 0; \
-    std::int32_t _celTexture = 0; \
-    std::int32_t _depthTexture = 0; \
+    MphRead::NativeRuntime::Rhi::GraphicsDevice* _gpu = nullptr; \
+    std::unique_ptr<MphRead::NativeRuntime::Rhi::CommandList> _commands{}; \
+    std::unique_ptr<MphRead::NativeRuntime::Rhi::Texture> _sceneColor{}; \
+    std::unique_ptr<MphRead::NativeRuntime::Rhi::TextureView> _sceneColorView{}; \
+    std::unique_ptr<MphRead::NativeRuntime::Rhi::Texture> _sceneDepthStencil{}; \
+    std::unique_ptr<MphRead::NativeRuntime::Rhi::TextureView> _sceneDepthStencilView{}; \
+    std::unique_ptr<MphRead::NativeRuntime::Rhi::Texture> _celColor{}; \
+    std::unique_ptr<MphRead::NativeRuntime::Rhi::Texture> _celDepth{}; \
+    std::unique_ptr<MphRead::NativeRuntime::Rhi::TextureView> _celDepthView{}; \
+    std::array<std::unique_ptr<MphRead::NativeRuntime::Rhi::Sampler>, 18> _samplers{}; \
     bool _depthTextureRefused = false; \
-    std::int32_t _celFrameBuffer = 0; \
-    std::int32_t _celFrameBufferColor = 0; \
     OpenTK::Mathematics::Vector2i _targetSize{}; \
     std::unordered_map<std::int32_t, OpenTK::Mathematics::Vector3> _flatColors{}; \
     inline static bool _breakNextFrame = false; \

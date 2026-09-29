@@ -3771,16 +3771,18 @@ namespace MphRead
         }
         if (_topMovieBinding == -1)
         {
-            _topMovieBinding = Mods::Render::GlNames::NextTexture();
-            _botMovieBinding = Mods::Render::GlNames::NextTexture();
+            _topMovieBinding = CreateOwnedTexture(_frameWidth, _frameHeight,
+                NativeRuntime::Rhi::TextureFormat::RGB8Unorm, BufferData(_topImageBuffer));
+            _botMovieBinding = CreateOwnedTexture(_frameWidth, _frameHeight,
+                NativeRuntime::Rhi::TextureFormat::RGB8Unorm, BufferData(_botImageBuffer));
         }
-        GL::BindTexture(GL::TextureTarget::Texture2D, _topMovieBinding);
-        GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgb, _frameWidth, _frameHeight, 0,
-            GL::PixelFormat::Rgb, GL::PixelType::UnsignedByte, BufferData(_topImageBuffer));
-        GL::BindTexture(GL::TextureTarget::Texture2D, _botMovieBinding);
-        GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgb, _frameWidth, _frameHeight, 0,
-            GL::PixelFormat::Rgb, GL::PixelType::UnsignedByte, BufferData(_botImageBuffer));
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+        else
+        {
+            WriteOwnedTexture(_topMovieBinding, _frameWidth, _frameHeight,
+                NativeRuntime::Rhi::TextureFormat::RGB8Unorm, BufferData(_topImageBuffer));
+            WriteOwnedTexture(_botMovieBinding, _frameWidth, _frameHeight,
+                NativeRuntime::Rhi::TextureFormat::RGB8Unorm, BufferData(_botImageBuffer));
+        }
         MPH_MOVIE_DEBUG_ASSERT(!_dualScreenMovie
             || VxDecoder::Instance1().FrameCount == VxDecoder::Instance2().FrameCount);
         _movieFrameTotal = VxDecoder::Instance1().FrameCount;
@@ -4025,22 +4027,14 @@ namespace MphRead
         const auto drawScreen = [this, &newFrame](std::int32_t movieBinding,
             const std::shared_ptr<Formats::ClrArray<std::uint8_t>>& imageBuffer, float y)
         {
-            GL::BindTexture(GL::TextureTarget::Texture2D, movieBinding);
-            const std::int32_t minParameter = static_cast<std::int32_t>(GL::TextureMinFilter::Nearest);
-            const std::int32_t magParameter = static_cast<std::int32_t>(GL::TextureMagFilter::Nearest);
-            GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter, minParameter);
-            GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter, magParameter);
-            GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-                static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-            GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-                static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
             if (_movieFrameIndex != _lastRenderedMovieFrameIndex || (newFrame && _dualScreenMovie))
             {
                 newFrame = true;
                 _lastRenderedMovieFrameIndex = _movieFrameIndex;
-                GL::TexSubImage2D(GL::TextureTarget::Texture2D, 0, 0, 0, _frameWidth, _frameHeight,
-                    GL::PixelFormat::Rgb, GL::PixelType::UnsignedByte, BufferData(imageBuffer));
+                WriteOwnedTexture(movieBinding, _frameWidth, _frameHeight,
+                    NativeRuntime::Rhi::TextureFormat::RGB8Unorm, BufferData(imageBuffer));
             }
+            BindSceneTexture(0, movieBinding, SamplerFor(false, RepeatMode::Clamp, RepeatMode::Clamp));
             BeginTransient(TransientPrimitiveTopology::TriangleStrip);
             TransientTexCoord3(1.0F, 0.0F, 0.0F);
             TransientVertex3(0.5F, y, 0.0F);
@@ -4051,7 +4045,7 @@ namespace MphRead
             TransientTexCoord3(0.0F, 1.0F, 0.0F);
             TransientVertex3(-0.5F, y - 1, 0.0F);
             EndTransient();
-            GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+            UnbindSceneTexture(0);
         };
 
         // GL.Uniform4(FadeColor, 0, 0, 0, 1) in C#: the int overload, glUniform4i.

@@ -20,6 +20,7 @@
 #include "../MphRead.Native/Mods/Render/EsBindings.hpp"
 #include "../MphRead.Native/Mods/Render/FrameTiming.hpp"
 #include "../MphRead.Native/Mods/Render/GlEs.hpp"
+#include "../MphRead.Native/NativeRuntime/Rhi/OpenGL/OpenGlDevice.hpp"
 #include "../MphRead.Native/Mods/Render/HunterShot.hpp"
 #include "../MphRead.Native/Mods/SpectatorMode.hpp"
 #include "../MphRead.Native/Renderer.hpp"
@@ -1039,6 +1040,8 @@ namespace MphRead::Droid
             // GL's Android wrapper keeps its own per-context bindings and
             // element data; they die with this context as well.
             OpenTK::Graphics::OpenGL::GL::ResetAndroidState();
+            // The RHI device's textures lived in that context too.
+            MphRead::NativeRuntime::Rhi::OpenGL::ResetContextDevice();
         }
 
         void Loop()
@@ -1310,6 +1313,7 @@ namespace MphRead::Droid
                 MphRead::Mods::Render::EsBindings::Load();
                 MphRead::Mods::Render::GlEs::Reset();
                 OpenTK::Graphics::OpenGL::GL::ResetAndroidState();
+                MphRead::NativeRuntime::Rhi::OpenGL::ResetContextDevice();
                 glClearColor(
                     10.0F / 255.0F,
                     12.0F / 255.0F,

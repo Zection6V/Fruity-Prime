@@ -2,6 +2,7 @@
 #include "RendererGeometry.hpp"
 #include "NativeRuntime/System/Runtime.hpp"
 #include "NativeRuntime/Rhi/BackendFactory.hpp"
+#include "NativeRuntime/Rhi/OpenGL/OpenGlDevice.hpp"
 #include "NativeRuntime/Rhi/OpenGL/OpenGlGeometry.hpp"
 #include "NativeRuntime/Rhi/OpenGL/OpenGlShaderInterface.hpp"
 #include "NativeRuntime/System/Console.hpp"
@@ -682,6 +683,8 @@ namespace MphRead
                 << ", " << Mods::RenderOptions::CelBands() << " bands, outline "
                 << NativeRuntime::ToStringInvariant(Mods::RenderOptions::CelEdge(), "0.00")
                 << ", fog " << BoolOnOff(Mods::RenderOptions::Fog()) << '\n';
+            _gpu = &NativeRuntime::Rhi::OpenGL::ContextDevice();
+            _commands = _gpu->CreateCommandList();
             InitShaders();
             _transientGeometry
                 = NativeRuntime::Rhi::OpenGL::CreateTransientGeometryResource();
@@ -735,39 +738,24 @@ namespace MphRead
 
     void Scene::OnResize()
     {
-        if (_screenTexture == 0)
+        if (!_sceneColor)
         {
             return;
         }
         const Vector2i target = RenderSize();
         _targetSize = target;
-        GL::BindTexture(GL::TextureTarget::Texture2D, _screenTexture);
-        GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgb,
-            target.X, target.Y, 0, GL::PixelFormat::Rgb, GL::PixelType::UnsignedByte, nullptr);
-        const bool upscaling = Mods::RenderOptions::ResolutionScale() < 100;
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
-            static_cast<std::int32_t>(upscaling ? GL::TextureMinFilter::Linear : GL::TextureMinFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter,
-            static_cast<std::int32_t>(upscaling ? GL::TextureMagFilter::Linear : GL::TextureMagFilter::Nearest));
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-        if (_celTexture != 0)
+        const auto width = static_cast<std::uint32_t>(target.X);
+        const auto height = static_cast<std::uint32_t>(target.Y);
+        _gpu->ResizeTexture(*_sceneColor, width, height);
+        if (_celColor)
         {
-            GL::BindTexture(GL::TextureTarget::Texture2D, _celTexture);
-            GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgb,
-                target.X, target.Y, 0, GL::PixelFormat::Rgb, GL::PixelType::UnsignedByte, nullptr);
-            GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+            _gpu->ResizeTexture(*_celColor, width, height);
         }
-        MPHREAD_DEBUG_ASSERT(_renderBuffer != 0);
-        GL::BindRenderbuffer(GL::RenderbufferTarget::Renderbuffer, _renderBuffer);
-        GL::RenderbufferStorage(GL::RenderbufferTarget::Renderbuffer, GL::RenderbufferStorage::Depth24Stencil8,
-            target.X, target.Y);
-        GL::BindRenderbuffer(GL::RenderbufferTarget::Renderbuffer, 0);
-        if (_depthTexture != 0)
+        MPHREAD_DEBUG_ASSERT(_sceneDepthStencil != nullptr);
+        _gpu->ResizeTexture(*_sceneDepthStencil, width, height);
+        if (_celDepth)
         {
-            GL::BindTexture(GL::TextureTarget::Texture2D, _depthTexture);
-            GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Depth24Stencil8,
-                target.X, target.Y, 0, GL::PixelFormat::DepthStencil, GL::PixelType::UnsignedInt248, nullptr);
-            GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+            _gpu->ResizeTexture(*_celDepth, width, height);
         }
     }
 
@@ -878,56 +866,24 @@ namespace MphRead
         GL::DeleteShader(fragmentShader);
         GL::DeleteShader(vertexShader);
 
-        _frameBuffer = GL::GenFramebuffer();
-        GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, _frameBuffer);
-        _screenTexture = Mods::Render::GlNames::NextTexture();
         Vector2i renderTarget = RenderSize();
         _targetSize = renderTarget;
-        GL::BindTexture(GL::TextureTarget::Texture2D, _screenTexture);
-        GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgb,
-            renderTarget.X, renderTarget.Y, 0, GL::PixelFormat::Rgb, GL::PixelType::UnsignedByte, nullptr);
-        bool upscaling = Mods::RenderOptions::ResolutionScale() < 100;
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
-            static_cast<std::int32_t>(upscaling ? GL::TextureMinFilter::Linear : GL::TextureMinFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter,
-            static_cast<std::int32_t>(upscaling ? GL::TextureMagFilter::Linear : GL::TextureMagFilter::Nearest));
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-        GL::FramebufferTexture2D(GL::FramebufferTarget::Framebuffer, GL::FramebufferAttachment::ColorAttachment0,
-            GL::TextureTarget::Texture2D, _screenTexture, 0);
-
-        _celTexture = Mods::Render::GlNames::NextTexture();
-        GL::BindTexture(GL::TextureTarget::Texture2D, _celTexture);
-        GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgb,
-            renderTarget.X, renderTarget.Y, 0, GL::PixelFormat::Rgb, GL::PixelType::UnsignedByte, nullptr);
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
-            static_cast<std::int32_t>(GL::TextureMinFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter,
-            static_cast<std::int32_t>(GL::TextureMagFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-
-        _renderBuffer = GL::GenRenderbuffer();
-        GL::BindRenderbuffer(GL::RenderbufferTarget::Renderbuffer, _renderBuffer);
-        GL::RenderbufferStorage(GL::RenderbufferTarget::Renderbuffer, GL::RenderbufferStorage::Depth24Stencil8,
-            renderTarget.X, renderTarget.Y);
-        GL::BindRenderbuffer(GL::RenderbufferTarget::Renderbuffer, 0);
-        GL::FramebufferRenderbuffer(GL::FramebufferTarget::Framebuffer,
-            GL::FramebufferAttachment::DepthStencilAttachment, GL::RenderbufferTarget::Renderbuffer, _renderBuffer);
-
-        auto status = GL::CheckFramebufferStatus(GL::FramebufferTarget::Framebuffer);
-        _framebufferStatus = static_cast<OpenTK::Graphics::OpenGL::FramebufferErrorCode>(
-            static_cast<std::int32_t>(status));
-        if (status != GL::FramebufferErrorCode::FramebufferComplete)
+        CreateSceneTargets(renderTarget);
         {
-            std::cout << "[render] the offscreen target is not usable: "
-                << FramebufferErrorText(_framebufferStatus)
-                << ". Nothing drawn into it will appear. Size " << _rendererSize.X << 'x' << _rendererSize.Y << ".\n";
-            NativeRuntime::DebuggerBreak();
+            std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
+            NativeRuntime::Rhi::RenderingDepthStencilAttachment depth{};
+            const bool complete = _gpu->CanRender(SceneRenderingInfo(color, depth));
+            _framebufferStatus = complete
+                ? OpenTK::Graphics::OpenGL::FramebufferErrorCode::FramebufferComplete
+                : OpenTK::Graphics::OpenGL::FramebufferErrorCode::FramebufferUnsupported;
+            if (!complete)
+            {
+                std::cout << "[render] the offscreen target is not usable: "
+                    << FramebufferErrorText(_framebufferStatus)
+                    << ". Nothing drawn into it will appear. Size " << _rendererSize.X << 'x' << _rendererSize.Y << ".\n";
+                NativeRuntime::DebuggerBreak();
+            }
         }
-        GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, 0);
 
         _shaderLocations->UseLight = GL::GetUniformLocation(_shaderProgramId, "use_light");
         _shaderLocations->ShowColors = GL::GetUniformLocation(_shaderProgramId, "show_colors");
@@ -1329,8 +1285,13 @@ namespace MphRead
     std::pair<std::int32_t, bool> Scene::BindTexture(const std::shared_ptr<Model>& model,
         std::int32_t textureId, std::int32_t paletteId, std::int32_t recolorId)
     {
-        const std::int32_t bindingId = Mods::Render::GlNames::NextTexture();
-        _ownedTextures.insert(bindingId);
+        const auto& texture = model->Recolors->at(static_cast<std::size_t>(recolorId))
+            ->Textures->at(static_cast<std::size_t>(textureId));
+        auto owned = _gpu->CreateTexture(NativeRuntime::Rhi::TextureDesc{
+            static_cast<std::uint32_t>(texture.Width), static_cast<std::uint32_t>(texture.Height), 1, 1, 1, 1,
+            NativeRuntime::Rhi::TextureFormat::RGBA8Unorm,
+            NativeRuntime::Rhi::TextureUsage::Sampled | NativeRuntime::Rhi::TextureUsage::TransferDst});
+        const std::int32_t bindingId = owned->Handle().value;
         bool onlyOpaque = true;
         std::vector<std::uint32_t> pixels;
         FlatColor average;
@@ -1340,12 +1301,10 @@ namespace MphRead
             onlyOpaque = onlyOpaque && pixel.Alpha == 255;
             average.Add(pixel);
         }
-        const auto& texture = model->Recolors->at(static_cast<std::size_t>(recolorId))
-            ->Textures->at(static_cast<std::size_t>(textureId));
-        GL::BindTexture(GL::TextureTarget::Texture2D, bindingId);
-        GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgba,
-            texture.Width, texture.Height, 0, GL::PixelFormat::Rgba, GL::PixelType::UnsignedByte, pixels.data());
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+        _gpu->WriteTexture(*owned, NativeRuntime::Rhi::TextureWrite{
+            static_cast<std::uint32_t>(texture.Width), static_cast<std::uint32_t>(texture.Height),
+            NativeRuntime::Rhi::TextureFormat::RGBA8Unorm, pixels.data()});
+        _ownedTextures.insert_or_assign(bindingId, std::move(owned));
         _flatColors[bindingId] = average.Result();
         return {bindingId, onlyOpaque};
     }
@@ -1359,12 +1318,9 @@ namespace MphRead
 
     std::int32_t Scene::BindGetTexture(const std::vector<ColorRgba>& data, std::int32_t width, std::int32_t height)
     {
-        const std::int32_t bindingId = Mods::Render::GlNames::NextTexture();
-        _ownedTextures.insert(bindingId);
-        GL::BindTexture(GL::TextureTarget::Texture2D, bindingId);
-        GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgba,
-            width, height, 0, GL::PixelFormat::Rgba, GL::PixelType::UnsignedByte, data.data());
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+        if (_gpu == nullptr) return 0;
+        const std::int32_t bindingId = CreateOwnedTexture(width, height,
+            NativeRuntime::Rhi::TextureFormat::RGBA8Unorm, data.data());
         _flatColors[bindingId] = AverageOf(data);
         return bindingId;
     }
@@ -1372,11 +1328,164 @@ namespace MphRead
     void Scene::BindTexture(const std::vector<ColorRgba>& data, std::int32_t width, std::int32_t height,
         std::int32_t bindingId)
     {
-        GL::BindTexture(GL::TextureTarget::Texture2D, bindingId);
-        GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgba,
-            width, height, 0, GL::PixelFormat::Rgba, GL::PixelType::UnsignedByte, data.data());
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+        if (_gpu != nullptr)
+        {
+            WriteOwnedTexture(bindingId, width, height, NativeRuntime::Rhi::TextureFormat::RGBA8Unorm, data.data());
+        }
         _flatColors[bindingId] = AverageOf(data);
+    }
+
+    std::int32_t Scene::CreateOwnedTexture(std::int32_t width, std::int32_t height,
+        NativeRuntime::Rhi::TextureFormat format, const void* pixels)
+    {
+        auto owned = _gpu->CreateTexture(NativeRuntime::Rhi::TextureDesc{
+            static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), 1, 1, 1, 1, format,
+            NativeRuntime::Rhi::TextureUsage::Sampled | NativeRuntime::Rhi::TextureUsage::TransferDst});
+        const std::int32_t bindingId = owned->Handle().value;
+        _gpu->WriteTexture(*owned, NativeRuntime::Rhi::TextureWrite{
+            static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), format, pixels});
+        _ownedTextures.insert_or_assign(bindingId, std::move(owned));
+        return bindingId;
+    }
+
+    // Write a texture under a handle that may not be ours: a HUD element
+    // rewriting the texture it was given, or a caller with a reserved range
+    // of its own (the map thumbnails). A handle nothing holds yet becomes a
+    // texture the device keeps, as the GL name it used to be was kept.
+    void Scene::WriteOwnedTexture(std::int32_t bindingId, std::int32_t width, std::int32_t height,
+        NativeRuntime::Rhi::TextureFormat format, const void* pixels)
+    {
+        NativeRuntime::Rhi::Texture* texture = _gpu->FindTexture(NativeRuntime::Rhi::TextureHandle{bindingId});
+        if (texture == nullptr)
+        {
+            texture = &_gpu->RetainTexture(_gpu->CreateTexture(NativeRuntime::Rhi::TextureDesc{
+                static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), 1, 1, 1, 1, format,
+                NativeRuntime::Rhi::TextureUsage::Sampled | NativeRuntime::Rhi::TextureUsage::TransferDst},
+                NativeRuntime::Rhi::TextureHandle{bindingId}));
+        }
+        _gpu->WriteTexture(*texture, NativeRuntime::Rhi::TextureWrite{
+            static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), format, pixels});
+    }
+
+    void Scene::CreateSceneTargets(Vector2i size)
+    {
+        namespace Rhi = NativeRuntime::Rhi;
+        const auto width = static_cast<std::uint32_t>(size.X);
+        const auto height = static_cast<std::uint32_t>(size.Y);
+        // SceneColor, CelColor and SceneDepthStencil, in the order their
+        // names were always taken.
+        _sceneColor = _gpu->CreateTexture(Rhi::TextureDesc{width, height, 1, 1, 1, 1,
+            Rhi::TextureFormat::RGB8Unorm,
+            Rhi::TextureUsage::Sampled | Rhi::TextureUsage::ColorAttachment | Rhi::TextureUsage::TransferSrc});
+        _sceneColorView = _gpu->CreateTextureView(*_sceneColor, Rhi::TextureViewDesc{Rhi::TextureFormat::RGB8Unorm});
+        _celColor = _gpu->CreateTexture(Rhi::TextureDesc{width, height, 1, 1, 1, 1,
+            Rhi::TextureFormat::RGB8Unorm,
+            Rhi::TextureUsage::Sampled | Rhi::TextureUsage::ColorAttachment | Rhi::TextureUsage::TransferDst});
+        _sceneDepthStencil = _gpu->CreateTexture(Rhi::TextureDesc{width, height, 1, 1, 1, 1,
+            Rhi::TextureFormat::D24UnormS8Uint, Rhi::TextureUsage::DepthStencilAttachment});
+        _sceneDepthStencilView = _gpu->CreateTextureView(*_sceneDepthStencil,
+            Rhi::TextureViewDesc{Rhi::TextureFormat::D24UnormS8Uint});
+    }
+
+    // The scene target: SceneColor, over CelDepth while the cel outline
+    // wants a depth it can read and SceneDepthStencil otherwise. Everything
+    // is loaded -- the frame's clears are still their own calls.
+    NativeRuntime::Rhi::RenderingInfo Scene::SceneRenderingInfo(
+        std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1>& color,
+        NativeRuntime::Rhi::RenderingDepthStencilAttachment& depth) const
+    {
+        color[0].view = _sceneColorView.get();
+        depth.view = _celDepthView ? _celDepthView.get() : _sceneDepthStencilView.get();
+        NativeRuntime::Rhi::RenderingInfo info{};
+        info.width = static_cast<std::uint32_t>(_targetSize.X);
+        info.height = static_cast<std::uint32_t>(_targetSize.Y);
+        info.colorAttachments = color;
+        info.depthStencilAttachment = &depth;
+        return info;
+    }
+
+    void Scene::BeginSceneRendering()
+    {
+        std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
+        NativeRuntime::Rhi::RenderingDepthStencilAttachment depth{};
+        _commands->BeginRendering(SceneRenderingInfo(color, depth));
+    }
+
+    // The cel pass writes SceneColor with no depth attached.
+    void Scene::BeginCelRendering()
+    {
+        std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
+        color[0].view = _sceneColorView.get();
+        NativeRuntime::Rhi::RenderingInfo info{};
+        info.width = static_cast<std::uint32_t>(_targetSize.X);
+        info.height = static_cast<std::uint32_t>(_targetSize.Y);
+        info.colorAttachments = color;
+        _commands->BeginRendering(info);
+    }
+
+    void Scene::BeginWindowRendering()
+    {
+        NativeRuntime::Rhi::RenderingInfo info{};
+        info.width = static_cast<std::uint32_t>(_rendererSize.X);
+        info.height = static_cast<std::uint32_t>(_rendererSize.Y);
+        info.swapchain = true;
+        _commands->BeginRendering(info);
+    }
+
+    NativeRuntime::Rhi::Texture* Scene::TextureFor(std::int32_t bindingId) const
+    {
+        return _gpu != nullptr && bindingId != 0
+            ? _gpu->FindTexture(NativeRuntime::Rhi::TextureHandle{bindingId}) : nullptr;
+    }
+
+    const NativeRuntime::Rhi::Sampler& Scene::SamplerFor(bool linear, RepeatMode s, RepeatMode t)
+    {
+        namespace Rhi = NativeRuntime::Rhi;
+        const auto address = [](RepeatMode mode)
+        {
+            switch (mode)
+            {
+            case RepeatMode::Clamp: return Rhi::SamplerAddressMode::ClampToEdge;
+            case RepeatMode::Mirror: return Rhi::SamplerAddressMode::MirroredRepeat;
+            case RepeatMode::Repeat:
+            default: return Rhi::SamplerAddressMode::Repeat;
+            }
+        };
+        const std::size_t index = (linear ? 9U : 0U) + static_cast<std::size_t>(s) * 3U
+            + static_cast<std::size_t>(t);
+        auto& sampler = _samplers.at(index);
+        if (!sampler)
+        {
+            Rhi::SamplerDesc desc{};
+            desc.minFilter = linear ? Rhi::Filter::Linear : Rhi::Filter::Nearest;
+            desc.magFilter = desc.minFilter;
+            desc.mipFilter = Rhi::Filter::Nearest;
+            desc.addressU = address(s);
+            desc.addressV = address(t);
+            sampler = _gpu->CreateSampler(desc);
+        }
+        return *sampler;
+    }
+
+    void Scene::BindSceneTexture(std::uint32_t slot, std::int32_t bindingId,
+        const NativeRuntime::Rhi::Sampler& sampler)
+    {
+        const NativeRuntime::Rhi::Texture* texture = TextureFor(bindingId);
+        _commands->BindSampledTexture(slot, texture, texture != nullptr ? &sampler : nullptr);
+    }
+
+    void Scene::BindSceneTexture(std::uint32_t slot, const NativeRuntime::Rhi::Texture& texture,
+        const NativeRuntime::Rhi::Sampler& sampler)
+    {
+        _commands->BindSampledTexture(slot, &texture, &sampler);
+    }
+
+    void Scene::UnbindSceneTexture(std::uint32_t slot)
+    {
+        if (_commands)
+        {
+            _commands->BindSampledTexture(slot, nullptr, nullptr);
+        }
     }
 
     void Scene::UpdateMaterials(const std::shared_ptr<Model>& model, std::int32_t recolorId)
@@ -1559,7 +1668,6 @@ namespace MphRead
         const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
         Mods::EndScreen::Tick(_room != nullptr ? _room->Meta().Name : std::string(), _globalElapsedTime);
         Mods::Render::MapThumbnail::BeginFrame();
-        GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, _frameBuffer);
         Vector2i target = RenderSize();
         if (target != _targetSize)
         {
@@ -1567,6 +1675,7 @@ namespace MphRead
             target = _targetSize;
         }
         UpdateDepthAttachment(target);
+        BeginSceneRendering();
         GL::Viewport(0, 0, target.X, target.Y);
         GL::UseProgram(_shaderProgramId);
         LoadAndUnload();
@@ -1673,10 +1782,12 @@ namespace MphRead
         height = _rendererSize.Y;
         if (width <= 0 || height <= 0) return std::nullopt;
         std::vector<std::uint8_t> buffer(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 3U);
-        GL::BindFramebuffer(GL::FramebufferTarget::ReadFramebuffer, 0);
-        GL::ReadBuffer(GL::ReadBufferMode::Back);
-        GL::PixelStore(GL::PixelStoreParameter::PackAlignment, 1);
-        GL::ReadPixels(0, 0, width, height, GL::PixelFormat::Rgb, GL::PixelType::UnsignedByte, buffer.data());
+        NativeRuntime::Rhi::RenderingInfo info{};
+        info.width = static_cast<std::uint32_t>(width);
+        info.height = static_cast<std::uint32_t>(height);
+        info.swapchain = true;
+        _commands->ReadColor(info, 0, 0, info.width, info.height,
+            NativeRuntime::Rhi::TextureFormat::RGB8Unorm, buffer.data());
         return buffer;
     }
 
@@ -1684,13 +1795,13 @@ namespace MphRead
     {
         width = _targetSize.X;
         height = _targetSize.Y;
-        if (_frameBuffer == 0) return std::nullopt;
+        if (!_sceneColor || !_commands) return std::nullopt;
         std::vector<std::uint8_t> buffer(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 3U);
-        GL::BindFramebuffer(GL::FramebufferTarget::ReadFramebuffer, _frameBuffer);
-        GL::ReadBuffer(GL::ReadBufferMode::ColorAttachment0);
-        GL::PixelStore(GL::PixelStoreParameter::PackAlignment, 1);
-        GL::ReadPixels(0, 0, width, height, GL::PixelFormat::Rgb, GL::PixelType::UnsignedByte, buffer.data());
-        GL::BindFramebuffer(GL::FramebufferTarget::ReadFramebuffer, 0);
+        std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
+        NativeRuntime::Rhi::RenderingDepthStencilAttachment depth{};
+        _commands->ReadColor(SceneRenderingInfo(color, depth), 0, 0,
+            static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height),
+            NativeRuntime::Rhi::TextureFormat::RGB8Unorm, buffer.data());
         return buffer;
     }
 
@@ -1710,47 +1821,32 @@ namespace MphRead
     {
         const bool want = !_depthTextureRefused && Mods::RenderOptions::CelShading()
             && Mods::RenderOptions::CelEdge() > 0.0F;
-        if (want == (_depthTexture != 0)) return;
+        if (want == (_celDepth != nullptr)) return;
         if (!want)
         {
-            GL::FramebufferRenderbuffer(GL::FramebufferTarget::Framebuffer,
-                GL::FramebufferAttachment::DepthStencilAttachment, GL::RenderbufferTarget::Renderbuffer,
-                _renderBuffer);
-            GL::DeleteTexture(_depthTexture);
-            _depthTexture = 0;
+            // The scene target falls back to SceneDepthStencil by itself.
+            _celDepthView.reset();
+            _celDepth.reset();
             return;
         }
-        _depthTexture = Mods::Render::GlNames::NextTexture();
-        GL::BindTexture(GL::TextureTarget::Texture2D, _depthTexture);
-        GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Depth24Stencil8,
-            target.X, target.Y, 0, GL::PixelFormat::DepthStencil, GL::PixelType::UnsignedInt248, nullptr);
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
-            static_cast<std::int32_t>(GL::TextureMinFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter,
-            static_cast<std::int32_t>(GL::TextureMagFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-        GL::FramebufferTexture2D(GL::FramebufferTarget::Framebuffer,
-            GL::FramebufferAttachment::DepthStencilAttachment, GL::TextureTarget::Texture2D, _depthTexture, 0);
+        namespace Rhi = NativeRuntime::Rhi;
+        _celDepth = _gpu->CreateTexture(Rhi::TextureDesc{
+            static_cast<std::uint32_t>(target.X), static_cast<std::uint32_t>(target.Y), 1, 1, 1, 1,
+            Rhi::TextureFormat::D24UnormS8Uint,
+            Rhi::TextureUsage::Sampled | Rhi::TextureUsage::DepthStencilAttachment});
+        _celDepthView = _gpu->CreateTextureView(*_celDepth, Rhi::TextureViewDesc{Rhi::TextureFormat::D24UnormS8Uint});
         _claimedQuantum = MeasureDepthQuantum();
         _depthQuantum = _claimedQuantum;
-        const auto status = GL::CheckFramebufferStatus(GL::FramebufferTarget::Framebuffer);
-        if (status != GL::FramebufferErrorCode::FramebufferComplete)
+        std::array<Rhi::RenderingColorAttachment, 1> color{};
+        Rhi::RenderingDepthStencilAttachment depth{};
+        if (!_gpu->CanRender(SceneRenderingInfo(color, depth)))
         {
-            const auto statusText = static_cast<OpenTK::Graphics::OpenGL::FramebufferErrorCode>(
-                static_cast<std::int32_t>(status));
             std::cout << "[render] this driver will not read the scene's depth back ("
-                << FramebufferErrorText(statusText)
+                << FramebufferErrorText(OpenTK::Graphics::OpenGL::FramebufferErrorCode::FramebufferUnsupported)
                 << "); cel shading keeps its banding and goes without the outline.\n";
             _depthTextureRefused = true;
-            GL::FramebufferRenderbuffer(GL::FramebufferTarget::Framebuffer,
-                GL::FramebufferAttachment::DepthStencilAttachment, GL::RenderbufferTarget::Renderbuffer,
-                _renderBuffer);
-            GL::DeleteTexture(_depthTexture);
-            _depthTexture = 0;
+            _celDepthView.reset();
+            _celDepth.reset();
         }
     }
 
@@ -1759,21 +1855,15 @@ namespace MphRead
         constexpr std::int32_t requested = 24;
         std::int32_t bits = requested;
         bool answered = false;
-        try
         {
-            (void)DrainGlError();
-            std::int32_t answer = 0;
-            GL::GetFramebufferAttachmentParameter(GL::FramebufferTarget::Framebuffer,
-                GL::FramebufferAttachment::DepthAttachment,
-                GL::FramebufferParameterName::FramebufferAttachmentDepthSize, answer);
-            if (GL::GetError() == GL::ErrorCode::NoError && answer >= 8 && answer <= 32)
+            std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
+            NativeRuntime::Rhi::RenderingDepthStencilAttachment depth{};
+            const std::uint32_t answer = _gpu->DepthBits(SceneRenderingInfo(color, depth));
+            if (answer != 0)
             {
-                bits = answer;
+                bits = static_cast<std::int32_t>(answer);
                 answered = true;
             }
-        }
-        catch (...)
-        {
         }
         if (!_saidDepthSize)
         {
@@ -1790,10 +1880,10 @@ namespace MphRead
     void Scene::DrawCelOutline()
     {
         if (!Mods::RenderOptions::CelShading() || Mods::RenderOptions::CelEdge() <= 0.0F
-            || _celTexture == 0 || _celShaderProgramId == 0 || _depthTexture == 0) return;
+            || !_celColor || _celShaderProgramId == 0 || !_celDepth) return;
         const Vector2i target = _targetSize;
-        GL::BindTexture(GL::TextureTarget::Texture2D, _celTexture);
-        GL::CopyTexSubImage2D(GL::TextureTarget::Texture2D, 0, 0, 0, 0, 0, target.X, target.Y);
+        _commands->CopyColorAttachmentToTexture(*_celColor,
+            static_cast<std::uint32_t>(target.X), static_cast<std::uint32_t>(target.Y));
         if (_calibrateInk)
         {
             _calibrateInk = false;
@@ -1802,30 +1892,16 @@ namespace MphRead
         DrawCelQuad(target, false);
     }
 
-    std::int32_t Scene::CelFrameBuffer()
-    {
-        if (_celFrameBuffer == 0) _celFrameBuffer = GL::GenFramebuffer();
-        if (_celFrameBufferColor != _screenTexture)
-        {
-            GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, _celFrameBuffer);
-            GL::FramebufferTexture2D(GL::FramebufferTarget::Framebuffer,
-                GL::FramebufferAttachment::ColorAttachment0, GL::TextureTarget::Texture2D, _screenTexture, 0);
-            _celFrameBufferColor = _screenTexture;
-        }
-        return _celFrameBuffer;
-    }
-
     void Scene::DrawCelQuad(Vector2i target, bool probe)
     {
-        GL::ActiveTexture(GL::TextureUnit::Texture1);
-        GL::BindTexture(GL::TextureTarget::Texture2D, _depthTexture);
-        GL::ActiveTexture(GL::TextureUnit::Texture0);
-        GL::BindTexture(GL::TextureTarget::Texture2D, _celTexture);
+        const auto& nearestClamp = SamplerFor(false, RepeatMode::Clamp, RepeatMode::Clamp);
+        BindSceneTexture(1, *_celDepth, nearestClamp);
+        BindSceneTexture(0, *_celColor, nearestClamp);
         GL::UseProgram(_celShaderProgramId);
         _shaderConstants->Set(NativeRuntime::Rhi::CelPostConstants{
             1.0F / target.X, 1.0F / target.Y, Mods::RenderOptions::CelEdge(), _nearClip,
             _useClip ? _farClip : 10000.0F, _depthQuantum, probe});
-        GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, CelFrameBuffer());
+        BeginCelRendering();
         GL::Disable(GL::EnableCap::DepthTest);
         GL::Disable(GL::EnableCap::Blend);
         GL::Disable(GL::EnableCap::CullFace);
@@ -1835,10 +1911,9 @@ namespace MphRead
         TransientTexCoord3(1.0F, 0.0F, 0.0F); TransientVertex3(1.0F, -1.0F, 0.0F);
         TransientTexCoord3(0.0F, 0.0F, 0.0F); TransientVertex3(-1.0F, -1.0F, 0.0F);
         EndTransient();
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-        GL::ActiveTexture(GL::TextureUnit::Texture1); GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-        GL::ActiveTexture(GL::TextureUnit::Texture0);
-        GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, _frameBuffer);
+        UnbindSceneTexture(0);
+        UnbindSceneTexture(1);
+        BeginSceneRendering();
         GL::Enable(GL::EnableCap::DepthTest);
     }
 
@@ -1983,14 +2058,15 @@ namespace MphRead
             if (main->HudWhiteoutFactor() != 0.0F)
                 _shaderConstants->SetWhiteoutTable(Entities::PlayerEntity::HudWhiteoutTable);
         }
-        GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, 0);
+        BeginWindowRendering();
         GL::Viewport(0, 0, _rendererSize.X, _rendererSize.Y);
         GL::Clear(GL::ClearBufferMask::ColorBufferBit); GL::Disable(GL::EnableCap::DepthTest); GL::Enable(GL::EnableCap::Blend);
-        GL::BindTexture(GL::TextureTarget::Texture2D, _screenTexture);
+        BindSceneTexture(0, *_sceneColor, SamplerFor(Mods::RenderOptions::ResolutionScale() < 100,
+            RepeatMode::Repeat, RepeatMode::Repeat));
         BeginTransient(TransientPrimitiveTopology::TriangleStrip);
         TransientTexCoord3(1,1,0); TransientVertex3(1,1,0); TransientTexCoord3(0,1,0); TransientVertex3(-1,1,0);
         TransientTexCoord3(1,0,0); TransientVertex3(1,-1,0); TransientTexCoord3(0,0,0); TransientVertex3(-1,-1,0); EndTransient();
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+        UnbindSceneTexture(0);
         if (main->HudDisruptedState() != 0 || main->HudWhiteoutState() != -1) GL::UseProgram(_rttShaderProgramId);
         _shaderConstants->SetFadeColor(Vector4(_fadeColor, _fadeColor, _fadeColor, 0.0F));
         if (((main->LoadFlags() & LoadFlags::Active) == LoadFlags::Active) && CameraMode() == MphRead::CameraMode::Player)
@@ -1999,15 +2075,15 @@ namespace MphRead
             DrawHudLayer(_layer4Info); DrawHudLayer(_layer3Info); DrawHudLayer(_layer1Info); DrawHudLayer(_layer2Info); DrawHudLayer(_layer5Info);
             if (_layer1Info->MaskId != -1)
             {
-                GL::ActiveTexture(GL::TextureUnit::Texture1); GL::BindTexture(GL::TextureTarget::Texture2D, _layer1Info->MaskId);
-                GL::ActiveTexture(GL::TextureUnit::Texture0);
+                // The mask is layer 1's own texture, drawn just above with this sampler.
+                BindSceneTexture(1, _layer1Info->MaskId, SamplerFor(false, RepeatMode::Clamp, RepeatMode::Clamp));
                 _shaderConstants->SetViewSize(
                     static_cast<float>(_rendererSize.X), static_cast<float>(_rendererSize.Y));
             }
             main->DrawHudObjects(); _shaderConstants->SetUseMask(false);
             if (_layer1Info->MaskId != -1)
             {
-                GL::ActiveTexture(GL::TextureUnit::Texture1); GL::BindTexture(GL::TextureTarget::Texture2D, 0); GL::ActiveTexture(GL::TextureUnit::Texture0);
+                UnbindSceneTexture(1);
             }
             if (GameState::MenuPause()) main->DrawPauseMenuForeground();
         }
@@ -2115,7 +2191,6 @@ namespace MphRead
                 for (const auto& [key, value] : mapIt->second->_items)
                 {
                     (void)key;
-                    GL::DeleteTexture(value.BindingId);
                     _ownedTextures.erase(value.BindingId);
                     _flatColors.erase(value.BindingId);
                 }
@@ -3574,54 +3649,28 @@ namespace MphRead
         {
             ::MphRead::Mods::Render::LauncherHunter::NoteGlUnloaded();
         }
-        for (const auto& [modelId, map] : _texPalMap)
-        {
-            (void)modelId;
-            for (const auto& [key, value] : map->_items)
-            {
-                (void)key;
-                GL::DeleteTexture(value.BindingId);
-                _ownedTextures.erase(value.BindingId);
-            }
-        }
+        // Every texture this scene created -- the models' texture/palette
+        // pairs, HUD art, trails, the movie frames -- is in _ownedTextures.
         _texPalMap.clear();
-        for (const std::int32_t textureId : _ownedTextures)
-        {
-            if (textureId != 0)
-            {
-                GL::DeleteTexture(textureId);
-            }
-        }
         _ownedTextures.clear();
         _flatColors.clear();
         _gpuMeshCache.Clear();
         _transientGeometry.reset();
         _transientVertices.clear();
         Read::ClearCache();
-        if (_frameBuffer != 0)
+        _celDepthView.reset();
+        _celDepth.reset();
+        _celColor.reset();
+        _sceneDepthStencilView.reset();
+        _sceneDepthStencil.reset();
+        _sceneColorView.reset();
+        _sceneColor.reset();
+        for (auto& sampler : _samplers)
         {
-            GL::DeleteFramebuffer(_frameBuffer);
-            _frameBuffer = 0;
+            sampler.reset();
         }
-        if (_celFrameBuffer != 0)
-        {
-            GL::DeleteFramebuffer(_celFrameBuffer);
-            _celFrameBuffer = 0;
-            _celFrameBufferColor = 0;
-        }
-        if (_renderBuffer != 0)
-        {
-            GL::DeleteRenderbuffer(_renderBuffer);
-            _renderBuffer = 0;
-        }
-        const auto deleteTexture = [](std::int32_t& texture)
-        {
-            if (texture != 0)
-            {
-                GL::DeleteTexture(texture);
-                texture = 0;
-            }
-        };
+        // The command list owns the framebuffers built on those targets.
+        _commands.reset();
         const auto deleteProgram = [](std::int32_t& program)
         {
             if (program != 0)
@@ -3630,19 +3679,9 @@ namespace MphRead
                 program = 0;
             }
         };
-        if (_topMovieBinding != -1)
-        {
-            GL::DeleteTexture(_topMovieBinding);
-            _topMovieBinding = -1;
-        }
-        if (_botMovieBinding != -1)
-        {
-            GL::DeleteTexture(_botMovieBinding);
-            _botMovieBinding = -1;
-        }
-        deleteTexture(_screenTexture);
-        deleteTexture(_celTexture);
-        deleteTexture(_depthTexture);
+        // The movie frames were owned textures, already released above.
+        _topMovieBinding = -1;
+        _botMovieBinding = -1;
         deleteProgram(_shaderProgramId);
         deleteProgram(_rttShaderProgramId);
         deleteProgram(_shiftShaderProgramId);
@@ -4056,15 +4095,7 @@ namespace MphRead
             return;
         }
         _shaderConstants->SetLayerAlpha(info->Alpha);
-        GL::BindTexture(GL::TextureTarget::Texture2D, info->BindingId);
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
-            static_cast<std::int32_t>(GL::TextureMinFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter,
-            static_cast<std::int32_t>(GL::TextureMagFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
+        BindSceneTexture(0, info->BindingId, SamplerFor(false, RepeatMode::Clamp, RepeatMode::Clamp));
         const float viewWidth = static_cast<float>(_rendererSize.X);
         const float viewHeight = static_cast<float>(_rendererSize.Y);
         float width;
@@ -4086,7 +4117,7 @@ namespace MphRead
         TransientTexCoord3(1,1,0); TransientVertex3(width + info->ShiftX, -height + info->ShiftY, 0);
         TransientTexCoord3(0,1,0); TransientVertex3(-width + info->ShiftX, -height + info->ShiftY, 0);
         EndTransient();
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+        UnbindSceneTexture(0);
     }
 
     void Scene::DrawCustomCrosshair(Vector3 color, float posX, float posY)
@@ -4184,15 +4215,7 @@ namespace MphRead
         const float y1 = (halfH - bottom / 192.0F * _rendererSize.Y) / halfH;
         _shaderConstants->SetLayerAlpha(alpha);
         _shaderConstants->SetUseMask(false);
-        GL::BindTexture(GL::TextureTarget::Texture2D, bindingId);
-        const auto min = static_cast<std::int32_t>(smooth ? GL::TextureMinFilter::Linear : GL::TextureMinFilter::Nearest);
-        const auto mag = static_cast<std::int32_t>(smooth ? GL::TextureMagFilter::Linear : GL::TextureMagFilter::Nearest);
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter, min);
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter, mag);
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
+        BindSceneTexture(0, bindingId, SamplerFor(smooth, RepeatMode::Clamp, RepeatMode::Clamp));
         BeginTransient(TransientPrimitiveTopology::TriangleStrip);
         TransientTexCoord3(1.0F, 0.0F, 0.0F);
         TransientVertex3(x1, y0, 0);
@@ -4203,7 +4226,7 @@ namespace MphRead
         TransientTexCoord3(0.0F, 1.0F, 0.0F);
         TransientVertex3(x0, y1, 0);
         EndTransient();
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+        UnbindSceneTexture(0);
         _shaderConstants->SetLayerAlpha(1.0F);
     }
 
@@ -4346,15 +4369,7 @@ namespace MphRead
         const bool center = inst->Center;
         _shaderConstants->SetLayerAlpha(inst->Alpha);
         _shaderConstants->SetUseMask(inst->UseMask);
-        GL::BindTexture(GL::TextureTarget::Texture2D, inst->BindingId);
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
-            static_cast<std::int32_t>(inst->Smooth ? GL::TextureMinFilter::Linear : GL::TextureMinFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter,
-            static_cast<std::int32_t>(inst->Smooth ? GL::TextureMagFilter::Linear : GL::TextureMagFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
+        BindSceneTexture(0, inst->BindingId, SamplerFor(inst->Smooth, RepeatMode::Clamp, RepeatMode::Clamp));
         const float viewWidth = static_cast<float>(_rendererSize.X);
         const float viewHeight = static_cast<float>(_rendererSize.Y);
         if (mode == 2)
@@ -4403,7 +4418,7 @@ namespace MphRead
         TransientTexCoord3(1,1,0); TransientVertex3(rightPos, bottomPos, 0);
         TransientTexCoord3(0,1,0); TransientVertex3(leftPos, bottomPos, 0);
         EndTransient();
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+        UnbindSceneTexture(0);
     }
 
     void Scene::DrawIconModel(Vector2 position, float angle, const std::shared_ptr<ModelInstance>& inst,
@@ -4419,18 +4434,10 @@ namespace MphRead
         const auto model = inst->Model();
         UpdateMaterials(model, 0);
         GL::Uniform1(_shaderLocations->MaterialAlpha, alpha);
-        GL::BindTexture(GL::TextureTarget::Texture2D, model->Materials->at(0)->TextureBindingId);
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
-            static_cast<std::int32_t>(GL::TextureMinFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter,
-            static_cast<std::int32_t>(GL::TextureMagFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
+        BindSceneTexture(0, model->Materials->at(0)->TextureBindingId, SamplerFor(false, RepeatMode::Clamp, RepeatMode::Clamp));
         GL::Color3(Vector3(color.Red / 31.0F, color.Green / 31.0F, color.Blue / 31.0F));
         DrawGpuMesh(model, model->Meshes->at(0));
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+        UnbindSceneTexture(0);
         SetMatrixStack(RendererDetail::IdentityMatrix());
     }
 
@@ -4440,15 +4447,7 @@ namespace MphRead
         UpdateMaterials(model, 0);
         Material& material = *model->Materials->at(0);
         GL::Uniform1(_shaderLocations->MaterialAlpha, material.Alpha / 31.0F * alpha);
-        GL::BindTexture(GL::TextureTarget::Texture2D, material.TextureBindingId);
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
-            static_cast<std::int32_t>(GL::TextureMinFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter,
-            static_cast<std::int32_t>(GL::TextureMagFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
+        BindSceneTexture(0, material.TextureBindingId, SamplerFor(false, RepeatMode::Clamp, RepeatMode::Clamp));
         const float viewWidth = static_cast<float>(_rendererSize.X);
         const float viewHeight = static_cast<float>(_rendererSize.Y);
         BeginTransient(TransientPrimitiveTopology::TriangleStrip);
@@ -4457,7 +4456,7 @@ namespace MphRead
         TransientTexCoord3(1,1,0); TransientVertex3(viewWidth, -viewHeight, -1);
         TransientTexCoord3(0,1,0); TransientVertex3(-viewWidth, -viewHeight, -1);
         EndTransient();
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+        UnbindSceneTexture(0);
     }
 
     void Scene::DrawHudDamageModel(const std::shared_ptr<ModelInstance>& inst)
@@ -4465,15 +4464,7 @@ namespace MphRead
         const auto model = inst->Model();
         UpdateMaterials(model, 0);
         GL::Uniform1(_shaderLocations->MaterialAlpha, 1.0F);
-        GL::BindTexture(GL::TextureTarget::Texture2D, model->Materials->at(0)->TextureBindingId);
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
-            static_cast<std::int32_t>(GL::TextureMinFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter,
-            static_cast<std::int32_t>(GL::TextureMagFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
+        BindSceneTexture(0, model->Materials->at(0)->TextureBindingId, SamplerFor(false, RepeatMode::Clamp, RepeatMode::Clamp));
         const float viewWidth = static_cast<float>(_rendererSize.X);
         const float viewHeight = static_cast<float>(_rendererSize.Y);
         const float xOffset = -viewWidth / 2.0F;
@@ -4517,7 +4508,7 @@ namespace MphRead
                 DrawGpuMesh(model, mesh);
             }
         }
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+        UnbindSceneTexture(0);
         SetMatrixStack(RendererDetail::IdentityMatrix());
     }
 
@@ -4533,35 +4524,7 @@ namespace MphRead
     {
         if (item.HasTexture)
         {
-            GL::BindTexture(GL::TextureTarget::Texture2D, item.TextureBindingId);
-            GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
-                static_cast<std::int32_t>(FilteringOn() ? GL::TextureMinFilter::Linear : GL::TextureMinFilter::Nearest));
-            GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter,
-                static_cast<std::int32_t>(FilteringOn() ? GL::TextureMagFilter::Linear : GL::TextureMagFilter::Nearest));
-            switch (item.XRepeat)
-            {
-            case RepeatMode::Clamp:
-                GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-                    static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge)); break;
-            case RepeatMode::Repeat:
-                GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-                    static_cast<std::int32_t>(GL::TextureWrapMode::Repeat)); break;
-            case RepeatMode::Mirror:
-                GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-                    static_cast<std::int32_t>(GL::TextureWrapMode::MirroredRepeat)); break;
-            }
-            switch (item.YRepeat)
-            {
-            case RepeatMode::Clamp:
-                GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-                    static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge)); break;
-            case RepeatMode::Repeat:
-                GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-                    static_cast<std::int32_t>(GL::TextureWrapMode::Repeat)); break;
-            case RepeatMode::Mirror:
-                GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-                    static_cast<std::int32_t>(GL::TextureWrapMode::MirroredRepeat)); break;
-            }
+            BindSceneTexture(0, item.TextureBindingId, SamplerFor(FilteringOn(), item.XRepeat, item.YRepeat));
             GL::Uniform1(_shaderLocations->TexgenMode, static_cast<std::int32_t>(item.TexgenMode));
             GL::UniformMatrix4(_shaderLocations->TextureMatrix, false, item.TexcoordMatrix);
         }

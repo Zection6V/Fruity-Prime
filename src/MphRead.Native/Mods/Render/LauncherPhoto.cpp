@@ -238,30 +238,29 @@ namespace MphRead::Mods::Render
         GL::BufferData(GL::BufferTarget::ElementArrayBuffer, sizeof(indices),
             indices, GL::BufferUsageHint::StreamDraw);
 
-        GL::EnableClientState(GL::ClientState::VertexArray);
-        GL::VertexPointer(3, GL::PointerType::Float,
+        // Semantic inputs: the backdrop shader reads them as generic
+        // attributes, and GL mirrors them into the conventional arrays for the
+        // fixed-function fallback (a photograph with no moving layer).
+        namespace VI = GL::VertexInput;
+        GL::EnableVertexAttribArray(VI::Position);
+        GL::VertexAttribPointer(VI::Position, 3, GL::PointerType::Float, false,
             static_cast<std::int32_t>(sizeof(BackdropVertex)),
             reinterpret_cast<const void*>(offsetof(BackdropVertex, Position)));
-
-        GL::ClientActiveTexture(GL::TextureUnit::Texture0);
-        GL::EnableClientState(GL::ClientState::TextureCoordArray);
-        GL::TexCoordPointer(2, GL::PointerType::Float,
+        GL::EnableVertexAttribArray(VI::TexCoord);
+        GL::VertexAttribPointer(VI::TexCoord, 2, GL::PointerType::Float, false,
             static_cast<std::int32_t>(sizeof(BackdropVertex)),
             reinterpret_cast<const void*>(offsetof(BackdropVertex, PhotoCoord)));
-        GL::ClientActiveTexture(GL::TextureUnit::Texture1);
-        GL::EnableClientState(GL::ClientState::TextureCoordArray);
-        GL::TexCoordPointer(2, GL::PointerType::Float,
+        GL::EnableVertexAttribArray(VI::TexCoord1);
+        GL::VertexAttribPointer(VI::TexCoord1, 2, GL::PointerType::Float, false,
             static_cast<std::int32_t>(sizeof(BackdropVertex)),
             reinterpret_cast<const void*>(offsetof(BackdropVertex, NoiseCoord)));
 
         GL::DrawElements(GL::PrimitiveType::TriangleStrip, 4,
             GL::DrawElementsType::UnsignedInt, nullptr);
 
-        GL::ClientActiveTexture(GL::TextureUnit::Texture1);
-        GL::DisableClientState(GL::ClientState::TextureCoordArray);
-        GL::ClientActiveTexture(GL::TextureUnit::Texture0);
-        GL::DisableClientState(GL::ClientState::TextureCoordArray);
-        GL::DisableClientState(GL::ClientState::VertexArray);
+        GL::DisableVertexAttribArray(VI::TexCoord1);
+        GL::DisableVertexAttribArray(VI::TexCoord);
+        GL::DisableVertexAttribArray(VI::Position);
         GL::BindBuffer(GL::BufferTarget::ArrayBuffer, 0);
         GL::BindBuffer(GL::BufferTarget::ElementArrayBuffer, 0);
         // Client arrays do not update fixed-function current texture

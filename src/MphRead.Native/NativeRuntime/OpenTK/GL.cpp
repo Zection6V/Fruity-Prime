@@ -70,6 +70,8 @@ namespace
     using PFN_GetShaderInfoLog = void(APIENTRY*)(GLuint, GLsizei, GLsizei*, GLchar*);
     using PFN_GetUniformLocation = GLint(APIENTRY*)(GLuint, const GLchar*);
     using PFN_LinkProgram = void(APIENTRY*)(GLuint);
+    using PFN_BindAttribLocation = void(APIENTRY*)(GLuint, GLuint, const GLchar*);
+    using PFN_VertexAttrib4f = void(APIENTRY*)(GLuint, GLfloat, GLfloat, GLfloat, GLfloat);
     using PFN_MultiTexCoord2f = void(APIENTRY*)(GLenum, GLfloat, GLfloat);
     using PFN_RenderbufferStorage = void(APIENTRY*)(GLenum, GLenum, GLsizei, GLsizei);
     using PFN_ShaderSource = void(APIENTRY*)(GLuint, GLsizei, const GLchar* const*, const GLint*);
@@ -165,6 +167,8 @@ namespace
     MPHREAD_GL_ENTRY(PFN_GetShaderInfoLog, GetShaderInfoLog)
     MPHREAD_GL_ENTRY(PFN_GetUniformLocation, GetUniformLocation)
     MPHREAD_GL_ENTRY(PFN_LinkProgram, LinkProgram)
+    MPHREAD_GL_ENTRY(PFN_BindAttribLocation, BindAttribLocation)
+    MPHREAD_GL_ENTRY(PFN_VertexAttrib4f, VertexAttrib4f)
     MPHREAD_GL_ENTRY(PFN_MultiTexCoord2f, MultiTexCoord2f)
     MPHREAD_GL_ENTRY(PFN_RenderbufferStorage, RenderbufferStorage)
     MPHREAD_GL_ENTRY(PFN_ShaderSource, ShaderSource)
@@ -181,6 +185,50 @@ namespace
     MPHREAD_GL_ENTRY(PFN_DebugMessageCallback, DebugMessageCallback)
 
 #undef MPHREAD_GL_ENTRY
+
+    // The shaders read explicit generic inputs now, and a disabled generic
+    // array reads the generic *current value* -- not glColor's. Every
+    // current-value call below sets both, so fixed-function draws (the
+    // launcher overlay) and the shaders see the same colour, normal and
+    // texcoord. On NVIDIA the two are one slot anyway (VertexInput).
+    void SetGenericCurrent(std::uint32_t location, float x, float y, float z, float w)
+    {
+        if (const auto fn = GetVertexAttrib4f())
+        {
+            fn(static_cast<GLuint>(location), x, y, z, w);
+        }
+    }
+
+    // Copy the conventional current values into the generic ones. The
+    // compatibility defaults differ -- glColor starts white, a generic
+    // attribute starts (0,0,0,1) -- so this runs whenever a program is
+    // linked, which is before anything is drawn with one.
+    // The conventional mirror of the second texcoord stream is texture unit
+    // 1's array; the renderer keeps unit 0 client-active everywhere else.
+    template <typename F>
+    void OnTextureUnit1(F&& f)
+    {
+        const auto active = GetClientActiveTexture();
+        if (active == nullptr)
+        {
+            return;
+        }
+        active(0x84C1U); // GL_TEXTURE1
+        f();
+        active(0x84C0U); // GL_TEXTURE0
+    }
+
+    void SyncGenericCurrentValues()
+    {
+        namespace VI = ::OpenTK::Graphics::OpenGL::GL::VertexInput;
+        GLfloat v[4]{};
+        ::glGetFloatv(GL_CURRENT_COLOR, v);
+        SetGenericCurrent(VI::Color, v[0], v[1], v[2], v[3]);
+        ::glGetFloatv(GL_CURRENT_NORMAL, v);
+        SetGenericCurrent(VI::Normal, v[0], v[1], v[2], 1.0F);
+        ::glGetFloatv(GL_CURRENT_TEXTURE_COORDS, v);
+        SetGenericCurrent(VI::TexCoord, v[0], v[1], v[2], v[3]);
+    }
 
     template <typename T>
     [[nodiscard]] GLenum ToEnum(T value) noexcept
@@ -301,16 +349,18 @@ namespace OpenTK::Graphics::OpenGL::GL
     void Color3(float red, float green, float blue)
     {
         ::glColor3f(red, green, blue);
+        SetGenericCurrent(VertexInput::Color, red, green, blue, 1.0F);
     }
 
     void Color3(::OpenTK::Mathematics::Vector3 color)
     {
-        ::glColor3f(color.X, color.Y, color.Z);
+        Color3(color.X, color.Y, color.Z);
     }
 
     void Color4(float red, float green, float blue, float alpha)
     {
         ::glColor4f(red, green, blue, alpha);
+        SetGenericCurrent(VertexInput::Color, red, green, blue, alpha);
     }
 
     void ColorMask(bool red, bool green, bool blue, bool alpha)
@@ -442,6 +492,9 @@ namespace OpenTK::Graphics::OpenGL::GL
         case VertexInput::Color: ::glDisableClientState(GL_COLOR_ARRAY); break;
         case VertexInput::Normal: ::glDisableClientState(GL_NORMAL_ARRAY); break;
         case VertexInput::TexCoord: ::glDisableClientState(GL_TEXTURE_COORD_ARRAY); break;
+        case VertexInput::TexCoord1:
+            OnTextureUnit1([] { ::glDisableClientState(GL_TEXTURE_COORD_ARRAY); });
+            break;
         default: break;
         }
     }
@@ -483,6 +536,9 @@ namespace OpenTK::Graphics::OpenGL::GL
         case VertexInput::Color: ::glEnableClientState(GL_COLOR_ARRAY); break;
         case VertexInput::Normal: ::glEnableClientState(GL_NORMAL_ARRAY); break;
         case VertexInput::TexCoord: ::glEnableClientState(GL_TEXTURE_COORD_ARRAY); break;
+        case VertexInput::TexCoord1:
+            OnTextureUnit1([] { ::glEnableClientState(GL_TEXTURE_COORD_ARRAY); });
+            break;
         default: break;
         }
     }
@@ -684,10 +740,24 @@ namespace OpenTK::Graphics::OpenGL::GL
 
     void LinkProgram(std::int32_t program)
     {
+        // Every desktop program reads its vertex inputs by the semantic names
+        // and is bound to the semantic locations here, so no shader and no
+        // call site states a number. Binding a name the program does not
+        // declare is not an error.
+        if (const auto bind = GetBindAttribLocation())
+        {
+            for (std::size_t i = 0; i < ::MphRead::NativeRuntime::Rhi::VertexSemanticCount; ++i)
+            {
+                const std::string name(::MphRead::NativeRuntime::Rhi::VertexSemanticNames[i]);
+                bind(static_cast<GLuint>(program),
+                    static_cast<GLuint>(VertexInput::Locations[i]), name.c_str());
+            }
+        }
         if (const auto fn = GetLinkProgram())
         {
             fn(static_cast<GLuint>(program));
         }
+        SyncGenericCurrentValues();
     }
 
     void DeleteRenderbuffer(std::int32_t renderbuffer)
@@ -715,11 +785,14 @@ namespace OpenTK::Graphics::OpenGL::GL
         {
             fn(ToEnum(texture), s, t);
         }
+        SetGenericCurrent(texture == TextureUnit::Texture1 ? VertexInput::TexCoord1
+            : VertexInput::TexCoord, s, t, 0.0F, 1.0F);
     }
 
     void Normal3(float nx, float ny, float nz)
     {
         ::glNormal3f(nx, ny, nz);
+        SetGenericCurrent(VertexInput::Normal, nx, ny, nz, 1.0F);
     }
 
     void NormalPointer(PointerType type, std::int32_t stride, const void* pointer)
@@ -810,16 +883,18 @@ namespace OpenTK::Graphics::OpenGL::GL
     void TexCoord2(float s, float t)
     {
         ::glTexCoord2f(s, t);
+        SetGenericCurrent(VertexInput::TexCoord, s, t, 0.0F, 1.0F);
     }
 
     void TexCoord3(float s, float t, float r)
     {
         ::glTexCoord3f(s, t, r);
+        SetGenericCurrent(VertexInput::TexCoord, s, t, r, 1.0F);
     }
 
     void TexCoord3(::OpenTK::Mathematics::Vector3 coord)
     {
-        ::glTexCoord3f(coord.X, coord.Y, coord.Z);
+        TexCoord3(coord.X, coord.Y, coord.Z);
     }
 
     void TexSubImage2D(TextureTarget target, std::int32_t level, std::int32_t xoffset,
@@ -971,6 +1046,11 @@ namespace OpenTK::Graphics::OpenGL::GL
             break;
         case VertexInput::TexCoord:
             ::glTexCoordPointer(size, glType, static_cast<GLsizei>(stride), pointer);
+            break;
+        case VertexInput::TexCoord1:
+            OnTextureUnit1([&] {
+                ::glTexCoordPointer(size, glType, static_cast<GLsizei>(stride), pointer);
+            });
             break;
         default:
             break;

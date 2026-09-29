@@ -93,8 +93,6 @@ namespace MphRead::Mods::Launcher::Gui
             OpenTK::Windowing::GraphicsLibraryFramework::Keys key);
         static void Escape();
         static void HoldResults();
-        static void ReleaseResults();
-        static void EndShotMatch();
         static void Shot(MphRead::RenderWindow& window, const std::string& name);
         [[nodiscard]] static std::vector<ShotAction> Script();
         [[nodiscard]] static OpenTK::Windowing::GraphicsLibraryFramework::Keys KeyValue(

@@ -767,16 +767,33 @@ namespace MphRead::Mods::Launcher::Gui
             [](MphRead::RenderWindow& window)
             {
                 Shot(window, "shell-endgame-hunter");
-                ReleaseResults();
-                Wait(20);
+                Click([](Av::Controls::Control& control)
+                {
+                    const auto* button = dynamic_cast<DeckButton*>(&control);
+                    return button != nullptr && button->Text() == "READY";
+                });
+                Wait(15);
             },
-            [](MphRead::RenderWindow&) { EndShotMatch(); Wait(90); },
+            [](MphRead::RenderWindow& window)
+            {
+                if (!MphRead::Mods::EndScreen::Ready())
+                {
+                    ++_shotMisses;
+                    std::cout << "[shellshot] results READY did not take effect\n";
+                    _shotDirectory.reset();
+                    window.Close();
+                    return;
+                }
+                std::cout << "[shellshot] results READY accepted; leaving through the shell match path\n";
+                LeaveMatch(window);
+                Wait(60);
+            },
             [](MphRead::RenderWindow& window)
             {
                 if (window.HasScene())
                 {
                     ++_shotMisses;
-                    std::cout << "[shellshot] match did not return to the launcher\n";
+                    std::cout << "[shellshot] READY/leave did not return to the launcher\n";
                     _shotDirectory.reset();
                     window.Close();
                     return;
@@ -949,17 +966,6 @@ namespace MphRead::Mods::Launcher::Gui
             std::cout << "[shellshot] no ballot to show: "
                 << ExceptionMessage(std::current_exception()) << '\n';
         }
-    }
-
-    void Shell::ReleaseResults()
-    {
-        MphRead::GameState::MatchTime(0.2F);
-    }
-
-    void Shell::EndShotMatch()
-    {
-        MphRead::GameState::MatchState(MphRead::MatchState::Ending);
-        MphRead::GameState::MatchTime(0.2F);
     }
 
     void Shell::Shot(MphRead::RenderWindow& window, const std::string& name)

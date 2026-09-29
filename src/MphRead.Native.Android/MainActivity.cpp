@@ -797,11 +797,20 @@ namespace MphRead::Droid
         }
 
         _renderingHere.store(false, std::memory_order_release);
-        if (!_stopPreviews.load(std::memory_order_acquire))
-        {
-            AndroidHunterShot::ResumeCurrent();
-        }
         _stopPreviews.store(false, std::memory_order_release);
+        // Match start/cancel/end are UI-thread state transitions. Decide
+        // whether hunter previews may resume on that same thread so thumbnail
+        // completion cannot race StartMatch() and clear a newly asserted
+        // retirement barrier.
+        GetMainActivityOwner().RunOnUiThread(
+            [this]()
+            {
+                if (!_pending && !InMatch())
+                {
+                    AndroidHunterShot::ResumeCurrent();
+                }
+            }
+        );
 
         if (escaped)
         {

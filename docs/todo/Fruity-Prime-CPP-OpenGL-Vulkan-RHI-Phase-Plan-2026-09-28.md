@@ -1735,11 +1735,11 @@ semantic binding
 
 ## 完了条件
 
-- [ ] built-in vertex attribute依存撤去
-- [ ] OpenGLで描画一致
-- [ ] backend-neutral constant structures
-- [ ] Renderer frontendからuniform location concept撤去開始
-- [ ] future Vulkan shader interface確定
+- [x] built-in vertex attribute依存撤去
+- [x] OpenGLで描画一致
+- [x] backend-neutral constant structures
+- [x] Renderer frontendからuniform location concept撤去開始
+- [x] future Vulkan shader interface確定
 
 ---
 
@@ -4549,7 +4549,16 @@ D3D12
 
 ## 現在の作業位置
 
-- **Phase 4 完了 (2026-09-30, SHA `1e98392c98fd37c33932bc6d65eb1878325874e2`)。** 本文の完了条件7項目すべてチェック済み。次はPhase 5。以下の旧記録は経緯として残す。
+- **Phase 5 完了 (2026-09-30, SHA `5e52078b5545294cfa423715457e1a2279cd9398`)。** 本文の完了条件5項目すべてチェック済み。次はPhase 6。
+  - **built-in撤去:** desktopのGLSL 1.20 shaderは`gl_Vertex`/`gl_Normal`/`gl_Color`/`gl_MultiTexCoord*`を読まず、`a_position`/`a_normal`/`a_color`/`a_texcoord`/`a_texcoord1`を`attribute`で宣言。`GL::LinkProgram`がリンク前に名前でlocationをbindする。共通定義は`NativeRuntime/Rhi/VertexSemantics.hpp`の1箇所（desktop 0/2/3/8/9 = NV alias表、GLES 0/2/1/3、Vulkan 0/1/2/3/4）。matrix-stack indexは`TexCoord.z`で運ぶことを契約として明記。current-value呼出しはgenericとconventionalの両方を設定し、link時にconventional既定値をgenericへ写す。
+  - **定数構造体:** `NativeRuntime/Rhi/ShaderConstants.hpp`（Frame / SceneLight / SceneFog / Material / Draw / CelPost / HudPost / DisruptionPost）と`ShaderConstantSink`。uniform location cacheはOpenGL backend（`Rhi/OpenGL/OpenGlShaderInterface`）へ移動。Rendererの直接uniform upload約110箇所→42箇所（残りはtexture/override/flat/fog等の個別フラグ）。`DrawMovieFrame`のint版2呼出しはGLが拒否する前提の上流挙動なので意図的に保持。
+  - **Vulkan interface:** `NativeRuntime/Rhi/VulkanShaderInterface.hpp`（vertex location、descriptor set/binding、各定数群のstd140 mirrorとpacking、GLSL 450宣言）。
+  - **描画一致:** Phase 3 baseline `13c49e35...`と同一harness/入力で、`21b846ba`（explicit input）・`ce596880`（定数IF）・`5e52078b`（HUD/Post定数）の3段階すべて7候補exact RGB PASS。`-shellshot`の試合/ポーズ画面もPhase 4 SHAと一致（ランチャーはbackdropの時間アニメーション差のみ）。
+  - **CI:** `ce596880`のPR run [36596973738](https://github.com/Zection6V/Fruity-Prime/actions/runs/36596973738) 9/9 PASS（Windows/MSVC、Linux、macOS、Android contract/NDK×2/APK、Phase 4監査、新規Phase 5監査）。
+  - **静的ゲート:** `tools/check-phase5-shader-interface.py`（CI job）とconfigure時gate。desktop shaderのbuilt-in禁止、ES shaderのlocationと表の一致、`EsShaders`のdesktop hash一致、移行済み定数群の生upload禁止を検査。
+  - **既存不具合の修正:** `EsShaders::CheckInSync`の記録hashがshader clamp修正以降ずっと古く、Android headは最初のshader compileで例外になる状態だった。現行sourceのhashに更新（ES版の内容はclampも含め同期済みを確認）。
+
+- **Phase 4 完了 (2026-09-30, SHA `1e98392c98fd37c33932bc6d65eb1878325874e2`)。** 本文の完了条件7項目すべてチェック済み。以下の旧記録は経緯として残す。
   - **色の回帰の原因と修正:** desktopのgeometryはgeneric location 1-3で送られ、GLSL 1.20の組み込み入力向けにconventional arrayへmirrorされていた。NVIDIA (RTX 5070 Ti, driver 617.14) のcompatibility driverはgeneric 3を`gl_Color`にaliasするため、色がInheritedの描画（地形・particle・HUD）はtexcoord `(s,t,1)`を色として読み、赤・黄・緑に飽和していた。desktopのlocationをconventional属性のalias表の位置（position 0 / normal 2 / color 3 / texcoord 8）へ移し（`GL::VertexInput`）、Androidは0-3のまま。generic API（`glVertexAttribPointer`/`glEnableVertexAttribArray`）は引き続き実使用で、§4.3を満たす。
   - **MSVC link修正:** `WeaponInfo`/`MessageInfo`のforward宣言のclass/struct不一致（MSVCはmangleが変わる）を定義側に揃え、未定義だった`TestMiscInterop::LoadPngRgb`を`NativeRuntime::LoadPng(bytes, 3)`で実装。
   - **Screenshot parity:** Phase 3 baseline `13c49e35...` とPhase 4 `1e98392c...` を同一harness `1e7daefc...`・同一paths.txt `2dd4142d...`・同一mapdir/cwd/startup maps（`C:	mp\gp\inputs\maps2` = arena+pads）で新規capture。`tools/validate-golden-parity.py` で**7候補すべてexact RGB PASS**。対照として修正直前の `341d8f0e...` を同一条件でcaptureし、**7候補すべてFAIL**、HUD画像で報告どおりの赤・黄・緑を再現。差分は本修正のみなので因果を確認。

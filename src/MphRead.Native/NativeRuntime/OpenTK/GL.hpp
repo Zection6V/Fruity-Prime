@@ -206,6 +206,35 @@ namespace OpenTK::Graphics::OpenGL
         void ResetAndroidState();
 #endif
 
+        // The generic locations the renderer's geometry is submitted at.
+        //
+        // Android's shaders declare their own inputs and read 0-3 as written.
+        // The desktop shaders are still GLSL 1.20 and read the built-ins until
+        // Phase 5, so each generic array there is mirrored into the matching
+        // conventional one -- and the locations are the conventional ones'
+        // own slots in the NV_vertex_program alias table (normal 2, colour 3,
+        // texcoord 0 at 8). The GL 2.x specification says generic and
+        // conventional attributes do not alias; NVIDIA's compatibility driver
+        // is known to alias them anyway. On a conforming driver these numbers
+        // are pixel-neutral; on an aliasing one they make each generic array
+        // and its mirror the same slot holding the same data. Locations 1 and
+        // 3 did the opposite: texcoords sat in colour's slot, so every draw
+        // whose colour was inherited took its colour from the texcoords.
+        namespace VertexInput
+        {
+#if defined(__ANDROID__)
+            inline constexpr std::uint32_t Position = 0U;
+            inline constexpr std::uint32_t Color = 1U;
+            inline constexpr std::uint32_t Normal = 2U;
+            inline constexpr std::uint32_t TexCoord = 3U;
+#else
+            inline constexpr std::uint32_t Position = 0U;
+            inline constexpr std::uint32_t Normal = 2U;
+            inline constexpr std::uint32_t Color = 3U;
+            inline constexpr std::uint32_t TexCoord = 8U;
+#endif
+        }
+
         void ActiveTexture(TextureUnit texture);
         void AlphaFunc(AlphaFunction func, float reference);
         void AttachShader(std::int32_t program, std::int32_t shader);

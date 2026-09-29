@@ -13,10 +13,10 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
     {
         namespace GL = ::OpenTK::Graphics::OpenGL::GL;
 
-        constexpr std::uint32_t PositionAttribute = 0U;
-        constexpr std::uint32_t ColorAttribute = 1U;
-        constexpr std::uint32_t NormalAttribute = 2U;
-        constexpr std::uint32_t TexCoordAttribute = 3U;
+        constexpr std::uint32_t PositionAttribute = GL::VertexInput::Position;
+        constexpr std::uint32_t ColorAttribute = GL::VertexInput::Color;
+        constexpr std::uint32_t NormalAttribute = GL::VertexInput::Normal;
+        constexpr std::uint32_t TexCoordAttribute = GL::VertexInput::TexCoord;
 
         struct OpenGlMeshVertex final
         {

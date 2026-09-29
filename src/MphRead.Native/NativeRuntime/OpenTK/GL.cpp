@@ -433,14 +433,15 @@ namespace OpenTK::Graphics::OpenGL::GL
         fn(static_cast<GLuint>(index));
 
         // Phase 4 keeps the desktop GLSL 1.20 built-ins until Phase 5.
-        // Mirror locations 0-3 into their conventional arrays so the same
-        // VBO-backed geometry feeds gl_Vertex/gl_Color/gl_Normal/gl_MultiTexCoord0.
+        // Mirror the VertexInput locations into their conventional arrays so the
+        // same VBO-backed geometry feeds gl_Vertex/gl_Color/gl_Normal/
+        // gl_MultiTexCoord0. See VertexInput for why these numbers.
         switch (index)
         {
-        case 0: ::glDisableClientState(GL_VERTEX_ARRAY); break;
-        case 1: ::glDisableClientState(GL_COLOR_ARRAY); break;
-        case 2: ::glDisableClientState(GL_NORMAL_ARRAY); break;
-        case 3: ::glDisableClientState(GL_TEXTURE_COORD_ARRAY); break;
+        case VertexInput::Position: ::glDisableClientState(GL_VERTEX_ARRAY); break;
+        case VertexInput::Color: ::glDisableClientState(GL_COLOR_ARRAY); break;
+        case VertexInput::Normal: ::glDisableClientState(GL_NORMAL_ARRAY); break;
+        case VertexInput::TexCoord: ::glDisableClientState(GL_TEXTURE_COORD_ARRAY); break;
         default: break;
         }
     }
@@ -478,10 +479,10 @@ namespace OpenTK::Graphics::OpenGL::GL
         // mirrors preserve the existing compatibility-shader inputs on desktop.
         switch (index)
         {
-        case 0: ::glEnableClientState(GL_VERTEX_ARRAY); break;
-        case 1: ::glEnableClientState(GL_COLOR_ARRAY); break;
-        case 2: ::glEnableClientState(GL_NORMAL_ARRAY); break;
-        case 3: ::glEnableClientState(GL_TEXTURE_COORD_ARRAY); break;
+        case VertexInput::Position: ::glEnableClientState(GL_VERTEX_ARRAY); break;
+        case VertexInput::Color: ::glEnableClientState(GL_COLOR_ARRAY); break;
+        case VertexInput::Normal: ::glEnableClientState(GL_NORMAL_ARRAY); break;
+        case VertexInput::TexCoord: ::glEnableClientState(GL_TEXTURE_COORD_ARRAY); break;
         default: break;
         }
     }
@@ -940,7 +941,7 @@ namespace OpenTK::Graphics::OpenGL::GL
     void VertexAttribPointer(std::uint32_t index, std::int32_t size, PointerType type,
         bool normalized, std::int32_t stride, const void* pointer)
     {
-        if (index == 2U && size != 3)
+        if (index == VertexInput::Normal && size != 3)
         {
             throw std::invalid_argument("Compatibility normal attribute must have three components.");
         }
@@ -959,16 +960,16 @@ namespace OpenTK::Graphics::OpenGL::GL
         // until Phase 5 moves the desktop shaders to explicit inputs.
         switch (index)
         {
-        case 0:
+        case VertexInput::Position:
             ::glVertexPointer(size, glType, static_cast<GLsizei>(stride), pointer);
             break;
-        case 1:
+        case VertexInput::Color:
             ::glColorPointer(size, glType, static_cast<GLsizei>(stride), pointer);
             break;
-        case 2:
+        case VertexInput::Normal:
             ::glNormalPointer(glType, static_cast<GLsizei>(stride), pointer);
             break;
-        case 3:
+        case VertexInput::TexCoord:
             ::glTexCoordPointer(size, glType, static_cast<GLsizei>(stride), pointer);
             break;
         default:

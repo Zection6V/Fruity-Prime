@@ -1036,6 +1036,9 @@ namespace MphRead::Droid
             {
                 MphRead::Mods::Render::GlEs::Reset();
             }
+            // GL's Android wrapper keeps its own per-context bindings and
+            // element data; they die with this context as well.
+            OpenTK::Graphics::OpenGL::GL::ResetAndroidState();
         }
 
         void Loop()

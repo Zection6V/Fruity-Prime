@@ -288,11 +288,6 @@ namespace OpenTK::Graphics::OpenGL::GL
         Compat::GlEs::AttachShader(program, shader);
     }
 
-    void Begin(PrimitiveType mode)
-    {
-        Compat::GlEs::Begin(Int(mode));
-    }
-
     void BindBuffer(BufferTarget target, std::int32_t buffer)
     {
         const GLuint name = Name(buffer);
@@ -615,11 +610,6 @@ namespace OpenTK::Graphics::OpenGL::GL
             glEnableVertexAttribArray(3);
             break;
         }
-    }
-
-    void End()
-    {
-        Compat::GlEs::End();
     }
 
     void FramebufferRenderbuffer(
@@ -1172,22 +1162,6 @@ namespace OpenTK::Graphics::OpenGL::GL
             GL_FALSE,
             stride,
             pointer);
-    }
-
-    void Vertex2(float x, float y)
-    {
-        Compat::GlEs::Vertex3(x, y, 0.0F);
-    }
-
-    void Vertex3(float x, float y, float z)
-    {
-        Compat::GlEs::Vertex3(x, y, z);
-    }
-
-    void Vertex3(::OpenTK::Mathematics::Vector3 vector)
-    {
-        Compat::GlEs::Vertex3(
-            std::array<float, 3>{vector.X, vector.Y, vector.Z});
     }
 
     void PopMatrix()

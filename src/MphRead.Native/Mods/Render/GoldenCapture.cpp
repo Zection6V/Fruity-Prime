@@ -1,4 +1,5 @@
 #include "GoldenCapture.hpp"
+#include "GoldenCaptureValidation.hpp"
 
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../GameState.hpp"
@@ -43,6 +44,7 @@ namespace
     constexpr std::int32_t GoldenCaptureUpdate = GoldenWarmupUpdates + 1;
     constexpr float GoldenFovDegrees = 78.0F;
     constexpr std::string_view GoldenRoom = "TEST ARENA";
+    constexpr std::string_view GoldenFixtureContract = "phase4-final-stage-v2";
 
     [[nodiscard]] Vector3 GoldenCameraPosition()
     {
@@ -365,34 +367,96 @@ namespace
                     return;
                 }
 
+                std::optional<std::vector<std::uint8_t>> controlPixels;
                 if (UsesSyntheticFixture(_candidate))
                 {
                     _scene->ModGoldenInjectFixture(
                         FixtureFor(_candidate),
                         _fixtureTexture);
                 }
-                else if (_candidate == GoldenCandidate::Fade)
+                else
                 {
-                    _scene->ModGoldenSetFadeState(1.0F, 0.5F);
-                }
-                else if (_candidate
-                    == GoldenCandidate::WhiteoutDisruption)
-                {
-                    _scene->ModGoldenSetElapsedTime(0.25F);
-                    const auto main
-                        = MphRead::Entities::PlayerEntity::Main();
-                    if (!main)
+                    _scene->ModGoldenResetFinalStageState();
+                    _finalStageGateVerified
+                        = _scene->ModGoldenFinalStageReady();
+                    if (!_finalStageGateVerified)
                     {
-                        Fail("main player is missing");
+                        Fail(
+                            "production final-stage gate is not ready "
+                            "(active main player + CameraMode::Player required)");
                         _window->BaseOnRenderFrame(args);
                         return;
                     }
-                    main->ModGoldenSetHudShift(
-                        2,
-                        0.75F,
-                        1,
-                        1.0F,
-                        48.0F);
+
+                    if (_candidate == GoldenCandidate::Hud)
+                    {
+                        _controlDescription
+                            = "same frame with HUD/fade final-stage gate disabled";
+                        _scene->ModGoldenSetHudPassEnabled(false);
+                    }
+                    else
+                    {
+                        _controlDescription
+                            = "same frame with clean production HUD and no fade/disruption";
+                    }
+
+                    if (!_scene->OnRenderFrame())
+                    {
+                        Fail(
+                            "Scene::OnRenderFrame refused the fixed "
+                            "control render");
+                        _window->BaseOnRenderFrame(args);
+                        return;
+                    }
+                    controlPixels = ReadValidatedWindow("control");
+                    _controlSummary
+                        = MphRead::Mods::Render::GoldenCaptureValidation::SummarizeRgb(
+                            *controlPixels, GoldenWidth, GoldenHeight);
+
+                    if (_candidate == GoldenCandidate::Hud)
+                    {
+                        _scene->ModGoldenSetHudPassEnabled(true);
+                    }
+                    else if (_candidate == GoldenCandidate::Fade)
+                    {
+                        _scene->ModGoldenSetFadeState(1.0F, 0.5F);
+                        if (!_scene->ModGoldenFadeStateMatches(1.0F, 0.5F))
+                        {
+                            Fail("fade fixture state did not latch");
+                            _window->BaseOnRenderFrame(args);
+                            return;
+                        }
+                    }
+                    else if (_candidate
+                        == GoldenCandidate::WhiteoutDisruption)
+                    {
+                        _scene->ModGoldenSetElapsedTime(0.25F);
+                        const auto main
+                            = MphRead::Entities::PlayerEntity::Main();
+                        if (!main)
+                        {
+                            Fail("main player is missing");
+                            _window->BaseOnRenderFrame(args);
+                            return;
+                        }
+                        main->ModGoldenSetHudShift(
+                            2,
+                            0.75F,
+                            1,
+                            1.0F,
+                            48.0F);
+                    }
+
+                    _finalStageGateVerified
+                        = _scene->ModGoldenFinalStageReady();
+                    if (!_finalStageGateVerified)
+                    {
+                        Fail(
+                            "production final-stage gate was lost before "
+                            "the intended render");
+                        _window->BaseOnRenderFrame(args);
+                        return;
+                    }
                 }
 
                 if (!_scene->OnRenderFrame())
@@ -402,6 +466,21 @@ namespace
                         "capture update");
                     _window->BaseOnRenderFrame(args);
                     return;
+                }
+
+                std::vector<std::uint8_t> capturedPixels
+                    = ReadValidatedWindow("candidate");
+                _captureSummary
+                    = MphRead::Mods::Render::GoldenCaptureValidation::SummarizeRgb(
+                        capturedPixels, GoldenWidth, GoldenHeight);
+                if (controlPixels.has_value())
+                {
+                    _changedPixelCount
+                        = MphRead::Mods::Render::GoldenCaptureValidation::RequireDistinctRgb(
+                            *controlPixels,
+                            capturedPixels,
+                            GoldenWidth,
+                            GoldenHeight);
                 }
 
                 _captured = MphRead::Mods::ScreenCapture::SaveWindow(
@@ -445,6 +524,29 @@ namespace
         }
 
     private:
+        [[nodiscard]] std::vector<std::uint8_t> ReadValidatedWindow(
+            std::string_view label)
+        {
+            std::int32_t width = 0;
+            std::int32_t height = 0;
+            std::optional<std::vector<std::uint8_t>> pixels
+                = _scene->ReadWindowBuffer(width, height);
+            if (!pixels.has_value())
+            {
+                throw std::runtime_error(
+                    std::string(label) + " window RGB read returned no pixels");
+            }
+            if (width != GoldenWidth || height != GoldenHeight)
+            {
+                throw std::runtime_error(
+                    std::string(label)
+                    + " window RGB read did not match the fixed dimensions");
+            }
+            (void)MphRead::Mods::Render::GoldenCaptureValidation::RequireMeaningfulRgb(
+                *pixels, width, height);
+            return std::move(*pixels);
+        }
+
         void Close()
         {
             _window->Close();
@@ -489,19 +591,20 @@ namespace
                     "the production camera";
             case GoldenCandidate::Hud:
                 return
-                    "real Samus production HUD; debug-only player "
-                    "camera override uses the canonical TEST ARENA "
-                    "preview transform";
+                    "real Samus production HUD; unrelated fade/disruption "
+                    "state is reset after OnDrawFrame; output is required "
+                    "to differ from a same-frame HUD-disabled control";
             case GoldenCandidate::Fade:
                 return
-                    "real production fade pass; debug-only fixed "
-                    "FadeOutWhite state color=1.0,percent=0.5";
+                    "real production FadeOutWhite pass color=1.0,percent=0.5 "
+                    "over a clean production HUD baseline; output is required "
+                    "to differ from that same-frame control";
             case GoldenCandidate::WhiteoutDisruption:
                 return
-                    "real production shift/whiteout post-process; "
-                    "debug-only disruption state=2,factor=0.75,"
+                    "real production shift/whiteout post-process; unrelated "
+                    "fade state is reset; disruption state=2,factor=0.75,"
                     "whiteout state=1,factor=1.0,amount=48,"
-                    "elapsedTime=0.25s";
+                    "elapsedTime=0.25s; output must differ from clean HUD";
             }
             return "unknown";
         }
@@ -523,6 +626,7 @@ namespace
             std::ostringstream out;
             out << "phase=0\n";
             out << "candidate=" << CandidateName(_candidate) << "\n";
+            out << "fixture_contract=" << GoldenFixtureContract << "\n";
             out << "plan_baseline="
                 << "bb8f619da7abbe614ea60765006f290a60938f98\n";
             out << "map=" << GoldenRoom << "\n";
@@ -542,7 +646,8 @@ namespace
                 << GoldenCaptureUpdate << "\n";
             out << "trigger=after OnDrawFrame on update ordinal "
                 << GoldenCaptureUpdate
-                << ", immediately before OnRenderFrame\n";
+                << "; final-stage candidates render a same-frame control "
+                   "followed by the intended production final-stage path\n";
             out << "camera_mode="
                 << (UsesSyntheticFixture(_candidate)
                     ? "production-player-camera-after-warmup"
@@ -569,6 +674,34 @@ namespace
             out << "fog=off\n";
             out << "texture_filtering=off\n";
             out << "fixture=" << FixtureDescription() << "\n";
+            out << "final_stage_gate="
+                << (_finalStageGateVerified ? "verified"
+                    : "not-applicable-or-not-reached")
+                << "\n";
+            out << "control="
+                << (_controlDescription.empty() ? "none" : _controlDescription)
+                << "\n";
+            if (_controlSummary.has_value())
+            {
+                out << "control_rgb_fnv1a64="
+                    << _controlSummary->Fnv1a64 << "\n";
+                out << "control_rgb_lit_pixels="
+                    << _controlSummary->LitPixelCount << "\n";
+            }
+            if (_captureSummary.has_value())
+            {
+                out << "capture_rgb_fnv1a64="
+                    << _captureSummary->Fnv1a64 << "\n";
+                out << "capture_rgb_lit_pixels="
+                    << _captureSummary->LitPixelCount << "\n";
+                out << "capture_rgb_total_pixels="
+                    << _captureSummary->PixelCount << "\n";
+            }
+            if (_changedPixelCount.has_value())
+            {
+                out << "control_changed_pixels="
+                    << *_changedPixelCount << "\n";
+            }
             out << "fixture_scope="
                 << (UsesSyntheticFixture(_candidate)
                     ? "synthetic geometry only; validates production "
@@ -603,6 +736,13 @@ namespace
         bool _captured = false;
         bool _cleaned = false;
         bool _manifestWritten = false;
+        bool _finalStageGateVerified = false;
+        std::string _controlDescription{};
+        std::optional<MphRead::Mods::Render::GoldenCaptureValidation::PixelSummary>
+            _controlSummary{};
+        std::optional<MphRead::Mods::Render::GoldenCaptureValidation::PixelSummary>
+            _captureSummary{};
+        std::optional<std::size_t> _changedPixelCount{};
         std::string _error{};
     };
 
@@ -834,6 +974,62 @@ namespace MphRead
         _cameraUp = camera->TrueUp;
         _cameraRight
             = Vector3::Cross(_cameraFacing, _cameraUp).Normalized();
+    }
+
+    void Scene::ModGoldenResetFinalStageState() noexcept
+    {
+        _fadeType = MphRead::FadeType::None;
+        _fadeColor = 0.0F;
+        _fadeIn = false;
+        _fadeStart = 0.0F;
+        _fadeLength = 0.0F;
+        _fadePercent = 0.0F;
+        _fadeDelay = 0.0F;
+        _fadeEnded = false;
+        _afterFade = AfterFade::None;
+
+        const auto main = Entities::PlayerEntity::Main();
+        if (main)
+        {
+            main->ModGoldenSetHudShift(
+                0,
+                0.0F,
+                -1,
+                0.0F,
+                0.0F);
+        }
+    }
+
+    void Scene::ModGoldenSetHudPassEnabled(bool enabled) noexcept
+    {
+        _cameraMode = enabled
+            ? MphRead::CameraMode::Player
+            : MphRead::CameraMode::Roam;
+    }
+
+    bool Scene::ModGoldenFinalStageReady() const noexcept
+    {
+        const auto main = Entities::PlayerEntity::Main();
+        return main
+            && ((main->LoadFlags() & Entities::LoadFlags::Active)
+                == Entities::LoadFlags::Active)
+            && _cameraMode == MphRead::CameraMode::Player;
+    }
+
+    bool Scene::ModGoldenFadeStateMatches(
+        float color,
+        float percent) const noexcept
+    {
+        const MphRead::FadeType expectedType = color >= 0.5F
+            ? MphRead::FadeType::FadeOutWhite
+            : MphRead::FadeType::FadeOutBlack;
+        return _fadeType == expectedType
+            && _fadeColor == std::clamp(color, 0.0F, 1.0F)
+            && !_fadeIn
+            && _fadePercent == std::clamp(percent, 0.0F, 1.0F)
+            && _fadeDelay == 0.0F
+            && !_fadeEnded
+            && _afterFade == AfterFade::None;
     }
 
     void Scene::ModGoldenSetFadeState(

@@ -37,6 +37,10 @@ public: \
         ::OpenTK::Mathematics::Vector3 position, \
         ::OpenTK::Mathematics::Vector3 target, \
         float fovDegrees); \
+    void ModGoldenResetFinalStageState() noexcept; \
+    void ModGoldenSetHudPassEnabled(bool enabled) noexcept; \
+    [[nodiscard]] bool ModGoldenFinalStageReady() const noexcept; \
+    [[nodiscard]] bool ModGoldenFadeStateMatches(float color, float percent) const noexcept; \
     void ModGoldenSetFadeState(float color, float percent) noexcept; \
     void ModGoldenSetElapsedTime(float elapsedTime) noexcept;
 

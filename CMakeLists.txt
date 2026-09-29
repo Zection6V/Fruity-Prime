@@ -102,9 +102,12 @@ set(FRUITY_RENDERER_GEOMETRY_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestRendererGeometry.cpp")
 set(FRUITY_RENDERER_GPU_MESH_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestRendererGpuMesh.cpp")
+set(FRUITY_GOLDEN_CAPTURE_VALIDATION_TEST_SOURCE
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestGoldenCaptureValidation.cpp")
 list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES
     "${FRUITY_RENDERER_GEOMETRY_TEST_SOURCE}"
-    "${FRUITY_RENDERER_GPU_MESH_TEST_SOURCE}")
+    "${FRUITY_RENDERER_GPU_MESH_TEST_SOURCE}"
+    "${FRUITY_GOLDEN_CAPTURE_VALIDATION_TEST_SOURCE}")
 
 # Android has its own activity, views, input bridge and EGL/GLES renderer under
 # MphRead.Native.Android. The desktop Avalonia/GLFW/Freetype owners must not be
@@ -203,9 +206,24 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         DEPENDS fruity_renderer_gpu_mesh_tests
         COMMENT "Running native renderer GPU mesh cache tests"
         VERBATIM)
+
+    add_executable(fruity_golden_capture_validation_tests
+        "${FRUITY_GOLDEN_CAPTURE_VALIDATION_TEST_SOURCE}")
+    target_include_directories(fruity_golden_capture_validation_tests PRIVATE "${FRUITY_MPHREAD_ROOT}")
+    target_compile_features(fruity_golden_capture_validation_tests PRIVATE cxx_std_20)
+    add_test(
+        NAME FruityPrime.GoldenCaptureValidation
+        COMMAND fruity_golden_capture_validation_tests)
+    add_custom_target(fruity_golden_capture_validation_check
+        COMMAND "$<TARGET_FILE:fruity_golden_capture_validation_tests>"
+        DEPENDS fruity_golden_capture_validation_tests
+        COMMENT "Running golden capture validation tests"
+        VERBATIM)
+
     add_dependencies(fruity_mphread_native
         fruity_renderer_geometry_check
-        fruity_renderer_gpu_mesh_check)
+        fruity_renderer_gpu_mesh_check
+        fruity_golden_capture_validation_check)
 endif()
 
 # The native desktop executable carries the launcher toolkit and the one-window

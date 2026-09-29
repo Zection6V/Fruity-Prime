@@ -36,8 +36,13 @@ if(GOLDEN_CAPTURE_GIT_EXECUTABLE)
         OUTPUT_VARIABLE _commit_output
         OUTPUT_STRIP_TRAILING_WHITESPACE
         ERROR_QUIET)
-    if(_commit_result EQUAL 0
-        AND _commit_output MATCHES "^[0-9a-fA-F]{40}$")
+    if(_commit_result EQUAL 0)
+        string(LENGTH "${_commit_output}" _commit_length)
+        if(NOT _commit_length EQUAL 40
+            OR NOT _commit_output MATCHES "^[0-9a-fA-F]+$")
+            message(FATAL_ERROR
+                "Git HEAD returned malformed GoldenCapture provenance: ${_commit_output}")
+        endif()
         string(TOLOWER "${_commit_output}" SOURCE_COMMIT)
 
         execute_process(
@@ -47,10 +52,14 @@ if(GOLDEN_CAPTURE_GIT_EXECUTABLE)
             OUTPUT_VARIABLE _blob_output
             OUTPUT_STRIP_TRAILING_WHITESPACE
             ERROR_QUIET)
-        if(_blob_result EQUAL 0
-            AND _blob_output MATCHES "^[0-9a-fA-F]{40}$")
-            string(TOLOWER "${_blob_output}" GOLDEN_CAPTURE_CPP_GIT_BLOB)
+        string(LENGTH "${_blob_output}" _blob_length)
+        if(NOT _blob_result EQUAL 0
+            OR NOT _blob_length EQUAL 40
+            OR NOT _blob_output MATCHES "^[0-9a-fA-F]+$")
+            message(FATAL_ERROR
+                "git hash-object returned malformed GoldenCapture provenance")
         endif()
+        string(TOLOWER "${_blob_output}" GOLDEN_CAPTURE_CPP_GIT_BLOB)
 
         execute_process(
             COMMAND "${GOLDEN_CAPTURE_GIT_EXECUTABLE}"

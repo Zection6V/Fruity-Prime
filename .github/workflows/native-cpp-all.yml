@@ -27,6 +27,8 @@ jobs:
   windows:
     name: Windows / MSVC
     runs-on: windows-2025
+    env:
+      SCCACHE_GHA_ENABLED: "true"
 
     steps:
       - name: Checkout C++ source
@@ -37,7 +39,7 @@ jobs:
       # Shares archives with the per-platform native workflows: Skia is
       # rebuilt only when its vcpkg ABI hash changes.
       - name: Cache vcpkg binary archives
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
           key: native-vcpkg-all-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
@@ -64,10 +66,33 @@ jobs:
             exit $LASTEXITCODE
           }
 
+      # Save before the long game build so cancellation does not lose dependencies.
+      - name: Save vcpkg binary archives after install
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: native-vcpkg-all-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+
+      - name: Set up MSVC environment for Ninja
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Set up compiler cache
+        uses: mozilla-actions/sccache-action@v0.0.11
+        with:
+          version: "v0.16.0"
+
       - name: Configure
         shell: pwsh
         run: |
-          cmake -S . -B build/native -A x64 -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows
+          cmake -S . -B build/native -G "Ninja Multi-Config" `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache `
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache `
+            -DCMAKE_POLICY_DEFAULT_CMP0141=NEW `
+            -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
@@ -79,6 +104,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
+
+      - name: Report compiler cache statistics
+        if: always()
+        shell: pwsh
+        run: sccache --show-stats
 
       - name: Upload Windows build
         uses: actions/upload-artifact@v4

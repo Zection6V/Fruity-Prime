@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import ntpath
 import os
 import pathlib
 import re
@@ -42,6 +43,13 @@ ADAPTER_BY_SOURCE = {
     SOURCE_PATHS[1]: ADAPTER_DIR / "GoldenCapture.hpp",
     SOURCE_PATHS[2]: ADAPTER_DIR / "GoldenCaptureValidation.hpp",
 }
+
+GAME_PATH_KEYS = frozenset((
+    "AMFE0", "AMFP0", "A76E0", "AMHE0", "AMHE1",
+    "AMHP0", "AMHP1", "AMHJ0", "AMHJ1", "AMHK0",
+))
+NON_GAME_PATH_KEYS = frozenset(("Export",))
+RUNTIME_PROVENANCE_NAME = "golden-parity-runtime.json"
 
 
 class GateError(RuntimeError):
@@ -190,6 +198,111 @@ def sha256_file(path: pathlib.Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _decode_paths_file(data: bytes) -> str:
+    if data.startswith(b"\xff\xfe\x00\x00") or data.startswith(b"\x00\x00\xfe\xff"):
+        encoding = "utf-32"
+    elif data.startswith(b"\xff\xfe") or data.startswith(b"\xfe\xff"):
+        encoding = "utf-16"
+    elif data.startswith(b"\xef\xbb\xbf"):
+        encoding = "utf-8-sig"
+    else:
+        encoding = "utf-8"
+    try:
+        return data.decode(encoding, errors="strict")
+    except UnicodeError as exc:
+        fail(f"paths.txt cannot be decoded safely: {exc}")
+
+
+def validate_runtime_paths_file(path: pathlib.Path) -> bytes:
+    if not path.is_file():
+        fail(f"runtime paths file does not exist: {path}")
+    data = path.read_bytes()
+    lines = _decode_paths_file(data).splitlines()
+    if not lines or not lines[0].strip():
+        fail("runtime paths file has no version line")
+
+    seen: set[str] = set()
+    for line_number, line in enumerate(lines[1:], 2):
+        if not line:
+            continue
+        if "=" not in line:
+            fail(f"runtime paths file line {line_number} is malformed")
+        key, value = line.split("=", 1)
+        if key not in GAME_PATH_KEYS and key not in NON_GAME_PATH_KEYS:
+            fail(f"runtime paths file line {line_number} has unsupported key {key!r}")
+        if key in seen:
+            fail(f"runtime paths file contains duplicate key {key!r}")
+        seen.add(key)
+        if key in GAME_PATH_KEYS and value and not ntpath.isabs(value):
+            fail(
+                f"runtime paths file key {key!r} is relative; parity capture "
+                "refuses to rebase or rewrite paths.txt"
+            )
+
+    if not any(key in seen for key in GAME_PATH_KEYS):
+        fail("runtime paths file contains no game path entries")
+    return data
+
+
+def stage_runtime_paths_file(source: pathlib.Path, executable: pathlib.Path) -> tuple[pathlib.Path, str]:
+    source = source.resolve()
+    data = validate_runtime_paths_file(source)
+    destination = executable.parent / "paths.txt"
+    if destination.exists():
+        fail(
+            f"{destination}: refusing to overwrite a pre-existing runtime "
+            "paths file in the verified build output"
+        )
+    digest = sha256(data)
+    try:
+        with destination.open("xb") as stream:
+            stream.write(data)
+    except OSError as exc:
+        fail(f"could not stage runtime paths file: {exc}")
+    if destination.read_bytes() != data:
+        fail("staged runtime paths file does not match its source bytes")
+    return destination, digest
+
+
+def remove_staged_runtime_paths_file(destination: pathlib.Path, expected_sha256: str) -> None:
+    if not destination.is_file():
+        fail("staged runtime paths file disappeared; refusing destructive cleanup")
+    if sha256_file(destination) != expected_sha256:
+        fail(
+            "staged runtime paths file changed during capture; preserving it "
+            "instead of deleting it"
+        )
+    destination.unlink()
+
+
+def _path_identity(path: pathlib.Path) -> str:
+    canonical = os.path.normcase(str(path.resolve()))
+    return sha256(canonical.encode("utf-8"))
+
+
+def write_runtime_provenance(
+    output: pathlib.Path,
+    expected_commit: str,
+    identity: Mapping[str, str],
+    paths_sha256: str,
+    mapdir: pathlib.Path,
+    cwd: pathlib.Path,
+    executable: pathlib.Path,
+) -> None:
+    payload = {
+        "source_commit": expected_commit.lower(),
+        "harness_sha256": identity["harness_sha256"],
+        "paths_file_sha256": paths_sha256,
+        "mapdir_path_sha256": _path_identity(mapdir),
+        "launch_cwd_path_sha256": _path_identity(cwd),
+        "executable_sha256": sha256_file(executable),
+    }
+    path = output / RUNTIME_PROVENANCE_NAME
+    if path.exists():
+        fail(f"{path}: refusing to overwrite runtime provenance")
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def run_command(
@@ -463,7 +576,8 @@ def capture(
     expected_commit: str,
     output: pathlib.Path,
     cwd: pathlib.Path,
-    mapdir: pathlib.Path | None,
+    paths_file: pathlib.Path,
+    mapdir: pathlib.Path,
     *,
     requested_build_dir: pathlib.Path | None,
     config: str,
@@ -479,8 +593,14 @@ def capture(
             f"capture output is not empty: {output}; "
             "fresh parity evidence must use a new/empty directory"
         )
+    cwd = cwd.resolve()
+    paths_file = paths_file.resolve()
+    mapdir = mapdir.resolve()
     if not cwd.is_dir():
         fail(f"capture working directory does not exist: {cwd}")
+    if not mapdir.is_dir():
+        fail(f"capture map directory does not exist: {mapdir}")
+    validate_runtime_paths_file(paths_file)
 
     executable, build_dir, identity = build_capture_executable(
         root,
@@ -515,15 +635,15 @@ def capture(
         "all",
         "-goldendir",
         str(output.resolve()),
+        "-mapdir",
+        str(mapdir),
     ]
-    if mapdir is not None:
-        command.extend(("-mapdir", str(mapdir.resolve())))
 
-    run_command(
-        command,
-        cwd=cwd.resolve(),
-        description="golden parity capture",
-    )
+    staged_paths, paths_sha256 = stage_runtime_paths_file(paths_file, executable)
+    try:
+        run_command(command, cwd=cwd, description="golden parity capture")
+    finally:
+        remove_staged_runtime_paths_file(staged_paths, paths_sha256)
 
     for candidate in CANDIDATES:
         image = output / f"{candidate}.png"
@@ -547,6 +667,10 @@ def capture(
                     f"{manifest_path}: {key}={actual!r} "
                     f"!= expected {expected_value!r}"
                 )
+
+    write_runtime_provenance(
+        output, expected_commit, identity, paths_sha256, mapdir, cwd, executable
+    )
 
     print(f"captured={output.resolve()}")
     print(f"source_commit={expected_commit.lower()}")
@@ -633,7 +757,21 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     sub.add_argument("--expected-commit", required=True)
     sub.add_argument("--output", type=pathlib.Path, required=True)
     sub.add_argument("--cwd", type=pathlib.Path, default=pathlib.Path.cwd())
-    sub.add_argument("--mapdir", type=pathlib.Path)
+    sub.add_argument(
+        "--paths-file",
+        type=pathlib.Path,
+        required=True,
+        help=(
+            "local paths.txt staged unchanged beside the runner-built executable; "
+            "non-empty game paths must be absolute"
+        ),
+    )
+    sub.add_argument(
+        "--mapdir",
+        type=pathlib.Path,
+        required=True,
+        help="shared local custom-map directory used by both parity captures",
+    )
     sub.add_argument(
         "--build-dir",
         type=pathlib.Path,
@@ -679,6 +817,7 @@ def main(argv: Sequence[str]) -> int:
                 expected,
                 args.output,
                 args.cwd,
+                args.paths_file,
                 args.mapdir,
                 requested_build_dir=args.build_dir,
                 config=args.config,

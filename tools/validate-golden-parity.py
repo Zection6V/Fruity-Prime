@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import pathlib
 import re
 import struct
@@ -26,6 +27,7 @@ PHASE3_BASELINE = "13c49e35f2a314662c7cc639e5e56fa784ac8bfd"
 PHASE_PLAN_BLOB = "a262838984ef547ebd6f22d1d9e78f3e1f214586"
 FIXTURE_CONTRACT = "phase4-final-stage-v2"
 PARITY_ADAPTER_CONTRACT = "phase3-phase4-shared-v1"
+RUNTIME_PROVENANCE_NAME = "golden-parity-runtime.json"
 HARNESS_RELATIVE_PATHS = (
     pathlib.Path("src/MphRead.Native/Mods/Render/GoldenCapture.cpp"),
     pathlib.Path("src/MphRead.Native/Mods/Render/GoldenCapture.hpp"),
@@ -693,6 +695,42 @@ def compare_capture_evidence(left: CaptureEvidence, right: CaptureEvidence) -> N
         )
 
 
+def load_runtime_provenance(
+    capture_dir: pathlib.Path,
+    expected_commit: str,
+    harness: HarnessIdentity,
+) -> dict[str, str]:
+    path = capture_dir / RUNTIME_PROVENANCE_NAME
+    if not path.is_file():
+        fail(f"missing runtime provenance: {path}")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeError, OSError) as exc:
+        fail(f"{path}: invalid runtime provenance: {exc}")
+    if not isinstance(value, dict):
+        fail(f"{path}: runtime provenance is not an object")
+
+    required = (
+        "source_commit", "harness_sha256", "paths_file_sha256",
+        "mapdir_path_sha256", "launch_cwd_path_sha256", "executable_sha256",
+    )
+    result: dict[str, str] = {}
+    for key in required:
+        item = value.get(key)
+        if not isinstance(item, str):
+            fail(f"{path}: missing or invalid {key!r}")
+        result[key] = item.lower()
+
+    if result["source_commit"] != expected_commit:
+        fail(f"{path}: source_commit does not match expected commit")
+    if result["harness_sha256"] != harness.composite_sha256:
+        fail(f"{path}: harness_sha256 does not match recomputed harness")
+    for key in required[2:]:
+        if not HEX64.fullmatch(result[key]):
+            fail(f"{path}: malformed {key}")
+    return result
+
+
 def validate_parity(
     phase3_root: pathlib.Path,
     phase4_root: pathlib.Path,
@@ -729,6 +767,16 @@ def validate_parity(
             f"phase3={phase3_harness.composite_sha256}, "
             f"phase4={phase4_harness.composite_sha256}"
         )
+
+    phase3_runtime = load_runtime_provenance(
+        phase3_capture_dir, PHASE3_BASELINE, phase3_harness
+    )
+    phase4_runtime = load_runtime_provenance(
+        phase4_capture_dir, phase4_commit, phase4_harness
+    )
+    for key in ("paths_file_sha256", "mapdir_path_sha256", "launch_cwd_path_sha256"):
+        if phase3_runtime[key] != phase4_runtime[key]:
+            fail(f"runtime input {key!r} differs between Phase 3 and Phase 4")
 
     results: list[tuple[str, str]] = []
     for candidate in candidates:
@@ -870,6 +918,32 @@ def _test_manifest(
     return "".join(f"{key}={value}\n" for key, value in values.items())
 
 
+def _write_test_runtime_provenance(
+    directory: pathlib.Path,
+    source_commit: str,
+    harness: HarnessIdentity,
+    *,
+    paths_sha256: str = "2" * 64,
+    mapdir_sha256: str = "3" * 64,
+    cwd_sha256: str = "4" * 64,
+    executable_sha256: str = "5" * 64,
+) -> None:
+    (directory / RUNTIME_PROVENANCE_NAME).write_text(
+        json.dumps(
+            {
+                "source_commit": source_commit,
+                "harness_sha256": harness.composite_sha256,
+                "paths_file_sha256": paths_sha256,
+                "mapdir_path_sha256": mapdir_sha256,
+                "launch_cwd_path_sha256": cwd_sha256,
+                "executable_sha256": executable_sha256,
+            },
+            sort_keys=True,
+        ) + "\n",
+        encoding="utf-8",
+    )
+
+
 def self_test() -> None:
     phase4_commit = "1" * 40
     with tempfile.TemporaryDirectory(prefix="golden-parity-selftest-") as temp_name:
@@ -888,6 +962,13 @@ def self_test() -> None:
         harness = compute_harness_identity(root3)
         if harness != compute_harness_identity(root4):
             raise AssertionError("self-test harness identities differ")
+
+        _write_test_runtime_provenance(
+            cap3, PHASE3_BASELINE, harness, executable_sha256="6" * 64
+        )
+        _write_test_runtime_provenance(
+            cap4, phase4_commit, harness, executable_sha256="7" * 64
+        )
 
         width, height = 1600, 900
         rgb = bytes((12, 24, 36)) * (width * height)
@@ -923,6 +1004,24 @@ def self_test() -> None:
         )
         if len(passed) != len(CANDIDATES):
             raise AssertionError("self-test valid pair did not pass")
+
+        runtime_path = cap4 / RUNTIME_PROVENANCE_NAME
+        runtime_original = runtime_path.read_text(encoding="utf-8")
+        runtime_value = json.loads(runtime_original)
+        runtime_value["paths_file_sha256"] = "8" * 64
+        runtime_path.write_text(
+            json.dumps(runtime_value, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        try:
+            validate_parity(
+                root3, root4, cap3, cap4, phase4_commit, ("hud",), check_git=False
+            )
+        except GateError:
+            pass
+        else:
+            raise AssertionError("self-test runtime input mismatch was accepted")
+        runtime_path.write_text(runtime_original, encoding="utf-8")
 
         hud_manifest = cap4 / "hud.txt"
         original = hud_manifest.read_text(encoding="utf-8")

@@ -54,6 +54,14 @@ class RunnerLifecycleTests(unittest.TestCase):
             for relative in runner.SOURCE_PATHS
         }
 
+    def absolute_paths_file(self) -> pathlib.Path:
+        path = pathlib.Path(self._temp.name) / "runtime-paths.txt"
+        path.write_text(
+            "0.19.0.0\nAMHE0=C:\\golden-parity\\AMHE0\nExport=\n",
+            encoding="utf-8",
+        )
+        return path
+
     def test_restore_refuses_changed_after_prepare_without_writing(self) -> None:
         runner.prepare(self.root, self.commit)
         changed = self.root / runner.SOURCE_PATHS[0]
@@ -89,6 +97,55 @@ class RunnerLifecycleTests(unittest.TestCase):
             runner.prepare(self.root, self.commit)
 
         self.assertEqual(self.snapshot_targets(), before)
+
+    def test_runtime_paths_stage_is_exact_and_cleanup_is_nondestructive(self) -> None:
+        source = self.absolute_paths_file()
+        original = source.read_bytes()
+        executable_dir = pathlib.Path(self._temp.name) / "build"
+        executable_dir.mkdir()
+        executable = executable_dir / "FruityPrime.exe"
+        executable.write_bytes(b"binary")
+        destination, digest = runner.stage_runtime_paths_file(source, executable)
+        self.assertEqual(destination.read_bytes(), original)
+        self.assertEqual(source.read_bytes(), original)
+        runner.remove_staged_runtime_paths_file(destination, digest)
+        self.assertFalse(destination.exists())
+        self.assertEqual(source.read_bytes(), original)
+
+    def test_runtime_paths_stage_rejects_relative_game_path(self) -> None:
+        source = pathlib.Path(self._temp.name) / "relative-paths.txt"
+        source.write_text("0.19.0.0\nAMHE0=files\\AMHE0\n", encoding="utf-8")
+        executable_dir = pathlib.Path(self._temp.name) / "build-relative"
+        executable_dir.mkdir()
+        executable = executable_dir / "FruityPrime.exe"
+        executable.write_bytes(b"binary")
+        with self.assertRaises(runner.GateError):
+            runner.stage_runtime_paths_file(source, executable)
+        self.assertFalse((executable_dir / "paths.txt").exists())
+
+    def test_runtime_paths_cleanup_preserves_changed_staged_copy(self) -> None:
+        source = self.absolute_paths_file()
+        executable_dir = pathlib.Path(self._temp.name) / "build-changed"
+        executable_dir.mkdir()
+        executable = executable_dir / "FruityPrime.exe"
+        executable.write_bytes(b"binary")
+        destination, digest = runner.stage_runtime_paths_file(source, executable)
+        destination.write_bytes(b"changed after staging\n")
+        with self.assertRaises(runner.GateError):
+            runner.remove_staged_runtime_paths_file(destination, digest)
+        self.assertEqual(destination.read_bytes(), b"changed after staging\n")
+
+    def test_runtime_paths_stage_refuses_existing_destination(self) -> None:
+        source = self.absolute_paths_file()
+        executable_dir = pathlib.Path(self._temp.name) / "build-existing"
+        executable_dir.mkdir()
+        executable = executable_dir / "FruityPrime.exe"
+        executable.write_bytes(b"binary")
+        destination = executable_dir / "paths.txt"
+        destination.write_bytes(b"pre-existing\n")
+        with self.assertRaises(runner.GateError):
+            runner.stage_runtime_paths_file(source, executable)
+        self.assertEqual(destination.read_bytes(), b"pre-existing\n")
 
     def test_build_provenance_rejects_binary_source_mismatch(self) -> None:
         build_dir = self.root / "tools" / "build" / "out" / "golden-parity" / "test"
@@ -128,6 +185,10 @@ class RunnerLifecycleTests(unittest.TestCase):
                     self.commit,
                     "--output",
                     str(self.root / "capture"),
+                    "--paths-file",
+                    str(self.absolute_paths_file()),
+                    "--mapdir",
+                    str(self.root),
                     "--exe",
                     str(self.root / "stale-FruityPrime"),
                 )

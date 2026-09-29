@@ -445,6 +445,27 @@ namespace
                 std::optional<std::vector<std::uint8_t>> controlPixels;
                 if (UsesSyntheticFixture(_candidate))
                 {
+                    // Isolate the fixture from unrelated final-stage state and
+                    // render a no-fixture control from this exact simulation
+                    // update. Then rebuild draw state without another
+                    // OnSimulationFrame and inject only the synthetic item.
+                    _scene->ModGoldenResetFinalStageState();
+                    _controlDescription
+                        = "same simulation update without synthetic geometry fixture";
+                    if (!_scene->OnRenderFrame())
+                    {
+                        Fail(
+                            "Scene::OnRenderFrame refused the synthetic "
+                            "same-update control render");
+                        _window->BaseOnRenderFrame(args);
+                        return;
+                    }
+                    controlPixels = ReadValidatedWindow("control");
+                    _controlSummary
+                        = MphRead::Mods::Render::GoldenCaptureValidation::SummarizeRgb(
+                            *controlPixels, GoldenWidth, GoldenHeight);
+
+                    _scene->OnDrawFrame();
                     _scene->ModGoldenInjectFixture(
                         FixtureFor(_candidate),
                         _fixtureTexture);
@@ -585,6 +606,7 @@ namespace
                             capturedPixels,
                             GoldenWidth,
                             GoldenHeight);
+                    _controlGateVerified = true;
                 }
 
                 if (_candidate == GoldenCandidate::Fade)
@@ -834,10 +856,11 @@ namespace
                 << GoldenCaptureUpdate << "\n";
             out << "trigger=after OnDrawFrame on update ordinal "
                 << GoldenCaptureUpdate
-                << "; final-stage candidates render a control, re-run "
-                   "OnDrawFrame without advancing simulation, inject any "
-                   "candidate-only final-stage state, then render the intended "
-                   "production final-stage path\n";
+                << "; every candidate renders a same-update control; "
+                   "synthetic candidates re-run OnDrawFrame without advancing "
+                   "simulation and inject only the fixture, while final-stage "
+                   "candidates re-run OnDrawFrame and inject only their "
+                   "candidate state before the production render\n";
             out << "camera_mode="
                 << (UsesSyntheticFixture(_candidate)
                     ? "production-player-camera-after-warmup"
@@ -873,6 +896,9 @@ namespace
                 << "\n";
             out << "control="
                 << (_controlDescription.empty() ? "none" : _controlDescription)
+                << "\n";
+            out << "control_gate="
+                << (_controlGateVerified ? "verified" : "not-verified")
                 << "\n";
             if (_controlSummary.has_value())
             {
@@ -947,8 +973,9 @@ namespace
             }
             out << "fixture_scope="
                 << (UsesSyntheticFixture(_candidate)
-                    ? "synthetic geometry only; validates production "
-                      "RenderItem classification/pass/draw handling, "
+                    ? "synthetic geometry only; same-update no-fixture "
+                      "control requires a visible production "
+                      "RenderItem classification/pass/draw contribution; "
                       "not entity/effect generation"
                     : "production final render stage with deterministic "
                       "debug-only state injection")
@@ -980,6 +1007,7 @@ namespace
         bool _cleaned = false;
         bool _manifestWritten = false;
         bool _finalStageGateVerified = false;
+        bool _controlGateVerified = false;
         std::string _controlDescription{};
         std::optional<MphRead::Mods::Render::GoldenCaptureValidation::PixelSummary>
             _controlSummary{};

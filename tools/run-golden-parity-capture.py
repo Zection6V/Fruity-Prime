@@ -50,6 +50,7 @@ GAME_PATH_KEYS = frozenset((
 ))
 NON_GAME_PATH_KEYS = frozenset(("Export",))
 RUNTIME_PROVENANCE_NAME = "golden-parity-runtime.json"
+STARTUP_MAPS_DIRECTORY_NAME = "maps"
 
 
 class GateError(RuntimeError):
@@ -277,6 +278,128 @@ def remove_staged_runtime_paths_file(destination: pathlib.Path, expected_sha256:
     destination.unlink()
 
 
+def _tree_relative_bytes(path: pathlib.Path) -> bytes:
+    return path.as_posix().encode("utf-8", "surrogatepass")
+
+
+def fixture_tree_identity(source: pathlib.Path) -> str:
+    source = source.resolve()
+    digest = hashlib.sha256()
+    file_count = 0
+
+    if source.is_file():
+        if source.is_symlink():
+            fail("startup map fixture may not be a symbolic link")
+        digest.update(b"F\0")
+        digest.update(_tree_relative_bytes(pathlib.Path(source.name)))
+        digest.update(b"\0")
+        digest.update(sha256_file(source).encode("ascii"))
+        digest.update(b"\n")
+        return digest.hexdigest()
+
+    if not source.is_dir():
+        fail("startup map fixture does not exist or is not a file/directory")
+
+    entries = sorted(
+        source.rglob("*"),
+        key=lambda path: path.relative_to(source).as_posix(),
+    )
+    for entry in entries:
+        if entry.is_symlink():
+            fail("startup map fixture tree may not contain symbolic links")
+        relative = entry.relative_to(source)
+        if entry.is_dir():
+            digest.update(b"D\0")
+            digest.update(_tree_relative_bytes(relative))
+            digest.update(b"\n")
+        elif entry.is_file():
+            file_count += 1
+            digest.update(b"F\0")
+            digest.update(_tree_relative_bytes(relative))
+            digest.update(b"\0")
+            digest.update(sha256_file(entry).encode("ascii"))
+            digest.update(b"\n")
+        else:
+            fail("startup map fixture contains an unsupported filesystem entry")
+
+    if file_count == 0:
+        fail("startup map fixture directory contains no files")
+    return digest.hexdigest()
+
+
+def stage_startup_map_fixture(
+    source: pathlib.Path,
+    executable: pathlib.Path,
+) -> tuple[pathlib.Path, str]:
+    source = source.resolve()
+    expected_before = fixture_tree_identity(source)
+    destination = executable.parent / STARTUP_MAPS_DIRECTORY_NAME
+    if destination.exists() or destination.is_symlink():
+        fail(
+            "refusing to overwrite a pre-existing maps path beside the "
+            "runner-built executable"
+        )
+
+    try:
+        if source.is_dir():
+            shutil.copytree(source, destination, copy_function=shutil.copy2)
+        else:
+            destination.mkdir()
+            shutil.copy2(source, destination / source.name)
+    except OSError as exc:
+        fail(
+            "could not stage startup map fixture; preserving any partial "
+            f"runner-created maps content: {exc}"
+        )
+
+    actual = fixture_tree_identity(destination)
+    expected_after = fixture_tree_identity(source)
+    if actual != expected_before or expected_after != expected_before:
+        fail(
+            "startup map fixture changed or copied inconsistently; preserving "
+            "the staged maps directory instead of deleting it"
+        )
+    return destination, actual
+
+
+def remove_staged_startup_map_fixture(
+    destination: pathlib.Path,
+    expected_tree_sha256: str,
+) -> None:
+    if not destination.is_dir() or destination.is_symlink():
+        fail(
+            "staged startup maps directory disappeared or changed type; "
+            "refusing destructive cleanup"
+        )
+    if fixture_tree_identity(destination) != expected_tree_sha256:
+        fail(
+            "staged startup maps content changed during capture; preserving it "
+            "instead of deleting it"
+        )
+    shutil.rmtree(destination)
+
+
+def cleanup_runtime_staging(
+    staged_paths: pathlib.Path | None,
+    paths_sha256: str | None,
+    staged_maps: pathlib.Path | None,
+    maps_sha256: str | None,
+) -> None:
+    errors: list[str] = []
+    if staged_paths is not None and paths_sha256 is not None:
+        try:
+            remove_staged_runtime_paths_file(staged_paths, paths_sha256)
+        except GateError as exc:
+            errors.append(str(exc))
+    if staged_maps is not None and maps_sha256 is not None:
+        try:
+            remove_staged_startup_map_fixture(staged_maps, maps_sha256)
+        except GateError as exc:
+            errors.append(str(exc))
+    if errors:
+        fail("; ".join(errors))
+
+
 def _path_identity(path: pathlib.Path) -> str:
     canonical = os.path.normcase(str(path.resolve()))
     return sha256(canonical.encode("utf-8"))
@@ -287,6 +410,7 @@ def write_runtime_provenance(
     expected_commit: str,
     identity: Mapping[str, str],
     paths_sha256: str,
+    startup_maps_tree_sha256: str,
     mapdir: pathlib.Path,
     cwd: pathlib.Path,
     executable: pathlib.Path,
@@ -295,6 +419,7 @@ def write_runtime_provenance(
         "source_commit": expected_commit.lower(),
         "harness_sha256": identity["harness_sha256"],
         "paths_file_sha256": paths_sha256,
+        "startup_maps_tree_sha256": startup_maps_tree_sha256,
         "mapdir_path_sha256": _path_identity(mapdir),
         "launch_cwd_path_sha256": _path_identity(cwd),
         "executable_sha256": sha256_file(executable),
@@ -580,6 +705,7 @@ def capture(
     cwd: pathlib.Path,
     paths_file: pathlib.Path,
     mapdir: pathlib.Path,
+    startup_map_fixture: pathlib.Path | None,
     *,
     requested_build_dir: pathlib.Path | None,
     config: str,
@@ -598,11 +724,16 @@ def capture(
     cwd = cwd.resolve()
     paths_file = paths_file.resolve()
     mapdir = mapdir.resolve()
+    startup_map_fixture = (
+        mapdir if startup_map_fixture is None else startup_map_fixture.resolve()
+    )
     if not cwd.is_dir():
         fail(f"capture working directory does not exist: {cwd}")
     if not mapdir.is_dir():
         fail(f"capture map directory does not exist: {mapdir}")
     validate_runtime_paths_file(paths_file)
+    # Preflight identity without recording or printing the raw local path.
+    fixture_tree_identity(startup_map_fixture)
 
     executable, build_dir, identity = build_capture_executable(
         root,
@@ -641,8 +772,19 @@ def capture(
         str(mapdir),
     ]
 
-    staged_paths, paths_sha256 = stage_runtime_paths_file(paths_file, executable)
+    staged_paths: pathlib.Path | None = None
+    paths_sha256: str | None = None
+    staged_maps: pathlib.Path | None = None
+    startup_maps_tree_sha256: str | None = None
     try:
+        staged_maps, startup_maps_tree_sha256 = stage_startup_map_fixture(
+            startup_map_fixture,
+            executable,
+        )
+        staged_paths, paths_sha256 = stage_runtime_paths_file(
+            paths_file,
+            executable,
+        )
         run_command(
             command,
             cwd=cwd,
@@ -650,7 +792,15 @@ def capture(
             env=env,
         )
     finally:
-        remove_staged_runtime_paths_file(staged_paths, paths_sha256)
+        cleanup_runtime_staging(
+            staged_paths,
+            paths_sha256,
+            staged_maps,
+            startup_maps_tree_sha256,
+        )
+
+    if paths_sha256 is None or startup_maps_tree_sha256 is None:
+        fail("runtime staging completed without provenance identities")
 
     for candidate in CANDIDATES:
         image = output / f"{candidate}.png"
@@ -676,7 +826,14 @@ def capture(
                 )
 
     write_runtime_provenance(
-        output, expected_commit, identity, paths_sha256, mapdir, cwd, executable
+        output,
+        expected_commit,
+        identity,
+        paths_sha256,
+        startup_maps_tree_sha256,
+        mapdir,
+        cwd,
+        executable,
     )
 
     print(f"captured={output.resolve()}")
@@ -780,6 +937,14 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         help="shared local custom-map directory used by both parity captures",
     )
     sub.add_argument(
+        "--startup-map-fixture",
+        type=pathlib.Path,
+        help=(
+            "custom-map fixture file or directory staged as executable/maps "
+            "before process startup; defaults to --mapdir"
+        ),
+    )
+    sub.add_argument(
         "--build-dir",
         type=pathlib.Path,
         help=(
@@ -826,6 +991,7 @@ def main(argv: Sequence[str]) -> int:
                 args.cwd,
                 args.paths_file,
                 args.mapdir,
+                args.startup_map_fixture,
                 requested_build_dir=args.build_dir,
                 config=args.config,
                 generator=args.generator,

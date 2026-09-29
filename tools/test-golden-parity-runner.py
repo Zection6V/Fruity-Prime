@@ -63,6 +63,13 @@ class RunnerLifecycleTests(unittest.TestCase):
         )
         return path
 
+    def startup_map_fixture(self) -> pathlib.Path:
+        fixture = pathlib.Path(self._temp.name) / "fixture"
+        (fixture / "nested").mkdir(parents=True)
+        (fixture / "test-arena.json").write_bytes(b"{\"Name\":\"TEST ARENA\"}\n")
+        (fixture / "nested" / "source.bin").write_bytes(b"fixture-source\n")
+        return fixture
+
     def test_restore_refuses_changed_after_prepare_without_writing(self) -> None:
         runner.prepare(self.root, self.commit)
         changed = self.root / runner.SOURCE_PATHS[0]
@@ -147,6 +154,71 @@ class RunnerLifecycleTests(unittest.TestCase):
         with self.assertRaises(runner.GateError):
             runner.stage_runtime_paths_file(source, executable)
         self.assertEqual(destination.read_bytes(), b"pre-existing\n")
+
+    def test_startup_map_fixture_stage_and_cleanup_is_exact(self) -> None:
+        fixture = self.startup_map_fixture()
+        executable_dir = pathlib.Path(self._temp.name) / "map-build"
+        executable_dir.mkdir()
+        executable = executable_dir / "FruityPrime.exe"
+        executable.write_bytes(b"binary")
+
+        expected = runner.fixture_tree_identity(fixture)
+        destination, digest = runner.stage_startup_map_fixture(fixture, executable)
+        self.assertEqual(digest, expected)
+        self.assertEqual(runner.fixture_tree_identity(destination), expected)
+
+        runner.remove_staged_startup_map_fixture(destination, digest)
+        self.assertFalse(destination.exists())
+        self.assertTrue(fixture.exists())
+
+    def test_startup_map_fixture_refuses_preexisting_maps(self) -> None:
+        fixture = self.startup_map_fixture()
+        executable_dir = pathlib.Path(self._temp.name) / "map-existing"
+        executable_dir.mkdir()
+        executable = executable_dir / "FruityPrime.exe"
+        executable.write_bytes(b"binary")
+        destination = executable_dir / "maps"
+        destination.mkdir()
+        marker = destination / "keep.txt"
+        marker.write_bytes(b"pre-existing\n")
+
+        with self.assertRaises(runner.GateError):
+            runner.stage_startup_map_fixture(fixture, executable)
+        self.assertEqual(marker.read_bytes(), b"pre-existing\n")
+
+    def test_startup_map_cleanup_preserves_modified_content(self) -> None:
+        fixture = self.startup_map_fixture()
+        executable_dir = pathlib.Path(self._temp.name) / "map-modified"
+        executable_dir.mkdir()
+        executable = executable_dir / "FruityPrime.exe"
+        executable.write_bytes(b"binary")
+
+        destination, digest = runner.stage_startup_map_fixture(fixture, executable)
+        changed = destination / "test-arena.json"
+        changed.write_bytes(b"modified after staging\n")
+
+        with self.assertRaises(runner.GateError):
+            runner.remove_staged_startup_map_fixture(destination, digest)
+        self.assertEqual(changed.read_bytes(), b"modified after staging\n")
+
+    def test_startup_map_stage_rejects_source_identity_drift(self) -> None:
+        fixture = self.startup_map_fixture()
+        executable_dir = pathlib.Path(self._temp.name) / "map-drift"
+        executable_dir.mkdir()
+        executable = executable_dir / "FruityPrime.exe"
+        executable.write_bytes(b"binary")
+
+        real_identity = runner.fixture_tree_identity(fixture)
+        with mock.patch.object(
+            runner,
+            "fixture_tree_identity",
+            side_effect=(real_identity, real_identity, "f" * 64),
+        ):
+            with self.assertRaises(runner.GateError):
+                runner.stage_startup_map_fixture(fixture, executable)
+
+        destination = executable_dir / "maps"
+        self.assertTrue(destination.exists())
 
     def test_run_command_forwards_environment(self) -> None:
         environment = {"FRUITY_GOLDEN_PARITY_SOURCE_COMMIT": "sentinel"}

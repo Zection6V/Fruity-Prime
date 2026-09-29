@@ -13,9 +13,9 @@ namespace MphRead::Mods::Render::GoldenCaptureValidation
 {
     inline constexpr std::int32_t ManifestPhase = 4;
     inline constexpr std::string_view FixtureContract
-        = "phase4-final-stage-v2";
+        = "phase4-final-stage-v3";
     inline constexpr std::string_view ParityAdapterContract
-        = "phase3-phase4-shared-v1";
+        = "phase3-phase4-shared-v2";
 
     struct PixelSummary final
     {

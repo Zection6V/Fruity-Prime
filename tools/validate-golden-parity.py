@@ -25,8 +25,8 @@ from typing import Mapping, Sequence
 
 PHASE3_BASELINE = "13c49e35f2a314662c7cc639e5e56fa784ac8bfd"
 PHASE_PLAN_BLOB = "a262838984ef547ebd6f22d1d9e78f3e1f214586"
-FIXTURE_CONTRACT = "phase4-final-stage-v2"
-PARITY_ADAPTER_CONTRACT = "phase3-phase4-shared-v1"
+FIXTURE_CONTRACT = "phase4-final-stage-v3"
+PARITY_ADAPTER_CONTRACT = "phase3-phase4-shared-v2"
 RUNTIME_PROVENANCE_NAME = "golden-parity-runtime.json"
 HARNESS_RELATIVE_PATHS = (
     pathlib.Path("src/MphRead.Native/Mods/Render/GoldenCapture.cpp"),
@@ -84,6 +84,7 @@ COMMON_INPUT_KEYS = (
     "fixture_scope",
     "final_stage_gate",
     "control",
+    "control_gate",
 )
 
 EXPECTED_FIXED_INPUTS = {
@@ -518,28 +519,30 @@ def validate_manifest(
 
     final_gate = require_key(manifest, "final_stage_gate", manifest_path)
     control = require_key(manifest, "control", manifest_path)
+    control_gate = require_key(manifest, "control_gate", manifest_path)
+    if not control or control == "none":
+        fail(f"{manifest_path}: candidate has no same-update control")
+    if control_gate != "verified":
+        fail(f"{manifest_path}: same-update control gate is not verified")
+    parse_positive_int(
+        require_key(manifest, "control_rgb_fnv1a64", manifest_path),
+        f"{manifest_path}:control_rgb_fnv1a64",
+    )
+    parse_positive_int(
+        require_key(manifest, "control_rgb_lit_pixels", manifest_path),
+        f"{manifest_path}:control_rgb_lit_pixels",
+    )
+    parse_positive_int(
+        require_key(manifest, "control_changed_pixels", manifest_path),
+        f"{manifest_path}:control_changed_pixels",
+    )
+
     if candidate in FINAL_STAGE_CANDIDATES:
         if final_gate != "verified":
             fail(f"{manifest_path}: final-stage gate is not verified")
-        if not control or control == "none":
-            fail(f"{manifest_path}: final-stage candidate has no control")
-        parse_positive_int(
-            require_key(manifest, "control_rgb_fnv1a64", manifest_path),
-            f"{manifest_path}:control_rgb_fnv1a64",
-        )
-        parse_positive_int(
-            require_key(manifest, "control_rgb_lit_pixels", manifest_path),
-            f"{manifest_path}:control_rgb_lit_pixels",
-        )
-        parse_positive_int(
-            require_key(manifest, "control_changed_pixels", manifest_path),
-            f"{manifest_path}:control_changed_pixels",
-        )
     else:
         if final_gate != "not-applicable-or-not-reached":
             fail(f"{manifest_path}: synthetic candidate has unexpected final-stage gate")
-        if control != "none":
-            fail(f"{manifest_path}: synthetic candidate unexpectedly has a control")
 
     if candidate == "fade":
         expected_fade = {
@@ -648,17 +651,16 @@ def compare_capture_evidence(left: CaptureEvidence, right: CaptureEvidence) -> N
                 f"{left.manifest[key]!r} != {right.manifest[key]!r}"
             )
 
-    if candidate in FINAL_STAGE_CANDIDATES:
-        for key in (
-            "control_rgb_fnv1a64",
-            "control_rgb_lit_pixels",
-            "control_changed_pixels",
-        ):
-            if left.manifest[key] != right.manifest[key]:
-                fail(
-                    f"{candidate}: final-stage control field {key!r} differs: "
-                    f"{left.manifest[key]!r} != {right.manifest[key]!r}"
-                )
+    for key in (
+        "control_rgb_fnv1a64",
+        "control_rgb_lit_pixels",
+        "control_changed_pixels",
+    ):
+        if left.manifest[key] != right.manifest[key]:
+            fail(
+                f"{candidate}: same-update control field {key!r} differs: "
+                f"{left.manifest[key]!r} != {right.manifest[key]!r}"
+            )
 
     if candidate == "fade":
         for key in (
@@ -712,7 +714,8 @@ def load_runtime_provenance(
 
     required = (
         "source_commit", "harness_sha256", "paths_file_sha256",
-        "mapdir_path_sha256", "launch_cwd_path_sha256", "executable_sha256",
+        "startup_maps_tree_sha256", "mapdir_path_sha256",
+        "launch_cwd_path_sha256", "executable_sha256",
     )
     result: dict[str, str] = {}
     for key in required:
@@ -774,7 +777,12 @@ def validate_parity(
     phase4_runtime = load_runtime_provenance(
         phase4_capture_dir, phase4_commit, phase4_harness
     )
-    for key in ("paths_file_sha256", "mapdir_path_sha256", "launch_cwd_path_sha256"):
+    for key in (
+        "paths_file_sha256",
+        "startup_maps_tree_sha256",
+        "mapdir_path_sha256",
+        "launch_cwd_path_sha256",
+    ):
         if phase3_runtime[key] != phase4_runtime[key]:
             fail(f"runtime input {key!r} differs between Phase 3 and Phase 4")
 
@@ -834,19 +842,15 @@ def _test_manifest(
     lit_pixels: int,
     total_pixels: int,
 ) -> str:
-    control = "none"
+    control = "same-update control"
     final_gate = "not-applicable-or-not-reached"
-    extra: list[tuple[str, str]] = []
+    extra: list[tuple[str, str]] = [
+        ("control_rgb_fnv1a64", "111"),
+        ("control_rgb_lit_pixels", str(lit_pixels)),
+        ("control_changed_pixels", "1"),
+    ]
     if candidate in FINAL_STAGE_CANDIDATES:
-        control = "same-update control"
         final_gate = "verified"
-        extra.extend(
-            (
-                ("control_rgb_fnv1a64", "111"),
-                ("control_rgb_lit_pixels", str(lit_pixels)),
-                ("control_changed_pixels", "1"),
-            )
-        )
     if candidate == "fade":
         hook_observed = "false" if source_commit == PHASE3_BASELINE else "true"
         extra.extend(
@@ -908,6 +912,7 @@ def _test_manifest(
         "fixture_scope": "test",
         "final_stage_gate": final_gate,
         "control": control,
+        "control_gate": "verified",
         "capture_rgb_fnv1a64": "222",
         "capture_rgb_lit_pixels": str(lit_pixels),
         "capture_rgb_total_pixels": str(total_pixels),
@@ -924,6 +929,7 @@ def _write_test_runtime_provenance(
     harness: HarnessIdentity,
     *,
     paths_sha256: str = "2" * 64,
+    startup_maps_sha256: str = "9" * 64,
     mapdir_sha256: str = "3" * 64,
     cwd_sha256: str = "4" * 64,
     executable_sha256: str = "5" * 64,
@@ -934,6 +940,7 @@ def _write_test_runtime_provenance(
                 "source_commit": source_commit,
                 "harness_sha256": harness.composite_sha256,
                 "paths_file_sha256": paths_sha256,
+                "startup_maps_tree_sha256": startup_maps_sha256,
                 "mapdir_path_sha256": mapdir_sha256,
                 "launch_cwd_path_sha256": cwd_sha256,
                 "executable_sha256": executable_sha256,
@@ -1022,6 +1029,57 @@ def self_test() -> None:
         else:
             raise AssertionError("self-test runtime input mismatch was accepted")
         runtime_path.write_text(runtime_original, encoding="utf-8")
+
+        runtime_value = json.loads(runtime_original)
+        runtime_value["startup_maps_tree_sha256"] = "a" * 64
+        runtime_path.write_text(
+            json.dumps(runtime_value, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        try:
+            validate_parity(
+                root3,
+                root4,
+                cap3,
+                cap4,
+                phase4_commit,
+                ("transparent-object",),
+                check_git=False,
+            )
+        except GateError:
+            pass
+        else:
+            raise AssertionError(
+                "self-test startup map fixture mismatch was accepted"
+            )
+        runtime_path.write_text(runtime_original, encoding="utf-8")
+
+        synthetic_manifest = cap4 / "transparent-object.txt"
+        synthetic_original = synthetic_manifest.read_text(encoding="utf-8")
+        synthetic_manifest.write_text(
+            synthetic_original.replace(
+                "control_gate=verified",
+                "control_gate=not-verified",
+            ),
+            encoding="utf-8",
+        )
+        try:
+            validate_parity(
+                root3,
+                root4,
+                cap3,
+                cap4,
+                phase4_commit,
+                ("transparent-object",),
+                check_git=False,
+            )
+        except GateError:
+            pass
+        else:
+            raise AssertionError(
+                "self-test unverified synthetic control was accepted"
+            )
+        synthetic_manifest.write_text(synthetic_original, encoding="utf-8")
 
         hud_manifest = cap4 / "hud.txt"
         original = hud_manifest.read_text(encoding="utf-8")

@@ -1,0 +1,75 @@
+name: golden_parity_adapter
+
+on:
+  push:
+    branches:
+      - develop3_rendering
+    paths:
+      - "tools/golden-parity/adapter/**"
+      - "tools/run-golden-parity-capture.py"
+      - "tools/validate-golden-parity.py"
+      - ".github/workflows/golden-parity-adapter.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    name: Compile shared adapter / ${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - phase3
+          - phase4
+
+    steps:
+      - name: Checkout adapter source
+        uses: actions/checkout@v5
+        with:
+          path: adapter-source
+
+      - name: Checkout exact Phase 3 baseline
+        if: matrix.target == 'phase3'
+        uses: actions/checkout@v5
+        with:
+          ref: 13c49e35f2a314662c7cc639e5e56fa784ac8bfd
+          path: target
+
+      - name: Checkout exact Phase 4 source
+        if: matrix.target == 'phase4'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: target
+
+      - name: Overlay byte-identical harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp adapter-source/tools/golden-parity/adapter/GoldenCapture.cpp             target/src/MphRead.Native/Mods/Render/GoldenCapture.cpp
+          cp adapter-source/tools/golden-parity/adapter/GoldenCapture.hpp             target/src/MphRead.Native/Mods/Render/GoldenCapture.hpp
+          cp adapter-source/tools/golden-parity/adapter/GoldenCaptureValidation.hpp             target/src/MphRead.Native/Mods/Render/GoldenCaptureValidation.hpp
+
+          cmp adapter-source/tools/golden-parity/adapter/GoldenCapture.cpp             target/src/MphRead.Native/Mods/Render/GoldenCapture.cpp
+          cmp adapter-source/tools/golden-parity/adapter/GoldenCapture.hpp             target/src/MphRead.Native/Mods/Render/GoldenCapture.hpp
+          cmp adapter-source/tools/golden-parity/adapter/GoldenCaptureValidation.hpp             target/src/MphRead.Native/Mods/Render/GoldenCaptureValidation.hpp
+
+          echo "target_head=$(git -C target rev-parse HEAD)"
+          echo "overlay changes:"
+          git -C target status --short
+
+      - name: Syntax-compile shared GoldenCapture adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++             -std=c++20             -fsyntax-only             -DMPHREAD_SHELL             -DMPHREAD_AVALONIA             -I target/src/MphRead.Native             target/src/MphRead.Native/Mods/Render/GoldenCapture.cpp
+
+      - name: Validate Python parity tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile             adapter-source/tools/run-golden-parity-capture.py             adapter-source/tools/validate-golden-parity.py
+          python3 adapter-source/tools/validate-golden-parity.py --self-test

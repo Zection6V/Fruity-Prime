@@ -121,6 +121,20 @@ namespace MphRead::Droid
         }
     }
 
+    void AndroidHunterShot::ResumeCurrent()
+    {
+        std::shared_ptr<AndroidHunterShot> current = Current();
+        if (current == nullptr)
+        {
+            return;
+        }
+        std::lock_guard lock(current->_state->Gate);
+        if (!current->_state->Failed)
+        {
+            current->_state->Retire = false;
+        }
+    }
+
     std::shared_future<std::optional<std::vector<std::uint8_t>>>
         AndroidHunterShot::RenderAsync(
             Hunter hunter,
@@ -197,21 +211,21 @@ namespace MphRead::Droid
         std::shared_ptr<Worker> worker;
         {
             std::lock_guard lock(_state->Gate);
-            worker = _state->CurrentWorker;
-            if (worker == nullptr)
-            {
-                return;
-            }
+            _state->Retire = true;
             if (_state->Next != nullptr)
             {
                 _state->Next->Done.set_value(std::nullopt);
                 _state->Next.reset();
             }
-            _state->Retire = true;
+            worker = _state->CurrentWorker;
+            if (worker != nullptr)
+            {
+                ++_state->WorkPermits;
+            }
         }
+        if (worker == nullptr)
         {
-            std::lock_guard lock(_state->Gate);
-            ++_state->WorkPermits;
+            return;
         }
         _state->Work.notify_one();
 
@@ -222,9 +236,10 @@ namespace MphRead::Droid
             [&worker] { return worker->IsFinished; });
         if (!finished)
         {
-            // The wait is only a UI responsiveness bound. AndroidGlContextLease
-            // remains the actual ownership barrier, so a different non-shared
-            // EGL context cannot enter GlEs until this worker really exits.
+            // This timeout is only a UI responsiveness bound. Retire remains
+            // asserted, so no replacement hunter worker can start. The global
+            // AndroidGlContextLease is the actual cross-context ownership
+            // barrier until this worker completes teardown.
             ::MphRead::NativeRuntime::ConsoleWriteLine(
                 "[hunter] preview retirement is still finishing GL teardown");
         }
@@ -269,6 +284,7 @@ namespace MphRead::Droid
             }
             if (gl != nullptr)
             {
+                Mods::Render::GlEs::ReleaseContext();
                 gl->Dispose();
             }
         };
@@ -287,6 +303,7 @@ namespace MphRead::Droid
             }
             if (gl != nullptr)
             {
+                Mods::Render::GlEs::ReleaseContext();
                 gl->Dispose();
             }
         };
@@ -335,6 +352,7 @@ namespace MphRead::Droid
                     input.reset();
                     if (width != 0)
                     {
+                        Mods::Render::GlEs::ReleaseContext();
                         gl->Dispose();
                         gl = OffscreenGl::Create(job->Width, job->Height);
                         Mods::Render::EsBindings::Load();
@@ -367,7 +385,7 @@ namespace MphRead::Droid
                 {
                     state->CurrentWorker.reset();
                 }
-                state->Retire = false;
+                // Retire remains set until ResumeCurrent().
                 if (state->Next != nullptr)
                 {
                     state->Next->Done.set_value(std::nullopt);
@@ -397,7 +415,7 @@ namespace MphRead::Droid
                 {
                     state->CurrentWorker.reset();
                 }
-                state->Retire = false;
+                // Retire remains set until ResumeCurrent().
                 if (state->Next != nullptr)
                 {
                     state->Next->Done.set_value(std::nullopt);

@@ -19,7 +19,12 @@ namespace MphRead::Mods::Render
         GlEs& operator=(const GlEs&) = delete;
         GlEs& operator=(GlEs&&) = delete;
 
+        // Reset bookkeeping for a newly-current non-shared context. This does
+        // not delete names inherited from a previous context.
         static void Reset();
+        // Release context-local transient GL objects while their owning context
+        // is still current, then clear the process-global shim bookkeeping.
+        static void ReleaseContext();
 
         static void Begin(std::int32_t mode);
         static void End();
@@ -193,6 +198,7 @@ namespace MphRead::Mods::Render
         static std::unordered_map<std::int32_t, std::int32_t> _textures;
         static std::int32_t _textureHighWater;
 
+        static void ResetContextState(bool deleteDynamicObjects);
         static void EmitIndices(std::int32_t mode, std::int32_t base, std::int32_t count);
         static std::vector<std::int32_t> BuildIndexArray();
         static void FlushDynamic();

@@ -105,11 +105,14 @@ namespace MphRead::Droid
         }
         catch (...)
         {
+            const std::exception_ptr error = std::current_exception();
             Mods::ThumbnailMode::Exit();
-            throw;
+            Mods::Render::GlEs::ReleaseContext();
+            std::rethrow_exception(error);
         }
 
         Mods::ThumbnailMode::Exit();
+        Mods::Render::GlEs::ReleaseContext();
         return written;
     }
 

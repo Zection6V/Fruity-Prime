@@ -797,6 +797,10 @@ namespace MphRead::Droid
         }
 
         _renderingHere.store(false, std::memory_order_release);
+        if (!_stopPreviews.load(std::memory_order_acquire))
+        {
+            AndroidHunterShot::ResumeCurrent();
+        }
         _stopPreviews.store(false, std::memory_order_release);
 
         if (escaped)
@@ -1314,6 +1318,7 @@ namespace MphRead::Droid
         _pending.reset();
         HideNotice();
         _controls.ReleaseEverything();
+        AndroidHunterShot::ResumeCurrent();
 
         MainActivityOwner& owner = GetMainActivityOwner();
         if (_launcherView)
@@ -1823,6 +1828,12 @@ namespace MphRead::Droid
             owner.RemoveView(_content, gameView);
             StoreGameView({});
         }
+
+        // GameView may still be completing teardown asynchronously, but its
+        // AndroidGlContextLease remains held until that is done. Resuming here
+        // only permits launcher workers to queue; they cannot enter GlEs until
+        // the game context releases the lease.
+        AndroidHunterShot::ResumeCurrent();
 
         _controls.ReleaseEverything();
         _controls.SetSpectator(false, false);

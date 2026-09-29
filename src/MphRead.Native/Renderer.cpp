@@ -1525,11 +1525,28 @@ namespace MphRead
         return info;
     }
 
-    void Scene::BeginSceneRendering()
+    void Scene::BeginSceneRendering(NativeRuntime::Rhi::LoadOp colorLoad, NativeRuntime::Rhi::LoadOp depthLoad,
+        NativeRuntime::Rhi::LoadOp stencilLoad, NativeRuntime::Rhi::ClearColor clearColor,
+        NativeRuntime::Rhi::Scissor area)
     {
         std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
         NativeRuntime::Rhi::RenderingDepthStencilAttachment depth{};
-        Commands().BeginRendering(SceneRenderingInfo(color, depth));
+        NativeRuntime::Rhi::RenderingInfo info = SceneRenderingInfo(color, depth);
+        color[0].loadOp = colorLoad;
+        color[0].clearValue = clearColor;
+        depth.depthLoadOp = depthLoad;
+        depth.stencilLoadOp = stencilLoad;
+        depth.clearDepth = 1.0F;
+        depth.clearStencil = 0;
+        info.renderArea = area;
+        Commands().BeginRendering(info);
+    }
+
+    // The colour the scene target is cleared to: the room's, which is
+    // black unless it is a First Hunt room whose fog is its sky.
+    NativeRuntime::Rhi::ClearColor Scene::SceneClearColor() const
+    {
+        return NativeRuntime::Rhi::ClearColor{_clearColor.X, _clearColor.Y, _clearColor.Z, _clearColor.W};
     }
 
     // The cel pass writes SceneColor with no depth attached.
@@ -1544,12 +1561,21 @@ namespace MphRead
         Commands().BeginRendering(info);
     }
 
-    void Scene::BeginWindowRendering()
+    void Scene::BeginWindowRendering(NativeRuntime::Rhi::LoadOp colorLoad, NativeRuntime::Rhi::LoadOp depthLoad,
+        NativeRuntime::Rhi::ClearColor clearColor, NativeRuntime::Rhi::Scissor area)
     {
+        std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
+        color[0].loadOp = colorLoad;
+        color[0].clearValue = clearColor;
+        NativeRuntime::Rhi::RenderingDepthStencilAttachment depth{};
+        depth.depthLoadOp = depthLoad;
         NativeRuntime::Rhi::RenderingInfo info{};
         info.width = static_cast<std::uint32_t>(_rendererSize.X);
         info.height = static_cast<std::uint32_t>(_rendererSize.Y);
         info.swapchain = true;
+        info.colorAttachments = color;
+        info.depthStencilAttachment = &depth;
+        info.renderArea = area;
         Commands().BeginRendering(info);
     }
 
@@ -2019,6 +2045,7 @@ namespace MphRead
         _shaderConstants->Set(NativeRuntime::Rhi::CelPostConstants{
             1.0F / target.X, 1.0F / target.Y, Mods::RenderOptions::CelEdge(), _nearClip,
             _useClip ? _farClip : 10000.0F, _depthQuantum, probe});
+        Commands().EndRendering();
         BeginCelRendering();
         GL::Disable(GL::EnableCap::DepthTest);
         GL::Disable(GL::EnableCap::Blend);
@@ -2031,6 +2058,7 @@ namespace MphRead
         EndTransient();
         UnbindSceneTexture(0);
         UnbindSceneTexture(1);
+        Commands().EndRendering();
         BeginSceneRendering();
         GL::Enable(GL::EnableCap::DepthTest);
     }
@@ -2107,8 +2135,10 @@ namespace MphRead
         {
             _transientGeometry->BeginFrame();
         }
-        GL::Clear(GL::ClearBufferMask::ColorBufferBit | GL::ClearBufferMask::DepthBufferBit | GL::ClearBufferMask::StencilBufferBit);
-        GL::ClearStencil(0);
+        {
+            using NativeRuntime::Rhi::LoadOp;
+            BeginSceneRendering(LoadOp::Clear, LoadOp::Clear, LoadOp::Clear, SceneClearColor());
+        }
         UpdateUniforms();
         SetPauseMenuUniforms();
         if (_exiting) return false;
@@ -2121,7 +2151,12 @@ namespace MphRead
         {
             Commands().SetStencilReference(static_cast<std::uint32_t>(item->PolygonId)); RenderItem(item);
         }
-        GL::Clear(GL::ClearBufferMask::DepthBufferBit);
+        Commands().EndRendering();
+        {
+            // Colour and the stencil the translucent pass just wrote are kept.
+            using NativeRuntime::Rhi::LoadOp;
+            BeginSceneRendering(LoadOp::Load, LoadOp::Clear, LoadOp::Load);
+        }
         BeginScenePass(ScenePass::DepthRebuild);
         for (const auto& item : _nonDecalItems) RenderItem(item);
         BeginScenePass(ScenePass::TranslucentNotEqual);
@@ -2159,9 +2194,10 @@ namespace MphRead
             if (main->HudWhiteoutFactor() != 0.0F)
                 _shaderConstants->SetWhiteoutTable(Entities::PlayerEntity::HudWhiteoutTable);
         }
-        BeginWindowRendering();
+        Commands().EndRendering();
+        BeginWindowRendering(NativeRuntime::Rhi::LoadOp::Clear, NativeRuntime::Rhi::LoadOp::Load, SceneClearColor());
         GL::Viewport(0, 0, _rendererSize.X, _rendererSize.Y);
-        GL::Clear(GL::ClearBufferMask::ColorBufferBit); GL::Disable(GL::EnableCap::DepthTest); GL::Enable(GL::EnableCap::Blend);
+        GL::Disable(GL::EnableCap::DepthTest); GL::Enable(GL::EnableCap::Blend);
         BindSceneTexture(0, *_sceneColor, SamplerFor(Mods::RenderOptions::ResolutionScale() < 100,
             RepeatMode::Repeat, RepeatMode::Repeat));
         BeginTransient(TransientPrimitiveTopology::TriangleStrip);

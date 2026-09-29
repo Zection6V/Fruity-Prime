@@ -90,9 +90,13 @@ namespace MphRead::NativeRuntime::Rhi
         std::uint32_t height = 0;
         std::span<const RenderingColorAttachment> colorAttachments{};
         const RenderingDepthStencilAttachment* depthStencilAttachment = nullptr;
-        // Render to the window's own surface rather than to attachments; the
-        // attachment spans must then be empty.
+        // Render to the window's own surface rather than to textures. The
+        // attachments' load ops still apply, with null views standing for the
+        // surface's own colour and depth/stencil.
         bool swapchain = false;
+        // The region loads, clears and draws are confined to, as
+        // VkRenderingInfo::renderArea; a zero width means all of it.
+        Scissor renderArea{};
     };
 
     struct BufferTextureCopy final

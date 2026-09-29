@@ -942,9 +942,19 @@ private: \
     [[nodiscard]] MphRead::NativeRuntime::Rhi::RenderingInfo SceneRenderingInfo( \
         std::array<MphRead::NativeRuntime::Rhi::RenderingColorAttachment, 1>& color, \
         MphRead::NativeRuntime::Rhi::RenderingDepthStencilAttachment& depth) const; \
-    void BeginSceneRendering(); \
+    void BeginSceneRendering( \
+        MphRead::NativeRuntime::Rhi::LoadOp color = MphRead::NativeRuntime::Rhi::LoadOp::Load, \
+        MphRead::NativeRuntime::Rhi::LoadOp depth = MphRead::NativeRuntime::Rhi::LoadOp::Load, \
+        MphRead::NativeRuntime::Rhi::LoadOp stencil = MphRead::NativeRuntime::Rhi::LoadOp::Load, \
+        MphRead::NativeRuntime::Rhi::ClearColor clearColor = {}, \
+        MphRead::NativeRuntime::Rhi::Scissor area = {}); \
     void BeginCelRendering(); \
-    void BeginWindowRendering(); \
+    void BeginWindowRendering( \
+        MphRead::NativeRuntime::Rhi::LoadOp color = MphRead::NativeRuntime::Rhi::LoadOp::Load, \
+        MphRead::NativeRuntime::Rhi::LoadOp depth = MphRead::NativeRuntime::Rhi::LoadOp::Load, \
+        MphRead::NativeRuntime::Rhi::ClearColor clearColor = {}, \
+        MphRead::NativeRuntime::Rhi::Scissor area = {}); \
+    [[nodiscard]] MphRead::NativeRuntime::Rhi::ClearColor SceneClearColor() const; \
     [[nodiscard]] MphRead::NativeRuntime::Rhi::Texture* TextureFor(std::int32_t bindingId) const; \
     [[nodiscard]] const MphRead::NativeRuntime::Rhi::Sampler& SamplerFor(bool linear, \
         MphRead::RepeatMode s, MphRead::RepeatMode t); \
@@ -1142,6 +1152,7 @@ private: \
     std::array<std::unique_ptr<MphRead::NativeRuntime::Rhi::Sampler>, 18> _samplers{}; \
     bool _depthTextureRefused = false; \
     MphRead::ScenePass _itemPass = MphRead::ScenePass::Opaque; \
+    bool _previewIntoWindow = false; \
     std::unordered_map<std::uint32_t, std::unique_ptr<MphRead::NativeRuntime::Rhi::GraphicsPipeline>> _pipelines{}; \
     OpenTK::Mathematics::Vector2i _targetSize{}; \
     std::unordered_map<std::int32_t, OpenTK::Mathematics::Vector3> _flatColors{}; \

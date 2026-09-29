@@ -231,7 +231,9 @@ namespace MphRead
             }
             BeginWindowRendering();
             GL::UseProgram(_shaderProgramId);
+            _previewIntoWindow = true;
             ModDrawPreview();
+            _previewIntoWindow = false;
             GL::UseProgram(0);
             return true;
         }
@@ -276,11 +278,20 @@ namespace MphRead
             return;
         }
 
-        GL::Enable(GL::EnableCap::ScissorTest);
-        GL::Scissor(x, y, width, height);
-        GL::ClearColor(_previewBack.X, _previewBack.Y, _previewBack.Z, _previewBack.W);
-        GL::Clear(GL::ClearBufferMask::ColorBufferBit | GL::ClearBufferMask::DepthBufferBit);
-        GL::ClearColor(0.0F, 0.0F, 0.0F, 0.0F);
+        // Its own rendering scope over the corner it draws in: colour and
+        // depth cleared there, the stencil kept, and nothing outside touched.
+        namespace Rhi = NativeRuntime::Rhi;
+        const Rhi::ClearColor back{_previewBack.X, _previewBack.Y, _previewBack.Z, _previewBack.W};
+        const Rhi::Scissor area{x, y, static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height)};
+        Commands().EndRendering();
+        if (_previewIntoWindow)
+        {
+            BeginWindowRendering(Rhi::LoadOp::Clear, Rhi::LoadOp::Clear, back, area);
+        }
+        else
+        {
+            BeginSceneRendering(Rhi::LoadOp::Clear, Rhi::LoadOp::Clear, Rhi::LoadOp::Load, back, area);
+        }
         GL::Viewport(x, y, width, height);
         Matrix4 projection = Matrix4::CreatePerspectiveFieldOfView(
             DegreesToRadians(PreviewFov), width / static_cast<float>(height), 0.1F, 100.0F);
@@ -296,7 +307,15 @@ namespace MphRead
         {
             RenderItem(_previewItems[i]);
         }
-        GL::Disable(GL::EnableCap::ScissorTest);
+        Commands().EndRendering();
+        if (_previewIntoWindow)
+        {
+            BeginWindowRendering();
+        }
+        else
+        {
+            BeginSceneRendering();
+        }
         GL::Viewport(0, 0, target.X, target.Y);
         SetFrameMatrices(_viewMatrix, _perspectiveMatrix);
         GL::Uniform1(_shaderLocations->UseFog, _hasFog && FogOn() ? 1 : 0);

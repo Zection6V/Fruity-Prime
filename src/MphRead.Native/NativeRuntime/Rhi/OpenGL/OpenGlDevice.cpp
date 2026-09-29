@@ -7,6 +7,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -19,9 +20,19 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         namespace GL = ::OpenTK::Graphics::OpenGL::GL;
 
         constexpr std::int32_t FramebufferBinding = 0x8CA6; // GL_FRAMEBUFFER_BINDING
-        // The enum shares its name with the function that takes it.
-        using GlRenderbufferStorage = enum ::OpenTK::Graphics::OpenGL::GL::RenderbufferStorage;
-        using GlStencilOp = enum ::OpenTK::Graphics::OpenGL::GL::StencilOp;
+        // These two enums share their names with the functions that take them,
+        // so the type is read off the function's own parameter. (An
+        // elaborated `enum X` works on GCC and Clang, and MSVC reads it as
+        // redeclaring the scoped enum as an unscoped one.)
+        template <std::size_t N, typename F>
+        struct ParameterOf;
+        template <std::size_t N, typename R, typename... A>
+        struct ParameterOf<N, R (*)(A...)>
+        {
+            using type = std::tuple_element_t<N, std::tuple<A...>>;
+        };
+        using GlRenderbufferStorage = ParameterOf<1, decltype(&GL::RenderbufferStorage)>::type;
+        using GlStencilOp = ParameterOf<0, decltype(&GL::StencilOp)>::type;
 
         [[noreturn]] void NotYet(const char* what)
         {
@@ -832,8 +843,25 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 return framebuffer;
             }
 
+            // The load ops, within the render area. A clear clears the whole
+            // attachment (or area) whatever the last pipeline's write masks
+            // were, so the masks a clear needs are set first; the next
+            // SetPipeline applies its own in full, since BeginRendering forgot
+            // the last one.
             void ClearFor(const RenderingInfo& info)
             {
+                constexpr std::int32_t CapScissorTest = 0x0C11;
+                if (info.renderArea.width > 0 && info.renderArea.height > 0)
+                {
+                    SetCap(CapScissorTest, true);
+                    GL::Scissor(info.renderArea.x, info.renderArea.y,
+                        static_cast<std::int32_t>(info.renderArea.width),
+                        static_cast<std::int32_t>(info.renderArea.height));
+                }
+                else
+                {
+                    SetCap(CapScissorTest, false);
+                }
                 std::int32_t mask = 0;
                 const bool clearColor = !info.colorAttachments.empty()
                     && info.colorAttachments[0].loadOp == LoadOp::Clear;
@@ -845,15 +873,20 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 {
                     const ClearColor& value = info.colorAttachments[0].clearValue;
                     GL::ClearColor(value.red, value.green, value.blue, value.alpha);
+                    GL::ColorMask(true, true, true, true);
                     mask |= static_cast<std::int32_t>(GL::ClearBufferMask::ColorBufferBit);
                 }
                 if (clearDepth)
                 {
+                    // clearDepth is 1.0 everywhere the renderer clears; glClearDepth
+                    // is never changed from it.
+                    GL::DepthMask(true);
                     mask |= static_cast<std::int32_t>(GL::ClearBufferMask::DepthBufferBit);
                 }
                 if (clearStencil)
                 {
                     GL::ClearStencil(static_cast<std::int32_t>(info.depthStencilAttachment->clearStencil));
+                    GL::StencilMask(0xFF);
                     mask |= static_cast<std::int32_t>(GL::ClearBufferMask::StencilBufferBit);
                 }
                 if (mask != 0)

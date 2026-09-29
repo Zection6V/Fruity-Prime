@@ -1575,7 +1575,7 @@ rg -n "GenLists|NewList|EndList|CallList|DeleteLists" src/MphRead.Native
 - [x] Game sceneがVBO/IBOで描画
 - [x] display listsゼロ
 - [x] immediate mode model renderingゼロ
-- [ ] screenshot parity確認
+- [x] screenshot parity確認
 - [x] model unload/reload正常
 - [x] hunter preview正常
 - [x] match終了後preview破損なし
@@ -4549,13 +4549,20 @@ D3D12
 
 ## 現在の作業位置
 
+- **Phase 4 完了 (2026-09-30, SHA `1e98392c98fd37c33932bc6d65eb1878325874e2`)。** 本文の完了条件7項目すべてチェック済み。次はPhase 5。以下の旧記録は経緯として残す。
+  - **色の回帰の原因と修正:** desktopのgeometryはgeneric location 1-3で送られ、GLSL 1.20の組み込み入力向けにconventional arrayへmirrorされていた。NVIDIA (RTX 5070 Ti, driver 617.14) のcompatibility driverはgeneric 3を`gl_Color`にaliasするため、色がInheritedの描画（地形・particle・HUD）はtexcoord `(s,t,1)`を色として読み、赤・黄・緑に飽和していた。desktopのlocationをconventional属性のalias表の位置（position 0 / normal 2 / color 3 / texcoord 8）へ移し（`GL::VertexInput`）、Androidは0-3のまま。generic API（`glVertexAttribPointer`/`glEnableVertexAttribArray`）は引き続き実使用で、§4.3を満たす。
+  - **MSVC link修正:** `WeaponInfo`/`MessageInfo`のforward宣言のclass/struct不一致（MSVCはmangleが変わる）を定義側に揃え、未定義だった`TestMiscInterop::LoadPngRgb`を`NativeRuntime::LoadPng(bytes, 3)`で実装。
+  - **Screenshot parity:** Phase 3 baseline `13c49e35...` とPhase 4 `1e98392c...` を同一harness `1e7daefc...`・同一paths.txt `2dd4142d...`・同一mapdir/cwd/startup maps（`C:	mp\gp\inputs\maps2` = arena+pads）で新規capture。`tools/validate-golden-parity.py` で**7候補すべてexact RGB PASS**。対照として修正直前の `341d8f0e...` を同一条件でcaptureし、**7候補すべてFAIL**、HUD画像で報告どおりの赤・黄・緑を再現。差分は本修正のみなので因果を確認。
+  - **CI:** PR run [36589852308](https://github.com/Zection6V/Fruity-Prime/actions/runs/36589852308) が8/8 jobs PASS（Windows/MSVC、Linux/GCC、macOS/Clang、Phase 4 static audit、Android contract/NDK arm64+x86_64/APK）。
+  - ローカル: MSYS2 Release build、CTest 3/3、`tools/check-phase4-legacy-gl.py` PASS。
+
 - **作業中: Phase 4 — OpenGL Display List撤去・VBO/IBO化。** Phase 3は比較用の基準であり、現在の実装対象ではない。
 - 作業ブランチ: `develop3_rendering`
 - 前回のPhase 4監査・runtime検証済みSHA: `72535095f7e340488a1c0191091b09f2b1f1c82f`。
-- 現在のローカル／リモートSHA: `cb44456d4bbf221f60a894084a7cf6f9cb12a1a5`。`5cb29c2...`からfast-forward同期済み。ChatGPTが`.github/workflows/golden-parity-adapter.yml`のPowerShell collectorに不足していた閉じquoteだけを修正。アプリ・renderer sourceは変更なし。ローカル未コミット進捗MD/skill編集は保持し、このcommitに含めていない。
-- **最新remote SHA `cb44456` のPhase 4検証は未完了。** adapter run `36570852867` とPR run `36570861650` は実行中、同SHAのpush build_cpp run `36570852756` はPR concurrencyによりcancelled。直前SHA `5cb29c2...` のPR run `36563190293` はWindows/MSVC final linkで4 unresolved externalsによりFAIL、adapter run `36563182417` もartifact不足のままFAIL。renderer sourceは`5cb29c2...`時点と同じで、当該sourceのGolden Captureは7候補すべてexact-RGB比較FAIL（control画像も不一致）。Phase 4 parity未確立。
+- 現在のローカル／リモートSHA: `341d8f0ec3bd5ac4af75c3c0773851b6b45cb7cb`（`git ls-remote origin refs/heads/develop3_rendering` と一致）。このSHAはskillと本進捗MDのみの更新で、renderer/workflow sourceは`cb44456...`から不変。作業ツリーでは `src/MphRead.Native/NativeRuntime/OpenTK/GL.cpp` だけが未コミットで変更されているため、ユーザー所有の実験パッチとして保持し、commit・reset・captureに混ぜない。
+- **最新SHA `341d8f0` のPhase 4検証は未完了。** canonical PR run [36574766655](https://github.com/Zection6V/Fruity-Prime/actions/runs/36574766655) は2026-09-29 15:05 UTCに終端FAIL（他7 jobs PASS、Windows/MSVC final link FAIL）。runner-owned adapter run [36570852867](https://github.com/Zection6V/Fruity-Prime/actions/runs/36570852867) はSHA `cb44456...`で終端FAIL。artifactはdirect target object symbols、archive linkermembers、vcxproj/tlogs、binlogを保持し、未解決3シンボルについて`WeaponInfo`のclass/struct ABI tag (`V`/`U`) と `MessageInfo`のtag (`U`/`V`) が定義側と呼出側で不一致と証明した。sourceにも対応するclass/struct forward宣言不一致があるが、修正・再buildは未実施。同じrenderer sourceを含む別SHAの結果とは区別する。SHA `5cb29c2...` のcaptureでは7候補すべてexact-RGB比較FAILし、control群も不一致。Phase 4 parity未確立。
 - この修正は親 `72535095...` に対するcommitで、MSVC parity adapter構成に限って既存のproduction TU `Metadata/Weapons.cpp` と `Entities/EntityBase.cpp` を実行ファイルへ直接含め、adapter以外のcanonical MSVC設定は維持するもの。実CMake targetのlink成功を狙ったが、Actions run `36549202239` で同じ3シンボルの未解決により失敗した。従って、この修正はリンク問題を解決していない。
-- ローカルの未コミット変更はこの進捗記録と既存のskill編集だけで、どちらも保持している。pushされた診断commitはこれらを含まない。
+- ローカル未コミット変更は `GL.cpp` のみ。generic APIのindices 0–3を従来client arrayだけへ特例化する実験で、Phase 4の汎用attribute契約とPhase 5 explicit inputを壊すため、ChatGPTのread-only調査でも本番修正として未承認・未検証。ユーザー所有差分を保持し、根本原因・安全な修正の証拠なしに採用しない。
 - **Phase 4全体は未完了。** 後述の保留ゲートが解消し、Phase 4本文の完了条件が満たされるまで後続フェーズへ進まない。
 
 ## Phase 4の検証状況
@@ -4570,13 +4577,14 @@ D3D12
 | 実ゲーム経路でのモデルGPUリソース破棄・再ロード・再描画 | PASS | Release実行で `MP10 OVERLOAD` mesh 2 のGPU teardown/reload/drawを確認。再ロード後の描画はframe 8。 |
 | 試合前ハンター・プレビュー | PASS | 実ランチャーのプレビュー経路で確認。 |
 | 実試合後の結果画面とプレビュー再描画 | PASS | 実試合後READYを確認し、プレビューscene generation 1→2を確認。 |
-| Phase 4の新規Golden Captureと厳密RGB比較 | **FAIL（未解決）** | source SHA `5cb29c2...` の新規captureと同一harness/runtime inputで比較。7候補（transparent-object/decal/particle/trail/hud/fade/whiteout-disruption）がすべて`capture_rgb_fnv1a64`不一致。control画像も全群で異なるため、原因は未特定。現行Phase 4 parityは未達。 |
+| Phase 4の新規Golden Captureと厳密RGB比較 | **FAIL（未解決）** | source SHA `5cb29c2...` の新規captureと同一harness/runtime inputで比較。7候補（transparent-object/decal/particle/trail/hud/fade/whiteout-disruption）がすべて`capture_rgb_fnv1a64`不一致。control画像も全群で異なるため、原因は未特定。ChatGPTのread-only調査ではInherited色のattrib-3→`gl_Color`経路が歴史的NVIDIA GLSL資料と実際の呼出順に整合するとされたが、617.14上の再現とGolden Capture因果は未証明。 |
 | Windows/MSVC canonical GitHub Actions (前SHA) | **FAIL** | SHA `0da7f785...` のrun `36549208952` が終端FAIL。リンクで4 unresolved externals。ローカルMSYS2成功ではMSVCゲートを代替できない。 |
 | Windows runner-owned adapter real CMake target (前SHA) | **FAIL** | SHA `0da7f785...` のrun `36549202239`。依存導入・configure・Phase 3/4 shared compileはPASSだが、実 `fruity_prime` linkで `Weapons::Current`、`Weapons::WeaponsMP`、`EntityBase::HandleMessage` の3 unresolved externals。 |
 | Windows runner-owned adapter診断run (SHA `5cb29c2`) | **FAIL** | run `36563182417` は12:43:31 UTCに終端。artifactにはbuild log/binlog/exit codeのみで、直接object dump、archive linkermember、vcxproj/tlogがなく、必要なlink診断は未取得。 |
-| Windows runner-owned adapter診断run (最新SHA) | **IN PROGRESS** | SHA `cb44456...` のrun `36570852867`。Phase 3/4 shared compileはPASS。Windows jobは12:51:05 UTC開始の`Install native dependencies`中で、configure/build未開始。終端後にartifactを検証する。 |
-| 通常build_cpp push run (最新SHA) | **CANCELLED** | SHA `cb44456...` のrun `36570852756` はPR concurrencyによりcancelled。 |
-| 通常build_cpp PR run (最新SHA) | **IN PROGRESS** | SHA `cb44456...` のrun `36570861650`。8 jobs中7 jobs PASS（Phase 4 static audit、macOS、Linux、Android contract/NDK arm64+x86_64/APK）、Windows/MSVCの`Build C++ FruityPrime`のみIN PROGRESS。 |
+| Windows runner-owned adapter診断run | **FAIL** | SHA `cb44456...` のrun `36570852867`。Phase 3/4 shared compile、依存導入、configure PASS、final link FAIL（2026-09-29 14:32:23 UTC）。artifact `C:\Users\Admin\AppData\Local\Temp\FruityPrimeAdapterArtifacts-36570852867`でdirect `Weapons.obj`/`EntityBase.obj` exportsと`MphRead.Native.lib` indexの一致、および呼出側要求との `WeaponInfo` / `MessageInfo` class-key tag不一致を確認。source上のforward declaration不一致が有力原因。 |
+| 通常build_cpp push run (`341d8f0`) | **CANCELLED** | run `36574760243` は同SHAのPR runとのconcurrencyによりcancelled。 |
+| 通常build_cpp PR run (`341d8f0`) | **FAIL** | run `36574766655` は2026-09-29 15:05:00 UTCに終端。Phase 4 static audit、Linux/GCC、macOS/Clang、Android contract/NDK arm64+x86_64/APKはPASS。Windows/MSVC final linkはFAIL。 |
+| 通常build_cpp PR run (`cb44456`) | **CANCELLED** | run `36570861650` は後続のPR実行とのconcurrencyによりcancelled。 |
 | 通常build_cpp PR run (SHA `5cb29c2`) | **FAIL** | run `36563190293` は終端FAIL。7 jobs PASS、Windows/MSVC final linkで `LoadPngRgb`、`Weapons::Current`、`Weapons::WeaponsMP`、`EntityBase::HandleMessage` が未解決（`LNK1120: 4 unresolved externals`）。 |
 
 上表のPASSは特定SHAで得た個別証拠であり、フェーズ全体の完了宣言ではない。Phase 4本文の6条件はSHA `72535095...` の証拠に基づき個別にチェック済み。最新SHAのscreenshot parityはcapture済みだが7候補のexact-RGB比較がFAILし、原因修正・再captureは未完了。Phase 4全体は未完了。
@@ -4598,17 +4606,18 @@ D3D12
 
 ## 次に行うこと
 
-1. ChatGPT「Screenshot parity validation」の同じ会話（URLは下記更新履歴）を維持する。collector quote修正commit `cb44456...` はpush済み。現在の回答生成状態は同じ実タブで継続確認し、Stop表示中は送信しない。waveformに戻った時点でcommit/parse結果や次作業の報告が未完了なら、同じ会話へ不足している具体的な次作業だけを一度送る。Retryや別チャットは使わない。
-2. adapter run `36570852867` とcanonical PR run `36570861650` の既存実行だけを監視する。push run `36570852756` はPR concurrencyによるcancelled。adapter終端後、artifactからdirect target objectのdecorated symbols、archive linkermember、実link input/binlogを確認してからMSVC原因を絞る。証拠前にproduction/CMake/link policyを修正しない。新規run・手動cancelはしない。
-3. capture検証はrenderer source SHA `5cb29c2...`で実行済み（後続`cb44456...`はworkflow quote 1行のみ）。7候補すべてFAIL。source capture/harness `1e7daefc...`とPhase 3 baselineを保持し、control画像の不一致も含む原因を切り分ける。原因修正後は新しいrenderer source SHAで同一条件のcaptureと全候補validatorを再実行し、PASSを確認する。既存managed worktreeのoverlay/captureは消去・上書き・restoreしない。
-4. Phase 4本文の全完了条件、監査、必要な修正、該当CIゲートがそろった時点で初めて本節と本文を更新し、次フェーズへ移る。
+1. 並行するChatGPT作業は最大2件。`Screenshot parity validation`はMSVC linker診断の回答生成中なのでStop表示の間は送信せず、結果を読んでから同じ会話で必要な原因確認・最小修正を続ける。GL診断設計チャットの回答は履歴から実際に再オープンして全文確認済み。設計はGL 3.2 compatibility context上の四つのケースと、driver機構／Golden Capture因果の証明を分離する。完了した設計チャットを閉じてから、新規の独立した実装チャットを開始する。回答のRetryは押さない。
+2. adapter run `36570852867` とcanonical PR run `36574766655` はともに終端FAIL。adapter artifactから、定義object/archiveは`Weapons::Current`/`WeaponsMP`を`class WeaponInfo` (`V`) で、`EntityBase::HandleMessage`を`struct MessageInfo` (`U`) で定義する一方、呼出側は逆tagを要求することを確認。sourceの`PlayerEntity.hpp`/`PlayerAi.hpp`の`struct WeaponInfo`、`EntityBase.hpp`/`PlayerProcess.hpp`の`class MessageInfo` forward宣言が不一致の根拠。Screenshot chatの厳密監査後、正確な整合修正を同じ会話で依頼し、commit SHA・差分・canonical MSVC結果を確認する。次のpush前にActions concurrencyを再確認する。
+3. GL原因はゲームを起動せず隔離した最小FBOテストで調べる。generic attribute 3→`gl_Color`機構の再現とPhase 4 Golden Capture因果を分離し、メカニズムの再現だけでRGB原因確定としない。ユーザーPCでゲームを起動しない。
+4. capture検証はrenderer source SHA `5cb29c2...`で実行済み（後続`cb44456...`はworkflow quote 1行のみ）。7候補すべてFAILし、control画像も不一致。source capture/harness `1e7daefc...`とPhase 3 baselineを保持する。原因修正後は新しいrenderer source SHAで同一条件のcaptureと全候補validatorを再実行しPASSを確認する。既存managed worktreeのoverlay/captureは消去・上書き・restoreしない。
+5. Phase 4本文の全完了条件、監査、必要な修正、該当CIゲートがそろった時点で初めて本節と本文を更新し、次フェーズへ移る。
 
 ## 並行作業レジャー
 
 | Work item | Chat / phase | Current evidence | Next action |
 |---|---|---|---|
-| MSVC parity diagnostics | [Screenshot parity validation](https://chatgpt.com/g/g-p-6ab90bc27cc8819194c3b1a42dff49d9-fruityprime/c/6abb3bc5-7620-83ee-9fcc-7c7d3cfedabe) — correction / CI verification | workflow-only commit `cb44456...`; adapter run `36570852867` and canonical run `36570861650` IN PROGRESS。stream timeout後の残作業依頼を送信済み、応答処理中。 | ChatGPTの同一会話と両runを監視し、adapter artifactにsymbol/link evidenceがあるか検証。 |
-| Phase 4 Golden Capture mismatch | [Investigate Golden Capture Regression](https://chatgpt.com/c/6abbb654-75f0-83ee-b461-aca36d65b0c6) — read-only investigation | baseline `13c49e35...` vs capture source `5cb29c2...`; 7 candidate/control groups mismatch。response active; tentative attribute/legacy-array suspect only. | 根拠ある原因と最小修正/実験を待つ。既存Actionsが終端するまでは書き込みしない。 |
+| MSVC parity diagnostics | [Screenshot parity validation](https://chatgpt.com/g/g-p-6ab90bc27cc8819194c3b1a42dff49d9-fruityprime/c/6abb3bc5-7620-83ee-9fcc-7c7d3cfedabe) — correction / CI verification | Adapter run `36570852867` FAILED at `cb44456...`; canonical run `36574766655` FAILED at `341d8f0...`. Artifact proves three class/struct ABI-tag mismatches and keeps direct object/archive/link inputs. The same chat is still processing the source-cause review. | Stop/waveform UIを監視。応答を読んで、必要なsource audit/fixを同じ会話で続ける。 |
+| Phase 4 color regression / minimal GL repro | [Design GL Diagnostic Tests](https://chatgpt.com/g/g-p-6ab90bc27cc8819194c3b1a42dff49d9-fruityprime/c/6abbca6c-af50-83e9-b141-1ea59df77b44) — complete design | Reopened from visible history and read fully. It specifies a hidden GL 3.2 compatibility context, GLSL 1.20, raw GL calls, 1x1 RGBA8 FBO for cases 1-3 and 4x4 for case 4: legacy red control; generic-3 green only while conventional color array is off; both arrays with two setup orders (no specified alias precedence); and faithful inherited-color `(s,t,1)` with conventional texcoord mirror, magenta current color, shader reading `gl_Color` and `gl_MultiTexCoord0`, full state/error dump. | Complete design chat; start a new independent ChatGPT implementation item for a standalone diagnostic target, without running the game. |
 
 ## 更新履歴
 
@@ -4645,3 +4654,5 @@ D3D12
 - **2026-09-29 13:04 UTC:** canonical PR run `36570861650` をjob単位で再確認。8 jobs中7 jobs PASS（Phase 4 legacy-OpenGL static audit、macOS、Linux、Android contract/NDK arm64+x86_64/APK）、Windows/MSVC `Build C++ FruityPrime` はIN PROGRESS。adapter run `36570852867` はPhase 3/4 shared compile PASS、Windows dependency installは12:51:05 UTC開始で継続中、configure/buildはpending。MSVC診断ChatGPT会話はstream recovery polling timeoutでwaveform/ready状態になったため、同じ会話へ残作業だけを一度送信。送信済みuser message、composer clear、ChatGPT processing stateを画面で確認。Retryなし。並行Golden Capture調査チャットも処理中で、ChatGPTは「generic vertex attributes 0–3と従来配列を同じdrawで有効化」の可能性を検査中と報告したが、現時点では仮説であり原因確定・コード変更なし。会話の実URLは`https://chatgpt.com/c/6abbb654-75f0-83ee-b461-aca36d65b0c6`。
 - **2026-09-29 13:08 UTC:** Actionsを再確認。canonical PR run `36570861650`（SHA `cb44456d4bbf221f60a894084a7cf6f9cb12a1a5`）は8 jobs中7 jobs PASS、Windows/MSVCの `Build C++ FruityPrime` がIN PROGRESS。診断adapter run `36570852867` はPhase 3/4 shared compileがPASS、Windows jobの `Install native dependencies` がIN PROGRESSで、configure/buildは未開始。2つの独立ChatGPTタブ（MSVC linker evidence、Golden Capture root-cause investigation）はともに画面上でStop表示＝回答生成中を確認したため、追加送信せず継続待機。仮説を原因確定として扱わず、run完了前のpush/再実行/cancelも行わない。branch HEAD=`origin/develop3_rendering`=`cb44456...`、手元の変更はskillと本進捗MDのみ。Phase 4 Golden Capture parityは未確立、Phase 4未完了。
 - **2026-09-29 13:13 UTC:** 同一SHAでActionsを再確認し、canonicalは引き続き7/8 PASS・Windows/MSVC build IN PROGRESS、adapterはshared compile PASS・Windows dependency install IN PROGRESS。読み取り専用のsource差分確認で、Phase 4の `OpenGlGeometry.cpp` がgeneric attribute 0–3を使用し、`NativeRuntime/OpenTK/GL.cpp` の `EnableVertexAttribArray` / `VertexAttribPointer` が対応する従来のclient-state/pointerも設定することを確認（導入コミット `71d08f6b`）。これは現行互換描画経路の実装事実だが、Golden CaptureのRGB差を生じさせた原因とはまだ証明されていない。2つのChatGPTタブは引き続きStop表示のため送信せず待機。local HEAD、`origin/develop3_rendering`、`git ls-remote`はすべて`cb44456d4bbf221f60a894084a7cf6f9cb12a1a5`。Phase 4 parity未確立、原因修正なし、フェーズ未完了。
+- **2026-09-29 14:26 UTC:** 完了済み`Investigate Phase 4 Regression`の回答を閉じる前に確認。結論は、Inherited色でgeneric attrib 3 (TexCoord)が残り、generic color attrib 1と`GL_COLOR_ARRAY`が無効になる呼出状態は、NVIDIA固有のattrib-3/`gl_Color`相互作用という歴史資料ベースの仮説に整合するが、現行617.14 driverでの再現もGolden Capture全群への因果も未証明。GL 2.1/GLSL 1.20の一般仕様上のaliasとして断定せず、indices 0–3を従来配列だけにする差分も本番修正にしない。閉じた履歴URLは読み込みエラーとなったためRetryせず、観測事実を含む4ケースの隔離FBO repro設計依頼を新規FruityPrime Chatに送信し、別タブで回答生成を確認。
+- **2026-09-29 15:10 UTC:** run `36570852867` (adapter, SHA `cb44456d4bbf221f60a894084a7cf6f9cb12a1a5`) と run `36574766655` (canonical PR, SHA `341d8f0ec3bd5ac4af75c3c0773851b6b45cb7cb`) は両方terminal FAIL。Canonicalは他7 jobs PASS、Windows/MSVC final link FAIL。adapter artifact `C:\Users\Admin\AppData\Local\Temp\FruityPrimeAdapterArtifacts-36570852867`で、direct `Weapons.obj`/`EntityBase.obj` exportsと`MphRead.Native.lib` linker-member definitionsが同一tagで一致し、呼出側の未解決3 symbolsだけが opposite MSVC class-key tagsを要求することを確認: `Weapons::Current`/`WeaponsMP`は定義`VWeaponInfo`・要求`UWeaponInfo`、`EntityBase::HandleMessage`は定義`UMessageInfo`・要求`VMessageInfo`。sourceには`Metadata.hpp`の`class WeaponInfo`に対して`PlayerEntity.hpp`/`PlayerAi.hpp`に`struct WeaponInfo`、`Messaging.hpp`の`struct MessageInfo`に対して`EntityBase.hpp`/`PlayerProcess.hpp`に`class MessageInfo`のforward declarationがある。高確度原因だが、ChatGPT source audit/修正は未完了。branch HEADとremoteは`341d8f0ec3bd5ac4af75c3c0773851b6b45cb7cb`で一致。ユーザー所有のdirty `GL.cpp` は未変更・未commit。GL design chatはvisible historyから再オープンし、本文load中の状態。小型FBOの機構試験とGolden Capture因果を分け、Phase 4 exact-RGB parityは未確立のまま。

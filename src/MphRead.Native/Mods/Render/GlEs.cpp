@@ -271,6 +271,14 @@ namespace MphRead::Mods::Render
         _textureHighWater = 0;
         _dynVao = _dynVbo = _dynIbo = 0;
         _dynVboSize = _dynIboSize = 0;
+        _curColor = {1.0F, 1.0F, 1.0F, 1.0F};
+        _curNormal = {0.0F, 0.0F, 1.0F};
+        _curTexCoord = {0.0F, 0.0F, 0.0F};
+        _colorSet = false;
+        _primMode = 0;
+        _primStart = 0;
+        _alphaTestEnabled = false;
+        _alphaFunc = GlAlways;
         _program = 0;
         _immColorLoc = -1;
         _alphaTestLoc = -1;

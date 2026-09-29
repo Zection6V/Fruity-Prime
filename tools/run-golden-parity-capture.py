@@ -511,6 +511,15 @@ def parse_cmake_home(cache_path: pathlib.Path) -> pathlib.Path:
     fail(f"{cache_path}: CMAKE_HOME_DIRECTORY is missing")
 
 
+def parse_cmake_cache_value(cache_path: pathlib.Path, name: str) -> str:
+    prefix = name + ":"
+    for line in cache_path.read_text(encoding="utf-8", errors="strict").splitlines():
+        if not line.startswith(prefix) or "=" not in line:
+            continue
+        return line.split("=", 1)[1]
+    fail(f"{cache_path}: {name} is missing")
+
+
 def validate_cmake_defines(defines: Sequence[str]) -> list[str]:
     result: list[str] = []
     for define in defines:
@@ -519,8 +528,13 @@ def validate_cmake_defines(defines: Sequence[str]) -> list[str]:
         name, _value = define.split("=", 1)
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) is None:
             fail(f"invalid CMake variable name in --define {define!r}")
-        if name in {"CMAKE_HOME_DIRECTORY", "CMAKE_SOURCE_DIR", "PROJECT_SOURCE_DIR"}:
-            fail(f"--define may not override source provenance: {name}")
+        if name in {
+            "CMAKE_HOME_DIRECTORY",
+            "CMAKE_SOURCE_DIR",
+            "PROJECT_SOURCE_DIR",
+            "FRUITY_GOLDEN_PARITY_ADAPTER",
+        }:
+            fail(f"--define may not override runner-owned provenance: {name}")
         result.append(f"-D{define}")
     return result
 
@@ -637,6 +651,7 @@ def build_capture_executable(
     if toolset is not None:
         configure.extend(("-T", toolset))
     configure.extend(validate_cmake_defines(defines))
+    configure.append("-DFRUITY_GOLDEN_PARITY_ADAPTER=ON")
 
     run_command(
         configure,
@@ -644,11 +659,21 @@ def build_capture_executable(
         description="golden parity CMake configure",
     )
 
-    configured_source = parse_cmake_home(build_dir / "CMakeCache.txt")
+    cache_path = build_dir / "CMakeCache.txt"
+    configured_source = parse_cmake_home(cache_path)
     if configured_source != root.resolve():
         fail(
             f"{build_dir}: CMake source {configured_source} "
             f"!= verified source {root.resolve()}"
+        )
+    adapter_flag = parse_cmake_cache_value(
+        cache_path,
+        "FRUITY_GOLDEN_PARITY_ADAPTER",
+    ).upper()
+    if adapter_flag not in {"ON", "TRUE", "1", "YES", "Y"}:
+        fail(
+            f"{build_dir}: FRUITY_GOLDEN_PARITY_ADAPTER={adapter_flag!r} "
+            "is not enabled"
         )
 
     run_command(

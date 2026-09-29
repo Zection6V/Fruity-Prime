@@ -247,6 +247,11 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         "${FRUITY_GOLDEN_CAPTURE_VALIDATION_TEST_SOURCE}")
     target_include_directories(fruity_golden_capture_validation_tests PRIVATE "${FRUITY_MPHREAD_ROOT}")
     target_compile_features(fruity_golden_capture_validation_tests PRIVATE cxx_std_20)
+    if(FRUITY_GOLDEN_PARITY_ADAPTER)
+        target_compile_definitions(
+            fruity_golden_capture_validation_tests
+            PRIVATE FRUITY_GOLDEN_PARITY_ADAPTER_BUILD=1)
+    endif()
     add_test(
         NAME FruityPrime.GoldenCaptureValidation
         COMMAND fruity_golden_capture_validation_tests)

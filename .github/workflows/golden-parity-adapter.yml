@@ -9,6 +9,8 @@ on:
       - "tools/run-golden-parity-capture.py"
       - "tools/test-golden-parity-runner.py"
       - "tools/validate-golden-parity.py"
+      - "src/MphRead.Native/Testing/TestGoldenCaptureValidation.cpp"
+      - "CMakeLists.txt"
       - ".github/workflows/golden-parity-adapter.yml"
   workflow_dispatch:
 
@@ -75,3 +77,76 @@ jobs:
           python3 -m py_compile             adapter-source/tools/run-golden-parity-capture.py             adapter-source/tools/test-golden-parity-runner.py             adapter-source/tools/validate-golden-parity.py
           python3 adapter-source/tools/test-golden-parity-runner.py
           python3 adapter-source/tools/validate-golden-parity.py --self-test
+
+
+  phase4_real_cmake_build:
+    name: Phase 4 / Windows runner-owned CMake build with shared adapter
+    runs-on: windows-2025
+    steps:
+      - name: Checkout adapter source
+        uses: actions/checkout@v5
+        with:
+          path: adapter-source
+
+      - name: Checkout exact Phase 4 source
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: target
+
+      - name: Overlay byte-identical harness
+        shell: pwsh
+        run: |
+          Copy-Item adapter-source/tools/golden-parity/adapter/GoldenCapture.cpp target/src/MphRead.Native/Mods/Render/GoldenCapture.cpp -Force
+          Copy-Item adapter-source/tools/golden-parity/adapter/GoldenCapture.hpp target/src/MphRead.Native/Mods/Render/GoldenCapture.hpp -Force
+          Copy-Item adapter-source/tools/golden-parity/adapter/GoldenCaptureValidation.hpp target/src/MphRead.Native/Mods/Render/GoldenCaptureValidation.hpp -Force
+
+          if ((Get-FileHash adapter-source/tools/golden-parity/adapter/GoldenCapture.cpp -Algorithm SHA256).Hash -ne
+              (Get-FileHash target/src/MphRead.Native/Mods/Render/GoldenCapture.cpp -Algorithm SHA256).Hash) { throw "GoldenCapture.cpp overlay mismatch" }
+          if ((Get-FileHash adapter-source/tools/golden-parity/adapter/GoldenCapture.hpp -Algorithm SHA256).Hash -ne
+              (Get-FileHash target/src/MphRead.Native/Mods/Render/GoldenCapture.hpp -Algorithm SHA256).Hash) { throw "GoldenCapture.hpp overlay mismatch" }
+          if ((Get-FileHash adapter-source/tools/golden-parity/adapter/GoldenCaptureValidation.hpp -Algorithm SHA256).Hash -ne
+              (Get-FileHash target/src/MphRead.Native/Mods/Render/GoldenCaptureValidation.hpp -Algorithm SHA256).Hash) { throw "GoldenCaptureValidation.hpp overlay mismatch" }
+
+          Write-Host "target_head=$(git -C target rev-parse HEAD)"
+          git -C target status --short
+
+      - name: Cache vcpkg binary archives
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.cache/vcpkg/archives
+          key: golden-parity-vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: |
+            native-vcpkg-all-${{ runner.os }}-${{ runner.arch }}-
+            native-vcpkg-v1-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Prepare vcpkg binary cache directory
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force "${{ github.workspace }}/.cache/vcpkg/archives" | Out-Null
+
+      - name: Install native dependencies
+        shell: pwsh
+        env:
+          VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.cache/vcpkg/archives
+        run: |
+          if (-not $env:VCPKG_INSTALLATION_ROOT) {
+            throw "VCPKG_INSTALLATION_ROOT is not set on the runner."
+          }
+          $vcpkg = Join-Path $env:VCPKG_INSTALLATION_ROOT "vcpkg.exe"
+          & $vcpkg install curl:x64-windows libarchive:x64-windows zlib:x64-windows glfw3:x64-windows freetype:x64-windows openal-soft:x64-windows "skia[gl,freetype]:x64-windows" --clean-after-build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Configure runner-owned parity build
+        shell: pwsh
+        run: |
+          cmake -S target -B target/build/golden-parity-real -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DFRUITY_GOLDEN_PARITY_ADAPTER=ON
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build real fruity_prime target with native validation dependency
+        shell: pwsh
+        run: |
+          cmake --build target/build/golden-parity-real --config RelWithDebInfo --parallel $env:NUMBER_OF_PROCESSORS --target fruity_prime
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

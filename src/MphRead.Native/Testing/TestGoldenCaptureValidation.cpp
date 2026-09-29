@@ -39,9 +39,18 @@ int main()
     static_assert(
         ManifestPhase == 4,
         "GoldenCapture manifests must identify Phase 4 acceptance captures");
+#if defined(FRUITY_GOLDEN_PARITY_ADAPTER_BUILD)
+    static_assert(
+        FixtureContract == std::string_view("phase4-final-stage-v3"),
+        "Golden parity adapter fixture contract must remain v3");
+    static_assert(
+        ParityAdapterContract == std::string_view("phase3-phase4-shared-v2"),
+        "Golden parity adapter contract must remain shared-v2");
+#else
     static_assert(
         FixtureContract == std::string_view("phase4-final-stage-v2"),
-        "GoldenCapture fixture contract must remain the Phase 4 contract");
+        "Canonical GoldenCapture fixture contract must remain v2");
+#endif
 
     ExpectThrows(
         "empty RGB buffer must be rejected",

@@ -1076,13 +1076,123 @@ namespace MphRead
         {
             throw ProgramException("GPU mesh draw requires a live model and mesh.");
         }
-        const std::shared_ptr<GpuMeshResource> gpuMesh
+        std::shared_ptr<GpuMeshResource> gpuMesh
             = _gpuMeshCache.Find(model.get(), mesh.get());
         if (!gpuMesh)
         {
             throw ProgramException("GPU mesh cache entry is missing.");
         }
+
+        if (_modelReloadProbeAwaitingRedraw)
+        {
+            const std::shared_ptr<Model> probeModel = _modelReloadProbeModel.lock();
+            const std::shared_ptr<Mesh> probeMesh = _modelReloadProbeMesh.lock();
+            if (!probeModel || !probeMesh)
+            {
+                _modelReloadProbeAwaitingRedraw = false;
+                _modelReloadProbeFailed = true;
+                _modelReloadProbeStatus = "target model/mesh lifetime expired before redraw";
+            }
+            else if (model.get() == probeModel.get() && mesh.get() == probeMesh.get()
+                && _frameCount > _modelReloadProbeReloadFrame)
+            {
+                // This is an ordinary production draw reached through RenderItem.
+                gpuMesh->Draw();
+                _modelReloadProbeAwaitingRedraw = false;
+                _modelReloadProbePassed = true;
+                _modelReloadProbeStatus = "redrew model " + model->Name
+                    + " mesh " + std::to_string(mesh->DlistId)
+                    + " on frame " + std::to_string(_frameCount)
+                    + " after real GPU teardown/reload";
+                return;
+            }
+        }
+
+        if (_modelReloadProbeRequested && !_modelReloadProbeFailed)
+        {
+            bool isRoom = false;
+            if (_room)
+            {
+                for (const std::shared_ptr<ModelInstance>& roomInst : _room->GetModels())
+                {
+                    if (roomInst && roomInst->Model().get() == model.get())
+                    {
+                        isRoom = true;
+                        break;
+                    }
+                }
+            }
+
+            // The resource must already have rendered through the production path
+            // before the gate is allowed to tear it down.
+            std::weak_ptr<GpuMeshResource> retiredResource = gpuMesh;
+            gpuMesh->Draw();
+            gpuMesh.reset();
+
+            _modelReloadProbeModel = model;
+            _modelReloadProbeMesh = mesh;
+
+            // Exercise the same Scene model GL teardown as production unload, but
+            // keep the live Read cache entry: active entities still own this exact
+            // Model object and replacing that cache entry would corrupt ownership.
+            UnloadModel(model, false);
+
+            const bool cacheEntryDestroyed
+                = !_gpuMeshCache.Find(model.get(), mesh.get());
+            const bool resourceDestroyed = retiredResource.expired();
+
+            // Recreate textures and all mesh GPU resources with the same room
+            // decoding mode that originally produced this model's geometry.
+            LoadModel(model, isRoom);
+            const bool cacheEntryReloaded
+                = static_cast<bool>(_gpuMeshCache.Find(model.get(), mesh.get()));
+
+            _modelReloadProbeRequested = false;
+            if (!cacheEntryDestroyed || !resourceDestroyed || !cacheEntryReloaded)
+            {
+                _modelReloadProbeFailed = true;
+                _modelReloadProbeStatus = "teardown/reload verification failed for model "
+                    + model->Name + " mesh " + std::to_string(mesh->DlistId)
+                    + " (cache_destroyed=" + (cacheEntryDestroyed ? std::string("true") : std::string("false"))
+                    + ", resource_destroyed=" + (resourceDestroyed ? std::string("true") : std::string("false"))
+                    + ", cache_reloaded=" + (cacheEntryReloaded ? std::string("true") : std::string("false"))
+                    + ")";
+                return;
+            }
+
+            _modelReloadProbeReloadFrame = _frameCount;
+            _modelReloadProbeAwaitingRedraw = true;
+            _modelReloadProbeStatus = "unloaded/reloaded model " + model->Name
+                + " mesh " + std::to_string(mesh->DlistId)
+                + (isRoom ? " as room geometry" : " as non-room geometry")
+                + " on frame " + std::to_string(_frameCount)
+                + "; waiting for a later production draw";
+            return;
+        }
+
         gpuMesh->Draw();
+    }
+
+    void Scene::BeginModelReloadDrawProbe()
+    {
+        _modelReloadProbeRequested = true;
+        _modelReloadProbeAwaitingRedraw = false;
+        _modelReloadProbePassed = false;
+        _modelReloadProbeFailed = false;
+        _modelReloadProbeReloadFrame = 0;
+        _modelReloadProbeModel.reset();
+        _modelReloadProbeMesh.reset();
+        _modelReloadProbeStatus = "waiting for a production mesh draw";
+    }
+
+    bool Scene::ModelReloadDrawProbePassed() const noexcept
+    {
+        return _modelReloadProbePassed;
+    }
+
+    std::string Scene::ModelReloadDrawProbeStatus() const
+    {
+        return _modelReloadProbeStatus;
     }
 
     void Scene::LoadModel(std::string name, bool firstHunt)
@@ -1997,6 +2107,11 @@ namespace MphRead
 
     void Scene::UnloadModel(const std::shared_ptr<Model>& model)
     {
+        UnloadModel(model, true);
+    }
+
+    void Scene::UnloadModel(const std::shared_ptr<Model>& model, bool removeReadCache)
+    {
         if (!Mods::Headless::Active())
         {
             auto mapIt = _texPalMap.find(model->Id);
@@ -2013,7 +2128,10 @@ namespace MphRead
             }
             _gpuMeshCache.EraseModel(model.get());
         }
-        Read::RemoveModel(model->Name, model->FirstHunt);
+        if (removeReadCache)
+        {
+            Read::RemoveModel(model->Name, model->FirstHunt);
+        }
     }
 
     void Scene::TransformCamera()

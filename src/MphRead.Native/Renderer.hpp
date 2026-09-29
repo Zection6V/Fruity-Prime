@@ -774,6 +774,9 @@ public: \
     [[nodiscard]] float FramesPerSecond() const noexcept; \
     [[nodiscard]] bool OnRenderFrame(); \
     void UnloadModel(const std::shared_ptr<MphRead::Model>& model); \
+    void BeginModelReloadDrawProbe(); \
+    [[nodiscard]] bool ModelReloadDrawProbePassed() const noexcept; \
+    [[nodiscard]] std::string ModelReloadDrawProbeStatus() const; \
     void StartCutscene(std::int32_t id); \
     void EndCutscene(bool resetFade = false); \
     void ResetFrameCount(); \
@@ -914,6 +917,7 @@ private: \
     void InitShaders(); \
     void GenerateGpuMeshes(const std::shared_ptr<MphRead::Model>& model, bool isRoom); \
     void DrawGpuMesh(const std::shared_ptr<MphRead::Model>& model, const std::shared_ptr<MphRead::Mesh>& mesh); \
+    void UnloadModel(const std::shared_ptr<MphRead::Model>& model, bool removeReadCache); \
     void InitTextures(const std::shared_ptr<MphRead::Model>& model); \
     std::pair<std::int32_t, bool> BindTexture(const std::shared_ptr<MphRead::Model>& model, \
         std::int32_t textureId, std::int32_t paletteId, std::int32_t recolorId); \
@@ -1044,6 +1048,14 @@ private: \
     std::unordered_map<std::int32_t, std::shared_ptr<MphRead::TextureMap>> _texPalMap{}; \
     std::unordered_set<std::int32_t> _ownedTextures{}; \
     MphRead::GpuMeshCache _gpuMeshCache{}; \
+    bool _modelReloadProbeRequested = false; \
+    bool _modelReloadProbeAwaitingRedraw = false; \
+    bool _modelReloadProbePassed = false; \
+    bool _modelReloadProbeFailed = false; \
+    std::uint64_t _modelReloadProbeReloadFrame = 0; \
+    std::weak_ptr<MphRead::Model> _modelReloadProbeModel{}; \
+    std::weak_ptr<MphRead::Mesh> _modelReloadProbeMesh{}; \
+    std::string _modelReloadProbeStatus{"inactive"}; \
     std::shared_ptr<MphRead::TransientGeometryResource> _transientGeometry{}; \
     std::vector<MphRead::TransientVertex> _transientVertices{}; \
     MphRead::TransientPrimitiveTopology _transientTopology = MphRead::TransientPrimitiveTopology::Triangles; \

@@ -734,10 +734,23 @@ namespace MphRead::Mods::Launcher::Gui
                     return;
                 }
                 std::cout << "[shellshot] real match scene started through Play/START\n";
-                Wait(0);
+                window.Scene().BeginModelReloadDrawProbe();
+                std::cout << "[shellshot] production model unload/reload/draw probe armed\n";
+                Wait(8);
             },
             [](MphRead::RenderWindow& window)
             {
+                if (!window.Scene().ModelReloadDrawProbePassed())
+                {
+                    ++_shotMisses;
+                    std::cout << "[shellshot] production model unload/reload/draw probe failed: "
+                        << window.Scene().ModelReloadDrawProbeStatus() << '\n';
+                    _shotDirectory.reset();
+                    window.Close();
+                    return;
+                }
+                std::cout << "[shellshot] production model unload/reload/draw probe passed: "
+                    << window.Scene().ModelReloadDrawProbeStatus() << '\n';
                 Shot(window, "shell-match");
                 window.WindowStateMaximized();
                 Wait(30);

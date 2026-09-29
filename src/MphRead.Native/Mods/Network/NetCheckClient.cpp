@@ -1,4 +1,5 @@
 #include "NetCheckClient.hpp"
+#include "../../NativeRuntime/OpenTK/GL.hpp"
 #include "HitRig.hpp"
 #include "NetHitClaims.hpp"
 #include "NetShotDiagnostics.hpp"

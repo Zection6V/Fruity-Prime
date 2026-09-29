@@ -4,8 +4,9 @@
 #include "Formats/Types.hpp"
 #include "Metadata/Metadata.hpp"
 #include "Selection.hpp"
-#include "NativeRuntime/OpenTK/GL.hpp"
+#include "NativeRuntime/OpenTK/Mathematics.hpp"
 #include "NativeRuntime/Rhi/GraphicsDevice.hpp"
+#include "NativeRuntime/Rhi/SceneShaders.hpp"
 #include "NativeRuntime/System/Buffers.hpp"
 #include "RendererGpuMesh.hpp"
 #include "NativeRuntime/System/Runtime.hpp"
@@ -241,7 +242,6 @@ namespace MphRead
     namespace Formats { struct CollisionResult; }
     namespace Formats::Collision { class EntityCollision; }
     namespace NativeRuntime::Rhi { class ShaderConstantSink; }
-    namespace NativeRuntime::Rhi::OpenGL { class ShaderLocations; }
     namespace Hud { class LayerInfo; class HudObjectInstance; }
     class Effect;
     class EffectElement;
@@ -663,11 +663,15 @@ namespace MphRead
         [[nodiscard]] std::pair<double, double> PointerPixels(double x, double y) const;
         void FitToScreen();
         void ApplyFrameRateSettings();
+        // For what the window draws with no scene: the lobby's cleared frame,
+        // the viewport after a resize.
+        [[nodiscard]] NativeRuntime::Rhi::CommandList& WindowCommands();
 
         static std::function<void(std::int32_t, std::string)> _glfwErrorCallback;
         static constexpr OpenTK::Mathematics::Vector2i _minimumSize{1024, 720};
         std::shared_ptr<RendererPlatform::Window> _window{};
         std::unique_ptr<NativeRuntime::Rhi::Swapchain> _swapchain{};
+        std::unique_ptr<NativeRuntime::Rhi::CommandList> _windowCommands{};
         std::shared_ptr<MphRead::Scene> _scene{};
         bool _shell = false;
         bool _sceneLoaded = false;
@@ -768,8 +772,10 @@ public: \
     void OnDrawFrame(); \
     [[nodiscard]] OpenTK::Mathematics::Matrix4 GetPerspectiveMatrix(float fov) const; \
     [[nodiscard]] static MphRead::Formats::Culling::FrustumPlane SetBoundsIndices(OpenTK::Mathematics::Vector4 plane); \
-    [[nodiscard]] OpenTK::Graphics::OpenGL::FramebufferErrorCode FramebufferStatus() const noexcept; \
-    [[nodiscard]] OpenTK::Graphics::OpenGL::ErrorCode DrainGlError(); \
+    /* the backend's own code for the offscreen target's completeness (GL: 0x8CD5 complete) */ \
+    [[nodiscard]] std::int32_t FramebufferStatus() const noexcept; \
+    /* the first pending device error, as the backend's own code (0: none) */ \
+    [[nodiscard]] std::int32_t DrainGlError(); \
     [[nodiscard]] std::optional<std::vector<std::uint8_t>> ReadWindowBuffer(std::int32_t& width, std::int32_t& height); \
     [[nodiscard]] std::optional<std::vector<std::uint8_t>> ReadSceneTarget(std::int32_t& width, std::int32_t& height); \
     void AfterRenderFrame(); \
@@ -931,8 +937,8 @@ private: \
     float MeasureDepthQuantum(); \
     void DrawCelOutline(); \
     [[nodiscard]] MphRead::NativeRuntime::Rhi::GraphicsDevice& Gpu(); \
-    [[nodiscard]] static MphRead::NativeRuntime::Rhi::GraphicsPipelineDesc DescribeScenePass( \
-        MphRead::ScenePass pass); \
+    [[nodiscard]] MphRead::NativeRuntime::Rhi::GraphicsPipelineDesc DescribeScenePass( \
+        MphRead::ScenePass pass) const; \
     [[nodiscard]] const MphRead::NativeRuntime::Rhi::GraphicsPipeline& ScenePipeline( \
         MphRead::ScenePass pass, MphRead::NativeRuntime::Rhi::CullMode cull, \
         MphRead::NativeRuntime::Rhi::FillMode fill, std::int32_t lineWidth); \
@@ -1101,12 +1107,9 @@ private: \
     MphRead::TransientPrimitiveTopology _transientTopology = MphRead::TransientPrimitiveTopology::Triangles; \
     OpenTK::Mathematics::Vector3 _transientTexCoord{}; \
     bool _transientHasTexCoords = false; \
-    std::int32_t _shaderProgramId = 0; \
-    std::int32_t _rttShaderProgramId = 0; \
-    std::int32_t _shiftShaderProgramId = 0; \
-    std::int32_t _celShaderProgramId = 0; \
-    std::shared_ptr<MphRead::NativeRuntime::Rhi::OpenGL::ShaderLocations> _shaderLocations{}; \
-    std::shared_ptr<MphRead::NativeRuntime::Rhi::ShaderConstantSink> _shaderConstants{}; \
+    std::unique_ptr<MphRead::NativeRuntime::Rhi::SceneShaderSet> _sceneShaders{}; \
+    inline static MphRead::NativeRuntime::Rhi::NullShaderConstantSink _noShaderConstants{}; \
+    MphRead::NativeRuntime::Rhi::ShaderConstantSink* _shaderConstants = &_noShaderConstants; \
     OpenTK::Mathematics::Vector3 _light1Vector{}; \
     OpenTK::Mathematics::Vector3 _light1Color{}; \
     OpenTK::Mathematics::Vector3 _light2Vector{}; \
@@ -1157,8 +1160,7 @@ private: \
     OpenTK::Mathematics::Vector2i _targetSize{}; \
     std::unordered_map<std::int32_t, OpenTK::Mathematics::Vector3> _flatColors{}; \
     inline static bool _breakNextFrame = false; \
-    OpenTK::Graphics::OpenGL::FramebufferErrorCode _framebufferStatus = \
-        OpenTK::Graphics::OpenGL::FramebufferErrorCode::FramebufferComplete; \
+    std::int32_t _framebufferStatus = 0x8CD5; \
     inline static bool _saidDepthSize = false; \
     float _claimedQuantum = 5.960464832810452E-8F; \
     float _depthQuantum = 5.960464832810452E-8F; \

@@ -40,6 +40,15 @@ jobs:
       - name: Reject built-in vertex attributes and a drifted shader interface
         run: python3 tools/check-phase5-shader-interface.py
 
+  phase9_frontend_gl_audit:
+    name: phase9 / frontend OpenGL static audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout C++ source
+        uses: actions/checkout@v4
+      - name: Reject direct OpenGL in the renderer frontend
+        run: python3 tools/check-phase9-frontend-gl.py
+
   desktop:
     uses: ./.github/workflows/native-cpp-all.yml
 

@@ -699,7 +699,7 @@ namespace MphRead::Mods
             line += "x";
             line += std::to_string(ClientSize().Y);
             line += ", offscreen target ";
-            line += FramebufferStatusName(_scene->FramebufferStatus());
+            line += FramebufferStatusName(static_cast<OpenTK::Graphics::OpenGL::FramebufferErrorCode>(_scene->FramebufferStatus()));
 
             std::cout << "[thumbnails] " << line << std::endl;
             ThumbnailLog::Write(line);
@@ -764,7 +764,7 @@ namespace MphRead::Mods
             return;
         }
 
-        _frameError = _scene->DrainGlError();
+        _frameError = static_cast<OpenTK::Graphics::OpenGL::ErrorCode>(_scene->DrainGlError());
         bool giveUp = false;
 
         ThumbnailGenerator::EnsureCacheDirectory();
@@ -794,7 +794,7 @@ namespace MphRead::Mods
             line += ": attempt ";
             line += std::to_string(UncheckedAdd(_attempts, 1));
             line += " produced nothing usable (target ";
-            line += FramebufferStatusName(_scene->FramebufferStatus());
+            line += FramebufferStatusName(static_cast<OpenTK::Graphics::OpenGL::FramebufferErrorCode>(_scene->FramebufferStatus()));
             line += ", first GL error this frame ";
             line += ErrorCodeName(_frameError);
             line += ")";

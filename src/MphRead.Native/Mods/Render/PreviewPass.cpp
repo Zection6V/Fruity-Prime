@@ -30,7 +30,6 @@ using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 
 namespace
 {
-    namespace GL = ::OpenTK::Graphics::OpenGL::GL;
 
 }
 
@@ -230,11 +229,9 @@ namespace MphRead
                 return false;
             }
             BeginWindowRendering();
-            GL::UseProgram(_shaderProgramId);
             _previewIntoWindow = true;
             ModDrawPreview();
             _previewIntoWindow = false;
-            GL::UseProgram(0);
             return true;
         }
         catch (...)
@@ -292,17 +289,16 @@ namespace MphRead
         {
             BeginSceneRendering(Rhi::LoadOp::Clear, Rhi::LoadOp::Clear, Rhi::LoadOp::Load, back, area);
         }
-        GL::Viewport(x, y, width, height);
+        // The preview pipeline first: it binds the main program the uniforms
+        // below are written into.
+        BeginScenePass(ScenePass::Preview);
+        Commands().SetViewport(Rhi::Viewport{static_cast<float>(x), static_cast<float>(y),
+            static_cast<float>(width), static_cast<float>(height)});
         Matrix4 projection = Matrix4::CreatePerspectiveFieldOfView(
             DegreesToRadians(PreviewFov), width / static_cast<float>(height), 0.1F, 100.0F);
         Matrix4 view = Matrix4::LookAt(_previewEye, _previewTarget, Vector3(0.0F, 1.0F, 0.0F));
-        if (!_shaderLocations)
-        {
-            throw System::NullReferenceException();
-        }
         SetFrameMatrices(view, projection);
-        GL::Uniform1(_shaderLocations->UseFog, 0);
-        BeginScenePass(ScenePass::Preview);
+        _shaderConstants->SetFogEnabled(false);
         for (std::size_t i = 0; i < _previewItems.size(); ++i)
         {
             RenderItem(_previewItems[i]);
@@ -316,10 +312,10 @@ namespace MphRead
         {
             BeginSceneRendering();
         }
-        GL::Viewport(0, 0, target.X, target.Y);
+        Commands().SetViewport(Rhi::Viewport{0.0F, 0.0F,
+            static_cast<float>(target.X), static_cast<float>(target.Y)});
         SetFrameMatrices(_viewMatrix, _perspectiveMatrix);
-        GL::Uniform1(_shaderLocations->UseFog, _hasFog && FogOn() ? 1 : 0);
-        GL::PolygonMode(GL::TriangleFace::FrontAndBack, GL::PolygonMode::Fill);
+        _shaderConstants->SetFogEnabled(_hasFog && FogOn());
         _previewDrawnLastFrame = true;
         _previewDrawnHunter = _preview != nullptr ? _preview->Shown() : MphRead::Hunter::Random;
         _previewDrawnSuit = _preview != nullptr ? _preview->ShownSuit() : -1;

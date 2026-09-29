@@ -3620,7 +3620,6 @@ namespace MphRead
 {
     namespace
     {
-        namespace GL = ::OpenTK::Graphics::OpenGL::GL;
 #if defined(__ANDROID__)
         using AL = ::OpenTK::Audio::OpenAL::AL;
 #else
@@ -4021,7 +4020,9 @@ namespace MphRead
 
     void Scene::DrawMovieFrame()
     {
-        GL::Uniform1(_shaderLocations->LayerAlpha, 1);
+        // Upstream set LayerAlpha here through the integer uniform call; it is
+        // a float uniform, GL refused it, and the layer alpha set earlier in
+        // the frame stayed. There is nothing to carry over.
         bool newFrame = false;
 
         const auto drawScreen = [this, &newFrame](std::int32_t movieBinding,
@@ -4052,7 +4053,6 @@ namespace MphRead
         // fade_color is a vec4, so the call is rejected and the fade colour set
         // earlier in the frame (alpha 0) stays; sending 1.0F instead paints the
         // whole movie with the rtt shader's solid fade colour.
-        GL::Uniform4(_shaderLocations->FadeColor, 0, 0, 0, 1);
         BeginTransient(TransientPrimitiveTopology::TriangleStrip);
         TransientTexCoord3(1.0F, 1.0F, 0.0F);
         TransientVertex3(1.0F, 1.0F, 0.0F);

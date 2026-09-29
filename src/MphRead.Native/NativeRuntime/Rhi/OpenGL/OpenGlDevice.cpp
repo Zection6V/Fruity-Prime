@@ -2,8 +2,10 @@
 
 #include "../../OpenTK/GL.hpp"
 #include "../../../Mods/Render/GlNames.hpp"
+#include "../../System/Runtime.hpp"
 
 #include <algorithm>
+#include <map>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -193,11 +195,37 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         class OpenGlGraphicsPipeline final : public GraphicsPipeline
         {
         public:
-            explicit OpenGlGraphicsPipeline(const GraphicsPipelineDesc& desc) : _desc(desc) {}
+            OpenGlGraphicsPipeline(const GraphicsPipelineDesc& desc, std::int32_t program)
+                : _desc(desc), _program(program)
+            {
+            }
             [[nodiscard]] const GraphicsPipelineDesc& Desc() const noexcept override { return _desc; }
+            // 0: the pipeline leaves the current program alone.
+            [[nodiscard]] std::int32_t Program() const noexcept { return _program; }
 
         private:
             GraphicsPipelineDesc _desc;
+            std::int32_t _program;
+        };
+
+        class OpenGlShader final : public Shader
+        {
+        public:
+            OpenGlShader(OpenGlGraphicsDevice& device, ShaderStage stage, std::int32_t name)
+                : _device(&device), _name(name)
+            {
+                _desc.stage = stage;
+            }
+            ~OpenGlShader() override;
+
+            [[nodiscard]] const ShaderDesc& Desc() const noexcept override { return _desc; }
+            [[nodiscard]] std::int32_t Name() const noexcept { return _name; }
+            void Detach() noexcept { _device = nullptr; }
+
+        private:
+            OpenGlGraphicsDevice* _device;
+            ShaderDesc _desc{};
+            std::int32_t _name;
         };
 
         class OpenGlTexture final : public Texture
@@ -396,9 +424,100 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 return std::make_unique<OpenGlSampler>(desc);
             }
 
+            // Shaders come from GLSL source here (CreateGlslShader): the
+            // renderer's programs are GLSL, and SPIR-V is the Vulkan backend's.
             [[nodiscard]] std::unique_ptr<Shader> CreateShader(const ShaderDesc&) override
             {
-                NotYet("CreateShader");
+                NotYet("CreateShader from bytecode (OpenGL takes GLSL through CreateGlslShader)");
+            }
+
+            [[nodiscard]] std::unique_ptr<Shader> CreateGlsl(ShaderStage stage, const std::string& source)
+            {
+                const std::int32_t name = GL::CreateShader(stage == ShaderStage::Vertex
+                    ? GL::ShaderType::VertexShader : GL::ShaderType::FragmentShader);
+                GL::ShaderSource(name, source);
+                GL::CompileShader(name);
+                std::int32_t status = 0;
+                GL::GetShader(name, GL::ShaderParameter::CompileStatus, status);
+                if (::MphRead::NativeRuntime::DebuggerAttached() && !GL::GetShaderInfoLog(name).empty())
+                {
+                    ::MphRead::NativeRuntime::DebuggerBreak();
+                }
+                if (status == 0)
+                {
+                    const std::string log = GL::GetShaderInfoLog(name);
+                    GL::DeleteShader(name);
+                    throw std::runtime_error(log);
+                }
+                auto shader = std::make_unique<OpenGlShader>(*this, stage, name);
+                _shaders.insert(shader.get());
+                return shader;
+            }
+
+            [[nodiscard]] std::int32_t Program(const Shader& vertex, const Shader& fragment)
+            {
+                const auto key = std::make_pair(&vertex, &fragment);
+                const auto found = _programs.find(key);
+                if (found != _programs.end())
+                {
+                    return found->second;
+                }
+                const std::int32_t program = GL::CreateProgram();
+                GL::AttachShader(program, static_cast<const OpenGlShader&>(vertex).Name());
+                GL::AttachShader(program, static_cast<const OpenGlShader&>(fragment).Name());
+                GL::LinkProgram(program);
+                _programs.emplace(key, program);
+                return program;
+            }
+
+            // A shader is going away: so is every program linked from it.
+            void Forget(const OpenGlShader& shader) noexcept
+            {
+                for (auto it = _programs.begin(); it != _programs.end();)
+                {
+                    if (it->first.first == &shader || it->first.second == &shader)
+                    {
+                        try
+                        {
+                            GL::DeleteProgram(it->second);
+                        }
+                        catch (...)
+                        {
+                        }
+                        it = _programs.erase(it);
+                    }
+                    else
+                    {
+                        ++it;
+                    }
+                }
+                _shaders.erase(const_cast<OpenGlShader*>(&shader));
+            }
+
+            [[nodiscard]] std::string AdapterDescription() override
+            {
+                return "vendor=" + GL::GetString(GL::StringName::Vendor)
+                    + "\nrenderer=" + GL::GetString(GL::StringName::Renderer)
+                    + "\nversion=" + GL::GetString(GL::StringName::Version)
+                    + "\nshading language=" + GL::GetString(GL::StringName::ShadingLanguageVersion);
+            }
+
+            [[nodiscard]] std::int32_t DrainErrors() override
+            {
+                std::int32_t first = 0;
+                for (std::int32_t i = 0; i < 64; ++i)
+                {
+                    const auto code = static_cast<std::int32_t>(GL::GetError());
+                    if (code == 0)
+                    {
+                        break;
+                    }
+                    if (first == 0)
+                    {
+                        first = code;
+                    }
+                }
+                return first;
             }
 
             [[nodiscard]] std::unique_ptr<BindingLayout> CreateBindingLayout(const BindingLayoutDesc&) override
@@ -417,7 +536,9 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             [[nodiscard]] std::unique_ptr<GraphicsPipeline> CreateGraphicsPipeline(
                 const GraphicsPipelineDesc& desc) override
             {
-                return std::make_unique<OpenGlGraphicsPipeline>(desc);
+                const std::int32_t program = desc.vertexShader != nullptr && desc.fragmentShader != nullptr
+                    ? Program(*desc.vertexShader, *desc.fragmentShader) : 0;
+                return std::make_unique<OpenGlGraphicsPipeline>(desc, program);
             }
 
             [[nodiscard]] std::unique_ptr<CommandList> CreateCommandList() override;
@@ -543,6 +664,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             std::unordered_set<OpenGlTexture*> _live{};
             std::vector<std::unique_ptr<Texture>> _retained{};
             std::unordered_set<OpenGlCommandList*> _lists{};
+            std::unordered_set<OpenGlShader*> _shaders{};
+            std::map<std::pair<const Shader*, const Shader*>, std::int32_t> _programs{};
         };
 
         class OpenGlCommandList final : public CommandList
@@ -566,7 +689,15 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 }
             }
 
-            void Begin() override {}
+            // The compatibility context's defaults the renderer set once as a
+            // scene loaded: fixed-function texturing on (the launcher overlay
+            // and the photograph still draw with it) and a depth test.
+            void Begin() override
+            {
+                GL::Enable(GL::EnableCap::DepthTest);
+                GL::Enable(GL::EnableCap::Texture2D);
+                GL::DepthFunc(GL::DepthFunction::Lequal);
+            }
             void End() override {}
 
             void BeginRendering(const RenderingInfo& info) override
@@ -609,6 +740,11 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 }
                 _applied = &pipeline;
                 const GraphicsPipelineDesc& desc = pipeline.Desc();
+                const std::int32_t program = static_cast<const OpenGlGraphicsPipeline&>(pipeline).Program();
+                if (program != 0)
+                {
+                    GL::UseProgram(program);
+                }
 
                 const RasterizerStateDesc& raster = desc.rasterizer;
                 SetCap(CapCullFace, raster.cullMode != CullMode::None);
@@ -741,6 +877,11 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             void CopyColorAttachmentToTexture(Texture& destination, std::uint32_t width, std::uint32_t height) override
             {
+                const auto current = _framebuffers.find(_current);
+                if (current != _framebuffers.end())
+                {
+                    GL::BindFramebuffer(GL::FramebufferTarget::ReadFramebuffer, current->second);
+                }
                 GL::BindTexture(GL::TextureTarget::Texture2D, Native(destination).Name());
                 GL::CopyTexSubImage2D(GL::TextureTarget::Texture2D, 0, 0, 0, 0, 0,
                     static_cast<std::int32_t>(width), static_cast<std::int32_t>(height));
@@ -950,6 +1091,25 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             {
                 list->Detach();
             }
+            for (OpenGlShader* shader : _shaders)
+            {
+                shader->Detach();
+            }
+        }
+
+        OpenGlShader::~OpenGlShader()
+        {
+            if (_device != nullptr)
+            {
+                _device->Forget(*this);
+            }
+            try
+            {
+                GL::DeleteShader(_name);
+            }
+            catch (...)
+            {
+            }
         }
 
         std::unique_ptr<CommandList> OpenGlGraphicsDevice::CreateCommandList()
@@ -972,6 +1132,16 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             device = std::make_unique<OpenGlGraphicsDevice>();
         }
         return *device;
+    }
+
+    std::unique_ptr<Shader> CreateGlslShader(GraphicsDevice& device, ShaderStage stage, const std::string& source)
+    {
+        return static_cast<OpenGlGraphicsDevice&>(device).CreateGlsl(stage, source);
+    }
+
+    std::int32_t ProgramFor(GraphicsDevice& device, const Shader& vertex, const Shader& fragment)
+    {
+        return static_cast<OpenGlGraphicsDevice&>(device).Program(vertex, fragment);
     }
 
     void ResetContextDevice() noexcept

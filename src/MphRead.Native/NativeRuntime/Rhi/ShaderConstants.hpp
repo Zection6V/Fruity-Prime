@@ -131,5 +131,79 @@ namespace MphRead::NativeRuntime::Rhi
         // ShiftTableLength and WhiteoutTableLength values respectively.
         virtual void SetShiftTable(std::span<const float> table) = 0;
         virtual void SetWhiteoutTable(std::span<const float> table) = 0;
+
+        // FrameConstants one matrix at a time: the projection alone changes
+        // with the field of view, the view alone with the camera.
+        virtual void SetView(const ::OpenTK::Mathematics::Matrix4& view) = 0;
+        virtual void SetProjection(const ::OpenTK::Mathematics::Matrix4& projection) = 0;
+
+        // SceneConstants' switches, which the HUD and the preview turn off
+        // and back on around themselves.
+        virtual void SetFogEnabled(bool enabled) = 0;
+        virtual void SetCelBands(std::int32_t bands) = 0;
+        virtual void SetShowColors(bool show) = 0;
+
+        // DrawConstants' other half: the billboard rotation an item is drawn
+        // under (identity for everything that is not a billboard).
+        virtual void SetBillboard(const ::OpenTK::Mathematics::Matrix4& viewInverse) = 0;
+
+        // MaterialConstants without the alpha (the polygon mode included),
+        // which the HUD model setup resets while leaving each model's alpha
+        // to be set per draw.
+        virtual void SetSurface(const MaterialConstants& constants) = 0;
+        virtual void SetMaterialAlpha(float alpha) = 0;
+
+        // The texture half of a material.
+        virtual void SetUseTexture(bool enabled) = 0;
+        virtual void SetTexgen(std::int32_t mode, const ::OpenTK::Mathematics::Matrix4& textureMatrix) = 0;
+        // Null turns the override off and leaves its colour as it was.
+        virtual void SetOverride(const ::OpenTK::Mathematics::Vector4* color) = 0;
+        virtual void SetOverrideColor(const ::OpenTK::Mathematics::Vector4& color) = 0;
+        virtual void SetPaletteOverride(const ::OpenTK::Mathematics::Vector4* color) = 0;
+        // Cel shading's one-colour stand-in for the bound texture; null is off.
+        virtual void SetFlatColor(const ::OpenTK::Mathematics::Vector3* color) = 0;
+
+        // The colour and texcoord a vertex takes when its mesh carries none:
+        // the DS's current vertex colour, inherited from whatever set it last.
+        virtual void SetInheritedColor(const ::OpenTK::Mathematics::Vector4& color) = 0;
+        virtual void SetInheritedTexCoord(const ::OpenTK::Mathematics::Vector3& texCoord) = 0;
+    };
+
+    // Takes every constant and does nothing with it: what a scene's constants
+    // go to before its shaders exist (a scene loads textures and entities
+    // before it is given a context to draw with).
+    class NullShaderConstantSink final : public ShaderConstantSink
+    {
+    public:
+        void Set(const FrameConstants&) override {}
+        void Set(const SceneLightConstants&) override {}
+        void SetLight(std::size_t, const LightConstants&) override {}
+        void Set(const SceneFogConstants&) override {}
+        void Set(const MaterialConstants&) override {}
+        void Set(const DrawConstants&) override {}
+        void Set(const CelPostConstants&) override {}
+        void SetFadeColor(const ::OpenTK::Mathematics::Vector4&) override {}
+        void SetLayerAlpha(float) override {}
+        void SetUseMask(bool) override {}
+        void SetViewSize(float, float) override {}
+        void Set(const DisruptionPostConstants&) override {}
+        void SetShiftTable(std::span<const float>) override {}
+        void SetWhiteoutTable(std::span<const float>) override {}
+        void SetView(const ::OpenTK::Mathematics::Matrix4&) override {}
+        void SetProjection(const ::OpenTK::Mathematics::Matrix4&) override {}
+        void SetFogEnabled(bool) override {}
+        void SetCelBands(std::int32_t) override {}
+        void SetShowColors(bool) override {}
+        void SetBillboard(const ::OpenTK::Mathematics::Matrix4&) override {}
+        void SetSurface(const MaterialConstants&) override {}
+        void SetMaterialAlpha(float) override {}
+        void SetUseTexture(bool) override {}
+        void SetTexgen(std::int32_t, const ::OpenTK::Mathematics::Matrix4&) override {}
+        void SetOverride(const ::OpenTK::Mathematics::Vector4*) override {}
+        void SetOverrideColor(const ::OpenTK::Mathematics::Vector4&) override {}
+        void SetPaletteOverride(const ::OpenTK::Mathematics::Vector4*) override {}
+        void SetFlatColor(const ::OpenTK::Mathematics::Vector3*) override {}
+        void SetInheritedColor(const ::OpenTK::Mathematics::Vector4&) override {}
+        void SetInheritedTexCoord(const ::OpenTK::Mathematics::Vector3&) override {}
     };
 }

@@ -1,4 +1,5 @@
 #include "MapAudit.hpp"
+#include "../../NativeRuntime/OpenTK/GL.hpp"
 #include "../../Entities/BombEntity.hpp"
 
 #include "NetLaunch.hpp"

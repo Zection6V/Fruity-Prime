@@ -58,7 +58,12 @@ namespace MphRead
         TranslucentNotEqual, // alpha < 1, blended, no depth write, stencil != id
         TranslucentEqual,    // the same where stencil == id
         AfterScene,          // what the HUD, preview and cel passes start from
-        Preview              // the hunter preview in the results screen corner
+        Preview,             // the hunter preview in the results screen corner
+        HudModel,            // the helmet, damage and filter models: no depth test
+        CelOutline,          // the cel pass's ink over SceneColor
+        Composite,           // the scene target into the window, the HUD layers and the fade
+        CompositeShift,      // the same under disruption / whiteout
+        FrameEnd             // the state the frame hands on to whatever draws after it
     };
 
     enum class TransientPrimitiveTopology : std::uint8_t

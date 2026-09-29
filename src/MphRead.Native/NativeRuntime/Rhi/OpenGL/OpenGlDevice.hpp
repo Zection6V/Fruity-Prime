@@ -2,7 +2,9 @@
 
 #include "../GraphicsDevice.hpp"
 
+#include <cstdint>
 #include <memory>
+#include <string>
 
 // The OpenGL implementation of the RHI device and command list.
 //
@@ -22,4 +24,14 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
     // Forget every texture the current context's device knows about: the
     // context they lived in is gone (Android recreates its EGL context).
     void ResetContextDevice() noexcept;
+
+    // OpenGL only: a GLSL shader compiled from source the caller keeps. The
+    // source is passed on by reference because the Android head recognises
+    // the desktop shaders by the identity of their strings and substitutes
+    // its own ES versions. Throws with the compiler's log on failure.
+    [[nodiscard]] std::unique_ptr<Shader> CreateGlslShader(
+        GraphicsDevice& device, ShaderStage stage, const std::string& source);
+    // OpenGL only: the program linking these two, linked once per device
+    // and shared by every pipeline and shader set that names the pair.
+    [[nodiscard]] std::int32_t ProgramFor(GraphicsDevice& device, const Shader& vertex, const Shader& fragment);
 }

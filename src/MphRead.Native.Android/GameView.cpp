@@ -20,6 +20,7 @@
 #include "../MphRead.Native/Mods/Render/EsBindings.hpp"
 #include "../MphRead.Native/Mods/Render/FrameTiming.hpp"
 #include "../MphRead.Native/Mods/Render/GlEs.hpp"
+#include "../MphRead.Native/NativeRuntime/OpenTK/GL.hpp"
 #include "../MphRead.Native/NativeRuntime/Rhi/OpenGL/OpenGlDevice.hpp"
 #include "../MphRead.Native/Mods/Render/HunterShot.hpp"
 #include "../MphRead.Native/Mods/SpectatorMode.hpp"

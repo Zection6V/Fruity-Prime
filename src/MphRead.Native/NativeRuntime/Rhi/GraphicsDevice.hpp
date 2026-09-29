@@ -9,6 +9,7 @@
 #include "Swapchain.hpp"
 
 #include <memory>
+#include <string>
 
 namespace MphRead::NativeRuntime::Rhi
 {
@@ -56,6 +57,12 @@ namespace MphRead::NativeRuntime::Rhi
         // Re-specify a render target's storage at a new extent, contents
         // undefined, keeping its handle and every view of it.
         virtual void ResizeTexture(Texture& texture, std::uint32_t width, std::uint32_t height) = 0;
+
+        // Who made the device and what it runs, for the debug log.
+        [[nodiscard]] virtual std::string AdapterDescription() = 0;
+        // Take every pending device error and return the first as the
+        // backend's own code (0: none). Diagnostics only.
+        [[nodiscard]] virtual std::int32_t DrainErrors() = 0;
 
         // Whether this combination of attachments can be rendered to on this
         // device: the question a driver answers about a depth texture it may

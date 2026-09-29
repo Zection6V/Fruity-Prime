@@ -138,7 +138,6 @@ using OpenTK::Mathematics::Vector2;
 using OpenTK::Mathematics::Vector2i;
 using OpenTK::Mathematics::Vector3;
 using OpenTK::Mathematics::Vector4;
-namespace GL = OpenTK::Graphics::OpenGL::GL;
 
 #if defined(DEBUG)
 #define MPHREAD_DEBUG_ASSERT(condition) \
@@ -218,9 +217,9 @@ namespace
         return EnumNumber(value);
     }
 
-    [[nodiscard]] std::string FramebufferErrorText(OpenTK::Graphics::OpenGL::FramebufferErrorCode value)
+    [[nodiscard]] std::string FramebufferErrorText(std::int32_t value)
     {
-        return OpenTK::Graphics::OpenGL::ToString(value);
+        return value == 0x8CD5 ? "complete" : "the device will not render to these attachments";
     }
 
 #define MPH_ENUM_CASE(type, name) case type::name: return #name
@@ -370,8 +369,6 @@ namespace MphRead
         std::function<void()> close)
         : _rendererSize(size),
           _frustumInfo(std::make_shared<MphRead::Formats::Culling::FrustumInfo>()),
-          _shaderLocations(std::make_shared<NativeRuntime::Rhi::OpenGL::ShaderLocations>()),
-          _shaderConstants(NativeRuntime::Rhi::OpenGL::CreateShaderConstantSink(_shaderLocations)),
           _keyboardState(&keyboardState),
           _mouseState(&mouseState),
           _setTitle(std::move(setTitle)),
@@ -582,7 +579,7 @@ namespace MphRead
         }
         _killHeight = meta.KillHeight;
         _farClip = meta.FarClip;
-        if (_shaderProgramId != 0)
+        if (_sceneShaders)
         {
             SetShaderFog();
         }
@@ -665,17 +662,18 @@ namespace MphRead
     {
         if (Mods::DebugLog::Active() && !Mods::Headless::Active())
         {
-            Mods::DebugLog::Line("gl", "vendor=" + GL::GetString(GL::StringName::Vendor));
-            Mods::DebugLog::Line("gl", "renderer=" + GL::GetString(GL::StringName::Renderer));
-            Mods::DebugLog::Line("gl", "version=" + GL::GetString(GL::StringName::Version));
-            Mods::DebugLog::Line("gl", "shading language=" + GL::GetString(GL::StringName::ShadingLanguageVersion));
+            const std::string adapter = Gpu().AdapterDescription();
+            std::size_t start = 0;
+            while (start <= adapter.size())
+            {
+                const std::size_t end = std::min(adapter.find('\n', start), adapter.size());
+                Mods::DebugLog::Line("gl", adapter.substr(start, end - start));
+                start = end + 1;
+            }
         }
         if (!Mods::Headless::Active())
         {
-            GL::ClearColor(_clearColor);
-            GL::Enable(GL::EnableCap::DepthTest);
-            GL::Enable(GL::EnableCap::Texture2D);
-            GL::DepthFunc(GL::DepthFunction::Lequal);
+            Commands().Begin();
             std::cout << "[render] field of view " << Mods::RenderOptions::FieldOfView() << " degrees"
                 << (Mods::RenderOptions::FieldOfView() == Mods::RenderOptions::DefaultFov
                     ? " (the DS's own)" : "") << '\n';
@@ -759,110 +757,38 @@ namespace MphRead
 
     void Scene::InitShaders()
     {
-        std::string fragmentLog;
-        std::string vertexLog;
-        std::int32_t vertexShader = GL::CreateShader(GL::ShaderType::VertexShader);
-        GL::ShaderSource(vertexShader, Shaders::VertexShader);
-        GL::CompileShader(vertexShader);
-        std::int32_t fragmentShader = GL::CreateShader(GL::ShaderType::FragmentShader);
-        GL::ShaderSource(fragmentShader, Shaders::FragmentShader);
-        GL::CompileShader(fragmentShader);
-        std::int32_t vertexStatus = 0;
-        std::int32_t fragmentStatus = 0;
-        GL::GetShader(vertexShader, GL::ShaderParameter::CompileStatus, vertexStatus);
-        GL::GetShader(fragmentShader, GL::ShaderParameter::CompileStatus, fragmentStatus);
-        if (NativeRuntime::DebuggerAttached())
+        std::array<float, 64> shifts{};
+        for (std::int32_t i = 0; i < 64; ++i)
         {
-            vertexLog = GL::GetShaderInfoLog(vertexShader);
-            fragmentLog = GL::GetShaderInfoLog(fragmentShader);
-            if (!vertexLog.empty() || !fragmentLog.empty())
-            {
-                NativeRuntime::DebuggerBreak();
-            }
+            const std::int32_t val = (i & 32) != 0 ? 31 - (i & 31) : i & 31;
+            shifts[static_cast<std::size_t>(i)] = -((val - 16) << 12) / 4096.0F / 256.0F;
         }
-        if (vertexStatus == 0 || fragmentStatus == 0)
+        std::vector<float> toon;
+        toon.reserve(Metadata::ToonTable.size() * 3);
+        for (Vector3 vector : Metadata::ToonTable)
         {
-            throw ProgramException("Failed to compile main shaders. vertex: "
-                + GL::GetShaderInfoLog(vertexShader) + " fragment: " + GL::GetShaderInfoLog(fragmentShader));
+            toon.push_back(vector.X);
+            toon.push_back(vector.Y);
+            toon.push_back(vector.Z);
         }
-        _shaderProgramId = GL::CreateProgram();
-        GL::AttachShader(_shaderProgramId, vertexShader);
-        GL::AttachShader(_shaderProgramId, fragmentShader);
-        GL::LinkProgram(_shaderProgramId);
-        GL::DetachShader(_shaderProgramId, vertexShader);
-        GL::DetachShader(_shaderProgramId, fragmentShader);
-        GL::DeleteShader(fragmentShader);
-        GL::DeleteShader(vertexShader);
-
-        vertexShader = GL::CreateShader(GL::ShaderType::VertexShader);
-        GL::ShaderSource(vertexShader, Shaders::RttVertexShader);
-        GL::CompileShader(vertexShader);
-        fragmentShader = GL::CreateShader(GL::ShaderType::FragmentShader);
-        GL::ShaderSource(fragmentShader, Shaders::RttFragmentShader);
-        GL::CompileShader(fragmentShader);
-        GL::GetShader(vertexShader, GL::ShaderParameter::CompileStatus, vertexStatus);
-        GL::GetShader(fragmentShader, GL::ShaderParameter::CompileStatus, fragmentStatus);
-        if (NativeRuntime::DebuggerAttached())
+        NativeRuntime::Rhi::OpenGL::SceneShaderSources sources{};
+        sources.MainVertex = &Shaders::VertexShader;
+        sources.MainFragment = &Shaders::FragmentShader;
+        sources.CompositeVertex = &Shaders::RttVertexShader;
+        sources.CompositeFragment = &Shaders::RttFragmentShader;
+        sources.ShiftFragment = &Shaders::ShiftFragmentShader;
+        sources.CelFragment = &Shaders::CelFragmentShader;
+        sources.ToonTable = toon;
+        sources.ShiftTable = shifts;
+        try
         {
-            vertexLog = GL::GetShaderInfoLog(vertexShader);
-            fragmentLog = GL::GetShaderInfoLog(fragmentShader);
-            if (!vertexLog.empty() || !fragmentLog.empty())
-            {
-                NativeRuntime::DebuggerBreak();
-            }
+            _sceneShaders = NativeRuntime::Rhi::OpenGL::CreateSceneShaderSet(Gpu(), sources);
         }
-        if (vertexStatus == 0 || fragmentStatus == 0)
+        catch (const std::exception& ex)
         {
-            throw ProgramException("Failed to compile RTT shaders.");
+            throw ProgramException(ex.what());
         }
-        _rttShaderProgramId = GL::CreateProgram();
-        GL::AttachShader(_rttShaderProgramId, vertexShader);
-        GL::AttachShader(_rttShaderProgramId, fragmentShader);
-        GL::LinkProgram(_rttShaderProgramId);
-        GL::DetachShader(_rttShaderProgramId, vertexShader);
-        GL::DetachShader(_rttShaderProgramId, fragmentShader);
-        GL::DeleteShader(fragmentShader);
-
-        fragmentShader = GL::CreateShader(GL::ShaderType::FragmentShader);
-        GL::ShaderSource(fragmentShader, Shaders::ShiftFragmentShader);
-        GL::CompileShader(fragmentShader);
-        GL::GetShader(fragmentShader, GL::ShaderParameter::CompileStatus, fragmentStatus);
-        if (NativeRuntime::DebuggerAttached())
-        {
-            fragmentLog = GL::GetShaderInfoLog(fragmentShader);
-            if (!fragmentLog.empty())
-            {
-                NativeRuntime::DebuggerBreak();
-            }
-        }
-        if (fragmentStatus == 0)
-        {
-            throw ProgramException("Failed to compile shift shader.");
-        }
-        _shiftShaderProgramId = GL::CreateProgram();
-        GL::AttachShader(_shiftShaderProgramId, vertexShader);
-        GL::AttachShader(_shiftShaderProgramId, fragmentShader);
-        GL::LinkProgram(_shiftShaderProgramId);
-        GL::DetachShader(_shiftShaderProgramId, vertexShader);
-        GL::DetachShader(_shiftShaderProgramId, fragmentShader);
-        GL::DeleteShader(fragmentShader);
-
-        fragmentShader = GL::CreateShader(GL::ShaderType::FragmentShader);
-        GL::ShaderSource(fragmentShader, Shaders::CelFragmentShader);
-        GL::CompileShader(fragmentShader);
-        GL::GetShader(fragmentShader, GL::ShaderParameter::CompileStatus, fragmentStatus);
-        if (fragmentStatus == 0)
-        {
-            throw ProgramException("Failed to compile the cel shading shader. " + GL::GetShaderInfoLog(fragmentShader));
-        }
-        _celShaderProgramId = GL::CreateProgram();
-        GL::AttachShader(_celShaderProgramId, vertexShader);
-        GL::AttachShader(_celShaderProgramId, fragmentShader);
-        GL::LinkProgram(_celShaderProgramId);
-        GL::DetachShader(_celShaderProgramId, vertexShader);
-        GL::DetachShader(_celShaderProgramId, fragmentShader);
-        GL::DeleteShader(fragmentShader);
-        GL::DeleteShader(vertexShader);
+        _shaderConstants = &_sceneShaders->Constants();
 
         Vector2i renderTarget = RenderSize();
         _targetSize = renderTarget;
@@ -871,9 +797,7 @@ namespace MphRead
             std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
             NativeRuntime::Rhi::RenderingDepthStencilAttachment depth{};
             const bool complete = Gpu().CanRender(SceneRenderingInfo(color, depth));
-            _framebufferStatus = complete
-                ? OpenTK::Graphics::OpenGL::FramebufferErrorCode::FramebufferComplete
-                : OpenTK::Graphics::OpenGL::FramebufferErrorCode::FramebufferUnsupported;
+            _framebufferStatus = complete ? 0x8CD5 : 0x8CDD;
             if (!complete)
             {
                 std::cout << "[render] the offscreen target is not usable: "
@@ -882,83 +806,6 @@ namespace MphRead
                 NativeRuntime::DebuggerBreak();
             }
         }
-
-        _shaderLocations->UseLight = GL::GetUniformLocation(_shaderProgramId, "use_light");
-        _shaderLocations->ShowColors = GL::GetUniformLocation(_shaderProgramId, "show_colors");
-        _shaderLocations->UseTexture = GL::GetUniformLocation(_shaderProgramId, "use_texture");
-        _shaderLocations->Light1Color = GL::GetUniformLocation(_shaderProgramId, "light1col");
-        _shaderLocations->Light1Vector = GL::GetUniformLocation(_shaderProgramId, "light1vec");
-        _shaderLocations->Light2Color = GL::GetUniformLocation(_shaderProgramId, "light2col");
-        _shaderLocations->Light2Vector = GL::GetUniformLocation(_shaderProgramId, "light2vec");
-        _shaderLocations->Diffuse = GL::GetUniformLocation(_shaderProgramId, "diffuse");
-        _shaderLocations->Ambient = GL::GetUniformLocation(_shaderProgramId, "ambient");
-        _shaderLocations->Specular = GL::GetUniformLocation(_shaderProgramId, "specular");
-        _shaderLocations->Emission = GL::GetUniformLocation(_shaderProgramId, "emission");
-        _shaderLocations->UseFog = GL::GetUniformLocation(_shaderProgramId, "fog_enable");
-        _shaderLocations->CelBands = GL::GetUniformLocation(_shaderProgramId, "cel_bands");
-        _shaderLocations->UseFlat = GL::GetUniformLocation(_shaderProgramId, "use_flat");
-        _shaderLocations->FlatColor = GL::GetUniformLocation(_shaderProgramId, "flat_color");
-        _shaderLocations->FogColor = GL::GetUniformLocation(_shaderProgramId, "fog_color");
-        _shaderLocations->FogMinDistance = GL::GetUniformLocation(_shaderProgramId, "fog_min");
-        _shaderLocations->FogMaxDistance = GL::GetUniformLocation(_shaderProgramId, "fog_max");
-        _shaderLocations->UseOverride = GL::GetUniformLocation(_shaderProgramId, "use_override");
-        _shaderLocations->OverrideColor = GL::GetUniformLocation(_shaderProgramId, "override_color");
-        _shaderLocations->UsePaletteOverride = GL::GetUniformLocation(_shaderProgramId, "use_pal_override");
-        _shaderLocations->PaletteOverrideColor = GL::GetUniformLocation(_shaderProgramId, "pal_override_color");
-        _shaderLocations->MaterialAlpha = GL::GetUniformLocation(_shaderProgramId, "mat_alpha");
-        _shaderLocations->MaterialMode = GL::GetUniformLocation(_shaderProgramId, "mat_mode");
-        _shaderLocations->ViewMatrix = GL::GetUniformLocation(_shaderProgramId, "view_mtx");
-        _shaderLocations->ViewInvMatrix = GL::GetUniformLocation(_shaderProgramId, "view_inv_mtx");
-        _shaderLocations->ProjectionMatrix = GL::GetUniformLocation(_shaderProgramId, "proj_mtx");
-        _shaderLocations->TextureMatrix = GL::GetUniformLocation(_shaderProgramId, "tex_mtx");
-        _shaderLocations->TexgenMode = GL::GetUniformLocation(_shaderProgramId, "texgen_mode");
-        _shaderLocations->MatrixStack = GL::GetUniformLocation(_shaderProgramId, "mtx_stack");
-        _shaderLocations->ToonTable = GL::GetUniformLocation(_shaderProgramId, "toon_table");
-        _shaderLocations->CelOutline = GL::GetUniformLocation(_celShaderProgramId, "outline");
-        _shaderLocations->CelTexelWidth = GL::GetUniformLocation(_celShaderProgramId, "texel_w");
-        _shaderLocations->CelTexelHeight = GL::GetUniformLocation(_celShaderProgramId, "texel_h");
-        _shaderLocations->CelNearPlane = GL::GetUniformLocation(_celShaderProgramId, "near_plane");
-        _shaderLocations->CelFarPlane = GL::GetUniformLocation(_celShaderProgramId, "far_plane");
-        _shaderLocations->CelDepthQuantum = GL::GetUniformLocation(_celShaderProgramId, "depth_quantum");
-        _shaderLocations->CelProbe = GL::GetUniformLocation(_celShaderProgramId, "probe");
-        _shaderLocations->FadeColor = GL::GetUniformLocation(_rttShaderProgramId, "fade_color");
-        _shaderLocations->LayerAlpha = GL::GetUniformLocation(_rttShaderProgramId, "alpha");
-        _shaderLocations->UseMask = GL::GetUniformLocation(_rttShaderProgramId, "use_mask");
-        _shaderLocations->ViewWidth = GL::GetUniformLocation(_rttShaderProgramId, "view_width");
-        _shaderLocations->ViewHeight = GL::GetUniformLocation(_rttShaderProgramId, "view_height");
-        const std::int32_t texLocation = GL::GetUniformLocation(_rttShaderProgramId, "tex");
-        const std::int32_t maskLocation = GL::GetUniformLocation(_rttShaderProgramId, "mask");
-        GL::UseProgram(_rttShaderProgramId);
-        GL::Uniform1(texLocation, 0);
-        GL::Uniform1(maskLocation, 1);
-        GL::UseProgram(_celShaderProgramId);
-        GL::Uniform1(GL::GetUniformLocation(_celShaderProgramId, "tex"), 0);
-        GL::Uniform1(GL::GetUniformLocation(_celShaderProgramId, "depth_tex"), 1);
-        _shaderLocations->ShiftTable = GL::GetUniformLocation(_shiftShaderProgramId, "shift_table");
-        _shaderLocations->ShiftIndex = GL::GetUniformLocation(_shiftShaderProgramId, "shift_idx");
-        _shaderLocations->ShiftFactor = GL::GetUniformLocation(_shiftShaderProgramId, "shift_fac");
-        _shaderLocations->LerpFactor = GL::GetUniformLocation(_shiftShaderProgramId, "lerp_fac");
-        _shaderLocations->WhiteoutTable = GL::GetUniformLocation(_shiftShaderProgramId, "white_table");
-        _shaderLocations->WhiteoutFactor = GL::GetUniformLocation(_shiftShaderProgramId, "white_fac");
-        GL::UseProgram(_shiftShaderProgramId);
-        std::array<float, 64> shifts{};
-        for (std::int32_t i = 0; i < 64; ++i)
-        {
-            const std::int32_t val = (i & 32) != 0 ? 31 - (i & 31) : i & 31;
-            shifts[static_cast<std::size_t>(i)] = -((val - 16) << 12) / 4096.0F / 256.0F;
-        }
-        _shaderConstants->SetShiftTable(shifts);
-        GL::UseProgram(_shaderProgramId);
-        std::vector<float> floats;
-        floats.reserve(Metadata::ToonTable.size() * 3);
-        for (Vector3 vector : Metadata::ToonTable)
-        {
-            floats.push_back(vector.X);
-            floats.push_back(vector.Y);
-            floats.push_back(vector.Z);
-        }
-        GL::Uniform3(_shaderLocations->ToonTable,
-            static_cast<std::int32_t>(Metadata::ToonTable.size()), floats.data());
         SetShaderFog();
     }
 
@@ -1386,7 +1233,7 @@ namespace MphRead
     // Each pass's state, as OnRenderFrame's GL calls used to set it one call
     // at a time. The item's culling, fill and line width are laid on top by
     // ScenePipeline; everything else about a pass is here.
-    NativeRuntime::Rhi::GraphicsPipelineDesc Scene::DescribeScenePass(ScenePass pass)
+    NativeRuntime::Rhi::GraphicsPipelineDesc Scene::DescribeScenePass(ScenePass pass) const
     {
         namespace Rhi = NativeRuntime::Rhi;
         Rhi::GraphicsPipelineDesc desc{};
@@ -1453,6 +1300,37 @@ namespace MphRead
             ds.depthCompareOp = Rhi::CompareOp::Less;
             blend.blendEnable = true;
             break;
+        case ScenePass::HudModel:
+        case ScenePass::Composite:
+        case ScenePass::CompositeShift:
+            ds.depthTestEnable = false;
+            blend.blendEnable = true;
+            break;
+        case ScenePass::CelOutline:
+            ds.depthTestEnable = false;
+            break;
+        case ScenePass::FrameEnd:
+            break;
+        }
+        // Which program the pass runs. FrameEnd names none and leaves the
+        // last one bound, as the end of the frame always did.
+        if (_sceneShaders)
+        {
+            Rhi::SceneProgram program = Rhi::SceneProgram::Main;
+            bool bound = true;
+            switch (pass)
+            {
+            case ScenePass::Composite: program = Rhi::SceneProgram::Composite; break;
+            case ScenePass::CompositeShift: program = Rhi::SceneProgram::Shift; break;
+            case ScenePass::CelOutline: program = Rhi::SceneProgram::CelOutline; break;
+            case ScenePass::FrameEnd: bound = false; break;
+            default: break;
+            }
+            if (bound)
+            {
+                desc.vertexShader = &_sceneShaders->Vertex(program);
+                desc.fragmentShader = &_sceneShaders->Fragment(program);
+            }
         }
         desc.blendAttachments.push_back(blend);
         desc.colorFormats.push_back(Rhi::TextureFormat::RGB8Unorm);
@@ -1820,8 +1698,12 @@ namespace MphRead
         }
         UpdateDepthAttachment(target);
         BeginSceneRendering();
-        GL::Viewport(0, 0, target.X, target.Y);
-        GL::UseProgram(_shaderProgramId);
+        Commands().SetViewport(NativeRuntime::Rhi::Viewport{0.0F, 0.0F,
+            static_cast<float>(target.X), static_cast<float>(target.Y)});
+        // The main program and the state the HUD and preview start from: what
+        // the frame's first uniforms (UpdateUniforms) are written into.
+        Commands().SetPipeline(ScenePipeline(ScenePass::AfterScene, NativeRuntime::Rhi::CullMode::None,
+            NativeRuntime::Rhi::FillMode::Solid, 1));
         LoadAndUnload();
         _decalItems.clear();
         _nonDecalItems.clear();
@@ -1856,7 +1738,7 @@ namespace MphRead
     void Scene::UpdateProjection()
     {
         _perspectiveMatrix = GetPerspectiveMatrix(_cameraFov);
-        GL::UniformMatrix4(_shaderLocations->ProjectionMatrix, false, _perspectiveMatrix);
+        _shaderConstants->SetProjection(_perspectiveMatrix);
         auto main = Entities::PlayerEntity::Main();
         const Vector3 camPos = RequireReference(main->CameraInfo()).Position;
         const Vector3 camRight(_viewMatrix.M11, _viewMatrix.M12, -_viewMatrix.M13);
@@ -1896,28 +1778,14 @@ namespace MphRead
         return result;
     }
 
-    OpenTK::Graphics::OpenGL::FramebufferErrorCode Scene::FramebufferStatus() const noexcept
+    std::int32_t Scene::FramebufferStatus() const noexcept
     {
         return _framebufferStatus;
     }
 
-    OpenTK::Graphics::OpenGL::ErrorCode Scene::DrainGlError()
+    std::int32_t Scene::DrainGlError()
     {
-        auto first = OpenTK::Graphics::OpenGL::ErrorCode::NoError;
-        for (std::int32_t i = 0; i < 64; ++i)
-        {
-            const auto code = GL::GetError();
-            if (code == GL::ErrorCode::NoError)
-            {
-                break;
-            }
-            if (first == OpenTK::Graphics::OpenGL::ErrorCode::NoError)
-            {
-                first = static_cast<OpenTK::Graphics::OpenGL::ErrorCode>(
-                    static_cast<std::int32_t>(code));
-            }
-        }
-        return first;
+        return Gpu().DrainErrors();
     }
 
     std::optional<std::vector<std::uint8_t>> Scene::ReadWindowBuffer(std::int32_t& width, std::int32_t& height)
@@ -1986,7 +1854,7 @@ namespace MphRead
         if (!Gpu().CanRender(SceneRenderingInfo(color, depth)))
         {
             std::cout << "[render] this driver will not read the scene's depth back ("
-                << FramebufferErrorText(OpenTK::Graphics::OpenGL::FramebufferErrorCode::FramebufferUnsupported)
+                << FramebufferErrorText(0x8CDD)
                 << "); cel shading keeps its banding and goes without the outline.\n";
             _depthTextureRefused = true;
             _celDepthView.reset();
@@ -2024,7 +1892,7 @@ namespace MphRead
     void Scene::DrawCelOutline()
     {
         if (!Mods::RenderOptions::CelShading() || Mods::RenderOptions::CelEdge() <= 0.0F
-            || !_celColor || _celShaderProgramId == 0 || !_celDepth) return;
+            || !_celColor || !_sceneShaders || !_celDepth) return;
         const Vector2i target = _targetSize;
         Commands().CopyColorAttachmentToTexture(*_celColor,
             static_cast<std::uint32_t>(target.X), static_cast<std::uint32_t>(target.Y));
@@ -2041,15 +1909,13 @@ namespace MphRead
         const auto& nearestClamp = SamplerFor(false, RepeatMode::Clamp, RepeatMode::Clamp);
         BindSceneTexture(1, *_celDepth, nearestClamp);
         BindSceneTexture(0, *_celColor, nearestClamp);
-        GL::UseProgram(_celShaderProgramId);
+        Commands().EndRendering();
+        BeginCelRendering();
+        Commands().SetPipeline(ScenePipeline(ScenePass::CelOutline, NativeRuntime::Rhi::CullMode::None,
+            NativeRuntime::Rhi::FillMode::Solid, 1));
         _shaderConstants->Set(NativeRuntime::Rhi::CelPostConstants{
             1.0F / target.X, 1.0F / target.Y, Mods::RenderOptions::CelEdge(), _nearClip,
             _useClip ? _farClip : 10000.0F, _depthQuantum, probe});
-        Commands().EndRendering();
-        BeginCelRendering();
-        GL::Disable(GL::EnableCap::DepthTest);
-        GL::Disable(GL::EnableCap::Blend);
-        GL::Disable(GL::EnableCap::CullFace);
         BeginTransient(TransientPrimitiveTopology::TriangleStrip);
         TransientTexCoord3(1.0F, 1.0F, 0.0F); TransientVertex3(1.0F, 1.0F, 0.0F);
         TransientTexCoord3(0.0F, 1.0F, 0.0F); TransientVertex3(-1.0F, 1.0F, 0.0F);
@@ -2060,7 +1926,6 @@ namespace MphRead
         UnbindSceneTexture(1);
         Commands().EndRendering();
         BeginSceneRendering();
-        GL::Enable(GL::EnableCap::DepthTest);
     }
 
     void Scene::CalibrateInk(Vector2i target)
@@ -2073,7 +1938,11 @@ namespace MphRead
         try
         {
             DrawCelQuad(target, true);
-            GL::ReadPixels(x, y, side, side, GL::PixelFormat::Rgba, GL::PixelType::UnsignedByte, pixels.data());
+            std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
+            NativeRuntime::Rhi::RenderingDepthStencilAttachment depth{};
+            Commands().ReadColor(SceneRenderingInfo(color, depth), static_cast<std::uint32_t>(x),
+                static_cast<std::uint32_t>(y), static_cast<std::uint32_t>(side), static_cast<std::uint32_t>(side),
+                NativeRuntime::Rhi::TextureFormat::RGBA8Unorm, pixels.data());
         }
         catch (const std::exception& ex)
         {
@@ -2181,14 +2050,17 @@ namespace MphRead
             SetHudLayerUniforms(); main->DrawHudModels(); UnsetHudLayerUniforms();
         }
         DrawCelOutline();
-        GL::Disable(GL::EnableCap::CullFace); GL::UseProgram(_rttShaderProgramId);
+        const auto& composite = ScenePipeline(ScenePass::Composite, NativeRuntime::Rhi::CullMode::None,
+            NativeRuntime::Rhi::FillMode::Solid, 1);
+        Commands().SetPipeline(composite);
         _shaderConstants->SetLayerAlpha(1.0F); _shaderConstants->SetFadeColor(Vector4{});
         if (main->HudDisruptedState() != 0 || main->HudWhiteoutState() != -1)
         {
             const float div = _elapsedTime / (1.0F / 30.0F);
             const std::int32_t index = ::MphRead::NativeRuntime::ConvertToInt32Net9(div);
             const float factor = std::fmod(div, 1.0F);
-            GL::UseProgram(_shiftShaderProgramId);
+            Commands().SetPipeline(ScenePipeline(ScenePass::CompositeShift, NativeRuntime::Rhi::CullMode::None,
+                NativeRuntime::Rhi::FillMode::Solid, 1));
             _shaderConstants->Set(NativeRuntime::Rhi::DisruptionPostConstants{
                 main->HudDisruptionFactor(), index, factor, main->HudWhiteoutFactor()});
             if (main->HudWhiteoutFactor() != 0.0F)
@@ -2196,15 +2068,15 @@ namespace MphRead
         }
         Commands().EndRendering();
         BeginWindowRendering(NativeRuntime::Rhi::LoadOp::Clear, NativeRuntime::Rhi::LoadOp::Load, SceneClearColor());
-        GL::Viewport(0, 0, _rendererSize.X, _rendererSize.Y);
-        GL::Disable(GL::EnableCap::DepthTest); GL::Enable(GL::EnableCap::Blend);
+        Commands().SetViewport(NativeRuntime::Rhi::Viewport{0.0F, 0.0F,
+            static_cast<float>(_rendererSize.X), static_cast<float>(_rendererSize.Y)});
         BindSceneTexture(0, *_sceneColor, SamplerFor(Mods::RenderOptions::ResolutionScale() < 100,
             RepeatMode::Repeat, RepeatMode::Repeat));
         BeginTransient(TransientPrimitiveTopology::TriangleStrip);
         TransientTexCoord3(1,1,0); TransientVertex3(1,1,0); TransientTexCoord3(0,1,0); TransientVertex3(-1,1,0);
         TransientTexCoord3(1,0,0); TransientVertex3(1,-1,0); TransientTexCoord3(0,0,0); TransientVertex3(-1,-1,0); EndTransient();
         UnbindSceneTexture(0);
-        if (main->HudDisruptedState() != 0 || main->HudWhiteoutState() != -1) GL::UseProgram(_rttShaderProgramId);
+        if (main->HudDisruptedState() != 0 || main->HudWhiteoutState() != -1) Commands().SetPipeline(composite);
         _shaderConstants->SetFadeColor(Vector4(_fadeColor, _fadeColor, _fadeColor, 0.0F));
         if (((main->LoadFlags() & LoadFlags::Active) == LoadFlags::Active) && CameraMode() == MphRead::CameraMode::Player)
         {
@@ -2242,8 +2114,9 @@ namespace MphRead
                 TransientTexCoord3(1,0,0); TransientVertex3(1,-1,0); TransientTexCoord3(0,0,0); TransientVertex3(-1,-1,0); EndTransient();
             }
         }
-        GL::Enable(GL::EnableCap::DepthTest); GL::Disable(GL::EnableCap::Blend);
-        if (_faceCulling) { GL::Enable(GL::EnableCap::CullFace); GL::CullFace(GL::TriangleFace::Back); }
+        Commands().SetPipeline(ScenePipeline(ScenePass::FrameEnd,
+            _faceCulling ? NativeRuntime::Rhi::CullMode::Back : NativeRuntime::Rhi::CullMode::None,
+            NativeRuntime::Rhi::FillMode::Solid, 1));
         return true;
     }
 
@@ -2383,7 +2256,7 @@ namespace MphRead
                 _viewInvRotYMatrix.M33 = row2.Z;
             }
         }
-        GL::UniformMatrix4(_shaderLocations->ViewMatrix, false, _viewMatrix);
+        _shaderConstants->SetView(_viewMatrix);
     }
 
     void Scene::UpdateCameraPosition()
@@ -3615,10 +3488,9 @@ namespace MphRead
     void Scene::UpdateUniforms()
     {
         UseRoomLights();
-        GL::Uniform1(_shaderLocations->UseFog, _hasFog && FogOn() ? 1 : 0);
-        GL::Uniform1(_shaderLocations->CelBands,
-            Mods::RenderOptions::CelShading() ? Mods::RenderOptions::CelBands() : 0);
-        GL::Uniform1(_shaderLocations->ShowColors, _showColors ? 1 : 0);
+        _shaderConstants->SetFogEnabled(_hasFog && FogOn());
+        _shaderConstants->SetCelBands(Mods::RenderOptions::CelShading() ? Mods::RenderOptions::CelBands() : 0);
+        _shaderConstants->SetShowColors(_showColors);
         if (ProcessFrame())
         {
             UpdateFade();
@@ -3732,10 +3604,6 @@ namespace MphRead
             _fadeEnded = false;
         }
         _pendingFadeSteps = 0;
-        if (!Mods::Headless::Active())
-        {
-            GL::ClearColor(_clearColor);
-        }
     }
 
     void Scene::QuitGame(bool enteringShip)
@@ -3809,21 +3677,12 @@ namespace MphRead
         // The command list owns the framebuffers built on those targets.
         _commands.reset();
         _pipelines.clear();
-        const auto deleteProgram = [](std::int32_t& program)
-        {
-            if (program != 0)
-            {
-                GL::DeleteProgram(program);
-                program = 0;
-            }
-        };
         // The movie frames were owned textures, already released above.
         _topMovieBinding = -1;
         _botMovieBinding = -1;
-        deleteProgram(_shaderProgramId);
-        deleteProgram(_rttShaderProgramId);
-        deleteProgram(_shiftShaderProgramId);
-        deleteProgram(_celShaderProgramId);
+        // The programs go with their shaders; the pipelines naming them went above.
+        _shaderConstants = &_noShaderConstants;
+        _sceneShaders.reset();
     }
 
     void Scene::EndFade()
@@ -3929,8 +3788,7 @@ namespace MphRead
         {
             // Client arrays do not update fixed-function current texcoord.
             // The immediate path did, so explicitly retain its terminal state.
-            GL::TexCoord3(_transientTexCoord.X, _transientTexCoord.Y,
-                _transientTexCoord.Z);
+            _shaderConstants->SetInheritedTexCoord(_transientTexCoord);
         }
     }
 
@@ -3961,7 +3819,7 @@ namespace MphRead
         {
             viewInv = _viewInvRotYMatrix;
         }
-        GL::UniformMatrix4(_shaderLocations->ViewInvMatrix, false, viewInv);
+        _shaderConstants->SetBillboard(viewInv);
         DoMaterial(*item);
         DoTexture(*item);
         // With face culling switched off (the B key) nothing ever enables it.
@@ -4112,7 +3970,7 @@ namespace MphRead
     {
         const Vector4 color = _showCollision && _colDisplayColor == CollisionColor::None && _colDisplayAlpha == 1.0F
             ? Vector4(0.0F, 0.0F, 1.0F, 1.0F) : Vector4(1.0F, 0.0F, 0.0F, 1.0F);
-        GL::Uniform4(_shaderLocations->OverrideColor, color);
+        _shaderConstants->SetOverrideColor(color);
         BeginTransient(TransientPrimitiveTopology::LineLoop);
         for (std::int32_t i = 0; i < count; ++i) TransientVertex3(verts[static_cast<std::size_t>(i)]);
         EndTransient();
@@ -4183,32 +4041,23 @@ namespace MphRead
 
     void Scene::SetHudLayerUniforms()
     {
-        GL::Disable(GL::EnableCap::DepthTest);
-        GL::Enable(GL::EnableCap::Blend);
+        Commands().SetPipeline(ScenePipeline(ScenePass::HudModel,
+            _faceCulling ? NativeRuntime::Rhi::CullMode::Back : NativeRuntime::Rhi::CullMode::None,
+            NativeRuntime::Rhi::FillMode::Solid, 1));
         const Matrix4 identity = RendererDetail::IdentityMatrix();
         SetMatrixStack(identity);
-        GL::UniformMatrix4(_shaderLocations->ViewInvMatrix, false, identity);
-        GL::Uniform1(_shaderLocations->UseLight, 0);
+        _shaderConstants->SetBillboard(identity);
         const Vector3 one(1.0F, 1.0F, 1.0F);
-        GL::Color3(one);
-        GL::Uniform3(_shaderLocations->Diffuse, one);
-        GL::Uniform3(_shaderLocations->Ambient, one);
-        GL::Uniform3(_shaderLocations->Specular, one);
-        GL::Uniform3(_shaderLocations->Emission, one);
-        GL::Uniform1(_shaderLocations->MaterialMode, static_cast<std::int32_t>(PolygonMode::Modulate));
-        GL::Uniform1(_shaderLocations->TexgenMode, static_cast<std::int32_t>(TexgenMode::None));
-        GL::UniformMatrix4(_shaderLocations->TextureMatrix, false, identity);
-        GL::Uniform1(_shaderLocations->UseTexture, 1);
-        GL::Uniform1(_shaderLocations->UseOverride, 0);
-        GL::Uniform1(_shaderLocations->UsePaletteOverride, 0);
-        GL::Uniform1(_shaderLocations->UseFog, 0);
-        GL::Uniform1(_shaderLocations->UseFlat, 0);
-        GL::Uniform1(_shaderLocations->CelBands, 0);
-        if (_faceCulling)
-        {
-            GL::Enable(GL::EnableCap::CullFace);
-            GL::CullFace(GL::TriangleFace::Back);
-        }
+        _shaderConstants->SetInheritedColor(Vector4(one, 1.0F));
+        _shaderConstants->SetSurface(NativeRuntime::Rhi::MaterialConstants{false, one, one, one, one, 1.0F,
+            static_cast<std::int32_t>(PolygonMode::Modulate)});
+        _shaderConstants->SetTexgen(static_cast<std::int32_t>(TexgenMode::None), identity);
+        _shaderConstants->SetUseTexture(true);
+        _shaderConstants->SetOverride(nullptr);
+        _shaderConstants->SetPaletteOverride(nullptr);
+        _shaderConstants->SetFogEnabled(false);
+        _shaderConstants->SetFlatColor(nullptr);
+        _shaderConstants->SetCelBands(0);
         const Matrix4 orthoMatrix = Matrix4::CreateOrthographic(
             static_cast<float>(_rendererSize.X), static_cast<float>(_rendererSize.Y), 0.5F, 1.5F);
         SetFrameMatrices(identity, orthoMatrix);
@@ -4216,8 +4065,6 @@ namespace MphRead
 
     void Scene::UnsetHudLayerUniforms()
     {
-        GL::Disable(GL::EnableCap::Blend);
-        GL::Enable(GL::EnableCap::DepthTest);
         SetFrameMatrices(_viewMatrix, _perspectiveMatrix);
     }
 
@@ -4566,9 +4413,9 @@ namespace MphRead
         SetMatrixStack(transform);
         const auto model = inst->Model();
         UpdateMaterials(model, 0);
-        GL::Uniform1(_shaderLocations->MaterialAlpha, alpha);
+        _shaderConstants->SetMaterialAlpha(alpha);
         BindSceneTexture(0, model->Materials->at(0)->TextureBindingId, SamplerFor(false, RepeatMode::Clamp, RepeatMode::Clamp));
-        GL::Color3(Vector3(color.Red / 31.0F, color.Green / 31.0F, color.Blue / 31.0F));
+        _shaderConstants->SetInheritedColor(Vector4(color.Red / 31.0F, color.Green / 31.0F, color.Blue / 31.0F, 1.0F));
         DrawGpuMesh(model, model->Meshes->at(0));
         UnbindSceneTexture(0);
         SetMatrixStack(RendererDetail::IdentityMatrix());
@@ -4579,7 +4426,7 @@ namespace MphRead
         const auto model = inst->Model();
         UpdateMaterials(model, 0);
         Material& material = *model->Materials->at(0);
-        GL::Uniform1(_shaderLocations->MaterialAlpha, material.Alpha / 31.0F * alpha);
+        _shaderConstants->SetMaterialAlpha(material.Alpha / 31.0F * alpha);
         BindSceneTexture(0, material.TextureBindingId, SamplerFor(false, RepeatMode::Clamp, RepeatMode::Clamp));
         const float viewWidth = static_cast<float>(_rendererSize.X);
         const float viewHeight = static_cast<float>(_rendererSize.Y);
@@ -4596,7 +4443,7 @@ namespace MphRead
     {
         const auto model = inst->Model();
         UpdateMaterials(model, 0);
-        GL::Uniform1(_shaderLocations->MaterialAlpha, 1.0F);
+        _shaderConstants->SetMaterialAlpha(1.0F);
         BindSceneTexture(0, model->Materials->at(0)->TextureBindingId, SamplerFor(false, RepeatMode::Clamp, RepeatMode::Clamp));
         const float viewWidth = static_cast<float>(_rendererSize.X);
         const float viewHeight = static_cast<float>(_rendererSize.Y);
@@ -4647,7 +4494,7 @@ namespace MphRead
 
     void Scene::DoMaterial(const MphRead::RenderItem& item)
     {
-        GL::Color3(item.Diffuse);
+        _shaderConstants->SetInheritedColor(Vector4(item.Diffuse, 1.0F));
         _shaderConstants->Set(NativeRuntime::Rhi::MaterialConstants{
             LightingOn() && item.Lighting, item.Diffuse, item.Ambient, item.Specular,
             item.Emission, item.Alpha, static_cast<std::int32_t>(item.PolygonMode)});
@@ -4658,29 +4505,12 @@ namespace MphRead
         if (item.HasTexture)
         {
             BindSceneTexture(0, item.TextureBindingId, SamplerFor(FilteringOn(), item.XRepeat, item.YRepeat));
-            GL::Uniform1(_shaderLocations->TexgenMode, static_cast<std::int32_t>(item.TexgenMode));
-            GL::UniformMatrix4(_shaderLocations->TextureMatrix, false, item.TexcoordMatrix);
+            _shaderConstants->SetTexgen(static_cast<std::int32_t>(item.TexgenMode), item.TexcoordMatrix);
         }
-        GL::Uniform1(_shaderLocations->UseTexture, item.HasTexture && _showTextures ? 1 : 0);
+        _shaderConstants->SetUseTexture(item.HasTexture && _showTextures);
         SetFlatColor(item.HasTexture && _showTextures ? item.TextureBindingId : -1);
-        if (item.OverrideColor.has_value())
-        {
-            GL::Uniform1(_shaderLocations->UseOverride, 1);
-            GL::Uniform4(_shaderLocations->OverrideColor, *item.OverrideColor);
-        }
-        else
-        {
-            GL::Uniform1(_shaderLocations->UseOverride, 0);
-        }
-        if (item.PaletteOverride.has_value())
-        {
-            GL::Uniform1(_shaderLocations->UsePaletteOverride, 1);
-            GL::Uniform4(_shaderLocations->PaletteOverrideColor, *item.PaletteOverride);
-        }
-        else
-        {
-            GL::Uniform1(_shaderLocations->UsePaletteOverride, 0);
-        }
+        _shaderConstants->SetOverride(item.OverrideColor.has_value() ? &*item.OverrideColor : nullptr);
+        _shaderConstants->SetPaletteOverride(item.PaletteOverride.has_value() ? &*item.PaletteOverride : nullptr);
     }
 
     void Scene::SetFlatColor(std::int32_t bindingId)
@@ -4688,12 +4518,11 @@ namespace MphRead
         auto found = _flatColors.find(bindingId);
         if (Mods::RenderOptions::CelShading() && bindingId != -1 && found != _flatColors.end())
         {
-            GL::Uniform1(_shaderLocations->UseFlat, 1);
-            GL::Uniform3(_shaderLocations->FlatColor, found->second);
+            _shaderConstants->SetFlatColor(&found->second);
         }
         else
         {
-            GL::Uniform1(_shaderLocations->UseFlat, 0);
+            _shaderConstants->SetFlatColor(nullptr);
         }
     }
 
@@ -5128,7 +4957,6 @@ namespace MphRead
             else
             {
                 _faceCulling = !_faceCulling;
-                if (!_faceCulling) GL::Disable(GL::EnableCap::CullFace);
             }
         }
         else if (e.Key == Key::F) FilteringOn(!FilteringOn());
@@ -6145,12 +5973,31 @@ namespace MphRead
         }
     }
 
+    NativeRuntime::Rhi::CommandList& RenderWindow::WindowCommands()
+    {
+        if (!_windowCommands)
+        {
+            _windowCommands = NativeRuntime::Rhi::OpenGL::ContextDevice().CreateCommandList();
+        }
+        return *_windowCommands;
+    }
+
     void RenderWindow::OnRenderFrame(const RendererPlatform::FrameEventArgs& args)
     {
         ApplyFrameRateSettings();
         if (Mods::Network::NetLaunch::TickTerminalLobby(*this))
         {
-            GL::Clear(GL::ClearBufferMask::ColorBufferBit);
+            {
+                auto& commands = WindowCommands();
+                std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
+                color[0].loadOp = NativeRuntime::Rhi::LoadOp::Clear;
+                color[0].clearValue = NativeRuntime::Rhi::ClearColor{0.0F, 0.0F, 0.0F, 1.0F};
+                NativeRuntime::Rhi::RenderingInfo info{};
+                info.swapchain = true;
+                info.colorAttachments = color;
+                commands.BeginRendering(info);
+                commands.EndRendering();
+            }
             _swapchain->Present();
             _window->BaseOnRenderFrame(args);
             return;
@@ -6295,7 +6142,8 @@ namespace MphRead
             _window->BaseOnResize(e);
             return;
         }
-        GL::Viewport(0, 0, e.Size.X, e.Size.Y);
+        WindowCommands().SetViewport(NativeRuntime::Rhi::Viewport{0.0F, 0.0F,
+            static_cast<float>(e.Size.X), static_cast<float>(e.Size.Y)});
         if (_scene != nullptr && _scene->Size() != e.Size)
         {
             _scene->Size(e.Size);

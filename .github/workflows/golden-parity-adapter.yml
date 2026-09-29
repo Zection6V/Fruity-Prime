@@ -146,7 +146,155 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build real fruity_prime target with native validation dependency
+        id: real_build
+        continue-on-error: true
         shell: pwsh
         run: |
-          cmake --build target/build/golden-parity-real --config RelWithDebInfo --parallel $env:NUMBER_OF_PROCESSORS --target fruity_prime
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $diag = Join-Path $env:GITHUB_WORKSPACE "golden-parity-msvc-diagnostics"
+          New-Item -ItemType Directory -Force $diag | Out-Null
+          $binlog = Join-Path $diag "fruity_prime.binlog"
+          $buildLog = Join-Path $diag "fruity_prime-build.log"
+          $exitCodePath = Join-Path $diag "fruity_prime-build-exit-code.txt"
+
+          & cmake --build target/build/golden-parity-real --config RelWithDebInfo --parallel $env:NUMBER_OF_PROCESSORS --target fruity_prime -- "/bl:$binlog" "/v:diag" 2>&1 |
+            Tee-Object -FilePath $buildLog
+          $code = $LASTEXITCODE
+          Set-Content -Path $exitCodePath -Value $code -NoNewline
+          Write-Host "real fruity_prime build exit code: $code"
+
+      - name: Collect MSVC object, archive, and link diagnostics
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $diag = Join-Path $env:GITHUB_WORKSPACE "golden-parity-msvc-diagnostics"
+          $build = Join-Path $env:GITHUB_WORKSPACE "target/build/golden-parity-real"
+          New-Item -ItemType Directory -Force $diag | Out-Null
+
+          $dumpbin = Get-Command dumpbin.exe -ErrorAction SilentlyContinue
+          if (-not $dumpbin) {
+            $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio/Installer/vswhere.exe"
+            if (Test-Path $vswhere) {
+              $vsRoot = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+              if ($vsRoot) {
+                $dumpbin = Get-ChildItem -Path (Join-Path $vsRoot "VC/Tools/MSVC") -Recurse -Filter dumpbin.exe -File -ErrorAction SilentlyContinue |
+                  Where-Object { $_.FullName -match '\\bin\\Hostx64\\x64\\dumpbin\.exe } |
+                  Sort-Object FullName -Descending |
+                  Select-Object -First 1
+              }
+            }
+          }
+
+          if ($dumpbin) {
+            $dumpbinPath = if ($dumpbin.Path) { $dumpbin.Path } else { $dumpbin.FullName }
+            Set-Content -Path (Join-Path $diag "dumpbin-path.txt") -Value $dumpbinPath
+          } else {
+            Set-Content -Path (Join-Path $diag "dumpbin-path.txt") -Value "dumpbin.exe not found"
+          }
+
+          $fruityDir = Join-Path $build "fruity_prime.dir"
+          $objects = @()
+          if (Test-Path $fruityDir) {
+            $objects += Get-ChildItem -Path $fruityDir -Recurse -File -Filter Weapons.obj -ErrorAction SilentlyContinue
+            $objects += Get-ChildItem -Path $fruityDir -Recurse -File -Filter EntityBase.obj -ErrorAction SilentlyContinue
+          }
+
+          $objectPathFile = Join-Path $diag "fruity_prime-direct-object-paths.txt"
+          if ($objects.Count -eq 0) {
+            Set-Content -Path $objectPathFile -Value "No fruity_prime Weapons.obj or EntityBase.obj found."
+          } else {
+            $objects |
+              Sort-Object FullName |
+              ForEach-Object { $_.FullName } |
+              Set-Content -Path $objectPathFile
+
+            if ($dumpbin) {
+              $dumpbinPath = if ($dumpbin.Path) { $dumpbin.Path } else { $dumpbin.FullName }
+              $index = 0
+              foreach ($obj in ($objects | Sort-Object FullName)) {
+                $safeName = "{0:D2}-{1}" -f $index, $obj.Name
+                $symbolsPath = Join-Path $diag "$safeName-symbols.txt"
+                & $dumpbinPath /symbols $obj.FullName 2>&1 | Set-Content -Path $symbolsPath
+                $index++
+              }
+            }
+          }
+
+          $exactNeedles = @(
+            '?Current@Weapons@MphRead@@3V?$shared_ptr@$CBV?$vector@V?$shared_ptr@UWeaponInfo@MphRead@@@std@@V?$allocator@V?$shared_ptr@UWeaponInfo@MphRead@@@std@@@2@@std@@@std@@A',
+            '?WeaponsMP@Weapons@MphRead@@3V?$shared_ptr@$CBV?$vector@V?$shared_ptr@UWeaponInfo@MphRead@@@std@@V?$allocator@V?$shared_ptr@UWeaponInfo@MphRead@@@std@@@2@@std@@@std@@B',
+            '?HandleMessage@EntityBase@Entities@MphRead@@UEAAXVMessageInfo@3@@Z'
+          )
+          $exactHits = Join-Path $diag "exact-decorated-symbol-hits.txt"
+          Remove-Item $exactHits -ErrorAction SilentlyContinue
+          $symbolFiles = Get-ChildItem -Path $diag -Filter "*-symbols.txt" -File -ErrorAction SilentlyContinue
+          foreach ($symbolFile in $symbolFiles) {
+            foreach ($needle in $exactNeedles) {
+              $matches = Select-String -Path $symbolFile.FullName -SimpleMatch $needle -ErrorAction SilentlyContinue
+              foreach ($match in $matches) {
+                Add-Content -Path $exactHits -Value "$($symbolFile.Name):$($match.LineNumber): $($match.Line)"
+              }
+            }
+          }
+          if (-not (Test-Path $exactHits)) {
+            Set-Content -Path $exactHits -Value "No exact decorated definitions found in dumped fruity_prime direct objects."
+          }
+
+          $libraries = Get-ChildItem -Path $build -Recurse -File -Filter "MphRead.Native.lib" -ErrorAction SilentlyContinue |
+            Sort-Object FullName
+          $libraryPathFile = Join-Path $diag "mphread-native-library-paths.txt"
+          if ($libraries.Count -eq 0) {
+            Set-Content -Path $libraryPathFile -Value "MphRead.Native.lib not found."
+          } else {
+            $libraries | ForEach-Object { $_.FullName } | Set-Content -Path $libraryPathFile
+            if ($dumpbin) {
+              $dumpbinPath = if ($dumpbin.Path) { $dumpbin.Path } else { $dumpbin.FullName }
+              $index = 0
+              foreach ($lib in $libraries) {
+                & $dumpbinPath /linkermember:1 $lib.FullName 2>&1 |
+                  Set-Content -Path (Join-Path $diag ("MphRead.Native.{0:D2}.linkermember1.txt" -f $index))
+                & $dumpbinPath /linkermember:2 $lib.FullName 2>&1 |
+                  Set-Content -Path (Join-Path $diag ("MphRead.Native.{0:D2}.linkermember2.txt" -f $index))
+                $index++
+              }
+            }
+          }
+
+          $vcxproj = Join-Path $build "fruity_prime.vcxproj"
+          if (Test-Path $vcxproj) {
+            Copy-Item $vcxproj (Join-Path $diag "fruity_prime.vcxproj") -Force
+          }
+
+          $fruityConfigDir = Join-Path $build "fruity_prime.dir/RelWithDebInfo"
+          if (Test-Path $fruityConfigDir) {
+            Get-ChildItem -Path $fruityConfigDir -Recurse -File -Filter "*.tlog" -ErrorAction SilentlyContinue |
+              ForEach-Object {
+                $relative = $_.FullName.Substring($fruityConfigDir.Length).TrimStart('\','/')
+                $dest = Join-Path (Join-Path $diag "fruity_prime-tlogs") $relative
+                New-Item -ItemType Directory -Force (Split-Path $dest -Parent) | Out-Null
+                Copy-Item $_.FullName $dest -Force
+              }
+          }
+
+      - name: Upload MSVC parity linker diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-parity-msvc-link-diagnostics-${{ github.sha }}
+          path: golden-parity-msvc-diagnostics
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Propagate real fruity_prime build result
+        if: always()
+        shell: pwsh
+        run: |
+          $exitCodePath = Join-Path $env:GITHUB_WORKSPACE "golden-parity-msvc-diagnostics/fruity_prime-build-exit-code.txt"
+          if (-not (Test-Path $exitCodePath)) {
+            throw "real fruity_prime build exit code was not captured"
+          }
+          $code = [int](Get-Content $exitCodePath -Raw)
+          if ($code -ne 0) {
+            Write-Error "real fruity_prime build failed with exit code $code after diagnostics upload"
+            exit $code
+          }

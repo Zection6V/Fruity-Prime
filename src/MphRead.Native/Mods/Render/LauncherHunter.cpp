@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <exception>
 #include <string>
+#include <utility>
 
 namespace MphRead::Mods::Render
 {
@@ -114,6 +115,28 @@ namespace MphRead::Mods::Render
         _wanted = false;
         _drawn = false;
         ::MphRead::Scene::LauncherPreview = false;
+    }
+
+    void LauncherHunter::ReleaseGl() noexcept
+    {
+        std::shared_ptr<::MphRead::Scene> scene = std::move(_scene);
+        _glStale = false;
+        if (scene == nullptr)
+        {
+            return;
+        }
+
+        try
+        {
+            scene->UnloadGl();
+        }
+        catch (...)
+        {
+            // Destruction below is the final fallback. It must still happen
+            // before RenderWindow destroys the owning desktop GL context.
+        }
+
+        scene.reset();
     }
 
     void LauncherHunter::Draw(::MphRead::RenderWindow& window, std::int32_t width, std::int32_t height)

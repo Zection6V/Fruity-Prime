@@ -4,6 +4,7 @@
 #error "AndroidHunterShot is only valid for the Android native target."
 #endif
 
+#include "AndroidGlContextGate.hpp"
 #include "AndroidInput.hpp"
 #include "MainActivity.hpp"
 #include "OffscreenGl.hpp"
@@ -120,6 +121,20 @@ namespace MphRead::Droid
         }
     }
 
+    void AndroidHunterShot::ResumeCurrent()
+    {
+        std::shared_ptr<AndroidHunterShot> current = Current();
+        if (current == nullptr)
+        {
+            return;
+        }
+        std::lock_guard lock(current->_state->Gate);
+        if (!current->_state->Failed)
+        {
+            current->_state->Retire = false;
+        }
+    }
+
     std::shared_future<std::optional<std::vector<std::uint8_t>>>
         AndroidHunterShot::RenderAsync(
             Hunter hunter,
@@ -150,11 +165,16 @@ namespace MphRead::Droid
         std::shared_ptr<Job> dropped;
         {
             std::lock_guard lock(_state->Gate);
+            // Retire is a handoff barrier. Do not revive or enqueue work for
+            // this worker until its old GL context has completed teardown.
+            if (_state->Failed || _state->Retire)
+            {
+                return NullImageTask();
+            }
             // Only the newest is worth rendering: the picker is turned faster
             // than a render takes, and intermediate hunters are already stale.
             dropped = std::move(_state->Next);
             _state->Next = job;
-            _state->Retire = false;
             if (_state->CurrentWorker == nullptr)
             {
                 auto worker = std::make_shared<Worker>();
@@ -191,29 +211,38 @@ namespace MphRead::Droid
         std::shared_ptr<Worker> worker;
         {
             std::lock_guard lock(_state->Gate);
-            worker = _state->CurrentWorker;
-            if (worker == nullptr)
-            {
-                return;
-            }
+            _state->Retire = true;
             if (_state->Next != nullptr)
             {
                 _state->Next->Done.set_value(std::nullopt);
                 _state->Next.reset();
             }
-            _state->Retire = true;
+            worker = _state->CurrentWorker;
+            if (worker != nullptr)
+            {
+                ++_state->WorkPermits;
+            }
         }
+        if (worker == nullptr)
         {
-            std::lock_guard lock(_state->Gate);
-            ++_state->WorkPermits;
+            return;
         }
         _state->Work.notify_one();
 
         std::unique_lock lock(worker->Gate);
-        (void)worker->Finished.wait_for(
+        const bool finished = worker->Finished.wait_for(
             lock,
             std::chrono::seconds(4),
             [&worker] { return worker->IsFinished; });
+        if (!finished)
+        {
+            // This timeout is only a UI responsiveness bound. Retire remains
+            // asserted, so no replacement hunter worker can start. The global
+            // AndroidGlContextLease is the actual cross-context ownership
+            // barrier until this worker completes teardown.
+            ::MphRead::NativeRuntime::ConsoleWriteLine(
+                "[hunter] preview retirement is still finishing GL teardown");
+        }
     }
 
     void AndroidHunterShot::Loop(
@@ -221,6 +250,7 @@ namespace MphRead::Droid
         const std::shared_ptr<Worker>& worker)
     {
         (void)pthread_setname_np(pthread_self(), "hunter preview");
+        AndroidGlContextLease glContextLease;
         std::shared_ptr<OffscreenGl> gl;
         std::shared_ptr<Scene> scene;
         std::unique_ptr<AndroidInput> input;
@@ -236,44 +266,79 @@ namespace MphRead::Droid
             worker->Finished.notify_all();
         };
 
-        const auto cleanupAfterRetire = [&scene, &gl]
+        const auto rememberCleanupError = [](
+            std::exception_ptr& first,
+            std::exception_ptr current) noexcept
         {
-            try
+            if (first == nullptr)
             {
-                if (scene != nullptr)
-                {
-                    scene->DoCleanup();
-                }
-            }
-            catch (...)
-            {
-                const std::exception_ptr error = std::current_exception();
-                ::MphRead::NativeRuntime::ConsoleWriteLine(
-                    "[hunter] cleanup failed: "
-                        + ::MphRead::NativeRuntime::ExceptionMessage(error));
-            }
-            if (gl != nullptr)
-            {
-                gl->Dispose();
+                first = std::move(current);
             }
         };
-        const auto cleanupAfterFailure = [&scene, &gl]
+        const auto cleanupSceneWhileCurrent = [
+            &scene,
+            &input,
+            &rememberCleanupError]() noexcept
+            -> std::exception_ptr
         {
-            try
+            std::exception_ptr first;
+            if (scene != nullptr)
             {
-                if (scene != nullptr)
+                try
                 {
                     scene->DoCleanup();
                 }
+                catch (...)
+                {
+                    rememberCleanupError(first, std::current_exception());
+                }
+                try
+                {
+                    // Phase 4 GPU mesh/transient buffers belong to Scene and
+                    // must be deleted while this EGL context is still current.
+                    scene->UnloadGl();
+                }
+                catch (...)
+                {
+                    rememberCleanupError(first, std::current_exception());
+                }
+
+                // Even when UnloadGl failed, destroy the Scene before the GLES
+                // shim/context. GPU resource destructors therefore still run
+                // while this worker owns the current EGL context.
+                scene.reset();
             }
-            catch (...)
-            {
-                // The C# failure path suppresses a second cleanup exception.
-            }
+            input.reset();
+            return first;
+        };
+        const auto cleanupContextWhileOwned = [
+            &gl,
+            &cleanupSceneWhileCurrent,
+            &rememberCleanupError]() noexcept
+            -> std::exception_ptr
+        {
+            std::exception_ptr first = cleanupSceneWhileCurrent();
             if (gl != nullptr)
             {
-                gl->Dispose();
+                try
+                {
+                    Mods::Render::GlEs::ReleaseContext();
+                }
+                catch (...)
+                {
+                    rememberCleanupError(first, std::current_exception());
+                }
+                try
+                {
+                    gl->Dispose();
+                }
+                catch (...)
+                {
+                    rememberCleanupError(first, std::current_exception());
+                }
+                gl.reset();
             }
+            return first;
         };
 
         try
@@ -312,15 +377,14 @@ namespace MphRead::Droid
                 }
                 if (scene == nullptr || width != job->Width || height != job->Height)
                 {
-                    if (scene != nullptr)
-                    {
-                        scene->DoCleanup();
-                    }
-                    scene.reset();
-                    input.reset();
                     if (width != 0)
                     {
-                        gl->Dispose();
+                        const std::exception_ptr cleanupError
+                            = cleanupContextWhileOwned();
+                        if (cleanupError != nullptr)
+                        {
+                            std::rethrow_exception(cleanupError);
+                        }
                         gl = OffscreenGl::Create(job->Width, job->Height);
                         Mods::Render::EsBindings::Load();
                         Mods::Render::GlEs::Reset();
@@ -342,19 +406,33 @@ namespace MphRead::Droid
                 job->Done.set_value(Draw(*scene, *job, width, height));
             }
 
+            // Release Scene GPU resources, then the GLES shim and EGL context,
+            // while this worker still owns the process-global Android GL lease.
+            if (const std::exception_ptr cleanupError
+                    = cleanupContextWhileOwned();
+                cleanupError != nullptr)
+            {
+                ::MphRead::NativeRuntime::ConsoleWriteLine(
+                    "[hunter] cleanup failed: "
+                        + ::MphRead::NativeRuntime::ExceptionMessage(
+                            cleanupError));
+            }
             {
                 std::lock_guard lock(state->Gate);
-                state->CurrentWorker.reset();
+                if (state->CurrentWorker == worker)
+                {
+                    state->CurrentWorker.reset();
+                }
+                // Retire remains set until ResumeCurrent().
                 if (state->Next != nullptr)
                 {
                     state->Next->Done.set_value(std::nullopt);
                     state->Next.reset();
                 }
             }
-            // The model's textures and display lists are cut in this context
-            // and cached on the shared model. They must be released before a
-            // match's different GL context starts using those model objects.
-            cleanupAfterRetire();
+            // IsFinished is an ownership handoff signal: do not publish it
+            // until the global GLES lease has actually been relinquished.
+            glContextLease.Release();
             finishWorker();
         }
         catch (...)
@@ -371,16 +449,23 @@ namespace MphRead::Droid
                 "ui",
                 "the hunter preview is off: "
                     + ::MphRead::NativeRuntime::ExceptionMessage(error));
+            // Suppress secondary cleanup errors on the failure path, but keep
+            // the same ownership order as terminal retirement.
+            (void)cleanupContextWhileOwned();
             {
                 std::lock_guard lock(state->Gate);
-                state->CurrentWorker.reset();
+                if (state->CurrentWorker == worker)
+                {
+                    state->CurrentWorker.reset();
+                }
+                // Retire remains set until ResumeCurrent().
                 if (state->Next != nullptr)
                 {
                     state->Next->Done.set_value(std::nullopt);
                     state->Next.reset();
                 }
             }
-            cleanupAfterFailure();
+            glContextLease.Release();
             finishWorker();
         }
     }

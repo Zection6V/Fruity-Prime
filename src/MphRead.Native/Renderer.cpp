@@ -5653,7 +5653,18 @@ namespace MphRead
         FitToScreen();
     }
 
-    RenderWindow::~RenderWindow() = default;
+    RenderWindow::~RenderWindow()
+    {
+#if defined(MPHREAD_SHELL)
+        if (_shell)
+        {
+            // LauncherHunter owns a process-static side Scene. Release its GL
+            // resources and destroy that Scene before _window tears down GLFW
+            // and the owning OpenGL context.
+            Mods::Render::LauncherHunter::ReleaseGl();
+        }
+#endif
+    }
 
     bool RenderWindow::HasScene() const noexcept
     {

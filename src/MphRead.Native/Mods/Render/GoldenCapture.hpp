@@ -37,6 +37,10 @@ public: \
         ::OpenTK::Mathematics::Vector3 position, \
         ::OpenTK::Mathematics::Vector3 target, \
         float fovDegrees); \
+    void ModGoldenResetFinalStageState() noexcept; \
+    void ModGoldenSetHudPassEnabled(bool enabled) noexcept; \
+    [[nodiscard]] bool ModGoldenFinalStageReady() const noexcept; \
+    [[nodiscard]] bool ModGoldenFadeStateMatches(float color, float percent) const noexcept; \
     void ModGoldenSetFadeState(float color, float percent) noexcept; \
     void ModGoldenSetElapsedTime(float elapsedTime) noexcept;
 
@@ -47,4 +51,10 @@ public: \
         float disruptionFactor, \
         std::int32_t whiteoutState, \
         float whiteoutFactor, \
-        float whiteoutAmount) noexcept;
+        float whiteoutAmount) noexcept; \
+    [[nodiscard]] bool ModGoldenHudShiftStateMatches( \
+        std::uint8_t disruptionState, \
+        float disruptionFactor, \
+        std::int32_t whiteoutState, \
+        float whiteoutFactor, \
+        float whiteoutAmount) const noexcept;

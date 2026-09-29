@@ -238,26 +238,47 @@ namespace MphRead::Mods::Render
 
     void GlEs::Reset()
     {
-        if (_dynIbo != 0)
+        ResetContextState(false);
+    }
+
+    void GlEs::ReleaseContext()
+    {
+        ResetContextState(true);
+    }
+
+    void GlEs::ResetContextState(bool deleteDynamicObjects)
+    {
+        if (deleteDynamicObjects)
         {
-            const GLuint ibo = GlName(_dynIbo);
-            glDeleteBuffers(1, &ibo);
-        }
-        if (_dynVbo != 0)
-        {
-            const GLuint vbo = GlName(_dynVbo);
-            glDeleteBuffers(1, &vbo);
-        }
-        if (_dynVao != 0)
-        {
-            const GLuint vao = GlName(_dynVao);
-            glDeleteVertexArrays(1, &vao);
+            if (_dynIbo != 0)
+            {
+                const GLuint ibo = GlName(_dynIbo);
+                glDeleteBuffers(1, &ibo);
+            }
+            if (_dynVbo != 0)
+            {
+                const GLuint vbo = GlName(_dynVbo);
+                glDeleteBuffers(1, &vbo);
+            }
+            if (_dynVao != 0)
+            {
+                const GLuint vao = GlName(_dynVao);
+                glDeleteVertexArrays(1, &vao);
+            }
         }
         _textures.clear();
         _programLocs.clear();
         _textureHighWater = 0;
         _dynVao = _dynVbo = _dynIbo = 0;
         _dynVboSize = _dynIboSize = 0;
+        _curColor = {1.0F, 1.0F, 1.0F, 1.0F};
+        _curNormal = {0.0F, 0.0F, 1.0F};
+        _curTexCoord = {0.0F, 0.0F, 0.0F};
+        _colorSet = false;
+        _primMode = 0;
+        _primStart = 0;
+        _alphaTestEnabled = false;
+        _alphaFunc = GlAlways;
         _program = 0;
         _immColorLoc = -1;
         _alphaTestLoc = -1;

@@ -1,5 +1,6 @@
 #include "GameView.hpp"
 
+#include "AndroidGlContextGate.hpp"
 #include "AndroidMatch.hpp"
 #include "GamepadBridge.hpp"
 #include "AndroidUiOverlay.hpp"
@@ -982,6 +983,9 @@ namespace MphRead::Droid
 
         void Run()
         {
+            // Hold exclusive ownership of the process-global GlEs shim for the
+            // complete non-shared EGL context lifetime, including teardown.
+            AndroidGlContextLease glContextLease;
             try
             {
                 try
@@ -1005,13 +1009,33 @@ namespace MphRead::Droid
             }
             catch (...)
             {
+                ReleaseGlEsContext();
                 ReleaseSurface();
                 DestroyContext();
                 throw;
             }
 
+            ReleaseGlEsContext();
             ReleaseSurface();
             DestroyContext();
+        }
+
+        void ReleaseGlEsContext() noexcept
+        {
+            // Dynamic shim objects are context-local. Delete them only while
+            // this exact context is current; if ordinary surface loss already
+            // unbound it, clear the process-global bookkeeping and let context
+            // destruction reclaim the objects.
+            if (_contextAssigned
+                && _context != EGL_NO_CONTEXT
+                && eglGetCurrentContext() == _context)
+            {
+                MphRead::Mods::Render::GlEs::ReleaseContext();
+            }
+            else
+            {
+                MphRead::Mods::Render::GlEs::Reset();
+            }
         }
 
         void Loop()

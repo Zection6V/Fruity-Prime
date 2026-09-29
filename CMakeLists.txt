@@ -138,8 +138,14 @@ set_target_properties(fruity_ncsfplay_native PROPERTIES OUTPUT_NAME "NcsfPlay.Na
 # TagList's invariant collation: Windows and Apple ask the system, Android asks
 # the JVM, and everywhere else it is ICU's -- as it is for .NET on Linux.
 if(NOT WIN32 AND NOT APPLE AND NOT ANDROID)
-    find_package(ICU REQUIRED COMPONENTS uc i18n)
-    target_link_libraries(fruity_ncsfplay_native PUBLIC ICU::uc ICU::i18n)
+    # Static ICU from the Skia vcpkg prefix must be ordered by dependency:
+    # i18n -> uc -> data. Linking uc before i18n leaves ICU common symbols
+    # unresolved with GNU ld.
+    find_package(ICU REQUIRED COMPONENTS i18n uc data)
+    target_link_libraries(fruity_ncsfplay_native PUBLIC
+        ICU::i18n
+        ICU::uc
+        ICU::data)
 endif()
 
 add_library(fruity_mphread_native STATIC)
@@ -277,19 +283,16 @@ if(NOT ANDROID)
     find_package(JPEG REQUIRED)
     target_link_libraries(fruity_mphread_native PUBLIC JPEG::JPEG)
 
-    if(APPLE)
-        # The C# build resolves OpenAL from the executable directory on macOS.
-        # AL.cpp uses the same bundled libopenal.1.dylib rather than binding
-        # the system OpenAL framework at link time.
+    find_library(FRUITY_OPENAL_LIBRARY NAMES openal OpenAL OpenAL32)
+    if(FRUITY_OPENAL_LIBRARY)
+        # Sfx.cpp calls al*/alc* directly on every desktop platform. macOS
+        # therefore needs an actual link dependency too; the runtime dylib
+        # search policy is separate from resolving these link-time symbols.
+        target_link_libraries(fruity_mphread_native PUBLIC "${FRUITY_OPENAL_LIBRARY}")
     else()
-        find_library(FRUITY_OPENAL_LIBRARY NAMES openal OpenAL OpenAL32)
-        if(FRUITY_OPENAL_LIBRARY)
-            target_link_libraries(fruity_mphread_native PUBLIC "${FRUITY_OPENAL_LIBRARY}")
-        else()
-            message(FATAL_ERROR
-                "OpenAL was not found. The sound mixer calls it directly, as OpenTK does "
-                "in the C# build.")
-        endif()
+        message(FATAL_ERROR
+            "OpenAL was not found. The sound mixer calls it directly, as OpenTK does "
+            "in the C# build.")
     endif()
 endif()
 
@@ -298,6 +301,14 @@ endif()
 if(NOT ANDROID)
     add_executable(fruity_prime "${CMAKE_CURRENT_SOURCE_DIR}/src/FruityPrime/Main.cpp")
     target_link_libraries(fruity_prime PRIVATE fruity_mphread_native)
+    if(MSVC)
+        # The MSVC CI archive contains Metadata/Weapons.cpp and
+        # Entities/EntityBase.cpp, but link.exe failed to extract three
+        # definitions from MphRead.Native.lib. Force complete archive
+        # consumption on MSVC; other toolchains keep normal archive semantics.
+        target_link_options(fruity_prime PRIVATE
+            "/WHOLEARCHIVE:$<TARGET_FILE:fruity_mphread_native>")
+    endif()
     set_target_properties(fruity_prime PROPERTIES OUTPUT_NAME "FruityPrime")
 
     # The launcher's window icon and front-screen logo. The C# build embeds

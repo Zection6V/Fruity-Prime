@@ -81,6 +81,7 @@ namespace MphRead::Mods::Launcher::Gui
             MphRead::Mods::Launcher::LaunchPlan plan);
         static void EndNetworkMatchToLobby(MphRead::RenderWindow& window);
         static void EndMatch(MphRead::RenderWindow& window);
+        static void CloseEndPanel();
         static void ClickSettings();
         static void HoverFront();
         static void ClickIfReady(const ControlPredicate& match);

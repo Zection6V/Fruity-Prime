@@ -322,7 +322,11 @@ namespace MphRead::Mods::Launcher::Gui
 
     void Shell::TickEndPanel()
     {
-        const bool want = MphRead::Mods::EndScreen::Available() && _menu == nullptr;
+        // EndScreen::Available() is backed by process-global game state, which
+        // outlives RenderWindow::EndScene(). A results panel cannot own the UI
+        // once the match scene itself is gone.
+        const bool want = _window != nullptr && _window->HasScene()
+            && MphRead::Mods::EndScreen::Available() && _menu == nullptr;
         if (want && !EndPanelUp())
         {
             const std::shared_ptr<UiSurface> surface = UiSurface::Ensure();
@@ -338,18 +342,31 @@ namespace MphRead::Mods::Launcher::Gui
         }
         if (!want && EndPanelUp())
         {
-            _endPanel.reset();
-            MphRead::Mods::EndScreen::PanelUp(false);
-            const std::shared_ptr<UiSurface> surface = UiSurface::Current();
-            if (surface != nullptr)
-            {
-                surface->Hide();
-            }
+            CloseEndPanel();
             return;
         }
         if (_endPanel != nullptr)
         {
             _endPanel->Refresh();
+        }
+    }
+
+    void Shell::CloseEndPanel()
+    {
+        // UiSurface is shared by the results panel, pause/settings screens and
+        // launcher. Only hide it when the results panel still owns the current
+        // view. A delayed results teardown must never hide a replacement view
+        // that has already been shown during the match -> launcher transition.
+        const std::shared_ptr<EndPanelView> panel = std::move(_endPanel);
+        MphRead::Mods::EndScreen::PanelUp(false);
+        if (panel == nullptr)
+        {
+            return;
+        }
+        const std::shared_ptr<UiSurface> surface = UiSurface::Current();
+        if (surface != nullptr && surface->View() == panel)
+        {
+            surface->Hide();
         }
     }
 
@@ -446,6 +463,7 @@ namespace MphRead::Mods::Launcher::Gui
     void Shell::EndNetworkMatchToLobby(MphRead::RenderWindow& window)
     {
         CloseMenu();
+        CloseEndPanel();
         window.EndScene();
         MphRead::Mods::Launcher::MatchStart::AfterMatch();
         MphRead::Mods::Network::NetSession::ResetMatchState();
@@ -464,6 +482,10 @@ namespace MphRead::Mods::Launcher::Gui
     void Shell::EndMatch(MphRead::RenderWindow& window)
     {
         CloseMenu();
+        // Tear the results view down while it is still the surface owner.
+        // ShowFrontScreen() below must be the next owner, not something a
+        // delayed TickEndPanel() can subsequently hide.
+        CloseEndPanel();
         window.EndScene();
         MphRead::Mods::Network::NetSession::Stop();
         MphRead::Mods::Network::NetHostSession::Stop();
@@ -794,6 +816,14 @@ namespace MphRead::Mods::Launcher::Gui
                 {
                     ++_shotMisses;
                     std::cout << "[shellshot] READY/leave did not return to the launcher\n";
+                    _shotDirectory.reset();
+                    window.Close();
+                    return;
+                }
+                if (EndPanelUp())
+                {
+                    ++_shotMisses;
+                    std::cout << "[shellshot] results panel still marked up after launcher return\n";
                     _shotDirectory.reset();
                     window.Close();
                     return;

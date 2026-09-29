@@ -104,6 +104,37 @@ set(FRUITY_RENDERER_GPU_MESH_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestRendererGpuMesh.cpp")
 set(FRUITY_GOLDEN_CAPTURE_VALIDATION_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestGoldenCaptureValidation.cpp")
+set(FRUITY_GOLDEN_CAPTURE_CPP_SOURCE
+    "${FRUITY_MPHREAD_ROOT}/Mods/Render/GoldenCapture.cpp")
+set(FRUITY_GOLDEN_CAPTURE_HEADER_SOURCE
+    "${FRUITY_MPHREAD_ROOT}/Mods/Render/GoldenCapture.hpp")
+set(FRUITY_GOLDEN_CAPTURE_VALIDATION_SOURCE
+    "${FRUITY_MPHREAD_ROOT}/Mods/Render/GoldenCaptureValidation.hpp")
+set(FRUITY_GOLDEN_CAPTURE_PROVENANCE_DIR
+    "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set(FRUITY_GOLDEN_CAPTURE_PROVENANCE_HEADER
+    "${FRUITY_GOLDEN_CAPTURE_PROVENANCE_DIR}/GoldenCaptureProvenance.generated.hpp")
+add_custom_command(
+    OUTPUT "${FRUITY_GOLDEN_CAPTURE_PROVENANCE_HEADER}"
+    COMMAND "${CMAKE_COMMAND}"
+        "-DSOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
+        "-DGOLDEN_CAPTURE_CPP=${FRUITY_GOLDEN_CAPTURE_CPP_SOURCE}"
+        "-DGOLDEN_CAPTURE_HEADER=${FRUITY_GOLDEN_CAPTURE_HEADER_SOURCE}"
+        "-DGOLDEN_CAPTURE_VALIDATION=${FRUITY_GOLDEN_CAPTURE_VALIDATION_SOURCE}"
+        "-DOUTPUT_FILE=${FRUITY_GOLDEN_CAPTURE_PROVENANCE_HEADER}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateGoldenCaptureProvenance.cmake"
+    DEPENDS
+        "${FRUITY_GOLDEN_CAPTURE_CPP_SOURCE}"
+        "${FRUITY_GOLDEN_CAPTURE_HEADER_SOURCE}"
+        "${FRUITY_GOLDEN_CAPTURE_VALIDATION_SOURCE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateGoldenCaptureProvenance.cmake"
+    COMMENT "Generating GoldenCapture source provenance"
+    VERBATIM)
+set_source_files_properties(
+    "${FRUITY_GOLDEN_CAPTURE_PROVENANCE_HEADER}"
+    PROPERTIES GENERATED TRUE)
+add_custom_target(fruity_golden_capture_provenance
+    DEPENDS "${FRUITY_GOLDEN_CAPTURE_PROVENANCE_HEADER}")
 list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES
     "${FRUITY_RENDERER_GEOMETRY_TEST_SOURCE}"
     "${FRUITY_RENDERER_GPU_MESH_TEST_SOURCE}"
@@ -151,8 +182,14 @@ endif()
 
 add_library(fruity_mphread_native STATIC)
 add_library(FruityPrime::MphRead.Native ALIAS fruity_mphread_native)
-target_sources(fruity_mphread_native PRIVATE ${MPHREAD_NATIVE_SOURCES} ${MPHREAD_NATIVE_HEADERS})
-target_include_directories(fruity_mphread_native PUBLIC "${FRUITY_MPHREAD_ROOT}")
+target_sources(fruity_mphread_native PRIVATE
+    ${MPHREAD_NATIVE_SOURCES}
+    ${MPHREAD_NATIVE_HEADERS}
+    "${FRUITY_GOLDEN_CAPTURE_PROVENANCE_HEADER}")
+target_include_directories(fruity_mphread_native
+    PUBLIC "${FRUITY_MPHREAD_ROOT}"
+    PRIVATE "${FRUITY_GOLDEN_CAPTURE_PROVENANCE_DIR}")
+add_dependencies(fruity_mphread_native fruity_golden_capture_provenance)
 target_compile_features(fruity_mphread_native PUBLIC cxx_std_20)
 if(FRUITY_STOP_TOKEN_OPTIONS)
     target_compile_options(fruity_mphread_native PUBLIC ${FRUITY_STOP_TOKEN_OPTIONS})

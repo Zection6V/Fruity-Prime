@@ -36,6 +36,13 @@ int main()
 
     int failures = 0;
 
+    static_assert(
+        ManifestPhase == 4,
+        "GoldenCapture manifests must identify Phase 4 acceptance captures");
+    static_assert(
+        FixtureContract == std::string_view("phase4-final-stage-v2"),
+        "GoldenCapture fixture contract must remain the Phase 4 contract");
+
     ExpectThrows(
         "empty RGB buffer must be rejected",
         []()

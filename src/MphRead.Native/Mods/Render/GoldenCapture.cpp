@@ -1,5 +1,6 @@
 #include "GoldenCapture.hpp"
 #include "GoldenCaptureValidation.hpp"
+#include "GoldenCaptureProvenance.generated.hpp"
 
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../GameState.hpp"
@@ -44,7 +45,10 @@ namespace
     constexpr std::int32_t GoldenCaptureUpdate = GoldenWarmupUpdates + 1;
     constexpr float GoldenFovDegrees = 78.0F;
     constexpr std::string_view GoldenRoom = "TEST ARENA";
-    constexpr std::string_view GoldenFixtureContract = "phase4-final-stage-v2";
+    constexpr std::string_view GoldenPhasePlanBlob
+        = "a262838984ef547ebd6f22d1d9e78f3e1f214586";
+    constexpr std::string_view GoldenPhase3BaselineCommit
+        = "13c49e35f2a314662c7cc639e5e56fa784ac8bfd";
 
     [[nodiscard]] Vector3 GoldenCameraPosition()
     {
@@ -203,7 +207,10 @@ namespace
                     false, MphRead::RendererPlatform::GraphicsWindowMode::OpenGL);
             settings.ClientSize = Vector2i(GoldenWidth, GoldenHeight);
             settings.Title = std::string(MphRead::Mods::Branding::Name)
-                + " Phase 0 golden capture";
+                + " Phase "
+                + std::to_string(
+                    MphRead::Mods::Render::GoldenCaptureValidation::ManifestPhase)
+                + " golden capture";
             settings.StartVisible = true;
             settings.UpdateFrequency = 0.0;
 
@@ -665,11 +672,36 @@ namespace
                 = _scene ? _scene->Size() : Vector2i{};
 
             std::ostringstream out;
-            out << "phase=0\n";
+            out << "phase="
+                << MphRead::Mods::Render::GoldenCaptureValidation::ManifestPhase
+                << "\n";
             out << "candidate=" << CandidateName(_candidate) << "\n";
-            out << "fixture_contract=" << GoldenFixtureContract << "\n";
+            out << "fixture_contract="
+                << MphRead::Mods::Render::GoldenCaptureValidation::FixtureContract
+                << "\n";
             out << "plan_baseline="
                 << "bb8f619da7abbe614ea60765006f290a60938f98\n";
+            out << "phase_plan_blob=" << GoldenPhasePlanBlob << "\n";
+            out << "phase3_baseline_commit="
+                << GoldenPhase3BaselineCommit << "\n";
+            out << "source_commit="
+                << MphRead::Mods::Render::GoldenCaptureProvenance::SourceCommit
+                << "\n";
+            out << "source_commit_harness_state="
+                << MphRead::Mods::Render::GoldenCaptureProvenance::GitHarnessState
+                << "\n";
+            out << "golden_capture_cpp_git_blob="
+                << MphRead::Mods::Render::GoldenCaptureProvenance::GoldenCaptureCppGitBlob
+                << "\n";
+            out << "golden_capture_cpp_sha256="
+                << MphRead::Mods::Render::GoldenCaptureProvenance::GoldenCaptureCppSha256
+                << "\n";
+            out << "golden_capture_harness_sha256="
+                << MphRead::Mods::Render::GoldenCaptureProvenance::HarnessSha256
+                << "\n";
+            out << "cross_revision_parity=unestablished; requires a peer "
+                   "capture with identical golden_capture_harness_sha256 "
+                   "and matching fixture inputs\n";
             out << "map=" << GoldenRoom << "\n";
             out << "mode=Battle\n";
             out << "hunter=Samus\n";

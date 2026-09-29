@@ -6,10 +6,15 @@
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
+#include <string_view>
 #include <vector>
 
 namespace MphRead::Mods::Render::GoldenCaptureValidation
 {
+    inline constexpr std::int32_t ManifestPhase = 4;
+    inline constexpr std::string_view FixtureContract
+        = "phase4-final-stage-v2";
+
     struct PixelSummary final
     {
         std::uint64_t Fnv1a64 = 0;

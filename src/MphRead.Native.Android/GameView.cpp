@@ -1,5 +1,6 @@
 #include "GameView.hpp"
 
+#include "AndroidGlContextGate.hpp"
 #include "AndroidMatch.hpp"
 #include "GamepadBridge.hpp"
 #include "AndroidUiOverlay.hpp"
@@ -982,6 +983,9 @@ namespace MphRead::Droid
 
         void Run()
         {
+            // Hold exclusive ownership of the process-global GlEs shim for the
+            // complete non-shared EGL context lifetime, including teardown.
+            AndroidGlContextLease glContextLease;
             try
             {
                 try

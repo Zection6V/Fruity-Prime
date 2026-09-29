@@ -4,6 +4,7 @@
 #error "AndroidHunterShot is only valid for the Android native target."
 #endif
 
+#include "AndroidGlContextGate.hpp"
 #include "AndroidInput.hpp"
 #include "MainActivity.hpp"
 #include "OffscreenGl.hpp"
@@ -150,11 +151,16 @@ namespace MphRead::Droid
         std::shared_ptr<Job> dropped;
         {
             std::lock_guard lock(_state->Gate);
+            // Retire is a handoff barrier. Do not revive or enqueue work for
+            // this worker until its old GL context has completed teardown.
+            if (_state->Failed || _state->Retire)
+            {
+                return NullImageTask();
+            }
             // Only the newest is worth rendering: the picker is turned faster
             // than a render takes, and intermediate hunters are already stale.
             dropped = std::move(_state->Next);
             _state->Next = job;
-            _state->Retire = false;
             if (_state->CurrentWorker == nullptr)
             {
                 auto worker = std::make_shared<Worker>();
@@ -210,10 +216,18 @@ namespace MphRead::Droid
         _state->Work.notify_one();
 
         std::unique_lock lock(worker->Gate);
-        (void)worker->Finished.wait_for(
+        const bool finished = worker->Finished.wait_for(
             lock,
             std::chrono::seconds(4),
             [&worker] { return worker->IsFinished; });
+        if (!finished)
+        {
+            // The wait is only a UI responsiveness bound. AndroidGlContextLease
+            // remains the actual ownership barrier, so a different non-shared
+            // EGL context cannot enter GlEs until this worker really exits.
+            ::MphRead::NativeRuntime::ConsoleWriteLine(
+                "[hunter] preview retirement is still finishing GL teardown");
+        }
     }
 
     void AndroidHunterShot::Loop(
@@ -221,6 +235,7 @@ namespace MphRead::Droid
         const std::shared_ptr<Worker>& worker)
     {
         (void)pthread_setname_np(pthread_self(), "hunter preview");
+        AndroidGlContextLease glContextLease;
         std::shared_ptr<OffscreenGl> gl;
         std::shared_ptr<Scene> scene;
         std::unique_ptr<AndroidInput> input;
@@ -342,19 +357,23 @@ namespace MphRead::Droid
                 job->Done.set_value(Draw(*scene, *job, width, height));
             }
 
+            // Release scene/GLES resources while this worker still owns the
+            // AndroidGlContextLease. Only after cleanup may another worker or
+            // the game context take ownership of the process-global GlEs shim.
+            cleanupAfterRetire();
             {
                 std::lock_guard lock(state->Gate);
-                state->CurrentWorker.reset();
+                if (state->CurrentWorker == worker)
+                {
+                    state->CurrentWorker.reset();
+                }
+                state->Retire = false;
                 if (state->Next != nullptr)
                 {
                     state->Next->Done.set_value(std::nullopt);
                     state->Next.reset();
                 }
             }
-            // The model's textures and display lists are cut in this context
-            // and cached on the shared model. They must be released before a
-            // match's different GL context starts using those model objects.
-            cleanupAfterRetire();
             finishWorker();
         }
         catch (...)
@@ -371,16 +390,20 @@ namespace MphRead::Droid
                 "ui",
                 "the hunter preview is off: "
                     + ::MphRead::NativeRuntime::ExceptionMessage(error));
+            cleanupAfterFailure();
             {
                 std::lock_guard lock(state->Gate);
-                state->CurrentWorker.reset();
+                if (state->CurrentWorker == worker)
+                {
+                    state->CurrentWorker.reset();
+                }
+                state->Retire = false;
                 if (state->Next != nullptr)
                 {
                     state->Next->Done.set_value(std::nullopt);
                     state->Next.reset();
                 }
             }
-            cleanupAfterFailure();
             finishWorker();
         }
     }

@@ -1,6 +1,7 @@
 #include "MainActivity.hpp"
 
 #include "AndroidConsole.hpp"
+#include "AndroidGlContextGate.hpp"
 #include "AndroidHunterShot.hpp"
 #include "AndroidLogShare.hpp"
 #include "AndroidMaps.hpp"
@@ -732,6 +733,11 @@ namespace MphRead::Droid
         {
             try
             {
+                // A persistent hunter-preview worker may still own its
+                // offscreen context. Retire it before taking the global GLES
+                // lease for room-preview rendering.
+                AndroidHunterShot::RetireCurrent();
+                AndroidGlContextLease glContextLease;
                 std::shared_ptr<OffscreenGl> gl =
                     OffscreenGl::Create(PreviewWidth, PreviewHeight);
 

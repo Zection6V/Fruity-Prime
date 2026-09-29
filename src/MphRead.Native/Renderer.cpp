@@ -1690,6 +1690,7 @@ namespace MphRead
         const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
         Mods::EndScreen::Tick(_room != nullptr ? _room->Meta().Name : std::string(), _globalElapsedTime);
         Mods::Render::MapThumbnail::BeginFrame();
+        (void)Gpu().BeginFrame();
         Vector2i target = RenderSize();
         if (target != _targetSize)
         {
@@ -2117,6 +2118,7 @@ namespace MphRead
         Commands().SetPipeline(ScenePipeline(ScenePass::FrameEnd,
             _faceCulling ? NativeRuntime::Rhi::CullMode::Back : NativeRuntime::Rhi::CullMode::None,
             NativeRuntime::Rhi::FillMode::Solid, 1));
+        Gpu().EndFrame();
         return true;
     }
 
@@ -3644,7 +3646,7 @@ namespace MphRead
         }
     }
 
-    void Scene::UnloadGl()
+    void Scene::ReleaseGpuResources()
     {
         if (Mods::Headless::Active())
         {
@@ -3683,6 +3685,18 @@ namespace MphRead
         // The programs go with their shaders; the pipelines naming them went above.
         _shaderConstants = &_noShaderConstants;
         _sceneShaders.reset();
+        // Everything above was retired, not destroyed: the GPU may still have
+        // been reading it for a frame already submitted. This is the scene's
+        // own context, so wait here and let the device destroy it now.
+        if (_gpu != nullptr)
+        {
+            _gpu->WaitIdle();
+            const NativeRuntime::Rhi::GpuResourceStatistics left = _gpu->Statistics();
+            Mods::DebugLog::Line("gpu", "released a scene; the device still holds "
+                + std::to_string(left.Textures) + " textures, " + std::to_string(left.Framebuffers)
+                + " framebuffers, " + std::to_string(left.Shaders) + " shaders, "
+                + std::to_string(left.Programs) + " programs, " + std::to_string(left.Retired) + " retired");
+        }
     }
 
     void Scene::EndFade()
@@ -5788,7 +5802,7 @@ namespace MphRead
             return;
         }
         _scene->DoCleanup();
-        _scene->UnloadGl();
+        _scene->ReleaseGpuResources();
         _scene.reset();
         _sceneLoaded = false;
         NativeRuntime::ForceFullGc();

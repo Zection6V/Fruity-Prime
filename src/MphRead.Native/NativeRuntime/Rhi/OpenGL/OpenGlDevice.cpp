@@ -5,6 +5,7 @@
 #include "../../System/Runtime.hpp"
 
 #include <algorithm>
+#include <array>
 #include <map>
 #include <memory>
 #include <stdexcept>
@@ -126,6 +127,33 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
         class OpenGlGraphicsDevice;
         class OpenGlCommandList;
+
+        // A GL object waiting in the retirement queue.
+        struct GlObject final
+        {
+            enum class Kind : std::uint8_t { Texture, Renderbuffer, Framebuffer, Buffer, Shader, Program };
+            Kind What = Kind::Texture;
+            std::int32_t Name = 0;
+        };
+
+        void DestroyNative(const GlObject& object) noexcept
+        {
+            try
+            {
+                switch (object.What)
+                {
+                case GlObject::Kind::Texture: GL::DeleteTexture(object.Name); break;
+                case GlObject::Kind::Renderbuffer: GL::DeleteRenderbuffer(object.Name); break;
+                case GlObject::Kind::Framebuffer: GL::DeleteFramebuffer(object.Name); break;
+                case GlObject::Kind::Buffer: GL::DeleteBuffer(object.Name); break;
+                case GlObject::Kind::Shader: GL::DeleteShader(object.Name); break;
+                case GlObject::Kind::Program: GL::DeleteProgram(object.Name); break;
+                }
+            }
+            catch (...)
+            {
+            }
+        }
 
         // GL's own numbers for the RHI's pipeline enums. The wrapper's enums
         // carry only the values upstream used, so these are cast from the
@@ -397,6 +425,12 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 {
                     throw std::invalid_argument("OpenGL RHI: texture handle already live");
                 }
+                // The name may be waiting to be deleted from its last life; it is
+                // this texture now, so it must not be.
+                _retired.Cancel([&handle](const GlObject& object)
+                {
+                    return object.What == GlObject::Kind::Texture && object.Name == handle.value;
+                });
                 return Make(desc, handle.value, false);
             }
 
@@ -477,13 +511,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 {
                     if (it->first.first == &shader || it->first.second == &shader)
                     {
-                        try
-                        {
-                            GL::DeleteProgram(it->second);
-                        }
-                        catch (...)
-                        {
-                        }
+                        Retire(GlObject{GlObject::Kind::Program, it->second});
                         it = _programs.erase(it);
                     }
                     else
@@ -492,6 +520,69 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     }
                 }
                 _shaders.erase(const_cast<OpenGlShader*>(&shader));
+            }
+
+            FrameContext BeginFrame() override
+            {
+                if (_frameOpen)
+                {
+                    EndFrame();
+                }
+                ++_frame;
+                _frameOpen = true;
+                PollFences();
+                _retired.Collect(_completed, DestroyNative);
+                return FrameContext{_frame, static_cast<std::uint32_t>(_frame % FramesInFlight)};
+            }
+
+            // The frame's GPU work ends at a fence. A slot still holding the
+            // fence of the frame FramesInFlight back is waited on first: that
+            // is the in-flight limit, and GL's own throttling means it has
+            // almost always signalled by now.
+            void EndFrame() override
+            {
+                if (!_frameOpen)
+                {
+                    return;
+                }
+                _frameOpen = false;
+                const std::size_t slot = static_cast<std::size_t>(_frame % FramesInFlight);
+                if (_fences[slot] != nullptr)
+                {
+                    (void)GL::ClientWaitSync(_fences[slot], 1'000'000'000ULL);
+                    GL::DeleteSync(_fences[slot]);
+                    _completed = std::max(_completed, _fenceFrames[slot]);
+                }
+                _fences[slot] = GL::FenceSync();
+                _fenceFrames[slot] = _frame;
+                if (_fences[slot] == nullptr)
+                {
+                    // No fence sync on this context: GL's own ordering keeps a
+                    // deleted object alive for the work already submitted.
+                    _completed = _frame;
+                }
+            }
+
+            void WaitIdle() override
+            {
+                GL::Finish();
+                for (std::size_t i = 0; i < _fences.size(); ++i)
+                {
+                    if (_fences[i] != nullptr)
+                    {
+                        GL::DeleteSync(_fences[i]);
+                        _fences[i] = nullptr;
+                    }
+                }
+                _completed = _frame;
+                _retired.CollectAll(DestroyNative);
+            }
+
+            [[nodiscard]] GpuResourceStatistics Statistics() const override;
+
+            void Retire(const GlObject& object)
+            {
+                _retired.Retire(object, _frame);
             }
 
             [[nodiscard]] std::string AdapterDescription() override
@@ -666,6 +757,26 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             std::unordered_set<OpenGlCommandList*> _lists{};
             std::unordered_set<OpenGlShader*> _shaders{};
             std::map<std::pair<const Shader*, const Shader*>, std::int32_t> _programs{};
+
+            void PollFences()
+            {
+                for (std::size_t i = 0; i < _fences.size(); ++i)
+                {
+                    if (_fences[i] != nullptr && GL::ClientWaitSync(_fences[i], 0))
+                    {
+                        GL::DeleteSync(_fences[i]);
+                        _fences[i] = nullptr;
+                        _completed = std::max(_completed, _fenceFrames[i]);
+                    }
+                }
+            }
+
+            RetirementQueue<GlObject> _retired{};
+            std::uint64_t _frame = 0;
+            std::uint64_t _completed = 0;
+            bool _frameOpen = false;
+            std::array<void*, FramesInFlight> _fences{};
+            std::array<std::uint64_t, FramesInFlight> _fenceFrames{};
         };
 
         class OpenGlCommandList final : public CommandList
@@ -681,13 +792,15 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 for (const auto& [key, framebuffer] : _framebuffers)
                 {
                     (void)key;
-                    GL::DeleteFramebuffer(framebuffer);
+                    RetireFramebuffer(framebuffer);
                 }
                 if (_device != nullptr)
                 {
                     _device->Unregister(*this);
                 }
             }
+
+            [[nodiscard]] std::size_t FramebufferCount() const noexcept { return _framebuffers.size(); }
 
             // The compatibility context's defaults the renderer set once as a
             // scene loaded: fixed-function texturing on (the launcher overlay
@@ -894,13 +1007,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 {
                     if (it->first.Color == &texture || it->first.Depth == &texture)
                     {
-                        try
-                        {
-                            GL::DeleteFramebuffer(it->second);
-                        }
-                        catch (...)
-                        {
-                        }
+                        RetireFramebuffer(it->second);
                         if (_current == it->first)
                         {
                             _current = {};
@@ -917,6 +1024,18 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void Detach() noexcept { _device = nullptr; }
 
         private:
+            void RetireFramebuffer(std::int32_t framebuffer) noexcept
+            {
+                if (_device != nullptr)
+                {
+                    _device->Retire(GlObject{GlObject::Kind::Framebuffer, framebuffer});
+                }
+                else
+                {
+                    DestroyNative(GlObject{GlObject::Kind::Framebuffer, framebuffer});
+                }
+            }
+
             void ApplyStencilFunc()
             {
                 if (_applied == nullptr)
@@ -1046,24 +1165,15 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
         OpenGlTexture::~OpenGlTexture()
         {
+            const GlObject object{_renderbuffer ? GlObject::Kind::Renderbuffer : GlObject::Kind::Texture, _name};
             if (_device != nullptr)
             {
                 _device->Forget(*this);
+                _device->Retire(object);
             }
-            try
+            else
             {
-                if (_renderbuffer)
-                {
-                    GL::DeleteRenderbuffer(_name);
-                }
-                else
-                {
-                    GL::DeleteTexture(_name);
-                }
-            }
-            catch (...)
-            {
-                // Released while the context is current; nothing to report to.
+                DestroyNative(object);
             }
         }
 
@@ -1095,20 +1205,35 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             {
                 shader->Detach();
             }
+            _retired.CollectAll(DestroyNative);
+        }
+
+        GpuResourceStatistics OpenGlGraphicsDevice::Statistics() const
+        {
+            GpuResourceStatistics statistics{};
+            statistics.Textures = static_cast<std::uint32_t>(_live.size());
+            statistics.Shaders = static_cast<std::uint32_t>(_shaders.size());
+            statistics.Programs = static_cast<std::uint32_t>(_programs.size());
+            for (const OpenGlCommandList* list : _lists)
+            {
+                statistics.Framebuffers += static_cast<std::uint32_t>(list->FramebufferCount());
+            }
+            statistics.Retired = static_cast<std::uint32_t>(_retired.Size());
+            statistics.CompletedFrame = _completed;
+            return statistics;
         }
 
         OpenGlShader::~OpenGlShader()
         {
+            const GlObject object{GlObject::Kind::Shader, _name};
             if (_device != nullptr)
             {
                 _device->Forget(*this);
+                _device->Retire(object);
             }
-            try
+            else
             {
-                GL::DeleteShader(_name);
-            }
-            catch (...)
-            {
+                DestroyNative(object);
             }
         }
 
@@ -1142,6 +1267,22 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
     std::int32_t ProgramFor(GraphicsDevice& device, const Shader& vertex, const Shader& fragment)
     {
         return static_cast<OpenGlGraphicsDevice&>(device).Program(vertex, fragment);
+    }
+
+    void RetireBuffer(std::int32_t buffer) noexcept
+    {
+        if (buffer == 0)
+        {
+            return;
+        }
+        if (auto& device = Instance(); device)
+        {
+            device->Retire(GlObject{GlObject::Kind::Buffer, buffer});
+        }
+        else
+        {
+            DestroyNative(GlObject{GlObject::Kind::Buffer, buffer});
+        }
     }
 
     void ResetContextDevice() noexcept

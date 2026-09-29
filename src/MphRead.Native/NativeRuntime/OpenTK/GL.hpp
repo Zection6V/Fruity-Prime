@@ -274,6 +274,13 @@ namespace OpenTK::Graphics::OpenGL
         void FramebufferTexture2D(FramebufferTarget target, FramebufferAttachment attachment,
             TextureTarget textarget, std::int32_t texture, std::int32_t level);
         void DeleteFramebuffer(std::int32_t framebuffer);
+        // Fence sync (GL 3.2 / ES 3.0). The sync object is opaque; null means
+        // none (or that the context cannot make one).
+        [[nodiscard]] void* FenceSync();
+        // True once the fence has signalled; waits at most timeoutNanoseconds.
+        [[nodiscard]] bool ClientWaitSync(void* sync, std::uint64_t timeoutNanoseconds);
+        void DeleteSync(void* sync);
+        void Finish();
         void DeleteRenderbuffer(std::int32_t renderbuffer);
         [[nodiscard]] std::int32_t GenBuffer();
         [[nodiscard]] std::int32_t GenFramebuffer();

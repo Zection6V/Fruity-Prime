@@ -660,6 +660,35 @@ namespace OpenTK::Graphics::OpenGL::GL
             level);
     }
 
+    void* FenceSync()
+    {
+        return glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+    }
+
+    bool ClientWaitSync(void* sync, std::uint64_t timeoutNanoseconds)
+    {
+        if (sync == nullptr)
+        {
+            return true;
+        }
+        const GLenum status = glClientWaitSync(static_cast<GLsync>(sync), GL_SYNC_FLUSH_COMMANDS_BIT,
+            timeoutNanoseconds);
+        return status == GL_ALREADY_SIGNALED || status == GL_CONDITION_SATISFIED;
+    }
+
+    void DeleteSync(void* sync)
+    {
+        if (sync != nullptr)
+        {
+            glDeleteSync(static_cast<GLsync>(sync));
+        }
+    }
+
+    void Finish()
+    {
+        glFinish();
+    }
+
     void DeleteFramebuffer(std::int32_t framebuffer)
     {
         Compat::GlEs::DeleteFramebuffer(framebuffer);

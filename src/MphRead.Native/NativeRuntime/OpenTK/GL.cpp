@@ -51,6 +51,9 @@ namespace
     using PFN_CreateShader = GLuint(APIENTRY*)(GLenum);
     using PFN_DeleteBuffers = void(APIENTRY*)(GLsizei, const GLuint*);
     using PFN_DeleteFramebuffers = void(APIENTRY*)(GLsizei, const GLuint*);
+    using PFN_FenceSync = void*(APIENTRY*)(GLenum, GLbitfield);
+    using PFN_ClientWaitSync = GLenum(APIENTRY*)(void*, GLbitfield, std::uint64_t);
+    using PFN_DeleteSync = void(APIENTRY*)(void*);
     using PFN_DeleteProgram = void(APIENTRY*)(GLuint);
     using PFN_DeleteRenderbuffers = void(APIENTRY*)(GLsizei, const GLuint*);
     using PFN_DeleteShader = void(APIENTRY*)(GLuint);
@@ -149,6 +152,9 @@ namespace
     MPHREAD_GL_ENTRY(PFN_CreateShader, CreateShader)
     MPHREAD_GL_ENTRY(PFN_DeleteBuffers, DeleteBuffers)
     MPHREAD_GL_ENTRY(PFN_DeleteFramebuffers, DeleteFramebuffers)
+    MPHREAD_GL_ENTRY(PFN_FenceSync, FenceSync)
+    MPHREAD_GL_ENTRY(PFN_ClientWaitSync, ClientWaitSync)
+    MPHREAD_GL_ENTRY(PFN_DeleteSync, DeleteSync)
     MPHREAD_GL_ENTRY(PFN_DeleteProgram, DeleteProgram)
     MPHREAD_GL_ENTRY(PFN_DeleteRenderbuffers, DeleteRenderbuffers)
     MPHREAD_GL_ENTRY(PFN_DeleteShader, DeleteShader)
@@ -570,6 +576,36 @@ namespace OpenTK::Graphics::OpenGL::GL
         {
             fn(1, &name);
         }
+    }
+
+    void* FenceSync()
+    {
+        const auto fn = GetFenceSync();
+        return fn != nullptr ? fn(0x9117 /* GL_SYNC_GPU_COMMANDS_COMPLETE */, 0) : nullptr;
+    }
+
+    bool ClientWaitSync(void* sync, std::uint64_t timeoutNanoseconds)
+    {
+        const auto fn = GetClientWaitSync();
+        if (sync == nullptr || fn == nullptr)
+        {
+            return true;
+        }
+        const GLenum status = fn(sync, 0x00000001 /* GL_SYNC_FLUSH_COMMANDS_BIT */, timeoutNanoseconds);
+        return status == 0x911A /* GL_ALREADY_SIGNALED */ || status == 0x911C /* GL_CONDITION_SATISFIED */;
+    }
+
+    void DeleteSync(void* sync)
+    {
+        if (const auto fn = GetDeleteSync(); fn != nullptr && sync != nullptr)
+        {
+            fn(sync);
+        }
+    }
+
+    void Finish()
+    {
+        ::glFinish();
     }
 
     std::int32_t GenBuffer()

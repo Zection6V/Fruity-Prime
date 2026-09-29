@@ -4,6 +4,7 @@
 #include "Bindings.hpp"
 #include "Capabilities.hpp"
 #include "CommandList.hpp"
+#include "FrameContext.hpp"
 #include "Pipeline.hpp"
 #include "Resources.hpp"
 #include "Swapchain.hpp"
@@ -57,6 +58,15 @@ namespace MphRead::NativeRuntime::Rhi
         // Re-specify a render target's storage at a new extent, contents
         // undefined, keeping its handle and every view of it.
         virtual void ResizeTexture(Texture& texture, std::uint32_t width, std::uint32_t height) = 0;
+
+        // The frame lifetime contract (FrameContext.hpp). BeginFrame retires
+        // the frame that last used its slot and destroys what that frame had
+        // retired; EndFrame marks the end of the frame's GPU work; WaitIdle
+        // waits for all of it and destroys everything retired.
+        virtual FrameContext BeginFrame() = 0;
+        virtual void EndFrame() = 0;
+        virtual void WaitIdle() = 0;
+        [[nodiscard]] virtual GpuResourceStatistics Statistics() const = 0;
 
         // Who made the device and what it runs, for the debug log.
         [[nodiscard]] virtual std::string AdapterDescription() = 0;

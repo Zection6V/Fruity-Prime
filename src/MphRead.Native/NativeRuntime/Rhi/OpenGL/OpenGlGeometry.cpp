@@ -1,5 +1,6 @@
 #include "OpenGlGeometry.hpp"
 
+#include "OpenGlDevice.hpp"
 #include "../../OpenTK/GL.hpp"
 
 #include <cstddef>
@@ -316,14 +317,14 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             {
                 try
                 {
-                    if (_normalBuffer != 0) GL::DeleteBuffer(_normalBuffer);
-                    if (_colorBuffer != 0) GL::DeleteBuffer(_colorBuffer);
-                    if (_indexBuffer != 0) GL::DeleteBuffer(_indexBuffer);
-                    if (_vertexBuffer != 0) GL::DeleteBuffer(_vertexBuffer);
+                    RetireBuffer(_normalBuffer);
+                    RetireBuffer(_colorBuffer);
+                    RetireBuffer(_indexBuffer);
+                    RetireBuffer(_vertexBuffer);
                 }
                 catch (...)
                 {
-                    // Scene::UnloadGl clears the cache while the context is live.
+                    // Scene::ReleaseGpuResources clears the cache while the context is live.
                 }
                 _normalBuffer = 0;
                 _colorBuffer = 0;
@@ -449,12 +450,12 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             {
                 try
                 {
-                    if (_indexBuffer != 0) GL::DeleteBuffer(_indexBuffer);
-                    if (_vertexBuffer != 0) GL::DeleteBuffer(_vertexBuffer);
+                    RetireBuffer(_indexBuffer);
+                    RetireBuffer(_vertexBuffer);
                 }
                 catch (...)
                 {
-                    // Scene::UnloadGl releases this while the context is current.
+                    // Scene::ReleaseGpuResources releases this while the context is current.
                 }
                 _indexBuffer = 0;
                 _vertexBuffer = 0;

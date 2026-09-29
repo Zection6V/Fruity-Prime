@@ -109,7 +109,7 @@ namespace MphRead::Mods::Render
 
     // Every scene numbers its own textures from one (no glGenTextures), so a
     // match loaded after the side scene wrote over its texture names -- the
-    // toon table and the hunter's skin included -- and its UnloadGl deleted
+    // toon table and the hunter's skin included -- and its ReleaseGpuResources deleted
     // them: a black silhouette. The side scene is rebuilt after a match.
     void LauncherHunter::NoteGlUnloaded() noexcept
     {
@@ -134,7 +134,7 @@ namespace MphRead::Mods::Render
 
         try
         {
-            scene->UnloadGl();
+            scene->ReleaseGpuResources();
         }
         catch (...)
         {
@@ -167,7 +167,7 @@ namespace MphRead::Mods::Render
                 // Its render targets are its own and would be left behind.
                 if (_scene)
                 {
-                    _scene->UnloadGl();
+                    _scene->ReleaseGpuResources();
                 }
                 _scene.reset();
             }

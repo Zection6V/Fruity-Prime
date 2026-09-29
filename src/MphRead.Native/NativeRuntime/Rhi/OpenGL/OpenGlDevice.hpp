@@ -34,4 +34,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
     // OpenGL only: the program linking these two, linked once per device
     // and shared by every pipeline and shader set that names the pair.
     [[nodiscard]] std::int32_t ProgramFor(GraphicsDevice& device, const Shader& vertex, const Shader& fragment);
+    // OpenGL only: hand a buffer object to the current device's retirement
+    // queue instead of deleting it (the mesh and transient geometry own
+    // their buffers directly). Deleted at once when there is no device.
+    void RetireBuffer(std::int32_t buffer) noexcept;
 }

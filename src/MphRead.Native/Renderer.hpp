@@ -752,7 +752,10 @@ public: \
     [[nodiscard]] bool IsNodeRefVisible(MphRead::Formats::Culling::NodeRef nodeRef); \
     [[nodiscard]] bool IsNodeRefAudible(MphRead::Formats::Culling::NodeRef nodeRef); \
     void OnLoad(); \
-    void UnloadGl(); \
+    /* Release every GPU resource the scene owns -- textures, targets, */ \
+    /* framebuffers, meshes, shaders -- and wait until the device has */ \
+    /* destroyed them, in the context the scene drew with. */ \
+    void ReleaseGpuResources(); \
     void InitEntity(const std::shared_ptr<MphRead::Entities::EntityBase>& entity); \
     [[nodiscard]] OpenTK::Mathematics::Vector2i RenderSize() const; \
     void OnResize(); \

@@ -116,6 +116,8 @@ set(FRUITY_RENDERER_GEOMETRY_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestRendererGeometry.cpp")
 set(FRUITY_RENDERER_GPU_MESH_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestRendererGpuMesh.cpp")
+set(FRUITY_RHI_LIFETIME_TEST_SOURCE
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestRhiLifetime.cpp")
 set(FRUITY_SHADER_INTERFACE_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestShaderInterface.cpp")
 set(FRUITY_GOLDEN_CAPTURE_VALIDATION_TEST_SOURCE
@@ -156,6 +158,7 @@ list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES
     "${FRUITY_RENDERER_GEOMETRY_TEST_SOURCE}"
     "${FRUITY_RENDERER_GPU_MESH_TEST_SOURCE}"
     "${FRUITY_SHADER_INTERFACE_TEST_SOURCE}"
+    "${FRUITY_RHI_LIFETIME_TEST_SOURCE}"
     "${FRUITY_GOLDEN_CAPTURE_VALIDATION_TEST_SOURCE}")
 
 # Android owns the Activity/View/EGL shell under MphRead.Native.Android, but
@@ -273,6 +276,12 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         DEPENDS fruity_shader_interface_tests
         COMMENT "Running native shader interface tests"
         VERBATIM)
+
+    # Phase 10's GPU lifetime contract: retirement, frames in flight, idle.
+    add_executable(fruity_rhi_lifetime_tests "${FRUITY_RHI_LIFETIME_TEST_SOURCE}")
+    target_include_directories(fruity_rhi_lifetime_tests PRIVATE "${FRUITY_MPHREAD_ROOT}")
+    target_compile_features(fruity_rhi_lifetime_tests PRIVATE cxx_std_20)
+    add_test(NAME FruityPrime.RhiLifetime COMMAND fruity_rhi_lifetime_tests)
 
     add_executable(fruity_golden_capture_validation_tests
         "${FRUITY_GOLDEN_CAPTURE_VALIDATION_TEST_SOURCE}")

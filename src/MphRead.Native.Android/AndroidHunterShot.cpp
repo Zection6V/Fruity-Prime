@@ -296,14 +296,14 @@ namespace MphRead::Droid
                 {
                     // Phase 4 GPU mesh/transient buffers belong to Scene and
                     // must be deleted while this EGL context is still current.
-                    scene->UnloadGl();
+                    scene->ReleaseGpuResources();
                 }
                 catch (...)
                 {
                     rememberCleanupError(first, std::current_exception());
                 }
 
-                // Even when UnloadGl failed, destroy the Scene before the GLES
+                // Even when ReleaseGpuResources failed, destroy the Scene before the GLES
                 // shim/context. GPU resource destructors therefore still run
                 // while this worker owns the current EGL context.
                 scene.reset();

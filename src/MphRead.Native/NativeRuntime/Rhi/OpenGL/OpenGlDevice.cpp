@@ -549,7 +549,11 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 const std::size_t slot = static_cast<std::size_t>(_frame % FramesInFlight);
                 if (_fences[slot] != nullptr)
                 {
-                    (void)GL::ClientWaitSync(_fences[slot], 1'000'000'000ULL);
+                    if (!GL::ClientWaitSync(_fences[slot], 1'000'000'000ULL))
+                    {
+                        // A timeout or failed wait is not GPU completion.
+                        GL::Finish();
+                    }
                     GL::DeleteSync(_fences[slot]);
                     _completed = std::max(_completed, _fenceFrames[slot]);
                 }
@@ -557,8 +561,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 _fenceFrames[slot] = _frame;
                 if (_fences[slot] == nullptr)
                 {
-                    // No fence sync on this context: GL's own ordering keeps a
-                    // deleted object alive for the work already submitted.
+                    // Establish actual completion when sync is unavailable.
+                    GL::Finish();
                     _completed = _frame;
                 }
             }
@@ -1290,5 +1294,13 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         // The textures are gone with their context; their destructors would
         // delete names the new context may already have reused.
         Instance().release();
+    }
+
+    void FinishContextDevice()
+    {
+        if (auto& device = Instance(); device)
+        {
+            device->WaitIdle();
+        }
     }
 }

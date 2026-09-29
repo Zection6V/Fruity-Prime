@@ -18,6 +18,8 @@
 // the same order, so moving a call site behind this changes no pixel.
 namespace MphRead::NativeRuntime::Rhi::OpenGL
 {
+    // Drain retirement and context-owned fences before destroying a context.
+    void FinishContextDevice();
     // The device for the current GL context, created on first use.
     [[nodiscard]] GraphicsDevice& ContextDevice();
 

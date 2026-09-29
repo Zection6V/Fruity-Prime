@@ -33,6 +33,8 @@ namespace MphRead::NativeRuntime::Rhi
     struct GpuResourceStatistics final
     {
         std::uint32_t Textures = 0;
+        std::uint32_t Buffers = 0;
+        std::uint32_t Renderbuffers = 0;
         std::uint32_t Shaders = 0;
         std::uint32_t Programs = 0;
         std::uint32_t Framebuffers = 0;

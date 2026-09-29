@@ -529,6 +529,17 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     EndFrame();
                 }
                 ++_frame;
+                const std::size_t slot = static_cast<std::size_t>(_frame % FramesInFlight);
+                if (_fences[slot] != nullptr)
+                {
+                    if (!GL::ClientWaitSync(_fences[slot], 1'000'000'000ULL))
+                    {
+                        GL::Finish();
+                    }
+                    GL::DeleteSync(_fences[slot]);
+                    _fences[slot] = nullptr;
+                    _completed = std::max(_completed, _fenceFrames[slot]);
+                }
                 _frameOpen = true;
                 PollFences();
                 _retired.Collect(_completed, DestroyNative);
@@ -536,7 +547,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             }
 
             // The frame's GPU work ends at a fence. A slot still holding the
-            // fence of the frame FramesInFlight back is waited on first: that
+            // fence of the frame FramesInFlight back is waited on at BeginFrame: that
             // is the in-flight limit, and GL's own throttling means it has
             // almost always signalled by now.
             void EndFrame() override
@@ -547,16 +558,6 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 }
                 _frameOpen = false;
                 const std::size_t slot = static_cast<std::size_t>(_frame % FramesInFlight);
-                if (_fences[slot] != nullptr)
-                {
-                    if (!GL::ClientWaitSync(_fences[slot], 1'000'000'000ULL))
-                    {
-                        // A timeout or failed wait is not GPU completion.
-                        GL::Finish();
-                    }
-                    GL::DeleteSync(_fences[slot]);
-                    _completed = std::max(_completed, _fenceFrames[slot]);
-                }
                 _fences[slot] = GL::FenceSync();
                 _fenceFrames[slot] = _frame;
                 if (_fences[slot] == nullptr)
@@ -586,7 +587,18 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             void Retire(const GlObject& object)
             {
+                if (object.What == GlObject::Kind::Buffer)
+                {
+                    _buffers.erase(object.Name);
+                }
                 _retired.Retire(object, _frame);
+            }
+
+            std::int32_t CreateGeometryBuffer()
+            {
+                const auto name = GL::GenBuffer();
+                if (name != 0) _buffers.insert(name);
+                return name;
             }
 
             [[nodiscard]] std::string AdapterDescription() override
@@ -760,6 +772,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             std::vector<std::unique_ptr<Texture>> _retained{};
             std::unordered_set<OpenGlCommandList*> _lists{};
             std::unordered_set<OpenGlShader*> _shaders{};
+            std::unordered_set<std::int32_t> _buffers{};
             std::map<std::pair<const Shader*, const Shader*>, std::int32_t> _programs{};
 
             void PollFences()
@@ -1216,6 +1229,15 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         {
             GpuResourceStatistics statistics{};
             statistics.Textures = static_cast<std::uint32_t>(_live.size());
+            statistics.Buffers = static_cast<std::uint32_t>(_buffers.size());
+            for (const auto* texture : _live)
+            {
+                if (texture->IsRenderbuffer())
+                {
+                    ++statistics.Renderbuffers;
+                    --statistics.Textures;
+                }
+            }
             statistics.Shaders = static_cast<std::uint32_t>(_shaders.size());
             statistics.Programs = static_cast<std::uint32_t>(_programs.size());
             for (const OpenGlCommandList* list : _lists)
@@ -1287,6 +1309,11 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         {
             DestroyNative(GlObject{GlObject::Kind::Buffer, buffer});
         }
+    }
+
+    std::int32_t CreateGeometryBuffer()
+    {
+        return static_cast<OpenGlGraphicsDevice&>(ContextDevice()).CreateGeometryBuffer();
     }
 
     void ResetContextDevice() noexcept

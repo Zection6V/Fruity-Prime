@@ -101,17 +101,22 @@ namespace MphRead::Mods::Diagnostics
                 {
                     const NativeRuntime::Rhi::GpuResourceStatistics& s = _after[i];
                     const bool steady = s.Textures == _after.front().Textures
+                        && s.Buffers == _after.front().Buffers
+                        && s.Renderbuffers == _after.front().Renderbuffers
                         && s.Framebuffers == _after.front().Framebuffers
                         && s.Shaders == _after.front().Shaders
                         && s.Programs == _after.front().Programs;
-                    const bool drained = s.Retired == 0;
+                    const bool drained = s.Retired == 0 && s.Textures == 0 && s.Buffers == 0
+                        && s.Renderbuffers == 0 && s.Framebuffers == 0 && s.Shaders == 0 && s.Programs == 0;
                     pass = pass && steady && drained;
                     std::cout << "GPULIFETIME " << _room << " | cycle " << (i + 1)
                         << " | while drawing: " << _during[i].Textures << " textures, "
                         << _during[i].Framebuffers << " framebuffers, " << _during[i].Shaders << " shaders, "
-                        << _during[i].Programs << " programs"
+                        << _during[i].Programs << " programs, " << _during[i].Buffers << " buffers, "
+                        << _during[i].Renderbuffers << " renderbuffers"
                         << " | after release: " << s.Textures << " textures, " << s.Framebuffers
                         << " framebuffers, " << s.Shaders << " shaders, " << s.Programs << " programs, "
+                        << s.Buffers << " buffers, " << s.Renderbuffers << " renderbuffers, "
                         << s.Retired << " retired | frames completed " << s.CompletedFrame
                         << (steady ? "" : " | GREW") << (drained ? "" : " | NOT DRAINED") << '\n';
                 }

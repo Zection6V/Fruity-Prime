@@ -131,15 +131,15 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
                 try
                 {
-                    _vertexBuffer = GL::GenBuffer();
-                    _indexBuffer = GL::GenBuffer();
+                    _vertexBuffer = CreateGeometryBuffer();
+                    _indexBuffer = CreateGeometryBuffer();
                     if (_vertexBuffer == 0 || _indexBuffer == 0)
                     {
                         throw std::runtime_error("OpenGL returned buffer object 0.");
                     }
                     if (_colorMode == AttributeMode::Mixed)
                     {
-                        _colorBuffer = GL::GenBuffer();
+                        _colorBuffer = CreateGeometryBuffer();
                         if (_colorBuffer == 0)
                         {
                             throw std::runtime_error("OpenGL returned color buffer object 0.");
@@ -147,7 +147,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     }
                     if (_normalMode == AttributeMode::Mixed)
                     {
-                        _normalBuffer = GL::GenBuffer();
+                        _normalBuffer = CreateGeometryBuffer();
                         if (_normalBuffer == 0)
                         {
                             throw std::runtime_error("OpenGL returned normal buffer object 0.");
@@ -360,8 +360,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             {
                 try
                 {
-                    _vertexBuffer = GL::GenBuffer();
-                    _indexBuffer = GL::GenBuffer();
+                    _vertexBuffer = CreateGeometryBuffer();
+                    _indexBuffer = CreateGeometryBuffer();
                     if (_vertexBuffer == 0 || _indexBuffer == 0)
                     {
                         throw std::runtime_error("OpenGL returned transient buffer object 0.");

@@ -77,6 +77,7 @@ COMMON_INPUT_KEYS = (
     "cel_edge",
     "fog",
     "texture_filtering",
+    "gl_context",
     "fixture",
     "fixture_scope",
     "final_stage_gate",
@@ -422,6 +423,8 @@ def validate_manifest(
 
     if require_key(manifest, "candidate", manifest_path) != candidate:
         fail(f"{manifest_path}: candidate mismatch")
+    if not require_key(manifest, "gl_context", manifest_path).strip():
+        fail(f"{manifest_path}: GL context identity is empty")
     if require_key(manifest, "captured", manifest_path) != "true":
         fail(f"{manifest_path}: captured gate is not true")
     error = manifest.get("error", "")
@@ -852,6 +855,7 @@ def _test_manifest(
         "cel_edge": "0.5",
         "fog": "off",
         "texture_filtering": "off",
+        "gl_context": "test GL 4.6 compatibility / fixture GPU",
         "fixture": f"fixture {candidate}",
         "fixture_scope": "test",
         "final_stage_gate": final_gate,

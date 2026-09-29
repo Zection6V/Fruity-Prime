@@ -863,6 +863,9 @@ namespace
             out << "cel_edge=0.5\n";
             out << "fog=off\n";
             out << "texture_filtering=off\n";
+            out << "gl_context="
+                << MphRead::Mods::ScreenCapture::DescribeContext()
+                << "\n";
             out << "fixture=" << FixtureDescription() << "\n";
             out << "final_stage_gate="
                 << (_finalStageGateVerified ? "verified"

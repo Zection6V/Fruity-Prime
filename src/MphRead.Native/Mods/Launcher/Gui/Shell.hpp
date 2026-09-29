@@ -92,7 +92,6 @@ namespace MphRead::Mods::Launcher::Gui
         static void WindowKey(MphRead::RenderWindow& window,
             OpenTK::Windowing::GraphicsLibraryFramework::Keys key);
         static void Escape();
-        [[nodiscard]] static bool StartShotMatch();
         static void HoldResults();
         static void ReleaseResults();
         static void EndShotMatch();
@@ -122,5 +121,6 @@ namespace MphRead::Mods::Launcher::Gui
         static std::int32_t _shotStep;
         static std::int32_t _shotWait;
         static std::int32_t _shotMisses;
+        static std::uint64_t _shotPreviewGeneration;
     };
 }

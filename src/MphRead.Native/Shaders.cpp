@@ -234,10 +234,14 @@ void main()
         }
         col = vec4((col * (1.0 - density) + fog_color * density).xyz, col.a);
     }
-    if (alpha_test == 1 && col.a < 1.0) {
+    // Compared as the 8-bit value the target stores, as fixed-function
+    // glAlphaFunc compares it: an interpolated constant alpha of 1.0 arrives
+    // as 0.99999994, which a float comparison discards and glAlphaFunc kept.
+    float alpha8 = floor(clamp(col.a, 0.0, 1.0) * 255.0 + 0.5);
+    if (alpha_test == 1 && alpha8 < 255.0) {
         discard;
     }
-    if (alpha_test == 2 && col.a >= 1.0) {
+    if (alpha_test == 2 && alpha8 >= 255.0) {
         discard;
     }
     gl_FragColor = col;

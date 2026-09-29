@@ -293,10 +293,14 @@ void main()
     }
     // glAlphaFunc, which ES does not have. The engine only ever asks for
     // Equal 1.0 and Less 1.0, and the test runs on the final colour.
-    if (alpha_test == 1 && col.a < 1.0) {
+    // Compared as the 8-bit value the target stores, as fixed-function
+    // glAlphaFunc compares it: an interpolated constant alpha of 1.0 arrives
+    // as 0.99999994, which a float comparison discards and glAlphaFunc kept.
+    float alpha8 = floor(clamp(col.a, 0.0, 1.0) * 255.0 + 0.5);
+    if (alpha_test == 1 && alpha8 < 255.0) {
         discard;
     }
-    if (alpha_test == 2 && col.a >= 1.0) {
+    if (alpha_test == 2 && alpha8 >= 255.0) {
         discard;
     }
     frag_color = col;
@@ -612,7 +616,7 @@ void main()
         Check("VertexShader", Shaders::VertexShader,
             "6953aa4469c70cafe5c69fe646047f2a015058d4fccf01f6a51a1c3a1634b7e8");
         Check("FragmentShader", Shaders::FragmentShader,
-            "592f7b34f0f85b67d0231bac4b4afb6f80bbdf2b1f66b6638b707faf3b09c75f");
+            "815a3e1cfdeaeda356cb65dd5ea6c09edeafee9b4989b26fa62e9ebeb6c52050");
         Check("RttVertexShader", Shaders::RttVertexShader,
             "d427bed416dcee895b331010a0244b3d5e9f7df46e8d288ad44de0dd75ac3416");
         Check("RttFragmentShader", Shaders::RttFragmentShader,

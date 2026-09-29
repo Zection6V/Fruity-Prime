@@ -158,7 +158,7 @@ jobs:
           echo "VCPKG_TARGET_TRIPLET=$triplet" >> "$GITHUB_ENV"
           "${{ steps.vcpkg.outputs.root }}/vcpkg" install \
             "curl:${triplet}" \
-            "libarchive:${triplet}" \
+            "libarchive[core,bzip2,crypto,lz4,lzma,zstd]:${triplet}" \
             "zlib:${triplet}" \
             "freetype:${triplet}" \
             "libjpeg-turbo:${triplet}" \

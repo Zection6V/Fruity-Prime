@@ -205,11 +205,6 @@ namespace OpenTK::Graphics::OpenGL::GL
         }
     }
 
-    void Begin(PrimitiveType mode)
-    {
-        ::glBegin(ToEnum(mode));
-    }
-
     void BindBuffer(BufferTarget target, std::int32_t buffer)
     {
         const auto fn = GetBindBuffer();
@@ -439,11 +434,6 @@ namespace OpenTK::Graphics::OpenGL::GL
     void EnableClientState(ClientState array)
     {
         ::glEnableClientState(ToEnum(array));
-    }
-
-    void End()
-    {
-        ::glEnd();
     }
 
     void FramebufferRenderbuffer(FramebufferTarget target, FramebufferAttachment attachment,
@@ -902,11 +892,6 @@ namespace OpenTK::Graphics::OpenGL::GL
         ::glVertexPointer(size, ToEnum(type), static_cast<GLsizei>(stride), pointer);
     }
 
-    void Vertex2(float x, float y)
-    {
-        ::glVertex2f(x, y);
-    }
-
     void PopMatrix()
     {
         ::glPopMatrix();
@@ -915,16 +900,6 @@ namespace OpenTK::Graphics::OpenGL::GL
     void PushMatrix()
     {
         ::glPushMatrix();
-    }
-
-    void Vertex3(float x, float y, float z)
-    {
-        ::glVertex3f(x, y, z);
-    }
-
-    void Vertex3(::OpenTK::Mathematics::Vector3 vector)
-    {
-        ::glVertex3f(vector.X, vector.Y, vector.Z);
     }
 
     void Scissor(std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height)

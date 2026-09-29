@@ -204,7 +204,6 @@ namespace OpenTK::Graphics::OpenGL
         void ActiveTexture(TextureUnit texture);
         void AlphaFunc(AlphaFunction func, float reference);
         void AttachShader(std::int32_t program, std::int32_t shader);
-        void Begin(PrimitiveType mode);
         void BindBuffer(BufferTarget target, std::int32_t buffer);
         void BufferData(BufferTarget target, std::size_t size, const void* data, BufferUsageHint usage);
         void BindFramebuffer(FramebufferTarget target, std::int32_t framebuffer);
@@ -240,7 +239,6 @@ namespace OpenTK::Graphics::OpenGL
         void DrawElements(PrimitiveType mode, std::int32_t count, DrawElementsType type, const void* indices);
         void Enable(EnableCap cap);
         void EnableClientState(ClientState array);
-        void End();
         void FramebufferRenderbuffer(FramebufferTarget target, FramebufferAttachment attachment,
             RenderbufferTarget renderbuffertarget, std::int32_t renderbuffer);
         void FramebufferTexture2D(FramebufferTarget target, FramebufferAttachment attachment,
@@ -311,9 +309,6 @@ namespace OpenTK::Graphics::OpenGL
         void UniformMatrix4(std::int32_t location, std::int32_t count, bool transpose, const float* value);
         void UseProgram(std::int32_t program);
         void VertexPointer(std::int32_t size, PointerType type, std::int32_t stride, const void* pointer);
-        void Vertex2(float x, float y);
-        void Vertex3(float x, float y, float z);
-        void Vertex3(::OpenTK::Mathematics::Vector3 vector);
         void PopMatrix();
         void PushMatrix();
         void Scissor(std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height);

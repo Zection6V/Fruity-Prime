@@ -51,4 +51,10 @@ public: \
         float disruptionFactor, \
         std::int32_t whiteoutState, \
         float whiteoutFactor, \
-        float whiteoutAmount) noexcept;
+        float whiteoutAmount) noexcept; \
+    [[nodiscard]] bool ModGoldenHudShiftStateMatches( \
+        std::uint8_t disruptionState, \
+        float disruptionFactor, \
+        std::int32_t whiteoutState, \
+        float whiteoutFactor, \
+        float whiteoutAmount) const noexcept;

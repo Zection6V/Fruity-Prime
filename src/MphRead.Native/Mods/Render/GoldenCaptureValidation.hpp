@@ -124,4 +124,22 @@ namespace MphRead::Mods::Render::GoldenCaptureValidation
         }
         return changed;
     }
+
+    inline void RequireDistinctFingerprints(
+        const PixelSummary& left,
+        const PixelSummary& right)
+    {
+        if (left.PixelCount == 0
+            || right.PixelCount == 0
+            || left.PixelCount != right.PixelCount)
+        {
+            throw std::invalid_argument(
+                "golden capture fingerprints are not comparable");
+        }
+        if (left.Fnv1a64 == right.Fnv1a64)
+        {
+            throw std::runtime_error(
+                "HUD and fade captures share the same raw-RGB fingerprint");
+        }
+    }
 }

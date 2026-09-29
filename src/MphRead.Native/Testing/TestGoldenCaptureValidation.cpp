@@ -91,6 +91,23 @@ int main()
     }
 
     ExpectThrows(
+        "identical capture fingerprints must be rejected",
+        [&hudSummary]()
+        {
+            RequireDistinctFingerprints(hudSummary, hudSummary);
+        },
+        failures);
+
+    try
+    {
+        RequireDistinctFingerprints(hudSummary, fadeSummary);
+    }
+    catch (const std::exception&)
+    {
+        Fail("different capture fingerprints must be accepted", failures);
+    }
+
+    ExpectThrows(
         "dimension/byte-count mismatch must be rejected",
         [&hud]()
         {

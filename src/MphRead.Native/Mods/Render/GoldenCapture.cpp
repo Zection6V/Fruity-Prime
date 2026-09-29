@@ -238,6 +238,13 @@ namespace
             return _captured;
         }
 
+        [[nodiscard]] std::optional<
+            MphRead::Mods::Render::GoldenCaptureValidation::PixelSummary>
+            CaptureSummary() const noexcept
+        {
+            return _captureSummary;
+        }
+
         void Run()
         {
             try
@@ -445,6 +452,19 @@ namespace
                             1,
                             1.0F,
                             48.0F);
+                        if (!main->ModGoldenHudShiftStateMatches(
+                                2,
+                                0.75F,
+                                1,
+                                1.0F,
+                                48.0F))
+                        {
+                            Fail(
+                                "whiteout/disruption fixture state "
+                                "did not latch");
+                            _window->BaseOnRenderFrame(args);
+                            return;
+                        }
                     }
 
                     // The control OnRenderFrame finishes on framebuffer 0.
@@ -755,7 +775,10 @@ namespace
 
     [[nodiscard]] std::int32_t RunOne(
         GoldenCandidate candidate,
-        const std::string& directory)
+        const std::string& directory,
+        std::optional<
+            MphRead::Mods::Render::GoldenCaptureValidation::PixelSummary>*
+            captureSummary = nullptr)
     {
         GoldenCaptureWindow window(candidate, directory);
         window.Run();
@@ -768,6 +791,22 @@ namespace
                 << std::endl;
             return 1;
         }
+
+        const auto summary = window.CaptureSummary();
+        if (!summary.has_value())
+        {
+            std::cerr
+                << "[goldencapture] "
+                << CandidateName(candidate)
+                << " captured without an RGB summary"
+                << std::endl;
+            return 1;
+        }
+        if (captureSummary != nullptr)
+        {
+            *captureSummary = summary;
+        }
+
         std::cout
             << "[goldencapture] "
             << CandidateName(candidate)
@@ -1082,6 +1121,21 @@ namespace MphRead::Entities
             UpdateWhiteoutTable(whiteoutAmount);
         }
     }
+
+    bool PlayerEntity::ModGoldenHudShiftStateMatches(
+        std::uint8_t disruptionState,
+        float disruptionFactor,
+        std::int32_t whiteoutState,
+        float whiteoutFactor,
+        float whiteoutAmount) const noexcept
+    {
+        return _hudDisruptedState == disruptionState
+            && _hudDisruptionFactor
+                == std::clamp(disruptionFactor, 0.0F, 1.0F)
+            && _hudWhiteoutState == whiteoutState
+            && _hudWhiteoutFactor == whiteoutFactor
+            && _whiteoutAmount == whiteoutAmount;
+    }
 }
 
 namespace MphRead::Mods::Render
@@ -1108,11 +1162,54 @@ namespace MphRead::Mods::Render
                 GoldenCandidate::WhiteoutDisruption
             };
             std::int32_t failures = 0;
+            std::optional<
+                MphRead::Mods::Render::GoldenCaptureValidation::PixelSummary>
+                hudSummary{};
+            std::optional<
+                MphRead::Mods::Render::GoldenCaptureValidation::PixelSummary>
+                fadeSummary{};
             for (GoldenCandidate item : candidates)
             {
-                failures += RunOne(item, directory);
+                auto* summary = item == GoldenCandidate::Hud
+                    ? &hudSummary
+                    : item == GoldenCandidate::Fade
+                        ? &fadeSummary
+                        : nullptr;
+                failures += RunOne(item, directory, summary);
             }
-            return failures == 0 ? 0 : 1;
+            if (failures != 0)
+            {
+                return 1;
+            }
+            if (!hudSummary.has_value() || !fadeSummary.has_value())
+            {
+                std::cerr
+                    << "[goldencapture] HUD/fade batch identity guard "
+                       "has no capture summary"
+                    << std::endl;
+                return 1;
+            }
+            try
+            {
+                MphRead::Mods::Render::GoldenCaptureValidation::
+                    RequireDistinctFingerprints(
+                        *hudSummary,
+                        *fadeSummary);
+            }
+            catch (const std::exception& exception)
+            {
+                std::cerr
+                    << "[goldencapture] HUD/fade batch identity guard "
+                       "failed: "
+                    << exception.what()
+                    << std::endl;
+                return 1;
+            }
+            std::cout
+                << "[goldencapture] HUD/fade raw-RGB fingerprints "
+                   "are distinct"
+                << std::endl;
+            return 0;
         }
 
         const std::optional<GoldenCandidate> parsed

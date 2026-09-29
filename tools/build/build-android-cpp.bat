@@ -145,7 +145,6 @@ if /i "%TARGET%"=="libs" goto :done
 
 set "FRUITY_ANDROID_VERSION_NAME=0.0.0-local"
 set "FRUITY_ANDROID_VERSION_CODE=1"
-set "ANDROID_MIN_API=%FRUITY_ANDROID_MIN_API%"
 echo [android-cpp] Assembling the APK with Gradle...
 pushd "%REPO_ROOT%\android" || goto :build_error
 call "%GRADLE_CMD%" --no-daemon --stacktrace :app:assembleRelease
@@ -191,6 +190,13 @@ if not defined TRIPLET (
 )
 set "BUILD_DIR=%OUT_ROOT%\android-cpp-%ABI%"
 if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
+rem Normalize toolchain paths for CMake's -D parser on Windows.
+set "VCPKG_CMAKE_TOOLCHAIN=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake"
+set "ANDROID_CMAKE_TOOLCHAIN=%ANDROID_NDK_HOME%\build\cmake\android.toolchain.cmake"
+set "NINJA_CMAKE_PATH=%NINJA_EXE%"
+set "VCPKG_CMAKE_TOOLCHAIN=%VCPKG_CMAKE_TOOLCHAIN:\=/%"
+set "ANDROID_CMAKE_TOOLCHAIN=%ANDROID_CMAKE_TOOLCHAIN:\=/%"
+set "NINJA_CMAKE_PATH=%NINJA_CMAKE_PATH:\=/%"
 
 echo [android-cpp] Installing vcpkg libraries for %ABI% (%TRIPLET%)...
 "%VCPKG_ROOT%\vcpkg.exe" install ^
@@ -203,13 +209,14 @@ echo [android-cpp] Installing vcpkg libraries for %ABI% (%TRIPLET%)...
 if errorlevel 1 exit /b 1
 
 echo [android-cpp] Configuring %ABI%...
-"%CMAKE_EXE%" -S "%REPO_ROOT%" -B "%BUILD_DIR%" -G Ninja ^
-    "-DCMAKE_MAKE_PROGRAM=%NINJA_EXE%" ^
-    "-DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake" ^
-    "-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=%ANDROID_NDK_HOME%\build\cmake\android.toolchain.cmake" ^
+rem --fresh drops stale CMake cache entries from earlier toolchain experiments.
+"%CMAKE_EXE%" --fresh -S "%REPO_ROOT%" -B "%BUILD_DIR%" -G Ninja ^
+    "-DCMAKE_MAKE_PROGRAM=%NINJA_CMAKE_PATH%" ^
+    "-DCMAKE_TOOLCHAIN_FILE=%VCPKG_CMAKE_TOOLCHAIN%" ^
+    "-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=%ANDROID_CMAKE_TOOLCHAIN%" ^
     "-DVCPKG_TARGET_TRIPLET=%TRIPLET%" ^
     "-DANDROID_ABI=%ABI%" ^
-    "-DANDROID_PLATFORM=android-%FRUITY_ANDROID_MIN_API%" ^
+    "-DANDROID_PLATFORM=android-%ANDROID_MIN_API%" ^
     "-DANDROID_STL=c++_static" ^
     "-DCMAKE_BUILD_TYPE=RelWithDebInfo"
 if errorlevel 1 exit /b 1

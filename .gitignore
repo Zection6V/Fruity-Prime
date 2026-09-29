@@ -415,3 +415,6 @@ tools/hitrig/bin/
 !tools/build/
 tools/build/*
 !tools/build/*.bat
+
+# Native Android shared objects are built from source and packaged into the APK.
+android/app/src/main/jniLibs/*/libFruityPrime.so

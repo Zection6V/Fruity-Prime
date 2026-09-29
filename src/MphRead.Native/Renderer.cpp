@@ -882,7 +882,9 @@ namespace MphRead
             = _gpuMeshCache.Find(model.get(), mesh.get());
         if (!gpuMesh)
         {
-            throw ProgramException("GPU mesh cache entry is missing.");
+            throw ProgramException("GPU mesh cache entry is missing for model " + model->Name
+                + ", mesh " + std::to_string(mesh->DlistId) + ", active room "
+                + (_room ? _room->Meta().Name : "none") + ", frame " + std::to_string(_frameCount) + ".");
         }
 
         if (_modelReloadProbeAwaitingRedraw)
@@ -1691,6 +1693,11 @@ namespace MphRead
         Mods::EndScreen::Tick(_room != nullptr ? _room->Meta().Name : std::string(), _globalElapsedTime);
         Mods::Render::MapThumbnail::BeginFrame();
         (void)Gpu().BeginFrame();
+        // Fade completion can synchronously load a room and release the old
+        // model. Resolve it before collecting draws that reference that model.
+        // UpdateUniforms still refreshes fade state injected after collection
+        // by capture tools, but ordinary room transitions finish here.
+        if (ProcessFrame()) UpdateFade();
         Vector2i target = RenderSize();
         if (target != _targetSize)
         {

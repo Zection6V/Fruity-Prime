@@ -22,6 +22,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  phase4_legacy_gl_audit:
+    name: phase4 / legacy OpenGL static audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout C++ source
+        uses: actions/checkout@v4
+      - name: Reject display lists and immediate vertex submission
+        run: python3 tools/check-phase4-legacy-gl.py
+
   desktop:
     uses: ./.github/workflows/native-cpp-all.yml
 

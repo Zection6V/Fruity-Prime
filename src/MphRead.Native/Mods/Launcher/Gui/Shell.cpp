@@ -623,7 +623,10 @@ namespace MphRead::Mods::Launcher::Gui
             },
             [](MphRead::RenderWindow& window)
             {
-                MphRead::Mods::WindowMode::Toggle(window);
+                // ShellShot may inherit a saved fullscreen launcher preference.
+                // This screenshot has a named state, so establish it instead of
+                // assuming Toggle() always means windowed -> fullscreen.
+                MphRead::Mods::WindowMode::Enter(window);
                 Wait(25);
             },
             [](MphRead::RenderWindow& window)
@@ -636,10 +639,25 @@ namespace MphRead::Mods::Launcher::Gui
             {
                 Shot(window, "shell-fullscreen-click");
                 Escape();
-                MphRead::Mods::WindowMode::Toggle(window);
+                // Establish the precondition for the F11 delivery gate below.
+                // The gate itself still has to enter fullscreen through
+                // RenderWindow::FeedKey(); no direct mode call satisfies it.
+                MphRead::Mods::WindowMode::Leave(window);
                 Wait(25);
             },
-            [](MphRead::RenderWindow& window) { Shot(window, "shell-windowed"); Wait(5); },
+            [](MphRead::RenderWindow& window)
+            {
+                Shot(window, "shell-windowed");
+                if (MphRead::Mods::WindowMode::IsFullscreen())
+                {
+                    ++_shotMisses;
+                    std::cout << "[shellshot] could not establish windowed state before F11\n";
+                    _shotDirectory.reset();
+                    window.Close();
+                    return;
+                }
+                Wait(5);
+            },
             [](MphRead::RenderWindow& window) { WindowKey(window, KeyValue(300)); Wait(20); },
             [](MphRead::RenderWindow& window)
             {

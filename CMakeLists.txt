@@ -114,8 +114,13 @@ set(FRUITY_GOLDEN_CAPTURE_PROVENANCE_DIR
     "${CMAKE_CURRENT_BINARY_DIR}/generated")
 set(FRUITY_GOLDEN_CAPTURE_PROVENANCE_HEADER
     "${FRUITY_GOLDEN_CAPTURE_PROVENANCE_DIR}/GoldenCaptureProvenance.generated.hpp")
-add_custom_command(
-    OUTPUT "${FRUITY_GOLDEN_CAPTURE_PROVENANCE_HEADER}"
+set_source_files_properties(
+    "${FRUITY_GOLDEN_CAPTURE_PROVENANCE_HEADER}"
+    PROPERTIES GENERATED TRUE)
+# This target deliberately runs for every native build so source_commit cannot
+# go stale when an incremental worktree changes commits without changing the
+# harness files. The generator only rewrites the header when provenance changes.
+add_custom_target(fruity_golden_capture_provenance
     COMMAND "${CMAKE_COMMAND}"
         "-DSOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
         "-DGOLDEN_CAPTURE_CPP=${FRUITY_GOLDEN_CAPTURE_CPP_SOURCE}"
@@ -123,18 +128,14 @@ add_custom_command(
         "-DGOLDEN_CAPTURE_VALIDATION=${FRUITY_GOLDEN_CAPTURE_VALIDATION_SOURCE}"
         "-DOUTPUT_FILE=${FRUITY_GOLDEN_CAPTURE_PROVENANCE_HEADER}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateGoldenCaptureProvenance.cmake"
+    BYPRODUCTS "${FRUITY_GOLDEN_CAPTURE_PROVENANCE_HEADER}"
     DEPENDS
         "${FRUITY_GOLDEN_CAPTURE_CPP_SOURCE}"
         "${FRUITY_GOLDEN_CAPTURE_HEADER_SOURCE}"
         "${FRUITY_GOLDEN_CAPTURE_VALIDATION_SOURCE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateGoldenCaptureProvenance.cmake"
-    COMMENT "Generating GoldenCapture source provenance"
+    COMMENT "Refreshing GoldenCapture source provenance"
     VERBATIM)
-set_source_files_properties(
-    "${FRUITY_GOLDEN_CAPTURE_PROVENANCE_HEADER}"
-    PROPERTIES GENERATED TRUE)
-add_custom_target(fruity_golden_capture_provenance
-    DEPENDS "${FRUITY_GOLDEN_CAPTURE_PROVENANCE_HEADER}")
 list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES
     "${FRUITY_RENDERER_GEOMETRY_TEST_SOURCE}"
     "${FRUITY_RENDERER_GPU_MESH_TEST_SOURCE}"

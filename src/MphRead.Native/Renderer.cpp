@@ -3,6 +3,7 @@
 #include "NativeRuntime/System/Runtime.hpp"
 #include "NativeRuntime/Rhi/BackendFactory.hpp"
 #include "NativeRuntime/Rhi/OpenGL/OpenGlGeometry.hpp"
+#include "NativeRuntime/Rhi/OpenGL/OpenGlShaderInterface.hpp"
 #include "NativeRuntime/System/Console.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
 #include "NativeRuntime/System/IO.hpp"
@@ -99,6 +100,7 @@
 #endif
 
 #include <algorithm>
+#include <span>
 #include <unordered_set>
 #include <unordered_map>
 #include <bit>
@@ -367,7 +369,8 @@ namespace MphRead
         std::function<void()> close)
         : _rendererSize(size),
           _frustumInfo(std::make_shared<MphRead::Formats::Culling::FrustumInfo>()),
-          _shaderLocations(std::make_shared<ShaderLocations>()),
+          _shaderLocations(std::make_shared<NativeRuntime::Rhi::OpenGL::ShaderLocations>()),
+          _shaderConstants(NativeRuntime::Rhi::OpenGL::CreateShaderConstantSink(_shaderLocations)),
           _keyboardState(&keyboardState),
           _mouseState(&mouseState),
           _setTitle(std::move(setTitle)),
@@ -588,9 +591,7 @@ namespace MphRead
     {
         const float fogMin = _fogOffset / static_cast<float>(0x7FFF);
         const float fogMax = (_fogOffset + 32 * (0x400 >> _fogSlope)) / static_cast<float>(0x7FFF);
-        GL::Uniform4(_shaderLocations->FogColor, _fogColor);
-        GL::Uniform1(_shaderLocations->FogMinDistance, fogMin);
-        GL::Uniform1(_shaderLocations->FogMaxDistance, fogMax);
+        _shaderConstants->Set(NativeRuntime::Rhi::SceneFogConstants{_fogColor, fogMin, fogMax});
     }
 
     std::shared_ptr<Entities::EntityBase> Scene::AddModel(std::string name, std::int32_t recolor,
@@ -1821,13 +1822,9 @@ namespace MphRead
         GL::ActiveTexture(GL::TextureUnit::Texture0);
         GL::BindTexture(GL::TextureTarget::Texture2D, _celTexture);
         GL::UseProgram(_celShaderProgramId);
-        GL::Uniform1(_shaderLocations->CelTexelWidth, 1.0F / target.X);
-        GL::Uniform1(_shaderLocations->CelTexelHeight, 1.0F / target.Y);
-        GL::Uniform1(_shaderLocations->CelOutline, Mods::RenderOptions::CelEdge());
-        GL::Uniform1(_shaderLocations->CelNearPlane, _nearClip);
-        GL::Uniform1(_shaderLocations->CelFarPlane, _useClip ? _farClip : 10000.0F);
-        GL::Uniform1(_shaderLocations->CelDepthQuantum, _depthQuantum);
-        GL::Uniform1(_shaderLocations->CelProbe, probe ? 1 : 0);
+        _shaderConstants->Set(NativeRuntime::Rhi::CelPostConstants{
+            1.0F / target.X, 1.0F / target.Y, Mods::RenderOptions::CelEdge(), _nearClip,
+            _useClip ? _farClip : 10000.0F, _depthQuantum, probe});
         GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, CelFrameBuffer());
         GL::Disable(GL::EnableCap::DepthTest);
         GL::Disable(GL::EnableCap::Blend);
@@ -3420,22 +3417,29 @@ namespace MphRead
 
     void Scene::UseRoomLights()
     {
-        GL::Uniform3(_shaderLocations->Light1Vector, _light1Vector);
-        GL::Uniform3(_shaderLocations->Light1Color, _light1Color);
-        GL::Uniform3(_shaderLocations->Light2Vector, _light2Vector);
-        GL::Uniform3(_shaderLocations->Light2Color, _light2Color);
+        _shaderConstants->Set(NativeRuntime::Rhi::SceneLightConstants{{
+            {_light1Vector, _light1Color}, {_light2Vector, _light2Color}}});
     }
 
     void Scene::UseLight1(Vector3 vector, Vector3 color)
     {
-        GL::Uniform3(_shaderLocations->Light1Vector, vector);
-        GL::Uniform3(_shaderLocations->Light1Color, color);
+        _shaderConstants->SetLight(0, NativeRuntime::Rhi::LightConstants{vector, color});
     }
 
     void Scene::UseLight2(Vector3 vector, Vector3 color)
     {
-        GL::Uniform3(_shaderLocations->Light2Vector, vector);
-        GL::Uniform3(_shaderLocations->Light2Color, color);
+        _shaderConstants->SetLight(1, NativeRuntime::Rhi::LightConstants{vector, color});
+    }
+
+    void Scene::SetMatrixStack(const Matrix4& transform)
+    {
+        _shaderConstants->Set(NativeRuntime::Rhi::DrawConstants{
+            std::span<const float>(&transform.M11, 16U)});
+    }
+
+    void Scene::SetFrameMatrices(const Matrix4& view, const Matrix4& projection)
+    {
+        _shaderConstants->Set(NativeRuntime::Rhi::FrameConstants{view, projection});
     }
 
     FadeType Scene::FadeType() const noexcept
@@ -3766,11 +3770,12 @@ namespace MphRead
             = std::clamp(item->MatrixStackCount, 0, matrixStackCapacity);
         if (matrixStackCount > 0)
         {
-            GL::UniformMatrix4(_shaderLocations->MatrixStack, matrixStackCount, false, matrixStack.Data());
+            _shaderConstants->Set(NativeRuntime::Rhi::DrawConstants{std::span<const float>(
+                matrixStack.Data(), static_cast<std::size_t>(matrixStackCount) * 16U)});
         }
         else
         {
-            GL::UniformMatrix4(_shaderLocations->MatrixStack, false, item->Transform);
+            SetMatrixStack(item->Transform);
         }
         Matrix4 viewInv = RendererDetail::IdentityMatrix();
         if (item->BillboardMode == BillboardMode::Sphere)
@@ -3996,8 +4001,7 @@ namespace MphRead
         if (GameState::MenuPause() && _cameraMode == MphRead::CameraMode::Player)
         {
             const auto matrices = Entities::PlayerEntity::Main()->GetPauseMapMatrices();
-            GL::UniformMatrix4(_shaderLocations->ViewMatrix, false, matrices.first);
-            GL::UniformMatrix4(_shaderLocations->ProjectionMatrix, false, matrices.second);
+            SetFrameMatrices(matrices.first, matrices.second);
         }
     }
 
@@ -4012,7 +4016,7 @@ namespace MphRead
         GL::Disable(GL::EnableCap::DepthTest);
         GL::Enable(GL::EnableCap::Blend);
         const Matrix4 identity = RendererDetail::IdentityMatrix();
-        GL::UniformMatrix4(_shaderLocations->MatrixStack, false, identity);
+        SetMatrixStack(identity);
         GL::UniformMatrix4(_shaderLocations->ViewInvMatrix, false, identity);
         GL::Uniform1(_shaderLocations->UseLight, 0);
         const Vector3 one(1.0F, 1.0F, 1.0F);
@@ -4035,18 +4039,16 @@ namespace MphRead
             GL::Enable(GL::EnableCap::CullFace);
             GL::CullFace(GL::TriangleFace::Back);
         }
-        GL::UniformMatrix4(_shaderLocations->ViewMatrix, false, identity);
         const Matrix4 orthoMatrix = Matrix4::CreateOrthographic(
             static_cast<float>(_rendererSize.X), static_cast<float>(_rendererSize.Y), 0.5F, 1.5F);
-        GL::UniformMatrix4(_shaderLocations->ProjectionMatrix, false, orthoMatrix);
+        SetFrameMatrices(identity, orthoMatrix);
     }
 
     void Scene::UnsetHudLayerUniforms()
     {
         GL::Disable(GL::EnableCap::Blend);
         GL::Enable(GL::EnableCap::DepthTest);
-        GL::UniformMatrix4(_shaderLocations->ViewMatrix, false, _viewMatrix);
-        GL::UniformMatrix4(_shaderLocations->ProjectionMatrix, false, _perspectiveMatrix);
+        SetFrameMatrices(_viewMatrix, _perspectiveMatrix);
     }
 
     void Scene::DrawHudLayer(const std::shared_ptr<LayerInfo>& info)
@@ -4415,7 +4417,7 @@ namespace MphRead
             (1.0F - position.Y) * _rendererSize.Y - static_cast<float>(_rendererSize.Y / 2), -1.0F);
         Matrix4 transform = CreateRotationZ(DegreesToRadians(angle))
             * CreateScale(scale, scale, 1.0F) * CreateTranslation(position3d);
-        GL::UniformMatrix4(_shaderLocations->MatrixStack, false, transform);
+        SetMatrixStack(transform);
         const auto model = inst->Model();
         UpdateMaterials(model, 0);
         GL::Uniform1(_shaderLocations->MaterialAlpha, alpha);
@@ -4431,7 +4433,7 @@ namespace MphRead
         GL::Color3(Vector3(color.Red / 31.0F, color.Green / 31.0F, color.Blue / 31.0F));
         DrawGpuMesh(model, model->Meshes->at(0));
         GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-        GL::UniformMatrix4(_shaderLocations->MatrixStack, false, RendererDetail::IdentityMatrix());
+        SetMatrixStack(RendererDetail::IdentityMatrix());
     }
 
     void Scene::DrawHudFilterModel(const std::shared_ptr<ModelInstance>& inst, float alpha)
@@ -4505,7 +4507,8 @@ namespace MphRead
         }
         const std::int32_t matrixCount = static_cast<std::int32_t>(
             std::min(model->NodeMatrixIds->size(), _hudMatrixStack.size() / 16U));
-        GL::UniformMatrix4(_shaderLocations->MatrixStack, matrixCount, false, _hudMatrixStack.data());
+        _shaderConstants->Set(NativeRuntime::Rhi::DrawConstants{std::span<const float>(
+            _hudMatrixStack.data(), static_cast<std::size_t>(matrixCount) * 16U)});
         for (std::int32_t i = 1; i < 9; ++i)
         {
             const Node& node = *model->Nodes->at(static_cast<std::size_t>(i));
@@ -4517,19 +4520,15 @@ namespace MphRead
             }
         }
         GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-        GL::UniformMatrix4(_shaderLocations->MatrixStack, false, RendererDetail::IdentityMatrix());
+        SetMatrixStack(RendererDetail::IdentityMatrix());
     }
 
     void Scene::DoMaterial(const MphRead::RenderItem& item)
     {
-        GL::Uniform1(_shaderLocations->UseLight, LightingOn() && item.Lighting ? 1 : 0);
         GL::Color3(item.Diffuse);
-        GL::Uniform3(_shaderLocations->Diffuse, item.Diffuse);
-        GL::Uniform3(_shaderLocations->Ambient, item.Ambient);
-        GL::Uniform3(_shaderLocations->Specular, item.Specular);
-        GL::Uniform3(_shaderLocations->Emission, item.Emission);
-        GL::Uniform1(_shaderLocations->MaterialAlpha, item.Alpha);
-        GL::Uniform1(_shaderLocations->MaterialMode, static_cast<std::int32_t>(item.PolygonMode));
+        _shaderConstants->Set(NativeRuntime::Rhi::MaterialConstants{
+            LightingOn() && item.Lighting, item.Diffuse, item.Ambient, item.Specular,
+            item.Emission, item.Alpha, static_cast<std::int32_t>(item.PolygonMode)});
     }
 
     void Scene::DoTexture(const MphRead::RenderItem& item)

@@ -5,6 +5,7 @@
 #include "../GameState.hpp"
 #include "../Scene.hpp"
 #include "../Shaders.hpp"
+#include "../NativeRuntime/Rhi/OpenGL/OpenGlShaderInterface.hpp"
 #include "../Entities/RoomEntity.hpp"
 #include "../Entities/Players/PlayerEntity.hpp"
 #include "../Metadata/FrontendMeta.hpp"

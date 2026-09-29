@@ -610,17 +610,17 @@ void main()
         }
         _checked = true;
         Check("VertexShader", Shaders::VertexShader,
-            "4cf1422bddaa3ece44c9cfbf6dab1ede192ee8c3f4fbed362e7da5eebfdfc428");
+            "6953aa4469c70cafe5c69fe646047f2a015058d4fccf01f6a51a1c3a1634b7e8");
         Check("FragmentShader", Shaders::FragmentShader,
-            "b7d15d11622cb4ff811f36572d8d74bc30450b75e81404ff27b48dc8665d8528");
+            "094c0688c3affba98a1d145a5c41d1a0f6dcf349204a815a73504edee5122834");
         Check("RttVertexShader", Shaders::RttVertexShader,
-            "af070f447840bf1fc51d6bba88a339fab067a4e3a01e460351a2549ca9107f4f");
+            "d427bed416dcee895b331010a0244b3d5e9f7df46e8d288ad44de0dd75ac3416");
         Check("RttFragmentShader", Shaders::RttFragmentShader,
             "021b5992926cb3a8c714fb943b0c85e091cf3cd76d2c487950ca0fb03d27c56e");
         Check("CelFragmentShader", Shaders::CelFragmentShader,
             "0fcb40630809a0e5b2d78448ed8b9518686fb6a5fc3b1a69914a37fecf28f7d5");
         Check("ShiftFragmentShader", Shaders::ShiftFragmentShader,
-            "2b2511d5506ad9a25d64005b7b9e452f56b550410f96c753a6072a743b3162fa");
+            "717cf18b679638d8fc05108d7b2a83724d54231278231c7dd5dc4f0af933cde5");
     }
 
     void EsShaders::Check(const std::string& name, const std::string& source, const std::string& expected)

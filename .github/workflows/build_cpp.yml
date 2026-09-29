@@ -31,6 +31,15 @@ jobs:
       - name: Reject display lists and immediate vertex submission
         run: python3 tools/check-phase4-legacy-gl.py
 
+  phase5_shader_interface_audit:
+    name: phase5 / shader interface static audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout C++ source
+        uses: actions/checkout@v4
+      - name: Reject built-in vertex attributes and a drifted shader interface
+        run: python3 tools/check-phase5-shader-interface.py
+
   desktop:
     uses: ./.github/workflows/native-cpp-all.yml
 

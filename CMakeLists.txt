@@ -92,6 +92,20 @@ foreach(FRUITY_PHASE4_SOURCE IN LISTS MPHREAD_NATIVE_SOURCES MPHREAD_NATIVE_HEAD
     endif()
 endforeach()
 unset(FRUITY_PHASE4_SOURCE_TEXT)
+
+# Phase 5 terminal static gate: no shader source reads a GLSL built-in vertex
+# attribute. tools/check-phase5-shader-interface.py is the full audit.
+foreach(FRUITY_PHASE5_SHADER_SOURCE
+        "${FRUITY_MPHREAD_ROOT}/Shaders.cpp"
+        "${FRUITY_MPHREAD_ROOT}/Mods/Render/EsShaders.cpp")
+    file(READ "${FRUITY_PHASE5_SHADER_SOURCE}" FRUITY_PHASE5_SOURCE_TEXT)
+    if(FRUITY_PHASE5_SOURCE_TEXT MATCHES "gl_(Vertex|Normal|Color|MultiTexCoord|SecondaryColor|FogCoord)[^A-Za-z_]")
+        message(FATAL_ERROR
+            "Phase 5 built-in vertex attribute gate failed: ${FRUITY_PHASE5_SHADER_SOURCE}")
+    endif()
+endforeach()
+unset(FRUITY_PHASE5_SOURCE_TEXT)
+unset(FRUITY_PHASE5_SHADER_SOURCE)
 unset(FRUITY_PHASE4_SOURCE)
 unset(FRUITY_PHASE4_DISPLAY_LIST_REGEX)
 
@@ -102,6 +116,8 @@ set(FRUITY_RENDERER_GEOMETRY_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestRendererGeometry.cpp")
 set(FRUITY_RENDERER_GPU_MESH_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestRendererGpuMesh.cpp")
+set(FRUITY_SHADER_INTERFACE_TEST_SOURCE
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestShaderInterface.cpp")
 set(FRUITY_GOLDEN_CAPTURE_VALIDATION_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestGoldenCaptureValidation.cpp")
 set(FRUITY_GOLDEN_CAPTURE_CPP_SOURCE
@@ -139,6 +155,7 @@ add_custom_target(fruity_golden_capture_provenance
 list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES
     "${FRUITY_RENDERER_GEOMETRY_TEST_SOURCE}"
     "${FRUITY_RENDERER_GPU_MESH_TEST_SOURCE}"
+    "${FRUITY_SHADER_INTERFACE_TEST_SOURCE}"
     "${FRUITY_GOLDEN_CAPTURE_VALIDATION_TEST_SOURCE}")
 
 # Android owns the Activity/View/EGL shell under MphRead.Native.Android, but
@@ -241,6 +258,20 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         COMMAND "$<TARGET_FILE:fruity_renderer_gpu_mesh_tests>"
         DEPENDS fruity_renderer_gpu_mesh_tests
         COMMENT "Running native renderer GPU mesh cache tests"
+        VERBATIM)
+
+    # Phase 5's shader interface: one vertex-semantic table, desktop shaders
+    # that read only explicit inputs, and the Vulkan interface's std140 packing.
+    add_executable(fruity_shader_interface_tests
+        "${FRUITY_SHADER_INTERFACE_TEST_SOURCE}"
+        "${FRUITY_MPHREAD_ROOT}/Shaders.cpp")
+    target_include_directories(fruity_shader_interface_tests PRIVATE "${FRUITY_MPHREAD_ROOT}")
+    target_compile_features(fruity_shader_interface_tests PRIVATE cxx_std_20)
+    add_test(NAME FruityPrime.ShaderInterface COMMAND fruity_shader_interface_tests)
+    add_custom_target(fruity_shader_interface_check
+        COMMAND "$<TARGET_FILE:fruity_shader_interface_tests>"
+        DEPENDS fruity_shader_interface_tests
+        COMMENT "Running native shader interface tests"
         VERBATIM)
 
     add_executable(fruity_golden_capture_validation_tests

@@ -239,7 +239,8 @@ namespace MphRead
     class Mesh;
     namespace Formats { struct CollisionResult; }
     namespace Formats::Collision { class EntityCollision; }
-    class ShaderLocations;
+    namespace NativeRuntime::Rhi { class ShaderConstantSink; }
+    namespace NativeRuntime::Rhi::OpenGL { class ShaderLocations; }
     namespace Hud { class LayerInfo; class HudObjectInstance; }
     class Effect;
     class EffectElement;
@@ -957,6 +958,8 @@ private: \
     void UseRoomLights(); \
     void UseLight1(OpenTK::Mathematics::Vector3 vector, OpenTK::Mathematics::Vector3 color); \
     void UseLight2(OpenTK::Mathematics::Vector3 vector, OpenTK::Mathematics::Vector3 color); \
+    void SetMatrixStack(const OpenTK::Mathematics::Matrix4& transform); \
+    void SetFrameMatrices(const OpenTK::Mathematics::Matrix4& view, const OpenTK::Mathematics::Matrix4& projection); \
     void UpdateFade(); \
     void QuitGame(bool enteringShip); \
     void EndFade(); \
@@ -1065,7 +1068,8 @@ private: \
     std::int32_t _rttShaderProgramId = 0; \
     std::int32_t _shiftShaderProgramId = 0; \
     std::int32_t _celShaderProgramId = 0; \
-    std::shared_ptr<MphRead::ShaderLocations> _shaderLocations{}; \
+    std::shared_ptr<MphRead::NativeRuntime::Rhi::OpenGL::ShaderLocations> _shaderLocations{}; \
+    std::shared_ptr<MphRead::NativeRuntime::Rhi::ShaderConstantSink> _shaderConstants{}; \
     OpenTK::Mathematics::Vector3 _light1Vector{}; \
     OpenTK::Mathematics::Vector3 _light1Color{}; \
     OpenTK::Mathematics::Vector3 _light2Vector{}; \

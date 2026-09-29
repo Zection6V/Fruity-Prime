@@ -3,6 +3,7 @@
 #include "../DebugLog.hpp"
 #include "../../Scene.hpp"
 #include "../../Shaders.hpp"
+#include "../../NativeRuntime/Rhi/OpenGL/OpenGlShaderInterface.hpp"
 
 #include "../EndScreen.hpp"
 #include "HunterPreview.hpp"
@@ -288,8 +289,7 @@ namespace MphRead
         {
             throw System::NullReferenceException();
         }
-        GL::UniformMatrix4(_shaderLocations->ProjectionMatrix, false, projection);
-        GL::UniformMatrix4(_shaderLocations->ViewMatrix, false, view);
+        SetFrameMatrices(view, projection);
         GL::Uniform1(_shaderLocations->UseFog, 0);
         GL::Enable(GL::EnableCap::DepthTest);
         GL::DepthFunc(GL::DepthFunction::Less);
@@ -304,8 +304,7 @@ namespace MphRead
         }
         GL::Disable(GL::EnableCap::ScissorTest);
         GL::Viewport(0, 0, target.X, target.Y);
-        GL::UniformMatrix4(_shaderLocations->ProjectionMatrix, false, _perspectiveMatrix);
-        GL::UniformMatrix4(_shaderLocations->ViewMatrix, false, _viewMatrix);
+        SetFrameMatrices(_viewMatrix, _perspectiveMatrix);
         GL::Uniform1(_shaderLocations->UseFog, _hasFog && FogOn() ? 1 : 0);
         GL::PolygonMode(GL::TriangleFace::FrontAndBack, GL::PolygonMode::Fill);
         _previewDrawnLastFrame = true;

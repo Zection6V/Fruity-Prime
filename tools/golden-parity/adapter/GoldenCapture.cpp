@@ -84,14 +84,6 @@ namespace
             "FRUITY_GOLDEN_PARITY_HARNESS_SHA256");
     }
 
-    [[nodiscard]] Vector3 ScaleVector(Vector3 value, float scale)
-    {
-        return Vector3(
-            value.X * scale,
-            value.Y * scale,
-            value.Z * scale);
-    }
-
     template <typename TRenderItem>
     void ClearGoldenMeshIdentity(TRenderItem& item)
     {
@@ -1101,9 +1093,9 @@ namespace MphRead
         const auto cameraPoint = [this](float x, float y, float distance)
         {
             return _cameraPosition
-                + ScaleVector(_cameraRight, x)
-                + ScaleVector(_cameraUp, y)
-                + ScaleVector(_cameraFacing, distance);
+                + ::OpenTK::Mathematics::ScaleVector(_cameraRight, x)
+                + ::OpenTK::Mathematics::ScaleVector(_cameraUp, y)
+                + ::OpenTK::Mathematics::ScaleVector(_cameraFacing, distance);
         };
 
         if (fixture

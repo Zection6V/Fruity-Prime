@@ -418,3 +418,6 @@ tools/build/*
 
 # Native Android shared objects are built from source and packaged into the APK.
 android/app/src/main/jniLibs/*/libFruityPrime.so
+
+# Gradle's machine-local dependency and execution cache.
+android/.gradle/

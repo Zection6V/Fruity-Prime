@@ -158,9 +158,10 @@ if not exist "%APK%" (
     echo [android-cpp] ERROR: Gradle finished but "%APK%" does not exist.
     goto :build_error
 )
-"%ANDROID_HOME%\build-tools\%ANDROID_BUILD_TOOLS%\apksigner.bat" verify --print-certs "%APK%"
+call "%ANDROID_HOME%\build-tools\%ANDROID_BUILD_TOOLS%\apksigner.bat" verify --print-certs "%APK%"
 if errorlevel 1 goto :build_error
 copy /y "%APK%" "%OUT_ROOT%\FruityPrime.apk" >nul
+if errorlevel 1 goto :build_error
 echo.
 echo [android-cpp] APK: %OUT_ROOT%\FruityPrime.apk
 
@@ -194,9 +195,11 @@ rem Normalize toolchain paths for CMake's -D parser on Windows.
 set "VCPKG_CMAKE_TOOLCHAIN=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake"
 set "ANDROID_CMAKE_TOOLCHAIN=%ANDROID_NDK_HOME%\build\cmake\android.toolchain.cmake"
 set "NINJA_CMAKE_PATH=%NINJA_EXE%"
+set "VCPKG_CMAKE_ROOT=%VCPKG_ROOT%"
 set "VCPKG_CMAKE_TOOLCHAIN=%VCPKG_CMAKE_TOOLCHAIN:\=/%"
 set "ANDROID_CMAKE_TOOLCHAIN=%ANDROID_CMAKE_TOOLCHAIN:\=/%"
 set "NINJA_CMAKE_PATH=%NINJA_CMAKE_PATH:\=/%"
+set "VCPKG_CMAKE_ROOT=%VCPKG_CMAKE_ROOT:\=/%"
 
 echo [android-cpp] Installing vcpkg libraries for %ABI% (%TRIPLET%)...
 "%VCPKG_ROOT%\vcpkg.exe" install ^
@@ -209,8 +212,25 @@ echo [android-cpp] Installing vcpkg libraries for %ABI% (%TRIPLET%)...
 if errorlevel 1 exit /b 1
 
 echo [android-cpp] Configuring %ABI%...
-rem --fresh drops stale CMake cache entries from earlier toolchain experiments.
-"%CMAKE_EXE%" --fresh -S "%REPO_ROOT%" -B "%BUILD_DIR%" -G Ninja ^
+rem Keep a valid cache for incremental builds, but discard stale toolchain state.
+set "CMAKE_FRESH=--fresh"
+if exist "%BUILD_DIR%\CMakeCache.txt" (
+    findstr /i /c:"CMAKE_TOOLCHAIN_FILE:FILEPATH=%VCPKG_CMAKE_ROOT%/scripts/buildsystems/vcpkg.cmake" "%BUILD_DIR%\CMakeCache.txt" >nul
+    if not errorlevel 1 (
+        findstr /i /c:"VCPKG_INSTALLED_DIR:PATH=%VCPKG_CMAKE_ROOT%/installed" "%BUILD_DIR%\CMakeCache.txt" >nul
+        if not errorlevel 1 (
+            findstr /i /c:"VCPKG_TARGET_TRIPLET:STRING=%TRIPLET%" "%BUILD_DIR%\CMakeCache.txt" >nul
+            if not errorlevel 1 (
+                findstr /i /c:"ANDROID_ABI:UNINITIALIZED=%ABI%" "%BUILD_DIR%\CMakeCache.txt" >nul
+                if not errorlevel 1 (
+                    findstr /i /c:"ANDROID_PLATFORM:UNINITIALIZED=android-%ANDROID_MIN_API%" "%BUILD_DIR%\CMakeCache.txt" >nul
+                    if not errorlevel 1 set "CMAKE_FRESH="
+                )
+            )
+        )
+    )
+)
+"%CMAKE_EXE%" %CMAKE_FRESH% -S "%REPO_ROOT%" -B "%BUILD_DIR%" -G Ninja ^
     "-DCMAKE_MAKE_PROGRAM=%NINJA_CMAKE_PATH%" ^
     "-DCMAKE_TOOLCHAIN_FILE=%VCPKG_CMAKE_TOOLCHAIN%" ^
     "-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=%ANDROID_CMAKE_TOOLCHAIN%" ^

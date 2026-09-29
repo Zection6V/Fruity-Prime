@@ -410,3 +410,8 @@ maps/**/*.fpmap
 # the player's own texture/import files), so keep them out of the source tree.
 **/_mapgen/
 tools/hitrig/bin/
+
+# Keep build entry-point scripts in source control; ignore generated build output.
+!tools/build/
+tools/build/*
+!tools/build/*.bat

@@ -17,6 +17,9 @@ perform the requested local work yourself.
 - This must be a ChatGPT conversation, not a Codex task. Do not call a Codex task
   creation tool as a substitute. If available controls cannot create a new
   ChatGPT conversation, ask the user to create one and provide or open it.
+- Keep the actual ChatGPT browser tab open while its work item is active or
+  unfinished. Use Computer Use in that tab for all messages, reply inspection,
+  and status checks; do not use Codex app conversation APIs for this workflow.
 
 ## Recover from a stopped or stalled response
 
@@ -27,17 +30,21 @@ perform the requested local work yourself.
   is taking several minutes or because intermediate progress is repetitive;
   use bounded polling and continue waiting. Stop or recover only for a clearly
   stalled response, an explicit user request, or an actual UI/tool failure.
-- Before deciding that a response stopped, inspect the composer button again.
-  A blue circular button containing a white square and labelled `回答を停止`
-  means the response is still running; do not send a continuation while that
-  button is present. A blue circular button containing the white waveform
-  icon, with the stop-square action gone, is the fully stopped state and may
-  be recovered. Prefer the accessible label/state over the icon when the UI
-  exposes both.
+- Inspect the rightmost composer control in the actual ChatGPT tab. A blue
+  circular button containing a white square and labelled `回答を停止` means the
+  response is still running; do not send while it is present, even if the
+  response takes 20 minutes or more. When that stop control disappears and the
+  rightmost button returns to the voice-mode waveform icon, treat the answer as
+  interrupted and the composer as ready. If the requested work is unfinished,
+  immediately send one concise continuation in the same conversation; do not
+  wait 20 minutes and do not click Retry/再試行. A stale API `active` status
+  never overrides the visible composer. If the answer is visibly complete,
+  record it instead of sending a redundant continuation.
 - Re-observe the ChatGPT tab before acting and verify that it is the intended
-  conversation. Send one short continuation message such as `続けて` to the
-  same conversation, then wait for the response. Do not repeat the message in a
-  loop.
+  conversation. After sending, verify that the continuation appears in the
+  conversation and generation starts. Do not duplicate a message while the
+  same idle composer state persists; if a new response starts and later stops
+  again, treat that as a new interruption and continue only the remaining work.
 - If the same conversation stops again, remains stalled, or its context is no
   longer reliable, keep that conversation tab open: a separate ChatGPT chat is
   completely context-free and closing the old tab is not a handoff. Record the
@@ -50,6 +57,30 @@ perform the requested local work yourself.
   the old conversation as still unfinished until its work has a terminal
   PASS/NO-OP or the user explicitly abandons it. Apply the normal review rules:
   the returned text is a proposal, and local authoritative sources decide the work.
+
+### When a conversation reaches its length limit
+
+- Treat ChatGPT's explicit “This conversation has reached the maximum length”
+  notice as a hard limit on that conversation, not as an ordinary stopped
+  response. Do not keep sending continuations or click Retry there.
+- If authorized work remains, start a new ordinary ChatGPT conversation and
+  put a complete handoff in its first message. A new chat is context-free:
+  include the repository and branch, exact work item and source/target paths,
+  authoritative revisions or blobs, current remote commit, completed steps
+  with evidence, decisions and constraints, unresolved issues, and the concrete
+  next action. The old-chat link is provenance only; never assume the new chat
+  can read or inherit the old conversation.
+- Recheck the live branch and any referenced repository documents before
+  dispatch. Include concise local-only facts if the new chat cannot read them;
+  do not present an uncommitted local path as remote evidence.
+- Keep the capped conversation's URL/ID and last usable result in the task
+  ledger as `length-limited`. Verify the handoff message appears and generation
+  starts before treating the transition as successful. Preserve the old tab
+  until then, and leave it open if the user is viewing it.
+- Continue implementation, audit, correction, and Git verification in the new
+  chat without redoing completed steps unless a concrete verification gap is
+  found. Keep the old item unfinished until its remaining work reaches a
+  terminal result.
 
 ## Computer Use and GitHub invariants
 
@@ -73,12 +104,18 @@ perform the requested local work yourself.
   `メッセージ配信がタイムアウトしました` / `Message delivery timed out`
   together with a `再試行` / `Retry` control as a terminal timeout state. Do
   not click `再試行` / `Retry`: it restarts the answer and can discard the
-  usable partial work. After the stop-square is gone and the composer is live,
-  send exactly one short same-chat continuation, `Continue.`, then wait for
-  the response. Do not send that continuation while the stop-square is still
-  present. If the resumed answer is still incomplete, record the usable
-  revision/byte ledger and switch to local reconstruction or an exact
-  missing-fragment fallback instead of repeatedly restarting the investigation.
+  usable partial work. When the stop-square disappears and the rightmost
+  composer control returns to the voice-mode waveform, treat the response as
+  interrupted and the composer as ready. If the task is unfinished, immediately
+  send exactly one short same-chat continuation, `Continue.`; do not wait 20
+  minutes. Verify that the message appears and generation starts. Never send
+  while the stop-square is visible or duplicate a continuation during the same
+  idle state. If the resumed answer stops again, continue only the remaining
+  action immediately when the waveform returns. If the answer is complete,
+  record the result without a redundant continuation. If the resumed answer is
+  still incomplete, record the usable revision/byte ledger and switch to local
+  reconstruction or an exact missing-fragment fallback instead of repeatedly
+  restarting the investigation.
 - For large generated files, keep the fixed blob SHA and size in the working
   ledger. If analysis/tests finished but upload or commit timed out, send a
   short same-chat continuation that resumes from those fixed blobs and finishes
@@ -219,9 +256,10 @@ perform the requested local work yourself.
 - If the response is truncated, request only the missing continuation. If a claim
   is unclear, ask a focused follow-up in the same conversation; do not restart the
   whole prompt.
-- ChatGPT conversations may not support task-wait APIs. Poll sparingly with the
-  available chat-reading control, or inspect the conversation in ChatGPT after
-  allowing time for Sol high to finish.
+- Inspect replies and generation state in the actual ChatGPT browser tab with
+  Computer Use; do not poll or message through a Codex conversation API. Allow
+  long responses to finish while the stop-square remains visible, and continue
+  immediately in the same tab when the waveform returns and work remains.
 
 ## Complete and verify the local task
 
@@ -362,8 +400,8 @@ Use the composer control as the state authority:
 | Live state | Required action |
 |---|---|
 | Blue `回答を停止` stop-square exists | The answer is still running, even if the text says `思考中`, `接続が中断されました`, or “waiting”. Wait; do not send another prompt or click stop. |
-| Stop-square disappears and a normal composer/submit control is live | The answer is stopped or terminal. Inspect the full response before deciding whether one continuation is needed. |
-| `メッセージ配信がタイムアウトしました` / “Message delivery timed out” plus `再試行` / `Retry` | This is a delivery timeout, not permission to restart. Never click Retry. Preserve the partial response, wait until the stop-square is gone, then send exactly one same-chat continuation. |
+| Stop-square disappears and the rightmost composer button is the voice-mode waveform | The response stopped. Inspect the latest exchange immediately; if any requested work remains, send one concise same-chat continuation now, without a 20-minute delay. |
+| `メッセージ配信がタイムアウトしました` / “Message delivery timed out” plus `再試行` / `Retry` | This is a delivery timeout, not permission to restart. Never click Retry. Preserve the partial response; wait only while the stop-square remains, then continue immediately if the waveform returns and work remains. |
 | Final answer has response actions and no stop-square | Record the result/SHA and advance the ledger; do not send a redundant follow-up. |
 
 For a delivery timeout after analysis/implementation is already complete, send a

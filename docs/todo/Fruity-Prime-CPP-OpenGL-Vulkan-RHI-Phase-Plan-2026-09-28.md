@@ -2335,7 +2335,7 @@ scene unload/reload
 
 ## 必須parity
 
-Phase 0 goldenと比較。
+Phase 3 Golden Captureと比較。Phase 0にはGolden Captureが存在しないため、2026-09-30のユーザー指示によりPhase 0画像の追加取得は不要とする。
 
 重大差分ゼロ。
 

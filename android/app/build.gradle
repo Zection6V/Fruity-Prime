@@ -6,6 +6,7 @@ def nativeVersionName = System.getenv("FRUITY_ANDROID_VERSION_NAME") ?: "0.0.0-d
 def nativeVersionCodeText = System.getenv("FRUITY_ANDROID_VERSION_CODE") ?: "1"
 def nativeMinSdk = Integer.parseInt(System.getenv("ANDROID_MIN_API") ?: "26")
 def generatedAssetsDir = file("$buildDir/generated/fruityAssets")
+def generatedResourcesDir = file("$buildDir/generated/fruityResources")
 
 android {
     namespace "fr.livetek.fruityprime"
@@ -22,7 +23,7 @@ android {
     sourceSets {
         main {
             jniLibs.srcDirs = ["src/main/jniLibs"]
-            res.srcDir("../../src/MphRead.Android/Resources")
+            res.srcDirs = ["src/main/res", generatedResourcesDir]
             assets.srcDir(generatedAssetsDir)
         }
     }
@@ -71,8 +72,15 @@ tasks.register("syncFruityAssets", Sync) {
     }
 }
 
+tasks.register("syncFruityResources", Sync) {
+    into(generatedResourcesDir)
+    from("../../src/MphRead.Android/Resources") {
+        exclude("values/styles.xml")
+    }
+}
+
 tasks.named("preBuild").configure {
-    dependsOn("syncFruityAssets")
+    dependsOn("syncFruityAssets", "syncFruityResources")
 }
 
 dependencies {

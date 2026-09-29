@@ -993,7 +993,7 @@ namespace MphRead
             const std::int32_t val = (i & 32) != 0 ? 31 - (i & 31) : i & 31;
             shifts[static_cast<std::size_t>(i)] = -((val - 16) << 12) / 4096.0F / 256.0F;
         }
-        GL::Uniform1(_shaderLocations->ShiftTable, 64, shifts.data());
+        _shaderConstants->SetShiftTable(shifts);
         GL::UseProgram(_shaderProgramId);
         std::vector<float> floats;
         floats.reserve(Metadata::ToonTable.size() * 3);
@@ -1971,19 +1971,17 @@ namespace MphRead
         }
         DrawCelOutline();
         GL::Disable(GL::EnableCap::CullFace); GL::UseProgram(_rttShaderProgramId);
-        GL::Uniform1(_shaderLocations->LayerAlpha, 1.0F); GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
+        _shaderConstants->SetLayerAlpha(1.0F); _shaderConstants->SetFadeColor(Vector4{});
         if (main->HudDisruptedState() != 0 || main->HudWhiteoutState() != -1)
         {
             const float div = _elapsedTime / (1.0F / 30.0F);
             const std::int32_t index = ::MphRead::NativeRuntime::ConvertToInt32Net9(div);
             const float factor = std::fmod(div, 1.0F);
             GL::UseProgram(_shiftShaderProgramId);
-            GL::Uniform1(_shaderLocations->ShiftFactor, main->HudDisruptionFactor());
-            GL::Uniform1(_shaderLocations->ShiftIndex, index);
-            GL::Uniform1(_shaderLocations->LerpFactor, factor);
-            GL::Uniform1(_shaderLocations->WhiteoutFactor, main->HudWhiteoutFactor());
+            _shaderConstants->Set(NativeRuntime::Rhi::DisruptionPostConstants{
+                main->HudDisruptionFactor(), index, factor, main->HudWhiteoutFactor()});
             if (main->HudWhiteoutFactor() != 0.0F)
-                GL::Uniform1(_shaderLocations->WhiteoutTable, 192, Entities::PlayerEntity::HudWhiteoutTable.data());
+                _shaderConstants->SetWhiteoutTable(Entities::PlayerEntity::HudWhiteoutTable);
         }
         GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, 0);
         GL::Viewport(0, 0, _rendererSize.X, _rendererSize.Y);
@@ -1994,7 +1992,7 @@ namespace MphRead
         TransientTexCoord3(1,0,0); TransientVertex3(1,-1,0); TransientTexCoord3(0,0,0); TransientVertex3(-1,-1,0); EndTransient();
         GL::BindTexture(GL::TextureTarget::Texture2D, 0);
         if (main->HudDisruptedState() != 0 || main->HudWhiteoutState() != -1) GL::UseProgram(_rttShaderProgramId);
-        GL::Uniform4(_shaderLocations->FadeColor, _fadeColor, _fadeColor, _fadeColor, 0.0F);
+        _shaderConstants->SetFadeColor(Vector4(_fadeColor, _fadeColor, _fadeColor, 0.0F));
         if (((main->LoadFlags() & LoadFlags::Active) == LoadFlags::Active) && CameraMode() == MphRead::CameraMode::Player)
         {
             if (GameState::MenuPause()) main->DrawPauseMenuBackground();
@@ -2003,10 +2001,10 @@ namespace MphRead
             {
                 GL::ActiveTexture(GL::TextureUnit::Texture1); GL::BindTexture(GL::TextureTarget::Texture2D, _layer1Info->MaskId);
                 GL::ActiveTexture(GL::TextureUnit::Texture0);
-                GL::Uniform1(_shaderLocations->ViewWidth, static_cast<float>(_rendererSize.X));
-                GL::Uniform1(_shaderLocations->ViewHeight, static_cast<float>(_rendererSize.Y));
+                _shaderConstants->SetViewSize(
+                    static_cast<float>(_rendererSize.X), static_cast<float>(_rendererSize.Y));
             }
-            main->DrawHudObjects(); GL::Uniform1(_shaderLocations->UseMask, 0);
+            main->DrawHudObjects(); _shaderConstants->SetUseMask(false);
             if (_layer1Info->MaskId != -1)
             {
                 GL::ActiveTexture(GL::TextureUnit::Texture1); GL::BindTexture(GL::TextureTarget::Texture2D, 0); GL::ActiveTexture(GL::TextureUnit::Texture0);
@@ -2025,7 +2023,7 @@ namespace MphRead
                     static_cast<std::int32_t>(_fadeType),
                     _fadeColor,
                     percent);
-                GL::Uniform4(_shaderLocations->FadeColor, _fadeColor, _fadeColor, _fadeColor, percent);
+                _shaderConstants->SetFadeColor(Vector4(_fadeColor, _fadeColor, _fadeColor, percent));
                 BeginTransient(TransientPrimitiveTopology::TriangleStrip);
                 TransientTexCoord3(1,1,0); TransientVertex3(1,1,0); TransientTexCoord3(0,1,0); TransientVertex3(-1,1,0);
                 TransientTexCoord3(1,0,0); TransientVertex3(1,-1,0); TransientTexCoord3(0,0,0); TransientVertex3(-1,-1,0); EndTransient();
@@ -4057,7 +4055,7 @@ namespace MphRead
         {
             return;
         }
-        GL::Uniform1(_shaderLocations->LayerAlpha, info->Alpha);
+        _shaderConstants->SetLayerAlpha(info->Alpha);
         GL::BindTexture(GL::TextureTarget::Texture2D, info->BindingId);
         GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
             static_cast<std::int32_t>(GL::TextureMinFilter::Nearest));
@@ -4099,7 +4097,7 @@ namespace MphRead
         const float offY = 1.0F - posY * 2.0F;
         const auto style = Mods::Render::Crosshair::Style;
         const float scale = Mods::Render::Crosshair::Scale();
-        GL::Uniform4(_shaderLocations->FadeColor, color.X, color.Y, color.Z, 1.0F);
+        _shaderConstants->SetFadeColor(Vector4(color.X, color.Y, color.Z, 1.0F));
         const auto bars = Mods::Render::Crosshair::BarsOf(style, scale);
         for (const auto& bar : bars)
         {
@@ -4134,7 +4132,7 @@ namespace MphRead
             }
             EndTransient();
         }
-        GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
+        _shaderConstants->SetFadeColor(Vector4{});
     }
 
     void Scene::DrawHitMarker(Vector4 color, float posX, float posY)
@@ -4148,7 +4146,7 @@ namespace MphRead
         constexpr float length = 7.0F;
         constexpr float thickness = 2.0F;
         const float diagonal = std::sqrt(0.5F);
-        GL::Uniform4(_shaderLocations->FadeColor, color);
+        _shaderConstants->SetFadeColor(color);
         for (std::int32_t i = 0; i < 4; ++i)
         {
             const float dx = ((i & 1) == 0 ? -1.0F : 1.0F) * diagonal;
@@ -4166,7 +4164,7 @@ namespace MphRead
             TransientVertex3(offX + (x1 - hx) / halfW, offY + (y1 - hy) / halfH, 0);
             EndTransient();
         }
-        GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
+        _shaderConstants->SetFadeColor(Vector4{});
     }
 
     // A bound texture over a HUD rectangle, in the 256x192 space. Linear: a
@@ -4184,8 +4182,8 @@ namespace MphRead
         const float x1 = (right / 256.0F * _rendererSize.X - halfW) / halfW;
         const float y0 = (halfH - top / 192.0F * _rendererSize.Y) / halfH;
         const float y1 = (halfH - bottom / 192.0F * _rendererSize.Y) / halfH;
-        GL::Uniform1(_shaderLocations->LayerAlpha, alpha);
-        GL::Uniform1(_shaderLocations->UseMask, 0);
+        _shaderConstants->SetLayerAlpha(alpha);
+        _shaderConstants->SetUseMask(false);
         GL::BindTexture(GL::TextureTarget::Texture2D, bindingId);
         const auto min = static_cast<std::int32_t>(smooth ? GL::TextureMinFilter::Linear : GL::TextureMinFilter::Nearest);
         const auto mag = static_cast<std::int32_t>(smooth ? GL::TextureMagFilter::Linear : GL::TextureMagFilter::Nearest);
@@ -4206,7 +4204,7 @@ namespace MphRead
         TransientVertex3(x0, y1, 0);
         EndTransient();
         GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-        GL::Uniform1(_shaderLocations->LayerAlpha, 1.0F);
+        _shaderConstants->SetLayerAlpha(1.0F);
     }
 
     // A filled circle; localCenter is a pixel offset from (posX, posY), y up.
@@ -4217,7 +4215,7 @@ namespace MphRead
         const float halfH = _rendererSize.Y / 2.0F;
         const float offX = posX * 2.0F - 1.0F + localCenter.X / halfW;
         const float offY = 1.0F - posY * 2.0F + localCenter.Y / halfH;
-        GL::Uniform4(_shaderLocations->FadeColor, color);
+        _shaderConstants->SetFadeColor(color);
         BeginTransient(TransientPrimitiveTopology::TriangleFan);
         TransientVertex3(offX, offY, 0);
         for (std::int32_t i = 0; i <= segments; i++)
@@ -4226,7 +4224,7 @@ namespace MphRead
             TransientVertex3(offX + radius * std::cos(angle) / halfW, offY + radius * std::sin(angle) / halfH, 0);
         }
         EndTransient();
-        GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
+        _shaderConstants->SetFadeColor(Vector4{});
     }
 
     // An unfilled ring; radius is to the middle of the stroke.
@@ -4239,7 +4237,7 @@ namespace MphRead
         const float offY = 1.0F - posY * 2.0F + localCenter.Y / halfH;
         const float inner = radius - thickness / 2;
         const float outer = radius + thickness / 2;
-        GL::Uniform4(_shaderLocations->FadeColor, color);
+        _shaderConstants->SetFadeColor(color);
         BeginTransient(TransientPrimitiveTopology::TriangleStrip);
         for (std::int32_t i = 0; i <= segments; i++)
         {
@@ -4250,7 +4248,7 @@ namespace MphRead
             TransientVertex3(offX + inner * cos / halfW, offY + inner * sin / halfH, 0);
         }
         EndTransient();
-        GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
+        _shaderConstants->SetFadeColor(Vector4{});
     }
 
     // A straight bar between two points local to (posX, posY), in pixels, y up.
@@ -4270,14 +4268,14 @@ namespace MphRead
         const float offY = 1.0F - posY * 2.0F;
         const float perpX = -dirY / len * (thickness / 2.0F);
         const float perpY = dirX / len * (thickness / 2.0F);
-        GL::Uniform4(_shaderLocations->FadeColor, color);
+        _shaderConstants->SetFadeColor(color);
         BeginTransient(TransientPrimitiveTopology::TriangleStrip);
         TransientVertex3(offX + (from.X + perpX) / halfW, offY + (from.Y + perpY) / halfH, 0);
         TransientVertex3(offX + (from.X - perpX) / halfW, offY + (from.Y - perpY) / halfH, 0);
         TransientVertex3(offX + (to.X + perpX) / halfW, offY + (to.Y + perpY) / halfH, 0);
         TransientVertex3(offX + (to.X - perpX) / halfW, offY + (to.Y - perpY) / halfH, 0);
         EndTransient();
-        GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
+        _shaderConstants->SetFadeColor(Vector4{});
     }
 
     // A filled, axis-aligned square local to (posX, posY), in pixels.
@@ -4290,14 +4288,14 @@ namespace MphRead
         const float offY = 1.0F - posY * 2.0F;
         const float cx = localCenter.X;
         const float cy = localCenter.Y;
-        GL::Uniform4(_shaderLocations->FadeColor, color);
+        _shaderConstants->SetFadeColor(color);
         BeginTransient(TransientPrimitiveTopology::TriangleStrip);
         TransientVertex3(offX + (cx + halfSize) / halfW, offY + (cy + halfSize) / halfH, 0);
         TransientVertex3(offX + (cx - halfSize) / halfW, offY + (cy + halfSize) / halfH, 0);
         TransientVertex3(offX + (cx + halfSize) / halfW, offY + (cy - halfSize) / halfH, 0);
         TransientVertex3(offX + (cx - halfSize) / halfW, offY + (cy - halfSize) / halfH, 0);
         EndTransient();
-        GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
+        _shaderConstants->SetFadeColor(Vector4{});
     }
 
     // A filled convex polygon, points local to localCenter and already in fan order.
@@ -4308,7 +4306,7 @@ namespace MphRead
         const float halfH = _rendererSize.Y / 2.0F;
         const float offX = posX * 2.0F - 1.0F;
         const float offY = 1.0F - posY * 2.0F;
-        GL::Uniform4(_shaderLocations->FadeColor, color);
+        _shaderConstants->SetFadeColor(color);
         BeginTransient(TransientPrimitiveTopology::TriangleFan);
         for (const OpenTK::Mathematics::Vector2& point : localPoints)
         {
@@ -4317,7 +4315,7 @@ namespace MphRead
             TransientVertex3(offX + x / halfW, offY + y / halfH, 0);
         }
         EndTransient();
-        GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
+        _shaderConstants->SetFadeColor(Vector4{});
     }
 
     void Scene::DrawHudFlatBox(float left, float top, float right, float bottom, Vector4 color)
@@ -4328,11 +4326,11 @@ namespace MphRead
         const float x1 = (right / 256.0F * _rendererSize.X - halfW) / halfW;
         const float y0 = (halfH - top / 192.0F * _rendererSize.Y) / halfH;
         const float y1 = (halfH - bottom / 192.0F * _rendererSize.Y) / halfH;
-        GL::Uniform4(_shaderLocations->FadeColor, color);
+        _shaderConstants->SetFadeColor(color);
         BeginTransient(TransientPrimitiveTopology::TriangleStrip);
         TransientVertex3(x1, y0, 0); TransientVertex3(x0, y0, 0); TransientVertex3(x1, y1, 0); TransientVertex3(x0, y1, 0);
         EndTransient();
-        GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
+        _shaderConstants->SetFadeColor(Vector4{});
     }
 
     void Scene::DrawHudObject(const std::shared_ptr<HudObjectInstance>& inst, std::int32_t mode, float scale)
@@ -4346,8 +4344,8 @@ namespace MphRead
         float width = static_cast<float>(inst->Width);
         float height = static_cast<float>(inst->Height);
         const bool center = inst->Center;
-        GL::Uniform1(_shaderLocations->LayerAlpha, inst->Alpha);
-        GL::Uniform1(_shaderLocations->UseMask, inst->UseMask ? 1 : 0);
+        _shaderConstants->SetLayerAlpha(inst->Alpha);
+        _shaderConstants->SetUseMask(inst->UseMask);
         GL::BindTexture(GL::TextureTarget::Texture2D, inst->BindingId);
         GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
             static_cast<std::int32_t>(inst->Smooth ? GL::TextureMinFilter::Linear : GL::TextureMinFilter::Nearest));

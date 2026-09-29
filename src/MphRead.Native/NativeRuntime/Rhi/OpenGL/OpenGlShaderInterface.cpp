@@ -88,6 +88,47 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 GL::Uniform1(_locations->CelProbe, constants.Probe ? 1 : 0);
             }
 
+            void SetFadeColor(const ::OpenTK::Mathematics::Vector4& color) override
+            {
+                GL::Uniform4(_locations->FadeColor, color);
+            }
+
+            void SetLayerAlpha(float alpha) override
+            {
+                GL::Uniform1(_locations->LayerAlpha, alpha);
+            }
+
+            void SetUseMask(bool useMask) override
+            {
+                GL::Uniform1(_locations->UseMask, useMask ? 1 : 0);
+            }
+
+            void SetViewSize(float width, float height) override
+            {
+                GL::Uniform1(_locations->ViewWidth, width);
+                GL::Uniform1(_locations->ViewHeight, height);
+            }
+
+            void Set(const DisruptionPostConstants& constants) override
+            {
+                GL::Uniform1(_locations->ShiftFactor, constants.ShiftFactor);
+                GL::Uniform1(_locations->ShiftIndex, constants.ShiftIndex);
+                GL::Uniform1(_locations->LerpFactor, constants.LerpFactor);
+                GL::Uniform1(_locations->WhiteoutFactor, constants.WhiteoutFactor);
+            }
+
+            void SetShiftTable(std::span<const float> table) override
+            {
+                GL::Uniform1(_locations->ShiftTable,
+                    static_cast<std::int32_t>(std::min(table.size(), ShiftTableLength)), table.data());
+            }
+
+            void SetWhiteoutTable(std::span<const float> table) override
+            {
+                GL::Uniform1(_locations->WhiteoutTable,
+                    static_cast<std::int32_t>(std::min(table.size(), WhiteoutTableLength)), table.data());
+            }
+
         private:
             std::shared_ptr<const ShaderLocations> _locations;
         };

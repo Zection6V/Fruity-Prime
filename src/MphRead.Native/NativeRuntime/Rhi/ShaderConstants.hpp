@@ -82,6 +82,31 @@ namespace MphRead::NativeRuntime::Rhi
         bool Probe = false;
     };
 
+    // Post: the HUD/RTT pass. The frontend changes these one at a time (a
+    // flash, a layer, a mask), so the sink takes them one at a time; a Vulkan
+    // backend keeps this struct and writes it as one block.
+    struct HudPostConstants final
+    {
+        ::OpenTK::Mathematics::Vector4 FadeColor{};
+        float LayerAlpha = 1.0F;
+        bool UseMask = false;
+        float ViewWidth = 0.0F;
+        float ViewHeight = 0.0F;
+    };
+
+    // Post: the disruption / whiteout scanline shift, set together each frame
+    // the effect is live.
+    struct DisruptionPostConstants final
+    {
+        float ShiftFactor = 0.0F;
+        std::int32_t ShiftIndex = 0;
+        float LerpFactor = 0.0F;
+        float WhiteoutFactor = 0.0F;
+    };
+
+    inline constexpr std::size_t ShiftTableLength = 64;
+    inline constexpr std::size_t WhiteoutTableLength = 192;
+
     class ShaderConstantSink
     {
     public:
@@ -95,5 +120,16 @@ namespace MphRead::NativeRuntime::Rhi
         virtual void Set(const MaterialConstants& constants) = 0;
         virtual void Set(const DrawConstants& constants) = 0;
         virtual void Set(const CelPostConstants& constants) = 0;
+
+        // HudPostConstants, field by field.
+        virtual void SetFadeColor(const ::OpenTK::Mathematics::Vector4& color) = 0;
+        virtual void SetLayerAlpha(float alpha) = 0;
+        virtual void SetUseMask(bool useMask) = 0;
+        virtual void SetViewSize(float width, float height) = 0;
+
+        virtual void Set(const DisruptionPostConstants& constants) = 0;
+        // ShiftTableLength and WhiteoutTableLength values respectively.
+        virtual void SetShiftTable(std::span<const float> table) = 0;
+        virtual void SetWhiteoutTable(std::span<const float> table) = 0;
     };
 }

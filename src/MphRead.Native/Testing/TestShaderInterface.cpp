@@ -156,6 +156,18 @@ namespace
         const CelPostConstants cel{1.0F, 2.0F, 3.0F, 4.0F, 5.0F, 6.0F, true};
         const Vulkan::CelPostBlockData celData = Vulkan::Pack(cel);
         Expect(celData.DepthQuantum == 6.0F && celData.Probe == 1U, "cel packing");
+
+        const HudPostConstants hud{Vector4(1.0F, 0.5F, 0.25F, 0.125F), 0.75F, true, 640.0F, 480.0F};
+        const Vulkan::HudPostBlockData hudData = Vulkan::Pack(hud);
+        Expect(hudData.FadeColor[3] == 0.125F && hudData.LayerAlpha == 0.75F
+            && hudData.UseMask == 1U && hudData.ViewHeight == 480.0F, "HUD post packing");
+
+        const Vulkan::DisruptionPostBlockData disruption
+            = Vulkan::Pack(DisruptionPostConstants{0.5F, 7, 0.25F, -1.0F});
+        Expect(disruption.ShiftIndex == 7 && disruption.WhiteoutFactor == -1.0F,
+            "disruption packing");
+        Expect(sizeof(Vulkan::DisruptionTablesBlockData) / 16U == 16U + 48U,
+            "disruption tables are 16 + 48 vec4");
     }
 }
 

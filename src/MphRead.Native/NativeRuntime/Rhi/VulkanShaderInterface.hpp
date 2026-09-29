@@ -36,6 +36,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     inline constexpr BlockBinding MaterialTexture{MaterialSet, 1};
     inline constexpr BlockBinding DrawBlock{DrawSet, 0};
     inline constexpr BlockBinding CelPostBlock{PostSet, 0};
+    inline constexpr BlockBinding HudPostBlock{PostSet, 1};
+    inline constexpr BlockBinding DisruptionPostBlock{PostSet, 2};
+    inline constexpr BlockBinding DisruptionTablesBlock{PostSet, 3};
 
     // std140 mirrors. A vec3 occupies sixteen bytes, bools are 32-bit, and a
     // mat4 is four vec4 columns; the static_asserts below are the layout the
@@ -99,7 +102,36 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         float Pad = 0.0F;
     };
 
+    struct alignas(16) HudPostBlockData final
+    {
+        float FadeColor[4]{};
+        float LayerAlpha = 1.0F;
+        std::uint32_t UseMask = 0;
+        float ViewWidth = 0.0F;
+        float ViewHeight = 0.0F;
+    };
+
+    struct alignas(16) DisruptionPostBlockData final
+    {
+        float ShiftFactor = 0.0F;
+        std::int32_t ShiftIndex = 0;
+        float LerpFactor = 0.0F;
+        float WhiteoutFactor = 0.0F;
+    };
+
+    // std140 gives a float array a sixteen-byte stride, so the two tables are
+    // declared as vec4 arrays and indexed [i / 4][i % 4] in GLSL.
+    struct alignas(16) DisruptionTablesBlockData final
+    {
+        float Shift[ShiftTableLength]{};
+        float Whiteout[WhiteoutTableLength]{};
+    };
+
     static_assert(sizeof(Std140Vec3) == 16);
+    static_assert(sizeof(HudPostBlockData) == 32);
+    static_assert(sizeof(DisruptionPostBlockData) == 16);
+    static_assert(offsetof(DisruptionTablesBlockData, Whiteout) == ShiftTableLength * 4U);
+    static_assert(sizeof(DisruptionTablesBlockData) == (ShiftTableLength + WhiteoutTableLength) * 4U);
     static_assert(sizeof(FrameBlockData) == 128);
     static_assert(offsetof(FrameBlockData, Projection) == 64);
     static_assert(sizeof(SceneLightBlockData) == 64);
@@ -160,6 +192,17 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             c.FarPlane, c.DepthQuantum, c.Probe ? 1U : 0U, 0.0F};
     }
 
+    [[nodiscard]] inline HudPostBlockData Pack(const HudPostConstants& c)
+    {
+        return HudPostBlockData{{c.FadeColor.X, c.FadeColor.Y, c.FadeColor.Z, c.FadeColor.W},
+            c.LayerAlpha, c.UseMask ? 1U : 0U, c.ViewWidth, c.ViewHeight};
+    }
+
+    [[nodiscard]] inline DisruptionPostBlockData Pack(const DisruptionPostConstants& c)
+    {
+        return DisruptionPostBlockData{c.ShiftFactor, c.ShiftIndex, c.LerpFactor, c.WhiteoutFactor};
+    }
+
     // The vertex inputs, as the Vulkan vertex shaders declare them. The
     // locations are VulkanLocations; the names are VertexSemanticNames.
     inline constexpr std::string_view VertexInterfaceGlsl = R"glsl(
@@ -209,6 +252,23 @@ layout(std140, set = 3, binding = 0) uniform CelPostBlock {
     float far_plane;
     float depth_quantum;
     bool probe;
+};
+layout(std140, set = 3, binding = 1) uniform HudPostBlock {
+    vec4 fade_color;
+    float alpha;
+    bool use_mask;
+    float view_width;
+    float view_height;
+};
+layout(std140, set = 3, binding = 2) uniform DisruptionPostBlock {
+    float shift_fac;
+    int shift_idx;
+    float lerp_fac;
+    float white_fac;
+};
+layout(std140, set = 3, binding = 3) uniform DisruptionTablesBlock {
+    vec4 shift_table[16];
+    vec4 white_table[48];
 };
 )glsl";
 }

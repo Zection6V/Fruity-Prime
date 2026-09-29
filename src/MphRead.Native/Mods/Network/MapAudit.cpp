@@ -250,6 +250,11 @@ namespace MphRead::Mods::Network
 
     void MapAudit::Dispose()
     {
+        if (_scene)
+        {
+            _scene->ReleaseGpuResources();
+            _scene.reset();
+        }
         _swapchain.reset();
         _window.reset();
     }

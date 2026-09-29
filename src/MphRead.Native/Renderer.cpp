@@ -5729,6 +5729,10 @@ namespace MphRead
             Mods::Render::LauncherHunter::ReleaseGl();
         }
 #endif
+        if (_scene)
+        {
+            _scene->ReleaseGpuResources();
+        }
     }
 
     bool RenderWindow::HasScene() const noexcept

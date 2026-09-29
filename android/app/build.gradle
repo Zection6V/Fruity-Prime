@@ -1,0 +1,88 @@
+plugins {
+    id "com.android.application"
+}
+
+def nativeVersionName = System.getenv("FRUITY_ANDROID_VERSION_NAME") ?: "0.0.0-dev"
+def nativeVersionCodeText = System.getenv("FRUITY_ANDROID_VERSION_CODE") ?: "1"
+def nativeMinSdk = Integer.parseInt(System.getenv("ANDROID_MIN_API") ?: "26")
+def generatedAssetsDir = file("$buildDir/generated/fruityAssets")
+def generatedResourcesDir = file("$buildDir/generated/fruityResources")
+
+android {
+    namespace "fr.livetek.fruityprime"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "fr.livetek.fruityprime"
+        minSdk nativeMinSdk
+        targetSdk 35
+        versionCode Integer.parseInt(nativeVersionCodeText)
+        versionName nativeVersionName
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ["src/main/jniLibs"]
+            res.srcDirs = ["src/main/res", generatedResourcesDir]
+            assets.srcDir(generatedAssetsDir)
+        }
+    }
+
+    buildTypes {
+        debug {
+            debuggable true
+        }
+        release {
+            debuggable false
+            minifyEnabled false
+            // The C++ beta APK must be installable from CI without a private
+            // signing secret. Keep one cached development key in Actions so
+            // successive beta builds can update each other.
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
+        }
+    }
+}
+
+tasks.register("syncFruityAssets", Sync) {
+    into(generatedAssetsDir)
+    from("../../src/MphRead/Assets") {
+        into("Assets")
+        include("*.png")
+        include("Fonts/*.ttf")
+        include("Backgrounds/*.jpg")
+        include("Geo/*.gz")
+    }
+    from("../../maps") {
+        into("maps")
+        include("*.json")
+        include("*.bsp")
+        include("*.tex")
+        include("*.fpmap")
+    }
+}
+
+tasks.register("syncFruityResources", Sync) {
+    into(generatedResourcesDir)
+    from("../../src/MphRead.Android/Resources") {
+        exclude("values/styles.xml")
+    }
+}
+
+tasks.named("preBuild").configure {
+    dependsOn("syncFruityAssets", "syncFruityResources")
+}
+
+dependencies {
+    implementation "androidx.core:core:1.15.0"
+}

@@ -32,13 +32,6 @@
 #include <optional>
 #include <string>
 
-namespace MphRead::Mods::Launcher::Detail
-{
-    // Existing direct-owner seam already used by MatchStart.cpp for the
-    // PlayerAi.cs-owned BotLevel member.
-    void MatchStartSetBotLevel(MphRead::Entities::PlayerEntity& player, std::int32_t level);
-}
-
 namespace MphRead::Droid
 {
     std::unique_ptr<MphRead::Scene> AndroidMatch::Build(
@@ -292,9 +285,7 @@ namespace MphRead::Droid
             }
             if (player->IsBot())
             {
-                MphRead::Mods::Launcher::Detail::MatchStartSetBotLevel(
-                    *player,
-                    level);
+                player->SetBotLevel(level);
             }
         }
 

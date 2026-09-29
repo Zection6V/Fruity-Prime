@@ -5599,6 +5599,7 @@ namespace MphRead
         return setting ? "yes" : "no ";
     }
 
+#if !defined(__ANDROID__)
     const RendererPlatform::WindowSettings& RenderWindow::Settings()
     {
         static const RendererPlatform::WindowSettings settings = Mods::Render::DesktopGlContext::Settings(
@@ -6363,6 +6364,8 @@ namespace MphRead
         _window->BaseOnKeyDown(e);
     }
 
+#endif
+
     std::int32_t TextureMap::GetKey(std::int32_t textureId, std::int32_t paletteId,
         std::int32_t recolorId) const
     {
@@ -6424,6 +6427,7 @@ namespace MphRead
 
 #undef MPHREAD_DEBUG_ASSERT
 
+#if !defined(__ANDROID__)
     std::int32_t RenderWindow::WindowBorder() const
     {
         return _window->WindowBorder();
@@ -6503,5 +6507,6 @@ namespace MphRead
     {
         _window->Close();
     }
+#endif
 
 }

@@ -240,10 +240,12 @@ namespace OpenTK::Graphics::OpenGL
         void DetachShader(std::int32_t program, std::int32_t shader);
         void Disable(EnableCap cap);
         void DisableClientState(ClientState array);
+        void DisableVertexAttribArray(std::uint32_t index);
         void DrawBuffer(DrawBufferMode mode);
         void DrawElements(PrimitiveType mode, std::int32_t count, DrawElementsType type, const void* indices);
         void Enable(EnableCap cap);
         void EnableClientState(ClientState array);
+        void EnableVertexAttribArray(std::uint32_t index);
         void FramebufferRenderbuffer(FramebufferTarget target, FramebufferAttachment attachment,
             RenderbufferTarget renderbuffertarget, std::int32_t renderbuffer);
         void FramebufferTexture2D(FramebufferTarget target, FramebufferAttachment attachment,
@@ -313,6 +315,8 @@ namespace OpenTK::Graphics::OpenGL
         void UniformMatrix4(std::int32_t location, bool transpose, const ::OpenTK::Mathematics::Matrix4& matrix);
         void UniformMatrix4(std::int32_t location, std::int32_t count, bool transpose, const float* value);
         void UseProgram(std::int32_t program);
+        void VertexAttribPointer(std::uint32_t index, std::int32_t size, PointerType type,
+            bool normalized, std::int32_t stride, const void* pointer);
         void VertexPointer(std::int32_t size, PointerType type, std::int32_t stride, const void* pointer);
         void PopMatrix();
         void PushMatrix();

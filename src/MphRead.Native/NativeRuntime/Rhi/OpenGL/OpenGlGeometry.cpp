@@ -13,6 +13,11 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
     {
         namespace GL = ::OpenTK::Graphics::OpenGL::GL;
 
+        constexpr std::uint32_t PositionAttribute = 0U;
+        constexpr std::uint32_t ColorAttribute = 1U;
+        constexpr std::uint32_t NormalAttribute = 2U;
+        constexpr std::uint32_t TexCoordAttribute = 3U;
+
         struct OpenGlMeshVertex final
         {
             float Position[3]{};
@@ -205,12 +210,12 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 }
 
                 GL::BindBuffer(GL::BufferTarget::ArrayBuffer, _vertexBuffer);
-                GL::EnableClientState(GL::ClientState::VertexArray);
-                GL::VertexPointer(3, GL::PointerType::Float,
+                GL::EnableVertexAttribArray(PositionAttribute);
+                GL::VertexAttribPointer(PositionAttribute, 3, GL::PointerType::Float, false,
                     static_cast<std::int32_t>(sizeof(OpenGlMeshVertex)),
                     reinterpret_cast<const void*>(offsetof(OpenGlMeshVertex, Position)));
-                GL::EnableClientState(GL::ClientState::TextureCoordArray);
-                GL::TexCoordPointer(3, GL::PointerType::Float,
+                GL::EnableVertexAttribArray(TexCoordAttribute);
+                GL::VertexAttribPointer(TexCoordAttribute, 3, GL::PointerType::Float, false,
                     static_cast<std::int32_t>(sizeof(OpenGlMeshVertex)),
                     reinterpret_cast<const void*>(offsetof(OpenGlMeshVertex, TexCoord)));
 
@@ -226,10 +231,10 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                         reinterpret_cast<const void*>(range.IndexByteOffset));
                 }
 
-                GL::DisableClientState(GL::ClientState::VertexArray);
-                GL::DisableClientState(GL::ClientState::TextureCoordArray);
-                GL::DisableClientState(GL::ClientState::ColorArray);
-                GL::DisableClientState(GL::ClientState::NormalArray);
+                GL::DisableVertexAttribArray(PositionAttribute);
+                GL::DisableVertexAttribArray(TexCoordAttribute);
+                GL::DisableVertexAttribArray(ColorAttribute);
+                GL::DisableVertexAttribArray(NormalAttribute);
                 GL::BindBuffer(GL::BufferTarget::ArrayBuffer, 0);
                 GL::BindBuffer(GL::BufferTarget::ElementArrayBuffer, 0);
 
@@ -261,14 +266,14 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             {
                 if (_colorMode == AttributeMode::Inherited)
                 {
-                    GL::DisableClientState(GL::ClientState::ColorArray);
+                    GL::DisableVertexAttribArray(ColorAttribute);
                     return;
                 }
-                GL::EnableClientState(GL::ClientState::ColorArray);
+                GL::EnableVertexAttribArray(ColorAttribute);
                 if (_colorMode == AttributeMode::Static)
                 {
                     GL::BindBuffer(GL::BufferTarget::ArrayBuffer, _vertexBuffer);
-                    GL::ColorPointer(4, GL::PointerType::Float,
+                    GL::VertexAttribPointer(ColorAttribute, 4, GL::PointerType::Float, false,
                         static_cast<std::int32_t>(sizeof(OpenGlMeshVertex)),
                         reinterpret_cast<const void*>(offsetof(OpenGlMeshVertex, Color)));
                 }
@@ -278,7 +283,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     GL::BufferData(GL::BufferTarget::ArrayBuffer,
                         _colorScratch.size() * sizeof(float), _colorScratch.data(),
                         GL::BufferUsageHint::StreamDraw);
-                    GL::ColorPointer(4, GL::PointerType::Float, 0, nullptr);
+                    GL::VertexAttribPointer(ColorAttribute, 4, GL::PointerType::Float, false, 0, nullptr);
                 }
             }
 
@@ -286,14 +291,14 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             {
                 if (_normalMode == AttributeMode::Inherited)
                 {
-                    GL::DisableClientState(GL::ClientState::NormalArray);
+                    GL::DisableVertexAttribArray(NormalAttribute);
                     return;
                 }
-                GL::EnableClientState(GL::ClientState::NormalArray);
+                GL::EnableVertexAttribArray(NormalAttribute);
                 if (_normalMode == AttributeMode::Static)
                 {
                     GL::BindBuffer(GL::BufferTarget::ArrayBuffer, _vertexBuffer);
-                    GL::NormalPointer(GL::PointerType::Float,
+                    GL::VertexAttribPointer(NormalAttribute, 3, GL::PointerType::Float, false,
                         static_cast<std::int32_t>(sizeof(OpenGlMeshVertex)),
                         reinterpret_cast<const void*>(offsetof(OpenGlMeshVertex, Normal)));
                 }
@@ -303,7 +308,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     GL::BufferData(GL::BufferTarget::ArrayBuffer,
                         _normalScratch.size() * sizeof(float), _normalScratch.data(),
                         GL::BufferUsageHint::StreamDraw);
-                    GL::NormalPointer(GL::PointerType::Float, 0, nullptr);
+                    GL::VertexAttribPointer(NormalAttribute, 3, GL::PointerType::Float, false, 0, nullptr);
                 }
             }
 
@@ -411,30 +416,30 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     _indices.size() * sizeof(std::uint32_t), _indices.data(),
                     GL::BufferUsageHint::StreamDraw);
 
-                GL::DisableClientState(GL::ClientState::ColorArray);
-                GL::DisableClientState(GL::ClientState::NormalArray);
-                GL::EnableClientState(GL::ClientState::VertexArray);
-                GL::VertexPointer(3, GL::PointerType::Float,
+                GL::DisableVertexAttribArray(ColorAttribute);
+                GL::DisableVertexAttribArray(NormalAttribute);
+                GL::EnableVertexAttribArray(PositionAttribute);
+                GL::VertexAttribPointer(PositionAttribute, 3, GL::PointerType::Float, false,
                     static_cast<std::int32_t>(sizeof(OpenGlTransientVertex)),
                     reinterpret_cast<const void*>(offsetof(OpenGlTransientVertex, Position)));
                 if (hasTexCoords)
                 {
-                    GL::EnableClientState(GL::ClientState::TextureCoordArray);
-                    GL::TexCoordPointer(3, GL::PointerType::Float,
+                    GL::EnableVertexAttribArray(TexCoordAttribute);
+                    GL::VertexAttribPointer(TexCoordAttribute, 3, GL::PointerType::Float, false,
                         static_cast<std::int32_t>(sizeof(OpenGlTransientVertex)),
                         reinterpret_cast<const void*>(offsetof(OpenGlTransientVertex, TexCoord)));
                 }
                 else
                 {
-                    GL::DisableClientState(GL::ClientState::TextureCoordArray);
+                    GL::DisableVertexAttribArray(TexCoordAttribute);
                 }
 
                 GL::DrawElements(ToGlTopology(topology),
                     static_cast<std::int32_t>(_indices.size()),
                     GL::DrawElementsType::UnsignedInt, nullptr);
 
-                GL::DisableClientState(GL::ClientState::VertexArray);
-                GL::DisableClientState(GL::ClientState::TextureCoordArray);
+                GL::DisableVertexAttribArray(PositionAttribute);
+                GL::DisableVertexAttribArray(TexCoordAttribute);
                 GL::BindBuffer(GL::BufferTarget::ArrayBuffer, 0);
                 GL::BindBuffer(GL::BufferTarget::ElementArrayBuffer, 0);
             }

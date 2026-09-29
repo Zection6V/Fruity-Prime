@@ -55,6 +55,8 @@ namespace
     using PFN_DeleteRenderbuffers = void(APIENTRY*)(GLsizei, const GLuint*);
     using PFN_DeleteShader = void(APIENTRY*)(GLuint);
     using PFN_DetachShader = void(APIENTRY*)(GLuint, GLuint);
+    using PFN_DisableVertexAttribArray = void(APIENTRY*)(GLuint);
+    using PFN_EnableVertexAttribArray = void(APIENTRY*)(GLuint);
     using PFN_FramebufferRenderbuffer = void(APIENTRY*)(GLenum, GLenum, GLenum, GLuint);
     using PFN_FramebufferTexture2D = void(APIENTRY*)(GLenum, GLenum, GLenum, GLuint, GLint);
     using PFN_GenBuffers = void(APIENTRY*)(GLsizei, GLuint*);
@@ -80,6 +82,8 @@ namespace
     using PFN_Uniform4i = void(APIENTRY*)(GLint, GLint, GLint, GLint, GLint);
     using PFN_UniformMatrix4fv = void(APIENTRY*)(GLint, GLsizei, GLboolean, const GLfloat*);
     using PFN_UseProgram = void(APIENTRY*)(GLuint);
+    using PFN_VertexAttribPointer
+        = void(APIENTRY*)(GLuint, GLint, GLenum, GLboolean, GLsizei, const void*);
     using PFN_DebugMessageCallback = void(APIENTRY*)(void*, const void*);
 
     [[nodiscard]] void* ResolveEntryPoint(const char* name)
@@ -147,6 +151,8 @@ namespace
     MPHREAD_GL_ENTRY(PFN_DeleteRenderbuffers, DeleteRenderbuffers)
     MPHREAD_GL_ENTRY(PFN_DeleteShader, DeleteShader)
     MPHREAD_GL_ENTRY(PFN_DetachShader, DetachShader)
+    MPHREAD_GL_ENTRY(PFN_DisableVertexAttribArray, DisableVertexAttribArray)
+    MPHREAD_GL_ENTRY(PFN_EnableVertexAttribArray, EnableVertexAttribArray)
     MPHREAD_GL_ENTRY(PFN_FramebufferRenderbuffer, FramebufferRenderbuffer)
     MPHREAD_GL_ENTRY(PFN_FramebufferTexture2D, FramebufferTexture2D)
     MPHREAD_GL_ENTRY(PFN_GenBuffers, GenBuffers)
@@ -171,6 +177,7 @@ namespace
     MPHREAD_GL_ENTRY(PFN_Uniform4i, Uniform4i)
     MPHREAD_GL_ENTRY(PFN_UniformMatrix4fv, UniformMatrix4fv)
     MPHREAD_GL_ENTRY(PFN_UseProgram, UseProgram)
+    MPHREAD_GL_ENTRY(PFN_VertexAttribPointer, VertexAttribPointer)
     MPHREAD_GL_ENTRY(PFN_DebugMessageCallback, DebugMessageCallback)
 
 #undef MPHREAD_GL_ENTRY
@@ -416,6 +423,28 @@ namespace OpenTK::Graphics::OpenGL::GL
         ::glDisableClientState(ToEnum(array));
     }
 
+    void DisableVertexAttribArray(std::uint32_t index)
+    {
+        const auto fn = GetDisableVertexAttribArray();
+        if (fn == nullptr)
+        {
+            throw std::runtime_error("glDisableVertexAttribArray is unavailable.");
+        }
+        fn(static_cast<GLuint>(index));
+
+        // Phase 4 keeps the desktop GLSL 1.20 built-ins until Phase 5.
+        // Mirror locations 0-3 into their conventional arrays so the same
+        // VBO-backed geometry feeds gl_Vertex/gl_Color/gl_Normal/gl_MultiTexCoord0.
+        switch (index)
+        {
+        case 0: ::glDisableClientState(GL_VERTEX_ARRAY); break;
+        case 1: ::glDisableClientState(GL_COLOR_ARRAY); break;
+        case 2: ::glDisableClientState(GL_NORMAL_ARRAY); break;
+        case 3: ::glDisableClientState(GL_TEXTURE_COORD_ARRAY); break;
+        default: break;
+        }
+    }
+
     void DrawBuffer(DrawBufferMode mode)
     {
         ::glDrawBuffer(ToEnum(mode));
@@ -434,6 +463,27 @@ namespace OpenTK::Graphics::OpenGL::GL
     void EnableClientState(ClientState array)
     {
         ::glEnableClientState(ToEnum(array));
+    }
+
+    void EnableVertexAttribArray(std::uint32_t index)
+    {
+        const auto fn = GetEnableVertexAttribArray();
+        if (fn == nullptr)
+        {
+            throw std::runtime_error("glEnableVertexAttribArray is unavailable.");
+        }
+        fn(static_cast<GLuint>(index));
+
+        // Generic arrays are the Phase 4 submission contract. The conventional
+        // mirrors preserve the existing compatibility-shader inputs on desktop.
+        switch (index)
+        {
+        case 0: ::glEnableClientState(GL_VERTEX_ARRAY); break;
+        case 1: ::glEnableClientState(GL_COLOR_ARRAY); break;
+        case 2: ::glEnableClientState(GL_NORMAL_ARRAY); break;
+        case 3: ::glEnableClientState(GL_TEXTURE_COORD_ARRAY); break;
+        default: break;
+        }
     }
 
     void FramebufferRenderbuffer(FramebufferTarget target, FramebufferAttachment attachment,
@@ -884,6 +934,45 @@ namespace OpenTK::Graphics::OpenGL::GL
         if (const auto fn = GetUseProgram())
         {
             fn(static_cast<GLuint>(program));
+        }
+    }
+
+    void VertexAttribPointer(std::uint32_t index, std::int32_t size, PointerType type,
+        bool normalized, std::int32_t stride, const void* pointer)
+    {
+        if (index == 2U && size != 3)
+        {
+            throw std::invalid_argument("Compatibility normal attribute must have three components.");
+        }
+
+        const auto fn = GetVertexAttribPointer();
+        if (fn == nullptr)
+        {
+            throw std::runtime_error("glVertexAttribPointer is unavailable.");
+        }
+        const GLenum glType = ToEnum(type);
+        fn(static_cast<GLuint>(index), size, glType,
+            normalized ? GL_TRUE : GL_FALSE, static_cast<GLsizei>(stride), pointer);
+
+        // Built-in GLSL attributes are conventional attributes and cannot be
+        // rebound to generic locations. Keep an exact compatibility mirror
+        // until Phase 5 moves the desktop shaders to explicit inputs.
+        switch (index)
+        {
+        case 0:
+            ::glVertexPointer(size, glType, static_cast<GLsizei>(stride), pointer);
+            break;
+        case 1:
+            ::glColorPointer(size, glType, static_cast<GLsizei>(stride), pointer);
+            break;
+        case 2:
+            ::glNormalPointer(glType, static_cast<GLsizei>(stride), pointer);
+            break;
+        case 3:
+            ::glTexCoordPointer(size, glType, static_cast<GLsizei>(stride), pointer);
+            break;
+        default:
+            break;
         }
     }
 

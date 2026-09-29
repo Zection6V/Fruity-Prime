@@ -516,33 +516,43 @@ namespace OpenTK::Graphics::OpenGL::GL
     {
         switch (array)
         {
-        case ClientState::VertexArray:
+        case ClientState::VertexArray: DisableVertexAttribArray(0); break;
+        case ClientState::ColorArray: DisableVertexAttribArray(1); break;
+        case ClientState::NormalArray: DisableVertexAttribArray(2); break;
+        case ClientState::TextureCoordArray: DisableVertexAttribArray(3); break;
+        }
+    }
+
+    void DisableVertexAttribArray(std::uint32_t index)
+    {
+        glDisableVertexAttribArray(static_cast<GLuint>(index));
+        switch (index)
+        {
+        case 0:
             State.VertexArray = false;
-            glDisableVertexAttribArray(0);
             break;
-        case ClientState::ColorArray:
+        case 1:
             State.ColorArray = false;
-            glDisableVertexAttribArray(1);
             glDisableVertexAttribArray(4);
             glVertexAttrib1f(4, 0.0F);
             break;
-        case ClientState::NormalArray:
+        case 2:
             State.NormalArray = false;
-            glDisableVertexAttribArray(2);
             glVertexAttrib3f(
                 2,
                 State.CurrentNormal[0],
                 State.CurrentNormal[1],
                 State.CurrentNormal[2]);
             break;
-        case ClientState::TextureCoordArray:
+        case 3:
             State.TexCoordArray = false;
-            glDisableVertexAttribArray(3);
             glVertexAttrib3f(
                 3,
                 State.CurrentTexCoord[0],
                 State.CurrentTexCoord[1],
                 State.CurrentTexCoord[2]);
+            break;
+        default:
             break;
         }
     }
@@ -591,23 +601,33 @@ namespace OpenTK::Graphics::OpenGL::GL
     {
         switch (array)
         {
-        case ClientState::VertexArray:
+        case ClientState::VertexArray: EnableVertexAttribArray(0); break;
+        case ClientState::ColorArray: EnableVertexAttribArray(1); break;
+        case ClientState::NormalArray: EnableVertexAttribArray(2); break;
+        case ClientState::TextureCoordArray: EnableVertexAttribArray(3); break;
+        }
+    }
+
+    void EnableVertexAttribArray(std::uint32_t index)
+    {
+        glEnableVertexAttribArray(static_cast<GLuint>(index));
+        switch (index)
+        {
+        case 0:
             State.VertexArray = true;
-            glEnableVertexAttribArray(0);
             break;
-        case ClientState::ColorArray:
+        case 1:
             State.ColorArray = true;
-            glEnableVertexAttribArray(1);
             glDisableVertexAttribArray(4);
             glVertexAttrib1f(4, 1.0F);
             break;
-        case ClientState::NormalArray:
+        case 2:
             State.NormalArray = true;
-            glEnableVertexAttribArray(2);
             break;
-        case ClientState::TextureCoordArray:
+        case 3:
             State.TexCoordArray = true;
-            glEnableVertexAttribArray(3);
+            break;
+        default:
             break;
         }
     }
@@ -818,13 +838,7 @@ namespace OpenTK::Graphics::OpenGL::GL
         std::int32_t stride,
         const void* pointer)
     {
-        glVertexAttribPointer(
-            2,
-            3,
-            static_cast<GLenum>(Int(type)),
-            GL_FALSE,
-            stride,
-            pointer);
+        VertexAttribPointer(2, 3, type, false, stride, pointer);
     }
 
     void ColorPointer(
@@ -833,13 +847,7 @@ namespace OpenTK::Graphics::OpenGL::GL
         std::int32_t stride,
         const void* pointer)
     {
-        glVertexAttribPointer(
-            1,
-            size,
-            static_cast<GLenum>(Int(type)),
-            GL_FALSE,
-            stride,
-            pointer);
+        VertexAttribPointer(1, size, type, false, stride, pointer);
     }
 
     void PixelStore(PixelStoreParameter pname, std::int32_t param)
@@ -934,13 +942,7 @@ namespace OpenTK::Graphics::OpenGL::GL
         std::int32_t stride,
         const void* pointer)
     {
-        glVertexAttribPointer(
-            3,
-            size,
-            static_cast<GLenum>(Int(type)),
-            GL_FALSE,
-            stride,
-            pointer);
+        VertexAttribPointer(3, size, type, false, stride, pointer);
     }
 
     void TexCoord2(float s, float t)
@@ -1149,19 +1151,30 @@ namespace OpenTK::Graphics::OpenGL::GL
         Compat::GlEs::UseProgram(program);
     }
 
+    void VertexAttribPointer(
+        std::uint32_t index,
+        std::int32_t size,
+        PointerType type,
+        bool normalized,
+        std::int32_t stride,
+        const void* pointer)
+    {
+        glVertexAttribPointer(
+            static_cast<GLuint>(index),
+            size,
+            static_cast<GLenum>(Int(type)),
+            normalized ? GL_TRUE : GL_FALSE,
+            stride,
+            pointer);
+    }
+
     void VertexPointer(
         std::int32_t size,
         PointerType type,
         std::int32_t stride,
         const void* pointer)
     {
-        glVertexAttribPointer(
-            0,
-            size,
-            static_cast<GLenum>(Int(type)),
-            GL_FALSE,
-            stride,
-            pointer);
+        VertexAttribPointer(0, size, type, false, stride, pointer);
     }
 
     void PopMatrix()

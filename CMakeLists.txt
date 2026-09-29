@@ -362,11 +362,20 @@ endif()
 if(NOT ANDROID)
     add_executable(fruity_prime "${CMAKE_CURRENT_SOURCE_DIR}/src/FruityPrime/Main.cpp")
     target_link_libraries(fruity_prime PRIVATE fruity_mphread_native)
-    if(MSVC)
-        # The MSVC CI archive contains Metadata/Weapons.cpp and
-        # Entities/EntityBase.cpp, but link.exe failed to extract three
-        # definitions from MphRead.Native.lib. Force complete archive
-        # consumption on MSVC; other toolchains keep normal archive semantics.
+    if(MSVC AND FRUITY_GOLDEN_PARITY_ADAPTER)
+        # Exact MSVC Actions builds compile these two production owners, but
+        # link.exe still cannot resolve Weapons::{Current,WeaponsMP} or
+        # EntityBase::HandleMessage from MphRead.Native.lib. /WHOLEARCHIVE does
+        # not repair that archive boundary and additionally pulls TestMisc.obj,
+        # whose LoadPngRgb owner is absent. Keep the production source bytes and
+        # native validation intact; bypass only that archive boundary for the
+        # runner-owned parity build.
+        target_sources(fruity_prime PRIVATE
+            "${FRUITY_MPHREAD_ROOT}/Metadata/Weapons.cpp"
+            "${FRUITY_MPHREAD_ROOT}/Entities/EntityBase.cpp")
+        target_compile_definitions(fruity_prime PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    elseif(MSVC)
+        # Preserve the canonical MSVC link policy outside the parity adapter.
         target_link_options(fruity_prime PRIVATE
             "/WHOLEARCHIVE:$<TARGET_FILE:fruity_mphread_native>")
     endif()

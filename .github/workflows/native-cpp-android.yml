@@ -185,6 +185,7 @@ jobs:
           abi="${{ matrix.abi }}"
           build_dir="build/native-android-${abi}"
           vcpkg_root="${{ steps.vcpkg.outputs.root }}"
+          mkdir -p "$build_dir"
 
           cmake -S . -B "$build_dir" \
             -DCMAKE_TOOLCHAIN_FILE="${vcpkg_root}/scripts/buildsystems/vcpkg.cmake" \

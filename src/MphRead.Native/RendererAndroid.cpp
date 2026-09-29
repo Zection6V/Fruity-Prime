@@ -1,4 +1,5 @@
 #include "Renderer.hpp"
+#include "NativeRuntime/Rhi/BackendFactory.hpp"
 
 #if defined(__ANDROID__)
 

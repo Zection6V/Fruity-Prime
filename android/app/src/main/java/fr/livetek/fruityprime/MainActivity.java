@@ -16,14 +16,14 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.appcompat.app.AppCompatActivity;
+import android.app.Activity;
 
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 
-public final class MainActivity extends AppCompatActivity
+public final class MainActivity extends Activity
         implements DisplayManager.DisplayListener, InputManager.InputDeviceListener {
     static {
         System.loadLibrary("FruityPrime");

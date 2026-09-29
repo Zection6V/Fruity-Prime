@@ -13,15 +13,15 @@ SOURCE_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".hxx"}
 RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
         "display-list API",
-        re.compile(r"\\b(?:GenLists|NewList|EndList|CallList|DeleteLists)\\b"),
+        re.compile(r"\b(?:GenLists|NewList|EndList|CallList|DeleteLists)\b"),
     ),
     (
         "immediate-mode begin/end",
-        re.compile(r"(?:\\bGL::(?:Begin|End)|\\bgl(?:Begin|End))\\s*\\("),
+        re.compile(r"(?:\bGL::(?:Begin|End)|\bgl(?:Begin|End))\s*\("),
     ),
     (
         "immediate-mode vertex submission",
-        re.compile(r"(?:\\bGL::Vertex(?:[234])?|\\bglVertex[234][A-Za-z0-9_]*)\\s*\\("),
+        re.compile(r"(?:\bGL::Vertex(?:[234])?|\bglVertex[234][A-Za-z0-9_]*)\s*\("),
     ),
 )
 

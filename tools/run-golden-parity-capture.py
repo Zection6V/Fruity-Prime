@@ -814,7 +814,7 @@ def capture(
             "golden_capture_cpp_git_blob": identity["cpp_git_blob"],
             "golden_capture_cpp_sha256": identity["cpp_sha256"],
             "golden_capture_harness_sha256": identity["harness_sha256"],
-            "parity_adapter_contract": "phase3-phase4-shared-v1",
+            "parity_adapter_contract": "phase3-phase4-shared-v2",
             "captured": "true",
         }
         for key, expected_value in expected_fields.items():

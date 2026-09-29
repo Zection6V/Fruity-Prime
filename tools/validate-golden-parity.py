@@ -25,6 +25,7 @@ from typing import Mapping, Sequence
 PHASE3_BASELINE = "13c49e35f2a314662c7cc639e5e56fa784ac8bfd"
 PHASE_PLAN_BLOB = "a262838984ef547ebd6f22d1d9e78f3e1f214586"
 FIXTURE_CONTRACT = "phase4-final-stage-v2"
+PARITY_ADAPTER_CONTRACT = "phase3-phase4-shared-v1"
 HARNESS_RELATIVE_PATHS = (
     pathlib.Path("src/MphRead.Native/Mods/Render/GoldenCapture.cpp"),
     pathlib.Path("src/MphRead.Native/Mods/Render/GoldenCapture.hpp"),
@@ -49,6 +50,7 @@ COMMON_INPUT_KEYS = (
     "phase",
     "candidate",
     "fixture_contract",
+    "parity_adapter_contract",
     "plan_baseline",
     "phase_plan_blob",
     "phase3_baseline_commit",
@@ -84,6 +86,7 @@ COMMON_INPUT_KEYS = (
 EXPECTED_FIXED_INPUTS = {
     "phase": "4",
     "fixture_contract": FIXTURE_CONTRACT,
+    "parity_adapter_contract": PARITY_ADAPTER_CONTRACT,
     "phase_plan_blob": PHASE_PLAN_BLOB,
     "phase3_baseline_commit": PHASE3_BASELINE,
     "map": "TEST ARENA",
@@ -434,8 +437,11 @@ def validate_manifest(
     harness_state = require_key(
         manifest, "source_commit_harness_state", manifest_path
     )
-    if harness_state not in ("clean", "dirty"):
-        fail(f"{manifest_path}: unusable harness git state {harness_state!r}")
+    if harness_state != "dirty":
+        fail(
+            f"{manifest_path}: parity-adapter capture must report a dirty "
+            f"harness overlay, got {harness_state!r}"
+        )
 
     manifest_harness = require_key(
         manifest, "golden_capture_harness_sha256", manifest_path
@@ -540,6 +546,8 @@ def validate_manifest(
             "fade_draw_observed": "true",
             "fade_draw_color": "1",
             "fade_draw_percent": "0.5",
+            "fade_update_postcondition_verified": "true",
+            "fade_half_white_rgb_verified": "true",
         }
         for key, expected in expected_fade.items():
             actual = require_key(manifest, key, manifest_path)
@@ -548,6 +556,16 @@ def validate_manifest(
                     f"{manifest_path}: fade fixture gate {key}={actual!r} "
                     f"!= {expected!r}"
                 )
+
+        expected_hook = "false" if source_commit == PHASE3_BASELINE else "true"
+        for key in ("fade_update_hook_observed", "fade_draw_hook_observed"):
+            actual = require_key(manifest, key, manifest_path)
+            if actual != expected_hook:
+                fail(
+                    f"{manifest_path}: {key}={actual!r} != expected "
+                    f"{expected_hook!r} for source commit {source_commit}"
+                )
+
         parse_positive_int(
             require_key(manifest, "fade_draw_type_value", manifest_path),
             f"{manifest_path}:fade_draw_type_value",
@@ -648,6 +666,8 @@ def compare_capture_evidence(left: CaptureEvidence, right: CaptureEvidence) -> N
             "fade_draw_type_value",
             "fade_draw_color",
             "fade_draw_percent",
+            "fade_update_postcondition_verified",
+            "fade_half_white_rgb_verified",
         ):
             if left.manifest[key] != right.manifest[key]:
                 fail(
@@ -777,6 +797,7 @@ def _test_manifest(
             )
         )
     if candidate == "fade":
+        hook_observed = "false" if source_commit == PHASE3_BASELINE else "true"
         extra.extend(
             (
                 ("fade_target_type", "FadeOutWhite"),
@@ -788,12 +809,17 @@ def _test_manifest(
                 ("fade_draw_type_value", "4"),
                 ("fade_draw_color", "1"),
                 ("fade_draw_percent", "0.5"),
+                ("fade_update_hook_observed", hook_observed),
+                ("fade_update_postcondition_verified", "true"),
+                ("fade_draw_hook_observed", hook_observed),
+                ("fade_half_white_rgb_verified", "true"),
             )
         )
     values = {
         "phase": "4",
         "candidate": candidate,
         "fixture_contract": FIXTURE_CONTRACT,
+        "parity_adapter_contract": PARITY_ADAPTER_CONTRACT,
         "plan_baseline": "bb8f619da7abbe614ea60765006f290a60938f98",
         "phase_plan_blob": PHASE_PLAN_BLOB,
         "phase3_baseline_commit": PHASE3_BASELINE,

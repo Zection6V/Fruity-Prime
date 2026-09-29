@@ -7,6 +7,7 @@ import pathlib
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 
 TOOLS_DIR = pathlib.Path(__file__).resolve().parent
@@ -146,6 +147,19 @@ class RunnerLifecycleTests(unittest.TestCase):
         with self.assertRaises(runner.GateError):
             runner.stage_runtime_paths_file(source, executable)
         self.assertEqual(destination.read_bytes(), b"pre-existing\n")
+
+    def test_run_command_forwards_environment(self) -> None:
+        environment = {"FRUITY_GOLDEN_PARITY_SOURCE_COMMIT": "sentinel"}
+        completed = mock.Mock()
+        completed.returncode = 0
+        with mock.patch.object(runner.subprocess, "run", return_value=completed) as run:
+            runner.run_command(
+                ("fake-command",),
+                cwd=self.root,
+                description="environment forwarding test",
+                env=environment,
+            )
+        self.assertIs(run.call_args.kwargs["env"], environment)
 
     def test_build_provenance_rejects_binary_source_mismatch(self) -> None:
         build_dir = self.root / "tools" / "build" / "out" / "golden-parity" / "test"

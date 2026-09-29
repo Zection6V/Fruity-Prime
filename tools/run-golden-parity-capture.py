@@ -310,11 +310,13 @@ def run_command(
     *,
     cwd: pathlib.Path,
     description: str,
+    env: Mapping[str, str] | None = None,
 ) -> None:
     try:
         completed = subprocess.run(
             tuple(command),
             cwd=str(cwd),
+            env=env,
             check=False,
         )
     except OSError as exc:
@@ -641,7 +643,12 @@ def capture(
 
     staged_paths, paths_sha256 = stage_runtime_paths_file(paths_file, executable)
     try:
-        run_command(command, cwd=cwd, description="golden parity capture")
+        run_command(
+            command,
+            cwd=cwd,
+            description="golden parity capture",
+            env=env,
+        )
     finally:
         remove_staged_runtime_paths_file(staged_paths, paths_sha256)
 

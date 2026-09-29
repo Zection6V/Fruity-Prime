@@ -17,6 +17,14 @@ namespace MphRead::Droid
         AndroidGlContextLease();
         ~AndroidGlContextLease() = default;
 
+        void Release() noexcept
+        {
+            if (_lock.owns_lock())
+            {
+                _lock.unlock();
+            }
+        }
+
         AndroidGlContextLease(const AndroidGlContextLease&) = delete;
         AndroidGlContextLease& operator=(const AndroidGlContextLease&) = delete;
         AndroidGlContextLease(AndroidGlContextLease&&) = delete;

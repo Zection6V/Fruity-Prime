@@ -266,46 +266,79 @@ namespace MphRead::Droid
             worker->Finished.notify_all();
         };
 
-        const auto cleanupAfterRetire = [&scene, &gl]
+        const auto rememberCleanupError = [](
+            std::exception_ptr& first,
+            std::exception_ptr current) noexcept
         {
-            try
+            if (first == nullptr)
             {
-                if (scene != nullptr)
-                {
-                    scene->DoCleanup();
-                }
-            }
-            catch (...)
-            {
-                const std::exception_ptr error = std::current_exception();
-                ::MphRead::NativeRuntime::ConsoleWriteLine(
-                    "[hunter] cleanup failed: "
-                        + ::MphRead::NativeRuntime::ExceptionMessage(error));
-            }
-            if (gl != nullptr)
-            {
-                Mods::Render::GlEs::ReleaseContext();
-                gl->Dispose();
+                first = std::move(current);
             }
         };
-        const auto cleanupAfterFailure = [&scene, &gl]
+        const auto cleanupSceneWhileCurrent = [
+            &scene,
+            &input,
+            &rememberCleanupError]() noexcept
+            -> std::exception_ptr
         {
-            try
+            std::exception_ptr first;
+            if (scene != nullptr)
             {
-                if (scene != nullptr)
+                try
                 {
                     scene->DoCleanup();
                 }
+                catch (...)
+                {
+                    rememberCleanupError(first, std::current_exception());
+                }
+                try
+                {
+                    // Phase 4 GPU mesh/transient buffers belong to Scene and
+                    // must be deleted while this EGL context is still current.
+                    scene->UnloadGl();
+                }
+                catch (...)
+                {
+                    rememberCleanupError(first, std::current_exception());
+                }
+
+                // Even when UnloadGl failed, destroy the Scene before the GLES
+                // shim/context. GPU resource destructors therefore still run
+                // while this worker owns the current EGL context.
+                scene.reset();
             }
-            catch (...)
-            {
-                // The C# failure path suppresses a second cleanup exception.
-            }
+            input.reset();
+            return first;
+        };
+        const auto cleanupContextWhileOwned = [
+            &gl,
+            &cleanupSceneWhileCurrent,
+            &rememberCleanupError]() noexcept
+            -> std::exception_ptr
+        {
+            std::exception_ptr first = cleanupSceneWhileCurrent();
             if (gl != nullptr)
             {
-                Mods::Render::GlEs::ReleaseContext();
-                gl->Dispose();
+                try
+                {
+                    Mods::Render::GlEs::ReleaseContext();
+                }
+                catch (...)
+                {
+                    rememberCleanupError(first, std::current_exception());
+                }
+                try
+                {
+                    gl->Dispose();
+                }
+                catch (...)
+                {
+                    rememberCleanupError(first, std::current_exception());
+                }
+                gl.reset();
             }
+            return first;
         };
 
         try
@@ -344,16 +377,14 @@ namespace MphRead::Droid
                 }
                 if (scene == nullptr || width != job->Width || height != job->Height)
                 {
-                    if (scene != nullptr)
-                    {
-                        scene->DoCleanup();
-                    }
-                    scene.reset();
-                    input.reset();
                     if (width != 0)
                     {
-                        Mods::Render::GlEs::ReleaseContext();
-                        gl->Dispose();
+                        const std::exception_ptr cleanupError
+                            = cleanupContextWhileOwned();
+                        if (cleanupError != nullptr)
+                        {
+                            std::rethrow_exception(cleanupError);
+                        }
                         gl = OffscreenGl::Create(job->Width, job->Height);
                         Mods::Render::EsBindings::Load();
                         Mods::Render::GlEs::Reset();
@@ -375,10 +406,17 @@ namespace MphRead::Droid
                 job->Done.set_value(Draw(*scene, *job, width, height));
             }
 
-            // Release scene/GLES resources while this worker still owns the
-            // AndroidGlContextLease. Only after cleanup may another worker or
-            // the game context take ownership of the process-global GlEs shim.
-            cleanupAfterRetire();
+            // Release Scene GPU resources, then the GLES shim and EGL context,
+            // while this worker still owns the process-global Android GL lease.
+            if (const std::exception_ptr cleanupError
+                    = cleanupContextWhileOwned();
+                cleanupError != nullptr)
+            {
+                ::MphRead::NativeRuntime::ConsoleWriteLine(
+                    "[hunter] cleanup failed: "
+                        + ::MphRead::NativeRuntime::ExceptionMessage(
+                            cleanupError));
+            }
             {
                 std::lock_guard lock(state->Gate);
                 if (state->CurrentWorker == worker)
@@ -392,6 +430,9 @@ namespace MphRead::Droid
                     state->Next.reset();
                 }
             }
+            // IsFinished is an ownership handoff signal: do not publish it
+            // until the global GLES lease has actually been relinquished.
+            glContextLease.Release();
             finishWorker();
         }
         catch (...)
@@ -408,7 +449,9 @@ namespace MphRead::Droid
                 "ui",
                 "the hunter preview is off: "
                     + ::MphRead::NativeRuntime::ExceptionMessage(error));
-            cleanupAfterFailure();
+            // Suppress secondary cleanup errors on the failure path, but keep
+            // the same ownership order as terminal retirement.
+            (void)cleanupContextWhileOwned();
             {
                 std::lock_guard lock(state->Gate);
                 if (state->CurrentWorker == worker)
@@ -422,6 +465,7 @@ namespace MphRead::Droid
                     state->Next.reset();
                 }
             }
+            glContextLease.Release();
             finishWorker();
         }
     }

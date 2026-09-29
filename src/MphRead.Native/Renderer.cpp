@@ -683,8 +683,6 @@ namespace MphRead
                 << ", " << Mods::RenderOptions::CelBands() << " bands, outline "
                 << NativeRuntime::ToStringInvariant(Mods::RenderOptions::CelEdge(), "0.00")
                 << ", fog " << BoolOnOff(Mods::RenderOptions::Fog()) << '\n';
-            _gpu = &NativeRuntime::Rhi::OpenGL::ContextDevice();
-            _commands = _gpu->CreateCommandList();
             InitShaders();
             _transientGeometry
                 = NativeRuntime::Rhi::OpenGL::CreateTransientGeometryResource();
@@ -746,16 +744,16 @@ namespace MphRead
         _targetSize = target;
         const auto width = static_cast<std::uint32_t>(target.X);
         const auto height = static_cast<std::uint32_t>(target.Y);
-        _gpu->ResizeTexture(*_sceneColor, width, height);
+        Gpu().ResizeTexture(*_sceneColor, width, height);
         if (_celColor)
         {
-            _gpu->ResizeTexture(*_celColor, width, height);
+            Gpu().ResizeTexture(*_celColor, width, height);
         }
         MPHREAD_DEBUG_ASSERT(_sceneDepthStencil != nullptr);
-        _gpu->ResizeTexture(*_sceneDepthStencil, width, height);
+        Gpu().ResizeTexture(*_sceneDepthStencil, width, height);
         if (_celDepth)
         {
-            _gpu->ResizeTexture(*_celDepth, width, height);
+            Gpu().ResizeTexture(*_celDepth, width, height);
         }
     }
 
@@ -872,7 +870,7 @@ namespace MphRead
         {
             std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
             NativeRuntime::Rhi::RenderingDepthStencilAttachment depth{};
-            const bool complete = _gpu->CanRender(SceneRenderingInfo(color, depth));
+            const bool complete = Gpu().CanRender(SceneRenderingInfo(color, depth));
             _framebufferStatus = complete
                 ? OpenTK::Graphics::OpenGL::FramebufferErrorCode::FramebufferComplete
                 : OpenTK::Graphics::OpenGL::FramebufferErrorCode::FramebufferUnsupported;
@@ -1287,7 +1285,7 @@ namespace MphRead
     {
         const auto& texture = model->Recolors->at(static_cast<std::size_t>(recolorId))
             ->Textures->at(static_cast<std::size_t>(textureId));
-        auto owned = _gpu->CreateTexture(NativeRuntime::Rhi::TextureDesc{
+        auto owned = Gpu().CreateTexture(NativeRuntime::Rhi::TextureDesc{
             static_cast<std::uint32_t>(texture.Width), static_cast<std::uint32_t>(texture.Height), 1, 1, 1, 1,
             NativeRuntime::Rhi::TextureFormat::RGBA8Unorm,
             NativeRuntime::Rhi::TextureUsage::Sampled | NativeRuntime::Rhi::TextureUsage::TransferDst});
@@ -1301,7 +1299,7 @@ namespace MphRead
             onlyOpaque = onlyOpaque && pixel.Alpha == 255;
             average.Add(pixel);
         }
-        _gpu->WriteTexture(*owned, NativeRuntime::Rhi::TextureWrite{
+        Gpu().WriteTexture(*owned, NativeRuntime::Rhi::TextureWrite{
             static_cast<std::uint32_t>(texture.Width), static_cast<std::uint32_t>(texture.Height),
             NativeRuntime::Rhi::TextureFormat::RGBA8Unorm, pixels.data()});
         _ownedTextures.insert_or_assign(bindingId, std::move(owned));
@@ -1318,7 +1316,6 @@ namespace MphRead
 
     std::int32_t Scene::BindGetTexture(const std::vector<ColorRgba>& data, std::int32_t width, std::int32_t height)
     {
-        if (_gpu == nullptr) return 0;
         const std::int32_t bindingId = CreateOwnedTexture(width, height,
             NativeRuntime::Rhi::TextureFormat::RGBA8Unorm, data.data());
         _flatColors[bindingId] = AverageOf(data);
@@ -1328,21 +1325,18 @@ namespace MphRead
     void Scene::BindTexture(const std::vector<ColorRgba>& data, std::int32_t width, std::int32_t height,
         std::int32_t bindingId)
     {
-        if (_gpu != nullptr)
-        {
-            WriteOwnedTexture(bindingId, width, height, NativeRuntime::Rhi::TextureFormat::RGBA8Unorm, data.data());
-        }
+        WriteOwnedTexture(bindingId, width, height, NativeRuntime::Rhi::TextureFormat::RGBA8Unorm, data.data());
         _flatColors[bindingId] = AverageOf(data);
     }
 
     std::int32_t Scene::CreateOwnedTexture(std::int32_t width, std::int32_t height,
         NativeRuntime::Rhi::TextureFormat format, const void* pixels)
     {
-        auto owned = _gpu->CreateTexture(NativeRuntime::Rhi::TextureDesc{
+        auto owned = Gpu().CreateTexture(NativeRuntime::Rhi::TextureDesc{
             static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), 1, 1, 1, 1, format,
             NativeRuntime::Rhi::TextureUsage::Sampled | NativeRuntime::Rhi::TextureUsage::TransferDst});
         const std::int32_t bindingId = owned->Handle().value;
-        _gpu->WriteTexture(*owned, NativeRuntime::Rhi::TextureWrite{
+        Gpu().WriteTexture(*owned, NativeRuntime::Rhi::TextureWrite{
             static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), format, pixels});
         _ownedTextures.insert_or_assign(bindingId, std::move(owned));
         return bindingId;
@@ -1355,16 +1349,38 @@ namespace MphRead
     void Scene::WriteOwnedTexture(std::int32_t bindingId, std::int32_t width, std::int32_t height,
         NativeRuntime::Rhi::TextureFormat format, const void* pixels)
     {
-        NativeRuntime::Rhi::Texture* texture = _gpu->FindTexture(NativeRuntime::Rhi::TextureHandle{bindingId});
+        NativeRuntime::Rhi::Texture* texture = Gpu().FindTexture(NativeRuntime::Rhi::TextureHandle{bindingId});
         if (texture == nullptr)
         {
-            texture = &_gpu->RetainTexture(_gpu->CreateTexture(NativeRuntime::Rhi::TextureDesc{
+            texture = &Gpu().RetainTexture(Gpu().CreateTexture(NativeRuntime::Rhi::TextureDesc{
                 static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), 1, 1, 1, 1, format,
                 NativeRuntime::Rhi::TextureUsage::Sampled | NativeRuntime::Rhi::TextureUsage::TransferDst},
                 NativeRuntime::Rhi::TextureHandle{bindingId}));
         }
-        _gpu->WriteTexture(*texture, NativeRuntime::Rhi::TextureWrite{
+        Gpu().WriteTexture(*texture, NativeRuntime::Rhi::TextureWrite{
             static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), format, pixels});
+    }
+
+    // The device for this scene's GL context, and this scene's command list.
+    // Both are there as soon as anything asks: a scene creates textures
+    // before OnLoad (a player's models load as the player is added), and
+    // the GL calls those used to be needed a context and nothing more.
+    NativeRuntime::Rhi::GraphicsDevice& Scene::Gpu()
+    {
+        if (_gpu == nullptr)
+        {
+            _gpu = &NativeRuntime::Rhi::OpenGL::ContextDevice();
+        }
+        return *_gpu;
+    }
+
+    NativeRuntime::Rhi::CommandList& Scene::Commands()
+    {
+        if (!_commands)
+        {
+            _commands = Gpu().CreateCommandList();
+        }
+        return *_commands;
     }
 
     void Scene::CreateSceneTargets(Vector2i size)
@@ -1374,16 +1390,16 @@ namespace MphRead
         const auto height = static_cast<std::uint32_t>(size.Y);
         // SceneColor, CelColor and SceneDepthStencil, in the order their
         // names were always taken.
-        _sceneColor = _gpu->CreateTexture(Rhi::TextureDesc{width, height, 1, 1, 1, 1,
+        _sceneColor = Gpu().CreateTexture(Rhi::TextureDesc{width, height, 1, 1, 1, 1,
             Rhi::TextureFormat::RGB8Unorm,
             Rhi::TextureUsage::Sampled | Rhi::TextureUsage::ColorAttachment | Rhi::TextureUsage::TransferSrc});
-        _sceneColorView = _gpu->CreateTextureView(*_sceneColor, Rhi::TextureViewDesc{Rhi::TextureFormat::RGB8Unorm});
-        _celColor = _gpu->CreateTexture(Rhi::TextureDesc{width, height, 1, 1, 1, 1,
+        _sceneColorView = Gpu().CreateTextureView(*_sceneColor, Rhi::TextureViewDesc{Rhi::TextureFormat::RGB8Unorm});
+        _celColor = Gpu().CreateTexture(Rhi::TextureDesc{width, height, 1, 1, 1, 1,
             Rhi::TextureFormat::RGB8Unorm,
             Rhi::TextureUsage::Sampled | Rhi::TextureUsage::ColorAttachment | Rhi::TextureUsage::TransferDst});
-        _sceneDepthStencil = _gpu->CreateTexture(Rhi::TextureDesc{width, height, 1, 1, 1, 1,
+        _sceneDepthStencil = Gpu().CreateTexture(Rhi::TextureDesc{width, height, 1, 1, 1, 1,
             Rhi::TextureFormat::D24UnormS8Uint, Rhi::TextureUsage::DepthStencilAttachment});
-        _sceneDepthStencilView = _gpu->CreateTextureView(*_sceneDepthStencil,
+        _sceneDepthStencilView = Gpu().CreateTextureView(*_sceneDepthStencil,
             Rhi::TextureViewDesc{Rhi::TextureFormat::D24UnormS8Uint});
     }
 
@@ -1408,7 +1424,7 @@ namespace MphRead
     {
         std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
         NativeRuntime::Rhi::RenderingDepthStencilAttachment depth{};
-        _commands->BeginRendering(SceneRenderingInfo(color, depth));
+        Commands().BeginRendering(SceneRenderingInfo(color, depth));
     }
 
     // The cel pass writes SceneColor with no depth attached.
@@ -1420,7 +1436,7 @@ namespace MphRead
         info.width = static_cast<std::uint32_t>(_targetSize.X);
         info.height = static_cast<std::uint32_t>(_targetSize.Y);
         info.colorAttachments = color;
-        _commands->BeginRendering(info);
+        Commands().BeginRendering(info);
     }
 
     void Scene::BeginWindowRendering()
@@ -1429,12 +1445,12 @@ namespace MphRead
         info.width = static_cast<std::uint32_t>(_rendererSize.X);
         info.height = static_cast<std::uint32_t>(_rendererSize.Y);
         info.swapchain = true;
-        _commands->BeginRendering(info);
+        Commands().BeginRendering(info);
     }
 
     NativeRuntime::Rhi::Texture* Scene::TextureFor(std::int32_t bindingId) const
     {
-        return _gpu != nullptr && bindingId != 0
+        return bindingId != 0 && _gpu != nullptr
             ? _gpu->FindTexture(NativeRuntime::Rhi::TextureHandle{bindingId}) : nullptr;
     }
 
@@ -1462,7 +1478,7 @@ namespace MphRead
             desc.mipFilter = Rhi::Filter::Nearest;
             desc.addressU = address(s);
             desc.addressV = address(t);
-            sampler = _gpu->CreateSampler(desc);
+            sampler = Gpu().CreateSampler(desc);
         }
         return *sampler;
     }
@@ -1471,21 +1487,18 @@ namespace MphRead
         const NativeRuntime::Rhi::Sampler& sampler)
     {
         const NativeRuntime::Rhi::Texture* texture = TextureFor(bindingId);
-        _commands->BindSampledTexture(slot, texture, texture != nullptr ? &sampler : nullptr);
+        Commands().BindSampledTexture(slot, texture, texture != nullptr ? &sampler : nullptr);
     }
 
     void Scene::BindSceneTexture(std::uint32_t slot, const NativeRuntime::Rhi::Texture& texture,
         const NativeRuntime::Rhi::Sampler& sampler)
     {
-        _commands->BindSampledTexture(slot, &texture, &sampler);
+        Commands().BindSampledTexture(slot, &texture, &sampler);
     }
 
     void Scene::UnbindSceneTexture(std::uint32_t slot)
     {
-        if (_commands)
-        {
-            _commands->BindSampledTexture(slot, nullptr, nullptr);
-        }
+        Commands().BindSampledTexture(slot, nullptr, nullptr);
     }
 
     void Scene::UpdateMaterials(const std::shared_ptr<Model>& model, std::int32_t recolorId)
@@ -1786,7 +1799,7 @@ namespace MphRead
         info.width = static_cast<std::uint32_t>(width);
         info.height = static_cast<std::uint32_t>(height);
         info.swapchain = true;
-        _commands->ReadColor(info, 0, 0, info.width, info.height,
+        Commands().ReadColor(info, 0, 0, info.width, info.height,
             NativeRuntime::Rhi::TextureFormat::RGB8Unorm, buffer.data());
         return buffer;
     }
@@ -1795,11 +1808,11 @@ namespace MphRead
     {
         width = _targetSize.X;
         height = _targetSize.Y;
-        if (!_sceneColor || !_commands) return std::nullopt;
+        if (!_sceneColor) return std::nullopt;
         std::vector<std::uint8_t> buffer(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 3U);
         std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
         NativeRuntime::Rhi::RenderingDepthStencilAttachment depth{};
-        _commands->ReadColor(SceneRenderingInfo(color, depth), 0, 0,
+        Commands().ReadColor(SceneRenderingInfo(color, depth), 0, 0,
             static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height),
             NativeRuntime::Rhi::TextureFormat::RGB8Unorm, buffer.data());
         return buffer;
@@ -1830,16 +1843,16 @@ namespace MphRead
             return;
         }
         namespace Rhi = NativeRuntime::Rhi;
-        _celDepth = _gpu->CreateTexture(Rhi::TextureDesc{
+        _celDepth = Gpu().CreateTexture(Rhi::TextureDesc{
             static_cast<std::uint32_t>(target.X), static_cast<std::uint32_t>(target.Y), 1, 1, 1, 1,
             Rhi::TextureFormat::D24UnormS8Uint,
             Rhi::TextureUsage::Sampled | Rhi::TextureUsage::DepthStencilAttachment});
-        _celDepthView = _gpu->CreateTextureView(*_celDepth, Rhi::TextureViewDesc{Rhi::TextureFormat::D24UnormS8Uint});
+        _celDepthView = Gpu().CreateTextureView(*_celDepth, Rhi::TextureViewDesc{Rhi::TextureFormat::D24UnormS8Uint});
         _claimedQuantum = MeasureDepthQuantum();
         _depthQuantum = _claimedQuantum;
         std::array<Rhi::RenderingColorAttachment, 1> color{};
         Rhi::RenderingDepthStencilAttachment depth{};
-        if (!_gpu->CanRender(SceneRenderingInfo(color, depth)))
+        if (!Gpu().CanRender(SceneRenderingInfo(color, depth)))
         {
             std::cout << "[render] this driver will not read the scene's depth back ("
                 << FramebufferErrorText(OpenTK::Graphics::OpenGL::FramebufferErrorCode::FramebufferUnsupported)
@@ -1858,7 +1871,7 @@ namespace MphRead
         {
             std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
             NativeRuntime::Rhi::RenderingDepthStencilAttachment depth{};
-            const std::uint32_t answer = _gpu->DepthBits(SceneRenderingInfo(color, depth));
+            const std::uint32_t answer = Gpu().DepthBits(SceneRenderingInfo(color, depth));
             if (answer != 0)
             {
                 bits = static_cast<std::int32_t>(answer);
@@ -1882,7 +1895,7 @@ namespace MphRead
         if (!Mods::RenderOptions::CelShading() || Mods::RenderOptions::CelEdge() <= 0.0F
             || !_celColor || _celShaderProgramId == 0 || !_celDepth) return;
         const Vector2i target = _targetSize;
-        _commands->CopyColorAttachmentToTexture(*_celColor,
+        Commands().CopyColorAttachmentToTexture(*_celColor,
             static_cast<std::uint32_t>(target.X), static_cast<std::uint32_t>(target.Y));
         if (_calibrateInk)
         {

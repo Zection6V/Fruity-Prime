@@ -930,7 +930,7 @@ private: \
     void UpdateDepthAttachment(OpenTK::Mathematics::Vector2i target); \
     float MeasureDepthQuantum(); \
     void DrawCelOutline(); \
-    void CreateSceneTargets(OpenTK::Mathematics::Vector2i size); \
+    [[nodiscard]] MphRead::NativeRuntime::Rhi::GraphicsDevice& Gpu();     [[nodiscard]] MphRead::NativeRuntime::Rhi::CommandList& Commands();     void CreateSceneTargets(OpenTK::Mathematics::Vector2i size); \
     [[nodiscard]] MphRead::NativeRuntime::Rhi::RenderingInfo SceneRenderingInfo( \
         std::array<MphRead::NativeRuntime::Rhi::RenderingColorAttachment, 1>& color, \
         MphRead::NativeRuntime::Rhi::RenderingDepthStencilAttachment& depth) const; \

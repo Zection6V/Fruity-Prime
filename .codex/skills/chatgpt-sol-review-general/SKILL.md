@@ -252,6 +252,11 @@ only report material state changes.
   Retry. Retry restarts the answer and can discard usable work. Wait only while
   Stop/停止 is still visible. As soon as the voice-mode waveform returns, send
   exactly one concise continuation in the same conversation if work remains.
+- Treat a visible `ChatGPT stream recovery polling timed out` message the same
+  way when the composer has returned to the voice-mode waveform: inspect the
+  latest partial response, never click Retry, and continue only the unfinished
+  action in the same conversation. Preserve any useful investigation already
+  completed; do not assume the interrupted response made no progress.
 - For an interrupted answer whose remaining action is only the final report,
   use a concrete continuation such as:
 
@@ -312,7 +317,11 @@ fresh implementation chat
 - Separate Git delivery from build/runtime/CI evidence. For every exact SHA,
   distinguish passed, failed, still-running, skipped/unrun, asset/setup failure,
   and a later unrelated compiler frontier. A clean file audit or pushed commit
-  is not an all-platform green build.
+  is not an all-platform green build. An alternate compiler or generator may be
+  useful supplemental evidence, but it does not replace a required target-
+  platform toolchain gate: do not reroute a failing Windows/MSVC validation to
+  MinGW and then claim the Windows gate passed. Fix the canonical path or leave
+  that gate explicitly failed/not established.
 
 ### Intermediate commits and evidence validity
 
@@ -330,6 +339,12 @@ fresh implementation chat
   the same implementation chat's composer is idle, send one specific
   continuation with those errors and ask it to correct and push. Rebuild the
   resulting exact SHA, not an assumed latest tree.
+- Before a corrective push, inspect the workflow's branch concurrency policy.
+  If `cancel-in-progress: true` means the push would cancel a live exact-SHA
+  run, keep that branch snapshot unchanged until the run is terminal; diagnose
+  the failure read-only in parallel. Then refresh the branch, preserve any
+  concurrent commits, push the correction, and verify checks against the new
+  exact SHA. Never treat the older run as evidence for the corrected commit.
 - A generated screenshot, manifest, or successful capture command alone does
   not establish visual parity. Confirm that the intended fixture is actually
   visible and exercises the claimed behavior (including effective shader
@@ -394,6 +409,14 @@ write/commit/push cannot complete:
   the authority for phase order, scope, completion checkboxes, static audits,
   and runtime gates. A commit whose title names a phase proves only that a
   commit was made; it does not prove that the phase is complete.
+- At dispatch and in every status report, name the active target phase
+  explicitly. If another phase is present only as a comparison/baseline input,
+  label it reference-only; never describe it as the current implementation
+  target or count its checks as completion evidence for the active phase.
+- Treat literal API/architecture lists in a phase as acceptance criteria;
+  behavioral parity or a superficially present but unused API does not satisfy
+  them. If they conflict with the existing backend, verify the concrete
+  constraint and resolve it without silently weakening or rewriting the plan.
 - Before advancing to the next phase, enumerate every applicable completion
   condition and runtime test from the plan, then attach current, exact-SHA
   evidence to each. Mark unrun or unavailable checks `NOT ESTABLISHED`; do not
@@ -403,3 +426,24 @@ write/commit/push cannot complete:
   appears more convenient, follow the user's explicitly selected order and
   preserve dependencies; do not silently skip ahead or treat already-present
   implementation as newly completed work.
+
+### Progress tracking in the plan
+
+- When the user designates a plan document for ongoing progress, maintain a
+  concise dated status section near its end. Keep it in the requested document
+  rather than relying only on chat history or an ephemeral checklist.
+- Update completion checkboxes per criterion only when evidence supports that
+  criterion at a named source SHA. Record the exact evidence and leave other
+  criteria unchecked; a partially checked phase is still incomplete until every
+  required gate passes.
+- Keep the last verified SHA separate from the latest remote SHA. State the
+  local `HEAD`, remote branch tip, and any uncommitted paths when they differ;
+  do not imply an audit or runtime result automatically covers a later commit.
+- Record CI workflow run IDs/links, exact head SHAs, per-platform outcomes, and
+  a timestamp for live status. Distinguish `PASS`, `FAIL`, `IN PROGRESS`,
+  `CANCELLED`, and `NOT ESTABLISHED`; do not rerun a live run when a push would
+  cancel it. Refresh the ledger after a commit, terminal job, or other material
+  status change.
+- End the status section with the concrete next actions and the condition for
+  advancing phases. Preserve user-owned dirty work, and do not commit or push a
+  local progress edit unless the user requested delivery.

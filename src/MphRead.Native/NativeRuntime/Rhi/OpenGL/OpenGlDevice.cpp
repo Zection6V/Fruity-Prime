@@ -138,20 +138,14 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
         void DestroyNative(const GlObject& object) noexcept
         {
-            try
+            switch (object.What)
             {
-                switch (object.What)
-                {
-                case GlObject::Kind::Texture: GL::DeleteTexture(object.Name); break;
-                case GlObject::Kind::Renderbuffer: GL::DeleteRenderbuffer(object.Name); break;
-                case GlObject::Kind::Framebuffer: GL::DeleteFramebuffer(object.Name); break;
-                case GlObject::Kind::Buffer: GL::DeleteBuffer(object.Name); break;
-                case GlObject::Kind::Shader: GL::DeleteShader(object.Name); break;
-                case GlObject::Kind::Program: GL::DeleteProgram(object.Name); break;
-                }
-            }
-            catch (...)
-            {
+            case GlObject::Kind::Texture: GL::DeleteTexture(object.Name); break;
+            case GlObject::Kind::Renderbuffer: GL::DeleteRenderbuffer(object.Name); break;
+            case GlObject::Kind::Framebuffer: GL::DeleteFramebuffer(object.Name); break;
+            case GlObject::Kind::Buffer: GL::DeleteBuffer(object.Name); break;
+            case GlObject::Kind::Shader: GL::DeleteShader(object.Name); break;
+            case GlObject::Kind::Program: GL::DeleteProgram(object.Name); break;
             }
         }
 
@@ -571,6 +565,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void WaitIdle() override
             {
                 GL::Finish();
+                _frameOpen = false;
                 for (std::size_t i = 0; i < _fences.size(); ++i)
                 {
                     if (_fences[i] != nullptr)

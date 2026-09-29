@@ -391,13 +391,13 @@ namespace
                     if (_candidate == GoldenCandidate::Hud)
                     {
                         _controlDescription
-                            = "same frame with HUD/fade final-stage gate disabled";
+                            = "same simulation update with HUD/fade final-stage gate disabled";
                         _scene->ModGoldenSetHudPassEnabled(false);
                     }
                     else
                     {
                         _controlDescription
-                            = "same frame with clean production HUD and no fade/disruption";
+                            = "same simulation update with clean production HUD and no fade/disruption";
                     }
 
                     if (!_scene->OnRenderFrame())
@@ -446,6 +446,12 @@ namespace
                             1.0F,
                             48.0F);
                     }
+
+                    // The control OnRenderFrame finishes on framebuffer 0.
+                    // Re-run draw preparation without advancing simulation so
+                    // the intended pass gets the production scene framebuffer
+                    // and render-item state for the same simulation update.
+                    _scene->OnDrawFrame();
 
                     _finalStageGateVerified
                         = _scene->ModGoldenFinalStageReady();
@@ -593,12 +599,12 @@ namespace
                 return
                     "real Samus production HUD; unrelated fade/disruption "
                     "state is reset after OnDrawFrame; output is required "
-                    "to differ from a same-frame HUD-disabled control";
+                    "to differ from a same-update HUD-disabled control";
             case GoldenCandidate::Fade:
                 return
                     "real production FadeOutWhite pass color=1.0,percent=0.5 "
                     "over a clean production HUD baseline; output is required "
-                    "to differ from that same-frame control";
+                    "to differ from that same-update control";
             case GoldenCandidate::WhiteoutDisruption:
                 return
                     "real production shift/whiteout post-process; unrelated "
@@ -646,8 +652,9 @@ namespace
                 << GoldenCaptureUpdate << "\n";
             out << "trigger=after OnDrawFrame on update ordinal "
                 << GoldenCaptureUpdate
-                << "; final-stage candidates render a same-frame control "
-                   "followed by the intended production final-stage path\n";
+                << "; final-stage candidates render a control, re-run "
+                   "OnDrawFrame without advancing simulation, then render "
+                   "the intended production final-stage path\n";
             out << "camera_mode="
                 << (UsesSyntheticFixture(_candidate)
                     ? "production-player-camera-after-warmup"

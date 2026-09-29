@@ -111,13 +111,30 @@ namespace
         Expect(firstWeak.expired(), "erased model releases its GPU resource");
         Expect(destroyed == 2, "model erase destroys both model-A mesh resources");
 
+        std::weak_ptr<GpuMeshResource> reloadedWeak;
+        {
+            const auto reloaded = cache.GetOrCreate(modelLifeA, meshLifeA0, make);
+            reloadedWeak = reloaded;
+            const auto reloadedAgain = cache.GetOrCreate(modelLifeA, meshLifeA0, make);
+            Expect(reloaded == reloadedAgain,
+                "reacquired live model/mesh identity must hit the replacement cache entry");
+            Expect(factoryCalls == 4,
+                "reacquiring after model erase must create exactly one replacement resource");
+            Expect(cache.Size() == 2,
+                "reacquiring erased model adds a fresh entry alongside other live models");
+        }
+        cache.EraseModel(modelA.get());
+        Expect(cache.Size() == 1, "second model erase removes the replacement entry");
+        Expect(reloadedWeak.expired(), "second model erase releases the replacement GPU resource");
+        Expect(destroyed == 3, "replacement resource is destroyed exactly once");
+
         modelB.reset();
         modelLifeB.reset();
         meshB0.reset();
         meshLifeB0.reset();
         cache.PruneExpired();
         Expect(cache.Size() == 0, "expired model/mesh identity is pruned");
-        Expect(destroyed == 3, "expired identity releases resource once");
+        Expect(destroyed == 4, "expired identity releases resource once");
 
         auto modelC = std::make_shared<std::int32_t>(3);
         auto meshC = std::make_shared<std::int32_t>(9);
@@ -126,7 +143,7 @@ namespace
         (void)cache.GetOrCreate(modelLifeC, meshLifeC, make);
         cache.Clear();
         Expect(cache.Size() == 0, "cache clear");
-        Expect(destroyed == 4, "clear releases resource exactly once");
+        Expect(destroyed == 5, "clear releases resource exactly once");
     }
 }
 

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -14,6 +16,93 @@ namespace MphRead::Mods::Render::GoldenCaptureValidation
         std::size_t PixelCount = 0;
         std::size_t LitPixelCount = 0;
     };
+
+    struct FadeFixtureTiming final
+    {
+        float Start = 0.0F;
+        float Length = 0.0F;
+    };
+
+    struct FadeObservation final
+    {
+        bool UpdateObserved = false;
+        float UpdatePercent = 0.0F;
+        bool DrawObserved = false;
+        std::int32_t DrawType = 0;
+        float DrawColor = 0.0F;
+        float DrawPercent = 0.0F;
+    };
+
+    [[nodiscard]] inline bool FadeValueMatches(
+        float actual,
+        float expected) noexcept
+    {
+        return std::isfinite(actual)
+            && std::fabs(actual - expected) <= 0.00001F;
+    }
+
+    [[nodiscard]] inline FadeFixtureTiming MakeDeterministicFadeTiming(
+        float globalElapsedTime,
+        float targetPercent) noexcept
+    {
+        const float percent = std::clamp(targetPercent, 0.0F, 1.0F);
+        if (globalElapsedTime > 0.0F && percent > 0.0F)
+        {
+            return FadeFixtureTiming{
+                0.0F,
+                globalElapsedTime / percent
+            };
+        }
+        return FadeFixtureTiming{
+            globalElapsedTime - percent,
+            1.0F
+        };
+    }
+
+    [[nodiscard]] inline float FadePercentAfterUpdate(
+        float globalElapsedTime,
+        const FadeFixtureTiming& timing)
+    {
+        if (!(timing.Length > 0.0F)
+            || !std::isfinite(timing.Length)
+            || !std::isfinite(timing.Start)
+            || !std::isfinite(globalElapsedTime))
+        {
+            throw std::invalid_argument(
+                "golden fade fixture timing is not finite and positive");
+        }
+        return (globalElapsedTime - timing.Start) / timing.Length;
+    }
+
+    inline void RequireExpectedFadeSequence(
+        const FadeObservation& observation,
+        std::int32_t expectedType,
+        float expectedColor,
+        float expectedPercent)
+    {
+        if (!observation.UpdateObserved)
+        {
+            throw std::runtime_error(
+                "golden fade fixture was not observed by production UpdateFade");
+        }
+        if (!FadeValueMatches(observation.UpdatePercent, expectedPercent))
+        {
+            throw std::runtime_error(
+                "production UpdateFade did not compute the requested fade percent");
+        }
+        if (!observation.DrawObserved)
+        {
+            throw std::runtime_error(
+                "golden fade fixture did not reach the production fade draw");
+        }
+        if (observation.DrawType != expectedType
+            || !FadeValueMatches(observation.DrawColor, expectedColor)
+            || !FadeValueMatches(observation.DrawPercent, expectedPercent))
+        {
+            throw std::runtime_error(
+                "production fade draw did not consume the requested fixture state");
+        }
+    }
 
     [[nodiscard]] inline std::size_t ExpectedRgbBytes(
         std::int32_t width,

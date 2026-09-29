@@ -1914,6 +1914,10 @@ namespace MphRead
             float percent = _fadeIn ? 1.0F - _fadePercent : _fadePercent;
             if (percent > 0.0F)
             {
+                ModGoldenObserveFadeDraw(
+                    static_cast<std::int32_t>(_fadeType),
+                    _fadeColor,
+                    percent);
                 GL::Uniform4(_shaderLocations->FadeColor, _fadeColor, _fadeColor, _fadeColor, percent);
                 BeginTransient(TransientPrimitiveTopology::TriangleStrip);
                 TransientTexCoord3(1,1,0); TransientVertex3(1,1,0); TransientTexCoord3(0,1,0); TransientVertex3(-1,1,0);
@@ -3389,6 +3393,7 @@ namespace MphRead
             {
                 _fadeEnded = false;
             }
+            ModGoldenObserveFadeUpdate(_fadePercent);
         }
         else
         {

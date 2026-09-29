@@ -426,6 +426,7 @@ namespace
                     }
                     else if (_candidate == GoldenCandidate::Fade)
                     {
+                        _scene->ModGoldenArmFadeObservation();
                         _scene->ModGoldenSetFadeState(1.0F, 0.5F);
                         if (!_scene->ModGoldenFadeStateMatches(1.0F, 0.5F))
                         {
@@ -492,6 +493,16 @@ namespace
                         "capture update");
                     _window->BaseOnRenderFrame(args);
                     return;
+                }
+
+                if (_candidate == GoldenCandidate::Fade)
+                {
+                    _fadeObservation = _scene->ModGoldenFadeObservation();
+                    MphRead::Mods::Render::GoldenCaptureValidation::RequireExpectedFadeSequence(
+                        *_fadeObservation,
+                        static_cast<std::int32_t>(MphRead::FadeType::FadeOutWhite),
+                        1.0F,
+                        0.5F);
                 }
 
                 std::vector<std::uint8_t> capturedPixels
@@ -729,6 +740,40 @@ namespace
                 out << "control_changed_pixels="
                     << *_changedPixelCount << "\n";
             }
+            if (_candidate == GoldenCandidate::Fade)
+            {
+                out << "fade_target_type=FadeOutWhite\n";
+                out << "fade_target_color=1\n";
+                out << "fade_target_percent=0.5\n";
+                if (_fadeObservation.has_value())
+                {
+                    out << "fade_update_observed="
+                        << (_fadeObservation->UpdateObserved ? "true" : "false")
+                        << "\n";
+                    if (_fadeObservation->UpdateObserved)
+                    {
+                        out << "fade_update_percent="
+                            << _fadeObservation->UpdatePercent << "\n";
+                    }
+                    out << "fade_draw_observed="
+                        << (_fadeObservation->DrawObserved ? "true" : "false")
+                        << "\n";
+                    if (_fadeObservation->DrawObserved)
+                    {
+                        out << "fade_draw_type_value="
+                            << _fadeObservation->DrawType << "\n";
+                        out << "fade_draw_color="
+                            << _fadeObservation->DrawColor << "\n";
+                        out << "fade_draw_percent="
+                            << _fadeObservation->DrawPercent << "\n";
+                    }
+                }
+                else
+                {
+                    out << "fade_update_observed=false\n";
+                    out << "fade_draw_observed=false\n";
+                }
+            }
             out << "fixture_scope="
                 << (UsesSyntheticFixture(_candidate)
                     ? "synthetic geometry only; validates production "
@@ -770,6 +815,8 @@ namespace
         std::optional<MphRead::Mods::Render::GoldenCaptureValidation::PixelSummary>
             _captureSummary{};
         std::optional<std::size_t> _changedPixelCount{};
+        std::optional<MphRead::Mods::Render::GoldenCaptureValidation::FadeObservation>
+            _fadeObservation{};
         std::string _error{};
     };
 
@@ -1033,6 +1080,8 @@ namespace MphRead
         _fadeDelay = 0.0F;
         _fadeEnded = false;
         _afterFade = AfterFade::None;
+        _modGoldenFadeObservationArmed = false;
+        _modGoldenFadeObservation = {};
 
         const auto main = Entities::PlayerEntity::Main();
         if (main)
@@ -1069,10 +1118,24 @@ namespace MphRead
         const MphRead::FadeType expectedType = color >= 0.5F
             ? MphRead::FadeType::FadeOutWhite
             : MphRead::FadeType::FadeOutBlack;
+        const float expectedPercent = std::clamp(percent, 0.0F, 1.0F);
+        const MphRead::Mods::Render::GoldenCaptureValidation::FadeFixtureTiming
+            timing
+            = MphRead::Mods::Render::GoldenCaptureValidation::MakeDeterministicFadeTiming(
+                _globalElapsedTime,
+                expectedPercent);
         return _fadeType == expectedType
             && _fadeColor == std::clamp(color, 0.0F, 1.0F)
             && !_fadeIn
-            && _fadePercent == std::clamp(percent, 0.0F, 1.0F)
+            && MphRead::Mods::Render::GoldenCaptureValidation::FadeValueMatches(
+                _fadePercent,
+                expectedPercent)
+            && MphRead::Mods::Render::GoldenCaptureValidation::FadeValueMatches(
+                _fadeStart,
+                timing.Start)
+            && MphRead::Mods::Render::GoldenCaptureValidation::FadeValueMatches(
+                _fadeLength,
+                timing.Length)
             && _fadeDelay == 0.0F
             && !_fadeEnded
             && _afterFade == AfterFade::None;
@@ -1088,9 +1151,54 @@ namespace MphRead
         _fadeColor = std::clamp(color, 0.0F, 1.0F);
         _fadeIn = false;
         _fadePercent = std::clamp(percent, 0.0F, 1.0F);
+        const MphRead::Mods::Render::GoldenCaptureValidation::FadeFixtureTiming
+            timing
+            = MphRead::Mods::Render::GoldenCaptureValidation::MakeDeterministicFadeTiming(
+                _globalElapsedTime,
+                _fadePercent);
+        _fadeStart = timing.Start;
+        _fadeLength = timing.Length;
         _fadeDelay = 0.0F;
         _fadeEnded = false;
         _afterFade = AfterFade::None;
+    }
+
+    void Scene::ModGoldenArmFadeObservation() noexcept
+    {
+        _modGoldenFadeObservation = {};
+        _modGoldenFadeObservationArmed = true;
+    }
+
+    void Scene::ModGoldenObserveFadeUpdate(float percent) noexcept
+    {
+        if (!_modGoldenFadeObservationArmed)
+        {
+            return;
+        }
+        _modGoldenFadeObservation.UpdateObserved = true;
+        _modGoldenFadeObservation.UpdatePercent = percent;
+    }
+
+    void Scene::ModGoldenObserveFadeDraw(
+        std::int32_t fadeType,
+        float color,
+        float percent) noexcept
+    {
+        if (!_modGoldenFadeObservationArmed)
+        {
+            return;
+        }
+        _modGoldenFadeObservation.DrawObserved = true;
+        _modGoldenFadeObservation.DrawType = fadeType;
+        _modGoldenFadeObservation.DrawColor = color;
+        _modGoldenFadeObservation.DrawPercent = percent;
+        _modGoldenFadeObservationArmed = false;
+    }
+
+    MphRead::Mods::Render::GoldenCaptureValidation::FadeObservation
+        Scene::ModGoldenFadeObservation() const noexcept
+    {
+        return _modGoldenFadeObservation;
     }
 
     void Scene::ModGoldenSetElapsedTime(

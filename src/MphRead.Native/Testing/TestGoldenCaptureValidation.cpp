@@ -107,6 +107,81 @@ int main()
         Fail("different capture fingerprints must be accepted", failures);
     }
 
+    const float globalElapsedTime = 0.25F;
+    const float targetFadePercent = 0.5F;
+    const FadeFixtureTiming fadeTiming
+        = MakeDeterministicFadeTiming(
+            globalElapsedTime,
+            targetFadePercent);
+    const float recomputedFadePercent
+        = FadePercentAfterUpdate(globalElapsedTime, fadeTiming);
+    if (!FadeValueMatches(recomputedFadePercent, targetFadePercent))
+    {
+        Fail(
+            "injected fade timing must recompute to the requested percent",
+            failures);
+    }
+
+    FadeObservation observation{};
+    ExpectThrows(
+        "fade sequence must require a production UpdateFade observation",
+        [&observation]()
+        {
+            RequireExpectedFadeSequence(
+                observation,
+                3,
+                1.0F,
+                0.5F);
+        },
+        failures);
+
+    observation.UpdateObserved = true;
+    observation.UpdatePercent = recomputedFadePercent;
+    ExpectThrows(
+        "fade sequence must require the actual production draw",
+        [&observation]()
+        {
+            RequireExpectedFadeSequence(
+                observation,
+                3,
+                1.0F,
+                0.5F);
+        },
+        failures);
+
+    observation.DrawObserved = true;
+    observation.DrawType = 3;
+    observation.DrawColor = 1.0F;
+    observation.DrawPercent = recomputedFadePercent;
+    try
+    {
+        RequireExpectedFadeSequence(
+            observation,
+            3,
+            1.0F,
+            0.5F);
+    }
+    catch (const std::exception&)
+    {
+        Fail(
+            "matching UpdateFade and draw observations must be accepted",
+            failures);
+    }
+
+    FadeObservation staleDraw = observation;
+    staleDraw.DrawPercent = 0.0F;
+    ExpectThrows(
+        "fade sequence must reject a draw-time percent overwritten after injection",
+        [&staleDraw]()
+        {
+            RequireExpectedFadeSequence(
+                staleDraw,
+                3,
+                1.0F,
+                0.5F);
+        },
+        failures);
+
     ExpectThrows(
         "dimension/byte-count mismatch must be rejected",
         [&hud]()

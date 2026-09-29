@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../Formats/Types.hpp"
+#include "GoldenCaptureValidation.hpp"
 
 #include <cstdint>
 #include <string>
@@ -42,7 +43,19 @@ public: \
     [[nodiscard]] bool ModGoldenFinalStageReady() const noexcept; \
     [[nodiscard]] bool ModGoldenFadeStateMatches(float color, float percent) const noexcept; \
     void ModGoldenSetFadeState(float color, float percent) noexcept; \
-    void ModGoldenSetElapsedTime(float elapsedTime) noexcept;
+    void ModGoldenArmFadeObservation() noexcept; \
+    void ModGoldenObserveFadeUpdate(float percent) noexcept; \
+    void ModGoldenObserveFadeDraw( \
+        std::int32_t fadeType, \
+        float color, \
+        float percent) noexcept; \
+    [[nodiscard]] ::MphRead::Mods::Render::GoldenCaptureValidation::FadeObservation \
+        ModGoldenFadeObservation() const noexcept; \
+    void ModGoldenSetElapsedTime(float elapsedTime) noexcept; \
+private: \
+    bool _modGoldenFadeObservationArmed = false; \
+    ::MphRead::Mods::Render::GoldenCaptureValidation::FadeObservation \
+        _modGoldenFadeObservation{};
 
 #define MPHREAD_PLAYER_GOLDEN_CAPTURE_MEMBERS \
 public: \

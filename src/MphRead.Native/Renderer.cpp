@@ -1383,6 +1383,111 @@ namespace MphRead
         return *_commands;
     }
 
+    // Each pass's state, as OnRenderFrame's GL calls used to set it one call
+    // at a time. The item's culling, fill and line width are laid on top by
+    // ScenePipeline; everything else about a pass is here.
+    NativeRuntime::Rhi::GraphicsPipelineDesc Scene::DescribeScenePass(ScenePass pass)
+    {
+        namespace Rhi = NativeRuntime::Rhi;
+        Rhi::GraphicsPipelineDesc desc{};
+        desc.rasterizer.cullMode = Rhi::CullMode::None;
+        Rhi::DepthStencilStateDesc& ds = desc.depthStencil;
+        ds.depthTestEnable = true;
+        ds.depthWriteEnable = true;
+        ds.depthCompareOp = Rhi::CompareOp::LessEqual;
+        ds.stencilReadMask = 0xFF;
+        ds.stencilWriteMask = 0xFF;
+        Rhi::BlendAttachmentDesc blend{};
+        blend.srcColorFactor = Rhi::BlendFactor::SrcAlpha;
+        blend.dstColorFactor = Rhi::BlendFactor::OneMinusSrcAlpha;
+        blend.srcAlphaFactor = Rhi::BlendFactor::SrcAlpha;
+        blend.dstAlphaFactor = Rhi::BlendFactor::OneMinusSrcAlpha;
+        blend.writeMask = Rhi::ColorWriteMask::All;
+        const auto stencil = [&ds](Rhi::StencilOp fail, Rhi::StencilOp depthFail, Rhi::StencilOp pass2,
+            Rhi::CompareOp compare)
+        {
+            ds.stencilTestEnable = true;
+            ds.front = Rhi::StencilFaceStateDesc{fail, depthFail, pass2, compare};
+            ds.back = ds.front;
+        };
+        switch (pass)
+        {
+        case ScenePass::Opaque:
+            // Blending is off: an opaque pass keeps alpha == 1.0 only, which
+            // blends to itself whatever the blend state says.
+            ds.depthCompareOp = Rhi::CompareOp::Less;
+            stencil(Rhi::StencilOp::Zero, Rhi::StencilOp::Zero, Rhi::StencilOp::Zero, Rhi::CompareOp::Always);
+            desc.alphaTest = Rhi::AlphaTestMode::EqualOne;
+            break;
+        case ScenePass::Decal:
+            stencil(Rhi::StencilOp::Zero, Rhi::StencilOp::Zero, Rhi::StencilOp::Zero, Rhi::CompareOp::Always);
+            desc.rasterizer.depthBiasEnable = true;
+            desc.rasterizer.depthBiasConstant = -1.0F;
+            desc.rasterizer.depthBiasSlope = -1.0F;
+            blend.blendEnable = true;
+            break;
+        case ScenePass::TranslucentStencil:
+            stencil(Rhi::StencilOp::Keep, Rhi::StencilOp::Keep, Rhi::StencilOp::Replace, Rhi::CompareOp::Greater);
+            desc.alphaTest = Rhi::AlphaTestMode::LessThanOne;
+            blend.blendEnable = true;
+            blend.writeMask = Rhi::ColorWriteMask::None;
+            break;
+        case ScenePass::DepthRebuild:
+            stencil(Rhi::StencilOp::Keep, Rhi::StencilOp::Keep, Rhi::StencilOp::Keep, Rhi::CompareOp::Always);
+            desc.alphaTest = Rhi::AlphaTestMode::EqualOne;
+            blend.blendEnable = true;
+            blend.writeMask = Rhi::ColorWriteMask::None;
+            break;
+        case ScenePass::TranslucentNotEqual:
+        case ScenePass::TranslucentEqual:
+            stencil(Rhi::StencilOp::Keep, Rhi::StencilOp::Keep, Rhi::StencilOp::Keep,
+                pass == ScenePass::TranslucentEqual ? Rhi::CompareOp::Equal : Rhi::CompareOp::NotEqual);
+            desc.alphaTest = Rhi::AlphaTestMode::LessThanOne;
+            ds.depthWriteEnable = false;
+            blend.blendEnable = true;
+            break;
+        case ScenePass::AfterScene:
+            blend.blendEnable = true;
+            break;
+        case ScenePass::Preview:
+            ds.depthCompareOp = Rhi::CompareOp::Less;
+            blend.blendEnable = true;
+            break;
+        }
+        desc.blendAttachments.push_back(blend);
+        desc.colorFormats.push_back(Rhi::TextureFormat::RGB8Unorm);
+        desc.depthStencilFormat = Rhi::TextureFormat::D24UnormS8Uint;
+        return desc;
+    }
+
+    const NativeRuntime::Rhi::GraphicsPipeline& Scene::ScenePipeline(ScenePass pass,
+        NativeRuntime::Rhi::CullMode cull, NativeRuntime::Rhi::FillMode fill, std::int32_t lineWidth)
+    {
+        const std::uint32_t key = (static_cast<std::uint32_t>(pass) << 16U)
+            | (static_cast<std::uint32_t>(cull) << 12U) | (static_cast<std::uint32_t>(fill) << 8U)
+            | (static_cast<std::uint32_t>(lineWidth) & 0xFFU);
+        auto& pipeline = _pipelines[key];
+        if (!pipeline)
+        {
+            NativeRuntime::Rhi::GraphicsPipelineDesc desc = DescribeScenePass(pass);
+            desc.rasterizer.cullMode = cull;
+            desc.rasterizer.fillMode = fill;
+            desc.rasterizer.lineWidth = static_cast<float>(lineWidth);
+            pipeline = Gpu().CreateGraphicsPipeline(desc);
+        }
+        return *pipeline;
+    }
+
+    // A pass begins with its state applied even when it has no items, as
+    // the calls that set it one at a time always were: the depth clear
+    // between the stencil and rebuild passes depends on it.
+    void Scene::BeginScenePass(ScenePass pass)
+    {
+        _itemPass = pass;
+        Commands().SetPipeline(ScenePipeline(pass, NativeRuntime::Rhi::CullMode::None,
+            NativeRuntime::Rhi::FillMode::Solid, 1));
+    }
+
     void Scene::CreateSceneTargets(Vector2i size)
     {
         namespace Rhi = NativeRuntime::Rhi;
@@ -2007,46 +2112,29 @@ namespace MphRead
         UpdateUniforms();
         SetPauseMenuUniforms();
         if (_exiting) return false;
-        GL::ColorMask(true, true, true, true);
-        GL::Enable(GL::EnableCap::AlphaTest);
-        GL::AlphaFunc(GL::AlphaFunction::Equal, 1.0F);
-        GL::DepthFunc(GL::DepthFunction::Less);
-        GL::DepthMask(true);
-        GL::Enable(GL::EnableCap::StencilTest);
-        GL::StencilMask(0xFF);
-        GL::StencilOp(GL::StencilOp::Zero, GL::StencilOp::Zero, GL::StencilOp::Zero);
-        GL::StencilFunc(GL::StencilFunction::Always, 0, 0xFF);
+        BeginScenePass(ScenePass::Opaque);
         for (const auto& item : _nonDecalItems) RenderItem(item);
-        GL::Disable(GL::EnableCap::AlphaTest);
-        GL::Enable(GL::EnableCap::PolygonOffsetFill); GL::PolygonOffset(-1, -1);
-        GL::DepthFunc(GL::DepthFunction::Lequal);
-        GL::Enable(GL::EnableCap::Blend);
-        GL::BlendFunc(GL::BlendingFactor::SrcAlpha, GL::BlendingFactor::OneMinusSrcAlpha);
+        BeginScenePass(ScenePass::Decal);
         for (const auto& item : _decalItems) RenderItem(item);
-        GL::PolygonOffset(0, 0); GL::Disable(GL::EnableCap::PolygonOffsetFill);
-        GL::Enable(GL::EnableCap::AlphaTest); GL::AlphaFunc(GL::AlphaFunction::Less, 1.0F);
-        GL::ColorMask(false, false, false, false);
-        GL::StencilOp(GL::StencilOp::Keep, GL::StencilOp::Keep, GL::StencilOp::Replace);
+        BeginScenePass(ScenePass::TranslucentStencil);
         for (const auto& item : _translucentItems)
         {
-            GL::StencilFunc(GL::StencilFunction::Greater, item->PolygonId, 0xFF); RenderItem(item);
+            Commands().SetStencilReference(static_cast<std::uint32_t>(item->PolygonId)); RenderItem(item);
         }
         GL::Clear(GL::ClearBufferMask::DepthBufferBit);
-        GL::StencilOp(GL::StencilOp::Keep, GL::StencilOp::Keep, GL::StencilOp::Keep);
-        GL::StencilFunc(GL::StencilFunction::Always, 0, 0xFF); GL::AlphaFunc(GL::AlphaFunction::Equal, 1.0F);
+        BeginScenePass(ScenePass::DepthRebuild);
         for (const auto& item : _nonDecalItems) RenderItem(item);
-        GL::AlphaFunc(GL::AlphaFunction::Less, 1.0F); GL::ColorMask(true, true, true, true);
-        GL::DepthMask(false); GL::DepthFunc(GL::DepthFunction::Lequal);
+        BeginScenePass(ScenePass::TranslucentNotEqual);
         for (const auto& item : _translucentItems)
         {
-            GL::StencilFunc(GL::StencilFunction::Notequal, item->PolygonId, 0xFF); RenderItem(item);
+            Commands().SetStencilReference(static_cast<std::uint32_t>(item->PolygonId)); RenderItem(item);
         }
+        BeginScenePass(ScenePass::TranslucentEqual);
         for (const auto& item : _translucentItems)
         {
-            GL::StencilFunc(GL::StencilFunction::Equal, item->PolygonId, 0xFF); RenderItem(item);
+            Commands().SetStencilReference(static_cast<std::uint32_t>(item->PolygonId)); RenderItem(item);
         }
-        GL::DepthMask(true); GL::Disable(GL::EnableCap::AlphaTest); GL::Disable(GL::EnableCap::StencilTest);
-        GL::PolygonMode(GL::TriangleFace::FrontAndBack, GL::PolygonMode::Fill);
+        BeginScenePass(ScenePass::AfterScene);
         ModDrawPreview();
         auto main = Entities::PlayerEntity::Main();
         if (((main->LoadFlags() & LoadFlags::Active) == LoadFlags::Active) && CameraMode() == MphRead::CameraMode::Player)
@@ -3684,6 +3772,7 @@ namespace MphRead
         }
         // The command list owns the framebuffers built on those targets.
         _commands.reset();
+        _pipelines.clear();
         const auto deleteProgram = [](std::int32_t& program)
         {
             if (program != 0)
@@ -3839,26 +3928,21 @@ namespace MphRead
         GL::UniformMatrix4(_shaderLocations->ViewInvMatrix, false, viewInv);
         DoMaterial(*item);
         DoTexture(*item);
-        if (_faceCulling)
+        // With face culling switched off (the B key) nothing ever enables it.
+        namespace Rhi = NativeRuntime::Rhi;
+        Rhi::CullMode cull = Rhi::CullMode::None;
+        if (_faceCulling && item->CullingMode == CullingMode::Back)
         {
-            GL::Enable(GL::EnableCap::CullFace);
-            if (item->CullingMode == CullingMode::Neither)
-            {
-                GL::Disable(GL::EnableCap::CullFace);
-            }
-            else if (item->CullingMode == CullingMode::Back)
-            {
-                GL::CullFace(GL::TriangleFace::Back);
-            }
-            else if (item->CullingMode == CullingMode::Front)
-            {
-                GL::CullFace(GL::TriangleFace::Front);
-            }
+            cull = Rhi::CullMode::Back;
+        }
+        else if (_faceCulling && item->CullingMode == CullingMode::Front)
+        {
+            cull = Rhi::CullMode::Front;
         }
         const bool wireframe = _wireframeLevel > 0 || item->Wireframe;
-        GL::PolygonMode(GL::TriangleFace::FrontAndBack,
-            wireframe ? GL::PolygonMode::Line : GL::PolygonMode::Fill);
-        GL::LineWidth(static_cast<float>(wireframe ? std::max(1, _wireframeLevel) : 1));
+        Commands().SetPipeline(ScenePipeline(_itemPass, cull,
+            wireframe ? Rhi::FillMode::Wireframe : Rhi::FillMode::Solid,
+            wireframe ? std::max(1, _wireframeLevel) : 1));
         if (item->Type == RenderItemType::Mesh)
         {
             DrawGpuMesh(item->MeshModel, item->MeshObject);

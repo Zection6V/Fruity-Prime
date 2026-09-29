@@ -229,7 +229,7 @@ namespace MphRead
             {
                 return false;
             }
-            GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, 0);
+            BeginWindowRendering();
             GL::UseProgram(_shaderProgramId);
             ModDrawPreview();
             GL::UseProgram(0);
@@ -291,13 +291,7 @@ namespace MphRead
         }
         SetFrameMatrices(view, projection);
         GL::Uniform1(_shaderLocations->UseFog, 0);
-        GL::Enable(GL::EnableCap::DepthTest);
-        GL::DepthFunc(GL::DepthFunction::Less);
-        GL::DepthMask(true);
-        GL::Disable(GL::EnableCap::StencilTest);
-        GL::Enable(GL::EnableCap::Blend);
-        GL::BlendFunc(GL::BlendingFactor::SrcAlpha, GL::BlendingFactor::OneMinusSrcAlpha);
-        GL::Disable(GL::EnableCap::AlphaTest);
+        BeginScenePass(ScenePass::Preview);
         for (std::size_t i = 0; i < _previewItems.size(); ++i)
         {
             RenderItem(_previewItems[i]);

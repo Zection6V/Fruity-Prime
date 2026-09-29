@@ -612,7 +612,7 @@ void main()
         Check("VertexShader", Shaders::VertexShader,
             "6953aa4469c70cafe5c69fe646047f2a015058d4fccf01f6a51a1c3a1634b7e8");
         Check("FragmentShader", Shaders::FragmentShader,
-            "094c0688c3affba98a1d145a5c41d1a0f6dcf349204a815a73504edee5122834");
+            "592f7b34f0f85b67d0231bac4b4afb6f80bbdf2b1f66b6638b707faf3b09c75f");
         Check("RttVertexShader", Shaders::RttVertexShader,
             "d427bed416dcee895b331010a0244b3d5e9f7df46e8d288ad44de0dd75ac3416");
         Check("RttFragmentShader", Shaders::RttFragmentShader,

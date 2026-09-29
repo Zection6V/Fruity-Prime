@@ -21,6 +21,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         constexpr std::int32_t FramebufferBinding = 0x8CA6; // GL_FRAMEBUFFER_BINDING
         // The enum shares its name with the function that takes it.
         using GlRenderbufferStorage = enum ::OpenTK::Graphics::OpenGL::GL::RenderbufferStorage;
+        using GlStencilOp = enum ::OpenTK::Graphics::OpenGL::GL::StencilOp;
 
         [[noreturn]] void NotYet(const char* what)
         {
@@ -112,6 +113,81 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
         class OpenGlGraphicsDevice;
         class OpenGlCommandList;
+
+        // GL's own numbers for the RHI's pipeline enums. The wrapper's enums
+        // carry only the values upstream used, so these are cast from the
+        // registry values directly.
+        [[nodiscard]] std::int32_t ToGl(CompareOp op) noexcept
+        {
+            return 0x0200 + static_cast<std::int32_t>(op); // GL_NEVER..GL_ALWAYS are in RHI order
+        }
+
+        [[nodiscard]] std::int32_t ToGl(StencilOp op) noexcept
+        {
+            switch (op)
+            {
+            case StencilOp::Zero: return 0;
+            case StencilOp::Replace: return 0x1E01;
+            case StencilOp::IncrementClamp: return 0x1E02;
+            case StencilOp::DecrementClamp: return 0x1E03;
+            case StencilOp::Invert: return 0x150A;
+            case StencilOp::IncrementWrap: return 0x8507;
+            case StencilOp::DecrementWrap: return 0x8508;
+            case StencilOp::Keep:
+            default: return 0x1E00;
+            }
+        }
+
+        [[nodiscard]] std::int32_t ToGl(BlendFactor factor) noexcept
+        {
+            switch (factor)
+            {
+            case BlendFactor::Zero: return 0;
+            case BlendFactor::One: return 1;
+            case BlendFactor::SrcColor: return 0x0300;
+            case BlendFactor::OneMinusSrcColor: return 0x0301;
+            case BlendFactor::SrcAlpha: return 0x0302;
+            case BlendFactor::OneMinusSrcAlpha: return 0x0303;
+            case BlendFactor::DstAlpha: return 0x0304;
+            case BlendFactor::OneMinusDstAlpha: return 0x0305;
+            case BlendFactor::DstColor: return 0x0306;
+            case BlendFactor::OneMinusDstColor: return 0x0307;
+            case BlendFactor::ConstantColor: return 0x8001;
+            case BlendFactor::OneMinusConstantColor: return 0x8002;
+            case BlendFactor::ConstantAlpha: return 0x8003;
+            case BlendFactor::OneMinusConstantAlpha: return 0x8004;
+            }
+            return 1;
+        }
+
+        constexpr std::int32_t CapDepthTest = 0x0B71;
+        constexpr std::int32_t CapStencilTest = 0x0B90;
+        constexpr std::int32_t CapBlend = 0x0BE2;
+        constexpr std::int32_t CapCullFace = 0x0B44;
+        constexpr std::int32_t CapPolygonOffsetFill = 0x8037;
+        constexpr std::int32_t CurrentProgram = 0x8B8D; // GL_CURRENT_PROGRAM
+
+        void SetCap(std::int32_t cap, bool on)
+        {
+            if (on)
+            {
+                GL::Enable(static_cast<GL::EnableCap>(cap));
+            }
+            else
+            {
+                GL::Disable(static_cast<GL::EnableCap>(cap));
+            }
+        }
+
+        class OpenGlGraphicsPipeline final : public GraphicsPipeline
+        {
+        public:
+            explicit OpenGlGraphicsPipeline(const GraphicsPipelineDesc& desc) : _desc(desc) {}
+            [[nodiscard]] const GraphicsPipelineDesc& Desc() const noexcept override { return _desc; }
+
+        private:
+            GraphicsPipelineDesc _desc;
+        };
 
         class OpenGlTexture final : public Texture
         {
@@ -324,10 +400,13 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 NotYet("CreateBindingSet");
             }
 
+            // The shaders, binding layout and vertex layout in the desc are
+            // for backends that bake them in; OpenGL takes the program and the
+            // arrays from what is bound, and applies the fixed state here.
             [[nodiscard]] std::unique_ptr<GraphicsPipeline> CreateGraphicsPipeline(
-                const GraphicsPipelineDesc&) override
+                const GraphicsPipelineDesc& desc) override
             {
-                NotYet("CreateGraphicsPipeline");
+                return std::make_unique<OpenGlGraphicsPipeline>(desc);
             }
 
             [[nodiscard]] std::unique_ptr<CommandList> CreateCommandList() override;
@@ -503,12 +582,56 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     }
                     _current = key;
                 }
+                // Code outside the RHI may have changed GL state since the last
+                // pipeline was applied; the next SetPipeline applies in full.
+                _applied = nullptr;
                 ClearFor(info);
             }
 
             void EndRendering() override {}
 
-            void SetPipeline(const GraphicsPipeline&) override { NotYet("SetPipeline"); }
+            void SetPipeline(const GraphicsPipeline& pipeline) override
+            {
+                if (&pipeline == _applied)
+                {
+                    return;
+                }
+                _applied = &pipeline;
+                const GraphicsPipelineDesc& desc = pipeline.Desc();
+
+                const RasterizerStateDesc& raster = desc.rasterizer;
+                SetCap(CapCullFace, raster.cullMode != CullMode::None);
+                if (raster.cullMode != CullMode::None)
+                {
+                    GL::CullFace(raster.cullMode == CullMode::Front ? GL::TriangleFace::Front : GL::TriangleFace::Back);
+                }
+                GL::PolygonMode(GL::TriangleFace::FrontAndBack,
+                    raster.fillMode == FillMode::Wireframe ? GL::PolygonMode::Line : GL::PolygonMode::Fill);
+                GL::LineWidth(raster.lineWidth);
+                SetCap(CapPolygonOffsetFill, raster.depthBiasEnable);
+                GL::PolygonOffset(raster.depthBiasSlope, raster.depthBiasConstant);
+
+                const DepthStencilStateDesc& ds = desc.depthStencil;
+                SetCap(CapDepthTest, ds.depthTestEnable);
+                GL::DepthFunc(static_cast<GL::DepthFunction>(ToGl(ds.depthCompareOp)));
+                GL::DepthMask(ds.depthWriteEnable);
+                SetCap(CapStencilTest, ds.stencilTestEnable);
+                GL::StencilMask(ds.stencilWriteMask);
+                GL::StencilOp(static_cast<GlStencilOp>(ToGl(ds.front.failOp)),
+                    static_cast<GlStencilOp>(ToGl(ds.front.depthFailOp)),
+                    static_cast<GlStencilOp>(ToGl(ds.front.passOp)));
+                ApplyStencilFunc();
+
+                const BlendAttachmentDesc blend = desc.blendAttachments.empty()
+                    ? BlendAttachmentDesc{} : desc.blendAttachments[0];
+                SetCap(CapBlend, blend.blendEnable);
+                GL::BlendFunc(static_cast<GL::BlendingFactor>(ToGl(blend.srcColorFactor)),
+                    static_cast<GL::BlendingFactor>(ToGl(blend.dstColorFactor)));
+                const auto mask = static_cast<std::uint8_t>(blend.writeMask);
+                GL::ColorMask((mask & 1U) != 0, (mask & 2U) != 0, (mask & 4U) != 0, (mask & 8U) != 0);
+
+                ApplyAlphaTest(desc.alphaTest);
+            }
 
             void SetViewport(const Viewport& viewport) override
             {
@@ -525,7 +648,11 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void SetVertexBuffer(std::uint32_t, const Buffer&, std::uint64_t) override { NotYet("SetVertexBuffer"); }
             void SetIndexBuffer(const Buffer&, IndexType, std::uint64_t) override { NotYet("SetIndexBuffer"); }
             void SetBindingSet(std::uint32_t, const BindingSet&) override { NotYet("SetBindingSet"); }
-            void SetStencilReference(std::uint32_t) override { NotYet("SetStencilReference"); }
+            void SetStencilReference(std::uint32_t reference) override
+            {
+                _stencilReference = reference;
+                ApplyStencilFunc();
+            }
             void Draw(std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t) override { NotYet("Draw"); }
             void DrawIndexed(std::uint32_t, std::uint32_t, std::uint32_t, std::int32_t, std::uint32_t) override
             {
@@ -638,6 +765,54 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void Detach() noexcept { _device = nullptr; }
 
         private:
+            void ApplyStencilFunc()
+            {
+                if (_applied == nullptr)
+                {
+                    return;
+                }
+                const DepthStencilStateDesc& ds = _applied->Desc().depthStencil;
+                GL::StencilFunc(static_cast<GL::StencilFunction>(ToGl(ds.front.compareOp)),
+                    static_cast<std::int32_t>(_stencilReference), ds.stencilReadMask);
+            }
+
+            // The alpha test is a discard in the fragment shader, driven by the
+            // program's alpha_test uniform; a program without one has no test.
+            void ApplyAlphaTest(AlphaTestMode mode)
+            {
+#if defined(__ANDROID__)
+                // The ES wrapper already emulates glAlphaFunc as this same
+                // uniform and writes it before every draw from its own state,
+                // so the state is what has to be set.
+                if (mode == AlphaTestMode::Disabled)
+                {
+                    GL::Disable(GL::EnableCap::AlphaTest);
+                }
+                else
+                {
+                    GL::Enable(GL::EnableCap::AlphaTest);
+                    GL::AlphaFunc(mode == AlphaTestMode::EqualOne
+                        ? GL::AlphaFunction::Equal : GL::AlphaFunction::Less, 1.0F);
+                }
+                return;
+#endif
+                const std::int32_t program = GL::GetInteger(CurrentProgram);
+                if (program == 0)
+                {
+                    return;
+                }
+                auto found = _alphaTestLocations.find(program);
+                if (found == _alphaTestLocations.end())
+                {
+                    found = _alphaTestLocations.emplace(program,
+                        GL::GetUniformLocation(program, "alpha_test")).first;
+                }
+                if (found->second != -1)
+                {
+                    GL::Uniform1(found->second, static_cast<std::int32_t>(mode));
+                }
+            }
+
             // The framebuffer for these attachments, built if need be without
             // disturbing whatever is bound for drawing.
             [[nodiscard]] std::int32_t FramebufferFor(const RenderingInfo& info)
@@ -690,6 +865,9 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             OpenGlGraphicsDevice* _device;
             std::unordered_map<FramebufferKey, std::int32_t, FramebufferKeyHash> _framebuffers{};
             FramebufferKey _current{};
+            const GraphicsPipeline* _applied = nullptr;
+            std::uint32_t _stencilReference = 0;
+            std::unordered_map<std::int32_t, std::int32_t> _alphaTestLocations{};
         };
 
         OpenGlTexture::~OpenGlTexture()

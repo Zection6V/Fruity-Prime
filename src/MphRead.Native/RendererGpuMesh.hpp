@@ -46,6 +46,21 @@ namespace MphRead
     // DlistId remains only the source render-instruction-list selector. GPU
     // ownership is keyed by the live Model object and the live Mesh object so
     // distinct meshes never alias merely because they reference the same list.
+    // The scene's render-item passes, each one graphics pipeline state (with
+    // the item's own culling and fill on top). Renderer.cpp's
+    // DescribeScenePass is the table; the order is OnRenderFrame's.
+    enum class ScenePass : std::uint8_t
+    {
+        Opaque,              // alpha == 1, depth Less, stencil zeroed
+        Decal,               // alpha blended, depth LEqual, offset -1/-1
+        TranslucentStencil,  // alpha < 1, no colour, stencil = polygon id where greater
+        DepthRebuild,        // the opaque pass again after the depth clear, depth only
+        TranslucentNotEqual, // alpha < 1, blended, no depth write, stencil != id
+        TranslucentEqual,    // the same where stencil == id
+        AfterScene,          // what the HUD, preview and cel passes start from
+        Preview              // the hunter preview in the results screen corner
+    };
+
     enum class TransientPrimitiveTopology : std::uint8_t
     {
         LineLoop,

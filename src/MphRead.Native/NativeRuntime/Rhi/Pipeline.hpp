@@ -141,12 +141,28 @@ namespace MphRead::NativeRuntime::Rhi
         bool operator==(const VertexAttributeDesc&) const = default;
     };
 
+    // The alpha test, which the DS hardware has and Vulkan does not: the
+    // fragment shader discards against it. Equal/Less against 1.0 are the
+    // only two comparisons the renderer asks for, and their boundaries are
+    // the fixed-function ones (EqualOne keeps alpha == 1.0 exactly).
+    enum class AlphaTestMode : std::uint8_t
+    {
+        Disabled,
+        EqualOne,
+        LessThanOne
+    };
+
     struct RasterizerStateDesc final
     {
         CullMode cullMode = CullMode::Back;
         FrontFace frontFace = FrontFace::CounterClockwise;
         FillMode fillMode = FillMode::Solid;
         bool depthClampEnable = false;
+        // glPolygonOffset / VkPipelineRasterizationStateCreateInfo::depthBias*.
+        bool depthBiasEnable = false;
+        float depthBiasConstant = 0.0F;
+        float depthBiasSlope = 0.0F;
+        float lineWidth = 1.0F;
 
         bool operator==(const RasterizerStateDesc&) const = default;
     };
@@ -203,6 +219,7 @@ namespace MphRead::NativeRuntime::Rhi
         std::vector<TextureFormat> colorFormats;
         TextureFormat depthStencilFormat = TextureFormat::Undefined;
         std::uint32_t sampleCount = 1;
+        AlphaTestMode alphaTest = AlphaTestMode::Disabled;
 
         bool operator==(const GraphicsPipelineDesc&) const = default;
     };

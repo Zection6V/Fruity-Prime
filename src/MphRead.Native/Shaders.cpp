@@ -120,6 +120,10 @@ uniform vec3[32] toon_table;
 // the helmet and the HUD go through the RTT one afterwards and are left as
 // they are without anything having to turn this off.
 uniform int cel_bands;
+// The alpha test, from the pipeline (AlphaTestMode): 0 none, 1 keeps alpha
+// == 1.0, 2 keeps alpha < 1.0. It used to be glAlphaFunc, which Vulkan and ES
+// do not have; the comparison runs on the final colour, as that did.
+uniform int alpha_test;
 // The one colour the bound texture averages to, and whether to use it in
 // place of the texture's own. Set per render item by the renderer, which
 // works the average out once when the texture is uploaded.
@@ -229,6 +233,12 @@ void main()
             density = (depth - fog_min) / (fog_max - fog_min) * 124.0 / 128.0;
         }
         col = vec4((col * (1.0 - density) + fog_color * density).xyz, col.a);
+    }
+    if (alpha_test == 1 && col.a < 1.0) {
+        discard;
+    }
+    if (alpha_test == 2 && col.a >= 1.0) {
+        discard;
     }
     gl_FragColor = col;
 }

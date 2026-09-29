@@ -930,7 +930,15 @@ private: \
     void UpdateDepthAttachment(OpenTK::Mathematics::Vector2i target); \
     float MeasureDepthQuantum(); \
     void DrawCelOutline(); \
-    [[nodiscard]] MphRead::NativeRuntime::Rhi::GraphicsDevice& Gpu();     [[nodiscard]] MphRead::NativeRuntime::Rhi::CommandList& Commands();     void CreateSceneTargets(OpenTK::Mathematics::Vector2i size); \
+    [[nodiscard]] MphRead::NativeRuntime::Rhi::GraphicsDevice& Gpu(); \
+    [[nodiscard]] static MphRead::NativeRuntime::Rhi::GraphicsPipelineDesc DescribeScenePass( \
+        MphRead::ScenePass pass); \
+    [[nodiscard]] const MphRead::NativeRuntime::Rhi::GraphicsPipeline& ScenePipeline( \
+        MphRead::ScenePass pass, MphRead::NativeRuntime::Rhi::CullMode cull, \
+        MphRead::NativeRuntime::Rhi::FillMode fill, std::int32_t lineWidth); \
+    void BeginScenePass(MphRead::ScenePass pass); \
+    [[nodiscard]] MphRead::NativeRuntime::Rhi::CommandList& Commands(); \
+    void CreateSceneTargets(OpenTK::Mathematics::Vector2i size); \
     [[nodiscard]] MphRead::NativeRuntime::Rhi::RenderingInfo SceneRenderingInfo( \
         std::array<MphRead::NativeRuntime::Rhi::RenderingColorAttachment, 1>& color, \
         MphRead::NativeRuntime::Rhi::RenderingDepthStencilAttachment& depth) const; \
@@ -1133,6 +1141,8 @@ private: \
     std::unique_ptr<MphRead::NativeRuntime::Rhi::TextureView> _celDepthView{}; \
     std::array<std::unique_ptr<MphRead::NativeRuntime::Rhi::Sampler>, 18> _samplers{}; \
     bool _depthTextureRefused = false; \
+    MphRead::ScenePass _itemPass = MphRead::ScenePass::Opaque; \
+    std::unordered_map<std::uint32_t, std::unique_ptr<MphRead::NativeRuntime::Rhi::GraphicsPipeline>> _pipelines{}; \
     OpenTK::Mathematics::Vector2i _targetSize{}; \
     std::unordered_map<std::int32_t, OpenTK::Mathematics::Vector3> _flatColors{}; \
     inline static bool _breakNextFrame = false; \

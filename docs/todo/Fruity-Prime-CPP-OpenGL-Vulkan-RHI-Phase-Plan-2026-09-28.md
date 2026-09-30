@@ -3110,16 +3110,18 @@ fullscreen pass。
 
 ## 完了条件
 
-- [ ] cel shading
-- [ ] outline
-- [ ] HUD
-- [ ] mask
-- [ ] whiteout
-- [ ] disruption
-- [ ] fade
-- [ ] scoreboard
-- [ ] pause game background
-- [ ] OpenGL comparison pass
+- [x] cel shading
+- [x] outline
+- [x] HUD
+- [x] mask
+- [x] whiteout
+- [x] disruption
+- [x] fade
+- [x] scoreboard
+- [x] pause game background
+- [x] OpenGL comparison pass
+
+2026-10-01完了。Phase 17のdeferred pipeline / 自動layout遷移 / depth-only sampled viewで後段処理も通り、追加コード不要。cel probe（決定的なspawn 0–2で差は最大1階調）、Golden fade/hud/whiteout-disruption、実試合 `-hudshots` 20枚（HUD・mask・scoreboard）で確認。残差は2D quadの画素/texel中心tieに当たる1px縁のみで、座標規約の反転・quad分割変更でも不変＝実装依存のtie解決としてPhase 24の許容差に定義。pause背景のscene側は完成、Launcher合成はPhase 19。詳細は[Phase 18 gate](Fruity-Prime-CPP-Vulkan-RHI-Phase18-Gate-2026-10-01.md)。
 
 ---
 
@@ -4582,7 +4584,7 @@ D3D12
 
 ## 現在の作業位置
 
-- **Phase 17完了 (2026-10-01)。** Vulkanでmain sceneを描画（`-rhi vulkan`）。Golden 7/7がOpenGLとscene部pixel一致、validation 0、GPU lifetime 4/4。[Phase 17 gate](Fruity-Prime-CPP-Vulkan-RHI-Phase17-Gate-2026-10-01.md)。**次はPhase 18。**
+- **Phase 17完了 (2026-10-01)。** Vulkanでmain sceneを描画（`-rhi vulkan`）。Golden 7/7がOpenGLとscene部pixel一致、validation 0、GPU lifetime 4/4。[Phase 17 gate](Fruity-Prime-CPP-Vulkan-RHI-Phase17-Gate-2026-10-01.md)。**Phase 18完了** ([gate](Fruity-Prime-CPP-Vulkan-RHI-Phase18-Gate-2026-10-01.md))。**次はPhase 19。**
 - **Phase 13まで完了 (2026-09-30)。** Phase 11最終コード `5e3c3275` はGolden 7/7、CTest 5/5、GL分類D=0、shellshot 28枚、[CI 36666551184](https://github.com/Zection6V/Fruity-Prime/actions/runs/36666551184) 11/11 PASS。Phase 10最終コード `220e900a` はGolden 7/7、GPU lifetime arena 5/5・実マップcel 3/3で解放後全種ゼロ、shellshot 24枚、2クライアントのSANCTORUS↔PROVING GROUND遷移がPASS。C++ソース同一の `a6144b61` は [CI 36647299171](https://github.com/Zection6V/Fruity-Prime/actions/runs/36647299171) 10/10 PASS。Phase 13実装SHA `8c6f2d2a` はclear-only Vulkan presentation、resize/fullscreen/minimize復帰、終了を実機でvalidation errors 0、CTest 5/5、[CI 36684051768](https://github.com/Zection6V/Fruity-Prime/actions/runs/36684051768) 11/11 PASS。詳細は[Phase 10/11検証記録](Fruity-Prime-CPP-OpenGL-RHI-Phase10-11-Gate-2026-09-30.md)と[Phase 13 gate記録](Fruity-Prime-CPP-Vulkan-RHI-Phase13-Gate-2026-09-30.md)を参照。**次はPhase 14。** 以下のPhase 4〜5記録は過去の経緯として保持する。
 
 - **Phase 5 完了 (2026-09-30, SHA `5e52078b5545294cfa423715457e1a2279cd9398`)。** 本文の完了条件5項目すべてチェック済み。次はPhase 6。

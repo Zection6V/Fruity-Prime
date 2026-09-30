@@ -121,9 +121,11 @@ Inputs: `C:/tmp/gp/inputs/paths.txt`, `C:/tmp/gp/inputs/maps2`; working
 directory `C:/tmp/gp/cwd`. Validator checks actual runtime input hashes.
 This is the established Phase 3 rendering comparison baseline; Phase 0's
 baseline document explicitly recorded conditions without capturing PNGs.
-Do not describe this as a direct comparison against Phase 0 PNGs. On 2026-09-30,
- the user explicitly waived obtaining Phase 0 images because no Golden Capture
- existed there; Phase 11 rendering parity uses the established Phase 3 capture.
+Do not describe this as a direct comparison against Phase 0 PNGs. Correction (2026-09-30): Phase 0 DID implement the opt-in capture helper; it
+did not execute it or preserve PNGs. The final Phase 0 source is `5d3a0892`,
+not the pre-helper baseline `bb8f619d`. After the user clarified this distinction,
+a Phase 0 to Phase 3 bridge comparison was started with a common isolated
+capture adapter. Existing Phase 3 parity validation remains unchanged.
 
 Renderprobe is an additional visibility smoke test, not a deterministic pixel
 oracle: separate simulation/update and drawing schedules change the camera and

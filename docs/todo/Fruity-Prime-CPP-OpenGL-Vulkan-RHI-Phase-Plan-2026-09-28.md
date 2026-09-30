@@ -2335,7 +2335,7 @@ scene unload/reload
 
 ## 必須parity
 
-Phase 3 Golden Captureと比較。Phase 0にはGolden Captureが存在しないため、2026-09-30のユーザー指示によりPhase 0画像の追加取得は不要とする。
+Phase 0完了時のGolden Captureと比較。Phase 0では撮影補助を実装したがPNGは未取得だったため、2026-09-30に完了SHA `5d3a0892` とPhase 3の比較を追加する。Phase 3との既存の厳密比較も継続する。
 
 重大差分ゼロ。
 

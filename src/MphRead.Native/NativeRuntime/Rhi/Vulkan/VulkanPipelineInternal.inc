@@ -93,6 +93,8 @@ public:
             || desc.rasterizer.fillMode > FillMode::Wireframe || desc.alphaTest > AlphaTestMode::LessThanOne
             || desc.depthStencil.depthCompareOp > CompareOp::Always)
             throw std::invalid_argument("Vulkan RHI: invalid pipeline state enum.");
+        if (!std::isfinite(desc.rasterizer.depthBiasConstant) || !std::isfinite(desc.rasterizer.depthBiasSlope))
+            throw std::invalid_argument("Vulkan RHI: non-finite depth bias.");
         auto validateStencil = [](const StencilFaceStateDesc& face) {
             if (face.failOp > StencilOp::DecrementWrap || face.passOp > StencilOp::DecrementWrap
                 || face.depthFailOp > StencilOp::DecrementWrap || face.compareOp > CompareOp::Always)

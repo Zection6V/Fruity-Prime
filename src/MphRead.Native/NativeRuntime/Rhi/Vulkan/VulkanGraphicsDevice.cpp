@@ -2167,6 +2167,18 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (dynamic_cast<const VulkanGraphicsPipeline&>(*pipeline).Native()
                 == dynamic_cast<const VulkanGraphicsPipeline&>(*distinct).Native())
                 throw std::runtime_error("Vulkan different pipeline state aliased in cache.");
+            auto reject = [&](const GraphicsPipelineDesc& invalid) {
+                bool rejected = false;
+                try { auto unexpected = device.CreateGraphicsPipeline(invalid); }
+                catch (const std::invalid_argument&) { rejected = true; }
+                if (!rejected) throw std::runtime_error("Vulkan invalid pipeline description accepted.");
+            };
+            auto invalid = desc; invalid.sampleCount = 3; reject(invalid);
+            invalid = desc; invalid.vertexBuffers.clear(); reject(invalid);
+            invalid = desc; invalid.blendAttachments.clear(); reject(invalid);
+            invalid = desc; invalid.bindingLayout = nullptr; reject(invalid);
+            invalid = desc; invalid.rasterizer.depthBiasSlope = std::numeric_limits<float>::quiet_NaN(); reject(invalid);
+            if (main) { invalid = desc; invalid.depthStencilFormat = TextureFormat::RGBA8Unorm; reject(invalid); }
         };
         check(Generated::main_vert, Generated::main_frag, Generated::main_textures, Generated::main_uniform_size, true);
         check(Generated::composite_vert, Generated::composite_frag, Generated::composite_textures, Generated::composite_uniform_size, false);

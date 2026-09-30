@@ -4,6 +4,15 @@ Phase 15 is complete at implementation `7f9e42493d8e3d749acf4896387c16e9e75ccdf4
 completion records are committed as `c8f973e0a59eb3e91ff3ea3d756dc64d95d0430f`.
 Phase 16 is not complete.
 
+Implementation SHA: `9d612df1a6c94bbdee55bf1998d32814aa7728e5`.
+Exact-SHA CI dispatched with explicit checkout_ref:
+[desktop 36742852274](https://github.com/Zection6V/Fruity-Prime/actions/runs/36742852274),
+[Android 36742858600](https://github.com/Zection6V/Fruity-Prime/actions/runs/36742858600).
+Both results are pending.
+
+macOS/Clang has completed successfully on that SHA. Linux/GCC, Windows/MSVC
+and Android remain in progress.
+
 Current local evidence: native build, CTest 5/5, shader/pipeline/binding resource
 diagnostics and normal/fallback presentation checks passed. Validation errors
 and post-diagnostic live shaders/programs/resources are zero. CI is pending.
@@ -158,3 +167,17 @@ Pipeline cache retention is now visible as Programs in resource statistics.
 The diagnostic clears its cache only after WaitIdle and verifies zero native
 programs; the final resource leak check includes shaders/programs as well.
 This accounting revision is building; runtime verification remains pending.
+
+Accounting build/runtime passed (`C:/tmp/gp/p16-program-count-runtime.log`).
+Further audit added rejection diagnostics for invalid sample count, missing
+vertex bindings, attachment count mismatch, null layout, non-finite depth bias
+and color formats used as depth. The negative-case build/runtime passed with
+validation=1, errors=0 and live=0 (`C:/tmp/gp/p16-negative-pipeline-build.log`,
+`p16-negative-pipeline-runtime.log`). These follow-up changes are not yet committed
+and require exact-SHA CI before Phase 16 completion.
+
+An independent output-directory regeneration using the same glslc produced
+byte-identical eight SPIR-V binaries and the embedded C++ header compared with
+the CMake outputs; spirv-val passed 8/8. Evidence directory:
+`C:/tmp/gp/p16-repro-independent`. This proves local path-independent
+reproducibility with that compiler, not cross-version compiler equivalence.

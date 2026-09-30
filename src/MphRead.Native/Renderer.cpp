@@ -5703,6 +5703,11 @@ namespace MphRead
             _window->SetIcon(*icon);
         }
 #endif
+        {
+            const std::string backend = NativeRuntime::Rhi::DescribeSceneBackend(_swapchain.get());
+            std::cout << "[render] backend " << backend << std::endl;
+            Mods::DebugLog::Line("render", "backend " + backend);
+        }
         const Vector2i clientSize = _window->ClientSize();
         const Vector2i size = _window->Size();
         Mods::DebugLog::Line("render", "game window created, " + std::to_string(clientSize.X)

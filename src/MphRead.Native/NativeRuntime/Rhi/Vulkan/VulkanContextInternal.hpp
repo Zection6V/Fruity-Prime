@@ -48,6 +48,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         std::uint32_t graphicsFamily = 0, presentFamily = 0;
         Capabilities caps{};
         std::string name;
+        std::uint32_t apiVersion = 0;
+        std::uint32_t driverVersion = 0;
+        std::uint32_t vendorId = 0;
         bool validation = false;
         bool swapchainMaintenance1 = false;
         std::atomic<unsigned> errors{0};
@@ -281,6 +284,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 portabilitySubset = Contains(deviceExtensions, "VK_KHR_portability_subset");
                 maintenance1 = candidateMaintenance1;
                 selectedFeatures = features.features; name = props.deviceName;
+                apiVersion = props.apiVersion; driverVersion = props.driverVersion; vendorId = props.vendorID;
                 caps.backend = GraphicsBackend::Vulkan;
                 caps.maxTexture2DDimension = props.limits.maxImageDimension2D;
                 caps.maxTextureArrayLayers = props.limits.maxImageArrayLayers;

@@ -34,6 +34,21 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     Context::~Context() = default;
     const Capabilities& Context::Caps() const noexcept { return _impl->caps; }
     const std::string& Context::DeviceName() const noexcept { return _impl->name; }
+    std::string Context::Describe() const
+    {
+        const auto& impl = *_impl;
+        std::string driver;
+        if (impl.vendorId == 0x10DE)
+            driver = std::to_string((impl.driverVersion >> 22) & 0x3FF) + "."
+                + std::to_string((impl.driverVersion >> 14) & 0xFF);
+        else
+            driver = std::to_string(VK_API_VERSION_MAJOR(impl.driverVersion)) + "."
+                + std::to_string(VK_API_VERSION_MINOR(impl.driverVersion)) + "."
+                + std::to_string(VK_API_VERSION_PATCH(impl.driverVersion));
+        return impl.name + ", Vulkan " + std::to_string(VK_API_VERSION_MAJOR(impl.apiVersion)) + "."
+            + std::to_string(VK_API_VERSION_MINOR(impl.apiVersion)) + "."
+            + std::to_string(VK_API_VERSION_PATCH(impl.apiVersion)) + ", driver " + driver;
+    }
     unsigned Context::ValidationErrors() const noexcept { return _impl->errors.load(); }
     bool Context::ValidationEnabled() const noexcept { return _impl->validation; }
     void Context::WaitIdle() { if (_impl->device) Check(_impl->vkDeviceWaitIdle(_impl->device), "vkDeviceWaitIdle"); }
@@ -304,6 +319,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     Context::~Context() = default;
     const Capabilities& Context::Caps() const noexcept { return _impl->caps; }
     const std::string& Context::DeviceName() const noexcept { return _impl->name; }
+    std::string Context::Describe() const { return {}; }
     unsigned Context::ValidationErrors() const noexcept { return 0; }
     bool Context::ValidationEnabled() const noexcept { return false; }
     void Context::WaitIdle() { throw std::runtime_error("Vulkan unavailable."); }

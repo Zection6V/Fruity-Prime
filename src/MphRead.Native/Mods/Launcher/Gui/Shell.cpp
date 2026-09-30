@@ -1,4 +1,6 @@
 #include "Shell.hpp"
+#include "../../../NativeRuntime/Rhi/SceneBackend.hpp"
+#include "../../../NativeRuntime/System/ErrorDialog.hpp"
 
 #include "DeckButton.hpp"
 #include "DeckTile.hpp"
@@ -220,6 +222,15 @@ namespace MphRead::Mods::Launcher::Gui
             ShowFrontScreen();
             window->Run();
             ran = true;
+        }
+        catch (const MphRead::NativeRuntime::Rhi::SceneBackendUnavailable& unavailable)
+        {
+            // Asked for by name and not there: said to the person, never
+            // replaced behind their back by the other backend.
+            MphRead::Mods::DebugLog::Exception("launcher", std::current_exception());
+            MphRead::NativeRuntime::ShowErrorDialog(std::string(MphRead::Mods::Branding::Name),
+                std::string(unavailable.what())
+                    + "\n\nChoose OpenGL or Auto under Settings > Game > Renderer, or start with -rhi opengl.");
         }
         catch (const std::exception&)
         {

@@ -312,6 +312,10 @@ namespace MphRead::Mods::Launcher::Gui
         _windowRow = Add(page, std::make_shared<ChoiceRow>("Mode",
             std::vector<std::string>{"Windowed", "Fullscreen (borderless)"},
             LauncherPrefs::WindowMode() == WindowStartMode::BorderlessFullscreen ? 1 : 0));
+        // The window is made for one backend, so this is read at the next start.
+        _rendererRow = Add(page, std::make_shared<ChoiceRow>("Renderer (next start)",
+            std::vector<std::string>{"OpenGL", "Vulkan", "Auto"},
+            LauncherPrefs::Renderer() == "vulkan" ? 1 : LauncherPrefs::Renderer() == "auto" ? 2 : 0));
 #endif
 
         Heading(page, "View");
@@ -917,6 +921,11 @@ namespace MphRead::Mods::Launcher::Gui
     void SettingsView::Commit()
     {
         ::MphRead::MenuSettings& settings = RequireReference(_settings);
+        if (_rendererRow != nullptr)
+        {
+            static constexpr std::array<const char*, 3> Renderers{"opengl", "vulkan", "auto"};
+            LauncherPrefs::Renderer(Renderers[static_cast<std::size_t>(std::clamp(_rendererRow->Index(), 0, 2))]);
+        }
         if (_windowRow != nullptr)
         {
             const WindowStartMode mode = _windowRow->Index() == 1

@@ -12,7 +12,10 @@ namespace MphRead::RendererPlatform
     class Window;
 }
 
+#include <cstdint>
 #include <memory>
+#include <stdexcept>
+#include <string>
 #include <string_view>
 
 // Which backend the scene renderer draws with, and the four things the Scene
@@ -26,11 +29,46 @@ namespace MphRead::NativeRuntime::Rhi
         Vulkan
     };
 
-    [[nodiscard]] SceneBackendKind SelectedSceneBackend() noexcept;
+    // What the player (launcher.txt's renderer) or the command line (-rhi)
+    // asked for. Auto takes Vulkan when this build and this machine can run
+    // it -- the window and its launcher included -- and OpenGL otherwise.
+    enum class SceneBackendRequest : std::uint8_t
+    {
+        OpenGL,
+        Vulkan,
+        Auto
+    };
+
+    // An explicitly requested backend that cannot start. Never answered by
+    // quietly starting the other one: the message says what is missing.
+    class SceneBackendUnavailable final : public std::runtime_error
+    {
+    public:
+        using std::runtime_error::runtime_error;
+    };
+
+    // explicitRequest: the command line's, which the preference cannot
+    // replace. Takes effect before the first scene device is asked for.
+    void RequestSceneBackend(SceneBackendRequest request, bool explicitRequest) noexcept;
+    [[nodiscard]] SceneBackendRequest RequestedSceneBackend() noexcept;
+    // "opengl" / "gl" / "vulkan" / "vk" / "auto"; false for anything else.
+    [[nodiscard]] bool ParseSceneBackendRequest(std::string_view text, SceneBackendRequest& request) noexcept;
+    [[nodiscard]] std::string_view SceneBackendRequestName(SceneBackendRequest request) noexcept;
+
+    // The backend the request resolved to, decided once. Throws
+    // SceneBackendUnavailable for an explicit Vulkan request this build or
+    // this machine cannot honour.
+    [[nodiscard]] SceneBackendKind SelectedSceneBackend();
     void SelectSceneBackend(SceneBackendKind kind) noexcept;
     // "opengl" / "gl" / "vulkan" / "vk"; false for anything else.
     [[nodiscard]] bool ParseSceneBackend(std::string_view text, SceneBackendKind& kind) noexcept;
     [[nodiscard]] std::string_view SceneBackendName(SceneBackendKind kind) noexcept;
+    // Why Vulkan cannot be used here, or empty when it can. forWindow: the
+    // presented window's launcher as well (Skia with Vulkan).
+    [[nodiscard]] std::string VulkanUnavailableReason(bool forWindow);
+    // One line for the startup log: requested, selected, GPU, API, driver,
+    // swapchain and depth formats, frames in flight, validation.
+    [[nodiscard]] std::string DescribeSceneBackend(const Swapchain* swapchain);
     // Vulkan's validation layers for the scene device, when it is created.
     void SetSceneValidation(bool enabled) noexcept;
 
@@ -43,7 +81,7 @@ namespace MphRead::NativeRuntime::Rhi
     // The game window, when the scene backend presents it itself: Vulkan
     // makes the scene device on this window's surface, and the swapchain on
     // that same device. OpenGL's window is its context and needs neither.
-    [[nodiscard]] bool ScenePresentsWindow() noexcept;
+    [[nodiscard]] bool ScenePresentsWindow();
     [[nodiscard]] std::unique_ptr<Swapchain> CreateSceneWindowSwapchain(
         ::MphRead::RendererPlatform::Window& window, const SwapchainDesc& desc);
     // End the frame: submit, and show the scene device's window target.

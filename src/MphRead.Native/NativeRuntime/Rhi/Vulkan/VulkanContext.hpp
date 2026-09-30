@@ -30,6 +30,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         Context& operator=(const Context&) = delete;
         [[nodiscard]] const Capabilities& Caps() const noexcept;
         [[nodiscard]] const std::string& DeviceName() const noexcept;
+        // "GPU, Vulkan a.b.c, driver d": what the startup log reports.
+        [[nodiscard]] std::string Describe() const;
         [[nodiscard]] unsigned ValidationErrors() const noexcept;
         [[nodiscard]] bool ValidationEnabled() const noexcept;
         void WaitIdle();

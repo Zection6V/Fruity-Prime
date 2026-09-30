@@ -616,11 +616,12 @@ namespace
         // -rhi vulkan: the scene draws through the Vulkan backend, offscreen,
         // into targets the captures read back. -vkvalidation adds the layers.
         const std::optional<std::string> rhi = ValueAfter(args, "rhi");
-        ::MphRead::NativeRuntime::Rhi::SceneBackendKind backend{};
-        if (rhi.has_value() && ::MphRead::NativeRuntime::Rhi::ParseSceneBackend(*rhi, backend))
+        ::MphRead::NativeRuntime::Rhi::SceneBackendRequest backend{};
+        if (rhi.has_value() && ::MphRead::NativeRuntime::Rhi::ParseSceneBackendRequest(*rhi, backend))
         {
-            ::MphRead::NativeRuntime::Rhi::SelectSceneBackend(backend);
-            std::cout << "[render] scene backend " << ::MphRead::NativeRuntime::Rhi::SceneBackendName(backend) << std::endl;
+            ::MphRead::NativeRuntime::Rhi::RequestSceneBackend(backend, true);
+            std::cout << "[render] scene backend requested: "
+                << ::MphRead::NativeRuntime::Rhi::SceneBackendRequestName(backend) << std::endl;
         }
         if (HasFlag(args, "vkvalidation")) ::MphRead::NativeRuntime::Rhi::SetSceneValidation(true);
 

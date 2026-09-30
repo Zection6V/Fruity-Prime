@@ -11,10 +11,17 @@
 #include "Vulkan/VulkanSwapchain.hpp"
 #endif
 #include "BackendFactory.hpp"
+#include "../Skia/VulkanInterop.hpp"
 #include "../../Renderer.hpp"
+
+#if !defined(__ANDROID__)
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
+#endif
 
 
 #include <cstdlib>
+#include <iostream>
 #include <stdexcept>
 
 namespace MphRead::NativeRuntime::Rhi
@@ -22,6 +29,9 @@ namespace MphRead::NativeRuntime::Rhi
     namespace
     {
         SceneBackendKind selected = SceneBackendKind::OpenGL;
+        SceneBackendRequest requested = SceneBackendRequest::OpenGL;
+        bool requestExplicit = false;
+        bool resolved = false;
         bool validation = false;
 
 #if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
@@ -47,8 +57,86 @@ namespace MphRead::NativeRuntime::Rhi
         }
     }
 
-    SceneBackendKind SelectedSceneBackend() noexcept { return selected; }
-    void SelectSceneBackend(SceneBackendKind kind) noexcept { selected = kind; }
+    void RequestSceneBackend(SceneBackendRequest request, bool explicitRequest) noexcept
+    {
+        if (resolved || (requestExplicit && !explicitRequest)) return;
+        requested = request;
+        requestExplicit = requestExplicit || explicitRequest;
+    }
+
+    SceneBackendRequest RequestedSceneBackend() noexcept { return requested; }
+
+    bool ParseSceneBackendRequest(std::string_view text, SceneBackendRequest& request) noexcept
+    {
+        if (text == "opengl" || text == "gl") { request = SceneBackendRequest::OpenGL; return true; }
+        if (text == "vulkan" || text == "vk") { request = SceneBackendRequest::Vulkan; return true; }
+        if (text == "auto") { request = SceneBackendRequest::Auto; return true; }
+        return false;
+    }
+
+    std::string_view SceneBackendRequestName(SceneBackendRequest request) noexcept
+    {
+        switch (request)
+        {
+        case SceneBackendRequest::Vulkan: return "vulkan";
+        case SceneBackendRequest::Auto: return "auto";
+        case SceneBackendRequest::OpenGL:
+        default: return "opengl";
+        }
+    }
+
+    std::string VulkanUnavailableReason(bool forWindow)
+    {
+#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+        if (forWindow && !Skia::VulkanInterop::Available())
+            return "this build's Skia has no Vulkan backend, so the launcher cannot draw into a Vulkan window";
+        if (::glfwInit() != GLFW_TRUE) return "GLFW could not be initialised";
+        if (::glfwVulkanSupported() != GLFW_TRUE) return "no Vulkan loader or driver was found";
+        if (Scene().Device) return {};
+        try
+        {
+            // A device with everything the backend needs, made and let go.
+            Vulkan::Context probe(false);
+        }
+        catch (const std::exception& ex)
+        {
+            return ex.what();
+        }
+        return {};
+#else
+        (void)forWindow;
+        return "this build has no Vulkan backend";
+#endif
+    }
+
+    SceneBackendKind SelectedSceneBackend()
+    {
+        if (resolved) return selected;
+        resolved = true;
+        if (requested == SceneBackendRequest::OpenGL)
+        {
+            selected = SceneBackendKind::OpenGL;
+            return selected;
+        }
+#if defined(MPHREAD_SHELL)
+        constexpr bool window = true;
+#else
+        constexpr bool window = false;
+#endif
+        const std::string why = VulkanUnavailableReason(window);
+        if (requested == SceneBackendRequest::Vulkan && !why.empty())
+            throw SceneBackendUnavailable("Vulkan was asked for and cannot start: " + why + ".");
+        selected = why.empty() ? SceneBackendKind::Vulkan : SceneBackendKind::OpenGL;
+        if (!why.empty()) std::cout << "[render] auto: OpenGL, since " << why << std::endl;
+        return selected;
+    }
+
+    void SelectSceneBackend(SceneBackendKind kind) noexcept
+    {
+        selected = kind;
+        requested = kind == SceneBackendKind::Vulkan ? SceneBackendRequest::Vulkan : SceneBackendRequest::OpenGL;
+        resolved = true;
+    }
     void SetSceneValidation(bool enabled) noexcept { validation = enabled; }
 
     bool ParseSceneBackend(std::string_view text, SceneBackendKind& kind) noexcept
@@ -65,7 +153,7 @@ namespace MphRead::NativeRuntime::Rhi
 
     GraphicsDevice& SceneDevice()
     {
-        if (selected == SceneBackendKind::OpenGL) return OpenGL::ContextDevice();
+        if (SelectedSceneBackend() == SceneBackendKind::OpenGL) return OpenGL::ContextDevice();
 #if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
         auto& scene = Scene();
         if (!scene.Device)
@@ -89,15 +177,41 @@ namespace MphRead::NativeRuntime::Rhi
 #endif
     }
 
-    bool ScenePresentsWindow() noexcept
+    bool ScenePresentsWindow()
     {
-        return selected == SceneBackendKind::Vulkan;
+        return SelectedSceneBackend() == SceneBackendKind::Vulkan;
+    }
+
+    std::string DescribeSceneBackend(const Swapchain* swapchain)
+    {
+        std::string line = "requested " + std::string(SceneBackendRequestName(requested))
+            + (requestExplicit ? " (command line)" : "") + ", selected "
+            + std::string(SceneBackendName(SelectedSceneBackend()));
+#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+        if (selected == SceneBackendKind::Vulkan && Scene().Context)
+        {
+            line += ", " + Scene().Context->Describe();
+            if (swapchain)
+            {
+                const SwapchainDesc& desc = swapchain->Desc();
+                line += ", swapchain " + std::to_string(desc.width) + "x" + std::to_string(desc.height)
+                    + (desc.format == TextureFormat::BGRA8Unorm ? " BGRA8" : desc.format == TextureFormat::RGBA8Unorm
+                        ? " RGBA8" : " sRGB");
+            }
+            line += ", depth D24S8, frames in flight 2, validation "
+                + std::string(Scene().Context->ValidationEnabled() ? "on" : "off");
+            return line;
+        }
+#endif
+        (void)swapchain;
+        line += ", " + OpenGL::ContextDevice().AdapterDescription();
+        return line;
     }
 
     std::unique_ptr<Swapchain> CreateSceneWindowSwapchain(
         ::MphRead::RendererPlatform::Window& window, const SwapchainDesc& desc)
     {
-        if (selected == SceneBackendKind::OpenGL)
+        if (SelectedSceneBackend() == SceneBackendKind::OpenGL)
             return BackendFactory::CreateSwapchain(GraphicsBackend::OpenGl, window, desc);
 #if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
         auto& scene = Scene();
@@ -118,7 +232,7 @@ namespace MphRead::NativeRuntime::Rhi
     void PresentSceneWindow(Swapchain& swapchain)
     {
 #if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
-        if (selected == SceneBackendKind::Vulkan)
+        if (SelectedSceneBackend() == SceneBackendKind::Vulkan)
         {
             Vulkan::PresentWindow(SceneDevice(), swapchain);
             return;

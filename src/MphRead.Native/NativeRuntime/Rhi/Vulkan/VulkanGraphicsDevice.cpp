@@ -387,6 +387,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             ~VulkanSampler() override;
             [[nodiscard]] const SamplerDesc& Desc() const noexcept override { return _desc; }
             [[nodiscard]] VkSampler Native() const noexcept { return _sampler; }
+            [[nodiscard]] const std::shared_ptr<VulkanDeviceState>& DeviceState() const noexcept { return _device; }
 
         private:
             std::shared_ptr<VulkanDeviceState> _device;
@@ -467,12 +468,153 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 if (Allocator != VK_NULL_HANDLE)
                 {
                     ContextPointer->WaitIdle();
+                    auto& vk = *ContextPointer->_impl;
+                    for (auto& slot : DescriptorFrames)
+                    {
+                        for (const auto pool : slot.diagnosticCommandPools)
+                            vk.vkDestroyCommandPool(vk.device, pool, nullptr);
+                        for (const auto layout : slot.diagnosticLayouts)
+                            vk.vkDestroyPipelineLayout(vk.device, layout, nullptr);
+                        if (slot.pool) vk.vkDestroyDescriptorPool(vk.device, slot.pool, nullptr);
+                        for (const auto pool : slot.overflowPools)
+                            vk.vkDestroyDescriptorPool(vk.device, pool, nullptr);
+                        if (slot.fence) vk.vkDestroyFence(vk.device, slot.fence, nullptr);
+                    }
                     vmaDestroyAllocator(Allocator);
                     Allocator = VK_NULL_HANDLE;
                 }
             }
 
+            struct DescriptorFrame final
+            {
+                VkDescriptorPool pool = VK_NULL_HANDLE;
+                std::vector<VkDescriptorPool> overflowPools;
+                std::size_t activePool = 0;
+                std::vector<VkCommandPool> diagnosticCommandPools;
+                std::vector<VkPipelineLayout> diagnosticLayouts;
+                VkFence fence = VK_NULL_HANDLE;
+                std::uint64_t generation = 0;
+                std::uint64_t submittedFrame = 0;
+            };
+
+            [[nodiscard]] FrameContext BeginDescriptorFrame()
+            {
+                if (FrameActive) throw std::logic_error("Vulkan RHI: frame already active.");
+                const std::uint64_t frame = CurrentFrame.load() + 1;
+                const auto index = static_cast<std::uint32_t>((frame - 1) % FramesInFlight);
+                auto& slot = DescriptorFrames[index];
+                auto& vk = *ContextPointer->_impl;
+                if (!slot.fence)
+                {
+                    VkFenceCreateInfo create{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+                    Check(vk.vkCreateFence(vk.device, &create, nullptr, &slot.fence), "vkCreateFence(descriptor frame)");
+                }
+                if (slot.submittedFrame)
+                {
+                    Check(vk.vkWaitForFences(vk.device, 1, &slot.fence, VK_TRUE, UINT64_MAX),
+                        "vkWaitForFences(descriptor frame)");
+                    CompletedFrame.store(std::max(CompletedFrame.load(), slot.submittedFrame));
+                    Check(vk.vkResetFences(vk.device, 1, &slot.fence), "vkResetFences(descriptor frame)");
+                    slot.submittedFrame = 0;
+                }
+                if (!slot.pool)
+                {
+                    const std::array<VkDescriptorPoolSize, 5> sizes{{
+                        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 4096},
+                        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4096},
+                        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 4096},
+                        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 4096},
+                        {VK_DESCRIPTOR_TYPE_SAMPLER, 4096}}};
+                    VkDescriptorPoolCreateInfo create{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+                    create.maxSets = 1024;
+                    create.poolSizeCount = static_cast<std::uint32_t>(sizes.size());
+                    create.pPoolSizes = sizes.data();
+                    Check(vk.vkCreateDescriptorPool(vk.device, &create, nullptr, &slot.pool),
+                        "vkCreateDescriptorPool(frame)");
+                }
+                else
+                    Check(vk.vkResetDescriptorPool(vk.device, slot.pool, 0), "vkResetDescriptorPool(frame)");
+                for (const auto pool : slot.diagnosticCommandPools)
+                    vk.vkDestroyCommandPool(vk.device, pool, nullptr);
+                for (const auto layout : slot.diagnosticLayouts)
+                    vk.vkDestroyPipelineLayout(vk.device, layout, nullptr);
+                slot.diagnosticCommandPools.clear();
+                slot.diagnosticLayouts.clear();
+                for (const auto pool : slot.overflowPools)
+                    Check(vk.vkResetDescriptorPool(vk.device, pool, 0), "vkResetDescriptorPool(overflow)");
+                slot.activePool = 0;
+                ++slot.generation;
+                CurrentFrame.store(frame);
+                FrameActive = true;
+                return FrameContext{frame, index};
+            }
+
+            void EndDescriptorFrame()
+            {
+                if (!FrameActive) throw std::logic_error("Vulkan RHI: no active frame.");
+                const auto frame = CurrentFrame.load();
+                auto& slot = DescriptorFrames[(frame - 1) % FramesInFlight];
+                auto& vk = *ContextPointer->_impl;
+                // This fence follows all prior work on the graphics queue,
+                // including the current synchronous transfer command lists.
+                VkSubmitInfo2 submit{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+                Check(vk.vkQueueSubmit2(vk.graphics, 1, &submit, slot.fence), "vkQueueSubmit2(frame completion)");
+                slot.submittedFrame = frame;
+                FrameActive = false;
+            }
+
+            [[nodiscard]] VkDescriptorSet AllocateDescriptors(VkDescriptorSetLayout layout,
+                const BindingLayoutDesc& desc)
+            {
+                if (!FrameActive) throw std::logic_error("Vulkan RHI: descriptor allocation outside frame.");
+                auto& slot = DescriptorFrames[(CurrentFrame.load() - 1) % FramesInFlight];
+                auto& vk = *ContextPointer->_impl;
+                for (;;)
+                {
+                    VkDescriptorSetAllocateInfo allocate{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+                    allocate.descriptorPool = slot.activePool == 0 ? slot.pool : slot.overflowPools[slot.activePool - 1];
+                    allocate.descriptorSetCount = 1;
+                    allocate.pSetLayouts = &layout;
+                    VkDescriptorSet set = VK_NULL_HANDLE;
+                    const auto result = vk.vkAllocateDescriptorSets(vk.device, &allocate, &set);
+                    if (result == VK_SUCCESS) return set;
+                    if (result != VK_ERROR_OUT_OF_POOL_MEMORY && result != VK_ERROR_FRAGMENTED_POOL)
+                        Check(result, "vkAllocateDescriptorSets");
+                    if (slot.activePool < slot.overflowPools.size())
+                    {
+                        ++slot.activePool;
+                        continue;
+                    }
+                    std::array<VkDescriptorPoolSize, 5> sizes{{
+                        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 4096},
+                        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4096},
+                        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 4096},
+                        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 4096},
+                        {VK_DESCRIPTOR_TYPE_SAMPLER, 4096}}};
+                    std::array<std::uint64_t, 5> needed{};
+                    for (const auto& entry : desc.entries)
+                        needed[static_cast<std::size_t>(entry.type)] += entry.count;
+                    for (std::size_t i = 0; i < sizes.size(); ++i)
+                    {
+                        if (needed[i] > UINT32_MAX) throw std::invalid_argument("Vulkan descriptor count overflow.");
+                        sizes[i].descriptorCount = std::max(sizes[i].descriptorCount,
+                            static_cast<std::uint32_t>(needed[i]));
+                    }
+                    VkDescriptorPoolCreateInfo create{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+                    create.maxSets = 1024;
+                    create.poolSizeCount = static_cast<std::uint32_t>(sizes.size());
+                    create.pPoolSizes = sizes.data();
+                    VkDescriptorPool pool = VK_NULL_HANDLE;
+                    Check(vk.vkCreateDescriptorPool(vk.device, &create, nullptr, &pool), "vkCreateDescriptorPool(overflow)");
+                    try { slot.overflowPools.push_back(pool); }
+                    catch (...) { vk.vkDestroyDescriptorPool(vk.device, pool, nullptr); throw; }
+                    ++slot.activePool;
+                }
+            }
+
             Context* ContextPointer = nullptr;
+            std::array<DescriptorFrame, FramesInFlight> DescriptorFrames{};
+            bool FrameActive = false;
             VmaAllocator Allocator = VK_NULL_HANDLE;
             std::atomic<std::uint32_t> Buffers{0};
             std::atomic<std::uint32_t> Textures{0};
@@ -481,6 +623,267 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::mutex TextureMutex{};
             std::unordered_map<std::int32_t, VulkanTexture*> TexturesByHandle{};
             std::int32_t NextTextureHandle = 1;
+        };
+
+        [[nodiscard]] VkDescriptorType ToVkDescriptorType(BindingType type)
+        {
+            switch (type)
+            {
+            case BindingType::UniformBuffer: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            case BindingType::StorageBuffer: return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            case BindingType::SampledTexture: return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            case BindingType::StorageTexture: return VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            case BindingType::Sampler: return VK_DESCRIPTOR_TYPE_SAMPLER;
+            }
+            throw std::invalid_argument("Vulkan RHI: unknown binding type.");
+        }
+
+        [[nodiscard]] VkShaderStageFlags ToVkShaderStages(ShaderStage stages)
+        {
+            const auto bits = static_cast<std::uint32_t>(stages);
+            if (bits == 0 || (bits & ~7U) != 0)
+                throw std::invalid_argument("Vulkan RHI: invalid binding shader stages.");
+            VkShaderStageFlags result = 0;
+            if (bits & static_cast<std::uint32_t>(ShaderStage::Vertex)) result |= VK_SHADER_STAGE_VERTEX_BIT;
+            if (bits & static_cast<std::uint32_t>(ShaderStage::Fragment)) result |= VK_SHADER_STAGE_FRAGMENT_BIT;
+            if (bits & static_cast<std::uint32_t>(ShaderStage::Compute)) result |= VK_SHADER_STAGE_COMPUTE_BIT;
+            return result;
+        }
+
+        class VulkanBindingLayout final : public BindingLayout
+        {
+        public:
+            VulkanBindingLayout(std::shared_ptr<VulkanDeviceState> state, const BindingLayoutDesc& desc)
+                : _device(std::move(state)), _desc(desc)
+            {
+                std::vector<VkDescriptorSetLayoutBinding> bindings;
+                bindings.reserve(desc.entries.size());
+                for (const auto& entry : desc.entries)
+                {
+                    if (entry.count == 0)
+                        throw std::invalid_argument("Vulkan RHI: binding array count must be nonzero.");
+                    if (std::any_of(bindings.begin(), bindings.end(), [&entry](const auto& binding) {
+                        return binding.binding == entry.binding;
+                    }))
+                        throw std::invalid_argument("Vulkan RHI: duplicate layout binding.");
+                    bindings.push_back({entry.binding, ToVkDescriptorType(entry.type),
+                        entry.count, ToVkShaderStages(entry.stages), nullptr});
+                }
+                VkDescriptorSetLayoutCreateInfo create{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
+                create.bindingCount = static_cast<std::uint32_t>(bindings.size());
+                create.pBindings = bindings.data();
+                auto& vk = *_device->ContextPointer->_impl;
+                VkDescriptorSetLayoutSupport support{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_SUPPORT};
+                vk.vkGetDescriptorSetLayoutSupport(vk.device, &create, &support);
+                if (!support.supported)
+                    throw std::invalid_argument("Vulkan RHI: descriptor layout exceeds device support.");
+                Check(vk.vkCreateDescriptorSetLayout(vk.device, &create, nullptr, &_layout),
+                    "vkCreateDescriptorSetLayout");
+            }
+            ~VulkanBindingLayout() override
+            {
+                if (_layout)
+                {
+                    auto& vk = *_device->ContextPointer->_impl;
+                    vk.vkDestroyDescriptorSetLayout(vk.device, _layout, nullptr);
+                }
+            }
+            [[nodiscard]] const BindingLayoutDesc& Desc() const noexcept override { return _desc; }
+            [[nodiscard]] VkDescriptorSetLayout Native() const noexcept { return _layout; }
+            [[nodiscard]] const std::shared_ptr<VulkanDeviceState>& DeviceState() const noexcept { return _device; }
+        private:
+            std::shared_ptr<VulkanDeviceState> _device;
+            BindingLayoutDesc _desc;
+            VkDescriptorSetLayout _layout = VK_NULL_HANDLE;
+        };
+
+        class VulkanBindingSet final : public BindingSet
+        {
+        public:
+            VulkanBindingSet(std::shared_ptr<VulkanDeviceState> state, const BindingSetDesc& desc)
+                : _device(std::move(state)), _desc(desc)
+            {
+                _layout = dynamic_cast<const VulkanBindingLayout*>(desc.layout);
+                if (!_layout || _layout->DeviceState() != _device)
+                    throw std::invalid_argument("Vulkan RHI: binding layout belongs to another device.");
+                auto& vk = *_device->ContextPointer->_impl;
+                vk.vkGetPhysicalDeviceProperties(vk.physical, &_properties);
+                Validate();
+            }
+            [[nodiscard]] const BindingSetDesc& Desc() const noexcept override { return _desc; }
+            [[nodiscard]] VkDeviceSize UniformOffsetAlignment() const noexcept
+            {
+                return _properties.limits.minUniformBufferOffsetAlignment;
+            }
+            [[nodiscard]] bool FrameHasOverflowPools() const noexcept
+            {
+                const auto& slot = _device->DescriptorFrames[(_device->CurrentFrame.load() - 1) % FramesInFlight];
+                return !slot.overflowPools.empty();
+            }
+
+            void RecordDiagnosticUse() const
+            {
+                const auto set = Native();
+                auto& vk = *_device->ContextPointer->_impl;
+                auto& slot = _device->DescriptorFrames[(_device->CurrentFrame.load() - 1) % FramesInFlight];
+                const auto setLayout = _layout->Native();
+                VkPipelineLayoutCreateInfo layoutCreate{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
+                layoutCreate.setLayoutCount = 1;
+                layoutCreate.pSetLayouts = &setLayout;
+                VkPipelineLayout layout = VK_NULL_HANDLE;
+                VkCommandPool pool = VK_NULL_HANDLE;
+                try
+                {
+                    Check(vk.vkCreatePipelineLayout(vk.device, &layoutCreate, nullptr, &layout), "vkCreatePipelineLayout(binding diagnostic)");
+                    VkCommandPoolCreateInfo poolCreate{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+                    poolCreate.queueFamilyIndex = vk.graphicsFamily;
+                    Check(vk.vkCreateCommandPool(vk.device, &poolCreate, nullptr, &pool), "vkCreateCommandPool(binding diagnostic)");
+                    VkCommandBufferAllocateInfo allocate{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+                    allocate.commandPool = pool;
+                    allocate.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+                    allocate.commandBufferCount = 1;
+                    VkCommandBuffer commands = VK_NULL_HANDLE;
+                    Check(vk.vkAllocateCommandBuffers(vk.device, &allocate, &commands), "vkAllocateCommandBuffers(binding diagnostic)");
+                    VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+                    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+                    Check(vk.vkBeginCommandBuffer(commands, &begin), "vkBeginCommandBuffer(binding diagnostic)");
+                    vk.vkCmdBindDescriptorSets(commands, VK_PIPELINE_BIND_POINT_GRAPHICS, layout, 0, 1, &set, 0, nullptr);
+                    Check(vk.vkEndCommandBuffer(commands), "vkEndCommandBuffer(binding diagnostic)");
+                    // Reserve before submission so retaining the native objects
+                    // cannot fail after their work has entered the GPU queue.
+                    slot.diagnosticCommandPools.reserve(slot.diagnosticCommandPools.size() + 1);
+                    slot.diagnosticLayouts.reserve(slot.diagnosticLayouts.size() + 1);
+                    VkCommandBufferSubmitInfo commandInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+                    commandInfo.commandBuffer = commands;
+                    VkSubmitInfo2 submit{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+                    submit.commandBufferInfoCount = 1;
+                    submit.pCommandBufferInfos = &commandInfo;
+                    Check(vk.vkQueueSubmit2(vk.graphics, 1, &submit, VK_NULL_HANDLE), "vkQueueSubmit2(binding diagnostic)");
+                    slot.diagnosticCommandPools.push_back(pool);
+                    slot.diagnosticLayouts.push_back(layout);
+                }
+                catch (...)
+                {
+                    if (pool) vk.vkDestroyCommandPool(vk.device, pool, nullptr);
+                    if (layout) vk.vkDestroyPipelineLayout(vk.device, layout, nullptr);
+                    throw;
+                }
+            }
+
+            [[nodiscard]] VkDescriptorSet Native() const
+            {
+                if (!_device->FrameActive)
+                    throw std::logic_error("Vulkan RHI: descriptor allocation requires an active frame.");
+                Validate();
+                auto& vk = *_device->ContextPointer->_impl;
+                const VkDescriptorSetLayout layout = _layout->Native();
+                const VkDescriptorSet set = _device->AllocateDescriptors(layout, _layout->Desc());
+                // Allocate a fresh set for every materialization: no update can
+                // overwrite a descriptor previously recorded for GPU use.
+                std::vector<VkDescriptorBufferInfo> buffers(_desc.entries.size());
+                std::vector<VkDescriptorImageInfo> images(_desc.entries.size());
+                std::vector<VkWriteDescriptorSet> writes;
+                writes.reserve(_desc.entries.size());
+                for (std::size_t i = 0; i < _desc.entries.size(); ++i)
+                {
+                    const auto& entry = _desc.entries[i];
+                    const auto& declaration = Declaration(entry.binding);
+                    VkWriteDescriptorSet write{VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                    write.dstSet = set;
+                    write.dstBinding = entry.binding;
+                    write.dstArrayElement = entry.arrayElement;
+                    write.descriptorCount = 1;
+                    write.descriptorType = ToVkDescriptorType(declaration.type);
+                    if (const auto* buffer = std::get_if<BufferBinding>(&entry.resource))
+                    {
+                        buffers[i] = {dynamic_cast<const VulkanBuffer&>(*buffer->buffer).Native(),
+                            buffer->offset, buffer->size ? buffer->size : buffer->buffer->Desc().size - buffer->offset};
+                        write.pBufferInfo = &buffers[i];
+                    }
+                    else if (const auto* texture = std::get_if<TextureBinding>(&entry.resource))
+                    {
+                        images[i].imageView = dynamic_cast<const VulkanTextureView&>(*texture->view).Native();
+                        images[i].imageLayout = declaration.type == BindingType::StorageTexture
+                            ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                        write.pImageInfo = &images[i];
+                    }
+                    else
+                    {
+                        images[i].sampler = dynamic_cast<const VulkanSampler&>(
+                            *std::get<SamplerBinding>(entry.resource).sampler).Native();
+                        write.pImageInfo = &images[i];
+                    }
+                    writes.push_back(write);
+                }
+                vk.vkUpdateDescriptorSets(vk.device, static_cast<std::uint32_t>(writes.size()), writes.data(), 0, nullptr);
+                return set;
+            }
+        private:
+            [[nodiscard]] const BindingLayoutEntry& Declaration(std::uint32_t binding) const
+            {
+                const auto& declarations = _layout->Desc().entries;
+                const auto found = std::find_if(declarations.begin(), declarations.end(), [binding](const auto& item) {
+                    return item.binding == binding;
+                });
+                if (found == declarations.end()) throw std::invalid_argument("Vulkan RHI: undeclared binding.");
+                return *found;
+            }
+            void Validate() const
+            {
+                std::uint64_t required = 0;
+                for (const auto& declaration : _layout->Desc().entries) required += declaration.count;
+                if (required != _desc.entries.size())
+                    throw std::invalid_argument("Vulkan RHI: binding set must initialize every array element.");
+                for (std::size_t i = 0; i < _desc.entries.size(); ++i)
+                {
+                    const auto& entry = _desc.entries[i];
+                    const auto& declaration = Declaration(entry.binding);
+                    if (entry.arrayElement >= declaration.count)
+                        throw std::invalid_argument("Vulkan RHI: binding array index exceeds layout.");
+                    for (std::size_t j = 0; j < i; ++j)
+                        if (_desc.entries[j].binding == entry.binding && _desc.entries[j].arrayElement == entry.arrayElement)
+                            throw std::invalid_argument("Vulkan RHI: duplicate binding array element.");
+                    if (declaration.type == BindingType::UniformBuffer || declaration.type == BindingType::StorageBuffer)
+                    {
+                        const auto* value = std::get_if<BufferBinding>(&entry.resource);
+                        const auto* buffer = value ? dynamic_cast<const VulkanBuffer*>(value->buffer) : nullptr;
+                        if (!buffer || buffer->DeviceState() != _device)
+                            throw std::invalid_argument("Vulkan RHI: invalid buffer binding.");
+                        const bool uniform = declaration.type == BindingType::UniformBuffer;
+                        const auto alignment = uniform ? _properties.limits.minUniformBufferOffsetAlignment
+                            : _properties.limits.minStorageBufferOffsetAlignment;
+                        const auto maximum = uniform ? _properties.limits.maxUniformBufferRange
+                            : _properties.limits.maxStorageBufferRange;
+                        const auto total = buffer->Desc().size;
+                        if (!Has(buffer->Desc().usage, uniform ? BufferUsage::Uniform : BufferUsage::Storage)
+                            || value->offset >= total || value->offset % alignment != 0
+                            || value->size > total - value->offset)
+                            throw std::invalid_argument("Vulkan RHI: buffer binding usage, alignment or bounds invalid.");
+                        const auto range = value->size ? value->size : total - value->offset;
+                        if (range > maximum) throw std::invalid_argument("Vulkan RHI: descriptor buffer range exceeds device limit.");
+                    }
+                    else if (declaration.type == BindingType::Sampler)
+                    {
+                        const auto* value = std::get_if<SamplerBinding>(&entry.resource);
+                        const auto* sampler = value ? dynamic_cast<const VulkanSampler*>(value->sampler) : nullptr;
+                        if (!sampler || sampler->DeviceState() != _device)
+                            throw std::invalid_argument("Vulkan RHI: invalid sampler binding.");
+                    }
+                    else
+                    {
+                        const auto* value = std::get_if<TextureBinding>(&entry.resource);
+                        const auto* view = value ? dynamic_cast<const VulkanTextureView*>(value->view) : nullptr;
+                        const auto* texture = view ? dynamic_cast<const VulkanTexture*>(&view->TextureResource()) : nullptr;
+                        const auto usage = declaration.type == BindingType::StorageTexture ? TextureUsage::Storage : TextureUsage::Sampled;
+                        if (!texture || texture->DeviceState() != _device || !Has(texture->Desc().usage, usage))
+                            throw std::invalid_argument("Vulkan RHI: invalid texture binding.");
+                    }
+                }
+            }
+            std::shared_ptr<VulkanDeviceState> _device;
+            BindingSetDesc _desc;
+            const VulkanBindingLayout* _layout = nullptr;
+            VkPhysicalDeviceProperties _properties{};
         };
 
         VulkanBuffer::VulkanBuffer(std::shared_ptr<VulkanDeviceState> state, const BufferDesc& desc)
@@ -1133,13 +1536,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 Unsupported("CreateShader");
             }
-            [[nodiscard]] std::unique_ptr<BindingLayout> CreateBindingLayout(const BindingLayoutDesc&) override
+            [[nodiscard]] std::unique_ptr<BindingLayout> CreateBindingLayout(const BindingLayoutDesc& desc) override
             {
-                Unsupported("CreateBindingLayout");
+                return std::make_unique<VulkanBindingLayout>(_state, desc);
             }
-            [[nodiscard]] std::unique_ptr<BindingSet> CreateBindingSet(const BindingSetDesc&) override
+            [[nodiscard]] std::unique_ptr<BindingSet> CreateBindingSet(const BindingSetDesc& desc) override
             {
-                Unsupported("CreateBindingSet");
+                return std::make_unique<VulkanBindingSet>(_state, desc);
             }
             [[nodiscard]] std::unique_ptr<GraphicsPipeline> CreateGraphicsPipeline(
                 const GraphicsPipelineDesc&) override
@@ -1273,15 +1676,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
             [[nodiscard]] FrameContext BeginFrame() override
             {
-                const std::uint64_t frame = ++_state->CurrentFrame;
-                return FrameContext{frame, static_cast<std::uint32_t>((frame - 1) % FramesInFlight)};
+                return _state->BeginDescriptorFrame();
             }
 
             void EndFrame() override
             {
-                // Phase 14 resource transfers submit synchronously. Later
-                // graphics phases replace this with the frame's submit fence.
-                _state->CompletedFrame.store(_state->CurrentFrame.load());
+                _state->EndDescriptorFrame();
             }
 
             void WaitIdle() override
@@ -1358,6 +1758,85 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::vector<std::unique_ptr<Texture>> _retained{};
             std::atomic<unsigned> _reportedValidationErrors{0};
         };
+    void CheckBindingAllocations(GraphicsDevice& device)
+    {
+        BufferDesc bufferDesc{};
+        bufferDesc.size = 4096;
+        bufferDesc.usage = BufferUsage::Uniform | BufferUsage::Storage;
+        auto buffer = device.CreateBuffer(bufferDesc);
+        TextureDesc textureDesc{};
+        textureDesc.width = 4;
+        textureDesc.height = 4;
+        textureDesc.format = TextureFormat::RGBA8Unorm;
+        textureDesc.usage = TextureUsage::Sampled | TextureUsage::Storage;
+        auto texture = device.CreateTexture(textureDesc);
+        auto view = device.CreateTextureView(*texture, {});
+        auto sampler = device.CreateSampler({});
+        BindingLayoutDesc layoutDesc{};
+        layoutDesc.entries = {
+            {0, BindingType::UniformBuffer, ShaderStage::AllGraphics, 2},
+            {1, BindingType::StorageBuffer, ShaderStage::Vertex, 1},
+            {2, BindingType::SampledTexture, ShaderStage::Fragment, 1},
+            {3, BindingType::StorageTexture, ShaderStage::Fragment, 1},
+            {4, BindingType::Sampler, ShaderStage::Fragment, 1}};
+        auto layout = device.CreateBindingLayout(layoutDesc);
+        BindingSetDesc setDesc{};
+        setDesc.layout = layout.get();
+        setDesc.entries = {
+            {0, BufferBinding{buffer.get(), 0, 256}, 0},
+            {0, BufferBinding{buffer.get(), 0, 512}, 1},
+            {1, BufferBinding{buffer.get(), 0, 4096}},
+            {2, TextureBinding{view.get()}},
+            {3, TextureBinding{view.get()}},
+            {4, SamplerBinding{sampler.get()}}};
+        auto set = device.CreateBindingSet(setDesc);
+        auto invalid = setDesc;
+        invalid.entries[1].arrayElement = 0;
+        bool rejected = false;
+        try { auto unexpected = device.CreateBindingSet(invalid); }
+        catch (const std::invalid_argument&) { rejected = true; }
+        if (!rejected) throw std::runtime_error("Vulkan duplicate descriptor array element was accepted.");
+        invalid = setDesc;
+        invalid.entries[0].resource = BufferBinding{buffer.get(), 4096, 1};
+        rejected = false;
+        try { auto unexpected = device.CreateBindingSet(invalid); }
+        catch (const std::invalid_argument&) { rejected = true; }
+        if (!rejected) throw std::runtime_error("Vulkan out-of-range buffer descriptor was accepted.");
+        const auto alignment = dynamic_cast<const VulkanBindingSet&>(*set).UniformOffsetAlignment();
+        if (alignment > 1)
+        {
+            invalid = setDesc;
+            invalid.entries[0].resource = BufferBinding{buffer.get(), 1, 256};
+            rejected = false;
+            try { auto unexpected = device.CreateBindingSet(invalid); }
+            catch (const std::invalid_argument&) { rejected = true; }
+            if (!rejected) throw std::runtime_error("Vulkan misaligned uniform descriptor was accepted.");
+        }
+        invalid = setDesc;
+        invalid.entries[0].resource = SamplerBinding{sampler.get()};
+        rejected = false;
+        try { auto unexpected = device.CreateBindingSet(invalid); }
+        catch (const std::invalid_argument&) { rejected = true; }
+        if (!rejected) throw std::runtime_error("Vulkan mismatched descriptor type was accepted.");
+        for (int frame = 0; frame < 8; ++frame)
+        {
+            (void)device.BeginFrame();
+            dynamic_cast<const VulkanBindingSet&>(*set).RecordDiagnosticUse();
+            const auto first = dynamic_cast<const VulkanBindingSet&>(*set).Native();
+            const auto second = dynamic_cast<const VulkanBindingSet&>(*set).Native();
+            if (!first || !second || first == second)
+                throw std::runtime_error("Vulkan descriptor update reused a live set.");
+            // Exceed a pool's set capacity, then cycle both frame slots so
+            // overflow pages are also reset and reused after their fences.
+            for (int allocation = 0; allocation < 1050; ++allocation)
+                (void)dynamic_cast<const VulkanBindingSet&>(*set).Native();
+            if (!dynamic_cast<const VulkanBindingSet&>(*set).FrameHasOverflowPools())
+                throw std::runtime_error("Vulkan descriptor diagnostic did not exercise pool growth.");
+            device.EndFrame();
+        }
+        device.WaitIdle();
+    }
+
     std::unique_ptr<GraphicsDevice> CreateGraphicsDevice(Context& context)
     {
         return std::make_unique<VulkanGraphicsDevice>(context);

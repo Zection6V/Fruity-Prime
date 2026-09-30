@@ -11,4 +11,6 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     // Vulkan resources are owned by a graphics device that must not outlive
     // their Context.
     [[nodiscard]] std::unique_ptr<GraphicsDevice> CreateGraphicsDevice(Context& context);
+    // Backend diagnostic; keeps native descriptor handles out of the RHI.
+    void CheckBindingAllocations(GraphicsDevice& device);
 }

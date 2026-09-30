@@ -67,6 +67,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         X(vkCmdBeginRendering) X(vkCmdEndRendering) X(vkCmdCopyBuffer) \
         X(vkCmdCopyBufferToImage) X(vkCmdCopyImageToBuffer) X(vkCreateImageView) \
         X(vkDestroyImageView) X(vkCreateSampler) X(vkDestroySampler) \
+        X(vkCreateDescriptorSetLayout) X(vkDestroyDescriptorSetLayout) \
+        X(vkGetDescriptorSetLayoutSupport) \
+        X(vkCreateDescriptorPool) X(vkDestroyDescriptorPool) X(vkResetDescriptorPool) \
+        X(vkAllocateDescriptorSets) X(vkUpdateDescriptorSets) X(vkCmdBindDescriptorSets) \
+        X(vkCreatePipelineLayout) X(vkDestroyPipelineLayout) \
         X(vkCreateSemaphore) X(vkDestroySemaphore) \
         X(vkCreateFence) X(vkDestroyFence) X(vkWaitForFences) X(vkResetFences) \
         X(vkCreateSwapchainKHR) X(vkDestroySwapchainKHR) X(vkGetSwapchainImagesKHR) \

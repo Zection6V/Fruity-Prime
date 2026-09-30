@@ -90,6 +90,18 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (!context.ValidationEnabled())
                 throw std::runtime_error("Vulkan validation layers are required for the resource check.");
             auto device = CreateGraphicsDevice(context);
+            // Cycle every descriptor frame slot repeatedly: pool reset must
+            // follow its completion fence, including otherwise empty frames.
+            for (std::uint64_t frame = 1; frame <= 8; ++frame)
+            {
+                const auto acquired = device->BeginFrame();
+                if (acquired.Number != frame || acquired.Slot != (frame - 1) % FramesInFlight)
+                    throw std::runtime_error("Vulkan descriptor frame numbering differs.");
+                device->EndFrame();
+            }
+            device->WaitIdle();
+            CheckBindingAllocations(*device);
+            std::cout << "[vulkan] bindings allocation PASS; arrays; alignment; fresh sets; overflow pools; frame reuse; GPU bind submit\n";
 
             constexpr std::uint32_t width = 8;
             constexpr std::uint32_t height = 4;

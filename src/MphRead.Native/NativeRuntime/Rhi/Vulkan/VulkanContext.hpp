@@ -43,6 +43,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         friend class VulkanSampler;
         friend class VulkanTexture;
         friend class VulkanTextureView;
+        friend class VulkanBindingLayout;
+        friend class VulkanBindingSet;
         struct Impl;
         std::unique_ptr<Impl> _impl;
     };

@@ -63,6 +63,8 @@ namespace MphRead::NativeRuntime::Rhi
     {
         std::uint32_t binding = 0;
         BindingResource resource{BufferBinding{}};
+        // Index within the layout entry's descriptor array.
+        std::uint32_t arrayElement = 0;
 
         bool operator==(const BindingSetEntry&) const = default;
     };

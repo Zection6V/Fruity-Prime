@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <exception>
 #include <string>
+#include <utility>
 
 namespace MphRead::Mods::Render
 {
@@ -23,6 +24,7 @@ namespace MphRead::Mods::Render
     bool LauncherHunter::_failed = false;
     bool LauncherHunter::_said = false;
     bool LauncherHunter::_glStale = false;
+    std::uint64_t LauncherHunter::_sceneGeneration = 0;
     std::shared_ptr<::MphRead::Scene> LauncherHunter::_scene;
 
     bool LauncherHunter::Wanted() noexcept
@@ -100,9 +102,14 @@ namespace MphRead::Mods::Render
         return _drawn;
     }
 
+    std::uint64_t LauncherHunter::SceneGeneration() noexcept
+    {
+        return _sceneGeneration;
+    }
+
     // Every scene numbers its own textures from one (no glGenTextures), so a
     // match loaded after the side scene wrote over its texture names -- the
-    // toon table and the hunter's skin included -- and its UnloadGl deleted
+    // toon table and the hunter's skin included -- and its ReleaseGpuResources deleted
     // them: a black silhouette. The side scene is rebuilt after a match.
     void LauncherHunter::NoteGlUnloaded() noexcept
     {
@@ -114,6 +121,28 @@ namespace MphRead::Mods::Render
         _wanted = false;
         _drawn = false;
         ::MphRead::Scene::LauncherPreview = false;
+    }
+
+    void LauncherHunter::ReleaseGl() noexcept
+    {
+        std::shared_ptr<::MphRead::Scene> scene = std::move(_scene);
+        _glStale = false;
+        if (scene == nullptr)
+        {
+            return;
+        }
+
+        try
+        {
+            scene->ReleaseGpuResources();
+        }
+        catch (...)
+        {
+            // Destruction below is the final fallback. It must still happen
+            // before RenderWindow destroys the owning desktop GL context.
+        }
+
+        scene.reset();
     }
 
     void LauncherHunter::Draw(::MphRead::RenderWindow& window, std::int32_t width, std::int32_t height)
@@ -138,7 +167,7 @@ namespace MphRead::Mods::Render
                 // Its render targets are its own and would be left behind.
                 if (_scene)
                 {
-                    _scene->UnloadGl();
+                    _scene->ReleaseGpuResources();
                 }
                 _scene.reset();
             }
@@ -148,6 +177,7 @@ namespace MphRead::Mods::Render
                 _scene = window.NewSideScene();
                 _scene->OnLoad();
                 _scene->OnResize();
+                ++_sceneGeneration;
                 scene = _scene.get();
             }
             ::MphRead::Scene::LauncherPreview = true;

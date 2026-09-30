@@ -10,6 +10,7 @@
 #include "Credits.hpp"
 #include "DebugLog.hpp"
 #include "Diagnostics/CompatibilityCheck.hpp"
+#include "Diagnostics/GpuLifetimeCheck.hpp"
 #include "Diagnostics/PlatformDiagnostics.hpp"
 #if defined(MPHREAD_SHELL)
 #include "Diagnostics/GlfwPathCheck.hpp"
@@ -73,6 +74,7 @@
 #include "Render/Crosshair.hpp"
 #include "Render/FrameTiming.hpp"
 #include "Render/FrameTimingCheck.hpp"
+#include "Render/GoldenCapture.hpp"
 #include "Render/Radar.hpp"
 #include "RenderOptions.hpp"
 #include "ShutdownSignals.hpp"
@@ -1249,6 +1251,18 @@ namespace MphRead::Mods
                 FullPathCombine(ConsoleSetup::LaunchDirectory(), *mapDir));
         }
 
+#if defined(MPHREAD_SHELL)
+        if (const std::optional<std::string> golden = ValueAfter(args, "goldencapture");
+            golden.has_value())
+        {
+            const std::string directory = ValueAfter(args, "goldendir").value_or(
+                NativeRuntime::PathCombine(
+                    NativeRuntime::EnvironmentCurrentDirectory(), "golden-rhi"));
+            SetExitCode(Render::GoldenCapture::Run(*golden, directory));
+            return true;
+        }
+#endif
+
         if (::HasFlag(args, "mapbundle"))
         {
             const std::optional<std::string> which = ValueAfter(args, "mapbundle");
@@ -1913,6 +1927,31 @@ namespace MphRead::Mods
             GameMode mode = GameMode::Battle;
             (void)TryParseGameMode(ValueAfter(args, "mode"), mode);
             SetExitCode(Network::ServerSimCheck::Run(*simCheck, players, seconds, mode, HasFlag(args, "formcheck")));
+            return true;
+        }
+
+        if (::HasFlag(args, "gpulifetime"))
+        {
+            std::string room = "TEST ARENA";
+            const std::optional<std::string> named = ValueAfter(args, "gpulifetime");
+            if (named.has_value() && !named->empty() && named->front() != '-')
+            {
+                room = *named;
+            }
+            std::int32_t cycles = 5;
+            std::int32_t frames = 90;
+            std::int32_t parsed = 0;
+            if (const auto value = ValueAfter(args, "cycles"); value.has_value()
+                && Int32TryParseCurrentCulture(*value, parsed) && parsed > 0)
+            {
+                cycles = parsed;
+            }
+            if (const auto value = ValueAfter(args, "frames"); value.has_value()
+                && Int32TryParseCurrentCulture(*value, parsed) && parsed > 0)
+            {
+                frames = parsed;
+            }
+            SetExitCode(Diagnostics::GpuLifetimeCheck::Run(room, cycles, frames));
             return true;
         }
 

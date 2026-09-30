@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The native C++ host uses android.app.Activity, not AppCompatActivity.
+         Keep its theme independent from the C# Android head so neither host
+         needs the other's UI framework at package or runtime. -->
+    <style name="FruityPrime" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/window_background</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:fontFamily">sans</item>
+    </style>
+</resources>

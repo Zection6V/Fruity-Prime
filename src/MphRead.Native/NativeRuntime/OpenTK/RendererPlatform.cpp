@@ -4,6 +4,7 @@
 // which is what GameWindow does for the C# renderer.
 
 #include "../../Renderer.hpp"
+#include "../Rhi/OpenGL/OpenGlDevice.hpp"
 
 #include "../../Mods/Chat/ChatBox.hpp"
 #include "../System/Heartbeat.hpp"
@@ -31,13 +32,13 @@ namespace
 {
     using MphRead::RendererPlatform::CursorState;
     using MphRead::RendererPlatform::FrameEventArgs;
+    using MphRead::RendererPlatform::GraphicsWindowMode;
     using MphRead::RendererPlatform::GLFWException;
     using MphRead::RendererPlatform::MouseButtonEventArgs;
     using MphRead::RendererPlatform::MouseMoveEventArgs;
     using MphRead::RendererPlatform::MouseWheelEventArgs;
     using MphRead::RendererPlatform::ResizeEventArgs;
     using MphRead::RendererPlatform::TextInputEventArgs;
-    using MphRead::RendererPlatform::VSyncMode;
     using MphRead::RendererPlatform::WindowEvents;
     using MphRead::RendererPlatform::WindowPositionEventArgs;
     using MphRead::RendererPlatform::WindowSettings;
@@ -161,17 +162,23 @@ namespace
         explicit GlfwWindow(const WindowSettings& settings)
         {
             EnsureGlfw();
-            ::glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, settings.ApiMajor);
-            ::glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, settings.ApiMinor);
-            // ContextProfile.Compatability, and it has to be asked for by
-            // name: the renderer is written in immediate mode, which a core
-            // profile does not have, and a driver handed ANY_PROFILE with a
-            // version of 3.2 or above gives a core one -- every frame then
-            // comes out black with nothing in any log to say why.
-            ::glfwWindowHint(GLFW_OPENGL_PROFILE,
-                settings.Profile == WindowSettings::ContextProfile::Compatability
-                    ? GLFW_OPENGL_COMPAT_PROFILE
-                    : GLFW_OPENGL_ANY_PROFILE);
+            _graphicsMode = settings.GraphicsMode;
+            ::glfwWindowHint(GLFW_CLIENT_API,
+                _graphicsMode == GraphicsWindowMode::OpenGL ? GLFW_OPENGL_API : GLFW_NO_API);
+            if (_graphicsMode == GraphicsWindowMode::OpenGL)
+            {
+                ::glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, settings.ApiMajor);
+                ::glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, settings.ApiMinor);
+                // ContextProfile.Compatability, and it has to be asked for by
+                // name: the renderer is written in immediate mode, which a core
+                // profile does not have, and a driver handed ANY_PROFILE with a
+                // version of 3.2 or above gives a core one -- every frame then
+                // comes out black with nothing in any log to say why.
+                ::glfwWindowHint(GLFW_OPENGL_PROFILE,
+                    settings.Profile == WindowSettings::ContextProfile::Compatability
+                        ? GLFW_OPENGL_COMPAT_PROFILE
+                        : GLFW_OPENGL_ANY_PROFILE);
+            }
             ::glfwWindowHint(GLFW_VISIBLE, settings.StartVisible ? GLFW_TRUE : GLFW_FALSE);
             _handle = ::glfwCreateWindow(
                 settings.ClientSize.X, settings.ClientSize.Y,
@@ -191,8 +198,11 @@ namespace
             _mouse.X = _lastReportedMouseX = static_cast<float>(cursorX);
             _mouse.Y = _lastReportedMouseY = static_cast<float>(cursorY);
             _updateFrequency = settings.UpdateFrequency;
-            ::glfwMakeContextCurrent(_handle);
-            ::glfwSwapInterval(1);
+            if (_graphicsMode == GraphicsWindowMode::OpenGL)
+            {
+                ::glfwMakeContextCurrent(_handle);
+                ::glfwSwapInterval(1);
+            }
             ::glfwSetWindowUserPointer(_handle, this);
             ::glfwSetFramebufferSizeCallback(_handle, &OnFramebufferSize);
             ::glfwSetWindowPosCallback(_handle, &OnWindowPos);
@@ -209,6 +219,11 @@ namespace
         {
             if (_handle != nullptr)
             {
+                if (_graphicsMode == GraphicsWindowMode::OpenGL)
+                {
+                    ::glfwMakeContextCurrent(_handle);
+                    MphRead::NativeRuntime::Rhi::OpenGL::FinishContextDevice();
+                }
                 ::glfwDestroyWindow(_handle);
                 _handle = nullptr;
             }
@@ -219,7 +234,10 @@ namespace
         void Run(WindowEvents& events) override
         {
             _events = &events;
-            ::glfwMakeContextCurrent(_handle);
+            if (_graphicsMode == GraphicsWindowMode::OpenGL)
+            {
+                ::glfwMakeContextCurrent(_handle);
+            }
             events.OnLoad();
             // The size the window actually got, which OnLoad's callers read.
             ResizeEventArgs resize;
@@ -293,11 +311,6 @@ namespace
                 value == CursorState::Grabbed ? GLFW_CURSOR_DISABLED : GLFW_CURSOR_NORMAL);
         }
 
-        void VSync(VSyncMode value) override
-        {
-            ::glfwSwapInterval(value == VSyncMode::On ? 1 : 0);
-        }
-
         void UpdateFrequency(double value) override
         {
             _updateFrequency = value;
@@ -332,14 +345,14 @@ namespace
             return _handle;
         }
 
+        GraphicsWindowMode GraphicsMode() const noexcept override
+        {
+            return _graphicsMode;
+        }
+
         void Close() override
         {
             ::glfwSetWindowShouldClose(_handle, GLFW_TRUE);
-        }
-
-        void SwapBuffers() override
-        {
-            ::glfwSwapBuffers(_handle);
         }
 
         // GameWindow's own handlers raise events nothing here subscribes to.
@@ -503,6 +516,11 @@ namespace
                 return MphRead::RendererPlatform::WindowStateValue::Maximized;
             }
             return MphRead::RendererPlatform::WindowStateValue::Normal;
+        }
+
+        void WindowStateMinimized() override
+        {
+            ::glfwIconifyWindow(_handle);
         }
 
         void WindowStateMaximized() override
@@ -704,6 +722,7 @@ namespace
         }
 
         GLFWwindow* _handle = nullptr;
+        GraphicsWindowMode _graphicsMode = GraphicsWindowMode::OpenGL;
         WindowEvents* _events = nullptr;
         double _updateFrequency = 0.0;
         MphRead::RendererPlatform::KeyboardState _keyboard{};

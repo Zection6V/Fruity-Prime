@@ -1,0 +1,168 @@
+# Package a tagged commit of the C++ port.
+#
+#   git tag cpp_v0.9.0 && git push origin cpp_v0.9.0
+#
+# Or, from the Actions tab: give an existing tag, or leave it empty and pick a
+# bump to have the next cpp_v tag created here (a tag pushed with the default
+# GITHUB_TOKEN would not trigger this workflow, so it mints its own).
+#
+# cpp_v* rather than v*: release_cs.yml numbers the C# packages with v*, and
+# the two lines must not read each other's tags as their newest release.
+#
+# What it leaves is a *draft*; publishing is a person pressing the button.
+name: release_cpp
+
+on:
+  push:
+    tags: ["cpp_v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing cpp_v tag to build (leave empty to bump instead)
+        required: false
+      bump:
+        description: Create the next cpp_v tag from the newest one, when no tag is given
+        required: false
+        default: none
+        type: choice
+        options: [none, patch, minor, major]
+
+permissions:
+  contents: write
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.name.outputs.tag }}
+    steps:
+      - name: resolve the tag
+        id: name
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          BUMP: ${{ github.event.inputs.bump }}
+          PUSHED_TAG: ${{ github.event_name == 'push' && github.ref_name || '' }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          TAG="${INPUT_TAG:-$PUSHED_TAG}"
+          RELEASE_TAG='^cpp_v(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$'
+
+          if [ -n "$TAG" ]; then
+            case "$TAG" in
+              cpp_v*) ;;
+              v*) TAG="cpp_$TAG" ;;
+              *) TAG="cpp_v$TAG" ;;
+            esac
+            if ! gh api "repos/$REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
+              echo "::error::No tag '$TAG' exists in $REPO. Push one first:"
+              echo "::error::  git tag $TAG && git push origin $TAG"
+              exit 1
+            fi
+          elif [ "${BUMP:-none}" != none ]; then
+            LATEST=$(gh api "repos/$REPO/git/refs/tags" --paginate --jq '.[].ref' 2>/dev/null \
+              | sed 's#^refs/tags/##' | grep -E "$RELEASE_TAG" \
+              | sed 's/^cpp_v//' | sort -V | tail -1 || true)
+            if [ -z "$LATEST" ]; then
+              TAG=cpp_v0.1.0
+            else
+              IFS=. read -r MAJOR MINOR PATCH <<< "$LATEST"
+              case "$BUMP" in
+                major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+                minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+                patch) PATCH=$((PATCH + 1)) ;;
+              esac
+              TAG="cpp_v$MAJOR.$MINOR.$PATCH"
+            fi
+            if [[ ! "$TAG" =~ $RELEASE_TAG ]]; then
+              echo "::error::'$TAG' is not cpp_vMAJOR.MINOR.PATCH."
+              exit 1
+            fi
+            if gh api "repos/$REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
+              echo "::error::$TAG already exists. Build it by name, or bump past it."
+              exit 1
+            fi
+            gh api -X POST "repos/$REPO/git/refs" -f ref="refs/tags/$TAG" -f sha="$SHA" >/dev/null
+            echo "Created $TAG at ${SHA:0:7}."
+          else
+            echo "::error::Give a tag to build, or pick a bump to create the next one."
+            exit 1
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "### Fruity Prime (C++) $TAG" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: resolve
+    uses: ./.github/workflows/native-cpp-all.yml
+    with:
+      checkout_ref: refs/tags/${{ needs.resolve.outputs.tag }}
+
+  android:
+    needs: resolve
+    uses: ./.github/workflows/native-cpp-android.yml
+    with:
+      checkout_ref: refs/tags/${{ needs.resolve.outputs.tag }}
+
+  publish:
+    needs: [resolve, build, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: FruityPrime-cpp-*
+          path: artifacts
+
+      - name: package
+        env:
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for dir in artifacts/FruityPrime-cpp-*; do
+            platform=$(basename "$dir" | sed -E 's/^FruityPrime-cpp-([a-z]+)-.*/\1/')
+            name="FruityPrime-$TAG-$platform"
+            case "$platform" in
+              windows)
+                ( cd "$dir" && zip -qr "$GITHUB_WORKSPACE/dist/$name.zip" . ) ;;
+              android)
+                test -f "$dir/FruityPrime.apk"
+                cp "$dir/FruityPrime.apk" "dist/$name.apk" ;;
+              *)
+                chmod +x "$dir/FruityPrime"
+                tar -C "$dir" -czf "dist/$name.tar.gz" . ;;
+            esac
+          done
+          ls -la dist
+
+      # Rerunning the same tag updates the draft rather than failing.
+      - name: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          cat > notes.md <<'NOTE'
+          **Beta build of the C++ port.** You bring your own Metroid Prime Hunters cartridge
+          dump; no game data is included here and none is downloaded.
+
+          - **Windows** -- the `windows` zip, run `FruityPrime.exe`
+          - **Linux** -- the `linux` tarball, run `./FruityPrime`
+          - **macOS** -- the `macos` tarball, run `./FruityPrime`
+          - **Android** -- the `android` APK; it contains arm64-v8a and x86_64 native libraries
+          NOTE
+          CHANGES=$(gh api -X POST "repos/$GH_REPO/releases/generate-notes" \
+            -f tag_name="$TAG" --jq .body 2>/dev/null || true)
+          if [ -n "$CHANGES" ]; then
+            printf '\n---\n\n%s\n' "$CHANGES" >> notes.md
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+            gh release edit "$TAG" --title "Fruity Prime (C++) $TAG" --notes-file notes.md
+          else
+            gh release create "$TAG" dist/* --draft --verify-tag \
+              --title "Fruity Prime (C++) $TAG" --notes-file notes.md
+          fi

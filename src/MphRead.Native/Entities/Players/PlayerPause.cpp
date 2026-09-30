@@ -1044,7 +1044,8 @@ namespace MphRead::Entities
     {
         Scene& scene = RequireReference(_scene);
         const std::int32_t polygonId = scene.GetNextPolygonId();
-        Model& model = RequireReference((inst).Model());
+        const std::shared_ptr<Model> modelValue = inst.Model();
+        Model& model = RequireReference(modelValue);
         const auto& nodes = RequireReference(model.Nodes);
         Node& root = RequireReference(ManagedAt(nodes, 0));
 
@@ -1071,7 +1072,8 @@ namespace MphRead::Entities
                 const auto& materials = RequireReference(model.Materials);
                 for (std::int32_t k = 0; k < node.MeshCount; ++k)
                 {
-                    Mesh& mesh = RequireReference(ManagedAt(meshes, start + k));
+                    const std::shared_ptr<Mesh> meshValue = ManagedAt(meshes, start + k);
+                    Mesh& mesh = RequireReference(meshValue);
                     if (!mesh.Visible)
                     {
                         continue;
@@ -1091,13 +1093,13 @@ namespace MphRead::Entities
                     const std::vector<float> matrixStack
                         = CopyManagedArray(RequireReference(model.MatrixStackValues));
                     scene.AddRenderItem(material, polygonId, alpha, emission, lightInfo,
-                        IdentityMatrix(), node.Animation, mesh.ListId, matrixCount,
+                        IdentityMatrix(), node.Animation, modelValue, meshValue, matrixCount,
                         matrixStack, std::nullopt, std::nullopt,
                         SelectionType::None, node.BillboardMode);
                     if (!isSelected)
                     {
                         scene.AddRenderItem(material, polygonId, alpha, emission, lightInfo,
-                            IdentityMatrix(), node.Animation, mesh.ListId, matrixCount,
+                            IdentityMatrix(), node.Animation, modelValue, meshValue, matrixCount,
                             matrixStack, std::nullopt, std::nullopt,
                             SelectionType::None, node.BillboardMode);
                     }
@@ -1109,7 +1111,7 @@ namespace MphRead::Entities
                         const Vector3 prevDiffuse = material.CurrentDiffuse;
                         material.CurrentDiffuse = emission;
                         scene.AddRenderItem(material, polygonId, 1.0F, emission, lightInfo,
-                            IdentityMatrix(), node.Animation, mesh.ListId, matrixCount,
+                            IdentityMatrix(), node.Animation, modelValue, meshValue, matrixCount,
                             matrixStack, std::nullopt, std::nullopt,
                             SelectionType::None, node.BillboardMode);
                         material.CurrentDiffuse = prevDiffuse;

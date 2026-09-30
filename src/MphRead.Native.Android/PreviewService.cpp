@@ -1,5 +1,7 @@
 #include "PreviewService.hpp"
 
+#include "AndroidGlContextGate.hpp"
+
 #if !defined(__ANDROID__)
 #error "PreviewService is only valid for the Android native target."
 #endif
@@ -899,6 +901,7 @@ namespace MphRead::Droid
         Mods::ThumbnailGenerator::EnsureCacheDirectory();
         Mods::ScreenCapture::PngWriter(AndroidPng::Write);
 
+        AndroidGlContextLease glContextLease;
         std::shared_ptr<OffscreenGl> gl =
             OffscreenGl::Create(width, height);
         try

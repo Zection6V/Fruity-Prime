@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.25)
 
 project(FruityPrimeNative LANGUAGES CXX)
 
+include(CTest)
+
 include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/FruityNativeConfig.cmake")
 
 set(CMAKE_CXX_STANDARD 20)
@@ -73,18 +75,102 @@ set(FRUITY_ANDROID_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/src/MphRead.Native.Android"
 fruity_collect_owner("${FRUITY_NCSFPLAY_ROOT}" NCSFPLAY_NATIVE_SOURCES NCSFPLAY_NATIVE_HEADERS)
 fruity_collect_owner("${FRUITY_MPHREAD_ROOT}" MPHREAD_NATIVE_SOURCES MPHREAD_NATIVE_HEADERS)
 
-# Android has its own activity, views, input bridge and EGL/GLES renderer under
-# MphRead.Native.Android. The desktop Avalonia/GLFW/Freetype owners must not be
-# pulled into the Android common archive merely because the source list is a
-# recursive glob.
+# Phase 4 terminal static gate. The phase plan requires the equivalent of:
+#   rg -n "GenLists|NewList|EndList|CallList|DeleteLists" src/MphRead.Native
+# to return zero. Enforce that invariant during every configure so CI cannot
+# build a tree that accidentally reintroduces OpenGL display-list ownership.
+set(FRUITY_PHASE4_DISPLAY_LIST_REGEX "GenLists|NewList|EndList|CallList|DeleteLists")
+foreach(FRUITY_PHASE4_SOURCE IN LISTS MPHREAD_NATIVE_SOURCES MPHREAD_NATIVE_HEADERS)
+    file(READ "${FRUITY_PHASE4_SOURCE}" FRUITY_PHASE4_SOURCE_TEXT)
+    if(FRUITY_PHASE4_SOURCE_TEXT MATCHES "${FRUITY_PHASE4_DISPLAY_LIST_REGEX}")
+        message(FATAL_ERROR
+            "Phase 4 display-list static gate failed: ${FRUITY_PHASE4_SOURCE}")
+    endif()
+    if(FRUITY_PHASE4_SOURCE_TEXT MATCHES "GL::Begin\\(|::glBegin\\(|::glEnd\\(")
+        message(FATAL_ERROR
+            "Phase 4 immediate-mode static gate failed: ${FRUITY_PHASE4_SOURCE}")
+    endif()
+endforeach()
+unset(FRUITY_PHASE4_SOURCE_TEXT)
+
+# Phase 5 terminal static gate: no shader source reads a GLSL built-in vertex
+# attribute. tools/check-phase5-shader-interface.py is the full audit.
+foreach(FRUITY_PHASE5_SHADER_SOURCE
+        "${FRUITY_MPHREAD_ROOT}/Shaders.cpp"
+        "${FRUITY_MPHREAD_ROOT}/Mods/Render/EsShaders.cpp")
+    file(READ "${FRUITY_PHASE5_SHADER_SOURCE}" FRUITY_PHASE5_SOURCE_TEXT)
+    if(FRUITY_PHASE5_SOURCE_TEXT MATCHES "gl_(Vertex|Normal|Color|MultiTexCoord|SecondaryColor|FogCoord)[^A-Za-z_]")
+        message(FATAL_ERROR
+            "Phase 5 built-in vertex attribute gate failed: ${FRUITY_PHASE5_SHADER_SOURCE}")
+    endif()
+endforeach()
+unset(FRUITY_PHASE5_SOURCE_TEXT)
+unset(FRUITY_PHASE5_SHADER_SOURCE)
+unset(FRUITY_PHASE4_SOURCE)
+unset(FRUITY_PHASE4_DISPLAY_LIST_REGEX)
+
+# Runtime decoder tests have their own executable below. Keep its main() out
+# of the production archive while retaining the repository's Native/Testing
+# source location.
+set(FRUITY_RENDERER_GEOMETRY_TEST_SOURCE
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestRendererGeometry.cpp")
+set(FRUITY_RENDERER_GPU_MESH_TEST_SOURCE
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestRendererGpuMesh.cpp")
+set(FRUITY_RHI_LIFETIME_TEST_SOURCE
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestRhiLifetime.cpp")
+set(FRUITY_SHADER_INTERFACE_TEST_SOURCE
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestShaderInterface.cpp")
+set(FRUITY_GOLDEN_CAPTURE_VALIDATION_TEST_SOURCE
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestGoldenCaptureValidation.cpp")
+set(FRUITY_GOLDEN_CAPTURE_CPP_SOURCE
+    "${FRUITY_MPHREAD_ROOT}/Mods/Render/GoldenCapture.cpp")
+set(FRUITY_GOLDEN_CAPTURE_HEADER_SOURCE
+    "${FRUITY_MPHREAD_ROOT}/Mods/Render/GoldenCapture.hpp")
+set(FRUITY_GOLDEN_CAPTURE_VALIDATION_SOURCE
+    "${FRUITY_MPHREAD_ROOT}/Mods/Render/GoldenCaptureValidation.hpp")
+set(FRUITY_GOLDEN_CAPTURE_PROVENANCE_DIR
+    "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set(FRUITY_GOLDEN_CAPTURE_PROVENANCE_HEADER
+    "${FRUITY_GOLDEN_CAPTURE_PROVENANCE_DIR}/GoldenCaptureProvenance.generated.hpp")
+set_source_files_properties(
+    "${FRUITY_GOLDEN_CAPTURE_PROVENANCE_HEADER}"
+    PROPERTIES GENERATED TRUE)
+# This target deliberately runs for every native build so source_commit cannot
+# go stale when an incremental worktree changes commits without changing the
+# harness files. The generator only rewrites the header when provenance changes.
+add_custom_target(fruity_golden_capture_provenance
+    COMMAND "${CMAKE_COMMAND}"
+        "-DSOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
+        "-DGOLDEN_CAPTURE_CPP=${FRUITY_GOLDEN_CAPTURE_CPP_SOURCE}"
+        "-DGOLDEN_CAPTURE_HEADER=${FRUITY_GOLDEN_CAPTURE_HEADER_SOURCE}"
+        "-DGOLDEN_CAPTURE_VALIDATION=${FRUITY_GOLDEN_CAPTURE_VALIDATION_SOURCE}"
+        "-DOUTPUT_FILE=${FRUITY_GOLDEN_CAPTURE_PROVENANCE_HEADER}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateGoldenCaptureProvenance.cmake"
+    BYPRODUCTS "${FRUITY_GOLDEN_CAPTURE_PROVENANCE_HEADER}"
+    DEPENDS
+        "${FRUITY_GOLDEN_CAPTURE_CPP_SOURCE}"
+        "${FRUITY_GOLDEN_CAPTURE_HEADER_SOURCE}"
+        "${FRUITY_GOLDEN_CAPTURE_VALIDATION_SOURCE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateGoldenCaptureProvenance.cmake"
+    COMMENT "Refreshing GoldenCapture source provenance"
+    VERBATIM)
+list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES
+    "${FRUITY_RENDERER_GEOMETRY_TEST_SOURCE}"
+    "${FRUITY_RENDERER_GPU_MESH_TEST_SOURCE}"
+    "${FRUITY_SHADER_INTERFACE_TEST_SOURCE}"
+    "${FRUITY_RHI_LIFETIME_TEST_SOURCE}"
+    "${FRUITY_GOLDEN_CAPTURE_VALIDATION_TEST_SOURCE}")
+
+# Android owns the Activity/View/EGL shell under MphRead.Native.Android, but
+# the launcher controls and their CPU Skia/Avalonia implementation are shared
+# C++ code and must be present in the final .so. Only the desktop window/Ganesh
+# pieces stay out of the Android common archive.
 if(ANDROID)
-    list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/Avalonia/.*\\.cpp$")
     list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/Gui/.*\\.cpp$")
-    list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/Skia/.*\\.cpp$")
+    list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/Skia/SkiaGpu\\.cpp$")
     list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/OpenTK/RendererPlatform\\.cpp$")
     list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/OpenTK/GL\\.cpp$")
     list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/OpenTK/GpuTrace\\.cpp$")
-    list(FILTER MPHREAD_NATIVE_SOURCES EXCLUDE REGEX "/NativeRuntime/SoundFlow/MiniAudio\\.cpp$")
 endif()
 
 fruity_report_owner("NcsfPlay.Native" NCSFPLAY_NATIVE_SOURCES NCSFPLAY_NATIVE_HEADERS)
@@ -105,14 +191,26 @@ set_target_properties(fruity_ncsfplay_native PROPERTIES OUTPUT_NAME "NcsfPlay.Na
 # TagList's invariant collation: Windows and Apple ask the system, Android asks
 # the JVM, and everywhere else it is ICU's -- as it is for .NET on Linux.
 if(NOT WIN32 AND NOT APPLE AND NOT ANDROID)
-    find_package(ICU REQUIRED COMPONENTS uc i18n)
-    target_link_libraries(fruity_ncsfplay_native PUBLIC ICU::uc ICU::i18n)
+    # Static ICU from the Skia vcpkg prefix must be ordered by dependency:
+    # i18n -> uc -> data. Linking uc before i18n leaves ICU common symbols
+    # unresolved with GNU ld.
+    find_package(ICU REQUIRED COMPONENTS i18n uc data)
+    target_link_libraries(fruity_ncsfplay_native PUBLIC
+        ICU::i18n
+        ICU::uc
+        ICU::data)
 endif()
 
 add_library(fruity_mphread_native STATIC)
 add_library(FruityPrime::MphRead.Native ALIAS fruity_mphread_native)
-target_sources(fruity_mphread_native PRIVATE ${MPHREAD_NATIVE_SOURCES} ${MPHREAD_NATIVE_HEADERS})
-target_include_directories(fruity_mphread_native PUBLIC "${FRUITY_MPHREAD_ROOT}")
+target_sources(fruity_mphread_native PRIVATE
+    ${MPHREAD_NATIVE_SOURCES}
+    ${MPHREAD_NATIVE_HEADERS}
+    "${FRUITY_GOLDEN_CAPTURE_PROVENANCE_HEADER}")
+target_include_directories(fruity_mphread_native
+    PUBLIC "${FRUITY_MPHREAD_ROOT}"
+    PRIVATE "${FRUITY_GOLDEN_CAPTURE_PROVENANCE_DIR}")
+add_dependencies(fruity_mphread_native fruity_golden_capture_provenance)
 target_compile_features(fruity_mphread_native PUBLIC cxx_std_20)
 if(FRUITY_STOP_TOKEN_OPTIONS)
     target_compile_options(fruity_mphread_native PUBLIC ${FRUITY_STOP_TOKEN_OPTIONS})
@@ -129,9 +227,91 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
 endif()
 set_target_properties(fruity_mphread_native PROPERTIES OUTPUT_NAME "MphRead.Native")
 
-# The native desktop executable carries the launcher toolkit and the one-window
-# shell. Android uses its activity/view integration in the C# head instead.
-if(NOT ANDROID)
+# Phase 3's geometry decoder is deliberately pure CPU code. Build and run its
+# focused tests whenever a host native owner is built; Android cross-compiles
+# the production decoder but cannot execute the host test binary.
+if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
+    add_executable(fruity_renderer_geometry_tests
+        "${FRUITY_RENDERER_GEOMETRY_TEST_SOURCE}"
+        "${FRUITY_MPHREAD_ROOT}/RendererGeometry.cpp")
+    target_include_directories(fruity_renderer_geometry_tests PRIVATE "${FRUITY_MPHREAD_ROOT}")
+    target_compile_features(fruity_renderer_geometry_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(fruity_renderer_geometry_tests PRIVATE -ffp-contract=off)
+    endif()
+
+    add_test(NAME FruityPrime.RendererGeometry COMMAND fruity_renderer_geometry_tests)
+    add_custom_target(fruity_renderer_geometry_check
+        COMMAND "$<TARGET_FILE:fruity_renderer_geometry_tests>"
+        DEPENDS fruity_renderer_geometry_tests
+        COMMENT "Running native renderer geometry decoder tests"
+        VERBATIM)
+
+    add_executable(fruity_renderer_gpu_mesh_tests
+        "${FRUITY_RENDERER_GPU_MESH_TEST_SOURCE}"
+        "${FRUITY_MPHREAD_ROOT}/RendererGpuMesh.cpp")
+    target_include_directories(fruity_renderer_gpu_mesh_tests PRIVATE "${FRUITY_MPHREAD_ROOT}")
+    target_compile_features(fruity_renderer_gpu_mesh_tests PRIVATE cxx_std_20)
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+        target_compile_options(fruity_renderer_gpu_mesh_tests PRIVATE -ffp-contract=off)
+    endif()
+
+    add_test(NAME FruityPrime.RendererGpuMesh COMMAND fruity_renderer_gpu_mesh_tests)
+    add_custom_target(fruity_renderer_gpu_mesh_check
+        COMMAND "$<TARGET_FILE:fruity_renderer_gpu_mesh_tests>"
+        DEPENDS fruity_renderer_gpu_mesh_tests
+        COMMENT "Running native renderer GPU mesh cache tests"
+        VERBATIM)
+
+    # Phase 5's shader interface: one vertex-semantic table, desktop shaders
+    # that read only explicit inputs, and the Vulkan interface's std140 packing.
+    add_executable(fruity_shader_interface_tests
+        "${FRUITY_SHADER_INTERFACE_TEST_SOURCE}"
+        "${FRUITY_MPHREAD_ROOT}/Shaders.cpp")
+    target_include_directories(fruity_shader_interface_tests PRIVATE "${FRUITY_MPHREAD_ROOT}")
+    target_compile_features(fruity_shader_interface_tests PRIVATE cxx_std_20)
+    add_test(NAME FruityPrime.ShaderInterface COMMAND fruity_shader_interface_tests)
+    add_custom_target(fruity_shader_interface_check
+        COMMAND "$<TARGET_FILE:fruity_shader_interface_tests>"
+        DEPENDS fruity_shader_interface_tests
+        COMMENT "Running native shader interface tests"
+        VERBATIM)
+
+    # Phase 10's GPU lifetime contract: retirement, frames in flight, idle.
+    add_executable(fruity_rhi_lifetime_tests "${FRUITY_RHI_LIFETIME_TEST_SOURCE}")
+    target_include_directories(fruity_rhi_lifetime_tests PRIVATE "${FRUITY_MPHREAD_ROOT}")
+    target_compile_features(fruity_rhi_lifetime_tests PRIVATE cxx_std_20)
+    add_test(NAME FruityPrime.RhiLifetime COMMAND fruity_rhi_lifetime_tests)
+
+    add_executable(fruity_golden_capture_validation_tests
+        "${FRUITY_GOLDEN_CAPTURE_VALIDATION_TEST_SOURCE}")
+    target_include_directories(fruity_golden_capture_validation_tests PRIVATE "${FRUITY_MPHREAD_ROOT}")
+    target_compile_features(fruity_golden_capture_validation_tests PRIVATE cxx_std_20)
+    if(FRUITY_GOLDEN_PARITY_ADAPTER)
+        target_compile_definitions(
+            fruity_golden_capture_validation_tests
+            PRIVATE FRUITY_GOLDEN_PARITY_ADAPTER_BUILD=1)
+    endif()
+    add_test(
+        NAME FruityPrime.GoldenCaptureValidation
+        COMMAND fruity_golden_capture_validation_tests)
+    add_custom_target(fruity_golden_capture_validation_check
+        COMMAND "$<TARGET_FILE:fruity_golden_capture_validation_tests>"
+        DEPENDS fruity_golden_capture_validation_tests
+        COMMENT "Running golden capture validation tests"
+        VERBATIM)
+
+    add_dependencies(fruity_mphread_native
+        fruity_renderer_geometry_check
+        fruity_renderer_gpu_mesh_check
+        fruity_golden_capture_validation_check)
+endif()
+
+# Both native heads compile the launcher's in-tree Avalonia-compatible controls.
+# MPHREAD_SHELL is desktop-only: Android supplies its own Activity/View stack.
+if(ANDROID)
+    target_compile_definitions(fruity_mphread_native PUBLIC MPHREAD_AVALONIA)
+else()
     target_compile_definitions(fruity_mphread_native PUBLIC MPHREAD_AVALONIA MPHREAD_SHELL)
 endif()
 
@@ -204,19 +384,16 @@ if(NOT ANDROID)
     find_package(JPEG REQUIRED)
     target_link_libraries(fruity_mphread_native PUBLIC JPEG::JPEG)
 
-    if(APPLE)
-        # The C# build resolves OpenAL from the executable directory on macOS.
-        # AL.cpp uses the same bundled libopenal.1.dylib rather than binding
-        # the system OpenAL framework at link time.
+    find_library(FRUITY_OPENAL_LIBRARY NAMES openal OpenAL OpenAL32)
+    if(FRUITY_OPENAL_LIBRARY)
+        # Sfx.cpp calls al*/alc* directly on every desktop platform. macOS
+        # therefore needs an actual link dependency too; the runtime dylib
+        # search policy is separate from resolving these link-time symbols.
+        target_link_libraries(fruity_mphread_native PUBLIC "${FRUITY_OPENAL_LIBRARY}")
     else()
-        find_library(FRUITY_OPENAL_LIBRARY NAMES openal OpenAL OpenAL32)
-        if(FRUITY_OPENAL_LIBRARY)
-            target_link_libraries(fruity_mphread_native PUBLIC "${FRUITY_OPENAL_LIBRARY}")
-        else()
-            message(FATAL_ERROR
-                "OpenAL was not found. The sound mixer calls it directly, as OpenTK does "
-                "in the C# build.")
-        endif()
+        message(FATAL_ERROR
+            "OpenAL was not found. The sound mixer calls it directly, as OpenTK does "
+            "in the C# build.")
     endif()
 endif()
 
@@ -225,6 +402,23 @@ endif()
 if(NOT ANDROID)
     add_executable(fruity_prime "${CMAKE_CURRENT_SOURCE_DIR}/src/FruityPrime/Main.cpp")
     target_link_libraries(fruity_prime PRIVATE fruity_mphread_native)
+    if(MSVC AND FRUITY_GOLDEN_PARITY_ADAPTER)
+        # Exact MSVC Actions builds compile these two production owners, but
+        # link.exe still cannot resolve Weapons::{Current,WeaponsMP} or
+        # EntityBase::HandleMessage from MphRead.Native.lib. /WHOLEARCHIVE does
+        # not repair that archive boundary and additionally pulls TestMisc.obj,
+        # whose LoadPngRgb owner is absent. Keep the production source bytes and
+        # native validation intact; bypass only that archive boundary for the
+        # runner-owned parity build.
+        target_sources(fruity_prime PRIVATE
+            "${FRUITY_MPHREAD_ROOT}/Metadata/Weapons.cpp"
+            "${FRUITY_MPHREAD_ROOT}/Entities/EntityBase.cpp")
+        target_compile_definitions(fruity_prime PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    elseif(MSVC)
+        # Preserve the canonical MSVC link policy outside the parity adapter.
+        target_link_options(fruity_prime PRIVATE
+            "/WHOLEARCHIVE:$<TARGET_FILE:fruity_mphread_native>")
+    endif()
     set_target_properties(fruity_prime PROPERTIES OUTPUT_NAME "FruityPrime")
 
     # The launcher's window icon and front-screen logo. The C# build embeds
@@ -279,20 +473,6 @@ if(CMAKE_DL_LIBS)
 endif()
 
 if(ANDROID)
-    set(FRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR "" CACHE PATH
-        "Header root containing curl/curl.h, archive.h, and archive_entry.h for the Android static compile target")
-
-    foreach(_required_header IN ITEMS curl/curl.h archive.h archive_entry.h)
-        if(NOT EXISTS "${FRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR}/${_required_header}")
-            message(FATAL_ERROR
-                "Android native compilation requires ${_required_header} under "
-                "FRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR. The repository has no Android "
-                "runtime owner for libcurl/libarchive, so CI supplies headers only and "
-                "does not pretend those runtime libraries are packaged.")
-        endif()
-    endforeach()
-    target_include_directories(fruity_mphread_native PRIVATE "${FRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR}")
-
     list(FIND FRUITY_ANDROID_ABIS "${ANDROID_ABI}" _android_abi_index)
     if(_android_abi_index EQUAL -1)
         message(FATAL_ERROR
@@ -306,17 +486,34 @@ if(ANDROID)
         endif()
     endif()
 
+    # The final shared object owns the complete runtime dependency graph.
+    # vcpkg supplies these libraries for the selected Android ABI; unlike the
+    # old header-only compile gate this is a real link and therefore catches
+    # missing runtime ownership before an APK is produced.
+    find_package(CURL REQUIRED)
+    find_package(LibArchive REQUIRED)
+    find_package(Freetype REQUIRED)
+    find_package(JPEG REQUIRED)
+
     find_library(FRUITY_ANDROID_LOG_LIBRARY log REQUIRED)
     find_library(FRUITY_ANDROID_PLATFORM_LIBRARY android REQUIRED)
     find_library(FRUITY_ANDROID_EGL_LIBRARY EGL REQUIRED)
     find_library(FRUITY_ANDROID_GLESV3_LIBRARY GLESv3 REQUIRED)
+    find_library(FRUITY_ANDROID_JNIGRAPHICS_LIBRARY jnigraphics REQUIRED)
+    find_library(FRUITY_ANDROID_OPENSL_LIBRARY OpenSLES REQUIRED)
 
-    target_link_libraries(fruity_mphread_native PUBLIC "${FRUITY_ANDROID_GLESV3_LIBRARY}")
+    target_link_libraries(fruity_mphread_native PUBLIC
+        CURL::libcurl
+        LibArchive::LibArchive
+        Freetype::Freetype
+        JPEG::JPEG
+        "${FRUITY_ANDROID_GLESV3_LIBRARY}"
+        "${FRUITY_ANDROID_OPENSL_LIBRARY}")
 
     fruity_collect_owner("${FRUITY_ANDROID_ROOT}" MPHREAD_ANDROID_SOURCES MPHREAD_ANDROID_HEADERS)
     fruity_report_owner("MphRead.Native.Android" MPHREAD_ANDROID_SOURCES MPHREAD_ANDROID_HEADERS)
 
-    add_library(fruity_mphread_native_android STATIC)
+    add_library(fruity_mphread_native_android SHARED)
     add_library(FruityPrime::MphRead.Native.Android ALIAS fruity_mphread_native_android)
     target_sources(fruity_mphread_native_android PRIVATE ${MPHREAD_ANDROID_SOURCES} ${MPHREAD_ANDROID_HEADERS})
     target_include_directories(fruity_mphread_native_android PUBLIC
@@ -324,14 +521,18 @@ if(ANDROID)
         "${FRUITY_MPHREAD_ROOT}"
         "${FRUITY_NCSFPLAY_ROOT}")
     target_compile_features(fruity_mphread_native_android PUBLIC cxx_std_20)
-    target_link_libraries(fruity_mphread_native_android PUBLIC
+    target_link_libraries(fruity_mphread_native_android PRIVATE
         fruity_mphread_native
         fruity_ncsfplay_native
         "${FRUITY_ANDROID_PLATFORM_LIBRARY}"
         "${FRUITY_ANDROID_LOG_LIBRARY}"
         "${FRUITY_ANDROID_EGL_LIBRARY}"
-        "${FRUITY_ANDROID_GLESV3_LIBRARY}")
-    set_target_properties(fruity_mphread_native_android PROPERTIES OUTPUT_NAME "MphRead.Native.Android")
+        "${FRUITY_ANDROID_GLESV3_LIBRARY}"
+        "${FRUITY_ANDROID_JNIGRAPHICS_LIBRARY}"
+        "${FRUITY_ANDROID_OPENSL_LIBRARY}")
+    target_link_options(fruity_mphread_native_android PRIVATE "-Wl,--no-undefined")
+    set_target_properties(fruity_mphread_native_android PROPERTIES
+        OUTPUT_NAME "FruityPrime")
 else()
     find_package(CURL REQUIRED)
     find_package(LibArchive REQUIRED)

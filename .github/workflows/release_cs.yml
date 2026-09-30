@@ -13,11 +13,13 @@
 #
 # What it leaves is a *draft*. The packages are built, checked and uploaded,
 # and publishing them is a person pressing the button.
-name: release
+name: release_cs
 
+# Not fired by a tag push any more (release_cpp.yml owns cpp_v* tags); the
+# C# packages are released by hand from the Actions tab.
 on:
-  push:
-    tags: ["v*"]
+  # push:
+  #   tags: ["v*"]
   workflow_dispatch:
     inputs:
       # Neither is required: give a tag to rebuild one that exists, or leave it
@@ -173,6 +175,13 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
+      - name: cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
 
       # For the Android package. The workload brings the .NET side of that
       # toolchain and not a JDK, and the Android SDK's build tools are Java.
@@ -521,6 +530,13 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
+      - name: cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
       - name: check sources and cook maps
         run: |
           set -euo pipefail

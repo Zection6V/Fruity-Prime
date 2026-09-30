@@ -3,6 +3,7 @@
 #include "../DebugLog.hpp"
 #include "../../Scene.hpp"
 #include "../../Shaders.hpp"
+#include "../../NativeRuntime/Rhi/OpenGL/OpenGlShaderInterface.hpp"
 
 #include "../EndScreen.hpp"
 #include "HunterPreview.hpp"
@@ -29,7 +30,6 @@ using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 
 namespace
 {
-    namespace GL = ::OpenTK::Graphics::OpenGL::GL;
 
 }
 
@@ -167,14 +167,11 @@ namespace MphRead
         const MphRead::Hunter want = LauncherPreview ? LauncherHunter : Mods::EndScreen::Hunter();
         const std::int32_t suit = LauncherPreview ? LauncherSuit : Mods::EndScreen::Suit();
         preview->SetUp(want, suit);
-        // Textures and display lists, which nobody else is going to make on
-        // the launcher: there is no player standing in a room to have made them.
-        // Every step, not once per hunter: a match's UnloadGl deletes the
-        // display lists on every cached model -- this one included, since
-        // the match reused the lists this preview generated -- and zeroes
-        // their ids. Asked once, the launcher's own scene then drew the
-        // same hunter through list 0 for ever: a black box. Both calls
-        // return at once when there is nothing to make.
+        // Textures and GPU meshes are scene-owned. The launcher has no room
+        // player to initialize this preview for it, so keep this idempotent
+        // initialization on every step. A match scene can now tear down its
+        // own GPU mesh cache without mutating the shared Model/Mesh objects
+        // used by this preview scene.
         _previewInited = want;
         if (_preview->Ready())
         {
@@ -231,10 +228,10 @@ namespace MphRead
             {
                 return false;
             }
-            GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, 0);
-            GL::UseProgram(_shaderProgramId);
+            BeginWindowRendering();
+            _previewIntoWindow = true;
             ModDrawPreview();
-            GL::UseProgram(0);
+            _previewIntoWindow = false;
             return true;
         }
         catch (...)
@@ -278,39 +275,47 @@ namespace MphRead
             return;
         }
 
-        GL::Enable(GL::EnableCap::ScissorTest);
-        GL::Scissor(x, y, width, height);
-        GL::ClearColor(_previewBack.X, _previewBack.Y, _previewBack.Z, _previewBack.W);
-        GL::Clear(GL::ClearBufferMask::ColorBufferBit | GL::ClearBufferMask::DepthBufferBit);
-        GL::ClearColor(0.0F, 0.0F, 0.0F, 0.0F);
-        GL::Viewport(x, y, width, height);
+        // Its own rendering scope over the corner it draws in: colour and
+        // depth cleared there, the stencil kept, and nothing outside touched.
+        namespace Rhi = NativeRuntime::Rhi;
+        const Rhi::ClearColor back{_previewBack.X, _previewBack.Y, _previewBack.Z, _previewBack.W};
+        const Rhi::Scissor area{x, y, static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height)};
+        Commands().EndRendering();
+        if (_previewIntoWindow)
+        {
+            BeginWindowRendering(Rhi::LoadOp::Clear, Rhi::LoadOp::Clear, back, area);
+        }
+        else
+        {
+            BeginSceneRendering(Rhi::LoadOp::Clear, Rhi::LoadOp::Clear, Rhi::LoadOp::Load, back, area);
+        }
+        // The preview pipeline first: it binds the main program the uniforms
+        // below are written into.
+        BeginScenePass(ScenePass::Preview);
+        Commands().SetViewport(Rhi::Viewport{static_cast<float>(x), static_cast<float>(y),
+            static_cast<float>(width), static_cast<float>(height)});
         Matrix4 projection = Matrix4::CreatePerspectiveFieldOfView(
             DegreesToRadians(PreviewFov), width / static_cast<float>(height), 0.1F, 100.0F);
         Matrix4 view = Matrix4::LookAt(_previewEye, _previewTarget, Vector3(0.0F, 1.0F, 0.0F));
-        if (!_shaderLocations)
-        {
-            throw System::NullReferenceException();
-        }
-        GL::UniformMatrix4(_shaderLocations->ProjectionMatrix, false, projection);
-        GL::UniformMatrix4(_shaderLocations->ViewMatrix, false, view);
-        GL::Uniform1(_shaderLocations->UseFog, 0);
-        GL::Enable(GL::EnableCap::DepthTest);
-        GL::DepthFunc(GL::DepthFunction::Less);
-        GL::DepthMask(true);
-        GL::Disable(GL::EnableCap::StencilTest);
-        GL::Enable(GL::EnableCap::Blend);
-        GL::BlendFunc(GL::BlendingFactor::SrcAlpha, GL::BlendingFactor::OneMinusSrcAlpha);
-        GL::Disable(GL::EnableCap::AlphaTest);
+        SetFrameMatrices(view, projection);
+        _shaderConstants->SetFogEnabled(false);
         for (std::size_t i = 0; i < _previewItems.size(); ++i)
         {
             RenderItem(_previewItems[i]);
         }
-        GL::Disable(GL::EnableCap::ScissorTest);
-        GL::Viewport(0, 0, target.X, target.Y);
-        GL::UniformMatrix4(_shaderLocations->ProjectionMatrix, false, _perspectiveMatrix);
-        GL::UniformMatrix4(_shaderLocations->ViewMatrix, false, _viewMatrix);
-        GL::Uniform1(_shaderLocations->UseFog, _hasFog && FogOn() ? 1 : 0);
-        GL::PolygonMode(GL::TriangleFace::FrontAndBack, GL::PolygonMode::Fill);
+        Commands().EndRendering();
+        if (_previewIntoWindow)
+        {
+            BeginWindowRendering();
+        }
+        else
+        {
+            BeginSceneRendering();
+        }
+        Commands().SetViewport(Rhi::Viewport{0.0F, 0.0F,
+            static_cast<float>(target.X), static_cast<float>(target.Y)});
+        SetFrameMatrices(_viewMatrix, _perspectiveMatrix);
+        _shaderConstants->SetFogEnabled(_hasFog && FogOn());
         _previewDrawnLastFrame = true;
         _previewDrawnHunter = _preview != nullptr ? _preview->Shown() : MphRead::Hunter::Random;
         _previewDrawnSuit = _preview != nullptr ? _preview->ShownSuit() : -1;

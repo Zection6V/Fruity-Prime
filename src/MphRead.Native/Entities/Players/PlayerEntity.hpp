@@ -32,6 +32,7 @@ private: \
 #include "../../Mods/Network/PlayerEntityNetAim.hpp"
 #include "../../Mods/Network/PlayerEntityNetHud.hpp"
 #include "../../Mods/Render/PlayerEntityAmmoClear.hpp"
+#include "../../Mods/Render/GoldenCapture.hpp"
 #include "../../Mods/Render/PlayerEntityEndScreen.hpp"
 #include "../../Mods/Render/PlayerEntityStylusHud.hpp"
 #include "../../Mods/Render/PlayerEntityTeamScoreboard.hpp"
@@ -55,7 +56,7 @@ namespace MphRead
 {
     class BeamProjectileArray;
     class EquipInfo;
-    struct WeaponInfo;
+    class WeaponInfo;
     class Scene;
 
     namespace Formats
@@ -780,6 +781,7 @@ namespace MphRead::Entities
         MPHREAD_PLAYER_ENTITY_AIM_ASSIST_MEMBERS
         MPHREAD_PLAYER_ENTITY_HAPTICS_MEMBERS
         MPHREAD_PLAYER_ENTITY_MOUSE_FLICK_MEMBERS
+        MPHREAD_PLAYER_GOLDEN_CAPTURE_MEMBERS
 
     private:
         explicit PlayerEntity(std::int32_t slotIndex, MphRead::Scene* scene);

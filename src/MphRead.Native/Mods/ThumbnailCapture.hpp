@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Renderer.hpp"
+#include "../NativeRuntime/OpenTK/GL.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -60,11 +61,12 @@ namespace MphRead::Mods
         [[nodiscard]] OpenTK::Mathematics::Vector2i ClientSize() const;
         [[nodiscard]] bool IsVisible() const noexcept;
         void IsVisible(bool value);
-        void SwapBuffers();
+        void Present();
 
         static bool _describedContext;
 
         std::shared_ptr<RendererPlatform::Window> _window{};
+        std::unique_ptr<MphRead::NativeRuntime::Rhi::Swapchain> _swapchain{};
         std::shared_ptr<MphRead::Scene> _scene{};
         std::string _roomKey{};
         std::int32_t _settleFrames = 0;

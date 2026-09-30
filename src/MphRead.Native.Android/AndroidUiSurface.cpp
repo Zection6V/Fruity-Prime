@@ -69,6 +69,11 @@ namespace MphRead::Droid
         : _impl(std::make_unique<Mods::Launcher::Gui::UiTopLevelImpl>()),
           _host(std::make_shared<Av::Controls::LayoutTransformControl>())
     {
+        // The Java LauncherView consumes premultiplied RGBA pixels. Android's
+        // game rendering still uses GLES; only this launcher top level uses
+        // the in-tree CPU canvas instead of desktop Skia Ganesh/GLFW.
+        _impl->GpuRendering(false);
+
         _host->LayoutTransform(
             std::make_shared<Av::Media::ScaleTransform>(1.0, 1.0));
         _host->HorizontalAlignment(Av::Layout::HorizontalAlignment::Stretch);

@@ -12,10 +12,8 @@
 #include <numbers>
 #include <utility>
 
-#if !defined(__ANDROID__)
 #include <jpeglib.h>
 #include <csetjmp>
-#endif
 
 // windows.h, pulled in by jpeglib on some toolchains, renames DrawText.
 #ifdef DrawText
@@ -611,7 +609,6 @@ namespace MphRead::NativeRuntime::Skia
         return bitmap;
     }
 
-#if !defined(__ANDROID__)
     namespace
     {
         struct JpegError final
@@ -667,7 +664,6 @@ namespace MphRead::NativeRuntime::Skia
             return Bitmap::FromStraightRgba(width, height, rgba.data());
         }
     }
-#endif
 
     std::shared_ptr<Bitmap> Bitmap::Decode(const std::uint8_t* data, std::size_t length)
     {
@@ -684,12 +680,10 @@ namespace MphRead::NativeRuntime::Skia
             }
             return FromStraightRgba(image.Width, image.Height, image.Pixels.data());
         }
-#if !defined(__ANDROID__)
         if (data[0] == 0xFF && data[1] == 0xD8)
         {
             return DecodeJpeg(data, length);
         }
-#endif
         return nullptr;
     }
 

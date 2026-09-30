@@ -4,12 +4,14 @@
 # The guard runs twice on purpose: once over what git is tracking, and once
 # over what the build produced. The first catches a map preview committed by
 # accident, the second catches one that got swept into an artifact.
-name: build
+name: build_cs
 
+# The C# build no longer runs on its own; the C++ port is what build_cpp.yml
+# builds on every push. Run this one by hand from the Actions tab.
 on:
-  push:
-    branches: ["**"]
-  pull_request:
+  # push:
+  #   branches: ["**"]
+  # pull_request:
   workflow_dispatch:
 
 permissions:
@@ -39,6 +41,13 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '9.0.x'
+      - name: cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
       - name: deterministic controller and headless UI checks
         run: dotnet run --project src/MphRead/MphRead.csproj -c Release -- -gamepadcheck
       - name: deterministic pointer and stylus checks
@@ -82,6 +91,13 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
+      - name: cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
 
       # Cook every custom map into the one file it ships as. The recipe, the
       # level it converts and the textures baked from it go into a .fpmap,
@@ -213,6 +229,13 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
+      - name: cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
       - name: bounded thumbnail worker regression
         run: dotnet run --project tools/thumbnail-batch-check/thumbnail-batch-check.csproj -c Release
 
@@ -266,6 +289,13 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
+      - name: cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
 
       # The Android workload brings the .NET side of the toolchain. It does not
       # bring a JDK, and the Android SDK's build tools are Java.
@@ -382,6 +412,13 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
+      - name: cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets') }}
+          restore-keys: |
+            nuget-${{ runner.os }}-${{ runner.arch }}-
 
       - name: publish the dedicated server, for Windows
         run: >

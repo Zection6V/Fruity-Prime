@@ -15,16 +15,19 @@ namespace MphRead
     class Model;
 }
 
+namespace MphRead::NativeRuntime::Rhi { class CommandList; }
+
 namespace MphRead::Export
 {
     class Images final
     {
     public:
         static void Screenshot(
+            NativeRuntime::Rhi::CommandList& commands,
             std::int32_t width,
             std::int32_t height,
             std::optional<std::string> name = std::nullopt);
-        static void Record(std::int32_t width, std::int32_t height, const std::string& name);
+        static void Record(NativeRuntime::Rhi::CommandList& commands, std::int32_t width, std::int32_t height, const std::string& name);
         static void StopRecording();
         static void ExportImages(const Model& model);
         static void ExportPalettes(const Model& model);

@@ -23,7 +23,8 @@ namespace MphRead::Mods::Render
 #endif
     }
 
-    ::MphRead::RendererPlatform::WindowSettings DesktopGlContext::Settings(bool background)
+    ::MphRead::RendererPlatform::WindowSettings DesktopGlContext::Settings(
+        bool background, ::MphRead::RendererPlatform::GraphicsWindowMode graphicsMode)
     {
 #if !defined(__ANDROID__)
         ::MphRead::RendererPlatform::InstallGlfwErrorCallback(
@@ -54,6 +55,7 @@ namespace MphRead::Mods::Render
         settings.ApiMajor = mac ? 2 : 3;
         settings.ApiMinor = mac ? 1 : 2;
         settings.StartVisible = false;
+        settings.GraphicsMode = graphicsMode;
         return settings;
     }
 }

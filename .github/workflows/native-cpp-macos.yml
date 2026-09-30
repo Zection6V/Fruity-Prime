@@ -1,27 +1,32 @@
 name: Native C++ macOS / Clang
 
 on:
-  push:
-    branches: [develop2]
-    paths:
-      - "CMakeLists.txt"
-      - "cmake/**"
-      - "src/MphRead.Native/**"
-      - "src/NcsfPlay.Native/**"
-      - ".github/workflows/native-cpp-macos.yml"
-  pull_request:
-    branches: [develop2]
-    paths:
-      - "CMakeLists.txt"
-      - "cmake/**"
-      - "src/MphRead.Native/**"
-      - "src/NcsfPlay.Native/**"
-      - ".github/workflows/native-cpp-macos.yml"
+  # build_cpp.yml calls this on every push and PR; firing it here too
+  # built the same commit twice.
+  # push:
+  #   branches: [develop2]
+  #   paths:
+  #     - "CMakeLists.txt"
+  #     - "cmake/**"
+  #     - "src/MphRead.Native/**"
+  #     - "src/NcsfPlay.Native/**"
+  #     - ".github/workflows/native-cpp-macos.yml"
+  # pull_request:
+  #   branches: [develop2]
+  #   paths:
+  #     - "CMakeLists.txt"
+  #     - "cmake/**"
+  #     - "src/MphRead.Native/**"
+  #     - "src/NcsfPlay.Native/**"
+  #     - ".github/workflows/native-cpp-macos.yml"
   workflow_dispatch:
   workflow_call:
 
 permissions:
   contents: read
+
+env:
+  VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.cache/vcpkg/archives
 
 jobs:
   macos-native:
@@ -71,7 +76,8 @@ jobs:
           path: ~/Library/Caches/Homebrew/downloads
           key: native-homebrew-v1-${{ runner.os }}-${{ runner.arch }}-clang-${{ hashFiles('CMakeLists.txt', 'cmake/**', '.github/workflows/native-cpp-macos.yml') }}
 
-      - name: Install Skia Ganesh on macOS
+      - name: Locate vcpkg
+        id: vcpkg
         shell: bash
         run: |
           set -euo pipefail
@@ -82,6 +88,27 @@ jobs:
             git clone --depth 1 https://github.com/microsoft/vcpkg.git "$root"
             "$root/bootstrap-vcpkg.sh" -disableMetrics
           fi
+          echo "root=$root" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git -C "$root" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+
+      # Skia from source is most of this job's wall clock. vcpkg's binary
+      # cache turns it into an unzip whenever the port's ABI hash is unchanged.
+      - name: Restore vcpkg binary cache
+        id: vcpkg-cache
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: native-vcpkg-v1-${{ runner.os }}-${{ runner.arch }}-clang-${{ steps.vcpkg.outputs.commit }}
+          restore-keys: |
+            native-vcpkg-v1-${{ runner.os }}-${{ runner.arch }}-clang-
+
+      - name: Install Skia Ganesh on macOS
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="${{ steps.vcpkg.outputs.root }}"
           if [[ "$(uname -m)" == "arm64" ]]; then
             triplet="arm64-osx"
           else
@@ -90,6 +117,22 @@ jobs:
           "$root/vcpkg" install "skia[gl,freetype]:$triplet" --clean-after-build
           echo "FRUITY_SKIA_PREFIX=$root/installed/$triplet" >> "$GITHUB_ENV"
 
+      - name: Save vcpkg binary cache
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: native-vcpkg-v1-${{ runner.os }}-${{ runner.arch }}-clang-${{ steps.vcpkg.outputs.commit }}
+
+      # Object-file cache for our own sources: an unchanged translation unit
+      # is not recompiled on the next push.
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: native-ccache-${{ runner.os }}-${{ runner.arch }}-clang
+          max-size: 1G
+
       - name: Configure with Clang
         shell: bash
         run: |
@@ -97,6 +140,8 @@ jobs:
           mkdir -p build/native
           cmake -S . -B build/native \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_PREFIX_PATH="${FRUITY_SKIA_PREFIX};${CMAKE_PREFIX_PATH:-}" 2>&1 | tee build/native/configure.log
 
       - name: Build shared native owners
@@ -105,7 +150,7 @@ jobs:
           set -euo pipefail
           cmake --build build/native \
             --config RelWithDebInfo \
-            --parallel 2 \
+            --parallel "$(sysctl -n hw.ncpu)" \
             --verbose \
             --target fruity_ncsfplay_native fruity_mphread_native 2>&1 | tee build/native/build.log
 

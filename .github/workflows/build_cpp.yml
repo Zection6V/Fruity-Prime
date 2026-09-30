@@ -1,0 +1,67 @@
+# Build the C++ port on every push and PR.
+#
+# The build steps themselves live in native-cpp-all.yml (the game on Windows,
+# Linux and macOS) and native-cpp-android.yml (the Android native library).
+# This file only decides *when* they run, so there is one definition of each.
+name: build_cpp
+
+on:
+  push:
+    branches: ["**"]
+    tags-ignore: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run per branch: a push and the PR it updates build the same commit,
+# and a newer push makes an older run's result worthless.
+concurrency:
+  group: build_cpp-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  phase4_legacy_gl_audit:
+    name: phase4 / legacy OpenGL static audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout C++ source
+        uses: actions/checkout@v4
+      - name: Reject display lists and immediate vertex submission
+        run: python3 tools/check-phase4-legacy-gl.py
+
+  phase5_shader_interface_audit:
+    name: phase5 / shader interface static audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout C++ source
+        uses: actions/checkout@v4
+      - name: Reject built-in vertex attributes and a drifted shader interface
+        run: python3 tools/check-phase5-shader-interface.py
+
+  phase9_frontend_gl_audit:
+    name: phase9 / frontend OpenGL static audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout C++ source
+        uses: actions/checkout@v4
+      - name: Reject direct OpenGL in the renderer frontend
+        run: python3 tools/check-phase9-frontend-gl.py
+
+  phase11_gl_boundary_audit:
+    name: phase11 / OpenGL dependency classification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout C++ source
+        uses: actions/checkout@v4
+      - name: Reject unclassified OpenGL dependencies
+        run: |
+          python3 tools/test-phase11-gl-boundaries.py
+          python3 tools/check-phase11-gl-boundaries.py
+
+  desktop:
+    uses: ./.github/workflows/native-cpp-all.yml
+
+  android:
+    uses: ./.github/workflows/native-cpp-android.yml

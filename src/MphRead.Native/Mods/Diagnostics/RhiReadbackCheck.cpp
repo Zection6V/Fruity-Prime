@@ -7,6 +7,7 @@
 #include "../../NativeRuntime/System/IO.hpp"
 #include <array>
 #include <chrono>
+#include <exception>
 #include <iostream>
 #include <thread>
 
@@ -53,9 +54,19 @@ namespace MphRead::Mods::Diagnostics
             {
                 if (NativeRuntime::FileExists(prefix + ".png"))
                 {
-                    image = NativeRuntime::LoadPng(
-                        NativeRuntime::FileReadAllBytes(prefix + ".png"), 3);
-                    if (!image.Pixels.empty()) break;
+                    // Recording writes on another thread. On Windows the PNG
+                    // exists before its writer releases the exclusive handle.
+                    try
+                    {
+                        image = NativeRuntime::LoadPng(
+                            NativeRuntime::FileReadAllBytes(prefix + ".png"), 3);
+                        if (!image.Pixels.empty()) break;
+                    }
+                    catch (const std::exception&)
+                    {
+                        // Retry within the same bounded wait; an unreadable or
+                        // incomplete file still fails the pixel check below.
+                    }
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(2));
             }

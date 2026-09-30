@@ -61,7 +61,7 @@ jobs:
           if (-not (Test-Path $vcpkg)) {
             throw "vcpkg.exe was not found at $vcpkg"
           }
-          & $vcpkg install curl:x64-windows libarchive:x64-windows zlib:x64-windows glfw3:x64-windows freetype:x64-windows openal-soft:x64-windows "skia[gl,freetype]:x64-windows" --clean-after-build
+          & $vcpkg install curl:x64-windows libarchive:x64-windows zlib:x64-windows glfw3:x64-windows freetype:x64-windows openal-soft:x64-windows vulkan-loader:x64-windows "skia[gl,freetype]:x64-windows" --clean-after-build
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
@@ -89,6 +89,7 @@ jobs:
           cmake -S . -B build/native -G "Ninja Multi-Config" `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DFRUITY_REQUIRE_VULKAN=ON `
             -DCMAKE_C_COMPILER_LAUNCHER=sccache `
             -DCMAKE_CXX_COMPILER_LAUNCHER=sccache `
             -DCMAKE_POLICY_DEFAULT_CMP0141=NEW `
@@ -172,6 +173,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential \
+            libvulkan-dev \
+            mesa-vulkan-drivers \
+            vulkan-validationlayers \
+            xvfb \
+            xauth \
             cmake \
             autoconf \
             autoconf-archive \
@@ -224,13 +230,22 @@ jobs:
         run: |
           set -euo pipefail
           cmake -S . -B build/native -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_PREFIX_PATH="${FRUITY_SKIA_PREFIX}"
+            -DCMAKE_PREFIX_PATH="${FRUITY_SKIA_PREFIX}" -DFRUITY_REQUIRE_VULKAN=ON
 
       - name: Build C++ FruityPrime
         shell: bash
         run: |
           set -euo pipefail
           cmake --build build/native --config RelWithDebInfo --parallel "$(nproc)" --target fruity_prime
+
+      - name: Vulkan foundation runtime gate
+        shell: bash
+        env:
+          ALSOFT_DRIVERS: "null"
+        run: |
+          set -euo pipefail
+          xvfb-run -a build/native/FruityPrime -vulkancheck -noupdate 2>&1 | tee build/native/vulkan-foundation.log
+          grep -F 'foundation PASS; clean shutdown; validation=1' build/native/vulkan-foundation.log
 
       - name: Upload Linux build
         uses: actions/upload-artifact@v4

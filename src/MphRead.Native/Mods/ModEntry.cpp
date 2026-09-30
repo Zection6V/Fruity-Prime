@@ -75,6 +75,7 @@
 #include "Render/FrameTiming.hpp"
 #include "Render/FrameTimingCheck.hpp"
 #include "Render/GoldenCapture.hpp"
+#include "../NativeRuntime/Rhi/Vulkan/VulkanContext.hpp"
 #include "Render/Radar.hpp"
 #include "RenderOptions.hpp"
 #include "ShutdownSignals.hpp"
@@ -1020,6 +1021,11 @@ namespace MphRead::Mods
 {
     bool ModEntry::TryHandleHeadless(const std::vector<std::string>& args)
     {
+        if (::HasFlag(args, "vulkancheck"))
+        {
+            SetExitCode(NativeRuntime::Rhi::Vulkan::RunFoundationCheck());
+            return true;
+        }
 #if defined(MPHREAD_SHELL)
         if (::HasFlag(args, "glfwpathcheck"))
         {

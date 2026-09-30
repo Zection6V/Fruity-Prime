@@ -202,6 +202,18 @@ if(NOT WIN32 AND NOT APPLE AND NOT ANDROID)
 endif()
 
 add_library(fruity_mphread_native STATIC)
+option(FRUITY_REQUIRE_VULKAN "Require desktop Vulkan development files" OFF)
+if(NOT ANDROID)
+    if(FRUITY_REQUIRE_VULKAN)
+        find_package(Vulkan 1.3 REQUIRED)
+    else()
+        find_package(Vulkan 1.3 QUIET)
+    endif()
+    if(Vulkan_FOUND)
+        target_compile_definitions(fruity_mphread_native PRIVATE FRUITY_HAS_VULKAN)
+        target_include_directories(fruity_mphread_native PRIVATE ${Vulkan_INCLUDE_DIRS})
+    endif()
+endif()
 add_library(FruityPrime::MphRead.Native ALIAS fruity_mphread_native)
 target_sources(fruity_mphread_native PRIVATE
     ${MPHREAD_NATIVE_SOURCES}

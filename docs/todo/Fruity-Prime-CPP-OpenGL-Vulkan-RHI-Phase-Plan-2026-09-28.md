@@ -2354,7 +2354,7 @@ Phase 0完了時のGolden Captureと比較。Phase 0では撮影補助を実装�
 - [x] OpenGL stable
 - [x] CI green
 
-2026-09-30完了。最終コード `5e3c3275` はGolden Capture 7/7完全一致（Phase 3、およびPhase 0 bridge経由）、CTest 5/5、GL分類D=0、shellshot 28枚・終了コード0、GPU lifetime全種ゼロ。オンライン描画・マップ変更・Map Vote、cel/fog、最小化復帰を確認。[CI 36666551184](https://github.com/Zection6V/Fruity-Prime/actions/runs/36666551184) は11/11 PASS。被弾は本Phaseの要件ではない。TRANSFER LOCKの黄色い光は移行前にも存在し、ユーザー指定により既存描画を維持。詳細は [検証記録](Fruity-Prime-CPP-OpenGL-RHI-Phase10-11-Gate-2026-09-30.md)。Phase 12以降には進まない。
+2026-09-30完了。最終コード `5e3c3275` はGolden Capture 7/7完全一致（Phase 3、およびPhase 0 bridge経由）、CTest 5/5、GL分類D=0、shellshot 28枚・終了コード0、GPU lifetime全種ゼロ。オンライン描画・マップ変更・Map Vote、cel/fog、最小化復帰を確認。[CI 36666551184](https://github.com/Zection6V/Fruity-Prime/actions/runs/36666551184) は11/11 PASS。被弾は本Phaseの要件ではない。TRANSFER LOCKの黄色い光は移行前にも存在し、ユーザー指定により既存描画を維持。詳細は [検証記録](Fruity-Prime-CPP-OpenGL-RHI-Phase10-11-Gate-2026-09-30.md)。Phase 11までの当初依頼はここまで完了。追加のPhase 26までの依頼により、Phase 12以降を再開する。
 
 一つでもNoならVulkan Phaseへ進まない。
 
@@ -2484,13 +2484,15 @@ CommandBuffer
 
 ## 完了条件
 
-- [ ] Vulkan instance creation
-- [ ] physical GPU列挙
-- [ ] device creation
-- [ ] queue取得
-- [ ] validation重大エラーなし
-- [ ] clean shutdown
-- [ ] OpenGL build/runtime unaffected
+- [x] Vulkan instance creation
+- [x] physical GPU列挙
+- [x] device creation
+- [x] queue取得
+- [x] validation重大エラーなし
+- [x] clean shutdown
+- [x] OpenGL build/runtime unaffected
+
+2026-09-30完了。コード `5403e1ea` は実GPUおよびLinux/llvmpipeでvalidation有効・正常終了、Golden Capture 7/7完全一致、CTest 5/5、OpenGL shellshot 28枚・終了コード0、[CI 36670960931](https://github.com/Zection6V/Fruity-Prime/actions/runs/36670960931) 11/11 PASS。Vulkanドライバーを利用できない条件でもOpenGL shellshotは成功。詳細は [Phase 12検証記録](Fruity-Prime-CPP-Vulkan-RHI-Phase12-Gate-2026-09-30.md)。
 
 ---
 

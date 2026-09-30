@@ -1,7 +1,7 @@
 # Phase 12 — Vulkan foundation gate
 
-Status: implementation, Windows Vulkan runtime, OpenGL parity and runtime
-verified; exact-source remote CI remains pending. Do not advance to Phase 13 yet.
+Status: COMPLETE. Implementation, Windows Vulkan runtime, OpenGL parity/runtime
+and exact-source remote CI are verified. Phase 13 may now start.
 
 `-vulkancheck -noupdate` creates a hidden NoApi window, enumerates physical
 GPUs, selects a Vulkan 1.3 device with dynamic rendering and synchronization2,
@@ -49,7 +49,13 @@ requires the validation-enabled PASS message.
 Linux job `109745710099` in run `36670960931` succeeds. Its downloaded job
 log (`C:/tmp/gp/p12-linux-ci.log`) confirms llvmpipe, API 1.4,
 graphics/present family 0, validation=1 and clean-shutdown foundation PASS.
-Windows/MSVC remains in progress; the whole run is not yet claimed green.
+Windows/MSVC also completed successfully. Exact-source
+[CI run 36670960931](https://github.com/Zection6V/Fruity-Prime/actions/runs/36670960931)
+is 11/11 PASS. Its Windows log is preserved as `C:/tmp/gp/p12-windows-ci.log`.
+Integrated commit `38a71f78` changes workflows and this report only; native
+code is identical to the tested `5403e1ea`. Subsequent completion delivery is
+documentation only. Capture executable SHA-256:
+`2a36d470ba18aecc20ef0a5df4cf5710de25f7d921a7d663cb2bbcea21c5a636`.
 
 References: [GLFW Vulkan integration](https://www.glfw.org/docs/latest/vulkan_guide.html),
 [Vulkan 1.3 feature contract](https://docs.vulkan.org/refpages/latest/refpages/source/VkPhysicalDeviceVulkan13Features.html),

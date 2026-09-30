@@ -2935,13 +2935,17 @@ fade
 
 ## 完了条件
 
-- [ ] SPIR-V reproducible build
-- [ ] pipeline creation
-- [ ] descriptor/pipeline layout一致
-- [ ] validation clean
-- [ ] shader semantics documented
+- [x] SPIR-V reproducible build
+- [x] pipeline creation
+- [x] descriptor/pipeline layout一致
+- [x] validation clean
+- [x] shader semantics documented
 
 ---
+
+## 検証記録
+
+2026-10-01完了。実装 `cebd532c`。ユーザー指定によりWindowsはローカルMinGW Releaseビルド成功を完了条件とした。CTest 5/5、実GPUのpipeline/module/binding/resource検証はvalidation=1、errors=0、live=0。Linux・macOS CI成功、Android 4/4 PASS。詳細は[Phase 16 gate](Fruity-Prime-CPP-Vulkan-RHI-Phase16-Gate-2026-10-01.md)。Phase 16完了後に停止する指示に従い、Phase 17は未着手。
 
 ## Commit例
 

@@ -700,10 +700,21 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             // that submits on its own, or destroys a resource, flushes them
             // first, so the queue sees work in the order it was recorded.
             std::unordered_map<const void*, std::function<void()>> SceneFlushers{};
+            // Lists whose submitted work may still be running: anything that
+            // destroys a resource waits for it first.
+            std::unordered_map<const void*, std::function<void()>> SceneWaiters{};
+            void WaitScene()
+            {
+                std::vector<std::function<void()>> waiters;
+                for (const auto& [owner, wait] : SceneWaiters) waiters.push_back(wait);
+                for (const auto& wait : waiters) wait();
+            }
             // Told when a texture, program or pipeline a list may still name goes away.
             std::unordered_map<const void*, std::function<void(const void*)>> SceneForgetters{};
             void ForgetScene(const void* object)
             {
+                FlushScene();
+                WaitScene();
                 std::vector<std::function<void(const void*)>> listeners;
                 for (const auto& [owner, forget] : SceneForgetters) listeners.push_back(forget);
                 for (const auto& forget : listeners) forget(object);
@@ -1129,7 +1140,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         {
             if (_buffer != VK_NULL_HANDLE)
             {
-                try { _device->FlushScene(); } catch (...) {}
+                try { _device->FlushScene(); _device->WaitScene(); } catch (...) {}
                 vmaDestroyBuffer(_device->Allocator, _buffer, _allocation);
                 _buffer = VK_NULL_HANDLE;
                 _allocation = VK_NULL_HANDLE;
@@ -1190,7 +1201,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         VulkanSampler::~VulkanSampler()
         {
-            try { _device->FlushScene(); } catch (...) {}
+            try { _device->FlushScene(); _device->WaitScene(); } catch (...) {}
             if (_sampler != VK_NULL_HANDLE)
                 _device->ContextPointer->_impl->vkDestroySampler(
                     _device->ContextPointer->_impl->device, _sampler, nullptr);
@@ -1615,6 +1626,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
             void RequireRecording();
             void BeginBuffer();
+            // Wait for both slots' submitted work; their allocations are free.
+            void WaitAll();
+            void Recycle();
             void Materialize();
             void EndNative();
             void CloseRendering();
@@ -1626,6 +1640,22 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             [[nodiscard]] VulkanTexture& Dummy();
 
             std::shared_ptr<VulkanDeviceState> _device;
+            // Two submission slots. The members below are the current slot;
+            // _spare holds the other, swapped in at every flush, so a frame's
+            // submission is waited on only when its slot comes round again.
+            struct Slot final
+            {
+                VkCommandPool Pool = VK_NULL_HANDLE;
+                VkCommandBuffer Buffer = VK_NULL_HANDLE;
+                VkFence Fence = VK_NULL_HANDLE;
+                bool Submitted = false;
+                std::vector<RingChunk> Ring{};
+                std::size_t RingIndex = 0;
+                std::vector<VkDescriptorPool> Pools{};
+                std::size_t PoolIndex = 0;
+            };
+            Slot _spare{};
+            bool _submitted = false;
             VkCommandPool _pool = VK_NULL_HANDLE;
             VkCommandBuffer _commandBuffer = VK_NULL_HANDLE;
             VkFence _fence = VK_NULL_HANDLE;
@@ -1666,30 +1696,38 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             : _device(std::move(state))
         {
             auto& vk = *_device->ContextPointer->_impl;
-            VkCommandPoolCreateInfo pool{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
-            pool.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-            pool.queueFamilyIndex = vk.graphicsFamily;
-            Check(vk.vkCreateCommandPool(vk.device, &pool, nullptr, &_pool), "vkCreateCommandPool");
-            try
+            const auto make = [&](VkCommandPool& poolHandle, VkCommandBuffer& buffer, VkFence& fenceHandle)
             {
+                VkCommandPoolCreateInfo pool{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+                pool.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+                pool.queueFamilyIndex = vk.graphicsFamily;
+                Check(vk.vkCreateCommandPool(vk.device, &pool, nullptr, &poolHandle), "vkCreateCommandPool");
                 VkCommandBufferAllocateInfo allocate{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-                allocate.commandPool = _pool;
+                allocate.commandPool = poolHandle;
                 allocate.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
                 allocate.commandBufferCount = 1;
-                Check(vk.vkAllocateCommandBuffers(vk.device, &allocate, &_commandBuffer),
-                    "vkAllocateCommandBuffers");
+                Check(vk.vkAllocateCommandBuffers(vk.device, &allocate, &buffer), "vkAllocateCommandBuffers");
                 VkFenceCreateInfo fence{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-                Check(vk.vkCreateFence(vk.device, &fence, nullptr, &_fence), "vkCreateFence");
-                vk.Name(VK_OBJECT_TYPE_COMMAND_BUFFER, reinterpret_cast<std::uint64_t>(_commandBuffer),
+                Check(vk.vkCreateFence(vk.device, &fence, nullptr, &fenceHandle), "vkCreateFence");
+                vk.Name(VK_OBJECT_TYPE_COMMAND_BUFFER, reinterpret_cast<std::uint64_t>(buffer),
                     "RHI resource command buffer");
+            };
+            try
+            {
+                make(_pool, _commandBuffer, _fence);
+                make(_spare.Pool, _spare.Buffer, _spare.Fence);
             }
             catch (...)
             {
-                if (_commandBuffer) vk.vkFreeCommandBuffers(vk.device, _pool, 1, &_commandBuffer);
-                vk.vkDestroyCommandPool(vk.device, _pool, nullptr);
+                for (VkCommandPool poolHandle : {_pool, _spare.Pool})
+                    if (poolHandle) vk.vkDestroyCommandPool(vk.device, poolHandle, nullptr);
+                for (VkFence fenceHandle : {_fence, _spare.Fence})
+                    if (fenceHandle) vk.vkDestroyFence(vk.device, fenceHandle, nullptr);
                 _pool = VK_NULL_HANDLE;
+                _spare = {};
                 throw;
             }
+            _device->SceneWaiters[this] = [this] { WaitAll(); };
             _device->SceneForgetters[this] = [this](const void* object) { Forget(object); };
             ++_device->CommandLists;
         }
@@ -1698,6 +1736,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         {
             _device->SceneFlushers.erase(this);
             _device->SceneForgetters.erase(this);
+            _device->SceneWaiters.erase(this);
             if (_device->ContextPointer == nullptr) return;
             auto& vk = *_device->ContextPointer->_impl;
             if (vk.device == VK_NULL_HANDLE) return;
@@ -1705,18 +1744,61 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 try { Flush(); } catch (...) {}
             }
+            try { WaitAll(); } catch (...) {}
             _variants.clear();
             _dummy.reset();
             if (--_device->CommandLists == 0) _device->ReleaseWindowTarget();
             _dummySampler.reset();
-            for (auto& chunk : _ring)
+            for (auto* ring : {&_ring, &_spare.Ring})
+                for (auto& chunk : *ring)
+                {
+                    vmaUnmapMemory(_device->Allocator, chunk.Allocation);
+                    vmaDestroyBuffer(_device->Allocator, chunk.Buffer, chunk.Allocation);
+                }
+            for (auto* pools : {&_pools, &_spare.Pools})
+                for (const auto pool : *pools) vk.vkDestroyDescriptorPool(vk.device, pool, nullptr);
+            for (VkFence fence : {_fence, _spare.Fence})
+                if (fence) vk.vkDestroyFence(vk.device, fence, nullptr);
+            for (VkCommandPool pool : {_pool, _spare.Pool})
+                if (pool) vk.vkDestroyCommandPool(vk.device, pool, nullptr);
+        }
+
+        void VulkanCommandList::Recycle()
+        {
+            // The current slot's last submission is complete: its ring and
+            // descriptor pools are free again.
+            auto& vk = *_device->ContextPointer->_impl;
+            if (_submitted)
             {
-                vmaUnmapMemory(_device->Allocator, chunk.Allocation);
-                vmaDestroyBuffer(_device->Allocator, chunk.Buffer, chunk.Allocation);
+                Check(vk.vkWaitForFences(vk.device, 1, &_fence, VK_TRUE,
+                    std::numeric_limits<std::uint64_t>::max()), "vkWaitForFences");
+                Check(vk.vkResetFences(vk.device, 1, &_fence), "vkResetFences");
+                _submitted = false;
+                _device->CompletedFrame.store(_device->CurrentFrame.load());
             }
-            for (const auto pool : _pools) vk.vkDestroyDescriptorPool(vk.device, pool, nullptr);
-            if (_fence) vk.vkDestroyFence(vk.device, _fence, nullptr);
-            if (_pool) vk.vkDestroyCommandPool(vk.device, _pool, nullptr);
+            for (auto& chunk : _ring) chunk.Used = 0;
+            _ringChunk = 0;
+            for (const auto pool : _pools) Check(vk.vkResetDescriptorPool(vk.device, pool, 0), "vkResetDescriptorPool");
+            _poolIndex = 0;
+        }
+
+        void VulkanCommandList::WaitAll()
+        {
+            auto& vk = *_device->ContextPointer->_impl;
+            if (_spare.Submitted)
+            {
+                Check(vk.vkWaitForFences(vk.device, 1, &_spare.Fence, VK_TRUE,
+                    std::numeric_limits<std::uint64_t>::max()), "vkWaitForFences(spare)");
+                Check(vk.vkResetFences(vk.device, 1, &_spare.Fence), "vkResetFences(spare)");
+                _spare.Submitted = false;
+                for (auto& chunk : _spare.Ring) chunk.Used = 0;
+                _spare.RingIndex = 0;
+                for (const auto pool : _spare.Pools)
+                    Check(vk.vkResetDescriptorPool(vk.device, pool, 0), "vkResetDescriptorPool(spare)");
+                _spare.PoolIndex = 0;
+            }
+            if (_submitted && !_recording) Recycle();
+            _device->CompletedFrame.store(_device->CurrentFrame.load());
         }
 
         void VulkanCommandList::BeginBuffer()
@@ -1726,6 +1808,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             // the queue sees lists in the order they drew.
             _device->FlushScene(this);
             auto& vk = *_device->ContextPointer->_impl;
+            Recycle();
             Check(vk.vkResetCommandPool(vk.device, _pool, 0), "vkResetCommandPool");
             VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
             begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -1751,6 +1834,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (!_recording) throw std::logic_error("Vulkan RHI: command list is not recording.");
             _device->FlushScene(this);
             Flush();
+            WaitAll();
             _autoRestart = false;
         }
 
@@ -1773,18 +1857,22 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             _recording = false;
             _device->SceneFlushers.erase(this);
             Check(vk.vkQueueSubmit2(vk.graphics, 1, &submit, _fence), "vkQueueSubmit2");
-            Check(vk.vkWaitForFences(vk.device, 1, &_fence, VK_TRUE,
-                std::numeric_limits<std::uint64_t>::max()), "vkWaitForFences");
-            Check(vk.vkResetFences(vk.device, 1, &_fence), "vkResetFences");
-            // The GPU has finished with every transient allocation.
-            for (auto& chunk : _ring) chunk.Used = 0;
-            _ringChunk = 0;
-            for (const auto pool : _pools) Check(vk.vkResetDescriptorPool(vk.device, pool, 0), "vkResetDescriptorPool");
-            _poolIndex = 0;
+            _submitted = true;
+            // Swap slots: this submission runs on while the other slot records.
+            Slot current{_pool, _commandBuffer, _fence, _submitted, std::move(_ring), _ringChunk,
+                std::move(_pools), _poolIndex};
+            _pool = _spare.Pool;
+            _commandBuffer = _spare.Buffer;
+            _fence = _spare.Fence;
+            _submitted = _spare.Submitted;
+            _ring = std::move(_spare.Ring);
+            _ringChunk = _spare.RingIndex;
+            _pools = std::move(_spare.Pools);
+            _poolIndex = _spare.PoolIndex;
+            _spare = std::move(current);
             _set = VK_NULL_HANDLE;
             _setProgram = nullptr;
             _boundNative = VK_NULL_HANDLE;
-            _device->CompletedFrame.store(_device->CurrentFrame.load());
         }
 
         void VulkanCommandList::RequireRecording()
@@ -2378,6 +2466,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             CopyTextureToBuffer(*texture, readback, region);
             if (previous != ResourceState::Undefined) Barrier(*texture, previous);
             Flush();
+            WaitAll();
             _autoRestart = restart;
             void* mapped = nullptr;
             Check(vmaMapMemory(_device->Allocator, readback.Allocation(), &mapped), "vmaMapMemory(readback)");

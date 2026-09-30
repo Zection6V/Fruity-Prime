@@ -8,7 +8,11 @@
 #include "Vulkan/VulkanContext.hpp"
 #include "Vulkan/VulkanGraphicsDevice.hpp"
 #include "Vulkan/VulkanScene.hpp"
+#include "Vulkan/VulkanSwapchain.hpp"
 #endif
+#include "BackendFactory.hpp"
+#include "../../Renderer.hpp"
+
 
 #include <cstdlib>
 #include <stdexcept>
@@ -25,6 +29,7 @@ namespace MphRead::NativeRuntime::Rhi
         {
             std::unique_ptr<Vulkan::Context> Context;
             std::unique_ptr<GraphicsDevice> Device;
+            ::MphRead::RendererPlatform::Window* Window = nullptr;
         };
 
         VulkanScene& Scene()
@@ -81,6 +86,61 @@ namespace MphRead::NativeRuntime::Rhi
         return scene.Context ? scene.Context->ValidationErrors() : 0U;
 #else
         return 0U;
+#endif
+    }
+
+    bool ScenePresentsWindow() noexcept
+    {
+        return selected == SceneBackendKind::Vulkan;
+    }
+
+    std::unique_ptr<Swapchain> CreateSceneWindowSwapchain(
+        ::MphRead::RendererPlatform::Window& window, const SwapchainDesc& desc)
+    {
+        if (selected == SceneBackendKind::OpenGL)
+            return BackendFactory::CreateSwapchain(GraphicsBackend::OpenGl, window, desc);
+#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+        auto& scene = Scene();
+        if (scene.Device && scene.Window != &window)
+            throw std::logic_error("The Vulkan scene device already belongs to another surface.");
+        if (!scene.Device)
+        {
+            scene.Context = std::make_unique<Vulkan::Context>(validation, window);
+            scene.Device = Vulkan::CreateGraphicsDevice(*scene.Context);
+            scene.Window = &window;
+        }
+        return Vulkan::CreateSwapchain(*scene.Context, window, desc);
+#else
+        throw std::runtime_error("The Vulkan scene backend was not built.");
+#endif
+    }
+
+    void PresentSceneWindow(Swapchain& swapchain)
+    {
+#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+        if (selected == SceneBackendKind::Vulkan)
+        {
+            Vulkan::PresentWindow(SceneDevice(), swapchain);
+            return;
+        }
+#endif
+        swapchain.Present();
+    }
+
+    void DetachSceneWindow() noexcept
+    {
+#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+        auto& scene = Scene();
+        if (!scene.Window) return;
+        try
+        {
+            scene.Device.reset();
+            scene.Context.reset();
+        }
+        catch (...)
+        {
+        }
+        scene.Window = nullptr;
 #endif
     }
 

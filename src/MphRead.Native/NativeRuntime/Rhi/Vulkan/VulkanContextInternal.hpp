@@ -79,7 +79,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         X(vkCreateSwapchainKHR) X(vkDestroySwapchainKHR) X(vkGetSwapchainImagesKHR) \
         X(vkAcquireNextImageKHR) X(vkQueueSubmit2) X(vkQueuePresentKHR) \
         X(vkCmdSetViewport) X(vkCmdSetScissor) X(vkCmdBindVertexBuffers2) X(vkCmdBindIndexBuffer) \
-        X(vkCmdSetStencilReference) X(vkCmdDraw) X(vkCmdDrawIndexed) X(vkCmdCopyImage) X(vkCmdClearColorImage)
+        X(vkCmdSetStencilReference) X(vkCmdDraw) X(vkCmdDrawIndexed) X(vkCmdCopyImage) X(vkCmdClearColorImage) X(vkCmdBlitImage)
 #define DECLARE_VULKAN_FUNCTION(name) PFN_##name name = nullptr;
         VULKAN_INSTANCE_FUNCTIONS(DECLARE_VULKAN_FUNCTION)
         VULKAN_DEVICE_FUNCTIONS(DECLARE_VULKAN_FUNCTION)
@@ -345,3 +345,16 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 }
 #undef VULKAN_INSTANCE_FUNCTIONS
 #undef VULKAN_DEVICE_FUNCTIONS
+
+namespace MphRead::NativeRuntime::Rhi
+{
+    class Swapchain;
+}
+
+namespace MphRead::NativeRuntime::Rhi::Vulkan
+{
+    // Records the acquired image's frame: the source image blitted upright
+    // (or black when there is none), in and back out of the given layout.
+    void RecordSwapchainBlit(Swapchain& swapchain, VkImage source, VkImageLayout layout,
+        VkPipelineStageFlags2 stages, VkAccessFlags2 access, VkExtent2D extent);
+}

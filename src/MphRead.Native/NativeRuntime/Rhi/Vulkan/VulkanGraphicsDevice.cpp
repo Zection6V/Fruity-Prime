@@ -670,6 +670,24 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::unordered_map<std::int32_t, VulkanTexture*> TexturesByHandle{};
             std::int32_t NextTextureHandle = 1;
 
+            // The window's own colour and depth, which every command list on
+            // this device draws into as OpenGL draws into the default
+            // framebuffer. Created by the first list that renders to it.
+            std::unique_ptr<VulkanTexture> WindowColor;
+            std::unique_ptr<VulkanTexture> WindowDepth;
+            std::unique_ptr<VulkanTextureView> WindowColorView;
+            std::unique_ptr<VulkanTextureView> WindowDepthView;
+            // Lists alive on this device: the window target goes with the
+            // last one, as OpenGL's default framebuffer goes with nothing.
+            std::uint32_t CommandLists = 0;
+            void ReleaseWindowTarget() noexcept
+            {
+                WindowColorView.reset();
+                WindowDepthView.reset();
+                WindowColor.reset();
+                WindowDepth.reset();
+            }
+
             // The scene renderer's context state, which OpenGL keeps per
             // context: the program constants go to, and the current vertex
             // attributes a draw inherits where its mesh has no array.
@@ -1640,10 +1658,6 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             RingSlice _uniformSlice{};
             VkDescriptorSet _set = VK_NULL_HANDLE;
 
-            std::unique_ptr<VulkanTexture> _windowColor;
-            std::unique_ptr<VulkanTexture> _windowDepth;
-            std::unique_ptr<VulkanTextureView> _windowColorView;
-            std::unique_ptr<VulkanTextureView> _windowDepthView;
             std::unique_ptr<VulkanTexture> _dummy;
             std::unique_ptr<VulkanSampler> _dummySampler;
         };
@@ -1677,6 +1691,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 throw;
             }
             _device->SceneForgetters[this] = [this](const void* object) { Forget(object); };
+            ++_device->CommandLists;
         }
 
         VulkanCommandList::~VulkanCommandList()
@@ -1691,11 +1706,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 try { Flush(); } catch (...) {}
             }
             _variants.clear();
-            _windowColorView.reset();
-            _windowDepthView.reset();
-            _windowColor.reset();
-            _windowDepth.reset();
             _dummy.reset();
+            if (--_device->CommandLists == 0) _device->ReleaseWindowTarget();
             _dummySampler.reset();
             for (auto& chunk : _ring)
             {
@@ -1803,24 +1815,25 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         void VulkanCommandList::EnsureWindowTargets(std::uint32_t width, std::uint32_t height)
         {
-            if (_windowColor && _windowColor->Desc().width == width && _windowColor->Desc().height == height) return;
+            auto& d = *_device;
+            if (d.WindowColor && d.WindowColor->Desc().width == width && d.WindowColor->Desc().height == height) return;
             if (_renderingActive) EndNative();
-            _windowColorView.reset();
-            _windowDepthView.reset();
-            _windowColor.reset();
-            _windowDepth.reset();
+            d.WindowColorView.reset();
+            d.WindowDepthView.reset();
+            d.WindowColor.reset();
+            d.WindowDepth.reset();
             TextureDesc color{};
             color.width = width;
             color.height = height;
             color.format = TextureFormat::RGBA8Unorm;
             color.usage = TextureUsage::ColorAttachment | TextureUsage::TransferSrc | TextureUsage::Sampled;
-            _windowColor = std::make_unique<VulkanTexture>(_device, color, TextureHandle{});
-            _windowColorView = std::make_unique<VulkanTextureView>(*_windowColor, TextureViewDesc{});
+            d.WindowColor = std::make_unique<VulkanTexture>(_device, color, TextureHandle{});
+            d.WindowColorView = std::make_unique<VulkanTextureView>(*d.WindowColor, TextureViewDesc{});
             TextureDesc depth = color;
             depth.format = TextureFormat::D24UnormS8Uint;
             depth.usage = TextureUsage::DepthStencilAttachment;
-            _windowDepth = std::make_unique<VulkanTexture>(_device, depth, TextureHandle{});
-            _windowDepthView = std::make_unique<VulkanTextureView>(*_windowDepth, TextureViewDesc{});
+            d.WindowDepth = std::make_unique<VulkanTexture>(_device, depth, TextureHandle{});
+            d.WindowDepthView = std::make_unique<VulkanTextureView>(*d.WindowDepth, TextureViewDesc{});
         }
 
         void VulkanCommandList::BeginRendering(const RenderingInfo& info)
@@ -1836,12 +1849,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (info.swapchain)
             {
                 EnsureWindowTargets(info.width, info.height);
-                target.Color = _windowColor.get();
-                target.ColorView = _windowColorView->Native();
+                target.Color = _device->WindowColor.get();
+                target.ColorView = _device->WindowColorView->Native();
                 if (depth)
                 {
-                    target.Depth = _windowDepth.get();
-                    target.DepthView = _windowDepthView->Native();
+                    target.Depth = _device->WindowDepth.get();
+                    target.DepthView = _device->WindowDepthView->Native();
                 }
             }
             else
@@ -2323,7 +2336,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             const std::size_t outBytes = format == TextureFormat::RGB8Unorm ? 3U : 4U;
             VulkanTexture* texture = nullptr;
             if (info.swapchain)
-                texture = _windowColor.get();
+                texture = _device->WindowColor.get();
             else if (!info.colorAttachments.empty() && info.colorAttachments[0].view)
                 texture = const_cast<VulkanTexture*>(static_cast<const VulkanTexture*>(
                     &info.colorAttachments[0].view->TextureResource()));
@@ -2532,6 +2545,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             ~VulkanGraphicsDevice() override
             {
                 WaitIdle();
+                _state->ReleaseWindowTarget();
                 _retained.clear();
             }
 
@@ -2921,6 +2935,26 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             dynamic_cast<VulkanCommandList&>(commands));
     }
 
+    void PresentWindow(GraphicsDevice& device, Swapchain& swapchain)
+    {
+        auto& state = *dynamic_cast<VulkanGraphicsDevice&>(device).State();
+        state.FlushScene();
+        (void)swapchain.AcquireNextTexture();
+        VulkanTexture* window = state.WindowColor.get();
+        if (!window || window->State() == ResourceState::Undefined)
+        {
+            RecordSwapchainBlit(swapchain, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE, {});
+        }
+        else
+        {
+            const StateMapping mapping = ToVkState(window->State(), true);
+            RecordSwapchainBlit(swapchain, window->Native(), mapping.Layout, mapping.Stages, mapping.Access,
+                {window->Desc().width, window->Desc().height});
+        }
+        swapchain.Present();
+    }
+
     void CheckBindingAllocations(GraphicsDevice& device)
     {
         BufferDesc bufferDesc{};
@@ -3162,6 +3196,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 namespace MphRead::NativeRuntime::Rhi::Vulkan
 {
     std::unique_ptr<GraphicsDevice> CreateGraphicsDevice(Context&)
+    {
+        throw std::runtime_error("Desktop Vulkan development support was not built.");
+    }
+    void PresentWindow(GraphicsDevice&, Swapchain&)
     {
         throw std::runtime_error("Desktop Vulkan development support was not built.");
     }

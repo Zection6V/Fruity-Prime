@@ -5,6 +5,12 @@
 #include "GraphicsDevice.hpp"
 #include "OpenGL/OpenGlShaderInterface.hpp"
 #include "SceneShaders.hpp"
+#include "Swapchain.hpp"
+
+namespace MphRead::RendererPlatform
+{
+    class Window;
+}
 
 #include <memory>
 #include <string_view>
@@ -33,6 +39,17 @@ namespace MphRead::NativeRuntime::Rhi
     [[nodiscard]] GraphicsDevice& SceneDevice();
     // Validation errors the Vulkan scene device has reported (0 for OpenGL).
     [[nodiscard]] unsigned SceneValidationErrors() noexcept;
+
+    // The game window, when the scene backend presents it itself: Vulkan
+    // makes the scene device on this window's surface, and the swapchain on
+    // that same device. OpenGL's window is its context and needs neither.
+    [[nodiscard]] bool ScenePresentsWindow() noexcept;
+    [[nodiscard]] std::unique_ptr<Swapchain> CreateSceneWindowSwapchain(
+        ::MphRead::RendererPlatform::Window& window, const SwapchainDesc& desc);
+    // End the frame: submit, and show the scene device's window target.
+    void PresentSceneWindow(Swapchain& swapchain);
+    // Before the window goes: every scene is gone, and the device follows.
+    void DetachSceneWindow() noexcept;
 
     [[nodiscard]] std::unique_ptr<SceneShaderSet> CreateSceneShaderSet(
         GraphicsDevice& device, CommandList& commands, const OpenGL::SceneShaderSources& sources);

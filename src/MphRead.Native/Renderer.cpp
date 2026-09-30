@@ -5668,8 +5668,11 @@ namespace MphRead
 #if !defined(__ANDROID__)
     const RendererPlatform::WindowSettings& RenderWindow::Settings()
     {
+        // A Vulkan scene presents the window itself, so the window has no GL
+        // context at all; an OpenGL one is its context.
         static const RendererPlatform::WindowSettings settings = Mods::Render::DesktopGlContext::Settings(
-            false, RendererPlatform::GraphicsWindowMode::OpenGL);
+            false, NativeRuntime::Rhi::ScenePresentsWindow()
+                ? RendererPlatform::GraphicsWindowMode::NoApi : RendererPlatform::GraphicsWindowMode::OpenGL);
         return settings;
     }
 
@@ -5692,8 +5695,7 @@ namespace MphRead
         const Vector2i framebufferSize = _window->Size();
         swapchainDesc.width = static_cast<std::uint32_t>(std::max(framebufferSize.X, 1));
         swapchainDesc.height = static_cast<std::uint32_t>(std::max(framebufferSize.Y, 1));
-        _swapchain = NativeRuntime::Rhi::BackendFactory::CreateSwapchain(
-            NativeRuntime::Rhi::GraphicsBackend::OpenGl, *_window, swapchainDesc);
+        _swapchain = NativeRuntime::Rhi::CreateSceneWindowSwapchain(*_window, swapchainDesc);
         IgnoreUnavailableGlfwFeatures();
 #if !defined(__ANDROID__)
         if (const RendererPlatform::WindowIcon* icon = Mods::Render::AppIcon::Load())
@@ -5733,6 +5735,14 @@ namespace MphRead
         if (_scene)
         {
             _scene->ReleaseGpuResources();
+        }
+        if (NativeRuntime::Rhi::ScenePresentsWindow())
+        {
+            // The device lives on this window's surface: it goes before the
+            // window does, after everything that drew with it.
+            _windowCommands.reset();
+            _swapchain.reset();
+            NativeRuntime::Rhi::DetachSceneWindow();
         }
     }
 
@@ -6003,7 +6013,7 @@ namespace MphRead
     {
         if (!_windowCommands)
         {
-            _windowCommands = NativeRuntime::Rhi::OpenGL::ContextDevice().CreateCommandList();
+            _windowCommands = NativeRuntime::Rhi::SceneDevice().CreateCommandList();
         }
         return *_windowCommands;
     }
@@ -6024,7 +6034,7 @@ namespace MphRead
                 commands.BeginRendering(info);
                 commands.EndRendering();
             }
-            _swapchain->Present();
+            NativeRuntime::Rhi::PresentSceneWindow(*_swapchain);
             _window->BaseOnRenderFrame(args);
             return;
         }
@@ -6041,7 +6051,7 @@ namespace MphRead
             const Vector2i framebuffer = FramebufferSize();
             Mods::Render::UiOverlay::DrawAlone(*this, framebuffer.X, framebuffer.Y);
             Mods::Launcher::Gui::Shell::AfterDraw(*this);
-            _swapchain->Present();
+            NativeRuntime::Rhi::PresentSceneWindow(*_swapchain);
             Reveal();
             Mods::PauseMenu::Poll(*this);
             _window->BaseOnRenderFrame(args);
@@ -6140,7 +6150,7 @@ namespace MphRead
         Mods::Render::LauncherHunter::Draw(*this, framebuffer.X, framebuffer.Y);
         Mods::Launcher::Gui::Shell::AfterDraw(*this);
 #endif
-        _swapchain->Present();
+        NativeRuntime::Rhi::PresentSceneWindow(*_swapchain);
         Reveal();
         Mods::PauseMenu::Poll(*this);
         _scene->AfterRenderFrame();

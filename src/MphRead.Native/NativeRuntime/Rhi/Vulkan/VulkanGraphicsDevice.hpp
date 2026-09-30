@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../GraphicsDevice.hpp"
+#include "../Swapchain.hpp"
 
 #include <memory>
 
@@ -15,4 +16,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     void CheckBindingAllocations(GraphicsDevice& device);
     void CheckShaderModules(GraphicsDevice& device);
     void CheckGraphicsPipelines(GraphicsDevice& device);
+    // Submit the device's recorded work and show its window target: blitted
+    // upright into the swapchain's next image (black before anything drew).
+    void PresentWindow(GraphicsDevice& device, Swapchain& swapchain);
 }

@@ -76,7 +76,15 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     {
     public:
         VulkanSwapchain(::MphRead::RendererPlatform::Window& window, const SwapchainDesc& desc, bool allowMaintenance = true)
-            : _window(window), _context(true, window, allowMaintenance),
+            : VulkanSwapchain(window, desc, std::make_unique<Context>(true, window, allowMaintenance), nullptr) {}
+        // Presents through a context the caller owns and shares with its
+        // graphics device (the game window's scene and UI device).
+        VulkanSwapchain(Context& shared, ::MphRead::RendererPlatform::Window& window, const SwapchainDesc& desc)
+            : VulkanSwapchain(window, desc, nullptr, &shared) {}
+
+        VulkanSwapchain(::MphRead::RendererPlatform::Window& window, const SwapchainDesc& desc,
+            std::unique_ptr<Context> owned, Context* shared)
+            : _window(window), _ownedContext(std::move(owned)), _context(shared ? *shared : *_ownedContext),
               _nativeWindow(static_cast<GLFWwindow*>(window.NativeHandle())),
               _desc(desc), _requestedMode(desc.presentMode)
         {
@@ -94,7 +102,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             catch (...)
             {
                 CleanupNoThrow();
-                _context.Shutdown();
+                if (_ownedContext) _context.Shutdown();
                 _closed = true;
                 throw;
             }
@@ -292,6 +300,68 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             _commandsReady = true;
         }
 
+        // The frame's picture: the window target, whose rows run bottom-up
+        // as OpenGL's do, blitted upright into the acquired image. This is
+        // the one place the backend's row order meets the screen's.
+        void BlitCurrent(VkImage source, VkImageLayout layout, VkPipelineStageFlags2 stages,
+            VkAccessFlags2 access, VkExtent2D extent)
+        {
+            if (!_acquired) throw std::logic_error("No Vulkan swapchain image is acquired.");
+            if (_commandsReady) throw std::logic_error("The acquired Vulkan image already has recorded commands.");
+            auto& vk = *_context._impl;
+            Frame& frame = _frames[_frameIndex];
+            VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+            begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            Check(vk.vkBeginCommandBuffer(frame.command, &begin), "vkBeginCommandBuffer(blit)");
+            VulkanSwapchainTexture& texture = *_images[_currentImage].texture;
+            const auto barrier = [&](VkImage image, VkImageLayout from, VkImageLayout to,
+                VkPipelineStageFlags2 srcStage, VkAccessFlags2 srcAccess,
+                VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess)
+            {
+                VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+                b.srcStageMask = srcStage; b.srcAccessMask = srcAccess;
+                b.dstStageMask = dstStage; b.dstAccessMask = dstAccess;
+                b.oldLayout = from; b.newLayout = to;
+                b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED; b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+                b.image = image; b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+                VkDependencyInfo dependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+                dependency.imageMemoryBarrierCount = 1; dependency.pImageMemoryBarriers = &b;
+                vk.vkCmdPipelineBarrier2(frame.command, &dependency);
+            };
+            barrier(texture.Image(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_NONE,
+                VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+            if (source != VK_NULL_HANDLE)
+            {
+                barrier(source, layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, stages, access,
+                    VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+                VkImageBlit region{};
+                region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+                region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+                region.srcOffsets[0] = {0, static_cast<std::int32_t>(extent.height), 0};
+                region.srcOffsets[1] = {static_cast<std::int32_t>(extent.width), 0, 1};
+                region.dstOffsets[0] = {0, 0, 0};
+                region.dstOffsets[1] = {static_cast<std::int32_t>(texture.Desc().width),
+                    static_cast<std::int32_t>(texture.Desc().height), 1};
+                vk.vkCmdBlitImage(frame.command, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                    texture.Image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_NEAREST);
+                barrier(source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, layout,
+                    VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, stages, access);
+            }
+            else
+            {
+                const VkClearColorValue black{{0.0F, 0.0F, 0.0F, 1.0F}};
+                const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+                vk.vkCmdClearColorImage(frame.command, texture.Image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                    &black, 1, &range);
+            }
+            barrier(texture.Image(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+                VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE);
+            Check(vk.vkEndCommandBuffer(frame.command), "vkEndCommandBuffer(blit)");
+            _commandsReady = true;
+        }
+
         [[nodiscard]] bool ValidationEnabled() const noexcept { return _context.ValidationEnabled(); }
         [[nodiscard]] unsigned ValidationErrors() const noexcept { return _context.ValidationErrors(); }
         [[nodiscard]] bool PresentFencesEnabled() const noexcept { return _context._impl->swapchainMaintenance1; }
@@ -310,7 +380,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 _context._impl->vkDestroySwapchainKHR(_context._impl->device, _swapchain, nullptr);
                 _swapchain = VK_NULL_HANDLE;
             }
-            _context.Shutdown();
+            if (_ownedContext) _context.Shutdown();
             _closed = true;
         }
 
@@ -342,7 +412,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         static constexpr std::size_t FrameCount = 2;
         ::MphRead::RendererPlatform::Window& _window;
-        Context _context;
+        std::unique_ptr<Context> _ownedContext;
+        Context& _context;
         GLFWwindow* _nativeWindow = nullptr;
         SwapchainDesc _desc{};
         PresentMode _requestedMode = PresentMode::Fifo;
@@ -482,7 +553,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             create.imageColorSpace = selectedFormat.colorSpace;
             create.imageExtent = extent;
             create.imageArrayLayers = 1;
-            create.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+            create.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT
+                | (capabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT);
             const std::uint32_t queueFamilies[]{vk.graphicsFamily, vk.presentFamily};
             if (vk.graphicsFamily != vk.presentFamily)
             {
@@ -740,6 +812,18 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         return std::make_unique<VulkanSwapchain>(window, desc);
     }
 
+    std::unique_ptr<Swapchain> CreateSwapchain(Context& context,
+        ::MphRead::RendererPlatform::Window& window, const SwapchainDesc& desc)
+    {
+        return std::make_unique<VulkanSwapchain>(context, window, desc);
+    }
+
+    void RecordSwapchainBlit(Swapchain& swapchain, VkImage source, VkImageLayout layout,
+        VkPipelineStageFlags2 stages, VkAccessFlags2 access, VkExtent2D extent)
+    {
+        dynamic_cast<VulkanSwapchain&>(swapchain).BlitCurrent(source, layout, stages, access, extent);
+    }
+
     int RunPresentationCheck(bool forceFallback)
     {
         try
@@ -891,6 +975,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 namespace MphRead::NativeRuntime::Rhi::Vulkan
 {
     std::unique_ptr<Swapchain> CreateSwapchain(
+        ::MphRead::RendererPlatform::Window&, const SwapchainDesc&)
+    {
+        throw std::runtime_error("Vulkan presentation is unavailable on this platform or build.");
+    }
+    std::unique_ptr<Swapchain> CreateSwapchain(Context&,
         ::MphRead::RendererPlatform::Window&, const SwapchainDesc&)
     {
         throw std::runtime_error("Vulkan presentation is unavailable on this platform or build.");

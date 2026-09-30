@@ -859,12 +859,12 @@ settings
 
 ## 完了条件
 
-- [ ] Baseline SHA記録
-- [ ] GL依存数記録
-- [ ] render order記録
-- [ ] resource ownership表完成
-- [ ] golden capture条件固定
-- [ ] renderer behavior変更なし
+- [x] Baseline SHA記録
+- [x] GL依存数記録
+- [x] render order記録
+- [x] resource ownership表完成
+- [x] golden capture条件固定
+- [x] renderer behavior変更なし
 
 ---
 
@@ -1045,11 +1045,11 @@ resource-state validation
 
 ## 完了条件
 
-- [ ] RHI core compile
-- [ ] Renderer behavior変更なし
-- [ ] raw GL/Vulkan typeがcommon RHI headerにない
-- [ ] Metal/D3D12を追加可能なinterface
-- [ ] dummy Metal/D3D12 implementationなし
+- [x] RHI core compile
+- [x] Renderer behavior変更なし
+- [x] raw GL/Vulkan typeがcommon RHI headerにない
+- [x] Metal/D3D12を追加可能なinterface
+- [x] dummy Metal/D3D12 implementationなし
 
 ---
 
@@ -1173,11 +1173,11 @@ vkQueuePresentKHR
 
 ## 完了条件
 
-- [ ] OpenGL window従来動作
-- [ ] NoApi windowを生成可能
-- [ ] Vulkan device未実装でもNoApi window compile
-- [ ] input/window behaviorに差なし
-- [ ] RendererPlatformにVulkan型なし
+- [x] OpenGL window従来動作
+- [x] NoApi windowを生成可能
+- [x] Vulkan device未実装でもNoApi window compile
+- [x] input/window behaviorに差なし
+- [x] RendererPlatformにVulkan型なし
 
 ---
 
@@ -1429,11 +1429,11 @@ DIF_AMB
 
 ## 完了条件
 
-- [ ] Geometry decoder存在
-- [ ] Decoder pure C++ test可能
-- [ ] 全RenderInstruction対応
-- [ ] 現行OpenGL描画結果をまだ維持
-- [ ] Vulkan code未導入
+- [x] Geometry decoder存在
+- [x] Decoder pure C++ test可能
+- [x] 全RenderInstruction対応
+- [x] 現行OpenGL描画結果をまだ維持
+- [x] Vulkan code未導入
 
 ---
 
@@ -2345,14 +2345,16 @@ Phase 0完了時のGolden Captureと比較。Phase 0では撮影補助を実装�
 
 以下全てYes:
 
-- [ ] immediate modeなし
-- [ ] display listなし
-- [ ] Renderer.cpp direct GLなし
-- [ ] resource RHI化
-- [ ] pipeline RHI化
-- [ ] pass明示化
-- [ ] OpenGL stable
-- [ ] CI green
+- [x] immediate modeなし
+- [x] display listなし
+- [x] Renderer.cpp direct GLなし
+- [x] resource RHI化
+- [x] pipeline RHI化
+- [x] pass明示化
+- [x] OpenGL stable
+- [x] CI green
+
+2026-09-30完了。最終コード `5e3c3275` はGolden Capture 7/7完全一致（Phase 3、およびPhase 0 bridge経由）、CTest 5/5、GL分類D=0、shellshot 28枚・終了コード0、GPU lifetime全種ゼロ。オンライン描画・マップ変更・Map Vote、cel/fog、最小化復帰を確認。[CI 36666551184](https://github.com/Zection6V/Fruity-Prime/actions/runs/36666551184) は11/11 PASS。被弾は本Phaseの要件ではない。TRANSFER LOCKの黄色い光は移行前にも存在し、ユーザー指定により既存描画を維持。詳細は [検証記録](Fruity-Prime-CPP-OpenGL-RHI-Phase10-11-Gate-2026-09-30.md)。Phase 12以降には進まない。
 
 一つでもNoならVulkan Phaseへ進まない。
 
@@ -4549,7 +4551,7 @@ D3D12
 
 ## 現在の作業位置
 
-- **Phase 6〜10 完了 (2026-09-30)。次はPhase 11。** Phase 6〜9の保存済みキャプチャは各7/7完全一致。Phase 10最終コード `220e900a` はGolden 7/7、GPU lifetime arena 5/5・実マップcel 3/3で解放後全種ゼロ、shellshot 24枚、2クライアントのSANCTORUS↔PROVING GROUND遷移がPASS。C++ソース同一の `a6144b61` は [CI 36647299171](https://github.com/Zection6V/Fruity-Prime/actions/runs/36647299171) 10/10 PASS。Phase 0完了 `5d3a0892` からの追加captureもPhase 3と7/7完全一致、UI 26/26一致。詳細と範囲は [Phase 10/11検証記録](Fruity-Prime-CPP-OpenGL-RHI-Phase10-11-Gate-2026-09-30.md) を参照。以下のPhase 4〜5記録は過去の経緯として保持する。
+- **Phase 11まで完了 (2026-09-30)。** Phase 11最終コード `5e3c3275` はGolden 7/7、CTest 5/5、GL分類D=0、shellshot 28枚、[CI 36666551184](https://github.com/Zection6V/Fruity-Prime/actions/runs/36666551184) 11/11 PASS。 Phase 6〜9の保存済みキャプチャは各7/7完全一致。Phase 10最終コード `220e900a` はGolden 7/7、GPU lifetime arena 5/5・実マップcel 3/3で解放後全種ゼロ、shellshot 24枚、2クライアントのSANCTORUS↔PROVING GROUND遷移がPASS。C++ソース同一の `a6144b61` は [CI 36647299171](https://github.com/Zection6V/Fruity-Prime/actions/runs/36647299171) 10/10 PASS。Phase 0完了 `5d3a0892` からの追加captureもPhase 3と7/7完全一致、UI 26/26一致。詳細と範囲は [Phase 10/11検証記録](Fruity-Prime-CPP-OpenGL-RHI-Phase10-11-Gate-2026-09-30.md) を参照。以下のPhase 4〜5記録は過去の経緯として保持する。
 
 - **Phase 5 完了 (2026-09-30, SHA `5e52078b5545294cfa423715457e1a2279cd9398`)。** 本文の完了条件5項目すべてチェック済み。次はPhase 6。
   - **built-in撤去:** desktopのGLSL 1.20 shaderは`gl_Vertex`/`gl_Normal`/`gl_Color`/`gl_MultiTexCoord*`を読まず、`a_position`/`a_normal`/`a_color`/`a_texcoord`/`a_texcoord1`を`attribute`で宣言。`GL::LinkProgram`がリンク前に名前でlocationをbindする。共通定義は`NativeRuntime/Rhi/VertexSemantics.hpp`の1箇所（desktop 0/2/3/8/9 = NV alias表、GLES 0/2/1/3、Vulkan 0/1/2/3/4）。matrix-stack indexは`TexCoord.z`で運ぶことを契約として明記。current-value呼出しはgenericとconventionalの両方を設定し、link時にconventional既定値をgenericへ写す。

@@ -199,10 +199,95 @@ Evidence: `ui-p0bridge`, `ui-p10bridge`, and their `.log`/`.err` files under
 
 ## Phase 11
 
-Phase 10 is complete; implementation now starts. Requires the full qualified-GL dependency classification, explicit
-backend/Skia/diagnostic boundaries with no invalid frontend dependencies,
-runtime coverage including minimize/restore and a local network game where
-available, final-code capture parity, and successful exact-SHA CI.
+Final audit also reconciles the stale Phase 0–3 plan checkboxes. Phase 0's
+baseline document already records its complete inventory, ownership, frame
+order, and 19 fixed capture conditions. Common RHI headers compile and expose
+no raw backend handle types; unavailable Metal/D3D12/Vulkan backends explicitly
+reject creation rather than supplying dummy implementations. A temporary
+standalone probe linked against the current native library creates/destroys
+a hidden NoApi window and asserts actual GLFW_CLIENT_API=GLFW_NO_API, exit zero
+(`C:/tmp/gp/noapi-gate.cpp`, `noapi-build.log`, `noapi-runtime.log`).
+RendererGeometry tests cover source topology, all vertex encodings, inherited
+attributes, matrix restore and decoder state; the current CTest suite passes.
+The Phase 0/3/final capture chain above verifies retained OpenGL pixels.
+
+Final verification source: `5e3c3275c96d588e42cb626b890c0a6293d8af71`.
+Phase 11 is COMPLETE. Exact-source
+[CI run 36666551184](https://github.com/Zection6V/Fruity-Prime/actions/runs/36666551184)
+completed successfully: 11/11 jobs including Windows/MSVC, Linux/GCC,
+macOS/Clang, Android contract, both NDK ABIs, APK and all four static audits.
+The completion delivery changes only this report and the plan; native sources
+remain identical to the tested CI commit. Desktop runtime evidence is Windows;
+Android evidence here is compile/package verification, not device gameplay.
+Images screenshot/record readback now uses RHI commands. Launcher photo/noise
+GL ownership is contained in the OpenGL backend; Skia interop and diagnostics
+are explicitly classified. The tracked boundary audit scans 1,048 C++ files:
+A=601, B=250, C=122, D=0. Its two regression tests pass. Earlier Phase 4/5/9
+audits also pass. MinGW Release builds and CTest passes 5/5.
+
+Fresh final-source Golden Capture passes 7/7 exact decoded RGB comparisons
+against preserved Phase 3. The Phase 0 bridge above establishes the same seven
+images against the completed Phase 0 baseline. Evidence:
+`C:/tmp/gp/out-p11verified`, `p11verified-validation.log`.
+Final capture executable SHA-256:
+`dc95a45b309722921288011f20a4697537f088d8465690cbe5d4fec55c74b065`.
+
+Final-source shellshot exits zero and writes all 28 PNGs, covering launcher,
+offline game, pause, end screen, hunter change, fullscreen, resize, and actual
+minimize/restore in both launcher and match. Its RHI screenshot/record test
+passes exact RGB, vertical orientation, and odd-width row packing (641x127).
+The recording verifier waits for the asynchronous PNG writer to release its
+Windows file handle before decoding; it still rejects incomplete/wrong pixels.
+Evidence: `C:/tmp/gp/p11-delivery-shell` and its `.log`/`.err` files.
+
+SANCTORUS with cel/fog ON passes GPU lifetime 3/3, exit zero; every resource
+category and retirement count reaches zero after each scene release.
+TRANSFER LOCK DM with Kanden and four players passes render smoke runs with
+cel/fog ON and OFF, both exit zero. HUD is visible in both. These are rendering
+and transition checks, not combat coverage. Evidence: `p11verified-lifetime.log`,
+`p11-fog-cel-on`, `p11-fog-cel-off` and corresponding logs under `C:/tmp/gp/`.
+An additional cel-OFF/fog-ON run exits zero, isolating the fog toggle from cel;
+evidence: `p11-fog-only-on` and its log. The maptest initial pre-draw frame is
+reported black and skipped by the existing capture harness; subsequent scene
+captures render normally. This initial sample is not counted as a visible frame.
+
+Live two-client Map Vote checks each observe two votes cast and two agreed by
+the server, an end-screen vote list, and SANCTORUS to TRANSFER LOCK BT change.
+These satisfy the plan's online/local rendering, map-change and Map Vote checks;
+the Phase 11 plan does not require taking hits or combat feature coverage.
+Those vote-focused runs return overall FAIL because the scripted players do
+not hit opponents; their overall result is not claimed as PASS. Evidence:
+`phase11-two-{A,B,server,results}.log` and `phase11-vote-shots` under `C:/tmp/gp/`.
+The final-source non-vote two-client rerun also connects, renders remote players,
+and changes rooms without position/form disagreement. Both clients return 1
+solely for never taking a hit; this is likewise not a full combat PASS.
+Evidence: `p11verified-two-{A,B,server,results}.log` under `C:/tmp/gp/`.
+
+Supplemental final UI captures match Phase 0 exactly in 21/26 images. The five
+remaining images differ in animated portraits/backdrops/thumbnails; repeating
+Phase 0 itself also produces these differences (offline picker: 85,784 pixels,
+vote picker: 79,713). This is recorded separately from the exact seven-image
+Golden gate. Evidence: `ui-p11final`, `ui-p0final-control`,
+`ui-p0final-control2` under `C:/tmp/gp/`.
+
+### TRANSFER LOCK existing light geometry — preserve baseline
+
+The reported yellow plane through the building is also visible in completed
+Phase 0 and desktop C# death-camera captures, with identical model/texture
+input hashes. It belongs to `ad1model`, mesh/display-list 142, node 94
+`giantLights`, material 16 `lambert_shiled01Glow`, texture 23 (A5I3, 8x64).
+Temporarily omitting only that mesh removes the plane while leaving pickups.
+Disabling its depth test instead makes it cover additional walls/floor,
+confirming the normal depth test still occludes sections. Read-only decoded
+base geometry finds 11 triangle-pair intersections with building surfaces.
+This is pre-existing light geometry, not a new RHI regression.
+
+The user explicitly chose to preserve existing rendering and record the
+finding on 2026-09-30. No light clipping, hiding, or model edits are applied;
+all temporary diagnostic renderer changes were reverted. Evidence:
+`transfer-end-phase0`, `transfer-end-phase11`, `transfer-end-csharp`,
+`transfer-skip-142`, `transfer-ignore-depth`, and
+`transfer-intersections.{json,log}` under `C:/tmp/gp/`.
 
 Scope remains native C++ only. C# sources are not modified. No Vulkan Phase 12
 implementation is authorized by this gate.

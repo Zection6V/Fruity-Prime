@@ -3,15 +3,19 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cmath>
+#include <functional>
 #include <cstring>
 #include <limits>
 #include <mutex>
 #include <stdexcept>
+#include <type_traits>
 #include <unordered_map>
 #include <utility>
 
 #if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
 #include "VulkanContextInternal.hpp"
+#include "FruityVulkanSceneShaders.hpp"
 #include <vk_mem_alloc.h>
 
 namespace MphRead::NativeRuntime::Rhi::Vulkan
@@ -645,12 +649,127 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             VmaAllocator Allocator = VK_NULL_HANDLE;
             std::atomic<std::uint32_t> Buffers{0};
             std::atomic<std::uint32_t> Textures{0};
+            std::atomic<std::uint32_t> Shaders{0};
+            std::atomic<std::uint32_t> Programs{0};
             std::atomic<std::uint64_t> CurrentFrame{0};
             std::atomic<std::uint64_t> CompletedFrame{0};
             std::mutex TextureMutex{};
             std::unordered_map<std::int32_t, VulkanTexture*> TexturesByHandle{};
             std::int32_t NextTextureHandle = 1;
         };
+
+        class VulkanShader final : public Shader
+        {
+        public:
+            VulkanShader(std::shared_ptr<VulkanDeviceState> device, const ShaderDesc& desc)
+                : _device(std::move(device)), _desc(desc)
+            {
+                if (desc.stage != ShaderStage::Vertex && desc.stage != ShaderStage::Fragment
+                    && desc.stage != ShaderStage::Compute)
+                    throw std::invalid_argument("Vulkan RHI: shader needs one supported stage.");
+                if (desc.entryPoint.empty() || desc.entryPoint.find('\0') != std::string::npos
+                    || desc.code.size() < 20 || desc.code.size() % 4 != 0)
+                    throw std::invalid_argument("Vulkan RHI: invalid SPIR-V shader description.");
+                std::vector<std::uint32_t> words(desc.code.size() / 4);
+                std::memcpy(words.data(), desc.code.data(), desc.code.size());
+                if (words[0] != 0x07230203 || words[4] != 0)
+                    throw std::invalid_argument("Vulkan RHI: invalid SPIR-V header.");
+                const std::uint32_t model = desc.stage == ShaderStage::Vertex ? 0
+                    : desc.stage == ShaderStage::Fragment ? 4 : 5;
+                bool found = false;
+                for (std::size_t index = 5; index < words.size();)
+                {
+                    const auto count = words[index] >> 16;
+                    const auto opcode = words[index] & 0xFFFF;
+                    if (count == 0 || count > words.size() - index)
+                        throw std::invalid_argument("Vulkan RHI: malformed SPIR-V instruction.");
+                    if (opcode == 15 && count >= 4) // OpEntryPoint
+                    {
+                        const char* name = reinterpret_cast<const char*>(&words[index + 3]);
+                        const auto available = (count - 3) * sizeof(std::uint32_t);
+                        const char* end = static_cast<const char*>(std::memchr(name, 0, available));
+                        if (!end) throw std::invalid_argument("Vulkan RHI: unterminated SPIR-V entry point.");
+                        if (words[index + 1] == model && std::string_view(name, end - name) == desc.entryPoint)
+                            found = true;
+                    }
+                    index += count;
+                }
+                if (!found) throw std::invalid_argument("Vulkan RHI: shader entry point/stage not found.");
+                auto& vk = *_device->ContextPointer->_impl;
+                VkShaderModuleCreateInfo create{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
+                create.codeSize = desc.code.size();
+                create.pCode = words.data();
+                Check(vk.vkCreateShaderModule(vk.device, &create, nullptr, &_module), "vkCreateShaderModule");
+                ++_device->Shaders;
+            }
+            ~VulkanShader() override
+            {
+                auto& vk = *_device->ContextPointer->_impl;
+                if (_module)
+                {
+                    vk.vkDestroyShaderModule(vk.device, _module, nullptr);
+                    --_device->Shaders;
+                }
+            }
+            [[nodiscard]] const ShaderDesc& Desc() const noexcept override { return _desc; }
+            [[nodiscard]] VkShaderModule Native() const noexcept { return _module; }
+            [[nodiscard]] const std::shared_ptr<VulkanDeviceState>& DeviceState() const noexcept { return _device; }
+        private:
+            std::shared_ptr<VulkanDeviceState> _device;
+            ShaderDesc _desc;
+            VkShaderModule _module = VK_NULL_HANDLE;
+        };
+
+        [[nodiscard]] VkFormat ToVkVertexFormat(VertexFormat format)
+        {
+            switch (format)
+            {
+            case VertexFormat::Float: return VK_FORMAT_R32_SFLOAT;
+            case VertexFormat::Float2: return VK_FORMAT_R32G32_SFLOAT;
+            case VertexFormat::Float3: return VK_FORMAT_R32G32B32_SFLOAT;
+            case VertexFormat::Float4: return VK_FORMAT_R32G32B32A32_SFLOAT;
+            case VertexFormat::UByte4Norm: return VK_FORMAT_R8G8B8A8_UNORM;
+            case VertexFormat::Short2Norm: return VK_FORMAT_R16G16_SNORM;
+            case VertexFormat::Short4Norm: return VK_FORMAT_R16G16B16A16_SNORM;
+            case VertexFormat::UInt: return VK_FORMAT_R32_UINT;
+            }
+            throw std::invalid_argument("Vulkan RHI: invalid vertex format.");
+        }
+
+        [[nodiscard]] VkPrimitiveTopology ToVkTopology(PrimitiveTopology topology)
+        {
+            switch (topology)
+            {
+            case PrimitiveTopology::PointList: return VK_PRIMITIVE_TOPOLOGY_POINT_LIST;
+            case PrimitiveTopology::LineList: return VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+            case PrimitiveTopology::LineStrip: return VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
+            case PrimitiveTopology::TriangleList: return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+            case PrimitiveTopology::TriangleStrip: return VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
+            }
+            throw std::invalid_argument("Vulkan RHI: invalid primitive topology.");
+        }
+
+        [[nodiscard]] VkBlendFactor ToVkBlendFactor(BlendFactor factor)
+        {
+            switch (factor)
+            {
+            case BlendFactor::Zero: return VK_BLEND_FACTOR_ZERO;
+            case BlendFactor::One: return VK_BLEND_FACTOR_ONE;
+            case BlendFactor::SrcColor: return VK_BLEND_FACTOR_SRC_COLOR;
+            case BlendFactor::OneMinusSrcColor: return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+            case BlendFactor::DstColor: return VK_BLEND_FACTOR_DST_COLOR;
+            case BlendFactor::OneMinusDstColor: return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
+            case BlendFactor::SrcAlpha: return VK_BLEND_FACTOR_SRC_ALPHA;
+            case BlendFactor::OneMinusSrcAlpha: return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+            case BlendFactor::DstAlpha: return VK_BLEND_FACTOR_DST_ALPHA;
+            case BlendFactor::OneMinusDstAlpha: return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
+            case BlendFactor::ConstantColor: return VK_BLEND_FACTOR_CONSTANT_COLOR;
+            case BlendFactor::OneMinusConstantColor: return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR;
+            case BlendFactor::ConstantAlpha: return VK_BLEND_FACTOR_CONSTANT_ALPHA;
+            case BlendFactor::OneMinusConstantAlpha: return VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA;
+            }
+            throw std::invalid_argument("Vulkan RHI: invalid blend factor.");
+        }
 
         [[nodiscard]] VkDescriptorType ToVkDescriptorType(BindingType type)
         {
@@ -723,6 +842,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             BindingLayoutDesc _desc;
             VkDescriptorSetLayout _layout = VK_NULL_HANDLE;
         };
+
+#include "VulkanPipelineInternal.inc"
 
         class VulkanBindingSet final : public BindingSet
         {
@@ -797,6 +918,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 }
             }
 
+            [[nodiscard]] const std::shared_ptr<VulkanDeviceState>& DeviceState() const noexcept { return _device; }
             [[nodiscard]] VkDescriptorSet Native() const
             {
                 if (!_device->FrameActive)
@@ -1208,7 +1330,16 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             void End() override;
             void BeginRendering(const RenderingInfo&) override { Unsupported("BeginRendering"); }
             void EndRendering() override { Unsupported("EndRendering"); }
-            void SetPipeline(const GraphicsPipeline&) override { Unsupported("SetPipeline"); }
+            void SetPipeline(const GraphicsPipeline& pipeline) override
+            {
+                RequireRecording();
+                const auto* native = dynamic_cast<const VulkanGraphicsPipeline*>(&pipeline);
+                if (!native || native->DeviceState() != _device)
+                    throw std::invalid_argument("Vulkan RHI: pipeline belongs to another device.");
+                _pipeline = native;
+                auto& vk = *_device->ContextPointer->_impl;
+                vk.vkCmdBindPipeline(_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, native->Native());
+            }
             void SetViewport(const Viewport&) override { Unsupported("SetViewport"); }
             void SetScissor(const Scissor&) override { Unsupported("SetScissor"); }
             void SetVertexBuffer(std::uint32_t, const Buffer&, std::uint64_t) override
@@ -1219,7 +1350,18 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 Unsupported("SetIndexBuffer");
             }
-            void SetBindingSet(std::uint32_t, const BindingSet&) override { Unsupported("SetBindingSet"); }
+            void SetBindingSet(std::uint32_t index, const BindingSet& set) override
+            {
+                RequireRecording();
+                const auto* native = dynamic_cast<const VulkanBindingSet*>(&set);
+                if (!_pipeline || index != 0 || !native || native->DeviceState() != _device
+                    || set.Desc().layout->Desc() != _pipeline->Desc().bindingLayout->Desc())
+                    throw std::invalid_argument("Vulkan RHI: binding set incompatible with pipeline.");
+                const auto descriptor = native->Native();
+                auto& vk = *_device->ContextPointer->_impl;
+                vk.vkCmdBindDescriptorSets(_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    _pipeline->Layout(), index, 1, &descriptor, 0, nullptr);
+            }
             void SetStencilReference(std::uint32_t) override { Unsupported("SetStencilReference"); }
             void Draw(std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t) override
             {
@@ -1258,6 +1400,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             VkCommandBuffer _commandBuffer = VK_NULL_HANDLE;
             VkFence _fence = VK_NULL_HANDLE;
             bool _recording = false;
+            const VulkanGraphicsPipeline* _pipeline = nullptr;
         };
 
         VulkanCommandList::VulkanCommandList(std::shared_ptr<VulkanDeviceState> state)
@@ -1308,6 +1451,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
             Check(vk.vkBeginCommandBuffer(_commandBuffer, &begin), "vkBeginCommandBuffer");
             _recording = true;
+            _pipeline = nullptr;
         }
 
         void VulkanCommandList::End()
@@ -1559,9 +1703,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 return std::make_unique<VulkanSampler>(_state, desc);
             }
 
-            [[nodiscard]] std::unique_ptr<Shader> CreateShader(const ShaderDesc&) override
+            [[nodiscard]] std::unique_ptr<Shader> CreateShader(const ShaderDesc& desc) override
             {
-                Unsupported("CreateShader");
+                return std::make_unique<VulkanShader>(_state, desc);
             }
             [[nodiscard]] std::unique_ptr<BindingLayout> CreateBindingLayout(const BindingLayoutDesc& desc) override
             {
@@ -1572,9 +1716,24 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 return std::make_unique<VulkanBindingSet>(_state, desc);
             }
             [[nodiscard]] std::unique_ptr<GraphicsPipeline> CreateGraphicsPipeline(
-                const GraphicsPipelineDesc&) override
+                const GraphicsPipelineDesc& desc) override
             {
-                Unsupported("CreateGraphicsPipeline");
+                const auto* vertex = dynamic_cast<const VulkanShader*>(desc.vertexShader);
+                const auto* fragment = dynamic_cast<const VulkanShader*>(desc.fragmentShader);
+                const auto* layout = dynamic_cast<const VulkanBindingLayout*>(desc.bindingLayout);
+                if (!vertex || !fragment || !layout || vertex->DeviceState() != _state
+                    || fragment->DeviceState() != _state || layout->DeviceState() != _state)
+                    throw std::invalid_argument("Vulkan RHI: pipeline resources belong to another device.");
+                VulkanPipelineKey key(desc);
+                const auto hash = key.Hash();
+                std::lock_guard lock(_pipelineMutex);
+                const auto range = _pipelines.equal_range(hash);
+                for (auto found = range.first; found != range.second; ++found)
+                    if (found->second.first == key)
+                        return std::make_unique<VulkanGraphicsPipeline>(desc, found->second.second);
+                auto pipeline = std::make_shared<VulkanGraphicsPipeline>(_state, desc);
+                _pipelines.emplace(hash, std::make_pair(std::move(key), pipeline));
+                return std::make_unique<VulkanGraphicsPipeline>(desc, std::move(pipeline));
             }
             [[nodiscard]] std::unique_ptr<CommandList> CreateCommandList() override
             {
@@ -1717,11 +1876,20 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 _state->CompletedFrame.store(_state->CurrentFrame.load());
             }
 
+            void ClearPipelineCacheForCheck()
+            {
+                WaitIdle();
+                std::lock_guard lock(_pipelineMutex);
+                _pipelines.clear();
+            }
+
             [[nodiscard]] GpuResourceStatistics Statistics() const override
             {
                 GpuResourceStatistics result{};
                 result.Textures = _state->Textures.load();
                 result.Buffers = _state->Buffers.load();
+                result.Shaders = _state->Shaders.load();
+                result.Programs = _state->Programs.load();
                 result.CompletedFrame = _state->CompletedFrame.load();
                 return result;
             }
@@ -1782,6 +1950,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
 
             std::shared_ptr<VulkanDeviceState> _state;
+            std::mutex _pipelineMutex;
+            std::unordered_multimap<std::size_t,
+                std::pair<VulkanPipelineKey, std::shared_ptr<VulkanGraphicsPipeline>>> _pipelines;
             std::vector<std::unique_ptr<Texture>> _retained{};
             std::atomic<unsigned> _reportedValidationErrors{0};
         };
@@ -1862,6 +2033,147 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             device.EndFrame();
         }
         device.WaitIdle();
+    }
+
+    void CheckShaderModules(GraphicsDevice& device)
+    {
+        const auto baseline = device.Statistics().Shaders;
+        auto check = [&](const auto& words, ShaderStage stage)
+        {
+            ShaderDesc desc{};
+            desc.stage = stage;
+            desc.code.resize(words.size() * sizeof(std::uint32_t));
+            std::memcpy(desc.code.data(), words.data(), desc.code.size());
+            {
+                auto shader = device.CreateShader(desc);
+                if (device.Statistics().Shaders != baseline + 1)
+                    throw std::runtime_error("Vulkan shader module accounting mismatch.");
+            }
+            if (device.Statistics().Shaders != baseline)
+                throw std::runtime_error("Vulkan shader module leaked.");
+            auto reject = [&](const ShaderDesc& invalid)
+            {
+                bool rejected = false;
+                try { auto shader = device.CreateShader(invalid); }
+                catch (const std::invalid_argument&) { rejected = true; }
+                if (!rejected) throw std::runtime_error("Vulkan invalid shader description accepted.");
+            };
+            auto invalid = desc;
+            invalid.entryPoint = "missing_entry_point";
+            reject(invalid);
+            invalid = desc;
+            invalid.stage = stage == ShaderStage::Vertex ? ShaderStage::Fragment : ShaderStage::Vertex;
+            reject(invalid);
+            invalid = desc;
+            invalid.code.pop_back();
+            reject(invalid);
+        };
+        check(Generated::main_vert, ShaderStage::Vertex);
+        check(Generated::main_frag, ShaderStage::Fragment);
+        check(Generated::composite_vert, ShaderStage::Vertex);
+        check(Generated::composite_frag, ShaderStage::Fragment);
+        check(Generated::cel_vert, ShaderStage::Vertex);
+        check(Generated::cel_frag, ShaderStage::Fragment);
+        check(Generated::shift_vert, ShaderStage::Vertex);
+        check(Generated::shift_frag, ShaderStage::Fragment);
+    }
+
+    void CheckGraphicsPipelines(GraphicsDevice& device)
+    {
+        auto check = [&](const auto& vertexWords, const auto& fragmentWords,
+            const auto& textures, std::uint32_t uniformSize, bool main)
+        {
+            auto shader = [&](const auto& words, ShaderStage stage) {
+                ShaderDesc desc{};
+                desc.stage = stage;
+                desc.code.resize(words.size() * sizeof(std::uint32_t));
+                std::memcpy(desc.code.data(), words.data(), desc.code.size());
+                return device.CreateShader(desc);
+            };
+            auto vertex = shader(vertexWords, ShaderStage::Vertex);
+            auto fragment = shader(fragmentWords, ShaderStage::Fragment);
+            BindingLayoutDesc layoutDesc{};
+            layoutDesc.entries.push_back({0, BindingType::UniformBuffer, ShaderStage::AllGraphics, 1});
+            for (const auto& texture : textures)
+            {
+                layoutDesc.entries.push_back({texture.image, BindingType::SampledTexture, ShaderStage::AllGraphics, 1});
+                layoutDesc.entries.push_back({texture.sampler, BindingType::Sampler, ShaderStage::AllGraphics, 1});
+            }
+            auto layout = device.CreateBindingLayout(layoutDesc);
+            GraphicsPipelineDesc desc{};
+            desc.vertexShader = vertex.get(); desc.fragmentShader = fragment.get(); desc.bindingLayout = layout.get();
+            desc.colorFormats = {TextureFormat::RGBA8Unorm};
+            desc.blendAttachments.resize(1);
+            desc.vertexBuffers = {{0, 56, VertexInputRate::Vertex}};
+            desc.vertexAttributes = {{0, 0, VertexFormat::Float4, 0}, {3, 0, VertexFormat::Float3, 44}};
+            if (main)
+            {
+                desc.vertexAttributes.push_back({1, 0, VertexFormat::Float3, 16});
+                desc.vertexAttributes.push_back({2, 0, VertexFormat::Float4, 28});
+                desc.depthStencilFormat = TextureFormat::D24UnormS8Uint;
+                desc.depthStencil.depthTestEnable = true; desc.depthStencil.depthWriteEnable = true;
+            }
+            auto pipeline = device.CreateGraphicsPipeline(desc);
+            if (pipeline->Desc() != desc) throw std::runtime_error("Vulkan pipeline description changed.");
+            auto commands = device.CreateCommandList();
+            BufferDesc bufferDesc{};
+            bufferDesc.size = uniformSize; bufferDesc.usage = BufferUsage::Uniform;
+            auto constants = device.CreateBuffer(bufferDesc);
+            TextureDesc textureDesc{};
+            textureDesc.width = 4; textureDesc.height = 4; textureDesc.format = TextureFormat::RGBA8Unorm;
+            textureDesc.usage = TextureUsage::Sampled;
+            auto texture = device.CreateTexture(textureDesc);
+            auto view = device.CreateTextureView(*texture, {});
+            auto sampler = device.CreateSampler({});
+            BindingSetDesc setDesc{};
+            setDesc.layout = layout.get();
+            setDesc.entries.push_back({0, BufferBinding{constants.get(), 0, uniformSize}});
+            for (const auto& binding : textures)
+            {
+                setDesc.entries.push_back({binding.image, TextureBinding{view.get()}});
+                setDesc.entries.push_back({binding.sampler, SamplerBinding{sampler.get()}});
+            }
+            auto set = device.CreateBindingSet(setDesc);
+            auto incompatibleDesc = layoutDesc;
+            incompatibleDesc.entries[0].stages = ShaderStage::Vertex;
+            auto incompatibleLayout = device.CreateBindingLayout(incompatibleDesc);
+            setDesc.layout = incompatibleLayout.get();
+            auto incompatibleSet = device.CreateBindingSet(setDesc);
+            (void)device.BeginFrame();
+            commands->Begin(); commands->SetPipeline(*pipeline);
+            bool rejected = false;
+            try { commands->SetBindingSet(0, *incompatibleSet); }
+            catch (const std::invalid_argument&) { rejected = true; }
+            if (!rejected) throw std::runtime_error("Vulkan incompatible binding layout accepted.");
+            commands->SetBindingSet(0, *set); commands->End();
+            device.EndFrame(); device.WaitIdle();
+            auto reused = device.CreateGraphicsPipeline(desc);
+            if (dynamic_cast<const VulkanGraphicsPipeline&>(*pipeline).Native()
+                != dynamic_cast<const VulkanGraphicsPipeline&>(*reused).Native())
+                throw std::runtime_error("Vulkan identical pipeline was not cached.");
+            auto replacementVertex = shader(vertexWords, ShaderStage::Vertex);
+            auto replacementFragment = shader(fragmentWords, ShaderStage::Fragment);
+            auto replacementLayout = device.CreateBindingLayout(layoutDesc);
+            auto replacement = desc;
+            replacement.vertexShader = replacementVertex.get(); replacement.fragmentShader = replacementFragment.get();
+            replacement.bindingLayout = replacementLayout.get();
+            auto equivalent = device.CreateGraphicsPipeline(replacement);
+            if (equivalent->Desc() != replacement || dynamic_cast<const VulkanGraphicsPipeline&>(*pipeline).Native()
+                != dynamic_cast<const VulkanGraphicsPipeline&>(*equivalent).Native())
+                throw std::runtime_error("Vulkan content-equivalent pipeline was not cached.");
+            auto different = desc;
+            different.rasterizer.cullMode = CullMode::None;
+            auto distinct = device.CreateGraphicsPipeline(different);
+            if (dynamic_cast<const VulkanGraphicsPipeline&>(*pipeline).Native()
+                == dynamic_cast<const VulkanGraphicsPipeline&>(*distinct).Native())
+                throw std::runtime_error("Vulkan different pipeline state aliased in cache.");
+        };
+        check(Generated::main_vert, Generated::main_frag, Generated::main_textures, Generated::main_uniform_size, true);
+        check(Generated::composite_vert, Generated::composite_frag, Generated::composite_textures, Generated::composite_uniform_size, false);
+        check(Generated::cel_vert, Generated::cel_frag, Generated::cel_textures, Generated::cel_uniform_size, false);
+        check(Generated::shift_vert, Generated::shift_frag, Generated::shift_textures, Generated::shift_uniform_size, false);
+        dynamic_cast<VulkanGraphicsDevice&>(device).ClearPipelineCacheForCheck();
+        if (device.Statistics().Programs != 0) throw std::runtime_error("Vulkan pipeline cache failed to release programs.");
     }
 
     std::unique_ptr<GraphicsDevice> CreateGraphicsDevice(Context& context)

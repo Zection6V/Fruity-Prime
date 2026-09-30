@@ -89,7 +89,7 @@ jobs:
           if (-not (Test-Path $vcpkg)) {
             throw "vcpkg.exe was not found at $vcpkg"
           }
-          & $vcpkg install curl:x64-windows libarchive:x64-windows zlib:x64-windows glfw3:x64-windows freetype:x64-windows openal-soft:x64-windows vulkan-loader:x64-windows vulkan-memory-allocator:x64-windows "skia[gl,freetype]:x64-windows" --clean-after-build 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/vcpkg-install.log"
+          & $vcpkg install curl:x64-windows libarchive:x64-windows zlib:x64-windows glfw3:x64-windows freetype:x64-windows openal-soft:x64-windows vulkan-loader:x64-windows vulkan-memory-allocator:x64-windows shaderc:x64-windows "skia[gl,freetype]:x64-windows" --clean-after-build 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/vcpkg-install.log"
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
@@ -208,6 +208,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential \
             libvulkan-dev \
+            glslc \
             mesa-vulkan-drivers \
             vulkan-validationlayers \
             openbox \

@@ -13,4 +13,6 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     [[nodiscard]] std::unique_ptr<GraphicsDevice> CreateGraphicsDevice(Context& context);
     // Backend diagnostic; keeps native descriptor handles out of the RHI.
     void CheckBindingAllocations(GraphicsDevice& device);
+    void CheckShaderModules(GraphicsDevice& device);
+    void CheckGraphicsPipelines(GraphicsDevice& device);
 }

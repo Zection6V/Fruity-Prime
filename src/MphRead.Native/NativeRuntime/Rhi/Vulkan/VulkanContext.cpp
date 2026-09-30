@@ -101,6 +101,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
             device->WaitIdle();
             CheckBindingAllocations(*device);
+            CheckShaderModules(*device);
+            CheckGraphicsPipelines(*device);
+            std::cout << "[vulkan] graphics pipelines PASS; main; composite; cel; shift; manifest layouts\n";
+            std::cout << "[vulkan] shader modules PASS; eight stages; entry point validation; release\n";
             std::cout << "[vulkan] bindings allocation PASS; arrays; alignment; fresh sets; overflow pools; frame reuse; GPU bind submit\n";
 
             constexpr std::uint32_t width = 8;
@@ -271,7 +275,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
             device->WaitIdle();
             const GpuResourceStatistics live = device->Statistics();
-            if (live.Textures != 0 || live.Buffers != 0 || live.Retired != 0)
+            if (live.Textures != 0 || live.Buffers != 0 || live.Retired != 0 || live.Shaders != 0 || live.Programs != 0)
                 throw std::runtime_error("Vulkan resource check found live resources after release.");
             device.reset();
             context.Shutdown();

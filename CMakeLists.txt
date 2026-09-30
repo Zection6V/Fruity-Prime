@@ -212,6 +212,7 @@ if(NOT ANDROID)
     if(Vulkan_FOUND)
         find_path(FRUITY_VMA_INCLUDE_DIR NAMES vk_mem_alloc.h PATH_SUFFIXES vma)
         if(FRUITY_VMA_INCLUDE_DIR)
+            include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/FruityVulkanShaders.cmake")
             target_compile_definitions(fruity_mphread_native PRIVATE
                 FRUITY_HAS_VULKAN
                 VMA_STATIC_VULKAN_FUNCTIONS=0

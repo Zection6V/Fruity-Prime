@@ -72,6 +72,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         X(vkCreateDescriptorPool) X(vkDestroyDescriptorPool) X(vkResetDescriptorPool) \
         X(vkAllocateDescriptorSets) X(vkUpdateDescriptorSets) X(vkCmdBindDescriptorSets) \
         X(vkCreatePipelineLayout) X(vkDestroyPipelineLayout) \
+        X(vkCreateShaderModule) X(vkDestroyShaderModule) \
+        X(vkCreateGraphicsPipelines) X(vkDestroyPipeline) X(vkCmdBindPipeline) \
         X(vkCreateSemaphore) X(vkDestroySemaphore) \
         X(vkCreateFence) X(vkDestroyFence) X(vkWaitForFences) X(vkResetFences) \
         X(vkCreateSwapchainKHR) X(vkDestroySwapchainKHR) X(vkGetSwapchainImagesKHR) \
@@ -315,6 +317,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             enabled.samplerAnisotropy = selectedFeatures.samplerAnisotropy;
             enabled.fillModeNonSolid = selectedFeatures.fillModeNonSolid;
             enabled.depthClamp = selectedFeatures.depthClamp;
+            enabled.wideLines = selectedFeatures.wideLines;
+            enabled.independentBlend = selectedFeatures.independentBlend;
             VkDeviceCreateInfo createDevice{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
             createDevice.pNext = &enabled13; createDevice.pEnabledFeatures = &enabled;
             createDevice.queueCreateInfoCount = static_cast<std::uint32_t>(queues.size()); createDevice.pQueueCreateInfos = queues.data();

@@ -40,7 +40,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     inline constexpr BlockBinding DisruptionPostBlock{PostSet, 2};
     inline constexpr BlockBinding DisruptionTablesBlock{PostSet, 3};
 
-    // std140 mirrors. A vec3 occupies sixteen bytes, bools are 32-bit, and a
+    // std140 mirrors. Our vec3 wrapper includes explicit padding to sixteen
+    // bytes (GLSL vec3 itself is twelve bytes), bools are 32-bit, and a
     // mat4 is four vec4 columns; the static_asserts below are the layout the
     // GLSL blocks in VertexInterfaceGlsl/ConstantBlocksGlsl declare.
     struct alignas(16) Std140Vec3 final
@@ -236,9 +237,9 @@ layout(std140, set = 1, binding = 0) uniform MaterialBlock {
     vec3 ambient;
     vec3 specular;
     vec3 emission;
-    float mat_alpha;
-    int mat_mode;
-    bool use_light;
+    layout(offset = 64) float mat_alpha;
+    layout(offset = 68) int mat_mode;
+    layout(offset = 72) bool use_light;
 };
 layout(set = 1, binding = 1) uniform sampler2D tex;
 layout(std140, set = 2, binding = 0) uniform DrawBlock {

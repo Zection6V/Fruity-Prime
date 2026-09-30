@@ -1,24 +1,50 @@
 # Vulkan RHI Phase 16 validation — in progress
 
-Phase 15 is complete at implementation `7f9e42493d8e3d749acf4896387c16e9e75ccdf4`;
-completion records are committed as `c8f973e0a59eb3e91ff3ea3d756dc64d95d0430f`.
-Phase 16 is not complete.
+Phase 15 is complete. Phase 16 remains incomplete until its final exact-source
+Desktop CI finishes successfully.
 
-Implementation SHA: `9d612df1a6c94bbdee55bf1998d32814aa7728e5`.
-Exact-SHA CI dispatched with explicit checkout_ref:
-[desktop 36742852274](https://github.com/Zection6V/Fruity-Prime/actions/runs/36742852274),
+Final audited implementation: `cebd532c2d75714d67139a640e96a8ab81ec7899`.
+User-selected primary CI is again exact-SHA Desktop `36746271237`, Windows
+job `109993145867`, following the user's corrected link. It remains in the
+dependency installation stage. The previously selected integration run was
+[build_cpp 36743419689](https://github.com/Zection6V/Fruity-Prime/actions/runs/36743419689).
+Its Windows job `109983770120` is installing dependencies; Linux, macOS and
+Android builds succeeded. Linux runtime checks pass with validation=1, errors=0
+and live=0. Its checkout is PR merge `297d160` incorporating the audited SHA,
+so these results describe merge integration rather than an exact standalone SHA.
+Evidence: `C:/tmp/gp/p16-user-selected-linux-ci.log`. No Phase 11 audit was rerun.
+
+Explicit checkout_ref was used for both final runs:
+
+- [Desktop 36746271237](https://github.com/Zection6V/Fruity-Prime/actions/runs/36746271237):
+  macOS/Clang PASS; Linux/GCC PASS; Windows/MSVC is installing dependencies.
+- [Android 36744453750](https://github.com/Zection6V/Fruity-Prime/actions/runs/36744453750):
+  4/4 PASS, including both ABIs and APK packaging.
+
+Original implementation `9d612df1a6c94bbdee55bf1998d32814aa7728e5` runs:
+[Desktop 36742852274](https://github.com/Zection6V/Fruity-Prime/actions/runs/36742852274),
 [Android 36742858600](https://github.com/Zection6V/Fruity-Prime/actions/runs/36742858600).
-Both results are pending.
+Original Android is 4/4 PASS. The original desktop run remains independently
+active; the final run above is the completion gate.
 
-macOS/Clang has completed successfully on that SHA. Linux/GCC, Windows/MSVC
-and Android remain in progress.
+Current local evidence: native build, CTest 5/5, eight reproducible SPIR-V stages,
+shader/pipeline/binding diagnostics and normal/fallback presentation checks PASS.
+Validation errors and post-diagnostic live shaders/programs/resources are zero.
+Invalid pipeline descriptions and incompatible descriptor layouts are rejected.
+No shader draws have executed; actual drawing belongs to Phase 17 and scene
+image parity remains a later gate.
 
-Current local evidence: native build, CTest 5/5, shader/pipeline/binding resource
-diagnostics and normal/fallback presentation checks passed. Validation errors
-and post-diagnostic live shaders/programs/resources are zero. CI is pending.
-Latest logs: `C:/tmp/gp/p16-program-count-build.log`,
-`p16-program-count-runtime.log`, `p16-ctest.log`, `p16-present-runtime.log`,
-`p16-present-fallback-runtime.log` in the same directory.
+Final Linux job `109993146058` confirms checkout of the full audited SHA,
+compiles all eight SPIR-V stages and passes foundation, four graphics pipelines,
+eight shader modules, descriptor allocation/GPU bind submission and resource
+checks (`live=0`, `validation=1`, `errors=0`). Normal and fallback presentation
+also pass with clean shutdown and zero errors. Downloaded evidence:
+`C:/tmp/gp/p16-final-linux-ci.log`. This is runtime evidence on Linux; the
+remaining Windows/MSVC job is still required before Phase 16 completion.
+
+The following implementation notes retain intermediate failures and repairs as
+history. Their statements that a build/runtime revision is pending describe
+that intermediate point, not the current verification state above.
 
 ## Shader contract audit
 

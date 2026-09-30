@@ -63,3 +63,24 @@ References: [GLFW Vulkan integration](https://www.glfw.org/docs/latest/vulkan_gu
 
 Scope is native C++; C# sources and existing TRANSFER LOCK light geometry are
 unchanged. Phase 12 does not render a game scene or present a Vulkan image.
+
+## Requested Phase 12 audit — 2026-10-01
+
+Reviewed the foundation requirements against the current context initialization,
+device/queue selection, capability translation, optional validation/debug naming,
+partial-initialization cleanup, diagnostic routing and optional build integration.
+No actionable defect was found in this scope; no implementation change was made.
+Source HEAD: `cebd532c2d75714d67139a640e96a8ab81ec7899`.
+
+Current local Release binary SHA-256:
+`d6050a58b9135788590abf8ef155fc8ba184ceee2d745ddd500d2a5860026420`.
+`-vulkancheck -noupdate` exits 0 on RTX 5070 Ti, API 1.4, graphics/present
+family 0, validation=1, foundation PASS and clean shutdown. OBS/Bandicam
+implicit-layer API-version warnings remain; no validation errors were reported.
+With `VK_DRIVER_FILES` pointing to a nonexistent JSON, the diagnostic exits 1
+with `No Vulkan window-system extensions`; the environment is restored afterward.
+PE import inspection finds no direct Vulkan loader DLL dependency. CTest is 5/5.
+
+These are fresh foundation checks. Golden Capture and OpenGL shellshot were not
+rerun for this audit; their earlier results above remain historical evidence.
+Phase 11 was not audited or tested.

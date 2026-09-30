@@ -10,7 +10,7 @@ set(_fruity_shader_sources "${CMAKE_CURRENT_SOURCE_DIR}/src/MphRead.Native/Shade
 set(_fruity_shader_generator "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate-vulkan-scene-shaders.py")
 set(_fruity_generated_glsl)
 set(_fruity_generated_spirv)
-foreach(_program main composite cel shift)
+foreach(_program main composite cel shift backdrop)
     foreach(_stage vert frag)
         list(APPEND _fruity_generated_glsl "${FRUITY_VULKAN_SHADER_DIR}/${_program}.${_stage}")
         list(APPEND _fruity_generated_spirv "${FRUITY_VULKAN_SHADER_DIR}/${_program}.${_stage}.spv")

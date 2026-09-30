@@ -359,6 +359,16 @@ if(NOT ANDROID)
     find_package(unofficial-skia CONFIG QUIET)
     if(TARGET unofficial::skia::skia)
         target_link_libraries(fruity_mphread_native PUBLIC unofficial::skia::skia)
+        # Ganesh Vulkan draws the launcher into a window that presents through
+        # Vulkan. Only a Skia built with skia_use_vulkan exports SK_VULKAN; a
+        # header set alone is not taken as support.
+        get_target_property(_fruity_skia_definitions unofficial::skia::skia INTERFACE_COMPILE_DEFINITIONS)
+        if(FRUITY_VMA_INCLUDE_DIR AND Vulkan_FOUND AND "${_fruity_skia_definitions}" MATCHES "SK_VULKAN")
+            target_compile_definitions(fruity_mphread_native PRIVATE FRUITY_SKIA_VULKAN)
+            message(STATUS "Skia Ganesh Vulkan: available for the Vulkan window's launcher")
+        else()
+            message(STATUS "Skia Ganesh Vulkan: not in this Skia; a Vulkan window cannot draw the launcher")
+        endif()
     else()
         find_package(PkgConfig REQUIRED)
         pkg_check_modules(FRUITY_SKIA QUIET IMPORTED_TARGET skia)

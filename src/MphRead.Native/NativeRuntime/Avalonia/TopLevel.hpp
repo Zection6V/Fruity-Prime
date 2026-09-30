@@ -108,6 +108,10 @@ namespace MphRead::NativeRuntime::Avalonia
         {
             return _gpuRendering ? _surface.TextureId() : 0;
         }
+        [[nodiscard]] const ::MphRead::NativeRuntime::Rhi::Texture* RhiTexture() const noexcept
+        {
+            return _gpuRendering ? _surface.RhiTexture() : nullptr;
+        }
         [[nodiscard]] const std::uint8_t* Pixels() const noexcept
         {
             return _gpuRendering ? nullptr : _pixels.Pixels();

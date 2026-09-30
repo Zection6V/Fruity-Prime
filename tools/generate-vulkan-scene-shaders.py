@@ -18,6 +18,9 @@ def generate(source, output):
         "composite": ("RttVertexShader", "RttFragmentShader"),
         "cel": ("RttVertexShader", "CelFragmentShader"),
         "shift": ("RttVertexShader", "ShiftFragmentShader"),
+        # The launcher's moving photograph, drawn into the window when the
+        # window presents through Vulkan and there is no GL context for it.
+        "backdrop": ("BackdropVertexShader", "BackdropFragmentShader"),
     }
     declaration = re.compile(r'^uniform (\w+)(?:\[(\d+)\])? (\w+);$', re.M)
     locations = {"a_position": 0, "a_normal": 1, "a_color": 2,

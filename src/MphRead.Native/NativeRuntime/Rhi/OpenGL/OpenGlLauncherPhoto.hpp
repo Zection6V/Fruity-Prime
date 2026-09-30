@@ -13,12 +13,15 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         [[nodiscard]] static bool Enabled() noexcept;
         static void Draw(std::int32_t width, std::int32_t height);
 
+        // How strongly the moving layer shows through; the Vulkan window's
+        // backdrop draws with the same value.
+        static constexpr float Strength = 0.62F;
+
     private:
         [[nodiscard]] static bool Ensure();
         [[nodiscard]] static bool EnsureProgram();
 
         static constexpr std::int32_t Name = 1'000'001;
-        static constexpr float Strength = 0.62F;
         static bool _enabled;
         static std::int32_t _texture;
         static std::int32_t _width;

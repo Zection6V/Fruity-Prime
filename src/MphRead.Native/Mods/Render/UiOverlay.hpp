@@ -7,6 +7,11 @@ namespace MphRead
     class RenderWindow;
 }
 
+namespace MphRead::NativeRuntime::Rhi
+{
+    class Texture;
+}
+
 namespace MphRead::Mods::Render
 {
     class UiOverlay final
@@ -19,6 +24,10 @@ namespace MphRead::Mods::Render
         [[nodiscard]] static bool HasFrame() noexcept;
         static void Upload(const void* pixels, std::int32_t width, std::int32_t height);
         static void UseTexture(std::int32_t texture, std::int32_t width, std::int32_t height);
+        // The Vulkan window's UI: an RHI texture the Skia Vulkan surface drew,
+        // top row at t = 0. Held, not owned.
+        static void UseTexture(const ::MphRead::NativeRuntime::Rhi::Texture& texture,
+            std::int32_t width, std::int32_t height);
         static void Draw(std::int32_t width, std::int32_t height);
         static void DrawAlone(::MphRead::RenderWindow& window, std::int32_t width, std::int32_t height);
         static void Release();

@@ -1543,7 +1543,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             };
             struct SceneDraw final
             {
-                std::array<SceneStream, 4> Streams{}; // position, normal, colour, texcoord
+                std::array<SceneStream, 5> Streams{}; // position, normal, colour, texcoord, texcoord1
                 VkBuffer IndexBuffer = VK_NULL_HANDLE;
                 VkDeviceSize IndexOffset = 0;
                 std::uint32_t IndexCount = 0;
@@ -1721,6 +1721,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         void VulkanCommandList::BeginBuffer()
         {
+            // One list holds unsubmitted work at a time: whatever another
+            // list recorded goes to the queue before this one records, so
+            // the queue sees lists in the order they drew.
+            _device->FlushScene(this);
             auto& vk = *_device->ContextPointer->_impl;
             Check(vk.vkResetCommandPool(vk.device, _pool, 0), "vkResetCommandPool");
             VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -2052,11 +2056,15 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 desc.depthStencil.stencilTestEnable = false;
             }
             desc.vertexBuffers = {{0, 12}, {1, 12}, {2, 16}, {3, 12}};
+            if (program.Id == SceneProgram::Backdrop) desc.vertexBuffers.push_back({4, 8});
             // Only the inputs the program declares: the post programs read
             // position and texcoord and nothing else.
             if (program.Id == SceneProgram::Main)
                 desc.vertexAttributes = {{0, 0, VertexFormat::Float3, 0}, {1, 1, VertexFormat::Float3, 0},
                     {2, 2, VertexFormat::Float4, 0}, {3, 3, VertexFormat::Float3, 0}};
+            else if (program.Id == SceneProgram::Backdrop)
+                desc.vertexAttributes = {{0, 0, VertexFormat::Float3, 0}, {3, 3, VertexFormat::Float3, 0},
+                    {4, 4, VertexFormat::Float2, 0}};
             else
                 desc.vertexAttributes = {{0, 0, VertexFormat::Float3, 0}, {3, 3, VertexFormat::Float3, 0}};
             auto native = std::make_shared<VulkanGraphicsPipeline>(_device, desc, true);
@@ -2276,16 +2284,19 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 _setTextures = textures;
             }
 
-            std::array<VkBuffer, 4> buffers{};
-            std::array<VkDeviceSize, 4> offsets{};
-            std::array<VkDeviceSize, 4> strides{};
-            for (std::size_t i = 0; i < 4; ++i)
+            std::array<VkBuffer, 5> buffers{};
+            std::array<VkDeviceSize, 5> offsets{};
+            std::array<VkDeviceSize, 5> strides{};
+            std::uint32_t streams = 0;
+            for (std::size_t i = 0; i < 5; ++i)
             {
+                if (draw.Streams[i].Buffer == VK_NULL_HANDLE) break;
                 buffers[i] = draw.Streams[i].Buffer;
                 offsets[i] = draw.Streams[i].Offset;
                 strides[i] = draw.Streams[i].Stride;
+                streams = static_cast<std::uint32_t>(i + 1);
             }
-            vk.vkCmdBindVertexBuffers2(_commandBuffer, 0, 4, buffers.data(), offsets.data(), nullptr, strides.data());
+            vk.vkCmdBindVertexBuffers2(_commandBuffer, 0, streams, buffers.data(), offsets.data(), nullptr, strides.data());
             vk.vkCmdBindIndexBuffer(_commandBuffer, draw.IndexBuffer, draw.IndexOffset, VK_INDEX_TYPE_UINT32);
             vk.vkCmdDrawIndexed(_commandBuffer, draw.IndexCount, 1, 0, 0, 0);
         }
@@ -2551,6 +2562,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
             [[nodiscard]] GraphicsBackend GetBackend() const noexcept override { return GraphicsBackend::Vulkan; }
             [[nodiscard]] const std::shared_ptr<VulkanDeviceState>& State() const noexcept { return _state; }
+            [[nodiscard]] InteropDevice Describe() const;
             [[nodiscard]] const Capabilities& GetCapabilities() const noexcept override
             {
                 return _state->ContextPointer->Caps();
@@ -2935,6 +2947,56 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             dynamic_cast<VulkanCommandList&>(commands));
     }
 
+    InteropDevice DescribeDevice(GraphicsDevice& device)
+    {
+        return dynamic_cast<VulkanGraphicsDevice&>(device).Describe();
+    }
+
+    InteropDevice VulkanGraphicsDevice::Describe() const
+    {
+        auto& vk = *_state->ContextPointer->_impl;
+        InteropDevice result{};
+        result.Instance = reinterpret_cast<std::uint64_t>(vk.instance);
+        result.PhysicalDevice = reinterpret_cast<std::uint64_t>(vk.physical);
+        result.Device = reinterpret_cast<std::uint64_t>(vk.device);
+        result.Queue = reinterpret_cast<std::uint64_t>(vk.graphics);
+        result.QueueFamily = vk.graphicsFamily;
+        result.ApiVersion = VK_API_VERSION_1_3;
+        result.GetInstanceProcAddr = reinterpret_cast<void*>(glfwGetInstanceProcAddress);
+        result.GetDeviceProcAddr = reinterpret_cast<void*>(vk.vkGetDeviceProcAddr);
+        return result;
+    }
+
+    void FlushDevice(GraphicsDevice& device)
+    {
+        dynamic_cast<VulkanGraphicsDevice&>(device).State()->FlushScene();
+    }
+
+    InteropImage PrepareForExternal(GraphicsDevice& device, Texture& texture, ResourceState state)
+    {
+        auto& native = dynamic_cast<VulkanTexture&>(texture);
+        if (native.State() != state)
+        {
+            auto commands = device.CreateCommandList();
+            commands->Begin();
+            commands->Transition(texture, native.State(), state);
+            commands->End();
+        }
+        else
+            FlushDevice(device);
+        InteropImage result{};
+        result.Image = reinterpret_cast<std::uint64_t>(native.Native());
+        result.Format = static_cast<std::uint32_t>(ToVkFormat(native.Desc().format));
+        result.Usage = static_cast<std::uint32_t>(ToVkImageUsage(native.Desc().usage));
+        result.Layout = static_cast<std::uint32_t>(ToVkState(state, true).Layout);
+        return result;
+    }
+
+    void AdoptExternalState(Texture& texture, ResourceState state)
+    {
+        dynamic_cast<VulkanTexture&>(texture).State(state);
+    }
+
     void PresentWindow(GraphicsDevice& device, Swapchain& swapchain)
     {
         auto& state = *dynamic_cast<VulkanGraphicsDevice&>(device).State();
@@ -3203,5 +3265,15 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     {
         throw std::runtime_error("Desktop Vulkan development support was not built.");
     }
+    InteropDevice DescribeDevice(GraphicsDevice&)
+    {
+        throw std::runtime_error("Desktop Vulkan development support was not built.");
+    }
+    void FlushDevice(GraphicsDevice&) {}
+    InteropImage PrepareForExternal(GraphicsDevice&, Texture&, ResourceState)
+    {
+        throw std::runtime_error("Desktop Vulkan development support was not built.");
+    }
+    void AdoptExternalState(Texture&, ResourceState) {}
 }
 #endif

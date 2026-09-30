@@ -43,6 +43,10 @@ namespace MphRead::Mods::Launcher::Gui
         void GpuRendering(bool value) noexcept { _root.GpuRendering(value); }
 
         [[nodiscard]] std::int32_t TextureId() const noexcept { return _root.TextureId(); }
+        [[nodiscard]] const ::MphRead::NativeRuntime::Rhi::Texture* RhiTexture() const noexcept
+        {
+            return _root.RhiTexture();
+        }
         [[nodiscard]] const std::uint8_t* Pixels() const noexcept { return _root.Pixels(); }
         [[nodiscard]] std::int32_t PixelWidth() const noexcept { return _root.PixelWidth(); }
         [[nodiscard]] std::int32_t PixelHeight() const noexcept { return _root.PixelHeight(); }

@@ -142,6 +142,8 @@ public:
             Generated::shift_textures, Generated::shift_uniform_size);
         Add(SceneProgram::CelOutline, Generated::cel_vert, Generated::cel_frag, Generated::cel_uniforms,
             Generated::cel_textures, Generated::cel_uniform_size);
+        Add(SceneProgram::Backdrop, Generated::backdrop_vert, Generated::backdrop_frag,
+            Generated::backdrop_uniforms, Generated::backdrop_textures, Generated::backdrop_uniform_size);
         // What OpenGlSceneShaderSet sets as it links: the shift table on the
         // shift program and the toon table on the main one, which is left current.
         Program(SceneProgram::Shift).WriteArray("shift_table", shiftTable.data(), 1,
@@ -360,6 +362,147 @@ private:
     std::unique_ptr<VulkanBuffer> _vertexBuffer;
     std::unique_ptr<VulkanBuffer> _indexBuffer;
 };
+
+struct WindowUi::Impl final
+{
+    explicit Impl(VulkanGraphicsDevice& device)
+        : Device(device.State()), Shaders(device.State(), {}, {}),
+          Commands(std::make_unique<VulkanCommandList>(device.State()))
+    {
+        const auto pipeline = [&](SceneProgram program, bool blend) {
+            GraphicsPipelineDesc desc{};
+            desc.vertexShader = &Shaders.Vertex(program);
+            desc.fragmentShader = &Shaders.Fragment(program);
+            desc.rasterizer.cullMode = CullMode::None;
+            BlendAttachmentDesc attachment{};
+            attachment.blendEnable = blend;
+            attachment.srcColorFactor = BlendFactor::One;
+            attachment.dstColorFactor = BlendFactor::OneMinusSrcAlpha;
+            attachment.srcAlphaFactor = BlendFactor::One;
+            attachment.dstAlphaFactor = BlendFactor::OneMinusSrcAlpha;
+            desc.blendAttachments.push_back(attachment);
+            desc.colorFormats.push_back(TextureFormat::RGBA8Unorm);
+            return std::make_unique<VulkanGraphicsPipeline>(Device, desc, VulkanGraphicsPipeline::Deferred{});
+        };
+        Premultiplied = pipeline(SceneProgram::Composite, true);
+        Opaque = pipeline(SceneProgram::Composite, false);
+        Backdrop = pipeline(SceneProgram::Backdrop, false);
+    }
+
+    void Quad(std::span<const WindowQuadVertex, 4> strip)
+    {
+        auto vertices = Commands->Allocate(4U * 32U);
+        auto* out = reinterpret_cast<float*>(vertices.Data);
+        for (std::size_t i = 0; i < 4; ++i)
+        {
+            const float data[8]{strip[i].Position[0], strip[i].Position[1], 0.0F,
+                strip[i].TexCoord[0], strip[i].TexCoord[1], 0.0F, strip[i].TexCoord1[0], strip[i].TexCoord1[1]};
+            std::memcpy(out + i * 8U, data, sizeof(data));
+        }
+        // The strip's two triangles, in OpenGL's order.
+        const std::uint32_t order[6]{0, 1, 2, 2, 1, 3};
+        auto index = Commands->Allocate(sizeof(order), 4);
+        std::memcpy(index.Data, order, sizeof(order));
+        auto constant = Commands->Allocate(16);
+        const float zero[4]{0.0F, 0.0F, 1.0F, 1.0F};
+        std::memcpy(constant.Data, zero, sizeof(zero));
+        VulkanCommandList::SceneDraw draw{};
+        draw.Streams[0] = {vertices.Buffer, vertices.Offset, 32};
+        draw.Streams[1] = {constant.Buffer, constant.Offset, 0};
+        draw.Streams[2] = {constant.Buffer, constant.Offset, 0};
+        draw.Streams[3] = {vertices.Buffer, vertices.Offset + 12, 32};
+        draw.Streams[4] = {vertices.Buffer, vertices.Offset + 24, 32};
+        draw.IndexBuffer = index.Buffer;
+        draw.IndexOffset = index.Offset;
+        draw.IndexCount = 6;
+        Commands->DrawScene(draw);
+    }
+
+    [[nodiscard]] VulkanSceneProgram& Program(SceneProgram id)
+    {
+        return *static_cast<VulkanSceneProgram*>(
+            static_cast<const VulkanShader&>(Shaders.Fragment(id)).SceneProgram);
+    }
+
+    std::shared_ptr<VulkanDeviceState> Device;
+    VulkanSceneShaderSet Shaders;
+    std::unique_ptr<VulkanCommandList> Commands;
+    std::unique_ptr<VulkanGraphicsPipeline> Premultiplied;
+    std::unique_ptr<VulkanGraphicsPipeline> Opaque;
+    std::unique_ptr<VulkanGraphicsPipeline> Backdrop;
+    std::uint32_t Width = 0;
+    std::uint32_t Height = 0;
+};
+
+WindowUi::WindowUi(GraphicsDevice& device)
+    : _impl(std::make_unique<Impl>(dynamic_cast<VulkanGraphicsDevice&>(device)))
+{
+}
+
+WindowUi::~WindowUi() = default;
+
+void WindowUi::Begin(std::uint32_t width, std::uint32_t height, bool clear)
+{
+    auto& commands = *_impl->Commands;
+    try { commands.Begin(); }
+    catch (const std::logic_error&) {}
+    _impl->Width = std::max(width, 1U);
+    _impl->Height = std::max(height, 1U);
+    std::array<RenderingColorAttachment, 1> color{};
+    color[0].loadOp = clear ? LoadOp::Clear : LoadOp::Load;
+    color[0].clearValue = ClearColor{0.0F, 0.0F, 0.0F, 1.0F};
+    RenderingDepthStencilAttachment depth{};
+    depth.depthLoadOp = clear ? LoadOp::Clear : LoadOp::Load;
+    depth.stencilLoadOp = clear ? LoadOp::Clear : LoadOp::Load;
+    RenderingInfo info{};
+    info.width = _impl->Width;
+    info.height = _impl->Height;
+    info.swapchain = true;
+    info.colorAttachments = color;
+    info.depthStencilAttachment = &depth;
+    commands.BeginRendering(info);
+    commands.SetViewport(Viewport{0.0F, 0.0F, static_cast<float>(_impl->Width), static_cast<float>(_impl->Height)});
+}
+
+void WindowUi::DrawTexture(const Texture& texture, const Sampler& sampler,
+    std::span<const WindowQuadVertex, 4> strip, bool premultiplied)
+{
+    auto& commands = *_impl->Commands;
+    commands.SetPipeline(premultiplied ? *_impl->Premultiplied : *_impl->Opaque);
+    auto& program = _impl->Program(SceneProgram::Composite);
+    const float one = 1.0F;
+    const std::int32_t no = 0;
+    const float none[4]{};
+    program.Write("alpha", &one, 4);
+    program.Write("use_mask", &no, 4);
+    program.Write("fade_color", none, 16);
+    commands.BindSampledTexture(0, &texture, &sampler);
+    commands.BindSampledTexture(1, nullptr, nullptr);
+    _impl->Quad(strip);
+    commands.BindSampledTexture(0, nullptr, nullptr);
+}
+
+void WindowUi::DrawBackdrop(const Texture& photo, const Sampler& sampler,
+    std::span<const WindowQuadVertex, 4> strip, float strength, float seconds)
+{
+    auto& commands = *_impl->Commands;
+    commands.SetPipeline(*_impl->Backdrop);
+    auto& program = _impl->Program(SceneProgram::Backdrop);
+    const float width = static_cast<float>(_impl->Width);
+    const float height = static_cast<float>(_impl->Height);
+    program.Write("strength", &strength, 4);
+    program.Write("time", &seconds, 4);
+    program.Write("view_width", &width, 4);
+    program.Write("view_height", &height, 4);
+    commands.BindSampledTexture(0, &photo, &sampler);
+    _impl->Quad(strip);
+    commands.BindSampledTexture(0, nullptr, nullptr);
+}
+
+void WindowUi::End()
+{
+    _impl->Commands->EndRendering();
+}
 
 class VulkanTransientGeometry final : public MphRead::TransientGeometryResource
 {

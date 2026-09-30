@@ -3,7 +3,16 @@
 
 #include "LauncherHunter.hpp"
 #include "LauncherPhoto.hpp"
+#include "VulkanWindowUi.hpp"
 #include "../../NativeRuntime/OpenTK/GL.hpp"
+#include "../../NativeRuntime/Rhi/SceneBackend.hpp"
+
+#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+#include "../../NativeRuntime/Rhi/Vulkan/VulkanScene.hpp"
+#endif
+
+#include <array>
+#include <memory>
 
 #include <algorithm>
 #include <cstddef>
@@ -22,6 +31,41 @@ namespace MphRead::Mods::Render
     bool UiOverlay::_visible = false;
     bool UiOverlay::_ownsTexture = false;
     bool UiOverlay::_topRowAtTextureZero = true;
+
+    namespace
+    {
+        namespace Rhi = ::MphRead::NativeRuntime::Rhi;
+
+        // The Vulkan window's overlay: the texture shown, the one this owns
+        // when the UI had to be uploaded, and how it is sampled.
+        struct VulkanOverlay final
+        {
+            const Rhi::Texture* Shown = nullptr;
+            std::unique_ptr<Rhi::Texture> Owned;
+            std::unique_ptr<Rhi::Sampler> Sampler;
+        };
+
+        VulkanOverlay& Vk()
+        {
+            static VulkanOverlay overlay;
+            return overlay;
+        }
+
+        const Rhi::Sampler& LinearClamp()
+        {
+            auto& sampler = Vk().Sampler;
+            if (!sampler)
+            {
+                Rhi::SamplerDesc desc{};
+                desc.minFilter = Rhi::Filter::Linear;
+                desc.magFilter = Rhi::Filter::Linear;
+                desc.addressU = Rhi::SamplerAddressMode::ClampToEdge;
+                desc.addressV = Rhi::SamplerAddressMode::ClampToEdge;
+                sampler = Rhi::SceneDevice().CreateSampler(desc);
+            }
+            return *sampler;
+        }
+    }
 
     bool UiOverlay::Visible() noexcept
     {
@@ -42,6 +86,26 @@ namespace MphRead::Mods::Render
     {
         if (pixels == nullptr || width <= 0 || height <= 0)
         {
+            return;
+        }
+        if (VulkanWindowUi::Active())
+        {
+            auto& gpu = Rhi::SceneDevice();
+            auto& owned = Vk().Owned;
+            if (!owned || owned->Desc().width != static_cast<std::uint32_t>(width)
+                || owned->Desc().height != static_cast<std::uint32_t>(height))
+            {
+                owned = gpu.CreateTexture(Rhi::TextureDesc{static_cast<std::uint32_t>(width),
+                    static_cast<std::uint32_t>(height), 1, 1, 1, 1, Rhi::TextureFormat::RGBA8Unorm,
+                    Rhi::TextureUsage::Sampled | Rhi::TextureUsage::TransferDst});
+            }
+            gpu.WriteTexture(*owned, Rhi::TextureWrite{static_cast<std::uint32_t>(width),
+                static_cast<std::uint32_t>(height), Rhi::TextureFormat::RGBA8Unorm, pixels});
+            Vk().Shown = owned.get();
+            _width = width;
+            _height = height;
+            _topRowAtTextureZero = true;
+            _hasFrame = true;
             return;
         }
         GL::ActiveTexture(GL::TextureUnit::Texture0);
@@ -107,8 +171,41 @@ namespace MphRead::Mods::Render
         _hasFrame = true;
     }
 
+    void UiOverlay::UseTexture(const Rhi::Texture& texture, std::int32_t width, std::int32_t height)
+    {
+        if (width <= 0 || height <= 0)
+        {
+            return;
+        }
+        Vk().Shown = &texture;
+        _width = width;
+        _height = height;
+        _topRowAtTextureZero = true;
+        _hasFrame = true;
+    }
+
     void UiOverlay::Draw(std::int32_t width, std::int32_t height)
     {
+#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+        if (auto* ui = VulkanWindowUi::Get())
+        {
+            if (!_visible || !_hasFrame || Vk().Shown == nullptr || width <= 0 || height <= 0)
+            {
+                return;
+            }
+            const float topT = _topRowAtTextureZero ? 0.0F : 1.0F;
+            const float bottomT = _topRowAtTextureZero ? 1.0F : 0.0F;
+            const std::array<Rhi::Vulkan::WindowQuadVertex, 4> strip{{
+                {{ 1.0F,  1.0F}, {1.0F, topT}, {}},
+                {{-1.0F,  1.0F}, {0.0F, topT}, {}},
+                {{ 1.0F, -1.0F}, {1.0F, bottomT}, {}},
+                {{-1.0F, -1.0F}, {0.0F, bottomT}, {}}}};
+            ui->Begin(static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), false);
+            ui->DrawTexture(*Vk().Shown, LinearClamp(), strip, true);
+            ui->End();
+            return;
+        }
+#endif
         if (!_visible || !_hasFrame || _texture == 0)
         {
             return;
@@ -196,6 +293,18 @@ namespace MphRead::Mods::Render
 
     void UiOverlay::DrawAlone(::MphRead::RenderWindow& window, std::int32_t width, std::int32_t height)
     {
+#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+        if (auto* ui = VulkanWindowUi::Get())
+        {
+            ui->Begin(static_cast<std::uint32_t>(std::max(width, 1)), static_cast<std::uint32_t>(std::max(height, 1)),
+                true);
+            ui->End();
+            LauncherPhoto::Draw(width, height);
+            Draw(width, height);
+            LauncherHunter::Draw(window, width, height);
+            return;
+        }
+#endif
         GL::Viewport(0, 0, std::max(width, 1), std::max(height, 1));
         GL::ClearColor(0, 0, 0, 1);
         GL::Clear(GL::ClearBufferMask::ColorBufferBit | GL::ClearBufferMask::DepthBufferBit
@@ -207,6 +316,18 @@ namespace MphRead::Mods::Render
 
     void UiOverlay::Release()
     {
+        if (VulkanWindowUi::Active())
+        {
+            Vk().Shown = nullptr;
+            Vk().Owned.reset();
+            Vk().Sampler.reset();
+            VulkanWindowUi::Release();
+            _width = 0;
+            _height = 0;
+            _hasFrame = false;
+            _topRowAtTextureZero = true;
+            return;
+        }
         if (_indexBuffer != 0)
         {
             GL::DeleteBuffer(_indexBuffer);

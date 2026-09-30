@@ -17,7 +17,9 @@ namespace MphRead::NativeRuntime::Rhi
         Main,       // the world, the preview and the HUD models
         Composite,  // the scene target into the window, the HUD layers and objects, the fade
         Shift,      // the composite under disruption / whiteout
-        CelOutline  // the cel pass's ink
+        CelOutline, // the cel pass's ink
+        Backdrop    // the launcher photograph; only a backend that draws the
+                    // window itself (Vulkan) builds it
     };
 
     class SceneShaderSet

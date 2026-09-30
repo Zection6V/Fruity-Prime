@@ -40,6 +40,10 @@ namespace MphRead::NativeRuntime::Rhi
         std::uint32_t Framebuffers = 0;
         std::uint32_t Retired = 0;
         std::uint64_t CompletedFrame = 0;
+        // Times the CPU has stopped to wait for the GPU (a fence or the whole
+        // device). A frame should cost none in steady state; OpenGL, which
+        // waits inside the driver, reports 0.
+        std::uint64_t HostWaits = 0;
 
         bool operator==(const GpuResourceStatistics&) const = default;
     };

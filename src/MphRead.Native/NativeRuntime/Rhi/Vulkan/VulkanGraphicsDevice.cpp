@@ -665,6 +665,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::atomic<std::uint32_t> Programs{0};
             std::atomic<std::uint64_t> CurrentFrame{0};
             std::atomic<std::uint64_t> CompletedFrame{0};
+            std::atomic<std::uint64_t> HostWaits{0};
+            // The one list holding unsubmitted work (BeginBuffer flushes any
+            // other first), which an upload is recorded into in place.
+            void* RecordingList = nullptr; // VulkanCommandList*
             std::mutex TextureMutex{};
             std::unordered_map<std::int32_t, VulkanTexture*> TexturesByHandle{};
             std::int32_t NextTextureHandle = 1;
@@ -1321,6 +1325,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             try { _device->FlushScene(); } catch (...) {}
             _device->ForgetScene(this);
             auto& vk = *_device->ContextPointer->_impl;
+            ++_device->HostWaits;
             vk.vkDeviceWaitIdle(vk.device);
             for (VulkanTextureView* view : _views)
                 view->DestroyNative();
@@ -1341,6 +1346,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 throw std::invalid_argument("Vulkan RHI: a texture extent cannot be zero.");
             _device->FlushScene();
             auto& vk = *_device->ContextPointer->_impl;
+            ++_device->HostWaits;
             Check(vk.vkDeviceWaitIdle(vk.device), "vkDeviceWaitIdle before image resize");
             for (VulkanTextureView* view : _views)
                 view->DestroyNative();
@@ -1566,6 +1572,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 std::byte* Data = nullptr;
             };
             void DrawScene(const SceneDraw& draw);
+            // WriteTexture at this point in the recorded stream: the texels
+            // staged in this slot's ring, copied between the draws around it,
+            // as a glTexImage2D between two draws takes effect.
+            void UploadTexture(VulkanTexture& texture, std::span<const std::byte> texels);
             [[nodiscard]] RingSlice Allocate(VkDeviceSize size, VkDeviceSize alignment = 16);
             // Submit everything recorded and wait for it; recording resumes
             // on the next command.
@@ -1736,6 +1746,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             _device->SceneFlushers.erase(this);
             _device->SceneForgetters.erase(this);
             _device->SceneWaiters.erase(this);
+            if (_device->RecordingList == this) _device->RecordingList = nullptr;
             if (_device->ContextPointer == nullptr) return;
             auto& vk = *_device->ContextPointer->_impl;
             if (vk.device == VK_NULL_HANDLE) return;
@@ -1769,6 +1780,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             auto& vk = *_device->ContextPointer->_impl;
             if (_submitted)
             {
+                // Throttling to two frames in flight: a stall only when the
+                // GPU really is two submissions behind.
+                if (vk.vkGetFenceStatus(vk.device, _fence) != VK_SUCCESS) ++_device->HostWaits;
                 Check(WaitFenceReporting(vk.vkWaitForFences, vk.device, &_fence, "vkWaitForFences"), "vkWaitForFences");
                 Check(vk.vkResetFences(vk.device, 1, &_fence), "vkResetFences");
                 _submitted = false;
@@ -1785,6 +1799,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             auto& vk = *_device->ContextPointer->_impl;
             if (_spare.Submitted)
             {
+                if (vk.vkGetFenceStatus(vk.device, _spare.Fence) != VK_SUCCESS) ++_device->HostWaits;
                 Check(WaitFenceReporting(vk.vkWaitForFences, vk.device, &_spare.Fence, "vkWaitForFences(spare)"), "vkWaitForFences(spare)");
                 Check(vk.vkResetFences(vk.device, 1, &_spare.Fence), "vkResetFences(spare)");
                 _spare.Submitted = false;
@@ -1816,6 +1831,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             _set = VK_NULL_HANDLE;
             _setProgram = nullptr;
             _device->SceneFlushers[this] = [this] { Flush(); };
+            _device->RecordingList = this;
         }
 
         void VulkanCommandList::Begin()
@@ -1853,6 +1869,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             submit.pCommandBufferInfos = &command;
             _recording = false;
             _device->SceneFlushers.erase(this);
+            if (_device->RecordingList == this) _device->RecordingList = nullptr;
             Check(vk.vkQueueSubmit2(vk.graphics, 1, &submit, _fence), "vkQueueSubmit2");
             _submitted = true;
             // Swap slots: this submission runs on while the other slot records.
@@ -2217,7 +2234,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 VkBufferCreateInfo create{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
                 create.size = chunk.Size;
                 create.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT
-                    | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+                    | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
                 create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
                 VmaAllocationCreateInfo allocation{};
                 allocation.usage = VMA_MEMORY_USAGE_AUTO;
@@ -2384,6 +2401,31 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             vk.vkCmdBindVertexBuffers2(_commandBuffer, 0, streams, buffers.data(), offsets.data(), nullptr, strides.data());
             vk.vkCmdBindIndexBuffer(_commandBuffer, draw.IndexBuffer, draw.IndexOffset, VK_INDEX_TYPE_UINT32);
             vk.vkCmdDrawIndexed(_commandBuffer, draw.IndexCount, 1, 0, 0, 0);
+        }
+
+        void VulkanCommandList::UploadTexture(VulkanTexture& texture, std::span<const std::byte> texels)
+        {
+            RequireRecording();
+            if (_renderingOpen && _clearsPending) Materialize();
+            if (_renderingActive) EndNative();
+            const RingSlice staging = Allocate(texels.size(), 16);
+            std::memcpy(staging.Data, texels.data(), texels.size());
+            const ResourceState previous = texture.State();
+            Barrier(texture, ResourceState::CopyDst);
+            VkBufferImageCopy copy{};
+            copy.bufferOffset = staging.Offset;
+            copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            copy.imageExtent = {texture.Desc().width, texture.Desc().height, 1};
+            // The ring's host writes are made available by the flush before
+            // this list is submitted.
+            _device->ContextPointer->_impl->vkCmdCopyBufferToImage(_commandBuffer, staging.Buffer, texture.Native(),
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+            const ResourceState finalState = previous != ResourceState::Undefined && previous != ResourceState::CopyDst
+                ? previous
+                : (Has(texture.Desc().usage, TextureUsage::Sampled) ? ResourceState::ShaderRead
+                    : (Has(texture.Desc().usage, TextureUsage::ColorAttachment)
+                        ? ResourceState::ColorAttachment : ResourceState::Common));
+            Barrier(texture, finalState);
         }
 
         void VulkanCommandList::SetVertexBuffer(std::uint32_t slot, const Buffer& buffer, std::uint64_t offset)
@@ -2792,6 +2834,24 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     throw std::invalid_argument("Vulkan RHI: texture upload requires TransferDst usage.");
                 const std::size_t texels = static_cast<std::size_t>(write.width) * write.height;
                 const std::size_t dataSize = texels * StorageBytesPerPixel(write.format);
+                if (auto* recording = static_cast<VulkanCommandList*>(_state->RecordingList);
+                    recording && Aspect(image.Desc().format) == VK_IMAGE_ASPECT_COLOR_BIT)
+                {
+                    const auto* source = static_cast<const std::byte*>(write.data);
+                    if (write.format == TextureFormat::RGB8Unorm)
+                    {
+                        std::vector<std::byte> expanded(dataSize);
+                        for (std::size_t i = 0; i < texels; ++i)
+                        {
+                            std::memcpy(&expanded[i * 4U], source + i * 3U, 3U);
+                            expanded[i * 4U + 3U] = std::byte{0xFF};
+                        }
+                        recording->UploadTexture(image, expanded);
+                    }
+                    else
+                        recording->UploadTexture(image, std::span(source, dataSize));
+                    return;
+                }
                 BufferDesc stagingDesc{};
                 stagingDesc.size = dataSize;
                 stagingDesc.usage = BufferUsage::TransferSrc;
@@ -2926,6 +2986,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             void WaitIdle() override
             {
                 _state->FlushScene();
+                ++_state->HostWaits;
                 _state->ContextPointer->WaitIdle();
                 _state->CompletedFrame.store(_state->CurrentFrame.load());
             }
@@ -2945,6 +3006,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 result.Shaders = _state->Shaders.load();
                 result.Programs = _state->Programs.load();
                 result.CompletedFrame = _state->CompletedFrame.load();
+                result.HostWaits = _state->HostWaits.load();
                 return result;
             }
 

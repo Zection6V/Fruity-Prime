@@ -73,7 +73,10 @@ namespace MphRead::Mods::Diagnostics
                         (void)_scene->OnRenderFrame();
                         _swapchain->Present();
                         _scene->AfterRenderFrame();
-                        if (++_frame >= _frames)
+                        // Loading is over by the halfway frame: from there to the
+                        // end is what drawing alone costs.
+                        if (++_frame == _frames / 2) _mid = NativeRuntime::Rhi::SceneDevice().Statistics();
+                        if (_frame >= _frames)
                         {
                             EndCycle();
                             if (static_cast<std::int32_t>(_after.size()) < _cycles)
@@ -120,6 +123,8 @@ namespace MphRead::Mods::Diagnostics
                         << " framebuffers, " << s.Shaders << " shaders, " << s.Programs << " programs, "
                         << s.Buffers << " buffers, " << s.Renderbuffers << " renderbuffers, "
                         << s.Retired << " retired | frames completed " << s.CompletedFrame
+                        << " | host waits over the last " << (_frames - _frames / 2) << " frames: "
+                        << _steadyWaits[i]
                         << (steady ? "" : " | GREW") << (drained ? "" : " | NOT DRAINED") << '\n';
                 }
                 std::cout << "GPULIFETIME " << _room << " | " << _after.size() << "/" << _cycles
@@ -151,6 +156,7 @@ namespace MphRead::Mods::Diagnostics
             {
                 NativeRuntime::Rhi::GraphicsDevice& device = NativeRuntime::Rhi::SceneDevice();
                 _during.push_back(device.Statistics());
+                _steadyWaits.push_back(_during.back().HostWaits - _mid.HostWaits);
                 _scene->DoCleanup();
                 _scene->ReleaseGpuResources();
                 _scene.reset();
@@ -166,6 +172,8 @@ namespace MphRead::Mods::Diagnostics
             std::unique_ptr<NativeRuntime::Rhi::Swapchain> _swapchain{};
             std::shared_ptr<Scene> _scene{};
             std::vector<NativeRuntime::Rhi::GpuResourceStatistics> _during{};
+            NativeRuntime::Rhi::GpuResourceStatistics _mid{};
+            std::vector<std::uint64_t> _steadyWaits{};
             std::vector<NativeRuntime::Rhi::GpuResourceStatistics> _after{};
         };
     }

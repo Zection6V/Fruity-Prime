@@ -53,6 +53,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git -C $root checkout --detach FETCH_HEAD
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:VCPKG_ROOT = $root
+          "VCPKG_ROOT=$root" >> $env:GITHUB_ENV
           & "$root/bootstrap-vcpkg.bat" -disableMetrics
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "VCPKG_INSTALLATION_ROOT=$root" >> $env:GITHUB_ENV

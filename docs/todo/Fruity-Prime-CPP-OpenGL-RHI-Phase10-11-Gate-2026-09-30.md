@@ -31,9 +31,10 @@ code's exact-SHA CI is recorded below separately.
 
 ## Phase 10
 
-Status: final verification in progress. The context-lifetime and local network
-map-rotation regressions have been corrected. Exact final-SHA CI is still required
-before advancing to Phase 11.
+Status: COMPLETE. The context-lifetime and local network map-rotation regressions
+have been corrected. Integrated exact-SHA CI passed 10/10 at `a6144b61`.
+Native source is byte-identical to the runtime-tested `220e900a` (the intervening
+commits change the report/plan and compiler-cache workflow only).
 
 Base: `ac829441e9e7a5ae7a1f2ba0e21e13ae30ea0c77`.
 Implementation: `d57eb70863e00f3f125e38ee373ac21ce1e70e37`.
@@ -150,15 +151,55 @@ with exact decoded RGB equality against Phase 3. Executable SHA-256:
 Both final-source localhost clients reported `RESULT: PASS`, exit zero,
 through the two room transitions.
 
-CI for final code SHA: [build_cpp run 36644549244](https://github.com/Zection6V/Fruity-Prime/actions/runs/36644549244).
-Result pending. Earlier runs were cancelled by normal push/PR concurrency when
+CI for integrated source SHA `a6144b61b7ee77bd9cf82d6bab9f6c4db18bd50e`:
+[build_cpp run 36647299171](https://github.com/Zection6V/Fruity-Prime/actions/runs/36647299171),
+10/10 PASS including Windows/MSVC, Linux/GCC, macOS/Clang, Android contract,
+both NDK ABIs, APK and all three static audits. Run `36644549244` was canceled
+by the subsequent compiler-cache update. Earlier runs were cancelled by normal push/PR concurrency when
 required corrections were pushed. A cancelled run is not counted as a pass.
 Original implementation CI `36613750411` passed, but does not validate these
 corrections and does not establish runtime parity.
 
+## Phase 0 bridge comparison
+
+The original pre-helper baseline `bb8f619d` is not the completed Phase 0
+capture revision. The completed Phase 0 source is
+`5d3a0892aa849994864c27cd9fd5184eb8b92e65`.
+Both that source and Phase 3 were captured with one byte-identical isolated
+adapter, composite SHA-256
+`2ac95f8e4253f18183a9b2ef04fc470480737e779d7dd9498782dac8d933ac15`.
+The adapter adds a conditional pre-RHI window presentation API and recognizes
+exactly these two immutable hook-free revisions. Production renderer files
+are unchanged; only the three allowed capture files are overlaid. The normal
+Phase 3/final-source validator and its stronger production-hook checks remain
+unchanged.
+
+The bridge verifier reuses the tracked validator's source-checkout, harness,
+runtime provenance, fixture/control, fade postcondition, half-white and decoded
+RGB checks. All four runtime-input hashes match. All seven candidates passed
+exact RGB equality from Phase 0 to the new Phase 3 captures, and the new Phase 3
+captures also match the preserved Phase 3 pixels used by the main parity gate.
+
+Evidence: `C:/tmp/gp/phase0-bridge-validation.log`, `out-p0bridge`,
+`out-p3bridge`, `p0bridge-capture.log`, `p3bridge-capture.log`.
+Phase 0 executable SHA-256:
+`e674c3bf491dfd493c7d9943ef2dbaf21ee459912958a783b8d5e0c75d906d33`.
+Phase 3 bridge executable SHA-256:
+`abe5e61e214f7597cfb99af7e38a20fcdd0de6000e107c35ed44fe9678c8b137`.
+Reproduction wrappers: `C:/tmp/gp/phase0-bridge-runner.py` and
+`C:/tmp/gp/validate-phase0-bridge.py`.
+
+Supplemental static UI comparison: both sources were run with `-uishot` using
+identical paths.txt, mapdir and working directory. Phase 0 and runtime-tested
+Phase 10 both returned zero and produced 26/26 matching RGBA images, including
+launcher, offline/online picker, hunter, pause, Map Vote and end panel. These
+are layout captures, not proof of a live server vote or rendered game transition.
+Evidence: `ui-p0bridge`, `ui-p10bridge`, and their `.log`/`.err` files under
+`C:/tmp/gp/`. The live runtime gates remain separately required.
+
 ## Phase 11
 
-Not started. Requires the full qualified-GL dependency classification, explicit
+Phase 10 is complete; implementation now starts. Requires the full qualified-GL dependency classification, explicit
 backend/Skia/diagnostic boundaries with no invalid frontend dependencies,
 runtime coverage including minimize/restore and a local network game where
 available, final-code capture parity, and successful exact-SHA CI.

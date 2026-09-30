@@ -1863,12 +1863,12 @@ Vulkan mappingは後Phase。
 
 ## 完了条件
 
-- [ ] Scene resource fieldsがRHI handle化
-- [ ] OpenGL resource creation backend内
-- [ ] model texture upload backend内
-- [ ] FBO構築 backend内
-- [ ] resize正常
-- [ ] cel depth attachment切替正常
+- [x] Scene resource fieldsがRHI handle化
+- [x] OpenGL resource creation backend内
+- [x] model texture upload backend内
+- [x] FBO構築 backend内
+- [x] resize正常
+- [x] cel depth attachment切替正常
 
 ---
 
@@ -1973,12 +1973,12 @@ ColorMask(false,false,false,false)
 
 ## 完了条件
 
-- [ ] RenderItem描画時にGL state callをFrontendが直接しない
-- [ ] pipeline variants整理
-- [ ] alpha behavior一致
-- [ ] stencil behavior一致
-- [ ] decals一致
-- [ ] translucent ordering一致
+- [x] RenderItem描画時にGL state callをFrontendが直接しない
+- [x] pipeline variants整理
+- [x] alpha behavior一致
+- [x] stencil behavior一致
+- [x] decals一致
+- [x] translucent ordering一致
 
 ---
 
@@ -2082,10 +2082,10 @@ OpenGLでは暗黙だった部分をRHI上で明文化する。
 
 ## 完了条件
 
-- [ ] Scene GPU sequenceが明示Pass化
-- [ ] OpenGL output parity
-- [ ] pass order documentation更新
-- [ ] Vulkan Dynamic Renderingへ変換可能
+- [x] Scene GPU sequenceが明示Pass化
+- [x] OpenGL output parity
+- [x] pass order documentation更新
+- [x] Vulkan Dynamic Renderingへ変換可能
 
 ---
 
@@ -2170,11 +2170,11 @@ rg -n "\bGL::" src/MphRead.Native/Renderer.cpp
 
 ## 完了条件
 
-- [ ] Renderer.cpp direct GL ≈ 0
-- [ ] Renderer.hpp OpenGL include不要
-- [ ] Scene raw GL IDsなし
-- [ ] OpenGL描画完全動作
-- [ ] Skia GLのみbackend-specific exception
+- [x] Renderer.cpp direct GL ≈ 0
+- [x] Renderer.hpp OpenGL include不要
+- [x] Scene raw GL IDsなし
+- [x] OpenGL描画完全動作
+- [x] Skia GLのみbackend-specific exception
 
 ---
 
@@ -2265,11 +2265,11 @@ GL固有名をFrontendから減らす。
 
 ## 完了条件
 
-- [ ] Scene unload安全
-- [ ] match end安全
-- [ ] preview shared resource破損なし
-- [ ] repeated load/unload leakなし
-- [ ] lifetime contract Vulkan対応
+- [x] Scene unload安全
+- [x] match end安全
+- [x] preview shared resource破損なし
+- [x] repeated load/unload leakなし
+- [x] lifetime contract Vulkan対応
 
 ---
 
@@ -4548,6 +4548,8 @@ D3D12
 この節をRHI移行の実作業ログとして更新する。本文中の完了条件は項目ごとに、最新の該当SHAで実証できたものだけをチェックし、この節に根拠となるSHA・検証結果を記録する。フェーズ全体は全条件が満たされるまで完了扱いにしない。
 
 ## 現在の作業位置
+
+- **Phase 6〜10 完了 (2026-09-30)。次はPhase 11。** Phase 6〜9の保存済みキャプチャは各7/7完全一致。Phase 10最終コード `220e900a` はGolden 7/7、GPU lifetime arena 5/5・実マップcel 3/3で解放後全種ゼロ、shellshot 24枚、2クライアントのSANCTORUS↔PROVING GROUND遷移がPASS。C++ソース同一の `a6144b61` は [CI 36647299171](https://github.com/Zection6V/Fruity-Prime/actions/runs/36647299171) 10/10 PASS。Phase 0完了 `5d3a0892` からの追加captureもPhase 3と7/7完全一致、UI 26/26一致。詳細と範囲は [Phase 10/11検証記録](Fruity-Prime-CPP-OpenGL-RHI-Phase10-11-Gate-2026-09-30.md) を参照。以下のPhase 4〜5記録は過去の経緯として保持する。
 
 - **Phase 5 完了 (2026-09-30, SHA `5e52078b5545294cfa423715457e1a2279cd9398`)。** 本文の完了条件5項目すべてチェック済み。次はPhase 6。
   - **built-in撤去:** desktopのGLSL 1.20 shaderは`gl_Vertex`/`gl_Normal`/`gl_Color`/`gl_MultiTexCoord*`を読まず、`a_position`/`a_normal`/`a_color`/`a_texcoord`/`a_texcoord1`を`attribute`で宣言。`GL::LinkProgram`がリンク前に名前でlocationをbindする。共通定義は`NativeRuntime/Rhi/VertexSemantics.hpp`の1箇所（desktop 0/2/3/8/9 = NV alias表、GLES 0/2/1/3、Vulkan 0/1/2/3/4）。matrix-stack indexは`TexCoord.z`で運ぶことを契約として明記。current-value呼出しはgenericとconventionalの両方を設定し、link時にconventional既定値をgenericへ写す。

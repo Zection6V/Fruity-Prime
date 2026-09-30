@@ -11,6 +11,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <memory>
 #include <span>
 #include <tuple>
@@ -236,6 +237,22 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 commands->End();
                 std::vector<std::byte> output(size);
                 device->ReadBuffer(*readback, 0, output);
+                // D24 depth copies use X8_D24_UNORM_PACK32 in buffer memory.
+                // The high byte is padding with undefined contents, so compare
+                // all defined depth bits while ignoring only that byte.
+                if (format == TextureFormat::D24UnormS8Uint && aspect == TextureAspect::Depth)
+                {
+                    for (std::size_t offset = 0; offset < size; offset += 4)
+                    {
+                        std::uint32_t expected = 0;
+                        std::uint32_t actual = 0;
+                        std::memcpy(&expected, input.data() + offset, sizeof(expected));
+                        std::memcpy(&actual, output.data() + offset, sizeof(actual));
+                        if ((expected & 0x00FFFFFFU) != (actual & 0x00FFFFFFU))
+                            throw std::runtime_error("Vulkan D24 depth copy contents differ.");
+                    }
+                    continue;
+                }
                 if (input != output)
                     throw std::runtime_error("Vulkan image aspect copy contents differ.");
             }

@@ -87,7 +87,7 @@ jobs:
           if (-not (Test-Path $vcpkg)) {
             throw "vcpkg.exe was not found at $vcpkg"
           }
-          & $vcpkg install curl:x64-windows libarchive:x64-windows zlib:x64-windows glfw3:x64-windows freetype:x64-windows openal-soft:x64-windows vulkan-loader:x64-windows "skia[gl,freetype]:x64-windows" --clean-after-build 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/vcpkg-install.log"
+          & $vcpkg install curl:x64-windows libarchive:x64-windows zlib:x64-windows glfw3:x64-windows freetype:x64-windows openal-soft:x64-windows vulkan-loader:x64-windows vulkan-memory-allocator:x64-windows "skia[gl,freetype]:x64-windows" --clean-after-build 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/vcpkg-install.log"
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
@@ -232,7 +232,7 @@ jobs:
         run: |
           set -euo pipefail
           root="${{ steps.vcpkg.outputs.root }}"
-          "$root/vcpkg" install "skia[gl,freetype]:x64-linux" --clean-after-build 2>&1 | tee "$RUNNER_TEMP/skia-install.log"
+          "$root/vcpkg" install "skia[gl,freetype]:x64-linux" vulkan-memory-allocator:x64-linux --clean-after-build 2>&1 | tee "$RUNNER_TEMP/skia-install.log"
           echo "FRUITY_SKIA_PREFIX=$root/installed/x64-linux" >> "$GITHUB_ENV"
 
       - name: Save Skia cache immediately after install
@@ -280,6 +280,15 @@ jobs:
           xvfb-run -a build/native/FruityPrime -vulkancheck -noupdate 2>&1 | tee build/native/vulkan-foundation.log
           grep -F 'foundation PASS; clean shutdown; validation=1' build/native/vulkan-foundation.log
 
+      - name: Vulkan resource runtime gate
+        shell: bash
+        env:
+          ALSOFT_DRIVERS: "null"
+        run: |
+          set -euo pipefail
+          xvfb-run -a build/native/FruityPrime -vulkanresourcecheck -noupdate 2>&1 | tee build/native/vulkan-resources.log
+          grep -F 'resources PASS; buffer upload/copy/readback; texture upload/readback/resize; transitions; live=0; validation=1; errors=0' build/native/vulkan-resources.log
+
       - name: Vulkan presentation runtime gate
         shell: bash
         env:
@@ -293,8 +302,11 @@ jobs:
             trap "kill $window_manager_pid 2>/dev/null || true" EXIT
             sleep 1
             build/native/FruityPrime -vulkanpresentcheck -noupdate 2>&1 | tee build/native/vulkan-presentation.log
+            build/native/FruityPrime -vulkanpresentfallbackcheck -noupdate 2>&1 | tee build/native/vulkan-presentation-fallback.log
           '
           grep -F 'presentation PASS; clear present; resize; fullscreen; minimize/restore; clean shutdown; validation=1; errors=0' build/native/vulkan-presentation.log
+          grep -F 'presentation PASS; clear present; resize; fullscreen; minimize/restore; clean shutdown; validation=1; errors=0' build/native/vulkan-presentation-fallback.log
+          grep -E 'fallback-retired-releases=[1-9][0-9]*' build/native/vulkan-presentation-fallback.log
 
       - name: Upload Linux build
         uses: actions/upload-artifact@v4

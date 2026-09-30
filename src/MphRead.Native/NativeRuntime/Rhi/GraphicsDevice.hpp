@@ -10,6 +10,10 @@
 #include "Swapchain.hpp"
 
 #include <memory>
+#include <cstddef>
+#include <cstdint>
+#include <span>
+#include <stdexcept>
 #include <string>
 
 namespace MphRead::NativeRuntime::Rhi
@@ -55,6 +59,18 @@ namespace MphRead::NativeRuntime::Rhi
         // Replace a texture's contents and, if the size differs, its extent.
         // The texture keeps its handle: whatever holds it keeps working.
         virtual void WriteTexture(Texture& texture, const TextureWrite& write) = 0;
+        // Upload or read a byte range in a buffer. Backends may implement
+        // uploads through a staging allocation when the destination is GPU-only.
+        virtual void WriteBuffer(Buffer&, std::uint64_t, std::span<const std::byte>)
+        {
+            throw std::logic_error("Buffer uploads are not implemented by this graphics backend.");
+        }
+        // Synchronous readback for diagnostics and CPU consumers. The range
+        // must fit in a buffer created with MemoryUsage::GpuToCpu.
+        virtual void ReadBuffer(Buffer&, std::uint64_t, std::span<std::byte>)
+        {
+            throw std::logic_error("Buffer readback is not implemented by this graphics backend.");
+        }
         // Re-specify a render target's storage at a new extent, contents
         // undefined, keeping its handle and every view of it.
         virtual void ResizeTexture(Texture& texture, std::uint32_t width, std::uint32_t height) = 0;

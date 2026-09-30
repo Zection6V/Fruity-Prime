@@ -99,6 +99,14 @@ namespace MphRead::NativeRuntime::Rhi
         Scissor renderArea{};
     };
 
+    enum class TextureAspect : std::uint8_t
+    {
+        Automatic,
+        Color,
+        Depth,
+        Stencil
+    };
+
     struct BufferTextureCopy final
     {
         std::uint64_t bufferOffset = 0;
@@ -112,6 +120,8 @@ namespace MphRead::NativeRuntime::Rhi
         std::uint32_t width = 1;
         std::uint32_t height = 1;
         std::uint32_t depth = 1;
+        // Automatic selects colour for colour images and depth for depth images.
+        TextureAspect aspect = TextureAspect::Automatic;
 
         bool operator==(const BufferTextureCopy&) const = default;
     };

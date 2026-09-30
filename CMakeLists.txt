@@ -210,8 +210,21 @@ if(NOT ANDROID)
         find_package(Vulkan 1.3 QUIET)
     endif()
     if(Vulkan_FOUND)
-        target_compile_definitions(fruity_mphread_native PRIVATE FRUITY_HAS_VULKAN)
-        target_include_directories(fruity_mphread_native PRIVATE ${Vulkan_INCLUDE_DIRS})
+        find_path(FRUITY_VMA_INCLUDE_DIR NAMES vk_mem_alloc.h PATH_SUFFIXES vma)
+        if(FRUITY_VMA_INCLUDE_DIR)
+            target_compile_definitions(fruity_mphread_native PRIVATE
+                FRUITY_HAS_VULKAN
+                VMA_STATIC_VULKAN_FUNCTIONS=0
+                VMA_DYNAMIC_VULKAN_FUNCTIONS=1)
+            target_include_directories(fruity_mphread_native PRIVATE
+                ${Vulkan_INCLUDE_DIRS}
+                "${FRUITY_VMA_INCLUDE_DIR}")
+        elseif(FRUITY_REQUIRE_VULKAN)
+            message(FATAL_ERROR
+                "Desktop Vulkan was required, but Vulkan Memory Allocator (vk_mem_alloc.h) was not found.")
+        else()
+            message(STATUS "Vulkan SDK found but VMA is missing; disabling the optional Vulkan backend")
+        endif()
     endif()
 endif()
 add_library(FruityPrime::MphRead.Native ALIAS fruity_mphread_native)

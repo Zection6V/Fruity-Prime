@@ -1032,6 +1032,16 @@ namespace MphRead::Mods
             SetExitCode(NativeRuntime::Rhi::Vulkan::RunPresentationCheck());
             return true;
         }
+        if (::HasFlag(args, "vulkanresourcecheck"))
+        {
+            SetExitCode(NativeRuntime::Rhi::Vulkan::RunResourceCheck());
+            return true;
+        }
+        if (::HasFlag(args, "vulkanpresentfallbackcheck"))
+        {
+            SetExitCode(NativeRuntime::Rhi::Vulkan::RunPresentationCheck(true));
+            return true;
+        }
 #if defined(MPHREAD_SHELL)
         if (::HasFlag(args, "glfwpathcheck"))
         {

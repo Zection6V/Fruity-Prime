@@ -6,6 +6,15 @@
 
 #if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
 #include "VulkanContextInternal.hpp"
+#include "VulkanGraphicsDevice.hpp"
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <span>
+#include <tuple>
+#include <vector>
 
 namespace MphRead::NativeRuntime::Rhi::Vulkan
 {
@@ -13,13 +22,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     {
         _impl->Initialize(validation);
     }
-    Context::Context(bool validation, ::MphRead::RendererPlatform::Window& window)
+    Context::Context(bool validation, ::MphRead::RendererPlatform::Window& window, bool allowMaintenance)
         : _impl(std::make_unique<Impl>())
     {
         auto* native = static_cast<GLFWwindow*>(window.NativeHandle());
         if (!native || window.GraphicsMode() != ::MphRead::RendererPlatform::GraphicsWindowMode::NoApi)
             throw std::invalid_argument("A Vulkan context requires a GLFW NoApi window.");
-        _impl->Initialize(validation, native);
+        _impl->Initialize(validation, native, allowMaintenance);
     }
     Context::~Context() = default;
     const Capabilities& Context::Caps() const noexcept { return _impl->caps; }
@@ -64,13 +73,198 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         }
         catch (const std::exception& e) { std::cerr << "[vulkan] foundation FAIL: " << e.what() << '\n'; return 1; }
     }
+
+    int RunResourceCheck()
+    {
+        try
+        {
+            RendererPlatform::WindowSettings settings{};
+            settings.GraphicsMode = RendererPlatform::GraphicsWindowMode::NoApi;
+            settings.Title = std::string(Mods::Branding::Name) + " Vulkan resource check";
+            settings.StartVisible = false;
+            auto window = RendererPlatform::CreateWindow(settings);
+            (void)window;
+
+            Context context(true);
+            if (!context.ValidationEnabled())
+                throw std::runtime_error("Vulkan validation layers are required for the resource check.");
+            auto device = CreateGraphicsDevice(context);
+
+            constexpr std::uint32_t width = 8;
+            constexpr std::uint32_t height = 4;
+            constexpr std::size_t bytes = width * height * 4;
+            std::array<std::byte, bytes> expected{};
+            for (std::size_t i = 0; i < expected.size(); ++i)
+                expected[i] = static_cast<std::byte>((i * 37U + 11U) & 0xffU);
+
+            {
+                BufferDesc gpuDesc{};
+                gpuDesc.size = bytes + 1;
+                gpuDesc.usage = BufferUsage::TransferDst | BufferUsage::TransferSrc
+                    | BufferUsage::Storage | BufferUsage::Vertex | BufferUsage::Index | BufferUsage::Uniform;
+                gpuDesc.initialState = ResourceState::VertexBuffer | ResourceState::IndexBuffer
+                    | ResourceState::ConstantBuffer;
+                auto gpuBuffer = device->CreateBuffer(gpuDesc);
+                device->WriteBuffer(*gpuBuffer, 1, std::span(expected).first(bytes - 1));
+
+                BufferDesc readbackDesc{};
+                readbackDesc.size = bytes;
+                readbackDesc.usage = BufferUsage::TransferDst;
+                readbackDesc.memoryUsage = MemoryUsage::GpuToCpu;
+                auto bufferReadback = device->CreateBuffer(readbackDesc);
+                auto commands = device->CreateCommandList();
+                commands->Begin();
+                commands->Transition(*gpuBuffer, gpuDesc.initialState, ResourceState::ShaderRead);
+                commands->Transition(*gpuBuffer, ResourceState::ShaderRead, ResourceState::ShaderWrite);
+                commands->Transition(*gpuBuffer, ResourceState::ShaderWrite, ResourceState::CopySrc);
+                commands->Transition(*bufferReadback, ResourceState::Undefined, ResourceState::CopyDst);
+                commands->CopyBuffer(*gpuBuffer, 1, *bufferReadback, 0, bytes - 1);
+                commands->End();
+                std::array<std::byte, bytes> actual{};
+                device->ReadBuffer(*bufferReadback, 0, std::span(actual).first(bytes - 1));
+                if (!std::equal(expected.begin(), expected.end() - 1, actual.begin()))
+                    throw std::runtime_error("Vulkan buffer upload/copy/readback contents differ.");
+            }
+
+            {
+                TextureDesc textureDesc{};
+                textureDesc.width = 1;
+                textureDesc.height = 1;
+                textureDesc.format = TextureFormat::RGBA8Unorm;
+                textureDesc.usage = TextureUsage::Sampled | TextureUsage::TransferSrc
+                    | TextureUsage::TransferDst;
+                auto texture = device->CreateTexture(textureDesc);
+                TextureViewDesc viewDesc{};
+                auto view = device->CreateTextureView(*texture, viewDesc);
+                const TextureWrite write{width, height, TextureFormat::RGBA8Unorm, expected.data()};
+                device->WriteTexture(*texture, write);
+                if (texture->Desc().width != width || texture->Desc().height != height
+                    || &view->TextureResource() != texture.get())
+                    throw std::runtime_error("Vulkan texture upload did not preserve its resized texture view.");
+
+                BufferDesc readbackDesc{};
+                readbackDesc.size = bytes;
+                readbackDesc.usage = BufferUsage::TransferDst;
+                readbackDesc.memoryUsage = MemoryUsage::GpuToCpu;
+                auto textureReadback = device->CreateBuffer(readbackDesc);
+                auto commands = device->CreateCommandList();
+                commands->Begin();
+                commands->Transition(*texture, ResourceState::ShaderRead, ResourceState::CopySrc);
+                commands->Transition(*textureReadback, ResourceState::Undefined, ResourceState::CopyDst);
+                BufferTextureCopy region{};
+                region.width = width;
+                region.height = height;
+                commands->CopyTextureToBuffer(*texture, *textureReadback, region);
+                commands->End();
+                std::array<std::byte, bytes> actual{};
+                device->ReadBuffer(*textureReadback, 0, actual);
+                if (actual != expected)
+                    throw std::runtime_error("Vulkan texture upload/readback contents differ.");
+
+                device->ResizeTexture(*texture, width + 3, height + 2);
+                if (texture->Desc().width != width + 3 || texture->Desc().height != height + 2)
+                    throw std::runtime_error("Vulkan texture resize did not retain its RHI object.");
+            }
+
+            {
+                TextureDesc colorDesc{};
+                colorDesc.format = TextureFormat::RGBA8Unorm;
+                colorDesc.usage = TextureUsage::ColorAttachment | TextureUsage::TransferSrc
+                    | TextureUsage::TransferDst;
+                colorDesc.initialState = ResourceState::ColorAttachment;
+                auto color = device->CreateTexture(colorDesc);
+                auto commands = device->CreateCommandList();
+                commands->Begin();
+                commands->Transition(*color, ResourceState::ColorAttachment, ResourceState::CopyDst);
+                commands->Transition(*color, ResourceState::CopyDst, ResourceState::ColorAttachment);
+                commands->End();
+            }
+
+            {
+                TextureDesc depthDesc{};
+                depthDesc.format = TextureFormat::D32Float;
+                depthDesc.usage = TextureUsage::DepthStencilAttachment;
+                depthDesc.initialState = ResourceState::DepthStencilWrite;
+                auto depth = device->CreateTexture(depthDesc);
+                auto commands = device->CreateCommandList();
+                commands->Begin();
+                commands->Transition(*depth, ResourceState::DepthStencilWrite,
+                    ResourceState::DepthStencilRead);
+                commands->Transition(*depth, ResourceState::DepthStencilRead,
+                    ResourceState::DepthStencilWrite);
+                commands->End();
+            }
+
+            // Exercise tightly packed two-channel uploads and the separate
+            // depth/stencil aspects of a packed image through the public RHI.
+            for (const auto [format, aspect, pixelBytes] : std::array{
+                std::tuple{TextureFormat::RG16Float, TextureAspect::Automatic, 4U},
+                std::tuple{TextureFormat::D24UnormS8Uint, TextureAspect::Depth, 4U},
+                std::tuple{TextureFormat::D24UnormS8Uint, TextureAspect::Stencil, 1U}})
+            {
+                const std::size_t size = width * height * pixelBytes;
+                std::vector<std::byte> input(size, std::byte{0x11});
+                BufferDesc uploadDesc{};
+                uploadDesc.size = size;
+                uploadDesc.usage = BufferUsage::TransferSrc;
+                uploadDesc.memoryUsage = MemoryUsage::CpuToGpu;
+                auto upload = device->CreateBuffer(uploadDesc);
+                device->WriteBuffer(*upload, 0, input);
+                TextureDesc desc{};
+                desc.width = width;
+                desc.height = height;
+                desc.format = format;
+                desc.usage = TextureUsage::TransferDst | TextureUsage::TransferSrc;
+                auto image = device->CreateTexture(desc);
+                BufferDesc readDesc{};
+                readDesc.size = size;
+                readDesc.usage = BufferUsage::TransferDst;
+                readDesc.memoryUsage = MemoryUsage::GpuToCpu;
+                auto readback = device->CreateBuffer(readDesc);
+                auto commands = device->CreateCommandList();
+                commands->Begin();
+                commands->Transition(*upload, ResourceState::Undefined, ResourceState::CopySrc);
+                commands->Transition(*image, ResourceState::Undefined, ResourceState::CopyDst);
+                BufferTextureCopy region{};
+                region.width = width;
+                region.height = height;
+                region.aspect = aspect;
+                commands->CopyBufferToTexture(*upload, *image, region);
+                commands->Transition(*image, ResourceState::CopyDst, ResourceState::CopySrc);
+                commands->Transition(*readback, ResourceState::Undefined, ResourceState::CopyDst);
+                commands->CopyTextureToBuffer(*image, *readback, region);
+                commands->End();
+                std::vector<std::byte> output(size);
+                device->ReadBuffer(*readback, 0, output);
+                if (input != output)
+                    throw std::runtime_error("Vulkan image aspect copy contents differ.");
+            }
+
+            device->WaitIdle();
+            const GpuResourceStatistics live = device->Statistics();
+            if (live.Textures != 0 || live.Buffers != 0 || live.Retired != 0)
+                throw std::runtime_error("Vulkan resource check found live resources after release.");
+            device.reset();
+            context.Shutdown();
+            if (context.ValidationErrors() != 0)
+                throw std::runtime_error("Vulkan validation reported resource or synchronization errors.");
+            std::cout << "[vulkan] resources PASS; buffer upload/copy/readback; texture upload/readback/resize; "
+                << "transitions; live=0; validation=1; errors=0\n";
+            return 0;
+        }
+        catch (const std::exception& e)
+        {
+            std::cerr << "[vulkan] resources FAIL: " << e.what() << '\n';
+            return 1;
+        }
+    }
 }
 #else
 namespace MphRead::NativeRuntime::Rhi::Vulkan
 {
     struct Context::Impl { Capabilities caps; std::string name; };
     Context::Context(bool) { throw std::runtime_error("Desktop Vulkan development support was not built."); }
-    Context::Context(bool, ::MphRead::RendererPlatform::Window&)
+    Context::Context(bool, ::MphRead::RendererPlatform::Window&, bool)
     {
         throw std::runtime_error("Desktop Vulkan development support was not built.");
     }
@@ -85,6 +279,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     int RunFoundationCheck()
     {
         std::cerr << "[vulkan] foundation unavailable: desktop Vulkan SDK support was not built.\n";
+        return 1;
+    }
+    int RunResourceCheck()
+    {
+        std::cerr << "[vulkan] resource check unavailable: desktop Vulkan SDK support was not built.\n";
         return 1;
     }
 }

@@ -75,8 +75,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     class VulkanSwapchain final : public Swapchain
     {
     public:
-        VulkanSwapchain(::MphRead::RendererPlatform::Window& window, const SwapchainDesc& desc)
-            : _window(window), _context(true, window),
+        VulkanSwapchain(::MphRead::RendererPlatform::Window& window, const SwapchainDesc& desc, bool allowMaintenance = true)
+            : _window(window), _context(true, window, allowMaintenance),
               _nativeWindow(static_cast<GLFWwindow*>(window.NativeHandle())),
               _desc(desc), _requestedMode(desc.presentMode)
         {
@@ -117,6 +117,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         void Resize(std::uint32_t width, std::uint32_t height) override
         {
+            if (_acquired) throw std::logic_error("Cannot resize a Vulkan swapchain with an acquired image.");
             if (width == 0 || height == 0)
             {
                 _suspended = true;
@@ -124,7 +125,6 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 _desc.height = 0;
                 return;
             }
-            if (_acquired) throw std::logic_error("Cannot resize a Vulkan swapchain with an acquired image.");
             int framebufferWidth = 0, framebufferHeight = 0;
             ::glfwGetFramebufferSize(_nativeWindow, &framebufferWidth, &framebufferHeight);
             if (framebufferWidth > 0 && framebufferHeight > 0)
@@ -140,6 +140,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         [[nodiscard]] Texture& AcquireNextTexture() override
         {
             if (_closed) throw std::logic_error("The Vulkan swapchain is closed.");
+            if (_acquired) throw std::logic_error("A Vulkan swapchain image is already acquired.");
             for (;;)
             {
                 if (::glfwWindowShouldClose(_nativeWindow))
@@ -172,7 +173,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 std::uint32_t imageIndex = 0;
                 const VkResult acquire = _context._impl->vkAcquireNextImageKHR(
                     _context._impl->device, _swapchain, UINT64_MAX,
-                    frame.imageAvailable, VK_NULL_HANDLE, &imageIndex);
+                    frame.imageAvailable, frame.acquireFence, &imageIndex);
                 if (acquire == VK_ERROR_OUT_OF_DATE_KHR)
                 {
                     Recreate(w, h);
@@ -182,6 +183,23 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     Check(acquire, "vkAcquireNextImageKHR");
                 if (imageIndex >= _images.size())
                     throw std::runtime_error("vkAcquireNextImageKHR returned an invalid image index.");
+
+                if (frame.acquireFence)
+                {
+                    auto& vk = *_context._impl;
+                    Check(vk.vkWaitForFences(vk.device, 1, &frame.acquireFence, VK_TRUE, UINT64_MAX),
+                        "vkWaitForFences(acquire completion)");
+                    Check(vk.vkResetFences(vk.device, 1, &frame.acquireFence), "vkResetFences(acquire)");
+                    // A completed reacquisition proves a previous presentation
+                    // on this replacement chain completed, and therefore all
+                    // older chains on the same present queue can be retired.
+                    if (_images[imageIndex].presentPending)
+                    {
+                        _fallbackRetiredReleases += _retired.size();
+                        DestroyRetired();
+                        _images[imageIndex].presentPending = false;
+                    }
+                }
 
                 ImageState& image = _images[imageIndex];
                 if (image.lastFrame != VK_NULL_HANDLE && image.lastFrame != frame.fence)
@@ -217,6 +235,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         void ClearCurrent(float red, float green, float blue, float alpha)
         {
             if (!_acquired) throw std::logic_error("No Vulkan swapchain image is acquired.");
+            if (_commandsReady) throw std::logic_error("The acquired Vulkan image already has recorded commands.");
             Frame& frame = _frames[_frameIndex];
             VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
             begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -275,11 +294,15 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         [[nodiscard]] bool ValidationEnabled() const noexcept { return _context.ValidationEnabled(); }
         [[nodiscard]] unsigned ValidationErrors() const noexcept { return _context.ValidationErrors(); }
+        [[nodiscard]] bool PresentFencesEnabled() const noexcept { return _context._impl->swapchainMaintenance1; }
+        [[nodiscard]] std::uint64_t PresentFenceWaits() const noexcept { return _presentFenceWaits; }
+        [[nodiscard]] std::uint64_t FallbackRetiredReleases() const noexcept { return _fallbackRetiredReleases; }
 
         void Close()
         {
             if (_closed) return;
             WaitOutstanding();
+            DestroyRetired();
             DestroyImageStates();
             DestroyFrames();
             if (_swapchain)
@@ -298,6 +321,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             VkCommandBuffer command = VK_NULL_HANDLE;
             VkSemaphore imageAvailable = VK_NULL_HANDLE;
             VkFence fence = VK_NULL_HANDLE;
+            VkFence acquireFence = VK_NULL_HANDLE;
             bool submitted = false;
         };
 
@@ -308,6 +332,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             VkFence presentFence = VK_NULL_HANDLE;
             VkFence lastFrame = VK_NULL_HANDLE;
             bool presentPending = false;
+        };
+
+        struct RetiredSwapchain final
+        {
+            VkSwapchainKHR chain = VK_NULL_HANDLE;
+            std::vector<ImageState> images;
         };
 
         static constexpr std::size_t FrameCount = 2;
@@ -321,6 +351,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         VkExtent2D _extent{};
         std::array<Frame, FrameCount> _frames{};
         std::vector<ImageState> _images;
+        std::vector<RetiredSwapchain> _retired;
         std::uint32_t _frameIndex = 0;
         std::uint32_t _currentImage = 0;
         bool _acquired = false;
@@ -329,6 +360,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         bool _needsRecreate = true;
         bool _recreateAfterPresent = false;
         bool _closed = false;
+        std::uint64_t _presentFenceWaits = 0;
+        std::uint64_t _fallbackRetiredReleases = 0;
 
         void InitializeFrames()
         {
@@ -349,6 +382,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 VkFenceCreateInfo fence{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
                 fence.flags = VK_FENCE_CREATE_SIGNALED_BIT;
                 Check(vk.vkCreateFence(vk.device, &fence, nullptr, &frame.fence), "vkCreateFence(frame)");
+                if (!vk.swapchainMaintenance1)
+                {
+                    fence.flags = 0;
+                    Check(vk.vkCreateFence(vk.device, &fence, nullptr, &frame.acquireFence), "vkCreateFence(acquire)");
+                }
             }
         }
 
@@ -464,8 +502,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 if (oldSwapchain)
                 {
-                    DestroyImageStates();
-                    vk.vkDestroySwapchainKHR(vk.device, oldSwapchain, nullptr);
+                    RetireImages(oldSwapchain);
                     _swapchain = VK_NULL_HANDLE;
                 }
                 Check(createResult, "vkCreateSwapchainKHR");
@@ -473,8 +510,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             _swapchain = replacement;
             if (oldSwapchain)
             {
-                DestroyImageStates();
-                vk.vkDestroySwapchainKHR(vk.device, oldSwapchain, nullptr);
+                RetireImages(oldSwapchain);
             }
             _extent = extent;
             _desc.width = extent.width;
@@ -501,8 +537,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY};
                 view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
                 VkImageView imageView = VK_NULL_HANDLE;
-                Check(vk.vkCreateImageView(vk.device, &view, nullptr, &imageView), "vkCreateImageView(swapchain)");
                 ImageState state{};
+                try
+                {
+                Check(vk.vkCreateImageView(vk.device, &view, nullptr, &imageView), "vkCreateImageView(swapchain)");
                 state.texture = std::make_unique<VulkanSwapchainTexture>(image, imageView, extent, rhiFormat);
                 VkSemaphoreCreateInfo semaphore{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
                 Check(vk.vkCreateSemaphore(vk.device, &semaphore, nullptr, &state.renderFinished),
@@ -515,6 +553,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                         "vkCreateFence(present completion)");
                 }
                 _images.push_back(std::move(state));
+                }
+                catch (...)
+                {
+                    if (state.presentFence) vk.vkDestroyFence(vk.device, state.presentFence, nullptr);
+                    if (state.renderFinished) vk.vkDestroySemaphore(vk.device, state.renderFinished, nullptr);
+                    if (imageView) vk.vkDestroyImageView(vk.device, imageView, nullptr);
+                    throw;
+                }
             }
             _suspended = false;
             _needsRecreate = false;
@@ -530,6 +576,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 Check(_context._impl->vkWaitForFences(_context._impl->device,
                     1, &image.presentFence, VK_TRUE, UINT64_MAX), "vkWaitForFences(present)");
+                ++_presentFenceWaits;
                 image.presentPending = false;
             }
         }
@@ -551,17 +598,47 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             Check(vk.vkDeviceWaitIdle(vk.device), "vkDeviceWaitIdle(swapchain)");
         }
 
-        void DestroyImageStates() noexcept
+        void DestroyImageStates(std::vector<ImageState>& images) noexcept
         {
-            if (!_context._impl || !_context._impl->device) { _images.clear(); return; }
+            if (!_context._impl || !_context._impl->device) { images.clear(); return; }
             auto& vk = *_context._impl;
-            for (ImageState& image : _images)
+            for (ImageState& image : images)
             {
                 if (image.renderFinished) vk.vkDestroySemaphore(vk.device, image.renderFinished, nullptr);
                 if (image.presentFence) vk.vkDestroyFence(vk.device, image.presentFence, nullptr);
                 if (image.texture && image.texture->View()) vk.vkDestroyImageView(vk.device, image.texture->View(), nullptr);
             }
-            _images.clear();
+            images.clear();
+        }
+
+        void DestroyImageStates() noexcept { DestroyImageStates(_images); }
+
+        void RetireImages(VkSwapchainKHR chain)
+        {
+            auto& vk = *_context._impl;
+            if (!vk.swapchainMaintenance1 && std::any_of(_images.begin(), _images.end(),
+                [](const ImageState& image) { return image.presentPending; }))
+            {
+                _retired.emplace_back();
+                _retired.back().chain = chain;
+                _retired.back().images = std::move(_images);
+            }
+            else
+            {
+                DestroyImageStates();
+                vk.vkDestroySwapchainKHR(vk.device, chain, nullptr);
+            }
+        }
+
+        void DestroyRetired() noexcept
+        {
+            auto& vk = *_context._impl;
+            for (RetiredSwapchain& retired : _retired)
+            {
+                DestroyImageStates(retired.images);
+                vk.vkDestroySwapchainKHR(vk.device, retired.chain, nullptr);
+            }
+            _retired.clear();
         }
 
         void DestroyFrames() noexcept
@@ -572,6 +649,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 if (frame.imageAvailable) vk.vkDestroySemaphore(vk.device, frame.imageAvailable, nullptr);
                 if (frame.fence) vk.vkDestroyFence(vk.device, frame.fence, nullptr);
+                if (frame.acquireFence) vk.vkDestroyFence(vk.device, frame.acquireFence, nullptr);
                 if (frame.pool) vk.vkDestroyCommandPool(vk.device, frame.pool, nullptr);
                 frame = {};
             }
@@ -582,6 +660,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (!_context._impl || !_context._impl->device) return;
             auto& vk = *_context._impl;
             if (vk.vkDeviceWaitIdle) vk.vkDeviceWaitIdle(vk.device);
+            DestroyRetired();
             DestroyImageStates();
             DestroyFrames();
             if (_swapchain && vk.vkDestroySwapchainKHR)
@@ -636,11 +715,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 present.pNext = &presentFenceInfo;
             }
             const VkResult result = vk.vkQueuePresentKHR(vk.present, &present);
-            if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR)
-                image.presentPending = image.presentFence != VK_NULL_HANDLE;
-            else if (result == VK_ERROR_OUT_OF_DATE_KHR)
+            // Rejected surface/out-of-date presents still enqueue their wait
+            // operations. Their completion fence must be waited before cleanup.
+            if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR
+                || result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_ERROR_SURFACE_LOST_KHR)
+                image.presentPending = true;
+            if (result == VK_ERROR_OUT_OF_DATE_KHR)
                 _needsRecreate = true;
-            else
+            else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
                 Check(result, "vkQueuePresentKHR");
 
             _acquired = false;
@@ -658,7 +740,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         return std::make_unique<VulkanSwapchain>(window, desc);
     }
 
-    int RunPresentationCheck()
+    int RunPresentationCheck(bool forceFallback)
     {
         try
         {
@@ -675,7 +757,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             desc.width = 1280;
             desc.height = 720;
             desc.presentMode = PresentMode::Fifo;
-            std::unique_ptr<Swapchain> swapchain = CreateSwapchain(*window, desc);
+            std::unique_ptr<Swapchain> swapchain = std::make_unique<VulkanSwapchain>(*window, desc, !forceFallback);
             auto& vkSwapchain = dynamic_cast<VulkanSwapchain&>(*swapchain);
 
             const auto drawColor = [&vkSwapchain, &swapchain](float r, float g, float b)
@@ -776,12 +858,19 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             drawColor(0.12F, 0.32F, 0.72F);
 
             const bool validation = vkSwapchain.ValidationEnabled();
+            if (forceFallback && (vkSwapchain.PresentFencesEnabled()
+                || vkSwapchain.FallbackRetiredReleases() == 0))
+                throw std::runtime_error("The fallback diagnostic did not prove deferred swapchain retirement.");
             vkSwapchain.Close();
             const unsigned errors = vkSwapchain.ValidationErrors();
+            if (vkSwapchain.PresentFencesEnabled() && vkSwapchain.PresentFenceWaits() == 0)
+                throw std::runtime_error("Enabled present fences were never waited by the presentation check.");
             if (errors != 0)
                 throw std::runtime_error("Vulkan validation reported " + std::to_string(errors) + " error(s).");
             std::cout << "[vulkan] presentation PASS; clear present; resize; fullscreen; minimize/restore; "
-                << "clean shutdown; validation=" << validation << "; errors=0\n";
+                << "clean shutdown; validation=" << validation << "; errors=0; present-fence-waits="
+                << vkSwapchain.PresentFenceWaits() << '\n';
+            std::cout << "[vulkan] fallback-retired-releases=" << vkSwapchain.FallbackRetiredReleases() << '\n';
             return 0;
         }
         catch (const std::exception& e)
@@ -801,7 +890,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     {
         throw std::runtime_error("Vulkan presentation is unavailable on this platform or build.");
     }
-    int RunPresentationCheck()
+    int RunPresentationCheck(bool)
     {
         std::cerr << "[vulkan] presentation unavailable: desktop Vulkan support was not built.\n";
         return 1;

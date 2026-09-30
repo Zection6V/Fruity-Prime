@@ -55,17 +55,19 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 #define VULKAN_INSTANCE_FUNCTIONS(X) \
         X(vkDestroyInstance) X(vkEnumeratePhysicalDevices) X(vkGetPhysicalDeviceProperties) \
         X(vkGetPhysicalDeviceFeatures2) X(vkEnumerateDeviceExtensionProperties) \
-        X(vkGetPhysicalDeviceFormatProperties) X(vkGetPhysicalDeviceQueueFamilyProperties) \
+        X(vkGetPhysicalDeviceFormatProperties) X(vkGetPhysicalDeviceImageFormatProperties) X(vkGetPhysicalDeviceQueueFamilyProperties) \
         X(vkGetPhysicalDeviceMemoryProperties) X(vkGetPhysicalDeviceSurfaceSupportKHR) \
         X(vkGetPhysicalDeviceSurfaceCapabilitiesKHR) X(vkGetPhysicalDeviceSurfaceFormatsKHR) \
         X(vkGetPhysicalDeviceSurfacePresentModesKHR) X(vkDestroySurfaceKHR) \
         X(vkCreateDevice) X(vkGetDeviceProcAddr)
 #define VULKAN_DEVICE_FUNCTIONS(X) \
         X(vkDeviceWaitIdle) X(vkDestroyDevice) X(vkGetDeviceQueue) X(vkCreateCommandPool) \
-        X(vkDestroyCommandPool) X(vkAllocateCommandBuffers) X(vkResetCommandPool) \
+        X(vkDestroyCommandPool) X(vkAllocateCommandBuffers) X(vkFreeCommandBuffers) X(vkResetCommandPool) \
         X(vkBeginCommandBuffer) X(vkEndCommandBuffer) X(vkCmdPipelineBarrier2) \
-        X(vkCmdBeginRendering) X(vkCmdEndRendering) X(vkCreateImageView) \
-        X(vkDestroyImageView) X(vkCreateSemaphore) X(vkDestroySemaphore) \
+        X(vkCmdBeginRendering) X(vkCmdEndRendering) X(vkCmdCopyBuffer) \
+        X(vkCmdCopyBufferToImage) X(vkCmdCopyImageToBuffer) X(vkCreateImageView) \
+        X(vkDestroyImageView) X(vkCreateSampler) X(vkDestroySampler) \
+        X(vkCreateSemaphore) X(vkDestroySemaphore) \
         X(vkCreateFence) X(vkDestroyFence) X(vkWaitForFences) X(vkResetFences) \
         X(vkCreateSwapchainKHR) X(vkDestroySwapchainKHR) X(vkGetSwapchainImagesKHR) \
         X(vkAcquireNextImageKHR) X(vkQueueSubmit2) X(vkQueuePresentKHR)
@@ -97,7 +99,16 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         ~Impl() { Shutdown(); }
         void Shutdown() noexcept
         {
-            if (device) { vkDeviceWaitIdle(device); vkDestroyDevice(device, nullptr); device = VK_NULL_HANDLE; }
+            if (device)
+            {
+                if (!vkDeviceWaitIdle && vkGetDeviceProcAddr)
+                    vkDeviceWaitIdle = reinterpret_cast<PFN_vkDeviceWaitIdle>(vkGetDeviceProcAddr(device, "vkDeviceWaitIdle"));
+                if (!vkDestroyDevice && vkGetDeviceProcAddr)
+                    vkDestroyDevice = reinterpret_cast<PFN_vkDestroyDevice>(vkGetDeviceProcAddr(device, "vkDestroyDevice"));
+                if (vkDeviceWaitIdle) vkDeviceWaitIdle(device);
+                if (vkDestroyDevice) vkDestroyDevice(device, nullptr);
+                device = VK_NULL_HANDLE;
+            }
             if (surface && instance)
             {
                 if (vkDestroySurfaceKHR) vkDestroySurfaceKHR(instance, surface, nullptr);
@@ -110,7 +121,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 if (destroy) destroy(instance, messenger, nullptr);
                 messenger = VK_NULL_HANDLE;
             }
-            if (instance) { vkDestroyInstance(instance, nullptr); instance = VK_NULL_HANDLE; }
+            if (instance)
+            {
+                if (!vkDestroyInstance)
+                    vkDestroyInstance = reinterpret_cast<PFN_vkDestroyInstance>(glfwGetInstanceProcAddress(instance, "vkDestroyInstance"));
+                if (vkDestroyInstance) vkDestroyInstance(instance, nullptr);
+                instance = VK_NULL_HANDLE;
+            }
         }
         void Name(VkObjectType type, std::uint64_t handle, const char* label)
         {
@@ -120,7 +137,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             Check(setName(device, &info), "vkSetDebugUtilsObjectNameEXT");
         }
 
-        void Initialize(bool requestedValidation, GLFWwindow* presentationWindow = nullptr)
+        void Initialize(bool requestedValidation, GLFWwindow* presentationWindow = nullptr, bool allowMaintenance = true)
         {
             std::uint32_t version = VK_API_VERSION_1_0;
             auto enumerateVersion = reinterpret_cast<PFN_vkEnumerateInstanceVersion>(
@@ -145,7 +162,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (debugUtils) extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
             const bool surfaceCapabilities2 = Contains(
                 available, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
-            const bool surfaceMaintenance1 = surfaceCapabilities2
+            const bool surfaceMaintenance1 = allowMaintenance && surfaceCapabilities2
                 && Contains(available, VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
             if (surfaceCapabilities2 && surfaceMaintenance1)
             {
@@ -299,6 +316,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             createDevice.enabledExtensionCount = static_cast<std::uint32_t>(deviceExtensionNames.size());
             createDevice.ppEnabledExtensionNames = deviceExtensionNames.data();
             Check(vkCreateDevice(physical, &createDevice, nullptr, &device), "vkCreateDevice");
+            swapchainMaintenance1 = maintenance1;
 #define LOAD_VULKAN_DEVICE_FUNCTION(name) name = reinterpret_cast<PFN_##name>(vkGetDeviceProcAddr(device, #name)); if (!name) throw std::runtime_error("Missing Vulkan device entry point: " #name);
             VULKAN_DEVICE_FUNCTIONS(LOAD_VULKAN_DEVICE_FUNCTION)
 #undef LOAD_VULKAN_DEVICE_FUNCTION

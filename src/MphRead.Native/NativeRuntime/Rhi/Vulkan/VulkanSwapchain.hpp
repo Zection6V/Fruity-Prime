@@ -17,5 +17,5 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         ::MphRead::RendererPlatform::Window& window, const SwapchainDesc& desc);
 
     // Visible desktop diagnostic for Phase 13. It does not load game data.
-    int RunPresentationCheck();
+    int RunPresentationCheck(bool forceFallback = false);
 }

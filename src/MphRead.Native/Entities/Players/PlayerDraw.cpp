@@ -463,13 +463,16 @@ namespace MphRead::Entities
         {
             polygonId = RequireReference(_scene).GetNextPolygonId();
         }
-        Model& model = RequireReference(inst.Model());
+        const std::shared_ptr<Model> modelValue = inst.Model();
+        Model& model = RequireReference(modelValue);
         if (node.Enabled)
         {
             const std::int32_t start = node.MeshId / 2;
             for (std::int32_t i = 0; i < node.MeshCount; ++i)
             {
-                Mesh& mesh = RequireReference(ManagedAt(model.Meshes, start + i));
+                const std::shared_ptr<Mesh> meshValue
+                    = ManagedAt(model.Meshes, start + i);
+                Mesh& mesh = RequireReference(meshValue);
                 if (!mesh.Visible)
                 {
                     continue;
@@ -490,7 +493,7 @@ namespace MphRead::Entities
                     matrixStack.push_back(matrixStackValues[matrixIndex]);
                 }
                 renderScene.AddRenderItem(material, polygonId, alpha, emission,
-                    GetLightInfo(), texcoordMatrix, node.Animation, mesh.ListId,
+                    GetLightInfo(), texcoordMatrix, node.Animation, modelValue, meshValue,
                     ManagedLength(model.NodeMatrixIds), matrixStack, color,
                     PaletteOverride(), selectionType, node.BillboardMode, _drawScale, bindingOverride);
             }

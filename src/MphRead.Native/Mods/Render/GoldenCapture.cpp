@@ -1,4 +1,6 @@
 #include "GoldenCapture.hpp"
+#include "GoldenCaptureValidation.hpp"
+#include "GoldenCaptureProvenance.generated.hpp"
 
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../GameState.hpp"
@@ -43,6 +45,10 @@ namespace
     constexpr std::int32_t GoldenCaptureUpdate = GoldenWarmupUpdates + 1;
     constexpr float GoldenFovDegrees = 78.0F;
     constexpr std::string_view GoldenRoom = "TEST ARENA";
+    constexpr std::string_view GoldenPhasePlanBlob
+        = "a262838984ef547ebd6f22d1d9e78f3e1f214586";
+    constexpr std::string_view GoldenPhase3BaselineCommit
+        = "13c49e35f2a314662c7cc639e5e56fa784ac8bfd";
 
     [[nodiscard]] Vector3 GoldenCameraPosition()
     {
@@ -201,7 +207,10 @@ namespace
                     false, MphRead::RendererPlatform::GraphicsWindowMode::OpenGL);
             settings.ClientSize = Vector2i(GoldenWidth, GoldenHeight);
             settings.Title = std::string(MphRead::Mods::Branding::Name)
-                + " Phase 0 golden capture";
+                + " Phase "
+                + std::to_string(
+                    MphRead::Mods::Render::GoldenCaptureValidation::ManifestPhase)
+                + " golden capture";
             settings.StartVisible = true;
             settings.UpdateFrequency = 0.0;
 
@@ -234,6 +243,13 @@ namespace
         [[nodiscard]] bool Succeeded() const noexcept
         {
             return _captured;
+        }
+
+        [[nodiscard]] std::optional<
+            MphRead::Mods::Render::GoldenCaptureValidation::PixelSummary>
+            CaptureSummary() const noexcept
+        {
+            return _captureSummary;
         }
 
         void Run()
@@ -315,9 +331,16 @@ namespace
                 }
                 else
                 {
-                    _scene->SetPreviewCamera(
-                        GoldenCameraPosition(),
-                        GoldenCameraTarget());
+                    const auto main = MphRead::Entities::PlayerEntity::Main();
+                    if (!main || !main->CameraInfo())
+                    {
+                        Fail("synthetic fixture requires the production player camera");
+                        _window->BaseOnRenderFrame(args);
+                        return;
+                    }
+                    const auto camera = main->CameraInfo();
+                    _scene->ModGoldenSetPlayerCamera(
+                        camera->Position, camera->Target, camera->Fov);
                 }
 
                 _scene->OnDrawFrame();
@@ -358,34 +381,120 @@ namespace
                     return;
                 }
 
+                std::optional<std::vector<std::uint8_t>> controlPixels;
                 if (UsesSyntheticFixture(_candidate))
                 {
                     _scene->ModGoldenInjectFixture(
                         FixtureFor(_candidate),
                         _fixtureTexture);
                 }
-                else if (_candidate == GoldenCandidate::Fade)
+                else
                 {
-                    _scene->ModGoldenSetFadeState(1.0F, 0.5F);
-                }
-                else if (_candidate
-                    == GoldenCandidate::WhiteoutDisruption)
-                {
-                    _scene->ModGoldenSetElapsedTime(0.25F);
-                    const auto main
-                        = MphRead::Entities::PlayerEntity::Main();
-                    if (!main)
+                    _scene->ModGoldenResetFinalStageState();
+                    _finalStageGateVerified
+                        = _scene->ModGoldenFinalStageReady();
+                    if (!_finalStageGateVerified)
                     {
-                        Fail("main player is missing");
+                        Fail(
+                            "production final-stage gate is not ready "
+                            "(active main player + CameraMode::Player required)");
                         _window->BaseOnRenderFrame(args);
                         return;
                     }
-                    main->ModGoldenSetHudShift(
-                        2,
-                        0.75F,
-                        1,
-                        1.0F,
-                        48.0F);
+
+                    if (_candidate == GoldenCandidate::Hud)
+                    {
+                        _controlDescription
+                            = "same simulation update with HUD/fade final-stage gate disabled";
+                        _scene->ModGoldenSetHudPassEnabled(false);
+                    }
+                    else
+                    {
+                        _controlDescription
+                            = "same simulation update with clean production HUD and no fade/disruption";
+                    }
+
+                    if (!_scene->OnRenderFrame())
+                    {
+                        Fail(
+                            "Scene::OnRenderFrame refused the fixed "
+                            "control render");
+                        _window->BaseOnRenderFrame(args);
+                        return;
+                    }
+                    controlPixels = ReadValidatedWindow("control");
+                    _controlSummary
+                        = MphRead::Mods::Render::GoldenCaptureValidation::SummarizeRgb(
+                            *controlPixels, GoldenWidth, GoldenHeight);
+
+                    if (_candidate == GoldenCandidate::Hud)
+                    {
+                        _scene->ModGoldenSetHudPassEnabled(true);
+                    }
+                    else if (_candidate
+                        == GoldenCandidate::WhiteoutDisruption)
+                    {
+                        _scene->ModGoldenSetElapsedTime(0.25F);
+                        const auto main
+                            = MphRead::Entities::PlayerEntity::Main();
+                        if (!main)
+                        {
+                            Fail("main player is missing");
+                            _window->BaseOnRenderFrame(args);
+                            return;
+                        }
+                        main->ModGoldenSetHudShift(
+                            2,
+                            0.75F,
+                            1,
+                            1.0F,
+                            48.0F);
+                        if (!main->ModGoldenHudShiftStateMatches(
+                                2,
+                                0.75F,
+                                1,
+                                1.0F,
+                                48.0F))
+                        {
+                            Fail(
+                                "whiteout/disruption fixture state "
+                                "did not latch");
+                            _window->BaseOnRenderFrame(args);
+                            return;
+                        }
+                    }
+
+                    // The control OnRenderFrame finishes on framebuffer 0.
+                    // Re-run draw preparation without advancing simulation so
+                    // the intended pass gets the production scene framebuffer
+                    // and render-item state for the same simulation update.
+                    _scene->OnDrawFrame();
+
+                    _finalStageGateVerified
+                        = _scene->ModGoldenFinalStageReady();
+                    if (!_finalStageGateVerified)
+                    {
+                        Fail(
+                            "production final-stage gate was lost before "
+                            "the intended render");
+                        _window->BaseOnRenderFrame(args);
+                        return;
+                    }
+
+                    if (_candidate == GoldenCandidate::Fade)
+                    {
+                        // Inject only after draw preparation so the next
+                        // production UpdateFade in OnRenderFrame is the first
+                        // consumer of the deterministic timing fixture.
+                        _scene->ModGoldenArmFadeObservation();
+                        _scene->ModGoldenSetFadeState(1.0F, 0.5F);
+                        if (!_scene->ModGoldenFadeStateMatches(1.0F, 0.5F))
+                        {
+                            Fail("fade fixture state did not latch");
+                            _window->BaseOnRenderFrame(args);
+                            return;
+                        }
+                    }
                 }
 
                 if (!_scene->OnRenderFrame())
@@ -395,6 +504,31 @@ namespace
                         "capture update");
                     _window->BaseOnRenderFrame(args);
                     return;
+                }
+
+                if (_candidate == GoldenCandidate::Fade)
+                {
+                    _fadeObservation = _scene->ModGoldenFadeObservation();
+                    MphRead::Mods::Render::GoldenCaptureValidation::RequireExpectedFadeSequence(
+                        *_fadeObservation,
+                        static_cast<std::int32_t>(MphRead::FadeType::FadeOutWhite),
+                        1.0F,
+                        0.5F);
+                }
+
+                std::vector<std::uint8_t> capturedPixels
+                    = ReadValidatedWindow("candidate");
+                _captureSummary
+                    = MphRead::Mods::Render::GoldenCaptureValidation::SummarizeRgb(
+                        capturedPixels, GoldenWidth, GoldenHeight);
+                if (controlPixels.has_value())
+                {
+                    _changedPixelCount
+                        = MphRead::Mods::Render::GoldenCaptureValidation::RequireDistinctRgb(
+                            *controlPixels,
+                            capturedPixels,
+                            GoldenWidth,
+                            GoldenHeight);
                 }
 
                 _captured = MphRead::Mods::ScreenCapture::SaveWindow(
@@ -438,6 +572,29 @@ namespace
         }
 
     private:
+        [[nodiscard]] std::vector<std::uint8_t> ReadValidatedWindow(
+            std::string_view label)
+        {
+            std::int32_t width = 0;
+            std::int32_t height = 0;
+            std::optional<std::vector<std::uint8_t>> pixels
+                = _scene->ReadWindowBuffer(width, height);
+            if (!pixels.has_value())
+            {
+                throw std::runtime_error(
+                    std::string(label) + " window RGB read returned no pixels");
+            }
+            if (width != GoldenWidth || height != GoldenHeight)
+            {
+                throw std::runtime_error(
+                    std::string(label)
+                    + " window RGB read did not match the fixed dimensions");
+            }
+            (void)MphRead::Mods::Render::GoldenCaptureValidation::RequireMeaningfulRgb(
+                *pixels, width, height);
+            return std::move(*pixels);
+        }
+
         void Close()
         {
             _window->Close();
@@ -462,41 +619,40 @@ namespace
             {
             case GoldenCandidate::TransparentObject:
                 return
-                    "synthetic translucent RenderItemType::Quad; "
-                    "alpha=0.45; vertices=(-2,2,0),(2,2,0),"
-                    "(2,6,0),(-2,6,0)";
+                    "camera-relative translucent RenderItemType::Quad; "
+                    "material alpha=0.45 and override alpha=0.45; "
+                    "centered 2.5 units in front of the production camera";
             case GoldenCandidate::Decal:
                 return
-                    "synthetic RenderMode::Decal quad on TEST ARENA "
-                    "floor; alpha=1.0; vertices=(-4,0.02,6),"
-                    "(4,0.02,6),(4,0.02,10),(-4,0.02,10)";
+                    "camera-relative RenderMode::Decal quad; alpha=1.0; "
+                    "centered 2.7 units in front of the production camera";
             case GoldenCandidate::Particle:
                 return
-                    "synthetic RenderItemType::Particle using a "
-                    "Scene-owned 2x2 cyan/white checker texture; "
-                    "alpha=0.85; vertices=(-2,2,0),(2,2,0),"
-                    "(2,6,0),(-2,6,0)";
+                    "camera-relative RenderItemType::Particle using a "
+                    "Scene-owned 2x2 cyan/white checker texture; alpha=0.85; "
+                    "centered 2.2 units in front of the production camera";
             case GoldenCandidate::Trail:
                 return
-                    "synthetic RenderItemType::TrailMulti using a "
+                    "camera-relative RenderItemType::TrailMulti using a "
                     "Scene-owned 2x2 cyan/white checker texture; "
-                    "8 strip vertices from x=-4 to x=4 around "
-                    "y=3.2..4.8,z=0";
+                    "8 strip vertices centered 2.4 units in front of "
+                    "the production camera";
             case GoldenCandidate::Hud:
                 return
-                    "real Samus production HUD; debug-only player "
-                    "camera override uses the canonical TEST ARENA "
-                    "preview transform";
+                    "real Samus production HUD; unrelated fade/disruption "
+                    "state is reset after OnDrawFrame; output is required "
+                    "to differ from a same-update HUD-disabled control";
             case GoldenCandidate::Fade:
                 return
-                    "real production fade pass; debug-only fixed "
-                    "FadeOutWhite state color=1.0,percent=0.5";
+                    "real production FadeOutWhite pass color=1.0,percent=0.5 "
+                    "over a clean production HUD baseline; output is required "
+                    "to differ from that same-update control";
             case GoldenCandidate::WhiteoutDisruption:
                 return
-                    "real production shift/whiteout post-process; "
-                    "debug-only disruption state=2,factor=0.75,"
+                    "real production shift/whiteout post-process; unrelated "
+                    "fade state is reset; disruption state=2,factor=0.75,"
                     "whiteout state=1,factor=1.0,amount=48,"
-                    "elapsedTime=0.25s";
+                    "elapsedTime=0.25s; output must differ from clean HUD";
             }
             return "unknown";
         }
@@ -516,10 +672,36 @@ namespace
                 = _scene ? _scene->Size() : Vector2i{};
 
             std::ostringstream out;
-            out << "phase=0\n";
+            out << "phase="
+                << MphRead::Mods::Render::GoldenCaptureValidation::ManifestPhase
+                << "\n";
             out << "candidate=" << CandidateName(_candidate) << "\n";
+            out << "fixture_contract="
+                << MphRead::Mods::Render::GoldenCaptureValidation::FixtureContract
+                << "\n";
             out << "plan_baseline="
                 << "bb8f619da7abbe614ea60765006f290a60938f98\n";
+            out << "phase_plan_blob=" << GoldenPhasePlanBlob << "\n";
+            out << "phase3_baseline_commit="
+                << GoldenPhase3BaselineCommit << "\n";
+            out << "source_commit="
+                << MphRead::Mods::Render::GoldenCaptureProvenance::SourceCommit
+                << "\n";
+            out << "source_commit_harness_state="
+                << MphRead::Mods::Render::GoldenCaptureProvenance::GitHarnessState
+                << "\n";
+            out << "golden_capture_cpp_git_blob="
+                << MphRead::Mods::Render::GoldenCaptureProvenance::GoldenCaptureCppGitBlob
+                << "\n";
+            out << "golden_capture_cpp_sha256="
+                << MphRead::Mods::Render::GoldenCaptureProvenance::GoldenCaptureCppSha256
+                << "\n";
+            out << "golden_capture_harness_sha256="
+                << MphRead::Mods::Render::GoldenCaptureProvenance::HarnessSha256
+                << "\n";
+            out << "cross_revision_parity=unestablished; requires a peer "
+                   "capture with identical golden_capture_harness_sha256 "
+                   "and matching fixture inputs\n";
             out << "map=" << GoldenRoom << "\n";
             out << "mode=Battle\n";
             out << "hunter=Samus\n";
@@ -537,15 +719,28 @@ namespace
                 << GoldenCaptureUpdate << "\n";
             out << "trigger=after OnDrawFrame on update ordinal "
                 << GoldenCaptureUpdate
-                << ", immediately before OnRenderFrame\n";
+                << "; final-stage candidates render a control, re-run "
+                   "OnDrawFrame without advancing simulation, inject any "
+                   "candidate-only final-stage state, then render the intended "
+                   "production final-stage path\n";
             out << "camera_mode="
-                << (UsesPlayerCamera(_candidate)
-                    ? "player-debug-override"
-                    : "preview")
+                << (UsesSyntheticFixture(_candidate)
+                    ? "production-player-camera-after-warmup"
+                    : "player-debug-override")
                 << "\n";
-            out << "camera_position=0,16,30\n";
-            out << "camera_target=0,1,0\n";
-            out << "fov_degrees=78\n";
+            if (UsesSyntheticFixture(_candidate))
+            {
+                out << "camera_position=production-player-camera-after-warmup\n";
+                out << "camera_target=production-player-camera-after-warmup\n";
+                out << "fov_degrees=production-player-camera-after-warmup\n";
+            }
+            else
+            {
+                out << "camera_position=0,16,30\n";
+                out << "camera_target=0,1,0\n";
+                out << "fov_degrees=78\n";
+            }
+            out << "synthetic_fixture_space=camera-relative\n";
             out << "resolution_scale=100\n";
             out << "lighting=on\n";
             out << "cel=off\n";
@@ -554,6 +749,68 @@ namespace
             out << "fog=off\n";
             out << "texture_filtering=off\n";
             out << "fixture=" << FixtureDescription() << "\n";
+            out << "final_stage_gate="
+                << (_finalStageGateVerified ? "verified"
+                    : "not-applicable-or-not-reached")
+                << "\n";
+            out << "control="
+                << (_controlDescription.empty() ? "none" : _controlDescription)
+                << "\n";
+            if (_controlSummary.has_value())
+            {
+                out << "control_rgb_fnv1a64="
+                    << _controlSummary->Fnv1a64 << "\n";
+                out << "control_rgb_lit_pixels="
+                    << _controlSummary->LitPixelCount << "\n";
+            }
+            if (_captureSummary.has_value())
+            {
+                out << "capture_rgb_fnv1a64="
+                    << _captureSummary->Fnv1a64 << "\n";
+                out << "capture_rgb_lit_pixels="
+                    << _captureSummary->LitPixelCount << "\n";
+                out << "capture_rgb_total_pixels="
+                    << _captureSummary->PixelCount << "\n";
+            }
+            if (_changedPixelCount.has_value())
+            {
+                out << "control_changed_pixels="
+                    << *_changedPixelCount << "\n";
+            }
+            if (_candidate == GoldenCandidate::Fade)
+            {
+                out << "fade_target_type=FadeOutWhite\n";
+                out << "fade_target_color=1\n";
+                out << "fade_target_percent=0.5\n";
+                if (_fadeObservation.has_value())
+                {
+                    out << "fade_update_observed="
+                        << (_fadeObservation->UpdateObserved ? "true" : "false")
+                        << "\n";
+                    if (_fadeObservation->UpdateObserved)
+                    {
+                        out << "fade_update_percent="
+                            << _fadeObservation->UpdatePercent << "\n";
+                    }
+                    out << "fade_draw_observed="
+                        << (_fadeObservation->DrawObserved ? "true" : "false")
+                        << "\n";
+                    if (_fadeObservation->DrawObserved)
+                    {
+                        out << "fade_draw_type_value="
+                            << _fadeObservation->DrawType << "\n";
+                        out << "fade_draw_color="
+                            << _fadeObservation->DrawColor << "\n";
+                        out << "fade_draw_percent="
+                            << _fadeObservation->DrawPercent << "\n";
+                    }
+                }
+                else
+                {
+                    out << "fade_update_observed=false\n";
+                    out << "fade_draw_observed=false\n";
+                }
+            }
             out << "fixture_scope="
                 << (UsesSyntheticFixture(_candidate)
                     ? "synthetic geometry only; validates production "
@@ -588,12 +845,24 @@ namespace
         bool _captured = false;
         bool _cleaned = false;
         bool _manifestWritten = false;
+        bool _finalStageGateVerified = false;
+        std::string _controlDescription{};
+        std::optional<MphRead::Mods::Render::GoldenCaptureValidation::PixelSummary>
+            _controlSummary{};
+        std::optional<MphRead::Mods::Render::GoldenCaptureValidation::PixelSummary>
+            _captureSummary{};
+        std::optional<std::size_t> _changedPixelCount{};
+        std::optional<MphRead::Mods::Render::GoldenCaptureValidation::FadeObservation>
+            _fadeObservation{};
         std::string _error{};
     };
 
     [[nodiscard]] std::int32_t RunOne(
         GoldenCandidate candidate,
-        const std::string& directory)
+        const std::string& directory,
+        std::optional<
+            MphRead::Mods::Render::GoldenCaptureValidation::PixelSummary>*
+            captureSummary = nullptr)
     {
         GoldenCaptureWindow window(candidate, directory);
         window.Run();
@@ -606,6 +875,22 @@ namespace
                 << std::endl;
             return 1;
         }
+
+        const auto summary = window.CaptureSummary();
+        if (!summary.has_value())
+        {
+            std::cerr
+                << "[goldencapture] "
+                << CandidateName(candidate)
+                << " captured without an RGB summary"
+                << std::endl;
+            return 1;
+        }
+        if (captureSummary != nullptr)
+        {
+            *captureSummary = summary;
+        }
+
         std::cout
             << "[goldencapture] "
             << CandidateName(candidate)
@@ -653,7 +938,8 @@ namespace MphRead
             item->TextureBindingId = textured ? binding : 0;
             item->TexcoordMatrix = RendererDetail::IdentityMatrix();
             item->Transform = RendererDetail::IdentityMatrix();
-            item->ListId = 0;
+            item->MeshModel.reset();
+            item->MeshObject.reset();
             item->MatrixStackCount = 0;
             item->OverrideColor.reset();
             item->PaletteOverride.reset();
@@ -674,6 +960,14 @@ namespace MphRead
                 "texture binding.");
         }
 
+        const auto cameraPoint = [this](float x, float y, float distance)
+        {
+            return _cameraPosition
+                + Multiply(_cameraRight, x)
+                + Multiply(_cameraUp, y)
+                + Multiply(_cameraFacing, distance);
+        };
+
         if (fixture
             == Mods::Render::GoldenFixture::TransparentObject)
         {
@@ -685,11 +979,11 @@ namespace MphRead
                 false,
                 0);
             item->OverrideColor
-                = Vector4(0.10F, 0.85F, 1.0F, 1.0F);
-            (*item->Points)[0] = Vector3(-2.0F, 2.0F, 0.0F);
-            (*item->Points)[1] = Vector3(2.0F, 2.0F, 0.0F);
-            (*item->Points)[2] = Vector3(2.0F, 6.0F, 0.0F);
-            (*item->Points)[3] = Vector3(-2.0F, 6.0F, 0.0F);
+                = Vector4(0.10F, 0.85F, 1.0F, 0.45F);
+            (*item->Points)[0] = cameraPoint(-0.8F, 0.8F, 2.5F);
+            (*item->Points)[1] = cameraPoint(0.8F, 0.8F, 2.5F);
+            (*item->Points)[2] = cameraPoint(0.8F, -0.8F, 2.5F);
+            (*item->Points)[3] = cameraPoint(-0.8F, -0.8F, 2.5F);
             AddRenderItem(item);
             return;
         }
@@ -705,14 +999,10 @@ namespace MphRead
                 0);
             item->OverrideColor
                 = Vector4(1.0F, 0.15F, 0.05F, 1.0F);
-            (*item->Points)[0]
-                = Vector3(-4.0F, 0.02F, 6.0F);
-            (*item->Points)[1]
-                = Vector3(4.0F, 0.02F, 6.0F);
-            (*item->Points)[2]
-                = Vector3(4.0F, 0.02F, 10.0F);
-            (*item->Points)[3]
-                = Vector3(-4.0F, 0.02F, 10.0F);
+            (*item->Points)[0] = cameraPoint(-1.0F, 0.45F, 2.7F);
+            (*item->Points)[1] = cameraPoint(1.0F, 0.45F, 2.7F);
+            (*item->Points)[2] = cameraPoint(1.0F, -0.45F, 2.7F);
+            (*item->Points)[3] = cameraPoint(-1.0F, -0.45F, 2.7F);
             AddRenderItem(item);
             return;
         }
@@ -727,13 +1017,13 @@ namespace MphRead
                 true,
                 textureBindingId);
             (*item->Points)[0] = Vector3(0.0F, 0.0F, 0.0F);
-            (*item->Points)[1] = Vector3(-2.0F, 2.0F, 0.0F);
+            (*item->Points)[1] = cameraPoint(-0.7F, 0.7F, 2.2F);
             (*item->Points)[2] = Vector3(1.0F, 0.0F, 0.0F);
-            (*item->Points)[3] = Vector3(2.0F, 2.0F, 0.0F);
+            (*item->Points)[3] = cameraPoint(0.7F, 0.7F, 2.2F);
             (*item->Points)[4] = Vector3(1.0F, 1.0F, 0.0F);
-            (*item->Points)[5] = Vector3(2.0F, 6.0F, 0.0F);
+            (*item->Points)[5] = cameraPoint(0.7F, -0.7F, 2.2F);
             (*item->Points)[6] = Vector3(0.0F, 1.0F, 0.0F);
-            (*item->Points)[7] = Vector3(-2.0F, 6.0F, 0.0F);
+            (*item->Points)[7] = cameraPoint(-0.7F, -0.7F, 2.2F);
             AddRenderItem(item);
             return;
         }
@@ -746,14 +1036,14 @@ namespace MphRead
             true,
             textureBindingId);
         const std::array<Vector3, 8> trailVertices{
-            Vector3(-4.0F, 4.0F, 0.0F),
-            Vector3(-4.0F, 3.2F, 0.0F),
-            Vector3(-1.5F, 4.6F, 0.0F),
-            Vector3(-1.5F, 3.6F, 0.0F),
-            Vector3(1.5F, 4.8F, 0.0F),
-            Vector3(1.5F, 3.8F, 0.0F),
-            Vector3(4.0F, 4.2F, 0.0F),
-            Vector3(4.0F, 3.4F, 0.0F)
+            cameraPoint(-1.4F, 0.35F, 2.4F),
+            cameraPoint(-1.4F, -0.25F, 2.4F),
+            cameraPoint(-0.5F, 0.50F, 2.4F),
+            cameraPoint(-0.5F, -0.15F, 2.4F),
+            cameraPoint(0.5F, 0.55F, 2.4F),
+            cameraPoint(0.5F, -0.10F, 2.4F),
+            cameraPoint(1.4F, 0.40F, 2.4F),
+            cameraPoint(1.4F, -0.20F, 2.4F)
         };
         for (std::size_t i = 0;
             i < trailVertices.size();
@@ -816,6 +1106,78 @@ namespace MphRead
             = Vector3::Cross(_cameraFacing, _cameraUp).Normalized();
     }
 
+    void Scene::ModGoldenResetFinalStageState() noexcept
+    {
+        _fadeType = MphRead::FadeType::None;
+        _fadeColor = 0.0F;
+        _fadeIn = false;
+        _fadeStart = 0.0F;
+        _fadeLength = 0.0F;
+        _fadePercent = 0.0F;
+        _fadeDelay = 0.0F;
+        _fadeEnded = false;
+        _afterFade = AfterFade::None;
+        _modGoldenFadeObservationArmed = false;
+        _modGoldenFadeObservation = {};
+
+        const auto main = Entities::PlayerEntity::Main();
+        if (main)
+        {
+            main->ModGoldenSetHudShift(
+                0,
+                0.0F,
+                -1,
+                0.0F,
+                0.0F);
+        }
+    }
+
+    void Scene::ModGoldenSetHudPassEnabled(bool enabled) noexcept
+    {
+        _cameraMode = enabled
+            ? MphRead::CameraMode::Player
+            : MphRead::CameraMode::Roam;
+    }
+
+    bool Scene::ModGoldenFinalStageReady() const noexcept
+    {
+        const auto main = Entities::PlayerEntity::Main();
+        return main
+            && ((main->LoadFlags() & Entities::LoadFlags::Active)
+                == Entities::LoadFlags::Active)
+            && _cameraMode == MphRead::CameraMode::Player;
+    }
+
+    bool Scene::ModGoldenFadeStateMatches(
+        float color,
+        float percent) const noexcept
+    {
+        const MphRead::FadeType expectedType = color >= 0.5F
+            ? MphRead::FadeType::FadeOutWhite
+            : MphRead::FadeType::FadeOutBlack;
+        const float expectedPercent = std::clamp(percent, 0.0F, 1.0F);
+        const MphRead::Mods::Render::GoldenCaptureValidation::FadeFixtureTiming
+            timing
+            = MphRead::Mods::Render::GoldenCaptureValidation::MakeDeterministicFadeTiming(
+                _globalElapsedTime,
+                expectedPercent);
+        return _fadeType == expectedType
+            && _fadeColor == std::clamp(color, 0.0F, 1.0F)
+            && !_fadeIn
+            && MphRead::Mods::Render::GoldenCaptureValidation::FadeValueMatches(
+                _fadePercent,
+                expectedPercent)
+            && MphRead::Mods::Render::GoldenCaptureValidation::FadeValueMatches(
+                _fadeStart,
+                timing.Start)
+            && MphRead::Mods::Render::GoldenCaptureValidation::FadeValueMatches(
+                _fadeLength,
+                timing.Length)
+            && _fadeDelay == 0.0F
+            && !_fadeEnded
+            && _afterFade == AfterFade::None;
+    }
+
     void Scene::ModGoldenSetFadeState(
         float color,
         float percent) noexcept
@@ -826,9 +1188,54 @@ namespace MphRead
         _fadeColor = std::clamp(color, 0.0F, 1.0F);
         _fadeIn = false;
         _fadePercent = std::clamp(percent, 0.0F, 1.0F);
+        const MphRead::Mods::Render::GoldenCaptureValidation::FadeFixtureTiming
+            timing
+            = MphRead::Mods::Render::GoldenCaptureValidation::MakeDeterministicFadeTiming(
+                _globalElapsedTime,
+                _fadePercent);
+        _fadeStart = timing.Start;
+        _fadeLength = timing.Length;
         _fadeDelay = 0.0F;
         _fadeEnded = false;
         _afterFade = AfterFade::None;
+    }
+
+    void Scene::ModGoldenArmFadeObservation() noexcept
+    {
+        _modGoldenFadeObservation = {};
+        _modGoldenFadeObservationArmed = true;
+    }
+
+    void Scene::ModGoldenObserveFadeUpdate(float percent) noexcept
+    {
+        if (!_modGoldenFadeObservationArmed)
+        {
+            return;
+        }
+        _modGoldenFadeObservation.UpdateObserved = true;
+        _modGoldenFadeObservation.UpdatePercent = percent;
+    }
+
+    void Scene::ModGoldenObserveFadeDraw(
+        std::int32_t fadeType,
+        float color,
+        float percent) noexcept
+    {
+        if (!_modGoldenFadeObservationArmed)
+        {
+            return;
+        }
+        _modGoldenFadeObservation.DrawObserved = true;
+        _modGoldenFadeObservation.DrawType = fadeType;
+        _modGoldenFadeObservation.DrawColor = color;
+        _modGoldenFadeObservation.DrawPercent = percent;
+        _modGoldenFadeObservationArmed = false;
+    }
+
+    MphRead::Mods::Render::GoldenCaptureValidation::FadeObservation
+        Scene::ModGoldenFadeObservation() const noexcept
+    {
+        return _modGoldenFadeObservation;
     }
 
     void Scene::ModGoldenSetElapsedTime(
@@ -859,6 +1266,21 @@ namespace MphRead::Entities
             UpdateWhiteoutTable(whiteoutAmount);
         }
     }
+
+    bool PlayerEntity::ModGoldenHudShiftStateMatches(
+        std::uint8_t disruptionState,
+        float disruptionFactor,
+        std::int32_t whiteoutState,
+        float whiteoutFactor,
+        float whiteoutAmount) const noexcept
+    {
+        return _hudDisruptedState == disruptionState
+            && _hudDisruptionFactor
+                == std::clamp(disruptionFactor, 0.0F, 1.0F)
+            && _hudWhiteoutState == whiteoutState
+            && _hudWhiteoutFactor == whiteoutFactor
+            && _whiteoutAmount == whiteoutAmount;
+    }
 }
 
 namespace MphRead::Mods::Render
@@ -885,11 +1307,54 @@ namespace MphRead::Mods::Render
                 GoldenCandidate::WhiteoutDisruption
             };
             std::int32_t failures = 0;
+            std::optional<
+                MphRead::Mods::Render::GoldenCaptureValidation::PixelSummary>
+                hudSummary{};
+            std::optional<
+                MphRead::Mods::Render::GoldenCaptureValidation::PixelSummary>
+                fadeSummary{};
             for (GoldenCandidate item : candidates)
             {
-                failures += RunOne(item, directory);
+                auto* summary = item == GoldenCandidate::Hud
+                    ? &hudSummary
+                    : item == GoldenCandidate::Fade
+                        ? &fadeSummary
+                        : nullptr;
+                failures += RunOne(item, directory, summary);
             }
-            return failures == 0 ? 0 : 1;
+            if (failures != 0)
+            {
+                return 1;
+            }
+            if (!hudSummary.has_value() || !fadeSummary.has_value())
+            {
+                std::cerr
+                    << "[goldencapture] HUD/fade batch identity guard "
+                       "has no capture summary"
+                    << std::endl;
+                return 1;
+            }
+            try
+            {
+                MphRead::Mods::Render::GoldenCaptureValidation::
+                    RequireDistinctFingerprints(
+                        *hudSummary,
+                        *fadeSummary);
+            }
+            catch (const std::exception& exception)
+            {
+                std::cerr
+                    << "[goldencapture] HUD/fade batch identity guard "
+                       "failed: "
+                    << exception.what()
+                    << std::endl;
+                return 1;
+            }
+            std::cout
+                << "[goldencapture] HUD/fade raw-RGB fingerprints "
+                   "are distinct"
+                << std::endl;
+            return 0;
         }
 
         const std::optional<GoldenCandidate> parsed

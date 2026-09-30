@@ -4,6 +4,7 @@
 // which is what GameWindow does for the C# renderer.
 
 #include "../../Renderer.hpp"
+#include "../Rhi/OpenGL/OpenGlDevice.hpp"
 
 #include "../../Mods/Chat/ChatBox.hpp"
 #include "../System/Heartbeat.hpp"
@@ -218,6 +219,11 @@ namespace
         {
             if (_handle != nullptr)
             {
+                if (_graphicsMode == GraphicsWindowMode::OpenGL)
+                {
+                    ::glfwMakeContextCurrent(_handle);
+                    MphRead::NativeRuntime::Rhi::OpenGL::FinishContextDevice();
+                }
                 ::glfwDestroyWindow(_handle);
                 _handle = nullptr;
             }
@@ -510,6 +516,11 @@ namespace
                 return MphRead::RendererPlatform::WindowStateValue::Maximized;
             }
             return MphRead::RendererPlatform::WindowStateValue::Normal;
+        }
+
+        void WindowStateMinimized() override
+        {
+            ::glfwIconifyWindow(_handle);
         }
 
         void WindowStateMaximized() override

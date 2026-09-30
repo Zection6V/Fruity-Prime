@@ -27,6 +27,12 @@ namespace MphRead::NativeRuntime::Rhi
                 return _desc;
             }
 
+            // The window's own surface has no texture handle to bind.
+            [[nodiscard]] TextureHandle Handle() const noexcept override
+            {
+                return {};
+            }
+
             void Resize(const SwapchainDesc& desc) noexcept
             {
                 _desc.width = desc.width;

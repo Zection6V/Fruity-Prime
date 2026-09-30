@@ -271,7 +271,6 @@ namespace MphRead
         const std::int32_t MaterialId;
         const std::int32_t DlistId;
 
-        std::int32_t ListId = 0;
         bool Visible = true;
         std::optional<OpenTK::Mathematics::Vector4> PlaceholderColor{};
 

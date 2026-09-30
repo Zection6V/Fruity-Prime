@@ -1,4 +1,5 @@
 #include "NetCheckClient.hpp"
+#include "../../NativeRuntime/OpenTK/GL.hpp"
 #include "HitRig.hpp"
 #include "NetHitClaims.hpp"
 #include "NetShotDiagnostics.hpp"
@@ -136,6 +137,11 @@ namespace MphRead::Mods::Network
 
     void NetCheckClient::Dispose()
     {
+        if (_scene)
+        {
+            _scene->ReleaseGpuResources();
+            _scene.reset();
+        }
         _swapchain.reset();
         _window.reset();
     }

@@ -1,5 +1,6 @@
 #include "GameView.hpp"
 
+#include "AndroidGlContextGate.hpp"
 #include "AndroidMatch.hpp"
 #include "GamepadBridge.hpp"
 #include "AndroidUiOverlay.hpp"
@@ -19,6 +20,8 @@
 #include "../MphRead.Native/Mods/Render/EsBindings.hpp"
 #include "../MphRead.Native/Mods/Render/FrameTiming.hpp"
 #include "../MphRead.Native/Mods/Render/GlEs.hpp"
+#include "../MphRead.Native/NativeRuntime/OpenTK/GL.hpp"
+#include "../MphRead.Native/NativeRuntime/Rhi/OpenGL/OpenGlDevice.hpp"
 #include "../MphRead.Native/Mods/Render/HunterShot.hpp"
 #include "../MphRead.Native/Mods/SpectatorMode.hpp"
 #include "../MphRead.Native/Renderer.hpp"
@@ -982,6 +985,9 @@ namespace MphRead::Droid
 
         void Run()
         {
+            // Hold exclusive ownership of the process-global GlEs shim for the
+            // complete non-shared EGL context lifetime, including teardown.
+            AndroidGlContextLease glContextLease;
             try
             {
                 try
@@ -1005,13 +1011,38 @@ namespace MphRead::Droid
             }
             catch (...)
             {
+                ReleaseGlEsContext();
                 ReleaseSurface();
                 DestroyContext();
                 throw;
             }
 
+            ReleaseGlEsContext();
             ReleaseSurface();
             DestroyContext();
+        }
+
+        void ReleaseGlEsContext() noexcept
+        {
+            // Dynamic shim objects are context-local. Delete them only while
+            // this exact context is current; if ordinary surface loss already
+            // unbound it, clear the process-global bookkeeping and let context
+            // destruction reclaim the objects.
+            if (_contextAssigned
+                && _context != EGL_NO_CONTEXT
+                && eglGetCurrentContext() == _context)
+            {
+                MphRead::Mods::Render::GlEs::ReleaseContext();
+            }
+            else
+            {
+                MphRead::Mods::Render::GlEs::Reset();
+            }
+            // GL's Android wrapper keeps its own per-context bindings and
+            // element data; they die with this context as well.
+            OpenTK::Graphics::OpenGL::GL::ResetAndroidState();
+            // The RHI device's textures lived in that context too.
+            MphRead::NativeRuntime::Rhi::OpenGL::ResetContextDevice();
         }
 
         void Loop()
@@ -1282,6 +1313,8 @@ namespace MphRead::Droid
             {
                 MphRead::Mods::Render::EsBindings::Load();
                 MphRead::Mods::Render::GlEs::Reset();
+                OpenTK::Graphics::OpenGL::GL::ResetAndroidState();
+                MphRead::NativeRuntime::Rhi::OpenGL::ResetContextDevice();
                 glClearColor(
                     10.0F / 255.0F,
                     12.0F / 255.0F,

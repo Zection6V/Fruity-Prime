@@ -486,8 +486,9 @@ namespace MphRead::NativeRuntime::Skia
             }
             if (Extra.DisableVertexAttribArray != nullptr)
             {
-                // Attribute 0 aliases gl_Vertex in the compatibility profile,
-                // and the game never enables a generic array itself.
+                // Attribute 0 aliases gl_Vertex in the compatibility profile.
+                // The game enables the generic arrays it draws with before
+                // every draw and disables them after, so none is left on here.
                 const int attribs = std::clamp(Extra.Get(GlMaxVertexAttribs, 16), 1, 32);
                 for (int i = 0; i < attribs; ++i)
                 {

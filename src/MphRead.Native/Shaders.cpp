@@ -25,6 +25,13 @@ uniform mat4 tex_mtx;
 uniform int texgen_mode;
 uniform mat4[32] mtx_stack;
 
+// Vertex inputs by semantic name (Rhi/VertexSemantics.hpp); GL::LinkProgram
+// binds them. a_texcoord.z is the matrix-stack index.
+attribute vec4 a_position;
+attribute vec3 a_normal;
+attribute vec4 a_color;
+attribute vec3 a_texcoord;
+
 varying vec2 texcoord;
 varying vec4 color;
 
@@ -43,16 +50,16 @@ vec3 light_calc(vec3 light_vec, vec3 light_col, vec3 normal_vec, vec3 dif_col, v
 
 void main()
 {
-    mat4 stack_mtx = mtx_stack[int(clamp(gl_MultiTexCoord0.z, 0.0, 31.0))];
+    mat4 stack_mtx = mtx_stack[int(clamp(a_texcoord.z, 0.0, 31.0))];
     // view_inv_mtx is set for billboard transforms
     mat4 model_mtx = stack_mtx * view_inv_mtx;
-    gl_Position = proj_mtx * view_mtx * model_mtx * gl_Vertex;
-    vec4 vtx_color = show_colors ? gl_Color : vec4(1.0);
-    vec3 normal = normalize(mat3(model_mtx) * gl_Normal);
+    gl_Position = proj_mtx * view_mtx * model_mtx * a_position;
+    vec4 vtx_color = show_colors ? a_color : vec4(1.0);
+    vec3 normal = normalize(mat3(model_mtx) * a_normal);
     if (use_light) {
         vec3 dif_current = diffuse;
         vec3 amb_current = ambient;
-        if (gl_Color.a == 0.0) {
+        if (a_color.a == 0.0) {
             // see comment on DIF_AMB
             dif_current = vtx_color.rgb;
             amb_current = vec3(0.0, 0.0, 0.0);
@@ -68,7 +75,7 @@ void main()
     if (use_texture) {
         // texgen mode: 0 - none, 1 - texcoord, 2 - normal, 3 - vertex
         if (texgen_mode == 0 || texgen_mode == 1) {
-            texcoord = vec2(tex_mtx * vec4(gl_MultiTexCoord0.xy, 0, 1));
+            texcoord = vec2(tex_mtx * vec4(a_texcoord.xy, 0, 1));
         }
         else if (texgen_mode == 2 || texgen_mode == 3) {
             mat4 tex_mul = tex_mtx;
@@ -77,14 +84,14 @@ void main()
                 tex_mul = transpose(tex_mtx * (use_light ? view_mtx : mat4(1.0)) * mat4(mat3(stack_mtx)));
             }
             mat2x4 texgen_mtx = mat2x4(
-                vec4(tex_mul[0][0], tex_mul[0][1], tex_mul[0][2], gl_MultiTexCoord0.x),
-                vec4(tex_mul[1][0], tex_mul[1][1], tex_mul[1][2], gl_MultiTexCoord0.y)
+                vec4(tex_mul[0][0], tex_mul[0][1], tex_mul[0][2], a_texcoord.x),
+                vec4(tex_mul[1][0], tex_mul[1][1], tex_mul[1][2], a_texcoord.y)
             );
             if (texgen_mode == 2) {
-                texcoord = vec4(gl_Normal, 1.0) * texgen_mtx;
+                texcoord = vec4(a_normal, 1.0) * texgen_mtx;
             }
             else {
-                texcoord = vec4(gl_Vertex.xyz, 1.0) * texgen_mtx;
+                texcoord = vec4(a_position.xyz, 1.0) * texgen_mtx;
             }
         }
     }
@@ -113,6 +120,10 @@ uniform vec3[32] toon_table;
 // the helmet and the HUD go through the RTT one afterwards and are left as
 // they are without anything having to turn this off.
 uniform int cel_bands;
+// The alpha test, from the pipeline (AlphaTestMode): 0 none, 1 keeps alpha
+// == 1.0, 2 keeps alpha < 1.0. It used to be glAlphaFunc, which Vulkan and ES
+// do not have; the comparison runs on the final colour, as that did.
+uniform int alpha_test;
 // The one colour the bound texture averages to, and whether to use it in
 // place of the texture's own. Set per render item by the renderer, which
 // works the average out once when the texture is uploaded.
@@ -223,6 +234,16 @@ void main()
         }
         col = vec4((col * (1.0 - density) + fog_color * density).xyz, col.a);
     }
+    // Compared as the 8-bit value the target stores, as fixed-function
+    // glAlphaFunc compares it: an interpolated constant alpha of 1.0 arrives
+    // as 0.99999994, which a float comparison discards and glAlphaFunc kept.
+    float alpha8 = floor(clamp(col.a, 0.0, 1.0) * 255.0 + 0.5);
+    if (alpha_test == 1 && alpha8 < 255.0) {
+        discard;
+    }
+    if (alpha_test == 2 && alpha8 >= 255.0) {
+        discard;
+    }
     gl_FragColor = col;
 }
 )shader";
@@ -230,14 +251,18 @@ void main()
     const std::string Shaders::BackdropVertexShader = R"shader(
 #version 120
 
+attribute vec4 a_position;
+attribute vec3 a_texcoord;
+attribute vec2 a_texcoord1;
+
 varying vec2 photocoord;
 varying vec2 noisecoord;
 
 void main()
 {
-    gl_Position = vec4(gl_Vertex.xy, 0, 1);
-    photocoord = gl_MultiTexCoord0.xy;
-    noisecoord = gl_MultiTexCoord1.xy;
+    gl_Position = vec4(a_position.xy, 0, 1);
+    photocoord = a_texcoord.xy;
+    noisecoord = a_texcoord1.xy;
 }
 )shader";
 
@@ -296,12 +321,15 @@ void main()
     const std::string Shaders::RttVertexShader = R"shader(
 #version 120
 
+attribute vec4 a_position;
+attribute vec3 a_texcoord;
+
 varying vec2 texcoord;
 
 void main()
 {
-    gl_Position = vec4(gl_Vertex.xy, 0, 1);
-    texcoord = gl_MultiTexCoord0.xy;
+    gl_Position = vec4(a_position.xy, 0, 1);
+    texcoord = a_texcoord.xy;
 }
 )shader";
 

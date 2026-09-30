@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Renderer.hpp"
+#include "../NativeRuntime/OpenTK/GL.hpp"
 
 #include <cstdint>
 #include <memory>

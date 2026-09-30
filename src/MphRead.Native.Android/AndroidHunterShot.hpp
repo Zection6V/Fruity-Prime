@@ -33,6 +33,7 @@ namespace MphRead::Droid
         [[nodiscard]] static std::shared_ptr<AndroidHunterShot> Install();
         [[nodiscard]] static std::shared_ptr<AndroidHunterShot> Current();
         static void RetireCurrent();
+        static void ResumeCurrent();
 
         [[nodiscard]] std::shared_future<
             std::optional<std::vector<std::uint8_t>>> RenderAsync(

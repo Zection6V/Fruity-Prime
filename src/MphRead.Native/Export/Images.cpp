@@ -1,7 +1,7 @@
 #include "Images.hpp"
 #include "NativeRuntime/System/AtomicSharedPtr.hpp"
 
-#include "../NativeRuntime/OpenTK/GL.hpp"
+#include "../NativeRuntime/Rhi/CommandList.hpp"
 #include "../NativeRuntime/Stb/Image.hpp"
 
 #include "../Formats/Model.hpp"
@@ -39,19 +39,21 @@ using ::MphRead::NativeRuntime::UncheckedMultiply;
 
 namespace MphRead::Export::ImagesInterop
 {
-    // GL.ReadPixels and ReFuel.Stb's PNG writer, as Images.cs calls them.
+    // Bottom-up RGB readback and PNG writing, preserving Images.cs output.
     void ReadPixelsRgbUnsignedByte(
+        NativeRuntime::Rhi::CommandList& commands,
         std::int32_t x,
         std::int32_t y,
         std::int32_t width,
         std::int32_t height,
         std::span<std::uint8_t> buffer)
     {
-        ::OpenTK::Graphics::OpenGL::GL::ReadPixels(
-            x, y, width, height,
-            ::OpenTK::Graphics::OpenGL::GL::PixelFormat::Rgb,
-            ::OpenTK::Graphics::OpenGL::GL::PixelType::UnsignedByte,
-            buffer.data());
+        NativeRuntime::Rhi::RenderingInfo target{};
+        target.swapchain = true;
+        target.width = static_cast<std::uint32_t>(width);
+        target.height = static_cast<std::uint32_t>(height);
+        commands.ReadColor(target, static_cast<std::uint32_t>(x), static_cast<std::uint32_t>(y),
+            target.width, target.height, NativeRuntime::Rhi::TextureFormat::RGB8Unorm, buffer.data());
     }
 
     void SetFlipVerticallyOnSave(bool value)
@@ -280,12 +282,13 @@ namespace MphRead::Export
     Images::QueueState Images::_queue{};
 
     void Images::Screenshot(
+        NativeRuntime::Rhi::CommandList& commands,
         std::int32_t width,
         std::int32_t height,
         std::optional<std::string> name)
     {
         std::vector<std::uint8_t> buffer(NewArrayLength(width, height));
-        ImagesInterop::ReadPixelsRgbUnsignedByte(0, 0, width, height, buffer);
+        ImagesInterop::ReadPixelsRgbUnsignedByte(commands, 0, 0, width, height, buffer);
         const std::string path = Paths::Combine(Paths::Export(), "_screenshots");
         std::filesystem::create_directories(PathFromUtf8(path));
         if (!name.has_value())
@@ -302,6 +305,7 @@ namespace MphRead::Export
     }
 
     void Images::Record(
+        NativeRuntime::Rhi::CommandList& commands,
         std::int32_t width,
         std::int32_t height,
         const std::string& name)
@@ -314,7 +318,7 @@ namespace MphRead::Export
         }
         std::vector<std::uint8_t> buffer
             = SharedBytePool().Rent(PoolRentLength(width, height));
-        ImagesInterop::ReadPixelsRgbUnsignedByte(0, 0, width, height, buffer);
+        ImagesInterop::ReadPixelsRgbUnsignedByte(commands, 0, 0, width, height, buffer);
         _queue.Enqueue(QueueState::Item{
             std::move(buffer),
             name,

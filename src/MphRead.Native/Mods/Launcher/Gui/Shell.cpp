@@ -4,11 +4,11 @@
 #include "DeckTile.hpp"
 #include "EndPanelView.hpp"
 #include "InGameMenu.hpp"
-#include "ServerRow.hpp"
 #include "StartScreen.hpp"
 #include "UiMark.hpp"
 #include "UiSurface.hpp"
 #include "../../Diagnostics/LauncherWindowCheck.hpp"
+#include "../../Diagnostics/RhiReadbackCheck.hpp"
 #include "../../../GameState.hpp"
 #include "../../../Menu.hpp"
 #include "../../../Renderer.hpp"
@@ -25,6 +25,7 @@
 #include "../../Network/NetHostSession.hpp"
 #include "../../Network/NetSession.hpp"
 #include "../../PauseMenu.hpp"
+#include "../../Render/LauncherHunter.hpp"
 #include "../../Render/LauncherPhoto.hpp"
 #include "../../Render/UiOverlay.hpp"
 #include "../../ScreenCapture.hpp"
@@ -75,6 +76,7 @@ namespace MphRead::Mods::Launcher::Gui
     std::int32_t Shell::_shotStep = 0;
     std::int32_t Shell::_shotWait = 0;
     std::int32_t Shell::_shotMisses = 0;
+    std::uint64_t Shell::_shotPreviewGeneration = 0;
 
     namespace
     {
@@ -233,6 +235,12 @@ namespace MphRead::Mods::Launcher::Gui
         _quit = false;
         MphRead::Mods::Network::NetSession::Stop();
         MphRead::Mods::Network::NetHostSession::Stop();
+        if (window != nullptr)
+        {
+            // UiOverlay owns Phase 4 VBO/IBO objects. Release them while the
+            // launcher context is still alive, before RenderWindow destruction.
+            MphRead::Mods::Render::UiOverlay::Release();
+        }
         window.reset();
         return ran;
     }
@@ -315,7 +323,11 @@ namespace MphRead::Mods::Launcher::Gui
 
     void Shell::TickEndPanel()
     {
-        const bool want = MphRead::Mods::EndScreen::Available() && _menu == nullptr;
+        // EndScreen::Available() is backed by process-global game state, which
+        // outlives RenderWindow::EndScene(). A results panel cannot own the UI
+        // once the match scene itself is gone.
+        const bool want = _window != nullptr && _window->HasScene()
+            && MphRead::Mods::EndScreen::Available() && _menu == nullptr;
         if (want && !EndPanelUp())
         {
             const std::shared_ptr<UiSurface> surface = UiSurface::Ensure();
@@ -331,18 +343,31 @@ namespace MphRead::Mods::Launcher::Gui
         }
         if (!want && EndPanelUp())
         {
-            _endPanel.reset();
-            MphRead::Mods::EndScreen::PanelUp(false);
-            const std::shared_ptr<UiSurface> surface = UiSurface::Current();
-            if (surface != nullptr)
-            {
-                surface->Hide();
-            }
+            CloseEndPanel();
             return;
         }
         if (_endPanel != nullptr)
         {
             _endPanel->Refresh();
+        }
+    }
+
+    void Shell::CloseEndPanel()
+    {
+        // UiSurface is shared by the results panel, pause/settings screens and
+        // launcher. Only hide it when the results panel still owns the current
+        // view. A delayed results teardown must never hide a replacement view
+        // that has already been shown during the match -> launcher transition.
+        const std::shared_ptr<EndPanelView> panel = std::move(_endPanel);
+        MphRead::Mods::EndScreen::PanelUp(false);
+        if (panel == nullptr)
+        {
+            return;
+        }
+        const std::shared_ptr<UiSurface> surface = UiSurface::Current();
+        if (surface != nullptr && surface->View() == panel)
+        {
+            surface->Hide();
         }
     }
 
@@ -439,6 +464,7 @@ namespace MphRead::Mods::Launcher::Gui
     void Shell::EndNetworkMatchToLobby(MphRead::RenderWindow& window)
     {
         CloseMenu();
+        CloseEndPanel();
         window.EndScene();
         MphRead::Mods::Launcher::MatchStart::AfterMatch();
         MphRead::Mods::Network::NetSession::ResetMatchState();
@@ -457,6 +483,10 @@ namespace MphRead::Mods::Launcher::Gui
     void Shell::EndMatch(MphRead::RenderWindow& window)
     {
         CloseMenu();
+        // Tear the results view down while it is still the surface owner.
+        // ShowFrontScreen() below must be the next owner, not something a
+        // delayed TickEndPanel() can subsequently hide.
+        CloseEndPanel();
         window.EndScene();
         MphRead::Mods::Network::NetSession::Stop();
         MphRead::Mods::Network::NetHostSession::Stop();
@@ -538,6 +568,7 @@ namespace MphRead::Mods::Launcher::Gui
         _shotStep = 0;
         _shotWait = 0;
         _shotMisses = 0;
+        _shotPreviewGeneration = 0;
         NativeFilePicker::Suppressed(true);
         MphRead::Mods::WindowGeometry::Enabled(false);
     }
@@ -582,6 +613,27 @@ namespace MphRead::Mods::Launcher::Gui
             [](MphRead::RenderWindow& window)
             {
                 Shot(window, "shell-resized");
+                window.WindowStateMinimized();
+                Wait(20);
+            },
+            [](MphRead::RenderWindow& window)
+            {
+                if (window.WindowState() != MphRead::RendererPlatform::WindowStateValue::Minimized)
+                {
+                    ++_shotMisses;
+                    std::cout << "[shellshot] shell-resized minimize failed\n";
+                }
+                window.WindowStateNormal();
+                Wait(20);
+            },
+            [](MphRead::RenderWindow& window)
+            {
+                if (window.WindowState() != MphRead::RendererPlatform::WindowStateValue::Normal)
+                {
+                    ++_shotMisses;
+                    std::cout << "[shellshot] shell-resized restore failed\n";
+                }
+                Shot(window, "shell-resized-restored");
                 window.WindowStateMaximized();
                 Wait(20);
             },
@@ -593,7 +645,10 @@ namespace MphRead::Mods::Launcher::Gui
             },
             [](MphRead::RenderWindow& window)
             {
-                MphRead::Mods::WindowMode::Toggle(window);
+                // ShellShot may inherit a saved fullscreen launcher preference.
+                // This screenshot has a named state, so establish it instead of
+                // assuming Toggle() always means windowed -> fullscreen.
+                MphRead::Mods::WindowMode::Enter(window);
                 Wait(25);
             },
             [](MphRead::RenderWindow& window)
@@ -606,10 +661,25 @@ namespace MphRead::Mods::Launcher::Gui
             {
                 Shot(window, "shell-fullscreen-click");
                 Escape();
-                MphRead::Mods::WindowMode::Toggle(window);
+                // Establish the precondition for the F11 delivery gate below.
+                // The gate itself still has to enter fullscreen through
+                // RenderWindow::FeedKey(); no direct mode call satisfies it.
+                MphRead::Mods::WindowMode::Leave(window);
                 Wait(25);
             },
-            [](MphRead::RenderWindow& window) { Shot(window, "shell-windowed"); Wait(5); },
+            [](MphRead::RenderWindow& window)
+            {
+                Shot(window, "shell-windowed");
+                if (MphRead::Mods::WindowMode::IsFullscreen())
+                {
+                    ++_shotMisses;
+                    std::cout << "[shellshot] could not establish windowed state before F11\n";
+                    _shotDirectory.reset();
+                    window.Close();
+                    return;
+                }
+                Wait(5);
+            },
             [](MphRead::RenderWindow& window) { WindowKey(window, KeyValue(300)); Wait(20); },
             [](MphRead::RenderWindow& window)
             {
@@ -630,16 +700,9 @@ namespace MphRead::Mods::Launcher::Gui
             [](MphRead::RenderWindow& window)
             {
                 Shot(window, "shell-play");
-                ClickIfReady([](Av::Controls::Control& control)
-                {
-                    const auto* row = dynamic_cast<ServerRow*>(&control);
-                    return row != nullptr && row->IsLive();
-                });
-                Wait(25);
-            },
-            [](MphRead::RenderWindow& window)
-            {
-                Shot(window, "shell-server-side");
+                // The Phase 4 gate must not depend on an external live server.
+                // Move deterministically from Online to Offline; the required
+                // DeckTile click below proves that this transition succeeded.
                 Key(KeyValue(262));
                 Wait(15);
             },
@@ -663,6 +726,18 @@ namespace MphRead::Mods::Launcher::Gui
             [](MphRead::RenderWindow& window)
             {
                 Shot(window, "shell-play-selected");
+                if (window.HasScene() || !MphRead::Mods::Render::LauncherHunter::Drawn()
+                    || MphRead::Mods::Render::LauncherHunter::SceneGeneration() == 0)
+                {
+                    ++_shotMisses;
+                    std::cout << "[shellshot] pre-match production hunter preview did not draw\n";
+                    _shotDirectory.reset();
+                    window.Close();
+                    return;
+                }
+                _shotPreviewGeneration = MphRead::Mods::Render::LauncherHunter::SceneGeneration();
+                std::cout << "[shellshot] pre-match production hunter preview drawn; side-scene generation="
+                    << _shotPreviewGeneration << '\n';
                 ClickIfReady([](Av::Controls::Control& control)
                 {
                     const auto* button = dynamic_cast<DeckButton*>(&control);
@@ -672,24 +747,56 @@ namespace MphRead::Mods::Launcher::Gui
             },
             [](MphRead::RenderWindow& window)
             {
-                if (window.HasScene())
+                if (!window.HasScene())
                 {
-                    Wait(0);
-                    return;
-                }
-                std::cout << "[shellshot] the play screen started nothing; asking directly\n";
-                if (!StartShotMatch())
-                {
-                    std::cout << "[shellshot] no room to load; stopping after the screens\n";
+                    ++_shotMisses;
+                    std::cout << "[shellshot] Play/START did not create a real match scene\n";
                     _shotDirectory.reset();
                     window.Close();
                     return;
                 }
-                Wait(40);
+                std::cout << "[shellshot] real match scene started through Play/START\n";
+                window.Scene().BeginModelReloadDrawProbe();
+                std::cout << "[shellshot] production model unload/reload/draw probe armed\n";
+                Wait(8);
             },
             [](MphRead::RenderWindow& window)
             {
+                if (!window.Scene().ModelReloadDrawProbePassed())
+                {
+                    ++_shotMisses;
+                    std::cout << "[shellshot] production model unload/reload/draw probe failed: "
+                        << window.Scene().ModelReloadDrawProbeStatus() << '\n';
+                    _shotDirectory.reset();
+                    window.Close();
+                    return;
+                }
+                std::cout << "[shellshot] production model unload/reload/draw probe passed: "
+                    << window.Scene().ModelReloadDrawProbeStatus() << '\n';
                 Shot(window, "shell-match");
+                window.WindowStateMinimized();
+                Wait(20);
+            },
+            [](MphRead::RenderWindow& window)
+            {
+                if (window.WindowState() != MphRead::RendererPlatform::WindowStateValue::Minimized)
+                {
+                    ++_shotMisses;
+                    std::cout << "[shellshot] shell-match minimize failed\n";
+                }
+                window.WindowStateNormal();
+                Wait(20);
+            },
+            [](MphRead::RenderWindow& window)
+            {
+                if (window.WindowState() != MphRead::RendererPlatform::WindowStateValue::Normal)
+                {
+                    ++_shotMisses;
+                    std::cout << "[shellshot] shell-match restore failed\n";
+                }
+                Shot(window, "shell-match-restored");
+                if (!MphRead::Mods::Diagnostics::CheckRhiImageExports(*_shotDirectory))
+                    ++_shotMisses;
                 window.WindowStateMaximized();
                 Wait(30);
             },
@@ -758,17 +865,91 @@ namespace MphRead::Mods::Launcher::Gui
             [](MphRead::RenderWindow& window)
             {
                 Shot(window, "shell-endgame-hunter");
-                ReleaseResults();
-                Wait(20);
+                Click([](Av::Controls::Control& control)
+                {
+                    const auto* button = dynamic_cast<DeckButton*>(&control);
+                    return button != nullptr && button->Text() == "READY";
+                });
+                Wait(15);
             },
-            [](MphRead::RenderWindow&) { EndShotMatch(); Wait(90); },
             [](MphRead::RenderWindow& window)
             {
+                if (!MphRead::Mods::EndScreen::Ready())
+                {
+                    ++_shotMisses;
+                    std::cout << "[shellshot] results READY did not take effect\n";
+                    _shotDirectory.reset();
+                    window.Close();
+                    return;
+                }
+                std::cout << "[shellshot] results READY accepted; leaving through the shell match path\n";
+                LeaveMatch(window);
+                Wait(60);
+            },
+            [](MphRead::RenderWindow& window)
+            {
+                if (window.HasScene())
+                {
+                    ++_shotMisses;
+                    std::cout << "[shellshot] READY/leave did not return to the launcher\n";
+                    _shotDirectory.reset();
+                    window.Close();
+                    return;
+                }
+                if (EndPanelUp())
+                {
+                    ++_shotMisses;
+                    std::cout << "[shellshot] results panel still marked up after launcher return\n";
+                    _shotDirectory.reset();
+                    window.Close();
+                    return;
+                }
                 Shot(window, "shell-back-fullscreen");
                 MphRead::Mods::WindowMode::Toggle(window);
                 Wait(25);
             },
-            [](MphRead::RenderWindow& window) { Shot(window, "shell-back"); Wait(5); }
+            [](MphRead::RenderWindow& window)
+            {
+                Shot(window, "shell-back");
+                Click([](Av::Controls::Control& control)
+                {
+                    const auto* button = dynamic_cast<DeckButton*>(&control);
+                    return button != nullptr && button->Text() == "PLAY";
+                });
+                Wait(20);
+            },
+            [](MphRead::RenderWindow&)
+            {
+                Key(KeyValue(262));
+                Wait(20);
+            },
+            [](MphRead::RenderWindow&)
+            {
+                ClickIfReady([](Av::Controls::Control& control)
+                {
+                    return dynamic_cast<DeckTile*>(&control) != nullptr;
+                });
+                Wait(30);
+            },
+            [](MphRead::RenderWindow& window)
+            {
+                Shot(window, "shell-return-hunter");
+                const std::uint64_t generation
+                    = MphRead::Mods::Render::LauncherHunter::SceneGeneration();
+                if (window.HasScene() || !MphRead::Mods::Render::LauncherHunter::Drawn()
+                    || generation <= _shotPreviewGeneration)
+                {
+                    ++_shotMisses;
+                    std::cout << "[shellshot] post-match production hunter preview did not reload/draw; before="
+                        << _shotPreviewGeneration << " after=" << generation << '\n';
+                    _shotDirectory.reset();
+                    window.Close();
+                    return;
+                }
+                std::cout << "[shellshot] post-match production hunter preview drawn after reload; before="
+                    << _shotPreviewGeneration << " after=" << generation << '\n';
+                Wait(5);
+            }
         };
     }
 
@@ -877,23 +1058,6 @@ namespace MphRead::Mods::Launcher::Gui
         Key(KeyValue(256));
     }
 
-    bool Shell::StartShotMatch()
-    {
-        if (_rooms.empty())
-        {
-            return false;
-        }
-        LaunchPlan::Init init;
-        init.Kind = LaunchKind::Offline;
-        init.RoomKey = _rooms.front();
-        init.Mode = MphRead::GameMode::Battle;
-        init.Hunter = MphRead::Hunter::Samus;
-        init.Bots = 1;
-        init.BotLevel = 1;
-        Decided(LaunchPlan(init));
-        return true;
-    }
-
     void Shell::HoldResults()
     {
         MphRead::GameState::MatchState(MphRead::MatchState::Ending);
@@ -908,17 +1072,6 @@ namespace MphRead::Mods::Launcher::Gui
             std::cout << "[shellshot] no ballot to show: "
                 << ExceptionMessage(std::current_exception()) << '\n';
         }
-    }
-
-    void Shell::ReleaseResults()
-    {
-        MphRead::GameState::MatchTime(0.2F);
-    }
-
-    void Shell::EndShotMatch()
-    {
-        MphRead::GameState::MatchState(MphRead::MatchState::Ending);
-        MphRead::GameState::MatchTime(0.2F);
     }
 
     void Shell::Shot(MphRead::RenderWindow& window, const std::string& name)

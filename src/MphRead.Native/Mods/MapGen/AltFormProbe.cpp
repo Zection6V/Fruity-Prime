@@ -1,4 +1,5 @@
 #include "AltFormProbe.hpp"
+#include "../../NativeRuntime/OpenTK/GL.hpp"
 
 #include "../../GameState.hpp"
 #include "../../Scene.hpp"

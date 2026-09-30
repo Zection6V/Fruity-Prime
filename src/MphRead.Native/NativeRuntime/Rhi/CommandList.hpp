@@ -90,6 +90,13 @@ namespace MphRead::NativeRuntime::Rhi
         std::uint32_t height = 0;
         std::span<const RenderingColorAttachment> colorAttachments{};
         const RenderingDepthStencilAttachment* depthStencilAttachment = nullptr;
+        // Render to the window's own surface rather than to textures. The
+        // attachments' load ops still apply, with null views standing for the
+        // surface's own colour and depth/stencil.
+        bool swapchain = false;
+        // The region loads, clears and draws are confined to, as
+        // VkRenderingInfo::renderArea; a zero width means all of it.
+        Scissor renderArea{};
     };
 
     struct BufferTextureCopy final
@@ -153,6 +160,19 @@ namespace MphRead::NativeRuntime::Rhi
             Buffer& resource, ResourceState before, ResourceState after) = 0;
         virtual void Transition(
             Texture& resource, ResourceState before, ResourceState after) = 0;
+
+        // Push-descriptor style texture binding: bind a texture and the
+        // sampler it is read through to a shader texture slot for the draws
+        // that follow. A null texture unbinds the slot.
+        virtual void BindSampledTexture(
+            std::uint32_t slot, const Texture* texture, const Sampler* sampler) = 0;
+        // Read back a region of a rendering target's colour: tightly packed
+        // rows, bottom row first. Waits for the GPU.
+        virtual void ReadColor(const RenderingInfo& info, std::uint32_t x, std::uint32_t y,
+            std::uint32_t width, std::uint32_t height, TextureFormat format, void* destination) = 0;
+        // Copy a region of the current colour attachment into a texture.
+        virtual void CopyColorAttachmentToTexture(
+            Texture& destination, std::uint32_t width, std::uint32_t height) = 0;
 
     protected:
         CommandList() = default;

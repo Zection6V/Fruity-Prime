@@ -26,6 +26,10 @@
 #include <limits>
 #include <stdexcept>
 #include <span>
+#include <chrono>
+#include <condition_variable>
+#include <cstdlib>
+#include <mutex>
 #include <thread>
 #include <utility>
 
@@ -70,6 +74,74 @@ extern "C"
 using ::MphRead::NativeRuntime::UncheckedIncrement;
 using ::OpenTK::Mathematics::DistanceSquared;
 using ::OpenTK::Mathematics::Scale;
+
+namespace
+{
+    // The audio device is closed on a thread of its own, as upstream's
+    // Task.Run did, because closing can block and ShutDown runs between
+    // scenes. A process that exits while that thread is still closing kills
+    // it mid-close (ExitProcess stops every other thread first), and then
+    // OpenAL's own static destructors find a device thread still running and
+    // call std::terminate as the DLL unloads. So the close jobs are counted,
+    // and the exit waits for them -- briefly: a close that hangs must not
+    // keep the process alive.
+    struct PendingDeviceCloses final
+    {
+        std::mutex Mutex;
+        std::condition_variable Done;
+        std::int32_t Running = 0;
+        bool AtExitRegistered = false;
+    };
+
+    PendingDeviceCloses& DeviceCloses()
+    {
+        static PendingDeviceCloses* closes = new PendingDeviceCloses();
+        return *closes;
+    }
+
+    void WaitForDeviceCloses() noexcept
+    {
+        try
+        {
+            PendingDeviceCloses& closes = DeviceCloses();
+            std::unique_lock<std::mutex> lock(closes.Mutex);
+            closes.Done.wait_for(lock, std::chrono::seconds(3), [&closes] { return closes.Running == 0; });
+        }
+        catch (...)
+        {
+        }
+    }
+
+    template <typename F>
+    void CloseDeviceInBackground(F&& close)
+    {
+        PendingDeviceCloses& closes = DeviceCloses();
+        {
+            std::lock_guard<std::mutex> lock(closes.Mutex);
+            if (!closes.AtExitRegistered)
+            {
+                closes.AtExitRegistered = std::atexit(WaitForDeviceCloses) == 0;
+            }
+            ++closes.Running;
+        }
+        std::thread([close = std::forward<F>(close)]() mutable
+        {
+            try
+            {
+                close();
+            }
+            catch (...)
+            {
+            }
+            PendingDeviceCloses& closes = DeviceCloses();
+            {
+                std::lock_guard<std::mutex> lock(closes.Mutex);
+                --closes.Running;
+            }
+            closes.Done.notify_all();
+        }).detach();
+    }
+}
 
 namespace MphRead::Sound
 {
@@ -1934,13 +2006,13 @@ namespace MphRead::Sound
         Audio::SourceStop(_streamInstance);
         Audio::MakeContextCurrent(0);
         std::shared_ptr<SfxInstance> self = shared_from_this();
-        std::thread([self]()
+        CloseDeviceInBackground([self]()
         {
             Audio::DestroyContext(self->_context);
             Audio::CloseDevice(self->_device);
             self->_context = 0;
             self->_device = 0;
-        }).detach();
+        });
         _scene = nullptr;
     }
 }

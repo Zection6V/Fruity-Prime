@@ -4,6 +4,7 @@
 // main() to hand the arguments over, and that is all this file does.
 
 #include "Program.hpp"
+#include "NativeRuntime/System/Runtime.hpp"
 
 #include <string>
 #include <vector>
@@ -18,5 +19,5 @@ int main(int argc, char** argv)
         args.emplace_back(argv[i]);
     }
     MphRead::Program::Main(args);
-    return 0;
+    return MphRead::NativeRuntime::EnvironmentExitCode();
 }

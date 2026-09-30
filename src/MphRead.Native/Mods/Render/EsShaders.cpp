@@ -293,10 +293,14 @@ void main()
     }
     // glAlphaFunc, which ES does not have. The engine only ever asks for
     // Equal 1.0 and Less 1.0, and the test runs on the final colour.
-    if (alpha_test == 1 && col.a < 1.0) {
+    // Compared as the 8-bit value the target stores, as fixed-function
+    // glAlphaFunc compares it: an interpolated constant alpha of 1.0 arrives
+    // as 0.99999994, which a float comparison discards and glAlphaFunc kept.
+    float alpha8 = floor(clamp(col.a, 0.0, 1.0) * 255.0 + 0.5);
+    if (alpha_test == 1 && alpha8 < 255.0) {
         discard;
     }
-    if (alpha_test == 2 && col.a >= 1.0) {
+    if (alpha_test == 2 && alpha8 >= 255.0) {
         discard;
     }
     frag_color = col;
@@ -610,17 +614,17 @@ void main()
         }
         _checked = true;
         Check("VertexShader", Shaders::VertexShader,
-            "4cf1422bddaa3ece44c9cfbf6dab1ede192ee8c3f4fbed362e7da5eebfdfc428");
+            "6953aa4469c70cafe5c69fe646047f2a015058d4fccf01f6a51a1c3a1634b7e8");
         Check("FragmentShader", Shaders::FragmentShader,
-            "b7d15d11622cb4ff811f36572d8d74bc30450b75e81404ff27b48dc8665d8528");
+            "815a3e1cfdeaeda356cb65dd5ea6c09edeafee9b4989b26fa62e9ebeb6c52050");
         Check("RttVertexShader", Shaders::RttVertexShader,
-            "af070f447840bf1fc51d6bba88a339fab067a4e3a01e460351a2549ca9107f4f");
+            "d427bed416dcee895b331010a0244b3d5e9f7df46e8d288ad44de0dd75ac3416");
         Check("RttFragmentShader", Shaders::RttFragmentShader,
             "021b5992926cb3a8c714fb943b0c85e091cf3cd76d2c487950ca0fb03d27c56e");
         Check("CelFragmentShader", Shaders::CelFragmentShader,
             "0fcb40630809a0e5b2d78448ed8b9518686fb6a5fc3b1a69914a37fecf28f7d5");
         Check("ShiftFragmentShader", Shaders::ShiftFragmentShader,
-            "2b2511d5506ad9a25d64005b7b9e452f56b550410f96c753a6072a743b3162fa");
+            "717cf18b679638d8fc05108d7b2a83724d54231278231c7dd5dc4f0af933cde5");
     }
 
     void EsShaders::Check(const std::string& name, const std::string& source, const std::string& expected)

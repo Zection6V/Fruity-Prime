@@ -51,7 +51,10 @@ namespace MphRead::NativeRuntime::Rhi
         D16Unorm,
         D24UnormS8Uint,
         D32Float,
-        D32FloatS8Uint
+        D32FloatS8Uint,
+        // Three-channel colour: the scene and cel targets and the movie
+        // frames. Appended so the earlier values keep their numbers.
+        RGB8Unorm
     };
 
     enum class MemoryUsage : std::uint8_t
@@ -186,6 +189,28 @@ namespace MphRead::NativeRuntime::Rhi
         Buffer() = default;
     };
 
+    // A texture's identity as the frontend passes it around: the value a
+    // material, a HUD object or a trail keeps where it once kept a GL name.
+    // Nonzero for every live texture a device created; the backend alone knows
+    // what native object it stands for.
+    struct TextureHandle final
+    {
+        std::int32_t value = 0;
+
+        [[nodiscard]] explicit constexpr operator bool() const noexcept { return value != 0; }
+        bool operator==(const TextureHandle&) const = default;
+    };
+
+    // Pixels for GraphicsDevice::WriteTexture: tightly packed rows, bottom row
+    // first as the renderer has always handed them over.
+    struct TextureWrite final
+    {
+        std::uint32_t width = 0;
+        std::uint32_t height = 0;
+        TextureFormat format = TextureFormat::RGBA8Unorm;
+        const void* data = nullptr;
+    };
+
     class Texture
     {
     public:
@@ -196,6 +221,7 @@ namespace MphRead::NativeRuntime::Rhi
         Texture& operator=(Texture&&) = delete;
 
         [[nodiscard]] virtual const TextureDesc& Desc() const noexcept = 0;
+        [[nodiscard]] virtual TextureHandle Handle() const noexcept = 0;
 
     protected:
         Texture() = default;

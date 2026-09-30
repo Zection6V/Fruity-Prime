@@ -34,27 +34,40 @@ Use ChatGPT as the implementation worker for tracked-file work. Edit the request
 
 - Use Sol with reasoning effort `high`.
 
-- This must be an ordinary ChatGPT conversation, not a Codex task or ChatGPT Work cloud task. Do not use a task-creation tool as a substitute. Create each new conversation in the browser. If ChatGPT does not assign or expose a conversation ID until its first user message is sent, submit the complete English work-item prompt as the creation action; do not send a placeholder. If an empty conversation already exposes an ID, send the initial prompt with the app conversation tool instead. After the conversation exists, never use the browser to compose or send follow-up messages, read replies, or check status.
+- This must be an ordinary ChatGPT conversation, not a Codex task or ChatGPT Work cloud task. Do not use a task-creation tool as a substitute. Create each new conversation in a real ChatGPT browser tab. If ChatGPT does not expose a conversation ID until the first message is sent, compose and send the complete English work-item prompt in that tab; do not send a placeholder. Keep the tab open while the item is active or unfinished.
 
-- Once the conversation exists, use the Codex app's conversation tools for all communication and inspection: `mcp__codex_app__send_message_to_thread` for messages and `mcp__codex_app__read_thread` (or `list_threads` to locate/confirm its ID) for replies and status. If browser creation fails, report the concrete blocker rather than switching to a Codex task or ChatGPT Work cloud task.
+- Use Computer Use in the visible ChatGPT tab for every message, reply inspection, and generation-status check. Do not use Codex app conversation tools (`send_message_to_thread`, `read_thread`, `list_threads`, or `wait_threads`) for this workflow; their status can disagree with the actual tab and can leave the real chat unopened. Identify/reopen conversations through the ChatGPT browser history/sidebar and verify the tab URL/title. If browser access fails, report that concrete blocker rather than switching to conversation tools, a Codex task, or ChatGPT Work cloud task.
 
 ## Recover from a stopped or stalled response
 
 - Treat an incomplete response as unfinished, even if the conversation is no longer active. A stopped response is not a completed review.
 
-- Let high-reasoning analysis and repository inspection run to completion whenever the app conversation tool reports that the response is active. Do not interrupt it merely because it is taking several minutes or because intermediate progress is repetitive; wait and recheck with bounded polling. Recover only for a clearly stalled response, an explicit user request, or an actual tool failure.
+- Let high-reasoning analysis and repository inspection run to completion while the actual ChatGPT tab shows generation in progress. Replies may take 20 minutes or more; do not interrupt just because the work is lengthy or progress text is repetitive. Check the visible tab periodically without sending duplicate messages.
 
-- Use `mcp__codex_app__read_thread` as the status and response source of truth. While the thread is active, do not send another prompt. When it becomes idle, inspect the latest exchange to determine whether the work completed or needs a continuation.
+- Determine status from the actual ChatGPT composer and latest visible exchange, not an app/API status flag. The rightmost composer control is decisive: a visible Stop/停止 control means generation is still active, so do not send. When Stop disappears and the rightmost control returns to the voice-mode waveform icon, treat that as the response having stopped and the composer being ready. If the latest requested work is unfinished or the answer stopped mid-task, send one concise continuation immediately in that same tab; do not wait 20 minutes and do not click Retry/再試行. A stale `active` report from another tool never overrides the current visible UI.
 
-- If the work is unfinished and the thread is idle—whether the assistant response visibly stopped mid-answer or the latest accepted user message has no assistant response—Codex must send exactly one concise English `Continue`/continuation to the same conversation ID with `mcp__codex_app__send_message_to_thread`; never ask the user to press Continue or authorize this normal recovery. State the concrete remaining action; do not resend the original full prompt. Then recheck with `read_thread` and allow time for the response to run. Never send repeated continuations for the same idle period. If that continuation also gets no response or stops again, record the item as `parked` with its conversation ID, fixed source/target paths and blobs, last known branch/commit, last usable response, and next action. Keep it in the ledger and resume in the same conversation; do not start another worker for that file unless the user authorizes replacement. A parked no-response chat does not consume one of the two live execution slots, so continue a different, non-overlapping page in a fresh conversation. Do not report the whole goal blocked solely because a parked chat is unanswered while independent in-scope work remains.
+- When the UI indicates idle as above and the work is unfinished—because the answer visibly stopped mid-task or the latest accepted user message has no assistant response—send exactly one concise English continuation through the ChatGPT tab. Name the concrete remaining action; do not resend the original full prompt. Verify that the message appears in the conversation and that generation starts. Never send duplicates while the same idle composer state persists. If that continuation is accepted and generation later stops again (waveform returns), treat it as a new interruption and immediately continue only the remaining action in the same tab. Keep and reopen the same conversation; do not start another worker for that item unless replacement is authorized. If the browser is unavailable or an external blocker prevents progress, record the item as `parked` with its URL/ID, fixed source/target paths and blobs, last known branch/commit, last usable response, and next action. Continue independent in-scope work in another tab when possible; do not let an idle chat freeze the whole goal.
+
+- Do not use elapsed time alone to decide whether to send: a response can legitimately take 20 minutes or more while Stop/停止 is visible. Once Stop is replaced by the voice-mode waveform and the work is unfinished, send the continuation immediately, even if a previous recovery was unanswered; the visible stopped state is the trigger.
 
 - If the same conversation stops again, remains stalled, or its context is no longer reliable, keep the work item unfinished. Record the last usable response, fixed blob/path ledger, and next action; recover in that same conversation when it is idle. A separate ChatGPT chat is context-free and is not a handoff. Do not silently replace the conversation or assume another one inherited its investigation.
 
 - If a replacement conversation is explicitly authorized and available, keep the original item unfinished until it has a terminal PASS/NO-OP or the user explicitly abandons it. The replacement prompt must repeat the full task, paths, authoritative source revision, fixed artifacts, and constraints. Verify the actual GitHub file and commit against the authoritative source; a chat message alone is not evidence that repository changes were completed.
 
-## Conversation tools and GitHub invariants
+### When a conversation reaches its length limit
 
-- Use `list_threads` when needed to confirm the intended conversation ID before sending; after creation, all message and status operations must use the app conversation tools, not the browser.
+- Treat ChatGPT's explicit “This conversation has reached the maximum length” notice as a hard limit on continuing that conversation, not as an ordinary stopped response. Do not keep sending continuations or use Retry there.
+- Before acting on a previously observed length-limit, reopen the same conversation from ChatGPT's visible history/sidebar and re-check its latest exchange and composer. Earlier screenshots, summaries, and API status can be stale. If the same chat now has an accepted follow-up and shows Stop, keep working in that chat; do not create a duplicate replacement. Start the fresh-chat handoff only when the currently visible conversation still shows the explicit length-limit state and no generation is in progress.
+- If the authorized work remains unfinished, start a new ordinary ChatGPT conversation and make its very first message a complete handoff. A new chat has no inherited context: include the repository/branch, exact work item and source/target paths, authoritative revisions or blobs, current remote commit, completed steps and their evidence, decisions and constraints, unresolved issues, and the concrete next action. Link the old chat for provenance only; never assume the new chat can read or inherit it.
+- Recheck the live branch and any referenced repository documents before dispatch. Include concise local-only facts in the handoff when the new chat cannot read them; do not rely on uncommitted local paths as remote evidence.
+- Keep the length-limited conversation's URL/ID and last usable result in the task ledger as `length-limited`; do not label unfinished work complete or forget its artifact state. Verify that the new handoff message was accepted and generation started before treating the transition as successful. Preserve the old tab until this is verified, and keep it open if the user is viewing it.
+- After a verified handoff, continue implementation, audit, correction, and Git verification in the new conversation. Do not redo completed steps unless the handoff reveals a concrete verification gap.
+
+## ChatGPT tab and GitHub invariants
+
+- Before typing, confirm the tab URL/title and inspect the latest exchange. Use the same tab for all follow-ups, audits, and corrections. After typing a message, verify that it was actually sent (it appears as a user message, the composer is cleared, and generation begins); a ready-to-send composer alone is not proof of delivery.
+
+- For an already-authorized work item, send in-scope progress and the single recovery continuation directly in its ChatGPT tab without asking for per-message confirmation. Do not use app conversation APIs as a shortcut. If the user rejects one proposed message, do not send that wording; treat the rejection as limited to that message unless the user explicitly withdraws or pauses the work item.
 
 - Independently poll `git ls-remote origin refs/heads/<target-branch>`, then fetch/pull and verify the commit parent, exact changed paths, and blob IDs locally.
 
@@ -62,7 +75,7 @@ Use ChatGPT as the implementation worker for tracked-file work. Edit the request
 
 - For large generated files, keep the fixed source blob SHA and size in the working ledger. If analysis/tests finished but the GitHub write or commit timed out, send a short same-chat continuation that resumes from the finalized content, refreshes the target branch, and completes the direct write/commit/push; do not restart the broad investigation. A focused test pass without a verified commit/push is incomplete.
 
-- If the first GitHub write, commit, or push fails after the target content is ready, do not leave the work uncommitted. After `read_thread` reports the response is idle, send exactly one concrete English continuation in the same chat: identify the failed GitHub operation, ask ChatGPT to resume from the finalized content, refresh the target branch, and complete the direct GitHub write/commit/push. Do not regenerate the target content or restart the broad investigation. If that recovery also fails or GitHub editing is unavailable, stop and report the blocker for user direction.
+- If the first GitHub write, commit, or push fails after the target content is ready, do not leave the work uncommitted. When the ChatGPT tab shows the response stopped (voice-mode waveform instead of Stop/停止), send a concrete English continuation in the same chat: identify the failed GitHub operation, ask ChatGPT to resume from the finalized content, refresh the target branch, and complete the direct GitHub write/commit/push. Do not regenerate the target content or restart the broad investigation. If GitHub editing is unavailable, stop and report the concrete blocker for user direction.
 
 - Prompts should include the current source revision/blob, exact target paths, the instruction to refresh the target branch immediately before committing, and the no-`git clone` constraint. Recheck the authoritative source blob immediately before generation: an earlier retrieval may be stale if the branch advanced.
 
@@ -74,19 +87,21 @@ Use ChatGPT as the implementation worker for tracked-file work. Edit the request
 
 - Keep at most two ChatGPT work-item conversations with live responses or ongoing implementation/audit/correction activity, one per independent file or work item. Parked no-response conversations remain in the ledger but do not count against this cap. Never use a live slot for duplicate or overlapping work. Prefer two genuinely independent items in parallel when the account and available conversations permit it.
 
-- Track each conversation by its ChatGPT conversation ID and use the app conversation tools to read/send. Keep at most two active-work browser tabs, one per independent item, and only as needed for unfinished work; do not rely on browser operations for messaging or status checks. Completed-tab cleanup is defined under Completion and cleanup.
+- Track each item by its ChatGPT URL/ID and keep its actual tab open while active or unfinished. Use browser tabs for messaging and status, not app conversation tools. Keep at most two active-work tabs, one per independent item; completed-tab cleanup is defined under Completion and cleanup.
 
 - Never abandon or erase a conversation that is active, interrupted, stalled, or awaiting implementation/push/audit. For an idle unfinished conversation, send one same-chat continuation first; if still unanswered, park it rather than letting it freeze unrelated work. A new ChatGPT chat has no context and cannot inherit the old chat's reasoning or generated artifacts; keep the unfinished item in the ledger until its terminal response/SHA or explicit user abandonment.
 
-- `parked` means deferred, not forgotten. Revisit parked items after each other work item reaches a terminal result and whenever no independent task remains to keep progressing. First inspect the same conversation and the remote target branch: a commit may have arrived without a final report. If the item is still idle and incomplete, send one concise continuation in that same chat, subject to the two-live-item limit. Do not resend within 20 minutes of the last continuation unless the user explicitly asks. After each retry, either record the terminal evidence or park it again and continue productive work; never leave the overall task waiting for the user to click Continue.
+- `parked` means deferred, not forgotten. Revisit parked items after each other work item reaches a terminal result and whenever no independent task remains to keep progressing. First inspect the same tab and remote target branch: a commit may have arrived without a final report. If the voice-mode waveform shows that the response stopped and the item is incomplete, send one concise continuation immediately in that same chat, subject to the two-live-item limit. Do not send duplicates while Stop/停止 is visible. After each stopped response, either record terminal evidence or resume only the concrete remaining action; never leave an idle tab waiting for the user to click Continue.
 
 - Once PASS/NO-OP and SHA evidence are recorded, mark the item terminal and reuse its slot for the next genuinely missing item. Close that item's browser tab only after matching the tab to its conversation ID and verifying the terminal same-chat audit and exact commit/path/blob evidence. Do not leave a completed tab open between items or turns: close it immediately after verification to conserve browser memory. Closing a tab does not delete, archive, or otherwise alter the conversation; reopen it from chat history only if follow-up is needed. Keep tabs for unfinished, parked, recovery-required, or unrelated conversations.
 
-- If conversation state becomes unavailable through the app tools, report the concrete limitation and preserve the last usable conversation ID, response, fixed blob/path ledger, and next action. Do not switch to browser messaging or silently resend the original prompt.
+- If the browser tab becomes unavailable, use ChatGPT's own history/sidebar to reopen that same URL/ID and preserve the last usable response, fixed blob/path ledger, and next action. Do not switch to app conversation tools or silently resend the original prompt.
+- If Computer Use returns a stale tab/session-binding error (for example, a tab ID is not part of the current browser session), do not repeat the action with the stale handle or reuse its accessibility indexes. Reset the Computer Use JavaScript session once, make its required first call a fresh `cua.getState()` inventory, rebind the existing browser tab from that inventory, then verify the conversation URL/title, latest exchange, composer, and Stop/waveform state. Resetting the automation binding does not mean the conversation disappeared: preserve any draft and do not reload, recreate, or resend the conversation unless the fresh inventory proves the tab is absent; if absent, reopen it through the matching visible ChatGPT history row.
+- For project conversations, prefer clicking the matching visible title row in the ChatGPT sidebar/history rather than navigating from a copied accessibility-link value. A serialized link value may omit a project-slug suffix and open a blank “New chat” even though the history row resolves to the correct conversation. Never reconstruct a `/g/.../c/<id>` URL from memory or combine a remembered project slug with the ID. After opening, verify the final URL/ID, title, loaded message history, latest exchange, and composer state; if the route is blank or mismatched, return to the sidebar and click the visible history row before concluding access is unavailable. A newly opened project route may briefly show a generic `ChatGPT` title, disabled composer, or loading skeleton; take one fresh state after the normal UI wait before deciding that it is blank. Reacquire the accessibility tree after each navigation or expansion and choose the next row from that fresh tree; do not reuse numeric element indexes from an earlier or diff-only snapshot.
 
 ## Run two independent work items in parallel
 
-- Never leave one of the two work-item slots occupied by a completed item while another independent item is available. As soon as the terminal response/SHA or NO-OP is recorded, advance the task ledger and dispatch the next genuinely missing item in that slot; do not wait for the other item to finish. An apparently quiet conversation is not proof of completion: check its status and latest response with `read_thread` first.
+- Never leave one of the two work-item slots occupied by a completed item while another independent item is available. As soon as the terminal response/SHA or NO-OP is recorded, advance the task ledger and dispatch the next genuinely missing item in that slot; do not wait for the other item to finish. An apparently quiet conversation is not proof of completion: inspect its actual ChatGPT tab and latest response first.
 
 - For long-running multi-item work, keep two genuinely independent work items active whenever the app and account permit it. Each item may be an implementation, a review, or a correction/re-review cycle, but never run two conversations that can edit the same files.
 
@@ -114,7 +129,7 @@ Use ChatGPT as the implementation worker for tracked-file work. Edit the request
 
 - If the response is truncated, request only the missing continuation. If a claim is unclear, ask a focused follow-up in the same conversation; do not restart the whole prompt.
 
-- ChatGPT conversations may not support task-wait APIs. Poll sparingly with `mcp__codex_app__read_thread`, allowing time for Sol high to finish between checks. If the app conversation tool cannot expose the required status or reply, report that limitation instead of switching to browser UI.
+- Inspect the actual ChatGPT tab for replies and status, allowing Sol high time to finish between checks. Do not use conversation APIs to poll or message; if the tab cannot expose the required reply/status, report that concrete limitation.
 
 ## Verify and close the task
 
@@ -130,8 +145,9 @@ Use ChatGPT as the implementation worker for tracked-file work. Edit the request
 
 The following rules make the ChatGPT workflow reliable for long-running
 tracked-file work. They supplement the repository-specific rules above. The
-live conversation status, the committed GitHub tree, and exact blob/commit
-evidence outrank a stale browser view or an earlier status message.
+current visible ChatGPT UI is the source of truth for generation state; the
+committed GitHub tree and exact blob/commit evidence are the source of truth
+for repository changes.
 
 ### Session and prompt contract
 
@@ -176,16 +192,16 @@ commit, parent, changed paths, blob IDs, diff, audit findings, and exact-SHA CI
 status. Reply in English.
 ```
 
-### Conversation creation and app-tool discipline
+### Conversation creation and browser-tab discipline
 
-- Use the browser only to create/rebind the ordinary ChatGPT conversation or to
-  inspect a user-visible artifact when necessary. Once the conversation exists,
-  use `mcp__codex_app__send_message_to_thread` for all messages and
-  `mcp__codex_app__read_thread`/`list_threads` for all replies and status, as
-  required by this skill. Do not mix browser messaging into an app-tool chat.
+- Create or reopen the ordinary ChatGPT conversation in a real browser tab, then
+  use that same tab for all messages, reply inspection, and status checks. Do
+  not call `mcp__codex_app__send_message_to_thread`, `read_thread`, `list_threads`,
+  or `wait_threads` for this workflow. An API-reported active state can be stale
+  while the visible composer is ready, and must not suppress a needed recovery.
 - Confirm the intended conversation ID and current title before sending. After
-  every send/read, re-evaluate the latest status; a no-change result is not
-  proof that GitHub or the response is unchanged.
+  every send/read, inspect the latest visible exchange and composer. A no-change
+  view is not proof that GitHub or the response is unchanged.
 - Keep a compact ledger by conversation ID:
 
   ```text
@@ -220,16 +236,27 @@ latest text looks repetitive. Poll the specific conversation in bounded
 intervals (normally 30–60 seconds; do not block for longer than 60 seconds) and
 only report material state changes.
 
-- While the app conversation reports an active response, do not send another
-  message. “Thinking”, a long tool phase, or a visible connection-wait message
-  is not completion by itself.
-- When the response becomes idle, read the latest exchange. If it is a complete
-  report with response text/actions, record it; do not send a redundant prompt.
+- While the composer shows Stop/停止, do not send another message. “Thinking”, a
+  long tool phase, or a visible connection-wait message is not completion by
+  itself.
+- When Stop/停止 disappears and the composer's rightmost button returns to the
+  voice-mode waveform icon, the visible UI indicates generation stopped and the
+  input is ready. Inspect the latest exchange immediately. If the requested work
+  is incomplete, send one concise continuation in that same tab right away; do
+  not wait 20 minutes and do not click Retry/再試行. This explicit UI signal
+  outranks any stale `active` status from a conversation API.
+- If the waveform/voice-mode icon is present but the requested work has in fact
+  completed, record the result and do not send a redundant message.
 - If a visible ChatGPT UI shows `Message delivery timed out` /
   `メッセージ配信がタイムアウトしました` with `Retry` / `再試行`, never click
-  Retry. Retry restarts the answer and can discard usable work. Wait until the
-  response is no longer active, then send exactly one concise continuation in
-  the same conversation. Do not repeatedly retry the same idle period.
+  Retry. Retry restarts the answer and can discard usable work. Wait only while
+  Stop/停止 is still visible. As soon as the voice-mode waveform returns, send
+  exactly one concise continuation in the same conversation if work remains.
+- Treat a visible `ChatGPT stream recovery polling timed out` message the same
+  way when the composer has returned to the voice-mode waveform: inspect the
+  latest partial response, never click Retry, and continue only the unfinished
+  action in the same conversation. Preserve any useful investigation already
+  completed; do not assume the interrupted response made no progress.
 - For an interrupted answer whose remaining action is only the final report,
   use a concrete continuation such as:
 
@@ -251,15 +278,12 @@ only report material state changes.
   the resulting SHA.
   ```
 
-- If one continuation also fails or the conversation remains unreliable, park
-  it with its ID, fixed source/target blobs, last commit, last usable response,
-  and next action. Do not loop continuations and do not silently replace it with
-  a context-free chat. Parking is temporary: recheck it after another work item
-  reaches a terminal result or when the independent backlog is exhausted, first
-  verifying whether a commit landed. If it remains idle and incomplete, resume
-  it in the same conversation, respecting the two-live-item limit and a
-  20-minute minimum between continuations. Never ask the user to send Continue
-  or let unanswered chats deadlock the remaining work.
+- If a response stops again after a recovery, resume only the remaining action
+  immediately when the waveform returns; do not resend the full prompt. Never
+  replace the original with a context-free chat. Keep a compact ledger of its
+  URL/ID, fixed source/target blobs, last commit, last usable response, and next
+  action. Never ask the user to send Continue or let an idle tab deadlock other
+  independent work.
 
 ### Direct GitHub delivery and strict review loop
 
@@ -293,7 +317,42 @@ fresh implementation chat
 - Separate Git delivery from build/runtime/CI evidence. For every exact SHA,
   distinguish passed, failed, still-running, skipped/unrun, asset/setup failure,
   and a later unrelated compiler frontier. A clean file audit or pushed commit
-  is not an all-platform green build.
+  is not an all-platform green build. An alternate compiler or generator may be
+  useful supplemental evidence, but it does not replace a required target-
+  platform toolchain gate: do not reroute a failing Windows/MSVC validation to
+  MinGW and then claim the Windows gate passed. Fix the canonical path or leave
+  that gate explicitly failed/not established.
+
+### Intermediate commits and evidence validity
+
+- A long-running implementation can push a checkpoint while its ChatGPT tab
+  still shows Stop/停止 and continues working. Poll the remote branch during
+  long work, but treat each observed SHA as an immutable snapshot, not as the
+  terminal result. Record its parent, changed paths, and checks; do not mark the
+  item complete until the same-chat audit/correction is terminal and the final
+  SHA is independently verified. An audit of an earlier SHA does not audit a
+  later branch head.
+- When the user requests a local build gate, it is useful to build the exact
+  pushed snapshot even while the implementation chat is still active. Record
+  the exact SHA, command, log path, and first relevant compiler errors. If the
+  build fails, do not patch locally when ChatGPT owns direct GitHub edits; once
+  the same implementation chat's composer is idle, send one specific
+  continuation with those errors and ask it to correct and push. Rebuild the
+  resulting exact SHA, not an assumed latest tree.
+- Before a corrective push, inspect the workflow's branch concurrency policy.
+  If `cancel-in-progress: true` means the push would cancel a live exact-SHA
+  run, keep that branch snapshot unchanged until the run is terminal; diagnose
+  the failure read-only in parallel. Then refresh the branch, preserve any
+  concurrent commits, push the correction, and verify checks against the new
+  exact SHA. Never treat the older run as evidence for the corrected commit.
+- A generated screenshot, manifest, or successful capture command alone does
+  not establish visual parity. Confirm that the intended fixture is actually
+  visible and exercises the claimed behavior (including effective shader
+  output such as alpha), and that baseline and target use equivalent scene,
+  camera, resolution, settings, and capture timing. Identical/empty images may
+  expose a fixture, visibility, or harness defect rather than renderer parity;
+  fix the harness in the authorized work item and regenerate both sides under
+  matching conditions before using the images as evidence.
 
 ### Push-failure attachment fallback
 
@@ -329,14 +388,13 @@ write/commit/push cannot complete:
   evidence, and required audit result are recorded. If CI is still running,
   report it as running; if it failed in a later unrelated file, report that
   caveat rather than claiming success or failure for the wrong item.
-- After terminal verification, immediately close the browser tab for each
-  completed work-item conversation to conserve browser memory, even if it is
-  selected, unless the user explicitly asks to keep it open. Match the tab to
-  its conversation ID first; do not ask for separate confirmation because this
-  is routine memory cleanup within the workflow. This closes only the tab, not
-  the conversation or its history. Preserve tabs for active, stalled, parked,
-  recovery-required, or unrelated conversations; never close an unfinished chat
-  to “hand it off,” because a new chat cannot inherit its context.
+- Keep each active or unfinished conversation's browser tab open (mark it for
+  handoff when the session may end) so its visible state can be monitored and
+  continued. After terminal verification, close only completed/unneeded tabs to
+  conserve browser memory, matching each tab to its conversation ID first.
+  Closing a tab does not delete the conversation or its history. Never close an
+  unfinished chat to “hand it off,” because a new chat cannot inherit its
+  context.
 - At each cleanup or work-slot transition, also close any tabs for work items
   already recorded as terminal from earlier steps. Do not keep completed tabs
   open while other items continue; if a tab's conversation ID cannot be matched
@@ -344,3 +402,48 @@ write/commit/push cannot complete:
 - If local verification is performed, preserve unrelated dirty/untracked work
   and report it separately. Never use a broad reset, force-push, or cleanup as a
   shortcut for proving delivery.
+
+### Phase-level completion and ordering
+
+- When a task follows a multi-phase plan, use the exact current plan revision as
+  the authority for phase order, scope, completion checkboxes, static audits,
+  and runtime gates. A commit whose title names a phase proves only that a
+  commit was made; it does not prove that the phase is complete.
+- At dispatch and in every status report, name the active target phase
+  explicitly. If another phase is present only as a comparison/baseline input,
+  label it reference-only; never describe it as the current implementation
+  target or count its checks as completion evidence for the active phase.
+- Treat literal API/architecture lists in a phase as acceptance criteria;
+  behavioral parity or a superficially present but unused API does not satisfy
+  them. If they conflict with the existing backend, verify the concrete
+  constraint and resolve it without silently weakening or rewriting the plan.
+- Before advancing to the next phase, enumerate every applicable completion
+  condition and runtime test from the plan, then attach current, exact-SHA
+  evidence to each. Mark unrun or unavailable checks `NOT ESTABLISHED`; do not
+  infer them from a successful build, a related commit, or another phase's
+  results. Keep the phase unfinished until its required gates are verified.
+- If the requested phase order differs from an older plan or a later section
+  appears more convenient, follow the user's explicitly selected order and
+  preserve dependencies; do not silently skip ahead or treat already-present
+  implementation as newly completed work.
+
+### Progress tracking in the plan
+
+- When the user designates a plan document for ongoing progress, maintain a
+  concise dated status section near its end. Keep it in the requested document
+  rather than relying only on chat history or an ephemeral checklist.
+- Update completion checkboxes per criterion only when evidence supports that
+  criterion at a named source SHA. Record the exact evidence and leave other
+  criteria unchecked; a partially checked phase is still incomplete until every
+  required gate passes.
+- Keep the last verified SHA separate from the latest remote SHA. State the
+  local `HEAD`, remote branch tip, and any uncommitted paths when they differ;
+  do not imply an audit or runtime result automatically covers a later commit.
+- Record CI workflow run IDs/links, exact head SHAs, per-platform outcomes, and
+  a timestamp for live status. Distinguish `PASS`, `FAIL`, `IN PROGRESS`,
+  `CANCELLED`, and `NOT ESTABLISHED`; do not rerun a live run when a push would
+  cancel it. Refresh the ledger after a commit, terminal job, or other material
+  status change.
+- End the status section with the concrete next actions and the condition for
+  advancing phases. Preserve user-owned dirty work, and do not commit or push a
+  local progress edit unless the user requested delivery.

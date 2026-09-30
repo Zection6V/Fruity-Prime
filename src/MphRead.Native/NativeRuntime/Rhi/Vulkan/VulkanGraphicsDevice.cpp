@@ -487,8 +487,15 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
             struct DescriptorFrame final
             {
+                struct PoolUsage final
+                {
+                    std::uint32_t sets = 0;
+                    std::array<std::uint64_t, 5> counts{};
+                    std::array<std::uint64_t, 5> capacity{4096, 4096, 4096, 4096, 4096};
+                };
                 VkDescriptorPool pool = VK_NULL_HANDLE;
                 std::vector<VkDescriptorPool> overflowPools;
+                std::vector<PoolUsage> usage;
                 std::size_t activePool = 0;
                 std::vector<VkCommandPool> diagnosticCommandPools;
                 std::vector<VkPipelineLayout> diagnosticLayouts;
@@ -543,6 +550,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 for (const auto pool : slot.overflowPools)
                     Check(vk.vkResetDescriptorPool(vk.device, pool, 0), "vkResetDescriptorPool(overflow)");
                 slot.activePool = 0;
+                if (slot.usage.empty()) slot.usage.emplace_back();
+                for (auto& usage : slot.usage)
+                {
+                    usage.sets = 0;
+                    usage.counts.fill(0);
+                }
                 ++slot.generation;
                 CurrentFrame.store(frame);
                 FrameActive = true;
@@ -569,15 +582,28 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 if (!FrameActive) throw std::logic_error("Vulkan RHI: descriptor allocation outside frame.");
                 auto& slot = DescriptorFrames[(CurrentFrame.load() - 1) % FramesInFlight];
                 auto& vk = *ContextPointer->_impl;
+                std::array<std::uint64_t, 5> needed{};
+                for (const auto& entry : desc.entries)
+                    needed[static_cast<std::size_t>(entry.type)] += entry.count;
                 for (;;)
                 {
+                    auto& usage = slot.usage[slot.activePool];
+                    bool available = usage.sets < 1024;
+                    for (std::size_t i = 0; i < needed.size(); ++i)
+                        available = available && needed[i] <= usage.capacity[i] - usage.counts[i];
                     VkDescriptorSetAllocateInfo allocate{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
                     allocate.descriptorPool = slot.activePool == 0 ? slot.pool : slot.overflowPools[slot.activePool - 1];
                     allocate.descriptorSetCount = 1;
                     allocate.pSetLayouts = &layout;
                     VkDescriptorSet set = VK_NULL_HANDLE;
-                    const auto result = vk.vkAllocateDescriptorSets(vk.device, &allocate, &set);
-                    if (result == VK_SUCCESS) return set;
+                    const auto result = available ? vk.vkAllocateDescriptorSets(vk.device, &allocate, &set)
+                        : VK_ERROR_OUT_OF_POOL_MEMORY;
+                    if (result == VK_SUCCESS)
+                    {
+                        ++usage.sets;
+                        for (std::size_t i = 0; i < needed.size(); ++i) usage.counts[i] += needed[i];
+                        return set;
+                    }
                     if (result != VK_ERROR_OUT_OF_POOL_MEMORY && result != VK_ERROR_FRAGMENTED_POOL)
                         Check(result, "vkAllocateDescriptorSets");
                     if (slot.activePool < slot.overflowPools.size())
@@ -591,9 +617,6 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                         {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 4096},
                         {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 4096},
                         {VK_DESCRIPTOR_TYPE_SAMPLER, 4096}}};
-                    std::array<std::uint64_t, 5> needed{};
-                    for (const auto& entry : desc.entries)
-                        needed[static_cast<std::size_t>(entry.type)] += entry.count;
                     for (std::size_t i = 0; i < sizes.size(); ++i)
                     {
                         if (needed[i] > UINT32_MAX) throw std::invalid_argument("Vulkan descriptor count overflow.");
@@ -605,9 +628,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     create.poolSizeCount = static_cast<std::uint32_t>(sizes.size());
                     create.pPoolSizes = sizes.data();
                     VkDescriptorPool pool = VK_NULL_HANDLE;
+                    slot.overflowPools.reserve(slot.overflowPools.size() + 1);
+                    slot.usage.reserve(slot.usage.size() + 1);
                     Check(vk.vkCreateDescriptorPool(vk.device, &create, nullptr, &pool), "vkCreateDescriptorPool(overflow)");
-                    try { slot.overflowPools.push_back(pool); }
-                    catch (...) { vk.vkDestroyDescriptorPool(vk.device, pool, nullptr); throw; }
+                    slot.overflowPools.push_back(pool);
+                    DescriptorFrame::PoolUsage newUsage{};
+                    for (std::size_t i = 0; i < sizes.size(); ++i) newUsage.capacity[i] = sizes[i].descriptorCount;
+                    slot.usage.push_back(newUsage);
                     ++slot.activePool;
                 }
             }

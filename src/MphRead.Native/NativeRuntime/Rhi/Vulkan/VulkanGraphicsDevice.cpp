@@ -686,7 +686,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::unordered_map<const void*, std::function<void(const void*)>> SceneForgetters{};
             void ForgetScene(const void* object)
             {
-                for (auto& [owner, forget] : SceneForgetters) forget(object);
+                std::vector<std::function<void(const void*)>> listeners;
+                for (const auto& [owner, forget] : SceneForgetters) listeners.push_back(forget);
+                for (const auto& forget : listeners) forget(object);
             }
             bool Flushing = false;
             void FlushScene(const void* except = nullptr)
@@ -695,8 +697,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 Flushing = true;
                 try
                 {
-                    for (auto& [owner, flush] : SceneFlushers)
-                        if (owner != except) flush();
+                    // A flush unregisters its list: iterate over a copy.
+                    std::vector<std::function<void()>> pending;
+                    for (const auto& [owner, flush] : SceneFlushers)
+                        if (owner != except) pending.push_back(flush);
+                    for (const auto& flush : pending) flush();
                 }
                 catch (...)
                 {

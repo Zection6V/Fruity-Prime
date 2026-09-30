@@ -5,6 +5,7 @@
 #include "../../GameState.hpp"
 #include "../../NativeRuntime/Rhi/BackendFactory.hpp"
 #include "../../NativeRuntime/Rhi/OpenGL/OpenGlDevice.hpp"
+#include "../../NativeRuntime/Rhi/SceneBackend.hpp"
 #include "../../Renderer.hpp"
 #include "../../Scene.hpp"
 #include "../Network/NetLaunch.hpp"
@@ -148,7 +149,7 @@ namespace MphRead::Mods::Diagnostics
 
             void EndCycle()
             {
-                NativeRuntime::Rhi::GraphicsDevice& device = NativeRuntime::Rhi::OpenGL::ContextDevice();
+                NativeRuntime::Rhi::GraphicsDevice& device = NativeRuntime::Rhi::SceneDevice();
                 _during.push_back(device.Statistics());
                 _scene->DoCleanup();
                 _scene->ReleaseGpuResources();

@@ -2794,6 +2794,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
             [[nodiscard]] FrameContext BeginFrame() override
             {
+                // A frame begun over an open one ends it first, as OpenGL's does.
+                if (_state->FrameActive) EndFrame();
                 return _state->BeginDescriptorFrame();
             }
 

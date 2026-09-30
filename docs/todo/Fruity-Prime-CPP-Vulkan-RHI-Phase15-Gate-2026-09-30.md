@@ -1,6 +1,30 @@
-# Vulkan RHI Phase 15 validation — in progress
+# Vulkan RHI Phase 15 validation — complete
 
 Date: 2026-09-30. Branch: `develop3_rendering`.
+
+Current implementation SHA: `7f9e42493d8e3d749acf4896387c16e9e75ccdf4`.
+Exact-SHA [desktop CI 36727161309](https://github.com/Zection6V/Fruity-Prime/actions/runs/36727161309)
+and [Android CI 36727166007](https://github.com/Zection6V/Fruity-Prime/actions/runs/36727166007)
+completed successfully on the implementation SHA. Desktop passed 3/3
+(Windows/MSVC, Linux/GCC, macOS/Clang); Android passed 4/4 (contract, both NDK
+ABIs and APK). Phase 15 completion conditions are satisfied.
+
+Linux runtime logs confirm binding arrays, alignment, fresh sets, overflow pools,
+frame reuse and GPU bind submission PASS; resource and normal/fallback
+presentation checks also passed with validation=1 and errors=0.
+Evidence: `C:/tmp/gp/p15-accounting-linux-ci.log`.
+
+## Earlier CI failure and repair
+
+Original implementation `cdf5cb72b596cf7b11f124dc6bffd325a5d0efe7` passed
+Windows/MSVC, macOS/Clang and Android 4/4. Linux built but failed the pool-growth
+coverage assertion: Mesa allowed more sets than the nominal pool budget and
+never returned an exhaustion error. Repair `7f9e42493d8e3d749acf4896387c16e9e75ccdf4`
+tracks set and per-type descriptor counts in the allocator and grows pages
+before those budgets are exceeded, independently of driver behavior. Local
+binding/resource validation passed with errors=0 and live=0 after the repair
+(`C:/tmp/gp/p15-accounting-runtime.log`). Corrected Linux CI now confirms the
+pool-growth coverage as well.
 
 ## Implementation
 
@@ -36,5 +60,5 @@ Logs: `C:/tmp/gp/p15-final-build.log`, `C:/tmp/gp/p15-final-runtime.log`.
 
 The bind diagnostic does not execute a shader or draw geometry. Shader reads
 and production pipeline binding are Phase 16 and subsequent rendering gates.
-Exact-SHA desktop and Android CI remain required before checking Phase 15
-complete. The overall objective remains Phase 26.
+Exact-SHA desktop and Android CI passed. The overall objective remains Phase 26.
+Next is Phase 16; production shader consumption is verified in its rendering gates.

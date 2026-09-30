@@ -2820,13 +2820,22 @@ RHI semanticsを優先。
 
 ## 完了条件
 
-- [ ] BindingLayout Vulkan mapping
-- [ ] BindingSet Vulkan mapping
-- [ ] per-frame safe allocator
-- [ ] descriptor lifetime errorなし
-- [ ] frontend Vulkan descriptor awarenessなし
+- [x] BindingLayout Vulkan mapping
+- [x] BindingSet Vulkan mapping
+- [x] per-frame safe allocator
+- [x] descriptor lifetime errorなし
+- [x] frontend Vulkan descriptor awarenessなし
 
 ---
+
+## 検証記録
+
+実装 `7f9e42493d8e3d749acf4896387c16e9e75ccdf4`。
+Desktop CI 36727161309 は3/3、Android CI 36727166007 は4/4 PASS。
+ローカルCTest 5/5、GPU bind送信・pool拡張・frame再利用を含む
+resource checkはvalidation=1、errors=0、live=0。
+詳細: [Phase 15 gate](Fruity-Prime-CPP-Vulkan-RHI-Phase15-Gate-2026-09-30.md)。
+次はPhase 16。
 
 ## Commit例
 

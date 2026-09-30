@@ -1,6 +1,6 @@
 #include "RhiReadbackCheck.hpp"
 #include "../../Export/Images.hpp"
-#include "../../NativeRuntime/Rhi/OpenGL/OpenGlDevice.hpp"
+#include "../../NativeRuntime/Rhi/SceneBackend.hpp"
 #include "../../NativeRuntime/Rhi/GraphicsDevice.hpp"
 #include "../../NativeRuntime/Rhi/CommandList.hpp"
 #include "../../NativeRuntime/Stb/Image.hpp"
@@ -18,7 +18,13 @@ namespace MphRead::Mods::Diagnostics
         namespace Rhi = NativeRuntime::Rhi;
         // An odd RGB row width catches four-byte pack alignment mistakes.
         constexpr int width = 641, height = 127;
-        auto commands = Rhi::OpenGL::ContextDevice().CreateCommandList();
+        // The device that draws the window, whichever backend that is.
+        Rhi::GraphicsDevice& device = Rhi::SceneDevice();
+        auto commands = device.CreateCommandList();
+        // An OpenGL list needs no Begin, and its Begin changes the context's
+        // defaults under the frame that follows; a Vulkan one records nothing
+        // without it.
+        if (device.GetBackend() == Rhi::GraphicsBackend::Vulkan) commands->Begin();
         const std::array<Rhi::ClearColor, 3> colors{{
             {1, 0, 0, 1}, {0, 1, 0, 1}, {0, 0, 1, 1}}};
         Rhi::RenderingInfo target{};

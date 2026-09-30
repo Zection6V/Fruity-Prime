@@ -171,17 +171,23 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 Frame& frame = _frames[_frameIndex];
                 if (frame.submitted)
                 {
-                    Check(_context._impl->vkWaitForFences(_context._impl->device,
-                        1, &frame.fence, VK_TRUE, UINT64_MAX), "vkWaitForFences(frame)");
+                    Check(WaitFenceReporting(_context._impl->vkWaitForFences, _context._impl->device, &frame.fence, "vkWaitForFences(frame)"), "vkWaitForFences(frame)");
                     frame.submitted = false;
                 }
                 Check(_context._impl->vkResetCommandPool(_context._impl->device,
                     frame.pool, 0), "vkResetCommandPool");
 
                 std::uint32_t imageIndex = 0;
-                const VkResult acquire = _context._impl->vkAcquireNextImageKHR(
-                    _context._impl->device, _swapchain, UINT64_MAX,
-                    frame.imageAvailable, frame.acquireFence, &imageIndex);
+                VkResult acquire = VK_TIMEOUT;
+                for (int seconds = 2;; seconds += 2)
+                {
+                    acquire = _context._impl->vkAcquireNextImageKHR(
+                        _context._impl->device, _swapchain, 2'000'000'000ULL,
+                        frame.imageAvailable, frame.acquireFence, &imageIndex);
+                    if (acquire != VK_TIMEOUT && acquire != VK_NOT_READY) break;
+                    std::cerr << "[vulkan] still waiting to acquire a swapchain image after " << seconds << " s"
+                        << std::endl;
+                }
                 if (acquire == VK_ERROR_OUT_OF_DATE_KHR)
                 {
                     Recreate(w, h);
@@ -195,8 +201,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 if (frame.acquireFence)
                 {
                     auto& vk = *_context._impl;
-                    Check(vk.vkWaitForFences(vk.device, 1, &frame.acquireFence, VK_TRUE, UINT64_MAX),
-                        "vkWaitForFences(acquire completion)");
+                    Check(WaitFenceReporting(vk.vkWaitForFences, vk.device, &frame.acquireFence, "vkWaitForFences(acquire completion)"), "vkWaitForFences(acquire completion)");
                     Check(vk.vkResetFences(vk.device, 1, &frame.acquireFence), "vkResetFences(acquire)");
                     // A completed reacquisition proves a previous presentation
                     // on this replacement chain completed, and therefore all
@@ -211,8 +216,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
                 ImageState& image = _images[imageIndex];
                 if (image.lastFrame != VK_NULL_HANDLE && image.lastFrame != frame.fence)
-                    Check(_context._impl->vkWaitForFences(_context._impl->device,
-                        1, &image.lastFrame, VK_TRUE, UINT64_MAX), "vkWaitForFences(swapchain image)");
+                    Check(WaitFenceReporting(_context._impl->vkWaitForFences, _context._impl->device, &image.lastFrame, "vkWaitForFences(swapchain image)"), "vkWaitForFences(swapchain image)");
                 WaitForPresent(image);
                 _currentImage = imageIndex;
                 _acquired = true;
@@ -220,6 +224,26 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 _recreateAfterPresent = acquire == VK_SUBOPTIMAL_KHR;
                 return *image.texture;
             }
+        }
+
+        // The frame loop's acquire: false, having acquired nothing, while the
+        // window has no drawable area (minimized), where AcquireNextTexture
+        // would wait for one and the loop that restores the window would
+        // never run again.
+        [[nodiscard]] bool TryAcquire()
+        {
+            if (_closed || ::glfwWindowShouldClose(_nativeWindow)) return false;
+            int width = 0, height = 0;
+            ::glfwGetFramebufferSize(_nativeWindow, &width, &height);
+            if (width <= 0 || height <= 0)
+            {
+                _suspended = true;
+                _desc.width = 0;
+                _desc.height = 0;
+                return false;
+            }
+            (void)AcquireNextTexture();
+            return true;
         }
 
         void SetPresentMode(PresentMode mode) override
@@ -646,8 +670,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         {
             if (image.presentPending && image.presentFence)
             {
-                Check(_context._impl->vkWaitForFences(_context._impl->device,
-                    1, &image.presentFence, VK_TRUE, UINT64_MAX), "vkWaitForFences(present)");
+                Check(WaitFenceReporting(_context._impl->vkWaitForFences, _context._impl->device, &image.presentFence, "vkWaitForFences(present)"), "vkWaitForFences(present)");
                 ++_presentFenceWaits;
                 image.presentPending = false;
             }
@@ -661,8 +684,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 if (frame.submitted)
                 {
-                    Check(vk.vkWaitForFences(vk.device, 1, &frame.fence, VK_TRUE, UINT64_MAX),
-                        "vkWaitForFences(frame cleanup)");
+                    Check(WaitFenceReporting(vk.vkWaitForFences, vk.device, &frame.fence, "vkWaitForFences(frame cleanup)"), "vkWaitForFences(frame cleanup)");
                     frame.submitted = false;
                 }
             }
@@ -816,6 +838,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         ::MphRead::RendererPlatform::Window& window, const SwapchainDesc& desc)
     {
         return std::make_unique<VulkanSwapchain>(context, window, desc);
+    }
+
+    bool TryAcquireSwapchain(Swapchain& swapchain)
+    {
+        return dynamic_cast<VulkanSwapchain&>(swapchain).TryAcquire();
     }
 
     void RecordSwapchainBlit(Swapchain& swapchain, VkImage source, VkImageLayout layout,

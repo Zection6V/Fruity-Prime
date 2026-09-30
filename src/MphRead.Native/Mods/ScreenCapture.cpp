@@ -1,4 +1,5 @@
 #include "ScreenCapture.hpp"
+#include "../NativeRuntime/Rhi/SceneBackend.hpp"
 
 #include "../NativeRuntime/OpenTK/GL.hpp"
 #include "../NativeRuntime/OpenTK/GLFW.hpp"
@@ -259,15 +260,15 @@ namespace MphRead::Mods
             const std::int32_t byteCount = UncheckedMultiply(
                 UncheckedMultiply(width, height), 3);
             std::vector<std::uint8_t> buffer(static_cast<std::size_t>(byteCount));
-            ::OpenTK::Graphics::OpenGL::GL::BindFramebuffer(
-                ::OpenTK::Graphics::OpenGL::GL::FramebufferTarget::ReadFramebuffer, 0);
-            ::OpenTK::Graphics::OpenGL::GL::ReadBuffer(
-                ::OpenTK::Graphics::OpenGL::GL::ReadBufferMode::Back);
-            ::OpenTK::Graphics::OpenGL::GL::PixelStore(
-                ::OpenTK::Graphics::OpenGL::GL::PixelStoreParameter::PackAlignment, 1);
-            ::OpenTK::Graphics::OpenGL::GL::ReadPixels(0, 0, width, height,
-                ::OpenTK::Graphics::OpenGL::GL::PixelFormat::Rgb,
-                ::OpenTK::Graphics::OpenGL::GL::PixelType::UnsignedByte, buffer.data());
+            // The window as the device that draws it holds it: OpenGL's back
+            // buffer, or the Vulkan window target the swapchain is fed from.
+            namespace Rhi = ::MphRead::NativeRuntime::Rhi;
+            auto commands = Rhi::SceneDevice().CreateCommandList();
+            Rhi::RenderingInfo info{};
+            info.width = static_cast<std::uint32_t>(width);
+            info.height = static_cast<std::uint32_t>(height);
+            info.swapchain = true;
+            commands->ReadColor(info, 0, 0, info.width, info.height, Rhi::TextureFormat::RGB8Unorm, buffer.data());
             return buffer;
         };
         return Save(nullptr, path, read);

@@ -9,10 +9,11 @@
 //
 // One device and one graphics queue: Skia is handed the RHI's VkInstance,
 // VkPhysicalDevice, VkDevice and queue, never makes its own. The UI target is
-// an RHI texture. Before Skia draws into it the RHI records nothing that is
-// unsubmitted and leaves the image GENERAL (ResourceState::Common); Skia's
-// flush ends it GENERAL again, its submit is waited on, and the RHI is told
-// the state, so its next use inserts the barrier Skia's writes need.
+// an RHI texture. Before Skia draws into it the RHI holds nothing unsubmitted
+// and leaves the image COLOR_ATTACHMENT_OPTIMAL (ResourceState::ColorAttachment,
+// the layout Skia renders in; GENERAL makes Skia derive host access its own
+// barriers cannot carry). Skia's flush ends it there again, its submit is
+// waited on, and the RHI is told, so its next use inserts the barrier.
 class GrDirectContext;
 class SkSurface;
 template <typename T> class sk_sp;

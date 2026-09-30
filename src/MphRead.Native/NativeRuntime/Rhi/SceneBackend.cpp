@@ -132,15 +132,17 @@ namespace MphRead::NativeRuntime::Rhi
 #if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
         auto& scene = Scene();
         if (!scene.Window) return;
+        // The device stays for the process, as OpenGL's context device does:
+        // the launcher's Skia surface, its overlay and its side scene are
+        // statics that go at exit, after the window, and each still holds
+        // Vulkan objects. Everything is finished with before the window goes.
         try
         {
-            scene.Device.reset();
-            scene.Context.reset();
+            scene.Device->WaitIdle();
         }
         catch (...)
         {
         }
-        scene.Window = nullptr;
 #endif
     }
 

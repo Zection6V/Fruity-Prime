@@ -535,8 +535,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 }
                 if (slot.submittedFrame)
                 {
-                    Check(vk.vkWaitForFences(vk.device, 1, &slot.fence, VK_TRUE, UINT64_MAX),
-                        "vkWaitForFences(descriptor frame)");
+                    Check(WaitFenceReporting(vk.vkWaitForFences, vk.device, &slot.fence, "vkWaitForFences(descriptor frame)"), "vkWaitForFences(descriptor frame)");
                     CompletedFrame.store(std::max(CompletedFrame.load(), slot.submittedFrame));
                     Check(vk.vkResetFences(vk.device, 1, &slot.fence), "vkResetFences(descriptor frame)");
                     slot.submittedFrame = 0;
@@ -1770,8 +1769,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             auto& vk = *_device->ContextPointer->_impl;
             if (_submitted)
             {
-                Check(vk.vkWaitForFences(vk.device, 1, &_fence, VK_TRUE,
-                    std::numeric_limits<std::uint64_t>::max()), "vkWaitForFences");
+                Check(WaitFenceReporting(vk.vkWaitForFences, vk.device, &_fence, "vkWaitForFences"), "vkWaitForFences");
                 Check(vk.vkResetFences(vk.device, 1, &_fence), "vkResetFences");
                 _submitted = false;
                 _device->CompletedFrame.store(_device->CurrentFrame.load());
@@ -1787,8 +1785,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             auto& vk = *_device->ContextPointer->_impl;
             if (_spare.Submitted)
             {
-                Check(vk.vkWaitForFences(vk.device, 1, &_spare.Fence, VK_TRUE,
-                    std::numeric_limits<std::uint64_t>::max()), "vkWaitForFences(spare)");
+                Check(WaitFenceReporting(vk.vkWaitForFences, vk.device, &_spare.Fence, "vkWaitForFences(spare)"), "vkWaitForFences(spare)");
                 Check(vk.vkResetFences(vk.device, 1, &_spare.Fence), "vkResetFences(spare)");
                 _spare.Submitted = false;
                 for (auto& chunk : _spare.Ring) chunk.Used = 0;
@@ -3090,7 +3087,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     {
         auto& state = *dynamic_cast<VulkanGraphicsDevice&>(device).State();
         state.FlushScene();
-        (void)swapchain.AcquireNextTexture();
+        if (!TryAcquireSwapchain(swapchain)) return;
         VulkanTexture* window = state.WindowColor.get();
         if (!window || window->State() == ResourceState::Undefined)
         {

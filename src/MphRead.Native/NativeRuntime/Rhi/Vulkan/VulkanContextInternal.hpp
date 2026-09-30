@@ -353,6 +353,21 @@ namespace MphRead::NativeRuntime::Rhi
 
 namespace MphRead::NativeRuntime::Rhi::Vulkan
 {
+    // A fence wait that says so when it is stuck: a GPU hang or a fence that
+    // was never submitted is otherwise a window thread that silently stops.
+    inline VkResult WaitFenceReporting(PFN_vkWaitForFences wait, VkDevice device, const VkFence* fence,
+        const char* what)
+    {
+        for (int seconds = 2;; seconds += 2)
+        {
+            const VkResult result = wait(device, 1, fence, VK_TRUE, 2'000'000'000ULL);
+            if (result != VK_TIMEOUT) return result;
+            std::cerr << "[vulkan] still waiting for " << what << " after " << seconds << " s" << std::endl;
+        }
+    }
+
+    // Acquire the next image unless the window has nothing to draw into.
+    [[nodiscard]] bool TryAcquireSwapchain(Swapchain& swapchain);
     // Records the acquired image's frame: the source image blitted upright
     // (or black when there is none), in and back out of the given layout.
     void RecordSwapchainBlit(Swapchain& swapchain, VkImage source, VkImageLayout layout,

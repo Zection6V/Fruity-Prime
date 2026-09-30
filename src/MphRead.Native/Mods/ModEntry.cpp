@@ -1,4 +1,5 @@
 #include "ModEntry.hpp"
+#include "../NativeRuntime/Rhi/SceneBackend.hpp"
 #include "Platform/AppPaths.hpp"
 
 #include "../Entities/Players/PlayerEntity.hpp"
@@ -612,6 +613,17 @@ namespace
         using MphRead::Mods::Render::Crosshair;
         using MphRead::Mods::Render::FrameTiming;
 
+        // -rhi vulkan: the scene draws through the Vulkan backend, offscreen,
+        // into targets the captures read back. -vkvalidation adds the layers.
+        const std::optional<std::string> rhi = ValueAfter(args, "rhi");
+        ::MphRead::NativeRuntime::Rhi::SceneBackendKind backend{};
+        if (rhi.has_value() && ::MphRead::NativeRuntime::Rhi::ParseSceneBackend(*rhi, backend))
+        {
+            ::MphRead::NativeRuntime::Rhi::SelectSceneBackend(backend);
+            std::cout << "[render] scene backend " << ::MphRead::NativeRuntime::Rhi::SceneBackendName(backend) << std::endl;
+        }
+        if (HasFlag(args, "vkvalidation")) ::MphRead::NativeRuntime::Rhi::SetSceneValidation(true);
+
         const std::optional<std::string> cel = ValueAfter(args, "cel");
         if (cel.has_value() && !StartsWithHyphen(cel))
         {
@@ -1024,22 +1036,22 @@ namespace MphRead::Mods
     {
         if (::HasFlag(args, "vulkancheck"))
         {
-            SetExitCode(NativeRuntime::Rhi::Vulkan::RunFoundationCheck());
+            SetExitCode(::MphRead::NativeRuntime::Rhi::Vulkan::RunFoundationCheck());
             return true;
         }
         if (::HasFlag(args, "vulkanpresentcheck"))
         {
-            SetExitCode(NativeRuntime::Rhi::Vulkan::RunPresentationCheck());
+            SetExitCode(::MphRead::NativeRuntime::Rhi::Vulkan::RunPresentationCheck());
             return true;
         }
         if (::HasFlag(args, "vulkanresourcecheck"))
         {
-            SetExitCode(NativeRuntime::Rhi::Vulkan::RunResourceCheck());
+            SetExitCode(::MphRead::NativeRuntime::Rhi::Vulkan::RunResourceCheck());
             return true;
         }
         if (::HasFlag(args, "vulkanpresentfallbackcheck"))
         {
-            SetExitCode(NativeRuntime::Rhi::Vulkan::RunPresentationCheck(true));
+            SetExitCode(::MphRead::NativeRuntime::Rhi::Vulkan::RunPresentationCheck(true));
             return true;
         }
 #if defined(MPHREAD_SHELL)

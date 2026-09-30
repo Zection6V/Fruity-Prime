@@ -54,7 +54,16 @@ struct VulkanPipelineKey final
 class VulkanGraphicsPipeline final : public GraphicsPipeline
 {
 public:
-    VulkanGraphicsPipeline(std::shared_ptr<VulkanDeviceState> device, const GraphicsPipelineDesc& desc)
+    // A scene pass as the renderer describes it: state with no binding
+    // layout, formats that may not be the attachments', and possibly no
+    // program. The scene command list builds the native pipeline per draw.
+    struct Deferred final {};
+    VulkanGraphicsPipeline(std::shared_ptr<VulkanDeviceState> device, const GraphicsPipelineDesc& desc, Deferred)
+        : _device(std::move(device)), _desc(desc), _deferred(true) {}
+    // scene: the stencil reference and vertex strides are dynamic, as the
+    // scene command list sets them per draw.
+    VulkanGraphicsPipeline(std::shared_ptr<VulkanDeviceState> device, const GraphicsPipelineDesc& desc,
+        bool scene = false)
         : _device(std::move(device)), _desc(desc)
     {
         auto& vk = *_device->ContextPointer->_impl;
@@ -195,7 +204,12 @@ public:
                 static_cast<VkBlendOp>(item.alphaOp), static_cast<VkColorComponentFlags>(item.writeMask)});
         VkPipelineColorBlendStateCreateInfo blend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
         blend.attachmentCount = static_cast<std::uint32_t>(blends.size()); blend.pAttachments = blends.data();
-        const std::array<VkDynamicState, 2> dynamicStates{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        std::vector<VkDynamicState> dynamicStates{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
+        if (scene)
+        {
+            dynamicStates.push_back(VK_DYNAMIC_STATE_STENCIL_REFERENCE);
+            dynamicStates.push_back(VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE);
+        }
         VkPipelineDynamicStateCreateInfo dynamic{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
         dynamic.dynamicStateCount = static_cast<std::uint32_t>(dynamicStates.size()); dynamic.pDynamicStates = dynamicStates.data();
         const VkDescriptorSetLayout layout = bindings->Native();
@@ -229,7 +243,8 @@ public:
         : _device(owner->_device), _desc(desc), _pipeline(owner->_pipeline), _layout(owner->_layout), _owner(std::move(owner)) {}
     ~VulkanGraphicsPipeline() override
     {
-        if (_owner) return;
+        if (_deferred) _device->ForgetScene(this);
+        if (_owner || _deferred) return;
         auto& vk = *_device->ContextPointer->_impl;
         vk.vkDestroyPipeline(vk.device, _pipeline, nullptr); vk.vkDestroyPipelineLayout(vk.device, _layout, nullptr);
         --_device->Programs;
@@ -238,7 +253,9 @@ public:
     [[nodiscard]] VkPipeline Native() const noexcept { return _pipeline; }
     [[nodiscard]] VkPipelineLayout Layout() const noexcept { return _layout; }
     [[nodiscard]] const std::shared_ptr<VulkanDeviceState>& DeviceState() const noexcept { return _device; }
+    [[nodiscard]] bool IsDeferred() const noexcept { return _deferred; }
 private:
+    bool _deferred = false;
     std::shared_ptr<VulkanDeviceState> _device;
     GraphicsPipelineDesc _desc;
     VkPipeline _pipeline = VK_NULL_HANDLE;

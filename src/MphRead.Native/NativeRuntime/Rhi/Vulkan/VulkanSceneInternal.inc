@@ -1,0 +1,429 @@
+// Included inside the Vulkan backend after VulkanCommandList: the scene's
+// programs, its constant sink, and its mesh and transient geometry.
+
+using ::OpenTK::Mathematics::Matrix4;
+using ::OpenTK::Mathematics::Vector3;
+using ::OpenTK::Mathematics::Vector4;
+
+// Each call writes the program current on the device, as glUniform writes the
+// program in use; a name the program does not declare is ignored, as a
+// location of -1 is.
+class VulkanSceneConstants final : public ShaderConstantSink
+{
+public:
+    explicit VulkanSceneConstants(std::shared_ptr<VulkanDeviceState> device) : _device(std::move(device)) {}
+
+    void Set(const FrameConstants& c) override { SetView(c.View); SetProjection(c.Projection); }
+    void Set(const SceneLightConstants& c) override
+    {
+        for (std::size_t i = 0; i < SceneLightCount; ++i) SetLight(i, c.Lights[i]);
+    }
+    void SetLight(std::size_t index, const LightConstants& c) override
+    {
+        if (index == 0) { Vec3("light1vec", c.Vector); Vec3("light1col", c.Color); }
+        else if (index == 1) { Vec3("light2vec", c.Vector); Vec3("light2col", c.Color); }
+    }
+    void Set(const SceneFogConstants& c) override
+    {
+        Vec4("fog_color", c.Color); Float("fog_min", c.MinDistance); Float("fog_max", c.MaxDistance);
+    }
+    void Set(const MaterialConstants& c) override { SetSurface(c); Float("mat_alpha", c.Alpha); }
+    void Set(const DrawConstants& c) override
+    {
+        const std::size_t count = std::min(c.MatrixStack.size() / 16U, MatrixStackCapacity);
+        if (count == 0) return;
+        if (auto* p = Current()) p->WriteArray("mtx_stack", c.MatrixStack.data(), 16, count);
+    }
+    void Set(const CelPostConstants& c) override
+    {
+        Float("texel_w", c.TexelWidth); Float("texel_h", c.TexelHeight); Float("outline", c.Outline);
+        Float("near_plane", c.NearPlane); Float("far_plane", c.FarPlane);
+        Float("depth_quantum", c.DepthQuantum); Int("probe", c.Probe ? 1 : 0);
+    }
+    void SetFadeColor(const Vector4& color) override { Vec4("fade_color", color); }
+    void SetLayerAlpha(float alpha) override { Float("alpha", alpha); }
+    void SetUseMask(bool useMask) override { Int("use_mask", useMask ? 1 : 0); }
+    void SetViewSize(float width, float height) override { Float("view_width", width); Float("view_height", height); }
+    void Set(const DisruptionPostConstants& c) override
+    {
+        Float("shift_fac", c.ShiftFactor); Int("shift_idx", c.ShiftIndex);
+        Float("lerp_fac", c.LerpFactor); Float("white_fac", c.WhiteoutFactor);
+    }
+    void SetShiftTable(std::span<const float> table) override
+    {
+        if (auto* p = Current()) p->WriteArray("shift_table", table.data(), 1, std::min(table.size(), ShiftTableLength));
+    }
+    void SetWhiteoutTable(std::span<const float> table) override
+    {
+        if (auto* p = Current()) p->WriteArray("white_table", table.data(), 1, std::min(table.size(), WhiteoutTableLength));
+    }
+    void SetView(const Matrix4& view) override { Mat4("view_mtx", view); }
+    void SetProjection(const Matrix4& projection) override { Mat4("proj_mtx", projection); }
+    void SetFogEnabled(bool enabled) override { Int("fog_enable", enabled ? 1 : 0); }
+    void SetCelBands(std::int32_t bands) override { Int("cel_bands", bands); }
+    void SetShowColors(bool show) override { Int("show_colors", show ? 1 : 0); }
+    void SetBillboard(const Matrix4& viewInverse) override { Mat4("view_inv_mtx", viewInverse); }
+    void SetSurface(const MaterialConstants& c) override
+    {
+        Int("use_light", c.UseLight ? 1 : 0);
+        Vec3("diffuse", c.Diffuse); Vec3("ambient", c.Ambient); Vec3("specular", c.Specular);
+        Vec3("emission", c.Emission); Int("mat_mode", c.PolygonMode);
+    }
+    void SetMaterialAlpha(float alpha) override { Float("mat_alpha", alpha); }
+    void SetUseTexture(bool enabled) override { Int("use_texture", enabled ? 1 : 0); }
+    void SetTexgen(std::int32_t mode, const Matrix4& textureMatrix) override
+    {
+        Int("texgen_mode", mode); Mat4("tex_mtx", textureMatrix);
+    }
+    void SetOverride(const Vector4* color) override
+    {
+        Int("use_override", color ? 1 : 0);
+        if (color) Vec4("override_color", *color);
+    }
+    void SetOverrideColor(const Vector4& color) override { Vec4("override_color", color); }
+    void SetPaletteOverride(const Vector4* color) override
+    {
+        Int("use_pal_override", color ? 1 : 0);
+        if (color) Vec4("pal_override_color", *color);
+    }
+    void SetFlatColor(const Vector3* color) override
+    {
+        Int("use_flat", color ? 1 : 0);
+        if (color) Vec3("flat_color", *color);
+    }
+    // glColor4f / glTexCoord3f: context state, not program state.
+    void SetInheritedColor(const Vector4& color) override
+    {
+        _device->CurrentColor = {color.X, color.Y, color.Z, color.W};
+    }
+    void SetInheritedTexCoord(const Vector3& texCoord) override
+    {
+        _device->CurrentTexCoord = {texCoord.X, texCoord.Y, texCoord.Z};
+    }
+
+private:
+    [[nodiscard]] VulkanSceneProgram* Current() const
+    {
+        return static_cast<VulkanSceneProgram*>(_device->CurrentSceneProgram);
+    }
+    void Float(std::string_view name, float value) { if (auto* p = Current()) p->Write(name, &value, 4); }
+    void Int(std::string_view name, std::int32_t value) { if (auto* p = Current()) p->Write(name, &value, 4); }
+    void Vec3(std::string_view name, const Vector3& v)
+    {
+        const float data[3]{v.X, v.Y, v.Z};
+        if (auto* p = Current()) p->Write(name, data, sizeof(data));
+    }
+    void Vec4(std::string_view name, const Vector4& v)
+    {
+        const float data[4]{v.X, v.Y, v.Z, v.W};
+        if (auto* p = Current()) p->Write(name, data, sizeof(data));
+    }
+    // Untransposed: Matrix4's memory order is what glUniformMatrix4fv(false) reads.
+    void Mat4(std::string_view name, const Matrix4& m)
+    {
+        if (auto* p = Current()) p->Write(name, &m.M11, 64);
+    }
+
+    std::shared_ptr<VulkanDeviceState> _device;
+};
+
+class VulkanSceneShaderSet final : public SceneShaderSet
+{
+public:
+    VulkanSceneShaderSet(std::shared_ptr<VulkanDeviceState> device,
+        std::span<const float> toonTable, std::span<const float> shiftTable)
+        : _device(std::move(device)), _constants(_device)
+    {
+        Add(SceneProgram::Main, Generated::main_vert, Generated::main_frag, Generated::main_uniforms,
+            Generated::main_textures, Generated::main_uniform_size);
+        Add(SceneProgram::Composite, Generated::composite_vert, Generated::composite_frag,
+            Generated::composite_uniforms, Generated::composite_textures, Generated::composite_uniform_size);
+        Add(SceneProgram::Shift, Generated::shift_vert, Generated::shift_frag, Generated::shift_uniforms,
+            Generated::shift_textures, Generated::shift_uniform_size);
+        Add(SceneProgram::CelOutline, Generated::cel_vert, Generated::cel_frag, Generated::cel_uniforms,
+            Generated::cel_textures, Generated::cel_uniform_size);
+        // What OpenGlSceneShaderSet sets as it links: the shift table on the
+        // shift program and the toon table on the main one, which is left current.
+        Program(SceneProgram::Shift).WriteArray("shift_table", shiftTable.data(), 1,
+            std::min(shiftTable.size(), ShiftTableLength));
+        Program(SceneProgram::Main).WriteArray("toon_table", toonTable.data(), 3, toonTable.size() / 3U);
+        _device->CurrentSceneProgram = &Program(SceneProgram::Main);
+    }
+
+    ~VulkanSceneShaderSet() override
+    {
+        try { _device->FlushScene(); } catch (...) {}
+        for (auto& program : _programs)
+        {
+            if (_device->CurrentSceneProgram == program.get()) _device->CurrentSceneProgram = nullptr;
+            _device->ForgetScene(program.get());
+        }
+    }
+
+    [[nodiscard]] const Shader& Vertex(SceneProgram program) const override { return *Program(program).Vertex; }
+    [[nodiscard]] const Shader& Fragment(SceneProgram program) const override { return *Program(program).Fragment; }
+    [[nodiscard]] ShaderConstantSink& Constants() override { return _constants; }
+
+private:
+    [[nodiscard]] VulkanSceneProgram& Program(SceneProgram id) const
+    {
+        for (const auto& program : _programs)
+            if (program->Id == id) return *program;
+        throw std::invalid_argument("Vulkan RHI: unknown scene program.");
+    }
+
+    template <typename VertexWords, typename FragmentWords, typename Uniforms, typename Textures>
+    void Add(SceneProgram id, const VertexWords& vertexWords, const FragmentWords& fragmentWords,
+        const Uniforms& uniforms, const Textures& textures, std::uint32_t size)
+    {
+        auto program = std::make_unique<VulkanSceneProgram>();
+        program->Id = id;
+        const auto shader = [&](const auto& words, ShaderStage stage) {
+            ShaderDesc desc{};
+            desc.stage = stage;
+            desc.code.resize(words.size() * sizeof(std::uint32_t));
+            std::memcpy(desc.code.data(), words.data(), desc.code.size());
+            auto module = std::make_unique<VulkanShader>(_device, desc);
+            module->SceneProgram = program.get();
+            return module;
+        };
+        program->Vertex = shader(vertexWords, ShaderStage::Vertex);
+        program->Fragment = shader(fragmentWords, ShaderStage::Fragment);
+        BindingLayoutDesc layout{};
+        layout.entries.push_back({0, BindingType::UniformBuffer, ShaderStage::AllGraphics, 1});
+        for (const auto& texture : textures)
+        {
+            layout.entries.push_back({texture.image, BindingType::SampledTexture, ShaderStage::AllGraphics, 1});
+            layout.entries.push_back({texture.sampler, BindingType::Sampler, ShaderStage::AllGraphics, 1});
+            program->Textures.emplace_back(texture.image, texture.sampler);
+        }
+        program->Layout = std::make_unique<VulkanBindingLayout>(_device, layout);
+        program->Block.assign(size, std::byte{0});
+        for (const auto& member : uniforms)
+            program->Members.emplace(member.name, VulkanSceneProgram::Member{member.offset, member.size, member.count});
+        if (const auto* alpha = program->Find("alpha_test")) program->AlphaTestOffset = alpha->Offset;
+        _programs.push_back(std::move(program));
+    }
+
+    std::shared_ptr<VulkanDeviceState> _device;
+    std::vector<std::unique_ptr<VulkanSceneProgram>> _programs;
+    VulkanSceneConstants _constants;
+};
+
+// OpenGL's primitive types, as the triangle and line lists Vulkan draws.
+// Order within each triangle is OpenGL's own decomposition, so winding and
+// the provoking vertex are the same.
+void AppendTopology(std::vector<std::uint32_t>& out, std::span<const std::uint32_t> in,
+    MphRead::ScenePrimitiveTopology topology)
+{
+    using T = MphRead::ScenePrimitiveTopology;
+    const std::size_t n = in.size();
+    switch (topology)
+    {
+    case T::Triangles:
+        out.insert(out.end(), in.begin(), in.begin() + static_cast<std::ptrdiff_t>(n / 3U * 3U));
+        break;
+    case T::Quads:
+        for (std::size_t i = 0; i + 3 < n; i += 4)
+            out.insert(out.end(), {in[i], in[i + 1], in[i + 2], in[i], in[i + 2], in[i + 3]});
+        break;
+    case T::TriangleStrip:
+        for (std::size_t k = 0; k + 2 < n; ++k)
+            if (k % 2 == 0) out.insert(out.end(), {in[k], in[k + 1], in[k + 2]});
+            else out.insert(out.end(), {in[k + 1], in[k], in[k + 2]});
+        break;
+    case T::QuadStrip:
+        for (std::size_t k = 0; k + 3 < n; k += 2)
+            out.insert(out.end(), {in[k], in[k + 1], in[k + 3], in[k], in[k + 3], in[k + 2]});
+        break;
+    }
+}
+
+class VulkanGpuMesh final : public MphRead::GpuMeshResource
+{
+public:
+    VulkanGpuMesh(VulkanGraphicsDevice& device, VulkanCommandList& commands, const MphRead::RendererGeometry& geometry)
+        : _device(device.State()), _commands(commands), _terminal(geometry.TerminalState),
+          _terminalState(geometry.TerminalAttributeState), _states(geometry.VertexAttributeStates)
+    {
+        using MphRead::SceneVertexAttributeState;
+        if (_states.size() != geometry.Vertices.size())
+            throw std::invalid_argument("GPU mesh vertex attribute-state count does not match the vertex count.");
+        bool anyColor = false, allColor = true, anyNormal = false, allNormal = true;
+        _vertices.reserve(geometry.Vertices.size() * 13U);
+        for (std::size_t i = 0; i < geometry.Vertices.size(); ++i)
+        {
+            const auto& v = geometry.Vertices[i];
+            _vertices.insert(_vertices.end(), {v.Position.X, v.Position.Y, v.Position.Z,
+                v.Normal.X, v.Normal.Y, v.Normal.Z, v.Color.X, v.Color.Y, v.Color.Z, v.Color.W,
+                v.TexCoord.X, v.TexCoord.Y, static_cast<float>(v.MatrixIndex)});
+            const bool color = MphRead::HasSceneVertexAttributeState(_states[i], SceneVertexAttributeState::Color);
+            const bool normal = MphRead::HasSceneVertexAttributeState(_states[i], SceneVertexAttributeState::Normal);
+            anyColor |= color; allColor &= color; anyNormal |= normal; allNormal &= normal;
+        }
+        _colorMode = !anyColor ? Mode::Inherited : allColor ? Mode::Static : Mode::Mixed;
+        _normalMode = !anyNormal ? Mode::Inherited : allNormal ? Mode::Static : Mode::Mixed;
+        const MphRead::GpuMeshDrawPlan plan = MphRead::BuildGpuMeshDrawPlan(geometry);
+        std::vector<std::uint32_t> indices;
+        for (const auto& range : plan.Ranges)
+        {
+            const std::size_t first = indices.size();
+            AppendTopology(indices, std::span(geometry.Indices).subspan(range.FirstIndex, range.IndexCount),
+                range.Topology);
+            if (indices.size() > first)
+                _ranges.push_back({static_cast<std::uint32_t>(first), static_cast<std::uint32_t>(indices.size() - first)});
+        }
+        if (!_vertices.empty())
+            _vertexBuffer = Upload(device, std::as_bytes(std::span(_vertices)), BufferUsage::Vertex);
+        if (!indices.empty())
+            _indexBuffer = Upload(device, std::as_bytes(std::span(indices)), BufferUsage::Index);
+    }
+
+    void Draw() override
+    {
+        using MphRead::SceneVertexAttributeState;
+        if (_vertexBuffer && _indexBuffer && !_ranges.empty())
+        {
+            constexpr VkDeviceSize stride = 13U * sizeof(float);
+            const VkBuffer vb = _vertexBuffer->Native();
+            VulkanCommandList::SceneDraw draw{};
+            draw.Streams[0] = {vb, 0, stride};
+            draw.Streams[3] = {vb, 10U * sizeof(float), stride};
+            draw.Streams[2] = Stream(_colorMode, 6, 4, SceneVertexAttributeState::Color,
+                _device->CurrentColor.data());
+            draw.Streams[1] = Stream(_normalMode, 3, 3, SceneVertexAttributeState::Normal,
+                _device->CurrentNormal.data());
+            draw.IndexBuffer = _indexBuffer->Native();
+            for (const auto& range : _ranges)
+            {
+                draw.IndexOffset = static_cast<VkDeviceSize>(range.first) * sizeof(std::uint32_t);
+                draw.IndexCount = range.second;
+                _commands.DrawScene(draw);
+            }
+        }
+        // The current attributes the display list leaves behind.
+        if (MphRead::HasSceneVertexAttributeState(_terminalState, SceneVertexAttributeState::Color))
+            _device->CurrentColor = {_terminal.Color.X, _terminal.Color.Y, _terminal.Color.Z, _terminal.Color.W};
+        if (MphRead::HasSceneVertexAttributeState(_terminalState, SceneVertexAttributeState::Normal))
+            _device->CurrentNormal = {_terminal.Normal.X, _terminal.Normal.Y, _terminal.Normal.Z};
+        _device->CurrentTexCoord = {_terminal.TexCoord.X, _terminal.TexCoord.Y,
+            static_cast<float>(_terminal.MatrixIndex)};
+    }
+
+private:
+    enum class Mode : std::uint8_t { Inherited, Static, Mixed };
+
+    static std::unique_ptr<VulkanBuffer> Upload(VulkanGraphicsDevice& device, std::span<const std::byte> data,
+        BufferUsage usage)
+    {
+        BufferDesc desc{};
+        desc.size = data.size();
+        desc.usage = usage;
+        desc.memoryUsage = MemoryUsage::CpuToGpu;
+        auto buffer = std::make_unique<VulkanBuffer>(device.State(), desc);
+        device.WriteBuffer(*buffer, 0, data);
+        return buffer;
+    }
+
+    VulkanCommandList::SceneStream Stream(Mode mode, std::size_t component, std::size_t count,
+        MphRead::SceneVertexAttributeState flag, const float* current)
+    {
+        constexpr VkDeviceSize stride = 13U * sizeof(float);
+        if (mode == Mode::Static) return {_vertexBuffer->Native(), component * sizeof(float), stride};
+        if (mode == Mode::Inherited)
+        {
+            auto slice = _commands.Allocate(16);
+            std::memcpy(slice.Data, current, count * sizeof(float));
+            return {slice.Buffer, slice.Offset, 0};
+        }
+        const std::size_t vertices = _states.size();
+        auto slice = _commands.Allocate(vertices * count * sizeof(float));
+        auto* out = reinterpret_cast<float*>(slice.Data);
+        for (std::size_t i = 0; i < vertices; ++i)
+        {
+            const float* source = MphRead::HasSceneVertexAttributeState(_states[i], flag)
+                ? &_vertices[i * 13U + component] : current;
+            std::memcpy(out + i * count, source, count * sizeof(float));
+        }
+        return {slice.Buffer, slice.Offset, count * sizeof(float)};
+    }
+
+    std::shared_ptr<VulkanDeviceState> _device;
+    VulkanCommandList& _commands;
+    MphRead::SceneVertex _terminal{};
+    MphRead::SceneVertexAttributeState _terminalState{};
+    std::vector<MphRead::SceneVertexAttributeState> _states;
+    std::vector<float> _vertices;
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> _ranges;
+    Mode _colorMode = Mode::Inherited;
+    Mode _normalMode = Mode::Inherited;
+    std::unique_ptr<VulkanBuffer> _vertexBuffer;
+    std::unique_ptr<VulkanBuffer> _indexBuffer;
+};
+
+class VulkanTransientGeometry final : public MphRead::TransientGeometryResource
+{
+public:
+    VulkanTransientGeometry(std::shared_ptr<VulkanDeviceState> device, VulkanCommandList& commands)
+        : _device(std::move(device)), _commands(commands) {}
+
+    void BeginFrame() override {}
+
+    void Draw(MphRead::TransientPrimitiveTopology topology, std::span<const MphRead::TransientVertex> vertices,
+        bool hasTexCoords) override
+    {
+        using T = MphRead::TransientPrimitiveTopology;
+        if (vertices.empty()) return;
+        const std::size_t n = vertices.size();
+        std::vector<std::uint32_t> sequence(n);
+        MphRead::BuildTransientIndexSequence(sequence);
+        std::vector<std::uint32_t> indices;
+        bool lines = false;
+        switch (topology)
+        {
+        case T::LineLoop:
+            lines = true;
+            for (std::size_t i = 0; i < n && n > 1; ++i)
+                indices.insert(indices.end(), {sequence[i], sequence[(i + 1) % n]});
+            break;
+        case T::Triangles: AppendTopology(indices, sequence, MphRead::ScenePrimitiveTopology::Triangles); break;
+        case T::TriangleStrip: AppendTopology(indices, sequence, MphRead::ScenePrimitiveTopology::TriangleStrip); break;
+        case T::Quads: AppendTopology(indices, sequence, MphRead::ScenePrimitiveTopology::Quads); break;
+        case T::QuadStrip: AppendTopology(indices, sequence, MphRead::ScenePrimitiveTopology::QuadStrip); break;
+        case T::TriangleFan:
+            for (std::size_t k = 1; k + 1 < n; ++k) indices.insert(indices.end(), {sequence[0], sequence[k], sequence[k + 1]});
+            break;
+        }
+        if (indices.empty()) return;
+        auto positions = _commands.Allocate(n * 24U);
+        auto* out = reinterpret_cast<float*>(positions.Data);
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            const auto& v = vertices[i];
+            const float data[6]{v.Position.X, v.Position.Y, v.Position.Z, v.TexCoord.X, v.TexCoord.Y, v.TexCoord.Z};
+            std::memcpy(out + i * 6U, data, sizeof(data));
+        }
+        auto index = _commands.Allocate(indices.size() * 4U, 4);
+        std::memcpy(index.Data, indices.data(), indices.size() * 4U);
+        const auto constant = [&](const float* value, std::size_t count) {
+            auto slice = _commands.Allocate(16);
+            std::memcpy(slice.Data, value, count * sizeof(float));
+            return VulkanCommandList::SceneStream{slice.Buffer, slice.Offset, 0};
+        };
+        VulkanCommandList::SceneDraw draw{};
+        draw.Streams[0] = {positions.Buffer, positions.Offset, 24};
+        draw.Streams[1] = constant(_device->CurrentNormal.data(), 3);
+        draw.Streams[2] = constant(_device->CurrentColor.data(), 4);
+        draw.Streams[3] = hasTexCoords ? VulkanCommandList::SceneStream{positions.Buffer, positions.Offset + 12, 24}
+            : constant(_device->CurrentTexCoord.data(), 3);
+        draw.IndexBuffer = index.Buffer;
+        draw.IndexOffset = index.Offset;
+        draw.IndexCount = static_cast<std::uint32_t>(indices.size());
+        draw.Lines = lines;
+        _commands.DrawScene(draw);
+    }
+
+private:
+    std::shared_ptr<VulkanDeviceState> _device;
+    VulkanCommandList& _commands;
+};

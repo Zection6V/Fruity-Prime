@@ -1,4 +1,5 @@
 #include "VulkanGraphicsDevice.hpp"
+#include "VulkanScene.hpp"
 
 #include <algorithm>
 #include <array>
@@ -43,7 +44,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
             case TextureFormat::R8Unorm: return VK_FORMAT_R8_UNORM;
             case TextureFormat::RG8Unorm: return VK_FORMAT_R8G8_UNORM;
-            case TextureFormat::RGB8Unorm: return VK_FORMAT_R8G8B8_UNORM;
+            // No desktop GPU renders to a three-byte format; RGB8 is stored as
+            // RGBA8 with alpha held at one (views swizzle it, pipelines mask it).
+            case TextureFormat::RGB8Unorm: return VK_FORMAT_R8G8B8A8_UNORM;
             case TextureFormat::RGBA8Unorm: return VK_FORMAT_R8G8B8A8_UNORM;
             case TextureFormat::RGBA8Srgb: return VK_FORMAT_R8G8B8A8_SRGB;
             case TextureFormat::BGRA8Unorm: return VK_FORMAT_B8G8R8A8_UNORM;
@@ -89,6 +92,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             case TextureFormat::Undefined: break;
             }
             throw std::invalid_argument("Vulkan RHI: unknown bytes-per-pixel value.");
+        }
+
+        // Bytes a texel occupies in the image and in its copies.
+        [[nodiscard]] std::uint32_t StorageBytesPerPixel(TextureFormat format)
+        {
+            return format == TextureFormat::RGB8Unorm ? 4U : BytesPerPixel(format);
         }
 
         [[nodiscard]] VkImageAspectFlags Aspect(TextureFormat format)
@@ -313,7 +322,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if ((available & selected) == 0)
                 throw std::invalid_argument("Vulkan RHI: copy aspect does not exist in the image.");
             const std::uint64_t pixelSize = selected == VK_IMAGE_ASPECT_STENCIL_BIT ? 1
-                : (texture.format == TextureFormat::D32FloatS8Uint ? 4 : BytesPerPixel(texture.format));
+                : (texture.format == TextureFormat::D32FloatS8Uint ? 4 : StorageBytesPerPixel(texture.format));
             const std::uint64_t offsetAlignment = selected == VK_IMAGE_ASPECT_COLOR_BIT ? pixelSize : 4;
             if (region.bufferOffset % offsetAlignment != 0)
                 throw std::invalid_argument("Vulkan RHI: image-copy buffer offset has invalid texel/aspect alignment.");
@@ -418,9 +427,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             void Register(VulkanTextureView& view);
             void Unregister(VulkanTextureView& view) noexcept;
             void RecreateViews();
+            // The whole image as a shader reads it: depth only for a depth
+            // format, alpha one for RGB8. Lives as long as the image does.
+            [[nodiscard]] VkImageView SampledView();
 
         private:
             void CreateImage();
+            VkImageView _sampledView = VK_NULL_HANDLE;
             void DestroyImage() noexcept;
             std::shared_ptr<VulkanDeviceState> _device;
             TextureDesc _desc{};
@@ -656,11 +669,50 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::mutex TextureMutex{};
             std::unordered_map<std::int32_t, VulkanTexture*> TexturesByHandle{};
             std::int32_t NextTextureHandle = 1;
+
+            // The scene renderer's context state, which OpenGL keeps per
+            // context: the program constants go to, and the current vertex
+            // attributes a draw inherits where its mesh has no array.
+            void* CurrentSceneProgram = nullptr;
+            std::array<float, 4> CurrentColor{1.0F, 1.0F, 1.0F, 1.0F};
+            std::array<float, 3> CurrentNormal{0.0F, 0.0F, 1.0F};
+            std::array<float, 3> CurrentTexCoord{0.0F, 0.0F, 0.0F};
+
+            // Command lists holding recorded, unsubmitted scene work. Anything
+            // that submits on its own, or destroys a resource, flushes them
+            // first, so the queue sees work in the order it was recorded.
+            std::unordered_map<const void*, std::function<void()>> SceneFlushers{};
+            // Told when a texture, program or pipeline a list may still name goes away.
+            std::unordered_map<const void*, std::function<void(const void*)>> SceneForgetters{};
+            void ForgetScene(const void* object)
+            {
+                for (auto& [owner, forget] : SceneForgetters) forget(object);
+            }
+            bool Flushing = false;
+            void FlushScene(const void* except = nullptr)
+            {
+                if (Flushing || SceneFlushers.empty()) return;
+                Flushing = true;
+                try
+                {
+                    for (auto& [owner, flush] : SceneFlushers)
+                        if (owner != except) flush();
+                }
+                catch (...)
+                {
+                    Flushing = false;
+                    throw;
+                }
+                Flushing = false;
+            }
         };
 
         class VulkanShader final : public Shader
         {
         public:
+            // The scene program this module belongs to, when a scene shader
+            // set made it (VulkanSceneProgram*).
+            void* SceneProgram = nullptr;
             VulkanShader(std::shared_ptr<VulkanDeviceState> device, const ShaderDesc& desc)
                 : _device(std::move(device)), _desc(desc)
             {
@@ -1054,6 +1106,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         {
             if (_buffer != VK_NULL_HANDLE)
             {
+                try { _device->FlushScene(); } catch (...) {}
                 vmaDestroyBuffer(_device->Allocator, _buffer, _allocation);
                 _buffer = VK_NULL_HANDLE;
                 _allocation = VK_NULL_HANDLE;
@@ -1114,6 +1167,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         VulkanSampler::~VulkanSampler()
         {
+            try { _device->FlushScene(); } catch (...) {}
             if (_sampler != VK_NULL_HANDLE)
                 _device->ContextPointer->_impl->vkDestroySampler(
                     _device->ContextPointer->_impl->device, _sampler, nullptr);
@@ -1195,8 +1249,32 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             vk.Name(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<std::uint64_t>(_image), "RHI texture");
         }
 
+        VkImageView VulkanTexture::SampledView()
+        {
+            if (_sampledView != VK_NULL_HANDLE) return _sampledView;
+            auto& vk = *_device->ContextPointer->_impl;
+            VkImageViewCreateInfo create{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+            create.image = _image;
+            create.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            create.format = ToVkFormat(_desc.format);
+            const VkImageAspectFlags aspect = Aspect(_desc.format);
+            create.subresourceRange.aspectMask = (aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0
+                ? VK_IMAGE_ASPECT_DEPTH_BIT : aspect;
+            if (_desc.format == TextureFormat::RGB8Unorm) create.components.a = VK_COMPONENT_SWIZZLE_ONE;
+            create.subresourceRange.levelCount = _desc.mipLevels;
+            create.subresourceRange.layerCount = 1;
+            Check(vk.vkCreateImageView(vk.device, &create, nullptr, &_sampledView), "vkCreateImageView(sampled)");
+            return _sampledView;
+        }
+
         void VulkanTexture::DestroyImage() noexcept
         {
+            if (_sampledView != VK_NULL_HANDLE)
+            {
+                auto& vk = *_device->ContextPointer->_impl;
+                vk.vkDestroyImageView(vk.device, _sampledView, nullptr);
+                _sampledView = VK_NULL_HANDLE;
+            }
             if (_image != VK_NULL_HANDLE)
             {
                 vmaDestroyImage(_device->Allocator, _image, _allocation);
@@ -1207,6 +1285,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         VulkanTexture::~VulkanTexture()
         {
+            try { _device->FlushScene(); } catch (...) {}
+            _device->ForgetScene(this);
             auto& vk = *_device->ContextPointer->_impl;
             vk.vkDeviceWaitIdle(vk.device);
             for (VulkanTextureView* view : _views)
@@ -1226,6 +1306,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         {
             if (width == 0 || height == 0)
                 throw std::invalid_argument("Vulkan RHI: a texture extent cannot be zero.");
+            _device->FlushScene();
             auto& vk = *_device->ContextPointer->_impl;
             Check(vk.vkDeviceWaitIdle(vk.device), "vkDeviceWaitIdle before image resize");
             for (VulkanTextureView* view : _views)
@@ -1320,6 +1401,56 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
         }
 
+        // One of the scene shader set's four programs: its modules, its
+        // descriptor layout and the CPU copy of its constant block, which the
+        // constant sink writes and a draw copies out (Vulkan has no program
+        // object to hold uniforms the way OpenGL does).
+        struct VulkanSceneProgram final
+        {
+            struct Member final
+            {
+                std::uint32_t Offset = 0;
+                std::uint32_t Size = 0;
+                std::uint32_t Count = 0;
+            };
+            SceneProgram Id = SceneProgram::Main;
+            std::unique_ptr<VulkanShader> Vertex;
+            std::unique_ptr<VulkanShader> Fragment;
+            std::unique_ptr<VulkanBindingLayout> Layout;
+            std::vector<std::byte> Block;
+            std::unordered_map<std::string_view, Member> Members;
+            // Image and sampler bindings, by the OpenGL texture unit they replace.
+            std::vector<std::pair<std::uint32_t, std::uint32_t>> Textures;
+            std::uint64_t Generation = 1;
+            std::int64_t AlphaTestOffset = -1;
+
+            [[nodiscard]] const Member* Find(std::string_view name) const
+            {
+                const auto found = Members.find(name);
+                return found == Members.end() ? nullptr : &found->second;
+            }
+            void Write(std::string_view name, const void* data, std::size_t size)
+            {
+                const Member* member = Find(name);
+                if (!member) return;
+                std::memcpy(Block.data() + member->Offset, data, std::min<std::size_t>(size, member->Size));
+                ++Generation;
+            }
+            // An array: each element at the std140 array stride.
+            void WriteArray(std::string_view name, const float* data, std::size_t elementFloats,
+                std::size_t count)
+            {
+                const Member* member = Find(name);
+                if (!member || member->Count == 0) return;
+                const std::size_t stride = member->Size / member->Count;
+                count = std::min<std::size_t>(count, member->Count);
+                for (std::size_t i = 0; i < count; ++i)
+                    std::memcpy(Block.data() + member->Offset + i * stride, data + i * elementFloats,
+                        elementFloats * sizeof(float));
+                ++Generation;
+            }
+        };
+
         class VulkanCommandList final : public CommandList
         {
         public:
@@ -1328,33 +1459,28 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
             void Begin() override;
             void End() override;
-            void BeginRendering(const RenderingInfo&) override { Unsupported("BeginRendering"); }
-            void EndRendering() override { Unsupported("EndRendering"); }
-            void SetPipeline(const GraphicsPipeline& pipeline) override
+            void BeginRendering(const RenderingInfo& info) override;
+            void EndRendering() override;
+            void SetPipeline(const GraphicsPipeline& pipeline) override;
+            void SetViewport(const Viewport& viewport) override
             {
-                RequireRecording();
-                const auto* native = dynamic_cast<const VulkanGraphicsPipeline*>(&pipeline);
-                if (!native || native->DeviceState() != _device)
-                    throw std::invalid_argument("Vulkan RHI: pipeline belongs to another device.");
-                _pipeline = native;
-                auto& vk = *_device->ContextPointer->_impl;
-                vk.vkCmdBindPipeline(_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, native->Native());
+                _viewport = viewport;
+                _hasViewport = true;
+                _dynamicDirty = true;
             }
-            void SetViewport(const Viewport&) override { Unsupported("SetViewport"); }
-            void SetScissor(const Scissor&) override { Unsupported("SetScissor"); }
-            void SetVertexBuffer(std::uint32_t, const Buffer&, std::uint64_t) override
+            void SetScissor(const Scissor& scissor) override
             {
-                Unsupported("SetVertexBuffer");
+                _scissor = scissor;
+                _dynamicDirty = true;
             }
-            void SetIndexBuffer(const Buffer&, IndexType, std::uint64_t) override
-            {
-                Unsupported("SetIndexBuffer");
-            }
+            void SetVertexBuffer(std::uint32_t slot, const Buffer& buffer, std::uint64_t offset) override;
+            void SetIndexBuffer(const Buffer& buffer, IndexType type, std::uint64_t offset) override;
             void SetBindingSet(std::uint32_t index, const BindingSet& set) override
             {
                 RequireRecording();
                 const auto* native = dynamic_cast<const VulkanBindingSet*>(&set);
-                if (!_pipeline || index != 0 || !native || native->DeviceState() != _device
+                if (!_pipeline || _pipeline->IsDeferred() || index != 0 || !native
+                    || native->DeviceState() != _device
                     || set.Desc().layout->Desc() != _pipeline->Desc().bindingLayout->Desc())
                     throw std::invalid_argument("Vulkan RHI: binding set incompatible with pipeline.");
                 const auto descriptor = native->Native();
@@ -1362,15 +1488,15 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 vk.vkCmdBindDescriptorSets(_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     _pipeline->Layout(), index, 1, &descriptor, 0, nullptr);
             }
-            void SetStencilReference(std::uint32_t) override { Unsupported("SetStencilReference"); }
-            void Draw(std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t) override
+            void SetStencilReference(std::uint32_t reference) override
             {
-                Unsupported("Draw");
+                _stencilReference = reference;
+                _dynamicDirty = true;
             }
-            void DrawIndexed(std::uint32_t, std::uint32_t, std::uint32_t, std::int32_t, std::uint32_t) override
-            {
-                Unsupported("DrawIndexed");
-            }
+            void Draw(std::uint32_t vertexCount, std::uint32_t instanceCount,
+                std::uint32_t firstVertex, std::uint32_t firstInstance) override;
+            void DrawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount, std::uint32_t firstIndex,
+                std::int32_t vertexOffset, std::uint32_t firstInstance) override;
             void CopyBuffer(const Buffer& source, std::uint64_t sourceOffset,
                 Buffer& destination, std::uint64_t destinationOffset, std::uint64_t size) override;
             void CopyBufferToTexture(
@@ -1379,28 +1505,142 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 const Texture& source, Buffer& destination, const BufferTextureCopy& region) override;
             void Transition(Buffer& resource, ResourceState before, ResourceState after) override;
             void Transition(Texture& resource, ResourceState before, ResourceState after) override;
-            void BindSampledTexture(std::uint32_t, const Texture*, const Sampler*) override
+            void BindSampledTexture(std::uint32_t slot, const Texture* texture, const Sampler* sampler) override;
+            void ReadColor(const RenderingInfo& info, std::uint32_t x, std::uint32_t y,
+                std::uint32_t width, std::uint32_t height, TextureFormat format, void* destination) override;
+            void CopyColorAttachmentToTexture(Texture& destination, std::uint32_t width, std::uint32_t height) override;
+
+            // The scene's draws. A stream with a zero stride is one value for
+            // every vertex: OpenGL's current attribute where a mesh has no array.
+            struct SceneStream final
             {
-                Unsupported("BindSampledTexture");
-            }
-            void ReadColor(const RenderingInfo&, std::uint32_t, std::uint32_t,
-                std::uint32_t, std::uint32_t, TextureFormat, void*) override
+                VkBuffer Buffer = VK_NULL_HANDLE;
+                VkDeviceSize Offset = 0;
+                VkDeviceSize Stride = 0;
+            };
+            struct SceneDraw final
             {
-                Unsupported("ReadColor");
-            }
-            void CopyColorAttachmentToTexture(Texture&, std::uint32_t, std::uint32_t) override
+                std::array<SceneStream, 4> Streams{}; // position, normal, colour, texcoord
+                VkBuffer IndexBuffer = VK_NULL_HANDLE;
+                VkDeviceSize IndexOffset = 0;
+                std::uint32_t IndexCount = 0;
+                bool Lines = false;
+            };
+            struct RingSlice final
             {
-                Unsupported("CopyColorAttachmentToTexture");
-            }
+                VkBuffer Buffer = VK_NULL_HANDLE;
+                VkDeviceSize Offset = 0;
+                std::byte* Data = nullptr;
+            };
+            void DrawScene(const SceneDraw& draw);
+            [[nodiscard]] RingSlice Allocate(VkDeviceSize size, VkDeviceSize alignment = 16);
+            // Submit everything recorded and wait for it; recording resumes
+            // on the next command.
+            void Flush();
+            void Forget(const void* object);
 
         private:
-            void RequireRecording() const;
+            struct Target final
+            {
+                VulkanTexture* Color = nullptr;
+                VulkanTexture* Depth = nullptr;
+                VkImageView ColorView = VK_NULL_HANDLE;
+                VkImageView DepthView = VK_NULL_HANDLE;
+                std::uint32_t Width = 0;
+                std::uint32_t Height = 0;
+                Scissor Area{};
+                bool Clear = false;
+                bool ClearDepth = false;
+                bool ClearStencil = false;
+                ClearColor ClearValue{};
+                float DepthValue = 1.0F;
+                std::uint32_t StencilValue = 0;
+            };
+            struct VariantKey final
+            {
+                const GraphicsPipeline* Base = nullptr;
+                const VulkanSceneProgram* Program = nullptr;
+                TextureFormat Color = TextureFormat::Undefined;
+                TextureFormat Depth = TextureFormat::Undefined;
+                bool Lines = false;
+                bool operator==(const VariantKey&) const = default;
+            };
+            struct VariantHash final
+            {
+                std::size_t operator()(const VariantKey& key) const noexcept
+                {
+                    std::size_t h = std::hash<const void*>{}(key.Base);
+                    h ^= std::hash<const void*>{}(key.Program) + 0x9e3779b9U + (h << 6) + (h >> 2);
+                    h ^= (static_cast<std::size_t>(key.Color) << 1) ^ (static_cast<std::size_t>(key.Depth) << 9)
+                        ^ (key.Lines ? 0x10000U : 0U);
+                    return h;
+                }
+            };
+            struct Variant final
+            {
+                GraphicsPipelineDesc BaseDesc;
+                std::shared_ptr<VulkanGraphicsPipeline> Native;
+            };
+            struct RingChunk final
+            {
+                VkBuffer Buffer = VK_NULL_HANDLE;
+                VmaAllocation Allocation = VK_NULL_HANDLE;
+                std::byte* Mapped = nullptr;
+                VkDeviceSize Size = 0;
+                VkDeviceSize Used = 0;
+            };
+
+            void RequireRecording();
+            void BeginBuffer();
+            void Materialize();
+            void EndNative();
+            void CloseRendering();
+            void Barrier(VulkanTexture& texture, ResourceState after);
+            void ApplyDynamicState();
+            [[nodiscard]] VulkanGraphicsPipeline& VariantFor(const VulkanSceneProgram& program, bool lines);
+            [[nodiscard]] VkDescriptorSet AllocateSet(VkDescriptorSetLayout layout);
+            void EnsureWindowTargets(std::uint32_t width, std::uint32_t height);
+            [[nodiscard]] VulkanTexture& Dummy();
+
             std::shared_ptr<VulkanDeviceState> _device;
             VkCommandPool _pool = VK_NULL_HANDLE;
             VkCommandBuffer _commandBuffer = VK_NULL_HANDLE;
             VkFence _fence = VK_NULL_HANDLE;
             bool _recording = false;
+            bool _autoRestart = false;
             const VulkanGraphicsPipeline* _pipeline = nullptr;
+
+            bool _renderingOpen = false;
+            bool _renderingActive = false;
+            bool _clearsPending = false;
+            Target _target{};
+            Viewport _viewport{};
+            bool _hasViewport = false;
+            Scissor _scissor{};
+            bool _scissorEnabled = false;
+            std::uint32_t _stencilReference = 0;
+            bool _dynamicDirty = true;
+            VkPipeline _boundNative = VK_NULL_HANDLE;
+
+            std::array<std::pair<VulkanTexture*, const VulkanSampler*>, 4> _units{};
+            std::unordered_map<VariantKey, Variant, VariantHash> _variants{};
+            std::vector<RingChunk> _ring{};
+            std::size_t _ringChunk = 0;
+            std::vector<VkDescriptorPool> _pools{};
+            std::size_t _poolIndex = 0;
+
+            const VulkanSceneProgram* _setProgram = nullptr;
+            std::uint64_t _setGeneration = 0;
+            std::array<std::pair<VkImageView, VkSampler>, 4> _setTextures{};
+            RingSlice _uniformSlice{};
+            VkDescriptorSet _set = VK_NULL_HANDLE;
+
+            std::unique_ptr<VulkanTexture> _windowColor;
+            std::unique_ptr<VulkanTexture> _windowDepth;
+            std::unique_ptr<VulkanTextureView> _windowColorView;
+            std::unique_ptr<VulkanTextureView> _windowDepthView;
+            std::unique_ptr<VulkanTexture> _dummy;
+            std::unique_ptr<VulkanSampler> _dummySampler;
         };
 
         VulkanCommandList::VulkanCommandList(std::shared_ptr<VulkanDeviceState> state)
@@ -1431,51 +1671,723 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 _pool = VK_NULL_HANDLE;
                 throw;
             }
+            _device->SceneForgetters[this] = [this](const void* object) { Forget(object); };
         }
 
         VulkanCommandList::~VulkanCommandList()
         {
+            _device->SceneFlushers.erase(this);
+            _device->SceneForgetters.erase(this);
             if (_device->ContextPointer == nullptr) return;
             auto& vk = *_device->ContextPointer->_impl;
             if (vk.device == VK_NULL_HANDLE) return;
+            if (_recording)
+            {
+                try { Flush(); } catch (...) {}
+            }
+            _variants.clear();
+            _windowColorView.reset();
+            _windowDepthView.reset();
+            _windowColor.reset();
+            _windowDepth.reset();
+            _dummy.reset();
+            _dummySampler.reset();
+            for (auto& chunk : _ring)
+            {
+                vmaUnmapMemory(_device->Allocator, chunk.Allocation);
+                vmaDestroyBuffer(_device->Allocator, chunk.Buffer, chunk.Allocation);
+            }
+            for (const auto pool : _pools) vk.vkDestroyDescriptorPool(vk.device, pool, nullptr);
             if (_fence) vk.vkDestroyFence(vk.device, _fence, nullptr);
             if (_pool) vk.vkDestroyCommandPool(vk.device, _pool, nullptr);
         }
 
-        void VulkanCommandList::Begin()
+        void VulkanCommandList::BeginBuffer()
         {
-            if (_recording) throw std::logic_error("Vulkan RHI: command list is already recording.");
             auto& vk = *_device->ContextPointer->_impl;
             Check(vk.vkResetCommandPool(vk.device, _pool, 0), "vkResetCommandPool");
             VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
             begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
             Check(vk.vkBeginCommandBuffer(_commandBuffer, &begin), "vkBeginCommandBuffer");
             _recording = true;
+            _dynamicDirty = true;
+            _boundNative = VK_NULL_HANDLE;
+            _set = VK_NULL_HANDLE;
+            _setProgram = nullptr;
+            _device->SceneFlushers[this] = [this] { Flush(); };
+        }
+
+        void VulkanCommandList::Begin()
+        {
+            if (_recording) throw std::logic_error("Vulkan RHI: command list is already recording.");
+            BeginBuffer();
+            _autoRestart = true;
             _pipeline = nullptr;
         }
 
         void VulkanCommandList::End()
         {
-            RequireRecording();
+            if (!_recording) throw std::logic_error("Vulkan RHI: command list is not recording.");
+            _device->FlushScene(this);
+            Flush();
+            _autoRestart = false;
+        }
+
+        void VulkanCommandList::Flush()
+        {
+            if (!_recording) return;
             auto& vk = *_device->ContextPointer->_impl;
+            if (_renderingOpen && _clearsPending) Materialize();
+            if (_renderingActive) EndNative();
             Check(vk.vkEndCommandBuffer(_commandBuffer), "vkEndCommandBuffer");
+            for (std::size_t i = 0; i <= _ringChunk && i < _ring.size(); ++i)
+                if (_ring[i].Used)
+                    Check(vmaFlushAllocation(_device->Allocator, _ring[i].Allocation, 0, _ring[i].Used),
+                        "vmaFlushAllocation(ring)");
             VkCommandBufferSubmitInfo command{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
             command.commandBuffer = _commandBuffer;
             VkSubmitInfo2 submit{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
             submit.commandBufferInfoCount = 1;
             submit.pCommandBufferInfos = &command;
+            _recording = false;
+            _device->SceneFlushers.erase(this);
             Check(vk.vkQueueSubmit2(vk.graphics, 1, &submit, _fence), "vkQueueSubmit2");
             Check(vk.vkWaitForFences(vk.device, 1, &_fence, VK_TRUE,
                 std::numeric_limits<std::uint64_t>::max()), "vkWaitForFences");
             Check(vk.vkResetFences(vk.device, 1, &_fence), "vkResetFences");
-            _recording = false;
+            // The GPU has finished with every transient allocation.
+            for (auto& chunk : _ring) chunk.Used = 0;
+            _ringChunk = 0;
+            for (const auto pool : _pools) Check(vk.vkResetDescriptorPool(vk.device, pool, 0), "vkResetDescriptorPool");
+            _poolIndex = 0;
+            _set = VK_NULL_HANDLE;
+            _setProgram = nullptr;
+            _boundNative = VK_NULL_HANDLE;
             _device->CompletedFrame.store(_device->CurrentFrame.load());
         }
 
-        void VulkanCommandList::RequireRecording() const
+        void VulkanCommandList::RequireRecording()
         {
-            if (!_recording) throw std::logic_error("Vulkan RHI: command list is not recording.");
+            if (_recording) return;
+            if (!_autoRestart) throw std::logic_error("Vulkan RHI: command list is not recording.");
+            BeginBuffer();
         }
+
+        void VulkanCommandList::Forget(const void* object)
+        {
+            for (auto& unit : _units)
+                if (unit.first == object) unit = {};
+            if (_target.Color == object || _target.Depth == object)
+            {
+                if (_renderingActive) EndNative();
+                _renderingOpen = false;
+                _clearsPending = false;
+                _target = {};
+            }
+            for (auto it = _variants.begin(); it != _variants.end();)
+                it = it->first.Program == object || it->first.Base == object ? _variants.erase(it) : std::next(it);
+            if (_setProgram == object) _setProgram = nullptr;
+            if (_pipeline == object) _pipeline = nullptr;
+        }
+
+        void VulkanCommandList::Barrier(VulkanTexture& texture, ResourceState after)
+        {
+            if (texture.State() == after) return;
+            Transition(texture, texture.State(), after);
+        }
+
+        void VulkanCommandList::EnsureWindowTargets(std::uint32_t width, std::uint32_t height)
+        {
+            if (_windowColor && _windowColor->Desc().width == width && _windowColor->Desc().height == height) return;
+            if (_renderingActive) EndNative();
+            _windowColorView.reset();
+            _windowDepthView.reset();
+            _windowColor.reset();
+            _windowDepth.reset();
+            TextureDesc color{};
+            color.width = width;
+            color.height = height;
+            color.format = TextureFormat::RGBA8Unorm;
+            color.usage = TextureUsage::ColorAttachment | TextureUsage::TransferSrc | TextureUsage::Sampled;
+            _windowColor = std::make_unique<VulkanTexture>(_device, color, TextureHandle{});
+            _windowColorView = std::make_unique<VulkanTextureView>(*_windowColor, TextureViewDesc{});
+            TextureDesc depth = color;
+            depth.format = TextureFormat::D24UnormS8Uint;
+            depth.usage = TextureUsage::DepthStencilAttachment;
+            _windowDepth = std::make_unique<VulkanTexture>(_device, depth, TextureHandle{});
+            _windowDepthView = std::make_unique<VulkanTextureView>(*_windowDepth, TextureViewDesc{});
+        }
+
+        void VulkanCommandList::BeginRendering(const RenderingInfo& info)
+        {
+            RequireRecording();
+            CloseRendering();
+            Target target{};
+            target.Width = info.width;
+            target.Height = info.height;
+            target.Area = info.renderArea;
+            const RenderingColorAttachment* color = info.colorAttachments.empty() ? nullptr : &info.colorAttachments[0];
+            const RenderingDepthStencilAttachment* depth = info.depthStencilAttachment;
+            if (info.swapchain)
+            {
+                EnsureWindowTargets(info.width, info.height);
+                target.Color = _windowColor.get();
+                target.ColorView = _windowColorView->Native();
+                if (depth)
+                {
+                    target.Depth = _windowDepth.get();
+                    target.DepthView = _windowDepthView->Native();
+                }
+            }
+            else
+            {
+                if (color && color->view)
+                {
+                    const auto& view = dynamic_cast<const VulkanTextureView&>(*color->view);
+                    target.Color = const_cast<VulkanTexture*>(static_cast<const VulkanTexture*>(&view.TextureResource()));
+                    target.ColorView = view.Native();
+                }
+                if (depth && depth->view)
+                {
+                    const auto& view = dynamic_cast<const VulkanTextureView&>(*depth->view);
+                    target.Depth = const_cast<VulkanTexture*>(static_cast<const VulkanTexture*>(&view.TextureResource()));
+                    target.DepthView = view.Native();
+                }
+            }
+            // DontCare keeps the contents, as OpenGL does: only Clear clears.
+            target.Clear = color && target.Color && color->loadOp == LoadOp::Clear;
+            if (color) target.ClearValue = color->clearValue;
+            if (depth && target.Depth)
+            {
+                target.ClearDepth = depth->depthLoadOp == LoadOp::Clear;
+                target.ClearStencil = depth->stencilLoadOp == LoadOp::Clear;
+                target.DepthValue = depth->clearDepth;
+                target.StencilValue = depth->clearStencil;
+            }
+            _target = target;
+            _renderingOpen = true;
+            _clearsPending = target.Clear || target.ClearDepth || target.ClearStencil;
+            _scissorEnabled = info.renderArea.width > 0 && info.renderArea.height > 0;
+            if (_scissorEnabled) _scissor = info.renderArea;
+            _dynamicDirty = true;
+        }
+
+        void VulkanCommandList::CloseRendering()
+        {
+            if (_renderingOpen && _clearsPending) Materialize();
+            if (_renderingActive) EndNative();
+            _renderingOpen = false;
+        }
+
+        void VulkanCommandList::EndRendering()
+        {
+            if (!_recording && !_renderingOpen) return;
+            CloseRendering();
+        }
+
+        void VulkanCommandList::Materialize()
+        {
+            RequireRecording();
+            auto& vk = *_device->ContextPointer->_impl;
+            if (_target.Color) Barrier(*_target.Color, ResourceState::ColorAttachment);
+            if (_target.Depth) Barrier(*_target.Depth, ResourceState::DepthStencilWrite);
+            const bool first = _clearsPending;
+            VkRenderingAttachmentInfo color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+            color.imageView = _target.ColorView;
+            color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            color.loadOp = first && _target.Clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+            color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            const bool rgb8 = _target.Color && _target.Color->Desc().format == TextureFormat::RGB8Unorm;
+            color.clearValue.color = {{_target.ClearValue.red, _target.ClearValue.green,
+                _target.ClearValue.blue, rgb8 ? 1.0F : _target.ClearValue.alpha}};
+            VkRenderingAttachmentInfo depth{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+            depth.imageView = _target.DepthView;
+            depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            depth.loadOp = first && _target.ClearDepth ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+            depth.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            depth.clearValue.depthStencil = {_target.DepthValue, _target.StencilValue};
+            VkRenderingAttachmentInfo stencil = depth;
+            stencil.loadOp = first && _target.ClearStencil ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+            const bool hasStencil = _target.Depth && (Aspect(_target.Depth->Desc().format) & VK_IMAGE_ASPECT_STENCIL_BIT) != 0;
+            std::uint32_t width = _target.Width;
+            std::uint32_t height = _target.Height;
+            for (const VulkanTexture* texture : {_target.Color, _target.Depth})
+                if (texture)
+                {
+                    width = std::min(width, texture->Desc().width);
+                    height = std::min(height, texture->Desc().height);
+                }
+            VkRenderingInfo rendering{VK_STRUCTURE_TYPE_RENDERING_INFO};
+            if (_target.Area.width > 0 && _target.Area.height > 0)
+            {
+                const auto x = std::clamp<std::int32_t>(_target.Area.x, 0, static_cast<std::int32_t>(width));
+                const auto y = std::clamp<std::int32_t>(_target.Area.y, 0, static_cast<std::int32_t>(height));
+                rendering.renderArea = {{x, y}, {std::min(_target.Area.width, width - static_cast<std::uint32_t>(x)),
+                    std::min(_target.Area.height, height - static_cast<std::uint32_t>(y))}};
+            }
+            else
+                rendering.renderArea = {{0, 0}, {width, height}};
+            rendering.layerCount = 1;
+            rendering.colorAttachmentCount = _target.Color ? 1U : 0U;
+            rendering.pColorAttachments = _target.Color ? &color : nullptr;
+            rendering.pDepthAttachment = _target.Depth ? &depth : nullptr;
+            rendering.pStencilAttachment = hasStencil ? &stencil : nullptr;
+            vk.vkCmdBeginRendering(_commandBuffer, &rendering);
+            _renderingActive = true;
+            _clearsPending = false;
+            _dynamicDirty = true;
+        }
+
+        void VulkanCommandList::EndNative()
+        {
+            _device->ContextPointer->_impl->vkCmdEndRendering(_commandBuffer);
+            _renderingActive = false;
+        }
+
+        void VulkanCommandList::SetPipeline(const GraphicsPipeline& pipeline)
+        {
+            const auto* native = dynamic_cast<const VulkanGraphicsPipeline*>(&pipeline);
+            if (!native || native->DeviceState() != _device)
+                throw std::invalid_argument("Vulkan RHI: pipeline belongs to another device.");
+            _pipeline = native;
+            if (native->IsDeferred())
+            {
+                // glUseProgram: a pass naming no program leaves the last one current.
+                if (const auto* fragment = dynamic_cast<const VulkanShader*>(native->Desc().fragmentShader))
+                    _device->CurrentSceneProgram = fragment->SceneProgram;
+                return;
+            }
+            RequireRecording();
+            auto& vk = *_device->ContextPointer->_impl;
+            vk.vkCmdBindPipeline(_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, native->Native());
+            _boundNative = native->Native();
+        }
+
+        void VulkanCommandList::ApplyDynamicState()
+        {
+            if (!_dynamicDirty) return;
+            auto& vk = *_device->ContextPointer->_impl;
+            std::uint32_t width = _target.Width;
+            std::uint32_t height = _target.Height;
+            for (const VulkanTexture* texture : {_target.Color, _target.Depth})
+                if (texture)
+                {
+                    width = std::min(width, texture->Desc().width);
+                    height = std::min(height, texture->Desc().height);
+                }
+            VkViewport viewport{0.0F, 0.0F, static_cast<float>(width), static_cast<float>(height), 0.0F, 1.0F};
+            if (_hasViewport)
+                viewport = {_viewport.x, _viewport.y, _viewport.width, _viewport.height,
+                    _viewport.minDepth, _viewport.maxDepth};
+            if (viewport.width <= 0.0F) viewport.width = 1.0F;
+            if (viewport.height <= 0.0F) viewport.height = 1.0F;
+            vk.vkCmdSetViewport(_commandBuffer, 0, 1, &viewport);
+            VkRect2D scissor{{0, 0}, {width, height}};
+            if (_scissorEnabled)
+            {
+                const auto x = std::clamp<std::int32_t>(_scissor.x, 0, static_cast<std::int32_t>(width));
+                const auto y = std::clamp<std::int32_t>(_scissor.y, 0, static_cast<std::int32_t>(height));
+                scissor = {{x, y}, {std::min(_scissor.width, width - static_cast<std::uint32_t>(x)),
+                    std::min(_scissor.height, height - static_cast<std::uint32_t>(y))}};
+            }
+            vk.vkCmdSetScissor(_commandBuffer, 0, 1, &scissor);
+            if (_pipeline && (_pipeline->IsDeferred()))
+                vk.vkCmdSetStencilReference(_commandBuffer, VK_STENCIL_FACE_FRONT_AND_BACK, _stencilReference);
+            _dynamicDirty = false;
+        }
+
+        VulkanGraphicsPipeline& VulkanCommandList::VariantFor(const VulkanSceneProgram& program, bool lines)
+        {
+            const VariantKey key{_pipeline, &program,
+                _target.Color ? _target.Color->Desc().format : TextureFormat::Undefined,
+                _target.Depth ? _target.Depth->Desc().format : TextureFormat::Undefined, lines};
+            const auto found = _variants.find(key);
+            if (found != _variants.end() && found->second.BaseDesc == _pipeline->Desc())
+                return *found->second.Native;
+            GraphicsPipelineDesc desc = _pipeline->Desc();
+            const GraphicsPipelineDesc base = desc;
+            desc.vertexShader = program.Vertex.get();
+            desc.fragmentShader = program.Fragment.get();
+            desc.bindingLayout = program.Layout.get();
+            desc.topology = lines ? PrimitiveTopology::LineList : PrimitiveTopology::TriangleList;
+            // The frontend's winding is OpenGL's, in a target whose rows run
+            // the other way up in Vulkan: the same triangle turns the other way.
+            desc.rasterizer.frontFace = desc.rasterizer.frontFace == FrontFace::CounterClockwise
+                ? FrontFace::Clockwise : FrontFace::CounterClockwise;
+            // glStencilFunc/glStencilOp set both faces.
+            desc.depthStencil.back = desc.depthStencil.front;
+            BlendAttachmentDesc blend = desc.blendAttachments.empty() ? BlendAttachmentDesc{} : desc.blendAttachments[0];
+            desc.colorFormats.clear();
+            desc.blendAttachments.clear();
+            if (_target.Color)
+            {
+                desc.colorFormats.push_back(_target.Color->Desc().format);
+                if (_target.Color->Desc().format == TextureFormat::RGB8Unorm)
+                    blend.writeMask = static_cast<ColorWriteMask>(static_cast<std::uint8_t>(blend.writeMask) & 7U);
+                desc.blendAttachments.push_back(blend);
+            }
+            desc.depthStencilFormat = _target.Depth ? _target.Depth->Desc().format : TextureFormat::Undefined;
+            if (!_target.Depth)
+            {
+                desc.depthStencil.depthTestEnable = false;
+                desc.depthStencil.depthWriteEnable = false;
+                desc.depthStencil.stencilTestEnable = false;
+            }
+            desc.vertexBuffers = {{0, 12}, {1, 12}, {2, 16}, {3, 12}};
+            // Only the inputs the program declares: the post programs read
+            // position and texcoord and nothing else.
+            if (program.Id == SceneProgram::Main)
+                desc.vertexAttributes = {{0, 0, VertexFormat::Float3, 0}, {1, 1, VertexFormat::Float3, 0},
+                    {2, 2, VertexFormat::Float4, 0}, {3, 3, VertexFormat::Float3, 0}};
+            else
+                desc.vertexAttributes = {{0, 0, VertexFormat::Float3, 0}, {3, 3, VertexFormat::Float3, 0}};
+            auto native = std::make_shared<VulkanGraphicsPipeline>(_device, desc, true);
+            auto& entry = _variants[key];
+            entry.BaseDesc = base;
+            entry.Native = std::move(native);
+            return *entry.Native;
+        }
+
+        VkDescriptorSet VulkanCommandList::AllocateSet(VkDescriptorSetLayout layout)
+        {
+            auto& vk = *_device->ContextPointer->_impl;
+            for (;;)
+            {
+                if (_poolIndex == _pools.size())
+                {
+                    const std::array<VkDescriptorPoolSize, 3> sizes{{
+                        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2048},
+                        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 4096},
+                        {VK_DESCRIPTOR_TYPE_SAMPLER, 4096}}};
+                    VkDescriptorPoolCreateInfo create{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+                    create.maxSets = 2048;
+                    create.poolSizeCount = static_cast<std::uint32_t>(sizes.size());
+                    create.pPoolSizes = sizes.data();
+                    VkDescriptorPool pool = VK_NULL_HANDLE;
+                    Check(vk.vkCreateDescriptorPool(vk.device, &create, nullptr, &pool), "vkCreateDescriptorPool(scene)");
+                    _pools.push_back(pool);
+                }
+                VkDescriptorSetAllocateInfo allocate{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+                allocate.descriptorPool = _pools[_poolIndex];
+                allocate.descriptorSetCount = 1;
+                allocate.pSetLayouts = &layout;
+                VkDescriptorSet set = VK_NULL_HANDLE;
+                const VkResult result = vk.vkAllocateDescriptorSets(vk.device, &allocate, &set);
+                if (result == VK_SUCCESS) return set;
+                if (result != VK_ERROR_OUT_OF_POOL_MEMORY && result != VK_ERROR_FRAGMENTED_POOL)
+                    Check(result, "vkAllocateDescriptorSets(scene)");
+                ++_poolIndex;
+            }
+        }
+
+        VulkanCommandList::RingSlice VulkanCommandList::Allocate(VkDeviceSize size, VkDeviceSize alignment)
+        {
+            RequireRecording();
+            for (;;)
+            {
+                if (_ringChunk < _ring.size())
+                {
+                    auto& chunk = _ring[_ringChunk];
+                    const VkDeviceSize offset = (chunk.Used + alignment - 1) / alignment * alignment;
+                    if (offset + size <= chunk.Size)
+                    {
+                        chunk.Used = offset + size;
+                        return {chunk.Buffer, offset, chunk.Mapped + offset};
+                    }
+                    if (_ringChunk + 1 < _ring.size())
+                    {
+                        ++_ringChunk;
+                        _ring[_ringChunk].Used = 0;
+                        continue;
+                    }
+                }
+                RingChunk chunk{};
+                chunk.Size = std::max<VkDeviceSize>(8U << 20U, size + alignment);
+                VkBufferCreateInfo create{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+                create.size = chunk.Size;
+                create.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+                    | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+                create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+                VmaAllocationCreateInfo allocation{};
+                allocation.usage = VMA_MEMORY_USAGE_AUTO;
+                allocation.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+                Check(vmaCreateBuffer(_device->Allocator, &create, &allocation, &chunk.Buffer, &chunk.Allocation, nullptr),
+                    "vmaCreateBuffer(scene ring)");
+                void* mapped = nullptr;
+                Check(vmaMapMemory(_device->Allocator, chunk.Allocation, &mapped), "vmaMapMemory(scene ring)");
+                chunk.Mapped = static_cast<std::byte*>(mapped);
+                _ring.push_back(chunk);
+                _ringChunk = _ring.size() - 1;
+            }
+        }
+
+        VulkanTexture& VulkanCommandList::Dummy()
+        {
+            if (!_dummy)
+            {
+                // What an unbound unit samples in OpenGL: opaque black.
+                TextureDesc desc{};
+                desc.width = 1;
+                desc.height = 1;
+                desc.format = TextureFormat::RGBA8Unorm;
+                desc.usage = TextureUsage::Sampled | TextureUsage::TransferDst;
+                _dummy = std::make_unique<VulkanTexture>(_device, desc, TextureHandle{});
+                _dummySampler = std::make_unique<VulkanSampler>(_device, SamplerDesc{});
+                // Recorded into this list, with no submission: slices already
+                // allocated for the draw being recorded must survive.
+                if (_renderingActive) EndNative();
+                Transition(*_dummy, ResourceState::Undefined, ResourceState::CopyDst);
+                const VkClearColorValue black{{0.0F, 0.0F, 0.0F, 1.0F}};
+                const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+                _device->ContextPointer->_impl->vkCmdClearColorImage(_commandBuffer, _dummy->Native(),
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &range);
+                Transition(*_dummy, ResourceState::CopyDst, ResourceState::ShaderRead);
+            }
+            return *_dummy;
+        }
+
+        void VulkanCommandList::BindSampledTexture(std::uint32_t slot, const Texture* texture, const Sampler* sampler)
+        {
+            if (slot >= _units.size()) throw std::out_of_range("Vulkan RHI: texture unit out of range.");
+            if (texture && !sampler) throw std::invalid_argument("Vulkan RHI: a bound texture needs a sampler.");
+            _units[slot] = {texture ? const_cast<VulkanTexture*>(static_cast<const VulkanTexture*>(texture)) : nullptr,
+                texture ? static_cast<const VulkanSampler*>(sampler) : nullptr};
+        }
+
+        void VulkanCommandList::DrawScene(const SceneDraw& draw)
+        {
+            if (draw.IndexCount == 0) return;
+            RequireRecording();
+            if (!_renderingOpen) throw std::logic_error("Vulkan RHI: scene draw outside rendering.");
+            if (!_pipeline || !_pipeline->IsDeferred())
+                throw std::logic_error("Vulkan RHI: scene draw needs a scene pass pipeline.");
+            auto* program = static_cast<VulkanSceneProgram*>(_device->CurrentSceneProgram);
+            if (const auto* fragment = dynamic_cast<const VulkanShader*>(_pipeline->Desc().fragmentShader))
+                program = static_cast<VulkanSceneProgram*>(fragment->SceneProgram);
+            if (!program) throw std::logic_error("Vulkan RHI: scene draw with no program.");
+            auto& vk = *_device->ContextPointer->_impl;
+
+            std::array<std::pair<VkImageView, VkSampler>, 4> textures{};
+            for (std::size_t unit = 0; unit < program->Textures.size(); ++unit)
+            {
+                VulkanTexture* texture = _units[unit].first;
+                const VulkanSampler* sampler = _units[unit].second;
+                if (!texture)
+                {
+                    texture = &Dummy();
+                    sampler = _dummySampler.get();
+                }
+                if (texture->State() != ResourceState::ShaderRead)
+                {
+                    if (_renderingActive) EndNative();
+                    Barrier(*texture, ResourceState::ShaderRead);
+                }
+                textures[unit] = {texture->SampledView(), sampler->Native()};
+            }
+            if (!_renderingActive) Materialize();
+
+            VulkanGraphicsPipeline& native = VariantFor(*program, draw.Lines);
+            if (native.Native() != _boundNative)
+            {
+                vk.vkCmdBindPipeline(_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, native.Native());
+                _boundNative = native.Native();
+                _set = VK_NULL_HANDLE;
+            }
+            ApplyDynamicState();
+
+            if (program->AlphaTestOffset >= 0)
+            {
+                const auto mode = static_cast<std::int32_t>(_pipeline->Desc().alphaTest);
+                std::int32_t current = 0;
+                std::memcpy(&current, program->Block.data() + program->AlphaTestOffset, 4);
+                if (current != mode)
+                {
+                    std::memcpy(program->Block.data() + program->AlphaTestOffset, &mode, 4);
+                    ++program->Generation;
+                }
+            }
+            if (_setProgram != program || _setGeneration != program->Generation || textures != _setTextures
+                || _set == VK_NULL_HANDLE)
+            {
+                if (_setProgram != program || _setGeneration != program->Generation || !_uniformSlice.Buffer)
+                {
+                    VkPhysicalDeviceProperties properties{};
+                    static thread_local VkDeviceSize alignment = 0;
+                    if (!alignment)
+                    {
+                        vk.vkGetPhysicalDeviceProperties(vk.physical, &properties);
+                        alignment = std::max<VkDeviceSize>(16, properties.limits.minUniformBufferOffsetAlignment);
+                    }
+                    _uniformSlice = Allocate(program->Block.size(), alignment);
+                    std::memcpy(_uniformSlice.Data, program->Block.data(), program->Block.size());
+                }
+                const VkDescriptorSet set = AllocateSet(program->Layout->Native());
+                VkDescriptorBufferInfo buffer{_uniformSlice.Buffer, _uniformSlice.Offset, program->Block.size()};
+                std::array<VkDescriptorImageInfo, 8> images{};
+                std::array<VkWriteDescriptorSet, 9> writes{};
+                std::uint32_t count = 0;
+                writes[count] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                writes[count].dstSet = set;
+                writes[count].dstBinding = 0;
+                writes[count].descriptorCount = 1;
+                writes[count].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                writes[count++].pBufferInfo = &buffer;
+                for (std::size_t unit = 0; unit < program->Textures.size(); ++unit)
+                {
+                    images[unit * 2] = {VK_NULL_HANDLE, textures[unit].first, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+                    images[unit * 2 + 1] = {textures[unit].second, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
+                    writes[count] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                    writes[count].dstSet = set;
+                    writes[count].dstBinding = program->Textures[unit].first;
+                    writes[count].descriptorCount = 1;
+                    writes[count].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+                    writes[count++].pImageInfo = &images[unit * 2];
+                    writes[count] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                    writes[count].dstSet = set;
+                    writes[count].dstBinding = program->Textures[unit].second;
+                    writes[count].descriptorCount = 1;
+                    writes[count].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+                    writes[count++].pImageInfo = &images[unit * 2 + 1];
+                }
+                vk.vkUpdateDescriptorSets(vk.device, count, writes.data(), 0, nullptr);
+                vk.vkCmdBindDescriptorSets(_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    native.Layout(), 0, 1, &set, 0, nullptr);
+                _set = set;
+                _setProgram = program;
+                _setGeneration = program->Generation;
+                _setTextures = textures;
+            }
+
+            std::array<VkBuffer, 4> buffers{};
+            std::array<VkDeviceSize, 4> offsets{};
+            std::array<VkDeviceSize, 4> strides{};
+            for (std::size_t i = 0; i < 4; ++i)
+            {
+                buffers[i] = draw.Streams[i].Buffer;
+                offsets[i] = draw.Streams[i].Offset;
+                strides[i] = draw.Streams[i].Stride;
+            }
+            vk.vkCmdBindVertexBuffers2(_commandBuffer, 0, 4, buffers.data(), offsets.data(), nullptr, strides.data());
+            vk.vkCmdBindIndexBuffer(_commandBuffer, draw.IndexBuffer, draw.IndexOffset, VK_INDEX_TYPE_UINT32);
+            vk.vkCmdDrawIndexed(_commandBuffer, draw.IndexCount, 1, 0, 0, 0);
+        }
+
+        void VulkanCommandList::SetVertexBuffer(std::uint32_t slot, const Buffer& buffer, std::uint64_t offset)
+        {
+            RequireRecording();
+            const auto& native = dynamic_cast<const VulkanBuffer&>(buffer);
+            const VkBuffer handle = native.Native();
+            const VkDeviceSize at = offset;
+            _device->ContextPointer->_impl->vkCmdBindVertexBuffers2(_commandBuffer, slot, 1, &handle, &at, nullptr, nullptr);
+        }
+
+        void VulkanCommandList::SetIndexBuffer(const Buffer& buffer, IndexType type, std::uint64_t offset)
+        {
+            RequireRecording();
+            const auto& native = dynamic_cast<const VulkanBuffer&>(buffer);
+            _device->ContextPointer->_impl->vkCmdBindIndexBuffer(_commandBuffer, native.Native(), offset,
+                type == IndexType::UInt16 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32);
+        }
+
+        void VulkanCommandList::Draw(std::uint32_t vertexCount, std::uint32_t instanceCount,
+            std::uint32_t firstVertex, std::uint32_t firstInstance)
+        {
+            RequireRecording();
+            if (!_pipeline || _pipeline->IsDeferred()) throw std::logic_error("Vulkan RHI: draw needs a native pipeline.");
+            if (!_renderingActive) Materialize();
+            ApplyDynamicState();
+            _device->ContextPointer->_impl->vkCmdDraw(_commandBuffer, vertexCount, instanceCount, firstVertex, firstInstance);
+        }
+
+        void VulkanCommandList::DrawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount,
+            std::uint32_t firstIndex, std::int32_t vertexOffset, std::uint32_t firstInstance)
+        {
+            RequireRecording();
+            if (!_pipeline || _pipeline->IsDeferred()) throw std::logic_error("Vulkan RHI: draw needs a native pipeline.");
+            if (!_renderingActive) Materialize();
+            ApplyDynamicState();
+            _device->ContextPointer->_impl->vkCmdDrawIndexed(_commandBuffer, indexCount, instanceCount,
+                firstIndex, vertexOffset, firstInstance);
+        }
+
+        void VulkanCommandList::ReadColor(const RenderingInfo& info, std::uint32_t x, std::uint32_t y,
+            std::uint32_t width, std::uint32_t height, TextureFormat format, void* destination)
+        {
+            if (format != TextureFormat::RGB8Unorm && format != TextureFormat::RGBA8Unorm)
+                throw std::invalid_argument("Vulkan RHI: ReadColor reads RGB8 or RGBA8.");
+            const std::size_t outBytes = format == TextureFormat::RGB8Unorm ? 3U : 4U;
+            VulkanTexture* texture = nullptr;
+            if (info.swapchain)
+                texture = _windowColor.get();
+            else if (!info.colorAttachments.empty() && info.colorAttachments[0].view)
+                texture = const_cast<VulkanTexture*>(static_cast<const VulkanTexture*>(
+                    &info.colorAttachments[0].view->TextureResource()));
+            if (!texture || width == 0 || height == 0)
+            {
+                std::memset(destination, 0, static_cast<std::size_t>(width) * height * outBytes);
+                return;
+            }
+            const bool restart = _autoRestart;
+            if (!_recording) BeginBuffer();
+            if (_renderingOpen && _clearsPending) Materialize();
+            if (_renderingActive) EndNative();
+            width = std::min(width, texture->Desc().width - std::min(x, texture->Desc().width));
+            height = std::min(height, texture->Desc().height - std::min(y, texture->Desc().height));
+            BufferDesc desc{};
+            desc.size = static_cast<std::uint64_t>(width) * height * 4U;
+            desc.usage = BufferUsage::TransferDst;
+            desc.memoryUsage = MemoryUsage::GpuToCpu;
+            VulkanBuffer readback(_device, desc);
+            const ResourceState previous = texture->State();
+            Barrier(*texture, ResourceState::CopySrc);
+            Transition(readback, ResourceState::Undefined, ResourceState::CopyDst);
+            BufferTextureCopy region{};
+            region.x = x;
+            region.y = y;
+            region.width = width;
+            region.height = height;
+            CopyTextureToBuffer(*texture, readback, region);
+            if (previous != ResourceState::Undefined) Barrier(*texture, previous);
+            Flush();
+            _autoRestart = restart;
+            void* mapped = nullptr;
+            Check(vmaMapMemory(_device->Allocator, readback.Allocation(), &mapped), "vmaMapMemory(readback)");
+            Check(vmaInvalidateAllocation(_device->Allocator, readback.Allocation(), 0, desc.size),
+                "vmaInvalidateAllocation(readback)");
+            const auto* source = static_cast<const std::uint8_t*>(mapped);
+            auto* target = static_cast<std::uint8_t*>(destination);
+            const bool rgb8 = texture->Desc().format == TextureFormat::RGB8Unorm;
+            for (std::size_t i = 0, n = static_cast<std::size_t>(width) * height; i < n; ++i)
+            {
+                std::memcpy(target + i * outBytes, source + i * 4U, outBytes == 4U ? 4U : 3U);
+                if (outBytes == 4U && rgb8) target[i * 4U + 3U] = 0xFF;
+            }
+            vmaUnmapMemory(_device->Allocator, readback.Allocation());
+        }
+
+        void VulkanCommandList::CopyColorAttachmentToTexture(Texture& destination, std::uint32_t width, std::uint32_t height)
+        {
+            RequireRecording();
+            auto& target = static_cast<VulkanTexture&>(destination);
+            VulkanTexture* source = _target.Color;
+            if (!source) return;
+            if (_renderingOpen && _clearsPending) Materialize();
+            if (_renderingActive) EndNative();
+            width = std::min({width, source->Desc().width, target.Desc().width});
+            height = std::min({height, source->Desc().height, target.Desc().height});
+            const ResourceState sourceState = source->State();
+            Barrier(*source, ResourceState::CopySrc);
+            Barrier(target, ResourceState::CopyDst);
+            VkImageCopy region{};
+            region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            region.extent = {width, height, 1};
+            _device->ContextPointer->_impl->vkCmdCopyImage(_commandBuffer, source->Native(),
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target.Native(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+            Barrier(*source, sourceState == ResourceState::Undefined ? ResourceState::ColorAttachment : sourceState);
+            if (Has(target.Desc().usage, TextureUsage::Sampled)) Barrier(target, ResourceState::ShaderRead);
+        }
+
 
         void VulkanCommandList::CopyBuffer(const Buffer& source, std::uint64_t sourceOffset,
             Buffer& destination, std::uint64_t destinationOffset, std::uint64_t size)
@@ -1619,6 +2531,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
 
             [[nodiscard]] GraphicsBackend GetBackend() const noexcept override { return GraphicsBackend::Vulkan; }
+            [[nodiscard]] const std::shared_ptr<VulkanDeviceState>& State() const noexcept { return _state; }
             [[nodiscard]] const Capabilities& GetCapabilities() const noexcept override
             {
                 return _state->ContextPointer->Caps();
@@ -1721,6 +2634,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 const auto* vertex = dynamic_cast<const VulkanShader*>(desc.vertexShader);
                 const auto* fragment = dynamic_cast<const VulkanShader*>(desc.fragmentShader);
                 const auto* layout = dynamic_cast<const VulkanBindingLayout*>(desc.bindingLayout);
+                // A scene pass: the scene shader set's program (or none, for
+                // the state a frame ends in) and no layout or vertex input.
+                if (!layout && desc.vertexBuffers.empty() && desc.vertexAttributes.empty()
+                    && ((!desc.vertexShader && !desc.fragmentShader)
+                        || (vertex && fragment && vertex->SceneProgram && fragment->SceneProgram
+                            && vertex->DeviceState() == _state && fragment->DeviceState() == _state)))
+                    return std::make_unique<VulkanGraphicsPipeline>(_state, desc, VulkanGraphicsPipeline::Deferred{});
                 if (!vertex || !fragment || !layout || vertex->DeviceState() != _state
                     || fragment->DeviceState() != _state || layout->DeviceState() != _state)
                     throw std::invalid_argument("Vulkan RHI: pipeline resources belong to another device.");
@@ -1753,15 +2673,27 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     image.Resize(write.width, write.height);
                 if (!Has(image.Desc().usage, TextureUsage::TransferDst))
                     throw std::invalid_argument("Vulkan RHI: texture upload requires TransferDst usage.");
-                const std::size_t dataSize = static_cast<std::size_t>(write.width)
-                    * write.height * BytesPerPixel(write.format);
+                const std::size_t texels = static_cast<std::size_t>(write.width) * write.height;
+                const std::size_t dataSize = texels * StorageBytesPerPixel(write.format);
                 BufferDesc stagingDesc{};
                 stagingDesc.size = dataSize;
                 stagingDesc.usage = BufferUsage::TransferSrc;
                 stagingDesc.memoryUsage = MemoryUsage::CpuToGpu;
                 auto staging = CreateBuffer(stagingDesc);
-                WriteBuffer(*staging, 0, std::span(
-                    static_cast<const std::byte*>(write.data), dataSize));
+                if (write.format == TextureFormat::RGB8Unorm)
+                {
+                    std::vector<std::byte> expanded(dataSize);
+                    const auto* source = static_cast<const std::byte*>(write.data);
+                    for (std::size_t i = 0; i < texels; ++i)
+                    {
+                        std::memcpy(&expanded[i * 4U], source + i * 3U, 3U);
+                        expanded[i * 4U + 3U] = std::byte{0xFF};
+                    }
+                    WriteBuffer(*staging, 0, expanded);
+                }
+                else
+                    WriteBuffer(*staging, 0, std::span(
+                        static_cast<const std::byte*>(write.data), dataSize));
                 auto commands = CreateCommandList();
                 commands->Begin();
                 const ResourceState previous = image.State();
@@ -1867,11 +2799,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
             void EndFrame() override
             {
+                // The frame's scene work is submitted as the frame ends.
+                _state->FlushScene();
                 _state->EndDescriptorFrame();
             }
 
             void WaitIdle() override
             {
+                _state->FlushScene();
                 _state->ContextPointer->WaitIdle();
                 _state->CompletedFrame.store(_state->CurrentFrame.load());
             }
@@ -1956,6 +2891,29 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::vector<std::unique_ptr<Texture>> _retained{};
             std::atomic<unsigned> _reportedValidationErrors{0};
         };
+#include "VulkanSceneInternal.inc"
+
+    std::unique_ptr<SceneShaderSet> CreateSceneShaderSet(GraphicsDevice& device,
+        std::span<const float> toonTable, std::span<const float> shiftTable)
+    {
+        return std::make_unique<VulkanSceneShaderSet>(dynamic_cast<VulkanGraphicsDevice&>(device).State(),
+            toonTable, shiftTable);
+    }
+
+    std::shared_ptr<MphRead::GpuMeshResource> CreateGpuMeshResource(
+        GraphicsDevice& device, CommandList& commands, const MphRead::RendererGeometry& geometry)
+    {
+        return std::make_shared<VulkanGpuMesh>(dynamic_cast<VulkanGraphicsDevice&>(device),
+            dynamic_cast<VulkanCommandList&>(commands), geometry);
+    }
+
+    std::shared_ptr<MphRead::TransientGeometryResource> CreateTransientGeometryResource(
+        GraphicsDevice& device, CommandList& commands)
+    {
+        return std::make_shared<VulkanTransientGeometry>(dynamic_cast<VulkanGraphicsDevice&>(device).State(),
+            dynamic_cast<VulkanCommandList&>(commands));
+    }
+
     void CheckBindingAllocations(GraphicsDevice& device)
     {
         BufferDesc bufferDesc{};

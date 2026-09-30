@@ -77,7 +77,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         X(vkCreateSemaphore) X(vkDestroySemaphore) \
         X(vkCreateFence) X(vkDestroyFence) X(vkWaitForFences) X(vkResetFences) \
         X(vkCreateSwapchainKHR) X(vkDestroySwapchainKHR) X(vkGetSwapchainImagesKHR) \
-        X(vkAcquireNextImageKHR) X(vkQueueSubmit2) X(vkQueuePresentKHR)
+        X(vkAcquireNextImageKHR) X(vkQueueSubmit2) X(vkQueuePresentKHR) \
+        X(vkCmdSetViewport) X(vkCmdSetScissor) X(vkCmdBindVertexBuffers2) X(vkCmdBindIndexBuffer) \
+        X(vkCmdSetStencilReference) X(vkCmdDraw) X(vkCmdDrawIndexed) X(vkCmdCopyImage) X(vkCmdClearColorImage)
 #define DECLARE_VULKAN_FUNCTION(name) PFN_##name name = nullptr;
         VULKAN_INSTANCE_FUNCTIONS(DECLARE_VULKAN_FUNCTION)
         VULKAN_DEVICE_FUNCTIONS(DECLARE_VULKAN_FUNCTION)

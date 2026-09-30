@@ -5,6 +5,7 @@
 #include "NativeRuntime/Rhi/OpenGL/OpenGlDevice.hpp"
 #include "NativeRuntime/Rhi/OpenGL/OpenGlGeometry.hpp"
 #include "NativeRuntime/Rhi/OpenGL/OpenGlShaderInterface.hpp"
+#include "NativeRuntime/Rhi/SceneBackend.hpp"
 #include "NativeRuntime/System/Console.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
 #include "NativeRuntime/System/IO.hpp"
@@ -683,7 +684,7 @@ namespace MphRead
                 << ", fog " << BoolOnOff(Mods::RenderOptions::Fog()) << '\n';
             InitShaders();
             _transientGeometry
-                = NativeRuntime::Rhi::OpenGL::CreateTransientGeometryResource();
+                = NativeRuntime::Rhi::CreateSceneTransientGeometry(Gpu(), Commands());
         }
         AllocateEffects();
         CollisionDetection::Init();
@@ -782,7 +783,7 @@ namespace MphRead
         sources.ShiftTable = shifts;
         try
         {
-            _sceneShaders = NativeRuntime::Rhi::OpenGL::CreateSceneShaderSet(Gpu(), sources);
+            _sceneShaders = NativeRuntime::Rhi::CreateSceneShaderSet(Gpu(), Commands(), sources);
         }
         catch (const std::exception& ex)
         {
@@ -864,9 +865,9 @@ namespace MphRead
             const std::shared_ptr<const void> modelLifetime = model;
             const std::shared_ptr<const void> meshLifetime = meshValue;
             (void)_gpuMeshCache.GetOrCreate(modelLifetime, meshLifetime,
-                [&geometry]()
+                [this, &geometry]()
                 {
-                    return NativeRuntime::Rhi::OpenGL::CreateGpuMeshResource(geometry);
+                    return NativeRuntime::Rhi::CreateSceneGpuMesh(Gpu(), Commands(), geometry);
                 });
         }
     }
@@ -1218,7 +1219,7 @@ namespace MphRead
     {
         if (_gpu == nullptr)
         {
-            _gpu = &NativeRuntime::Rhi::OpenGL::ContextDevice();
+            _gpu = &NativeRuntime::Rhi::SceneDevice();
         }
         return *_gpu;
     }

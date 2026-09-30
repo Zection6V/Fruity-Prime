@@ -494,6 +494,7 @@ namespace MphRead
             // Monitors.GetMonitors(), each one's ClientArea.
             [[nodiscard]] virtual std::vector<MonitorArea> MonitorClientAreas() const = 0;
             [[nodiscard]] virtual WindowStateValue WindowState() const = 0;
+            virtual void WindowStateMinimized() = 0;
             virtual void WindowStateMaximized() = 0;
             virtual void WindowStateNormal() = 0;
             virtual void Floating(bool value) = 0;
@@ -630,6 +631,7 @@ namespace MphRead
         [[nodiscard]] RendererPlatform::MonitorArea CurrentMonitorClientArea() const;
         [[nodiscard]] std::vector<RendererPlatform::MonitorArea> MonitorClientAreas() const;
         [[nodiscard]] RendererPlatform::WindowStateValue WindowState() const;
+        void WindowStateMinimized();
         void WindowStateMaximized();
         void WindowStateNormal();
         void Floating(bool value);

@@ -2,15 +2,20 @@
 
 #include <cstdint>
 
-namespace MphRead::Mods::Render
+namespace MphRead::NativeRuntime::Rhi::OpenGL
 {
-    class LauncherNoise final
+    class OpenGlLauncherNoise final
     {
     public:
-        LauncherNoise() = delete;
+        OpenGlLauncherNoise() = delete;
 
         [[nodiscard]] static std::int32_t Texture() noexcept;
         [[nodiscard]] static bool Step(std::int32_t windowWidth, std::int32_t windowHeight);
         static void Release();
+
+    private:
+        [[nodiscard]] static bool Upload();
+
+        static constexpr std::int32_t Name = 1'000'002;
     };
 }

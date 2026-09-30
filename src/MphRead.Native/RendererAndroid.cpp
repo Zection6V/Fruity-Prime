@@ -324,6 +324,11 @@ namespace MphRead
         return RendererPlatform::WindowStateValue::Normal;
     }
 
+    void RenderWindow::WindowStateMinimized()
+    {
+        ThrowDesktopWindowUnavailable();
+    }
+
     void RenderWindow::WindowStateMaximized()
     {
     }

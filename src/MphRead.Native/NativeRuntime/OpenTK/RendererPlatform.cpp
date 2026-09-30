@@ -518,6 +518,11 @@ namespace
             return MphRead::RendererPlatform::WindowStateValue::Normal;
         }
 
+        void WindowStateMinimized() override
+        {
+            ::glfwIconifyWindow(_handle);
+        }
+
         void WindowStateMaximized() override
         {
             ::glfwMaximizeWindow(_handle);

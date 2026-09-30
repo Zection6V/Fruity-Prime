@@ -1,4 +1,5 @@
 #include "GpuLifetimeCheck.hpp"
+#include "../Branding.hpp"
 
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../GameState.hpp"
@@ -29,7 +30,7 @@ namespace MphRead::Mods::Diagnostics
                 RendererPlatform::WindowSettings settings{};
                 settings.UpdateFrequency = 60;
                 settings.ClientSize = Vector2i(320, 180);
-                settings.Title = "Fruity Prime GPU lifetime check";
+                settings.Title = std::string(Branding::Name) + " GPU lifetime check";
                 settings.Profile = RendererPlatform::WindowSettings::ContextProfile::Compatability;
                 settings.Flags = RendererPlatform::WindowSettings::ContextFlags::Default;
                 settings.ApiMajor = 3;

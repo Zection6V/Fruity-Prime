@@ -8,6 +8,7 @@
 #include "UiMark.hpp"
 #include "UiSurface.hpp"
 #include "../../Diagnostics/LauncherWindowCheck.hpp"
+#include "../../Diagnostics/RhiReadbackCheck.hpp"
 #include "../../../GameState.hpp"
 #include "../../../Menu.hpp"
 #include "../../../Renderer.hpp"
@@ -612,6 +613,27 @@ namespace MphRead::Mods::Launcher::Gui
             [](MphRead::RenderWindow& window)
             {
                 Shot(window, "shell-resized");
+                window.WindowStateMinimized();
+                Wait(20);
+            },
+            [](MphRead::RenderWindow& window)
+            {
+                if (window.WindowState() != MphRead::RendererPlatform::WindowStateValue::Minimized)
+                {
+                    ++_shotMisses;
+                    std::cout << "[shellshot] shell-resized minimize failed\n";
+                }
+                window.WindowStateNormal();
+                Wait(20);
+            },
+            [](MphRead::RenderWindow& window)
+            {
+                if (window.WindowState() != MphRead::RendererPlatform::WindowStateValue::Normal)
+                {
+                    ++_shotMisses;
+                    std::cout << "[shellshot] shell-resized restore failed\n";
+                }
+                Shot(window, "shell-resized-restored");
                 window.WindowStateMaximized();
                 Wait(20);
             },
@@ -752,6 +774,29 @@ namespace MphRead::Mods::Launcher::Gui
                 std::cout << "[shellshot] production model unload/reload/draw probe passed: "
                     << window.Scene().ModelReloadDrawProbeStatus() << '\n';
                 Shot(window, "shell-match");
+                window.WindowStateMinimized();
+                Wait(20);
+            },
+            [](MphRead::RenderWindow& window)
+            {
+                if (window.WindowState() != MphRead::RendererPlatform::WindowStateValue::Minimized)
+                {
+                    ++_shotMisses;
+                    std::cout << "[shellshot] shell-match minimize failed\n";
+                }
+                window.WindowStateNormal();
+                Wait(20);
+            },
+            [](MphRead::RenderWindow& window)
+            {
+                if (window.WindowState() != MphRead::RendererPlatform::WindowStateValue::Normal)
+                {
+                    ++_shotMisses;
+                    std::cout << "[shellshot] shell-match restore failed\n";
+                }
+                Shot(window, "shell-match-restored");
+                if (!MphRead::Mods::Diagnostics::CheckRhiImageExports(*_shotDirectory))
+                    ++_shotMisses;
                 window.WindowStateMaximized();
                 Wait(30);
             },

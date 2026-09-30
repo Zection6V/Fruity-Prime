@@ -49,6 +49,17 @@ jobs:
       - name: Reject direct OpenGL in the renderer frontend
         run: python3 tools/check-phase9-frontend-gl.py
 
+  phase11_gl_boundary_audit:
+    name: phase11 / OpenGL dependency classification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout C++ source
+        uses: actions/checkout@v4
+      - name: Reject unclassified OpenGL dependencies
+        run: |
+          python3 tools/test-phase11-gl-boundaries.py
+          python3 tools/check-phase11-gl-boundaries.py
+
   desktop:
     uses: ./.github/workflows/native-cpp-all.yml
 

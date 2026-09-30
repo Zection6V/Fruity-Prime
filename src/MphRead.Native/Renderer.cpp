@@ -1831,7 +1831,7 @@ namespace MphRead
         {
             std::ostringstream name;
             name << "frame" << std::setw(4) << std::setfill('0') << _framesRecorded;
-            Images::Record(_rendererSize.X, _rendererSize.Y, name.str());
+            Images::Record(Commands(), _rendererSize.X, _rendererSize.Y, name.str());
             ++_framesRecorded;
         }
         _advanceOneFrame = false;
@@ -4943,7 +4943,7 @@ namespace MphRead
         }
         else if (e.Key == Key::D5 && e.Shift)
         {
-            if (!_recording) Images::Screenshot(_rendererSize.X, _rendererSize.Y);
+            if (!_recording) Images::Screenshot(Commands(), _rendererSize.X, _rendererSize.Y);
         }
         else if (e.Key == Key::T) _showTextures = !_showTextures;
         else if (e.Key == Key::C)
@@ -6560,6 +6560,11 @@ namespace MphRead
     RendererPlatform::WindowStateValue RenderWindow::WindowState() const
     {
         return _window->WindowState();
+    }
+
+    void RenderWindow::WindowStateMinimized()
+    {
+        _window->WindowStateMinimized();
     }
 
     void RenderWindow::WindowStateMaximized()

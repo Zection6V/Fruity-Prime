@@ -762,7 +762,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
             const auto drawColor = [&vkSwapchain, &swapchain](float r, float g, float b)
             {
-                for (int i = 0; i < 4; ++i)
+                // Present more frames than there are swapchain images so a
+                // replacement chain must reacquire an already presented image.
+                // Four frames did not exercise retirement on four-image Mesa
+                // chains, where each acquisition selected a fresh image.
+                const std::uint32_t frames = std::max(4U, swapchain->Desc().imageCount + 1U);
+                for (std::uint32_t i = 0; i < frames; ++i)
                 {
                     (void)swapchain->AcquireNextTexture();
                     vkSwapchain.ClearCurrent(r, g, b, 1.0F);

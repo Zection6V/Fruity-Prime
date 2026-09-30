@@ -2611,13 +2611,21 @@ Present
 
 ## 完了条件
 
-- [ ] Vulkan window表示
-- [ ] clear color present
-- [ ] resize
-- [ ] fullscreen
-- [ ] minimize/restore
-- [ ] validation clean
-- [ ] shutdown clean
+- [x] Vulkan window表示
+- [x] clear color present
+- [x] resize
+- [x] fullscreen
+- [x] minimize/restore
+- [x] validation clean
+- [x] shutdown clean
+
+## 検証結果 (2026-09-30)
+
+実装SHA `8c6f2d2a044544c5975515fa838730271a02f003`。Windows RTX 5070 Ti / Vulkan 1.4 の `-vulkanpresentcheck` でclear present、windowed resize、fullscreen往復、minimize/restore、FIFO/Mailbox切替、終了を通し、validation有効・errors 0。`-vulkancheck` のfoundation PASSと既存OpenGLの `-thumbnailwindowcheck` もPASS。CTestは5/5 PASS。
+
+同一SHAの [CI run 36684051768](https://github.com/Zection6V/Fruity-Prime/actions/runs/36684051768) は11/11 jobs PASS。Windows/MSVC、Linux/GCC、macOS/Clang、Android NDK arm64/x86_64とAPKを含み、LinuxではVulkan foundationおよびpresentation runtime gateが成功。実装と検証範囲は [Phase 13 gate記録](Fruity-Prime-CPP-Vulkan-RHI-Phase13-Gate-2026-09-30.md) を参照。
+
+この段階のruntime gateはswapchain上のclear-only描画であり、ゲームrendererのVulkan移植・画像parityは後続フェーズの対象。ローカル検証機では `VK_EXT_swapchain_maintenance1` が有効でpresent fenceによる終了を検証した。未対応機器の終了fallbackは別条件でのruntime検証をしていない。
 
 ---
 
@@ -4553,7 +4561,7 @@ D3D12
 
 ## 現在の作業位置
 
-- **Phase 11まで完了 (2026-09-30)。** Phase 11最終コード `5e3c3275` はGolden 7/7、CTest 5/5、GL分類D=0、shellshot 28枚、[CI 36666551184](https://github.com/Zection6V/Fruity-Prime/actions/runs/36666551184) 11/11 PASS。 Phase 6〜9の保存済みキャプチャは各7/7完全一致。Phase 10最終コード `220e900a` はGolden 7/7、GPU lifetime arena 5/5・実マップcel 3/3で解放後全種ゼロ、shellshot 24枚、2クライアントのSANCTORUS↔PROVING GROUND遷移がPASS。C++ソース同一の `a6144b61` は [CI 36647299171](https://github.com/Zection6V/Fruity-Prime/actions/runs/36647299171) 10/10 PASS。Phase 0完了 `5d3a0892` からの追加captureもPhase 3と7/7完全一致、UI 26/26一致。詳細と範囲は [Phase 10/11検証記録](Fruity-Prime-CPP-OpenGL-RHI-Phase10-11-Gate-2026-09-30.md) を参照。以下のPhase 4〜5記録は過去の経緯として保持する。
+- **Phase 13まで完了 (2026-09-30)。** Phase 11最終コード `5e3c3275` はGolden 7/7、CTest 5/5、GL分類D=0、shellshot 28枚、[CI 36666551184](https://github.com/Zection6V/Fruity-Prime/actions/runs/36666551184) 11/11 PASS。Phase 10最終コード `220e900a` はGolden 7/7、GPU lifetime arena 5/5・実マップcel 3/3で解放後全種ゼロ、shellshot 24枚、2クライアントのSANCTORUS↔PROVING GROUND遷移がPASS。C++ソース同一の `a6144b61` は [CI 36647299171](https://github.com/Zection6V/Fruity-Prime/actions/runs/36647299171) 10/10 PASS。Phase 13実装SHA `8c6f2d2a` はclear-only Vulkan presentation、resize/fullscreen/minimize復帰、終了を実機でvalidation errors 0、CTest 5/5、[CI 36684051768](https://github.com/Zection6V/Fruity-Prime/actions/runs/36684051768) 11/11 PASS。詳細は[Phase 10/11検証記録](Fruity-Prime-CPP-OpenGL-RHI-Phase10-11-Gate-2026-09-30.md)と[Phase 13 gate記録](Fruity-Prime-CPP-Vulkan-RHI-Phase13-Gate-2026-09-30.md)を参照。**次はPhase 14。** 以下のPhase 4〜5記録は過去の経緯として保持する。
 
 - **Phase 5 完了 (2026-09-30, SHA `5e52078b5545294cfa423715457e1a2279cd9398`)。** 本文の完了条件5項目すべてチェック済み。次はPhase 6。
   - **built-in撤去:** desktopのGLSL 1.20 shaderは`gl_Vertex`/`gl_Normal`/`gl_Color`/`gl_MultiTexCoord*`を読まず、`a_position`/`a_normal`/`a_color`/`a_texcoord`/`a_texcoord1`を`attribute`で宣言。`GL::LinkProgram`がリンク前に名前でlocationをbindする。共通定義は`NativeRuntime/Rhi/VertexSemantics.hpp`の1箇所（desktop 0/2/3/8/9 = NV alias表、GLES 0/2/1/3、Vulkan 0/1/2/3/4）。matrix-stack indexは`TexCoord.z`で運ぶことを契約として明記。current-value呼出しはgenericとconventionalの両方を設定し、link時にconventional既定値をgenericへ写す。

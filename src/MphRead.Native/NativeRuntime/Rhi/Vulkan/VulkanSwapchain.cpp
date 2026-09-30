@@ -1,0 +1,810 @@
+#include "VulkanSwapchain.hpp"
+#include <algorithm>
+#include <chrono>
+#include <cstdint>
+#include <functional>
+#include <iostream>
+#include <limits>
+#include <memory>
+#include <stdexcept>
+#include <string>
+#include <thread>
+#include <utility>
+#include <vector>
+
+#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+#include "VulkanContextInternal.hpp"
+namespace MphRead::NativeRuntime::Rhi::Vulkan
+{
+    namespace
+    {
+        VkFormat ToVkFormat(TextureFormat format)
+        {
+            switch (format)
+            {
+            case TextureFormat::BGRA8Unorm: return VK_FORMAT_B8G8R8A8_UNORM;
+            case TextureFormat::BGRA8Srgb: return VK_FORMAT_B8G8R8A8_SRGB;
+            case TextureFormat::RGBA8Srgb: return VK_FORMAT_R8G8B8A8_SRGB;
+            case TextureFormat::RGBA8Unorm:
+            default: return VK_FORMAT_R8G8B8A8_UNORM;
+            }
+        }
+
+        TextureFormat ToRhiFormat(VkFormat format)
+        {
+            switch (format)
+            {
+            case VK_FORMAT_B8G8R8A8_UNORM: return TextureFormat::BGRA8Unorm;
+            case VK_FORMAT_B8G8R8A8_SRGB: return TextureFormat::BGRA8Srgb;
+            case VK_FORMAT_R8G8B8A8_SRGB: return TextureFormat::RGBA8Srgb;
+            case VK_FORMAT_R8G8B8A8_UNORM: return TextureFormat::RGBA8Unorm;
+            default: throw std::runtime_error("Unsupported Vulkan swapchain pixel format.");
+            }
+        }
+
+        class VulkanSwapchainTexture final : public Texture
+        {
+        public:
+            VulkanSwapchainTexture(VkImage image, VkImageView view, VkExtent2D extent, TextureFormat format)
+                : _image(image), _view(view)
+            {
+                _desc.width = extent.width;
+                _desc.height = extent.height;
+                _desc.depth = 1;
+                _desc.mipLevels = 1;
+                _desc.arrayLayers = 1;
+                _desc.sampleCount = 1;
+                _desc.format = format;
+                _desc.usage = TextureUsage::ColorAttachment;
+                _desc.memoryUsage = MemoryUsage::GpuOnly;
+                _desc.initialState = ResourceState::Present;
+            }
+
+            [[nodiscard]] const TextureDesc& Desc() const noexcept override { return _desc; }
+            [[nodiscard]] TextureHandle Handle() const noexcept override { return {}; }
+            [[nodiscard]] VkImage Image() const noexcept { return _image; }
+            [[nodiscard]] VkImageView View() const noexcept { return _view; }
+
+        private:
+            VkImage _image = VK_NULL_HANDLE; // Owned by VkSwapchainKHR.
+            VkImageView _view = VK_NULL_HANDLE;
+            TextureDesc _desc{};
+        };
+    }
+
+    class VulkanSwapchain final : public Swapchain
+    {
+    public:
+        VulkanSwapchain(::MphRead::RendererPlatform::Window& window, const SwapchainDesc& desc)
+            : _window(window), _context(true, window),
+              _nativeWindow(static_cast<GLFWwindow*>(window.NativeHandle())),
+              _desc(desc), _requestedMode(desc.presentMode)
+        {
+            try
+            {
+                if (!_context._impl->surface)
+                    throw std::runtime_error("The Vulkan context did not create a presentation surface.");
+                InitializeFrames();
+                int width = 0, height = 0;
+                ::glfwGetFramebufferSize(_nativeWindow, &width, &height);
+                if (width <= 0 || height <= 0)
+                    throw std::runtime_error("The Vulkan window has no drawable framebuffer.");
+                Recreate(static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height));
+            }
+            catch (...)
+            {
+                CleanupNoThrow();
+                _context.Shutdown();
+                _closed = true;
+                throw;
+            }
+        }
+
+        ~VulkanSwapchain() override
+        {
+            if (!_closed)
+            {
+                try { Close(); }
+                catch (const std::exception& e)
+                {
+                    std::cerr << "[vulkan] swapchain cleanup: " << e.what() << '\n';
+                    CleanupNoThrow();
+                }
+            }
+        }
+
+        [[nodiscard]] const SwapchainDesc& Desc() const noexcept override { return _desc; }
+
+        void Resize(std::uint32_t width, std::uint32_t height) override
+        {
+            if (width == 0 || height == 0)
+            {
+                _suspended = true;
+                _desc.width = 0;
+                _desc.height = 0;
+                return;
+            }
+            if (_acquired) throw std::logic_error("Cannot resize a Vulkan swapchain with an acquired image.");
+            int framebufferWidth = 0, framebufferHeight = 0;
+            ::glfwGetFramebufferSize(_nativeWindow, &framebufferWidth, &framebufferHeight);
+            if (framebufferWidth > 0 && framebufferHeight > 0)
+            {
+                width = static_cast<std::uint32_t>(framebufferWidth);
+                height = static_cast<std::uint32_t>(framebufferHeight);
+            }
+            _suspended = false;
+            if (_needsRecreate || width != _desc.width || height != _desc.height)
+                Recreate(width, height);
+        }
+
+        [[nodiscard]] Texture& AcquireNextTexture() override
+        {
+            if (_closed) throw std::logic_error("The Vulkan swapchain is closed.");
+            for (;;)
+            {
+                if (::glfwWindowShouldClose(_nativeWindow))
+                    throw std::runtime_error("The Vulkan presentation window is closing.");
+                int width = 0, height = 0;
+                ::glfwGetFramebufferSize(_nativeWindow, &width, &height);
+                if (width <= 0 || height <= 0)
+                {
+                    _suspended = true;
+                    _desc.width = 0;
+                    _desc.height = 0;
+                    ::glfwWaitEventsTimeout(0.05);
+                    continue;
+                }
+                const auto w = static_cast<std::uint32_t>(width);
+                const auto h = static_cast<std::uint32_t>(height);
+                if (_suspended || _needsRecreate || w != _desc.width || h != _desc.height)
+                    Recreate(w, h);
+
+                Frame& frame = _frames[_frameIndex];
+                if (frame.submitted)
+                {
+                    Check(_context._impl->vkWaitForFences(_context._impl->device,
+                        1, &frame.fence, VK_TRUE, UINT64_MAX), "vkWaitForFences(frame)");
+                    frame.submitted = false;
+                }
+                Check(_context._impl->vkResetCommandPool(_context._impl->device,
+                    frame.pool, 0), "vkResetCommandPool");
+
+                std::uint32_t imageIndex = 0;
+                const VkResult acquire = _context._impl->vkAcquireNextImageKHR(
+                    _context._impl->device, _swapchain, UINT64_MAX,
+                    frame.imageAvailable, VK_NULL_HANDLE, &imageIndex);
+                if (acquire == VK_ERROR_OUT_OF_DATE_KHR)
+                {
+                    Recreate(w, h);
+                    continue;
+                }
+                if (acquire != VK_SUCCESS && acquire != VK_SUBOPTIMAL_KHR)
+                    Check(acquire, "vkAcquireNextImageKHR");
+                if (imageIndex >= _images.size())
+                    throw std::runtime_error("vkAcquireNextImageKHR returned an invalid image index.");
+
+                ImageState& image = _images[imageIndex];
+                if (image.lastFrame != VK_NULL_HANDLE && image.lastFrame != frame.fence)
+                    Check(_context._impl->vkWaitForFences(_context._impl->device,
+                        1, &image.lastFrame, VK_TRUE, UINT64_MAX), "vkWaitForFences(swapchain image)");
+                WaitForPresent(image);
+                _currentImage = imageIndex;
+                _acquired = true;
+                _commandsReady = false;
+                _recreateAfterPresent = acquire == VK_SUBOPTIMAL_KHR;
+                return *image.texture;
+            }
+        }
+
+        void SetPresentMode(PresentMode mode) override
+        {
+            if (_acquired) throw std::logic_error("Cannot change Vulkan present mode with an acquired image.");
+            _requestedMode = mode;
+            _needsRecreate = true;
+            if (!_suspended && _desc.width && _desc.height)
+                Recreate(_desc.width, _desc.height);
+        }
+
+        void Present() override
+        {
+            if (_suspended && !_acquired) return;
+            if (!_acquired) throw std::logic_error("No Vulkan swapchain image is acquired.");
+            if (!_commandsReady)
+                throw std::logic_error("A Vulkan command list must render the acquired swapchain image before Present.");
+            SubmitAndPresent();
+        }
+
+        void ClearCurrent(float red, float green, float blue, float alpha)
+        {
+            if (!_acquired) throw std::logic_error("No Vulkan swapchain image is acquired.");
+            Frame& frame = _frames[_frameIndex];
+            VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+            begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+            Check(_context._impl->vkBeginCommandBuffer(frame.command, &begin), "vkBeginCommandBuffer(clear)");
+
+            VulkanSwapchainTexture& texture = *_images[_currentImage].texture;
+            VkImageMemoryBarrier2 toColor{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+            toColor.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
+            toColor.srcAccessMask = VK_ACCESS_2_NONE;
+            toColor.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            toColor.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            toColor.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+            toColor.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            toColor.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toColor.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toColor.image = texture.Image();
+            toColor.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            VkDependencyInfo dependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+            dependency.imageMemoryBarrierCount = 1;
+            dependency.pImageMemoryBarriers = &toColor;
+            _context._impl->vkCmdPipelineBarrier2(frame.command, &dependency);
+
+            VkRenderingAttachmentInfo color{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+            color.imageView = texture.View();
+            color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            color.clearValue.color.float32[0] = red;
+            color.clearValue.color.float32[1] = green;
+            color.clearValue.color.float32[2] = blue;
+            color.clearValue.color.float32[3] = alpha;
+            VkRenderingInfo rendering{VK_STRUCTURE_TYPE_RENDERING_INFO};
+            rendering.renderArea.extent = {texture.Desc().width, texture.Desc().height};
+            rendering.layerCount = 1;
+            rendering.colorAttachmentCount = 1;
+            rendering.pColorAttachments = &color;
+            _context._impl->vkCmdBeginRendering(frame.command, &rendering);
+            _context._impl->vkCmdEndRendering(frame.command);
+
+            VkImageMemoryBarrier2 toPresent{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+            toPresent.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            toPresent.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            toPresent.dstStageMask = VK_PIPELINE_STAGE_2_NONE;
+            toPresent.dstAccessMask = VK_ACCESS_2_NONE;
+            toPresent.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            toPresent.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+            toPresent.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toPresent.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            toPresent.image = texture.Image();
+            toPresent.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            dependency.pImageMemoryBarriers = &toPresent;
+            _context._impl->vkCmdPipelineBarrier2(frame.command, &dependency);
+            Check(_context._impl->vkEndCommandBuffer(frame.command), "vkEndCommandBuffer(clear)");
+            _commandsReady = true;
+        }
+
+        [[nodiscard]] bool ValidationEnabled() const noexcept { return _context.ValidationEnabled(); }
+        [[nodiscard]] unsigned ValidationErrors() const noexcept { return _context.ValidationErrors(); }
+
+        void Close()
+        {
+            if (_closed) return;
+            WaitOutstanding();
+            DestroyImageStates();
+            DestroyFrames();
+            if (_swapchain)
+            {
+                _context._impl->vkDestroySwapchainKHR(_context._impl->device, _swapchain, nullptr);
+                _swapchain = VK_NULL_HANDLE;
+            }
+            _context.Shutdown();
+            _closed = true;
+        }
+
+    private:
+        struct Frame final
+        {
+            VkCommandPool pool = VK_NULL_HANDLE;
+            VkCommandBuffer command = VK_NULL_HANDLE;
+            VkSemaphore imageAvailable = VK_NULL_HANDLE;
+            VkFence fence = VK_NULL_HANDLE;
+            bool submitted = false;
+        };
+
+        struct ImageState final
+        {
+            std::unique_ptr<VulkanSwapchainTexture> texture;
+            VkSemaphore renderFinished = VK_NULL_HANDLE;
+            VkFence presentFence = VK_NULL_HANDLE;
+            VkFence lastFrame = VK_NULL_HANDLE;
+            bool presentPending = false;
+        };
+
+        static constexpr std::size_t FrameCount = 2;
+        ::MphRead::RendererPlatform::Window& _window;
+        Context _context;
+        GLFWwindow* _nativeWindow = nullptr;
+        SwapchainDesc _desc{};
+        PresentMode _requestedMode = PresentMode::Fifo;
+        VkSwapchainKHR _swapchain = VK_NULL_HANDLE;
+        VkFormat _vkFormat = VK_FORMAT_UNDEFINED;
+        VkExtent2D _extent{};
+        std::array<Frame, FrameCount> _frames{};
+        std::vector<ImageState> _images;
+        std::uint32_t _frameIndex = 0;
+        std::uint32_t _currentImage = 0;
+        bool _acquired = false;
+        bool _commandsReady = false;
+        bool _suspended = false;
+        bool _needsRecreate = true;
+        bool _recreateAfterPresent = false;
+        bool _closed = false;
+
+        void InitializeFrames()
+        {
+            auto& vk = *_context._impl;
+            for (Frame& frame : _frames)
+            {
+                VkCommandPoolCreateInfo pool{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+                pool.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+                pool.queueFamilyIndex = vk.graphicsFamily;
+                Check(vk.vkCreateCommandPool(vk.device, &pool, nullptr, &frame.pool), "vkCreateCommandPool(frame)");
+                VkCommandBufferAllocateInfo allocate{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+                allocate.commandPool = frame.pool;
+                allocate.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+                allocate.commandBufferCount = 1;
+                Check(vk.vkAllocateCommandBuffers(vk.device, &allocate, &frame.command), "vkAllocateCommandBuffers(frame)");
+                VkSemaphoreCreateInfo semaphore{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+                Check(vk.vkCreateSemaphore(vk.device, &semaphore, nullptr, &frame.imageAvailable), "vkCreateSemaphore(image available)");
+                VkFenceCreateInfo fence{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+                fence.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+                Check(vk.vkCreateFence(vk.device, &fence, nullptr, &frame.fence), "vkCreateFence(frame)");
+            }
+        }
+
+        void Recreate(std::uint32_t requestedWidth, std::uint32_t requestedHeight)
+        {
+            if (_acquired) throw std::logic_error("Cannot recreate a Vulkan swapchain with an acquired image.");
+            WaitOutstanding();
+            auto& vk = *_context._impl;
+            VkSurfaceCapabilitiesKHR capabilities{};
+            Check(vk.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk.physical, vk.surface, &capabilities),
+                "vkGetPhysicalDeviceSurfaceCapabilitiesKHR");
+            if ((capabilities.supportedUsageFlags & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) == 0)
+                throw std::runtime_error("The Vulkan surface does not support color-attachment swapchain images.");
+
+            std::uint32_t formatCount = 0;
+            Check(vk.vkGetPhysicalDeviceSurfaceFormatsKHR(vk.physical, vk.surface, &formatCount, nullptr),
+                "vkGetPhysicalDeviceSurfaceFormatsKHR(count)");
+            if (!formatCount) throw std::runtime_error("The Vulkan surface exposes no swapchain formats.");
+            std::vector<VkSurfaceFormatKHR> formats(formatCount);
+            Check(vk.vkGetPhysicalDeviceSurfaceFormatsKHR(vk.physical, vk.surface, &formatCount, formats.data()),
+                "vkGetPhysicalDeviceSurfaceFormatsKHR");
+            VkSurfaceFormatKHR selectedFormat = formats.front();
+            const VkFormat requestedFormat = ToVkFormat(_desc.format);
+            auto preferred = std::find_if(formats.begin(), formats.end(), [requestedFormat](const auto& format) {
+                return format.format == requestedFormat && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+            });
+            if (preferred != formats.end()) selectedFormat = *preferred;
+            else if (formats.size() == 1 && formats.front().format == VK_FORMAT_UNDEFINED)
+                selectedFormat = {requestedFormat, VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};
+            else
+            {
+                auto unorm = std::find_if(formats.begin(), formats.end(), [](const auto& format) {
+                    return (format.format == VK_FORMAT_B8G8R8A8_UNORM
+                        || format.format == VK_FORMAT_R8G8B8A8_UNORM)
+                        && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+                });
+                if (unorm != formats.end()) selectedFormat = *unorm;
+            }
+            _vkFormat = selectedFormat.format;
+            const TextureFormat rhiFormat = ToRhiFormat(_vkFormat);
+
+            std::uint32_t modeCount = 0;
+            Check(vk.vkGetPhysicalDeviceSurfacePresentModesKHR(vk.physical, vk.surface, &modeCount, nullptr),
+                "vkGetPhysicalDeviceSurfacePresentModesKHR(count)");
+            std::vector<VkPresentModeKHR> modes(modeCount);
+            Check(vk.vkGetPhysicalDeviceSurfacePresentModesKHR(vk.physical, vk.surface, &modeCount, modes.data()),
+                "vkGetPhysicalDeviceSurfacePresentModesKHR");
+            VkPresentModeKHR requestedPresent = VK_PRESENT_MODE_FIFO_KHR;
+            if (_requestedMode == PresentMode::Immediate) requestedPresent = VK_PRESENT_MODE_IMMEDIATE_KHR;
+            else if (_requestedMode == PresentMode::Mailbox) requestedPresent = VK_PRESENT_MODE_MAILBOX_KHR;
+            const bool exactMode = std::find(modes.begin(), modes.end(), requestedPresent) != modes.end();
+            const VkPresentModeKHR selectedMode = exactMode ? requestedPresent : VK_PRESENT_MODE_FIFO_KHR;
+            if (!exactMode && _requestedMode != PresentMode::Fifo)
+                std::cout << "[vulkan] requested present mode unavailable; using FIFO\n";
+
+            VkExtent2D extent{};
+            if (capabilities.currentExtent.width != std::numeric_limits<std::uint32_t>::max())
+                extent = capabilities.currentExtent;
+            else
+            {
+                extent.width = std::clamp(requestedWidth,
+                    capabilities.minImageExtent.width, capabilities.maxImageExtent.width);
+                extent.height = std::clamp(requestedHeight,
+                    capabilities.minImageExtent.height, capabilities.maxImageExtent.height);
+            }
+            if (!extent.width || !extent.height)
+            {
+                _suspended = true;
+                _desc.width = _desc.height = 0;
+                return;
+            }
+            std::uint32_t imageCount = std::max(_desc.imageCount, capabilities.minImageCount + 1);
+            if (capabilities.maxImageCount && imageCount > capabilities.maxImageCount)
+                imageCount = capabilities.maxImageCount;
+            VkCompositeAlphaFlagBitsKHR composite = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+            if ((capabilities.supportedCompositeAlpha & composite) == 0)
+            {
+                constexpr VkCompositeAlphaFlagBitsKHR options[]{
+                    VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR,
+                    VK_COMPOSITE_ALPHA_POST_MULTIPLIED_BIT_KHR,
+                    VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR};
+                const auto found = std::find_if(std::begin(options), std::end(options),
+                    [&capabilities](auto value) { return (capabilities.supportedCompositeAlpha & value) != 0; });
+                if (found == std::end(options)) throw std::runtime_error("No supported Vulkan composite-alpha mode.");
+                composite = *found;
+            }
+
+            const VkSwapchainKHR oldSwapchain = _swapchain;
+            VkSwapchainCreateInfoKHR create{VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR};
+            create.surface = vk.surface;
+            create.minImageCount = imageCount;
+            create.imageFormat = selectedFormat.format;
+            create.imageColorSpace = selectedFormat.colorSpace;
+            create.imageExtent = extent;
+            create.imageArrayLayers = 1;
+            create.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+            const std::uint32_t queueFamilies[]{vk.graphicsFamily, vk.presentFamily};
+            if (vk.graphicsFamily != vk.presentFamily)
+            {
+                create.imageSharingMode = VK_SHARING_MODE_CONCURRENT;
+                create.queueFamilyIndexCount = 2;
+                create.pQueueFamilyIndices = queueFamilies;
+            }
+            else create.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
+            create.preTransform = capabilities.currentTransform;
+            create.compositeAlpha = composite;
+            create.presentMode = selectedMode;
+            create.clipped = VK_TRUE;
+            create.oldSwapchain = oldSwapchain;
+            VkSwapchainKHR replacement = VK_NULL_HANDLE;
+            const VkResult createResult = vk.vkCreateSwapchainKHR(vk.device, &create, nullptr, &replacement);
+            if (createResult != VK_SUCCESS)
+            {
+                if (oldSwapchain)
+                {
+                    DestroyImageStates();
+                    vk.vkDestroySwapchainKHR(vk.device, oldSwapchain, nullptr);
+                    _swapchain = VK_NULL_HANDLE;
+                }
+                Check(createResult, "vkCreateSwapchainKHR");
+            }
+            _swapchain = replacement;
+            if (oldSwapchain)
+            {
+                DestroyImageStates();
+                vk.vkDestroySwapchainKHR(vk.device, oldSwapchain, nullptr);
+            }
+            _extent = extent;
+            _desc.width = extent.width;
+            _desc.height = extent.height;
+            _desc.format = rhiFormat;
+            _desc.presentMode = selectedMode == VK_PRESENT_MODE_IMMEDIATE_KHR ? PresentMode::Immediate
+                : selectedMode == VK_PRESENT_MODE_MAILBOX_KHR ? PresentMode::Mailbox : PresentMode::Fifo;
+
+            std::uint32_t actualCount = 0;
+            Check(vk.vkGetSwapchainImagesKHR(vk.device, _swapchain, &actualCount, nullptr),
+                "vkGetSwapchainImagesKHR(count)");
+            std::vector<VkImage> images(actualCount);
+            Check(vk.vkGetSwapchainImagesKHR(vk.device, _swapchain, &actualCount, images.data()),
+                "vkGetSwapchainImagesKHR");
+            _desc.imageCount = actualCount;
+            _images.reserve(actualCount);
+            for (VkImage image : images)
+            {
+                VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+                view.image = image;
+                view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+                view.format = _vkFormat;
+                view.components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY,
+                    VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY};
+                view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+                VkImageView imageView = VK_NULL_HANDLE;
+                Check(vk.vkCreateImageView(vk.device, &view, nullptr, &imageView), "vkCreateImageView(swapchain)");
+                ImageState state{};
+                state.texture = std::make_unique<VulkanSwapchainTexture>(image, imageView, extent, rhiFormat);
+                VkSemaphoreCreateInfo semaphore{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+                Check(vk.vkCreateSemaphore(vk.device, &semaphore, nullptr, &state.renderFinished),
+                    "vkCreateSemaphore(render finished)");
+                if (vk.swapchainMaintenance1)
+                {
+                    VkFenceCreateInfo fence{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+                    fence.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+                    Check(vk.vkCreateFence(vk.device, &fence, nullptr, &state.presentFence),
+                        "vkCreateFence(present completion)");
+                }
+                _images.push_back(std::move(state));
+            }
+            _suspended = false;
+            _needsRecreate = false;
+            std::cout << "[vulkan] swapchain " << _desc.width << 'x' << _desc.height
+                << " images=" << _desc.imageCount << " present="
+                << (_desc.presentMode == PresentMode::Fifo ? "FIFO"
+                    : _desc.presentMode == PresentMode::Mailbox ? "MAILBOX" : "IMMEDIATE") << '\n';
+        }
+
+        void WaitForPresent(ImageState& image)
+        {
+            if (image.presentPending && image.presentFence)
+            {
+                Check(_context._impl->vkWaitForFences(_context._impl->device,
+                    1, &image.presentFence, VK_TRUE, UINT64_MAX), "vkWaitForFences(present)");
+                image.presentPending = false;
+            }
+        }
+
+        void WaitOutstanding()
+        {
+            auto& vk = *_context._impl;
+            if (!vk.device) return;
+            for (Frame& frame : _frames)
+            {
+                if (frame.submitted)
+                {
+                    Check(vk.vkWaitForFences(vk.device, 1, &frame.fence, VK_TRUE, UINT64_MAX),
+                        "vkWaitForFences(frame cleanup)");
+                    frame.submitted = false;
+                }
+            }
+            for (ImageState& image : _images) WaitForPresent(image);
+            Check(vk.vkDeviceWaitIdle(vk.device), "vkDeviceWaitIdle(swapchain)");
+        }
+
+        void DestroyImageStates() noexcept
+        {
+            if (!_context._impl || !_context._impl->device) { _images.clear(); return; }
+            auto& vk = *_context._impl;
+            for (ImageState& image : _images)
+            {
+                if (image.renderFinished) vk.vkDestroySemaphore(vk.device, image.renderFinished, nullptr);
+                if (image.presentFence) vk.vkDestroyFence(vk.device, image.presentFence, nullptr);
+                if (image.texture && image.texture->View()) vk.vkDestroyImageView(vk.device, image.texture->View(), nullptr);
+            }
+            _images.clear();
+        }
+
+        void DestroyFrames() noexcept
+        {
+            if (!_context._impl || !_context._impl->device) return;
+            auto& vk = *_context._impl;
+            for (Frame& frame : _frames)
+            {
+                if (frame.imageAvailable) vk.vkDestroySemaphore(vk.device, frame.imageAvailable, nullptr);
+                if (frame.fence) vk.vkDestroyFence(vk.device, frame.fence, nullptr);
+                if (frame.pool) vk.vkDestroyCommandPool(vk.device, frame.pool, nullptr);
+                frame = {};
+            }
+        }
+
+        void CleanupNoThrow() noexcept
+        {
+            if (!_context._impl || !_context._impl->device) return;
+            auto& vk = *_context._impl;
+            if (vk.vkDeviceWaitIdle) vk.vkDeviceWaitIdle(vk.device);
+            DestroyImageStates();
+            DestroyFrames();
+            if (_swapchain && vk.vkDestroySwapchainKHR)
+            {
+                vk.vkDestroySwapchainKHR(vk.device, _swapchain, nullptr);
+                _swapchain = VK_NULL_HANDLE;
+            }
+        }
+
+        void SubmitAndPresent()
+        {
+            auto& vk = *_context._impl;
+            Frame& frame = _frames[_frameIndex];
+            ImageState& image = _images[_currentImage];
+            if (image.presentFence)
+            {
+                WaitForPresent(image);
+                Check(vk.vkResetFences(vk.device, 1, &image.presentFence), "vkResetFences(present)");
+            }
+            VkSemaphoreSubmitInfo wait{VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+            wait.semaphore = frame.imageAvailable;
+            wait.stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+            VkCommandBufferSubmitInfo command{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+            command.commandBuffer = frame.command;
+            VkSemaphoreSubmitInfo signal{VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+            signal.semaphore = image.renderFinished;
+            signal.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            VkSubmitInfo2 submit{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+            submit.waitSemaphoreInfoCount = 1;
+            submit.pWaitSemaphoreInfos = &wait;
+            submit.commandBufferInfoCount = 1;
+            submit.pCommandBufferInfos = &command;
+            submit.signalSemaphoreInfoCount = 1;
+            submit.pSignalSemaphoreInfos = &signal;
+            Check(vk.vkResetFences(vk.device, 1, &frame.fence), "vkResetFences(frame)");
+            Check(vk.vkQueueSubmit2(vk.graphics, 1, &submit, frame.fence), "vkQueueSubmit2(present)");
+            frame.submitted = true;
+            image.lastFrame = frame.fence;
+
+            VkPresentInfoKHR present{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
+            present.waitSemaphoreCount = 1;
+            present.pWaitSemaphores = &image.renderFinished;
+            present.swapchainCount = 1;
+            present.pSwapchains = &_swapchain;
+            present.pImageIndices = &_currentImage;
+            VkSwapchainPresentFenceInfoEXT presentFenceInfo{
+                VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT};
+            if (image.presentFence)
+            {
+                presentFenceInfo.swapchainCount = 1;
+                presentFenceInfo.pFences = &image.presentFence;
+                present.pNext = &presentFenceInfo;
+            }
+            const VkResult result = vk.vkQueuePresentKHR(vk.present, &present);
+            if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR)
+                image.presentPending = image.presentFence != VK_NULL_HANDLE;
+            else if (result == VK_ERROR_OUT_OF_DATE_KHR)
+                _needsRecreate = true;
+            else
+                Check(result, "vkQueuePresentKHR");
+
+            _acquired = false;
+            _commandsReady = false;
+            if (_recreateAfterPresent || result == VK_SUBOPTIMAL_KHR)
+                _needsRecreate = true;
+            _recreateAfterPresent = false;
+            _frameIndex = (_frameIndex + 1) % static_cast<std::uint32_t>(FrameCount);
+            ::MphRead::RendererPlatform::ProcessEvents();
+        }
+    };
+    std::unique_ptr<Swapchain> CreateSwapchain(
+        ::MphRead::RendererPlatform::Window& window, const SwapchainDesc& desc)
+    {
+        return std::make_unique<VulkanSwapchain>(window, desc);
+    }
+
+    int RunPresentationCheck()
+    {
+        try
+        {
+            using namespace ::MphRead::RendererPlatform;
+            WindowSettings settings{};
+            settings.GraphicsMode = GraphicsWindowMode::NoApi;
+            settings.ClientSize = ::OpenTK::Mathematics::Vector2i(1280, 720);
+            settings.Title = std::string(Mods::Branding::Name) + " Vulkan presentation check";
+            settings.StartVisible = true;
+            auto window = CreateWindow(settings);
+            auto* const native = static_cast<GLFWwindow*>(window->NativeHandle());
+
+            SwapchainDesc desc{};
+            desc.width = 1280;
+            desc.height = 720;
+            desc.presentMode = PresentMode::Fifo;
+            std::unique_ptr<Swapchain> swapchain = CreateSwapchain(*window, desc);
+            auto& vkSwapchain = dynamic_cast<VulkanSwapchain&>(*swapchain);
+
+            const auto drawColor = [&vkSwapchain, &swapchain](float r, float g, float b)
+            {
+                for (int i = 0; i < 4; ++i)
+                {
+                    (void)swapchain->AcquireNextTexture();
+                    vkSwapchain.ClearCurrent(r, g, b, 1.0F);
+                    swapchain->Present();
+                    ProcessEvents();
+                    std::this_thread::sleep_for(std::chrono::milliseconds(8));
+                }
+            };
+            const auto pumpFramebuffer = [](GLFWwindow* handle, int timeoutMs,
+                const std::function<bool(int, int)>& ready)
+            {
+                const auto deadline = std::chrono::steady_clock::now()
+                    + std::chrono::milliseconds(timeoutMs);
+                int width = 0, height = 0;
+                do
+                {
+                    ProcessEvents();
+                    ::glfwGetFramebufferSize(handle, &width, &height);
+                    if (ready(width, height)) return std::pair<int, int>{width, height};
+                    std::this_thread::sleep_for(std::chrono::milliseconds(8));
+                } while (std::chrono::steady_clock::now() < deadline);
+                throw std::runtime_error("Timed out waiting for a Vulkan window framebuffer transition.");
+            };
+
+            drawColor(0.10F, 0.35F, 0.80F);
+            const auto initialExtent = swapchain->Desc();
+            window->ClientSize(::OpenTK::Mathematics::Vector2i(960, 600));
+            const auto resized = pumpFramebuffer(native, 3000,
+                [initialExtent](int width, int height)
+                {
+                    return width > 0 && height > 0
+                        && (static_cast<std::uint32_t>(width) != initialExtent.width
+                            || static_cast<std::uint32_t>(height) != initialExtent.height);
+                });
+            swapchain->Resize(static_cast<std::uint32_t>(resized.first), static_cast<std::uint32_t>(resized.second));
+            drawColor(0.15F, 0.65F, 0.25F);
+
+            GLFWmonitor* const monitor = ::glfwGetPrimaryMonitor();
+            const GLFWvidmode* const mode = monitor ? ::glfwGetVideoMode(monitor) : nullptr;
+            if (!monitor || !mode)
+                throw std::runtime_error("The Vulkan presentation check requires a desktop monitor.");
+            int oldX = 0, oldY = 0;
+            ::glfwGetWindowPos(native, &oldX, &oldY);
+            const auto oldSize = window->ClientSize();
+            int oldFramebufferWidth = 0, oldFramebufferHeight = 0;
+            ::glfwGetFramebufferSize(native, &oldFramebufferWidth, &oldFramebufferHeight);
+            ::glfwSetWindowMonitor(native, monitor, 0, 0,
+                mode->width, mode->height, mode->refreshRate);
+            const auto fullscreen = pumpFramebuffer(native, 3000,
+                [mode](int width, int height)
+                {
+                    return width == mode->width && height == mode->height;
+                });
+            if (::glfwGetWindowMonitor(native) != monitor)
+                throw std::runtime_error("The GLFW window did not enter fullscreen mode.");
+            swapchain->Resize(static_cast<std::uint32_t>(fullscreen.first), static_cast<std::uint32_t>(fullscreen.second));
+            drawColor(0.75F, 0.22F, 0.08F);
+            ::glfwSetWindowMonitor(native, nullptr, oldX, oldY,
+                oldSize.X, oldSize.Y, GLFW_DONT_CARE);
+            const auto windowed = pumpFramebuffer(native, 3000,
+                [oldFramebufferWidth, oldFramebufferHeight](int width, int height)
+                {
+                    return width == oldFramebufferWidth && height == oldFramebufferHeight;
+                });
+            if (::glfwGetWindowMonitor(native) != nullptr)
+                throw std::runtime_error("The GLFW window did not return to windowed mode.");
+            swapchain->Resize(static_cast<std::uint32_t>(windowed.first), static_cast<std::uint32_t>(windowed.second));
+            drawColor(0.65F, 0.55F, 0.12F);
+
+            window->WindowStateMinimized();
+            const auto minimizeDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+            while (window->WindowState() != WindowStateValue::Minimized
+                && std::chrono::steady_clock::now() < minimizeDeadline)
+            {
+                ProcessEvents();
+                std::this_thread::sleep_for(std::chrono::milliseconds(8));
+            }
+            if (window->WindowState() != WindowStateValue::Minimized)
+                throw std::runtime_error("The Vulkan window did not enter minimized state.");
+            swapchain->Resize(0, 0);
+            if (swapchain->Desc().width != 0 || swapchain->Desc().height != 0)
+                throw std::runtime_error("A minimized Vulkan swapchain did not suspend its zero-sized extent.");
+            swapchain->Present();
+            window->WindowStateNormal();
+            const auto restored = pumpFramebuffer(native, 3000,
+                [](int width, int height) { return width > 0 && height > 0; });
+            swapchain->Resize(static_cast<std::uint32_t>(restored.first), static_cast<std::uint32_t>(restored.second));
+            drawColor(0.20F, 0.55F, 0.75F);
+
+            swapchain->SetPresentMode(PresentMode::Mailbox);
+            drawColor(0.45F, 0.20F, 0.70F);
+            swapchain->SetPresentMode(PresentMode::Fifo);
+            drawColor(0.12F, 0.32F, 0.72F);
+
+            const bool validation = vkSwapchain.ValidationEnabled();
+            vkSwapchain.Close();
+            const unsigned errors = vkSwapchain.ValidationErrors();
+            if (errors != 0)
+                throw std::runtime_error("Vulkan validation reported " + std::to_string(errors) + " error(s).");
+            std::cout << "[vulkan] presentation PASS; clear present; resize; fullscreen; minimize/restore; "
+                << "clean shutdown; validation=" << validation << "; errors=0\n";
+            return 0;
+        }
+        catch (const std::exception& e)
+        {
+            std::cerr << "[vulkan] presentation FAIL: " << e.what() << '\n';
+            return 1;
+        }
+    }
+
+
+}
+#else
+namespace MphRead::NativeRuntime::Rhi::Vulkan
+{
+    std::unique_ptr<Swapchain> CreateSwapchain(
+        ::MphRead::RendererPlatform::Window&, const SwapchainDesc&)
+    {
+        throw std::runtime_error("Vulkan presentation is unavailable on this platform or build.");
+    }
+    int RunPresentationCheck()
+    {
+        std::cerr << "[vulkan] presentation unavailable: desktop Vulkan support was not built.\n";
+        return 1;
+    }
+}
+#endif

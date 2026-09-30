@@ -1,4 +1,5 @@
 #include "BackendFactory.hpp"
+#include "Vulkan/VulkanSwapchain.hpp"
 
 #include "../../Renderer.hpp"
 
@@ -134,8 +135,7 @@ namespace MphRead::NativeRuntime::Rhi
                 "The desktop OpenGL swapchain is not available on Android.");
 #endif
         case GraphicsBackend::Vulkan:
-            throw std::runtime_error(
-                "The Vulkan swapchain is not implemented in Phase 2.");
+            return Vulkan::CreateSwapchain(window, desc);
         case GraphicsBackend::Metal:
             throw std::runtime_error(
                 "The Metal backend is not implemented.");

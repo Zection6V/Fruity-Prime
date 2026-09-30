@@ -1,7 +1,7 @@
 name: Native C++ Windows / MSVC
 
 on:
-  # build_cpp.yml uses native-cpp-all.yml for the game build.
+  # build_cpp.yml defines the desktop game builds.
   # This owner-only diagnostic workflow remains manual/reusable.
   # push:
   #   branches: [develop2]
@@ -76,7 +76,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: native-vcpkg-windows-v2-${{ runner.arch }}-${{ steps.vcpkg.outputs.commit }}-${{ steps.vcpkg.outputs.compiler }}-${{ hashFiles('.github/workflows/native-cpp-windows.yml') }}
+          key: native-vcpkg-windows-v2-${{ runner.arch }}-${{ steps.vcpkg.outputs.commit }}-${{ steps.vcpkg.outputs.compiler }}-${{ hashFiles('tools/ci/dependencies/windows-owners.txt') }}
           restore-keys: |
             native-vcpkg-windows-v2-${{ runner.arch }}-${{ steps.vcpkg.outputs.commit }}-${{ steps.vcpkg.outputs.compiler }}-
             native-vcpkg-all-${{ runner.os }}-${{ runner.arch }}-
@@ -106,7 +106,8 @@ jobs:
           if (-not $env:VCPKG_INSTALLATION_ROOT) { throw "VCPKG_INSTALLATION_ROOT is not set on the runner." }
           $vcpkg = Join-Path $env:VCPKG_INSTALLATION_ROOT "vcpkg.exe"
           if (-not (Test-Path $vcpkg)) { throw "vcpkg.exe was not found at $vcpkg" }
-          & $vcpkg install curl:x64-windows libarchive:x64-windows zlib:x64-windows glfw3:x64-windows freetype:x64-windows libjpeg-turbo:x64-windows openal-soft:x64-windows vulkan-loader:x64-windows vulkan-memory-allocator:x64-windows shaderc:x64-windows "skia[gl,freetype]:x64-windows" --clean-after-build 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/vcpkg-install.log"
+          $packages = @(Get-Content tools/ci/dependencies/windows-owners.txt | Where-Object { $_.Trim() })
+          & $vcpkg install @packages --clean-after-build 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP/vcpkg-install.log"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
@@ -116,7 +117,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: native-vcpkg-windows-v2-${{ runner.arch }}-${{ steps.vcpkg.outputs.commit }}-${{ steps.vcpkg.outputs.compiler }}-${{ hashFiles('.github/workflows/native-cpp-windows.yml') }}
+          key: native-vcpkg-windows-v2-${{ runner.arch }}-${{ steps.vcpkg.outputs.commit }}-${{ steps.vcpkg.outputs.compiler }}-${{ hashFiles('tools/ci/dependencies/windows-owners.txt') }}
 
       - name: Set up compiler cache
         uses: mozilla-actions/sccache-action@v0.0.11

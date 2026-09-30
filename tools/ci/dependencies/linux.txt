@@ -1,0 +1,2 @@
+skia[gl,freetype]:x64-linux
+vulkan-memory-allocator:x64-linux

@@ -172,11 +172,17 @@ jobs:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
           key: native-android-vcpkg-v1-${{ matrix.abi }}-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('.github/workflows/native-cpp-android.yml') }}
 
+      # Refresh immutable snapshots weekly; avoid a full duplicate on every push.
+      - name: Select compiler cache generation
+        shell: bash
+        run: echo "COMPILER_CACHE_WEEK=$(date -u +%G-%V)" >> "$GITHUB_ENV"
+
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: native-ccache-android-${{ matrix.abi }}
-          max-size: 1G
+          key: native-ccache-android-${{ matrix.abi }}-${{ env.COMPILER_CACHE_WEEK }}
+          max-size: 500M
+          append-timestamp: false
 
       - name: Configure and build shared library
         shell: bash

@@ -2738,13 +2738,19 @@ transitionはactive rendering scope外で行う。
 
 ## 完了条件
 
-- [ ] Buffer RHI実装
-- [ ] Texture RHI実装
-- [ ] staging upload
-- [ ] readback buffer
-- [ ] resource transition helper
-- [ ] validation clean
-- [ ] leakなし
+- [x] Buffer RHI実装
+- [x] Texture RHI実装
+- [x] staging upload
+- [x] readback buffer
+- [x] resource transition helper
+- [x] validation clean
+- [x] leakなし
+
+完了SHA: `db2ed0f4d353b88b2cee196232ac9b04bbf9f069`。
+Windows/MSVC・Linux/GCC・macOS/ClangとAndroid 4/4のCI成功、
+Windows NVIDIAとLinux llvmpipeのresource診断でvalidation error 0・live 0。
+詳細: [Phase 14 gate](Fruity-Prime-CPP-Vulkan-RHI-Phase14-Gate-2026-09-30.md)。
+次はPhase 15。
 
 ---
 

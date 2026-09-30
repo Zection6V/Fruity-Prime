@@ -11,7 +11,7 @@ even when the device enabled the extension and the log reported 1. The original
 run below did **not** exercise present fences. Its claim about that cleanup
 path is superseded by this audit.
 
-The current working tree stores the enabled feature flag, preserves pending
+Audit repair SHA `53298011d0d88ff6762eb80c8b0918d596b86b4e` stores the enabled feature flag, preserves pending
 present-fence waits for enqueued out-of-date/surface-lost presentations,
 cleans partially constructed image resources on exceptions, and rejects
 duplicate acquisition/command recording. Context teardown also tolerates
@@ -21,7 +21,11 @@ The rebuilt RTX 5070 Ti diagnostic passed resize, fullscreen, minimize/restore
 and shutdown with validation=1, errors=0 and `present-fence-waits=28`. It now
 fails if enabled present fences were never waited. Foundation and resource
 diagnostics also passed, and CTest passed 5/5. Exact-SHA CI for these repairs
-is pending.
+is complete on final correction SHA `db2ed0f4d353b88b2cee196232ac9b04bbf9f069`
+in [desktop CI 36704806153](https://github.com/Zection6V/Fruity-Prime/actions/runs/36704806153).
+All three desktop jobs passed. Linux normal presentation recorded 35 present
+fence waits and forced fallback recorded six retired releases, both with zero
+validation errors.
 
 Extension-less recreation now defers old swapchains and present semaphores
 until a completed fence-backed reacquisition from the replacement chain proves
@@ -93,8 +97,9 @@ tested devices, and orderly shutdown; it does not claim game-scene parity.
 The local device supports `VK_EXT_swapchain_maintenance1`. The audit repair
 above verified its present-fence cleanup; the original implementation did not. On
 devices without that extension, the implementation uses per-image
-`renderFinished` semaphores and waits for device work at shutdown; that
-extension-less shutdown path was not exercised on hardware in this gate. The
+`renderFinished` semaphores and deferred retirement during recreation. The
+forced extension-less diagnostic exercised recreation and shutdown on hardware
+with zero validation errors; final shutdown still waits for device work. The
 [Khronos Vulkan Guide](https://docs.vulkan.org/guide/latest/swapchain_semaphore_reuse.html)
 documents image reacquisition as the portable synchronization point for reusing
 present wait semaphores, and notes that ordinary queue/device idle waits alone

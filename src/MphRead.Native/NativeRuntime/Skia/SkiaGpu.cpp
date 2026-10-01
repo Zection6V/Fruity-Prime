@@ -289,6 +289,7 @@ namespace MphRead::NativeRuntime::Skia
             U1 BindVertexArray = nullptr;
             U2 BindBuffer = nullptr;
             U1 DisableVertexAttribArray = nullptr;
+            U2 VertexAttribDivisor = nullptr;
             U1 ActiveTexture = nullptr;
             U2 BindTexture = nullptr;
             GetIntegervFn GetIntegerv = nullptr;
@@ -312,6 +313,7 @@ namespace MphRead::NativeRuntime::Skia
                 BindVertexArray = Resolve<U1>("glBindVertexArray");
                 BindBuffer = Resolve<U2>("glBindBuffer");
                 DisableVertexAttribArray = Resolve<U1>("glDisableVertexAttribArray");
+                VertexAttribDivisor = Resolve<U2>("glVertexAttribDivisor");
                 ActiveTexture = Resolve<U1>("glActiveTexture");
                 BindTexture = Resolve<U2>("glBindTexture");
                 GetIntegerv = Resolve<GetIntegervFn>("glGetIntegerv");
@@ -499,6 +501,12 @@ namespace MphRead::NativeRuntime::Skia
                 for (int i = 0; i < attribs; ++i)
                 {
                     Extra.DisableVertexAttribArray(static_cast<unsigned>(i));
+                    // Ganesh draws instanced: a divisor left on an attribute
+                    // the game's fixed-function arrays alias (2 is the normal,
+                    // 3 the colour on NVIDIA) hands every vertex of a draw the
+                    // first vertex's value -- flat lighting, wrong colours.
+                    if (Extra.VertexAttribDivisor != nullptr)
+                        Extra.VertexAttribDivisor(static_cast<unsigned>(i), 0);
                 }
             }
             if (Extra.FrontFace != nullptr)

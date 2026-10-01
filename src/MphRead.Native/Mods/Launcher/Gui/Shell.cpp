@@ -419,6 +419,26 @@ namespace MphRead::Mods::Launcher::Gui
 
     void Shell::Decided(LaunchPlan plan)
     {
+        // FRUITY_SHOT_ROOM=KEY: the shell loop plays this room, so two builds
+        // (or the two backends) photograph the same match.
+        if (const char* room = std::getenv("FRUITY_SHOT_ROOM"); room != nullptr && _shotDirectory.has_value()
+            && plan.Kind() == LaunchKind::Offline)
+        {
+            LaunchPlan::Init init{};
+            init.Kind = plan.Kind();
+            init.Lobby = plan.Lobby();
+            init.Hunter = plan.Hunter();
+            init.RoomKey = std::string(room);
+            init.Mode = plan.Mode();
+            init.Bots = plan.Bots();
+            init.BotLevel = plan.BotLevel();
+            init.Port = plan.Port();
+            init.PlayerName = plan.PlayerName();
+            init.SaveSlot = plan.SaveSlot();
+            init.NewGame = plan.NewGame();
+            init.DemoPath = plan.DemoPath();
+            plan = LaunchPlan(init);
+        }
         if (plan.Kind() == LaunchKind::None)
         {
             RequestQuit();
@@ -775,6 +795,15 @@ namespace MphRead::Mods::Launcher::Gui
             },
             [](MphRead::RenderWindow& window)
             {
+                // FRUITY_SHOT_FRAME=N holds the match shot until simulation
+                // frame N, so two runs (OpenGL and Vulkan) photograph the
+                // same instant and can be compared pixel for pixel.
+                if (const char* at = std::getenv("FRUITY_SHOT_FRAME"); at != nullptr
+                    && window.Scene().FrameCount() < static_cast<std::uint64_t>(std::atoi(at)))
+                {
+                    --_shotStep;
+                    return;
+                }
                 if (!window.Scene().ModelReloadDrawProbePassed())
                 {
                     ++_shotMisses;

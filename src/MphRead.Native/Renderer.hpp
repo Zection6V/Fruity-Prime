@@ -232,10 +232,12 @@ namespace MphRead
 
     class Model;
     // Model textures are reconstructed from the original asset data, without
-    // retaining a second expanded pixel image while playing.
+    // retaining a second expanded pixel image while playing. The original
+    // model must live as long as its scene-owned textures, even when the
+    // uploading entity or mesh cache has already released it.
     struct SceneModelTextureSource
     {
-        std::weak_ptr<MphRead::Model> Model{};
+        std::shared_ptr<MphRead::Model> Model{};
         std::int32_t TextureId = 0;
         std::int32_t PaletteId = 0;
         std::int32_t RecolorId = 0;

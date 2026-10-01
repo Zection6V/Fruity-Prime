@@ -17,6 +17,7 @@
 #include "../../../GameState.hpp"
 #include "../../../Menu.hpp"
 #include "../../../Renderer.hpp"
+#include "../../../Read.hpp"
 #include "../../../NativeRuntime/OpenTK/GLFW.hpp"
 #include "../../../NativeRuntime/System/Globalization.hpp"
 #include "../../../NativeRuntime/System/IO.hpp"
@@ -723,6 +724,7 @@ namespace MphRead::Mods::Launcher::Gui
         OpenTK::Mathematics::Vector2i g_switchSize{};
         OpenTK::Mathematics::Vector2i g_switchLocation{};
         std::int32_t g_switchBorder = 0;
+        std::weak_ptr<MphRead::Model> g_textureOnlySource{};
 
         void NoteMatch(MphRead::RenderWindow& window)
         {
@@ -754,6 +756,9 @@ namespace MphRead::Mods::Launcher::Gui
             std::cout << "[switchcheck] backend changed " << (switched ? "yes" : "NO")
                 << ", window geometry kept " << (geometry ? "yes" : "NO") << '\n';
             if (!switched || !geometry) ++Shell::ShotMissCounter();
+            const bool sourceAlive = !g_textureOnlySource.expired();
+            std::cout << "[switchcheck] texture-only source retained " << (sourceAlive ? "yes" : "NO") << '\n';
+            if (!sourceAlive) ++Shell::ShotMissCounter();
         }
     }
 
@@ -785,6 +790,14 @@ namespace MphRead::Mods::Launcher::Gui
                     player->Spawn(spawn->Position, spawn->FacingVector(), spawn->UpVector(), spawn->NodeRef, true);
                 }
                 else ++_shotMisses;
+                // A texture can outlive the entity/model instance that first
+                // uploaded it, and need not have a cached mesh at all. Drop
+                // this uncached instance before switching to exercise that
+                // lifetime explicitly, rather than relying on bot timing.
+                const auto instance = MphRead::Read::GetModelInstance("hud_icon_arrow", false,
+                    MphRead::MetaDir::Hud, true);
+                g_textureOnlySource = instance->Model();
+                (void)window.Scene().BindGetTexture(instance->Model(), 0, 0, 0);
                 Wait(240);
             },
         };
@@ -858,6 +871,19 @@ namespace MphRead::Mods::Launcher::Gui
                 Wait(2);
             });
         }
+        script.push_back([](MphRead::RenderWindow&)
+        {
+            // End through the production queue, before the next frame; the
+            // current frame still calls Scene::AfterRenderFrame after us.
+            RequestEndMatch();
+            Wait(2);
+        });
+        script.push_back([](MphRead::RenderWindow& window)
+        {
+            const bool released = g_textureOnlySource.expired();
+            std::cout << "[switchcheck] texture-only source released with scene " << (released ? "yes" : "NO") << '\n';
+            if (!released || window.HasScene()) ++_shotMisses;
+        });
         return script;
     }
 

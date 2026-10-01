@@ -1301,8 +1301,7 @@ namespace MphRead
         std::size_t textures = 0;
         for (const auto& [bindingId, source] : _modelTextureSources)
         {
-            const auto model = source.Model.lock();
-            if (!model) throw ProgramException("A texture's source model expired during renderer switching.");
+            const auto& model = source.Model;
             const auto& texture = model->Recolors->at(static_cast<std::size_t>(source.RecolorId))
                 ->Textures->at(static_cast<std::size_t>(source.TextureId));
             auto made = Gpu().CreateTexture(NativeRuntime::Rhi::TextureDesc{

@@ -23,7 +23,7 @@ Phase A～E / H または R1～R20 がすべて完了したという記録では
 | R9: presentation | request と実際の mode / capabilities を分離。typed acquire / present status を実装し、frame loop で利用。最小化・明示的 close request は一時停止、API の device / surface loss は別分類。OpenGL の generic conformance coverage は R19 で拡張する |
 | R10～R13 | `VulkanFrameScheduler` を独立させ、実際の queue submit / completion を担当。descriptor / frame slot / memory / upload の分離は残る。native pipeline cache / budget / upload ring は未対応 |
 | R14: eligibility / admission | Vulkan passive probe は instance / physical device の確認で止まり、logical device / queue を作らない。incoming Session の device / swapchain 生成が active admission。失敗注入による復旧検証は残る |
-| R15: GL vertex interface | Windows scene geometry は explicit input と CommandList の VAO cache を使い、client array mirror を通さない。互換 wrapper 内の mirror / current attribute alias 依存の完全除去、UI・本番入力 ABI の統一は残る |
+| R15: GL vertex interface | Windows scene / transient / launcher UI を explicit input と RHI Buffer / CommandList / VAO へ統一。desktop wrapper の conventional array / current-value mirror を除去し、頂点位置を Vulkan と共通化。GPU composite / 旧新14画像の一致を確認。本番 binding ABI の接続は R2、既存の backend 間 caption 差は画像 gate に残る |
 | R16: readback | 未対応。非同期 ticket と lifetime / backpressure policy が必要 |
 | R17: error | Vulkan の device loss / surface loss / OOM を `BackendError` へ分類。presentation は typed status を返す。native code を presentation facade まで保持する改善・故障注入は残る |
 | R18: 診断 | 未対応。共通 debug label / timestamp interface が必要 |
@@ -248,3 +248,76 @@ Vulkan 開始は最終の bomb が0になった試行と、診断付きで全3�
 BombEntity の一時的な Destroy 診断は元に戻した。
 通常の命中・爆発も起きる code path があるため、現時点で0 particles の原因を確定したり、
 動く bot の stress が全試行 PASS と主張したりしない。Phase H で actor / fixture 寿命の観測を拡張する。
+
+## Desktop OpenGL の conventional vertex input 除去（Phase E）
+
+scene に続き、launcher overlay と背景写真を `OpenGlWindowDraw` の
+explicit shader / RHI Buffer / Pipeline / CommandList / VAO 経由へ移した。
+Skia の native texture は同じ GL context で1回の draw の間だけ借りる。
+既存の GPU surface をそのまま sample し、UI の毎フレームの CPU readback / texture copy は追加しない。
+背景の移動 shader が利用できない場合の静止画 fallback は維持する。
+
+Desktop `GL.cpp` の conventional array enable / pointer mirror と
+native `glColor` / `glNormal` / `glTexCoord` による current-value mirror を削除。
+Desktop の頂点位置を Position=0 / Normal=1 / Color=2 / TexCoord=3 / TexCoord1=4 にそろえ、
+Vulkan と同じ明示入力にした。array draw 後の未定義な native current value を読まず、
+scene が明示した色・法線・UV の値を context device が保持する。
+これは scalar の描画状態であり、texture の画素を CPU に複製する仕組みではない。
+Android の頂点位置と既存 UI 実装は変更せず、専用 include に保持する。
+Android のビルド・実動作は今回未実施。
+
+静的 audit は desktop conventional input の呼び出しと desktop / Vulkan の頂点位置不一致も拒否する。
+GL 2.1 向け thumbnail 診断は explicit GLSL 1.20 / generic input を使う。
+新しい composite 診断は通常の `-thumbnailwindowcheck` に含め、GL 2.1 専用 mode では実行しない。
+GL 2.1 環境そのものは今回検証していない。
+
+### 検証
+
+- MSVC Release build、CTest 5/5、shader interface audit（22 source）が成功。
+- `-rhiconformance`: OpenGL / Vulkan とも PASS、release=0、Vulkan validation errors=0。
+  ログ `C:/tmp/gp/architecture-phasee-final-rhiconformance.log`。
+- `-thumbnailwindowcheck`: explicit shader の色 readback と、実際の window composite を検証。
+  半透明赤 / 緑の2行の texture を青背景へ合成し、premultiplied / opaque の色と上下の向きを確認。
+  explicit inherited color の維持、buffer / shader / program / sampler / VAO / texture の release=0、
+  native error=0。ログ `C:/tmp/gp/architecture-phasee-composite-check.log`。
+- Golden Capture の7 candidate を両 backend で撮影し、各 backend の変更前画像と比較。
+  OpenGL は `architecture-glgeometry-final-golden-opengl`、Vulkan は
+  `architecture-glgeometry-golden-vulkan` を比較元にした。
+  新画像は `C:/tmp/gp/architecture-phasee-final-golden-{opengl,vulkan}/`。
+  全14画像で decoded RGB の相違 byte=0。比較記録
+  `C:/tmp/gp/architecture-phasee-golden-comparison.txt`。
+  同一 harness の変更前後の比較であり、両 backend 間の完全一致を新たに主張するものではない。
+- `C:/tmp/gp/architecture-phasee-held-20261002-082118/`:
+  7体の非 main controls を hold した fixture は両開始 backend で成功。
+- `C:/tmp/gp/architecture-phasee-bots-20261002-082625/`:
+  7体の bot が動く通常 fixture も、今回は両開始 backend で成功。
+  各 process で front 1回、同じ Alinos Perch で Settings / Apply / Resume の切替3回。
+  全6回で同じ scene / window geometry / visibility を維持して simulation が進み、
+  effect definitions=105/105、impact / new bomb / existing bomb は各2 particles。
+  texture-only source は切替中に保持され、scene 終了時に解放。
+  両ログに VUID / Validation Error / failed-step はない。
+  held fixture の両最終画像で黄色 impact と青い Lockjaw core を目視。
+  front 画像で UI と背景写真も確認。
+  以前の bot fixture の失敗の原因が今回確定したという記録ではなく、Phase H の観測は継続する。
+
+再実行は上記の切替手順を使う。動く bot の通常 mode では
+`FRUITY_SWITCHCHECK_HOLD_ACTORS` を未設定にする。
+composite / core GPU / Golden Capture は game binary のディレクトリから実行:
+
+```powershell
+Push-Location tools/build/out/msvc-Release
+try {
+    'q' | & .\FruityPrime.exe -thumbnailwindowcheck -noupdate
+    if ($LASTEXITCODE -ne 0) { throw 'Window composite check failed' }
+    'q' | & .\FruityPrime.exe -rhiconformance -noupdate
+    if ($LASTEXITCODE -ne 0) { throw 'RHI conformance failed' }
+    foreach ($backend in @('opengl', 'vulkan')) {
+        'q' | & .\FruityPrime.exe -goldencapture all -goldendir "C:/tmp/gp/repeat-phasee-$backend" -rhi $backend -vkvalidation -noupdate
+        if ($LASTEXITCODE -ne 0) { throw "$backend Golden Capture failed" }
+    }
+} finally { Pop-Location }
+```
+
+R2 の本番 binding / generated manifest、R4 の OpenGL submission 契約、
+R8 の完全な session ownership、R10～R13、R16 / R18 と Phase H の残項目は引き続き対応する。
+Metal / D3D12（Phase F / G）と macOS 実機検証は今回の完了条件に含めない。

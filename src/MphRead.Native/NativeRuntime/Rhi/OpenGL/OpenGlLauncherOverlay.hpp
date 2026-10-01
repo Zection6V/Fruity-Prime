@@ -1,12 +1,14 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 
 namespace MphRead::NativeRuntime::Rhi::OpenGL
 {
     // The launcher overlay on an OpenGL window: the UI raster uploaded to a
     // texture (or a texture Skia drew, adopted) and composited over the
     // frame. The backend half of Mods::Render::UiOverlay, which holds no GL.
+    class OpenGlWindowDraw;
     class OpenGlLauncherOverlay final
     {
     public:
@@ -21,8 +23,11 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
     private:
         static constexpr std::int32_t Name = 1'000'000;
         static std::int32_t _texture;
-        static std::int32_t _vertexBuffer;
-        static std::int32_t _indexBuffer;
+#if defined(__ANDROID__)
+        static std::int32_t _vertexBuffer, _indexBuffer;
+#else
+        static std::unique_ptr<OpenGlWindowDraw> _draw;
+#endif
         static std::int32_t _width;
         static std::int32_t _height;
         static bool _ownsTexture;

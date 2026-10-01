@@ -453,6 +453,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             [[nodiscard]] GraphicsBackend GetBackend() const noexcept override { return GraphicsBackend::OpenGl; }
             [[nodiscard]] const Capabilities& GetCapabilities() const noexcept override { return _capabilities; }
+            std::array<std::array<float, 4>, VertexSemanticCount> CurrentAttributes{{
+                {0, 0, 0, 1}, {0, 0, 1, 1}, {1, 1, 1, 1}, {0, 0, 0, 1}, {0, 0, 0, 1}}};
 
             [[nodiscard]] std::unique_ptr<Buffer> CreateBuffer(const BufferDesc& desc) override;
             void WriteBuffer(Buffer& buffer, std::uint64_t offset, std::span<const std::byte> data) override;
@@ -1088,6 +1090,14 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void DrawSceneGeometry(std::span<const VertexBufferLayoutDesc> buffers,
                 std::span<const VertexAttributeDesc> attributes, PrimitiveTopology topology,
                 std::uint32_t count, std::uint32_t first);
+            void BindInteropTexture(std::int32_t texture, const Sampler& sampler)
+            {
+                const auto* native = dynamic_cast<const OpenGlSampler*>(&sampler);
+                if (!native || native->Device() != _device) throw std::invalid_argument("Interop sampler belongs to another device.");
+                GL::ActiveTexture(GL::TextureUnit::Texture0);
+                GL::BindTexture(GL::TextureTarget::Texture2D, texture);
+                OpenGlNative::Require(_device->Api().BindSampler, "glBindSampler")(0, texture ? native->Name() : 0);
+            }
             void CopyBuffer(const Buffer& source, std::uint64_t sourceOffset, Buffer& destination, std::uint64_t destinationOffset, std::uint64_t size) override;
             void CopyBufferToTexture(const Buffer& source, Texture& destination, const BufferTextureCopy& region) override;
             void CopyTextureToBuffer(const Texture& source, Buffer& destination, const BufferTextureCopy& region) override;
@@ -1467,6 +1477,19 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
     void ResetWindowViewport(std::int32_t width, std::int32_t height)
     {
         GL::Viewport(0, 0, width, height);
+    }
+
+    void SetCurrentAttribute(VertexSemantic semantic, float x, float y, float z, float w)
+    {
+        static_cast<OpenGlGraphicsDevice&>(ContextDevice()).CurrentAttributes.at(static_cast<unsigned>(semantic)) = {x, y, z, w};
+    }
+    std::array<float, 4> CurrentAttribute(VertexSemantic semantic)
+    { return static_cast<OpenGlGraphicsDevice&>(ContextDevice()).CurrentAttributes.at(static_cast<unsigned>(semantic)); }
+    void BindInteropTexture(CommandList& commands, std::int32_t texture, const Sampler& sampler)
+    {
+        auto* native = dynamic_cast<OpenGlCommandList*>(&commands);
+        if (!native) throw std::invalid_argument("Interop needs an OpenGL command list.");
+        native->BindInteropTexture(texture, sampler);
     }
 
 #if defined(__ANDROID__)

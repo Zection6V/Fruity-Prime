@@ -84,14 +84,10 @@ namespace
         Expect(different != layout, "group count affects pipeline identity");
     }
 
-    void TestDesktopUsesTheAliasTable()
+    void TestDesktopUsesTheCommonInterface()
     {
-        // NV_vertex_program: vertex 0, normal 2, colour 3, texcoord0 8, texcoord1 9.
-        Expect(Location(OpenGlDesktopLocations, VertexSemantic::Position) == 0U, "desktop position");
-        Expect(Location(OpenGlDesktopLocations, VertexSemantic::Normal) == 2U, "desktop normal");
-        Expect(Location(OpenGlDesktopLocations, VertexSemantic::Color) == 3U, "desktop colour");
-        Expect(Location(OpenGlDesktopLocations, VertexSemantic::TexCoord) == 8U, "desktop texcoord");
-        Expect(Location(OpenGlDesktopLocations, VertexSemantic::TexCoord1) == 9U, "desktop texcoord1");
+        Expect(OpenGlDesktopLocations == VulkanLocations,
+            "desktop and Vulkan must share the explicit vertex input interface");
     }
 
     void TestVulkanMatchesThePlan()
@@ -215,7 +211,7 @@ int main()
         TestTablesAreDistinct();
         TestLogicalSceneAbi();
         TestPipelineLayoutOwnsItsContract();
-        TestDesktopUsesTheAliasTable();
+        TestDesktopUsesTheCommonInterface();
         TestVulkanMatchesThePlan();
         TestDesktopShadersUseExplicitInputs();
         TestVulkanPacking();

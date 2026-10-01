@@ -1,4 +1,9 @@
+#if defined(__ANDROID__)
+#include "OpenGlAndroidLauncherOverlayInternal.inc"
+#else
 #include "OpenGlLauncherOverlay.hpp"
+#include "OpenGlWindowDraw.hpp"
+#include <memory>
 
 #include "../../OpenTK/GL.hpp"
 #include "../../OpenTK/GpuTrace.hpp"
@@ -12,8 +17,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
     namespace GL = ::OpenTK::Graphics::OpenGL::GL;
 
     std::int32_t OpenGlLauncherOverlay::_texture = 0;
-    std::int32_t OpenGlLauncherOverlay::_vertexBuffer = 0;
-    std::int32_t OpenGlLauncherOverlay::_indexBuffer = 0;
+    std::unique_ptr<OpenGlWindowDraw> OpenGlLauncherOverlay::_draw;
     std::int32_t OpenGlLauncherOverlay::_width = 0;
     std::int32_t OpenGlLauncherOverlay::_height = 0;
     bool OpenGlLauncherOverlay::_ownsTexture = false;
@@ -32,6 +36,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             _texture = Name;
             _ownsTexture = true;
             GL::BindTexture(GL::TextureTarget::Texture2D, _texture);
+            GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureBaseLevel, 0);
+            GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMaxLevel, 0);
             GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
                 static_cast<std::int32_t>(GL::TextureMinFilter::Linear));
             GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter,
@@ -85,81 +91,14 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         {
             GL::Viewport(0, 0, width, height);
         }
-        GL::UseProgram(0);
-        GL::Disable(GL::EnableCap::DepthTest);
-        GL::Disable(GL::EnableCap::CullFace);
-        GL::Disable(GL::EnableCap::AlphaTest);
-        GL::Disable(GL::EnableCap::StencilTest);
-        GL::Enable(GL::EnableCap::Blend);
-        GL::BlendFunc(GL::BlendingFactor::One, GL::BlendingFactor::OneMinusSrcAlpha);
-        GL::ActiveTexture(GL::TextureUnit::Texture1);
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-        GL::Disable(GL::EnableCap::Texture2D);
-        GL::ActiveTexture(GL::TextureUnit::Texture0);
-        GL::Enable(GL::EnableCap::Texture2D);
-        GL::BindTexture(GL::TextureTarget::Texture2D, _texture);
-        GL::TexEnv(GL::TextureEnvTarget::TextureEnv, GL::TextureEnvParameter::TextureEnvMode,
-            static_cast<std::int32_t>(GL::TextureEnvMode::Replace));
-        GL::Color4(1, 1, 1, 1);
-        GL::MatrixMode(GL::MatrixMode::Projection);
-        GL::PushMatrix();
-        GL::LoadIdentity();
-        GL::MatrixMode(GL::MatrixMode::Modelview);
-        GL::PushMatrix();
-        GL::LoadIdentity();
-        const float topT = topRowAtTextureZero ? 0.0F : 1.0F;
-        const float bottomT = topRowAtTextureZero ? 1.0F : 0.0F;
-        struct OverlayVertex final
-        {
-            float Position[3];
-            float TexCoord[2];
-        };
-        const OverlayVertex vertices[]{
-            {{ 1.0F,  1.0F, 0.0F}, {1.0F, topT}},
-            {{-1.0F,  1.0F, 0.0F}, {0.0F, topT}},
-            {{ 1.0F, -1.0F, 0.0F}, {1.0F, bottomT}},
-            {{-1.0F, -1.0F, 0.0F}, {0.0F, bottomT}}
-        };
-        constexpr std::uint32_t indices[]{0U, 1U, 2U, 3U};
-        if (_vertexBuffer == 0)
-        {
-            _vertexBuffer = GL::GenBuffer();
-        }
-        if (_indexBuffer == 0)
-        {
-            _indexBuffer = GL::GenBuffer();
-        }
-        GL::BindBuffer(GL::BufferTarget::ArrayBuffer, _vertexBuffer);
-        GL::BufferData(GL::BufferTarget::ArrayBuffer, sizeof(vertices),
-            vertices, GL::BufferUsageHint::StreamDraw);
-        GL::BindBuffer(GL::BufferTarget::ElementArrayBuffer, _indexBuffer);
-        GL::BufferData(GL::BufferTarget::ElementArrayBuffer, sizeof(indices),
-            indices, GL::BufferUsageHint::StreamDraw);
-        GL::EnableClientState(GL::ClientState::VertexArray);
-        GL::VertexPointer(3, GL::PointerType::Float,
-            static_cast<std::int32_t>(sizeof(OverlayVertex)),
-            reinterpret_cast<const void*>(offsetof(OverlayVertex, Position)));
-        GL::ClientActiveTexture(GL::TextureUnit::Texture0);
-        GL::EnableClientState(GL::ClientState::TextureCoordArray);
-        GL::TexCoordPointer(2, GL::PointerType::Float,
-            static_cast<std::int32_t>(sizeof(OverlayVertex)),
-            reinterpret_cast<const void*>(offsetof(OverlayVertex, TexCoord)));
-        GL::DrawElements(GL::PrimitiveType::TriangleStrip, 4,
-            GL::DrawElementsType::UnsignedInt, nullptr);
-        GL::DisableClientState(GL::ClientState::TextureCoordArray);
-        GL::DisableClientState(GL::ClientState::VertexArray);
-        GL::BindBuffer(GL::BufferTarget::ArrayBuffer, 0);
-        GL::BindBuffer(GL::BufferTarget::ElementArrayBuffer, 0);
-        GL::TexCoord2(0.0F, bottomT);
-        GL::PopMatrix();
-        GL::MatrixMode(GL::MatrixMode::Projection);
-        GL::PopMatrix();
-        GL::MatrixMode(GL::MatrixMode::Modelview);
-        GL::TexEnv(GL::TextureEnvTarget::TextureEnv, GL::TextureEnvParameter::TextureEnvMode,
-            static_cast<std::int32_t>(GL::TextureEnvMode::Modulate));
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-        GL::BlendFunc(GL::BlendingFactor::SrcAlpha, GL::BlendingFactor::OneMinusSrcAlpha);
-        GL::Enable(GL::EnableCap::DepthTest);
+        const float top = topRowAtTextureZero ? 0.0F : 1.0F;
+        const float bottom = topRowAtTextureZero ? 1.0F : 0.0F;
+        const std::array<WindowVertex, 4> vertices{{
+            {{1, 1, 0}, {1, top}, {1, 0}}, {{-1, 1, 0}, {0, top}, {0, 0}},
+            {{1, -1, 0}, {1, bottom}, {1, 1}}, {{-1, -1, 0}, {0, bottom}, {0, 1}}}};
+        if (!_draw) _draw = std::make_unique<OpenGlWindowDraw>();
+        _draw->Draw(_texture, vertices, width, height, true);
+        GL::Color4(1, 1, 1, 1); GL::TexCoord2(0, bottom);
     }
 
     void OpenGlLauncherOverlay::Clear(std::int32_t width, std::int32_t height)
@@ -172,16 +111,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
     void OpenGlLauncherOverlay::Release()
     {
-        if (_indexBuffer != 0)
-        {
-            GL::DeleteBuffer(_indexBuffer);
-            _indexBuffer = 0;
-        }
-        if (_vertexBuffer != 0)
-        {
-            GL::DeleteBuffer(_vertexBuffer);
-            _vertexBuffer = 0;
-        }
+        _draw.reset();
         if (_texture != 0 && _ownsTexture)
         {
             GL::DeleteTexture(_texture);
@@ -192,3 +122,5 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         _ownsTexture = false;
     }
 }
+
+#endif

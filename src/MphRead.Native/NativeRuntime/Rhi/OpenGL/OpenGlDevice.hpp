@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../GraphicsDevice.hpp"
+#include "../VertexSemantics.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -43,6 +44,13 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
     void DrawSceneGeometry(CommandList& commands,
         std::span<const VertexBufferLayoutDesc> buffers, std::span<const VertexAttributeDesc> attributes,
         PrimitiveTopology topology, std::uint32_t count, std::uint32_t first = 0);
+
+    // Backend-owned current inputs, independent of conventional GL attribute
+    // aliases and of the undefined current values after an array draw.
+    void SetCurrentAttribute(VertexSemantic semantic, float x, float y, float z, float w);
+    [[nodiscard]] std::array<float, 4> CurrentAttribute(VertexSemantic semantic);
+    // Skia interop: borrow a native texture in this GL context for one draw.
+    void BindInteropTexture(CommandList& commands, std::int32_t texture, const Sampler& sampler);
 #if defined(__ANDROID__)
     // GLES still uses its emulated fixed-function draw wrapper.
     void RetireAndroidGeometryBuffer(std::int32_t buffer) noexcept;

@@ -1159,8 +1159,8 @@ namespace MphRead
         Gpu().WriteTexture(*owned, NativeRuntime::Rhi::TextureWrite{
             static_cast<std::uint32_t>(texture.Width), static_cast<std::uint32_t>(texture.Height),
             NativeRuntime::Rhi::TextureFormat::RGBA8Unorm, pixels.data()});
-        KeepTextureCopy(bindingId, texture.Width, texture.Height, NativeRuntime::Rhi::TextureFormat::RGBA8Unorm,
-            pixels.data(), true);
+        _modelTextureSources.insert_or_assign(bindingId,
+            SceneModelTextureSource{model, textureId, paletteId, recolorId});
         _ownedTextures.insert_or_assign(bindingId, std::move(owned));
         _flatColors[bindingId] = average.Result();
         return {bindingId, onlyOpaque};
@@ -1267,8 +1267,8 @@ namespace MphRead
 
     // The renderer is being switched under a running match. Everything this
     // scene holds on the device goes; everything it knows stays -- the
-    // texture/palette map and every handle in it, the CPU copies of what was
-    // written, the models -- so RebuildGpuAfterSwitch can put it all back
+    // texture/palette map and every handle in it, the original models and
+    // HUD/dynamic recovery data -- so RebuildGpuAfterSwitch can put it all back
     // on the next device under the same handles.
     void Scene::ReleaseGpuForSwitch()
     {
@@ -1299,6 +1299,27 @@ namespace MphRead
         InitShaders();
         _transientGeometry = NativeRuntime::Rhi::CreateSceneTransientGeometry(Gpu(), Commands());
         std::size_t textures = 0;
+        for (const auto& [bindingId, source] : _modelTextureSources)
+        {
+            const auto model = source.Model.lock();
+            if (!model) throw ProgramException("A texture's source model expired during renderer switching.");
+            const auto& texture = model->Recolors->at(static_cast<std::size_t>(source.RecolorId))
+                ->Textures->at(static_cast<std::size_t>(source.TextureId));
+            auto made = Gpu().CreateTexture(NativeRuntime::Rhi::TextureDesc{
+                static_cast<std::uint32_t>(texture.Width), static_cast<std::uint32_t>(texture.Height), 1, 1, 1, 1,
+                NativeRuntime::Rhi::TextureFormat::RGBA8Unorm,
+                NativeRuntime::Rhi::TextureUsage::Sampled | NativeRuntime::Rhi::TextureUsage::TransferDst},
+                NativeRuntime::Rhi::TextureHandle{bindingId});
+            std::vector<std::uint32_t> pixels;
+            for (ColorRgba pixel : model->GetPixels(source.TextureId, source.PaletteId, source.RecolorId))
+                pixels.push_back(pixel.ToUint());
+            Gpu().WriteTexture(*made, NativeRuntime::Rhi::TextureWrite{
+                static_cast<std::uint32_t>(texture.Width), static_cast<std::uint32_t>(texture.Height),
+                NativeRuntime::Rhi::TextureFormat::RGBA8Unorm, pixels.data()});
+            _ownedTextures.insert_or_assign(bindingId, std::move(made));
+            ++textures;
+        }
+        std::size_t recoveryBytes = 0;
         for (const auto& [bindingId, copy] : _textureCopies)
         {
             const NativeRuntime::Rhi::TextureHandle handle{bindingId};
@@ -1318,10 +1339,13 @@ namespace MphRead
                 static_cast<std::uint32_t>(copy.Width), static_cast<std::uint32_t>(copy.Height), copy.Format,
                 copy.Pixels.data()});
             ++textures;
+            recoveryBytes += copy.Pixels.size();
         }
         UpdateProjection();
         Mods::DebugLog::Line("render", "the match's GPU side was rebuilt on the new renderer: "
-            + std::to_string(textures) + " textures; meshes follow as they are drawn");
+            + std::to_string(textures) + " textures (" + std::to_string(_modelTextureSources.size())
+            + " from original model data, " + std::to_string(recoveryBytes)
+            + " recovery bytes for HUD/dynamic textures); meshes follow as they are drawn");
     }
 
     // The device for this scene's GL context, and this scene's command list.
@@ -2326,6 +2350,7 @@ namespace MphRead
                     (void)key;
                     _ownedTextures.erase(value.BindingId);
                     _textureCopies.erase(value.BindingId);
+                    _modelTextureSources.erase(value.BindingId);
                     _flatColors.erase(value.BindingId);
                 }
                 _texPalMap.erase(mapIt);
@@ -3815,6 +3840,7 @@ namespace MphRead
         _texPalMap.clear();
         _ownedTextures.clear();
         _textureCopies.clear();
+        _modelTextureSources.clear();
         _flatColors.clear();
         _gpuMeshCache.Clear();
         _transientGeometry.reset();
@@ -5893,6 +5919,10 @@ namespace MphRead
     void RenderWindow::SwitchRenderer(NativeRuntime::Rhi::SceneBackendRequest request)
     {
         const NativeRuntime::Rhi::SceneBackendRequest previous = NativeRuntime::Rhi::RequestedSceneBackend();
+        const Vector2i clientSize = ClientSize();
+        const Vector2i location = Location();
+        const std::int32_t border = WindowBorder();
+        const auto state = WindowState();
         Mods::DebugLog::Line("render", std::string("switching the renderer to ")
             + std::string(NativeRuntime::Rhi::SceneBackendRequestName(request)) + " in place");
         if (_shell) Mods::WindowGeometry::Remember(*this);
@@ -5905,8 +5935,13 @@ namespace MphRead
         _windowCommands.reset();
         _swapchain.reset();
         if (vulkan) NativeRuntime::Rhi::DetachSceneWindow();
+        else NativeRuntime::Rhi::OpenGL::ResetContextDevice();
         _window.reset();
         _appliedFrameRateCap = -2;
+        // The replacement is created hidden too. Reveal must run again,
+        // otherwise rendering continues forever in an invisible window.
+        _startedHidden = true;
+        _applyStartupIn = 0;
         NativeRuntime::Rhi::ReselectSceneBackend(request);
         try
         {
@@ -5923,11 +5958,12 @@ namespace MphRead
             _window = RendererPlatform::CreateWindow(Settings());
             CreatePresentation();
         }
-        if (_shell)
-        {
-            Mods::WindowGeometry::Restore(*this, _minimumSize);
-        }
         FitToScreen();
+        WindowBorder(border);
+        Location(location);
+        ClientSize(clientSize);
+        if (state == RendererPlatform::WindowStateValue::Maximized) WindowStateMaximized();
+        Floating(Mods::WindowMode::IsFullscreen());
         if (_scene)
         {
             _scene->RebindInput(_window->Keyboard(), _window->Mouse());

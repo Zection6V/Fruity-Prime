@@ -1318,9 +1318,10 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
     void ResetContextDevice() noexcept
     {
-        // The textures are gone with their context; their destructors would
-        // delete names the new context may already have reused.
-        Instance().release();
+        // Called while the outgoing context is still current, after its
+        // scene and UI resources have been released. Destroy the device now;
+        // leaking it would keep its retained textures and caches forever.
+        Instance().reset();
     }
 
     void FinishContextDevice()

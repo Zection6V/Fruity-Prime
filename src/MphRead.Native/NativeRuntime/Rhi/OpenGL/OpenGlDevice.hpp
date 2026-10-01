@@ -23,8 +23,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
     // The device for the current GL context, created on first use.
     [[nodiscard]] GraphicsDevice& ContextDevice();
 
-    // Forget every texture the current context's device knows about: the
-    // context they lived in is gone (Android recreates its EGL context).
+    // Destroy the current device before its context goes away, after releasing
+    // the scene and UI resources. The outgoing GL context must still be current.
     void ResetContextDevice() noexcept;
     // The current context's viewport, over the whole window.
     void ResetWindowViewport(std::int32_t width, std::int32_t height);

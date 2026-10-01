@@ -230,10 +230,18 @@ namespace MphRead
 
     class Scene;
 
-    // What a scene wrote into one of its textures, kept on the CPU so the
-    // texture can be made again under the same handle on another device:
-    // switching the renderer keeps the match, and every material, HUD
-    // element and effect still names its texture by that handle.
+    class Model;
+    // Model textures are reconstructed from the original asset data, without
+    // retaining a second expanded pixel image while playing.
+    struct SceneModelTextureSource
+    {
+        std::weak_ptr<MphRead::Model> Model{};
+        std::int32_t TextureId = 0;
+        std::int32_t PaletteId = 0;
+        std::int32_t RecolorId = 0;
+    };
+    // HUD/dynamic uploads whose caller supplies temporary pixels still need
+    // recovery data. This is not a CPU rendering path or GPU readback.
     struct SceneTextureCopy
     {
         std::int32_t Width = 0;
@@ -1129,6 +1137,7 @@ private: \
     std::unordered_map<std::int32_t, std::shared_ptr<MphRead::TextureMap>> _texPalMap{}; \
     std::unordered_map<std::int32_t, std::unique_ptr<MphRead::NativeRuntime::Rhi::Texture>> _ownedTextures{}; \
     std::unordered_map<std::int32_t, MphRead::SceneTextureCopy> _textureCopies{}; \
+    std::unordered_map<std::int32_t, MphRead::SceneModelTextureSource> _modelTextureSources{}; \
     MphRead::GpuMeshCache _gpuMeshCache{}; \
     bool _modelReloadProbeRequested = false; \
     bool _modelReloadProbeAwaitingRedraw = false; \

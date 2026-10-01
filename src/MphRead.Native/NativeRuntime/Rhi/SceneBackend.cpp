@@ -75,8 +75,6 @@ namespace MphRead::NativeRuntime::Rhi
         // -rhi vulkan is, never a quiet OpenGL.
         requestExplicit = true;
         resolved = false;
-        // The GL context the device cache answered for went with its window.
-        OpenGL::ResetContextDevice();
     }
     void SceneBackendNeedsWindowUi(bool value) noexcept { needsWindowUi = value; }
 

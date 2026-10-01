@@ -1,5 +1,10 @@
 # Vulkan RHI Phase 21 — COMPLETE (2026-10-01)
 
+This records the original startup-selection gate. Desktop settings subsequently
+gained switching without ending the match. See the
+[hot-switch repair and current validation](Fruity-Prime-CPP-Renderer-Hot-Switch-Fix-2026-10-01.md)
+for the current desktop behavior; Android still applies the setting next start.
+
 ## Selection
 
 | Source | Values | Wins |

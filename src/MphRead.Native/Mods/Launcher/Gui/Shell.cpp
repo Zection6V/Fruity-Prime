@@ -4,6 +4,9 @@
 
 #include "DeckButton.hpp"
 #include "DeckTile.hpp"
+#include "Rows.hpp"
+#include "../../../Entities/Players/PlayerEntity.hpp"
+#include "../../../Entities/PlayerSpawnEntity.hpp"
 #include "EndPanelView.hpp"
 #include "InGameMenu.hpp"
 #include "StartScreen.hpp"
@@ -55,8 +58,10 @@
 #include <utility>
 #include <vector>
 
-#if defined(_WIN32)
+#if !defined(__ANDROID__)
 #include <GLFW/glfw3.h>
+#endif
+#if defined(_WIN32)
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
 #endif
@@ -684,6 +689,15 @@ namespace MphRead::Mods::Launcher::Gui
                 << MphRead::NativeRuntime::Rhi::SceneBackendName(MphRead::NativeRuntime::Rhi::SelectedSceneBackend())
                 << '\n';
         }
+
+        void CheckWindowVisible(MphRead::RenderWindow& window)
+        {
+#if !defined(__ANDROID__)
+            const bool visible = glfwGetWindowAttrib(static_cast<GLFWwindow*>(window.WindowPtr()), GLFW_VISIBLE) == GLFW_TRUE;
+            std::cout << "[switchcheck] platform window visible " << (visible ? "yes" : "NO") << '\n';
+            if (!visible) ++Shell::ShotMissCounter();
+#endif
+        }
     }
 
     void Shell::StartSwitchMatch()
@@ -693,8 +707,8 @@ namespace MphRead::Mods::Launcher::Gui
         init.Kind = LaunchKind::Offline;
         init.RoomKey = room != nullptr ? std::string(room) : (_rooms.empty() ? std::string("MP10 OVERLOAD") : _rooms.front());
         init.Mode = MphRead::GameMode::Battle;
-        init.Hunter = MphRead::Hunter::Samus;
-        init.Bots = 1;
+        init.Hunter = MphRead::Hunter::Sylux;
+        init.Bots = 7;
         Decided(LaunchPlan(init));
     }
 
@@ -705,23 +719,41 @@ namespace MphRead::Mods::Launcher::Gui
     {
         const void* g_switchScene = nullptr;
         std::uint64_t g_switchFrame = 0;
+        MphRead::NativeRuntime::Rhi::SceneBackendKind g_switchBackend{};
+        OpenTK::Mathematics::Vector2i g_switchSize{};
+        OpenTK::Mathematics::Vector2i g_switchLocation{};
+        std::int32_t g_switchBorder = 0;
 
         void NoteMatch(MphRead::RenderWindow& window)
         {
             g_switchScene = window.HasScene() ? &window.Scene() : nullptr;
             g_switchFrame = window.HasScene() ? window.Scene().FrameCount() : 0;
+            g_switchBackend = MphRead::NativeRuntime::Rhi::SelectedSceneBackend();
+            g_switchSize = window.ClientSize();
+            g_switchLocation = window.Location();
+            g_switchBorder = window.WindowBorder();
         }
 
         // The match the switch was made in is still the one running, and
         // it went on simulating.
         void CheckMatchKept(MphRead::RenderWindow& window, const char* step)
         {
+            CheckWindowVisible(window);
             const bool kept = window.HasScene() && &window.Scene() == g_switchScene
                 && window.Scene().FrameCount() > g_switchFrame;
             std::cout << "[switchcheck] " << step << ": match kept " << (kept ? "yes" : "NO")
                 << " (frame " << g_switchFrame << " -> "
                 << (window.HasScene() ? window.Scene().FrameCount() : 0) << ")\n";
             if (!kept) ++Shell::ShotMissCounter();
+            const bool switched = MphRead::NativeRuntime::Rhi::SelectedSceneBackend() != g_switchBackend;
+            const auto size = window.ClientSize();
+            const auto location = window.Location();
+            const bool geometry = size.X == g_switchSize.X && size.Y == g_switchSize.Y
+                && location.X == g_switchLocation.X && location.Y == g_switchLocation.Y
+                && window.WindowBorder() == g_switchBorder;
+            std::cout << "[switchcheck] backend changed " << (switched ? "yes" : "NO")
+                << ", window geometry kept " << (geometry ? "yes" : "NO") << '\n';
+            if (!switched || !geometry) ++Shell::ShotMissCounter();
         }
     }
 
@@ -730,7 +762,7 @@ namespace MphRead::Mods::Launcher::Gui
     // photographed and says which renderer drew it.
     std::vector<Shell::ShotAction> Shell::SwitchScript()
     {
-        return {
+        std::vector<ShotAction> script{
             [](MphRead::RenderWindow&) { Wait(30); },
             [](MphRead::RenderWindow& window)
             {
@@ -740,34 +772,93 @@ namespace MphRead::Mods::Launcher::Gui
             [](MphRead::RenderWindow& window)
             {
                 SayBackend("front, switched"); Shot(window, "switch-1-front");
+                CheckWindowVisible(window);
                 StartSwitchMatch(); Wait(240);
             },
             [](MphRead::RenderWindow& window)
             {
-                SayBackend("match"); Shot(window, "switch-2-match");
-                NoteMatch(window);
-                RequestRenderer(Other(), false); Wait(90);
-            },
-            [](MphRead::RenderWindow& window)
-            {
-                SayBackend("match, switched"); CheckMatchKept(window, "first switch");
-                Shot(window, "switch-3-match");
-                NoteMatch(window);
-                RequestRenderer(Other(), false); Wait(90);
-            },
-            [](MphRead::RenderWindow& window)
-            {
-                SayBackend("match, switched back"); CheckMatchKept(window, "second switch");
-                Shot(window, "switch-4-match");
-                NoteMatch(window);
-                RequestRenderer(Other(), false); Wait(90);
-            },
-            [](MphRead::RenderWindow& window)
-            {
-                SayBackend("match, third switch"); CheckMatchKept(window, "third switch");
-                Shot(window, "switch-5-match"); Wait(2);
+                const auto player = MphRead::Entities::PlayerEntity::Main();
+                auto spawns = window.Scene().GetPlayerSpawnEntities().GetEnumerator();
+                if (player && spawns.MoveNext())
+                {
+                    const auto spawn = spawns.Current();
+                    player->Spawn(spawn->Position, spawn->FacingVector(), spawn->UpVector(), spawn->NodeRef, true);
+                }
+                else ++_shotMisses;
+                Wait(240);
             },
         };
+        for (int cycle = 0; cycle < 3; ++cycle)
+        {
+            script.push_back([cycle](MphRead::RenderWindow& window)
+            {
+                if (cycle == 0)
+                {
+                    SayBackend("match"); Shot(window, "switch-2-match");
+                }
+                NoteMatch(window);
+                WindowKey(window, KeyValue(256)); Wait(20);
+            });
+            script.push_back(
+            [](MphRead::RenderWindow&)
+            {
+                Click([](Av::Controls::Control& control)
+                {
+                    const auto* button = dynamic_cast<DeckButton*>(&control);
+                    return button && button->Text() == "Settings";
+                }); Wait(20);
+            });
+            script.push_back(
+            [](MphRead::RenderWindow&)
+            {
+                const std::string wanted = Other() == MphRead::NativeRuntime::Rhi::SceneBackendRequest::OpenGL
+                    ? "OpenGL" : "Vulkan";
+                for (int attempt = 0; attempt < 3; ++attempt)
+                {
+                    bool ready = false;
+                    const auto surface = UiSurface::Current();
+                    if (!surface) { ++_shotMisses; break; }
+                    const bool clicked = surface->ClickOn([&](Av::Controls::Control& control)
+                    {
+                        const auto* row = dynamic_cast<ChoiceRow*>(&control);
+                        if (!row || (row->Value() != "OpenGL" && row->Value() != "Vulkan" && row->Value() != "Auto")) return false;
+                        ready = row->Value() == wanted;
+                        return !ready;
+                    });
+                    if (ready) break;
+                    if (!clicked) { ++_shotMisses; break; }
+                }
+                Wait(10);
+            });
+            script.push_back(
+            [](MphRead::RenderWindow&)
+            {
+                Click([](Av::Controls::Control& control)
+                {
+                    const auto* mark = dynamic_cast<UiMark*>(&control);
+                    return mark && mark->Label() == "apply";
+                }); Wait(90);
+            });
+            script.push_back([cycle](MphRead::RenderWindow& window)
+            {
+                SayBackend("match, settings applied");
+                CheckMatchKept(window, ("settings switch " + std::to_string(cycle + 1)).c_str());
+                Click([](Av::Controls::Control& control)
+                {
+                    const auto* button = dynamic_cast<DeckButton*>(&control);
+                    return button && button->Text() == "Resume";
+                });
+                Wait(90);
+            });
+            script.push_back([cycle](MphRead::RenderWindow& window)
+            {
+                CheckMatchKept(window, "resumed after settings");
+                if (UiVisible()) ++_shotMisses;
+                Shot(window, "switch-" + std::to_string(cycle + 3) + "-match");
+                Wait(2);
+            });
+        }
+        return script;
     }
 
     std::vector<Shell::ShotAction> Shell::Script()

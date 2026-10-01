@@ -74,3 +74,13 @@ Renderer → Vulkan, or `renderer=vulkan` in the app's `launcher.txt`:
 5. A Vulkan 1.3-less device with Vulkan forced: is the error notice shown,
    with no GLES fallback?
 6. The same steps on OpenGL ES, to confirm GLES runs.
+
+## Follow-up (2026-10-01)
+
+- `adb` now works. The hang was a stuck old `adb` process; killing it fixed
+  it. A connected device can now be used directly.
+- Android Emulator 37.1.11 and the API 34 x86_64 image are installed (AVD
+  `fp34`). The emulator will not start because Windows Hypervisor Platform is
+  off on this PC. That is a Windows system setting the user has to enable.
+- The user's decision: Phase 22 stays **built, device testing pending**. The
+  steps above are what closes it.

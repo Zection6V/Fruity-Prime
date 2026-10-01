@@ -111,11 +111,25 @@ set "P=!PKG_PREFIX!"
 set "MSYS2_PACKAGES=!P!-!PKG_COMPILER! !P!-cmake !P!-ninja !P!-pkgconf !P!-zlib !P!-curl !P!-libarchive"
 
 if "%DO_DEPS%"=="1" (
-    echo [build] Installing MSYS2 packages: !MSYS2_PACKAGES!
-    "!MSYS2_ROOT!\usr\bin\bash.exe" -lc "pacman -S --needed --noconfirm !MSYS2_PACKAGES!"
-    if errorlevel 1 (
-        echo [build] ERROR: pacman failed. Run "pacman -Syu" in an MSYS2 shell first, then retry.
-        exit /b 1
+    rem Only what is missing: "pacman -S" on packages already installed
+    rem pulls newer versions from the sync database, which is a partial
+    rem upgrade (gcc 16 against an installed gcc-libs 14 is a conflict
+    rem pacman refuses under --noconfirm). Anything missing is installed
+    rem with a full -Syu, the one upgrade MSYS2 supports; --ask=4 accepts
+    rem package replacements such as gcc-libs -> libgcc. Run twice, since
+    rem an update of MSYS2's own core ends the first pass early.
+    set "MISSING="
+    for /f "usebackq delims=" %%M in (`""!MSYS2_ROOT!\usr\bin\bash.exe" -lc "pacman -T !MSYS2_PACKAGES!""`) do set "MISSING=!MISSING! %%M"
+    if not defined MISSING (
+        echo [build] MSYS2 packages already installed: !MSYS2_PACKAGES!
+    ) else (
+        echo [build] Installing MSYS2 packages:!MISSING! ^(with a full system upgrade^)
+        "!MSYS2_ROOT!\usr\bin\bash.exe" -lc "pacman -Syu --needed --noconfirm --ask=4 !MSYS2_PACKAGES!"
+        "!MSYS2_ROOT!\usr\bin\bash.exe" -lc "pacman -Syu --needed --noconfirm --ask=4 !MSYS2_PACKAGES!"
+        if errorlevel 1 (
+            echo [build] ERROR: pacman failed. Run "pacman -Syu" in an MSYS2 shell, then retry.
+            exit /b 1
+        )
     )
 )
 

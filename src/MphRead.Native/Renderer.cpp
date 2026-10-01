@@ -3844,7 +3844,10 @@ namespace MphRead
         _gpuMeshCache.Clear();
         _transientGeometry.reset();
         _transientVertices.clear();
-        Read::ClearCache();
+        // A launcher preview shares Read's model/particle/effect cache with
+        // the running match. Releasing its GPU resources during a renderer
+        // switch must not discard the definitions that future shots/bombs use.
+        if (!SideScene()) Read::ClearCache();
         _celDepthView.reset();
         _celDepth.reset();
         _celColor.reset();

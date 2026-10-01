@@ -7,6 +7,9 @@
 #include "Rows.hpp"
 #include "../../../Entities/Players/PlayerEntity.hpp"
 #include "../../../Entities/PlayerSpawnEntity.hpp"
+#include "../../../Entities/BombEntity.hpp"
+#include "../../../Formats/Effects.hpp"
+#include "../../../Metadata/Metadata.hpp"
 #include "EndPanelView.hpp"
 #include "InGameMenu.hpp"
 #include "StartScreen.hpp"
@@ -725,6 +728,94 @@ namespace MphRead::Mods::Launcher::Gui
         OpenTK::Mathematics::Vector2i g_switchLocation{};
         std::int32_t g_switchBorder = 0;
         std::weak_ptr<MphRead::Model> g_textureOnlySource{};
+        std::vector<std::pair<int, std::weak_ptr<MphRead::Effect>>> g_switchEffects{};
+        std::shared_ptr<MphRead::Effects::EffectEntry> g_impactProbe{};
+        std::weak_ptr<MphRead::Entities::BombEntity> g_bombProbe{};
+        std::weak_ptr<MphRead::Entities::BombEntity> g_existingBombProbe{};
+        bool g_expectExistingBomb = false;
+        std::uint64_t g_effectProbeFrame = 0;
+
+        void SpawnSwitchEffects(MphRead::RenderWindow& window)
+        {
+            auto& scene = window.Scene();
+            g_effectProbeFrame = scene.FrameCount();
+            if (g_impactProbe) scene.UnlinkEffectEntry(g_impactProbe);
+            const auto player = MphRead::Entities::PlayerEntity::Main();
+            const auto camera = player->CameraInfo();
+            const auto facing = camera->Facing.Normalized();
+            const auto right = OpenTK::Mathematics::Vector3::Cross(facing, camera->UpVector).Normalized();
+            const auto position = camera->Position + OpenTK::Mathematics::ScaleVector(facing, 3.0F);
+            // Effect 2 is the Power Beam impact without a splat. Use the same
+            // emitter as BeamEffectEntity::Create, and the real bomb placement.
+            g_impactProbe = scene.SpawnEffectGetEntry(2, right, -facing,
+                position - OpenTK::Mathematics::ScaleVector(right, 0.7F));
+            g_bombProbe = MphRead::Entities::BombEntity::Spawn(player.get(),
+                MphRead::Entities::EntityBase::GetTransformMatrix(facing, camera->UpVector,
+                    position + OpenTK::Mathematics::ScaleVector(right, 0.7F)), &scene);
+        }
+
+        // Place the fixtures immediately before effect processing, after all
+        // simulation catch-up steps. This keeps a one-shot burst's initial
+        // emission window independent of renderer-startup hitches. AfterDraw
+        // would run too late, after this frame's effect processing.
+        class SwitchEffectPlacement final : public MphRead::Entities::EntityBase
+        {
+        public:
+            explicit SwitchEffectPlacement(MphRead::RenderWindow& window)
+                : EntityBase(MphRead::EntityType::Model, &window.Scene()), _window(window)
+            {}
+            bool Process() override { _ready = true; return !_placed; }
+            void GetDrawInfo() override
+            {
+                if (_ready && !_placed) { SpawnSwitchEffects(_window); _placed = true; }
+            }
+        private:
+            MphRead::RenderWindow& _window;
+            bool _placed = false;
+            bool _ready = false;
+        };
+
+        void QueueSwitchEffects(MphRead::RenderWindow& window)
+        {
+            g_effectProbeFrame = window.Scene().FrameCount() + 1;
+            window.Scene().AddEntity(std::make_shared<SwitchEffectPlacement>(window));
+        }
+
+        void CheckSwitchEffects(MphRead::RenderWindow& window, const char* step)
+        {
+            int retained = 0;
+            for (const auto& [id, source] : g_switchEffects)
+                if (auto effect = source.lock(); effect && MphRead::Read::GetEffect(id) == effect) ++retained;
+            const auto drawable = [](const std::shared_ptr<MphRead::Effects::EffectEntry>& entry)
+            {
+                int count = 0;
+                if (entry)
+                    for (const auto& element : *entry->Elements)
+                        for (const auto& particle : *element->Particles)
+                            if (particle->ShouldDraw()) ++count;
+                return count;
+            };
+            const auto bomb = g_bombProbe.lock();
+            const int impactParticles = drawable(g_impactProbe);
+            const int bombParticles = drawable(bomb ? bomb->Effect() : nullptr);
+            const auto existingBomb = g_existingBombProbe.lock();
+            const int existingBombParticles = drawable(existingBomb ? existingBomb->Effect() : nullptr);
+            std::cout << "[switchcheck] " << step << ": effect definitions " << retained << '/'
+                << g_switchEffects.size() << ", impact particles " << impactParticles
+                << ", Lockjaw particles " << bombParticles
+                << ", existing Lockjaw particles " << existingBombParticles
+                << ", impact elements " << (g_impactProbe ? g_impactProbe->Elements->size() : 0)
+                << ", bomb elements " << (bomb && bomb->Effect() ? bomb->Effect()->Elements->size() : 0)
+                << ", state " << static_cast<int>(MphRead::GameState::MatchState())
+                << ", elapsed " << window.Scene().ElapsedTime() << '\n';
+            if (g_switchEffects.empty() || retained != static_cast<int>(g_switchEffects.size())
+                || impactParticles == 0 || bombParticles == 0
+                || (g_expectExistingBomb && existingBombParticles == 0)) ++Shell::ShotMissCounter();
+            if (g_expectExistingBomb && bomb) bomb->SetCountdown(1);
+            else { g_existingBombProbe = bomb; g_expectExistingBomb = true; }
+            if (g_impactProbe) window.Scene().UnlinkEffectEntry(g_impactProbe);
+            g_impactProbe.reset();
+        }
 
         void NoteMatch(MphRead::RenderWindow& window)
         {
@@ -778,6 +869,23 @@ namespace MphRead::Mods::Launcher::Gui
             {
                 SayBackend("front, switched"); Shot(window, "switch-1-front");
                 CheckWindowVisible(window);
+                Click([](Av::Controls::Control& control)
+                {
+                    const auto* button = dynamic_cast<DeckButton*>(&control);
+                    return button && button->Text() == "PLAY";
+                }); Wait(30);
+            },
+            [](MphRead::RenderWindow&) { Key(KeyValue(262)); Wait(20); },
+            [](MphRead::RenderWindow&)
+            {
+                Click([](Av::Controls::Control& control) { return dynamic_cast<DeckTile*>(&control) != nullptr; });
+                Wait(30);
+            },
+            [](MphRead::RenderWindow& window)
+            {
+                const bool preview = MphRead::Mods::Render::LauncherHunter::Drawn();
+                std::cout << "[switchcheck] pre-match production hunter preview " << (preview ? "yes" : "NO") << '\n';
+                if (!preview) ++_shotMisses;
                 StartSwitchMatch(); Wait(240);
             },
             [](MphRead::RenderWindow& window)
@@ -799,6 +907,21 @@ namespace MphRead::Mods::Launcher::Gui
                 g_textureOnlySource = instance->Model();
                 (void)window.Scene().BindGetTexture(instance->Model(), 0, 0, 0);
                 Wait(240);
+            },
+            [](MphRead::RenderWindow& window)
+            {
+                g_switchEffects.clear();
+                g_existingBombProbe.reset();
+                g_expectExistingBomb = false;
+                for (int id = 1; id < static_cast<int>(MphRead::Metadata::Effects.size()); ++id)
+                    if (auto effect = MphRead::Read::GetEffect(id)) g_switchEffects.emplace_back(id, effect);
+                QueueSwitchEffects(window); Wait(4);
+            },
+            [](MphRead::RenderWindow& window)
+            {
+                if (window.Scene().FrameCount() < g_effectProbeFrame + 6) { --_shotStep; Wait(1); return; }
+                Shot(window, "switch-effects-0-before");
+                CheckSwitchEffects(window, "before match switches");
             },
         };
         for (int cycle = 0; cycle < 3; ++cycle)
@@ -867,7 +990,13 @@ namespace MphRead::Mods::Launcher::Gui
             {
                 CheckMatchKept(window, "resumed after settings");
                 if (UiVisible()) ++_shotMisses;
+                QueueSwitchEffects(window); Wait(4);
+            });
+            script.push_back([cycle](MphRead::RenderWindow& window)
+            {
+                if (window.Scene().FrameCount() < g_effectProbeFrame + 6) { --_shotStep; Wait(1); return; }
                 Shot(window, "switch-" + std::to_string(cycle + 3) + "-match");
+                CheckSwitchEffects(window, ("effects after switch " + std::to_string(cycle + 1)).c_str());
                 Wait(2);
             });
         }

@@ -773,7 +773,7 @@ namespace MphRead
             toon.push_back(vector.Y);
             toon.push_back(vector.Z);
         }
-        NativeRuntime::Rhi::OpenGL::SceneShaderSources sources{};
+        NativeRuntime::Rhi::SceneShaderSources sources{};
         sources.MainVertex = &Shaders::VertexShader;
         sources.MainFragment = &Shaders::FragmentShader;
         sources.CompositeVertex = &Shaders::RttVertexShader;
@@ -5933,11 +5933,9 @@ namespace MphRead
 #if defined(MPHREAD_SHELL)
         if (_shell) Mods::Render::LauncherHunter::ReleaseGl();
 #endif
-        const bool vulkan = NativeRuntime::Rhi::ScenePresentsWindow();
         _windowCommands.reset();
         _swapchain.reset();
-        if (vulkan) NativeRuntime::Rhi::DetachSceneWindow();
-        else NativeRuntime::Rhi::OpenGL::ResetContextDevice();
+        NativeRuntime::Rhi::DetachSceneWindow();
         _window.reset();
         _appliedFrameRateCap = -2;
         // The replacement is created hidden too. Reveal must run again,
@@ -5977,6 +5975,7 @@ namespace MphRead
 
     RenderWindow::~RenderWindow()
     {
+        if (_shell && BeforeRendererSwitch) BeforeRendererSwitch();
 #if defined(MPHREAD_SHELL)
         if (_shell)
         {
@@ -5990,14 +5989,9 @@ namespace MphRead
         {
             _scene->ReleaseGpuResources();
         }
-        if (NativeRuntime::Rhi::ScenePresentsWindow())
-        {
-            // The device lives on this window's surface: it goes before the
-            // window does, after everything that drew with it.
-            _windowCommands.reset();
-            _swapchain.reset();
-            NativeRuntime::Rhi::DetachSceneWindow();
-        }
+        _windowCommands.reset();
+        _swapchain.reset();
+        NativeRuntime::Rhi::DetachSceneWindow();
     }
 
     bool RenderWindow::HasScene() const noexcept

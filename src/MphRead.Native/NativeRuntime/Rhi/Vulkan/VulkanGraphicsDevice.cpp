@@ -756,6 +756,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             VulkanShader(std::shared_ptr<VulkanDeviceState> device, const ShaderDesc& desc)
                 : _device(std::move(device)), _desc(desc)
             {
+                if (desc.format != ShaderCodeFormat::SpirV)
+                    throw std::invalid_argument("Vulkan RHI: expected SPIR-V shader code.");
                 if (desc.stage != ShaderStage::Vertex && desc.stage != ShaderStage::Fragment
                     && desc.stage != ShaderStage::Compute)
                     throw std::invalid_argument("Vulkan RHI: shader needs one supported stage.");
@@ -1521,9 +1523,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 RequireRecording();
                 const auto* native = dynamic_cast<const VulkanBindingSet*>(&set);
-                if (!_pipeline || _pipeline->IsDeferred() || index != 0 || !native
+                if (!_pipeline || _pipeline->IsDeferred() || index >= _pipeline->Desc().pipelineLayout.groups.size() || !native
                     || native->DeviceState() != _device
-                    || set.Desc().layout->Desc() != _pipeline->Desc().bindingLayout->Desc())
+                    || set.Desc().layout->Desc() != _pipeline->Desc().pipelineLayout.groups[index])
                     throw std::invalid_argument("Vulkan RHI: binding set incompatible with pipeline.");
                 const auto descriptor = native->Native();
                 auto& vk = *_device->ContextPointer->_impl;
@@ -2135,7 +2137,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             const GraphicsPipelineDesc base = desc;
             desc.vertexShader = program.Vertex.get();
             desc.fragmentShader = program.Fragment.get();
-            desc.bindingLayout = program.Layout.get();
+            desc.pipelineLayout.groups = {program.Layout->Desc()};
             desc.topology = lines ? PrimitiveTopology::LineList : PrimitiveTopology::TriangleList;
             // The frontend's winding is OpenGL's, in a target whose rows run
             // the other way up in Vulkan: the same triangle turns the other way.
@@ -2795,16 +2797,15 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 const auto* vertex = dynamic_cast<const VulkanShader*>(desc.vertexShader);
                 const auto* fragment = dynamic_cast<const VulkanShader*>(desc.fragmentShader);
-                const auto* layout = dynamic_cast<const VulkanBindingLayout*>(desc.bindingLayout);
                 // A scene pass: the scene shader set's program (or none, for
                 // the state a frame ends in) and no layout or vertex input.
-                if (!layout && desc.vertexBuffers.empty() && desc.vertexAttributes.empty()
+                if (desc.pipelineLayout.groups.empty() && desc.vertexBuffers.empty() && desc.vertexAttributes.empty()
                     && ((!desc.vertexShader && !desc.fragmentShader)
                         || (vertex && fragment && vertex->SceneProgram && fragment->SceneProgram
                             && vertex->DeviceState() == _state && fragment->DeviceState() == _state)))
                     return std::make_unique<VulkanGraphicsPipeline>(_state, desc, VulkanGraphicsPipeline::Deferred{});
-                if (!vertex || !fragment || !layout || vertex->DeviceState() != _state
-                    || fragment->DeviceState() != _state || layout->DeviceState() != _state)
+                if (!vertex || !fragment || desc.pipelineLayout.groups.empty() || vertex->DeviceState() != _state
+                    || fragment->DeviceState() != _state)
                     throw std::invalid_argument("Vulkan RHI: pipeline resources belong to another device.");
                 VulkanPipelineKey key(desc);
                 const auto hash = key.Hash();
@@ -3160,11 +3161,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         dynamic_cast<VulkanTexture&>(texture).State(state);
     }
 
-    void PresentWindow(GraphicsDevice& device, Swapchain& swapchain)
+    PresentResult PresentWindow(GraphicsDevice& device, Swapchain& swapchain)
     {
         auto& state = *dynamic_cast<VulkanGraphicsDevice&>(device).State();
         state.FlushScene();
-        if (!TryAcquireSwapchain(swapchain)) return;
+        const auto acquired = swapchain.TryAcquireTexture();
+        if (!acquired.texture) return {acquired.status};
         VulkanTexture* window = state.WindowColor.get();
         if (!window || window->State() == ResourceState::Undefined)
         {
@@ -3177,7 +3179,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             RecordSwapchainBlit(swapchain, window->Native(), mapping.Layout, mapping.Stages, mapping.Access,
                 {window->Desc().width, window->Desc().height});
         }
-        swapchain.Present();
+        return swapchain.TryPresent();
     }
 
     void CheckBindingAllocations(GraphicsDevice& device)
@@ -3291,6 +3293,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             invalid = desc;
             invalid.code.pop_back();
             reject(invalid);
+            invalid = desc;
+            invalid.format = ShaderCodeFormat::GlslSource;
+            reject(invalid);
         };
         check(Generated::main_vert, ShaderStage::Vertex);
         check(Generated::main_frag, ShaderStage::Fragment);
@@ -3325,7 +3330,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
             auto layout = device.CreateBindingLayout(layoutDesc);
             GraphicsPipelineDesc desc{};
-            desc.vertexShader = vertex.get(); desc.fragmentShader = fragment.get(); desc.bindingLayout = layout.get();
+            desc.vertexShader = vertex.get(); desc.fragmentShader = fragment.get(); desc.pipelineLayout.groups = {layout->Desc()};
             desc.colorFormats = {TextureFormat::RGBA8Unorm};
             desc.blendAttachments.resize(1);
             desc.vertexBuffers = {{0, 56, VertexInputRate::Vertex}};
@@ -3371,6 +3376,22 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (!rejected) throw std::runtime_error("Vulkan incompatible binding layout accepted.");
             commands->SetBindingSet(0, *set); commands->End();
             device.EndFrame(); device.WaitIdle();
+            // Exercise four logical groups through the generic command API,
+            // independent of the scene's generated constant packing adapter.
+            auto grouped = desc;
+            grouped.pipelineLayout.groups.assign(4, layoutDesc);
+            auto groupedPipeline = device.CreateGraphicsPipeline(grouped);
+            if (dynamic_cast<const VulkanGraphicsPipeline&>(*pipeline).Native()
+                == dynamic_cast<const VulkanGraphicsPipeline&>(*groupedPipeline).Native())
+                throw std::runtime_error("Vulkan pipeline cache ignored binding groups.");
+            (void)device.BeginFrame();
+            commands->Begin(); commands->SetPipeline(*groupedPipeline);
+            for (std::uint32_t group = 0; group < 4; ++group) commands->SetBindingSet(group, *set);
+            rejected = false;
+            try { commands->SetBindingSet(4, *set); }
+            catch (const std::invalid_argument&) { rejected = true; }
+            if (!rejected) throw std::runtime_error("Vulkan out-of-range binding group accepted.");
+            commands->End(); device.EndFrame(); device.WaitIdle();
             auto reused = device.CreateGraphicsPipeline(desc);
             if (dynamic_cast<const VulkanGraphicsPipeline&>(*pipeline).Native()
                 != dynamic_cast<const VulkanGraphicsPipeline&>(*reused).Native())
@@ -3380,7 +3401,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             auto replacementLayout = device.CreateBindingLayout(layoutDesc);
             auto replacement = desc;
             replacement.vertexShader = replacementVertex.get(); replacement.fragmentShader = replacementFragment.get();
-            replacement.bindingLayout = replacementLayout.get();
+            replacement.pipelineLayout.groups = {replacementLayout->Desc()};
             auto equivalent = device.CreateGraphicsPipeline(replacement);
             if (equivalent->Desc() != replacement || dynamic_cast<const VulkanGraphicsPipeline&>(*pipeline).Native()
                 != dynamic_cast<const VulkanGraphicsPipeline&>(*equivalent).Native())
@@ -3400,7 +3421,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             auto invalid = desc; invalid.sampleCount = 3; reject(invalid);
             invalid = desc; invalid.vertexBuffers.clear(); reject(invalid);
             invalid = desc; invalid.blendAttachments.clear(); reject(invalid);
-            invalid = desc; invalid.bindingLayout = nullptr; reject(invalid);
+            invalid = desc; invalid.pipelineLayout.groups.clear(); reject(invalid);
             invalid = desc; invalid.rasterizer.depthBiasSlope = std::numeric_limits<float>::quiet_NaN(); reject(invalid);
             if (main) { invalid = desc; invalid.depthStencilFormat = TextureFormat::RGBA8Unorm; reject(invalid); }
         };
@@ -3424,7 +3445,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     {
         throw std::runtime_error("Desktop Vulkan development support was not built.");
     }
-    void PresentWindow(GraphicsDevice&, Swapchain&)
+    PresentResult PresentWindow(GraphicsDevice&, Swapchain&)
     {
         throw std::runtime_error("Desktop Vulkan development support was not built.");
     }

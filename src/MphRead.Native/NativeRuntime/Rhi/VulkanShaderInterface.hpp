@@ -1,7 +1,6 @@
 #pragma once
 
-#include "ShaderConstants.hpp"
-#include "VertexSemantics.hpp"
+#include "SceneShaderAbi.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -18,10 +17,14 @@
 namespace MphRead::NativeRuntime::Rhi::Vulkan
 {
     // Descriptor sets by update frequency, so a draw rebinds only what changed.
-    inline constexpr std::uint32_t FrameSet = 0;     // FrameConstants, scene lights and fog
-    inline constexpr std::uint32_t MaterialSet = 1;  // MaterialConstants, the texture
-    inline constexpr std::uint32_t DrawSet = 2;      // DrawConstants (dynamic offset)
-    inline constexpr std::uint32_t PostSet = 3;      // post-process passes
+    [[nodiscard]] constexpr std::uint32_t DescriptorSet(SceneShaderAbi::Group group) noexcept
+    {
+        return static_cast<std::uint32_t>(group);
+    }
+    inline constexpr auto FrameSet = DescriptorSet(SceneShaderAbi::Group::Frame);
+    inline constexpr auto MaterialSet = DescriptorSet(SceneShaderAbi::Group::Material);
+    inline constexpr auto DrawSet = DescriptorSet(SceneShaderAbi::Group::Draw);
+    inline constexpr auto PostSet = DescriptorSet(SceneShaderAbi::Group::Post);
 
     struct BlockBinding final
     {
@@ -29,16 +32,20 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         std::uint32_t Binding;
     };
 
-    inline constexpr BlockBinding FrameBlock{FrameSet, 0};
-    inline constexpr BlockBinding SceneLightBlock{FrameSet, 1};
-    inline constexpr BlockBinding SceneFogBlock{FrameSet, 2};
-    inline constexpr BlockBinding MaterialBlock{MaterialSet, 0};
-    inline constexpr BlockBinding MaterialTexture{MaterialSet, 1};
-    inline constexpr BlockBinding DrawBlock{DrawSet, 0};
-    inline constexpr BlockBinding CelPostBlock{PostSet, 0};
-    inline constexpr BlockBinding HudPostBlock{PostSet, 1};
-    inline constexpr BlockBinding DisruptionPostBlock{PostSet, 2};
-    inline constexpr BlockBinding DisruptionTablesBlock{PostSet, 3};
+    [[nodiscard]] constexpr BlockBinding MapBinding(SceneShaderAbi::Binding binding) noexcept
+    {
+        return {DescriptorSet(binding.group), binding.binding};
+    }
+    inline constexpr auto FrameBlock = MapBinding(SceneShaderAbi::Frame);
+    inline constexpr auto SceneLightBlock = MapBinding(SceneShaderAbi::Light);
+    inline constexpr auto SceneFogBlock = MapBinding(SceneShaderAbi::Fog);
+    inline constexpr auto MaterialBlock = MapBinding(SceneShaderAbi::Material);
+    inline constexpr auto MaterialTexture = MapBinding(SceneShaderAbi::MaterialTexture);
+    inline constexpr auto DrawBlock = MapBinding(SceneShaderAbi::Draw);
+    inline constexpr auto CelPostBlock = MapBinding(SceneShaderAbi::Cel);
+    inline constexpr auto HudPostBlock = MapBinding(SceneShaderAbi::Hud);
+    inline constexpr auto DisruptionPostBlock = MapBinding(SceneShaderAbi::Disruption);
+    inline constexpr auto DisruptionTablesBlock = MapBinding(SceneShaderAbi::DisruptionTables);
 
     // std140 mirrors. Our vec3 wrapper includes explicit padding to sixteen
     // bytes (GLSL vec3 itself is twelve bytes), bools are 32-bit, and a

@@ -67,6 +67,16 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 #endif
     }
     Context::~Context() = default;
+    std::string Context::ProbePassive()
+    {
+        try
+        {
+            Impl probe;
+            probe.Initialize(false, nullptr, true, false);
+            return {};
+        }
+        catch (const std::exception& ex) { return ex.what(); }
+    }
     const Capabilities& Context::Caps() const noexcept { return _impl->caps; }
     const std::string& Context::DeviceName() const noexcept { return _impl->name; }
     std::string Context::Describe() const
@@ -346,6 +356,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 namespace MphRead::NativeRuntime::Rhi::Vulkan
 {
     struct Context::Impl { Capabilities caps; std::string name; };
+    std::string Context::ProbePassive() { return "Vulkan support was not built."; }
     Context::Context(bool) { throw std::runtime_error("Desktop Vulkan development support was not built."); }
     Context::Context(bool, ::MphRead::RendererPlatform::Window&, bool)
     {

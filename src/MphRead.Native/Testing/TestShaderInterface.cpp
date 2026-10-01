@@ -1,4 +1,5 @@
 #include "../NativeRuntime/Rhi/VertexSemantics.hpp"
+#include "../NativeRuntime/Rhi/SceneShaderAbi.hpp"
 #include "../NativeRuntime/Rhi/VulkanShaderInterface.hpp"
 #include "../Shaders.hpp"
 
@@ -45,6 +46,42 @@ namespace
         ExpectDistinct(VulkanLocations, "VulkanLocations");
         const std::set<std::string_view> names(VertexSemanticNames.begin(), VertexSemanticNames.end());
         Expect(names.size() == VertexSemanticCount, "semantic names are not unique");
+    }
+
+    void TestLogicalSceneAbi()
+    {
+        using namespace SceneShaderAbi;
+        Expect(IsValid() && GroupCount == 4, "logical groups must be valid and distinct");
+        Expect(MaterialTexture.type == BindingType::SampledTexture
+            && MaterialSampler.type == BindingType::Sampler, "image and sampler are separate resources");
+        Expect(MaterialTexture.group == MaterialSampler.group
+            && MaterialTexture.binding != MaterialSampler.binding, "material sampler has its own binding");
+        for (const auto& binding : Bindings)
+        {
+            const auto mapped = Vulkan::MapBinding(binding);
+            Expect(mapped.Set == static_cast<std::uint32_t>(binding.group)
+                && mapped.Binding == binding.binding, "Vulkan adapter changed the logical ABI");
+        }
+        Expect(Vulkan::FrameBlock.Set != Vulkan::MaterialBlock.Set
+            && Vulkan::MaterialBlock.Set != Vulkan::DrawBlock.Set
+            && Vulkan::DrawBlock.Set != Vulkan::HudPostBlock.Set, "update groups collapsed");
+    }
+
+    void TestPipelineLayoutOwnsItsContract()
+    {
+        BindingLayoutDesc frame{{{0, BindingType::UniformBuffer, ShaderStage::AllGraphics, 1}}};
+        BindingLayoutDesc material{{{1, BindingType::SampledTexture, ShaderStage::Fragment, 1},
+            {2, BindingType::Sampler, ShaderStage::Fragment, 1}}};
+        PipelineLayout layout{{frame, material, {}, {}}};
+        const auto snapshot = layout;
+        frame.entries.clear(); material.entries[0].binding = 99;
+        Expect(layout == snapshot && layout.groups.size() == SceneShaderAbi::GroupCount,
+            "pipeline groups must not refer back to temporary input layouts");
+        auto different = layout;
+        different.groups[1].entries[0].binding = 99;
+        Expect(different != layout, "group binding changes affect pipeline identity");
+        different = layout; different.groups.pop_back();
+        Expect(different != layout, "group count affects pipeline identity");
     }
 
     void TestDesktopUsesTheAliasTable()
@@ -176,6 +213,8 @@ int main()
     try
     {
         TestTablesAreDistinct();
+        TestLogicalSceneAbi();
+        TestPipelineLayoutOwnsItsContract();
         TestDesktopUsesTheAliasTable();
         TestVulkanMatchesThePlan();
         TestDesktopShadersUseExplicitInputs();

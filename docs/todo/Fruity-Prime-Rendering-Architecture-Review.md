@@ -6,6 +6,16 @@
 
 改訂: Metal / D3D12 将来対応を前提にRHI境界・shader ABI・binding・presentation・backend lifecycleを再評価
 
+### 今回の実装範囲（2026-10-01 確認）
+
+現在提供する OpenGL / Vulkan を対象に、共通 RHI 契約と寿命・切替・描画経路を改善する。
+Metal / D3D12 は将来追加するバックエンドであり、今回は実装しない。Phase F / G は将来の計画として残す。
+macOS 環境はないため、今回の実動作検証は Windows の OpenGL / Vulkan で行う。
+Phase H / R19 の今回の検証範囲もこの 2 バックエンドとし、将来の 4 バックエンド検証と区別する。
+将来の API を共通境界で表現できることと、その API が実装・実機検証済みであることを混同しない。
+
+対応状況と検証の証拠は [実装記録](Fruity-Prime-Rendering-Architecture-Implementation.md) に記録する。
+
 ### 比較対象を固定したコミット
 
 - **Fruity Prime**: `develop3_rendering` @ `5503e2b35c97abbc63ff838adbc21e466831da38`

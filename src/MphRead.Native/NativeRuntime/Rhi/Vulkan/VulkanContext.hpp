@@ -43,6 +43,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         [[nodiscard]] std::string Describe() const;
         [[nodiscard]] unsigned ValidationErrors() const noexcept;
         [[nodiscard]] bool ValidationEnabled() const noexcept;
+        // Instance/physical-device queries only; no device, queues or VMA.
+        [[nodiscard]] static std::string ProbePassive();
         void WaitIdle();
         void Shutdown();
         void CheckCommandBufferDebugName();

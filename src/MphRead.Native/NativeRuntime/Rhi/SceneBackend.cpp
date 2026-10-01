@@ -1,25 +1,11 @@
 #include "SceneBackend.hpp"
 #include "WindowUi.hpp"
 
-#include "OpenGL/OpenGlDevice.hpp"
-#include "OpenGL/OpenGlGeometry.hpp"
-#include "OpenGL/OpenGlShaderInterface.hpp"
-
-#if defined(FRUITY_HAS_VULKAN)
-#include "Vulkan/VulkanContext.hpp"
-#include "Vulkan/VulkanGraphicsDevice.hpp"
-#include "Vulkan/VulkanScene.hpp"
-#include "Vulkan/VulkanSwapchain.hpp"
-#endif
-#include "BackendFactory.hpp"
+#include "BackendSession.hpp"
 #include "../Skia/VulkanInterop.hpp"
-#include "../../Renderer.hpp"
-
-#if !defined(__ANDROID__)
-#define GLFW_INCLUDE_NONE
-#include <GLFW/glfw3.h>
+#if defined(FRUITY_HAS_VULKAN)
+#include "Vulkan/VulkanGraphicsDevice.hpp"
 #endif
-
 
 #include <cstdlib>
 #include <iostream>
@@ -29,33 +15,35 @@ namespace MphRead::NativeRuntime::Rhi
 {
     namespace
     {
-        SceneBackendKind selected = SceneBackendKind::OpenGL;
+        GraphicsBackend selected = GraphicsBackend::OpenGl;
         SceneBackendRequest requested = SceneBackendRequest::OpenGL;
         bool requestExplicit = false;
         bool resolved = false;
         bool needsWindowUi = false;
         bool validation = false;
 
-#if defined(FRUITY_HAS_VULKAN)
-        struct VulkanScene final
-        {
-            std::unique_ptr<Vulkan::Context> Context;
-            std::unique_ptr<GraphicsDevice> Device;
-            ::MphRead::RendererPlatform::Window* Window = nullptr;
-        };
+        std::unique_ptr<BackendSession> session;
+        unsigned retiredValidationErrors = 0;
 
-        VulkanScene& Scene()
+        BackendSession& Session()
         {
-            // Never destroyed: scenes and their resources may outlive any
-            // point a destructor here could run at.
-            static auto* scene = new VulkanScene();
-            return *scene;
+            const GraphicsBackend backend = SelectedSceneBackend();
+            if (session && session->Backend() != backend)
+                throw std::logic_error("Release the outgoing renderer session before selecting another backend.");
+            if (!session)
+            {
+                const auto* provider = FindBackendProvider(backend);
+                if (!provider) throw SceneBackendUnavailable(std::string(SceneBackendName(backend)) + " is not implemented.");
+                session = provider->CreateSession({validation});
+            }
+            return *session;
         }
-#endif
-
-        bool IsVulkan(const GraphicsDevice& device) noexcept
+        BackendSession& SessionFor(GraphicsDevice& device)
         {
-            return device.GetBackend() == GraphicsBackend::Vulkan;
+            auto& current = Session();
+            if (device.GetBackend() != current.Backend() || &current.Device() != &device)
+                throw std::invalid_argument("Scene resource belongs to another renderer session.");
+            return current;
         }
     }
 
@@ -99,116 +87,83 @@ namespace MphRead::NativeRuntime::Rhi
 
     std::string VulkanUnavailableReason(bool forWindow)
     {
-#if defined(FRUITY_HAS_VULKAN)
-#if defined(__ANDROID__)
-        // The Android launcher is a CPU raster composited by the scene
-        // device, so the window needs nothing beyond the device itself.
-        (void)forWindow;
-#else
-        if (forWindow && !Skia::VulkanInterop::Available())
-            return "this build's Skia has no Vulkan backend, so the launcher cannot draw into a Vulkan window";
-        if (::glfwInit() != GLFW_TRUE) return "GLFW could not be initialised";
-        if (::glfwVulkanSupported() != GLFW_TRUE) return "no Vulkan loader or driver was found";
-#endif
-        if (Scene().Device) return {};
-        try
-        {
-            // A device with everything the backend needs, made and let go.
-            Vulkan::Context probe(false);
-        }
-        catch (const std::exception& ex)
-        {
-            return ex.what();
-        }
-        return {};
-#else
-        (void)forWindow;
-        return "this build has no Vulkan backend";
-#endif
+        const auto* provider = FindBackendProvider(GraphicsBackend::Vulkan);
+        return provider ? provider->ProbePassive(forWindow) : "this build has no Vulkan backend";
     }
 
-    SceneBackendKind SelectedSceneBackend()
+    GraphicsBackend SelectedSceneBackend()
     {
         if (resolved) return selected;
-        resolved = true;
         if (requested == SceneBackendRequest::OpenGL)
         {
-            selected = SceneBackendKind::OpenGL;
+            selected = GraphicsBackend::OpenGl;
+            resolved = true;
             return selected;
         }
         const std::string why = VulkanUnavailableReason(needsWindowUi);
         if (requested == SceneBackendRequest::Vulkan && !why.empty())
             throw SceneBackendUnavailable("Vulkan was asked for and cannot start: " + why + ".");
-        selected = why.empty() ? SceneBackendKind::Vulkan : SceneBackendKind::OpenGL;
+        selected = why.empty() ? GraphicsBackend::Vulkan : GraphicsBackend::OpenGl;
+        resolved = true;
         if (!why.empty()) std::cout << "[render] auto: OpenGL, since " << why << std::endl;
         return selected;
     }
 
-    void SelectSceneBackend(SceneBackendKind kind) noexcept
+    void SelectSceneBackend(GraphicsBackend kind)
     {
+        if (kind != GraphicsBackend::OpenGl && kind != GraphicsBackend::Vulkan)
+            throw SceneBackendUnavailable(std::string(SceneBackendName(kind)) + " is not implemented.");
         selected = kind;
-        requested = kind == SceneBackendKind::Vulkan ? SceneBackendRequest::Vulkan : SceneBackendRequest::OpenGL;
+        requested = kind == GraphicsBackend::Vulkan ? SceneBackendRequest::Vulkan : SceneBackendRequest::OpenGL;
         resolved = true;
     }
     void SetSceneValidation(bool enabled) noexcept { validation = enabled; }
 
-    bool ParseSceneBackend(std::string_view text, SceneBackendKind& kind) noexcept
+    bool ParseSceneBackend(std::string_view text, GraphicsBackend& kind) noexcept
     {
-        if (text == "opengl" || text == "gl") { kind = SceneBackendKind::OpenGL; return true; }
-        if (text == "vulkan" || text == "vk") { kind = SceneBackendKind::Vulkan; return true; }
+        if (text == "opengl" || text == "gl") { kind = GraphicsBackend::OpenGl; return true; }
+        if (text == "vulkan" || text == "vk") { kind = GraphicsBackend::Vulkan; return true; }
         return false;
     }
 
-    std::string_view SceneBackendName(SceneBackendKind kind) noexcept
+    std::string_view SceneBackendName(GraphicsBackend kind) noexcept
     {
-        return kind == SceneBackendKind::Vulkan ? "vulkan" : "opengl";
+        switch (kind)
+        {
+        case GraphicsBackend::OpenGl: return "opengl";
+        case GraphicsBackend::Vulkan: return "vulkan";
+        case GraphicsBackend::Metal: return "metal";
+        case GraphicsBackend::D3D12: return "d3d12";
+        }
+        return "unknown";
     }
 
     GraphicsDevice& SceneDevice()
     {
-        if (SelectedSceneBackend() == SceneBackendKind::OpenGL) return OpenGL::ContextDevice();
-#if defined(FRUITY_HAS_VULKAN)
-        auto& scene = Scene();
-        if (!scene.Device)
-        {
-            scene.Context = std::make_unique<Vulkan::Context>(validation);
-            scene.Device = Vulkan::CreateGraphicsDevice(*scene.Context);
-        }
-        return *scene.Device;
-#else
-        throw std::runtime_error("The Vulkan scene backend was not built.");
-#endif
+        try { return Session().Device(); }
+        catch (const SceneBackendUnavailable&) { throw; }
+        catch (const std::exception& ex)
+        { throw SceneBackendUnavailable(std::string(SceneBackendName(SelectedSceneBackend())) + " could not start: " + ex.what()); }
     }
 
     unsigned SceneValidationErrors() noexcept
     {
-#if defined(FRUITY_HAS_VULKAN)
-        auto& scene = Scene();
-        return scene.Context ? scene.Context->ValidationErrors() : 0U;
-#else
-        return 0U;
-#endif
+        return retiredValidationErrors + (session ? session->ValidationErrors() : 0U);
     }
 
     bool ScenePresentsWindow()
     {
-        return SelectedSceneBackend() == SceneBackendKind::Vulkan;
+        return Session().PresentsWindow();
     }
 
     std::unique_ptr<WindowUi> CreateSceneWindowUi(GraphicsDevice& device)
     {
-#if defined(FRUITY_HAS_VULKAN)
-        if (SelectedSceneBackend() == SceneBackendKind::Vulkan)
-            return std::make_unique<Vulkan::WindowUi>(device);
-#endif
-        (void)device;
-        return nullptr;
+        return SessionFor(device).CreateUi(device);
     }
 
     void ResetWindowViewport(std::int32_t width, std::int32_t height)
     {
-        if (SelectedSceneBackend() == SceneBackendKind::OpenGL)
-            OpenGL::ResetWindowViewport(width, height);
+        Session().ResetViewport(width, height);
     }
 
     std::string SceneBackendContract()
@@ -237,165 +192,59 @@ namespace MphRead::NativeRuntime::Rhi
     {
         std::string line = "requested " + std::string(SceneBackendRequestName(requested))
             + (requestExplicit ? " (command line)" : "") + ", selected "
-            + std::string(SceneBackendName(SelectedSceneBackend()));
-#if defined(FRUITY_HAS_VULKAN)
-        if (selected == SceneBackendKind::Vulkan && Scene().Context)
+            + std::string(SceneBackendName(SelectedSceneBackend())) + ", " + Session().Describe();
+        if (swapchain)
         {
-            line += ", " + Scene().Context->Describe();
-            if (swapchain)
-            {
-                const SwapchainDesc& desc = swapchain->Desc();
-                line += ", swapchain " + std::to_string(desc.width) + "x" + std::to_string(desc.height)
-                    + (desc.format == TextureFormat::BGRA8Unorm ? " BGRA8" : desc.format == TextureFormat::RGBA8Unorm
-                        ? " RGBA8" : " sRGB");
-            }
-            line += ", depth D24S8, frames in flight 2, validation "
-                + std::string(Scene().Context->ValidationEnabled() ? "on" : "off");
-            return line;
+            const auto& desc = swapchain->Desc();
+            line += ", swapchain " + std::to_string(desc.width) + "x" + std::to_string(desc.height);
         }
-#endif
-        (void)swapchain;
-        line += ", " + OpenGL::ContextDevice().AdapterDescription();
+        line += ", frames in flight " + std::to_string(FramesInFlight)
+            + ", validation " + (Session().ValidationEnabled() ? "on" : "off");
         return line;
     }
 
-    void AttachSceneSurface(void* nativeWindow)
-    {
-#if defined(FRUITY_HAS_VULKAN) && defined(__ANDROID__)
-        auto& scene = Scene();
-        if (!scene.Device)
-        {
-            scene.Context = std::make_unique<Vulkan::Context>(validation, Vulkan::Context::AndroidWindow{nativeWindow});
-            scene.Device = Vulkan::CreateGraphicsDevice(*scene.Context);
-        }
-        else
-            scene.Context->ReplaceAndroidSurface(nativeWindow);
-#else
-        (void)nativeWindow;
-        throw std::runtime_error("A surface is attached this way only by the Android head's Vulkan path.");
-#endif
-    }
-
-    void DetachSceneSurface() noexcept
-    {
-#if defined(FRUITY_HAS_VULKAN) && defined(__ANDROID__)
-        auto& scene = Scene();
-        if (!scene.Context) return;
-        try
-        {
-            scene.Device->WaitIdle();
-            scene.Context->ReplaceAndroidSurface(nullptr);
-        }
-        catch (...)
-        {
-        }
-#endif
-    }
-
+    void AttachSceneSurface(void* nativeWindow) { Session().AttachSurface(nativeWindow); }
+    void DetachSceneSurface() noexcept { if (session) session->DetachSurface(); }
     std::unique_ptr<Swapchain> CreateSceneSurfaceSwapchain(const SwapchainDesc& desc)
-    {
-#if defined(FRUITY_HAS_VULKAN) && defined(__ANDROID__)
-        auto& scene = Scene();
-        if (!scene.Context) throw std::logic_error("No surface is attached to the Vulkan scene device.");
-        return Vulkan::CreateSurfaceSwapchain(*scene.Context, desc);
-#else
-        (void)desc;
-        throw std::runtime_error("A surface swapchain exists only on the Android head's Vulkan path.");
-#endif
-    }
+    { return Session().CreateSurfaceSwapchain(desc); }
 
     std::unique_ptr<Swapchain> CreateSceneWindowSwapchain(
         ::MphRead::RendererPlatform::Window& window, const SwapchainDesc& desc)
     {
-        if (SelectedSceneBackend() == SceneBackendKind::OpenGL)
-            return BackendFactory::CreateSwapchain(GraphicsBackend::OpenGl, window, desc);
-#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
-        auto& scene = Scene();
-        if (scene.Device && scene.Window != nullptr && scene.Window != &window)
-            throw std::logic_error("The Vulkan scene device already belongs to another surface.");
-        if (scene.Device && scene.Window == nullptr)
+        try { return Session().CreateSwapchain(window, desc); }
+        catch (const SceneBackendUnavailable&) { throw; }
+        catch (const std::exception& ex)
         {
-            // The renderer was switched and the window remade: the device
-            // and everything on it stay, and only the surface follows.
-            scene.Context->ReplaceWindowSurface(window.NativeHandle());
-            scene.Window = &window;
+            DetachSceneWindow();
+            throw SceneBackendUnavailable(std::string(SceneBackendName(SelectedSceneBackend())) + " could not start: " + ex.what());
         }
-        if (!scene.Device)
-        {
-            scene.Context = std::make_unique<Vulkan::Context>(validation, window);
-            scene.Device = Vulkan::CreateGraphicsDevice(*scene.Context);
-            scene.Window = &window;
-        }
-        return Vulkan::CreateSwapchain(*scene.Context, window, desc);
-#else
-        throw std::runtime_error("The Vulkan scene backend was not built.");
-#endif
     }
 
     void PresentSceneWindow(Swapchain& swapchain)
     {
-#if defined(FRUITY_HAS_VULKAN)
-        if (SelectedSceneBackend() == SceneBackendKind::Vulkan)
-        {
-            Vulkan::PresentWindow(SceneDevice(), swapchain);
-            return;
-        }
-#endif
-        swapchain.Present();
+        const auto result = Session().Present(swapchain);
+        if (result.status == PresentationStatus::DeviceLost || result.status == PresentationStatus::SurfaceLost)
+            throw BackendError(Session().Backend(), result.status == PresentationStatus::DeviceLost
+                ? BackendErrorKind::DeviceLost : BackendErrorKind::SurfaceLost, 0, "Renderer presentation was lost.");
     }
 
     void DetachSceneWindow() noexcept
     {
-#if defined(FRUITY_HAS_VULKAN)
-        auto& scene = Scene();
-        if (!scene.Window) return;
-        // The device stays for the process, as OpenGL's context device does:
-        // the launcher's Skia surface, its overlay and its side scene are
-        // statics that go at exit, after the window, and each still holds
-        // Vulkan objects. Everything is finished with before the window goes.
-        try
-        {
-            scene.Device->WaitIdle();
-            // The surface belongs to this window, which is about to go; a
-            // window made later (a switch back to Vulkan) gets its own.
-            scene.Context->ReplaceWindowSurface(nullptr);
-        }
-        catch (...)
-        {
-        }
-        scene.Window = nullptr;
-#endif
+        if (!session) return;
+        session->Shutdown();
+        retiredValidationErrors += session->ValidationErrors();
+        session.reset();
     }
 
     std::unique_ptr<SceneShaderSet> CreateSceneShaderSet(
-        GraphicsDevice& device, CommandList& commands, const OpenGL::SceneShaderSources& sources)
-    {
-        (void)commands;
-#if defined(FRUITY_HAS_VULKAN)
-        if (IsVulkan(device)) return Vulkan::CreateSceneShaderSet(device, sources.ToonTable, sources.ShiftTable);
-#endif
-        return OpenGL::CreateSceneShaderSet(device, sources);
-    }
+        GraphicsDevice& device, CommandList& commands, const SceneShaderSources& sources)
+    { return SessionFor(device).CreateShaders(device, commands, sources); }
 
     std::shared_ptr<MphRead::GpuMeshResource> CreateSceneGpuMesh(
         GraphicsDevice& device, CommandList& commands, const MphRead::RendererGeometry& geometry)
-    {
-        (void)commands;
-#if defined(FRUITY_HAS_VULKAN)
-        if (IsVulkan(device)) return Vulkan::CreateGpuMeshResource(device, commands, geometry);
-#endif
-        (void)device;
-        return OpenGL::CreateGpuMeshResource(geometry);
-    }
+    { return SessionFor(device).CreateMesh(device, commands, geometry); }
 
     std::shared_ptr<MphRead::TransientGeometryResource> CreateSceneTransientGeometry(
         GraphicsDevice& device, CommandList& commands)
-    {
-        (void)commands;
-#if defined(FRUITY_HAS_VULKAN)
-        if (IsVulkan(device)) return Vulkan::CreateTransientGeometryResource(device, commands);
-#endif
-        (void)device;
-        return OpenGL::CreateTransientGeometryResource();
-    }
+    { return SessionFor(device).CreateTransient(device, commands); }
 }

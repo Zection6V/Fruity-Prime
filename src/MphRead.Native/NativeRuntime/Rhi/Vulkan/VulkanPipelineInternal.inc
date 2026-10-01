@@ -3,12 +3,10 @@ struct VulkanPipelineKey final
 {
     GraphicsPipelineDesc state;
     ShaderDesc vertex, fragment;
-    BindingLayoutDesc bindings;
     explicit VulkanPipelineKey(const GraphicsPipelineDesc& desc)
-        : state(desc), vertex(desc.vertexShader->Desc()), fragment(desc.fragmentShader->Desc()),
-          bindings(desc.bindingLayout->Desc())
+        : state(desc), vertex(desc.vertexShader->Desc()), fragment(desc.fragmentShader->Desc())
     {
-        state.vertexShader = nullptr; state.fragmentShader = nullptr; state.bindingLayout = nullptr;
+        state.vertexShader = nullptr; state.fragmentShader = nullptr;
     }
     bool operator==(const VulkanPipelineKey&) const = default;
     [[nodiscard]] std::size_t Hash() const
@@ -23,11 +21,15 @@ struct VulkanPipelineKey final
         };
         for (const auto* shader : {&vertex, &fragment})
         {
-            add(shader->stage); add(std::string_view(shader->entryPoint));
+            add(shader->stage); add(shader->format); add(std::string_view(shader->entryPoint));
             add(std::string_view(reinterpret_cast<const char*>(shader->code.data()), shader->code.size()));
         }
-        add(bindings.entries.size());
-        for (const auto& item : bindings.entries) { add(item.binding); add(item.type); add(item.stages); add(item.count); }
+        add(state.pipelineLayout.groups.size());
+        for (const auto& group : state.pipelineLayout.groups)
+        {
+            add(group.entries.size());
+            for (const auto& item : group.entries) { add(item.binding); add(item.type); add(item.stages); add(item.count); }
+        }
         add(state.topology); add(state.sampleCount); add(state.alphaTest); add(state.depthStencilFormat);
         const auto& r = state.rasterizer;
         add(r.cullMode); add(r.frontFace); add(r.fillMode); add(r.depthClampEnable); add(r.depthBiasEnable);
@@ -73,9 +75,8 @@ public:
         vk.vkGetPhysicalDeviceFeatures2(vk.physical, &features);
         const auto* vertex = dynamic_cast<const VulkanShader*>(desc.vertexShader);
         const auto* fragment = dynamic_cast<const VulkanShader*>(desc.fragmentShader);
-        const auto* bindings = dynamic_cast<const VulkanBindingLayout*>(desc.bindingLayout);
-        if (!vertex || !fragment || !bindings || vertex->DeviceState() != _device
-            || fragment->DeviceState() != _device || bindings->DeviceState() != _device
+        if (!vertex || !fragment || vertex->DeviceState() != _device
+            || fragment->DeviceState() != _device
             || vertex->Desc().stage != ShaderStage::Vertex || fragment->Desc().stage != ShaderStage::Fragment)
             throw std::invalid_argument("Vulkan RHI: pipeline shader/layout mismatch.");
         if (desc.colorFormats.size() != desc.blendAttachments.size()
@@ -212,9 +213,17 @@ public:
         }
         VkPipelineDynamicStateCreateInfo dynamic{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
         dynamic.dynamicStateCount = static_cast<std::uint32_t>(dynamicStates.size()); dynamic.pDynamicStates = dynamicStates.data();
-        const VkDescriptorSetLayout layout = bindings->Native();
+        if (desc.pipelineLayout.groups.empty() || desc.pipelineLayout.groups.size() > vk.caps.maxBindingGroups)
+            throw std::invalid_argument("Vulkan RHI: pipeline binding group count exceeds device limits.");
+        std::vector<std::unique_ptr<VulkanBindingLayout>> bindingOwners;
+        std::vector<VkDescriptorSetLayout> layouts;
+        for (const auto& group : desc.pipelineLayout.groups)
+        {
+            bindingOwners.push_back(std::make_unique<VulkanBindingLayout>(_device, group));
+            layouts.push_back(bindingOwners.back()->Native());
+        }
         VkPipelineLayoutCreateInfo layoutCreate{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-        layoutCreate.setLayoutCount = 1; layoutCreate.pSetLayouts = &layout;
+        layoutCreate.setLayoutCount = static_cast<std::uint32_t>(layouts.size()); layoutCreate.pSetLayouts = layouts.data();
         Check(vk.vkCreatePipelineLayout(vk.device, &layoutCreate, nullptr, &_layout), "vkCreatePipelineLayout");
         try
         {

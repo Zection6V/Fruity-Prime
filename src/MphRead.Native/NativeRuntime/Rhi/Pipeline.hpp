@@ -209,7 +209,7 @@ namespace MphRead::NativeRuntime::Rhi
     {
         const Shader* vertexShader = nullptr;
         const Shader* fragmentShader = nullptr;
-        const BindingLayout* bindingLayout = nullptr;
+        PipelineLayout pipelineLayout{};
         PrimitiveTopology topology = PrimitiveTopology::TriangleList;
         RasterizerStateDesc rasterizer{};
         DepthStencilStateDesc depthStencil{};

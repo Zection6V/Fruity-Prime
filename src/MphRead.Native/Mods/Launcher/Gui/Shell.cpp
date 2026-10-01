@@ -682,7 +682,7 @@ namespace MphRead::Mods::Launcher::Gui
         MphRead::NativeRuntime::Rhi::SceneBackendRequest Other()
         {
             return MphRead::NativeRuntime::Rhi::SelectedSceneBackend()
-                    == MphRead::NativeRuntime::Rhi::SceneBackendKind::Vulkan
+                    == MphRead::NativeRuntime::Rhi::GraphicsBackend::Vulkan
                 ? MphRead::NativeRuntime::Rhi::SceneBackendRequest::OpenGL
                 : MphRead::NativeRuntime::Rhi::SceneBackendRequest::Vulkan;
         }
@@ -723,7 +723,7 @@ namespace MphRead::Mods::Launcher::Gui
     {
         const void* g_switchScene = nullptr;
         std::uint64_t g_switchFrame = 0;
-        MphRead::NativeRuntime::Rhi::SceneBackendKind g_switchBackend{};
+        MphRead::NativeRuntime::Rhi::GraphicsBackend g_switchBackend{};
         OpenTK::Mathematics::Vector2i g_switchSize{};
         OpenTK::Mathematics::Vector2i g_switchLocation{};
         std::int32_t g_switchBorder = 0;

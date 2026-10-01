@@ -237,6 +237,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 : _device(&device), _name(name)
             {
                 _desc.stage = stage;
+                _desc.format = ShaderCodeFormat::GlslSource;
             }
             ~OpenGlShader() override;
 
@@ -454,9 +455,14 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             // Shaders come from GLSL source here (CreateGlslShader): the
             // renderer's programs are GLSL, and SPIR-V is the Vulkan backend's.
-            [[nodiscard]] std::unique_ptr<Shader> CreateShader(const ShaderDesc&) override
+            [[nodiscard]] std::unique_ptr<Shader> CreateShader(const ShaderDesc& desc) override
             {
-                NotYet("CreateShader from bytecode (OpenGL takes GLSL through CreateGlslShader)");
+                if (desc.format != ShaderCodeFormat::GlslSource || desc.entryPoint != "main"
+                    || (desc.stage != ShaderStage::Vertex && desc.stage != ShaderStage::Fragment)
+                    || desc.code.empty())
+                    throw std::invalid_argument("OpenGL RHI: expected GLSL source with a main entry point.");
+                const std::string source(reinterpret_cast<const char*>(desc.code.data()), desc.code.size());
+                return CreateGlsl(desc.stage, source);
             }
 
             [[nodiscard]] std::unique_ptr<Shader> CreateGlsl(ShaderStage stage, const std::string& source)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "VulkanContext.hpp"
+#include "../BackendError.hpp"
 #include "../../../Renderer.hpp"
 #include "../../../Mods/Branding.hpp"
 
@@ -32,8 +33,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     {
         void Check(VkResult result, const char* operation)
         {
-            if (result != VK_SUCCESS)
-                throw std::runtime_error(std::string(operation) + " failed: " + std::to_string(result));
+            if (result == VK_SUCCESS) return;
+            const auto kind = result == VK_ERROR_DEVICE_LOST ? BackendErrorKind::DeviceLost
+                : result == VK_ERROR_SURFACE_LOST_KHR ? BackendErrorKind::SurfaceLost
+                : result == VK_ERROR_OUT_OF_DEVICE_MEMORY || result == VK_ERROR_OUT_OF_HOST_MEMORY
+                    ? BackendErrorKind::OutOfMemory : BackendErrorKind::Unknown;
+            throw BackendError(GraphicsBackend::Vulkan, kind, result,
+                std::string(operation) + " failed: " + std::to_string(result));
         }
         template<class T> bool Contains(const std::vector<T>& list, const char* name)
         {
@@ -213,7 +219,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             surface = VK_NULL_HANDLE;
         }
 
-        void Initialize(bool requestedValidation, void* presentationWindow = nullptr, bool allowMaintenance = true)
+        void Initialize(bool requestedValidation, void* presentationWindow = nullptr,
+            bool allowMaintenance = true, bool createLogicalDevice = true)
         {
             std::uint32_t version = VK_API_VERSION_1_0;
             auto enumerateVersion = reinterpret_cast<PFN_vkEnumerateInstanceVersion>(
@@ -369,7 +376,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 caps.maxTextureArrayLayers = props.limits.maxImageArrayLayers;
                 caps.maxColorAttachments = props.limits.maxColorAttachments;
                 caps.maxVertexBuffers = props.limits.maxVertexInputBindings;
-                caps.maxBindingSets = props.limits.maxBoundDescriptorSets;
+                caps.maxBindingGroups = props.limits.maxBoundDescriptorSets;
                 caps.supportsAnisotropy = features.features.samplerAnisotropy != 0;
                 caps.maxSamplerAnisotropy = caps.supportsAnisotropy ? props.limits.maxSamplerAnisotropy : 1.0F;
                 caps.supportsWireframe = features.features.fillModeNonSolid != 0;
@@ -378,6 +385,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 caps.supportsTimestampQueries = queues[g].timestampValidBits != 0;
             }
             if (!physical) throw std::runtime_error("No Vulkan 1.3 GPU with graphics/present, dynamic rendering, synchronization2 and required formats.");
+            // Passive eligibility ends here: querying an instance/physical
+            // device must never allocate a logical device or obtain queues.
+            if (!createLogicalDevice) return;
             float priority = 1.0F;
             std::vector<VkDeviceQueueCreateInfo> queues;
             for (auto family : {graphicsFamily, presentFamily})
@@ -450,7 +460,6 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     }
 
     // Acquire the next image unless the window has nothing to draw into.
-    [[nodiscard]] bool TryAcquireSwapchain(Swapchain& swapchain);
     // Records the acquired image's frame: the source image blitted upright
     // (or black when there is none), in and back out of the given layout.
     void RecordSwapchainBlit(Swapchain& swapchain, VkImage source, VkImageLayout layout,

@@ -3,7 +3,6 @@
 #include "../../RendererGpuMesh.hpp"
 #include "CommandList.hpp"
 #include "GraphicsDevice.hpp"
-#include "OpenGL/OpenGlShaderInterface.hpp"
 #include "SceneShaders.hpp"
 #include "Swapchain.hpp"
 
@@ -23,12 +22,6 @@ namespace MphRead::RendererPlatform
 // geometry. The Scene names no backend; this is the only place that does.
 namespace MphRead::NativeRuntime::Rhi
 {
-    enum class SceneBackendKind : std::uint8_t
-    {
-        OpenGL,
-        Vulkan
-    };
-
     // What the player (launcher.txt's renderer) or the command line (-rhi)
     // asked for. Auto takes Vulkan when this build and this machine can run
     // it -- the window and its launcher included -- and OpenGL otherwise.
@@ -65,11 +58,11 @@ namespace MphRead::NativeRuntime::Rhi
     // The backend the request resolved to, decided once. Throws
     // SceneBackendUnavailable for an explicit Vulkan request this build or
     // this machine cannot honour.
-    [[nodiscard]] SceneBackendKind SelectedSceneBackend();
-    void SelectSceneBackend(SceneBackendKind kind) noexcept;
+    [[nodiscard]] GraphicsBackend SelectedSceneBackend();
+    void SelectSceneBackend(GraphicsBackend kind);
     // "opengl" / "gl" / "vulkan" / "vk"; false for anything else.
-    [[nodiscard]] bool ParseSceneBackend(std::string_view text, SceneBackendKind& kind) noexcept;
-    [[nodiscard]] std::string_view SceneBackendName(SceneBackendKind kind) noexcept;
+    [[nodiscard]] bool ParseSceneBackend(std::string_view text, GraphicsBackend& kind) noexcept;
+    [[nodiscard]] std::string_view SceneBackendName(GraphicsBackend kind) noexcept;
     // Why Vulkan cannot be used here, or empty when it can. forWindow: the
     // presented window's launcher as well (Skia with Vulkan).
     [[nodiscard]] std::string VulkanUnavailableReason(bool forWindow);
@@ -83,8 +76,8 @@ namespace MphRead::NativeRuntime::Rhi
     // Vulkan's validation layers for the scene device, when it is created.
     void SetSceneValidation(bool enabled) noexcept;
 
-    // The device scenes draw with. OpenGL's is the current context's; Vulkan's
-    // is one headless device for the process, created on first use.
+    // The current session's device. A switch releases the outgoing session
+    // before creating the incoming one; headless diagnostics create lazily.
     [[nodiscard]] GraphicsDevice& SceneDevice();
     // Validation errors the Vulkan scene device has reported (0 for OpenGL).
     [[nodiscard]] unsigned SceneValidationErrors() noexcept;
@@ -112,7 +105,7 @@ namespace MphRead::NativeRuntime::Rhi
     void DetachSceneWindow() noexcept;
 
     [[nodiscard]] std::unique_ptr<SceneShaderSet> CreateSceneShaderSet(
-        GraphicsDevice& device, CommandList& commands, const OpenGL::SceneShaderSources& sources);
+        GraphicsDevice& device, CommandList& commands, const SceneShaderSources& sources);
     [[nodiscard]] std::shared_ptr<MphRead::GpuMeshResource> CreateSceneGpuMesh(
         GraphicsDevice& device, CommandList& commands, const MphRead::RendererGeometry& geometry);
     [[nodiscard]] std::shared_ptr<MphRead::TransientGeometryResource> CreateSceneTransientGeometry(

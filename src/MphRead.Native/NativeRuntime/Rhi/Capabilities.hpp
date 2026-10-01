@@ -13,7 +13,7 @@ namespace MphRead::NativeRuntime::Rhi
         std::uint32_t maxTextureArrayLayers = 0;
         std::uint32_t maxColorAttachments = 0;
         std::uint32_t maxVertexBuffers = 0;
-        std::uint32_t maxBindingSets = 0;
+        std::uint32_t maxBindingGroups = 0;
         float maxSamplerAnisotropy = 1.0F;
         bool supportsCompute = false;
         bool supportsTimestampQueries = false;

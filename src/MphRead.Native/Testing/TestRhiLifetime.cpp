@@ -1,4 +1,5 @@
 #include "../NativeRuntime/Rhi/FrameContext.hpp"
+#include "../NativeRuntime/Rhi/Swapchain.hpp"
 
 #include <iostream>
 #include <stdexcept>
@@ -77,6 +78,24 @@ namespace
         Expect(queue.CollectAll([&count](int) { ++count; }) == 100 && count == 100 && queue.Size() == 0,
             "waiting for idle destroys every retired object");
     }
+
+    void TestPresentationFailuresStayTyped()
+    {
+        const BackendError lost(GraphicsBackend::Vulkan, BackendErrorKind::DeviceLost, -4, "device lost");
+        Expect(PresentationFailure(lost) == PresentationStatus::DeviceLost, "device loss status");
+        Expect(lost.Backend() == GraphicsBackend::Vulkan && lost.NativeCode() == -4,
+            "native diagnostic information is preserved");
+        const BackendError surface(GraphicsBackend::OpenGl, BackendErrorKind::SurfaceLost, 0, "surface lost");
+        Expect(PresentationFailure(surface) == PresentationStatus::SurfaceLost, "surface loss status");
+        bool propagated = false;
+        try
+        {
+            (void)PresentationFailure(BackendError(GraphicsBackend::Vulkan,
+                BackendErrorKind::OutOfMemory, -2, "allocation failed"));
+        }
+        catch (const BackendError& error) { propagated = error.Kind() == BackendErrorKind::OutOfMemory; }
+        Expect(propagated, "allocation errors must not masquerade as surface unavailability");
+    }
 }
 
 int main()
@@ -87,6 +106,7 @@ int main()
         TestFramesInFlightSlots();
         TestCancelledObjectsAreNotDestroyed();
         TestIdleDestroysEverything();
+        TestPresentationFailuresStayTyped();
         std::cout << "RhiLifetime tests passed.\n";
         return 0;
     }

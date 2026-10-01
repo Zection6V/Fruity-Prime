@@ -1178,7 +1178,7 @@ namespace MphRead::Droid
             // it. An explicit Vulkan that cannot start throws, and the error
             // reaches the player through _onError rather than becoming GLES.
             _vulkan = MphRead::NativeRuntime::Rhi::SelectedSceneBackend()
-                == MphRead::NativeRuntime::Rhi::SceneBackendKind::Vulkan;
+                == MphRead::NativeRuntime::Rhi::GraphicsBackend::Vulkan;
             if (_vulkan)
             {
                 // The device is made with the first surface.

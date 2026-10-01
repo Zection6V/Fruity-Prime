@@ -248,6 +248,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         [[nodiscard]] bool TryAcquire()
         {
             if (_closed || Closing()) return false;
+#if !defined(__ANDROID__)
+            if (::glfwGetWindowAttrib(static_cast<GLFWwindow*>(_window->NativeHandle()), GLFW_ICONIFIED))
+                return false;
+#endif
             int width = 0, height = 0;
             DrawableSize(width, height);
             if (width <= 0 || height <= 0)
@@ -259,6 +263,43 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
             (void)AcquireNextTexture();
             return true;
+        }
+
+        AcquireResult TryAcquireTexture() override
+        {
+            if (_closed) return {PresentationStatus::SurfaceLost, nullptr};
+            if (Closing())
+#if defined(__ANDROID__)
+                return {PresentationStatus::SurfaceLost, nullptr};
+#else
+                return {PresentationStatus::TemporarilyUnavailable, nullptr};
+#endif
+            try
+            {
+                if (!TryAcquire()) return {PresentationStatus::TemporarilyUnavailable, nullptr};
+                return {_recreateAfterPresent ? PresentationStatus::ResizeRequired : PresentationStatus::Ready,
+                    _images[_currentImage].texture.get()};
+            }
+            catch (const BackendError& error) { return {PresentationFailure(error), nullptr}; }
+        }
+        PresentationCapabilities PresentationCaps() const noexcept override { return _presentationCaps; }
+        PresentMode RequestedPresentMode() const noexcept override { return _requestedMode; }
+        PresentResult TryPresent() override
+        {
+            if (_closed) return {PresentationStatus::SurfaceLost};
+            if (!_acquired && Closing())
+#if defined(__ANDROID__)
+                return {PresentationStatus::SurfaceLost};
+#else
+                return {PresentationStatus::TemporarilyUnavailable};
+#endif
+            if (_suspended && !_acquired) return {PresentationStatus::TemporarilyUnavailable};
+            try
+            {
+                Present();
+                return {_needsRecreate ? PresentationStatus::ResizeRequired : PresentationStatus::Ready};
+            }
+            catch (const BackendError& error) { return {PresentationFailure(error)}; }
         }
 
         void SetPresentMode(PresentMode mode) override
@@ -498,6 +539,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         }
         SwapchainDesc _desc{};
         PresentMode _requestedMode = PresentMode::Fifo;
+        PresentationCapabilities _presentationCaps{};
         VkSwapchainKHR _swapchain = VK_NULL_HANDLE;
         VkFormat _vkFormat = VK_FORMAT_UNDEFINED;
         VkExtent2D _extent{};
@@ -590,6 +632,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (_requestedMode == PresentMode::Immediate) requestedPresent = VK_PRESENT_MODE_IMMEDIATE_KHR;
             else if (_requestedMode == PresentMode::Mailbox) requestedPresent = VK_PRESENT_MODE_MAILBOX_KHR;
             const bool exactMode = std::find(modes.begin(), modes.end(), requestedPresent) != modes.end();
+            _presentationCaps = {
+                std::find(modes.begin(), modes.end(), VK_PRESENT_MODE_IMMEDIATE_KHR) != modes.end(),
+                true,
+                std::find(modes.begin(), modes.end(), VK_PRESENT_MODE_MAILBOX_KHR) != modes.end(),
+                capabilities.minImageCount, capabilities.maxImageCount};
             const VkPresentModeKHR selectedMode = exactMode ? requestedPresent : VK_PRESENT_MODE_FIFO_KHR;
             if (!exactMode && _requestedMode != PresentMode::Fifo)
                 std::cout << "[vulkan] requested present mode unavailable; using FIFO\n";
@@ -904,11 +951,6 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         return std::make_unique<VulkanSwapchain>(context, window, desc);
     }
 
-    bool TryAcquireSwapchain(Swapchain& swapchain)
-    {
-        return dynamic_cast<VulkanSwapchain&>(swapchain).TryAcquire();
-    }
-
     void RecordSwapchainBlit(Swapchain& swapchain, VkImage source, VkImageLayout layout,
         VkPipelineStageFlags2 stages, VkAccessFlags2 access, VkExtent2D extent)
     {
@@ -945,9 +987,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 const std::uint32_t frames = std::max(4U, swapchain->Desc().imageCount + 1U);
                 for (std::uint32_t i = 0; i < frames; ++i)
                 {
-                    (void)swapchain->AcquireNextTexture();
+                    const auto acquired = swapchain->TryAcquireTexture();
+                    if (!acquired.texture) throw std::runtime_error("Typed Vulkan acquisition failed.");
                     vkSwapchain.ClearCurrent(r, g, b, 1.0F);
-                    swapchain->Present();
+                    const auto presented = swapchain->TryPresent();
+                    if (presented.status != PresentationStatus::Ready
+                        && presented.status != PresentationStatus::ResizeRequired)
+                        throw std::runtime_error("Typed Vulkan presentation failed.");
                     ProcessEvents();
                     std::this_thread::sleep_for(std::chrono::milliseconds(8));
                 }
@@ -1026,7 +1072,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             swapchain->Resize(0, 0);
             if (swapchain->Desc().width != 0 || swapchain->Desc().height != 0)
                 throw std::runtime_error("A minimized Vulkan swapchain did not suspend its zero-sized extent.");
-            swapchain->Present();
+            const auto minimized = swapchain->TryAcquireTexture();
+            if (minimized.texture || minimized.status != PresentationStatus::TemporarilyUnavailable
+                || swapchain->TryPresent().status != PresentationStatus::TemporarilyUnavailable)
+                throw std::runtime_error("A minimized Vulkan swapchain did not report temporary unavailability.");
             window->WindowStateNormal();
             const auto restored = pumpFramebuffer(native, 3000,
                 [](int width, int height) { return width > 0 && height > 0; });
@@ -1034,6 +1083,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             drawColor(0.20F, 0.55F, 0.75F);
 
             swapchain->SetPresentMode(PresentMode::Mailbox);
+            if (swapchain->RequestedPresentMode() != PresentMode::Mailbox
+                || swapchain->Desc().presentMode != (swapchain->PresentationCaps().mailbox
+                    ? PresentMode::Mailbox : PresentMode::Fifo))
+                throw std::runtime_error("Vulkan requested/resolved presentation policy mismatch.");
             drawColor(0.45F, 0.20F, 0.70F);
             swapchain->SetPresentMode(PresentMode::Fifo);
             drawColor(0.12F, 0.32F, 0.72F);

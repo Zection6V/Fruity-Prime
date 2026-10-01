@@ -9,6 +9,7 @@
 #include "../../Renderer.hpp"
 #include "../../Scene.hpp"
 #include "../Network/NetLaunch.hpp"
+#include "../../NativeRuntime/System/ProcessMemory.hpp"
 
 #include <algorithm>
 #include <exception>
@@ -125,7 +126,27 @@ namespace MphRead::Mods::Diagnostics
                         << s.Retired << " retired | frames completed " << s.CompletedFrame
                         << " | host waits over the last " << (_frames - _frames / 2) << " frames: "
                         << _steadyWaits[i]
+                        << " | private " << (i < _privateKiB.size() ? _privateKiB[i] / 1024U : 0U) << " MB"
                         << (steady ? "" : " | GREW") << (drained ? "" : " | NOT DRAINED") << '\n';
+                }
+                // CPU memory: after a warm-up quarter, the peak of the last
+                // quarter against the peak of the second, per cycle between
+                // them. A room's worth leaked per load is tens of MB a cycle;
+                // under 1 MB is the allocator's band and the GL driver's own
+                // bookkeeping for programs relinked every cycle.
+                if (_privateKiB.size() >= 8 && _privateKiB.front() != 0)
+                {
+                    const std::size_t quarter = _privateKiB.size() / 4;
+                    const std::uint64_t early = *std::max_element(_privateKiB.begin() + static_cast<std::ptrdiff_t>(quarter),
+                        _privateKiB.begin() + static_cast<std::ptrdiff_t>(2 * quarter));
+                    const std::uint64_t late = *std::max_element(_privateKiB.end() - static_cast<std::ptrdiff_t>(quarter),
+                        _privateKiB.end());
+                    const double span = static_cast<double>(_privateKiB.size() - 2 * quarter);
+                    const double perCycle = late > early ? static_cast<double>(late - early) / 1024.0 / span : 0.0;
+                    const bool flat = perCycle < 1.0;
+                    std::cout << "GPULIFETIME " << _room << " | private memory peak " << early / 1024U << " MB -> "
+                        << late / 1024U << " MB, " << perCycle << " MB a cycle" << (flat ? "" : " | GREW") << std::endl;
+                    pass = pass && flat;
                 }
                 std::cout << "GPULIFETIME " << _room << " | " << _after.size() << "/" << _cycles
                     << " cycles | " << (pass ? "PASS" : "FAIL") << '\n';
@@ -161,6 +182,7 @@ namespace MphRead::Mods::Diagnostics
                 _scene->ReleaseGpuResources();
                 _scene.reset();
                 _after.push_back(device.Statistics());
+                _privateKiB.push_back(NativeRuntime::System::PrivateKiB());
             }
 
             std::string _room;
@@ -175,6 +197,7 @@ namespace MphRead::Mods::Diagnostics
             NativeRuntime::Rhi::GpuResourceStatistics _mid{};
             std::vector<std::uint64_t> _steadyWaits{};
             std::vector<NativeRuntime::Rhi::GpuResourceStatistics> _after{};
+            std::vector<std::uint64_t> _privateKiB{};
         };
     }
 

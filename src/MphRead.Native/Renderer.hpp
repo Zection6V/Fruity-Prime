@@ -814,6 +814,7 @@ public: \
         std::shared_ptr<MphRead::Formats::Collision::EntityCollision> entCol = nullptr); \
     [[nodiscard]] std::int32_t CountElements(std::int32_t effectId); \
     void ClearEffects(); \
+    void BreakEffectCycles(); \
     void ClearNonPersistentEffects(); \
     [[nodiscard]] std::int64_t ModEffectParticles() const noexcept; \
     void AddRenderItem(const MphRead::Material& material, std::int32_t polygonId, float alphaScale, \

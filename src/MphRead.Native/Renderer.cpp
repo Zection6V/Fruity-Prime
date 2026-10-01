@@ -2789,6 +2789,37 @@ namespace MphRead
         }
     }
 
+    void Scene::BreakEffectCycles()
+    {
+        // An element owns its particles and each particle points back at its
+        // element; an element and its entry point at each other. The pools
+        // outlive nothing but this scene, so a discarded scene has to cut
+        // them or every element it ever made stays alive with its particle
+        // definitions and their models.
+        ClearEffects();
+        const auto cut = [](const std::shared_ptr<EffectElementEntry>& element)
+        {
+            if (!element) return;
+            for (const auto& particle : *element->Particles)
+            {
+                if (particle) particle->Owner.reset();
+            }
+            element->Particles->clear();
+            element->EffectEntry.reset();
+        };
+        for (const auto& element : _activeElements) cut(element);
+        _activeElements.clear();
+        for (; !_inactiveElements.empty(); _inactiveElements.pop()) cut(_inactiveElements.front());
+        for (; !_inactiveParticles.empty(); _inactiveParticles.pop())
+        {
+            if (_inactiveParticles.front()) _inactiveParticles.front()->Owner.reset();
+        }
+        for (; !_inactiveEffects.empty(); _inactiveEffects.pop())
+        {
+            if (_inactiveEffects.front()) _inactiveEffects.front()->Elements->clear();
+        }
+    }
+
     void Scene::ReleaseFromOwner(const std::shared_ptr<EffectElementEntry>& element)
     {
         // C# Scene.ReleaseFromOwner: a bulk release takes the element out of
@@ -3644,6 +3675,7 @@ namespace MphRead
             }
             Entities::PlatformEntity::DestroyBeams();
             Entities::EnemyInstanceEntity::DestroyBeams();
+            BreakEffectCycles();
             Sound::Sfx::ShutDown();
             OutputStop();
             if (const std::shared_ptr<std::stop_source> decoderCts = _decoderCts.load())

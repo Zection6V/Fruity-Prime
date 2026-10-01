@@ -51,6 +51,9 @@ namespace MphRead::NativeRuntime::Rhi
     // replace. Takes effect before the first scene device is asked for.
     void RequestSceneBackend(SceneBackendRequest request, bool explicitRequest) noexcept;
     [[nodiscard]] SceneBackendRequest RequestedSceneBackend() noexcept;
+    // The launcher will draw into the window (the shell): Vulkan then also
+    // needs a Skia that can draw through it. Harness windows never say so.
+    void SceneBackendNeedsWindowUi(bool value) noexcept;
     // "opengl" / "gl" / "vulkan" / "vk" / "auto"; false for anything else.
     [[nodiscard]] bool ParseSceneBackendRequest(std::string_view text, SceneBackendRequest& request) noexcept;
     [[nodiscard]] std::string_view SceneBackendRequestName(SceneBackendRequest request) noexcept;

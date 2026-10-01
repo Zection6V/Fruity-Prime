@@ -32,6 +32,7 @@ namespace MphRead::NativeRuntime::Rhi
         SceneBackendRequest requested = SceneBackendRequest::OpenGL;
         bool requestExplicit = false;
         bool resolved = false;
+        bool needsWindowUi = false;
         bool validation = false;
 
 #if defined(FRUITY_HAS_VULKAN)
@@ -65,6 +66,7 @@ namespace MphRead::NativeRuntime::Rhi
     }
 
     SceneBackendRequest RequestedSceneBackend() noexcept { return requested; }
+    void SceneBackendNeedsWindowUi(bool value) noexcept { needsWindowUi = value; }
 
     bool ParseSceneBackendRequest(std::string_view text, SceneBackendRequest& request) noexcept
     {
@@ -124,12 +126,7 @@ namespace MphRead::NativeRuntime::Rhi
             selected = SceneBackendKind::OpenGL;
             return selected;
         }
-#if defined(MPHREAD_SHELL)
-        constexpr bool window = true;
-#else
-        constexpr bool window = false;
-#endif
-        const std::string why = VulkanUnavailableReason(window);
+        const std::string why = VulkanUnavailableReason(needsWindowUi);
         if (requested == SceneBackendRequest::Vulkan && !why.empty())
             throw SceneBackendUnavailable("Vulkan was asked for and cannot start: " + why + ".");
         selected = why.empty() ? SceneBackendKind::Vulkan : SceneBackendKind::OpenGL;

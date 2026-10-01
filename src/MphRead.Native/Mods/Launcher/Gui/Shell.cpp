@@ -210,6 +210,8 @@ namespace MphRead::Mods::Launcher::Gui
             MphRead::Mods::WindowMode::Startup(LauncherPrefs::WindowMode());
         }
 
+        // The launcher draws into this window: a Vulkan one needs Skia's.
+        MphRead::NativeRuntime::Rhi::SceneBackendNeedsWindowUi(true);
         MphRead::RenderWindow::LogCreatingWindow();
         std::unique_ptr<MphRead::RenderWindow> window;
         bool ran = false;

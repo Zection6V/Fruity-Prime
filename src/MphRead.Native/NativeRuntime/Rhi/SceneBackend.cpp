@@ -185,6 +185,12 @@ namespace MphRead::NativeRuntime::Rhi
         return SelectedSceneBackend() == SceneBackendKind::Vulkan;
     }
 
+    void ResetWindowViewport(std::int32_t width, std::int32_t height)
+    {
+        if (SelectedSceneBackend() == SceneBackendKind::OpenGL)
+            OpenGL::ResetWindowViewport(width, height);
+    }
+
     std::string SceneBackendContract()
     {
         std::string text = "opengl=compiled\n";

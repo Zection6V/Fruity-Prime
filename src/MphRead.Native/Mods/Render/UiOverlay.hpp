@@ -33,15 +33,10 @@ namespace MphRead::Mods::Render
         static void Release();
 
     private:
-        static constexpr std::int32_t Name = 1'000'000;
-        static std::int32_t _texture;
-        static std::int32_t _vertexBuffer;
-        static std::int32_t _indexBuffer;
         static std::int32_t _width;
         static std::int32_t _height;
         static bool _hasFrame;
         static bool _visible;
-        static bool _ownsTexture;
         static bool _topRowAtTextureZero;
     };
 }

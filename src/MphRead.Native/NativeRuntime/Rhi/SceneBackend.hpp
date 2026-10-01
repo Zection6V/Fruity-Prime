@@ -98,6 +98,10 @@ namespace MphRead::NativeRuntime::Rhi
     void AttachSceneSurface(void* nativeWindow);
     void DetachSceneSurface() noexcept;
     [[nodiscard]] std::unique_ptr<Swapchain> CreateSceneSurfaceSwapchain(const SwapchainDesc& desc);
+    // A window that has just loaded a scene: the full-window viewport.
+    // OpenGL's is context state that outlives a draw; Vulkan sets it per
+    // pass, so there it is nothing.
+    void ResetWindowViewport(std::int32_t width, std::int32_t height);
     // End the frame: submit, and show the scene device's window target.
     void PresentSceneWindow(Swapchain& swapchain);
     // Before the window goes: every scene is gone, and the device follows.

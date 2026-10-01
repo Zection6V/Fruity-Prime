@@ -26,6 +26,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
     // Forget every texture the current context's device knows about: the
     // context they lived in is gone (Android recreates its EGL context).
     void ResetContextDevice() noexcept;
+    // The current context's viewport, over the whole window.
+    void ResetWindowViewport(std::int32_t width, std::int32_t height);
 
     // OpenGL only: a GLSL shader compiled from source the caller keeps. The
     // source is passed on by reference because the Android head recognises

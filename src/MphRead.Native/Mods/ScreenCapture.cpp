@@ -1,7 +1,7 @@
 #include "ScreenCapture.hpp"
+#include "../NativeRuntime/Rhi/OpenGL/OpenGlDiagnostics.hpp"
 #include "../NativeRuntime/Rhi/SceneBackend.hpp"
 
-#include "../NativeRuntime/OpenTK/GL.hpp"
 #include "../NativeRuntime/OpenTK/GLFW.hpp"
 #include "../NativeRuntime/System/Console.hpp"
 #include "../NativeRuntime/System/Globalization.hpp"
@@ -126,28 +126,19 @@ namespace
 
 namespace
 {
-    // GL_KHR_debug and the two glGet forms this file reads, which the managed
-    // build reaches through OpenTK's own GL class.
-    using GlDebugProc = void (*)(
-        std::int32_t, std::int32_t, std::int32_t, std::int32_t, std::int32_t,
-        const char*, const void*);
+    namespace GlDiag = ::MphRead::NativeRuntime::Rhi::OpenGL;
+    using GlDebugProc = GlDiag::DebugProc;
 
-    void GlEnable(std::int32_t capability)
-    {
-        ::OpenTK::Graphics::OpenGL::GL::Enable(
-            static_cast<::OpenTK::Graphics::OpenGL::GL::EnableCap>(capability));
-    }
+    void GlEnable(std::int32_t capability) { GlDiag::EnableCapability(capability); }
 
     void GlDebugMessageCallback(GlDebugProc callback, const void* userParam)
     {
-        ::OpenTK::Graphics::OpenGL::GL::DebugMessageCallback(
-            reinterpret_cast<void*>(callback), userParam);
+        GlDiag::DebugMessageCallback(callback, userParam);
     }
 
     [[nodiscard]] std::optional<std::string> GlGetString(std::int32_t name)
     {
-        std::string value = ::OpenTK::Graphics::OpenGL::GL::GetString(
-            static_cast<::OpenTK::Graphics::OpenGL::GL::StringName>(name));
+        std::string value = GlDiag::ContextString(name);
         if (value.empty())
         {
             return std::nullopt;
@@ -155,10 +146,7 @@ namespace
         return value;
     }
 
-    [[nodiscard]] std::int32_t GlGetInteger(std::int32_t pname)
-    {
-        return ::OpenTK::Graphics::OpenGL::GL::GetInteger(pname);
-    }
+    [[nodiscard]] std::int32_t GlGetInteger(std::int32_t pname) { return GlDiag::ContextInteger(pname); }
 
     [[nodiscard]] std::pair<std::int32_t, std::int32_t> ContextVersion()
     {

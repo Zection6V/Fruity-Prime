@@ -1311,6 +1311,11 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         return static_cast<OpenGlGraphicsDevice&>(ContextDevice()).CreateGeometryBuffer();
     }
 
+    void ResetWindowViewport(std::int32_t width, std::int32_t height)
+    {
+        GL::Viewport(0, 0, width, height);
+    }
+
     void ResetContextDevice() noexcept
     {
         // The textures are gone with their context; their destructors would

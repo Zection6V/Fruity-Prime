@@ -14,6 +14,8 @@ rem    options   : deps       install dependencies first
 rem                           (msys2 = pacman, msvc = vcpkg classic mode)
 rem                clean      delete the build tree before configuring
 rem                configure  run the CMake configure step only
+rem                run        start the built game on Vulkan afterwards
+rem                           (FruityPrime.exe -launcher -rhi vulkan)
 rem
 rem  Environment overrides:
 rem    MSYS2_ROOT  MSYS2 install root            (default C:\msys64)
@@ -33,6 +35,7 @@ set "CONFIG=Release"
 set "DO_DEPS=0"
 set "DO_CLEAN=0"
 set "CONFIGURE_ONLY=0"
+set "DO_RUN=0"
 if not defined BUILD_JOBS set "BUILD_JOBS=%NUMBER_OF_PROCESSORS%"
 if not defined BUILD_JOBS set "BUILD_JOBS=4"
 
@@ -49,6 +52,7 @@ if /i "%~1"=="MinSizeRel"     (set "CONFIG=MinSizeRel"       & goto :next)
 if /i "%~1"=="deps"           (set "DO_DEPS=1"               & goto :next)
 if /i "%~1"=="clean"          (set "DO_CLEAN=1"              & goto :next)
 if /i "%~1"=="configure"      (set "CONFIGURE_ONLY=1"        & goto :next)
+if /i "%~1"=="run"            (set "DO_RUN=1"                & goto :next)
 if /i "%~1"=="help"   goto :usage
 if /i "%~1"=="-h"     goto :usage
 if /i "%~1"=="--help" goto :usage
@@ -279,6 +283,27 @@ echo.
 echo [build] Build succeeded:
 dir /b "%BUILD_DIR%\FruityPrime.exe" 2>nul
 dir /s /b "%BUILD_DIR%\*.a" "%BUILD_DIR%\*.lib" 2>nul
+if "%DO_RUN%"=="1" goto :launch
+exit /b 0
+
+
+rem ----------------------------------------------------------------------
+rem  Start the game on Vulkan
+rem ----------------------------------------------------------------------
+:launch
+rem paths.txt (where the extracted game files are) has to sit beside the
+rem exe. A fresh build folder has none: take the one another build uses.
+if not exist "%BUILD_DIR%\paths.txt" (
+    for /d %%D in ("%OUT_ROOT%\*") do (
+        if not exist "%BUILD_DIR%\paths.txt" if exist "%%D\paths.txt" (
+            copy /y "%%D\paths.txt" "%BUILD_DIR%\paths.txt" >nul
+            echo [build] paths.txt copied from %%D
+        )
+    )
+)
+if not exist "%BUILD_DIR%\paths.txt" echo [build] No paths.txt yet: the game will ask for the game files.
+echo [build] Starting %BUILD_DIR%\FruityPrime.exe -launcher -rhi vulkan
+start "" /d "%BUILD_DIR%" "%BUILD_DIR%\FruityPrime.exe" -launcher -rhi vulkan
 exit /b 0
 
 
@@ -311,6 +336,7 @@ echo.
 echo   First time with MSYS2 : tools\build\build-cpp.bat msys2 deps
 echo   First time with MSVC  : set VCPKG_ROOT=C:\vcpkg  then  tools\build\build-cpp.bat msvc deps
 echo   Rebuild from scratch  : tools\build\build-cpp.bat clean
+echo   Build and play on Vulkan: tools\build\build-cpp.bat run
 echo.
 echo   Output goes to tools\build\out\
 goto :eof

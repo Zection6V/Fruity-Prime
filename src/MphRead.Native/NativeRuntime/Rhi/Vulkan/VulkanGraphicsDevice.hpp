@@ -17,6 +17,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     void CheckBindingAllocations(GraphicsDevice& device);
     void CheckShaderModules(GraphicsDevice& device);
     void CheckGraphicsPipelines(GraphicsDevice& device);
+    void CheckResourceRetirement(GraphicsDevice& device);
     // Submit the device's recorded work and show its window target: blitted
     // upright into the swapchain's next image (black before anything drew).
     [[nodiscard]] PresentResult PresentWindow(GraphicsDevice& device, Swapchain& swapchain);

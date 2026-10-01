@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Submission.hpp"
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -8,23 +10,18 @@
 
 // The GPU lifetime contract, the same for every backend.
 //
-// Frames are numbered from 1. At most FramesInFlight frames' GPU work is
-// outstanding: BeginFrame for frame N first retires frame N - FramesInFlight,
-// which is the last one to have used the same FrameContext slot. A resource
-// the frontend destroys is not destroyed then -- the GPU may still be reading
-// it for a frame already submitted -- but retired: queued with the number of
-// the frame it was last usable in, and destroyed natively once the device
-// knows that frame's work is complete (OpenGL: a GLsync fence; Vulkan: the
-// frame's fence or timeline value). WaitIdle waits for everything and
-// destroys every retired resource at once, which is what a scene's release
-// does, in the context it drew with.
+// Frame slots govern reusable per-frame storage. Resource lifetime follows
+// actual completed submissions, independently of those slots. Vulkan uses a
+// graphics-queue timeline; OpenGL's existing frame-fence retirement is being
+// migrated to the same submission contract. WaitIdle is an explicit release
+// boundary, not a requirement for ordinary resource destruction or resize.
 namespace MphRead::NativeRuntime::Rhi
 {
     inline constexpr std::uint32_t FramesInFlight = 2;
 
     struct FrameContext final
     {
-        // The frame's number; the retirement value of what is destroyed during it.
+        // The frame's number; this is not a submission serial.
         std::uint64_t Number = 0;
         // Which of the FramesInFlight per-frame slots it uses.
         std::uint32_t Slot = 0;
@@ -41,9 +38,12 @@ namespace MphRead::NativeRuntime::Rhi
         std::uint32_t Retired = 0;
         std::uint64_t CompletedFrame = 0;
         // Times the CPU has stopped to wait for the GPU (a fence or the whole
-        // device). A frame should cost none in steady state; OpenGL, which
-        // waits inside the driver, reports 0.
+        // device). OpenGL, which waits inside the driver, reports 0.
         std::uint64_t HostWaits = 0;
+        // Actual queue progress, not a simulation/presentation frame counter.
+        SubmissionSerial Submitted{};
+        SubmissionSerial Completed{};
+        std::uint64_t DeviceWideWaits = 0;
 
         bool operator==(const GpuResourceStatistics&) const = default;
     };
@@ -55,20 +55,33 @@ namespace MphRead::NativeRuntime::Rhi
     class RetirementQueue final
     {
     public:
-        void Retire(T object, std::uint64_t lastUsedFrame)
+        void Retire(T object, SubmissionSerial lastUse)
         {
-            _entries.push_back(Entry{std::move(object), lastUsedFrame});
+            Retire(std::move(object), lastUse.Value);
         }
 
-        // Destroy everything last used in a frame the GPU has completed.
         template <typename Destroy>
-        std::size_t Collect(std::uint64_t completedFrame, Destroy&& destroy)
+        std::size_t Collect(SubmissionSerial completed, Destroy&& destroy)
+        {
+            return Collect(completed.Value, std::forward<Destroy>(destroy));
+        }
+
+        // Compatibility for the existing GL fence counters. New backends use
+        // the typed overload above; integer frame numbers are not GPU proof.
+        void Retire(T object, std::uint64_t completionValue)
+        {
+            _entries.push_back(Entry{std::move(object), completionValue});
+        }
+
+        // Destroy everything whose last-use value the GPU has completed.
+        template <typename Destroy>
+        std::size_t Collect(std::uint64_t completedValue, Destroy&& destroy)
         {
             std::size_t destroyed = 0;
             auto keep = _entries.begin();
             for (auto it = _entries.begin(); it != _entries.end(); ++it)
             {
-                if (it->LastUsedFrame <= completedFrame)
+                if (it->LastUse <= completedValue)
                 {
                     destroy(it->Object);
                     ++destroyed;
@@ -116,7 +129,7 @@ namespace MphRead::NativeRuntime::Rhi
         struct Entry final
         {
             T Object;
-            std::uint64_t LastUsedFrame;
+            std::uint64_t LastUse;
         };
 
         std::vector<Entry> _entries{};

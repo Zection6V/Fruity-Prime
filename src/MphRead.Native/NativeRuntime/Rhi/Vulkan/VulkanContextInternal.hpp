@@ -92,7 +92,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         X(vkCreatePipelineLayout) X(vkDestroyPipelineLayout) \
         X(vkCreateShaderModule) X(vkDestroyShaderModule) \
         X(vkCreateGraphicsPipelines) X(vkDestroyPipeline) X(vkCmdBindPipeline) \
-        X(vkCreateSemaphore) X(vkDestroySemaphore) \
+        X(vkCreateSemaphore) X(vkDestroySemaphore) X(vkGetSemaphoreCounterValue) \
         X(vkCreateFence) X(vkDestroyFence) X(vkWaitForFences) X(vkResetFences) \
         X(vkCreateSwapchainKHR) X(vkDestroySwapchainKHR) X(vkGetSwapchainImagesKHR) \
         X(vkAcquireNextImageKHR) X(vkQueueSubmit2) X(vkQueuePresentKHR) \
@@ -321,9 +321,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT};
                 VkPhysicalDeviceVulkan13Features features13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
                 if (hasMaintenance1) features13.pNext = &maintenanceFeatures;
-                VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2}; features.pNext = &features13;
+                VkPhysicalDeviceVulkan12Features features12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+                features12.pNext = &features13;
+                VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2}; features.pNext = &features12;
                 vkGetPhysicalDeviceFeatures2(candidate, &features);
-                if (!features13.dynamicRendering || !features13.synchronization2) continue;
+                if (!features13.dynamicRendering || !features13.synchronization2 || !features12.timelineSemaphore) continue;
                 const bool candidateMaintenance1 = hasMaintenance1 && maintenanceFeatures.swapchainMaintenance1;
                 VkFormatProperties color{}, depth{};
                 vkGetPhysicalDeviceFormatProperties(candidate, VK_FORMAT_R8G8B8A8_UNORM, &color);
@@ -384,7 +386,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 caps.supportsCompute = (queues[g].queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
                 caps.supportsTimestampQueries = queues[g].timestampValidBits != 0;
             }
-            if (!physical) throw std::runtime_error("No Vulkan 1.3 GPU with graphics/present, dynamic rendering, synchronization2 and required formats.");
+            if (!physical) throw std::runtime_error("No Vulkan 1.3 GPU with graphics/present, dynamic rendering, synchronization2, timeline semaphores and required formats.");
             // Passive eligibility ends here: querying an instance/physical
             // device must never allocate a logical device or obtain queues.
             if (!createLogicalDevice) return;
@@ -398,6 +400,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
             VkPhysicalDeviceVulkan13Features enabled13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
             enabled13.dynamicRendering = VK_TRUE; enabled13.synchronization2 = VK_TRUE;
+            VkPhysicalDeviceVulkan12Features enabled12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+            enabled12.timelineSemaphore = VK_TRUE; enabled12.pNext = &enabled13;
             VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT enabledMaintenance1{
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT};
             std::vector<const char*> deviceExtensionNames{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
@@ -415,7 +419,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             enabled.wideLines = selectedFeatures.wideLines;
             enabled.independentBlend = selectedFeatures.independentBlend;
             VkDeviceCreateInfo createDevice{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
-            createDevice.pNext = &enabled13; createDevice.pEnabledFeatures = &enabled;
+            createDevice.pNext = &enabled12; createDevice.pEnabledFeatures = &enabled;
             createDevice.queueCreateInfoCount = static_cast<std::uint32_t>(queues.size()); createDevice.pQueueCreateInfos = queues.data();
             createDevice.enabledExtensionCount = static_cast<std::uint32_t>(deviceExtensionNames.size());
             createDevice.ppEnabledExtensionNames = deviceExtensionNames.data();

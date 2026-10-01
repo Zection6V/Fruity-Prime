@@ -96,6 +96,36 @@ namespace
         catch (const BackendError& error) { propagated = error.Kind() == BackendErrorKind::OutOfMemory; }
         Expect(propagated, "allocation errors must not masquerade as surface unavailability");
     }
+
+    void TestSubmissionCompletionIsIndependentOfFrames()
+    {
+        SubmissionProgress progress;
+        RetirementQueue<int> queue;
+        std::vector<int> destroyed;
+        const auto destroy = [&destroyed](int value) { destroyed.push_back(value); };
+        // A failed native submit does not consume a serial.
+        Expect(progress.Next() == SubmissionSerial{1} && progress.Next() == SubmissionSerial{1},
+            "only accepted submissions advance progress");
+        for (int submit = 1; submit <= 4; ++submit) progress.Submitted(progress.Next());
+        queue.Retire(40, SubmissionSerial{4});
+        queue.Retire(20, SubmissionSerial{2});
+        progress.Complete({2});
+        queue.Collect(progress.Completed(), destroy);
+        Expect(destroyed == std::vector<int>{20} && queue.Size() == 1,
+            "collection uses actual completion even with unordered retirement");
+        progress.Complete({1});
+        Expect(progress.Completed() == SubmissionSerial{2}, "stale observations cannot regress completion");
+        bool rejected = false;
+        try { progress.Complete({5}); } catch (const std::logic_error&) { rejected = true; }
+        Expect(rejected && progress.Completed() == SubmissionSerial{2}, "future completion rejected");
+        rejected = false;
+        try { progress.Submitted({6}); } catch (const std::logic_error&) { rejected = true; }
+        Expect(rejected && progress.Submitted() == SubmissionSerial{4}, "submission gaps rejected");
+        progress.Complete({4});
+        queue.Collect(progress.Completed(), destroy);
+        Expect(destroyed == std::vector<int>{20, 40} && queue.Size() == 0,
+            "last use survives until its submission completes");
+    }
 }
 
 int main()
@@ -107,6 +137,7 @@ int main()
         TestCancelledObjectsAreNotDestroyed();
         TestIdleDestroysEverything();
         TestPresentationFailuresStayTyped();
+        TestSubmissionCompletionIsIndependentOfFrames();
         std::cout << "RhiLifetime tests passed.\n";
         return 0;
     }

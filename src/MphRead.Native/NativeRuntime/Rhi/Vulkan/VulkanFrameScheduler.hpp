@@ -1,0 +1,88 @@
+#pragma once
+
+#include "../Submission.hpp"
+
+#include <vulkan/vulkan.h>
+#include <vector>
+
+namespace MphRead::NativeRuntime::Rhi::Vulkan
+{
+    // Tracks actual graphics queue submissions, including a marker following
+    // external producers on that queue. It does not own frame/descriptor slots.
+    class VulkanFrameScheduler final
+    {
+    public:
+        struct Dispatch final
+        {
+            VkDevice Device;
+            VkQueue Queue;
+            PFN_vkCreateSemaphore CreateSemaphore;
+            PFN_vkDestroySemaphore DestroySemaphore;
+            PFN_vkQueueSubmit2 QueueSubmit;
+            PFN_vkGetSemaphoreCounterValue CounterValue;
+            void (*CheckResult)(VkResult, const char*);
+        };
+
+        explicit VulkanFrameScheduler(Dispatch dispatch) : _dispatch(dispatch)
+        {
+            VkSemaphoreTypeCreateInfo type{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
+            type.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+            VkSemaphoreCreateInfo create{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+            create.pNext = &type;
+            _dispatch.CheckResult(_dispatch.CreateSemaphore(_dispatch.Device, &create, nullptr, &_timeline),
+                "vkCreateSemaphore(submission timeline)");
+        }
+
+        ~VulkanFrameScheduler()
+        {
+            // The owner drains the queue before destroying the scheduler.
+            _dispatch.DestroySemaphore(_dispatch.Device, _timeline, nullptr);
+        }
+        VulkanFrameScheduler(const VulkanFrameScheduler&) = delete;
+        VulkanFrameScheduler& operator=(const VulkanFrameScheduler&) = delete;
+
+        SubmissionSerial Submit(const VkSubmitInfo2& work, VkFence fence = VK_NULL_HANDLE)
+        {
+            const auto serial = _progress.Next();
+            std::vector<VkSemaphoreSubmitInfo> signals;
+            if (work.signalSemaphoreInfoCount)
+                signals.assign(work.pSignalSemaphoreInfos,
+                    work.pSignalSemaphoreInfos + work.signalSemaphoreInfoCount);
+            VkSemaphoreSubmitInfo signal{VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+            signal.semaphore = _timeline;
+            signal.value = serial.Value;
+            signal.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            signals.push_back(signal);
+            VkSubmitInfo2 submit = work;
+            submit.signalSemaphoreInfoCount = static_cast<std::uint32_t>(signals.size());
+            submit.pSignalSemaphoreInfos = signals.data();
+            _dispatch.CheckResult(_dispatch.QueueSubmit(_dispatch.Queue, 1, &submit, fence),
+                "vkQueueSubmit2(submission timeline)");
+            _progress.Submitted(serial);
+            return serial;
+        }
+
+        SubmissionSerial MarkExternalWork()
+        {
+            const VkSubmitInfo2 marker{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+            return Submit(marker);
+        }
+
+        SubmissionSerial Poll()
+        {
+            std::uint64_t complete = 0;
+            _dispatch.CheckResult(_dispatch.CounterValue(_dispatch.Device, _timeline, &complete),
+                "vkGetSemaphoreCounterValue(submission timeline)");
+            _progress.Complete({complete});
+            return _progress.Completed();
+        }
+
+        [[nodiscard]] SubmissionSerial Submitted() const noexcept { return _progress.Submitted(); }
+        [[nodiscard]] SubmissionSerial Completed() const noexcept { return _progress.Completed(); }
+
+    private:
+        Dispatch _dispatch;
+        VkSemaphore _timeline = VK_NULL_HANDLE;
+        SubmissionProgress _progress;
+    };
+}

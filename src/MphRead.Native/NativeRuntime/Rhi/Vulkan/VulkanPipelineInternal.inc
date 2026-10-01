@@ -254,8 +254,13 @@ public:
     {
         if (_deferred) _device->ForgetScene(this);
         if (_owner || _deferred) return;
+        try { _device->FlushScene(); } catch (...) {}
         auto& vk = *_device->ContextPointer->_impl;
-        vk.vkDestroyPipeline(vk.device, _pipeline, nullptr); vk.vkDestroyPipelineLayout(vk.device, _layout, nullptr);
+        _device->Retire([device = vk.device, destroyPipeline = vk.vkDestroyPipeline,
+            destroyLayout = vk.vkDestroyPipelineLayout, pipeline = _pipeline, layout = _layout] {
+            destroyPipeline(device, pipeline, nullptr);
+            destroyLayout(device, layout, nullptr);
+        });
         --_device->Programs;
     }
     [[nodiscard]] const GraphicsPipelineDesc& Desc() const noexcept override { return _desc; }

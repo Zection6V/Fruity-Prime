@@ -163,6 +163,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             CheckBindingAllocations(*device);
             CheckShaderModules(*device);
             CheckGraphicsPipelines(*device);
+            CheckResourceRetirement(*device);
+            std::cout << "[vulkan] retirement PASS; 64 clear/bind/resize/release cycles; failed resize retained; "
+                << "churn device-wide waits=0; completed=submitted; retired=0\n";
             std::cout << "[vulkan] graphics pipelines PASS; main; composite; cel; shift; manifest layouts\n";
             std::cout << "[vulkan] shader modules PASS; eight stages; entry point validation; release\n";
             std::cout << "[vulkan] bindings allocation PASS; arrays; alignment; fresh sets; overflow pools; frame reuse; GPU bind submit\n";

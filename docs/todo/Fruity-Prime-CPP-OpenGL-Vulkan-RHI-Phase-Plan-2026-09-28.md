@@ -3606,6 +3606,8 @@ GPU Vulkan pathを使う。
 - [ ] Vulkan validation clean
 - [ ] GLES build/run維持
 
+2026-10-01: **コード実装・両ABIビルド完了、実機検証は未了**（この環境にAndroid端末/エミュレータが無く、adbがローカルサーバへ接続できない）。共通Vulkan backendをlibvulkan.so/ANativeWindow surfaceで接続、device生存のままsurface/swapchainのみ再生成、明示Vulkan失敗はエラー通知（GLESへ黙って戻らない）。端末での確認手順は[Phase 22 gate](Fruity-Prime-CPP-Vulkan-RHI-Phase22-Gate-2026-10-01.md)。
+
 ---
 
 # 31. Phase 23 — CI分割
@@ -4590,7 +4592,7 @@ D3D12
 
 ## 現在の作業位置
 
-- **Phase 17完了 (2026-10-01)。** Vulkanでmain sceneを描画（`-rhi vulkan`）。Golden 7/7がOpenGLとscene部pixel一致、validation 0、GPU lifetime 4/4。[Phase 17 gate](Fruity-Prime-CPP-Vulkan-RHI-Phase17-Gate-2026-10-01.md)。**Phase 18完了** ([gate](Fruity-Prime-CPP-Vulkan-RHI-Phase18-Gate-2026-10-01.md))。**Phase 19完了**（Skia Ganesh Vulkan、[gate](Fruity-Prime-CPP-Vulkan-RHI-Phase19-Gate-2026-10-01.md)）。**Phase 20完了**（readback/定常stall 0、[gate](Fruity-Prime-CPP-Vulkan-RHI-Phase20-Gate-2026-10-01.md)）。**Phase 21完了**（[gate](Fruity-Prime-CPP-Vulkan-RHI-Phase21-Gate-2026-10-01.md)）。**次はPhase 22。**
+- **Phase 17完了 (2026-10-01)。** Vulkanでmain sceneを描画（`-rhi vulkan`）。Golden 7/7がOpenGLとscene部pixel一致、validation 0、GPU lifetime 4/4。[Phase 17 gate](Fruity-Prime-CPP-Vulkan-RHI-Phase17-Gate-2026-10-01.md)。**Phase 18完了** ([gate](Fruity-Prime-CPP-Vulkan-RHI-Phase18-Gate-2026-10-01.md))。**Phase 19完了**（Skia Ganesh Vulkan、[gate](Fruity-Prime-CPP-Vulkan-RHI-Phase19-Gate-2026-10-01.md)）。**Phase 20完了**（readback/定常stall 0、[gate](Fruity-Prime-CPP-Vulkan-RHI-Phase20-Gate-2026-10-01.md)）。**Phase 21完了**（[gate](Fruity-Prime-CPP-Vulkan-RHI-Phase21-Gate-2026-10-01.md)）。**Phase 22はコード完了・実機検証待ち**（[gate](Fruity-Prime-CPP-Vulkan-RHI-Phase22-Gate-2026-10-01.md)）。**次はPhase 23。**
 - **Phase 13まで完了 (2026-09-30)。** Phase 11最終コード `5e3c3275` はGolden 7/7、CTest 5/5、GL分類D=0、shellshot 28枚、[CI 36666551184](https://github.com/Zection6V/Fruity-Prime/actions/runs/36666551184) 11/11 PASS。Phase 10最終コード `220e900a` はGolden 7/7、GPU lifetime arena 5/5・実マップcel 3/3で解放後全種ゼロ、shellshot 24枚、2クライアントのSANCTORUS↔PROVING GROUND遷移がPASS。C++ソース同一の `a6144b61` は [CI 36647299171](https://github.com/Zection6V/Fruity-Prime/actions/runs/36647299171) 10/10 PASS。Phase 13実装SHA `8c6f2d2a` はclear-only Vulkan presentation、resize/fullscreen/minimize復帰、終了を実機でvalidation errors 0、CTest 5/5、[CI 36684051768](https://github.com/Zection6V/Fruity-Prime/actions/runs/36684051768) 11/11 PASS。詳細は[Phase 10/11検証記録](Fruity-Prime-CPP-OpenGL-RHI-Phase10-11-Gate-2026-09-30.md)と[Phase 13 gate記録](Fruity-Prime-CPP-Vulkan-RHI-Phase13-Gate-2026-09-30.md)を参照。**次はPhase 14。** 以下のPhase 4〜5記録は過去の経緯として保持する。
 
 - **Phase 5 完了 (2026-09-30, SHA `5e52078b5545294cfa423715457e1a2279cd9398`)。** 本文の完了条件5項目すべてチェック済み。次はPhase 6。

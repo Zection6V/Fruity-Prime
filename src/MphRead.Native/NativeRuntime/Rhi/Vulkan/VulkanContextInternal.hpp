@@ -13,9 +13,18 @@
 #include <vector>
 
 #define VK_NO_PROTOTYPES
+#if defined(__ANDROID__)
+// The same backend on Android: the loader is libvulkan.so, the surface an
+// ANativeWindow. Nothing below the instance differs.
+#define VK_USE_PLATFORM_ANDROID_KHR
+#include <vulkan/vulkan.h>
+#include <android/native_window.h>
+#include <dlfcn.h>
+#else
 #include <vulkan/vulkan.h>
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
+#endif
 
 namespace MphRead::NativeRuntime::Rhi::Vulkan
 {
@@ -91,9 +100,28 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         DECLARE_VULKAN_FUNCTION(vkCreateInstance)
 #undef DECLARE_VULKAN_FUNCTION
 
+        // The platform's loader entry point: GLFW's on the desktop, the
+        // system loader's own on Android.
+        static PFN_vkGetInstanceProcAddr InstanceProc()
+        {
+#if defined(__ANDROID__)
+            static PFN_vkGetInstanceProcAddr proc = []
+            {
+                void* library = ::dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
+                if (!library) throw std::runtime_error("This device has no Vulkan loader (libvulkan.so).");
+                auto entry = reinterpret_cast<PFN_vkGetInstanceProcAddr>(::dlsym(library, "vkGetInstanceProcAddr"));
+                if (!entry) throw std::runtime_error("libvulkan.so has no vkGetInstanceProcAddr.");
+                return entry;
+            }();
+            return proc;
+#else
+            return reinterpret_cast<PFN_vkGetInstanceProcAddr>(glfwGetInstanceProcAddress);
+#endif
+        }
+
         template<class T> T Load(const char* function)
         {
-            auto pointer = glfwGetInstanceProcAddress(instance, function);
+            auto pointer = InstanceProc()(instance, function);
             if (!pointer) throw std::runtime_error(std::string("Missing Vulkan entry point: ") + function);
             return reinterpret_cast<T>(pointer);
         }
@@ -129,14 +157,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (messenger)
             {
                 auto destroy = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(
-                    glfwGetInstanceProcAddress(instance, "vkDestroyDebugUtilsMessengerEXT"));
+                    InstanceProc()(instance, "vkDestroyDebugUtilsMessengerEXT"));
                 if (destroy) destroy(instance, messenger, nullptr);
                 messenger = VK_NULL_HANDLE;
             }
             if (instance)
             {
                 if (!vkDestroyInstance)
-                    vkDestroyInstance = reinterpret_cast<PFN_vkDestroyInstance>(glfwGetInstanceProcAddress(instance, "vkDestroyInstance"));
+                    vkDestroyInstance = reinterpret_cast<PFN_vkDestroyInstance>(InstanceProc()(instance, "vkDestroyInstance"));
                 if (vkDestroyInstance) vkDestroyInstance(instance, nullptr);
                 instance = VK_NULL_HANDLE;
             }
@@ -149,11 +177,32 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             Check(setName(device, &info), "vkSetDebugUtilsObjectNameEXT");
         }
 
-        void Initialize(bool requestedValidation, GLFWwindow* presentationWindow = nullptr, bool allowMaintenance = true)
+#if defined(__ANDROID__)
+        // A surface for this ANativeWindow, replacing any earlier one (whose
+        // swapchain must already be gone). The device stays.
+        void CreateAndroidSurface(void* nativeWindow)
+        {
+            DestroySurface();
+            if (!nativeWindow) return;
+            auto create = reinterpret_cast<PFN_vkCreateAndroidSurfaceKHR>(
+                InstanceProc()(instance, "vkCreateAndroidSurfaceKHR"));
+            if (!create) throw std::runtime_error("vkCreateAndroidSurfaceKHR is unavailable.");
+            VkAndroidSurfaceCreateInfoKHR info{VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR};
+            info.window = static_cast<ANativeWindow*>(nativeWindow);
+            Check(create(instance, &info, nullptr, &surface), "vkCreateAndroidSurfaceKHR");
+        }
+#endif
+        void DestroySurface() noexcept
+        {
+            if (surface && instance && vkDestroySurfaceKHR) vkDestroySurfaceKHR(instance, surface, nullptr);
+            surface = VK_NULL_HANDLE;
+        }
+
+        void Initialize(bool requestedValidation, void* presentationWindow = nullptr, bool allowMaintenance = true)
         {
             std::uint32_t version = VK_API_VERSION_1_0;
             auto enumerateVersion = reinterpret_cast<PFN_vkEnumerateInstanceVersion>(
-                glfwGetInstanceProcAddress(VK_NULL_HANDLE, "vkEnumerateInstanceVersion"));
+                InstanceProc()(VK_NULL_HANDLE, "vkEnumerateInstanceVersion"));
             if (enumerateVersion) Check(enumerateVersion(&version), "vkEnumerateInstanceVersion");
             if (version < VK_API_VERSION_1_3) throw std::runtime_error("Vulkan 1.3 loader required.");
             vkEnumerateInstanceExtensionProperties = Load<PFN_vkEnumerateInstanceExtensionProperties>("vkEnumerateInstanceExtensionProperties");
@@ -164,10 +213,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             Check(vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr), "instance extension count");
             std::vector<VkExtensionProperties> available(count);
             Check(vkEnumerateInstanceExtensionProperties(nullptr, &count, available.data()), "instance extensions");
+#if defined(__ANDROID__)
+            std::vector<const char*> extensions{VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_ANDROID_SURFACE_EXTENSION_NAME};
+#else
             std::uint32_t glfwCount = 0;
             const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwCount);
             if (!glfwExtensions || !glfwCount) throw std::runtime_error("No Vulkan window-system extensions.");
             std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwCount);
+#endif
             for (const char* extension : extensions)
                 if (!Contains(available, extension)) throw std::runtime_error(std::string("Missing instance extension: ") + extension);
             bool debugUtils = Contains(available, VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
@@ -210,14 +263,19 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 #undef LOAD_VULKAN_INSTANCE_FUNCTION
             if (debugUtils)
             {
-                auto createDebug = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(glfwGetInstanceProcAddress(instance, "vkCreateDebugUtilsMessengerEXT"));
+                auto createDebug = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(InstanceProc()(instance, "vkCreateDebugUtilsMessengerEXT"));
                 if (!createDebug) throw std::runtime_error("Debug utils entry point unavailable.");
                 Check(createDebug(instance, &debug, nullptr, &messenger), "vkCreateDebugUtilsMessengerEXT");
             }
             if (presentationWindow != nullptr)
             {
-                Check(glfwCreateWindowSurface(instance, presentationWindow, nullptr, &surface),
+#if defined(__ANDROID__)
+                vkDestroySurfaceKHR = Load<PFN_vkDestroySurfaceKHR>("vkDestroySurfaceKHR");
+                CreateAndroidSurface(presentationWindow);
+#else
+                Check(glfwCreateWindowSurface(instance, static_cast<GLFWwindow*>(presentationWindow), nullptr, &surface),
                     "glfwCreateWindowSurface");
+#endif
             }
             Check(vkEnumeratePhysicalDevices(instance, &count, nullptr), "physical device count");
             std::vector<VkPhysicalDevice> devices(count);
@@ -266,7 +324,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     }
                     else
                     {
+#if defined(__ANDROID__)
+                        // Every Android graphics queue presents (the surface,
+                        // when there is one, is checked below).
+                        canPresent = true;
+#else
                         canPresent = glfwGetPhysicalDevicePresentationSupport(instance, candidate, i) == GLFW_TRUE;
+#endif
                     }
                     if ((queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) && canPresent) { g = p = i; break; }
                     if ((queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) && g == UINT32_MAX) g = i;

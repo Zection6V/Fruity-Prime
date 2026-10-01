@@ -4,7 +4,7 @@
 #include "OpenGL/OpenGlGeometry.hpp"
 #include "OpenGL/OpenGlShaderInterface.hpp"
 
-#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+#if defined(FRUITY_HAS_VULKAN)
 #include "Vulkan/VulkanContext.hpp"
 #include "Vulkan/VulkanGraphicsDevice.hpp"
 #include "Vulkan/VulkanScene.hpp"
@@ -34,7 +34,7 @@ namespace MphRead::NativeRuntime::Rhi
         bool resolved = false;
         bool validation = false;
 
-#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+#if defined(FRUITY_HAS_VULKAN)
         struct VulkanScene final
         {
             std::unique_ptr<Vulkan::Context> Context;
@@ -87,11 +87,17 @@ namespace MphRead::NativeRuntime::Rhi
 
     std::string VulkanUnavailableReason(bool forWindow)
     {
-#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+#if defined(FRUITY_HAS_VULKAN)
+#if defined(__ANDROID__)
+        // The Android launcher is a CPU raster composited by the scene
+        // device, so the window needs nothing beyond the device itself.
+        (void)forWindow;
+#else
         if (forWindow && !Skia::VulkanInterop::Available())
             return "this build's Skia has no Vulkan backend, so the launcher cannot draw into a Vulkan window";
         if (::glfwInit() != GLFW_TRUE) return "GLFW could not be initialised";
         if (::glfwVulkanSupported() != GLFW_TRUE) return "no Vulkan loader or driver was found";
+#endif
         if (Scene().Device) return {};
         try
         {
@@ -154,7 +160,7 @@ namespace MphRead::NativeRuntime::Rhi
     GraphicsDevice& SceneDevice()
     {
         if (SelectedSceneBackend() == SceneBackendKind::OpenGL) return OpenGL::ContextDevice();
-#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+#if defined(FRUITY_HAS_VULKAN)
         auto& scene = Scene();
         if (!scene.Device)
         {
@@ -169,7 +175,7 @@ namespace MphRead::NativeRuntime::Rhi
 
     unsigned SceneValidationErrors() noexcept
     {
-#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+#if defined(FRUITY_HAS_VULKAN)
         auto& scene = Scene();
         return scene.Context ? scene.Context->ValidationErrors() : 0U;
 #else
@@ -187,7 +193,7 @@ namespace MphRead::NativeRuntime::Rhi
         std::string line = "requested " + std::string(SceneBackendRequestName(requested))
             + (requestExplicit ? " (command line)" : "") + ", selected "
             + std::string(SceneBackendName(SelectedSceneBackend()));
-#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+#if defined(FRUITY_HAS_VULKAN)
         if (selected == SceneBackendKind::Vulkan && Scene().Context)
         {
             line += ", " + Scene().Context->Describe();
@@ -206,6 +212,51 @@ namespace MphRead::NativeRuntime::Rhi
         (void)swapchain;
         line += ", " + OpenGL::ContextDevice().AdapterDescription();
         return line;
+    }
+
+    void AttachSceneSurface(void* nativeWindow)
+    {
+#if defined(FRUITY_HAS_VULKAN) && defined(__ANDROID__)
+        auto& scene = Scene();
+        if (!scene.Device)
+        {
+            scene.Context = std::make_unique<Vulkan::Context>(validation, Vulkan::Context::AndroidWindow{nativeWindow});
+            scene.Device = Vulkan::CreateGraphicsDevice(*scene.Context);
+        }
+        else
+            scene.Context->ReplaceAndroidSurface(nativeWindow);
+#else
+        (void)nativeWindow;
+        throw std::runtime_error("A surface is attached this way only by the Android head's Vulkan path.");
+#endif
+    }
+
+    void DetachSceneSurface() noexcept
+    {
+#if defined(FRUITY_HAS_VULKAN) && defined(__ANDROID__)
+        auto& scene = Scene();
+        if (!scene.Context) return;
+        try
+        {
+            scene.Device->WaitIdle();
+            scene.Context->ReplaceAndroidSurface(nullptr);
+        }
+        catch (...)
+        {
+        }
+#endif
+    }
+
+    std::unique_ptr<Swapchain> CreateSceneSurfaceSwapchain(const SwapchainDesc& desc)
+    {
+#if defined(FRUITY_HAS_VULKAN) && defined(__ANDROID__)
+        auto& scene = Scene();
+        if (!scene.Context) throw std::logic_error("No surface is attached to the Vulkan scene device.");
+        return Vulkan::CreateSurfaceSwapchain(*scene.Context, desc);
+#else
+        (void)desc;
+        throw std::runtime_error("A surface swapchain exists only on the Android head's Vulkan path.");
+#endif
     }
 
     std::unique_ptr<Swapchain> CreateSceneWindowSwapchain(
@@ -231,7 +282,7 @@ namespace MphRead::NativeRuntime::Rhi
 
     void PresentSceneWindow(Swapchain& swapchain)
     {
-#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+#if defined(FRUITY_HAS_VULKAN)
         if (SelectedSceneBackend() == SceneBackendKind::Vulkan)
         {
             Vulkan::PresentWindow(SceneDevice(), swapchain);
@@ -243,7 +294,7 @@ namespace MphRead::NativeRuntime::Rhi
 
     void DetachSceneWindow() noexcept
     {
-#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+#if defined(FRUITY_HAS_VULKAN)
         auto& scene = Scene();
         if (!scene.Window) return;
         // The device stays for the process, as OpenGL's context device does:
@@ -264,7 +315,7 @@ namespace MphRead::NativeRuntime::Rhi
         GraphicsDevice& device, CommandList& commands, const OpenGL::SceneShaderSources& sources)
     {
         (void)commands;
-#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+#if defined(FRUITY_HAS_VULKAN)
         if (IsVulkan(device)) return Vulkan::CreateSceneShaderSet(device, sources.ToonTable, sources.ShiftTable);
 #endif
         return OpenGL::CreateSceneShaderSet(device, sources);
@@ -274,7 +325,7 @@ namespace MphRead::NativeRuntime::Rhi
         GraphicsDevice& device, CommandList& commands, const MphRead::RendererGeometry& geometry)
     {
         (void)commands;
-#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+#if defined(FRUITY_HAS_VULKAN)
         if (IsVulkan(device)) return Vulkan::CreateGpuMeshResource(device, commands, geometry);
 #endif
         (void)device;
@@ -285,7 +336,7 @@ namespace MphRead::NativeRuntime::Rhi
         GraphicsDevice& device, CommandList& commands)
     {
         (void)commands;
-#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+#if defined(FRUITY_HAS_VULKAN)
         if (IsVulkan(device)) return Vulkan::CreateTransientGeometryResource(device, commands);
 #endif
         (void)device;

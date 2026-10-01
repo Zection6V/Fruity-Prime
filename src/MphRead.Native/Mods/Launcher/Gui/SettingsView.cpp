@@ -312,11 +312,17 @@ namespace MphRead::Mods::Launcher::Gui
         _windowRow = Add(page, std::make_shared<ChoiceRow>("Mode",
             std::vector<std::string>{"Windowed", "Fullscreen (borderless)"},
             LauncherPrefs::WindowMode() == WindowStartMode::BorderlessFullscreen ? 1 : 0));
-        // The window is made for one backend, so this is read at the next start.
-        _rendererRow = Add(page, std::make_shared<ChoiceRow>("Renderer (next start)",
-            std::vector<std::string>{"OpenGL", "Vulkan", "Auto"},
-            LauncherPrefs::Renderer() == "vulkan" ? 1 : LauncherPrefs::Renderer() == "auto" ? 2 : 0));
 #endif
+        // The window (or the Android surface) is made for one backend, so
+        // this is read at the next start.
+#if defined(__ANDROID__)
+        constexpr const char* ownGl = "OpenGL ES";
+#else
+        constexpr const char* ownGl = "OpenGL";
+#endif
+        _rendererRow = Add(page, std::make_shared<ChoiceRow>("Renderer (next start)",
+            std::vector<std::string>{ownGl, "Vulkan", "Auto"},
+            LauncherPrefs::Renderer() == "vulkan" ? 1 : LauncherPrefs::Renderer() == "auto" ? 2 : 0));
 
         Heading(page, "View");
         _fovRow = Add(page, std::make_shared<SliderRow>("Field of view",

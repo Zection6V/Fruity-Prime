@@ -14,7 +14,7 @@
 #include <unordered_map>
 #include <utility>
 
-#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+#if defined(FRUITY_HAS_VULKAN)
 #include "VulkanContextInternal.hpp"
 #include "FruityVulkanSceneShaders.hpp"
 #include <vk_mem_alloc.h>
@@ -468,8 +468,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 auto& vk = *context._impl;
                 VmaVulkanFunctions functions{};
-                functions.vkGetInstanceProcAddr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(
-                    glfwGetInstanceProcAddress);
+                functions.vkGetInstanceProcAddr = Context::Impl::InstanceProc();
                 functions.vkGetDeviceProcAddr = vk.vkGetDeviceProcAddr;
                 VmaAllocatorCreateInfo create{};
                 create.instance = vk.instance;
@@ -3110,7 +3109,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         result.Queue = reinterpret_cast<std::uint64_t>(vk.graphics);
         result.QueueFamily = vk.graphicsFamily;
         result.ApiVersion = VK_API_VERSION_1_3;
-        result.GetInstanceProcAddr = reinterpret_cast<void*>(glfwGetInstanceProcAddress);
+        result.GetInstanceProcAddr = reinterpret_cast<void*>(Context::Impl::InstanceProc());
         result.GetDeviceProcAddr = reinterpret_cast<void*>(vk.vkGetDeviceProcAddr);
         return result;
     }

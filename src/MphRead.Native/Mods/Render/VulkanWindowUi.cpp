@@ -2,7 +2,7 @@
 
 #include "../../NativeRuntime/Rhi/SceneBackend.hpp"
 
-#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+#if defined(FRUITY_HAS_VULKAN)
 #include "../../NativeRuntime/Rhi/Vulkan/VulkanScene.hpp"
 #endif
 
@@ -10,7 +10,7 @@
 
 namespace MphRead::Mods::Render
 {
-#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+#if defined(FRUITY_HAS_VULKAN)
     namespace
     {
         std::unique_ptr<NativeRuntime::Rhi::Vulkan::WindowUi>& Instance()

@@ -20,6 +20,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     // its graphics device. The context must outlive the swapchain.
     [[nodiscard]] std::unique_ptr<Swapchain> CreateSwapchain(Context& context,
         ::MphRead::RendererPlatform::Window& window, const SwapchainDesc& desc);
+    // A swapchain on the context's own surface, sized by that surface: the
+    // Android head's, whose surface is an ANativeWindow and not a GLFW window.
+    [[nodiscard]] std::unique_ptr<Swapchain> CreateSurfaceSwapchain(Context& context, const SwapchainDesc& desc);
 
     // Visible desktop diagnostic for Phase 13. It does not load game data.
     int RunPresentationCheck(bool forceFallback = false);

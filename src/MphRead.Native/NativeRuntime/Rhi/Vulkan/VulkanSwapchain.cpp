@@ -12,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+#if defined(FRUITY_HAS_VULKAN)
 #include "VulkanContextInternal.hpp"
 namespace MphRead::NativeRuntime::Rhi::Vulkan
 {
@@ -84,9 +84,24 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         VulkanSwapchain(::MphRead::RendererPlatform::Window& window, const SwapchainDesc& desc,
             std::unique_ptr<Context> owned, Context* shared)
-            : _window(window), _ownedContext(std::move(owned)), _context(shared ? *shared : *_ownedContext),
+            : _window(&window), _ownedContext(std::move(owned)), _context(shared ? *shared : *_ownedContext),
+#if !defined(__ANDROID__)
               _nativeWindow(static_cast<GLFWwindow*>(window.NativeHandle())),
+#endif
               _desc(desc), _requestedMode(desc.presentMode)
+        {
+            Start();
+        }
+
+        // Android: the context's own surface (made on an ANativeWindow), sized
+        // by the surface itself; there is no GLFW window.
+        VulkanSwapchain(Context& shared, const SwapchainDesc& desc)
+            : _context(shared), _desc(desc), _requestedMode(desc.presentMode)
+        {
+            Start();
+        }
+
+        void Start()
         {
             try
             {
@@ -94,7 +109,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     throw std::runtime_error("The Vulkan context did not create a presentation surface.");
                 InitializeFrames();
                 int width = 0, height = 0;
-                ::glfwGetFramebufferSize(_nativeWindow, &width, &height);
+                DrawableSize(width, height);
                 if (width <= 0 || height <= 0)
                     throw std::runtime_error("The Vulkan window has no drawable framebuffer.");
                 Recreate(static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height));
@@ -134,7 +149,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 return;
             }
             int framebufferWidth = 0, framebufferHeight = 0;
-            ::glfwGetFramebufferSize(_nativeWindow, &framebufferWidth, &framebufferHeight);
+            DrawableSize(framebufferWidth, framebufferHeight);
             if (framebufferWidth > 0 && framebufferHeight > 0)
             {
                 width = static_cast<std::uint32_t>(framebufferWidth);
@@ -151,16 +166,16 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (_acquired) throw std::logic_error("A Vulkan swapchain image is already acquired.");
             for (;;)
             {
-                if (::glfwWindowShouldClose(_nativeWindow))
+                if (Closing())
                     throw std::runtime_error("The Vulkan presentation window is closing.");
                 int width = 0, height = 0;
-                ::glfwGetFramebufferSize(_nativeWindow, &width, &height);
+                DrawableSize(width, height);
                 if (width <= 0 || height <= 0)
                 {
                     _suspended = true;
                     _desc.width = 0;
                     _desc.height = 0;
-                    ::glfwWaitEventsTimeout(0.05);
+                    WaitForDrawable();
                     continue;
                 }
                 const auto w = static_cast<std::uint32_t>(width);
@@ -232,9 +247,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         // never run again.
         [[nodiscard]] bool TryAcquire()
         {
-            if (_closed || ::glfwWindowShouldClose(_nativeWindow)) return false;
+            if (_closed || Closing()) return false;
             int width = 0, height = 0;
-            ::glfwGetFramebufferSize(_nativeWindow, &width, &height);
+            DrawableSize(width, height);
             if (width <= 0 || height <= 0)
             {
                 _suspended = true;
@@ -435,10 +450,52 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         };
 
         static constexpr std::size_t FrameCount = 2;
-        ::MphRead::RendererPlatform::Window& _window;
+        ::MphRead::RendererPlatform::Window* _window = nullptr;
         std::unique_ptr<Context> _ownedContext;
         Context& _context;
+#if !defined(__ANDROID__)
         GLFWwindow* _nativeWindow = nullptr;
+#endif
+
+        // The drawable extent: the GLFW framebuffer on the desktop; on
+        // Android, the surface's current extent (zero while it has none).
+        void DrawableSize(int& width, int& height)
+        {
+#if defined(__ANDROID__)
+            VkSurfaceCapabilitiesKHR capabilities{};
+            width = 0;
+            height = 0;
+            if (!_context._impl->surface) return;
+            if (_context._impl->vkGetPhysicalDeviceSurfaceCapabilitiesKHR(_context._impl->physical,
+                    _context._impl->surface, &capabilities) != VK_SUCCESS) return;
+            if (capabilities.currentExtent.width == 0xFFFFFFFFU)
+            {
+                width = static_cast<int>(_desc.width);
+                height = static_cast<int>(_desc.height);
+                return;
+            }
+            width = static_cast<int>(capabilities.currentExtent.width);
+            height = static_cast<int>(capabilities.currentExtent.height);
+#else
+            ::glfwGetFramebufferSize(_nativeWindow, &width, &height);
+#endif
+        }
+        [[nodiscard]] bool Closing() const
+        {
+#if defined(__ANDROID__)
+            return !_context._impl->surface;
+#else
+            return ::glfwWindowShouldClose(_nativeWindow) != 0;
+#endif
+        }
+        static void WaitForDrawable()
+        {
+#if defined(__ANDROID__)
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+#else
+            ::glfwWaitEventsTimeout(0.05);
+#endif
+        }
         SwapchainDesc _desc{};
         PresentMode _requestedMode = PresentMode::Fifo;
         VkSwapchainKHR _swapchain = VK_NULL_HANDLE;
@@ -825,9 +882,16 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 _needsRecreate = true;
             _recreateAfterPresent = false;
             _frameIndex = (_frameIndex + 1) % static_cast<std::uint32_t>(FrameCount);
+#if !defined(__ANDROID__)
             ::MphRead::RendererPlatform::ProcessEvents();
+#endif
         }
     };
+    std::unique_ptr<Swapchain> CreateSurfaceSwapchain(Context& context, const SwapchainDesc& desc)
+    {
+        return std::make_unique<VulkanSwapchain>(context, desc);
+    }
+
     std::unique_ptr<Swapchain> CreateSwapchain(
         ::MphRead::RendererPlatform::Window& window, const SwapchainDesc& desc)
     {
@@ -851,6 +915,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         dynamic_cast<VulkanSwapchain&>(swapchain).BlitCurrent(source, layout, stages, access, extent);
     }
 
+#if !defined(__ANDROID__)
     int RunPresentationCheck(bool forceFallback)
     {
         try
@@ -999,6 +1064,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
 }
 #else
+    int RunPresentationCheck(bool)
+    {
+        std::cerr << "[vulkan] the presentation check opens a desktop window.\n";
+        return 1;
+    }
+}
+#endif
+#else
 namespace MphRead::NativeRuntime::Rhi::Vulkan
 {
     std::unique_ptr<Swapchain> CreateSwapchain(
@@ -1008,6 +1081,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     }
     std::unique_ptr<Swapchain> CreateSwapchain(Context&,
         ::MphRead::RendererPlatform::Window&, const SwapchainDesc&)
+    {
+        throw std::runtime_error("Vulkan presentation is unavailable on this platform or build.");
+    }
+    std::unique_ptr<Swapchain> CreateSurfaceSwapchain(Context&, const SwapchainDesc&)
     {
         throw std::runtime_error("Vulkan presentation is unavailable on this platform or build.");
     }

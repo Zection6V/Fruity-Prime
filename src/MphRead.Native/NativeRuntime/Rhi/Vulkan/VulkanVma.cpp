@@ -1,4 +1,4 @@
-#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+#if defined(FRUITY_HAS_VULKAN)
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
 #endif

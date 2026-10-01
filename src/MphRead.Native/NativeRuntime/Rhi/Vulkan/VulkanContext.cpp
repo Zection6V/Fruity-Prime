@@ -4,7 +4,7 @@
 #include <iostream>
 #include <stdexcept>
 
-#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+#if defined(FRUITY_HAS_VULKAN)
 #include "VulkanContextInternal.hpp"
 #include "VulkanGraphicsDevice.hpp"
 
@@ -26,10 +26,34 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     Context::Context(bool validation, ::MphRead::RendererPlatform::Window& window, bool allowMaintenance)
         : _impl(std::make_unique<Impl>())
     {
+#if defined(__ANDROID__)
+        (void)validation; (void)window; (void)allowMaintenance;
+        throw std::invalid_argument("Android presents through an ANativeWindow, not a GLFW window.");
+#else
         auto* native = static_cast<GLFWwindow*>(window.NativeHandle());
         if (!native || window.GraphicsMode() != ::MphRead::RendererPlatform::GraphicsWindowMode::NoApi)
             throw std::invalid_argument("A Vulkan context requires a GLFW NoApi window.");
         _impl->Initialize(validation, native, allowMaintenance);
+#endif
+    }
+    Context::Context(bool validation, AndroidWindow window) : _impl(std::make_unique<Impl>())
+    {
+#if defined(__ANDROID__)
+        _impl->Initialize(validation, window.Native, true);
+#else
+        (void)validation; (void)window;
+        throw std::invalid_argument("An ANativeWindow surface exists only on Android.");
+#endif
+    }
+    void Context::ReplaceAndroidSurface(void* nativeWindow)
+    {
+#if defined(__ANDROID__)
+        WaitIdle();
+        _impl->CreateAndroidSurface(nativeWindow);
+#else
+        (void)nativeWindow;
+        throw std::invalid_argument("An ANativeWindow surface exists only on Android.");
+#endif
     }
     Context::~Context() = default;
     const Capabilities& Context::Caps() const noexcept { return _impl->caps; }
@@ -316,6 +340,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     {
         throw std::runtime_error("Desktop Vulkan development support was not built.");
     }
+    Context::Context(bool, AndroidWindow) { throw std::runtime_error("Vulkan support was not built."); }
+    void Context::ReplaceAndroidSurface(void*) { throw std::runtime_error("Vulkan support was not built."); }
     Context::~Context() = default;
     const Capabilities& Context::Caps() const noexcept { return _impl->caps; }
     const std::string& Context::DeviceName() const noexcept { return _impl->name; }

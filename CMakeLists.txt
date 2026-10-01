@@ -227,6 +227,22 @@ if(NOT ANDROID)
             message(STATUS "Vulkan SDK found but VMA is missing; disabling the optional Vulkan backend")
         endif()
     endif()
+else()
+    # The same Vulkan backend on Android: the NDK's own headers, VMA from
+    # vcpkg, the loader from libvulkan.so at run time and the NDK's glslc.
+    find_path(FRUITY_ANDROID_VULKAN_INCLUDE_DIR NAMES vulkan/vulkan.h)
+    find_path(FRUITY_VMA_INCLUDE_DIR NAMES vk_mem_alloc.h PATH_SUFFIXES vma)
+    if(FRUITY_ANDROID_VULKAN_INCLUDE_DIR AND FRUITY_VMA_INCLUDE_DIR)
+        include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/FruityVulkanShaders.cmake")
+        target_compile_definitions(fruity_mphread_native PRIVATE
+            FRUITY_HAS_VULKAN
+            VMA_STATIC_VULKAN_FUNCTIONS=0
+            VMA_DYNAMIC_VULKAN_FUNCTIONS=1)
+        target_include_directories(fruity_mphread_native PRIVATE "${FRUITY_VMA_INCLUDE_DIR}")
+        message(STATUS "Android Vulkan backend: on")
+    else()
+        message(STATUS "Android Vulkan backend: off (Vulkan headers or VMA not found)")
+    endif()
 endif()
 add_library(FruityPrime::MphRead.Native ALIAS fruity_mphread_native)
 target_sources(fruity_mphread_native PRIVATE

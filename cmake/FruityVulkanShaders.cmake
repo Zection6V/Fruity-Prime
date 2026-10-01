@@ -2,8 +2,12 @@
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 find_program(FRUITY_GLSLC NAMES glslc
     HINTS "$ENV{VULKAN_SDK}/Bin" "$ENV{VULKAN_SDK}/bin"
+        "${CMAKE_ANDROID_NDK}/shader-tools/windows-x86_64" "${CMAKE_ANDROID_NDK}/shader-tools/linux-x86_64"
+        "${CMAKE_ANDROID_NDK}/shader-tools/darwin-x86_64" "${ANDROID_NDK}/shader-tools/windows-x86_64"
+        "${ANDROID_NDK}/shader-tools/linux-x86_64" "${ANDROID_NDK}/shader-tools/darwin-x86_64"
         "$ENV{VCPKG_INSTALLATION_ROOT}/installed/x64-windows/tools/shaderc"
         "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/tools/shaderc"
+    NO_CMAKE_FIND_ROOT_PATH
     REQUIRED)
 set(FRUITY_VULKAN_SHADER_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/vulkan-shaders")
 set(_fruity_shader_sources "${CMAKE_CURRENT_SOURCE_DIR}/src/MphRead.Native/Shaders.cpp")

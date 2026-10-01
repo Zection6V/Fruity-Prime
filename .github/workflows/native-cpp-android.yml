@@ -162,6 +162,7 @@ jobs:
             "zlib:${triplet}" \
             "freetype:${triplet}" \
             "libjpeg-turbo:${triplet}" \
+            "vulkan-memory-allocator:${triplet}" \
             --clean-after-build
 
       - name: Save Android vcpkg binary cache

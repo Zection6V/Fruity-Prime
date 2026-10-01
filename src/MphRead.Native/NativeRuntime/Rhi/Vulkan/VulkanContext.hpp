@@ -25,6 +25,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     public:
         explicit Context(bool validation);
         Context(bool validation, ::MphRead::RendererPlatform::Window& window, bool allowMaintenance = true);
+        // Android: a device with a surface on this ANativeWindow*.
+        struct AndroidWindow final { void* Native = nullptr; };
+        Context(bool validation, AndroidWindow window);
+        // Android: the surface goes with its window (the device and every
+        // resource on it stay); a new window gets a new surface.
+        void ReplaceAndroidSurface(void* nativeWindow);
         ~Context();
         Context(const Context&) = delete;
         Context& operator=(const Context&) = delete;

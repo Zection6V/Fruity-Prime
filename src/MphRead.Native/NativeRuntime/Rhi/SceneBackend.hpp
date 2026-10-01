@@ -84,6 +84,13 @@ namespace MphRead::NativeRuntime::Rhi
     [[nodiscard]] bool ScenePresentsWindow();
     [[nodiscard]] std::unique_ptr<Swapchain> CreateSceneWindowSwapchain(
         ::MphRead::RendererPlatform::Window& window, const SwapchainDesc& desc);
+    // Android's Vulkan path: the GameView's ANativeWindow*. The first surface
+    // makes the device; later ones replace only the surface, so the game and
+    // every GPU resource survive a pause or a rotation. Detach releases the
+    // surface (the caller has released its swapchain) and keeps the device.
+    void AttachSceneSurface(void* nativeWindow);
+    void DetachSceneSurface() noexcept;
+    [[nodiscard]] std::unique_ptr<Swapchain> CreateSceneSurfaceSwapchain(const SwapchainDesc& desc);
     // End the frame: submit, and show the scene device's window target.
     void PresentSceneWindow(Swapchain& swapchain);
     // Before the window goes: every scene is gone, and the device follows.

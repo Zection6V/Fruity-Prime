@@ -92,6 +92,12 @@ namespace MphRead::Mods::Launcher::Gui
         return CurrentSurface;
     }
 
+    void UiSurface::ReleaseGpu()
+    {
+        _impl.ReleaseGpu();
+        Invalidate();
+    }
+
     UiSurface::UiSurface()
     {
         _gamepad.Changed += [this] { Invalidate(); };

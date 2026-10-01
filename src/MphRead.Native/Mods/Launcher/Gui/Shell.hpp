@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Portable/LaunchPlan.hpp"
+#include "../../../NativeRuntime/Rhi/SceneBackend.hpp"
 #include "../../../NativeRuntime/Avalonia/Avalonia.hpp"
 
 #include <cstdint>
@@ -47,6 +48,10 @@ namespace MphRead::Mods::Launcher::Gui
         [[nodiscard]] static std::int32_t ShotMisses() noexcept;
 
         [[nodiscard]] static bool Run();
+        // Settings switched the renderer: the window is remade on it at the
+        // next frame (a running match ends), and Settings shown again when
+        // that is where it was asked from.
+        static void RequestRenderer(MphRead::NativeRuntime::Rhi::SceneBackendRequest request, bool fromSettings);
         static void BeforeFrame(MphRead::RenderWindow& window);
         static void TickUi(MphRead::RenderWindow& window);
         static void TickEndPanel();
@@ -117,6 +122,12 @@ namespace MphRead::Mods::Launcher::Gui
         static std::shared_ptr<EndPanelView> _endPanel;
         static std::optional<MphRead::Mods::Launcher::LaunchPlan> _played;
         static std::optional<std::string> _shotDirectory;
+        inline static std::optional<MphRead::NativeRuntime::Rhi::SceneBackendRequest> _switchTo{};
+        inline static bool _settingsAfterSwitch = false;
+        static void ReleaseWindowGpu();
+        static void ShowSettings();
+        static void StartSwitchMatch();
+        [[nodiscard]] static std::vector<ShotAction> SwitchScript();
         static std::int32_t _shotStep;
         static std::int32_t _shotWait;
         static std::int32_t _shotMisses;

@@ -96,6 +96,17 @@ namespace MphRead::Mods::Render
     }
 #endif
 
+    void LauncherPhoto::Release() noexcept
+    {
+#if !defined(__ANDROID__)
+        auto& photo = Photo();
+        photo.Texture.reset();
+        photo.Sampler.reset();
+        photo.Tried = false;
+#endif
+        Gpu::Forget();
+    }
+
     void LauncherPhoto::Enabled(bool value) noexcept { Gpu::Enabled(value); }
     bool LauncherPhoto::Enabled() noexcept { return Gpu::Enabled(); }
 

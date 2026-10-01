@@ -29,6 +29,9 @@
 #include "../../PauseMenu.hpp"
 #include "../../Render/LauncherHunter.hpp"
 #include "../../Render/LauncherPhoto.hpp"
+#include "../../../NativeRuntime/Rhi/OpenGL/OpenGlDevice.hpp"
+#include "../../Render/MapThumbnail.hpp"
+#include "../../Render/LauncherNoise.hpp"
 #include "../../Render/UiOverlay.hpp"
 #include "../../ScreenCapture.hpp"
 #include "../../ThumbnailGenerator.hpp"
@@ -212,16 +215,28 @@ namespace MphRead::Mods::Launcher::Gui
 
         // The launcher draws into this window: a Vulkan one needs Skia's.
         MphRead::NativeRuntime::Rhi::SceneBackendNeedsWindowUi(true);
-        MphRead::RenderWindow::LogCreatingWindow();
         std::unique_ptr<MphRead::RenderWindow> window;
         bool ran = false;
+        // The renderer running before the last switch, to go back to when the
+        // one switched to cannot start.
+        std::optional<MphRead::NativeRuntime::Rhi::SceneBackendRequest> previous;
+        for (bool first = true;; first = false)
+        {
+        MphRead::RenderWindow::LogCreatingWindow();
         try
         {
             window = std::make_unique<MphRead::RenderWindow>(true);
+            previous.reset();
             PublishNativeHandle(*window);
             _window = window.get();
             _active = true;
             ShowFrontScreen();
+            if (!first && _settingsAfterSwitch)
+            {
+                // Back where the switch was asked for.
+                _settingsAfterSwitch = false;
+                ShowSettings();
+            }
             window->Run();
             ran = true;
         }
@@ -232,13 +247,53 @@ namespace MphRead::Mods::Launcher::Gui
             MphRead::Mods::DebugLog::Exception("launcher", std::current_exception());
             MphRead::NativeRuntime::ShowErrorDialog(std::string(MphRead::Mods::Branding::Name),
                 std::string(unavailable.what())
-                    + "\n\nChoose OpenGL or Auto under Settings > Game > Renderer, or start with -rhi opengl.");
+                    + (previous.has_value()
+                        ? std::string("\n\nThe renderer you were using is back. Settings > Game > Renderer still "
+                            "says the one that failed, for the next time it can start.")
+                        : std::string("\n\nChoose OpenGL or Auto under Settings > Game > Renderer, or start with "
+                            "-rhi opengl.")));
+            if (previous.has_value())
+            {
+                // A switch from Settings that failed: said, and the window
+                // comes back on the renderer that was running.
+                window.reset();
+                MphRead::NativeRuntime::Rhi::ReselectSceneBackend(*previous);
+                previous.reset();
+                continue;
+            }
         }
         catch (const std::exception&)
         {
             const std::exception_ptr exception = std::current_exception();
             std::cout << "The window could not be opened: " << ExceptionMessage(exception) << '\n';
             MphRead::Mods::DebugLog::Exception("launcher", exception);
+        }
+
+        if (_switchTo.has_value() && window != nullptr)
+        {
+            // Settings chose the other renderer. Everything the old one
+            // made goes with its window -- the match, Skia's context, the
+            // overlay and photograph, the side scene -- and the same window,
+            // at the same size, comes back on the new one.
+            const MphRead::NativeRuntime::Rhi::SceneBackendRequest request = *_switchTo;
+            _switchTo.reset();
+            previous = MphRead::NativeRuntime::Rhi::RequestedSceneBackend();
+            MphRead::Mods::DebugLog::Line("render", std::string("switching the renderer to ")
+                + std::string(MphRead::NativeRuntime::Rhi::SceneBackendRequestName(request)));
+            _active = false;
+            _window = nullptr;
+            _pending.reset();
+            _endMatch = false;
+            _quit = false;
+            MphRead::Mods::Network::NetSession::Stop();
+            MphRead::Mods::Network::NetHostSession::Stop();
+            ReleaseWindowGpu();
+            window.reset();
+            MphRead::NativeRuntime::Rhi::OpenGL::ResetContextDevice();
+            MphRead::NativeRuntime::Rhi::ReselectSceneBackend(request);
+            continue;
+        }
+        break;
         }
 
         _active = false;
@@ -258,10 +313,37 @@ namespace MphRead::Mods::Launcher::Gui
         return ran;
     }
 
+    void Shell::RequestRenderer(MphRead::NativeRuntime::Rhi::SceneBackendRequest request, bool fromSettings)
+    {
+        if (!_active || request == MphRead::NativeRuntime::Rhi::RequestedSceneBackend()) return;
+        _switchTo = request;
+        _settingsAfterSwitch = fromSettings;
+    }
+
+    void Shell::ShowSettings()
+    {
+        if (_front != nullptr) _front->OpenSettings();
+    }
+
+    void Shell::ReleaseWindowGpu()
+    {
+        // While the old window's context or device is still the current one.
+        if (const auto surface = UiSurface::Current()) surface->ReleaseGpu();
+        MphRead::Mods::Render::UiOverlay::Release();
+        MphRead::Mods::Render::LauncherPhoto::Release();
+        MphRead::Mods::Render::LauncherNoise::Release();
+        MphRead::Mods::Render::MapThumbnail::Clear();
+    }
+
     void Shell::BeforeFrame(MphRead::RenderWindow& window)
     {
         if (!_active)
         {
+            return;
+        }
+        if (_switchTo.has_value())
+        {
+            window.Close();
             return;
         }
         if (_quit)
@@ -628,8 +710,85 @@ namespace MphRead::Mods::Launcher::Gui
         script[static_cast<std::size_t>(_shotStep++)](window);
     }
 
+    namespace
+    {
+        // The renderer the switch check goes to next: whichever this is not.
+        MphRead::NativeRuntime::Rhi::SceneBackendRequest Other()
+        {
+            return MphRead::NativeRuntime::Rhi::SelectedSceneBackend()
+                    == MphRead::NativeRuntime::Rhi::SceneBackendKind::Vulkan
+                ? MphRead::NativeRuntime::Rhi::SceneBackendRequest::OpenGL
+                : MphRead::NativeRuntime::Rhi::SceneBackendRequest::Vulkan;
+        }
+
+        void SayBackend(const char* step)
+        {
+            std::cout << "[switchcheck] " << step << ": "
+                << MphRead::NativeRuntime::Rhi::SceneBackendName(MphRead::NativeRuntime::Rhi::SelectedSceneBackend())
+                << '\n';
+        }
+    }
+
+    void Shell::StartSwitchMatch()
+    {
+        const char* room = std::getenv("FRUITY_SHOT_ROOM");
+        LaunchPlan::Init init{};
+        init.Kind = LaunchKind::Offline;
+        init.RoomKey = room != nullptr ? std::string(room) : (_rooms.empty() ? std::string("MP10 OVERLOAD") : _rooms.front());
+        init.Mode = MphRead::GameMode::Battle;
+        init.Hunter = MphRead::Hunter::Samus;
+        init.Bots = 1;
+        Decided(LaunchPlan(init));
+    }
+
+    // The switch at the moments a person makes it: from the front screen,
+    // during a match, and from Settings, there and back twice. Every stop
+    // is photographed and says which renderer drew it.
+    std::vector<Shell::ShotAction> Shell::SwitchScript()
+    {
+        return {
+            [](MphRead::RenderWindow&) { Wait(30); },
+            [](MphRead::RenderWindow& window)
+            {
+                SayBackend("front, before"); Shot(window, "switch-0-front");
+                RequestRenderer(Other(), false); Wait(2);
+            },
+            [](MphRead::RenderWindow&) { Wait(30); },
+            [](MphRead::RenderWindow& window)
+            {
+                SayBackend("front, switched"); Shot(window, "switch-1-front");
+                StartSwitchMatch(); Wait(180);
+            },
+            [](MphRead::RenderWindow& window)
+            {
+                SayBackend("match"); Shot(window, "switch-2-match");
+                RequestRenderer(Other(), true); Wait(2);
+            },
+            [](MphRead::RenderWindow&) { Wait(30); },
+            [](MphRead::RenderWindow& window)
+            {
+                SayBackend("settings, after a switch in a match"); Shot(window, "switch-3-settings");
+                Escape(); Wait(15);
+            },
+            [](MphRead::RenderWindow&) { StartSwitchMatch(); Wait(180); },
+            [](MphRead::RenderWindow& window)
+            {
+                SayBackend("match again"); Shot(window, "switch-4-match");
+                RequestRenderer(Other(), false); Wait(2);
+            },
+            [](MphRead::RenderWindow&) { Wait(30); },
+            [](MphRead::RenderWindow& window)
+            {
+                SayBackend("front, switched back"); Shot(window, "switch-5-front");
+                StartSwitchMatch(); Wait(180);
+            },
+            [](MphRead::RenderWindow& window) { SayBackend("final match"); Shot(window, "switch-6-match"); Wait(2); },
+        };
+    }
+
     std::vector<Shell::ShotAction> Shell::Script()
     {
+        if (std::getenv("FRUITY_SWITCHCHECK") != nullptr) return SwitchScript();
         return {
             [](MphRead::RenderWindow&) { Wait(20); },
             [](MphRead::RenderWindow& window) { Shot(window, "shell-start"); Escape(); Wait(15); },

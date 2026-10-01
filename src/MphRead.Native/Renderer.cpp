@@ -5702,7 +5702,10 @@ namespace MphRead
     {
         // A Vulkan scene presents the window itself, so the window has no GL
         // context at all; an OpenGL one is its context.
-        static const RendererPlatform::WindowSettings settings = Mods::Render::DesktopGlContext::Settings(
+        // Asked again for every window: Settings can switch the renderer and
+        // remake the window on the other one.
+        static RendererPlatform::WindowSettings settings{};
+        settings = Mods::Render::DesktopGlContext::Settings(
             false, NativeRuntime::Rhi::ScenePresentsWindow()
                 ? RendererPlatform::GraphicsWindowMode::NoApi : RendererPlatform::GraphicsWindowMode::OpenGL);
         return settings;

@@ -1,4 +1,6 @@
 #include "SettingsView.hpp"
+#include "Shell.hpp"
+#include "../../../NativeRuntime/Rhi/SceneBackend.hpp"
 
 #include "ControllerNav.hpp"
 #include "CrosshairPreview.hpp"
@@ -320,7 +322,12 @@ namespace MphRead::Mods::Launcher::Gui
 #else
         constexpr const char* ownGl = "OpenGL";
 #endif
-        _rendererRow = Add(page, std::make_shared<ChoiceRow>("Renderer (next start)",
+#if defined(__ANDROID__)
+        constexpr const char* rendererLabel = "Renderer (next start)";
+#else
+        constexpr const char* rendererLabel = "Renderer";
+#endif
+        _rendererRow = Add(page, std::make_shared<ChoiceRow>(rendererLabel,
             std::vector<std::string>{ownGl, "Vulkan", "Auto"},
             LauncherPrefs::Renderer() == "vulkan" ? 1 : LauncherPrefs::Renderer() == "auto" ? 2 : 0));
 
@@ -930,7 +937,14 @@ namespace MphRead::Mods::Launcher::Gui
         if (_rendererRow != nullptr)
         {
             static constexpr std::array<const char*, 3> Renderers{"opengl", "vulkan", "auto"};
-            LauncherPrefs::Renderer(Renderers[static_cast<std::size_t>(std::clamp(_rendererRow->Index(), 0, 2))]);
+            const char* chosen = Renderers[static_cast<std::size_t>(std::clamp(_rendererRow->Index(), 0, 2))];
+            LauncherPrefs::Renderer(chosen);
+#if !defined(__ANDROID__)
+            // Applied now: the window is remade on the chosen renderer.
+            ::MphRead::NativeRuntime::Rhi::SceneBackendRequest request{};
+            if (::MphRead::NativeRuntime::Rhi::ParseSceneBackendRequest(chosen, request))
+                Shell::RequestRenderer(request, true);
+#endif
         }
         if (_windowRow != nullptr)
         {

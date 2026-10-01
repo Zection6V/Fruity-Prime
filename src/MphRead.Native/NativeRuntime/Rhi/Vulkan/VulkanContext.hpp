@@ -31,6 +31,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         // Android: the surface goes with its window (the device and every
         // resource on it stay); a new window gets a new surface.
         void ReplaceAndroidSurface(void* nativeWindow);
+        // Desktop: present to another window (a GLFWwindow*), or to none
+        // (null) once the window it had is about to go. The device stays.
+        void ReplaceWindowSurface(void* window);
         ~Context();
         Context(const Context&) = delete;
         Context& operator=(const Context&) = delete;

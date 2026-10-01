@@ -67,6 +67,15 @@ namespace MphRead::NativeRuntime::Rhi
     }
 
     SceneBackendRequest RequestedSceneBackend() noexcept { return requested; }
+
+    void ReselectSceneBackend(SceneBackendRequest request) noexcept
+    {
+        requested = request;
+        // Chosen by the person, now: an unavailable Vulkan is an error, as
+        // -rhi vulkan is, never a quiet OpenGL.
+        requestExplicit = true;
+        resolved = false;
+    }
     void SceneBackendNeedsWindowUi(bool value) noexcept { needsWindowUi = value; }
 
     bool ParseSceneBackendRequest(std::string_view text, SceneBackendRequest& request) noexcept
@@ -302,8 +311,15 @@ namespace MphRead::NativeRuntime::Rhi
             return BackendFactory::CreateSwapchain(GraphicsBackend::OpenGl, window, desc);
 #if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
         auto& scene = Scene();
-        if (scene.Device && scene.Window != &window)
+        if (scene.Device && scene.Window != nullptr && scene.Window != &window)
             throw std::logic_error("The Vulkan scene device already belongs to another surface.");
+        if (scene.Device && scene.Window == nullptr)
+        {
+            // The renderer was switched and the window remade: the device
+            // and everything on it stay, and only the surface follows.
+            scene.Context->ReplaceWindowSurface(window.NativeHandle());
+            scene.Window = &window;
+        }
         if (!scene.Device)
         {
             scene.Context = std::make_unique<Vulkan::Context>(validation, window);
@@ -340,10 +356,14 @@ namespace MphRead::NativeRuntime::Rhi
         try
         {
             scene.Device->WaitIdle();
+            // The surface belongs to this window, which is about to go; a
+            // window made later (a switch back to Vulkan) gets its own.
+            scene.Context->ReplaceWindowSurface(nullptr);
         }
         catch (...)
         {
         }
+        scene.Window = nullptr;
 #endif
     }
 

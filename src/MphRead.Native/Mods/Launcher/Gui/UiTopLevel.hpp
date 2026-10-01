@@ -41,6 +41,7 @@ namespace MphRead::Mods::Launcher::Gui
         void StartRendering() { _root.StartRendering(); }
         [[nodiscard]] bool Render() { return _root.Render(); }
         void GpuRendering(bool value) noexcept { _root.GpuRendering(value); }
+        void ReleaseGpu() { _root.ReleaseGpu(); }
 
         [[nodiscard]] std::int32_t TextureId() const noexcept { return _root.TextureId(); }
         [[nodiscard]] const ::MphRead::NativeRuntime::Rhi::Texture* RhiTexture() const noexcept

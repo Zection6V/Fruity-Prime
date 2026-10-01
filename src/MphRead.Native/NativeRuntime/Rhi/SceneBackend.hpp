@@ -51,6 +51,10 @@ namespace MphRead::NativeRuntime::Rhi
     // replace. Takes effect before the first scene device is asked for.
     void RequestSceneBackend(SceneBackendRequest request, bool explicitRequest) noexcept;
     [[nodiscard]] SceneBackendRequest RequestedSceneBackend() noexcept;
+    // Settings switched the renderer while the program runs: choose again
+    // the next time a device or window is asked for. The caller has closed
+    // the window and released every GPU resource of the old backend.
+    void ReselectSceneBackend(SceneBackendRequest request) noexcept;
     // The launcher will draw into the window (the shell): Vulkan then also
     // needs a Skia that can draw through it. Harness windows never say so.
     void SceneBackendNeedsWindowUi(bool value) noexcept;

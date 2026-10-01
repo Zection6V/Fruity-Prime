@@ -192,6 +192,21 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             Check(create(instance, &info, nullptr, &surface), "vkCreateAndroidSurfaceKHR");
         }
 #endif
+#if !defined(__ANDROID__)
+        // A surface for another GLFW window, replacing the last one (whose
+        // swapchain must already be gone): the renderer was switched and the
+        // window remade, and the device and every resource on it stay.
+        void CreateWindowSurface(void* window)
+        {
+            DestroySurface();
+            Check(glfwCreateWindowSurface(instance, static_cast<GLFWwindow*>(window), nullptr, &surface),
+                "glfwCreateWindowSurface");
+            VkBool32 supported = VK_FALSE;
+            Check(vkGetPhysicalDeviceSurfaceSupportKHR(physical, presentFamily, surface, &supported),
+                "vkGetPhysicalDeviceSurfaceSupportKHR");
+            if (!supported) throw std::runtime_error("The new window cannot be presented from the device's queue.");
+        }
+#endif
         void DestroySurface() noexcept
         {
             if (surface && instance && vkDestroySurfaceKHR) vkDestroySurfaceKHR(instance, surface, nullptr);

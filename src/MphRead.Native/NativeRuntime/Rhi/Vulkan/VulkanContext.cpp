@@ -55,6 +55,17 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         throw std::invalid_argument("An ANativeWindow surface exists only on Android.");
 #endif
     }
+    void Context::ReplaceWindowSurface(void* window)
+    {
+#if defined(__ANDROID__)
+        (void)window;
+        throw std::invalid_argument("A GLFW window surface does not exist on Android.");
+#else
+        WaitIdle();
+        if (window == nullptr) _impl->DestroySurface();
+        else _impl->CreateWindowSurface(window);
+#endif
+    }
     Context::~Context() = default;
     const Capabilities& Context::Caps() const noexcept { return _impl->caps; }
     const std::string& Context::DeviceName() const noexcept { return _impl->name; }
@@ -342,6 +353,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     }
     Context::Context(bool, AndroidWindow) { throw std::runtime_error("Vulkan support was not built."); }
     void Context::ReplaceAndroidSurface(void*) { throw std::runtime_error("Vulkan support was not built."); }
+    void Context::ReplaceWindowSurface(void*) { throw std::runtime_error("Vulkan support was not built."); }
     Context::~Context() = default;
     const Capabilities& Context::Caps() const noexcept { return _impl->caps; }
     const std::string& Context::DeviceName() const noexcept { return _impl->name; }

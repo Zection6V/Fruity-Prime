@@ -97,6 +97,21 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         return _enabled;
     }
 
+    void OpenGlLauncherPhoto::Forget() noexcept
+    {
+        _texture = 0;
+        _width = 0;
+        _height = 0;
+        _tried = false;
+        _program = 0;
+        _programTried = false;
+        _photoUniform = -1;
+        _timeUniform = -1;
+        _viewWidthUniform = -1;
+        _viewHeightUniform = -1;
+        _strengthUniform = -1;
+    }
+
     bool OpenGlLauncherPhoto::EnsureProgram()
     {
         if (_programTried)

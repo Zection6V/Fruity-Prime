@@ -670,7 +670,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             void* RecordingList = nullptr; // VulkanCommandList*
             std::mutex TextureMutex{};
             std::unordered_map<std::int32_t, VulkanTexture*> TexturesByHandle{};
-            std::int32_t NextTextureHandle = 1;
+            // Above every name the OpenGL side chooses (UiOverlay 1e6, thumbnails
+            // 1.1e6, GlNames 2e6+): a scene switched to OpenGL recreates its
+            // textures under these same handles, and a low one could be a
+            // name Skia takes from glGenTextures there.
+            std::int32_t NextTextureHandle = 3'000'000;
 
             // The window's own colour and depth, which every command list on
             // this device draws into as OpenGL draws into the default

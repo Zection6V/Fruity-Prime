@@ -215,28 +215,17 @@ namespace MphRead::Mods::Launcher::Gui
 
         // The launcher draws into this window: a Vulkan one needs Skia's.
         MphRead::NativeRuntime::Rhi::SceneBackendNeedsWindowUi(true);
+        InstallRendererSwitchHooks();
         std::unique_ptr<MphRead::RenderWindow> window;
         bool ran = false;
-        // The renderer running before the last switch, to go back to when the
-        // one switched to cannot start.
-        std::optional<MphRead::NativeRuntime::Rhi::SceneBackendRequest> previous;
-        for (bool first = true;; first = false)
-        {
         MphRead::RenderWindow::LogCreatingWindow();
         try
         {
             window = std::make_unique<MphRead::RenderWindow>(true);
-            previous.reset();
             PublishNativeHandle(*window);
             _window = window.get();
             _active = true;
             ShowFrontScreen();
-            if (!first && _settingsAfterSwitch)
-            {
-                // Back where the switch was asked for.
-                _settingsAfterSwitch = false;
-                ShowSettings();
-            }
             window->Run();
             ran = true;
         }
@@ -247,20 +236,7 @@ namespace MphRead::Mods::Launcher::Gui
             MphRead::Mods::DebugLog::Exception("launcher", std::current_exception());
             MphRead::NativeRuntime::ShowErrorDialog(std::string(MphRead::Mods::Branding::Name),
                 std::string(unavailable.what())
-                    + (previous.has_value()
-                        ? std::string("\n\nThe renderer you were using is back. Settings > Game > Renderer still "
-                            "says the one that failed, for the next time it can start.")
-                        : std::string("\n\nChoose OpenGL or Auto under Settings > Game > Renderer, or start with "
-                            "-rhi opengl.")));
-            if (previous.has_value())
-            {
-                // A switch from Settings that failed: said, and the window
-                // comes back on the renderer that was running.
-                window.reset();
-                MphRead::NativeRuntime::Rhi::ReselectSceneBackend(*previous);
-                previous.reset();
-                continue;
-            }
+                    + "\n\nChoose OpenGL or Auto under Settings > Game > Renderer, or start with -rhi opengl.");
         }
         catch (const std::exception&)
         {
@@ -269,32 +245,6 @@ namespace MphRead::Mods::Launcher::Gui
             MphRead::Mods::DebugLog::Exception("launcher", exception);
         }
 
-        if (_switchTo.has_value() && window != nullptr)
-        {
-            // Settings chose the other renderer. Everything the old one
-            // made goes with its window -- the match, Skia's context, the
-            // overlay and photograph, the side scene -- and the same window,
-            // at the same size, comes back on the new one.
-            const MphRead::NativeRuntime::Rhi::SceneBackendRequest request = *_switchTo;
-            _switchTo.reset();
-            previous = MphRead::NativeRuntime::Rhi::RequestedSceneBackend();
-            MphRead::Mods::DebugLog::Line("render", std::string("switching the renderer to ")
-                + std::string(MphRead::NativeRuntime::Rhi::SceneBackendRequestName(request)));
-            _active = false;
-            _window = nullptr;
-            _pending.reset();
-            _endMatch = false;
-            _quit = false;
-            MphRead::Mods::Network::NetSession::Stop();
-            MphRead::Mods::Network::NetHostSession::Stop();
-            ReleaseWindowGpu();
-            window.reset();
-            MphRead::NativeRuntime::Rhi::OpenGL::ResetContextDevice();
-            MphRead::NativeRuntime::Rhi::ReselectSceneBackend(request);
-            continue;
-        }
-        break;
-        }
 
         _active = false;
         _window = nullptr;
@@ -315,9 +265,21 @@ namespace MphRead::Mods::Launcher::Gui
 
     void Shell::RequestRenderer(MphRead::NativeRuntime::Rhi::SceneBackendRequest request, bool fromSettings)
     {
-        if (!_active || request == MphRead::NativeRuntime::Rhi::RequestedSceneBackend()) return;
-        _switchTo = request;
-        _settingsAfterSwitch = fromSettings;
+        (void)fromSettings;
+        if (!_active || _window == nullptr) return;
+        // In place: the match, the screens and the pointer carry on.
+        _window->RequestRendererSwitch(request);
+    }
+
+    void Shell::InstallRendererSwitchHooks()
+    {
+        MphRead::RenderWindow::BeforeRendererSwitch = []() { ReleaseWindowGpu(); };
+        MphRead::RenderWindow::AfterRendererSwitch = [](MphRead::RenderWindow& window)
+        {
+            PublishNativeHandle(window);
+            NotePointerBasis(window);
+            if (const auto surface = UiSurface::Current()) surface->Invalidate();
+        };
     }
 
     void Shell::ShowSettings()
@@ -339,11 +301,6 @@ namespace MphRead::Mods::Launcher::Gui
     {
         if (!_active)
         {
-            return;
-        }
-        if (_switchTo.has_value())
-        {
-            window.Close();
             return;
         }
         if (_quit)
@@ -744,6 +701,33 @@ namespace MphRead::Mods::Launcher::Gui
     // The switch at the moments a person makes it: from the front screen,
     // during a match, and from Settings, there and back twice. Every stop
     // is photographed and says which renderer drew it.
+    namespace
+    {
+        const void* g_switchScene = nullptr;
+        std::uint64_t g_switchFrame = 0;
+
+        void NoteMatch(MphRead::RenderWindow& window)
+        {
+            g_switchScene = window.HasScene() ? &window.Scene() : nullptr;
+            g_switchFrame = window.HasScene() ? window.Scene().FrameCount() : 0;
+        }
+
+        // The match the switch was made in is still the one running, and
+        // it went on simulating.
+        void CheckMatchKept(MphRead::RenderWindow& window, const char* step)
+        {
+            const bool kept = window.HasScene() && &window.Scene() == g_switchScene
+                && window.Scene().FrameCount() > g_switchFrame;
+            std::cout << "[switchcheck] " << step << ": match kept " << (kept ? "yes" : "NO")
+                << " (frame " << g_switchFrame << " -> "
+                << (window.HasScene() ? window.Scene().FrameCount() : 0) << ")\n";
+            if (!kept) ++Shell::ShotMissCounter();
+        }
+    }
+
+    // The switch where a person makes it: on the front screen, and in a
+    // running match, which has to carry on through it. Every stop is
+    // photographed and says which renderer drew it.
     std::vector<Shell::ShotAction> Shell::SwitchScript()
     {
         return {
@@ -751,38 +735,38 @@ namespace MphRead::Mods::Launcher::Gui
             [](MphRead::RenderWindow& window)
             {
                 SayBackend("front, before"); Shot(window, "switch-0-front");
-                RequestRenderer(Other(), false); Wait(2);
+                RequestRenderer(Other(), false); Wait(30);
             },
-            [](MphRead::RenderWindow&) { Wait(30); },
             [](MphRead::RenderWindow& window)
             {
                 SayBackend("front, switched"); Shot(window, "switch-1-front");
-                StartSwitchMatch(); Wait(180);
+                StartSwitchMatch(); Wait(240);
             },
             [](MphRead::RenderWindow& window)
             {
                 SayBackend("match"); Shot(window, "switch-2-match");
-                RequestRenderer(Other(), true); Wait(2);
+                NoteMatch(window);
+                RequestRenderer(Other(), false); Wait(90);
             },
-            [](MphRead::RenderWindow&) { Wait(30); },
             [](MphRead::RenderWindow& window)
             {
-                SayBackend("settings, after a switch in a match"); Shot(window, "switch-3-settings");
-                Escape(); Wait(15);
+                SayBackend("match, switched"); CheckMatchKept(window, "first switch");
+                Shot(window, "switch-3-match");
+                NoteMatch(window);
+                RequestRenderer(Other(), false); Wait(90);
             },
-            [](MphRead::RenderWindow&) { StartSwitchMatch(); Wait(180); },
             [](MphRead::RenderWindow& window)
             {
-                SayBackend("match again"); Shot(window, "switch-4-match");
-                RequestRenderer(Other(), false); Wait(2);
+                SayBackend("match, switched back"); CheckMatchKept(window, "second switch");
+                Shot(window, "switch-4-match");
+                NoteMatch(window);
+                RequestRenderer(Other(), false); Wait(90);
             },
-            [](MphRead::RenderWindow&) { Wait(30); },
             [](MphRead::RenderWindow& window)
             {
-                SayBackend("front, switched back"); Shot(window, "switch-5-front");
-                StartSwitchMatch(); Wait(180);
+                SayBackend("match, third switch"); CheckMatchKept(window, "third switch");
+                Shot(window, "switch-5-match"); Wait(2);
             },
-            [](MphRead::RenderWindow& window) { SayBackend("final match"); Shot(window, "switch-6-match"); Wait(2); },
         };
     }
 

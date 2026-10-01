@@ -46,6 +46,7 @@ namespace MphRead::Mods::Launcher::Gui
         [[nodiscard]] static bool EndPanelUp() noexcept;
         [[nodiscard]] static bool CanPlayAnother();
         [[nodiscard]] static std::int32_t ShotMisses() noexcept;
+        [[nodiscard]] static std::int32_t& ShotMissCounter() noexcept { return _shotMisses; }
 
         [[nodiscard]] static bool Run();
         // Settings switched the renderer: the window is remade on it at the
@@ -122,9 +123,8 @@ namespace MphRead::Mods::Launcher::Gui
         static std::shared_ptr<EndPanelView> _endPanel;
         static std::optional<MphRead::Mods::Launcher::LaunchPlan> _played;
         static std::optional<std::string> _shotDirectory;
-        inline static std::optional<MphRead::NativeRuntime::Rhi::SceneBackendRequest> _switchTo{};
-        inline static bool _settingsAfterSwitch = false;
         static void ReleaseWindowGpu();
+        static void InstallRendererSwitchHooks();
         static void ShowSettings();
         static void StartSwitchMatch();
         [[nodiscard]] static std::vector<ShotAction> SwitchScript();

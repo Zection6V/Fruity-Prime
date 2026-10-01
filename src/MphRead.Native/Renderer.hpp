@@ -229,6 +229,19 @@ namespace MphRead
 #undef MPHREAD_HAS_STD_JTHREAD
 
     class Scene;
+
+    // What a scene wrote into one of its textures, kept on the CPU so the
+    // texture can be made again under the same handle on another device:
+    // switching the renderer keeps the match, and every material, HUD
+    // element and effect still names its texture by that handle.
+    struct SceneTextureCopy
+    {
+        std::int32_t Width = 0;
+        std::int32_t Height = 0;
+        NativeRuntime::Rhi::TextureFormat Format{};
+        bool Owned = false;
+        std::vector<std::uint8_t> Pixels{};
+    };
     class RenderWindow;
     class TextureMap;
     enum class Movie : std::int32_t;
@@ -254,7 +267,7 @@ namespace MphRead
     }
     class LightInfo;
     class Node;
-    namespace NativeRuntime::Rhi { class Swapchain; }
+    namespace NativeRuntime::Rhi { class Swapchain; enum class SceneBackendRequest : std::uint8_t; }
 
     namespace Entities
     {
@@ -619,6 +632,13 @@ namespace MphRead
             std::optional<OpenTK::Mathematics::Vector3> position = std::nullopt);
         void QueueMovie(std::int32_t movieId);
         void Run();
+        // Switch the renderer without ending anything: the window's loop
+        // stops after this frame, the window is remade on the other backend
+        // and the match (or the launcher) carries on in it.
+        void RequestRendererSwitch(NativeRuntime::Rhi::SceneBackendRequest request);
+        // Called around a switch by whoever owns state on the old device.
+        inline static std::function<void()> BeforeRendererSwitch{};
+        inline static std::function<void(RenderWindow&)> AfterRendererSwitch{};
 
         // GameWindow's own window properties, which the C# RenderWindow has by
         // inheriting it.
@@ -668,6 +688,9 @@ namespace MphRead
         // For what the window draws with no scene: the lobby's cleared frame,
         // the viewport after a resize.
         [[nodiscard]] NativeRuntime::Rhi::CommandList& WindowCommands();
+        void SwitchRenderer(NativeRuntime::Rhi::SceneBackendRequest request);
+        void CreatePresentation();
+        std::optional<NativeRuntime::Rhi::SceneBackendRequest> _rendererSwitch{};
 
         static std::function<void(std::int32_t, std::string)> _glfwErrorCallback;
         static constexpr OpenTK::Mathematics::Vector2i _minimumSize{1024, 720};
@@ -758,6 +781,12 @@ public: \
     /* framebuffers, meshes, shaders -- and wait until the device has */ \
     /* destroyed them, in the context the scene drew with. */ \
     void ReleaseGpuResources(); \
+    void ReleaseGpuForSwitch(); \
+    void RebuildGpuAfterSwitch(); \
+    void RebindInput(MphRead::RendererPlatform::KeyboardState& keyboard, MphRead::RendererPlatform::MouseState& mouse) noexcept; \
+    void KeepTextureCopy(std::int32_t bindingId, std::int32_t width, std::int32_t height, \
+        MphRead::NativeRuntime::Rhi::TextureFormat format, const void* pixels, bool owned); \
+    [[nodiscard]] bool IsRoomModel(const Model* model) const; \
     void InitEntity(const std::shared_ptr<MphRead::Entities::EntityBase>& entity); \
     [[nodiscard]] OpenTK::Mathematics::Vector2i RenderSize() const; \
     void OnResize(); \
@@ -1099,6 +1128,7 @@ private: \
     bool _outputCameraPos = false; \
     std::unordered_map<std::int32_t, std::shared_ptr<MphRead::TextureMap>> _texPalMap{}; \
     std::unordered_map<std::int32_t, std::unique_ptr<MphRead::NativeRuntime::Rhi::Texture>> _ownedTextures{}; \
+    std::unordered_map<std::int32_t, MphRead::SceneTextureCopy> _textureCopies{}; \
     MphRead::GpuMeshCache _gpuMeshCache{}; \
     bool _modelReloadProbeRequested = false; \
     bool _modelReloadProbeAwaitingRedraw = false; \

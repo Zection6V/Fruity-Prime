@@ -4,11 +4,9 @@
 #include "../MphRead.Native/NativeRuntime/System/ExceptionText.hpp"
 #include "../MphRead.Native/NativeRuntime/System/Exceptions.hpp"
 
-#include "../MphRead.Native/Mods/Render/VulkanWindowUi.hpp"
+#include "../MphRead.Native/Mods/Render/SceneWindowUi.hpp"
 #include "../MphRead.Native/NativeRuntime/Rhi/SceneBackend.hpp"
-#if defined(FRUITY_HAS_VULKAN)
-#include "../MphRead.Native/NativeRuntime/Rhi/Vulkan/VulkanScene.hpp"
-#endif
+#include "../MphRead.Native/NativeRuntime/Rhi/WindowUi.hpp"
 #include <GLES3/gl3.h>
 #include <array>
 #include <memory>
@@ -92,17 +90,17 @@ namespace MphRead::Droid
     {
         namespace Rhi = ::MphRead::NativeRuntime::Rhi;
 
-        // The Vulkan surface's overlay: the UI raster in an RHI texture,
+        // The scene-presented surface's overlay: the UI raster in an RHI texture,
         // composited by the scene device's WindowUi. No GLES context exists.
-        struct VulkanOverlay final
+        struct WindowOverlay final
         {
             std::unique_ptr<Rhi::Texture> Texture;
             std::unique_ptr<Rhi::Sampler> Sampler;
         };
 
-        VulkanOverlay& Vk()
+        WindowOverlay& Vk()
         {
-            static VulkanOverlay overlay;
+            static WindowOverlay overlay;
             return overlay;
         }
     }
@@ -145,7 +143,7 @@ namespace MphRead::Droid
         {
             return;
         }
-        if (::MphRead::Mods::Render::VulkanWindowUi::Active())
+        if (::MphRead::Mods::Render::SceneWindowUi::Active())
         {
             auto& gpu = Rhi::SceneDevice();
             auto& texture = Vk().Texture;
@@ -210,8 +208,7 @@ namespace MphRead::Droid
         std::int32_t height
     )
     {
-#if defined(FRUITY_HAS_VULKAN)
-        if (auto* ui = ::MphRead::Mods::Render::VulkanWindowUi::Get())
+        if (auto* ui = ::MphRead::Mods::Render::SceneWindowUi::Get())
         {
             if (!_visible || !_hasFrame || !Vk().Texture || width <= 0 || height <= 0)
             {
@@ -228,7 +225,7 @@ namespace MphRead::Droid
             }
             // Avalonia's first row is the top of the screen: t = 0 at the top,
             // as the GLES path's shader has it.
-            const std::array<Rhi::Vulkan::WindowQuadVertex, 4> strip{{
+            const std::array<Rhi::WindowQuadVertex, 4> strip{{
                 {{ 1.0F,  1.0F}, {1.0F, 0.0F}, {}},
                 {{-1.0F,  1.0F}, {0.0F, 0.0F}, {}},
                 {{ 1.0F, -1.0F}, {1.0F, 1.0F}, {}},
@@ -238,7 +235,6 @@ namespace MphRead::Droid
             ui->End();
             return;
         }
-#endif
         if (_failed || !_visible || !_hasFrame || _program == 0)
         {
             return;
@@ -268,11 +264,11 @@ namespace MphRead::Droid
 
     void AndroidUiOverlay::Release()
     {
-        if (::MphRead::Mods::Render::VulkanWindowUi::Active())
+        if (::MphRead::Mods::Render::SceneWindowUi::Active())
         {
             Vk().Texture.reset();
             Vk().Sampler.reset();
-            ::MphRead::Mods::Render::VulkanWindowUi::Release();
+            ::MphRead::Mods::Render::SceneWindowUi::Release();
             _width = 0;
             _height = 0;
             _hasFrame = false;

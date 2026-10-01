@@ -1,4 +1,5 @@
 #include "SceneBackend.hpp"
+#include "WindowUi.hpp"
 
 #include "OpenGL/OpenGlDevice.hpp"
 #include "OpenGL/OpenGlGeometry.hpp"
@@ -183,6 +184,16 @@ namespace MphRead::NativeRuntime::Rhi
     bool ScenePresentsWindow()
     {
         return SelectedSceneBackend() == SceneBackendKind::Vulkan;
+    }
+
+    std::unique_ptr<WindowUi> CreateSceneWindowUi(GraphicsDevice& device)
+    {
+#if defined(FRUITY_HAS_VULKAN)
+        if (SelectedSceneBackend() == SceneBackendKind::Vulkan)
+            return std::make_unique<Vulkan::WindowUi>(device);
+#endif
+        (void)device;
+        return nullptr;
     }
 
     void ResetWindowViewport(std::int32_t width, std::int32_t height)

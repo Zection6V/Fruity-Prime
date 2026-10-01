@@ -4,6 +4,7 @@
 #include "../CommandList.hpp"
 #include "../GraphicsDevice.hpp"
 #include "../SceneShaders.hpp"
+#include "../WindowUi.hpp"
 
 #include <memory>
 #include <span>
@@ -22,33 +23,24 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     [[nodiscard]] std::shared_ptr<MphRead::TransientGeometryResource> CreateTransientGeometryResource(
         GraphicsDevice& device, CommandList& commands);
 
-    // The window-level draws the launcher makes when the window presents
-    // through Vulkan and there is no GL context: the photograph, and a
-    // texture (the Skia UI) laid over whatever the frame holds. Everything
-    // goes into the device's window target, in OpenGL's rows, as a scene's
-    // window passes do.
-    struct WindowQuadVertex final
-    {
-        float Position[2]{};
-        float TexCoord[2]{};
-        float TexCoord1[2]{};
-    };
+    // Rhi::WindowUi on the Vulkan window target, in OpenGL's rows, as a
+    // scene's window passes do.
+    using WindowQuadVertex = Rhi::WindowQuadVertex;
 
-    class WindowUi final
+    class WindowUi final : public Rhi::WindowUi
     {
     public:
         explicit WindowUi(GraphicsDevice& device);
-        ~WindowUi();
+        ~WindowUi() override;
         WindowUi(const WindowUi&) = delete;
         WindowUi& operator=(const WindowUi&) = delete;
 
-        // Open the window target at this size; clear it first when asked.
-        void Begin(std::uint32_t width, std::uint32_t height, bool clear);
+        void Begin(std::uint32_t width, std::uint32_t height, bool clear) override;
         void DrawTexture(const Texture& texture, const Sampler& sampler,
-            std::span<const WindowQuadVertex, 4> strip, bool premultiplied);
+            std::span<const WindowQuadVertex, 4> strip, bool premultiplied) override;
         void DrawBackdrop(const Texture& photo, const Sampler& sampler,
-            std::span<const WindowQuadVertex, 4> strip, float strength, float seconds);
-        void End();
+            std::span<const WindowQuadVertex, 4> strip, float strength, float seconds) override;
+        void End() override;
 
     private:
         struct Impl;

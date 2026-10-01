@@ -1,13 +1,13 @@
 #include "LauncherPhoto.hpp"
-#include "VulkanWindowUi.hpp"
+#include "SceneWindowUi.hpp"
 #include "../../NativeRuntime/Rhi/OpenGL/OpenGlLauncherPhoto.hpp"
 
-#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+#if !defined(__ANDROID__)
 #include "../DebugLog.hpp"
 #include "../../NativeRuntime/Avalonia/Media.hpp"
 #include "../../NativeRuntime/Avalonia/Platform.hpp"
 #include "../../NativeRuntime/Rhi/SceneBackend.hpp"
-#include "../../NativeRuntime/Rhi/Vulkan/VulkanScene.hpp"
+#include "../../NativeRuntime/Rhi/WindowUi.hpp"
 #include "../../NativeRuntime/System/ExceptionText.hpp"
 #include "../../NativeRuntime/System/Stopwatch.hpp"
 
@@ -23,16 +23,16 @@ namespace MphRead::Mods::Render
 {
     using Gpu = ::MphRead::NativeRuntime::Rhi::OpenGL::OpenGlLauncherPhoto;
 
-#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
+#if !defined(__ANDROID__)
     namespace
     {
         namespace Rhi = ::MphRead::NativeRuntime::Rhi;
         namespace Avalonia = ::MphRead::NativeRuntime::Avalonia;
 
         // The same photograph and the same moving layer OpenGlLauncherPhoto
-        // draws, through the Vulkan window's WindowUi: what differs is only
+        // draws, through the window's Rhi::WindowUi: what differs is only
         // where the texture lives and who issues the draw.
-        struct VulkanPhoto final
+        struct WindowPhoto final
         {
             bool Tried = false;
             std::unique_ptr<Rhi::Texture> Texture;
@@ -41,9 +41,9 @@ namespace MphRead::Mods::Render
             std::int32_t Height = 0;
         };
 
-        VulkanPhoto& Photo()
+        WindowPhoto& Photo()
         {
-            static VulkanPhoto photo;
+            static WindowPhoto photo;
             return photo;
         }
 
@@ -101,8 +101,8 @@ namespace MphRead::Mods::Render
 
     void LauncherPhoto::Draw(std::int32_t width, std::int32_t height)
     {
-#if defined(FRUITY_HAS_VULKAN) && !defined(__ANDROID__)
-        if (auto* ui = VulkanWindowUi::Get())
+#if !defined(__ANDROID__)
+        if (auto* ui = SceneWindowUi::Get())
         {
             if (!Gpu::Enabled() || width <= 0 || height <= 0 || !EnsurePhoto()) return;
             const auto& photo = Photo();
@@ -117,7 +117,7 @@ namespace MphRead::Mods::Render
             const float u1 = u0 + u;
             const float v0 = (1 - v) / 2;
             const float v1 = v0 + v;
-            const std::array<Rhi::Vulkan::WindowQuadVertex, 4> strip{{
+            const std::array<Rhi::WindowQuadVertex, 4> strip{{
                 {{ 1.0F,  1.0F}, {u1, v0}, {1.0F, 0.0F}},
                 {{-1.0F,  1.0F}, {u0, v0}, {0.0F, 0.0F}},
                 {{ 1.0F, -1.0F}, {u1, v1}, {1.0F, 1.0F}},

@@ -3094,6 +3094,18 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             dynamic_cast<VulkanCommandList&>(commands));
     }
 
+    std::uint32_t EmbeddedShaderStages() noexcept
+    {
+        std::uint32_t stages = 0;
+        for (const std::size_t words : {Generated::main_vert.size(), Generated::main_frag.size(),
+                 Generated::composite_vert.size(), Generated::composite_frag.size(),
+                 Generated::cel_vert.size(), Generated::cel_frag.size(),
+                 Generated::shift_vert.size(), Generated::shift_frag.size(),
+                 Generated::backdrop_vert.size(), Generated::backdrop_frag.size()})
+            stages += words > 5 ? 1U : 0U;
+        return stages;
+    }
+
     InteropDevice DescribeDevice(GraphicsDevice& device)
     {
         return dynamic_cast<VulkanGraphicsDevice&>(device).Describe();
@@ -3417,6 +3429,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         throw std::runtime_error("Desktop Vulkan development support was not built.");
     }
     void FlushDevice(GraphicsDevice&) {}
+    std::uint32_t EmbeddedShaderStages() noexcept { return 0; }
     InteropImage PrepareForExternal(GraphicsDevice&, Texture&, ResourceState)
     {
         throw std::runtime_error("Desktop Vulkan development support was not built.");

@@ -185,6 +185,28 @@ namespace MphRead::NativeRuntime::Rhi
         return SelectedSceneBackend() == SceneBackendKind::Vulkan;
     }
 
+    std::string SceneBackendContract()
+    {
+        std::string text = "opengl=compiled\n";
+#if defined(FRUITY_HAS_VULKAN)
+        text += "vulkan=compiled\n";
+        text += "vulkan-shader-stages=" + std::to_string(Vulkan::EmbeddedShaderStages()) + "\n";
+#else
+        text += "vulkan=absent\nvulkan-shader-stages=0\n";
+#endif
+        text += std::string("skia-vulkan=") + (Skia::VulkanInterop::Available() ? "compiled" : "absent") + "\n";
+#if defined(__ANDROID__)
+        text += "platform=android\n";
+#elif defined(_WIN32)
+        text += "platform=windows\n";
+#elif defined(__APPLE__)
+        text += "platform=macos\n";
+#else
+        text += "platform=linux\n";
+#endif
+        return text;
+    }
+
     std::string DescribeSceneBackend(const Swapchain* swapchain)
     {
         std::string line = "requested " + std::string(SceneBackendRequestName(requested))

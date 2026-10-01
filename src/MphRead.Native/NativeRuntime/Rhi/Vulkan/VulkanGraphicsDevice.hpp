@@ -20,6 +20,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     // Submit the device's recorded work and show its window target: blitted
     // upright into the swapchain's next image (black before anything drew).
     void PresentWindow(GraphicsDevice& device, Swapchain& swapchain);
+    // The SPIR-V stages compiled into this binary (two per scene program).
+    [[nodiscard]] std::uint32_t EmbeddedShaderStages() noexcept;
 
     // Interop for a second Vulkan client on the same device and queue (Skia's
     // Ganesh). Handles are opaque integers here; only the interop adapter

@@ -215,6 +215,16 @@ jobs:
           "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" \
             -d "$build_dir/libFruityPrime.so" | tee "$build_dir/readelf-dynamic.log"
 
+          # Both renderers in the one library: GLES as before, and the shared
+          # Vulkan backend with its SPIR-V and the Android surface path.
+          grep -F -- '-- Android Vulkan backend: on' "$build_dir/configure.log"
+          test "$(ls "$build_dir"/generated/vulkan-shaders/*.spv | wc -l)" -eq 10
+          nm="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          "$nm" -C --defined-only "$build_dir/libFruityPrime.so" > "$build_dir/symbols.txt"
+          for symbol in 'Rhi::AttachSceneSurface' 'Rhi::Vulkan::CreateSurfaceSwapchain' 'Rhi::Vulkan::WindowUi::DrawTexture' 'Rhi::OpenGL::ContextDevice'; do
+            grep -qF "$symbol" "$build_dir/symbols.txt" || { echo "missing $symbol" >&2; exit 1; }
+          done
+
       - name: Upload Android shared library
         uses: actions/upload-artifact@v4
         with:

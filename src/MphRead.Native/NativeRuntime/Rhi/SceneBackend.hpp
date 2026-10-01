@@ -69,6 +69,10 @@ namespace MphRead::NativeRuntime::Rhi
     // Why Vulkan cannot be used here, or empty when it can. forWindow: the
     // presented window's launcher as well (Skia with Vulkan).
     [[nodiscard]] std::string VulkanUnavailableReason(bool forWindow);
+    // What this binary carries, one "key=value" a line, for CI to assert:
+    // the backends, Skia's Vulkan, the embedded SPIR-V stages and the
+    // scene programs. Needs no GPU and no game files.
+    [[nodiscard]] std::string SceneBackendContract();
     // One line for the startup log: requested, selected, GPU, API, driver,
     // swapchain and depth formats, frames in flight, validation.
     [[nodiscard]] std::string DescribeSceneBackend(const Swapchain* swapchain);

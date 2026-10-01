@@ -196,6 +196,19 @@ jobs:
             exit $LASTEXITCODE
           }
 
+      - name: Backend contract (OpenGL, Vulkan, Skia Vulkan)
+        shell: pwsh
+        run: |
+          # One binary carries both backends; this says so without a GPU.
+          $contract = Join-Path $PWD 'rhi-contract.txt'
+          $process = Start-Process -FilePath build/native/RelWithDebInfo/FruityPrime.exe `
+            -ArgumentList '-rhicontract', $contract, '-noupdate' -Wait -PassThru -NoNewWindow
+          if ($process.ExitCode -ne 0) { throw "-rhicontract exited $($process.ExitCode)" }
+          Get-Content $contract
+          foreach ($line in 'opengl=compiled', 'vulkan=compiled', 'vulkan-shader-stages=10', 'skia-vulkan=compiled') {
+            if (-not (Select-String -Path $contract -SimpleMatch $line -Quiet)) { throw "backend contract is missing $line" }
+          }
+
       - name: Report compiler cache statistics
         if: always()
         shell: pwsh
@@ -336,6 +349,41 @@ jobs:
         run: |
           set -euo pipefail
           cmake --build build/native --config RelWithDebInfo --parallel "$(nproc)" --target fruity_prime
+
+      - name: Backend contract (OpenGL, Vulkan, Skia Vulkan)
+        shell: bash
+        run: |
+          set -euo pipefail
+          build/native/FruityPrime -rhicontract build/native/rhi-contract.txt -noupdate
+          cat build/native/rhi-contract.txt
+          for line in opengl=compiled vulkan=compiled vulkan-shader-stages=10 skia-vulkan=compiled; do
+            grep -qxF "$line" build/native/rhi-contract.txt || { echo "backend contract is missing $line" >&2; exit 1; }
+          done
+
+      - name: SPIR-V is regenerated reproducibly
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The shaders are generated from Shaders.cpp in every build (none is
+          # committed); two independent generations must match each other
+          # and the build's own, word for word.
+          glslc="$(grep -E '^FRUITY_GLSLC:' build/native/CMakeCache.txt | cut -d= -f2-)"
+          for run in a b; do
+            python3 tools/generate-vulkan-scene-shaders.py --source src/MphRead.Native/Shaders.cpp --output "$RUNNER_TEMP/spirv-$run"
+            for source in "$RUNNER_TEMP"/spirv-$run/*.vert "$RUNNER_TEMP"/spirv-$run/*.frag; do
+              "$glslc" --target-env=vulkan1.3 --target-spv=spv1.5 -O0 "$source" -o "$source.spv"
+            done
+          done
+          count=0
+          for spv in "$RUNNER_TEMP"/spirv-a/*.spv; do
+            name="$(basename "$spv")"
+            cmp "$spv" "$RUNNER_TEMP/spirv-b/$name"
+            cmp "$spv" "build/native/generated/vulkan-shaders/$name"
+            count=$((count + 1))
+          done
+          test "$count" -eq 10
+          cmp "$RUNNER_TEMP/spirv-a/bindings.json" build/native/generated/vulkan-shaders/bindings.json
+          echo "SPIR-V reproducible: $count stages"
 
       - name: Vulkan foundation runtime gate
         shell: bash

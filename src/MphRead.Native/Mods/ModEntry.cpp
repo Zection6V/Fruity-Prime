@@ -1035,6 +1035,20 @@ namespace MphRead::Mods
 {
     bool ModEntry::TryHandleHeadless(const std::vector<std::string>& args)
     {
+        if (const std::optional<std::string> contract = ValueAfter(args, "rhicontract"); contract.has_value())
+        {
+            try
+            {
+                std::ofstream file(*contract, std::ios::binary | std::ios::trunc);
+                file << ::MphRead::NativeRuntime::Rhi::SceneBackendContract();
+                SetExitCode(file.good() ? 0 : 1);
+            }
+            catch (...)
+            {
+                SetExitCode(1);
+            }
+            return true;
+        }
         if (::HasFlag(args, "vulkancheck"))
         {
             SetExitCode(::MphRead::NativeRuntime::Rhi::Vulkan::RunFoundationCheck());

@@ -212,35 +212,6 @@ private:
     VulkanSceneConstants _constants;
 };
 
-// OpenGL's primitive types, as the triangle and line lists Vulkan draws.
-// Order within each triangle is OpenGL's own decomposition, so winding and
-// the provoking vertex are the same.
-void AppendTopology(std::vector<std::uint32_t>& out, std::span<const std::uint32_t> in,
-    MphRead::ScenePrimitiveTopology topology)
-{
-    using T = MphRead::ScenePrimitiveTopology;
-    const std::size_t n = in.size();
-    switch (topology)
-    {
-    case T::Triangles:
-        out.insert(out.end(), in.begin(), in.begin() + static_cast<std::ptrdiff_t>(n / 3U * 3U));
-        break;
-    case T::Quads:
-        for (std::size_t i = 0; i + 3 < n; i += 4)
-            out.insert(out.end(), {in[i], in[i + 1], in[i + 2], in[i], in[i + 2], in[i + 3]});
-        break;
-    case T::TriangleStrip:
-        for (std::size_t k = 0; k + 2 < n; ++k)
-            if (k % 2 == 0) out.insert(out.end(), {in[k], in[k + 1], in[k + 2]});
-            else out.insert(out.end(), {in[k + 1], in[k], in[k + 2]});
-        break;
-    case T::QuadStrip:
-        for (std::size_t k = 0; k + 3 < n; k += 2)
-            out.insert(out.end(), {in[k], in[k + 1], in[k + 3], in[k], in[k + 3], in[k + 2]});
-        break;
-    }
-}
-
 class VulkanGpuMesh final : public MphRead::GpuMeshResource
 {
 public:
@@ -270,7 +241,7 @@ public:
         for (const auto& range : plan.Ranges)
         {
             const std::size_t first = indices.size();
-            AppendTopology(indices, std::span(geometry.Indices).subspan(range.FirstIndex, range.IndexCount),
+            MphRead::AppendSceneTriangleIndices(indices, std::span(geometry.Indices).subspan(range.FirstIndex, range.IndexCount),
                 range.Topology);
             if (indices.size() > first)
                 _ranges.push_back({static_cast<std::uint32_t>(first), static_cast<std::uint32_t>(indices.size() - first)});
@@ -521,22 +492,8 @@ public:
         std::vector<std::uint32_t> sequence(n);
         MphRead::BuildTransientIndexSequence(sequence);
         std::vector<std::uint32_t> indices;
-        bool lines = false;
-        switch (topology)
-        {
-        case T::LineLoop:
-            lines = true;
-            for (std::size_t i = 0; i < n && n > 1; ++i)
-                indices.insert(indices.end(), {sequence[i], sequence[(i + 1) % n]});
-            break;
-        case T::Triangles: AppendTopology(indices, sequence, MphRead::ScenePrimitiveTopology::Triangles); break;
-        case T::TriangleStrip: AppendTopology(indices, sequence, MphRead::ScenePrimitiveTopology::TriangleStrip); break;
-        case T::Quads: AppendTopology(indices, sequence, MphRead::ScenePrimitiveTopology::Quads); break;
-        case T::QuadStrip: AppendTopology(indices, sequence, MphRead::ScenePrimitiveTopology::QuadStrip); break;
-        case T::TriangleFan:
-            for (std::size_t k = 1; k + 1 < n; ++k) indices.insert(indices.end(), {sequence[0], sequence[k], sequence[k + 1]});
-            break;
-        }
+        const bool lines = topology == T::LineLoop;
+        MphRead::AppendTransientDrawIndices(indices, sequence, topology);
         if (indices.empty()) return;
         auto positions = _commands.Allocate(n * 24U);
         auto* out = reinterpret_cast<float*>(positions.Data);

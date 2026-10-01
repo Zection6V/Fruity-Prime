@@ -1,4 +1,5 @@
 #include "OpenGlDevice.hpp"
+#include "OpenGlNative.hpp"
 
 #include "../../OpenTK/GL.hpp"
 #include "../../../Mods/Render/GlNames.hpp"
@@ -6,6 +7,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <cstring>
+#include <limits>
 #include <map>
 #include <memory>
 #include <stdexcept>
@@ -37,12 +41,6 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         using GlRenderbufferStorage = ParameterOf<1, decltype(&GL::RenderbufferStorage)>::type;
         using GlStencilOp = ParameterOf<0, decltype(&GL::StencilOp)>::type;
 
-        [[noreturn]] void NotYet(const char* what)
-        {
-            throw std::logic_error(std::string("OpenGL RHI: ") + what
-                + " is not implemented by the OpenGL backend.");
-        }
-
         [[nodiscard]] bool IsDepthFormat(TextureFormat format) noexcept
         {
             return format == TextureFormat::D16Unorm || format == TextureFormat::D24UnormS8Uint
@@ -50,6 +48,11 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         }
 
         [[nodiscard]] bool Has(TextureUsage usage, TextureUsage bit) noexcept
+        {
+            return (static_cast<std::uint32_t>(usage) & static_cast<std::uint32_t>(bit)) != 0;
+        }
+
+        [[nodiscard]] bool Has(BufferUsage usage, BufferUsage bit) noexcept
         {
             return (static_cast<std::uint32_t>(usage) & static_cast<std::uint32_t>(bit)) != 0;
         }
@@ -67,7 +70,37 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             switch (format)
             {
             case TextureFormat::RGBA8Unorm:
-                return {GL::PixelInternalFormat::Rgba, GL::PixelFormat::Rgba, GL::PixelType::UnsignedByte};
+                return {static_cast<GL::PixelInternalFormat>(0x8058), GL::PixelFormat::Rgba, GL::PixelType::UnsignedByte};
+            case TextureFormat::RGBA8Srgb:
+                return {static_cast<GL::PixelInternalFormat>(0x8C43), GL::PixelFormat::Rgba, GL::PixelType::UnsignedByte};
+            case TextureFormat::BGRA8Unorm:
+            case TextureFormat::BGRA8Srgb:
+                return {static_cast<GL::PixelInternalFormat>(format == TextureFormat::BGRA8Srgb ? 0x8C43 : 0x8058),
+                    static_cast<GL::PixelFormat>(0x80E1), GL::PixelType::UnsignedByte};
+            case TextureFormat::R8Unorm:
+                return {static_cast<GL::PixelInternalFormat>(0x8229), static_cast<GL::PixelFormat>(0x1903), GL::PixelType::UnsignedByte};
+            case TextureFormat::RG8Unorm:
+                return {static_cast<GL::PixelInternalFormat>(0x822B), static_cast<GL::PixelFormat>(0x8227), GL::PixelType::UnsignedByte};
+            case TextureFormat::R16Float:
+            case TextureFormat::RG16Float:
+            case TextureFormat::RGBA16Float:
+                return {static_cast<GL::PixelInternalFormat>(format == TextureFormat::R16Float ? 0x822D
+                    : format == TextureFormat::RG16Float ? 0x822F : 0x881A),
+                    static_cast<GL::PixelFormat>(format == TextureFormat::R16Float ? 0x1903
+                        : format == TextureFormat::RG16Float ? 0x8227 : 0x1908), static_cast<GL::PixelType>(0x140B)};
+            case TextureFormat::R32Float:
+            case TextureFormat::RG32Float:
+            case TextureFormat::RGB32Float:
+            case TextureFormat::RGBA32Float:
+                return {static_cast<GL::PixelInternalFormat>(format == TextureFormat::R32Float ? 0x822E
+                    : format == TextureFormat::RG32Float ? 0x8230 : format == TextureFormat::RGB32Float ? 0x8815 : 0x8814),
+                    static_cast<GL::PixelFormat>(format == TextureFormat::R32Float ? 0x1903
+                        : format == TextureFormat::RG32Float ? 0x8227 : format == TextureFormat::RGB32Float ? 0x1907 : 0x1908),
+                    static_cast<GL::PixelType>(0x1406)};
+            case TextureFormat::D16Unorm:
+            case TextureFormat::D32Float:
+                return {static_cast<GL::PixelInternalFormat>(format == TextureFormat::D16Unorm ? 0x81A5 : 0x8CAC),
+                    static_cast<GL::PixelFormat>(0x1902), static_cast<GL::PixelType>(format == TextureFormat::D16Unorm ? 0x1403 : 0x1406)};
             case TextureFormat::RGB8Unorm:
                 return {GL::PixelInternalFormat::Rgb, GL::PixelFormat::Rgb, GL::PixelType::UnsignedByte};
             case TextureFormat::D24UnormS8Uint:
@@ -88,6 +121,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             {
             case TextureFormat::D24UnormS8Uint: return GlRenderbufferStorage::Depth24Stencil8;
             case TextureFormat::D32FloatS8Uint: return static_cast<GlRenderbufferStorage>(0x8CAD);
+            case TextureFormat::D16Unorm: return static_cast<GlRenderbufferStorage>(0x81A5);
+            case TextureFormat::D32Float: return static_cast<GlRenderbufferStorage>(0x8CAC);
             default: throw std::invalid_argument("OpenGL RHI: unsupported renderbuffer format");
             }
         }
@@ -107,8 +142,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         {
             switch (mode)
             {
+            case SamplerAddressMode::ClampToBorder: return 0x812D;
             case SamplerAddressMode::ClampToEdge:
-            case SamplerAddressMode::ClampToBorder:
                 return static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge);
             case SamplerAddressMode::MirroredRepeat:
                 return static_cast<std::int32_t>(GL::TextureWrapMode::MirroredRepeat);
@@ -131,9 +166,10 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         // A GL object waiting in the retirement queue.
         struct GlObject final
         {
-            enum class Kind : std::uint8_t { Texture, Renderbuffer, Framebuffer, Buffer, Shader, Program };
+            enum class Kind : std::uint8_t { Texture, Renderbuffer, Framebuffer, Buffer, Shader, Program, Sampler, VertexArray };
             Kind What = Kind::Texture;
             std::int32_t Name = 0;
+            OpenGlNative::DeleteSamplersType DeleteNames = nullptr;
         };
 
         void DestroyNative(const GlObject& object) noexcept
@@ -146,6 +182,13 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             case GlObject::Kind::Buffer: GL::DeleteBuffer(object.Name); break;
             case GlObject::Kind::Shader: GL::DeleteShader(object.Name); break;
             case GlObject::Kind::Program: GL::DeleteProgram(object.Name); break;
+            case GlObject::Kind::Sampler:
+            case GlObject::Kind::VertexArray:
+            {
+                const auto name = static_cast<unsigned>(object.Name);
+                object.DeleteNames(1, &name);
+                break;
+            }
             }
         }
 
@@ -217,15 +260,17 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         class OpenGlGraphicsPipeline final : public GraphicsPipeline
         {
         public:
-            OpenGlGraphicsPipeline(const GraphicsPipelineDesc& desc, std::int32_t program)
-                : _desc(desc), _program(program)
+            OpenGlGraphicsPipeline(OpenGlGraphicsDevice& device, const GraphicsPipelineDesc& desc, std::int32_t program)
+                : _device(&device), _desc(desc), _program(program)
             {
             }
             [[nodiscard]] const GraphicsPipelineDesc& Desc() const noexcept override { return _desc; }
             // 0: the pipeline leaves the current program alone.
             [[nodiscard]] std::int32_t Program() const noexcept { return _program; }
+            OpenGlGraphicsDevice* Device() const noexcept { return _device; }
 
         private:
+            OpenGlGraphicsDevice* _device;
             GraphicsPipelineDesc _desc;
             std::int32_t _program;
         };
@@ -243,6 +288,12 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             [[nodiscard]] const ShaderDesc& Desc() const noexcept override { return _desc; }
             [[nodiscard]] std::int32_t Name() const noexcept { return _name; }
+            OpenGlGraphicsDevice* Device() const noexcept { return _device; }
+            void Source(const std::string& source)
+            {
+                _desc.code.resize(source.size());
+                std::memcpy(_desc.code.data(), source.data(), source.size());
+            }
             void Detach() noexcept { _device = nullptr; }
 
         private:
@@ -303,24 +354,18 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             TextureViewDesc _desc;
         };
 
-        class OpenGlSampler final : public Sampler
-        {
-        public:
-            explicit OpenGlSampler(const SamplerDesc& desc) : _desc(desc) {}
-            [[nodiscard]] const SamplerDesc& Desc() const noexcept override { return _desc; }
-
-        private:
-            SamplerDesc _desc;
-        };
+        #include "OpenGlResourcesInternal.inc"
 
         [[nodiscard]] const OpenGlTexture& Native(const Texture& texture)
         {
-            return static_cast<const OpenGlTexture&>(texture);
+            const auto* native = dynamic_cast<const OpenGlTexture*>(&texture);
+            if (!native) throw std::invalid_argument("OpenGL RHI: texture belongs to another backend.");
+            return *native;
         }
 
         [[nodiscard]] OpenGlTexture& Native(Texture& texture)
         {
-            return static_cast<OpenGlTexture&>(texture);
+            return const_cast<OpenGlTexture&>(Native(static_cast<const Texture&>(texture)));
         }
 
         // Attach the rendering info's targets to the framebuffer bound for drawing.
@@ -388,6 +433,20 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 _capabilities.backend = GraphicsBackend::OpenGl;
                 _capabilities.maxColorAttachments = 1;
                 _capabilities.supportsWireframe = true;
+                _capabilities.maxTexture2DDimension = static_cast<std::uint32_t>(GL::GetInteger(0x0D33));
+                _capabilities.maxVertexBuffers = static_cast<std::uint32_t>(GL::GetInteger(0x8869));
+                _capabilities.maxTextureArrayLayers = 1;
+                _capabilities.maxBindingGroups = 4;
+#if !defined(__ANDROID__)
+                _capabilities.supportsDepthClamp = true;
+                _capabilities.supportsAnisotropy = GL::GetString(static_cast<GL::StringName>(0x1F03)).find("texture_filter_anisotropic") != std::string::npos;
+                if (_capabilities.supportsAnisotropy)
+                {
+                    float maximum = 1;
+                    GL::GetFloat(static_cast<GL::GetPName>(0x84FF), &maximum);
+                    _capabilities.maxSamplerAnisotropy = maximum;
+                }
+#endif
             }
 
             ~OpenGlGraphicsDevice() override;
@@ -395,13 +454,18 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             [[nodiscard]] GraphicsBackend GetBackend() const noexcept override { return GraphicsBackend::OpenGl; }
             [[nodiscard]] const Capabilities& GetCapabilities() const noexcept override { return _capabilities; }
 
-            [[nodiscard]] std::unique_ptr<Buffer> CreateBuffer(const BufferDesc&) override
-            {
-                NotYet("CreateBuffer (mesh buffers are owned by OpenGlGeometry)");
-            }
+            [[nodiscard]] std::unique_ptr<Buffer> CreateBuffer(const BufferDesc& desc) override;
+            void WriteBuffer(Buffer& buffer, std::uint64_t offset, std::span<const std::byte> data) override;
+            void ReadBuffer(Buffer& buffer, std::uint64_t offset, std::span<std::byte> data) override;
+            OpenGlNative& Api() noexcept { return _api; }
+            void Track(OpenGlBuffer& buffer) { _resourceBuffers.insert(&buffer); }
+            void Untrack(OpenGlBuffer& buffer) { _resourceBuffers.erase(&buffer); }
+            void Track(OpenGlSamplerStorage& sampler) { _samplers.insert(&sampler); }
+            void Untrack(OpenGlSamplerStorage& sampler) { _samplers.erase(&sampler); }
 
             [[nodiscard]] std::unique_ptr<Texture> CreateTexture(const TextureDesc& desc) override
             {
+                ValidateTexture(desc);
                 const bool renderbuffer = IsDepthFormat(desc.format)
                     && !Has(desc.usage, TextureUsage::Sampled);
                 const std::int32_t name = renderbuffer ? GL::GenRenderbuffer()
@@ -412,6 +476,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             [[nodiscard]] std::unique_ptr<Texture> CreateTexture(
                 const TextureDesc& desc, TextureHandle handle) override
             {
+                ValidateTexture(desc);
                 if (!handle || IsDepthFormat(desc.format))
                 {
                     throw std::invalid_argument("OpenGL RHI: a chosen handle must be a nonzero colour texture");
@@ -445,12 +510,29 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             [[nodiscard]] std::unique_ptr<TextureView> CreateTextureView(
                 Texture& texture, const TextureViewDesc& desc) override
             {
-                return std::make_unique<OpenGlTextureView>(texture, desc);
+                const auto& native = Native(texture);
+                if ((desc.format != TextureFormat::Undefined && desc.format != texture.Desc().format)
+                    || desc.baseMipLevel || desc.mipLevelCount != 1 || desc.baseArrayLayer || desc.arrayLayerCount != 1
+                    || (!native.IsRenderbuffer() && FindTexture(native.Handle()) != &texture))
+                    throw std::invalid_argument("OpenGL RHI: invalid texture view.");
+                auto normalized = desc; normalized.format = texture.Desc().format;
+                return std::make_unique<OpenGlTextureView>(texture, normalized);
             }
 
             [[nodiscard]] std::unique_ptr<Sampler> CreateSampler(const SamplerDesc& desc) override
             {
-                return std::make_unique<OpenGlSampler>(desc);
+                for (auto it = _samplerCache.begin(); it != _samplerCache.end();)
+                {
+                    if (const auto storage = it->lock())
+                    {
+                        if (storage->Desc == desc) return std::make_unique<OpenGlSampler>(storage);
+                        ++it;
+                    }
+                    else it = _samplerCache.erase(it);
+                }
+                auto storage = std::make_shared<OpenGlSamplerStorage>(*this, desc);
+                _samplerCache.push_back(storage);
+                return std::make_unique<OpenGlSampler>(std::move(storage));
             }
 
             // Shaders come from GLSL source here (CreateGlslShader): the
@@ -484,12 +566,18 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     throw std::runtime_error(log);
                 }
                 auto shader = std::make_unique<OpenGlShader>(*this, stage, name);
+                shader->Source(source);
                 _shaders.insert(shader.get());
                 return shader;
             }
 
             [[nodiscard]] std::int32_t Program(const Shader& vertex, const Shader& fragment)
             {
+                const auto* vs = dynamic_cast<const OpenGlShader*>(&vertex);
+                const auto* fs = dynamic_cast<const OpenGlShader*>(&fragment);
+                if (!vs || !fs || vs->Device() != this || fs->Device() != this
+                    || vertex.Desc().stage != ShaderStage::Vertex || fragment.Desc().stage != ShaderStage::Fragment)
+                    throw std::invalid_argument("OpenGL RHI: invalid shader pair.");
                 const auto key = std::make_pair(&vertex, &fragment);
                 const auto found = _programs.find(key);
                 if (found != _programs.end())
@@ -500,6 +588,14 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 GL::AttachShader(program, static_cast<const OpenGlShader&>(vertex).Name());
                 GL::AttachShader(program, static_cast<const OpenGlShader&>(fragment).Name());
                 GL::LinkProgram(program);
+                std::int32_t linked = 0;
+                GL::GetProgram(program, GL::GetProgramParameterName::LinkStatus, linked);
+                if (!linked)
+                {
+                    const auto log = GL::GetProgramInfoLog(program);
+                    GL::DeleteProgram(program);
+                    throw std::runtime_error(log);
+                }
                 _programs.emplace(key, program);
                 return program;
             }
@@ -590,6 +686,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             {
                 if (object.What == GlObject::Kind::Buffer)
                 {
+                    ForgetBuffer(object.Name);
                     _buffers.erase(object.Name);
                 }
                 _retired.Retire(object, _frame);
@@ -628,14 +725,14 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 return first;
             }
 
-            [[nodiscard]] std::unique_ptr<BindingLayout> CreateBindingLayout(const BindingLayoutDesc&) override
+            [[nodiscard]] std::unique_ptr<BindingLayout> CreateBindingLayout(const BindingLayoutDesc& desc) override
             {
-                NotYet("CreateBindingLayout");
+                return std::make_unique<OpenGlBindingLayout>(*this, desc);
             }
 
-            [[nodiscard]] std::unique_ptr<BindingSet> CreateBindingSet(const BindingSetDesc&) override
+            [[nodiscard]] std::unique_ptr<BindingSet> CreateBindingSet(const BindingSetDesc& desc) override
             {
-                NotYet("CreateBindingSet");
+                return std::make_unique<OpenGlBindingSet>(*this, desc);
             }
 
             // The shaders, binding layout and vertex layout in the desc are
@@ -644,9 +741,14 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             [[nodiscard]] std::unique_ptr<GraphicsPipeline> CreateGraphicsPipeline(
                 const GraphicsPipelineDesc& desc) override
             {
+                if (desc.sampleCount != 1 || desc.colorFormats.size() > 1 || desc.blendAttachments.size() > 1
+                    || desc.pipelineLayout.groups.size() > _capabilities.maxBindingGroups
+                    || !std::isfinite(desc.rasterizer.lineWidth) || desc.rasterizer.lineWidth <= 0
+                    || !std::isfinite(desc.rasterizer.depthBiasSlope) || !std::isfinite(desc.rasterizer.depthBiasConstant))
+                    throw std::invalid_argument("OpenGL RHI: unsupported or invalid graphics pipeline.");
                 const std::int32_t program = desc.vertexShader != nullptr && desc.fragmentShader != nullptr
                     ? Program(*desc.vertexShader, *desc.fragmentShader) : 0;
-                return std::make_unique<OpenGlGraphicsPipeline>(desc, program);
+                return std::make_unique<OpenGlGraphicsPipeline>(*this, desc, program);
             }
 
             [[nodiscard]] std::unique_ptr<CommandList> CreateCommandList() override;
@@ -654,18 +756,31 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void WriteTexture(Texture& texture, const TextureWrite& write) override
             {
                 OpenGlTexture& gl = Native(texture);
+                if (FindTexture(gl.Handle()) != &texture || !write.width || !write.height
+                    || write.width > _capabilities.maxTexture2DDimension || write.height > _capabilities.maxTexture2DDimension)
+                    throw std::invalid_argument("OpenGL RHI: invalid texture upload extent or ownership.");
+                if (!gl.HasStorage() || gl.Desc().width != write.width || gl.Desc().height != write.height || !write.data)
+                    AllocateStorage(gl, write.width, write.height);
+                if (!write.data) return;
                 const GlTextureFormat format = ToGl(write.format);
                 GL::BindTexture(GL::TextureTarget::Texture2D, gl.Name());
-                GL::TexImage2D(GL::TextureTarget::Texture2D, 0, format.Internal,
-                    static_cast<std::int32_t>(write.width), static_cast<std::int32_t>(write.height), 0,
+                const auto alignment = GL::GetInteger(0x0CF5);
+                GL::PixelStore(GL::PixelStoreParameter::UnpackAlignment, 1);
+                GL::TexSubImage2D(GL::TextureTarget::Texture2D, 0, 0, 0, write.width, write.height,
                     format.Format, format.Type, write.data);
+                GL::PixelStore(GL::PixelStoreParameter::UnpackAlignment, alignment);
                 GL::BindTexture(GL::TextureTarget::Texture2D, 0);
                 gl.SetExtent(write.width, write.height);
+                GL::BindTexture(GL::TextureTarget::Texture2D, gl.Name());
+                GL::TexParameter(GL::TextureTarget::Texture2D, static_cast<GL::TextureParameterName>(0x813D), 0);
+                GL::BindTexture(GL::TextureTarget::Texture2D, 0);
             }
 
             void ResizeTexture(Texture& texture, std::uint32_t width, std::uint32_t height) override
             {
                 OpenGlTexture& gl = Native(texture);
+                if (!width || !height || width > _capabilities.maxTexture2DDimension || height > _capabilities.maxTexture2DDimension)
+                    throw std::out_of_range("OpenGL RHI: invalid texture resize extent.");
                 AllocateStorage(gl, width, height);
             }
 
@@ -710,6 +825,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             void Register(OpenGlCommandList& list) { _lists.insert(&list); }
             void Unregister(OpenGlCommandList& list) noexcept { _lists.erase(&list); }
+            void ForgetBuffer(std::int32_t name);
 
             // Storage for a render target: TexImage2D with no data, or a
             // renderbuffer's storage, at this extent.
@@ -733,9 +849,28 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     GL::BindTexture(GL::TextureTarget::Texture2D, 0);
                 }
                 gl.SetExtent(width, height);
+                if (!gl.IsRenderbuffer())
+                {
+                    GL::BindTexture(GL::TextureTarget::Texture2D, gl.Name());
+                    GL::TexParameter(GL::TextureTarget::Texture2D, static_cast<GL::TextureParameterName>(0x813D), 0);
+                    GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+                }
             }
 
         private:
+            void ValidateTexture(const TextureDesc& desc) const
+            {
+                if (!desc.width || !desc.height || desc.width > _capabilities.maxTexture2DDimension
+                    || desc.height > _capabilities.maxTexture2DDimension || desc.usage == TextureUsage::None)
+                    throw std::out_of_range("OpenGL RHI: invalid texture extent or usage.");
+                if (desc.depth != 1 || desc.arrayLayers != 1 || desc.mipLevels != 1 || desc.sampleCount != 1)
+                    throw std::invalid_argument("OpenGL RHI: only single-level 2D textures are currently supported.");
+                (void)ToGl(desc.format);
+            }
+            OpenGlNative _api;
+            std::unordered_set<OpenGlBuffer*> _resourceBuffers;
+            std::unordered_set<OpenGlSamplerStorage*> _samplers;
+            std::vector<std::weak_ptr<OpenGlSamplerStorage>> _samplerCache;
             [[nodiscard]] std::unique_ptr<Texture> Make(
                 const TextureDesc& desc, std::int32_t name, bool renderbuffer)
             {
@@ -747,11 +882,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 _live.insert(texture.get());
                 // A render target has storage from the start; a sampled
                 // texture gets its storage from its first WriteTexture.
-                if (Has(desc.usage, TextureUsage::ColorAttachment)
-                    || Has(desc.usage, TextureUsage::DepthStencilAttachment))
-                {
-                    AllocateStorage(*texture, desc.width, desc.height);
-                }
+                AllocateStorage(*texture, desc.width, desc.height);
                 return texture;
             }
 
@@ -797,6 +928,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             std::array<std::uint64_t, FramesInFlight> _fenceFrames{};
         };
 
+        #include "OpenGlResourcesImplementation.inc"
+
         class OpenGlCommandList final : public CommandList
         {
         public:
@@ -807,6 +940,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             ~OpenGlCommandList() override
             {
+                for (const auto& [key, vao] : _vertexArrays)
+                    if (_device) _device->Retire({GlObject::Kind::VertexArray, static_cast<int>(vao.Name), _device->Api().DeleteVertexArrays});
                 for (const auto& [key, framebuffer] : _framebuffers)
                 {
                     (void)key;
@@ -819,6 +954,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             }
 
             [[nodiscard]] std::size_t FramebufferCount() const noexcept { return _framebuffers.size(); }
+            [[nodiscard]] std::size_t VertexArrayCount() const noexcept { return _vertexArrays.size(); }
 
             // The compatibility context's defaults the renderer set once as a
             // scene loaded: fixed-function texturing on (the launcher overlay
@@ -865,6 +1001,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             void SetPipeline(const GraphicsPipeline& pipeline) override
             {
+                const auto* native = dynamic_cast<const OpenGlGraphicsPipeline*>(&pipeline);
+                if (!native || native->Device() != _device) throw std::invalid_argument("OpenGL RHI: pipeline belongs to another device.");
                 if (&pipeline == _applied)
                 {
                     return;
@@ -878,6 +1016,11 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 }
 
                 const RasterizerStateDesc& raster = desc.rasterizer;
+                auto& api = _device->Api();
+                OpenGlNative::Require(api.FrontFace, "glFrontFace")(raster.frontFace == FrontFace::Clockwise ? 0x0900 : 0x0901);
+#if !defined(__ANDROID__)
+                SetCap(0x864F, raster.depthClampEnable);
+#endif
                 SetCap(CapCullFace, raster.cullMode != CullMode::None);
                 if (raster.cullMode != CullMode::None)
                 {
@@ -898,6 +1041,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 GL::StencilOp(static_cast<GlStencilOp>(ToGl(ds.front.failOp)),
                     static_cast<GlStencilOp>(ToGl(ds.front.depthFailOp)),
                     static_cast<GlStencilOp>(ToGl(ds.front.passOp)));
+                OpenGlNative::Require(api.StencilOpSeparate, "glStencilOpSeparate")(0x0405, ToGl(ds.back.failOp), ToGl(ds.back.depthFailOp), ToGl(ds.back.passOp));
                 ApplyStencilFunc();
 
                 const BlendAttachmentDesc blend = desc.blendAttachments.empty()
@@ -905,6 +1049,9 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 SetCap(CapBlend, blend.blendEnable);
                 GL::BlendFunc(static_cast<GL::BlendingFactor>(ToGl(blend.srcColorFactor)),
                     static_cast<GL::BlendingFactor>(ToGl(blend.dstColorFactor)));
+                OpenGlNative::Require(api.BlendFuncSeparate, "glBlendFuncSeparate")(ToGl(blend.srcColorFactor), ToGl(blend.dstColorFactor), ToGl(blend.srcAlphaFactor), ToGl(blend.dstAlphaFactor));
+                const auto equation = [](BlendOp op) { return op == BlendOp::Add ? 0x8006U : op == BlendOp::Subtract ? 0x800AU : op == BlendOp::ReverseSubtract ? 0x800BU : op == BlendOp::Min ? 0x8007U : 0x8008U; };
+                OpenGlNative::Require(api.BlendEquationSeparate, "glBlendEquationSeparate")(equation(blend.colorOp), equation(blend.alphaOp));
                 const auto mask = static_cast<std::uint8_t>(blend.writeMask);
                 GL::ColorMask((mask & 1U) != 0, (mask & 2U) != 0, (mask & 4U) != 0, (mask & 8U) != 0);
 
@@ -915,6 +1062,11 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             {
                 GL::Viewport(static_cast<std::int32_t>(viewport.x), static_cast<std::int32_t>(viewport.y),
                     static_cast<std::int32_t>(viewport.width), static_cast<std::int32_t>(viewport.height));
+#if defined(__ANDROID__)
+                OpenGlNative::Require(_device->Api().DepthRangef, "glDepthRangef")(viewport.minDepth, viewport.maxDepth);
+#else
+                OpenGlNative::Require(_device->Api().DepthRange, "glDepthRange")(viewport.minDepth, viewport.maxDepth);
+#endif
             }
 
             void SetScissor(const Scissor& scissor) override
@@ -923,34 +1075,25 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     static_cast<std::int32_t>(scissor.height));
             }
 
-            void SetVertexBuffer(std::uint32_t, const Buffer&, std::uint64_t) override { NotYet("SetVertexBuffer"); }
-            void SetIndexBuffer(const Buffer&, IndexType, std::uint64_t) override { NotYet("SetIndexBuffer"); }
-            void SetBindingSet(std::uint32_t, const BindingSet&) override { NotYet("SetBindingSet"); }
+            void SetVertexBuffer(std::uint32_t slot, const Buffer& buffer, std::uint64_t offset) override;
+            void SetIndexBuffer(const Buffer& buffer, IndexType type, std::uint64_t offset) override;
+            void SetBindingSet(std::uint32_t group, const BindingSet& set) override;
             void SetStencilReference(std::uint32_t reference) override
             {
                 _stencilReference = reference;
                 ApplyStencilFunc();
             }
-            void Draw(std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t) override { NotYet("Draw"); }
-            void DrawIndexed(std::uint32_t, std::uint32_t, std::uint32_t, std::int32_t, std::uint32_t) override
-            {
-                NotYet("DrawIndexed");
-            }
-            void CopyBuffer(const Buffer&, std::uint64_t, Buffer&, std::uint64_t, std::uint64_t) override
-            {
-                NotYet("CopyBuffer");
-            }
-            void CopyBufferToTexture(const Buffer&, Texture&, const BufferTextureCopy&) override
-            {
-                NotYet("CopyBufferToTexture");
-            }
-            void CopyTextureToBuffer(const Texture&, Buffer&, const BufferTextureCopy&) override
-            {
-                NotYet("CopyTextureToBuffer");
-            }
+            void Draw(std::uint32_t count, std::uint32_t instances, std::uint32_t first, std::uint32_t firstInstance) override;
+            void DrawIndexed(std::uint32_t count, std::uint32_t instances, std::uint32_t first, std::int32_t base, std::uint32_t firstInstance) override;
+            void DrawSceneGeometry(std::span<const VertexBufferLayoutDesc> buffers,
+                std::span<const VertexAttributeDesc> attributes, PrimitiveTopology topology,
+                std::uint32_t count, std::uint32_t first);
+            void CopyBuffer(const Buffer& source, std::uint64_t sourceOffset, Buffer& destination, std::uint64_t destinationOffset, std::uint64_t size) override;
+            void CopyBufferToTexture(const Buffer& source, Texture& destination, const BufferTextureCopy& region) override;
+            void CopyTextureToBuffer(const Texture& source, Buffer& destination, const BufferTextureCopy& region) override;
             // OpenGL tracks resource state itself.
-            void Transition(Buffer&, ResourceState, ResourceState) override {}
-            void Transition(Texture&, ResourceState, ResourceState) override {}
+            void Transition(Buffer&, ResourceState before, ResourceState after) override;
+            void Transition(Texture&, ResourceState before, ResourceState after) override;
 
             void BindSampledTexture(std::uint32_t slot, const Texture* texture, const Sampler* sampler) override
             {
@@ -966,16 +1109,11 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     {
                         throw std::invalid_argument("OpenGL RHI: a bound texture needs a sampler");
                     }
-                    const SamplerDesc& desc = sampler->Desc();
-                    GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
-                        ToGl(desc.minFilter, true));
-                    GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter,
-                        ToGl(desc.magFilter, false));
-                    GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-                        ToGl(desc.addressU));
-                    GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-                        ToGl(desc.addressV));
                 }
+                const auto* native = dynamic_cast<const OpenGlSampler*>(sampler);
+                if (sampler && (!native || native->Device() != _device))
+                    throw std::invalid_argument("OpenGL RHI: sampler belongs to another device.");
+                OpenGlNative::Require(_device->Api().BindSampler, "glBindSampler")(slot, texture && native ? native->Name() : 0);
                 if (slot != 0)
                 {
                     GL::ActiveTexture(GL::TextureUnit::Texture0);
@@ -1041,7 +1179,21 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             void Detach() noexcept { _device = nullptr; }
 
+            void ForgetBuffer(std::int32_t name);
+
         private:
+            unsigned VertexArray();
+            struct VertexBinding final { const OpenGlBuffer* Buffer = nullptr; std::uint64_t Offset = 0; };
+            std::unordered_map<std::uint32_t, VertexBinding> _vertexBindings;
+            const OpenGlBuffer* _indexBuffer = nullptr;
+            std::uint64_t _indexOffset = 0;
+            IndexType _indexType = IndexType::UInt32;
+            struct VertexArrayEntry final { unsigned Name; std::vector<int> Buffers; };
+            std::map<std::vector<std::uint64_t>, VertexArrayEntry> _vertexArrays;
+            bool _sceneGeometry = false;
+            std::span<const VertexBufferLayoutDesc> _sceneBuffers;
+            std::span<const VertexAttributeDesc> _sceneAttributes;
+            PrimitiveTopology _sceneTopology = PrimitiveTopology::TriangleList;
             void RetireFramebuffer(std::int32_t framebuffer) noexcept
             {
                 if (_device != nullptr)
@@ -1063,6 +1215,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 const DepthStencilStateDesc& ds = _applied->Desc().depthStencil;
                 GL::StencilFunc(static_cast<GL::StencilFunction>(ToGl(ds.front.compareOp)),
                     static_cast<std::int32_t>(_stencilReference), ds.stencilReadMask);
+                OpenGlNative::Require(_device->Api().StencilFuncSeparate, "glStencilFuncSeparate")(0x0405, ToGl(ds.back.compareOp), _stencilReference, ds.stencilReadMask);
             }
 
             // The alpha test is a discard in the fragment shader, driven by the
@@ -1181,6 +1334,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             std::unordered_map<std::int32_t, std::int32_t> _alphaTestLocations{};
         };
 
+        #include "OpenGlCommandsInternal.inc"
+
         OpenGlTexture::~OpenGlTexture()
         {
             const GlObject object{_renderbuffer ? GlObject::Kind::Renderbuffer : GlObject::Kind::Texture, _name};
@@ -1223,6 +1378,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             {
                 shader->Detach();
             }
+            for (OpenGlBuffer* buffer : _resourceBuffers) buffer->Detach();
+            for (OpenGlSamplerStorage* sampler : _samplers) sampler->Device = nullptr;
             _retired.CollectAll(DestroyNative);
         }
 
@@ -1244,8 +1401,10 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             for (const OpenGlCommandList* list : _lists)
             {
                 statistics.Framebuffers += static_cast<std::uint32_t>(list->FramebufferCount());
+                statistics.VertexArrays += static_cast<std::uint32_t>(list->VertexArrayCount());
             }
             statistics.Retired = static_cast<std::uint32_t>(_retired.Size());
+            statistics.Samplers = static_cast<std::uint32_t>(_samplers.size());
             statistics.CompletedFrame = _completed;
             return statistics;
         }
@@ -1296,31 +1455,30 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         return static_cast<OpenGlGraphicsDevice&>(device).Program(vertex, fragment);
     }
 
-    void RetireBuffer(std::int32_t buffer) noexcept
+    void DrawSceneGeometry(CommandList& commands,
+        std::span<const VertexBufferLayoutDesc> buffers, std::span<const VertexAttributeDesc> attributes,
+        PrimitiveTopology topology, std::uint32_t count, std::uint32_t first)
     {
-        if (buffer == 0)
-        {
-            return;
-        }
-        if (auto& device = Instance(); device)
-        {
-            device->Retire(GlObject{GlObject::Kind::Buffer, buffer});
-        }
-        else
-        {
-            DestroyNative(GlObject{GlObject::Kind::Buffer, buffer});
-        }
-    }
-
-    std::int32_t CreateGeometryBuffer()
-    {
-        return static_cast<OpenGlGraphicsDevice&>(ContextDevice()).CreateGeometryBuffer();
+        auto* native = dynamic_cast<OpenGlCommandList*>(&commands);
+        if (!native) throw std::invalid_argument("Scene geometry needs an OpenGL command list.");
+        native->DrawSceneGeometry(buffers, attributes, topology, count, first);
     }
 
     void ResetWindowViewport(std::int32_t width, std::int32_t height)
     {
         GL::Viewport(0, 0, width, height);
     }
+
+#if defined(__ANDROID__)
+    void RetireAndroidGeometryBuffer(std::int32_t buffer) noexcept
+    {
+        if (!buffer) return;
+        if (auto& device = Instance(); device) device->Retire({GlObject::Kind::Buffer, buffer});
+        else DestroyNative({GlObject::Kind::Buffer, buffer});
+    }
+    std::int32_t CreateAndroidGeometryBuffer()
+    { return static_cast<OpenGlGraphicsDevice&>(ContextDevice()).CreateGeometryBuffer(); }
+#endif
 
     void ResetContextDevice() noexcept
     {

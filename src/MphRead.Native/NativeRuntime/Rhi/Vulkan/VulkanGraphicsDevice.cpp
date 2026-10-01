@@ -670,6 +670,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::atomic<std::uint32_t> Textures{0};
             std::atomic<std::uint32_t> Shaders{0};
             std::atomic<std::uint32_t> Programs{0};
+            std::atomic<std::uint32_t> Samplers{0};
             std::atomic<std::uint64_t> CurrentFrame{0};
             std::atomic<std::uint64_t> CompletedFrame{0};
             std::atomic<std::uint64_t> HostWaits{0};
@@ -1225,6 +1226,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 create.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE; break;
             }
             Check(vk.vkCreateSampler(vk.device, &create, nullptr, &_sampler), "vkCreateSampler");
+            ++_device->Samplers;
             vk.Name(VK_OBJECT_TYPE_SAMPLER, reinterpret_cast<std::uint64_t>(_sampler), "RHI sampler");
         }
 
@@ -1233,6 +1235,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             try { _device->ForgetScene(this); } catch (...) {}
             if (_sampler != VK_NULL_HANDLE)
             {
+                --_device->Samplers;
                 auto& vk = *_device->ContextPointer->_impl;
                 _device->Retire([device = vk.device, destroy = vk.vkDestroySampler, sampler = _sampler] {
                     destroy(device, sampler, nullptr);
@@ -3039,6 +3042,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             void ClearPipelineCacheForCheck()
             {
                 WaitIdle();
+                TrimCaches();
+            }
+
+            void TrimCaches() override
+            {
                 std::lock_guard lock(_pipelineMutex);
                 _pipelines.clear();
             }
@@ -3051,6 +3059,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 result.Buffers = _state->Buffers.load();
                 result.Shaders = _state->Shaders.load();
                 result.Programs = _state->Programs.load();
+                result.Samplers = _state->Samplers.load();
                 result.CompletedFrame = _state->CompletedFrame.load();
                 result.HostWaits = _state->HostWaits.load();
                 result.DeviceWideWaits = _state->DeviceWideWaits.load();

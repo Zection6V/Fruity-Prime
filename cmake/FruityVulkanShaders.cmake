@@ -46,3 +46,25 @@ add_custom_target(fruity_vulkan_shaders DEPENDS "${_fruity_shader_header}")
 target_sources(fruity_mphread_native PRIVATE "${_fruity_shader_header}")
 target_include_directories(fruity_mphread_native PRIVATE "${FRUITY_VULKAN_SHADER_DIR}")
 add_dependencies(fruity_mphread_native fruity_vulkan_shaders)
+
+set(_rhi_fixture_source "${CMAKE_CURRENT_SOURCE_DIR}/src/MphRead.Native/Testing/RhiConformanceShaderSource.hpp")
+set(_rhi_fixture_builder "${CMAKE_CURRENT_SOURCE_DIR}/tools/build-rhi-conformance-shaders.py")
+add_custom_command(
+    OUTPUT "${FRUITY_VULKAN_SHADER_DIR}/conformance.vert" "${FRUITY_VULKAN_SHADER_DIR}/conformance.frag"
+    COMMAND Python3::Interpreter "${_rhi_fixture_builder}" --phase generate --source "${_rhi_fixture_source}"
+        --directory "${FRUITY_VULKAN_SHADER_DIR}"
+    DEPENDS "${_rhi_fixture_source}" "${_rhi_fixture_builder}" VERBATIM)
+foreach(_stage vert frag)
+    add_custom_command(OUTPUT "${FRUITY_VULKAN_SHADER_DIR}/conformance.${_stage}.spv"
+        COMMAND "${FRUITY_GLSLC}" --target-env=vulkan1.3 --target-spv=spv1.5 -DFRUITY_VULKAN=1 -O0
+            "${FRUITY_VULKAN_SHADER_DIR}/conformance.${_stage}" -o "${FRUITY_VULKAN_SHADER_DIR}/conformance.${_stage}.spv"
+        DEPENDS "${FRUITY_VULKAN_SHADER_DIR}/conformance.${_stage}" "${FRUITY_GLSLC}" VERBATIM)
+endforeach()
+set(_rhi_fixture_header "${FRUITY_VULKAN_SHADER_DIR}/FruityRhiConformanceShaders.hpp")
+add_custom_command(OUTPUT "${_rhi_fixture_header}"
+    COMMAND Python3::Interpreter "${_rhi_fixture_builder}" --phase embed --source "${_rhi_fixture_source}"
+        --directory "${FRUITY_VULKAN_SHADER_DIR}" --output "${_rhi_fixture_header}"
+    DEPENDS "${FRUITY_VULKAN_SHADER_DIR}/conformance.vert.spv" "${FRUITY_VULKAN_SHADER_DIR}/conformance.frag.spv"
+        "${_rhi_fixture_builder}" VERBATIM)
+add_custom_target(fruity_rhi_conformance_shaders DEPENDS "${_rhi_fixture_header}")
+add_dependencies(fruity_mphread_native fruity_rhi_conformance_shaders)

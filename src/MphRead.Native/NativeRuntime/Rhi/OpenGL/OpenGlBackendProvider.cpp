@@ -33,10 +33,10 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             }
             std::unique_ptr<SceneShaderSet> CreateShaders(GraphicsDevice& device, CommandList&,
                 const SceneShaderSources& sources) override { return OpenGL::CreateSceneShaderSet(device, sources); }
-            std::shared_ptr<MphRead::GpuMeshResource> CreateMesh(GraphicsDevice&, CommandList&,
-                const MphRead::RendererGeometry& geometry) override { return CreateGpuMeshResource(geometry); }
-            std::shared_ptr<MphRead::TransientGeometryResource> CreateTransient(GraphicsDevice&, CommandList&) override
-            { return CreateTransientGeometryResource(); }
+            std::shared_ptr<MphRead::GpuMeshResource> CreateMesh(GraphicsDevice& device, CommandList& commands,
+                const MphRead::RendererGeometry& geometry) override { return CreateGpuMeshResource(device, commands, geometry); }
+            std::shared_ptr<MphRead::TransientGeometryResource> CreateTransient(GraphicsDevice& device, CommandList& commands) override
+            { return CreateTransientGeometryResource(device, commands); }
         private:
             bool _active = false;
         };

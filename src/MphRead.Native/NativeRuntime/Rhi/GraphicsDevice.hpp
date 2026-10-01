@@ -83,6 +83,9 @@ namespace MphRead::NativeRuntime::Rhi
         virtual void EndFrame() = 0;
         virtual void WaitIdle() = 0;
         [[nodiscard]] virtual GpuResourceStatistics Statistics() const = 0;
+        // Release cached objects not needed by live frontend resources. Native
+        // destruction still follows submission completion; this does not wait.
+        virtual void TrimCaches() {}
 
         // Who made the device and what it runs, for the debug log.
         [[nodiscard]] virtual std::string AdapterDescription() = 0;

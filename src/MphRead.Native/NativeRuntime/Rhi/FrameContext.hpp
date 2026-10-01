@@ -35,6 +35,8 @@ namespace MphRead::NativeRuntime::Rhi
         std::uint32_t Shaders = 0;
         std::uint32_t Programs = 0;
         std::uint32_t Framebuffers = 0;
+        std::uint32_t Samplers = 0;
+        std::uint32_t VertexArrays = 0;
         std::uint32_t Retired = 0;
         std::uint64_t CompletedFrame = 0;
         // Times the CPU has stopped to wait for the GPU (a fence or the whole
@@ -46,6 +48,11 @@ namespace MphRead::NativeRuntime::Rhi
         std::uint64_t DeviceWideWaits = 0;
 
         bool operator==(const GpuResourceStatistics&) const = default;
+        [[nodiscard]] std::uint64_t LiveObjects() const noexcept
+        {
+            return static_cast<std::uint64_t>(Textures) + Buffers + Renderbuffers + Shaders
+                + Programs + Framebuffers + Samplers + VertexArrays;
+        }
     };
 
     // Native objects waiting for the GPU to finish with them. Backend

@@ -898,6 +898,27 @@ namespace MphRead::Mods::Launcher::Gui
                     player->Spawn(spawn->Position, spawn->FacingVector(), spawn->UpVector(), spawn->NodeRef, true);
                 }
                 else ++_shotMisses;
+                // Optional deterministic effect fixture. Keep all eight
+                // actors and the real simulation, but hold the non-main
+                // controls so a bot cannot legitimately detonate the probe
+                // while renderer startup time changes its approach timing.
+                // The default switch stress retains all seven active bots.
+                if (std::getenv("FRUITY_SWITCHCHECK_HOLD_ACTORS"))
+                {
+                    int held = 0;
+                    auto actors = window.Scene().GetPlayerEntities().GetEnumerator();
+                    while (actors.MoveNext())
+                    {
+                        const auto actor = actors.Current();
+                        if (actor && actor != player)
+                        {
+                            actor->SetIsBot(false);
+                            actor->Controls().ClearAll();
+                            ++held;
+                        }
+                    }
+                    std::cout << "[switchcheck] effect fixture held non-main controls " << held << '\n';
+                }
                 // A texture can outlive the entity/model instance that first
                 // uploaded it, and need not have a cached mesh at all. Drop
                 // this uncached instance before switching to exercise that

@@ -12,6 +12,7 @@
 #include "DebugLog.hpp"
 #include "Diagnostics/CompatibilityCheck.hpp"
 #include "Diagnostics/GpuLifetimeCheck.hpp"
+#include "Diagnostics/RhiConformanceCheck.hpp"
 #include "Diagnostics/PlatformDiagnostics.hpp"
 #if defined(MPHREAD_SHELL)
 #include "Diagnostics/GlfwPathCheck.hpp"
@@ -1055,6 +1056,11 @@ namespace MphRead::Mods
         if (::HasFlag(args, "vulkancheck"))
         {
             SetExitCode(::MphRead::NativeRuntime::Rhi::Vulkan::RunFoundationCheck());
+            return true;
+        }
+        if (::HasFlag(args, "rhiconformance"))
+        {
+            SetExitCode(Diagnostics::RunRhiConformanceCheck());
             return true;
         }
         if (::HasFlag(args, "vulkanpresentcheck"))

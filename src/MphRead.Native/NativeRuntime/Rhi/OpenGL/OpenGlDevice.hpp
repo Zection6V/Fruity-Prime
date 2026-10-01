@@ -38,9 +38,14 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
     // OpenGL only: the program linking these two, linked once per device
     // and shared by every pipeline and shader set that names the pair.
     [[nodiscard]] std::int32_t ProgramFor(GraphicsDevice& device, const Shader& vertex, const Shader& fragment);
-    // OpenGL only: hand a buffer object to the current device's retirement
-    // queue instead of deleting it (the mesh and transient geometry own
-    // their buffers directly). Deleted at once when there is no device.
-    void RetireBuffer(std::int32_t buffer) noexcept;
-    [[nodiscard]] std::int32_t CreateGeometryBuffer();
+    // Scene shader inputs remain compatible while scene geometry uses the
+    // same RHI vertex/index binding, VAO cache and DrawIndexed implementation.
+    void DrawSceneGeometry(CommandList& commands,
+        std::span<const VertexBufferLayoutDesc> buffers, std::span<const VertexAttributeDesc> attributes,
+        PrimitiveTopology topology, std::uint32_t count, std::uint32_t first = 0);
+#if defined(__ANDROID__)
+    // GLES still uses its emulated fixed-function draw wrapper.
+    void RetireAndroidGeometryBuffer(std::int32_t buffer) noexcept;
+    [[nodiscard]] std::int32_t CreateAndroidGeometryBuffer();
+#endif
 }

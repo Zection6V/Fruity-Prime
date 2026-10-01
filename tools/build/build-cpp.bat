@@ -156,7 +156,7 @@ if exist "!ENV_BIN!\ninja.exe" (
 )
 
 set "BUILD_DIR=%OUT_ROOT%\msys2-!MSYS2_ENV!-%CONFIG%"
-set "CONFIGURE_ARGS=-G "!GENERATOR!" -DCMAKE_BUILD_TYPE=%CONFIG% -DCMAKE_CXX_COMPILER=!CXX_NAME!"
+set "CONFIGURE_ARGS=-G "!GENERATOR!" -DCMAKE_BUILD_TYPE=%CONFIG% -DCMAKE_CXX_COMPILER=!CXX_NAME! -DFRUITY_REQUIRE_VULKAN=ON -DFRUITY_REQUIRE_SKIA_VULKAN=ON"
 set "BUILD_ARGS="
 goto :run
 
@@ -187,31 +187,43 @@ if not defined GENERATOR (
     exit /b 1
 )
 
-rem Prefer the CMake bundled with Visual Studio so the generator is known to it.
-set "CMAKE_EXE=!VS_PATH!\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
-if not exist "!CMAKE_EXE!" (
-    set "CMAKE_EXE="
-    for /f "delims=" %%c in ('where cmake 2^>nul') do if not defined CMAKE_EXE set "CMAKE_EXE=%%c"
-)
-if not defined CMAKE_EXE (
-    echo [build] ERROR: cmake.exe not found ^(neither bundled with Visual Studio nor on PATH^).
-    exit /b 1
-)
-
+if not defined VCPKG_ROOT if exist "C:\vcpkg\vcpkg.exe" set "VCPKG_ROOT=C:\vcpkg"
 if not defined VCPKG_ROOT (
-    echo [build] ERROR: VCPKG_ROOT is not set.
+    echo [build] ERROR: VCPKG_ROOT is not set and C:\vcpkg does not exist.
     echo [build]        git clone https://github.com/microsoft/vcpkg C:\vcpkg
     echo [build]        C:\vcpkg\bootstrap-vcpkg.bat
-    echo [build]        set VCPKG_ROOT=C:\vcpkg
     exit /b 1
 )
 if not exist "!VCPKG_ROOT!\vcpkg.exe" (
     echo [build] ERROR: "!VCPKG_ROOT!\vcpkg.exe" not found. Run bootstrap-vcpkg.bat first.
     exit /b 1
 )
+
+rem A clean PATH: an MSYS2 prefix on it makes find_package take MinGW
+rem libraries (libopenal, Skia without Vulkan) into an MSVC link. English
+rem compiler messages, and Ninja from the Visual Studio environment.
+set "VSLANG=1033"
+set "PATH=%SystemRoot%\system32;%SystemRoot%;%SystemRoot%\System32\WindowsPowerShell\v1.0"
+for /d %%V in ("C:\VulkanSDK\*") do if exist "%%V\Bin\glslc.exe" set "PATH=!PATH!;%%V\Bin"
+call "!VS_PATH!\VC\Auxiliary\Build\vcvars64.bat" >nul
+if errorlevel 1 (
+    echo [build] ERROR: vcvars64.bat failed.
+    exit /b 1
+)
+set "CMAKE_EXE="
+for /f "delims=" %%c in ('where cmake 2^>nul') do if not defined CMAKE_EXE set "CMAKE_EXE=%%c"
+if not defined CMAKE_EXE (
+    echo [build] ERROR: cmake.exe not found in the Visual Studio environment.
+    exit /b 1
+)
+
+rem The same package list as the Windows CI job: Skia with Vulkan, the
+rem Vulkan loader, VMA and shaderc are what make -rhi vulkan work.
+set "VCPKG_PACKAGES="
+for /f "usebackq delims=" %%P in ("%REPO_ROOT%\tools\ci\dependencies\windows-game.txt") do set "VCPKG_PACKAGES=!VCPKG_PACKAGES! %%P"
 if "%DO_DEPS%"=="1" (
-    echo [build] Installing vcpkg packages: curl libarchive zlib ^(x64-windows^)
-    "!VCPKG_ROOT!\vcpkg.exe" install curl:x64-windows libarchive:x64-windows zlib:x64-windows
+    echo [build] Installing vcpkg packages:!VCPKG_PACKAGES!
+    "!VCPKG_ROOT!\vcpkg.exe" install !VCPKG_PACKAGES! --classic
     if errorlevel 1 (
         echo [build] ERROR: vcpkg install failed.
         exit /b 1
@@ -219,9 +231,10 @@ if "%DO_DEPS%"=="1" (
 )
 
 echo [build] Visual Studio: !VS_PATH! ^(!VS_VERSION!^)
-set "BUILD_DIR=%OUT_ROOT%\msvc-x64"
-set "CONFIGURE_ARGS=-G "!GENERATOR!" -A x64 -DCMAKE_TOOLCHAIN_FILE="!VCPKG_ROOT!\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows"
-set "BUILD_ARGS=--config %CONFIG%"
+set "GENERATOR=Ninja"
+set "BUILD_DIR=%OUT_ROOT%\msvc-%CONFIG%"
+set "CONFIGURE_ARGS=-G Ninja -DCMAKE_BUILD_TYPE=%CONFIG% -DCMAKE_TOOLCHAIN_FILE="!VCPKG_ROOT!\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DVCPKG_MANIFEST_MODE=OFF -DFRUITY_REQUIRE_VULKAN=ON -DFRUITY_REQUIRE_SKIA_VULKAN=ON -DCMAKE_NINJA_CMCLDEPS_RC=OFF -DCMAKE_IGNORE_PREFIX_PATH=C:/msys64/mingw64;C:/msys64/ucrt64;C:/msys64/clang64 "-DCMAKE_CXX_FLAGS=/utf-8 /EHsc" "-DCMAKE_C_FLAGS=/utf-8""
+set "BUILD_ARGS="
 goto :run
 
 
@@ -263,26 +276,25 @@ if errorlevel 1 (
 )
 
 echo.
-echo [build] Build succeeded. Libraries:
+echo [build] Build succeeded:
+dir /b "%BUILD_DIR%\FruityPrime.exe" 2>nul
 dir /s /b "%BUILD_DIR%\*.a" "%BUILD_DIR%\*.lib" 2>nul
 exit /b 0
 
 
 rem ----------------------------------------------------------------------
 :detect_toolchain
+rem MSVC first: it is the toolchain with a Skia that has Vulkan (vcpkg).
+if exist "!VSWHERE!" (
+    if defined VCPKG_ROOT set "TOOLCHAIN=msvc"
+    if exist "C:\vcpkg\vcpkg.exe" set "TOOLCHAIN=msvc"
+    if /i "!TOOLCHAIN!"=="msvc" goto :eof
+)
 for %%E in (ucrt64 mingw64 clang64) do (
     if exist "!MSYS2_ROOT!\%%E\bin\cmake.exe" (
         set "TOOLCHAIN=msys2"
         goto :eof
     )
-)
-if defined VCPKG_ROOT if exist "!VSWHERE!" (
-    set "TOOLCHAIN=msvc"
-    goto :eof
-)
-if exist "!MSYS2_ROOT!\usr\bin\bash.exe" (
-    set "TOOLCHAIN=msys2"
-    goto :eof
 )
 goto :eof
 

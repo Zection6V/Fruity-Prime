@@ -203,6 +203,7 @@ endif()
 
 add_library(fruity_mphread_native STATIC)
 option(FRUITY_REQUIRE_VULKAN "Require desktop Vulkan development files" OFF)
+option(FRUITY_REQUIRE_SKIA_VULKAN "Require a Skia with Ganesh Vulkan, so the launcher can draw into a Vulkan window" OFF)
 if(NOT ANDROID)
     if(FRUITY_REQUIRE_VULKAN)
         find_package(Vulkan 1.3 REQUIRED)
@@ -381,6 +382,7 @@ if(NOT ANDROID)
         get_target_property(_fruity_skia_definitions unofficial::skia::skia INTERFACE_COMPILE_DEFINITIONS)
         if(FRUITY_VMA_INCLUDE_DIR AND Vulkan_FOUND AND "${_fruity_skia_definitions}" MATCHES "SK_VULKAN")
             target_compile_definitions(fruity_mphread_native PRIVATE FRUITY_SKIA_VULKAN)
+            set(FRUITY_HAS_SKIA_VULKAN ON)
             message(STATUS "Skia Ganesh Vulkan: available for the Vulkan window's launcher")
         else()
             message(STATUS "Skia Ganesh Vulkan: not in this Skia; a Vulkan window cannot draw the launcher")
@@ -423,6 +425,14 @@ if(NOT ANDROID)
                 "mingw-w64-x86_64-skia; with vcpkg install skia[gl,freetype].")
         endif()
         target_link_libraries(fruity_mphread_native PUBLIC ${FRUITY_SKIA_TARGET})
+    endif()
+    if(FRUITY_REQUIRE_SKIA_VULKAN AND NOT FRUITY_HAS_SKIA_VULKAN)
+        # A build whose launcher cannot draw into a Vulkan window is a build
+        # in which -rhi vulkan always fails; refuse it here, not at run time.
+        message(FATAL_ERROR
+            "A Skia with Ganesh Vulkan is required (FRUITY_REQUIRE_SKIA_VULKAN), and this one has none. "
+            "MSYS2's mingw-w64 Skia is built without Vulkan: build with MSVC and vcpkg skia[gl,freetype,vulkan] "
+            "(tools/build/build-cpp.bat msvc deps).")
     endif()
 
     find_package(glfw3 CONFIG REQUIRED)

@@ -79,6 +79,17 @@ jobs:
           python3 tools/test-phase11-gl-boundaries.py
           python3 tools/check-phase11-gl-boundaries.py
 
+  phase26_rhi_isolation_audit:
+    name: phase26 / RHI backend isolation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout C++ source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.checkout_ref || github.sha }}
+      - name: Native GL and Vulkan only inside their backends
+        run: python3 tools/check-rhi-isolation.py
+
   windows:
     name: Windows / MSVC
     runs-on: windows-2025

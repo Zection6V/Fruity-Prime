@@ -1039,7 +1039,10 @@ namespace MphRead::Mods
         {
             try
             {
-                std::ofstream file(*contract, std::ios::binary | std::ios::trunc);
+                // Relative to where the command was typed: startup has moved the
+                // working directory to the installation by now.
+                const std::string path = FullPathCombine(ConsoleSetup::LaunchDirectory(), *contract);
+                std::ofstream file(std::filesystem::path(std::u8string(path.begin(), path.end())), std::ios::binary | std::ios::trunc);
                 file << ::MphRead::NativeRuntime::Rhi::SceneBackendContract();
                 SetExitCode(file.good() ? 0 : 1);
             }

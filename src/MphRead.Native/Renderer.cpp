@@ -1964,6 +1964,7 @@ namespace MphRead
 
     void Scene::AfterRenderFrame()
     {
+        Images::PollReadbacks();
         if (_recording)
         {
             std::ostringstream name;

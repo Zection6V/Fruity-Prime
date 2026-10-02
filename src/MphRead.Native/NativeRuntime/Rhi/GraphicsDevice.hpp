@@ -8,6 +8,7 @@
 #include "MemoryBudget.hpp"
 #include "Pipeline.hpp"
 #include "Resources.hpp"
+#include "Readback.hpp"
 #include "Swapchain.hpp"
 
 #include <memory>
@@ -74,6 +75,13 @@ namespace MphRead::NativeRuntime::Rhi
         {
             throw std::logic_error("Buffer readback is not implemented by this graphics backend.");
         }
+        [[nodiscard]] virtual bool SupportsAsyncReadback() const noexcept { return false; }
+        [[nodiscard]] virtual ReadbackTicket EnqueueReadback(Buffer&, std::uint64_t, std::uint64_t)
+        { throw std::logic_error("Asynchronous readback is unavailable on this graphics backend."); }
+        virtual void PollReadbacks() {}
+        virtual void SetReadbackLimits(ReadbackLimits)
+        { throw std::logic_error("Asynchronous readback is unavailable on this graphics backend."); }
+        [[nodiscard]] virtual ReadbackUsage ReadbackStatistics() const { return {}; }
         // Re-specify a render target's storage at a new extent, contents
         // undefined, keeping its handle and every view of it.
         virtual void ResizeTexture(Texture& texture, std::uint32_t width, std::uint32_t height) = 0;

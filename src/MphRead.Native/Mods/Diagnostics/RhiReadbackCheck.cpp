@@ -58,6 +58,7 @@ namespace MphRead::Mods::Diagnostics
             NativeRuntime::Image image;
             for (int attempt = 0; attempt < 250; ++attempt)
             {
+                Export::Images::PollReadbacks();
                 if (NativeRuntime::FileExists(prefix + ".png"))
                 {
                     // Recording writes on another thread. On Windows the PNG

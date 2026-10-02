@@ -4,6 +4,8 @@
 #include "Pipeline.hpp"
 #include "ResourceState.hpp"
 #include "Resources.hpp"
+#include "Readback.hpp"
+#include <stdexcept>
 
 #include <cstdint>
 #include <span>
@@ -180,6 +182,13 @@ namespace MphRead::NativeRuntime::Rhi
         // rows, bottom row first. Waits for the GPU.
         virtual void ReadColor(const RenderingInfo& info, std::uint32_t x, std::uint32_t y,
             std::uint32_t width, std::uint32_t height, TextureFormat format, void* destination) = 0;
+        [[nodiscard]] virtual bool SupportsAsyncReadback() const noexcept { return false; }
+        // Same output packing/orientation as ReadColor; submits the copy without
+        // waiting. Source storage can be resized/released after this returns.
+        // RGB8/RGBA8 output from a resolved 8-bit color target, base mip/layer.
+        [[nodiscard]] virtual ReadbackTicket EnqueueReadColor(const RenderingInfo&, std::uint32_t, std::uint32_t,
+            std::uint32_t, std::uint32_t, TextureFormat)
+        { throw std::logic_error("Asynchronous color readback is unavailable on this graphics backend."); }
         // Copy a region of the current colour attachment into a texture.
         virtual void CopyColorAttachmentToTexture(
             Texture& destination, std::uint32_t width, std::uint32_t height) = 0;

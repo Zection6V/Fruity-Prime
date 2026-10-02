@@ -18,6 +18,7 @@
 #include "../../Diagnostics/LauncherWindowCheck.hpp"
 #include "../../Diagnostics/RhiReadbackCheck.hpp"
 #include "../../Diagnostics/RendererSwitchWitness.hpp"
+#include "../../../Export/Images.hpp"
 #include "../../../GameState.hpp"
 #include "../../../Menu.hpp"
 #include "../../../Renderer.hpp"
@@ -690,6 +691,7 @@ namespace MphRead::Mods::Launcher::Gui
 
     void Shell::AfterDraw(MphRead::RenderWindow& window)
     {
+        MphRead::Export::Images::PollReadbacks();
         Diagnostics::LauncherWindowCheck::AfterDraw(window);
         if (!_shotDirectory.has_value())
         {
@@ -1257,7 +1259,7 @@ namespace MphRead::Mods::Launcher::Gui
             [](MphRead::RenderWindow&) { ClickIfReady([](Av::Controls::Control& control)
             {
                 return dynamic_cast<DeckTile*>(&control) != nullptr;
-            }); Wait(25); },
+            }); WaitUi(25); },
             [](MphRead::RenderWindow& window)
             {
                 Shot(window, "shell-play-selected");
@@ -1460,12 +1462,12 @@ namespace MphRead::Mods::Launcher::Gui
                     const auto* button = dynamic_cast<DeckButton*>(&control);
                     return button != nullptr && button->Text() == "PLAY";
                 });
-                Wait(20);
+                WaitUi(20);
             },
             [](MphRead::RenderWindow&)
             {
                 Key(KeyValue(262));
-                Wait(20);
+                WaitUi(20);
             },
             [](MphRead::RenderWindow&)
             {
@@ -1473,7 +1475,7 @@ namespace MphRead::Mods::Launcher::Gui
                 {
                     return dynamic_cast<DeckTile*>(&control) != nullptr;
                 });
-                Wait(30);
+                WaitUi(30);
             },
             [](MphRead::RenderWindow& window)
             {

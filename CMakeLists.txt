@@ -165,6 +165,7 @@ add_custom_target(fruity_golden_capture_provenance
     COMMENT "Refreshing GoldenCapture source provenance"
     VERBATIM)
 list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestReadback.cpp"
     "${FRUITY_RENDERER_GEOMETRY_TEST_SOURCE}"
     "${FRUITY_RENDERER_GPU_MESH_TEST_SOURCE}"
     "${FRUITY_SHADER_INTERFACE_TEST_SOURCE}"
@@ -344,6 +345,11 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         "${FRUITY_MPHREAD_ROOT}/NativeRuntime/Rhi/OpenGL/OpenGlMemory.cpp")
     target_compile_features(fruity_memory_admission_tests PRIVATE cxx_std_20)
     add_test(NAME FruityPrime.MemoryAdmission COMMAND fruity_memory_admission_tests)
+    add_executable(fruity_readback_tests "${FRUITY_MPHREAD_ROOT}/Testing/TestReadback.cpp"
+        "${FRUITY_MPHREAD_ROOT}/NativeRuntime/Rhi/Readback.cpp")
+    target_compile_features(fruity_readback_tests PRIVATE cxx_std_20)
+    target_link_libraries(fruity_readback_tests PRIVATE Threads::Threads)
+    add_test(NAME FruityPrime.Readback COMMAND fruity_readback_tests)
 
     if(Vulkan_FOUND)
         add_executable(fruity_vulkan_uniform_tests "${FRUITY_VULKAN_UNIFORMS_TEST_SOURCE}")

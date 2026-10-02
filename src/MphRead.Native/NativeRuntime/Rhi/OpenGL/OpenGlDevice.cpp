@@ -533,6 +533,20 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             [[nodiscard]] std::unique_ptr<Buffer> CreateBuffer(const BufferDesc& desc) override;
             void WriteBuffer(Buffer& buffer, std::uint64_t offset, std::span<const std::byte> data) override;
             void ReadBuffer(Buffer& buffer, std::uint64_t offset, std::span<std::byte> data) override;
+            bool SupportsAsyncReadback() const noexcept override
+            {
+#if defined(__ANDROID__)
+                return false;
+#else
+                return _api.FenceSync && _api.ClientWaitSync && _api.MapBufferRange && _api.UnmapBuffer;
+#endif
+            }
+            ReadbackTicket EnqueueReadback(Buffer&, std::uint64_t, std::uint64_t) override;
+            ReadbackTicket EnqueueBytes(std::uint64_t, const std::function<void(Buffer&)>&);
+            bool ReadbackReady(SubmissionSerial serial) { return _scheduler.Poll() >= serial; }
+            void PollReadbacks() override { _readbacks.Poll(); }
+            void SetReadbackLimits(ReadbackLimits limits) override { _readbacks.SetLimits(limits); }
+            ReadbackUsage ReadbackStatistics() const override { return _readbacks.Usage(); }
             OpenGlNative& Api() noexcept { return _api; }
             void Track(OpenGlBuffer& buffer)
             { if (_resourceBuffers.insert(&buffer).second) _reservedStorage += buffer.Desc().size; }
@@ -718,6 +732,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 _scheduler.Wait(_slots[slot].Serial);
                 CollectCompleted();
                 _frameOpen = true;
+                _readbacks.Poll();
                 return {_frame, static_cast<std::uint32_t>(slot)};
             }
 
@@ -730,6 +745,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 _slots[_frame % FramesInFlight] = {_frame, serial};
                 _frameOpen = false;
                 CollectCompleted();
+                _readbacks.Poll();
             }
 
             void WaitIdle() override
@@ -993,6 +1009,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             RetirementQueue<GlObject> _retired{};
             OpenGlFrameScheduler _scheduler;
+            ReadbackQueue _readbacks;
             struct FrameSlot final { std::uint64_t Frame = 0; SubmissionSerial Serial{}; };
             std::array<FrameSlot, FramesInFlight> _slots{};
             std::uint64_t _frame = 0, _completedFrame = 0;
@@ -1230,6 +1247,62 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 }
             }
 
+            bool SupportsAsyncReadback() const noexcept override
+            { return _device && _device->SupportsAsyncReadback(); }
+            ReadbackTicket EnqueueReadColor(const RenderingInfo& info, std::uint32_t x, std::uint32_t y,
+                std::uint32_t width, std::uint32_t height, TextureFormat format) override
+            {
+                if (!SupportsAsyncReadback()) throw std::logic_error("OpenGL async readback needs sync and mapped-buffer support.");
+                if (format != TextureFormat::RGB8Unorm && format != TextureFormat::RGBA8Unorm)
+                    throw std::invalid_argument("Async color readback requires RGB8 or RGBA8.");
+                if (!info.swapchain)
+                {
+                    if (info.colorAttachments.empty() || !info.colorAttachments[0].view)
+                        throw std::invalid_argument("Async color source is absent.");
+                    const auto& texture = info.colorAttachments[0].view->TextureResource();
+                    if (Native(texture).Device() != _device)
+                        throw std::invalid_argument("Async color source belongs to another device.");
+                    const auto& desc = texture.Desc();
+                    if (!Has(desc.usage, TextureUsage::TransferSrc))
+                        throw std::invalid_argument("Async color source requires TransferSrc.");
+                    if (desc.format != TextureFormat::RGB8Unorm && desc.format != TextureFormat::RGBA8Unorm
+                        && desc.format != TextureFormat::RGBA8Srgb && desc.format != TextureFormat::BGRA8Unorm
+                        && desc.format != TextureFormat::BGRA8Srgb)
+                        throw std::invalid_argument("Async color source requires an RGB8/RGBA8/BGRA8 image.");
+                    if (desc.sampleCount != 1)
+                        throw std::invalid_argument("Async color source must be resolved first.");
+                    if (x > desc.width || width > desc.width - x || y > desc.height || height > desc.height - y)
+                        throw std::out_of_range("Async color readback is outside the image extent.");
+                }
+                if (x > info.width || width > info.width - x || y > info.height || height > info.height - y)
+                    throw std::out_of_range("Async color readback is outside the rendering extent.");
+                const auto bytes = ReadbackColorBytes(width, height, format == TextureFormat::RGB8Unorm ? 3 : 4);
+                return _device->EnqueueBytes(bytes, [&](Buffer& target) {
+                    // PBO write, not a CPU pointer. Preserve pack and read state
+                    // even when validation or native operations throw.
+                    struct PackState final
+                    {
+                        int Buffer = GL::GetInteger(0x88ED), Framebuffer = GL::GetInteger(0x8CAA);
+                        int ReadBuffer = GL::GetInteger(0x0C02);
+                        std::array<int, 8> Names{0x0D05, 0x0D02, 0x0D03, 0x0D04, 0x806C, 0x806B, 0x0D00, 0x0D01};
+                        std::array<int, 8> Values{};
+                        PackState() { for (std::size_t i = 0; i < Names.size(); ++i) Values[i] = GL::GetInteger(Names[i]); }
+                        ~PackState()
+                        {
+                            GL::BindBuffer(static_cast<GL::BufferTarget>(0x88EB), Buffer);
+                            GL::BindFramebuffer(GL::FramebufferTarget::ReadFramebuffer, Framebuffer);
+                            GL::ReadBuffer(static_cast<GL::ReadBufferMode>(ReadBuffer));
+                            for (std::size_t i = 0; i < Names.size(); ++i)
+                                GL::PixelStore(static_cast<GL::PixelStoreParameter>(Names[i]), Values[i]);
+                        }
+                    } saved;
+                    for (auto name : saved.Names) GL::PixelStore(static_cast<GL::PixelStoreParameter>(name), name == 0x0D05 ? 1 : 0);
+                    GL::BindBuffer(static_cast<GL::BufferTarget>(0x88EB), CheckedBuffer(*_device, target).Name());
+                    ReadColor(info, x, y, width, height, format, nullptr);
+                    _device->CheckStorageResult("OpenGL asynchronous pixel copy");
+                });
+            }
+
             void CopyColorAttachmentToTexture(Texture& destination, std::uint32_t width, std::uint32_t height) override
             {
                 const auto current = _framebuffers.find(_current);
@@ -1429,6 +1502,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         };
 
         #include "OpenGlCommandsInternal.inc"
+        #include "OpenGlReadbackInternal.inc"
 
         OpenGlTexture::~OpenGlTexture()
         {
@@ -1475,6 +1549,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             // Explicit device teardown is a completion boundary. No ordinary
             // resource destructor or frame-slot timeout calls Finish.
             _scheduler.Finish();
+            _readbacks.Close();
             GL::UseProgram(0);
             GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, 0);
             if (_api.BindVertexArray) _api.BindVertexArray(0);

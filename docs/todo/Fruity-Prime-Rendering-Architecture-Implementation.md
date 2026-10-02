@@ -27,7 +27,7 @@ Phase A～E / H または R1～R20 がすべて完了したという記録では
 | R11: native pipeline library | 既存 semantic cache を維持し、専用 `VulkanPipelineCache` を全 RHI native graphics pipeline 生成へ接続。identity / framing / checksum / size gate、atomic disk replacement、driver rejection / native cache 不可時の fallback と deterministic close を実装。CPU fault dispatch と実 GPU の cold / warm・破損・保存失敗を検証。速度向上・cache hit の計測は未実施。OpenGL は既存 linked-program cache、Metal / D3D12 は将来対応 |
 | R14: eligibility / admission | Vulkan passive probe は instance / physical device の確認で止まり、logical device / queue を作らない。incoming Session の device / swapchain 生成が active admission。失敗注入による復旧検証は残る |
 | R15: GL vertex interface | Windows scene / transient / launcher UI を explicit input と RHI Buffer / CommandList / VAO へ統一。desktop wrapper の conventional array / current-value mirror を除去。本番 GLSL declarations と共通 ABI、実 SPIR-V vertex location の一致を検査。GPU composite / 旧新14画像の一致を確認。既存の backend 間 caption 差は画像 gate に残る |
-| R16: readback | 未対応。非同期 ticket と lifetime / backpressure policy が必要 |
+| R16: readback | 共通 ticket / immutable CPU output lease / staging+output quota と両 GPU の非同期 copy を実装。本番 screenshot / recording を接続。source の即時 resize / release、shutdown 後の CPU output、件数・byte 制限、RGB/RGBA packing と alpha を検査。同期互換 API は維持。全 format / mip / layer / recording stress は R19 で続ける |
 | R17: error | Vulkan の device loss / surface loss / OOM を `BackendError` へ分類。presentation は typed status を返す。native code を presentation facade まで保持する改善・故障注入は残る |
 | R18: 診断 | 未対応。共通 debug label / timestamp interface が必要 |
 | R19 / Phase H | 同じ fixture で両 backend を検証する `-rhiconformance` を追加。lifetime gate に sampler / VAO を追加。切替の直前直後で simulation / bomb / particle / texture binding の不変性を検査し、死亡による通常の爆発と区別する。生存中の新旧 effect fixture と動く bot の stress を別々に記録。通常の session teardown は両方8回検査。全 format / recording / failure / presentation ownership / 100-cycle stress は引き続き拡張する |
@@ -1168,3 +1168,156 @@ moving の死亡後に core がない画像は、healthy owner の表示回帰�
 Phase H の100-cycle / unload / resize / presentation ownership / format / failure stress は残る。
 R10 の frame slot / probe、R16 の async readback、R17～R19 の残項目を続ける。
 Android と remote CI は未実行。Metal / D3D12 は将来対応で、今回は追加しない。
+
+## 非同期 readback と画像出力（R16）
+
+`ReadbackTicket` / `ReadbackResult` / `ReadbackQueue` を追加した。buffer byte range と
+render target color region の copy を GPU に送信し、`IsReady()` で非ブロッキングに確認してから
+`MapResult()` で immutable CPU output を取得する。既存の同期 `ReadBuffer` / `ReadColor` は維持する。
+これは screenshot / PNG recording のための出力であり、通常の texture の CPU backup は増やさない。
+Metal / D3D12 backend は追加しない。
+
+### API と所有権
+
+- ticket / queue / native mapping は device thread で扱う。`IsReady()` は CPU copy を行わない。
+  未完了 ticket の `MapResult()` は拒否する。完了後は一度だけ copy し、再取得は同じ output を共有する。
+- source は enqueue が返った後に resize / release できる。staging は ticket がなくなっても
+  実際の GPU completion まで queue が保持する。`Cancel()` は consumer の参照を手放すだけである。
+- copied CPU output は immutable lease として writer thread へ渡せる。device / queue を閉じても
+  この output は有効で、最後の所有者が破棄した時点で quota を解放する。
+- shutdown / renderer switch は既存の明示的 idle / loss 境界の後に queue を閉じる。
+  未 mapping ticket は `Cancelled` にして native storage を解放する。完了済みの CPU output は維持する。
+- 件数と staging + CPU output bytes を **native allocation / submission より前に** 予約する。
+  デフォルトは8件 / 64 MiB。mapped 後も output lease の件数・bytes は charge され、
+  staging の bytes だけを解放する。満杯では empty ticket を返し、同期 readback へ逃げない。
+- mapping / completion の例外は `Failed` として保持し、shutdown まで native ownership を維持する。
+  合成 fault を検査した。実 driver device loss / OOM の検査は R17 の残作業である。
+
+OpenGL は PBO と GLsync serial を使う。native completion を確認してから map / copy し、
+read framebuffer / buffer、PBO、pack state、mapping 時の COPY_READ binding を復元する。
+Vulkan は VMA staging buffer、COPY → HOST barrier と非ブロッキング completion poll を使う。
+buffer copy 用の private command list は timeline と自身の fence の完了を確認してから解放する。
+同期互換 `CommandList::End()` は使わずに submit する。
+color capture の burst が Vulkan command list の2 recording slots を消費した場合も、
+未完了 slot の通常の frame-throttle wait に入らず empty ticket を返す。
+後続の通常描画の frame pacing / slot 待機方針は変更しない。
+
+color API は resolved な RGB8 / RGBA8 / BGRA8 の base mip / layer から RGB8 / RGBA8 を出力する。
+sRGB の source もこの8-bit storage 範囲で扱う。RGB source の RGBA output は alpha=255 とする。
+float、depth/stencil、MSAA の未 resolve source、任意 mip / layer の読み取りは今回の対象外。
+RGB/RGBA output は tightly packed / bottom row first で、PNG 側が上下を反転する。
+
+### screenshot / recording
+
+本番 `Export::Images` は async を使える desktop backend で ticket を保持し、毎フレームの
+`PollReadbacks()` で ready output を writer queue に移す。writer は CPU output だけを扱う。
+device ごとの quota に加えて、pending capture と書き込み中を含む PNG output は合計8件 / 64 MiB に制限する。
+recording が満杯なら新しい frame を drop する。screenshot はログで skip を知らせる。
+通常の capture を待つための GPU idle、無制限な GPU / CPU queue は追加しない。
+
+writer は condition variable で待つ owned thread にし、shutdown で queued CPU output を drain / join する。
+device 終了で未 mapping の capture が cancel された場合は、その画像は保存せずログへ記録する。
+PNG write failure は render thread の poll に通知する。async を提供しない backend の既存同期経路は維持する。
+Android GL は今回 async を有効にせず、Android build / device test も未実行。
+
+### 検査
+
+CPU の `FruityPrime.Readback` は readiness 前の map 拒否、一度だけの copy、件数 / byte 制限、
+lease が残る間の backpressure、writer thread への lease 移動、abandoned transfer の保持、
+factory / poll / map fault、overflow、queue 終了後の CPU output を検査する。
+
+`-rhiconformance` は同じ GPU fixture を両 backend で実行する。
+
+- buffer offsets / contents、enqueue 後の source release、quota 拒否時に native allocation / submission がないこと。
+- 641×127 の RGBA / BGRA / RGB source に赤と緑の領域を描き、637×123 の offset subregion を
+  RGB / RGBA で取得する。奇数 RGB row width、channel order、transparent / opaque alpha を全 pixel で比較する。
+  enqueue 直後に source を32×16へ resize し、view / image を解放してから output を読む。
+- setup / cleanup の明示的 idle を除く issue / poll / map / resize / release の
+  `HostWaits` と `DeviceWideWaits` の増加がともに0。最終 live / retired resource と quota が0。
+- 各 backend の4回の session shutdown / recreate で、pending / abandoned native copy の解放と
+  shutdown 後の mapped output lease の保持、validation error=0 を要求する。
+- 同じ command list へ32回連続で color capture を要求する。8件以下への制限、admitted output の
+  全 pixel と host / device wait delta=0 を要求する。GPU が速い場合は recording-slot 拒否が
+  実際に発生するとは限らないため、slot 拒否件数そのものを pass 条件にしない。
+
+通常の `-shellshot` は本番 screenshot と recording の両 PNG を読み直し、641×127 / RGB / 上下方向と
+3色の帯を全 pixel で検査する。通常 script の hunter side panel と試合終了後の再選択では、
+UI の slide / dispatcher が wall clock で進むのに uncapped GL の draw count だけで待っていたため、
+layout 完了前に次の操作へ進んでいた。既存 `WaitUi` に合わせて wall time も待つよう修正した。
+クリック、production preview の描画・再生成の assert は維持する。
+初期 FAIL ログ `architecture-async-readback-shell-final-20261002-175511/opengl.log` は保持する。
+
+### Windows での再実行手順
+
+repo root の PowerShell、MSVC / vcpkg、display、Khronos validation layer、exe 隣の `paths.txt` が必要。
+同じ preferences を使うため GPU process は順番に実行する。下記は保存内容と process env を復元する。
+
+```powershell
+cmd /c tools\build\build-cpp.bat msvc Release
+if ($LASTEXITCODE -ne 0) { throw 'Release build failed' }
+ctest --test-dir tools/build/out/msvc-Release --output-on-failure
+if ($LASTEXITCODE -ne 0) { throw 'CTest failed' }
+
+$captureRoot = "C:/tmp/async-readback-$(Get-Date -Format yyyyMMdd-HHmmss)"
+$names = @('FRUITY_SWITCHCHECK', 'FRUITY_SHOT_ROOM',
+    'FRUITY_SWITCHCHECK_HOLD_ACTORS', 'FRUITY_SWITCHCHECK_WITNESS_SELFTEST')
+$savedEnv = @{}
+foreach ($name in $names) { $savedEnv[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
+Push-Location tools/build/out/msvc-Release
+$prefsPath = Join-Path $PWD 'launcher.txt'
+$hadPrefs = Test-Path -LiteralPath $prefsPath
+$prefsBytes = if ($hadPrefs) { [System.IO.File]::ReadAllBytes($prefsPath) }
+try {
+    New-Item -ItemType Directory -Path $captureRoot -Force | Out-Null
+    'q' | & .\FruityPrime.exe -rhiconformance -noupdate *> "$captureRoot/conformance.log"
+    if ($LASTEXITCODE -ne 0) { throw 'GPU conformance failed' }
+    $env:FRUITY_SWITCHCHECK = $null
+    $env:FRUITY_SHOT_ROOM = 'AD2 ALINOS PERCH'
+    foreach ($backend in @('opengl', 'vulkan')) {
+        $captureDir = "$captureRoot/$backend"
+        $logPath = "$captureRoot/$backend.log"
+        New-Item -ItemType Directory -Path $captureDir -Force | Out-Null
+        'q' | & .\FruityPrime.exe -shellshot $captureDir -rhi $backend `
+            -vkvalidation -fpscap 60 -noupdate -debuglog *> $logPath
+        if ($LASTEXITCODE -ne 0) { throw "${backend}: inspect $logPath" }
+        if (-not (Select-String -Path $logPath -SimpleMatch 'RHI screenshot/record RGB, vertical orientation and odd row width PASS')) {
+            throw "Missing production export coverage: $logPath"
+        }
+        if (Select-String -Path $logPath -Pattern 'VUID|Validation Error|cancelled on device shutdown') {
+            throw "Readback/validation failed: $logPath"
+        }
+    }
+} finally {
+    if ($hadPrefs) { [System.IO.File]::WriteAllBytes($prefsPath, $prefsBytes) }
+    elseif (Test-Path -LiteralPath $prefsPath) { Remove-Item -LiteralPath $prefsPath }
+    foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $savedEnv[$name], 'Process') }
+    Pop-Location
+}
+Write-Output "Captures and logs: $captureRoot"
+```
+
+レンダラー切替は前節の held / moving × 両開始 backend の手順を併用する。
+各 process の試合内3切替を検査するもので、100-cycle stress の完了とは扱わない。
+
+### 証拠と残作業
+
+- `C:/tmp/gp/architecture-async-readback-final-build.log`: MSVC Release build PASS。
+- `C:/tmp/gp/architecture-async-readback-final-ctest.log`: 12/12 PASS。
+- `C:/tmp/gp/architecture-async-readback-final-conformance.log`: 両 backend の async / lifetime fixture PASS。
+  issue / poll / map / resize / release の host / device wait delta=0、release / quota=0、validation error=0。
+- `C:/tmp/gp/architecture-async-readback-burst-build.log` / `architecture-async-readback-burst-conformance.log`:
+  recording slot の非ブロッキング admission と32-request burst を追加した最終ソースも PASS。
+- `C:/tmp/gp/architecture-async-readback-shell-ui3-20261002-180048/`: 通常 shell loop は両開始 backend exit 0、
+  screenshot / recording PNG 検査 PASS、試合前後の production hunter preview draw / reload PASS。
+- `C:/tmp/gp/architecture-async-readback-switch.log` / `C:/tmp/switch-witness-20261002-180152/`:
+  held / moving × 両開始 backend の4 process exit 0、各3 transition / 1 negative control PASS。
+  held の新旧 bomb / impact 各2 particles と moving の死亡時の通常爆発を維持。
+- 新しい MD の code block を実行した `C:/tmp/gp/architecture-async-readback-final-recipe.log` は PASS。
+  `C:/tmp/async-readback-20261002-181039/` に conformance / 両開始 backend の shell loop と PNG を保存。
+  最終ソースの切替手順も `C:/tmp/gp/architecture-async-readback-final-switch.log` で PASS。
+  `C:/tmp/switch-witness-20261002-181106/` の全4 process が exit 0、各3 transition / 1 negative control PASS。
+
+この gate は async API の ownership / backpressure と上記出力形式・本番接続を確認する。
+全 format / mip / layer、任意の presentation ownership / recording ordering、実 driver fault、
+長時間 stress と Phase H の100-cycle は残る。R10 の frame slot / probe、R17～R19 とレビュー全体は進行中。
+Android と remote CI は未実行。Metal / D3D12 は将来対応。

@@ -1,4 +1,5 @@
 #include "RhiConformanceCheck.hpp"
+#include "AsyncReadbackCheck.hpp"
 #include "../../NativeRuntime/Rhi/OpenGL/OpenGlDiagnostics.hpp"
 #include "../../NativeRuntime/Rhi/OpenGL/OpenGlDevice.hpp"
 #include "../../NativeRuntime/Rhi/Vulkan/VulkanGraphicsDevice.hpp"
@@ -348,6 +349,7 @@ namespace MphRead::Mods::Diagnostics
                 if (backend == Rhi::GraphicsBackend::OpenGl) Rhi::OpenGL::CheckMemoryAdmission(device);
                 else Rhi::Vulkan::CheckMemoryAdmission(device);
                 ExerciseUnframedLifetime(device);
+                CheckAsyncReadback(device);
                 Exercise(device);
                 device.TrimCaches();
                 device.WaitIdle();
@@ -359,6 +361,7 @@ namespace MphRead::Mods::Diagnostics
                 std::cout << "[rhi conformance] " << (backend == Rhi::GraphicsBackend::OpenGl ? "OpenGL" : "Vulkan")
                     << " PASS; unframed submission lifetime; GPU buffers/copies/pitched texture transfers; four-group layout; UBO/image/sampler; Draw/DrawIndexed; sampler pixels; release=0\n";
                 ExerciseSessionLifetime(*provider);
+                CheckReadbackSessionLifetime(*provider);
             }
             return 0;
         }

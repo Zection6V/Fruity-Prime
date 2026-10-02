@@ -566,6 +566,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     FinalSubmitted = Scheduler->Submitted();
                     try { FinalCompleted = Scheduler->Poll(); } catch (...) {}
                     Closing = true;
+                    Readbacks.Close();
                     // Command-owned caches, rings and pools precede images and
                     // buffers. Closing an owner can unregister other owners.
                     for (;;)
@@ -710,6 +711,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::atomic<std::uint64_t> HostWaits{0};
             std::atomic<std::uint64_t> DeviceWideWaits{0};
             std::unique_ptr<VulkanFrameScheduler> Scheduler;
+            ReadbackQueue Readbacks;
             std::unique_ptr<VulkanPipelineCache> PipelineCache;
             VkDeviceSize UniformAlignment = 16;
             RetirementQueue<std::function<void()>> Retired;
@@ -1649,6 +1651,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             // Submit recorded work; wait only when reusing a pending slot.
             // Recording resumes on the next command.
             void Flush();
+            void PrepareHostReadback(VulkanBuffer&);
+            bool PollComplete();
+            bool SupportsAsyncReadback() const noexcept override { return true; }
+            ReadbackTicket EnqueueReadColor(const RenderingInfo&, std::uint32_t, std::uint32_t,
+                std::uint32_t, std::uint32_t, TextureFormat) override;
             void Forget(const void* object);
 
         private:
@@ -2771,6 +2778,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
 
             [[nodiscard]] GraphicsBackend GetBackend() const noexcept override { return GraphicsBackend::Vulkan; }
+            bool SupportsAsyncReadback() const noexcept override { return true; }
+            ReadbackTicket EnqueueReadback(Buffer&, std::uint64_t, std::uint64_t) override;
+            void PollReadbacks() override { _state->Readbacks.Poll(); }
+            void SetReadbackLimits(ReadbackLimits limits) override { _state->Readbacks.SetLimits(limits); }
+            ReadbackUsage ReadbackStatistics() const override { return _state->Readbacks.Usage(); }
             [[nodiscard]] MemoryBudgetSnapshot MemoryBudget() const override { return _state->Memory->Snapshot(); }
             [[nodiscard]] MemoryTelemetry MemoryUsageTelemetry() const override { return _state->Memory->Telemetry(); }
             [[nodiscard]] const std::shared_ptr<VulkanDeviceState>& State() const noexcept { return _state; }
@@ -2990,6 +3002,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 // A frame begun over an open one ends it first, as OpenGL's does.
                 if (_state->FrameActive) EndFrame();
+                _state->Readbacks.Poll();
                 return _state->BeginDescriptorFrame();
             }
 
@@ -2998,6 +3011,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 // The frame's scene work is submitted as the frame ends.
                 _state->FlushScene();
                 _state->EndDescriptorFrame();
+                _state->Readbacks.Poll();
             }
 
             void WaitIdle() override
@@ -3134,6 +3148,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::atomic<unsigned> _reportedValidationErrors{0};
         };
 #include "VulkanSceneInternal.inc"
+#include "VulkanReadbackInternal.inc"
 
     std::unique_ptr<SceneShaderSet> CreateSceneShaderSet(GraphicsDevice& device,
         std::span<const float> toonTable, std::span<const float> shiftTable)

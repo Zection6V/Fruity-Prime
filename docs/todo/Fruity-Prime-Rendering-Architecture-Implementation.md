@@ -30,7 +30,7 @@ Phase A～E / H または R1～R20 がすべて完了したという記録では
 | R16: readback | 共通 ticket / immutable CPU output lease / staging+output quota と両 GPU の非同期 copy を実装。本番 screenshot / recording を接続。source の即時 resize / release、shutdown 後の CPU output、件数・byte 制限、RGB/RGBA packing と alpha を検査。同期互換 API は維持。全 format / mip / layer / recording stress は R19 で続ける |
 | R17: error | native backend / kind / code / message を acquire → present → scene facade と起動例外で保持。GL context loss と Vulkan unsupported / loss / OOM を分類。switch を部分再構築まで含む transaction にし、元の backend への復旧と両方失敗した場合を合成 fault / 実 GPU session で検査。実 driver reset / OOM は未注入で、全 ownership / failure stress は R19 に残る |
 | R18: 診断 | 共通 debug scope / marker / 一度限りの timestamp query を両 backend に接続。native set は解放待ちを含め8個まで、結果確認は wait / submit を挿入しない。共通 GPU transfer、容量、shutdown 後の取消を検査。HUD に依存しない FPS / CPU frame time / optional GPU scene time の CSV を本番 window に接続 |
-| R19 / Phase H | 同じ fixture で両 backend を検証する `-rhiconformance` を追加。lifetime gate に sampler / VAO を追加。切替の直前直後で simulation / bomb / particle / texture binding の不変性を検査し、死亡による通常の爆発と区別する。生存中の新旧 effect fixture と動く bot の stress を別々に記録。通常の session teardown は両方8回検査。全 format / recording / failure / presentation ownership / 100-cycle stress は引き続き拡張する |
+| R19 / Phase H | 同じ fixture で両 backend を検証する `-rhiconformance` を追加。lifetime gate に sampler / VAO を追加。切替の直前直後で simulation / bomb / particle / texture binding の不変性を検査し、死亡による通常の爆発と区別する。35件の foreign frontend / stale view 拒否、既存 descriptor の texture 解放後の再利用、終了済み command の incoming session への操作を検査。通常の session teardown は両方8回検査。全 format / recording / failure / presentation ownership / 100-cycle stress は引き続き拡張する |
 | R20: optional pacing | 将来の vendor extension を core RHI に追加しない方針を維持。既存 pacing と optional controller の境界を後続で確認する |
 
 ## 最初の基盤変更
@@ -1619,3 +1619,69 @@ R18のWindows OpenGL / Vulkan共通診断・本番計測を実装した。
 R10のframe slot / probe分離、R19の全format / recording / presentation ownership / 100-cycle stress、
 R20とレビュー全体は進行中。Android build / 実機、remote CIは未実行。
 Metal / D3D12実装、macOS実機は今回の対象外。
+
+## 不正なリソース所有者と残った view / command の検査（R19）
+
+`RhiOwnershipCheck` を両 backend の `-rhiconformance` に追加した。
+GPU を持たない公開 frontend resource を渡し、35個の API 呼び出しが `invalid_argument` で
+拒否され、拒否によって submission serial が進まないことを検査する。
+空の retain、buffer / texture upload・read・copy・transition、view / binding / pipeline作成、
+vertex/index binding、sampled texture、rendering target、同期・非同期 color readback を含む。
+native deviceを2つ同時に作る fixture ではない。
+
+この検査に合わせ、次を修正した。
+
+- Vulkan の公開 resource 入口で、不正な backend の object に先に `static_cast` を行う経路を除いた。
+  native class、device state、終了済み session を確認してから native handle を扱う。
+  sampled texture / sampler の対、Sampled usageも GPU操作前に確認する。
+- OpenGL の retain、transition、texture copy、sampled binding等で所有者を確認する。
+  sampled binding は imageとsamplerを検査してから GL state を変える。
+  終了済み command list の GPU入口は、current GL context に触る前に拒否する。
+- OpenGL のtextureに小さな lifetime tokenを追加し、viewはweak tokenを保持する。
+  Vulkan のviewが既に持っていたweak lifetimeもGPU入口で検査する。
+  これにより view wrapper が texture wrapper より長く残っても、
+  `CanRender` / `DepthBits` / `BeginRendering` / `ReadColor` / async readback / binding作成では
+  破棄された texture の参照を取得する前に拒否する。
+- OpenGL の既存 binding set も bind時に全resourceを検査する。
+  両 backend の実 shader / pipeline fixtureで、texture解放後に残ったview/setが
+  descriptorとして再利用されず、拒否によってsubmissionが増えないことを検査した。
+- 既存8回のsession終了・再作成fixtureに、終了済みcommandのviewport変更と
+  texture unbindを追加した。incoming sessionへの影響を拒否する。
+
+modelのpixelコピーやCPU描画は追加していない。lifetime tokenはmetadataのみ。
+view / binding setへ渡すfrontend wrapper自体の寿命はcallerの責任であり、
+解放済みwrapperの生ポインターを渡しても安全になるという契約ではない。
+ここで検査するのは、生存しているview/set/command wrapperから、終了したnative resourceや
+終了したtexture/sessionへアクセスしないことである。
+
+### 再現方法と結果
+
+```powershell
+& tools/build/build-cpp.bat msvc Release
+ctest --test-dir tools/build/out/msvc-Release --output-on-failure
+Push-Location tools/build/out/msvc-Release
+try {
+    'q' | & .\FruityPrime.exe -rhiconformance -noupdate *> C:/tmp/rhi-ownership.log
+    if ($LASTEXITCODE -ne 0) { throw 'RHI ownership conformance failed' }
+    Select-String C:/tmp/rhi-ownership.log -Pattern 'resource ownership|session ownership|VUID|FAIL'
+} finally { Pop-Location }
+```
+
+- `C:/tmp/gp/architecture-r19-ownership-closed-build.log`:
+  MSVC Release build PASS。
+- `C:/tmp/gp/architecture-r19-ownership-closed-ctest.log`: 13/13 PASS。
+- `C:/tmp/gp/architecture-r19-ownership-closed-conformance.log`:
+  両backendで新しいownership gateと既存transfer / pixel / descriptor / readback / timestampがPASS。
+  解放時のhost/device wait増加0、explicit idle後のnative countがbaselineへ復帰、retired=0。
+  両backend8回のshutdown/recreateもPASS、VUID / validation errorは0件。
+- `C:/tmp/r18-fps-20261002-224430/`:
+  [FPS計測手順](Fruity-Prime-FPS-Measurement.md) のFPS-only切替fixtureを両開始backendで再実行。
+  それぞれ試合中3回の settings apply / resume、world witness、bomb/effect lifecycle、
+  HUD FPS Counter=0でのCSV記録、両backendのFPS行がPASS、exit0。
+- `C:/tmp/gp/architecture-r19-ownership-delivery-build.log`:
+  guardの改行と重複した検査の整理後もMSVC Release build PASS（挙動の変更なし）。
+
+この区切りはR19のresource ownership部分の拡張である。
+format / subresource・recording contract・presentation ownership・100-cycle stressは引き続き必要。
+R10のframe slot / probe分離、R20とレビュー全体も進行中。
+Android / macOS実機とremote CIは未検証。Metal / D3D12は今回追加しない。

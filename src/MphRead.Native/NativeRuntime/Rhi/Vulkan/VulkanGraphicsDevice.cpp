@@ -492,6 +492,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             [[nodiscard]] const TextureViewDesc& Desc() const noexcept override { return _desc; }
             [[nodiscard]] const Texture& TextureResource() const noexcept override { return _texture; }
             [[nodiscard]] VkImageView Native() const noexcept { return _view; }
+            [[nodiscard]] bool TextureAlive() const noexcept { return !_textureLifetime.expired(); }
             const std::shared_ptr<VulkanDeviceState>& DeviceState() const noexcept { return _device; }
             void CreateNative();
             void DestroyNative() noexcept;
@@ -819,6 +820,19 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         { state.RequireAlive(); state.NativeOwners.emplace(&owner, commands); }
         VulkanNativeRegistration::~VulkanNativeRegistration() { _state.NativeOwners.erase(&_owner); }
         #include "VulkanGpuDiagnosticsInternal.inc"
+
+        template <typename Native, typename Resource>
+        decltype(auto) CheckedResource(Resource& resource, const std::shared_ptr<VulkanDeviceState>& device)
+        {
+            device->RequireAlive();
+            using Checked = std::conditional_t<std::is_const_v<Resource>, const Native, Native>;
+            auto* native = dynamic_cast<Checked*>(&resource);
+            if (!native || native->DeviceState() != device)
+                throw std::invalid_argument("Vulkan RHI: resource belongs to another backend or session.");
+            if constexpr (std::is_same_v<Native, VulkanTextureView>)
+                if (!native->TextureAlive()) throw std::invalid_argument("Vulkan RHI: texture view's texture has ended.");
+            return *native;
+        }
 
         class VulkanShader final : public Shader, public VulkanNativeOwner
         {
@@ -1195,7 +1209,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     {
                         const auto* value = std::get_if<TextureBinding>(&entry.resource);
                         const auto* view = value ? dynamic_cast<const VulkanTextureView*>(value->view) : nullptr;
-                        if (!view || view->DeviceState() != _device)
+                        if (!view || view->DeviceState() != _device || !view->TextureAlive())
                             throw std::invalid_argument("Vulkan RHI: texture view belongs to another session.");
                         const auto* texture = view ? dynamic_cast<const VulkanTexture*>(&view->TextureResource()) : nullptr;
                         const auto usage = declaration.type == BindingType::StorageTexture ? TextureUsage::Storage : TextureUsage::Sampled;
@@ -1584,12 +1598,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             void SetPipeline(const GraphicsPipeline& pipeline) override;
             void SetViewport(const Viewport& viewport) override
             {
+                _device->RequireAlive();
                 _viewport = viewport;
                 _hasViewport = true;
                 _dynamicDirty = true;
             }
             void SetScissor(const Scissor& scissor) override
             {
+                _device->RequireAlive();
                 _scissor = scissor;
                 _dynamicDirty = true;
             }
@@ -2150,14 +2166,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 if (color && color->view)
                 {
-                    const auto& view = dynamic_cast<const VulkanTextureView&>(*color->view);
+                    const auto& view = CheckedResource<VulkanTextureView>(*color->view, _device);
                     if (view.DeviceState() != _device) throw std::invalid_argument("Vulkan RHI: color view belongs to another session.");
                     target.Color = const_cast<VulkanTexture*>(static_cast<const VulkanTexture*>(&view.TextureResource()));
                     target.ColorView = view.Native();
                 }
                 if (depth && depth->view)
                 {
-                    const auto& view = dynamic_cast<const VulkanTextureView&>(*depth->view);
+                    const auto& view = CheckedResource<VulkanTextureView>(*depth->view, _device);
                     if (view.DeviceState() != _device) throw std::invalid_argument("Vulkan RHI: depth view belongs to another session.");
                     target.Depth = const_cast<VulkanTexture*>(static_cast<const VulkanTexture*>(&view.TextureResource()));
                     target.DepthView = view.Native();
@@ -2401,10 +2417,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         void VulkanCommandList::BindSampledTexture(std::uint32_t slot, const Texture* texture, const Sampler* sampler)
         {
+            _device->RequireAlive();
             if (slot >= _units.size()) throw std::out_of_range("Vulkan RHI: texture unit out of range.");
-            if (texture && !sampler) throw std::invalid_argument("Vulkan RHI: a bound texture needs a sampler.");
-            _units[slot] = {texture ? const_cast<VulkanTexture*>(static_cast<const VulkanTexture*>(texture)) : nullptr,
-                texture ? static_cast<const VulkanSampler*>(sampler) : nullptr};
+            if ((texture != nullptr) != (sampler != nullptr)) throw std::invalid_argument("Vulkan RHI: texture and sampler must be paired.");
+            auto* image = texture ? const_cast<VulkanTexture*>(&CheckedResource<VulkanTexture>(*texture, _device)) : nullptr;
+            const auto* filtering = sampler ? &CheckedResource<VulkanSampler>(*sampler, _device) : nullptr;
+            if (image && !Has(image->Desc().usage, TextureUsage::Sampled))
+                throw std::invalid_argument("Vulkan RHI: bound texture requires Sampled usage.");
+            _units[slot] = {image, filtering};
         }
 
         void VulkanCommandList::DrawScene(const SceneDraw& draw)
@@ -2586,7 +2606,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         void VulkanCommandList::SetVertexBuffer(std::uint32_t slot, const Buffer& buffer, std::uint64_t offset)
         {
             RequireRecording();
-            const auto& native = dynamic_cast<const VulkanBuffer&>(buffer);
+            const auto& native = CheckedResource<VulkanBuffer>(buffer, _device);
             const VkBuffer handle = native.Native();
             const VkDeviceSize at = offset;
             _device->ContextPointer->_impl->vkCmdBindVertexBuffers2(_commandBuffer, slot, 1, &handle, &at, nullptr, nullptr);
@@ -2595,7 +2615,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         void VulkanCommandList::SetIndexBuffer(const Buffer& buffer, IndexType type, std::uint64_t offset)
         {
             RequireRecording();
-            const auto& native = dynamic_cast<const VulkanBuffer&>(buffer);
+            const auto& native = CheckedResource<VulkanBuffer>(buffer, _device);
             _device->ContextPointer->_impl->vkCmdBindIndexBuffer(_commandBuffer, native.Native(), offset,
                 type == IndexType::UInt16 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32);
         }
@@ -2631,8 +2651,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (info.swapchain)
                 texture = _device->WindowColor.get();
             else if (!info.colorAttachments.empty() && info.colorAttachments[0].view)
-                texture = const_cast<VulkanTexture*>(static_cast<const VulkanTexture*>(
-                    &info.colorAttachments[0].view->TextureResource()));
+            {
+                const auto& view = CheckedResource<VulkanTextureView>(*info.colorAttachments[0].view, _device);
+                texture = const_cast<VulkanTexture*>(&CheckedResource<VulkanTexture>(view.TextureResource(), _device));
+            }
             if (!texture || width == 0 || height == 0)
             {
                 std::memset(destination, 0, static_cast<std::size_t>(width) * height * outBytes);
@@ -2680,7 +2702,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         void VulkanCommandList::CopyColorAttachmentToTexture(Texture& destination, std::uint32_t width, std::uint32_t height)
         {
             RequireRecording();
-            auto& target = static_cast<VulkanTexture&>(destination);
+            auto& target = CheckedResource<VulkanTexture>(destination, _device);
             VulkanTexture* source = _target.Color;
             if (!source) return;
             if (_renderingOpen && _clearsPending) Materialize();
@@ -2705,8 +2727,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             Buffer& destination, std::uint64_t destinationOffset, std::uint64_t size)
         {
             RequireRecording();
-            auto& src = static_cast<const VulkanBuffer&>(source);
-            auto& dst = static_cast<VulkanBuffer&>(destination);
+            auto& src = CheckedResource<VulkanBuffer>(source, _device);
+            auto& dst = CheckedResource<VulkanBuffer>(destination, _device);
             if (src.DeviceState() != _device || dst.DeviceState() != _device)
                 throw std::invalid_argument("Vulkan RHI: buffers belong to another device.");
             if (!Has(src.Desc().usage, BufferUsage::TransferSrc)
@@ -2732,8 +2754,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             const Buffer& source, Texture& destination, const BufferTextureCopy& region)
         {
             RequireRecording();
-            auto& src = static_cast<const VulkanBuffer&>(source);
-            auto& dst = static_cast<VulkanTexture&>(destination);
+            auto& src = CheckedResource<VulkanBuffer>(source, _device);
+            auto& dst = CheckedResource<VulkanTexture>(destination, _device);
             if (src.DeviceState() != _device || dst.DeviceState() != _device)
                 throw std::invalid_argument("Vulkan RHI: copy resources belong to another device.");
             if (!Has(src.Desc().usage, BufferUsage::TransferSrc)
@@ -2750,8 +2772,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             const Texture& source, Buffer& destination, const BufferTextureCopy& region)
         {
             RequireRecording();
-            auto& src = static_cast<const VulkanTexture&>(source);
-            auto& dst = static_cast<VulkanBuffer&>(destination);
+            auto& src = CheckedResource<VulkanTexture>(source, _device);
+            auto& dst = CheckedResource<VulkanBuffer>(destination, _device);
             if (src.DeviceState() != _device || dst.DeviceState() != _device)
                 throw std::invalid_argument("Vulkan RHI: copy resources belong to another device.");
             if (!Has(src.Desc().usage, TextureUsage::TransferSrc)
@@ -2767,7 +2789,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         void VulkanCommandList::Transition(Buffer& resource, ResourceState before, ResourceState after)
         {
             RequireRecording();
-            auto& buffer = static_cast<VulkanBuffer&>(resource);
+            auto& buffer = CheckedResource<VulkanBuffer>(resource, _device);
             if (buffer.DeviceState() != _device)
                 throw std::invalid_argument("Vulkan RHI: buffer belongs to another device.");
             if (buffer.State() != before || !IsValidTransition(before, after))
@@ -2799,7 +2821,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         void VulkanCommandList::Transition(Texture& resource, ResourceState before, ResourceState after)
         {
             RequireRecording();
-            auto& texture = static_cast<VulkanTexture&>(resource);
+            auto& texture = CheckedResource<VulkanTexture>(resource, _device);
             if (texture.DeviceState() != _device)
                 throw std::invalid_argument("Vulkan RHI: texture belongs to another device.");
             if (texture.State() != before || !IsValidTransition(before, after))
@@ -2924,8 +2946,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
             Texture& RetainTexture(std::unique_ptr<Texture> texture) override
             {
-                if (!texture || static_cast<VulkanTexture&>(*texture).DeviceState() != _state)
+                if (!texture)
                     throw std::invalid_argument("Vulkan RHI: retained texture belongs to another device.");
+                (void)CheckedResource<VulkanTexture>(*texture, _state);
                 Texture& retained = *texture;
                 _retained.push_back(std::move(texture));
                 return retained;
@@ -2934,7 +2957,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             [[nodiscard]] std::unique_ptr<TextureView> CreateTextureView(
                 Texture& texture, const TextureViewDesc& desc) override
             {
-                auto& native = static_cast<VulkanTexture&>(texture);
+                auto& native = CheckedResource<VulkanTexture>(texture, _state);
                 if (native.DeviceState() != _state)
                     throw std::invalid_argument("Vulkan RHI: texture belongs to another device.");
                 return std::make_unique<VulkanTextureView>(native, desc);
@@ -2990,7 +3013,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
             void WriteTexture(Texture& texture, const TextureWrite& write) override
             {
-                auto& image = static_cast<VulkanTexture&>(texture);
+                auto& image = CheckedResource<VulkanTexture>(texture, _state);
                 if (image.DeviceState() != _state)
                     throw std::invalid_argument("Vulkan RHI: texture belongs to another device.");
                 if (write.data == nullptr || write.width == 0 || write.height == 0
@@ -3023,7 +3046,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             void WriteBuffer(Buffer& buffer, std::uint64_t offset,
                 std::span<const std::byte> data) override
             {
-                auto& destination = static_cast<VulkanBuffer&>(buffer);
+                auto& destination = CheckedResource<VulkanBuffer>(buffer, _state);
                 if (destination.DeviceState() != _state)
                     throw std::invalid_argument("Vulkan RHI: buffer belongs to another device.");
                 if (data.empty() || offset > destination.Desc().size
@@ -3047,7 +3070,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
             void ReadBuffer(Buffer& buffer, std::uint64_t offset, std::span<std::byte> data) override
             {
-                auto& source = static_cast<VulkanBuffer&>(buffer);
+                auto& source = CheckedResource<VulkanBuffer>(buffer, _state);
                 if (source.DeviceState() != _state)
                     throw std::invalid_argument("Vulkan RHI: buffer belongs to another device.");
                 if (data.empty() || offset > source.Desc().size
@@ -3066,7 +3089,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
             void ResizeTexture(Texture& texture, std::uint32_t width, std::uint32_t height) override
             {
-                auto& image = static_cast<VulkanTexture&>(texture);
+                auto& image = CheckedResource<VulkanTexture>(texture, _state);
                 if (image.DeviceState() != _state)
                     throw std::invalid_argument("Vulkan RHI: texture belongs to another device.");
                 image.Resize(width, height);
@@ -3147,13 +3170,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 for (const RenderingColorAttachment& attachment : info.colorAttachments)
                 {
                     if (!attachment.view) continue;
-                    const auto& image = static_cast<const VulkanTexture&>(attachment.view->TextureResource());
+                    const auto& view = CheckedResource<VulkanTextureView>(*attachment.view, _state);
+                    const auto& image = CheckedResource<VulkanTexture>(view.TextureResource(), _state);
                     if (!Has(image.Desc().usage, TextureUsage::ColorAttachment)) return false;
                 }
                 if (info.depthStencilAttachment && info.depthStencilAttachment->view)
                 {
-                    const auto& image = static_cast<const VulkanTexture&>(
-                        info.depthStencilAttachment->view->TextureResource());
+                    const auto& view = CheckedResource<VulkanTextureView>(*info.depthStencilAttachment->view, _state);
+                    const auto& image = CheckedResource<VulkanTexture>(view.TextureResource(), _state);
                     if (!Has(image.Desc().usage, TextureUsage::DepthStencilAttachment)) return false;
                 }
                 return true;
@@ -3162,8 +3186,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             [[nodiscard]] std::uint32_t DepthBits(const RenderingInfo& info) override
             {
                 if (!info.depthStencilAttachment || !info.depthStencilAttachment->view) return 0;
-                const auto& image = static_cast<const VulkanTexture&>(
-                    info.depthStencilAttachment->view->TextureResource());
+                const auto& view = CheckedResource<VulkanTextureView>(*info.depthStencilAttachment->view, _state);
+                const auto& image = CheckedResource<VulkanTexture>(view.TextureResource(), _state);
                 switch (image.Desc().format)
                 {
                 case TextureFormat::D16Unorm: return 16;

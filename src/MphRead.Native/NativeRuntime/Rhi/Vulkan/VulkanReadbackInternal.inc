@@ -93,11 +93,11 @@ ReadbackTicket VulkanCommandList::EnqueueReadColor(const RenderingInfo& info, st
     VulkanTexture* texture = info.swapchain ? _device->WindowColor.get() : nullptr;
     if (!info.swapchain && !info.colorAttachments.empty() && info.colorAttachments[0].view)
     {
-        const auto& view = *info.colorAttachments[0].view;
+        const auto& view = CheckedResource<VulkanTextureView>(*info.colorAttachments[0].view, _device);
         if (view.Desc().baseMipLevel || view.Desc().mipLevelCount != 1
             || view.Desc().baseArrayLayer || view.Desc().arrayLayerCount != 1)
             throw std::invalid_argument("Async color source requires a base mip/layer view.");
-        texture = dynamic_cast<VulkanTexture*>(const_cast<Texture*>(&info.colorAttachments[0].view->TextureResource()));
+        texture = const_cast<VulkanTexture*>(&CheckedResource<VulkanTexture>(view.TextureResource(), _device));
     }
     if (!texture || texture->DeviceState() != _device) throw std::invalid_argument("Async color source is absent or foreign.");
     if (!Has(texture->Desc().usage, TextureUsage::TransferSrc)) throw std::invalid_argument("Async color source requires TransferSrc.");

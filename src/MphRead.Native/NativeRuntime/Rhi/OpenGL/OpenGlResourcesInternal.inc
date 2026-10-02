@@ -44,6 +44,7 @@ class OpenGlBindingSet final : public BindingSet
 {
 public:
     OpenGlBindingSet(OpenGlGraphicsDevice& device, const BindingSetDesc& desc);
+    void ValidateResources() const;
     const BindingSetDesc& Desc() const noexcept override { return _desc; }
     OpenGlGraphicsDevice* Device() const noexcept { return _lifetime.expired() ? nullptr : _device; }
 private:

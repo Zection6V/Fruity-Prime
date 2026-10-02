@@ -380,6 +380,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             [[nodiscard]] bool IsRenderbuffer() const noexcept { return _renderbuffer; }
             OpenGlGraphicsDevice* Device() const noexcept { return _device; }
             [[nodiscard]] bool HasStorage() const noexcept { return _hasStorage; }
+            [[nodiscard]] std::weak_ptr<void> Lifetime() const noexcept { return _lifetime; }
             void SetExtent(std::uint32_t width, std::uint32_t height) noexcept
             {
                 _desc.width = width;
@@ -394,36 +395,54 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             std::int32_t _name;
             bool _renderbuffer;
             bool _hasStorage = false;
+            std::shared_ptr<void> _lifetime = std::make_shared<int>(0);
         };
 
         class OpenGlTextureView final : public TextureView
         {
         public:
-            OpenGlTextureView(Texture& texture, const TextureViewDesc& desc)
-                : _texture(texture), _desc(desc)
+            OpenGlTextureView(OpenGlTexture& texture, const TextureViewDesc& desc)
+                : _texture(texture), _desc(desc), _textureLifetime(texture.Lifetime())
             {
             }
 
             [[nodiscard]] const TextureViewDesc& Desc() const noexcept override { return _desc; }
             [[nodiscard]] const Texture& TextureResource() const noexcept override { return _texture; }
+            [[nodiscard]] bool TextureAlive() const noexcept { return !_textureLifetime.expired(); }
 
         private:
             Texture& _texture;
             TextureViewDesc _desc;
+            std::weak_ptr<void> _textureLifetime;
         };
 
         #include "OpenGlResourcesInternal.inc"
 
-        [[nodiscard]] const OpenGlTexture& Native(const Texture& texture)
+        [[nodiscard]] const OpenGlTexture& Native(const Texture& texture, const OpenGlGraphicsDevice* device = nullptr)
         {
             const auto* native = dynamic_cast<const OpenGlTexture*>(&texture);
-            if (!native) throw std::invalid_argument("OpenGL RHI: texture belongs to another backend.");
+            if (!native || !native->Device() || (device && native->Device() != device))
+                throw std::invalid_argument("OpenGL RHI: texture belongs to another or closed session.");
             return *native;
         }
 
-        [[nodiscard]] OpenGlTexture& Native(Texture& texture)
+        [[nodiscard]] OpenGlTexture& Native(Texture& texture, const OpenGlGraphicsDevice* device = nullptr)
         {
-            return const_cast<OpenGlTexture&>(Native(static_cast<const Texture&>(texture)));
+            return const_cast<OpenGlTexture&>(Native(static_cast<const Texture&>(texture), device));
+        }
+
+        const OpenGlTexture& ViewTexture(const TextureView& view, const OpenGlGraphicsDevice* device)
+        {
+            const auto* native = dynamic_cast<const OpenGlTextureView*>(&view);
+            if (!native || !native->TextureAlive()) throw std::invalid_argument("OpenGL RHI: texture view is foreign or expired.");
+            return Native(native->TextureResource(), device);
+        }
+        void ValidateTargets(const RenderingInfo& info, const OpenGlGraphicsDevice* device)
+        {
+            for (const auto& attachment : info.colorAttachments)
+                if (attachment.view) (void)ViewTexture(*attachment.view, device);
+            if (info.depthStencilAttachment && info.depthStencilAttachment->view)
+                (void)ViewTexture(*info.depthStencilAttachment->view, device);
         }
 
         // Attach the rendering info's targets to the framebuffer bound for drawing.
@@ -654,6 +673,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             Texture& RetainTexture(std::unique_ptr<Texture> texture) override
             {
+                if (!texture) throw std::invalid_argument("OpenGL RHI: cannot retain an empty texture.");
+                (void)Native(*texture, this);
                 Texture& kept = *texture;
                 _retained.push_back(std::move(texture));
                 return kept;
@@ -662,13 +683,13 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             [[nodiscard]] std::unique_ptr<TextureView> CreateTextureView(
                 Texture& texture, const TextureViewDesc& desc) override
             {
-                const auto& native = Native(texture);
+                auto& native = Native(texture, this);
                 if (native.Device() != this || (desc.format != TextureFormat::Undefined && desc.format != texture.Desc().format)
                     || desc.baseMipLevel || desc.mipLevelCount != 1 || desc.baseArrayLayer || desc.arrayLayerCount != 1
                     || (!native.IsRenderbuffer() && FindTexture(native.Handle()) != &texture))
                     throw std::invalid_argument("OpenGL RHI: invalid texture view.");
                 auto normalized = desc; normalized.format = texture.Desc().format;
-                return std::make_unique<OpenGlTextureView>(texture, normalized);
+                return std::make_unique<OpenGlTextureView>(native, normalized);
             }
 
             [[nodiscard]] std::unique_ptr<Sampler> CreateSampler(const SamplerDesc& desc) override
@@ -892,7 +913,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             void WriteTexture(Texture& texture, const TextureWrite& write) override
             {
-                OpenGlTexture& gl = Native(texture);
+                OpenGlTexture& gl = Native(texture, this);
                 if (FindTexture(gl.Handle()) != &texture || !write.width || !write.height
                     || write.width > _capabilities.maxTexture2DDimension || write.height > _capabilities.maxTexture2DDimension)
                     throw std::invalid_argument("OpenGL RHI: invalid texture upload extent or ownership.");
@@ -915,7 +936,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             void ResizeTexture(Texture& texture, std::uint32_t width, std::uint32_t height) override
             {
-                OpenGlTexture& gl = Native(texture);
+                OpenGlTexture& gl = Native(texture, this);
                 if (gl.Device() != this) throw std::invalid_argument("OpenGL RHI: texture belongs to another session.");
                 if (!width || !height || width > _capabilities.maxTexture2DDimension || height > _capabilities.maxTexture2DDimension)
                     throw std::out_of_range("OpenGL RHI: invalid texture resize extent.");
@@ -1034,6 +1055,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             template <typename F>
             void WithScratchFramebuffer(const RenderingInfo& info, F&& query)
             {
+                ValidateTargets(info, this);
                 const std::int32_t previous = GL::GetInteger(FramebufferBinding);
                 const std::int32_t framebuffer = GL::GenFramebuffer();
                 GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, framebuffer);
@@ -1116,19 +1138,21 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             // window compositing use explicit shaders and RHI pipelines.
             void Begin() override
             {
-                if (!_device) throw std::logic_error("The OpenGL command list's session has ended.");
+                RequireAlive();
                 GL::Enable(GL::EnableCap::DepthTest);
                 GL::Enable(GL::EnableCap::Texture2D);
                 GL::DepthFunc(GL::DepthFunction::Lequal);
             }
             void End() override
             {
+                RequireAlive();
                 if (_debugDepth) throw std::logic_error("GPU debug label scope was not ended.");
                 if (!_device) throw std::logic_error("The OpenGL command list's session has ended.");
                 _device->SubmitCommands();
             }
             void BeginDebugLabel(const DebugLabel& label) override
             {
+                RequireAlive();
                 ValidateDebugLabel(label);
                 if (!_device) throw std::logic_error("The OpenGL command list's session has ended.");
                 if (!_device->GetCapabilities().supportsDebugLabels) return;
@@ -1138,13 +1162,14 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             }
             void EndDebugLabel() override
             {
-                if (!_device) throw std::logic_error("The OpenGL command list's session has ended.");
+                RequireAlive();
                 if (!_device->GetCapabilities().supportsDebugLabels) return;
                 if (!_debugDepth) throw std::logic_error("No GPU debug label to end.");
                 _device->Api().PopDebugGroup(); --_debugDepth;
             }
             void InsertDebugMarker(const DebugLabel& label) override
             {
+                RequireAlive();
                 ValidateDebugLabel(label);
                 if (!_device) throw std::logic_error("The OpenGL command list's session has ended.");
                 if (_device->GetCapabilities().supportsDebugLabels)
@@ -1158,9 +1183,11 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     throw std::invalid_argument("OpenGL timestamp belongs to another or closed session.");
                 return *native;
             }
-            void InitializeTimestamps(TimestampQuerySet& set) override { CheckedTimestamp(set).Writes.Initialize(); }
+            void InitializeTimestamps(TimestampQuerySet& set) override {
+                RequireAlive(); CheckedTimestamp(set).Writes.Initialize(); }
             void WriteTimestamp(TimestampQuerySet& set, std::uint32_t index) override
             {
+                RequireAlive();
                 auto& native = CheckedTimestamp(set); native.Writes.Write(index);
                 _device->Api().QueryCounter(native.Names[index], 0x8E28);
                 _device->CheckStorageResult("glQueryCounter");
@@ -1170,6 +1197,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             void BeginRendering(const RenderingInfo& info) override
             {
+                RequireAlive();
+                ValidateTargets(info, _device);
                 if (info.swapchain)
                 {
                     GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, 0);
@@ -1198,10 +1227,12 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 ClearFor(info);
             }
 
-            void EndRendering() override {}
+            void EndRendering() override {
+                RequireAlive();}
 
             void SetPipeline(const GraphicsPipeline& pipeline) override
             {
+                RequireAlive();
                 const auto* native = dynamic_cast<const OpenGlGraphicsPipeline*>(&pipeline);
                 if (!native || native->Device() != _device) throw std::invalid_argument("OpenGL RHI: pipeline belongs to another device.");
                 if (&pipeline == _applied)
@@ -1261,6 +1292,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             void SetViewport(const Viewport& viewport) override
             {
+                RequireAlive();
                 GL::Viewport(static_cast<std::int32_t>(viewport.x), static_cast<std::int32_t>(viewport.y),
                     static_cast<std::int32_t>(viewport.width), static_cast<std::int32_t>(viewport.height));
 #if defined(__ANDROID__)
@@ -1272,6 +1304,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             void SetScissor(const Scissor& scissor) override
             {
+                RequireAlive();
                 GL::Scissor(scissor.x, scissor.y, static_cast<std::int32_t>(scissor.width),
                     static_cast<std::int32_t>(scissor.height));
             }
@@ -1281,6 +1314,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void SetBindingSet(std::uint32_t group, const BindingSet& set) override;
             void SetStencilReference(std::uint32_t reference) override
             {
+                RequireAlive();
                 _stencilReference = reference;
                 ApplyStencilFunc();
             }
@@ -1306,22 +1340,20 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             void BindSampledTexture(std::uint32_t slot, const Texture* texture, const Sampler* sampler) override
             {
+                RequireAlive();
+                if ((texture != nullptr) != (sampler != nullptr)) throw std::invalid_argument("OpenGL RHI: texture and sampler must be paired.");
+                const auto* image = texture ? &Native(*texture, _device) : nullptr;
+                const auto* native = dynamic_cast<const OpenGlSampler*>(sampler);
+                if (sampler && (!native || native->Device() != _device))
+                    throw std::invalid_argument("OpenGL RHI: sampler belongs to another device.");
+                if (image && !Has(image->Desc().usage, TextureUsage::Sampled))
+                    throw std::invalid_argument("OpenGL RHI: bound texture requires Sampled usage.");
                 if (slot != 0)
                 {
                     GL::ActiveTexture(static_cast<GL::TextureUnit>(
                         static_cast<std::int32_t>(GL::TextureUnit::Texture0) + static_cast<std::int32_t>(slot)));
                 }
-                GL::BindTexture(GL::TextureTarget::Texture2D, texture != nullptr ? Native(*texture).Name() : 0);
-                if (texture != nullptr)
-                {
-                    if (sampler == nullptr)
-                    {
-                        throw std::invalid_argument("OpenGL RHI: a bound texture needs a sampler");
-                    }
-                }
-                const auto* native = dynamic_cast<const OpenGlSampler*>(sampler);
-                if (sampler && (!native || native->Device() != _device))
-                    throw std::invalid_argument("OpenGL RHI: sampler belongs to another device.");
+                GL::BindTexture(GL::TextureTarget::Texture2D, image ? image->Name() : 0);
                 OpenGlNative::Require(_device->Api().BindSampler, "glBindSampler")(slot, texture && native ? native->Name() : 0);
                 if (slot != 0)
                 {
@@ -1332,6 +1364,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void ReadColor(const RenderingInfo& info, std::uint32_t x, std::uint32_t y,
                 std::uint32_t width, std::uint32_t height, TextureFormat format, void* destination) override
             {
+                RequireAlive();
+                ValidateTargets(info, _device);
                 const GlTextureFormat gl = ToGl(format);
                 if (info.swapchain)
                 {
@@ -1358,6 +1392,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             ReadbackTicket EnqueueReadColor(const RenderingInfo& info, std::uint32_t x, std::uint32_t y,
                 std::uint32_t width, std::uint32_t height, TextureFormat format) override
             {
+                RequireAlive();
                 if (!SupportsAsyncReadback()) throw std::logic_error("OpenGL async readback needs sync and mapped-buffer support.");
                 if (format != TextureFormat::RGB8Unorm && format != TextureFormat::RGBA8Unorm)
                     throw std::invalid_argument("Async color readback requires RGB8 or RGBA8.");
@@ -1365,7 +1400,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 {
                     if (info.colorAttachments.empty() || !info.colorAttachments[0].view)
                         throw std::invalid_argument("Async color source is absent.");
-                    const auto& texture = info.colorAttachments[0].view->TextureResource();
+                    const auto& texture = ViewTexture(*info.colorAttachments[0].view, _device);
                     if (Native(texture).Device() != _device)
                         throw std::invalid_argument("Async color source belongs to another device.");
                     const auto& desc = texture.Desc();
@@ -1411,12 +1446,14 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             void CopyColorAttachmentToTexture(Texture& destination, std::uint32_t width, std::uint32_t height) override
             {
+                RequireAlive();
+                const auto& target = Native(destination, _device);
                 const auto current = _framebuffers.find(_current);
                 if (current != _framebuffers.end())
                 {
                     GL::BindFramebuffer(GL::FramebufferTarget::ReadFramebuffer, current->second);
                 }
-                GL::BindTexture(GL::TextureTarget::Texture2D, Native(destination).Name());
+                GL::BindTexture(GL::TextureTarget::Texture2D, target.Name());
                 GL::CopyTexSubImage2D(GL::TextureTarget::Texture2D, 0, 0, 0, 0, 0,
                     static_cast<std::int32_t>(width), static_cast<std::int32_t>(height));
             }
@@ -1461,6 +1498,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
         private:
             unsigned VertexArray();
+            void RequireAlive() const
+            { if (!_device) throw std::logic_error("The OpenGL command list's session has ended."); }
             struct VertexBinding final { const OpenGlBuffer* Buffer = nullptr; std::uint64_t Offset = 0; };
             std::unordered_map<std::uint32_t, VertexBinding> _vertexBindings;
             const OpenGlBuffer* _indexBuffer = nullptr;
@@ -1534,6 +1573,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             // disturbing whatever is bound for drawing.
             [[nodiscard]] std::int32_t FramebufferFor(const RenderingInfo& info)
             {
+                ValidateTargets(info, _device);
                 const FramebufferKey key = KeyOf(info);
                 const auto found = _framebuffers.find(key);
                 if (found != _framebuffers.end())

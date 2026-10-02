@@ -28,6 +28,7 @@ GlAttributeFormat AttributeFormat(VertexFormat format)
 }
 void OpenGlCommandList::SetVertexBuffer(std::uint32_t slot, const Buffer& resource, std::uint64_t offset)
 {
+    RequireAlive();
     const auto& buffer = CheckedBuffer(*_device, resource);
     if (slot >= _device->GetCapabilities().maxVertexBuffers || !Has(buffer.Desc().usage, BufferUsage::Vertex)
         || offset >= buffer.Desc().size) throw std::invalid_argument("OpenGL RHI: invalid vertex buffer binding.");
@@ -35,6 +36,7 @@ void OpenGlCommandList::SetVertexBuffer(std::uint32_t slot, const Buffer& resour
 }
 void OpenGlCommandList::SetIndexBuffer(const Buffer& resource, IndexType type, std::uint64_t offset)
 {
+    RequireAlive();
     const auto& buffer = CheckedBuffer(*_device, resource);
     const unsigned width = type == IndexType::UInt16 ? 2 : 4;
     if (!Has(buffer.Desc().usage, BufferUsage::Index) || offset >= buffer.Desc().size || offset % width)
@@ -107,6 +109,7 @@ unsigned OpenGlCommandList::VertexArray()
 }
 void OpenGlCommandList::ForgetBuffer(std::int32_t name)
 {
+    RequireAlive();
     for (auto it = _vertexArrays.begin(); it != _vertexArrays.end();)
     {
         if (std::find(it->second.Buffers.begin(), it->second.Buffers.end(), name) != it->second.Buffers.end())
@@ -126,6 +129,7 @@ void OpenGlGraphicsDevice::ForgetBuffer(std::int32_t name)
 }
 void OpenGlCommandList::Draw(std::uint32_t count, std::uint32_t instances, std::uint32_t first, std::uint32_t firstInstance)
 {
+    RequireAlive();
     if (!count || !instances) return;
     if (count > INT32_MAX || instances > INT32_MAX || first > INT32_MAX) throw std::out_of_range("OpenGL RHI: draw exceeds native count range.");
     auto& api = _device->Api();
@@ -138,6 +142,7 @@ void OpenGlCommandList::Draw(std::uint32_t count, std::uint32_t instances, std::
 }
 void OpenGlCommandList::DrawIndexed(std::uint32_t count, std::uint32_t instances, std::uint32_t first, std::int32_t base, std::uint32_t firstInstance)
 {
+    RequireAlive();
     if (!count || !instances) return;
     if (!_indexBuffer) throw std::logic_error("OpenGL RHI: indexed draw needs an index buffer.");
     if (count > INT32_MAX || instances > INT32_MAX) throw std::out_of_range("OpenGL RHI: draw exceeds native count range.");
@@ -159,6 +164,7 @@ void OpenGlCommandList::DrawSceneGeometry(std::span<const VertexBufferLayoutDesc
     std::span<const VertexAttributeDesc> attributes, PrimitiveTopology topology,
     std::uint32_t count, std::uint32_t first)
 {
+    RequireAlive();
     _sceneGeometry = true; _sceneBuffers = buffers; _sceneAttributes = attributes; _sceneTopology = topology;
     try { DrawIndexed(count, 1, first, 0, 0); }
     catch (...) { _sceneGeometry = false; _sceneBuffers = {}; _sceneAttributes = {}; throw; }
@@ -179,11 +185,13 @@ std::uint32_t BindingSlot(const PipelineLayout& layout, std::uint32_t group, con
 }
 void OpenGlCommandList::SetBindingSet(std::uint32_t group, const BindingSet& resource)
 {
+    RequireAlive();
     const auto* set = dynamic_cast<const OpenGlBindingSet*>(&resource);
     if (!set || set->Device() != _device || !_applied) throw std::invalid_argument("OpenGL RHI: binding needs a compatible set and pipeline.");
     const auto& layout = _applied->Desc().pipelineLayout;
     if (group >= layout.groups.size() || set->Desc().layout->Desc() != layout.groups[group])
         throw std::invalid_argument("OpenGL RHI: binding group is outside or incompatible with the pipeline layout.");
+    set->ValidateResources();
     auto& api = _device->Api();
     for (const auto& entry : set->Desc().entries)
     {
@@ -208,7 +216,7 @@ void OpenGlCommandList::SetBindingSet(std::uint32_t group, const BindingSet& res
         else
         {
             const auto& view = *std::get<TextureBinding>(entry.resource).view;
-            const auto& texture = Native(view.TextureResource());
+            const auto& texture = ViewTexture(view, _device);
             if (declaration->type == BindingType::StorageTexture)
             {
                 if (slot >= static_cast<unsigned>(GL::GetInteger(0x8F38))) throw std::out_of_range("OpenGL RHI: image binding exceeds device limit.");
@@ -226,6 +234,7 @@ void OpenGlCommandList::SetBindingSet(std::uint32_t group, const BindingSet& res
 }
 void OpenGlCommandList::CopyBuffer(const Buffer& source, std::uint64_t sourceOffset, Buffer& destination, std::uint64_t destinationOffset, std::uint64_t size)
 {
+    RequireAlive();
     const auto& from = CheckedBuffer(*_device, source); const auto& to = CheckedBuffer(*_device, destination);
     CheckBufferRange(source, sourceOffset, size); CheckBufferRange(destination, destinationOffset, size);
     if (!Has(source.Desc().usage, BufferUsage::TransferSrc) || !Has(destination.Desc().usage, BufferUsage::TransferDst)
@@ -276,7 +285,8 @@ unsigned CheckTextureCopy(const Texture& texture, const Buffer& buffer, const Bu
 }
 void OpenGlCommandList::CopyBufferToTexture(const Buffer& source, Texture& destination, const BufferTextureCopy& region)
 {
-    const auto& buffer = CheckedBuffer(*_device, source); auto& texture = Native(destination);
+    RequireAlive();
+    const auto& buffer = CheckedBuffer(*_device, source); auto& texture = Native(destination, _device);
     const auto bytes = CheckTextureCopy(destination, source, region);
     if (texture.IsRenderbuffer() || !Has(source.Desc().usage, BufferUsage::TransferSrc) || !Has(destination.Desc().usage, TextureUsage::TransferDst))
         throw std::invalid_argument("OpenGL RHI: invalid buffer to texture copy usage.");
@@ -294,7 +304,8 @@ void OpenGlCommandList::CopyBufferToTexture(const Buffer& source, Texture& desti
 }
 void OpenGlCommandList::CopyTextureToBuffer(const Texture& source, Buffer& destination, const BufferTextureCopy& region)
 {
-    const auto& buffer = CheckedBuffer(*_device, destination); const auto& texture = Native(source);
+    RequireAlive();
+    const auto& buffer = CheckedBuffer(*_device, destination); const auto& texture = Native(source, _device);
     const auto bytes = CheckTextureCopy(source, destination, region);
     if (texture.IsRenderbuffer() || !Has(source.Desc().usage, TextureUsage::TransferSrc) || !Has(destination.Desc().usage, BufferUsage::TransferDst))
         throw std::invalid_argument("OpenGL RHI: invalid texture to buffer copy usage.");
@@ -313,14 +324,18 @@ void OpenGlCommandList::CopyTextureToBuffer(const Texture& source, Buffer& desti
     GL::PixelStore(static_cast<GL::PixelStoreParameter>(0x0D05), alignment); GL::PixelStore(static_cast<GL::PixelStoreParameter>(0x0D02), rowLength);
     GL::BindFramebuffer(GL::FramebufferTarget::ReadFramebuffer, previous); GL::DeleteFramebuffer(framebuffer);
 }
-void OpenGlCommandList::Transition(Buffer&, ResourceState before, ResourceState after)
+void OpenGlCommandList::Transition(Buffer& resource, ResourceState before, ResourceState after)
 {
+    RequireAlive();
+    (void)CheckedBuffer(*_device, resource);
     if (before == after) return;
     if (!IsValidTransition(before, after)) throw std::invalid_argument("OpenGL RHI: invalid transition.");
     if (HasAny(before, ResourceState::ShaderWrite)) OpenGlNative::Require(_device->Api().MemoryBarrier, "glMemoryBarrier")(0xFFFFFFFFU);
 }
-void OpenGlCommandList::Transition(Texture&, ResourceState before, ResourceState after)
+void OpenGlCommandList::Transition(Texture& resource, ResourceState before, ResourceState after)
 {
+    RequireAlive();
+    (void)Native(resource, _device);
     if (before == after) return;
     if (!IsValidTransition(before, after)) throw std::invalid_argument("OpenGL RHI: invalid transition.");
     if (HasAny(before, ResourceState::ShaderWrite)) OpenGlNative::Require(_device->Api().MemoryBarrier, "glMemoryBarrier")(0xFFFFFFFFU);

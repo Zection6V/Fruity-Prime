@@ -160,11 +160,34 @@ OpenGlBindingSet::OpenGlBindingSet(OpenGlGraphicsDevice& device, const BindingSe
         {
             const auto* value = std::get_if<TextureBinding>(&entry.resource);
             const auto* view = value ? dynamic_cast<const OpenGlTextureView*>(value->view) : nullptr;
-            const auto* texture = view ? dynamic_cast<const OpenGlTexture*>(&view->TextureResource()) : nullptr;
+            const auto* texture = view && view->TextureAlive() ? dynamic_cast<const OpenGlTexture*>(&view->TextureResource()) : nullptr;
             if (!texture || texture->IsRenderbuffer()
                 || device.FindTexture(texture->Handle()) != texture
                 || !Has(texture->Desc().usage, found->type == BindingType::StorageTexture ? TextureUsage::Storage : TextureUsage::Sampled))
                 throw std::invalid_argument("OpenGL RHI: invalid texture binding.");
+        }
+    }
+}
+
+void OpenGlBindingSet::ValidateResources() const
+{
+    if (_lifetime.expired()) throw std::invalid_argument("OpenGL RHI: binding set session has ended.");
+    for (const auto& entry : _desc.entries)
+    {
+        if (const auto* buffer = std::get_if<BufferBinding>(&entry.resource))
+        {
+            if (!buffer->buffer) throw std::invalid_argument("OpenGL RHI: empty buffer binding.");
+            (void)CheckedBuffer(*_device, *buffer->buffer);
+        }
+        else if (const auto* image = std::get_if<TextureBinding>(&entry.resource))
+        {
+            if (!image->view) throw std::invalid_argument("OpenGL RHI: empty texture binding.");
+            (void)ViewTexture(*image->view, _device);
+        }
+        else if (const auto* value = std::get_if<SamplerBinding>(&entry.resource))
+        {
+            const auto* sampler = dynamic_cast<const OpenGlSampler*>(value->sampler);
+            if (!sampler || sampler->Device() != _device) throw std::invalid_argument("OpenGL RHI: foreign sampler binding.");
         }
     }
 }

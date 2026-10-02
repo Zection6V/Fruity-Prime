@@ -1,5 +1,6 @@
 #include "RhiConformanceCheck.hpp"
 #include "AsyncReadbackCheck.hpp"
+#include "RhiOwnershipCheck.hpp"
 #include "../../NativeRuntime/Rhi/OpenGL/OpenGlDiagnostics.hpp"
 #include "../../NativeRuntime/Rhi/OpenGL/OpenGlDevice.hpp"
 #include "../../NativeRuntime/Rhi/Vulkan/VulkanGraphicsDevice.hpp"
@@ -256,6 +257,21 @@ namespace MphRead::Mods::Diagnostics
             Expect(nearestPixel[4] >= 126 && nearestPixel[4] <= 129 && nearestPixel[6] >= 126 && nearestPixel[6] <= 129 && nearestPixel[7] == 255
                 && linearPixel[4] < 3 && linearPixel[6] > 252 && linearPixel[7] == 255,
                 "The same image did not support two simultaneous sampler states.");
+            {
+                auto discardedImage = device.CreateTexture(sampleDesc);
+                auto survivingView = device.CreateTextureView(*discardedImage, {});
+                auto survivingSet = device.CreateBindingSet({materialGroup.get(), {{3, TextureBinding{survivingView.get()}},
+                    {4, TextureBinding{survivingView.get()}}, {9, SamplerBinding{nearest.get()}}, {10, SamplerBinding{linear.get()}}}});
+                discardedImage.reset();
+                commands->Begin(); commands->SetPipeline(*pipeline);
+                const auto submitted = device.Statistics().Submitted;
+                bool staleRejected = false;
+                try { commands->SetBindingSet(1, *survivingSet); }
+                catch (const std::invalid_argument&) { staleRejected = true; }
+                Expect(staleRejected && device.Statistics().Submitted == submitted,
+                    "An existing binding set reused a view after texture destruction or submitted work while rejecting it.");
+                commands->End();
+            }
             rejected = false;
             commands->Begin(); commands->SetPipeline(*pipeline);
             try { commands->SetBindingSet(4, *frameSet); } catch (const std::invalid_argument&) { rejected = true; }
@@ -335,6 +351,12 @@ namespace MphRead::Mods::Diagnostics
                 auto& device = incoming->Device();
                 if (!gl) Expect(incoming->ValidationEnabled(), "Incoming session check requires Vulkan validation.");
                 outgoing->Shutdown(); outgoing->Shutdown();
+                rejected = false;
+                try { held.Commands->SetViewport({0, 0, 16, 16}); } catch (const std::logic_error&) { rejected = true; }
+                Expect(rejected, "Ended command list changed the incoming session's viewport.");
+                rejected = false;
+                try { held.Commands->BindSampledTexture(0, nullptr, nullptr); } catch (const std::logic_error&) { rejected = true; }
+                Expect(rejected, "Ended command list changed the incoming session's texture bindings.");
                 auto commands = device.CreateCommandList(); commands->Begin();
                 rejected = false;
                 try { commands->SetPipeline(*held.Pipeline); } catch (const std::invalid_argument&) { rejected = true; }
@@ -416,6 +438,7 @@ namespace MphRead::Mods::Diagnostics
                 if (backend == Rhi::GraphicsBackend::OpenGl) Rhi::OpenGL::CheckMemoryAdmission(device);
                 else Rhi::Vulkan::CheckMemoryAdmission(device);
                 ExerciseUnframedLifetime(device);
+                CheckResourceOwnership(device);
                 ExerciseGpuDiagnostics(device);
                 CheckAsyncReadback(device);
                 Exercise(device);

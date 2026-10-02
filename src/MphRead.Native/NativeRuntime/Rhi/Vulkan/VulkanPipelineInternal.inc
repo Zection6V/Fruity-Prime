@@ -245,11 +245,13 @@ public:
             create.pColorBlendState = &blend; create.pDynamicState = &dynamic; create.layout = _layout;
             Check(vk.vkCreateGraphicsPipelines(vk.device, VK_NULL_HANDLE, 1, &create, nullptr, &_pipeline), "vkCreateGraphicsPipelines");
             ++_device->Programs;
+            _desc.vertexShader = _desc.fragmentShader = nullptr;
         }
         catch (...) { if (_pipeline) vk.vkDestroyPipeline(vk.device, _pipeline, nullptr); vk.vkDestroyPipelineLayout(vk.device, _layout, nullptr); throw; }
     }
     VulkanGraphicsPipeline(const GraphicsPipelineDesc& desc, std::shared_ptr<VulkanGraphicsPipeline> owner)
-        : _device(owner->_device), _desc(desc), _pipeline(owner->_pipeline), _layout(owner->_layout), _owner(std::move(owner)) {}
+        : _device(owner->_device), _desc(desc), _pipeline(owner->_pipeline), _layout(owner->_layout), _owner(std::move(owner))
+    { _desc.vertexShader = _desc.fragmentShader = nullptr; }
     ~VulkanGraphicsPipeline() override
     {
         if (_deferred) _device->ForgetScene(this);

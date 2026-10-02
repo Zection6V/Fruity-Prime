@@ -6,6 +6,7 @@
 #include "../ThumbnailCapture.hpp"
 #include "../../NativeRuntime/OpenTK/GL.hpp"
 #include "../../NativeRuntime/Rhi/OpenGL/OpenGlDevice.hpp"
+#include "../../NativeRuntime/Rhi/BackendSession.hpp"
 #include "../../NativeRuntime/Rhi/OpenGL/OpenGlWindowDraw.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/ExceptionText.hpp"
@@ -92,6 +93,8 @@ namespace MphRead::Mods::Diagnostics
                 settings.Profile = RendererPlatform::WindowSettings::ContextProfile::Any;
             }
             const std::shared_ptr<RendererPlatform::Window> window = RendererPlatform::CreateWindow(settings);
+            auto session = NativeRuntime::Rhi::FindBackendProvider(NativeRuntime::Rhi::GraphicsBackend::OpenGl)->CreateSession({});
+            (void)session->Device();
             bool debugSkipped = false;
             ScreenCapture::EnableDebugOutput([&debugSkipped](const std::string& line)
             {

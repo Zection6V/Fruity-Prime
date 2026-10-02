@@ -222,7 +222,7 @@ namespace
                 if (_graphicsMode == GraphicsWindowMode::OpenGL)
                 {
                     ::glfwMakeContextCurrent(_handle);
-                    MphRead::NativeRuntime::Rhi::OpenGL::FinishContextDevice();
+                    MphRead::NativeRuntime::Rhi::OpenGL::ReleaseContextDevice();
                 }
                 ::glfwDestroyWindow(_handle);
                 _handle = nullptr;

@@ -19,7 +19,7 @@ Phase A～E / H または R1～R20 がすべて完了したという記録では
 | R3: PipelineLayout | 複数グループの記述を値で所有。両 backend の generic pipeline / binding を共通 GPU fixture で検証。cache key に全グループを含める。scene の生成 shader adapter の整理は残る |
 | R4 / R5: submission と resize | 共通 `SubmissionSerial` / `SubmissionProgress` に Vulkan timeline と OpenGL GLsync scheduler を接続。frame number を retirement の証拠にしない。Vulkan は Buffer / Sampler / Image / ImageView / Pipeline を実際の送信完了で破棄し、resize は先に画像・全ビューを確保して旧世代を retire。OpenGL はフレーム外の command / resource release も実際の stream marker で覆う。GL marker の集約、残る ownership / format stress は後続で扱う |
 | R6 / R7: OpenGL command / sampler | Buffer / vertex・index binding / Draw / DrawIndexed / GPU Copy / BindingSet と独立 sampler・value cache を実装。Windows scene / transient geometry を同じ Buffer / CommandList / VAO 経由へ接続。共通 GPU fixture と旧新7画像の一致を確認。単一2D画像以外の範囲、packed depth/stencil copy、recording 契約の統一、本番 shader ABI 接続は残る |
-| R8: Session 寿命 | Vulkan の意図的に解放しない `VulkanScene` を削除。切替で scene / UI → commands → swapchain → device / context → window の順に解放する。OpenGL は既存 context device を Session の明示終了で解放。所有のさらなる整理・stress の resource count gate は残る |
+| R8: Session 寿命 | Vulkan の意図的に解放しない `VulkanScene` を削除。切替で scene / UI → commands → swapchain → device / context → window の順に解放する。OpenGL device は Session が単独所有し、終了後の wrapper を無効化。8回の shutdown / recreate で native object の実際の解放と旧 wrapper による新世代への干渉がないことを検査。Vulkan の wrapper が Session より長生きする場合の context / device state の整理は残る |
 | R9: presentation | request と実際の mode / capabilities を分離。typed acquire / present status を実装し、frame loop で利用。最小化・明示的 close request は一時停止、API の device / surface loss は別分類。OpenGL の generic conformance coverage は R19 で拡張する |
 | R10～R13 | `VulkanFrameScheduler` を独立させ、実際の queue submit / completion を担当。descriptor / frame slot / memory / upload の分離は残る。native pipeline cache / budget / upload ring は未対応 |
 | R14: eligibility / admission | Vulkan passive probe は instance / physical device の確認で止まり、logical device / queue を作らない。incoming Session の device / swapchain 生成が active admission。失敗注入による復旧検証は残る |
@@ -412,3 +412,70 @@ Golden Capture は Phase E の手順、切替操作は上記リンク先の再�
 設定ファイルは試験前の byte 列を保管し、終了後に復元する。
 Android build / 実機、remote CI、実際の device loss / OOM 故障注入は今回未実行。
 R2 / R8 / R10～R13 / R16～R19 などの残項目は引き続き対応する。
+
+## OpenGL device の Session 所有と終了後の wrapper（R8）
+
+OpenGL device の process 単位の所有を除去し、各 `BackendSession` の
+`unique_ptr<GraphicsDevice>` にした。current context の lookup は借用 pointer だけを保持し、
+同じ context を二つの Session が所有しようとした場合は拒否する。
+Session 終了時は自分の context を current にして GPU の完了を待ち、native object を解放する。
+window が先に閉じられた場合も、その context が有効な間に native state を閉じる。
+その後に残った wrapper の destructor は、他の context に対して削除命令を出さない。
+pipeline / layout / binding set は session の lifetime token を検査し、
+allocator が device の同じアドレスを再利用しても旧世代を新 device と誤認しない。
+旧 texture の view 作成・resize、旧 pipeline / binding の利用も拒否する。
+
+linked OpenGL program は pipeline が所有する。shader wrapper を先に解放しても
+作成済み executable は描画に使える。Vulkan の作成済み native pipeline も
+descriptor に borrowed shader pointer を残さない。deferred scene adapter の所有は R2 で続ける。
+
+Golden Capture の再実行で、既存 harness が7個の窓を順に作り、lazy scene Session を
+残している経路を検出した。最初だけ撮影に成功し、次の窓から
+`The current context has no OpenGL session` になった。
+閉じた context の device は既に無効なので、次の `Session::Device` で新しい device を生成する。
+harness の画像判定は変更しない。失敗ログ `C:/tmp/gp/architecture-session-golden-opengl.log`
+も保持し、修正後の7画像で回帰を確認した。
+
+### 検証と再実行
+
+- MSVC Release build 成功。CTest 5/5 と shader interface audit（22 sources）成功。
+- `C:/tmp/gp/architecture-session-window-rhiconformance.log`:
+  両 backend の共通 GPU fixture が PASS。pipeline 作成後に public shader を解放してから
+  描画・色・buffer / texture transfer を検査する。
+  OpenGL はさらに8回の shutdown / recreate を検査した。
+  Buffer / Texture / Renderbuffer / Shader / Program / Sampler / FBO / VAO の名前を
+  終了前に `glIs*` で確認し、context を残して Session を終了した後は実際に存在しないことを検査。
+  explicit shutdown と window 側の defensive close を交互に使う。
+  新 device が旧 logical texture handle を再利用した後に旧 wrapper を破棄し、
+  新 resource の数と readback 内容が変わらないこと、旧 binding の拒否も検査する。
+  Vulkan validation errors=0。Vulkan の強制 late-wrapper teardown stress はまだ実装していない。
+- `C:/tmp/gp/architecture-session-window-thumbnailwindowcheck.log`:
+  window composite / 色 / 上下方向 / inherited color / release=0 が PASS。
+- `C:/tmp/gp/architecture-session-lifetime40-{opengl,vulkan}.log`:
+  Alinos Perch の読み込み・描画・解放が両方40/40 PASS。
+  毎回 resource / retired=0、Completed=Submitted、最後2 frame の明示 host wait=0。
+  最後は OpenGL 69,640/69,640、Vulkan 25,520/25,520 submissions。
+  CPU process private memory の測定増分は0.8984 / 0.4477 MB/cycle。
+  前回 R4 の測定より大きく、メモリ改善や長時間安定の証拠とはしない。
+  native object の解放 gate と CPU allocator / driver の process memory は分けて観測する。
+- `C:/tmp/gp/architecture-session-final-golden-{opengl,vulkan}/`:
+  7候補ずつ撮影成功。R4 の `architecture-glsubmission-golden-{opengl,vulkan}` と比較し、
+  全14画像の decoded RGB 差分0。
+  記録 `C:/tmp/gp/architecture-session-final-golden-comparison.txt`。
+- 切替: `C:/tmp/gp/architecture-session-bots-20261002-093038/`。
+  動く bot の通常 fixture は両開始 backend で front 1回、同じ試合内3回が PASS。
+  同じ scene / geometry / visibility を維持して simulation が進む。
+  全6回 definitions=105/105、impact / new bomb / existing bomb 各2 particles。
+  texture-only source は切替中に保持され、scene 終了時に解放。validation error はない。
+- `C:/tmp/gp/architecture-session-final-held-20261002-094140/`:
+  窓の再作成修正後も held fixture が両開始 backend で PASS。
+  全6回の effect 数と source 寿命は上記と同じ。最後の画像で黄色 impact を確認し、
+  OpenGL 開始の画像では青い Lockjaw core も確認した。
+  Vulkan 開始の最終画像では手前の hunter が core の一部を遮っている。
+
+再実行は R4 の PowerShell 手順と上記の切替手順を使う。
+`-rhiconformance` に OpenGL の8回の終了・再作成検査が含まれる。
+Golden Capture は backend ごとに別の出力ディレクトリを指定する。
+Android build / 実機、remote CI、device loss / OOM 故障注入は今回未実行。
+Metal / D3D12 は将来対応。R8 は Vulkan 側の終了後の wrapper と shared device state の
+context 寿命を整理するまで、全体完了とは扱わない。

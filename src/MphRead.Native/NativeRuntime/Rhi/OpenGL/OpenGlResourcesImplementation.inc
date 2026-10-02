@@ -23,7 +23,6 @@ std::unique_ptr<Buffer> OpenGlGraphicsDevice::CreateBuffer(const BufferDesc& des
 OpenGlBuffer::~OpenGlBuffer()
 {
     if (_device) { _device->Untrack(*this); _device->Retire({GlObject::Kind::Buffer, _name}); }
-    else GL::DeleteBuffer(_name);
 }
 
 OpenGlBuffer& CheckedBuffer(OpenGlGraphicsDevice& device, Buffer& resource)
@@ -121,7 +120,7 @@ const OpenGlBindingLayout& CheckedLayout(OpenGlGraphicsDevice& device, const Bin
     return *layout;
 }
 OpenGlBindingSet::OpenGlBindingSet(OpenGlGraphicsDevice& device, const BindingSetDesc& desc)
-    : _device(&device), _layout(device, CheckedLayout(device, desc.layout).Desc()), _desc(desc)
+    : _device(&device), _lifetime(DeviceLifetime(device)), _layout(device, CheckedLayout(device, desc.layout).Desc()), _desc(desc)
 {
     _desc.layout = &_layout;
     std::uint64_t count = 0;

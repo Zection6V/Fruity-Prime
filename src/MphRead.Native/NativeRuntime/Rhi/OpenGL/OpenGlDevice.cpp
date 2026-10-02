@@ -1,6 +1,8 @@
 #include "OpenGlDevice.hpp"
 #include "OpenGlNative.hpp"
 #include "OpenGlFrameScheduler.hpp"
+#include "OpenGlDiagnostics.hpp"
+#include "../SceneBackend.hpp"
 
 #include "../../OpenTK/GL.hpp"
 #include "../../../Mods/Render/GlNames.hpp"
@@ -20,6 +22,9 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+#if !defined(__ANDROID__)
+#include <GLFW/glfw3.h>
+#endif
 
 namespace MphRead::NativeRuntime::Rhi::OpenGL
 {
@@ -163,6 +168,22 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
         class OpenGlGraphicsDevice;
         class OpenGlCommandList;
+        std::weak_ptr<void> DeviceLifetime(OpenGlGraphicsDevice& device);
+        void ForgetPipeline(OpenGlGraphicsDevice& device, const GraphicsPipeline& pipeline);
+        void* ContextKey() noexcept
+        {
+#if defined(__ANDROID__)
+            return reinterpret_cast<void*>(eglGetCurrentContext());
+#else
+            return ::glfwGetCurrentContext();
+#endif
+        }
+        // Borrowed lookup only; the session is the unique native owner.
+        auto& ContextDevices()
+        {
+            static thread_local std::unordered_map<void*, OpenGlGraphicsDevice*> devices;
+            return devices;
+        }
 
         // A GL object waiting in the retirement queue.
         struct GlObject final
@@ -172,6 +193,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             std::int32_t Name = 0;
             OpenGlNative::DeleteSamplersType DeleteNames = nullptr;
         };
+        using NativeObject = std::pair<OpenGlNative::IsBufferType, unsigned>;
 
         void DestroyNative(const GlObject& object) noexcept
         {
@@ -258,22 +280,35 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             }
         }
 
+        struct OpenGlProgramStorage final
+        {
+            OpenGlProgramStorage(OpenGlGraphicsDevice& device, std::int32_t name);
+            ~OpenGlProgramStorage();
+            OpenGlGraphicsDevice* Device;
+            std::int32_t Name;
+            void Detach() noexcept { Device = nullptr; Name = 0; }
+        };
+
         class OpenGlGraphicsPipeline final : public GraphicsPipeline
         {
         public:
-            OpenGlGraphicsPipeline(OpenGlGraphicsDevice& device, const GraphicsPipelineDesc& desc, std::int32_t program)
-                : _device(&device), _desc(desc), _program(program)
+            OpenGlGraphicsPipeline(OpenGlGraphicsDevice& device, const GraphicsPipelineDesc& desc, std::shared_ptr<OpenGlProgramStorage> program)
+                : _device(&device), _lifetime(DeviceLifetime(device)), _desc(desc), _program(std::move(program))
             {
+                _desc.vertexShader = _desc.fragmentShader = nullptr;
             }
+            ~OpenGlGraphicsPipeline() override
+            { if (!_lifetime.expired()) ForgetPipeline(*_device, *this); }
             [[nodiscard]] const GraphicsPipelineDesc& Desc() const noexcept override { return _desc; }
             // 0: the pipeline leaves the current program alone.
-            [[nodiscard]] std::int32_t Program() const noexcept { return _program; }
-            OpenGlGraphicsDevice* Device() const noexcept { return _device; }
+            [[nodiscard]] std::int32_t Program() const noexcept { return _program ? _program->Name : 0; }
+            OpenGlGraphicsDevice* Device() const noexcept { return _lifetime.expired() ? nullptr : _device; }
 
         private:
             OpenGlGraphicsDevice* _device;
+            std::weak_ptr<void> _lifetime;
             GraphicsPipelineDesc _desc;
-            std::int32_t _program;
+            std::shared_ptr<OpenGlProgramStorage> _program;
         };
 
         class OpenGlShader final : public Shader
@@ -295,7 +330,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 _desc.code.resize(source.size());
                 std::memcpy(_desc.code.data(), source.data(), source.size());
             }
-            void Detach() noexcept { _device = nullptr; }
+            void Detach() noexcept { _device = nullptr; _name = 0; }
 
         private:
             OpenGlGraphicsDevice* _device;
@@ -322,6 +357,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             [[nodiscard]] std::int32_t Name() const noexcept { return _name; }
             [[nodiscard]] bool IsRenderbuffer() const noexcept { return _renderbuffer; }
+            OpenGlGraphicsDevice* Device() const noexcept { return _device; }
             [[nodiscard]] bool HasStorage() const noexcept { return _hasStorage; }
             void SetExtent(std::uint32_t width, std::uint32_t height) noexcept
             {
@@ -329,7 +365,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 _desc.height = height;
                 _hasStorage = true;
             }
-            void Detach() noexcept { _device = nullptr; }
+            void Detach() noexcept { _device = nullptr; _name = 0; }
 
         private:
             OpenGlGraphicsDevice* _device;
@@ -453,7 +489,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         class OpenGlGraphicsDevice final : public GraphicsDevice
         {
         public:
-            OpenGlGraphicsDevice() : _scheduler(SchedulerDispatch(_api))
+            OpenGlGraphicsDevice() : _scheduler(SchedulerDispatch(_api)), _contextKey(ContextKey())
             {
                 _capabilities.backend = GraphicsBackend::OpenGl;
                 _capabilities.maxColorAttachments = 1;
@@ -475,6 +511,9 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             }
 
             ~OpenGlGraphicsDevice() override;
+            void CloseNative();
+            std::function<void()> NativeReleaseCheck();
+            std::weak_ptr<void> Lifetime() const noexcept { return _lifetime; }
 
             [[nodiscard]] GraphicsBackend GetBackend() const noexcept override { return GraphicsBackend::OpenGl; }
             [[nodiscard]] const Capabilities& GetCapabilities() const noexcept override { return _capabilities; }
@@ -489,6 +528,10 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void Untrack(OpenGlBuffer& buffer) { _resourceBuffers.erase(&buffer); }
             void Track(OpenGlSamplerStorage& sampler) { _samplers.insert(&sampler); }
             void Untrack(OpenGlSamplerStorage& sampler) { _samplers.erase(&sampler); }
+            void Track(OpenGlProgramStorage& program) { _livePrograms.insert(&program); }
+            void Untrack(OpenGlProgramStorage& program) { _livePrograms.erase(&program); }
+            void ForgetProgram(std::int32_t program);
+            void ForgetPipeline(const GraphicsPipeline& pipeline);
 
             [[nodiscard]] std::unique_ptr<Texture> CreateTexture(const TextureDesc& desc) override
             {
@@ -538,7 +581,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 Texture& texture, const TextureViewDesc& desc) override
             {
                 const auto& native = Native(texture);
-                if ((desc.format != TextureFormat::Undefined && desc.format != texture.Desc().format)
+                if (native.Device() != this || (desc.format != TextureFormat::Undefined && desc.format != texture.Desc().format)
                     || desc.baseMipLevel || desc.mipLevelCount != 1 || desc.baseArrayLayer || desc.arrayLayerCount != 1
                     || (!native.IsRenderbuffer() && FindTexture(native.Handle()) != &texture))
                     throw std::invalid_argument("OpenGL RHI: invalid texture view.");
@@ -598,7 +641,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 return shader;
             }
 
-            [[nodiscard]] std::int32_t Program(const Shader& vertex, const Shader& fragment)
+            [[nodiscard]] std::shared_ptr<OpenGlProgramStorage> Program(const Shader& vertex, const Shader& fragment)
             {
                 const auto* vs = dynamic_cast<const OpenGlShader*>(&vertex);
                 const auto* fs = dynamic_cast<const OpenGlShader*>(&fragment);
@@ -623,18 +666,28 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     GL::DeleteProgram(program);
                     throw std::runtime_error(log);
                 }
-                _programs.emplace(key, program);
-                return program;
+                // The linked executable is independent of public shader
+                // wrappers. Pipelines keep the executable alive themselves.
+                GL::DetachShader(program, vs->Name());
+                GL::DetachShader(program, fs->Name());
+                std::shared_ptr<OpenGlProgramStorage> storage;
+                try
+                {
+                    storage = std::make_shared<OpenGlProgramStorage>(*this, program);
+                    _programs.emplace(key, storage);
+                    return storage;
+                }
+                catch (...) { if (!storage) GL::DeleteProgram(program); throw; }
             }
 
-            // A shader is going away: so is every program linked from it.
+            // Drop cache entries that borrow this shader's identity. Pipelines
+            // retain their independently linked executables until release.
             void Forget(const OpenGlShader& shader) noexcept
             {
                 for (auto it = _programs.begin(); it != _programs.end();)
                 {
                     if (it->first.first == &shader || it->first.second == &shader)
                     {
-                        Retire(GlObject{GlObject::Kind::Program, it->second});
                         it = _programs.erase(it);
                     }
                     else
@@ -746,8 +799,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     || !std::isfinite(desc.rasterizer.lineWidth) || desc.rasterizer.lineWidth <= 0
                     || !std::isfinite(desc.rasterizer.depthBiasSlope) || !std::isfinite(desc.rasterizer.depthBiasConstant))
                     throw std::invalid_argument("OpenGL RHI: unsupported or invalid graphics pipeline.");
-                const std::int32_t program = desc.vertexShader != nullptr && desc.fragmentShader != nullptr
-                    ? Program(*desc.vertexShader, *desc.fragmentShader) : 0;
+                auto program = desc.vertexShader != nullptr && desc.fragmentShader != nullptr
+                    ? Program(*desc.vertexShader, *desc.fragmentShader) : nullptr;
                 return std::make_unique<OpenGlGraphicsPipeline>(*this, desc, program);
             }
 
@@ -779,6 +832,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void ResizeTexture(Texture& texture, std::uint32_t width, std::uint32_t height) override
             {
                 OpenGlTexture& gl = Native(texture);
+                if (gl.Device() != this) throw std::invalid_argument("OpenGL RHI: texture belongs to another session.");
                 if (!width || !height || width > _capabilities.maxTexture2DDimension || height > _capabilities.maxTexture2DDimension)
                     throw std::out_of_range("OpenGL RHI: invalid texture resize extent.");
                 AllocateStorage(gl, width, height);
@@ -905,7 +959,10 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             std::unordered_set<OpenGlCommandList*> _lists{};
             std::unordered_set<OpenGlShader*> _shaders{};
             std::unordered_set<std::int32_t> _buffers{};
-            std::map<std::pair<const Shader*, const Shader*>, std::int32_t> _programs{};
+            std::map<std::pair<const Shader*, const Shader*>, std::shared_ptr<OpenGlProgramStorage>> _programs{};
+            std::unordered_set<OpenGlProgramStorage*> _livePrograms;
+            std::shared_ptr<void> _lifetime = std::make_shared<int>(0);
+            void* _contextKey;
 
             void CollectCompleted()
             {
@@ -950,11 +1007,19 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             [[nodiscard]] std::size_t FramebufferCount() const noexcept { return _framebuffers.size(); }
             [[nodiscard]] std::size_t VertexArrayCount() const noexcept { return _vertexArrays.size(); }
+            void CaptureNativeObjects(std::vector<NativeObject>& objects) const
+            {
+                for (const auto& [key, vao] : _vertexArrays)
+                    objects.emplace_back(_device->Api().IsVertexArray, vao.Name);
+                for (const auto& [key, name] : _framebuffers)
+                    objects.emplace_back(_device->Api().IsFramebuffer, static_cast<unsigned>(name));
+            }
 
             // Preserve legacy scene state setup; desktop vertex submission and
             // window compositing use explicit shaders and RHI pipelines.
             void Begin() override
             {
+                if (!_device) throw std::logic_error("The OpenGL command list's session has ended.");
                 GL::Enable(GL::EnableCap::DepthTest);
                 GL::Enable(GL::EnableCap::Texture2D);
                 GL::DepthFunc(GL::DepthFunction::Lequal);
@@ -1179,9 +1244,21 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 }
             }
 
-            void Detach() noexcept { _device = nullptr; }
+            void Detach() noexcept
+            {
+                for (const auto& [key, vao] : _vertexArrays)
+                    _device->Api().DeleteVertexArrays(1, &vao.Name);
+                for (const auto& [key, framebuffer] : _framebuffers)
+                    DestroyNative({GlObject::Kind::Framebuffer, framebuffer});
+                _vertexArrays.clear(); _framebuffers.clear(); _vertexBindings.clear();
+                _applied = nullptr; _indexBuffer = nullptr; _device = nullptr;
+            }
 
             void ForgetBuffer(std::int32_t name);
+
+            void ForgetPipeline(const GraphicsPipeline& pipeline) noexcept
+            { if (_applied == &pipeline) _applied = nullptr; }
+            void ForgetProgram(std::int32_t program) { _alphaTestLocations.erase(program); }
 
         private:
             unsigned VertexArray();
@@ -1201,10 +1278,6 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 if (_device != nullptr)
                 {
                     _device->Retire(GlObject{GlObject::Kind::Framebuffer, framebuffer});
-                }
-                else
-                {
-                    DestroyNative(GlObject{GlObject::Kind::Framebuffer, framebuffer});
                 }
             }
 
@@ -1346,10 +1419,6 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 _device->Forget(*this);
                 _device->Retire(object);
             }
-            else
-            {
-                DestroyNative(object);
-            }
         }
 
         void OpenGlGraphicsDevice::Forget(OpenGlTexture& texture) noexcept
@@ -1368,11 +1437,30 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
         OpenGlGraphicsDevice::~OpenGlGraphicsDevice()
         {
+            if (!_contextKey) return;
+#if !defined(__ANDROID__)
+            auto* previous = ::glfwGetCurrentContext();
+            auto* context = static_cast<GLFWwindow*>(_contextKey);
+            if (previous != context) ::glfwMakeContextCurrent(context);
+#endif
+            CloseNative();
+#if !defined(__ANDROID__)
+            if (previous != context) ::glfwMakeContextCurrent(previous);
+#endif
+        }
+
+        void OpenGlGraphicsDevice::CloseNative()
+        {
+            if (!_contextKey) return;
             // Explicit device teardown is a completion boundary. No ordinary
             // resource destructor or frame-slot timeout calls Finish.
             _scheduler.Finish();
+            GL::UseProgram(0);
+            GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, 0);
+            if (_api.BindVertexArray) _api.BindVertexArray(0);
             for (OpenGlTexture* texture : _live)
             {
+                DestroyNative({texture->IsRenderbuffer() ? GlObject::Kind::Renderbuffer : GlObject::Kind::Texture, texture->Name()});
                 texture->Detach();
             }
             for (OpenGlCommandList* list : _lists)
@@ -1381,11 +1469,28 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             }
             for (OpenGlShader* shader : _shaders)
             {
+                DestroyNative({GlObject::Kind::Shader, shader->Name()});
                 shader->Detach();
             }
+            for (auto* program : _livePrograms)
+            {
+                DestroyNative({GlObject::Kind::Program, program->Name});
+                program->Detach();
+            }
+            _programs.clear(); _livePrograms.clear();
+            for (auto name : _buffers) DestroyNative({GlObject::Kind::Buffer, name});
             for (OpenGlBuffer* buffer : _resourceBuffers) buffer->Detach();
-            for (OpenGlSamplerStorage* sampler : _samplers) sampler->Device = nullptr;
+            for (OpenGlSamplerStorage* sampler : _samplers)
+            {
+                _api.DeleteSamplers(1, &sampler->Name);
+                sampler->Name = 0; sampler->Device = nullptr;
+            }
             _retired.CollectAll(DestroyNative);
+            _live.clear(); _byHandle.clear(); _lists.clear(); _shaders.clear();
+            _buffers.clear(); _resourceBuffers.clear(); _samplers.clear(); _samplerCache.clear();
+            _retained.clear(); _lifetime.reset();
+            ContextDevices().erase(_contextKey);
+            _contextKey = nullptr;
         }
 
         GpuResourceStatistics OpenGlGraphicsDevice::Statistics() const
@@ -1402,7 +1507,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 }
             }
             statistics.Shaders = static_cast<std::uint32_t>(_shaders.size());
-            statistics.Programs = static_cast<std::uint32_t>(_programs.size());
+            statistics.Programs = static_cast<std::uint32_t>(_livePrograms.size());
             for (const OpenGlCommandList* list : _lists)
             {
                 statistics.Framebuffers += static_cast<std::uint32_t>(list->FramebufferCount());
@@ -1426,10 +1531,6 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 _device->Forget(*this);
                 _device->Retire(object);
             }
-            else
-            {
-                DestroyNative(object);
-            }
         }
 
         std::unique_ptr<CommandList> OpenGlGraphicsDevice::CreateCommandList()
@@ -1437,21 +1538,77 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             return std::make_unique<OpenGlCommandList>(*this);
         }
 
-        std::unique_ptr<OpenGlGraphicsDevice>& Instance()
+        std::weak_ptr<void> DeviceLifetime(OpenGlGraphicsDevice& device) { return device.Lifetime(); }
+        std::function<void()> OpenGlGraphicsDevice::NativeReleaseCheck()
         {
-            static std::unique_ptr<OpenGlGraphicsDevice> device;
-            return device;
+            std::vector<NativeObject> objects;
+            for (auto name : _buffers) objects.emplace_back(_api.IsBuffer, name);
+            for (auto* texture : _live) objects.emplace_back(texture->IsRenderbuffer() ? _api.IsRenderbuffer : _api.IsTexture, texture->Name());
+            for (auto* shader : _shaders) objects.emplace_back(_api.IsShader, shader->Name());
+            for (auto* program : _livePrograms) objects.emplace_back(_api.IsProgram, program->Name);
+            for (auto* sampler : _samplers) objects.emplace_back(_api.IsSampler, sampler->Name);
+            for (auto* list : _lists) list->CaptureNativeObjects(objects);
+            if (objects.empty()) throw std::logic_error("Native release check needs live objects.");
+            for (const auto& [exists, name] : objects)
+                if (!exists || !exists(name)) throw std::logic_error("Native release witness was not live.");
+            return [objects = std::move(objects), context = _contextKey] {
+                if (ContextKey() != context) throw std::logic_error("Native release check needs its original context.");
+                for (const auto& [exists, name] : objects)
+                    if (exists(name)) throw std::logic_error("Session shutdown retained an OpenGL native object.");
+            };
+        }
+        void ForgetPipeline(OpenGlGraphicsDevice& device, const GraphicsPipeline& pipeline) { device.ForgetPipeline(pipeline); }
+        void OpenGlGraphicsDevice::ForgetPipeline(const GraphicsPipeline& pipeline)
+        { for (auto* list : _lists) list->ForgetPipeline(pipeline); }
+        void OpenGlGraphicsDevice::ForgetProgram(std::int32_t program)
+        {
+            if (GL::GetInteger(CurrentProgram) == program) GL::UseProgram(0);
+            for (auto* list : _lists) list->ForgetProgram(program);
+        }
+        OpenGlProgramStorage::OpenGlProgramStorage(OpenGlGraphicsDevice& device, std::int32_t name)
+            : Device(&device), Name(name) { device.Track(*this); }
+        OpenGlProgramStorage::~OpenGlProgramStorage()
+        {
+            if (!Device) return;
+            Device->ForgetProgram(Name);
+            Device->Untrack(*this);
+            Device->Retire({GlObject::Kind::Program, Name});
         }
     }
 
     GraphicsDevice& ContextDevice()
     {
-        auto& device = Instance();
-        if (!device)
-        {
-            device = std::make_unique<OpenGlGraphicsDevice>();
-        }
-        return *device;
+        const auto found = ContextDevices().find(ContextKey());
+        if (found != ContextDevices().end()) return *found->second;
+        auto& device = SceneDevice();
+        const auto current = ContextDevices().find(ContextKey());
+        if (device.GetBackend() != GraphicsBackend::OpenGl || current == ContextDevices().end() || current->second != &device)
+            throw std::logic_error("The current context has no OpenGL session.");
+        return device;
+    }
+
+    std::function<void()> NativeReleaseCheck(GraphicsDevice& device)
+    {
+        auto* native = dynamic_cast<OpenGlGraphicsDevice*>(&device);
+        if (!native) throw std::invalid_argument("Native release check requires OpenGL.");
+        return native->NativeReleaseCheck();
+    }
+
+    std::unique_ptr<GraphicsDevice> CreateGraphicsDevice()
+    {
+        const auto key = ContextKey();
+        if (!key) throw std::logic_error("An OpenGL session requires a current context.");
+        if (ContextDevices().contains(key))
+            throw std::logic_error("An OpenGL context already has a session device.");
+        auto device = std::make_unique<OpenGlGraphicsDevice>();
+        ContextDevices().emplace(key, device.get());
+        return device;
+    }
+
+    bool HasNativeContext(const GraphicsDevice& device) noexcept
+    {
+        const auto* native = dynamic_cast<const OpenGlGraphicsDevice*>(&device);
+        return native && !native->Lifetime().expired();
     }
 
     std::unique_ptr<Shader> CreateGlslShader(GraphicsDevice& device, ShaderStage stage, const std::string& source)
@@ -1461,7 +1618,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
     std::int32_t ProgramFor(GraphicsDevice& device, const Shader& vertex, const Shader& fragment)
     {
-        return static_cast<OpenGlGraphicsDevice&>(device).Program(vertex, fragment);
+        return static_cast<OpenGlGraphicsDevice&>(device).Program(vertex, fragment)->Name;
     }
 
     void DrawSceneGeometry(CommandList& commands,
@@ -1495,26 +1652,19 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
     void RetireAndroidGeometryBuffer(std::int32_t buffer) noexcept
     {
         if (!buffer) return;
-        if (auto& device = Instance(); device) device->Retire({GlObject::Kind::Buffer, buffer});
+        if (const auto found = ContextDevices().find(ContextKey()); found != ContextDevices().end()) found->second->Retire({GlObject::Kind::Buffer, buffer});
         else DestroyNative({GlObject::Kind::Buffer, buffer});
     }
     std::int32_t CreateAndroidGeometryBuffer()
     { return static_cast<OpenGlGraphicsDevice&>(ContextDevice()).CreateGeometryBuffer(); }
 #endif
 
-    void ResetContextDevice() noexcept
+    void ReleaseContextDevice() noexcept
     {
-        // Called while the outgoing context is still current, after its
-        // scene and UI resources have been released. Destroy the device now;
-        // leaking it would keep its retained textures and caches forever.
-        Instance().reset();
+        // The window can defensively close native state while the context is
+        // current. Its session remains the unique owner of the inert wrapper.
+        if (const auto found = ContextDevices().find(ContextKey()); found != ContextDevices().end())
+            found->second->CloseNative();
     }
 
-    void FinishContextDevice()
-    {
-        if (auto& device = Instance(); device)
-        {
-            device->WaitIdle();
-        }
-    }
 }

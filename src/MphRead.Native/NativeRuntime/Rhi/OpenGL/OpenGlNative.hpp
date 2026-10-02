@@ -62,6 +62,14 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         FRUITY_GL_ENTRY(ClientWaitSync, unsigned, void*, unsigned, std::uint64_t);
         FRUITY_GL_ENTRY(DeleteSync, void, void*);
         FRUITY_GL_ENTRY(Flush, void);
+        FRUITY_GL_ENTRY(IsBuffer, unsigned char, unsigned);
+        FRUITY_GL_ENTRY(IsTexture, unsigned char, unsigned);
+        FRUITY_GL_ENTRY(IsRenderbuffer, unsigned char, unsigned);
+        FRUITY_GL_ENTRY(IsShader, unsigned char, unsigned);
+        FRUITY_GL_ENTRY(IsProgram, unsigned char, unsigned);
+        FRUITY_GL_ENTRY(IsSampler, unsigned char, unsigned);
+        FRUITY_GL_ENTRY(IsFramebuffer, unsigned char, unsigned);
+        FRUITY_GL_ENTRY(IsVertexArray, unsigned char, unsigned);
         FRUITY_GL_ENTRY(DrawArraysInstanced, void, unsigned, int, int, int);
         FRUITY_GL_ENTRY(DrawArraysInstancedBaseInstance, void, unsigned, int, int, int, unsigned);
         FRUITY_GL_ENTRY(DrawElementsInstanced, void, unsigned, int, unsigned, const void*, int);

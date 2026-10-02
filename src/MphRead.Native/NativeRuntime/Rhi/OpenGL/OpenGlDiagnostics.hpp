@@ -2,6 +2,9 @@
 
 #include <cstdint>
 #include <string>
+#include <functional>
+
+namespace MphRead::NativeRuntime::Rhi { class GraphicsDevice; }
 
 namespace MphRead::NativeRuntime::Rhi::OpenGL
 {
@@ -16,4 +19,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
     // Empty when the context has no answer.
     [[nodiscard]] std::string ContextString(std::int32_t name);
     [[nodiscard]] std::int32_t ContextInteger(std::int32_t name);
+    // Capture driver object identities while they are live, then prove that
+    // session shutdown released them. The context must still be current.
+    [[nodiscard]] std::function<void()> NativeReleaseCheck(GraphicsDevice& device);
 }

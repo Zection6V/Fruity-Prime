@@ -9,7 +9,7 @@ public:
     const BufferDesc& Desc() const noexcept override { return _desc; }
     std::int32_t Name() const noexcept { return _name; }
     OpenGlGraphicsDevice* Device() const noexcept { return _device; }
-    void Detach() noexcept { _device = nullptr; }
+    void Detach() noexcept { _device = nullptr; _name = 0; }
 private:
     OpenGlGraphicsDevice* _device;
     BufferDesc _desc;
@@ -20,7 +20,7 @@ class OpenGlBindingLayout final : public BindingLayout
 {
 public:
     OpenGlBindingLayout(OpenGlGraphicsDevice& device, BindingLayoutDesc desc)
-        : _device(&device), _desc(std::move(desc))
+        : _device(&device), _lifetime(DeviceLifetime(device)), _desc(std::move(desc))
     {
         std::unordered_set<std::uint32_t> bindings;
         for (const auto& entry : _desc.entries)
@@ -31,9 +31,10 @@ public:
         }
     }
     const BindingLayoutDesc& Desc() const noexcept override { return _desc; }
-    OpenGlGraphicsDevice* Device() const noexcept { return _device; }
+    OpenGlGraphicsDevice* Device() const noexcept { return _lifetime.expired() ? nullptr : _device; }
 private:
     OpenGlGraphicsDevice* _device;
+    std::weak_ptr<void> _lifetime;
     BindingLayoutDesc _desc;
 };
 
@@ -44,9 +45,10 @@ class OpenGlBindingSet final : public BindingSet
 public:
     OpenGlBindingSet(OpenGlGraphicsDevice& device, const BindingSetDesc& desc);
     const BindingSetDesc& Desc() const noexcept override { return _desc; }
-    OpenGlGraphicsDevice* Device() const noexcept { return _device; }
+    OpenGlGraphicsDevice* Device() const noexcept { return _lifetime.expired() ? nullptr : _device; }
 private:
     OpenGlGraphicsDevice* _device;
+    std::weak_ptr<void> _lifetime;
     OpenGlBindingLayout _layout;
     BindingSetDesc _desc;
 };

@@ -19,14 +19,15 @@
 // the same order, so moving a call site behind this changes no pixel.
 namespace MphRead::NativeRuntime::Rhi::OpenGL
 {
-    // Drain retirement and context-owned fences before destroying a context.
-    void FinishContextDevice();
-    // The device for the current GL context, created on first use.
+    // Sessions own devices. This lookup borrows the current context's device;
+    // if needed, the scene session creates it. It never owns native objects.
     [[nodiscard]] GraphicsDevice& ContextDevice();
+    [[nodiscard]] std::unique_ptr<GraphicsDevice> CreateGraphicsDevice();
+    [[nodiscard]] bool HasNativeContext(const GraphicsDevice& device) noexcept;
 
-    // Destroy the current device before its context goes away, after releasing
-    // the scene and UI resources. The outgoing GL context must still be current.
-    void ResetContextDevice() noexcept;
+    // Defensively release native state before its context goes away. The
+    // session keeps ownership of the inert wrapper. Its context is current.
+    void ReleaseContextDevice() noexcept;
     // The current context's viewport, over the whole window.
     void ResetWindowViewport(std::int32_t width, std::int32_t height);
 

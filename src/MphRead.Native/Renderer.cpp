@@ -6324,7 +6324,9 @@ namespace MphRead
     {
         if (!_windowCommands)
         {
-            _windowCommands = NativeRuntime::Rhi::SceneDevice().CreateCommandList();
+            auto commands = NativeRuntime::Rhi::SceneDevice().CreateCommandList();
+            commands->Begin();
+            _windowCommands = std::move(commands);
         }
         return *_windowCommands;
     }

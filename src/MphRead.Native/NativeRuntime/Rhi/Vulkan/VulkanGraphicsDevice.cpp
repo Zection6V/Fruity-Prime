@@ -1982,7 +1982,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         void VulkanCommandList::Begin()
         {
-            if (_recording) throw std::logic_error("Vulkan RHI: command list is already recording.");
+            _device->RequireAlive();
+            // Native buffers may have been submitted by another list, a frame
+            // boundary or readback. That does not end the caller's Begin/End.
+            if (_autoRestart || _recording) throw std::logic_error("Vulkan RHI: command list is already recording.");
             BeginBuffer();
             _autoRestart = true;
             _pipeline = nullptr;
@@ -1990,12 +1993,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         void VulkanCommandList::End()
         {
+            _device->RequireAlive();
+            if (!_autoRestart) throw std::logic_error("Vulkan RHI: command list is not recording.");
             if (!_debugLabels.empty()) throw std::logic_error("GPU debug label scope was not ended.");
-            if (!_recording) throw std::logic_error("Vulkan RHI: command list is not recording.");
             _device->FlushScene(this);
             Flush();
             WaitAll();
             _autoRestart = false;
+            _renderingOpen = false;
         }
 
         void VulkanCommandList::Flush()
@@ -3210,16 +3215,21 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 // Batch writes outside user recording in a bounded transfer
                 // stream. A consumer/another list, frame end, readback, resource
                 // release or session teardown flushes it in graphics-queue order.
-                if (!_uploadCommands) _uploadCommands = std::make_unique<VulkanCommandList>(_state, true);
                 try
                 {
+                    if (!_uploadCommands)
+                    {
+                        _uploadCommands = std::make_unique<VulkanCommandList>(_state, true);
+                        _uploadCommands->Begin();
+                    }
                     constexpr VkDeviceSize batchBytes = 8U << 20U;
                     if (recording)
                     {
                         const auto pending = recording->PendingUploadBytes();
                         if (pending && (bytes >= batchBytes || bytes > batchBytes - pending)) recording->Flush();
                     }
-                    else _uploadCommands->Begin();
+                    // This stream's interval remains open across Flush().
+                    // The write restarts its native buffer when necessary.
                     write(*_uploadCommands);
                     if (_uploadCommands->PendingUploadBytes() >= batchBytes) _uploadCommands->Flush();
                 }

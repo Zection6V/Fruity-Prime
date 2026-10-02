@@ -343,6 +343,7 @@ struct WindowUi::Impl final
         : Device(device.State()), Shaders(device.State(), {}, {}),
           Commands(std::make_unique<VulkanCommandList>(device.State()))
     {
+        Commands->Begin();
         const auto pipeline = [&](SceneProgram program, bool blend) {
             GraphicsPipelineDesc desc{};
             desc.vertexShader = &Shaders.Vertex(program);
@@ -418,8 +419,6 @@ WindowUi::~WindowUi() = default;
 void WindowUi::Begin(std::uint32_t width, std::uint32_t height, bool clear)
 {
     auto& commands = *_impl->Commands;
-    try { commands.Begin(); }
-    catch (const std::logic_error&) {}
     _impl->Width = std::max(width, 1U);
     _impl->Height = std::max(height, 1U);
     std::array<RenderingColorAttachment, 1> color{};

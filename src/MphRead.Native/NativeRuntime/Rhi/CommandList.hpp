@@ -138,6 +138,9 @@ namespace MphRead::NativeRuntime::Rhi
         CommandList(CommandList&&) = delete;
         CommandList& operator=(CommandList&&) = delete;
 
+        // Begin/End delimit a caller-owned interval, independent of internal
+        // submission, frame boundaries and diagnostic readbacks. Nested Begin
+        // and End without Begin throw logic_error without submitting work.
         virtual void Begin() = 0;
         virtual void End() = 0;
 

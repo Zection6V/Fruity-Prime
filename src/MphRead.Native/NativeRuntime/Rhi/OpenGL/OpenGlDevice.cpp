@@ -1139,16 +1139,19 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void Begin() override
             {
                 RequireAlive();
+                if (_recording) throw std::logic_error("OpenGL RHI: command list is already recording.");
                 GL::Enable(GL::EnableCap::DepthTest);
                 GL::Enable(GL::EnableCap::Texture2D);
                 GL::DepthFunc(GL::DepthFunction::Lequal);
+                _recording = true;
             }
             void End() override
             {
                 RequireAlive();
+                if (!_recording) throw std::logic_error("OpenGL RHI: command list is not recording.");
                 if (_debugDepth) throw std::logic_error("GPU debug label scope was not ended.");
-                if (!_device) throw std::logic_error("The OpenGL command list's session has ended.");
                 _device->SubmitCommands();
+                _recording = false;
             }
             void BeginDebugLabel(const DebugLabel& label) override
             {
@@ -1488,6 +1491,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     DestroyNative({GlObject::Kind::Framebuffer, framebuffer});
                 _vertexArrays.clear(); _framebuffers.clear(); _vertexBindings.clear();
                 _applied = nullptr; _indexBuffer = nullptr; _device = nullptr;
+                _recording = false;
             }
 
             void ForgetBuffer(std::int32_t name);
@@ -1512,6 +1516,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             std::span<const VertexAttributeDesc> _sceneAttributes;
             PrimitiveTopology _sceneTopology = PrimitiveTopology::TriangleList;
             std::uint32_t _debugDepth = 0;
+            bool _recording = false;
             void RetireFramebuffer(std::int32_t framebuffer) noexcept
             {
                 if (_device != nullptr)

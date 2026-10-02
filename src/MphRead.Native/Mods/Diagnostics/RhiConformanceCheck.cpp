@@ -103,6 +103,60 @@ namespace MphRead::Mods::Diagnostics
             std::cout << "[gpu diagnostics] PASS; labels=" << device.GetCapabilities().supportsDebugLabels
                 << "; transfer_ns=" << elapsed << "; polling host/device waits delta=0; bounded native sets; release=0\n";
         }
+        void ExerciseRecordingInterval(Rhi::GraphicsDevice& device)
+        {
+            using namespace Rhi;
+            auto source = device.CreateBuffer({64, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu});
+            auto destination = device.CreateBuffer({64, BufferUsage::TransferDst, MemoryUsage::GpuToCpu});
+            const std::array<unsigned, 16> payload{1, 2, 3, 4, 11, 12, 13, 14,
+                21, 22, 23, 24, 31, 32, 33, 34};
+            device.WriteBuffer(*source, 0, Bytes(payload));
+            auto first = device.CreateCommandList();
+            auto second = device.CreateCommandList();
+            unsigned rejections = 0;
+            const auto reject = [&](auto action) {
+                const auto before = device.Statistics().Submitted;
+                bool rejected = false;
+                try { action(); } catch (const std::logic_error&) { rejected = true; }
+                Expect(rejected, "Invalid Begin/End interval was accepted.");
+                Expect(device.Statistics().Submitted == before, "Rejected Begin/End submitted work.");
+                ++rejections;
+            };
+            reject([&] { first->End(); });
+            (void)device.BeginFrame(); first->Begin();
+            reject([&] { first->Begin(); });
+            first->Transition(*source, ResourceState::Undefined, ResourceState::CopySrc);
+            first->Transition(*destination, ResourceState::Undefined, ResourceState::CopyDst);
+            const bool labels = device.GetCapabilities().supportsDebugLabels;
+            if (labels) first->BeginDebugLabel({"Interval survives internal submission"});
+            first->CopyBuffer(*source, 0, *destination, 0, 16);
+            // Vulkan must submit the first native buffer before the second list
+            // records. The first caller-owned interval is still open.
+            second->Begin(); second->CopyBuffer(*source, 16, *destination, 16, 16); second->End();
+            reject([&] { first->Begin(); });
+            if (labels)
+            {
+                reject([&] { first->End(); });
+                first->EndDebugLabel();
+            }
+            first->CopyBuffer(*source, 32, *destination, 32, 16);
+            device.EndFrame();
+            reject([&] { first->Begin(); });
+            first->End();
+            reject([&] { first->End(); });
+            first->Begin(); first->CopyBuffer(*source, 48, *destination, 48, 16); first->End();
+            std::array<unsigned, 16> output{};
+            device.ReadBuffer(*destination, 0, std::as_writable_bytes(std::span(output)));
+            Expect(output == payload, "Interleaved recording intervals lost or reordered GPU copies.");
+            // Even an empty interval can be internally submitted at EndFrame.
+            (void)device.BeginFrame(); first->Begin(); device.EndFrame(); first->End();
+            Expect(device.DrainErrors() == 0, "Recording interval check raised native errors.");
+            first.reset(); second.reset(); source.reset(); destination.reset(); device.WaitIdle();
+            Expect(device.Statistics().LiveObjects() == 0 && device.Statistics().Retired == 0,
+                "Recording interval check leaked native objects.");
+            std::cout << "[recording interval] PASS; rejected=" << rejections
+                << "; interleaved/frame submissions; ordered GPU copy; empty interval; release=0\n";
+        }
         void ExerciseUnframedLifetime(Rhi::GraphicsDevice& device)
         {
             using namespace Rhi;
@@ -438,6 +492,7 @@ namespace MphRead::Mods::Diagnostics
                 if (backend == Rhi::GraphicsBackend::OpenGl) Rhi::OpenGL::CheckMemoryAdmission(device);
                 else Rhi::Vulkan::CheckMemoryAdmission(device);
                 ExerciseUnframedLifetime(device);
+                ExerciseRecordingInterval(device);
                 CheckResourceOwnership(device);
                 ExerciseGpuDiagnostics(device);
                 CheckAsyncReadback(device);

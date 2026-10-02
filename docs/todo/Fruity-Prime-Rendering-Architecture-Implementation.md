@@ -1684,4 +1684,47 @@ try {
 この区切りはR19のresource ownership部分の拡張である。
 format / subresource・recording contract・presentation ownership・100-cycle stressは引き続き必要。
 R10のframe slot / probe分離、R20とレビュー全体も進行中。
-Android / macOS実機とremote CIは未検証。Metal / D3D12は今回追加しない。
+
+## 内部送信をまたぐ Begin / End（R19）
+
+`CommandList::Begin / End` は caller が開いた区間を表す。
+別の command list、frame end、readback による内部送信ではその区間を終了しない。
+二重 Begin、Begin 前／End 後の End は `logic_error` で拒否し、拒否時に送信しない。
+
+Vulkan はこの判定に native command buffer の `_recording` を使っていた。
+内部 flush 後はそれが false になるため、二重 Begin が受理され、一方で正常な End が失敗した。
+区間の判定を既存の `_autoRestart` に揃え、End は既に送信済みの区間も終了できるようにした。
+OpenGL にも caller の区間を保持し、同じ Begin / End の拒否を実装した。
+
+Vulkan の UI と bounded upload stream は作成時に一度 Begin する。
+送信後の継続は native buffer の再開に任せる。UI の毎回の Begin と例外の握りつぶしを除いた。
+window commands も作成時に Begin し、成功した list を所有する。
+Vulkan End の既存の同期互換動作は維持する。frame end / presentation の通常の flush に
+新しい wait を追加していない。モデル pixel の複製も追加しない。
+
+`-rhiconformance` は両 backend に同じ fixture を実行する。
+2つの list を交互に使い、別 list の送信・frame end をまたいで64 bytesの GPU copy を行い、
+最終データを照合する。6件の不正な Begin / End（debug labels 対応時）、
+拒否時の submission serial 不変、label の継続、空の区間、解放後の live / retired=0を検査する。
+既存 fixture は区間終了後の同期 readback と upload stream の再開も検査する。
+
+確認結果（Windows / RTX 5070 Ti）:
+
+- MSVC Release build PASS: `C:/tmp/gp/architecture-r19-recording-build2.log`。
+- CPU CTest 13/13 PASS: `C:/tmp/gp/architecture-r19-recording-ctest.log`。
+- 共通 GPU conformance PASS: `C:/tmp/gp/architecture-r19-recording-conformance2.log`。
+  両 backend の interval / ownership / diagnostics / async readback / draw / session lifetime が PASS。
+  Vulkan validation errors=0、release=0。
+- FPS-only の両開始 backend の切替 PASS: `C:/tmp/r18-fps-20261002-230815/`。
+  Alinos Perch、spawned player、各3回の world witness、bomb / particle / lifecycle gate が PASS。
+  同じ計測条件で OpenGL 270.0～303.2 FPS、Vulkan 955.2～992.0 FPS。
+  HUD FPS Counter=0、GPU sample=0。capture を含む同じ fixture の値である。
+- validation と GPU profile を有効にした3回の切替も PASS:
+  `C:/tmp/r18-fps-20261002-230940/opengl.log`。Vulkan validation errors=0、
+  world witness / bomb / particle / lifecycle gate が PASS。速度比較には使わない。
+
+この区切りは Begin / End の状態判定の統一である。
+区間外の全 mutation の拒否、rendering 中の transfer / barrier と内部 readback の契約、
+全 format / subresource、presentation ownership、100-cycle stress は引き続き必要。
+R10 / R20 とレビュー全体も進行中。Android / macOS の実動作、remote CI は未実行。
+Metal / D3D12 は今回追加しない。

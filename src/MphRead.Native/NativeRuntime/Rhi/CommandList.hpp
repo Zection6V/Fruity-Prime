@@ -5,6 +5,7 @@
 #include "ResourceState.hpp"
 #include "Resources.hpp"
 #include "Readback.hpp"
+#include "GpuDiagnostics.hpp"
 #include <stdexcept>
 
 #include <cstdint>
@@ -139,6 +140,16 @@ namespace MphRead::NativeRuntime::Rhi
 
         virtual void Begin() = 0;
         virtual void End() = 0;
+
+        // Optional diagnostics: labels are no-ops when unavailable. Query sets
+        // are device-owned, initialized outside rendering, and never reused.
+        virtual void BeginDebugLabel(const DebugLabel& label) { ValidateDebugLabel(label); }
+        virtual void EndDebugLabel() {}
+        virtual void InsertDebugMarker(const DebugLabel& label) { ValidateDebugLabel(label); }
+        virtual void InitializeTimestamps(TimestampQuerySet&)
+        { throw std::logic_error("GPU timestamps are unavailable."); }
+        virtual void WriteTimestamp(TimestampQuerySet&, std::uint32_t)
+        { throw std::logic_error("GPU timestamps are unavailable."); }
 
         virtual void BeginRendering(const RenderingInfo& info) = 0;
         virtual void EndRendering() = 0;

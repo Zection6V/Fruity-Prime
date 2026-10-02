@@ -17,6 +17,7 @@ namespace MphRead::NativeRuntime::Rhi
         float maxSamplerAnisotropy = 1.0F;
         bool supportsCompute = false;
         bool supportsTimestampQueries = false;
+        bool supportsDebugLabels = false;
         bool supportsAnisotropy = false;
         bool supportsWireframe = false;
         bool supportsDepthClamp = false;

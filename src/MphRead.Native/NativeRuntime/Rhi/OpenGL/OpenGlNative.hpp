@@ -83,6 +83,16 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         FRUITY_GL_ENTRY(StencilOpSeparate, void, unsigned, unsigned, unsigned, unsigned);
         FRUITY_GL_ENTRY(DepthRange, void, double, double);
         FRUITY_GL_ENTRY(DepthRangef, void, float, float);
+        FRUITY_GL_ENTRY(GenQueries, void, int, unsigned*);
+        FRUITY_GL_ENTRY(DeleteQueries, void, int, const unsigned*);
+        FRUITY_GL_ENTRY(QueryCounter, void, unsigned, unsigned);
+        FRUITY_GL_ENTRY(GetQueryiv, void, unsigned, unsigned, int*);
+        FRUITY_GL_ENTRY(GetQueryObjectiv, void, unsigned, unsigned, int*);
+        FRUITY_GL_ENTRY(GetQueryObjectui64v, void, unsigned, unsigned, std::uint64_t*);
+        FRUITY_GL_ENTRY(PushDebugGroup, void, unsigned, unsigned, int, const char*);
+        FRUITY_GL_ENTRY(PopDebugGroup, void);
+        FRUITY_GL_ENTRY(DebugMessageInsert, void, unsigned, unsigned, unsigned, unsigned, int, const char*);
+        FRUITY_GL_ENTRY(ObjectLabel, void, unsigned, unsigned, int, const char*);
 #undef FRUITY_GL_ENTRY
     };
 }

@@ -617,6 +617,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::uint32_t OutstandingAllocationsAtShutdown = 0;
             SubmissionSerial FinalSubmitted{}, FinalCompleted{};
             std::unordered_map<VulkanNativeOwner*, bool> NativeOwners;
+            std::shared_ptr<TimestampBudget> TimestampCapacity = std::make_shared<TimestampBudget>();
 
             struct DescriptorFrame final
             {
@@ -817,6 +818,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             VulkanNativeOwner& owner, bool commands) : _state(state), _owner(owner)
         { state.RequireAlive(); state.NativeOwners.emplace(&owner, commands); }
         VulkanNativeRegistration::~VulkanNativeRegistration() { _state.NativeOwners.erase(&_owner); }
+        #include "VulkanGpuDiagnosticsInternal.inc"
 
         class VulkanShader final : public Shader, public VulkanNativeOwner
         {
@@ -1572,6 +1574,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
             void Begin() override;
             void End() override;
+            void BeginDebugLabel(const DebugLabel& label) override;
+            void EndDebugLabel() override;
+            void InsertDebugMarker(const DebugLabel& label) override;
+            void InitializeTimestamps(TimestampQuerySet& set) override;
+            void WriteTimestamp(TimestampQuerySet& set, std::uint32_t index) override;
             void BeginRendering(const RenderingInfo& info) override;
             void EndRendering() override;
             void SetPipeline(const GraphicsPipeline& pipeline) override;
@@ -1737,6 +1744,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             VkCommandBuffer _commandBuffer = VK_NULL_HANDLE;
             VkFence _fence = VK_NULL_HANDLE;
             bool _recording = false;
+            std::vector<DebugLabel> _debugLabels;
+            void NativeBeginLabel(const DebugLabel& label);
+            VulkanTimestampSet& CheckedTimestamp(TimestampQuerySet& set);
             bool _autoRestart = false;
             const VulkanGraphicsPipeline* _pipeline = nullptr;
 
@@ -1951,6 +1961,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             _setProgram = nullptr;
             _device->SceneFlushers[this] = [this] { Flush(); };
             _device->RecordingList = this;
+            for (const auto& label : _debugLabels) NativeBeginLabel(label);
         }
 
         void VulkanCommandList::Begin()
@@ -1963,6 +1974,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         void VulkanCommandList::End()
         {
+            if (!_debugLabels.empty()) throw std::logic_error("GPU debug label scope was not ended.");
             if (!_recording) throw std::logic_error("Vulkan RHI: command list is not recording.");
             _device->FlushScene(this);
             Flush();
@@ -1976,6 +1988,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             auto& vk = *_device->ContextPointer->_impl;
             if (_renderingOpen && _clearsPending) Materialize();
             if (_renderingActive) EndNative();
+            if (vk.endLabel) for (std::size_t i = 0; i < _debugLabels.size(); ++i) vk.endLabel(_commandBuffer);
             _uploads->FlushPending();
             Check(vk.vkEndCommandBuffer(_commandBuffer), "vkEndCommandBuffer");
             VkCommandBufferSubmitInfo command{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
@@ -2011,6 +2024,59 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (_recording) return;
             if (!_autoRestart) throw std::logic_error("Vulkan RHI: command list is not recording.");
             BeginBuffer();
+        }
+
+        void VulkanCommandList::NativeBeginLabel(const DebugLabel& label)
+        {
+            auto& vk = *_device->ContextPointer->_impl;
+            if (!vk.caps.supportsDebugLabels) return;
+            VkDebugUtilsLabelEXT info{VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT};
+            info.pLabelName = label.name.c_str(); std::copy(label.color.begin(), label.color.end(), info.color);
+            vk.beginLabel(_commandBuffer, &info);
+        }
+        void VulkanCommandList::BeginDebugLabel(const DebugLabel& label)
+        {
+            ValidateDebugLabel(label); RequireRecording();
+            if (!_device->ContextPointer->Caps().supportsDebugLabels) return;
+            if (_debugLabels.size() == 32) throw std::logic_error("GPU debug label nesting exceeds 32.");
+            _debugLabels.push_back(label); NativeBeginLabel(_debugLabels.back());
+        }
+        void VulkanCommandList::EndDebugLabel()
+        {
+            RequireRecording();
+            if (!_device->ContextPointer->Caps().supportsDebugLabels) return;
+            if (_debugLabels.empty()) throw std::logic_error("No GPU debug label to end.");
+            _device->ContextPointer->_impl->endLabel(_commandBuffer); _debugLabels.pop_back();
+        }
+        void VulkanCommandList::InsertDebugMarker(const DebugLabel& label)
+        {
+            ValidateDebugLabel(label); RequireRecording();
+            auto& vk = *_device->ContextPointer->_impl;
+            if (!vk.caps.supportsDebugLabels) return;
+            VkDebugUtilsLabelEXT info{VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT};
+            info.pLabelName = label.name.c_str(); std::copy(label.color.begin(), label.color.end(), info.color);
+            vk.insertLabel(_commandBuffer, &info);
+        }
+        VulkanTimestampSet& VulkanCommandList::CheckedTimestamp(TimestampQuerySet& set)
+        {
+            auto* native = dynamic_cast<VulkanTimestampSet*>(&set);
+            if (!native || native->Device != _device || !native->Pool)
+                throw std::invalid_argument("Vulkan timestamp belongs to another or closed session.");
+            return *native;
+        }
+        void VulkanCommandList::InitializeTimestamps(TimestampQuerySet& set)
+        {
+            RequireRecording();
+            if (_renderingOpen) throw std::logic_error("Initialize GPU timestamps outside rendering.");
+            auto& native = CheckedTimestamp(set); native.Writes.Initialize();
+            auto& vk = *_device->ContextPointer->_impl;
+            vk.vkCmdResetQueryPool(_commandBuffer, native.Pool, 0, native.Count());
+        }
+        void VulkanCommandList::WriteTimestamp(TimestampQuerySet& set, std::uint32_t index)
+        {
+            RequireRecording(); auto& native = CheckedTimestamp(set); native.Writes.Write(index);
+            _device->ContextPointer->_impl->vkCmdWriteTimestamp2(_commandBuffer,
+                VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, native.Pool, index);
         }
 
         void VulkanCommandList::Forget(const void* object)
@@ -2783,6 +2849,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             void PollReadbacks() override { _state->Readbacks.Poll(); }
             void SetReadbackLimits(ReadbackLimits limits) override { _state->Readbacks.SetLimits(limits); }
             ReadbackUsage ReadbackStatistics() const override { return _state->Readbacks.Usage(); }
+            std::unique_ptr<TimestampQuerySet> CreateTimestampQuerySet(std::uint32_t count, std::string_view label) override
+            {
+                _state->RequireAlive(); TimestampWriteState validate(count); ValidateDebugLabel({std::string(label)});
+                if (!_state->ContextPointer->Caps().supportsTimestampQueries) return {};
+                auto reservation = _state->TimestampCapacity->TryReserve();
+                if (!reservation) return {};
+                return std::make_unique<VulkanTimestampSet>(_state, count, std::string(label), std::move(reservation));
+            }
             [[nodiscard]] MemoryBudgetSnapshot MemoryBudget() const override { return _state->Memory->Snapshot(); }
             [[nodiscard]] MemoryTelemetry MemoryUsageTelemetry() const override { return _state->Memory->Telemetry(); }
             [[nodiscard]] const std::shared_ptr<VulkanDeviceState>& State() const noexcept { return _state; }
@@ -3045,6 +3119,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 result.Shaders = _state->Shaders.load();
                 result.Programs = _state->Programs.load();
                 result.Samplers = _state->Samplers.load();
+                result.TimestampSets = _state->TimestampCapacity->Sets();
                 result.CompletedFrame = _state->CompletedFrame.load();
                 result.HostWaits = _state->HostWaits.load();
                 result.DeviceWideWaits = _state->DeviceWideWaits.load();

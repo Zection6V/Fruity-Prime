@@ -52,6 +52,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         friend class VulkanSwapchain;
         friend class VulkanGraphicsDevice;
         friend class VulkanCommandList;
+        friend class VulkanTimestampSet;
         friend class VulkanDeviceState;
         friend class VulkanSampler;
         friend class VulkanTexture;

@@ -13,6 +13,7 @@
 #include "Diagnostics/CompatibilityCheck.hpp"
 #include "Diagnostics/GpuLifetimeCheck.hpp"
 #include "Diagnostics/RhiConformanceCheck.hpp"
+#include "Diagnostics/FramePerformance.hpp"
 #include "Diagnostics/PlatformDiagnostics.hpp"
 #if defined(MPHREAD_SHELL)
 #include "Diagnostics/GlfwPathCheck.hpp"
@@ -661,6 +662,16 @@ namespace
         }
 
         const std::optional<std::string> fpsCap = ValueAfter(args, "fpscap");
+        const auto measure = ValueAfter(args, "fpsmeasure");
+        if (measure && !StartsWithHyphen(measure))
+        {
+            std::optional<int> measurementCap;
+            if (fpsCap && !StartsWithHyphen(fpsCap))
+                measurementCap = MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase(*fpsCap, "unlimited")
+                    || MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase(*fpsCap, "uncapped")
+                    ? -1 : FrameTiming::ParseCap(*fpsCap, FrameTiming::FrameRateCap());
+            MphRead::Mods::Diagnostics::FramePerformance::Configure(*measure, HasFlag(args, "gpuprofile"), measurementCap);
+        }
         if (fpsCap.has_value() && !StartsWithHyphen(fpsCap))
         {
             FrameTiming::SetFrameRateCap(

@@ -1,5 +1,7 @@
 #include "../NativeRuntime/Rhi/FrameContext.hpp"
 #include "../NativeRuntime/Rhi/Swapchain.hpp"
+#include "../NativeRuntime/Rhi/GpuDiagnostics.hpp"
+#include "../Mods/Diagnostics/FrameStatistics.hpp"
 #include "../NativeRuntime/Rhi/OpenGL/OpenGlFrameScheduler.hpp"
 #include <unordered_set>
 
@@ -187,6 +189,17 @@ namespace
         { failed = error.Kind() == BackendErrorKind::OutOfMemory && error.NativeCode() == 0x0505; }
         Expect(failed && unproven > fenceScheduler.Submitted() && fenceStream.Accepted == 0,
             "failed destructor fence must defer its exact error without inventing a submission");
+
+        FakeGlStream queryStream;
+        FakeGlStream::Scheduler queryScheduler(queryStream.Dispatch());
+        (void)queryScheduler.Submit();
+        try { throw BackendError(GraphicsBackend::OpenGl, BackendErrorKind::DeviceLost, 0x0507, "glQueryCounter"); }
+        catch (...) { queryScheduler.NoteDeviceLost(std::current_exception()); }
+        failed = false;
+        try { queryScheduler.Finish(); }
+        catch (const BackendError& error) { failed = error.NativeCode() == 0x0507; }
+        Expect(failed && queryStream.Finishes == 0 && queryScheduler.Completed() == SubmissionSerial{},
+            "a consumed query/storage context loss must prevent false completion");
     }
 
     void TestFramesInFlightSlots()
@@ -199,6 +212,50 @@ namespace
             const auto earlier = static_cast<std::uint32_t>((frame - FramesInFlight + 10) % FramesInFlight);
             Expect(slot == earlier, "a slot is shared by frames FramesInFlight apart");
         }
+    }
+
+    void TestGpuTimestampPolicy()
+    {
+        Expect(TimestampNanoseconds(250, 5, {8, 2.5}) == 27.5, "GPU timestamp wrap or fractional period differs");
+        Expect(TimestampNanoseconds(UINT64_MAX - 2, 4, {64, 1}) == 7, "64-bit GPU timestamp wrap differs");
+        bool rejected = false;
+        try { (void)TimestampNanoseconds(0, 1, {0, 1}); } catch (const std::invalid_argument&) { rejected = true; }
+        Expect(rejected, "unsupported timestamps must not appear to have a duration");
+        TimestampWriteState writes(64);
+        rejected = false;
+        try { writes.Write(0); } catch (const std::logic_error&) { rejected = true; }
+        Expect(rejected, "timestamp was written before initialization");
+        writes.Initialize();
+        for (unsigned index = 0; index < 64; ++index) writes.Write(index);
+        Expect(writes.AllWritten(), "64-bit timestamp mask is incomplete");
+        rejected = false;
+        try { writes.Initialize(); } catch (const std::logic_error&) { rejected = true; }
+        Expect(rejected, "in-flight timestamp reset was accepted");
+        rejected = false;
+        try { writes.Write(0); } catch (const std::logic_error&) { rejected = true; }
+        Expect(rejected, "timestamp query overwrite was accepted");
+        auto budget = std::make_shared<TimestampBudget>();
+        std::vector<std::shared_ptr<void>> leases;
+        for (unsigned i = 0; i < TimestampBudget::Limit; ++i) leases.push_back(budget->TryReserve());
+        Expect(budget->Sets() == 8 && !budget->TryReserve(), "GPU timestamp capacity was exceeded");
+        auto nativeRetirement = std::move(leases.back()); leases.pop_back();
+        Expect(!budget->TryReserve(), "retired native query escaped capacity accounting");
+        nativeRetirement.reset();
+        Expect(budget->TryReserve() != nullptr, "native destruction did not return timestamp capacity");
+    }
+    void TestMeasuredFrameStatistics()
+    {
+        MphRead::Mods::Diagnostics::FrameStatistics statistics;
+        for (int i = 0; i < 99; ++i) statistics.Add(0.001, 0.0005, 0.0001);
+        statistics.Add(0.01, 0.002, 0.001);
+        const auto result = statistics.Result();
+        Expect(result.frames == 100 && std::abs(result.fps - 100 / 0.109) < 0.001
+            && result.p50Ms == 1 && result.p95Ms == 1 && result.p99Ms == 1,
+            "FPS is not total presented intervals / elapsed seconds or percentiles differ");
+        statistics.Reset();
+        for (int i = 0; i < 9000; ++i) statistics.Add(0.0001, 0.00001, 0);
+        Expect(statistics.Result().frames == 9000 && statistics.Result().percentileSamples == 8192,
+            "bounded percentile storage lost the exact FPS count");
     }
 
     void TestCancelledObjectsAreNotDestroyed()
@@ -325,6 +382,8 @@ int main()
     {
         TestRetiredObjectsWaitForCompletion();
         TestFramesInFlightSlots();
+        TestGpuTimestampPolicy();
+        TestMeasuredFrameStatistics();
         TestGlNativeSubmissionProof();
         TestLegacyGlCompletionFallback();
         TestGlFailedShutdownAndRetirement();

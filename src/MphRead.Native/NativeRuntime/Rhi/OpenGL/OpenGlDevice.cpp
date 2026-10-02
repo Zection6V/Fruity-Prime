@@ -170,6 +170,23 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
         class OpenGlGraphicsDevice;
         class OpenGlCommandList;
+        class OpenGlTimestampSet final : public TimestampQuerySet
+        {
+        public:
+            OpenGlTimestampSet(OpenGlGraphicsDevice& device, std::uint32_t count, std::string label, std::shared_ptr<void> reservation);
+            ~OpenGlTimestampSet() override;
+            std::uint32_t Count() const noexcept override { return Writes.Count(); }
+            TimestampProperties Properties() const noexcept override { return _properties; }
+            TimestampStatus ReadResults(std::span<std::uint64_t> destination) override;
+            void Close(bool shutdown = false) noexcept;
+            OpenGlGraphicsDevice* Device;
+            TimestampWriteState Writes;
+            std::array<unsigned, 64> Names{};
+            std::string Label;
+        private:
+            TimestampProperties _properties;
+            std::shared_ptr<void> _reservation;
+        };
         std::weak_ptr<void> DeviceLifetime(OpenGlGraphicsDevice& device);
         void ForgetPipeline(OpenGlGraphicsDevice& device, const GraphicsPipeline& pipeline);
         void* ContextKey() noexcept
@@ -190,10 +207,11 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         // A GL object waiting in the retirement queue.
         struct GlObject final
         {
-            enum class Kind : std::uint8_t { Texture, Renderbuffer, Framebuffer, Buffer, Shader, Program, Sampler, VertexArray };
+            enum class Kind : std::uint8_t { Texture, Renderbuffer, Framebuffer, Buffer, Shader, Program, Sampler, VertexArray, Query };
             Kind What = Kind::Texture;
             std::int32_t Name = 0;
             OpenGlNative::DeleteSamplersType DeleteNames = nullptr;
+            std::shared_ptr<void> Reservation;
         };
         using NativeObject = std::pair<OpenGlNative::IsBufferType, unsigned>;
 
@@ -209,6 +227,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             case GlObject::Kind::Program: GL::DeleteProgram(object.Name); break;
             case GlObject::Kind::Sampler:
             case GlObject::Kind::VertexArray:
+            case GlObject::Kind::Query:
             {
                 const auto name = static_cast<unsigned>(object.Name);
                 object.DeleteNames(1, &name);
@@ -501,6 +520,23 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 _capabilities.maxTextureArrayLayers = 1;
                 _capabilities.maxBindingGroups = 4;
 #if !defined(__ANDROID__)
+                const auto version = GL::GetString(GL::StringName::Version);
+                const auto diagnosticExtensions = GL::GetString(static_cast<GL::StringName>(0x1F03));
+                const int major = version.empty() ? 0 : version[0] - '0';
+                const int minor = version.size() < 3 ? 0 : version[2] - '0';
+                const bool timer = major > 3 || (major == 3 && minor >= 3) || diagnosticExtensions.find("GL_ARB_timer_query") != std::string::npos;
+                const bool debug = major > 4 || (major == 4 && minor >= 3) || diagnosticExtensions.find("GL_KHR_debug") != std::string::npos;
+                _capabilities.supportsDebugLabels = debug && _api.PushDebugGroup && _api.PopDebugGroup && _api.DebugMessageInsert;
+                if (timer && _api.GenQueries && _api.DeleteQueries && _api.QueryCounter && _api.GetQueryiv
+                    && _api.GetQueryObjectiv && _api.GetQueryObjectui64v)
+                {
+                    int bits = 0; _api.GetQueryiv(0x8E28, 0x8864, &bits); // TIMESTAMP / COUNTER_BITS
+                    CheckStorageResult("glGetQueryiv(timestamp bits)");
+                    _timestampProperties = {static_cast<std::uint32_t>(bits), 1.0};
+                    _capabilities.supportsTimestampQueries = bits > 0 && bits <= 64;
+                }
+#endif
+#if !defined(__ANDROID__)
                 _capabilities.supportsDepthClamp = true;
                 _capabilities.supportsAnisotropy = GL::GetString(static_cast<GL::StringName>(0x1F03)).find("texture_filter_anisotropic") != std::string::npos;
                 const auto extensions = " " + GL::GetString(static_cast<GL::StringName>(0x1F03)) + " ";
@@ -525,8 +561,28 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             [[nodiscard]] const Capabilities& GetCapabilities() const noexcept override { return _capabilities; }
             [[nodiscard]] MemoryBudgetSnapshot MemoryBudget() const override { return _memory.Snapshot(_reservedStorage); }
             [[nodiscard]] MemoryTelemetry MemoryUsageTelemetry() const override { return _memory.Telemetry(); }
+            std::unique_ptr<TimestampQuerySet> CreateTimestampQuerySet(std::uint32_t count, std::string_view label) override
+            {
+                TimestampWriteState validate(count); ValidateDebugLabel({std::string(label)});
+                if (!_capabilities.supportsTimestampQueries) return {};
+                auto reservation = _timestampBudget->TryReserve();
+                if (!reservation) return {};
+                return std::make_unique<OpenGlTimestampSet>(*this, count, std::string(label), std::move(reservation));
+            }
+            TimestampProperties TimestampInfo() const noexcept { return _timestampProperties; }
+            void Register(OpenGlTimestampSet& set) { _timestampSets.insert(&set); }
+            void Unregister(OpenGlTimestampSet& set) noexcept { _timestampSets.erase(&set); }
             void AdmitStorage(std::uint64_t bytes) { _memory.Admit(bytes, _reservedStorage); }
-            void CheckStorageResult(const char* operation) { _memory.CheckNativeResult(static_cast<int>(GL::GetError()), operation); }
+            void CheckStorageResult(const char* operation)
+            {
+                try { _memory.CheckNativeResult(static_cast<int>(GL::GetError()), operation); }
+                catch (const BackendError& error)
+                {
+                    if (error.Kind() == BackendErrorKind::DeviceLost)
+                        _scheduler.NoteDeviceLost(std::current_exception());
+                    throw;
+                }
+            }
             std::array<std::array<float, 4>, VertexSemanticCount> CurrentAttributes{{
                 {0, 0, 0, 1}, {0, 0, 1, 1}, {1, 1, 1, 1}, {0, 0, 0, 1}, {0, 0, 0, 1}}};
 
@@ -996,6 +1052,9 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             std::unordered_set<std::int32_t> _buffers{};
             std::map<std::pair<const Shader*, const Shader*>, std::shared_ptr<OpenGlProgramStorage>> _programs{};
             std::unordered_set<OpenGlProgramStorage*> _livePrograms;
+            std::unordered_set<OpenGlTimestampSet*> _timestampSets;
+            std::shared_ptr<TimestampBudget> _timestampBudget = std::make_shared<TimestampBudget>();
+            TimestampProperties _timestampProperties;
             std::shared_ptr<void> _lifetime = std::make_shared<int>(0);
             void* _contextKey;
 
@@ -1017,6 +1076,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         };
 
         #include "OpenGlResourcesImplementation.inc"
+        #include "OpenGlGpuDiagnosticsInternal.inc"
 
         class OpenGlCommandList final : public CommandList
         {
@@ -1028,6 +1088,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             ~OpenGlCommandList() override
             {
+                while (_device && _debugDepth) EndDebugLabel();
                 for (const auto& [key, vao] : _vertexArrays)
                     if (_device) _device->Retire({GlObject::Kind::VertexArray, static_cast<int>(vao.Name), _device->Api().DeleteVertexArrays});
                 for (const auto& [key, framebuffer] : _framebuffers)
@@ -1060,7 +1121,52 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 GL::Enable(GL::EnableCap::Texture2D);
                 GL::DepthFunc(GL::DepthFunction::Lequal);
             }
-            void End() override { _device->SubmitCommands(); }
+            void End() override
+            {
+                if (_debugDepth) throw std::logic_error("GPU debug label scope was not ended.");
+                if (!_device) throw std::logic_error("The OpenGL command list's session has ended.");
+                _device->SubmitCommands();
+            }
+            void BeginDebugLabel(const DebugLabel& label) override
+            {
+                ValidateDebugLabel(label);
+                if (!_device) throw std::logic_error("The OpenGL command list's session has ended.");
+                if (!_device->GetCapabilities().supportsDebugLabels) return;
+                if (_debugDepth == 32) throw std::logic_error("GPU debug label nesting exceeds 32.");
+                _device->Api().PushDebugGroup(0x824A, 0, static_cast<int>(label.name.size()), label.name.c_str());
+                ++_debugDepth;
+            }
+            void EndDebugLabel() override
+            {
+                if (!_device) throw std::logic_error("The OpenGL command list's session has ended.");
+                if (!_device->GetCapabilities().supportsDebugLabels) return;
+                if (!_debugDepth) throw std::logic_error("No GPU debug label to end.");
+                _device->Api().PopDebugGroup(); --_debugDepth;
+            }
+            void InsertDebugMarker(const DebugLabel& label) override
+            {
+                ValidateDebugLabel(label);
+                if (!_device) throw std::logic_error("The OpenGL command list's session has ended.");
+                if (_device->GetCapabilities().supportsDebugLabels)
+                    _device->Api().DebugMessageInsert(0x824A, 0x8268, 0, 0x826B,
+                        static_cast<int>(label.name.size()), label.name.c_str());
+            }
+            OpenGlTimestampSet& CheckedTimestamp(TimestampQuerySet& set)
+            {
+                auto* native = dynamic_cast<OpenGlTimestampSet*>(&set);
+                if (!_device || !native || native->Device != _device)
+                    throw std::invalid_argument("OpenGL timestamp belongs to another or closed session.");
+                return *native;
+            }
+            void InitializeTimestamps(TimestampQuerySet& set) override { CheckedTimestamp(set).Writes.Initialize(); }
+            void WriteTimestamp(TimestampQuerySet& set, std::uint32_t index) override
+            {
+                auto& native = CheckedTimestamp(set); native.Writes.Write(index);
+                _device->Api().QueryCounter(native.Names[index], 0x8E28);
+                _device->CheckStorageResult("glQueryCounter");
+                if (_device->GetCapabilities().supportsDebugLabels && _device->Api().ObjectLabel)
+                    _device->Api().ObjectLabel(0x82E3, native.Names[index], static_cast<int>(native.Label.size()), native.Label.c_str());
+            }
 
             void BeginRendering(const RenderingInfo& info) override
             {
@@ -1338,6 +1444,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             void Detach() noexcept
             {
+                while (_debugDepth) { _device->Api().PopDebugGroup(); --_debugDepth; }
                 for (const auto& [key, vao] : _vertexArrays)
                     _device->Api().DeleteVertexArrays(1, &vao.Name);
                 for (const auto& [key, framebuffer] : _framebuffers)
@@ -1365,6 +1472,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             std::span<const VertexBufferLayoutDesc> _sceneBuffers;
             std::span<const VertexAttributeDesc> _sceneAttributes;
             PrimitiveTopology _sceneTopology = PrimitiveTopology::TriangleList;
+            std::uint32_t _debugDepth = 0;
             void RetireFramebuffer(std::int32_t framebuffer) noexcept
             {
                 if (_device != nullptr)
@@ -1551,6 +1659,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             // so a destructor cannot terminate while handling the first error.
             try { _scheduler.Finish(); }
             catch (...) {}
+            while (!_timestampSets.empty()) (*_timestampSets.begin())->Close(true);
             _readbacks.Close();
             GL::UseProgram(0);
             GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, 0);
@@ -1614,6 +1723,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             }
             statistics.Retired = static_cast<std::uint32_t>(_retired.Size());
             statistics.Samplers = static_cast<std::uint32_t>(_samplers.size());
+            statistics.TimestampSets = _timestampBudget->Sets();
             statistics.CompletedFrame = _completedFrame;
             statistics.Submitted = _scheduler.Submitted();
             statistics.Completed = _scheduler.Completed();

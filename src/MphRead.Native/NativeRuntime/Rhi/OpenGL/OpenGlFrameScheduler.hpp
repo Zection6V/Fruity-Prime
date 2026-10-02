@@ -119,6 +119,10 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         [[nodiscard]] SubmissionSerial Completed() const noexcept { return _progress.Completed(); }
         [[nodiscard]] std::uint64_t HostWaits() const noexcept { return _hostWaits; }
         [[nodiscard]] std::uint64_t DeviceWideWaits() const noexcept { return _deviceWideWaits; }
+        // Storage/query checks also consume glGetError. Preserve their loss
+        // before any later completion check can observe an empty error queue.
+        void NoteDeviceLost(std::exception_ptr failure) noexcept
+        { if (!_retirementFailure) _retirementFailure = std::move(failure); }
 
     private:
         struct Entry final { SubmissionSerial Serial; void* Sync; };

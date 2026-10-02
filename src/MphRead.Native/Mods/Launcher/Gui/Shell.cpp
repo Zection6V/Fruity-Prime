@@ -79,6 +79,16 @@ namespace MphRead::Mods::Launcher::Gui
     {
         std::unique_ptr<Diagnostics::RendererSwitchWitness> g_switchWitness;
         bool g_switchWitnessSelfChecked = false;
+        std::uint64_t g_switchFixtureReadyFrame = 0;
+        std::optional<std::chrono::steady_clock::time_point> g_fpsCheckUntil;
+        bool WaitForFpsMeasurement()
+        {
+            if (!std::getenv("FRUITY_FPSCHECK")) return false;
+            const auto now = std::chrono::steady_clock::now();
+            if (!g_fpsCheckUntil) g_fpsCheckUntil = now + std::chrono::seconds(4);
+            if (now < *g_fpsCheckUntil) return true;
+            g_fpsCheckUntil.reset(); return false;
+        }
         bool g_switchFailureArmed = false;
         int g_switchFailureCycle = -1, g_switchRecoveryReports = 0;
         std::optional<NativeRuntime::Rhi::BackendFailure> g_switchInjectedFailure;
@@ -1122,10 +1132,16 @@ namespace MphRead::Mods::Launcher::Gui
                     MphRead::MetaDir::Hud, true);
                 g_textureOnlySource = instance->Model();
                 (void)window.Scene().BindGetTexture(instance->Model(), 0, 0, 0);
+                // Eight spawn bursts share the game's fixed 200-particle
+                // pool. Wait in simulation ticks before adding one-shot
+                // probes; 240 draw callbacks are shorter at uncapped FPS.
+                g_switchFixtureReadyFrame = window.Scene().FrameCount() + 240;
                 Wait(240);
             },
             [](MphRead::RenderWindow& window)
             {
+                if (window.Scene().FrameCount() < g_switchFixtureReadyFrame) { --_shotStep; Wait(1); return; }
+                if (WaitForFpsMeasurement()) { --_shotStep; Wait(1); return; }
                 g_switchEffects.clear();
                 g_existingBombProbe.reset();
                 g_expectExistingBomb = false;
@@ -1211,6 +1227,11 @@ namespace MphRead::Mods::Launcher::Gui
             {
                 CheckMatchKept(window, "resumed after settings");
                 if (UiVisible()) ++_shotMisses;
+                Wait(2);
+            });
+            script.push_back([](MphRead::RenderWindow& window)
+            {
+                if (WaitForFpsMeasurement()) { --_shotStep; Wait(1); return; }
                 QueueSwitchEffects(window); Wait(4);
             });
             script.push_back([cycle](MphRead::RenderWindow& window)
@@ -1221,6 +1242,10 @@ namespace MphRead::Mods::Launcher::Gui
                 Wait(2);
             });
         }
+        script.push_back([](MphRead::RenderWindow&)
+        {
+            if (WaitForFpsMeasurement()) { --_shotStep; Wait(1); }
+        });
         script.push_back([](MphRead::RenderWindow&)
         {
             // End through the production queue, before the next frame; the

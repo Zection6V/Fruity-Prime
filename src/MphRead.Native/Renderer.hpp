@@ -11,6 +11,8 @@
 #include "RendererGpuMesh.hpp"
 #include "NativeRuntime/System/Runtime.hpp"
 
+namespace MphRead::Mods::Diagnostics { class FramePerformance; }
+
 #include <array>
 #include <chrono>
 #include <condition_variable>
@@ -716,6 +718,7 @@ namespace MphRead
         std::shared_ptr<RendererPlatform::Window> _window{};
         std::unique_ptr<NativeRuntime::Rhi::Swapchain> _swapchain{};
         std::unique_ptr<NativeRuntime::Rhi::CommandList> _windowCommands{};
+        std::unique_ptr<MphRead::Mods::Diagnostics::FramePerformance> _performance{};
         std::shared_ptr<MphRead::Scene> _scene{};
         bool _shell = false;
         bool _sceneLoaded = false;

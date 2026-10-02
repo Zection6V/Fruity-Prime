@@ -33,6 +33,9 @@ namespace MphRead::NativeRuntime::Rhi
         [[nodiscard]] virtual const Capabilities& GetCapabilities() const noexcept = 0;
         [[nodiscard]] virtual MemoryBudgetSnapshot MemoryBudget() const { return {}; }
         [[nodiscard]] virtual MemoryTelemetry MemoryUsageTelemetry() const { return {}; }
+        // Null means unsupported or bounded native capacity is occupied.
+        [[nodiscard]] virtual std::unique_ptr<TimestampQuerySet> CreateTimestampQuerySet(std::uint32_t, std::string_view)
+        { return {}; }
 
         [[nodiscard]] virtual std::unique_ptr<Buffer> CreateBuffer(const BufferDesc& desc) = 0;
         [[nodiscard]] virtual std::unique_ptr<Texture> CreateTexture(const TextureDesc& desc) = 0;

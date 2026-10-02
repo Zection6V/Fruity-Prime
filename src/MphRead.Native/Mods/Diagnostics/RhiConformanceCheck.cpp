@@ -15,6 +15,9 @@
 #include <iostream>
 #include <stdexcept>
 #include <vector>
+#include <chrono>
+#include <thread>
+#include <cmath>
 
 namespace MphRead::Mods::Diagnostics
 {
@@ -46,6 +49,58 @@ namespace MphRead::Mods::Diagnostics
 #endif
             }
             return desc;
+        }
+        void ExerciseGpuDiagnostics(Rhi::GraphicsDevice& device)
+        {
+            using namespace Rhi;
+            if (!device.GetCapabilities().supportsTimestampQueries)
+            { std::cout << "[gpu diagnostics] timestamps unavailable; optional path skipped\n"; return; }
+            auto timestamps = device.CreateTimestampQuerySet(3, "Conformance GPU transfer");
+            Expect(timestamps != nullptr, "Supported GPU timestamp creation failed.");
+            std::array<std::uint64_t, 3> values{77, 88, 99};
+            Expect(timestamps->ReadResults(values) == TimestampStatus::Pending && values[0] == 77,
+                "Unwritten GPU timestamps became ready or changed output.");
+            auto source = device.CreateBuffer({1048576, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu});
+            auto destination = device.CreateBuffer({1048576, BufferUsage::TransferDst, MemoryUsage::GpuToCpu});
+            std::vector<std::byte> payload(1048576, std::byte{0x39}); device.WriteBuffer(*source, 0, payload);
+            auto commands = device.CreateCommandList();
+            (void)device.BeginFrame(); commands->Begin();
+            const auto before = device.Statistics();
+            commands->InitializeTimestamps(*timestamps); commands->WriteTimestamp(*timestamps, 0);
+            commands->BeginDebugLabel({"Conformance outer"}); commands->BeginDebugLabel({"GPU transfer"});
+            commands->InsertDebugMarker({"Copy 1 MiB"});
+            commands->Transition(*source, ResourceState::Undefined, ResourceState::CopySrc);
+            commands->Transition(*destination, ResourceState::Undefined, ResourceState::CopyDst);
+            commands->CopyBuffer(*source, 0, *destination, 0, payload.size());
+            commands->WriteTimestamp(*timestamps, 1); commands->EndDebugLabel(); commands->EndDebugLabel();
+            Expect(timestamps->ReadResults(values) == TimestampStatus::Pending && values[0] == 77,
+                "Partial timestamp writes became complete or changed output.");
+            commands->WriteTimestamp(*timestamps, 2); device.EndFrame();
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            while (timestamps->ReadResults(values) == TimestampStatus::Pending)
+            {
+                Expect(std::chrono::steady_clock::now() < deadline, "GPU timestamps never became available.");
+                std::this_thread::yield();
+            }
+            const auto after = device.Statistics();
+            Expect(before.HostWaits == after.HostWaits && before.DeviceWideWaits == after.DeviceWideWaits,
+                "GPU timestamp writes or result polling introduced a wait.");
+            const auto elapsed = TimestampNanoseconds(values[0], values[1], timestamps->Properties());
+            Expect(std::isfinite(elapsed) && elapsed > 0, "GPU transfer duration is invalid.");
+            bool rejected = false;
+            try { commands->InitializeTimestamps(*timestamps); } catch (const std::logic_error&) { rejected = true; }
+            Expect(rejected, "A submitted GPU timestamp pool was reset for reuse.");
+            std::vector<std::unique_ptr<TimestampQuerySet>> held;
+            for (unsigned i = 1; i < TimestampBudget::Limit; ++i)
+            { held.push_back(device.CreateTimestampQuerySet(2, "Bounded diagnostic")); Expect(held.back() != nullptr, "Timestamp capacity too small."); }
+            Expect(!device.CreateTimestampQuerySet(2, "Over capacity"), "GPU timestamp capacity exceeded.");
+            held.pop_back();
+            Expect(!device.CreateTimestampQuerySet(2, "Retired capacity"), "Retired GPU query escaped capacity accounting.");
+            held.clear(); timestamps.reset(); commands.reset(); source.reset(); destination.reset();
+            device.WaitIdle();
+            Expect(!device.Statistics().TimestampSets, "GPU timestamp native resources leaked.");
+            std::cout << "[gpu diagnostics] PASS; labels=" << device.GetCapabilities().supportsDebugLabels
+                << "; transfer_ns=" << elapsed << "; polling host/device waits delta=0; bounded native sets; release=0\n";
         }
         void ExerciseUnframedLifetime(Rhi::GraphicsDevice& device)
         {
@@ -243,6 +298,12 @@ namespace MphRead::Mods::Diagnostics
                 auto& oldDevice = outgoing->Device();
                 if (!gl) Expect(outgoing->ValidationEnabled(), "Session lifetime check requires Vulkan validation.");
                 Exercise(oldDevice, &held);
+                auto pendingTimestamps = oldDevice.CreateTimestampQuerySet(2, "Session shutdown query");
+                if (pendingTimestamps)
+                {
+                    held.Commands->InitializeTimestamps(*pendingTimestamps);
+                    held.Commands->WriteTimestamp(*pendingTimestamps, 0);
+                }
                 bool rejected = false;
                 if (gl)
                 {
@@ -258,6 +319,12 @@ namespace MphRead::Mods::Diagnostics
                 if (gl && cycle % 2) OpenGL::ReleaseContextDevice();
                 else { outgoing->Shutdown(); outgoing->Shutdown(); }
                 released();
+                if (pendingTimestamps)
+                {
+                    std::array<std::uint64_t, 2> result{19, 23};
+                    Expect(pendingTimestamps->ReadResults(result) == TimestampStatus::Cancelled && result[0] == 19,
+                        "GPU timestamp wrapper survived native shutdown or touched output.");
+                }
                 Expect(!outgoing->ValidationErrors(), "Session shutdown reported native resource lifetime errors.");
                 Expect(!held.Texture->Handle(), "Detached texture still exposed its old native name.");
                 rejected = false;
@@ -349,6 +416,7 @@ namespace MphRead::Mods::Diagnostics
                 if (backend == Rhi::GraphicsBackend::OpenGl) Rhi::OpenGL::CheckMemoryAdmission(device);
                 else Rhi::Vulkan::CheckMemoryAdmission(device);
                 ExerciseUnframedLifetime(device);
+                ExerciseGpuDiagnostics(device);
                 CheckAsyncReadback(device);
                 Exercise(device);
                 device.TrimCaches();

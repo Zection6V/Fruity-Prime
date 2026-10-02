@@ -2,6 +2,7 @@
 
 #include "VulkanContext.hpp"
 #include "../BackendError.hpp"
+#include "../GpuDiagnostics.hpp"
 #include "../../../Renderer.hpp"
 #include "../../../Mods/Branding.hpp"
 
@@ -63,6 +64,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         bool memoryBudget = false;
         std::atomic<unsigned> errors{0};
         PFN_vkSetDebugUtilsObjectNameEXT setName = nullptr;
+        PFN_vkCmdBeginDebugUtilsLabelEXT beginLabel = nullptr;
+        PFN_vkCmdEndDebugUtilsLabelEXT endLabel = nullptr;
+        PFN_vkCmdInsertDebugUtilsLabelEXT insertLabel = nullptr;
+        TimestampProperties timestampProperties;
 #define VULKAN_INSTANCE_FUNCTIONS(X) \
         X(vkDestroyInstance) X(vkEnumeratePhysicalDevices) X(vkGetPhysicalDeviceProperties) \
         X(vkGetPhysicalDeviceFeatures2) X(vkGetPhysicalDeviceProperties2) X(vkGetPhysicalDeviceMemoryProperties2) X(vkEnumerateDeviceExtensionProperties) \
@@ -74,6 +79,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 #define VULKAN_CACHE_FUNCTIONS(X) \
         X(vkCreatePipelineCache) X(vkDestroyPipelineCache) X(vkGetPipelineCacheData)
 #define VULKAN_DEVICE_FUNCTIONS(X) \
+        X(vkCreateQueryPool) X(vkDestroyQueryPool) X(vkGetQueryPoolResults) X(vkCmdResetQueryPool) X(vkCmdWriteTimestamp2) \
         X(vkDeviceWaitIdle) X(vkDestroyDevice) X(vkGetDeviceQueue) X(vkGetDeviceBufferMemoryRequirements) X(vkGetDeviceImageMemoryRequirements) X(vkCreateCommandPool) \
         X(vkDestroyCommandPool) X(vkAllocateCommandBuffers) X(vkFreeCommandBuffers) X(vkResetCommandPool) \
         X(vkBeginCommandBuffer) X(vkEndCommandBuffer) X(vkCmdPipelineBarrier2) \
@@ -382,6 +388,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 caps.supportsDepthClamp = features.features.depthClamp != 0;
                 caps.supportsCompute = (queues[g].queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
                 caps.supportsTimestampQueries = queues[g].timestampValidBits != 0;
+                timestampProperties = {queues[g].timestampValidBits, props.limits.timestampPeriod};
             }
             if (!physical) throw std::runtime_error("No Vulkan 1.3 GPU with graphics/present, dynamic rendering, synchronization2, timeline semaphores and required formats.");
             // Passive eligibility ends here: querying an instance/physical
@@ -432,6 +439,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             vkGetDeviceQueue(device, graphicsFamily, 0, &graphics); vkGetDeviceQueue(device, presentFamily, 0, &present);
             if (!graphics || !present) throw std::runtime_error("Missing graphics/present queue.");
             setName = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(vkGetDeviceProcAddr(device, "vkSetDebugUtilsObjectNameEXT"));
+            beginLabel = reinterpret_cast<PFN_vkCmdBeginDebugUtilsLabelEXT>(vkGetDeviceProcAddr(device, "vkCmdBeginDebugUtilsLabelEXT"));
+            endLabel = reinterpret_cast<PFN_vkCmdEndDebugUtilsLabelEXT>(vkGetDeviceProcAddr(device, "vkCmdEndDebugUtilsLabelEXT"));
+            insertLabel = reinterpret_cast<PFN_vkCmdInsertDebugUtilsLabelEXT>(vkGetDeviceProcAddr(device, "vkCmdInsertDebugUtilsLabelEXT"));
+            caps.supportsDebugLabels = debugUtils && beginLabel && endLabel && insertLabel;
             Name(VK_OBJECT_TYPE_DEVICE, reinterpret_cast<std::uint64_t>(device), "RHI Vulkan device");
             Name(VK_OBJECT_TYPE_QUEUE, reinterpret_cast<std::uint64_t>(graphics), "RHI graphics queue");
             std::cout << "[vulkan] selected " << name << " graphics=" << graphicsFamily

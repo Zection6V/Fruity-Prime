@@ -1,6 +1,7 @@
 #include "Renderer.hpp"
 #include "NativeRuntime/System/ErrorDialog.hpp"
 #include "NativeRuntime/System/ExceptionText.hpp"
+#include "Mods/Diagnostics/FramePerformance.hpp"
 #include "RendererGeometry.hpp"
 #include "NativeRuntime/System/Runtime.hpp"
 #include "NativeRuntime/Rhi/BackendFactory.hpp"
@@ -2159,6 +2160,9 @@ namespace MphRead
     {
         const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
         CountFrame();
+        if (_exiting) return false;
+        std::unique_ptr<NativeRuntime::Rhi::TimestampQuerySet> gpuSample;
+        if (!SideScene()) gpuSample = Mods::Diagnostics::FramePerformance::BeginGpu(Gpu(), Commands());
         if (_transientGeometry)
         {
             _transientGeometry->BeginFrame();
@@ -2169,7 +2173,6 @@ namespace MphRead
         }
         UpdateUniforms();
         SetPauseMenuUniforms();
-        if (_exiting) return false;
         BeginScenePass(ScenePass::Opaque);
         for (const auto& item : _nonDecalItems) RenderItem(item);
         BeginScenePass(ScenePass::Decal);
@@ -2276,6 +2279,7 @@ namespace MphRead
         Commands().SetPipeline(ScenePipeline(ScenePass::FrameEnd,
             _faceCulling ? NativeRuntime::Rhi::CullMode::Back : NativeRuntime::Rhi::CullMode::None,
             NativeRuntime::Rhi::FillMode::Solid, 1));
+        Mods::Diagnostics::FramePerformance::EndGpu(std::move(gpuSample), Commands());
         Gpu().EndFrame();
         return true;
     }
@@ -5884,6 +5888,7 @@ namespace MphRead
         : _window(RendererPlatform::CreateWindow(Settings())), _shell(shell)
     {
         CreatePresentation();
+        _performance = Mods::Diagnostics::FramePerformance::Create();
         const Vector2i clientSize = _window->ClientSize();
         const Vector2i size = _window->Size();
         Mods::DebugLog::Line("render", "game window created, " + std::to_string(clientSize.X)
@@ -5945,6 +5950,7 @@ namespace MphRead
         if (_shell) Mods::WindowGeometry::Remember(*this);
         const auto release = [&]
         {
+            if (_performance) _performance->Reset();
             if (_scene) _scene->ReleaseGpuForSwitch();
             if (BeforeRendererSwitch) BeforeRendererSwitch();
 #if defined(MPHREAD_SHELL)
@@ -6018,6 +6024,7 @@ namespace MphRead
             try { action(); }
             catch (...) {}
         };
+        cleanup([this] { _performance.reset(); });
         if (_shell && BeforeRendererSwitch) cleanup([] { BeforeRendererSwitch(); });
 #if defined(MPHREAD_SHELL)
         if (_shell)
@@ -6277,7 +6284,7 @@ namespace MphRead
 
     void RenderWindow::ApplyFrameRateSettings()
     {
-        const std::int32_t cap = Mods::Render::FrameTiming::FrameRateCap();
+        const std::int32_t cap = Mods::Diagnostics::FramePerformance::EffectiveCap(Mods::Render::FrameTiming::FrameRateCap());
         if (cap == _appliedFrameRateCap)
         {
             return;
@@ -6291,7 +6298,7 @@ namespace MphRead
         else
         {
             _swapchain->SetPresentMode(NativeRuntime::Rhi::PresentMode::Immediate);
-            _window->UpdateFrequency(static_cast<double>(cap));
+            _window->UpdateFrequency(cap == -1 ? 0.0 : static_cast<double>(cap));
         }
     }
 
@@ -6325,6 +6332,15 @@ namespace MphRead
     void RenderWindow::OnRenderFrame(const RendererPlatform::FrameEventArgs& args)
     {
         ApplyFrameRateSettings();
+        if (_performance) _performance->BeginFrame(*this, *_swapchain);
+        const auto present = [&]
+        {
+            if (!_performance) { NativeRuntime::Rhi::PresentSceneWindow(*_swapchain); return; }
+            const auto start = std::chrono::steady_clock::now();
+            NativeRuntime::Rhi::PresentSceneWindow(*_swapchain);
+            if (_performance) _performance->Presented(*this, *_swapchain,
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
+        };
         if (Mods::Network::NetLaunch::TickTerminalLobby(*this))
         {
             {
@@ -6338,7 +6354,7 @@ namespace MphRead
                 commands.BeginRendering(info);
                 commands.EndRendering();
             }
-            NativeRuntime::Rhi::PresentSceneWindow(*_swapchain);
+            present();
             _window->BaseOnRenderFrame(args);
             return;
         }
@@ -6355,7 +6371,7 @@ namespace MphRead
             const Vector2i framebuffer = FramebufferSize();
             Mods::Render::UiOverlay::DrawAlone(*this, framebuffer.X, framebuffer.Y);
             Mods::Launcher::Gui::Shell::AfterDraw(*this);
-            NativeRuntime::Rhi::PresentSceneWindow(*_swapchain);
+            present();
             Reveal();
             Mods::PauseMenu::Poll(*this);
             _window->BaseOnRenderFrame(args);
@@ -6454,7 +6470,7 @@ namespace MphRead
         Mods::Render::LauncherHunter::Draw(*this, framebuffer.X, framebuffer.Y);
         Mods::Launcher::Gui::Shell::AfterDraw(*this);
 #endif
-        NativeRuntime::Rhi::PresentSceneWindow(*_swapchain);
+        present();
         Reveal();
         Mods::PauseMenu::Poll(*this);
         _scene->AfterRenderFrame();

@@ -29,7 +29,7 @@ Phase A～E / H または R1～R20 がすべて完了したという記録では
 | R15: GL vertex interface | Windows scene / transient / launcher UI を explicit input と RHI Buffer / CommandList / VAO へ統一。desktop wrapper の conventional array / current-value mirror を除去。本番 GLSL declarations と共通 ABI、実 SPIR-V vertex location の一致を検査。GPU composite / 旧新14画像の一致を確認。既存の backend 間 caption 差は画像 gate に残る |
 | R16: readback | 共通 ticket / immutable CPU output lease / staging+output quota と両 GPU の非同期 copy を実装。本番 screenshot / recording を接続。source の即時 resize / release、shutdown 後の CPU output、件数・byte 制限、RGB/RGBA packing と alpha を検査。同期互換 API は維持。全 format / mip / layer / recording stress は R19 で続ける |
 | R17: error | native backend / kind / code / message を acquire → present → scene facade と起動例外で保持。GL context loss と Vulkan unsupported / loss / OOM を分類。switch を部分再構築まで含む transaction にし、元の backend への復旧と両方失敗した場合を合成 fault / 実 GPU session で検査。実 driver reset / OOM は未注入で、全 ownership / failure stress は R19 に残る |
-| R18: 診断 | 未対応。共通 debug label / timestamp interface が必要 |
+| R18: 診断 | 共通 debug scope / marker / 一度限りの timestamp query を両 backend に接続。native set は解放待ちを含め8個まで、結果確認は wait / submit を挿入しない。共通 GPU transfer、容量、shutdown 後の取消を検査。HUD に依存しない FPS / CPU frame time / optional GPU scene time の CSV を本番 window に接続 |
 | R19 / Phase H | 同じ fixture で両 backend を検証する `-rhiconformance` を追加。lifetime gate に sampler / VAO を追加。切替の直前直後で simulation / bomb / particle / texture binding の不変性を検査し、死亡による通常の爆発と区別する。生存中の新旧 effect fixture と動く bot の stress を別々に記録。通常の session teardown は両方8回検査。全 format / recording / failure / presentation ownership / 100-cycle stress は引き続き拡張する |
 | R20: optional pacing | 将来の vendor extension を core RHI に追加しない方針を維持。既存 pacing と optional controller の境界を後続で確認する |
 
@@ -1500,3 +1500,122 @@ presentation ownership の全ケースと100-cycle stress の保証ではない�
 実 driver fault の coverage は R19 / Phase H の残作業として区別する。
 R10 の frame slot / probe、R18 の debug labels / timestamps、R19 の残項目とレビュー全体は進行中。
 Android build / 実機と remote CI は未実行。Metal / D3D12 は将来対応。
+
+## 共通 GPU 診断と本番 FPS 計測（R18）
+
+### 共通 API と native 実装
+
+`GpuDiagnostics.hpp` が debug label と timestamp の契約を持つ。
+`CommandList` に begin/end scope・marker・timestamp initialize/write、`GraphicsDevice` に query set 作成を追加した。
+OpenGL と Vulkan は同じ conformance fixture からこれらを利用する。
+debug label の有無は timestamp の有無と独立した capability とし、未対応の label は no-op、
+timestamp が未対応／容量不足なら factory は null を返す。
+native API の型を共通 header に置かない。
+
+- OpenGL: `GL_ARB_timer_query` / OpenGL 3.3以降の timestamp counter を確認し、
+  `glQueryCounter`・availability query・64-bit result を利用する。
+  label は `GL_KHR_debug` / OpenGL 4.3以降と関数の存在を確認する。
+- Vulkan: 選択した graphics queue の `timestampValidBits` と device の `timestampPeriod` を使い、
+  query pool reset / `vkCmdWriteTimestamp2` / availability付き64-bit result を利用する。
+  debug utils scope は内部 command buffer の送信境界で閉じ、次の buffer で開き直す。
+  timestamp は ALL_COMMANDS stage で記録する。
+
+一度限りの query set は1～64個の query を所有する。
+initialize と各 index の write はそれぞれ一度だけで、未送信／実行中の pool の reset を受け付けない。
+`ReadResults` は全 index の write と native availability が揃うまで Pending。
+Pending / Cancelled では出力先に触らず、Ready の場合だけ全64-bit値をコピーする。
+結果確認は command submission・host wait・device-wide wait を挿入しない。
+duration は有効 bit 数の wrap と tick period を考慮するが、counter の一周を越える期間や
+異なる GPU の時計同士の比較を扱う API ではない。
+
+native set の容量は device ごとに8個。
+frontend wrapper を解放しても native retirement が終わるまでは予約を保持する。
+device shutdown が pool/query を閉じた後、残った wrapper は Cancelled を返して context にアクセスしない。
+live object 統計には解放待ちを含む `TimestampSets` を追加した。
+label は1～255 bytes、NULなし、有限な0～1の色、nestingは32まで。
+名前はUTF-8を caller が渡す契約で、文字コードの完全な検査は追加していない。
+
+API の根拠:
+[vkCmdWriteTimestamp2](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdWriteTimestamp2.html)、
+[vkGetQueryPoolResults](https://docs.vulkan.org/refpages/latest/refpages/source/vkGetQueryPoolResults.html)。
+
+### FPS / frame time
+
+ユーザー報告の Vulkan 約900 FPS / OpenGL 約200 FPSを同条件で比較できるよう、
+`-fpsmeasure FILE.csv` を本番 window に接続した。
+HUD の FPS Counter は Off のままで利用できる。
+FPS・平均frame間隔・p50/p95/p99・CPU loop/presentation 時間・描画条件を約1秒ごとに記録する。
+`-gpuprofile` を追加すると64描画に1回、world/scene/HUD を GPU 上で測る。
+後段の Skia launcher overlay と presentation の GPU 時間はこの値に含まない。
+モデル・テクスチャの CPU pixel backup は追加していない。
+
+設定変更、切替、scene/room、解像度、pause、focusの変更ごとに区切り、最初の2秒を除外する。
+CSV用の条件文字列を毎フレーム作らず、条件が変わったときだけ生成する。
+百分位の storage は1区間8192個に制限する一方、総frame数・経過時間の FPS集計は正確に続ける。
+測定を指定しない通常起動では時計取得・query 作成・CSV出力を行わない。
+`-fpsmeasure` と明示的 `-fpscap` の組は一時的な上限として保存操作から保持し、
+`unlimited` は計測中だけループ上限を外す。通常の設定の Unlimited=500 は維持する。
+
+詳細な起動例、列の意味、設定を復元する自動テストは
+[FPS計測手順](Fruity-Prime-FPS-Measurement.md) に記載した。
+描画コールバックの完了速度であり、モニターの表示frame数を測るものではない。
+一時的な presentation 停止、capture のI/O、OS/driver の変動も区間に含まれ得る。
+GPU query の負荷があるため、FPS-only の速度比較と GPU / validation 検査を分ける。
+
+### 試験で見つかった問題
+
+- 最初のCSV試験では Settings apply が CLI の500 FPSを display capへ戻した。
+  measurement用 overrideを分離し、以後の保存・renderer切替でも上限を保持するようにした。
+- Vulkan session shutdown fixture が、既に copy を recording 中の list に `Begin` を呼んでいた。
+  その copy に未完の timestamp を続けて記録する fixture に修正した。
+- uncapped 試験で、従来の240 **draw callbacks** 待ちが1秒未満になり、
+  8人の spawn burst が共通200粒子のpoolを使い切った状態で one-shot probe を置いていた。
+  native effect clock・emissionを追跡し、spawn count=1でも空きpoolがないことを確認した。
+  C#と同じ200粒子の制限を維持し、fixture を240 **simulation ticks** 待ちに直した。
+  長いFPS測定区間は新しい着弾probeを置く前に入れ、自然な寿命切れを切替失敗にしない。
+  original bomb と world/clock/health/position/particle/texture binding witness の条件は緩めていない。
+- GL query/storage の `glGetError` が context loss を消費しても、completion scheduler に
+  最初の loss を保持するようにした。後の `glFinish` が errorなしに見えても完了と判定しない。
+  native-dispatch CPU testで、このerror消費境界を検査した。
+
+### 確認結果（2026-10-02、Windows / RTX 5070 Ti）
+
+- `C:/tmp/gp/architecture-r18-final-build.log`: MSVC Release build PASS。
+- `C:/tmp/gp/architecture-r18-final-ctest.log`: 13/13 PASS。
+  bit wrap、fractional tick、one-shot write/reset、native reservation、FPS総数と有界percentileを含む。
+- `C:/tmp/gp/architecture-r18-final-conformance.log`: 両 backend PASS。
+  nested labels/marker、1 MiB GPU copyを挟んだ3 timestamps、partial output保持、
+  結果確認の host/device wait増加0、8 native setsの制限、解放後の native count=0を検査した。
+  GPU transferは OpenGL 82,016 ns / Vulkan 88,480 ns（この1回の値）。
+  未完のqueryを持つshutdown/recreateも既存8回のsession fixtureに加えた。
+- GPU計測付き: `C:/tmp/r18-fps-20261002-195744/`。
+  両開始 renderer で各3回の設定保存・resume・world witness PASS、全bomb/effect lifecycle PASS、exit0。
+  pauseなし・focusあり・room113の行で、両 backend の GPU sample >0と上限unlimitedを確認した。
+- FPSのみ: `C:/tmp/r18-fps-20261002-200029/`。
+  両開始 renderer で同じ切替 gate PASS、HUD FPS Counter=0、GPU sample=0・GPU時間空欄を確認した。
+- Vulkan validation付き: `C:/tmp/r18-fps-20261002-200156/opengl.log`。
+  OpenGL開始からfront画面1回と試合3回の切替、GPU scene sample、world witness、lifecycleがPASS。
+  VUID / validation error は0件。OBS / Bandicam の古いlayer version警告はerrorと区別した。
+
+FPS-only の条件は Alinos Perch（room113）、spawned Sylux +7 actors、bot controlsをfixtureで保持、
+2560×1439、resolution scale100、cel0 / fog1、pause0 / focus1、HUD FPS Counter0、
+unlimited、present requested/actual=Immediate（0/0）、Vulkan validationなし。
+各開始runの対象行を total frames / total seconds で集計した値:
+
+| 開始renderer | 測定renderer | 行数 | FPS | 平均frame間隔 |
+|---|---|---:|---:|---:|
+| OpenGL | OpenGL | 9 | 306.7 | 3.261 ms |
+| OpenGL | Vulkan | 8 | 995.1 | 1.005 ms |
+| Vulkan | OpenGL | 11 | 277.0 | 3.610 ms |
+| Vulkan | Vulkan | 8 | 960.0 | 1.042 ms |
+
+別runのGPU scene sample平均は OpenGL 1.360 / 1.576 ms、Vulkan 0.208 / 0.201 ms。
+GPU計測とFPS-onlyは同時刻・同じframeの値ではない。
+shellshot のcaptureを含む短いfixtureのため、通常操作で常にこの速度になる保証や
+改善率の証明ではない。ユーザー報告と同方向の差を再現したが、差の原因となるpass／driver待ちの
+特定とOpenGL最適化はこの変更の完了条件にはしていない。
+
+R18のWindows OpenGL / Vulkan共通診断・本番計測を実装した。
+R10のframe slot / probe分離、R19の全format / recording / presentation ownership / 100-cycle stress、
+R20とレビュー全体は進行中。Android build / 実機、remote CIは未実行。
+Metal / D3D12実装、macOS実機は今回の対象外。

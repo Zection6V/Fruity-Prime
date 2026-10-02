@@ -73,6 +73,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         {
             Impl probe;
             probe.Initialize(false, nullptr, true, false);
+            if (probe.device || probe.graphics || probe.present || !probe.physical
+                || !probe.instanceProbe.Eligible || !SelectPhysicalDevice(probe.deviceProbes))
+                throw std::logic_error("Vulkan passive eligibility violated its instance/physical-device-only boundary.");
+            std::cout << "[vulkan probe] passive eligible; logical-device=0; queues=0; candidates="
+                << probe.deviceProbes.size() << '\n';
             return {};
         }
         catch (const std::exception& ex) { return ex.what(); }
@@ -124,6 +129,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             settings.Title = std::string(Mods::Branding::Name) + " Vulkan foundation check";
             settings.StartVisible = false;
             auto window = RendererPlatform::CreateWindow(settings);
+            const auto passiveFailure = Context::ProbePassive();
+            if (!passiveFailure.empty()) throw std::runtime_error(passiveFailure);
             Context context(true);
             context.CheckCommandBufferDebugName(); context.WaitIdle();
             // Destroy while the messenger still exists, so teardown errors count.

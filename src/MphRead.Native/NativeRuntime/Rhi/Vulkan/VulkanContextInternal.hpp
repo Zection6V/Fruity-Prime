@@ -8,10 +8,12 @@
 
 #include <algorithm>
 #include <atomic>
+#include <array>
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <span>
 #include <vector>
 
 #define VK_NO_PROTOTYPES
@@ -29,21 +31,10 @@
 #endif
 
 #include "VulkanResult.hpp"
+#include "VulkanFeatureProbe.hpp"
 
 namespace MphRead::NativeRuntime::Rhi::Vulkan
 {
-    namespace
-    {
-        template<class T> bool Contains(const std::vector<T>& list, const char* name)
-        {
-            return std::any_of(list.begin(), list.end(), [name](const T& value) {
-                if constexpr (requires { value.extensionName; })
-                    return std::strcmp(value.extensionName, name) == 0;
-                else return std::strcmp(value.layerName, name) == 0;
-            });
-        }
-    }
-
     struct Context::Impl
     {
         VkInstance instance = VK_NULL_HANDLE;
@@ -68,6 +59,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         PFN_vkCmdEndDebugUtilsLabelEXT endLabel = nullptr;
         PFN_vkCmdInsertDebugUtilsLabelEXT insertLabel = nullptr;
         TimestampProperties timestampProperties;
+        InstanceProbe instanceProbe;
+        std::vector<PhysicalDeviceProbe> deviceProbes;
 #define VULKAN_INSTANCE_FUNCTIONS(X) \
         X(vkDestroyInstance) X(vkEnumeratePhysicalDevices) X(vkGetPhysicalDeviceProperties) \
         X(vkGetPhysicalDeviceFeatures2) X(vkGetPhysicalDeviceProperties2) X(vkGetPhysicalDeviceMemoryProperties2) X(vkEnumerateDeviceExtensionProperties) \
@@ -224,51 +217,29 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         void Initialize(bool requestedValidation, void* presentationWindow = nullptr,
             bool allowMaintenance = true, bool createLogicalDevice = true)
         {
-            std::uint32_t version = VK_API_VERSION_1_0;
-            auto enumerateVersion = reinterpret_cast<PFN_vkEnumerateInstanceVersion>(
-                InstanceProc()(VK_NULL_HANDLE, "vkEnumerateInstanceVersion"));
-            if (enumerateVersion) Check(enumerateVersion(&version), "vkEnumerateInstanceVersion");
-            if (version < VK_API_VERSION_1_3) throw std::runtime_error("Vulkan 1.3 loader required.");
             vkEnumerateInstanceExtensionProperties = Load<PFN_vkEnumerateInstanceExtensionProperties>("vkEnumerateInstanceExtensionProperties");
             vkEnumerateInstanceLayerProperties = Load<PFN_vkEnumerateInstanceLayerProperties>("vkEnumerateInstanceLayerProperties");
             vkCreateInstance = Load<PFN_vkCreateInstance>("vkCreateInstance");
-
-            std::uint32_t count = 0;
-            Check(vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr), "instance extension count");
-            std::vector<VkExtensionProperties> available(count);
-            Check(vkEnumerateInstanceExtensionProperties(nullptr, &count, available.data()), "instance extensions");
+            const auto enumerateVersion = reinterpret_cast<PFN_vkEnumerateInstanceVersion>(
+                InstanceProc()(VK_NULL_HANDLE, "vkEnumerateInstanceVersion"));
 #if defined(__ANDROID__)
-            std::vector<const char*> extensions{VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_ANDROID_SURFACE_EXTENSION_NAME};
+            const std::array<const char*, 2> windowExtensions{VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_ANDROID_SURFACE_EXTENSION_NAME};
 #else
             std::uint32_t glfwCount = 0;
             const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwCount);
-            if (!glfwExtensions || !glfwCount) throw std::runtime_error("No Vulkan window-system extensions.");
-            std::vector<const char*> extensions(glfwExtensions, glfwExtensions + glfwCount);
+            const std::span<const char* const> windowExtensions(glfwExtensions, glfwExtensions ? glfwCount : 0);
 #endif
-            for (const char* extension : extensions)
-                if (!Contains(available, extension)) throw std::runtime_error(std::string("Missing instance extension: ") + extension);
-            bool debugUtils = Contains(available, VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-            if (debugUtils) extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-            const bool surfaceCapabilities2 = Contains(
-                available, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
-            const bool surfaceMaintenance1 = allowMaintenance && surfaceCapabilities2
-                && Contains(available, VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
-            if (surfaceCapabilities2 && surfaceMaintenance1)
-            {
-                extensions.push_back(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
-                extensions.push_back(VK_EXT_SURFACE_MAINTENANCE_1_EXTENSION_NAME);
-            }
-            VkInstanceCreateFlags flags = 0;
-            if (Contains(available, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME))
-            {
-                extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
-                flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
-            }
-            Check(vkEnumerateInstanceLayerProperties(&count, nullptr), "instance layer count");
-            std::vector<VkLayerProperties> layers(count);
-            Check(vkEnumerateInstanceLayerProperties(&count, layers.data()), "instance layers");
-            validation = requestedValidation && Contains(layers, "VK_LAYER_KHRONOS_validation");
-            if (validation && !debugUtils) throw std::runtime_error("Validation requires debug utils reporting.");
+            instanceProbe = EvaluateInstance(QueryInstanceSnapshot(
+                {enumerateVersion, vkEnumerateInstanceExtensionProperties, vkEnumerateInstanceLayerProperties}, windowExtensions),
+                requestedValidation, allowMaintenance);
+            if (!instanceProbe.Eligible)
+                throw BackendError(GraphicsBackend::Vulkan, BackendErrorKind::Unsupported, VK_ERROR_INCOMPATIBLE_DRIVER,
+                    "Vulkan instance eligibility: " + RejectionReasons(instanceProbe.Findings));
+            std::vector<const char*> extensions;
+            for (const auto& extension : instanceProbe.EnabledExtensions) extensions.push_back(extension.c_str());
+            const bool debugUtils = instanceProbe.DebugUtils;
+            validation = instanceProbe.Validation;
+            const VkInstanceCreateFlags flags = instanceProbe.PortabilityEnumeration ? VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR : 0;
             const char* layer = "VK_LAYER_KHRONOS_validation";
             VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
             app.pApplicationName = Mods::Branding::Name.data(); app.apiVersion = VK_API_VERSION_1_3;
@@ -301,99 +272,52 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     "glfwCreateWindowSurface");
 #endif
             }
-            Check(vkEnumeratePhysicalDevices(instance, &count, nullptr), "physical device count");
-            std::vector<VkPhysicalDevice> devices(count);
-            Check(vkEnumeratePhysicalDevices(instance, &count, devices.data()), "physical devices");
-            std::uint64_t bestScore = 0;
-            bool portabilitySubset = false;
-            bool maintenance1 = false;
-            VkPhysicalDeviceFeatures selectedFeatures{};
-            for (auto candidate : devices)
-            {
-                VkPhysicalDeviceProperties props{}; vkGetPhysicalDeviceProperties(candidate, &props);
-                std::cout << "[vulkan] GPU " << props.deviceName << " API " << VK_API_VERSION_MAJOR(props.apiVersion) << '.' << VK_API_VERSION_MINOR(props.apiVersion) << '\n';
-                if (props.apiVersion < VK_API_VERSION_1_3) continue;
-                Check(vkEnumerateDeviceExtensionProperties(candidate, nullptr, &count, nullptr), "device extension count");
-                std::vector<VkExtensionProperties> deviceExtensions(count);
-                Check(vkEnumerateDeviceExtensionProperties(candidate, nullptr, &count, deviceExtensions.data()), "device extensions");
-                if (!Contains(deviceExtensions, VK_KHR_SWAPCHAIN_EXTENSION_NAME)) continue;
-                const bool hasMaintenance1 = surfaceMaintenance1 && Contains(
-                    deviceExtensions, VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
-                VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT maintenanceFeatures{
-                    VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT};
-                VkPhysicalDeviceVulkan13Features features13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
-                if (hasMaintenance1) features13.pNext = &maintenanceFeatures;
-                VkPhysicalDeviceVulkan12Features features12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
-                features12.pNext = &features13;
-                VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2}; features.pNext = &features12;
-                vkGetPhysicalDeviceFeatures2(candidate, &features);
-                if (!features13.dynamicRendering || !features13.synchronization2 || !features12.timelineSemaphore) continue;
-                const bool candidateMaintenance1 = hasMaintenance1 && maintenanceFeatures.swapchainMaintenance1;
-                VkFormatProperties color{}, depth{};
-                vkGetPhysicalDeviceFormatProperties(candidate, VK_FORMAT_R8G8B8A8_UNORM, &color);
-                vkGetPhysicalDeviceFormatProperties(candidate, VK_FORMAT_D32_SFLOAT, &depth);
-                const auto colorRequired = VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
-                if ((color.optimalTilingFeatures & colorRequired) != colorRequired || !(depth.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT)) continue;
-                vkGetPhysicalDeviceQueueFamilyProperties(candidate, &count, nullptr);
-                std::vector<VkQueueFamilyProperties> queues(count); vkGetPhysicalDeviceQueueFamilyProperties(candidate, &count, queues.data());
-                std::uint32_t g = UINT32_MAX, p = UINT32_MAX;
-                for (std::uint32_t i = 0; i < count; ++i)
-                {
-                    if (!queues[i].queueCount) continue;
-                    VkBool32 surfaceSupported = VK_FALSE;
-                    bool canPresent = false;
-                    if (surface)
-                    {
-                        Check(vkGetPhysicalDeviceSurfaceSupportKHR(candidate, i, surface, &surfaceSupported),
-                            "vkGetPhysicalDeviceSurfaceSupportKHR");
-                        canPresent = surfaceSupported == VK_TRUE;
-                    }
-                    else
-                    {
+            PhysicalProbeDispatch query{instance, vkEnumeratePhysicalDevices, vkGetPhysicalDeviceProperties,
+                vkEnumerateDeviceExtensionProperties, vkGetPhysicalDeviceFeatures2, vkGetPhysicalDeviceFormatProperties,
+                vkGetPhysicalDeviceQueueFamilyProperties, vkGetPhysicalDeviceMemoryProperties,
+                vkGetPhysicalDeviceSurfaceSupportKHR, [this](VkPhysicalDevice candidate, std::uint32_t family) {
 #if defined(__ANDROID__)
-                        // Every Android graphics queue presents (the surface,
-                        // when there is one, is checked below).
-                        canPresent = true;
+                    (void)candidate; (void)family; return true;
 #else
-                        canPresent = glfwGetPhysicalDevicePresentationSupport(instance, candidate, i) == GLFW_TRUE;
+                    return glfwGetPhysicalDevicePresentationSupport(instance, candidate, family) == GLFW_TRUE;
 #endif
-                    }
-                    if ((queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) && canPresent) { g = p = i; break; }
-                    if ((queues[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) && g == UINT32_MAX) g = i;
-                    if (canPresent && p == UINT32_MAX) p = i;
+                }};
+            std::string rejectedDevices;
+            for (auto& snapshot : QueryPhysicalDevices(query, surface, instanceProbe.SurfaceMaintenance1))
+            {
+                const auto& props = snapshot.Properties;
+                std::cout << "[vulkan] GPU " << props.deviceName << " API "
+                    << VK_API_VERSION_MAJOR(props.apiVersion) << '.' << VK_API_VERSION_MINOR(props.apiVersion) << '\n';
+                auto probe = EvaluatePhysicalDevice(std::move(snapshot), instanceProbe.SurfaceMaintenance1);
+                if (!probe.Eligible)
+                {
+                    const auto reasons = std::string(probe.Snapshot.Properties.deviceName) + ": " + RejectionReasons(probe.Findings);
+                    std::cout << "[vulkan] ineligible " << reasons << '\n';
+                    if (!rejectedDevices.empty()) rejectedDevices += " | ";
+                    rejectedDevices += reasons;
                 }
-                if (g == UINT32_MAX || p == UINT32_MAX) continue;
-                VkPhysicalDeviceMemoryProperties memory{}; vkGetPhysicalDeviceMemoryProperties(candidate, &memory);
-                std::uint64_t bytes = 0;
-                for (std::uint32_t i = 0; i < memory.memoryHeapCount; ++i)
-                    if (memory.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) bytes += memory.memoryHeaps[i].size;
-                std::uint64_t score = bytes / (1024 * 1024) + 1;
-                if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) score += 1000000;
-                if (score <= bestScore) continue;
-                bestScore = score; physical = candidate; graphicsFamily = g; presentFamily = p;
-                memoryBudget = Contains(deviceExtensions, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
-                portabilitySubset = Contains(deviceExtensions, "VK_KHR_portability_subset");
-                maintenance1 = candidateMaintenance1;
-                selectedFeatures = features.features; name = props.deviceName;
-                apiVersion = props.apiVersion; driverVersion = props.driverVersion; vendorId = props.vendorID;
-                caps.backend = GraphicsBackend::Vulkan;
-                caps.maxTexture2DDimension = props.limits.maxImageDimension2D;
-                caps.maxTextureArrayLayers = props.limits.maxImageArrayLayers;
-                caps.maxColorAttachments = props.limits.maxColorAttachments;
-                caps.maxVertexBuffers = props.limits.maxVertexInputBindings;
-                caps.maxBindingGroups = props.limits.maxBoundDescriptorSets;
-                caps.supportsAnisotropy = features.features.samplerAnisotropy != 0;
-                caps.maxSamplerAnisotropy = caps.supportsAnisotropy ? props.limits.maxSamplerAnisotropy : 1.0F;
-                caps.supportsWireframe = features.features.fillModeNonSolid != 0;
-                caps.supportsDepthClamp = features.features.depthClamp != 0;
-                caps.supportsCompute = (queues[g].queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
-                caps.supportsTimestampQueries = queues[g].timestampValidBits != 0;
-                timestampProperties = {queues[g].timestampValidBits, props.limits.timestampPeriod};
+                deviceProbes.push_back(std::move(probe));
             }
-            if (!physical) throw std::runtime_error("No Vulkan 1.3 GPU with graphics/present, dynamic rendering, synchronization2, timeline semaphores and required formats.");
-            // Passive eligibility ends here: querying an instance/physical
-            // device must never allocate a logical device or obtain queues.
+            const auto selected = SelectPhysicalDevice(deviceProbes);
+            if (!selected)
+                throw BackendError(GraphicsBackend::Vulkan, BackendErrorKind::Unsupported, VK_ERROR_FEATURE_NOT_PRESENT,
+                    "No eligible Vulkan GPU. " + (rejectedDevices.empty() ? std::string("No physical devices reported.") : rejectedDevices));
+            const auto& probe = deviceProbes[*selected];
+            const auto& props = probe.Snapshot.Properties;
+            physical = probe.Snapshot.Device; graphicsFamily = probe.GraphicsFamily; presentFamily = probe.PresentFamily;
+            memoryBudget = probe.MemoryBudget;
+            name = props.deviceName; apiVersion = props.apiVersion; driverVersion = props.driverVersion; vendorId = props.vendorID;
+            caps = probe.Caps; timestampProperties = probe.Timestamps;
+            // Passive eligibility never creates a logical device or queue.
             if (!createLogicalDevice) return;
+            CreateLogicalDevice(probe, debugUtils);
+        }
+
+        void CreateLogicalDevice(const PhysicalDeviceProbe& probe, bool debugUtils)
+        {
+            const bool portabilitySubset = probe.PortabilitySubset;
+            const bool maintenance1 = probe.SwapchainMaintenance1;
+            const auto& selectedFeatures = probe.Snapshot.Features;
             float priority = 1.0F;
             std::vector<VkDeviceQueueCreateInfo> queues;
             for (auto family : {graphicsFamily, presentFamily})

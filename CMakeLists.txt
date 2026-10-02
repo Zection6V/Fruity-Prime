@@ -128,6 +128,8 @@ set(FRUITY_VULKAN_UPLOAD_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanUploadArena.cpp")
 set(FRUITY_VULKAN_PIPELINE_CACHE_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanPipelineCache.cpp")
+set(FRUITY_VULKAN_FEATURE_PROBE_TEST_SOURCE
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanFeatureProbe.cpp")
 set(FRUITY_SHADER_INTERFACE_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestShaderInterface.cpp")
 set(FRUITY_GOLDEN_CAPTURE_VALIDATION_TEST_SOURCE
@@ -173,6 +175,7 @@ list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES
     "${FRUITY_RHI_LIFETIME_TEST_SOURCE}"
     "${FRUITY_MEMORY_ADMISSION_TEST_SOURCE}"
     "${FRUITY_VULKAN_PIPELINE_CACHE_TEST_SOURCE}"
+    "${FRUITY_VULKAN_FEATURE_PROBE_TEST_SOURCE}"
     "${FRUITY_VULKAN_DESCRIPTOR_TEST_SOURCE}"
     "${FRUITY_VULKAN_UPLOAD_TEST_SOURCE}"
     "${FRUITY_VULKAN_UNIFORMS_TEST_SOURCE}"
@@ -389,6 +392,14 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         target_compile_features(fruity_vulkan_pipeline_cache_tests PRIVATE cxx_std_20)
         target_link_libraries(fruity_vulkan_pipeline_cache_tests PRIVATE Threads::Threads)
         add_test(NAME FruityPrime.VulkanPipelineCache COMMAND fruity_vulkan_pipeline_cache_tests)
+
+        add_executable(fruity_vulkan_feature_probe_tests
+            "${FRUITY_VULKAN_FEATURE_PROBE_TEST_SOURCE}"
+            "${FRUITY_MPHREAD_ROOT}/NativeRuntime/Rhi/Vulkan/VulkanFeatureProbe.cpp")
+        target_compile_definitions(fruity_vulkan_feature_probe_tests PRIVATE FRUITY_HAS_VULKAN)
+        target_include_directories(fruity_vulkan_feature_probe_tests PRIVATE ${Vulkan_INCLUDE_DIRS})
+        target_compile_features(fruity_vulkan_feature_probe_tests PRIVATE cxx_std_20)
+        add_test(NAME FruityPrime.VulkanFeatureProbe COMMAND fruity_vulkan_feature_probe_tests)
     endif()
 
     add_executable(fruity_golden_capture_validation_tests

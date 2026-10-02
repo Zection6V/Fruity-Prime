@@ -3553,6 +3553,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         auto& state = *dynamic_cast<VulkanGraphicsDevice&>(device).State();
         const auto baseline = device.Statistics();
         auto commands = device.CreateCommandList();
+        commands->Begin();
         BindingLayoutDesc layoutDesc{};
         layoutDesc.entries = {{0, BindingType::UniformBuffer, ShaderStage::Vertex, 1},
             {1, BindingType::SampledTexture, ShaderStage::Fragment, 1},
@@ -3577,7 +3578,6 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             setDesc.entries = {{0, BufferBinding{buffer.get(), 0, 256}},
                 {1, TextureBinding{view.get()}}, {2, SamplerBinding{sampler.get()}}};
             auto set = device.CreateBindingSet(setDesc);
-            commands->Begin();
             const RenderingColorAttachment color{view.get(), LoadOp::Clear, StoreOp::Store,
                 {0.25F, 0.5F, 0.75F, 1.0F}};
             RenderingInfo rendering{};
@@ -3609,7 +3609,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (device.Statistics().DeviceWideWaits != baseline.DeviceWideWaits)
                 throw std::runtime_error("Vulkan resource churn or resize waited for the whole device.");
         }
-        commands.reset();
+        commands->End(); commands.reset();
         layout.reset();
         device.WaitIdle(); // Explicit boundary; ordinary churn above must not use it.
         const auto after = device.Statistics();

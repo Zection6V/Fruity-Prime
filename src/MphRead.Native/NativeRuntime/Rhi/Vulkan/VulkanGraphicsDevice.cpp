@@ -1255,7 +1255,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         VulkanBuffer::VulkanBuffer(std::shared_ptr<VulkanDeviceState> state, const BufferDesc& desc)
             : _device(std::move(state)), _registration(*_device, *this), _desc(desc), _state(ResourceState::Undefined)
         {
-            if (_desc.size == 0 || _desc.usage == BufferUsage::None)
+            if (_desc.size == 0 || _desc.usage == BufferUsage::None || !IsValidBufferState(_desc.initialState))
                 throw std::invalid_argument("Vulkan RHI: buffers need a nonzero size and usage.");
             VkBufferCreateInfo create{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
             create.size = _desc.size;
@@ -1363,7 +1363,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             : _device(std::move(state)), _registration(*_device, *this), _desc(desc), _handle(handle), _state(ResourceState::Undefined)
         {
             if (_desc.width == 0 || _desc.height == 0 || _desc.depth == 0
-                || _desc.mipLevels == 0 || _desc.arrayLayers == 0 || _desc.usage == TextureUsage::None)
+                || _desc.mipLevels == 0 || _desc.arrayLayers == 0 || _desc.usage == TextureUsage::None
+                || !IsValidTextureState(_desc.initialState))
                 throw std::invalid_argument("Vulkan RHI: textures need nonzero extents, subresources and usage.");
             if (_desc.depth > 1 && _desc.arrayLayers != 1)
                 throw std::invalid_argument("Vulkan RHI: 3D texture arrays are not supported.");
@@ -2852,13 +2853,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             auto& buffer = CheckedResource<VulkanBuffer>(resource, _device);
             if (buffer.DeviceState() != _device)
                 throw std::invalid_argument("Vulkan RHI: buffer belongs to another device.");
-            if (buffer.State() != before || !IsValidTransition(before, after))
+            if (buffer.State() != before || !IsValidTransition(before, after)
+                || !IsValidBufferState(before) || !IsValidBufferState(after))
                 throw std::invalid_argument("Vulkan RHI: buffer transition does not match its tracked state.");
-            constexpr ResourceState imageOnly = ResourceState::ColorAttachment
-                | ResourceState::DepthStencilRead | ResourceState::DepthStencilWrite
-                | ResourceState::Present;
-            if (HasAny(before | after, imageOnly))
-                throw std::invalid_argument("Vulkan RHI: image-only state used for a buffer.");
             PrepareTransfer();
             const StateMapping src = ToVkState(before, false);
             const StateMapping dst = ToVkState(after, false);
@@ -2885,12 +2882,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             auto& texture = CheckedResource<VulkanTexture>(resource, _device);
             if (texture.DeviceState() != _device)
                 throw std::invalid_argument("Vulkan RHI: texture belongs to another device.");
-            if (texture.State() != before || !IsValidTransition(before, after))
+            if (texture.State() != before || !IsValidTransition(before, after)
+                || !IsValidTextureState(before) || !IsValidTextureState(after))
                 throw std::invalid_argument("Vulkan RHI: image transition does not match its tracked state.");
-            constexpr ResourceState bufferOnly = ResourceState::VertexBuffer
-                | ResourceState::IndexBuffer | ResourceState::ConstantBuffer;
-            if (HasAny(before | after, bufferOnly))
-                throw std::invalid_argument("Vulkan RHI: buffer-only state used for an image.");
             PrepareTransfer();
             // Preparing the pending clear can implicitly transition this very
             // attachment. Use its resulting native layout for the barrier.

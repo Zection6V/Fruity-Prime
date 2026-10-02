@@ -49,6 +49,17 @@ namespace
         ResourceState::VertexBuffer | ResourceState::ShaderRead | ResourceState::CopySrc));
     static_assert(!IsValidResourceState(
         ResourceState::ColorAttachment | ResourceState::CopyDst));
+    static_assert(!IsValidResourceState(ResourceState::CopyDst | ResourceState::CopySrc));
+    static_assert(!IsValidResourceState(ResourceState::ShaderWrite | ResourceState::ShaderRead));
+    static_assert(!IsValidResourceState(static_cast<ResourceState>(1U << 31)));
+    static_assert(!IsValidResourceState(ResourceState::ShaderRead | static_cast<ResourceState>(1U << 31)));
+    static_assert(IsValidResourceState(ResourceState::ShaderWrite));
+    static_assert(IsValidBufferState(ResourceState::ConstantBuffer | ResourceState::VertexBuffer));
+    static_assert(!IsValidBufferState(ResourceState::ColorAttachment));
+    static_assert(!IsValidBufferState(ResourceState::DepthStencilRead));
+    static_assert(!IsValidBufferState(ResourceState::Present));
+    static_assert(IsValidTextureState(ResourceState::ShaderRead | ResourceState::CopySrc));
+    static_assert(!IsValidTextureState(ResourceState::ConstantBuffer));
     static_assert(IsValidTransition(ResourceState::Undefined, ResourceState::CopyDst));
     static_assert(!IsValidTransition(ResourceState::CopyDst, ResourceState::Undefined));
 

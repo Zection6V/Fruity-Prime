@@ -4,10 +4,12 @@ class OpenGlBuffer final : public Buffer
 {
 public:
     OpenGlBuffer(OpenGlGraphicsDevice& device, const BufferDesc& desc, std::int32_t name)
-        : _device(&device), _desc(desc), _name(name) {}
+        : _device(&device), _desc(desc), _name(name), _state(desc.initialState) {}
     ~OpenGlBuffer() override;
     const BufferDesc& Desc() const noexcept override { return _desc; }
     std::int32_t Name() const noexcept { return _name; }
+    ResourceState State() const noexcept { return _state; }
+    void State(ResourceState state) noexcept { _state = state; }
     OpenGlGraphicsDevice* Device() const noexcept { return _device; }
     void Detach() noexcept { _device = nullptr; _name = 0; }
     std::weak_ptr<void> Lifetime() const noexcept { return _lifetime; }
@@ -15,6 +17,7 @@ private:
     OpenGlGraphicsDevice* _device;
     BufferDesc _desc;
     std::int32_t _name;
+    ResourceState _state;
     std::shared_ptr<void> _lifetime = std::make_shared<int>(0);
 };
 

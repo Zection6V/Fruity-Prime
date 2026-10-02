@@ -1,6 +1,6 @@
 std::unique_ptr<Buffer> OpenGlGraphicsDevice::CreateBuffer(const BufferDesc& desc)
 {
-    if (!desc.size || desc.usage == BufferUsage::None
+    if (!desc.size || desc.usage == BufferUsage::None || !IsValidBufferState(desc.initialState)
         || desc.size > static_cast<std::uint64_t>(std::numeric_limits<std::ptrdiff_t>::max()))
         throw std::invalid_argument("OpenGL RHI: invalid buffer size or usage.");
     AdmitStorage(desc.size);
@@ -53,6 +53,10 @@ void OpenGlGraphicsDevice::WriteBuffer(Buffer& resource, std::uint64_t offset, s
         static_cast<std::ptrdiff_t>(offset), static_cast<std::ptrdiff_t>(data.size()), data.data());
     GL::BindBuffer(static_cast<GL::BufferTarget>(0x8F37), 0);
     CheckStorageResult("OpenGL buffer upload");
+    // CPU uploads retain the state; GPU-only writes use the transfer path's
+    // final state, as on Vulkan, without changing an established read state.
+    if (buffer.Desc().memoryUsage == MemoryUsage::GpuOnly && buffer.State() == ResourceState::Undefined)
+        buffer.State(ResourceState::CopyDst);
 }
 void OpenGlGraphicsDevice::ReadBuffer(Buffer& resource, std::uint64_t offset, std::span<std::byte> data)
 {

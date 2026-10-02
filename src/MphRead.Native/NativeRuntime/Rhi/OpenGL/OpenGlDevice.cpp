@@ -380,6 +380,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             [[nodiscard]] bool IsRenderbuffer() const noexcept { return _renderbuffer; }
             OpenGlGraphicsDevice* Device() const noexcept { return _device; }
             [[nodiscard]] bool HasStorage() const noexcept { return _hasStorage; }
+            [[nodiscard]] ResourceState State() const noexcept { return _state; }
+            void State(ResourceState state) noexcept { _state = state; }
             [[nodiscard]] std::weak_ptr<void> Lifetime() const noexcept { return _lifetime; }
             void SetExtent(std::uint32_t width, std::uint32_t height) noexcept
             {
@@ -395,6 +397,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             std::int32_t _name;
             bool _renderbuffer;
             bool _hasStorage = false;
+            ResourceState _state = ResourceState::Undefined;
             std::shared_ptr<void> _lifetime = std::make_shared<int>(0);
         };
 
@@ -935,6 +938,10 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 GL::BindTexture(GL::TextureTarget::Texture2D, gl.Name());
                 GL::TexParameter(GL::TextureTarget::Texture2D, static_cast<GL::TextureParameterName>(0x813D), 0);
                 GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+                const auto previous = gl.State();
+                gl.State(previous != ResourceState::Undefined && previous != ResourceState::CopyDst ? previous
+                    : (Has(gl.Desc().usage, TextureUsage::Sampled) ? ResourceState::ShaderRead
+                        : (Has(gl.Desc().usage, TextureUsage::ColorAttachment) ? ResourceState::ColorAttachment : ResourceState::Common)));
             }
 
             void ResizeTexture(Texture& texture, std::uint32_t width, std::uint32_t height) override
@@ -943,6 +950,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 if (gl.Device() != this) throw std::invalid_argument("OpenGL RHI: texture belongs to another session.");
                 if (!width || !height || width > _capabilities.maxTexture2DDimension || height > _capabilities.maxTexture2DDimension)
                     throw std::out_of_range("OpenGL RHI: invalid texture resize extent.");
+                if (gl.HasStorage() && gl.Desc().width == width && gl.Desc().height == height) return;
                 AllocateStorage(gl, width, height);
             }
 
@@ -1021,6 +1029,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 CheckStorageResult("OpenGL texture storage allocation");
                 _reservedStorage = _reservedStorage - before + after;
                 gl.SetExtent(width, height);
+                gl.State(ResourceState::Undefined);
                 if (!gl.IsRenderbuffer())
                 {
                     GL::BindTexture(GL::TextureTarget::Texture2D, gl.Name());
@@ -1037,6 +1046,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     throw std::out_of_range("OpenGL RHI: invalid texture extent or usage.");
                 if (desc.depth != 1 || desc.arrayLayers != 1 || desc.mipLevels != 1 || desc.sampleCount != 1)
                     throw std::invalid_argument("OpenGL RHI: only single-level 2D textures are currently supported.");
+                if (!IsValidTextureState(desc.initialState))
+                    throw std::invalid_argument("OpenGL RHI: invalid initial texture state.");
                 (void)ToGl(desc.format);
             }
             OpenGlNative _api;
@@ -1057,6 +1068,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 // A render target has storage from the start; a sampled
                 // texture gets its storage from its first WriteTexture.
                 AllocateStorage(*texture, desc.width, desc.height);
+                texture->State(desc.initialState);
                 return texture;
             }
 
@@ -1244,6 +1256,10 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 // pipeline was applied; the next SetPipeline applies in full.
                 _applied = nullptr;
                 ClearFor(info);
+                for (const auto& color : info.colorAttachments)
+                    if (color.view) const_cast<OpenGlTexture&>(ViewTexture(*color.view, _device)).State(ResourceState::ColorAttachment);
+                if (info.depthStencilAttachment && info.depthStencilAttachment->view)
+                    const_cast<OpenGlTexture&>(ViewTexture(*info.depthStencilAttachment->view, _device)).State(ResourceState::DepthStencilWrite);
                 _renderingOpen = true;
             }
 
@@ -1487,7 +1503,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void CopyColorAttachmentToTexture(Texture& destination, std::uint32_t width, std::uint32_t height) override
             {
                 RequireRecording();
-                const auto& target = Native(destination, _device);
+                auto& target = Native(destination, _device);
                 RequireRendering();
                 struct Restore final
                 {
@@ -1507,6 +1523,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 GL::BindTexture(GL::TextureTarget::Texture2D, target.Name());
                 GL::CopyTexSubImage2D(GL::TextureTarget::Texture2D, 0, 0, 0, 0, 0,
                     static_cast<std::int32_t>(width), static_cast<std::int32_t>(height));
+                target.State(Has(target.Desc().usage, TextureUsage::Sampled) ? ResourceState::ShaderRead : ResourceState::CopyDst);
             }
 
             // A texture is going away: drop every framebuffer built on it.

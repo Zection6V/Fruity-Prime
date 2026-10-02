@@ -1,6 +1,7 @@
 #include "RhiConformanceCheck.hpp"
 #include "AsyncReadbackCheck.hpp"
 #include "RhiOwnershipCheck.hpp"
+#include "RhiStateCheck.hpp"
 #include "../../NativeRuntime/Rhi/OpenGL/OpenGlDiagnostics.hpp"
 #include "../../NativeRuntime/Rhi/OpenGL/OpenGlDevice.hpp"
 #include "../../NativeRuntime/Rhi/Vulkan/VulkanGraphicsDevice.hpp"
@@ -638,6 +639,7 @@ namespace MphRead::Mods::Diagnostics
                 else Rhi::Vulkan::CheckMemoryAdmission(device);
                 ExerciseUnframedLifetime(device);
                 ExerciseRecordingInterval(device);
+                CheckRhiResourceStates(device);
                 CheckResourceOwnership(device);
                 ExerciseGpuDiagnostics(device);
                 CheckAsyncReadback(device);

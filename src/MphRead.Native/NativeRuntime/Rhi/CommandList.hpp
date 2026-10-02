@@ -182,6 +182,8 @@ namespace MphRead::NativeRuntime::Rhi
             std::uint32_t firstIndex = 0, std::int32_t vertexOffset = 0,
             std::uint32_t firstInstance = 0) = 0;
 
+        // Explicit copies require CopySrc / CopyDst states and transfer usage.
+        // Convenience device uploads and readbacks perform their own transitions.
         virtual void CopyBuffer(const Buffer& source, std::uint64_t sourceOffset,
             Buffer& destination, std::uint64_t destinationOffset, std::uint64_t size) = 0;
         virtual void CopyBufferToTexture(
@@ -189,6 +191,11 @@ namespace MphRead::NativeRuntime::Rhi
         virtual void CopyTextureToBuffer(
             const Texture& source, Buffer& destination, const BufferTextureCopy& region) = 0;
 
+        // Explicit transitions cover the whole resource. before must match the
+        // state left by its initial state, prior transition or convenience
+        // operation. Unknown bits, equal states and states of another resource
+        // type are rejected before native mutation. Read states may combine;
+        // each write state is exclusive. A resized texture starts Undefined.
         virtual void Transition(
             Buffer& resource, ResourceState before, ResourceState after) = 0;
         virtual void Transition(

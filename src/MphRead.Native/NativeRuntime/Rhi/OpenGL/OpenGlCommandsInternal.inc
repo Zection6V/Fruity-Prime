@@ -281,6 +281,8 @@ void OpenGlCommandList::CopyBuffer(const Buffer& source, std::uint64_t sourceOff
 {
     RequireRecording();
     const auto& from = CheckedBuffer(*_device, source); const auto& to = CheckedBuffer(*_device, destination);
+    if (from.State() != ResourceState::CopySrc || to.State() != ResourceState::CopyDst)
+        throw std::invalid_argument("OpenGL RHI: buffer copies require CopySrc and CopyDst states.");
     CheckBufferRange(source, sourceOffset, size); CheckBufferRange(destination, destinationOffset, size);
     if (!Has(source.Desc().usage, BufferUsage::TransferSrc) || !Has(destination.Desc().usage, BufferUsage::TransferDst)
         || (&source == &destination && sourceOffset < destinationOffset + size && destinationOffset < sourceOffset + size))
@@ -332,6 +334,8 @@ void OpenGlCommandList::CopyBufferToTexture(const Buffer& source, Texture& desti
 {
     RequireRecording();
     const auto& buffer = CheckedBuffer(*_device, source); auto& texture = Native(destination, _device);
+    if (buffer.State() != ResourceState::CopySrc || texture.State() != ResourceState::CopyDst)
+        throw std::invalid_argument("OpenGL RHI: image uploads require CopySrc and CopyDst states.");
     const auto bytes = CheckTextureCopy(destination, source, region);
     if (texture.IsRenderbuffer() || !Has(source.Desc().usage, BufferUsage::TransferSrc) || !Has(destination.Desc().usage, TextureUsage::TransferDst))
         throw std::invalid_argument("OpenGL RHI: invalid buffer to texture copy usage.");
@@ -353,6 +357,8 @@ void OpenGlCommandList::CopyTextureToBuffer(const Texture& source, Buffer& desti
 {
     RequireRecording();
     const auto& buffer = CheckedBuffer(*_device, destination); const auto& texture = Native(source, _device);
+    if (texture.State() != ResourceState::CopySrc || buffer.State() != ResourceState::CopyDst)
+        throw std::invalid_argument("OpenGL RHI: image readback requires CopySrc and CopyDst states.");
     const auto bytes = CheckTextureCopy(source, destination, region);
     if (texture.IsRenderbuffer() || !Has(source.Desc().usage, TextureUsage::TransferSrc) || !Has(destination.Desc().usage, BufferUsage::TransferDst))
         throw std::invalid_argument("OpenGL RHI: invalid texture to buffer copy usage.");
@@ -375,16 +381,20 @@ void OpenGlCommandList::CopyTextureToBuffer(const Texture& source, Buffer& desti
 void OpenGlCommandList::Transition(Buffer& resource, ResourceState before, ResourceState after)
 {
     RequireRecording();
-    (void)CheckedBuffer(*_device, resource);
-    if (before == after) return;
-    if (!IsValidTransition(before, after)) throw std::invalid_argument("OpenGL RHI: invalid transition.");
+    auto& buffer = CheckedBuffer(*_device, resource);
+    if (buffer.State() != before || !IsValidTransition(before, after)
+        || !IsValidBufferState(before) || !IsValidBufferState(after))
+        throw std::invalid_argument("OpenGL RHI: buffer transition does not match its tracked state or resource type.");
     if (HasAny(before, ResourceState::ShaderWrite)) OpenGlNative::Require(_device->Api().MemoryBarrier, "glMemoryBarrier")(0xFFFFFFFFU);
+    buffer.State(after);
 }
 void OpenGlCommandList::Transition(Texture& resource, ResourceState before, ResourceState after)
 {
     RequireRecording();
-    (void)Native(resource, _device);
-    if (before == after) return;
-    if (!IsValidTransition(before, after)) throw std::invalid_argument("OpenGL RHI: invalid transition.");
+    auto& texture = Native(resource, _device);
+    if (texture.State() != before || !IsValidTransition(before, after)
+        || !IsValidTextureState(before) || !IsValidTextureState(after))
+        throw std::invalid_argument("OpenGL RHI: image transition does not match its tracked state or resource type.");
     if (HasAny(before, ResourceState::ShaderWrite)) OpenGlNative::Require(_device->Api().MemoryBarrier, "glMemoryBarrier")(0xFFFFFFFFU);
+    texture.State(after);
 }

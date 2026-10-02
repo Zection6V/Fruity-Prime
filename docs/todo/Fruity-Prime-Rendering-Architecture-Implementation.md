@@ -1978,3 +1978,42 @@ host / GPU buffer upload、texture uploadのfinal stateも確認する。
 R19全体は未完了。全format / subresource、usageとformatに対する全stateの適合性、
 draw・presentationを含むstate遷移全体、presentation ownership、100-cycle stressは続ける。
 R10の最終責務監査、R20とレビュー全体も進行中。Android / macOS実動作、remote CIは未実行。
+
+## 実ウィンドウの反復切替・resize stress（R19 / Phase H）
+
+`FRUITY_SWITCHSTRESS=1..1000`で、既存のshellshot fixtureを複数の試合にわたって繰り返す。
+各cycleはfront screenと試合中Settingsの2回の切替、両backendでのwindow / resolution-scale
+resize、scene終了を含む。spawn済みSyluxと7 actors、105 effect definitions、着弾粒子と
+新旧Lockjaw bomb、texture-only model sourceの寿命検査を維持する。
+切替の直前直後は既存のworld witnessでsimulation / actors / bombs / particles / bindingsを検査する。
+
+旧scene / UI / command list / swapchainを解放した直後と、最終window終了時のcheckpointで
+cache trim / idleを行い、RHI live=0 / retired=0 / errors=0を要求する。
+通常のwindow / target resizeはdevice-wide waitの増加を拒否する。
+途中終了は全cycle完了・最終解放の両方が揃わないため成功にならない。
+これらは診断時だけのhookで、通常の描画に待機を追加しない。
+
+再実行用の`tools/rendering-stress.ps1`は設定ファイルの元のbytesと環境変数をfinallyで戻し、
+cycleごとの7枚のPNG、全cycle完了、両backendのresize数、world witness数、validationを検査する。
+`run-info.json`にsource HEAD / exeとpaths.txtのSHA-256 / 条件 / 完了状態を残す。
+具体的な実行方法は[切替stress手順](Fruity-Prime-Renderer-Switch-Stress.md)に記録した。
+
+確認結果（Windows / RTX 5070 Ti）:
+
+- MSVC Release PASS: `C:/tmp/gp/architecture-r19-stress-final-build.log`。
+- CPU CTest 15/15 PASS: `C:/tmp/gp/architecture-r19-stress-final-ctest.log`。
+- 共通GPU conformance PASS: `C:/tmp/gp/architecture-r19-stress-conformance.log`。
+- 最終hookを含む1 cycleの試運転は両開始backendともPASS。
+  `C:/tmp/r19-stress-finalpilot-gl/run.log`と`C:/tmp/r19-stress-finalpilot-vk/run.log`。
+  各2切替 / 7 PNG、両backendのresize、最終live=0 / retired=0 / validation errors=0を確認。
+  保存した両backendのresize画像を目視し、Alinos Perchのworld / Sylux HUD / gun / effectを確認した。
+  動的な画像の自動pixel parityを証明するものではない。
+- 既存の失敗復旧回帰もPASS: `C:/tmp/r18-fps-20261003-015658/opengl.log`。
+  BeforeWindow / Presentation / Resourcesの3段階でtyped errorを注入し、元backendへの復旧、
+  原因の保持、同じworldの保持を確認した。実driverのdevice loss / OOMの注入ではない。
+- 実行manifestを含むrunnerの1 cycleもPASS: `C:/tmp/r19-stress-manifest-pilot/run.log`。
+  `run-info.json`のcomplete=true、切替2 / PNG 7、exe / paths.txtのSHA-256を確認した。
+
+100-cycle本試験はまだ未完了。全format / subresource / usage-state適合性 / presentation ownership、
+固定frameのpixel parity、R10の最終責務監査、R20も引き続き対応する。
+RHI countはSkia / driver内部の全GPU確保量を測定しない。レビュー全体は進行中。

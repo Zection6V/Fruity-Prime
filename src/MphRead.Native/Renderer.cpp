@@ -5958,6 +5958,7 @@ namespace MphRead
 #endif
             _windowCommands.reset();
             _swapchain.reset();
+            if (ObserveRendererSwitchStage) ObserveRendererSwitchStage(*this, RendererSwitchStage::ReleasedResources);
             NativeRuntime::Rhi::DetachSceneWindow();
             _window.reset();
         };
@@ -6041,6 +6042,8 @@ namespace MphRead
         }
         _windowCommands.reset();
         _swapchain.reset();
+        if (ObserveRendererSwitchStage)
+            cleanup([this] { ObserveRendererSwitchStage(*this, RendererSwitchStage::FinalRelease); });
         NativeRuntime::Rhi::DetachSceneWindow();
     }
 

@@ -32,6 +32,7 @@
 #include "../../DebugLog.hpp"
 #include "../../EndScreen.hpp"
 #include "../../GameSettings.hpp"
+#include "../../RenderOptions.hpp"
 #include "../../MapPick.hpp"
 #include "../../Network/NetHostSession.hpp"
 #include "../../Network/NetSession.hpp"
@@ -79,6 +80,11 @@ namespace MphRead::Mods::Launcher::Gui
     {
         std::unique_ptr<Diagnostics::RendererSwitchWitness> g_switchWitness;
         bool g_switchWitnessSelfChecked = false;
+        int g_stressCycles = 0, g_stressCycle = 0, g_stressReleases = 0, g_stressResizes = 0;
+        bool g_stressFinished = false, g_stressClosed = false;
+        std::uint64_t g_stressResizeWaits = 0;
+        int g_stressScale = 100;
+        OpenTK::Mathematics::Vector2i g_stressOriginalSize;
         std::uint64_t g_switchFixtureReadyFrame = 0;
         std::optional<std::chrono::steady_clock::time_point> g_fpsCheckUntil;
         bool WaitForFpsMeasurement()
@@ -226,7 +232,7 @@ namespace MphRead::Mods::Launcher::Gui
 
     std::int32_t Shell::ShotMisses() noexcept
     {
-        return _shotMisses;
+        return _shotMisses + (g_stressCycles && (!g_stressFinished || !g_stressClosed) ? 1 : 0);
     }
 
     void Shell::PublishNativeHandle(MphRead::RenderWindow& window)
@@ -396,9 +402,32 @@ namespace MphRead::Mods::Launcher::Gui
                     << "; original typed error=" << (preserved ? "PASS" : "FAIL") << '\n';
             };
         }
+        if (g_stressCycles)
+        {
+            MphRead::RenderWindow::ObserveRendererSwitchStage = [](MphRead::RenderWindow&, MphRead::RenderWindow::RendererSwitchStage stage)
+            {
+                const bool final = stage == MphRead::RenderWindow::RendererSwitchStage::FinalRelease;
+                if (!final && stage != MphRead::RenderWindow::RendererSwitchStage::ReleasedResources) return;
+                auto& device = MphRead::NativeRuntime::Rhi::SceneDevice();
+                device.TrimCaches(); device.WaitIdle(); // Explicit renderer transition boundary.
+                const auto stats = device.Statistics();
+                const auto errors = MphRead::NativeRuntime::Rhi::SceneValidationErrors();
+                std::cout << "[render stress] released cycle=" << g_stressCycle << "; backend="
+                    << MphRead::NativeRuntime::Rhi::SceneBackendName(device.GetBackend())
+                    << "; live=" << stats.LiveObjects() << "; retired=" << stats.Retired
+                    << "; errors=" << errors << '\n';
+                if (stats.LiveObjects() || stats.Retired || errors || device.DrainErrors())
+                {
+                    ++Shell::ShotMissCounter();
+                    throw std::runtime_error("Renderer stress left resources or graphics errors at the transition boundary.");
+                }
+                if (final) { g_stressClosed = true; std::cout << "[render stress] final release PASS; live=0; retired=0; errors=0\n"; }
+                else ++g_stressReleases;
+            };
+        }
         MphRead::RenderWindow::ObserveRendererSwitch = [](MphRead::RenderWindow& window, bool before)
         {
-            if (!std::getenv("FRUITY_SWITCHCHECK")) return;
+            if (!std::getenv("FRUITY_SWITCHCHECK") && !g_stressCycles) return;
             if (before)
             {
                 g_switchWitness.reset();
@@ -782,6 +811,16 @@ namespace MphRead::Mods::Launcher::Gui
 
     void Shell::RequestShots(std::string directory)
     {
+        _shotScript.clear();
+        g_stressCycles = g_stressCycle = g_stressReleases = g_stressResizes = 0;
+        g_stressFinished = g_stressClosed = false;
+        if (const auto* value = std::getenv("FRUITY_SWITCHSTRESS"))
+        {
+            std::size_t used = 0; const std::string text(value); g_stressCycles = std::stoi(text, &used);
+            if (used != text.size() || g_stressCycles < 1 || g_stressCycles > 1000
+                || std::getenv("FRUITY_SWITCHCHECK_FAILURES"))
+                throw std::invalid_argument("FRUITY_SWITCHSTRESS must be 1..1000, without fault injection.");
+        }
         g_switchWitness.reset();
         g_switchWitnessSelfChecked = false;
         _shotDirectory = std::move(directory);
@@ -808,14 +847,14 @@ namespace MphRead::Mods::Launcher::Gui
             return;
         }
         if (std::chrono::steady_clock::now() < g_shotUiReadyAt) return;
-        std::vector<ShotAction> script = Script();
-        if (_shotStep >= static_cast<std::int32_t>(script.size()))
+        if (_shotScript.empty()) _shotScript = Script();
+        if (_shotStep >= static_cast<std::int32_t>(_shotScript.size()))
         {
             _shotDirectory.reset();
             window.Close();
             return;
         }
-        script[static_cast<std::size_t>(_shotStep++)](window);
+        _shotScript[static_cast<std::size_t>(_shotStep++)](window);
     }
 
     namespace
@@ -1061,7 +1100,7 @@ namespace MphRead::Mods::Launcher::Gui
     // The switch where a person makes it: on the front screen, and in a
     // running match, which has to carry on through it. Every stop is
     // photographed and says which renderer drew it.
-    std::vector<Shell::ShotAction> Shell::SwitchScript()
+    std::vector<Shell::ShotAction> Shell::SwitchScript(int matchSwitches)
     {
         std::vector<ShotAction> script{
             [](MphRead::RenderWindow&) { WaitUi(30); },
@@ -1156,7 +1195,8 @@ namespace MphRead::Mods::Launcher::Gui
                 CheckSwitchEffects(window, "before match switches");
             },
         };
-        for (int cycle = 0; cycle < 3; ++cycle)
+        if (g_stressCycles) AppendStressResize(script);
+        for (int cycle = 0; cycle < matchSwitches; ++cycle)
         {
             script.push_back([cycle](MphRead::RenderWindow& window)
             {
@@ -1229,6 +1269,7 @@ namespace MphRead::Mods::Launcher::Gui
                 if (UiVisible()) ++_shotMisses;
                 Wait(2);
             });
+            if (g_stressCycles) AppendStressResize(script);
             script.push_back([](MphRead::RenderWindow& window)
             {
                 if (WaitForFpsMeasurement()) { --_shotStep; Wait(1); return; }
@@ -1262,8 +1303,64 @@ namespace MphRead::Mods::Launcher::Gui
         return script;
     }
 
+    void Shell::AppendStressResize(std::vector<ShotAction>& script)
+    {
+        script.push_back([](MphRead::RenderWindow& window)
+        {
+            g_stressScale = MphRead::Mods::RenderOptions::ResolutionScale();
+            g_stressOriginalSize = window.ClientSize();
+            g_stressResizeWaits = MphRead::NativeRuntime::Rhi::SceneDevice().Statistics().DeviceWideWaits;
+            MphRead::Mods::RenderOptions::ResolutionScale(75);
+            window.ClientSize(OpenTK::Mathematics::Vector2i{g_stressCycle % 2 ? 1280 : 1400, 800});
+            window.Scene().OnResize(); Wait(20);
+        });
+        script.push_back([](MphRead::RenderWindow& window)
+        {
+            int width = 0, height = 0; const auto pixels = window.Scene().ReadSceneTarget(width, height);
+            const auto extent = window.FramebufferSize();
+            const auto stats = MphRead::NativeRuntime::Rhi::SceneDevice().Statistics();
+            const bool valid = pixels && !pixels->empty() && width == MphRead::Mods::RenderOptions::Scaled(extent.X)
+                && height == MphRead::Mods::RenderOptions::Scaled(extent.Y) && stats.DeviceWideWaits == g_stressResizeWaits;
+            std::cout << "[render stress] resize cycle=" << g_stressCycle << "; backend="
+                << MphRead::NativeRuntime::Rhi::SceneBackendName(MphRead::NativeRuntime::Rhi::SelectedSceneBackend())
+                << "; target=" << width << 'x' << height << "; device-wide-waits-delta="
+                << (stats.DeviceWideWaits - g_stressResizeWaits) << "; " << (valid ? "PASS" : "FAIL") << '\n';
+            if (!valid) ++_shotMisses; else ++g_stressResizes;
+            Shot(window, "stress-resized-" + std::string(MphRead::NativeRuntime::Rhi::SceneBackendName(MphRead::NativeRuntime::Rhi::SelectedSceneBackend())));
+            MphRead::Mods::RenderOptions::ResolutionScale(g_stressScale);
+            window.ClientSize(g_stressOriginalSize); window.Scene().OnResize(); Wait(20);
+        });
+    }
+
+    std::vector<Shell::ShotAction> Shell::StressScript()
+    {
+        std::vector<ShotAction> script;
+        for (int cycle = 1; cycle <= g_stressCycles; ++cycle)
+        {
+            script.push_back([cycle](MphRead::RenderWindow& window)
+            {
+                if (window.HasScene()) throw std::runtime_error("Renderer stress cycle started with the previous scene still live.");
+                g_stressCycle = cycle;
+                std::cout << "[render stress] begin cycle=" << cycle << '/' << g_stressCycles << '\n';
+            });
+            auto pass = SwitchScript(1); // Front-screen switch, then a live-match Settings switch.
+            for (auto& action : pass) script.push_back(std::move(action));
+            script.push_back([cycle](MphRead::RenderWindow& window)
+            {
+                if (window.HasScene() || g_stressReleases != cycle * 2 || g_stressResizes != cycle * 2)
+                    throw std::runtime_error("Renderer stress did not unload its scene or release both backend generations.");
+                std::cout << "[render stress] cycle=" << cycle << " PASS; scene unloaded; backend generations released=" << g_stressReleases << '\n';
+            });
+        }
+        script.push_back([](MphRead::RenderWindow&) { g_stressFinished = true;
+            std::cout << "[render stress] " << (_shotMisses ? "FAIL" : "PASS") << "; cycles=" << g_stressCycles
+                << "; renderer switches=" << g_stressReleases << "; misses=" << _shotMisses << '\n'; });
+        return script;
+    }
+
     std::vector<Shell::ShotAction> Shell::Script()
     {
+        if (g_stressCycles) return StressScript();
         if (std::getenv("FRUITY_SWITCHCHECK") != nullptr) return SwitchScript();
         return {
             [](MphRead::RenderWindow&) { Wait(20); },
@@ -1771,7 +1868,8 @@ namespace MphRead::Mods::Launcher::Gui
 
     void Shell::Shot(MphRead::RenderWindow& window, const std::string& name)
     {
-        const std::string directory = _shotDirectory.value();
+        const std::string directory = g_stressCycles ? MphRead::NativeRuntime::PathCombine(_shotDirectory.value(),
+            "cycle-" + std::to_string(g_stressCycle)) : _shotDirectory.value();
         const std::string path = MphRead::NativeRuntime::PathCombine(
             directory, name + ".png");
         MphRead::NativeRuntime::DirectoryCreateDirectory(directory);

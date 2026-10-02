@@ -655,7 +655,7 @@ namespace MphRead
         // Diagnostics observe the exact transition, outside simulation: before
         // any GPU release (true), and after the complete rebuild (false).
         inline static std::function<void(RenderWindow&, bool)> ObserveRendererSwitch{};
-        enum class RendererSwitchStage : std::uint8_t { BeforeWindow, Presentation, Resources };
+        enum class RendererSwitchStage : std::uint8_t { BeforeWindow, Presentation, Resources, ReleasedResources, FinalRelease };
         // Diagnostic checkpoints include partial replacement resources. A
         // failure reporter may replace the modal dialog in a scripted run.
         inline static std::function<void(RenderWindow&, RendererSwitchStage)> ObserveRendererSwitchStage{};

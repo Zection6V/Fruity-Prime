@@ -128,7 +128,10 @@ namespace MphRead::Mods::Launcher::Gui
         static void InstallRendererSwitchHooks();
         static void ShowSettings();
         static void StartSwitchMatch();
-        [[nodiscard]] static std::vector<ShotAction> SwitchScript();
+        [[nodiscard]] static std::vector<ShotAction> SwitchScript(int matchSwitches = 3);
+        [[nodiscard]] static std::vector<ShotAction> StressScript();
+        static void AppendStressResize(std::vector<ShotAction>& script);
+        inline static std::vector<ShotAction> _shotScript;
         static std::int32_t _shotStep;
         static std::int32_t _shotWait;
         static std::int32_t _shotMisses;

@@ -367,11 +367,33 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         class VulkanDeviceState;
 
-        class VulkanBuffer final : public Buffer
+        // The device owns native lifetime, even when a public wrapper survives
+        // its session. Registrations borrow wrappers and never prolong them.
+        class VulkanNativeOwner
+        {
+        public:
+            virtual void CloseNative() noexcept = 0;
+        protected:
+            ~VulkanNativeOwner() = default;
+        };
+        class VulkanNativeRegistration final
+        {
+        public:
+            VulkanNativeRegistration(VulkanDeviceState& state, VulkanNativeOwner& owner, bool commands = false);
+            ~VulkanNativeRegistration();
+            VulkanNativeRegistration(const VulkanNativeRegistration&) = delete;
+            VulkanNativeRegistration& operator=(const VulkanNativeRegistration&) = delete;
+        private:
+            VulkanDeviceState& _state;
+            VulkanNativeOwner& _owner;
+        };
+
+        class VulkanBuffer final : public Buffer, public VulkanNativeOwner
         {
         public:
             VulkanBuffer(std::shared_ptr<VulkanDeviceState> state, const BufferDesc& desc);
             ~VulkanBuffer() override;
+            void CloseNative() noexcept override;
             [[nodiscard]] const BufferDesc& Desc() const noexcept override { return _desc; }
 
             [[nodiscard]] VkBuffer Native() const noexcept { return _buffer; }
@@ -385,6 +407,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         private:
             std::shared_ptr<VulkanDeviceState> _device;
+            VulkanNativeRegistration _registration;
             BufferDesc _desc{};
             VkBuffer _buffer = VK_NULL_HANDLE;
             VmaAllocation _allocation = VK_NULL_HANDLE;
@@ -394,27 +417,30 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         class VulkanTexture;
         class VulkanTextureView;
 
-        class VulkanSampler final : public Sampler
+        class VulkanSampler final : public Sampler, public VulkanNativeOwner
         {
         public:
             VulkanSampler(std::shared_ptr<VulkanDeviceState> state, const SamplerDesc& desc);
             ~VulkanSampler() override;
+            void CloseNative() noexcept override;
             [[nodiscard]] const SamplerDesc& Desc() const noexcept override { return _desc; }
             [[nodiscard]] VkSampler Native() const noexcept { return _sampler; }
             [[nodiscard]] const std::shared_ptr<VulkanDeviceState>& DeviceState() const noexcept { return _device; }
 
         private:
             std::shared_ptr<VulkanDeviceState> _device;
+            VulkanNativeRegistration _registration;
             SamplerDesc _desc{};
             VkSampler _sampler = VK_NULL_HANDLE;
         };
 
-        class VulkanTexture final : public Texture
+        class VulkanTexture final : public Texture, public VulkanNativeOwner
         {
         public:
             VulkanTexture(std::shared_ptr<VulkanDeviceState> state,
                 const TextureDesc& desc, TextureHandle handle);
             ~VulkanTexture() override;
+            void CloseNative() noexcept override;
             [[nodiscard]] const TextureDesc& Desc() const noexcept override { return _desc; }
             [[nodiscard]] TextureHandle Handle() const noexcept override { return _handle; }
             [[nodiscard]] VkImage Native() const noexcept { return _image; }
@@ -424,6 +450,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 return _device;
             }
+            std::weak_ptr<void> Lifetime() const noexcept { return _lifetime; }
             void Resize(std::uint32_t width, std::uint32_t height);
             void Register(VulkanTextureView& view);
             void Unregister(VulkanTextureView& view) noexcept;
@@ -436,12 +463,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             VkImageView _sampledView = VK_NULL_HANDLE;
             void DestroyImage() noexcept;
             std::shared_ptr<VulkanDeviceState> _device;
+            VulkanNativeRegistration _registration;
             TextureDesc _desc{};
             TextureHandle _handle{};
             VkImage _image = VK_NULL_HANDLE;
             VmaAllocation _allocation = VK_NULL_HANDLE;
             ResourceState _state = ResourceState::Undefined;
             std::vector<VulkanTextureView*> _views{};
+            std::shared_ptr<void> _lifetime = std::make_shared<int>(0);
         };
 
         class VulkanTextureView final : public TextureView
@@ -452,12 +481,15 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             [[nodiscard]] const TextureViewDesc& Desc() const noexcept override { return _desc; }
             [[nodiscard]] const Texture& TextureResource() const noexcept override { return _texture; }
             [[nodiscard]] VkImageView Native() const noexcept { return _view; }
+            const std::shared_ptr<VulkanDeviceState>& DeviceState() const noexcept { return _device; }
             void CreateNative();
             void DestroyNative() noexcept;
             void SwapNative(VulkanTextureView& other) noexcept { std::swap(_view, other._view); }
 
         private:
             VulkanTexture& _texture;
+            std::shared_ptr<VulkanDeviceState> _device;
+            std::weak_ptr<void> _textureLifetime;
             TextureViewDesc _desc{};
             VkImageView _view = VK_NULL_HANDLE;
         };
@@ -483,12 +515,36 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 Check(vmaCreateAllocator(&create, &Allocator), "vmaCreateAllocator");
             }
 
-            ~VulkanDeviceState()
+            ~VulkanDeviceState() { CloseNative(); }
+
+            void CloseNative() noexcept
             {
                 if (Allocator != VK_NULL_HANDLE)
                 {
-                    ContextPointer->WaitIdle();
-                    CollectRetired();
+                    try { FlushScene(); } catch (...) {}
+                    try { ContextPointer->WaitIdle(); } catch (...) {}
+                    FinalSubmitted = Scheduler->Submitted();
+                    try { FinalCompleted = Scheduler->Poll(); } catch (...) {}
+                    Closing = true;
+                    // Command-owned caches, rings and pools precede images and
+                    // buffers. Closing an owner can unregister other owners.
+                    for (;;)
+                    {
+                        auto next = std::find_if(NativeOwners.begin(), NativeOwners.end(),
+                            [](const auto& entry) { return entry.second; });
+                        if (next == NativeOwners.end()) break;
+                        auto* owner = next->first;
+                        NativeOwners.erase(next);
+                        owner->CloseNative();
+                    }
+                    while (!NativeOwners.empty())
+                    {
+                        auto next = NativeOwners.begin();
+                        auto* owner = next->first;
+                        NativeOwners.erase(next);
+                        owner->CloseNative();
+                    }
+                    ReleaseWindowTarget();
                     Retired.CollectAll([](auto& release) { release(); });
                     auto& vk = *ContextPointer->_impl;
                     for (auto& slot : DescriptorFrames)
@@ -502,11 +558,25 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                             vk.vkDestroyDescriptorPool(vk.device, pool, nullptr);
                         if (slot.fence) vk.vkDestroyFence(vk.device, slot.fence, nullptr);
                     }
+                    VmaTotalStatistics statistics{};
+                    vmaCalculateStatistics(Allocator, &statistics);
+                    OutstandingAllocationsAtShutdown = statistics.total.statistics.allocationCount;
                     vmaDestroyAllocator(Allocator);
                     Allocator = VK_NULL_HANDLE;
                     Scheduler.reset();
+                    ContextPointer = nullptr;
+                    SceneFlushers.clear(); SceneForgetters.clear(); SceneViewReplacers.clear();
+                    RecordingList = nullptr; CurrentSceneProgram = nullptr; FrameActive = false;
+                    TexturesByHandle.clear();
                 }
             }
+
+            void RequireAlive() const
+            { if (!ContextPointer || Closing) throw std::logic_error("The Vulkan session has ended."); }
+            bool Closing = false;
+            std::uint32_t OutstandingAllocationsAtShutdown = 0;
+            SubmissionSerial FinalSubmitted{}, FinalCompleted{};
+            std::unordered_map<VulkanNativeOwner*, bool> NativeOwners;
 
             struct DescriptorFrame final
             {
@@ -682,7 +752,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 // Callers flush recorded uses before logical destruction.
                 // Closures hold native values only: no cycle back to this state.
-                Retired.Retire(std::move(release), Scheduler->Submitted());
+                if (Closing) release();
+                else Retired.Retire(std::move(release), Scheduler->Submitted());
             }
 
             void CollectRetired()
@@ -748,7 +819,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             bool Flushing = false;
             void FlushScene(const void* except = nullptr)
             {
-                if (Flushing || SceneFlushers.empty()) return;
+                if (Closing || !ContextPointer || Flushing || SceneFlushers.empty()) return;
                 Flushing = true;
                 try
                 {
@@ -767,14 +838,19 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
         };
 
-        class VulkanShader final : public Shader
+        VulkanNativeRegistration::VulkanNativeRegistration(VulkanDeviceState& state,
+            VulkanNativeOwner& owner, bool commands) : _state(state), _owner(owner)
+        { state.RequireAlive(); state.NativeOwners.emplace(&owner, commands); }
+        VulkanNativeRegistration::~VulkanNativeRegistration() { _state.NativeOwners.erase(&_owner); }
+
+        class VulkanShader final : public Shader, public VulkanNativeOwner
         {
         public:
             // The scene program this module belongs to, when a scene shader
             // set made it (VulkanSceneProgram*).
             void* SceneProgram = nullptr;
             VulkanShader(std::shared_ptr<VulkanDeviceState> device, const ShaderDesc& desc)
-                : _device(std::move(device)), _desc(desc)
+                : _device(std::move(device)), _registration(*_device, *this), _desc(desc)
             {
                 if (desc.format != ShaderCodeFormat::SpirV)
                     throw std::invalid_argument("Vulkan RHI: expected SPIR-V shader code.");
@@ -816,12 +892,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 Check(vk.vkCreateShaderModule(vk.device, &create, nullptr, &_module), "vkCreateShaderModule");
                 ++_device->Shaders;
             }
-            ~VulkanShader() override
+            ~VulkanShader() override { CloseNative(); }
+            void CloseNative() noexcept override
             {
-                auto& vk = *_device->ContextPointer->_impl;
                 if (_module)
                 {
+                    auto& vk = *_device->ContextPointer->_impl;
                     vk.vkDestroyShaderModule(vk.device, _module, nullptr);
+                    _module = VK_NULL_HANDLE;
                     --_device->Shaders;
                 }
             }
@@ -830,6 +908,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             [[nodiscard]] const std::shared_ptr<VulkanDeviceState>& DeviceState() const noexcept { return _device; }
         private:
             std::shared_ptr<VulkanDeviceState> _device;
+            VulkanNativeRegistration _registration;
             ShaderDesc _desc;
             VkShaderModule _module = VK_NULL_HANDLE;
         };
@@ -910,11 +989,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             return result;
         }
 
-        class VulkanBindingLayout final : public BindingLayout
+        class VulkanBindingLayout final : public BindingLayout, public VulkanNativeOwner
         {
         public:
             VulkanBindingLayout(std::shared_ptr<VulkanDeviceState> state, const BindingLayoutDesc& desc)
-                : _device(std::move(state)), _desc(desc)
+                : _device(std::move(state)), _registration(*_device, *this), _desc(desc)
             {
                 std::vector<VkDescriptorSetLayoutBinding> bindings;
                 bindings.reserve(desc.entries.size());
@@ -940,12 +1019,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 Check(vk.vkCreateDescriptorSetLayout(vk.device, &create, nullptr, &_layout),
                     "vkCreateDescriptorSetLayout");
             }
-            ~VulkanBindingLayout() override
+            ~VulkanBindingLayout() override { CloseNative(); }
+            void CloseNative() noexcept override
             {
                 if (_layout)
                 {
                     auto& vk = *_device->ContextPointer->_impl;
                     vk.vkDestroyDescriptorSetLayout(vk.device, _layout, nullptr);
+                    _layout = VK_NULL_HANDLE;
                 }
             }
             [[nodiscard]] const BindingLayoutDesc& Desc() const noexcept override { return _desc; }
@@ -953,6 +1034,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             [[nodiscard]] const std::shared_ptr<VulkanDeviceState>& DeviceState() const noexcept { return _device; }
         private:
             std::shared_ptr<VulkanDeviceState> _device;
+            VulkanNativeRegistration _registration;
             BindingLayoutDesc _desc;
             VkDescriptorSetLayout _layout = VK_NULL_HANDLE;
         };
@@ -1136,6 +1218,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     {
                         const auto* value = std::get_if<TextureBinding>(&entry.resource);
                         const auto* view = value ? dynamic_cast<const VulkanTextureView*>(value->view) : nullptr;
+                        if (!view || view->DeviceState() != _device)
+                            throw std::invalid_argument("Vulkan RHI: texture view belongs to another session.");
                         const auto* texture = view ? dynamic_cast<const VulkanTexture*>(&view->TextureResource()) : nullptr;
                         const auto usage = declaration.type == BindingType::StorageTexture ? TextureUsage::Storage : TextureUsage::Sampled;
                         if (!texture || texture->DeviceState() != _device || !Has(texture->Desc().usage, usage))
@@ -1150,7 +1234,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         };
 
         VulkanBuffer::VulkanBuffer(std::shared_ptr<VulkanDeviceState> state, const BufferDesc& desc)
-            : _device(std::move(state)), _desc(desc), _state(ResourceState::Undefined)
+            : _device(std::move(state)), _registration(*_device, *this), _desc(desc), _state(ResourceState::Undefined)
         {
             if (_desc.size == 0 || _desc.usage == BufferUsage::None)
                 throw std::invalid_argument("Vulkan RHI: buffers need a nonzero size and usage.");
@@ -1164,7 +1248,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             ++_device->Buffers;
         }
 
-        VulkanBuffer::~VulkanBuffer()
+        VulkanBuffer::~VulkanBuffer() { CloseNative(); }
+        void VulkanBuffer::CloseNative() noexcept
         {
             if (_buffer != VK_NULL_HANDLE)
             {
@@ -1179,7 +1264,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         }
 
         VulkanSampler::VulkanSampler(std::shared_ptr<VulkanDeviceState> state, const SamplerDesc& desc)
-            : _device(std::move(state)), _desc(desc)
+            : _device(std::move(state)), _registration(*_device, *this), _desc(desc)
         {
             auto& vk = *_device->ContextPointer->_impl;
             const auto filter = [](Filter value)
@@ -1230,22 +1315,24 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             vk.Name(VK_OBJECT_TYPE_SAMPLER, reinterpret_cast<std::uint64_t>(_sampler), "RHI sampler");
         }
 
-        VulkanSampler::~VulkanSampler()
+        VulkanSampler::~VulkanSampler() { CloseNative(); }
+        void VulkanSampler::CloseNative() noexcept
         {
-            try { _device->ForgetScene(this); } catch (...) {}
             if (_sampler != VK_NULL_HANDLE)
             {
+                if (!_device->Closing) { try { _device->ForgetScene(this); } catch (...) {} }
                 --_device->Samplers;
                 auto& vk = *_device->ContextPointer->_impl;
                 _device->Retire([device = vk.device, destroy = vk.vkDestroySampler, sampler = _sampler] {
                     destroy(device, sampler, nullptr);
                 });
+                _sampler = VK_NULL_HANDLE;
             }
         }
 
         VulkanTexture::VulkanTexture(std::shared_ptr<VulkanDeviceState> state,
             const TextureDesc& desc, TextureHandle handle)
-            : _device(std::move(state)), _desc(desc), _handle(handle), _state(ResourceState::Undefined)
+            : _device(std::move(state)), _registration(*_device, *this), _desc(desc), _handle(handle), _state(ResourceState::Undefined)
         {
             if (_desc.width == 0 || _desc.height == 0 || _desc.depth == 0
                 || _desc.mipLevels == 0 || _desc.arrayLayers == 0 || _desc.usage == TextureUsage::None)
@@ -1321,6 +1408,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         VkImageView VulkanTexture::SampledView()
         {
+            _device->RequireAlive();
             if (_sampledView != VK_NULL_HANDLE) return _sampledView;
             auto& vk = *_device->ContextPointer->_impl;
             VkImageViewCreateInfo create{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
@@ -1353,10 +1441,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
         }
 
-        VulkanTexture::~VulkanTexture()
+        VulkanTexture::~VulkanTexture() { CloseNative(); }
+        void VulkanTexture::CloseNative() noexcept
         {
-            try { _device->FlushScene(); } catch (...) {}
-            _device->ForgetScene(this);
+            if (!_image) return;
+            if (!_device->Closing) { try { _device->ForgetScene(this); } catch (...) {} }
             for (VulkanTextureView* view : _views)
                 view->DestroyNative();
             _views.clear();
@@ -1368,10 +1457,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     _device->TexturesByHandle.erase(found);
             }
             --_device->Textures;
+            _handle = {};
         }
 
         void VulkanTexture::Resize(std::uint32_t width, std::uint32_t height)
         {
+            _device->RequireAlive();
             if (width == 0 || height == 0)
                 throw std::invalid_argument("Vulkan RHI: a texture extent cannot be zero.");
             if (_desc.width == width && _desc.height == height) return;
@@ -1420,8 +1511,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         }
 
         VulkanTextureView::VulkanTextureView(VulkanTexture& texture, const TextureViewDesc& desc)
-            : _texture(texture), _desc(desc)
+            : _texture(texture), _device(texture.DeviceState()), _textureLifetime(texture.Lifetime()), _desc(desc)
         {
+            _device->RequireAlive();
             if (_desc.format == TextureFormat::Undefined)
                 _desc.format = texture.Desc().format;
             if (_desc.format != texture.Desc().format)
@@ -1437,11 +1529,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         VulkanTextureView::~VulkanTextureView()
         {
             DestroyNative();
-            _texture.Unregister(*this);
+            if (!_textureLifetime.expired()) _texture.Unregister(*this);
         }
 
         void VulkanTextureView::CreateNative()
         {
+            _device->RequireAlive();
             if (_view != VK_NULL_HANDLE) return;
             auto& vk = *_texture.DeviceState()->ContextPointer->_impl;
             VkImageViewCreateInfo create{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
@@ -1462,7 +1555,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         {
             if (_view != VK_NULL_HANDLE)
             {
-                auto& state = *_texture.DeviceState();
+                auto& state = *_device;
                 try { state.FlushScene(); } catch (...) {}
                 state.ReplaceView(_view, VK_NULL_HANDLE);
                 auto& vk = *state.ContextPointer->_impl;
@@ -1523,11 +1616,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
         };
 
-        class VulkanCommandList final : public CommandList
+        class VulkanCommandList final : public CommandList, public VulkanNativeOwner
         {
         public:
             explicit VulkanCommandList(std::shared_ptr<VulkanDeviceState> state);
             ~VulkanCommandList() override;
+            void CloseNative() noexcept override;
 
             void Begin() override;
             void End() override;
@@ -1682,6 +1776,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             [[nodiscard]] VulkanTexture& Dummy();
 
             std::shared_ptr<VulkanDeviceState> _device;
+            VulkanNativeRegistration _registration;
+            bool _closed = false;
             // Two submission slots. The members below are the current slot;
             // _spare holds the other, swapped in at every flush, so a frame's
             // submission is waited on only when its slot comes round again.
@@ -1735,7 +1831,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         };
 
         VulkanCommandList::VulkanCommandList(std::shared_ptr<VulkanDeviceState> state)
-            : _device(std::move(state))
+            : _device(std::move(state)), _registration(*_device, *this, true)
         {
             auto& vk = *_device->ContextPointer->_impl;
             const auto make = [&](VkCommandPool& poolHandle, VkCommandBuffer& buffer, VkFence& fenceHandle)
@@ -1758,9 +1854,28 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 make(_pool, _commandBuffer, _fence);
                 make(_spare.Pool, _spare.Buffer, _spare.Fence);
+                _device->SceneForgetters[this] = [this](const void* object) { Forget(object); };
+                _device->SceneViewReplacers[this] = [this](VkImageView before, VkImageView after) {
+                    const bool matches = _target.ColorView == before || _target.DepthView == before;
+                    if (!matches) return;
+                    if (!after)
+                    {
+                        _renderingOpen = false;
+                        _clearsPending = false;
+                        _target = {};
+                    }
+                    else
+                    {
+                        if (_target.ColorView == before) _target.ColorView = after;
+                        if (_target.DepthView == before) _target.DepthView = after;
+                    }
+                };
+                ++_device->CommandLists;
             }
             catch (...)
             {
+                _device->SceneForgetters.erase(this);
+                _device->SceneViewReplacers.erase(this);
                 for (VkCommandPool poolHandle : {_pool, _spare.Pool})
                     if (poolHandle) vk.vkDestroyCommandPool(vk.device, poolHandle, nullptr);
                 for (VkFence fenceHandle : {_fence, _spare.Fence})
@@ -1769,27 +1884,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 _spare = {};
                 throw;
             }
-            _device->SceneForgetters[this] = [this](const void* object) { Forget(object); };
-            _device->SceneViewReplacers[this] = [this](VkImageView before, VkImageView after) {
-                const bool matches = _target.ColorView == before || _target.DepthView == before;
-                if (!matches) return;
-                if (!after)
-                {
-                    _renderingOpen = false;
-                    _clearsPending = false;
-                    _target = {};
-                }
-                else
-                {
-                    if (_target.ColorView == before) _target.ColorView = after;
-                    if (_target.DepthView == before) _target.DepthView = after;
-                }
-            };
-            ++_device->CommandLists;
         }
 
-        VulkanCommandList::~VulkanCommandList()
+        VulkanCommandList::~VulkanCommandList() { CloseNative(); }
+        void VulkanCommandList::CloseNative() noexcept
         {
+            if (_closed) return;
             _device->SceneFlushers.erase(this);
             _device->SceneForgetters.erase(this);
             _device->SceneViewReplacers.erase(this);
@@ -1797,11 +1897,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (_device->ContextPointer == nullptr) return;
             auto& vk = *_device->ContextPointer->_impl;
             if (vk.device == VK_NULL_HANDLE) return;
-            if (_recording)
+            if (_recording && !_device->Closing)
             {
                 try { Flush(); } catch (...) {}
             }
-            try { WaitAll(); } catch (...) {}
+            if (!_device->Closing) { try { WaitAll(); } catch (...) {} }
             _variants.clear();
             _dummy.reset();
             if (--_device->CommandLists == 0) _device->ReleaseWindowTarget();
@@ -1818,6 +1918,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 if (fence) vk.vkDestroyFence(vk.device, fence, nullptr);
             for (VkCommandPool pool : {_pool, _spare.Pool})
                 if (pool) vk.vkDestroyCommandPool(vk.device, pool, nullptr);
+            _ring.clear(); _pools.clear(); _spare = {};
+            _pool = VK_NULL_HANDLE; _fence = VK_NULL_HANDLE; _commandBuffer = VK_NULL_HANDLE;
+            _recording = _autoRestart = _renderingActive = _renderingOpen = _clearsPending = false;
+            _target = {}; _pipeline = nullptr; _units = {}; _setProgram = nullptr; _set = VK_NULL_HANDLE;
+            _closed = true;
         }
 
         void VulkanCommandList::Recycle()
@@ -1862,6 +1967,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         void VulkanCommandList::BeginBuffer()
         {
+            _device->RequireAlive();
             // One list holds unsubmitted work at a time: whatever another
             // list recorded goes to the queue before this one records, so
             // the queue sees lists in the order they drew.
@@ -1938,6 +2044,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         void VulkanCommandList::RequireRecording()
         {
+            _device->RequireAlive();
             if (_recording) return;
             if (!_autoRestart) throw std::logic_error("Vulkan RHI: command list is not recording.");
             BeginBuffer();
@@ -2015,12 +2122,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 if (color && color->view)
                 {
                     const auto& view = dynamic_cast<const VulkanTextureView&>(*color->view);
+                    if (view.DeviceState() != _device) throw std::invalid_argument("Vulkan RHI: color view belongs to another session.");
                     target.Color = const_cast<VulkanTexture*>(static_cast<const VulkanTexture*>(&view.TextureResource()));
                     target.ColorView = view.Native();
                 }
                 if (depth && depth->view)
                 {
                     const auto& view = dynamic_cast<const VulkanTextureView&>(*depth->view);
+                    if (view.DeviceState() != _device) throw std::invalid_argument("Vulkan RHI: depth view belongs to another session.");
                     target.Depth = const_cast<VulkanTexture*>(static_cast<const VulkanTexture*>(&view.TextureResource()));
                     target.DepthView = view.Native();
                 }
@@ -2117,6 +2226,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         void VulkanCommandList::SetPipeline(const GraphicsPipeline& pipeline)
         {
+            _device->RequireAlive();
             const auto* native = dynamic_cast<const VulkanGraphicsPipeline*>(&pipeline);
             if (!native || native->DeviceState() != _device)
                 throw std::invalid_argument("Vulkan RHI: pipeline belongs to another device.");
@@ -2730,9 +2840,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             explicit VulkanGraphicsDevice(Context& context) : _state(std::make_shared<VulkanDeviceState>(context)) {}
             ~VulkanGraphicsDevice() override
             {
-                WaitIdle();
-                _state->ReleaseWindowTarget();
+                _state->CloseNative();
                 _retained.clear();
+                _pipelines.clear();
             }
 
             [[nodiscard]] GraphicsBackend GetBackend() const noexcept override { return GraphicsBackend::Vulkan; }
@@ -3476,7 +3586,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 desc.depthStencil.depthTestEnable = true; desc.depthStencil.depthWriteEnable = true;
             }
             auto pipeline = device.CreateGraphicsPipeline(desc);
-            if (pipeline->Desc() != desc) throw std::runtime_error("Vulkan pipeline description changed.");
+            auto executableState = desc;
+            executableState.vertexShader = executableState.fragmentShader = nullptr;
+            if (pipeline->Desc() != executableState) throw std::runtime_error("Vulkan pipeline state changed or retained borrowed shaders.");
             auto commands = device.CreateCommandList();
             BufferDesc bufferDesc{};
             bufferDesc.size = uniformSize; bufferDesc.usage = BufferUsage::Uniform;
@@ -3536,7 +3648,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             replacement.vertexShader = replacementVertex.get(); replacement.fragmentShader = replacementFragment.get();
             replacement.pipelineLayout.groups = {replacementLayout->Desc()};
             auto equivalent = device.CreateGraphicsPipeline(replacement);
-            if (equivalent->Desc() != replacement || dynamic_cast<const VulkanGraphicsPipeline&>(*pipeline).Native()
+            if (equivalent->Desc() != executableState || dynamic_cast<const VulkanGraphicsPipeline&>(*pipeline).Native()
                 != dynamic_cast<const VulkanGraphicsPipeline&>(*equivalent).Native())
                 throw std::runtime_error("Vulkan content-equivalent pipeline was not cached.");
             auto different = desc;
@@ -3570,6 +3682,22 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     {
         return std::make_unique<VulkanGraphicsDevice>(context);
     }
+
+    std::function<void()> SessionReleaseCheck(GraphicsDevice& device)
+    {
+        const auto state = dynamic_cast<VulkanGraphicsDevice&>(device).State();
+        state->RequireAlive();
+        if (!state->Buffers || !state->Textures || !state->Shaders || !state->Programs || !state->Samplers || !state->CommandLists)
+            throw std::logic_error("Vulkan release check needs a live fixture of each resource kind.");
+        const auto submitted = state->Scheduler->Submitted();
+        return [state, submitted] {
+            if (state->ContextPointer || state->Allocator || state->Scheduler || !state->NativeOwners.empty()
+                || state->Buffers || state->Textures || state->Shaders || state->Programs || state->Samplers
+                || state->CommandLists || state->Retired.Size() || state->OutstandingAllocationsAtShutdown
+                || state->FinalCompleted != state->FinalSubmitted || state->FinalSubmitted <= submitted)
+                throw std::logic_error("Vulkan session retained native resources or failed to complete pending work.");
+        };
+    }
 }
 #else
 namespace MphRead::NativeRuntime::Rhi::Vulkan
@@ -3593,5 +3721,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         throw std::runtime_error("Desktop Vulkan development support was not built.");
     }
     void AdoptExternalState(Texture&, ResourceState) {}
+    std::function<void()> SessionReleaseCheck(GraphicsDevice&)
+    { throw std::runtime_error("Vulkan development support was not built."); }
 }
 #endif

@@ -19,7 +19,7 @@ Phase A～E / H または R1～R20 がすべて完了したという記録では
 | R3: PipelineLayout | 複数グループの記述を値で所有。両 backend の generic pipeline / binding を共通 GPU fixture で検証。cache key に全グループを含める。scene の生成 shader adapter の整理は残る |
 | R4 / R5: submission と resize | 共通 `SubmissionSerial` / `SubmissionProgress` に Vulkan timeline と OpenGL GLsync scheduler を接続。frame number を retirement の証拠にしない。Vulkan は Buffer / Sampler / Image / ImageView / Pipeline を実際の送信完了で破棄し、resize は先に画像・全ビューを確保して旧世代を retire。OpenGL はフレーム外の command / resource release も実際の stream marker で覆う。GL marker の集約、残る ownership / format stress は後続で扱う |
 | R6 / R7: OpenGL command / sampler | Buffer / vertex・index binding / Draw / DrawIndexed / GPU Copy / BindingSet と独立 sampler・value cache を実装。Windows scene / transient geometry を同じ Buffer / CommandList / VAO 経由へ接続。共通 GPU fixture と旧新7画像の一致を確認。単一2D画像以外の範囲、packed depth/stencil copy、recording 契約の統一、本番 shader ABI 接続は残る |
-| R8: Session 寿命 | Vulkan の意図的に解放しない `VulkanScene` を削除。切替で scene / UI → commands → swapchain → device / context → window の順に解放する。OpenGL device は Session が単独所有し、終了後の wrapper を無効化。8回の shutdown / recreate で native object の実際の解放と旧 wrapper による新世代への干渉がないことを検査。Vulkan の wrapper が Session より長生きする場合の context / device state の整理は残る |
+| R8: Session 寿命 | Vulkan の意図的に解放しない `VulkanScene` を削除。切替で scene / UI → commands → swapchain → device / context → window の順に解放する。OpenGL device は Session が単独所有。Vulkan も device 終了時に全 native owner を閉じ、shared state を context 非依存の CPU descriptor にする。両 backend で未送信 copy / 旧 wrapper を残す8回の shutdown / recreate を検査。swapchain は Session 終了前に解放する caller 契約を維持。device loss / admission failure の teardown は R17 / Phase H で続ける |
 | R9: presentation | request と実際の mode / capabilities を分離。typed acquire / present status を実装し、frame loop で利用。最小化・明示的 close request は一時停止、API の device / surface loss は別分類。OpenGL の generic conformance coverage は R19 で拡張する |
 | R10～R13 | `VulkanFrameScheduler` を独立させ、実際の queue submit / completion を担当。descriptor / frame slot / memory / upload の分離は残る。native pipeline cache / budget / upload ring は未対応 |
 | R14: eligibility / admission | Vulkan passive probe は instance / physical device の確認で止まり、logical device / queue を作らない。incoming Session の device / swapchain 生成が active admission。失敗注入による復旧検証は残る |
@@ -27,7 +27,7 @@ Phase A～E / H または R1～R20 がすべて完了したという記録では
 | R16: readback | 未対応。非同期 ticket と lifetime / backpressure policy が必要 |
 | R17: error | Vulkan の device loss / surface loss / OOM を `BackendError` へ分類。presentation は typed status を返す。native code を presentation facade まで保持する改善・故障注入は残る |
 | R18: 診断 | 未対応。共通 debug label / timestamp interface が必要 |
-| R19 / Phase H | 同じ fixture で両 backend を検証する `-rhiconformance` を追加。lifetime gate に sampler / VAO を追加。操作・新旧 effect の切替 fixture と動く bot の stress を分けて記録。全 format / recording / failure / session teardown stress は引き続き拡張する |
+| R19 / Phase H | 同じ fixture で両 backend を検証する `-rhiconformance` を追加。lifetime gate に sampler / VAO を追加。操作・新旧 effect の切替 fixture と動く bot の stress を分けて記録。通常の session teardown は両方8回検査。全 format / recording / failure / presentation ownership stress は引き続き拡張する |
 | R20: optional pacing | 将来の vendor extension を core RHI に追加しない方針を維持。既存 pacing と optional controller の境界を後続で確認する |
 
 ## 最初の基盤変更
@@ -479,3 +479,69 @@ Golden Capture は backend ごとに別の出力ディレクトリを指定す�
 Android build / 実機、remote CI、device loss / OOM 故障注入は今回未実行。
 Metal / D3D12 は将来対応。R8 は Vulkan 側の終了後の wrapper と shared device state の
 context 寿命を整理するまで、全体完了とは扱わない。
+
+## Vulkan native state の Session 終了（R8）
+
+前節で残していた `VulkanDeviceState` の raw context 参照を終了境界で切り離した。
+resource wrapper が shared state を保持しても native device / context は延命しない。
+native owner の登録は借用であり、constructor が失敗した場合も registration は解放される。
+終了は記録中の command を submit → GPU 完了 → command list の ring / descriptor pool /
+cache と native command pool / fence → shader / pipeline / layout / sampler / image / view /
+buffer → frame descriptor pool / fence → VMA allocator / scheduler → context の順。
+通常の resource release はこれまでどおり submission retirement を使い、
+device 終了時だけ、完了を待った native state を即時解放する。
+終了後の texture handle / native name は無効化する。古い commands は recording を拒否し、
+新 device は古い pipeline / layout / set / texture / view を受け入れない。
+texture が view wrapper より先に破棄される場合も、view の destructor が解放済み texture を参照しない。
+
+`Session::Shutdown` は明示的に context を終了してから validation 件数を保存する。
+これにより、`vkDestroyDevice` が報告する未解放 child object も検査結果に含まれる。
+swapchain / Skia UI は従来の caller 契約どおり、Session 終了前に解放する。
+device loss / OOM の故障注入と、swapchain が caller の終了順を破る場合の検査は後続。
+
+### 検証と再実行
+
+- MSVC Release build 成功。CTest 5/5、shader interface audit（22 sources）成功。
+- `C:/tmp/gp/architecture-vksession-final-view-conformance.log`:
+  両 backend の共通 GPU fixture と8回ずつの shutdown / recreate が PASS。
+  copy を記録して `End` を呼ばず、buffer / texture / view / sampler / shader /
+  pipeline / layout / binding set / commands の wrapper を残したまま Session を終了する。
+  Vulkan は全 cycle で Khronos validation が有効。
+  終了時に copy の submission が進み Completed=Submitted、native owner / resource count /
+  retired=0、VMA の終了直前の allocation count=0、context / allocator / scheduler の参照なし。
+  shutdown を2回呼び、新 device が旧 logical texture handle を再利用した後に
+  古い wrapper を破棄しても、新 buffer の GPU copy / readback 内容と resource count が維持される。
+  incoming session で再描画して色が一致し、終了時の validation errors=0。
+- 作成済み pipeline の `Desc` は shader の借用 pointer を持たず、値の state を保持する。
+  resource 診断の古い pointer identity 判定が失敗したため、この明示契約に合わせて更新した。
+  全 state の一致、4 binding groups、異なる state の区別、shader code の内容での cache 再利用、
+  不正 pipeline の拒否は引き続き検査する。
+  shader wrapper 解放後の実際の描画は共通 conformance fixture で検査する。
+- `C:/tmp/gp/architecture-vksession-final-vulkanresourcecheck.log`:
+  buffer / image upload / copy / readback / resize、全 shader modules / pipeline state /
+  descriptor allocation / frame reuse が PASS、live=0、validation errors=0。
+- `C:/tmp/gp/architecture-vksession-final-vulkanpresentcheck.log` と
+  `architecture-vksession-final-vulkanpresentfallbackcheck.log`:
+  resize / fullscreen / minimize / restore / presentation / shutdown が PASS、validation errors=0。
+  fallback-retired-releases=6。
+- `C:/tmp/gp/architecture-vksession-final-bots-20261002-095535/`:
+  両開始 backend で front 1回、同じ Alinos Perch の Settings / Apply / Resume 切替3回が PASS。
+  全6回 definitions=105/105、impact / new bomb / existing bomb 各2 particles。
+  同じ scene / window geometry / visibility と simulation の継続、source の保持・終了時の解放を確認。
+- `C:/tmp/gp/architecture-vksession-final-golden-{opengl,vulkan}/`:
+  各7候補の撮影が成功。前節の `architecture-session-final-golden-{opengl,vulkan}` と比較し、
+  全14画像の decoded RGB 差分0。
+  記録 `C:/tmp/gp/architecture-vksession-final-golden-comparison.txt`。
+- `C:/tmp/gp/architecture-vksession-lifetime40-vulkan.log`:
+  Alinos Perch 40/40 PASS。全 release の resource / retired=0、Completed=Submitted。
+  最後は25,520/25,520 submissions、最後2 frame の明示 host wait=0。
+  CPU private memory peak は342→351 MB、0.4365 MB/cycle。
+  VRAM / 長時間の上限やメモリ改善の証拠とはしない。
+
+再実行は R4 のコマンドと既存の切替手順を使う。`-rhiconformance` は両 backend の
+未送信 copy を残した8回の終了・再作成検査を含む。
+途中の `architecture-vksession-{first,second,third}-conformance.log` は保持する。
+fixture の readback buffer への CPU upload、copy 前の resource state、cache の明示解放を
+修正した最終 fixture が上記ログであり、API の memory usage / state 検査は弱めていない。
+Android build / 実機、remote CI、device loss / OOM / admission failure の故障注入は未実行。
+Metal / D3D12 は将来対応。R2 / R10～R13 / R16～R19 などの残項目は対応中。

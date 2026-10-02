@@ -53,7 +53,7 @@ struct VulkanPipelineKey final
     }
 };
 
-class VulkanGraphicsPipeline final : public GraphicsPipeline
+class VulkanGraphicsPipeline final : public GraphicsPipeline, public VulkanNativeOwner
 {
 public:
     // A scene pass as the renderer describes it: state with no binding
@@ -61,12 +61,12 @@ public:
     // program. The scene command list builds the native pipeline per draw.
     struct Deferred final {};
     VulkanGraphicsPipeline(std::shared_ptr<VulkanDeviceState> device, const GraphicsPipelineDesc& desc, Deferred)
-        : _device(std::move(device)), _desc(desc), _deferred(true) {}
+        : _device(std::move(device)), _registration(*_device, *this), _desc(desc), _deferred(true) {}
     // scene: the stencil reference and vertex strides are dynamic, as the
     // scene command list sets them per draw.
     VulkanGraphicsPipeline(std::shared_ptr<VulkanDeviceState> device, const GraphicsPipelineDesc& desc,
         bool scene = false)
-        : _device(std::move(device)), _desc(desc)
+        : _device(std::move(device)), _registration(*_device, *this), _desc(desc)
     {
         auto& vk = *_device->ContextPointer->_impl;
         VkPhysicalDeviceProperties properties{};
@@ -250,12 +250,15 @@ public:
         catch (...) { if (_pipeline) vk.vkDestroyPipeline(vk.device, _pipeline, nullptr); vk.vkDestroyPipelineLayout(vk.device, _layout, nullptr); throw; }
     }
     VulkanGraphicsPipeline(const GraphicsPipelineDesc& desc, std::shared_ptr<VulkanGraphicsPipeline> owner)
-        : _device(owner->_device), _desc(desc), _pipeline(owner->_pipeline), _layout(owner->_layout), _owner(std::move(owner))
+        : _device(owner->_device), _registration(*_device, *this), _desc(desc), _pipeline(owner->_pipeline), _layout(owner->_layout), _owner(std::move(owner))
     { _desc.vertexShader = _desc.fragmentShader = nullptr; }
-    ~VulkanGraphicsPipeline() override
+    ~VulkanGraphicsPipeline() override { CloseNative(); }
+    void CloseNative() noexcept override
     {
-        if (_deferred) _device->ForgetScene(this);
-        if (_owner || _deferred) return;
+        if (!_device->ContextPointer) return;
+        if (!_device->Closing) { try { _device->ForgetScene(this); } catch (...) {} }
+        if (_owner || _deferred) { _pipeline = VK_NULL_HANDLE; _layout = VK_NULL_HANDLE; return; }
+        if (!_pipeline) return;
         try { _device->FlushScene(); } catch (...) {}
         auto& vk = *_device->ContextPointer->_impl;
         _device->Retire([device = vk.device, destroyPipeline = vk.vkDestroyPipeline,
@@ -264,15 +267,17 @@ public:
             destroyLayout(device, layout, nullptr);
         });
         --_device->Programs;
+        _pipeline = VK_NULL_HANDLE; _layout = VK_NULL_HANDLE;
     }
     [[nodiscard]] const GraphicsPipelineDesc& Desc() const noexcept override { return _desc; }
-    [[nodiscard]] VkPipeline Native() const noexcept { return _pipeline; }
-    [[nodiscard]] VkPipelineLayout Layout() const noexcept { return _layout; }
+    [[nodiscard]] VkPipeline Native() const noexcept { return _owner ? _owner->Native() : _pipeline; }
+    [[nodiscard]] VkPipelineLayout Layout() const noexcept { return _owner ? _owner->Layout() : _layout; }
     [[nodiscard]] const std::shared_ptr<VulkanDeviceState>& DeviceState() const noexcept { return _device; }
     [[nodiscard]] bool IsDeferred() const noexcept { return _deferred; }
 private:
     bool _deferred = false;
     std::shared_ptr<VulkanDeviceState> _device;
+    VulkanNativeRegistration _registration;
     GraphicsPipelineDesc _desc;
     VkPipeline _pipeline = VK_NULL_HANDLE;
     VkPipelineLayout _layout = VK_NULL_HANDLE;

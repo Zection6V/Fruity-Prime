@@ -1,6 +1,7 @@
 #include "RhiConformanceCheck.hpp"
 #include "../../NativeRuntime/Rhi/OpenGL/OpenGlDiagnostics.hpp"
 #include "../../NativeRuntime/Rhi/OpenGL/OpenGlDevice.hpp"
+#include "../../NativeRuntime/Rhi/Vulkan/VulkanGraphicsDevice.hpp"
 #include "../Branding.hpp"
 #include "../../Renderer.hpp"
 #include "../../NativeRuntime/Rhi/BackendSession.hpp"
@@ -86,6 +87,7 @@ namespace MphRead::Mods::Diagnostics
             Rhi::BindingLayout* Layout = nullptr;
             Rhi::BindingSet* Set = nullptr;
             Rhi::Texture* Texture = nullptr;
+            Rhi::TextureView* View = nullptr;
             template <typename T> void Keep(std::unique_ptr<T> object) { Leases.emplace_back(std::move(object)); }
         };
 
@@ -207,8 +209,13 @@ namespace MphRead::Mods::Diagnostics
             Expect(device.DrainErrors() == 0, "RHI conformance raised native graphics errors.");
             if (held)
             {
+                // Deliberately leave a copy recorded at the shutdown boundary.
+                // The session must submit and complete it before native release.
+                commands->Begin();
+                commands->CopyBuffer(*upload, 0, *readback, 0, upload->Desc().size);
                 held->Commands = commands.get(); held->Pipeline = pipeline.get();
                 held->Layout = frameGroup.get(); held->Set = frameSet.get(); held->Texture = target.get();
+                held->View = sampleView.get();
                 held->Keep(std::move(commands)); held->Keep(std::move(pipeline));
                 for (auto* value : {&upload, &readback, &vertices, &index, &frame, &draw}) held->Keep(std::move(*value));
                 for (auto* value : {&image, &sampled, &target}) held->Keep(std::move(*value));
@@ -224,46 +231,56 @@ namespace MphRead::Mods::Diagnostics
             }
         }
 
-        void ExerciseOpenGlSessionLifetime(const Rhi::BackendProvider& provider)
+        void ExerciseSessionLifetime(const Rhi::BackendProvider& provider)
         {
             using namespace Rhi;
+            const bool gl = provider.Backend() == GraphicsBackend::OpenGl;
             for (unsigned cycle = 0; cycle < 8; ++cycle)
             {
-                auto outgoing = provider.CreateSession({});
+                auto outgoing = provider.CreateSession({true});
                 HeldResources held;
                 auto& oldDevice = outgoing->Device();
+                if (!gl) Expect(outgoing->ValidationEnabled(), "Session lifetime check requires Vulkan validation.");
                 Exercise(oldDevice, &held);
                 bool rejected = false;
-                auto duplicate = provider.CreateSession({});
-                try { (void)duplicate->Device(); } catch (const std::logic_error&) { rejected = true; }
-                Expect(rejected, "Two session devices claimed the same OpenGL context.");
-                auto released = OpenGL::NativeReleaseCheck(oldDevice);
+                if (gl)
+                {
+                    auto duplicate = provider.CreateSession({});
+                    try { (void)duplicate->Device(); } catch (const std::logic_error&) { rejected = true; }
+                    Expect(rejected, "Two session devices claimed the same OpenGL context.");
+                }
+                auto released = gl ? OpenGL::NativeReleaseCheck(oldDevice) : Vulkan::SessionReleaseCheck(oldDevice);
                 const auto oldHandle = held.Texture->Handle();
                 const auto textureDesc = held.Texture->Desc();
                 // Exercise explicit owner teardown and the window's defensive
                 // close path while its session wrapper is still alive.
-                if (cycle % 2) OpenGL::ReleaseContextDevice();
+                if (gl && cycle % 2) OpenGL::ReleaseContextDevice();
                 else { outgoing->Shutdown(); outgoing->Shutdown(); }
                 released();
+                Expect(!outgoing->ValidationErrors(), "Session shutdown reported native resource lifetime errors.");
                 Expect(!held.Texture->Handle(), "Detached texture still exposed its old native name.");
                 rejected = false;
                 try { held.Commands->Begin(); } catch (const std::logic_error&) { rejected = true; }
-                Expect(rejected, "Command recording survived its ended OpenGL session.");
+                Expect(rejected, "Command recording survived its ended session.");
 
-                auto incoming = provider.CreateSession({});
+                auto incoming = provider.CreateSession({true});
                 auto& device = incoming->Device();
+                if (!gl) Expect(incoming->ValidationEnabled(), "Incoming session check requires Vulkan validation.");
                 outgoing->Shutdown(); outgoing->Shutdown();
                 auto commands = device.CreateCommandList(); commands->Begin();
                 rejected = false;
                 try { commands->SetPipeline(*held.Pipeline); } catch (const std::invalid_argument&) { rejected = true; }
                 Expect(rejected, "Old session pipeline was accepted by a new device.");
-                BindingLayoutDesc frameLayout{{{7, BindingType::UniformBuffer, ShaderStage::Fragment, 1}}};
-                GraphicsPipelineDesc state{}; state.pipelineLayout.groups = {frameLayout};
+                auto state = held.Pipeline->Desc();
+                auto vertex = device.CreateShader(Shader(device.GetBackend(), ShaderStage::Vertex));
+                auto fragment = device.CreateShader(Shader(device.GetBackend(), ShaderStage::Fragment));
+                state.vertexShader = vertex.get(); state.fragmentShader = fragment.get();
                 auto pipeline = device.CreateGraphicsPipeline(state); commands->SetPipeline(*pipeline);
                 rejected = false;
                 try { commands->SetBindingSet(0, *held.Set); } catch (const std::invalid_argument&) { rejected = true; }
                 Expect(rejected, "Old session binding set was accepted by a new device.");
-                auto guard = device.CreateBuffer({16, BufferUsage::Uniform, MemoryUsage::GpuToCpu});
+                auto guard = device.CreateBuffer({16, BufferUsage::Uniform | BufferUsage::TransferSrc, MemoryUsage::CpuToGpu});
+                auto guardRead = device.CreateBuffer({16, BufferUsage::TransferDst, MemoryUsage::GpuToCpu});
                 rejected = false;
                 try { (void)device.CreateBindingSet({held.Layout, {{7, BufferBinding{guard.get(), 0, 16}}}}); }
                 catch (const std::invalid_argument&) { rejected = true; }
@@ -274,6 +291,12 @@ namespace MphRead::Mods::Diagnostics
                 rejected = false;
                 try { device.ResizeTexture(*held.Texture, 16, 16); } catch (const std::invalid_argument&) { rejected = true; }
                 Expect(rejected, "Old session texture storage was resized by a new device.");
+                auto imageLayout = device.CreateBindingLayout({{{3, BindingType::SampledTexture, ShaderStage::Fragment, 1}}});
+                rejected = false;
+                try { (void)device.CreateBindingSet({imageLayout.get(), {{3, TextureBinding{held.View}}}}); }
+                catch (const std::invalid_argument&) { rejected = true; }
+                Expect(rejected, "Old session image view was accepted by a new device.");
+                imageLayout.reset();
                 commands->End();
                 auto guardTexture = device.CreateTexture(textureDesc, oldHandle);
                 const std::array<unsigned, 4> payload{cycle, 7, 23, 0xAABBCCDD};
@@ -284,17 +307,25 @@ namespace MphRead::Mods::Diagnostics
                 Expect(after.LiveObjects() == before.LiveObjects() && after.Retired == before.Retired,
                     "Late old-session destruction altered incoming resources.");
                 std::array<unsigned, 4> result{};
-                device.ReadBuffer(*guard, 0, std::as_writable_bytes(std::span(result)));
+                commands->Begin();
+                commands->Transition(*guard, ResourceState::Undefined, ResourceState::CopySrc);
+                commands->Transition(*guardRead, ResourceState::Undefined, ResourceState::CopyDst);
+                commands->CopyBuffer(*guard, 0, *guardRead, 0, 16); commands->End();
+                device.ReadBuffer(*guardRead, 0, std::as_writable_bytes(std::span(result)));
                 Expect(result == payload && device.FindTexture(oldHandle) == guardTexture.get() && !device.DrainErrors(),
                     "Late old-session destruction deleted a reused incoming native name.");
-                guard.reset(); guardTexture.reset(); commands.reset(); pipeline.reset();
+                guard.reset(); guardRead.reset(); guardTexture.reset(); commands.reset(); pipeline.reset();
+                vertex.reset(); fragment.reset(); device.TrimCaches();
                 Exercise(device);
+                device.TrimCaches();
                 device.WaitIdle();
                 Expect(!device.Statistics().LiveObjects() && !device.Statistics().Retired,
                     "Incoming session did not release its resources.");
                 incoming->Shutdown();
+                Expect(!incoming->ValidationErrors(), "Incoming session shutdown reported validation errors.");
             }
-            std::cout << "[rhi conformance] OpenGL session ownership PASS; 8 shutdown/recreate cycles; native release; late wrappers inert; stale bindings rejected\n";
+            std::cout << "[rhi conformance] " << (gl ? "OpenGL" : "Vulkan")
+                << " session ownership PASS; 8 shutdown/recreate cycles; pending copy; native release; late wrappers inert; stale bindings rejected\n";
         }
     }
     int RunRhiConformanceCheck()
@@ -325,7 +356,7 @@ namespace MphRead::Mods::Diagnostics
                 Expect(session->ValidationErrors() == 0, "RHI conformance shutdown validation failed.");
                 std::cout << "[rhi conformance] " << (backend == Rhi::GraphicsBackend::OpenGl ? "OpenGL" : "Vulkan")
                     << " PASS; unframed submission lifetime; GPU buffers/copies/pitched texture transfers; four-group layout; UBO/image/sampler; Draw/DrawIndexed; sampler pixels; release=0\n";
-                if (backend == Rhi::GraphicsBackend::OpenGl) ExerciseOpenGlSessionLifetime(*provider);
+                ExerciseSessionLifetime(*provider);
             }
             return 0;
         }

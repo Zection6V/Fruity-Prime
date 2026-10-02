@@ -207,6 +207,9 @@ namespace MphRead::NativeRuntime::Rhi
 
     struct GraphicsPipelineDesc final
     {
+        // Creation inputs borrowed for native compilation. A compiled
+        // pipeline's Desc keeps its value state and clears these pointers;
+        // releasing public shader wrappers does not release its executable.
         const Shader* vertexShader = nullptr;
         const Shader* fragmentShader = nullptr;
         PipelineLayout pipelineLayout{};

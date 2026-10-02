@@ -65,6 +65,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 if (!_context) return;
                 try { if (_device) _device->WaitIdle(); } catch (...) {}
                 _device.reset();
+                // Include vkDestroyDevice's child-object validation in the
+                // session result, while the debug messenger is still alive.
+                try { _context->Shutdown(); } catch (...) {}
                 _errors += _context->ValidationErrors();
                 _context.reset();
                 _window = nullptr;

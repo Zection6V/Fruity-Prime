@@ -21,7 +21,9 @@ Phase A～E / H または R1～R20 がすべて完了したという記録では
 | R6 / R7: OpenGL command / sampler | Buffer / vertex・index binding / Draw / DrawIndexed / GPU Copy / BindingSet と独立 sampler・value cache を実装。Windows scene / transient geometry を同じ Buffer / CommandList / VAO 経由へ接続。共通 GPU fixture と旧新7画像の一致を確認。単一2D画像以外の範囲、packed depth/stencil copy、recording 契約の統一は残る |
 | R8: Session 寿命 | Vulkan の意図的に解放しない `VulkanScene` を削除。切替で scene / UI → commands → swapchain → device / context → window の順に解放する。OpenGL device は Session が単独所有。Vulkan も device 終了時に全 native owner を閉じ、shared state を context 非依存の CPU descriptor にする。両 backend で未送信 copy / 旧 wrapper を残す8回の shutdown / recreate を検査。swapchain は Session 終了前に解放する caller 契約を維持。device loss / admission failure の teardown は R17 / Phase H で続ける |
 | R9: presentation | request と実際の mode / capabilities を分離。typed acquire / present status を実装し、frame loop で利用。最小化・明示的 close request は一時停止、API の device / surface loss は別分類。OpenGL の generic conformance coverage は R19 で拡張する |
-| R10 / R12 / R13 | `VulkanFrameScheduler` が実際の queue submit / completion を担当。`VulkanDescriptorAllocator` に generic / scene 共通の pool admission・overflow・完了後 reset・close を分離し、CPU fault dispatch と GPU churn を検査。pipeline library は R11 の専用 owner。frame slot / memory / upload の分離、budget / upload ring は残る |
+| R10: Vulkan 責務分離 | `VulkanFrameScheduler` が queue submit / completion、`VulkanDescriptorAllocator` が slot ごとの pools、`VulkanUploadArena` が mapped pages / suballocation / flush / completion 後 reset / close を所有。pipeline library は R11 の専用 owner。frame slot / VMA resource factory / probe の分離は残る |
+| R12: memory budget | 未完了。upload の8 MB batch threshold / high water reuse は heap budget admission ではない。cross-backend snapshot / pure decision / telemetry と大きい resource の admission を続ける |
+| R13: upload | Vulkan の scene uniforms / transient geometry / texture と GPU-only buffer upload を slot ごとの persistent mapped arena へ統一。描画外の writes は専用 transfer stream で batch し、consumer / frame / readback / release の順序境界で submit。static mesh は GPU-only destination。CPU fake と実 GPU の再利用・コピー順・overflow・切替を検査。将来の API の機構は追加しない |
 | R11: native pipeline library | 既存 semantic cache を維持し、専用 `VulkanPipelineCache` を全 RHI native graphics pipeline 生成へ接続。identity / framing / checksum / size gate、atomic disk replacement、driver rejection / native cache 不可時の fallback と deterministic close を実装。CPU fault dispatch と実 GPU の cold / warm・破損・保存失敗を検証。速度向上・cache hit の計測は未実施。OpenGL は既存 linked-program cache、Metal / D3D12 は将来対応 |
 | R14: eligibility / admission | Vulkan passive probe は instance / physical device の確認で止まり、logical device / queue を作らない。incoming Session の device / swapchain 生成が active admission。失敗注入による復旧検証は残る |
 | R15: GL vertex interface | Windows scene / transient / launcher UI を explicit input と RHI Buffer / CommandList / VAO へ統一。desktop wrapper の conventional array / current-value mirror を除去。本番 GLSL declarations と共通 ABI、実 SPIR-V vertex location の一致を検査。GPU composite / 旧新14画像の一致を確認。既存の backend 間 caption 差は画像 gate に残る |
@@ -823,3 +825,101 @@ OpenGL 開始が PASS、Vulkan 開始の最後だけ新旧 bomb の particles / 
 R10 の frame slot / memory / upload 分離、R12 budget、R13 upload ring、R16 async readback、
 R17～R19 の故障・診断・ownership stress などは引き続き残る。
 Android build / 実機と remote CI は未実行。Metal / D3D12 は今回追加しない。
+
+## Vulkan persistent upload の統一（R10 / R13）
+
+`VulkanUploadArena.hpp/.cpp` が1つの submission slot の staging pages を所有する。
+scene constants / transient geometry / texture upload と、描画外の buffer / texture upload が
+同じ page allocation / alignment / flush / completion / close の実装を使う。
+queue / command pool / fence は caller、実際の submission serial は `VulkanFrameScheduler` が所有する。
+
+- VMA の `HOST_ACCESS_SEQUENTIAL_WRITE | MAPPED` で page を一度確保する。
+  CPU pointer は page の寿命中保持し、upload ごとの map / unmap を行わない。
+  native admission 前に CPU page retention を reserve し、不完全な mapping は native page を解放して拒否する。
+  これは GPU への転送用 staging であり、renderer 切替の復元用 texture backup を新設したものではない。
+- size / alignment / reserved-byte overflow を確認し、任意 alignment と page overflow を扱う。
+  大きい request は十分な1 page に収める。dirty ranges を page ごとにまとめて submit 前に flush し、
+  部分的な flush failure は残りの dirty range を保持する。
+- 成功した submit の serial を記録する。実 completion より早い reset / allocation は拒否する。
+  完了後は default / overflow pages を再利用し、Session 終了で全部閉じる。
+  caller は unsubmitted recording を終了／破棄してから reset、GPU を drain／破棄してから close する。
+- 描画中の GPU-only buffer / texture write は、その位置の command stream に copy を挿入する。
+  描画外では device が専用 transfer command list を保持し、小さい writes をまとめる。
+  8 MB の batch threshold、別 command list の開始、frame 終了、readback、resource release、
+  Session teardown が submit の境界。ring は2 slots を交換し、再利用時に必要な completion を待つ。
+  upload ごとに staging Buffer / temporary CommandList を作る fallback を除去した。
+- `CpuToGpu` destination 自体も persistently mapped にする。static mesh の vertex / index destination は
+  `GpuOnly + TransferDst` にし、copy 後に vertex / index state へ transition する。
+  static mesh ごとに mapped host destination を保持する構成は採用しない。
+- transfer command list の lifetime count は scene command list と区別する。
+  transfer stream の保持で scene の window target 解放を妨げない。
+  Session teardown witness は upload command lists / pages の0も要求する。
+
+仕様確認: [VMA persistent mapping / flush](https://gpuopen-librariesandsdks.github.io/VulkanMemoryAllocator/html/memory_mapping.html)。
+VMA が non-coherent atom alignment を扱う。queue submission の後も memory を mapped のまま保持できる。
+GPU-only は配置の意図であり、UMA / BAR も含め、常に CPU から不可視の heap に置かれるとの保証ではない。
+
+### 検証と再実行
+
+MSVC Release build、CTest **10/10**、shader interface audit **20 sources** が成功。
+`FruityPrime.VulkanUploadArena` は native API / GPU を起動しない dispatch fixture。
+任意 alignment、slice address / byte の保持、oversized admission、default / overflow page の再利用、
+completion 前の拒否、独立2 slots、create / mapping / partial flush failure、dirty range の再試行、
+double close / late calls を検査する。実 driver の OOM 注入とは区別する。
+
+repo root の PowerShell、MSVC Release build と game files / paths.txt 配置済み:
+
+```powershell
+ctest --test-dir tools/build/out/msvc-Release --output-on-failure
+python tools/check-phase5-shader-interface.py
+Push-Location tools/build/out/msvc-Release
+try {
+    & .\FruityPrime.exe -vulkanresourcecheck -noupdate
+    if ($LASTEXITCODE -ne 0) { throw 'upload/resource regression failed' }
+    & .\FruityPrime.exe -rhiconformance -noupdate
+    if ($LASTEXITCODE -ne 0) { throw 'RHI ownership regression failed' }
+    & .\FruityPrime.exe -gpulifetime 'AD2 ALINOS PERCH' -cycles 40 -frames 3 -rhi vulkan -vkvalidation -noupdate
+    if ($LASTEXITCODE -ne 0) { throw 'Vulkan lifetime regression failed' }
+} finally { Pop-Location }
+```
+
+固定 Golden Capture と Settings 保存 / Resume は直前の shader ABI 節の再実行手順を使う。
+GPU resource check は64回の buffer / texture writes で warmup 後の page creation が増えないこと、
+小さい writes が1つの stream にまとまること、recording 中の更新前後のコピーが各々正しいことを検査する。
+8 MB 超の upload も2 slots の warmup 後は page creation が増えず、全 bytes が readback と一致することを要求する。
+通常 upload の device-wide waits が増えないことも要求する。readback 自体の同期化は R16 の残作業。
+
+実 GPU は NVIDIA GeForce RTX 5070 Ti、Khronos validation 有効:
+
+- `C:/tmp/gp/architecture-uploadarena-staticgpu-vulkanresourcecheck.log`: 上記 upload gate と
+  64回の clear / descriptor bind / resize / release PASS、live / retired / validation errors=0。
+  RGB32Float の sampled image はこの GPU の指定 usage では未対応と native query が返すため、
+  実 GPU float texture は RGBA32Float で検査した。12-byte alignment は CPU fixture で検査する。
+  RGB32Float の実 transfer 成功を主張しない。
+- `C:/tmp/gp/architecture-uploadarena-staticgpu-rhiconformance.log`: 共通 GPU fixture、両 backend の
+  pending copy / old wrappers を残した shutdown / recreate 各8回 PASS。
+  upload pages と VMA allocations を閉じ、validation errors=0。
+- `C:/tmp/gp/architecture-uploadarena-staticgpu-golden-{opengl,vulkan}/`: 各7ケース PASS。
+  shader ABI 接続後の直前画像と比較し、全14画像の decoded RGB 差0 bytes。
+  比較表は `C:/tmp/gp/architecture-uploadarena-staticgpu-golden-comparison.txt`。
+- `C:/tmp/gp/architecture-uploadarena-staticgpu-bots-20261002-140708/`: 動く bots の Alinos Perch で
+  両 backend 開始、front screen 各1回と同じ試合の Settings 保存 / Resume 各3回 PASS。
+  全6回 definitions=105/105、impact / new bomb / existing bomb 各2 particles。
+  新旧 bomb entity は alive / flags=0。scene / window geometry / visibility を保持し、
+  simulation frame は進む。texture-only source は切替中 alive、scene 解放時 released。
+  最終画像で黄色 impact / 青い Lockjaw core を目視した。validation error はない。
+- `C:/tmp/gp/architecture-uploadarena-staticgpu-lifetime40-vulkan.log`: 40/40 PASS、毎回
+  resource / retired=0、最後の completed=submitted=320、最後2 frames の host waits=0。
+  CPU private memory peak 330→332 MB、0.0869 MB/cycle。
+  この fixture の送信数は直前の25520から320へ減ったが、fps / wall time / VRAM budget の改善を測った結果ではない。
+
+途中の実装では static mesh を `CpuToGpu` の mapped destination として保持していた。
+その40回 gateは counts / trend とも PASS したが private peak は574→577 MBで、
+絶対量が大きかった。`C:/tmp/gp/architecture-uploadarena-batched-lifetime40-vulkan.log` に保持する。
+static mesh を GPU-only destination に変更した最終構成の330→332 MBと区別し、
+安定した count / trend だけでメモリ使用量が改善したとの判断はしない。
+
+R10 の frame slot / VMA memory factory、R12 の budget admission、R16 の async readback、
+R17～R19 の故障・診断・ownership / format stress は残る。
+upload の page high water 保持は全 workload の memory budget / eviction 保証ではない。
+Android build / 実機と remote CI は未実行。Metal / D3D12 は将来対応。

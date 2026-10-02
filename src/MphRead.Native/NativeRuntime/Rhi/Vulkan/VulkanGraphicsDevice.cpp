@@ -9,6 +9,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <limits>
+#include <iostream>
 #include <mutex>
 #include <stdexcept>
 #include <type_traits>
@@ -20,6 +21,7 @@
 #include "VulkanFrameScheduler.hpp"
 #include "VulkanPipelineCache.hpp"
 #include "VulkanDescriptorAllocator.hpp"
+#include "VulkanUploadArena.hpp"
 #include "../SceneShaderAbi.hpp"
 #include "../../../Mods/Platform/AppPaths.hpp"
 #include "FruityVulkanSceneShaders.hpp"
@@ -403,6 +405,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
             [[nodiscard]] VkBuffer Native() const noexcept { return _buffer; }
             [[nodiscard]] VmaAllocation Allocation() const noexcept { return _allocation; }
+            [[nodiscard]] std::byte* Mapped() const noexcept { return _mapped; }
             [[nodiscard]] ResourceState State() const noexcept { return _state; }
             void State(ResourceState value) noexcept { _state = value; }
             [[nodiscard]] const std::shared_ptr<VulkanDeviceState>& DeviceState() const noexcept
@@ -416,6 +419,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             BufferDesc _desc{};
             VkBuffer _buffer = VK_NULL_HANDLE;
             VmaAllocation _allocation = VK_NULL_HANDLE;
+            std::byte* _mapped = nullptr;
             ResourceState _state = ResourceState::Undefined;
         };
 
@@ -683,6 +687,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::atomic<std::uint32_t> Shaders{0};
             std::atomic<std::uint32_t> Programs{0};
             std::atomic<std::uint32_t> Samplers{0};
+            std::atomic<std::uint32_t> UploadPages{0};
+            std::atomic<std::uint64_t> UploadPageCreations{0};
+            std::atomic<std::uint32_t> UploadCommandLists{0};
             std::atomic<std::uint64_t> CurrentFrame{0};
             std::atomic<std::uint64_t> CompletedFrame{0};
             std::atomic<std::uint64_t> HostWaits{0};
@@ -691,6 +698,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::unique_ptr<VulkanPipelineCache> PipelineCache;
             VkDeviceSize UniformAlignment = 16;
             RetirementQueue<std::function<void()>> Retired;
+
+            VkResult ImageFormatProperties(VkFormat format, VkImageUsageFlags usage, VkImageFormatProperties& properties) const
+            {
+                auto& vk = *ContextPointer->_impl;
+                return vk.vkGetPhysicalDeviceImageFormatProperties(vk.physical, format,
+                    VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL, usage, 0, &properties);
+            }
 
             void Retire(std::function<void()> release)
             {
@@ -1186,9 +1200,18 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             create.size = _desc.size;
             create.usage = ToVkBufferUsage(_desc.usage);
             create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-            const VmaAllocationCreateInfo allocation = ToVmaAllocation(_desc.memoryUsage);
+            auto allocation = ToVmaAllocation(_desc.memoryUsage);
+            if (_desc.memoryUsage == MemoryUsage::CpuToGpu) allocation.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
+            VmaAllocationInfo info{};
             Check(vmaCreateBuffer(_device->Allocator, &create, &allocation,
-                &_buffer, &_allocation, nullptr), "vmaCreateBuffer");
+                &_buffer, &_allocation, &info), "vmaCreateBuffer");
+            _mapped = static_cast<std::byte*>(info.pMappedData);
+            if (_desc.memoryUsage == MemoryUsage::CpuToGpu && !_mapped)
+            {
+                vmaDestroyBuffer(_device->Allocator, _buffer, _allocation);
+                _buffer = VK_NULL_HANDLE; _allocation = VK_NULL_HANDLE;
+                throw std::runtime_error("Vulkan upload buffer is not persistently mapped.");
+            }
             ++_device->Buffers;
         }
 
@@ -1203,6 +1226,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 });
                 _buffer = VK_NULL_HANDLE;
                 _allocation = VK_NULL_HANDLE;
+                _mapped = nullptr;
                 --_device->Buffers;
             }
         }
@@ -1527,7 +1551,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         class VulkanCommandList final : public CommandList, public VulkanNativeOwner
         {
         public:
-            explicit VulkanCommandList(std::shared_ptr<VulkanDeviceState> state);
+            explicit VulkanCommandList(std::shared_ptr<VulkanDeviceState> state, bool transferOnly = false);
             ~VulkanCommandList() override;
             void CloseNative() noexcept override;
 
@@ -1600,20 +1624,17 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 std::uint32_t IndexCount = 0;
                 bool Lines = false;
             };
-            struct RingSlice final
-            {
-                VkBuffer Buffer = VK_NULL_HANDLE;
-                VkDeviceSize Offset = 0;
-                std::byte* Data = nullptr;
-            };
+            using RingSlice = VulkanUploadArena::Slice;
             void DrawScene(const SceneDraw& draw);
             // WriteTexture at this point in the recorded stream: the texels
             // staged in this slot's ring, copied between the draws around it,
             // as a glTexImage2D between two draws takes effect.
             void UploadTexture(VulkanTexture& texture, std::span<const std::byte> texels);
+            void UploadBuffer(VulkanBuffer& buffer, VkDeviceSize offset, std::span<const std::byte> bytes);
             [[nodiscard]] RingSlice Allocate(VkDeviceSize size, VkDeviceSize alignment = 16);
-            // Submit everything recorded and wait for it; recording resumes
-            // on the next command.
+            [[nodiscard]] VkDeviceSize PendingUploadBytes() const noexcept { return _uploads->UsedBytes(); }
+            // Submit recorded work; wait only when reusing a pending slot.
+            // Recording resumes on the next command.
             void Flush();
             void Forget(const void* object);
 
@@ -1659,15 +1680,6 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 GraphicsPipelineDesc BaseDesc;
                 std::shared_ptr<VulkanGraphicsPipeline> Native;
             };
-            struct RingChunk final
-            {
-                VkBuffer Buffer = VK_NULL_HANDLE;
-                VmaAllocation Allocation = VK_NULL_HANDLE;
-                std::byte* Mapped = nullptr;
-                VkDeviceSize Size = 0;
-                VkDeviceSize Used = 0;
-            };
-
             void RequireRecording();
             void BeginBuffer();
             // Wait for both slots' submitted work; their allocations are free.
@@ -1686,6 +1698,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::shared_ptr<VulkanDeviceState> _device;
             VulkanNativeRegistration _registration;
             bool _closed = false;
+            bool _transferOnly = false;
             // Two submission slots. The members below are the current slot;
             // _spare holds the other, swapped in at every flush, so a frame's
             // submission is waited on only when its slot comes round again.
@@ -1695,8 +1708,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 VkCommandBuffer Buffer = VK_NULL_HANDLE;
                 VkFence Fence = VK_NULL_HANDLE;
                 bool Submitted = false;
-                std::vector<RingChunk> Ring{};
-                std::size_t RingIndex = 0;
+                std::unique_ptr<VulkanUploadArena> Uploads;
                 std::unique_ptr<VulkanDescriptorAllocator> Descriptors;
             };
             Slot _spare{};
@@ -1722,8 +1734,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
             std::array<std::pair<VulkanTexture*, const VulkanSampler*>, 4> _units{};
             std::unordered_map<VariantKey, Variant, VariantHash> _variants{};
-            std::vector<RingChunk> _ring{};
-            std::size_t _ringChunk = 0;
+            std::unique_ptr<VulkanUploadArena> _uploads;
             std::unique_ptr<VulkanDescriptorAllocator> _descriptors;
 
             const VulkanSceneProgram* _setProgram = nullptr;
@@ -1735,8 +1746,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::unique_ptr<VulkanSampler> _dummySampler;
         };
 
-        VulkanCommandList::VulkanCommandList(std::shared_ptr<VulkanDeviceState> state)
-            : _device(std::move(state)), _registration(*_device, *this, true)
+        VulkanCommandList::VulkanCommandList(std::shared_ptr<VulkanDeviceState> state, bool transferOnly)
+            : _device(std::move(state)), _registration(*_device, *this, true), _transferOnly(transferOnly)
         {
             auto& vk = *_device->ContextPointer->_impl;
             const auto make = [&](VkCommandPool& poolHandle, VkCommandBuffer& buffer, VkFence& fenceHandle)
@@ -1762,6 +1773,39 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 const VulkanDescriptorAllocator::Capacity capacity{2048, {2048, 0, 4096, 0, 4096}};
                 _descriptors = _device->MakeDescriptors(capacity);
                 _spare.Descriptors = _device->MakeDescriptors(capacity);
+                const auto makeUploads = [&] {
+                    return std::make_unique<VulkanUploadArena>(VulkanUploadArena::Dispatch{
+                        [device = _device.get()](VkDeviceSize size) {
+                            VulkanUploadArena::Page page{};
+                            VkBufferCreateInfo create{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+                            create.size = size;
+                            create.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+                                | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+                            create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+                            VmaAllocationCreateInfo allocation{};
+                            allocation.usage = VMA_MEMORY_USAGE_AUTO;
+                            allocation.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT
+                                | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+                            VmaAllocationInfo info{};
+                            Check(vmaCreateBuffer(device->Allocator, &create, &allocation,
+                                &page.Buffer, &page.Allocation, &info), "vmaCreateBuffer(upload arena)");
+                            page.Data = static_cast<std::byte*>(info.pMappedData);
+                            page.Size = size;
+                            ++device->UploadPages;
+                            ++device->UploadPageCreations;
+                            return page;
+                        },
+                        [device = _device.get()](const VulkanUploadArena::Page& page) {
+                            vmaDestroyBuffer(device->Allocator, page.Buffer, page.Allocation);
+                            --device->UploadPages;
+                        },
+                        [device = _device.get()](const VulkanUploadArena::Page& page, VkDeviceSize offset, VkDeviceSize size) {
+                            Check(vmaFlushAllocation(device->Allocator, page.Allocation, offset, size),
+                                "vmaFlushAllocation(upload arena)");
+                        }});
+                };
+                _uploads = makeUploads();
+                _spare.Uploads = makeUploads();
                 _device->SceneForgetters[this] = [this](const void* object) { Forget(object); };
                 _device->SceneViewReplacers[this] = [this](VkImageView before, VkImageView after) {
                     const bool matches = _target.ColorView == before || _target.DepthView == before;
@@ -1778,7 +1822,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                         if (_target.DepthView == before) _target.DepthView = after;
                     }
                 };
-                ++_device->CommandLists;
+                if (_transferOnly) ++_device->UploadCommandLists;
+                else ++_device->CommandLists;
             }
             catch (...)
             {
@@ -1812,21 +1857,18 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (!_device->Closing) { try { WaitAll(); } catch (...) {} }
             _variants.clear();
             _dummy.reset();
-            if (--_device->CommandLists == 0) _device->ReleaseWindowTarget();
+            if (_transferOnly) --_device->UploadCommandLists;
+            else if (--_device->CommandLists == 0) _device->ReleaseWindowTarget();
             _dummySampler.reset();
-            for (auto* ring : {&_ring, &_spare.Ring})
-                for (auto& chunk : *ring)
-                {
-                    vmaUnmapMemory(_device->Allocator, chunk.Allocation);
-                    vmaDestroyBuffer(_device->Allocator, chunk.Buffer, chunk.Allocation);
-                }
+            if (_uploads) _uploads->Close();
+            if (_spare.Uploads) _spare.Uploads->Close();
             if (_descriptors) _descriptors->Close();
             if (_spare.Descriptors) _spare.Descriptors->Close();
             for (VkFence fence : {_fence, _spare.Fence})
                 if (fence) vk.vkDestroyFence(vk.device, fence, nullptr);
             for (VkCommandPool pool : {_pool, _spare.Pool})
                 if (pool) vk.vkDestroyCommandPool(vk.device, pool, nullptr);
-            _ring.clear(); _descriptors.reset(); _spare = {};
+            _uploads.reset(); _descriptors.reset(); _spare = {};
             _pool = VK_NULL_HANDLE; _fence = VK_NULL_HANDLE; _commandBuffer = VK_NULL_HANDLE;
             _recording = _autoRestart = _renderingActive = _renderingOpen = _clearsPending = false;
             _target = {}; _pipeline = nullptr; _units = {}; _setProgram = nullptr; _sets.fill(VK_NULL_HANDLE);
@@ -1848,9 +1890,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 _submitted = false;
                 _device->CollectRetired();
             }
-            for (auto& chunk : _ring) chunk.Used = 0;
-            _ringChunk = 0;
-            _descriptors->ResetAfterCompletion(_device->Scheduler->Poll());
+            const auto completed = _device->Scheduler->Poll();
+            _uploads->ResetAfterCompletion(completed);
+            _descriptors->ResetAfterCompletion(completed);
         }
 
         void VulkanCommandList::WaitAll()
@@ -1862,9 +1904,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 Check(WaitFenceReporting(vk.vkWaitForFences, vk.device, &_spare.Fence, "vkWaitForFences(spare)"), "vkWaitForFences(spare)");
                 Check(vk.vkResetFences(vk.device, 1, &_spare.Fence), "vkResetFences(spare)");
                 _spare.Submitted = false;
-                for (auto& chunk : _spare.Ring) chunk.Used = 0;
-                _spare.RingIndex = 0;
-                _spare.Descriptors->ResetAfterCompletion(_device->Scheduler->Poll());
+                const auto completed = _device->Scheduler->Poll();
+                _spare.Uploads->ResetAfterCompletion(completed);
+                _spare.Descriptors->ResetAfterCompletion(completed);
             }
             if (_submitted && !_recording) Recycle();
             _device->CollectRetired();
@@ -1915,11 +1957,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             auto& vk = *_device->ContextPointer->_impl;
             if (_renderingOpen && _clearsPending) Materialize();
             if (_renderingActive) EndNative();
+            _uploads->FlushPending();
             Check(vk.vkEndCommandBuffer(_commandBuffer), "vkEndCommandBuffer");
-            for (std::size_t i = 0; i <= _ringChunk && i < _ring.size(); ++i)
-                if (_ring[i].Used)
-                    Check(vmaFlushAllocation(_device->Allocator, _ring[i].Allocation, 0, _ring[i].Used),
-                        "vmaFlushAllocation(ring)");
             VkCommandBufferSubmitInfo command{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
             command.commandBuffer = _commandBuffer;
             VkSubmitInfo2 submit{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
@@ -1930,16 +1969,16 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (_device->RecordingList == this) _device->RecordingList = nullptr;
             const auto serial = _device->Scheduler->Submit(submit, _fence);
             _descriptors->Submitted(serial);
+            _uploads->Submitted(serial);
             _submitted = true;
             // Swap slots: this submission runs on while the other slot records.
-            Slot current{_pool, _commandBuffer, _fence, _submitted, std::move(_ring), _ringChunk,
+            Slot current{_pool, _commandBuffer, _fence, _submitted, std::move(_uploads),
                 std::move(_descriptors)};
             _pool = _spare.Pool;
             _commandBuffer = _spare.Buffer;
             _fence = _spare.Fence;
             _submitted = _spare.Submitted;
-            _ring = std::move(_spare.Ring);
-            _ringChunk = _spare.RingIndex;
+            _uploads = std::move(_spare.Uploads);
             _descriptors = std::move(_spare.Descriptors);
             _spare = std::move(current);
             _sets.fill(VK_NULL_HANDLE);
@@ -2247,42 +2286,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         VulkanCommandList::RingSlice VulkanCommandList::Allocate(VkDeviceSize size, VkDeviceSize alignment)
         {
             RequireRecording();
-            for (;;)
-            {
-                if (_ringChunk < _ring.size())
-                {
-                    auto& chunk = _ring[_ringChunk];
-                    const VkDeviceSize offset = (chunk.Used + alignment - 1) / alignment * alignment;
-                    if (offset + size <= chunk.Size)
-                    {
-                        chunk.Used = offset + size;
-                        return {chunk.Buffer, offset, chunk.Mapped + offset};
-                    }
-                    if (_ringChunk + 1 < _ring.size())
-                    {
-                        ++_ringChunk;
-                        _ring[_ringChunk].Used = 0;
-                        continue;
-                    }
-                }
-                RingChunk chunk{};
-                chunk.Size = std::max<VkDeviceSize>(8U << 20U, size + alignment);
-                VkBufferCreateInfo create{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-                create.size = chunk.Size;
-                create.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT
-                    | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-                create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-                VmaAllocationCreateInfo allocation{};
-                allocation.usage = VMA_MEMORY_USAGE_AUTO;
-                allocation.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-                Check(vmaCreateBuffer(_device->Allocator, &create, &allocation, &chunk.Buffer, &chunk.Allocation, nullptr),
-                    "vmaCreateBuffer(scene ring)");
-                void* mapped = nullptr;
-                Check(vmaMapMemory(_device->Allocator, chunk.Allocation, &mapped), "vmaMapMemory(scene ring)");
-                chunk.Mapped = static_cast<std::byte*>(mapped);
-                _ring.push_back(chunk);
-                _ringChunk = _ring.size() - 1;
-            }
+            return _uploads->Allocate(size, alignment);
         }
 
         VulkanTexture& VulkanCommandList::Dummy()
@@ -2450,14 +2454,20 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             RequireRecording();
             if (_renderingOpen && _clearsPending) Materialize();
             if (_renderingActive) EndNative();
-            const RingSlice staging = Allocate(texels.size(), 16);
+            const auto pixelAlignment = Aspect(texture.Desc().format) == VK_IMAGE_ASPECT_COLOR_BIT
+                ? StorageBytesPerPixel(texture.Desc().format) : 4U;
+            // RGB32Float needs a multiple of 12, not merely a power-of-two alignment.
+            const auto alignment = pixelAlignment == 12 ? 48U : 16U;
+            const RingSlice staging = Allocate(texels.size(), alignment);
             std::memcpy(staging.Data, texels.data(), texels.size());
             const ResourceState previous = texture.State();
             Barrier(texture, ResourceState::CopyDst);
-            VkBufferImageCopy copy{};
-            copy.bufferOffset = staging.Offset;
-            copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-            copy.imageExtent = {texture.Desc().width, texture.Desc().height, 1};
+            BufferDesc source{};
+            source.size = staging.Offset + texels.size();
+            BufferTextureCopy region{};
+            region.bufferOffset = staging.Offset;
+            region.width = texture.Desc().width; region.height = texture.Desc().height;
+            const auto copy = ToVkBufferImageCopy(source, texture.Desc(), region);
             // The ring's host writes are made available by the flush before
             // this list is submitted.
             _device->ContextPointer->_impl->vkCmdCopyBufferToImage(_commandBuffer, staging.Buffer, texture.Native(),
@@ -2468,6 +2478,24 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     : (Has(texture.Desc().usage, TextureUsage::ColorAttachment)
                         ? ResourceState::ColorAttachment : ResourceState::Common));
             Barrier(texture, finalState);
+        }
+
+        void VulkanCommandList::UploadBuffer(VulkanBuffer& buffer, VkDeviceSize offset,
+            std::span<const std::byte> bytes)
+        {
+            RequireRecording();
+            if (_renderingOpen && _clearsPending) Materialize();
+            if (_renderingActive) EndNative();
+            const auto staging = Allocate(bytes.size(), 16);
+            std::memcpy(staging.Data, bytes.data(), bytes.size());
+            const auto previous = buffer.State();
+            if (previous != ResourceState::CopyDst) Transition(buffer, previous, ResourceState::CopyDst);
+            const VkBufferCopy copy{staging.Offset, offset, bytes.size()};
+            _device->ContextPointer->_impl->vkCmdCopyBuffer(_commandBuffer, staging.Buffer, buffer.Native(), 1, &copy);
+            if (previous != ResourceState::CopyDst && previous != ResourceState::Undefined)
+                Transition(buffer, ResourceState::CopyDst, previous);
+            else if (previous == ResourceState::Undefined && buffer.Desc().initialState != ResourceState::Undefined)
+                Transition(buffer, ResourceState::CopyDst, buffer.Desc().initialState);
         }
 
         void VulkanCommandList::SetVertexBuffer(std::uint32_t slot, const Buffer& buffer, std::uint64_t offset)
@@ -2875,62 +2903,21 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     throw std::invalid_argument("Vulkan RHI: texture upload requires TransferDst usage.");
                 const std::size_t texels = static_cast<std::size_t>(write.width) * write.height;
                 const std::size_t dataSize = texels * StorageBytesPerPixel(write.format);
-                if (auto* recording = static_cast<VulkanCommandList*>(_state->RecordingList);
-                    recording && Aspect(image.Desc().format) == VK_IMAGE_ASPECT_COLOR_BIT)
-                {
-                    const auto* source = static_cast<const std::byte*>(write.data);
-                    if (write.format == TextureFormat::RGB8Unorm)
-                    {
-                        std::vector<std::byte> expanded(dataSize);
-                        for (std::size_t i = 0; i < texels; ++i)
-                        {
-                            std::memcpy(&expanded[i * 4U], source + i * 3U, 3U);
-                            expanded[i * 4U + 3U] = std::byte{0xFF};
-                        }
-                        recording->UploadTexture(image, expanded);
-                    }
-                    else
-                        recording->UploadTexture(image, std::span(source, dataSize));
-                    return;
-                }
-                BufferDesc stagingDesc{};
-                stagingDesc.size = dataSize;
-                stagingDesc.usage = BufferUsage::TransferSrc;
-                stagingDesc.memoryUsage = MemoryUsage::CpuToGpu;
-                auto staging = CreateBuffer(stagingDesc);
+                const auto* source = static_cast<const std::byte*>(write.data);
                 if (write.format == TextureFormat::RGB8Unorm)
                 {
                     std::vector<std::byte> expanded(dataSize);
-                    const auto* source = static_cast<const std::byte*>(write.data);
                     for (std::size_t i = 0; i < texels; ++i)
                     {
                         std::memcpy(&expanded[i * 4U], source + i * 3U, 3U);
                         expanded[i * 4U + 3U] = std::byte{0xFF};
                     }
-                    WriteBuffer(*staging, 0, expanded);
+                    WithUploadCommands(dataSize, [&](VulkanCommandList& commands) { commands.UploadTexture(image, expanded); });
                 }
                 else
-                    WriteBuffer(*staging, 0, std::span(
-                        static_cast<const std::byte*>(write.data), dataSize));
-                auto commands = CreateCommandList();
-                commands->Begin();
-                const ResourceState previous = image.State();
-                if (previous != ResourceState::CopyDst)
-                    commands->Transition(image, previous, ResourceState::CopyDst);
-                auto& stagingNative = static_cast<VulkanBuffer&>(*staging);
-                commands->Transition(stagingNative, stagingNative.State(), ResourceState::CopySrc);
-                BufferTextureCopy region{};
-                region.width = write.width;
-                region.height = write.height;
-                commands->CopyBufferToTexture(*staging, image, region);
-                const ResourceState finalState = previous != ResourceState::Undefined
-                    ? previous
-                    : (Has(image.Desc().usage, TextureUsage::Sampled) ? ResourceState::ShaderRead
-                        : (Has(image.Desc().usage, TextureUsage::ColorAttachment)
-                            ? ResourceState::ColorAttachment : ResourceState::Common));
-                if (finalState != ResourceState::CopyDst)
-                    commands->Transition(image, ResourceState::CopyDst, finalState);
-                commands->End();
+                    WithUploadCommands(dataSize, [&](VulkanCommandList& commands) {
+                        commands.UploadTexture(image, std::span(source, dataSize));
+                    });
             }
 
             void WriteBuffer(Buffer& buffer, std::uint64_t offset,
@@ -2947,40 +2934,15 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
                 if (destination.Desc().memoryUsage == MemoryUsage::CpuToGpu)
                 {
-                    void* mapped = nullptr;
-                    Check(vmaMapMemory(_state->Allocator, destination.Allocation(), &mapped), "vmaMapMemory");
-                    std::memcpy(static_cast<std::byte*>(mapped) + offset, data.data(), data.size());
+                    std::memcpy(destination.Mapped() + offset, data.data(), data.size());
                     Check(vmaFlushAllocation(_state->Allocator, destination.Allocation(),
                         offset, data.size()), "vmaFlushAllocation");
-                    vmaUnmapMemory(_state->Allocator, destination.Allocation());
                     return;
                 }
                 if (!Has(destination.Desc().usage, BufferUsage::TransferDst))
                     throw std::invalid_argument("Vulkan RHI: GPU-only buffer upload requires TransferDst usage.");
 
-                BufferDesc stagingDesc{};
-                stagingDesc.size = data.size();
-                stagingDesc.usage = BufferUsage::TransferSrc;
-                stagingDesc.memoryUsage = MemoryUsage::CpuToGpu;
-                auto staging = CreateBuffer(stagingDesc);
-                auto& stagingNative = static_cast<VulkanBuffer&>(*staging);
-                void* mapped = nullptr;
-                Check(vmaMapMemory(_state->Allocator, stagingNative.Allocation(), &mapped), "vmaMapMemory");
-                std::memcpy(mapped, data.data(), data.size());
-                Check(vmaFlushAllocation(_state->Allocator, stagingNative.Allocation(),
-                    0, data.size()), "vmaFlushAllocation");
-                vmaUnmapMemory(_state->Allocator, stagingNative.Allocation());
-
-                auto commands = CreateCommandList();
-                commands->Begin();
-                const ResourceState previous = destination.State();
-                if (previous != ResourceState::CopyDst)
-                    commands->Transition(destination, previous, ResourceState::CopyDst);
-                commands->Transition(stagingNative, stagingNative.State(), ResourceState::CopySrc);
-                commands->CopyBuffer(*staging, 0, destination, offset, data.size());
-                if (previous != ResourceState::CopyDst && previous != ResourceState::Undefined)
-                    commands->Transition(destination, ResourceState::CopyDst, previous);
-                commands->End();
+                WithUploadCommands(data.size(), [&](VulkanCommandList& commands) { commands.UploadBuffer(destination, offset, data); });
             }
 
             void ReadBuffer(Buffer& buffer, std::uint64_t offset, std::span<std::byte> data) override
@@ -3110,6 +3072,36 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
 
         private:
+            template<class Write> void WithUploadCommands(VkDeviceSize bytes, Write&& write)
+            {
+                auto* recording = static_cast<VulkanCommandList*>(_state->RecordingList);
+                if (recording && recording != _uploadCommands.get())
+                {
+                    write(*recording);
+                    return;
+                }
+                // Batch writes outside user recording in a bounded transfer
+                // stream. A consumer/another list, frame end, readback, resource
+                // release or session teardown flushes it in graphics-queue order.
+                if (!_uploadCommands) _uploadCommands = std::make_unique<VulkanCommandList>(_state, true);
+                try
+                {
+                    constexpr VkDeviceSize batchBytes = 8U << 20U;
+                    if (recording)
+                    {
+                        const auto pending = recording->PendingUploadBytes();
+                        if (pending && (bytes >= batchBytes || bytes > batchBytes - pending)) recording->Flush();
+                    }
+                    else _uploadCommands->Begin();
+                    write(*_uploadCommands);
+                    if (_uploadCommands->PendingUploadBytes() >= batchBytes) _uploadCommands->Flush();
+                }
+                catch (...)
+                {
+                    _uploadCommands.reset();
+                    throw;
+                }
+            }
             void InitializeTextureState(VulkanTexture& texture, ResourceState initialState)
             {
                 if (initialState == ResourceState::Undefined) return;
@@ -3120,6 +3112,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
 
             std::shared_ptr<VulkanDeviceState> _state;
+            std::unique_ptr<VulkanCommandList> _uploadCommands;
             std::mutex _pipelineMutex;
             std::unordered_multimap<std::size_t,
                 std::pair<VulkanPipelineKey, std::shared_ptr<VulkanGraphicsPipeline>>> _pipelines;
@@ -3308,6 +3301,113 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             || after.Submitted != after.Completed
             || after.Submitted.Value < baseline.Submitted.Value + 64 * 4)
             throw std::runtime_error("Vulkan submission retirement failed to return to its resource baseline.");
+    }
+
+    void CheckUploadReuse(GraphicsDevice& device)
+    {
+        const auto state = dynamic_cast<VulkanGraphicsDevice&>(device).State();
+        const auto initialWaits = device.Statistics().DeviceWideWaits;
+        const auto initialSubmitted = state->Scheduler->Submitted().Value;
+        std::uint64_t warmedCreations = 0;
+        BufferDesc gpuDesc{};
+        gpuDesc.size = 256; gpuDesc.usage = BufferUsage::TransferSrc | BufferUsage::TransferDst;
+        auto gpu = device.CreateBuffer(gpuDesc);
+        TextureDesc textureDesc{};
+        textureDesc.width = 3; textureDesc.height = 2; textureDesc.format = TextureFormat::RGBA8Unorm;
+        textureDesc.usage = TextureUsage::TransferSrc | TextureUsage::TransferDst | TextureUsage::Sampled;
+        auto texture = device.CreateTexture(textureDesc);
+        VkImageFormatProperties properties{};
+        const auto rgbSupported = state->ImageFormatProperties(VK_FORMAT_R32G32B32_SFLOAT,
+            ToVkImageUsage(textureDesc.usage), properties);
+        if (rgbSupported != VK_SUCCESS && rgbSupported != VK_ERROR_FORMAT_NOT_SUPPORTED)
+            Check(rgbSupported, "vkGetPhysicalDeviceImageFormatProperties(upload fixture)");
+        const auto floatChannels = rgbSupported == VK_SUCCESS ? 3U : 4U;
+        textureDesc.format = rgbSupported == VK_SUCCESS ? TextureFormat::RGB32Float : TextureFormat::RGBA32Float;
+        auto floatTexture = device.CreateTexture(textureDesc);
+        std::array<std::byte, 256> expected{};
+        std::vector<float> floats(6 * floatChannels);
+        const auto floatSize = floats.size() * sizeof(float);
+        for (unsigned cycle = 0; cycle < 64; ++cycle)
+        {
+            for (std::size_t i = 0; i < expected.size(); ++i) expected[i] = std::byte((i + cycle * 17) & 255);
+            for (std::size_t i = 0; i < floats.size(); ++i) floats[i] = float(i + cycle) * 0.25F;
+            device.WriteBuffer(*gpu, 0, expected);
+            TextureWrite write{};
+            write.data = expected.data(); write.width = 3; write.height = 2; write.format = TextureFormat::RGBA8Unorm;
+            device.WriteTexture(*texture, write);
+            write.data = floats.data(); write.format = textureDesc.format;
+            device.WriteTexture(*floatTexture, write);
+            if (cycle == 1) warmedCreations = state->UploadPageCreations;
+            else if (cycle > 1 && state->UploadPageCreations != warmedCreations)
+                throw std::runtime_error("Vulkan upload fallback kept allocating after warmup.");
+        }
+        if (device.Statistics().DeviceWideWaits != initialWaits)
+            throw std::runtime_error("Vulkan upload fallback added device-wide waits.");
+        if (state->Scheduler->Submitted().Value - initialSubmitted > 2)
+            throw std::runtime_error("Vulkan small uploads were not batched into a shared stream.");
+        const auto readback = [&](std::size_t bytes) {
+            BufferDesc desc{}; desc.size = bytes; desc.usage = BufferUsage::TransferDst;
+            desc.memoryUsage = MemoryUsage::GpuToCpu; return device.CreateBuffer(desc);
+        };
+        auto result = readback(512);
+        auto textureResult = readback(24);
+        auto floatResult = readback(floatSize);
+        auto commands = device.CreateCommandList();
+        commands->Begin();
+        commands->Transition(*gpu, ResourceState::CopyDst, ResourceState::CopySrc);
+        commands->Transition(*result, ResourceState::Undefined, ResourceState::CopyDst);
+        commands->CopyBuffer(*gpu, 0, *result, 0, 256);
+        // Write again inside the same stream, mutating the source CPU memory:
+        // the first recorded copy must retain the earlier staged bytes.
+        for (auto& byte : expected) byte ^= std::byte{0xA5};
+        device.WriteBuffer(*gpu, 0, expected);
+        commands->CopyBuffer(*gpu, 0, *result, 256, 256);
+        commands->Transition(*texture, ResourceState::ShaderRead, ResourceState::CopySrc);
+        commands->Transition(*textureResult, ResourceState::Undefined, ResourceState::CopyDst);
+        BufferTextureCopy region{}; region.width = 3; region.height = 2;
+        commands->CopyTextureToBuffer(*texture, *textureResult, region);
+        commands->Transition(*floatTexture, ResourceState::ShaderRead, ResourceState::CopySrc);
+        commands->Transition(*floatResult, ResourceState::Undefined, ResourceState::CopyDst);
+        commands->CopyTextureToBuffer(*floatTexture, *floatResult, region);
+        commands->End();
+        std::array<std::byte, 512> actual{};
+        device.ReadBuffer(*result, 0, actual);
+        for (std::size_t i = 0; i < expected.size(); ++i)
+            if (actual[i] != (expected[i] ^ std::byte{0xA5}) || actual[256 + i] != expected[i])
+                throw std::runtime_error("Vulkan upload changed recorded buffer copy order/data.");
+        std::array<std::byte, 24> textureBytes{};
+        device.ReadBuffer(*textureResult, 0, textureBytes);
+        for (std::size_t i = 0; i < textureBytes.size(); ++i)
+            if (textureBytes[i] != (expected[i] ^ std::byte{0xA5}))
+                throw std::runtime_error("Vulkan fallback texture upload bytes differ.");
+        std::vector<std::byte> floatBytes(floatSize);
+        device.ReadBuffer(*floatResult, 0, floatBytes);
+        if (std::memcmp(floatBytes.data(), floats.data(), floatSize))
+            throw std::runtime_error("Vulkan float texture upload alignment/data differs.");
+        commands.reset();
+
+        // Native overflow pages as well as the default pages must be reused.
+        std::vector<std::byte> large((8U << 20U) + 64, std::byte{0x37});
+        gpuDesc.size = large.size();
+        auto largeGpu = device.CreateBuffer(gpuDesc);
+        for (unsigned cycle = 0; cycle < 4; ++cycle)
+        {
+            large.front() = std::byte(cycle);
+            device.WriteBuffer(*largeGpu, 0, large);
+            if (cycle == 1) warmedCreations = state->UploadPageCreations;
+            else if (cycle > 1 && state->UploadPageCreations != warmedCreations)
+                throw std::runtime_error("Vulkan oversized upload page was not reused.");
+        }
+        auto largeResult = readback(large.size());
+        commands = device.CreateCommandList(); commands->Begin();
+        commands->Transition(*largeGpu, ResourceState::CopyDst, ResourceState::CopySrc);
+        commands->Transition(*largeResult, ResourceState::Undefined, ResourceState::CopyDst);
+        commands->CopyBuffer(*largeGpu, 0, *largeResult, 0, large.size()); commands->End();
+        std::vector<std::byte> largeActual(large.size()); device.ReadBuffer(*largeResult, 0, largeActual);
+        if (largeActual != large) throw std::runtime_error("Vulkan oversized upload contents differ.");
+        std::cout << "[vulkan] upload arena PASS; 64 batched buffer/texture cycles; persistent page reuse; "
+            << "recorded copy order; " << (floatChannels == 3 ? "RGB32Float" : "RGBA32Float (RGB32Float unsupported)")
+            << "; oversized page reuse/readback\n";
     }
 
     void CheckBindingAllocations(GraphicsDevice& device)
@@ -3601,7 +3701,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         return [state, submitted] {
             if (state->ContextPointer || state->Allocator || state->Scheduler || !state->NativeOwners.empty()
                 || state->Buffers || state->Textures || state->Shaders || state->Programs || state->Samplers
-                || state->CommandLists || state->Retired.Size() || state->OutstandingAllocationsAtShutdown
+                || state->CommandLists || state->UploadCommandLists || state->UploadPages
+                || state->Retired.Size() || state->OutstandingAllocationsAtShutdown
                 || (state->PipelineCache && state->PipelineCache->Stats().Native)
                 || state->FinalCompleted != state->FinalSubmitted || state->FinalSubmitted <= submitted)
                 throw std::logic_error("Vulkan session retained native resources or failed to complete pending work.");

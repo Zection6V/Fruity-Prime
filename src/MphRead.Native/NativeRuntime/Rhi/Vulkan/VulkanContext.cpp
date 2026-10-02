@@ -164,6 +164,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             CheckShaderModules(*device);
             CheckGraphicsPipelines(*device);
             CheckResourceRetirement(*device);
+            CheckUploadReuse(*device);
             std::cout << "[vulkan] retirement PASS; 64 clear/bind/resize/release cycles; failed resize retained; "
                 << "churn device-wide waits=0; completed=submitted; retired=0\n";
             std::cout << "[vulkan] graphics pipelines PASS; main; composite; cel; shift; manifest layouts\n";

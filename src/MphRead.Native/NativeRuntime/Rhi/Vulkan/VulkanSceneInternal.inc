@@ -293,8 +293,9 @@ private:
     {
         BufferDesc desc{};
         desc.size = data.size();
-        desc.usage = usage;
-        desc.memoryUsage = MemoryUsage::CpuToGpu;
+        desc.usage = usage | BufferUsage::TransferDst;
+        desc.memoryUsage = MemoryUsage::GpuOnly;
+        desc.initialState = usage == BufferUsage::Index ? ResourceState::IndexBuffer : ResourceState::VertexBuffer;
         auto buffer = std::make_unique<VulkanBuffer>(device.State(), desc);
         device.WriteBuffer(*buffer, 0, data);
         return buffer;

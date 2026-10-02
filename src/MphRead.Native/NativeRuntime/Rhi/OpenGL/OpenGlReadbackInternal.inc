@@ -37,6 +37,8 @@ ReadbackTicket OpenGlGraphicsDevice::EnqueueReadback(Buffer& source, std::uint64
         throw std::invalid_argument("Async buffer readback requires TransferSrc usage.");
     return EnqueueBytes(bytes, [&](Buffer& target) {
         auto commands = CreateCommandList();
+        commands->Begin();
         commands->CopyBuffer(source, offset, target, 0, bytes);
+        // EnqueueBytes submits this context stream once the copy returns.
     });
 }

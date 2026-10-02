@@ -1134,15 +1134,12 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     objects.emplace_back(_device->Api().IsFramebuffer, static_cast<unsigned>(name));
             }
 
-            // Preserve legacy scene state setup; desktop vertex submission and
-            // window compositing use explicit shaders and RHI pipelines.
+            // Opening a recording interval does not change drawing state;
+            // rendering targets and pipelines own all native state setup.
             void Begin() override
             {
                 RequireAlive();
                 if (_recording) throw std::logic_error("OpenGL RHI: command list is already recording.");
-                GL::Enable(GL::EnableCap::DepthTest);
-                GL::Enable(GL::EnableCap::Texture2D);
-                GL::DepthFunc(GL::DepthFunction::Lequal);
                 _recording = true;
             }
             void End() override
@@ -1152,10 +1149,11 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 if (_debugDepth) throw std::logic_error("GPU debug label scope was not ended.");
                 _device->SubmitCommands();
                 _recording = false;
+                _renderingOpen = false;
             }
             void BeginDebugLabel(const DebugLabel& label) override
             {
-                RequireAlive();
+                RequireRecording();
                 ValidateDebugLabel(label);
                 if (!_device) throw std::logic_error("The OpenGL command list's session has ended.");
                 if (!_device->GetCapabilities().supportsDebugLabels) return;
@@ -1165,14 +1163,14 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             }
             void EndDebugLabel() override
             {
-                RequireAlive();
+                RequireRecording();
                 if (!_device->GetCapabilities().supportsDebugLabels) return;
                 if (!_debugDepth) throw std::logic_error("No GPU debug label to end.");
                 _device->Api().PopDebugGroup(); --_debugDepth;
             }
             void InsertDebugMarker(const DebugLabel& label) override
             {
-                RequireAlive();
+                RequireRecording();
                 ValidateDebugLabel(label);
                 if (!_device) throw std::logic_error("The OpenGL command list's session has ended.");
                 if (_device->GetCapabilities().supportsDebugLabels)
@@ -1186,11 +1184,15 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     throw std::invalid_argument("OpenGL timestamp belongs to another or closed session.");
                 return *native;
             }
-            void InitializeTimestamps(TimestampQuerySet& set) override {
-                RequireAlive(); CheckedTimestamp(set).Writes.Initialize(); }
+            void InitializeTimestamps(TimestampQuerySet& set) override
+            {
+                RequireRecording();
+                if (_renderingOpen) throw std::logic_error("Timestamp initialization must be outside rendering.");
+                CheckedTimestamp(set).Writes.Initialize();
+            }
             void WriteTimestamp(TimestampQuerySet& set, std::uint32_t index) override
             {
-                RequireAlive();
+                RequireRecording();
                 auto& native = CheckedTimestamp(set); native.Writes.Write(index);
                 _device->Api().QueryCounter(native.Names[index], 0x8E28);
                 _device->CheckStorageResult("glQueryCounter");
@@ -1200,7 +1202,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             void BeginRendering(const RenderingInfo& info) override
             {
-                RequireAlive();
+                RequireRecording();
                 ValidateTargets(info, _device);
                 if (info.swapchain)
                 {
@@ -1228,14 +1230,18 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 // pipeline was applied; the next SetPipeline applies in full.
                 _applied = nullptr;
                 ClearFor(info);
+                _renderingOpen = true;
             }
 
-            void EndRendering() override {
-                RequireAlive();}
+            void EndRendering() override
+            {
+                RequireRecording();
+                _renderingOpen = false;
+            }
 
             void SetPipeline(const GraphicsPipeline& pipeline) override
             {
-                RequireAlive();
+                RequireRecording();
                 const auto* native = dynamic_cast<const OpenGlGraphicsPipeline*>(&pipeline);
                 if (!native || native->Device() != _device) throw std::invalid_argument("OpenGL RHI: pipeline belongs to another device.");
                 if (&pipeline == _applied)
@@ -1295,7 +1301,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             void SetViewport(const Viewport& viewport) override
             {
-                RequireAlive();
+                RequireRecording();
                 GL::Viewport(static_cast<std::int32_t>(viewport.x), static_cast<std::int32_t>(viewport.y),
                     static_cast<std::int32_t>(viewport.width), static_cast<std::int32_t>(viewport.height));
 #if defined(__ANDROID__)
@@ -1307,7 +1313,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             void SetScissor(const Scissor& scissor) override
             {
-                RequireAlive();
+                RequireRecording();
+                SetCap(0x0C11, true);
                 GL::Scissor(scissor.x, scissor.y, static_cast<std::int32_t>(scissor.width),
                     static_cast<std::int32_t>(scissor.height));
             }
@@ -1317,7 +1324,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void SetBindingSet(std::uint32_t group, const BindingSet& set) override;
             void SetStencilReference(std::uint32_t reference) override
             {
-                RequireAlive();
+                RequireRecording();
                 _stencilReference = reference;
                 ApplyStencilFunc();
             }
@@ -1343,7 +1350,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             void BindSampledTexture(std::uint32_t slot, const Texture* texture, const Sampler* sampler) override
             {
-                RequireAlive();
+                RequireRecording();
                 if ((texture != nullptr) != (sampler != nullptr)) throw std::invalid_argument("OpenGL RHI: texture and sampler must be paired.");
                 const auto* image = texture ? &Native(*texture, _device) : nullptr;
                 const auto* native = dynamic_cast<const OpenGlSampler*>(sampler);
@@ -1449,8 +1456,19 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             void CopyColorAttachmentToTexture(Texture& destination, std::uint32_t width, std::uint32_t height) override
             {
-                RequireAlive();
+                RequireRecording();
                 const auto& target = Native(destination, _device);
+                RequireRendering();
+                struct Restore final
+                {
+                    int Texture = GL::GetInteger(0x8069);
+                    int ReadFramebuffer = GL::GetInteger(0x8CAA);
+                    ~Restore()
+                    {
+                        GL::BindTexture(GL::TextureTarget::Texture2D, Texture);
+                        GL::BindFramebuffer(GL::FramebufferTarget::ReadFramebuffer, ReadFramebuffer);
+                    }
+                } restore;
                 const auto current = _framebuffers.find(_current);
                 if (current != _framebuffers.end())
                 {
@@ -1492,6 +1510,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 _vertexArrays.clear(); _framebuffers.clear(); _vertexBindings.clear();
                 _applied = nullptr; _indexBuffer = nullptr; _device = nullptr;
                 _recording = false;
+                _renderingOpen = false;
             }
 
             void ForgetBuffer(std::int32_t name);
@@ -1504,6 +1523,16 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             unsigned VertexArray();
             void RequireAlive() const
             { if (!_device) throw std::logic_error("The OpenGL command list's session has ended."); }
+            void RequireRecording() const
+            {
+                RequireAlive();
+                if (!_recording) throw std::logic_error("OpenGL RHI: command list is not recording.");
+            }
+            void RequireRendering() const
+            {
+                RequireRecording();
+                if (!_renderingOpen) throw std::logic_error("OpenGL RHI: draw needs a rendering interval.");
+            }
             struct VertexBinding final { const OpenGlBuffer* Buffer = nullptr; std::uint64_t Offset = 0; };
             std::unordered_map<std::uint32_t, VertexBinding> _vertexBindings;
             const OpenGlBuffer* _indexBuffer = nullptr;
@@ -1517,6 +1546,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             PrimitiveTopology _sceneTopology = PrimitiveTopology::TriangleList;
             std::uint32_t _debugDepth = 0;
             bool _recording = false;
+            bool _renderingOpen = false;
             void RetireFramebuffer(std::int32_t framebuffer) noexcept
             {
                 if (_device != nullptr)

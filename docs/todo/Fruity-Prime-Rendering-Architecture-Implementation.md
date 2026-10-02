@@ -1728,3 +1728,59 @@ Vulkan End の既存の同期互換動作は維持する。frame end / presentat
 全 format / subresource、presentation ownership、100-cycle stress は引き続き必要。
 R10 / R20 とレビュー全体も進行中。Android / macOS の実動作、remote CI は未実行。
 Metal / D3D12 は今回追加しない。
+
+## Recording mutation と描画中の transfer（R19）
+
+OpenGL / Vulkan の recording mutation は Begin 前／End 後に `logic_error` で拒否する。
+対象は rendering、pipeline / viewport / scissor / vertex / index / binding / stencil、draw、
+3種の copy、buffer / texture transition、sampled texture、current-color copy、debug labels / timestamps。
+同期 `ReadColor` と非同期 `EnqueueReadColor` は、区間外にも使える診断 API として維持する。
+Draw / DrawIndexed と current-color copy は rendering 区間も要求する。
+EndRendering は recording 中なら複数回呼べる。新しい BeginRendering は前の区間を置き換える。
+
+Vulkan の transfer / barrier は native rendering instance を終了してから記録し、
+logical target と描画内容を保持する。保留中の clear を一度だけ先に実行し、後続 draw は LOAD で再開する。
+Materialize 中の attachment transition は clear を再帰的に materialize しない。
+保留 clear が対象 texture を暗黙に transition した場合は、実際の layout をその後の barrier に使う。
+この要件は [vkCmdCopyBuffer](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdCopyBuffer.html) の
+renderpass 制約と [vkCmdPipelineBarrier2](https://docs.vulkan.org/refpages/latest/refpages/source/vkCmdPipelineBarrier2.html)
+の dynamic rendering 制約に合わせている。copy / barrier のために新たな submit / wait は追加しない。
+
+SetScissor は両 backend で clipping を有効にする。次の BeginRendering が render area に戻す。
+OpenGL の Begin は recording の状態だけを開き、depth test 等の native draw state を変更しない。
+draw state は pipeline と rendering setup が設定するため、診断 copy の Begin も描画へ干渉しない。
+OpenGL の非同期 buffer readback も内部 list を Begin してから copy する。
+native stream の送信は EnqueueBytes が一度行い、同期待ちは追加しない。
+
+GPU fixture は以下を同じ API で検査する。
+
+- 新しい list の Begin 前と End 後の mutation 拒否、rendering 区間外の draw、
+  rendering 中の timestamp 初期化拒否。現在の実機では両 backend 各52件。
+  `invalid_argument` / `out_of_range` は成功扱いにせず、recording の `logic_error` と
+  拒否時の submission serial 不変を要求する。
+- 保留 clear 後の current-color copy を GPU texture → buffer で確認し、黒・alpha255を照合する。
+- 左半分を Draw / DrawIndexed で描き、buffer barrier / copy と image upload / readback を挟んで
+  右半分を描く。左右の sampler pixel を照合し、再開時に左側が clear されないことを検査する。
+- 区間終了後の同期 color readback、native error=0、既存の async readback / owner teardown と
+  解放後の live / retired=0も引き続き要求する。
+
+current-color copy は OpenGL の active unit の texture binding を変更していたため、
+後続 draw の sampler が別 texture を読んでいた。元の texture / read framebuffer を保存・復元した。
+buffer-to-texture copy も texture / unpack buffer を、texture-to-buffer copy も pack buffer を復元する。
+CPU texture backup や CPU 描画への移行は追加していない。
+
+確認結果（Windows / RTX 5070 Ti）:
+
+- MSVC Release PASS: `C:/tmp/gp/architecture-r19-mutation-build7.log`。
+- CPU CTest 13/13 PASS: `C:/tmp/gp/architecture-r19-mutation-final-ctest.log`。
+- 共通 GPU conformance PASS: `C:/tmp/gp/architecture-r19-mutation-conformance5.log`。
+  両 backend の52件の拒否・GPU pixel・ownership / diagnostics / async readback / lifetime が PASS。
+  Vulkan validation errors=0、release=0。
+- FPS-only の両開始 backend の切替 PASS: `C:/tmp/r18-fps-20261002-233454/`。
+  同じ試合で各3回の world witness、bomb / particle / lifecycle gate とCSV条件が PASS。
+- validation / GPU profile 付きの3回切替 PASS: `C:/tmp/r18-fps-20261002-233844/opengl.log`。
+  Vulkan validation errors=0、world / bomb / particle / lifecycle gate が PASS。
+
+R19 / Phase H の全体は進行中。native command buffer の内部再開後の generic draw binding の復元、
+全 format / subresource と state tracking、presentation ownership、100-cycle stress、
+R10 の frame slot / probe分離と R20 の確認は残る。Android / macOS実動作、remote CI は未実行。

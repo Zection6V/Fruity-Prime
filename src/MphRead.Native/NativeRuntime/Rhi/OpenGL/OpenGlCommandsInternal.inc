@@ -28,7 +28,7 @@ GlAttributeFormat AttributeFormat(VertexFormat format)
 }
 void OpenGlCommandList::SetVertexBuffer(std::uint32_t slot, const Buffer& resource, std::uint64_t offset)
 {
-    RequireAlive();
+    RequireRecording();
     const auto& buffer = CheckedBuffer(*_device, resource);
     if (slot >= _device->GetCapabilities().maxVertexBuffers || !Has(buffer.Desc().usage, BufferUsage::Vertex)
         || offset >= buffer.Desc().size) throw std::invalid_argument("OpenGL RHI: invalid vertex buffer binding.");
@@ -36,7 +36,7 @@ void OpenGlCommandList::SetVertexBuffer(std::uint32_t slot, const Buffer& resour
 }
 void OpenGlCommandList::SetIndexBuffer(const Buffer& resource, IndexType type, std::uint64_t offset)
 {
-    RequireAlive();
+    RequireRecording();
     const auto& buffer = CheckedBuffer(*_device, resource);
     const unsigned width = type == IndexType::UInt16 ? 2 : 4;
     if (!Has(buffer.Desc().usage, BufferUsage::Index) || offset >= buffer.Desc().size || offset % width)
@@ -129,7 +129,7 @@ void OpenGlGraphicsDevice::ForgetBuffer(std::int32_t name)
 }
 void OpenGlCommandList::Draw(std::uint32_t count, std::uint32_t instances, std::uint32_t first, std::uint32_t firstInstance)
 {
-    RequireAlive();
+    RequireRendering();
     if (!count || !instances) return;
     if (count > INT32_MAX || instances > INT32_MAX || first > INT32_MAX) throw std::out_of_range("OpenGL RHI: draw exceeds native count range.");
     auto& api = _device->Api();
@@ -142,7 +142,7 @@ void OpenGlCommandList::Draw(std::uint32_t count, std::uint32_t instances, std::
 }
 void OpenGlCommandList::DrawIndexed(std::uint32_t count, std::uint32_t instances, std::uint32_t first, std::int32_t base, std::uint32_t firstInstance)
 {
-    RequireAlive();
+    RequireRendering();
     if (!count || !instances) return;
     if (!_indexBuffer) throw std::logic_error("OpenGL RHI: indexed draw needs an index buffer.");
     if (count > INT32_MAX || instances > INT32_MAX) throw std::out_of_range("OpenGL RHI: draw exceeds native count range.");
@@ -164,7 +164,7 @@ void OpenGlCommandList::DrawSceneGeometry(std::span<const VertexBufferLayoutDesc
     std::span<const VertexAttributeDesc> attributes, PrimitiveTopology topology,
     std::uint32_t count, std::uint32_t first)
 {
-    RequireAlive();
+    RequireRecording();
     _sceneGeometry = true; _sceneBuffers = buffers; _sceneAttributes = attributes; _sceneTopology = topology;
     try { DrawIndexed(count, 1, first, 0, 0); }
     catch (...) { _sceneGeometry = false; _sceneBuffers = {}; _sceneAttributes = {}; throw; }
@@ -185,7 +185,7 @@ std::uint32_t BindingSlot(const PipelineLayout& layout, std::uint32_t group, con
 }
 void OpenGlCommandList::SetBindingSet(std::uint32_t group, const BindingSet& resource)
 {
-    RequireAlive();
+    RequireRecording();
     const auto* set = dynamic_cast<const OpenGlBindingSet*>(&resource);
     if (!set || set->Device() != _device || !_applied) throw std::invalid_argument("OpenGL RHI: binding needs a compatible set and pipeline.");
     const auto& layout = _applied->Desc().pipelineLayout;
@@ -234,7 +234,7 @@ void OpenGlCommandList::SetBindingSet(std::uint32_t group, const BindingSet& res
 }
 void OpenGlCommandList::CopyBuffer(const Buffer& source, std::uint64_t sourceOffset, Buffer& destination, std::uint64_t destinationOffset, std::uint64_t size)
 {
-    RequireAlive();
+    RequireRecording();
     const auto& from = CheckedBuffer(*_device, source); const auto& to = CheckedBuffer(*_device, destination);
     CheckBufferRange(source, sourceOffset, size); CheckBufferRange(destination, destinationOffset, size);
     if (!Has(source.Desc().usage, BufferUsage::TransferSrc) || !Has(destination.Desc().usage, BufferUsage::TransferDst)
@@ -285,7 +285,7 @@ unsigned CheckTextureCopy(const Texture& texture, const Buffer& buffer, const Bu
 }
 void OpenGlCommandList::CopyBufferToTexture(const Buffer& source, Texture& destination, const BufferTextureCopy& region)
 {
-    RequireAlive();
+    RequireRecording();
     const auto& buffer = CheckedBuffer(*_device, source); auto& texture = Native(destination, _device);
     const auto bytes = CheckTextureCopy(destination, source, region);
     if (texture.IsRenderbuffer() || !Has(source.Desc().usage, BufferUsage::TransferSrc) || !Has(destination.Desc().usage, TextureUsage::TransferDst))
@@ -293,24 +293,27 @@ void OpenGlCommandList::CopyBufferToTexture(const Buffer& source, Texture& desti
     if (!texture.HasStorage()) _device->AllocateStorage(texture, texture.Desc().width, texture.Desc().height);
     const auto format = ToGl(texture.Desc().format);
     const int alignment = GL::GetInteger(0x0CF5), rowLength = GL::GetInteger(0x0CF2);
+    const int previousTexture = GL::GetInteger(0x8069), previousUnpack = GL::GetInteger(0x88EF);
     GL::PixelStore(static_cast<GL::PixelStoreParameter>(0x0CF5), 1);
     GL::PixelStore(static_cast<GL::PixelStoreParameter>(0x0CF2), region.bytesPerRow ? region.bytesPerRow / bytes : 0);
     GL::BindBuffer(static_cast<GL::BufferTarget>(0x88EC), buffer.Name());
     GL::BindTexture(GL::TextureTarget::Texture2D, texture.Name());
     GL::TexSubImage2D(GL::TextureTarget::Texture2D, 0, region.x, region.y, region.width, region.height,
         format.Format, format.Type, reinterpret_cast<const void*>(static_cast<std::uintptr_t>(region.bufferOffset)));
-    GL::BindTexture(GL::TextureTarget::Texture2D, 0); GL::BindBuffer(static_cast<GL::BufferTarget>(0x88EC), 0);
+    GL::BindTexture(GL::TextureTarget::Texture2D, previousTexture);
+    GL::BindBuffer(static_cast<GL::BufferTarget>(0x88EC), previousUnpack);
     GL::PixelStore(static_cast<GL::PixelStoreParameter>(0x0CF5), alignment); GL::PixelStore(static_cast<GL::PixelStoreParameter>(0x0CF2), rowLength);
 }
 void OpenGlCommandList::CopyTextureToBuffer(const Texture& source, Buffer& destination, const BufferTextureCopy& region)
 {
-    RequireAlive();
+    RequireRecording();
     const auto& buffer = CheckedBuffer(*_device, destination); const auto& texture = Native(source, _device);
     const auto bytes = CheckTextureCopy(source, destination, region);
     if (texture.IsRenderbuffer() || !Has(source.Desc().usage, TextureUsage::TransferSrc) || !Has(destination.Desc().usage, BufferUsage::TransferDst))
         throw std::invalid_argument("OpenGL RHI: invalid texture to buffer copy usage.");
     const auto format = ToGl(texture.Desc().format);
     const int alignment = GL::GetInteger(0x0D05), rowLength = GL::GetInteger(0x0D02), previous = GL::GetInteger(0x8CAA);
+    const int previousPack = GL::GetInteger(0x88ED);
     const auto framebuffer = GL::GenFramebuffer();
     GL::BindFramebuffer(GL::FramebufferTarget::ReadFramebuffer, framebuffer);
     const bool depth = IsDepthFormat(texture.Desc().format);
@@ -320,13 +323,13 @@ void OpenGlCommandList::CopyTextureToBuffer(const Texture& source, Buffer& desti
     GL::PixelStore(static_cast<GL::PixelStoreParameter>(0x0D05), 1); GL::PixelStore(static_cast<GL::PixelStoreParameter>(0x0D02), region.bytesPerRow ? region.bytesPerRow / bytes : 0);
     GL::BindBuffer(static_cast<GL::BufferTarget>(0x88EB), buffer.Name());
     GL::ReadPixels(region.x, region.y, region.width, region.height, format.Format, format.Type, reinterpret_cast<void*>(static_cast<std::uintptr_t>(region.bufferOffset)));
-    GL::BindBuffer(static_cast<GL::BufferTarget>(0x88EB), 0);
+    GL::BindBuffer(static_cast<GL::BufferTarget>(0x88EB), previousPack);
     GL::PixelStore(static_cast<GL::PixelStoreParameter>(0x0D05), alignment); GL::PixelStore(static_cast<GL::PixelStoreParameter>(0x0D02), rowLength);
     GL::BindFramebuffer(GL::FramebufferTarget::ReadFramebuffer, previous); GL::DeleteFramebuffer(framebuffer);
 }
 void OpenGlCommandList::Transition(Buffer& resource, ResourceState before, ResourceState after)
 {
-    RequireAlive();
+    RequireRecording();
     (void)CheckedBuffer(*_device, resource);
     if (before == after) return;
     if (!IsValidTransition(before, after)) throw std::invalid_argument("OpenGL RHI: invalid transition.");
@@ -334,7 +337,7 @@ void OpenGlCommandList::Transition(Buffer& resource, ResourceState before, Resou
 }
 void OpenGlCommandList::Transition(Texture& resource, ResourceState before, ResourceState after)
 {
-    RequireAlive();
+    RequireRecording();
     (void)Native(resource, _device);
     if (before == after) return;
     if (!IsValidTransition(before, after)) throw std::invalid_argument("OpenGL RHI: invalid transition.");

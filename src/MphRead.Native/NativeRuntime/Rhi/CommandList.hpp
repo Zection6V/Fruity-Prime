@@ -141,6 +141,8 @@ namespace MphRead::NativeRuntime::Rhi
         // Begin/End delimit a caller-owned interval, independent of internal
         // submission, frame boundaries and diagnostic readbacks. Nested Begin
         // and End without Begin throw logic_error without submitting work.
+        // All recording mutations require this interval. ReadColor and
+        // EnqueueReadColor are diagnostic operations allowed outside it.
         virtual void Begin() = 0;
         virtual void End() = 0;
 
@@ -154,11 +156,16 @@ namespace MphRead::NativeRuntime::Rhi
         virtual void WriteTimestamp(TimestampQuerySet&, std::uint32_t)
         { throw std::logic_error("GPU timestamps are unavailable."); }
 
+        // BeginRendering replaces any preceding rendering interval; EndRendering
+        // is idempotent while recording. Draw and current-color copy require an
+        // open rendering interval. Transfers/barriers inside it retain previous
+        // contents and target so subsequent draws can continue without clearing.
         virtual void BeginRendering(const RenderingInfo& info) = 0;
         virtual void EndRendering() = 0;
 
         virtual void SetPipeline(const GraphicsPipeline& pipeline) = 0;
         virtual void SetViewport(const Viewport& viewport) = 0;
+        // Enables clipping until the next BeginRendering resets its render area.
         virtual void SetScissor(const Scissor& scissor) = 0;
 
         virtual void SetVertexBuffer(

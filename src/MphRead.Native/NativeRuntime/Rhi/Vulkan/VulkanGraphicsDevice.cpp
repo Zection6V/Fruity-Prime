@@ -1598,15 +1598,16 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             void SetPipeline(const GraphicsPipeline& pipeline) override;
             void SetViewport(const Viewport& viewport) override
             {
-                _device->RequireAlive();
+                RequireRecording();
                 _viewport = viewport;
                 _hasViewport = true;
                 _dynamicDirty = true;
             }
             void SetScissor(const Scissor& scissor) override
             {
-                _device->RequireAlive();
+                RequireRecording();
                 _scissor = scissor;
+                _scissorEnabled = true;
                 _dynamicDirty = true;
             }
             void SetVertexBuffer(std::uint32_t slot, const Buffer& buffer, std::uint64_t offset) override;
@@ -1626,6 +1627,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
             void SetStencilReference(std::uint32_t reference) override
             {
+                RequireRecording();
                 _stencilReference = reference;
                 _dynamicDirty = true;
             }
@@ -1731,6 +1733,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             void Materialize();
             void EndNative();
             void CloseRendering();
+            void PrepareTransfer();
             void Barrier(VulkanTexture& texture, ResourceState after);
             void ApplyDynamicState();
             [[nodiscard]] VulkanGraphicsPipeline& VariantFor(const VulkanSceneProgram& program, bool lines);
@@ -1769,6 +1772,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             bool _renderingOpen = false;
             bool _renderingActive = false;
             bool _clearsPending = false;
+            bool _materializing = false;
             Target _target{};
             Viewport _viewport{};
             bool _hasViewport = false;
@@ -2211,13 +2215,29 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         void VulkanCommandList::EndRendering()
         {
+            _device->RequireAlive();
+            if (!_autoRestart) throw std::logic_error("Vulkan RHI: command list is not recording.");
             if (!_recording && !_renderingOpen) return;
             CloseRendering();
+        }
+
+        void VulkanCommandList::PrepareTransfer()
+        {
+            // Close the native rendering instance, keeping its logical target
+            // and contents for the next draw. Clear exactly once before copy.
+            if (!_materializing && _renderingOpen && _clearsPending) Materialize();
+            if (_renderingActive) EndNative();
         }
 
         void VulkanCommandList::Materialize()
         {
             RequireRecording();
+            struct Guard final
+            {
+                bool& Active;
+                explicit Guard(bool& active) : Active(active) { Active = true; }
+                ~Guard() { Active = false; }
+            } guard(_materializing);
             auto& vk = *_device->ContextPointer->_impl;
             if (_target.Color) Barrier(*_target.Color, ResourceState::ColorAttachment);
             if (_target.Depth) Barrier(*_target.Depth, ResourceState::DepthStencilWrite);
@@ -2280,6 +2300,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             const auto* native = dynamic_cast<const VulkanGraphicsPipeline*>(&pipeline);
             if (!native || native->DeviceState() != _device)
                 throw std::invalid_argument("Vulkan RHI: pipeline belongs to another device.");
+            RequireRecording();
             _pipeline = native;
             if (native->IsDeferred())
             {
@@ -2288,7 +2309,6 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     _device->CurrentSceneProgram = fragment->SceneProgram;
                 return;
             }
-            RequireRecording();
             auto& vk = *_device->ContextPointer->_impl;
             vk.vkCmdBindPipeline(_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, native->Native());
             _boundNative = native->Native();
@@ -2422,7 +2442,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         void VulkanCommandList::BindSampledTexture(std::uint32_t slot, const Texture* texture, const Sampler* sampler)
         {
-            _device->RequireAlive();
+            RequireRecording();
             if (slot >= _units.size()) throw std::out_of_range("Vulkan RHI: texture unit out of range.");
             if ((texture != nullptr) != (sampler != nullptr)) throw std::invalid_argument("Vulkan RHI: texture and sampler must be paired.");
             auto* image = texture ? const_cast<VulkanTexture*>(&CheckedResource<VulkanTexture>(*texture, _device)) : nullptr;
@@ -2629,6 +2649,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::uint32_t firstVertex, std::uint32_t firstInstance)
         {
             RequireRecording();
+            if (!_renderingOpen) throw std::logic_error("Vulkan RHI: draw needs a rendering interval.");
             if (!_pipeline || _pipeline->IsDeferred()) throw std::logic_error("Vulkan RHI: draw needs a native pipeline.");
             if (!_renderingActive) Materialize();
             ApplyDynamicState();
@@ -2639,6 +2660,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::uint32_t firstIndex, std::int32_t vertexOffset, std::uint32_t firstInstance)
         {
             RequireRecording();
+            if (!_renderingOpen) throw std::logic_error("Vulkan RHI: draw needs a rendering interval.");
             if (!_pipeline || _pipeline->IsDeferred()) throw std::logic_error("Vulkan RHI: draw needs a native pipeline.");
             if (!_renderingActive) Materialize();
             ApplyDynamicState();
@@ -2708,6 +2730,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         {
             RequireRecording();
             auto& target = CheckedResource<VulkanTexture>(destination, _device);
+            if (!_renderingOpen) throw std::logic_error("Vulkan RHI: color copy needs a rendering interval.");
             VulkanTexture* source = _target.Color;
             if (!source) return;
             if (_renderingOpen && _clearsPending) Materialize();
@@ -2751,6 +2774,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             region.srcOffset = sourceOffset;
             region.dstOffset = destinationOffset;
             region.size = size;
+            PrepareTransfer();
             _device->ContextPointer->_impl->vkCmdCopyBuffer(
                 _commandBuffer, src.Native(), dst.Native(), 1, &region);
         }
@@ -2769,6 +2793,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (src.State() != ResourceState::CopySrc || dst.State() != ResourceState::CopyDst)
                 throw std::invalid_argument("Vulkan RHI: image uploads require CopySrc and CopyDst states.");
             const VkBufferImageCopy copy = ToVkBufferImageCopy(src.Desc(), dst.Desc(), region);
+            PrepareTransfer();
             _device->ContextPointer->_impl->vkCmdCopyBufferToImage(_commandBuffer,
                 src.Native(), dst.Native(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
         }
@@ -2787,6 +2812,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (src.State() != ResourceState::CopySrc || dst.State() != ResourceState::CopyDst)
                 throw std::invalid_argument("Vulkan RHI: image readback requires CopySrc and CopyDst states.");
             const VkBufferImageCopy copy = ToVkBufferImageCopy(dst.Desc(), src.Desc(), region);
+            PrepareTransfer();
             _device->ContextPointer->_impl->vkCmdCopyImageToBuffer(_commandBuffer,
                 src.Native(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst.Native(), 1, &copy);
         }
@@ -2804,6 +2830,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 | ResourceState::Present;
             if (HasAny(before | after, imageOnly))
                 throw std::invalid_argument("Vulkan RHI: image-only state used for a buffer.");
+            PrepareTransfer();
             const StateMapping src = ToVkState(before, false);
             const StateMapping dst = ToVkState(after, false);
             VkBufferMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
@@ -2835,7 +2862,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 | ResourceState::IndexBuffer | ResourceState::ConstantBuffer;
             if (HasAny(before | after, bufferOnly))
                 throw std::invalid_argument("Vulkan RHI: buffer-only state used for an image.");
-            const StateMapping src = ToVkState(before, true);
+            PrepareTransfer();
+            // Preparing the pending clear can implicitly transition this very
+            // attachment. Use its resulting native layout for the barrier.
+            const StateMapping src = ToVkState(texture.State(), true);
             const StateMapping dst = ToVkState(after, true);
             VkImageMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
             barrier.srcStageMask = src.Stages;

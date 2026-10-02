@@ -291,26 +291,105 @@ namespace MphRead::Mods::Diagnostics
             auto target = device.CreateTexture(targetDesc); auto targetView = device.CreateTextureView(*target, {});
             RenderingColorAttachment color{targetView.get(), LoadOp::Clear, StoreOp::Store, {0, 0, 0, 1}};
             RenderingInfo info{}; info.width = 16; info.height = 16; info.colorAttachments = std::span(&color, 1);
+            auto idleQuery = device.GetCapabilities().supportsTimestampQueries
+                ? device.CreateTimestampQuerySet(2, "Idle recording rejection") : nullptr;
+            commands = device.CreateCommandList();
+            unsigned idleRejections = 0;
+            const auto rejectRecording = [&](const char* name, auto action) {
+                const auto before = device.Statistics().Submitted;
+                bool rejected = false;
+                try { action(); }
+                catch (const std::invalid_argument&) { throw std::runtime_error(std::string(name) + ": arguments checked before recording guard."); }
+                catch (const std::out_of_range&) { throw std::runtime_error(std::string(name) + ": range checked before recording guard."); }
+                catch (const std::logic_error&) { rejected = true; }
+                if (!rejected) throw std::runtime_error(std::string(name) + ": recording guard did not reject.");
+                Expect(device.Statistics().Submitted == before, "Rejected recording mutation submitted work.");
+                ++idleRejections;
+            };
+            const auto checkIdle = [&] {
+                rejectRecording("BeginRendering", [&] { commands->BeginRendering(info); });
+                rejectRecording("EndRendering", [&] { commands->EndRendering(); });
+                rejectRecording("SetPipeline", [&] { commands->SetPipeline(*pipeline); });
+                rejectRecording("SetViewport", [&] { commands->SetViewport({0, 0, 16, 16}); });
+                rejectRecording("SetScissor", [&] { commands->SetScissor({0, 0, 16, 16}); });
+                rejectRecording("SetVertexBuffer", [&] { commands->SetVertexBuffer(0, *vertices); });
+                rejectRecording("SetIndexBuffer", [&] { commands->SetIndexBuffer(*index, IndexType::UInt32); });
+                rejectRecording("SetBindingSet", [&] { commands->SetBindingSet(0, *frameSet); });
+                rejectRecording("SetStencilReference", [&] { commands->SetStencilReference(0); });
+                rejectRecording("Draw", [&] { commands->Draw(3); });
+                rejectRecording("DrawIndexed", [&] { commands->DrawIndexed(3); });
+                rejectRecording("CopyBuffer", [&] { commands->CopyBuffer(*upload, 0, *readback, 0, 16); });
+                rejectRecording("CopyBufferToTexture", [&] { commands->CopyBufferToTexture(*upload, *image, region); });
+                rejectRecording("CopyTextureToBuffer", [&] { commands->CopyTextureToBuffer(*image, *readback, region); });
+                rejectRecording("TransitionBuffer", [&] { commands->Transition(*upload, ResourceState::CopySrc, ResourceState::CopySrc); });
+                rejectRecording("TransitionTexture", [&] { commands->Transition(*image, ResourceState::CopySrc, ResourceState::ShaderRead); });
+                rejectRecording("BindSampledTexture", [&] { commands->BindSampledTexture(0, sampled.get(), nearest.get()); });
+                rejectRecording("CopyColorAttachmentToTexture", [&] { commands->CopyColorAttachmentToTexture(*image, 2, 2); });
+                rejectRecording("BeginDebugLabel", [&] { commands->BeginDebugLabel({"Idle"}); });
+                rejectRecording("EndDebugLabel", [&] { commands->EndDebugLabel(); });
+                rejectRecording("InsertDebugMarker", [&] { commands->InsertDebugMarker({"Idle"}); });
+                if (idleQuery)
+                {
+                    rejectRecording("InitializeTimestamps", [&] { commands->InitializeTimestamps(*idleQuery); });
+                    rejectRecording("WriteTimestamp", [&] { commands->WriteTimestamp(*idleQuery, 0); });
+                }
+            };
+            checkIdle();
             (void)device.BeginFrame();
             auto render = [&](const BindingSet& material, bool indexed) {
-                commands->Begin(); commands->BeginRendering(info); commands->SetPipeline(*pipeline);
+                auto clearImage = device.CreateTexture(imageDesc);
+                auto clearOutput = device.CreateBuffer({16, BufferUsage::TransferDst, MemoryUsage::GpuToCpu});
+                commands->Begin();
+                rejectRecording("Draw outside rendering", [&] { commands->Draw(3); });
+                rejectRecording("DrawIndexed outside rendering", [&] { commands->DrawIndexed(3); });
+                commands->Transition(*clearOutput, ResourceState::Undefined, ResourceState::CopyDst);
+                commands->BeginRendering(info); commands->SetPipeline(*pipeline);
+                if (idleQuery)
+                    rejectRecording("InitializeTimestamps inside rendering", [&] { commands->InitializeTimestamps(*idleQuery); });
                 commands->SetViewport({0, 0, 16, 16}); commands->SetVertexBuffer(0, *vertices);
                 commands->SetBindingSet(0, *frameSet); commands->SetBindingSet(1, material); commands->SetBindingSet(2, *drawSet);
+                // A pending clear must precede transfer, and the first half of
+                // the picture must survive transfers and barriers before the
+                // second half is drawn. Resume must LOAD rather than CLEAR.
+                commands->CopyBuffer(*upload, 0, *readback, 0, 16);
+                commands->CopyColorAttachmentToTexture(*clearImage, 2, 2);
+                commands->Transition(*clearImage, ResourceState::ShaderRead, ResourceState::CopySrc);
+                BufferTextureCopy clearRegion{}; clearRegion.width = clearRegion.height = 2;
+                commands->CopyTextureToBuffer(*clearImage, *clearOutput, clearRegion);
+                commands->SetScissor({0, 0, 8, 16});
                 if (indexed) { commands->SetIndexBuffer(*index, IndexType::UInt32); commands->DrawIndexed(3, 1, 1); }
                 else commands->Draw(3);
+                commands->Transition(*upload, ResourceState::CopySrc, ResourceState::Common);
+                commands->Transition(*upload, ResourceState::Common, ResourceState::CopySrc);
+                commands->CopyBuffer(*upload, 0, *readback, 0, 16);
+                commands->Transition(*image, ResourceState::CopySrc, ResourceState::CopyDst);
+                commands->CopyBufferToTexture(*upload, *image, region);
+                commands->Transition(*image, ResourceState::CopyDst, ResourceState::CopySrc);
+                commands->CopyTextureToBuffer(*image, *readback, region);
+                commands->SetScissor({8, 0, 8, 16});
+                if (indexed) commands->DrawIndexed(3, 1, 1);
+                else commands->Draw(3);
                 commands->EndRendering(); commands->End();
+                std::array<std::byte, 16> clearBytes{};
+                device.ReadBuffer(*clearOutput, 0, clearBytes);
+                for (std::size_t i = 0; i < clearBytes.size(); ++i)
+                    Expect(clearBytes[i] == (i % 4 == 3 ? std::byte{255} : std::byte{0}),
+                        "Pending clear did not precede current-color GPU copy.");
                 std::array<unsigned char, 8> pixel{};
                 commands->ReadColor(info, 4, 8, 1, 1, Rhi::TextureFormat::RGBA8Unorm, pixel.data());
                 commands->ReadColor(info, 12, 8, 1, 1, Rhi::TextureFormat::RGBA8Unorm, pixel.data() + 4);
                 return pixel;
             };
             const auto nearestPixel = render(*nearestSet, false), linearPixel = render(*linearSet, true);
+            checkIdle(); idleQuery.reset();
             Expect(nearestPixel[0] < 3 && nearestPixel[2] > 252 && nearestPixel[3] == 255, "Nonindexed draw or nearest sampler contents differ.");
             Expect(linearPixel[0] >= 126 && linearPixel[0] <= 129 && linearPixel[2] >= 126 && linearPixel[2] <= 129 && linearPixel[3] == 255,
                 "Indexed draw or independent linear sampler contents differ.");
             Expect(nearestPixel[4] >= 126 && nearestPixel[4] <= 129 && nearestPixel[6] >= 126 && nearestPixel[6] <= 129 && nearestPixel[7] == 255
                 && linearPixel[4] < 3 && linearPixel[6] > 252 && linearPixel[7] == 255,
                 "The same image did not support two simultaneous sampler states.");
+            std::cout << "[recording mutation] PASS; rejected=" << idleRejections
+                << "; pending-clear/transfer; scissor draw/transfer/resumed draw; diagnostic read outside interval\n";
             {
                 auto discardedImage = device.CreateTexture(sampleDesc);
                 auto survivingView = device.CreateTextureView(*discardedImage, {});

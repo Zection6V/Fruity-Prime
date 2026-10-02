@@ -9,19 +9,11 @@ void VulkanCommandList::PrepareHostReadback(VulkanBuffer& buffer)
     barrier.buffer = buffer.Native(); barrier.size = VK_WHOLE_SIZE;
     VkDependencyInfo dependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     dependency.bufferMemoryBarrierCount = 1; dependency.pBufferMemoryBarriers = &barrier;
-    _device->ContextPointer->_impl->vkCmdPipelineBarrier2(_commandBuffer, &dependency);
+    _device->ContextPointer->_impl->vkCmdPipelineBarrier2(_commandSlots->Buffer(), &dependency);
 }
 bool VulkanCommandList::PollComplete()
 {
-    const auto poll = [&](VkFence fence, bool submitted) {
-        if (!submitted) return true;
-        auto& vk = *_device->ContextPointer->_impl;
-        const auto result = vk.vkGetFenceStatus(vk.device, fence);
-        if (result == VK_NOT_READY) return false;
-        Check(result, "vkGetFenceStatus(async readback)");
-        return true;
-    };
-    return poll(_fence, _submitted) && poll(_spare.Fence, _spare.Submitted);
+    return _commandSlots->PollComplete();
 }
 class VulkanReadbackTransfer final : public ReadbackTransfer
 {
@@ -118,13 +110,7 @@ ReadbackTicket VulkanCommandList::EnqueueReadColor(const RenderingInfo& info, st
     // A burst of captures can consume both recording slots before the GPU
     // finishes either. Reject this request instead of BeginBuffer's normal
     // frame throttling wait. The next draw retains its existing pacing policy.
-    if (!_recording && _submitted)
-    {
-        auto& vk = *_device->ContextPointer->_impl;
-        const auto status = vk.vkGetFenceStatus(vk.device, _fence);
-        if (status == VK_NOT_READY) return {};
-        Check(status, "vkGetFenceStatus(async color admission)");
-    }
+    if (!_recording && !_commandSlots->CanBeginWithoutWait()) return {};
     return _device->Readbacks.Enqueue(outputBytes, stagingBytes, [&]() -> std::unique_ptr<ReadbackTransfer> {
         auto result = std::make_unique<VulkanReadbackTransfer>();
         result->OutputPixelBytes = pixelBytes;

@@ -21,7 +21,7 @@ Phase A～E / H または R1～R20 がすべて完了したという記録では
 | R6 / R7: OpenGL command / sampler | Buffer / vertex・index binding / Draw / DrawIndexed / GPU Copy / BindingSet と独立 sampler・value cache を実装。Windows scene / transient geometry を同じ Buffer / CommandList / VAO 経由へ接続。共通 GPU fixture と旧新7画像の一致を確認。単一2D画像以外の範囲、packed depth/stencil copy、recording 契約の統一は残る |
 | R8: Session 寿命 | Vulkan の意図的に解放しない `VulkanScene` を削除。切替で scene / UI → commands → swapchain → device / context → window の順に解放する。OpenGL device は Session が単独所有。Vulkan も device 終了時に全 native owner を閉じ、shared state を context 非依存の CPU descriptor にする。両 backend で未送信 copy / 旧 wrapper を残す8回の shutdown / recreate を検査。swapchain は Session 終了前に解放する caller 契約を維持。device loss / admission failure の teardown は R17 / Phase H で続ける |
 | R9: presentation | request と実際の mode / capabilities を分離。typed acquire / present status を実装し、frame loop で利用。最小化・明示的 close request は一時停止、API の device / surface loss は別分類。OpenGL の generic conformance coverage は R19 で拡張する |
-| R10: Vulkan 責務分離 | `VulkanFrameScheduler` が queue submit / completion、`VulkanDescriptorAllocator` が slot ごとの pools、`VulkanUploadArena` が mapped pages / suballocation / flush / completion 後 reset / close を所有。`VulkanMemory` が VMA と buffer / image の admission / allocation を所有。pipeline library は R11 の専用 owner。`VulkanFeatureProbe` が instance / device の facts・必須条件・任意機能・queue選択・scoreを生成し、logical device生成と分離。frame slot の所有・調停は残る |
+| R10: Vulkan 責務分離 | `VulkanFrameScheduler` が queue submit / completion、`VulkanDescriptorAllocator` が slot ごとの pools、`VulkanUploadArena` が mapped pages / suballocation / flush / completion 後 reset / close を所有。`VulkanMemory` が VMA と buffer / image の admission / allocation を所有。pipeline library は R11 の専用 owner。`VulkanFeatureProbe` が instance / device の facts・必須条件・任意機能・queue選択・scoreを生成し、logical device生成と分離。`VulkanCommandSlots` が command listの2枠のnative pool / buffer / fence / allocators、再利用の調停を所有。logical recording / draw-stateとqueue schedulerは別の責務として維持。レビュー全体に照らした分離の最終監査は残る |
 | R12: memory budget | API に依存しない snapshot / request / decision / telemetry と pure admission を実装。Vulkan は VMA / optional EXT live budget、OpenGL は optional NVX counters。未知・推定・driver 情報を区別し、buffer / texture / resize / thumbnail / interop target の確保前に判定。合成 heap / UMA / limits / overflow と両 backend の実 GPU 拒否・旧画像保持を検査。実 driver OOM、eviction、全 GPU の容量保証は含めない |
 | R13: upload | Vulkan の scene uniforms / transient geometry / texture と GPU-only buffer upload を slot ごとの persistent mapped arena へ統一。描画外の writes は専用 transfer stream で batch し、consumer / frame / readback / release の順序境界で submit。static mesh は GPU-only destination。CPU fake と実 GPU の再利用・コピー順・overflow・切替を検査。将来の API の機構は追加しない |
 | R11: native pipeline library | 既存 semantic cache を維持し、専用 `VulkanPipelineCache` を全 RHI native graphics pipeline 生成へ接続。identity / framing / checksum / size gate、atomic disk replacement、driver rejection / native cache 不可時の fallback と deterministic close を実装。CPU fault dispatch と実 GPU の cold / warm・破損・保存失敗を検証。速度向上・cache hit の計測は未実施。OpenGL は既存 linked-program cache、Metal / D3D12 は将来対応 |
@@ -1888,3 +1888,45 @@ fake native dispatchで`VK_INCOMPLETE`の再列挙、surface有無のquery経路
 R10 の frame slot の所有・調停、R19の全format / subresource / state tracking / presentation ownership、
 Phase Hの100-cycle stress、R20の確認とレビュー全体は進行中。
 Android / macOS実動作、remote CIは未実行。
+
+## Command recording slot の所有・再利用の分離（R10）
+
+`VulkanCommandSlots` を独立した header / translation unit とし、command listごとの2枠の
+native command pool / buffer / fence、upload arena、descriptor allocatorを所有させた。
+各枠は Idle / Recording / Executable / Pending を持ち、submit後にだけ次の枠へ進む。
+queue submit / timeline serialは既存の`VulkanFrameScheduler`へ委譲する。
+RHIのlogical Begin / End、描画状態の再適用、rendering / transfer commandの生成は
+`VulkanCommandList`に残し、native bufferの交代をlogical Endとみなさない。
+
+再利用時はfence完了とsubmission serialの完了を確認してから、upload / descriptorをresetし、
+fenceとcommand poolをresetする。未完了の枠だけ従来の2秒ごとのfence waitを行う。
+既にsignaledならblocking waitを呼ばない。async readbackのadmission / completion pollは
+待機・reset・submitを行わず、両枠が使用中なら新しいreadbackを保留する。
+通常のcloseはこのstreamの送信済み枠をdrainし、sessionが既にidleまたはdevice loss境界を
+通ったcloseでは追加待機を行わない。初期化途中の失敗でも作成済みownerを解放する。
+native wait失敗時のcloseは既存のbest-effort方針を維持する。実GPUのdevice lossは今回注入していない。
+
+CPU fake dispatchは64回の交代、2枠使用中のbackpressure、timeout再試行、未送信記録を残すdrain、
+fenceだけ完了しtimelineが未完了の場合のreset拒否、signaled時の待機省略、途中のpool / buffer /
+fence / allocator初期化失敗、submit失敗、fence queryのDeviceLost分類、destructorのdrain、
+session idle後のcloseとclose後の操作拒否を検査する。descriptor poolやcommand poolを
+pending中にreset / destroyした場合と、残存native handleも失敗にする。
+
+確認結果（Windows / RTX 5070 Ti）:
+
+- MSVC Release PASS: `C:/tmp/gp/architecture-r10-slots-final-build.log`。
+- CPU CTest 15/15 PASS: `C:/tmp/gp/architecture-r10-slots-final-ctest.log`。
+  新しい`FruityPrime.VulkanCommandSlots`はfake dispatchを使い、native Vulkan libraryをlinkしない。
+- 共通GPU conformance PASS: `C:/tmp/gp/architecture-r10-slots-final-conformance.log`。
+  OpenGL / Vulkanの描画、binding復元、ownership、session再作成、async readbackを確認。
+- `-vulkanresourcecheck` PASS: `C:/tmp/gp/architecture-r10-slots-resource.log`。
+  64回のchurn / upload reuse / admission / descriptor再利用、最終live=0 / retired=0、
+  通常churnのdevice-wide waits=0、validation errors=0。
+- Alinos Perchの試合中3回切替 PASS: `C:/tmp/r18-fps-20261003-010632/opengl.log`。
+  Settings保存・resume、8 actors、ボムと粒子のtexture binding、world / simulation / windowの
+  witnessと負の対照がPASS。GPU timestamp計測を併用し、Vulkan validation errors=0。
+  validation ON / cap 240の回帰検査なので、FPSの速度比較には混ぜない。
+
+R10の最終責務監査、R19の全format / subresource / state tracking / presentation ownership、
+Phase Hの100-cycle stress、R20の確認とレビュー全体は進行中。
+Android / macOS実動作、remote CIは未実行。Metal / D3D12は将来対応のまま。

@@ -23,6 +23,7 @@
 #include "VulkanPipelineCache.hpp"
 #include "VulkanDescriptorAllocator.hpp"
 #include "VulkanUploadArena.hpp"
+#include "VulkanCommandSlots.hpp"
 #include "VulkanMemory.hpp"
 #include "../../../Testing/MemoryAdmissionCheck.hpp"
 #include "../SceneShaderAbi.hpp"
@@ -1651,9 +1652,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     throw std::invalid_argument("Vulkan RHI: binding set incompatible with pipeline.");
                 auto snapshot = std::make_unique<VulkanBindingSet>(_device, native->Desc(),
                     _pipeline->BindingLayoutOwner(index));
-                const auto descriptor = snapshot->Native(_descriptors.get());
+                const auto descriptor = snapshot->Native(&_commandSlots->Descriptors());
                 auto& vk = *_device->ContextPointer->_impl;
-                vk.vkCmdBindDescriptorSets(_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                vk.vkCmdBindDescriptorSets(_commandSlots->Buffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
                     _pipeline->Layout(), index, 1, &descriptor, 0, nullptr);
                 _genericSets[index] = {std::move(snapshot), descriptor, _bindingGeneration};
             }
@@ -1704,7 +1705,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             void UploadTexture(VulkanTexture& texture, std::span<const std::byte> texels);
             void UploadBuffer(VulkanBuffer& buffer, VkDeviceSize offset, std::span<const std::byte> bytes);
             [[nodiscard]] RingSlice Allocate(VkDeviceSize size, VkDeviceSize alignment = 16);
-            [[nodiscard]] VkDeviceSize PendingUploadBytes() const noexcept { return _uploads->UsedBytes(); }
+            [[nodiscard]] VkDeviceSize PendingUploadBytes() const noexcept { return _commandSlots->Uploads().UsedBytes(); }
             // Submit recorded work; wait only when reusing a pending slot.
             // Recording resumes on the next command.
             void Flush();
@@ -1761,7 +1762,6 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             void BeginBuffer();
             // Wait for both slots' submitted work; their allocations are free.
             void WaitAll();
-            void Recycle();
             void Materialize();
             void EndNative();
             void CloseRendering();
@@ -1778,23 +1778,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             VulkanNativeRegistration _registration;
             bool _closed = false;
             bool _transferOnly = false;
-            // Two submission slots. The members below are the current slot;
-            // _spare holds the other, swapped in at every flush, so a frame's
-            // submission is waited on only when its slot comes round again.
-            struct Slot final
-            {
-                VkCommandPool Pool = VK_NULL_HANDLE;
-                VkCommandBuffer Buffer = VK_NULL_HANDLE;
-                VkFence Fence = VK_NULL_HANDLE;
-                bool Submitted = false;
-                std::unique_ptr<VulkanUploadArena> Uploads;
-                std::unique_ptr<VulkanDescriptorAllocator> Descriptors;
-            };
-            Slot _spare{};
-            bool _submitted = false;
-            VkCommandPool _pool = VK_NULL_HANDLE;
-            VkCommandBuffer _commandBuffer = VK_NULL_HANDLE;
-            VkFence _fence = VK_NULL_HANDLE;
+            std::unique_ptr<VulkanCommandSlots> _commandSlots;
             bool _recording = false;
             std::vector<DebugLabel> _debugLabels;
             void NativeBeginLabel(const DebugLabel& label);
@@ -1835,8 +1819,6 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
             std::array<std::pair<VulkanTexture*, const VulkanSampler*>, 4> _units{};
             std::unordered_map<VariantKey, Variant, VariantHash> _variants{};
-            std::unique_ptr<VulkanUploadArena> _uploads;
-            std::unique_ptr<VulkanDescriptorAllocator> _descriptors;
 
             const VulkanSceneProgram* _setProgram = nullptr;
             std::array<std::pair<VkImageView, VkSampler>, 4> _setTextures{};
@@ -1851,29 +1833,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             : _device(std::move(state)), _registration(*_device, *this, true), _transferOnly(transferOnly)
         {
             auto& vk = *_device->ContextPointer->_impl;
-            const auto make = [&](VkCommandPool& poolHandle, VkCommandBuffer& buffer, VkFence& fenceHandle)
-            {
-                VkCommandPoolCreateInfo pool{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
-                pool.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-                pool.queueFamilyIndex = vk.graphicsFamily;
-                Check(vk.vkCreateCommandPool(vk.device, &pool, nullptr, &poolHandle), "vkCreateCommandPool");
-                VkCommandBufferAllocateInfo allocate{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-                allocate.commandPool = poolHandle;
-                allocate.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-                allocate.commandBufferCount = 1;
-                Check(vk.vkAllocateCommandBuffers(vk.device, &allocate, &buffer), "vkAllocateCommandBuffers");
-                VkFenceCreateInfo fence{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-                Check(vk.vkCreateFence(vk.device, &fence, nullptr, &fenceHandle), "vkCreateFence");
-                vk.Name(VK_OBJECT_TYPE_COMMAND_BUFFER, reinterpret_cast<std::uint64_t>(buffer),
-                    "RHI resource command buffer");
-            };
             try
             {
-                make(_pool, _commandBuffer, _fence);
-                make(_spare.Pool, _spare.Buffer, _spare.Fence);
                 const VulkanDescriptorAllocator::Capacity capacity{2048, {2048, 0, 4096, 0, 4096}};
-                _descriptors = _device->MakeDescriptors(capacity);
-                _spare.Descriptors = _device->MakeDescriptors(capacity);
                 const auto makeUploads = [&] {
                     return std::make_unique<VulkanUploadArena>(VulkanUploadArena::Dispatch{
                         [device = _device.get()](VkDeviceSize size) {
@@ -1904,8 +1866,18 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                                 "vmaFlushAllocation(upload arena)");
                         }});
                 };
-                _uploads = makeUploads();
-                _spare.Uploads = makeUploads();
+                _commandSlots = std::make_unique<VulkanCommandSlots>(VulkanCommandSlots::Dispatch{
+                    vk.device, vk.graphicsFamily, vk.vkCreateCommandPool, vk.vkDestroyCommandPool, vk.vkAllocateCommandBuffers,
+                    vk.vkCreateFence, vk.vkDestroyFence, vk.vkGetFenceStatus, vk.vkWaitForFences, vk.vkResetFences,
+                    vk.vkResetCommandPool, vk.vkBeginCommandBuffer, vk.vkEndCommandBuffer,
+                    [device = _device.get()](const VkSubmitInfo2& work, VkFence fence) { return device->Scheduler->Submit(work, fence); },
+                    [device = _device.get()] { return device->Scheduler->Poll(); },
+                    [device = _device.get()] { ++device->HostWaits; },
+                    [device = _device.get()] { device->CollectRetired(); },
+                    [device = _device.get()](VkCommandBuffer buffer) {
+                        device->ContextPointer->_impl->Name(VK_OBJECT_TYPE_COMMAND_BUFFER, reinterpret_cast<std::uint64_t>(buffer),
+                            "RHI resource command buffer");
+                    }, makeUploads, [device = _device.get(), capacity] { return device->MakeDescriptors(capacity); }});
                 _device->SceneForgetters[this] = [this](const void* object) { Forget(object); };
                 _device->SceneViewReplacers[this] = [this](VkImageView before, VkImageView after) {
                     for (auto& [slot, set] : _genericSets) set.Generation = 0;
@@ -1931,12 +1903,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 _device->SceneForgetters.erase(this);
                 _device->SceneViewReplacers.erase(this);
-                for (VkCommandPool poolHandle : {_pool, _spare.Pool})
-                    if (poolHandle) vk.vkDestroyCommandPool(vk.device, poolHandle, nullptr);
-                for (VkFence fenceHandle : {_fence, _spare.Fence})
-                    if (fenceHandle) vk.vkDestroyFence(vk.device, fenceHandle, nullptr);
-                _pool = VK_NULL_HANDLE;
-                _spare = {};
+                _commandSlots.reset();
                 throw;
             }
         }
@@ -1963,56 +1930,16 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (_transferOnly) --_device->UploadCommandLists;
             else if (--_device->CommandLists == 0) _device->ReleaseWindowTarget();
             _dummySampler.reset();
-            if (_uploads) _uploads->Close();
-            if (_spare.Uploads) _spare.Uploads->Close();
-            if (_descriptors) _descriptors->Close();
-            if (_spare.Descriptors) _spare.Descriptors->Close();
-            for (VkFence fence : {_fence, _spare.Fence})
-                if (fence) vk.vkDestroyFence(vk.device, fence, nullptr);
-            for (VkCommandPool pool : {_pool, _spare.Pool})
-                if (pool) vk.vkDestroyCommandPool(vk.device, pool, nullptr);
-            _uploads.reset(); _descriptors.reset(); _spare = {};
-            _pool = VK_NULL_HANDLE; _fence = VK_NULL_HANDLE; _commandBuffer = VK_NULL_HANDLE;
+            if (_commandSlots) _commandSlots->Close(_device->Closing);
+            _commandSlots.reset();
             _recording = _autoRestart = _renderingActive = _renderingOpen = _clearsPending = false;
             _target = {}; _pipeline = nullptr; _units = {}; _setProgram = nullptr; _sets.fill(VK_NULL_HANDLE);
             _closed = true;
         }
 
-        void VulkanCommandList::Recycle()
-        {
-            // The current slot's last submission is complete: its ring and
-            // descriptor pools are free again.
-            auto& vk = *_device->ContextPointer->_impl;
-            if (_submitted)
-            {
-                // Throttling to two frames in flight: a stall only when the
-                // GPU really is two submissions behind.
-                if (vk.vkGetFenceStatus(vk.device, _fence) != VK_SUCCESS) ++_device->HostWaits;
-                Check(WaitFenceReporting(vk.vkWaitForFences, vk.device, &_fence, "vkWaitForFences"), "vkWaitForFences");
-                Check(vk.vkResetFences(vk.device, 1, &_fence), "vkResetFences");
-                _submitted = false;
-                _device->CollectRetired();
-            }
-            const auto completed = _device->Scheduler->Poll();
-            _uploads->ResetAfterCompletion(completed);
-            _descriptors->ResetAfterCompletion(completed);
-        }
-
         void VulkanCommandList::WaitAll()
         {
-            auto& vk = *_device->ContextPointer->_impl;
-            if (_spare.Submitted)
-            {
-                if (vk.vkGetFenceStatus(vk.device, _spare.Fence) != VK_SUCCESS) ++_device->HostWaits;
-                Check(WaitFenceReporting(vk.vkWaitForFences, vk.device, &_spare.Fence, "vkWaitForFences(spare)"), "vkWaitForFences(spare)");
-                Check(vk.vkResetFences(vk.device, 1, &_spare.Fence), "vkResetFences(spare)");
-                _spare.Submitted = false;
-                const auto completed = _device->Scheduler->Poll();
-                _spare.Uploads->ResetAfterCompletion(completed);
-                _spare.Descriptors->ResetAfterCompletion(completed);
-            }
-            if (_submitted && !_recording) Recycle();
-            _device->CollectRetired();
+            _commandSlots->WaitAll();
         }
 
         void VulkanCommandList::BeginBuffer()
@@ -2022,12 +1949,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             // list recorded goes to the queue before this one records, so
             // the queue sees lists in the order they drew.
             _device->FlushScene(this);
-            auto& vk = *_device->ContextPointer->_impl;
-            Recycle();
-            Check(vk.vkResetCommandPool(vk.device, _pool, 0), "vkResetCommandPool");
-            VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-            begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-            Check(vk.vkBeginCommandBuffer(_commandBuffer, &begin), "vkBeginCommandBuffer");
+            _commandSlots->Begin();
             _recording = true;
             ++_bindingGeneration;
             _genericDirty = true;
@@ -2070,31 +1992,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             auto& vk = *_device->ContextPointer->_impl;
             if (_renderingOpen && _clearsPending) Materialize();
             if (_renderingActive) EndNative();
-            if (vk.endLabel) for (std::size_t i = 0; i < _debugLabels.size(); ++i) vk.endLabel(_commandBuffer);
-            _uploads->FlushPending();
-            Check(vk.vkEndCommandBuffer(_commandBuffer), "vkEndCommandBuffer");
-            VkCommandBufferSubmitInfo command{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
-            command.commandBuffer = _commandBuffer;
-            VkSubmitInfo2 submit{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
-            submit.commandBufferInfoCount = 1;
-            submit.pCommandBufferInfos = &command;
+            if (vk.endLabel) for (std::size_t i = 0; i < _debugLabels.size(); ++i) vk.endLabel(_commandSlots->Buffer());
+            _commandSlots->End();
             _recording = false;
             _device->SceneFlushers.erase(this);
             if (_device->RecordingList == this) _device->RecordingList = nullptr;
-            const auto serial = _device->Scheduler->Submit(submit, _fence);
-            _descriptors->Submitted(serial);
-            _uploads->Submitted(serial);
-            _submitted = true;
-            // Swap slots: this submission runs on while the other slot records.
-            Slot current{_pool, _commandBuffer, _fence, _submitted, std::move(_uploads),
-                std::move(_descriptors)};
-            _pool = _spare.Pool;
-            _commandBuffer = _spare.Buffer;
-            _fence = _spare.Fence;
-            _submitted = _spare.Submitted;
-            _uploads = std::move(_spare.Uploads);
-            _descriptors = std::move(_spare.Descriptors);
-            _spare = std::move(current);
+            _commandSlots->Submit();
             _sets.fill(VK_NULL_HANDLE);
             _setProgram = nullptr;
             _boundNative = VK_NULL_HANDLE;
@@ -2114,7 +2017,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (!vk.caps.supportsDebugLabels) return;
             VkDebugUtilsLabelEXT info{VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT};
             info.pLabelName = label.name.c_str(); std::copy(label.color.begin(), label.color.end(), info.color);
-            vk.beginLabel(_commandBuffer, &info);
+            vk.beginLabel(_commandSlots->Buffer(), &info);
         }
         void VulkanCommandList::BeginDebugLabel(const DebugLabel& label)
         {
@@ -2128,7 +2031,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             RequireRecording();
             if (!_device->ContextPointer->Caps().supportsDebugLabels) return;
             if (_debugLabels.empty()) throw std::logic_error("No GPU debug label to end.");
-            _device->ContextPointer->_impl->endLabel(_commandBuffer); _debugLabels.pop_back();
+            _device->ContextPointer->_impl->endLabel(_commandSlots->Buffer()); _debugLabels.pop_back();
         }
         void VulkanCommandList::InsertDebugMarker(const DebugLabel& label)
         {
@@ -2137,7 +2040,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (!vk.caps.supportsDebugLabels) return;
             VkDebugUtilsLabelEXT info{VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT};
             info.pLabelName = label.name.c_str(); std::copy(label.color.begin(), label.color.end(), info.color);
-            vk.insertLabel(_commandBuffer, &info);
+            vk.insertLabel(_commandSlots->Buffer(), &info);
         }
         VulkanTimestampSet& VulkanCommandList::CheckedTimestamp(TimestampQuerySet& set)
         {
@@ -2152,12 +2055,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (_renderingOpen) throw std::logic_error("Initialize GPU timestamps outside rendering.");
             auto& native = CheckedTimestamp(set); native.Writes.Initialize();
             auto& vk = *_device->ContextPointer->_impl;
-            vk.vkCmdResetQueryPool(_commandBuffer, native.Pool, 0, native.Count());
+            vk.vkCmdResetQueryPool(_commandSlots->Buffer(), native.Pool, 0, native.Count());
         }
         void VulkanCommandList::WriteTimestamp(TimestampQuerySet& set, std::uint32_t index)
         {
             RequireRecording(); auto& native = CheckedTimestamp(set); native.Writes.Write(index);
-            _device->ContextPointer->_impl->vkCmdWriteTimestamp2(_commandBuffer,
+            _device->ContextPointer->_impl->vkCmdWriteTimestamp2(_commandSlots->Buffer(),
                 VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, native.Pool, index);
         }
 
@@ -2339,7 +2242,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             rendering.pColorAttachments = _target.Color ? &color : nullptr;
             rendering.pDepthAttachment = _target.Depth ? &depth : nullptr;
             rendering.pStencilAttachment = hasStencil ? &stencil : nullptr;
-            vk.vkCmdBeginRendering(_commandBuffer, &rendering);
+            vk.vkCmdBeginRendering(_commandSlots->Buffer(), &rendering);
             _renderingActive = true;
             _clearsPending = false;
             _dynamicDirty = true;
@@ -2347,7 +2250,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         void VulkanCommandList::EndNative()
         {
-            _device->ContextPointer->_impl->vkCmdEndRendering(_commandBuffer);
+            _device->ContextPointer->_impl->vkCmdEndRendering(_commandSlots->Buffer());
             _renderingActive = false;
         }
 
@@ -2373,7 +2276,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 return;
             }
             auto& vk = *_device->ContextPointer->_impl;
-            vk.vkCmdBindPipeline(_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, native->Native());
+            vk.vkCmdBindPipeline(_commandSlots->Buffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, native->Native());
             _boundNative = native->Native();
         }
 
@@ -2393,16 +2296,16 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             const bool restore = _genericDirty || _boundNative != _pipeline->Native();
             if (restore)
             {
-                vk.vkCmdBindPipeline(_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _pipeline->Native());
+                vk.vkCmdBindPipeline(_commandSlots->Buffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, _pipeline->Native());
                 _boundNative = _pipeline->Native();
                 for (const auto& [slot, binding] : _vertexBindings)
                 {
                     if (binding.Lifetime.expired()) continue;
                     const auto buffer = binding.Buffer->Native();
-                    vk.vkCmdBindVertexBuffers2(_commandBuffer, slot, 1, &buffer, &binding.Offset, nullptr, nullptr);
+                    vk.vkCmdBindVertexBuffers2(_commandSlots->Buffer(), slot, 1, &buffer, &binding.Offset, nullptr, nullptr);
                 }
                 if (_indexBinding.Buffer && !_indexBinding.Lifetime.expired())
-                    vk.vkCmdBindIndexBuffer(_commandBuffer, _indexBinding.Buffer->Native(), _indexBinding.Offset,
+                    vk.vkCmdBindIndexBuffer(_commandSlots->Buffer(), _indexBinding.Buffer->Native(), _indexBinding.Offset,
                         _indexType == IndexType::UInt16 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32);
             }
             for (auto& [slot, set] : _genericSets)
@@ -2413,11 +2316,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     // This command slot owns the descriptor pool and resets it
                     // only after submission completion. Never reuse a set from
                     // a previous native buffer/pool generation.
-                    set.Native = set.Snapshot->Native(_descriptors.get());
+                    set.Native = set.Snapshot->Native(&_commandSlots->Descriptors());
                     set.Generation = _bindingGeneration;
                 }
                 if (restore || fresh)
-                    vk.vkCmdBindDescriptorSets(_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    vk.vkCmdBindDescriptorSets(_commandSlots->Buffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
                         _pipeline->Layout(), slot, 1, &set.Native, 0, nullptr);
             }
             _genericDirty = false;
@@ -2441,7 +2344,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     _viewport.minDepth, _viewport.maxDepth};
             if (viewport.width <= 0.0F) viewport.width = 1.0F;
             if (viewport.height <= 0.0F) viewport.height = 1.0F;
-            vk.vkCmdSetViewport(_commandBuffer, 0, 1, &viewport);
+            vk.vkCmdSetViewport(_commandSlots->Buffer(), 0, 1, &viewport);
             VkRect2D scissor{{0, 0}, {width, height}};
             if (_scissorEnabled)
             {
@@ -2450,9 +2353,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 scissor = {{x, y}, {std::min(_scissor.width, width - static_cast<std::uint32_t>(x)),
                     std::min(_scissor.height, height - static_cast<std::uint32_t>(y))}};
             }
-            vk.vkCmdSetScissor(_commandBuffer, 0, 1, &scissor);
+            vk.vkCmdSetScissor(_commandSlots->Buffer(), 0, 1, &scissor);
             if (_pipeline && (_pipeline->IsDeferred()))
-                vk.vkCmdSetStencilReference(_commandBuffer, VK_STENCIL_FACE_FRONT_AND_BACK, _stencilReference);
+                vk.vkCmdSetStencilReference(_commandSlots->Buffer(), VK_STENCIL_FACE_FRONT_AND_BACK, _stencilReference);
             _dynamicDirty = false;
         }
 
@@ -2515,13 +2418,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         VkDescriptorSet VulkanCommandList::AllocateSet(const VulkanBindingLayout& layout)
         {
-            return _descriptors->Allocate(layout.Native(), layout.Desc());
+            return _commandSlots->Descriptors().Allocate(layout.Native(), layout.Desc());
         }
 
         VulkanCommandList::RingSlice VulkanCommandList::Allocate(VkDeviceSize size, VkDeviceSize alignment)
         {
             RequireRecording();
-            return _uploads->Allocate(size, alignment);
+            return _commandSlots->Uploads().Allocate(size, alignment);
         }
 
         VulkanTexture& VulkanCommandList::Dummy()
@@ -2542,7 +2445,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 Transition(*_dummy, ResourceState::Undefined, ResourceState::CopyDst);
                 const VkClearColorValue black{{0.0F, 0.0F, 0.0F, 1.0F}};
                 const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-                _device->ContextPointer->_impl->vkCmdClearColorImage(_commandBuffer, _dummy->Native(),
+                _device->ContextPointer->_impl->vkCmdClearColorImage(_commandSlots->Buffer(), _dummy->Native(),
                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &black, 1, &range);
                 Transition(*_dummy, ResourceState::CopyDst, ResourceState::ShaderRead);
             }
@@ -2597,7 +2500,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             VulkanGraphicsPipeline& native = VariantFor(*program, draw.Lines);
             if (native.Native() != _boundNative)
             {
-                vk.vkCmdBindPipeline(_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, native.Native());
+                vk.vkCmdBindPipeline(_commandSlots->Buffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, native.Native());
                 _boundNative = native.Native();
                 _sets.fill(VK_NULL_HANDLE);
             }
@@ -2666,7 +2569,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     vk.vkUpdateDescriptorSets(vk.device, count, writes.data(), 0, nullptr);
                     _sets[group] = set;
                 }
-                vk.vkCmdBindDescriptorSets(_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                vk.vkCmdBindDescriptorSets(_commandSlots->Buffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
                     native.Layout(), group, 1, &_sets[group], 0, nullptr);
             }
             _setTextures = textures;
@@ -2683,9 +2586,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 strides[i] = draw.Streams[i].Stride;
                 streams = static_cast<std::uint32_t>(i + 1);
             }
-            vk.vkCmdBindVertexBuffers2(_commandBuffer, 0, streams, buffers.data(), offsets.data(), nullptr, strides.data());
-            vk.vkCmdBindIndexBuffer(_commandBuffer, draw.IndexBuffer, draw.IndexOffset, VK_INDEX_TYPE_UINT32);
-            vk.vkCmdDrawIndexed(_commandBuffer, draw.IndexCount, 1, 0, 0, 0);
+            vk.vkCmdBindVertexBuffers2(_commandSlots->Buffer(), 0, streams, buffers.data(), offsets.data(), nullptr, strides.data());
+            vk.vkCmdBindIndexBuffer(_commandSlots->Buffer(), draw.IndexBuffer, draw.IndexOffset, VK_INDEX_TYPE_UINT32);
+            vk.vkCmdDrawIndexed(_commandSlots->Buffer(), draw.IndexCount, 1, 0, 0, 0);
         }
 
         void VulkanCommandList::UploadTexture(VulkanTexture& texture, std::span<const std::byte> texels)
@@ -2709,7 +2612,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             const auto copy = ToVkBufferImageCopy(source, texture.Desc(), region);
             // The ring's host writes are made available by the flush before
             // this list is submitted.
-            _device->ContextPointer->_impl->vkCmdCopyBufferToImage(_commandBuffer, staging.Buffer, texture.Native(),
+            _device->ContextPointer->_impl->vkCmdCopyBufferToImage(_commandSlots->Buffer(), staging.Buffer, texture.Native(),
                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
             const ResourceState finalState = previous != ResourceState::Undefined && previous != ResourceState::CopyDst
                 ? previous
@@ -2730,7 +2633,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             const auto previous = buffer.State();
             if (previous != ResourceState::CopyDst) Transition(buffer, previous, ResourceState::CopyDst);
             const VkBufferCopy copy{staging.Offset, offset, bytes.size()};
-            _device->ContextPointer->_impl->vkCmdCopyBuffer(_commandBuffer, staging.Buffer, buffer.Native(), 1, &copy);
+            _device->ContextPointer->_impl->vkCmdCopyBuffer(_commandSlots->Buffer(), staging.Buffer, buffer.Native(), 1, &copy);
             if (previous != ResourceState::CopyDst && previous != ResourceState::Undefined)
                 Transition(buffer, ResourceState::CopyDst, previous);
             else if (previous == ResourceState::Undefined && buffer.Desc().initialState != ResourceState::Undefined)
@@ -2746,7 +2649,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 throw std::invalid_argument("Vulkan RHI: invalid vertex buffer binding.");
             const VkBuffer handle = native.Native();
             const VkDeviceSize at = offset;
-            _device->ContextPointer->_impl->vkCmdBindVertexBuffers2(_commandBuffer, slot, 1, &handle, &at, nullptr, nullptr);
+            _device->ContextPointer->_impl->vkCmdBindVertexBuffers2(_commandSlots->Buffer(), slot, 1, &handle, &at, nullptr, nullptr);
             _vertexBindings[slot] = {&native, native.Lifetime(), offset};
         }
 
@@ -2757,7 +2660,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             const auto width = type == IndexType::UInt16 ? 2U : 4U;
             if (!Has(native.Desc().usage, BufferUsage::Index) || offset >= native.Desc().size || offset % width)
                 throw std::invalid_argument("Vulkan RHI: invalid index buffer binding.");
-            _device->ContextPointer->_impl->vkCmdBindIndexBuffer(_commandBuffer, native.Native(), offset,
+            _device->ContextPointer->_impl->vkCmdBindIndexBuffer(_commandSlots->Buffer(), native.Native(), offset,
                 type == IndexType::UInt16 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32);
             _indexBinding = {&native, native.Lifetime(), offset}; _indexType = type;
         }
@@ -2771,7 +2674,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             RestoreGenericBindings();
             if (!_renderingActive) Materialize();
             ApplyDynamicState();
-            _device->ContextPointer->_impl->vkCmdDraw(_commandBuffer, vertexCount, instanceCount, firstVertex, firstInstance);
+            _device->ContextPointer->_impl->vkCmdDraw(_commandSlots->Buffer(), vertexCount, instanceCount, firstVertex, firstInstance);
         }
 
         void VulkanCommandList::DrawIndexed(std::uint32_t indexCount, std::uint32_t instanceCount,
@@ -2790,7 +2693,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             RestoreGenericBindings();
             if (!_renderingActive) Materialize();
             ApplyDynamicState();
-            _device->ContextPointer->_impl->vkCmdDrawIndexed(_commandBuffer, indexCount, instanceCount,
+            _device->ContextPointer->_impl->vkCmdDrawIndexed(_commandSlots->Buffer(), indexCount, instanceCount,
                 firstIndex, vertexOffset, firstInstance);
         }
 
@@ -2870,7 +2773,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
             region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
             region.extent = {width, height, 1};
-            _device->ContextPointer->_impl->vkCmdCopyImage(_commandBuffer, source->Native(),
+            _device->ContextPointer->_impl->vkCmdCopyImage(_commandSlots->Buffer(), source->Native(),
                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target.Native(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
             Barrier(*source, sourceState == ResourceState::Undefined ? ResourceState::ColorAttachment : sourceState);
             if (Has(target.Desc().usage, TextureUsage::Sampled)) Barrier(target, ResourceState::ShaderRead);
@@ -2902,7 +2805,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             region.size = size;
             PrepareTransfer();
             _device->ContextPointer->_impl->vkCmdCopyBuffer(
-                _commandBuffer, src.Native(), dst.Native(), 1, &region);
+                _commandSlots->Buffer(), src.Native(), dst.Native(), 1, &region);
         }
 
         void VulkanCommandList::CopyBufferToTexture(
@@ -2920,7 +2823,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 throw std::invalid_argument("Vulkan RHI: image uploads require CopySrc and CopyDst states.");
             const VkBufferImageCopy copy = ToVkBufferImageCopy(src.Desc(), dst.Desc(), region);
             PrepareTransfer();
-            _device->ContextPointer->_impl->vkCmdCopyBufferToImage(_commandBuffer,
+            _device->ContextPointer->_impl->vkCmdCopyBufferToImage(_commandSlots->Buffer(),
                 src.Native(), dst.Native(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
         }
 
@@ -2939,7 +2842,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 throw std::invalid_argument("Vulkan RHI: image readback requires CopySrc and CopyDst states.");
             const VkBufferImageCopy copy = ToVkBufferImageCopy(dst.Desc(), src.Desc(), region);
             PrepareTransfer();
-            _device->ContextPointer->_impl->vkCmdCopyImageToBuffer(_commandBuffer,
+            _device->ContextPointer->_impl->vkCmdCopyImageToBuffer(_commandSlots->Buffer(),
                 src.Native(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst.Native(), 1, &copy);
         }
 
@@ -2972,7 +2875,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             VkDependencyInfo dependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
             dependency.bufferMemoryBarrierCount = 1;
             dependency.pBufferMemoryBarriers = &barrier;
-            _device->ContextPointer->_impl->vkCmdPipelineBarrier2(_commandBuffer, &dependency);
+            _device->ContextPointer->_impl->vkCmdPipelineBarrier2(_commandSlots->Buffer(), &dependency);
             buffer.State(after);
         }
 
@@ -3011,7 +2914,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             VkDependencyInfo dependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
             dependency.imageMemoryBarrierCount = 1;
             dependency.pImageMemoryBarriers = &barrier;
-            _device->ContextPointer->_impl->vkCmdPipelineBarrier2(_commandBuffer, &dependency);
+            _device->ContextPointer->_impl->vkCmdPipelineBarrier2(_commandSlots->Buffer(), &dependency);
             texture.State(after);
         }
 

@@ -3240,7 +3240,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         auto& state = *dynamic_cast<VulkanGraphicsDevice&>(device).State();
         state.FlushScene();
         const auto acquired = swapchain.TryAcquireTexture();
-        if (!acquired.texture) return {acquired.status};
+        if (!acquired.texture) return {acquired.status, acquired.failure};
         VulkanTexture* window = state.WindowColor.get();
         if (!window || window->State() == ResourceState::Undefined)
         {
@@ -3254,6 +3254,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 {window->Desc().width, window->Desc().height});
         }
         const auto result = swapchain.TryPresent();
+        // Preserve the first native loss. Submitting a new completion marker
+        // to a lost device could throw another error and replace this result.
+        // The caller's explicit shutdown/idle/loss boundary closes ownership.
+        if (result.failure || result.status == PresentationStatus::DeviceLost
+            || result.status == PresentationStatus::SurfaceLost) return result;
         // The swapchain submits its own blit on this graphics queue. Cover
         // its source image's lifetime, independently of present queue fences.
         state.Scheduler->MarkExternalWork();

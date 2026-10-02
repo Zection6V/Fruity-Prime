@@ -3,6 +3,7 @@
 #include "../Submission.hpp"
 #include "../BackendError.hpp"
 #include <deque>
+#include <exception>
 
 namespace MphRead::NativeRuntime::Rhi::OpenGL
 {
@@ -31,6 +32,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
         SubmissionSerial Submit(bool flush = false)
         {
+            RequireHealthy();
             const auto serial = _progress.Next();
             if (!_dispatch.SyncSupported)
             {
@@ -54,8 +56,22 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             return serial;
         }
 
+        // Resource destructors cannot throw a driver failure. Preserve the
+        // first failure for the next explicit operation and retain the object
+        // until context teardown: no completion token covers a failed marker.
+        SubmissionSerial SubmitForRetirement()
+        {
+            try { return Submit(); }
+            catch (const BackendError&)
+            {
+                if (!_retirementFailure) _retirementFailure = std::current_exception();
+                return {std::numeric_limits<std::uint64_t>::max()};
+            }
+        }
+
         SubmissionSerial Poll()
         {
+            RequireHealthy();
             while (!_fences.empty())
             {
                 const auto status = _dispatch.Wait(_dispatch.Context, _fences.front().Sync, false, 0);
@@ -90,9 +106,12 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
         void Finish()
         {
+            RequireHealthy();
             ++_hostWaits;
             ++_deviceWideWaits;
             _dispatch.Finish(_dispatch.Context);
+            const auto error = _dispatch.Error(_dispatch.Context);
+            if (error) Fail("glFinish", error);
             _progress.Complete(Submitted());
             ReleaseCompleted();
         }
@@ -103,12 +122,30 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
     private:
         struct Entry final { SubmissionSerial Serial; void* Sync; };
+        void RequireHealthy() const
+        {
+            if (_retirementFailure) std::rethrow_exception(_retirementFailure);
+        }
         [[noreturn]] void Fail(const char* operation)
         {
-            const auto error = _dispatch.Error(_dispatch.Context);
-            throw BackendError(GraphicsBackend::OpenGl,
-                error == 0x0505 ? BackendErrorKind::OutOfMemory : BackendErrorKind::Unknown,
-                error, std::string(operation) + " failed; completion was not established.");
+            Fail(operation, _dispatch.Error(_dispatch.Context));
+        }
+        [[noreturn]] void Fail(const char* operation, unsigned error)
+        {
+            try
+            {
+                throw BackendError(GraphicsBackend::OpenGl,
+                    error == 0x0507 ? BackendErrorKind::DeviceLost
+                        : error == 0x0505 ? BackendErrorKind::OutOfMemory : BackendErrorKind::Unknown,
+                    error, std::string(operation) + " failed; completion was not established.");
+            }
+            catch (const BackendError&)
+            {
+                // glGetError consumes its code. A consumed context-loss error
+                // must not make a later glFinish appear successful.
+                if (error == 0x0507 && !_retirementFailure) _retirementFailure = std::current_exception();
+                throw;
+            }
         }
         void RequireCompletion(WaitStatus status)
         {
@@ -126,6 +163,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         Dispatch _dispatch;
         SubmissionProgress _progress;
         std::deque<Entry> _fences;
+        std::exception_ptr _retirementFailure;
         std::uint64_t _hostWaits = 0, _deviceWideWaits = 0;
     };
 }

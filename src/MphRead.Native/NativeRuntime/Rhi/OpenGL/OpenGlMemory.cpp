@@ -51,7 +51,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         if (!error) return;
         ++_telemetry.NativeFailures;
         throw BackendError(GraphicsBackend::OpenGl,
-            error == 0x0505 ? BackendErrorKind::OutOfMemory : BackendErrorKind::Unknown, error,
+            error == 0x0507 ? BackendErrorKind::DeviceLost
+                : error == 0x0505 ? BackendErrorKind::OutOfMemory : BackendErrorKind::Unknown, error,
             std::string(operation) + " failed: " + std::to_string(error));
     }
     std::uint64_t TextureStorageEstimate(TextureFormat format, std::uint32_t width, std::uint32_t height)

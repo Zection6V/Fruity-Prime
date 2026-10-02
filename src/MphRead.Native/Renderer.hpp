@@ -16,6 +16,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <exception>
 #include <functional>
 #include <iterator>
 #include <memory>
@@ -652,6 +653,11 @@ namespace MphRead
         // Diagnostics observe the exact transition, outside simulation: before
         // any GPU release (true), and after the complete rebuild (false).
         inline static std::function<void(RenderWindow&, bool)> ObserveRendererSwitch{};
+        enum class RendererSwitchStage : std::uint8_t { BeforeWindow, Presentation, Resources };
+        // Diagnostic checkpoints include partial replacement resources. A
+        // failure reporter may replace the modal dialog in a scripted run.
+        inline static std::function<void(RenderWindow&, RendererSwitchStage)> ObserveRendererSwitchStage{};
+        inline static std::function<void(std::exception_ptr, bool)> ReportRendererSwitchFailure{};
 
         // GameWindow's own window properties, which the C# RenderWindow has by
         // inheriting it.
@@ -795,7 +801,7 @@ public: \
     /* destroyed them, in the context the scene drew with. */ \
     void ReleaseGpuResources(); \
     void ReleaseGpuForSwitch(); \
-    void RebuildGpuAfterSwitch(); \
+    void RebuildGpuAfterSwitch(const std::function<void()>& checkpoint = {}); \
     void RebindInput(MphRead::RendererPlatform::KeyboardState& keyboard, MphRead::RendererPlatform::MouseState& mouse) noexcept; \
     void KeepTextureCopy(std::int32_t bindingId, std::int32_t width, std::int32_t height, \
         MphRead::NativeRuntime::Rhi::TextureFormat format, const void* pixels, bool owned); \

@@ -126,7 +126,7 @@ namespace MphRead::NativeRuntime::Rhi
             PresentResult TryPresent() override
             {
                 const auto acquire = TryAcquireTexture();
-                if (!acquire.texture) return {acquire.status};
+                if (!acquire.texture) return {acquire.status, acquire.failure};
                 Present();
                 return {};
             }

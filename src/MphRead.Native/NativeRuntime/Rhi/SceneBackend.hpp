@@ -12,6 +12,7 @@ namespace MphRead::RendererPlatform
 }
 
 #include <cstdint>
+#include <exception>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -38,6 +39,24 @@ namespace MphRead::NativeRuntime::Rhi
     {
     public:
         using std::runtime_error::runtime_error;
+        SceneBackendUnavailable(std::string message, BackendFailure failure)
+            : std::runtime_error(std::move(message)), _failure(std::move(failure)) {}
+        [[nodiscard]] const std::optional<BackendFailure>& Failure() const noexcept { return _failure; }
+    private:
+        std::optional<BackendFailure> _failure;
+    };
+
+    // Both attempts failed. Keep the original typed exceptions available to
+    // diagnostics instead of replacing them with a successful-recovery claim.
+    class SceneBackendRecoveryFailed final : public std::runtime_error
+    {
+    public:
+        SceneBackendRecoveryFailed(std::string message, std::exception_ptr incoming, std::exception_ptr recovery)
+            : std::runtime_error(std::move(message)), _incoming(std::move(incoming)), _recovery(std::move(recovery)) {}
+        [[nodiscard]] std::exception_ptr Incoming() const noexcept { return _incoming; }
+        [[nodiscard]] std::exception_ptr Recovery() const noexcept { return _recovery; }
+    private:
+        std::exception_ptr _incoming, _recovery;
     };
 
     // explicitRequest: the command line's, which the preference cannot

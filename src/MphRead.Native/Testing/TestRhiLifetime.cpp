@@ -51,7 +51,7 @@ namespace
         std::unordered_set<std::uintptr_t> Live;
         unsigned Finishes = 0, Flushes = 0, BlockingWaits = 0;
         bool Refuse = false, WaitFails = false, TimeoutOnce = false;
-        unsigned NativeError = 0x0502;
+        unsigned NativeError = 0;
         Scheduler::Dispatch Dispatch(bool sync = true)
         {
             return {this,
@@ -80,7 +80,7 @@ namespace
                 },
                 [](void* context) { ++static_cast<FakeGlStream*>(context)->Flushes; },
                 [](void* context) { auto& state = *static_cast<FakeGlStream*>(context); ++state.Finishes; state.Completed = state.Accepted; },
-                [](void* context) { return static_cast<FakeGlStream*>(context)->NativeError; }, sync};
+                [](void* context) { return std::exchange(static_cast<FakeGlStream*>(context)->NativeError, 0U); }, sync};
         }
     };
 
@@ -137,6 +137,58 @@ namespace
             "unsupported legacy sync uses real synchronous completion, never a frame counter");
     }
 
+    void TestGlFailedShutdownAndRetirement()
+    {
+        FakeGlStream stream;
+        FakeGlStream::Scheduler scheduler(stream.Dispatch());
+        const auto submitted = scheduler.Submit();
+        stream.NativeError = 0x0507;
+        bool failed = false;
+        try { scheduler.Finish(); }
+        catch (const BackendError& error)
+        { failed = error.Kind() == BackendErrorKind::DeviceLost && error.NativeCode() == 0x0507; }
+        Expect(failed && scheduler.Completed() == SubmissionSerial{} && stream.Live.size() == 1,
+            "failed glFinish must not establish completion or discard the fence");
+        failed = false;
+        try { scheduler.Finish(); }
+        catch (const BackendError& error)
+        { failed = error.Kind() == BackendErrorKind::DeviceLost && error.NativeCode() == 0x0507; }
+        Expect(failed && stream.Finishes == 1 && scheduler.Completed() == SubmissionSerial{},
+            "consuming glGetError must not clear the lost-context boundary");
+
+        RetirementQueue<int> queue;
+        stream.Refuse = true; stream.NativeError = 0x0507;
+        queue.Retire(42, scheduler.SubmitForRetirement());
+        queue.Retire(43, scheduler.SubmitForRetirement());
+        Expect(scheduler.Submitted() == submitted && queue.Size() == 2,
+            "native destructor failure must retain resources without accepting a marker");
+        failed = false;
+        try { (void)scheduler.Poll(); }
+        catch (const BackendError& error)
+        { failed = error.Kind() == BackendErrorKind::DeviceLost && error.NativeCode() == 0x0507; }
+        Expect(failed, "next explicit operation must report the first retirement failure");
+        std::vector<int> destroyed;
+        const auto destroy = [&destroyed](int value) { destroyed.push_back(value); };
+        queue.Collect(submitted, destroy);
+        Expect(destroyed.empty(), "failed retirement has no collectable completion proof");
+        // Explicit context destruction closes ownership without claiming that
+        // the failed stream completed. Detached wrappers cannot use it again.
+        queue.CollectAll(destroy);
+        Expect(destroyed == std::vector<int>{42, 43} && scheduler.Completed() == SubmissionSerial{},
+            "context shutdown releases ownership without falsifying GPU completion");
+
+        FakeGlStream fenceStream;
+        FakeGlStream::Scheduler fenceScheduler(fenceStream.Dispatch());
+        fenceStream.Refuse = true; fenceStream.NativeError = 0x0505;
+        const auto unproven = fenceScheduler.SubmitForRetirement();
+        failed = false;
+        try { (void)fenceScheduler.Submit(); }
+        catch (const BackendError& error)
+        { failed = error.Kind() == BackendErrorKind::OutOfMemory && error.NativeCode() == 0x0505; }
+        Expect(failed && unproven > fenceScheduler.Submitted() && fenceStream.Accepted == 0,
+            "failed destructor fence must defer its exact error without inventing a submission");
+    }
+
     void TestFramesInFlightSlots()
     {
         // BeginFrame for frame N may reuse the slot of frame N - FramesInFlight.
@@ -191,6 +243,51 @@ namespace
         Expect(propagated, "allocation errors must not masquerade as surface unavailability");
     }
 
+    class FaultSwapchain final : public Swapchain
+    {
+    public:
+        explicit FaultSwapchain(BackendError error) : Error(std::move(error)) {}
+        BackendError Error;
+        const SwapchainDesc& Desc() const noexcept override { return Description; }
+        void Resize(std::uint32_t, std::uint32_t) override {}
+        Texture& AcquireNextTexture() override { throw Error; }
+        void Present() override { throw Error; }
+        void SetPresentMode(PresentMode) override {}
+        PresentationCapabilities PresentationCaps() const noexcept override { return {}; }
+        PresentMode RequestedPresentMode() const noexcept override { return PresentMode::Fifo; }
+    private:
+        SwapchainDesc Description;
+    };
+
+    void TestPresentationFailureRoundTrip()
+    {
+        for (const auto backend : {GraphicsBackend::OpenGl, GraphicsBackend::Vulkan})
+            for (const auto kind : {BackendErrorKind::DeviceLost, BackendErrorKind::SurfaceLost,
+                BackendErrorKind::OutOfMemory, BackendErrorKind::Unsupported, BackendErrorKind::Unknown})
+            {
+                FaultSwapchain source(BackendError(backend, kind, -987654, "injected native operation failure"));
+                const auto verify = [&](const BackendError& error)
+                {
+                    Expect(error.Backend() == backend && error.Kind() == kind && error.NativeCode() == -987654
+                        && std::string_view(error.what()) == source.Error.what(), "facade replaced native failure information");
+                };
+                bool acquireFailed = false, presentFailed = false;
+                try
+                {
+                    const auto acquired = source.TryAcquireTexture();
+                    Expect(!acquired.texture && acquired.failure.has_value(), "failed acquisition lost its error payload");
+                    RequirePresentation({acquired.status, acquired.failure}, backend);
+                }
+                catch (const BackendError& error) { acquireFailed = true; verify(error); }
+                try { RequirePresentation(source.TryPresent(), backend); }
+                catch (const BackendError& error) { presentFailed = true; verify(error); }
+                Expect(acquireFailed && presentFailed, "failure became successful or temporary presentation");
+            }
+        RequirePresentation({PresentationStatus::Ready}, GraphicsBackend::OpenGl);
+        RequirePresentation({PresentationStatus::ResizeRequired}, GraphicsBackend::Vulkan);
+        RequirePresentation({PresentationStatus::TemporarilyUnavailable}, GraphicsBackend::Vulkan);
+    }
+
     void TestSubmissionCompletionIsIndependentOfFrames()
     {
         SubmissionProgress progress;
@@ -230,9 +327,11 @@ int main()
         TestFramesInFlightSlots();
         TestGlNativeSubmissionProof();
         TestLegacyGlCompletionFallback();
+        TestGlFailedShutdownAndRetirement();
         TestCancelledObjectsAreNotDestroyed();
         TestIdleDestroysEverything();
         TestPresentationFailuresStayTyped();
+        TestPresentationFailureRoundTrip();
         TestSubmissionCompletionIsIndependentOfFrames();
         std::cout << "RhiLifetime tests passed.\n";
         return 0;

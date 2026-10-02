@@ -4,6 +4,7 @@
 #include "BackendError.hpp"
 
 #include <cstdint>
+#include <optional>
 
 namespace MphRead::NativeRuntime::Rhi
 {
@@ -32,8 +33,13 @@ namespace MphRead::NativeRuntime::Rhi
     {
         PresentationStatus status = PresentationStatus::Ready;
         Texture* texture = nullptr;
+        std::optional<BackendFailure> failure;
     };
-    struct PresentResult final { PresentationStatus status = PresentationStatus::Ready; };
+    struct PresentResult final
+    {
+        PresentationStatus status = PresentationStatus::Ready;
+        std::optional<BackendFailure> failure;
+    };
 
     struct PresentationCapabilities final
     {
@@ -50,6 +56,18 @@ namespace MphRead::NativeRuntime::Rhi
         if (error.Kind() == BackendErrorKind::DeviceLost) return PresentationStatus::DeviceLost;
         if (error.Kind() == BackendErrorKind::SurfaceLost) return PresentationStatus::SurfaceLost;
         throw error;
+    }
+
+    [[nodiscard]] inline AcquireResult FailedAcquire(const BackendError& error)
+    { return {PresentationFailure(error), nullptr, error.Failure()}; }
+    [[nodiscard]] inline PresentResult FailedPresent(const BackendError& error)
+    { return {PresentationFailure(error), error.Failure()}; }
+    inline void RequirePresentation(const PresentResult& result, GraphicsBackend backend)
+    {
+        if (result.failure) throw BackendError(*result.failure);
+        if (result.status == PresentationStatus::DeviceLost || result.status == PresentationStatus::SurfaceLost)
+            throw BackendError(backend, result.status == PresentationStatus::DeviceLost
+                ? BackendErrorKind::DeviceLost : BackendErrorKind::SurfaceLost, 0, "Renderer presentation was lost.");
     }
 
     class Swapchain
@@ -71,12 +89,12 @@ namespace MphRead::NativeRuntime::Rhi
         [[nodiscard]] virtual AcquireResult TryAcquireTexture()
         {
             try { return {PresentationStatus::Ready, &AcquireNextTexture()}; }
-            catch (const BackendError& error) { return {PresentationFailure(error), nullptr}; }
+            catch (const BackendError& error) { return FailedAcquire(error); }
         }
         [[nodiscard]] virtual PresentResult TryPresent()
         {
             try { Present(); return {}; }
-            catch (const BackendError& error) { return {PresentationFailure(error)}; }
+            catch (const BackendError& error) { return FailedPresent(error); }
         }
         [[nodiscard]] virtual PresentationCapabilities PresentationCaps() const noexcept = 0;
         [[nodiscard]] virtual PresentMode RequestedPresentMode() const noexcept = 0;

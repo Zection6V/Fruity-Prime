@@ -79,6 +79,31 @@ namespace MphRead::Mods::Launcher::Gui
     {
         std::unique_ptr<Diagnostics::RendererSwitchWitness> g_switchWitness;
         bool g_switchWitnessSelfChecked = false;
+        bool g_switchFailureArmed = false;
+        int g_switchFailureCycle = -1, g_switchRecoveryReports = 0;
+        std::optional<NativeRuntime::Rhi::BackendFailure> g_switchInjectedFailure;
+        bool g_switchRecoveryFailureArmed = false;
+        std::optional<NativeRuntime::Rhi::BackendFailure> g_switchInjectedRecoveryFailure;
+        std::weak_ptr<MphRead::Model> g_textureOnlySource{};
+        bool DoubleFailureCheck()
+        {
+            const auto* mode = std::getenv("FRUITY_SWITCHCHECK_FAILURES");
+            return std::getenv("FRUITY_SWITCHCHECK") && mode && std::string_view(mode) == "double";
+        }
+        std::optional<NativeRuntime::Rhi::BackendFailure> FailurePayload(std::exception_ptr failure)
+        {
+            namespace Rhi = MphRead::NativeRuntime::Rhi;
+            try { std::rethrow_exception(failure); }
+            catch (const Rhi::BackendError& error) { return error.Failure(); }
+            catch (const Rhi::SceneBackendUnavailable& error) { return error.Failure(); }
+            catch (...) { return {}; }
+        }
+        bool SameFailure(const std::optional<NativeRuntime::Rhi::BackendFailure>& a,
+            const std::optional<NativeRuntime::Rhi::BackendFailure>& b)
+        {
+            return a && b && a->backend == b->backend && a->kind == b->kind
+                && a->nativeCode == b->nativeCode && a->message == b->message;
+        }
     }
     bool Shell::_active = false;
     MphRead::RenderWindow* Shell::_window = nullptr;
@@ -256,6 +281,34 @@ namespace MphRead::Mods::Launcher::Gui
                 std::string(unavailable.what())
                     + "\n\nChoose OpenGL or Auto under Settings > Game > Renderer, or start with -rhi opengl.");
         }
+        catch (const MphRead::NativeRuntime::Rhi::SceneBackendRecoveryFailed& failure)
+        {
+            if (DoubleFailureCheck())
+            {
+                // Expected fatal boundary: no frame may use the failed devices.
+                // Destroy the real window/scene before checking shutdown validation.
+                const bool preserved = SameFailure(FailurePayload(failure.Incoming()), g_switchInjectedFailure)
+                    && SameFailure(FailurePayload(failure.Recovery()), g_switchInjectedRecoveryFailure)
+                    && g_switchRecoveryReports == 3 && !g_switchRecoveryFailureArmed;
+                _window = nullptr;
+                window.reset();
+                const auto validationErrors = MphRead::NativeRuntime::Rhi::SceneValidationErrors();
+                const bool sourceReleased = g_textureOnlySource.expired();
+                const bool released = sourceReleased && validationErrors == 0;
+                if (!preserved || !released) ++_shotMisses;
+                std::cout << "[switch failure] double failure " << (preserved && released ? "PASS" : "FAIL")
+                    << "; both typed errors preserved=" << (preserved ? "yes" : "NO")
+                    << "; scene released=" << (sourceReleased ? "yes" : "NO")
+                    << "; shutdown validation=" << validationErrors << '\n';
+                ran = true; // Diagnostic reached its expected terminal failure.
+            }
+            else
+            {
+                std::cout << "The window could not be reopened: " << failure.what() << '\n';
+                MphRead::Mods::DebugLog::Exception("launcher", std::current_exception());
+                MphRead::NativeRuntime::ShowErrorDialog(std::string(MphRead::Mods::Branding::Name), failure.what());
+            }
+        }
         catch (const std::exception&)
         {
             const std::exception_ptr exception = std::current_exception();
@@ -291,6 +344,48 @@ namespace MphRead::Mods::Launcher::Gui
 
     void Shell::InstallRendererSwitchHooks()
     {
+        MphRead::RenderWindow::ObserveRendererSwitchStage = {};
+        MphRead::RenderWindow::ReportRendererSwitchFailure = {};
+        if (std::getenv("FRUITY_SWITCHCHECK") && std::getenv("FRUITY_SWITCHCHECK_FAILURES"))
+        {
+            MphRead::RenderWindow::ObserveRendererSwitchStage = [](MphRead::RenderWindow&, MphRead::RenderWindow::RendererSwitchStage stage)
+            {
+                using Stage = MphRead::RenderWindow::RendererSwitchStage;
+                const std::array checkpoints{Stage::BeforeWindow, Stage::Presentation, Stage::Resources};
+                namespace Rhi = MphRead::NativeRuntime::Rhi;
+                if (g_switchRecoveryFailureArmed && stage == Stage::BeforeWindow)
+                {
+                    g_switchRecoveryFailureArmed = false;
+                    g_switchInjectedRecoveryFailure = Rhi::BackendFailure{Rhi::SelectedSceneBackend(),
+                        Rhi::BackendErrorKind::SurfaceLost, 999, "Injected recovery window failure"};
+                    throw Rhi::BackendError(*g_switchInjectedRecoveryFailure);
+                }
+                if (!g_switchFailureArmed || stage != checkpoints.at(g_switchFailureCycle)) return;
+                g_switchFailureArmed = false; // Recovery must use the real backend without another fault.
+                if (DoubleFailureCheck() && g_switchFailureCycle == 2) g_switchRecoveryFailureArmed = true;
+                const auto backend = Rhi::SelectedSceneBackend();
+                const auto kind = g_switchFailureCycle == 0 ? Rhi::BackendErrorKind::Unsupported
+                    : g_switchFailureCycle == 1 ? Rhi::BackendErrorKind::DeviceLost : Rhi::BackendErrorKind::OutOfMemory;
+                const std::int64_t code = g_switchFailureCycle == 0 ? 321
+                    : backend == Rhi::GraphicsBackend::Vulkan ? (g_switchFailureCycle == 1 ? -4 : -2)
+                    : (g_switchFailureCycle == 1 ? 0x0507 : 0x0505);
+                g_switchInjectedFailure = Rhi::BackendFailure{backend, kind, code,
+                    "Injected renderer switch failure at checkpoint " + std::to_string(g_switchFailureCycle)};
+                std::cout << "[switch failure] injected stage=" << g_switchFailureCycle << "; native=" << code << '\n';
+                if (stage == Stage::BeforeWindow)
+                    throw Rhi::SceneBackendUnavailable(g_switchInjectedFailure->message, *g_switchInjectedFailure);
+                throw Rhi::BackendError(*g_switchInjectedFailure);
+            };
+            MphRead::RenderWindow::ReportRendererSwitchFailure = [](std::exception_ptr failure, bool recovered)
+            {
+                const bool preserved = SameFailure(FailurePayload(failure), g_switchInjectedFailure);
+                const bool expectedRecovered = !(DoubleFailureCheck() && g_switchFailureCycle == 2);
+                if (recovered != expectedRecovered || !preserved) ++Shell::ShotMissCounter();
+                ++g_switchRecoveryReports;
+                std::cout << "[switch failure] recovery=" << (recovered ? "PASS" : expectedRecovered ? "FAIL" : "failed as expected")
+                    << "; original typed error=" << (preserved ? "PASS" : "FAIL") << '\n';
+            };
+        }
         MphRead::RenderWindow::ObserveRendererSwitch = [](MphRead::RenderWindow& window, bool before)
         {
             if (!std::getenv("FRUITY_SWITCHCHECK")) return;
@@ -764,7 +859,6 @@ namespace MphRead::Mods::Launcher::Gui
         OpenTK::Mathematics::Vector2i g_switchSize{};
         OpenTK::Mathematics::Vector2i g_switchLocation{};
         std::int32_t g_switchBorder = 0;
-        std::weak_ptr<MphRead::Model> g_textureOnlySource{};
         std::vector<std::pair<int, std::weak_ptr<MphRead::Effect>>> g_switchEffects{};
         std::shared_ptr<MphRead::Effects::EffectEntry> g_impactProbe{};
         std::weak_ptr<MphRead::Entities::BombEntity> g_bombProbe{};
@@ -933,6 +1027,7 @@ namespace MphRead::Mods::Launcher::Gui
                 << (window.HasScene() ? window.Scene().FrameCount() : 0) << ")\n";
             if (!kept) ++Shell::ShotMissCounter();
             const bool switched = MphRead::NativeRuntime::Rhi::SelectedSceneBackend() != g_switchBackend;
+            const bool recoveryExpected = std::getenv("FRUITY_SWITCHCHECK_FAILURES") != nullptr;
             const auto size = window.ClientSize();
             const auto location = window.Location();
             const bool geometry = size.X == g_switchSize.X && size.Y == g_switchSize.Y
@@ -940,7 +1035,13 @@ namespace MphRead::Mods::Launcher::Gui
                 && window.WindowBorder() == g_switchBorder;
             std::cout << "[switchcheck] backend changed " << (switched ? "yes" : "NO")
                 << ", window geometry kept " << (geometry ? "yes" : "NO") << '\n';
-            if (!switched || !geometry) ++Shell::ShotMissCounter();
+            if (recoveryExpected)
+            {
+                const bool restored = !switched && !g_switchFailureArmed && g_switchRecoveryReports == g_switchFailureCycle + 1;
+                std::cout << "[switch failure] original backend restored " << (restored ? "PASS" : "FAIL") << '\n';
+                if (!restored || !geometry) ++Shell::ShotMissCounter();
+            }
+            else if (!switched || !geometry) ++Shell::ShotMissCounter();
             const bool sourceAlive = !g_textureOnlySource.expired();
             std::cout << "[switchcheck] texture-only source retained " << (sourceAlive ? "yes" : "NO") << '\n';
             if (!sourceAlive) ++Shell::ShotMissCounter();
@@ -1048,6 +1149,11 @@ namespace MphRead::Mods::Launcher::Gui
                     SayBackend("match"); Shot(window, "switch-2-match");
                 }
                 NoteMatch(window);
+                if (std::getenv("FRUITY_SWITCHCHECK_FAILURES"))
+                {
+                    g_switchFailureCycle = cycle;
+                    g_switchFailureArmed = true;
+                }
                 WindowKey(window, KeyValue(256)); Wait(20);
             });
             script.push_back(

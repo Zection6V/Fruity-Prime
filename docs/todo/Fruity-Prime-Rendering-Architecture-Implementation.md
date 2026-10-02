@@ -28,7 +28,7 @@ Phase A～E / H または R1～R20 がすべて完了したという記録では
 | R14: eligibility / admission | Vulkan passive probe は instance / physical device の確認で止まり、logical device / queue を作らない。incoming Session の device / swapchain 生成が active admission。失敗注入による復旧検証は残る |
 | R15: GL vertex interface | Windows scene / transient / launcher UI を explicit input と RHI Buffer / CommandList / VAO へ統一。desktop wrapper の conventional array / current-value mirror を除去。本番 GLSL declarations と共通 ABI、実 SPIR-V vertex location の一致を検査。GPU composite / 旧新14画像の一致を確認。既存の backend 間 caption 差は画像 gate に残る |
 | R16: readback | 共通 ticket / immutable CPU output lease / staging+output quota と両 GPU の非同期 copy を実装。本番 screenshot / recording を接続。source の即時 resize / release、shutdown 後の CPU output、件数・byte 制限、RGB/RGBA packing と alpha を検査。同期互換 API は維持。全 format / mip / layer / recording stress は R19 で続ける |
-| R17: error | Vulkan の device loss / surface loss / OOM を `BackendError` へ分類。presentation は typed status を返す。native code を presentation facade まで保持する改善・故障注入は残る |
+| R17: error | native backend / kind / code / message を acquire → present → scene facade と起動例外で保持。GL context loss と Vulkan unsupported / loss / OOM を分類。switch を部分再構築まで含む transaction にし、元の backend への復旧と両方失敗した場合を合成 fault / 実 GPU session で検査。実 driver reset / OOM は未注入で、全 ownership / failure stress は R19 に残る |
 | R18: 診断 | 未対応。共通 debug label / timestamp interface が必要 |
 | R19 / Phase H | 同じ fixture で両 backend を検証する `-rhiconformance` を追加。lifetime gate に sampler / VAO を追加。切替の直前直後で simulation / bomb / particle / texture binding の不変性を検査し、死亡による通常の爆発と区別する。生存中の新旧 effect fixture と動く bot の stress を別々に記録。通常の session teardown は両方8回検査。全 format / recording / failure / presentation ownership / 100-cycle stress は引き続き拡張する |
 | R20: optional pacing | 将来の vendor extension を core RHI に追加しない方針を維持。既存 pacing と optional controller の境界を後続で確認する |
@@ -1080,7 +1080,7 @@ if ($LASTEXITCODE -ne 0) { throw 'CTest failed' }
 
 $captureRoot = "C:/tmp/switch-witness-$(Get-Date -Format yyyyMMdd-HHmmss)"
 $names = @('FRUITY_SWITCHCHECK', 'FRUITY_SHOT_ROOM',
-    'FRUITY_SWITCHCHECK_HOLD_ACTORS', 'FRUITY_SWITCHCHECK_WITNESS_SELFTEST')
+    'FRUITY_SWITCHCHECK_HOLD_ACTORS', 'FRUITY_SWITCHCHECK_WITNESS_SELFTEST', 'FRUITY_SWITCHCHECK_FAILURES')
 $savedEnv = @{}
 foreach ($name in $names) { $savedEnv[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
 Push-Location tools/build/out/msvc-Release
@@ -1091,6 +1091,7 @@ try {
     $env:FRUITY_SWITCHCHECK = '1'
     $env:FRUITY_SHOT_ROOM = 'AD2 ALINOS PERCH'
     $env:FRUITY_SWITCHCHECK_WITNESS_SELFTEST = '1'
+    $env:FRUITY_SWITCHCHECK_FAILURES = $null
     foreach ($mode in @('held', 'moving')) {
         $env:FRUITY_SWITCHCHECK_HOLD_ACTORS = if ($mode -eq 'held') { '1' } else { $null }
         foreach ($backend in @('opengl', 'vulkan')) {
@@ -1321,3 +1322,181 @@ Write-Output "Captures and logs: $captureRoot"
 全 format / mip / layer、任意の presentation ownership / recording ordering、実 driver fault、
 長時間 stress と Phase H の100-cycle は残る。R10 の frame slot / probe、R17～R19 とレビュー全体は進行中。
 Android と remote CI は未実行。Metal / D3D12 は将来対応。
+
+## エラー情報の保持と切替失敗時の復旧（R17）
+
+従来の acquire / present は loss を typed status に変換していたが、native code / message を
+result に残さず、scene facade は native code=0 の新しい例外を作っていた。
+また、switch の catch は window / swapchain の生成までで、shader / texture / scene の再構築中に
+失敗すると元の renderer へ戻れなかった。復旧成功の dialog も、元の renderer を作り直す前に出していた。
+
+### 実装
+
+- API に依存しない `BackendFailure` を acquire / present result に所有し、backend / kind /
+  native code / message を保持する。一般の native loss と logical surface close を区別し、
+  元の native 情報がある場合は scene facade まで同じ typed error を伝える。
+- OOM / unsupported / unknown は、temporary surface unavailability に変換せずそのまま伝える。
+  startup の `SceneBackendUnavailable` も元の structured failure を保持できる。
+- Vulkan の classification / Check を専用 `VulkanResult.hpp` に分離し、device / surface loss、
+  host / device OOM、missing feature / extension / driver / format と unknown を分類する。
+  present が loss を返した後は、新しい completion marker の失敗で元のエラーを置き換えない。
+- OpenGL storage / fence failure は `GL_CONTEXT_LOST` を DeviceLost として分類する。
+  OOM と unknown の元の native code は維持する。
+- switch の replacement attempt は window / presentation / geometry / input binding /
+  scene GPU resources / UI hooks まで含む。失敗時は incoming の部分 GPU resources と UI を
+  current device / context がある間に解放し、swapchain → session → window の順に閉じてから、
+  previous backend を同じ source / texture handles で作り直す。
+- 復旧成功の通知は元の renderer の再構築が完了した後に出す。復旧側も失敗した場合は、
+  `SceneBackendRecoveryFailed` が両方の元の例外を保持し、成功とは通知しない。
+  部分 recovery resources を閉じ、通常実行では両方の失敗内容を dialog に出す。
+- scene の switch release は device pointer を先に切り離す。idle が DeviceLost で失敗した場合は、
+  通常 completion を偽装せず session の loss / shutdown boundary で native ownership を閉じる。
+  他の idle error を DeviceLost として隠さない。
+- GL の `glFinish` も native error を検査し、失敗時は completed serial を進めない。
+  消費した context-loss code は scheduler に保持し、後の idle を成功と誤認しない。
+  resource destructor の fence failure は最初の例外を保持して次の明示操作へ伝え、
+  retirement を未証明のまま context shutdown まで保持する。
+  RenderWindow / GL device の destructor は idle failure でも session と native ownership を閉じる。
+  shutdown による所有権終了を通常 GPU completion として記録しない。
+
+GPU source の復旧方式、texture handles、simulation の内容は維持する。texture の CPU backup は追加しない。
+Metal / D3D12 の追加は行わない。
+
+### CPU と実 GPU の検査範囲
+
+`FruityPrime.RhiLifetime` は両 backend × DeviceLost / SurfaceLost / OOM / Unsupported / Unknown を
+fake swapchain の実際の default acquire / present facade に通す。loss result と例外を往復させ、
+backend / kind / native code / operation message を比較する。Ready / ResizeRequired /
+TemporarilyUnavailable を fatal loss として扱わないことも検査する。
+GL の合成 fence / finish failure では context loss が completion を進めず live fence を保持することを要求する。
+消費した loss code の保持、destructor 用 marker の OOM、次の明示操作への元の例外の伝達、
+未証明 retirement が通常 collect で破棄されず context shutdown で解放されることも検査する。
+memory fixture でも context loss の分類・native failure counter を確認する。
+
+新しい `FruityPrime.VulkanErrors` は本番と同じ classifier / Check に実際の VkResult enum を渡し、
+未認識の値を含む11種類の loss / OOM / unsupported / unknown と成功を検査する。
+Vulkan headers は必要だが GPU / loader call は使わない。
+
+`FRUITY_SWITCHCHECK=1` と `FRUITY_SWITCHCHECK_FAILURES=1` は Alinos Perch の実際の
+Pause → Settings → Renderer → Apply に、順に3つの **合成例外** を注入する。
+
+| 段階 | 注入点 | エラー |
+|---|---|---|
+| 0 | incoming window 生成前 | Unsupported / startup wrapper、synthetic native code=321 |
+| 1 | 本物の device / swapchain 生成後 | DeviceLost。Vulkan -4 / GL 0x0507 |
+| 2 | shader / transient と最初の texture を本物の GPU に作成・upload した直後 | OOM。Vulkan -2 / GL 0x0505 |
+
+fault は消費してから投げるので、previous backend の復旧は本物の session / window / GPU を使う。
+これは driver 自体を壊す試験ではない。DeviceLost / OOM の numeric code は合成例外である。
+コードの定義は [Vulkan return codes](https://docs.vulkan.org/spec/latest/chapters/fundamentals.html) と
+[Khronos OpenGL errors](https://wikis.khronos.org/opengl/Error_Checking) を参照した。
+各復旧後に元の backend / window geometry / visible window、同じ scene と進む simulation、
+切替直前直後の world / health / bomb / particle / binding の一致、105/105 effect definitions、
+新旧 Lockjaw / impact 各2 particles、終了時の texture source 解放と validation error=0 を要求する。
+
+`FRUITY_SWITCHCHECK_FAILURES=double` は3回目の partial upload OOM に加え、
+previous backend の recovery window 生成前に SurfaceLost / synthetic code=999 を投げる。
+診断は期待した fatal boundary で loop を終了し、本物の scene / window を破棄してから、
+両方の元の typed exceptions と texture source 解放、shutdown validation=0 を要求する。
+それ以前の2回の復旧・transition witness・effect 表示も必須である。
+fatal 後の描画を継続して PASS にする検査ではない。
+
+診断時だけ failure reporter が modal dialog を検査ログへ置き換える。
+通常実行では既存の dialog を使い、故障注入や reporter の置き換えは動かない。
+GUI dialog の文字列・タイミングはコードと reporter の呼び出しを検査したが、OS dialog の手動クリックは対象外。
+
+### Windows での再実行手順
+
+MSVC / vcpkg、実 display、両 backend、Khronos validation、exe 隣の game paths が必要。
+通常の regression は前節までの shell / switch 手順を使い、故障試験を次で追加する。
+GPU process は順番に実行し、preferences / env を復元する。
+
+```powershell
+cmd /c tools\build\build-cpp.bat msvc Release
+if ($LASTEXITCODE -ne 0) { throw 'Release build failed' }
+ctest --test-dir tools/build/out/msvc-Release --output-on-failure
+if ($LASTEXITCODE -ne 0) { throw 'CTest failed' }
+
+$captureRoot = "C:/tmp/r17-fault-matrix-$(Get-Date -Format yyyyMMdd-HHmmss)"
+$names = @('FRUITY_SWITCHCHECK', 'FRUITY_SHOT_ROOM', 'FRUITY_SWITCHCHECK_HOLD_ACTORS', 'FRUITY_SWITCHCHECK_WITNESS_SELFTEST', 'FRUITY_SWITCHCHECK_FAILURES')
+$savedEnv = @{}
+foreach ($name in $names) { $savedEnv[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
+Push-Location tools/build/out/msvc-Release
+$prefsPath = Join-Path $PWD 'launcher.txt'
+$hadPrefs = Test-Path -LiteralPath $prefsPath
+$prefsBytes = if ($hadPrefs) { [System.IO.File]::ReadAllBytes($prefsPath) }
+try {
+    $env:FRUITY_SWITCHCHECK = '1'
+    $env:FRUITY_SHOT_ROOM = 'AD2 ALINOS PERCH'
+    $env:FRUITY_SWITCHCHECK_WITNESS_SELFTEST = '1'
+    $env:FRUITY_SWITCHCHECK_HOLD_ACTORS = '1'
+    foreach ($mode in @('recover', 'double')) {
+        $env:FRUITY_SWITCHCHECK_FAILURES = if ($mode -eq 'double') { 'double' } else { '1' }
+        $expected = if ($mode -eq 'double') { 2 } else { 3 }
+        foreach ($backend in @('opengl', 'vulkan')) {
+            $captureDir = "$captureRoot/$mode-$backend"
+            $logPath = "$captureRoot/$mode-$backend.log"
+            New-Item -ItemType Directory -Path $captureDir -Force | Out-Null
+            'q' | & .\FruityPrime.exe -shellshot $captureDir -rhi $backend -vkvalidation -fpscap 60 -noupdate -debuglog *> $logPath
+            $exitCode = $LASTEXITCODE
+            Write-Output "$mode/$backend exit=$exitCode log=$logPath"
+            Select-String -Path $logPath -Pattern 'switch failure|switch witness|lifecycle FAIL|VUID|Validation Error|could not'
+            if ($exitCode -ne 0) { throw "Recovery failed: $logPath" }
+            if (@(Select-String -Path $logPath -SimpleMatch '[switch failure] recovery=PASS; original typed error=PASS').Count -ne $expected) { throw "Missing recovery coverage: $logPath" }
+            if (@(Select-String -Path $logPath -SimpleMatch '[switch witness] PASS;').Count -ne $expected) { throw "Missing witness: $logPath" }
+            if ($mode -eq 'double' -and @(Select-String -Path $logPath -SimpleMatch '[switch failure] double failure PASS;').Count -ne 1) { throw "Missing fatal boundary coverage: $logPath" }
+            if (Select-String -Path $logPath -Pattern 'VUID|Validation Error|lifecycle FAIL|recovery=FAIL;|restored FAIL') { throw "Validation failed: $logPath" }
+        }
+    }
+} finally {
+    if ($hadPrefs) { [System.IO.File]::WriteAllBytes($prefsPath, $prefsBytes) }
+    elseif (Test-Path -LiteralPath $prefsPath) { Remove-Item -LiteralPath $prefsPath }
+    foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $savedEnv[$name], 'Process') }
+    Pop-Location
+}
+Write-Output "Captures and logs: $captureRoot"
+```
+
+再実行の exit 0 だけでは判定せず、各 process の recovery / witness と double failure の件数を確認する。
+Khronos validation coverage はログの validation=1 も確認する。held は任意の gameplay 入力の全検査ではない。
+
+### 証拠と残作業
+
+- 最後の teardown 修正後: `C:/tmp/gp/architecture-r17-teardown-final-build.log` は MSVC Release PASS、
+  `architecture-r17-teardown-final-ctest.log` は追加した native-dispatch failure 検査を含め13/13 PASS。
+  `architecture-r17-teardown-final-conformance.log` は両 backend の conformance / async / session lifetime PASS。
+- `C:/tmp/gp/architecture-r17-teardown-final-matrix.log` は MD の故障検査手順を再実行して PASS。
+  `C:/tmp/r17-fault-matrix-20261002-190039/` の全4 process が exit 0、復旧・witness と
+  二重失敗時の error preservation / source release / shutdown validation=0 を確認した。
+- `C:/tmp/gp/architecture-r17-teardown-final-normal.log` /
+  `C:/tmp/switch-witness-20261002-190220/` は同じ最終コードで通常検査手順を再実行して PASS。
+  held / moving × 両開始 backend の全4 process が exit 0、各3 transition と negative controls が PASS。
+  held の全切替で impact / 新旧 Lockjaw 各2 particles を保持し、validation error=0 と source release を確認した。
+- `C:/tmp/gp/architecture-r17-final-build.log`: MSVC Release build PASS。
+- `C:/tmp/gp/architecture-r17-final-ctest.log`: 13/13 PASS。
+- `C:/tmp/gp/architecture-r17-final-conformance.log`: 両 backend の conformance / async / session lifetime PASS。
+- `C:/tmp/gp/architecture-r17-final-recovery.log` / `C:/tmp/r17-recovery-20261002-183740/`:
+  両開始 backend exit 0。各3段階の recovery / original typed error / transition witness PASS。
+  partial texture upload failure からの復旧を含み、effect / geometry / simulation と終了時 source 解放も PASS。
+- `C:/tmp/gp/architecture-r17-final-double-recovery.log` /
+  `C:/tmp/r17-recovery-double-20261002-183820/`: 両開始 backend exit 0。
+  各2回の復旧と witness、最後の double failure / 両方の typed errors / scene release /
+  shutdown validation=0 を確認。
+- 最初の double fixture build は `architecture-r17-recovery-build.log` で FAIL。
+  後で宣言されていた診断用 weak model reference を前へ移し、build2 / 最終 build で修正を確認した。
+- 最終 MD の code block を実行した `C:/tmp/gp/architecture-r17-final-documented-recipe.log` は PASS。
+  `C:/tmp/r17-fault-matrix-20261002-184553/` の recover / double × 両開始 backend 全4 process が exit 0。
+  recover は各3回、double は各2回の復旧・witness と1回の期待した fatal boundary を確認。
+  13/13 CTest、PNG と mode ごとに分けたログ、source 解放、validation error=0 を保存した。
+- `C:/tmp/gp/architecture-r17-normal-switch.log` / `C:/tmp/switch-witness-20261002-183954/`:
+  故障なしの held / moving × 両開始 backend 全4 process の通常切替・witness・effect lifetime が PASS。
+- `C:/tmp/gp/architecture-r17-final-shell-regression.log` / `C:/tmp/async-readback-20261002-184707/`:
+  通常 shell loop の両開始 backend exit 0、試合前後の production hunter preview と
+  screenshot / recording の全 pixel / RGB / orientation / odd-row gate が PASS。
+
+この gate は共通 error contract と上記 fault / recovery boundary を検査する。
+本物の GPU driver reset / TDR / native OOM、あらゆる allocation site、runtime loss からの自動再開、
+presentation ownership の全ケースと100-cycle stress の保証ではない。
+実 driver fault の coverage は R19 / Phase H の残作業として区別する。
+R10 の frame slot / probe、R18 の debug labels / timestamps、R19 の残項目とレビュー全体は進行中。
+Android build / 実機と remote CI は未実行。Metal / D3D12 は将来対応。

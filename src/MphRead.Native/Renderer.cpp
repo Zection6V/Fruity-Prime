@@ -1,5 +1,6 @@
 #include "Renderer.hpp"
 #include "NativeRuntime/System/ErrorDialog.hpp"
+#include "NativeRuntime/System/ExceptionText.hpp"
 #include "RendererGeometry.hpp"
 #include "NativeRuntime/System/Runtime.hpp"
 #include "NativeRuntime/Rhi/BackendFactory.hpp"
@@ -1288,11 +1289,20 @@ namespace MphRead
         _pipelines.clear();
         _shaderConstants = &_noShaderConstants;
         _sceneShaders.reset();
-        if (_gpu != nullptr) _gpu->WaitIdle();
-        _gpu = nullptr;
+        auto* device = std::exchange(_gpu, nullptr);
+        if (device != nullptr)
+        {
+            try { device->WaitIdle(); }
+            catch (const NativeRuntime::Rhi::BackendError& error)
+            {
+                // A lost device cannot establish ordinary completion. Its
+                // session teardown closes all remaining native ownership.
+                if (error.Kind() != NativeRuntime::Rhi::BackendErrorKind::DeviceLost) throw;
+            }
+        }
     }
 
-    void Scene::RebuildGpuAfterSwitch()
+    void Scene::RebuildGpuAfterSwitch(const std::function<void()>& checkpoint)
     {
         if (Mods::Headless::Active()) return;
         Commands().Begin();
@@ -1317,6 +1327,7 @@ namespace MphRead
                 NativeRuntime::Rhi::TextureFormat::RGBA8Unorm, pixels.data()});
             _ownedTextures.insert_or_assign(bindingId, std::move(made));
             ++textures;
+            if (textures == 1 && checkpoint) checkpoint();
         }
         std::size_t recoveryBytes = 0;
         for (const auto& [bindingId, copy] : _textureCopies)
@@ -1339,7 +1350,9 @@ namespace MphRead
                 copy.Pixels.data()});
             ++textures;
             recoveryBytes += copy.Pixels.size();
+            if (textures == 1 && checkpoint) checkpoint();
         }
+        if (textures == 0 && checkpoint) checkpoint();
         UpdateProjection();
         Mods::DebugLog::Line("render", "the match's GPU side was rebuilt on the new renderer: "
             + std::to_string(textures) + " textures (" + std::to_string(_modelTextureSources.size())
@@ -5930,67 +5943,94 @@ namespace MphRead
         Mods::DebugLog::Line("render", std::string("switching the renderer to ")
             + std::string(NativeRuntime::Rhi::SceneBackendRequestName(request)) + " in place");
         if (_shell) Mods::WindowGeometry::Remember(*this);
-        if (_scene) _scene->ReleaseGpuForSwitch();
-        if (BeforeRendererSwitch) BeforeRendererSwitch();
+        const auto release = [&]
+        {
+            if (_scene) _scene->ReleaseGpuForSwitch();
+            if (BeforeRendererSwitch) BeforeRendererSwitch();
 #if defined(MPHREAD_SHELL)
-        if (_shell) Mods::Render::LauncherHunter::ReleaseGl();
+            if (_shell) Mods::Render::LauncherHunter::ReleaseGl();
 #endif
-        _windowCommands.reset();
-        _swapchain.reset();
-        NativeRuntime::Rhi::DetachSceneWindow();
-        _window.reset();
-        _appliedFrameRateCap = -2;
-        // The replacement is created hidden too. Reveal must run again,
-        // otherwise rendering continues forever in an invisible window.
-        _startedHidden = true;
-        _applyStartupIn = 0;
-        NativeRuntime::Rhi::ReselectSceneBackend(request);
-        try
-        {
-            _window = RendererPlatform::CreateWindow(Settings());
-            CreatePresentation();
-        }
-        catch (const NativeRuntime::Rhi::SceneBackendUnavailable& unavailable)
-        {
+            _windowCommands.reset();
             _swapchain.reset();
+            NativeRuntime::Rhi::DetachSceneWindow();
             _window.reset();
-            NativeRuntime::ShowErrorDialog(std::string(Mods::Branding::Name), std::string(unavailable.what())
-                + "\n\nThe renderer you were using is back.");
-            NativeRuntime::Rhi::ReselectSceneBackend(previous);
+        };
+        const auto create = [&](NativeRuntime::Rhi::SceneBackendRequest target)
+        {
+            _appliedFrameRateCap = -2;
+            // Replacement windows start hidden, including a recovery window.
+            _startedHidden = true;
+            _applyStartupIn = 0;
+            NativeRuntime::Rhi::ReselectSceneBackend(target);
+            if (ObserveRendererSwitchStage) ObserveRendererSwitchStage(*this, RendererSwitchStage::BeforeWindow);
             _window = RendererPlatform::CreateWindow(Settings());
             CreatePresentation();
-        }
-        FitToScreen();
-        WindowBorder(border);
-        Location(location);
-        ClientSize(clientSize);
-        if (state == RendererPlatform::WindowStateValue::Maximized) WindowStateMaximized();
-        Floating(Mods::WindowMode::IsFullscreen());
-        if (_scene)
+            if (ObserveRendererSwitchStage) ObserveRendererSwitchStage(*this, RendererSwitchStage::Presentation);
+            FitToScreen();
+            WindowBorder(border);
+            Location(location);
+            ClientSize(clientSize);
+            if (state == RendererPlatform::WindowStateValue::Maximized) WindowStateMaximized();
+            Floating(Mods::WindowMode::IsFullscreen());
+            if (_scene)
+            {
+                _scene->RebindInput(_window->Keyboard(), _window->Mouse());
+                _scene->Size(FramebufferSize());
+                _scene->RebuildGpuAfterSwitch([&]
+                {
+                    if (ObserveRendererSwitchStage) ObserveRendererSwitchStage(*this, RendererSwitchStage::Resources);
+                });
+            }
+            if (AfterRendererSwitch) AfterRendererSwitch(*this);
+            if (!_scene && ObserveRendererSwitchStage) ObserveRendererSwitchStage(*this, RendererSwitchStage::Resources);
+        };
+        release();
+        try { create(request); }
+        catch (const std::exception&)
         {
-            _scene->RebindInput(_window->Keyboard(), _window->Mouse());
-            _scene->Size(FramebufferSize());
-            _scene->RebuildGpuAfterSwitch();
+            const auto incoming = std::current_exception();
+            Mods::DebugLog::Exception("renderer switch", incoming);
+            try { release(); create(previous); }
+            catch (const std::exception&)
+            {
+                const auto recovery = std::current_exception();
+                // Release partial recovery resources while their device and
+                // context still exist. Preserve both failures if cleanup fails.
+                try { release(); } catch (...) {}
+                if (ReportRendererSwitchFailure) ReportRendererSwitchFailure(incoming, false);
+                throw NativeRuntime::Rhi::SceneBackendRecoveryFailed(
+                    "Renderer switch failed: " + NativeRuntime::ExceptionMessage(incoming)
+                    + "\nRecovery also failed: " + NativeRuntime::ExceptionMessage(recovery), incoming, recovery);
+            }
+            if (ReportRendererSwitchFailure) ReportRendererSwitchFailure(incoming, true);
+            else NativeRuntime::ShowErrorDialog(std::string(Mods::Branding::Name),
+                NativeRuntime::ExceptionMessage(incoming) + "\n\nThe renderer you were using is back.");
         }
-        if (AfterRendererSwitch) AfterRendererSwitch(*this);
         if (ObserveRendererSwitch) ObserveRendererSwitch(*this, false);
     }
 
     RenderWindow::~RenderWindow()
     {
-        if (_shell && BeforeRendererSwitch) BeforeRendererSwitch();
+        // Teardown must reach the session/context even when a lost device
+        // rejects idle. Explicit operations retain and report the first error.
+        const auto cleanup = [](auto&& action) noexcept
+        {
+            try { action(); }
+            catch (...) {}
+        };
+        if (_shell && BeforeRendererSwitch) cleanup([] { BeforeRendererSwitch(); });
 #if defined(MPHREAD_SHELL)
         if (_shell)
         {
             // LauncherHunter owns a process-static side Scene. Release its GL
             // resources and destroy that Scene before _window tears down GLFW
             // and the owning OpenGL context.
-            Mods::Render::LauncherHunter::ReleaseGl();
+            cleanup([] { Mods::Render::LauncherHunter::ReleaseGl(); });
         }
 #endif
         if (_scene)
         {
-            _scene->ReleaseGpuResources();
+            cleanup([this] { _scene->ReleaseGpuResources(); });
         }
         _windowCommands.reset();
         _swapchain.reset();

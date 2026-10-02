@@ -27,20 +27,12 @@
 #include <GLFW/glfw3.h>
 #endif
 
+#include "VulkanResult.hpp"
+
 namespace MphRead::NativeRuntime::Rhi::Vulkan
 {
     namespace
     {
-        void Check(VkResult result, const char* operation)
-        {
-            if (result == VK_SUCCESS) return;
-            const auto kind = result == VK_ERROR_DEVICE_LOST ? BackendErrorKind::DeviceLost
-                : result == VK_ERROR_SURFACE_LOST_KHR ? BackendErrorKind::SurfaceLost
-                : result == VK_ERROR_OUT_OF_DEVICE_MEMORY || result == VK_ERROR_OUT_OF_HOST_MEMORY
-                    ? BackendErrorKind::OutOfMemory : BackendErrorKind::Unknown;
-            throw BackendError(GraphicsBackend::Vulkan, kind, result,
-                std::string(operation) + " failed: " + std::to_string(result));
-        }
         template<class T> bool Contains(const std::vector<T>& list, const char* name)
         {
             return std::any_of(list.begin(), list.end(), [name](const T& value) {

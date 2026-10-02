@@ -280,7 +280,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 return {_recreateAfterPresent ? PresentationStatus::ResizeRequired : PresentationStatus::Ready,
                     _images[_currentImage].texture.get()};
             }
-            catch (const BackendError& error) { return {PresentationFailure(error), nullptr}; }
+            catch (const BackendError& error) { return FailedAcquire(error); }
         }
         PresentationCapabilities PresentationCaps() const noexcept override { return _presentationCaps; }
         PresentMode RequestedPresentMode() const noexcept override { return _requestedMode; }
@@ -299,7 +299,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 Present();
                 return {_needsRecreate ? PresentationStatus::ResizeRequired : PresentationStatus::Ready};
             }
-            catch (const BackendError& error) { return {PresentationFailure(error)}; }
+            catch (const BackendError& error) { return FailedPresent(error); }
         }
 
         void SetPresentMode(PresentMode mode) override

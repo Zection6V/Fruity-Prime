@@ -41,6 +41,11 @@ namespace
         { nativeOom = error.NativeCode() == 0x0505 && error.Kind() == BackendErrorKind::OutOfMemory
             && error.Backend() == GraphicsBackend::OpenGl; }
         Expect(nativeOom && live.Telemetry().NativeFailures == 1, "GL native OOM/error telemetry was lost.");
+        bool contextLost = false;
+        try { live.CheckNativeResult(0x0507, "injected lost context"); }
+        catch (const BackendError& error)
+        { contextLost = error.Kind() == BackendErrorKind::DeviceLost && error.NativeCode() == 0x0507; }
+        Expect(contextLost && live.Telemetry().NativeFailures == 2, "GL context loss became an unknown storage error.");
         Expect(OpenGL::TextureStorageEstimate(TextureFormat::RGBA16Float, 4, 8) == 256
             && OpenGL::TextureStorageEstimate(TextureFormat::RGB8Unorm, 4, 8) == 128,
             "GL float/RGB padding estimate differs.");

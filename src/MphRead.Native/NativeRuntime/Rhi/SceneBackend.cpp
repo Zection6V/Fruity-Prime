@@ -142,6 +142,8 @@ namespace MphRead::NativeRuntime::Rhi
     {
         try { return Session().Device(); }
         catch (const SceneBackendUnavailable&) { throw; }
+        catch (const BackendError& ex)
+        { throw SceneBackendUnavailable(std::string(SceneBackendName(ex.Backend())) + " could not start: " + ex.what(), ex.Failure()); }
         catch (const std::exception& ex)
         { throw SceneBackendUnavailable(std::string(SceneBackendName(SelectedSceneBackend())) + " could not start: " + ex.what()); }
     }
@@ -213,6 +215,11 @@ namespace MphRead::NativeRuntime::Rhi
     {
         try { return Session().CreateSwapchain(window, desc); }
         catch (const SceneBackendUnavailable&) { throw; }
+        catch (const BackendError& ex)
+        {
+            DetachSceneWindow();
+            throw SceneBackendUnavailable(std::string(SceneBackendName(ex.Backend())) + " could not start: " + ex.what(), ex.Failure());
+        }
         catch (const std::exception& ex)
         {
             DetachSceneWindow();
@@ -223,9 +230,7 @@ namespace MphRead::NativeRuntime::Rhi
     void PresentSceneWindow(Swapchain& swapchain)
     {
         const auto result = Session().Present(swapchain);
-        if (result.status == PresentationStatus::DeviceLost || result.status == PresentationStatus::SurfaceLost)
-            throw BackendError(Session().Backend(), result.status == PresentationStatus::DeviceLost
-                ? BackendErrorKind::DeviceLost : BackendErrorKind::SurfaceLost, 0, "Renderer presentation was lost.");
+        RequirePresentation(result, Session().Backend());
     }
 
     void DetachSceneWindow() noexcept

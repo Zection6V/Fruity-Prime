@@ -770,7 +770,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 // Conservatively capture the actual stream here, so unframed
                 // uploads and native/Skia work are covered without assuming a
                 // frame or relying on an adapter to announce every use.
-                _retired.Retire(object, _scheduler.Submit());
+                _retired.Retire(object, _scheduler.SubmitForRetirement());
             }
 
             std::int32_t CreateGeometryBuffer()
@@ -1546,9 +1546,11 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         void OpenGlGraphicsDevice::CloseNative()
         {
             if (!_contextKey) return;
-            // Explicit device teardown is a completion boundary. No ordinary
-            // resource destructor or frame-slot timeout calls Finish.
-            _scheduler.Finish();
+            // Closing the context also closes ownership after a native failure.
+            // Keep failed completion unproven; detach all wrappers regardless
+            // so a destructor cannot terminate while handling the first error.
+            try { _scheduler.Finish(); }
+            catch (...) {}
             _readbacks.Close();
             GL::UseProgram(0);
             GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, 0);

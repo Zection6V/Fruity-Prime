@@ -21,8 +21,8 @@ Phase A～E / H または R1～R20 がすべて完了したという記録では
 | R6 / R7: OpenGL command / sampler | Buffer / vertex・index binding / Draw / DrawIndexed / GPU Copy / BindingSet と独立 sampler・value cache を実装。Windows scene / transient geometry を同じ Buffer / CommandList / VAO 経由へ接続。共通 GPU fixture と旧新7画像の一致を確認。単一2D画像以外の範囲、packed depth/stencil copy、recording 契約の統一は残る |
 | R8: Session 寿命 | Vulkan の意図的に解放しない `VulkanScene` を削除。切替で scene / UI → commands → swapchain → device / context → window の順に解放する。OpenGL device は Session が単独所有。Vulkan も device 終了時に全 native owner を閉じ、shared state を context 非依存の CPU descriptor にする。両 backend で未送信 copy / 旧 wrapper を残す8回の shutdown / recreate を検査。swapchain は Session 終了前に解放する caller 契約を維持。device loss / admission failure の teardown は R17 / Phase H で続ける |
 | R9: presentation | request と実際の mode / capabilities を分離。typed acquire / present status を実装し、frame loop で利用。最小化・明示的 close request は一時停止、API の device / surface loss は別分類。OpenGL の generic conformance coverage は R19 で拡張する |
-| R10: Vulkan 責務分離 | `VulkanFrameScheduler` が queue submit / completion、`VulkanDescriptorAllocator` が slot ごとの pools、`VulkanUploadArena` が mapped pages / suballocation / flush / completion 後 reset / close を所有。pipeline library は R11 の専用 owner。frame slot / VMA resource factory / probe の分離は残る |
-| R12: memory budget | 未完了。upload の8 MB batch threshold / high water reuse は heap budget admission ではない。cross-backend snapshot / pure decision / telemetry と大きい resource の admission を続ける |
+| R10: Vulkan 責務分離 | `VulkanFrameScheduler` が queue submit / completion、`VulkanDescriptorAllocator` が slot ごとの pools、`VulkanUploadArena` が mapped pages / suballocation / flush / completion 後 reset / close を所有。`VulkanMemory` が VMA と buffer / image の admission / allocation を所有。pipeline library は R11 の専用 owner。frame slot / probe の分離は残る |
+| R12: memory budget | API に依存しない snapshot / request / decision / telemetry と pure admission を実装。Vulkan は VMA / optional EXT live budget、OpenGL は optional NVX counters。未知・推定・driver 情報を区別し、buffer / texture / resize / thumbnail / interop target の確保前に判定。合成 heap / UMA / limits / overflow と両 backend の実 GPU 拒否・旧画像保持を検査。実 driver OOM、eviction、全 GPU の容量保証は含めない |
 | R13: upload | Vulkan の scene uniforms / transient geometry / texture と GPU-only buffer upload を slot ごとの persistent mapped arena へ統一。描画外の writes は専用 transfer stream で batch し、consumer / frame / readback / release の順序境界で submit。static mesh は GPU-only destination。CPU fake と実 GPU の再利用・コピー順・overflow・切替を検査。将来の API の機構は追加しない |
 | R11: native pipeline library | 既存 semantic cache を維持し、専用 `VulkanPipelineCache` を全 RHI native graphics pipeline 生成へ接続。identity / framing / checksum / size gate、atomic disk replacement、driver rejection / native cache 不可時の fallback と deterministic close を実装。CPU fault dispatch と実 GPU の cold / warm・破損・保存失敗を検証。速度向上・cache hit の計測は未実施。OpenGL は既存 linked-program cache、Metal / D3D12 は将来対応 |
 | R14: eligibility / admission | Vulkan passive probe は instance / physical device の確認で止まり、logical device / queue を作らない。incoming Session の device / swapchain 生成が active admission。失敗注入による復旧検証は残る |
@@ -923,3 +923,111 @@ R10 の frame slot / VMA memory factory、R12 の budget admission、R16 の asy
 R17～R19 の故障・診断・ownership / format stress は残る。
 upload の page high water 保持は全 workload の memory budget / eviction 保証ではない。
 Android build / 実機と remote CI は未実行。Metal / D3D12 は将来対応。
+
+## メモリ予算と確保前の判断（R10 / R12）
+
+`MemoryBudget.hpp` に API に依存しない `MemoryBudgetSnapshot` / `AllocationRequest` /
+`AllocationDecision` / `MemoryTelemetry` を追加した。heap ごとの容量・budget・usage・
+backing reservation・pending bytes、単一確保の上限、native block 数の上限を扱う。
+`EvaluateAllocation` は native API / global state を呼ばない pure function。
+
+- `Unknown` / `Estimated` / `DriverLive` を区別する。未知なら `BudgetUnavailable` として
+  native allocator に判断を委ねる。既知の budget=0 は容量不足であり、未知と扱わない。
+- usage と backing は `max` で数え、二重加算しない。未完了の確保は別に加算する。
+  独立 heap の空きを合計して一つの heap の余裕とみなさない。
+- 通常は `min(128 MiB, budget / 16)` の余裕を残す。byte / count の overflow、
+  不正な heap index / source / snapshot を拒否する。
+- policy の拒否は `BackendError(OutOfMemory, nativeCode=0)`。実際の native failure の
+  error code と混同せず、accepted / denied / native failures / pending を別に記録する。
+
+`VulkanMemory` が唯一の VMA owner。RHI buffer / image と upload arena page の確保を
+この境界へ集約した。native requirements と VMA の適合 memory type を調べ、その heap を
+admit してから実際に確保する。拒否された heap の memory types を除外し、別の適合 heap
+があれば再評価する。予約は mutex で計上し、成功・native failure とも RAII で解消する。
+device allocation size / buffer size の上限を越える buffer は native requirements query 前に拒否。
+
+`VK_EXT_memory_budget` が使える device は extension と VMA の対応 flag を有効にし、
+確保時に driver の heap budget / usage を読み直す。使えない場合は VMA の推定値を使う。
+VMA が resource より大きい backing block を確保する場合にも、`WITHIN_BUDGET` の
+block 単位のチェックを残す。transfer / retirement は allocator を借り、owner の close 前に
+native work を完了し、全 resource を閉じる。close 後に snapshot は空となり、allocator と
+pending はゼロであることを session teardown fixture でも要求する。
+
+OpenGL は `OpenGlMemory` が optional `GL_NVX_gpu_memory_info` の dedicated capacity と
+current available dedicated memory を読む。異なる pool を含む total available counter は
+組み合わせない。KiB を bytes に変換し、不正な counter pair は未知とする。
+RHI の backing estimate は create / successful resize / release 時に増減させ、確保ごとに
+全 resource を走査しない。buffer create / orphaning、texture / renderbuffer / resize、
+launcher の external texture と Ganesh surface の確保前に判断する。native GL error は
+code を保持し、OOM とその他の error を分類する。
+
+RHI 経由の map thumbnail / Vulkan-Skia target もこの確保境界を通る。
+テクスチャ復元用の CPU 画像コピーや毎フレームの GPU readback は追加していない。
+
+情報の範囲には制約がある。GL counters は利用時点の目安で、portable budget API ではない。
+GL backing estimate は RHI 管理分のみで、retired / Skia / external objects は driver usage に
+依存する。VMA block count も VMA 管理分のみで、Skia 等の native allocation count を含まない。
+reservation は各 resource につき追加 block を一つと仮定する保守的な count 判定。
+snapshot は native allocation 成功・fragmentation・他プロセスとの競合を保証しない。
+eviction / cache trimming policy、実 driver OOM の故障注入はこの gate に含めない。
+
+参照: [VMA budget](https://gpuopen-librariesandsdks.github.io/VulkanMemoryAllocator/html/staying_within_budget.html)、
+[NVX counters](https://registry.khronos.org/OpenGL/extensions/NVX/NVX_gpu_memory_info.txt)、
+[buffer requirements query](https://docs.vulkan.org/refpages/latest/refpages/source/vkGetDeviceBufferMemoryRequirements.html)。
+
+### 再実行と今回の証拠
+
+repo root の PowerShell、MSVC Release と game files / paths.txt 配置済み:
+
+```powershell
+ctest --test-dir tools/build/out/msvc-Release --output-on-failure
+python tools/check-phase5-shader-interface.py
+Push-Location tools/build/out/msvc-Release
+try {
+    & .\FruityPrime.exe -vulkanresourcecheck -noupdate
+    if ($LASTEXITCODE -ne 0) { throw 'memory/resource gate failed' }
+    & .\FruityPrime.exe -rhiconformance -noupdate
+    if ($LASTEXITCODE -ne 0) { throw 'memory/ownership gate failed' }
+    foreach ($backend in @('opengl', 'vulkan')) {
+        & .\FruityPrime.exe -gpulifetime 'AD2 ALINOS PERCH' -cycles 40 -frames 3 -rhi $backend -vkvalidation -noupdate
+        if ($LASTEXITCODE -ne 0) { throw "lifetime failed: $backend" }
+    }
+} finally { Pop-Location }
+```
+
+`FruityPrime.MemoryAdmission` は synthetic discrete / multi-heap / UMA、未知・推定・live zero、
+pending / safety reserve / max size / count / overflow / invalid snapshot と、fake NVX source の
+pool / units / invalid counters / error code を検査する。実 driver OOM 注入ではない。
+実 GPU fixture は一時的に admission ceiling を1 byte にし、resize と buffer create が
+native memory allocation 前に拒否され、元の image / view / extent / handle / readback pixels が
+保たれること、telemetry の native failures が増えず pending がゼロであることを要求する。
+ceiling は例外時も戻し、product setting として公開しない。
+
+- `C:/tmp/gp/architecture-memory-final-build.log`: MSVC Release PASS。
+- `C:/tmp/gp/architecture-memory-final-ctest.log`: 11/11 PASS。
+  shader interface audit は20 sources PASS。
+- `C:/tmp/gp/architecture-memory-final-resourcecheck.log`: memory / upload / resource gate PASS、
+  giant buffer 拒否、live=0、Khronos validation errors=0。
+- `C:/tmp/gp/architecture-memory-final-conformance.log`: 両 backend の memory gate と
+  共通描画・コピー、各8回の session shutdown / recreate PASS。
+- Golden Capture は OpenGL の `architecture-memory-ledger-golden-opengl/` と Vulkan の
+  `architecture-memory-golden-vulkan/` 各7ケース PASS。直前の upload arena baseline と全14枚の
+  decoded RGB の変更 pixel / 最大差は0。`architecture-memory-golden-comparison.txt` に比較表を保持。
+- `C:/tmp/gp/architecture-memory-lifetime40-{opengl,vulkan}.log`: 両方40/40 PASS、
+  毎回 resource / retired=0、最後2 frames の host waits=0。
+  CPU private peak は GL 258→262 MB（0.167383 MB/cycle）、Vk 330→333 MB（0.141211 MB/cycle）。
+  fps / wall time / VRAM 使用量が改善したという測定ではない。
+- `C:/tmp/gp/architecture-memory-held-20261002-144613/`: non-main controls を止めた8 actors の
+  Alinos Perch で、Settings の実 apply / Resume を使う各3回の切替 PASS。
+  105/105 effect definitions、impact / 新旧 Lockjaw particles が各2、同じ scene / 進む simulation、
+  visible window / geometry と source lifetime を確認。最終画像で黄色 impact / 青い core を目視。
+
+active bots の `C:/tmp/gp/architecture-memory-bots-20261002-144128/` は GL 開始 PASS、
+Vk 開始の切替2・3回目の bomb predicate は FAIL。bomb flags=2 / countdown=0 /
+effect elements=0 だった。試験を緩めたり gameplay を変更して PASS にしていない。
+actor / bomb の通常寿命と renderer failure の切り分けは Phase H の未解決項目として残す。
+held fixture の PASS はこの active-bot failure の解決を意味しない。
+
+R10 の frame slot / probe、R16 の async readback、R17～R19 の故障・診断・ownership / format
+stress とレビュー全体の残作業を続ける。Android build / 実機と remote CI は未実行。
+Metal / D3D12 は将来対応。

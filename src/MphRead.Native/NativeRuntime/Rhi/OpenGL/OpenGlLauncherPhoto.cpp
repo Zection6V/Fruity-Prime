@@ -3,6 +3,7 @@
 #else
 #include "OpenGlLauncherPhoto.hpp"
 #include "OpenGlWindowDraw.hpp"
+#include "OpenGlDevice.hpp"
 
 #include "../../../Mods/DebugLog.hpp"
 #include "../../../Shaders.hpp"
@@ -130,6 +131,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 return false;
             }
 
+            AdmitInteropTextureStorage(TextureFormat::RGBA8Unorm, _width, _height);
             GL::ActiveTexture(GL::TextureUnit::Texture0);
             _texture = Name;
             GL::BindTexture(GL::TextureTarget::Texture2D, _texture);
@@ -143,12 +145,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             GL::PixelStore(GL::PixelStoreParameter::UnpackLsbFirst, 0);
             GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgba,
                 _width, _height, 0, GL::PixelFormat::Rgba, GL::PixelType::UnsignedByte, pixels->Pixels());
-            const ::OpenTK::Graphics::OpenGL::ErrorCode uploaded = GL::GetError();
-            if (uploaded != ::OpenTK::Graphics::OpenGL::ErrorCode::NoError)
-            {
-                DebugLog::Line("ui", "backdrop upload said "
-                    + ::OpenTK::Graphics::OpenGL::ToString(uploaded));
-            }
+            CheckInteropStorageResult("OpenGL launcher backdrop allocation");
             GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureBaseLevel, 0);
             GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMaxLevel, 0);
             GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,

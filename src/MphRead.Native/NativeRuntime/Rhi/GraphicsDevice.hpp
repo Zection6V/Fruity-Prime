@@ -5,6 +5,7 @@
 #include "Capabilities.hpp"
 #include "CommandList.hpp"
 #include "FrameContext.hpp"
+#include "MemoryBudget.hpp"
 #include "Pipeline.hpp"
 #include "Resources.hpp"
 #include "Swapchain.hpp"
@@ -29,6 +30,8 @@ namespace MphRead::NativeRuntime::Rhi
 
         [[nodiscard]] virtual GraphicsBackend GetBackend() const noexcept = 0;
         [[nodiscard]] virtual const Capabilities& GetCapabilities() const noexcept = 0;
+        [[nodiscard]] virtual MemoryBudgetSnapshot MemoryBudget() const { return {}; }
+        [[nodiscard]] virtual MemoryTelemetry MemoryUsageTelemetry() const { return {}; }
 
         [[nodiscard]] virtual std::unique_ptr<Buffer> CreateBuffer(const BufferDesc& desc) = 0;
         [[nodiscard]] virtual std::unique_ptr<Texture> CreateTexture(const TextureDesc& desc) = 0;

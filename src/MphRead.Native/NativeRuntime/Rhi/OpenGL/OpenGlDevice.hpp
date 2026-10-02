@@ -52,6 +52,10 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
     [[nodiscard]] std::array<float, 4> CurrentAttribute(VertexSemantic semantic);
     // Skia interop: borrow a native texture in this GL context for one draw.
     void BindInteropTexture(CommandList& commands, std::int32_t texture, const Sampler& sampler);
+    // Optional driver budget before external GL/Skia target allocations. These
+    // callers own their storage; it is not included in RHI backing estimates.
+    void AdmitInteropTextureStorage(TextureFormat format, std::uint32_t width, std::uint32_t height);
+    void CheckInteropStorageResult(const char* operation);
 #if defined(__ANDROID__)
     // GLES still uses its emulated fixed-function draw wrapper.
     void RetireAndroidGeometryBuffer(std::int32_t buffer) noexcept;

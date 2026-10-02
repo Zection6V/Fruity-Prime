@@ -3,6 +3,7 @@ std::unique_ptr<Buffer> OpenGlGraphicsDevice::CreateBuffer(const BufferDesc& des
     if (!desc.size || desc.usage == BufferUsage::None
         || desc.size > static_cast<std::uint64_t>(std::numeric_limits<std::ptrdiff_t>::max()))
         throw std::invalid_argument("OpenGL RHI: invalid buffer size or usage.");
+    AdmitStorage(desc.size);
     const auto name = CreateGeometryBuffer();
     if (!name) throw std::runtime_error("OpenGL returned buffer object zero.");
     try
@@ -11,8 +12,7 @@ std::unique_ptr<Buffer> OpenGlGraphicsDevice::CreateBuffer(const BufferDesc& des
         GL::BufferData(static_cast<GL::BufferTarget>(0x8F37), static_cast<std::size_t>(desc.size), nullptr,
             desc.memoryUsage == MemoryUsage::GpuOnly ? GL::BufferUsageHint::StaticDraw : GL::BufferUsageHint::StreamDraw);
         GL::BindBuffer(static_cast<GL::BufferTarget>(0x8F37), 0);
-        const auto error = GL::GetError();
-        if (static_cast<int>(error)) throw std::runtime_error("OpenGL buffer allocation failed: " + std::to_string(static_cast<int>(error)));
+        CheckStorageResult("OpenGL buffer allocation");
         auto buffer = std::make_unique<OpenGlBuffer>(*this, desc, name);
         Track(*buffer);
         return buffer;
@@ -44,6 +44,7 @@ void OpenGlGraphicsDevice::WriteBuffer(Buffer& resource, std::uint64_t offset, s
 {
     auto& buffer = CheckedBuffer(*this, resource);
     CheckBufferRange(resource, offset, data.size());
+    if (!offset && data.size() == buffer.Desc().size) AdmitStorage(data.size());
     GL::BindBuffer(static_cast<GL::BufferTarget>(0x8F37), buffer.Name());
     if (!offset && data.size() == buffer.Desc().size)
         GL::BufferData(static_cast<GL::BufferTarget>(0x8F37), data.size(), data.data(),
@@ -51,6 +52,7 @@ void OpenGlGraphicsDevice::WriteBuffer(Buffer& resource, std::uint64_t offset, s
     else OpenGlNative::Require(_api.BufferSubData, "glBufferSubData")(0x8F37,
         static_cast<std::ptrdiff_t>(offset), static_cast<std::ptrdiff_t>(data.size()), data.data());
     GL::BindBuffer(static_cast<GL::BufferTarget>(0x8F37), 0);
+    CheckStorageResult("OpenGL buffer upload");
 }
 void OpenGlGraphicsDevice::ReadBuffer(Buffer& resource, std::uint64_t offset, std::span<std::byte> data)
 {

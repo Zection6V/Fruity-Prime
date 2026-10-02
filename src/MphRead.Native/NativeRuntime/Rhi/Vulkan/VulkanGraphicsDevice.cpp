@@ -22,6 +22,8 @@
 #include "VulkanPipelineCache.hpp"
 #include "VulkanDescriptorAllocator.hpp"
 #include "VulkanUploadArena.hpp"
+#include "VulkanMemory.hpp"
+#include "../../../Testing/MemoryAdmissionCheck.hpp"
 #include "../SceneShaderAbi.hpp"
 #include "../../../Mods/Platform/AppPaths.hpp"
 #include "FruityVulkanSceneShaders.hpp"
@@ -521,7 +523,19 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 create.device = vk.device;
                 create.vulkanApiVersion = VK_API_VERSION_1_3;
                 create.pVulkanFunctions = &functions;
-                Check(vmaCreateAllocator(&create, &Allocator), "vmaCreateAllocator");
+                if (vk.memoryBudget) create.flags |= VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT;
+                VkPhysicalDeviceMaintenance3Properties maintenance{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES};
+                VkPhysicalDeviceMaintenance4Properties maintenance4{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_PROPERTIES};
+                maintenance.pNext = &maintenance4;
+                VkPhysicalDeviceProperties2 properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+                properties.pNext = &maintenance;
+                vk.vkGetPhysicalDeviceProperties2(vk.physical, &properties);
+                Memory = std::make_unique<VulkanMemory>(create, VulkanMemory::Dispatch{
+                    vk.vkGetDeviceBufferMemoryRequirements, vk.vkGetDeviceImageMemoryRequirements,
+                    vk.vkGetPhysicalDeviceMemoryProperties2, Check}, VulkanMemory::Limits{
+                    maintenance.maxMemoryAllocationSize, properties.properties.limits.maxMemoryAllocationCount,
+                    maintenance4.maxBufferSize, vk.memoryBudget});
+                Allocator = Memory->Allocator(); // Borrowed by transfer and retirement callbacks.
                 try
                 {
                     VkPhysicalDeviceProperties identity{};
@@ -585,7 +599,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     VmaTotalStatistics statistics{};
                     vmaCalculateStatistics(Allocator, &statistics);
                     OutstandingAllocationsAtShutdown = statistics.total.statistics.allocationCount;
-                    vmaDestroyAllocator(Allocator);
+                    Memory->Close();
                     Allocator = VK_NULL_HANDLE;
                     if (PipelineCache) PipelineCache->Close();
                     Scheduler.reset();
@@ -682,6 +696,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::array<DescriptorFrame, FramesInFlight> DescriptorFrames{};
             bool FrameActive = false;
             VmaAllocator Allocator = VK_NULL_HANDLE;
+            std::unique_ptr<VulkanMemory> Memory;
             std::atomic<std::uint32_t> Buffers{0};
             std::atomic<std::uint32_t> Textures{0};
             std::atomic<std::uint32_t> Shaders{0};
@@ -1203,8 +1218,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             auto allocation = ToVmaAllocation(_desc.memoryUsage);
             if (_desc.memoryUsage == MemoryUsage::CpuToGpu) allocation.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
             VmaAllocationInfo info{};
-            Check(vmaCreateBuffer(_device->Allocator, &create, &allocation,
-                &_buffer, &_allocation, &info), "vmaCreateBuffer");
+            _device->Memory->CreateBuffer(create, allocation, _buffer, _allocation, &info);
             _mapped = static_cast<std::byte*>(info.pMappedData);
             if (_desc.memoryUsage == MemoryUsage::CpuToGpu && !_mapped)
             {
@@ -1369,8 +1383,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
             create.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
             const VmaAllocationCreateInfo allocation = ToVmaAllocation(_desc.memoryUsage);
-            Check(vmaCreateImage(_device->Allocator, &create, &allocation,
-                &_image, &_allocation, nullptr), "vmaCreateImage");
+            _device->Memory->CreateImage(create, allocation, _image, _allocation);
             vk.Name(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<std::uint64_t>(_image), "RHI texture");
         }
 
@@ -1787,8 +1800,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                             allocation.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT
                                 | VMA_ALLOCATION_CREATE_MAPPED_BIT;
                             VmaAllocationInfo info{};
-                            Check(vmaCreateBuffer(device->Allocator, &create, &allocation,
-                                &page.Buffer, &page.Allocation, &info), "vmaCreateBuffer(upload arena)");
+                            device->Memory->CreateBuffer(create, allocation, page.Buffer, page.Allocation, &info);
                             page.Data = static_cast<std::byte*>(info.pMappedData);
                             page.Size = size;
                             ++device->UploadPages;
@@ -2759,6 +2771,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
 
             [[nodiscard]] GraphicsBackend GetBackend() const noexcept override { return GraphicsBackend::Vulkan; }
+            [[nodiscard]] MemoryBudgetSnapshot MemoryBudget() const override { return _state->Memory->Snapshot(); }
+            [[nodiscard]] MemoryTelemetry MemoryUsageTelemetry() const override { return _state->Memory->Telemetry(); }
             [[nodiscard]] const std::shared_ptr<VulkanDeviceState>& State() const noexcept { return _state; }
             [[nodiscard]] InteropDevice Describe() const;
             [[nodiscard]] const Capabilities& GetCapabilities() const noexcept override
@@ -3229,6 +3243,24 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         // its source image's lifetime, independently of present queue fences.
         state.Scheduler->MarkExternalWork();
         return result;
+    }
+
+    void CheckMemoryAdmission(GraphicsDevice& device)
+    {
+        const auto state = dynamic_cast<VulkanGraphicsDevice&>(device).State();
+        Testing::CheckMemoryAdmission(device, [state](std::uint64_t bytes) { state->Memory->SetBudgetCeilingForCheck(bytes); },
+            [](Texture& texture, TextureView& view) { return std::pair{
+                static_cast<VulkanTexture&>(texture).Native(), static_cast<VulkanTextureView&>(view).Native()}; });
+        const auto before = device.MemoryUsageTelemetry();
+        BufferDesc oversized{}; oversized.size = UINT64_MAX; oversized.usage = BufferUsage::Vertex;
+        bool rejected = false;
+        try { (void)device.CreateBuffer(oversized); }
+        catch (const BackendError& error) { rejected = error.Kind() == BackendErrorKind::OutOfMemory && error.NativeCode() == 0; }
+        const auto after = device.MemoryUsageTelemetry();
+        if (!rejected || after.DeniedRequests != before.DeniedRequests + 1 || after.NativeFailures != before.NativeFailures
+            || after.AcceptedRequests != before.AcceptedRequests || after.PendingRequests || after.PendingBytes)
+            throw std::runtime_error("Oversized Vulkan buffer reached native requirements/allocation.");
+        std::cout << "[memory admission] Vulkan oversized buffer rejected before native requirements query\n";
     }
 
     void CheckResourceRetirement(GraphicsDevice& device)
@@ -3706,6 +3738,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 || (state->PipelineCache && state->PipelineCache->Stats().Native)
                 || state->FinalCompleted != state->FinalSubmitted || state->FinalSubmitted <= submitted)
                 throw std::logic_error("Vulkan session retained native resources or failed to complete pending work.");
+            if (state->Memory->Allocator() || state->Memory->Telemetry().PendingRequests || state->Memory->Telemetry().PendingBytes)
+                throw std::logic_error("Vulkan session retained native memory or pending admission.");
             for (const auto& slot : state->DescriptorFrames)
                 if (slot.descriptors && slot.descriptors->PageCount())
                     throw std::logic_error("Vulkan session retained descriptor pages.");
@@ -3728,6 +3762,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         throw std::runtime_error("Desktop Vulkan development support was not built.");
     }
     void FlushDevice(GraphicsDevice&) {}
+    void CheckMemoryAdmission(GraphicsDevice&) { throw std::runtime_error("Vulkan development support was not built."); }
     std::uint32_t EmbeddedShaderStages() noexcept { return 0; }
     InteropImage PrepareForExternal(GraphicsDevice&, Texture&, ResourceState)
     {

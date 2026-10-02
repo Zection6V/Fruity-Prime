@@ -6,6 +6,7 @@
 #include "VulkanInterop.hpp"
 #include "../Rhi/Resources.hpp"
 #include "../Rhi/SceneBackend.hpp"
+#include "../Rhi/OpenGL/OpenGlDevice.hpp"
 
 #include "../OpenTK/GL.hpp"
 #include "../OpenTK/GLFW.hpp"
@@ -586,6 +587,9 @@ namespace MphRead::NativeRuntime::Skia
             }
 #endif
             const ::SkImageInfo info = ::SkImageInfo::Make(width, height, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
+#if !defined(__ANDROID__)
+            Rhi::OpenGL::AdmitInteropTextureStorage(Rhi::TextureFormat::RGBA8Unorm, width, height);
+#endif
 #if FRUITY_SKIA_GANESH_V2
             Surface = ::SkSurfaces::RenderTarget(Context.get(), skgpu::Budgeted::kYes, info, 0,
                 kBottomLeft_GrSurfaceOrigin, nullptr);

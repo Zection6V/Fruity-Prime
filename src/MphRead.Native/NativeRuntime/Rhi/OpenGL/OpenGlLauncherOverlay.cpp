@@ -3,6 +3,7 @@
 #else
 #include "OpenGlLauncherOverlay.hpp"
 #include "OpenGlWindowDraw.hpp"
+#include "OpenGlDevice.hpp"
 #include <memory>
 
 #include "../../OpenTK/GL.hpp"
@@ -54,10 +55,12 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         GL::PixelStore(GL::PixelStoreParameter::UnpackAlignment, 4);
         if (width != _width || height != _height)
         {
-            _width = width;
-            _height = height;
+            AdmitInteropTextureStorage(TextureFormat::RGBA8Unorm, width, height);
             GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgba,
                 width, height, 0, GL::PixelFormat::Rgba, GL::PixelType::UnsignedByte, pixels);
+            CheckInteropStorageResult("OpenGL launcher overlay allocation");
+            _width = width;
+            _height = height;
         }
         else
         {

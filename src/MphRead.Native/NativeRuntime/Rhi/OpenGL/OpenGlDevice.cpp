@@ -2,6 +2,8 @@
 #include "OpenGlNative.hpp"
 #include "OpenGlFrameScheduler.hpp"
 #include "OpenGlDiagnostics.hpp"
+#include "OpenGlMemory.hpp"
+#include "../../../Testing/MemoryAdmissionCheck.hpp"
 #include "../SceneBackend.hpp"
 
 #include "../../OpenTK/GL.hpp"
@@ -501,6 +503,9 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 #if !defined(__ANDROID__)
                 _capabilities.supportsDepthClamp = true;
                 _capabilities.supportsAnisotropy = GL::GetString(static_cast<GL::StringName>(0x1F03)).find("texture_filter_anisotropic") != std::string::npos;
+                const auto extensions = " " + GL::GetString(static_cast<GL::StringName>(0x1F03)) + " ";
+                _memory = OpenGlMemory(extensions.find(" GL_NVX_gpu_memory_info ") != std::string::npos,
+                    [](std::int32_t name) { return GL::GetInteger(name); });
                 if (_capabilities.supportsAnisotropy)
                 {
                     float maximum = 1;
@@ -513,10 +518,15 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             ~OpenGlGraphicsDevice() override;
             void CloseNative();
             std::function<void()> NativeReleaseCheck();
+            void CheckMemoryAdmission();
             std::weak_ptr<void> Lifetime() const noexcept { return _lifetime; }
 
             [[nodiscard]] GraphicsBackend GetBackend() const noexcept override { return GraphicsBackend::OpenGl; }
             [[nodiscard]] const Capabilities& GetCapabilities() const noexcept override { return _capabilities; }
+            [[nodiscard]] MemoryBudgetSnapshot MemoryBudget() const override { return _memory.Snapshot(_reservedStorage); }
+            [[nodiscard]] MemoryTelemetry MemoryUsageTelemetry() const override { return _memory.Telemetry(); }
+            void AdmitStorage(std::uint64_t bytes) { _memory.Admit(bytes, _reservedStorage); }
+            void CheckStorageResult(const char* operation) { _memory.CheckNativeResult(static_cast<int>(GL::GetError()), operation); }
             std::array<std::array<float, 4>, VertexSemanticCount> CurrentAttributes{{
                 {0, 0, 0, 1}, {0, 0, 1, 1}, {1, 1, 1, 1}, {0, 0, 0, 1}, {0, 0, 0, 1}}};
 
@@ -524,8 +534,10 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void WriteBuffer(Buffer& buffer, std::uint64_t offset, std::span<const std::byte> data) override;
             void ReadBuffer(Buffer& buffer, std::uint64_t offset, std::span<std::byte> data) override;
             OpenGlNative& Api() noexcept { return _api; }
-            void Track(OpenGlBuffer& buffer) { _resourceBuffers.insert(&buffer); }
-            void Untrack(OpenGlBuffer& buffer) { _resourceBuffers.erase(&buffer); }
+            void Track(OpenGlBuffer& buffer)
+            { if (_resourceBuffers.insert(&buffer).second) _reservedStorage += buffer.Desc().size; }
+            void Untrack(OpenGlBuffer& buffer)
+            { if (_resourceBuffers.erase(&buffer)) _reservedStorage -= buffer.Desc().size; }
             void Track(OpenGlSamplerStorage& sampler) { _samplers.insert(&sampler); }
             void Untrack(OpenGlSamplerStorage& sampler) { _samplers.erase(&sampler); }
             void Track(OpenGlProgramStorage& program) { _livePrograms.insert(&program); }
@@ -885,6 +897,9 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             // renderbuffer's storage, at this extent.
             void AllocateStorage(OpenGlTexture& gl, std::uint32_t width, std::uint32_t height)
             {
+                const auto before = gl.HasStorage() ? TextureStorageEstimate(gl.Desc().format, gl.Desc().width, gl.Desc().height) : 0;
+                const auto after = TextureStorageEstimate(gl.Desc().format, width, height);
+                AdmitStorage(after);
                 if (gl.IsRenderbuffer())
                 {
                     GL::BindRenderbuffer(GL::RenderbufferTarget::Renderbuffer, gl.Name());
@@ -902,6 +917,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                         format.Format, format.Type, nullptr);
                     GL::BindTexture(GL::TextureTarget::Texture2D, 0);
                 }
+                CheckStorageResult("OpenGL texture storage allocation");
+                _reservedStorage = _reservedStorage - before + after;
                 gl.SetExtent(width, height);
                 if (!gl.IsRenderbuffer())
                 {
@@ -922,6 +939,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 (void)ToGl(desc.format);
             }
             OpenGlNative _api;
+            OpenGlMemory _memory{false, [](std::int32_t name) { return GL::GetInteger(name); }};
+            std::uint64_t _reservedStorage = 0;
             std::unordered_set<OpenGlBuffer*> _resourceBuffers;
             std::unordered_set<OpenGlSamplerStorage*> _samplers;
             std::vector<std::weak_ptr<OpenGlSamplerStorage>> _samplerCache;
@@ -1427,7 +1446,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             {
                 list->Forget(texture);
             }
-            _live.erase(&texture);
+            if (_live.erase(&texture) && texture.HasStorage())
+                _reservedStorage -= TextureStorageEstimate(texture.Desc().format, texture.Desc().width, texture.Desc().height);
             const auto found = _byHandle.find(texture.Name());
             if (found != _byHandle.end() && found->second == &texture)
             {
@@ -1489,6 +1509,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             _live.clear(); _byHandle.clear(); _lists.clear(); _shaders.clear();
             _buffers.clear(); _resourceBuffers.clear(); _samplers.clear(); _samplerCache.clear();
             _retained.clear(); _lifetime.reset();
+            _reservedStorage = 0;
+            _memory.Close();
             ContextDevices().erase(_contextKey);
             _contextKey = nullptr;
         }
@@ -1539,6 +1561,11 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         }
 
         std::weak_ptr<void> DeviceLifetime(OpenGlGraphicsDevice& device) { return device.Lifetime(); }
+        void OpenGlGraphicsDevice::CheckMemoryAdmission()
+        {
+            Testing::CheckMemoryAdmission(*this, [this](std::uint64_t bytes) { _memory.SetBudgetCeilingForCheck(bytes); },
+                [](Texture& texture, TextureView&) { return static_cast<OpenGlTexture&>(texture).Name(); });
+        }
         std::function<void()> OpenGlGraphicsDevice::NativeReleaseCheck()
         {
             std::vector<NativeObject> objects;
@@ -1592,6 +1619,23 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         auto* native = dynamic_cast<OpenGlGraphicsDevice*>(&device);
         if (!native) throw std::invalid_argument("Native release check requires OpenGL.");
         return native->NativeReleaseCheck();
+    }
+
+    void CheckMemoryAdmission(GraphicsDevice& device)
+    {
+        auto* native = dynamic_cast<OpenGlGraphicsDevice*>(&device);
+        if (!native) throw std::invalid_argument("Memory admission check requires OpenGL.");
+        native->CheckMemoryAdmission();
+    }
+
+    void AdmitInteropTextureStorage(TextureFormat format, std::uint32_t width, std::uint32_t height)
+    {
+        static_cast<OpenGlGraphicsDevice&>(ContextDevice()).AdmitStorage(TextureStorageEstimate(format, width, height));
+    }
+
+    void CheckInteropStorageResult(const char* operation)
+    {
+        static_cast<OpenGlGraphicsDevice&>(ContextDevice()).CheckStorageResult(operation);
     }
 
     std::unique_ptr<GraphicsDevice> CreateGraphicsDevice()

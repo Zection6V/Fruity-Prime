@@ -345,6 +345,8 @@ namespace MphRead::Mods::Diagnostics
                 auto session = provider->CreateSession({true});
                 auto& device = session->Device();
                 if (backend == Rhi::GraphicsBackend::Vulkan) Expect(session->ValidationEnabled(), "Conformance requires Vulkan validation.");
+                if (backend == Rhi::GraphicsBackend::OpenGl) Rhi::OpenGL::CheckMemoryAdmission(device);
+                else Rhi::Vulkan::CheckMemoryAdmission(device);
                 ExerciseUnframedLifetime(device);
                 Exercise(device);
                 device.TrimCaches();

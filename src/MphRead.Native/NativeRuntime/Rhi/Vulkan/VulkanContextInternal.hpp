@@ -68,11 +68,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         std::uint32_t vendorId = 0;
         bool validation = false;
         bool swapchainMaintenance1 = false;
+        bool memoryBudget = false;
         std::atomic<unsigned> errors{0};
         PFN_vkSetDebugUtilsObjectNameEXT setName = nullptr;
 #define VULKAN_INSTANCE_FUNCTIONS(X) \
         X(vkDestroyInstance) X(vkEnumeratePhysicalDevices) X(vkGetPhysicalDeviceProperties) \
-        X(vkGetPhysicalDeviceFeatures2) X(vkEnumerateDeviceExtensionProperties) \
+        X(vkGetPhysicalDeviceFeatures2) X(vkGetPhysicalDeviceProperties2) X(vkGetPhysicalDeviceMemoryProperties2) X(vkEnumerateDeviceExtensionProperties) \
         X(vkGetPhysicalDeviceFormatProperties) X(vkGetPhysicalDeviceImageFormatProperties) X(vkGetPhysicalDeviceQueueFamilyProperties) \
         X(vkGetPhysicalDeviceMemoryProperties) X(vkGetPhysicalDeviceSurfaceSupportKHR) \
         X(vkGetPhysicalDeviceSurfaceCapabilitiesKHR) X(vkGetPhysicalDeviceSurfaceFormatsKHR) \
@@ -81,7 +82,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 #define VULKAN_CACHE_FUNCTIONS(X) \
         X(vkCreatePipelineCache) X(vkDestroyPipelineCache) X(vkGetPipelineCacheData)
 #define VULKAN_DEVICE_FUNCTIONS(X) \
-        X(vkDeviceWaitIdle) X(vkDestroyDevice) X(vkGetDeviceQueue) X(vkCreateCommandPool) \
+        X(vkDeviceWaitIdle) X(vkDestroyDevice) X(vkGetDeviceQueue) X(vkGetDeviceBufferMemoryRequirements) X(vkGetDeviceImageMemoryRequirements) X(vkCreateCommandPool) \
         X(vkDestroyCommandPool) X(vkAllocateCommandBuffers) X(vkFreeCommandBuffers) X(vkResetCommandPool) \
         X(vkBeginCommandBuffer) X(vkEndCommandBuffer) X(vkCmdPipelineBarrier2) \
         X(vkCmdBeginRendering) X(vkCmdEndRendering) X(vkCmdCopyBuffer) \
@@ -372,6 +373,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 if (props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) score += 1000000;
                 if (score <= bestScore) continue;
                 bestScore = score; physical = candidate; graphicsFamily = g; presentFamily = p;
+                memoryBudget = Contains(deviceExtensions, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
                 portabilitySubset = Contains(deviceExtensions, "VK_KHR_portability_subset");
                 maintenance1 = candidateMaintenance1;
                 selectedFeatures = features.features; name = props.deviceName;
@@ -408,6 +410,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT enabledMaintenance1{
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT};
             std::vector<const char*> deviceExtensionNames{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+            if (memoryBudget) deviceExtensionNames.push_back(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
             if (portabilitySubset) deviceExtensionNames.push_back("VK_KHR_portability_subset");
             if (maintenance1)
             {

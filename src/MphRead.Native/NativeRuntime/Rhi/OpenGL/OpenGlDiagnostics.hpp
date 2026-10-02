@@ -22,4 +22,5 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
     // Capture driver object identities while they are live, then prove that
     // session shutdown released them. The context must still be current.
     [[nodiscard]] std::function<void()> NativeReleaseCheck(GraphicsDevice& device);
+    void CheckMemoryAdmission(GraphicsDevice& device);
 }

@@ -20,6 +20,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     void CheckGraphicsPipelines(GraphicsDevice& device);
     void CheckResourceRetirement(GraphicsDevice& device);
     void CheckUploadReuse(GraphicsDevice& device);
+    void CheckMemoryAdmission(GraphicsDevice& device);
     // Keeps a CPU witness of native teardown, never the context/device itself.
     [[nodiscard]] std::function<void()> SessionReleaseCheck(GraphicsDevice& device);
     // Submit the device's recorded work and show its window target: blitted

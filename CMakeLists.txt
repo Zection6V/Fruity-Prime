@@ -118,6 +118,8 @@ set(FRUITY_RENDERER_GPU_MESH_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestRendererGpuMesh.cpp")
 set(FRUITY_RHI_LIFETIME_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestRhiLifetime.cpp")
+set(FRUITY_MEMORY_ADMISSION_TEST_SOURCE
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestMemoryAdmission.cpp")
 set(FRUITY_VULKAN_UNIFORMS_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanSceneUniforms.cpp")
 set(FRUITY_VULKAN_DESCRIPTOR_TEST_SOURCE
@@ -167,6 +169,7 @@ list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES
     "${FRUITY_RENDERER_GPU_MESH_TEST_SOURCE}"
     "${FRUITY_SHADER_INTERFACE_TEST_SOURCE}"
     "${FRUITY_RHI_LIFETIME_TEST_SOURCE}"
+    "${FRUITY_MEMORY_ADMISSION_TEST_SOURCE}"
     "${FRUITY_VULKAN_PIPELINE_CACHE_TEST_SOURCE}"
     "${FRUITY_VULKAN_DESCRIPTOR_TEST_SOURCE}"
     "${FRUITY_VULKAN_UPLOAD_TEST_SOURCE}"
@@ -337,6 +340,10 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
     target_include_directories(fruity_rhi_lifetime_tests PRIVATE "${FRUITY_MPHREAD_ROOT}")
     target_compile_features(fruity_rhi_lifetime_tests PRIVATE cxx_std_20)
     add_test(NAME FruityPrime.RhiLifetime COMMAND fruity_rhi_lifetime_tests)
+    add_executable(fruity_memory_admission_tests "${FRUITY_MEMORY_ADMISSION_TEST_SOURCE}"
+        "${FRUITY_MPHREAD_ROOT}/NativeRuntime/Rhi/OpenGL/OpenGlMemory.cpp")
+    target_compile_features(fruity_memory_admission_tests PRIVATE cxx_std_20)
+    add_test(NAME FruityPrime.MemoryAdmission COMMAND fruity_memory_admission_tests)
 
     if(Vulkan_FOUND)
         add_executable(fruity_vulkan_uniform_tests "${FRUITY_VULKAN_UNIFORMS_TEST_SOURCE}")

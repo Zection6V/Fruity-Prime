@@ -107,6 +107,33 @@ unsigned OpenGlCommandList::VertexArray()
     }
     catch (...) { api.BindVertexArray(0); api.DeleteVertexArrays(1, &vao); throw; }
 }
+void OpenGlCommandList::RestoreDrawState()
+{
+    if (!_applied && !_sceneGeometry) throw std::logic_error("OpenGL RHI: draw needs a pipeline.");
+    Touch();
+    for (const auto& [group, set] : _genericSets) set->ValidateResources();
+    for (const auto& unit : _units)
+        if ((unit.Texture && unit.TextureLifetime.expired()) || (unit.Sampler && unit.SamplerLifetime.expired()))
+            throw std::invalid_argument("OpenGL RHI: sampled binding resource has expired.");
+    if (!_nativeDirty) return;
+    const auto framebuffer = _framebuffers.find(_current);
+    if ((_current.Color || _current.Depth) && framebuffer == _framebuffers.end())
+        throw std::logic_error("OpenGL RHI: rendering target has expired.");
+    GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, framebuffer == _framebuffers.end() ? 0 : framebuffer->second);
+    if (_applied) SetPipeline(*_applied);
+    SetViewport(_hasViewport ? _viewport : Viewport{0, 0, static_cast<float>(_renderWidth), static_cast<float>(_renderHeight)});
+    if (_scissorEnabled) SetScissor(_scissor);
+    else SetCap(0x0C11, false);
+    for (const auto& [group, set] : _genericSets) ApplyBindingSet(group, *set);
+    for (std::uint32_t slot = 0; slot < _units.size(); ++slot)
+    {
+        const auto unit = _units[slot];
+        if (!unit.Bound) continue;
+        if (!unit.Texture && unit.Sampler) BindInteropTexture(unit.InteropTexture, *unit.Sampler);
+        else BindSampledTexture(slot, unit.Texture, unit.Sampler);
+    }
+    _nativeDirty = false;
+}
 void OpenGlCommandList::ForgetBuffer(std::int32_t name)
 {
     RequireAlive();
@@ -131,6 +158,7 @@ void OpenGlCommandList::Draw(std::uint32_t count, std::uint32_t instances, std::
 {
     RequireRendering();
     if (!count || !instances) return;
+    RestoreDrawState();
     if (count > INT32_MAX || instances > INT32_MAX || first > INT32_MAX) throw std::out_of_range("OpenGL RHI: draw exceeds native count range.");
     auto& api = _device->Api();
     const auto vao = VertexArray();
@@ -144,6 +172,7 @@ void OpenGlCommandList::DrawIndexed(std::uint32_t count, std::uint32_t instances
 {
     RequireRendering();
     if (!count || !instances) return;
+    RestoreDrawState();
     if (!_indexBuffer) throw std::logic_error("OpenGL RHI: indexed draw needs an index buffer.");
     if (count > INT32_MAX || instances > INT32_MAX) throw std::out_of_range("OpenGL RHI: draw exceeds native count range.");
     const unsigned width = _indexType == IndexType::UInt16 ? 2 : 4;
@@ -192,6 +221,22 @@ void OpenGlCommandList::SetBindingSet(std::uint32_t group, const BindingSet& res
     if (group >= layout.groups.size() || set->Desc().layout->Desc() != layout.groups[group])
         throw std::invalid_argument("OpenGL RHI: binding group is outside or incompatible with the pipeline layout.");
     set->ValidateResources();
+    Touch();
+    auto snapshot = std::make_unique<OpenGlBindingSet>(*_device, set->Desc());
+    ApplyBindingSet(group, *snapshot);
+    for (const auto& declaration : layout.groups[group].entries)
+        if (declaration.type == BindingType::SampledTexture || declaration.type == BindingType::Sampler)
+            for (std::uint32_t element = 0; element < declaration.count; ++element)
+            {
+                const auto slot = BindingSlot(layout, group, declaration) + element;
+                if (slot < _units.size()) _units[slot] = {};
+            }
+    _genericSets[group] = std::move(snapshot);
+}
+void OpenGlCommandList::ApplyBindingSet(std::uint32_t group, const OpenGlBindingSet& resource)
+{
+    const auto* set = &resource;
+    const auto& layout = _applied->Desc().pipelineLayout;
     auto& api = _device->Api();
     for (const auto& entry : set->Desc().entries)
     {

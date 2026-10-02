@@ -1,6 +1,6 @@
 # レンダリングアーキテクチャ対応記録
 
-更新日: 2026-10-02
+更新日: 2026-10-03
 
 対象: [比較レビュー](Fruity-Prime-Rendering-Architecture-Review.md)。比較時の固定コミットは変更しない。
 今回は Windows の OpenGL / Vulkan を実装・検証対象にする。ユーザー確認により、
@@ -1784,3 +1784,51 @@ CPU texture backup や CPU 描画への移行は追加していない。
 R19 / Phase H の全体は進行中。native command buffer の内部再開後の generic draw binding の復元、
 全 format / subresource と state tracking、presentation ownership、100-cycle stress、
 R10 の frame slot / probe分離と R20 の確認は残る。Android / macOS実動作、remote CI は未実行。
+
+## 内部再開と別 command list の描画後の binding 復元（R19）
+
+Vulkan の generic draw は、診断 readback、frame submission、別 command list による送信で
+native command buffer が再開すると、vertex / index buffer と descriptor の設定を失っていた。
+logical recording interval に pipeline・buffer binding・binding set の snapshot を保持し、
+再開後に同じ描画状態を復元する。descriptor pool は command slot が所有し、
+GPU の送信完了後にだけ reset する。再開時は新しい pool generation の set を割り当て、
+以前の native buffer の descriptor を流用しない。view の作り直しでも再割り当てする。
+
+OpenGL は同じ context の別 command list が、framebuffer・pipeline・viewport・scissor・
+UBO・texture・sampler を変更できる。現在の native state を設定した list を device が記録し、
+別 list の描画や texture upload 後は、元の list の次の draw で保存した状態を復元する。
+同じ list が続けて描く通常経路では状態全体を再設定しない。
+
+binding set は layout の記述を所有し、適用済みの set は command list が snapshot を持つ。
+元の layout は set 作成後、元の set は適用後に解放しても描画できる。
+buffer / view / sampler の実体は引き続き caller が保持する契約とし、wrapper の寿命を
+weak token で確認してから参照する。保存した binding が解放済み実体を指す場合は
+GPU 操作・送信前に拒否する。モデルの pixel コピー、CPU 描画、追加の wait は導入しない。
+
+共通 fixture は、同じ画像を nearest / linear の2つの sampler で描き、
+前半の readback 後に別 list で別 target・別 material・色書き込みなしの pipeline・
+小さい viewport / scissor を使って実際に draw する。frame も切り替えた後、
+元の pipeline / vertex / index / sets / viewport を再指定せず後半を描く。
+前半の保持・後半の正しい色・異なる sampler の同時利用を pixel で判定する。
+buffer / view / sampler wrapper を解放した後の SetBindingSet / Draw の計6件も拒否を検査する。
+
+確認結果（Windows / RTX 5070 Ti）:
+
+- MSVC Release PASS: `C:/tmp/gp/architecture-r19-binding-build6.log`。
+- CPU CTest 13/13 PASS: `C:/tmp/gp/architecture-r19-binding-ctest6.log`。
+- 共通 GPU conformance PASS: `C:/tmp/gp/architecture-r19-binding-conformance6.log`。
+  両 backend の内部再開・別 list の draw・source set / layout 解放・6件の実体寿命拒否が PASS。
+  既存 ownership / async readback / GPU diagnostics / 8回の session teardown も PASS、
+  Vulkan validation errors=0、最終 release=0。
+- FPS-only の両開始 backend の切替 PASS: `C:/tmp/r18-fps-20261003-002012/`。
+  Alinos Perch、出現済み Sylux と7 bots、2560×1439、HUD FPS Counter Off、cap unlimited。
+  同じ試合で各3回の world witness・bomb / particle / lifecycle gate と CSV 条件が PASS。
+  pause=0 / focus=1 の全記録行は OpenGL 20行の平均284.63 FPS、Vulkan 16行の平均979.30 FPS。
+  最小～最大は OpenGL 185.63～313.05、Vulkan 848.18～1005.78。速度改善の主張には使わない。
+- validation / GPU profile 付きの3回切替 PASS: `C:/tmp/r18-fps-20261003-002155/opengl.log`。
+  Vulkan validation errors=0、world / bomb / particle / lifecycle gate が PASS。
+  validation ON の FPS は上記の速度比較に混ぜない。
+
+R19 / Phase H の全体は進行中。全 format / subresource と state tracking、presentation ownership、
+100-cycle stress、R10 の frame slot / probe 分離と R20 の確認は残る。
+Android / macOS実動作、remote CI は未実行。

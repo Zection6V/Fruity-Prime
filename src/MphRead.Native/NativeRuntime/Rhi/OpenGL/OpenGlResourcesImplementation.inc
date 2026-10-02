@@ -166,12 +166,22 @@ OpenGlBindingSet::OpenGlBindingSet(OpenGlGraphicsDevice& device, const BindingSe
                 || !Has(texture->Desc().usage, found->type == BindingType::StorageTexture ? TextureUsage::Storage : TextureUsage::Sampled))
                 throw std::invalid_argument("OpenGL RHI: invalid texture binding.");
         }
+        _resourceLifetimes.push_back(std::visit([](const auto& resource) -> std::weak_ptr<void> {
+            using T = std::decay_t<decltype(resource)>;
+            if constexpr (std::is_same_v<T, BufferBinding>)
+                return static_cast<const OpenGlBuffer*>(resource.buffer)->Lifetime();
+            else if constexpr (std::is_same_v<T, TextureBinding>)
+                return static_cast<const OpenGlTextureView*>(resource.view)->Lifetime();
+            else return static_cast<const OpenGlSampler*>(resource.sampler)->Lifetime();
+        }, entry.resource));
     }
 }
 
 void OpenGlBindingSet::ValidateResources() const
 {
     if (_lifetime.expired()) throw std::invalid_argument("OpenGL RHI: binding set session has ended.");
+    for (const auto& lifetime : _resourceLifetimes)
+        if (lifetime.expired()) throw std::invalid_argument("OpenGL RHI: binding resource has expired.");
     for (const auto& entry : _desc.entries)
     {
         if (const auto* buffer = std::get_if<BufferBinding>(&entry.resource))

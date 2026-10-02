@@ -10,10 +10,12 @@ public:
     std::int32_t Name() const noexcept { return _name; }
     OpenGlGraphicsDevice* Device() const noexcept { return _device; }
     void Detach() noexcept { _device = nullptr; _name = 0; }
+    std::weak_ptr<void> Lifetime() const noexcept { return _lifetime; }
 private:
     OpenGlGraphicsDevice* _device;
     BufferDesc _desc;
     std::int32_t _name;
+    std::shared_ptr<void> _lifetime = std::make_shared<int>(0);
 };
 
 class OpenGlBindingLayout final : public BindingLayout
@@ -52,6 +54,7 @@ private:
     std::weak_ptr<void> _lifetime;
     OpenGlBindingLayout _layout;
     BindingSetDesc _desc;
+    std::vector<std::weak_ptr<void>> _resourceLifetimes;
 };
 
 struct OpenGlSamplerStorage final
@@ -70,6 +73,8 @@ public:
     const SamplerDesc& Desc() const noexcept override { return _storage->Desc; }
     unsigned Name() const noexcept { return _storage->Name; }
     OpenGlGraphicsDevice* Device() const noexcept { return _storage->Device; }
+    std::weak_ptr<void> Lifetime() const noexcept { return _lifetime; }
 private:
     std::shared_ptr<OpenGlSamplerStorage> _storage;
+    std::shared_ptr<void> _lifetime = std::make_shared<int>(0);
 };

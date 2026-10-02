@@ -409,11 +409,13 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             [[nodiscard]] const TextureViewDesc& Desc() const noexcept override { return _desc; }
             [[nodiscard]] const Texture& TextureResource() const noexcept override { return _texture; }
             [[nodiscard]] bool TextureAlive() const noexcept { return !_textureLifetime.expired(); }
+            [[nodiscard]] std::weak_ptr<void> Lifetime() const noexcept { return _lifetime; }
 
         private:
             Texture& _texture;
             TextureViewDesc _desc;
             std::weak_ptr<void> _textureLifetime;
+            std::shared_ptr<void> _lifetime = std::make_shared<int>(0);
         };
 
         #include "OpenGlResourcesInternal.inc"
@@ -913,6 +915,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             void WriteTexture(Texture& texture, const TextureWrite& write) override
             {
+                InvalidateDrawState();
                 OpenGlTexture& gl = Native(texture, this);
                 if (FindTexture(gl.Handle()) != &texture || !write.width || !write.height
                     || write.width > _capabilities.maxTexture2DDimension || write.height > _capabilities.maxTexture2DDimension)
@@ -983,13 +986,18 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void Forget(OpenGlTexture& texture) noexcept;
 
             void Register(OpenGlCommandList& list) { _lists.insert(&list); }
-            void Unregister(OpenGlCommandList& list) noexcept { _lists.erase(&list); }
+            void Unregister(OpenGlCommandList& list) noexcept
+            { _lists.erase(&list); if (_nativeOwner == &list) _nativeOwner = nullptr; }
+            bool Activate(OpenGlCommandList& list) noexcept
+            { return std::exchange(_nativeOwner, &list) != &list; }
+            void InvalidateDrawState() noexcept { _nativeOwner = nullptr; }
             void ForgetBuffer(std::int32_t name);
 
             // Storage for a render target: TexImage2D with no data, or a
             // renderbuffer's storage, at this extent.
             void AllocateStorage(OpenGlTexture& gl, std::uint32_t width, std::uint32_t height)
             {
+                InvalidateDrawState();
                 const auto before = gl.HasStorage() ? TextureStorageEstimate(gl.Desc().format, gl.Desc().width, gl.Desc().height) : 0;
                 const auto after = TextureStorageEstimate(gl.Desc().format, width, height);
                 AdmitStorage(after);
@@ -1070,6 +1078,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             std::unordered_set<OpenGlTexture*> _live{};
             std::vector<std::unique_ptr<Texture>> _retained{};
             std::unordered_set<OpenGlCommandList*> _lists{};
+            OpenGlCommandList* _nativeOwner = nullptr;
             std::unordered_set<OpenGlShader*> _shaders{};
             std::unordered_set<std::int32_t> _buffers{};
             std::map<std::pair<const Shader*, const Shader*>, std::shared_ptr<OpenGlProgramStorage>> _programs{};
@@ -1140,6 +1149,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             {
                 RequireAlive();
                 if (_recording) throw std::logic_error("OpenGL RHI: command list is already recording.");
+                _genericSets.clear(); _units = {}; _vertexBindings.clear(); _indexBuffer = nullptr;
+                _applied = nullptr; _hasViewport = false; _nativeDirty = true;
                 _recording = true;
             }
             void End() override
@@ -1204,6 +1215,9 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             {
                 RequireRecording();
                 ValidateTargets(info, _device);
+                Touch(); _renderWidth = info.width; _renderHeight = info.height;
+                _scissorEnabled = info.renderArea.width > 0 && info.renderArea.height > 0;
+                _scissor = info.renderArea;
                 if (info.swapchain)
                 {
                     GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, 0);
@@ -1244,11 +1258,17 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 RequireRecording();
                 const auto* native = dynamic_cast<const OpenGlGraphicsPipeline*>(&pipeline);
                 if (!native || native->Device() != _device) throw std::invalid_argument("OpenGL RHI: pipeline belongs to another device.");
-                if (&pipeline == _applied)
+                Touch();
+                if (&pipeline == _applied && !_nativeDirty)
                 {
                     return;
                 }
                 _applied = &pipeline;
+                for (auto it = _genericSets.begin(); it != _genericSets.end();)
+                    if (it->first >= pipeline.Desc().pipelineLayout.groups.size()
+                        || it->second->Desc().layout->Desc() != pipeline.Desc().pipelineLayout.groups[it->first])
+                        it = _genericSets.erase(it);
+                    else ++it;
                 const GraphicsPipelineDesc& desc = pipeline.Desc();
                 const std::int32_t program = static_cast<const OpenGlGraphicsPipeline&>(pipeline).Program();
                 if (program != 0)
@@ -1302,6 +1322,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void SetViewport(const Viewport& viewport) override
             {
                 RequireRecording();
+                Touch(); _viewport = viewport; _hasViewport = true;
                 GL::Viewport(static_cast<std::int32_t>(viewport.x), static_cast<std::int32_t>(viewport.y),
                     static_cast<std::int32_t>(viewport.width), static_cast<std::int32_t>(viewport.height));
 #if defined(__ANDROID__)
@@ -1314,6 +1335,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void SetScissor(const Scissor& scissor) override
             {
                 RequireRecording();
+                Touch(); _scissor = scissor; _scissorEnabled = true;
                 SetCap(0x0C11, true);
                 GL::Scissor(scissor.x, scissor.y, static_cast<std::int32_t>(scissor.width),
                     static_cast<std::int32_t>(scissor.height));
@@ -1322,9 +1344,11 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void SetVertexBuffer(std::uint32_t slot, const Buffer& buffer, std::uint64_t offset) override;
             void SetIndexBuffer(const Buffer& buffer, IndexType type, std::uint64_t offset) override;
             void SetBindingSet(std::uint32_t group, const BindingSet& set) override;
+            void ApplyBindingSet(std::uint32_t group, const OpenGlBindingSet& set);
             void SetStencilReference(std::uint32_t reference) override
             {
                 RequireRecording();
+                Touch();
                 _stencilReference = reference;
                 ApplyStencilFunc();
             }
@@ -1335,8 +1359,10 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 std::uint32_t count, std::uint32_t first);
             void BindInteropTexture(std::int32_t texture, const Sampler& sampler)
             {
+                RequireRecording(); Touch();
                 const auto* native = dynamic_cast<const OpenGlSampler*>(&sampler);
                 if (!native || native->Device() != _device) throw std::invalid_argument("Interop sampler belongs to another device.");
+                _units[0] = {nullptr, native, {}, native->Lifetime(), texture, true};
                 GL::ActiveTexture(GL::TextureUnit::Texture0);
                 GL::BindTexture(GL::TextureTarget::Texture2D, texture);
                 OpenGlNative::Require(_device->Api().BindSampler, "glBindSampler")(0, texture ? native->Name() : 0);
@@ -1358,6 +1384,10 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     throw std::invalid_argument("OpenGL RHI: sampler belongs to another device.");
                 if (image && !Has(image->Desc().usage, TextureUsage::Sampled))
                     throw std::invalid_argument("OpenGL RHI: bound texture requires Sampled usage.");
+                if (slot >= _units.size()) throw std::out_of_range("OpenGL RHI: texture unit exceeds the command contract.");
+                Touch();
+                _units[slot] = {image, native, image ? image->Lifetime() : std::weak_ptr<void>{},
+                    native ? native->Lifetime() : std::weak_ptr<void>{}, 0, true};
                 if (slot != 0)
                 {
                     GL::ActiveTexture(static_cast<GL::TextureUnit>(
@@ -1490,6 +1520,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                         if (_current == it->first)
                         {
                             _current = {};
+                            _renderingOpen = false;
                         }
                         it = _framebuffers.erase(it);
                     }
@@ -1508,6 +1539,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 for (const auto& [key, framebuffer] : _framebuffers)
                     DestroyNative({GlObject::Kind::Framebuffer, framebuffer});
                 _vertexArrays.clear(); _framebuffers.clear(); _vertexBindings.clear();
+                _genericSets.clear(); _units = {};
                 _applied = nullptr; _indexBuffer = nullptr; _device = nullptr;
                 _recording = false;
                 _renderingOpen = false;
@@ -1516,11 +1548,29 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void ForgetBuffer(std::int32_t name);
 
             void ForgetPipeline(const GraphicsPipeline& pipeline) noexcept
-            { if (_applied == &pipeline) _applied = nullptr; }
+            { if (_applied == &pipeline) { _applied = nullptr; _genericSets.clear(); } }
             void ForgetProgram(std::int32_t program) { _alphaTestLocations.erase(program); }
 
         private:
             unsigned VertexArray();
+            void Touch() { if (_device->Activate(*this)) _nativeDirty = true; }
+            void RestoreDrawState();
+            bool _nativeDirty = true;
+            Viewport _viewport{};
+            bool _hasViewport = false;
+            Scissor _scissor{};
+            bool _scissorEnabled = false;
+            std::uint32_t _renderWidth = 0, _renderHeight = 0;
+            std::map<std::uint32_t, std::unique_ptr<OpenGlBindingSet>> _genericSets;
+            struct SampledBinding final
+            {
+                const OpenGlTexture* Texture = nullptr;
+                const OpenGlSampler* Sampler = nullptr;
+                std::weak_ptr<void> TextureLifetime, SamplerLifetime;
+                std::int32_t InteropTexture = 0;
+                bool Bound = false;
+            };
+            std::array<SampledBinding, 4> _units{};
             void RequireAlive() const
             { if (!_device) throw std::logic_error("The OpenGL command list's session has ended."); }
             void RequireRecording() const
@@ -1767,7 +1817,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 sampler->Name = 0; sampler->Device = nullptr;
             }
             _retired.CollectAll(DestroyNative);
-            _live.clear(); _byHandle.clear(); _lists.clear(); _shaders.clear();
+            _live.clear(); _byHandle.clear(); _lists.clear(); _shaders.clear(); _nativeOwner = nullptr;
             _buffers.clear(); _resourceBuffers.clear(); _samplers.clear(); _samplerCache.clear();
             _retained.clear(); _lifetime.reset();
             _reservedStorage = 0;

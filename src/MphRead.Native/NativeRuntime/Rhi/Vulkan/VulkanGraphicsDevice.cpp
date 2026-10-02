@@ -9,6 +9,7 @@
 #include <cstring>
 #include <cstdlib>
 #include <limits>
+#include <map>
 #include <iostream>
 #include <mutex>
 #include <stdexcept>
@@ -408,6 +409,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             [[nodiscard]] VkBuffer Native() const noexcept { return _buffer; }
             [[nodiscard]] VmaAllocation Allocation() const noexcept { return _allocation; }
             [[nodiscard]] std::byte* Mapped() const noexcept { return _mapped; }
+            [[nodiscard]] std::weak_ptr<void> Lifetime() const noexcept { return _lifetime; }
             [[nodiscard]] ResourceState State() const noexcept { return _state; }
             void State(ResourceState value) noexcept { _state = value; }
             [[nodiscard]] const std::shared_ptr<VulkanDeviceState>& DeviceState() const noexcept
@@ -423,6 +425,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             VmaAllocation _allocation = VK_NULL_HANDLE;
             std::byte* _mapped = nullptr;
             ResourceState _state = ResourceState::Undefined;
+            std::shared_ptr<void> _lifetime = std::make_shared<int>(0);
         };
 
         class VulkanTexture;
@@ -436,6 +439,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             void CloseNative() noexcept override;
             [[nodiscard]] const SamplerDesc& Desc() const noexcept override { return _desc; }
             [[nodiscard]] VkSampler Native() const noexcept { return _sampler; }
+            [[nodiscard]] std::weak_ptr<void> Lifetime() const noexcept { return _lifetime; }
             [[nodiscard]] const std::shared_ptr<VulkanDeviceState>& DeviceState() const noexcept { return _device; }
 
         private:
@@ -443,6 +447,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             VulkanNativeRegistration _registration;
             SamplerDesc _desc{};
             VkSampler _sampler = VK_NULL_HANDLE;
+            std::shared_ptr<void> _lifetime = std::make_shared<int>(0);
         };
 
         class VulkanTexture final : public Texture, public VulkanNativeOwner
@@ -493,6 +498,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             [[nodiscard]] const Texture& TextureResource() const noexcept override { return _texture; }
             [[nodiscard]] VkImageView Native() const noexcept { return _view; }
             [[nodiscard]] bool TextureAlive() const noexcept { return !_textureLifetime.expired(); }
+            [[nodiscard]] std::weak_ptr<void> Lifetime() const noexcept { return _lifetime; }
             const std::shared_ptr<VulkanDeviceState>& DeviceState() const noexcept { return _device; }
             void CreateNative();
             void DestroyNative() noexcept;
@@ -502,6 +508,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             VulkanTexture& _texture;
             std::shared_ptr<VulkanDeviceState> _device;
             std::weak_ptr<void> _textureLifetime;
+            std::shared_ptr<void> _lifetime = std::make_shared<int>(0);
             TextureViewDesc _desc{};
             VkImageView _view = VK_NULL_HANDLE;
         };
@@ -1035,16 +1042,30 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         class VulkanBindingSet final : public BindingSet
         {
         public:
-            VulkanBindingSet(std::shared_ptr<VulkanDeviceState> state, const BindingSetDesc& desc)
-                : _device(std::move(state)), _desc(desc)
+            VulkanBindingSet(std::shared_ptr<VulkanDeviceState> state, const BindingSetDesc& desc,
+                std::shared_ptr<VulkanBindingLayout> ownedLayout = {})
+                : _device(std::move(state)), _desc(desc), _ownedLayout(std::move(ownedLayout))
             {
-                _layout = dynamic_cast<const VulkanBindingLayout*>(desc.layout);
+                if (_ownedLayout) _desc.layout = _ownedLayout.get();
+                _layout = dynamic_cast<const VulkanBindingLayout*>(_desc.layout);
                 if (!_layout || _layout->DeviceState() != _device)
                     throw std::invalid_argument("Vulkan RHI: binding layout belongs to another device.");
+                if (!_ownedLayout) _ownedLayout = std::make_shared<VulkanBindingLayout>(_device, _layout->Desc());
+                _layout = _ownedLayout.get(); _desc.layout = _layout;
                 auto& vk = *_device->ContextPointer->_impl;
                 vk.vkGetPhysicalDeviceProperties(vk.physical, &_properties);
                 Validate();
+                for (const auto& entry : _desc.entries)
+                    _resourceLifetimes.push_back(std::visit([](const auto& resource) -> std::weak_ptr<void> {
+                        using T = std::decay_t<decltype(resource)>;
+                        if constexpr (std::is_same_v<T, BufferBinding>)
+                            return static_cast<const VulkanBuffer*>(resource.buffer)->Lifetime();
+                        else if constexpr (std::is_same_v<T, TextureBinding>)
+                            return static_cast<const VulkanTextureView*>(resource.view)->Lifetime();
+                        else return static_cast<const VulkanSampler*>(resource.sampler)->Lifetime();
+                    }, entry.resource));
             }
+            void ValidateResources() const { Validate(); }
             [[nodiscard]] const BindingSetDesc& Desc() const noexcept override { return _desc; }
             [[nodiscard]] VkDeviceSize UniformOffsetAlignment() const noexcept
             {
@@ -1106,14 +1127,15 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
 
             [[nodiscard]] const std::shared_ptr<VulkanDeviceState>& DeviceState() const noexcept { return _device; }
-            [[nodiscard]] VkDescriptorSet Native() const
+            [[nodiscard]] VkDescriptorSet Native(VulkanDescriptorAllocator* allocator = nullptr) const
             {
-                if (!_device->FrameActive)
+                if (!allocator && !_device->FrameActive)
                     throw std::logic_error("Vulkan RHI: descriptor allocation requires an active frame.");
                 Validate();
                 auto& vk = *_device->ContextPointer->_impl;
                 const VkDescriptorSetLayout layout = _layout->Native();
-                const VkDescriptorSet set = _device->AllocateDescriptors(layout, _layout->Desc());
+                const VkDescriptorSet set = allocator ? allocator->Allocate(layout, _layout->Desc())
+                    : _device->AllocateDescriptors(layout, _layout->Desc());
                 // Allocate a fresh set for every materialization: no update can
                 // overwrite a descriptor previously recorded for GPU use.
                 std::vector<VkDescriptorBufferInfo> buffers(_desc.entries.size());
@@ -1166,6 +1188,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
             void Validate() const
             {
+                _device->RequireAlive();
+                for (const auto& lifetime : _resourceLifetimes)
+                    if (lifetime.expired()) throw std::invalid_argument("Vulkan RHI: binding resource has expired.");
                 std::uint64_t required = 0;
                 for (const auto& declaration : _layout->Desc().entries) required += declaration.count;
                 if (required != _desc.entries.size())
@@ -1220,6 +1245,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
             std::shared_ptr<VulkanDeviceState> _device;
             BindingSetDesc _desc;
+            std::shared_ptr<VulkanBindingLayout> _ownedLayout;
+            std::vector<std::weak_ptr<void>> _resourceLifetimes;
             const VulkanBindingLayout* _layout = nullptr;
             VkPhysicalDeviceProperties _properties{};
         };
@@ -1616,14 +1643,19 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 RequireRecording();
                 const auto* native = dynamic_cast<const VulkanBindingSet*>(&set);
-                if (!_pipeline || _pipeline->IsDeferred() || index >= _pipeline->Desc().pipelineLayout.groups.size() || !native
-                    || native->DeviceState() != _device
+                if (!native || native->DeviceState() != _device)
+                    throw std::invalid_argument("Vulkan RHI: binding set belongs to another device.");
+                native->ValidateResources();
+                if (!_pipeline || _pipeline->IsDeferred() || index >= _pipeline->Desc().pipelineLayout.groups.size()
                     || set.Desc().layout->Desc() != _pipeline->Desc().pipelineLayout.groups[index])
                     throw std::invalid_argument("Vulkan RHI: binding set incompatible with pipeline.");
-                const auto descriptor = native->Native();
+                auto snapshot = std::make_unique<VulkanBindingSet>(_device, native->Desc(),
+                    _pipeline->BindingLayoutOwner(index));
+                const auto descriptor = snapshot->Native(_descriptors.get());
                 auto& vk = *_device->ContextPointer->_impl;
                 vk.vkCmdBindDescriptorSets(_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
                     _pipeline->Layout(), index, 1, &descriptor, 0, nullptr);
+                _genericSets[index] = {std::move(snapshot), descriptor, _bindingGeneration};
             }
             void SetStencilReference(std::uint32_t reference) override
             {
@@ -1736,6 +1768,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             void PrepareTransfer();
             void Barrier(VulkanTexture& texture, ResourceState after);
             void ApplyDynamicState();
+            void RestoreGenericBindings();
             [[nodiscard]] VulkanGraphicsPipeline& VariantFor(const VulkanSceneProgram& program, bool lines);
             [[nodiscard]] VkDescriptorSet AllocateSet(const VulkanBindingLayout& layout);
             void EnsureWindowTargets(std::uint32_t width, std::uint32_t height);
@@ -1781,6 +1814,24 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::uint32_t _stencilReference = 0;
             bool _dynamicDirty = true;
             VkPipeline _boundNative = VK_NULL_HANDLE;
+            struct VertexBinding final
+            {
+                const VulkanBuffer* Buffer = nullptr;
+                std::weak_ptr<void> Lifetime;
+                VkDeviceSize Offset = 0;
+            };
+            struct SavedSet final
+            {
+                std::unique_ptr<VulkanBindingSet> Snapshot;
+                VkDescriptorSet Native = VK_NULL_HANDLE;
+                std::uint64_t Generation = 0;
+            };
+            std::map<std::uint32_t, VertexBinding> _vertexBindings;
+            VertexBinding _indexBinding{};
+            IndexType _indexType = IndexType::UInt32;
+            std::map<std::uint32_t, SavedSet> _genericSets;
+            std::uint64_t _bindingGeneration = 0;
+            bool _genericDirty = true;
 
             std::array<std::pair<VulkanTexture*, const VulkanSampler*>, 4> _units{};
             std::unordered_map<VariantKey, Variant, VariantHash> _variants{};
@@ -1857,6 +1908,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 _spare.Uploads = makeUploads();
                 _device->SceneForgetters[this] = [this](const void* object) { Forget(object); };
                 _device->SceneViewReplacers[this] = [this](VkImageView before, VkImageView after) {
+                    for (auto& [slot, set] : _genericSets) set.Generation = 0;
+                    _genericDirty = true;
                     const bool matches = _target.ColorView == before || _target.DepthView == before;
                     if (!matches) return;
                     if (!after)
@@ -1905,6 +1958,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
             if (!_device->Closing) { try { WaitAll(); } catch (...) {} }
             _variants.clear();
+            _genericSets.clear(); _vertexBindings.clear(); _indexBinding = {};
             _dummy.reset();
             if (_transferOnly) --_device->UploadCommandLists;
             else if (--_device->CommandLists == 0) _device->ReleaseWindowTarget();
@@ -1975,6 +2029,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
             Check(vk.vkBeginCommandBuffer(_commandBuffer, &begin), "vkBeginCommandBuffer");
             _recording = true;
+            ++_bindingGeneration;
+            _genericDirty = true;
             _dynamicDirty = true;
             _boundNative = VK_NULL_HANDLE;
             _sets.fill(VK_NULL_HANDLE);
@@ -1993,6 +2049,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             BeginBuffer();
             _autoRestart = true;
             _pipeline = nullptr;
+            _genericSets.clear(); _vertexBindings.clear(); _indexBinding = {};
         }
 
         void VulkanCommandList::End()
@@ -2118,7 +2175,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             for (auto it = _variants.begin(); it != _variants.end();)
                 it = it->first.Program == object || it->first.Base == object ? _variants.erase(it) : std::next(it);
             if (_setProgram == object) _setProgram = nullptr;
-            if (_pipeline == object) _pipeline = nullptr;
+            if (_pipeline == object) { _pipeline = nullptr; _genericSets.clear(); }
         }
 
         void VulkanCommandList::Barrier(VulkanTexture& texture, ResourceState after)
@@ -2301,6 +2358,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (!native || native->DeviceState() != _device)
                 throw std::invalid_argument("Vulkan RHI: pipeline belongs to another device.");
             RequireRecording();
+            if (_boundNative != native->Native()) _genericDirty = true;
+            for (auto it = _genericSets.begin(); it != _genericSets.end();)
+                if (it->first >= native->Desc().pipelineLayout.groups.size()
+                    || it->second.Snapshot->Desc().layout->Desc() != native->Desc().pipelineLayout.groups[it->first])
+                    it = _genericSets.erase(it);
+                else ++it;
             _pipeline = native;
             if (native->IsDeferred())
             {
@@ -2312,6 +2375,52 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             auto& vk = *_device->ContextPointer->_impl;
             vk.vkCmdBindPipeline(_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, native->Native());
             _boundNative = native->Native();
+        }
+
+        void VulkanCommandList::RestoreGenericBindings()
+        {
+            // Validate borrowed identities before any native use. Retaining a
+            // descriptor snapshot does not retain the underlying pixel/buffer
+            // data or make a freed wrapper usable.
+            for (const auto& input : _pipeline->Desc().vertexBuffers)
+            {
+                const auto found = _vertexBindings.find(input.slot);
+                if (found == _vertexBindings.end() || found->second.Lifetime.expired())
+                    throw std::logic_error("Vulkan RHI: draw needs a live vertex buffer.");
+            }
+            for (const auto& [slot, set] : _genericSets) set.Snapshot->ValidateResources();
+            auto& vk = *_device->ContextPointer->_impl;
+            const bool restore = _genericDirty || _boundNative != _pipeline->Native();
+            if (restore)
+            {
+                vk.vkCmdBindPipeline(_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, _pipeline->Native());
+                _boundNative = _pipeline->Native();
+                for (const auto& [slot, binding] : _vertexBindings)
+                {
+                    if (binding.Lifetime.expired()) continue;
+                    const auto buffer = binding.Buffer->Native();
+                    vk.vkCmdBindVertexBuffers2(_commandBuffer, slot, 1, &buffer, &binding.Offset, nullptr, nullptr);
+                }
+                if (_indexBinding.Buffer && !_indexBinding.Lifetime.expired())
+                    vk.vkCmdBindIndexBuffer(_commandBuffer, _indexBinding.Buffer->Native(), _indexBinding.Offset,
+                        _indexType == IndexType::UInt16 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32);
+            }
+            for (auto& [slot, set] : _genericSets)
+            {
+                const bool fresh = set.Generation != _bindingGeneration;
+                if (fresh)
+                {
+                    // This command slot owns the descriptor pool and resets it
+                    // only after submission completion. Never reuse a set from
+                    // a previous native buffer/pool generation.
+                    set.Native = set.Snapshot->Native(_descriptors.get());
+                    set.Generation = _bindingGeneration;
+                }
+                if (restore || fresh)
+                    vk.vkCmdBindDescriptorSets(_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        _pipeline->Layout(), slot, 1, &set.Native, 0, nullptr);
+            }
+            _genericDirty = false;
         }
 
         void VulkanCommandList::ApplyDynamicState()
@@ -2632,17 +2741,25 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         {
             RequireRecording();
             const auto& native = CheckedResource<VulkanBuffer>(buffer, _device);
+            if (slot >= _device->ContextPointer->Caps().maxVertexBuffers
+                || !Has(native.Desc().usage, BufferUsage::Vertex) || offset >= native.Desc().size)
+                throw std::invalid_argument("Vulkan RHI: invalid vertex buffer binding.");
             const VkBuffer handle = native.Native();
             const VkDeviceSize at = offset;
             _device->ContextPointer->_impl->vkCmdBindVertexBuffers2(_commandBuffer, slot, 1, &handle, &at, nullptr, nullptr);
+            _vertexBindings[slot] = {&native, native.Lifetime(), offset};
         }
 
         void VulkanCommandList::SetIndexBuffer(const Buffer& buffer, IndexType type, std::uint64_t offset)
         {
             RequireRecording();
             const auto& native = CheckedResource<VulkanBuffer>(buffer, _device);
+            const auto width = type == IndexType::UInt16 ? 2U : 4U;
+            if (!Has(native.Desc().usage, BufferUsage::Index) || offset >= native.Desc().size || offset % width)
+                throw std::invalid_argument("Vulkan RHI: invalid index buffer binding.");
             _device->ContextPointer->_impl->vkCmdBindIndexBuffer(_commandBuffer, native.Native(), offset,
                 type == IndexType::UInt16 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32);
+            _indexBinding = {&native, native.Lifetime(), offset}; _indexType = type;
         }
 
         void VulkanCommandList::Draw(std::uint32_t vertexCount, std::uint32_t instanceCount,
@@ -2651,6 +2768,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             RequireRecording();
             if (!_renderingOpen) throw std::logic_error("Vulkan RHI: draw needs a rendering interval.");
             if (!_pipeline || _pipeline->IsDeferred()) throw std::logic_error("Vulkan RHI: draw needs a native pipeline.");
+            RestoreGenericBindings();
             if (!_renderingActive) Materialize();
             ApplyDynamicState();
             _device->ContextPointer->_impl->vkCmdDraw(_commandBuffer, vertexCount, instanceCount, firstVertex, firstInstance);
@@ -2662,6 +2780,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             RequireRecording();
             if (!_renderingOpen) throw std::logic_error("Vulkan RHI: draw needs a rendering interval.");
             if (!_pipeline || _pipeline->IsDeferred()) throw std::logic_error("Vulkan RHI: draw needs a native pipeline.");
+            if (!_indexBinding.Buffer || _indexBinding.Lifetime.expired())
+                throw std::logic_error("Vulkan RHI: indexed draw needs a live index buffer.");
+            const auto width = _indexType == IndexType::UInt16 ? 2U : 4U;
+            const auto offset = _indexBinding.Offset + static_cast<std::uint64_t>(firstIndex) * width;
+            const auto size = _indexBinding.Buffer->Desc().size;
+            if (offset > size || static_cast<std::uint64_t>(indexCount) * width > size - offset)
+                throw std::out_of_range("Vulkan RHI: index draw range exceeds the buffer.");
+            RestoreGenericBindings();
             if (!_renderingActive) Materialize();
             ApplyDynamicState();
             _device->ContextPointer->_impl->vkCmdDrawIndexed(_commandBuffer, indexCount, instanceCount,

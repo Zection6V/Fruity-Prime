@@ -283,6 +283,9 @@ namespace MphRead::Mods::Diagnostics
             pipelineDesc.colorFormats = {Rhi::TextureFormat::RGBA8Unorm}; pipelineDesc.blendAttachments = {{}};
             pipelineDesc.rasterizer.cullMode = CullMode::None;
             auto pipeline = device.CreateGraphicsPipeline(pipelineDesc);
+            auto otherPipelineDesc = pipelineDesc;
+            otherPipelineDesc.blendAttachments[0].writeMask = ColorWriteMask::None;
+            auto otherPipeline = device.CreateGraphicsPipeline(otherPipelineDesc);
             // Pipeline creation borrows shader inputs. A completed executable
             // must survive the public shader wrappers on either backend.
             vertex.reset(); fragment.reset();
@@ -291,6 +294,15 @@ namespace MphRead::Mods::Diagnostics
             auto target = device.CreateTexture(targetDesc); auto targetView = device.CreateTextureView(*target, {});
             RenderingColorAttachment color{targetView.get(), LoadOp::Clear, StoreOp::Store, {0, 0, 0, 1}};
             RenderingInfo info{}; info.width = 16; info.height = 16; info.colorAttachments = std::span(&color, 1);
+            auto otherTarget = device.CreateTexture(targetDesc); auto otherView = device.CreateTextureView(*otherTarget, {});
+            RenderingColorAttachment otherColor{otherView.get(), LoadOp::Clear, StoreOp::Store, {0, 1, 0, 1}};
+            RenderingInfo otherInfo = info; otherInfo.colorAttachments = std::span(&otherColor, 1);
+            const std::array<unsigned char, 8> green{0, 255, 0, 255, 0, 255, 0, 255};
+            auto otherSample = device.CreateTexture(sampleDesc);
+            device.WriteTexture(*otherSample, {2, 1, Rhi::TextureFormat::RGBA8Unorm, green.data()});
+            auto otherSampleView = device.CreateTextureView(*otherSample, {});
+            auto otherMaterial = device.CreateBindingSet({materialGroup.get(), {{3, TextureBinding{otherSampleView.get()}},
+                {4, TextureBinding{otherSampleView.get()}}, {9, SamplerBinding{nearest.get()}}, {10, SamplerBinding{linear.get()}}}});
             auto idleQuery = device.GetCapabilities().supportsTimestampQueries
                 ? device.CreateTimestampQuerySet(2, "Idle recording rejection") : nullptr;
             commands = device.CreateCommandList();
@@ -347,7 +359,15 @@ namespace MphRead::Mods::Diagnostics
                 if (idleQuery)
                     rejectRecording("InitializeTimestamps inside rendering", [&] { commands->InitializeTimestamps(*idleQuery); });
                 commands->SetViewport({0, 0, 16, 16}); commands->SetVertexBuffer(0, *vertices);
-                commands->SetBindingSet(0, *frameSet); commands->SetBindingSet(1, material); commands->SetBindingSet(2, *drawSet);
+                commands->SetBindingSet(0, *frameSet); commands->SetBindingSet(2, *drawSet);
+                auto temporaryLayout = device.CreateBindingLayout(materialLayout);
+                auto materialDesc = material.Desc(); materialDesc.layout = temporaryLayout.get();
+                auto temporarySet = device.CreateBindingSet(materialDesc);
+                temporaryLayout.reset();
+                commands->SetBindingSet(1, *temporarySet);
+                // Applied bindings are snapshots. Source set/layout wrappers
+                // can go away while their actual resources stay alive.
+                temporarySet.reset();
                 // A pending clear must precede transfer, and the first half of
                 // the picture must survive transfers and barriers before the
                 // second half is drawn. Resume must LOAD rather than CLEAR.
@@ -359,6 +379,18 @@ namespace MphRead::Mods::Diagnostics
                 commands->SetScissor({0, 0, 8, 16});
                 if (indexed) { commands->SetIndexBuffer(*index, IndexType::UInt32); commands->DrawIndexed(3, 1, 1); }
                 else commands->Draw(3);
+                std::array<unsigned char, 4> midway{};
+                commands->ReadColor(info, 4, 8, 1, 1, Rhi::TextureFormat::RGBA8Unorm, midway.data());
+                auto interleaved = device.CreateCommandList(); interleaved->Begin();
+                interleaved->CopyBuffer(*upload, 0, *readback, 0, 16);
+                interleaved->BeginRendering(otherInfo); interleaved->SetPipeline(*otherPipeline);
+                interleaved->SetViewport({0, 0, 4, 4}); interleaved->SetScissor({0, 0, 1, 1});
+                interleaved->SetVertexBuffer(0, *vertices); interleaved->SetBindingSet(0, *frameSet);
+                interleaved->SetBindingSet(1, *otherMaterial); interleaved->SetBindingSet(2, *drawSet);
+                interleaved->Draw(3); interleaved->EndRendering(); interleaved->End();
+                device.EndFrame(); (void)device.BeginFrame();
+                // The caller does not rebind pipeline, vertices, index or sets
+                // after diagnostic/frame/other-list submissions.
                 commands->Transition(*upload, ResourceState::CopySrc, ResourceState::Common);
                 commands->Transition(*upload, ResourceState::Common, ResourceState::CopySrc);
                 commands->CopyBuffer(*upload, 0, *readback, 0, 16);
@@ -378,6 +410,8 @@ namespace MphRead::Mods::Diagnostics
                 std::array<unsigned char, 8> pixel{};
                 commands->ReadColor(info, 4, 8, 1, 1, Rhi::TextureFormat::RGBA8Unorm, pixel.data());
                 commands->ReadColor(info, 12, 8, 1, 1, Rhi::TextureFormat::RGBA8Unorm, pixel.data() + 4);
+                Expect(std::equal(midway.begin(), midway.end(), pixel.begin()),
+                    "Native buffer restart changed the first half of the draw.");
                 return pixel;
             };
             const auto nearestPixel = render(*nearestSet, false), linearPixel = render(*linearSet, true);
@@ -389,7 +423,39 @@ namespace MphRead::Mods::Diagnostics
                 && linearPixel[4] < 3 && linearPixel[6] > 252 && linearPixel[7] == 255,
                 "The same image did not support two simultaneous sampler states.");
             std::cout << "[recording mutation] PASS; rejected=" << idleRejections
-                << "; pending-clear/transfer; scissor draw/transfer/resumed draw; diagnostic read outside interval\n";
+                << "; pending-clear/transfer; source set/layout release; readback/frame/other-list draw restart without rebind; sampler pixels\n";
+            unsigned expiredBindingRejections = 0;
+            for (unsigned kind = 0; kind < 3; ++kind)
+            {
+                auto temporaryBuffer = kind == 0 ? device.CreateBuffer(uniformDesc) : nullptr;
+                auto temporaryView = kind == 1 ? device.CreateTextureView(*sampled, {}) : nullptr;
+                auto temporarySampler = kind == 2 ? device.CreateSampler(nearestDesc) : nullptr;
+                if (temporaryBuffer) device.WriteBuffer(*temporaryBuffer, 0, Bytes(tint));
+                auto desc = kind == 0 ? frameSet->Desc() : nearestSet->Desc();
+                if (kind == 0) desc.entries[0].resource = BufferBinding{temporaryBuffer.get(), 0, 16};
+                if (kind == 1) desc.entries[0].resource = TextureBinding{temporaryView.get()};
+                if (kind == 2) desc.entries[2].resource = SamplerBinding{temporarySampler.get()};
+                auto temporarySet = device.CreateBindingSet(desc);
+                commands->Begin(); commands->BeginRendering(info); commands->SetPipeline(*pipeline);
+                commands->SetViewport({0, 0, 16, 16}); commands->SetVertexBuffer(0, *vertices);
+                commands->SetBindingSet(0, *frameSet); commands->SetBindingSet(1, *nearestSet); commands->SetBindingSet(2, *drawSet);
+                const unsigned group = kind == 0 ? 0 : 1;
+                commands->SetBindingSet(group, *temporarySet);
+                temporaryBuffer.reset(); temporaryView.reset(); temporarySampler.reset();
+                const auto submitted = device.Statistics().Submitted;
+                const auto rejectExpired = [&](auto action) {
+                    bool rejected = false;
+                    try { action(); } catch (const std::invalid_argument&) { rejected = true; }
+                    Expect(rejected && device.Statistics().Submitted == submitted,
+                        "Expired binding resource was used or rejecting it submitted GPU work.");
+                    ++expiredBindingRejections;
+                };
+                rejectExpired([&] { commands->SetBindingSet(group, *temporarySet); });
+                rejectExpired([&] { commands->Draw(3); });
+                commands->EndRendering(); commands->End();
+            }
+            std::cout << "[binding lifetime] PASS; rejected=" << expiredBindingRejections
+                << "; buffer/view/sampler wrapper expiry before set or resumed draw\n";
             {
                 auto discardedImage = device.CreateTexture(sampleDesc);
                 auto survivingView = device.CreateTextureView(*discardedImage, {});

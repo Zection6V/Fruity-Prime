@@ -215,12 +215,11 @@ public:
         dynamic.dynamicStateCount = static_cast<std::uint32_t>(dynamicStates.size()); dynamic.pDynamicStates = dynamicStates.data();
         if (desc.pipelineLayout.groups.empty() || desc.pipelineLayout.groups.size() > vk.caps.maxBindingGroups)
             throw std::invalid_argument("Vulkan RHI: pipeline binding group count exceeds device limits.");
-        std::vector<std::unique_ptr<VulkanBindingLayout>> bindingOwners;
         std::vector<VkDescriptorSetLayout> layouts;
         for (const auto& group : desc.pipelineLayout.groups)
         {
-            bindingOwners.push_back(std::make_unique<VulkanBindingLayout>(_device, group));
-            layouts.push_back(bindingOwners.back()->Native());
+            _bindingOwners.push_back(std::make_shared<VulkanBindingLayout>(_device, group));
+            layouts.push_back(_bindingOwners.back()->Native());
         }
         VkPipelineLayoutCreateInfo layoutCreate{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         layoutCreate.setLayoutCount = static_cast<std::uint32_t>(layouts.size()); layoutCreate.pSetLayouts = layouts.data();
@@ -275,9 +274,12 @@ public:
     [[nodiscard]] const GraphicsPipelineDesc& Desc() const noexcept override { return _desc; }
     [[nodiscard]] VkPipeline Native() const noexcept { return _owner ? _owner->Native() : _pipeline; }
     [[nodiscard]] VkPipelineLayout Layout() const noexcept { return _owner ? _owner->Layout() : _layout; }
+    [[nodiscard]] std::shared_ptr<VulkanBindingLayout> BindingLayoutOwner(std::uint32_t slot) const
+    { return _owner ? _owner->BindingLayoutOwner(slot) : _bindingOwners.at(slot); }
     [[nodiscard]] const std::shared_ptr<VulkanDeviceState>& DeviceState() const noexcept { return _device; }
     [[nodiscard]] bool IsDeferred() const noexcept { return _deferred; }
 private:
+    std::vector<std::shared_ptr<VulkanBindingLayout>> _bindingOwners;
     bool _deferred = false;
     std::shared_ptr<VulkanDeviceState> _device;
     VulkanNativeRegistration _registration;

@@ -19,6 +19,7 @@
 #include "VulkanContextInternal.hpp"
 #include "VulkanFrameScheduler.hpp"
 #include "VulkanPipelineCache.hpp"
+#include "VulkanDescriptorAllocator.hpp"
 #include "../../../Mods/Platform/AppPaths.hpp"
 #include "FruityVulkanSceneShaders.hpp"
 #include <vk_mem_alloc.h>
@@ -572,9 +573,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                             vk.vkDestroyCommandPool(vk.device, pool, nullptr);
                         for (const auto layout : slot.diagnosticLayouts)
                             vk.vkDestroyPipelineLayout(vk.device, layout, nullptr);
-                        if (slot.pool) vk.vkDestroyDescriptorPool(vk.device, slot.pool, nullptr);
-                        for (const auto pool : slot.overflowPools)
-                            vk.vkDestroyDescriptorPool(vk.device, pool, nullptr);
+                        if (slot.descriptors) slot.descriptors->Close();
                         if (slot.fence) vk.vkDestroyFence(vk.device, slot.fence, nullptr);
                     }
                     VmaTotalStatistics statistics{};
@@ -600,20 +599,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
             struct DescriptorFrame final
             {
-                struct PoolUsage final
-                {
-                    std::uint32_t sets = 0;
-                    std::array<std::uint64_t, 5> counts{};
-                    std::array<std::uint64_t, 5> capacity{4096, 4096, 4096, 4096, 4096};
-                };
-                VkDescriptorPool pool = VK_NULL_HANDLE;
-                std::vector<VkDescriptorPool> overflowPools;
-                std::vector<PoolUsage> usage;
-                std::size_t activePool = 0;
+                std::unique_ptr<VulkanDescriptorAllocator> descriptors;
                 std::vector<VkCommandPool> diagnosticCommandPools;
                 std::vector<VkPipelineLayout> diagnosticLayouts;
                 VkFence fence = VK_NULL_HANDLE;
-                std::uint64_t generation = 0;
                 std::uint64_t submittedFrame = 0;
             };
 
@@ -636,39 +625,15 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     Check(vk.vkResetFences(vk.device, 1, &slot.fence), "vkResetFences(descriptor frame)");
                     slot.submittedFrame = 0;
                 }
-                if (!slot.pool)
-                {
-                    const std::array<VkDescriptorPoolSize, 5> sizes{{
-                        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 4096},
-                        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4096},
-                        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 4096},
-                        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 4096},
-                        {VK_DESCRIPTOR_TYPE_SAMPLER, 4096}}};
-                    VkDescriptorPoolCreateInfo create{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-                    create.maxSets = 1024;
-                    create.poolSizeCount = static_cast<std::uint32_t>(sizes.size());
-                    create.pPoolSizes = sizes.data();
-                    Check(vk.vkCreateDescriptorPool(vk.device, &create, nullptr, &slot.pool),
-                        "vkCreateDescriptorPool(frame)");
-                }
-                else
-                    Check(vk.vkResetDescriptorPool(vk.device, slot.pool, 0), "vkResetDescriptorPool(frame)");
+                if (!slot.descriptors)
+                    slot.descriptors = MakeDescriptors({});
+                slot.descriptors->ResetAfterCompletion(Scheduler->Poll());
                 for (const auto pool : slot.diagnosticCommandPools)
                     vk.vkDestroyCommandPool(vk.device, pool, nullptr);
                 for (const auto layout : slot.diagnosticLayouts)
                     vk.vkDestroyPipelineLayout(vk.device, layout, nullptr);
                 slot.diagnosticCommandPools.clear();
                 slot.diagnosticLayouts.clear();
-                for (const auto pool : slot.overflowPools)
-                    Check(vk.vkResetDescriptorPool(vk.device, pool, 0), "vkResetDescriptorPool(overflow)");
-                slot.activePool = 0;
-                if (slot.usage.empty()) slot.usage.emplace_back();
-                for (auto& usage : slot.usage)
-                {
-                    usage.sets = 0;
-                    usage.counts.fill(0);
-                }
-                ++slot.generation;
                 CurrentFrame.store(frame);
                 FrameActive = true;
                 CollectRetired();
@@ -684,9 +649,19 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 // This fence follows all prior work on the graphics queue,
                 // including the current synchronous transfer command lists.
                 VkSubmitInfo2 submit{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
-                Scheduler->Submit(submit, slot.fence);
+                const auto serial = Scheduler->Submit(submit, slot.fence);
+                slot.descriptors->Submitted(serial);
                 slot.submittedFrame = frame;
                 FrameActive = false;
+            }
+
+            [[nodiscard]] std::unique_ptr<VulkanDescriptorAllocator> MakeDescriptors(
+                VulkanDescriptorAllocator::Capacity capacity)
+            {
+                auto& vk = *ContextPointer->_impl;
+                return std::make_unique<VulkanDescriptorAllocator>(VulkanDescriptorAllocator::Dispatch{
+                    vk.device, vk.vkCreateDescriptorPool, vk.vkDestroyDescriptorPool,
+                    vk.vkResetDescriptorPool, vk.vkAllocateDescriptorSets, Check}, capacity);
             }
 
             [[nodiscard]] VkDescriptorSet AllocateDescriptors(VkDescriptorSetLayout layout,
@@ -694,62 +669,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 if (!FrameActive) throw std::logic_error("Vulkan RHI: descriptor allocation outside frame.");
                 auto& slot = DescriptorFrames[(CurrentFrame.load() - 1) % FramesInFlight];
-                auto& vk = *ContextPointer->_impl;
-                std::array<std::uint64_t, 5> needed{};
-                for (const auto& entry : desc.entries)
-                    needed[static_cast<std::size_t>(entry.type)] += entry.count;
-                for (;;)
-                {
-                    auto& usage = slot.usage[slot.activePool];
-                    bool available = usage.sets < 1024;
-                    for (std::size_t i = 0; i < needed.size(); ++i)
-                        available = available && needed[i] <= usage.capacity[i] - usage.counts[i];
-                    VkDescriptorSetAllocateInfo allocate{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-                    allocate.descriptorPool = slot.activePool == 0 ? slot.pool : slot.overflowPools[slot.activePool - 1];
-                    allocate.descriptorSetCount = 1;
-                    allocate.pSetLayouts = &layout;
-                    VkDescriptorSet set = VK_NULL_HANDLE;
-                    const auto result = available ? vk.vkAllocateDescriptorSets(vk.device, &allocate, &set)
-                        : VK_ERROR_OUT_OF_POOL_MEMORY;
-                    if (result == VK_SUCCESS)
-                    {
-                        ++usage.sets;
-                        for (std::size_t i = 0; i < needed.size(); ++i) usage.counts[i] += needed[i];
-                        return set;
-                    }
-                    if (result != VK_ERROR_OUT_OF_POOL_MEMORY && result != VK_ERROR_FRAGMENTED_POOL)
-                        Check(result, "vkAllocateDescriptorSets");
-                    if (slot.activePool < slot.overflowPools.size())
-                    {
-                        ++slot.activePool;
-                        continue;
-                    }
-                    std::array<VkDescriptorPoolSize, 5> sizes{{
-                        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 4096},
-                        {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 4096},
-                        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 4096},
-                        {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 4096},
-                        {VK_DESCRIPTOR_TYPE_SAMPLER, 4096}}};
-                    for (std::size_t i = 0; i < sizes.size(); ++i)
-                    {
-                        if (needed[i] > UINT32_MAX) throw std::invalid_argument("Vulkan descriptor count overflow.");
-                        sizes[i].descriptorCount = std::max(sizes[i].descriptorCount,
-                            static_cast<std::uint32_t>(needed[i]));
-                    }
-                    VkDescriptorPoolCreateInfo create{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-                    create.maxSets = 1024;
-                    create.poolSizeCount = static_cast<std::uint32_t>(sizes.size());
-                    create.pPoolSizes = sizes.data();
-                    VkDescriptorPool pool = VK_NULL_HANDLE;
-                    slot.overflowPools.reserve(slot.overflowPools.size() + 1);
-                    slot.usage.reserve(slot.usage.size() + 1);
-                    Check(vk.vkCreateDescriptorPool(vk.device, &create, nullptr, &pool), "vkCreateDescriptorPool(overflow)");
-                    slot.overflowPools.push_back(pool);
-                    DescriptorFrame::PoolUsage newUsage{};
-                    for (std::size_t i = 0; i < sizes.size(); ++i) newUsage.capacity[i] = sizes[i].descriptorCount;
-                    slot.usage.push_back(newUsage);
-                    ++slot.activePool;
-                }
+                return slot.descriptors->Allocate(layout, desc);
             }
 
             Context* ContextPointer = nullptr;
@@ -1083,7 +1003,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             [[nodiscard]] bool FrameHasOverflowPools() const noexcept
             {
                 const auto& slot = _device->DescriptorFrames[(_device->CurrentFrame.load() - 1) % FramesInFlight];
-                return !slot.overflowPools.empty();
+                return slot.descriptors && slot.descriptors->PageCount() > 1;
             }
 
             void RecordDiagnosticUse() const
@@ -1792,7 +1712,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             void Barrier(VulkanTexture& texture, ResourceState after);
             void ApplyDynamicState();
             [[nodiscard]] VulkanGraphicsPipeline& VariantFor(const VulkanSceneProgram& program, bool lines);
-            [[nodiscard]] VkDescriptorSet AllocateSet(VkDescriptorSetLayout layout);
+            [[nodiscard]] VkDescriptorSet AllocateSet(const VulkanBindingLayout& layout);
             void EnsureWindowTargets(std::uint32_t width, std::uint32_t height);
             [[nodiscard]] VulkanTexture& Dummy();
 
@@ -1810,8 +1730,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 bool Submitted = false;
                 std::vector<RingChunk> Ring{};
                 std::size_t RingIndex = 0;
-                std::vector<VkDescriptorPool> Pools{};
-                std::size_t PoolIndex = 0;
+                std::unique_ptr<VulkanDescriptorAllocator> Descriptors;
             };
             Slot _spare{};
             bool _submitted = false;
@@ -1838,8 +1757,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::unordered_map<VariantKey, Variant, VariantHash> _variants{};
             std::vector<RingChunk> _ring{};
             std::size_t _ringChunk = 0;
-            std::vector<VkDescriptorPool> _pools{};
-            std::size_t _poolIndex = 0;
+            std::unique_ptr<VulkanDescriptorAllocator> _descriptors;
 
             const VulkanSceneProgram* _setProgram = nullptr;
             std::uint64_t _setGeneration = 0;
@@ -1875,6 +1793,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 make(_pool, _commandBuffer, _fence);
                 make(_spare.Pool, _spare.Buffer, _spare.Fence);
+                const VulkanDescriptorAllocator::Capacity capacity{2048, {2048, 0, 4096, 0, 4096}};
+                _descriptors = _device->MakeDescriptors(capacity);
+                _spare.Descriptors = _device->MakeDescriptors(capacity);
                 _device->SceneForgetters[this] = [this](const void* object) { Forget(object); };
                 _device->SceneViewReplacers[this] = [this](VkImageView before, VkImageView after) {
                     const bool matches = _target.ColorView == before || _target.DepthView == before;
@@ -1933,13 +1854,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     vmaUnmapMemory(_device->Allocator, chunk.Allocation);
                     vmaDestroyBuffer(_device->Allocator, chunk.Buffer, chunk.Allocation);
                 }
-            for (auto* pools : {&_pools, &_spare.Pools})
-                for (const auto pool : *pools) vk.vkDestroyDescriptorPool(vk.device, pool, nullptr);
+            if (_descriptors) _descriptors->Close();
+            if (_spare.Descriptors) _spare.Descriptors->Close();
             for (VkFence fence : {_fence, _spare.Fence})
                 if (fence) vk.vkDestroyFence(vk.device, fence, nullptr);
             for (VkCommandPool pool : {_pool, _spare.Pool})
                 if (pool) vk.vkDestroyCommandPool(vk.device, pool, nullptr);
-            _ring.clear(); _pools.clear(); _spare = {};
+            _ring.clear(); _descriptors.reset(); _spare = {};
             _pool = VK_NULL_HANDLE; _fence = VK_NULL_HANDLE; _commandBuffer = VK_NULL_HANDLE;
             _recording = _autoRestart = _renderingActive = _renderingOpen = _clearsPending = false;
             _target = {}; _pipeline = nullptr; _units = {}; _setProgram = nullptr; _set = VK_NULL_HANDLE;
@@ -1963,8 +1884,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
             for (auto& chunk : _ring) chunk.Used = 0;
             _ringChunk = 0;
-            for (const auto pool : _pools) Check(vk.vkResetDescriptorPool(vk.device, pool, 0), "vkResetDescriptorPool");
-            _poolIndex = 0;
+            _descriptors->ResetAfterCompletion(_device->Scheduler->Poll());
         }
 
         void VulkanCommandList::WaitAll()
@@ -1978,9 +1898,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 _spare.Submitted = false;
                 for (auto& chunk : _spare.Ring) chunk.Used = 0;
                 _spare.RingIndex = 0;
-                for (const auto pool : _spare.Pools)
-                    Check(vk.vkResetDescriptorPool(vk.device, pool, 0), "vkResetDescriptorPool(spare)");
-                _spare.PoolIndex = 0;
+                _spare.Descriptors->ResetAfterCompletion(_device->Scheduler->Poll());
             }
             if (_submitted && !_recording) Recycle();
             _device->CollectRetired();
@@ -2044,19 +1962,19 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             _recording = false;
             _device->SceneFlushers.erase(this);
             if (_device->RecordingList == this) _device->RecordingList = nullptr;
-            _device->Scheduler->Submit(submit, _fence);
+            const auto serial = _device->Scheduler->Submit(submit, _fence);
+            _descriptors->Submitted(serial);
             _submitted = true;
             // Swap slots: this submission runs on while the other slot records.
             Slot current{_pool, _commandBuffer, _fence, _submitted, std::move(_ring), _ringChunk,
-                std::move(_pools), _poolIndex};
+                std::move(_descriptors)};
             _pool = _spare.Pool;
             _commandBuffer = _spare.Buffer;
             _fence = _spare.Fence;
             _submitted = _spare.Submitted;
             _ring = std::move(_spare.Ring);
             _ringChunk = _spare.RingIndex;
-            _pools = std::move(_spare.Pools);
-            _poolIndex = _spare.PoolIndex;
+            _descriptors = std::move(_spare.Descriptors);
             _spare = std::move(current);
             _set = VK_NULL_HANDLE;
             _setProgram = nullptr;
@@ -2354,36 +2272,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             return *entry.Native;
         }
 
-        VkDescriptorSet VulkanCommandList::AllocateSet(VkDescriptorSetLayout layout)
+        VkDescriptorSet VulkanCommandList::AllocateSet(const VulkanBindingLayout& layout)
         {
-            auto& vk = *_device->ContextPointer->_impl;
-            for (;;)
-            {
-                if (_poolIndex == _pools.size())
-                {
-                    const std::array<VkDescriptorPoolSize, 3> sizes{{
-                        {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2048},
-                        {VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 4096},
-                        {VK_DESCRIPTOR_TYPE_SAMPLER, 4096}}};
-                    VkDescriptorPoolCreateInfo create{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
-                    create.maxSets = 2048;
-                    create.poolSizeCount = static_cast<std::uint32_t>(sizes.size());
-                    create.pPoolSizes = sizes.data();
-                    VkDescriptorPool pool = VK_NULL_HANDLE;
-                    Check(vk.vkCreateDescriptorPool(vk.device, &create, nullptr, &pool), "vkCreateDescriptorPool(scene)");
-                    _pools.push_back(pool);
-                }
-                VkDescriptorSetAllocateInfo allocate{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
-                allocate.descriptorPool = _pools[_poolIndex];
-                allocate.descriptorSetCount = 1;
-                allocate.pSetLayouts = &layout;
-                VkDescriptorSet set = VK_NULL_HANDLE;
-                const VkResult result = vk.vkAllocateDescriptorSets(vk.device, &allocate, &set);
-                if (result == VK_SUCCESS) return set;
-                if (result != VK_ERROR_OUT_OF_POOL_MEMORY && result != VK_ERROR_FRAGMENTED_POOL)
-                    Check(result, "vkAllocateDescriptorSets(scene)");
-                ++_poolIndex;
-            }
+            return _descriptors->Allocate(layout.Native(), layout.Desc());
         }
 
         VulkanCommandList::RingSlice VulkanCommandList::Allocate(VkDeviceSize size, VkDeviceSize alignment)
@@ -2527,7 +2418,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     _uniformSlice = Allocate(program->Block.size(), alignment);
                     std::memcpy(_uniformSlice.Data, program->Block.data(), program->Block.size());
                 }
-                const VkDescriptorSet set = AllocateSet(program->Layout->Native());
+                const VkDescriptorSet set = AllocateSet(*program->Layout);
                 VkDescriptorBufferInfo buffer{_uniformSlice.Buffer, _uniformSlice.Offset, program->Block.size()};
                 std::array<VkDescriptorImageInfo, 8> images{};
                 std::array<VkWriteDescriptorSet, 9> writes{};
@@ -3718,6 +3609,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 || (state->PipelineCache && state->PipelineCache->Stats().Native)
                 || state->FinalCompleted != state->FinalSubmitted || state->FinalSubmitted <= submitted)
                 throw std::logic_error("Vulkan session retained native resources or failed to complete pending work.");
+            for (const auto& slot : state->DescriptorFrames)
+                if (slot.descriptors && slot.descriptors->PageCount())
+                    throw std::logic_error("Vulkan session retained descriptor pages.");
         };
     }
 }

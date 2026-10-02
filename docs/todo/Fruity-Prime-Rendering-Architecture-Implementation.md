@@ -21,7 +21,7 @@ Phase A～E / H または R1～R20 がすべて完了したという記録では
 | R6 / R7: OpenGL command / sampler | Buffer / vertex・index binding / Draw / DrawIndexed / GPU Copy / BindingSet と独立 sampler・value cache を実装。Windows scene / transient geometry を同じ Buffer / CommandList / VAO 経由へ接続。共通 GPU fixture と旧新7画像の一致を確認。単一2D画像以外の範囲、packed depth/stencil copy、recording 契約の統一、本番 shader ABI 接続は残る |
 | R8: Session 寿命 | Vulkan の意図的に解放しない `VulkanScene` を削除。切替で scene / UI → commands → swapchain → device / context → window の順に解放する。OpenGL device は Session が単独所有。Vulkan も device 終了時に全 native owner を閉じ、shared state を context 非依存の CPU descriptor にする。両 backend で未送信 copy / 旧 wrapper を残す8回の shutdown / recreate を検査。swapchain は Session 終了前に解放する caller 契約を維持。device loss / admission failure の teardown は R17 / Phase H で続ける |
 | R9: presentation | request と実際の mode / capabilities を分離。typed acquire / present status を実装し、frame loop で利用。最小化・明示的 close request は一時停止、API の device / surface loss は別分類。OpenGL の generic conformance coverage は R19 で拡張する |
-| R10 / R12 / R13 | `VulkanFrameScheduler` を独立させ、実際の queue submit / completion を担当。descriptor / frame slot / memory / upload の分離は残る。budget / upload ring は未対応 |
+| R10 / R12 / R13 | `VulkanFrameScheduler` が実際の queue submit / completion を担当。`VulkanDescriptorAllocator` に generic / scene 共通の pool admission・overflow・完了後 reset・close を分離し、CPU fault dispatch と GPU churn を検査。pipeline library は R11 の専用 owner。frame slot / memory / upload の分離、budget / upload ring は残る |
 | R11: native pipeline library | 既存 semantic cache を維持し、専用 `VulkanPipelineCache` を全 RHI native graphics pipeline 生成へ接続。identity / framing / checksum / size gate、atomic disk replacement、driver rejection / native cache 不可時の fallback と deterministic close を実装。CPU fault dispatch と実 GPU の cold / warm・破損・保存失敗を検証。速度向上・cache hit の計測は未実施。OpenGL は既存 linked-program cache、Metal / D3D12 は将来対応 |
 | R14: eligibility / admission | Vulkan passive probe は instance / physical device の確認で止まり、logical device / queue を作らない。incoming Session の device / swapchain 生成が active admission。失敗注入による復旧検証は残る |
 | R15: GL vertex interface | Windows scene / transient / launcher UI を explicit input と RHI Buffer / CommandList / VAO へ統一。desktop wrapper の conventional array / current-value mirror を除去し、頂点位置を Vulkan と共通化。GPU composite / 旧新14画像の一致を確認。本番 binding ABI の接続は R2、既存の backend 間 caption 差は画像 gate に残る |
@@ -637,3 +637,84 @@ try {
 Android build / 実機、remote CI、native driver の故障注入は今回未実行。
 R2 / R10 / R12 / R13 / R16～R19 などの残項目は引き続き対応する。
 Metal / D3D12 は将来対応であり、今回追加していない。
+
+
+## Vulkan descriptor allocator の分離（R10）
+
+`VulkanDescriptorAllocator.hpp/.cpp` が submission slot ごとの descriptor pool を所有する。
+generic `BindingSet` の frame slot と、scene command list の2つの slot が同じ実装を使う。
+pool の確保・native descriptor type ごとの capacity admission・overflow・bulk reset・解放を
+`VulkanGraphicsDevice.cpp` から取り出した。command / frame の fence と queue submission は
+引き続き caller と `VulkanFrameScheduler` が担当し、allocator は queue を待たない。
+
+- native pool を作る前に CPU page storage を reserve する。retention の allocation failure で
+  確保済み native pool を失う順序を避ける。
+- 1つの layout が要求する全 descriptor counts を確認し、default capacity より大きい
+  layout も1つの新しい page に収める。合計 count の uint32 overflow / 不正な type / count=0 は
+  native call 前に拒否する。
+- `maxSets` と各 type の残 capacity を別々に数える。既存 page の exhaustion / fragmentation
+  は次の page を使う。新しい page でも失敗した場合はその native error を返し、
+  1回の request で pool を無制限に作る loop にしない。
+- host / device OOM を descriptor exhaustion として扱わない。失敗した admission は
+  既存 page の所有を変えず、reset failure の途中では allocation を許可しない。
+- 成功した queue submit の `SubmissionSerial` を allocator に記録する。
+  `ResetAfterCompletion` は timeline の実完了が last use に達していなければ、native reset 前に拒否する。
+  frame 数や slot index を完了の代わりにしない。未送信 recording は caller が終了／破棄してから reset する。
+- scene / generic の capacity と submission slots は共有しない。page は各 slot の high water まで
+  保持し、実完了後に main / overflow とも再利用する。Session teardown で明示的に閉じ、
+  late wrapper の破棄から native API を呼ばない。Session witness に page count=0 を追加した。
+
+仕様確認: [pool reset は全 use の完了後](https://docs.vulkan.org/refpages/latest/refpages/source/vkResetDescriptorPool.html)、
+[pool exhaustion と system/device memory failure の区別](https://docs.vulkan.org/refpages/latest/refpages/source/vkAllocateDescriptorSets.html)。
+
+### 検証と再実行
+
+MSVC Release build、CTest **7/7**、shader interface audit **22 sources** が成功。
+`FruityPrime.VulkanDescriptorAllocator` は native dispatch の CPU fake を使う。
+GPU / game files / Vulkan loader を起動せず、実際の driver OOM を注入した証拠とは区別する。
+
+単体検査は type capacity と set capacity の別々の exhaustion、全5 type の大きい layout、
+completion 前の reset 拒否、overflow page の同一 native handle 再利用、独立2 slots、
+fragmentation / fresh-page failure の bounded growth、create / allocation / reset の native error 保持、
+failed admission の所有保持、double close / ended allocator の拒否を含む。
+
+repo root の PowerShell、game files / paths.txt と MSVC Release build 配置済み:
+
+```powershell
+ctest --test-dir tools/build/out/msvc-Release --output-on-failure
+python tools/check-phase5-shader-interface.py
+Push-Location tools/build/out/msvc-Release
+try {
+    & .\FruityPrime.exe -rhiconformance -noupdate
+    if ($LASTEXITCODE -ne 0) { throw 'RHI conformance failed' }
+    & .\FruityPrime.exe -vulkanresourcecheck -noupdate
+    if ($LASTEXITCODE -ne 0) { throw 'Vulkan descriptor/resource regression failed' }
+    & .\FruityPrime.exe -gpulifetime 'AD2 ALINOS PERCH' -cycles 40 -frames 3 -rhi vulkan -vkvalidation -noupdate
+    if ($LASTEXITCODE -ne 0) { throw 'Vulkan lifetime regression failed' }
+} finally { Pop-Location }
+```
+
+実 GPU は NVIDIA GeForce RTX 5070 Ti、Khronos validation 有効:
+
+- `C:/tmp/gp/architecture-descriptor-final-conformance.log`: 共通 GPU fixture と両 backend の
+  未送信 copy / old wrappers を残した Session shutdown / recreate 各8回 PASS。
+  Vulkan native descriptor pages を含め解放し、validation errors=0。
+- `C:/tmp/gp/architecture-descriptor-resourcecheck.log`: descriptor arrays / alignment / fresh sets /
+  overflow pool growth / frame reuse / GPU bind submit、64回の clear / bind / resize / release PASS。
+  最後は live=0 / retired=0 / completed=submitted / errors=0、churn device-wide waits=0。
+- `C:/tmp/gp/architecture-descriptor-final-bots-20261002-124352/`: 動く bots の Alinos Perch で
+  OpenGL 開始 / Vulkan 開始の両方、front screen 1回と同じ試合で Settings 保存 / Resume 各3回 PASS。
+  全6回 scene / window geometry / visibility / simulation の進行を維持。
+  definitions=105/105、impact / new bomb / existing bomb 各2 particles。
+  texture-only source は切替中 alive、scene 解放時に released。両最終画像で黄色 impact / 青い Lockjaw core を目視。
+- `C:/tmp/gp/architecture-descriptor-final-golden-{opengl,vulkan}/`: 7ケースずつ capture gate PASS。
+  R11 実装後の `architecture-nativecache-final-golden-{opengl,vulkan}` と比較し、全14画像で
+  decoded RGB の差0 bytes。比較表は `architecture-descriptor-final-golden-comparison.txt`。
+- `C:/tmp/gp/architecture-descriptor-final-lifetime40-vulkan.log`: 40/40 PASS。
+  毎回解放後の resource / retired は0、最後の submitted=completed=25520、最後2 frames の host waits=0。
+  CPU private memory peak は340→348 MB、0.3961 MB/cycle。VRAM budget や速度向上の計測ではない。
+
+R10 全体は未完了。frame slot / VMA memory / upload の change axis は続けて分離する。
+page の high water 保持は admission budget / eviction の完成ではなく、R12 の残作業。
+R2 の本番 shader ABI、R13 の upload ring、R16 の非同期 readback、R17 の実 driver 故障注入も残る。
+Android build / 実機、remote CI は未実行。Metal / D3D12 は将来対応。

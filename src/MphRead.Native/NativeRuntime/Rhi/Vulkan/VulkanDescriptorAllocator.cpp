@@ -1,0 +1,131 @@
+#include "VulkanDescriptorAllocator.hpp"
+
+#if defined(FRUITY_HAS_VULKAN)
+#include <algorithm>
+#include <limits>
+#include <stdexcept>
+
+namespace MphRead::NativeRuntime::Rhi::Vulkan
+{
+    VulkanDescriptorAllocator::VulkanDescriptorAllocator(Dispatch dispatch, Capacity capacity)
+        : _dispatch(dispatch), _capacity(capacity)
+    {
+        if (!dispatch.Device || !dispatch.Create || !dispatch.Destroy || !dispatch.Reset
+            || !dispatch.Allocate || !dispatch.CheckResult || capacity.Sets == 0)
+            throw std::invalid_argument("Vulkan descriptor allocator: invalid dispatch or capacity.");
+    }
+
+    void VulkanDescriptorAllocator::RequireOpen() const
+    { if (_closed) throw std::logic_error("Vulkan descriptor allocator has ended."); }
+
+    VulkanDescriptorAllocator::Counts VulkanDescriptorAllocator::Requirements(const BindingLayoutDesc& desc)
+    {
+        Counts needed{};
+        for (const auto& entry : desc.entries)
+        {
+            const auto index = static_cast<std::size_t>(entry.type);
+            if (index >= needed.size() || entry.count == 0)
+                throw std::invalid_argument("Vulkan descriptor allocator: invalid binding declaration.");
+            needed[index] += entry.count;
+            if (needed[index] > std::numeric_limits<std::uint32_t>::max())
+                throw std::invalid_argument("Vulkan descriptor allocator: descriptor count overflow.");
+        }
+        return needed;
+    }
+
+    void VulkanDescriptorAllocator::AddPage(const Counts& needed)
+    {
+        constexpr std::array<VkDescriptorType, 5> types{
+            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_SAMPLER};
+        std::array<VkDescriptorPoolSize, 5> sizes{};
+        std::uint32_t sizeCount = 0;
+        Page page{};
+        for (std::size_t i = 0; i < needed.size(); ++i)
+        {
+            page.Capacity[i] = std::max(_capacity.Counts[i], static_cast<std::uint32_t>(needed[i]));
+            if (page.Capacity[i]) sizes[sizeCount++] = {types[i], page.Capacity[i]};
+        }
+        VkDescriptorPoolCreateInfo create{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+        create.maxSets = _capacity.Sets;
+        create.poolSizeCount = sizeCount;
+        create.pPoolSizes = sizeCount ? sizes.data() : nullptr;
+        // Reserve before native admission: retaining a successfully created
+        // pool must not allocate or throw, including during overflow growth.
+        _pages.reserve(_pages.size() + 1);
+        _dispatch.CheckResult(_dispatch.Create(_dispatch.Device, &create, nullptr, &page.Pool),
+            "vkCreateDescriptorPool(allocator)");
+        _pages.push_back(page);
+    }
+
+    VkDescriptorSet VulkanDescriptorAllocator::Allocate(VkDescriptorSetLayout layout, const BindingLayoutDesc& desc)
+    {
+        RequireOpen();
+        if (!_ready || !layout) throw std::logic_error("Vulkan descriptor allocator: slot is not recording.");
+        const auto needed = Requirements(desc);
+        for (;;)
+        {
+            bool fresh = false;
+            if (_active == _pages.size()) { AddPage(needed); fresh = true; }
+            auto& page = _pages[_active];
+            bool available = page.Sets < _capacity.Sets;
+            for (std::size_t i = 0; i < needed.size(); ++i)
+                available = available && needed[i] <= page.Capacity[i] - page.Used[i];
+            VkDescriptorSetAllocateInfo allocate{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+            allocate.descriptorPool = page.Pool;
+            allocate.descriptorSetCount = 1;
+            allocate.pSetLayouts = &layout;
+            VkDescriptorSet set = VK_NULL_HANDLE;
+            const auto result = available ? _dispatch.Allocate(_dispatch.Device, &allocate, &set)
+                : VK_ERROR_OUT_OF_POOL_MEMORY;
+            if (result == VK_SUCCESS)
+            {
+                ++page.Sets;
+                for (std::size_t i = 0; i < needed.size(); ++i) page.Used[i] += needed[i];
+                return set;
+            }
+            // System/device OOM is not descriptor exhaustion. A fresh page
+            // already admits this whole layout: repeated failure must not grow
+            // unboundedly or mask the native error.
+            if (fresh || (result != VK_ERROR_OUT_OF_POOL_MEMORY && result != VK_ERROR_FRAGMENTED_POOL))
+                _dispatch.CheckResult(result, "vkAllocateDescriptorSets(allocator)");
+            ++_active;
+        }
+    }
+
+    void VulkanDescriptorAllocator::Submitted(SubmissionSerial serial)
+    {
+        RequireOpen();
+        if (!_ready || !serial.Value || serial <= _lastUse)
+            throw std::logic_error("Vulkan descriptor allocator: invalid submitted generation.");
+        _lastUse = serial;
+        _ready = false;
+    }
+
+    void VulkanDescriptorAllocator::ResetAfterCompletion(SubmissionSerial completed)
+    {
+        RequireOpen();
+        if (completed < _lastUse)
+            throw std::logic_error("Vulkan descriptor allocator: generation is still in flight.");
+        _ready = false;
+        for (auto& page : _pages)
+        {
+            _dispatch.CheckResult(_dispatch.Reset(_dispatch.Device, page.Pool, 0),
+                "vkResetDescriptorPool(allocator)");
+            page.Sets = 0;
+            page.Used.fill(0);
+        }
+        _active = 0;
+        _ready = true;
+    }
+
+    void VulkanDescriptorAllocator::Close() noexcept
+    {
+        if (_closed) return;
+        for (const auto& page : _pages) _dispatch.Destroy(_dispatch.Device, page.Pool, nullptr);
+        _pages.clear();
+        _ready = false;
+        _closed = true;
+    }
+}
+#endif

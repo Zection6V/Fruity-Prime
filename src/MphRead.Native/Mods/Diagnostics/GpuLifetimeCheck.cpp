@@ -114,7 +114,7 @@ namespace MphRead::Mods::Diagnostics
                         && s.Programs == _after.front().Programs
                         && s.Samplers == _after.front().Samplers
                         && s.VertexArrays == _after.front().VertexArrays;
-                    const bool drained = s.Retired == 0 && s.LiveObjects() == 0;
+                    const bool drained = s.Retired == 0 && s.LiveObjects() == 0 && s.Completed == s.Submitted;
                     pass = pass && steady && drained;
                     std::cout << "GPULIFETIME " << _room << " | cycle " << (i + 1)
                         << " | while drawing: " << _during[i].Textures << " textures, "
@@ -127,6 +127,7 @@ namespace MphRead::Mods::Diagnostics
                         << s.Buffers << " buffers, " << s.Renderbuffers << " renderbuffers, "
                         << s.Samplers << " samplers, " << s.VertexArrays << " vertex arrays, "
                         << s.Retired << " retired | frames completed " << s.CompletedFrame
+                        << " | submissions completed " << s.Completed.Value << "/" << s.Submitted.Value
                         << " | host waits over the last " << (_frames - _frames / 2) << " frames: "
                         << _steadyWaits[i]
                         << " | private " << (i < _privateKiB.size() ? _privateKiB[i] / 1024U : 0U) << " MB"

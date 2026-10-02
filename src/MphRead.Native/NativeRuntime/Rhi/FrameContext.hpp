@@ -12,9 +12,8 @@
 //
 // Frame slots govern reusable per-frame storage. Resource lifetime follows
 // actual completed submissions, independently of those slots. Vulkan uses a
-// graphics-queue timeline; OpenGL's existing frame-fence retirement is being
-// migrated to the same submission contract. WaitIdle is an explicit release
-// boundary, not a requirement for ordinary resource destruction or resize.
+// graphics-queue timeline; OpenGL uses GLsync stream markers. WaitIdle is an
+// explicit release boundary, not required for ordinary destruction or resize.
 namespace MphRead::NativeRuntime::Rhi
 {
     inline constexpr std::uint32_t FramesInFlight = 2;
@@ -40,7 +39,7 @@ namespace MphRead::NativeRuntime::Rhi
         std::uint32_t Retired = 0;
         std::uint64_t CompletedFrame = 0;
         // Times the CPU has stopped to wait for the GPU (a fence or the whole
-        // device). OpenGL, which waits inside the driver, reports 0.
+        // device). Implicit driver waits in upload/map APIs are not counted here.
         std::uint64_t HostWaits = 0;
         // Actual queue progress, not a simulation/presentation frame counter.
         SubmissionSerial Submitted{};
@@ -64,25 +63,12 @@ namespace MphRead::NativeRuntime::Rhi
     public:
         void Retire(T object, SubmissionSerial lastUse)
         {
-            Retire(std::move(object), lastUse.Value);
-        }
-
-        template <typename Destroy>
-        std::size_t Collect(SubmissionSerial completed, Destroy&& destroy)
-        {
-            return Collect(completed.Value, std::forward<Destroy>(destroy));
-        }
-
-        // Compatibility for the existing GL fence counters. New backends use
-        // the typed overload above; integer frame numbers are not GPU proof.
-        void Retire(T object, std::uint64_t completionValue)
-        {
-            _entries.push_back(Entry{std::move(object), completionValue});
+            _entries.push_back(Entry{std::move(object), lastUse});
         }
 
         // Destroy everything whose last-use value the GPU has completed.
         template <typename Destroy>
-        std::size_t Collect(std::uint64_t completedValue, Destroy&& destroy)
+        std::size_t Collect(SubmissionSerial completedValue, Destroy&& destroy)
         {
             std::size_t destroyed = 0;
             auto keep = _entries.begin();
@@ -136,7 +122,7 @@ namespace MphRead::NativeRuntime::Rhi
         struct Entry final
         {
             T Object;
-            std::uint64_t LastUse;
+            SubmissionSerial LastUse;
         };
 
         std::vector<Entry> _entries{};

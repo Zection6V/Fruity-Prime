@@ -17,7 +17,7 @@ Phase A～E / H または R1～R20 がすべて完了したという記録では
 | R1: 選択と Provider | `SceneBackendKind` を `GraphicsBackend` へ統合。OpenGL / Vulkan Provider と Session を登録し、shader・mesh・transient geometry・UI・表示生成を委譲。共通描画経路への統一は R6 / R15 で続ける |
 | R2: shader ABI | `SceneShaderSources` と論理グループ・binding を共通 RHI へ移動。std140 packing は Vulkan 側に残す。`ShaderDesc` に形式を明示。**本番の生成 manifest / SPIR-V と論理グループの接続・検証は残る** |
 | R3: PipelineLayout | 複数グループの記述を値で所有。両 backend の generic pipeline / binding を共通 GPU fixture で検証。cache key に全グループを含める。scene の生成 shader adapter の整理は残る |
-| R4 / R5: submission と resize | 共通 `SubmissionSerial` / `SubmissionProgress` と Vulkan graphics queue の timeline scheduler を追加。Buffer / Sampler / Image / ImageView / Pipeline を実際の送信完了で破棄。texture resize は先に画像・全ビューを確保して交換し、旧世代を retire。通常の破棄・resize から全 GPU 待機を除去。OpenGL の既存 frame fence を共通 submission 契約へ移す作業は残る |
+| R4 / R5: submission と resize | 共通 `SubmissionSerial` / `SubmissionProgress` に Vulkan timeline と OpenGL GLsync scheduler を接続。frame number を retirement の証拠にしない。Vulkan は Buffer / Sampler / Image / ImageView / Pipeline を実際の送信完了で破棄し、resize は先に画像・全ビューを確保して旧世代を retire。OpenGL はフレーム外の command / resource release も実際の stream marker で覆う。GL marker の集約、残る ownership / format stress は後続で扱う |
 | R6 / R7: OpenGL command / sampler | Buffer / vertex・index binding / Draw / DrawIndexed / GPU Copy / BindingSet と独立 sampler・value cache を実装。Windows scene / transient geometry を同じ Buffer / CommandList / VAO 経由へ接続。共通 GPU fixture と旧新7画像の一致を確認。単一2D画像以外の範囲、packed depth/stencil copy、recording 契約の統一、本番 shader ABI 接続は残る |
 | R8: Session 寿命 | Vulkan の意図的に解放しない `VulkanScene` を削除。切替で scene / UI → commands → swapchain → device / context → window の順に解放する。OpenGL は既存 context device を Session の明示終了で解放。所有のさらなる整理・stress の resource count gate は残る |
 | R9: presentation | request と実際の mode / capabilities を分離。typed acquire / present status を実装し、frame loop で利用。最小化・明示的 close request は一時停止、API の device / surface loss は別分類。OpenGL の generic conformance coverage は R19 で拡張する |
@@ -318,6 +318,97 @@ try {
 } finally { Pop-Location }
 ```
 
-R2 の本番 binding / generated manifest、R4 の OpenGL submission 契約、
+この Phase E 時点では、R2 の本番 binding / generated manifest、R4 の OpenGL submission 契約、
 R8 の完全な session ownership、R10～R13、R16 / R18 と Phase H の残項目は引き続き対応する。
 Metal / D3D12（Phase F / G）と macOS 実機検証は今回の完了条件に含めない。
+
+## OpenGL の実際の submission completion（R4）
+
+`OpenGlFrameScheduler` を独立させ、GL context の stream marker を共通
+`SubmissionSerial` に対応させた。frame slot は再利用の順序だけを扱い、
+`RetirementQueue` は typed submission token のみを受け取る。
+`CommandList::End` と frame 終了は marker を挿入して flush する。
+resource release は、それ以前の RHI / native / Skia の仕事を覆う marker を挿入して retire する。
+frame を開かずに upload / copy / release した場合も同じ契約を使う。
+
+fence の作成に失敗した場合は番号を消費せず、native error を `BackendError` に保持する。
+zero-time poll の timeout は完了ではない。slot の blocking wait は対象 marker だけを待ち、
+timeout で device 全体の `Finish` に切り替えない。WAIT_FAILED も完了として扱わない。
+通常の resource release は GPU を待たず、明示 `WaitIdle` / device teardown は待機して解放する。
+GL 2.1 診断用 context で ARB_sync が使えない場合は、実際の `Finish` による同期 fallback を残す。
+sync 対応 context に必要な entry point がない場合は Unsupported として報告する。
+この fallback の CPU 契約は検査したが、GL 2.1 実機は未検証。
+仕様確認: [glFenceSync](https://registry.khronos.org/OpenGL-Refpages/gl4/html/glFenceSync.xhtml)、
+[glClientWaitSync](https://registry.khronos.org/OpenGL-Refpages/gl4/html/glClientWaitSync.xhtml)。
+
+現段階では native / Skia の全使用箇所の通知に依存しないよう、resource ごとに保守的な
+marker を挿入する。40 cycles の OpenGL では合計69,640 marker になった。
+marker の集約や upload / readback の暗黙 driver wait は今後の改善対象であり、
+今回の変更を速度向上や完全非同期化の証拠にしない。
+`HostWaits` は明示的な scheduler wait の計数で、driver 内部の upload / map の待機時間は含まない。
+
+### 検証と再実行
+
+- MSVC Release build、CTest 5/5、shader interface audit（22 sources）成功。
+  CPU dispatch fixture は、未完了 marker の保持、失敗で番号を消費しないこと、
+  completed prefix のみ回収、timeout の再試行、WAIT_FAILED 時の保持、明示 idle を検査する。
+- `C:/tmp/gp/architecture-glsubmission-final-rhiconformance.log`:
+  OpenGL / Vulkan とも PASS。追加した16回のフレーム外 copy / readback は内容一致、
+  frame number 不変のまま submission が進み、通常 release の明示 wait は増えない。
+  最後の明示 idle で `Completed=Submitted`、live / retired=0。Vulkan validation errors=0。
+- `C:/tmp/gp/architecture-glsubmission-final-thumbnail.log`:
+  実際の window composite / 色 / 上下方向 / inherited color / release=0 が PASS。
+- `C:/tmp/gp/architecture-glsubmission-lifetime40-{opengl,vulkan}.log`:
+  Alinos Perch の読み込み・描画・解放が両方40/40 PASS。毎回、全 resource / retired=0、
+  `Completed=Submitted`。各 cycle の最後の2 frame の明示 host wait=0。
+  最後は OpenGL 69,640/69,640、Vulkan 25,520/25,520 submissions。
+  private memory の測定増分はそれぞれ0.0715 / 0.1928 MB/cycle。
+  これは CPU process private memory であり、VRAM 使用量や長時間の上限を保証する測定ではない。
+- Golden Capture の7候補を両 backend で再撮影。
+  `architecture-phasee-final-golden-{opengl,vulkan}` と
+  `architecture-glsubmission-golden-{opengl,vulkan}` の全14画像で decoded RGB 差分0。
+  記録 `C:/tmp/gp/architecture-glsubmission-golden-comparison.txt`。
+  以前からある backend 間の caption 差についての判定は変えない。
+- 切替テスト: `C:/tmp/gp/architecture-glsubmission-final-bots-20261002-091241/`。
+  両開始 backend で front 1回と、同じ試合内の Settings / Apply / Resume 3回が PASS。
+  全6回 definitions=105/105、impact / new bomb / existing bomb 各2 particles。
+  scene / window geometry / visibility を維持して simulation が進み、texture-only source は
+  切替中に保持・scene 終了時に解放。VUID / Validation Error はなし。
+- `C:/tmp/gp/architecture-glsubmission-final-held-20261002-091409/`:
+  非 main controls を hold した効果 fixture も両開始 backend で PASS。
+  全6回で同じ効果数と source 寿命を確認し、両方の最後の画像で impact と bomb の描画を目視。
+  通常 bot / held の全4 process で試合前の hunter preview も PASS。
+
+試合前の UI 検査で固定 draw 数の待機だけでは再描画前に先へ進む失敗が出た。
+右キーが PlayScreen に届くことを診断で確認したが、その後の map click / hunter preview が
+揃わない試行があった。UI の dispatcher / redraw が実時間を使うため、試合前5箇所は
+従来の draw 数に加え `frames / 60` 秒の待機も要求する `WaitUi` にした。
+クリックや preview の失敗判定は維持し、失敗時は step / surface / candidate bounds と PNG を残す。
+失敗ログは `architecture-glsubmission-{bots,held,clickdiag,focusdiag,playdiag-repeat,boundsdiag}-*`
+に残してある。動く bot の別の寿命問題がすべて解決したという判定ではない。
+
+repo root の PowerShell、MSVC Release と game files / paths.txt を用意した状態で:
+
+```powershell
+ctest --test-dir tools/build/out/msvc-Release --output-on-failure
+if ($LASTEXITCODE -ne 0) { throw 'CPU contract checks failed' }
+python tools/check-phase5-shader-interface.py
+if ($LASTEXITCODE -ne 0) { throw 'Shader interface audit failed' }
+Push-Location tools/build/out/msvc-Release
+try {
+    'q' | & .\FruityPrime.exe -rhiconformance -noupdate
+    if ($LASTEXITCODE -ne 0) { throw 'RHI conformance failed' }
+    'q' | & .\FruityPrime.exe -thumbnailwindowcheck -noupdate
+    if ($LASTEXITCODE -ne 0) { throw 'Window composite failed' }
+    foreach ($backend in @('opengl', 'vulkan')) {
+        'q' | & .\FruityPrime.exe -gpulifetime 'AD2 ALINOS PERCH' -cycles 40 -frames 3 -rhi $backend -vkvalidation -noupdate
+        if ($LASTEXITCODE -ne 0) { throw "$backend lifetime failed" }
+    }
+} finally { Pop-Location }
+```
+
+Golden Capture は Phase E の手順、切替操作は上記リンク先の再実行手順を使用する。
+通常 bot stress は `FRUITY_SWITCHCHECK_HOLD_ACTORS` を未設定、効果だけを隔離する fixture は `1`。
+設定ファイルは試験前の byte 列を保管し、終了後に復元する。
+Android build / 実機、remote CI、実際の device loss / OOM 故障注入は今回未実行。
+R2 / R8 / R10～R13 / R16～R19 などの残項目は引き続き対応する。

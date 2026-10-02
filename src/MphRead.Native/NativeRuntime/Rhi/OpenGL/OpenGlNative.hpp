@@ -58,6 +58,10 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         FRUITY_GL_ENTRY(BindBufferRange, void, unsigned, unsigned, unsigned, std::ptrdiff_t, std::ptrdiff_t);
         FRUITY_GL_ENTRY(BindImageTexture, void, unsigned, unsigned, int, unsigned char, int, unsigned, unsigned);
         FRUITY_GL_ENTRY(MemoryBarrier, void, unsigned);
+        FRUITY_GL_ENTRY(FenceSync, void*, unsigned, unsigned);
+        FRUITY_GL_ENTRY(ClientWaitSync, unsigned, void*, unsigned, std::uint64_t);
+        FRUITY_GL_ENTRY(DeleteSync, void, void*);
+        FRUITY_GL_ENTRY(Flush, void);
         FRUITY_GL_ENTRY(DrawArraysInstanced, void, unsigned, int, int, int);
         FRUITY_GL_ENTRY(DrawArraysInstancedBaseInstance, void, unsigned, int, int, int, unsigned);
         FRUITY_GL_ENTRY(DrawElementsInstanced, void, unsigned, int, unsigned, const void*, int);

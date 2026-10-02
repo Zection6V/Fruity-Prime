@@ -1,5 +1,6 @@
 #include "OpenGlDevice.hpp"
 #include "OpenGlNative.hpp"
+#include "OpenGlFrameScheduler.hpp"
 
 #include "../../OpenTK/GL.hpp"
 #include "../../../Mods/Render/GlNames.hpp"
@@ -425,10 +426,34 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             return key;
         }
 
+        OpenGlFrameScheduler::Dispatch SchedulerDispatch(OpenGlNative& api)
+        {
+            const auto version = GL::GetString(GL::StringName::Version);
+            const auto start = version.find_first_of("0123456789");
+            const auto dot = version.find('.', start);
+            const int major = start == std::string::npos ? 0 : std::stoi(version.substr(start));
+            const int minor = dot == std::string::npos ? 0 : std::stoi(version.substr(dot + 1));
+            const bool coreSync = version.find("OpenGL ES") != std::string::npos ? major >= 3
+                : major > 3 || (major == 3 && minor >= 2);
+            const bool sync = coreSync
+                || GL::GetString(static_cast<GL::StringName>(0x1F03)).find("GL_ARB_sync") != std::string::npos;
+            if (sync && (!api.FenceSync || !api.ClientWaitSync || !api.DeleteSync || !api.Flush))
+                throw BackendError(GraphicsBackend::OpenGl, BackendErrorKind::Unsupported, 0,
+                    "OpenGL context did not expose its required synchronization entry points.");
+            return {&api,
+                [](void* context) { return static_cast<OpenGlNative*>(context)->FenceSync(0x9117, 0); },
+                [](void* context, void* fence, bool flush, std::uint64_t timeout) {
+                    return static_cast<OpenGlFrameScheduler::WaitStatus>(static_cast<OpenGlNative*>(context)->ClientWaitSync(fence, flush ? 1 : 0, timeout));
+                },
+                [](void* context, void* fence) { static_cast<OpenGlNative*>(context)->DeleteSync(fence); },
+                [](void* context) { OpenGlNative::Require(static_cast<OpenGlNative*>(context)->Flush, "glFlush")(); },
+                [](void*) { GL::Finish(); }, [](void*) { return static_cast<unsigned>(GL::GetError()); }, sync};
+        }
+
         class OpenGlGraphicsDevice final : public GraphicsDevice
         {
         public:
-            OpenGlGraphicsDevice()
+            OpenGlGraphicsDevice() : _scheduler(SchedulerDispatch(_api))
             {
                 _capabilities.backend = GraphicsBackend::OpenGl;
                 _capabilities.maxColorAttachments = 1;
@@ -622,65 +647,35 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             FrameContext BeginFrame() override
             {
-                if (_frameOpen)
-                {
-                    EndFrame();
-                }
+                if (_frameOpen) EndFrame();
                 ++_frame;
-                const std::size_t slot = static_cast<std::size_t>(_frame % FramesInFlight);
-                if (_fences[slot] != nullptr)
-                {
-                    if (!GL::ClientWaitSync(_fences[slot], 1'000'000'000ULL))
-                    {
-                        GL::Finish();
-                    }
-                    GL::DeleteSync(_fences[slot]);
-                    _fences[slot] = nullptr;
-                    _completed = std::max(_completed, _fenceFrames[slot]);
-                }
+                const auto slot = static_cast<std::size_t>(_frame % FramesInFlight);
+                _scheduler.Wait(_slots[slot].Serial);
+                CollectCompleted();
                 _frameOpen = true;
-                PollFences();
-                _retired.Collect(_completed, DestroyNative);
-                return FrameContext{_frame, static_cast<std::uint32_t>(_frame % FramesInFlight)};
+                return {_frame, static_cast<std::uint32_t>(slot)};
             }
 
-            // The frame's GPU work ends at a fence. A slot still holding the
-            // fence of the frame FramesInFlight back is waited on at BeginFrame: that
-            // is the in-flight limit, and GL's own throttling means it has
-            // almost always signalled by now.
             void EndFrame() override
             {
-                if (!_frameOpen)
-                {
-                    return;
-                }
+                if (!_frameOpen) return;
+                // This marker covers the entire context stream, including the
+                // window compositor. A frame number never acts as completion.
+                const auto serial = _scheduler.Submit(true);
+                _slots[_frame % FramesInFlight] = {_frame, serial};
                 _frameOpen = false;
-                const std::size_t slot = static_cast<std::size_t>(_frame % FramesInFlight);
-                _fences[slot] = GL::FenceSync();
-                _fenceFrames[slot] = _frame;
-                if (_fences[slot] == nullptr)
-                {
-                    // Establish actual completion when sync is unavailable.
-                    GL::Finish();
-                    _completed = _frame;
-                }
+                CollectCompleted();
             }
 
             void WaitIdle() override
             {
-                GL::Finish();
+                _scheduler.Finish();
                 _frameOpen = false;
-                for (std::size_t i = 0; i < _fences.size(); ++i)
-                {
-                    if (_fences[i] != nullptr)
-                    {
-                        GL::DeleteSync(_fences[i]);
-                        _fences[i] = nullptr;
-                    }
-                }
-                _completed = _frame;
-                _retired.CollectAll(DestroyNative);
+                _completedFrame = _frame;
+                _retired.Collect(_scheduler.Completed(), DestroyNative);
             }
+
+            void SubmitCommands() { (void)_scheduler.Submit(true); }
 
             [[nodiscard]] GpuResourceStatistics Statistics() const override;
 
@@ -691,7 +686,10 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     ForgetBuffer(object.Name);
                     _buffers.erase(object.Name);
                 }
-                _retired.Retire(object, _frame);
+                // Conservatively capture the actual stream here, so unframed
+                // uploads and native/Skia work are covered without assuming a
+                // frame or relying on an adapter to announce every use.
+                _retired.Retire(object, _scheduler.Submit());
             }
 
             std::int32_t CreateGeometryBuffer()
@@ -909,25 +907,20 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             std::unordered_set<std::int32_t> _buffers{};
             std::map<std::pair<const Shader*, const Shader*>, std::int32_t> _programs{};
 
-            void PollFences()
+            void CollectCompleted()
             {
-                for (std::size_t i = 0; i < _fences.size(); ++i)
-                {
-                    if (_fences[i] != nullptr && GL::ClientWaitSync(_fences[i], 0))
-                    {
-                        GL::DeleteSync(_fences[i]);
-                        _fences[i] = nullptr;
-                        _completed = std::max(_completed, _fenceFrames[i]);
-                    }
-                }
+                const auto completed = _scheduler.Poll();
+                for (const auto& slot : _slots)
+                    if (slot.Serial <= completed) _completedFrame = std::max(_completedFrame, slot.Frame);
+                _retired.Collect(completed, DestroyNative);
             }
 
             RetirementQueue<GlObject> _retired{};
-            std::uint64_t _frame = 0;
-            std::uint64_t _completed = 0;
+            OpenGlFrameScheduler _scheduler;
+            struct FrameSlot final { std::uint64_t Frame = 0; SubmissionSerial Serial{}; };
+            std::array<FrameSlot, FramesInFlight> _slots{};
+            std::uint64_t _frame = 0, _completedFrame = 0;
             bool _frameOpen = false;
-            std::array<void*, FramesInFlight> _fences{};
-            std::array<std::uint64_t, FramesInFlight> _fenceFrames{};
         };
 
         #include "OpenGlResourcesImplementation.inc"
@@ -958,16 +951,15 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             [[nodiscard]] std::size_t FramebufferCount() const noexcept { return _framebuffers.size(); }
             [[nodiscard]] std::size_t VertexArrayCount() const noexcept { return _vertexArrays.size(); }
 
-            // The compatibility context's defaults the renderer set once as a
-            // scene loaded: fixed-function texturing on (the launcher overlay
-            // and the photograph still draw with it) and a depth test.
+            // Preserve legacy scene state setup; desktop vertex submission and
+            // window compositing use explicit shaders and RHI pipelines.
             void Begin() override
             {
                 GL::Enable(GL::EnableCap::DepthTest);
                 GL::Enable(GL::EnableCap::Texture2D);
                 GL::DepthFunc(GL::DepthFunction::Lequal);
             }
-            void End() override {}
+            void End() override { _device->SubmitCommands(); }
 
             void BeginRendering(const RenderingInfo& info) override
             {
@@ -1376,6 +1368,9 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
         OpenGlGraphicsDevice::~OpenGlGraphicsDevice()
         {
+            // Explicit device teardown is a completion boundary. No ordinary
+            // resource destructor or frame-slot timeout calls Finish.
+            _scheduler.Finish();
             for (OpenGlTexture* texture : _live)
             {
                 texture->Detach();
@@ -1415,7 +1410,11 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             }
             statistics.Retired = static_cast<std::uint32_t>(_retired.Size());
             statistics.Samplers = static_cast<std::uint32_t>(_samplers.size());
-            statistics.CompletedFrame = _completed;
+            statistics.CompletedFrame = _completedFrame;
+            statistics.Submitted = _scheduler.Submitted();
+            statistics.Completed = _scheduler.Completed();
+            statistics.HostWaits = _scheduler.HostWaits();
+            statistics.DeviceWideWaits = _scheduler.DeviceWideWaits();
             return statistics;
         }
 

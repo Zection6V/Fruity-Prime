@@ -43,6 +43,39 @@ namespace MphRead::Mods::Diagnostics
             }
             return desc;
         }
+        void ExerciseUnframedLifetime(Rhi::GraphicsDevice& device)
+        {
+            using namespace Rhi;
+            const auto baseline = device.Statistics();
+            for (unsigned cycle = 0; cycle < 16; ++cycle)
+            {
+                auto commands = device.CreateCommandList();
+                auto source = device.CreateBuffer({16, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu});
+                auto destination = device.CreateBuffer({16, BufferUsage::TransferDst, MemoryUsage::GpuToCpu});
+                const std::array<unsigned, 4> payload{cycle, 0xAABBCCDD, cycle * 37, 0x10203040};
+                device.WriteBuffer(*source, 0, Bytes(payload));
+                commands->Begin();
+                commands->Transition(*source, ResourceState::Undefined, ResourceState::CopySrc);
+                commands->Transition(*destination, ResourceState::Undefined, ResourceState::CopyDst);
+                commands->CopyBuffer(*source, 0, *destination, 0, 16); commands->End();
+                std::array<unsigned, 4> result{};
+                device.ReadBuffer(*destination, 0, std::as_writable_bytes(std::span(result)));
+                Expect(result == payload, "Unframed transfer/readback contents differ.");
+                const auto beforeRelease = device.Statistics();
+                source.reset(); destination.reset(); commands.reset();
+                const auto afterRelease = device.Statistics();
+                Expect(afterRelease.DeviceWideWaits == beforeRelease.DeviceWideWaits
+                    && afterRelease.HostWaits == beforeRelease.HostWaits,
+                    "Ordinary unframed resource release waited for the GPU.");
+            }
+            const auto submitted = device.Statistics();
+            Expect(submitted.Submitted > baseline.Submitted && submitted.CompletedFrame == baseline.CompletedFrame,
+                "Unframed work must advance submission serials independently of frames.");
+            device.WaitIdle();
+            const auto completed = device.Statistics();
+            Expect(completed.Completed == completed.Submitted && completed.Retired == 0 && completed.LiveObjects() == 0,
+                "Explicit idle must complete unframed work and release its native resources.");
+        }
         void Exercise(Rhi::GraphicsDevice& device)
         {
             using namespace Rhi;
@@ -175,6 +208,7 @@ namespace MphRead::Mods::Diagnostics
                 auto session = provider->CreateSession({true});
                 auto& device = session->Device();
                 if (backend == Rhi::GraphicsBackend::Vulkan) Expect(session->ValidationEnabled(), "Conformance requires Vulkan validation.");
+                ExerciseUnframedLifetime(device);
                 Exercise(device);
                 device.TrimCaches();
                 device.WaitIdle();
@@ -184,7 +218,7 @@ namespace MphRead::Mods::Diagnostics
                 session->Shutdown();
                 Expect(session->ValidationErrors() == 0, "RHI conformance shutdown validation failed.");
                 std::cout << "[rhi conformance] " << (backend == Rhi::GraphicsBackend::OpenGl ? "OpenGL" : "Vulkan")
-                    << " PASS; GPU buffers/copies/pitched texture transfers; four-group layout; UBO/image/sampler; Draw/DrawIndexed; sampler pixels; release=0\n";
+                    << " PASS; unframed submission lifetime; GPU buffers/copies/pitched texture transfers; four-group layout; UBO/image/sampler; Draw/DrawIndexed; sampler pixels; release=0\n";
             }
             return 0;
         }

@@ -50,7 +50,7 @@ namespace MphRead::Mods::Launcher::Gui
 
         [[nodiscard]] static bool Run();
         // Settings switched the renderer: the window is remade on it at the
-        // next frame (a running match ends), and Settings shown again when
+        // next frame (the running match is retained), and Settings shown again when
         // that is where it was asked from.
         static void RequestRenderer(MphRead::NativeRuntime::Rhi::SceneBackendRequest request, bool fromSettings);
         static void BeforeFrame(MphRead::RenderWindow& window);
@@ -95,6 +95,7 @@ namespace MphRead::Mods::Launcher::Gui
         static void Click(const ControlPredicate& match);
         static void Key(OpenTK::Windowing::GraphicsLibraryFramework::Keys key);
         static void Wait(std::int32_t frames);
+        static void WaitUi(std::int32_t frames);
         static void Scroll(std::int32_t frames, double notches = -1);
         static void WindowKey(MphRead::RenderWindow& window,
             OpenTK::Windowing::GraphicsLibraryFramework::Keys key);

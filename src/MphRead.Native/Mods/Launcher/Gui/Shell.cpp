@@ -51,6 +51,7 @@
 #include "../../../NativeRuntime/System/ExceptionText.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <exception>
 #include <iomanip>
@@ -94,6 +95,7 @@ namespace MphRead::Mods::Launcher::Gui
 
     namespace
     {
+        std::chrono::steady_clock::time_point g_shotUiReadyAt{};
         using Keys = OpenTK::Windowing::GraphicsLibraryFramework::Keys;
         using MouseButton = OpenTK::Windowing::GraphicsLibraryFramework::MouseButton;
         using MphRead::Mods::Launcher::LaunchKind;
@@ -648,6 +650,7 @@ namespace MphRead::Mods::Launcher::Gui
         _shotDirectory = std::move(directory);
         _shotStep = 0;
         _shotWait = 0;
+        g_shotUiReadyAt = {};
         _shotMisses = 0;
         _shotPreviewGeneration = 0;
         NativeFilePicker::Suppressed(true);
@@ -666,6 +669,7 @@ namespace MphRead::Mods::Launcher::Gui
             --_shotWait;
             return;
         }
+        if (std::chrono::steady_clock::now() < g_shotUiReadyAt) return;
         std::vector<ShotAction> script = Script();
         if (_shotStep >= static_cast<std::int32_t>(script.size()))
         {
@@ -859,11 +863,11 @@ namespace MphRead::Mods::Launcher::Gui
     std::vector<Shell::ShotAction> Shell::SwitchScript()
     {
         std::vector<ShotAction> script{
-            [](MphRead::RenderWindow&) { Wait(30); },
+            [](MphRead::RenderWindow&) { WaitUi(30); },
             [](MphRead::RenderWindow& window)
             {
                 SayBackend("front, before"); Shot(window, "switch-0-front");
-                RequestRenderer(Other(), false); Wait(30);
+                RequestRenderer(Other(), false); WaitUi(30);
             },
             [](MphRead::RenderWindow& window)
             {
@@ -873,13 +877,13 @@ namespace MphRead::Mods::Launcher::Gui
                 {
                     const auto* button = dynamic_cast<DeckButton*>(&control);
                     return button && button->Text() == "PLAY";
-                }); Wait(30);
+                }); WaitUi(30);
             },
-            [](MphRead::RenderWindow&) { Key(KeyValue(262)); Wait(20); },
+            [](MphRead::RenderWindow&) { Key(KeyValue(262)); WaitUi(20); },
             [](MphRead::RenderWindow&)
             {
                 Click([](Av::Controls::Control& control) { return dynamic_cast<DeckTile*>(&control) != nullptr; });
-                Wait(30);
+                WaitUi(30);
             },
             [](MphRead::RenderWindow& window)
             {
@@ -1410,6 +1414,17 @@ namespace MphRead::Mods::Launcher::Gui
         _shotWait = frames;
     }
 
+    void Shell::WaitUi(std::int32_t frames)
+    {
+        // UI redraw/dispatcher timers use wall time. Uncapped GL draw counts
+        // can expire before the next layout/render even though input worked.
+        // Keep both the draw-count gate and the intended 60 Hz settling time.
+        Wait(frames);
+        g_shotUiReadyAt = std::chrono::steady_clock::now()
+            + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                std::chrono::duration<double>(frames / 60.0));
+    }
+
     void Shell::ClickSettings()
     {
         if (GameFiles::Ready())
@@ -1470,7 +1485,14 @@ namespace MphRead::Mods::Launcher::Gui
         if (surface == nullptr || !surface->ClickOn(match))
         {
             ++_shotMisses;
-            std::cout << "[shellshot] nothing on screen matched the click\n";
+            if (surface && surface->View())
+                for (auto* visual : surface->View()->GetVisualDescendants())
+                    if (auto* control = dynamic_cast<Av::Controls::Control*>(visual); control && match(*control))
+                        std::cout << "[shellshot] missed candidate bounds " << control->Bounds().Width << "x" << control->Bounds().Height << '\n';
+            std::cout << "[shellshot] nothing on screen matched the click at step " << _shotStep
+                << "; " << (surface ? surface->Describe() : "no UI surface") << '\n';
+            if (_window && _shotDirectory)
+                Shot(*_window, "miss-step-" + std::to_string(_shotStep));
         }
     }
 

@@ -649,6 +649,9 @@ namespace MphRead
         // Called around a switch by whoever owns state on the old device.
         inline static std::function<void()> BeforeRendererSwitch{};
         inline static std::function<void(RenderWindow&)> AfterRendererSwitch{};
+        // Diagnostics observe the exact transition, outside simulation: before
+        // any GPU release (true), and after the complete rebuild (false).
+        inline static std::function<void(RenderWindow&, bool)> ObserveRendererSwitch{};
 
         // GameWindow's own window properties, which the C# RenderWindow has by
         // inheriting it.

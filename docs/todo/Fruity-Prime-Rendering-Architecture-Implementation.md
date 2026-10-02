@@ -30,7 +30,7 @@ Phase A～E / H または R1～R20 がすべて完了したという記録では
 | R16: readback | 未対応。非同期 ticket と lifetime / backpressure policy が必要 |
 | R17: error | Vulkan の device loss / surface loss / OOM を `BackendError` へ分類。presentation は typed status を返す。native code を presentation facade まで保持する改善・故障注入は残る |
 | R18: 診断 | 未対応。共通 debug label / timestamp interface が必要 |
-| R19 / Phase H | 同じ fixture で両 backend を検証する `-rhiconformance` を追加。lifetime gate に sampler / VAO を追加。操作・新旧 effect の切替 fixture と動く bot の stress を分けて記録。通常の session teardown は両方8回検査。全 format / recording / failure / presentation ownership stress は引き続き拡張する |
+| R19 / Phase H | 同じ fixture で両 backend を検証する `-rhiconformance` を追加。lifetime gate に sampler / VAO を追加。切替の直前直後で simulation / bomb / particle / texture binding の不変性を検査し、死亡による通常の爆発と区別する。生存中の新旧 effect fixture と動く bot の stress を別々に記録。通常の session teardown は両方8回検査。全 format / recording / failure / presentation ownership / 100-cycle stress は引き続き拡張する |
 | R20: optional pacing | 将来の vendor extension を core RHI に追加しない方針を維持。既存 pacing と optional controller の境界を後続で確認する |
 
 ## 最初の基盤変更
@@ -1031,3 +1031,140 @@ held fixture の PASS はこの active-bot failure の解決を意味しない�
 R10 の frame slot / probe、R16 の async readback、R17～R19 の故障・診断・ownership / format
 stress とレビュー全体の残作業を続ける。Android build / 実機と remote CI は未実行。
 Metal / D3D12 は将来対応。
+
+## 切替直前直後の状態検査とボムの通常寿命（R19 / Phase H）
+
+上記 memory gate の active-bot failure を追跡した。Vulkan 開始時の2回目の切替では、
+main player の HP はすでに0で、元の Lockjaw bomb は **GPU の解放前に** 爆発し、
+effect を unlink 済みだった。C# の `Entities/BombEntity.cs` と native の
+`Entities/BombEntity.cpp` は、ともに owner の HP=0 で countdown=0 / Exploded にする。
+その後 HP=0 の owner で置いた新しい probe bomb も、通常の simulation step で爆発する。
+「Resume 後は owner の生死にかかわらず新旧 bomb の particles が必要」という
+future-time predicate がこの通常寿命を誤って失敗扱いしていた。gameplay の死亡・爆発処理は変更しない。
+
+`RendererSwitchWitness` を追加し、GPU 解放前と完全な再構築後の、途中に simulation step が
+一つも入らない区間を比較する。検査は `FRUITY_SWITCHCHECK` を設定した診断実行だけで動く。
+
+- 同じ Scene、simulation frame / elapsed time、全 player の参照・HP・位置が完全一致する。
+- active bomb の参照・owner・flags・countdown・位置・effect / element / particle の参照が一致する。
+- particle の位置・速度・時刻・寿命・scale / rotation / color / alpha・内部 float fields・
+  ID / owner / drawable 状態と texture binding IDs が一致する。float は bit pattern で比較する。
+- 参照する GPU texture が両側に実在し、同じ handle / extent / layers / mips / format を持つ。
+
+snapshot はこの区間の検査用の参照・数値だけであり、texture pixels の CPU backup や
+GPU readback は追加しない。比較後すぐ解放する。GPU pixels の正しさは既存の描画・画像検査で確認する。
+impact は各 Resume 後に作るため、この witness の particle snapshot 対象は live bomb である。
+
+Resume 後の別検査は、生存 owner なら新旧 bomb の drawable particles と元の effect の所有を
+引き続き要求する。死亡 owner なら、entity が Exploded / countdown=0 / effectなし /
+particles=0 の通常寿命に到達したことを要求する。どちらでも impact と loaded effect definitions の
+保持は必須。owner が死亡したケースを検査対象から外さず、切替そのものの不変性と別に判定する。
+
+`FRUITY_SWITCHCHECK_WITNESS_SELFTEST=1` は最初の試合内切替直前に negative controls を実行する。
+simulation を進める前に HP・particle alpha・texture binding をそれぞれ一時的に変え、
+検査が拒否することを確認して元へ戻す。3種類の拒否と復元後の完全一致を要求する。
+これは検査器の自己検証であり、driver OOM / device loss の故障注入ではない。
+
+### Windows での再実行手順
+
+repo root の PowerShell で以下を実行する。MSVC/vcpkg の build 環境、display、
+両 renderer と extracted game files が必要。`paths.txt` は exe の隣へ配置する。
+Khronos validation coverage には layer の導入とログの `validation=1` の確認が必要。
+同じ `launcher.txt` を使うため、GPU 試験は順番に実行する。
+
+```powershell
+cmd /c tools\build\build-cpp.bat msvc Release
+if ($LASTEXITCODE -ne 0) { throw 'Release build failed' }
+ctest --test-dir tools/build/out/msvc-Release --output-on-failure
+if ($LASTEXITCODE -ne 0) { throw 'CTest failed' }
+
+$captureRoot = "C:/tmp/switch-witness-$(Get-Date -Format yyyyMMdd-HHmmss)"
+$names = @('FRUITY_SWITCHCHECK', 'FRUITY_SHOT_ROOM',
+    'FRUITY_SWITCHCHECK_HOLD_ACTORS', 'FRUITY_SWITCHCHECK_WITNESS_SELFTEST')
+$savedEnv = @{}
+foreach ($name in $names) { $savedEnv[$name] = [Environment]::GetEnvironmentVariable($name, 'Process') }
+Push-Location tools/build/out/msvc-Release
+$prefsPath = Join-Path $PWD 'launcher.txt'
+$hadPrefs = Test-Path -LiteralPath $prefsPath
+$prefsBytes = if ($hadPrefs) { [System.IO.File]::ReadAllBytes($prefsPath) }
+try {
+    $env:FRUITY_SWITCHCHECK = '1'
+    $env:FRUITY_SHOT_ROOM = 'AD2 ALINOS PERCH'
+    $env:FRUITY_SWITCHCHECK_WITNESS_SELFTEST = '1'
+    foreach ($mode in @('held', 'moving')) {
+        $env:FRUITY_SWITCHCHECK_HOLD_ACTORS = if ($mode -eq 'held') { '1' } else { $null }
+        foreach ($backend in @('opengl', 'vulkan')) {
+            $captureDir = "$captureRoot/$mode-$backend"
+            $logPath = "$captureRoot/$mode-$backend.log"
+            New-Item -ItemType Directory -Path $captureDir -Force | Out-Null
+            'q' | & .\FruityPrime.exe -shellshot $captureDir -rhi $backend `
+                -vkvalidation -fpscap 60 -noupdate -debuglog *> $logPath
+            $exitCode = $LASTEXITCODE
+            Select-String -Path $logPath -Pattern `
+                'switch witness|switchcheck context|effect definitions|match kept|source released|VUID|Validation Error'
+            if ($exitCode -ne 0) { throw "${mode}/${backend}: inspect $logPath" }
+            if (@(Select-String -Path $logPath -SimpleMatch '[switch witness] PASS;').Count -ne 3) {
+                throw "Missing transition coverage: $logPath"
+            }
+            if (@(Select-String -Path $logPath -SimpleMatch '[switch witness] negative controls PASS;').Count -ne 1) {
+                throw "Missing negative controls: $logPath"
+            }
+            if (Select-String -Path $logPath -Pattern 'VUID|Validation Error|lifecycle FAIL') {
+                throw "Renderer/lifecycle validation failed: $logPath"
+            }
+        }
+    }
+} finally {
+    if ($hadPrefs) { [System.IO.File]::WriteAllBytes($prefsPath, $prefsBytes) }
+    elseif (Test-Path -LiteralPath $prefsPath) { Remove-Item -LiteralPath $prefsPath }
+    foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $savedEnv[$name], 'Process') }
+    Pop-Location
+}
+Write-Output "Captures and logs: $captureRoot"
+```
+
+各 process は front screen で1回、PLAY → Offline の hunter preview を通り、Sylux + 7 actors の
+Alinos Perch で Pause → Settings → Renderer → Apply → Resume を3回実行する。
+同じ scene / 進む simulation、visible window / geometry、105/105 effect definitions、
+texture-only source が切替中 alive / scene 終了時 released であることを要求する。
+held は非 main の controls を止め、全6切替で生存中の新旧 bomb と impact の各2 particles を要求する。
+moving は bots を動かすので、HP=0 の場合は上記の爆発条件と transition witness を確認する。
+bot の攻撃結果は frame timing に依存し、必ず死亡ケースになる試験ではない。
+
+held の `switch-effects-0-before.png` と `switch-3-match.png` / `switch-4-match.png` /
+`switch-5-match.png` を開き、crosshair 左の黄色 impact、右の青い Lockjaw core を確認する。
+moving の死亡後に core がない画像は、healthy owner の表示回帰の代替にはしない。
+手動での発砲入力と Lockjaw snare triangles はこの emitter-placement fixture の対象外。
+
+### 今回の証拠と残る範囲
+
+- 原因追跡: `C:/tmp/gp/architecture-probe-context-moving-20261002-150743/vulkan.log` は旧 predicate で exit 1。
+  HP=0 の owner / flags=2 / countdown=0 / effectなしを記録。
+- `C:/tmp/gp/architecture-switch-witness-moving-20261002-152416/vulkan.log` も旧 predicate では exit 1。
+  ただし全3回の transition witness は PASS、切替2・3回目は GPU 解放前から active bomb が0。
+  当時の particle snapshot は部分項目で、後述の全 float / ID の snapshot と区別する。
+- 修正後の moving 両開始 backend は `architecture-switch-witness-final-moving-20261002-153321/` で exit 0。
+  生存 / 死亡それぞれの lifecycle と3種類の negative controls が PASS。
+- 全 particle 項目へ拡張した held 両開始 backend は
+  `C:/tmp/gp/architecture-switch-witness-final-held-20261002-153747/` で exit 0。
+  全6切替の witness と新旧 bomb / impact の表示を確認。最終 Vulkan 画像で黄色 impact / 青い core を目視。
+- 最終ソースの moving Vulkan 開始は
+  `C:/tmp/gp/architecture-switch-witness-delivery-20261002-154925/vulkan.log` で exit 0。
+  transition PASS が3件、negative controls PASS が1件。1回目は HP49 / bomb particles=2、
+  2・3回目は HP0 / 通常の爆発条件 PASS。105/105 definitions、impact particles=2 を保持。
+  Khronos validation 有効、VUID / Validation Error はなし。
+- `C:/tmp/gp/architecture-switch-witness-final-build.log`: 最終 MSVC Release build PASS。
+  `architecture-switch-witness-ctest.log`: 11/11 PASS。
+- この MD の code block をそのまま実行した
+  `C:/tmp/gp/architecture-switch-witness-documented-recipe.log` も PASS。
+  captures / 各 process のログは `C:/tmp/switch-witness-20261002-155326/`。
+  held / moving × OpenGL / Vulkan 開始の全4 process が exit 0、各3回の transition と
+  1回の negative controls が PASS。全 held 切替で impact / 新旧 bomb 各2 particles、
+  moving Vulkan の死亡ケースも通常寿命の条件を満たす。両 held 最終画像の黄色 impact / 青い core を目視。
+  build / CTest 11/11 と validation error=0 を確認。
+
+上記の古い FAIL ログは保持する。この修正は記録された active-bot fixture の誤判定を解消する証拠であり、
+任意の gameplay failure がないことやレビュー全体の完了を意味しない。切替は各 process の試合内3回で、
+Phase H の100-cycle / unload / resize / presentation ownership / format / failure stress は残る。
+R10 の frame slot / probe、R16 の async readback、R17～R19 の残項目を続ける。
+Android と remote CI は未実行。Metal / D3D12 は将来対応で、今回は追加しない。

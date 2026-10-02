@@ -5920,6 +5920,7 @@ namespace MphRead
     // was running comes back.
     void RenderWindow::SwitchRenderer(NativeRuntime::Rhi::SceneBackendRequest request)
     {
+        if (ObserveRendererSwitch) ObserveRendererSwitch(*this, true);
         const NativeRuntime::Rhi::SceneBackendRequest previous = NativeRuntime::Rhi::RequestedSceneBackend();
         const Vector2i clientSize = ClientSize();
         const Vector2i location = Location();
@@ -5971,6 +5972,7 @@ namespace MphRead
             _scene->RebuildGpuAfterSwitch();
         }
         if (AfterRendererSwitch) AfterRendererSwitch(*this);
+        if (ObserveRendererSwitch) ObserveRendererSwitch(*this, false);
     }
 
     RenderWindow::~RenderWindow()

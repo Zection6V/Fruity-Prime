@@ -17,6 +17,7 @@
 #include "UiSurface.hpp"
 #include "../../Diagnostics/LauncherWindowCheck.hpp"
 #include "../../Diagnostics/RhiReadbackCheck.hpp"
+#include "../../Diagnostics/RendererSwitchWitness.hpp"
 #include "../../../GameState.hpp"
 #include "../../../Menu.hpp"
 #include "../../../Renderer.hpp"
@@ -73,6 +74,11 @@
 
 namespace MphRead::Mods::Launcher::Gui
 {
+    namespace
+    {
+        std::unique_ptr<Diagnostics::RendererSwitchWitness> g_switchWitness;
+        bool g_switchWitnessSelfChecked = false;
+    }
     bool Shell::_active = false;
     MphRead::RenderWindow* Shell::_window = nullptr;
     std::shared_ptr<StartScreen> Shell::_front{};
@@ -284,6 +290,29 @@ namespace MphRead::Mods::Launcher::Gui
 
     void Shell::InstallRendererSwitchHooks()
     {
+        MphRead::RenderWindow::ObserveRendererSwitch = [](MphRead::RenderWindow& window, bool before)
+        {
+            if (!std::getenv("FRUITY_SWITCHCHECK")) return;
+            if (before)
+            {
+                g_switchWitness.reset();
+                if (window.HasScene())
+                {
+                    g_switchWitness = std::make_unique<Diagnostics::RendererSwitchWitness>(window.Scene());
+                    if (!g_switchWitnessSelfChecked && std::getenv("FRUITY_SWITCHCHECK_WITNESS_SELFTEST"))
+                    {
+                        g_switchWitness->CheckRejections(window.Scene());
+                        g_switchWitnessSelfChecked = true;
+                    }
+                }
+            }
+            else if (g_switchWitness)
+            {
+                if (!window.HasScene()) throw std::runtime_error("Renderer switch destroyed the witnessed match.");
+                g_switchWitness->Validate(window.Scene());
+                g_switchWitness.reset();
+            }
+        };
         MphRead::RenderWindow::BeforeRendererSwitch = []() { ReleaseWindowGpu(); };
         MphRead::RenderWindow::AfterRendererSwitch = [](MphRead::RenderWindow& window)
         {
@@ -647,6 +676,8 @@ namespace MphRead::Mods::Launcher::Gui
 
     void Shell::RequestShots(std::string directory)
     {
+        g_switchWitness.reset();
+        g_switchWitnessSelfChecked = false;
         _shotDirectory = std::move(directory);
         _shotStep = 0;
         _shotWait = 0;
@@ -736,8 +767,28 @@ namespace MphRead::Mods::Launcher::Gui
         std::shared_ptr<MphRead::Effects::EffectEntry> g_impactProbe{};
         std::weak_ptr<MphRead::Entities::BombEntity> g_bombProbe{};
         std::weak_ptr<MphRead::Entities::BombEntity> g_existingBombProbe{};
+        std::weak_ptr<MphRead::Effects::EffectEntry> g_existingBombEffect{};
+        std::weak_ptr<MphRead::Entities::PlayerEntity> g_bombOwner{};
+        std::weak_ptr<MphRead::Entities::PlayerEntity> g_existingBombOwner{};
         bool g_expectExistingBomb = false;
         std::uint64_t g_effectProbeFrame = 0;
+
+        void LogSwitchProbeContext(MphRead::RenderWindow& window, const char* step)
+        {
+            const auto player = MphRead::Entities::PlayerEntity::Main();
+            const auto existing = g_existingBombProbe.lock();
+            const auto expected = g_existingBombEffect.lock();
+            const auto owner = existing ? existing->Owner() : nullptr;
+            std::cout << "[switchcheck context] " << step << "; frame=" << window.Scene().FrameCount()
+                << "; main-health=" << (player ? player->Health() : -1)
+                << "; owned-bombs=" << (player ? static_cast<int>(player->SyluxBombCount()) : -1)
+                << "; existing-owner-health=" << (owner ? owner->Health() : -1)
+                << "; existing-flags=" << (existing ? static_cast<int>(existing->Flags()) : -1)
+                << "; existing-countdown=" << (existing ? existing->Countdown() : -1)
+                << "; original-effect-alive=" << (expected ? "yes" : "no")
+                << "; original-effect-still-owned=" << (existing && expected && existing->Effect() == expected ? "yes" : "no")
+                << '\n';
+        }
 
         void SpawnSwitchEffects(MphRead::RenderWindow& window)
         {
@@ -745,6 +796,8 @@ namespace MphRead::Mods::Launcher::Gui
             g_effectProbeFrame = scene.FrameCount();
             if (g_impactProbe) scene.UnlinkEffectEntry(g_impactProbe);
             const auto player = MphRead::Entities::PlayerEntity::Main();
+            LogSwitchProbeContext(window, "before probe placement");
+            g_bombOwner = player;
             const auto camera = player->CameraInfo();
             const auto facing = camera->Facing.Normalized();
             const auto right = OpenTK::Mathematics::Vector3::Cross(facing, camera->UpVector).Normalized();
@@ -756,6 +809,9 @@ namespace MphRead::Mods::Launcher::Gui
             g_bombProbe = MphRead::Entities::BombEntity::Spawn(player.get(),
                 MphRead::Entities::EntityBase::GetTransformMatrix(facing, camera->UpVector,
                     position + OpenTK::Mathematics::ScaleVector(right, 0.7F)), &scene);
+            const auto bomb = g_bombProbe.lock();
+            std::cout << "[switchcheck context] placed bomb; owner-health=" << player->Health()
+                << "; frame=" << scene.FrameCount() << "; countdown=" << (bomb ? bomb->Countdown() : -1) << '\n';
         }
 
         // Place the fixtures immediately before effect processing, after all
@@ -787,6 +843,7 @@ namespace MphRead::Mods::Launcher::Gui
 
         void CheckSwitchEffects(MphRead::RenderWindow& window, const char* step)
         {
+            LogSwitchProbeContext(window, step);
             int retained = 0;
             for (const auto& [id, source] : g_switchEffects)
                 if (auto effect = source.lock(); effect && MphRead::Read::GetEffect(id) == effect) ++retained;
@@ -804,6 +861,21 @@ namespace MphRead::Mods::Launcher::Gui
             const int bombParticles = drawable(bomb ? bomb->Effect() : nullptr);
             const auto existingBomb = g_existingBombProbe.lock();
             const int existingBombParticles = drawable(existingBomb ? existingBomb->Effect() : nullptr);
+            const auto owner = g_bombOwner.lock();
+            const auto existingOwner = g_existingBombOwner.lock();
+            const bool ownerDead = owner && owner->Health() == 0;
+            const bool existingOwnerDead = existingOwner && existingOwner->Health() == 0;
+            const auto exploded = [](const auto& entity, int particles) {
+                return entity && entity->Flags() == MphRead::Entities::BombFlags::Exploded
+                    && entity->Countdown() == 0 && !entity->Effect() && particles == 0;
+            };
+            // C# and native BombEntity both explode Lockjaw when its owner dies.
+            // This future-time probe must require that lifecycle, while the
+            // exact-transition witness separately forbids changes during switch.
+            const bool newBombValid = ownerDead ? exploded(bomb, bombParticles) : bombParticles > 0;
+            const auto originalEffect = g_existingBombEffect.lock();
+            const bool existingBombValid = existingOwnerDead ? exploded(existingBomb, existingBombParticles)
+                : existingBombParticles > 0 && originalEffect && existingBomb && existingBomb->Effect() == originalEffect;
             std::cout << "[switchcheck] " << step << ": effect definitions " << retained << '/'
                 << g_switchEffects.size() << ", impact particles " << impactParticles
                 << ", Lockjaw particles " << bombParticles
@@ -816,19 +888,29 @@ namespace MphRead::Mods::Launcher::Gui
                 << ", existing bomb entity alive " << (existingBomb ? "yes" : "no")
                 << ", existing bomb flags " << (existingBomb ? static_cast<int>(existingBomb->Flags()) : -1)
                 << ", existing bomb countdown " << (existingBomb ? existingBomb->Countdown() : -1)
+                << ", owner death expected " << (ownerDead ? "yes" : "no")
+                << ", bomb lifecycle " << (newBombValid ? "PASS" : "FAIL")
+                << ", existing lifecycle " << (!g_expectExistingBomb || existingBombValid ? "PASS" : "FAIL")
                 << ", state " << static_cast<int>(MphRead::GameState::MatchState())
                 << ", elapsed " << window.Scene().ElapsedTime() << '\n';
             if (g_switchEffects.empty() || retained != static_cast<int>(g_switchEffects.size())
-                || impactParticles == 0 || bombParticles == 0
-                || (g_expectExistingBomb && existingBombParticles == 0)) ++Shell::ShotMissCounter();
+                || impactParticles == 0 || !newBombValid
+                || (g_expectExistingBomb && !existingBombValid)) ++Shell::ShotMissCounter();
             if (g_expectExistingBomb && bomb) bomb->SetCountdown(1);
-            else { g_existingBombProbe = bomb; g_expectExistingBomb = true; }
+            else
+            {
+                g_existingBombProbe = bomb;
+                g_existingBombEffect = bomb ? bomb->Effect() : nullptr;
+                g_existingBombOwner = g_bombOwner;
+                g_expectExistingBomb = true;
+            }
             if (g_impactProbe) window.Scene().UnlinkEffectEntry(g_impactProbe);
             g_impactProbe.reset();
         }
 
         void NoteMatch(MphRead::RenderWindow& window)
         {
+            LogSwitchProbeContext(window, "before settings switch");
             g_switchScene = window.HasScene() ? &window.Scene() : nullptr;
             g_switchFrame = window.HasScene() ? window.Scene().FrameCount() : 0;
             g_switchBackend = MphRead::NativeRuntime::Rhi::SelectedSceneBackend();

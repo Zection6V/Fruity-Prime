@@ -118,6 +118,8 @@ set(FRUITY_RENDERER_GPU_MESH_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestRendererGpuMesh.cpp")
 set(FRUITY_RHI_LIFETIME_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestRhiLifetime.cpp")
+set(FRUITY_VULKAN_UNIFORMS_TEST_SOURCE
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanSceneUniforms.cpp")
 set(FRUITY_VULKAN_DESCRIPTOR_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanDescriptorAllocator.cpp")
 set(FRUITY_VULKAN_PIPELINE_CACHE_TEST_SOURCE
@@ -165,6 +167,7 @@ list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES
     "${FRUITY_RHI_LIFETIME_TEST_SOURCE}"
     "${FRUITY_VULKAN_PIPELINE_CACHE_TEST_SOURCE}"
     "${FRUITY_VULKAN_DESCRIPTOR_TEST_SOURCE}"
+    "${FRUITY_VULKAN_UNIFORMS_TEST_SOURCE}"
     "${FRUITY_GOLDEN_CAPTURE_VALIDATION_TEST_SOURCE}")
 
 # Android owns the Activity/View/EGL shell under MphRead.Native.Android, but
@@ -333,6 +336,14 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
     add_test(NAME FruityPrime.RhiLifetime COMMAND fruity_rhi_lifetime_tests)
 
     if(Vulkan_FOUND)
+        add_executable(fruity_vulkan_uniform_tests "${FRUITY_VULKAN_UNIFORMS_TEST_SOURCE}")
+        target_include_directories(fruity_vulkan_uniform_tests PRIVATE "${FRUITY_MPHREAD_ROOT}" "${FRUITY_VULKAN_SHADER_DIR}")
+        target_compile_features(fruity_vulkan_uniform_tests PRIVATE cxx_std_20)
+        add_dependencies(fruity_vulkan_uniform_tests fruity_vulkan_shaders)
+        add_test(NAME FruityPrime.VulkanSceneUniforms COMMAND fruity_vulkan_uniform_tests)
+        add_test(NAME FruityPrime.SceneShaderAbiDrift COMMAND Python3::Interpreter
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/test-scene-shader-abi.py" --directory "${FRUITY_VULKAN_SHADER_DIR}")
+
         add_executable(fruity_vulkan_descriptor_tests
             "${FRUITY_VULKAN_DESCRIPTOR_TEST_SOURCE}"
             "${FRUITY_MPHREAD_ROOT}/NativeRuntime/Rhi/Vulkan/VulkanDescriptorAllocator.cpp")

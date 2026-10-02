@@ -810,6 +810,12 @@ namespace MphRead::Mods::Launcher::Gui
                 << ", existing Lockjaw particles " << existingBombParticles
                 << ", impact elements " << (g_impactProbe ? g_impactProbe->Elements->size() : 0)
                 << ", bomb elements " << (bomb && bomb->Effect() ? bomb->Effect()->Elements->size() : 0)
+                << ", bomb entity alive " << (bomb ? "yes" : "no")
+                << ", bomb flags " << (bomb ? static_cast<int>(bomb->Flags()) : -1)
+                << ", bomb countdown " << (bomb ? bomb->Countdown() : -1)
+                << ", existing bomb entity alive " << (existingBomb ? "yes" : "no")
+                << ", existing bomb flags " << (existingBomb ? static_cast<int>(existingBomb->Flags()) : -1)
+                << ", existing bomb countdown " << (existingBomb ? existingBomb->Countdown() : -1)
                 << ", state " << static_cast<int>(MphRead::GameState::MatchState())
                 << ", elapsed " << window.Scene().ElapsedTime() << '\n';
             if (g_switchEffects.empty() || retained != static_cast<int>(g_switchEffects.size())

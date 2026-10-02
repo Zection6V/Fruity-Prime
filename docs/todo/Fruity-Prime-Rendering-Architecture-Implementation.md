@@ -15,16 +15,16 @@ Phase A～E / H または R1～R20 がすべて完了したという記録では
 | 項目 | 現在の実装・残作業 |
 |---|---|
 | R1: 選択と Provider | `SceneBackendKind` を `GraphicsBackend` へ統合。OpenGL / Vulkan Provider と Session を登録し、shader・mesh・transient geometry・UI・表示生成を委譲。共通描画経路への統一は R6 / R15 で続ける |
-| R2: shader ABI | `SceneShaderSources` と論理グループ・binding を共通 RHI へ移動。std140 packing は Vulkan 側に残す。`ShaderDesc` に形式を明示。**本番の生成 manifest / SPIR-V と論理グループの接続・検証は残る** |
-| R3: PipelineLayout | 複数グループの記述を値で所有。両 backend の generic pipeline / binding を共通 GPU fixture で検証。cache key に全グループを含める。scene の生成 shader adapter の整理は残る |
+| R2: shader ABI | `SceneShaderAbi.def` を本番5 programs / 55 constants / 7 textures の共通定義にし、OpenGL texture units と Vulkan 生成 manifest / 実 SPIR-V / native layouts を接続。実バイナリの type・offset・stride・set/binding・vertex location を build 時に検証。std140 packing は Vulkan 内部。単体9/9と固定14画像の一致を確認 |
+| R3: PipelineLayout | 複数グループの記述を値で所有。両 backend の generic pipeline / binding を共通 GPU fixture で検証。cache key に全グループを含め、本番 Vulkan scene も Frame / Material / Draw / Post の4 layouts を使う。全 format / failure stress は R19 で続ける |
 | R4 / R5: submission と resize | 共通 `SubmissionSerial` / `SubmissionProgress` に Vulkan timeline と OpenGL GLsync scheduler を接続。frame number を retirement の証拠にしない。Vulkan は Buffer / Sampler / Image / ImageView / Pipeline を実際の送信完了で破棄し、resize は先に画像・全ビューを確保して旧世代を retire。OpenGL はフレーム外の command / resource release も実際の stream marker で覆う。GL marker の集約、残る ownership / format stress は後続で扱う |
-| R6 / R7: OpenGL command / sampler | Buffer / vertex・index binding / Draw / DrawIndexed / GPU Copy / BindingSet と独立 sampler・value cache を実装。Windows scene / transient geometry を同じ Buffer / CommandList / VAO 経由へ接続。共通 GPU fixture と旧新7画像の一致を確認。単一2D画像以外の範囲、packed depth/stencil copy、recording 契約の統一、本番 shader ABI 接続は残る |
+| R6 / R7: OpenGL command / sampler | Buffer / vertex・index binding / Draw / DrawIndexed / GPU Copy / BindingSet と独立 sampler・value cache を実装。Windows scene / transient geometry を同じ Buffer / CommandList / VAO 経由へ接続。共通 GPU fixture と旧新7画像の一致を確認。単一2D画像以外の範囲、packed depth/stencil copy、recording 契約の統一は残る |
 | R8: Session 寿命 | Vulkan の意図的に解放しない `VulkanScene` を削除。切替で scene / UI → commands → swapchain → device / context → window の順に解放する。OpenGL device は Session が単独所有。Vulkan も device 終了時に全 native owner を閉じ、shared state を context 非依存の CPU descriptor にする。両 backend で未送信 copy / 旧 wrapper を残す8回の shutdown / recreate を検査。swapchain は Session 終了前に解放する caller 契約を維持。device loss / admission failure の teardown は R17 / Phase H で続ける |
 | R9: presentation | request と実際の mode / capabilities を分離。typed acquire / present status を実装し、frame loop で利用。最小化・明示的 close request は一時停止、API の device / surface loss は別分類。OpenGL の generic conformance coverage は R19 で拡張する |
 | R10 / R12 / R13 | `VulkanFrameScheduler` が実際の queue submit / completion を担当。`VulkanDescriptorAllocator` に generic / scene 共通の pool admission・overflow・完了後 reset・close を分離し、CPU fault dispatch と GPU churn を検査。pipeline library は R11 の専用 owner。frame slot / memory / upload の分離、budget / upload ring は残る |
 | R11: native pipeline library | 既存 semantic cache を維持し、専用 `VulkanPipelineCache` を全 RHI native graphics pipeline 生成へ接続。identity / framing / checksum / size gate、atomic disk replacement、driver rejection / native cache 不可時の fallback と deterministic close を実装。CPU fault dispatch と実 GPU の cold / warm・破損・保存失敗を検証。速度向上・cache hit の計測は未実施。OpenGL は既存 linked-program cache、Metal / D3D12 は将来対応 |
 | R14: eligibility / admission | Vulkan passive probe は instance / physical device の確認で止まり、logical device / queue を作らない。incoming Session の device / swapchain 生成が active admission。失敗注入による復旧検証は残る |
-| R15: GL vertex interface | Windows scene / transient / launcher UI を explicit input と RHI Buffer / CommandList / VAO へ統一。desktop wrapper の conventional array / current-value mirror を除去し、頂点位置を Vulkan と共通化。GPU composite / 旧新14画像の一致を確認。本番 binding ABI の接続は R2、既存の backend 間 caption 差は画像 gate に残る |
+| R15: GL vertex interface | Windows scene / transient / launcher UI を explicit input と RHI Buffer / CommandList / VAO へ統一。desktop wrapper の conventional array / current-value mirror を除去。本番 GLSL declarations と共通 ABI、実 SPIR-V vertex location の一致を検査。GPU composite / 旧新14画像の一致を確認。既存の backend 間 caption 差は画像 gate に残る |
 | R16: readback | 未対応。非同期 ticket と lifetime / backpressure policy が必要 |
 | R17: error | Vulkan の device loss / surface loss / OOM を `BackendError` へ分類。presentation は typed status を返す。native code を presentation facade まで保持する改善・故障注入は残る |
 | R18: 診断 | 未対応。共通 debug label / timestamp interface が必要 |
@@ -718,3 +718,108 @@ R10 全体は未完了。frame slot / VMA memory / upload の change axis は続
 page の high water 保持は admission budget / eviction の完成ではなく、R12 の残作業。
 R2 の本番 shader ABI、R13 の upload ring、R16 の非同期 readback、R17 の実 driver 故障注入も残る。
 Android build / 実機、remote CI は未実行。Metal / D3D12 は将来対応。
+
+## 本番 shader ABI の接続（R2 / R3 / R15）
+
+`SceneShaderAbi.def` に論理 binding、constant の型と配列数、texture / sampler の組と
+OpenGL texture unit を定義する。C++ の共通 ABI header と shader 生成ツールが同じ定義を読む。
+native API の buffer offset や std140 padding はここへ持ち込まない。
+対象は main / composite / cel / shift / backdrop の5 programs、55 constants、7 textures。
+
+- 生成ツールは本番 `Shaders.cpp` の GLSL declarations と型・配列数・名前を照合する。
+  未定義 uniform / vertex attribute、重複 binding、desktop vertex location の相違で停止する。
+  OpenGL の sampler 初期化と backdrop も共通 texture unit を使う。
+- Vulkan は Frame / Material / Draw / Post の4 descriptor set layouts を使う。
+  使わない group の空 layout も保持し、scene pipeline の cache key に全 layout を含める。
+  textures は manifest の明示 unit / group / image binding / sampler binding で接続する。
+- std140 は Vulkan の生成 adapter が計算する。embed 前に `reflect_scene_spirv.py` が
+  コンパイル済み10 SPIR-V modules を独立に読み、実際の type / count / offset /
+  array stride / column-major matrix stride / block size / set / binding / vertex input を照合する。
+  runtime が使う member table と block 内の table の一致も要求する。
+  これは interface の検査であり、SPIR-V の全 instruction validity を検証するツールではない。
+  仕様参照: [Khronos SPIR-V specification](https://registry.khronos.org/SPIR-V/specs/unified1/SPIRV.html)。
+- `VulkanSceneUniforms` は生成 metadata を使う本番 packer。
+  不正な型・サイズ・配列幅・重複・範囲外を拒否し、配列の padding と隣接 constant を保持する。
+  値が変わった block だけ generation を進める。描画時もその block だけを ring へ書き、
+  影響した group に新しい descriptor set を作る。GPU 使用中の set は上書きしない。
+  command slot / ring の再利用時には upload / set cache を無効化する。
+- 未使用の手書き std140 prototype と raw shader snippets を削除した。
+  prototype の検査に代えて、本番 declarations / 生成 metadata / 実 packer / 実 SPIR-V を検査する。
+  gameplay / AI / effect lifetime の判定は変更しない。
+
+### 単体検査と再実行
+
+MSVC Release build、CTest **9/9**、shader interface audit **20 sources** が成功。
+22→20 は未使用の prototype snippets 2つの削除によるもので、本番 shader の削減ではない。
+
+`FruityPrime.VulkanSceneUniforms` は全5 programs / 55 constants を本番 packer へ書き、
+実 offset / stride / matrix order、配列の上限、padding / 隣接値保持、block ごとの generation、
+同じ値で再 upload しないこと、不正 metadata / write の拒否を検査する。GPU は不要。
+`FruityPrime.SceneShaderAbiDrift` は生成済みの実10 modules を使い、set / binding /
+offset / array・matrix stride / vertex location / type / count / image dimension /
+entry stage / binary framing / manifest / stale schema を壊して拒否を確認する7ケース。
+OpenGL-only build の `ShaderInterface` も本番 GLSL と共通定義を照合する。
+
+repo root の PowerShell、MSVC Release build と game files / paths.txt 配置済み:
+
+```powershell
+ctest --test-dir tools/build/out/msvc-Release --output-on-failure
+python tools/check-phase5-shader-interface.py
+Push-Location tools/build/out/msvc-Release
+try {
+    & .\FruityPrime.exe -rhiconformance -noupdate
+    if ($LASTEXITCODE -ne 0) { throw 'RHI conformance failed' }
+    & .\FruityPrime.exe -vulkanresourcecheck -noupdate
+    if ($LASTEXITCODE -ne 0) { throw 'Vulkan resource regression failed' }
+    & .\FruityPrime.exe -gpulifetime 'AD2 ALINOS PERCH' -cycles 40 -frames 3 -rhi vulkan -vkvalidation -noupdate
+    if ($LASTEXITCODE -ne 0) { throw 'Vulkan lifetime regression failed' }
+    foreach ($backend in @('opengl', 'vulkan')) {
+        $captureDirectory = "C:/tmp/gp/sceneabi-repeat-$backend-$(Get-Date -Format yyyyMMdd-HHmmss)"
+        & .\FruityPrime.exe -goldencapture all -goldendir $captureDirectory -rhi $backend -vkvalidation -noupdate
+        if ($LASTEXITCODE -ne 0) { throw "$backend capture failed" }
+    }
+} finally { Pop-Location }
+```
+
+Settings 保存 / Resume を使う切替は
+[既存の Windows 再実行手順](old/Fruity-Prime-CPP-Renderer-Hot-Switch-Fix-2026-10-01.md#repeating-the-effect-regression-on-windows)
+を使う。settings file と環境変数を保存・復元する。通常の動く bots の試験と
+`FRUITY_SWITCHCHECK_HOLD_ACTORS=1` の effect fixture を区別して記録する。
+診断ログには新旧 bomb entity の生存・flags・countdown を追加した。
+粒子が0のとき、描画だけが消えたのか entity が通常の試合処理で終わったのかを追えるようにする。
+
+### 今回の実 GPU 結果
+
+NVIDIA GeForce RTX 5070 Ti、Khronos validation 有効。
+
+- `C:/tmp/gp/architecture-sceneabi-final-conformance.log`: 共通 GPU fixture と
+  両 backend の未送信 copy / old wrappers を残した shutdown / recreate 各8回 PASS。
+- `C:/tmp/gp/architecture-sceneabi-final-resourcecheck.log`: 実4 group layouts と
+  descriptor / resource churn 64回 PASS。live / retired / validation errors=0。
+- `C:/tmp/gp/architecture-sceneabi-final-golden-{opengl,vulkan}/`: 7ケースずつ PASS。
+  直前の descriptor allocator 実装後画像と比べ、全14画像の decoded RGB 差0 bytes。
+  比較表は `C:/tmp/gp/architecture-sceneabi-final-golden-comparison.txt`。
+- `C:/tmp/gp/architecture-sceneabi-final-botdiag-20261002-133151/`: 動く bots の Alinos Perch で
+  両 backend 開始、front screen 各1回と同じ試合の切替各3回 PASS。
+  全6回 definitions=105/105、impact / new bomb / existing bomb 各2 particles。
+  新旧 bomb entity は alive、flags=0。scene / window geometry / visibility を維持し、
+  simulation frame が進む。texture-only source は切替中 alive、scene 解放時 released。
+- `C:/tmp/gp/architecture-sceneabi-final-held-20261002-132946/`: actor controls を止めた
+  fixture も両方向・全6切替 PASS。最終画像で黄色 impact と青い Lockjaw core を目視。
+- `C:/tmp/gp/architecture-sceneabi-final-lifetime40-vulkan.log`: 40/40 PASS、毎回
+  resource / retired=0、最後の completed=submitted=25520、最後2 frames の host waits=0。
+  CPU private memory peak 342→345 MB、0.151 MB/cycle。VRAM budget / 性能向上の測定ではない。
+- `C:/tmp/gp/architecture-sceneabi-final-vulkanpresentcheck.log` と
+  `architecture-sceneabi-final-vulkanpresentfallbackcheck.log`: resize / fullscreen /
+  minimize / restore / shutdown PASS、errors=0、fallback-retired-releases=6。
+
+最初の動く bots の試験 `C:/tmp/gp/architecture-sceneabi-final-bots-20261002-132448/` は
+OpenGL 開始が PASS、Vulkan 開始の最後だけ新旧 bomb の particles / elements が0で exit 1。
+その時も definitions=105/105、impact=2、simulation / scene は継続し、validation error はない。
+以前の動く bots stress でも出た観測であるが、今回は失敗時の entity 状態を記録していないため
+原因を断定できない。failed log は保持する。後続の通常 trial と held fixture の成功で
+この失敗が解決済みとは扱わず、Phase H の actor / effect lifetime stress の追跡に残す。
+
+R10 の frame slot / memory / upload 分離、R12 budget、R13 upload ring、R16 async readback、
+R17～R19 の故障・診断・ownership stress などは引き続き残る。
+Android build / 実機と remote CI は未実行。Metal / D3D12 は今回追加しない。

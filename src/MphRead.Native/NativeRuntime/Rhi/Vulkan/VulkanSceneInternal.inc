@@ -106,22 +106,22 @@ private:
     {
         return static_cast<VulkanSceneProgram*>(_device->CurrentSceneProgram);
     }
-    void Float(std::string_view name, float value) { if (auto* p = Current()) p->Write(name, &value, 4); }
-    void Int(std::string_view name, std::int32_t value) { if (auto* p = Current()) p->Write(name, &value, 4); }
+    void Float(std::string_view name, float value) { if (auto* p = Current()) p->Write(name, &value, 4, SceneShaderAbi::ValueType::Float); }
+    void Int(std::string_view name, std::int32_t value) { if (auto* p = Current()) p->Write(name, &value, 4, SceneShaderAbi::ValueType::Int); }
     void Vec3(std::string_view name, const Vector3& v)
     {
         const float data[3]{v.X, v.Y, v.Z};
-        if (auto* p = Current()) p->Write(name, data, sizeof(data));
+        if (auto* p = Current()) p->Write(name, data, sizeof(data), SceneShaderAbi::ValueType::Vec3);
     }
     void Vec4(std::string_view name, const Vector4& v)
     {
         const float data[4]{v.X, v.Y, v.Z, v.W};
-        if (auto* p = Current()) p->Write(name, data, sizeof(data));
+        if (auto* p = Current()) p->Write(name, data, sizeof(data), SceneShaderAbi::ValueType::Vec4);
     }
     // Untransposed: Matrix4's memory order is what glUniformMatrix4fv(false) reads.
     void Mat4(std::string_view name, const Matrix4& m)
     {
-        if (auto* p = Current()) p->Write(name, &m.M11, 64);
+        if (auto* p = Current()) p->Write(name, &m.M11, 64, SceneShaderAbi::ValueType::Mat4);
     }
 
     std::shared_ptr<VulkanDeviceState> _device;
@@ -135,15 +135,15 @@ public:
         : _device(std::move(device)), _constants(_device)
     {
         Add(SceneProgram::Main, Generated::main_vert, Generated::main_frag, Generated::main_uniforms,
-            Generated::main_textures, Generated::main_uniform_size);
+            Generated::main_textures, Generated::main_blocks);
         Add(SceneProgram::Composite, Generated::composite_vert, Generated::composite_frag,
-            Generated::composite_uniforms, Generated::composite_textures, Generated::composite_uniform_size);
+            Generated::composite_uniforms, Generated::composite_textures, Generated::composite_blocks);
         Add(SceneProgram::Shift, Generated::shift_vert, Generated::shift_frag, Generated::shift_uniforms,
-            Generated::shift_textures, Generated::shift_uniform_size);
+            Generated::shift_textures, Generated::shift_blocks);
         Add(SceneProgram::CelOutline, Generated::cel_vert, Generated::cel_frag, Generated::cel_uniforms,
-            Generated::cel_textures, Generated::cel_uniform_size);
+            Generated::cel_textures, Generated::cel_blocks);
         Add(SceneProgram::Backdrop, Generated::backdrop_vert, Generated::backdrop_frag,
-            Generated::backdrop_uniforms, Generated::backdrop_textures, Generated::backdrop_uniform_size);
+            Generated::backdrop_uniforms, Generated::backdrop_textures, Generated::backdrop_blocks);
         // What OpenGlSceneShaderSet sets as it links: the shift table on the
         // shift program and the toon table on the main one, which is left current.
         Program(SceneProgram::Shift).WriteArray("shift_table", shiftTable.data(), 1,
@@ -174,15 +174,16 @@ private:
         throw std::invalid_argument("Vulkan RHI: unknown scene program.");
     }
 
-    template <typename VertexWords, typename FragmentWords, typename Uniforms, typename Textures>
+    template <typename VertexWords, typename FragmentWords, typename Uniforms, typename Textures, typename Blocks>
     void Add(SceneProgram id, const VertexWords& vertexWords, const FragmentWords& fragmentWords,
-        const Uniforms& uniforms, const Textures& textures, std::uint32_t size)
+        const Uniforms& uniforms, const Textures& textures, const Blocks& blocks)
     {
-        auto program = std::make_unique<VulkanSceneProgram>();
+        auto program = std::make_unique<VulkanSceneProgram>(blocks, uniforms);
         program->Id = id;
         const auto shader = [&](const auto& words, ShaderStage stage) {
             ShaderDesc desc{};
             desc.stage = stage;
+            desc.format = ShaderCodeFormat::SpirV;
             desc.code.resize(words.size() * sizeof(std::uint32_t));
             std::memcpy(desc.code.data(), words.data(), desc.code.size());
             auto module = std::make_unique<VulkanShader>(_device, desc);
@@ -191,19 +192,20 @@ private:
         };
         program->Vertex = shader(vertexWords, ShaderStage::Vertex);
         program->Fragment = shader(fragmentWords, ShaderStage::Fragment);
-        BindingLayoutDesc layout{};
-        layout.entries.push_back({0, BindingType::UniformBuffer, ShaderStage::AllGraphics, 1});
+        std::array<BindingLayoutDesc, SceneShaderAbi::GroupCount> layouts{};
+        for (const auto& block : blocks)
+        {
+            layouts.at(block.group).entries.push_back({block.binding, BindingType::UniformBuffer, ShaderStage::AllGraphics, 1});
+        }
         for (const auto& texture : textures)
         {
+            auto& layout = layouts.at(texture.group);
             layout.entries.push_back({texture.image, BindingType::SampledTexture, ShaderStage::AllGraphics, 1});
             layout.entries.push_back({texture.sampler, BindingType::Sampler, ShaderStage::AllGraphics, 1});
-            program->Textures.emplace_back(texture.image, texture.sampler);
+            program->Textures.push_back(texture);
         }
-        program->Layout = std::make_unique<VulkanBindingLayout>(_device, layout);
-        program->Block.assign(size, std::byte{0});
-        for (const auto& member : uniforms)
-            program->Members.emplace(member.name, VulkanSceneProgram::Member{member.offset, member.size, member.count});
-        if (const auto* alpha = program->Find("alpha_test")) program->AlphaTestOffset = alpha->Offset;
+        for (std::uint32_t group = 0; group < SceneShaderAbi::GroupCount; ++group)
+            program->Layouts[group] = std::make_unique<VulkanBindingLayout>(_device, layouts[group]);
         _programs.push_back(std::move(program));
     }
 
@@ -444,9 +446,9 @@ void WindowUi::DrawTexture(const Texture& texture, const Sampler& sampler,
     const float one = 1.0F;
     const std::int32_t no = 0;
     const float none[4]{};
-    program.Write("alpha", &one, 4);
-    program.Write("use_mask", &no, 4);
-    program.Write("fade_color", none, 16);
+    program.Write("alpha", &one, 4, SceneShaderAbi::ValueType::Float);
+    program.Write("use_mask", &no, 4, SceneShaderAbi::ValueType::Int);
+    program.Write("fade_color", none, 16, SceneShaderAbi::ValueType::Vec4);
     commands.BindSampledTexture(0, &texture, &sampler);
     commands.BindSampledTexture(1, nullptr, nullptr);
     _impl->Quad(strip);
@@ -461,10 +463,10 @@ void WindowUi::DrawBackdrop(const Texture& photo, const Sampler& sampler,
     auto& program = _impl->Program(SceneProgram::Backdrop);
     const float width = static_cast<float>(_impl->Width);
     const float height = static_cast<float>(_impl->Height);
-    program.Write("strength", &strength, 4);
-    program.Write("time", &seconds, 4);
-    program.Write("view_width", &width, 4);
-    program.Write("view_height", &height, 4);
+    program.Write("strength", &strength, 4, SceneShaderAbi::ValueType::Float);
+    program.Write("time", &seconds, 4, SceneShaderAbi::ValueType::Float);
+    program.Write("view_width", &width, 4, SceneShaderAbi::ValueType::Float);
+    program.Write("view_height", &height, 4, SceneShaderAbi::ValueType::Float);
     commands.BindSampledTexture(0, &photo, &sampler);
     _impl->Quad(strip);
     commands.BindSampledTexture(0, nullptr, nullptr);

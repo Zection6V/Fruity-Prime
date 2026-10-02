@@ -6,29 +6,19 @@ Compilation is deliberately separate, so CMake can own the glslc commands.
 import argparse
 import json
 import re
+from scene_shader_abi import read_contract, read_programs, UNIFORM
 from pathlib import Path
 
 
 def generate(source, output):
-    shaders = dict(re.findall(
-        r'const std::string Shaders::(\w+) = R"shader\((.*?)\)shader";',
-        source.read_text(encoding="utf-8"), re.S))
-    programs = {
-        "main": ("VertexShader", "FragmentShader"),
-        "composite": ("RttVertexShader", "RttFragmentShader"),
-        "cel": ("RttVertexShader", "CelFragmentShader"),
-        "shift": ("RttVertexShader", "ShiftFragmentShader"),
-        # The launcher's moving photograph, drawn into the window when the
-        # window presents through Vulkan and there is no GL context for it.
-        "backdrop": ("BackdropVertexShader", "BackdropFragmentShader"),
-    }
-    declaration = re.compile(r'^uniform (\w+)(?:\[(\d+)\])? (\w+);$', re.M)
-    locations = {"a_position": 0, "a_normal": 1, "a_color": 2,
-                 "a_texcoord": 3, "a_texcoord1": 4}
+    contract = read_contract()
+    programs = read_programs(source, contract)
+    declaration = UNIFORM
+    locations = contract['locations']
     output.mkdir(parents=True, exist_ok=True)
-    manifest = {}
-    for program, names in programs.items():
-        bodies = [shaders[name] for name in names]
+    manifest = dict(version=2, schema_digest=contract['digest'], group_count=len(contract['groups']), programs={})
+    for program, inputs in programs.items():
+        bodies = inputs["bodies"]
         # Legacy GL accepts unused unmatched varyings. Vulkan requires every
         # declared fragment input to have a vertex output even with -O0.
         for index, body in enumerate(bodies):
@@ -36,36 +26,38 @@ def generate(source, output):
                 if len(re.findall(r'\b' + re.escape(name) + r'\b', body)) == 1:
                     body = re.sub(r'^varying ' + kind + ' ' + name + r';$', '', body, flags=re.M)
             bodies[index] = body
-        uniforms = {}
-        for body in bodies:
-            for kind, count, name in declaration.findall(body):
-                value = (kind, int(count) if count else 0)
-                if name in uniforms and uniforms[name] != value:
-                    raise ValueError(f"Conflicting uniform {program}.{name}")
-                uniforms[name] = value
-        offset = 0
-        members, textures, metadata = [], [], []
-        binding = 1
-        for name, (kind, count) in uniforms.items():
-            if kind == "sampler2D":
-                textures += [f"layout(set=0,binding={binding}) uniform texture2D {name}_image;",
-                             f"layout(set=0,binding={binding+1}) uniform sampler {name}_sampler;",
+        blocks, textures, metadata = {}, [], []
+        for name, (kind, count) in inputs['uniforms'].items():
+            if kind == 'sampler2D':
+                item = contract['textures'][program, name]
+                textures += [f"layout(set={item['group']},binding={item['image_binding']}) uniform texture2D {name}_image;",
+                             f"layout(set={item['group']},binding={item['sampler_binding']}) uniform sampler {name}_sampler;",
                              f"#define {name} sampler2D({name}_image, {name}_sampler)"]
-                metadata.append(dict(name=name, image_binding=binding, sampler_binding=binding+1))
-                binding += 2
+                metadata.append(dict(name=name, **item))
                 continue
+            logical = contract['constants'][program, name]
+            identity = logical['block']
+            binding = contract['bindings'][identity]
+            block = blocks.setdefault(identity, dict(semantic=identity, group=binding['group'], binding=binding['binding'],
+                size=0, members=[], declarations=[]))
             alignment, size = {"bool": (4, 4), "int": (4, 4), "float": (4, 4),
-                               "vec3": (16, 12), "vec4": (16, 16),
-                               "mat4": (16, 64)}[kind]
+                               "vec3": (16, 12), "vec4": (16, 16), "mat4": (16, 64)}[kind]
             if count:
                 alignment = 16
                 size = ((size + 15) // 16 * 16) * count
-            offset = (offset + alignment - 1) // alignment * alignment
+            offset = (block['size'] + alignment - 1) // alignment * alignment
             suffix = f"[{count}]" if count else ""
-            members.append(f"layout(offset={offset}) {kind} {name}{suffix};")
-            metadata.append(dict(name=name, type=kind, count=count, offset=offset, size=size))
-            offset += size
-        block = "layout(std140,set=0,binding=0) uniform SceneConstants {\n" + "\n".join(members) + "\n};\n"
+            block['declarations'].append(f"layout(offset={offset}) {kind} {name}{suffix};")
+            member = dict(name=name, type=kind, count=count, offset=offset, size=size, block=identity)
+            block['members'].append(member)
+            metadata.append(member)
+            block['size'] = offset + size
+        prefix_blocks = []
+        for block in blocks.values():
+            block['size'] = (block['size'] + 15) // 16 * 16
+            declarations = '\n'.join(block.pop('declarations'))
+            prefix_blocks.append(f"layout(std140,set={block['group']},binding={block['binding']}) uniform Scene{block['semantic']} {{\n{declarations}\n}};\n")
+        block = '\n'.join(prefix_blocks)
         varyings = {}
         for body in bodies:
             for kind, name in re.findall(r'^varying (\w+) (\w+);$', body, re.M):
@@ -91,8 +83,7 @@ def generate(source, output):
                 prefix += 'layout(location=0) out vec4 fragment_color;\n'
             body = body.replace('#version 450', '#version 450\n' + prefix, 1)
             (output / f"{program}.{stage}").write_text(body, encoding="utf-8", newline="\n")
-        manifest[program] = dict(set=0, uniform_binding=0,
-                                 uniform_size=(offset + 15) // 16 * 16, members=metadata)
+        manifest['programs'][program] = dict(blocks=list(blocks.values()), members=metadata, inputs=inputs['inputs'])
     (output / 'bindings.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
 
 

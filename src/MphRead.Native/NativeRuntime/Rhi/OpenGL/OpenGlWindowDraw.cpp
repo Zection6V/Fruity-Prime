@@ -1,6 +1,7 @@
 #if !defined(__ANDROID__)
 #include "OpenGlWindowDraw.hpp"
 #include "OpenGlDevice.hpp"
+#include "../SceneShaderAbi.hpp"
 #include "../../OpenTK/GL.hpp"
 #include "../../../Shaders.hpp"
 #include "../../../Mods/DebugLog.hpp"
@@ -97,7 +98,10 @@ void main() { gl_FragColor = texture2D(image, uv); }
         state.Commands->SetPipeline(backdrop ? *state.Backdrop : premultiplied ? *state.Premultiplied : *state.Opaque);
         if (backdrop)
         {
-            GL::Uniform1(state.PhotoLocation, 0); GL::Uniform1(state.StrengthLocation, strength);
+            constexpr auto photoUnit = SceneShaderAbi::TextureUnit("backdrop", "photo");
+            static_assert(photoUnit == 0); // Window photo interop uses logical slot 0.
+            GL::Uniform1(state.PhotoLocation, static_cast<std::int32_t>(photoUnit));
+            GL::Uniform1(state.StrengthLocation, strength);
             GL::Uniform1(state.TimeLocation, seconds); GL::Uniform1(state.WidthLocation, static_cast<float>(width));
             GL::Uniform1(state.HeightLocation, static_cast<float>(height));
         }

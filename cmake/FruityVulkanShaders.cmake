@@ -25,6 +25,10 @@ add_custom_command(
     COMMAND Python3::Interpreter "${_fruity_shader_generator}"
         --source "${_fruity_shader_sources}" --output "${FRUITY_VULKAN_SHADER_DIR}"
     DEPENDS "${_fruity_shader_generator}" "${_fruity_shader_sources}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/scene_shader_abi.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/MphRead.Native/NativeRuntime/Rhi/SceneShaderAbi.def"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/MphRead.Native/NativeRuntime/Rhi/SceneShaderAbi.hpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/MphRead.Native/NativeRuntime/Rhi/VertexSemantics.hpp"
     VERBATIM)
 foreach(_source IN LISTS _fruity_generated_glsl)
     add_custom_command(
@@ -41,6 +45,8 @@ add_custom_command(
         --directory "${FRUITY_VULKAN_SHADER_DIR}" --output "${_fruity_shader_header}"
     DEPENDS ${_fruity_generated_spirv} "${FRUITY_VULKAN_SHADER_DIR}/bindings.json"
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed-vulkan-scene-shaders.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/reflect_scene_spirv.py"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/scene_shader_abi.py"
     VERBATIM)
 add_custom_target(fruity_vulkan_shaders DEPENDS "${_fruity_shader_header}")
 target_sources(fruity_mphread_native PRIVATE "${_fruity_shader_header}")

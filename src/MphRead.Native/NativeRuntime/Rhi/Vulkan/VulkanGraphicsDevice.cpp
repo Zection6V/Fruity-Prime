@@ -20,6 +20,7 @@
 #include "VulkanFrameScheduler.hpp"
 #include "VulkanPipelineCache.hpp"
 #include "VulkanDescriptorAllocator.hpp"
+#include "../SceneShaderAbi.hpp"
 #include "../../../Mods/Platform/AppPaths.hpp"
 #include "FruityVulkanSceneShaders.hpp"
 #include <vk_mem_alloc.h>
@@ -521,6 +522,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 {
                     VkPhysicalDeviceProperties identity{};
                     vk.vkGetPhysicalDeviceProperties(vk.physical, &identity);
+                    UniformAlignment = std::max<VkDeviceSize>(16, identity.limits.minUniformBufferOffsetAlignment);
                     std::filesystem::path file;
 #if !defined(__ANDROID__)
                     const auto* overrideDirectory = std::getenv("FRUITY_VK_PIPELINE_CACHE_DIR");
@@ -687,6 +689,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::atomic<std::uint64_t> DeviceWideWaits{0};
             std::unique_ptr<VulkanFrameScheduler> Scheduler;
             std::unique_ptr<VulkanPipelineCache> PipelineCache;
+            VkDeviceSize UniformAlignment = 16;
             RetirementQueue<std::function<void()>> Retired;
 
             void Retire(std::function<void()> release)
@@ -1511,50 +1514,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         // descriptor layout and the CPU copy of its constant block, which the
         // constant sink writes and a draw copies out (Vulkan has no program
         // object to hold uniforms the way OpenGL does).
-        struct VulkanSceneProgram final
+        struct VulkanSceneProgram final : VulkanSceneUniforms
         {
-            struct Member final
-            {
-                std::uint32_t Offset = 0;
-                std::uint32_t Size = 0;
-                std::uint32_t Count = 0;
-            };
+            using VulkanSceneUniforms::VulkanSceneUniforms;
             SceneProgram Id = SceneProgram::Main;
             std::unique_ptr<VulkanShader> Vertex;
             std::unique_ptr<VulkanShader> Fragment;
-            std::unique_ptr<VulkanBindingLayout> Layout;
-            std::vector<std::byte> Block;
-            std::unordered_map<std::string_view, Member> Members;
-            // Image and sampler bindings, by the OpenGL texture unit they replace.
-            std::vector<std::pair<std::uint32_t, std::uint32_t>> Textures;
-            std::uint64_t Generation = 1;
-            std::int64_t AlphaTestOffset = -1;
-
-            [[nodiscard]] const Member* Find(std::string_view name) const
-            {
-                const auto found = Members.find(name);
-                return found == Members.end() ? nullptr : &found->second;
-            }
-            void Write(std::string_view name, const void* data, std::size_t size)
-            {
-                const Member* member = Find(name);
-                if (!member) return;
-                std::memcpy(Block.data() + member->Offset, data, std::min<std::size_t>(size, member->Size));
-                ++Generation;
-            }
-            // An array: each element at the std140 array stride.
-            void WriteArray(std::string_view name, const float* data, std::size_t elementFloats,
-                std::size_t count)
-            {
-                const Member* member = Find(name);
-                if (!member || member->Count == 0) return;
-                const std::size_t stride = member->Size / member->Count;
-                count = std::min<std::size_t>(count, member->Count);
-                for (std::size_t i = 0; i < count; ++i)
-                    std::memcpy(Block.data() + member->Offset + i * stride, data + i * elementFloats,
-                        elementFloats * sizeof(float));
-                ++Generation;
-            }
+            std::array<std::unique_ptr<VulkanBindingLayout>, SceneShaderAbi::GroupCount> Layouts;
+            std::vector<Generated::TextureBinding> Textures;
         };
 
         class VulkanCommandList final : public CommandList, public VulkanNativeOwner
@@ -1760,10 +1727,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::unique_ptr<VulkanDescriptorAllocator> _descriptors;
 
             const VulkanSceneProgram* _setProgram = nullptr;
-            std::uint64_t _setGeneration = 0;
             std::array<std::pair<VkImageView, VkSampler>, 4> _setTextures{};
-            RingSlice _uniformSlice{};
-            VkDescriptorSet _set = VK_NULL_HANDLE;
+            std::vector<std::pair<RingSlice, std::uint64_t>> _uniformSlices;
+            std::array<VkDescriptorSet, SceneShaderAbi::GroupCount> _sets{};
 
             std::unique_ptr<VulkanTexture> _dummy;
             std::unique_ptr<VulkanSampler> _dummySampler;
@@ -1863,7 +1829,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             _ring.clear(); _descriptors.reset(); _spare = {};
             _pool = VK_NULL_HANDLE; _fence = VK_NULL_HANDLE; _commandBuffer = VK_NULL_HANDLE;
             _recording = _autoRestart = _renderingActive = _renderingOpen = _clearsPending = false;
-            _target = {}; _pipeline = nullptr; _units = {}; _setProgram = nullptr; _set = VK_NULL_HANDLE;
+            _target = {}; _pipeline = nullptr; _units = {}; _setProgram = nullptr; _sets.fill(VK_NULL_HANDLE);
             _closed = true;
         }
 
@@ -1920,7 +1886,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             _recording = true;
             _dynamicDirty = true;
             _boundNative = VK_NULL_HANDLE;
-            _set = VK_NULL_HANDLE;
+            _sets.fill(VK_NULL_HANDLE);
             _setProgram = nullptr;
             _device->SceneFlushers[this] = [this] { Flush(); };
             _device->RecordingList = this;
@@ -1976,7 +1942,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             _ringChunk = _spare.RingIndex;
             _descriptors = std::move(_spare.Descriptors);
             _spare = std::move(current);
-            _set = VK_NULL_HANDLE;
+            _sets.fill(VK_NULL_HANDLE);
             _setProgram = nullptr;
             _boundNative = VK_NULL_HANDLE;
         }
@@ -2228,7 +2194,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             const GraphicsPipelineDesc base = desc;
             desc.vertexShader = program.Vertex.get();
             desc.fragmentShader = program.Fragment.get();
-            desc.pipelineLayout.groups = {program.Layout->Desc()};
+            desc.pipelineLayout.groups.clear();
+            for (const auto& layout : program.Layouts) desc.pipelineLayout.groups.push_back(layout->Desc());
             desc.topology = lines ? PrimitiveTopology::LineList : PrimitiveTopology::TriangleList;
             // The frontend's winding is OpenGL's, in a target whose rows run
             // the other way up in Vulkan: the same triangle turns the other way.
@@ -2365,8 +2332,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             auto& vk = *_device->ContextPointer->_impl;
 
             std::array<std::pair<VkImageView, VkSampler>, 4> textures{};
-            for (std::size_t unit = 0; unit < program->Textures.size(); ++unit)
+            for (const auto& binding : program->Textures)
             {
+                const auto unit = binding.unit;
                 VulkanTexture* texture = _units[unit].first;
                 const VulkanSampler* sampler = _units[unit].second;
                 if (!texture)
@@ -2388,72 +2356,77 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 vk.vkCmdBindPipeline(_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, native.Native());
                 _boundNative = native.Native();
-                _set = VK_NULL_HANDLE;
+                _sets.fill(VK_NULL_HANDLE);
             }
             ApplyDynamicState();
 
-            if (program->AlphaTestOffset >= 0)
+            const auto alphaMode = static_cast<std::int32_t>(_pipeline->Desc().alphaTest);
+            program->Write("alpha_test", &alphaMode, sizeof(alphaMode), SceneShaderAbi::ValueType::Int);
+            if (_setProgram != program)
             {
-                const auto mode = static_cast<std::int32_t>(_pipeline->Desc().alphaTest);
-                std::int32_t current = 0;
-                std::memcpy(&current, program->Block.data() + program->AlphaTestOffset, 4);
-                if (current != mode)
-                {
-                    std::memcpy(program->Block.data() + program->AlphaTestOffset, &mode, 4);
-                    ++program->Generation;
-                }
-            }
-            if (_setProgram != program || _setGeneration != program->Generation || textures != _setTextures
-                || _set == VK_NULL_HANDLE)
-            {
-                if (_setProgram != program || _setGeneration != program->Generation || !_uniformSlice.Buffer)
-                {
-                    VkPhysicalDeviceProperties properties{};
-                    static thread_local VkDeviceSize alignment = 0;
-                    if (!alignment)
-                    {
-                        vk.vkGetPhysicalDeviceProperties(vk.physical, &properties);
-                        alignment = std::max<VkDeviceSize>(16, properties.limits.minUniformBufferOffsetAlignment);
-                    }
-                    _uniformSlice = Allocate(program->Block.size(), alignment);
-                    std::memcpy(_uniformSlice.Data, program->Block.data(), program->Block.size());
-                }
-                const VkDescriptorSet set = AllocateSet(*program->Layout);
-                VkDescriptorBufferInfo buffer{_uniformSlice.Buffer, _uniformSlice.Offset, program->Block.size()};
-                std::array<VkDescriptorImageInfo, 8> images{};
-                std::array<VkWriteDescriptorSet, 9> writes{};
-                std::uint32_t count = 0;
-                writes[count] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-                writes[count].dstSet = set;
-                writes[count].dstBinding = 0;
-                writes[count].descriptorCount = 1;
-                writes[count].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-                writes[count++].pBufferInfo = &buffer;
-                for (std::size_t unit = 0; unit < program->Textures.size(); ++unit)
-                {
-                    images[unit * 2] = {VK_NULL_HANDLE, textures[unit].first, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-                    images[unit * 2 + 1] = {textures[unit].second, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
-                    writes[count] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-                    writes[count].dstSet = set;
-                    writes[count].dstBinding = program->Textures[unit].first;
-                    writes[count].descriptorCount = 1;
-                    writes[count].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-                    writes[count++].pImageInfo = &images[unit * 2];
-                    writes[count] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-                    writes[count].dstSet = set;
-                    writes[count].dstBinding = program->Textures[unit].second;
-                    writes[count].descriptorCount = 1;
-                    writes[count].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-                    writes[count++].pImageInfo = &images[unit * 2 + 1];
-                }
-                vk.vkUpdateDescriptorSets(vk.device, count, writes.data(), 0, nullptr);
-                vk.vkCmdBindDescriptorSets(_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    native.Layout(), 0, 1, &set, 0, nullptr);
-                _set = set;
+                _uniformSlices.assign(program->Blocks.size(), {});
+                _sets.fill(VK_NULL_HANDLE);
+                _setTextures = {};
                 _setProgram = program;
-                _setGeneration = program->Generation;
-                _setTextures = textures;
             }
+            for (const auto& binding : program->Textures)
+                if (textures[binding.unit] != _setTextures[binding.unit])
+                    _sets[binding.group] = VK_NULL_HANDLE;
+            const auto alignment = _device->UniformAlignment;
+            for (std::size_t i = 0; i < program->Blocks.size(); ++i)
+            {
+                const auto& block = program->Blocks[i];
+                auto& [slice, generation] = _uniformSlices[i];
+                if (!slice.Buffer || generation != block.Generation)
+                {
+                    slice = Allocate(block.Data.size(), alignment);
+                    std::memcpy(slice.Data, block.Data.data(), block.Data.size());
+                    generation = block.Generation;
+                    _sets[block.Group] = VK_NULL_HANDLE;
+                }
+            }
+            for (std::uint32_t group = 0; group < SceneShaderAbi::GroupCount; ++group)
+            {
+                const auto& layout = *program->Layouts[group];
+                if (layout.Desc().entries.empty()) continue;
+                if (!_sets[group])
+                {
+                    const auto set = AllocateSet(layout);
+                    std::array<VkDescriptorBufferInfo, SceneShaderAbi::Bindings.size()> buffers{};
+                    std::array<VkDescriptorImageInfo, 8> images{};
+                    std::array<VkWriteDescriptorSet, SceneShaderAbi::Bindings.size()> writes{};
+                    std::uint32_t count = 0;
+                    const auto write = [&](std::uint32_t binding, VkDescriptorType type) -> VkWriteDescriptorSet& {
+                        auto& item = writes.at(count++);
+                        item = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                        item.dstSet = set; item.dstBinding = binding;
+                        item.descriptorCount = 1; item.descriptorType = type;
+                        return item;
+                    };
+                    for (std::size_t i = 0; i < program->Blocks.size(); ++i)
+                    {
+                        const auto& block = program->Blocks[i];
+                        if (block.Group != group) continue;
+                        const auto& slice = _uniformSlices[i].first;
+                        buffers[i] = {slice.Buffer, slice.Offset, block.Data.size()};
+                        write(block.Binding, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER).pBufferInfo = &buffers[i];
+                    }
+                    for (const auto& binding : program->Textures)
+                    {
+                        if (binding.group != group) continue;
+                        const auto unit = binding.unit;
+                        images[unit * 2] = {VK_NULL_HANDLE, textures[unit].first, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+                        images[unit * 2 + 1] = {textures[unit].second, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
+                        write(binding.image, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE).pImageInfo = &images[unit * 2];
+                        write(binding.sampler, VK_DESCRIPTOR_TYPE_SAMPLER).pImageInfo = &images[unit * 2 + 1];
+                    }
+                    vk.vkUpdateDescriptorSets(vk.device, count, writes.data(), 0, nullptr);
+                    _sets[group] = set;
+                }
+                vk.vkCmdBindDescriptorSets(_commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    native.Layout(), group, 1, &_sets[group], 0, nullptr);
+            }
+            _setTextures = textures;
 
             std::array<VkBuffer, 5> buffers{};
             std::array<VkDeviceSize, 5> offsets{};
@@ -3465,7 +3438,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     void CheckGraphicsPipelines(GraphicsDevice& device)
     {
         auto check = [&](const auto& vertexWords, const auto& fragmentWords,
-            const auto& textures, std::uint32_t uniformSize, bool main)
+            const auto& textures, const auto& blocks, bool main)
         {
             auto shader = [&](const auto& words, ShaderStage stage) {
                 ShaderDesc desc{};
@@ -3476,16 +3449,22 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             };
             auto vertex = shader(vertexWords, ShaderStage::Vertex);
             auto fragment = shader(fragmentWords, ShaderStage::Fragment);
-            BindingLayoutDesc layoutDesc{};
-            layoutDesc.entries.push_back({0, BindingType::UniformBuffer, ShaderStage::AllGraphics, 1});
+            std::array<BindingLayoutDesc, SceneShaderAbi::GroupCount> layoutDescs{};
+            for (const auto& block : blocks)
+                layoutDescs.at(block.group).entries.push_back({block.binding, BindingType::UniformBuffer, ShaderStage::AllGraphics, 1});
             for (const auto& texture : textures)
             {
-                layoutDesc.entries.push_back({texture.image, BindingType::SampledTexture, ShaderStage::AllGraphics, 1});
-                layoutDesc.entries.push_back({texture.sampler, BindingType::Sampler, ShaderStage::AllGraphics, 1});
+                layoutDescs.at(texture.group).entries.push_back({texture.image, BindingType::SampledTexture, ShaderStage::AllGraphics, 1});
+                layoutDescs.at(texture.group).entries.push_back({texture.sampler, BindingType::Sampler, ShaderStage::AllGraphics, 1});
             }
-            auto layout = device.CreateBindingLayout(layoutDesc);
+            std::array<std::unique_ptr<BindingLayout>, SceneShaderAbi::GroupCount> layouts;
             GraphicsPipelineDesc desc{};
-            desc.vertexShader = vertex.get(); desc.fragmentShader = fragment.get(); desc.pipelineLayout.groups = {layout->Desc()};
+            desc.vertexShader = vertex.get(); desc.fragmentShader = fragment.get();
+            for (std::uint32_t group = 0; group < SceneShaderAbi::GroupCount; ++group)
+            {
+                layouts[group] = device.CreateBindingLayout(layoutDescs[group]);
+                desc.pipelineLayout.groups.push_back(layouts[group]->Desc());
+            }
             desc.colorFormats = {TextureFormat::RGBA8Unorm};
             desc.blendAttachments.resize(1);
             desc.vertexBuffers = {{0, 56, VertexInputRate::Vertex}};
@@ -3502,50 +3481,67 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             executableState.vertexShader = executableState.fragmentShader = nullptr;
             if (pipeline->Desc() != executableState) throw std::runtime_error("Vulkan pipeline state changed or retained borrowed shaders.");
             auto commands = device.CreateCommandList();
-            BufferDesc bufferDesc{};
-            bufferDesc.size = uniformSize; bufferDesc.usage = BufferUsage::Uniform;
-            auto constants = device.CreateBuffer(bufferDesc);
+            std::vector<std::unique_ptr<Buffer>> constants;
+            std::array<BindingSetDesc, SceneShaderAbi::GroupCount> setDescs;
+            for (std::uint32_t group = 0; group < SceneShaderAbi::GroupCount; ++group)
+                setDescs[group].layout = layouts[group].get();
+            for (const auto& block : blocks)
+            {
+                BufferDesc bufferDesc{};
+                bufferDesc.size = block.size; bufferDesc.usage = BufferUsage::Uniform;
+                auto buffer = device.CreateBuffer(bufferDesc);
+                setDescs[block.group].entries.push_back({block.binding, BufferBinding{buffer.get(), 0, block.size}});
+                constants.push_back(std::move(buffer));
+            }
             TextureDesc textureDesc{};
             textureDesc.width = 4; textureDesc.height = 4; textureDesc.format = TextureFormat::RGBA8Unorm;
             textureDesc.usage = TextureUsage::Sampled;
             auto texture = device.CreateTexture(textureDesc);
             auto view = device.CreateTextureView(*texture, {});
             auto sampler = device.CreateSampler({});
-            BindingSetDesc setDesc{};
-            setDesc.layout = layout.get();
-            setDesc.entries.push_back({0, BufferBinding{constants.get(), 0, uniformSize}});
             for (const auto& binding : textures)
             {
-                setDesc.entries.push_back({binding.image, TextureBinding{view.get()}});
-                setDesc.entries.push_back({binding.sampler, SamplerBinding{sampler.get()}});
+                setDescs[binding.group].entries.push_back({binding.image, TextureBinding{view.get()}});
+                setDescs[binding.group].entries.push_back({binding.sampler, SamplerBinding{sampler.get()}});
             }
-            auto set = device.CreateBindingSet(setDesc);
-            auto incompatibleDesc = layoutDesc;
+            std::array<std::unique_ptr<BindingSet>, SceneShaderAbi::GroupCount> sets;
+            for (std::uint32_t group = 0; group < SceneShaderAbi::GroupCount; ++group)
+                sets[group] = device.CreateBindingSet(setDescs[group]);
+            const auto incompatibleGroup = blocks.front().group;
+            auto incompatibleDesc = layoutDescs[incompatibleGroup];
             incompatibleDesc.entries[0].stages = ShaderStage::Vertex;
             auto incompatibleLayout = device.CreateBindingLayout(incompatibleDesc);
-            setDesc.layout = incompatibleLayout.get();
-            auto incompatibleSet = device.CreateBindingSet(setDesc);
+            auto incompatibleSetDesc = setDescs[incompatibleGroup];
+            incompatibleSetDesc.layout = incompatibleLayout.get();
+            auto incompatibleSet = device.CreateBindingSet(incompatibleSetDesc);
             (void)device.BeginFrame();
             commands->Begin(); commands->SetPipeline(*pipeline);
             bool rejected = false;
-            try { commands->SetBindingSet(0, *incompatibleSet); }
+            try { commands->SetBindingSet(incompatibleGroup, *incompatibleSet); }
             catch (const std::invalid_argument&) { rejected = true; }
             if (!rejected) throw std::runtime_error("Vulkan incompatible binding layout accepted.");
-            commands->SetBindingSet(0, *set); commands->End();
-            device.EndFrame(); device.WaitIdle();
-            // Exercise four logical groups through the generic command API,
-            // independent of the scene's generated constant packing adapter.
+            for (std::uint32_t group = 0; group < SceneShaderAbi::GroupCount; ++group)
+                commands->SetBindingSet(group, *sets[group]);
+            commands->End(); device.EndFrame(); device.WaitIdle();
+            // Native shaders now use the four actual logical groups. Change
+            // an unused entry to prove the cache includes every group layout.
             auto grouped = desc;
-            grouped.pipelineLayout.groups.assign(4, layoutDesc);
+            grouped.pipelineLayout.groups[0].entries.push_back({99, BindingType::UniformBuffer, ShaderStage::AllGraphics, 1});
             auto groupedPipeline = device.CreateGraphicsPipeline(grouped);
             if (dynamic_cast<const VulkanGraphicsPipeline&>(*pipeline).Native()
                 == dynamic_cast<const VulkanGraphicsPipeline&>(*groupedPipeline).Native())
                 throw std::runtime_error("Vulkan pipeline cache ignored binding groups.");
+            auto groupedLayout = device.CreateBindingLayout(grouped.pipelineLayout.groups[0]);
+            auto groupedSetDesc = setDescs[0]; groupedSetDesc.layout = groupedLayout.get();
+            groupedSetDesc.entries.push_back({99, BufferBinding{constants.front().get(), 0, blocks.front().size}});
+            auto groupedSet = device.CreateBindingSet(groupedSetDesc);
             (void)device.BeginFrame();
             commands->Begin(); commands->SetPipeline(*groupedPipeline);
-            for (std::uint32_t group = 0; group < 4; ++group) commands->SetBindingSet(group, *set);
+            commands->SetBindingSet(0, *groupedSet);
+            for (std::uint32_t group = 1; group < SceneShaderAbi::GroupCount; ++group)
+                commands->SetBindingSet(group, *sets[group]);
             rejected = false;
-            try { commands->SetBindingSet(4, *set); }
+            try { commands->SetBindingSet(SceneShaderAbi::GroupCount, *sets[0]); }
             catch (const std::invalid_argument&) { rejected = true; }
             if (!rejected) throw std::runtime_error("Vulkan out-of-range binding group accepted.");
             commands->End(); device.EndFrame(); device.WaitIdle();
@@ -3555,10 +3551,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 throw std::runtime_error("Vulkan identical pipeline was not cached.");
             auto replacementVertex = shader(vertexWords, ShaderStage::Vertex);
             auto replacementFragment = shader(fragmentWords, ShaderStage::Fragment);
-            auto replacementLayout = device.CreateBindingLayout(layoutDesc);
+            auto replacementLayout = device.CreateBindingLayout(layoutDescs[0]);
             auto replacement = desc;
             replacement.vertexShader = replacementVertex.get(); replacement.fragmentShader = replacementFragment.get();
-            replacement.pipelineLayout.groups = {replacementLayout->Desc()};
+            replacement.pipelineLayout.groups[0] = replacementLayout->Desc();
             auto equivalent = device.CreateGraphicsPipeline(replacement);
             if (equivalent->Desc() != executableState || dynamic_cast<const VulkanGraphicsPipeline&>(*pipeline).Native()
                 != dynamic_cast<const VulkanGraphicsPipeline&>(*equivalent).Native())
@@ -3582,10 +3578,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             invalid = desc; invalid.rasterizer.depthBiasSlope = std::numeric_limits<float>::quiet_NaN(); reject(invalid);
             if (main) { invalid = desc; invalid.depthStencilFormat = TextureFormat::RGBA8Unorm; reject(invalid); }
         };
-        check(Generated::main_vert, Generated::main_frag, Generated::main_textures, Generated::main_uniform_size, true);
-        check(Generated::composite_vert, Generated::composite_frag, Generated::composite_textures, Generated::composite_uniform_size, false);
-        check(Generated::cel_vert, Generated::cel_frag, Generated::cel_textures, Generated::cel_uniform_size, false);
-        check(Generated::shift_vert, Generated::shift_frag, Generated::shift_textures, Generated::shift_uniform_size, false);
+        check(Generated::main_vert, Generated::main_frag, Generated::main_textures, Generated::main_blocks, true);
+        check(Generated::composite_vert, Generated::composite_frag, Generated::composite_textures, Generated::composite_blocks, false);
+        check(Generated::cel_vert, Generated::cel_frag, Generated::cel_textures, Generated::cel_blocks, false);
+        check(Generated::shift_vert, Generated::shift_frag, Generated::shift_textures, Generated::shift_blocks, false);
         dynamic_cast<VulkanGraphicsDevice&>(device).ClearPipelineCacheForCheck();
         if (device.Statistics().Programs != 0) throw std::runtime_error("Vulkan pipeline cache failed to release programs.");
     }

@@ -15,6 +15,7 @@ Fails when
 
 from __future__ import annotations
 
+from scene_shader_abi import read_contract, read_programs
 import hashlib
 import pathlib
 import re
@@ -80,6 +81,12 @@ def main() -> int:
                     errors.append(
                         f"{path.relative_to(ROOT)}:{line_no}: uploads a ShaderConstantSink "
                         f"group through a raw uniform location")
+
+    try:
+        logical = read_contract()
+        read_programs(DESKTOP_SHADERS, logical)
+    except ValueError as error:
+        errors.append(f"Logical scene ABI: {error}")
 
     semantics = read(SEMANTICS)
     if table(semantics, "OpenGlDesktopLocations") != table(semantics, "VulkanLocations"):

@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstdint>
+#include <stdexcept>
 #include <string_view>
 
 // Logical scene inputs. A group is an update/lifetime boundary, not a Vulkan
@@ -26,19 +27,57 @@ namespace MphRead::NativeRuntime::Rhi::SceneShaderAbi
         bool operator==(const Binding&) const = default;
     };
 
-    inline constexpr Binding Frame{Group::Frame, 0, BindingType::UniformBuffer, "frame"};
-    inline constexpr Binding Light{Group::Frame, 1, BindingType::UniformBuffer, "light"};
-    inline constexpr Binding Fog{Group::Frame, 2, BindingType::UniformBuffer, "fog"};
-    inline constexpr Binding Material{Group::Material, 0, BindingType::UniformBuffer, "material"};
-    inline constexpr Binding MaterialTexture{Group::Material, 1, BindingType::SampledTexture, "material-texture"};
-    inline constexpr Binding MaterialSampler{Group::Material, 2, BindingType::Sampler, "material-sampler"};
-    inline constexpr Binding Draw{Group::Draw, 0, BindingType::UniformBuffer, "draw"};
-    inline constexpr Binding Cel{Group::Post, 0, BindingType::UniformBuffer, "cel"};
-    inline constexpr Binding Hud{Group::Post, 1, BindingType::UniformBuffer, "hud"};
-    inline constexpr Binding Disruption{Group::Post, 2, BindingType::UniformBuffer, "disruption"};
-    inline constexpr Binding DisruptionTables{Group::Post, 3, BindingType::UniformBuffer, "disruption-tables"};
-    inline constexpr std::array Bindings{Frame, Light, Fog, Material, MaterialTexture,
-        MaterialSampler, Draw, Cel, Hud, Disruption, DisruptionTables};
+#define RHI_SCENE_BINDING(name, group, index, type, semantic) \
+    inline constexpr Binding name{Group::group, index, BindingType::type, semantic};
+#define RHI_SCENE_CONSTANT(...)
+#define RHI_SCENE_TEXTURE(...)
+#include "SceneShaderAbi.def"
+#undef RHI_SCENE_BINDING
+#define RHI_SCENE_BINDING(name, ...) name,
+    inline constexpr std::array Bindings{
+#include "SceneShaderAbi.def"
+    };
+#undef RHI_SCENE_BINDING
+#undef RHI_SCENE_CONSTANT
+#undef RHI_SCENE_TEXTURE
+
+    enum class ValueType : std::uint8_t { Bool, Int, Float, Vec3, Vec4, Mat4 };
+    struct Constant final
+    {
+        std::string_view program, name;
+        ValueType type;
+        std::uint32_t count;
+        Binding block;
+    };
+    struct Texture final
+    {
+        std::string_view program, name;
+        Binding image, sampler;
+        std::uint32_t unit;
+    };
+#define RHI_SCENE_BINDING(...)
+#define RHI_SCENE_CONSTANT(program, name, type, count, block) Constant{program, name, ValueType::type, count, block},
+#define RHI_SCENE_TEXTURE(...)
+    inline constexpr std::array Constants{
+#include "SceneShaderAbi.def"
+    };
+#undef RHI_SCENE_CONSTANT
+#undef RHI_SCENE_TEXTURE
+#define RHI_SCENE_CONSTANT(...)
+#define RHI_SCENE_TEXTURE(program, name, image, sampler, unit) Texture{program, name, image, sampler, unit},
+    inline constexpr std::array Textures{
+#include "SceneShaderAbi.def"
+    };
+#undef RHI_SCENE_BINDING
+#undef RHI_SCENE_CONSTANT
+#undef RHI_SCENE_TEXTURE
+
+    [[nodiscard]] constexpr std::uint32_t TextureUnit(std::string_view program, std::string_view name)
+    {
+        for (const auto& texture : Textures)
+            if (texture.program == program && texture.name == name) return texture.unit;
+        throw std::out_of_range("Unknown logical scene texture.");
+    }
 
     [[nodiscard]] constexpr bool IsValid() noexcept
     {
@@ -48,6 +87,21 @@ namespace MphRead::NativeRuntime::Rhi::SceneShaderAbi
             for (std::size_t j = 0; j < i; ++j)
                 if ((Bindings[i].group == Bindings[j].group && Bindings[i].binding == Bindings[j].binding)
                     || Bindings[i].semantic == Bindings[j].semantic) return false;
+        }
+        for (std::size_t i = 0; i < Constants.size(); ++i)
+        {
+            const auto& c = Constants[i];
+            if (c.program.empty() || c.name.empty() || c.block.type != BindingType::UniformBuffer) return false;
+            for (std::size_t j = 0; j < i; ++j)
+                if (c.program == Constants[j].program && c.name == Constants[j].name) return false;
+        }
+        for (std::size_t i = 0; i < Textures.size(); ++i)
+        {
+            const auto& t = Textures[i];
+            if (t.program.empty() || t.name.empty() || t.image.type != BindingType::SampledTexture
+                || t.sampler.type != BindingType::Sampler || t.image.group != t.sampler.group || t.unit >= 4) return false;
+            for (std::size_t j = 0; j < i; ++j)
+                if (t.program == Textures[j].program && (t.name == Textures[j].name || t.unit == Textures[j].unit)) return false;
         }
         return true;
     }

@@ -21,7 +21,8 @@ Phase A～E / H または R1～R20 がすべて完了したという記録では
 | R6 / R7: OpenGL command / sampler | Buffer / vertex・index binding / Draw / DrawIndexed / GPU Copy / BindingSet と独立 sampler・value cache を実装。Windows scene / transient geometry を同じ Buffer / CommandList / VAO 経由へ接続。共通 GPU fixture と旧新7画像の一致を確認。単一2D画像以外の範囲、packed depth/stencil copy、recording 契約の統一、本番 shader ABI 接続は残る |
 | R8: Session 寿命 | Vulkan の意図的に解放しない `VulkanScene` を削除。切替で scene / UI → commands → swapchain → device / context → window の順に解放する。OpenGL device は Session が単独所有。Vulkan も device 終了時に全 native owner を閉じ、shared state を context 非依存の CPU descriptor にする。両 backend で未送信 copy / 旧 wrapper を残す8回の shutdown / recreate を検査。swapchain は Session 終了前に解放する caller 契約を維持。device loss / admission failure の teardown は R17 / Phase H で続ける |
 | R9: presentation | request と実際の mode / capabilities を分離。typed acquire / present status を実装し、frame loop で利用。最小化・明示的 close request は一時停止、API の device / surface loss は別分類。OpenGL の generic conformance coverage は R19 で拡張する |
-| R10～R13 | `VulkanFrameScheduler` を独立させ、実際の queue submit / completion を担当。descriptor / frame slot / memory / upload の分離は残る。native pipeline cache / budget / upload ring は未対応 |
+| R10 / R12 / R13 | `VulkanFrameScheduler` を独立させ、実際の queue submit / completion を担当。descriptor / frame slot / memory / upload の分離は残る。budget / upload ring は未対応 |
+| R11: native pipeline library | 既存 semantic cache を維持し、専用 `VulkanPipelineCache` を全 RHI native graphics pipeline 生成へ接続。identity / framing / checksum / size gate、atomic disk replacement、driver rejection / native cache 不可時の fallback と deterministic close を実装。CPU fault dispatch と実 GPU の cold / warm・破損・保存失敗を検証。速度向上・cache hit の計測は未実施。OpenGL は既存 linked-program cache、Metal / D3D12 は将来対応 |
 | R14: eligibility / admission | Vulkan passive probe は instance / physical device の確認で止まり、logical device / queue を作らない。incoming Session の device / swapchain 生成が active admission。失敗注入による復旧検証は残る |
 | R15: GL vertex interface | Windows scene / transient / launcher UI を explicit input と RHI Buffer / CommandList / VAO へ統一。desktop wrapper の conventional array / current-value mirror を除去し、頂点位置を Vulkan と共通化。GPU composite / 旧新14画像の一致を確認。本番 binding ABI の接続は R2、既存の backend 間 caption 差は画像 gate に残る |
 | R16: readback | 未対応。非同期 ticket と lifetime / backpressure policy が必要 |
@@ -545,3 +546,94 @@ fixture の readback buffer への CPU upload、copy 前の resource state、cac
 修正した最終 fixture が上記ログであり、API の memory usage / state 検査は弱めていない。
 Android build / 実機、remote CI、device loss / OOM / admission failure の故障注入は未実行。
 Metal / D3D12 は将来対応。R2 / R10～R13 / R16～R19 などの残項目は対応中。
+
+## Vulkan driver pipeline cache（R11）
+
+`VulkanPipelineKey` → shared native pipeline の既存 semantic cache を維持し、
+driver の compilation data を `VulkanPipelineCache.hpp/.cpp` の専用 owner に分離した。
+scene の variant と共通 RHI pipeline はこの owner の `CreatePipeline` を通る。
+生成・data retrieval・保存を mutex で直列化し、device 終了時に保存・破棄する。
+cache なしの pipeline 生成も可能で、cache hint の失敗と本来の pipeline 生成エラーは区別する。
+実際の pipeline の device loss 等は従来の `BackendError` に伝わり、cache が隠さない。
+
+desktop の保存先は user data directory 内の `render-cache/vulkan-pipelines.bin`。
+Windows の portable build では exe の隣になる。検査用の
+`FRUITY_VK_PIPELINE_CACHE_DIR` がある場合はそのディレクトリを使う。
+Android は同じ native cache owner を使うが、今回 disk persistence は追加しない。
+生成データは `.gitignore` の対象。
+
+保存形式は64 byte の明示 little-endian header と、driver が返した payload の組。
+magic / schema / header size / vendor / device / driver version / pointer size / cache UUID /
+payload length / checksum を検査し、native Vulkan header の identity も検査する。
+読み込み・保存 payload の上限は64 MiB。長さの過大申告や途中の data は driver に渡さない。
+この checksum は破損検出であり、認証の仕組みではない。
+一時ファイルに書いてから atomic replacement し、同時に起動した process 同士が
+不完全な data を読むことを避ける。最後の保存が勝つため cache entry の完全な union は保証しない。
+保存不能の場合は前の file を維持する。
+
+古い・不一致・破損した保存 data は捨てて空で生成する。
+driver が initial data を拒否した場合は空で再試行し、native cache が生成できない場合や
+optional cache entry point がない場合は `VK_NULL_HANDLE` で pipeline を生成する。
+`vkGetPipelineCacheData` の `VK_INCOMPLETE` は bounded retry し、保存失敗は起動失敗にしない。
+`Loaded` は initial data を受け取った cache の生成成功を示すだけで、driver cache hit とは区別する。
+契約確認: [cache header](https://docs.vulkan.org/refpages/latest/refpages/source/VkPipelineCacheHeaderVersionOne.html)、
+[data retrieval](https://docs.vulkan.org/refpages/latest/refpages/source/vkGetPipelineCacheData.html)、
+[native pipeline creation](https://docs.vulkan.org/refpages/latest/refpages/source/vkCreateGraphicsPipelines.html)。
+参考はレビューが挙げた [melonPrimeDS の cache owner](https://github.com/ag-advania/melonPrimeDS/blob/c4165c87416902bb13b670e3147ecf05988017ed/src/VulkanPipelineCache.h)。
+
+### 検証と再実行
+
+- MSVC Release build、CTest 6/6、shader interface audit（22 sources）成功。
+  `FruityPrime.VulkanPipelineCache` は Vulkan headers がある build で実行する CPU dispatch 検査。
+  すべての truncation / 各 byte の bit corruption、trailing data、device / driver / UUID / schema /
+  pointer size / native header、上限、cold / warm、driver rejection、cache 生成失敗、
+  optional entry point 欠如、uncached compile、`VK_INCOMPLETE` retry、保存失敗、
+  pipeline device loss の伝達、二つの thread の128生成、二重 close を検査する。
+- `C:/tmp/gp/architecture-nativecache-gpu-20261002-101503/{cold,warm}.log`:
+  実 GPU の共通 conformance と両 backend の8回の session teardown が PASS。
+  cold process の最初は initial-bytes=0、保存は15,869 bytes。
+  次の process の最初は initial-bytes=15,869。file は64 byte framing込み15,933 bytes。
+  cache が pipeline 生成へ渡り、GPU の描画・readback が成功し、終了時 validation errors=0。
+  driver の cache-hit feedback / compile 時間は計測しておらず、速度向上の証拠とはしない。
+- 同じ evidence directory の `corrupt.log` / `identity.log` / `truncated.log`:
+  実 driver が返した保存 file の破損・driver 不一致・truncation を作り、
+  native loading 前に捨てたこと（initial-bytes=0）と resource check の PASS を確認。
+  live=0、validation errors=0、各12 native pipeline を生成し185,982 bytes を保存。
+- `unwritable.log`: 保存 directory の代わりに regular file を置いて検査。
+  saved-bytes=0 でも resource check が PASS、既存 file の内容を維持、validation errors=0。
+  native driver の initial-data rejection / cache allocation failure は CPU dispatch で検査し、
+  実 GPU の故障として注入したという記録ではない。
+- `C:/tmp/gp/architecture-nativecache-final-bots-20261002-101820/`:
+  両開始 backend で front 1回、同じ Alinos Perch の Settings / Apply / Resume 切替3回が PASS。
+  全6回 definitions=105/105、impact / new bomb / existing bomb 各2 particles。
+  scene / geometry / visibility と simulation の継続、source の保持・終了時の解放を確認。
+- `C:/tmp/gp/architecture-nativecache-final-golden-{opengl,vulkan}/`:
+  各7候補を撮影。前節の `architecture-vksession-final-golden-{opengl,vulkan}` と比較し、
+  全14画像の decoded RGB 差分0。
+  記録 `C:/tmp/gp/architecture-nativecache-final-golden-comparison.txt`。
+
+repo root の PowerShell で、新しい output directory を選んで:
+
+```powershell
+ctest --test-dir tools/build/out/msvc-Release --output-on-failure
+if ($LASTEXITCODE -ne 0) { throw 'CPU contract checks failed' }
+$savedCacheDirectory = $env:FRUITY_VK_PIPELINE_CACHE_DIR
+$cacheEvidence = 'C:/tmp/gp/repeat-nativecache-' + (Get-Date -Format yyyyMMdd-HHmmss)
+New-Item -ItemType Directory -Path $cacheEvidence -Force | Out-Null
+Push-Location tools/build/out/msvc-Release
+try {
+    $env:FRUITY_VK_PIPELINE_CACHE_DIR = "$cacheEvidence/data"
+    foreach ($phase in @('cold', 'warm')) {
+        'q' | & .\FruityPrime.exe -rhiconformance -noupdate *> "$cacheEvidence/$phase.log"
+        if ($LASTEXITCODE -ne 0) { throw "$phase GPU check failed" }
+    }
+} finally {
+    $env:FRUITY_VK_PIPELINE_CACHE_DIR = $savedCacheDirectory
+    Pop-Location
+}
+```
+
+固定画像と試合中の操作は既存の Golden Capture / 切替手順を使う。
+Android build / 実機、remote CI、native driver の故障注入は今回未実行。
+R2 / R10 / R12 / R13 / R16～R19 などの残項目は引き続き対応する。
+Metal / D3D12 は将来対応であり、今回追加していない。

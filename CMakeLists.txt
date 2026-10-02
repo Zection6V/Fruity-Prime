@@ -118,6 +118,8 @@ set(FRUITY_RENDERER_GPU_MESH_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestRendererGpuMesh.cpp")
 set(FRUITY_RHI_LIFETIME_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestRhiLifetime.cpp")
+set(FRUITY_VULKAN_PIPELINE_CACHE_TEST_SOURCE
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanPipelineCache.cpp")
 set(FRUITY_SHADER_INTERFACE_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestShaderInterface.cpp")
 set(FRUITY_GOLDEN_CAPTURE_VALIDATION_TEST_SOURCE
@@ -159,6 +161,7 @@ list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES
     "${FRUITY_RENDERER_GPU_MESH_TEST_SOURCE}"
     "${FRUITY_SHADER_INTERFACE_TEST_SOURCE}"
     "${FRUITY_RHI_LIFETIME_TEST_SOURCE}"
+    "${FRUITY_VULKAN_PIPELINE_CACHE_TEST_SOURCE}"
     "${FRUITY_GOLDEN_CAPTURE_VALIDATION_TEST_SOURCE}")
 
 # Android owns the Activity/View/EGL shell under MphRead.Native.Android, but
@@ -325,6 +328,17 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
     target_include_directories(fruity_rhi_lifetime_tests PRIVATE "${FRUITY_MPHREAD_ROOT}")
     target_compile_features(fruity_rhi_lifetime_tests PRIVATE cxx_std_20)
     add_test(NAME FruityPrime.RhiLifetime COMMAND fruity_rhi_lifetime_tests)
+
+    if(Vulkan_FOUND)
+        add_executable(fruity_vulkan_pipeline_cache_tests
+            "${FRUITY_VULKAN_PIPELINE_CACHE_TEST_SOURCE}"
+            "${FRUITY_MPHREAD_ROOT}/NativeRuntime/Rhi/Vulkan/VulkanPipelineCache.cpp")
+        target_compile_definitions(fruity_vulkan_pipeline_cache_tests PRIVATE FRUITY_HAS_VULKAN)
+        target_include_directories(fruity_vulkan_pipeline_cache_tests PRIVATE ${Vulkan_INCLUDE_DIRS})
+        target_compile_features(fruity_vulkan_pipeline_cache_tests PRIVATE cxx_std_20)
+        target_link_libraries(fruity_vulkan_pipeline_cache_tests PRIVATE Threads::Threads)
+        add_test(NAME FruityPrime.VulkanPipelineCache COMMAND fruity_vulkan_pipeline_cache_tests)
+    endif()
 
     add_executable(fruity_golden_capture_validation_tests
         "${FRUITY_GOLDEN_CAPTURE_VALIDATION_TEST_SOURCE}")

@@ -78,6 +78,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         X(vkGetPhysicalDeviceSurfaceCapabilitiesKHR) X(vkGetPhysicalDeviceSurfaceFormatsKHR) \
         X(vkGetPhysicalDeviceSurfacePresentModesKHR) X(vkDestroySurfaceKHR) \
         X(vkCreateDevice) X(vkGetDeviceProcAddr)
+#define VULKAN_CACHE_FUNCTIONS(X) \
+        X(vkCreatePipelineCache) X(vkDestroyPipelineCache) X(vkGetPipelineCacheData)
 #define VULKAN_DEVICE_FUNCTIONS(X) \
         X(vkDeviceWaitIdle) X(vkDestroyDevice) X(vkGetDeviceQueue) X(vkCreateCommandPool) \
         X(vkDestroyCommandPool) X(vkAllocateCommandBuffers) X(vkFreeCommandBuffers) X(vkResetCommandPool) \
@@ -101,6 +103,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 #define DECLARE_VULKAN_FUNCTION(name) PFN_##name name = nullptr;
         VULKAN_INSTANCE_FUNCTIONS(DECLARE_VULKAN_FUNCTION)
         VULKAN_DEVICE_FUNCTIONS(DECLARE_VULKAN_FUNCTION)
+        VULKAN_CACHE_FUNCTIONS(DECLARE_VULKAN_FUNCTION)
         DECLARE_VULKAN_FUNCTION(vkEnumerateInstanceExtensionProperties)
         DECLARE_VULKAN_FUNCTION(vkEnumerateInstanceLayerProperties)
         DECLARE_VULKAN_FUNCTION(vkCreateInstance)
@@ -428,6 +431,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 #define LOAD_VULKAN_DEVICE_FUNCTION(name) name = reinterpret_cast<PFN_##name>(vkGetDeviceProcAddr(device, #name)); if (!name) throw std::runtime_error("Missing Vulkan device entry point: " #name);
             VULKAN_DEVICE_FUNCTIONS(LOAD_VULKAN_DEVICE_FUNCTION)
 #undef LOAD_VULKAN_DEVICE_FUNCTION
+#define LOAD_VULKAN_CACHE_FUNCTION(name) name = reinterpret_cast<PFN_##name>(vkGetDeviceProcAddr(device, #name));
+            VULKAN_CACHE_FUNCTIONS(LOAD_VULKAN_CACHE_FUNCTION)
+#undef LOAD_VULKAN_CACHE_FUNCTION
             vkGetDeviceQueue(device, graphicsFamily, 0, &graphics); vkGetDeviceQueue(device, presentFamily, 0, &present);
             if (!graphics || !present) throw std::runtime_error("Missing graphics/present queue.");
             setName = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(vkGetDeviceProcAddr(device, "vkSetDebugUtilsObjectNameEXT"));
@@ -442,6 +448,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 }
 #undef VULKAN_INSTANCE_FUNCTIONS
 #undef VULKAN_DEVICE_FUNCTIONS
+#undef VULKAN_CACHE_FUNCTIONS
 
 namespace MphRead::NativeRuntime::Rhi
 {

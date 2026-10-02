@@ -243,7 +243,10 @@ public:
             create.pVertexInputState = &input; create.pInputAssemblyState = &assembly; create.pViewportState = &viewport;
             create.pRasterizationState = &raster; create.pMultisampleState = &multisample; create.pDepthStencilState = &depth;
             create.pColorBlendState = &blend; create.pDynamicState = &dynamic; create.layout = _layout;
-            Check(vk.vkCreateGraphicsPipelines(vk.device, VK_NULL_HANDLE, 1, &create, nullptr, &_pipeline), "vkCreateGraphicsPipelines");
+            const auto result = _device->PipelineCache
+                ? _device->PipelineCache->CreatePipeline(create, _pipeline)
+                : vk.vkCreateGraphicsPipelines(vk.device, VK_NULL_HANDLE, 1, &create, nullptr, &_pipeline);
+            Check(result, "vkCreateGraphicsPipelines");
             ++_device->Programs;
             _desc.vertexShader = _desc.fragmentShader = nullptr;
         }

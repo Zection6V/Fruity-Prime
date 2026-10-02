@@ -7,6 +7,7 @@
 #include <cmath>
 #include <functional>
 #include <cstring>
+#include <cstdlib>
 #include <limits>
 #include <mutex>
 #include <stdexcept>
@@ -17,6 +18,8 @@
 #if defined(FRUITY_HAS_VULKAN)
 #include "VulkanContextInternal.hpp"
 #include "VulkanFrameScheduler.hpp"
+#include "VulkanPipelineCache.hpp"
+#include "../../../Mods/Platform/AppPaths.hpp"
 #include "FruityVulkanSceneShaders.hpp"
 #include <vk_mem_alloc.h>
 
@@ -513,6 +516,22 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 create.vulkanApiVersion = VK_API_VERSION_1_3;
                 create.pVulkanFunctions = &functions;
                 Check(vmaCreateAllocator(&create, &Allocator), "vmaCreateAllocator");
+                try
+                {
+                    VkPhysicalDeviceProperties identity{};
+                    vk.vkGetPhysicalDeviceProperties(vk.physical, &identity);
+                    std::filesystem::path file;
+#if !defined(__ANDROID__)
+                    const auto* overrideDirectory = std::getenv("FRUITY_VK_PIPELINE_CACHE_DIR");
+                    const auto directory = overrideDirectory && *overrideDirectory ? std::filesystem::u8path(overrideDirectory)
+                        : std::filesystem::u8path(Mods::Platform::AppPaths::UserDataDirectory()) / "render-cache";
+                    file = directory / "vulkan-pipelines.bin";
+#endif
+                    PipelineCache = std::make_unique<VulkanPipelineCache>(VulkanPipelineCache::Dispatch{
+                        vk.device, vk.vkCreatePipelineCache, vk.vkDestroyPipelineCache,
+                        vk.vkGetPipelineCacheData, vk.vkCreateGraphicsPipelines}, identity, std::move(file));
+                }
+                catch (...) { std::cerr << "[vulkan cache] optional library unavailable; continuing uncached\n"; }
             }
 
             ~VulkanDeviceState() { CloseNative(); }
@@ -563,6 +582,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     OutstandingAllocationsAtShutdown = statistics.total.statistics.allocationCount;
                     vmaDestroyAllocator(Allocator);
                     Allocator = VK_NULL_HANDLE;
+                    if (PipelineCache) PipelineCache->Close();
                     Scheduler.reset();
                     ContextPointer = nullptr;
                     SceneFlushers.clear(); SceneForgetters.clear(); SceneViewReplacers.clear();
@@ -746,6 +766,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::atomic<std::uint64_t> HostWaits{0};
             std::atomic<std::uint64_t> DeviceWideWaits{0};
             std::unique_ptr<VulkanFrameScheduler> Scheduler;
+            std::unique_ptr<VulkanPipelineCache> PipelineCache;
             RetirementQueue<std::function<void()>> Retired;
 
             void Retire(std::function<void()> release)
@@ -3694,6 +3715,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (state->ContextPointer || state->Allocator || state->Scheduler || !state->NativeOwners.empty()
                 || state->Buffers || state->Textures || state->Shaders || state->Programs || state->Samplers
                 || state->CommandLists || state->Retired.Size() || state->OutstandingAllocationsAtShutdown
+                || (state->PipelineCache && state->PipelineCache->Stats().Native)
                 || state->FinalCompleted != state->FinalSubmitted || state->FinalSubmitted <= submitted)
                 throw std::logic_error("Vulkan session retained native resources or failed to complete pending work.");
         };

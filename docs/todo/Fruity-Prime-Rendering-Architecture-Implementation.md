@@ -2260,3 +2260,16 @@ GPUなしの単独テスト`TestVulkanFrameSlots`では次を検査する:
 
 frame fencing policyの独立検査を実装した。R10の最終責務監査、R19の全format / subresource /
 draw-state / presentation ownership、レビュー全体のcompletion auditは引き続き残る。
+
+
+push済み`00c97827efc7bc3907aed57da7d14d0a7d851fdd`からReleaseを再ビルドし、
+Golden Captureの7ケースを両backendで確認した:
+`C:/tmp/gp/architecture-r10-frame-slots-final-golden-{opengl,vulkan}/`。
+全14manifestのsource SHA / clean harnessとHUD / fade / whiteout final-stage gateがPASS。
+同じharness / fixture入力の`architecture-uploadarena-batched-golden-{opengl,vulkan}`と
+1600×900のdecoded RGBを比較して、全14画像で相違byte=0。Vulkan validation error=0。
+比較記録は`C:/tmp/gp/architecture-r10-frame-slots-golden-comparison.txt`、
+exe / paths.txt / PNG / manifestのSHA-256とgateは
+`C:/tmp/gp/architecture-r10-frame-slots-golden-run-info.json`。
+同じbackendの固定画像回帰の確認であり、Phase3/C#とのcross-revision parityは未成立。
+撮影のsource SHAは後続の文書commitと区別して上記`00c97827`で記録する。

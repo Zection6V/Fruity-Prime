@@ -310,6 +310,8 @@ jobs:
             libglx-dev \
             libopengl-dev \
             libglfw3-dev \
+            libxcb1-dev \
+            libwayland-dev \
             libfreetype-dev \
             libopenal-dev \
             libicu-dev

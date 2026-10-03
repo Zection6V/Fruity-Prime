@@ -2196,3 +2196,15 @@ driverのOOMやresetを注入する検査ではない。
 R10の最終責務監査は続ける。GraphicsDeviceのtranslation unitにはまだcommand list / binding / shader /
 resource wrapperとsession調停が同居する。R19の全format / subresource / draw-state / presentation ownership、
 レビュー全体のcompletion auditも残る。Metal / D3D12は将来対応、Android / macOS実動作とremote CIは未実行。
+
+push済み`5aadf2708570cb386df13523c2821ed4dc000153`からReleaseを再ビルドして、
+Golden Captureの7ケースを両backendとも確認した:
+`C:/tmp/gp/architecture-r10-resources-final-golden-{opengl,vulkan}/`。
+全14manifestのsource SHA / clean harnessとHUD / fade / whiteout final-stage gateがPASS。
+同じharness / fixture入力の旧画像`architecture-uploadarena-batched-golden-{opengl,vulkan}`と
+1600×900のdecoded RGBを比較し、全14画像で相違byte=0。Vulkan validation error=0。
+比較記録は`C:/tmp/gp/architecture-r10-resources-golden-comparison.txt`、
+exe / paths.txt / PNG / manifestのSHA-256とgateは
+`C:/tmp/gp/architecture-r10-resources-golden-run-info.json`に記録した。
+これは同じbackendの固定画像回帰の確認で、Phase3/C#とのcross-revision parityは未成立。
+後続の文書commitと区別し、この撮影のsource SHAは上記`5aadf270`である。

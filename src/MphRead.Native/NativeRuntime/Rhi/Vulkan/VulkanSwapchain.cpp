@@ -1040,8 +1040,19 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                         swapchain->MarkLowLatency(LowLatencyMarker::SimulationStart);
                         swapchain->MarkLowLatency(LowLatencyMarker::SimulationEnd);
                     }
-                    const auto acquired = swapchain->TryAcquireTexture();
-                    if (!acquired.texture) throw std::runtime_error("Typed Vulkan acquisition failed.");
+                    AcquireResult acquired{};
+                    const auto acquireDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+                    for (;;)
+                    {
+                        acquired = swapchain->TryAcquireTexture();
+                        if (acquired.texture) break;
+                        if (acquired.status != PresentationStatus::TemporarilyUnavailable)
+                            throw std::runtime_error("Typed Vulkan acquisition reported a loss.");
+                        if (std::chrono::steady_clock::now() >= acquireDeadline)
+                            throw std::runtime_error("Timed out waiting for the Vulkan drawable to become available.");
+                        ProcessEvents();
+                        std::this_thread::sleep_for(std::chrono::milliseconds(8));
+                    }
                     if (reflexCheck && swapchain->LowLatencyStats().sleepCalls > sleepsBefore) ++nativeFrames;
                     vkSwapchain.ClearCurrent(r, g, b, 1.0F);
                     const auto presented = swapchain->TryPresent();

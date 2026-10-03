@@ -26,6 +26,9 @@
 #include <windows.h>
 #include <vulkan/vulkan_win32.h>
 #undef CreateWindow
+#elif defined(__linux__)
+#include <vulkan/vulkan_xcb.h>
+#include <vulkan/vulkan_wayland.h>
 #endif
 #endif
 
@@ -971,6 +974,56 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan::WindowSystem
         {
             return g_qtWindow != nullptr && g_qtWindow->NativeHandle() == nativeWindow ? g_qtWindow : nullptr;
         }
+
+#if defined(__linux__)
+        [[nodiscard]] bool IsXcbPlatform()
+        {
+            MphRead::Qt::EnsureApplication();
+            return QGuiApplication::platformName() == QStringLiteral("xcb");
+        }
+
+        [[nodiscard]] bool IsWaylandPlatform()
+        {
+            MphRead::Qt::EnsureApplication();
+            return QGuiApplication::platformName().startsWith(QStringLiteral("wayland"));
+        }
+
+        [[nodiscard]] xcb_connection_t* XcbConnection()
+        {
+            MphRead::Qt::EnsureApplication();
+            if (auto* const native = qGuiApp->nativeInterface<QNativeInterface::QX11Application>())
+            {
+                return reinterpret_cast<xcb_connection_t*>(native->connection());
+            }
+            return nullptr;
+        }
+
+        [[nodiscard]] xcb_visualid_t XcbVisual()
+        {
+            xcb_connection_t* const connection = XcbConnection();
+            if (connection == nullptr)
+            {
+                return XCB_NONE;
+            }
+            const xcb_setup_t* const setup = xcb_get_setup(connection);
+            if (setup == nullptr)
+            {
+                return XCB_NONE;
+            }
+            const xcb_screen_iterator_t screen = xcb_setup_roots_iterator(setup);
+            return screen.data != nullptr ? screen.data->root_visual : XCB_NONE;
+        }
+
+        [[nodiscard]] wl_display* WaylandDisplay()
+        {
+            MphRead::Qt::EnsureApplication();
+            if (auto* const native = qGuiApp->nativeInterface<QNativeInterface::QWaylandApplication>())
+            {
+                return native->display();
+            }
+            return nullptr;
+        }
+#endif
     }
 
     PFN_vkGetInstanceProcAddr LoaderEntry()
@@ -1007,11 +1060,32 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan::WindowSystem
             reason = "no Vulkan loader or driver was found";
             return false;
         }
-#if !defined(_WIN32)
-        reason = "Vulkan presentation in the Qt build is implemented for Windows only";
+#if defined(_WIN32)
+        return true;
+#elif defined(__linux__)
+        if (IsXcbPlatform())
+        {
+            if (XcbConnection() != nullptr)
+            {
+                return true;
+            }
+            reason = "Qt xcb platform has no XCB connection";
+            return false;
+        }
+        if (IsWaylandPlatform())
+        {
+            if (WaylandDisplay() != nullptr)
+            {
+                return true;
+            }
+            reason = "Qt Wayland platform has no wl_display";
+            return false;
+        }
+        reason = "Qt Vulkan presentation requires the xcb or Wayland platform plugin on Linux";
         return false;
 #else
-        return true;
+        reason = "Vulkan presentation in the Qt build is not implemented on this platform";
+        return false;
 #endif
     }
 
@@ -1021,6 +1095,20 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan::WindowSystem
         static constexpr std::array<const char*, 2> names{
             VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_WIN32_SURFACE_EXTENSION_NAME};
         return names;
+#elif defined(__linux__)
+        if (IsXcbPlatform())
+        {
+            static constexpr std::array<const char*, 2> names{
+                VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_XCB_SURFACE_EXTENSION_NAME};
+            return names;
+        }
+        if (IsWaylandPlatform())
+        {
+            static constexpr std::array<const char*, 2> names{
+                VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME};
+            return names;
+        }
+        return {};
 #else
         return {};
 #endif
@@ -1041,11 +1129,53 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan::WindowSystem
         VkSurfaceKHR surface = VK_NULL_HANDLE;
         Check(create(instance, &info, nullptr, &surface), "vkCreateWin32SurfaceKHR");
         return surface;
+#elif defined(__linux__)
+        if (IsXcbPlatform())
+        {
+            xcb_connection_t* const connection = XcbConnection();
+            if (connection == nullptr)
+            {
+                throw std::runtime_error("Qt xcb platform has no XCB connection.");
+            }
+            const auto create = reinterpret_cast<PFN_vkCreateXcbSurfaceKHR>(
+                instanceProc(instance, "vkCreateXcbSurfaceKHR"));
+            if (create == nullptr)
+            {
+                throw std::runtime_error("vkCreateXcbSurfaceKHR is unavailable.");
+            }
+            VkXcbSurfaceCreateInfoKHR info{VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR};
+            info.connection = connection;
+            info.window = static_cast<xcb_window_t>(reinterpret_cast<std::uintptr_t>(nativeWindow));
+            VkSurfaceKHR surface = VK_NULL_HANDLE;
+            Check(create(instance, &info, nullptr, &surface), "vkCreateXcbSurfaceKHR");
+            return surface;
+        }
+        if (IsWaylandPlatform())
+        {
+            wl_display* const display = WaylandDisplay();
+            if (display == nullptr)
+            {
+                throw std::runtime_error("Qt Wayland platform has no wl_display.");
+            }
+            const auto create = reinterpret_cast<PFN_vkCreateWaylandSurfaceKHR>(
+                instanceProc(instance, "vkCreateWaylandSurfaceKHR"));
+            if (create == nullptr)
+            {
+                throw std::runtime_error("vkCreateWaylandSurfaceKHR is unavailable.");
+            }
+            VkWaylandSurfaceCreateInfoKHR info{VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR};
+            info.display = display;
+            info.surface = reinterpret_cast<wl_surface*>(nativeWindow);
+            VkSurfaceKHR surface = VK_NULL_HANDLE;
+            Check(create(instance, &info, nullptr, &surface), "vkCreateWaylandSurfaceKHR");
+            return surface;
+        }
+        throw std::runtime_error("Qt Vulkan presentation requires the xcb or Wayland platform plugin on Linux.");
 #else
         (void)instance;
         (void)nativeWindow;
         (void)instanceProc;
-        throw std::runtime_error("Vulkan presentation in the Qt build is implemented for Windows only.");
+        throw std::runtime_error("Vulkan presentation in the Qt build is not implemented on this platform.");
 #endif
     }
 
@@ -1056,6 +1186,31 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan::WindowSystem
         const auto query = reinterpret_cast<PFN_vkGetPhysicalDeviceWin32PresentationSupportKHR>(
             instanceProc(instance, "vkGetPhysicalDeviceWin32PresentationSupportKHR"));
         return query != nullptr && query(physical, family) == VK_TRUE;
+#elif defined(__linux__)
+        if (IsXcbPlatform())
+        {
+            xcb_connection_t* const connection = XcbConnection();
+            const xcb_visualid_t visual = XcbVisual();
+            if (connection == nullptr || visual == XCB_NONE)
+            {
+                return false;
+            }
+            const auto query = reinterpret_cast<PFN_vkGetPhysicalDeviceXcbPresentationSupportKHR>(
+                instanceProc(instance, "vkGetPhysicalDeviceXcbPresentationSupportKHR"));
+            return query != nullptr && query(physical, family, connection, visual) == VK_TRUE;
+        }
+        if (IsWaylandPlatform())
+        {
+            wl_display* const display = WaylandDisplay();
+            if (display == nullptr)
+            {
+                return false;
+            }
+            const auto query = reinterpret_cast<PFN_vkGetPhysicalDeviceWaylandPresentationSupportKHR>(
+                instanceProc(instance, "vkGetPhysicalDeviceWaylandPresentationSupportKHR"));
+            return query != nullptr && query(physical, family, display) == VK_TRUE;
+        }
+        return false;
 #else
         (void)instance;
         (void)physical;

@@ -17,6 +17,7 @@ BUILD_DIR="${BUILD_DIR:-$HERE/build/linux-qt-$(echo "$BUILD_TYPE" | tr '[:upper:
 LIBDIR="$SYSROOT/lib/x86_64-linux-gnu"
 
 export PATH="$HOME/.local/share/fp-tools/bin:$PATH"
+export LD_LIBRARY_PATH="$QT_DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 
 cmake -S "$HERE" -B "$BUILD_DIR" -G Ninja \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \

@@ -194,6 +194,7 @@ jobs:
           python3 tools/qt/install-qt.py --kit gcc_64 --root "$RUNNER_TEMP/qt"
           python3 tools/qt/install-qt.py --kit "$kit" --root "$RUNNER_TEMP/qt"
           echo "QT_HOST_PATH=$RUNNER_TEMP/qt/6.11.2/gcc_64" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$RUNNER_TEMP/qt/6.11.2/gcc_64/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
           echo "QT_ROOT=$RUNNER_TEMP/qt/6.11.2/$kit" >> "$GITHUB_ENV"
 
       - name: Configure and build shared library

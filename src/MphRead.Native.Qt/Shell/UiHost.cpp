@@ -157,7 +157,9 @@ namespace MphRead::Qt
         // control, while the device they were made on still exists.
         _window.reset();
         _control.reset();
+#if defined(FRUITY_HAS_VULKAN)
         _vulkanInstance.reset();
+#endif
     }
 
     bool UiHost::Initialise()

@@ -58,7 +58,10 @@ def main():
             path.write_bytes(fetch(url))
         if hashlib.sha1(path.read_bytes()).hexdigest() != expected:
             raise RuntimeError(f'Checksum mismatch: {archive}')
-        subprocess.run([extractor, 'x', '-y', f'-o{destination}', str(path)], check=True, stdout=subprocess.DEVNULL)
+        # The ICU archive is flat, unlike the Qt archives' kit-relative trees.
+        archive_destination = destination / 'lib' if archive.startswith('icu-') else destination
+        archive_destination.mkdir(parents=True, exist_ok=True)
+        subprocess.run([extractor, 'x', '-y', f'-o{archive_destination}', str(path)], check=True, stdout=subprocess.DEVNULL)
         print('Installed', archive, flush=True)
     print(destination, flush=True)
 

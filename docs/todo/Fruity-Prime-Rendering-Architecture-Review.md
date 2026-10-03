@@ -16,6 +16,13 @@ Phase H / R19 の今回の検証範囲もこの 2 バックエンドとし、将
 
 対応状況と検証の証拠は [実装記録](Fruity-Prime-Rendering-Architecture-Implementation.md) に記録する。
 
+**2026-10-03: 今回の範囲（Windows の OpenGL / Vulkan）の対応は完了。**
+R1〜R20 と Phase A〜E / H の実装と検証は、実装記録に項目ごとに記録した。
+範囲外として残すもの:
+- Metal / D3D12（Phase F / G）: 将来の対応。
+- Android / macOS の実機検証。
+- 実 driver の reset / OOM の故障注入: 合成 fault で代替した。
+
 ### 比較対象を固定したコミット
 
 - **Fruity Prime**: `develop3_rendering` @ `5503e2b35c97abbc63ff838adbc21e466831da38`

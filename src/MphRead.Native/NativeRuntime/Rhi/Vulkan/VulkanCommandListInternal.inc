@@ -271,8 +271,11 @@
             };
             // Cleared at each native buffer/pool generation. Bounded; overflow
             // records an uncached set in the existing slot allocator.
-            std::unordered_map<DescriptorKey, VkDescriptorSet, DescriptorHash> _descriptorCache;
-            std::map<std::array<std::uint64_t, 3>, RingSlice> _uniformCache;
+            // These bounded caches are cleared on every recording generation.
+            // Recycle their CPU nodes; entries never survive the GPU slot reset.
+            std::pmr::unsynchronized_pool_resource _sceneCacheMemory;
+            std::pmr::unordered_map<DescriptorKey, VkDescriptorSet, DescriptorHash> _descriptorCache{&_sceneCacheMemory};
+            std::pmr::map<std::array<std::uint64_t, 3>, RingSlice> _uniformCache{&_sceneCacheMemory};
             std::array<VkDescriptorSet, SceneShaderAbi::GroupCount> _boundSceneSets{};
             PipelineLayout _boundSceneLayout{};
             std::uint32_t _boundSmallBytes = 0;

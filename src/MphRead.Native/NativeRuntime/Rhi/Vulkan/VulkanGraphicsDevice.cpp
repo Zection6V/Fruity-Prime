@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <limits>
 #include <map>
+#include <memory_resource>
 #include <iostream>
 #include <mutex>
 #include <stdexcept>

@@ -50,3 +50,30 @@ batching単独のFPS差はばらつきの範囲。VAO検索のheap確保を除�
 ローカル検証logは`vertex-cache-build.log`、`vertex-cache-ctest.log`、
 `vertex-cache-rhiconformance.log`、`vertex-cache-validation-switch.log`、
 `vertex-cache-gpulifetime.log`、`final-vulkan-resource.log`。
+
+## VulkanのCPU cache node再利用
+
+descriptor cacheとuniform cacheはrecording generationごとにclearするため、
+通常のmap/unordered_mapで毎フレームnodeをheapへ返し、再確保していた。
+command list所有の`std::pmr::unsynchronized_pool_resource`でnodeを再利用する。
+cache entryのclear・16384件上限・GPU slot resetの境界は維持する。
+poolはcache containerより先に構築され、containerの破棄後に破棄される。
+GPU descriptorやuniform sliceを次のgenerationへ持ち越す変更ではない。
+
+上記と同じ対戦・解像度・設定・出現後の8区間で、OpenGL最適化済みbuildを
+baselineとし、before→after→before→afterでVulkanを比較した。
+
+| node再利用 | 変更前1 / 2 | 変更後1 / 2 |
+|---|---:|---:|
+| 平均FPS | 427.81 / 433.21 | **498.33 / 503.19** |
+| 最大FPS | 459.08 / 493.34 | 533.31 / 546.51 |
+
+約16%の改善を2回確認。平均が500近辺でも、Unlimitedに500の上限はない。
+1000 FPSへの回復はこの条件で未確認。
+
+最新MSVC Release full build、CTest 21/21、RHI isolation、
+validation付き出現後renderer切替3回、RHI conformance、Vulkan resource check、
+Vulkan GPU lifetime 3 cyclesがPASS。resource checkはvalidation error 0・live 0、
+各scene release後は全GPU resource count・retiredが0、追加host waitは0。
+証拠は`tools/build/out/vk-cache-pool-{base1,new1,base2,new2}.csv`と各capture、
+`vk-cache-pool-{build,ctest,validation,rhiconformance,resources,gpulifetime}.log`。

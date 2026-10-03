@@ -184,6 +184,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         caps.supportsAnisotropy = facts.Features.samplerAnisotropy != 0;
         caps.maxSamplerAnisotropy = caps.supportsAnisotropy ? limits.maxSamplerAnisotropy : 1.0F;
         caps.supportsWireframe = facts.Features.fillModeNonSolid != 0; caps.supportsDepthClamp = facts.Features.depthClamp != 0;
+        caps.supportsPackedDepthStencilTransfer = true;
         const auto& queue = facts.Queues[result.GraphicsFamily].Properties;
         caps.supportsCompute = (queue.queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
         caps.supportsTimestampQueries = queue.timestampValidBits != 0;

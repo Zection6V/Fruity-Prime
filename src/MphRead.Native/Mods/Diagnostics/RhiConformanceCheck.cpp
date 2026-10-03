@@ -667,6 +667,7 @@ namespace MphRead::Mods::Diagnostics
                 CheckRhiResourceStates(device);
                 CheckRhiRgbCopies(device);
                 CheckRhiFormatCopies(device);
+                CheckRhiPackedDepthStencilCopies(device);
                 CheckResourceOwnership(device);
                 ExerciseGpuDiagnostics(device);
                 CheckAsyncReadback(device);

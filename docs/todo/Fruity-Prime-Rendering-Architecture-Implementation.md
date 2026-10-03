@@ -2470,3 +2470,25 @@ transfer 専用用途、コピー中の待機0。packed depth / stencil は別�
 - 試合中の切替検査（MP10 OVERLOAD、`FRUITY_SWITCHCHECK=1`）PASS。
 
 packed depth / stencil のコピー、全 subresource / draw-state / presentation ownership の網羅は R19 で続ける。
+
+## packed depth / stencil のコピー契約（R6 / R19）
+
+packed depth / stencil（D24S8 / D32FS8）の buffer コピーを、意味の上での capability
+`Capabilities::supportsPackedDepthStencilTransfer` として定義した。
+
+- **Vulkan（true）:** aspect ごとにコピーする。depth は 1 texel 4 byte で、D24 の download では
+  上位 8 bit が未定義。stencil は 1 texel 1 byte。
+- **OpenGL（false）:** GL_DEPTH_STENCIL texture の片方の aspect だけを書く手段がない。GPU 上で
+  合成する経路を持たないので、transfer 用途で作る時点で拒否する。後のコピーで失敗はさせない。
+
+本番 renderer は packed depth / stencil を attachment と sampled depth view にしか使わない。
+そのため、この拒否で本番経路は変わらない。
+
+conformance:
+
+- Vulkan では、D24S8 / D32FS8 の depth と stencil を個別に upload / download する。
+  部分領域・余白・未変更領域を照合し、D24 の未定義 byte だけを比較から外す。
+- OpenGL では、作成が拒否されることを検査する。
+
+検証: 両 backend の conformance PASS（`C:/tmp/gp/architecture-r19-packed-ds-conformance.log`）、
+CPU テスト 19/19 PASS。

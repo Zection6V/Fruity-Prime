@@ -96,6 +96,90 @@ namespace MphRead::Mods::Diagnostics
         std::cout << "[format copy] PASS; 16 color/single-depth formats; packed depth/stencil is a separate contract\n";
     }
 
+    // Packed depth/stencil: each aspect copied on its own, where the backend
+    // says it can; refused at creation where it says it cannot.
+    void CheckRhiPackedDepthStencilCopies(NativeRuntime::Rhi::GraphicsDevice& device)
+    {
+        using namespace NativeRuntime::Rhi;
+        const bool supported = device.GetCapabilities().supportsPackedDepthStencilTransfer;
+        for (const TextureFormat format : {TextureFormat::D24UnormS8Uint, TextureFormat::D32FloatS8Uint})
+        {
+            const bool d24 = format == TextureFormat::D24UnormS8Uint;
+            TextureDesc desc{}; desc.width = 4; desc.height = 3; desc.format = format;
+            desc.usage = TextureUsage::TransferSrc | TextureUsage::TransferDst | TextureUsage::DepthStencilAttachment;
+            if (!supported)
+            {
+                bool refused = false;
+                try { (void)device.CreateTexture(desc); } catch (const std::invalid_argument&) { refused = true; }
+                if (!refused) throw std::runtime_error("A packed depth/stencil transfer image was created without the capability.");
+                continue;
+            }
+            auto texture = device.CreateTexture(desc);
+            ResourceState imageState = ResourceState::Undefined;
+            for (const TextureAspect aspect : {TextureAspect::Depth, TextureAspect::Stencil})
+            {
+                const unsigned bytes = aspect == TextureAspect::Stencil ? 1 : 4;
+                std::array<std::byte, 256> input{}, zero{}, sentinel{}, expected{}, actual{};
+                sentinel.fill(std::byte{0xD3}); expected = sentinel;
+                const unsigned inputOffset = 16, outputOffset = 8;
+                for (unsigned y = 0; y < 3; ++y)
+                    for (unsigned x = 0; x < 4; ++x)
+                        for (unsigned c = 0; c < bytes; ++c) expected[outputOffset + y * 6 * bytes + x * bytes + c] = std::byte{0};
+                for (unsigned y = 0; y < 2; ++y)
+                    for (unsigned x = 0; x < 3; ++x)
+                    {
+                        const unsigned position = inputOffset + y * 5 * bytes + x * bytes;
+                        const unsigned output = outputOffset + (y + 1) * 6 * bytes + (x + 1) * bytes;
+                        if (aspect == TextureAspect::Stencil)
+                            input[position] = static_cast<std::byte>(17 * (y * 3 + x) + 3);
+                        else if (d24)
+                        {
+                            const std::uint32_t value = (0x123456U * (y * 3 + x + 1)) & 0xFFFFFFU;
+                            std::memcpy(input.data() + position, &value, 4);
+                        }
+                        else
+                        {
+                            const float value = 0.125F * static_cast<float>(y * 3 + x + 1);
+                            std::memcpy(input.data() + position, &value, 4);
+                        }
+                        std::memcpy(expected.data() + output, input.data() + position, bytes);
+                    }
+                auto source = device.CreateBuffer({256, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu});
+                auto black = device.CreateBuffer({256, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu});
+                auto padding = device.CreateBuffer({256, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu});
+                auto output = device.CreateBuffer({256, BufferUsage::TransferDst, MemoryUsage::GpuToCpu});
+                device.WriteBuffer(*source, 0, input); device.WriteBuffer(*black, 0, zero); device.WriteBuffer(*padding, 0, sentinel);
+                auto commands = device.CreateCommandList(); commands->Begin();
+                for (auto* buffer : {source.get(), black.get(), padding.get()})
+                    commands->Transition(*buffer, ResourceState::Undefined, ResourceState::CopySrc);
+                commands->Transition(*output, ResourceState::Undefined, ResourceState::CopyDst);
+                commands->Transition(*texture, imageState, ResourceState::CopyDst);
+                commands->CopyBuffer(*padding, 0, *output, 0, 256);
+                BufferTextureCopy initial{}; initial.width = 4; initial.height = 3; initial.aspect = aspect;
+                commands->CopyBufferToTexture(*black, *texture, initial);
+                BufferTextureCopy upload = initial; upload.bufferOffset = inputOffset; upload.bytesPerRow = bytes * 5;
+                upload.x = upload.y = 1; upload.width = 3; upload.height = 2;
+                commands->CopyBufferToTexture(*source, *texture, upload);
+                commands->Transition(*texture, ResourceState::CopyDst, ResourceState::CopySrc);
+                auto download = initial; download.bufferOffset = outputOffset; download.bytesPerRow = bytes * 6;
+                commands->CopyTextureToBuffer(*texture, *output, download);
+                imageState = ResourceState::CopySrc;
+                commands->End(); device.ReadBuffer(*output, 0, actual);
+                // The high byte of a D24 depth texel is undefined on download.
+                if (aspect == TextureAspect::Depth && d24)
+                    for (unsigned y = 0; y < 3; ++y)
+                        for (unsigned x = 0; x < 4; ++x)
+                            actual[outputOffset + y * 6 * 4 + x * 4 + 3] = expected[outputOffset + y * 6 * 4 + x * 4 + 3];
+                if (actual != expected || device.DrainErrors())
+                    throw std::runtime_error(std::string("Packed depth/stencil aspect copy changed texels or padding: ")
+                        + (d24 ? "D24S8 " : "D32FS8 ") + (aspect == TextureAspect::Stencil ? "stencil" : "depth"));
+            }
+        }
+        std::cout << "[packed depth/stencil] " << (supported
+            ? "PASS; D24S8/D32FS8 depth and stencil aspects copied separately; subrectangle/padding exact"
+            : "PASS; transfer usage refused at creation (no per-aspect transfer on this backend)") << '\n';
+    }
+
     void CheckRhiRgbCopies(NativeRuntime::Rhi::GraphicsDevice& device)
     {
         using namespace NativeRuntime::Rhi;

@@ -27,6 +27,9 @@ Implemented corrections:
 Local verification (Windows, MinGW Release, Qt Quick, RTX 5070 Ti):
 
 - Full native build passed; CTest **21/21 passed**.
+- A separate configure with `CMAKE_DISABLE_FIND_PACKAGE_Vulkan=ON` built and
+  passed `FruityPrime.VulkanNvidiaReflex` using Vulkan headers alone, proving
+  that the mock regression does not require an enabled renderer or GPU loader.
 - `-reflexcheck -noupdate`, `FRUITY_RENDER_METRICS=1`: **passed**, validation
   enabled, **0 errors**; 268 completed measurement frames, 1 abandoned frame,
   2 timing queries, 149 native sleeps, 1879 markers. FIFO/Immediate/Mailbox,
@@ -41,7 +44,17 @@ Local verification (Windows, MinGW Release, Qt Quick, RTX 5070 Ti):
   native failure preserved requested Boost and selected Generic On, with **0
   validation errors**.
 
-Cross-platform CI for the implementation commit is pending. Nsight/Reflex
+Cross-platform CI **passed**: [build_cpp run 37141029896](https://github.com/Zection6V/Fruity-Prime/actions/runs/37141029896),
+head `e34cfc524af1e25dc86ca6538e96e587f038ebce`, all **12 jobs successful**.
+Windows/MSVC, Linux/GCC and macOS/Clang built and ran the Reflex regression;
+both Android ABIs and the APK package succeeded. The PR merge checkout
+`9e196b81904457d8c4330896b28eafb364c80e6f` has the identical Git tree
+`13c116c43830a6fac210f30f005fd1b66d9ffdb0` to that head. The macOS fixture
+uses headers without requiring the optional production Vulkan backend.
+These are build/package checks, not macOS/Android device runtime tests.
+
+Items 1–6 are resolved and cross-platform CI is terminal-success.
+Nsight/Reflex
 verification tooling is not installed here; API counters and Vulkan validation
 verify the lifecycle contract, without claiming external display-latency measurements.
 

@@ -30,8 +30,8 @@ Phase A～E / H または R1～R20 がすべて完了したという記録では
 | R16: readback | 共通 ticket / immutable CPU output lease / staging+output quota と両 GPU の非同期 copy を実装。本番 screenshot / recording を接続。source の即時 resize / release、shutdown 後の CPU output、件数・byte 制限、RGB/RGBA packing と alpha を検査。同期互換 API は維持。全 format / mip / layer / recording stress は R19 で続ける |
 | R17: error | native backend / kind / code / message を acquire → present → scene facade と起動例外で保持。GL context loss と Vulkan unsupported / loss / OOM を分類。switch を部分再構築まで含む transaction にし、元の backend への復旧と両方失敗した場合を合成 fault / 実 GPU session で検査。実 driver reset / OOM は未注入で、全 ownership / failure stress は R19 に残る |
 | R18: 診断 | 共通 debug scope / marker / 一度限りの timestamp query を両 backend に接続。native set は解放待ちを含め8個まで、結果確認は wait / submit を挿入しない。共通 GPU transfer、容量、shutdown 後の取消を検査。HUD に依存しない FPS / CPU frame time / optional GPU scene time の CSV を本番 window に接続 |
-| R19 / Phase H | 同じ fixture で両 backend を検証する `-rhiconformance` を追加。lifetime gate に sampler / VAO を追加。切替の直前直後で simulation / bomb / particle / texture binding の不変性を検査し、死亡による通常の爆発と区別する。35件の foreign frontend / stale view 拒否、既存 descriptor の texture 解放後の再利用、終了済み command の incoming session への操作を検査。通常の session teardown は両方8回検査。明示的transition / copyと初期stateの拒否25ケース、拒否後のGPUコピー、resize / upload stateを共通fixtureで確認。全format / subresource / state / failure / presentation ownership / 100-cycle stressは引き続き拡張する |
-| R20: optional pacing | 将来の vendor extension を core RHI に追加しない方針を維持。既存 pacing と optional controller の境界を後続で確認する |
+| R19 / Phase H | 同じ fixture で両 backend を検証する `-rhiconformance` を追加。lifetime gate に sampler / VAO を追加。切替の直前直後で simulation / bomb / particle / texture binding の不変性を検査し、死亡による通常の爆発と区別する。35件の foreign frontend / stale view 拒否、既存 descriptor の texture 解放後の再利用、終了済み command の incoming session への操作を検査。通常の session teardown は両方8回検査。明示的transition / copyと初期stateの拒否55ケース、declared usage / attachment format適合性、拒否後のGPUコピー、resize / upload / storage stateを共通fixtureで確認。98be22e1で100試合 / 200切替 / 両backend各100回resize / 700 PNG保存がPASS。全format / subresource / draw-state / failure / presentation ownershipと最終画像gateは残る |
+| R20: optional pacing | 現行のframe capはplatform loop、60 Hz simulationは`FrameTiming`、native presentation modeはswapchainに分離。core RHIにvendor extensionのdispatch / policyはないことを監査。将来vendor extensionを追加するときはSessionのoptional controllerへ隔離する。新しいvendor featureは今回追加しない |
 
 ## 最初の基盤変更
 
@@ -2014,6 +2014,74 @@ cycleごとの7枚のPNG、全cycle完了、両backendのresize数、world witne
 - 実行manifestを含むrunnerの1 cycleもPASS: `C:/tmp/r19-stress-manifest-pilot/run.log`。
   `run-info.json`のcomplete=true、切替2 / PNG 7、exe / paths.txtのSHA-256を確認した。
 
-100-cycle本試験はまだ未完了。全format / subresource / usage-state適合性 / presentation ownership、
-固定frameのpixel parity、R10の最終責務監査、R20も引き続き対応する。
+push済み`98be22e1`から再ビルドしたexeで100-cycle本試験もPASS:
+`C:/tmp/r19-stress-100-98be22e1/run.log`、`run-info.json`。
+100試合 / 200切替、同じ試合のworld witness 100件、両backend各100回のresizeが成功。
+通常resizeのdevice-wide wait増加=0、各世代と最終終了のlive=0 / retired=0 / errors=0。
+native exit=0、全ログのVUID / Validation Error=0。実行時間は約29分。
+exe SHA-256は`FE5AE59F42DA021DCD307BDA4C2C8EB4C224EA630B888F2E0C0852CB535E12DE`。
+保存700 PNGを別途PillowでCRC検査 / decodeし、全画像の寸法と非単色を確認した。
+記録は同じ出力先の`image-verification-1-66.json`と`image-verification-67-100.json`。
+これは画像の完全一致や、Skia / driver内部の全memory allocationの証拠ではない。
+
+全format / subresource / usage-state適合性 / presentation ownership、固定frameのpixel parity、
+R10の最終責務監査は続ける。R20の現行境界監査は後節に記録した。
 RHI countはSkia / driver内部の全GPU確保量を測定しない。レビュー全体は進行中。
+
+## 宣言usage / attachment formatと状態の適合性（R19）
+
+`ResourceStatePolicy.hpp`にAPI非依存のdescriptor / state検査を追加した。
+bufferのVertex / Index / Uniform / Storage / Transfer usageと、textureのSampled / Storage /
+Color / DepthStencil / Transfer usageを、初期stateと明示的transitionで両backendとも検査する。
+未知usage bit、色・深度attachmentのformat違い、独立確保したtextureのPresent指定も拒否する。
+storage-only textureのShaderReadはVulkanのGENERAL layoutに写し、sampled image用layoutを使わない。
+共通GPU fixtureにはusage / formatの拒否とstorage textureを経由した画素保持を追加した。
+
+CPUのstatic contractとOpenGL / Vulkan / GPU fixtureのobject compilationはPASS:
+`C:/tmp/gp/architecture-r19-usage-contract-compile.log`、`C:/tmp/gp/architecture-r19-usage-objects.log`。
+object compilationの時点ではexeを再linkせず、100-cycle試験はpush済み`98be22e1`のexeで完了した。
+本試験終了後にこの変更を含めて別ビルドし、次を確認した:
+
+- MSVC Release PASS: `C:/tmp/gp/architecture-r19-usage-final-build.log`。
+- CPU CTest 15/15 PASS: `C:/tmp/gp/architecture-r19-usage-final-ctest.log`。
+- 共通GPU conformance PASS: `C:/tmp/gp/architecture-r19-usage-final-conformance.log`。
+  両backendで不正操作55件をnative submission / waits / live countを変えずに拒否。
+  storage-only textureのread / write / transfer stateと、拒否後のcopy画素保持もPASS。
+  session teardown、async readback、binding復元の既存fixtureもPASS。
+- `-vulkanresourcecheck` PASS: `C:/tmp/gp/architecture-r19-usage-resource.log`。
+  64回のclear / bind / resize / releaseで通常device-wide waits=0、最終live=0 / retired=0 / validation errors=0。
+- Alinos PerchのSettings保存・Resumeを含む試合中3回切替もアプリexit=0。
+  `C:/tmp/r18-fps-20261003-085815/opengl.log`。world witness 3件、texture source解放、validation errors=0。
+  wrapper末尾に追加した出力抑制記法の誤りでPowerShellだけexit=1となったため、
+  保存ログを独立検査した。検査記録は`C:/tmp/gp/architecture-r19-usage-switch-audit.log`。
+
+Renderer.cppの未使用BackendFactory / OpenGL固有header / GlNames importsも削除した。
+`C:/tmp/gp/architecture-r1-renderer-compile.log`と全体ビルドでbackend型への依存がないことを確認。
+全format / subresource、convenience draw / presentationのstateとownershipの最終監査は残る。
+
+## 現行pacingと将来optional extensionの境界監査（R20）
+
+レビュー19.4 / 23.1は、将来Reflex / Anti-Lag / XeLL / native display timingなどを追加する場合に、
+専用controllerとfeature probeへdispatch / result分類 / policyを隔離する方針を要求する。
+現行Windows OpenGL / Vulkanではこれらのvendor機能を提供していない。
+今回新たにcontrollerの空実装やvendor featureを追加しない。
+
+現行の境界を確認した:
+
+- `RenderWindow::ApplyFrameRateSettings`はlogical capからFIFO / Immediateを要求し、
+  platform windowのUpdateFrequencyを設定する。native extensionを呼ばない。
+- `RendererPlatform::GlfwWindow::Run`がCPU側の描画上限を処理する。
+  `FrameTiming::Advance`の60 Hz simulation accumulatorと独立している。
+- 実際のnative presentation modeとfallbackは各swapchainが持つ。
+  requested / actual modeとpresentation capabilitiesは既存の共通semantic contractを使う。
+- `GraphicsDevice` / `CommandList` / `Capabilities`にReflex、Anti-Lag、XeLL、
+  Vulkan present-wait / display-timing、DXGI waitable objectのdispatchや専用policyはない。
+  追加時のownerはBackendSessionのoptional controllerとする。coreにvendor名を増やさない。
+- GPU timestampはR18のoptional semantic queryであり、pacingに結果待ちを追加しない。
+  実GPUでのnonblocking結果確認は既存の共通conformanceで検査する。
+
+`-frametimingcheck -noupdate`のCPU検査はPASS:
+`C:/tmp/gp/architecture-r20-frametiming.log`。
+60 / 144 / 240 / 165 / 40 Hz、jitter、vsync rate変化でもsimulation rateとcatch-up制限を確認した。
+これはvendor低遅延機能の実測・実装の証拠ではない。R20の現行境界監査を完了し、
+将来機能の実装・driver / vendor SDK検証は追加時の対応に残す。

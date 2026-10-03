@@ -1,4 +1,5 @@
 #include "OpenGlDevice.hpp"
+#include "../ResourceStatePolicy.hpp"
 #include "OpenGlNative.hpp"
 #include "OpenGlFrameScheduler.hpp"
 #include "OpenGlDiagnostics.hpp"
@@ -1046,8 +1047,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     throw std::out_of_range("OpenGL RHI: invalid texture extent or usage.");
                 if (desc.depth != 1 || desc.arrayLayers != 1 || desc.mipLevels != 1 || desc.sampleCount != 1)
                     throw std::invalid_argument("OpenGL RHI: only single-level 2D textures are currently supported.");
-                if (!IsValidTextureState(desc.initialState))
-                    throw std::invalid_argument("OpenGL RHI: invalid initial texture state.");
+                if (!IsValidTextureState(desc, desc.initialState))
+                    throw std::invalid_argument("OpenGL RHI: texture usage, format and initial state are incompatible.");
                 (void)ToGl(desc.format);
             }
             OpenGlNative _api;

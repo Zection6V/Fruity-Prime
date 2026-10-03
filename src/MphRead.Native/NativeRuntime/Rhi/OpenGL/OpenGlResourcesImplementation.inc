@@ -1,8 +1,8 @@
 std::unique_ptr<Buffer> OpenGlGraphicsDevice::CreateBuffer(const BufferDesc& desc)
 {
-    if (!desc.size || desc.usage == BufferUsage::None || !IsValidBufferState(desc.initialState)
+    if (!desc.size || desc.usage == BufferUsage::None || !IsValidBufferState(desc, desc.initialState)
         || desc.size > static_cast<std::uint64_t>(std::numeric_limits<std::ptrdiff_t>::max()))
-        throw std::invalid_argument("OpenGL RHI: invalid buffer size or usage.");
+        throw std::invalid_argument("OpenGL RHI: invalid buffer size, usage or initial state.");
     AdmitStorage(desc.size);
     const auto name = CreateGeometryBuffer();
     if (!name) throw std::runtime_error("OpenGL returned buffer object zero.");

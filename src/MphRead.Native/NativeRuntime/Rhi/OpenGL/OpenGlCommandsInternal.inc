@@ -383,8 +383,8 @@ void OpenGlCommandList::Transition(Buffer& resource, ResourceState before, Resou
     RequireRecording();
     auto& buffer = CheckedBuffer(*_device, resource);
     if (buffer.State() != before || !IsValidTransition(before, after)
-        || !IsValidBufferState(before) || !IsValidBufferState(after))
-        throw std::invalid_argument("OpenGL RHI: buffer transition does not match its tracked state or resource type.");
+        || !IsValidBufferState(buffer.Desc(), before) || !IsValidBufferState(buffer.Desc(), after))
+        throw std::invalid_argument("OpenGL RHI: buffer transition does not match its tracked state or declared usage.");
     if (HasAny(before, ResourceState::ShaderWrite)) OpenGlNative::Require(_device->Api().MemoryBarrier, "glMemoryBarrier")(0xFFFFFFFFU);
     buffer.State(after);
 }
@@ -393,8 +393,8 @@ void OpenGlCommandList::Transition(Texture& resource, ResourceState before, Reso
     RequireRecording();
     auto& texture = Native(resource, _device);
     if (texture.State() != before || !IsValidTransition(before, after)
-        || !IsValidTextureState(before) || !IsValidTextureState(after))
-        throw std::invalid_argument("OpenGL RHI: image transition does not match its tracked state or resource type.");
+        || !IsValidTextureState(texture.Desc(), before) || !IsValidTextureState(texture.Desc(), after))
+        throw std::invalid_argument("OpenGL RHI: image transition does not match its tracked state, usage or format.");
     if (HasAny(before, ResourceState::ShaderWrite)) OpenGlNative::Require(_device->Api().MemoryBarrier, "glMemoryBarrier")(0xFFFFFFFFU);
     texture.State(after);
 }

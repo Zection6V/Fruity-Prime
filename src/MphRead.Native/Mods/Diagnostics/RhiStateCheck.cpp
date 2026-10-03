@@ -30,6 +30,21 @@ namespace MphRead::Mods::Diagnostics
         for (const auto state : {unknown, ResourceState::CopyDst | ResourceState::CopySrc,
             ResourceState::ColorAttachment, ResourceState::DepthStencilRead, ResourceState::Present})
             reject([&] { (void)device.CreateBuffer({16, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu, state}); });
+        for (const auto state : {ResourceState::VertexBuffer, ResourceState::IndexBuffer, ResourceState::ConstantBuffer,
+            ResourceState::ShaderRead, ResourceState::ShaderWrite, ResourceState::CopyDst})
+            reject([&] { (void)device.CreateBuffer({16, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu, state}); });
+        for (const auto state : {ResourceState::ColorAttachment, ResourceState::DepthStencilRead,
+            ResourceState::DepthStencilWrite, ResourceState::ShaderWrite, ResourceState::Present})
+        { auto invalid = desc; invalid.initialState = state; reject([&] { (void)device.CreateTexture(invalid); }); }
+        for (const auto state : {ResourceState::CopySrc, ResourceState::CopyDst})
+        { auto invalid = desc; invalid.usage = TextureUsage::Sampled; invalid.initialState = state;
+            reject([&] { (void)device.CreateTexture(invalid); }); }
+        for (const auto format : {TextureFormat::RGBA8Unorm, TextureFormat::D24UnormS8Uint})
+        { auto invalid = desc; invalid.format = format;
+            invalid.usage = format == TextureFormat::RGBA8Unorm ? TextureUsage::DepthStencilAttachment : TextureUsage::ColorAttachment;
+            reject([&] { (void)device.CreateTexture(invalid); }); }
+        reject([&] { auto invalid = desc; invalid.usage = static_cast<TextureUsage>(1U << 31); (void)device.CreateTexture(invalid); });
+        reject([&] { (void)device.CreateBuffer({16, static_cast<BufferUsage>(1U << 31)}); });
 
         auto source = device.CreateBuffer({16, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu, ResourceState::Common});
         auto output = device.CreateBuffer({16, BufferUsage::TransferDst, MemoryUsage::GpuToCpu});
@@ -43,6 +58,9 @@ namespace MphRead::Mods::Diagnostics
         reject([&] { commands->CopyBufferToTexture(*source, *image, region); });
         reject([&] { commands->CopyTextureToBuffer(*image, *output, region); });
         reject([&] { commands->Transition(*source, ResourceState::Undefined, ResourceState::CopySrc); });
+        for (const auto state : {ResourceState::VertexBuffer, ResourceState::IndexBuffer, ResourceState::ConstantBuffer,
+            ResourceState::ShaderRead, ResourceState::ShaderWrite, ResourceState::CopyDst})
+            reject([&] { commands->Transition(*source, ResourceState::Common, state); });
         for (const auto state : {unknown, ResourceState::Common, ResourceState::ColorAttachment,
             ResourceState::CopyDst | ResourceState::ShaderRead})
             reject([&] { commands->Transition(*source, ResourceState::Common, state); });
@@ -50,6 +68,9 @@ namespace MphRead::Mods::Diagnostics
         commands->Transition(*output, ResourceState::Undefined, ResourceState::CopyDst);
         for (const auto state : {unknown, ResourceState::Undefined, ResourceState::VertexBuffer,
             ResourceState::ShaderRead | ResourceState::ShaderWrite})
+            reject([&] { commands->Transition(*image, ResourceState::Undefined, state); });
+        for (const auto state : {ResourceState::ColorAttachment, ResourceState::DepthStencilRead,
+            ResourceState::DepthStencilWrite, ResourceState::ShaderWrite, ResourceState::Present})
             reject([&] { commands->Transition(*image, ResourceState::Undefined, state); });
         commands->Transition(*image, ResourceState::Undefined, ResourceState::CopyDst);
         reject([&] { commands->Transition(*image, ResourceState::Undefined, ResourceState::CopySrc); });
@@ -68,6 +89,24 @@ namespace MphRead::Mods::Diagnostics
         auto initializedDesc = desc; initializedDesc.initialState = ResourceState::ShaderRead;
         auto initialized = device.CreateTexture(initializedDesc);
         commands->Begin(); commands->Transition(*initialized, ResourceState::ShaderRead, ResourceState::CopyDst); commands->End();
+        auto sampledDesc = desc; sampledDesc.usage = TextureUsage::Sampled;
+        auto sampled = device.CreateTexture(sampledDesc);
+        commands->Begin();
+        for (const auto state : {ResourceState::CopySrc, ResourceState::CopyDst})
+            reject([&] { commands->Transition(*sampled, ResourceState::Undefined, state); });
+        commands->Transition(*sampled, ResourceState::Undefined, ResourceState::ShaderRead); commands->End();
+
+        auto storageDesc = desc; storageDesc.usage = TextureUsage::Storage | TextureUsage::TransferSrc | TextureUsage::TransferDst;
+        storageDesc.initialState = ResourceState::ShaderRead;
+        auto storage = device.CreateTexture(storageDesc);
+        commands->Begin(); commands->Transition(*storage, ResourceState::ShaderRead, ResourceState::CopyDst);
+        commands->CopyBufferToTexture(*source, *storage, region);
+        commands->Transition(*storage, ResourceState::CopyDst, ResourceState::ShaderWrite);
+        commands->Transition(*storage, ResourceState::ShaderWrite, ResourceState::ShaderRead);
+        commands->Transition(*storage, ResourceState::ShaderRead, ResourceState::CopySrc);
+        commands->CopyTextureToBuffer(*storage, *output, region); commands->End();
+        device.ReadBuffer(*output, 0, actual);
+        if (actual != payload) throw std::runtime_error("Storage texture state transitions changed transferred pixels.");
 
         device.ResizeTexture(*image, 2, 2); // Same extent retains its state.
         commands->Begin(); commands->Transition(*image, ResourceState::CopySrc, ResourceState::Common); commands->End();
@@ -85,6 +124,6 @@ namespace MphRead::Mods::Diagnostics
         commands->CopyBuffer(*gpu, 0, *output, 0, 16); commands->End(); device.ReadBuffer(*output, 0, actual);
         if (actual != payload || device.DrainErrors()) throw std::runtime_error("GPU upload state or pixels differ.");
         std::cout << "[resource states] PASS; rejected=" << rejected
-            << "; initial/tracked state; invalid bits/type/write combinations; copies preserved; resize/upload states\n";
+            << "; initial/tracked state; invalid bits/type/write/usage/format; copies preserved; resize/upload/storage states\n";
     }
 }

@@ -6,6 +6,7 @@
 #include "../NativeRuntime/Rhi/Pipeline.hpp"
 #include "../NativeRuntime/Rhi/Resources.hpp"
 #include "../NativeRuntime/Rhi/ResourceState.hpp"
+#include "../NativeRuntime/Rhi/ResourceStatePolicy.hpp"
 #include "../NativeRuntime/Rhi/Swapchain.hpp"
 
 #include <memory>
@@ -62,6 +63,34 @@ namespace
     static_assert(!IsValidTextureState(ResourceState::ConstantBuffer));
     static_assert(IsValidTransition(ResourceState::Undefined, ResourceState::CopyDst));
     static_assert(!IsValidTransition(ResourceState::CopyDst, ResourceState::Undefined));
+
+    static_assert(IsValidBufferState(BufferA, ResourceState::VertexBuffer));
+    static_assert(!IsValidBufferState(BufferA, ResourceState::IndexBuffer));
+    static_assert(!IsValidBufferState(BufferA, ResourceState::ConstantBuffer));
+    static_assert(!IsValidBufferState(BufferA, ResourceState::CopySrc));
+    static_assert(!IsValidBufferState(BufferA, ResourceState::ShaderRead));
+    static_assert(!IsValidBufferState(BufferA, ResourceState::ShaderWrite));
+    static_assert(!IsValidBufferState({1, static_cast<BufferUsage>(1U << 31)}, ResourceState::Common));
+    constexpr TextureDesc Sampled{1, 1, 1, 1, 1, 1, TextureFormat::RGBA8Unorm, TextureUsage::Sampled};
+    static_assert(IsValidTextureState(Sampled, ResourceState::ShaderRead));
+    static_assert(!IsValidTextureState(Sampled, ResourceState::CopySrc));
+    static_assert(!IsValidTextureState(Sampled, ResourceState::CopyDst));
+    static_assert(!IsValidTextureState(Sampled, ResourceState::ColorAttachment));
+    static_assert(!IsValidTextureState(Sampled, ResourceState::ShaderWrite));
+    static_assert(!IsValidTextureState(Sampled, ResourceState::DepthStencilRead));
+    static_assert(!IsValidTextureState(Sampled, ResourceState::Present));
+    constexpr TextureDesc Storage{1, 1, 1, 1, 1, 1, TextureFormat::RGBA8Unorm, TextureUsage::Storage};
+    static_assert(IsValidTextureState(Storage, ResourceState::ShaderRead));
+    static_assert(IsValidTextureState(Storage, ResourceState::ShaderWrite));
+    constexpr TextureDesc Depth{1, 1, 1, 1, 1, 1, TextureFormat::D24UnormS8Uint,
+        TextureUsage::DepthStencilAttachment | TextureUsage::Sampled};
+    static_assert(IsValidTextureState(Depth, ResourceState::DepthStencilRead | ResourceState::ShaderRead));
+    static_assert(IsValidTextureState(Depth, ResourceState::DepthStencilWrite));
+    static_assert(!IsValidTextureState(Depth, ResourceState::ColorAttachment));
+    static_assert(!IsValidTextureState({1, 1, 1, 1, 1, 1, TextureFormat::RGBA8Unorm,
+        TextureUsage::DepthStencilAttachment}, ResourceState::Undefined));
+    static_assert(!IsValidTextureState({1, 1, 1, 1, 1, 1, TextureFormat::D24UnormS8Uint,
+        TextureUsage::ColorAttachment}, ResourceState::Undefined));
 
     static_assert(std::is_abstract_v<GraphicsDevice>);
     static_assert(std::is_abstract_v<CommandList>);

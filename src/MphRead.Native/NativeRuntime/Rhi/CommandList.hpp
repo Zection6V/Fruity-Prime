@@ -194,8 +194,9 @@ namespace MphRead::NativeRuntime::Rhi
         // Explicit transitions cover the whole resource. before must match the
         // state left by its initial state, prior transition or convenience
         // operation. Unknown bits, equal states and states of another resource
-        // type are rejected before native mutation. Read states may combine;
+        // type/usage/format are rejected before native mutation. Read states may combine;
         // each write state is exclusive. A resized texture starts Undefined.
+        // Present is reserved for swapchain images, not independently allocated textures.
         virtual void Transition(
             Buffer& resource, ResourceState before, ResourceState after) = 0;
         virtual void Transition(

@@ -1,5 +1,6 @@
 #include "VulkanGraphicsDevice.hpp"
 #include "VulkanScene.hpp"
+#include "../ResourceStatePolicy.hpp"
 
 #include <algorithm>
 #include <array>
@@ -177,7 +178,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         };
 
         // All Vulkan resource-state to synchronization2 mappings live here.
-        [[nodiscard]] StateMapping ToVkState(ResourceState state, bool image)
+        [[nodiscard]] StateMapping ToVkState(ResourceState state, bool image, bool storageOnly = false)
         {
             if (!IsValidResourceState(state))
                 throw std::invalid_argument("Vulkan RHI: invalid resource-state combination.");
@@ -220,7 +221,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (has(ResourceState::ShaderRead))
             {
                 result.Stages |= VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
-                result.Access |= image ? (VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
+                result.Access |= image && !storageOnly ? (VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
                     | VK_ACCESS_2_SHADER_STORAGE_READ_BIT) : VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
             }
             if (has(ResourceState::ShaderWrite))
@@ -260,9 +261,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 result.Access |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
             }
 
-            // A single read-only state gets the specialized layout. Combined
-            // read states use GENERAL so all access masks remain valid.
-            if (image && state == ResourceState::ShaderRead)
+            // Sampled-only reads use the specialized layout. Storage-only
+            // reads and combined read states use GENERAL.
+            if (image && state == ResourceState::ShaderRead && !storageOnly)
                 result.Layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             else if (image && state == ResourceState::CopySrc)
                 result.Layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
@@ -1255,8 +1256,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         VulkanBuffer::VulkanBuffer(std::shared_ptr<VulkanDeviceState> state, const BufferDesc& desc)
             : _device(std::move(state)), _registration(*_device, *this), _desc(desc), _state(ResourceState::Undefined)
         {
-            if (_desc.size == 0 || _desc.usage == BufferUsage::None || !IsValidBufferState(_desc.initialState))
-                throw std::invalid_argument("Vulkan RHI: buffers need a nonzero size and usage.");
+            if (_desc.size == 0 || _desc.usage == BufferUsage::None || !IsValidBufferState(_desc, _desc.initialState))
+                throw std::invalid_argument("Vulkan RHI: buffers need a nonzero size and compatible usage/state.");
             VkBufferCreateInfo create{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
             create.size = _desc.size;
             create.usage = ToVkBufferUsage(_desc.usage);
@@ -1364,8 +1365,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         {
             if (_desc.width == 0 || _desc.height == 0 || _desc.depth == 0
                 || _desc.mipLevels == 0 || _desc.arrayLayers == 0 || _desc.usage == TextureUsage::None
-                || !IsValidTextureState(_desc.initialState))
-                throw std::invalid_argument("Vulkan RHI: textures need nonzero extents, subresources and usage.");
+                || !IsValidTextureState(_desc, _desc.initialState))
+                throw std::invalid_argument("Vulkan RHI: textures need nonzero extents/subresources and compatible usage/format/state.");
             if (_desc.depth > 1 && _desc.arrayLayers != 1)
                 throw std::invalid_argument("Vulkan RHI: 3D texture arrays are not supported.");
             if (_desc.memoryUsage != MemoryUsage::GpuOnly)
@@ -2854,8 +2855,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (buffer.DeviceState() != _device)
                 throw std::invalid_argument("Vulkan RHI: buffer belongs to another device.");
             if (buffer.State() != before || !IsValidTransition(before, after)
-                || !IsValidBufferState(before) || !IsValidBufferState(after))
-                throw std::invalid_argument("Vulkan RHI: buffer transition does not match its tracked state.");
+                || !IsValidBufferState(buffer.Desc(), before) || !IsValidBufferState(buffer.Desc(), after))
+                throw std::invalid_argument("Vulkan RHI: buffer transition does not match its tracked state or declared usage.");
             PrepareTransfer();
             const StateMapping src = ToVkState(before, false);
             const StateMapping dst = ToVkState(after, false);
@@ -2883,13 +2884,15 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (texture.DeviceState() != _device)
                 throw std::invalid_argument("Vulkan RHI: texture belongs to another device.");
             if (texture.State() != before || !IsValidTransition(before, after)
-                || !IsValidTextureState(before) || !IsValidTextureState(after))
-                throw std::invalid_argument("Vulkan RHI: image transition does not match its tracked state.");
+                || !IsValidTextureState(texture.Desc(), before) || !IsValidTextureState(texture.Desc(), after))
+                throw std::invalid_argument("Vulkan RHI: image transition does not match its tracked state, usage or format.");
             PrepareTransfer();
             // Preparing the pending clear can implicitly transition this very
             // attachment. Use its resulting native layout for the barrier.
-            const StateMapping src = ToVkState(texture.State(), true);
-            const StateMapping dst = ToVkState(after, true);
+            const bool storageOnly = Has(texture.Desc().usage, TextureUsage::Storage)
+                && !Has(texture.Desc().usage, TextureUsage::Sampled);
+            const StateMapping src = ToVkState(texture.State(), true, storageOnly);
+            const StateMapping dst = ToVkState(after, true, storageOnly);
             VkImageMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
             barrier.srcStageMask = src.Stages;
             barrier.srcAccessMask = src.Access;
@@ -3386,7 +3389,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         result.Image = reinterpret_cast<std::uint64_t>(native.Native());
         result.Format = static_cast<std::uint32_t>(ToVkFormat(native.Desc().format));
         result.Usage = static_cast<std::uint32_t>(ToVkImageUsage(native.Desc().usage));
-        result.Layout = static_cast<std::uint32_t>(ToVkState(state, true).Layout);
+        result.Layout = static_cast<std::uint32_t>(ToVkState(state, true,
+            Has(native.Desc().usage, TextureUsage::Storage) && !Has(native.Desc().usage, TextureUsage::Sampled)).Layout);
         return result;
     }
 

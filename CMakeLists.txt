@@ -567,6 +567,10 @@ if(UNIX AND NOT APPLE AND NOT ANDROID)
     # for the Vulkan presentation probe's default-visual query.
     find_library(FRUITY_XCB_LIBRARY NAMES xcb REQUIRED)
     target_link_libraries(fruity_mphread_qt PRIVATE "${FRUITY_XCB_LIBRARY}")
+    # fruity_mphread_qt is an OBJECT library whose objects are inserted into
+    # fruity_mphread_native below. Its private link dependencies therefore do
+    # not reach the final executable; carry XCB on the archive that owns them.
+    target_link_libraries(fruity_mphread_native PUBLIC "${FRUITY_XCB_LIBRARY}")
 endif()
 if(FRUITY_STOP_TOKEN_OPTIONS)
     target_compile_options(fruity_mphread_qt PRIVATE ${FRUITY_STOP_TOKEN_OPTIONS})

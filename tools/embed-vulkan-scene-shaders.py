@@ -52,7 +52,7 @@ def embed(directory, destination):
         blocks = contract['blocks']
         lines.append(f'inline constexpr std::array<UniformBlock,{len(blocks)}> {program}_blocks{{{{')
         for block in blocks:
-            lines.append('{"%s",%d,%d,%d},' % (block['semantic'], block['group'], block['binding'], block['size']))
+            lines.append('{"%s",%d,%d,%d,%s},' % (block['semantic'], block['group'], block['binding'], block['size'], str(block['small']).lower()))
         lines.append('}};')
         members = [entry for entry in contract['members'] if 'offset' in entry]
         textures = [entry for entry in contract['members'] if 'image_binding' in entry]

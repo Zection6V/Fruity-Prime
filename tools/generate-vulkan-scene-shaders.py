@@ -39,7 +39,7 @@ def generate(source, output):
             identity = logical['block']
             binding = contract['bindings'][identity]
             block = blocks.setdefault(identity, dict(semantic=identity, group=binding['group'], binding=binding['binding'],
-                size=0, members=[], declarations=[]))
+                size=0, small=binding['type'] == 'SmallConstants', members=[], declarations=[]))
             alignment, size = {"bool": (4, 4), "int": (4, 4), "float": (4, 4),
                                "vec3": (16, 12), "vec4": (16, 16), "mat4": (16, 64)}[kind]
             if count:
@@ -56,7 +56,10 @@ def generate(source, output):
         for block in blocks.values():
             block['size'] = (block['size'] + 15) // 16 * 16
             declarations = '\n'.join(block.pop('declarations'))
-            prefix_blocks.append(f"layout(std140,set={block['group']},binding={block['binding']}) uniform Scene{block['semantic']} {{\n{declarations}\n}};\n")
+            layout = 'std140,push_constant' if block['small'] else f"std140,set={block['group']},binding={block['binding']}"
+            if block['small'] and block['size'] > 128:
+                raise ValueError('Small constants exceed the portable 128-byte budget')
+            prefix_blocks.append(f"layout({layout}) uniform Scene{block['semantic']} {{\n{declarations}\n}};\n")
         block = '\n'.join(prefix_blocks)
         varyings = {}
         for body in bodies:

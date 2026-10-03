@@ -28,7 +28,8 @@ namespace
         VkDevice Device = Handle<VkDevice>(1);
         VkQueue Queue = Handle<VkQueue>(2);
         VkSemaphore Timeline = Handle<VkSemaphore>(3);
-        VkResult CreateResult = VK_SUCCESS, SubmitResult = VK_SUCCESS, PollResult = VK_SUCCESS;
+        VkResult CreateResult = VK_SUCCESS, SubmitResult = VK_SUCCESS, PollResult = VK_SUCCESS, WaitResult = VK_SUCCESS;
+        unsigned BudgetWaits = 0;
         bool NullTimeline = false, Live = false;
         unsigned Creates = 0, Destroys = 0, Submits = 0, Polls = 0;
         std::uint64_t Complete = 0, LastSignal = 0;
@@ -79,8 +80,16 @@ namespace
             if (f.PollResult == VK_SUCCESS) *value = f.Complete;
             return f.PollResult;
         }
+        static VKAPI_ATTR VkResult VKAPI_CALL Wait(VkDevice device, const VkSemaphoreWaitInfo* info, std::uint64_t timeout)
+        {
+            auto& f = *active; ++f.BudgetWaits;
+            Expect(device == f.Device && info->semaphoreCount == 1 && *info->pSemaphores == f.Timeline
+                && *info->pValues == f.LastSignal && timeout == 2'000'000, "Budget must wait for latest submission with bounded timeout.");
+            if (f.WaitResult == VK_SUCCESS) f.Complete = f.LastSignal;
+            return f.WaitResult;
+        }
         VulkanFrameScheduler::Dispatch Dispatch()
-        { return {Device, Queue, Create, Destroy, Submit, Counter, Check}; }
+        { return {Device, Queue, Create, Destroy, Submit, Counter, Check, Wait}; }
     };
     void Run()
     {
@@ -188,8 +197,25 @@ namespace
         Expect(!f.Live && f.Destroys == 1 && f.LastSignal == 64, "Drained scheduler leaked or destroyed twice.");
     }
 }
+void Budget()
+{
+    Fake f;
+    VulkanFrameScheduler scheduler(f.Dispatch());
+    Expect(scheduler.WaitForLatest(2'000'000) && !f.BudgetWaits, "Idle budget must not wait.");
+    (void)scheduler.MarkExternalWork(); (void)scheduler.MarkExternalWork();
+    f.Complete = 1; f.WaitResult = VK_TIMEOUT;
+    Expect(!scheduler.WaitForLatest(2'000'000) && scheduler.Submitted().Value == 2
+        && scheduler.Completed().Value == 1 && f.Submits == 2, "Busy budget changed submissions or established completion.");
+    f.WaitResult = VK_ERROR_DEVICE_LOST;
+    NativeFailure([&] { (void)scheduler.WaitForLatest(2'000'000); }, f.WaitResult, BackendErrorKind::DeviceLost);
+    Expect(scheduler.Completed().Value == 1, "Failed budget established completion.");
+    f.WaitResult = VK_SUCCESS;
+    Expect(scheduler.WaitForLatest(2'000'000) && scheduler.Completed().Value == 2, "Latest work completion was lost.");
+    const auto waits = f.BudgetWaits;
+    Expect(scheduler.WaitForLatest(2'000'000) && waits == f.BudgetWaits, "Completed budget waited again.");
+}
 int main()
 {
-    try { Run(); std::cout << "Vulkan queue scheduler PASS; 64 serials; external markers; native arrays/fence preserved; submit/poll failure; completion guards; creation rollback\n"; return 0; }
+    try { Run(); Budget(); std::cout << "Vulkan queue scheduler PASS; latest-submission bounded budget; 64 serials; external markers; native arrays/fence preserved; submit/poll failure; completion guards; creation rollback\n"; return 0; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

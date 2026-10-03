@@ -102,12 +102,73 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         _ready = false;
     }
 
+    bool VulkanDescriptorAllocator::Preallocate(std::uint64_t identity, VkDescriptorSetLayout layout,
+        const BindingLayoutDesc& desc, std::uint32_t count)
+    {
+        RequireOpen();
+        if (!identity || !layout || !count || count > 1024)
+            throw std::invalid_argument("Invalid fixed descriptor admission.");
+        if (_fixed.contains(identity)) return true;
+        // At most 64 fixed layouts per stream slot. Other programs use the
+        // ordinary allocator; admission is never allowed to grow this cache.
+        if (_fixed.size() == 64) return false;
+        const auto requirements = Requirements(desc);
+        constexpr std::array<VkDescriptorType, 5> types{
+            VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+            VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_SAMPLER};
+        std::vector<VkDescriptorPoolSize> sizes;
+        for (std::size_t i = 0; i < requirements.size(); ++i)
+        {
+            if (requirements[i] > UINT32_MAX / count)
+                throw std::invalid_argument("Fixed descriptor count overflow.");
+            if (requirements[i]) sizes.push_back({types[i], static_cast<std::uint32_t>(requirements[i] * count)});
+        }
+        FixedPage page;
+        page.Sets.resize(count);
+        const std::vector<VkDescriptorSetLayout> layouts(count, layout);
+        VkDescriptorPoolCreateInfo create{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+        create.maxSets = count; create.poolSizeCount = static_cast<std::uint32_t>(sizes.size()); create.pPoolSizes = sizes.data();
+        _dispatch.CheckResult(_dispatch.Create(_dispatch.Device, &create, nullptr, &page.Pool), "vkCreateDescriptorPool(fixed ABI)");
+        try
+        {
+            VkDescriptorSetAllocateInfo allocate{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+            allocate.descriptorPool = page.Pool; allocate.descriptorSetCount = count; allocate.pSetLayouts = layouts.data();
+            _dispatch.CheckResult(_dispatch.Allocate(_dispatch.Device, &allocate, page.Sets.data()), "vkAllocateDescriptorSets(fixed ABI)");
+            _fixed.emplace(identity, std::move(page));
+        }
+        catch (...) { _dispatch.Destroy(_dispatch.Device, page.Pool, nullptr); throw; }
+        return true;
+    }
+
+    VkDescriptorSet VulkanDescriptorAllocator::AllocateFixed(std::uint64_t identity)
+    {
+        RequireOpen();
+        if (!_ready) throw std::logic_error("Fixed descriptor slot is not recording.");
+        const auto found = _fixed.find(identity);
+        if (found == _fixed.end() || found->second.Retired || found->second.Cursor == found->second.Sets.size()) return VK_NULL_HANDLE;
+        return found->second.Sets[found->second.Cursor++];
+    }
+    void VulkanDescriptorAllocator::RetireFixed(std::uint64_t identity)
+    {
+        RequireOpen();
+        if (const auto found = _fixed.find(identity); found != _fixed.end()) found->second.Retired = true;
+    }
+
     void VulkanDescriptorAllocator::ResetAfterCompletion(SubmissionSerial completed)
     {
         RequireOpen();
         if (completed < _lastUse)
             throw std::logic_error("Vulkan descriptor allocator: generation is still in flight.");
         _ready = false;
+        for (auto it = _fixed.begin(); it != _fixed.end();)
+        {
+            if (it->second.Retired)
+            {
+                _dispatch.Destroy(_dispatch.Device, it->second.Pool, nullptr);
+                it = _fixed.erase(it);
+            }
+            else { it->second.Cursor = 0; ++it; }
+        }
         for (auto& page : _pages)
         {
             _dispatch.CheckResult(_dispatch.Reset(_dispatch.Device, page.Pool, 0),
@@ -122,6 +183,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     void VulkanDescriptorAllocator::Close() noexcept
     {
         if (_closed) return;
+        for (const auto& [identity, page] : _fixed) _dispatch.Destroy(_dispatch.Device, page.Pool, nullptr);
+        _fixed.clear();
         for (const auto& page : _pages) _dispatch.Destroy(_dispatch.Device, page.Pool, nullptr);
         _pages.clear();
         _ready = false;

@@ -6279,9 +6279,33 @@ namespace MphRead
         _window->BaseOnLoad();
     }
 
+    bool RenderWindow::BeforeFrame()
+    {
+        namespace Rhi = NativeRuntime::Rhi;
+        const auto mode = Mods::Launcher::LauncherPrefs::LowLatency();
+        const auto size = FramebufferSize();
+        if (mode == Rhi::LowLatencyMode::Off || size.X <= 0 || size.Y <= 0) return true;
+        auto& device = Rhi::SceneDevice();
+        if (Rhi::ResolveLowLatency(mode, device.LowLatencyCaps()).effective == Rhi::LowLatencyMode::Off) return true;
+        return device.WaitForLatestSubmission(Rhi::PresentationScheduler::FrameBudgetWait.count());
+    }
+
     void RenderWindow::ApplyFrameRateSettings()
     {
         const std::int32_t cap = Mods::Diagnostics::FramePerformance::EffectiveCap(Mods::Render::FrameTiming::FrameRateCap());
+        const auto latency = NativeRuntime::Rhi::ResolveLowLatency(Mods::Launcher::LauncherPrefs::LowLatency(),
+            NativeRuntime::Rhi::SceneDevice().LowLatencyCaps());
+        if (!_reportedLatency || *_reportedLatency != latency)
+        {
+            _reportedLatency = latency;
+            std::cout << "[presentation] requested_low_latency_mode=" << static_cast<int>(latency.requested)
+                << " effective_low_latency_mode=" << static_cast<int>(latency.effective)
+                << " low_latency_provider=" << static_cast<int>(latency.provider)
+                << " boost_supported=" << latency.boostSupported
+                << " pacing_authority=" << static_cast<int>(latency.authority)
+                << " reason=" << latency.fallbackReason << '\n';
+        }
+        _window->PresentationTiming(_swapchain->Desc().presentMode, cap, latency.authority);
         if (cap == _appliedFrameRateCap)
         {
             return;
@@ -6295,8 +6319,9 @@ namespace MphRead
         else
         {
             _swapchain->SetPresentMode(NativeRuntime::Rhi::PresentMode::Immediate);
-            _window->UpdateFrequency(cap == -1 ? 0.0 : static_cast<double>(cap));
+            _window->UpdateFrequency(0.0);
         }
+        _window->PresentationTiming(_swapchain->Desc().presentMode, cap, latency.authority);
     }
 
     void RenderWindow::Reveal()
@@ -6334,9 +6359,23 @@ namespace MphRead
         if (_performance) _performance->BeginFrame(*this, *_swapchain);
         const auto present = [&]
         {
-            if (!_performance) { NativeRuntime::Rhi::PresentSceneWindow(*_swapchain); return; }
+            if (std::getenv("FRUITY_RENDER_METRICS") && ++_presentationMetricFrames % 120 == 0)
+            {
+                const auto waits = NativeRuntime::Rhi::SceneDevice().PresentationWaits();
+                std::cout << "[presentation-metrics] present_wait_count=" << waits.count
+                    << " present_wait_ns=" << waits.nanoseconds << '\n';
+            }
+            if (!_performance)
+            {
+                const auto result = NativeRuntime::Rhi::PresentSceneWindow(*_swapchain);
+                if (result.status == NativeRuntime::Rhi::PresentationStatus::Ready) _window->PresentationAccepted();
+                else _window->PresentationUnavailable();
+                return;
+            }
             const auto start = std::chrono::steady_clock::now();
-            NativeRuntime::Rhi::PresentSceneWindow(*_swapchain);
+            const auto result = NativeRuntime::Rhi::PresentSceneWindow(*_swapchain);
+            if (result.status == NativeRuntime::Rhi::PresentationStatus::Ready) _window->PresentationAccepted();
+            else _window->PresentationUnavailable();
             if (_performance) _performance->Presented(*this, *_swapchain,
                 std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
         };

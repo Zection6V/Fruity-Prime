@@ -140,6 +140,7 @@ namespace MphRead::Mods::Launcher
     std::int32_t LauncherPrefs::_lastKind = 0;
     bool LauncherPrefs::_autoUpdate = true;
     std::string LauncherPrefs::_renderer = "opengl";
+    NativeRuntime::Rhi::LowLatencyMode LauncherPrefs::_lowLatency = NativeRuntime::Rhi::LowLatencyMode::Off;
     std::int32_t LauncherPrefs::_windowWidth = 0;
     std::int32_t LauncherPrefs::_windowHeight = 0;
     std::int32_t LauncherPrefs::_windowX = 0;
@@ -308,6 +309,10 @@ namespace MphRead::Mods::Launcher
     {
         _autoUpdate = value;
     }
+
+    NativeRuntime::Rhi::LowLatencyMode LauncherPrefs::LowLatency() noexcept { return _lowLatency; }
+    void LauncherPrefs::LowLatency(NativeRuntime::Rhi::LowLatencyMode value) noexcept
+    { _lowLatency = value <= NativeRuntime::Rhi::LowLatencyMode::OnBoost ? value : NativeRuntime::Rhi::LowLatencyMode::Off; }
 
     const std::string& LauncherPrefs::Renderer() noexcept
     {
@@ -579,6 +584,12 @@ namespace MphRead::Mods::Launcher
                         ::MphRead::NativeRuntime::Rhi::RequestSceneBackend(request, false);
                     }
                 }
+                else if (key == "low_latency")
+                {
+                    if (value == "off") _lowLatency = NativeRuntime::Rhi::LowLatencyMode::Off;
+                    else if (value == "on") _lowLatency = NativeRuntime::Rhi::LowLatencyMode::On;
+                    else if (value == "onboost") _lowLatency = NativeRuntime::Rhi::LowLatencyMode::OnBoost;
+                }
                 else if (key == "auto_update")
                 {
                     bool autoUpdate = false;
@@ -643,6 +654,8 @@ namespace MphRead::Mods::Launcher
                     + (_hostOnMaster ? "true" : "false"));
             lines.emplace_back("last_kind=" + ::MphRead::NativeRuntime::ToStringInvariant(_lastKind));
             lines.emplace_back("renderer=" + _renderer);
+            lines.emplace_back(std::string("low_latency=") + (_lowLatency == NativeRuntime::Rhi::LowLatencyMode::Off
+                ? "off" : _lowLatency == NativeRuntime::Rhi::LowLatencyMode::On ? "on" : "onboost"));
             lines.emplace_back(
                 std::string("auto_update=")
                     + (_autoUpdate ? "true" : "false"));

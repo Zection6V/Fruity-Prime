@@ -24,12 +24,39 @@
 #include <utility>
 
 #include <GLFW/glfw3.h>
+#if defined(_WIN32)
+#include <windows.h>
+#undef CreateWindow
+#endif
 
 using ::MphRead::NativeRuntime::ConsoleWrite;
 using ::MphRead::NativeRuntime::ConsoleWriteLine;
 
 namespace
 {
+    namespace Rhi = MphRead::NativeRuntime::Rhi;
+    void SleepForPresentation(Rhi::PresentationScheduler::Time deadline)
+    {
+        const auto remaining = deadline - Rhi::PresentationScheduler::Clock::now();
+        if (remaining <= Rhi::PresentationScheduler::Clock::duration::zero()) return;
+#if defined(_WIN32)
+        struct Timer final
+        {
+            HANDLE Handle = CreateWaitableTimerExW(nullptr, nullptr, 0x00000002, TIMER_ALL_ACCESS);
+            Timer() { if (!Handle) Handle = CreateWaitableTimerW(nullptr, FALSE, nullptr); }
+            ~Timer() { if (Handle) CloseHandle(Handle); }
+        };
+        static thread_local Timer timer;
+        LARGE_INTEGER due;
+        due.QuadPart = -std::max<LONGLONG>(1, (std::chrono::duration_cast<std::chrono::nanoseconds>(remaining).count() + 99) / 100);
+        if (timer.Handle && SetWaitableTimer(timer.Handle, &due, 0, nullptr, nullptr, FALSE))
+        {
+            const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(remaining).count();
+            if (WaitForSingleObject(timer.Handle, static_cast<DWORD>(std::clamp<std::int64_t>(ms + 2, 1, 1000))) == WAIT_OBJECT_0) return;
+        }
+#endif
+        std::this_thread::sleep_until(deadline);
+    }
     using MphRead::RendererPlatform::CursorState;
     using MphRead::RendererPlatform::FrameEventArgs;
     using MphRead::RendererPlatform::GraphicsWindowMode;
@@ -248,6 +275,7 @@ namespace
             while (::glfwWindowShouldClose(_handle) == GLFW_FALSE)
             {
                 ::MphRead::NativeRuntime::FrameHeartbeat();
+                SleepForPresentation(_presentation.Deadline(Rhi::PresentationScheduler::Clock::now()));
                 // OpenTK's NewInputFrame polls the current cursor position
                 // separately from the cursor callback's last-reported point.
                 double cursorX = 0.0;
@@ -256,6 +284,10 @@ namespace
                 _mouse.X = static_cast<float>(cursorX);
                 _mouse.Y = static_cast<float>(cursorY);
                 ::glfwPollEvents();
+                // Bounded budget waits run with events serviced between them.
+                // A busy GPU postpones admission; no primary draw or simulation
+                // step is recorded and discarded. Elapsed time is retained.
+                if (!events.BeforeFrame()) continue;
                 const auto now = std::chrono::steady_clock::now();
                 const double elapsed
                     = std::chrono::duration<double>(now - previous).count();
@@ -268,6 +300,7 @@ namespace
                     continue;
                 }
                 previous = now;
+                _presentationFrameStart = now;
                 FrameEventArgs args;
                 args.Time = elapsed;
                 events.OnRenderFrame(args);
@@ -315,6 +348,17 @@ namespace
         {
             _updateFrequency = value;
         }
+        void PresentationTiming(Rhi::PresentMode mode, std::int32_t cap, Rhi::PacingAuthority authority) override
+        {
+            const auto monitor = MonitorForWindow(_handle);
+            const auto* video = monitor ? glfwGetVideoMode(monitor) : nullptr;
+            _presentation.Configure({cap, video && video->refreshRate > 0 ? static_cast<double>(video->refreshRate) : 60.0, mode, authority});
+        }
+        // Anchor the deadline at frame admission. A blocking FIFO present
+        // already consumes that period; do not sleep a second whole period
+        // after it returns. Advance only after native present accepts work.
+        void PresentationAccepted() override { _presentation.Accepted(_presentationFrameStart); }
+        void PresentationUnavailable() override { _presentation.Unavailable(); }
 
         void Visible(bool value) override
         {
@@ -725,6 +769,8 @@ namespace
         GraphicsWindowMode _graphicsMode = GraphicsWindowMode::OpenGL;
         WindowEvents* _events = nullptr;
         double _updateFrequency = 0.0;
+        Rhi::PresentationScheduler _presentation;
+        Rhi::PresentationScheduler::Time _presentationFrameStart{};
         MphRead::RendererPlatform::KeyboardState _keyboard{};
         MphRead::RendererPlatform::MouseState _mouse{};
         float _lastReportedMouseX = 0.0F;

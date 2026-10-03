@@ -11,6 +11,26 @@
 
             void Begin() override;
             void End() override;
+            [[nodiscard]] CommandListReadiness QueryReadiness() const override
+            {
+                if (_closed || !_device->ContextPointer || _device->Closing) return CommandListReadiness::Unavailable;
+                if (_recording) return CommandListReadiness::Recording;
+                return _commandSlots->CanBeginWithoutWait() ? CommandListReadiness::Ready : CommandListReadiness::Busy;
+            }
+            bool TryBegin() override
+            {
+                if (_autoRestart || _recording) throw std::logic_error("Vulkan RHI: command list is already recording.");
+                if (QueryReadiness() != CommandListReadiness::Ready)
+                { if (_metricsEnabled) ++_metricOptionalSkips; return false; }
+                Begin(); return true;
+            }
+            [[nodiscard]] bool TryPrepareOptionalWork() override
+            {
+                const auto ready = QueryReadiness();
+                if (ready == CommandListReadiness::Busy || ready == CommandListReadiness::Unavailable)
+                { if (_metricsEnabled) ++_metricOptionalSkips; return false; }
+                return true;
+            }
             void BeginDebugLabel(const DebugLabel& label) override;
             void EndDebugLabel() override;
             void InsertDebugMarker(const DebugLabel& label) override;
@@ -19,6 +39,7 @@
             void BeginRendering(const RenderingInfo& info) override;
             void EndRendering() override;
             void SetPipeline(const GraphicsPipeline& pipeline) override;
+            void SetSmallConstants(const SmallDrawConstants& constants) override;
             void SetViewport(const Viewport& viewport) override
             {
                 RequireRecording();
@@ -51,6 +72,7 @@
                 auto& vk = *_device->ContextPointer->_impl;
                 vk.vkCmdBindDescriptorSets(_commandSlots->Buffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
                     _pipeline->Layout(), index, 1, &descriptor, 0, nullptr);
+                _boundSceneSets.fill(VK_NULL_HANDLE); _boundSceneLayout = {};
                 _genericSets[index] = {std::move(snapshot), descriptor, _bindingGeneration};
             }
             void SetStencilReference(std::uint32_t reference) override
@@ -195,6 +217,9 @@
             std::uint32_t _stencilReference = 0;
             bool _dynamicDirty = true;
             VkPipeline _boundNative = VK_NULL_HANDLE;
+            const VulkanGraphicsPipeline* _smallPipeline = nullptr;
+            SmallDrawConstants _smallConstants{};
+            bool _smallCurrent = false;
             struct VertexBinding final
             {
                 const VulkanBuffer* Buffer = nullptr;
@@ -223,11 +248,67 @@
                 VkImageView View = VK_NULL_HANDLE;
                 VkSampler Sampler = VK_NULL_HANDLE;
                 VkImageLayout Layout = VK_IMAGE_LAYOUT_UNDEFINED;
+                std::uint64_t Identity = 0, Generation = 0, SamplerIdentity = 0;
                 bool operator==(const SampledDescriptor&) const = default;
             };
             std::array<SampledDescriptor, 4> _setTextures{};
             std::vector<std::pair<RingSlice, std::uint64_t>> _uniformSlices;
             std::array<VkDescriptorSet, SceneShaderAbi::GroupCount> _sets{};
+            struct DescriptorKey final
+            {
+                std::array<std::uint64_t, 64> Words{};
+                bool operator==(const DescriptorKey&) const = default;
+            };
+            struct DescriptorHash final
+            {
+                std::size_t operator()(const DescriptorKey& key) const noexcept
+                {
+                    std::size_t hash = 0;
+                    for (const auto word : key.Words)
+                        hash ^= std::hash<std::uint64_t>{}(word) + 0x9e3779b9U + (hash << 6) + (hash >> 2);
+                    return hash;
+                }
+            };
+            // Cleared at each native buffer/pool generation. Bounded; overflow
+            // records an uncached set in the existing slot allocator.
+            std::unordered_map<DescriptorKey, VkDescriptorSet, DescriptorHash> _descriptorCache;
+            std::map<std::array<std::uint64_t, 3>, RingSlice> _uniformCache;
+            std::array<VkDescriptorSet, SceneShaderAbi::GroupCount> _boundSceneSets{};
+            PipelineLayout _boundSceneLayout{};
+            std::uint32_t _boundSmallBytes = 0;
+            std::unordered_map<const void*, std::uint64_t> _programIdentities;
+            std::uint64_t _metricFixedSlots = 0, _metricFixedOverflow = 0;
+            std::uint64_t _metricOptionalSkips = 0;
+            struct PersistentMaterialKey final
+            {
+                DescriptorKey Objects;
+                std::array<std::byte, 1024> Data{};
+                std::uint32_t Size = 0;
+                bool operator==(const PersistentMaterialKey&) const = default;
+            };
+            struct PersistentMaterialHash final
+            {
+                std::size_t operator()(const PersistentMaterialKey& key) const noexcept
+                {
+                    return DescriptorHash{}(key.Objects) ^ std::hash<std::string_view>{}(
+                        {reinterpret_cast<const char*>(key.Data.data()), key.Size});
+                }
+            };
+            struct PersistentMaterial final
+            {
+                VkDescriptorSet Set;
+                VulkanResources::BufferStorage Uniform;
+            };
+            std::unordered_map<PersistentMaterialKey, PersistentMaterial, PersistentMaterialHash> _persistentMaterials;
+            std::shared_ptr<VulkanDescriptorAllocator> _persistentDescriptors;
+            std::uint64_t _metricPersistentHits = 0, _metricPersistentMisses = 0, _metricPersistentFull = 0;
+            VkDescriptorSet PersistentMaterialSet(const VulkanSceneProgram&, const std::array<SampledDescriptor, 4>&);
+            void ClearPersistentMaterials();
+            // Opt-in instrumentation: no per-draw clocks or allocations.
+            bool _metricsEnabled = std::getenv("FRUITY_RENDER_METRICS") != nullptr;
+            std::uint64_t _metricDraws = 0, _metricAllocations = 0, _metricUpdates = 0,
+                _metricBinds = 0, _metricPipelines = 0, _metricHits = 0, _metricMisses = 0,
+                _metricSmallConstants = 0;
 
             std::unique_ptr<VulkanTexture> _dummy;
             std::unique_ptr<VulkanSampler> _dummySampler;
@@ -283,8 +364,20 @@
                                 vmaDestroyBuffer(device->Allocator, page.Buffer, page.Allocation); --device->ScratchPages;
                             }});
                     }});
+                if (!_transferOnly)
+                {
+                    const auto prepare = [this](const void* program, const VulkanDeviceState::PreparedSceneDescriptors& desc) {
+                        _programIdentities[program] = desc.Identity >> 3;
+                        _commandSlots->PreallocateDescriptors(desc.Identity, desc.Layout, desc.Desc);
+                    };
+                    _device->SceneDescriptorPreparers[this] = prepare;
+                    for (const auto& [program, layouts] : _device->SceneDescriptorLayouts)
+                        for (const auto& layout : layouts) prepare(program, layout);
+                }
                 _device->SceneForgetters[this] = [this](const void* object) { Forget(object); };
                 _device->SceneViewReplacers[this] = [this](VkImageView before, VkImageView after) {
+                    ClearPersistentMaterials();
+                    _descriptorCache.clear(); _boundSceneSets.fill(VK_NULL_HANDLE);
                     for (auto& [slot, set] : _genericSets) set.Generation = 0;
                     _genericDirty = true;
                     const bool matches = _target.ColorView == before || _target.DepthView == before;
@@ -306,6 +399,7 @@
             }
             catch (...)
             {
+                _device->SceneDescriptorPreparers.erase(this);
                 _device->SceneForgetters.erase(this);
                 _device->SceneViewReplacers.erase(this);
                 _commandSlots.reset();
@@ -318,6 +412,7 @@
         {
             if (_closed) return;
             _device->SceneFlushers.erase(this);
+            _device->SceneDescriptorPreparers.erase(this);
             _device->SceneForgetters.erase(this);
             _device->SceneViewReplacers.erase(this);
             if (_device->RecordingList == this) _device->RecordingList = nullptr;
@@ -329,6 +424,7 @@
                 try { Flush(); } catch (...) {}
             }
             if (!_device->Closing) { try { WaitAll(); } catch (...) {} }
+            ClearPersistentMaterials();
             _variants.clear();
             _genericSets.clear(); _vertexBindings.clear(); _indexBinding = {};
             _dummy.reset();
@@ -360,9 +456,13 @@
             _genericDirty = true;
             _dynamicDirty = true;
             _boundNative = VK_NULL_HANDLE;
+            _smallPipeline = nullptr;
+            _smallCurrent = false;
             _sets.fill(VK_NULL_HANDLE);
             _setProgram = nullptr;
             _device->SceneFlushers[this] = [this] { Flush(); };
+            _descriptorCache.clear(); _uniformCache.clear();
+            _boundSceneSets.fill(VK_NULL_HANDLE); _boundSceneLayout = {}; _boundSmallBytes = 0;
             _device->RecordingList = this;
             for (const auto& label : _debugLabels) NativeBeginLabel(label);
         }
@@ -403,6 +503,21 @@
             _device->SceneFlushers.erase(this);
             if (_device->RecordingList == this) _device->RecordingList = nullptr;
             _commandSlots->Submit();
+            if (_metricsEnabled)
+                std::cout << "[vulkan-metrics] draws=" << _metricDraws
+                    << " scene_descriptor_allocations=" << _metricAllocations
+                    << " scene_descriptor_updates=" << _metricUpdates
+                    << " scene_descriptor_bind_commands=" << _metricBinds
+                    << " scene_descriptor_cache_hits=" << _metricHits
+                    << " scene_descriptor_cache_misses=" << _metricMisses
+                    << " scene_pipeline_bind_commands=" << _metricPipelines
+                    << " small_constant_updates=" << _metricSmallConstants
+                    << " fixed_descriptor_slots=" << _metricFixedSlots
+                    << " fixed_descriptor_overflows=" << _metricFixedOverflow
+                    << " persistent_material_hits=" << _metricPersistentHits
+                    << " persistent_material_misses=" << _metricPersistentMisses
+                    << " persistent_material_full=" << _metricPersistentFull
+                    << " optional_work_busy_skip_count=" << _metricOptionalSkips << '\n';
             _sets.fill(VK_NULL_HANDLE);
             _setProgram = nullptr;
             _boundNative = VK_NULL_HANDLE;
@@ -471,6 +586,15 @@
 
         void VulkanCommandList::Forget(const void* object)
         {
+            ClearPersistentMaterials();
+            if (const auto found = _programIdentities.find(object); found != _programIdentities.end())
+            {
+                for (std::uint32_t group = 0; group < SceneShaderAbi::GroupCount; ++group)
+                    _commandSlots->RetireDescriptors((found->second << 3) | group);
+                _programIdentities.erase(found);
+            }
+            _descriptorCache.clear(); _uniformCache.clear(); _boundSceneSets.fill(VK_NULL_HANDLE);
+            _smallPipeline = nullptr; _smallCurrent = false;
             for (auto& unit : _units)
                 if (unit.first == object || unit.second == object) unit = {};
             if (_target.Color == object || _target.Depth == object)
@@ -683,6 +807,25 @@
             auto& vk = *_device->ContextPointer->_impl;
             vk.vkCmdBindPipeline(_commandSlots->Buffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, native->Native());
             _boundNative = native->Native();
+            _smallPipeline = native;
+            _boundSceneSets.fill(VK_NULL_HANDLE); _boundSceneLayout = {};
+        }
+
+        void VulkanCommandList::SetSmallConstants(const SmallDrawConstants& constants)
+        {
+            RequireRecording();
+            if (!_smallPipeline || _smallPipeline->Desc().smallConstantBytes != sizeof(constants)
+                || constants.alphaTest < 0 || constants.alphaTest > 2)
+                throw std::invalid_argument("Vulkan RHI: incompatible small draw constants.");
+            auto& vk = *_device->ContextPointer->_impl;
+            if (!_smallCurrent || std::memcmp(&_smallConstants, &constants, sizeof(constants)) != 0)
+            {
+                vk.vkCmdPushConstants(_commandSlots->Buffer(), _smallPipeline->Layout(),
+                    VK_SHADER_STAGE_ALL_GRAPHICS, 0, sizeof(constants), &constants);
+                _smallConstants = constants;
+                _smallCurrent = true;
+                if (_metricsEnabled) ++_metricSmallConstants;
+            }
         }
 
         void VulkanCommandList::RestoreGenericBindings()
@@ -702,6 +845,7 @@
             const bool restore = _genericDirty || _boundNative != _pipeline->Native();
             if (restore)
             {
+                _boundSceneSets.fill(VK_NULL_HANDLE); _boundSceneLayout = {};
                 vk.vkCmdBindPipeline(_commandSlots->Buffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, _pipeline->Native());
                 _boundNative = _pipeline->Native();
                 for (const auto& [slot, binding] : _vertexBindings)
@@ -779,6 +923,7 @@
             desc.fragmentShader = program.Fragment.get();
             desc.pipelineLayout.groups.clear();
             for (const auto& layout : program.Layouts) desc.pipelineLayout.groups.push_back(layout->Desc());
+            desc.smallConstantBytes = program.Id == SceneProgram::Main ? sizeof(SmallDrawConstants) : 0;
             desc.topology = lines ? PrimitiveTopology::LineList : PrimitiveTopology::TriangleList;
             // The frontend's winding is OpenGL's, in a target whose rows run
             // the other way up in Vulkan: the same triangle turns the other way.
@@ -870,9 +1015,109 @@
             _units[slot] = {image, filtering};
         }
 
+        void VulkanCommandList::ClearPersistentMaterials()
+        {
+            // Forget/resize callers have submitted recorded uses. Neither the
+            // immutable UBO nor its descriptor pool is destroyed before that
+            // serial completes. The closure carries only native ownership.
+            auto entries = std::move(_persistentMaterials);
+            _persistentMaterials.clear();
+            auto descriptors = std::move(_persistentDescriptors);
+            for (const auto& [key, entry] : entries)
+            {
+                _device->Retire([allocator = _device->Allocator, buffer = entry.Uniform] {
+                    vmaDestroyBuffer(allocator, buffer.Buffer, buffer.Allocation);
+                });
+                --_device->Buffers;
+            }
+            if (descriptors) _device->Retire([descriptors = std::move(descriptors)] { descriptors->Close(); });
+            _sets.fill(VK_NULL_HANDLE);
+        }
+
+        VkDescriptorSet VulkanCommandList::PersistentMaterialSet(const VulkanSceneProgram& program,
+            const std::array<SampledDescriptor, 4>& textures)
+        {
+            if (program.Id != SceneProgram::Main) return VK_NULL_HANDLE;
+            const auto group = static_cast<std::uint32_t>(SceneShaderAbi::Group::Material);
+            const auto foundBlock = std::find_if(program.Blocks.begin(), program.Blocks.end(),
+                [group](const auto& block) { return !block.Small && block.Group == group; });
+            if (foundBlock == program.Blocks.end() || foundBlock->Data.size() > 1024) return VK_NULL_HANDLE;
+            PersistentMaterialKey key;
+            key.Objects.Words[0] = program.Identity;
+            key.Objects.Words[1] = group;
+            std::size_t word = 2;
+            for (const auto& binding : program.Textures)
+            {
+                if (binding.group != group) continue;
+                const auto& texture = textures[binding.unit];
+                key.Objects.Words.at(word++) = texture.Identity; key.Objects.Words.at(word++) = texture.Generation;
+                key.Objects.Words.at(word++) = texture.SamplerIdentity;
+                key.Objects.Words.at(word++) = reinterpret_cast<std::uint64_t>(texture.View);
+                key.Objects.Words.at(word++) = reinterpret_cast<std::uint64_t>(texture.Sampler);
+                key.Objects.Words.at(word++) = texture.Layout;
+            }
+            key.Size = static_cast<std::uint32_t>(foundBlock->Data.size());
+            std::copy(foundBlock->Data.begin(), foundBlock->Data.end(), key.Data.begin());
+            if (const auto found = _persistentMaterials.find(key); found != _persistentMaterials.end())
+            {
+                if (_metricsEnabled) ++_metricPersistentHits;
+                return found->second.Set;
+            }
+            // Immutable entries are never evicted or overwritten in flight.
+            // A full cache uses the frame-local/fixed/generic path unchanged.
+            if (_persistentMaterials.size() == 256)
+            { if (_metricsEnabled) ++_metricPersistentFull; return VK_NULL_HANDLE; }
+            if (_metricsEnabled) ++_metricPersistentMisses;
+            if (!_persistentDescriptors)
+            {
+                _persistentDescriptors = _device->MakeDescriptors({256, {256, 0, 256, 0, 256}});
+                _persistentDescriptors->ResetAfterCompletion({0});
+            }
+            auto& vk = *_device->ContextPointer->_impl;
+            const auto uniform = _device->Resources->CreateBuffer({key.Size, BufferUsage::Uniform, MemoryUsage::CpuToGpu});
+            try
+            {
+                if (!uniform.Mapped) throw std::runtime_error("Persistent material buffer is not mapped.");
+                std::memcpy(uniform.Mapped, key.Data.data(), key.Size);
+                Check(vmaFlushAllocation(_device->Allocator, uniform.Allocation, 0, key.Size), "vmaFlushAllocation(material)");
+                const auto& layout = *program.Layouts[group];
+                const auto set = _persistentDescriptors->Allocate(layout.Native(), layout.Desc());
+                std::array<VkWriteDescriptorSet, 9> writes{};
+                const VkDescriptorBufferInfo buffer{uniform.Buffer, 0, key.Size};
+                std::array<VkDescriptorImageInfo, 8> images{};
+                std::uint32_t count = 1;
+                writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                writes[0].dstSet = set; writes[0].dstBinding = foundBlock->Binding;
+                writes[0].descriptorCount = 1; writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                writes[0].pBufferInfo = &buffer;
+                for (const auto& binding : program.Textures)
+                {
+                    if (binding.group != group) continue;
+                    const auto unit = binding.unit;
+                    images[unit * 2] = {VK_NULL_HANDLE, textures[unit].View, textures[unit].Layout};
+                    images[unit * 2 + 1] = {textures[unit].Sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
+                    for (std::uint32_t i = 0; i < 2; ++i)
+                    {
+                        auto& write = writes.at(count++);
+                        write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET}; write.dstSet = set;
+                        write.dstBinding = i ? binding.sampler : binding.image;
+                        write.descriptorType = i ? VK_DESCRIPTOR_TYPE_SAMPLER : VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+                        write.descriptorCount = 1; write.pImageInfo = &images[unit * 2 + i];
+                    }
+                }
+                vk.vkUpdateDescriptorSets(vk.device, count, writes.data(), 0, nullptr);
+                _persistentMaterials.emplace(std::move(key), PersistentMaterial{set, uniform});
+                ++_device->Buffers;
+                if (_metricsEnabled) { ++_metricAllocations; ++_metricUpdates; }
+                return set;
+            }
+            catch (...) { vmaDestroyBuffer(_device->Allocator, uniform.Buffer, uniform.Allocation); throw; }
+        }
+
         void VulkanCommandList::DrawScene(const SceneDraw& draw)
         {
             if (draw.IndexCount == 0) return;
+            if (_metricsEnabled) ++_metricDraws;
             RequireRecording();
             if (!_renderingOpen) throw std::logic_error("Vulkan RHI: scene draw outside rendering.");
             if (!_pipeline || !_pipeline->IsDeferred())
@@ -899,7 +1144,8 @@
                     if (_renderingActive) EndNative();
                     Barrier(*texture, ResourceState::ShaderRead);
                 }
-                textures[unit] = {texture->SampledView(), sampler->Native(), ToVkState(texture->State(), true).Layout};
+                textures[unit] = {texture->SampledView(), sampler->Native(), ToVkState(texture->State(), true).Layout,
+                    texture->Identity(), texture->Generation(), sampler->Identity()};
             }
             if (!_renderingActive) Materialize();
 
@@ -907,9 +1153,24 @@
             if (native.Native() != _boundNative)
             {
                 vk.vkCmdBindPipeline(_commandSlots->Buffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, native.Native());
+                if (_metricsEnabled) ++_metricPipelines;
                 _boundNative = native.Native();
-                _sets.fill(VK_NULL_HANDLE);
             }
+            if (!_smallPipeline || _smallPipeline->Desc().smallConstantBytes != native.Desc().smallConstantBytes)
+                _smallCurrent = false;
+            _smallPipeline = &native;
+            // Compatibility for set N includes every set from zero through N
+            // and identical push constant ranges, not just the current set.
+            bool compatible = _boundSmallBytes == native.Desc().smallConstantBytes;
+            const auto& groups = native.Desc().pipelineLayout.groups;
+            for (std::size_t group = 0; group < groups.size(); ++group)
+            {
+                compatible = compatible && group < _boundSceneLayout.groups.size()
+                    && _boundSceneLayout.groups[group] == groups[group];
+                if (!compatible) _boundSceneSets[group] = VK_NULL_HANDLE;
+            }
+            _boundSceneLayout = native.Desc().pipelineLayout;
+            _boundSmallBytes = native.Desc().smallConstantBytes;
             ApplyDynamicState();
 
             const auto alphaMode = static_cast<std::int32_t>(_pipeline->Desc().alphaTest);
@@ -928,11 +1189,38 @@
             for (std::size_t i = 0; i < program->Blocks.size(); ++i)
             {
                 const auto& block = program->Blocks[i];
+                if (block.Small)
+                {
+                    if (block.Data.size() != sizeof(SmallDrawConstants))
+                        throw std::logic_error("Vulkan RHI: small constant ABI drift.");
+                    SmallDrawConstants constants;
+                    std::memcpy(&constants, block.Data.data(), sizeof(constants));
+                    SetSmallConstants(constants);
+                    continue;
+                }
                 auto& [slice, generation] = _uniformSlices[i];
+                if (program->Id == SceneProgram::Main
+                    && block.Group == static_cast<std::uint32_t>(SceneShaderAbi::Group::Material))
+                {
+                    if (_sets[block.Group] && generation == block.Generation) continue;
+                    if (const auto persistent = PersistentMaterialSet(*program, textures))
+                    {
+                        _sets[block.Group] = persistent;
+                        generation = block.Generation;
+                        slice = {};
+                        continue;
+                    }
+                }
                 if (!slice.Buffer || generation != block.Generation)
                 {
-                    slice = Allocate(block.Data.size(), alignment);
-                    std::memcpy(slice.Data, block.Data.data(), block.Data.size());
+                    const std::array key{program->Identity, static_cast<std::uint64_t>(i), block.Generation};
+                    if (const auto found = _uniformCache.find(key); found != _uniformCache.end()) slice = found->second;
+                    else
+                    {
+                        slice = Allocate(block.Data.size(), alignment);
+                        std::memcpy(slice.Data, block.Data.data(), block.Data.size());
+                        if (_uniformCache.size() < 16384) _uniformCache.emplace(key, slice);
+                    }
                     generation = block.Generation;
                     _sets[block.Group] = VK_NULL_HANDLE;
                 }
@@ -943,40 +1231,86 @@
                 if (layout.Desc().entries.empty()) continue;
                 if (!_sets[group])
                 {
-                    const auto set = AllocateSet(layout);
-                    std::array<VkDescriptorBufferInfo, SceneShaderAbi::Bindings.size()> buffers{};
-                    std::array<VkDescriptorImageInfo, 8> images{};
-                    std::array<VkWriteDescriptorSet, SceneShaderAbi::Bindings.size()> writes{};
-                    std::uint32_t count = 0;
-                    const auto write = [&](std::uint32_t binding, VkDescriptorType type) -> VkWriteDescriptorSet& {
-                        auto& item = writes.at(count++);
-                        item = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-                        item.dstSet = set; item.dstBinding = binding;
-                        item.descriptorCount = 1; item.descriptorType = type;
-                        return item;
-                    };
+                    DescriptorKey key{};
+                    std::size_t k = 0;
+                    key.Words[k++] = program->Identity; key.Words[k++] = group;
                     for (std::size_t i = 0; i < program->Blocks.size(); ++i)
                     {
                         const auto& block = program->Blocks[i];
-                        if (block.Group != group) continue;
+                        if (block.Small || block.Group != group) continue;
                         const auto& slice = _uniformSlices[i].first;
-                        buffers[i] = {slice.Buffer, slice.Offset, block.Data.size()};
-                        write(block.Binding, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER).pBufferInfo = &buffers[i];
+                        key.Words.at(k++) = reinterpret_cast<std::uint64_t>(slice.Buffer);
+                        key.Words.at(k++) = slice.Offset; key.Words.at(k++) = block.Data.size();
                     }
                     for (const auto& binding : program->Textures)
                     {
                         if (binding.group != group) continue;
-                        const auto unit = binding.unit;
-                        images[unit * 2] = {VK_NULL_HANDLE, textures[unit].View, textures[unit].Layout};
-                        images[unit * 2 + 1] = {textures[unit].Sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
-                        write(binding.image, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE).pImageInfo = &images[unit * 2];
-                        write(binding.sampler, VK_DESCRIPTOR_TYPE_SAMPLER).pImageInfo = &images[unit * 2 + 1];
+                        const auto& texture = textures[binding.unit];
+                        key.Words.at(k++) = texture.Identity; key.Words.at(k++) = texture.Generation;
+                        key.Words.at(k++) = texture.SamplerIdentity;
+                        key.Words.at(k++) = reinterpret_cast<std::uint64_t>(texture.View);
+                        key.Words.at(k++) = reinterpret_cast<std::uint64_t>(texture.Sampler);
+                        key.Words.at(k++) = texture.Layout;
                     }
-                    vk.vkUpdateDescriptorSets(vk.device, count, writes.data(), 0, nullptr);
-                    _sets[group] = set;
+                    if (const auto found = _descriptorCache.find(key); found != _descriptorCache.end())
+                    {
+                        _sets[group] = found->second;
+                        if (_metricsEnabled) ++_metricHits;
+                    }
+                    else
+                    {
+                        if (_metricsEnabled) ++_metricMisses;
+                        auto set = _commandSlots->Descriptors().AllocateFixed((program->Identity << 3) | group);
+                        if (set)
+                        {
+                            if (_metricsEnabled) ++_metricFixedSlots;
+                        }
+                        else
+                        {
+                            set = AllocateSet(layout);
+                            if (_metricsEnabled) { ++_metricAllocations; ++_metricFixedOverflow; }
+                        }
+                        std::array<VkDescriptorBufferInfo, SceneShaderAbi::Bindings.size()> buffers{};
+                        std::array<VkDescriptorImageInfo, 8> images{};
+                        std::array<VkWriteDescriptorSet, SceneShaderAbi::Bindings.size()> writes{};
+                        std::uint32_t count = 0;
+                        const auto write = [&](std::uint32_t binding, VkDescriptorType type) -> VkWriteDescriptorSet& {
+                            auto& item = writes.at(count++);
+                            item = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                            item.dstSet = set; item.dstBinding = binding;
+                            item.descriptorCount = 1; item.descriptorType = type;
+                            return item;
+                        };
+                        for (std::size_t i = 0; i < program->Blocks.size(); ++i)
+                        {
+                            const auto& block = program->Blocks[i];
+                            if (block.Small || block.Group != group) continue;
+                            const auto& slice = _uniformSlices[i].first;
+                            buffers[i] = {slice.Buffer, slice.Offset, block.Data.size()};
+                            write(block.Binding, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER).pBufferInfo = &buffers[i];
+                        }
+                        for (const auto& binding : program->Textures)
+                        {
+                            if (binding.group != group) continue;
+                            const auto unit = binding.unit;
+                            images[unit * 2] = {VK_NULL_HANDLE, textures[unit].View, textures[unit].Layout};
+                            images[unit * 2 + 1] = {textures[unit].Sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
+                            write(binding.image, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE).pImageInfo = &images[unit * 2];
+                            write(binding.sampler, VK_DESCRIPTOR_TYPE_SAMPLER).pImageInfo = &images[unit * 2 + 1];
+                        }
+                        vk.vkUpdateDescriptorSets(vk.device, count, writes.data(), 0, nullptr);
+                        if (_metricsEnabled) ++_metricUpdates;
+                        _sets[group] = set;
+                        if (_descriptorCache.size() < 16384) _descriptorCache.emplace(key, set);
+                    }
                 }
-                vk.vkCmdBindDescriptorSets(_commandSlots->Buffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
-                    native.Layout(), group, 1, &_sets[group], 0, nullptr);
+                if (_boundSceneSets[group] != _sets[group])
+                {
+                    vk.vkCmdBindDescriptorSets(_commandSlots->Buffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        native.Layout(), group, 1, &_sets[group], 0, nullptr);
+                    if (_metricsEnabled) ++_metricBinds;
+                    _boundSceneSets[group] = _sets[group];
+                }
             }
             _setTextures = textures;
 

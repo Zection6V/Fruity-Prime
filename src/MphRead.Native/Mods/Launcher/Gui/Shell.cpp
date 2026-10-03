@@ -38,6 +38,7 @@
 #include "../../Network/NetSession.hpp"
 #include "../../PauseMenu.hpp"
 #include "../../Render/LauncherHunter.hpp"
+#include "../../Render/FrameTiming.hpp"
 #include "../../Render/LauncherPhoto.hpp"
 #include "../../../NativeRuntime/Rhi/OpenGL/OpenGlDevice.hpp"
 #include "../../Render/MapThumbnail.hpp"
@@ -1084,6 +1085,9 @@ namespace MphRead::Mods::Launcher::Gui
                 && window.WindowBorder() == g_switchBorder;
             std::cout << "[switchcheck] backend changed " << (switched ? "yes" : "NO")
                 << ", window geometry kept " << (geometry ? "yes" : "NO") << '\n';
+            if (!geometry) std::cout << "[switchcheck geometry] expected=" << g_switchSize.X << ',' << g_switchSize.Y
+                << '@' << g_switchLocation.X << ',' << g_switchLocation.Y << "/" << g_switchBorder
+                << " actual=" << size.X << ',' << size.Y << '@' << location.X << ',' << location.Y << '/' << window.WindowBorder() << '\n';
             if (recoveryExpected)
             {
                 const bool restored = !switched && !g_switchFailureArmed && g_switchRecoveryReports == g_switchFailureCycle + 1;
@@ -1094,6 +1098,53 @@ namespace MphRead::Mods::Launcher::Gui
             const bool sourceAlive = !g_textureOnlySource.expired();
             std::cout << "[switchcheck] texture-only source retained " << (sourceAlive ? "yes" : "NO") << '\n';
             if (!sourceAlive) ++Shell::ShotMissCounter();
+        }
+    }
+
+    namespace
+    {
+        const void* g_latencyDevice = nullptr;
+        const void* g_latencyScene = nullptr;
+        std::uint64_t g_latencyFrame = 0;
+        OpenTK::Mathematics::Vector2i g_latencySize{}, g_latencyLocation{};
+        std::int32_t g_latencyBorder = 0;
+    }
+    void Shell::AppendLatencyChecks(std::vector<ShotAction>& script)
+    {
+        if (!std::getenv("FRUITY_LATENCYCHECK")) return;
+        using namespace NativeRuntime::Rhi;
+        for (const auto mode : {LowLatencyMode::Off, LowLatencyMode::On, LowLatencyMode::OnBoost})
+        {
+            script.push_back([mode](MphRead::RenderWindow& window)
+            {
+                g_latencyDevice = &SceneDevice(); g_latencyScene = &window.Scene();
+                g_latencyFrame = window.Scene().FrameCount();
+                if (mode == LowLatencyMode::Off)
+                { g_latencySize = window.ClientSize(); g_latencyLocation = window.Location(); g_latencyBorder = window.WindowBorder(); }
+                LauncherPrefs::LowLatency(mode);
+                LauncherPrefs::Save(); LauncherPrefs::LowLatency(LowLatencyMode::Off); LauncherPrefs::Load();
+                if (LauncherPrefs::LowLatency() != mode) ++Shell::ShotMissCounter();
+                Render::FrameTiming::SetFrameRateCap(mode == LowLatencyMode::Off ? 0 : mode == LowLatencyMode::On ? 144 : 500);
+                if (mode == LowLatencyMode::On) WindowMode::Enter(window);
+                else WindowMode::Leave(window);
+                if (mode == LowLatencyMode::OnBoost)
+                { window.WindowBorder(g_latencyBorder); window.ClientSize(g_latencySize); window.Location(g_latencyLocation); }
+                Shell::Wait(30);
+            });
+            script.push_back([mode](MphRead::RenderWindow& window)
+            {
+                const auto state = ResolveLowLatency(LauncherPrefs::LowLatency(), SceneDevice().LowLatencyCaps());
+                const bool okay = &SceneDevice() == g_latencyDevice && &window.Scene() == g_latencyScene
+                    && window.Scene().FrameCount() > g_latencyFrame && state.requested == mode
+                    && state.effective == (mode == LowLatencyMode::Off ? LowLatencyMode::Off : LowLatencyMode::On)
+                    && (mode != LowLatencyMode::OnBoost || !state.fallbackReason.empty())
+                    && WindowMode::IsFullscreen() == (mode == LowLatencyMode::On);
+                std::cout << "[latencycheck] " << (okay ? "PASS" : "FAIL") << " backend=" << static_cast<int>(SelectedSceneBackend())
+                    << " requested=" << static_cast<int>(state.requested) << " effective=" << static_cast<int>(state.effective)
+                    << " same-device=" << (&SceneDevice() == g_latencyDevice) << " frame=" << g_latencyFrame << "->" << window.Scene().FrameCount()
+                    << " fullscreen=" << WindowMode::IsFullscreen() << " cap=" << Render::FrameTiming::FrameRateCap() << '\n';
+                if (!okay) ++Shell::ShotMissCounter();
+            });
         }
     }
 
@@ -1196,6 +1247,7 @@ namespace MphRead::Mods::Launcher::Gui
             },
         };
         if (g_stressCycles) AppendStressResize(script);
+        AppendLatencyChecks(script);
         for (int cycle = 0; cycle < matchSwitches; ++cycle)
         {
             script.push_back([cycle](MphRead::RenderWindow& window)
@@ -1255,6 +1307,8 @@ namespace MphRead::Mods::Launcher::Gui
             script.push_back([cycle](MphRead::RenderWindow& window)
             {
                 SayBackend("match, settings applied");
+                if (std::getenv("FRUITY_LATENCYCHECK") && LauncherPrefs::LowLatency() != NativeRuntime::Rhi::LowLatencyMode::OnBoost)
+                    ++_shotMisses;
                 CheckMatchKept(window, ("settings switch " + std::to_string(cycle + 1)).c_str());
                 Click([](Av::Controls::Control& control)
                 {
@@ -1270,6 +1324,7 @@ namespace MphRead::Mods::Launcher::Gui
                 Wait(2);
             });
             if (g_stressCycles) AppendStressResize(script);
+            AppendLatencyChecks(script);
             script.push_back([](MphRead::RenderWindow& window)
             {
                 if (WaitForFpsMeasurement()) { --_shotStep; Wait(1); return; }

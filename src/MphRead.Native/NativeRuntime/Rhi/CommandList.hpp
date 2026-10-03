@@ -129,6 +129,8 @@ namespace MphRead::NativeRuntime::Rhi
         bool operator==(const BufferTextureCopy&) const = default;
     };
 
+    enum class CommandListReadiness : std::uint8_t { Ready, Busy, Recording, Unavailable };
+
     class CommandList
     {
     public:
@@ -145,6 +147,25 @@ namespace MphRead::NativeRuntime::Rhi
         // EnqueueReadColor are diagnostic operations allowed outside it.
         virtual void Begin() = 0;
         virtual void End() = 0;
+        // Poll only: Busy must not reset a pool, submit work or wait. TryBegin
+        // retains Begin's nested-recording contract and atomically admits work
+        // on the recording thread. Unsupported backends fail closed.
+        [[nodiscard]] virtual CommandListReadiness QueryReadiness() const
+        { return CommandListReadiness::Unavailable; }
+        virtual bool TryBegin()
+        {
+            if (QueryReadiness() == CommandListReadiness::Recording)
+                throw std::logic_error("Command list is already recording.");
+            if (QueryReadiness() != CommandListReadiness::Ready) return false;
+            Begin(); return true;
+        }
+        // Optional producers also use persistent logical Begin/End intervals:
+        // they may probe admission before an automatic native-buffer restart.
+        [[nodiscard]] virtual bool TryPrepareOptionalWork()
+        {
+            const auto state = QueryReadiness();
+            return state == CommandListReadiness::Ready || state == CommandListReadiness::Recording;
+        }
 
         // Optional diagnostics: labels are no-ops when unavailable. Query sets
         // are device-owned, initialized outside rendering, and never reused.
@@ -174,6 +195,16 @@ namespace MphRead::NativeRuntime::Rhi
             const Buffer& buffer, IndexType indexType, std::uint64_t offset = 0) = 0;
 
         virtual void SetBindingSet(std::uint32_t slot, const BindingSet& bindingSet) = 0;
+        // Logical draw flags/scalars; large transforms remain buffer bindings.
+        // Backends map these to push constants or compact uniforms.
+        struct alignas(16) SmallDrawConstants final
+        {
+            float materialAlpha = 1.0F;
+            std::int32_t alphaTest = 0;
+            std::array<std::uint32_t, 2> reserved{};
+        };
+        virtual void SetSmallConstants(const SmallDrawConstants&)
+        { throw std::logic_error("Small draw constants are unavailable."); }
         virtual void SetStencilReference(std::uint32_t reference) = 0;
 
         virtual void Draw(std::uint32_t vertexCount, std::uint32_t instanceCount = 1,

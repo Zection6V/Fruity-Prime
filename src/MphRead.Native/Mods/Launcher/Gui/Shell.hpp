@@ -131,6 +131,7 @@ namespace MphRead::Mods::Launcher::Gui
         [[nodiscard]] static std::vector<ShotAction> SwitchScript(int matchSwitches = 3);
         [[nodiscard]] static std::vector<ShotAction> StressScript();
         static void AppendStressResize(std::vector<ShotAction>& script);
+        static void AppendLatencyChecks(std::vector<ShotAction>& script);
         inline static std::vector<ShotAction> _shotScript;
         static std::int32_t _shotStep;
         static std::int32_t _shotWait;

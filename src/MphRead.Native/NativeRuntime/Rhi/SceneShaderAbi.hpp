@@ -23,16 +23,33 @@ namespace MphRead::NativeRuntime::Rhi::SceneShaderAbi
         std::uint32_t binding;
         BindingType type;
         std::string_view semantic;
+        bool smallConstants = false;
 
         bool operator==(const Binding&) const = default;
     };
 
+#define RHI_SCENE_TYPE_UniformBuffer BindingType::UniformBuffer
+#define RHI_SCENE_TYPE_SampledTexture BindingType::SampledTexture
+#define RHI_SCENE_TYPE_Sampler BindingType::Sampler
+#define RHI_SCENE_TYPE_SmallConstants BindingType::UniformBuffer
+#define RHI_SCENE_SMALL_UniformBuffer false
+#define RHI_SCENE_SMALL_SampledTexture false
+#define RHI_SCENE_SMALL_Sampler false
+#define RHI_SCENE_SMALL_SmallConstants true
 #define RHI_SCENE_BINDING(name, group, index, type, semantic) \
-    inline constexpr Binding name{Group::group, index, BindingType::type, semantic};
+    inline constexpr Binding name{Group::group, index, RHI_SCENE_TYPE_##type, semantic, RHI_SCENE_SMALL_##type};
 #define RHI_SCENE_CONSTANT(...)
 #define RHI_SCENE_TEXTURE(...)
 #include "SceneShaderAbi.def"
 #undef RHI_SCENE_BINDING
+#undef RHI_SCENE_TYPE_UniformBuffer
+#undef RHI_SCENE_TYPE_SampledTexture
+#undef RHI_SCENE_TYPE_Sampler
+#undef RHI_SCENE_TYPE_SmallConstants
+#undef RHI_SCENE_SMALL_UniformBuffer
+#undef RHI_SCENE_SMALL_SampledTexture
+#undef RHI_SCENE_SMALL_Sampler
+#undef RHI_SCENE_SMALL_SmallConstants
 #define RHI_SCENE_BINDING(name, ...) name,
     inline constexpr std::array Bindings{
 #include "SceneShaderAbi.def"

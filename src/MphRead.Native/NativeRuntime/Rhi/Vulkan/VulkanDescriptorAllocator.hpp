@@ -6,6 +6,7 @@
 #include <vulkan/vulkan.h>
 #include <array>
 #include <vector>
+#include <map>
 
 namespace MphRead::NativeRuntime::Rhi::Vulkan
 {
@@ -37,6 +38,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         VulkanDescriptorAllocator& operator=(const VulkanDescriptorAllocator&) = delete;
 
         VkDescriptorSet Allocate(VkDescriptorSetLayout layout, const BindingLayoutDesc& desc);
+        // Fixed scene ABI slots: native batch allocation at program admission,
+        // cursor recycling only after this owner slot's queue completion.
+        bool Preallocate(std::uint64_t identity, VkDescriptorSetLayout layout,
+            const BindingLayoutDesc& desc, std::uint32_t count);
+        VkDescriptorSet AllocateFixed(std::uint64_t identity);
+        void RetireFixed(std::uint64_t identity);
         void Submitted(SubmissionSerial serial);
         // Caller first finishes/discards any unsubmitted recording. Does not
         // wait or reset a fence; rejects a still-pending submitted generation.
@@ -61,6 +68,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         Dispatch _dispatch;
         Capacity _capacity;
         std::vector<Page> _pages;
+        struct FixedPage final
+        {
+            VkDescriptorPool Pool = VK_NULL_HANDLE;
+            std::vector<VkDescriptorSet> Sets;
+            std::uint32_t Cursor = 0;
+            bool Retired = false;
+        };
+        std::map<std::uint64_t, FixedPage> _fixed;
         std::size_t _active = 0;
         SubmissionSerial _lastUse{};
         bool _ready = false, _closed = false;

@@ -439,6 +439,7 @@ namespace MphRead
         public:
             virtual ~WindowEvents() = default;
             virtual void OnLoad() {}
+            [[nodiscard]] virtual bool BeforeFrame() { return true; }
             virtual void OnRenderFrame(const FrameEventArgs& args) { (void)args; }
             virtual void OnResize(const ResizeEventArgs& e) { (void)e; }
             virtual void OnMove(const WindowPositionEventArgs& e) { (void)e; }
@@ -486,6 +487,10 @@ namespace MphRead
             virtual void MinimumSize(OpenTK::Mathematics::Vector2i value) = 0;
             virtual void Cursor(RendererPlatform::CursorState value) = 0;
             virtual void UpdateFrequency(double value) = 0;
+            virtual void PresentationTiming(NativeRuntime::Rhi::PresentMode, std::int32_t,
+                NativeRuntime::Rhi::PacingAuthority) {}
+            virtual void PresentationAccepted() {}
+            virtual void PresentationUnavailable() {}
             virtual void Visible(bool value) = 0;
             virtual void SetIcon(const WindowIcon& icon) = 0;
             [[nodiscard]] virtual void* NativeHandle() const = 0;
@@ -725,7 +730,10 @@ namespace MphRead
         bool _startedHidden = true;
         std::int32_t _applyStartupIn = 0;
         bool _sceneReady = false;
-        std::int32_t _appliedFrameRateCap = -1;
+        std::int32_t _appliedFrameRateCap = -2;
+        std::optional<NativeRuntime::Rhi::LowLatencyState> _reportedLatency;
+        std::uint64_t _presentationMetricFrames = 0;
+        bool BeforeFrame() override;
     };
 
 }

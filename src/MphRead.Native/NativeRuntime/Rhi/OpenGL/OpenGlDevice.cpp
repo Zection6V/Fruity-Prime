@@ -842,6 +842,12 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             }
 
             void SubmitCommands() { (void)_scheduler.Submit(true); }
+            [[nodiscard]] LowLatencyCapabilities LowLatencyCaps() const noexcept override
+            { return {true, false, LowLatencyProvider::Generic}; }
+            [[nodiscard]] bool WaitForLatestSubmission(std::uint64_t timeoutNanoseconds) override
+            { return _scheduler.WaitForLatest(timeoutNanoseconds); }
+            [[nodiscard]] PresentationWaitStatistics PresentationWaits() const noexcept override
+            { return _scheduler.PresentationWaits(); }
 
             [[nodiscard]] GpuResourceStatistics Statistics() const override;
 
@@ -1176,6 +1182,11 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 _applied = nullptr; _hasViewport = false; _nativeDirty = true;
                 _recording = true;
             }
+            [[nodiscard]] CommandListReadiness QueryReadiness() const override
+            {
+                if (!_device) return CommandListReadiness::Unavailable;
+                return _recording ? CommandListReadiness::Recording : CommandListReadiness::Ready;
+            }
             void End() override
             {
                 RequireAlive();
@@ -1371,6 +1382,20 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void SetVertexBuffer(std::uint32_t slot, const Buffer& buffer, std::uint64_t offset) override;
             void SetIndexBuffer(const Buffer& buffer, IndexType type, std::uint64_t offset) override;
             void SetBindingSet(std::uint32_t group, const BindingSet& set) override;
+            void SetSmallConstants(const SmallDrawConstants& constants) override
+            {
+                RequireRecording();
+                if (constants.alphaTest < 0 || constants.alphaTest > 2)
+                    throw std::invalid_argument("OpenGL RHI: invalid small draw constants.");
+                RestoreDrawState();
+                ApplyAlphaTest(static_cast<AlphaTestMode>(constants.alphaTest));
+                const auto program = GL::GetInteger(CurrentProgram);
+                if (program)
+                {
+                    const auto location = GL::GetUniformLocation(program, "mat_alpha");
+                    if (location != -1) GL::Uniform1(location, constants.materialAlpha);
+                }
+            }
             void ApplyBindingSet(std::uint32_t group, const OpenGlBindingSet& set);
             void SetStencilReference(std::uint32_t reference) override
             {

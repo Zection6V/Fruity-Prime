@@ -2,6 +2,8 @@
 
 #include "../Submission.hpp"
 #include "../BackendError.hpp"
+#include "../PresentationScheduler.hpp"
+#include <cstdlib>
 #include <deque>
 #include <exception>
 
@@ -90,6 +92,12 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         {
             RequireHealthy();
             if (_retirementPending) (void)Submit(true);
+            return PollAccepted();
+        }
+
+    private:
+        SubmissionSerial PollAccepted()
+        {
             while (!_fences.empty())
             {
                 const auto status = _dispatch.Wait(_dispatch.Context, _fences.front().Sync, false, 0);
@@ -101,6 +109,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             return Completed();
         }
 
+    public:
         void Wait(SubmissionSerial serial)
         {
             if (_retirementPending && serial == _progress.Next()) (void)Submit(true);
@@ -137,8 +146,26 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             ReleaseCompleted();
         }
         [[nodiscard]] SubmissionSerial Submitted() const noexcept { return _progress.Submitted(); }
+        [[nodiscard]] bool WaitForLatest(std::uint64_t timeoutNanoseconds)
+        {
+            RequireHealthy();
+            const auto serial = Submitted();
+            if (serial <= PollAccepted()) return true;
+            const auto found = std::find_if(_fences.begin(), _fences.end(),
+                [serial](const Entry& entry) { return entry.Serial == serial; });
+            if (found == _fences.end()) throw std::logic_error("Missing OpenGL presentation frame fence.");
+            ++_hostWaits;
+            const auto start = _measureWaits ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+            const auto status = _dispatch.Wait(_dispatch.Context, found->Sync, true, timeoutNanoseconds);
+            if (_measureWaits)
+            { ++_waits.count; _waits.nanoseconds += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count(); }
+            if (status == WaitStatus::Timeout) return false;
+            RequireCompletion(status);
+            _progress.Complete(serial); ReleaseCompleted(); return true;
+        }
         [[nodiscard]] SubmissionSerial Completed() const noexcept { return _progress.Completed(); }
         [[nodiscard]] std::uint64_t HostWaits() const noexcept { return _hostWaits; }
+        [[nodiscard]] PresentationWaitStatistics PresentationWaits() const noexcept { return _waits; }
         [[nodiscard]] std::uint64_t DeviceWideWaits() const noexcept { return _deviceWideWaits; }
         // Storage/query checks also consume glGetError. Preserve their loss
         // before any later completion check can observe an empty error queue.
@@ -192,5 +219,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         std::uint64_t _hostWaits = 0, _deviceWideWaits = 0;
         bool _retirementPending = false;
         std::uint64_t _aggregatedRetirements = 0;
+        bool _measureWaits = std::getenv("FRUITY_RENDER_METRICS") != nullptr;
+        PresentationWaitStatistics _waits;
     };
 }

@@ -1,4 +1,5 @@
 #include "FruityVulkanSceneShaders.hpp"
+#include "../NativeRuntime/Rhi/CommandList.hpp"
 #include <iostream>
 
 namespace
@@ -69,6 +70,13 @@ namespace
     void InvalidMetadataAndWrites()
     {
         Store store(Vulkan::Generated::main_blocks, Vulkan::Generated::main_uniforms);
+        const auto* alpha = store.Find("mat_alpha");
+        const auto* test = store.Find("alpha_test");
+        Expect(alpha && test && alpha->block == test->block && alpha->offset == offsetof(CommandList::SmallDrawConstants, materialAlpha)
+            && test->offset == offsetof(CommandList::SmallDrawConstants, alphaTest)
+            && store.Blocks[alpha->block].Small && store.Blocks[alpha->block].Data.size() == sizeof(CommandList::SmallDrawConstants)
+            && sizeof(CommandList::SmallDrawConstants) <= 128, "Portable small draw ABI drift.");
+        Expect(!store.Blocks[store.Find("mtx_stack")->block].Small, "Large matrix stack became inline constants.");
         float value = 0.5F;
         Reject([&] { store.Write("use_light", &value, 4, ValueType::Float); });
         std::int32_t invalidBoolean = 7;

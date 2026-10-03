@@ -3,6 +3,7 @@
 #include "../NativeRuntime/Rhi/GpuDiagnostics.hpp"
 #include "../Mods/Diagnostics/FrameStatistics.hpp"
 #include "../NativeRuntime/Rhi/OpenGL/OpenGlFrameScheduler.hpp"
+#include "../NativeRuntime/Rhi/PresentationScheduler.hpp"
 #include <unordered_set>
 
 #include <iostream>
@@ -127,6 +128,61 @@ namespace
         scheduler.Finish();
         Expect(scheduler.Completed() == fourth && scheduler.DeviceWideWaits() == 1 && stream.Live.empty(),
             "explicit idle establishes final completion and drains native fences");
+    }
+
+    void TestPresentationPolicy()
+    {
+        using namespace std::chrono_literals;
+        const PresentationScheduler::Time start{};
+        PresentationScheduler pacer;
+        pacer.Configure({0, 100, PresentMode::Fifo, PacingAuthority::Generic});
+        Expect(pacer.Deadline(start) == start && !pacer.PreviousAcceptedPresentId(), "No deadline before accepted present.");
+        pacer.Accepted(start);
+        Expect(pacer.Deadline(start) == start + 10ms && pacer.PreviousAcceptedPresentId() == 1, "Display rate deadline/ID differ.");
+        Expect(pacer.Deadline(start + 10ms) == start + 10ms, "Blocking FIFO present must consume, not duplicate, the pacing period.");
+        pacer.Accepted(start + 12ms);
+        Expect(pacer.TargetDisplayTime(start + 12ms) == start + 20ms, "One late frame lost phase.");
+        pacer.Accepted(start + 100ms);
+        Expect(pacer.Deadline(start + 100ms) == start + 110ms, "Stall created catch-up burst.");
+        pacer.Unavailable();
+        Expect(pacer.Deadline(start) == start && pacer.PreviousAcceptedPresentId() == 3, "Unavailable advanced accepted ID.");
+        pacer.Configure({50, 100, PresentMode::Immediate, PacingAuthority::Generic});
+        pacer.Accepted(start); Expect(pacer.Deadline(start) == start + 20ms, "Explicit cap differs.");
+        pacer.Configure({50, 100, PresentMode::Fifo, PacingAuthority::Native});
+        pacer.Accepted(start); Expect(pacer.Deadline(start) == start, "Native authority received double pacing.");
+        pacer.Configure({-1, 100, PresentMode::Immediate, PacingAuthority::Generic});
+        pacer.Accepted(start); Expect(pacer.Deadline(start) == start, "Unlimited immediate was capped.");
+        const LowLatencyCapabilities generic{true, false, LowLatencyProvider::Generic};
+        auto state = ResolveLowLatency(LowLatencyMode::Off, generic);
+        Expect(state.effective == LowLatencyMode::Off && state.provider == LowLatencyProvider::None, "Off enabled provider.");
+        state = ResolveLowLatency(LowLatencyMode::OnBoost, generic);
+        Expect(state.requested == LowLatencyMode::OnBoost && state.effective == LowLatencyMode::On
+            && !state.boostSupported && !state.fallbackReason.empty() && state.authority == PacingAuthority::Generic, "Boost fallback lost request/reason.");
+        state = ResolveLowLatency(state.requested, {true, true, LowLatencyProvider::Nvidia});
+        Expect(state.effective == LowLatencyMode::OnBoost && state.authority == PacingAuthority::Native, "Capability switch lost logical request.");
+        state = ResolveLowLatency(state.requested, generic);
+        Expect(state.effective == LowLatencyMode::On && state.requested == LowLatencyMode::OnBoost, "Switch back lost request.");
+        state = ResolveLowLatency(LowLatencyMode::On, {});
+        Expect(state.effective == LowLatencyMode::Off && !state.fallbackReason.empty(), "Unavailable provider silently enabled.");
+    }
+
+    void TestGlPresentationBudget()
+    {
+        FakeGlStream stream;
+        FakeGlStream::Scheduler scheduler(stream.Dispatch());
+        Expect(scheduler.WaitForLatest(2'000'000) && !stream.BlockingWaits, "Idle GL budget waited.");
+        (void)scheduler.Submit(); const auto latest = scheduler.Submit();
+        const auto pendingRetirement = scheduler.SubmitForRetirement();
+        stream.Completed = 1; stream.TimeoutOnce = true;
+        Expect(!scheduler.WaitForLatest(2'000'000) && scheduler.Completed() == SubmissionSerial{1}
+            && scheduler.Submitted() == latest && !stream.Finishes, "Busy GL budget mutated work or waited device-wide.");
+        Expect(scheduler.WaitForLatest(2'000'000) && scheduler.Completed() == latest
+            && stream.BlockingWaits == 2 && stream.Live.empty(), "GL budget used next slot instead of latest fence.");
+        Expect(pendingRetirement == SubmissionSerial{3} && scheduler.Submitted() == latest
+            && scheduler.RetirementPending(), "Budget inserted a new retirement submission.");
+        const auto waits = stream.BlockingWaits;
+        Expect(scheduler.WaitForLatest(2'000'000) && stream.BlockingWaits == waits, "Completed GL budget waited again.");
+        scheduler.Finish();
     }
 
     void TestLegacyGlCompletionFallback()
@@ -385,6 +441,8 @@ int main()
         TestGpuTimestampPolicy();
         TestMeasuredFrameStatistics();
         TestGlNativeSubmissionProof();
+        TestPresentationPolicy();
+        TestGlPresentationBudget();
         TestLegacyGlCompletionFallback();
         TestGlFailedShutdownAndRetirement();
         TestCancelledObjectsAreNotDestroyed();

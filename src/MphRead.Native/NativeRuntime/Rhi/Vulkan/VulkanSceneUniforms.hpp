@@ -19,6 +19,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         {
             std::string_view semantic;
             std::uint32_t group, binding, size;
+            bool small = false;
         };
         struct MemberDesc final
         {
@@ -32,6 +33,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::uint32_t Group, Binding;
             std::vector<std::byte> Data;
             std::uint64_t Generation = 1;
+            bool Small = false;
         };
         VulkanSceneUniforms(std::span<const BlockDesc> blocks, std::span<const MemberDesc> members)
         {
@@ -42,7 +44,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 for (const auto& previous : Blocks)
                     if (previous.Group == desc.group && previous.Binding == desc.binding)
                         throw std::invalid_argument("Duplicate Vulkan scene uniform block.");
-                Blocks.push_back({desc.group, desc.binding, std::vector<std::byte>(desc.size), 1});
+                if (desc.small && desc.size > 128) throw std::invalid_argument("Small constant budget exceeded.");
+                Blocks.push_back({desc.group, desc.binding, std::vector<std::byte>(desc.size), 1, desc.small});
             }
             for (const auto& desc : members)
             {

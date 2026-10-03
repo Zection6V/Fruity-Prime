@@ -119,7 +119,8 @@ namespace MphRead::NativeRuntime::Rhi
     // pass, so there it is nothing.
     void ResetWindowViewport(std::int32_t width, std::int32_t height);
     // End the frame: submit, and show the scene device's window target.
-    void PresentSceneWindow(Swapchain& swapchain);
+    PresentResult PresentSceneWindow(Swapchain& swapchain);
+    [[nodiscard]] LowLatencyCapabilities SceneLowLatencyCaps() noexcept;
     // Before the window goes: every scene is gone, and the device follows.
     void DetachSceneWindow() noexcept;
 

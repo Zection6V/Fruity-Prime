@@ -55,11 +55,14 @@ namespace
     VKAPI_ATTR VkResult VKAPI_CALL Allocate(VkDevice, const VkDescriptorSetAllocateInfo* info, VkDescriptorSet* output)
     {
         Expect(Active->Pages.contains(info->descriptorPool), "Allocation on a closed pool.");
-        Expect(info->descriptorSetCount == 1 && *info->pSetLayouts == Layout, "Wrong layout/set count.");
+        Expect(info->descriptorSetCount > 0, "Empty descriptor batch.");
+        for (unsigned i = 0; i < info->descriptorSetCount; ++i)
+            Expect(info->pSetLayouts[i] == Layout, "Wrong descriptor layout.");
         Active->Allocations.push_back(info->descriptorPool);
         const auto result = Active->ResultIndex < Active->Results.size()
             ? Active->Results[Active->ResultIndex++] : VK_SUCCESS;
-        *output = result == VK_SUCCESS ? Handle<VkDescriptorSet>(++Active->Next) : VK_NULL_HANDLE;
+        for (unsigned i = 0; i < info->descriptorSetCount; ++i)
+            output[i] = result == VK_SUCCESS ? Handle<VkDescriptorSet>(++Active->Next) : VK_NULL_HANDLE;
         return result;
     }
     Allocator::Dispatch Dispatch()
@@ -164,6 +167,39 @@ namespace
         allocator.Allocate(Layout, {});
     }
 
+    void FixedSlots()
+    {
+        Driver driver; Active = &driver;
+        Allocator allocator(Dispatch(), {2, {2, 0, 2, 0, 2}});
+        const BindingLayoutDesc abi{{{0, BindingType::UniformBuffer, ShaderStage::AllGraphics, 3},
+            {1, BindingType::SampledTexture, ShaderStage::Fragment, 1},
+            {2, BindingType::Sampler, ShaderStage::Fragment, 1}}};
+        Expect(allocator.Preallocate(77, Layout, abi, 4), "Fixed admission failed.");
+        const auto counts = driver.Pages.begin()->second.Counts;
+        Expect(counts.at(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER) == 12
+            && counts.at(VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) == 4 && counts.at(VK_DESCRIPTOR_TYPE_SAMPLER) == 4,
+            "Fixed pool counts differ from actual ABI binding counts.");
+        Reject<std::logic_error>([&] { allocator.AllocateFixed(77); });
+        allocator.ResetAfterCompletion({0});
+        const auto first = allocator.AllocateFixed(77);
+        for (unsigned i = 1; i < 4; ++i) Expect(allocator.AllocateFixed(77) != first, "Fixed set overwritten before completion.");
+        Expect(!allocator.AllocateFixed(77) && !allocator.AllocateFixed(99), "Fixed overflow was not reported.");
+        Expect(driver.Allocations.size() == 1 && driver.Resets == 0, "Fixed hot path allocated/reset native sets.");
+        allocator.Submitted({8});
+        allocator.RetireFixed(77);
+        Reject<std::logic_error>([&] { allocator.ResetAfterCompletion({7}); });
+        Expect(driver.Destroys == 0, "In-flight fixed pool was destroyed.");
+        allocator.ResetAfterCompletion({8});
+        Expect(driver.Destroys == 1 && !allocator.AllocateFixed(77), "Completed retirement leaked fixed pool.");
+        Expect(allocator.Preallocate(78, Layout, abi, 4), "New fixed generation could not be admitted.");
+        const auto reused = allocator.AllocateFixed(78);
+        allocator.Submitted({9}); allocator.ResetAfterCompletion({9});
+        Expect(allocator.AllocateFixed(78) == reused && driver.Resets == 0, "Completed fixed set was reallocated.");
+        Reject<std::invalid_argument>([&] { allocator.Preallocate(90, Layout, abi, 0); });
+        Reject<std::invalid_argument>([&] { allocator.Preallocate(90, Layout, Need(BindingType::Sampler, UINT32_MAX), 4); });
+        allocator.Close(); Expect(driver.Pages.empty(), "Fixed close leaked a pool.");
+    }
+
     void IndependentSlots()
     {
         Driver driver; Active = &driver;
@@ -182,7 +218,7 @@ int main()
 {
     try
     {
-        CapacityAndReuse(); AdmissionAndErrors(); FragmentationAndBoundedGrowth(); IndependentSlots();
+        CapacityAndReuse(); AdmissionAndErrors(); FragmentationAndBoundedGrowth(); FixedSlots(); IndependentSlots();
         std::cout << "Vulkan descriptor allocator: capacity/reuse/admission/fault/slot contracts PASS\n";
         return 0;
     }

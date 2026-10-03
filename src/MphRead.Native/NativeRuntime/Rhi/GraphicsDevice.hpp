@@ -5,6 +5,7 @@
 #include "Capabilities.hpp"
 #include "CommandList.hpp"
 #include "FrameContext.hpp"
+#include "PresentationScheduler.hpp"
 #include "MemoryBudget.hpp"
 #include "Pipeline.hpp"
 #include "Resources.hpp"
@@ -96,6 +97,14 @@ namespace MphRead::NativeRuntime::Rhi
         virtual FrameContext BeginFrame() = 0;
         virtual void EndFrame() = 0;
         virtual void WaitIdle() = 0;
+        // A bounded presentation frame budget uses the most recent accepted
+        // queue submission, never the serial of the next recycled frame slot.
+        // No new submission or device-wide idle is permitted here.
+        [[nodiscard]] virtual bool WaitForLatestSubmission(std::uint64_t timeoutNanoseconds)
+        { (void)timeoutNanoseconds; return false; }
+        [[nodiscard]] virtual PresentationWaitStatistics PresentationWaits() const noexcept { return {}; }
+        [[nodiscard]] virtual LowLatencyCapabilities LowLatencyCaps() const noexcept
+        { return {}; }
         [[nodiscard]] virtual GpuResourceStatistics Statistics() const = 0;
         // Release cached objects not needed by live frontend resources. Native
         // destruction still follows submission completion; this does not wait.

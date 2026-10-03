@@ -30,7 +30,7 @@ struct VulkanPipelineKey final
             add(group.entries.size());
             for (const auto& item : group.entries) { add(item.binding); add(item.type); add(item.stages); add(item.count); }
         }
-        add(state.topology); add(state.sampleCount); add(state.alphaTest); add(state.depthStencilFormat);
+        add(state.topology); add(state.sampleCount); add(state.alphaTest); add(state.depthStencilFormat); add(state.smallConstantBytes);
         const auto& r = state.rasterizer;
         add(r.cullMode); add(r.frontFace); add(r.fillMode); add(r.depthClampEnable); add(r.depthBiasEnable);
         add(r.depthBiasConstant); add(r.depthBiasSlope); add(r.lineWidth);
@@ -226,6 +226,11 @@ public:
         }
         VkPipelineLayoutCreateInfo layoutCreate{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
         layoutCreate.setLayoutCount = static_cast<std::uint32_t>(layouts.size()); layoutCreate.pSetLayouts = layouts.data();
+        if (desc.smallConstantBytes > 128 || desc.smallConstantBytes % 4)
+            throw std::invalid_argument("Vulkan RHI: invalid portable small constant range.");
+        const VkPushConstantRange small{VK_SHADER_STAGE_ALL_GRAPHICS, 0, desc.smallConstantBytes};
+        layoutCreate.pushConstantRangeCount = desc.smallConstantBytes ? 1 : 0;
+        layoutCreate.pPushConstantRanges = desc.smallConstantBytes ? &small : nullptr;
         Check(vk.vkCreatePipelineLayout(vk.device, &layoutCreate, nullptr, &_layout), "vkCreatePipelineLayout");
         try
         {

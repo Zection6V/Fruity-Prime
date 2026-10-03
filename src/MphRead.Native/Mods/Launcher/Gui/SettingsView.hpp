@@ -109,6 +109,8 @@ namespace MphRead::Mods::Launcher::Gui
 
         std::shared_ptr<ChoiceRow> _windowRow;
         std::shared_ptr<ChoiceRow> _rendererRow;
+        std::shared_ptr<ChoiceRow> _lowLatencyRow;
+        std::shared_ptr<Note> _lowLatencyNote;
         std::shared_ptr<ChoiceRow> _clipSecondsRow;
         std::shared_ptr<SliderRow> _resolutionScale;
         std::shared_ptr<ToggleRow> _lightingRow;

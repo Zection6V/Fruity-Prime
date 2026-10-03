@@ -227,10 +227,17 @@ namespace MphRead::NativeRuntime::Rhi
         }
     }
 
-    void PresentSceneWindow(Swapchain& swapchain)
+    LowLatencyCapabilities SceneLowLatencyCaps() noexcept
+    {
+        if (!session) return {};
+        try { return session->Device().LowLatencyCaps(); } catch (...) { return {}; }
+    }
+
+    PresentResult PresentSceneWindow(Swapchain& swapchain)
     {
         const auto result = Session().Present(swapchain);
         RequirePresentation(result, Session().Backend());
+        return result;
     }
 
     void DetachSceneWindow() noexcept

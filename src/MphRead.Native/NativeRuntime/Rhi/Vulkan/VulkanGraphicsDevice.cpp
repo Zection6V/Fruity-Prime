@@ -41,6 +41,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 {
     namespace
     {
+        std::uint64_t NextSceneResourceIdentity() noexcept
+        {
+            static std::atomic<std::uint64_t> next{1};
+            return next.fetch_add(1, std::memory_order_relaxed);
+        }
         [[noreturn]] void Unsupported(const char* operation)
         {
             throw std::logic_error(std::string("Vulkan RHI operation is scheduled for a later phase: ") + operation);
@@ -204,7 +209,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 auto& vk = *context._impl;
                 Scheduler = std::make_unique<VulkanFrameScheduler>(VulkanFrameScheduler::Dispatch{
                     vk.device, vk.graphics, vk.vkCreateSemaphore, vk.vkDestroySemaphore,
-                    vk.vkQueueSubmit2, vk.vkGetSemaphoreCounterValue, Check});
+                    vk.vkQueueSubmit2, vk.vkGetSemaphoreCounterValue, Check, vk.vkWaitSemaphores});
                 VmaVulkanFunctions functions{};
                 functions.vkGetInstanceProcAddr = Context::Impl::InstanceProc();
                 functions.vkGetDeviceProcAddr = vk.vkGetDeviceProcAddr;
@@ -447,6 +452,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             // that submits on its own, or destroys a resource, flushes them
             // first, so the queue sees work in the order it was recorded.
             std::unordered_map<const void*, std::function<void()>> SceneFlushers{};
+            struct PreparedSceneDescriptors final
+            {
+                std::uint64_t Identity;
+                VkDescriptorSetLayout Layout;
+                BindingLayoutDesc Desc;
+            };
+            std::unordered_map<const void*, std::vector<PreparedSceneDescriptors>> SceneDescriptorLayouts;
+            std::unordered_map<const void*, std::function<void(const void*, const PreparedSceneDescriptors&)>> SceneDescriptorPreparers;
             // Told when a texture, program or pipeline a list may still name goes away.
             std::unordered_map<const void*, std::function<void(const void*)>> SceneForgetters{};
             void ForgetScene(const void* object)
@@ -1057,6 +1070,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::swap(_allocation, replacement._allocation);
             std::swap(_sampledView, replacement._sampledView);
             std::swap(_state, replacement._state);
+            ++_generation;
             for (std::size_t i = 0; i < _views.size(); ++i)
             {
                 const auto before = _views[i]->Native();
@@ -1128,6 +1142,19 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         {
             using VulkanSceneUniforms::VulkanSceneUniforms;
             SceneProgram Id = SceneProgram::Main;
+            const std::uint64_t Identity = NextSceneResourceIdentity();
+            std::shared_ptr<VulkanDeviceState> Device;
+            ~VulkanSceneProgram()
+            {
+                if (Device)
+                {
+                    Device->SceneDescriptorLayouts.erase(this);
+                    if (Device->CurrentSceneProgram == this) Device->CurrentSceneProgram = nullptr;
+                    // Match native wrapper teardown: a flush failure must not
+                    // throw from destruction during construction rollback/loss.
+                    try { Device->ForgetScene(this); } catch (...) {}
+                }
+            }
             std::unique_ptr<VulkanShader> Vertex;
             std::unique_ptr<VulkanShader> Fragment;
             std::array<std::unique_ptr<VulkanBindingLayout>, SceneShaderAbi::GroupCount> Layouts;
@@ -1148,6 +1175,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
 
             [[nodiscard]] GraphicsBackend GetBackend() const noexcept override { return GraphicsBackend::Vulkan; }
+            [[nodiscard]] LowLatencyCapabilities LowLatencyCaps() const noexcept override
+            { return {true, false, LowLatencyProvider::Generic}; }
+            [[nodiscard]] bool WaitForLatestSubmission(std::uint64_t timeoutNanoseconds) override
+            { _state->RequireAlive(); return _state->Scheduler->WaitForLatest(timeoutNanoseconds); }
+            [[nodiscard]] PresentationWaitStatistics PresentationWaits() const noexcept override
+            { return _state->Scheduler->PresentationWaits(); }
             bool SupportsAsyncReadback() const noexcept override { return true; }
             ReadbackTicket EnqueueReadback(Buffer&, std::uint64_t, std::uint64_t) override;
             void PollReadbacks() override { _state->Readbacks.Poll(); }
@@ -1975,7 +2008,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             auto fragment = shader(fragmentWords, ShaderStage::Fragment);
             std::array<BindingLayoutDesc, SceneShaderAbi::GroupCount> layoutDescs{};
             for (const auto& block : blocks)
-                layoutDescs.at(block.group).entries.push_back({block.binding, BindingType::UniformBuffer, ShaderStage::AllGraphics, 1});
+                if (!block.small) layoutDescs.at(block.group).entries.push_back({block.binding, BindingType::UniformBuffer, ShaderStage::AllGraphics, 1});
             for (const auto& texture : textures)
             {
                 layoutDescs.at(texture.group).entries.push_back({texture.image, BindingType::SampledTexture, ShaderStage::AllGraphics, 1});
@@ -1984,6 +2017,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::array<std::unique_ptr<BindingLayout>, SceneShaderAbi::GroupCount> layouts;
             GraphicsPipelineDesc desc{};
             desc.vertexShader = vertex.get(); desc.fragmentShader = fragment.get();
+            desc.smallConstantBytes = main ? sizeof(CommandList::SmallDrawConstants) : 0;
             for (std::uint32_t group = 0; group < SceneShaderAbi::GroupCount; ++group)
             {
                 layouts[group] = device.CreateBindingLayout(layoutDescs[group]);
@@ -2011,6 +2045,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 setDescs[group].layout = layouts[group].get();
             for (const auto& block : blocks)
             {
+                if (block.small) continue;
                 BufferDesc bufferDesc{};
                 bufferDesc.size = block.size; bufferDesc.usage = BufferUsage::Uniform;
                 auto buffer = device.CreateBuffer(bufferDesc);
@@ -2039,7 +2074,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             incompatibleSetDesc.layout = incompatibleLayout.get();
             auto incompatibleSet = device.CreateBindingSet(incompatibleSetDesc);
             (void)device.BeginFrame();
-            commands->Begin(); commands->SetPipeline(*pipeline);
+            if (commands->QueryReadiness() != CommandListReadiness::Ready || !commands->TryBegin())
+                throw std::runtime_error("Idle command list was not admitted nonblocking.");
+            bool nestedRejected = false;
+            try { (void)commands->TryBegin(); } catch (const std::logic_error&) { nestedRejected = true; }
+            if (!nestedRejected) throw std::runtime_error("Nested nonblocking Begin was accepted.");
+            commands->SetPipeline(*pipeline);
+            if (main) commands->SetSmallConstants({0.5F, 1, {}});
             bool rejected = false;
             try { commands->SetBindingSet(incompatibleGroup, *incompatibleSet); }
             catch (const std::invalid_argument&) { rejected = true; }

@@ -51,7 +51,7 @@ def read_contract(abi_root=ABI_ROOT):
             if kind == 'CONSTANT':
                 if first not in GLSL_TYPES or last not in bindings or int(second) < 0:
                     raise ValueError(f'Invalid constant {program}.{name}')
-                if bindings[last]['type'] != 'UniformBuffer':
+                if bindings[last]['type'] not in ('UniformBuffer', 'SmallConstants'):
                     raise ValueError(f'Constant in non-buffer binding {last}')
                 constants[program, name] = dict(type=GLSL_TYPES[first], count=int(second), block=last)
             else:

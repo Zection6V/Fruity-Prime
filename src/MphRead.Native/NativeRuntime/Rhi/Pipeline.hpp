@@ -223,6 +223,8 @@ namespace MphRead::NativeRuntime::Rhi
         TextureFormat depthStencilFormat = TextureFormat::Undefined;
         std::uint32_t sampleCount = 1;
         AlphaTestMode alphaTest = AlphaTestMode::Disabled;
+        // Portable budget; zero means this pipeline has no small constants.
+        std::uint32_t smallConstantBytes = 0;
 
         bool operator==(const GraphicsPipelineDesc&) const = default;
     };

@@ -1,6 +1,8 @@
 #pragma once
 
 #include "../Submission.hpp"
+#include "../PresentationScheduler.hpp"
+#include <cstdlib>
 
 #include <vulkan/vulkan.h>
 #include <vector>
@@ -21,6 +23,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             PFN_vkQueueSubmit2 QueueSubmit;
             PFN_vkGetSemaphoreCounterValue CounterValue;
             void (*CheckResult)(VkResult, const char*);
+            PFN_vkWaitSemaphores Wait = nullptr;
         };
 
         explicit VulkanFrameScheduler(Dispatch dispatch) : _dispatch(dispatch)
@@ -88,11 +91,29 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         }
 
         [[nodiscard]] SubmissionSerial Submitted() const noexcept { return _progress.Submitted(); }
+        [[nodiscard]] bool WaitForLatest(std::uint64_t timeoutNanoseconds)
+        {
+            const auto serial = Submitted();
+            if (serial <= Poll()) return true;
+            if (!_dispatch.Wait) return false;
+            VkSemaphoreWaitInfo wait{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
+            wait.semaphoreCount = 1; wait.pSemaphores = &_timeline; wait.pValues = &serial.Value;
+            const auto start = _measureWaits ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+            const auto result = _dispatch.Wait(_dispatch.Device, &wait, timeoutNanoseconds);
+            if (_measureWaits)
+            { ++_waits.count; _waits.nanoseconds += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count(); }
+            if (result == VK_TIMEOUT) return false;
+            _dispatch.CheckResult(result, "vkWaitSemaphores(presentation frame budget)");
+            return Poll() >= serial;
+        }
         [[nodiscard]] SubmissionSerial Completed() const noexcept { return _progress.Completed(); }
+        [[nodiscard]] PresentationWaitStatistics PresentationWaits() const noexcept { return _waits; }
 
     private:
         Dispatch _dispatch;
         VkSemaphore _timeline = VK_NULL_HANDLE;
         SubmissionProgress _progress;
+        bool _measureWaits = std::getenv("FRUITY_RENDER_METRICS") != nullptr;
+        PresentationWaitStatistics _waits;
     };
 }

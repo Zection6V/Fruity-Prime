@@ -158,7 +158,7 @@ public:
         for (auto& program : _programs)
         {
             if (_device->CurrentSceneProgram == program.get()) _device->CurrentSceneProgram = nullptr;
-            _device->ForgetScene(program.get());
+            // Each program retires its own fixed/persistent descriptors.
         }
     }
 
@@ -180,6 +180,7 @@ private:
     {
         auto program = std::make_unique<VulkanSceneProgram>(blocks, uniforms);
         program->Id = id;
+        program->Device = _device;
         const auto shader = [&](const auto& words, ShaderStage stage) {
             ShaderDesc desc{};
             desc.stage = stage;
@@ -195,6 +196,7 @@ private:
         std::array<BindingLayoutDesc, SceneShaderAbi::GroupCount> layouts{};
         for (const auto& block : blocks)
         {
+            if (block.small) continue;
             layouts.at(block.group).entries.push_back({block.binding, BindingType::UniformBuffer, ShaderStage::AllGraphics, 1});
         }
         for (const auto& texture : textures)
@@ -206,6 +208,13 @@ private:
         }
         for (std::uint32_t group = 0; group < SceneShaderAbi::GroupCount; ++group)
             program->Layouts[group] = std::make_unique<VulkanBindingLayout>(_device, layouts[group]);
+        auto& prepared = _device->SceneDescriptorLayouts[program.get()];
+        for (std::uint32_t group = 0; group < SceneShaderAbi::GroupCount; ++group)
+        {
+            if (layouts[group].entries.empty()) continue;
+            prepared.push_back({(program->Identity << 3) | group, program->Layouts[group]->Native(), layouts[group]});
+            for (const auto& [owner, prepare] : _device->SceneDescriptorPreparers) prepare(program.get(), prepared.back());
+        }
         _programs.push_back(std::move(program));
     }
 

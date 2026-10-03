@@ -107,7 +107,8 @@ def verify(data, contract, stage):
            'Packing member table differs from reflected block table')
     module = Module(data)
     expect(module.entries == [(0 if stage == 'vert' else 4, 'main')], 'Shader entry/stage drift')
-    expected = {(x['group'], x['binding']): ('block', x) for x in contract['blocks']}
+    expected = {('small', 0) if x.get('small') else (x['group'], x['binding']): ('block', x) for x in contract['blocks']}
+    expect(sum(x.get('small', False) for x in contract['blocks']) <= 1, 'Duplicate small constant block')
     for x in contract['members']:
         if 'image_binding' in x:
             for kind, field in (('image', 'image_binding'), ('sampler', 'sampler_binding')):
@@ -119,16 +120,21 @@ def verify(data, contract, stage):
         pointer_op, pointer_args = module.types[pointer]
         expect(pointer_op == 32 and pointer_args[0] == storage, 'Invalid variable pointer')
         target = pointer_args[1]
-        expect(storage not in (9, 12), 'Unspecified push constant/storage buffer interface')
-        if storage in (0, 2): # UniformConstant / Uniform
-            expect((variable, 34) in module.decorations and (variable, 33) in module.decorations, 'Missing descriptor set/binding')
-            key = (module.decorations[variable, 34][0], module.decorations[variable, 33][0])
+        expect(storage != 12, 'Unspecified storage buffer interface')
+        if storage in (0, 2, 9): # UniformConstant / Uniform / PushConstant
+            if storage == 9:
+                key = ('small', 0)
+                expect((variable, 34) not in module.decorations and (variable, 33) not in module.decorations,
+                       'Small constants must not use descriptor bindings')
+            else:
+                expect((variable, 34) in module.decorations and (variable, 33) in module.decorations, 'Missing descriptor set/binding')
+                key = (module.decorations[variable, 34][0], module.decorations[variable, 33][0])
             expect(key in expected and key not in seen, f'Unexpected/duplicate descriptor {key}')
             seen.add(key)
             kind, item = expected[key]
             op, args = module.types[target]
             if kind == 'block':
-                expect(storage == 2 and op == 30 and (target, 2) in module.decorations, 'Uniform block type drift')
+                expect(storage == (9 if item.get('small') else 2) and op == 30 and (target, 2) in module.decorations, 'Uniform block type drift')
                 actual = [module.member(target, i, t) for i, t in enumerate(args)]
                 wanted = [{k: v for k, v in m.items() if k != 'block'} for m in item['members']]
                 expect(len(actual) == len(wanted), 'Block member count drift')
@@ -138,6 +144,7 @@ def verify(data, contract, stage):
                     expect(a == b, f"Uniform member drift: {a} != {b}")
                 size = (max(m['offset'] + m['size'] for m in actual)+15)//16*16
                 expect(size == item['size'], 'Uniform block size drift')
+                expect(not item.get('small') or size <= 128, 'Small constant budget exceeded')
             elif kind == 'image':
                 expect(storage == 0 and op == 25 and args[1:] == (1, 0, 0, 0, 1, 0)
                        and module.value_type(args[0]) == 'float', 'Sampled 2D image type drift')

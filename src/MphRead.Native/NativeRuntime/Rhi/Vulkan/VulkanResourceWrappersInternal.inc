@@ -43,6 +43,7 @@
             void CloseNative() noexcept override;
             [[nodiscard]] const SamplerDesc& Desc() const noexcept override { return _desc; }
             [[nodiscard]] VkSampler Native() const noexcept { return _sampler; }
+            [[nodiscard]] std::uint64_t Identity() const noexcept { return _identity; }
             [[nodiscard]] std::weak_ptr<void> Lifetime() const noexcept { return _lifetime; }
             [[nodiscard]] const std::shared_ptr<VulkanDeviceState>& DeviceState() const noexcept { return _device; }
 
@@ -51,6 +52,7 @@
             VulkanNativeRegistration _registration;
             SamplerDesc _desc{};
             VkSampler _sampler = VK_NULL_HANDLE;
+            const std::uint64_t _identity = NextSceneResourceIdentity();
             std::shared_ptr<void> _lifetime = std::make_shared<int>(0);
         };
 
@@ -64,6 +66,8 @@
             [[nodiscard]] const TextureDesc& Desc() const noexcept override { return _desc; }
             [[nodiscard]] TextureHandle Handle() const noexcept override { return _handle; }
             [[nodiscard]] VkImage Native() const noexcept { return _image; }
+            [[nodiscard]] std::uint64_t Identity() const noexcept { return _identity; }
+            [[nodiscard]] std::uint64_t Generation() const noexcept { return _generation; }
             [[nodiscard]] ResourceState State() const noexcept { return _state; }
             void State(ResourceState value) noexcept { _state = value; }
             [[nodiscard]] const std::shared_ptr<VulkanDeviceState>& DeviceState() const noexcept
@@ -87,6 +91,8 @@
             TextureDesc _desc{};
             TextureHandle _handle{};
             VkImage _image = VK_NULL_HANDLE;
+            const std::uint64_t _identity = NextSceneResourceIdentity();
+            std::uint64_t _generation = 1;
             VmaAllocation _allocation = VK_NULL_HANDLE;
             ResourceState _state = ResourceState::Undefined;
             std::vector<VulkanTextureView*> _views{};

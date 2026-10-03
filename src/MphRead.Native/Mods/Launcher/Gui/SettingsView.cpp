@@ -344,6 +344,25 @@ namespace MphRead::Mods::Launcher::Gui
         };
 
         Heading(page, "Performance");
+        _lowLatencyRow = Add(page, std::make_shared<ChoiceRow>("Low Latency",
+            std::vector<std::string>{"Off", "On", "On + Boost"}, static_cast<std::int32_t>(LauncherPrefs::LowLatency())));
+        _lowLatencyNote = std::make_shared<Note>("");
+        const auto updateLatency = [this]
+        {
+            namespace Rhi = ::MphRead::NativeRuntime::Rhi;
+            const auto mode = static_cast<Rhi::LowLatencyMode>(std::clamp(_lowLatencyRow->Index(), 0, 2));
+            const auto state = Rhi::ResolveLowLatency(mode, Rhi::SceneLowLatencyCaps());
+            _lowLatencyNote->Text(state.fallbackReason.empty()
+                ? (state.effective == Rhi::LowLatencyMode::Off ? "Normal frame scheduling." : "On limits queued GPU work to one frame.")
+                : std::string(state.fallbackReason));
+        };
+        _lowLatencyRow->Changed += [this, updateLatency](ChoiceRow&)
+        {
+            LauncherPrefs::LowLatency(static_cast<::MphRead::NativeRuntime::Rhi::LowLatencyMode>(std::clamp(_lowLatencyRow->Index(), 0, 2)));
+            updateLatency();
+        };
+        updateLatency();
+        page->Children.Add(_lowLatencyNote);
         _resolutionScale = Add(page, std::make_shared<SliderRow>("Render scale",
             RenderOptions::ResolutionScale(), [](std::int32_t value)
             {
@@ -934,6 +953,7 @@ namespace MphRead::Mods::Launcher::Gui
     void SettingsView::Commit()
     {
         ::MphRead::MenuSettings& settings = RequireReference(_settings);
+        if (_lowLatencyRow) LauncherPrefs::LowLatency(static_cast<::MphRead::NativeRuntime::Rhi::LowLatencyMode>(std::clamp(_lowLatencyRow->Index(), 0, 2)));
         if (_rendererRow != nullptr)
         {
             static constexpr std::array<const char*, 3> Renderers{"opengl", "vulkan", "auto"};

@@ -1,5 +1,9 @@
 # Fruity Prime Vulkan 最適化レビュー — `cpp-port` + melonPrimeDS
 
+実装状況（2026-10-03）: P1-1〜5とP2-1〜3のgeneric policy/設定を実装・検証済み。
+P2-4/P3は条件付き判断を記録。Metal/DX12の実装は今回の依頼から除外。
+測定値・検証範囲・条件付き項目の理由は [実装結果](Fruity-Prime-Vulkan-Optimization-Result-2026-10-03.md) を参照。
+
 ## 1. 目的
 
 `liveteklol/Fruity-Prime` の `cpp-port` ブランチと `ag-advania/melonPrimeDS` の Vulkan / renderer infrastructure を調査し、現在の `Zection6V/Fruity-Prime` `develop3_rendering` に取り込む価値がある最適化を整理する。

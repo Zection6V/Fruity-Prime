@@ -30,6 +30,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             bool Loaded = false; // Accepted initial data; not proof of a hit.
             std::size_t LoadedBytes = 0, SavedBytes = 0;
             std::uint64_t CachedCreations = 0, UncachedCreations = 0;
+            // Wall time inside vkCreateGraphicsPipelines, all creations: what a
+            // warm cache saves is read off this, cold run against warm run.
+            std::uint64_t CreationNanoseconds = 0;
         };
         static constexpr std::size_t MaximumPayload = 64U * 1024U * 1024U;
         VulkanPipelineCache(Dispatch dispatch, const VkPhysicalDeviceProperties& identity,

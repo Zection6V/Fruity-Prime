@@ -2509,3 +2509,23 @@ OpenGL で mip / array / 3D の画像そのものを実装するのは、本番 
 
 検証: 両 backend の conformance PASS（`C:/tmp/gp/architecture-r19-subresource-caps-conformance.log`）、
 CPU テスト 19/19 PASS。
+
+## native pipeline cache の効果測定（R11）
+
+`VulkanPipelineCache::Statistics::CreationNanoseconds` に、`vkCreateGraphicsPipelines` の中で
+過ごした wall time を加算し、session 終了時に `create-ms` として出す。
+
+測定条件:
+- **場面:** `-maptest "MP2 HARVESTER" -players 4 -seconds 6 -rhi vulkan`、本番 scene の 14 pipelines。
+- **cache:** `FRUITY_VK_PIPELINE_CACHE_DIR` で cache の置き場所を分ける。cold は毎回空の
+  directory、warm は直前の run が保存した 140994 byte を読み込む。
+- **driver cache:** `__GL_SHADER_DISK_CACHE=0` で NVIDIA driver 自身の disk cache を止める。
+  driver cache が効くと cold も warm になり、このアプリの cache を測れないため。
+
+| run | 生成時間（14 pipelines） |
+|---|---|
+| cold ×3 | 11.95 / 9.17 / 9.32 ms |
+| warm ×3 | 0.84 / 0.88 / 0.87 ms |
+
+warm は cold の約 11 倍速い。RTX 5070 Ti / driver 617.14 での1台の測定である。他の GPU や driver
+cache を有効にした通常の環境での効果は、この数字からは言えない。

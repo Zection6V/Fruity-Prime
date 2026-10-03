@@ -160,7 +160,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         std::lock_guard lock(_mutex);
         if (_closed) throw std::logic_error("Vulkan pipeline library's session has ended.");
         if (_cache) ++_stats.CachedCreations; else ++_stats.UncachedCreations;
-        return _dispatch.Pipelines(_dispatch.Device, _cache, 1, &info, nullptr, &pipeline);
+        const auto start = std::chrono::steady_clock::now();
+        const VkResult result = _dispatch.Pipelines(_dispatch.Device, _cache, 1, &info, nullptr, &pipeline);
+        _stats.CreationNanoseconds += static_cast<std::uint64_t>(
+            std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count());
+        return result;
     }
     void VulkanPipelineCache::Save()
     {
@@ -188,7 +192,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         if (_cache) _dispatch.Destroy(_dispatch.Device, _cache, nullptr);
         _cache = VK_NULL_HANDLE; _stats.Native = false; _closed = true;
         std::cout << "[vulkan cache] cached-creations=" << _stats.CachedCreations << " uncached-creations="
-            << _stats.UncachedCreations << " saved-bytes=" << _stats.SavedBytes << '\n';
+            << _stats.UncachedCreations << " saved-bytes=" << _stats.SavedBytes
+            << " create-ms=" << (_stats.CreationNanoseconds / 1000000.0) << '\n';
     }
     VulkanPipelineCache::Statistics VulkanPipelineCache::Stats() const
     { std::lock_guard lock(_mutex); return _stats; }

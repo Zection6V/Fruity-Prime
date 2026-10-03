@@ -408,8 +408,8 @@ jobs:
             cmp "$spv" "build/native/generated/vulkan-shaders/$name"
             count=$((count + 1))
           done
-          # Ten scene stages plus the two backdrop stages.
-          test "$count" -eq 12
+          # Five Vulkan programs, each with vertex and fragment stages.
+          test "$count" -eq 10
           cmp "$RUNNER_TEMP/spirv-a/bindings.json" build/native/generated/vulkan-shaders/bindings.json
           echo "SPIR-V reproducible: $count stages"
 

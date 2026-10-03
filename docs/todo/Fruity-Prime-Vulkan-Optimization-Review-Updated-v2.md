@@ -20,7 +20,6 @@
 - `cpp/src/render/SceneRenderer.h`
 - `cpp/src/render/SceneRenderer.cpp`
 
-
 ### ag-advania/melonPrimeDS
 
 - Branch: `main`
@@ -51,82 +50,99 @@
 ### Zection6V/Fruity-Prime
 
 - Branch: `develop3_rendering`
-- Commit: `6d0590077b6569c268907959bed62342868e6e7a`
+- **更新後 Commit: `eeff2ebfb591830e35ee99cbc44b1cf0ee3a8ff1`**
+- 前回レビュー基準: `6d0590077b6569c268907959bed62342868e6e7a`
+- 更新差分: **33 commits ahead**
 
-主な確認対象:
+今回の再監査で特に確認したファイル:
 
-- `src/MphRead.Native/NativeRuntime/Rhi/Vulkan/VulkanGraphicsDevice.cpp`
-- `src/MphRead.Native/NativeRuntime/Rhi/Vulkan/VulkanPipelineInternal.inc`
+- `src/MphRead.Native/NativeRuntime/Rhi/SceneShaderAbi.def`
+- `src/MphRead.Native/NativeRuntime/Rhi/SceneShaderAbi.hpp`
+- `src/MphRead.Native/NativeRuntime/Rhi/Capabilities.hpp`
+- `src/MphRead.Native/NativeRuntime/Rhi/CommandList.hpp`
+- `src/MphRead.Native/NativeRuntime/Rhi/Pipeline.hpp`
+- `src/MphRead.Native/NativeRuntime/Rhi/ResourceStatePolicy.hpp`
+- `src/MphRead.Native/NativeRuntime/Rhi/Vulkan/VulkanCommandListInternal.inc`
+- `src/MphRead.Native/NativeRuntime/Rhi/Vulkan/VulkanCommandSlots.*`
+- `src/MphRead.Native/NativeRuntime/Rhi/Vulkan/VulkanFrameSlots.*`
+- `src/MphRead.Native/NativeRuntime/Rhi/Vulkan/VulkanFeatureProbe.*`
+- `src/MphRead.Native/NativeRuntime/Rhi/Vulkan/VulkanResources.*`
+- `src/MphRead.Native/NativeRuntime/Rhi/Vulkan/VulkanSynchronization.*`
+- `src/MphRead.Native/NativeRuntime/Rhi/Vulkan/VulkanTransferScratch.*`
 - `src/MphRead.Native/NativeRuntime/Rhi/Vulkan/VulkanPipelineCache.*`
-- `src/MphRead.Native/NativeRuntime/Rhi/Vulkan/VulkanUploadArena.*`
 - `src/MphRead.Native/NativeRuntime/Rhi/Vulkan/VulkanSwapchain.cpp`
-- `src/MphRead.Native/NativeRuntime/Rhi/Vulkan/VulkanSceneInternal.inc`
-- `src/MphRead.Native/NativeRuntime/Rhi/Vulkan/VulkanSceneUniforms.hpp`
+- `docs/todo/Fruity-Prime-Rendering-Architecture-Implementation.md`
 
----
+今回の更新で、前回レビュー以降に RHI / Vulkan backend の責務分離、state policy、feature probe、frame / command slot owner、conformance test が大幅に進んでいるため、それを前提に推奨事項を再分類する。
 
 # 3. 結論
 
-`cpp-port` からそのまま移植すべき Vulkan 基盤はほとんどない。
+`cpp-port` や melonPrimeDS の Vulkan 基盤をそのまま移植する必要はない。
 
-現在の `develop3_rendering` は以下の点ですでに `cpp-port` より高度である。
+更新後の `develop3_rendering` は前回よりさらに整理され、以下はすでに強い基盤になっている。
 
-- submission serial に基づく resource lifetime
+- backend-neutral `SceneShaderAbi`
+- **Frame / Material / Draw / Post の4 update/lifetime groups**
+- multi-group `PipelineLayout`
+- submission serial / timeline completion
 - deferred retirement
-- persistent upload arena
-- frame-local descriptor allocator
-- VMA ベース memory management
-- persistent native pipeline cache
-- pipeline cache の GPU / driver / UUID 検証
+- frame / command slot owner の分離
+- persistent mapped upload arena
+- VMA + memory admission
+- persistent validated native pipeline cache
 - dynamic rendering
 - Synchronization2
-- swapchain replacement の deferred retirement
-- typed presentation status
-- GPU diagnostics
+- resource-state policy の pure mapping
+- structured Vulkan feature probe
+- typed presentation lifecycle
+- async readback / timestamp query seam
+- resource / ownership / state conformance tests
 
-一方で、**draw hot path に関しては `cpp-port` の方が単純かつ無駄の少ない部分があり、melonPrimeDS にはそれをさらに体系化した descriptor / presenter 最適化がある。**
+したがって、前版MDにあった **「descriptor set を更新頻度で分割する」自体はTODOではない**。これはすでに `SceneShaderAbi::Group { Frame, Material, Draw, Post }` として実装済みであり、今後の最適化の前提として維持する。
 
-特に参考価値が高いのは以下である。
+一方、scene draw hot path にはまだ改善余地がある。現行 `DrawScene()` は同一 descriptor set が継続していても各 logical group に対して `vkCmdBindDescriptorSets()` を記録し、変更された uniform block は upload slice + descriptor set 再生成経路を通る。RHI の `CommandList` に small/push constants API はまだなく、persistent material/texture descriptor cache もない。
 
-1. redundant pipeline / descriptor bind の抑制
-2. per-draw small constants の push constants 化
-3. descriptor set を更新頻度で分割する
-4. 固定 ABI の descriptor set を起動時に preallocate する
-5. bounded persistent texture descriptor cache + frame-local fallback
-6. renderer / presenter の backpressure を non-blocking に扱う
-7. presentation の run-ahead を明示的な frame budget で制御する
-8. `VK_KHR_present_wait2` / `VK_EXT_present_timing` 等を capability-driven に使う
-9. specialization constants で「まれにしか変わらない shader 定数」を compile-time fold する
-10. GPU timestamp / descriptor / present telemetry を shipping hot path から分離する
+更新後も優先価値が高いのは以下である。
 
-したがって最適な方針は、
+1. scene path の redundant descriptor bind elimination
+2. per-draw small constants の push/root/inline constants 化
+3. frame-local descriptor semantic cache
+4. fixed ABI descriptor slot の preallocation
+5. bounded persistent material/texture descriptor cache + frame-local fallback
+6. optional work の non-blocking admission
+7. presentation の one-frame budget / present-wait / target-time pacing
+8. specialization constants の限定利用
+9. telemetry は既存 timestamp / diagnostics seam を利用し、shipping hot path に詳細計測を常駐させない
 
-> `develop3_rendering` の Vulkan 基盤を維持したまま、`cpp-port` の hot-path simplicity と melonPrimeDS の frequency-aware resource / descriptor / presentation policy を RHI 設計へ昇華して取り込む
+最適な方針は、
+
+> **現在の RHI / scheduler / lifetime / memory / pipeline 基盤は維持し、その上に frequency-aware state caching と latency-aware presentation policy を追加する**
 
 ことである。
 
----
-
 # 4. 比較概要
 
-| 項目 | `cpp-port` | `develop3_rendering` | 評価 |
-|---|---|---|---|
-| Frames in flight | 2 | 2 | 同等 |
-| Per-draw constants | Push constants | Uniform block + upload slice + descriptor | `cpp-port` を参考 |
-| Pipeline bind cache | あり | Scene path にあり | おおむね同等 |
-| Descriptor bind cache | あり | 改善余地あり | `cpp-port` を参考 |
-| Texture descriptor cache | Scene lifetime cache | frame-local descriptor allocation中心 | `cpp-port` の思想を参考 |
-| Dynamic upload | per-frame mapped buffer | persistent `VulkanUploadArena` | 現行が優秀 |
-| Texture upload | immediate submit + `vkQueueWaitIdle` | scheduled upload / serial lifetime | 現行が優秀 |
-| Resource destruction | `vkDeviceWaitIdle` 依存あり | deferred retirement | 現行が優秀 |
-| Memory allocation | raw `vkAllocateMemory` | VMA + admission / telemetry | 現行が優秀 |
-| Pipeline cache | process内 `VkPipelineCache` | persistent validated cache | 現行が大幅に優秀 |
-| Rendering model | legacy render pass | dynamic rendering | 現行が優秀 |
-| Synchronization | Vulkan 1.x style | Synchronization2 | 現行が優秀 |
-| Present pacing | application-side pacingあり | presentation専用pacerは限定的 | `cpp-port` を参考 |
-| Swapchain recreation | `vkDeviceWaitIdle` | deferred old-chain retirement | 現行が優秀 |
+| 項目 | `cpp-port` | melonPrimeDS | 更新後 `develop3_rendering` | 判断 |
+|---|---|---|---|---|
+| Frames in flight | 2 | 2を明示 | 2 | 現行維持 |
+| Binding groups by frequency | 単純 | 明示的に分割 | **Frame / Material / Draw / Post 実装済み** | TODOから除外 |
+| Per-draw constants | Push constants | Push constantsあり | Draw UBO + upload slice | Push/inline化を検討 |
+| Pipeline bind cache | あり | あり | Scene pathにあり | 現行維持 |
+| Descriptor bind cache | あり | current-set抑制あり | Scene pathは各groupを毎draw bind | 改善価値大 |
+| Descriptor semantic cache | texture set cache | bounded persistent + per-frame fallback | current draw state中心 | 改善価値大 |
+| Descriptor allocation | scene-oriented | fixed/preallocated + fallback | reusable page allocator | fixed ABI fast pathを追加候補 |
+| Dynamic upload | per-frame mapped | staging/upload ring | persistent `VulkanUploadArena` / scratch | 現行が優秀 |
+| Resource lifetime | idle wait依存あり | fence deferred destruction | serial/timeline retirement | 現行が優秀 |
+| Memory | raw allocation中心 | admission + telemetry | VMA + live budget/admission | 現行が優秀 |
+| Pipeline cache | 単純 | persistent cache | validated persistent cache | 現行が優秀 |
+| Renderer state policy | backend直結 | backend専用 | `ResourceStatePolicy` + Vulkan mapping分離 | 現行が優秀 |
+| Vulkan responsibility split | 小規模 | subsystem分割 | **Resources / Sync / FeatureProbe / FrameSlots / CommandSlots 等へ分離済み** | 前回より改善 |
+| Non-blocking readiness | 限定的 | `TryBeginFrame()` | `CanBeginWithoutWait()` / `PollComplete()` が低レベルに存在 | policy seamは未実装 |
+| Present pacing | CPU pacing | present wait / target timing / vendor authority | present mode + present-fence correctness中心 | melonPrimeDSを参考 |
+| GPU timestamps | なし/限定 | optional telemetry | RHI timestamp query seamあり | 基盤は既存 |
+| Specialization constants | なし | 活用 | scene graphics pathでは未採用 | 条件付き候補 |
 
----
+重要な更新点は、**frequency grouping、責務分離、state policy、feature probe はすでに実装済み**ということである。今後の最適化は新しい基盤を増やすより、既存 group / slot / scheduler を利用して hot path の native command と descriptor churn を減らす方向がよい。
 
 # 5. P1: Redundant descriptor-set bind の削減
 
@@ -453,59 +469,68 @@ sampler
 
 ---
 
-# 8. P2: Constant / Buffer を更新頻度で分類する
+# 8. Constant / Buffer の更新頻度分類 — logical grouping は実装済み
 
-`cpp-port` では、
+前版では resource / constant を更新頻度で分類することを提案したが、更新後の Fruity Prime では logical layer はすでに実装されている。
 
-```cpp
-m_uniformBuffers[2]
-m_matrixBuffers[2]
-m_dynamicVertexBuffers[2]
-m_hudVertexBuffers[2]
-```
-
-のように frames-in-flight ごとに CPU visible buffer を保持し、fence が完了した slot へ直接 `memcpy` する。
-
-これは非常に単純で安い。
-
-一方 `develop3_rendering` の `VulkanUploadArena` は、
-
-- persistently mapped page
-- dirty range tracking
-- submission serial
-- reset after completion
-- page reuse
-
-を持っており、基盤としてはこちらの方が優秀である。
-
-したがって per-frame buffer implementation をそのまま移植するのではなく、resource を update frequency で分類する思想だけ取り入れる。
-
-推奨分類:
+`SceneShaderAbi` は group を、
 
 ```text
-Static GPU Resource
-    model vertex/index
-    static textures
-
-Frame Persistent
-    view/projection
-    frame-global values
-
-Scene Persistent
-    room lighting
-    fog
-    long-lived material state
-
+Frame
 Material
-    texture/sampler
-    material parameters
-
-Draw Transient
-    small constants
-    transient geometry
+Draw
+Post
 ```
 
----
+として定義し、各 constant / texture binding をこの lifetime boundary に割り当てている。
+
+例:
+
+```text
+Frame
+    projection / view / light / fog
+
+Material
+    material colors
+    texture / sampler
+    texture matrix
+    toon table
+    alpha-test related state
+
+Draw
+    inverse view
+    matrix stack
+
+Post
+    HUD / cel / disruption / backdrop
+```
+
+したがって今後の課題は「分類すること」ではなく、
+
+> **この既存 logical grouping を physical update cost に反映すること**
+
+である。
+
+具体的には以下を狙う。
+
+```text
+Frame
+    frame内では再利用
+
+Material
+    material identityで再利用 / cache
+
+Draw
+    small scalar/flagは push constants
+    大きな matrix stack は upload buffer
+
+Post
+    passごとの専用 binding / cache
+```
+
+`VulkanUploadArena` 自体は維持する。melonPrimeDS / cpp-port の per-frame mapped buffer に置き換える必要はない。
+
+状態は **logical grouping DONE / physical hot-path optimization OPEN** とする。
 
 # 9. P2: FIFO Presentation Pacing
 
@@ -934,142 +959,146 @@ Redundant Binding Elimination
 
 ---
 
-# 16. melonPrimeDS 追加調査の結論
+# 16. melonPrimeDS 追加調査の結論 — 更新後コードとの再照合
 
-melonPrimeDS の Vulkan 実装には、現在の Fruity Prime にそのまま必要な基盤と、すでに Fruity Prime が同等以上を持つ基盤が混在している。
+melonPrimeDS の設計のうち、更新後 Fruity Prime がすでに取り込んでいる、または同等以上を持つものが増えた。
 
-まず、以下は **現行 Fruity Prime がすでに同等以上** であり、melonPrimeDS から追加移植する必要はない。
+**すでに実装済み / 現行維持:**
 
+- update/lifetime group の明示化: `Frame / Material / Draw / Post`
 - deferred resource destruction
 - frame / submission completion tracking
-- GPU memory admission
-- live memory budget
+- frame slot / command slot の独立 owner
+- GPU memory admission / live budget
 - persistent Vulkan pipeline cache
-- GPU timestamp query の基盤
-- upload ring / persistent mapped upload
+- GPU timestamp query seam
+- persistent mapped upload
 - swapchain lifetime の fence-based retirement
+- structured feature probe
+- resource-state policy の backend-neutral contract
 
-特に現行 Fruity Prime は、
+特に更新後は、
 
 ```text
 VulkanFrameScheduler
+VulkanFrameSlots
+VulkanCommandSlots
 SubmissionSerial
 RetirementQueue
 VulkanUploadArena
+VulkanTransferScratch
 VulkanMemory + VMA
 VulkanPipelineCache
+VulkanFeatureProbe
+VulkanResources
+VulkanSynchronization
 VulkanDescriptorAllocator
 ```
 
-を持つため、この部分を melonPrimeDS 型へ置き換える意味はない。
+へ責務が分かれており、melonPrimeDS 型へ backend を置換する理由はさらに小さくなった。
 
-一方、melonPrimeDS から追加で参考にする価値が高いのは、
+一方、melonPrimeDS から今も追加で参考価値が高いのは、
 
 ```text
-descriptor update-frequency architecture
-descriptor preallocation
-persistent descriptor cache
-non-blocking presenter backpressure
+fixed ABI descriptor preallocation
+bounded persistent descriptor cache
+non-blocking presenter/backpressure policy
 one-frame presentation budget
 present-wait / target-time pacing
 renderer-output lease ring
 specialization constants
-telemetry separation
+detailed perf telemetryのoptional化
 ```
 
 である。
 
----
+なお **descriptor update-frequency architecture 自体は現行 Fruity Prime ですでに実装済み**なので、以降では「新規実装」ではなく「hot path最適化に活用する既存基盤」として扱う。
 
-# 17. P1: Descriptor Set を更新頻度で分割する
+# 17. 実装済み: Descriptor Binding を更新頻度で分割
 
-## 17.1 melonPrimeDS の設計
+## 17.1 現行 Fruity Prime
 
-`VulkanDescriptors.h` は descriptor binding contract を明示的に、
+更新後の `SceneShaderAbi.hpp` は group を明示的に、
 
-```text
-set 0
-    per-frame / rasterizer resources
-
-set 1
-    texture resources
+```cpp
+enum class Group : std::uint8_t
+{
+    Frame,
+    Material,
+    Draw,
+    Post,
+    Count
+};
 ```
 
-へ分けている。
+としている。
 
-コード内コメントでも、
-
-> set 0 は最大でも frame ごとに一度変わる  
-> set 1 は texture binding の変更ごとに変わる
-
-という設計意図が明示されている。
-
-重要なのは単なる set 番号ではなく、
-
-> **update frequency が異なる resource を同じ descriptor set に入れない**
-
-ことである。
-
-もし frame-global buffer と per-material texture が同一 set に入っていれば、texture が変わるたびに本来不変な frame descriptor まで再構築する必要がある。
-
-## 17.2 Fruity Prime への適用
-
-Fruity Prime の logical binding groups も、
+`SceneShaderAbi.def` では例えば、
 
 ```text
 Frame
-Scene
+    Frame / Light / Fog uniform buffers
+
 Material
+    Material uniform
+    MaterialTexture
+    MaterialSampler
+
 Draw
+    Draw uniform buffer
+
 Post
+    Cel / Hud / Disruption / Backdrop
+    Post textures / samplers
 ```
 
-のような update-frequency domain と一致させるべきである。
+へ分離されている。
 
-最低限、
+さらにコメントで、
+
+> group は update/lifetime boundary であり、Vulkan descriptor setそのものではない
+
+と定義されている。
+
+これは Metal / D3D12 を将来追加する上でも正しい抽象化である。
+
+## 17.2 melonPrimeDS との対応
+
+melonPrimeDS が、
 
 ```text
-Frame / Scene
-    低頻度
+set 0
+    per-frame resources
 
-Material / Texture
-    中頻度
-
-Draw Small Constants
-    Push Constants
+set 1
+    texture-switch resources
 ```
 
-へ分ける。
+へ分けている設計思想は、Fruity Prime ではより backend-neutral な4 groupとしてすでに取り込まれているとみなせる。
 
-これにより descriptor cache の invalidation 範囲も狭くなる。
+したがって、ここは **追加実装不要**。
 
-## 17.3 Metal / D3D12 への対応
+## 17.3 今後の利用方法
 
-この設計は Vulkan 専用ではない。
+残る課題は group が存在することではなく、
 
 ```text
-Vulkan
-    descriptor sets
-
-D3D12
-    descriptor tables / root parameters
-
-Metal
-    argument / buffer / texture binding groups
-
-OpenGL
-    UBO + texture-unit state
+groupが変わっていない
+    ↓
+descriptor再生成しない
+    ↓
+descriptor再bindしない
 ```
 
-の全 backend で同じ logical frequency domain を利用できる。
+まで hot path に反映することである。
 
-## 17.4 優先度
+特に `DrawScene()` は現在、`_sets[group]` が既存でも各 group について `vkCmdBindDescriptorSets()` を呼ぶため、Section 5 の redundant bind elimination が次の直接的改善になる。
 
-**P1**
+## 17.4 状態
 
-Push Constants と Descriptor Cache の前提になるため、先に logical grouping を固定する価値が高い。
+**DONE / 維持**
 
----
+この項目を実装優先順位から外し、後続最適化の前提条件とする。
 
 # 18. P1: Fixed ABI Descriptor の Preallocation
 
@@ -1266,83 +1295,66 @@ Redundant descriptor bind elimination と組み合わせると効果が高い。
 
 # 20. P2: Non-blocking Backpressure / Frame Drop Path
 
-## 20.1 melonPrimeDS の方式
+## 20.1 melonPrimeDS
 
-`VulkanSync::FrameRing` には通常の blocking `BeginFrame()` だけでなく、
+melonPrimeDS の `FrameRing` は blocking `BeginFrame()` に加え `TryBeginFrame()` を持ち、slot が busy なら待たずに戻れる。
 
-```text
-TryBeginFrame()
+この仕組みは presenter / compositor のような「待つより1 frame落とした方が低latency」な仕事に有効である。
+
+## 20.2 更新後 Fruity Prime
+
+更新後は、低レベルの Vulkan command-slot owner にすでに、
+
+```cpp
+bool PollComplete();
+bool CanBeginWithoutWait() const;
 ```
 
-がある。
+が存在する。
 
-次の slot の fence がまだ完了していれば使用し、busy なら即座に失敗する。
+さらに command slot は、
 
-重要なのは、
+> pending slot を再利用するときだけ wait する
 
-> 「GPU が遅れている = 必ず CPU が待つ」
+という ownership contract を持つ。
 
-にしない点である。
+したがって、新しい second scheduler を追加する必要はない。
 
-compositor / presenter のように、
+不足しているのは、
 
-- 古い frame を再表示できる
-- 1 frame drop の方が latency 上有利
-- simulation correctness に影響しない
+> **この readiness 情報を「optional work を待たずにskipする」という上位 policy へ接続する seam**
 
-経路では待たずに skip できる。
+である。
 
-## 20.2 Fruity Prime への適用条件
+現在の public `CommandList::Begin()` は blocking semantics のままであり、presenter / preview / thumbnail 等が non-blocking admission を明示的に要求する API はない。
 
-game scene の primary rendering 自体を無条件で drop するべきではない。
+## 20.3 推奨
 
-適用対象は、
+既存 `VulkanCommandSlots::CanBeginWithoutWait()` を利用し、backend-neutral に例えば、
 
-- optional compositor work
+```cpp
+CommandListReadiness QueryReadiness();
+bool TryBegin();
+```
+
+のような optional seam を検討する。
+
+ただし primary game rendering の correctness path を drop 対象にしない。
+
+候補:
+
 - preview
 - thumbnail
 - duplicated presentation work
 - repeated unchanged frame
-- capture preview
+- optional capture preview
 - nonessential post-processing
-
-などに限定する。
-
-RHI としては、
-
-```cpp
-TryAcquireSubmissionSlot()
-```
-
-や、
-
-```cpp
-TryBeginNonEssentialWork()
-```
-
-のような non-blocking seam が考えられる。
-
-## 20.3 メリット
-
-GPU saturation 時に、
-
-```text
-CPU waits
-    ↓
-input sampling delay
-    ↓
-latency increase
-```
-
-となるのを避けられる。
 
 ## 20.4 優先度
 
 **P2**
 
-低 latency モードを本格実装するときに価値が高い。
-
----
+基盤のready判定はすでに存在するため、実装するときは既存 slot owner を再利用する。
 
 # 21. P2: RendererOutputRing の Lease / Publication Model
 
@@ -1412,35 +1424,21 @@ Presenter / UI compositor
 
 ## 22.1 melonPrimeDS の設計
 
-melonPrimeDS は frames-in-flight と swapchain image count を別概念として扱っている。
+melonPrimeDS は、
 
 ```text
 frames in flight
     CPU が GPU より何 frame 先行できるか
 
 swapchain image count
-    presentation surface が持つ image 数
+    surface が持つ presentable image 数
 ```
 
-を明確に分離している。
+を別概念として扱う。
 
-さらに low-latency presenter では、
+さらに low-latency presenter では「次の再利用slot」ではなく「latest submitted frame」を bounded wait の基準にできる。
 
-```text
-WaitForLatestSubmittedFrame()
-```
-
-を使用し、
-
-> 「次に再利用する古い slot」ではなく「直近に submit した frame」
-
-を bounded wait の対象にする。
-
-2-slot ring で next reusable slot だけを見ると、CPU が実質 2 frame 先行できるためである。
-
-## 22.2 Present Wait
-
-`VulkanPresentPacer` は、
+また `VulkanPresentPacer` は、
 
 - `VK_KHR_present_wait2`
 - `VK_KHR_present_wait`
@@ -1450,51 +1448,316 @@ WaitForLatestSubmittedFrame()
 - NVIDIA low-latency authority
 - AMD Anti-Lag authority
 
-を capability / policy に応じて分離している。
+を capability / policy に応じて分離する。
 
-特に重要なのは、
+## 22.2 更新後 Fruity Prime の状態
+
+現行 `VulkanSwapchain` には、`VK_EXT_swapchain_maintenance1` が利用できる場合の **per-image present fence** がある。
+
+これは非常に有用だが、役割は主に、
 
 ```text
-previous present を待つ
+present operation の完了を証明
+↓
+swapchain image / old swapchain の安全な再利用・破棄
 ```
 
-ことと、
+である。
+
+つまり、
+
+> **present fence があることと、present pacing / low-latency scheduling があることは別**
+
+である。
+
+現行コードでは `VK_KHR_present_wait(2)`、`VK_EXT_present_timing`、`VK_GOOGLE_display_timing`、vendor low-latency authority を使う presentation scheduler は確認できない。
+
+## 22.3 推奨
+
+presentation policy は段階的に追加する。
 
 ```text
-this present の target display time を指定する
-```
+Level 0
+    現行 typed acquire/present + present-fence correctness
 
-ことを別 mechanism として扱っている点である。
-
-## 22.3 Fruity Prime への推奨
-
-前回の単純な application-side `sleepUntil()` より、
-
-```text
 Level 1
-    generic CPU deadline pacer
+    generic CPU deadline / frame cap coordination
 
 Level 2
-    present wait / present ID
+    present ID + bounded previous-present wait
 
 Level 3
-    target-time scheduling
+    target display-time scheduling
 
 Level 4
-    vendor low-latency API
+    vendor low-latency authority
 ```
 
-という capability ladder を作る方がよい。
+vendor API が pacing authority を持つ場合は generic pacer と二重制御しない。
 
-vendor API が active の場合は generic pacer と二重制御しない。
+swapchain image retirement用 fence はそのまま維持し、pacing mechanismと責務を分離する。
 
 ## 22.4 優先度
 
 **P2**
 
-FPS throughput より input-to-photon latency と pacing stability の改善項目。
+throughput最適化ではなく、input-to-photon latency と pacing stability の改善として扱う。
 
----
+## 22.5 設定画面の低遅延モード: Off / On / On + Boost
+
+Fruity Prime の低遅延機能は、内部で自動的に有効化するだけではなく、melonPrimeDS と同様に**ユーザーが設定画面から明示的に選択できる機能**とする。
+
+設定値は3段階を基本とする。
+
+```text
+Low Latency
+    Off
+    On
+    On + Boost
+```
+
+RHI / renderer 内部では bool を複数持つのではなく、backend-neutral な enum として保持する。
+
+```cpp
+enum class LowLatencyMode : std::uint8_t
+{
+    Off,
+    On,
+    OnBoost
+};
+```
+
+意味論:
+
+```text
+Off
+    通常の presentation / frame scheduling
+    vendor low-latency API は無効
+
+On
+    利用可能な backend / vendor の low-latency mode を有効化
+    CPU run-ahead と presentation scheduling も低遅延 policy に従う
+
+On + Boost
+    On の全動作
+    +
+    backend / vendor が対応する場合は boost / high-performance latency mode を要求
+```
+
+重要なのは、UI の選択値と実際に有効になった native capability を分離することである。
+
+例えば、
+
+```text
+RequestedLowLatencyMode
+    OnBoost
+
+EffectiveLowLatencyMode
+    On
+
+Reason
+    Boost unsupported by this backend/device
+```
+
+のように、requested state と effective state を別に保持する。
+
+これにより、未対応 GPU / backend で `On + Boost` が選択されても silent failure にしない。
+
+### Backend mapping
+
+想定 mapping:
+
+```text
+Vulkan / NVIDIA
+    Off      → low-latency API disabled
+    On       → NVIDIA low-latency mode
+    OnBoost  → NVIDIA low-latency mode + boost
+
+D3D12 / NVIDIA
+    Off      → Reflex disabled
+    On       → Reflex enabled
+    OnBoost  → Reflex enabled + boost
+
+Vulkan / AMD
+    Off      → Anti-Lag path disabled
+    On       → supported Anti-Lag path enabled
+    OnBoost  → Boost相当機能がなければ Effective=On とし理由を公開
+
+D3D12 / AMD
+    同様に backend capability に応じて Anti-Lag 系へ mapping
+
+Metal
+    vendor-specific boost API を前提にしない。
+    generic one-frame budget / presentation scheduling のみを適用し、
+    Boost 非対応なら Effective=On または capability unavailable とする。
+
+OpenGL
+    vendor API が利用できない場合は generic scheduling のみ。
+    Boost を native feature として偽装しない。
+```
+
+`On + Boost` は「必ず GPU clock を固定する」という RHI 契約ではなく、
+
+> **利用可能な backend / vendor の boost-capable low-latency mode を要求する**
+
+という logical request とする。
+
+### Capability model
+
+設定画面は少なくとも以下を参照できるようにする。
+
+```text
+supportsLowLatency
+supportsLowLatencyBoost
+lowLatencyProvider
+requestedLowLatencyMode
+effectiveLowLatencyMode
+fallbackReason
+```
+
+例えば provider は、
+
+```text
+Generic
+Nvidia
+Amd
+None
+```
+
+程度の logical value でよい。
+
+設定画面では `On + Boost` が native に対応しない場合、
+
+- 項目を disabled にする
+- または選択を許可し `On` へ fallback したことを表示する
+
+のどちらかにする。
+
+後者を採用する場合も、内部では `Requested=OnBoost / Effective=On` を保持して診断可能にする。
+
+### Runtime toggle
+
+低遅延設定は可能な限り **renderer / device の再起動なしで切り替え可能** にする。
+
+```text
+Off
+ ↕
+On
+ ↕
+On + Boost
+```
+
+の切替で、
+
+- shader
+- pipeline
+- texture
+- scene
+- swapchain
+
+を不要に再生成しない。
+
+native API の仕様上 device creation 時に extension enable が必要な場合は、対応 extension 自体は device 作成時に capability として要求しておき、実際の low-latency mode は runtime command / state で有効・無効化する構成を優先する。
+
+これは melonPrimeDS の「利用可能な low-latency extension を device 作成時に確保し、設定変更では renderer 全体を作り直さない」という設計思想を踏襲する。
+
+### Presentation Scheduler との関係
+
+`LowLatencyMode` は vendor API の単純な ON/OFF だけを意味しない。
+
+presentation policy の authority selection に入力する。
+
+```text
+LowLatencyMode::Off
+    → Generic presentation policy
+
+LowLatencyMode::On
+    → low-latency authorityを優先
+    → one-frame budget
+    → bounded present wait / late acquire 等を capability に応じて使用
+
+LowLatencyMode::OnBoost
+    → On と同じ scheduling
+    → さらに native boost capability を要求
+```
+
+vendor low-latency API が active な場合、generic pacer が独立して同じ frame を制御しないようにする。
+
+```text
+one frame
+    one pacing authority
+```
+
+を原則とする。
+
+### 設定保存
+
+設定は renderer backend ごとに別値へ分裂させず、原則として共通の logical setting とする。
+
+```text
+LowLatencyMode = Off / On / OnBoost
+```
+
+backend 切替時に同じ requested mode を引き継ぎ、新 backend が対応可能な effective mode を再評価する。
+
+例:
+
+```text
+Vulkan NVIDIA
+Requested = OnBoost
+Effective = OnBoost
+
+↓ OpenGLへ切替
+
+Requested = OnBoost
+Effective = On
+Reason = native boost unavailable
+
+↓ Vulkanへ戻す
+
+Requested = OnBoost
+Effective = OnBoost
+```
+
+これにより renderer 切替でもユーザー設定を失わない。
+
+### 検証項目
+
+低遅延設定の実装時には最低限、
+
+```text
+Off → On
+On → OnBoost
+OnBoost → Off
+
+Vulkan → OpenGL → Vulkan
+Vulkan → future D3D12
+Vulkan → future Metal
+
+unsupported boost fallback
+device/session recreate
+settings persistence
+fullscreen/windowed
+VSync on/off
+```
+
+を確認する。
+
+また telemetry では、
+
+```text
+requested_low_latency_mode
+effective_low_latency_mode
+low_latency_provider
+boost_supported
+pacing_authority
+present_wait_count
+optional_work_busy_skip_count
+```
+
+を記録できるようにする。
+
+この3段階設定は **P2 Presentation Scheduler / One-frame Low-Latency Budget の正式なユーザー向け contract** として扱う。
 
 # 23. P3: Specialization Constants の限定利用
 
@@ -1551,57 +1814,66 @@ profile で shader ALU / branch が実際に問題になった場合のみ。
 
 ---
 
-# 24. P2～P3: Telemetry を Hot Path から分離する
+# 24. P3: Telemetry は既存 RHI seam を活用する
 
-melonPrimeDS は GPU timestamp、memory telemetry、descriptor counters などを developer / telemetry build に限定できるようにしている。
+melonPrimeDS は GPU timestamp、memory telemetry、descriptor counters などを developer / telemetry build に分離している。
 
-特に、
+更新後 Fruity Prime にはすでに、
+
+- `Capabilities::supportsTimestampQueries`
+- `CommandList::InitializeTimestamps()`
+- `CommandList::WriteTimestamp()`
+- GPU diagnostics / conformance checks
+- memory telemetry
+- host-wait / allocation / resource counters
+
+などの計測基盤がある。
+
+したがって「GPU timestamp infrastructure を新設する」は不要である。
+
+今後追加価値があるのは、最適化の効果を測る focused counters である。
+
+例:
 
 ```text
-shipping build
-    no detailed allocation counters
-    no timestamp query fields
+scene_descriptor_allocations
+scene_descriptor_updates
+scene_descriptor_bind_commands
+scene_descriptor_cache_hits
+scene_descriptor_cache_misses
 
-telemetry build
-    query pools
-    stage timing
-    descriptor update counters
-    allocation buckets
+scene_pipeline_bind_commands
+small_constant_updates
+
+present_wait_count
+present_wait_ns
+optional_work_busy_skip_count
 ```
 
-という分離が明確である。
-
-Fruity Prime は現在 GPU diagnostics を強化しているため、今後 profiling counter が増えた場合でも、
-
-> 計測のために production hot path の lock / allocation / query を増やさない
-
-という原則を維持した方がよい。
+重要なのは、これらを常時production hot pathへ重く載せないこと。
 
 推奨:
 
 ```text
 always-on
-    correctness counters
-    fatal diagnostics
-    minimal submission statistics
+    correctness / fatal diagnostics
+    minimal lifetime counters
 
-developer-only
+developer/perf build
     GPU timestamps
     descriptor hit/miss
-    per-stage CPU timers
+    detailed CPU timers
+    presentation timing
     allocation histograms
-    present timing details
 ```
 
-優先度は **P2～P3**。
-
----
+優先度は **P3**。まず最適化前後を比較できる最小counterだけ追加する。
 
 # 25. melonPrimeDS から「確認材料にはなるが追加不要」な項目
 
 ## 25.1 Deferred destruction
 
-melonPrimeDS の `DeferredDestroyQueue` は excellent reference だが、現行 Fruity Prime にはすでに `SubmissionSerial` と retirement queue がある。
+melonPrimeDS の `DeferredDestroyQueue` は良い reference だが、更新後 Fruity Prime は `SubmissionSerial` / timeline completion / retirement queue を持ち、frame / command slot owner も分離された。
 
 追加不要。
 
@@ -1609,115 +1881,156 @@ melonPrimeDS の `DeferredDestroyQueue` は excellent reference だが、現行 
 
 melonPrimeDS は live budget、allocation-count limit、largest-allocation limit、安全 reserve を pure policy として評価する。
 
-現行 Fruity Prime の `VulkanMemory` も VMA budget、live heap budget、pending reservation、allocation admission をすでに持つ。
+更新後 Fruity Prime の `VulkanMemory` は VMA budget、live heap budget、pending reservation、allocation admission を持つ。
 
-設計確認には使えるが追加移植は不要。
+追加移植不要。
 
 ## 25.3 Pipeline cache
 
 melonPrimeDS は device identity を検証して persistent `VkPipelineCache` を扱う。
 
-現行 Fruity Prime の `VulkanPipelineCache` は、
-
-- vendor
-- device
-- driver
-- UUID
-- checksum
-- atomic file replacement
-
-まで持つ。
+Fruity Prime の `VulkanPipelineCache` は vendor / device / driver / UUID / checksum / size gate / atomic replacement / native rejection fallback を持つ。
 
 現行維持。
 
 ## 25.4 Upload ring
 
-melonPrimeDS / DX12 の persistently mapped linear upload ring は良い設計だが、Fruity Prime の `VulkanUploadArena` はすでに同じ目的をより汎用的に実装している。
+melonPrimeDS / DX12 の persistently mapped linear upload ring は良い設計だが、Fruity Prime は `VulkanUploadArena` と `VulkanTransferScratch` を持つ。
 
 現行維持。
 
----
+## 25.5 Feature probe
 
-# 26. 統合後の推奨実装順序
-
-## P1-1: Update-frequency Binding Groups
-
-最初に、
+前版では melonPrimeDS の structured feature probe を参考項目としていたが、更新後 Fruity Prime には `VulkanFeatureProbe` が追加され、
 
 ```text
-Frame
-Scene
-Material
-Draw
+InstanceSnapshot / InstanceProbe
+PhysicalDeviceSnapshot / PhysicalDeviceProbe
+ProbeFinding
+queue selection
+capabilities
+timestamp properties
 ```
 
-の resource 更新頻度を ABI と RHI で明確にする。
+を logical-device creation と分離している。
 
-これが後続最適化の土台。
+この項目も追加不要。
 
-## P1-2: Small Draw Constants
+## 25.6 Resource-state mapping
 
-draw-local small values を push/root/inline constants へ移す。
+更新後は `ResourceStatePolicy` と `VulkanSynchronization` に state / layout / access の policy が分離されている。
+
+melonPrimeDS の barrier policy は比較材料にはなるが、別体系への置換は不要。
+
+# 26. 更新後の推奨実装順序
+
+## 完了済みの前提
+
+以下は新規TODOから外す。
+
+```text
+✓ backend-neutral shader ABI
+✓ Frame / Material / Draw / Post group
+✓ multi-group PipelineLayout
+✓ SubmissionSerial / timeline scheduler
+✓ frame / command slot owner
+✓ deferred retirement
+✓ VMA + memory admission
+✓ persistent upload arena
+✓ persistent pipeline cache
+✓ feature probe
+✓ resource-state policy / Vulkan synchronization mapping
+✓ timestamp query seam
+```
+
+## P1-1: Small Draw Constants
+
+`Draw` groupのうち本当に小さく高頻度な値を、
 
 ```text
 Vulkan → Push Constants
 D3D12  → Root Constants
 Metal  → set*Bytes
-OpenGL → small uniforms / UBO
+OpenGL → compact uniforms / UBO
 ```
 
-## P1-3: Redundant Binding Elimination
+へmapする。
 
-- pipeline
-- descriptor group
-- vertex/index streams
+`mtx_stack`のような大きな配列はbufferに残す。
 
-について、logical state が変化したときだけ native bind command を記録する。
+## P1-2: Redundant Scene Descriptor Bind Elimination
 
-## P1-4: Frame-local Descriptor Cache
+現行 `DrawScene()` の各group bindを追跡し、同じ native set + compatible layoutなら `vkCmdBindDescriptorSets()` を省略する。
 
-まず安全な frame-local cache を導入する。
+最も低リスク。
 
-## P1-5: Fixed ABI Descriptor Preallocation
+## P1-3: Frame-local Descriptor Semantic Cache
 
-最大数が決定できる scene groups について、startup / frame-slot creation 時に set を preallocate する。
+同一 frame / command-slot generation内で、
 
-generic allocator は fallback として残す。
+```text
+layout
+uniform slice identity
+texture view
+sampler
+image layout
+resource generation
+```
 
-## P1-6: Bounded Persistent Material / Texture Descriptor Cache
+が一致する descriptor set を再利用する。
 
-stable resource identity / generation contract を確立した後に導入する。
+## P1-4: Fixed ABI Descriptor Preallocation
 
-capacity miss は frame-local fallback。
+最大数を決定できる scene hot path に限り preallocated slotを導入する。
+
+既存 `VulkanDescriptorAllocator` は generic / overflow / diagnostics fallback として維持。
+
+## P1-5: Bounded Persistent Material / Texture Descriptor Cache
+
+stable resource identity / generation contract を使い、persistent cacheに上限を設ける。
+
+capacity missは frame-local pathへfallbackする。
 
 ## P2-1: Presentation Scheduler
 
-`FrameTiming` と分離して、
+`FrameTiming` と swapchain lifetime fenceから責務を分離し、
 
 ```text
 display deadline
 present mode
-present wait
+present ID / wait
 target-time scheduling
+pacing authority
 ```
 
 を扱う。
 
 ## P2-2: Non-blocking Optional Work
 
-presenter / preview / duplicated frame / optional compositor work には `TryBegin` 系の non-blocking admission を追加する。
+新schedulerは作らず、既存 `VulkanCommandSlots::CanBeginWithoutWait()` / completion状態を backend-neutral optional-work policyへ接続する。
 
-## P2-3: One-frame Low-Latency Budget
+## P2-3: Low-Latency Settings + One-frame Budget
 
-低 latency mode では latest submitted frame を基準に CPU run-ahead を制御する。
+設定画面に backend-neutral な3段階設定を追加する。
+
+```text
+Low Latency
+    Off
+    On
+    On + Boost
+```
+
+`RequestedLowLatencyMode` と `EffectiveLowLatencyMode` を分離し、backend / device capability に応じて native low-latency provider と boost を選択する。
+
+low-latency modeでは latest submitted work / previous accepted present を基準に CPU run-ahead を制御する。可能な限り runtime toggle とし、設定変更だけで renderer / device / swapchain を再生成しない。
 
 ## P2-4: Backend-neutral Output Publication
 
-renderer / presenter の分離が必要になった時点で `RendererOutputRing` 型の lease protocol を導入する。
+renderer / presenter / capture consumer の非同期化が必要になった場合のみ `RendererOutputRing` 型 lease protocol を導入する。
 
 ## P3: Specialization / Vendor Features
 
-profiling evidence が出てから、
+profiling evidence が得られてから、
 
 - specialization constants
 - `VK_KHR_present_wait2`
@@ -1728,7 +2041,7 @@ profiling evidence が出てから、
 
 を capability-driven に追加する。
 
----
+ただし present-wait / target-time scheduling は vendor feature より先に generic policy として設計する。
 
 # 27. 統合後の推奨 Hot Path
 
@@ -1786,86 +2099,105 @@ presenter slot available?
 
 ---
 
-# 28. 統合最終評価
+# 28. 更新後の統合最終評価
 
-3実装を比較すると役割が明確である。
+更新後 `develop3_rendering` を再監査すると、前版MDから状況は明確に進んでいる。
 
-`cpp-port` から参考にするべきものは、
+特に、
+
+```text
+SceneShaderAbiの4 update/lifetime groups
+VulkanFeatureProbe
+VulkanResources
+VulkanSynchronization
+VulkanFrameSlots
+VulkanCommandSlots
+ResourceStatePolicy
+```
+
+が追加・整理され、melonPrimeDSから参考にしていた「責務分離」「feature probe」「update-frequency contract」の多くはすでに実装済みになった。
+
+したがって今後は architecture をさらに増やすより、既存 architecture の hot path を軽くする段階に入っている。
+
+`cpp-port` から今も参考になるもの:
 
 ```text
 simple draw-state caching
 push constants
-direct hot-path design
-basic application pacing
+native commandをstate change時だけ記録する思想
+basic pacingの発想
 ```
 
-である。
-
-melonPrimeDS から参考にするべきものは、
+melonPrimeDS から今も参考になるもの:
 
 ```text
-update-frequency descriptor architecture
 descriptor preallocation
 bounded persistent descriptor cache
-non-blocking backpressure
+non-blocking backpressure policy
 presentation frame budget
 capability-driven present pacing
 backend-neutral output lease ring
-optional specialization
-telemetry separation
+optional specialization constants
+focused performance telemetry
 ```
 
-である。
-
-一方、現在の Fruity Prime が維持すべき強みは、
+更新後 Fruity Prime がそのまま維持すべきもの:
 
 ```text
 generic RHI
+SceneShaderAbi groups
+multi-group PipelineLayout
 SubmissionSerial
 timeline-backed scheduler
+FrameSlots / CommandSlots
 deferred retirement
-VMA
-memory admission
+VMA + memory admission
 persistent pipeline cache
 dynamic rendering
 Synchronization2
+FeatureProbe
+ResourceStatePolicy
 typed presentation lifecycle
-cross-backend diagnostics
+async readback / timestamps
+cross-backend conformance
 ```
 
-である。
-
-したがって Fruity Prime の Vulkan 最適化は、
-
-> **基盤を melonPrimeDS や cpp-port に置き換えるのではなく、現在の RHI の上に「frequency-aware state caching」と「latency-aware presentation policy」を追加する**
-
-のが最も整合性が高い。
-
-性能面で最初に狙うべき組み合わせは、
+現時点の最優先セットは、
 
 ```text
-Update-frequency Binding Groups
-+
 Small Draw Constants
 +
-Descriptor Preallocation / Cache
+Redundant Descriptor Bind Elimination
 +
-Redundant Binding Elimination
+Frame-local Descriptor Semantic Cache
 ```
 
 である。
 
-その後、
+その効果を計測した後に、
+
+```text
+Fixed ABI Descriptor Preallocation
++
+Bounded Persistent Material/Texture Cache
+```
+
+へ進む。
+
+presentation側は別軸として、
 
 ```text
 Presentation Scheduler
++
+Low Latency: Off / On / On + Boost
 +
 Non-blocking Optional Work
 +
 One-frame Low-Latency Budget
 ```
 
-へ進む。
+を進める。低遅延設定は backend 共通の logical preference とし、renderer 切替後も requested mode を保持して、新 backend の capability から effective mode を再評価する。
 
-この順序なら、Vulkan の CPU overhead と latency を改善しつつ、将来の Metal / D3D12 backend でも同じ RHI policy を再利用できる。
+重要なのは、現在の present fence は swapchain lifetime / completion correctness のための仕組みであり、low-latency presentation scheduler の代替ではない点である。
 
+この順序なら、現在までに構築された RHI / Vulkan ownership architecture を壊さずに CPU command-recording cost と descriptor churn を減らし、その設計を将来の Metal / D3D12 にも自然に再利用できる。

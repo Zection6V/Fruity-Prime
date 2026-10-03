@@ -2593,3 +2593,25 @@ Vulkan の native 検査（`-vulkanpresentcheck`）と同じ観点を、OpenGL �
 
 検証: `C:/tmp/gp/architecture-r9-present-conformance.log`、Vulkan validation error 0。
 実際の surface loss / device loss は注入していない。
+
+## 最終画像 gate（R19）
+
+f6e41211 の MSVC Release で、同じ画像検査を両 backend と C# 版に対して取り直した。
+
+| 検査 | 結果 |
+|---|---|
+| Golden Capture 7候補、OpenGL（以前の OpenGL 撮影との比較） | 7/7 byte 単位で一致 |
+| Golden Capture、OpenGL 対 Vulkan | 7/7 PASS |
+| renderprobe 4 map（TEST ARENA / MP2 HARVESTER / MP10 OVERLOAD / AD2 ALINOS PERCH）、OpenGL 対 Vulkan | 8/8・4/4・8/8・6/6 PASS |
+| 同じ renderprobe、C# 版対 OpenGL | TEST ARENA・MP10 は全一致。MP2・Alinos は spawn03 の1枚だけ不一致 |
+| 実 window の HUD 付き（`-hudshots`）、OpenGL 対 Vulkan | TEST ARENA 20/20、MP10 OVERLOAD 25/25 PASS |
+
+C# 版との不一致は、spawn03 の pickup 1個の icon（7×7 / 3×3 px）である。分かっていることは次のとおり:
+- C# は実行ごとに同じ結果になる。
+- C++ の両 backend は互いに一致する。
+- spawn00〜02 は一致する。
+- この作業より前の build（f8444609）でも同じ差が出る。
+
+したがって描画ではなく、移植のゲームロジック（item の出現 timing、RNG の消費、または probe 中の
+取得）か probe harness の進め方の差である。rendering architecture の範囲外として別 task にした。
+再現手順は、spawn03 の画像を `tools/validate-cross-backend-parity.py` で比較すること。

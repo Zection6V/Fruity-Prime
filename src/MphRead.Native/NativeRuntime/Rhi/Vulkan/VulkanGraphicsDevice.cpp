@@ -85,7 +85,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         // Bytes a texel occupies in the image and in its copies.
         [[nodiscard]] std::uint32_t StorageBytesPerPixel(TextureFormat format)
         {
-            return format == TextureFormat::RGB8Unorm ? 4U : BytesPerPixel(format);
+            return IsRgbTextureFormat(format) ? (format == TextureFormat::RGB8Unorm ? 4U : 16U) : BytesPerPixel(format);
         }
 
         [[nodiscard]] VkBufferImageCopy ToVkBufferImageCopy(
@@ -479,6 +479,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::atomic<std::uint32_t> Programs{0};
             std::atomic<std::uint32_t> Samplers{0};
             std::atomic<std::uint32_t> UploadPages{0};
+            // GPU-only transfer scratch pages, kept by command slots for reuse:
+            // internal, like upload pages, so not a resource a caller made.
+            std::atomic<std::uint32_t> ScratchPages{0};
             std::atomic<std::uint64_t> UploadPageCreations{0};
             std::atomic<std::uint32_t> UploadCommandLists{0};
             std::atomic<std::uint64_t> HostWaits{0};
@@ -1401,7 +1404,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             void EndNative();
             void CloseRendering();
             void PrepareTransfer();
-            void CopyRgbBufferTexture(const VulkanBuffer&, const VulkanTexture&, const BufferTextureCopy&, bool upload);
+            void CopyRgbBufferTexture(VkBuffer, VkDeviceSize, const VulkanTexture&, const BufferTextureCopy&, bool upload);
             void CopyPhysicalTextureToBuffer(const VulkanTexture&, const VulkanBuffer&, const BufferTextureCopy&);
             void Barrier(VulkanTexture& texture, ResourceState after);
             void ApplyDynamicState();
@@ -1517,10 +1520,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                             [device](VkDeviceSize size) {
                                 const auto storage = device->Resources->CreateBuffer({size,
                                     BufferUsage::TransferSrc | BufferUsage::TransferDst, MemoryUsage::GpuOnly});
-                                ++device->Buffers;
+                                ++device->ScratchPages;
                                 return VulkanTransferScratch::Page{storage.Buffer, storage.Allocation, size};
                             }, [device](const VulkanTransferScratch::Page& page) {
-                                vmaDestroyBuffer(device->Allocator, page.Buffer, page.Allocation); --device->Buffers;
+                                vmaDestroyBuffer(device->Allocator, page.Buffer, page.Allocation); --device->ScratchPages;
                             }});
                     }});
                 _device->SceneForgetters[this] = [this](const void* object) { Forget(object); };
@@ -1852,9 +1855,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             color.loadOp = first && _target.Clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
             color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-            const bool rgb8 = _target.Color && _target.Color->Desc().format == TextureFormat::RGB8Unorm;
+            const bool rgb = _target.Color && IsRgbTextureFormat(_target.Color->Desc().format);
             color.clearValue.color = {{_target.ClearValue.red, _target.ClearValue.green,
-                _target.ClearValue.blue, rgb8 ? 1.0F : _target.ClearValue.alpha}};
+                _target.ClearValue.blue, rgb ? 1.0F : _target.ClearValue.alpha}};
             VkRenderingAttachmentInfo depth{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
             depth.imageView = _target.DepthView;
             depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
@@ -2032,7 +2035,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (_target.Color)
             {
                 desc.colorFormats.push_back(_target.Color->Desc().format);
-                if (_target.Color->Desc().format == TextureFormat::RGB8Unorm)
+                if (IsRgbTextureFormat(_target.Color->Desc().format))
                     blend.writeMask = static_cast<ColorWriteMask>(static_cast<std::uint8_t>(blend.writeMask) & 7U);
                 desc.blendAttachments.push_back(blend);
             }
@@ -2244,7 +2247,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (_renderingActive) EndNative();
             const auto pixelAlignment = VulkanResources::AspectMask(texture.Desc().format) == VK_IMAGE_ASPECT_COLOR_BIT
                 ? StorageBytesPerPixel(texture.Desc().format) : 4U;
-            // RGB32Float needs a multiple of 12, not merely a power-of-two alignment.
+            // Native physical texels determine the aligned staging offset.
             const auto alignment = pixelAlignment == 12 ? 48U : 16U;
             const RingSlice staging = Allocate(texels.size(), alignment);
             std::memcpy(staging.Data, texels.data(), texels.size());
@@ -2255,11 +2258,16 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             BufferTextureCopy region{};
             region.bufferOffset = staging.Offset;
             region.width = texture.Desc().width; region.height = texture.Desc().height;
-            const auto copy = ToVkBufferImageCopy(source, texture.Desc(), region);
             // The ring's host writes are made available by the flush before
             // this list is submitted.
-            _device->ContextPointer->_impl->vkCmdCopyBufferToImage(_commandSlots->Buffer(), staging.Buffer, texture.Native(),
-                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+            if (IsRgbTextureFormat(texture.Desc().format))
+                CopyRgbBufferTexture(staging.Buffer, source.size, texture, region, true);
+            else
+            {
+                const auto copy = ToVkBufferImageCopy(source, texture.Desc(), region);
+                _device->ContextPointer->_impl->vkCmdCopyBufferToImage(_commandSlots->Buffer(), staging.Buffer, texture.Native(),
+                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+            }
             const ResourceState finalState = previous != ResourceState::Undefined && previous != ResourceState::CopyDst
                 ? previous
                 : (Has(texture.Desc().usage, TextureUsage::Sampled) ? ResourceState::ShaderRead
@@ -2469,8 +2477,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 throw std::invalid_argument("Vulkan RHI: image upload needs TransferSrc and TransferDst usage.");
             if (!HasAny(src.State(), ResourceState::CopySrc) || dst.State() != ResourceState::CopyDst)
                 throw std::invalid_argument("Vulkan RHI: image uploads require CopySrc and CopyDst states.");
-            if (dst.Desc().format == TextureFormat::RGB8Unorm)
-            { CopyRgbBufferTexture(src, dst, region, true); return; }
+            if (IsRgbTextureFormat(dst.Desc().format))
+            { CopyRgbBufferTexture(src.Native(), src.Desc().size, dst, region, true); return; }
             const VkBufferImageCopy copy = ToVkBufferImageCopy(src.Desc(), dst.Desc(), region);
             PrepareTransfer();
             _device->ContextPointer->_impl->vkCmdCopyBufferToImage(_commandSlots->Buffer(),
@@ -2490,8 +2498,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 throw std::invalid_argument("Vulkan RHI: image readback needs TransferSrc and TransferDst usage.");
             if (!HasAny(src.State(), ResourceState::CopySrc) || dst.State() != ResourceState::CopyDst)
                 throw std::invalid_argument("Vulkan RHI: image readback requires CopySrc and CopyDst states.");
-            if (src.Desc().format == TextureFormat::RGB8Unorm)
-            { CopyRgbBufferTexture(dst, src, region, false); return; }
+            if (IsRgbTextureFormat(src.Desc().format))
+            { CopyRgbBufferTexture(dst.Native(), dst.Desc().size, src, region, false); return; }
             CopyPhysicalTextureToBuffer(src, dst, region);
         }
 
@@ -2507,12 +2515,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 src.Native(), sourceLayout, dst.Native(), 1, &copy);
         }
 
-        void VulkanCommandList::CopyRgbBufferTexture(const VulkanBuffer& buffer, const VulkanTexture& texture,
+        void VulkanCommandList::CopyRgbBufferTexture(VkBuffer buffer, VkDeviceSize bufferBytes, const VulkanTexture& texture,
             const BufferTextureCopy& region, bool upload)
         {
-            const auto plan = VulkanRgbTransfer::Describe(texture.Desc(), buffer.Desc().size, region);
+            const auto plan = VulkanRgbTransfer::Describe(texture.Desc(), bufferBytes, region);
             PrepareTransfer();
-            const auto scratch = _commandSlots->Scratch().Allocate(plan.ScratchBytes);
+            const auto scratch = _commandSlots->Scratch().Allocate(plan.ScratchBytes, plan.NativeBytes);
             const auto copy = plan.ImageCopy(scratch.Offset);
             auto& vk = *_device->ContextPointer->_impl;
             const auto commands = _commandSlots->Buffer();
@@ -2528,10 +2536,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             };
             if (upload)
             {
-                vk.vkCmdFillBuffer(commands, scratch.Buffer, scratch.Offset, scratch.Size, 0xFF000000U);
+                vk.vkCmdFillBuffer(commands, scratch.Buffer, scratch.Offset, scratch.Size, plan.AlphaWord);
                 barrier(VK_ACCESS_2_TRANSFER_WRITE_BIT);
                 plan.BufferCopies(scratch.Offset, true, [&](auto batch) {
-                    vk.vkCmdCopyBuffer(commands, buffer.Native(), scratch.Buffer, static_cast<std::uint32_t>(batch.size()), batch.data());
+                    vk.vkCmdCopyBuffer(commands, buffer, scratch.Buffer, static_cast<std::uint32_t>(batch.size()), batch.data());
                 });
                 barrier(VK_ACCESS_2_TRANSFER_READ_BIT);
                 vk.vkCmdCopyBufferToImage(commands, scratch.Buffer, texture.Native(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
@@ -2542,7 +2550,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     scratch.Buffer, 1, &copy);
                 barrier(VK_ACCESS_2_TRANSFER_READ_BIT);
                 plan.BufferCopies(scratch.Offset, false, [&](auto batch) {
-                    vk.vkCmdCopyBuffer(commands, scratch.Buffer, buffer.Native(), static_cast<std::uint32_t>(batch.size()), batch.data());
+                    vk.vkCmdCopyBuffer(commands, scratch.Buffer, buffer, static_cast<std::uint32_t>(batch.size()), batch.data());
                 });
             }
         }
@@ -2785,22 +2793,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 if (!Has(image.Desc().usage, TextureUsage::TransferDst))
                     throw std::invalid_argument("Vulkan RHI: texture upload requires TransferDst usage.");
                 const std::size_t texels = static_cast<std::size_t>(write.width) * write.height;
-                const std::size_t dataSize = texels * StorageBytesPerPixel(write.format);
+                const std::size_t dataSize = texels * BytesPerPixel(write.format);
                 const auto* source = static_cast<const std::byte*>(write.data);
-                if (write.format == TextureFormat::RGB8Unorm)
-                {
-                    std::vector<std::byte> expanded(dataSize);
-                    for (std::size_t i = 0; i < texels; ++i)
-                    {
-                        std::memcpy(&expanded[i * 4U], source + i * 3U, 3U);
-                        expanded[i * 4U + 3U] = std::byte{0xFF};
-                    }
-                    WithUploadCommands(dataSize, [&](VulkanCommandList& commands) { commands.UploadTexture(image, expanded); });
-                }
-                else
-                    WithUploadCommands(dataSize, [&](VulkanCommandList& commands) {
-                        commands.UploadTexture(image, std::span(source, dataSize));
-                    });
+                WithUploadCommands(dataSize, [&](VulkanCommandList& commands) {
+                    commands.UploadTexture(image, std::span(source, dataSize));
+                });
             }
 
             void WriteBuffer(Buffer& buffer, std::uint64_t offset,
@@ -2902,6 +2899,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 result.Shaders = _state->Shaders.load();
                 result.Programs = _state->Programs.load();
                 result.Samplers = _state->Samplers.load();
+                result.TransferScratchPages = _state->ScratchPages.load();
                 result.TimestampSets = _state->TimestampCapacity->Sets();
                 result.CompletedFrame = _state->Frames->Completed();
                 result.HostWaits = _state->HostWaits.load();
@@ -3233,13 +3231,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         textureDesc.width = 3; textureDesc.height = 2; textureDesc.format = TextureFormat::RGBA8Unorm;
         textureDesc.usage = TextureUsage::TransferSrc | TextureUsage::TransferDst | TextureUsage::Sampled;
         auto texture = device.CreateTexture(textureDesc);
-        VkImageFormatProperties properties{};
-        const auto rgbSupported = state->ImageFormatProperties(VK_FORMAT_R32G32B32_SFLOAT,
-            VulkanResources::ImageUsage(textureDesc.usage), properties);
-        if (rgbSupported != VK_SUCCESS && rgbSupported != VK_ERROR_FORMAT_NOT_SUPPORTED)
-            Check(rgbSupported, "vkGetPhysicalDeviceImageFormatProperties(upload fixture)");
-        const auto floatChannels = rgbSupported == VK_SUCCESS ? 3U : 4U;
-        textureDesc.format = rgbSupported == VK_SUCCESS ? TextureFormat::RGB32Float : TextureFormat::RGBA32Float;
+        const auto floatChannels = 3U;
+        textureDesc.format = TextureFormat::RGB32Float;
         auto floatTexture = device.CreateTexture(textureDesc);
         std::array<std::byte, 256> expected{};
         std::vector<float> floats(6 * floatChannels);
@@ -3323,7 +3316,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         std::vector<std::byte> largeActual(large.size()); device.ReadBuffer(*largeResult, 0, largeActual);
         if (largeActual != large) throw std::runtime_error("Vulkan oversized upload contents differ.");
         std::cout << "[vulkan] upload arena PASS; 64 batched buffer/texture cycles; persistent page reuse; "
-            << "recorded copy order; " << (floatChannels == 3 ? "RGB32Float" : "RGBA32Float (RGB32Float unsupported)")
+            << "recorded copy order; RGB32Float (GPU packing into RGBA32Float)"
             << "; oversized page reuse/readback\n";
     }
 
@@ -3618,7 +3611,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         return [state, submitted] {
             if (state->ContextPointer || state->Allocator || state->Scheduler || !state->NativeOwners.empty()
                 || state->Buffers || state->Textures || state->Shaders || state->Programs || state->Samplers
-                || state->CommandLists || state->UploadCommandLists || state->UploadPages
+                || state->CommandLists || state->UploadCommandLists || state->UploadPages || state->ScratchPages
                 || state->Retired.Size() || state->OutstandingAllocationsAtShutdown
                 || (state->PipelineCache && state->PipelineCache->Stats().Native)
                 || state->FinalCompleted != state->FinalSubmitted || state->FinalSubmitted <= submitted)

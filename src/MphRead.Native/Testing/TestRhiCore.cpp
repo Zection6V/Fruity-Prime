@@ -82,6 +82,19 @@ namespace
     constexpr TextureDesc Storage{1, 1, 1, 1, 1, 1, TextureFormat::RGBA8Unorm, TextureUsage::Storage};
     static_assert(IsValidTextureState(Storage, ResourceState::ShaderRead));
     static_assert(IsValidTextureState(Storage, ResourceState::ShaderWrite));
+    static_assert([] {
+        unsigned supported = 0;
+        for (unsigned value = 0; value <= static_cast<unsigned>(TextureFormat::RGB8Unorm); ++value)
+        {
+            const auto format = static_cast<TextureFormat>(value);
+            const TextureDesc desc{1, 1, 1, 1, 1, 1, format, TextureUsage::Storage};
+            for (const auto state : {ResourceState::Undefined, ResourceState::Common,
+                ResourceState::ShaderRead, ResourceState::ShaderWrite})
+                if (IsValidTextureState(desc, state) != IsStorageTextureFormat(format)) return false;
+            supported += IsStorageTextureFormat(format);
+        }
+        return supported == 9;
+    }());
     constexpr TextureDesc Depth{1, 1, 1, 1, 1, 1, TextureFormat::D24UnormS8Uint,
         TextureUsage::DepthStencilAttachment | TextureUsage::Sampled};
     static_assert(IsValidTextureState(Depth, ResourceState::DepthStencilRead | ResourceState::ShaderRead));

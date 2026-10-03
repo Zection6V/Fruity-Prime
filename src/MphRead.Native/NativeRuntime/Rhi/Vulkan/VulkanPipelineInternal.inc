@@ -203,6 +203,9 @@ public:
             blends.push_back({item.blendEnable, ToVkBlendFactor(item.srcColorFactor), ToVkBlendFactor(item.dstColorFactor),
                 static_cast<VkBlendOp>(item.colorOp), ToVkBlendFactor(item.srcAlphaFactor), ToVkBlendFactor(item.dstAlphaFactor),
                 static_cast<VkBlendOp>(item.alphaOp), static_cast<VkColorComponentFlags>(item.writeMask)});
+        for (std::size_t i = 0; i < blends.size(); ++i)
+            if (IsRgbTextureFormat(desc.colorFormats[i]))
+                blends[i].colorWriteMask &= VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT;
         VkPipelineColorBlendStateCreateInfo blend{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
         blend.attachmentCount = static_cast<std::uint32_t>(blends.size()); blend.pAttachments = blends.data();
         std::vector<VkDynamicState> dynamicStates{VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};

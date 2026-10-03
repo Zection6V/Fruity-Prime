@@ -121,6 +121,15 @@ namespace
         }
         f.UnsupportedFormat = true; Reject([&] { (void)resources.CreateImage(image); }); f.UnsupportedFormat = false;
         f.Features = 0; Reject([&] { (void)resources.CreateImage(image); }); f.Features = ~VkFormatFeatureFlags{0};
+        for (const auto format : {TextureFormat::RGB8Unorm, TextureFormat::RGB32Float,
+            TextureFormat::RGBA8Srgb, TextureFormat::BGRA8Unorm, TextureFormat::BGRA8Srgb,
+            TextureFormat::D16Unorm, TextureFormat::D24UnormS8Uint, TextureFormat::D32Float, TextureFormat::D32FloatS8Uint})
+        {
+            auto invalid = image; invalid.format = format; invalid.usage = TextureUsage::Storage;
+            const auto queries = f.Queries;
+            Reject([&] { (void)resources.CreateImage(invalid); });
+            Expect(f.Queries == queries, "Invalid logical storage format reached a native query.");
+        }
         Expect(f.Allocations == before && !f.Live(), "Invalid image reached allocation.");
         auto nativeImage = resources.CreateImage(image);
         Expect(f.ImageInfo.format == VK_FORMAT_R8G8B8A8_UNORM && f.ImageInfo.mipLevels == 4

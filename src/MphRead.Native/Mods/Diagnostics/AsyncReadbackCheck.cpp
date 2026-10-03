@@ -1,4 +1,5 @@
 #include "AsyncReadbackCheck.hpp"
+#include <string>
 #include "../../NativeRuntime/Rhi/GraphicsDevice.hpp"
 #include "../../NativeRuntime/Rhi/BackendSession.hpp"
 #include <array>
@@ -15,7 +16,7 @@ namespace MphRead::Mods::Diagnostics
     namespace
     {
         namespace Rhi = NativeRuntime::Rhi;
-        void Expect(bool value, const char* message) { if (!value) throw std::runtime_error(message); }
+        void Expect(bool value, const std::string& message) { if (!value) throw std::runtime_error(message); }
         Rhi::ReadbackResult Await(Rhi::ReadbackTicket& ticket)
         {
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
@@ -137,7 +138,14 @@ namespace MphRead::Mods::Diagnostics
         lists.clear(); device.PollReadbacks(); device.TrimCaches(); device.WaitIdle();
         Expect(device.ReadbackStatistics().requests == 0 && device.ReadbackStatistics().bytes == 0,
             "Color readback left leased output or staging storage.");
-        Expect(device.Statistics().LiveObjects() == 0 && device.Statistics().Retired == 0, "Async readback fixture leaked GPU resources.");
+        {
+            const auto left = device.Statistics();
+            Expect(left.LiveObjects() == 0 && left.Retired == 0, "Async readback fixture leaked GPU resources: textures="
+                + std::to_string(left.Textures) + " buffers=" + std::to_string(left.Buffers) + " samplers="
+                + std::to_string(left.Samplers) + " shaders=" + std::to_string(left.Shaders) + " programs="
+                + std::to_string(left.Programs) + " framebuffers=" + std::to_string(left.Framebuffers) + " timestamps="
+                + std::to_string(left.TimestampSets) + " retired=" + std::to_string(left.Retired) + ".");
+        }
         std::cout << "[async readback] PASS; buffer offsets/source release; RGB odd rows/subregion; RGBA channels/alpha; RGBA/BGRA/RGB source resize/release; lease/slot backpressure; 32-request capture burst; host/device waits delta=0; release=0\n";
     }
     void CheckReadbackSessionLifetime(const Rhi::BackendProvider& provider)

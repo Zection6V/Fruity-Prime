@@ -5,9 +5,97 @@
 #include <vector>
 #include <iostream>
 #include <stdexcept>
+#include <cstring>
 
 namespace MphRead::Mods::Diagnostics
 {
+    void CheckRhiFormatCopies(NativeRuntime::Rhi::GraphicsDevice& device)
+    {
+        using namespace NativeRuntime::Rhi;
+        struct Case { TextureFormat Format; const char* Name; unsigned Components, ComponentBytes; bool Float, Depth; };
+        constexpr Case cases[]{
+            {TextureFormat::R8Unorm, "R8", 1, 1}, {TextureFormat::RG8Unorm, "RG8", 2, 1},
+            {TextureFormat::RGB8Unorm, "RGB8", 3, 1}, {TextureFormat::RGBA8Unorm, "RGBA8", 4, 1},
+            {TextureFormat::RGBA8Srgb, "RGBA8-sRGB", 4, 1}, {TextureFormat::BGRA8Unorm, "BGRA8", 4, 1},
+            {TextureFormat::BGRA8Srgb, "BGRA8-sRGB", 4, 1},
+            {TextureFormat::R16Float, "R16F", 1, 2, true}, {TextureFormat::RG16Float, "RG16F", 2, 2, true},
+            {TextureFormat::RGBA16Float, "RGBA16F", 4, 2, true},
+            {TextureFormat::R32Float, "R32F", 1, 4, true}, {TextureFormat::RG32Float, "RG32F", 2, 4, true},
+            {TextureFormat::RGB32Float, "RGB32F", 3, 4, true}, {TextureFormat::RGBA32Float, "RGBA32F", 4, 4, true},
+            {TextureFormat::D16Unorm, "D16", 1, 2, false, true}, {TextureFormat::D32Float, "D32F", 1, 4, true, true}};
+        for (const auto& test : cases)
+        {
+            std::cout << "[format copy] " << test.Name << " begin\n" << std::flush;
+            const unsigned bytes = test.Components * test.ComponentBytes;
+            const unsigned alignment = test.Depth ? 4 : bytes;
+            TextureDesc desc{}; desc.width = 4; desc.height = 3; desc.format = test.Format;
+            // In particular, a transfer-only depth image must not silently
+            // become a renderbuffer which cannot implement these operations.
+            desc.usage = TextureUsage::TransferSrc | TextureUsage::TransferDst;
+            auto texture = device.CreateTexture(desc);
+            std::array<std::byte, 512> input{}, zero{}, sentinel{}, expected{}, actual{};
+            input.fill(std::byte{0xA7}); sentinel.fill(std::byte{0xD3}); expected = sentinel;
+            const unsigned inputOffset = alignment * 4, outputOffset = alignment * 3;
+            for (unsigned y = 0; y < 3; ++y)
+                for (unsigned x = 0; x < 4; ++x)
+                    for (unsigned c = 0; c < bytes; ++c) expected[outputOffset + y * 6 * bytes + x * bytes + c] = std::byte{0};
+            for (unsigned y = 0; y < 2; ++y)
+                for (unsigned x = 0; x < 3; ++x)
+                    for (unsigned c = 0; c < test.Components; ++c)
+                    {
+                        const unsigned position = inputOffset + y * 5 * bytes + x * bytes + c * test.ComponentBytes;
+                        const unsigned index = (y * 3 + x + c) % 4;
+                        if (test.Float && test.ComponentBytes == 2)
+                        {
+                            constexpr std::uint16_t halves[]{0x3400, 0x3800, 0x3A00, 0x3C00};
+                            std::memcpy(input.data() + position, &halves[index], 2);
+                        }
+                        else if (test.Float)
+                        {
+                            constexpr float floats[]{0.25F, 0.5F, 0.75F, 1.0F};
+                            std::memcpy(input.data() + position, &floats[index], 4);
+                        }
+                        else if (test.Depth)
+                        {
+                            constexpr std::uint16_t depths[]{0, 0x4000, 0x8000, 0xFFFF};
+                            std::memcpy(input.data() + position, &depths[index], 2);
+                        }
+                        else input[position] = static_cast<std::byte>((17 * (y * 3 + x) + 61 * c + 7) & 255);
+                        const unsigned output = outputOffset + (y + 1) * 6 * bytes + (x + 1) * bytes + c * test.ComponentBytes;
+                        std::memcpy(expected.data() + output, input.data() + position, test.ComponentBytes);
+                    }
+            auto source = device.CreateBuffer({512, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu});
+            auto black = device.CreateBuffer({512, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu});
+            auto padding = device.CreateBuffer({512, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu});
+            auto output = device.CreateBuffer({512, BufferUsage::TransferDst, MemoryUsage::GpuToCpu});
+            device.WriteBuffer(*source, 0, input); device.WriteBuffer(*black, 0, zero); device.WriteBuffer(*padding, 0, sentinel);
+            auto commands = device.CreateCommandList(); commands->Begin();
+            for (auto* buffer : {source.get(), black.get(), padding.get()})
+                commands->Transition(*buffer, ResourceState::Undefined, ResourceState::CopySrc);
+            commands->Transition(*output, ResourceState::Undefined, ResourceState::CopyDst);
+            commands->Transition(*texture, ResourceState::Undefined, ResourceState::CopyDst);
+            commands->CopyBuffer(*padding, 0, *output, 0, 512);
+            BufferTextureCopy initial{}; initial.width = 4; initial.height = 3;
+            initial.aspect = test.Depth ? TextureAspect::Depth : TextureAspect::Color;
+            commands->CopyBufferToTexture(*black, *texture, initial);
+            BufferTextureCopy upload = initial; upload.bufferOffset = inputOffset; upload.bytesPerRow = bytes * 5;
+            upload.x = upload.y = 1; upload.width = 3; upload.height = 2;
+            const auto before = device.Statistics();
+            commands->CopyBufferToTexture(*source, *texture, upload);
+            commands->Transition(*texture, ResourceState::CopyDst, ResourceState::CopySrc);
+            auto download = initial; download.bufferOffset = outputOffset; download.bytesPerRow = bytes * 6;
+            commands->CopyTextureToBuffer(*texture, *output, download);
+            const auto after = device.Statistics();
+            if (after.HostWaits != before.HostWaits || after.DeviceWideWaits != before.DeviceWideWaits)
+                throw std::runtime_error("Format GPU copy inserted a host/device wait.");
+            commands->End(); device.ReadBuffer(*output, 0, actual);
+            if (actual != expected || device.DrainErrors())
+                throw std::runtime_error(std::string("Format GPU copy changed pixels, padding or untouched image region: ") + test.Name);
+            std::cout << "[format copy] " << test.Name << " PASS; exact pixels/padding/subrectangle; transfer-only; copy waits=0\n";
+        }
+        std::cout << "[format copy] PASS; 16 color/single-depth formats; packed depth/stencil is a separate contract\n";
+    }
+
     void CheckRhiRgbCopies(NativeRuntime::Rhi::GraphicsDevice& device)
     {
         using namespace NativeRuntime::Rhi;
@@ -160,7 +248,7 @@ namespace MphRead::Mods::Diagnostics
             commands->Transition(*largeImage, ResourceState::ShaderRead | ResourceState::CopySrc, ResourceState::CopyDst); commands->End();
             device.ReadBuffer(*largeOutput, 0, largeActual);
             if (largeActual != largeExpected) throw std::runtime_error("Batched/oversized RGB GPU copy changed pixels or padding.");
-            const auto buffers = device.Statistics().Buffers;
+            const auto buffers = device.Statistics().Buffers + device.Statistics().TransferScratchPages;
             if (cycle == 3) stableBuffers = buffers;
             if (cycle > 3 && buffers != stableBuffers) throw std::runtime_error("RGB command scratch buffer count kept growing.");
         }
@@ -208,6 +296,15 @@ namespace MphRead::Mods::Diagnostics
             reject([&] { (void)device.CreateTexture(invalid); }); }
         reject([&] { auto invalid = desc; invalid.usage = static_cast<TextureUsage>(1U << 31); (void)device.CreateTexture(invalid); });
         reject([&] { (void)device.CreateBuffer({16, static_cast<BufferUsage>(1U << 31)}); });
+        // These logical formats have no shader image format qualifier. A
+        // sampled/color texture must not become an invalid storage binding.
+        for (const auto format : {TextureFormat::RGB8Unorm, TextureFormat::RGB32Float,
+            TextureFormat::RGBA8Srgb, TextureFormat::BGRA8Unorm, TextureFormat::BGRA8Srgb, TextureFormat::D16Unorm,
+            TextureFormat::D24UnormS8Uint, TextureFormat::D32Float, TextureFormat::D32FloatS8Uint})
+        {
+            auto invalid = desc; invalid.format = format; invalid.usage = TextureUsage::Storage;
+            reject([&] { (void)device.CreateTexture(invalid); });
+        }
 
         auto source = device.CreateBuffer({16, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu, ResourceState::Common});
         auto output = device.CreateBuffer({16, BufferUsage::TransferDst, MemoryUsage::GpuToCpu});

@@ -644,7 +644,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             {
                 ValidateTexture(desc);
                 const bool renderbuffer = IsDepthFormat(desc.format)
-                    && !Has(desc.usage, TextureUsage::Sampled);
+                    && !Has(desc.usage, TextureUsage::Sampled | TextureUsage::TransferSrc | TextureUsage::TransferDst);
                 const std::int32_t name = renderbuffer ? GL::GenRenderbuffer()
                     : ::MphRead::Mods::Render::GlNames::NextTexture();
                 return Make(desc, name, renderbuffer);

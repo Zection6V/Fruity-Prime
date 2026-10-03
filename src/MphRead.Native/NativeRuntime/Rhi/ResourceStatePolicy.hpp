@@ -4,10 +4,28 @@
 
 namespace MphRead::NativeRuntime::Rhi
 {
+    [[nodiscard]] constexpr bool IsRgbTextureFormat(TextureFormat format) noexcept
+    { return format == TextureFormat::RGB8Unorm || format == TextureFormat::RGB32Float; }
+
     [[nodiscard]] constexpr bool IsDepthStencilFormat(TextureFormat format) noexcept
     {
         return format == TextureFormat::D16Unorm || format == TextureFormat::D24UnormS8Uint
             || format == TextureFormat::D32Float || format == TextureFormat::D32FloatS8Uint;
+    }
+
+    // Formats representable by the current typed shader-image ABI. RGB,
+    // sRGB, BGRA and depth/stencil stay available for their other usages;
+    // none has an exact format qualifier in this storage-image contract.
+    [[nodiscard]] constexpr bool IsStorageTextureFormat(TextureFormat format) noexcept
+    {
+        switch (format)
+        {
+        case TextureFormat::R8Unorm: case TextureFormat::RG8Unorm: case TextureFormat::RGBA8Unorm:
+        case TextureFormat::R16Float: case TextureFormat::RG16Float: case TextureFormat::RGBA16Float:
+        case TextureFormat::R32Float: case TextureFormat::RG32Float: case TextureFormat::RGBA32Float:
+            return true;
+        default: return false;
+        }
     }
 
     // Descriptor usage is the resource's lifetime contract, including initial
@@ -39,6 +57,7 @@ namespace MphRead::NativeRuntime::Rhi
             || desc.format == TextureFormat::Undefined || desc.format > TextureFormat::RGB8Unorm) return false;
         const bool depth = IsDepthStencilFormat(desc.format);
         if ((depth && has(TextureUsage::ColorAttachment)) || (!depth && has(TextureUsage::DepthStencilAttachment))) return false;
+        if (has(TextureUsage::Storage) && !IsStorageTextureFormat(desc.format)) return false;
         // Present belongs to swapchain drawables, never to CreateTexture's
         // independently allocated image, even when that image is a color target.
         if (HasAny(state, ResourceState::Present)) return false;

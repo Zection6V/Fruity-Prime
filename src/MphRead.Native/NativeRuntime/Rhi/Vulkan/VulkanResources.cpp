@@ -108,7 +108,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         case TextureFormat::RGBA16Float: return VK_FORMAT_R16G16B16A16_SFLOAT;
         case TextureFormat::R32Float: return VK_FORMAT_R32_SFLOAT;
         case TextureFormat::RG32Float: return VK_FORMAT_R32G32_SFLOAT;
-        case TextureFormat::RGB32Float: return VK_FORMAT_R32G32B32_SFLOAT;
+        case TextureFormat::RGB32Float: return VK_FORMAT_R32G32B32A32_SFLOAT;
         case TextureFormat::RGBA32Float: return VK_FORMAT_R32G32B32A32_SFLOAT;
         case TextureFormat::D16Unorm: return VK_FORMAT_D16_UNORM;
         case TextureFormat::D24UnormS8Uint: return VK_FORMAT_D24_UNORM_S8_UINT;
@@ -318,7 +318,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         {
             if (create.subresourceRange.aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT)
                 create.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-            if (texture.format == TextureFormat::RGB8Unorm) create.components.a = VK_COMPONENT_SWIZZLE_ONE;
+            if (IsRgbTextureFormat(texture.format)) create.components.a = VK_COMPONENT_SWIZZLE_ONE;
         }
         VkImageView result = VK_NULL_HANDLE;
         _dispatch.CheckResult(_dispatch.CreateView(_dispatch.Device, &create, nullptr, &result), "vkCreateImageView");

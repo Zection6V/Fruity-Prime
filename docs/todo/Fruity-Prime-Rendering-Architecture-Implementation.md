@@ -2440,3 +2440,33 @@ signalを加えることを確認する。native submitのOOM / device loss、co
 
 R10のレビュー全体に照らした最終責務監査、R19のformat / subresource / draw / presentation契約と
 completion auditは続ける。Metal / D3D12は将来対応。Android / macOS実動作、remote CIは未実行。
+
+## テクスチャ形式ごとの作成・GPUコピー契約（R19）
+
+作成できても、後のGPU操作で失敗する形式があった。これを作成時の契約と実装の両方で揃えた。
+
+- **Storage 用途:** 現在の shader image 契約で表せない形式（RGB、sRGB、BGRA、depth / stencil）は、
+  作成時に拒否する（`IsStorageTextureFormat`）。それ以外の用途では、これらの形式はこれまでどおり使える。
+- **OpenGL の depth:** 転送用途（TransferSrc / TransferDst）の depth 画像は、コピーできない
+  renderbuffer ではなく texture として作る。
+- **Vulkan の RGB32Float:** このGPUでは native 形式を使えない。そこで RGBA32Float を内部形式にし、
+  12 byte の論理 texel を 16 byte の native texel に GPU 上で詰め替える。RGB8 と同じ
+  address-only copy plan で、alpha は 1.0。scratch は texel 境界に揃えて確保する。
+- **Vulkan の transfer scratch page:** command slot が再利用のために保持する内部 cache である。
+  そのため、caller が作った `Buffers` / `LiveObjects` には数えず、`TransferScratchPages` として
+  別に数える。upload page と同じ扱いで、再利用の検査はこの数が増え続けないことで行う。
+  以前は前の fixture が残した page が `Buffers=1` として次の fixture の漏れに見えていた。
+  漏れ検査の失敗は、残った種類ごとの数も示す。
+
+両 backend で、色と単独深度の16形式について次を GPU コピーで照合する: 画素・余白・部分領域、
+transfer 専用用途、コピー中の待機0。packed depth / stencil は別の契約として残す。
+
+検証:
+
+- MSVC Release PASS: `C:/tmp/gp/architecture-r19-formats-build.log`。
+- CPU テスト 19/19 PASS。
+- OpenGL / Vulkan 共通 GPU conformance PASS: `C:/tmp/gp/architecture-r19-formats-conformance.log`。
+  16形式 ×2 backend、async readback と session 再生成を含む。最終 release=0、Vulkan validation error=0。
+- 試合中の切替検査（MP10 OVERLOAD、`FRUITY_SWITCHCHECK=1`）PASS。
+
+packed depth / stencil のコピー、全 subresource / draw-state / presentation ownership の網羅は R19 で続ける。

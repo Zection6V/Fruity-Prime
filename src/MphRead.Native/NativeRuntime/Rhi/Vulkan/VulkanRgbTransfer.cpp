@@ -1,5 +1,6 @@
 #include "VulkanRgbTransfer.hpp"
 #if defined(FRUITY_HAS_VULKAN)
+#include "../ResourceStatePolicy.hpp"
 #include <algorithm>
 #include <array>
 #include <limits>
@@ -24,7 +25,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     }
     VulkanRgbTransfer VulkanRgbTransfer::Describe(const TextureDesc& texture, VkDeviceSize bufferBytes, const BufferTextureCopy& region)
     {
-        if (texture.format != TextureFormat::RGB8Unorm || !texture.width || !texture.height || !texture.depth || texture.sampleCount != 1
+        if (!IsRgbTextureFormat(texture.format) || !texture.width || !texture.height || !texture.depth || texture.sampleCount != 1
             || region.mipLevel >= texture.mipLevels || region.arrayLayer >= texture.arrayLayers
             || (region.aspect != TextureAspect::Color && region.aspect != TextureAspect::Automatic))
             throw std::invalid_argument("Invalid RGB transfer format, sample count, subresource or aspect.");
@@ -40,21 +41,23 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             || region.z > mip(texture.depth) || region.depth > mip(texture.depth) - region.z)
             throw std::out_of_range("RGB transfer is outside its image mip.");
         VulkanRgbTransfer result{region};
-        const auto rowBytes = Multiply(region.width, 3);
+        if (texture.format == TextureFormat::RGB32Float)
+        { result.LogicalBytes = 12; result.NativeBytes = 16; result.AlphaWord = 0x3F800000U; }
+        const auto rowBytes = Multiply(region.width, result.LogicalBytes);
         result.RowPitch = region.bytesPerRow ? region.bytesPerRow : rowBytes;
-        if (result.RowPitch < rowBytes || result.RowPitch % 3
+        if (result.RowPitch < rowBytes || result.RowPitch % result.LogicalBytes
             || (region.rowsPerImage && region.rowsPerImage < region.height))
             throw std::invalid_argument("Invalid RGB transfer pitch.");
         result.SlicePitch = Multiply(result.RowPitch, region.rowsPerImage ? region.rowsPerImage : region.height);
         const auto end = Add(region.bufferOffset, Add(Multiply(region.depth - 1, result.SlicePitch),
             Add(Multiply(region.height - 1, result.RowPitch), rowBytes)));
         if (end > bufferBytes) throw std::out_of_range("RGB transfer exceeds its buffer.");
-        result.ScratchBytes = Multiply(Multiply(Multiply(region.width, region.height), region.depth), 4);
+        result.ScratchBytes = Multiply(Multiply(Multiply(region.width, region.height), region.depth), result.NativeBytes);
         return result;
     }
     VkBufferImageCopy VulkanRgbTransfer::ImageCopy(VkDeviceSize scratchOffset) const
     {
-        if (scratchOffset % 4) throw std::invalid_argument("RGB native scratch offset must be four-byte aligned.");
+        if (scratchOffset % NativeBytes) throw std::invalid_argument("RGB native scratch offset must be texel aligned.");
         (void)Add(scratchOffset, ScratchBytes);
         VkBufferImageCopy result{}; result.bufferOffset = scratchOffset;
         result.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, Region.mipLevel, Region.arrayLayer, 1};
@@ -70,9 +73,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             for (std::uint32_t y = 0; y < Region.height; ++y)
                 for (std::uint32_t x = 0; x < Region.width; ++x)
                 {
-                    const auto packed = Region.bufferOffset + z * SlicePitch + y * RowPitch + VkDeviceSize{x} * 3;
-                    const auto rgba = scratchOffset + ((VkDeviceSize{z} * Region.height + y) * Region.width + x) * 4;
-                    batch[count++] = upload ? VkBufferCopy{packed, rgba, 3} : VkBufferCopy{rgba, packed, 3};
+                    const auto packed = Region.bufferOffset + z * SlicePitch + y * RowPitch + VkDeviceSize{x} * LogicalBytes;
+                    const auto rgba = scratchOffset + ((VkDeviceSize{z} * Region.height + y) * Region.width + x) * NativeBytes;
+                    batch[count++] = upload ? VkBufferCopy{packed, rgba, LogicalBytes} : VkBufferCopy{rgba, packed, LogicalBytes};
                     if (count == batch.size()) { emit(batch); count = 0; }
                 }
         if (count) emit(std::span(batch.data(), count));

@@ -46,6 +46,10 @@ namespace MphRead::NativeRuntime::Rhi
         SubmissionSerial Submitted{};
         SubmissionSerial Completed{};
         std::uint64_t DeviceWideWaits = 0;
+        // Reusable GPU-only staging the backend keeps for its own transfers
+        // (Vulkan's RGB copy scratch). Internal, so not in LiveObjects: a
+        // caller cannot release it, and a stable count is the reuse proof.
+        std::uint32_t TransferScratchPages = 0;
 
         bool operator==(const GpuResourceStatistics&) const = default;
         [[nodiscard]] std::uint64_t LiveObjects() const noexcept

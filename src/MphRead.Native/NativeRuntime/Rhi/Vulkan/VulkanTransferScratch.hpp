@@ -24,7 +24,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         ~VulkanTransferScratch() { Close(); }
         VulkanTransferScratch(const VulkanTransferScratch&) = delete;
         VulkanTransferScratch& operator=(const VulkanTransferScratch&) = delete;
-        [[nodiscard]] Slice Allocate(VkDeviceSize bytes);
+        [[nodiscard]] Slice Allocate(VkDeviceSize bytes, VkDeviceSize alignment = 4);
         void Submitted(SubmissionSerial serial);
         void ResetAfterCompletion(SubmissionSerial completed);
         // Caller drains or discards the native command slot before closing.

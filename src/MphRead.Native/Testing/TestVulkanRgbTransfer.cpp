@@ -71,6 +71,25 @@ namespace
         Reject([&] { (void)plan.ImageCopy(3); });
         Reject([&] { (void)plan.ImageCopy(std::numeric_limits<VkDeviceSize>::max() - 3); });
         desc.width = 0; Reject([&] { (void)VulkanRgbTransfer::Describe(desc, 65536, region); });
+        desc = {}; desc.width = 4; desc.height = 3; desc.format = TextureFormat::RGB32Float;
+        region = {}; region.width = 3; region.height = 2; region.x = region.y = 1;
+        region.bufferOffset = 7; region.bytesPerRow = 60;
+        const auto floats = VulkanRgbTransfer::Describe(desc, 103, region);
+        Expect(floats.LogicalBytes == 12 && floats.NativeBytes == 16 && floats.AlphaWord == 0x3F800000U
+            && floats.RowPitch == 60 && floats.ScratchBytes == 96, "RGB32F logical/native packing differs.");
+        unsigned floatPixels = 0;
+        floats.BufferCopies(16, true, [&](auto batch) {
+            for (const auto& copy : batch)
+            {
+                const auto index = floatPixels++;
+                Expect(copy.size == 12 && copy.srcOffset == 7 + (index / 3) * 60 + (index % 3) * 12
+                    && copy.dstOffset == 16 + index * 16, "RGB32F gather lost pitch/texel/alignment.");
+            }
+        });
+        Expect(floatPixels == 6 && floats.ImageCopy(16).bufferOffset == 16, "RGB32F gather lost pixels.");
+        Reject([&] { (void)floats.ImageCopy(4); });
+        Reject([&] { (void)VulkanRgbTransfer::Describe(desc, 102, region); });
+        region.bytesPerRow = 40; Reject([&] { (void)VulkanRgbTransfer::Describe(desc, 512, region); });
     }
     void CheckScratch()
     {
@@ -99,6 +118,13 @@ namespace
         Expect(arena.PageCount() == 2 && arena.ReservedBytes() == 144, "Failed scratch allocation changed ownership.");
         fail = false; malformed = true; Reject([&] { (void)arena.Allocate(1000); });
         Expect(pages.size() == 2 && created == 3 && destroyed == 1, "Malformed scratch allocation leaked.");
+        malformed = false; arena.ResetAfterCompletion({64});
+        const auto prefix = arena.Allocate(4), aligned = arena.Allocate(16, 16), nextAligned = arena.Allocate(16, 16);
+        Expect(prefix.Offset == 0 && aligned.Offset == 16 && nextAligned.Offset == 32
+            && aligned.Buffer == prefix.Buffer && nextAligned.Buffer == prefix.Buffer && created == 3,
+            "Native RGBA32F scratch alignment overlaps previous RGB8 texels or allocates unnecessarily.");
+        Reject([&] { (void)arena.Allocate(4, 0); }); Reject([&] { (void)arena.Allocate(4, 3); });
+        Reject([&] { (void)arena.Allocate(4, 12); });
         arena.Close(); arena.Close(); Expect(pages.empty() && destroyed == created, "Scratch close leaked native storage.");
         Reject([&] { (void)arena.Allocate(4); }); Reject([&] { arena.ResetAfterCompletion({64}); });
     }

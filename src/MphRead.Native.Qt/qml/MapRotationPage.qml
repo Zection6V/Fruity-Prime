@@ -72,9 +72,9 @@ Page {
             id: list
             width: parent.width
             height: parent.height - note.height
-            model: shell.rooms.map(r => ({ title: names.roomName(r.key), key: r.key,
+            model: ShellHost.rooms.map(r => ({ title: names.roomName(r.key), key: r.key,
                                            detail: page.picked.indexOf(r.key) >= 0 ? "#" + (page.picked.indexOf(r.key) + 1) : "" }))
-            onChosen: index => page.toggle(shell.rooms[index].key)
+            onChosen: index => page.toggle(ShellHost.rooms[index].key)
         }
         Note {
             id: note

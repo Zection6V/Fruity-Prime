@@ -2,6 +2,11 @@
 
 #include "../../MphRead.Native/Mods/Launcher/Portable/LaunchPlan.hpp"
 #include "../../MphRead.Native/Mods/Render/LauncherHunter.hpp"
+#if defined(__ANDROID__)
+#include "../../MphRead.Native/Mods/Render/HunterShot.hpp"
+#include <QtCore/QTimer>
+#include <QtGui/QPainter>
+#endif
 
 #include <QtQuick/QQuickWindow>
 
@@ -31,10 +36,58 @@ namespace MphRead::Qt
         }
     }
 
-    HunterStandItem::HunterStandItem(QQuickItem* parent) : QQuickItem(parent)
+    HunterStandItem::HunterStandItem(QQuickItem* parent) :
+#if defined(__ANDROID__)
+        QQuickPaintedItem(parent)
+#else
+        QQuickItem(parent)
+#endif
     {
         Live().push_back(this);
+#if defined(__ANDROID__)
+        auto* timer = new QTimer(this);
+        timer->setInterval(200);
+        connect(timer, &QTimer::timeout, this, &HunterStandItem::PollPicture);
+        timer->start();
+#endif
     }
+
+#if defined(__ANDROID__)
+    void HunterStandItem::PollPicture()
+    {
+        using Mods::Render::HunterShot;
+        constexpr int size = 256;
+        if (_pending.valid())
+        {
+            if (_pending.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+            try
+            {
+                const auto& pixels = _pending.get();
+                if (pixels && pixels->size() == size * size * 4 &&
+                    _pendingHunter == _hunter && _pendingSuit == _suit)
+                {
+                    // The Android renderer returns top-down BGRA. Detach the
+                    // image before the worker future releases those bytes.
+                    _picture = QImage(pixels->data(), size, size, QImage::Format_ARGB32).copy();
+                    update();
+                }
+            }
+            catch (...) { _picture = {}; update(); }
+            _pending = {};
+        }
+        if (!Showing(this) || !HunterShot::Current) return;
+        const auto hunter = _hunter >= 7 ? Mods::Launcher::Hunters::Resolve(::MphRead::Hunter::Random)
+                                         : static_cast<::MphRead::Hunter>(_hunter);
+        _pendingHunter = _hunter;
+        _pendingSuit = _suit;
+        _pending = HunterShot::Current->RenderAsync(hunter, _suit, size, size);
+    }
+
+    void HunterStandItem::paint(QPainter* painter)
+    {
+        if (!_picture.isNull()) painter->drawImage(boundingRect(), _picture);
+    }
+#endif
 
     HunterStandItem::~HunterStandItem()
     {

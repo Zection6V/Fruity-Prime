@@ -254,6 +254,43 @@ namespace MphRead
         }
     }
 
+    std::optional<std::vector<std::uint8_t>> Scene::ModPreviewPixels(std::int32_t width, std::int32_t height)
+    {
+        // The match has already been composited into the window. Render the
+        // Android Qt portrait into a small region of its offscreen target,
+        // whose contents are cleared by the next world frame.
+        if (!_sceneColor || width <= 0 || height <= 0 || width > _targetSize.X || height > _targetSize.Y)
+            return std::nullopt;
+        const auto left = _previewLeft, top = _previewTop, right = _previewRight, bottom = _previewBottom;
+        const bool wanted = _previewWanted, launcher = LauncherPreview, intoWindow = _previewIntoWindow;
+        const auto restore = [&]
+        {
+            _previewLeft = left; _previewTop = top; _previewRight = right; _previewBottom = bottom;
+            _previewWanted = wanted; LauncherPreview = launcher; _previewIntoWindow = intoWindow;
+        };
+        try
+        {
+            LauncherPreview = true;
+            _previewWanted = true;
+            _previewIntoWindow = false;
+            _previewLeft = 0; _previewTop = 0;
+            _previewRight = static_cast<float>(width) / _targetSize.X;
+            _previewBottom = static_cast<float>(height) / _targetSize.Y;
+            ModStepPreview();
+            ModCollectPreview();
+            if (!ModPreviewDrawn()) { restore(); return std::nullopt; }
+            ModDrawPreview();
+            std::vector<std::uint8_t> pixels(static_cast<std::size_t>(width) * height * 3);
+            std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
+            NativeRuntime::Rhi::RenderingDepthStencilAttachment depth{};
+            Commands().ReadColor(SceneRenderingInfo(color, depth), 0, _targetSize.Y - height,
+                width, height, NativeRuntime::Rhi::TextureFormat::RGB8Unorm, pixels.data());
+            restore();
+            return pixels;
+        }
+        catch (...) { restore(); throw; }
+    }
+
     void Scene::ModDrawPreview()
     {
         if (_previewItems.empty() || !_previewWanted)

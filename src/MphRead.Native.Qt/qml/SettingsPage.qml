@@ -28,7 +28,7 @@ Page {
                 column.forceLayout()
                 const item = pageRows.focusRow(row)
                 if (item)
-                    shell.reveal(item)
+                    ShellHost.reveal(item)
             })
         }
         // InGameMenu: over a match the menus step aside for the placement.

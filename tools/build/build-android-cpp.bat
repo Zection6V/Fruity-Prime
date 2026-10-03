@@ -2,9 +2,9 @@
 setlocal EnableExtensions
 
 rem Build the native (C++) Android APK, the way .github/workflows/native-cpp-android.yml does:
-rem   1. vcpkg builds curl/libarchive/freetype/libjpeg-turbo/zlib for each Android ABI
-rem   2. CMake builds libFruityPrime.so for each ABI
-rem   3. the libraries are copied into android\app\src\main\jniLibs
+rem   1. vcpkg builds curl/libarchive/zlib for each Android ABI
+rem   2. CMake builds libFruityPrime_%ABI%.so for each ABI
+rem   3. androiddeployqt stages the game and Qt runtime in android\qt-generated
 rem   4. Gradle assembles and signs the release APK (development key)
 rem
 rem Usage: tools\build\build-android-cpp.bat [all^|arm64-v8a^|x86_64] [apk^|libs]
@@ -33,6 +33,8 @@ if not defined ANDROID_SDK_ROOT set "ANDROID_SDK_ROOT=%ANDROID_HOME%"
 if not defined ANDROID_CMAKE_VERSION set "ANDROID_CMAKE_VERSION=3.31.6"
 if not defined BUILD_JOBS set "BUILD_JOBS=%NUMBER_OF_PROCESSORS%"
 if not defined VCPKG_ROOT set "VCPKG_ROOT=C:\vcpkg"
+if not defined QT_INSTALL_ROOT set "QT_INSTALL_ROOT=C:/Qt/6.11.2"
+if not defined QT_HOST_PATH set "QT_HOST_PATH=%QT_INSTALL_ROOT%/msvc2022_64"
 
 if not defined JAVA_HOME (
     for /d %%J in ("%ProgramFiles%\Microsoft\jdk-17*") do (
@@ -206,8 +208,6 @@ echo [android-cpp] Installing vcpkg libraries for %ABI% (%TRIPLET%)...
     "curl:%TRIPLET%" ^
     "libarchive[core,bzip2,crypto,lz4,lzma,zstd]:%TRIPLET%" ^
     "zlib:%TRIPLET%" ^
-    "freetype:%TRIPLET%" ^
-    "libjpeg-turbo:%TRIPLET%" ^
     --clean-after-build
 if errorlevel 1 exit /b 1
 
@@ -215,7 +215,7 @@ echo [android-cpp] Configuring %ABI%...
 rem Keep a valid cache for incremental builds, but discard stale toolchain state.
 set "CMAKE_FRESH=--fresh"
 if exist "%BUILD_DIR%\CMakeCache.txt" (
-    findstr /i /c:"CMAKE_TOOLCHAIN_FILE:FILEPATH=%VCPKG_CMAKE_ROOT%/scripts/buildsystems/vcpkg.cmake" "%BUILD_DIR%\CMakeCache.txt" >nul
+    findstr /i /c:"CMAKE_TOOLCHAIN_FILE:UNINITIALIZED=%VCPKG_CMAKE_ROOT%/scripts/buildsystems/vcpkg.cmake" "%BUILD_DIR%\CMakeCache.txt" >nul
     if not errorlevel 1 (
         findstr /i /c:"VCPKG_INSTALLED_DIR:PATH=%VCPKG_CMAKE_ROOT%/installed" "%BUILD_DIR%\CMakeCache.txt" >nul
         if not errorlevel 1 (
@@ -223,7 +223,7 @@ if exist "%BUILD_DIR%\CMakeCache.txt" (
             if not errorlevel 1 (
                 findstr /i /c:"ANDROID_ABI:UNINITIALIZED=%ABI%" "%BUILD_DIR%\CMakeCache.txt" >nul
                 if not errorlevel 1 (
-                    findstr /i /c:"ANDROID_PLATFORM:UNINITIALIZED=android-%ANDROID_MIN_API%" "%BUILD_DIR%\CMakeCache.txt" >nul
+                    findstr /i /c:"ANDROID_PLATFORM:UNINITIALIZED=android-28" "%BUILD_DIR%\CMakeCache.txt" >nul
                     if not errorlevel 1 set "CMAKE_FRESH="
                 )
             )
@@ -236,21 +236,29 @@ if exist "%BUILD_DIR%\CMakeCache.txt" (
     "-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=%ANDROID_CMAKE_TOOLCHAIN%" ^
     "-DVCPKG_TARGET_TRIPLET=%TRIPLET%" ^
     "-DANDROID_ABI=%ABI%" ^
-    "-DANDROID_PLATFORM=android-%ANDROID_MIN_API%" ^
-    "-DANDROID_STL=c++_static" ^
+    "-DANDROID_PLATFORM=android-28" ^
+    "-DANDROID_STL=c++_shared" ^
+    "-DCMAKE_PREFIX_PATH=%QT_INSTALL_ROOT%/android_%ABI:arm64-v8a=arm64_v8a%" ^
+    "-DQt6_DIR=%QT_INSTALL_ROOT%/android_%ABI:arm64-v8a=arm64_v8a%/lib/cmake/Qt6" ^
+    "-DCMAKE_FIND_ROOT_PATH=%QT_INSTALL_ROOT%/android_%ABI:arm64-v8a=arm64_v8a%" ^
+    "-DQT_HOST_PATH=%QT_HOST_PATH%" ^
+    "-DANDROID_SDK_ROOT=%ANDROID_HOME%" ^
+    "-DANDROID_NDK_ROOT=%ANDROID_NDK_HOME%" ^
     "-DCMAKE_BUILD_TYPE=RelWithDebInfo"
 if errorlevel 1 exit /b 1
 
 echo [android-cpp] Building %ABI%...
 "%CMAKE_EXE%" --build "%BUILD_DIR%" --parallel %BUILD_JOBS% --target fruity_mphread_native_android
 if errorlevel 1 exit /b 1
-if not exist "%BUILD_DIR%\libFruityPrime.so" (
-    echo [android-cpp] ERROR: "%BUILD_DIR%\libFruityPrime.so" was not produced.
+if not exist "%BUILD_DIR%\libFruityPrime_%ABI%.so" (
+    echo [android-cpp] ERROR: "%BUILD_DIR%\libFruityPrime_%ABI%.so" was not produced.
     exit /b 1
 )
 
 if not exist "%REPO_ROOT%\android\app\src\main\jniLibs\%ABI%" mkdir "%REPO_ROOT%\android\app\src\main\jniLibs\%ABI%"
-copy /y "%BUILD_DIR%\libFruityPrime.so" "%REPO_ROOT%\android\app\src\main\jniLibs\%ABI%\libFruityPrime.so" >nul
+copy /y "%BUILD_DIR%\libFruityPrime_%ABI%.so" "%REPO_ROOT%\android\app\src\main\jniLibs\%ABI%\libFruityPrime_%ABI%.so" >nul
+if errorlevel 1 exit /b 1
+python -X utf8 "%REPO_ROOT%\tools\qt\prepare-android.py" --build-dir "%BUILD_DIR%" --abi "%ABI%" --host "%QT_HOST_PATH%" --output "%REPO_ROOT%\android\qt-generated"
 if errorlevel 1 exit /b 1
 echo [android-cpp] %ABI% build succeeded.
 exit /b 0

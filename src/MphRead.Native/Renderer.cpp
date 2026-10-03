@@ -91,11 +91,11 @@
 #include "NativeRuntime/OpenTK/Mathematics.hpp"
 
 #if defined(MPHREAD_SHELL)
-#include "Mods/Launcher/Gui/KeyRow.hpp"
-#include "Mods/Launcher/Gui/Shell.hpp"
+#include "Mods/Input/KeyCapture.hpp"
+#include "Mods/Launcher/Shell.hpp"
 #include "Mods/Render/LauncherHunter.hpp"
 #include "Mods/Render/UiOverlay.hpp"
-#include "NativeRuntime/Avalonia/Media.hpp"
+#include "NativeRuntime/System/Encoding.hpp"
 #endif
 
 #include <algorithm>
@@ -6724,7 +6724,7 @@ namespace MphRead
         {
             const std::u32string codePoint(1, static_cast<char32_t>(e.Unicode));
             Mods::Launcher::Gui::Shell::TextInput(
-                NativeRuntime::Avalonia::Media::ToUtf8(codePoint));
+                NativeRuntime::Utf32ToUtf8(codePoint));
             _window->BaseOnTextInput(e);
             return;
         }
@@ -6749,7 +6749,7 @@ namespace MphRead
         Mods::Input::InputSourceTracker::Note(Mods::Input::InputSource::KeyboardMouse);
 #if defined(MPHREAD_SHELL)
         if (Mods::Launcher::Gui::Shell::UiVisible()
-            && !Mods::Launcher::Gui::KeyRow::AnyListening()
+            && !Mods::Input::KeyCapture::AnyListening()
             && Mods::WindowMode::HandleKey(*this, e))
         {
             _window->BaseOnKeyDown(e);

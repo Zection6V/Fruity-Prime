@@ -133,14 +133,22 @@ jobs:
             throw "VCPKG_INSTALLATION_ROOT is not set on the runner."
           }
           $vcpkg = Join-Path $env:VCPKG_INSTALLATION_ROOT "vcpkg.exe"
-          & $vcpkg install curl:x64-windows libarchive:x64-windows zlib:x64-windows glfw3:x64-windows freetype:x64-windows openal-soft:x64-windows "skia[gl,freetype]:x64-windows" --clean-after-build
+          & $vcpkg install curl:x64-windows libarchive:x64-windows zlib:x64-windows glfw3:x64-windows openal-soft:x64-windows  --clean-after-build
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Install Qt Quick for MSVC
+        shell: pwsh
+        run: |
+          python tools/qt/install-qt.py --kit msvc2022_64 --root "$env:RUNNER_TEMP/qt"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "QT_ROOT=$env:RUNNER_TEMP/qt/6.11.2/msvc2022_64" >> $env:GITHUB_ENV
 
       - name: Configure runner-owned parity build
         shell: pwsh
         run: |
           cmake -S target -B target/build/golden-parity-real -A x64 `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            -DQt6_ROOT="$env:QT_ROOT" `
             -DVCPKG_TARGET_TRIPLET=x64-windows `
             -DFRUITY_GOLDEN_PARITY_ADAPTER=ON
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

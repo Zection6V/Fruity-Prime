@@ -1,19 +1,22 @@
+#include "../../MphRead.Native/Mods/Diagnostics/LauncherWindowCheck.hpp"
 // Shell on Qt: the same one-window shell the renderer drives (BeforeFrame,
 // TickUi, pointer and key routing), with the menus as a Qt Quick scene (UiHost)
 // instead of the Skia-drawn Avalonia port. The match lifecycle below is the
 // Avalonia Shell's, unchanged; only the pages differ.
 
-#include "../../MphRead.Native/Mods/Launcher/Gui/GuiLauncher.hpp"
-#include "../../MphRead.Native/Mods/Launcher/Gui/Shell.hpp"
+#include "../../MphRead.Native/Mods/Launcher/GuiLauncher.hpp"
+#include "../../MphRead.Native/Mods/Launcher/Shell.hpp"
 #include "../../MphRead.Native/Mods/ScreenCapture.hpp"
 #include "../../MphRead.Native/NativeRuntime/Rhi/SceneBackend.hpp"
 
 #include "ShellBridge.hpp"
+#include "SettingsModel.hpp"
 #include "UiCapture.hpp"
 #include "UiHost.hpp"
 #include "../Platform/QtApp.hpp"
 
 #include "../../MphRead.Native/GameState.hpp"
+#include "../../MphRead.Native/Scene.hpp"
 #include "../../MphRead.Native/Menu.hpp"
 #include "../../MphRead.Native/Metadata/Metadata.hpp"
 #include "../../MphRead.Native/Renderer.hpp"
@@ -201,22 +204,32 @@ namespace MphRead::Mods::Launcher::Gui
         void EndNetworkMatchToLobby(MphRead::RenderWindow& window)
         {
             Shell::CloseMenu();
+            g_host.reset();
+            MphRead::Mods::Render::UiOverlay::Release();
+            g_endPanel = false;
             window.EndScene();
             Portable::MatchStart::AfterMatch();
             MphRead::Mods::Network::NetSession::ResetMatchState();
             MphRead::Mods::PauseMenu::Reset();
             ShowPage("front");
             g_bridge->OpenLobby();
+            if (auto* gameWindow = MphRead::Qt::GameWindow())
+                g_host = std::make_unique<MphRead::Qt::UiHost>(*gameWindow, *g_bridge);
         }
 
         void EndMatch(MphRead::RenderWindow& window)
         {
             Shell::CloseMenu();
+            g_host.reset();
+            MphRead::Mods::Render::UiOverlay::Release();
+            g_endPanel = false;
             window.EndScene();
             MphRead::Mods::Network::NetSession::Stop();
             MphRead::Mods::Network::NetHostSession::Stop();
             Portable::MatchStart::AfterMatch();
             ShowFrontScreen();
+            if (auto* gameWindow = MphRead::Qt::GameWindow())
+                g_host = std::make_unique<MphRead::Qt::UiHost>(*gameWindow, *g_bridge);
         }
 
         // FP_QT_SHOT=path[,frame]: save the presented frame once, for checks
@@ -260,25 +273,79 @@ namespace MphRead::Mods::Launcher::Gui
                 return;
             }
             ++frame;
+            const bool switchCheck = qEnvironmentVariableIntValue("FRUITY_SWITCHCHECK") != 0
+                || qEnvironmentVariableIntValue("FP_QT_DEMO_SWITCH") != 0;
+            static MphRead::Scene* keptScene = nullptr;
+            static std::uint64_t beforeSimulation = 0;
+            static MphRead::NativeRuntime::Rhi::GraphicsBackend expected;
+            static OpenTK::Mathematics::Vector2i beforeSize{};
+            const auto require = [](bool condition, const char* message)
+            {
+                if (!condition) { ++Shell::ShotMissCounter(); std::cout << "[switchcheck] FAIL: " << message << '\n'; }
+            };
+            const auto switchRenderer = [&]
+            {
+                using namespace MphRead::NativeRuntime::Rhi;
+                const bool vulkan = SceneDevice().GetBackend() == GraphicsBackend::Vulkan;
+                expected = vulkan ? GraphicsBackend::OpenGl : GraphicsBackend::Vulkan;
+                beforeSize = window.FramebufferSize();
+                if (window.HasScene()) { keptScene = &window.Scene(); beforeSimulation = keptScene->FrameCount(); }
+                MphRead::Qt::SettingsModel settings;
+                settings.SetInGame(window.HasScene());
+                auto* display = static_cast<MphRead::Qt::RowModel*>(settings.Display());
+                auto* row = display->Find(QStringLiteral("renderer"));
+                require(row != nullptr, "renderer setting exists");
+                if (row)
+                {
+                    const int index = static_cast<int>(row - display->Rows().data());
+                    display->setIndex(index, vulkan ? 0 : 1);
+                    require(settings.save(), "Settings Apply succeeds");
+                }
+                Shell::CloseMenu();
+                std::cout << "[switchcheck] requested " << (vulkan ? "opengl" : "vulkan") << '\n';
+            };
+            const auto verifySwitch = [&]
+            {
+                require(MphRead::NativeRuntime::Rhi::SceneDevice().GetBackend() == expected, "backend changed");
+                require(MphRead::Qt::GameWindow() && MphRead::Qt::GameWindow()->isVisible(), "window visible");
+                const auto size = window.FramebufferSize();
+                require(size.X == beforeSize.X && size.Y == beforeSize.Y, "geometry kept");
+                if (keptScene)
+                {
+                    require(window.HasScene() && &window.Scene() == keptScene, "same match scene kept");
+                    require(window.HasScene() && window.Scene().FrameCount() > beforeSimulation, "simulation continued after resume");
+                }
+            };
             const auto shoot = [&](const char* name)
             {
                 const OpenTK::Mathematics::Vector2i size = window.FramebufferSize();
                 QDir().mkpath(dir);
                 const QString path = QDir(dir).filePath(QLatin1String(name) + QStringLiteral(".png"));
                 const bool saved = MphRead::Mods::ScreenCapture::SaveWindow(size.X, size.Y, path.toStdString());
+                if (!saved) ++Shell::ShotMissCounter();
+                const QImage image(path);
+                bool varied = false;
+                if (!image.isNull())
+                    for (int y = 0; y < image.height() && !varied; y += 17)
+                        for (int x = 0; x < image.width(); x += 17)
+                            if (image.pixel(x, y) != image.pixel(0, 0)) { varied = true; break; }
+                require(varied, "capture contains rendered content");
                 std::cout << "[demo] " << path.toStdString() << (saved ? "" : " (not written)") << '\n';
             };
-            if (frame == 150)
+            if (frame == 80 && switchCheck) { shoot("window-front-before"); switchRenderer(); }
+            else if (frame == 140 && switchCheck) { verifySwitch(); shoot("window-front-switched"); }
+            else if (frame == 150)
             {
                 shoot("window-start");
                 if (!g_rooms.empty())
                 {
                     LaunchPlan::Init init;
                     init.Kind = LaunchKind::Offline;
-                    init.RoomKey = g_rooms.front();
+                    init.RoomKey = qEnvironmentVariable("FRUITY_SHOT_ROOM").isEmpty() ? g_rooms.front()
+                        : qEnvironmentVariable("FRUITY_SHOT_ROOM").toStdString();
                     init.Mode = static_cast<MphRead::GameMode>(3);
                     init.Hunter = static_cast<MphRead::Hunter>(0);
-                    init.Bots = 3;
+                    init.Bots = 7;
                     init.BotLevel = 1;
                     Decided(LaunchPlan(init));
                 }
@@ -286,30 +353,36 @@ namespace MphRead::Mods::Launcher::Gui
             else if (frame == 500)
             {
                 shoot("window-match");
-                (void)Shell::OpenPauseMenu();
+                require(window.HasScene(), "match loaded");
+                require(Shell::OpenPauseMenu(), "pause opens");
             }
             else if (frame == 530)
             {
                 shoot("window-pause");
                 // FP_QT_DEMO_SWITCH=1: the in-place renderer switch, with the
                 // match and the pause menu kept, then the other renderer shot.
-                if (qEnvironmentVariableIntValue("FP_QT_DEMO_SWITCH") != 0)
+                if (switchCheck)
                 {
-                    using MphRead::NativeRuntime::Rhi::SceneBackendRequest;
-                    const bool vulkan = MphRead::NativeRuntime::Rhi::SceneDevice().GetBackend()
-                        == MphRead::NativeRuntime::Rhi::GraphicsBackend::Vulkan;
-                    std::cout << "[demo] switching renderer in place\n";
-                    Shell::RequestRenderer(vulkan ? SceneBackendRequest::OpenGL : SceneBackendRequest::Vulkan, false);
+                    switchRenderer();
                 }
                 else
                 {
-                    Shell::RequestQuit();
+                    Shell::RequestEndMatch();
                 }
             }
-            else if (frame == 700)
+            else if ((frame == 680 || frame == 880 || frame == 1080) && switchCheck)
             {
-                std::cout << "[demo] match kept=" << window.HasScene() << '\n';
-                shoot("window-switched");
+                verifySwitch();
+                shoot(frame == 680 ? "window-switch-1" : frame == 880 ? "window-switch-2" : "window-switch-3");
+                if (frame < 1080) require(Shell::OpenPauseMenu(), "pause reopens");
+                else Shell::RequestEndMatch();
+            }
+            else if ((frame == 730 || frame == 930) && switchCheck) switchRenderer();
+            else if ((frame == 620 && !switchCheck) || (frame == 1160 && switchCheck))
+            {
+                require(!window.HasScene() && g_bridge->Page() == QStringLiteral("front"), "returned to front screen");
+                shoot("window-return");
+                std::cout << "[switchcheck] " << (Shell::ShotMisses() == 0 ? "PASS" : "FAIL") << '\n';
                 Shell::RequestQuit();
             }
         }
@@ -412,6 +485,16 @@ namespace MphRead::Mods::Launcher::Gui
         MphRead::RenderWindow::LogCreatingWindow();
         std::unique_ptr<MphRead::RenderWindow> window;
         bool ran = false;
+        const auto previousReporter = MphRead::RenderWindow::ReportRendererSwitchFailure;
+        if (!qEnvironmentVariable("FP_QT_DEMO").isEmpty())
+        {
+            MphRead::RenderWindow::ReportRendererSwitchFailure = [](std::exception_ptr error, bool recovered)
+            {
+                ++Shell::ShotMissCounter();
+                std::cout << "[switchcheck] FAIL: " << MphRead::NativeRuntime::ExceptionMessage(error)
+                    << "; recovered=" << recovered << '\n';
+            };
+        }
         try
         {
             window = std::make_unique<MphRead::RenderWindow>(true);
@@ -435,6 +518,7 @@ namespace MphRead::Mods::Launcher::Gui
         }
 
         g_host.reset();
+        MphRead::RenderWindow::ReportRendererSwitchFailure = previousReporter;
         MphRead::RenderWindow::BeforeRendererSwitch = {};
         MphRead::RenderWindow::AfterRendererSwitch = {};
         g_active = false;
@@ -498,7 +582,8 @@ namespace MphRead::Mods::Launcher::Gui
     {
         // The results' side panel: up while the end screen is, unless the
         // pause menu is over the match.
-        const bool want = MphRead::Mods::EndScreen::Available() && !g_menuOpen;
+        const bool want = g_window != nullptr && g_window->HasScene()
+            && MphRead::Mods::EndScreen::Available() && !g_menuOpen;
         if (want && !g_endPanel)
         {
             g_endPanel = true;
@@ -575,11 +660,12 @@ namespace MphRead::Mods::Launcher::Gui
 
     void Shell::RequestShots(std::string directory)
     {
-        (void)directory;
+        qputenv("FP_QT_DEMO", QByteArray::fromStdString(directory));
     }
 
     void Shell::AfterDraw(MphRead::RenderWindow& window)
     {
+        MphRead::Mods::Diagnostics::LauncherWindowCheck::AfterDraw(window);
         MaybeShoot(window);
         DemoStep(window);
     }
@@ -653,9 +739,9 @@ namespace MphRead::Mods::Launcher::Gui
                 Portable::GameFiles::ApplyPaths();
                 g_rooms = MphRead::Mods::ThumbnailGenerator::MultiplayerRooms();
             }
-            (void)MphRead::Qt::UiCapture::Run(shots);
+            const bool captured = MphRead::Qt::UiCapture::Run(shots.toStdString()) == 0;
             MphRead::Qt::ShutdownApplication();
-            return true;
+            return captured;
         }
         try
         {

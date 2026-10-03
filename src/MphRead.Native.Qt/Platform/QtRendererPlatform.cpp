@@ -20,6 +20,9 @@
 #include <QtCore/QLibrary>
 #include <QtCore/QThread>
 #if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #include <vulkan/vulkan_win32.h>
 #undef CreateWindow

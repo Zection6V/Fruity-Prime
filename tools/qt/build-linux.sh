@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Configure and build the Qt flavour (FRUITY_UI=qt) on Linux with user-space
+# Configure and build the Qt Quick desktop on Linux with user-space
 # tools only (no sudo):
 #   CMake/Ninja  ~/.local/share/fp-tools   (python venv: pip install cmake ninja aqtinstall)
 #   Qt 6         ~/Qt/<ver>/gcc_64         (aqt install-qt linux desktop <ver> linux_gcc_64 -O ~/Qt)
@@ -19,7 +19,6 @@ LIBDIR="$SYSROOT/lib/x86_64-linux-gnu"
 export PATH="$HOME/.local/share/fp-tools/bin:$PATH"
 
 cmake -S "$HERE" -B "$BUILD_DIR" -G Ninja \
-    -DFRUITY_UI=qt \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     -DCMAKE_PREFIX_PATH="$QT_DIR;$SYSROOT" \
     -DCMAKE_LIBRARY_PATH="$LIBDIR" \

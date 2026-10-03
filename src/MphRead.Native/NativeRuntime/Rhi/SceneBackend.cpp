@@ -2,7 +2,6 @@
 #include "WindowUi.hpp"
 
 #include "BackendSession.hpp"
-#include "../Skia/VulkanInterop.hpp"
 #if defined(FRUITY_HAS_VULKAN)
 #include "Vulkan/VulkanGraphicsDevice.hpp"
 #endif
@@ -177,12 +176,7 @@ namespace MphRead::NativeRuntime::Rhi
 #else
         text += "vulkan=absent\nvulkan-shader-stages=0\n";
 #endif
-#if defined(MPHREAD_QT)
-        // The Qt menus draw through Qt Quick on the scene's own device.
-        text += "skia-vulkan=absent\nui=qt\n";
-#else
-        text += std::string("skia-vulkan=") + (Skia::VulkanInterop::Available() ? "compiled" : "absent") + "\n";
-#endif
+        text += "ui=qt\n";
 #if defined(__ANDROID__)
         text += "platform=android\n";
 #elif defined(_WIN32)

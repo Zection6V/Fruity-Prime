@@ -1,3 +1,4 @@
+#include "../MphRead.Native/Mods/CrashReport.hpp"
 #include "MainActivity.hpp"
 
 #include "AndroidMatch.hpp"
@@ -662,74 +663,6 @@ namespace
             );
         }
 
-        void AddUnhandledExceptionRaiser(
-            MphRead::Droid::AndroidApp&,
-            MphRead::Droid::AndroidUnhandledExceptionHandler handler
-        ) override
-        {
-            std::lock_guard lock(_gate);
-            _unhandled = std::move(handler);
-        }
-
-        void AddFluentTheme(MphRead::Droid::AndroidApp&) override {}
-        void SetRequestedThemeVariantDark(
-            MphRead::Droid::AndroidApp&) override {}
-        void BaseInitialize(MphRead::Droid::AndroidApp&) override {}
-
-        [[nodiscard]] MphRead::Droid::AndroidActivityLifetime
-            ActivityApplicationLifetime(
-                MphRead::Droid::AndroidApp&) override
-        {
-            (void)CurrentState();
-            return MphRead::Droid::AndroidActivityLifetime{
-                std::make_shared<int>(1)
-            };
-        }
-
-        void SetActivityMainViewFactory(
-            const MphRead::Droid::AndroidActivityLifetime&,
-            MphRead::Droid::AndroidMainViewFactory factory
-        ) override
-        {
-            std::lock_guard lock(_gate);
-            _mainViewFactory = std::move(factory);
-        }
-
-        [[nodiscard]] MphRead::Droid::AndroidSingleViewLifetime
-            SingleViewApplicationLifetime(
-                MphRead::Droid::AndroidApp&) override
-        {
-            return {};
-        }
-
-        void SetSingleViewMainView(
-            const MphRead::Droid::AndroidSingleViewLifetime&,
-            MphRead::Droid::Av::Controls::ControlPtr) override
-        {
-        }
-
-        void BaseOnFrameworkInitializationCompleted(
-            MphRead::Droid::AndroidApp&) override
-        {
-        }
-
-        [[nodiscard]] MphRead::Droid::MainActivityAppBuilderRef
-            BaseCustomizeAppBuilder(
-                MphRead::Droid::MainActivity&,
-                MphRead::Droid::MainActivityAppBuilderRef builder
-            ) override
-        {
-            return builder;
-        }
-
-        [[nodiscard]] MphRead::Droid::MainActivityAppBuilderRef
-            WithInterFont(
-                MphRead::Droid::MainActivityAppBuilderRef builder
-            ) override
-        {
-            return builder;
-        }
-
         [[nodiscard]] std::optional<std::string> ExternalFilesPath(
             MphRead::Droid::MainActivity& activity
         ) override
@@ -1003,47 +936,8 @@ namespace
             jobject
         ) override
         {
-            MphRead::Droid::AndroidMainViewFactory factory;
-            {
-                std::lock_guard lock(_gate);
-                factory = _mainViewFactory;
-            }
-            if (!factory)
-            {
-                throw std::runtime_error(
-                    "Android launcher view factory is unavailable"
-                );
-            }
-
-            const std::shared_ptr<MphRead::Droid::AndroidUiSurface> surface =
-                MphRead::Droid::AndroidUiSurface::Ensure();
-            if (surface == nullptr)
-            {
-                throw std::runtime_error(
-                    "could not create the Android launcher surface"
-                );
-            }
-            surface->Show(factory());
-
-            const auto state = State(activity);
-            ScopedEnv scoped(state->Vm);
-            JNIEnv* env = scoped.Get();
-            const jint width = CallInt(
-                env, state->Launcher, "getWidth", "()I"
-            );
-            const jint height = CallInt(
-                env, state->Launcher, "getHeight", "()I"
-            );
-            if (width > 0 && height > 0)
-            {
-                surface->Resize(width, height);
-            }
-            CallVoid(
-                env,
-                state->Launcher,
-                "invalidate",
-                "()V"
-            );
+            (void)activity;
+            MphRead::Droid::AndroidApp::Home()->Reset();
         }
 
         void BaseOnConfigurationChanged(
@@ -2152,8 +2046,7 @@ namespace
         std::unordered_map<
             MphRead::Droid::MainActivity*,
             std::shared_ptr<ActivityState>> _states;
-        MphRead::Droid::AndroidMainViewFactory _mainViewFactory{};
-        MphRead::Droid::AndroidUnhandledExceptionHandler _unhandled{};
+        MphRead::Droid::AndroidUnhandledExceptionHandler _unhandled = [](std::exception_ptr error) { MphRead::Mods::CrashReport::Report(error, "android"); };
     };
 
     [[nodiscard]] JniMainActivityOwner& HostOwner()
@@ -2484,135 +2377,6 @@ Java_fr_livetek_fruityprime_MainActivity_nativeRunTask(
         if (action)
         {
             action();
-        }
-    });
-}
-
-extern "C"
-JNIEXPORT void JNICALL
-Java_fr_livetek_fruityprime_LauncherView_nativeRender(
-    JNIEnv* env,
-    jclass,
-    jobject bitmap,
-    jint width,
-    jint height
-)
-{
-    JniVoid(env, [&]()
-    {
-        const auto surface = MphRead::Droid::AndroidUiSurface::Current();
-        if (surface == nullptr || bitmap == nullptr
-            || width <= 0 || height <= 0)
-        {
-            return;
-        }
-
-        surface->Resize(width, height);
-        surface->Tick();
-
-        std::vector<std::uint8_t> frame;
-        std::int32_t version = -1;
-        std::int32_t frameWidth = 0;
-        std::int32_t frameHeight = 0;
-        if (!surface->TakeFrame(
-                frame,
-                version,
-                frameWidth,
-                frameHeight))
-        {
-            return;
-        }
-
-        AndroidBitmapInfo info{};
-        if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS
-            || info.format != ANDROID_BITMAP_FORMAT_RGBA_8888)
-        {
-            throw std::runtime_error(
-                "Android launcher bitmap must be RGBA_8888"
-            );
-        }
-
-        void* pixels = nullptr;
-        if (AndroidBitmap_lockPixels(env, bitmap, &pixels)
-                != ANDROID_BITMAP_RESULT_SUCCESS
-            || pixels == nullptr)
-        {
-            throw std::runtime_error(
-                "could not lock the Android launcher bitmap"
-            );
-        }
-
-        try
-        {
-            const std::uint32_t rows = std::min<std::uint32_t>(
-                info.height,
-                static_cast<std::uint32_t>(
-                    std::max(frameHeight, 0)
-                )
-            );
-            const std::size_t rowBytes =
-                static_cast<std::size_t>(
-                    std::min<std::uint32_t>(
-                        info.width,
-                        static_cast<std::uint32_t>(
-                            std::max(frameWidth, 0)
-                        )
-                    )
-                ) * 4U;
-            auto* destination =
-                static_cast<std::uint8_t*>(pixels);
-            for (std::uint32_t y = 0; y < rows; ++y)
-            {
-                std::memcpy(
-                    destination
-                        + static_cast<std::size_t>(y) * info.stride,
-                    frame.data()
-                        + static_cast<std::size_t>(y)
-                            * static_cast<std::size_t>(frameWidth) * 4U,
-                    rowBytes
-                );
-            }
-        }
-        catch (...)
-        {
-            AndroidBitmap_unlockPixels(env, bitmap);
-            throw;
-        }
-        AndroidBitmap_unlockPixels(env, bitmap);
-    });
-}
-
-extern "C"
-JNIEXPORT void JNICALL
-Java_fr_livetek_fruityprime_LauncherView_nativeTouch(
-    JNIEnv* env,
-    jclass,
-    jint action,
-    jfloat x,
-    jfloat y
-)
-{
-    JniVoid(env, [&]()
-    {
-        const auto surface = MphRead::Droid::AndroidUiSurface::Current();
-        if (surface == nullptr)
-        {
-            return;
-        }
-        switch (action)
-        {
-        case AMOTION_EVENT_ACTION_DOWN:
-            surface->TouchDown(x, y);
-            break;
-        case AMOTION_EVENT_ACTION_MOVE:
-            surface->TouchMove(x, y);
-            break;
-        case AMOTION_EVENT_ACTION_UP:
-        case AMOTION_EVENT_ACTION_CANCEL:
-            surface->TouchUp(x, y);
-            break;
-        default:
-            break;
         }
     });
 }

@@ -1,4 +1,5 @@
 #include "QtApp.hpp"
+#include "../../MphRead.Native/Mods/Branding.hpp"
 
 #include <QtGui/QFont>
 #include <QtGui/QGuiApplication>
@@ -34,7 +35,7 @@ namespace MphRead::Qt
         static int argc = 1;
         static char name[] = "FruityPrime";
         static char* argv[] = {name, nullptr};
-        QCoreApplication::setApplicationName(QStringLiteral("Fruity Prime"));
+        QCoreApplication::setApplicationName(QString::fromUtf8(Mods::Branding::Name.data(), static_cast<int>(Mods::Branding::Name.size())));
         QCoreApplication::setOrganizationName(QStringLiteral("FruityPrime"));
         // The menus render through QRhi into a texture the game composites, on
         // the same API as the game: OpenGL until the RHI's Vulkan backend.

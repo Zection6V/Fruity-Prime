@@ -1,3 +1,4 @@
+import FruityPrime.Launcher
 pragma Singleton
 import QtQuick
 
@@ -35,7 +36,7 @@ QtObject {
     readonly property FontLoader inter: FontLoader { source: "fonts/Inter-Variable.ttf" }
     readonly property string wordmark: pixelRegular.name
     // FP_QT_FONT=file: try another label face without a rebuild.
-    readonly property FontLoader labelOverride: FontLoader { source: shell.fontOverride }
+    readonly property FontLoader labelOverride: FontLoader { source: ShellHost.fontOverride }
     readonly property string mono: monoRegular.name
     readonly property string title: heyNovember.name
     readonly property string prose: roboto.name

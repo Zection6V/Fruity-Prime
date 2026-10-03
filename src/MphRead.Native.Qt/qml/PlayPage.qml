@@ -94,7 +94,7 @@ Page {
             y: bodyGrid.rowGap
             width: bodyGrid.inner
             height: bodyGrid.height - y
-            model: play.current === 1 || play.current === 4 ? shell.rooms : []
+            model: play.current === 1 || play.current === 4 ? ShellHost.rooms : []
             delegate: DeckTile {
                 property var modelData: ({})
                 property int index
@@ -345,7 +345,7 @@ Page {
         picked = room.key
         sideOnline = false
         sideCode = room.code
-        sideName = shell.roomName(room.key)
+        sideName = ShellHost.roomName(room.key)
         sideAddress = "offline — bots on this machine"
         sideFacts = []
         side.open = true
@@ -383,9 +383,9 @@ Page {
         }
         tallies = next
         let leader = ""
-        for (const room of shell.rooms) {
+        for (const room of ShellHost.rooms) {
             if (best > 0 && (tallies[room.key] || 0) === best) {
-                leader = shell.roomName(room.key)
+                leader = ShellHost.roomName(room.key)
                 break
             }
         }
@@ -417,7 +417,7 @@ Page {
                 playModel.propose(picked)
                 if (nav)
                     nav.pop()
-                shell.resume()
+                ShellHost.resume()
             }
             break
         }

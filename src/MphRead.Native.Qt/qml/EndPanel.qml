@@ -6,9 +6,9 @@ import FruityPrime.Launcher
 FocusScope {
     id: panel
     property bool hunterTab: false
-    property var state: shell.endState()
+    property var state: ShellHost.endState()
     // The Avalonia panel is refreshed every frame the results are up.
-    Timer { interval: 100; repeat: true; running: true; onTriggered: panel.state = shell.endState() }
+    Timer { interval: 100; repeat: true; running: true; onTriggered: panel.state = ShellHost.endState() }
 
     Item {
         id: host
@@ -55,7 +55,7 @@ FocusScope {
                             tally: modelData.votes || 0
                             leader: !!modelData.leader
                             chosen: !!modelData.chosen
-                            onClicked: { shell.endChoose(roomKey); panel.state = shell.endState() }
+                            onClicked: { ShellHost.endChoose(roomKey); panel.state = ShellHost.endState() }
                         }
                     }
                     Note {
@@ -82,7 +82,7 @@ FocusScope {
                             label: "Hunter"
                             options: ["Samus", "Kanden", "Trace", "Sylux", "Noxus", "Spire", "Weavel"]
                             index: panel.state.hunter
-                            onChanged: shell.endPick(hunterRow.index, suitRow.index)
+                            onChanged: ShellHost.endPick(hunterRow.index, suitRow.index)
                         }
                         ChoiceRow {
                             id: suitRow
@@ -90,8 +90,8 @@ FocusScope {
                             label: "Suit"
                             options: ["1", "2", "3", "4"]
                             index: panel.state.suit
-                            preview: Component { Rectangle { radius: 3; color: shell.suitColour(hunterRow.index, suitRow.index) } }
-                            onChanged: shell.endPick(hunterRow.index, suitRow.index)
+                            preview: Component { Rectangle { radius: 3; color: ShellHost.suitColour(hunterRow.index, suitRow.index) } }
+                            onChanged: ShellHost.endPick(hunterRow.index, suitRow.index)
                         }
                     }
                 }
@@ -112,7 +112,7 @@ FocusScope {
                         face: panel.state.ready ? Theme.moss : Theme.slate
                         em: Theme.em; sizeEms: 1.25; padXEms: 1.3; padYEms: 0.45; lip: 5
                         width: implicitWidth; height: implicitHeight
-                        onClicked: { shell.endToggleReady(); panel.state = shell.endState() }
+                        onClicked: { ShellHost.endToggleReady(); panel.state = ShellHost.endState() }
                     }
                 }
             }

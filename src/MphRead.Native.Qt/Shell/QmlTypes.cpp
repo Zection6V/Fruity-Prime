@@ -9,6 +9,8 @@
 #include "CreateServerModel.hpp"
 #include "LobbyModel.hpp"
 #include "RowModel.hpp"
+#include "ShellBridge.hpp"
+#include <QtQml/QQmlEngine>
 
 #include <QtQml/qqml.h>
 
@@ -23,6 +25,14 @@ namespace MphRead::Qt
         }
         done = true;
         const char* const uri = "FruityPrime.Launcher";
+        qmlRegisterSingletonType<ShellBridge>(uri, 1, 0, "ShellHost",
+            [](QQmlEngine*, QJSEngine*) -> QObject*
+            {
+                auto* bridge = ShellBridge::Current();
+                if (bridge == nullptr) qFatal("Qt launcher bridge was not initialized");
+                QQmlEngine::setObjectOwnership(bridge, QQmlEngine::CppOwnership);
+                return bridge;
+            });
         qmlRegisterType<PlayModel>(uri, 1, 0, "PlayModel");
         qmlRegisterType<HunterStandItem>(uri, 1, 0, "HunterStand");
         qmlRegisterType<GamepadMonitorItem>(uri, 1, 0, "GamepadMonitor");

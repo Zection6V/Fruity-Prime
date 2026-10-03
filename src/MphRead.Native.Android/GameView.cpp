@@ -1,9 +1,9 @@
 #include "GameView.hpp"
+#include "AndroidHunterShot.hpp"
 
 #include "AndroidGlContextGate.hpp"
 #include "AndroidMatch.hpp"
 #include "GamepadBridge.hpp"
-#include "AndroidUiOverlay.hpp"
 #include "AndroidUiSurface.hpp"
 #include "../MphRead.Native/NativeRuntime/Rhi/SceneBackend.hpp"
 #include "MainActivity.hpp"
@@ -1039,6 +1039,7 @@ namespace MphRead::Droid
                 && _context != EGL_NO_CONTEXT
                 && eglGetCurrentContext() == _context)
             {
+                MphRead::NativeRuntime::Rhi::OpenGL::ReleaseContextDevice();
                 MphRead::Mods::Render::GlEs::ReleaseContext();
             }
             else
@@ -1048,8 +1049,6 @@ namespace MphRead::Droid
             // GL's Android wrapper keeps its own per-context bindings and
             // element data; they die with this context as well.
             OpenTK::Graphics::OpenGL::GL::ResetAndroidState();
-            // The RHI device's textures lived in that context too.
-            MphRead::NativeRuntime::Rhi::OpenGL::ResetContextDevice();
         }
 
         void Loop()
@@ -1346,7 +1345,6 @@ namespace MphRead::Droid
                 MphRead::Mods::Render::EsBindings::Load();
                 MphRead::Mods::Render::GlEs::Reset();
                 OpenTK::Graphics::OpenGL::GL::ResetAndroidState();
-                MphRead::NativeRuntime::Rhi::OpenGL::ResetContextDevice();
                 glClearColor(
                     10.0F / 255.0F,
                     12.0F / 255.0F,
@@ -1641,7 +1639,8 @@ namespace MphRead::Droid
                 return false;
             }
             scene.AfterRenderFrame();
-            DrawUi(scene);
+            AndroidHunterShot::RenderMatchPicture(scene);
+
 
             if (_vulkan)
             {
@@ -1701,63 +1700,6 @@ namespace MphRead::Droid
             _uiDrawn = 0;
             _uiSkipped = 0;
             _uiHole = 0;
-        }
-
-        void DrawUi(MphRead::Scene& scene)
-        {
-            std::shared_ptr<AndroidUiSurface> surface =
-                AndroidUiSurface::Current();
-            SayUi();
-            if (!surface || !surface->Visible())
-            {
-                IncrementUnchecked(_uiSkipped);
-                AndroidUiOverlay::Visible(false);
-                MphRead::Scene::LauncherPreview = false;
-                return;
-            }
-
-            IncrementUnchecked(_uiDrawn);
-            if (MphRead::Mods::Render::HunterShot::HoleWanted)
-            {
-                IncrementUnchecked(_uiHole);
-            }
-
-            std::int32_t width = 0;
-            std::int32_t height = 0;
-            if (surface->TakeFrame(_uiPixels, _uiVersion, width, height))
-            {
-                AndroidUiOverlay::Upload(_uiPixels, width, height);
-            }
-            AndroidUiOverlay::Visible(true);
-            AndroidUiOverlay::Draw(_size.X, _size.Y);
-
-            if (MphRead::Mods::Render::HunterShot::HoleWanted)
-            {
-                MphRead::Scene::LauncherPreview = true;
-                MphRead::Scene::LauncherHunter =
-                    MphRead::Mods::Render::HunterShot::HoleHunter;
-                MphRead::Scene::LauncherSuit =
-                    MphRead::Mods::Render::HunterShot::HoleSuit;
-                MphRead::Scene::PreviewWanted(true);
-                MphRead::Scene::PreviewLeft(
-                    MphRead::Mods::Render::HunterShot::HoleLeft
-                );
-                MphRead::Scene::PreviewTop(
-                    MphRead::Mods::Render::HunterShot::HoleTop
-                );
-                MphRead::Scene::PreviewRight(
-                    MphRead::Mods::Render::HunterShot::HoleRight
-                );
-                MphRead::Scene::PreviewBottom(
-                    MphRead::Mods::Render::HunterShot::HoleBottom
-                );
-                (void)scene.ModDrawPreviewAlone(_size);
-            }
-            else
-            {
-                MphRead::Scene::LauncherPreview = false;
-                MphRead::Scene::PreviewWanted(false);
-            }
         }
 
         void RequestFrameRate()
@@ -2293,8 +2235,6 @@ namespace MphRead::Droid
         double _lastFrameStart = 0.0;
         std::int32_t _requestedFrameRate = -1;
 
-        std::vector<std::uint8_t> _uiPixels;
-        std::int32_t _uiVersion = 0;
         std::int32_t _uiDrawn = 0;
         std::int32_t _uiSkipped = 0;
         std::int32_t _uiHole = 0;

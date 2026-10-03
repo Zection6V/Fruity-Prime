@@ -1,6 +1,6 @@
 #include "ServerBadgeItem.hpp"
 
-#include "../../MphRead.Native/Mods/Launcher/Gui/GeoCountry.hpp"
+#include "../../MphRead.Native/Mods/Launcher/Portable/GeoCountry.hpp"
 #include "../../MphRead.Native/NativeRuntime/System/Net.hpp"
 
 #include <QtGui/QFont>

@@ -1,3 +1,4 @@
+import FruityPrime.Launcher
 import QtQuick
 
 // MapCardPicker: one map, chosen from the cards.
@@ -17,7 +18,7 @@ Page {
             id: tiles
             width: parent.width
             height: parent.height - note.height - 6
-            model: shell.rooms
+            model: ShellHost.rooms
             delegate: DeckTile {
                 property var modelData: ({})
                 property int index
@@ -32,9 +33,9 @@ Page {
             id: note
             y: parent.height - height
             width: parent.width
-            text: shell.rooms.length === 0 ? "No multiplayer rooms were found. Set the game files up from Settings."
-                : page.selected.length === 0 ? "Choose a map." : "Selected: " + shell.roomName(page.selected)
-            color: shell.rooms.length === 0 ? Theme.warm : Theme.textDim
+            text: ShellHost.rooms.length === 0 ? "No multiplayer rooms were found. Set the game files up from Settings."
+                : page.selected.length === 0 ? "Choose a map." : "Selected: " + ShellHost.roomName(page.selected)
+            color: ShellHost.rooms.length === 0 ? Theme.warm : Theme.textDim
         }
     }
 

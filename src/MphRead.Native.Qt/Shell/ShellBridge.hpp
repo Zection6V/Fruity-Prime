@@ -41,6 +41,7 @@ namespace MphRead::Qt
         Q_PROPERTY(QString windowLabel READ WindowLabel NOTIFY windowChanged)
         Q_PROPERTY(QString brand READ Brand CONSTANT)
         Q_PROPERTY(QString fontOverride READ FontOverride CONSTANT)
+        Q_PROPERTY(bool backdropSuspended READ BackdropSuspended WRITE SetBackdropSuspended NOTIFY backdropSuspendedChanged)
 
     public:
         using LaunchPlan = ::MphRead::Mods::Launcher::LaunchPlan;
@@ -50,6 +51,8 @@ namespace MphRead::Qt
             std::function<void(LaunchPlan)> Launch;
             std::function<void()> Quit;
             std::function<void()> Resume;
+            std::function<void()> Leave;
+            std::function<void()> QuitMatch;
             std::function<void()> ToggleFullscreen;
             // Setup finished: the rooms are there to be listed now.
             std::function<void()> GameFilesChanged;
@@ -74,6 +77,8 @@ namespace MphRead::Qt
         [[nodiscard]] QString WindowLabel() const;
         [[nodiscard]] QString Brand() const;
         [[nodiscard]] QString FontOverride() const;
+        [[nodiscard]] bool BackdropSuspended() const { return _backdropSuspended; }
+        void SetBackdropSuspended(bool value) { _backdropSuspended = value; emit backdropSuspendedChanged(); }
 
         void SetSettings(std::shared_ptr<::MphRead::MenuSettings> settings);
         [[nodiscard]] const std::shared_ptr<::MphRead::MenuSettings>& Settings() const noexcept { return _settings; }
@@ -141,12 +146,15 @@ namespace MphRead::Qt
         void screenRequested(QString url, QVariantMap props);
         void tabStep(int direction);
         void keyboardDriving();
+        void backdropSuspendedChanged();
+        void backRequested();
 
     private:
         Actions _actions;
         QString _page;
         QVariantList _rooms;
         bool _gameFilesReady = false;
+        bool _backdropSuspended = false;
         std::shared_ptr<::MphRead::MenuSettings> _settings;
         std::optional<LaunchPlan> _lobbyPlan;
         void Say(QString text, QColor colour, bool pressable = false);

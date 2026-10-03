@@ -190,7 +190,11 @@ namespace MphRead::Qt
         _window = std::make_unique<QQuickWindow>(_control.get());
         _window->setColor(::Qt::transparent);
         _window->setGraphicsDevice(QQuickGraphicsDevice::fromOpenGLContext(context));
-        if (!_control->initialize())
+        const bool initialized = _control->initialize();
+        // Initializing Qt's render control can bind its fallback surface.
+        // Return to the game window even when it is already exposed.
+        const bool rebound = context->makeCurrent(&_gameWindow);
+        if (!initialized || !rebound)
         {
             _failed = true;
             std::cout << "[ui] Qt Quick could not start on the game's context\n";
@@ -208,7 +212,6 @@ namespace MphRead::Qt
 
         _engine = std::make_unique<QQmlEngine>();
         RegisterQmlTypes();
-        _engine->rootContext()->setContextProperty(QStringLiteral("shell"), &_bridge);
         QQmlComponent component(_engine.get(),
             QUrl(QStringLiteral("qrc:/qt/qml/FruityPrime/Ui/Main.qml")));
         QObject* const object = component.create();
@@ -341,12 +344,11 @@ namespace MphRead::Qt
         // FP_QT_UI_DUMP=path: the menus' texture as rendered, once, to tell a
         // scene problem from a compositing one.
         static const QString path = qEnvironmentVariable("FP_QT_UI_DUMP");
-        static bool done = false;
-        if (path.isEmpty() || done || _vulkan)
+        if (path.isEmpty() || _dumped || _vulkan)
         {
             return;
         }
-        done = true;
+        _dumped = true;
         QOpenGLFunctions* const gl = QOpenGLContext::currentContext()->functions();
         GLuint fbo = 0;
         gl->glGenFramebuffers(1, &fbo);

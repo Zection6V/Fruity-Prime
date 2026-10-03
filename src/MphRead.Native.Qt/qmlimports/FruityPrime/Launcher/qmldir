@@ -1,0 +1,3 @@
+module FruityPrime.Launcher
+# Types and the ShellHost singleton are registered by RegisterQmlTypes in the
+# application itself. There is no separately loaded plugin for this module.

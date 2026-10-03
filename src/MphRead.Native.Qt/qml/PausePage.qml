@@ -1,3 +1,4 @@
+import FruityPrime.Launcher
 import QtQuick
 
 // PauseMenuView: a short card over the match with the deck buttons stacked
@@ -10,8 +11,8 @@ FocusScope {
     readonly property real em: Theme.em
 
     // Polled as the Avalonia view's vote timer does, every 0.2 s.
-    property var state: shell.pauseState()
-    Timer { interval: 200; repeat: true; running: true; onTriggered: page.state = shell.pauseState() }
+    property var state: ShellHost.pauseState()
+    Timer { interval: 200; repeat: true; running: true; onTriggered: page.state = ShellHost.pauseState() }
 
     // UiLayout.Backdrop(overGame): the scrim; then the sheet's own.
     Rectangle { anchors.fill: parent; color: Theme.scrim }
@@ -49,19 +50,19 @@ FocusScope {
                     face: Theme.slate
                     KeyNavigation.priority: KeyNavigation.BeforeItem
                 }
-                Entry { id: resume; text: "Resume"; face: Theme.moss; focus: true; onClicked: shell.resume() }
-                Entry { text: "Accept map vote"; face: Theme.moss; visible: page.state.vote; onClicked: shell.answerVote(true) }
-                Entry { text: "Deny map vote"; face: Theme.rust; visible: page.state.vote; onClicked: shell.answerVote(false) }
+                Entry { id: resume; text: "Resume"; face: Theme.moss; focus: true; onClicked: ShellHost.resume() }
+                Entry { text: "Accept map vote"; face: Theme.moss; visible: page.state.vote; onClicked: ShellHost.answerVote(true) }
+                Entry { text: "Deny map vote"; face: Theme.rust; visible: page.state.vote; onClicked: ShellHost.answerVote(false) }
                 Entry { text: "Vote map"; visible: page.state.net; onClicked: page.voteMap() }
-                Entry { text: "Rejoin match"; visible: page.state.spectating; onClicked: shell.rejoin() }
-                Entry { text: "Spectate"; visible: page.state.canSpectate; onClicked: shell.spectate() }
+                Entry { text: "Rejoin match"; visible: page.state.spectating; onClicked: ShellHost.rejoin() }
+                Entry { text: "Spectate"; visible: page.state.canSpectate; onClicked: ShellHost.spectate() }
                 // A phone has no window to change.
-                Entry { text: shell.windowLabel; visible: !Theme.phone; onClicked: shell.toggleFullscreen() }
+                Entry { text: ShellHost.windowLabel; visible: !Theme.phone; onClicked: ShellHost.toggleFullscreen() }
                 Entry { text: page.state.recording ? "Stop recording" : "Record demo"; visible: page.state.net
-                        onClicked: shell.toggleRecording() }
+                        onClicked: ShellHost.toggleRecording() }
                 Entry { text: "Settings"; onClicked: page.settings() }
-                Entry { text: "Leave match"; face: Theme.brass; onClicked: shell.leaveMatch() }
-                Entry { text: "Quit"; face: Theme.rust; onClicked: shell.quitFromMatch() }
+                Entry { text: "Leave match"; face: Theme.brass; onClicked: ShellHost.leaveMatch() }
+                Entry { text: "Quit"; face: Theme.rust; onClicked: ShellHost.quitFromMatch() }
             }
         }
     }
@@ -83,6 +84,6 @@ FocusScope {
             Theme.keyboardDriving = true
         }
     }
-    Keys.onEscapePressed: shell.resume()
+    Keys.onEscapePressed: ShellHost.resume()
     Component.onCompleted: resume.forceActiveFocus()
 }

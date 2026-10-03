@@ -20,7 +20,7 @@
         android:theme="@style/FruityPrime">
         <activity
             android:name=".MainActivity"
-            android:configChanges="orientation|screenSize|uiMode|density|keyboardHidden"
+            android:configChanges="orientation|screenSize|uiMode|density|keyboardHidden|keyboard|navigation|screenLayout|smallestScreenSize|layoutDirection|locale|fontScale"
             android:exported="true"
             android:launchMode="singleTop"
             android:screenOrientation="sensorLandscape">

@@ -78,6 +78,7 @@ namespace MphRead::Qt
         bool _initialised = false;
         bool _failed = false;
         bool _dirty = true;
+        bool _dumped = false;
         unsigned _texture = 0;
         QSize _targetSize{};
         ::MphRead::Mods::Input::GamepadUiRouter _router;

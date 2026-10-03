@@ -571,6 +571,7 @@ namespace MphRead::Qt
 
     void ShellBridge::leaveMatch()
     {
+        if (_actions.Leave) { _actions.Leave(); return; }
         // InGameMenu: the pause menu asks, the frame loop leaves.
         ::MphRead::Mods::PauseMenu::RequestLeave();
         resume();
@@ -578,6 +579,7 @@ namespace MphRead::Qt
 
     void ShellBridge::quitFromMatch()
     {
+        if (_actions.QuitMatch) { _actions.QuitMatch(); return; }
         ::MphRead::Mods::PauseMenu::RequestQuit();
         resume();
     }

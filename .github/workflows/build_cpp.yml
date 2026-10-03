@@ -184,11 +184,19 @@ jobs:
         with:
           version: "v0.16.0"
 
+      - name: Install Qt Quick for MSVC
+        shell: pwsh
+        run: |
+          python tools/qt/install-qt.py --kit msvc2022_64 --root "$env:RUNNER_TEMP/qt"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "QT_ROOT=$env:RUNNER_TEMP/qt/6.11.2/msvc2022_64" >> $env:GITHUB_ENV
+
       - name: Configure
         shell: pwsh
         run: |
           cmake -S . -B build/native -G "Ninja Multi-Config" `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            -DQt6_ROOT="$env:QT_ROOT" `
             -DVCPKG_TARGET_TRIPLET=x64-windows `
             -DFRUITY_REQUIRE_VULKAN=ON `
             -DCMAKE_C_COMPILER_LAUNCHER=sccache `
@@ -202,12 +210,12 @@ jobs:
       - name: Build C++ FruityPrime
         shell: pwsh
         run: |
-          cmake --build build/native --config RelWithDebInfo --parallel $env:NUMBER_OF_PROCESSORS --target fruity_prime
+          cmake --build build/native --config RelWithDebInfo --parallel $env:NUMBER_OF_PROCESSORS --target fruity_package
           if ($LASTEXITCODE -ne 0) {
             exit $LASTEXITCODE
           }
 
-      - name: Backend contract (OpenGL, Vulkan, Skia Vulkan)
+      - name: Backend contract (OpenGL, Vulkan, Qt Quick)
         shell: pwsh
         run: |
           # One binary carries both backends; this says so without a GPU.
@@ -216,7 +224,7 @@ jobs:
             -ArgumentList '-rhicontract', $contract, '-noupdate' -Wait -PassThru -NoNewWindow
           if ($process.ExitCode -ne 0) { throw "-rhicontract exited $($process.ExitCode)" }
           Get-Content $contract
-          foreach ($line in 'opengl=compiled', 'vulkan=compiled', 'vulkan-shader-stages=10', 'skia-vulkan=compiled') {
+          foreach ($line in 'opengl=compiled', 'vulkan=compiled', 'vulkan-shader-stages=10', 'ui=qt') {
             if (-not (Select-String -Path $contract -SimpleMatch $line -Quiet)) { throw "backend contract is missing $line" }
           }
 
@@ -230,11 +238,7 @@ jobs:
         with:
           name: FruityPrime-cpp-windows-${{ github.run_number }}
           if-no-files-found: error
-          path: |
-            build/native/RelWithDebInfo/FruityPrime.exe
-            build/native/RelWithDebInfo/*.dll
-            build/native/RelWithDebInfo/fruity-prime-logo.png
-            build/native/RelWithDebInfo/fruity-prime-mark.png
+          path: build/native/dist/
 
   linux:
     name: Linux / GCC
@@ -246,7 +250,7 @@ jobs:
         with:
           ref: ${{ inputs.checkout_ref || github.sha }}
 
-      # Pin ports/tools: runner updates must not silently change Skia's ABI.
+      # Pin ports/tools so runner updates preserve the native dependency ABI.
       - name: Set up pinned vcpkg
         id: vcpkg
         shell: bash
@@ -266,13 +270,13 @@ jobs:
 
       # Reuse one archive per pinned dependency/toolchain set, rather than per run.
       - name: Cache vcpkg binary archives
-        id: skia-cache
+        id: native-deps-cache
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: native-skia-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.vcpkg.outputs.commit }}-${{ steps.vcpkg.outputs.compiler }}-${{ hashFiles('tools/ci/dependencies/linux.txt') }}
+          key: native-deps-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.vcpkg.outputs.commit }}-${{ steps.vcpkg.outputs.compiler }}-${{ hashFiles('tools/ci/dependencies/linux.txt') }}
           restore-keys: |
-            native-skia-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.vcpkg.outputs.commit }}-
+            native-deps-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.vcpkg.outputs.commit }}-
             native-vcpkg-all-${{ runner.os }}-${{ runner.arch }}-
             native-vcpkg-v1-${{ runner.os }}-${{ runner.arch }}-
 
@@ -310,30 +314,30 @@ jobs:
             libopenal-dev \
             libicu-dev
 
-      - name: Install Skia Ganesh
+      - name: Install native dependencies
         shell: bash
         run: |
           set -euo pipefail
           root="${{ steps.vcpkg.outputs.root }}"
           mapfile -t packages < tools/ci/dependencies/linux.txt
-          "$root/vcpkg" install "${packages[@]}" --clean-after-build 2>&1 | tee "$RUNNER_TEMP/skia-install.log"
-          echo "FRUITY_SKIA_PREFIX=$root/installed/x64-linux" >> "$GITHUB_ENV"
+          "$root/vcpkg" install "${packages[@]}" --clean-after-build 2>&1 | tee "$RUNNER_TEMP/native-deps-install.log"
+          echo "FRUITY_NATIVE_PREFIX=$root/installed/x64-linux" >> "$GITHUB_ENV"
 
-      - name: Save Skia cache immediately after install
-        if: steps.skia-cache.outputs.cache-hit != 'true'
+      - name: Save native dependency cache immediately after install
+        if: steps.native-deps-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: native-skia-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.vcpkg.outputs.commit }}-${{ steps.vcpkg.outputs.compiler }}-${{ hashFiles('tools/ci/dependencies/linux.txt') }}
+          key: native-deps-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.vcpkg.outputs.commit }}-${{ steps.vcpkg.outputs.compiler }}-${{ hashFiles('tools/ci/dependencies/linux.txt') }}
 
-      - name: Upload Skia cache diagnostics
+      - name: Upload native dependency cache diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: skia-cache-linux-${{ github.run_id }}
+          name: native-deps-cache-linux-${{ github.run_id }}
           retention-days: 7
           path: |
-            ${{ runner.temp }}/skia-install.log
+            ${{ runner.temp }}/native-deps-install.log
             ${{ steps.vcpkg.outputs.root }}/installed/x64-linux/share/*/vcpkg_abi_info.txt
 
       # Refresh immutable snapshots weekly; avoid a full duplicate on every push.
@@ -348,26 +352,34 @@ jobs:
           max-size: 500M
           append-timestamp: false
 
+      - name: Install Qt Quick
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y p7zip-full libxcb-cursor0 libxkbcommon-x11-0
+          python3 tools/qt/install-qt.py --kit gcc_64 --root "$RUNNER_TEMP/qt"
+          echo "QT_ROOT=$RUNNER_TEMP/qt/6.11.2/gcc_64" >> "$GITHUB_ENV"
+
       - name: Configure
         shell: bash
         run: |
           set -euo pipefail
           cmake -S . -B build/native -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_PREFIX_PATH="${FRUITY_SKIA_PREFIX}" -DFRUITY_REQUIRE_VULKAN=ON
+            -DCMAKE_PREFIX_PATH="${QT_ROOT};${FRUITY_NATIVE_PREFIX}" -DFRUITY_REQUIRE_VULKAN=ON
 
       - name: Build C++ FruityPrime
         shell: bash
         run: |
           set -euo pipefail
-          cmake --build build/native --config RelWithDebInfo --parallel "$(nproc)" --target fruity_prime
+          cmake --build build/native --config RelWithDebInfo --parallel "$(nproc)" --target fruity_package
 
-      - name: Backend contract (OpenGL, Vulkan, Skia Vulkan)
+      - name: Backend contract (OpenGL, Vulkan, Qt Quick)
         shell: bash
         run: |
           set -euo pipefail
           build/native/FruityPrime -rhicontract build/native/rhi-contract.txt -noupdate
           cat build/native/rhi-contract.txt
-          for line in opengl=compiled vulkan=compiled vulkan-shader-stages=10 skia-vulkan=compiled; do
+          for line in opengl=compiled vulkan=compiled vulkan-shader-stages=10 ui=qt; do
             grep -qxF "$line" build/native/rhi-contract.txt || { echo "backend contract is missing $line" >&2; exit 1; }
           done
 
@@ -433,15 +445,16 @@ jobs:
           grep -F 'presentation PASS; clear present; resize; fullscreen; minimize/restore; clean shutdown; validation=1; errors=0' build/native/vulkan-presentation-fallback.log
           grep -E 'fallback-retired-releases=[1-9][0-9]*' build/native/vulkan-presentation-fallback.log
 
+      - name: Archive installed Qt application
+        shell: bash
+        run: tar -C build/native/dist -czf build/native/FruityPrime-linux.tar.gz .
+
       - name: Upload Linux build
         uses: actions/upload-artifact@v4
         with:
           name: FruityPrime-cpp-linux-${{ github.run_number }}
           if-no-files-found: error
-          path: |
-            build/native/FruityPrime
-            build/native/fruity-prime-logo.png
-            build/native/fruity-prime-mark.png
+          path: build/native/FruityPrime-linux.tar.gz
 
   macos:
     name: macOS / Clang
@@ -469,13 +482,13 @@ jobs:
           echo "compiler=$(clang++ --version | shasum -a 256 | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
 
       - name: Cache vcpkg binary archives
-        id: skia-cache
+        id: native-deps-cache
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: native-skia-macos-v1-${{ runner.arch }}-${{ steps.vcpkg.outputs.commit }}-${{ steps.vcpkg.outputs.compiler }}-${{ hashFiles('tools/ci/dependencies/macos.txt') }}
+          key: native-deps-macos-v1-${{ runner.arch }}-${{ steps.vcpkg.outputs.commit }}-${{ steps.vcpkg.outputs.compiler }}-${{ hashFiles('tools/ci/dependencies/macos.txt') }}
           restore-keys: |
-            native-skia-macos-v1-${{ runner.arch }}-${{ steps.vcpkg.outputs.commit }}-${{ steps.vcpkg.outputs.compiler }}-
+            native-deps-macos-v1-${{ runner.arch }}-${{ steps.vcpkg.outputs.commit }}-${{ steps.vcpkg.outputs.compiler }}-
             native-vcpkg-all-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Prepare vcpkg binary cache directory
@@ -486,10 +499,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          brew install autoconf autoconf-archive automake libtool curl libarchive zlib glfw freetype openal-soft
-          echo "CMAKE_PREFIX_PATH=$(brew --prefix curl);$(brew --prefix libarchive);$(brew --prefix zlib);$(brew --prefix glfw);$(brew --prefix freetype);$(brew --prefix openal-soft)" >> "$GITHUB_ENV"
+          brew install autoconf autoconf-archive automake libtool curl libarchive zlib glfw openal-soft
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix curl);$(brew --prefix libarchive);$(brew --prefix zlib);$(brew --prefix glfw);$(brew --prefix openal-soft)" >> "$GITHUB_ENV"
 
-      - name: Install Skia Ganesh
+      - name: Install native dependencies
         shell: bash
         run: |
           set -euo pipefail
@@ -500,16 +513,16 @@ jobs:
             triplet="x64-osx"
           fi
           packages=()
-          while IFS= read -r package; do packages+=("$package:$triplet"); done < tools/ci/dependencies/macos.txt
-          "$root/vcpkg" install "${packages[@]}" --clean-after-build
-          echo "FRUITY_SKIA_PREFIX=$root/installed/$triplet" >> "$GITHUB_ENV"
+          while IFS= read -r package; do [[ -z "$package" ]] || packages+=("$package:$triplet"); done < tools/ci/dependencies/macos.txt
+          if (( ${#packages[@]} )); then "$root/vcpkg" install "${packages[@]}" --clean-after-build; fi
+          echo "FRUITY_NATIVE_PREFIX=$root/installed/$triplet" >> "$GITHUB_ENV"
 
       - name: Save macOS dependencies after install
-        if: steps.skia-cache.outputs.cache-hit != 'true'
+        if: steps.native-deps-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: native-skia-macos-v1-${{ runner.arch }}-${{ steps.vcpkg.outputs.commit }}-${{ steps.vcpkg.outputs.compiler }}-${{ hashFiles('tools/ci/dependencies/macos.txt') }}
+          key: native-deps-macos-v1-${{ runner.arch }}-${{ steps.vcpkg.outputs.commit }}-${{ steps.vcpkg.outputs.compiler }}-${{ hashFiles('tools/ci/dependencies/macos.txt') }}
 
       # Refresh immutable snapshots weekly; avoid a full duplicate on every push.
       - name: Select compiler cache generation
@@ -523,28 +536,37 @@ jobs:
           max-size: 500M
           append-timestamp: false
 
+      - name: Install Qt Quick
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install sevenzip
+          python3 tools/qt/install-qt.py --kit clang_64 --root "$RUNNER_TEMP/qt"
+          echo "QT_ROOT=$RUNNER_TEMP/qt/6.11.2/clang_64" >> "$GITHUB_ENV"
+
       - name: Configure
         shell: bash
         run: |
           set -euo pipefail
           cmake -S . -B build/native -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_PREFIX_PATH="${FRUITY_SKIA_PREFIX};$CMAKE_PREFIX_PATH"
+            -DCMAKE_PREFIX_PATH="${QT_ROOT};${FRUITY_NATIVE_PREFIX};$CMAKE_PREFIX_PATH"
 
       - name: Build C++ FruityPrime
         shell: bash
         run: |
           set -euo pipefail
-          cmake --build build/native --config RelWithDebInfo --parallel "$(sysctl -n hw.ncpu)" --target fruity_prime
+          cmake --build build/native --config RelWithDebInfo --parallel "$(sysctl -n hw.ncpu)" --target fruity_package
+
+      - name: Archive installed Qt application
+        shell: bash
+        run: tar -C build/native/dist -czf build/native/FruityPrime-macos.tar.gz .
 
       - name: Upload macOS build
         uses: actions/upload-artifact@v4
         with:
           name: FruityPrime-cpp-macos-${{ github.run_number }}
           if-no-files-found: error
-          path: |
-            build/native/FruityPrime
-            build/native/fruity-prime-logo.png
-            build/native/fruity-prime-mark.png
+          path: build/native/FruityPrime-macos.tar.gz
 
   android:
     uses: ./.github/workflows/native-cpp-android.yml

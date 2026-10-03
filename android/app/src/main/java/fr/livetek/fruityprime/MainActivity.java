@@ -25,15 +25,14 @@ import java.io.InputStream;
 
 public final class MainActivity extends Activity
         implements DisplayManager.DisplayListener, InputManager.InputDeviceListener {
-    static {
-        System.loadLibrary("FruityPrime");
-    }
 
     private long nativeHandle;
     private FrameLayout root;
     private LauncherView launcher;
     private DisplayManager displayManager;
     private InputManager inputManager;
+    private boolean destroyed;
+    private boolean resumed;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -46,10 +45,23 @@ public final class MainActivity extends Activity
                 new FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT,
                         FrameLayout.LayoutParams.MATCH_PARENT));
+        launcher.setStatusChangeListener(new org.qtproject.qt.android.QtQmlStatusChangeListener() {
+            @Override public void onStatusChanged(org.qtproject.qt.android.QtQmlStatus status) {
+            if (status == org.qtproject.qt.android.QtQmlStatus.READY) {
+                runOnUiThread(() -> {
+                    if (!destroyed && nativeHandle == 0) {
+                        InstallResultReceiver.ensureBound();
+                        nativeHandle = nativeCreate(savedInstanceState, root, launcher);
+                        if (resumed) nativeOnResume(nativeHandle);
+                        nativeOnWindowFocusChanged(nativeHandle, hasWindowFocus());
+                    }
+                });
+            } else if (status == org.qtproject.qt.android.QtQmlStatus.ERROR) {
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Could not load the Qt menus", Toast.LENGTH_LONG).show());
+            }
+            }
+        });
         setContentView(root);
-
-        InstallResultReceiver.ensureBound();
-        nativeHandle = nativeCreate(savedInstanceState, root, launcher);
     }
 
     @Override
@@ -62,6 +74,7 @@ public final class MainActivity extends Activity
 
     @Override
     protected void onPause() {
+        resumed = false;
         if (nativeHandle != 0) {
             nativeOnPause(nativeHandle);
         }
@@ -71,6 +84,7 @@ public final class MainActivity extends Activity
     @Override
     protected void onResume() {
         super.onResume();
+        resumed = true;
         if (nativeHandle != 0) {
             nativeOnResume(nativeHandle);
         }
@@ -86,6 +100,7 @@ public final class MainActivity extends Activity
 
     @Override
     protected void onDestroy() {
+        destroyed = true;
         final long handle = nativeHandle;
         nativeHandle = 0;
         if (handle != 0) {

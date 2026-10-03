@@ -1,6 +1,9 @@
 #pragma once
 
 #include "../../OpenTK/GLFW.hpp"
+#if !defined(__ANDROID__)
+#include "../../OpenTK/GL.hpp"
+#endif
 #if defined(__ANDROID__)
 #include <EGL/egl.h>
 #endif
@@ -26,7 +29,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 #if defined(__ANDROID__)
             return reinterpret_cast<T>(eglGetProcAddress(name));
 #else
-            return reinterpret_cast<T>(::OpenTK::Windowing::GraphicsLibraryFramework::GLFW::GetProcAddress(name));
+            return reinterpret_cast<T>(::OpenTK::Graphics::OpenGL::GetEntryPoint(name));
 #endif
         }
         template <class T> static T Require(T entry, const char* name)

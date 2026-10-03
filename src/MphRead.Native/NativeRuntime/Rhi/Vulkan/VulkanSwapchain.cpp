@@ -15,6 +15,7 @@
 #if defined(FRUITY_HAS_VULKAN)
 #include "VulkanContextInternal.hpp"
 #include "VulkanPresentResult.hpp"
+#include "VulkanWindowSystem.hpp"
 namespace MphRead::NativeRuntime::Rhi::Vulkan
 {
     namespace
@@ -87,7 +88,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::unique_ptr<Context> owned, Context* shared)
             : _window(&window), _ownedContext(std::move(owned)), _context(shared ? *shared : *_ownedContext),
 #if !defined(__ANDROID__)
-              _nativeWindow(static_cast<GLFWwindow*>(window.NativeHandle())),
+              _nativeWindow(window.NativeHandle()),
 #endif
               _desc(desc), _requestedMode(desc.presentMode)
         {
@@ -267,7 +268,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         {
             if (_closed || Closing()) return false;
 #if !defined(__ANDROID__)
-            if (::glfwGetWindowAttrib(static_cast<GLFWwindow*>(_window->NativeHandle()), GLFW_ICONIFIED))
+            if (WindowSystem::Iconified(_window->NativeHandle()))
                 return false;
 #endif
             int width = 0, height = 0;
@@ -514,7 +515,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         std::unique_ptr<Context> _ownedContext;
         Context& _context;
 #if !defined(__ANDROID__)
-        GLFWwindow* _nativeWindow = nullptr;
+        void* _nativeWindow = nullptr;
 #endif
 
         // The drawable extent: the GLFW framebuffer on the desktop; on
@@ -537,7 +538,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             width = static_cast<int>(capabilities.currentExtent.width);
             height = static_cast<int>(capabilities.currentExtent.height);
 #else
-            ::glfwGetFramebufferSize(_nativeWindow, &width, &height);
+            WindowSystem::FramebufferSize(_nativeWindow, width, height);
 #endif
         }
         [[nodiscard]] bool Closing() const
@@ -545,7 +546,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 #if defined(__ANDROID__)
             return !_context._impl->surface;
 #else
-            return ::glfwWindowShouldClose(_nativeWindow) != 0;
+            return WindowSystem::ShouldClose(_nativeWindow);
 #endif
         }
         static void WaitForDrawable()
@@ -553,7 +554,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 #if defined(__ANDROID__)
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
 #else
-            ::glfwWaitEventsTimeout(0.05);
+            WindowSystem::WaitEvents(0.05);
 #endif
         }
         SwapchainDesc _desc{};

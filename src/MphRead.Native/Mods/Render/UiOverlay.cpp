@@ -126,6 +126,12 @@ namespace MphRead::Mods::Render
             return;
         }
         Vk().Shown = &texture;
+        // Composited by the GL overlay when the window is not presented
+        // through the RHI: the same texture, by the GL name it has there.
+        if (!SceneWindowUi::Active() && texture.Handle())
+        {
+            Rhi::OpenGL::OpenGlLauncherOverlay::Adopt(texture.Handle().value);
+        }
         _width = width;
         _height = height;
         _topRowAtTextureZero = true;

@@ -1,4 +1,5 @@
 #include "../BackendSession.hpp"
+#include "VulkanWindowSystem.hpp"
 #include "../../Skia/VulkanInterop.hpp"
 #include "../../../Renderer.hpp"
 
@@ -128,10 +129,15 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::string ProbePassive(bool windowUi) const override
             {
 #if !defined(__ANDROID__)
+#if !defined(MPHREAD_QT)
+                // The Avalonia launcher draws through Skia; the Qt menus draw
+                // through Qt Quick on the same device and need no Skia.
                 if (windowUi && !Skia::VulkanInterop::Available())
                     return "this build's Skia has no Vulkan backend";
-                if (::glfwInit() != GLFW_TRUE) return "GLFW could not be initialised";
-                if (::glfwVulkanSupported() != GLFW_TRUE) return "no Vulkan loader or driver was found";
+#else
+                (void)windowUi;
+#endif
+                if (std::string reason; !WindowSystem::Available(reason)) return reason;
 #else
                 (void)windowUi;
 #endif

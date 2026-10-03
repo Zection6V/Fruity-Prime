@@ -30,9 +30,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         (void)validation; (void)window; (void)allowMaintenance;
         throw std::invalid_argument("Android presents through an ANativeWindow, not a GLFW window.");
 #else
-        auto* native = static_cast<GLFWwindow*>(window.NativeHandle());
+        void* native = window.NativeHandle();
         if (!native || window.GraphicsMode() != ::MphRead::RendererPlatform::GraphicsWindowMode::NoApi)
-            throw std::invalid_argument("A Vulkan context requires a GLFW NoApi window.");
+            throw std::invalid_argument("A Vulkan context requires a NoApi window.");
         _impl->Initialize(validation, native, allowMaintenance);
 #endif
     }

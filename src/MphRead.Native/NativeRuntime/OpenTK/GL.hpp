@@ -14,6 +14,10 @@
 
 namespace OpenTK::Graphics::OpenGL
 {
+    // A GL entry point from the context current on this thread, found
+    // without asking the window toolkit (GLFW or Qt) that made it.
+    [[nodiscard]] void* GetEntryPoint(const char* name);
+
     enum class FramebufferErrorCode : std::int32_t
     {
         FramebufferUndefined = 0x8219,

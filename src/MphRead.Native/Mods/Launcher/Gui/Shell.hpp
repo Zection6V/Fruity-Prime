@@ -2,7 +2,9 @@
 
 #include "../Portable/LaunchPlan.hpp"
 #include "../../../NativeRuntime/Rhi/SceneBackend.hpp"
+#if defined(MPHREAD_AVALONIA_SHELL)
 #include "../../../NativeRuntime/Avalonia/Avalonia.hpp"
+#endif
 
 #include <cstdint>
 #include <functional>
@@ -46,7 +48,8 @@ namespace MphRead::Mods::Launcher::Gui
         [[nodiscard]] static bool EndPanelUp() noexcept;
         [[nodiscard]] static bool CanPlayAnother();
         [[nodiscard]] static std::int32_t ShotMisses() noexcept;
-        [[nodiscard]] static std::int32_t& ShotMissCounter() noexcept { return _shotMisses; }
+        // The scripted checks' miss count, which every shell keeps.
+        [[nodiscard]] static std::int32_t& ShotMissCounter() noexcept;
 
         [[nodiscard]] static bool Run();
         // Settings switched the renderer: the window is remade on it at the
@@ -74,6 +77,7 @@ namespace MphRead::Mods::Launcher::Gui
         static void KeyUp(const OpenTK::Windowing::Common::KeyboardKeyEventArgs& e);
         static void TextInput(const std::string& text);
 
+#if defined(MPHREAD_AVALONIA_SHELL)
     private:
         using ControlPredicate = std::function<bool(
             MphRead::NativeRuntime::Avalonia::Controls::Control&)>;
@@ -137,5 +141,6 @@ namespace MphRead::Mods::Launcher::Gui
         static std::int32_t _shotWait;
         static std::int32_t _shotMisses;
         static std::uint64_t _shotPreviewGeneration;
+#endif
     };
 }

@@ -33,6 +33,7 @@
 #include "VulkanNvidiaReflex.hpp"
 #include "VulkanResult.hpp"
 #include "VulkanFeatureProbe.hpp"
+#include "VulkanWindowSystem.hpp"
 
 namespace MphRead::NativeRuntime::Rhi::Vulkan
 {
@@ -112,7 +113,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         DECLARE_VULKAN_FUNCTION(vkCreateInstance)
 #undef DECLARE_VULKAN_FUNCTION
 
-        // The platform's loader entry point: GLFW's on the desktop, the
+        // The platform's loader entry point: the window toolkit's on the desktop, the
         // system loader's own on Android.
         static PFN_vkGetInstanceProcAddr InstanceProc()
         {
@@ -127,7 +128,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }();
             return proc;
 #else
-            return reinterpret_cast<PFN_vkGetInstanceProcAddr>(glfwGetInstanceProcAddress);
+            return WindowSystem::LoaderEntry();
 #endif
         }
 
@@ -211,8 +212,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         void CreateWindowSurface(void* window)
         {
             DestroySurface();
-            Check(glfwCreateWindowSurface(instance, static_cast<GLFWwindow*>(window), nullptr, &surface),
-                "glfwCreateWindowSurface");
+            surface = WindowSystem::CreateSurface(instance, window, InstanceProc());
             VkBool32 supported = VK_FALSE;
             Check(vkGetPhysicalDeviceSurfaceSupportKHR(physical, presentFamily, surface, &supported),
                 "vkGetPhysicalDeviceSurfaceSupportKHR");
@@ -236,9 +236,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 #if defined(__ANDROID__)
             const std::array<const char*, 2> windowExtensions{VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_ANDROID_SURFACE_EXTENSION_NAME};
 #else
-            std::uint32_t glfwCount = 0;
-            const char** glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwCount);
-            const std::span<const char* const> windowExtensions(glfwExtensions, glfwExtensions ? glfwCount : 0);
+            const std::span<const char* const> windowExtensions = WindowSystem::RequiredInstanceExtensions();
 #endif
             instanceProbe = EvaluateInstance(QueryInstanceSnapshot(
                 {enumerateVersion, vkEnumerateInstanceExtensionProperties, vkEnumerateInstanceLayerProperties}, windowExtensions),
@@ -279,8 +277,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 vkDestroySurfaceKHR = Load<PFN_vkDestroySurfaceKHR>("vkDestroySurfaceKHR");
                 CreateAndroidSurface(presentationWindow);
 #else
-                Check(glfwCreateWindowSurface(instance, static_cast<GLFWwindow*>(presentationWindow), nullptr, &surface),
-                    "glfwCreateWindowSurface");
+                surface = WindowSystem::CreateSurface(instance, presentationWindow, InstanceProc());
 #endif
             }
             PhysicalProbeDispatch query{instance, vkEnumeratePhysicalDevices, vkGetPhysicalDeviceProperties,
@@ -290,7 +287,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 #if defined(__ANDROID__)
                     (void)candidate; (void)family; return true;
 #else
-                    return glfwGetPhysicalDevicePresentationSupport(instance, candidate, family) == GLFW_TRUE;
+                    return WindowSystem::PresentationSupport(instance, candidate, family, InstanceProc());
 #endif
                 }};
             std::string rejectedDevices;

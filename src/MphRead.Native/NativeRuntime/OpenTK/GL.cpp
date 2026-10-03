@@ -224,6 +224,14 @@ namespace
     }
 }
 
+namespace OpenTK::Graphics::OpenGL
+{
+    void* GetEntryPoint(const char* name)
+    {
+        return ResolveEntryPoint(name);
+    }
+}
+
 namespace OpenTK::Graphics::OpenGL::GL
 {
     void ActiveTexture(TextureUnit texture)

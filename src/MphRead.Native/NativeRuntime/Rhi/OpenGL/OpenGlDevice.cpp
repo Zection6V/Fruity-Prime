@@ -6,6 +6,7 @@
 #include "OpenGlMemory.hpp"
 #include "../../../Testing/MemoryAdmissionCheck.hpp"
 #include "../SceneBackend.hpp"
+#include "../../../Renderer.hpp"
 
 #include "../../OpenTK/GL.hpp"
 #include "../../../Mods/Render/GlNames.hpp"
@@ -195,7 +196,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 #if defined(__ANDROID__)
             return reinterpret_cast<void*>(eglGetCurrentContext());
 #else
-            return ::glfwGetCurrentContext();
+            return ::MphRead::RendererPlatform::CurrentGlContext();
 #endif
         }
         // Borrowed lookup only; the session is the unique native owner.
@@ -1819,13 +1820,13 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         {
             if (!_contextKey) return;
 #if !defined(__ANDROID__)
-            auto* previous = ::glfwGetCurrentContext();
-            auto* context = static_cast<GLFWwindow*>(_contextKey);
-            if (previous != context) ::glfwMakeContextCurrent(context);
+            void* const previous = ::MphRead::RendererPlatform::CurrentGlContext();
+            void* const context = _contextKey;
+            if (previous != context) ::MphRead::RendererPlatform::MakeGlContextCurrent(context);
 #endif
             CloseNative();
 #if !defined(__ANDROID__)
-            if (previous != context) ::glfwMakeContextCurrent(previous);
+            if (previous != context) ::MphRead::RendererPlatform::MakeGlContextCurrent(previous);
 #endif
         }
 

@@ -6,13 +6,15 @@
 #include <stdexcept>
 #include <utility>
 
-#if !defined(__ANDROID__)
+#if defined(MPHREAD_QT)
+#include "../../../MphRead.Native.Qt/Platform/QtSwapchain.hpp"
+#elif !defined(__ANDROID__)
 #include <GLFW/glfw3.h>
 #endif
 
 namespace MphRead::NativeRuntime::Rhi
 {
-#if !defined(__ANDROID__)
+#if !defined(__ANDROID__) && !defined(MPHREAD_QT)
     namespace
     {
         class OpenGlBackbufferTexture final : public Texture
@@ -148,7 +150,9 @@ namespace MphRead::NativeRuntime::Rhi
         switch (backend)
         {
         case GraphicsBackend::OpenGl:
-#if !defined(__ANDROID__)
+#if defined(MPHREAD_QT)
+            return ::MphRead::Qt::CreateOpenGlSwapchain(window, desc);
+#elif !defined(__ANDROID__)
             return std::make_unique<GlfwOpenGlSwapchain>(window, desc);
 #else
             (void)window;

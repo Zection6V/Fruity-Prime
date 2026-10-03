@@ -234,6 +234,11 @@ namespace MphRead::Mods::Launcher::Gui
             && _played->Kind() == LaunchKind::Offline;
     }
 
+    std::int32_t& Shell::ShotMissCounter() noexcept
+    {
+        return _shotMisses;
+    }
+
     std::int32_t Shell::ShotMisses() noexcept
     {
         return _shotMisses + (g_stressCycles && (!g_stressFinished || !g_stressClosed) ? 1 : 0);

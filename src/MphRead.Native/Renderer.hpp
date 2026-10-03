@@ -540,6 +540,11 @@ namespace MphRead
         // NativeWindow.ProcessEvents(0): the pending window messages, drained
         // without waiting.
         void ProcessEvents();
+        // The OpenGL context current on this thread, as the window toolkit
+        // names it (a GLFWwindow, a QOpenGLContext), or null; and making one
+        // of those current again. The OpenGL RHI keys its sessions on these.
+        [[nodiscard]] void* CurrentGlContext() noexcept;
+        void MakeGlContextCurrent(void* context) noexcept;
 
         [[nodiscard]] std::shared_ptr<Window> CreateWindow(const WindowSettings& settings);
         [[nodiscard]] OpenTK::Mathematics::Vector2i WorkAreaForWindow(Window& window);

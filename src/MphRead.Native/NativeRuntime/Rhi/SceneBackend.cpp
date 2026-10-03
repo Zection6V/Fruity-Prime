@@ -177,7 +177,12 @@ namespace MphRead::NativeRuntime::Rhi
 #else
         text += "vulkan=absent\nvulkan-shader-stages=0\n";
 #endif
+#if defined(MPHREAD_QT)
+        // The Qt menus draw through Qt Quick on the scene's own device.
+        text += "skia-vulkan=absent\nui=qt\n";
+#else
         text += std::string("skia-vulkan=") + (Skia::VulkanInterop::Available() ? "compiled" : "absent") + "\n";
+#endif
 #if defined(__ANDROID__)
         text += "platform=android\n";
 #elif defined(_WIN32)

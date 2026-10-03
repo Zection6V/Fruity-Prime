@@ -2407,3 +2407,36 @@ exe / paths.txt / PNG / manifestのSHA-256とgateは
 `C:/tmp/gp/architecture-r19-rgb-copy-golden-run-info.json`。
 同じbackendの固定画像回帰の確認であり、Phase3/C#とのcross-revision parityは未成立。
 撮影sourceは後続の文書commitと区別して上記`b2dcbdca`で記録する。
+
+## queue schedulerのnative dispatch検査（R10）
+
+`VulkanFrameScheduler`はqueue submitとtimeline completionを所有し、frame / command slotの
+fence・pool・descriptor世代とは独立した境界を維持する。このownerへ直接fake native dispatchを
+渡すCPU testを追加した。実GPUのconformanceを通じた間接検査とは区別する。
+不完全なdispatch、countに対してnullのsubmit配列と不正なsubmit typeをnative操作前に拒否する。
+成功を返す空のtimelineも初期化失敗として拒否する。
+正常なqueue submissionの処理には待機や再送を追加しない。
+
+検査は64個のsuccessful serialとexternal-work markerを通し、callerのwait / signal semaphore、
+command buffer、extension pointer / flags / fenceを保持したまま、末尾へALL_COMMANDSのtimeline
+signalを加えることを確認する。native submitのOOM / device loss、counter取得のdevice lossを
+注入し、失敗でsubmitted / completedを更新しないこととnative errorの分類・code保持を検査する。
+遅れて返るcounterでcompletionが戻らず、未送信serialのcompletionは拒否される。
+ここでのfaultはfake dispatchへの注入であり、実driver resetや実OOMからの復旧の証明ではない。
+
+検証:
+
+- MSVC Release PASS: `C:/tmp/gp/architecture-r10-scheduler-build.log`。
+- CPU CTest 20/20 PASS: `C:/tmp/gp/architecture-r10-scheduler-ctest.log`。
+- OpenGL / Vulkan共通GPU conformance PASS:
+  `C:/tmp/gp/architecture-r10-scheduler-conformance.log`。
+  sampled / combined state、RGB copy / scratch reuse、session再生成 / async readbackを含み、
+  最終release=0 / retired=0、Vulkan validation error=0。
+- Alinos PerchのSettings保存・Resumeを含む試合中3回切替PASS:
+  `C:/tmp/r18-fps-20261003-105450/opengl.log`。
+  spawned Sylux +7 actors、bomb / particle / bindingのworld witness 3件、source release、
+  Vulkan validation error=0、native / wrapper exit=0。
+  validation ON / GPU profile / 240 FPS capの検査であり、FPS-onlyの速度比較へ混ぜない。
+
+R10のレビュー全体に照らした最終責務監査、R19のformat / subresource / draw / presentation契約と
+completion auditは続ける。Metal / D3D12は将来対応。Android / macOS実動作、remote CIは未実行。

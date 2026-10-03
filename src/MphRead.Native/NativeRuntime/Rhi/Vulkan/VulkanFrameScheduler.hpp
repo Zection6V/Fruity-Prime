@@ -25,12 +25,17 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         explicit VulkanFrameScheduler(Dispatch dispatch) : _dispatch(dispatch)
         {
+            if (!_dispatch.Device || !_dispatch.Queue || !_dispatch.CreateSemaphore
+                || !_dispatch.DestroySemaphore || !_dispatch.QueueSubmit || !_dispatch.CounterValue
+                || !_dispatch.CheckResult)
+                throw std::invalid_argument("Incomplete Vulkan queue-scheduler dispatch.");
             VkSemaphoreTypeCreateInfo type{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO};
             type.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
             VkSemaphoreCreateInfo create{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
             create.pNext = &type;
             _dispatch.CheckResult(_dispatch.CreateSemaphore(_dispatch.Device, &create, nullptr, &_timeline),
                 "vkCreateSemaphore(submission timeline)");
+            if (!_timeline) throw std::runtime_error("Vulkan queue scheduler has no timeline semaphore.");
         }
 
         ~VulkanFrameScheduler()
@@ -43,6 +48,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         SubmissionSerial Submit(const VkSubmitInfo2& work, VkFence fence = VK_NULL_HANDLE)
         {
+            if (work.sType != VK_STRUCTURE_TYPE_SUBMIT_INFO_2
+                || (work.waitSemaphoreInfoCount && !work.pWaitSemaphoreInfos)
+                || (work.commandBufferInfoCount && !work.pCommandBufferInfos)
+                || (work.signalSemaphoreInfoCount && !work.pSignalSemaphoreInfos))
+                throw std::invalid_argument("Invalid Vulkan queue submission arrays.");
             const auto serial = _progress.Next();
             std::vector<VkSemaphoreSubmitInfo> signals;
             if (work.signalSemaphoreInfoCount)

@@ -134,6 +134,8 @@ set(FRUITY_VULKAN_COMMAND_SLOTS_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanCommandSlots.cpp")
 set(FRUITY_VULKAN_FRAME_SLOTS_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanFrameSlots.cpp")
+set(FRUITY_VULKAN_FRAME_SCHEDULER_TEST_SOURCE
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanFrameScheduler.cpp")
 set(FRUITY_VULKAN_SYNCHRONIZATION_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanSynchronization.cpp")
 set(FRUITY_VULKAN_RGB_TRANSFER_TEST_SOURCE
@@ -180,6 +182,7 @@ add_custom_target(fruity_golden_capture_provenance
     VERBATIM)
 list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES
     "${FRUITY_VULKAN_FRAME_SLOTS_TEST_SOURCE}"
+    "${FRUITY_VULKAN_FRAME_SCHEDULER_TEST_SOURCE}"
     "${FRUITY_VULKAN_SYNCHRONIZATION_TEST_SOURCE}"
     "${FRUITY_VULKAN_RGB_TRANSFER_TEST_SOURCE}"
     "${FRUITY_VULKAN_RESOURCES_TEST_SOURCE}"
@@ -436,6 +439,10 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         target_include_directories(fruity_vulkan_frame_slots_tests PRIVATE ${Vulkan_INCLUDE_DIRS})
         target_compile_features(fruity_vulkan_frame_slots_tests PRIVATE cxx_std_20)
         add_test(NAME FruityPrime.VulkanFrameSlots COMMAND fruity_vulkan_frame_slots_tests)
+        add_executable(fruity_vulkan_frame_scheduler_tests "${FRUITY_VULKAN_FRAME_SCHEDULER_TEST_SOURCE}")
+        target_include_directories(fruity_vulkan_frame_scheduler_tests PRIVATE ${Vulkan_INCLUDE_DIRS})
+        target_compile_features(fruity_vulkan_frame_scheduler_tests PRIVATE cxx_std_20)
+        add_test(NAME FruityPrime.VulkanFrameScheduler COMMAND fruity_vulkan_frame_scheduler_tests)
         add_executable(fruity_vulkan_synchronization_tests
             "${FRUITY_VULKAN_SYNCHRONIZATION_TEST_SOURCE}"
             "${FRUITY_MPHREAD_ROOT}/NativeRuntime/Rhi/Vulkan/VulkanSynchronization.cpp")

@@ -543,6 +543,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 _capabilities.maxTexture2DDimension = static_cast<std::uint32_t>(GL::GetInteger(0x0D33));
                 _capabilities.maxVertexBuffers = static_cast<std::uint32_t>(GL::GetInteger(0x8869));
                 _capabilities.maxTextureArrayLayers = 1;
+                _capabilities.maxTextureMipLevels = 1;
+                _capabilities.maxTexture3DDimension = 0;
                 _capabilities.maxBindingGroups = 4;
 #if !defined(__ANDROID__)
                 const auto version = GL::GetString(GL::StringName::Version);
@@ -1045,8 +1047,11 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 if (!desc.width || !desc.height || desc.width > _capabilities.maxTexture2DDimension
                     || desc.height > _capabilities.maxTexture2DDimension || desc.usage == TextureUsage::None)
                     throw std::out_of_range("OpenGL RHI: invalid texture extent or usage.");
-                if (desc.depth != 1 || desc.arrayLayers != 1 || desc.mipLevels != 1 || desc.sampleCount != 1)
-                    throw std::invalid_argument("OpenGL RHI: only single-level 2D textures are currently supported.");
+                if ((desc.depth != 1 && desc.depth > _capabilities.maxTexture3DDimension)
+                    || desc.arrayLayers > _capabilities.maxTextureArrayLayers
+                    || desc.mipLevels > _capabilities.maxTextureMipLevels || desc.sampleCount != 1)
+                    throw std::invalid_argument("OpenGL RHI: the texture's subresources exceed Capabilities "
+                        "(single-level 2D images on this backend).");
                 if (!IsValidTextureState(desc, desc.initialState))
                     throw std::invalid_argument("OpenGL RHI: texture usage, format and initial state are incompatible.");
                 // One aspect of a GL_DEPTH_STENCIL texture cannot be written

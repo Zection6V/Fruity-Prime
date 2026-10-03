@@ -2492,3 +2492,20 @@ conformance:
 
 検証: 両 backend の conformance PASS（`C:/tmp/gp/architecture-r19-packed-ds-conformance.log`）、
 CPU テスト 19/19 PASS。
+
+## subresource の capability 化（R6 / R19）
+
+OpenGL は単一 level の 2D 画像しか作らないが、それを契約に表す手段がなかった。そのため caller には、
+例外が出るまで分からなかった。`Capabilities` に `maxTextureMipLevels` と `maxTexture3DDimension` を
+追加し、既存の `maxTextureArrayLayers` と合わせて作成時の判定に使う。
+
+| | mip levels | array layers | 3D |
+|---|---|---|---|
+| OpenGL | 1 | 1 | 0（作らない） |
+| Vulkan（RTX 5070 Ti） | 16 | 2048 | 16384 |
+
+conformance では、上限以内の作成が通り、上限を超える作成が拒否されることを両 backend で検査する。
+OpenGL で mip / array / 3D の画像そのものを実装するのは、本番 renderer が使わないので将来対応とする。
+
+検証: 両 backend の conformance PASS（`C:/tmp/gp/architecture-r19-subresource-caps-conformance.log`）、
+CPU テスト 19/19 PASS。

@@ -174,7 +174,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         if (desc.memoryUsage != MemoryUsage::GpuOnly)
             throw std::invalid_argument("Vulkan RHI: images must use GPU-only memory; use a buffer for host access.");
         if (desc.width > _caps.maxTexture2DDimension || desc.height > _caps.maxTexture2DDimension
-            || desc.arrayLayers > _caps.maxTextureArrayLayers)
+            || desc.arrayLayers > _caps.maxTextureArrayLayers || desc.mipLevels > _caps.maxTextureMipLevels
+            || (desc.depth > 1 && desc.depth > _caps.maxTexture3DDimension))
             throw std::out_of_range("Vulkan RHI: texture extent or layer count exceeds device limits.");
         std::uint32_t maxExtent = std::max({desc.width, desc.height, desc.depth});
         std::uint32_t maxMipLevels = 1;

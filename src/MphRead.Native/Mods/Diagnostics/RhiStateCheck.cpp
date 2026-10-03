@@ -96,6 +96,40 @@ namespace MphRead::Mods::Diagnostics
         std::cout << "[format copy] PASS; 16 color/single-depth formats; packed depth/stencil is a separate contract\n";
     }
 
+    // What Capabilities reports for subresources is what CreateTexture keeps:
+    // the limit itself is accepted, one past it is refused at creation.
+    void CheckRhiSubresourceCapabilities(NativeRuntime::Rhi::GraphicsDevice& device)
+    {
+        using namespace NativeRuntime::Rhi;
+        const Capabilities& caps = device.GetCapabilities();
+        if (!caps.maxTextureMipLevels || !caps.maxTextureArrayLayers)
+            throw std::runtime_error("Capabilities report no mip level or array layer at all.");
+        const auto refused = [&device](const TextureDesc& desc)
+        {
+            try { (void)device.CreateTexture(desc); } catch (const std::invalid_argument&) { return true; }
+            catch (const std::out_of_range&) { return true; }
+            return false;
+        };
+        TextureDesc base{}; base.width = 8; base.height = 8; base.format = TextureFormat::RGBA8Unorm;
+        base.usage = TextureUsage::Sampled | TextureUsage::TransferDst;
+        unsigned checked = 0;
+        // Mip levels: a chain the extent allows, up to the limit.
+        auto mips = base; mips.mipLevels = std::min(caps.maxTextureMipLevels, 4U);
+        (void)device.CreateTexture(mips); ++checked;
+        if (caps.maxTextureMipLevels < 4) { auto over = base; over.mipLevels = caps.maxTextureMipLevels + 1;
+            if (!refused(over)) throw std::runtime_error("A mip chain beyond Capabilities was created."); ++checked; }
+        auto layers = base; layers.arrayLayers = std::min(caps.maxTextureArrayLayers, 4U);
+        (void)device.CreateTexture(layers); ++checked;
+        if (caps.maxTextureArrayLayers < 4) { auto over = base; over.arrayLayers = caps.maxTextureArrayLayers + 1;
+            if (!refused(over)) throw std::runtime_error("Array layers beyond Capabilities were created."); ++checked; }
+        auto volume = base; volume.depth = 4;
+        if (caps.maxTexture3DDimension >= 4) (void)device.CreateTexture(volume);
+        else if (!refused(volume)) throw std::runtime_error("A 3D texture was created without the capability.");
+        ++checked;
+        std::cout << "[subresource caps] PASS; mips<=" << caps.maxTextureMipLevels << " layers<=" << caps.maxTextureArrayLayers
+            << " 3D<=" << caps.maxTexture3DDimension << "; " << checked << " creations matched Capabilities\n";
+    }
+
     // Packed depth/stencil: each aspect copied on its own, where the backend
     // says it can; refused at creation where it says it cannot.
     void CheckRhiPackedDepthStencilCopies(NativeRuntime::Rhi::GraphicsDevice& device)

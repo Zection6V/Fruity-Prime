@@ -6,4 +6,5 @@ namespace MphRead::Mods::Diagnostics
     void CheckRhiRgbCopies(NativeRuntime::Rhi::GraphicsDevice& device);
     void CheckRhiFormatCopies(NativeRuntime::Rhi::GraphicsDevice& device);
     void CheckRhiPackedDepthStencilCopies(NativeRuntime::Rhi::GraphicsDevice& device);
+    void CheckRhiSubresourceCapabilities(NativeRuntime::Rhi::GraphicsDevice& device);
 }

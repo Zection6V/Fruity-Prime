@@ -179,6 +179,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         const auto& limits = facts.Properties.limits; auto& caps = result.Caps;
         caps.backend = GraphicsBackend::Vulkan;
         caps.maxTexture2DDimension = limits.maxImageDimension2D; caps.maxTextureArrayLayers = limits.maxImageArrayLayers;
+        caps.maxTexture3DDimension = limits.maxImageDimension3D;
+        for (std::uint32_t extent = limits.maxImageDimension2D; extent > 0; extent >>= 1) ++caps.maxTextureMipLevels;
         caps.maxColorAttachments = limits.maxColorAttachments; caps.maxVertexBuffers = limits.maxVertexInputBindings;
         caps.maxBindingGroups = limits.maxBoundDescriptorSets;
         caps.supportsAnisotropy = facts.Features.samplerAnisotropy != 0;

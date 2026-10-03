@@ -11,6 +11,11 @@ namespace MphRead::NativeRuntime::Rhi
         GraphicsBackend backend = GraphicsBackend::OpenGl;
         std::uint32_t maxTexture2DDimension = 0;
         std::uint32_t maxTextureArrayLayers = 0;
+        // Subresources a CreateTexture may ask for. 1 / 0 mean the backend
+        // creates only single-level 2D images (OpenGL here): beyond these a
+        // texture is refused at creation, never at a later copy or bind.
+        std::uint32_t maxTextureMipLevels = 0;
+        std::uint32_t maxTexture3DDimension = 0;
         std::uint32_t maxColorAttachments = 0;
         std::uint32_t maxVertexBuffers = 0;
         std::uint32_t maxBindingGroups = 0;

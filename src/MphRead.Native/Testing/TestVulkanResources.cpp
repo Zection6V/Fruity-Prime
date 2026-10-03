@@ -86,7 +86,7 @@ namespace
 
     void Run()
     {
-        Fake f; Capabilities caps{}; caps.maxTexture2DDimension = 64; caps.maxTextureArrayLayers = 4;
+        Fake f; Capabilities caps{}; caps.maxTexture2DDimension = 64; caps.maxTextureArrayLayers = 4; caps.maxTextureMipLevels = 7; caps.maxTexture3DDimension = 64;
         caps.supportsAnisotropy = true; caps.maxSamplerAnisotropy = 8;
         auto dispatch = f.Dispatch(); VulkanResources resources(dispatch, caps);
         BufferDesc buffer{16, BufferUsage::Vertex | BufferUsage::TransferSrc, MemoryUsage::CpuToGpu};

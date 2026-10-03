@@ -562,6 +562,12 @@ endif()
 target_include_directories(fruity_mphread_qt PRIVATE
     "${FRUITY_MPHREAD_ROOT}" "${FRUITY_NCSFPLAY_ROOT}")
 target_link_libraries(fruity_mphread_qt PUBLIC Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick)
+if(UNIX AND NOT APPLE AND NOT ANDROID)
+    # Qt loads its xcb platform plugin dynamically, so link libxcb explicitly
+    # for the Vulkan presentation probe's default-visual query.
+    find_library(FRUITY_XCB_LIBRARY NAMES xcb REQUIRED)
+    target_link_libraries(fruity_mphread_qt PRIVATE "${FRUITY_XCB_LIBRARY}")
+endif()
 if(FRUITY_STOP_TOKEN_OPTIONS)
     target_compile_options(fruity_mphread_qt PRIVATE ${FRUITY_STOP_TOKEN_OPTIONS})
 endif()

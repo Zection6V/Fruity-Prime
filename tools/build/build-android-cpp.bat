@@ -215,7 +215,7 @@ echo [android-cpp] Configuring %ABI%...
 rem Keep a valid cache for incremental builds, but discard stale toolchain state.
 set "CMAKE_FRESH=--fresh"
 if exist "%BUILD_DIR%\CMakeCache.txt" (
-    findstr /i /c:"CMAKE_TOOLCHAIN_FILE:UNINITIALIZED=%VCPKG_CMAKE_ROOT%/scripts/buildsystems/vcpkg.cmake" "%BUILD_DIR%\CMakeCache.txt" >nul
+    findstr /i /c:"CMAKE_TOOLCHAIN_FILE:FILEPATH=%VCPKG_CMAKE_ROOT%/scripts/buildsystems/vcpkg.cmake" "%BUILD_DIR%\CMakeCache.txt" >nul
     if not errorlevel 1 (
         findstr /i /c:"VCPKG_INSTALLED_DIR:PATH=%VCPKG_CMAKE_ROOT%/installed" "%BUILD_DIR%\CMakeCache.txt" >nul
         if not errorlevel 1 (

@@ -141,7 +141,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 }
                 _device.WriteBuffer(*buffer, 0, std::as_bytes(std::span(scratch)));
                 const auto slot = static_cast<std::uint32_t>(bufferCount);
-                buffers[bufferCount++] = {slot, components * sizeof(float)};
+                buffers[bufferCount++] = {slot, components * static_cast<std::uint32_t>(sizeof(float))};
                 attributes[attributeCount++] = {location, slot, format, 0};
                 _commands.SetVertexBuffer(slot, *buffer);
             }

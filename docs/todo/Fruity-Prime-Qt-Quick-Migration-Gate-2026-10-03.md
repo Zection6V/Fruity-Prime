@@ -19,6 +19,8 @@ the removed toolkit directories.
 - Android embeds the QML resources in each application library. QtQuickView
   owns the launcher view, input and lifecycle; the native match owns its game
   surface. Both ABI deployments are merged before Gradle packages the APK.
+  Qt uses a TextureView container so transparent menus compose above the
+  game's SurfaceView instead of competing with its separate surface layer.
 - Native Android requires API 28, targets API 35 and retains the shared C# API
   26 contract. The package copies of the application libraries are stripped;
   the native build outputs retain their diagnostic symbols.

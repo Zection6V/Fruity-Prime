@@ -81,6 +81,9 @@ namespace MphRead::Droid
 // QML engine and the Android View, while the existing Activity owns the match.
 int main(int argc, char** argv)
 {
+    // Composite the menus in the Activity's view tree above the game's
+    // SurfaceView, including transparent pause/results pages.
+    qputenv("QT_ANDROID_SURFACE_CONTAINER_TYPE", "1");
     QGuiApplication application(argc, argv);
     MphRead::Qt::RegisterQmlTypes();
     Bridge::Actions actions;

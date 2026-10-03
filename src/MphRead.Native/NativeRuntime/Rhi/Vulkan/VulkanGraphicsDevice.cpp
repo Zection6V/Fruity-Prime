@@ -21,6 +21,7 @@
 #if defined(FRUITY_HAS_VULKAN)
 #include "VulkanContextInternal.hpp"
 #include "VulkanFrameScheduler.hpp"
+#include "VulkanFrameSlots.hpp"
 #include "VulkanPipelineCache.hpp"
 #include "VulkanDescriptorAllocator.hpp"
 #include "VulkanUploadArena.hpp"
@@ -466,6 +467,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     },
                     [context = &vk](VkObjectType type, std::uint64_t handle, const char* label) { context->Name(type, handle, label); }
                 }, context.Caps());
+                Frames = std::make_unique<VulkanFrameSlots>(VulkanFrameSlots::Dispatch{
+                    vk.device, vk.vkCreateFence, vk.vkDestroyFence, vk.vkGetFenceStatus, vk.vkWaitForFences,
+                    vk.vkResetFences, vk.vkDestroyCommandPool, vk.vkDestroyPipelineLayout,
+                    [this](const VkSubmitInfo2& work, VkFence fence) { return Scheduler->Submit(work, fence); },
+                    [this] { return Scheduler->Poll(); }, [this] { return MakeDescriptors({}); },
+                    [this] { ++HostWaits; }
+                });
                 try
                 {
                     VkPhysicalDeviceProperties identity{};
@@ -518,15 +526,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     ReleaseWindowTarget();
                     Retired.CollectAll([](auto& release) { release(); });
                     auto& vk = *ContextPointer->_impl;
-                    for (auto& slot : DescriptorFrames)
-                    {
-                        for (const auto pool : slot.diagnosticCommandPools)
-                            vk.vkDestroyCommandPool(vk.device, pool, nullptr);
-                        for (const auto layout : slot.diagnosticLayouts)
-                            vk.vkDestroyPipelineLayout(vk.device, layout, nullptr);
-                        if (slot.descriptors) slot.descriptors->Close();
-                        if (slot.fence) vk.vkDestroyFence(vk.device, slot.fence, nullptr);
-                    }
+                    Frames->CloseAfterDrain();
                     VmaTotalStatistics statistics{};
                     vmaCalculateStatistics(Allocator, &statistics);
                     OutstandingAllocationsAtShutdown = statistics.total.statistics.allocationCount;
@@ -537,7 +537,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     Scheduler.reset();
                     ContextPointer = nullptr;
                     SceneFlushers.clear(); SceneForgetters.clear(); SceneViewReplacers.clear();
-                    RecordingList = nullptr; CurrentSceneProgram = nullptr; FrameActive = false;
+                    RecordingList = nullptr; CurrentSceneProgram = nullptr;
                     TexturesByHandle.clear();
                 }
             }
@@ -550,62 +550,16 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::unordered_map<VulkanNativeOwner*, bool> NativeOwners;
             std::shared_ptr<TimestampBudget> TimestampCapacity = std::make_shared<TimestampBudget>();
 
-            struct DescriptorFrame final
-            {
-                std::unique_ptr<VulkanDescriptorAllocator> descriptors;
-                std::vector<VkCommandPool> diagnosticCommandPools;
-                std::vector<VkPipelineLayout> diagnosticLayouts;
-                VkFence fence = VK_NULL_HANDLE;
-                std::uint64_t submittedFrame = 0;
-            };
-
             [[nodiscard]] FrameContext BeginDescriptorFrame()
             {
-                if (FrameActive) throw std::logic_error("Vulkan RHI: frame already active.");
-                const std::uint64_t frame = CurrentFrame.load() + 1;
-                const auto index = static_cast<std::uint32_t>((frame - 1) % FramesInFlight);
-                auto& slot = DescriptorFrames[index];
-                auto& vk = *ContextPointer->_impl;
-                if (!slot.fence)
-                {
-                    VkFenceCreateInfo create{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-                    Check(vk.vkCreateFence(vk.device, &create, nullptr, &slot.fence), "vkCreateFence(descriptor frame)");
-                }
-                if (slot.submittedFrame)
-                {
-                    Check(WaitFenceReporting(vk.vkWaitForFences, vk.device, &slot.fence, "vkWaitForFences(descriptor frame)"), "vkWaitForFences(descriptor frame)");
-                    CompletedFrame.store(std::max(CompletedFrame.load(), slot.submittedFrame));
-                    Check(vk.vkResetFences(vk.device, 1, &slot.fence), "vkResetFences(descriptor frame)");
-                    slot.submittedFrame = 0;
-                }
-                if (!slot.descriptors)
-                    slot.descriptors = MakeDescriptors({});
-                slot.descriptors->ResetAfterCompletion(Scheduler->Poll());
-                for (const auto pool : slot.diagnosticCommandPools)
-                    vk.vkDestroyCommandPool(vk.device, pool, nullptr);
-                for (const auto layout : slot.diagnosticLayouts)
-                    vk.vkDestroyPipelineLayout(vk.device, layout, nullptr);
-                slot.diagnosticCommandPools.clear();
-                slot.diagnosticLayouts.clear();
-                CurrentFrame.store(frame);
-                FrameActive = true;
+                const auto frame = Frames->Begin();
                 CollectRetired();
-                return FrameContext{frame, index};
+                return frame;
             }
 
             void EndDescriptorFrame()
             {
-                if (!FrameActive) throw std::logic_error("Vulkan RHI: no active frame.");
-                const auto frame = CurrentFrame.load();
-                auto& slot = DescriptorFrames[(frame - 1) % FramesInFlight];
-                auto& vk = *ContextPointer->_impl;
-                // This fence follows all prior work on the graphics queue,
-                // including the current synchronous transfer command lists.
-                VkSubmitInfo2 submit{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
-                const auto serial = Scheduler->Submit(submit, slot.fence);
-                slot.descriptors->Submitted(serial);
-                slot.submittedFrame = frame;
-                FrameActive = false;
+                Frames->End();
             }
 
             [[nodiscard]] std::unique_ptr<VulkanDescriptorAllocator> MakeDescriptors(
@@ -620,14 +574,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             [[nodiscard]] VkDescriptorSet AllocateDescriptors(VkDescriptorSetLayout layout,
                 const BindingLayoutDesc& desc)
             {
-                if (!FrameActive) throw std::logic_error("Vulkan RHI: descriptor allocation outside frame.");
-                auto& slot = DescriptorFrames[(CurrentFrame.load() - 1) % FramesInFlight];
-                return slot.descriptors->Allocate(layout, desc);
+                return Frames->Allocate(layout, desc);
             }
 
             Context* ContextPointer = nullptr;
-            std::array<DescriptorFrame, FramesInFlight> DescriptorFrames{};
-            bool FrameActive = false;
+            std::unique_ptr<VulkanFrameSlots> Frames;
             VmaAllocator Allocator = VK_NULL_HANDLE;
             std::unique_ptr<VulkanMemory> Memory;
             std::unique_ptr<VulkanResources> Resources;
@@ -639,8 +590,6 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::atomic<std::uint32_t> UploadPages{0};
             std::atomic<std::uint64_t> UploadPageCreations{0};
             std::atomic<std::uint32_t> UploadCommandLists{0};
-            std::atomic<std::uint64_t> CurrentFrame{0};
-            std::atomic<std::uint64_t> CompletedFrame{0};
             std::atomic<std::uint64_t> HostWaits{0};
             std::atomic<std::uint64_t> DeviceWideWaits{0};
             std::unique_ptr<VulkanFrameScheduler> Scheduler;
@@ -997,15 +946,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
             [[nodiscard]] bool FrameHasOverflowPools() const noexcept
             {
-                const auto& slot = _device->DescriptorFrames[(_device->CurrentFrame.load() - 1) % FramesInFlight];
-                return slot.descriptors && slot.descriptors->PageCount() > 1;
+                return _device->Frames->CurrentDescriptorPages() > 1;
             }
 
             void RecordDiagnosticUse() const
             {
                 const auto set = Native();
                 auto& vk = *_device->ContextPointer->_impl;
-                auto& slot = _device->DescriptorFrames[(_device->CurrentFrame.load() - 1) % FramesInFlight];
                 const auto setLayout = _layout->Native();
                 VkPipelineLayoutCreateInfo layoutCreate{VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
                 layoutCreate.setLayoutCount = 1;
@@ -1031,16 +978,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     Check(vk.vkEndCommandBuffer(commands), "vkEndCommandBuffer(binding diagnostic)");
                     // Reserve before submission so retaining the native objects
                     // cannot fail after their work has entered the GPU queue.
-                    slot.diagnosticCommandPools.reserve(slot.diagnosticCommandPools.size() + 1);
-                    slot.diagnosticLayouts.reserve(slot.diagnosticLayouts.size() + 1);
                     VkCommandBufferSubmitInfo commandInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
                     commandInfo.commandBuffer = commands;
                     VkSubmitInfo2 submit{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
                     submit.commandBufferInfoCount = 1;
                     submit.pCommandBufferInfos = &commandInfo;
-                    _device->Scheduler->Submit(submit);
-                    slot.diagnosticCommandPools.push_back(pool);
-                    slot.diagnosticLayouts.push_back(layout);
+                    _device->Frames->SubmitTransient(submit, pool, layout);
                 }
                 catch (...)
                 {
@@ -1053,7 +996,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             [[nodiscard]] const std::shared_ptr<VulkanDeviceState>& DeviceState() const noexcept { return _device; }
             [[nodiscard]] VkDescriptorSet Native(VulkanDescriptorAllocator* allocator = nullptr) const
             {
-                if (!allocator && !_device->FrameActive)
+                if (!allocator && !_device->Frames->Active())
                     throw std::logic_error("Vulkan RHI: descriptor allocation requires an active frame.");
                 Validate();
                 auto& vk = *_device->ContextPointer->_impl;
@@ -2923,7 +2866,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             [[nodiscard]] FrameContext BeginFrame() override
             {
                 // A frame begun over an open one ends it first, as OpenGL's does.
-                if (_state->FrameActive) EndFrame();
+                if (_state->Frames->Active()) EndFrame();
                 _state->Readbacks.Poll();
                 return _state->BeginDescriptorFrame();
             }
@@ -2942,7 +2885,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 ++_state->HostWaits;
                 ++_state->DeviceWideWaits;
                 _state->ContextPointer->WaitIdle();
-                _state->CompletedFrame.store(_state->CurrentFrame.load());
+                _state->Frames->ObserveDeviceIdle();
                 _state->CollectRetired();
             }
 
@@ -2968,7 +2911,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 result.Programs = _state->Programs.load();
                 result.Samplers = _state->Samplers.load();
                 result.TimestampSets = _state->TimestampCapacity->Sets();
-                result.CompletedFrame = _state->CompletedFrame.load();
+                result.CompletedFrame = _state->Frames->Completed();
                 result.HostWaits = _state->HostWaits.load();
                 result.DeviceWideWaits = _state->DeviceWideWaits.load();
                 result.Submitted = _state->Scheduler->Submitted();
@@ -3690,9 +3633,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 throw std::logic_error("Vulkan session retained native resources or failed to complete pending work.");
             if (state->Memory->Allocator() || state->Memory->Telemetry().PendingRequests || state->Memory->Telemetry().PendingBytes)
                 throw std::logic_error("Vulkan session retained native memory or pending admission.");
-            for (const auto& slot : state->DescriptorFrames)
-                if (slot.descriptors && slot.descriptors->PageCount())
-                    throw std::logic_error("Vulkan session retained descriptor pages.");
+            if (state->Frames->NativeObjects())
+                throw std::logic_error("Vulkan session retained frame fences, descriptor pages or transients.");
         };
     }
 }

@@ -27,6 +27,8 @@
 #include <vulkan/vulkan_win32.h>
 #undef CreateWindow
 #elif defined(__linux__)
+#include <xcb/xcb.h>
+#include <wayland-client.h>
 #include <vulkan/vulkan_xcb.h>
 #include <vulkan/vulkan_wayland.h>
 #endif

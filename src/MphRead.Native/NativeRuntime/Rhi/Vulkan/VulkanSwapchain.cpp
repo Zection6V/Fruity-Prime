@@ -1208,7 +1208,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 || swapchain->TryPresent().status != PresentationStatus::TemporarilyUnavailable)
                 throw std::runtime_error("A minimized Vulkan swapchain did not report temporary unavailability.");
             window->WindowStateNormal();
-            const auto restored = pumpFramebuffer(native, 3000,
+            const auto restored = pumpFramebuffer(*window, 3000,
                 [](int width, int height) { return width > 0 && height > 0; });
             swapchain->Resize(static_cast<std::uint32_t>(restored.first), static_cast<std::uint32_t>(restored.second));
             drawColor(0.20F, 0.55F, 0.75F);

@@ -31,7 +31,7 @@ CSV は指定ファイルを新規作成／上書きし、アプリ終了時に�
 `FrameRateCap=500` を読み込み、CLI上限の指定なしで ALINOS PERCH / borderless
 2560x1439 / Sylux＋3 bots / Low Latency Off を検証した。
 ウォームアップ後、スクリーンショット読戻しが入る最終行を除いた8区間は
-Vulkan 433.6–556.7 FPS、OpenGL 418.5–571.0 FPS。両方とも `fps_cap=unlimited`、
+Vulkan 433.6–556.7 FPS、OpenGL 391.0–571.0 FPS。両方とも `fps_cap=unlimited`、
 Immediate要求・実際のImmediate、pause=0 / focus=1を記録した。
 Settings Applyを伴う3回の対戦中renderer切替がPASSし、`unlimited` の保存も確認。
 `-frametimingcheck` は旧設定移行・上限の保存形式・1500 Hz描画時の60 Hz simulationをPASS、

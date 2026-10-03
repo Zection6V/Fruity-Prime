@@ -224,6 +224,7 @@ namespace
         void MouseMove(QMouseEvent* event);
         void Wheel(QWheelEvent* event);
         void RecentreGrabbedCursor();
+        void CheckGrabbedMouse();
 
         std::unique_ptr<GameQWindow> _window;
         std::unique_ptr<QOpenGLContext> _context;
@@ -245,6 +246,7 @@ namespace
         float _lastReportedMouseY = 0.0F;
         QPointF _grabCentre{};
         bool _warping = false;
+        bool _mouseChecked = false;
         Rhi::PresentationScheduler _presentation;
         Rhi::PresentationScheduler::Time _presentationFrameStart{};
     };
@@ -406,6 +408,11 @@ namespace
             FrameEventArgs args;
             args.Time = elapsed;
             events.OnRenderFrame(args);
+            if (!_mouseChecked && _grabbed && qEnvironmentVariableIntValue("FRUITY_MOUSECHECK") != 0)
+            {
+                _mouseChecked = true;
+                CheckGrabbedMouse();
+            }
         }
         events.OnClosing();
         _events = nullptr;
@@ -768,11 +775,46 @@ namespace
         }
     }
 
+    void QtWindow::CheckGrabbedMouse()
+    {
+        const auto startX = _cursorX;
+        const auto startY = _cursorY;
+        const QPoint centre = _grabCentre.toPoint();
+        const auto move = [&](QPoint local)
+        {
+            QMouseEvent event(QEvent::MouseMove, QPointF(local),
+                QPointF(_window->mapToGlobal(local)), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(_window.get(), &event);
+        };
+        for (int i = 0; i < 256; ++i)
+        {
+            move(centre + QPoint(i % 2 ? -8 : 8, 0));
+            move(centre); // Include every synthetic re-centre event.
+        }
+        const auto deltaX = _cursorX - startX;
+        const auto deltaY = _cursorY - startY;
+        move(centre + QPoint(0, 4));
+        move(centre);
+        const bool verticalWorks = _cursorY - startY == 4.0F * Scale();
+        move(centre - QPoint(0, 4));
+        move(centre);
+        const bool pass = deltaX == 0.0F && deltaY == 0.0F
+            && verticalWorks && _cursorY == startY;
+        std::cout << "[mousecheck] " << (pass ? "PASS" : "FAIL")
+            << " horizontal moves=256 client=" << _window->width() << 'x' << _window->height()
+            << " scale=" << Scale() << " accumulated_delta=" << deltaX << ',' << deltaY
+            << " vertical_motion=" << verticalWorks << '\n';
+        if (!pass) throw std::runtime_error("Horizontal mouse motion accumulated aim drift.");
+    }
+
     void QtWindow::RecentreGrabbedCursor()
     {
         // QCursor::setPos is a no-op on Wayland, where pointer lock needs the
         // relative-pointer protocol; X11, Windows and macOS warp.
-        _grabCentre = QPointF(_window->width() / 2.0, _window->height() / 2.0);
+        // Use exactly the integer position passed to QCursor::setPos. A half
+        // pixel centre in an odd-height window adds +0.5 to every horizontal
+        // move after Qt rounds the warp target, steadily pitching aim down.
+        _grabCentre = QPoint(_window->width() / 2, _window->height() / 2);
         _warping = true;
         QCursor::setPos(_window->screen(), _window->mapToGlobal(_grabCentre.toPoint()));
     }

@@ -2077,6 +2077,18 @@ scriptへ渡し、Gitの絶対pathを引き継ぐよう修正した。Gitのな�
 SourceCommit=`b2ce899fa72af6db2def300bc26af22ee1a40cef`、GitHarnessState=clean、
 実Cpp blobとharness SHA-256が埋め込まれたことを確認した。
 
+修正をpushした`228ba74cab94b988e3b87505927151ec8870b167`からReleaseを再ビルドし、
+同じ14ケースを再撮影した。全manifestのsource_commitがこのSHA、harness state=clean、
+harness SHA-256が同一であることを確認した。HUD / fade / whiteoutのfinal-stage gateもverified。
+保存先は`C:/tmp/gp/architecture-r19-provenance-final-golden-{opengl,vulkan}/`。
+全14画像は同じbackendの旧画像とdecoded RGB相違byte=0。Vulkan validation error=0。
+比較記録は`C:/tmp/gp/architecture-r19-provenance-golden-comparison.txt`、
+exe / paths.txt / 各PNG / manifestのSHA-256は
+`C:/tmp/gp/architecture-r19-provenance-golden-run-info.json`に保存した。
+exe SHA-256=`487010964C3BB5FEB77F720F0C65C398D9A876BDA41B3C62DC5344128F865CB3`。
+後続の文書commitと区別し、この撮影のsource SHAは上記`228ba74c`として記録する。
+同じbackendの回帰確認の範囲は変わらず、Phase3/C#とのcross-revision parityは未成立。
+
 ## 現行pacingと将来optional extensionの境界監査（R20）
 
 レビュー19.4 / 23.1は、将来Reflex / Anti-Lag / XeLL / native display timingなどを追加する場合に、

@@ -373,7 +373,7 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
     target_link_libraries(fruity_readback_tests PRIVATE Threads::Threads)
     add_test(NAME FruityPrime.Readback COMMAND fruity_readback_tests)
 
-    if(Vulkan_FOUND)
+    if(TARGET fruity_vulkan_shaders)
         add_executable(fruity_vulkan_error_tests "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanErrors.cpp")
         target_compile_features(fruity_vulkan_error_tests PRIVATE cxx_std_20)
         target_link_libraries(fruity_vulkan_error_tests PRIVATE Vulkan::Vulkan)

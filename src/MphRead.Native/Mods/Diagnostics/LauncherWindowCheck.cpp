@@ -2,7 +2,7 @@
 
 #if defined(MPHREAD_SHELL)
 
-#include "../Launcher/Gui/GuiLauncher.hpp"
+#include "../Launcher/GuiLauncher.hpp"
 #include "../WindowGeometry.hpp"
 #include "../Render/UiOverlay.hpp"
 #include "../../NativeRuntime/OpenTK/GL.hpp"
@@ -10,6 +10,7 @@
 #include "../../NativeRuntime/System/ExceptionText.hpp"
 #include "../../NativeRuntime/System/Exceptions.hpp"
 #include "../../Renderer.hpp"
+#include "../../NativeRuntime/Rhi/SceneBackend.hpp"
 #include "../../Shaders.hpp"
 
 #include <cstdint>
@@ -67,7 +68,8 @@ namespace MphRead::Mods::Diagnostics
         }
         try
         {
-            if (_frames == 20)
+            const bool openGl = NativeRuntime::Rhi::SceneDevice().GetBackend() == NativeRuntime::Rhi::GraphicsBackend::OpenGl;
+            if (_frames == 20 && openGl)
             {
                 NativeRuntime::ConsoleWriteLine("[windowcheck] " + GL::GetString(StringName::Renderer)
                     + "; GL " + GL::GetString(StringName::Version));
@@ -89,9 +91,13 @@ namespace MphRead::Mods::Diagnostics
                 throw System::OverflowException();
             }
             std::vector<std::uint8_t> pixels(static_cast<std::size_t>(width * height * 4));
-            GL::ReadBuffer(ReadBufferMode::Back);
-            GL::ReadPixels(0, 0, width, height,
-                GL::PixelFormat::Rgba, GL::PixelType::UnsignedByte, pixels.data());
+            NativeRuntime::Rhi::RenderingInfo target{};
+            target.swapchain = true;
+            target.width = width;
+            target.height = height;
+            auto commands = NativeRuntime::Rhi::SceneDevice().CreateCommandList();
+            commands->ReadColor(target, 0, 0, width, height,
+                NativeRuntime::Rhi::TextureFormat::RGBA8Unorm, pixels.data());
             int lit = 0;
             for (std::size_t i = 0; i < pixels.size(); i += 4)
             {
@@ -104,7 +110,7 @@ namespace MphRead::Mods::Diagnostics
             {
                 throw System::InvalidOperationException("Launcher frame is black.");
             }
-            const ErrorCode error = GL::GetError();
+            const ErrorCode error = openGl ? GL::GetError() : ErrorCode::NoError;
             if (error != ErrorCode::NoError)
             {
                 throw System::InvalidOperationException("OpenGL error: "

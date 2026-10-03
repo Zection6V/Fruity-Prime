@@ -1,0 +1,308 @@
+name: golden_parity_adapter
+
+on:
+  push:
+    branches:
+      - develop3_rendering
+    paths:
+      - "tools/golden-parity/adapter/**"
+      - "tools/run-golden-parity-capture.py"
+      - "tools/test-golden-parity-runner.py"
+      - "tools/validate-golden-parity.py"
+      - "src/MphRead.Native/Testing/TestGoldenCaptureValidation.cpp"
+      - "CMakeLists.txt"
+      - ".github/workflows/golden-parity-adapter.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    name: Compile shared adapter / ${{ matrix.target }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - phase3
+          - phase4
+
+    steps:
+      - name: Checkout adapter source
+        uses: actions/checkout@v5
+        with:
+          path: adapter-source
+
+      - name: Checkout exact Phase 3 baseline
+        if: matrix.target == 'phase3'
+        uses: actions/checkout@v5
+        with:
+          ref: 13c49e35f2a314662c7cc639e5e56fa784ac8bfd
+          path: target
+
+      - name: Checkout exact Phase 4 source
+        if: matrix.target == 'phase4'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: target
+
+      - name: Overlay byte-identical harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp adapter-source/tools/golden-parity/adapter/GoldenCapture.cpp             target/src/MphRead.Native/Mods/Render/GoldenCapture.cpp
+          cp adapter-source/tools/golden-parity/adapter/GoldenCapture.hpp             target/src/MphRead.Native/Mods/Render/GoldenCapture.hpp
+          cp adapter-source/tools/golden-parity/adapter/GoldenCaptureValidation.hpp             target/src/MphRead.Native/Mods/Render/GoldenCaptureValidation.hpp
+
+          cmp adapter-source/tools/golden-parity/adapter/GoldenCapture.cpp             target/src/MphRead.Native/Mods/Render/GoldenCapture.cpp
+          cmp adapter-source/tools/golden-parity/adapter/GoldenCapture.hpp             target/src/MphRead.Native/Mods/Render/GoldenCapture.hpp
+          cmp adapter-source/tools/golden-parity/adapter/GoldenCaptureValidation.hpp             target/src/MphRead.Native/Mods/Render/GoldenCaptureValidation.hpp
+
+          echo "target_head=$(git -C target rev-parse HEAD)"
+          echo "overlay changes:"
+          git -C target status --short
+
+      - name: Syntax-compile shared GoldenCapture adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          g++             -std=c++20             -fsyntax-only             -DMPHREAD_SHELL             -DMPHREAD_AVALONIA             -I target/src/MphRead.Native             target/src/MphRead.Native/Mods/Render/GoldenCapture.cpp
+
+      - name: Validate Python parity tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile             adapter-source/tools/run-golden-parity-capture.py             adapter-source/tools/test-golden-parity-runner.py             adapter-source/tools/validate-golden-parity.py
+          python3 adapter-source/tools/test-golden-parity-runner.py
+          python3 adapter-source/tools/validate-golden-parity.py --self-test
+
+
+  phase4_real_cmake_build:
+    name: Phase 4 / Windows runner-owned CMake build with shared adapter
+    runs-on: windows-2025
+    steps:
+      - name: Checkout adapter source
+        uses: actions/checkout@v5
+        with:
+          path: adapter-source
+
+      - name: Checkout exact Phase 4 source
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: target
+
+      - name: Overlay byte-identical harness
+        shell: pwsh
+        run: |
+          Copy-Item adapter-source/tools/golden-parity/adapter/GoldenCapture.cpp target/src/MphRead.Native/Mods/Render/GoldenCapture.cpp -Force
+          Copy-Item adapter-source/tools/golden-parity/adapter/GoldenCapture.hpp target/src/MphRead.Native/Mods/Render/GoldenCapture.hpp -Force
+          Copy-Item adapter-source/tools/golden-parity/adapter/GoldenCaptureValidation.hpp target/src/MphRead.Native/Mods/Render/GoldenCaptureValidation.hpp -Force
+
+          if ((Get-FileHash adapter-source/tools/golden-parity/adapter/GoldenCapture.cpp -Algorithm SHA256).Hash -ne
+              (Get-FileHash target/src/MphRead.Native/Mods/Render/GoldenCapture.cpp -Algorithm SHA256).Hash) { throw "GoldenCapture.cpp overlay mismatch" }
+          if ((Get-FileHash adapter-source/tools/golden-parity/adapter/GoldenCapture.hpp -Algorithm SHA256).Hash -ne
+              (Get-FileHash target/src/MphRead.Native/Mods/Render/GoldenCapture.hpp -Algorithm SHA256).Hash) { throw "GoldenCapture.hpp overlay mismatch" }
+          if ((Get-FileHash adapter-source/tools/golden-parity/adapter/GoldenCaptureValidation.hpp -Algorithm SHA256).Hash -ne
+              (Get-FileHash target/src/MphRead.Native/Mods/Render/GoldenCaptureValidation.hpp -Algorithm SHA256).Hash) { throw "GoldenCaptureValidation.hpp overlay mismatch" }
+
+          Write-Host "target_head=$(git -C target rev-parse HEAD)"
+          git -C target status --short
+
+      - name: Cache vcpkg binary archives
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/.cache/vcpkg/archives
+          key: golden-parity-vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: |
+            native-vcpkg-all-${{ runner.os }}-${{ runner.arch }}-
+            native-vcpkg-v1-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Prepare vcpkg binary cache directory
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force "${{ github.workspace }}/.cache/vcpkg/archives" | Out-Null
+
+      - name: Install native dependencies
+        shell: pwsh
+        env:
+          VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.cache/vcpkg/archives
+        run: |
+          if (-not $env:VCPKG_INSTALLATION_ROOT) {
+            throw "VCPKG_INSTALLATION_ROOT is not set on the runner."
+          }
+          $vcpkg = Join-Path $env:VCPKG_INSTALLATION_ROOT "vcpkg.exe"
+          & $vcpkg install curl:x64-windows libarchive:x64-windows zlib:x64-windows glfw3:x64-windows openal-soft:x64-windows  --clean-after-build
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Install Qt Quick for MSVC
+        shell: pwsh
+        run: |
+          python target/tools/qt/install-qt.py --kit msvc2022_64 --root "$env:RUNNER_TEMP/qt"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "QT_ROOT=$env:RUNNER_TEMP/qt/6.11.2/msvc2022_64" >> $env:GITHUB_ENV
+
+      - name: Configure runner-owned parity build
+        shell: pwsh
+        run: |
+          cmake -S target -B target/build/golden-parity-real -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            -DQt6_ROOT="$env:QT_ROOT" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DFRUITY_GOLDEN_PARITY_ADAPTER=ON
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Build real fruity_prime target with native validation dependency
+        id: real_build
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $diag = Join-Path $env:GITHUB_WORKSPACE "golden-parity-msvc-diagnostics"
+          New-Item -ItemType Directory -Force $diag | Out-Null
+          $binlog = Join-Path $diag "fruity_prime.binlog"
+          $buildLog = Join-Path $diag "fruity_prime-build.log"
+          $exitCodePath = Join-Path $diag "fruity_prime-build-exit-code.txt"
+
+          & cmake --build target/build/golden-parity-real --config RelWithDebInfo --parallel $env:NUMBER_OF_PROCESSORS --target fruity_prime -- "/bl:$binlog" "/v:diag" 2>&1 |
+            Tee-Object -FilePath $buildLog
+          $code = $LASTEXITCODE
+          Set-Content -Path $exitCodePath -Value $code -NoNewline
+          Write-Host "real fruity_prime build exit code: $code"
+
+      - name: Collect MSVC object, archive, and link diagnostics
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $diag = Join-Path $env:GITHUB_WORKSPACE "golden-parity-msvc-diagnostics"
+          $build = Join-Path $env:GITHUB_WORKSPACE "target/build/golden-parity-real"
+          New-Item -ItemType Directory -Force $diag | Out-Null
+
+          $dumpbin = Get-Command dumpbin.exe -ErrorAction SilentlyContinue
+          if (-not $dumpbin) {
+            $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio/Installer/vswhere.exe"
+            if (Test-Path $vswhere) {
+              $vsRoot = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+              if ($vsRoot) {
+                $dumpbin = Get-ChildItem -Path (Join-Path $vsRoot "VC/Tools/MSVC") -Recurse -Filter dumpbin.exe -File -ErrorAction SilentlyContinue |
+                  Where-Object { $_.FullName -match '\\bin\\Hostx64\\x64\\dumpbin\.exe' } |
+                  Sort-Object FullName -Descending |
+                  Select-Object -First 1
+              }
+            }
+          }
+
+          if ($dumpbin) {
+            $dumpbinPath = if ($dumpbin.Path) { $dumpbin.Path } else { $dumpbin.FullName }
+            Set-Content -Path (Join-Path $diag "dumpbin-path.txt") -Value $dumpbinPath
+          } else {
+            Set-Content -Path (Join-Path $diag "dumpbin-path.txt") -Value "dumpbin.exe not found"
+          }
+
+          $fruityDir = Join-Path $build "fruity_prime.dir"
+          $objects = @()
+          if (Test-Path $fruityDir) {
+            $objects += Get-ChildItem -Path $fruityDir -Recurse -File -Filter Weapons.obj -ErrorAction SilentlyContinue
+            $objects += Get-ChildItem -Path $fruityDir -Recurse -File -Filter EntityBase.obj -ErrorAction SilentlyContinue
+          }
+
+          $objectPathFile = Join-Path $diag "fruity_prime-direct-object-paths.txt"
+          if ($objects.Count -eq 0) {
+            Set-Content -Path $objectPathFile -Value "No fruity_prime Weapons.obj or EntityBase.obj found."
+          } else {
+            $objects |
+              Sort-Object FullName |
+              ForEach-Object { $_.FullName } |
+              Set-Content -Path $objectPathFile
+
+            if ($dumpbin) {
+              $dumpbinPath = if ($dumpbin.Path) { $dumpbin.Path } else { $dumpbin.FullName }
+              $index = 0
+              foreach ($obj in ($objects | Sort-Object FullName)) {
+                $safeName = "{0:D2}-{1}" -f $index, $obj.Name
+                $symbolsPath = Join-Path $diag "$safeName-symbols.txt"
+                & $dumpbinPath /symbols $obj.FullName 2>&1 | Set-Content -Path $symbolsPath
+                $index++
+              }
+            }
+          }
+
+          $exactNeedles = @(
+            '?Current@Weapons@MphRead@@3V?$shared_ptr@$CBV?$vector@V?$shared_ptr@UWeaponInfo@MphRead@@@std@@V?$allocator@V?$shared_ptr@UWeaponInfo@MphRead@@@std@@@2@@std@@@std@@A',
+            '?WeaponsMP@Weapons@MphRead@@3V?$shared_ptr@$CBV?$vector@V?$shared_ptr@UWeaponInfo@MphRead@@@std@@V?$allocator@V?$shared_ptr@UWeaponInfo@MphRead@@@std@@@2@@std@@@std@@B',
+            '?HandleMessage@EntityBase@Entities@MphRead@@UEAAXVMessageInfo@3@@Z'
+          )
+          $exactHits = Join-Path $diag "exact-decorated-symbol-hits.txt"
+          Remove-Item $exactHits -ErrorAction SilentlyContinue
+          $symbolFiles = Get-ChildItem -Path $diag -Filter "*-symbols.txt" -File -ErrorAction SilentlyContinue
+          foreach ($symbolFile in $symbolFiles) {
+            foreach ($needle in $exactNeedles) {
+              $matches = Select-String -Path $symbolFile.FullName -SimpleMatch $needle -ErrorAction SilentlyContinue
+              foreach ($match in $matches) {
+                Add-Content -Path $exactHits -Value "$($symbolFile.Name):$($match.LineNumber): $($match.Line)"
+              }
+            }
+          }
+          if (-not (Test-Path $exactHits)) {
+            Set-Content -Path $exactHits -Value "No exact decorated definitions found in dumped fruity_prime direct objects."
+          }
+
+          $libraries = Get-ChildItem -Path $build -Recurse -File -Filter "MphRead.Native.lib" -ErrorAction SilentlyContinue |
+            Sort-Object FullName
+          $libraryPathFile = Join-Path $diag "mphread-native-library-paths.txt"
+          if ($libraries.Count -eq 0) {
+            Set-Content -Path $libraryPathFile -Value "MphRead.Native.lib not found."
+          } else {
+            $libraries | ForEach-Object { $_.FullName } | Set-Content -Path $libraryPathFile
+            if ($dumpbin) {
+              $dumpbinPath = if ($dumpbin.Path) { $dumpbin.Path } else { $dumpbin.FullName }
+              $index = 0
+              foreach ($lib in $libraries) {
+                & $dumpbinPath /linkermember:1 $lib.FullName 2>&1 |
+                  Set-Content -Path (Join-Path $diag ("MphRead.Native.{0:D2}.linkermember1.txt" -f $index))
+                & $dumpbinPath /linkermember:2 $lib.FullName 2>&1 |
+                  Set-Content -Path (Join-Path $diag ("MphRead.Native.{0:D2}.linkermember2.txt" -f $index))
+                $index++
+              }
+            }
+          }
+
+          $vcxproj = Join-Path $build "fruity_prime.vcxproj"
+          if (Test-Path $vcxproj) {
+            Copy-Item $vcxproj (Join-Path $diag "fruity_prime.vcxproj") -Force
+          }
+
+          $fruityConfigDir = Join-Path $build "fruity_prime.dir/RelWithDebInfo"
+          if (Test-Path $fruityConfigDir) {
+            Get-ChildItem -Path $fruityConfigDir -Recurse -File -Filter "*.tlog" -ErrorAction SilentlyContinue |
+              ForEach-Object {
+                $relative = $_.FullName.Substring($fruityConfigDir.Length).TrimStart('\','/')
+                $dest = Join-Path (Join-Path $diag "fruity_prime-tlogs") $relative
+                New-Item -ItemType Directory -Force (Split-Path $dest -Parent) | Out-Null
+                Copy-Item $_.FullName $dest -Force
+              }
+          }
+
+      - name: Upload MSVC parity linker diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-parity-msvc-link-diagnostics-${{ github.sha }}
+          path: golden-parity-msvc-diagnostics
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Propagate real fruity_prime build result
+        if: always()
+        shell: pwsh
+        run: |
+          $exitCodePath = Join-Path $env:GITHUB_WORKSPACE "golden-parity-msvc-diagnostics/fruity_prime-build-exit-code.txt"
+          if (-not (Test-Path $exitCodePath)) {
+            throw "real fruity_prime build exit code was not captured"
+          }
+          $code = [int](Get-Content $exitCodePath -Raw)
+          if ($code -ne 0) {
+            Write-Error "real fruity_prime build failed with exit code $code after diagnostics upload"
+            exit $code
+          }

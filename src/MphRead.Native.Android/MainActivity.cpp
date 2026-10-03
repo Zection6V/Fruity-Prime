@@ -1,6 +1,8 @@
+#include "AndroidQuick.hpp"
 #include "MainActivity.hpp"
 
 #include "AndroidConsole.hpp"
+#include "AndroidGlContextGate.hpp"
 #include "AndroidHunterShot.hpp"
 #include "AndroidLogShare.hpp"
 #include "AndroidMaps.hpp"
@@ -18,10 +20,6 @@
 #include "../MphRead.Native/Mods/Input/GamepadInput.hpp"
 #include "../MphRead.Native/Mods/Input/InputSourceTracker.hpp"
 #include "../MphRead.Native/Mods/Input/GamepadUiRouter.hpp"
-#include "../MphRead.Native/Mods/Launcher/Gui/Deck.hpp"
-#include "../MphRead.Native/Mods/Launcher/Gui/EndPanelView.hpp"
-#include "../MphRead.Native/Mods/Launcher/Gui/MovingBackdrop.hpp"
-#include "../MphRead.Native/Mods/Launcher/Gui/StartScreen.hpp"
 #include "../MphRead.Native/Mods/Launcher/Portable/GameFiles.hpp"
 #include "../MphRead.Native/Mods/Launcher/Portable/LauncherPrefs.hpp"
 #include "../MphRead.Native/Mods/LogShare.hpp"
@@ -245,120 +243,12 @@ namespace
         return context;
     }
 
-    class AndroidAppOwnerBridge final : public MphRead::Droid::AndroidAppOwner
-    {
-    public:
-        void AddUnhandledExceptionRaiser(
-            MphRead::Droid::AndroidApp& application,
-            MphRead::Droid::AndroidUnhandledExceptionHandler handler
-        ) override
-        {
-            MphRead::Droid::GetMainActivityOwner()
-                .AddUnhandledExceptionRaiser(application, std::move(handler));
-        }
-
-        void AddFluentTheme(
-            MphRead::Droid::AndroidApp& application
-        ) override
-        {
-            MphRead::Droid::GetMainActivityOwner().AddFluentTheme(application);
-        }
-
-        void SetRequestedThemeVariantDark(
-            MphRead::Droid::AndroidApp& application
-        ) override
-        {
-            MphRead::Droid::GetMainActivityOwner()
-                .SetRequestedThemeVariantDark(application);
-        }
-
-        void BaseInitialize(
-            MphRead::Droid::AndroidApp& application
-        ) override
-        {
-            MphRead::Droid::GetMainActivityOwner().BaseInitialize(application);
-        }
-
-        [[nodiscard]] MphRead::Droid::AndroidActivityLifetime
-            ActivityApplicationLifetime(
-                MphRead::Droid::AndroidApp& application
-            ) override
-        {
-            return MphRead::Droid::GetMainActivityOwner()
-                .ActivityApplicationLifetime(application);
-        }
-
-        void SetActivityMainViewFactory(
-            const MphRead::Droid::AndroidActivityLifetime& lifetime,
-            MphRead::Droid::AndroidMainViewFactory factory
-        ) override
-        {
-            MphRead::Droid::GetMainActivityOwner()
-                .SetActivityMainViewFactory(lifetime, std::move(factory));
-        }
-
-        [[nodiscard]] MphRead::Droid::AndroidSingleViewLifetime
-            SingleViewApplicationLifetime(
-                MphRead::Droid::AndroidApp& application
-            ) override
-        {
-            return MphRead::Droid::GetMainActivityOwner()
-                .SingleViewApplicationLifetime(application);
-        }
-
-        void SetSingleViewMainView(
-            const MphRead::Droid::AndroidSingleViewLifetime& lifetime,
-            MphRead::NativeRuntime::Avalonia::Controls::ControlPtr mainView
-        ) override
-        {
-            MphRead::Droid::GetMainActivityOwner().SetSingleViewMainView(
-                lifetime,
-                std::move(mainView)
-            );
-        }
-
-        void BaseOnFrameworkInitializationCompleted(
-            MphRead::Droid::AndroidApp& application
-        ) override
-        {
-            MphRead::Droid::GetMainActivityOwner()
-                .BaseOnFrameworkInitializationCompleted(application);
-        }
-
-        void FinishMainActivityIfPresent() override
-        {
-            if (MphRead::Droid::MainActivity* activity =
-                    MphRead::Droid::MainActivity::Instance();
-                activity != nullptr)
-            {
-                activity->Finish();
-            }
-        }
-
-        void StartMatchIfMainActivityPresent(
-            const MphRead::Mods::Launcher::LaunchPlan& plan
-        ) override
-        {
-            if (MphRead::Droid::MainActivity* activity =
-                    MphRead::Droid::MainActivity::Instance();
-                activity != nullptr)
-            {
-                activity->StartMatch(plan);
-            }
-        }
-    };
 
 }
 
 namespace MphRead::Droid
 {
     std::atomic<MainActivity*> MainActivity::_instance{nullptr};
-
-    AndroidAppOwner& GetAndroidAppOwner() noexcept
-    {
-        static AndroidAppOwnerBridge owner;
-        return owner;
-    }
 
     MainActivity::MainActivity(JNIEnv* env, jobject activity)
     {
@@ -467,9 +357,7 @@ namespace MphRead::Droid
         (void)AndroidHunterShot::Install();
         MphRead::Mods::ScreenCapture::PngWriter(AndroidPng::Write);
 
-        MainActivityAppBuilderRef result =
-            owner.BaseCustomizeAppBuilder(*this, builder);
-        return owner.WithInterFont(result);
+        return builder;
     }
 
     std::string MainActivity::ChooseRoot()
@@ -599,7 +487,7 @@ namespace MphRead::Droid
 
         owner.RunOnUiThread([this]()
         {
-            MphRead::Mods::Launcher::Gui::MovingBackdrop::Suspended(true);
+            AndroidApp::SuspendBackdrop(true);
             GetMainActivityOwner().AddKeepScreenOn(*this);
         });
 
@@ -694,8 +582,7 @@ namespace MphRead::Droid
                 {
                     if (!InMatch())
                     {
-                        MphRead::Mods::Launcher::Gui::MovingBackdrop::
-                            Suspended(false);
+                        AndroidApp::SuspendBackdrop(false);
                         GetMainActivityOwner()
                             .ClearKeepScreenOn(*this);
                     }
@@ -732,6 +619,11 @@ namespace MphRead::Droid
         {
             try
             {
+                // A persistent hunter-preview worker may still own its
+                // offscreen context. Retire it before taking the global GLES
+                // lease for room-preview rendering.
+                AndroidHunterShot::RetireCurrent();
+                AndroidGlContextLease glContextLease;
                 std::shared_ptr<OffscreenGl> gl =
                     OffscreenGl::Create(PreviewWidth, PreviewHeight);
 
@@ -792,6 +684,19 @@ namespace MphRead::Droid
 
         _renderingHere.store(false, std::memory_order_release);
         _stopPreviews.store(false, std::memory_order_release);
+        // Match start/cancel/end are UI-thread state transitions. Decide
+        // whether hunter previews may resume on that same thread so thumbnail
+        // completion cannot race StartMatch() and clear a newly asserted
+        // retirement barrier.
+        GetMainActivityOwner().RunOnUiThread(
+            [this]()
+            {
+                if (!_pending && !InMatch())
+                {
+                    AndroidHunterShot::ResumeCurrent();
+                }
+            }
+        );
 
         if (escaped)
         {
@@ -1065,6 +970,14 @@ namespace MphRead::Droid
         owner.BaseOnDestroy(*this);
     }
 
+    void MainActivity::ShowLauncher(bool visible)
+    {
+        if (!_launcherView) return;
+        auto& owner = GetMainActivityOwner();
+        if (visible) owner.SetViewVisible(_launcherView);
+        else owner.SetViewGone(_launcherView);
+    }
+
     void MainActivity::OnBackPressed()
     {
         if (InMatch())
@@ -1079,7 +992,7 @@ namespace MphRead::Droid
             return;
         }
 
-        if (std::shared_ptr<MphRead::Mods::Launcher::Gui::StartScreen> home =
+        if (std::shared_ptr<AndroidLauncherPage> home =
                 AndroidApp::Home();
             home && home->GoBack())
         {
@@ -1094,7 +1007,7 @@ namespace MphRead::Droid
     )
     {
         if (std::shared_ptr<
-                MphRead::Mods::Launcher::Gui::StartScreen> home =
+                AndroidLauncherPage> home =
                 AndroidApp::Home();
             home)
         {
@@ -1308,6 +1221,7 @@ namespace MphRead::Droid
         _pending.reset();
         HideNotice();
         _controls.ReleaseEverything();
+        AndroidHunterShot::ResumeCurrent();
 
         MainActivityOwner& owner = GetMainActivityOwner();
         if (_launcherView)
@@ -1317,16 +1231,14 @@ namespace MphRead::Droid
         }
 
         if (std::shared_ptr<
-                MphRead::Mods::Launcher::Gui::StartScreen> home =
+                AndroidLauncherPage> home =
                 AndroidApp::Home();
             home)
         {
-            MphRead::Mods::Launcher::Gui::Deck::Asleep(false);
             home->Reset();
         }
         else
         {
-            MphRead::Mods::Launcher::Gui::Deck::Asleep(false);
         }
 
         owner.ClearKeepScreenOn(*this);
@@ -1358,8 +1270,7 @@ namespace MphRead::Droid
             MphRead::Mods::Input::GamepadContexts::MenuVisible(false);
         }
 
-        MphRead::Mods::Launcher::Gui::MovingBackdrop::Suspended(true);
-        MphRead::Mods::Launcher::Gui::Deck::Asleep(true);
+        AndroidApp::SuspendBackdrop(true);
 
         if (note.has_value())
         {
@@ -1624,12 +1535,10 @@ namespace MphRead::Droid
                 const MainActivitySize size = owner.ViewSize(gameView);
                 if (size.Width > 0 && size.Height > 0)
                 {
-                    surface->Resize(size.Width, size.Height);
-                    _endPanel = std::make_shared<
-                        MphRead::Mods::Launcher::Gui::EndPanelView>();
+                    _endPanel = true;
                     MphRead::Mods::EndScreen::PanelUp(true);
-                    MphRead::Mods::Launcher::Gui::Deck::Asleep(false);
-                    surface->Show(_endPanel);
+                    surface->ShowEnd();
+                    ShowLauncher(true);
                     _controls.ReleaseEverything();
                     if (_overlay)
                     {
@@ -1641,17 +1550,6 @@ namespace MphRead::Droid
         else if (!want && _endPanel)
         {
             HideEndPanel();
-        }
-        else if (_endPanel)
-        {
-            _endPanel->Refresh();
-        }
-
-        if (std::shared_ptr<AndroidUiSurface> surface =
-                AndroidUiSurface::Current();
-            surface && surface->Visible())
-        {
-            surface->Tick();
         }
 
         if (_endPanelTickScheduled && _content)
@@ -1674,14 +1572,14 @@ namespace MphRead::Droid
             return;
         }
 
-        _endPanel.reset();
+        _endPanel = false;
         MphRead::Mods::EndScreen::PanelUp(false);
-        MphRead::Mods::Launcher::Gui::Deck::Asleep(InMatch());
         if (std::shared_ptr<AndroidUiSurface> surface =
                 AndroidUiSurface::Current();
             surface)
         {
             surface->Hide();
+            ShowLauncher(false);
         }
         _controls.ReleaseEverything();
         if (_overlay)
@@ -1722,12 +1620,11 @@ namespace MphRead::Droid
             owner.SetViewVisible(_launcherView);
             MphRead::Mods::Input::GamepadContexts::MenuVisible(true);
         }
-        MphRead::Mods::Launcher::Gui::Deck::Asleep(false);
 
         GoImmersive(true);
 
         if (std::shared_ptr<
-                MphRead::Mods::Launcher::Gui::StartScreen> home =
+                AndroidLauncherPage> home =
                 AndroidApp::Home();
             home)
         {
@@ -1763,7 +1660,6 @@ namespace MphRead::Droid
             owner.SetViewGone(_launcherView);
             MphRead::Mods::Input::GamepadContexts::MenuVisible(false);
         }
-        MphRead::Mods::Launcher::Gui::Deck::Asleep(true);
         if (MainActivityObjectRef gameView = LoadGameView();
             gameView)
         {
@@ -1818,6 +1714,12 @@ namespace MphRead::Droid
             StoreGameView({});
         }
 
+        // GameView may still be completing teardown asynchronously, but its
+        // AndroidGlContextLease remains held until that is done. Resuming here
+        // only permits launcher workers to queue; they cannot enter GlEs until
+        // the game context releases the lease.
+        AndroidHunterShot::ResumeCurrent();
+
         _controls.ReleaseEverything();
         _controls.SetSpectator(false, false);
 
@@ -1826,9 +1728,7 @@ namespace MphRead::Droid
             owner.SetViewVisible(_launcherView);
             MphRead::Mods::Input::GamepadContexts::MenuVisible(true);
         }
-
-        MphRead::Mods::Launcher::Gui::Deck::Asleep(false);
-        MphRead::Mods::Launcher::Gui::MovingBackdrop::Suspended(
+        AndroidApp::SuspendBackdrop(
             _renderingPreviews.load(std::memory_order_acquire)
         );
 
@@ -1836,7 +1736,7 @@ namespace MphRead::Droid
         {
             MphRead::Mods::Network::NetSession::ResetMatchState();
             if (std::shared_ptr<
-                    MphRead::Mods::Launcher::Gui::StartScreen> home =
+                    AndroidLauncherPage> home =
                     AndroidApp::Home();
                 home)
             {
@@ -1848,7 +1748,7 @@ namespace MphRead::Droid
             MphRead::Mods::Network::NetSession::Stop();
             MphRead::Mods::Network::NetHostSession::Stop();
             if (std::shared_ptr<
-                    MphRead::Mods::Launcher::Gui::StartScreen> home =
+                    AndroidLauncherPage> home =
                     AndroidApp::Home();
                 home)
             {

@@ -67,8 +67,7 @@ namespace MphRead::Mods::Diagnostics
         if (Runtime::IsMacOS())
         {
             for (const std::string_view library : {
-                    "libopenal.1.dylib", "libglfw.3.dylib", "libSkiaSharp.dylib",
-                    "libAvaloniaNative.dylib", "libminiaudio.dylib"})
+                    "libopenal.1.dylib", "libglfw.3.dylib", "libminiaudio.dylib"})
             {
                 appendLine("Native: " + Runtime::PathCombine(
                     Platform::AppPaths::ExecutableDirectory(), library));
@@ -94,10 +93,6 @@ namespace MphRead::Mods::Diagnostics
             else if (library == "libglfw.3.dylib")
             {
                 library = Runtime::IsWindows() ? "glfw3.dll" : "libglfw.so.3";
-            }
-            else if (library == "libSkiaSharp.dylib")
-            {
-                library = Runtime::IsWindows() ? "libSkiaSharp.dll" : "libSkiaSharp.so";
             }
             else if (library == "libminiaudio.dylib")
             {
@@ -130,10 +125,6 @@ namespace MphRead::Mods::Diagnostics
             else if (library == "libglfw.3.dylib")
             {
                 library = Runtime::IsWindows() ? "glfw3.dll" : "libglfw.so.3";
-            }
-            else if (library == "libSkiaSharp.dylib")
-            {
-                library = Runtime::IsWindows() ? "libSkiaSharp.dll" : "libSkiaSharp.so";
             }
             else if (library == "libminiaudio.dylib")
             {

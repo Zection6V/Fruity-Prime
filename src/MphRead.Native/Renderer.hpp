@@ -4,21 +4,28 @@
 #include "Formats/Types.hpp"
 #include "Metadata/Metadata.hpp"
 #include "Selection.hpp"
-#include "NativeRuntime/OpenTK/GL.hpp"
+#include "NativeRuntime/OpenTK/Mathematics.hpp"
+#include "NativeRuntime/Rhi/GraphicsDevice.hpp"
+#include "NativeRuntime/Rhi/SceneShaders.hpp"
 #include "NativeRuntime/System/Buffers.hpp"
+#include "RendererGpuMesh.hpp"
 #include "NativeRuntime/System/Runtime.hpp"
+
+namespace MphRead::Mods::Diagnostics { class FramePerformance; }
 
 #include <array>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <exception>
 #include <functional>
 #include <iterator>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <queue>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -225,6 +232,29 @@ namespace MphRead
 #undef MPHREAD_HAS_STD_JTHREAD
 
     class Scene;
+
+    class Model;
+    // Model textures are reconstructed from the original asset data, without
+    // retaining a second expanded pixel image while playing. The original
+    // model must live as long as its scene-owned textures, even when the
+    // uploading entity or mesh cache has already released it.
+    struct SceneModelTextureSource
+    {
+        std::shared_ptr<MphRead::Model> Model{};
+        std::int32_t TextureId = 0;
+        std::int32_t PaletteId = 0;
+        std::int32_t RecolorId = 0;
+    };
+    // HUD/dynamic uploads whose caller supplies temporary pixels still need
+    // recovery data. This is not a CPU rendering path or GPU readback.
+    struct SceneTextureCopy
+    {
+        std::int32_t Width = 0;
+        std::int32_t Height = 0;
+        NativeRuntime::Rhi::TextureFormat Format{};
+        bool Owned = false;
+        std::vector<std::uint8_t> Pixels{};
+    };
     class RenderWindow;
     class TextureMap;
     enum class Movie : std::int32_t;
@@ -237,7 +267,7 @@ namespace MphRead
     class Mesh;
     namespace Formats { struct CollisionResult; }
     namespace Formats::Collision { class EntityCollision; }
-    class ShaderLocations;
+    namespace NativeRuntime::Rhi { class ShaderConstantSink; }
     namespace Hud { class LayerInfo; class HudObjectInstance; }
     class Effect;
     class EffectElement;
@@ -250,6 +280,7 @@ namespace MphRead
     }
     class LightInfo;
     class Node;
+    namespace NativeRuntime::Rhi { class Swapchain; enum class SceneBackendRequest : std::uint8_t; }
 
     namespace Entities
     {
@@ -343,7 +374,7 @@ namespace MphRead
         inline constexpr Key F1Key = static_cast<Key>(290);
         inline constexpr Key F2Key = static_cast<Key>(291);
         enum class CursorState : std::int32_t { Normal, Grabbed };
-        enum class VSyncMode : std::int32_t { Off, On };
+        enum class GraphicsWindowMode : std::uint8_t { OpenGL, NoApi };
 
         class GLFWException final : public std::runtime_error
         {
@@ -385,6 +416,7 @@ namespace MphRead
             ContextFlags Flags = ContextFlags::Default;
             std::int32_t ApiMajor = 3;
             std::int32_t ApiMinor = 2;
+            GraphicsWindowMode GraphicsMode = GraphicsWindowMode::OpenGL;
         };
 
         struct WindowIconImage final
@@ -407,6 +439,9 @@ namespace MphRead
         public:
             virtual ~WindowEvents() = default;
             virtual void OnLoad() {}
+            [[nodiscard]] virtual bool BeforeFrame() { return true; }
+            virtual bool CanSampleInputWhileWaiting() const { return true; }
+            virtual void OnInputSample() {}
             virtual void OnRenderFrame(const FrameEventArgs& args) { (void)args; }
             virtual void OnResize(const ResizeEventArgs& e) { (void)e; }
             virtual void OnMove(const WindowPositionEventArgs& e) { (void)e; }
@@ -453,13 +488,16 @@ namespace MphRead
             virtual void Title(std::string value) = 0;
             virtual void MinimumSize(OpenTK::Mathematics::Vector2i value) = 0;
             virtual void Cursor(RendererPlatform::CursorState value) = 0;
-            virtual void VSync(RendererPlatform::VSyncMode value) = 0;
             virtual void UpdateFrequency(double value) = 0;
+            virtual void PresentationTiming(NativeRuntime::Rhi::PresentMode, std::int32_t,
+                NativeRuntime::Rhi::PacingAuthority) {}
+            virtual void PresentationAccepted() {}
+            virtual void PresentationUnavailable() {}
             virtual void Visible(bool value) = 0;
             virtual void SetIcon(const WindowIcon& icon) = 0;
             [[nodiscard]] virtual void* NativeHandle() const = 0;
+            [[nodiscard]] virtual GraphicsWindowMode GraphicsMode() const noexcept = 0;
             virtual void Close() = 0;
-            virtual void SwapBuffers() = 0;
             virtual void BaseOnClosing() = 0;
             virtual void BaseOnLoad() = 0;
             virtual void BaseOnRenderFrame(const FrameEventArgs& args) = 0;
@@ -489,6 +527,7 @@ namespace MphRead
             // Monitors.GetMonitors(), each one's ClientArea.
             [[nodiscard]] virtual std::vector<MonitorArea> MonitorClientAreas() const = 0;
             [[nodiscard]] virtual WindowStateValue WindowState() const = 0;
+            virtual void WindowStateMinimized() = 0;
             virtual void WindowStateMaximized() = 0;
             virtual void WindowStateNormal() = 0;
             virtual void Floating(bool value) = 0;
@@ -501,6 +540,11 @@ namespace MphRead
         // NativeWindow.ProcessEvents(0): the pending window messages, drained
         // without waiting.
         void ProcessEvents();
+        // The OpenGL context current on this thread, as the window toolkit
+        // names it (a GLFWwindow, a QOpenGLContext), or null; and making one
+        // of those current again. The OpenGL RHI keys its sessions on these.
+        [[nodiscard]] void* CurrentGlContext() noexcept;
+        void MakeGlContextCurrent(void* context) noexcept;
 
         [[nodiscard]] std::shared_ptr<Window> CreateWindow(const WindowSettings& settings);
         [[nodiscard]] OpenTK::Mathematics::Vector2i WorkAreaForWindow(Window& window);
@@ -613,6 +657,21 @@ namespace MphRead
             std::optional<OpenTK::Mathematics::Vector3> position = std::nullopt);
         void QueueMovie(std::int32_t movieId);
         void Run();
+        // Switch the renderer without ending anything: the window's loop
+        // stops after this frame, the window is remade on the other backend
+        // and the match (or the launcher) carries on in it.
+        void RequestRendererSwitch(NativeRuntime::Rhi::SceneBackendRequest request);
+        // Called around a switch by whoever owns state on the old device.
+        inline static std::function<void()> BeforeRendererSwitch{};
+        inline static std::function<void(RenderWindow&)> AfterRendererSwitch{};
+        // Diagnostics observe the exact transition, outside simulation: before
+        // any GPU release (true), and after the complete rebuild (false).
+        inline static std::function<void(RenderWindow&, bool)> ObserveRendererSwitch{};
+        enum class RendererSwitchStage : std::uint8_t { BeforeWindow, Presentation, Resources, ReleasedResources, FinalRelease };
+        // Diagnostic checkpoints include partial replacement resources. A
+        // failure reporter may replace the modal dialog in a scripted run.
+        inline static std::function<void(RenderWindow&, RendererSwitchStage)> ObserveRendererSwitchStage{};
+        inline static std::function<void(std::exception_ptr, bool)> ReportRendererSwitchFailure{};
 
         // GameWindow's own window properties, which the C# RenderWindow has by
         // inheriting it.
@@ -625,6 +684,7 @@ namespace MphRead
         [[nodiscard]] RendererPlatform::MonitorArea CurrentMonitorClientArea() const;
         [[nodiscard]] std::vector<RendererPlatform::MonitorArea> MonitorClientAreas() const;
         [[nodiscard]] RendererPlatform::WindowStateValue WindowState() const;
+        void WindowStateMinimized();
         void WindowStateMaximized();
         void WindowStateNormal();
         void Floating(bool value);
@@ -658,17 +718,31 @@ namespace MphRead
         [[nodiscard]] std::pair<double, double> PointerPixels(double x, double y) const;
         void FitToScreen();
         void ApplyFrameRateSettings();
+        // For what the window draws with no scene: the lobby's cleared frame,
+        // the viewport after a resize.
+        [[nodiscard]] NativeRuntime::Rhi::CommandList& WindowCommands();
+        void SwitchRenderer(NativeRuntime::Rhi::SceneBackendRequest request);
+        void CreatePresentation();
+        std::optional<NativeRuntime::Rhi::SceneBackendRequest> _rendererSwitch{};
 
         static std::function<void(std::int32_t, std::string)> _glfwErrorCallback;
         static constexpr OpenTK::Mathematics::Vector2i _minimumSize{1024, 720};
         std::shared_ptr<RendererPlatform::Window> _window{};
+        std::unique_ptr<NativeRuntime::Rhi::Swapchain> _swapchain{};
+        std::unique_ptr<NativeRuntime::Rhi::CommandList> _windowCommands{};
+        std::unique_ptr<MphRead::Mods::Diagnostics::FramePerformance> _performance{};
         std::shared_ptr<MphRead::Scene> _scene{};
         bool _shell = false;
         bool _sceneLoaded = false;
         bool _startedHidden = true;
         std::int32_t _applyStartupIn = 0;
         bool _sceneReady = false;
-        std::int32_t _appliedFrameRateCap = -1;
+        std::int32_t _appliedFrameRateCap = -2;
+        std::optional<NativeRuntime::Rhi::LowLatencyState> _reportedLatency;
+        std::uint64_t _presentationMetricFrames = 0;
+        bool BeforeFrame() override;
+        bool CanSampleInputWhileWaiting() const override;
+        void OnInputSample() override;
     };
 
 }
@@ -742,7 +816,16 @@ public: \
     [[nodiscard]] bool IsNodeRefVisible(MphRead::Formats::Culling::NodeRef nodeRef); \
     [[nodiscard]] bool IsNodeRefAudible(MphRead::Formats::Culling::NodeRef nodeRef); \
     void OnLoad(); \
-    void UnloadGl(); \
+    /* Release every GPU resource the scene owns -- textures, targets, */ \
+    /* framebuffers, meshes, shaders -- and wait until the device has */ \
+    /* destroyed them, in the context the scene drew with. */ \
+    void ReleaseGpuResources(); \
+    void ReleaseGpuForSwitch(); \
+    void RebuildGpuAfterSwitch(const std::function<void()>& checkpoint = {}); \
+    void RebindInput(MphRead::RendererPlatform::KeyboardState& keyboard, MphRead::RendererPlatform::MouseState& mouse) noexcept; \
+    void KeepTextureCopy(std::int32_t bindingId, std::int32_t width, std::int32_t height, \
+        MphRead::NativeRuntime::Rhi::TextureFormat format, const void* pixels, bool owned); \
+    [[nodiscard]] bool IsRoomModel(const Model* model) const; \
     void InitEntity(const std::shared_ptr<MphRead::Entities::EntityBase>& entity); \
     [[nodiscard]] OpenTK::Mathematics::Vector2i RenderSize() const; \
     void OnResize(); \
@@ -762,14 +845,19 @@ public: \
     void OnDrawFrame(); \
     [[nodiscard]] OpenTK::Mathematics::Matrix4 GetPerspectiveMatrix(float fov) const; \
     [[nodiscard]] static MphRead::Formats::Culling::FrustumPlane SetBoundsIndices(OpenTK::Mathematics::Vector4 plane); \
-    [[nodiscard]] OpenTK::Graphics::OpenGL::FramebufferErrorCode FramebufferStatus() const noexcept; \
-    [[nodiscard]] OpenTK::Graphics::OpenGL::ErrorCode DrainGlError(); \
+    /* the backend's own code for the offscreen target's completeness (GL: 0x8CD5 complete) */ \
+    [[nodiscard]] std::int32_t FramebufferStatus() const noexcept; \
+    /* the first pending device error, as the backend's own code (0: none) */ \
+    [[nodiscard]] std::int32_t DrainGlError(); \
     [[nodiscard]] std::optional<std::vector<std::uint8_t>> ReadWindowBuffer(std::int32_t& width, std::int32_t& height); \
     [[nodiscard]] std::optional<std::vector<std::uint8_t>> ReadSceneTarget(std::int32_t& width, std::int32_t& height); \
     void AfterRenderFrame(); \
     [[nodiscard]] float FramesPerSecond() const noexcept; \
     [[nodiscard]] bool OnRenderFrame(); \
     void UnloadModel(const std::shared_ptr<MphRead::Model>& model); \
+    void BeginModelReloadDrawProbe(); \
+    [[nodiscard]] bool ModelReloadDrawProbePassed() const noexcept; \
+    [[nodiscard]] std::string ModelReloadDrawProbeStatus() const; \
     void StartCutscene(std::int32_t id); \
     void EndCutscene(bool resetFade = false); \
     void ResetFrameCount(); \
@@ -794,12 +882,14 @@ public: \
         std::shared_ptr<MphRead::Formats::Collision::EntityCollision> entCol = nullptr); \
     [[nodiscard]] std::int32_t CountElements(std::int32_t effectId); \
     void ClearEffects(); \
+    void BreakEffectCycles(); \
     void ClearNonPersistentEffects(); \
     [[nodiscard]] std::int64_t ModEffectParticles() const noexcept; \
     void AddRenderItem(const MphRead::Material& material, std::int32_t polygonId, float alphaScale, \
         OpenTK::Mathematics::Vector3 emission, const MphRead::LightInfo& lightInfo, \
         OpenTK::Mathematics::Matrix4 texcoordMatrix, OpenTK::Mathematics::Matrix4 transform, \
-        std::int32_t listId, std::int32_t matrixStackCount, const std::vector<float>& matrixStack, \
+        const std::shared_ptr<MphRead::Model>& model, const std::shared_ptr<MphRead::Mesh>& mesh, \
+        std::int32_t matrixStackCount, const std::vector<float>& matrixStack, \
         std::optional<OpenTK::Mathematics::Vector4> overrideColor, \
         std::optional<OpenTK::Mathematics::Vector4> paletteOverride, MphRead::SelectionType selectionType, \
         MphRead::BillboardMode billboardMode, float scaleFactor = 1.0F, \
@@ -907,9 +997,9 @@ private: \
     }; \
     void SetShaderFog(); \
     void InitShaders(); \
-    void GenerateLists(const std::shared_ptr<MphRead::Model>& model, bool isRoom); \
-    void DoDlist(const std::shared_ptr<MphRead::Model>& model, const MphRead::Mesh& mesh, \
-        std::int32_t textureWidth, std::int32_t textureHeight, bool texgen, bool isRoom); \
+    void GenerateGpuMeshes(const std::shared_ptr<MphRead::Model>& model, bool isRoom); \
+    void DrawGpuMesh(const std::shared_ptr<MphRead::Model>& model, const std::shared_ptr<MphRead::Mesh>& mesh); \
+    void UnloadModel(const std::shared_ptr<MphRead::Model>& model, bool removeReadCache); \
     void InitTextures(const std::shared_ptr<MphRead::Model>& model); \
     std::pair<std::int32_t, bool> BindTexture(const std::shared_ptr<MphRead::Model>& model, \
         std::int32_t textureId, std::int32_t paletteId, std::int32_t recolorId); \
@@ -920,7 +1010,43 @@ private: \
     void UpdateDepthAttachment(OpenTK::Mathematics::Vector2i target); \
     float MeasureDepthQuantum(); \
     void DrawCelOutline(); \
-    std::int32_t CelFrameBuffer(); \
+    [[nodiscard]] MphRead::NativeRuntime::Rhi::GraphicsDevice& Gpu(); \
+    [[nodiscard]] MphRead::NativeRuntime::Rhi::GraphicsPipelineDesc DescribeScenePass( \
+        MphRead::ScenePass pass) const; \
+    [[nodiscard]] const MphRead::NativeRuntime::Rhi::GraphicsPipeline& ScenePipeline( \
+        MphRead::ScenePass pass, MphRead::NativeRuntime::Rhi::CullMode cull, \
+        MphRead::NativeRuntime::Rhi::FillMode fill, std::int32_t lineWidth); \
+    void BeginScenePass(MphRead::ScenePass pass); \
+    [[nodiscard]] MphRead::NativeRuntime::Rhi::CommandList& Commands(); \
+    void CreateSceneTargets(OpenTK::Mathematics::Vector2i size); \
+    [[nodiscard]] MphRead::NativeRuntime::Rhi::RenderingInfo SceneRenderingInfo( \
+        std::array<MphRead::NativeRuntime::Rhi::RenderingColorAttachment, 1>& color, \
+        MphRead::NativeRuntime::Rhi::RenderingDepthStencilAttachment& depth) const; \
+    void BeginSceneRendering( \
+        MphRead::NativeRuntime::Rhi::LoadOp color = MphRead::NativeRuntime::Rhi::LoadOp::Load, \
+        MphRead::NativeRuntime::Rhi::LoadOp depth = MphRead::NativeRuntime::Rhi::LoadOp::Load, \
+        MphRead::NativeRuntime::Rhi::LoadOp stencil = MphRead::NativeRuntime::Rhi::LoadOp::Load, \
+        MphRead::NativeRuntime::Rhi::ClearColor clearColor = {}, \
+        MphRead::NativeRuntime::Rhi::Scissor area = {}); \
+    void BeginCelRendering(); \
+    void BeginWindowRendering( \
+        MphRead::NativeRuntime::Rhi::LoadOp color = MphRead::NativeRuntime::Rhi::LoadOp::Load, \
+        MphRead::NativeRuntime::Rhi::LoadOp depth = MphRead::NativeRuntime::Rhi::LoadOp::Load, \
+        MphRead::NativeRuntime::Rhi::ClearColor clearColor = {}, \
+        MphRead::NativeRuntime::Rhi::Scissor area = {}); \
+    [[nodiscard]] MphRead::NativeRuntime::Rhi::ClearColor SceneClearColor() const; \
+    [[nodiscard]] MphRead::NativeRuntime::Rhi::Texture* TextureFor(std::int32_t bindingId) const; \
+    [[nodiscard]] const MphRead::NativeRuntime::Rhi::Sampler& SamplerFor(bool linear, \
+        MphRead::RepeatMode s, MphRead::RepeatMode t); \
+    void BindSceneTexture(std::uint32_t slot, std::int32_t bindingId, \
+        const MphRead::NativeRuntime::Rhi::Sampler& sampler); \
+    void BindSceneTexture(std::uint32_t slot, const MphRead::NativeRuntime::Rhi::Texture& texture, \
+        const MphRead::NativeRuntime::Rhi::Sampler& sampler); \
+    void UnbindSceneTexture(std::uint32_t slot); \
+    [[nodiscard]] std::int32_t CreateOwnedTexture(std::int32_t width, std::int32_t height, \
+        MphRead::NativeRuntime::Rhi::TextureFormat format, const void* pixels); \
+    void WriteOwnedTexture(std::int32_t bindingId, std::int32_t width, std::int32_t height, \
+        MphRead::NativeRuntime::Rhi::TextureFormat format, const void* pixels); \
     void DrawCelQuad(OpenTK::Mathematics::Vector2i target, bool probe); \
     void CalibrateInk(OpenTK::Mathematics::Vector2i target); \
     void CountFrame(); \
@@ -949,10 +1075,18 @@ private: \
     void UseRoomLights(); \
     void UseLight1(OpenTK::Mathematics::Vector3 vector, OpenTK::Mathematics::Vector3 color); \
     void UseLight2(OpenTK::Mathematics::Vector3 vector, OpenTK::Mathematics::Vector3 color); \
+    void SetMatrixStack(const OpenTK::Mathematics::Matrix4& transform); \
+    void SetFrameMatrices(const OpenTK::Mathematics::Matrix4& view, const OpenTK::Mathematics::Matrix4& projection); \
     void UpdateFade(); \
     void QuitGame(bool enteringShip); \
     void EndFade(); \
     void RenderItem(const std::shared_ptr<MphRead::RenderItem>& item); \
+    void BeginTransient(MphRead::TransientPrimitiveTopology topology); \
+    void TransientVertex3(float x, float y, float z); \
+    void TransientVertex3(OpenTK::Mathematics::Vector3 vector); \
+    void TransientTexCoord3(float s, float t, float r); \
+    void TransientTexCoord3(OpenTK::Mathematics::Vector3 coord); \
+    void EndTransient(); \
     void RenderBox(const MphRead::ManagedArray<OpenTK::Mathematics::Vector3>& verts); \
     void RenderCylinder(const MphRead::ManagedArray<OpenTK::Mathematics::Vector3>& verts); \
     void RenderSphere(const MphRead::ManagedArray<OpenTK::Mathematics::Vector3>& verts); \
@@ -1032,14 +1166,26 @@ private: \
     bool _transformRoomNodes = false; \
     bool _outputCameraPos = false; \
     std::unordered_map<std::int32_t, std::shared_ptr<MphRead::TextureMap>> _texPalMap{}; \
-    std::unordered_set<std::int32_t> _ownedTextures{}; \
-    std::unordered_set<std::int32_t> _displayLists{}; \
-    std::vector<std::shared_ptr<MphRead::Model>> _displayListModels{}; \
-    std::int32_t _shaderProgramId = 0; \
-    std::int32_t _rttShaderProgramId = 0; \
-    std::int32_t _shiftShaderProgramId = 0; \
-    std::int32_t _celShaderProgramId = 0; \
-    std::shared_ptr<MphRead::ShaderLocations> _shaderLocations{}; \
+    std::unordered_map<std::int32_t, std::unique_ptr<MphRead::NativeRuntime::Rhi::Texture>> _ownedTextures{}; \
+    std::unordered_map<std::int32_t, MphRead::SceneTextureCopy> _textureCopies{}; \
+    std::unordered_map<std::int32_t, MphRead::SceneModelTextureSource> _modelTextureSources{}; \
+    MphRead::GpuMeshCache _gpuMeshCache{}; \
+    bool _modelReloadProbeRequested = false; \
+    bool _modelReloadProbeAwaitingRedraw = false; \
+    bool _modelReloadProbePassed = false; \
+    bool _modelReloadProbeFailed = false; \
+    std::uint64_t _modelReloadProbeReloadFrame = 0; \
+    std::weak_ptr<MphRead::Model> _modelReloadProbeModel{}; \
+    std::weak_ptr<MphRead::Mesh> _modelReloadProbeMesh{}; \
+    std::string _modelReloadProbeStatus{"inactive"}; \
+    std::shared_ptr<MphRead::TransientGeometryResource> _transientGeometry{}; \
+    std::vector<MphRead::TransientVertex> _transientVertices{}; \
+    MphRead::TransientPrimitiveTopology _transientTopology = MphRead::TransientPrimitiveTopology::Triangles; \
+    OpenTK::Mathematics::Vector3 _transientTexCoord{}; \
+    bool _transientHasTexCoords = false; \
+    std::unique_ptr<MphRead::NativeRuntime::Rhi::SceneShaderSet> _sceneShaders{}; \
+    inline static MphRead::NativeRuntime::Rhi::NullShaderConstantSink _noShaderConstants{}; \
+    MphRead::NativeRuntime::Rhi::ShaderConstantSink* _shaderConstants = &_noShaderConstants; \
     OpenTK::Mathematics::Vector3 _light1Vector{}; \
     OpenTK::Mathematics::Vector3 _light1Color{}; \
     OpenTK::Mathematics::Vector3 _light2Vector{}; \
@@ -1073,19 +1219,24 @@ private: \
     MphRead::RendererPlatform::MouseState* _mouseState = nullptr; \
     std::function<void(std::string)> _setTitle{}; \
     std::function<void()> _close{}; \
-    std::int32_t _frameBuffer = 0; \
-    std::int32_t _screenTexture = 0; \
-    std::int32_t _renderBuffer = 0; \
-    std::int32_t _celTexture = 0; \
-    std::int32_t _depthTexture = 0; \
+    MphRead::NativeRuntime::Rhi::GraphicsDevice* _gpu = nullptr; \
+    std::unique_ptr<MphRead::NativeRuntime::Rhi::CommandList> _commands{}; \
+    std::unique_ptr<MphRead::NativeRuntime::Rhi::Texture> _sceneColor{}; \
+    std::unique_ptr<MphRead::NativeRuntime::Rhi::TextureView> _sceneColorView{}; \
+    std::unique_ptr<MphRead::NativeRuntime::Rhi::Texture> _sceneDepthStencil{}; \
+    std::unique_ptr<MphRead::NativeRuntime::Rhi::TextureView> _sceneDepthStencilView{}; \
+    std::unique_ptr<MphRead::NativeRuntime::Rhi::Texture> _celColor{}; \
+    std::unique_ptr<MphRead::NativeRuntime::Rhi::Texture> _celDepth{}; \
+    std::unique_ptr<MphRead::NativeRuntime::Rhi::TextureView> _celDepthView{}; \
+    std::array<std::unique_ptr<MphRead::NativeRuntime::Rhi::Sampler>, 18> _samplers{}; \
     bool _depthTextureRefused = false; \
-    std::int32_t _celFrameBuffer = 0; \
-    std::int32_t _celFrameBufferColor = 0; \
+    MphRead::ScenePass _itemPass = MphRead::ScenePass::Opaque; \
+    bool _previewIntoWindow = false; \
+    std::unordered_map<std::uint32_t, std::unique_ptr<MphRead::NativeRuntime::Rhi::GraphicsPipeline>> _pipelines{}; \
     OpenTK::Mathematics::Vector2i _targetSize{}; \
     std::unordered_map<std::int32_t, OpenTK::Mathematics::Vector3> _flatColors{}; \
     inline static bool _breakNextFrame = false; \
-    OpenTK::Graphics::OpenGL::FramebufferErrorCode _framebufferStatus = \
-        OpenTK::Graphics::OpenGL::FramebufferErrorCode::FramebufferComplete; \
+    std::int32_t _framebufferStatus = 0x8CD5; \
     inline static bool _saidDepthSize = false; \
     float _claimedQuantum = 5.960464832810452E-8F; \
     float _depthQuantum = 5.960464832810452E-8F; \

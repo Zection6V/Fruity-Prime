@@ -1,9 +1,13 @@
 #include "GL.hpp"
 #include "../System/Enum.hpp"
+#include "../Rhi/OpenGL/OpenGlDevice.hpp"
+
+#include <algorithm>
 
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -40,19 +44,27 @@ namespace
     using PFN_ActiveTexture = void(APIENTRY*)(GLenum);
     using PFN_AttachShader = void(APIENTRY*)(GLuint, GLuint);
     using PFN_BindBuffer = void(APIENTRY*)(GLenum, GLuint);
+    using PFN_BufferData = void(APIENTRY*)(GLenum, GLsizeiptr, const void*, GLenum);
     using PFN_BindFramebuffer = void(APIENTRY*)(GLenum, GLuint);
     using PFN_BindRenderbuffer = void(APIENTRY*)(GLenum, GLuint);
     using PFN_CheckFramebufferStatus = GLenum(APIENTRY*)(GLenum);
     using PFN_CompileShader = void(APIENTRY*)(GLuint);
     using PFN_CreateProgram = GLuint(APIENTRY*)();
     using PFN_CreateShader = GLuint(APIENTRY*)(GLenum);
+    using PFN_DeleteBuffers = void(APIENTRY*)(GLsizei, const GLuint*);
     using PFN_DeleteFramebuffers = void(APIENTRY*)(GLsizei, const GLuint*);
+    using PFN_FenceSync = void*(APIENTRY*)(GLenum, GLbitfield);
+    using PFN_ClientWaitSync = GLenum(APIENTRY*)(void*, GLbitfield, std::uint64_t);
+    using PFN_DeleteSync = void(APIENTRY*)(void*);
     using PFN_DeleteProgram = void(APIENTRY*)(GLuint);
     using PFN_DeleteRenderbuffers = void(APIENTRY*)(GLsizei, const GLuint*);
     using PFN_DeleteShader = void(APIENTRY*)(GLuint);
     using PFN_DetachShader = void(APIENTRY*)(GLuint, GLuint);
+    using PFN_DisableVertexAttribArray = void(APIENTRY*)(GLuint);
+    using PFN_EnableVertexAttribArray = void(APIENTRY*)(GLuint);
     using PFN_FramebufferRenderbuffer = void(APIENTRY*)(GLenum, GLenum, GLenum, GLuint);
     using PFN_FramebufferTexture2D = void(APIENTRY*)(GLenum, GLenum, GLenum, GLuint, GLint);
+    using PFN_GenBuffers = void(APIENTRY*)(GLsizei, GLuint*);
     using PFN_GenFramebuffers = void(APIENTRY*)(GLsizei, GLuint*);
     using PFN_GenRenderbuffers = void(APIENTRY*)(GLsizei, GLuint*);
     using PFN_GetFramebufferAttachmentParameteriv
@@ -63,7 +75,8 @@ namespace
     using PFN_GetShaderInfoLog = void(APIENTRY*)(GLuint, GLsizei, GLsizei*, GLchar*);
     using PFN_GetUniformLocation = GLint(APIENTRY*)(GLuint, const GLchar*);
     using PFN_LinkProgram = void(APIENTRY*)(GLuint);
-    using PFN_MultiTexCoord2f = void(APIENTRY*)(GLenum, GLfloat, GLfloat);
+    using PFN_BindAttribLocation = void(APIENTRY*)(GLuint, GLuint, const GLchar*);
+    using PFN_VertexAttrib4f = void(APIENTRY*)(GLuint, GLfloat, GLfloat, GLfloat, GLfloat);
     using PFN_RenderbufferStorage = void(APIENTRY*)(GLenum, GLenum, GLsizei, GLsizei);
     using PFN_ShaderSource = void(APIENTRY*)(GLuint, GLsizei, const GLchar* const*, const GLint*);
     using PFN_Uniform1f = void(APIENTRY*)(GLint, GLfloat);
@@ -75,6 +88,8 @@ namespace
     using PFN_Uniform4i = void(APIENTRY*)(GLint, GLint, GLint, GLint, GLint);
     using PFN_UniformMatrix4fv = void(APIENTRY*)(GLint, GLsizei, GLboolean, const GLfloat*);
     using PFN_UseProgram = void(APIENTRY*)(GLuint);
+    using PFN_VertexAttribPointer
+        = void(APIENTRY*)(GLuint, GLint, GLenum, GLboolean, GLsizei, const void*);
     using PFN_DebugMessageCallback = void(APIENTRY*)(void*, const void*);
 
     [[nodiscard]] void* ResolveEntryPoint(const char* name)
@@ -98,6 +113,9 @@ namespace
         }
         return reinterpret_cast<void*>(::GetProcAddress(library, name));
 #else
+#if defined(__APPLE__)
+        return ::dlsym(RTLD_DEFAULT, name);
+#else
         static void* library = ::dlopen("libGL.so.1", RTLD_LAZY | RTLD_LOCAL);
         if (library == nullptr)
         {
@@ -108,6 +126,7 @@ namespace
             return nullptr;
         }
         return ::dlsym(library, name);
+#endif
 #endif
     }
 
@@ -124,19 +143,27 @@ namespace
     MPHREAD_GL_ENTRY(PFN_ActiveTexture, ActiveTexture)
     MPHREAD_GL_ENTRY(PFN_AttachShader, AttachShader)
     MPHREAD_GL_ENTRY(PFN_BindBuffer, BindBuffer)
+    MPHREAD_GL_ENTRY(PFN_BufferData, BufferData)
     MPHREAD_GL_ENTRY(PFN_BindFramebuffer, BindFramebuffer)
     MPHREAD_GL_ENTRY(PFN_BindRenderbuffer, BindRenderbuffer)
     MPHREAD_GL_ENTRY(PFN_CheckFramebufferStatus, CheckFramebufferStatus)
     MPHREAD_GL_ENTRY(PFN_CompileShader, CompileShader)
     MPHREAD_GL_ENTRY(PFN_CreateProgram, CreateProgram)
     MPHREAD_GL_ENTRY(PFN_CreateShader, CreateShader)
+    MPHREAD_GL_ENTRY(PFN_DeleteBuffers, DeleteBuffers)
     MPHREAD_GL_ENTRY(PFN_DeleteFramebuffers, DeleteFramebuffers)
+    MPHREAD_GL_ENTRY(PFN_FenceSync, FenceSync)
+    MPHREAD_GL_ENTRY(PFN_ClientWaitSync, ClientWaitSync)
+    MPHREAD_GL_ENTRY(PFN_DeleteSync, DeleteSync)
     MPHREAD_GL_ENTRY(PFN_DeleteProgram, DeleteProgram)
     MPHREAD_GL_ENTRY(PFN_DeleteRenderbuffers, DeleteRenderbuffers)
     MPHREAD_GL_ENTRY(PFN_DeleteShader, DeleteShader)
     MPHREAD_GL_ENTRY(PFN_DetachShader, DetachShader)
+    MPHREAD_GL_ENTRY(PFN_DisableVertexAttribArray, DisableVertexAttribArray)
+    MPHREAD_GL_ENTRY(PFN_EnableVertexAttribArray, EnableVertexAttribArray)
     MPHREAD_GL_ENTRY(PFN_FramebufferRenderbuffer, FramebufferRenderbuffer)
     MPHREAD_GL_ENTRY(PFN_FramebufferTexture2D, FramebufferTexture2D)
+    MPHREAD_GL_ENTRY(PFN_GenBuffers, GenBuffers)
     MPHREAD_GL_ENTRY(PFN_GenFramebuffers, GenFramebuffers)
     MPHREAD_GL_ENTRY(PFN_GenRenderbuffers, GenRenderbuffers)
     MPHREAD_GL_ENTRY(PFN_GetFramebufferAttachmentParameteriv, GetFramebufferAttachmentParameteriv)
@@ -146,7 +173,8 @@ namespace
     MPHREAD_GL_ENTRY(PFN_GetShaderInfoLog, GetShaderInfoLog)
     MPHREAD_GL_ENTRY(PFN_GetUniformLocation, GetUniformLocation)
     MPHREAD_GL_ENTRY(PFN_LinkProgram, LinkProgram)
-    MPHREAD_GL_ENTRY(PFN_MultiTexCoord2f, MultiTexCoord2f)
+    MPHREAD_GL_ENTRY(PFN_BindAttribLocation, BindAttribLocation)
+    MPHREAD_GL_ENTRY(PFN_VertexAttrib4f, VertexAttrib4f)
     MPHREAD_GL_ENTRY(PFN_RenderbufferStorage, RenderbufferStorage)
     MPHREAD_GL_ENTRY(PFN_ShaderSource, ShaderSource)
     MPHREAD_GL_ENTRY(PFN_Uniform1f, Uniform1f)
@@ -158,14 +186,49 @@ namespace
     MPHREAD_GL_ENTRY(PFN_Uniform4i, Uniform4i)
     MPHREAD_GL_ENTRY(PFN_UniformMatrix4fv, UniformMatrix4fv)
     MPHREAD_GL_ENTRY(PFN_UseProgram, UseProgram)
+    MPHREAD_GL_ENTRY(PFN_VertexAttribPointer, VertexAttribPointer)
     MPHREAD_GL_ENTRY(PFN_DebugMessageCallback, DebugMessageCallback)
 
 #undef MPHREAD_GL_ENTRY
+
+    namespace RhiGL = ::MphRead::NativeRuntime::Rhi::OpenGL;
+    using VertexSemantic = ::MphRead::NativeRuntime::Rhi::VertexSemantic;
+
+    void SetGenericCurrent(std::uint32_t location, float x, float y, float z, float w)
+    {
+        if (const auto fn = GetVertexAttrib4f()) fn(location, x, y, z, w);
+    }
+    void SetCurrent(VertexSemantic semantic, float x, float y, float z, float w)
+    {
+        RhiGL::SetCurrentAttribute(semantic, x, y, z, w);
+        SetGenericCurrent(::MphRead::NativeRuntime::Rhi::Location(
+            ::MphRead::NativeRuntime::Rhi::OpenGlDesktopLocations, semantic), x, y, z, w);
+    }
+    void SyncGenericCurrentValues()
+    {
+        // Array draws may invalidate native current values. Keep the scene's
+        // explicit terminal values in its context device, never in aliases.
+        for (const auto semantic : {VertexSemantic::Normal, VertexSemantic::Color,
+            VertexSemantic::TexCoord, VertexSemantic::TexCoord1})
+        {
+            const auto v = RhiGL::CurrentAttribute(semantic);
+            SetGenericCurrent(::MphRead::NativeRuntime::Rhi::Location(
+                ::MphRead::NativeRuntime::Rhi::OpenGlDesktopLocations, semantic), v[0], v[1], v[2], v[3]);
+        }
+    }
 
     template <typename T>
     [[nodiscard]] GLenum ToEnum(T value) noexcept
     {
         return static_cast<GLenum>(static_cast<std::int32_t>(value));
+    }
+}
+
+namespace OpenTK::Graphics::OpenGL
+{
+    void* GetEntryPoint(const char* name)
+    {
+        return ResolveEntryPoint(name);
     }
 }
 
@@ -192,17 +255,24 @@ namespace OpenTK::Graphics::OpenGL::GL
         }
     }
 
-    void Begin(PrimitiveType mode)
-    {
-        ::glBegin(ToEnum(mode));
-    }
-
     void BindBuffer(BufferTarget target, std::int32_t buffer)
     {
-        if (const auto fn = GetBindBuffer())
+        const auto fn = GetBindBuffer();
+        if (fn == nullptr)
         {
-            fn(ToEnum(target), static_cast<GLuint>(buffer));
+            throw std::runtime_error("glBindBuffer is unavailable.");
         }
+        fn(ToEnum(target), static_cast<GLuint>(buffer));
+    }
+
+    void BufferData(BufferTarget target, std::size_t size, const void* data, BufferUsageHint usage)
+    {
+        const auto fn = GetBufferData();
+        if (fn == nullptr)
+        {
+            throw std::runtime_error("glBufferData is unavailable.");
+        }
+        fn(ToEnum(target), static_cast<GLsizeiptr>(size), data, ToEnum(usage));
     }
 
     void BindFramebuffer(FramebufferTarget target, std::int32_t framebuffer)
@@ -229,11 +299,6 @@ namespace OpenTK::Graphics::OpenGL::GL
     void BlendFunc(BlendingFactor sfactor, BlendingFactor dfactor)
     {
         ::glBlendFunc(ToEnum(sfactor), ToEnum(dfactor));
-    }
-
-    void CallList(std::int32_t list)
-    {
-        ::glCallList(static_cast<GLuint>(list));
     }
 
     FramebufferErrorCode CheckFramebufferStatus(FramebufferTarget target)
@@ -268,17 +333,17 @@ namespace OpenTK::Graphics::OpenGL::GL
 
     void Color3(float red, float green, float blue)
     {
-        ::glColor3f(red, green, blue);
+        SetCurrent(VertexSemantic::Color, red, green, blue, 1.0F);
     }
 
     void Color3(::OpenTK::Mathematics::Vector3 color)
     {
-        ::glColor3f(color.X, color.Y, color.Z);
+        Color3(color.X, color.Y, color.Z);
     }
 
     void Color4(float red, float green, float blue, float alpha)
     {
-        ::glColor4f(red, green, blue, alpha);
+        SetCurrent(VertexSemantic::Color, red, green, blue, alpha);
     }
 
     void ColorMask(bool red, bool green, bool blue, bool alpha)
@@ -326,9 +391,19 @@ namespace OpenTK::Graphics::OpenGL::GL
         ::glCullFace(ToEnum(mode));
     }
 
-    void DeleteLists(std::int32_t list, std::int32_t range)
+    void DeleteBuffer(std::int32_t buffer)
     {
-        ::glDeleteLists(static_cast<GLuint>(list), range);
+        if (buffer == 0)
+        {
+            return;
+        }
+        const auto fn = GetDeleteBuffers();
+        if (fn == nullptr)
+        {
+            throw std::runtime_error("glDeleteBuffers is unavailable.");
+        }
+        const GLuint value = static_cast<GLuint>(buffer);
+        fn(1, &value);
     }
 
     void DeleteProgram(std::int32_t program)
@@ -376,9 +451,21 @@ namespace OpenTK::Graphics::OpenGL::GL
         ::glDisable(ToEnum(cap));
     }
 
+    void DisableVertexAttribArray(std::uint32_t index)
+    {
+        const auto fn = GetDisableVertexAttribArray();
+        if (!fn) throw std::runtime_error("glDisableVertexAttribArray is unavailable.");
+        fn(index);
+    }
+
     void DrawBuffer(DrawBufferMode mode)
     {
         ::glDrawBuffer(ToEnum(mode));
+    }
+
+    void DrawElements(PrimitiveType mode, std::int32_t count, DrawElementsType type, const void* indices)
+    {
+        ::glDrawElements(ToEnum(mode), static_cast<GLsizei>(count), ToEnum(type), indices);
     }
 
     void Enable(EnableCap cap)
@@ -386,14 +473,11 @@ namespace OpenTK::Graphics::OpenGL::GL
         ::glEnable(ToEnum(cap));
     }
 
-    void End()
+    void EnableVertexAttribArray(std::uint32_t index)
     {
-        ::glEnd();
-    }
-
-    void EndList()
-    {
-        ::glEndList();
+        const auto fn = GetEnableVertexAttribArray();
+        if (!fn) throw std::runtime_error("glEnableVertexAttribArray is unavailable.");
+        fn(index);
     }
 
     void FramebufferRenderbuffer(FramebufferTarget target, FramebufferAttachment attachment,
@@ -425,6 +509,48 @@ namespace OpenTK::Graphics::OpenGL::GL
         }
     }
 
+    void* FenceSync()
+    {
+        const auto fn = GetFenceSync();
+        return fn != nullptr ? fn(0x9117 /* GL_SYNC_GPU_COMMANDS_COMPLETE */, 0) : nullptr;
+    }
+
+    bool ClientWaitSync(void* sync, std::uint64_t timeoutNanoseconds)
+    {
+        const auto fn = GetClientWaitSync();
+        if (sync == nullptr || fn == nullptr)
+        {
+            return true;
+        }
+        const GLenum status = fn(sync, 0x00000001 /* GL_SYNC_FLUSH_COMMANDS_BIT */, timeoutNanoseconds);
+        return status == 0x911A /* GL_ALREADY_SIGNALED */ || status == 0x911C /* GL_CONDITION_SATISFIED */;
+    }
+
+    void DeleteSync(void* sync)
+    {
+        if (const auto fn = GetDeleteSync(); fn != nullptr && sync != nullptr)
+        {
+            fn(sync);
+        }
+    }
+
+    void Finish()
+    {
+        ::glFinish();
+    }
+
+    std::int32_t GenBuffer()
+    {
+        const auto fn = GetGenBuffers();
+        if (fn == nullptr)
+        {
+            throw std::runtime_error("glGenBuffers is unavailable.");
+        }
+        GLuint value = 0;
+        fn(1, &value);
+        return static_cast<std::int32_t>(value);
+    }
+
     std::int32_t GenFramebuffer()
     {
         GLuint name = 0;
@@ -433,11 +559,6 @@ namespace OpenTK::Graphics::OpenGL::GL
             fn(1, &name);
         }
         return static_cast<std::int32_t>(name);
-    }
-
-    std::int32_t GenLists(std::int32_t range)
-    {
-        return static_cast<std::int32_t>(::glGenLists(range));
     }
 
     std::int32_t GenRenderbuffer()
@@ -486,6 +607,19 @@ namespace OpenTK::Graphics::OpenGL::GL
     ErrorCode GetError()
     {
         return static_cast<ErrorCode>(static_cast<std::int32_t>(::glGetError()));
+    }
+
+    void GetFloat(GetPName pname, float* values)
+    {
+        if (pname == GetPName::CurrentColor || pname == GetPName::CurrentNormal
+            || static_cast<std::int32_t>(pname) == 0x0B03 /* current texcoord */)
+        {
+            const auto semantic = pname == GetPName::CurrentColor ? VertexSemantic::Color
+                : pname == GetPName::CurrentNormal ? VertexSemantic::Normal : VertexSemantic::TexCoord;
+            const auto value = RhiGL::CurrentAttribute(semantic);
+            std::copy_n(value.begin(), semantic == VertexSemantic::Normal ? 3 : 4, values);
+        }
+        else ::glGetFloatv(ToEnum(pname), values);
     }
 
     void GetFramebufferAttachmentParameter(FramebufferTarget target,
@@ -581,10 +715,24 @@ namespace OpenTK::Graphics::OpenGL::GL
 
     void LinkProgram(std::int32_t program)
     {
+        // Every desktop program reads its vertex inputs by the semantic names
+        // and is bound to the semantic locations here, so no shader and no
+        // call site states a number. Binding a name the program does not
+        // declare is not an error.
+        if (const auto bind = GetBindAttribLocation())
+        {
+            for (std::size_t i = 0; i < ::MphRead::NativeRuntime::Rhi::VertexSemanticCount; ++i)
+            {
+                const std::string name(::MphRead::NativeRuntime::Rhi::VertexSemanticNames[i]);
+                bind(static_cast<GLuint>(program),
+                    static_cast<GLuint>(VertexInput::Locations[i]), name.c_str());
+            }
+        }
         if (const auto fn = GetLinkProgram())
         {
             fn(static_cast<GLuint>(program));
         }
+        SyncGenericCurrentValues();
     }
 
     void DeleteRenderbuffer(std::int32_t renderbuffer)
@@ -608,20 +756,13 @@ namespace OpenTK::Graphics::OpenGL::GL
 
     void MultiTexCoord2(TextureUnit texture, float s, float t)
     {
-        if (const auto fn = GetMultiTexCoord2f())
-        {
-            fn(ToEnum(texture), s, t);
-        }
-    }
-
-    void NewList(std::int32_t list, ListMode mode)
-    {
-        ::glNewList(static_cast<GLuint>(list), ToEnum(mode));
+        SetCurrent(texture == TextureUnit::Texture1 ? VertexSemantic::TexCoord1
+            : VertexSemantic::TexCoord, s, t, 0.0F, 1.0F);
     }
 
     void Normal3(float nx, float ny, float nz)
     {
-        ::glNormal3f(nx, ny, nz);
+        SetCurrent(VertexSemantic::Normal, nx, ny, nz, 1.0F);
     }
 
     void PixelStore(PixelStoreParameter pname, std::int32_t param)
@@ -696,17 +837,17 @@ namespace OpenTK::Graphics::OpenGL::GL
 
     void TexCoord2(float s, float t)
     {
-        ::glTexCoord2f(s, t);
+        SetCurrent(VertexSemantic::TexCoord, s, t, 0.0F, 1.0F);
     }
 
     void TexCoord3(float s, float t, float r)
     {
-        ::glTexCoord3f(s, t, r);
+        SetCurrent(VertexSemantic::TexCoord, s, t, r, 1.0F);
     }
 
     void TexCoord3(::OpenTK::Mathematics::Vector3 coord)
     {
-        ::glTexCoord3f(coord.X, coord.Y, coord.Z);
+        TexCoord3(coord.X, coord.Y, coord.Z);
     }
 
     void TexSubImage2D(TextureTarget target, std::int32_t level, std::int32_t xoffset,
@@ -825,9 +966,12 @@ namespace OpenTK::Graphics::OpenGL::GL
         }
     }
 
-    void Vertex2(float x, float y)
+    void VertexAttribPointer(std::uint32_t index, std::int32_t size, PointerType type,
+        bool normalized, std::int32_t stride, const void* pointer)
     {
-        ::glVertex2f(x, y);
+        const auto fn = GetVertexAttribPointer();
+        if (!fn) throw std::runtime_error("glVertexAttribPointer is unavailable.");
+        fn(index, size, ToEnum(type), normalized ? GL_TRUE : GL_FALSE, stride, pointer);
     }
 
     void PopMatrix()
@@ -838,16 +982,6 @@ namespace OpenTK::Graphics::OpenGL::GL
     void PushMatrix()
     {
         ::glPushMatrix();
-    }
-
-    void Vertex3(float x, float y, float z)
-    {
-        ::glVertex3f(x, y, z);
-    }
-
-    void Vertex3(::OpenTK::Mathematics::Vector3 vector)
-    {
-        ::glVertex3f(vector.X, vector.Y, vector.Z);
     }
 
     void Scissor(std::int32_t x, std::int32_t y, std::int32_t width, std::int32_t height)

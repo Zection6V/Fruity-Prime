@@ -10,6 +10,9 @@ namespace MphRead::Mods::Render
         DesktopGlContext() = delete;
 
         static void PreserveWorkingDirectory();
-        [[nodiscard]] static ::MphRead::RendererPlatform::WindowSettings Settings(bool background = false);
+        [[nodiscard]] static ::MphRead::RendererPlatform::WindowSettings Settings(
+            bool background = false,
+            ::MphRead::RendererPlatform::GraphicsWindowMode graphicsMode
+                = ::MphRead::RendererPlatform::GraphicsWindowMode::OpenGL);
     };
 }

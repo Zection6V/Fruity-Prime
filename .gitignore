@@ -410,3 +410,21 @@ maps/**/*.fpmap
 # the player's own texture/import files), so keep them out of the source tree.
 **/_mapgen/
 tools/hitrig/bin/
+
+# Keep build entry-point scripts in source control; ignore generated build output.
+!tools/build/
+tools/build/*
+!tools/build/*.bat
+!tools/build/*.sh
+!tools/build/*.command
+
+# Native Android shared objects are built from source and packaged into the APK.
+android/app/src/main/jniLibs/*/libFruityPrime.so
+android/app/src/main/jniLibs/*/libFruityPrime_*.so
+android/qt-generated/
+
+# Gradle's machine-local dependency and execution cache.
+android/.gradle/
+
+# Local driver compilation data; a renderer recreates it when absent.
+render-cache/

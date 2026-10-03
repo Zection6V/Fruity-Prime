@@ -3,6 +3,7 @@
 #include "../DebugLog.hpp"
 #include "../../Scene.hpp"
 #include "../../Shaders.hpp"
+#include "../../NativeRuntime/Rhi/OpenGL/OpenGlShaderInterface.hpp"
 
 #include "../EndScreen.hpp"
 #include "HunterPreview.hpp"
@@ -29,7 +30,6 @@ using ::OpenTK::Mathematics::MathHelper::DegreesToRadians;
 
 namespace
 {
-    namespace GL = ::OpenTK::Graphics::OpenGL::GL;
 
 }
 
@@ -167,14 +167,11 @@ namespace MphRead
         const MphRead::Hunter want = LauncherPreview ? LauncherHunter : Mods::EndScreen::Hunter();
         const std::int32_t suit = LauncherPreview ? LauncherSuit : Mods::EndScreen::Suit();
         preview->SetUp(want, suit);
-        // Textures and display lists, which nobody else is going to make on
-        // the launcher: there is no player standing in a room to have made them.
-        // Every step, not once per hunter: a match's UnloadGl deletes the
-        // display lists on every cached model -- this one included, since
-        // the match reused the lists this preview generated -- and zeroes
-        // their ids. Asked once, the launcher's own scene then drew the
-        // same hunter through list 0 for ever: a black box. Both calls
-        // return at once when there is nothing to make.
+        // Textures and GPU meshes are scene-owned. The launcher has no room
+        // player to initialize this preview for it, so keep this idempotent
+        // initialization on every step. A match scene can now tear down its
+        // own GPU mesh cache without mutating the shared Model/Mesh objects
+        // used by this preview scene.
         _previewInited = want;
         if (_preview->Ready())
         {
@@ -222,6 +219,10 @@ namespace MphRead
         {
             return false;
         }
+        // This stand-alone launcher ornament may yield to an occupied GPU
+        // command slot. The match path and its simulation never enter here.
+        // Screens keep their ordinary portrait/card when no preview draws.
+        if (!Commands().TryPrepareOptionalWork()) return false;
         _targetSize = windowSize;
         try
         {
@@ -231,10 +232,10 @@ namespace MphRead
             {
                 return false;
             }
-            GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, 0);
-            GL::UseProgram(_shaderProgramId);
+            BeginWindowRendering();
+            _previewIntoWindow = true;
             ModDrawPreview();
-            GL::UseProgram(0);
+            _previewIntoWindow = false;
             return true;
         }
         catch (...)
@@ -251,6 +252,43 @@ namespace MphRead
             LauncherPreview = false;
             return false;
         }
+    }
+
+    std::optional<std::vector<std::uint8_t>> Scene::ModPreviewPixels(std::int32_t width, std::int32_t height)
+    {
+        // The match has already been composited into the window. Render the
+        // Android Qt portrait into a small region of its offscreen target,
+        // whose contents are cleared by the next world frame.
+        if (!_sceneColor || width <= 0 || height <= 0 || width > _targetSize.X || height > _targetSize.Y)
+            return std::nullopt;
+        const auto left = _previewLeft, top = _previewTop, right = _previewRight, bottom = _previewBottom;
+        const bool wanted = _previewWanted, launcher = LauncherPreview, intoWindow = _previewIntoWindow;
+        const auto restore = [&]
+        {
+            _previewLeft = left; _previewTop = top; _previewRight = right; _previewBottom = bottom;
+            _previewWanted = wanted; LauncherPreview = launcher; _previewIntoWindow = intoWindow;
+        };
+        try
+        {
+            LauncherPreview = true;
+            _previewWanted = true;
+            _previewIntoWindow = false;
+            _previewLeft = 0; _previewTop = 0;
+            _previewRight = static_cast<float>(width) / _targetSize.X;
+            _previewBottom = static_cast<float>(height) / _targetSize.Y;
+            ModStepPreview();
+            ModCollectPreview();
+            if (!ModPreviewDrawn()) { restore(); return std::nullopt; }
+            ModDrawPreview();
+            std::vector<std::uint8_t> pixels(static_cast<std::size_t>(width) * height * 3);
+            std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
+            NativeRuntime::Rhi::RenderingDepthStencilAttachment depth{};
+            Commands().ReadColor(SceneRenderingInfo(color, depth), 0, _targetSize.Y - height,
+                width, height, NativeRuntime::Rhi::TextureFormat::RGB8Unorm, pixels.data());
+            restore();
+            return pixels;
+        }
+        catch (...) { restore(); throw; }
     }
 
     void Scene::ModDrawPreview()
@@ -278,39 +316,47 @@ namespace MphRead
             return;
         }
 
-        GL::Enable(GL::EnableCap::ScissorTest);
-        GL::Scissor(x, y, width, height);
-        GL::ClearColor(_previewBack.X, _previewBack.Y, _previewBack.Z, _previewBack.W);
-        GL::Clear(GL::ClearBufferMask::ColorBufferBit | GL::ClearBufferMask::DepthBufferBit);
-        GL::ClearColor(0.0F, 0.0F, 0.0F, 0.0F);
-        GL::Viewport(x, y, width, height);
+        // Its own rendering scope over the corner it draws in: colour and
+        // depth cleared there, the stencil kept, and nothing outside touched.
+        namespace Rhi = NativeRuntime::Rhi;
+        const Rhi::ClearColor back{_previewBack.X, _previewBack.Y, _previewBack.Z, _previewBack.W};
+        const Rhi::Scissor area{x, y, static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height)};
+        Commands().EndRendering();
+        if (_previewIntoWindow)
+        {
+            BeginWindowRendering(Rhi::LoadOp::Clear, Rhi::LoadOp::Clear, back, area);
+        }
+        else
+        {
+            BeginSceneRendering(Rhi::LoadOp::Clear, Rhi::LoadOp::Clear, Rhi::LoadOp::Load, back, area);
+        }
+        // The preview pipeline first: it binds the main program the uniforms
+        // below are written into.
+        BeginScenePass(ScenePass::Preview);
+        Commands().SetViewport(Rhi::Viewport{static_cast<float>(x), static_cast<float>(y),
+            static_cast<float>(width), static_cast<float>(height)});
         Matrix4 projection = Matrix4::CreatePerspectiveFieldOfView(
             DegreesToRadians(PreviewFov), width / static_cast<float>(height), 0.1F, 100.0F);
         Matrix4 view = Matrix4::LookAt(_previewEye, _previewTarget, Vector3(0.0F, 1.0F, 0.0F));
-        if (!_shaderLocations)
-        {
-            throw System::NullReferenceException();
-        }
-        GL::UniformMatrix4(_shaderLocations->ProjectionMatrix, false, projection);
-        GL::UniformMatrix4(_shaderLocations->ViewMatrix, false, view);
-        GL::Uniform1(_shaderLocations->UseFog, 0);
-        GL::Enable(GL::EnableCap::DepthTest);
-        GL::DepthFunc(GL::DepthFunction::Less);
-        GL::DepthMask(true);
-        GL::Disable(GL::EnableCap::StencilTest);
-        GL::Enable(GL::EnableCap::Blend);
-        GL::BlendFunc(GL::BlendingFactor::SrcAlpha, GL::BlendingFactor::OneMinusSrcAlpha);
-        GL::Disable(GL::EnableCap::AlphaTest);
+        SetFrameMatrices(view, projection);
+        _shaderConstants->SetFogEnabled(false);
         for (std::size_t i = 0; i < _previewItems.size(); ++i)
         {
             RenderItem(_previewItems[i]);
         }
-        GL::Disable(GL::EnableCap::ScissorTest);
-        GL::Viewport(0, 0, target.X, target.Y);
-        GL::UniformMatrix4(_shaderLocations->ProjectionMatrix, false, _perspectiveMatrix);
-        GL::UniformMatrix4(_shaderLocations->ViewMatrix, false, _viewMatrix);
-        GL::Uniform1(_shaderLocations->UseFog, _hasFog && FogOn() ? 1 : 0);
-        GL::PolygonMode(GL::TriangleFace::FrontAndBack, GL::PolygonMode::Fill);
+        Commands().EndRendering();
+        if (_previewIntoWindow)
+        {
+            BeginWindowRendering();
+        }
+        else
+        {
+            BeginSceneRendering();
+        }
+        Commands().SetViewport(Rhi::Viewport{0.0F, 0.0F,
+            static_cast<float>(target.X), static_cast<float>(target.Y)});
+        SetFrameMatrices(_viewMatrix, _perspectiveMatrix);
+        _shaderConstants->SetFogEnabled(_hasFog && FogOn());
         _previewDrawnLastFrame = true;
         _previewDrawnHunter = _preview != nullptr ? _preview->Shown() : MphRead::Hunter::Random;
         _previewDrawnSuit = _preview != nullptr ? _preview->ShownSuit() : -1;

@@ -1,4 +1,6 @@
 #include "MapAudit.hpp"
+#include "../../NativeRuntime/Rhi/SceneBackend.hpp"
+#include "../../NativeRuntime/OpenTK/GL.hpp"
 #include "../../Entities/BombEntity.hpp"
 
 #include "NetLaunch.hpp"
@@ -18,6 +20,7 @@
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
+#include "../../NativeRuntime/Rhi/BackendFactory.hpp"
 #include "../../Formats/Types.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
 
@@ -167,6 +170,7 @@ namespace MphRead::Mods::Network
         settings.ApiMajor = 3;
         settings.ApiMinor = 2;
         settings.StartVisible = _showWindow;
+        settings.GraphicsMode = RendererPlatform::GraphicsWindowMode::OpenGL;
         return settings;
     }
 
@@ -247,6 +251,12 @@ namespace MphRead::Mods::Network
 
     void MapAudit::Dispose()
     {
+        if (_scene)
+        {
+            _scene->ReleaseGpuResources();
+            _scene.reset();
+        }
+        _swapchain.reset();
         _window.reset();
     }
 
@@ -260,9 +270,9 @@ namespace MphRead::Mods::Network
         _window->Close();
     }
 
-    void MapAudit::SwapBuffers()
+    void MapAudit::Present()
     {
-        _window->SwapBuffers();
+        _swapchain->Present();
     }
 
     MapAudit::MapAudit(
@@ -282,6 +292,12 @@ namespace MphRead::Mods::Network
           _scene(nullptr),
           _bots(bots)
     {
+        NativeRuntime::Rhi::SwapchainDesc swapchainDesc{};
+        const Vector2i framebufferSize = _window->Size();
+        swapchainDesc.width = static_cast<std::uint32_t>(std::max(framebufferSize.X, 1));
+        swapchainDesc.height = static_cast<std::uint32_t>(std::max(framebufferSize.Y, 1));
+        _swapchain = NativeRuntime::Rhi::BackendFactory::CreateSwapchain(
+            NativeRuntime::Rhi::GraphicsBackend::OpenGl, *_window, swapchainDesc);
         NetTestScript::SetPhaseSeconds(MathMax(1.5, seconds / NetTestScript::PhaseCount()));
         Entities::PlayerEntity::SetMaxPlayers(std::max(Entities::PlayerEntity::MaxPlayers(), players));
         _forceEveryone = true;
@@ -329,7 +345,7 @@ namespace MphRead::Mods::Network
         _scene->Size(ClientSize());
         _scene->OnLoad();
         _window->BaseOnLoad();
-        OpenTK::Graphics::OpenGL::GL::Viewport(0, 0, ClientSize().X, ClientSize().Y);
+        ::MphRead::NativeRuntime::Rhi::ResetWindowViewport(ClientSize().X, ClientSize().Y);
         _scene->OnResize();
     }
 
@@ -363,7 +379,7 @@ namespace MphRead::Mods::Network
             }
             if (i < draws - 1)
             {
-                SwapBuffers();
+                Present();
                 _scene->AfterRenderFrame();
             }
         }
@@ -380,13 +396,13 @@ namespace MphRead::Mods::Network
         {
             if (!StepItemShots())
             {
-                SwapBuffers();
+                Present();
                 _scene->AfterRenderFrame();
                 _window->BaseOnRenderFrame(args);
                 Close();
                 return;
             }
-            SwapBuffers();
+            Present();
             _scene->AfterRenderFrame();
             _window->BaseOnRenderFrame(args);
             return;
@@ -396,13 +412,13 @@ namespace MphRead::Mods::Network
         {
             if (!StepSpawnRender())
             {
-                SwapBuffers();
+                Present();
                 _scene->AfterRenderFrame();
                 _window->BaseOnRenderFrame(args);
                 Close();
                 return;
             }
-            SwapBuffers();
+            Present();
             _scene->AfterRenderFrame();
             _window->BaseOnRenderFrame(args);
             return;
@@ -412,7 +428,7 @@ namespace MphRead::Mods::Network
         StepScoreboard();
         Observe();
         SampleRender();
-        SwapBuffers();
+        Present();
         _scene->AfterRenderFrame();
         _window->BaseOnRenderFrame(args);
 

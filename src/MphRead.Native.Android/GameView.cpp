@@ -1,9 +1,11 @@
 #include "GameView.hpp"
+#include "AndroidHunterShot.hpp"
 
+#include "AndroidGlContextGate.hpp"
 #include "AndroidMatch.hpp"
 #include "GamepadBridge.hpp"
-#include "AndroidUiOverlay.hpp"
 #include "AndroidUiSurface.hpp"
+#include "../MphRead.Native/NativeRuntime/Rhi/SceneBackend.hpp"
 #include "MainActivity.hpp"
 #include "TouchControls.hpp"
 
@@ -19,6 +21,8 @@
 #include "../MphRead.Native/Mods/Render/EsBindings.hpp"
 #include "../MphRead.Native/Mods/Render/FrameTiming.hpp"
 #include "../MphRead.Native/Mods/Render/GlEs.hpp"
+#include "../MphRead.Native/NativeRuntime/OpenTK/GL.hpp"
+#include "../MphRead.Native/NativeRuntime/Rhi/OpenGL/OpenGlDevice.hpp"
 #include "../MphRead.Native/Mods/Render/HunterShot.hpp"
 #include "../MphRead.Native/Mods/SpectatorMode.hpp"
 #include "../MphRead.Native/Renderer.hpp"
@@ -982,6 +986,9 @@ namespace MphRead::Droid
 
         void Run()
         {
+            // Hold exclusive ownership of the process-global GlEs shim for the
+            // complete non-shared EGL context lifetime, including teardown.
+            AndroidGlContextLease glContextLease;
             try
             {
                 try
@@ -1005,13 +1012,43 @@ namespace MphRead::Droid
             }
             catch (...)
             {
+                ReleaseGlEsContext();
                 ReleaseSurface();
                 DestroyContext();
                 throw;
             }
 
+            ReleaseGlEsContext();
             ReleaseSurface();
             DestroyContext();
+        }
+
+        void ReleaseGlEsContext() noexcept
+        {
+            if (_vulkan)
+            {
+                // Nothing is context-local: the device, the scene's GPU
+                // resources and the game all outlive the surface.
+                return;
+            }
+            // Dynamic shim objects are context-local. Delete them only while
+            // this exact context is current; if ordinary surface loss already
+            // unbound it, clear the process-global bookkeeping and let context
+            // destruction reclaim the objects.
+            if (_contextAssigned
+                && _context != EGL_NO_CONTEXT
+                && eglGetCurrentContext() == _context)
+            {
+                MphRead::NativeRuntime::Rhi::OpenGL::ReleaseContextDevice();
+                MphRead::Mods::Render::GlEs::ReleaseContext();
+            }
+            else
+            {
+                MphRead::Mods::Render::GlEs::Reset();
+            }
+            // GL's Android wrapper keeps its own per-context bindings and
+            // element data; they die with this context as well.
+            OpenTK::Graphics::OpenGL::GL::ResetAndroidState();
         }
 
         void Loop()
@@ -1115,7 +1152,16 @@ namespace MphRead::Droid
             if (wanted != _size)
             {
                 _size = wanted;
-                glViewport(0, 0, _size.X, _size.Y);
+                if (_vulkan)
+                {
+                    if (_swapchain)
+                        _swapchain->Resize(static_cast<std::uint32_t>(std::max(_size.X, 1)),
+                            static_cast<std::uint32_t>(std::max(_size.Y, 1)));
+                }
+                else
+                {
+                    glViewport(0, 0, _size.X, _size.Y);
+                }
                 if (_scene != nullptr)
                 {
                     _scene->Size(_size);
@@ -1127,6 +1173,18 @@ namespace MphRead::Droid
 
         bool CreateContext()
         {
+            // Which backend draws: resolved once, before anything is made for
+            // it. An explicit Vulkan that cannot start throws, and the error
+            // reaches the player through _onError rather than becoming GLES.
+            _vulkan = MphRead::NativeRuntime::Rhi::SelectedSceneBackend()
+                == MphRead::NativeRuntime::Rhi::GraphicsBackend::Vulkan;
+            if (_vulkan)
+            {
+                // The device is made with the first surface.
+                _displayAssigned = true;
+                std::cout << "[android] renderer: vulkan" << std::endl;
+                return true;
+            }
             _display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
             _displayAssigned = true;
             if (_display == EGL_NO_DISPLAY)
@@ -1207,6 +1265,10 @@ namespace MphRead::Droid
             const std::shared_ptr<JavaGlobalRef>& holder
         )
         {
+            if (_vulkan)
+            {
+                return CreateVulkanSurface(holder);
+            }
             if (!_displayAssigned
                 || _display == EGL_NO_DISPLAY
                 || _config == nullptr
@@ -1282,6 +1344,7 @@ namespace MphRead::Droid
             {
                 MphRead::Mods::Render::EsBindings::Load();
                 MphRead::Mods::Render::GlEs::Reset();
+                OpenTK::Graphics::OpenGL::GL::ResetAndroidState();
                 glClearColor(
                     10.0F / 255.0F,
                     12.0F / 255.0F,
@@ -1296,8 +1359,85 @@ namespace MphRead::Droid
             return true;
         }
 
+        // The surface came (back): a VkSurface on it, and a swapchain. The
+        // device is made with the first one and kept for every later one, so
+        // a pause, a rotation or a trip to the home screen loses nothing but
+        // the swapchain and its images.
+        bool CreateVulkanSurface(const std::shared_ptr<JavaGlobalRef>& holder)
+        {
+            if (!holder)
+            {
+                return false;
+            }
+            ScopedJniEnv scoped(_vm);
+            JNIEnv* const env = scoped.Get();
+            LocalRef<jobject> window = HolderSurface(env, holder->Object());
+            if (!window || !SurfaceValid(env, window.Get()))
+            {
+                return false;
+            }
+            ANativeWindow* nativeWindow = ANativeWindow_fromSurface(env, window.Get());
+            CheckJavaException(env);
+            if (nativeWindow == nullptr)
+            {
+                return false;
+            }
+            try
+            {
+                MphRead::NativeRuntime::Rhi::AttachSceneSurface(nativeWindow);
+                MphRead::NativeRuntime::Rhi::SwapchainDesc desc{};
+                desc.width = static_cast<std::uint32_t>(std::max(ANativeWindow_getWidth(nativeWindow), 1));
+                desc.height = static_cast<std::uint32_t>(std::max(ANativeWindow_getHeight(nativeWindow), 1));
+                desc.format = MphRead::NativeRuntime::Rhi::TextureFormat::RGBA8Unorm;
+                _swapchain = MphRead::NativeRuntime::Rhi::CreateSceneSurfaceSwapchain(desc);
+            }
+            catch (...)
+            {
+                _swapchain.reset();
+                MphRead::NativeRuntime::Rhi::DetachSceneSurface();
+                ANativeWindow_release(nativeWindow);
+                throw;
+            }
+            _surfaceAssigned = true;
+            _nativeWindow = nativeWindow;
+            {
+                std::lock_guard<std::mutex> guard(_lock);
+                _boundTo = holder;
+                _holdingSurface = true;
+            }
+            std::cout << "[android] vulkan surface "
+                << MphRead::NativeRuntime::Rhi::DescribeSceneBackend(_swapchain.get()) << std::endl;
+            _size = OpenTK::Mathematics::Vector2i{};
+            return true;
+        }
+
         void ReleaseSurface() noexcept
         {
+            if (_vulkan)
+            {
+                ANativeWindow* nativeWindow = nullptr;
+                {
+                    std::lock_guard<std::mutex> guard(_lock);
+                    nativeWindow = _nativeWindow;
+                    _surfaceAssigned = false;
+                    _nativeWindow = nullptr;
+                    _boundTo.reset();
+                    _holdingSurface = false;
+                }
+                // Swapchain-dependent objects first, then the surface; the
+                // device and the game stay.
+                _swapchain.reset();
+                MphRead::NativeRuntime::Rhi::DetachSceneSurface();
+                if (nativeWindow != nullptr)
+                {
+                    ANativeWindow_release(nativeWindow);
+                }
+                {
+                    std::lock_guard<std::mutex> guard(_lock);
+                    _released.notify_all();
+                }
+                return;
+            }
             EGLSurface surface = EGL_NO_SURFACE;
             ANativeWindow* nativeWindow = nullptr;
 
@@ -1353,6 +1493,13 @@ namespace MphRead::Droid
 
         void DestroyContext() noexcept
         {
+            if (_vulkan)
+            {
+                // The Vulkan device lives for the process, as the scene
+                // backend's does on the desktop.
+                _displayAssigned = false;
+                return;
+            }
             if (!_displayAssigned)
             {
                 return;
@@ -1492,7 +1639,17 @@ namespace MphRead::Droid
                 return false;
             }
             scene.AfterRenderFrame();
-            DrawUi(scene);
+            AndroidHunterShot::RenderMatchPicture(scene);
+
+
+            if (_vulkan)
+            {
+                if (_surfaceAssigned && _swapchain)
+                {
+                    MphRead::NativeRuntime::Rhi::PresentSceneWindow(*_swapchain);
+                }
+                return true;
+            }
 
             if (_displayAssigned
                 && _display != EGL_NO_DISPLAY
@@ -1543,63 +1700,6 @@ namespace MphRead::Droid
             _uiDrawn = 0;
             _uiSkipped = 0;
             _uiHole = 0;
-        }
-
-        void DrawUi(MphRead::Scene& scene)
-        {
-            std::shared_ptr<AndroidUiSurface> surface =
-                AndroidUiSurface::Current();
-            SayUi();
-            if (!surface || !surface->Visible())
-            {
-                IncrementUnchecked(_uiSkipped);
-                AndroidUiOverlay::Visible(false);
-                MphRead::Scene::LauncherPreview = false;
-                return;
-            }
-
-            IncrementUnchecked(_uiDrawn);
-            if (MphRead::Mods::Render::HunterShot::HoleWanted)
-            {
-                IncrementUnchecked(_uiHole);
-            }
-
-            std::int32_t width = 0;
-            std::int32_t height = 0;
-            if (surface->TakeFrame(_uiPixels, _uiVersion, width, height))
-            {
-                AndroidUiOverlay::Upload(_uiPixels, width, height);
-            }
-            AndroidUiOverlay::Visible(true);
-            AndroidUiOverlay::Draw(_size.X, _size.Y);
-
-            if (MphRead::Mods::Render::HunterShot::HoleWanted)
-            {
-                MphRead::Scene::LauncherPreview = true;
-                MphRead::Scene::LauncherHunter =
-                    MphRead::Mods::Render::HunterShot::HoleHunter;
-                MphRead::Scene::LauncherSuit =
-                    MphRead::Mods::Render::HunterShot::HoleSuit;
-                MphRead::Scene::PreviewWanted(true);
-                MphRead::Scene::PreviewLeft(
-                    MphRead::Mods::Render::HunterShot::HoleLeft
-                );
-                MphRead::Scene::PreviewTop(
-                    MphRead::Mods::Render::HunterShot::HoleTop
-                );
-                MphRead::Scene::PreviewRight(
-                    MphRead::Mods::Render::HunterShot::HoleRight
-                );
-                MphRead::Scene::PreviewBottom(
-                    MphRead::Mods::Render::HunterShot::HoleBottom
-                );
-                (void)scene.ModDrawPreviewAlone(_size);
-            }
-            else
-            {
-                MphRead::Scene::LauncherPreview = false;
-                MphRead::Scene::PreviewWanted(false);
-            }
         }
 
         void RequestFrameRate()
@@ -2135,14 +2235,15 @@ namespace MphRead::Droid
         double _lastFrameStart = 0.0;
         std::int32_t _requestedFrameRate = -1;
 
-        std::vector<std::uint8_t> _uiPixels;
-        std::int32_t _uiVersion = 0;
         std::int32_t _uiDrawn = 0;
         std::int32_t _uiSkipped = 0;
         std::int32_t _uiHole = 0;
         std::int64_t _uiSaid = 0;
 
         std::unique_ptr<MphRead::Scene> _scene;
+        // The Vulkan path: the surface's swapchain on the scene device.
+        bool _vulkan = false;
+        std::unique_ptr<MphRead::NativeRuntime::Rhi::Swapchain> _swapchain;
         std::atomic<MphRead::Scene*> _publishedScene{nullptr};
     };
 

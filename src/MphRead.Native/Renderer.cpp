@@ -1,5 +1,10 @@
 #include "Renderer.hpp"
+#include "NativeRuntime/System/ErrorDialog.hpp"
+#include "NativeRuntime/System/ExceptionText.hpp"
+#include "Mods/Diagnostics/FramePerformance.hpp"
+#include "RendererGeometry.hpp"
 #include "NativeRuntime/System/Runtime.hpp"
+#include "NativeRuntime/Rhi/SceneBackend.hpp"
 #include "NativeRuntime/System/Console.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
 #include "NativeRuntime/System/IO.hpp"
@@ -68,7 +73,6 @@
 #include "Mods/Render/DesktopGlContext.hpp"
 #include "Mods/Render/FrameTiming.hpp"
 #include "Mods/Render/MapThumbnail.hpp"
-#include "Mods/Render/GlNames.hpp"
 #include "Mods/Render/LauncherHunter.hpp"
 #include "Mods/Render/AppIcon.hpp"
 #include "Export/Images.hpp"
@@ -87,15 +91,15 @@
 #include "NativeRuntime/OpenTK/Mathematics.hpp"
 
 #if defined(MPHREAD_SHELL)
-#include "Mods/Launcher/Gui/KeyRow.hpp"
-#include "Mods/Launcher/Gui/Shell.hpp"
-#include "Mods/Render/GlNames.hpp"
+#include "Mods/Input/KeyCapture.hpp"
+#include "Mods/Launcher/Shell.hpp"
 #include "Mods/Render/LauncherHunter.hpp"
 #include "Mods/Render/UiOverlay.hpp"
-#include "NativeRuntime/Avalonia/Media.hpp"
+#include "NativeRuntime/System/Encoding.hpp"
 #endif
 
 #include <algorithm>
+#include <span>
 #include <unordered_set>
 #include <unordered_map>
 #include <bit>
@@ -132,7 +136,6 @@ using OpenTK::Mathematics::Vector2;
 using OpenTK::Mathematics::Vector2i;
 using OpenTK::Mathematics::Vector3;
 using OpenTK::Mathematics::Vector4;
-namespace GL = OpenTK::Graphics::OpenGL::GL;
 
 #if defined(DEBUG)
 #define MPHREAD_DEBUG_ASSERT(condition) \
@@ -212,9 +215,9 @@ namespace
         return EnumNumber(value);
     }
 
-    [[nodiscard]] std::string FramebufferErrorText(OpenTK::Graphics::OpenGL::FramebufferErrorCode value)
+    [[nodiscard]] std::string FramebufferErrorText(std::int32_t value)
     {
-        return OpenTK::Graphics::OpenGL::ToString(value);
+        return value == 0x8CD5 ? "complete" : "the device will not render to these attachments";
     }
 
 #define MPH_ENUM_CASE(type, name) case type::name: return #name
@@ -364,7 +367,6 @@ namespace MphRead
         std::function<void()> close)
         : _rendererSize(size),
           _frustumInfo(std::make_shared<MphRead::Formats::Culling::FrustumInfo>()),
-          _shaderLocations(std::make_shared<ShaderLocations>()),
           _keyboardState(&keyboardState),
           _mouseState(&mouseState),
           _setTitle(std::move(setTitle)),
@@ -575,7 +577,7 @@ namespace MphRead
         }
         _killHeight = meta.KillHeight;
         _farClip = meta.FarClip;
-        if (_shaderProgramId != 0)
+        if (_sceneShaders)
         {
             SetShaderFog();
         }
@@ -585,9 +587,7 @@ namespace MphRead
     {
         const float fogMin = _fogOffset / static_cast<float>(0x7FFF);
         const float fogMax = (_fogOffset + 32 * (0x400 >> _fogSlope)) / static_cast<float>(0x7FFF);
-        GL::Uniform4(_shaderLocations->FogColor, _fogColor);
-        GL::Uniform1(_shaderLocations->FogMinDistance, fogMin);
-        GL::Uniform1(_shaderLocations->FogMaxDistance, fogMax);
+        _shaderConstants->Set(NativeRuntime::Rhi::SceneFogConstants{_fogColor, fogMin, fogMax});
     }
 
     std::shared_ptr<Entities::EntityBase> Scene::AddModel(std::string name, std::int32_t recolor,
@@ -660,17 +660,18 @@ namespace MphRead
     {
         if (Mods::DebugLog::Active() && !Mods::Headless::Active())
         {
-            Mods::DebugLog::Line("gl", "vendor=" + GL::GetString(GL::StringName::Vendor));
-            Mods::DebugLog::Line("gl", "renderer=" + GL::GetString(GL::StringName::Renderer));
-            Mods::DebugLog::Line("gl", "version=" + GL::GetString(GL::StringName::Version));
-            Mods::DebugLog::Line("gl", "shading language=" + GL::GetString(GL::StringName::ShadingLanguageVersion));
+            const std::string adapter = Gpu().AdapterDescription();
+            std::size_t start = 0;
+            while (start <= adapter.size())
+            {
+                const std::size_t end = std::min(adapter.find('\n', start), adapter.size());
+                Mods::DebugLog::Line("gl", adapter.substr(start, end - start));
+                start = end + 1;
+            }
         }
         if (!Mods::Headless::Active())
         {
-            GL::ClearColor(_clearColor);
-            GL::Enable(GL::EnableCap::DepthTest);
-            GL::Enable(GL::EnableCap::Texture2D);
-            GL::DepthFunc(GL::DepthFunction::Lequal);
+            Commands().Begin();
             std::cout << "[render] field of view " << Mods::RenderOptions::FieldOfView() << " degrees"
                 << (Mods::RenderOptions::FieldOfView() == Mods::RenderOptions::DefaultFov
                     ? " (the DS's own)" : "") << '\n';
@@ -679,6 +680,8 @@ namespace MphRead
                 << NativeRuntime::ToStringInvariant(Mods::RenderOptions::CelEdge(), "0.00")
                 << ", fog " << BoolOnOff(Mods::RenderOptions::Fog()) << '\n';
             InitShaders();
+            _transientGeometry
+                = NativeRuntime::Rhi::CreateSceneTransientGeometry(Gpu(), Commands());
         }
         AllocateEffects();
         CollisionDetection::Init();
@@ -729,276 +732,78 @@ namespace MphRead
 
     void Scene::OnResize()
     {
-        if (_screenTexture == 0)
+        if (!_sceneColor)
         {
             return;
         }
         const Vector2i target = RenderSize();
         _targetSize = target;
-        GL::BindTexture(GL::TextureTarget::Texture2D, _screenTexture);
-        GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgb,
-            target.X, target.Y, 0, GL::PixelFormat::Rgb, GL::PixelType::UnsignedByte, nullptr);
-        const bool upscaling = Mods::RenderOptions::ResolutionScale() < 100;
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
-            static_cast<std::int32_t>(upscaling ? GL::TextureMinFilter::Linear : GL::TextureMinFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter,
-            static_cast<std::int32_t>(upscaling ? GL::TextureMagFilter::Linear : GL::TextureMagFilter::Nearest));
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-        if (_celTexture != 0)
+        const auto width = static_cast<std::uint32_t>(target.X);
+        const auto height = static_cast<std::uint32_t>(target.Y);
+        Gpu().ResizeTexture(*_sceneColor, width, height);
+        if (_celColor)
         {
-            GL::BindTexture(GL::TextureTarget::Texture2D, _celTexture);
-            GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgb,
-                target.X, target.Y, 0, GL::PixelFormat::Rgb, GL::PixelType::UnsignedByte, nullptr);
-            GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+            Gpu().ResizeTexture(*_celColor, width, height);
         }
-        MPHREAD_DEBUG_ASSERT(_renderBuffer != 0);
-        GL::BindRenderbuffer(GL::RenderbufferTarget::Renderbuffer, _renderBuffer);
-        GL::RenderbufferStorage(GL::RenderbufferTarget::Renderbuffer, GL::RenderbufferStorage::Depth24Stencil8,
-            target.X, target.Y);
-        GL::BindRenderbuffer(GL::RenderbufferTarget::Renderbuffer, 0);
-        if (_depthTexture != 0)
+        MPHREAD_DEBUG_ASSERT(_sceneDepthStencil != nullptr);
+        Gpu().ResizeTexture(*_sceneDepthStencil, width, height);
+        if (_celDepth)
         {
-            GL::BindTexture(GL::TextureTarget::Texture2D, _depthTexture);
-            GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Depth24Stencil8,
-                target.X, target.Y, 0, GL::PixelFormat::DepthStencil, GL::PixelType::UnsignedInt248, nullptr);
-            GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+            Gpu().ResizeTexture(*_celDepth, width, height);
         }
     }
 
     void Scene::InitShaders()
     {
-        std::string fragmentLog;
-        std::string vertexLog;
-        std::int32_t vertexShader = GL::CreateShader(GL::ShaderType::VertexShader);
-        GL::ShaderSource(vertexShader, Shaders::VertexShader);
-        GL::CompileShader(vertexShader);
-        std::int32_t fragmentShader = GL::CreateShader(GL::ShaderType::FragmentShader);
-        GL::ShaderSource(fragmentShader, Shaders::FragmentShader);
-        GL::CompileShader(fragmentShader);
-        std::int32_t vertexStatus = 0;
-        std::int32_t fragmentStatus = 0;
-        GL::GetShader(vertexShader, GL::ShaderParameter::CompileStatus, vertexStatus);
-        GL::GetShader(fragmentShader, GL::ShaderParameter::CompileStatus, fragmentStatus);
-        if (NativeRuntime::DebuggerAttached())
-        {
-            vertexLog = GL::GetShaderInfoLog(vertexShader);
-            fragmentLog = GL::GetShaderInfoLog(fragmentShader);
-            if (!vertexLog.empty() || !fragmentLog.empty())
-            {
-                NativeRuntime::DebuggerBreak();
-            }
-        }
-        if (vertexStatus == 0 || fragmentStatus == 0)
-        {
-            throw ProgramException("Failed to compile main shaders. vertex: "
-                + GL::GetShaderInfoLog(vertexShader) + " fragment: " + GL::GetShaderInfoLog(fragmentShader));
-        }
-        _shaderProgramId = GL::CreateProgram();
-        GL::AttachShader(_shaderProgramId, vertexShader);
-        GL::AttachShader(_shaderProgramId, fragmentShader);
-        GL::LinkProgram(_shaderProgramId);
-        GL::DetachShader(_shaderProgramId, vertexShader);
-        GL::DetachShader(_shaderProgramId, fragmentShader);
-        GL::DeleteShader(fragmentShader);
-        GL::DeleteShader(vertexShader);
-
-        vertexShader = GL::CreateShader(GL::ShaderType::VertexShader);
-        GL::ShaderSource(vertexShader, Shaders::RttVertexShader);
-        GL::CompileShader(vertexShader);
-        fragmentShader = GL::CreateShader(GL::ShaderType::FragmentShader);
-        GL::ShaderSource(fragmentShader, Shaders::RttFragmentShader);
-        GL::CompileShader(fragmentShader);
-        GL::GetShader(vertexShader, GL::ShaderParameter::CompileStatus, vertexStatus);
-        GL::GetShader(fragmentShader, GL::ShaderParameter::CompileStatus, fragmentStatus);
-        if (NativeRuntime::DebuggerAttached())
-        {
-            vertexLog = GL::GetShaderInfoLog(vertexShader);
-            fragmentLog = GL::GetShaderInfoLog(fragmentShader);
-            if (!vertexLog.empty() || !fragmentLog.empty())
-            {
-                NativeRuntime::DebuggerBreak();
-            }
-        }
-        if (vertexStatus == 0 || fragmentStatus == 0)
-        {
-            throw ProgramException("Failed to compile RTT shaders.");
-        }
-        _rttShaderProgramId = GL::CreateProgram();
-        GL::AttachShader(_rttShaderProgramId, vertexShader);
-        GL::AttachShader(_rttShaderProgramId, fragmentShader);
-        GL::LinkProgram(_rttShaderProgramId);
-        GL::DetachShader(_rttShaderProgramId, vertexShader);
-        GL::DetachShader(_rttShaderProgramId, fragmentShader);
-        GL::DeleteShader(fragmentShader);
-
-        fragmentShader = GL::CreateShader(GL::ShaderType::FragmentShader);
-        GL::ShaderSource(fragmentShader, Shaders::ShiftFragmentShader);
-        GL::CompileShader(fragmentShader);
-        GL::GetShader(fragmentShader, GL::ShaderParameter::CompileStatus, fragmentStatus);
-        if (NativeRuntime::DebuggerAttached())
-        {
-            fragmentLog = GL::GetShaderInfoLog(fragmentShader);
-            if (!fragmentLog.empty())
-            {
-                NativeRuntime::DebuggerBreak();
-            }
-        }
-        if (fragmentStatus == 0)
-        {
-            throw ProgramException("Failed to compile shift shader.");
-        }
-        _shiftShaderProgramId = GL::CreateProgram();
-        GL::AttachShader(_shiftShaderProgramId, vertexShader);
-        GL::AttachShader(_shiftShaderProgramId, fragmentShader);
-        GL::LinkProgram(_shiftShaderProgramId);
-        GL::DetachShader(_shiftShaderProgramId, vertexShader);
-        GL::DetachShader(_shiftShaderProgramId, fragmentShader);
-        GL::DeleteShader(fragmentShader);
-
-        fragmentShader = GL::CreateShader(GL::ShaderType::FragmentShader);
-        GL::ShaderSource(fragmentShader, Shaders::CelFragmentShader);
-        GL::CompileShader(fragmentShader);
-        GL::GetShader(fragmentShader, GL::ShaderParameter::CompileStatus, fragmentStatus);
-        if (fragmentStatus == 0)
-        {
-            throw ProgramException("Failed to compile the cel shading shader. " + GL::GetShaderInfoLog(fragmentShader));
-        }
-        _celShaderProgramId = GL::CreateProgram();
-        GL::AttachShader(_celShaderProgramId, vertexShader);
-        GL::AttachShader(_celShaderProgramId, fragmentShader);
-        GL::LinkProgram(_celShaderProgramId);
-        GL::DetachShader(_celShaderProgramId, vertexShader);
-        GL::DetachShader(_celShaderProgramId, fragmentShader);
-        GL::DeleteShader(fragmentShader);
-        GL::DeleteShader(vertexShader);
-
-        _frameBuffer = GL::GenFramebuffer();
-        GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, _frameBuffer);
-        _screenTexture = Mods::Render::GlNames::NextTexture();
-        Vector2i renderTarget = RenderSize();
-        _targetSize = renderTarget;
-        GL::BindTexture(GL::TextureTarget::Texture2D, _screenTexture);
-        GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgb,
-            renderTarget.X, renderTarget.Y, 0, GL::PixelFormat::Rgb, GL::PixelType::UnsignedByte, nullptr);
-        bool upscaling = Mods::RenderOptions::ResolutionScale() < 100;
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
-            static_cast<std::int32_t>(upscaling ? GL::TextureMinFilter::Linear : GL::TextureMinFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter,
-            static_cast<std::int32_t>(upscaling ? GL::TextureMagFilter::Linear : GL::TextureMagFilter::Nearest));
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-        GL::FramebufferTexture2D(GL::FramebufferTarget::Framebuffer, GL::FramebufferAttachment::ColorAttachment0,
-            GL::TextureTarget::Texture2D, _screenTexture, 0);
-
-        _celTexture = Mods::Render::GlNames::NextTexture();
-        GL::BindTexture(GL::TextureTarget::Texture2D, _celTexture);
-        GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgb,
-            renderTarget.X, renderTarget.Y, 0, GL::PixelFormat::Rgb, GL::PixelType::UnsignedByte, nullptr);
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
-            static_cast<std::int32_t>(GL::TextureMinFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter,
-            static_cast<std::int32_t>(GL::TextureMagFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-
-        _renderBuffer = GL::GenRenderbuffer();
-        GL::BindRenderbuffer(GL::RenderbufferTarget::Renderbuffer, _renderBuffer);
-        GL::RenderbufferStorage(GL::RenderbufferTarget::Renderbuffer, GL::RenderbufferStorage::Depth24Stencil8,
-            renderTarget.X, renderTarget.Y);
-        GL::BindRenderbuffer(GL::RenderbufferTarget::Renderbuffer, 0);
-        GL::FramebufferRenderbuffer(GL::FramebufferTarget::Framebuffer,
-            GL::FramebufferAttachment::DepthStencilAttachment, GL::RenderbufferTarget::Renderbuffer, _renderBuffer);
-
-        auto status = GL::CheckFramebufferStatus(GL::FramebufferTarget::Framebuffer);
-        _framebufferStatus = static_cast<OpenTK::Graphics::OpenGL::FramebufferErrorCode>(
-            static_cast<std::int32_t>(status));
-        if (status != GL::FramebufferErrorCode::FramebufferComplete)
-        {
-            std::cout << "[render] the offscreen target is not usable: "
-                << FramebufferErrorText(_framebufferStatus)
-                << ". Nothing drawn into it will appear. Size " << _rendererSize.X << 'x' << _rendererSize.Y << ".\n";
-            NativeRuntime::DebuggerBreak();
-        }
-        GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, 0);
-
-        _shaderLocations->UseLight = GL::GetUniformLocation(_shaderProgramId, "use_light");
-        _shaderLocations->ShowColors = GL::GetUniformLocation(_shaderProgramId, "show_colors");
-        _shaderLocations->UseTexture = GL::GetUniformLocation(_shaderProgramId, "use_texture");
-        _shaderLocations->Light1Color = GL::GetUniformLocation(_shaderProgramId, "light1col");
-        _shaderLocations->Light1Vector = GL::GetUniformLocation(_shaderProgramId, "light1vec");
-        _shaderLocations->Light2Color = GL::GetUniformLocation(_shaderProgramId, "light2col");
-        _shaderLocations->Light2Vector = GL::GetUniformLocation(_shaderProgramId, "light2vec");
-        _shaderLocations->Diffuse = GL::GetUniformLocation(_shaderProgramId, "diffuse");
-        _shaderLocations->Ambient = GL::GetUniformLocation(_shaderProgramId, "ambient");
-        _shaderLocations->Specular = GL::GetUniformLocation(_shaderProgramId, "specular");
-        _shaderLocations->Emission = GL::GetUniformLocation(_shaderProgramId, "emission");
-        _shaderLocations->UseFog = GL::GetUniformLocation(_shaderProgramId, "fog_enable");
-        _shaderLocations->CelBands = GL::GetUniformLocation(_shaderProgramId, "cel_bands");
-        _shaderLocations->UseFlat = GL::GetUniformLocation(_shaderProgramId, "use_flat");
-        _shaderLocations->FlatColor = GL::GetUniformLocation(_shaderProgramId, "flat_color");
-        _shaderLocations->FogColor = GL::GetUniformLocation(_shaderProgramId, "fog_color");
-        _shaderLocations->FogMinDistance = GL::GetUniformLocation(_shaderProgramId, "fog_min");
-        _shaderLocations->FogMaxDistance = GL::GetUniformLocation(_shaderProgramId, "fog_max");
-        _shaderLocations->UseOverride = GL::GetUniformLocation(_shaderProgramId, "use_override");
-        _shaderLocations->OverrideColor = GL::GetUniformLocation(_shaderProgramId, "override_color");
-        _shaderLocations->UsePaletteOverride = GL::GetUniformLocation(_shaderProgramId, "use_pal_override");
-        _shaderLocations->PaletteOverrideColor = GL::GetUniformLocation(_shaderProgramId, "pal_override_color");
-        _shaderLocations->MaterialAlpha = GL::GetUniformLocation(_shaderProgramId, "mat_alpha");
-        _shaderLocations->MaterialMode = GL::GetUniformLocation(_shaderProgramId, "mat_mode");
-        _shaderLocations->ViewMatrix = GL::GetUniformLocation(_shaderProgramId, "view_mtx");
-        _shaderLocations->ViewInvMatrix = GL::GetUniformLocation(_shaderProgramId, "view_inv_mtx");
-        _shaderLocations->ProjectionMatrix = GL::GetUniformLocation(_shaderProgramId, "proj_mtx");
-        _shaderLocations->TextureMatrix = GL::GetUniformLocation(_shaderProgramId, "tex_mtx");
-        _shaderLocations->TexgenMode = GL::GetUniformLocation(_shaderProgramId, "texgen_mode");
-        _shaderLocations->MatrixStack = GL::GetUniformLocation(_shaderProgramId, "mtx_stack");
-        _shaderLocations->ToonTable = GL::GetUniformLocation(_shaderProgramId, "toon_table");
-        _shaderLocations->CelOutline = GL::GetUniformLocation(_celShaderProgramId, "outline");
-        _shaderLocations->CelTexelWidth = GL::GetUniformLocation(_celShaderProgramId, "texel_w");
-        _shaderLocations->CelTexelHeight = GL::GetUniformLocation(_celShaderProgramId, "texel_h");
-        _shaderLocations->CelNearPlane = GL::GetUniformLocation(_celShaderProgramId, "near_plane");
-        _shaderLocations->CelFarPlane = GL::GetUniformLocation(_celShaderProgramId, "far_plane");
-        _shaderLocations->CelDepthQuantum = GL::GetUniformLocation(_celShaderProgramId, "depth_quantum");
-        _shaderLocations->CelProbe = GL::GetUniformLocation(_celShaderProgramId, "probe");
-        _shaderLocations->FadeColor = GL::GetUniformLocation(_rttShaderProgramId, "fade_color");
-        _shaderLocations->LayerAlpha = GL::GetUniformLocation(_rttShaderProgramId, "alpha");
-        _shaderLocations->UseMask = GL::GetUniformLocation(_rttShaderProgramId, "use_mask");
-        _shaderLocations->ViewWidth = GL::GetUniformLocation(_rttShaderProgramId, "view_width");
-        _shaderLocations->ViewHeight = GL::GetUniformLocation(_rttShaderProgramId, "view_height");
-        const std::int32_t texLocation = GL::GetUniformLocation(_rttShaderProgramId, "tex");
-        const std::int32_t maskLocation = GL::GetUniformLocation(_rttShaderProgramId, "mask");
-        GL::UseProgram(_rttShaderProgramId);
-        GL::Uniform1(texLocation, 0);
-        GL::Uniform1(maskLocation, 1);
-        GL::UseProgram(_celShaderProgramId);
-        GL::Uniform1(GL::GetUniformLocation(_celShaderProgramId, "tex"), 0);
-        GL::Uniform1(GL::GetUniformLocation(_celShaderProgramId, "depth_tex"), 1);
-        _shaderLocations->ShiftTable = GL::GetUniformLocation(_shiftShaderProgramId, "shift_table");
-        _shaderLocations->ShiftIndex = GL::GetUniformLocation(_shiftShaderProgramId, "shift_idx");
-        _shaderLocations->ShiftFactor = GL::GetUniformLocation(_shiftShaderProgramId, "shift_fac");
-        _shaderLocations->LerpFactor = GL::GetUniformLocation(_shiftShaderProgramId, "lerp_fac");
-        _shaderLocations->WhiteoutTable = GL::GetUniformLocation(_shiftShaderProgramId, "white_table");
-        _shaderLocations->WhiteoutFactor = GL::GetUniformLocation(_shiftShaderProgramId, "white_fac");
-        GL::UseProgram(_shiftShaderProgramId);
         std::array<float, 64> shifts{};
         for (std::int32_t i = 0; i < 64; ++i)
         {
             const std::int32_t val = (i & 32) != 0 ? 31 - (i & 31) : i & 31;
             shifts[static_cast<std::size_t>(i)] = -((val - 16) << 12) / 4096.0F / 256.0F;
         }
-        GL::Uniform1(_shaderLocations->ShiftTable, 64, shifts.data());
-        GL::UseProgram(_shaderProgramId);
-        std::vector<float> floats;
-        floats.reserve(Metadata::ToonTable.size() * 3);
+        std::vector<float> toon;
+        toon.reserve(Metadata::ToonTable.size() * 3);
         for (Vector3 vector : Metadata::ToonTable)
         {
-            floats.push_back(vector.X);
-            floats.push_back(vector.Y);
-            floats.push_back(vector.Z);
+            toon.push_back(vector.X);
+            toon.push_back(vector.Y);
+            toon.push_back(vector.Z);
         }
-        GL::Uniform3(_shaderLocations->ToonTable,
-            static_cast<std::int32_t>(Metadata::ToonTable.size()), floats.data());
+        NativeRuntime::Rhi::SceneShaderSources sources{};
+        sources.MainVertex = &Shaders::VertexShader;
+        sources.MainFragment = &Shaders::FragmentShader;
+        sources.CompositeVertex = &Shaders::RttVertexShader;
+        sources.CompositeFragment = &Shaders::RttFragmentShader;
+        sources.ShiftFragment = &Shaders::ShiftFragmentShader;
+        sources.CelFragment = &Shaders::CelFragmentShader;
+        sources.ToonTable = toon;
+        sources.ShiftTable = shifts;
+        try
+        {
+            _sceneShaders = NativeRuntime::Rhi::CreateSceneShaderSet(Gpu(), Commands(), sources);
+        }
+        catch (const std::exception& ex)
+        {
+            throw ProgramException(ex.what());
+        }
+        _shaderConstants = &_sceneShaders->Constants();
+
+        Vector2i renderTarget = RenderSize();
+        _targetSize = renderTarget;
+        CreateSceneTargets(renderTarget);
+        {
+            std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
+            NativeRuntime::Rhi::RenderingDepthStencilAttachment depth{};
+            const bool complete = Gpu().CanRender(SceneRenderingInfo(color, depth));
+            _framebufferStatus = complete ? 0x8CD5 : 0x8CDD;
+            if (!complete)
+            {
+                std::cout << "[render] the offscreen target is not usable: "
+                    << FramebufferErrorText(_framebufferStatus)
+                    << ". Nothing drawn into it will appear. Size " << _rendererSize.X << 'x' << _rendererSize.Y << ".\n";
+                NativeRuntime::DebuggerBreak();
+            }
+        }
         SetShaderFog();
     }
 
@@ -1011,233 +816,191 @@ namespace MphRead
         for (const auto& inst : entity->GetModels())
         {
             InitTextures(inst->Model());
-            GenerateLists(inst->Model(), entity->Type == EntityType::Room);
+            GenerateGpuMeshes(inst->Model(), entity->Type == EntityType::Room);
         }
     }
 
-    void Scene::GenerateLists(const std::shared_ptr<Model>& model, bool isRoom)
+    void Scene::GenerateGpuMeshes(const std::shared_ptr<Model>& model, bool isRoom)
     {
         if (Mods::Headless::Active())
         {
             return;
         }
-        std::unordered_map<std::int32_t, std::int32_t> tempListIds;
-        for (const auto& mesh : *model->Meshes)
+        for (const std::shared_ptr<Mesh>& meshValue : *model->Meshes)
         {
-            if (mesh->ListId != 0)
+            Mesh& mesh = RequireReference(meshValue);
+            if (_gpuMeshCache.Find(model.get(), meshValue.get()))
             {
                 continue;
             }
-            std::int32_t listId = 0;
-            auto found = tempListIds.find(mesh->DlistId);
-            if (found == tempListIds.end())
+
+            std::int32_t textureWidth = 0;
+            std::int32_t textureHeight = 0;
+            Material& material = *model->Materials->at(static_cast<std::size_t>(mesh.MaterialId));
+            if (material.TextureId != -1)
             {
-                std::int32_t textureWidth = 0;
-                std::int32_t textureHeight = 0;
-                Material& material = *model->Materials->at(static_cast<std::size_t>(mesh->MaterialId));
-                if (material.TextureId != -1)
-                {
-                    const auto& recolor = model->Recolors->at(0);
-                    const auto& texture = recolor->Textures->at(static_cast<std::size_t>(material.TextureId));
-                    textureWidth = texture.Width;
-                    textureHeight = texture.Height;
-                }
-                listId = GL::GenLists(1);
-                _displayLists.insert(listId);
-                if (std::find(_displayListModels.begin(), _displayListModels.end(), model)
-                    == _displayListModels.end())
-                {
-                    _displayListModels.push_back(model);
-                }
-                GL::NewList(listId, GL::ListMode::Compile);
-                const bool texgen = material.TexgenMode == TexgenMode::Normal;
-                DoDlist(model, *mesh, textureWidth, textureHeight, texgen, isRoom);
-                GL::EndList();
+                const auto& recolor = model->Recolors->at(0);
+                const auto& texture = recolor->Textures->at(static_cast<std::size_t>(material.TextureId));
+                textureWidth = texture.Width;
+                textureHeight = texture.Height;
             }
-            else
+
+            const auto& list = model->RenderInstructionLists->at(
+                static_cast<std::size_t>(mesh.DlistId));
+            RendererGeometry geometry;
+            try
             {
-                listId = found->second;
+                geometry = DecodeRendererGeometry(*list, textureWidth, textureHeight,
+                    material.TexgenMode == TexgenMode::Normal, isRoom,
+                    RequireReference(model->NodeMatrixIds).size());
             }
-            mesh->ListId = listId;
+            catch (const RendererGeometryException& ex)
+            {
+                throw ProgramException(ex.what());
+            }
+
+            const std::shared_ptr<const void> modelLifetime = model;
+            const std::shared_ptr<const void> meshLifetime = meshValue;
+            (void)_gpuMeshCache.GetOrCreate(modelLifetime, meshLifetime,
+                [this, &geometry]()
+                {
+                    return NativeRuntime::Rhi::CreateSceneGpuMesh(Gpu(), Commands(), geometry);
+                });
         }
     }
 
-    void Scene::DoDlist(const std::shared_ptr<Model>& model, const Mesh& mesh,
-        std::int32_t textureWidth, std::int32_t textureHeight, bool texgen, bool isRoom)
+    void Scene::DrawGpuMesh(
+        const std::shared_ptr<Model>& model, const std::shared_ptr<Mesh>& mesh)
     {
-        const auto& list = model->RenderInstructionLists->at(static_cast<std::size_t>(mesh.DlistId));
-        float vtxX = 0.0F;
-        float vtxY = 0.0F;
-        float vtxZ = 0.0F;
-        float texX = texgen ? 0.5F : 0.0F;
-        float texY = texgen ? 0.5F : 0.0F;
-        std::uint32_t matrixId = 0;
-        GL::TexCoord3(texX, texY, 0.0F);
-        for (const auto& instructionPtr : *list)
+        if (!model || !mesh)
         {
-            const RenderInstruction& instruction = *instructionPtr;
-            switch (instruction.Code)
+            throw ProgramException("GPU mesh draw requires a live model and mesh.");
+        }
+        std::shared_ptr<GpuMeshResource> gpuMesh
+            = _gpuMeshCache.Find(model.get(), mesh.get());
+        if (!gpuMesh)
+        {
+            // Released for a renderer switch: made again from the model.
+            GenerateGpuMeshes(model, IsRoomModel(model.get()));
+            gpuMesh = _gpuMeshCache.Find(model.get(), mesh.get());
+        }
+        if (!gpuMesh)
+        {
+            throw ProgramException("GPU mesh cache entry is missing for model " + model->Name
+                + ", mesh " + std::to_string(mesh->DlistId) + ", active room "
+                + (_room ? _room->Meta().Name : "none") + ", frame " + std::to_string(_frameCount) + ".");
+        }
+
+        if (_modelReloadProbeAwaitingRedraw)
+        {
+            const std::shared_ptr<Model> probeModel = _modelReloadProbeModel.lock();
+            const std::shared_ptr<Mesh> probeMesh = _modelReloadProbeMesh.lock();
+            if (!probeModel || !probeMesh)
             {
-            case InstructionCode::BEGIN_VTXS:
-                switch (RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0)))
-                {
-                case 0: GL::Begin(GL::PrimitiveType::Triangles); break;
-                case 1: GL::Begin(GL::PrimitiveType::Quads); break;
-                case 2: GL::Begin(GL::PrimitiveType::TriangleStrip); break;
-                case 3: GL::Begin(GL::PrimitiveType::QuadStrip); break;
-                default: throw ProgramException("Invalid geometry type");
-                }
-                break;
-            case InstructionCode::COLOR:
-            {
-                const std::uint32_t rgb = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
-                GL::Color3(((rgb >> 0) & 0x1F) / 31.0F,
-                    ((rgb >> 5) & 0x1F) / 31.0F, ((rgb >> 10) & 0x1F) / 31.0F);
-                break;
+                _modelReloadProbeAwaitingRedraw = false;
+                _modelReloadProbeFailed = true;
+                _modelReloadProbeStatus = "target model/mesh lifetime expired before redraw";
             }
-            case InstructionCode::DIF_AMB:
+            else if (model.get() == probeModel.get() && mesh.get() == probeMesh.get()
+                && _frameCount > _modelReloadProbeReloadFrame)
             {
-                const std::uint32_t rgb = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
-                const std::uint32_t dr = (rgb >> 0) & 0x1F;
-                const std::uint32_t dg = (rgb >> 5) & 0x1F;
-                const std::uint32_t db = (rgb >> 10) & 0x1F;
-                const std::uint32_t set = (rgb >> 15) & 1;
-                const std::uint32_t ar = (rgb >> 16) & 0x1F;
-                const std::uint32_t ag = (rgb >> 21) & 0x1F;
-                const std::uint32_t ab = (rgb >> 26) & 0x1F;
-                Vector4 diffuse(dr / 31.0F, dg / 31.0F, db / 31.0F, 1.0F);
-                Vector4 ambient(ar / 31.0F, ag / 31.0F, ab / 31.0F, 1.0F);
-                MPHREAD_DEBUG_ASSERT(ambient.X == 0.0F && ambient.Y == 0.0F && ambient.Z == 0.0F);
-                GL::Color4(diffuse.X, diffuse.Y, diffuse.Z, 0.0F);
-                if (set != 0)
-                {
-                    MPHREAD_DEBUG_ASSERT(false);
-                    GL::Color3(dr / 31.0F, dg / 31.0F, db / 31.0F);
-                }
-                break;
-            }
-            case InstructionCode::NORMAL:
-            {
-                const std::uint32_t xyz = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
-                auto sx10 = [](std::uint32_t v)
-                {
-                    std::int32_t n = static_cast<std::int32_t>(v & 0x3FFU);
-                    if ((n & 0x200) != 0) n |= static_cast<std::int32_t>(0xFFFFFC00U);
-                    return n;
-                };
-                GL::Normal3(sx10(xyz >> 0) / 512.0F, sx10(xyz >> 10) / 512.0F, sx10(xyz >> 20) / 512.0F);
-                break;
-            }
-            case InstructionCode::TEXCOORD:
-            {
-                MPHREAD_DEBUG_ASSERT(textureWidth > 0 && textureHeight > 0);
-                const std::uint32_t st = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
-                auto sx16 = [](std::uint32_t v)
-                {
-                    std::int32_t n = static_cast<std::int32_t>(v & 0xFFFFU);
-                    if ((n & 0x8000) != 0) n |= static_cast<std::int32_t>(0xFFFF0000U);
-                    return n;
-                };
-                texX = sx16(st) / 16.0F / textureWidth;
-                texY = sx16(st >> 16) / 16.0F / textureHeight;
-                GL::TexCoord3(texX, texY, matrixId);
-                break;
-            }
-            case InstructionCode::VTX_16:
-            {
-                auto sx16 = [](std::uint32_t v)
-                {
-                    std::int32_t n = static_cast<std::int32_t>(v & 0xFFFFU);
-                    if ((n & 0x8000) != 0) n |= static_cast<std::int32_t>(0xFFFF0000U);
-                    return n;
-                };
-                const std::uint32_t xy = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
-                vtxX = Fixed::ToFloat(sx16(xy));
-                vtxY = Fixed::ToFloat(sx16(xy >> 16));
-                vtxZ = Fixed::ToFloat(sx16(RequireReference(instruction.Arguments).at(static_cast<std::size_t>(1))));
-                GL::Vertex3(vtxX, vtxY, vtxZ);
-                break;
-            }
-            case InstructionCode::VTX_10:
-            {
-                auto sx10 = [](std::uint32_t v)
-                {
-                    std::int32_t n = static_cast<std::int32_t>(v & 0x3FFU);
-                    if ((n & 0x200) != 0) n |= static_cast<std::int32_t>(0xFFFFFC00U);
-                    return n;
-                };
-                const std::uint32_t xyz = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
-                vtxX = sx10(xyz) / 64.0F;
-                vtxY = sx10(xyz >> 10) / 64.0F;
-                vtxZ = sx10(xyz >> 20) / 64.0F;
-                GL::Vertex3(vtxX, vtxY, vtxZ);
-                break;
-            }
-            case InstructionCode::VTX_XY:
-            case InstructionCode::VTX_XZ:
-            case InstructionCode::VTX_YZ:
-            {
-                auto sx16 = [](std::uint32_t v)
-                {
-                    std::int32_t n = static_cast<std::int32_t>(v & 0xFFFFU);
-                    if ((n & 0x8000) != 0) n |= static_cast<std::int32_t>(0xFFFF0000U);
-                    return n;
-                };
-                const std::uint32_t pair = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
-                if (instruction.Code == InstructionCode::VTX_XY)
-                {
-                    vtxX = Fixed::ToFloat(sx16(pair));
-                    vtxY = Fixed::ToFloat(sx16(pair >> 16));
-                }
-                else if (instruction.Code == InstructionCode::VTX_XZ)
-                {
-                    vtxX = Fixed::ToFloat(sx16(pair));
-                    vtxZ = Fixed::ToFloat(sx16(pair >> 16));
-                }
-                else
-                {
-                    vtxY = Fixed::ToFloat(sx16(pair));
-                    vtxZ = Fixed::ToFloat(sx16(pair >> 16));
-                }
-                GL::Vertex3(vtxX, vtxY, vtxZ);
-                break;
-            }
-            case InstructionCode::VTX_DIFF:
-            {
-                auto sx10 = [](std::uint32_t v)
-                {
-                    std::int32_t n = static_cast<std::int32_t>(v & 0x3FFU);
-                    if ((n & 0x200) != 0) n |= static_cast<std::int32_t>(0xFFFFFC00U);
-                    return n;
-                };
-                const std::uint32_t xyz = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0));
-                vtxX += Fixed::ToFloat(sx10(xyz));
-                vtxY += Fixed::ToFloat(sx10(xyz >> 10));
-                vtxZ += Fixed::ToFloat(sx10(xyz >> 20));
-                GL::Vertex3(vtxX, vtxY, vtxZ);
-                break;
-            }
-            case InstructionCode::END_VTXS: GL::End(); break;
-            case InstructionCode::MTX_RESTORE:
-                if (!isRoom)
-                {
-                    // NDS MTX_RESTORE uses only parameter bits 0-4. Passing the
-                    // complete 32-bit word through to the shader can turn ignored
-                    // hardware bits into an out-of-range mtx_stack[] index.
-                    const std::uint32_t requested
-                        = RequireReference(instruction.Arguments).at(static_cast<std::size_t>(0)) & 0x1FU;
-                    const std::size_t matrixCount = RequireReference(model->NodeMatrixIds).size();
-                    matrixId = matrixCount == 0
-                        ? 0U
-                        : static_cast<std::uint32_t>(std::min<std::size_t>(requested, matrixCount - 1U));
-                }
-                GL::TexCoord3(texX, texY, matrixId);
-                break;
-            case InstructionCode::NOP: break;
-            default: throw ProgramException("Unknown opcode");
+                // This is an ordinary production draw reached through RenderItem.
+                gpuMesh->Draw();
+                _modelReloadProbeAwaitingRedraw = false;
+                _modelReloadProbePassed = true;
+                _modelReloadProbeStatus = "redrew model " + model->Name
+                    + " mesh " + std::to_string(mesh->DlistId)
+                    + " on frame " + std::to_string(_frameCount)
+                    + " after real GPU teardown/reload";
+                return;
             }
         }
-        GL::TexCoord3(0.0F, 0.0F, 0.0F);
+
+        if (_modelReloadProbeRequested && !_modelReloadProbeFailed)
+        {
+            bool isRoom = false;
+            if (_room)
+            {
+                for (const std::shared_ptr<ModelInstance>& roomInst : _room->GetModels())
+                {
+                    if (roomInst && roomInst->Model().get() == model.get())
+                    {
+                        isRoom = true;
+                        break;
+                    }
+                }
+            }
+
+            // The resource must already have rendered through the production path
+            // before the gate is allowed to tear it down.
+            std::weak_ptr<GpuMeshResource> retiredResource = gpuMesh;
+            gpuMesh->Draw();
+            gpuMesh.reset();
+
+            _modelReloadProbeModel = model;
+            _modelReloadProbeMesh = mesh;
+
+            // Exercise the same Scene model GL teardown as production unload, but
+            // keep the live Read cache entry: active entities still own this exact
+            // Model object and replacing that cache entry would corrupt ownership.
+            UnloadModel(model, false);
+
+            const bool cacheEntryDestroyed
+                = !_gpuMeshCache.Find(model.get(), mesh.get());
+            const bool resourceDestroyed = retiredResource.expired();
+
+            // Recreate textures and all mesh GPU resources with the same room
+            // decoding mode that originally produced this model's geometry.
+            LoadModel(model, isRoom);
+            const bool cacheEntryReloaded
+                = static_cast<bool>(_gpuMeshCache.Find(model.get(), mesh.get()));
+
+            _modelReloadProbeRequested = false;
+            if (!cacheEntryDestroyed || !resourceDestroyed || !cacheEntryReloaded)
+            {
+                _modelReloadProbeFailed = true;
+                _modelReloadProbeStatus = "teardown/reload verification failed for model "
+                    + model->Name + " mesh " + std::to_string(mesh->DlistId)
+                    + " (cache_destroyed=" + (cacheEntryDestroyed ? std::string("true") : std::string("false"))
+                    + ", resource_destroyed=" + (resourceDestroyed ? std::string("true") : std::string("false"))
+                    + ", cache_reloaded=" + (cacheEntryReloaded ? std::string("true") : std::string("false"))
+                    + ")";
+                return;
+            }
+
+            _modelReloadProbeReloadFrame = _frameCount;
+            _modelReloadProbeAwaitingRedraw = true;
+            _modelReloadProbeStatus = "unloaded/reloaded model " + model->Name
+                + " mesh " + std::to_string(mesh->DlistId)
+                + (isRoom ? " as room geometry" : " as non-room geometry")
+                + " on frame " + std::to_string(_frameCount)
+                + "; waiting for a later production draw";
+            return;
+        }
+
+        gpuMesh->Draw();
+    }
+
+    void Scene::BeginModelReloadDrawProbe()
+    {
+        _modelReloadProbeRequested = true;
+        _modelReloadProbeAwaitingRedraw = false;
+        _modelReloadProbePassed = false;
+        _modelReloadProbeFailed = false;
+        _modelReloadProbeReloadFrame = 0;
+        _modelReloadProbeModel.reset();
+        _modelReloadProbeMesh.reset();
+        _modelReloadProbeStatus = "waiting for a production mesh draw";
+    }
+
+    bool Scene::ModelReloadDrawProbePassed() const noexcept
+    {
+        return _modelReloadProbePassed;
+    }
+
+    std::string Scene::ModelReloadDrawProbeStatus() const
+    {
+        return _modelReloadProbeStatus;
     }
 
     void Scene::LoadModel(std::string name, bool firstHunt)
@@ -1248,7 +1011,7 @@ namespace MphRead
     void Scene::LoadModel(const std::shared_ptr<Model>& model, bool isRoom)
     {
         InitTextures(model);
-        GenerateLists(model, isRoom);
+        GenerateGpuMeshes(model, isRoom);
     }
 
     void Scene::InitTextures(const std::shared_ptr<Model>& model)
@@ -1373,8 +1136,13 @@ namespace MphRead
     std::pair<std::int32_t, bool> Scene::BindTexture(const std::shared_ptr<Model>& model,
         std::int32_t textureId, std::int32_t paletteId, std::int32_t recolorId)
     {
-        const std::int32_t bindingId = Mods::Render::GlNames::NextTexture();
-        _ownedTextures.insert(bindingId);
+        const auto& texture = model->Recolors->at(static_cast<std::size_t>(recolorId))
+            ->Textures->at(static_cast<std::size_t>(textureId));
+        auto owned = Gpu().CreateTexture(NativeRuntime::Rhi::TextureDesc{
+            static_cast<std::uint32_t>(texture.Width), static_cast<std::uint32_t>(texture.Height), 1, 1, 1, 1,
+            NativeRuntime::Rhi::TextureFormat::RGBA8Unorm,
+            NativeRuntime::Rhi::TextureUsage::Sampled | NativeRuntime::Rhi::TextureUsage::TransferDst});
+        const std::int32_t bindingId = owned->Handle().value;
         bool onlyOpaque = true;
         std::vector<std::uint32_t> pixels;
         FlatColor average;
@@ -1384,12 +1152,12 @@ namespace MphRead
             onlyOpaque = onlyOpaque && pixel.Alpha == 255;
             average.Add(pixel);
         }
-        const auto& texture = model->Recolors->at(static_cast<std::size_t>(recolorId))
-            ->Textures->at(static_cast<std::size_t>(textureId));
-        GL::BindTexture(GL::TextureTarget::Texture2D, bindingId);
-        GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgba,
-            texture.Width, texture.Height, 0, GL::PixelFormat::Rgba, GL::PixelType::UnsignedByte, pixels.data());
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+        Gpu().WriteTexture(*owned, NativeRuntime::Rhi::TextureWrite{
+            static_cast<std::uint32_t>(texture.Width), static_cast<std::uint32_t>(texture.Height),
+            NativeRuntime::Rhi::TextureFormat::RGBA8Unorm, pixels.data()});
+        _modelTextureSources.insert_or_assign(bindingId,
+            SceneModelTextureSource{model, textureId, paletteId, recolorId});
+        _ownedTextures.insert_or_assign(bindingId, std::move(owned));
         _flatColors[bindingId] = average.Result();
         return {bindingId, onlyOpaque};
     }
@@ -1403,12 +1171,8 @@ namespace MphRead
 
     std::int32_t Scene::BindGetTexture(const std::vector<ColorRgba>& data, std::int32_t width, std::int32_t height)
     {
-        const std::int32_t bindingId = Mods::Render::GlNames::NextTexture();
-        _ownedTextures.insert(bindingId);
-        GL::BindTexture(GL::TextureTarget::Texture2D, bindingId);
-        GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgba,
-            width, height, 0, GL::PixelFormat::Rgba, GL::PixelType::UnsignedByte, data.data());
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+        const std::int32_t bindingId = CreateOwnedTexture(width, height,
+            NativeRuntime::Rhi::TextureFormat::RGBA8Unorm, data.data());
         _flatColors[bindingId] = AverageOf(data);
         return bindingId;
     }
@@ -1416,11 +1180,482 @@ namespace MphRead
     void Scene::BindTexture(const std::vector<ColorRgba>& data, std::int32_t width, std::int32_t height,
         std::int32_t bindingId)
     {
-        GL::BindTexture(GL::TextureTarget::Texture2D, bindingId);
-        GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Rgba,
-            width, height, 0, GL::PixelFormat::Rgba, GL::PixelType::UnsignedByte, data.data());
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+        WriteOwnedTexture(bindingId, width, height, NativeRuntime::Rhi::TextureFormat::RGBA8Unorm, data.data());
         _flatColors[bindingId] = AverageOf(data);
+    }
+
+    std::int32_t Scene::CreateOwnedTexture(std::int32_t width, std::int32_t height,
+        NativeRuntime::Rhi::TextureFormat format, const void* pixels)
+    {
+        auto owned = Gpu().CreateTexture(NativeRuntime::Rhi::TextureDesc{
+            static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), 1, 1, 1, 1, format,
+            NativeRuntime::Rhi::TextureUsage::Sampled | NativeRuntime::Rhi::TextureUsage::TransferDst});
+        const std::int32_t bindingId = owned->Handle().value;
+        Gpu().WriteTexture(*owned, NativeRuntime::Rhi::TextureWrite{
+            static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), format, pixels});
+        KeepTextureCopy(bindingId, width, height, format, pixels, true);
+        _ownedTextures.insert_or_assign(bindingId, std::move(owned));
+        return bindingId;
+    }
+
+    // Write a texture under a handle that may not be ours: a HUD element
+    // rewriting the texture it was given, or a caller with a reserved range
+    // of its own (the map thumbnails). A handle nothing holds yet becomes a
+    // texture the device keeps, as the GL name it used to be was kept.
+    void Scene::WriteOwnedTexture(std::int32_t bindingId, std::int32_t width, std::int32_t height,
+        NativeRuntime::Rhi::TextureFormat format, const void* pixels)
+    {
+        NativeRuntime::Rhi::Texture* texture = Gpu().FindTexture(NativeRuntime::Rhi::TextureHandle{bindingId});
+        if (texture == nullptr)
+        {
+            texture = &Gpu().RetainTexture(Gpu().CreateTexture(NativeRuntime::Rhi::TextureDesc{
+                static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), 1, 1, 1, 1, format,
+                NativeRuntime::Rhi::TextureUsage::Sampled | NativeRuntime::Rhi::TextureUsage::TransferDst},
+                NativeRuntime::Rhi::TextureHandle{bindingId}));
+        }
+        Gpu().WriteTexture(*texture, NativeRuntime::Rhi::TextureWrite{
+            static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), format, pixels});
+        KeepTextureCopy(bindingId, width, height, format, pixels, _ownedTextures.contains(bindingId));
+    }
+
+    void Scene::KeepTextureCopy(std::int32_t bindingId, std::int32_t width, std::int32_t height,
+        NativeRuntime::Rhi::TextureFormat format, const void* pixels, bool owned)
+    {
+        using NativeRuntime::Rhi::TextureFormat;
+        std::size_t bytes = 0;
+        switch (format)
+        {
+        case TextureFormat::R8Unorm: bytes = 1; break;
+        case TextureFormat::RG8Unorm: bytes = 2; break;
+        case TextureFormat::RGB8Unorm: bytes = 3; break;
+        case TextureFormat::RGBA8Unorm:
+        case TextureFormat::RGBA8Srgb:
+        case TextureFormat::BGRA8Unorm:
+        case TextureFormat::BGRA8Srgb: bytes = 4; break;
+        default: return;
+        }
+        if (pixels == nullptr || width <= 0 || height <= 0) return;
+        SceneTextureCopy& copy = _textureCopies[bindingId];
+        copy.Width = width;
+        copy.Height = height;
+        copy.Format = format;
+        copy.Owned = owned;
+        const auto* begin = static_cast<const std::uint8_t*>(pixels);
+        copy.Pixels.assign(begin, begin + static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * bytes);
+    }
+
+    bool Scene::IsRoomModel(const Model* model) const
+    {
+        if (_room == nullptr || model == nullptr) return false;
+        for (const std::shared_ptr<ModelInstance>& inst : _room->GetModels())
+        {
+            if (inst && inst->Model().get() == model) return true;
+        }
+        return false;
+    }
+
+    void Scene::RebindInput(MphRead::RendererPlatform::KeyboardState& keyboard,
+        MphRead::RendererPlatform::MouseState& mouse) noexcept
+    {
+        _keyboardState = &keyboard;
+        _mouseState = &mouse;
+    }
+
+    // The renderer is being switched under a running match. Everything this
+    // scene holds on the device goes; everything it knows stays -- the
+    // texture/palette map and every handle in it, the original models and
+    // HUD/dynamic recovery data -- so RebuildGpuAfterSwitch can put it all back
+    // on the next device under the same handles.
+    void Scene::ReleaseGpuForSwitch()
+    {
+        if (Mods::Headless::Active()) return;
+        _ownedTextures.clear();
+        _gpuMeshCache.Clear();
+        _transientGeometry.reset();
+        _celDepthView.reset();
+        _celDepth.reset();
+        _celColor.reset();
+        _sceneDepthStencilView.reset();
+        _sceneDepthStencil.reset();
+        _sceneColorView.reset();
+        _sceneColor.reset();
+        for (auto& sampler : _samplers) sampler.reset();
+        _commands.reset();
+        _pipelines.clear();
+        _shaderConstants = &_noShaderConstants;
+        _sceneShaders.reset();
+        auto* device = std::exchange(_gpu, nullptr);
+        if (device != nullptr)
+        {
+            try { device->WaitIdle(); }
+            catch (const NativeRuntime::Rhi::BackendError& error)
+            {
+                // A lost device cannot establish ordinary completion. Its
+                // session teardown closes all remaining native ownership.
+                if (error.Kind() != NativeRuntime::Rhi::BackendErrorKind::DeviceLost) throw;
+            }
+        }
+    }
+
+    void Scene::RebuildGpuAfterSwitch(const std::function<void()>& checkpoint)
+    {
+        if (Mods::Headless::Active()) return;
+        Commands().Begin();
+        InitShaders();
+        _transientGeometry = NativeRuntime::Rhi::CreateSceneTransientGeometry(Gpu(), Commands());
+        std::size_t textures = 0;
+        for (const auto& [bindingId, source] : _modelTextureSources)
+        {
+            const auto& model = source.Model;
+            const auto& texture = model->Recolors->at(static_cast<std::size_t>(source.RecolorId))
+                ->Textures->at(static_cast<std::size_t>(source.TextureId));
+            auto made = Gpu().CreateTexture(NativeRuntime::Rhi::TextureDesc{
+                static_cast<std::uint32_t>(texture.Width), static_cast<std::uint32_t>(texture.Height), 1, 1, 1, 1,
+                NativeRuntime::Rhi::TextureFormat::RGBA8Unorm,
+                NativeRuntime::Rhi::TextureUsage::Sampled | NativeRuntime::Rhi::TextureUsage::TransferDst},
+                NativeRuntime::Rhi::TextureHandle{bindingId});
+            std::vector<std::uint32_t> pixels;
+            for (ColorRgba pixel : model->GetPixels(source.TextureId, source.PaletteId, source.RecolorId))
+                pixels.push_back(pixel.ToUint());
+            Gpu().WriteTexture(*made, NativeRuntime::Rhi::TextureWrite{
+                static_cast<std::uint32_t>(texture.Width), static_cast<std::uint32_t>(texture.Height),
+                NativeRuntime::Rhi::TextureFormat::RGBA8Unorm, pixels.data()});
+            _ownedTextures.insert_or_assign(bindingId, std::move(made));
+            ++textures;
+            if (textures == 1 && checkpoint) checkpoint();
+        }
+        std::size_t recoveryBytes = 0;
+        for (const auto& [bindingId, copy] : _textureCopies)
+        {
+            const NativeRuntime::Rhi::TextureHandle handle{bindingId};
+            NativeRuntime::Rhi::Texture* texture = Gpu().FindTexture(handle);
+            if (texture == nullptr)
+            {
+                auto made = Gpu().CreateTexture(NativeRuntime::Rhi::TextureDesc{
+                    static_cast<std::uint32_t>(copy.Width), static_cast<std::uint32_t>(copy.Height), 1, 1, 1, 1,
+                    copy.Format,
+                    NativeRuntime::Rhi::TextureUsage::Sampled | NativeRuntime::Rhi::TextureUsage::TransferDst},
+                    handle);
+                texture = made.get();
+                if (copy.Owned) _ownedTextures.insert_or_assign(bindingId, std::move(made));
+                else texture = &Gpu().RetainTexture(std::move(made));
+            }
+            Gpu().WriteTexture(*texture, NativeRuntime::Rhi::TextureWrite{
+                static_cast<std::uint32_t>(copy.Width), static_cast<std::uint32_t>(copy.Height), copy.Format,
+                copy.Pixels.data()});
+            ++textures;
+            recoveryBytes += copy.Pixels.size();
+            if (textures == 1 && checkpoint) checkpoint();
+        }
+        if (textures == 0 && checkpoint) checkpoint();
+        UpdateProjection();
+        Mods::DebugLog::Line("render", "the match's GPU side was rebuilt on the new renderer: "
+            + std::to_string(textures) + " textures (" + std::to_string(_modelTextureSources.size())
+            + " from original model data, " + std::to_string(recoveryBytes)
+            + " recovery bytes for HUD/dynamic textures); meshes follow as they are drawn");
+    }
+
+    // The device for this scene's GL context, and this scene's command list.
+    // Both are there as soon as anything asks: a scene creates textures
+    // before OnLoad (a player's models load as the player is added), and
+    // the GL calls those used to be needed a context and nothing more.
+    NativeRuntime::Rhi::GraphicsDevice& Scene::Gpu()
+    {
+        if (_gpu == nullptr)
+        {
+            _gpu = &NativeRuntime::Rhi::SceneDevice();
+        }
+        return *_gpu;
+    }
+
+    NativeRuntime::Rhi::CommandList& Scene::Commands()
+    {
+        if (!_commands)
+        {
+            _commands = Gpu().CreateCommandList();
+        }
+        return *_commands;
+    }
+
+    // Each pass's state, as OnRenderFrame's GL calls used to set it one call
+    // at a time. The item's culling, fill and line width are laid on top by
+    // ScenePipeline; everything else about a pass is here.
+    NativeRuntime::Rhi::GraphicsPipelineDesc Scene::DescribeScenePass(ScenePass pass) const
+    {
+        namespace Rhi = NativeRuntime::Rhi;
+        Rhi::GraphicsPipelineDesc desc{};
+        desc.rasterizer.cullMode = Rhi::CullMode::None;
+        Rhi::DepthStencilStateDesc& ds = desc.depthStencil;
+        ds.depthTestEnable = true;
+        ds.depthWriteEnable = true;
+        ds.depthCompareOp = Rhi::CompareOp::LessEqual;
+        ds.stencilReadMask = 0xFF;
+        ds.stencilWriteMask = 0xFF;
+        Rhi::BlendAttachmentDesc blend{};
+        blend.srcColorFactor = Rhi::BlendFactor::SrcAlpha;
+        blend.dstColorFactor = Rhi::BlendFactor::OneMinusSrcAlpha;
+        blend.srcAlphaFactor = Rhi::BlendFactor::SrcAlpha;
+        blend.dstAlphaFactor = Rhi::BlendFactor::OneMinusSrcAlpha;
+        blend.writeMask = Rhi::ColorWriteMask::All;
+        const auto stencil = [&ds](Rhi::StencilOp fail, Rhi::StencilOp depthFail, Rhi::StencilOp pass2,
+            Rhi::CompareOp compare)
+        {
+            ds.stencilTestEnable = true;
+            ds.front = Rhi::StencilFaceStateDesc{fail, depthFail, pass2, compare};
+            ds.back = ds.front;
+        };
+        switch (pass)
+        {
+        case ScenePass::Opaque:
+            // Blending is off: an opaque pass keeps alpha == 1.0 only, which
+            // blends to itself whatever the blend state says.
+            ds.depthCompareOp = Rhi::CompareOp::Less;
+            stencil(Rhi::StencilOp::Zero, Rhi::StencilOp::Zero, Rhi::StencilOp::Zero, Rhi::CompareOp::Always);
+            desc.alphaTest = Rhi::AlphaTestMode::EqualOne;
+            break;
+        case ScenePass::Decal:
+            stencil(Rhi::StencilOp::Zero, Rhi::StencilOp::Zero, Rhi::StencilOp::Zero, Rhi::CompareOp::Always);
+            desc.rasterizer.depthBiasEnable = true;
+            desc.rasterizer.depthBiasConstant = -1.0F;
+            desc.rasterizer.depthBiasSlope = -1.0F;
+            blend.blendEnable = true;
+            break;
+        case ScenePass::TranslucentStencil:
+            stencil(Rhi::StencilOp::Keep, Rhi::StencilOp::Keep, Rhi::StencilOp::Replace, Rhi::CompareOp::Greater);
+            desc.alphaTest = Rhi::AlphaTestMode::LessThanOne;
+            blend.blendEnable = true;
+            blend.writeMask = Rhi::ColorWriteMask::None;
+            break;
+        case ScenePass::DepthRebuild:
+            stencil(Rhi::StencilOp::Keep, Rhi::StencilOp::Keep, Rhi::StencilOp::Keep, Rhi::CompareOp::Always);
+            desc.alphaTest = Rhi::AlphaTestMode::EqualOne;
+            blend.blendEnable = true;
+            blend.writeMask = Rhi::ColorWriteMask::None;
+            break;
+        case ScenePass::TranslucentNotEqual:
+        case ScenePass::TranslucentEqual:
+            stencil(Rhi::StencilOp::Keep, Rhi::StencilOp::Keep, Rhi::StencilOp::Keep,
+                pass == ScenePass::TranslucentEqual ? Rhi::CompareOp::Equal : Rhi::CompareOp::NotEqual);
+            desc.alphaTest = Rhi::AlphaTestMode::LessThanOne;
+            ds.depthWriteEnable = false;
+            blend.blendEnable = true;
+            break;
+        case ScenePass::AfterScene:
+            blend.blendEnable = true;
+            break;
+        case ScenePass::Preview:
+            ds.depthCompareOp = Rhi::CompareOp::Less;
+            blend.blendEnable = true;
+            break;
+        case ScenePass::HudModel:
+        case ScenePass::Composite:
+        case ScenePass::CompositeShift:
+            ds.depthTestEnable = false;
+            blend.blendEnable = true;
+            break;
+        case ScenePass::CelOutline:
+            ds.depthTestEnable = false;
+            break;
+        case ScenePass::FrameEnd:
+            break;
+        }
+        // Which program the pass runs. FrameEnd names none and leaves the
+        // last one bound, as the end of the frame always did.
+        if (_sceneShaders)
+        {
+            Rhi::SceneProgram program = Rhi::SceneProgram::Main;
+            bool bound = true;
+            switch (pass)
+            {
+            case ScenePass::Composite: program = Rhi::SceneProgram::Composite; break;
+            case ScenePass::CompositeShift: program = Rhi::SceneProgram::Shift; break;
+            case ScenePass::CelOutline: program = Rhi::SceneProgram::CelOutline; break;
+            case ScenePass::FrameEnd: bound = false; break;
+            default: break;
+            }
+            if (bound)
+            {
+                desc.vertexShader = &_sceneShaders->Vertex(program);
+                desc.fragmentShader = &_sceneShaders->Fragment(program);
+            }
+        }
+        desc.blendAttachments.push_back(blend);
+        desc.colorFormats.push_back(Rhi::TextureFormat::RGB8Unorm);
+        desc.depthStencilFormat = NativeRuntime::Rhi::SceneDevice().GetCapabilities().depthStencilFormat;
+        return desc;
+    }
+
+    const NativeRuntime::Rhi::GraphicsPipeline& Scene::ScenePipeline(ScenePass pass,
+        NativeRuntime::Rhi::CullMode cull, NativeRuntime::Rhi::FillMode fill, std::int32_t lineWidth)
+    {
+        const std::uint32_t key = (static_cast<std::uint32_t>(pass) << 16U)
+            | (static_cast<std::uint32_t>(cull) << 12U) | (static_cast<std::uint32_t>(fill) << 8U)
+            | (static_cast<std::uint32_t>(lineWidth) & 0xFFU);
+        auto& pipeline = _pipelines[key];
+        if (!pipeline)
+        {
+            NativeRuntime::Rhi::GraphicsPipelineDesc desc = DescribeScenePass(pass);
+            desc.rasterizer.cullMode = cull;
+            desc.rasterizer.fillMode = fill;
+            desc.rasterizer.lineWidth = static_cast<float>(lineWidth);
+            pipeline = Gpu().CreateGraphicsPipeline(desc);
+        }
+        return *pipeline;
+    }
+
+    // A pass begins with its state applied even when it has no items, as
+    // the calls that set it one at a time always were: the depth clear
+    // between the stencil and rebuild passes depends on it.
+    void Scene::BeginScenePass(ScenePass pass)
+    {
+        _itemPass = pass;
+        Commands().SetPipeline(ScenePipeline(pass, NativeRuntime::Rhi::CullMode::None,
+            NativeRuntime::Rhi::FillMode::Solid, 1));
+    }
+
+    void Scene::CreateSceneTargets(Vector2i size)
+    {
+        namespace Rhi = NativeRuntime::Rhi;
+        const auto width = static_cast<std::uint32_t>(size.X);
+        const auto height = static_cast<std::uint32_t>(size.Y);
+        // SceneColor, CelColor and SceneDepthStencil, in the order their
+        // names were always taken.
+        _sceneColor = Gpu().CreateTexture(Rhi::TextureDesc{width, height, 1, 1, 1, 1,
+            Rhi::TextureFormat::RGB8Unorm,
+            Rhi::TextureUsage::Sampled | Rhi::TextureUsage::ColorAttachment | Rhi::TextureUsage::TransferSrc});
+        _sceneColorView = Gpu().CreateTextureView(*_sceneColor, Rhi::TextureViewDesc{Rhi::TextureFormat::RGB8Unorm});
+        _celColor = Gpu().CreateTexture(Rhi::TextureDesc{width, height, 1, 1, 1, 1,
+            Rhi::TextureFormat::RGB8Unorm,
+            Rhi::TextureUsage::Sampled | Rhi::TextureUsage::ColorAttachment | Rhi::TextureUsage::TransferDst});
+        const auto depthStencil = Gpu().GetCapabilities().depthStencilFormat;
+        _sceneDepthStencil = Gpu().CreateTexture(Rhi::TextureDesc{width, height, 1, 1, 1, 1,
+            depthStencil, Rhi::TextureUsage::DepthStencilAttachment});
+        _sceneDepthStencilView = Gpu().CreateTextureView(*_sceneDepthStencil,
+            Rhi::TextureViewDesc{depthStencil});
+    }
+
+    // The scene target: SceneColor, over CelDepth while the cel outline
+    // wants a depth it can read and SceneDepthStencil otherwise. Everything
+    // is loaded -- the frame's clears are still their own calls.
+    NativeRuntime::Rhi::RenderingInfo Scene::SceneRenderingInfo(
+        std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1>& color,
+        NativeRuntime::Rhi::RenderingDepthStencilAttachment& depth) const
+    {
+        color[0].view = _sceneColorView.get();
+        depth.view = _celDepthView ? _celDepthView.get() : _sceneDepthStencilView.get();
+        NativeRuntime::Rhi::RenderingInfo info{};
+        info.width = static_cast<std::uint32_t>(_targetSize.X);
+        info.height = static_cast<std::uint32_t>(_targetSize.Y);
+        info.colorAttachments = color;
+        info.depthStencilAttachment = &depth;
+        return info;
+    }
+
+    void Scene::BeginSceneRendering(NativeRuntime::Rhi::LoadOp colorLoad, NativeRuntime::Rhi::LoadOp depthLoad,
+        NativeRuntime::Rhi::LoadOp stencilLoad, NativeRuntime::Rhi::ClearColor clearColor,
+        NativeRuntime::Rhi::Scissor area)
+    {
+        std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
+        NativeRuntime::Rhi::RenderingDepthStencilAttachment depth{};
+        NativeRuntime::Rhi::RenderingInfo info = SceneRenderingInfo(color, depth);
+        color[0].loadOp = colorLoad;
+        color[0].clearValue = clearColor;
+        depth.depthLoadOp = depthLoad;
+        depth.stencilLoadOp = stencilLoad;
+        depth.clearDepth = 1.0F;
+        depth.clearStencil = 0;
+        info.renderArea = area;
+        Commands().BeginRendering(info);
+    }
+
+    // The colour the scene target is cleared to: the room's, which is
+    // black unless it is a First Hunt room whose fog is its sky.
+    NativeRuntime::Rhi::ClearColor Scene::SceneClearColor() const
+    {
+        return NativeRuntime::Rhi::ClearColor{_clearColor.X, _clearColor.Y, _clearColor.Z, _clearColor.W};
+    }
+
+    // The cel pass writes SceneColor with no depth attached.
+    void Scene::BeginCelRendering()
+    {
+        std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
+        color[0].view = _sceneColorView.get();
+        NativeRuntime::Rhi::RenderingInfo info{};
+        info.width = static_cast<std::uint32_t>(_targetSize.X);
+        info.height = static_cast<std::uint32_t>(_targetSize.Y);
+        info.colorAttachments = color;
+        Commands().BeginRendering(info);
+    }
+
+    void Scene::BeginWindowRendering(NativeRuntime::Rhi::LoadOp colorLoad, NativeRuntime::Rhi::LoadOp depthLoad,
+        NativeRuntime::Rhi::ClearColor clearColor, NativeRuntime::Rhi::Scissor area)
+    {
+        std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
+        color[0].loadOp = colorLoad;
+        color[0].clearValue = clearColor;
+        NativeRuntime::Rhi::RenderingDepthStencilAttachment depth{};
+        depth.depthLoadOp = depthLoad;
+        NativeRuntime::Rhi::RenderingInfo info{};
+        info.width = static_cast<std::uint32_t>(_rendererSize.X);
+        info.height = static_cast<std::uint32_t>(_rendererSize.Y);
+        info.swapchain = true;
+        info.colorAttachments = color;
+        info.depthStencilAttachment = &depth;
+        info.renderArea = area;
+        Commands().BeginRendering(info);
+    }
+
+    NativeRuntime::Rhi::Texture* Scene::TextureFor(std::int32_t bindingId) const
+    {
+        return bindingId != 0 && _gpu != nullptr
+            ? _gpu->FindTexture(NativeRuntime::Rhi::TextureHandle{bindingId}) : nullptr;
+    }
+
+    const NativeRuntime::Rhi::Sampler& Scene::SamplerFor(bool linear, RepeatMode s, RepeatMode t)
+    {
+        namespace Rhi = NativeRuntime::Rhi;
+        const auto address = [](RepeatMode mode)
+        {
+            switch (mode)
+            {
+            case RepeatMode::Clamp: return Rhi::SamplerAddressMode::ClampToEdge;
+            case RepeatMode::Mirror: return Rhi::SamplerAddressMode::MirroredRepeat;
+            case RepeatMode::Repeat:
+            default: return Rhi::SamplerAddressMode::Repeat;
+            }
+        };
+        const std::size_t index = (linear ? 9U : 0U) + static_cast<std::size_t>(s) * 3U
+            + static_cast<std::size_t>(t);
+        auto& sampler = _samplers.at(index);
+        if (!sampler)
+        {
+            Rhi::SamplerDesc desc{};
+            desc.minFilter = linear ? Rhi::Filter::Linear : Rhi::Filter::Nearest;
+            desc.magFilter = desc.minFilter;
+            desc.mipFilter = Rhi::Filter::Nearest;
+            desc.addressU = address(s);
+            desc.addressV = address(t);
+            sampler = Gpu().CreateSampler(desc);
+        }
+        return *sampler;
+    }
+
+    void Scene::BindSceneTexture(std::uint32_t slot, std::int32_t bindingId,
+        const NativeRuntime::Rhi::Sampler& sampler)
+    {
+        const NativeRuntime::Rhi::Texture* texture = TextureFor(bindingId);
+        Commands().BindSampledTexture(slot, texture, texture != nullptr ? &sampler : nullptr);
+    }
+
+    void Scene::BindSceneTexture(std::uint32_t slot, const NativeRuntime::Rhi::Texture& texture,
+        const NativeRuntime::Rhi::Sampler& sampler)
+    {
+        Commands().BindSampledTexture(slot, &texture, &sampler);
+    }
+
+    void Scene::UnbindSceneTexture(std::uint32_t slot)
+    {
+        Commands().BindSampledTexture(slot, nullptr, nullptr);
     }
 
     void Scene::UpdateMaterials(const std::shared_ptr<Model>& model, std::int32_t recolorId)
@@ -1603,7 +1838,12 @@ namespace MphRead
         const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
         Mods::EndScreen::Tick(_room != nullptr ? _room->Meta().Name : std::string(), _globalElapsedTime);
         Mods::Render::MapThumbnail::BeginFrame();
-        GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, _frameBuffer);
+        (void)Gpu().BeginFrame();
+        // Fade completion can synchronously load a room and release the old
+        // model. Resolve it before collecting draws that reference that model.
+        // UpdateUniforms still refreshes fade state injected after collection
+        // by capture tools, but ordinary room transitions finish here.
+        if (ProcessFrame()) UpdateFade();
         Vector2i target = RenderSize();
         if (target != _targetSize)
         {
@@ -1611,8 +1851,13 @@ namespace MphRead
             target = _targetSize;
         }
         UpdateDepthAttachment(target);
-        GL::Viewport(0, 0, target.X, target.Y);
-        GL::UseProgram(_shaderProgramId);
+        BeginSceneRendering();
+        Commands().SetViewport(NativeRuntime::Rhi::Viewport{0.0F, 0.0F,
+            static_cast<float>(target.X), static_cast<float>(target.Y)});
+        // The main program and the state the HUD and preview start from: what
+        // the frame's first uniforms (UpdateUniforms) are written into.
+        Commands().SetPipeline(ScenePipeline(ScenePass::AfterScene, NativeRuntime::Rhi::CullMode::None,
+            NativeRuntime::Rhi::FillMode::Solid, 1));
         LoadAndUnload();
         _decalItems.clear();
         _nonDecalItems.clear();
@@ -1647,7 +1892,7 @@ namespace MphRead
     void Scene::UpdateProjection()
     {
         _perspectiveMatrix = GetPerspectiveMatrix(_cameraFov);
-        GL::UniformMatrix4(_shaderLocations->ProjectionMatrix, false, _perspectiveMatrix);
+        _shaderConstants->SetProjection(_perspectiveMatrix);
         auto main = Entities::PlayerEntity::Main();
         const Vector3 camPos = RequireReference(main->CameraInfo()).Position;
         const Vector3 camRight(_viewMatrix.M11, _viewMatrix.M12, -_viewMatrix.M13);
@@ -1687,28 +1932,14 @@ namespace MphRead
         return result;
     }
 
-    OpenTK::Graphics::OpenGL::FramebufferErrorCode Scene::FramebufferStatus() const noexcept
+    std::int32_t Scene::FramebufferStatus() const noexcept
     {
         return _framebufferStatus;
     }
 
-    OpenTK::Graphics::OpenGL::ErrorCode Scene::DrainGlError()
+    std::int32_t Scene::DrainGlError()
     {
-        auto first = OpenTK::Graphics::OpenGL::ErrorCode::NoError;
-        for (std::int32_t i = 0; i < 64; ++i)
-        {
-            const auto code = GL::GetError();
-            if (code == GL::ErrorCode::NoError)
-            {
-                break;
-            }
-            if (first == OpenTK::Graphics::OpenGL::ErrorCode::NoError)
-            {
-                first = static_cast<OpenTK::Graphics::OpenGL::ErrorCode>(
-                    static_cast<std::int32_t>(code));
-            }
-        }
-        return first;
+        return Gpu().DrainErrors();
     }
 
     std::optional<std::vector<std::uint8_t>> Scene::ReadWindowBuffer(std::int32_t& width, std::int32_t& height)
@@ -1717,10 +1948,12 @@ namespace MphRead
         height = _rendererSize.Y;
         if (width <= 0 || height <= 0) return std::nullopt;
         std::vector<std::uint8_t> buffer(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 3U);
-        GL::BindFramebuffer(GL::FramebufferTarget::ReadFramebuffer, 0);
-        GL::ReadBuffer(GL::ReadBufferMode::Back);
-        GL::PixelStore(GL::PixelStoreParameter::PackAlignment, 1);
-        GL::ReadPixels(0, 0, width, height, GL::PixelFormat::Rgb, GL::PixelType::UnsignedByte, buffer.data());
+        NativeRuntime::Rhi::RenderingInfo info{};
+        info.width = static_cast<std::uint32_t>(width);
+        info.height = static_cast<std::uint32_t>(height);
+        info.swapchain = true;
+        Commands().ReadColor(info, 0, 0, info.width, info.height,
+            NativeRuntime::Rhi::TextureFormat::RGB8Unorm, buffer.data());
         return buffer;
     }
 
@@ -1728,23 +1961,24 @@ namespace MphRead
     {
         width = _targetSize.X;
         height = _targetSize.Y;
-        if (_frameBuffer == 0) return std::nullopt;
+        if (!_sceneColor) return std::nullopt;
         std::vector<std::uint8_t> buffer(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 3U);
-        GL::BindFramebuffer(GL::FramebufferTarget::ReadFramebuffer, _frameBuffer);
-        GL::ReadBuffer(GL::ReadBufferMode::ColorAttachment0);
-        GL::PixelStore(GL::PixelStoreParameter::PackAlignment, 1);
-        GL::ReadPixels(0, 0, width, height, GL::PixelFormat::Rgb, GL::PixelType::UnsignedByte, buffer.data());
-        GL::BindFramebuffer(GL::FramebufferTarget::ReadFramebuffer, 0);
+        std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
+        NativeRuntime::Rhi::RenderingDepthStencilAttachment depth{};
+        Commands().ReadColor(SceneRenderingInfo(color, depth), 0, 0,
+            static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height),
+            NativeRuntime::Rhi::TextureFormat::RGB8Unorm, buffer.data());
         return buffer;
     }
 
     void Scene::AfterRenderFrame()
     {
+        Images::PollReadbacks();
         if (_recording)
         {
             std::ostringstream name;
             name << "frame" << std::setw(4) << std::setfill('0') << _framesRecorded;
-            Images::Record(_rendererSize.X, _rendererSize.Y, name.str());
+            Images::Record(Commands(), _rendererSize.X, _rendererSize.Y, name.str());
             ++_framesRecorded;
         }
         _advanceOneFrame = false;
@@ -1754,47 +1988,32 @@ namespace MphRead
     {
         const bool want = !_depthTextureRefused && Mods::RenderOptions::CelShading()
             && Mods::RenderOptions::CelEdge() > 0.0F;
-        if (want == (_depthTexture != 0)) return;
+        if (want == (_celDepth != nullptr)) return;
         if (!want)
         {
-            GL::FramebufferRenderbuffer(GL::FramebufferTarget::Framebuffer,
-                GL::FramebufferAttachment::DepthStencilAttachment, GL::RenderbufferTarget::Renderbuffer,
-                _renderBuffer);
-            GL::DeleteTexture(_depthTexture);
-            _depthTexture = 0;
+            // The scene target falls back to SceneDepthStencil by itself.
+            _celDepthView.reset();
+            _celDepth.reset();
             return;
         }
-        _depthTexture = Mods::Render::GlNames::NextTexture();
-        GL::BindTexture(GL::TextureTarget::Texture2D, _depthTexture);
-        GL::TexImage2D(GL::TextureTarget::Texture2D, 0, GL::PixelInternalFormat::Depth24Stencil8,
-            target.X, target.Y, 0, GL::PixelFormat::DepthStencil, GL::PixelType::UnsignedInt248, nullptr);
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
-            static_cast<std::int32_t>(GL::TextureMinFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter,
-            static_cast<std::int32_t>(GL::TextureMagFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-        GL::FramebufferTexture2D(GL::FramebufferTarget::Framebuffer,
-            GL::FramebufferAttachment::DepthStencilAttachment, GL::TextureTarget::Texture2D, _depthTexture, 0);
+        namespace Rhi = NativeRuntime::Rhi;
+        _celDepth = Gpu().CreateTexture(Rhi::TextureDesc{
+            static_cast<std::uint32_t>(target.X), static_cast<std::uint32_t>(target.Y), 1, 1, 1, 1,
+            Gpu().GetCapabilities().depthStencilFormat,
+            Rhi::TextureUsage::Sampled | Rhi::TextureUsage::DepthStencilAttachment});
+        _celDepthView = Gpu().CreateTextureView(*_celDepth, Rhi::TextureViewDesc{Gpu().GetCapabilities().depthStencilFormat});
         _claimedQuantum = MeasureDepthQuantum();
         _depthQuantum = _claimedQuantum;
-        const auto status = GL::CheckFramebufferStatus(GL::FramebufferTarget::Framebuffer);
-        if (status != GL::FramebufferErrorCode::FramebufferComplete)
+        std::array<Rhi::RenderingColorAttachment, 1> color{};
+        Rhi::RenderingDepthStencilAttachment depth{};
+        if (!Gpu().CanRender(SceneRenderingInfo(color, depth)))
         {
-            const auto statusText = static_cast<OpenTK::Graphics::OpenGL::FramebufferErrorCode>(
-                static_cast<std::int32_t>(status));
             std::cout << "[render] this driver will not read the scene's depth back ("
-                << FramebufferErrorText(statusText)
+                << FramebufferErrorText(0x8CDD)
                 << "); cel shading keeps its banding and goes without the outline.\n";
             _depthTextureRefused = true;
-            GL::FramebufferRenderbuffer(GL::FramebufferTarget::Framebuffer,
-                GL::FramebufferAttachment::DepthStencilAttachment, GL::RenderbufferTarget::Renderbuffer,
-                _renderBuffer);
-            GL::DeleteTexture(_depthTexture);
-            _depthTexture = 0;
+            _celDepthView.reset();
+            _celDepth.reset();
         }
     }
 
@@ -1803,21 +2022,15 @@ namespace MphRead
         constexpr std::int32_t requested = 24;
         std::int32_t bits = requested;
         bool answered = false;
-        try
         {
-            (void)DrainGlError();
-            std::int32_t answer = 0;
-            GL::GetFramebufferAttachmentParameter(GL::FramebufferTarget::Framebuffer,
-                GL::FramebufferAttachment::DepthAttachment,
-                GL::FramebufferParameterName::FramebufferAttachmentDepthSize, answer);
-            if (GL::GetError() == GL::ErrorCode::NoError && answer >= 8 && answer <= 32)
+            std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
+            NativeRuntime::Rhi::RenderingDepthStencilAttachment depth{};
+            const std::uint32_t answer = Gpu().DepthBits(SceneRenderingInfo(color, depth));
+            if (answer != 0)
             {
-                bits = answer;
+                bits = static_cast<std::int32_t>(answer);
                 answered = true;
             }
-        }
-        catch (...)
-        {
         }
         if (!_saidDepthSize)
         {
@@ -1834,10 +2047,10 @@ namespace MphRead
     void Scene::DrawCelOutline()
     {
         if (!Mods::RenderOptions::CelShading() || Mods::RenderOptions::CelEdge() <= 0.0F
-            || _celTexture == 0 || _celShaderProgramId == 0 || _depthTexture == 0) return;
+            || !_celColor || !_sceneShaders || !_celDepth) return;
         const Vector2i target = _targetSize;
-        GL::BindTexture(GL::TextureTarget::Texture2D, _celTexture);
-        GL::CopyTexSubImage2D(GL::TextureTarget::Texture2D, 0, 0, 0, 0, 0, target.X, target.Y);
+        Commands().CopyColorAttachmentToTexture(*_celColor,
+            static_cast<std::uint32_t>(target.X), static_cast<std::uint32_t>(target.Y));
         if (_calibrateInk)
         {
             _calibrateInk = false;
@@ -1846,48 +2059,28 @@ namespace MphRead
         DrawCelQuad(target, false);
     }
 
-    std::int32_t Scene::CelFrameBuffer()
-    {
-        if (_celFrameBuffer == 0) _celFrameBuffer = GL::GenFramebuffer();
-        if (_celFrameBufferColor != _screenTexture)
-        {
-            GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, _celFrameBuffer);
-            GL::FramebufferTexture2D(GL::FramebufferTarget::Framebuffer,
-                GL::FramebufferAttachment::ColorAttachment0, GL::TextureTarget::Texture2D, _screenTexture, 0);
-            _celFrameBufferColor = _screenTexture;
-        }
-        return _celFrameBuffer;
-    }
-
     void Scene::DrawCelQuad(Vector2i target, bool probe)
     {
-        GL::ActiveTexture(GL::TextureUnit::Texture1);
-        GL::BindTexture(GL::TextureTarget::Texture2D, _depthTexture);
-        GL::ActiveTexture(GL::TextureUnit::Texture0);
-        GL::BindTexture(GL::TextureTarget::Texture2D, _celTexture);
-        GL::UseProgram(_celShaderProgramId);
-        GL::Uniform1(_shaderLocations->CelTexelWidth, 1.0F / target.X);
-        GL::Uniform1(_shaderLocations->CelTexelHeight, 1.0F / target.Y);
-        GL::Uniform1(_shaderLocations->CelOutline, Mods::RenderOptions::CelEdge());
-        GL::Uniform1(_shaderLocations->CelNearPlane, _nearClip);
-        GL::Uniform1(_shaderLocations->CelFarPlane, _useClip ? _farClip : 10000.0F);
-        GL::Uniform1(_shaderLocations->CelDepthQuantum, _depthQuantum);
-        GL::Uniform1(_shaderLocations->CelProbe, probe ? 1 : 0);
-        GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, CelFrameBuffer());
-        GL::Disable(GL::EnableCap::DepthTest);
-        GL::Disable(GL::EnableCap::Blend);
-        GL::Disable(GL::EnableCap::CullFace);
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::TexCoord3(1.0F, 1.0F, 0.0F); GL::Vertex3(1.0F, 1.0F, 0.0F);
-        GL::TexCoord3(0.0F, 1.0F, 0.0F); GL::Vertex3(-1.0F, 1.0F, 0.0F);
-        GL::TexCoord3(1.0F, 0.0F, 0.0F); GL::Vertex3(1.0F, -1.0F, 0.0F);
-        GL::TexCoord3(0.0F, 0.0F, 0.0F); GL::Vertex3(-1.0F, -1.0F, 0.0F);
-        GL::End();
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-        GL::ActiveTexture(GL::TextureUnit::Texture1); GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-        GL::ActiveTexture(GL::TextureUnit::Texture0);
-        GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, _frameBuffer);
-        GL::Enable(GL::EnableCap::DepthTest);
+        const auto& nearestClamp = SamplerFor(false, RepeatMode::Clamp, RepeatMode::Clamp);
+        BindSceneTexture(1, *_celDepth, nearestClamp);
+        BindSceneTexture(0, *_celColor, nearestClamp);
+        Commands().EndRendering();
+        BeginCelRendering();
+        Commands().SetPipeline(ScenePipeline(ScenePass::CelOutline, NativeRuntime::Rhi::CullMode::None,
+            NativeRuntime::Rhi::FillMode::Solid, 1));
+        _shaderConstants->Set(NativeRuntime::Rhi::CelPostConstants{
+            1.0F / target.X, 1.0F / target.Y, Mods::RenderOptions::CelEdge(), _nearClip,
+            _useClip ? _farClip : 10000.0F, _depthQuantum, probe});
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientTexCoord3(1.0F, 1.0F, 0.0F); TransientVertex3(1.0F, 1.0F, 0.0F);
+        TransientTexCoord3(0.0F, 1.0F, 0.0F); TransientVertex3(-1.0F, 1.0F, 0.0F);
+        TransientTexCoord3(1.0F, 0.0F, 0.0F); TransientVertex3(1.0F, -1.0F, 0.0F);
+        TransientTexCoord3(0.0F, 0.0F, 0.0F); TransientVertex3(-1.0F, -1.0F, 0.0F);
+        EndTransient();
+        UnbindSceneTexture(0);
+        UnbindSceneTexture(1);
+        Commands().EndRendering();
+        BeginSceneRendering();
     }
 
     void Scene::CalibrateInk(Vector2i target)
@@ -1900,7 +2093,11 @@ namespace MphRead
         try
         {
             DrawCelQuad(target, true);
-            GL::ReadPixels(x, y, side, side, GL::PixelFormat::Rgba, GL::PixelType::UnsignedByte, pixels.data());
+            std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
+            NativeRuntime::Rhi::RenderingDepthStencilAttachment depth{};
+            Commands().ReadColor(SceneRenderingInfo(color, depth), static_cast<std::uint32_t>(x),
+                static_cast<std::uint32_t>(y), static_cast<std::uint32_t>(side), static_cast<std::uint32_t>(side),
+                NativeRuntime::Rhi::TextureFormat::RGBA8Unorm, pixels.data());
         }
         catch (const std::exception& ex)
         {
@@ -1958,51 +2155,47 @@ namespace MphRead
     {
         const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
         CountFrame();
-        GL::Clear(GL::ClearBufferMask::ColorBufferBit | GL::ClearBufferMask::DepthBufferBit | GL::ClearBufferMask::StencilBufferBit);
-        GL::ClearStencil(0);
+        if (_exiting) return false;
+        std::unique_ptr<NativeRuntime::Rhi::TimestampQuerySet> gpuSample;
+        if (!SideScene()) gpuSample = Mods::Diagnostics::FramePerformance::BeginGpu(Gpu(), Commands());
+        if (_transientGeometry)
+        {
+            _transientGeometry->BeginFrame();
+        }
+        {
+            using NativeRuntime::Rhi::LoadOp;
+            BeginSceneRendering(LoadOp::Clear, LoadOp::Clear, LoadOp::Clear, SceneClearColor());
+        }
         UpdateUniforms();
         SetPauseMenuUniforms();
-        if (_exiting) return false;
-        GL::ColorMask(true, true, true, true);
-        GL::Enable(GL::EnableCap::AlphaTest);
-        GL::AlphaFunc(GL::AlphaFunction::Equal, 1.0F);
-        GL::DepthFunc(GL::DepthFunction::Less);
-        GL::DepthMask(true);
-        GL::Enable(GL::EnableCap::StencilTest);
-        GL::StencilMask(0xFF);
-        GL::StencilOp(GL::StencilOp::Zero, GL::StencilOp::Zero, GL::StencilOp::Zero);
-        GL::StencilFunc(GL::StencilFunction::Always, 0, 0xFF);
+        BeginScenePass(ScenePass::Opaque);
         for (const auto& item : _nonDecalItems) RenderItem(item);
-        GL::Disable(GL::EnableCap::AlphaTest);
-        GL::Enable(GL::EnableCap::PolygonOffsetFill); GL::PolygonOffset(-1, -1);
-        GL::DepthFunc(GL::DepthFunction::Lequal);
-        GL::Enable(GL::EnableCap::Blend);
-        GL::BlendFunc(GL::BlendingFactor::SrcAlpha, GL::BlendingFactor::OneMinusSrcAlpha);
+        BeginScenePass(ScenePass::Decal);
         for (const auto& item : _decalItems) RenderItem(item);
-        GL::PolygonOffset(0, 0); GL::Disable(GL::EnableCap::PolygonOffsetFill);
-        GL::Enable(GL::EnableCap::AlphaTest); GL::AlphaFunc(GL::AlphaFunction::Less, 1.0F);
-        GL::ColorMask(false, false, false, false);
-        GL::StencilOp(GL::StencilOp::Keep, GL::StencilOp::Keep, GL::StencilOp::Replace);
+        BeginScenePass(ScenePass::TranslucentStencil);
         for (const auto& item : _translucentItems)
         {
-            GL::StencilFunc(GL::StencilFunction::Greater, item->PolygonId, 0xFF); RenderItem(item);
+            Commands().SetStencilReference(static_cast<std::uint32_t>(item->PolygonId)); RenderItem(item);
         }
-        GL::Clear(GL::ClearBufferMask::DepthBufferBit);
-        GL::StencilOp(GL::StencilOp::Keep, GL::StencilOp::Keep, GL::StencilOp::Keep);
-        GL::StencilFunc(GL::StencilFunction::Always, 0, 0xFF); GL::AlphaFunc(GL::AlphaFunction::Equal, 1.0F);
+        Commands().EndRendering();
+        {
+            // Colour and the stencil the translucent pass just wrote are kept.
+            using NativeRuntime::Rhi::LoadOp;
+            BeginSceneRendering(LoadOp::Load, LoadOp::Clear, LoadOp::Load);
+        }
+        BeginScenePass(ScenePass::DepthRebuild);
         for (const auto& item : _nonDecalItems) RenderItem(item);
-        GL::AlphaFunc(GL::AlphaFunction::Less, 1.0F); GL::ColorMask(true, true, true, true);
-        GL::DepthMask(false); GL::DepthFunc(GL::DepthFunction::Lequal);
+        BeginScenePass(ScenePass::TranslucentNotEqual);
         for (const auto& item : _translucentItems)
         {
-            GL::StencilFunc(GL::StencilFunction::Notequal, item->PolygonId, 0xFF); RenderItem(item);
+            Commands().SetStencilReference(static_cast<std::uint32_t>(item->PolygonId)); RenderItem(item);
         }
+        BeginScenePass(ScenePass::TranslucentEqual);
         for (const auto& item : _translucentItems)
         {
-            GL::StencilFunc(GL::StencilFunction::Equal, item->PolygonId, 0xFF); RenderItem(item);
+            Commands().SetStencilReference(static_cast<std::uint32_t>(item->PolygonId)); RenderItem(item);
         }
-        GL::DepthMask(true); GL::Disable(GL::EnableCap::AlphaTest); GL::Disable(GL::EnableCap::StencilTest);
-        GL::PolygonMode(GL::TriangleFace::FrontAndBack, GL::PolygonMode::Fill);
+        BeginScenePass(ScenePass::AfterScene);
         ModDrawPreview();
         auto main = Entities::PlayerEntity::Main();
         if (((main->LoadFlags() & LoadFlags::Active) == LoadFlags::Active) && CameraMode() == MphRead::CameraMode::Player)
@@ -2014,46 +2207,49 @@ namespace MphRead
             SetHudLayerUniforms(); main->DrawHudModels(); UnsetHudLayerUniforms();
         }
         DrawCelOutline();
-        GL::Disable(GL::EnableCap::CullFace); GL::UseProgram(_rttShaderProgramId);
-        GL::Uniform1(_shaderLocations->LayerAlpha, 1.0F); GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
+        const auto& composite = ScenePipeline(ScenePass::Composite, NativeRuntime::Rhi::CullMode::None,
+            NativeRuntime::Rhi::FillMode::Solid, 1);
+        Commands().SetPipeline(composite);
+        _shaderConstants->SetLayerAlpha(1.0F); _shaderConstants->SetFadeColor(Vector4{});
         if (main->HudDisruptedState() != 0 || main->HudWhiteoutState() != -1)
         {
             const float div = _elapsedTime / (1.0F / 30.0F);
             const std::int32_t index = ::MphRead::NativeRuntime::ConvertToInt32Net9(div);
             const float factor = std::fmod(div, 1.0F);
-            GL::UseProgram(_shiftShaderProgramId);
-            GL::Uniform1(_shaderLocations->ShiftFactor, main->HudDisruptionFactor());
-            GL::Uniform1(_shaderLocations->ShiftIndex, index);
-            GL::Uniform1(_shaderLocations->LerpFactor, factor);
-            GL::Uniform1(_shaderLocations->WhiteoutFactor, main->HudWhiteoutFactor());
+            Commands().SetPipeline(ScenePipeline(ScenePass::CompositeShift, NativeRuntime::Rhi::CullMode::None,
+                NativeRuntime::Rhi::FillMode::Solid, 1));
+            _shaderConstants->Set(NativeRuntime::Rhi::DisruptionPostConstants{
+                main->HudDisruptionFactor(), index, factor, main->HudWhiteoutFactor()});
             if (main->HudWhiteoutFactor() != 0.0F)
-                GL::Uniform1(_shaderLocations->WhiteoutTable, 192, Entities::PlayerEntity::HudWhiteoutTable.data());
+                _shaderConstants->SetWhiteoutTable(Entities::PlayerEntity::HudWhiteoutTable);
         }
-        GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, 0);
-        GL::Viewport(0, 0, _rendererSize.X, _rendererSize.Y);
-        GL::Clear(GL::ClearBufferMask::ColorBufferBit); GL::Disable(GL::EnableCap::DepthTest); GL::Enable(GL::EnableCap::Blend);
-        GL::BindTexture(GL::TextureTarget::Texture2D, _screenTexture);
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::TexCoord3(1,1,0); GL::Vertex3(1,1,0); GL::TexCoord3(0,1,0); GL::Vertex3(-1,1,0);
-        GL::TexCoord3(1,0,0); GL::Vertex3(1,-1,0); GL::TexCoord3(0,0,0); GL::Vertex3(-1,-1,0); GL::End();
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-        if (main->HudDisruptedState() != 0 || main->HudWhiteoutState() != -1) GL::UseProgram(_rttShaderProgramId);
-        GL::Uniform4(_shaderLocations->FadeColor, _fadeColor, _fadeColor, _fadeColor, 0.0F);
+        Commands().EndRendering();
+        BeginWindowRendering(NativeRuntime::Rhi::LoadOp::Clear, NativeRuntime::Rhi::LoadOp::Load, SceneClearColor());
+        Commands().SetViewport(NativeRuntime::Rhi::Viewport{0.0F, 0.0F,
+            static_cast<float>(_rendererSize.X), static_cast<float>(_rendererSize.Y)});
+        BindSceneTexture(0, *_sceneColor, SamplerFor(Mods::RenderOptions::ResolutionScale() < 100,
+            RepeatMode::Repeat, RepeatMode::Repeat));
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientTexCoord3(1,1,0); TransientVertex3(1,1,0); TransientTexCoord3(0,1,0); TransientVertex3(-1,1,0);
+        TransientTexCoord3(1,0,0); TransientVertex3(1,-1,0); TransientTexCoord3(0,0,0); TransientVertex3(-1,-1,0); EndTransient();
+        UnbindSceneTexture(0);
+        if (main->HudDisruptedState() != 0 || main->HudWhiteoutState() != -1) Commands().SetPipeline(composite);
+        _shaderConstants->SetFadeColor(Vector4(_fadeColor, _fadeColor, _fadeColor, 0.0F));
         if (((main->LoadFlags() & LoadFlags::Active) == LoadFlags::Active) && CameraMode() == MphRead::CameraMode::Player)
         {
             if (GameState::MenuPause()) main->DrawPauseMenuBackground();
             DrawHudLayer(_layer4Info); DrawHudLayer(_layer3Info); DrawHudLayer(_layer1Info); DrawHudLayer(_layer2Info); DrawHudLayer(_layer5Info);
             if (_layer1Info->MaskId != -1)
             {
-                GL::ActiveTexture(GL::TextureUnit::Texture1); GL::BindTexture(GL::TextureTarget::Texture2D, _layer1Info->MaskId);
-                GL::ActiveTexture(GL::TextureUnit::Texture0);
-                GL::Uniform1(_shaderLocations->ViewWidth, static_cast<float>(_rendererSize.X));
-                GL::Uniform1(_shaderLocations->ViewHeight, static_cast<float>(_rendererSize.Y));
+                // The mask is layer 1's own texture, drawn just above with this sampler.
+                BindSceneTexture(1, _layer1Info->MaskId, SamplerFor(false, RepeatMode::Clamp, RepeatMode::Clamp));
+                _shaderConstants->SetViewSize(
+                    static_cast<float>(_rendererSize.X), static_cast<float>(_rendererSize.Y));
             }
-            main->DrawHudObjects(); GL::Uniform1(_shaderLocations->UseMask, 0);
+            main->DrawHudObjects(); _shaderConstants->SetUseMask(false);
             if (_layer1Info->MaskId != -1)
             {
-                GL::ActiveTexture(GL::TextureUnit::Texture1); GL::BindTexture(GL::TextureTarget::Texture2D, 0); GL::ActiveTexture(GL::TextureUnit::Texture0);
+                UnbindSceneTexture(1);
             }
             if (GameState::MenuPause()) main->DrawPauseMenuForeground();
         }
@@ -2065,14 +2261,21 @@ namespace MphRead
             float percent = _fadeIn ? 1.0F - _fadePercent : _fadePercent;
             if (percent > 0.0F)
             {
-                GL::Uniform4(_shaderLocations->FadeColor, _fadeColor, _fadeColor, _fadeColor, percent);
-                GL::Begin(GL::PrimitiveType::TriangleStrip);
-                GL::TexCoord3(1,1,0); GL::Vertex3(1,1,0); GL::TexCoord3(0,1,0); GL::Vertex3(-1,1,0);
-                GL::TexCoord3(1,0,0); GL::Vertex3(1,-1,0); GL::TexCoord3(0,0,0); GL::Vertex3(-1,-1,0); GL::End();
+                ModGoldenObserveFadeDraw(
+                    static_cast<std::int32_t>(_fadeType),
+                    _fadeColor,
+                    percent);
+                _shaderConstants->SetFadeColor(Vector4(_fadeColor, _fadeColor, _fadeColor, percent));
+                BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+                TransientTexCoord3(1,1,0); TransientVertex3(1,1,0); TransientTexCoord3(0,1,0); TransientVertex3(-1,1,0);
+                TransientTexCoord3(1,0,0); TransientVertex3(1,-1,0); TransientTexCoord3(0,0,0); TransientVertex3(-1,-1,0); EndTransient();
             }
         }
-        GL::Enable(GL::EnableCap::DepthTest); GL::Disable(GL::EnableCap::Blend);
-        if (_faceCulling) { GL::Enable(GL::EnableCap::CullFace); GL::CullFace(GL::TriangleFace::Back); }
+        Commands().SetPipeline(ScenePipeline(ScenePass::FrameEnd,
+            _faceCulling ? NativeRuntime::Rhi::CullMode::Back : NativeRuntime::Rhi::CullMode::None,
+            NativeRuntime::Rhi::FillMode::Solid, 1));
+        Mods::Diagnostics::FramePerformance::EndGpu(std::move(gpuSample), Commands());
+        Gpu().EndFrame();
         return true;
     }
 
@@ -2144,6 +2347,11 @@ namespace MphRead
 
     void Scene::UnloadModel(const std::shared_ptr<Model>& model)
     {
+        UnloadModel(model, true);
+    }
+
+    void Scene::UnloadModel(const std::shared_ptr<Model>& model, bool removeReadCache)
+    {
         if (!Mods::Headless::Active())
         {
             auto mapIt = _texPalMap.find(model->Id);
@@ -2152,35 +2360,19 @@ namespace MphRead
                 for (const auto& [key, value] : mapIt->second->_items)
                 {
                     (void)key;
-                    GL::DeleteTexture(value.BindingId);
                     _ownedTextures.erase(value.BindingId);
+                    _textureCopies.erase(value.BindingId);
+                    _modelTextureSources.erase(value.BindingId);
                     _flatColors.erase(value.BindingId);
                 }
                 _texPalMap.erase(mapIt);
             }
-            std::unordered_set<std::int32_t> ownedLists;
-            for (const auto& mesh : *model->Meshes)
-            {
-                if (mesh->ListId != 0 && _displayLists.contains(mesh->ListId))
-                {
-                    ownedLists.insert(mesh->ListId);
-                }
-            }
-            for (const std::int32_t listId : ownedLists)
-            {
-                GL::DeleteLists(listId, 1);
-                _displayLists.erase(listId);
-            }
-            for (const auto& mesh : *model->Meshes)
-            {
-                if (ownedLists.contains(mesh->ListId))
-                {
-                    mesh->ListId = 0;
-                }
-            }
-            std::erase(_displayListModels, model);
+            _gpuMeshCache.EraseModel(model.get());
         }
-        Read::RemoveModel(model->Name, model->FirstHunt);
+        if (removeReadCache)
+        {
+            Read::RemoveModel(model->Name, model->FirstHunt);
+        }
     }
 
     void Scene::TransformCamera()
@@ -2225,7 +2417,7 @@ namespace MphRead
                 _viewInvRotYMatrix.M33 = row2.Z;
             }
         }
-        GL::UniformMatrix4(_shaderLocations->ViewMatrix, false, _viewMatrix);
+        _shaderConstants->SetView(_viewMatrix);
     }
 
     void Scene::UpdateCameraPosition()
@@ -2630,7 +2822,7 @@ namespace MphRead
         {
             const auto model = Read::GetModelInstance(element->ModelName)->Model();
             InitTextures(model);
-            GenerateLists(model, false);
+            GenerateGpuMeshes(model, false);
         }
     }
 
@@ -2745,6 +2937,37 @@ namespace MphRead
             ReleaseFromOwner(element);
             UnlinkEffectElement(element);
             --i;
+        }
+    }
+
+    void Scene::BreakEffectCycles()
+    {
+        // An element owns its particles and each particle points back at its
+        // element; an element and its entry point at each other. The pools
+        // outlive nothing but this scene, so a discarded scene has to cut
+        // them or every element it ever made stays alive with its particle
+        // definitions and their models.
+        ClearEffects();
+        const auto cut = [](const std::shared_ptr<EffectElementEntry>& element)
+        {
+            if (!element) return;
+            for (const auto& particle : *element->Particles)
+            {
+                if (particle) particle->Owner.reset();
+            }
+            element->Particles->clear();
+            element->EffectEntry.reset();
+        };
+        for (const auto& element : _activeElements) cut(element);
+        _activeElements.clear();
+        for (; !_inactiveElements.empty(); _inactiveElements.pop()) cut(_inactiveElements.front());
+        for (; !_inactiveParticles.empty(); _inactiveParticles.pop())
+        {
+            if (_inactiveParticles.front()) _inactiveParticles.front()->Owner.reset();
+        }
+        for (; !_inactiveEffects.empty(); _inactiveEffects.pop())
+        {
+            if (_inactiveEffects.front()) _inactiveEffects.front()->Elements->clear();
         }
     }
 
@@ -3050,7 +3273,8 @@ namespace MphRead
 
     void Scene::AddRenderItem(const Material& material, std::int32_t polygonId, float alphaScale,
         Vector3 emission, const LightInfo& lightInfo, Matrix4 texcoordMatrix, Matrix4 transform,
-        std::int32_t listId, std::int32_t matrixStackCount, const std::vector<float>& matrixStack,
+        const std::shared_ptr<Model>& model, const std::shared_ptr<Mesh>& mesh,
+        std::int32_t matrixStackCount, const std::vector<float>& matrixStack,
         std::optional<Vector4> overrideColor, std::optional<Vector4> paletteOverride,
         SelectionType selectionType, BillboardMode billboardMode, float scaleFactor,
         std::optional<std::int32_t> bindingOverride)
@@ -3096,7 +3320,8 @@ namespace MphRead
         }
         item->TexcoordMatrix = texcoordMatrix;
         item->Transform = transform;
-        item->ListId = listId;
+        item->MeshModel = model;
+        item->MeshObject = mesh;
         MPHREAD_DEBUG_ASSERT(matrixStack.size() == static_cast<std::size_t>(16 * matrixStackCount));
         item->MatrixStackCount = matrixStackCount;
         for (std::size_t i = 0; i < matrixStack.size(); ++i)
@@ -3147,7 +3372,8 @@ namespace MphRead
         item->TextureBindingId = 0;
         item->TexcoordMatrix = RendererDetail::IdentityMatrix();
         item->Transform = RendererDetail::IdentityMatrix();
-        item->ListId = 0;
+        item->MeshModel.reset();
+        item->MeshObject.reset();
         item->MatrixStackCount = 0;
         item->OverrideColor = overrideColor;
         item->PaletteOverride.reset();
@@ -3187,7 +3413,8 @@ namespace MphRead
         item->TextureBindingId = bindingId;
         item->TexcoordMatrix = RendererDetail::IdentityMatrix();
         item->Transform = transform;
-        item->ListId = 0;
+        item->MeshModel.reset();
+        item->MeshObject.reset();
         item->MatrixStackCount = 0;
         item->OverrideColor.reset();
         item->PaletteOverride.reset();
@@ -3227,7 +3454,8 @@ namespace MphRead
         item->TextureBindingId = bindingId;
         item->TexcoordMatrix = RendererDetail::IdentityMatrix();
         item->Transform = RendererDetail::IdentityMatrix();
-        item->ListId = 0;
+        item->MeshModel.reset();
+        item->MeshObject.reset();
         MPHREAD_DEBUG_ASSERT(matrixStack.size() >= static_cast<std::size_t>(16 * matrixStackCount));
         item->MatrixStackCount = matrixStackCount;
         for (std::int32_t i = 0; i < 16 * matrixStackCount; ++i)
@@ -3452,10 +3680,9 @@ namespace MphRead
     void Scene::UpdateUniforms()
     {
         UseRoomLights();
-        GL::Uniform1(_shaderLocations->UseFog, _hasFog && FogOn() ? 1 : 0);
-        GL::Uniform1(_shaderLocations->CelBands,
-            Mods::RenderOptions::CelShading() ? Mods::RenderOptions::CelBands() : 0);
-        GL::Uniform1(_shaderLocations->ShowColors, _showColors ? 1 : 0);
+        _shaderConstants->SetFogEnabled(_hasFog && FogOn());
+        _shaderConstants->SetCelBands(Mods::RenderOptions::CelShading() ? Mods::RenderOptions::CelBands() : 0);
+        _shaderConstants->SetShowColors(_showColors);
         if (ProcessFrame())
         {
             UpdateFade();
@@ -3464,22 +3691,29 @@ namespace MphRead
 
     void Scene::UseRoomLights()
     {
-        GL::Uniform3(_shaderLocations->Light1Vector, _light1Vector);
-        GL::Uniform3(_shaderLocations->Light1Color, _light1Color);
-        GL::Uniform3(_shaderLocations->Light2Vector, _light2Vector);
-        GL::Uniform3(_shaderLocations->Light2Color, _light2Color);
+        _shaderConstants->Set(NativeRuntime::Rhi::SceneLightConstants{{
+            {_light1Vector, _light1Color}, {_light2Vector, _light2Color}}});
     }
 
     void Scene::UseLight1(Vector3 vector, Vector3 color)
     {
-        GL::Uniform3(_shaderLocations->Light1Vector, vector);
-        GL::Uniform3(_shaderLocations->Light1Color, color);
+        _shaderConstants->SetLight(0, NativeRuntime::Rhi::LightConstants{vector, color});
     }
 
     void Scene::UseLight2(Vector3 vector, Vector3 color)
     {
-        GL::Uniform3(_shaderLocations->Light2Vector, vector);
-        GL::Uniform3(_shaderLocations->Light2Color, color);
+        _shaderConstants->SetLight(1, NativeRuntime::Rhi::LightConstants{vector, color});
+    }
+
+    void Scene::SetMatrixStack(const Matrix4& transform)
+    {
+        _shaderConstants->Set(NativeRuntime::Rhi::DrawConstants{
+            std::span<const float>(&transform.M11, 16U)});
+    }
+
+    void Scene::SetFrameMatrices(const Matrix4& view, const Matrix4& projection)
+    {
+        _shaderConstants->Set(NativeRuntime::Rhi::FrameConstants{view, projection});
     }
 
     FadeType Scene::FadeType() const noexcept
@@ -3555,16 +3789,13 @@ namespace MphRead
             {
                 _fadeEnded = false;
             }
+            ModGoldenObserveFadeUpdate(_fadePercent);
         }
         else
         {
             _fadeEnded = false;
         }
         _pendingFadeSteps = 0;
-        if (!Mods::Headless::Active())
-        {
-            GL::ClearColor(_clearColor);
-        }
     }
 
     void Scene::QuitGame(bool enteringShip)
@@ -3595,6 +3826,7 @@ namespace MphRead
             }
             Entities::PlatformEntity::DestroyBeams();
             Entities::EnemyInstanceEntity::DestroyBeams();
+            BreakEffectCycles();
             Sound::Sfx::ShutDown();
             OutputStop();
             if (const std::shared_ptr<std::stop_source> decoderCts = _decoderCts.load())
@@ -3605,7 +3837,7 @@ namespace MphRead
         }
     }
 
-    void Scene::UnloadGl()
+    void Scene::ReleaseGpuResources()
     {
         if (Mods::Headless::Active())
         {
@@ -3615,99 +3847,52 @@ namespace MphRead
         {
             ::MphRead::Mods::Render::LauncherHunter::NoteGlUnloaded();
         }
-        for (const auto& [modelId, map] : _texPalMap)
-        {
-            (void)modelId;
-            for (const auto& [key, value] : map->_items)
-            {
-                (void)key;
-                GL::DeleteTexture(value.BindingId);
-                _ownedTextures.erase(value.BindingId);
-            }
-        }
+        // Every texture this scene created -- the models' texture/palette
+        // pairs, HUD art, trails, the movie frames -- is in _ownedTextures.
         _texPalMap.clear();
-        for (const std::int32_t textureId : _ownedTextures)
-        {
-            if (textureId != 0)
-            {
-                GL::DeleteTexture(textureId);
-            }
-        }
         _ownedTextures.clear();
+        _textureCopies.clear();
+        _modelTextureSources.clear();
         _flatColors.clear();
-        for (const std::int32_t listId : _displayLists)
+        _gpuMeshCache.Clear();
+        _transientGeometry.reset();
+        _transientVertices.clear();
+        // A launcher preview shares Read's model/particle/effect cache with
+        // the running match. Releasing its GPU resources during a renderer
+        // switch must not discard the definitions that future shots/bombs use.
+        if (!SideScene()) Read::ClearCache();
+        _celDepthView.reset();
+        _celDepth.reset();
+        _celColor.reset();
+        _sceneDepthStencilView.reset();
+        _sceneDepthStencil.reset();
+        _sceneColorView.reset();
+        _sceneColor.reset();
+        for (auto& sampler : _samplers)
         {
-            if (listId != 0)
-            {
-                GL::DeleteLists(listId, 1);
-            }
+            sampler.reset();
         }
-        for (const std::shared_ptr<Model>& model : _displayListModels)
+        // The command list owns the framebuffers built on those targets.
+        _commands.reset();
+        _pipelines.clear();
+        // The movie frames were owned textures, already released above.
+        _topMovieBinding = -1;
+        _botMovieBinding = -1;
+        // The programs go with their shaders; the pipelines naming them went above.
+        _shaderConstants = &_noShaderConstants;
+        _sceneShaders.reset();
+        // Everything above was retired, not destroyed: the GPU may still have
+        // been reading it for a frame already submitted. This is the scene's
+        // own context, so wait here and let the device destroy it now.
+        if (_gpu != nullptr)
         {
-            if (!model)
-            {
-                continue;
-            }
-            for (const std::shared_ptr<Mesh>& mesh : *model->Meshes)
-            {
-                if (mesh && _displayLists.contains(mesh->ListId))
-                {
-                    mesh->ListId = 0;
-                }
-            }
+            _gpu->WaitIdle();
+            const NativeRuntime::Rhi::GpuResourceStatistics left = _gpu->Statistics();
+            Mods::DebugLog::Line("gpu", "released a scene; the device still holds "
+                + std::to_string(left.Textures) + " textures, " + std::to_string(left.Framebuffers)
+                + " framebuffers, " + std::to_string(left.Shaders) + " shaders, "
+                + std::to_string(left.Programs) + " programs, " + std::to_string(left.Retired) + " retired");
         }
-        _displayLists.clear();
-        _displayListModels.clear();
-        Read::ClearCache();
-        if (_frameBuffer != 0)
-        {
-            GL::DeleteFramebuffer(_frameBuffer);
-            _frameBuffer = 0;
-        }
-        if (_celFrameBuffer != 0)
-        {
-            GL::DeleteFramebuffer(_celFrameBuffer);
-            _celFrameBuffer = 0;
-            _celFrameBufferColor = 0;
-        }
-        if (_renderBuffer != 0)
-        {
-            GL::DeleteRenderbuffer(_renderBuffer);
-            _renderBuffer = 0;
-        }
-        const auto deleteTexture = [](std::int32_t& texture)
-        {
-            if (texture != 0)
-            {
-                GL::DeleteTexture(texture);
-                texture = 0;
-            }
-        };
-        const auto deleteProgram = [](std::int32_t& program)
-        {
-            if (program != 0)
-            {
-                GL::DeleteProgram(program);
-                program = 0;
-            }
-        };
-        if (_topMovieBinding != -1)
-        {
-            GL::DeleteTexture(_topMovieBinding);
-            _topMovieBinding = -1;
-        }
-        if (_botMovieBinding != -1)
-        {
-            GL::DeleteTexture(_botMovieBinding);
-            _botMovieBinding = -1;
-        }
-        deleteTexture(_screenTexture);
-        deleteTexture(_celTexture);
-        deleteTexture(_depthTexture);
-        deleteProgram(_shaderProgramId);
-        deleteProgram(_rttShaderProgramId);
-        deleteProgram(_shiftShaderProgramId);
-        deleteProgram(_celShaderProgramId);
     }
 
     void Scene::EndFade()
@@ -3760,6 +3945,63 @@ namespace MphRead
         }
     }
 
+    void Scene::BeginTransient(TransientPrimitiveTopology topology)
+    {
+        if (!_transientGeometry)
+        {
+            throw ProgramException("Transient geometry resource is unavailable.");
+        }
+        _transientTopology = topology;
+        _transientVertices.clear();
+        _transientHasTexCoords = false;
+    }
+
+    void Scene::TransientVertex3(float x, float y, float z)
+    {
+        _transientVertices.push_back(TransientVertex{
+            Vector3(x, y, z),
+            _transientTexCoord
+        });
+    }
+
+    void Scene::TransientVertex3(Vector3 vector)
+    {
+        _transientVertices.push_back(TransientVertex{
+            vector,
+            _transientTexCoord
+        });
+    }
+
+    void Scene::TransientTexCoord3(float sCoord, float tCoord, float rCoord)
+    {
+        _transientTexCoord = Vector3(sCoord, tCoord, rCoord);
+        _transientHasTexCoords = true;
+    }
+
+    void Scene::TransientTexCoord3(Vector3 coord)
+    {
+        _transientTexCoord = coord;
+        _transientHasTexCoords = true;
+    }
+
+    void Scene::EndTransient()
+    {
+        if (!_transientGeometry)
+        {
+            throw ProgramException("Transient geometry resource is unavailable.");
+        }
+        _transientGeometry->Draw(_transientTopology,
+            std::span<const TransientVertex>(
+                _transientVertices.data(), _transientVertices.size()),
+            _transientHasTexCoords);
+        if (_transientHasTexCoords)
+        {
+            // Client arrays do not update fixed-function current texcoord.
+            // The immediate path did, so explicitly retain its terminal state.
+            _shaderConstants->SetInheritedTexCoord(_transientTexCoord);
+        }
+    }
+
     void Scene::RenderItem(const std::shared_ptr<MphRead::RenderItem>& item)
     {
         UseLight1(item->LightInfo.Light1Vector, item->LightInfo.Light1Color);
@@ -3771,11 +4013,12 @@ namespace MphRead
             = std::clamp(item->MatrixStackCount, 0, matrixStackCapacity);
         if (matrixStackCount > 0)
         {
-            GL::UniformMatrix4(_shaderLocations->MatrixStack, matrixStackCount, false, matrixStack.Data());
+            _shaderConstants->Set(NativeRuntime::Rhi::DrawConstants{std::span<const float>(
+                matrixStack.Data(), static_cast<std::size_t>(matrixStackCount) * 16U)});
         }
         else
         {
-            GL::UniformMatrix4(_shaderLocations->MatrixStack, false, item->Transform);
+            SetMatrixStack(item->Transform);
         }
         Matrix4 viewInv = RendererDetail::IdentityMatrix();
         if (item->BillboardMode == BillboardMode::Sphere)
@@ -3786,32 +4029,27 @@ namespace MphRead
         {
             viewInv = _viewInvRotYMatrix;
         }
-        GL::UniformMatrix4(_shaderLocations->ViewInvMatrix, false, viewInv);
+        _shaderConstants->SetBillboard(viewInv);
         DoMaterial(*item);
         DoTexture(*item);
-        if (_faceCulling)
+        // With face culling switched off (the B key) nothing ever enables it.
+        namespace Rhi = NativeRuntime::Rhi;
+        Rhi::CullMode cull = Rhi::CullMode::None;
+        if (_faceCulling && item->CullingMode == CullingMode::Back)
         {
-            GL::Enable(GL::EnableCap::CullFace);
-            if (item->CullingMode == CullingMode::Neither)
-            {
-                GL::Disable(GL::EnableCap::CullFace);
-            }
-            else if (item->CullingMode == CullingMode::Back)
-            {
-                GL::CullFace(GL::TriangleFace::Back);
-            }
-            else if (item->CullingMode == CullingMode::Front)
-            {
-                GL::CullFace(GL::TriangleFace::Front);
-            }
+            cull = Rhi::CullMode::Back;
+        }
+        else if (_faceCulling && item->CullingMode == CullingMode::Front)
+        {
+            cull = Rhi::CullMode::Front;
         }
         const bool wireframe = _wireframeLevel > 0 || item->Wireframe;
-        GL::PolygonMode(GL::TriangleFace::FrontAndBack,
-            wireframe ? GL::PolygonMode::Line : GL::PolygonMode::Fill);
-        GL::LineWidth(static_cast<float>(wireframe ? std::max(1, _wireframeLevel) : 1));
+        Commands().SetPipeline(ScenePipeline(_itemPass, cull,
+            wireframe ? Rhi::FillMode::Wireframe : Rhi::FillMode::Solid,
+            wireframe ? std::max(1, _wireframeLevel) : 1));
         if (item->Type == RenderItemType::Mesh)
         {
-            GL::CallList(item->ListId);
+            DrawGpuMesh(item->MeshModel, item->MeshObject);
         }
         else if (item->Type == RenderItemType::Box)
         {
@@ -3860,47 +4098,47 @@ namespace MphRead
 
     void Scene::RenderBox(const ManagedArray<Vector3>& verts)
     {
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::Vertex3(verts[2]); GL::Vertex3(verts[6]); GL::Vertex3(verts[0]); GL::Vertex3(verts[4]);
-        GL::Vertex3(verts[1]); GL::Vertex3(verts[5]); GL::Vertex3(verts[3]); GL::Vertex3(verts[7]);
-        GL::Vertex3(verts[2]); GL::Vertex3(verts[6]);
-        GL::End();
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::Vertex3(verts[5]); GL::Vertex3(verts[4]); GL::Vertex3(verts[7]); GL::Vertex3(verts[6]);
-        GL::End();
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::Vertex3(verts[3]); GL::Vertex3(verts[2]); GL::Vertex3(verts[1]); GL::Vertex3(verts[0]);
-        GL::End();
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientVertex3(verts[2]); TransientVertex3(verts[6]); TransientVertex3(verts[0]); TransientVertex3(verts[4]);
+        TransientVertex3(verts[1]); TransientVertex3(verts[5]); TransientVertex3(verts[3]); TransientVertex3(verts[7]);
+        TransientVertex3(verts[2]); TransientVertex3(verts[6]);
+        EndTransient();
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientVertex3(verts[5]); TransientVertex3(verts[4]); TransientVertex3(verts[7]); TransientVertex3(verts[6]);
+        EndTransient();
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientVertex3(verts[3]); TransientVertex3(verts[2]); TransientVertex3(verts[1]); TransientVertex3(verts[0]);
+        EndTransient();
     }
 
     void Scene::RenderCylinder(const ManagedArray<Vector3>& verts)
     {
-        GL::Begin(GL::PrimitiveType::TriangleFan);
-        GL::Vertex3(verts[32]);
-        for (std::int32_t i = 0; i < 16; ++i) GL::Vertex3(verts[static_cast<std::size_t>(i)]);
-        GL::Vertex3(verts[0]);
-        GL::End();
-        GL::Begin(GL::PrimitiveType::TriangleFan);
-        GL::Vertex3(verts[33]);
-        for (std::int32_t i = 31; i >= 16; --i) GL::Vertex3(verts[static_cast<std::size_t>(i)]);
-        GL::Vertex3(verts[31]);
-        GL::End();
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
+        BeginTransient(TransientPrimitiveTopology::TriangleFan);
+        TransientVertex3(verts[32]);
+        for (std::int32_t i = 0; i < 16; ++i) TransientVertex3(verts[static_cast<std::size_t>(i)]);
+        TransientVertex3(verts[0]);
+        EndTransient();
+        BeginTransient(TransientPrimitiveTopology::TriangleFan);
+        TransientVertex3(verts[33]);
+        for (std::int32_t i = 31; i >= 16; --i) TransientVertex3(verts[static_cast<std::size_t>(i)]);
+        TransientVertex3(verts[31]);
+        EndTransient();
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
         for (std::int32_t i = 0; i < 16; ++i)
         {
-            GL::Vertex3(verts[static_cast<std::size_t>(i)]);
-            GL::Vertex3(verts[static_cast<std::size_t>(i + 16)]);
+            TransientVertex3(verts[static_cast<std::size_t>(i)]);
+            TransientVertex3(verts[static_cast<std::size_t>(i + 16)]);
         }
-        GL::Vertex3(verts[0]);
-        GL::Vertex3(verts[16]);
-        GL::End();
+        TransientVertex3(verts[0]);
+        TransientVertex3(verts[16]);
+        EndTransient();
     }
 
     void Scene::RenderSphere(const ManagedArray<Vector3>& verts)
     {
         const std::int32_t stackCount = DisplaySphereStacks;
         const std::int32_t sectorCount = DisplaySphereSectors;
-        GL::Begin(GL::PrimitiveType::Triangles);
+        BeginTransient(TransientPrimitiveTopology::Triangles);
         for (std::int32_t i = 0; i < stackCount; ++i)
         {
             std::int32_t k1 = i * (sectorCount + 1);
@@ -3909,77 +4147,77 @@ namespace MphRead
             {
                 if (i != 0)
                 {
-                    GL::Vertex3(verts[static_cast<std::size_t>(k1 + 1)]);
-                    GL::Vertex3(verts[static_cast<std::size_t>(k2)]);
-                    GL::Vertex3(verts[static_cast<std::size_t>(k1)]);
+                    TransientVertex3(verts[static_cast<std::size_t>(k1 + 1)]);
+                    TransientVertex3(verts[static_cast<std::size_t>(k2)]);
+                    TransientVertex3(verts[static_cast<std::size_t>(k1)]);
                 }
                 if (i != stackCount - 1)
                 {
-                    GL::Vertex3(verts[static_cast<std::size_t>(k2 + 1)]);
-                    GL::Vertex3(verts[static_cast<std::size_t>(k2)]);
-                    GL::Vertex3(verts[static_cast<std::size_t>(k1 + 1)]);
+                    TransientVertex3(verts[static_cast<std::size_t>(k2 + 1)]);
+                    TransientVertex3(verts[static_cast<std::size_t>(k2)]);
+                    TransientVertex3(verts[static_cast<std::size_t>(k1 + 1)]);
                 }
             }
         }
-        GL::End();
+        EndTransient();
     }
 
     void Scene::RenderQuad(const ManagedArray<Vector3>& verts)
     {
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::Vertex3(verts[0]); GL::Vertex3(verts[3]); GL::Vertex3(verts[1]); GL::Vertex3(verts[2]);
-        GL::End();
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientVertex3(verts[0]); TransientVertex3(verts[3]); TransientVertex3(verts[1]); TransientVertex3(verts[2]);
+        EndTransient();
     }
 
     void Scene::RenderNgon(const ManagedArray<Vector3>& verts, std::int32_t count)
     {
-        GL::Begin(GL::PrimitiveType::TriangleFan);
-        for (std::int32_t i = 0; i < count; ++i) GL::Vertex3(verts[static_cast<std::size_t>(i)]);
-        GL::End();
+        BeginTransient(TransientPrimitiveTopology::TriangleFan);
+        for (std::int32_t i = 0; i < count; ++i) TransientVertex3(verts[static_cast<std::size_t>(i)]);
+        EndTransient();
     }
 
     void Scene::RenderNgonLines(const ManagedArray<Vector3>& verts, std::int32_t count)
     {
         const Vector4 color = _showCollision && _colDisplayColor == CollisionColor::None && _colDisplayAlpha == 1.0F
             ? Vector4(0.0F, 0.0F, 1.0F, 1.0F) : Vector4(1.0F, 0.0F, 0.0F, 1.0F);
-        GL::Uniform4(_shaderLocations->OverrideColor, color);
-        GL::Begin(GL::PrimitiveType::LineLoop);
-        for (std::int32_t i = 0; i < count; ++i) GL::Vertex3(verts[static_cast<std::size_t>(i)]);
-        GL::End();
+        _shaderConstants->SetOverrideColor(color);
+        BeginTransient(TransientPrimitiveTopology::LineLoop);
+        for (std::int32_t i = 0; i < count; ++i) TransientVertex3(verts[static_cast<std::size_t>(i)]);
+        EndTransient();
     }
 
     void Scene::RenderParticle(const MphRead::RenderItem& item)
     {
         const auto& p = *item.Points;
-        GL::Begin(GL::PrimitiveType::Quads);
-        GL::TexCoord3(p[0].X * item.ScaleS, p[0].Y * item.ScaleT, 0.0F); GL::Vertex3(p[1]);
-        GL::TexCoord3(p[2].X * item.ScaleS, p[2].Y * item.ScaleT, 0.0F); GL::Vertex3(p[3]);
-        GL::TexCoord3(p[4].X * item.ScaleS, p[4].Y * item.ScaleT, 0.0F); GL::Vertex3(p[5]);
-        GL::TexCoord3(p[6].X * item.ScaleS, p[6].Y * item.ScaleT, 0.0F); GL::Vertex3(p[7]);
-        GL::End();
+        BeginTransient(TransientPrimitiveTopology::Quads);
+        TransientTexCoord3(p[0].X * item.ScaleS, p[0].Y * item.ScaleT, 0.0F); TransientVertex3(p[1]);
+        TransientTexCoord3(p[2].X * item.ScaleS, p[2].Y * item.ScaleT, 0.0F); TransientVertex3(p[3]);
+        TransientTexCoord3(p[4].X * item.ScaleS, p[4].Y * item.ScaleT, 0.0F); TransientVertex3(p[5]);
+        TransientTexCoord3(p[6].X * item.ScaleS, p[6].Y * item.ScaleT, 0.0F); TransientVertex3(p[7]);
+        EndTransient();
     }
 
     void Scene::RenderTrailSingle(const MphRead::RenderItem& item)
     {
         const auto& p = *item.Points;
-        GL::Begin(GL::PrimitiveType::QuadStrip);
-        GL::TexCoord3(p[0]); GL::Vertex3(p[1]);
-        GL::TexCoord3(p[2]); GL::Vertex3(p[3]);
-        GL::TexCoord3(p[4]); GL::Vertex3(p[5]);
-        GL::TexCoord3(p[6]); GL::Vertex3(p[7]);
-        GL::End();
+        BeginTransient(TransientPrimitiveTopology::QuadStrip);
+        TransientTexCoord3(p[0]); TransientVertex3(p[1]);
+        TransientTexCoord3(p[2]); TransientVertex3(p[3]);
+        TransientTexCoord3(p[4]); TransientVertex3(p[5]);
+        TransientTexCoord3(p[6]); TransientVertex3(p[7]);
+        EndTransient();
     }
 
     void Scene::RenderTrailMulti(const MphRead::RenderItem& item)
     {
         MPHREAD_DEBUG_ASSERT(item.ItemCount >= 4 && item.ItemCount % 2 == 0);
-        GL::Begin(GL::PrimitiveType::QuadStrip);
+        BeginTransient(TransientPrimitiveTopology::QuadStrip);
         for (std::int32_t i = 0; i < item.ItemCount; i += 2)
         {
-            GL::TexCoord3((*item.Points)[static_cast<std::size_t>(i)]);
-            GL::Vertex3((*item.Points)[static_cast<std::size_t>(i + 1)]);
+            TransientTexCoord3((*item.Points)[static_cast<std::size_t>(i)]);
+            TransientVertex3((*item.Points)[static_cast<std::size_t>(i + 1)]);
         }
-        GL::End();
+        EndTransient();
     }
 
     void Scene::RenderTrailStack(const MphRead::RenderItem& item)
@@ -3987,12 +4225,12 @@ namespace MphRead
         for (std::int32_t i = 0; i < item.ItemCount; ++i)
         {
             const std::size_t base = static_cast<std::size_t>(i * 8);
-            GL::Begin(GL::PrimitiveType::Quads);
-            GL::TexCoord3((*item.Points)[base]); GL::Vertex3((*item.Points)[base + 1]);
-            GL::TexCoord3((*item.Points)[base + 2]); GL::Vertex3((*item.Points)[base + 3]);
-            GL::TexCoord3((*item.Points)[base + 4]); GL::Vertex3((*item.Points)[base + 5]);
-            GL::TexCoord3((*item.Points)[base + 6]); GL::Vertex3((*item.Points)[base + 7]);
-            GL::End();
+            BeginTransient(TransientPrimitiveTopology::Quads);
+            TransientTexCoord3((*item.Points)[base]); TransientVertex3((*item.Points)[base + 1]);
+            TransientTexCoord3((*item.Points)[base + 2]); TransientVertex3((*item.Points)[base + 3]);
+            TransientTexCoord3((*item.Points)[base + 4]); TransientVertex3((*item.Points)[base + 5]);
+            TransientTexCoord3((*item.Points)[base + 6]); TransientVertex3((*item.Points)[base + 7]);
+            EndTransient();
         }
     }
 
@@ -4001,8 +4239,7 @@ namespace MphRead
         if (GameState::MenuPause() && _cameraMode == MphRead::CameraMode::Player)
         {
             const auto matrices = Entities::PlayerEntity::Main()->GetPauseMapMatrices();
-            GL::UniformMatrix4(_shaderLocations->ViewMatrix, false, matrices.first);
-            GL::UniformMatrix4(_shaderLocations->ProjectionMatrix, false, matrices.second);
+            SetFrameMatrices(matrices.first, matrices.second);
         }
     }
 
@@ -4014,44 +4251,31 @@ namespace MphRead
 
     void Scene::SetHudLayerUniforms()
     {
-        GL::Disable(GL::EnableCap::DepthTest);
-        GL::Enable(GL::EnableCap::Blend);
+        Commands().SetPipeline(ScenePipeline(ScenePass::HudModel,
+            _faceCulling ? NativeRuntime::Rhi::CullMode::Back : NativeRuntime::Rhi::CullMode::None,
+            NativeRuntime::Rhi::FillMode::Solid, 1));
         const Matrix4 identity = RendererDetail::IdentityMatrix();
-        GL::UniformMatrix4(_shaderLocations->MatrixStack, false, identity);
-        GL::UniformMatrix4(_shaderLocations->ViewInvMatrix, false, identity);
-        GL::Uniform1(_shaderLocations->UseLight, 0);
+        SetMatrixStack(identity);
+        _shaderConstants->SetBillboard(identity);
         const Vector3 one(1.0F, 1.0F, 1.0F);
-        GL::Color3(one);
-        GL::Uniform3(_shaderLocations->Diffuse, one);
-        GL::Uniform3(_shaderLocations->Ambient, one);
-        GL::Uniform3(_shaderLocations->Specular, one);
-        GL::Uniform3(_shaderLocations->Emission, one);
-        GL::Uniform1(_shaderLocations->MaterialMode, static_cast<std::int32_t>(PolygonMode::Modulate));
-        GL::Uniform1(_shaderLocations->TexgenMode, static_cast<std::int32_t>(TexgenMode::None));
-        GL::UniformMatrix4(_shaderLocations->TextureMatrix, false, identity);
-        GL::Uniform1(_shaderLocations->UseTexture, 1);
-        GL::Uniform1(_shaderLocations->UseOverride, 0);
-        GL::Uniform1(_shaderLocations->UsePaletteOverride, 0);
-        GL::Uniform1(_shaderLocations->UseFog, 0);
-        GL::Uniform1(_shaderLocations->UseFlat, 0);
-        GL::Uniform1(_shaderLocations->CelBands, 0);
-        if (_faceCulling)
-        {
-            GL::Enable(GL::EnableCap::CullFace);
-            GL::CullFace(GL::TriangleFace::Back);
-        }
-        GL::UniformMatrix4(_shaderLocations->ViewMatrix, false, identity);
+        _shaderConstants->SetInheritedColor(Vector4(one, 1.0F));
+        _shaderConstants->SetSurface(NativeRuntime::Rhi::MaterialConstants{false, one, one, one, one, 1.0F,
+            static_cast<std::int32_t>(PolygonMode::Modulate)});
+        _shaderConstants->SetTexgen(static_cast<std::int32_t>(TexgenMode::None), identity);
+        _shaderConstants->SetUseTexture(true);
+        _shaderConstants->SetOverride(nullptr);
+        _shaderConstants->SetPaletteOverride(nullptr);
+        _shaderConstants->SetFogEnabled(false);
+        _shaderConstants->SetFlatColor(nullptr);
+        _shaderConstants->SetCelBands(0);
         const Matrix4 orthoMatrix = Matrix4::CreateOrthographic(
             static_cast<float>(_rendererSize.X), static_cast<float>(_rendererSize.Y), 0.5F, 1.5F);
-        GL::UniformMatrix4(_shaderLocations->ProjectionMatrix, false, orthoMatrix);
+        SetFrameMatrices(identity, orthoMatrix);
     }
 
     void Scene::UnsetHudLayerUniforms()
     {
-        GL::Disable(GL::EnableCap::Blend);
-        GL::Enable(GL::EnableCap::DepthTest);
-        GL::UniformMatrix4(_shaderLocations->ViewMatrix, false, _viewMatrix);
-        GL::UniformMatrix4(_shaderLocations->ProjectionMatrix, false, _perspectiveMatrix);
+        SetFrameMatrices(_viewMatrix, _perspectiveMatrix);
     }
 
     void Scene::DrawHudLayer(const std::shared_ptr<LayerInfo>& info)
@@ -4060,16 +4284,8 @@ namespace MphRead
         {
             return;
         }
-        GL::Uniform1(_shaderLocations->LayerAlpha, info->Alpha);
-        GL::BindTexture(GL::TextureTarget::Texture2D, info->BindingId);
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
-            static_cast<std::int32_t>(GL::TextureMinFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter,
-            static_cast<std::int32_t>(GL::TextureMagFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
+        _shaderConstants->SetLayerAlpha(info->Alpha);
+        BindSceneTexture(0, info->BindingId, SamplerFor(false, RepeatMode::Clamp, RepeatMode::Clamp));
         const float viewWidth = static_cast<float>(_rendererSize.X);
         const float viewHeight = static_cast<float>(_rendererSize.Y);
         float width;
@@ -4085,13 +4301,13 @@ namespace MphRead
             width = viewWidth * info->ScaleX / 2.0F / (viewWidth / 2.0F);
             height = viewHeight * info->ScaleY / 2.0F / (viewHeight / 2.0F);
         }
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::TexCoord3(1,0,0); GL::Vertex3(width + info->ShiftX, height + info->ShiftY, 0);
-        GL::TexCoord3(0,0,0); GL::Vertex3(-width + info->ShiftX, height + info->ShiftY, 0);
-        GL::TexCoord3(1,1,0); GL::Vertex3(width + info->ShiftX, -height + info->ShiftY, 0);
-        GL::TexCoord3(0,1,0); GL::Vertex3(-width + info->ShiftX, -height + info->ShiftY, 0);
-        GL::End();
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientTexCoord3(1,0,0); TransientVertex3(width + info->ShiftX, height + info->ShiftY, 0);
+        TransientTexCoord3(0,0,0); TransientVertex3(-width + info->ShiftX, height + info->ShiftY, 0);
+        TransientTexCoord3(1,1,0); TransientVertex3(width + info->ShiftX, -height + info->ShiftY, 0);
+        TransientTexCoord3(0,1,0); TransientVertex3(-width + info->ShiftX, -height + info->ShiftY, 0);
+        EndTransient();
+        UnbindSceneTexture(0);
     }
 
     void Scene::DrawCustomCrosshair(Vector3 color, float posX, float posY)
@@ -4102,7 +4318,7 @@ namespace MphRead
         const float offY = 1.0F - posY * 2.0F;
         const auto style = Mods::Render::Crosshair::Style;
         const float scale = Mods::Render::Crosshair::Scale();
-        GL::Uniform4(_shaderLocations->FadeColor, color.X, color.Y, color.Z, 1.0F);
+        _shaderConstants->SetFadeColor(Vector4(color.X, color.Y, color.Z, 1.0F));
         const auto bars = Mods::Render::Crosshair::BarsOf(style, scale);
         for (const auto& bar : bars)
         {
@@ -4111,12 +4327,12 @@ namespace MphRead
             const float right = std::get<1>(edges);
             const float bottom = std::get<2>(edges);
             const float top = std::get<3>(edges);
-            GL::Begin(GL::PrimitiveType::TriangleStrip);
-            GL::Vertex3(offX + right / halfW, offY + top / halfH, 0);
-            GL::Vertex3(offX + left / halfW, offY + top / halfH, 0);
-            GL::Vertex3(offX + right / halfW, offY + bottom / halfH, 0);
-            GL::Vertex3(offX + left / halfW, offY + bottom / halfH, 0);
-            GL::End();
+            BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+            TransientVertex3(offX + right / halfW, offY + top / halfH, 0);
+            TransientVertex3(offX + left / halfW, offY + top / halfH, 0);
+            TransientVertex3(offX + right / halfW, offY + bottom / halfH, 0);
+            TransientVertex3(offX + left / halfW, offY + bottom / halfH, 0);
+            EndTransient();
         }
         const auto ring = Mods::Render::Crosshair::RingOf(style, scale);
         const float radius = std::get<0>(ring);
@@ -4126,18 +4342,18 @@ namespace MphRead
             constexpr std::int32_t segments = 40;
             const float inner = radius - thickness / 2.0F;
             const float outer = radius + thickness / 2.0F;
-            GL::Begin(GL::PrimitiveType::TriangleStrip);
+            BeginTransient(TransientPrimitiveTopology::TriangleStrip);
             for (std::int32_t i = 0; i <= segments; ++i)
             {
                 const float angle = TwoPi * static_cast<float>(i) / static_cast<float>(segments);
                 const float c = std::cos(angle);
                 const float s = std::sin(angle);
-                GL::Vertex3(offX + outer * c / halfW, offY + outer * s / halfH, 0);
-                GL::Vertex3(offX + inner * c / halfW, offY + inner * s / halfH, 0);
+                TransientVertex3(offX + outer * c / halfW, offY + outer * s / halfH, 0);
+                TransientVertex3(offX + inner * c / halfW, offY + inner * s / halfH, 0);
             }
-            GL::End();
+            EndTransient();
         }
-        GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
+        _shaderConstants->SetFadeColor(Vector4{});
     }
 
     void Scene::DrawHitMarker(Vector4 color, float posX, float posY)
@@ -4151,7 +4367,7 @@ namespace MphRead
         constexpr float length = 7.0F;
         constexpr float thickness = 2.0F;
         const float diagonal = std::sqrt(0.5F);
-        GL::Uniform4(_shaderLocations->FadeColor, color);
+        _shaderConstants->SetFadeColor(color);
         for (std::int32_t i = 0; i < 4; ++i)
         {
             const float dx = ((i & 1) == 0 ? -1.0F : 1.0F) * diagonal;
@@ -4162,14 +4378,14 @@ namespace MphRead
             const float y1 = dy * (gap + length) * scale;
             const float hx = -dy * thickness * scale / 2.0F;
             const float hy = dx * thickness * scale / 2.0F;
-            GL::Begin(GL::PrimitiveType::TriangleStrip);
-            GL::Vertex3(offX + (x0 + hx) / halfW, offY + (y0 + hy) / halfH, 0);
-            GL::Vertex3(offX + (x0 - hx) / halfW, offY + (y0 - hy) / halfH, 0);
-            GL::Vertex3(offX + (x1 + hx) / halfW, offY + (y1 + hy) / halfH, 0);
-            GL::Vertex3(offX + (x1 - hx) / halfW, offY + (y1 - hy) / halfH, 0);
-            GL::End();
+            BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+            TransientVertex3(offX + (x0 + hx) / halfW, offY + (y0 + hy) / halfH, 0);
+            TransientVertex3(offX + (x0 - hx) / halfW, offY + (y0 - hy) / halfH, 0);
+            TransientVertex3(offX + (x1 + hx) / halfW, offY + (y1 + hy) / halfH, 0);
+            TransientVertex3(offX + (x1 - hx) / halfW, offY + (y1 - hy) / halfH, 0);
+            EndTransient();
         }
-        GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
+        _shaderConstants->SetFadeColor(Vector4{});
     }
 
     // A bound texture over a HUD rectangle, in the 256x192 space. Linear: a
@@ -4187,29 +4403,21 @@ namespace MphRead
         const float x1 = (right / 256.0F * _rendererSize.X - halfW) / halfW;
         const float y0 = (halfH - top / 192.0F * _rendererSize.Y) / halfH;
         const float y1 = (halfH - bottom / 192.0F * _rendererSize.Y) / halfH;
-        GL::Uniform1(_shaderLocations->LayerAlpha, alpha);
-        GL::Uniform1(_shaderLocations->UseMask, 0);
-        GL::BindTexture(GL::TextureTarget::Texture2D, bindingId);
-        const auto min = static_cast<std::int32_t>(smooth ? GL::TextureMinFilter::Linear : GL::TextureMinFilter::Nearest);
-        const auto mag = static_cast<std::int32_t>(smooth ? GL::TextureMagFilter::Linear : GL::TextureMagFilter::Nearest);
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter, min);
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter, mag);
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::TexCoord3(1.0F, 0.0F, 0.0F);
-        GL::Vertex3(x1, y0, 0);
-        GL::TexCoord3(0.0F, 0.0F, 0.0F);
-        GL::Vertex3(x0, y0, 0);
-        GL::TexCoord3(1.0F, 1.0F, 0.0F);
-        GL::Vertex3(x1, y1, 0);
-        GL::TexCoord3(0.0F, 1.0F, 0.0F);
-        GL::Vertex3(x0, y1, 0);
-        GL::End();
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-        GL::Uniform1(_shaderLocations->LayerAlpha, 1.0F);
+        _shaderConstants->SetLayerAlpha(alpha);
+        _shaderConstants->SetUseMask(false);
+        BindSceneTexture(0, bindingId, SamplerFor(smooth, RepeatMode::Clamp, RepeatMode::Clamp));
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientTexCoord3(1.0F, 0.0F, 0.0F);
+        TransientVertex3(x1, y0, 0);
+        TransientTexCoord3(0.0F, 0.0F, 0.0F);
+        TransientVertex3(x0, y0, 0);
+        TransientTexCoord3(1.0F, 1.0F, 0.0F);
+        TransientVertex3(x1, y1, 0);
+        TransientTexCoord3(0.0F, 1.0F, 0.0F);
+        TransientVertex3(x0, y1, 0);
+        EndTransient();
+        UnbindSceneTexture(0);
+        _shaderConstants->SetLayerAlpha(1.0F);
     }
 
     // A filled circle; localCenter is a pixel offset from (posX, posY), y up.
@@ -4220,16 +4428,16 @@ namespace MphRead
         const float halfH = _rendererSize.Y / 2.0F;
         const float offX = posX * 2.0F - 1.0F + localCenter.X / halfW;
         const float offY = 1.0F - posY * 2.0F + localCenter.Y / halfH;
-        GL::Uniform4(_shaderLocations->FadeColor, color);
-        GL::Begin(GL::PrimitiveType::TriangleFan);
-        GL::Vertex3(offX, offY, 0);
+        _shaderConstants->SetFadeColor(color);
+        BeginTransient(TransientPrimitiveTopology::TriangleFan);
+        TransientVertex3(offX, offY, 0);
         for (std::int32_t i = 0; i <= segments; i++)
         {
             const float angle = ::OpenTK::Mathematics::MathHelper::Pi * 2 * static_cast<float>(i) / static_cast<float>(segments);
-            GL::Vertex3(offX + radius * std::cos(angle) / halfW, offY + radius * std::sin(angle) / halfH, 0);
+            TransientVertex3(offX + radius * std::cos(angle) / halfW, offY + radius * std::sin(angle) / halfH, 0);
         }
-        GL::End();
-        GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
+        EndTransient();
+        _shaderConstants->SetFadeColor(Vector4{});
     }
 
     // An unfilled ring; radius is to the middle of the stroke.
@@ -4242,18 +4450,18 @@ namespace MphRead
         const float offY = 1.0F - posY * 2.0F + localCenter.Y / halfH;
         const float inner = radius - thickness / 2;
         const float outer = radius + thickness / 2;
-        GL::Uniform4(_shaderLocations->FadeColor, color);
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
+        _shaderConstants->SetFadeColor(color);
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
         for (std::int32_t i = 0; i <= segments; i++)
         {
             const float angle = ::OpenTK::Mathematics::MathHelper::Pi * 2 * static_cast<float>(i) / static_cast<float>(segments);
             const float cos = std::cos(angle);
             const float sin = std::sin(angle);
-            GL::Vertex3(offX + outer * cos / halfW, offY + outer * sin / halfH, 0);
-            GL::Vertex3(offX + inner * cos / halfW, offY + inner * sin / halfH, 0);
+            TransientVertex3(offX + outer * cos / halfW, offY + outer * sin / halfH, 0);
+            TransientVertex3(offX + inner * cos / halfW, offY + inner * sin / halfH, 0);
         }
-        GL::End();
-        GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
+        EndTransient();
+        _shaderConstants->SetFadeColor(Vector4{});
     }
 
     // A straight bar between two points local to (posX, posY), in pixels, y up.
@@ -4273,14 +4481,14 @@ namespace MphRead
         const float offY = 1.0F - posY * 2.0F;
         const float perpX = -dirY / len * (thickness / 2.0F);
         const float perpY = dirX / len * (thickness / 2.0F);
-        GL::Uniform4(_shaderLocations->FadeColor, color);
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::Vertex3(offX + (from.X + perpX) / halfW, offY + (from.Y + perpY) / halfH, 0);
-        GL::Vertex3(offX + (from.X - perpX) / halfW, offY + (from.Y - perpY) / halfH, 0);
-        GL::Vertex3(offX + (to.X + perpX) / halfW, offY + (to.Y + perpY) / halfH, 0);
-        GL::Vertex3(offX + (to.X - perpX) / halfW, offY + (to.Y - perpY) / halfH, 0);
-        GL::End();
-        GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
+        _shaderConstants->SetFadeColor(color);
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientVertex3(offX + (from.X + perpX) / halfW, offY + (from.Y + perpY) / halfH, 0);
+        TransientVertex3(offX + (from.X - perpX) / halfW, offY + (from.Y - perpY) / halfH, 0);
+        TransientVertex3(offX + (to.X + perpX) / halfW, offY + (to.Y + perpY) / halfH, 0);
+        TransientVertex3(offX + (to.X - perpX) / halfW, offY + (to.Y - perpY) / halfH, 0);
+        EndTransient();
+        _shaderConstants->SetFadeColor(Vector4{});
     }
 
     // A filled, axis-aligned square local to (posX, posY), in pixels.
@@ -4293,14 +4501,14 @@ namespace MphRead
         const float offY = 1.0F - posY * 2.0F;
         const float cx = localCenter.X;
         const float cy = localCenter.Y;
-        GL::Uniform4(_shaderLocations->FadeColor, color);
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::Vertex3(offX + (cx + halfSize) / halfW, offY + (cy + halfSize) / halfH, 0);
-        GL::Vertex3(offX + (cx - halfSize) / halfW, offY + (cy + halfSize) / halfH, 0);
-        GL::Vertex3(offX + (cx + halfSize) / halfW, offY + (cy - halfSize) / halfH, 0);
-        GL::Vertex3(offX + (cx - halfSize) / halfW, offY + (cy - halfSize) / halfH, 0);
-        GL::End();
-        GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
+        _shaderConstants->SetFadeColor(color);
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientVertex3(offX + (cx + halfSize) / halfW, offY + (cy + halfSize) / halfH, 0);
+        TransientVertex3(offX + (cx - halfSize) / halfW, offY + (cy + halfSize) / halfH, 0);
+        TransientVertex3(offX + (cx + halfSize) / halfW, offY + (cy - halfSize) / halfH, 0);
+        TransientVertex3(offX + (cx - halfSize) / halfW, offY + (cy - halfSize) / halfH, 0);
+        EndTransient();
+        _shaderConstants->SetFadeColor(Vector4{});
     }
 
     // A filled convex polygon, points local to localCenter and already in fan order.
@@ -4311,16 +4519,16 @@ namespace MphRead
         const float halfH = _rendererSize.Y / 2.0F;
         const float offX = posX * 2.0F - 1.0F;
         const float offY = 1.0F - posY * 2.0F;
-        GL::Uniform4(_shaderLocations->FadeColor, color);
-        GL::Begin(GL::PrimitiveType::TriangleFan);
+        _shaderConstants->SetFadeColor(color);
+        BeginTransient(TransientPrimitiveTopology::TriangleFan);
         for (const OpenTK::Mathematics::Vector2& point : localPoints)
         {
             const float x = localCenter.X + point.X;
             const float y = localCenter.Y + point.Y;
-            GL::Vertex3(offX + x / halfW, offY + y / halfH, 0);
+            TransientVertex3(offX + x / halfW, offY + y / halfH, 0);
         }
-        GL::End();
-        GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
+        EndTransient();
+        _shaderConstants->SetFadeColor(Vector4{});
     }
 
     void Scene::DrawHudFlatBox(float left, float top, float right, float bottom, Vector4 color)
@@ -4331,11 +4539,11 @@ namespace MphRead
         const float x1 = (right / 256.0F * _rendererSize.X - halfW) / halfW;
         const float y0 = (halfH - top / 192.0F * _rendererSize.Y) / halfH;
         const float y1 = (halfH - bottom / 192.0F * _rendererSize.Y) / halfH;
-        GL::Uniform4(_shaderLocations->FadeColor, color);
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::Vertex3(x1, y0, 0); GL::Vertex3(x0, y0, 0); GL::Vertex3(x1, y1, 0); GL::Vertex3(x0, y1, 0);
-        GL::End();
-        GL::Uniform4(_shaderLocations->FadeColor, Vector4{});
+        _shaderConstants->SetFadeColor(color);
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientVertex3(x1, y0, 0); TransientVertex3(x0, y0, 0); TransientVertex3(x1, y1, 0); TransientVertex3(x0, y1, 0);
+        EndTransient();
+        _shaderConstants->SetFadeColor(Vector4{});
     }
 
     void Scene::DrawHudObject(const std::shared_ptr<HudObjectInstance>& inst, std::int32_t mode, float scale)
@@ -4349,17 +4557,9 @@ namespace MphRead
         float width = static_cast<float>(inst->Width);
         float height = static_cast<float>(inst->Height);
         const bool center = inst->Center;
-        GL::Uniform1(_shaderLocations->LayerAlpha, inst->Alpha);
-        GL::Uniform1(_shaderLocations->UseMask, inst->UseMask ? 1 : 0);
-        GL::BindTexture(GL::TextureTarget::Texture2D, inst->BindingId);
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
-            static_cast<std::int32_t>(inst->Smooth ? GL::TextureMinFilter::Linear : GL::TextureMinFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter,
-            static_cast<std::int32_t>(inst->Smooth ? GL::TextureMagFilter::Linear : GL::TextureMagFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
+        _shaderConstants->SetLayerAlpha(inst->Alpha);
+        _shaderConstants->SetUseMask(inst->UseMask);
+        BindSceneTexture(0, inst->BindingId, SamplerFor(inst->Smooth, RepeatMode::Clamp, RepeatMode::Clamp));
         const float viewWidth = static_cast<float>(_rendererSize.X);
         const float viewHeight = static_cast<float>(_rendererSize.Y);
         if (mode == 2)
@@ -4402,13 +4602,13 @@ namespace MphRead
         {
             std::swap(bottomPos, topPos);
         }
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::TexCoord3(1,0,0); GL::Vertex3(rightPos, topPos, 0);
-        GL::TexCoord3(0,0,0); GL::Vertex3(leftPos, topPos, 0);
-        GL::TexCoord3(1,1,0); GL::Vertex3(rightPos, bottomPos, 0);
-        GL::TexCoord3(0,1,0); GL::Vertex3(leftPos, bottomPos, 0);
-        GL::End();
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientTexCoord3(1,0,0); TransientVertex3(rightPos, topPos, 0);
+        TransientTexCoord3(0,0,0); TransientVertex3(leftPos, topPos, 0);
+        TransientTexCoord3(1,1,0); TransientVertex3(rightPos, bottomPos, 0);
+        TransientTexCoord3(0,1,0); TransientVertex3(leftPos, bottomPos, 0);
+        EndTransient();
+        UnbindSceneTexture(0);
     }
 
     void Scene::DrawIconModel(Vector2 position, float angle, const std::shared_ptr<ModelInstance>& inst,
@@ -4420,23 +4620,15 @@ namespace MphRead
             (1.0F - position.Y) * _rendererSize.Y - static_cast<float>(_rendererSize.Y / 2), -1.0F);
         Matrix4 transform = CreateRotationZ(DegreesToRadians(angle))
             * CreateScale(scale, scale, 1.0F) * CreateTranslation(position3d);
-        GL::UniformMatrix4(_shaderLocations->MatrixStack, false, transform);
+        SetMatrixStack(transform);
         const auto model = inst->Model();
         UpdateMaterials(model, 0);
-        GL::Uniform1(_shaderLocations->MaterialAlpha, alpha);
-        GL::BindTexture(GL::TextureTarget::Texture2D, model->Materials->at(0)->TextureBindingId);
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
-            static_cast<std::int32_t>(GL::TextureMinFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter,
-            static_cast<std::int32_t>(GL::TextureMagFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-        GL::Color3(Vector3(color.Red / 31.0F, color.Green / 31.0F, color.Blue / 31.0F));
-        GL::CallList(model->Meshes->at(0)->ListId);
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-        GL::UniformMatrix4(_shaderLocations->MatrixStack, false, RendererDetail::IdentityMatrix());
+        _shaderConstants->SetMaterialAlpha(alpha);
+        BindSceneTexture(0, model->Materials->at(0)->TextureBindingId, SamplerFor(false, RepeatMode::Clamp, RepeatMode::Clamp));
+        _shaderConstants->SetInheritedColor(Vector4(color.Red / 31.0F, color.Green / 31.0F, color.Blue / 31.0F, 1.0F));
+        DrawGpuMesh(model, model->Meshes->at(0));
+        UnbindSceneTexture(0);
+        SetMatrixStack(RendererDetail::IdentityMatrix());
     }
 
     void Scene::DrawHudFilterModel(const std::shared_ptr<ModelInstance>& inst, float alpha)
@@ -4444,41 +4636,25 @@ namespace MphRead
         const auto model = inst->Model();
         UpdateMaterials(model, 0);
         Material& material = *model->Materials->at(0);
-        GL::Uniform1(_shaderLocations->MaterialAlpha, material.Alpha / 31.0F * alpha);
-        GL::BindTexture(GL::TextureTarget::Texture2D, material.TextureBindingId);
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
-            static_cast<std::int32_t>(GL::TextureMinFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter,
-            static_cast<std::int32_t>(GL::TextureMagFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
+        _shaderConstants->SetMaterialAlpha(material.Alpha / 31.0F * alpha);
+        BindSceneTexture(0, material.TextureBindingId, SamplerFor(false, RepeatMode::Clamp, RepeatMode::Clamp));
         const float viewWidth = static_cast<float>(_rendererSize.X);
         const float viewHeight = static_cast<float>(_rendererSize.Y);
-        GL::Begin(GL::PrimitiveType::TriangleStrip);
-        GL::TexCoord3(1,0,0); GL::Vertex3(viewWidth, viewHeight, -1);
-        GL::TexCoord3(0,0,0); GL::Vertex3(-viewWidth, viewHeight, -1);
-        GL::TexCoord3(1,1,0); GL::Vertex3(viewWidth, -viewHeight, -1);
-        GL::TexCoord3(0,1,0); GL::Vertex3(-viewWidth, -viewHeight, -1);
-        GL::End();
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
+        BeginTransient(TransientPrimitiveTopology::TriangleStrip);
+        TransientTexCoord3(1,0,0); TransientVertex3(viewWidth, viewHeight, -1);
+        TransientTexCoord3(0,0,0); TransientVertex3(-viewWidth, viewHeight, -1);
+        TransientTexCoord3(1,1,0); TransientVertex3(viewWidth, -viewHeight, -1);
+        TransientTexCoord3(0,1,0); TransientVertex3(-viewWidth, -viewHeight, -1);
+        EndTransient();
+        UnbindSceneTexture(0);
     }
 
     void Scene::DrawHudDamageModel(const std::shared_ptr<ModelInstance>& inst)
     {
         const auto model = inst->Model();
         UpdateMaterials(model, 0);
-        GL::Uniform1(_shaderLocations->MaterialAlpha, 1.0F);
-        GL::BindTexture(GL::TextureTarget::Texture2D, model->Materials->at(0)->TextureBindingId);
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
-            static_cast<std::int32_t>(GL::TextureMinFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter,
-            static_cast<std::int32_t>(GL::TextureMagFilter::Nearest));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
-        GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-            static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge));
+        _shaderConstants->SetMaterialAlpha(1.0F);
+        BindSceneTexture(0, model->Materials->at(0)->TextureBindingId, SamplerFor(false, RepeatMode::Clamp, RepeatMode::Clamp));
         const float viewWidth = static_cast<float>(_rendererSize.X);
         const float viewHeight = static_cast<float>(_rendererSize.Y);
         const float xOffset = -viewWidth / 2.0F;
@@ -4510,88 +4686,41 @@ namespace MphRead
         }
         const std::int32_t matrixCount = static_cast<std::int32_t>(
             std::min(model->NodeMatrixIds->size(), _hudMatrixStack.size() / 16U));
-        GL::UniformMatrix4(_shaderLocations->MatrixStack, matrixCount, false, _hudMatrixStack.data());
+        _shaderConstants->Set(NativeRuntime::Rhi::DrawConstants{std::span<const float>(
+            _hudMatrixStack.data(), static_cast<std::size_t>(matrixCount) * 16U)});
         for (std::int32_t i = 1; i < 9; ++i)
         {
             const Node& node = *model->Nodes->at(static_cast<std::size_t>(i));
             if (node.Enabled)
             {
-                const Mesh& mesh = *model->Meshes->at(static_cast<std::size_t>(node.MeshId / 2));
-                GL::CallList(mesh.ListId);
+                const std::shared_ptr<Mesh>& mesh
+                    = model->Meshes->at(static_cast<std::size_t>(node.MeshId / 2));
+                DrawGpuMesh(model, mesh);
             }
         }
-        GL::BindTexture(GL::TextureTarget::Texture2D, 0);
-        GL::UniformMatrix4(_shaderLocations->MatrixStack, false, RendererDetail::IdentityMatrix());
+        UnbindSceneTexture(0);
+        SetMatrixStack(RendererDetail::IdentityMatrix());
     }
 
     void Scene::DoMaterial(const MphRead::RenderItem& item)
     {
-        GL::Uniform1(_shaderLocations->UseLight, LightingOn() && item.Lighting ? 1 : 0);
-        GL::Color3(item.Diffuse);
-        GL::Uniform3(_shaderLocations->Diffuse, item.Diffuse);
-        GL::Uniform3(_shaderLocations->Ambient, item.Ambient);
-        GL::Uniform3(_shaderLocations->Specular, item.Specular);
-        GL::Uniform3(_shaderLocations->Emission, item.Emission);
-        GL::Uniform1(_shaderLocations->MaterialAlpha, item.Alpha);
-        GL::Uniform1(_shaderLocations->MaterialMode, static_cast<std::int32_t>(item.PolygonMode));
+        _shaderConstants->SetInheritedColor(Vector4(item.Diffuse, 1.0F));
+        _shaderConstants->Set(NativeRuntime::Rhi::MaterialConstants{
+            LightingOn() && item.Lighting, item.Diffuse, item.Ambient, item.Specular,
+            item.Emission, item.Alpha, static_cast<std::int32_t>(item.PolygonMode)});
     }
 
     void Scene::DoTexture(const MphRead::RenderItem& item)
     {
         if (item.HasTexture)
         {
-            GL::BindTexture(GL::TextureTarget::Texture2D, item.TextureBindingId);
-            GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMinFilter,
-                static_cast<std::int32_t>(FilteringOn() ? GL::TextureMinFilter::Linear : GL::TextureMinFilter::Nearest));
-            GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureMagFilter,
-                static_cast<std::int32_t>(FilteringOn() ? GL::TextureMagFilter::Linear : GL::TextureMagFilter::Nearest));
-            switch (item.XRepeat)
-            {
-            case RepeatMode::Clamp:
-                GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-                    static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge)); break;
-            case RepeatMode::Repeat:
-                GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-                    static_cast<std::int32_t>(GL::TextureWrapMode::Repeat)); break;
-            case RepeatMode::Mirror:
-                GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapS,
-                    static_cast<std::int32_t>(GL::TextureWrapMode::MirroredRepeat)); break;
-            }
-            switch (item.YRepeat)
-            {
-            case RepeatMode::Clamp:
-                GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-                    static_cast<std::int32_t>(GL::TextureWrapMode::ClampToEdge)); break;
-            case RepeatMode::Repeat:
-                GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-                    static_cast<std::int32_t>(GL::TextureWrapMode::Repeat)); break;
-            case RepeatMode::Mirror:
-                GL::TexParameter(GL::TextureTarget::Texture2D, GL::TextureParameterName::TextureWrapT,
-                    static_cast<std::int32_t>(GL::TextureWrapMode::MirroredRepeat)); break;
-            }
-            GL::Uniform1(_shaderLocations->TexgenMode, static_cast<std::int32_t>(item.TexgenMode));
-            GL::UniformMatrix4(_shaderLocations->TextureMatrix, false, item.TexcoordMatrix);
+            BindSceneTexture(0, item.TextureBindingId, SamplerFor(FilteringOn(), item.XRepeat, item.YRepeat));
+            _shaderConstants->SetTexgen(static_cast<std::int32_t>(item.TexgenMode), item.TexcoordMatrix);
         }
-        GL::Uniform1(_shaderLocations->UseTexture, item.HasTexture && _showTextures ? 1 : 0);
+        _shaderConstants->SetUseTexture(item.HasTexture && _showTextures);
         SetFlatColor(item.HasTexture && _showTextures ? item.TextureBindingId : -1);
-        if (item.OverrideColor.has_value())
-        {
-            GL::Uniform1(_shaderLocations->UseOverride, 1);
-            GL::Uniform4(_shaderLocations->OverrideColor, *item.OverrideColor);
-        }
-        else
-        {
-            GL::Uniform1(_shaderLocations->UseOverride, 0);
-        }
-        if (item.PaletteOverride.has_value())
-        {
-            GL::Uniform1(_shaderLocations->UsePaletteOverride, 1);
-            GL::Uniform4(_shaderLocations->PaletteOverrideColor, *item.PaletteOverride);
-        }
-        else
-        {
-            GL::Uniform1(_shaderLocations->UsePaletteOverride, 0);
-        }
+        _shaderConstants->SetOverride(item.OverrideColor.has_value() ? &*item.OverrideColor : nullptr);
+        _shaderConstants->SetPaletteOverride(item.PaletteOverride.has_value() ? &*item.PaletteOverride : nullptr);
     }
 
     void Scene::SetFlatColor(std::int32_t bindingId)
@@ -4599,12 +4728,11 @@ namespace MphRead
         auto found = _flatColors.find(bindingId);
         if (Mods::RenderOptions::CelShading() && bindingId != -1 && found != _flatColors.end())
         {
-            GL::Uniform1(_shaderLocations->UseFlat, 1);
-            GL::Uniform3(_shaderLocations->FlatColor, found->second);
+            _shaderConstants->SetFlatColor(&found->second);
         }
         else
         {
-            GL::Uniform1(_shaderLocations->UseFlat, 0);
+            _shaderConstants->SetFlatColor(nullptr);
         }
     }
 
@@ -5004,7 +5132,7 @@ namespace MphRead
         }
         else if (e.Key == Key::D5 && e.Shift)
         {
-            if (!_recording) Images::Screenshot(_rendererSize.X, _rendererSize.Y);
+            if (!_recording) Images::Screenshot(Commands(), _rendererSize.X, _rendererSize.Y);
         }
         else if (e.Key == Key::T) _showTextures = !_showTextures;
         else if (e.Key == Key::C)
@@ -5039,7 +5167,6 @@ namespace MphRead
             else
             {
                 _faceCulling = !_faceCulling;
-                if (!_faceCulling) GL::Disable(GL::EnableCap::CullFace);
             }
         }
         else if (e.Key == Key::F) FilteringOn(!FilteringOn());
@@ -5726,9 +5853,17 @@ namespace MphRead
         return setting ? "yes" : "no ";
     }
 
+#if !defined(__ANDROID__)
     const RendererPlatform::WindowSettings& RenderWindow::Settings()
     {
-        static const RendererPlatform::WindowSettings settings = Mods::Render::DesktopGlContext::Settings();
+        // A Vulkan scene presents the window itself, so the window has no GL
+        // context at all; an OpenGL one is its context.
+        // Asked again for every window: Settings can switch the renderer and
+        // remake the window on the other one.
+        static RendererPlatform::WindowSettings settings{};
+        settings = Mods::Render::DesktopGlContext::Settings(
+            false, NativeRuntime::Rhi::ScenePresentsWindow()
+                ? RendererPlatform::GraphicsWindowMode::NoApi : RendererPlatform::GraphicsWindowMode::OpenGL);
         return settings;
     }
 
@@ -5747,13 +5882,8 @@ namespace MphRead
     RenderWindow::RenderWindow(bool shell)
         : _window(RendererPlatform::CreateWindow(Settings())), _shell(shell)
     {
-        IgnoreUnavailableGlfwFeatures();
-#if !defined(__ANDROID__)
-        if (const RendererPlatform::WindowIcon* icon = Mods::Render::AppIcon::Load())
-        {
-            _window->SetIcon(*icon);
-        }
-#endif
+        CreatePresentation();
+        _performance = Mods::Diagnostics::FramePerformance::Create();
         const Vector2i clientSize = _window->ClientSize();
         const Vector2i size = _window->Size();
         Mods::DebugLog::Line("render", "game window created, " + std::to_string(clientSize.X)
@@ -5772,7 +5902,145 @@ namespace MphRead
         FitToScreen();
     }
 
-    RenderWindow::~RenderWindow() = default;
+    void RenderWindow::CreatePresentation()
+    {
+        NativeRuntime::Rhi::SwapchainDesc swapchainDesc{};
+        const Vector2i framebufferSize = _window->Size();
+        swapchainDesc.width = static_cast<std::uint32_t>(std::max(framebufferSize.X, 1));
+        swapchainDesc.height = static_cast<std::uint32_t>(std::max(framebufferSize.Y, 1));
+        _swapchain = NativeRuntime::Rhi::CreateSceneWindowSwapchain(*_window, swapchainDesc);
+        IgnoreUnavailableGlfwFeatures();
+#if !defined(__ANDROID__)
+        if (const RendererPlatform::WindowIcon* icon = Mods::Render::AppIcon::Load())
+        {
+            _window->SetIcon(*icon);
+        }
+#endif
+        const std::string backend = NativeRuntime::Rhi::DescribeSceneBackend(_swapchain.get());
+        std::cout << "[render] backend " << backend << std::endl;
+        Mods::DebugLog::Line("render", "backend " + backend);
+    }
+
+    void RenderWindow::RequestRendererSwitch(NativeRuntime::Rhi::SceneBackendRequest request)
+    {
+        if (request == NativeRuntime::Rhi::RequestedSceneBackend()) return;
+        _rendererSwitch = request;
+        _window->Close();
+    }
+
+    // The window and everything on its device go; the scene's simulation,
+    // the launcher's screens and every handle survive, and are put back on
+    // the new device. A backend that cannot start is said, and the one that
+    // was running comes back.
+    void RenderWindow::SwitchRenderer(NativeRuntime::Rhi::SceneBackendRequest request)
+    {
+        if (ObserveRendererSwitch) ObserveRendererSwitch(*this, true);
+        const NativeRuntime::Rhi::SceneBackendRequest previous = NativeRuntime::Rhi::RequestedSceneBackend();
+        const Vector2i clientSize = ClientSize();
+        const Vector2i location = Location();
+        const std::int32_t border = WindowBorder();
+        const auto state = WindowState();
+        Mods::DebugLog::Line("render", std::string("switching the renderer to ")
+            + std::string(NativeRuntime::Rhi::SceneBackendRequestName(request)) + " in place");
+        if (_shell) Mods::WindowGeometry::Remember(*this);
+        const auto release = [&]
+        {
+            if (_performance) _performance->Reset();
+            if (_scene) _scene->ReleaseGpuForSwitch();
+            if (BeforeRendererSwitch) BeforeRendererSwitch();
+#if defined(MPHREAD_SHELL)
+            if (_shell) Mods::Render::LauncherHunter::ReleaseGl();
+#endif
+            _windowCommands.reset();
+            _swapchain.reset();
+            if (ObserveRendererSwitchStage) ObserveRendererSwitchStage(*this, RendererSwitchStage::ReleasedResources);
+            NativeRuntime::Rhi::DetachSceneWindow();
+            _window.reset();
+        };
+        const auto create = [&](NativeRuntime::Rhi::SceneBackendRequest target)
+        {
+            _appliedFrameRateCap = -2;
+            // Replacement windows start hidden, including a recovery window.
+            _startedHidden = true;
+            _applyStartupIn = 0;
+            NativeRuntime::Rhi::ReselectSceneBackend(target);
+            if (ObserveRendererSwitchStage) ObserveRendererSwitchStage(*this, RendererSwitchStage::BeforeWindow);
+            _window = RendererPlatform::CreateWindow(Settings());
+            CreatePresentation();
+            if (ObserveRendererSwitchStage) ObserveRendererSwitchStage(*this, RendererSwitchStage::Presentation);
+            FitToScreen();
+            WindowBorder(border);
+            Location(location);
+            ClientSize(clientSize);
+            if (state == RendererPlatform::WindowStateValue::Maximized) WindowStateMaximized();
+            Floating(Mods::WindowMode::IsFullscreen());
+            if (_scene)
+            {
+                _scene->RebindInput(_window->Keyboard(), _window->Mouse());
+                _scene->Size(FramebufferSize());
+                _scene->RebuildGpuAfterSwitch([&]
+                {
+                    if (ObserveRendererSwitchStage) ObserveRendererSwitchStage(*this, RendererSwitchStage::Resources);
+                });
+            }
+            if (AfterRendererSwitch) AfterRendererSwitch(*this);
+            if (!_scene && ObserveRendererSwitchStage) ObserveRendererSwitchStage(*this, RendererSwitchStage::Resources);
+        };
+        release();
+        try { create(request); }
+        catch (const std::exception&)
+        {
+            const auto incoming = std::current_exception();
+            Mods::DebugLog::Exception("renderer switch", incoming);
+            try { release(); create(previous); }
+            catch (const std::exception&)
+            {
+                const auto recovery = std::current_exception();
+                // Release partial recovery resources while their device and
+                // context still exist. Preserve both failures if cleanup fails.
+                try { release(); } catch (...) {}
+                if (ReportRendererSwitchFailure) ReportRendererSwitchFailure(incoming, false);
+                throw NativeRuntime::Rhi::SceneBackendRecoveryFailed(
+                    "Renderer switch failed: " + NativeRuntime::ExceptionMessage(incoming)
+                    + "\nRecovery also failed: " + NativeRuntime::ExceptionMessage(recovery), incoming, recovery);
+            }
+            if (ReportRendererSwitchFailure) ReportRendererSwitchFailure(incoming, true);
+            else NativeRuntime::ShowErrorDialog(std::string(Mods::Branding::Name),
+                NativeRuntime::ExceptionMessage(incoming) + "\n\nThe renderer you were using is back.");
+        }
+        if (ObserveRendererSwitch) ObserveRendererSwitch(*this, false);
+    }
+
+    RenderWindow::~RenderWindow()
+    {
+        // Teardown must reach the session/context even when a lost device
+        // rejects idle. Explicit operations retain and report the first error.
+        const auto cleanup = [](auto&& action) noexcept
+        {
+            try { action(); }
+            catch (...) {}
+        };
+        cleanup([this] { _performance.reset(); });
+        if (_shell && BeforeRendererSwitch) cleanup([] { BeforeRendererSwitch(); });
+#if defined(MPHREAD_SHELL)
+        if (_shell)
+        {
+            // LauncherHunter owns a process-static side Scene. Release its GL
+            // resources and destroy that Scene before _window tears down GLFW
+            // and the owning OpenGL context.
+            cleanup([] { Mods::Render::LauncherHunter::ReleaseGl(); });
+        }
+#endif
+        if (_scene)
+        {
+            cleanup([this] { _scene->ReleaseGpuResources(); });
+        }
+        _windowCommands.reset();
+        _swapchain.reset();
+        if (ObserveRendererSwitchStage)
+            cleanup([this] { ObserveRendererSwitchStage(*this, RendererSwitchStage::FinalRelease); });
+        NativeRuntime::Rhi::DetachSceneWindow();
+    }
 
     bool RenderWindow::HasScene() const noexcept
     {
@@ -5852,7 +6120,7 @@ namespace MphRead
             return;
         }
         _scene->DoCleanup();
-        _scene->UnloadGl();
+        _scene->ReleaseGpuResources();
         _scene.reset();
         _sceneLoaded = false;
         NativeRuntime::ForceFullGc();
@@ -5933,11 +6201,24 @@ namespace MphRead
 
     void RenderWindow::Run()
     {
-        _window->Run(*this);
+        for (;;)
+        {
+            _window->Run(*this);
+            if (!_rendererSwitch.has_value()) break;
+            const NativeRuntime::Rhi::SceneBackendRequest request = *_rendererSwitch;
+            _rendererSwitch.reset();
+            SwitchRenderer(request);
+        }
     }
 
     void RenderWindow::OnClosing()
     {
+        if (_rendererSwitch.has_value())
+        {
+            // Not closing: the window is being remade for another renderer.
+            _window->BaseOnClosing();
+            return;
+        }
         if (_shell)
         {
             Mods::WindowGeometry::Remember(*this);
@@ -5999,9 +6280,57 @@ namespace MphRead
         _window->BaseOnLoad();
     }
 
+    bool RenderWindow::BeforeFrame()
+    {
+        namespace Rhi = NativeRuntime::Rhi;
+        ApplyFrameRateSettings();
+        const auto size = FramebufferSize();
+        if (size.X <= 0 || size.Y <= 0)
+        {
+            _swapchain->AbandonLowLatencyFrame();
+            return true;
+        }
+        auto state = Rhi::ResolveLowLatency(Mods::Launcher::LauncherPrefs::LowLatency(), _swapchain->LowLatencyCaps());
+        const bool nativePacing = state.authority == Rhi::PacingAuthority::Native;
+        // Native measurement also opens a frame in Off; only pacing is disabled.
+        if (!_swapchain->BeginLowLatencyFrame()) return false;
+        state = Rhi::ResolveLowLatency(state.requested, _swapchain->LowLatencyCaps());
+        if (state.effective == Rhi::LowLatencyMode::Off) return true;
+        if (state.authority == Rhi::PacingAuthority::Native)
+        {
+            return true;
+        }
+        if (nativePacing) ApplyFrameRateSettings(); // Native failure hands this frame to Generic.
+        return Rhi::SceneDevice().WaitForLatestSubmission(Rhi::PresentationScheduler::FrameBudgetWait.count());
+    }
+
+    bool RenderWindow::CanSampleInputWhileWaiting() const
+    {
+        return NativeRuntime::Rhi::ResolveLowLatency(Mods::Launcher::LauncherPrefs::LowLatency(),
+            _swapchain->LowLatencyCaps()).authority != NativeRuntime::Rhi::PacingAuthority::Native;
+    }
+
+    void RenderWindow::OnInputSample()
+    { _swapchain->MarkLowLatency(NativeRuntime::Rhi::LowLatencyMarker::InputSample); }
+
     void RenderWindow::ApplyFrameRateSettings()
     {
-        const std::int32_t cap = Mods::Render::FrameTiming::FrameRateCap();
+        const std::int32_t cap = Mods::Diagnostics::FramePerformance::EffectiveCap(Mods::Render::FrameTiming::FrameRateCap());
+        _swapchain->ConfigureLowLatency(Mods::Launcher::LauncherPrefs::LowLatency(),
+            cap > 0 ? static_cast<std::uint32_t>((1'000'000ULL + cap - 1) / cap) : 0);
+        const auto latency = NativeRuntime::Rhi::ResolveLowLatency(Mods::Launcher::LauncherPrefs::LowLatency(),
+            NativeRuntime::Rhi::SceneDevice().LowLatencyCaps());
+        if (!_reportedLatency || *_reportedLatency != latency)
+        {
+            _reportedLatency = latency;
+            std::cout << "[presentation] requested_low_latency_mode=" << static_cast<int>(latency.requested)
+                << " effective_low_latency_mode=" << static_cast<int>(latency.effective)
+                << " low_latency_provider=" << static_cast<int>(latency.provider)
+                << " boost_supported=" << latency.boostSupported
+                << " pacing_authority=" << static_cast<int>(latency.authority)
+                << " reason=" << latency.fallbackReason << '\n';
+        }
+        _window->PresentationTiming(_swapchain->Desc().presentMode, cap, latency.authority);
         if (cap == _appliedFrameRateCap)
         {
             return;
@@ -6009,14 +6338,15 @@ namespace MphRead
         _appliedFrameRateCap = cap;
         if (cap == Mods::Render::FrameTiming::DisplayRate)
         {
-            _window->VSync(RendererPlatform::VSyncMode::On);
+            _swapchain->SetPresentMode(NativeRuntime::Rhi::PresentMode::Fifo);
             _window->UpdateFrequency(0.0);
         }
         else
         {
-            _window->VSync(RendererPlatform::VSyncMode::Off);
-            _window->UpdateFrequency(static_cast<double>(cap));
+            _swapchain->SetPresentMode(NativeRuntime::Rhi::PresentMode::Immediate);
+            _window->UpdateFrequency(0.0);
         }
+        _window->PresentationTiming(_swapchain->Desc().presentMode, cap, latency.authority);
     }
 
     void RenderWindow::Reveal()
@@ -6037,13 +6367,61 @@ namespace MphRead
         }
     }
 
+    NativeRuntime::Rhi::CommandList& RenderWindow::WindowCommands()
+    {
+        if (!_windowCommands)
+        {
+            auto commands = NativeRuntime::Rhi::SceneDevice().CreateCommandList();
+            commands->Begin();
+            _windowCommands = std::move(commands);
+        }
+        return *_windowCommands;
+    }
+
     void RenderWindow::OnRenderFrame(const RendererPlatform::FrameEventArgs& args)
     {
-        ApplyFrameRateSettings();
+        if (_performance) _performance->BeginFrame(*this, *_swapchain);
+        const auto present = [&]
+        {
+            _swapchain->MarkLowLatency(NativeRuntime::Rhi::LowLatencyMarker::SimulationEnd);
+            if (std::getenv("FRUITY_RENDER_METRICS") && ++_presentationMetricFrames % 120 == 0)
+            {
+                const auto waits = NativeRuntime::Rhi::SceneDevice().PresentationWaits();
+                std::cout << "[presentation-metrics] present_wait_count=" << waits.count
+                    << " present_wait_ns=" << waits.nanoseconds << '\n';
+                const auto reflex = _swapchain->LowLatencyStats();
+                std::cout << "[reflex-metrics] sleep=" << reflex.sleepCalls << " wait=" << reflex.waitCalls
+                    << " modes=" << reflex.modeCalls << " markers=" << reflex.markerCalls << " reports=" << reflex.timingReports
+                    << " frame=" << reflex.frameId << " generation=" << reflex.swapchainGeneration << '\n';
+            }
+            if (!_performance)
+            {
+                const auto result = NativeRuntime::Rhi::PresentSceneWindow(*_swapchain);
+                if (result.accepted) _window->PresentationAccepted();
+                else _window->PresentationUnavailable();
+                return;
+            }
+            const auto start = std::chrono::steady_clock::now();
+            const auto result = NativeRuntime::Rhi::PresentSceneWindow(*_swapchain);
+            if (result.accepted) _window->PresentationAccepted();
+            else _window->PresentationUnavailable();
+            if (_performance) _performance->Presented(*this, *_swapchain,
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
+        };
         if (Mods::Network::NetLaunch::TickTerminalLobby(*this))
         {
-            GL::Clear(GL::ClearBufferMask::ColorBufferBit);
-            _window->SwapBuffers();
+            {
+                auto& commands = WindowCommands();
+                std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
+                color[0].loadOp = NativeRuntime::Rhi::LoadOp::Clear;
+                color[0].clearValue = NativeRuntime::Rhi::ClearColor{0.0F, 0.0F, 0.0F, 1.0F};
+                NativeRuntime::Rhi::RenderingInfo info{};
+                info.swapchain = true;
+                info.colorAttachments = color;
+                commands.BeginRendering(info);
+                commands.EndRendering();
+            }
+            present();
             _window->BaseOnRenderFrame(args);
             return;
         }
@@ -6052,6 +6430,8 @@ namespace MphRead
         Mods::Launcher::Gui::Shell::TickEndPanel();
         if (_scene == nullptr)
         {
+            _swapchain->MarkLowLatency(NativeRuntime::Rhi::LowLatencyMarker::SimulationStart);
+            _swapchain->MarkLowLatency(NativeRuntime::Rhi::LowLatencyMarker::SimulationEnd);
             // With no game scene the launcher owns the whole frame, so its
             // Ganesh pass may run before the launcher background/composite.
             Mods::Launcher::Gui::Shell::TickUi(*this);
@@ -6060,7 +6440,7 @@ namespace MphRead
             const Vector2i framebuffer = FramebufferSize();
             Mods::Render::UiOverlay::DrawAlone(*this, framebuffer.X, framebuffer.Y);
             Mods::Launcher::Gui::Shell::AfterDraw(*this);
-            _window->SwapBuffers();
+            present();
             Reveal();
             Mods::PauseMenu::Poll(*this);
             _window->BaseOnRenderFrame(args);
@@ -6113,6 +6493,7 @@ namespace MphRead
             Mods::Input::StylusZone::PlacementDrag(pointerX, pointerY);
         }
         GameState::ApplyPause();
+        _swapchain->MarkLowLatency(NativeRuntime::Rhi::LowLatencyMarker::SimulationStart);
         std::int32_t steps;
         if (_scene->FrameAdvance())
         {
@@ -6127,6 +6508,7 @@ namespace MphRead
         {
             _scene->OnSimulationFrame();
         }
+        _swapchain->MarkLowLatency(NativeRuntime::Rhi::LowLatencyMarker::SimulationEnd);
         if (Mods::Chat::ChatBox::Composing()
             && Mods::Input::GamepadInput::TakePress(
                 Mods::Input::GamepadButtons::B | Mods::Input::GamepadButtons::Start))
@@ -6159,7 +6541,7 @@ namespace MphRead
         Mods::Render::LauncherHunter::Draw(*this, framebuffer.X, framebuffer.Y);
         Mods::Launcher::Gui::Shell::AfterDraw(*this);
 #endif
-        _window->SwapBuffers();
+        present();
         Reveal();
         Mods::PauseMenu::Poll(*this);
         _scene->AfterRenderFrame();
@@ -6172,6 +6554,12 @@ namespace MphRead
         {
             Mods::WindowGeometry::Note(*this);
         }
+        if (e.Size.X > 0 && e.Size.Y > 0 && _swapchain != nullptr)
+        {
+            _swapchain->Resize(
+                static_cast<std::uint32_t>(e.Size.X),
+                static_cast<std::uint32_t>(e.Size.Y));
+        }
         if (!_sceneReady)
         {
             return;
@@ -6181,7 +6569,8 @@ namespace MphRead
             _window->BaseOnResize(e);
             return;
         }
-        GL::Viewport(0, 0, e.Size.X, e.Size.Y);
+        WindowCommands().SetViewport(NativeRuntime::Rhi::Viewport{0.0F, 0.0F,
+            static_cast<float>(e.Size.X), static_cast<float>(e.Size.Y)});
         if (_scene != nullptr && _scene->Size() != e.Size)
         {
             _scene->Size(e.Size);
@@ -6342,7 +6731,7 @@ namespace MphRead
         {
             const std::u32string codePoint(1, static_cast<char32_t>(e.Unicode));
             Mods::Launcher::Gui::Shell::TextInput(
-                NativeRuntime::Avalonia::Media::ToUtf8(codePoint));
+                NativeRuntime::Utf32ToUtf8(codePoint));
             _window->BaseOnTextInput(e);
             return;
         }
@@ -6367,7 +6756,7 @@ namespace MphRead
         Mods::Input::InputSourceTracker::Note(Mods::Input::InputSource::KeyboardMouse);
 #if defined(MPHREAD_SHELL)
         if (Mods::Launcher::Gui::Shell::UiVisible()
-            && !Mods::Launcher::Gui::KeyRow::AnyListening()
+            && !Mods::Input::KeyCapture::AnyListening()
             && Mods::WindowMode::HandleKey(*this, e))
         {
             _window->BaseOnKeyDown(e);
@@ -6466,6 +6855,8 @@ namespace MphRead
         _window->BaseOnKeyDown(e);
     }
 
+#endif
+
     std::int32_t TextureMap::GetKey(std::int32_t textureId, std::int32_t paletteId,
         std::int32_t recolorId) const
     {
@@ -6527,6 +6918,7 @@ namespace MphRead
 
 #undef MPHREAD_DEBUG_ASSERT
 
+#if !defined(__ANDROID__)
     std::int32_t RenderWindow::WindowBorder() const
     {
         return _window->WindowBorder();
@@ -6572,6 +6964,11 @@ namespace MphRead
         return _window->WindowState();
     }
 
+    void RenderWindow::WindowStateMinimized()
+    {
+        _window->WindowStateMinimized();
+    }
+
     void RenderWindow::WindowStateMaximized()
     {
         _window->WindowStateMaximized();
@@ -6606,5 +7003,6 @@ namespace MphRead
     {
         _window->Close();
     }
+#endif
 
 }

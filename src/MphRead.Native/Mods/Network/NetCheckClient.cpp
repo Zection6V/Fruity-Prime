@@ -1,4 +1,6 @@
 #include "NetCheckClient.hpp"
+#include "../../NativeRuntime/Rhi/SceneBackend.hpp"
+#include "../../NativeRuntime/OpenTK/GL.hpp"
 #include "HitRig.hpp"
 #include "NetHitClaims.hpp"
 #include "NetShotDiagnostics.hpp"
@@ -34,6 +36,7 @@
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/System/Number.hpp"
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
+#include "../../NativeRuntime/Rhi/BackendFactory.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -124,6 +127,7 @@ namespace MphRead::Mods::Network
         settings.ApiMajor = 3;
         settings.ApiMinor = 2;
         settings.StartVisible = ShowWindow;
+        settings.GraphicsMode = RendererPlatform::GraphicsWindowMode::OpenGL;
         return settings;
     }
 
@@ -134,6 +138,12 @@ namespace MphRead::Mods::Network
 
     void NetCheckClient::Dispose()
     {
+        if (_scene)
+        {
+            _scene->ReleaseGpuResources();
+            _scene.reset();
+        }
+        _swapchain.reset();
         _window.reset();
     }
 
@@ -147,9 +157,9 @@ namespace MphRead::Mods::Network
         _window->Close();
     }
 
-    void NetCheckClient::SwapBuffers()
+    void NetCheckClient::Present()
     {
-        _window->SwapBuffers();
+        _swapchain->Present();
     }
 
     NetCheckClient::NetCheckClient(
@@ -177,6 +187,12 @@ namespace MphRead::Mods::Network
           _remotes(static_cast<std::size_t>(Entities::PlayerEntity::MaxPlayers())),
           _features(std::make_unique<NetFeatureCheck>())
     {
+        NativeRuntime::Rhi::SwapchainDesc swapchainDesc{};
+        const OpenTK::Mathematics::Vector2i framebufferSize = _window->Size();
+        swapchainDesc.width = static_cast<std::uint32_t>(std::max(framebufferSize.X, 1));
+        swapchainDesc.height = static_cast<std::uint32_t>(std::max(framebufferSize.Y, 1));
+        _swapchain = NativeRuntime::Rhi::BackendFactory::CreateSwapchain(
+            NativeRuntime::Rhi::GraphicsBackend::OpenGl, *_window, swapchainDesc);
         for (std::unique_ptr<RemoteView>& remote : _remotes)
         {
             remote = std::make_unique<RemoteView>();
@@ -208,7 +224,7 @@ namespace MphRead::Mods::Network
         _scene->Size(ClientSize());
         _scene->OnLoad();
         _window->BaseOnLoad();
-        OpenTK::Graphics::OpenGL::GL::Viewport(0, 0, ClientSize().X, ClientSize().Y);
+        ::MphRead::NativeRuntime::Rhi::ResetWindowViewport(ClientSize().X, ClientSize().Y);
         _scene->OnResize();
     }
 
@@ -257,7 +273,7 @@ namespace MphRead::Mods::Network
                 _lastDuelShotFrame = _frame;
             }
         }
-        SwapBuffers();
+        Present();
         _scene->AfterRenderFrame();
         _window->BaseOnRenderFrame(args);
         if (_frame >= _seconds * 60.0)

@@ -19,7 +19,12 @@ namespace MphRead::Mods::Render
         GlEs& operator=(const GlEs&) = delete;
         GlEs& operator=(GlEs&&) = delete;
 
+        // Reset bookkeeping for a newly-current non-shared context. This does
+        // not delete names inherited from a previous context.
         static void Reset();
+        // Release context-local transient GL objects while their owning context
+        // is still current, then clear the process-global shim bookkeeping.
+        static void ReleaseContext();
 
         static void Begin(std::int32_t mode);
         static void End();
@@ -31,12 +36,6 @@ namespace MphRead::Mods::Render
         static void Normal3(float x, float y, float z);
         static void TexCoord3(float s, float t, float matrixId);
         static void TexCoord3(const std::array<float, 3>& texcoord);
-
-        static std::int32_t GenLists(std::int32_t range);
-        static void NewList(std::int32_t list, std::int32_t mode);
-        static void EndList();
-        static void CallList(std::int32_t list);
-        static void DeleteLists(std::int32_t list, std::int32_t range);
 
         static std::int32_t GenTexture();
         static void DeleteTexture(std::int32_t name);
@@ -167,15 +166,6 @@ namespace MphRead::Mods::Render
             void Clear();
         };
 
-        struct CompiledList final
-        {
-            std::int32_t Vao = 0;
-            std::int32_t Vbo = 0;
-            std::int32_t Ibo = 0;
-            std::int32_t TriCount = 0;
-            std::int32_t LineCount = 0;
-        };
-
         struct ProgramLocations final
         {
             std::int32_t ImmColor;
@@ -191,11 +181,6 @@ namespace MphRead::Mods::Render
         static std::int32_t _primStart;
 
         static Batch _batch;
-        static bool _recording;
-        static std::int32_t _recordListId;
-
-        static std::unordered_map<std::int32_t, CompiledList> _lists;
-        static std::int32_t _nextListId;
 
         static std::int32_t _dynVao;
         static std::int32_t _dynVbo;
@@ -213,6 +198,7 @@ namespace MphRead::Mods::Render
         static std::unordered_map<std::int32_t, std::int32_t> _textures;
         static std::int32_t _textureHighWater;
 
+        static void ResetContextState(bool deleteDynamicObjects);
         static void EmitIndices(std::int32_t mode, std::int32_t base, std::int32_t count);
         static std::vector<std::int32_t> BuildIndexArray();
         static void FlushDynamic();

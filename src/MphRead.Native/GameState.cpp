@@ -9,7 +9,7 @@
 #include "Mods/Network/NetMatchEnd.hpp"
 #include "Mods/Network/NetSession.hpp"
 #if defined(MPHREAD_SHELL)
-#include "Mods/Launcher/Gui/Shell.hpp"
+#include "Mods/Launcher/Shell.hpp"
 #endif
 #include "NativeRuntime/System/IO.hpp"
 

@@ -105,7 +105,8 @@ namespace MphRead::Mods::Render
 
     void FrameTiming::SetFrameRateCap(std::int32_t value) noexcept
     {
-        _frameRateCap = value <= 0 ? DisplayRate : std::clamp(value, MinCap, MaxCap);
+        _frameRateCap = value == Unlimited ? Unlimited
+            : value <= 0 ? DisplayRate : std::clamp(value, MinCap, MaxCap);
     }
 
     bool FrameTiming::Active() noexcept
@@ -191,7 +192,7 @@ namespace MphRead::Mods::Render
             result += std::to_string(_stepHistogram[index]);
         }
         result += "], cap ";
-        result += _frameRateCap == DisplayRate ? "display" : std::to_string(_frameRateCap);
+        result += CapString(_frameRateCap);
         return result;
     }
 
@@ -291,18 +292,34 @@ namespace MphRead::Mods::Render
         if (StringEqualsOrdinalIgnoreCase(trimmed, "uncapped")
             || StringEqualsOrdinalIgnoreCase(trimmed, "unlimited"))
         {
-            return MaxCap;
+            return Unlimited;
         }
         std::int32_t parsed = 0;
         if (Int32TryParseCurrentCulture(trimmed, parsed))
         {
-            return parsed <= 0 ? DisplayRate : std::clamp(parsed, MinCap, MaxCap);
+            return parsed == Unlimited ? Unlimited
+                : parsed <= 0 ? DisplayRate : std::clamp(parsed, MinCap, MaxCap);
         }
         return fallback;
     }
 
+    std::int32_t FrameTiming::ParseSavedCap(
+        const std::optional<std::string>& value, std::int32_t fallback) noexcept
+    {
+        // Previous Settings UI saved its "Unlimited" choice as 500. Keep an
+        // explicit CLI 500 cap available, but migrate that persisted choice.
+        std::int32_t legacyCap = 0;
+        if (value && Int32TryParseCurrentCulture(TrimLikeDotNet(*value), legacyCap)
+            && legacyCap == MaxCap)
+        {
+            return Unlimited;
+        }
+        return ParseCap(value, fallback);
+    }
+
     std::string FrameTiming::CapString(std::int32_t cap)
     {
-        return cap == DisplayRate ? "display" : std::to_string(cap);
+        return cap == Unlimited ? "unlimited"
+            : cap == DisplayRate ? "display" : std::to_string(cap);
     }
 }

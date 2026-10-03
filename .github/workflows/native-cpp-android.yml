@@ -1,35 +1,26 @@
 name: Native C++ Android
 
 on:
-  push:
-    branches: [develop2]
-    paths:
-      - "CMakeLists.txt"
-      - "cmake/**"
-      - "src/MphRead.Native.Android/**"
-      - "src/MphRead.Native/**"
-      - "src/NcsfPlay.Native/**"
-      - "src/MphRead.Android/MphRead.Android.csproj"
-      - ".github/workflows/native-cpp-android.yml"
-  pull_request:
-    branches: [develop2]
-    paths:
-      - "CMakeLists.txt"
-      - "cmake/**"
-      - "src/MphRead.Native.Android/**"
-      - "src/MphRead.Native/**"
-      - "src/NcsfPlay.Native/**"
-      - "src/MphRead.Android/MphRead.Android.csproj"
-      - ".github/workflows/native-cpp-android.yml"
   workflow_dispatch:
+    inputs:
+      checkout_ref:
+        description: Branch, tag, or commit to build
+        required: false
+        type: string
+        default: ""
   workflow_call:
+    inputs:
+      checkout_ref:
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
 
 env:
   ANDROID_SDK_ROOT: ${{ github.workspace }}/.cache/android-sdk
-  APT_CACHE_DIR: ${{ github.workspace }}/.cache/apt/archives
+  VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}/.cache/vcpkg/archives
 
 jobs:
   android_contract:
@@ -41,6 +32,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.checkout_ref || github.sha }}
 
       - name: Export repository Android build contract
         id: contract
@@ -69,6 +62,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.checkout_ref || github.sha }}
 
       - name: Load repository Android build contract
         shell: bash
@@ -88,17 +83,10 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.ANDROID_SDK_ROOT }}
-          key: native-android-sdk-v1-${{ runner.os }}-${{ runner.arch }}-cmdline-12266719-${{ hashFiles('cmake/FruityNativeConfig.cmake', '.github/workflows/native-cpp-android.yml') }}
+          key: native-android-sdk-v2-${{ runner.os }}-${{ runner.arch }}-cmdline-12266719-${{ hashFiles('cmake/FruityNativeConfig.cmake', '.github/workflows/native-cpp-android.yml') }}
           restore-keys: |
-            native-android-sdk-v1-${{ runner.os }}-${{ runner.arch }}-cmdline-12266719-
-            native-android-sdk-v1-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Report Android SDK cache result
-        shell: bash
-        env:
-          CACHE_HIT: ${{ steps.android-sdk-cache.outputs.cache-hit }}
-        run: |
-          printf "Android SDK/NDK cache exact hit: %s\n" "${CACHE_HIT:-false}"
+            native-android-sdk-v2-${{ runner.os }}-${{ runner.arch }}-cmdline-12266719-
+            native-android-sdk-v2-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Set up Android SDK command-line tools
         uses: android-actions/setup-android@v3
@@ -130,110 +118,151 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ env.ANDROID_SDK_ROOT }}
-          key: native-android-sdk-v1-${{ runner.os }}-${{ runner.arch }}-cmdline-12266719-${{ hashFiles('cmake/FruityNativeConfig.cmake', '.github/workflows/native-cpp-android.yml') }}
+          key: native-android-sdk-v2-${{ runner.os }}-${{ runner.arch }}-cmdline-12266719-${{ hashFiles('cmake/FruityNativeConfig.cmake', '.github/workflows/native-cpp-android.yml') }}
 
-      - name: Resolve apt header cache key
-        id: apt-deps
+      - name: Locate vcpkg
+        id: vcpkg
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${VCPKG_INSTALLATION_ROOT:-}" && -x "${VCPKG_INSTALLATION_ROOT}/vcpkg" ]]; then
+            root="${VCPKG_INSTALLATION_ROOT}"
+          else
+            root="${RUNNER_TEMP}/vcpkg"
+            git clone --depth 1 https://github.com/microsoft/vcpkg.git "$root"
+            "$root/bootstrap-vcpkg.sh" -disableMetrics
+          fi
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
+          echo "root=$root" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git -C "$root" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Android vcpkg binary cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: native-android-vcpkg-v1-${{ matrix.abi }}-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('.github/workflows/native-cpp-android.yml') }}
+          restore-keys: |
+            native-android-vcpkg-v1-${{ matrix.abi }}-${{ steps.vcpkg.outputs.commit }}-
+            native-android-vcpkg-v1-${{ matrix.abi }}-
+
+      - name: Install Android runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ matrix.abi }}" in
+            arm64-v8a) triplet="arm64-android" ;;
+            x86_64) triplet="x64-android" ;;
+            *) echo "Unsupported Android ABI: ${{ matrix.abi }}" >&2; exit 1 ;;
+          esac
+          echo "VCPKG_TARGET_TRIPLET=$triplet" >> "$GITHUB_ENV"
+          "${{ steps.vcpkg.outputs.root }}/vcpkg" install \
+            "curl:${triplet}" \
+            "libarchive[core,bzip2,crypto,lz4,lzma,zstd]:${triplet}" \
+            "zlib:${triplet}" \
+            "vulkan-memory-allocator:${triplet}" \
+            --clean-after-build
+
+      - name: Save Android vcpkg binary cache
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
+          key: native-android-vcpkg-v1-${{ matrix.abi }}-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('.github/workflows/native-cpp-android.yml') }}
+
+      # Refresh immutable snapshots weekly; avoid a full duplicate on every push.
+      - name: Select compiler cache generation
+        shell: bash
+        run: echo "COMPILER_CACHE_WEEK=$(date -u +%G-%V)" >> "$GITHUB_ENV"
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: native-ccache-android-${{ matrix.abi }}-${{ env.COMPILER_CACHE_WEEK }}
+          max-size: 500M
+          append-timestamp: false
+
+      - name: Install Qt Quick host and Android kit
         shell: bash
         run: |
           set -euo pipefail
           sudo apt-get update
-          versions="$(apt-cache policy libarchive-dev libcurl4-openssl-dev)"
-          printf "%s\n" "$versions"
-          digest="$(printf "%s" "$versions" | sha256sum | cut -d" " -f1)"
-          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          sudo apt-get install -y p7zip-full libxcb-cursor0 libxkbcommon-x11-0
+          kit="android_${{ matrix.abi }}"
+          kit="${kit/arm64-v8a/arm64_v8a}"
+          python3 tools/qt/install-qt.py --kit gcc_64 --root "$RUNNER_TEMP/qt"
+          python3 tools/qt/install-qt.py --kit "$kit" --root "$RUNNER_TEMP/qt"
+          echo "QT_HOST_PATH=$RUNNER_TEMP/qt/6.11.2/gcc_64" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$RUNNER_TEMP/qt/6.11.2/gcc_64/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+          echo "QT_ROOT=$RUNNER_TEMP/qt/6.11.2/$kit" >> "$GITHUB_ENV"
 
-      - name: Restore Android header apt cache
-        id: apt-cache
-        continue-on-error: true
-        uses: actions/cache/restore@v4
-        with:
-          path: ${{ env.APT_CACHE_DIR }}
-          key: native-android-apt-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.apt-deps.outputs.digest }}-${{ hashFiles('.github/workflows/native-cpp-android.yml') }}
-          restore-keys: |
-            native-android-apt-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.apt-deps.outputs.digest }}-
-            native-android-apt-v1-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Report Android header cache result
-        shell: bash
-        env:
-          CACHE_HIT: ${{ steps.apt-cache.outputs.cache-hit }}
-        run: |
-          printf "Android header apt cache exact hit: %s\n" "${CACHE_HIT:-false}"
-
-      - name: Install shared-source header dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$APT_CACHE_DIR/partial"
-          sudo apt-get -o Dir::Cache::archives="$APT_CACHE_DIR" install -y --no-install-recommends libarchive-dev libcurl4-openssl-dev
-          sudo rm -f "$APT_CACHE_DIR/lock"
-          sudo rm -rf "$APT_CACHE_DIR/partial"
-          sudo chown -R "$(id -u):$(id -g)" "$APT_CACHE_DIR"
-
-          include_root="$GITHUB_WORKSPACE/.native-deps/include"
-          mkdir -p "$include_root"
-
-          archive_h="$(dpkg -L libarchive-dev | awk '/\/archive\.h$/ { print; exit }')"
-          archive_entry_h="$(dpkg -L libarchive-dev | awk '/\/archive_entry\.h$/ { print; exit }')"
-          curl_h="$(dpkg -L libcurl4-openssl-dev | awk '/\/curl\/curl\.h$/ { print; exit }')"
-          test -f "$archive_h"
-          test -f "$archive_entry_h"
-          test -f "$curl_h"
-
-          cp "$archive_h" "$include_root/archive.h"
-          cp "$archive_entry_h" "$include_root/archive_entry.h"
-          cp -a "$(dirname "$curl_h")" "$include_root/curl"
-          echo "FRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR=${include_root}" >> "$GITHUB_ENV"
-
-      - name: Save Android header apt cache
-        if: steps.apt-cache.outputs.cache-hit != 'true'
-        continue-on-error: true
-        uses: actions/cache/save@v4
-        with:
-          path: ${{ env.APT_CACHE_DIR }}
-          key: native-android-apt-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.apt-deps.outputs.digest }}-${{ hashFiles('.github/workflows/native-cpp-android.yml') }}
-
-      - name: Verify pinned NDK toolchain
-        shell: bash
-        run: |
-          set -euo pipefail
-          toolchain="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          test -x "${toolchain}/clang++"
-          "${toolchain}/clang++" --version
-          printf 'compile SDK: android-%s\n' "$ANDROID_COMPILE_SDK"
-          printf 'minimum API: %s\n' "$ANDROID_MIN_API"
-          printf 'NDK: %s\n' "$ANDROID_NDK_VERSION"
-          printf 'repository ABIs: %s\n' "$FRUITY_ANDROID_ABIS"
-          printf 'matrix ABI: %s\n' "${{ matrix.abi }}"
-
-      - name: Configure and build repository ABI
+      - name: Configure and build shared library
         shell: bash
         run: |
           set -euo pipefail
           abi="${{ matrix.abi }}"
           build_dir="build/native-android-${abi}"
+          vcpkg_root="${{ steps.vcpkg.outputs.root }}"
           mkdir -p "$build_dir"
 
           cmake -S . -B "$build_dir" \
-            -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
+            -DCMAKE_TOOLCHAIN_FILE="${vcpkg_root}/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
+            -DVCPKG_TARGET_TRIPLET="${VCPKG_TARGET_TRIPLET}" \
             -DANDROID_ABI="$abi" \
-            -DANDROID_PLATFORM="android-${ANDROID_MIN_API}" \
-            -DANDROID_STL=c++_static \
+            -DANDROID_PLATFORM=android-28 \
+            -DANDROID_STL=c++_shared \
+            -DQt6_DIR="$QT_ROOT/lib/cmake/Qt6" \
+            -DCMAKE_PREFIX_PATH="$QT_ROOT" \
+            -DCMAKE_FIND_ROOT_PATH="$QT_ROOT" \
+            -DQT_HOST_PATH="$QT_HOST_PATH" \
+            -DANDROID_SDK_ROOT="$ANDROID_SDK_ROOT" \
+            -DANDROID_NDK_ROOT="$ANDROID_NDK_HOME" \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DFRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR="$FRUITY_NATIVE_DEPENDENCY_INCLUDE_DIR" 2>&1 | tee "$build_dir/configure.log"
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache 2>&1 | tee "$build_dir/configure.log"
 
           cmake --build "$build_dir" \
             --config RelWithDebInfo \
-            --parallel 2 \
+            --parallel "$(nproc)" \
             --verbose \
             --target fruity_mphread_native_android 2>&1 | tee "$build_dir/build.log"
+
+          test -f "$build_dir/libFruityPrime_${abi}.so"
+          "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" \
+            -d "$build_dir/libFruityPrime_${abi}.so" | tee "$build_dir/readelf-dynamic.log"
+
+          # Both renderers in the one library: GLES as before, and the shared
+          # Vulkan backend with its SPIR-V and the Android surface path.
+          grep -F -- '-- Android Vulkan backend: on' "$build_dir/configure.log"
+          # Ten scene stages plus the two backdrop stages.
+          test "$(ls "$build_dir"/generated/vulkan-shaders/*.spv | wc -l)" -eq 12
+          nm="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          "$nm" -C --defined-only "$build_dir/libFruityPrime_${abi}.so" > "$build_dir/symbols.txt"
+          for symbol in 'Rhi::AttachSceneSurface' 'Rhi::Vulkan::CreateSurfaceSwapchain' 'Rhi::Vulkan::WindowUi::DrawTexture' 'Rhi::OpenGL::ContextDevice'; do
+            grep -qF "$symbol" "$build_dir/symbols.txt" || { echo "missing $symbol" >&2; exit 1; }
+          done
+
+      - name: Package Qt dependencies for this ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/qt/prepare-android.py --build-dir "build/native-android-${{ matrix.abi }}" --abi "${{ matrix.abi }}" --host "$QT_HOST_PATH" --output "build/native-android-${{ matrix.abi }}/qt-package"
+
+      - name: Upload Android shared library
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-cpp-android-so-${{ matrix.abi }}-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 7
+          path: build/native-android-${{ matrix.abi }}/qt-package/
 
       - name: Upload Android native build diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: native-cpp-android-${{ matrix.abi }}-${{ github.sha }}
+          name: native-cpp-android-diagnostics-${{ matrix.abi }}-${{ github.sha }}
           if-no-files-found: warn
           retention-days: 7
           path: |
@@ -241,4 +270,124 @@ jobs:
             build/native-android-${{ matrix.abi }}/CMakeFiles/CMakeConfigureLog.yaml
             build/native-android-${{ matrix.abi }}/configure.log
             build/native-android-${{ matrix.abi }}/build.log
-            build/native-android-${{ matrix.abi }}/**/*.a
+            build/native-android-${{ matrix.abi }}/readelf-dynamic.log
+
+  android-apk:
+    name: Android APK
+    needs: [android_contract, android-native]
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.checkout_ref || github.sha }}
+
+      - name: Load repository Android build contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -DOUTPUT_FILE="$GITHUB_ENV" -P cmake/ExportAndroidConfig.cmake
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK command-line tools
+        uses: android-actions/setup-android@v3
+        with:
+          cmdline-tools-version: "12266719"
+          packages: "platform-tools"
+          log-accepted-android-sdk-licenses: "false"
+
+      - name: Install Android packaging SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +o pipefail
+          yes | sdkmanager --licenses >/dev/null
+          set -o pipefail
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-${ANDROID_COMPILE_SDK}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}"
+
+      - name: Download native ABI libraries
+        uses: actions/download-artifact@v5
+        with:
+          pattern: native-cpp-android-so-*
+          path: native-artifacts
+
+      - name: Merge Qt packages for both ABIs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/qt/prepare-android.py --output android/qt-generated --merge native-artifacts/*
+          for abi in $FRUITY_ANDROID_ABIS; do
+            test -f "android/qt-generated/libs/$abi/libFruityPrime_${abi}.so"
+            test -f "android/qt-generated/libs/$abi/libQt6Quick_${abi}.so"
+          done
+
+      - name: Resolve APK version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$(git tag --points-at HEAD | grep -E '^cpp_v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1 || true)"
+          if [[ "$tag" =~ ^cpp_v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            major="${BASH_REMATCH[1]}"
+            minor="${BASH_REMATCH[2]}"
+            patch="${BASH_REMATCH[3]}"
+            version_name="${major}.${minor}.${patch}"
+            version_code=$((major * 1000000 + minor * 1000 + patch))
+          else
+            version_name="0.0.${GITHUB_RUN_NUMBER}-dev"
+            version_code=$((GITHUB_RUN_NUMBER % 2000000000 + 1))
+          fi
+          echo "FRUITY_ANDROID_VERSION_NAME=$version_name" >> "$GITHUB_ENV"
+          echo "FRUITY_ANDROID_VERSION_CODE=$version_code" >> "$GITHUB_ENV"
+          printf 'APK version: %s (%s)\n' "$version_name" "$version_code"
+
+      - name: Restore stable development signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: fruity-prime-native-android-debug-keystore-v1
+
+      - name: Ensure development signing key exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f "$HOME/.android/debug.keystore" ]]; then
+            mkdir -p "$HOME/.android"
+            keytool -genkeypair               -keystore "$HOME/.android/debug.keystore"               -storepass android               -alias androiddebugkey               -keypass android               -dname "CN=Android Debug,O=Fruity Prime,C=US"               -keyalg RSA               -keysize 2048               -validity 10000
+          fi
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Build signed APK
+        working-directory: android
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon --stacktrace :app:assembleRelease
+          apk="app/build/outputs/apk/release/app-release.apk"
+          test -f "$apk"
+
+          build_tools="${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS}"
+          "$build_tools/apksigner" verify --verbose --print-certs "$apk"
+          "$build_tools/zipalign" -c -P 16 -v 4 "$apk"
+          "$build_tools/aapt" dump badging "$apk" | tee app/build/outputs/apk/release/badging.txt
+
+          cp "$apk" app/build/outputs/apk/release/FruityPrime.apk
+
+      - name: Upload installable APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: FruityPrime-cpp-android-${{ github.run_number }}
+          if-no-files-found: error
+          path: android/app/build/outputs/apk/release/FruityPrime.apk

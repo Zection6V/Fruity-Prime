@@ -33,7 +33,13 @@ namespace MphRead::Mods::Render
         [[nodiscard]] static float Bottom() noexcept;
         static void Bottom(float value) noexcept;
         [[nodiscard]] static bool Drawn() noexcept;
+        // Monotonic count of successfully initialized launcher side scenes.
+        // Shell diagnostics use it to prove a post-match stale scene was replaced.
+        [[nodiscard]] static std::uint64_t SceneGeneration() noexcept;
         static void Reset();
+        // Delete/destroy the launcher side scene while its owning desktop GL
+        // context is still alive.
+        static void ReleaseGl() noexcept;
         // A match's scene let go of its GL objects: rebuild the side scene.
         static void NoteGlUnloaded() noexcept;
         static void Draw(::MphRead::RenderWindow& window, std::int32_t width, std::int32_t height);
@@ -50,6 +56,7 @@ namespace MphRead::Mods::Render
         static bool _failed;
         static bool _said;
         static bool _glStale;
+        static std::uint64_t _sceneGeneration;
         static std::shared_ptr<::MphRead::Scene> _scene;
     };
 }

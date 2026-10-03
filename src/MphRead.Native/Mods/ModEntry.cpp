@@ -665,9 +665,7 @@ namespace
         {
             std::optional<int> measurementCap;
             if (fpsCap && !StartsWithHyphen(fpsCap))
-                measurementCap = MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase(*fpsCap, "unlimited")
-                    || MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase(*fpsCap, "uncapped")
-                    ? -1 : FrameTiming::ParseCap(*fpsCap, FrameTiming::FrameRateCap());
+                measurementCap = FrameTiming::ParseCap(*fpsCap, FrameTiming::FrameRateCap());
             MphRead::Mods::Diagnostics::FramePerformance::Configure(*measure, HasFlag(args, "gpuprofile"), measurementCap);
         }
         if (fpsCap.has_value() && !StartsWithHyphen(fpsCap))

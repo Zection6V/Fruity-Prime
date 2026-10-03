@@ -88,7 +88,7 @@ namespace MphRead::Qt
             {"30 fps", 30}, {"60 fps", 60}, {"75 fps", 75}, {"90 fps", 90},
             {"100 fps", 100}, {"120 fps", 120}, {"144 fps", 144},
             {"165 fps", 165}, {"180 fps", 180}, {"200 fps", 200},
-            {"240 fps", 240}, {"Unlimited", Render::FrameTiming::MaxCap}
+            {"240 fps", 240}, {"Unlimited", Render::FrameTiming::Unlimited}
         }};
 
         const std::array<const char*, 6> LanguageNames{{
@@ -115,7 +115,7 @@ namespace MphRead::Qt
                 }
             }
             std::int32_t best = 0;
-            for (std::size_t i = 1; i < FpsLimitStops.size(); ++i)
+            for (std::size_t i = 1; i + 1 < FpsLimitStops.size(); ++i)
             {
                 if (FpsLimitStops[i].Cap <= cap)
                 {

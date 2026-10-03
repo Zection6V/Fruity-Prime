@@ -45,6 +45,7 @@
 #include <QtGui/QWindow>
 
 #include <exception>
+#include <chrono>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -273,6 +274,18 @@ namespace MphRead::Mods::Launcher::Gui
                 return;
             }
             ++frame;
+            // Keep the real, unpaused match running long enough for warm-up
+            // and FPS samples; counting draw calls alone ends it too soon
+            // when Unlimited exceeds the simulation's fixed 60 Hz.
+            if (frame == 151 && qEnvironmentVariableIntValue("FRUITY_FPSCHECK") != 0)
+            {
+                static const auto matchStart = std::chrono::steady_clock::now();
+                if (std::chrono::steady_clock::now() - matchStart < std::chrono::seconds(10))
+                {
+                    --frame;
+                    return;
+                }
+            }
             const bool switchCheck = qEnvironmentVariableIntValue("FRUITY_SWITCHCHECK") != 0
                 || qEnvironmentVariableIntValue("FP_QT_DEMO_SWITCH") != 0;
             static MphRead::Scene* keptScene = nullptr;
@@ -347,6 +360,12 @@ namespace MphRead::Mods::Launcher::Gui
                     init.Hunter = static_cast<MphRead::Hunter>(0);
                     init.Bots = 7;
                     init.BotLevel = 1;
+                    if (qEnvironmentVariableIntValue("FRUITY_FPSCHECK") != 0)
+                    {
+                        init.Hunter = Portable::LauncherPrefs::LastHunter();
+                        init.Bots = Portable::LauncherPrefs::Bots();
+                        init.BotLevel = Portable::LauncherPrefs::BotLevel();
+                    }
                     Decided(LaunchPlan(init));
                 }
             }

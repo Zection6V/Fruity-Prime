@@ -19,12 +19,25 @@ CSV は指定ファイルを新規作成／上書きし、アプリ終了時に�
 
 `-fpsmeasure` と同時に指定した `-fpscap` は計測中の一時的な上限になる。
 設定の保存・renderer 切替でも上書きされず、ユーザー設定には保存しない。
-`unlimited` / `uncapped` はこの計測モードでは描画ループの上限を外して Immediate を要求する。
-通常の設定画面の Unlimited は既存の500 FPS設定のまま。
+`unlimited` / `uncapped` は通常設定・CLI・計測モードのいずれでも描画ループの上限を外して Immediate を要求する。
+旧設定画面が保存した `FrameRateCap=500` は読み込み時に `unlimited` へ移行する。
+明示的な CLI の `-fpscap 500` は500 FPSの上限として使える。
 `-fpscap display` はディスプレイ同期を計測したい場合に使う。
 `-fpscap` を省略すると設定画面の上限をそのまま使う。
 
 ## GPU 時間も調べる
+
+2026-10-04: 通常のUnlimitedを無制限へ修正。最新MSVC Releaseで、旧設定
+`FrameRateCap=500` を読み込み、CLI上限の指定なしで ALINOS PERCH / borderless
+2560x1439 / Sylux＋3 bots / Low Latency Off を検証した。
+ウォームアップ後、スクリーンショット読戻しが入る最終行を除いた8区間は
+Vulkan 433.6–556.7 FPS、OpenGL 418.5–571.0 FPS。両方とも `fps_cap=unlimited`、
+Immediate要求・実際のImmediate、pause=0 / focus=1を記録した。
+Settings Applyを伴う3回の対戦中renderer切替がPASSし、`unlimited` の保存も確認。
+`-frametimingcheck` は旧設定移行・上限の保存形式・1500 Hz描画時の60 Hz simulationをPASS、
+CTestは21/21 PASS。上限解除の証拠と、残る描画負荷の改善は別に扱う。
+ローカル証拠: `tools/build/out/unlimited-{vulkan,opengl}.csv`、
+`unlimited-save-switch.log`、`unlimited-frametiming.log`、`unlimited-ctest.log`。
 
 ```powershell
 .\FruityPrime.exe -launcher -rhi vulkan -fpsmeasure C:/tmp/vulkan-gpu.csv -fpscap unlimited -gpuprofile -noupdate
@@ -68,6 +81,7 @@ query 未対応・FPSのみの計測では GPU sample は0、GPU時間は空欄�
 ## 自動比較・切替回帰テスト
 
 既存の `-shellshot` に `FRUITY_FPSCHECK=1` を加えると、同じ試合の各 backend で4秒間続けて描画する。
+Qt版の `-shellshot` では試合開始後10秒間、メニューを開かずに実際の対戦を描画する。
 8人の出現直後は共通200粒子の枠が埋まるため、エフェクトの probe は240 **simulation ticks** 待ってから置く。
 着弾エフェクトを置いた後に長い測定待ちを入れて、その自然な寿命切れを切替の不具合と判定しない。
 元からあるボムの寿命・owner・effect と各切替時の world witness の検査は維持する。

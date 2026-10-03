@@ -236,7 +236,8 @@ jobs:
           # Both renderers in the one library: GLES as before, and the shared
           # Vulkan backend with its SPIR-V and the Android surface path.
           grep -F -- '-- Android Vulkan backend: on' "$build_dir/configure.log"
-          test "$(ls "$build_dir"/generated/vulkan-shaders/*.spv | wc -l)" -eq 10
+          # Ten scene stages plus the two backdrop stages.
+          test "$(ls "$build_dir"/generated/vulkan-shaders/*.spv | wc -l)" -eq 12
           nm="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
           "$nm" -C --defined-only "$build_dir/libFruityPrime_${abi}.so" > "$build_dir/symbols.txt"
           for symbol in 'Rhi::AttachSceneSurface' 'Rhi::Vulkan::CreateSurfaceSwapchain' 'Rhi::Vulkan::WindowUi::DrawTexture' 'Rhi::OpenGL::ContextDevice'; do

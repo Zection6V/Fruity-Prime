@@ -556,6 +556,14 @@ endif()
 # backend definition and headers the RHI is compiled with.
 target_compile_definitions(fruity_mphread_qt PRIVATE
     $<$<IN_LIST:FRUITY_HAS_VULKAN,$<TARGET_PROPERTY:fruity_mphread_native,COMPILE_DEFINITIONS>>:FRUITY_HAS_VULKAN>)
+# Qt's platform layer on macOS talks to AppKit through the Objective-C
+# runtime (window restoration), and the Vulkan surface is a CAMetalLayer.
+if(APPLE)
+    target_link_libraries(fruity_mphread_qt PRIVATE objc "-framework CoreFoundation")
+    if(TARGET fruity_vulkan_shaders)
+        target_link_libraries(fruity_mphread_qt PRIVATE "-framework QuartzCore")
+    endif()
+endif()
 if(Vulkan_FOUND AND FRUITY_VMA_INCLUDE_DIR)
     target_include_directories(fruity_mphread_qt PRIVATE ${Vulkan_INCLUDE_DIRS} "${FRUITY_VMA_INCLUDE_DIR}")
 endif()

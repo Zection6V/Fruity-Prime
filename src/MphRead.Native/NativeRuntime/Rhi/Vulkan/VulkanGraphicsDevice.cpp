@@ -2042,7 +2042,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 desc.vertexAttributes.push_back({1, 0, VertexFormat::Float3, 16});
                 desc.vertexAttributes.push_back({2, 0, VertexFormat::Float4, 28});
-                desc.depthStencilFormat = TextureFormat::D24UnormS8Uint;
+                desc.depthStencilFormat = device.GetCapabilities().depthStencilFormat;
                 desc.depthStencil.depthTestEnable = true; desc.depthStencil.depthWriteEnable = true;
             }
             auto pipeline = device.CreateGraphicsPipeline(desc);

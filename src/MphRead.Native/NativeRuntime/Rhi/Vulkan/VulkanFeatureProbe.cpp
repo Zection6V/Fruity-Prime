@@ -124,6 +124,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
             dispatch.Formats(device, VK_FORMAT_R8G8B8A8_UNORM, &snapshot.Color);
             dispatch.Formats(device, VK_FORMAT_D32_SFLOAT, &snapshot.Depth);
+            dispatch.Formats(device, VK_FORMAT_D24_UNORM_S8_UINT, &snapshot.DepthStencil24);
+            dispatch.Formats(device, VK_FORMAT_D32_SFLOAT_S8_UINT, &snapshot.DepthStencil32);
             std::uint32_t count = 0; dispatch.Queues(device, &count, nullptr);
             std::vector<VkQueueFamilyProperties> queues(count); dispatch.Queues(device, &count, queues.data()); queues.resize(count);
             for (std::uint32_t i = 0; i < count; ++i)
@@ -160,6 +162,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
         required("RGBA8 color/sample/transfer", (facts.Color.optimalTilingFeatures & color) == color);
         required("D32 depth attachment", (facts.Depth.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0);
+        const bool depthStencil24 = (facts.DepthStencil24.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0;
+        const bool depthStencil32 = (facts.DepthStencil32.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) != 0;
+        required("depth/stencil attachment (D24S8 or D32S8)", depthStencil24 || depthStencil32);
         for (std::uint32_t i = 0; i < facts.Queues.size(); ++i)
         {
             const auto& queue = facts.Queues[i]; if (!queue.Properties.queueCount) continue;
@@ -204,6 +209,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         caps.maxSamplerAnisotropy = caps.supportsAnisotropy ? limits.maxSamplerAnisotropy : 1.0F;
         caps.supportsWireframe = facts.Features.fillModeNonSolid != 0; caps.supportsDepthClamp = facts.Features.depthClamp != 0;
         caps.supportsPackedDepthStencilTransfer = true;
+        caps.depthStencilFormat = depthStencil24 ? TextureFormat::D24UnormS8Uint : TextureFormat::D32FloatS8Uint;
         const auto& queue = facts.Queues[result.GraphicsFamily].Properties;
         caps.supportsCompute = (queue.queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
         caps.supportsTimestampQueries = queue.timestampValidBits != 0;

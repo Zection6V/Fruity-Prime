@@ -1481,7 +1481,7 @@ namespace MphRead
         }
         desc.blendAttachments.push_back(blend);
         desc.colorFormats.push_back(Rhi::TextureFormat::RGB8Unorm);
-        desc.depthStencilFormat = Rhi::TextureFormat::D24UnormS8Uint;
+        desc.depthStencilFormat = NativeRuntime::Rhi::SceneDevice().GetCapabilities().depthStencilFormat;
         return desc;
     }
 
@@ -1527,10 +1527,11 @@ namespace MphRead
         _celColor = Gpu().CreateTexture(Rhi::TextureDesc{width, height, 1, 1, 1, 1,
             Rhi::TextureFormat::RGB8Unorm,
             Rhi::TextureUsage::Sampled | Rhi::TextureUsage::ColorAttachment | Rhi::TextureUsage::TransferDst});
+        const auto depthStencil = Gpu().GetCapabilities().depthStencilFormat;
         _sceneDepthStencil = Gpu().CreateTexture(Rhi::TextureDesc{width, height, 1, 1, 1, 1,
-            Rhi::TextureFormat::D24UnormS8Uint, Rhi::TextureUsage::DepthStencilAttachment});
+            depthStencil, Rhi::TextureUsage::DepthStencilAttachment});
         _sceneDepthStencilView = Gpu().CreateTextureView(*_sceneDepthStencil,
-            Rhi::TextureViewDesc{Rhi::TextureFormat::D24UnormS8Uint});
+            Rhi::TextureViewDesc{depthStencil});
     }
 
     // The scene target: SceneColor, over CelDepth while the cel outline
@@ -1998,9 +1999,9 @@ namespace MphRead
         namespace Rhi = NativeRuntime::Rhi;
         _celDepth = Gpu().CreateTexture(Rhi::TextureDesc{
             static_cast<std::uint32_t>(target.X), static_cast<std::uint32_t>(target.Y), 1, 1, 1, 1,
-            Rhi::TextureFormat::D24UnormS8Uint,
+            Gpu().GetCapabilities().depthStencilFormat,
             Rhi::TextureUsage::Sampled | Rhi::TextureUsage::DepthStencilAttachment});
-        _celDepthView = Gpu().CreateTextureView(*_celDepth, Rhi::TextureViewDesc{Rhi::TextureFormat::D24UnormS8Uint});
+        _celDepthView = Gpu().CreateTextureView(*_celDepth, Rhi::TextureViewDesc{Gpu().GetCapabilities().depthStencilFormat});
         _claimedQuantum = MeasureDepthQuantum();
         _depthQuantum = _claimedQuantum;
         std::array<Rhi::RenderingColorAttachment, 1> color{};

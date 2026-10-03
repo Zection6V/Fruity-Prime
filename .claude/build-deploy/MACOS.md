@@ -41,6 +41,61 @@ These are ad-hoc signatures, not Developer ID signatures or notarization.
 Gatekeeper can still require the user's approval for a downloaded archive.
 See `tools/macos-README.txt`; quarantine removal is scoped to the app only.
 
+## Native (C++/Qt) build
+
+`tools/build/build-cpp-macos.sh [config] [deps] [vulkan] [run]` builds
+`tools/build/out/macos-<config>/FruityPrime.app`; double-clicking
+`build-cpp-and-log.command` runs `deps vulkan run` and logs to
+`tools/build/out/build-cpp-macos.log`. Qt is `~/Qt/6.*` or Homebrew's `qt`.
+VMA and `glslc` are not in Homebrew (and `shaderc` does not build on a tier-3
+Homebrew), so `vulkan` takes them from vcpkg (`VCPKG_ROOT`, default
+`~/vcpkg`), as the Linux and Android CI do. `deps` installs only what is
+missing, one formula at a time, so one that fails to build does not stop the
+rest. Verified on an Intel MacBook Pro (Iris Plus 655, macOS 15.7):
+21/21 ctest, and `-vulkancheck`, `-vulkanresourcecheck`,
+`-vulkanpresentcheck`, `-vulkanpresentfallbackcheck` and
+`-presentconformance` (both backends) all pass with validation and zero
+validation errors.
+
+**OpenGL runs on the legacy 2.1 context**, the only one with immediate mode
+on a Mac, while the RHI is written against GL 3.3. `OpenTK/GlFeatures.hpp`
+reads the version and extension string, because macOS resolves every GL 4.1
+symbol whatever the context can do -- `glGenSamplers` resolves in 2.1 and then
+fails. `OpenGlNative` uses it to load the extension forms
+(`APPLE_vertex_array_object`, `ARB_instanced_arrays`, `ARB_draw_instanced`,
+`EXT_gpu_shader4`), to null what is absent so existing null checks decide
+(sync, timer queries, debug labels, base instance, image load/store), and
+to fall back where there is no extension: sampler state is written onto the
+bound texture (`ApplySampler`), readback is `glGetBufferSubData`, buffer
+copies read back and re-upload, and allocation and upload go through
+ARRAY_BUFFER (COPY_READ/COPY_WRITE are 3.1).
+
+**Vulkan is MoltenVK through `VK_EXT_metal_surface`.** The Qt window's view
+gets a hosted CAMetalLayer (Homebrew's Qt backs it with a plain CALayer)
+with an explicit frame and autoresizing: a hosted layer is otherwise 0x0
+until the view next changes size. The loader is searched in the bundle,
+`$VULKAN_SDK/lib` and both Homebrew prefixes, then `libMoltenVK.dylib`
+alone, because a program started from Finder has no DYLD path; the file
+found is handed to Qt as `QT_VULKAN_LIB` so Qt Quick's `QVulkanInstance`
+adopts the renderer's instance through the same loader. The depth/stencil
+format is a device capability (`Capabilities::depthStencilFormat`):
+Vulkan guarantees D24S8 *or* D32S8 and Metal here has only the second.
+
+Traps found on the way, each now handled:
+- The app opts out of macOS window restoration (`ApplePersistenceIgnoreState`,
+  registration domain only). After a crash AppKit otherwise opens a modal
+  "reopen windows?" alert inside Qt's first `processEvents`, and a scripted
+  run waits on it for ever.
+- A `QGuiApplication` still alive at static destruction (every diagnostic
+  command leaves through `exit()`) is not deleted: `~QGuiApplication` then
+  reads Qt's already-destroyed thread storage and segfaults.
+- Minimise and restore are asynchronous on macOS; a restore asked for
+  during the minimise animation is dropped. The presentation check keeps
+  asking and waits for sustained presentation, not for Qt's state flag.
+- Homebrew's validation layer names its dylib bare, so the checks that turn
+  validation on need `DYLD_FALLBACK_LIBRARY_PATH=/usr/local/lib`
+  (`/opt/homebrew/lib` on Apple Silicon). The game itself runs without it.
+
 ## OpenGL startup
 
 macOS uses an OpenGL 2.1 context with no profile hint. Its OpenGL 3.2+

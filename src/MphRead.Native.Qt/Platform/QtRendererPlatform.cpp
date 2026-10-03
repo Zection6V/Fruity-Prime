@@ -31,6 +31,13 @@
 #include <wayland-client.h>
 #include <vulkan/vulkan_xcb.h>
 #include <vulkan/vulkan_wayland.h>
+#elif defined(__APPLE__)
+#include <QtCore/QDir>
+#include <CoreGraphics/CGGeometry.h>
+#include <objc/message.h>
+#include <objc/runtime.h>
+#include <cstdlib>
+#include <vulkan/vulkan_metal.h>
 #endif
 #endif
 
@@ -64,6 +71,7 @@
 #include <string>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace
 {
@@ -1027,6 +1035,81 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan::WindowSystem
             }
             return nullptr;
         }
+#elif defined(__APPLE__)
+        // winId() of a VulkanSurface QWindow is its NSView, which Qt backs with
+        // a CAMetalLayer -- the one thing VK_EXT_metal_surface takes. Reached
+        // through the Objective-C runtime so this file stays C++.
+        [[nodiscard]] void* MetalLayer(void* nsView)
+        {
+            if (nsView == nullptr)
+            {
+                throw std::runtime_error("The Qt window has no NSView.");
+            }
+            const auto send = reinterpret_cast<id (*)(id, SEL)>(objc_msgSend);
+            const auto isKind = reinterpret_cast<BOOL (*)(id, SEL, Class)>(objc_msgSend);
+            Class const metalLayer = objc_getClass("CAMetalLayer");
+            if (metalLayer == nil)
+            {
+                throw std::runtime_error("QuartzCore has no CAMetalLayer.");
+            }
+            const auto view = static_cast<id>(nsView);
+            id layer = send(view, sel_registerName("layer"));
+            if (layer != nil && isKind(layer, sel_registerName("isKindOfClass:"), metalLayer))
+            {
+                std::cout << "[vulkan] macOS surface: Qt's own CAMetalLayer" << std::endl;
+                return layer;
+            }
+            // A Qt built without Vulkan backs the view with a plain CALayer.
+            // Host a Metal layer instead, the way GLFW and SDL do. A hosted
+            // layer is sized by AppKit only when the view's frame next
+            // changes, and this view already has its size: without a frame of
+            // its own the layer stays 0x0, the surface reports a zero extent
+            // and no swapchain can ever be made. Autoresizing keeps it
+            // matched to the view after that.
+            layer = send(reinterpret_cast<id>(metalLayer), sel_registerName("layer"));
+            reinterpret_cast<void (*)(id, SEL, id)>(objc_msgSend)(view, sel_registerName("setLayer:"), layer);
+            reinterpret_cast<void (*)(id, SEL, BOOL)>(objc_msgSend)(view, sel_registerName("setWantsLayer:"), YES);
+            if (g_gameWindow != nullptr)
+            {
+                const CGRect frame{{0, 0}, {static_cast<CGFloat>(g_gameWindow->width()),
+                    static_cast<CGFloat>(g_gameWindow->height())}};
+                reinterpret_cast<void (*)(id, SEL, CGRect)>(objc_msgSend)(layer, sel_registerName("setFrame:"), frame);
+                reinterpret_cast<void (*)(id, SEL, double)>(objc_msgSend)(layer,
+                    sel_registerName("setContentsScale:"), g_gameWindow->devicePixelRatio());
+            }
+            constexpr unsigned kCALayerWidthSizable = 1U << 1, kCALayerHeightSizable = 1U << 4;
+            reinterpret_cast<void (*)(id, SEL, unsigned)>(objc_msgSend)(layer,
+                sel_registerName("setAutoresizingMask:"), kCALayerWidthSizable | kCALayerHeightSizable);
+            std::cout << "[vulkan] macOS surface: hosted CAMetalLayer" << std::endl;
+            return layer;
+        }
+
+        // Where a Mac keeps the loader. A program started from Finder has no
+        // DYLD path, so Homebrew's prefix is not searched unless named here;
+        // MoltenVK on its own exports vkGetInstanceProcAddr too, and is the
+        // last resort when no loader is installed at all.
+        [[nodiscard]] std::vector<QString> LoaderCandidates()
+        {
+            std::vector<QString> directories;
+            const QString app = QCoreApplication::applicationDirPath();
+            directories.push_back(app);
+            directories.push_back(QDir(app).filePath(QStringLiteral("../Frameworks")));
+            if (const char* sdk = std::getenv("VULKAN_SDK"); sdk != nullptr && *sdk != '\0')
+            {
+                directories.push_back(QDir(QString::fromLocal8Bit(sdk)).filePath(QStringLiteral("lib")));
+            }
+            directories.push_back(QStringLiteral("/opt/homebrew/lib"));
+            directories.push_back(QStringLiteral("/usr/local/lib"));
+            std::vector<QString> candidates;
+            for (const auto& name : {QStringLiteral("libvulkan.1.dylib"), QStringLiteral("libMoltenVK.dylib")})
+            {
+                for (const auto& directory : directories)
+                {
+                    candidates.push_back(QDir(directory).filePath(name));
+                }
+            }
+            return candidates;
+        }
 #endif
     }
 
@@ -1040,10 +1123,35 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan::WindowSystem
 #else
             static QLibrary library(QStringLiteral("vulkan"), 1);
 #endif
+#if defined(__APPLE__)
             if (!library.load())
+            {
+                for (const auto& candidate : LoaderCandidates())
+                {
+                    library.setFileName(candidate);
+                    if (library.load())
+                    {
+                        break;
+                    }
+                }
+            }
+#endif
+            if (!library.isLoaded() && !library.load())
             {
                 return nullptr;
             }
+#if defined(__APPLE__)
+            // Qt Quick's QVulkanInstance adopts the renderer's VkInstance, so
+            // it has to call into this same loader -- and left to itself it
+            // asks dyld for a bare name, which a program started from Finder
+            // cannot resolve ("Qt could not adopt the renderer's Vulkan
+            // instance"). QT_VULKAN_LIB is Qt's documented override; a value
+            // the user set is theirs.
+            if (!qEnvironmentVariableIsSet("QT_VULKAN_LIB"))
+            {
+                qputenv("QT_VULKAN_LIB", QFile::encodeName(library.fileName()));
+            }
+#endif
             return reinterpret_cast<PFN_vkGetInstanceProcAddr>(library.resolve("vkGetInstanceProcAddr"));
         }();
         if (entry == nullptr)
@@ -1087,6 +1195,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan::WindowSystem
         }
         reason = "Qt Vulkan presentation requires the xcb or Wayland platform plugin on Linux";
         return false;
+#elif defined(__APPLE__)
+        return true;
 #else
         reason = "Vulkan presentation in the Qt build is not implemented on this platform";
         return false;
@@ -1113,6 +1223,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan::WindowSystem
             return names;
         }
         return {};
+#elif defined(__APPLE__)
+        static constexpr std::array<const char*, 2> names{
+            VK_KHR_SURFACE_EXTENSION_NAME, VK_EXT_METAL_SURFACE_EXTENSION_NAME};
+        return names;
 #else
         return {};
 #endif
@@ -1175,6 +1289,18 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan::WindowSystem
             return surface;
         }
         throw std::runtime_error("Qt Vulkan presentation requires the xcb or Wayland platform plugin on Linux.");
+#elif defined(__APPLE__)
+        const auto create = reinterpret_cast<PFN_vkCreateMetalSurfaceEXT>(
+            instanceProc(instance, "vkCreateMetalSurfaceEXT"));
+        if (create == nullptr)
+        {
+            throw std::runtime_error("vkCreateMetalSurfaceEXT is unavailable.");
+        }
+        VkMetalSurfaceCreateInfoEXT info{VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT};
+        info.pLayer = static_cast<const CAMetalLayer*>(MetalLayer(nativeWindow));
+        VkSurfaceKHR surface = VK_NULL_HANDLE;
+        Check(create(instance, &info, nullptr, &surface), "vkCreateMetalSurfaceEXT");
+        return surface;
 #else
         (void)instance;
         (void)nativeWindow;
@@ -1215,6 +1341,15 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan::WindowSystem
             return query != nullptr && query(physical, family, display) == VK_TRUE;
         }
         return false;
+#elif defined(__APPLE__)
+        // Metal has no per-queue-family presentation query; MoltenVK presents
+        // from every graphics family, and vkGetPhysicalDeviceSurfaceSupportKHR
+        // still decides once the surface exists.
+        (void)instance;
+        (void)physical;
+        (void)family;
+        (void)instanceProc;
+        return true;
 #else
         (void)instance;
         (void)physical;

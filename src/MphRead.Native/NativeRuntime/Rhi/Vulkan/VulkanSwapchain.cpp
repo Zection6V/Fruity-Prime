@@ -201,6 +201,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 const auto h = static_cast<std::uint32_t>(height);
                 if (_suspended || _needsRecreate || w != _desc.width || h != _desc.height)
                     Recreate(w, h);
+                // The surface can still report a zero extent while the window
+                // says otherwise -- a CAMetalLayer not yet laid out on macOS --
+                // and Recreate then made no swapchain. Never acquire from none.
+                if (_suspended || _swapchain == VK_NULL_HANDLE)
+                {
+                    WaitForDrawable();
+                    continue;
+                }
 
                 Frame& frame = _frames[_frameIndex];
                 if (frame.submitted)
@@ -313,6 +321,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 return {PresentationStatus::TemporarilyUnavailable};
 #endif
             if (_suspended && !_acquired) return {PresentationStatus::TemporarilyUnavailable};
+#if !defined(__ANDROID__)
+            // TryAcquire refuses an iconified (unexposed) window without
+            // suspending; the present that follows must say the same thing.
+            if (!_acquired && WindowSystem::Iconified(_window->NativeHandle()))
+                return {PresentationStatus::TemporarilyUnavailable};
+#endif
             try
             {
                 return PresentCurrent();
@@ -1022,8 +1036,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             auto& vkSwapchain = dynamic_cast<VulkanSwapchain&>(*swapchain);
 
             std::uint64_t nativeFrames = 0;
-            const auto drawColor = [&vkSwapchain, &swapchain, reflexCheck, &nativeFrames](float r, float g, float b)
+            int drawStep = 0;
+            const auto drawColor = [&vkSwapchain, &swapchain, &window, &drawStep, reflexCheck, &nativeFrames](float r, float g, float b)
             {
+                ++drawStep;
                 // Present more frames than there are swapchain images so a
                 // replacement chain must reacquire an already presented image.
                 // Four frames did not exercise retirement on four-image Mesa
@@ -1047,9 +1063,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                         acquired = swapchain->TryAcquireTexture();
                         if (acquired.texture) break;
                         if (acquired.status != PresentationStatus::TemporarilyUnavailable)
-                            throw std::runtime_error("Typed Vulkan acquisition reported a loss.");
+                            throw std::runtime_error("Typed Vulkan acquisition reported a loss at step "
+                                + std::to_string(drawStep) + " (status " + std::to_string(static_cast<int>(acquired.status)) + ").");
                         if (std::chrono::steady_clock::now() >= acquireDeadline)
-                            throw std::runtime_error("Timed out waiting for the Vulkan drawable to become available.");
+                            throw std::runtime_error("Timed out waiting for the Vulkan drawable at step " + std::to_string(drawStep)
+                                + " (window state " + std::to_string(static_cast<int>(window->WindowState())) + ").");
                         ProcessEvents();
                         std::this_thread::sleep_for(std::chrono::milliseconds(8));
                     }
@@ -1214,14 +1232,64 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             swapchain->Resize(0, 0);
             if (swapchain->Desc().width != 0 || swapchain->Desc().height != 0)
                 throw std::runtime_error("A minimized Vulkan swapchain did not suspend its zero-sized extent.");
-            const auto minimized = swapchain->TryAcquireTexture();
-            if (minimized.texture || minimized.status != PresentationStatus::TemporarilyUnavailable
-                || swapchain->TryPresent().status != PresentationStatus::TemporarilyUnavailable)
-                throw std::runtime_error("A minimized Vulkan swapchain did not report temporary unavailability.");
+            // Unavailability follows exposure, and on macOS a minimising
+            // window stays exposed while the Dock animates it away: present
+            // what is still offered until the surface actually goes.
+            const auto unexposedDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+            for (;;)
+            {
+                const auto minimized = swapchain->TryAcquireTexture();
+                if (!minimized.texture)
+                {
+                    if (minimized.status != PresentationStatus::TemporarilyUnavailable
+                        || swapchain->TryPresent().status != PresentationStatus::TemporarilyUnavailable)
+                        throw std::runtime_error("A minimized Vulkan swapchain did not report temporary unavailability.");
+                    break;
+                }
+                vkSwapchain.ClearCurrent(0.0F, 0.0F, 0.0F, 1.0F);
+                (void)swapchain->TryPresent();
+                if (std::chrono::steady_clock::now() >= unexposedDeadline)
+                    throw std::runtime_error("A minimized Vulkan window was still presentable after 3 s.");
+                ProcessEvents();
+                std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            }
             window->WindowStateNormal();
             const auto restored = pumpFramebuffer(*window, 3000,
                 [](int width, int height) { return width > 0 && height > 0; });
             swapchain->Resize(static_cast<std::uint32_t>(restored.first), static_cast<std::uint32_t>(restored.second));
+            // Qt reports a window state on request, before the platform has
+            // acted. On macOS a restore asked for while the Dock is still
+            // animating the minimise is dropped, and the minimise then
+            // completes: the window ends minimised for real. So keep asking
+            // while it falls back, and call it restored only once frames
+            // have presented for a sustained run -- TemporarilyUnavailable
+            // is the one answer allowed until then.
+            const auto presentableDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(8);
+            for (int presentedRun = 0; presentedRun < 20;)
+            {
+                ProcessEvents();
+                if (window->WindowState() == WindowStateValue::Minimized)
+                {
+                    presentedRun = 0;
+                    window->WindowStateNormal();
+                }
+                const auto attempt = swapchain->TryAcquireTexture();
+                if (attempt.texture)
+                {
+                    vkSwapchain.ClearCurrent(0.20F, 0.55F, 0.75F, 1.0F);
+                    const auto presented = swapchain->TryPresent();
+                    if (presented.status != PresentationStatus::Ready
+                        && presented.status != PresentationStatus::ResizeRequired)
+                        throw std::runtime_error("A restored Vulkan swapchain did not present.");
+                    ++presentedRun;
+                }
+                else if (attempt.status != PresentationStatus::TemporarilyUnavailable)
+                    throw std::runtime_error("A restored Vulkan swapchain failed to acquire.");
+                else presentedRun = 0;
+                if (std::chrono::steady_clock::now() >= presentableDeadline)
+                    throw std::runtime_error("A restored Vulkan swapchain never became presentable.");
+                std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            }
             drawColor(0.20F, 0.55F, 0.75F);
 
             swapchain->SetPresentMode(PresentMode::Mailbox);

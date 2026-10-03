@@ -621,7 +621,7 @@
             d.WindowColor = std::make_unique<VulkanTexture>(_device, color, TextureHandle{});
             d.WindowColorView = std::make_unique<VulkanTextureView>(*d.WindowColor, TextureViewDesc{});
             TextureDesc depth = color;
-            depth.format = TextureFormat::D24UnormS8Uint;
+            depth.format = d.ContextPointer->Caps().depthStencilFormat;
             depth.usage = TextureUsage::DepthStencilAttachment;
             d.WindowDepth = std::make_unique<VulkanTexture>(_device, depth, TextureHandle{});
             d.WindowDepthView = std::make_unique<VulkanTextureView>(*d.WindowDepth, TextureViewDesc{});

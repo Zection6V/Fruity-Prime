@@ -2395,3 +2395,15 @@ public logical RGB copyとは内部helperで区別する。RGB / RGBA / BGRAの�
 FPS改善の証明ではない。OpenGLのmip / array / 3D、packed depth/stencil copy、storage image format、
 presentation ownershipとR10の最終責務監査、レビュー全体のcompletion auditは残る。
 Metal / D3D12は将来対応。Android / macOS実動作とremote CIは未実行。
+
+push済み`b2dcbdca3f21c1015fc666ec2e5f3056c7b643d6`からReleaseを再ビルドし、
+Golden Captureの7ケースを両backendで確認した:
+`C:/tmp/gp/architecture-r19-rgb-copy-final-golden-{opengl,vulkan}/`。
+全14manifestのsource SHA / clean harnessとHUD / fade / whiteout final-stage gateがPASS。
+同じharness / fixture入力の`architecture-uploadarena-batched-golden-{opengl,vulkan}`と
+1600×900のdecoded RGBを比較し、全14画像で相違byte=0。Vulkan validation error=0。
+比較記録は`C:/tmp/gp/architecture-r19-rgb-copy-golden-comparison.txt`、
+exe / paths.txt / PNG / manifestのSHA-256とgateは
+`C:/tmp/gp/architecture-r19-rgb-copy-golden-run-info.json`。
+同じbackendの固定画像回帰の確認であり、Phase3/C#とのcross-revision parityは未成立。
+撮影sourceは後続の文書commitと区別して上記`b2dcbdca`で記録する。

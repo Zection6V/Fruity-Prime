@@ -198,6 +198,21 @@ namespace
         Reject<std::invalid_argument>([&] { allocator.Preallocate(90, Layout, abi, 0); });
         Reject<std::invalid_argument>([&] { allocator.Preallocate(90, Layout, Need(BindingType::Sampler, UINT32_MAX), 4); });
         allocator.Close(); Expect(driver.Pages.empty(), "Fixed close leaked a pool.");
+        Allocator fallback(Dispatch(), {2, {2, 0, 2, 0, 2}}); fallback.ResetAfterCompletion({0});
+        driver.CreateResult = VK_ERROR_OUT_OF_DEVICE_MEMORY;
+        Expect(!fallback.Preallocate(100, Layout, abi, 32), "Optional pool OOM killed fallback.");
+        const auto creates = driver.Creates;
+        driver.CreateResult = VK_SUCCESS;
+        Expect(!fallback.Preallocate(100, Layout, abi, 32) && driver.Creates == creates, "Failed fixed admission retried every draw.");
+        Expect(!fallback.AllocateFixed(100) && fallback.Allocate(Layout, abi), "Ordinary allocator unavailable after optional OOM.");
+        driver.Results.push_back(VK_ERROR_OUT_OF_POOL_MEMORY);
+        Expect(!fallback.Preallocate(101, Layout, abi, 32), "Optional fixed set capacity error killed fallback.");
+        Expect(!fallback.AllocateFixed(101) && fallback.Allocate(Layout, abi), "Fixed allocation failure leaked into draw path.");
+        driver.CreateResult = VK_ERROR_DEVICE_LOST;
+        NativeReject(VK_ERROR_DEVICE_LOST, [&] { fallback.Preallocate(102, Layout, abi, 32); });
+        driver.CreateResult = VK_SUCCESS; driver.Results.push_back(VK_ERROR_UNKNOWN);
+        NativeReject(VK_ERROR_UNKNOWN, [&] { fallback.Preallocate(103, Layout, abi, 32); });
+        fallback.Close(); Expect(driver.Pages.empty(), "Optional failure leaked native pool.");
     }
 
     void IndependentSlots()

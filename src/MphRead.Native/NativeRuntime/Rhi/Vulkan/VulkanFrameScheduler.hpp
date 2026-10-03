@@ -6,6 +6,8 @@
 
 #include <vulkan/vulkan.h>
 #include <vector>
+#include <functional>
+#include <optional>
 
 namespace MphRead::NativeRuntime::Rhi::Vulkan
 {
@@ -24,6 +26,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             PFN_vkGetSemaphoreCounterValue CounterValue;
             void (*CheckResult)(VkResult, const char*);
             PFN_vkWaitSemaphores Wait = nullptr;
+            std::function<std::optional<std::uint64_t>()> Attribution;
+            std::function<void()> RenderSubmitStart;
         };
 
         explicit VulkanFrameScheduler(Dispatch dispatch) : _dispatch(dispatch)
@@ -49,7 +53,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         VulkanFrameScheduler(const VulkanFrameScheduler&) = delete;
         VulkanFrameScheduler& operator=(const VulkanFrameScheduler&) = delete;
 
-        SubmissionSerial Submit(const VkSubmitInfo2& work, VkFence fence = VK_NULL_HANDLE)
+        SubmissionSerial Submit(const VkSubmitInfo2& work, VkFence fence = VK_NULL_HANDLE, bool mark = true)
         {
             if (work.sType != VK_STRUCTURE_TYPE_SUBMIT_INFO_2
                 || (work.waitSemaphoreInfoCount && !work.pWaitSemaphoreInfos)
@@ -69,16 +73,21 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             VkSubmitInfo2 submit = work;
             submit.signalSemaphoreInfoCount = static_cast<std::uint32_t>(signals.size());
             submit.pSignalSemaphoreInfos = signals.data();
+            VkLatencySubmissionPresentIdNV attribution{VK_STRUCTURE_TYPE_LATENCY_SUBMISSION_PRESENT_ID_NV};
+            if (_dispatch.Attribution)
+                if (const auto id = _dispatch.Attribution())
+                { attribution.presentID = *id; attribution.pNext = submit.pNext; submit.pNext = &attribution; }
+            if (mark && _dispatch.RenderSubmitStart) _dispatch.RenderSubmitStart();
             _dispatch.CheckResult(_dispatch.QueueSubmit(_dispatch.Queue, 1, &submit, fence),
                 "vkQueueSubmit2(submission timeline)");
             _progress.Submitted(serial);
             return serial;
         }
 
-        SubmissionSerial MarkExternalWork()
+        SubmissionSerial MarkExternalWork(bool mark = true)
         {
             const VkSubmitInfo2 marker{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
-            return Submit(marker);
+            return Submit(marker, VK_NULL_HANDLE, mark);
         }
 
         SubmissionSerial Poll()

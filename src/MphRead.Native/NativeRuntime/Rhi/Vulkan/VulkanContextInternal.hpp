@@ -30,6 +30,7 @@
 #include <GLFW/glfw3.h>
 #endif
 
+#include "VulkanNvidiaReflex.hpp"
 #include "VulkanResult.hpp"
 #include "VulkanFeatureProbe.hpp"
 
@@ -53,6 +54,16 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         bool validation = false;
         bool swapchainMaintenance1 = false;
         bool memoryBudget = false;
+        bool nvLowLatency2 = false;
+        std::uint32_t nvLowLatency2Revision = 0;
+        std::string reflexUnavailableReason;
+        VulkanNvidiaReflex* reflex = nullptr; // Runtime controller owned by presentation swapchain.
+        std::uint64_t reflexFrameSequence = 0;
+        std::function<void()> establishReflexFrame;
+        PFN_vkSetLatencySleepModeNV vkSetLatencySleepModeNV = nullptr;
+        PFN_vkLatencySleepNV vkLatencySleepNV = nullptr;
+        PFN_vkSetLatencyMarkerNV vkSetLatencyMarkerNV = nullptr;
+        PFN_vkGetLatencyTimingsNV vkGetLatencyTimingsNV = nullptr;
         std::atomic<unsigned> errors{0};
         PFN_vkSetDebugUtilsObjectNameEXT setName = nullptr;
         PFN_vkCmdBeginDebugUtilsLabelEXT beginLabel = nullptr;
@@ -333,11 +344,29 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT enabledMaintenance1{
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT};
             std::vector<const char*> deviceExtensionNames{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+            nvLowLatency2Revision = probe.NvLowLatency2SpecVersion;
+            nvLowLatency2 = probe.NvLowLatency2;
+            reflexUnavailableReason = probe.ReflexUnavailableReason;
+            const auto* injectReflex = std::getenv("FRUITY_REFLEX_TEST_FAILURE");
+            if (injectReflex && (std::string_view(injectReflex) == "extension" || std::string_view(injectReflex) == "present-id"))
+            {
+                nvLowLatency2 = false;
+                reflexUnavailableReason = std::string("NVIDIA Reflex: injected unavailable ") + injectReflex + '.';
+            }
+            VkPhysicalDevicePresentIdFeaturesKHR enabledPresentId{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR};
+            if (nvLowLatency2)
+            {
+                enabledPresentId.presentId = VK_TRUE;
+                enabled13.pNext = &enabledPresentId;
+                deviceExtensionNames.push_back(VK_NV_LOW_LATENCY_2_EXTENSION_NAME);
+                deviceExtensionNames.push_back(VK_KHR_PRESENT_ID_EXTENSION_NAME);
+            }
             if (memoryBudget) deviceExtensionNames.push_back(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
             if (portabilitySubset) deviceExtensionNames.push_back("VK_KHR_portability_subset");
             if (maintenance1)
             {
                 enabledMaintenance1.swapchainMaintenance1 = VK_TRUE;
+                enabledMaintenance1.pNext = enabled13.pNext;
                 enabled13.pNext = &enabledMaintenance1;
                 deviceExtensionNames.push_back(VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
             }
@@ -360,6 +389,18 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 #define LOAD_VULKAN_CACHE_FUNCTION(name) name = reinterpret_cast<PFN_##name>(vkGetDeviceProcAddr(device, #name));
             VULKAN_CACHE_FUNCTIONS(LOAD_VULKAN_CACHE_FUNCTION)
 #undef LOAD_VULKAN_CACHE_FUNCTION
+            if (nvLowLatency2)
+            {
+                vkSetLatencySleepModeNV = reinterpret_cast<PFN_vkSetLatencySleepModeNV>(vkGetDeviceProcAddr(device, "vkSetLatencySleepModeNV"));
+                vkLatencySleepNV = reinterpret_cast<PFN_vkLatencySleepNV>(vkGetDeviceProcAddr(device, "vkLatencySleepNV"));
+                vkSetLatencyMarkerNV = reinterpret_cast<PFN_vkSetLatencyMarkerNV>(vkGetDeviceProcAddr(device, "vkSetLatencyMarkerNV"));
+                vkGetLatencyTimingsNV = reinterpret_cast<PFN_vkGetLatencyTimingsNV>(vkGetDeviceProcAddr(device, "vkGetLatencyTimingsNV"));
+                if (!vkSetLatencySleepModeNV || !vkLatencySleepNV || !vkSetLatencyMarkerNV || !vkGetLatencyTimingsNV
+                    || (injectReflex && std::string_view(injectReflex) == "entrypoints"))
+                { nvLowLatency2 = false; reflexUnavailableReason = "NVIDIA Reflex: required device entry point is missing."; }
+            }
+            std::cout << "[reflex probe] enabled=" << nvLowLatency2 << " revision=" << nvLowLatency2Revision
+                << " presentId=" << probe.PresentId << " reason=" << reflexUnavailableReason << '\n';
             vkGetDeviceQueue(device, graphicsFamily, 0, &graphics); vkGetDeviceQueue(device, presentFamily, 0, &present);
             if (!graphics || !present) throw std::runtime_error("Missing graphics/present queue.");
             setName = reinterpret_cast<PFN_vkSetDebugUtilsObjectNameEXT>(vkGetDeviceProcAddr(device, "vkSetDebugUtilsObjectNameEXT"));

@@ -14,6 +14,7 @@
 
 #if defined(FRUITY_HAS_VULKAN)
 #include "VulkanContextInternal.hpp"
+#include "VulkanPresentResult.hpp"
 namespace MphRead::NativeRuntime::Rhi::Vulkan
 {
     namespace
@@ -108,6 +109,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 if (!_context._impl->surface)
                     throw std::runtime_error("The Vulkan context did not create a presentation surface.");
                 InitializeFrames();
+                auto& vk = *_context._impl;
+                _reflex = std::make_unique<VulkanNvidiaReflex>(VulkanNvidiaReflex::Dispatch{vk.device, vk.nvLowLatency2,
+                    vk.nvLowLatency2Revision, vk.reflexUnavailableReason, vk.vkCreateSemaphore, vk.vkDestroySemaphore, vk.vkWaitSemaphores,
+                    vk.vkSetLatencySleepModeNV, vk.vkLatencySleepNV, vk.vkSetLatencyMarkerNV, vk.vkGetLatencyTimingsNV}, vk.reflexFrameSequence);
+                vk.reflex = _reflex.get();
                 int width = 0, height = 0;
                 DrawableSize(width, height);
                 if (width <= 0 || height <= 0)
@@ -137,6 +143,18 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         }
 
         [[nodiscard]] const SwapchainDesc& Desc() const noexcept override { return _desc; }
+        void ConfigureLowLatency(LowLatencyMode mode, std::uint32_t interval) override { _reflex->SetMode(mode, interval); }
+        [[nodiscard]] LowLatencyCapabilities LowLatencyCaps() const noexcept override { return _reflex->Caps(); }
+        [[nodiscard]] LowLatencyDiagnostics LowLatencyStats() const noexcept override { return _reflex->Stats(); }
+        void MarkLowLatency(LowLatencyMarker marker) override { _reflex->Mark(marker); }
+        [[nodiscard]] bool BeginLowLatencyFrame() override
+        {
+            const auto before = _reflex->FrameId();
+            const bool ready = _reflex->BeginFrame();
+            if (ready && !before && _reflex->FrameId() && _context._impl->nvLowLatency2Revision >= 3
+                && _context._impl->establishReflexFrame) _context._impl->establishReflexFrame();
+            return ready;
+        }
 
         void Resize(std::uint32_t width, std::uint32_t height) override
         {
@@ -296,8 +314,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (_suspended && !_acquired) return {PresentationStatus::TemporarilyUnavailable};
             try
             {
-                Present();
-                return {_needsRecreate ? PresentationStatus::ResizeRequired : PresentationStatus::Ready};
+                return PresentCurrent();
             }
             catch (const BackendError& error) { return FailedPresent(error); }
         }
@@ -311,13 +328,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 Recreate(_desc.width, _desc.height);
         }
 
-        void Present() override
+        void Present() override { (void)PresentCurrent(); }
+        PresentResult PresentCurrent()
         {
-            if (_suspended && !_acquired) return;
+            if (_suspended && !_acquired) return {PresentationStatus::TemporarilyUnavailable};
             if (!_acquired) throw std::logic_error("No Vulkan swapchain image is acquired.");
             if (!_commandsReady)
                 throw std::logic_error("A Vulkan command list must render the acquired swapchain image before Present.");
-            SubmitAndPresent();
+            return SubmitAndPresent();
         }
 
         void ClearCurrent(float red, float green, float blue, float alpha)
@@ -452,6 +470,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         {
             if (_closed) return;
             WaitOutstanding();
+            _reflex->Shutdown(); _reflex.reset(); _context._impl->reflex = nullptr;
             DestroyRetired();
             DestroyImageStates();
             DestroyFrames();
@@ -541,6 +560,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         PresentMode _requestedMode = PresentMode::Fifo;
         PresentationCapabilities _presentationCaps{};
         VkSwapchainKHR _swapchain = VK_NULL_HANDLE;
+        std::unique_ptr<VulkanNvidiaReflex> _reflex;
         VkFormat _vkFormat = VK_FORMAT_UNDEFINED;
         VkExtent2D _extent{};
         std::array<Frame, FrameCount> _frames{};
@@ -696,6 +716,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             create.presentMode = selectedMode;
             create.clipped = VK_TRUE;
             create.oldSwapchain = oldSwapchain;
+            VkSwapchainLatencyCreateInfoNV latency{VK_STRUCTURE_TYPE_SWAPCHAIN_LATENCY_CREATE_INFO_NV};
+            if (vk.nvLowLatency2)
+            { latency.latencyModeEnable = VK_TRUE; latency.pNext = create.pNext; create.pNext = &latency; }
+            _reflex->SetSwapchain(VK_NULL_HANDLE);
             VkSwapchainKHR replacement = VK_NULL_HANDLE;
             const VkResult createResult = vk.vkCreateSwapchainKHR(vk.device, &create, nullptr, &replacement);
             if (createResult != VK_SUCCESS)
@@ -708,6 +732,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 Check(createResult, "vkCreateSwapchainKHR");
             }
             _swapchain = replacement;
+            _reflex->SetSwapchain(replacement);
             if (oldSwapchain)
             {
                 RetireImages(oldSwapchain);
@@ -858,6 +883,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (!_context._impl || !_context._impl->device) return;
             auto& vk = *_context._impl;
             if (vk.vkDeviceWaitIdle) vk.vkDeviceWaitIdle(vk.device);
+            if (_reflex) { _reflex->Shutdown(); _reflex.reset(); }
+            vk.reflex = nullptr;
             DestroyRetired();
             DestroyImageStates();
             DestroyFrames();
@@ -868,7 +895,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
         }
 
-        void SubmitAndPresent()
+        PresentResult SubmitAndPresent()
         {
             auto& vk = *_context._impl;
             Frame& frame = _frames[_frameIndex];
@@ -894,7 +921,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             submit.signalSemaphoreInfoCount = 1;
             submit.pSignalSemaphoreInfos = &signal;
             Check(vk.vkResetFences(vk.device, 1, &frame.fence), "vkResetFences(frame)");
+            VkLatencySubmissionPresentIdNV attribution{VK_STRUCTURE_TYPE_LATENCY_SUBMISSION_PRESENT_ID_NV};
+            if (const auto id = _reflex->SubmissionId()) { attribution.presentID = *id; attribution.pNext = submit.pNext; submit.pNext = &attribution; }
+            _reflex->Mark(LowLatencyMarker::RenderSubmitStart);
             Check(vk.vkQueueSubmit2(vk.graphics, 1, &submit, frame.fence), "vkQueueSubmit2(present)");
+            _reflex->Mark(LowLatencyMarker::RenderSubmitEnd);
             frame.submitted = true;
             image.lastFrame = frame.fence;
 
@@ -912,7 +943,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 presentFenceInfo.pFences = &image.presentFence;
                 present.pNext = &presentFenceInfo;
             }
+            const auto frameId = _reflex->FrameId();
+            VkPresentIdKHR presentId{VK_STRUCTURE_TYPE_PRESENT_ID_KHR};
+            if (frameId)
+            { presentId.swapchainCount = 1; presentId.pPresentIds = &frameId; presentId.pNext = present.pNext; present.pNext = &presentId; }
+            _reflex->Mark(LowLatencyMarker::PresentStart);
             const VkResult result = vk.vkQueuePresentKHR(vk.present, &present);
+            _reflex->Mark(LowLatencyMarker::PresentEnd);
+            _reflex->FinishFrame();
             // Rejected surface/out-of-date presents still enqueue their wait
             // operations. Their completion fence must be waited before cleanup.
             if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR
@@ -927,11 +965,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             _commandsReady = false;
             if (_recreateAfterPresent || result == VK_SUBOPTIMAL_KHR)
                 _needsRecreate = true;
+            const auto outcome = NativePresentResult(result, _recreateAfterPresent);
             _recreateAfterPresent = false;
             _frameIndex = (_frameIndex + 1) % static_cast<std::uint32_t>(FrameCount);
 #if !defined(__ANDROID__)
             ::MphRead::RendererPlatform::ProcessEvents();
 #endif
+            return outcome;
         }
     };
     std::unique_ptr<Swapchain> CreateSurfaceSwapchain(Context& context, const SwapchainDesc& desc)
@@ -958,7 +998,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     }
 
 #if !defined(__ANDROID__)
-    int RunPresentationCheck(bool forceFallback)
+    int RunPresentationCheck(bool forceFallback, bool reflexCheck)
     {
         try
         {
@@ -978,7 +1018,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::unique_ptr<Swapchain> swapchain = std::make_unique<VulkanSwapchain>(*window, desc, !forceFallback);
             auto& vkSwapchain = dynamic_cast<VulkanSwapchain&>(*swapchain);
 
-            const auto drawColor = [&vkSwapchain, &swapchain](float r, float g, float b)
+            std::uint64_t nativeFrames = 0;
+            const auto drawColor = [&vkSwapchain, &swapchain, reflexCheck, &nativeFrames](float r, float g, float b)
             {
                 // Present more frames than there are swapchain images so a
                 // replacement chain must reacquire an already presented image.
@@ -987,8 +1028,18 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 const std::uint32_t frames = std::max(4U, swapchain->Desc().imageCount + 1U);
                 for (std::uint32_t i = 0; i < frames; ++i)
                 {
+                    const auto sleepsBefore = swapchain->LowLatencyStats().sleepCalls;
+                    if (reflexCheck)
+                    {
+                        while (!swapchain->BeginLowLatencyFrame()) {}
+                        ProcessEvents(); // First input collection follows native sleep.
+                        swapchain->MarkLowLatency(LowLatencyMarker::InputSample);
+                        swapchain->MarkLowLatency(LowLatencyMarker::SimulationStart);
+                        swapchain->MarkLowLatency(LowLatencyMarker::SimulationEnd);
+                    }
                     const auto acquired = swapchain->TryAcquireTexture();
                     if (!acquired.texture) throw std::runtime_error("Typed Vulkan acquisition failed.");
+                    if (reflexCheck && swapchain->LowLatencyStats().sleepCalls > sleepsBefore) ++nativeFrames;
                     vkSwapchain.ClearCurrent(r, g, b, 1.0F);
                     const auto presented = swapchain->TryPresent();
                     if (presented.status != PresentationStatus::Ready
@@ -1014,6 +1065,37 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 throw std::runtime_error("Timed out waiting for a Vulkan window framebuffer transition.");
             };
 
+            if (reflexCheck)
+            {
+                for (auto present : {PresentMode::Fifo, PresentMode::Immediate, PresentMode::Mailbox})
+                {
+                    swapchain->SetPresentMode(present);
+                    for (int cap : {0, 60, 144, 240, -1})
+                    {
+                        const auto interval = cap > 0 ? static_cast<std::uint32_t>((1'000'000 + cap - 1) / cap) : 0;
+                        for (auto mode : {LowLatencyMode::Off, LowLatencyMode::On, LowLatencyMode::OnBoost, LowLatencyMode::Off})
+                        {
+                            swapchain->ConfigureLowLatency(mode, interval);
+                            const auto generation = swapchain->LowLatencyStats().swapchainGeneration;
+                            drawColor(0.1F, 0.3F, 0.6F);
+                            const auto state = ResolveLowLatency(mode, swapchain->LowLatencyCaps());
+                            if (mode != LowLatencyMode::Off && !std::getenv("FRUITY_REFLEX_TEST_FAILURE")
+                                && (state.provider != LowLatencyProvider::Nvidia || state.authority != PacingAuthority::Native || state.effective != mode || !state.fallbackReason.empty()))
+                                throw std::runtime_error("Reflex check requires usable NVIDIA native pacing.");
+                            if (mode == LowLatencyMode::OnBoost && std::getenv("FRUITY_REFLEX_TEST_FAILURE")
+                                && (state.provider != LowLatencyProvider::Generic || state.effective != LowLatencyMode::On || state.fallbackReason.empty()))
+                                throw std::runtime_error("Injected optional failure did not preserve requested Boost in Generic fallback.");
+                            if (generation != swapchain->LowLatencyStats().swapchainGeneration)
+                                throw std::runtime_error("Low-latency toggle recreated the swapchain.");
+                            std::cout << "[reflexcheck] PASS present=" << static_cast<int>(present) << " cap=" << cap
+                                << " requested=" << static_cast<int>(mode) << " effective=" << static_cast<int>(state.effective)
+                                << " provider=" << static_cast<int>(state.provider) << " boost=" << state.boostSupported
+                                << " authority=" << static_cast<int>(state.authority) << " reason=" << state.fallbackReason << '\n';
+                        }
+                    }
+                }
+                swapchain->ConfigureLowLatency(LowLatencyMode::OnBoost, 0);
+            }
             drawColor(0.10F, 0.35F, 0.80F);
             const auto initialExtent = swapchain->Desc();
             window->ClientSize(::OpenTK::Mathematics::Vector2i(960, 600));
@@ -1092,6 +1174,15 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             drawColor(0.12F, 0.32F, 0.72F);
 
             const bool validation = vkSwapchain.ValidationEnabled();
+            if (reflexCheck)
+            {
+                const auto stats = swapchain->LowLatencyStats();
+                if (!std::getenv("FRUITY_REFLEX_TEST_FAILURE") && (!stats.sleepCalls || !stats.markerCalls || !validation))
+                    throw std::runtime_error("Native sleep/markers/validation were not exercised.");
+                std::cout << "[reflexcheck] native frames=" << nativeFrames << " sleeps=" << stats.sleepCalls
+                    << " waits=" << stats.waitCalls << " modes=" << stats.modeCalls << " markers=" << stats.markerCalls
+                    << " timing-reports=" << stats.timingReports << " generations=" << stats.swapchainGeneration << '\n';
+            }
             if (forceFallback && (vkSwapchain.PresentFencesEnabled()
                 || vkSwapchain.FallbackRetiredReleases() == 0))
                 throw std::runtime_error("The fallback diagnostic did not prove deferred swapchain retirement.");
@@ -1117,7 +1208,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
 }
 #else
-    int RunPresentationCheck(bool)
+    int RunPresentationCheck(bool, bool)
     {
         std::cerr << "[vulkan] the presentation check opens a desktop window.\n";
         return 1;
@@ -1141,7 +1232,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     {
         throw std::runtime_error("Vulkan presentation is unavailable on this platform or build.");
     }
-    int RunPresentationCheck(bool)
+    int RunPresentationCheck(bool, bool)
     {
         std::cerr << "[vulkan] presentation unavailable: desktop Vulkan support was not built.\n";
         return 1;

@@ -7,6 +7,7 @@
 #include <array>
 #include <vector>
 #include <map>
+#include <cstdlib>
 
 namespace MphRead::NativeRuntime::Rhi::Vulkan
 {
@@ -74,8 +75,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::vector<VkDescriptorSet> Sets;
             std::uint32_t Cursor = 0;
             bool Retired = false;
+            std::uint32_t HighWater = 0;
         };
         std::map<std::uint64_t, FixedPage> _fixed;
+        bool _metrics = std::getenv("FRUITY_RENDER_METRICS") != nullptr;
+        std::uint64_t _fixedPools = 0, _fixedReserved = 0, _fixedHighWater = 0;
+        std::uint64_t _fixedFailures = 0, _fixedOverflow = 0, _fixedSetupNs = 0;
         std::size_t _active = 0;
         SubmissionSerial _lastUse{};
         bool _ready = false, _closed = false;

@@ -181,6 +181,7 @@ add_custom_target(fruity_golden_capture_provenance
     COMMENT "Refreshing GoldenCapture source provenance"
     VERBATIM)
 list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanNvidiaReflex.cpp"
     "${FRUITY_VULKAN_FRAME_SLOTS_TEST_SOURCE}"
     "${FRUITY_VULKAN_FRAME_SCHEDULER_TEST_SOURCE}"
     "${FRUITY_VULKAN_SYNCHRONIZATION_TEST_SOURCE}"
@@ -420,6 +421,14 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         target_include_directories(fruity_vulkan_feature_probe_tests PRIVATE ${Vulkan_INCLUDE_DIRS})
         target_compile_features(fruity_vulkan_feature_probe_tests PRIVATE cxx_std_20)
         add_test(NAME FruityPrime.VulkanFeatureProbe COMMAND fruity_vulkan_feature_probe_tests)
+        add_executable(fruity_vulkan_reflex_tests
+            "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanNvidiaReflex.cpp"
+            "${FRUITY_MPHREAD_ROOT}/NativeRuntime/Rhi/Vulkan/VulkanNvidiaReflex.cpp")
+        target_compile_definitions(fruity_vulkan_reflex_tests PRIVATE FRUITY_HAS_VULKAN)
+        target_include_directories(fruity_vulkan_reflex_tests PRIVATE ${Vulkan_INCLUDE_DIRS})
+        target_compile_features(fruity_vulkan_reflex_tests PRIVATE cxx_std_20)
+        add_test(NAME FruityPrime.VulkanNvidiaReflex COMMAND fruity_vulkan_reflex_tests)
+
 
         add_executable(fruity_vulkan_command_slots_tests
             "${FRUITY_VULKAN_COMMAND_SLOTS_TEST_SOURCE}"

@@ -1,5 +1,7 @@
 #include "../NativeRuntime/Rhi/Vulkan/VulkanFeatureProbe.hpp"
 #include "../NativeRuntime/Rhi/BackendError.hpp"
+#include "../NativeRuntime/Rhi/PresentationScheduler.hpp"
+#include "../NativeRuntime/Rhi/Vulkan/VulkanPresentResult.hpp"
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -86,6 +88,14 @@ namespace
         Expect(!EvaluatePhysicalDevice(optional, false).SwapchainMaintenance1, "Surface maintenance prerequisite ignored.");
         optional.SwapchainMaintenance1 = false;
         Expect(!EvaluatePhysicalDevice(optional, true).SwapchainMaintenance1, "Extension name substituted for feature support.");
+        optional = facts; optional.Extensions.push_back(VK_NV_LOW_LATENCY_2_EXTENSION_NAME);
+        optional.Extensions.push_back(VK_KHR_PRESENT_ID_EXTENSION_NAME);
+        optional.NvLowLatency2 = optional.PresentId = true; optional.NvLowLatency2SpecVersion = 3;
+        Expect(EvaluatePhysicalDevice(optional, true).NvLowLatency2, "Reflex dependencies not admitted.");
+        optional.PresentId = false; result = EvaluatePhysicalDevice(optional, true);
+        Expect(result.Eligible && !result.NvLowLatency2 && result.ReflexUnavailableReason.find("present_id") != std::string::npos, "Missing optional present ID rejected renderer or lost reason.");
+        optional.PresentId = true; optional.NvLowLatency2SpecVersion = 1;
+        Expect(!EvaluatePhysicalDevice(optional, true).NvLowLatency2, "Unusable extension revision admitted.");
         auto discrete = facts; discrete.Properties.deviceType = VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
         std::array choices{good, EvaluatePhysicalDevice(discrete, true), rejected};
         Expect(SelectPhysicalDevice(choices) == 1, "Selection admitted unsupported or ignored discrete GPU.");
@@ -130,7 +140,7 @@ namespace
         {
             ++extensionDataCalls;
             if (incompleteOnce) { incompleteOnce = false; return VK_INCOMPLETE; }
-            for (std::size_t i = 0; i < queried.Extensions.size(); ++i) std::strcpy(data[i].extensionName, queried.Extensions[i].c_str());
+            for (std::size_t i = 0; i < queried.Extensions.size(); ++i) { std::strcpy(data[i].extensionName, queried.Extensions[i].c_str()); data[i].specVersion = queried.Extensions[i] == VK_NV_LOW_LATENCY_2_EXTENSION_NAME ? queried.NvLowLatency2SpecVersion : 1; }
         }
         *count = static_cast<std::uint32_t>(queried.Extensions.size()); return VK_SUCCESS;
     }
@@ -141,7 +151,12 @@ namespace
         features12->timelineSemaphore = queried.TimelineSemaphore;
         auto* features13 = static_cast<VkPhysicalDeviceVulkan13Features*>(features12->pNext);
         features13->dynamicRendering = queried.DynamicRendering; features13->synchronization2 = queried.Synchronization2;
-        if (features13->pNext) static_cast<VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT*>(features13->pNext)->swapchainMaintenance1 = queried.SwapchainMaintenance1;
+        for (auto* node = static_cast<VkBaseOutStructure*>(features13->pNext); node; node = node->pNext) {
+            if (node->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT)
+                reinterpret_cast<VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT*>(node)->swapchainMaintenance1 = queried.SwapchainMaintenance1;
+            if (node->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR)
+                reinterpret_cast<VkPhysicalDevicePresentIdFeaturesKHR*>(node)->presentId = queried.PresentId;
+        }
     }
     VKAPI_ATTR void VKAPI_CALL Formats(VkPhysicalDevice, VkFormat format, VkFormatProperties* data)
     { *data = format == VK_FORMAT_D32_SFLOAT ? queried.Depth : queried.Color; }
@@ -168,9 +183,16 @@ namespace
         Expect(results.size() == 1 && featureCalls == 1 && extensionDataCalls == 2 && platformCalls == 1 && surfaceCalls == 0,
             "Query failed to retry enumeration or used surface path without a surface.");
         Expect(EvaluatePhysicalDevice(results[0], true).Eligible, "Native snapshot differs from pure policy facts.");
+        queried.Extensions.push_back(VK_NV_LOW_LATENCY_2_EXTENSION_NAME);
+        queried.Extensions.push_back(VK_KHR_PRESENT_ID_EXTENSION_NAME);
+        queried.Extensions.push_back(VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
+        queried.NvLowLatency2 = queried.PresentId = queried.SwapchainMaintenance1 = true; queried.NvLowLatency2SpecVersion = 3;
+        results = QueryPhysicalDevices(dispatch, VK_NULL_HANDLE, true);
+        Expect(results[0].NvLowLatency2SpecVersion == 3 && results[0].PresentId && results[0].SwapchainMaintenance1
+            && EvaluatePhysicalDevice(results[0], true).NvLowLatency2, "Feature pNext chain lost present ID, revision, or maintenance.");
         const auto surface = reinterpret_cast<VkSurfaceKHR>(1);
         results = QueryPhysicalDevices(dispatch, surface, true);
-        Expect(surfaceCalls == 1 && platformCalls == 1, "Real surface substituted by platform presentation support.");
+        Expect(surfaceCalls == 1 && platformCalls == 2, "Real surface substituted by platform presentation support.");
         queried.Properties.apiVersion = VK_API_VERSION_1_2; const auto before = featureCalls;
         results = QueryPhysicalDevices(dispatch, VK_NULL_HANDLE, false);
         Expect(featureCalls == before && !EvaluatePhysicalDevice(results[0], false).Eligible, "Old device received a 1.3 feature chain.");
@@ -185,6 +207,26 @@ int main()
     try
     {
         CheckPolicy(); CheckInstance(); CheckQueries();
+        const auto ready = NativePresentResult(VK_SUCCESS);
+        const auto suboptimal = NativePresentResult(VK_SUBOPTIMAL_KHR);
+        const auto acquireSuboptimal = NativePresentResult(VK_SUCCESS, true);
+        const auto outdated = NativePresentResult(VK_ERROR_OUT_OF_DATE_KHR);
+        Expect(ready.accepted && ready.status == PresentationStatus::Ready
+            && suboptimal.accepted && suboptimal.status == PresentationStatus::ResizeRequired
+            && acquireSuboptimal.accepted && acquireSuboptimal.status == PresentationStatus::ResizeRequired
+            && !outdated.accepted && outdated.status == PresentationStatus::ResizeRequired, "Native present acceptance inferred from status.");
+        PresentationScheduler pacer; const PresentationScheduler::Time now{};
+        pacer.Configure({60, 60, PresentMode::Fifo, PacingAuthority::Generic});
+        pacer.Presented(ready, now); const auto deadline = pacer.Deadline(now);
+        pacer.Presented(suboptimal, now);
+        Expect(pacer.PreviousAcceptedPresentId() == 2 && pacer.Deadline(now) > deadline, "Accepted resize reset deadline/ID.");
+        pacer.Presented(outdated, now);
+        Expect(pacer.PreviousAcceptedPresentId() == 2 && pacer.Deadline(now) == now, "Rejected resize retained deadline or advanced ID.");
+        for (const auto code : {VK_ERROR_SURFACE_LOST_KHR, VK_ERROR_DEVICE_LOST}) {
+            bool caught = false; try { (void)NativePresentResult(code); }
+            catch (const BackendError& error) { auto result = FailedPresent(error); caught = !result.accepted && result.failure->nativeCode == code; }
+            Expect(caught, "Presentation loss lost typed native error.");
+        }
         std::cout << "Vulkan feature probe PASS: requirements, optional features, queue selection, device scoring, enumeration, native-query boundaries\n";
         return 0;
     }

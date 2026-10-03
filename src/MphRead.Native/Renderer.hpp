@@ -440,6 +440,8 @@ namespace MphRead
             virtual ~WindowEvents() = default;
             virtual void OnLoad() {}
             [[nodiscard]] virtual bool BeforeFrame() { return true; }
+            virtual bool CanSampleInputWhileWaiting() const { return true; }
+            virtual void OnInputSample() {}
             virtual void OnRenderFrame(const FrameEventArgs& args) { (void)args; }
             virtual void OnResize(const ResizeEventArgs& e) { (void)e; }
             virtual void OnMove(const WindowPositionEventArgs& e) { (void)e; }
@@ -734,6 +736,8 @@ namespace MphRead
         std::optional<NativeRuntime::Rhi::LowLatencyState> _reportedLatency;
         std::uint64_t _presentationMetricFrames = 0;
         bool BeforeFrame() override;
+        bool CanSampleInputWhileWaiting() const override;
+        void OnInputSample() override;
     };
 
 }

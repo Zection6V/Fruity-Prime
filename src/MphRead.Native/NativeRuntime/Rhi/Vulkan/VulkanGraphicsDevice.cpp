@@ -209,7 +209,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 auto& vk = *context._impl;
                 Scheduler = std::make_unique<VulkanFrameScheduler>(VulkanFrameScheduler::Dispatch{
                     vk.device, vk.graphics, vk.vkCreateSemaphore, vk.vkDestroySemaphore,
-                    vk.vkQueueSubmit2, vk.vkGetSemaphoreCounterValue, Check, vk.vkWaitSemaphores});
+                    vk.vkQueueSubmit2, vk.vkGetSemaphoreCounterValue, Check, vk.vkWaitSemaphores,
+                    [&context]() -> std::optional<std::uint64_t> { auto& v = *context._impl;
+                        return v.reflex ? v.reflex->SubmissionId() : v.nvLowLatency2 && v.nvLowLatency2Revision >= 3 ? std::optional<std::uint64_t>(0) : std::nullopt; },
+                    [&context] { if (auto* r = context._impl->reflex) r->Mark(LowLatencyMarker::RenderSubmitStart); }});
+                vk.establishReflexFrame = [this] { (void)Scheduler->MarkExternalWork(false); };
                 VmaVulkanFunctions functions{};
                 functions.vkGetInstanceProcAddr = Context::Impl::InstanceProc();
                 functions.vkGetDeviceProcAddr = vk.vkGetDeviceProcAddr;
@@ -319,6 +323,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     Memory->Close();
                     Allocator = VK_NULL_HANDLE;
                     if (PipelineCache) PipelineCache->Close();
+                    vk.establishReflexFrame = {};
                     Scheduler.reset();
                     ContextPointer = nullptr;
                     SceneFlushers.clear(); SceneForgetters.clear(); SceneViewReplacers.clear();
@@ -452,14 +457,6 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             // that submits on its own, or destroys a resource, flushes them
             // first, so the queue sees work in the order it was recorded.
             std::unordered_map<const void*, std::function<void()>> SceneFlushers{};
-            struct PreparedSceneDescriptors final
-            {
-                std::uint64_t Identity;
-                VkDescriptorSetLayout Layout;
-                BindingLayoutDesc Desc;
-            };
-            std::unordered_map<const void*, std::vector<PreparedSceneDescriptors>> SceneDescriptorLayouts;
-            std::unordered_map<const void*, std::function<void(const void*, const PreparedSceneDescriptors&)>> SceneDescriptorPreparers;
             // Told when a texture, program or pipeline a list may still name goes away.
             std::unordered_map<const void*, std::function<void(const void*)>> SceneForgetters{};
             void ForgetScene(const void* object)
@@ -1148,7 +1145,6 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 if (Device)
                 {
-                    Device->SceneDescriptorLayouts.erase(this);
                     if (Device->CurrentSceneProgram == this) Device->CurrentSceneProgram = nullptr;
                     // Match native wrapper teardown: a flush failure must not
                     // throw from destruction during construction rollback/loss.
@@ -1176,7 +1172,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
             [[nodiscard]] GraphicsBackend GetBackend() const noexcept override { return GraphicsBackend::Vulkan; }
             [[nodiscard]] LowLatencyCapabilities LowLatencyCaps() const noexcept override
-            { return {true, false, LowLatencyProvider::Generic}; }
+            {
+                const auto* vk = _state->ContextPointer ? _state->ContextPointer->_impl.get() : nullptr;
+                return vk && vk->reflex ? vk->reflex->Caps() : LowLatencyCapabilities{true, false, LowLatencyProvider::Generic,
+                    vk ? std::string_view(vk->reflexUnavailableReason) : "Vulkan presentation session is closed."};
+            }
             [[nodiscard]] bool WaitForLatestSubmission(std::uint64_t timeoutNanoseconds) override
             { _state->RequireAlive(); return _state->Scheduler->WaitForLatest(timeoutNanoseconds); }
             [[nodiscard]] PresentationWaitStatistics PresentationWaits() const noexcept override
@@ -1198,6 +1198,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             [[nodiscard]] MemoryTelemetry MemoryUsageTelemetry() const override { return _state->Memory->Telemetry(); }
             [[nodiscard]] const std::shared_ptr<VulkanDeviceState>& State() const noexcept { return _state; }
             [[nodiscard]] InteropDevice Describe() const;
+            [[nodiscard]] VulkanNvidiaReflex* Reflex() const noexcept { return _state->ContextPointer->_impl->reflex; }
             [[nodiscard]] const Capabilities& GetCapabilities() const noexcept override
             {
                 return _state->ContextPointer->Caps();
@@ -1615,6 +1616,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     void FlushDevice(GraphicsDevice& device)
     {
         dynamic_cast<VulkanGraphicsDevice&>(device).State()->FlushScene();
+    }
+
+    void BeginExternalSubmit(GraphicsDevice& device)
+    {
+        if (auto* reflex = dynamic_cast<VulkanGraphicsDevice&>(device).Reflex()) reflex->Mark(LowLatencyMarker::RenderSubmitStart);
     }
 
     InteropImage PrepareForExternal(GraphicsDevice& device, Texture& texture, ResourceState state)
@@ -2200,6 +2206,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     {
         throw std::runtime_error("Desktop Vulkan development support was not built.");
     }
+    void BeginExternalSubmit(GraphicsDevice&) {}
+
     void AdoptExternalState(Texture&, ResourceState) {}
     std::function<void()> SessionReleaseCheck(GraphicsDevice&)
     { throw std::runtime_error("Vulkan development support was not built."); }

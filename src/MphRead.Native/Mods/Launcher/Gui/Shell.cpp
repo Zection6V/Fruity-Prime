@@ -1,4 +1,7 @@
 #include "Shell.hpp"
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include "../../../NativeRuntime/Rhi/SceneBackend.hpp"
 #include "../../../NativeRuntime/System/ErrorDialog.hpp"
 
@@ -1136,14 +1139,82 @@ namespace MphRead::Mods::Launcher::Gui
                 const auto state = ResolveLowLatency(LauncherPrefs::LowLatency(), SceneDevice().LowLatencyCaps());
                 const bool okay = &SceneDevice() == g_latencyDevice && &window.Scene() == g_latencyScene
                     && window.Scene().FrameCount() > g_latencyFrame && state.requested == mode
-                    && state.effective == (mode == LowLatencyMode::Off ? LowLatencyMode::Off : LowLatencyMode::On)
-                    && (mode != LowLatencyMode::OnBoost || !state.fallbackReason.empty())
+                    && state.effective == (mode == LowLatencyMode::Off ? LowLatencyMode::Off
+                        : mode == LowLatencyMode::OnBoost && state.boostSupported ? LowLatencyMode::OnBoost : LowLatencyMode::On)
+                    && (mode != LowLatencyMode::OnBoost || state.boostSupported == state.fallbackReason.empty())
                     && WindowMode::IsFullscreen() == (mode == LowLatencyMode::On);
                 std::cout << "[latencycheck] " << (okay ? "PASS" : "FAIL") << " backend=" << static_cast<int>(SelectedSceneBackend())
                     << " requested=" << static_cast<int>(state.requested) << " effective=" << static_cast<int>(state.effective)
                     << " same-device=" << (&SceneDevice() == g_latencyDevice) << " frame=" << g_latencyFrame << "->" << window.Scene().FrameCount()
                     << " fullscreen=" << WindowMode::IsFullscreen() << " cap=" << Render::FrameTiming::FrameRateCap() << '\n';
                 if (!okay) ++Shell::ShotMissCounter();
+            });
+        }
+        // Settings is a transaction: the row applies live, and leaving
+        // without saving puts back both the running mode and the file.
+        struct CancelCase { LowLatencyMode start; bool escape; };
+        static std::string g_latencyFile;
+        static LowLatencyMode g_latencyPreview = LowLatencyMode::Off;
+        const auto readPrefs = [] {
+            std::ifstream in(std::filesystem::path(LauncherPrefs::Directory()) / "launcher.txt", std::ios::binary);
+            return std::string(std::istreambuf_iterator<char>(in), {});
+        };
+        for (const CancelCase item : {CancelCase{LowLatencyMode::Off, false}, CancelCase{LowLatencyMode::On, false},
+                 CancelCase{LowLatencyMode::OnBoost, true}})
+        {
+            script.push_back([item, readPrefs](MphRead::RenderWindow& window)
+            {
+                LauncherPrefs::LowLatency(item.start); LauncherPrefs::Save();
+                g_latencyFile = readPrefs();
+                WindowKey(window, KeyValue(256)); Wait(20);
+            });
+            script.push_back([](MphRead::RenderWindow&)
+            {
+                Click([](Av::Controls::Control& control)
+                {
+                    const auto* button = dynamic_cast<DeckButton*>(&control);
+                    return button && button->Text() == "Settings";
+                }); Wait(20);
+            });
+            script.push_back([](MphRead::RenderWindow&)
+            {
+                const auto surface = UiSurface::Current();
+                const bool clicked = surface && surface->ClickOn([](Av::Controls::Control& control)
+                {
+                    const auto* row = dynamic_cast<ChoiceRow*>(&control);
+                    return row && (row->Value() == "Off" || row->Value() == "On" || row->Value() == "On + Boost")
+                        && row->Label() == "Low Latency";
+                });
+                if (!clicked) ++Shell::ShotMissCounter();
+                g_latencyPreview = LauncherPrefs::LowLatency();
+                Wait(10);
+            });
+            script.push_back([item](MphRead::RenderWindow&)
+            {
+                if (item.escape) Key(KeyValue(256));
+                else Click([](Av::Controls::Control& control)
+                {
+                    const auto* mark = dynamic_cast<UiMark*>(&control);
+                    return mark && mark->Label() == "cancel";
+                });
+                Wait(10);
+            });
+            script.push_back([item, readPrefs](MphRead::RenderWindow&)
+            {
+                const auto state = ResolveLowLatency(LauncherPrefs::LowLatency(), SceneDevice().LowLatencyCaps());
+                const bool okay = g_latencyPreview != item.start && LauncherPrefs::LowLatency() == item.start
+                    && readPrefs() == g_latencyFile;
+                std::cout << "[latencycheck] " << (okay ? "PASS" : "FAIL") << " rollback via="
+                    << (item.escape ? "escape" : "cancel") << " start=" << static_cast<int>(item.start)
+                    << " preview=" << static_cast<int>(g_latencyPreview) << " after=" << static_cast<int>(LauncherPrefs::LowLatency())
+                    << " effective=" << static_cast<int>(state.effective) << " file-unchanged=" << (readPrefs() == g_latencyFile) << '\n';
+                if (!okay) ++Shell::ShotMissCounter();
+                Click([](Av::Controls::Control& control)
+                {
+                    const auto* button = dynamic_cast<DeckButton*>(&control);
+                    return button && button->Text() == "Resume";
+                });
+                Wait(20);
             });
         }
     }

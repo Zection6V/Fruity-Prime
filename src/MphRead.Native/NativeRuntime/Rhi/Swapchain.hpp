@@ -1,4 +1,5 @@
 #pragma once
+#include "LowLatency.hpp"
 
 #include "Resources.hpp"
 #include "BackendError.hpp"
@@ -39,6 +40,7 @@ namespace MphRead::NativeRuntime::Rhi
     {
         PresentationStatus status = PresentationStatus::Ready;
         std::optional<BackendFailure> failure;
+        bool accepted = false; // Independent of recreation/loss status.
     };
 
     struct PresentationCapabilities final
@@ -84,6 +86,12 @@ namespace MphRead::NativeRuntime::Rhi
         [[nodiscard]] virtual Texture& AcquireNextTexture() = 0;
         virtual void SetPresentMode(PresentMode mode) = 0;
         virtual void Present() = 0;
+        virtual void ConfigureLowLatency(LowLatencyMode, std::uint32_t) {}
+        [[nodiscard]] virtual LowLatencyCapabilities LowLatencyCaps() const noexcept
+        { return {true, false, LowLatencyProvider::Generic}; }
+        [[nodiscard]] virtual bool BeginLowLatencyFrame() { return true; }
+        virtual void MarkLowLatency(LowLatencyMarker) {}
+        [[nodiscard]] virtual LowLatencyDiagnostics LowLatencyStats() const noexcept { return {}; }
         // Nonblocking for unavailable/minimized surfaces. The synchronous
         // diagnostic entry point above remains available to capture callers.
         [[nodiscard]] virtual AcquireResult TryAcquireTexture()
@@ -93,7 +101,7 @@ namespace MphRead::NativeRuntime::Rhi
         }
         [[nodiscard]] virtual PresentResult TryPresent()
         {
-            try { Present(); return {}; }
+            try { Present(); return {PresentationStatus::Ready, std::nullopt, true}; }
             catch (const BackendError& error) { return FailedPresent(error); }
         }
         [[nodiscard]] virtual PresentationCapabilities PresentationCaps() const noexcept = 0;

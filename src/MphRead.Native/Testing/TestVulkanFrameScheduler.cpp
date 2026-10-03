@@ -35,6 +35,9 @@ namespace
         std::uint64_t Complete = 0, LastSignal = 0;
         VkFence Fence = VK_NULL_HANDLE;
         VkSubmitInfo2 Work{};
+        bool ExpectAttribution = false;
+        std::uint64_t AttributedId = 0;
+        const void* AttributedNext = nullptr;
         std::vector<VkSemaphoreSubmitInfo> Signals, Waits;
         std::vector<VkCommandBufferSubmitInfo> Commands;
         Fake() { active = this; }
@@ -61,6 +64,11 @@ namespace
         {
             auto& f = *active; ++f.Submits;
             Expect(queue == f.Queue && count == 1 && f.Live && work->signalSemaphoreInfoCount, "Invalid queue dispatch.");
+            if (f.ExpectAttribution) {
+                const auto* id = static_cast<const VkLatencySubmissionPresentIdNV*>(work->pNext);
+                Expect(id && id->sType == VK_STRUCTURE_TYPE_LATENCY_SUBMISSION_PRESENT_ID_NV, "Attribution pNext missing.");
+                f.AttributedId = id->presentID; f.AttributedNext = id->pNext;
+            }
             f.Work = *work; f.Fence = fence;
             f.Signals.assign(work->pSignalSemaphoreInfos, work->pSignalSemaphoreInfos + work->signalSemaphoreInfoCount);
             f.Waits.clear(); f.Commands.clear();
@@ -214,8 +222,22 @@ void Budget()
     const auto waits = f.BudgetWaits;
     Expect(scheduler.WaitForLatest(2'000'000) && waits == f.BudgetWaits, "Completed budget waited again.");
 }
+void Attribution()
+{
+    Fake f; f.ExpectAttribution = true; auto dispatch = f.Dispatch();
+    std::uint64_t id = 5; unsigned markers = 0;
+    dispatch.Attribution = [&] { return std::optional(id); };
+    dispatch.RenderSubmitStart = [&] { ++markers; };
+    VulkanFrameScheduler scheduler(dispatch);
+    VkSubmitInfo2 work{VK_STRUCTURE_TYPE_SUBMIT_INFO_2}; int original = 4; work.pNext = &original;
+    (void)scheduler.Submit(work);
+    Expect(f.AttributedId == 5 && f.AttributedNext == &original && markers == 1, "Attribution replaced existing extension chain.");
+    (void)scheduler.MarkExternalWork(false); Expect(f.AttributedId == 5 && markers == 1, "Attribution-establishing marker counted as real render span.");
+    ++id; (void)scheduler.Submit(work); Expect(f.AttributedId == 6, "Next frame submission reused stale identity.");
+    id = 0; (void)scheduler.MarkExternalWork(); Expect(f.AttributedId == 0, "Off/fallback did not clear explicit queue attribution.");
+}
 int main()
 {
-    try { Run(); Budget(); std::cout << "Vulkan queue scheduler PASS; latest-submission bounded budget; 64 serials; external markers; native arrays/fence preserved; submit/poll failure; completion guards; creation rollback\n"; return 0; }
+    try { Run(); Budget(); Attribution(); std::cout << "Vulkan queue scheduler PASS; latest-submission bounded budget; 64 serials; external markers; native arrays/fence preserved; submit/poll failure; completion guards; creation rollback\n"; return 0; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

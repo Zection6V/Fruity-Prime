@@ -50,9 +50,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         [[nodiscard]] bool CanBeginWithoutWait() const;
         void PreallocateDescriptors(std::uint64_t identity, VkDescriptorSetLayout layout, const BindingLayoutDesc& desc)
         {
-            // 512 sets per nonempty scene ABI group/slot. Overflow is explicit
+            // Small explicit reservation for tests/admission callers. Production
+            // admits lazily in the slot that draws. Overflow is explicit
             // and goes to the generic descriptor pages, never overwrites a set.
-            for (auto& slot : _slots) slot.Descriptors->Preallocate(identity, layout, desc, 512);
+            for (auto& slot : _slots) slot.Descriptors->Preallocate(identity, layout, desc, 32);
         }
         void RetireDescriptors(std::uint64_t identity)
         { for (auto& slot : _slots) slot.Descriptors->RetireFixed(identity); }

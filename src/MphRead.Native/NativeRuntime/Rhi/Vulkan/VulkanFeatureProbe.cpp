@@ -96,14 +96,22 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             dispatch.Properties(device, &snapshot.Properties);
             for (const auto& value : EnumerateList<VkExtensionProperties>([&](auto count, auto data) {
                 return dispatch.Extensions(device, nullptr, count, data);
-            }, "device extensions")) snapshot.Extensions.emplace_back(value.extensionName);
+            }, "device extensions"))
+            {
+                snapshot.Extensions.emplace_back(value.extensionName);
+                if (std::string_view(value.extensionName) == VK_NV_LOW_LATENCY_2_EXTENSION_NAME)
+                { snapshot.NvLowLatency2 = true; snapshot.NvLowLatency2SpecVersion = value.specVersion; }
+            }
             // Older devices still get a structured rejection without asking
             // them for the application's 1.3 feature chain.
             if (snapshot.Properties.apiVersion >= VK_API_VERSION_1_3)
             {
                 VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT maintenance{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT};
                 VkPhysicalDeviceVulkan13Features features13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
-                if (surfaceMaintenance && Has(snapshot.Extensions, VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME)) features13.pNext = &maintenance;
+                VkPhysicalDevicePresentIdFeaturesKHR presentId{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR};
+                if (Has(snapshot.Extensions, VK_KHR_PRESENT_ID_EXTENSION_NAME)) features13.pNext = &presentId;
+                if (surfaceMaintenance && Has(snapshot.Extensions, VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME))
+                { maintenance.pNext = features13.pNext; features13.pNext = &maintenance; }
                 VkPhysicalDeviceVulkan12Features features12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
                 features12.pNext = &features13;
                 VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2}; features.pNext = &features12;
@@ -112,6 +120,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 snapshot.Synchronization2 = features13.synchronization2 != 0;
                 snapshot.TimelineSemaphore = features12.timelineSemaphore != 0;
                 snapshot.SwapchainMaintenance1 = maintenance.swapchainMaintenance1 != 0;
+                snapshot.PresentId = presentId.presentId != 0;
             }
             dispatch.Formats(device, VK_FORMAT_R8G8B8A8_UNORM, &snapshot.Color);
             dispatch.Formats(device, VK_FORMAT_D32_SFLOAT, &snapshot.Depth);
@@ -161,6 +170,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         }
         required("graphics queue", result.GraphicsFamily != UINT32_MAX); required("presentation queue", result.PresentFamily != UINT32_MAX);
         result.MemoryBudget = Has(facts.Extensions, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+        result.NvLowLatency2SpecVersion = facts.NvLowLatency2SpecVersion;
+        result.PresentId = facts.PresentId && Has(facts.Extensions, VK_KHR_PRESENT_ID_EXTENSION_NAME);
+        result.NvLowLatency2 = facts.NvLowLatency2 && facts.NvLowLatency2SpecVersion >= 2 && result.PresentId && facts.TimelineSemaphore;
+        if (!facts.NvLowLatency2) result.ReflexUnavailableReason = "NVIDIA Reflex: VK_NV_low_latency2 is not exposed by this driver.";
+        else if (facts.NvLowLatency2SpecVersion < 2) result.ReflexUnavailableReason = "NVIDIA Reflex: VK_NV_low_latency2 revision 2 is required for latency timings.";
+        else if (!result.PresentId) result.ReflexUnavailableReason = "NVIDIA Reflex: VK_KHR_present_id extension/feature is unavailable.";
+        else if (!facts.TimelineSemaphore) result.ReflexUnavailableReason = "NVIDIA Reflex: timelineSemaphore is unavailable.";
+        result.Findings.push_back({"NVIDIA Reflex", false, result.NvLowLatency2, result.ReflexUnavailableReason});
         result.PortabilitySubset = Has(facts.Extensions, "VK_KHR_portability_subset");
         result.SwapchainMaintenance1 = surfaceMaintenance && facts.SwapchainMaintenance1
             && Has(facts.Extensions, VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);

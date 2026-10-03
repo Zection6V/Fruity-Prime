@@ -54,6 +54,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     // Submit everything recorded on the device, so another client's
     // submissions come after it.
     void FlushDevice(GraphicsDevice& device);
+    void BeginExternalSubmit(GraphicsDevice& device);
     // Put the texture in this state (recorded and submitted now) and report it.
     [[nodiscard]] InteropImage PrepareForExternal(GraphicsDevice& device, Texture& texture, ResourceState state);
     // The other client left the texture in this state.

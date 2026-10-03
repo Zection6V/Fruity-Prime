@@ -275,7 +275,16 @@ namespace
             while (::glfwWindowShouldClose(_handle) == GLFW_FALSE)
             {
                 ::MphRead::NativeRuntime::FrameHeartbeat();
+                // Native sleep precedes every fresh input read. Poll a busy
+                // generic budget with events serviced, but never sample input
+                // while the driver's native frame-start signal is pending.
+                if (!events.BeforeFrame())
+                {
+                    if (events.CanSampleInputWhileWaiting()) ::glfwPollEvents();
+                    continue;
+                }
                 SleepForPresentation(_presentation.Deadline(Rhi::PresentationScheduler::Clock::now()));
+                events.OnInputSample();
                 // OpenTK's NewInputFrame polls the current cursor position
                 // separately from the cursor callback's last-reported point.
                 double cursorX = 0.0;
@@ -287,7 +296,7 @@ namespace
                 // Bounded budget waits run with events serviced between them.
                 // A busy GPU postpones admission; no primary draw or simulation
                 // step is recorded and discarded. Elapsed time is retained.
-                if (!events.BeforeFrame()) continue;
+
                 const auto now = std::chrono::steady_clock::now();
                 const double elapsed
                     = std::chrono::duration<double>(now - previous).count();

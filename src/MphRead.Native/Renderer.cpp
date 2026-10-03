@@ -6282,17 +6282,35 @@ namespace MphRead
     bool RenderWindow::BeforeFrame()
     {
         namespace Rhi = NativeRuntime::Rhi;
-        const auto mode = Mods::Launcher::LauncherPrefs::LowLatency();
+        ApplyFrameRateSettings();
         const auto size = FramebufferSize();
-        if (mode == Rhi::LowLatencyMode::Off || size.X <= 0 || size.Y <= 0) return true;
-        auto& device = Rhi::SceneDevice();
-        if (Rhi::ResolveLowLatency(mode, device.LowLatencyCaps()).effective == Rhi::LowLatencyMode::Off) return true;
-        return device.WaitForLatestSubmission(Rhi::PresentationScheduler::FrameBudgetWait.count());
+        if (size.X <= 0 || size.Y <= 0) return true;
+        auto state = Rhi::ResolveLowLatency(Mods::Launcher::LauncherPrefs::LowLatency(), _swapchain->LowLatencyCaps());
+        if (state.effective == Rhi::LowLatencyMode::Off) return true;
+        if (state.authority == Rhi::PacingAuthority::Native)
+        {
+            if (!_swapchain->BeginLowLatencyFrame()) return false;
+            state = Rhi::ResolveLowLatency(state.requested, _swapchain->LowLatencyCaps());
+            if (state.authority == Rhi::PacingAuthority::Native) return true;
+            ApplyFrameRateSettings(); // Native failure hands this frame to Generic.
+        }
+        return Rhi::SceneDevice().WaitForLatestSubmission(Rhi::PresentationScheduler::FrameBudgetWait.count());
     }
+
+    bool RenderWindow::CanSampleInputWhileWaiting() const
+    {
+        return NativeRuntime::Rhi::ResolveLowLatency(Mods::Launcher::LauncherPrefs::LowLatency(),
+            _swapchain->LowLatencyCaps()).authority != NativeRuntime::Rhi::PacingAuthority::Native;
+    }
+
+    void RenderWindow::OnInputSample()
+    { _swapchain->MarkLowLatency(NativeRuntime::Rhi::LowLatencyMarker::InputSample); }
 
     void RenderWindow::ApplyFrameRateSettings()
     {
         const std::int32_t cap = Mods::Diagnostics::FramePerformance::EffectiveCap(Mods::Render::FrameTiming::FrameRateCap());
+        _swapchain->ConfigureLowLatency(Mods::Launcher::LauncherPrefs::LowLatency(),
+            cap > 0 ? static_cast<std::uint32_t>((1'000'000ULL + cap - 1) / cap) : 0);
         const auto latency = NativeRuntime::Rhi::ResolveLowLatency(Mods::Launcher::LauncherPrefs::LowLatency(),
             NativeRuntime::Rhi::SceneDevice().LowLatencyCaps());
         if (!_reportedLatency || *_reportedLatency != latency)
@@ -6355,26 +6373,30 @@ namespace MphRead
 
     void RenderWindow::OnRenderFrame(const RendererPlatform::FrameEventArgs& args)
     {
-        ApplyFrameRateSettings();
         if (_performance) _performance->BeginFrame(*this, *_swapchain);
         const auto present = [&]
         {
+            _swapchain->MarkLowLatency(NativeRuntime::Rhi::LowLatencyMarker::SimulationEnd);
             if (std::getenv("FRUITY_RENDER_METRICS") && ++_presentationMetricFrames % 120 == 0)
             {
                 const auto waits = NativeRuntime::Rhi::SceneDevice().PresentationWaits();
                 std::cout << "[presentation-metrics] present_wait_count=" << waits.count
                     << " present_wait_ns=" << waits.nanoseconds << '\n';
+                const auto reflex = _swapchain->LowLatencyStats();
+                std::cout << "[reflex-metrics] sleep=" << reflex.sleepCalls << " wait=" << reflex.waitCalls
+                    << " modes=" << reflex.modeCalls << " markers=" << reflex.markerCalls << " reports=" << reflex.timingReports
+                    << " frame=" << reflex.frameId << " generation=" << reflex.swapchainGeneration << '\n';
             }
             if (!_performance)
             {
                 const auto result = NativeRuntime::Rhi::PresentSceneWindow(*_swapchain);
-                if (result.status == NativeRuntime::Rhi::PresentationStatus::Ready) _window->PresentationAccepted();
+                if (result.accepted) _window->PresentationAccepted();
                 else _window->PresentationUnavailable();
                 return;
             }
             const auto start = std::chrono::steady_clock::now();
             const auto result = NativeRuntime::Rhi::PresentSceneWindow(*_swapchain);
-            if (result.status == NativeRuntime::Rhi::PresentationStatus::Ready) _window->PresentationAccepted();
+            if (result.accepted) _window->PresentationAccepted();
             else _window->PresentationUnavailable();
             if (_performance) _performance->Presented(*this, *_swapchain,
                 std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
@@ -6401,6 +6423,8 @@ namespace MphRead
         Mods::Launcher::Gui::Shell::TickEndPanel();
         if (_scene == nullptr)
         {
+            _swapchain->MarkLowLatency(NativeRuntime::Rhi::LowLatencyMarker::SimulationStart);
+            _swapchain->MarkLowLatency(NativeRuntime::Rhi::LowLatencyMarker::SimulationEnd);
             // With no game scene the launcher owns the whole frame, so its
             // Ganesh pass may run before the launcher background/composite.
             Mods::Launcher::Gui::Shell::TickUi(*this);
@@ -6462,6 +6486,7 @@ namespace MphRead
             Mods::Input::StylusZone::PlacementDrag(pointerX, pointerY);
         }
         GameState::ApplyPause();
+        _swapchain->MarkLowLatency(NativeRuntime::Rhi::LowLatencyMarker::SimulationStart);
         std::int32_t steps;
         if (_scene->FrameAdvance())
         {
@@ -6476,6 +6501,7 @@ namespace MphRead
         {
             _scene->OnSimulationFrame();
         }
+        _swapchain->MarkLowLatency(NativeRuntime::Rhi::LowLatencyMarker::SimulationEnd);
         if (Mods::Chat::ChatBox::Composing()
             && Mods::Input::GamepadInput::TakePress(
                 Mods::Input::GamepadButtons::B | Mods::Input::GamepadButtons::Start))

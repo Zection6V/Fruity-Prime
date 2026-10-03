@@ -1087,6 +1087,11 @@ namespace MphRead::Mods
             SetExitCode(Diagnostics::RunRhiConformanceCheck());
             return true;
         }
+        if (::HasFlag(args, "reflexcheck"))
+        {
+            SetExitCode(::MphRead::NativeRuntime::Rhi::Vulkan::RunPresentationCheck(false, true));
+            return true;
+        }
         if (::HasFlag(args, "vulkanpresentcheck"))
         {
             SetExitCode(::MphRead::NativeRuntime::Rhi::Vulkan::RunPresentationCheck());

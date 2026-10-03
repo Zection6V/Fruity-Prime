@@ -1,5 +1,6 @@
 #pragma once
 #include "Swapchain.hpp"
+#include "LowLatency.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -7,43 +8,6 @@
 
 namespace MphRead::NativeRuntime::Rhi
 {
-    enum class LowLatencyMode : std::uint8_t { Off, On, OnBoost };
-    enum class LowLatencyProvider : std::uint8_t { None, Generic, Nvidia, Amd };
-    enum class PacingAuthority : std::uint8_t { Generic, Native };
-    struct LowLatencyCapabilities final
-    {
-        bool supportsLowLatency = false;
-        bool supportsBoost = false;
-        LowLatencyProvider provider = LowLatencyProvider::None;
-    };
-    struct LowLatencyState final
-    {
-        LowLatencyMode requested = LowLatencyMode::Off, effective = LowLatencyMode::Off;
-        LowLatencyProvider provider = LowLatencyProvider::None;
-        bool boostSupported = false;
-        PacingAuthority authority = PacingAuthority::Generic;
-        std::string_view fallbackReason;
-        bool operator==(const LowLatencyState&) const = default;
-    };
-    struct PresentationWaitStatistics final { std::uint64_t count = 0, nanoseconds = 0; };
-    inline LowLatencyState ResolveLowLatency(LowLatencyMode requested, LowLatencyCapabilities caps)
-    {
-        LowLatencyState state{requested, LowLatencyMode::Off, LowLatencyProvider::None, caps.supportsBoost};
-        if (requested == LowLatencyMode::Off) return state;
-        if (!caps.supportsLowLatency)
-        { state.fallbackReason = "Low latency is unavailable on this renderer."; return state; }
-        state.effective = requested;
-        state.provider = caps.provider;
-        if (requested == LowLatencyMode::OnBoost && !caps.supportsBoost)
-        {
-            state.effective = LowLatencyMode::On;
-            state.fallbackReason = "Boost is unavailable; On is active.";
-        }
-        if (caps.provider == LowLatencyProvider::Nvidia || caps.provider == LowLatencyProvider::Amd)
-            state.authority = PacingAuthority::Native;
-        return state;
-    }
-
     // Presentation deadlines are independent of the simulation accumulator
     // and of lifetime fences. One authority owns pacing for a frame. Present
     // IDs/target times name accepted presents, not reusable command slots.
@@ -83,6 +47,8 @@ namespace MphRead::NativeRuntime::Rhi
             _deadline += period;
             _hasDeadline = true;
         }
+        void Presented(const PresentResult& result, Time now) noexcept
+        { if (result.accepted) Accepted(now); else Unavailable(); }
         void Unavailable() noexcept { ResetDeadline(); }
         [[nodiscard]] std::uint64_t PreviousAcceptedPresentId() const noexcept { return _acceptedPresentId; }
         [[nodiscard]] Time TargetDisplayTime(Time now) const noexcept { return Deadline(now); }

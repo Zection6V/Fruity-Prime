@@ -128,7 +128,7 @@ namespace MphRead::NativeRuntime::Rhi
                 const auto acquire = TryAcquireTexture();
                 if (!acquire.texture) return {acquire.status, acquire.failure};
                 Present();
-                return {};
+                return {PresentationStatus::Ready, std::nullopt, true};
             }
 
         private:

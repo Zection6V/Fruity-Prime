@@ -44,6 +44,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         VkPhysicalDeviceMemoryProperties Memory{};
         VkFormatProperties Color{}, Depth{};
         std::vector<std::string> Extensions;
+        std::uint32_t NvLowLatency2SpecVersion = 0;
+        bool NvLowLatency2 = false, PresentId = false;
         std::vector<QueueSnapshot> Queues;
         bool DynamicRendering = false, Synchronization2 = false, TimelineSemaphore = false;
         bool SwapchainMaintenance1 = false;
@@ -55,6 +57,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         std::uint32_t GraphicsFamily = UINT32_MAX, PresentFamily = UINT32_MAX;
         std::uint64_t DeviceLocalBytes = 0, Score = 0;
         bool Eligible = false, MemoryBudget = false, PortabilitySubset = false, SwapchainMaintenance1 = false;
+        bool NvLowLatency2 = false, PresentId = false;
+        std::uint32_t NvLowLatency2SpecVersion = 0;
+        std::string ReflexUnavailableReason;
         Capabilities Caps{};
         TimestampProperties Timestamps{};
     };

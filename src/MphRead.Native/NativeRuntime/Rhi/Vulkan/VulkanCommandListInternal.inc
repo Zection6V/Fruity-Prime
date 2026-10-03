@@ -364,16 +364,6 @@
                                 vmaDestroyBuffer(device->Allocator, page.Buffer, page.Allocation); --device->ScratchPages;
                             }});
                     }});
-                if (!_transferOnly)
-                {
-                    const auto prepare = [this](const void* program, const VulkanDeviceState::PreparedSceneDescriptors& desc) {
-                        _programIdentities[program] = desc.Identity >> 3;
-                        _commandSlots->PreallocateDescriptors(desc.Identity, desc.Layout, desc.Desc);
-                    };
-                    _device->SceneDescriptorPreparers[this] = prepare;
-                    for (const auto& [program, layouts] : _device->SceneDescriptorLayouts)
-                        for (const auto& layout : layouts) prepare(program, layout);
-                }
                 _device->SceneForgetters[this] = [this](const void* object) { Forget(object); };
                 _device->SceneViewReplacers[this] = [this](VkImageView before, VkImageView after) {
                     ClearPersistentMaterials();
@@ -399,7 +389,6 @@
             }
             catch (...)
             {
-                _device->SceneDescriptorPreparers.erase(this);
                 _device->SceneForgetters.erase(this);
                 _device->SceneViewReplacers.erase(this);
                 _commandSlots.reset();
@@ -412,7 +401,6 @@
         {
             if (_closed) return;
             _device->SceneFlushers.erase(this);
-            _device->SceneDescriptorPreparers.erase(this);
             _device->SceneForgetters.erase(this);
             _device->SceneViewReplacers.erase(this);
             if (_device->RecordingList == this) _device->RecordingList = nullptr;
@@ -1260,7 +1248,12 @@
                     else
                     {
                         if (_metricsEnabled) ++_metricMisses;
-                        auto set = _commandSlots->Descriptors().AllocateFixed((program->Identity << 3) | group);
+                        _programIdentities.try_emplace(program, program->Identity);
+                        const auto fixedIdentity = (program->Identity << 3) | group;
+                        // First use, only this command list's current slot. Small
+                        // bounded page; all overflow uses the ordinary allocator.
+                        _commandSlots->Descriptors().Preallocate(fixedIdentity, layout.Native(), layout.Desc(), 32);
+                        auto set = _commandSlots->Descriptors().AllocateFixed(fixedIdentity);
                         if (set)
                         {
                             if (_metricsEnabled) ++_metricFixedSlots;

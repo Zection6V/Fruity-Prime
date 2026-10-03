@@ -208,13 +208,6 @@ private:
         }
         for (std::uint32_t group = 0; group < SceneShaderAbi::GroupCount; ++group)
             program->Layouts[group] = std::make_unique<VulkanBindingLayout>(_device, layouts[group]);
-        auto& prepared = _device->SceneDescriptorLayouts[program.get()];
-        for (std::uint32_t group = 0; group < SceneShaderAbi::GroupCount; ++group)
-        {
-            if (layouts[group].entries.empty()) continue;
-            prepared.push_back({(program->Identity << 3) | group, program->Layouts[group]->Native(), layouts[group]});
-            for (const auto& [owner, prepare] : _device->SceneDescriptorPreparers) prepare(program.get(), prepared.back());
-        }
         _programs.push_back(std::move(program));
     }
 

@@ -248,6 +248,7 @@ namespace MphRead::NativeRuntime::Skia::VulkanInterop
     {
         const skgpu::MutableTextureState attachment
             = skgpu::MutableTextureStates::MakeVulkan(VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_QUEUE_FAMILY_IGNORED);
+        Rhi::Vulkan::BeginExternalSubmit(Rhi::SceneDevice());
         context.flush(&surface, GrFlushInfo{}, &attachment);
         context.submit(GrSyncCpu::kYes);
         if (target.Texture) Rhi::Vulkan::AdoptExternalState(*target.Texture, Rhi::ResourceState::ColorAttachment);

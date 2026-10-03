@@ -113,6 +113,7 @@ namespace MphRead::Mods::Launcher::Gui
     SettingsView::SettingsView(std::shared_ptr<::MphRead::MenuSettings> settings,
         bool inGame)
         : _settings(std::move(settings)), _inGame(inGame),
+          _originalLowLatency(LauncherPrefs::LowLatency()),
           _pages(std::make_shared<Controls::Panel>())
     {
         (void)RequireReference(_settings);
@@ -210,6 +211,7 @@ namespace MphRead::Mods::Launcher::Gui
     {
         if (!_saved)
         {
+            LauncherPrefs::LowLatency(_originalLowLatency);
             RenderOptions::FieldOfView(RenderOptions::ParseFov(
                 std::string_view(_settings->FieldOfView), RenderOptions::DefaultFov));
         }

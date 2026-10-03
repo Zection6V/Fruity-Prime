@@ -2529,3 +2529,20 @@ CPU テスト 19/19 PASS。
 
 warm は cold の約 11 倍速い。RTX 5070 Ti / driver 617.14 での1台の測定である。他の GPU や driver
 cache を有効にした通常の環境での効果は、この数字からは言えない。
+
+## 全形式・subresource の非同期 readback（R16）
+
+`EnqueueReadColor` は screenshot / recording 用の契約のままにする: 8bit color target から RGB8 / RGBA8
+を、base mip / layer で出す。任意の形式と subresource は、GPU コピー（texture → buffer）の後に
+`EnqueueReadback`（buffer）で読む。この2段がその経路であり、新しい API は足さない。
+
+conformance:
+
+- **16形式:** 両 backend で、format copy の結果 buffer を非同期 readback でも読み、同期読みと
+  byte 単位で一致することを確認する（32件）。
+- **subresource（Vulkan）:** 2 mip × 2 layer の画像の mip 1 / layer 1 だけに書いて読み戻し、
+  base subresource が変わらないことを確認する。
+- **subresource（OpenGL）:** `Capabilities` が単一 level 2D のため、検査しない。
+
+検証: 両 backend の conformance PASS（`C:/tmp/gp/architecture-r16-format-readback-conformance.log`）、
+CPU テスト 19/19 PASS。recording の長時間 stress は R19 の stress（98be22e1、700 PNG）の範囲に留まる。

@@ -1,4 +1,7 @@
 #include "RhiStateCheck.hpp"
+#include <algorithm>
+#include <thread>
+#include <chrono>
 #include "../../NativeRuntime/Rhi/GraphicsDevice.hpp"
 #include "../../NativeRuntime/Rhi/CommandList.hpp"
 #include <array>
@@ -9,6 +12,26 @@
 
 namespace MphRead::Mods::Diagnostics
 {
+    namespace
+    {
+        // A buffer's contents through the asynchronous readback: the path any
+        // texture format takes once a GPU copy has put it in a buffer.
+        std::vector<std::byte> AsyncRead(NativeRuntime::Rhi::GraphicsDevice& device,
+            NativeRuntime::Rhi::Buffer& buffer, std::uint64_t bytes)
+        {
+            auto ticket = device.EnqueueReadback(buffer, 0, bytes);
+            if (!ticket) throw std::runtime_error("Async readback of a format copy was not admitted.");
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            while (!ticket.IsReady())
+            {
+                if (std::chrono::steady_clock::now() >= deadline) throw std::runtime_error("Async format readback did not complete.");
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            const auto result = ticket.MapResult();
+            return {result.Bytes().begin(), result.Bytes().end()};
+        }
+    }
+
     void CheckRhiFormatCopies(NativeRuntime::Rhi::GraphicsDevice& device)
     {
         using namespace NativeRuntime::Rhi;
@@ -67,7 +90,7 @@ namespace MphRead::Mods::Diagnostics
             auto source = device.CreateBuffer({512, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu});
             auto black = device.CreateBuffer({512, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu});
             auto padding = device.CreateBuffer({512, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu});
-            auto output = device.CreateBuffer({512, BufferUsage::TransferDst, MemoryUsage::GpuToCpu});
+            auto output = device.CreateBuffer({512, BufferUsage::TransferDst | BufferUsage::TransferSrc, MemoryUsage::GpuToCpu});
             device.WriteBuffer(*source, 0, input); device.WriteBuffer(*black, 0, zero); device.WriteBuffer(*padding, 0, sentinel);
             auto commands = device.CreateCommandList(); commands->Begin();
             for (auto* buffer : {source.get(), black.get(), padding.get()})
@@ -91,9 +114,64 @@ namespace MphRead::Mods::Diagnostics
             commands->End(); device.ReadBuffer(*output, 0, actual);
             if (actual != expected || device.DrainErrors())
                 throw std::runtime_error(std::string("Format GPU copy changed pixels, padding or untouched image region: ") + test.Name);
-            std::cout << "[format copy] " << test.Name << " PASS; exact pixels/padding/subrectangle; transfer-only; copy waits=0\n";
+            {
+                auto list = device.CreateCommandList(); list->Begin();
+                list->Transition(*output, ResourceState::CopyDst, ResourceState::CopySrc); list->End();
+                const auto async = AsyncRead(device, *output, 512);
+                if (async.size() != 512 || !std::equal(async.begin(), async.end(), expected.begin()))
+                    throw std::runtime_error(std::string("Async readback of a format copy differs: ") + test.Name);
+            }
+            std::cout << "[format copy] " << test.Name << " PASS; exact pixels/padding/subrectangle; async readback equal; transfer-only; copy waits=0\n";
         }
         std::cout << "[format copy] PASS; 16 color/single-depth formats; packed depth/stencil is a separate contract\n";
+    }
+
+    // Mip 1 / layer 1 of a mipmapped array, written and read back on its own
+    // through a GPU copy and the async readback, the base subresource intact.
+    void CheckRhiSubresourceReadbacks(NativeRuntime::Rhi::GraphicsDevice& device)
+    {
+        using namespace NativeRuntime::Rhi;
+        const auto& caps = device.GetCapabilities();
+        if (caps.maxTextureMipLevels < 2 || caps.maxTextureArrayLayers < 2)
+        {
+            std::cout << "[subresource readback] skipped; single-level 2D images on this backend (Capabilities)\n";
+            return;
+        }
+        TextureDesc desc{}; desc.width = 8; desc.height = 4; desc.mipLevels = 2; desc.arrayLayers = 2;
+        desc.format = TextureFormat::RGBA8Unorm; desc.usage = TextureUsage::TransferSrc | TextureUsage::TransferDst;
+        auto texture = device.CreateTexture(desc);
+        std::array<std::byte, 64> base{}, mip{}, zero{};
+        for (std::size_t i = 0; i < base.size(); ++i) { base[i] = std::byte(0x40 + i % 7); }
+        for (std::size_t i = 0; i < 4 * 2 * 4; ++i) mip[i] = std::byte(i * 13 + 1);
+        auto baseIn = device.CreateBuffer({128, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu});
+        auto mipIn = device.CreateBuffer({64, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu});
+        auto baseOut = device.CreateBuffer({128, BufferUsage::TransferDst | BufferUsage::TransferSrc, MemoryUsage::GpuToCpu});
+        auto mipOut = device.CreateBuffer({64, BufferUsage::TransferDst | BufferUsage::TransferSrc, MemoryUsage::GpuToCpu});
+        std::array<std::byte, 128> baseImage{};
+        for (std::size_t i = 0; i < baseImage.size(); ++i) baseImage[i] = std::byte(0x40 + i % 7);
+        device.WriteBuffer(*baseIn, 0, baseImage); device.WriteBuffer(*mipIn, 0, mip);
+        auto commands = device.CreateCommandList(); commands->Begin();
+        for (auto* buffer : {baseIn.get(), mipIn.get()}) commands->Transition(*buffer, ResourceState::Undefined, ResourceState::CopySrc);
+        for (auto* buffer : {baseOut.get(), mipOut.get()}) commands->Transition(*buffer, ResourceState::Undefined, ResourceState::CopyDst);
+        commands->Transition(*texture, ResourceState::Undefined, ResourceState::CopyDst);
+        BufferTextureCopy baseRegion{}; baseRegion.width = 8; baseRegion.height = 4;
+        commands->CopyBufferToTexture(*baseIn, *texture, baseRegion);
+        BufferTextureCopy mipRegion{}; mipRegion.width = 4; mipRegion.height = 2; mipRegion.mipLevel = 1; mipRegion.arrayLayer = 1;
+        commands->CopyBufferToTexture(*mipIn, *texture, mipRegion);
+        commands->Transition(*texture, ResourceState::CopyDst, ResourceState::CopySrc);
+        commands->CopyTextureToBuffer(*texture, *mipOut, mipRegion);
+        commands->CopyTextureToBuffer(*texture, *baseOut, baseRegion);
+        commands->Transition(*baseOut, ResourceState::CopyDst, ResourceState::CopySrc);
+        commands->Transition(*mipOut, ResourceState::CopyDst, ResourceState::CopySrc);
+        commands->End();
+        const auto mipRead = AsyncRead(device, *mipOut, 32);
+        const auto baseRead = AsyncRead(device, *baseOut, 128);
+        if (!std::equal(mipRead.begin(), mipRead.end(), mip.begin()))
+            throw std::runtime_error("Mip 1 / layer 1 readback differs from what was written there.");
+        if (!std::equal(baseRead.begin(), baseRead.end(), baseImage.begin()))
+            throw std::runtime_error("Writing mip 1 / layer 1 changed the base subresource.");
+        if (device.DrainErrors()) throw std::runtime_error("Subresource readback raised native errors.");
+        std::cout << "[subresource readback] PASS; mip 1 / layer 1 written and read back on its own; base subresource intact\n";
     }
 
     // What Capabilities reports for subresources is what CreateTexture keeps:

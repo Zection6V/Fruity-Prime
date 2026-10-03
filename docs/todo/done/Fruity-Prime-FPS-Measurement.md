@@ -15,6 +15,7 @@ Windows native desktop の計測機能。HUD の **FPS Counter** を Off にし�
 
 2つを同時には実行しない。同じマップ、プレイヤー数、視点、解像度、描画設定で比較する。
 ウィンドウを最小化せず、フォーカスを保つ。設定画面で renderer を変えても同じ CSV に続けて記録する。
+対戦中の比較には `main_active=1`（ローカルプレイヤーが出現済み・生存中）の行を使う。
 CSV は指定ファイルを新規作成／上書きし、アプリ終了時に閉じる。
 
 `-fpsmeasure` と同時に指定した `-fpscap` は計測中の一時的な上限になる。
@@ -30,14 +31,18 @@ CSV は指定ファイルを新規作成／上書きし、アプリ終了時に�
 2026-10-04: 通常のUnlimitedを無制限へ修正。最新MSVC Releaseで、旧設定
 `FrameRateCap=500` を読み込み、CLI上限の指定なしで ALINOS PERCH / borderless
 2560x1439 / Sylux＋3 bots / Low Latency Off を検証した。
-ウォームアップ後、スクリーンショット読戻しが入る最終行を除いた8区間は
+この初回検査はローカルプレイヤーのFire入力前だったため、対戦中の性能値には使わない。
+上限解除自体の確認として、ウォームアップ後の8区間は
 Vulkan 433.6–556.7 FPS、OpenGL 391.0–571.0 FPS。両方とも `fps_cap=unlimited`、
 Immediate要求・実際のImmediate、pause=0 / focus=1を記録した。
-Settings Applyを伴う3回の対戦中renderer切替がPASSし、`unlimited` の保存も確認。
+Settings Applyを伴う3回のrenderer切替がPASSし、`unlimited` の保存も確認。
 `-frametimingcheck` は旧設定移行・上限の保存形式・1500 Hz描画時の60 Hz simulationをPASS、
 CTestは21/21 PASS。上限解除の証拠と、残る描画負荷の改善は別に扱う。
 ローカル証拠: `tools/build/out/unlimited-{vulkan,opengl}.csv`、
 `unlimited-save-switch.log`、`unlimited-frametiming.log`、`unlimited-ctest.log`。
+
+出現後の再検査と描画最適化は
+[GPU mesh・OpenGL検索領域の改善記録](Fruity-Prime-Gpu-Mesh-Draw-Optimization-2026-10-04.md) に記録した。
 
 ```powershell
 .\FruityPrime.exe -launcher -rhi vulkan -fpsmeasure C:/tmp/vulkan-gpu.csv -fpscap unlimited -gpuprofile -noupdate
@@ -64,7 +69,7 @@ query は解放待ちを含め native set 8個までに制限し、枠がなけ�
 | `backend`, `room_id`, `width`, `height` | 実際の renderer、room ID、ウィンドウの framebuffer サイズ |
 | `fps_cap`, `present_requested`, `present_actual` | 計測上限、要求した同期方式、実際の同期方式。方式は0=Immediate、1=Fifo、2=Mailbox |
 | `resolution_scale`, `fps_counter`, `cel`, `fog` | 描画倍率と描画設定。bool は0/1 |
-| `paused`, `focused` | メニュー／ダイアログの pause とウィンドウの focus。比較では pause=0、focus=1を選ぶ |
+| `paused`, `focused`, `main_active` | メニュー／ダイアログの pause、ウィンドウの focus、ローカルプレイヤーの出現・生存。対戦中の比較では pause=0、focus=1、main_active=1を選ぶ |
 | `frames`, `seconds`, `fps` | 完了した描画コールバックの間隔数、経過秒、`frames / seconds` |
 | `mean_frame_ms`, `p50_ms`, `p95_ms`, `p99_ms` | 完了した描画の間隔の平均と百分位。CPU描画開始までの待ちも含む |
 | `percentile_samples` | 百分位に使ったサンプル数。各区間の先頭8192個まで。FPSの総数・時間はこの制限を受けない |
@@ -81,7 +86,8 @@ query 未対応・FPSのみの計測では GPU sample は0、GPU時間は空欄�
 ## 自動比較・切替回帰テスト
 
 既存の `-shellshot` に `FRUITY_FPSCHECK=1` を加えると、同じ試合の各 backend で4秒間続けて描画する。
-Qt版の `-shellshot` では試合開始後10秒間、メニューを開かずに実際の対戦を描画する。
+Qt版の `-shellshot` はFire入力でプレイヤーが出現するまで待ち、`FRUITY_FPSCHECK=1` なら
+その後10秒間、メニューを開かずに実際の対戦を描画する。hunter・bot数は現在のlauncher設定を使う。
 8人の出現直後は共通200粒子の枠が埋まるため、エフェクトの probe は240 **simulation ticks** 待ってから置く。
 着弾エフェクトを置いた後に長い測定待ちを入れて、その自然な寿命切れを切替の不具合と判定しない。
 元からあるボムの寿命・owner・effect と各切替時の world witness の検査は維持する。

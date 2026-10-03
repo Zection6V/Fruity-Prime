@@ -15,3 +15,7 @@ Settings Applyによる対戦中renderer切替3回もPASSし、各新ウィン�
 
 証拠は `tools/build/out/mouse-before.log`、`mouse-after-{opengl,vulkan}.log`、
 `mouse-vertical-switch.log`。通常起動では診断を実行しない。
+
+最新のFire入力でlocal playerの出現を待つshell checkでも再検査した。
+`vertex-cache-validation-switch.log`はsimulation frame 6で出現を確認し、
+その後のSettings Apply・3回の切替・各新windowの入力検査がPASSした。

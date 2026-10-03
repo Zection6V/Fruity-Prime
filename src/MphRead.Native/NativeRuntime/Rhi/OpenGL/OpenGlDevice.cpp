@@ -1644,6 +1644,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             IndexType _indexType = IndexType::UInt32;
             struct VertexArrayEntry final { unsigned Name; std::vector<int> Buffers; };
             std::map<std::vector<std::uint64_t>, VertexArrayEntry> _vertexArrays;
+            std::vector<std::uint64_t> _vertexArrayKey;
             bool _sceneGeometry = false;
             std::span<const VertexBufferLayoutDesc> _sceneBuffers;
             std::span<const VertexAttributeDesc> _sceneAttributes;

@@ -27,6 +27,9 @@ namespace MphRead
     };
 
     [[nodiscard]] GpuMeshDrawPlan BuildGpuMeshDrawPlan(const RendererGeometry& geometry);
+    // All primitive ranges in one mesh share draw state. Lower their winding
+    // once and upload one triangle list, preserving the submitted order.
+    [[nodiscard]] std::vector<std::uint32_t> BuildGpuMeshTriangleIndices(const RendererGeometry& geometry);
 
     class GpuMeshResource
     {

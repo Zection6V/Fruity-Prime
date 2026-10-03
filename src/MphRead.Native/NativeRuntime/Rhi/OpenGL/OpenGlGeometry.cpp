@@ -67,15 +67,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 }
                 _colorMode = !anyColor ? Mode::Inherited : allColor ? Mode::Static : Mode::Mixed;
                 _normalMode = !anyNormal ? Mode::Inherited : allNormal ? Mode::Static : Mode::Mixed;
-                const auto plan = BuildGpuMeshDrawPlan(geometry);
-                std::vector<std::uint32_t> indices;
-                for (const auto& range : plan.Ranges)
-                {
-                    const auto first = Count(indices.size());
-                    AppendSceneTriangleIndices(indices, std::span(geometry.Indices).subspan(range.FirstIndex, range.IndexCount), range.Topology);
-                    const auto end = Count(indices.size());
-                    if (end > first) _ranges.emplace_back(first, end - first);
-                }
+                const auto indices = BuildGpuMeshTriangleIndices(geometry);
+                _indexCount = Count(indices.size());
                 _vertexBuffer = Upload(_device, std::span<const MeshVertex>(_vertices), BufferUsage::Vertex);
                 _indexBuffer = Upload(_device, std::span<const std::uint32_t>(indices), BufferUsage::Index);
                 if (_colorMode == Mode::Mixed)
@@ -111,9 +104,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     Configure(_normalMode, Normal, VertexFormat::Float3, offsetof(MeshVertex, Normal), 3,
                         SceneVertexAttributeState::Normal, currentNormal, _normalScratch, _normalBuffer,
                         buffers, bufferCount, attributes, attributeCount);
-                    for (const auto& [first, count] : _ranges)
-                        DrawSceneGeometry(_commands, std::span(buffers).first(bufferCount), std::span(attributes).first(attributeCount),
-                            PrimitiveTopology::TriangleList, count, first);
+                    DrawSceneGeometry(_commands, std::span(buffers).first(bufferCount), std::span(attributes).first(attributeCount),
+                        PrimitiveTopology::TriangleList, _indexCount, 0);
                 }
                 // Generic array draws may leave current attributes undefined.
                 // Restore the display-list terminal state explicitly.
@@ -151,7 +143,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             SceneVertexAttributeState _terminalAttributes{};
             std::vector<SceneVertexAttributeState> _states;
             std::vector<MeshVertex> _vertices;
-            std::vector<std::pair<std::uint32_t, std::uint32_t>> _ranges;
+            std::uint32_t _indexCount = 0;
             Mode _colorMode = Mode::Inherited, _normalMode = Mode::Inherited;
             std::vector<float> _colorScratch, _normalScratch;
             std::unique_ptr<Buffer> _vertexBuffer, _indexBuffer, _colorBuffer, _normalBuffer;

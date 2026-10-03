@@ -17,6 +17,7 @@
 
 #include "../../MphRead.Native/GameState.hpp"
 #include "../../MphRead.Native/Scene.hpp"
+#include "../../MphRead.Native/Entities/Players/PlayerEntity.hpp"
 #include "../../MphRead.Native/Menu.hpp"
 #include "../../MphRead.Native/Metadata/Metadata.hpp"
 #include "../../MphRead.Native/Renderer.hpp"
@@ -38,8 +39,10 @@
 #include "../../MphRead.Native/NativeRuntime/System/Runtime.hpp"
 
 #include <QtCore/QDir>
+#include <QtCore/QCoreApplication>
 #include <QtCore/QVariantMap>
 #include <QtGui/QImage>
+#include <QtGui/QMouseEvent>
 #include <QtGui/QOpenGLContext>
 #include <QtGui/QOpenGLFunctions>
 #include <QtGui/QWindow>
@@ -274,13 +277,45 @@ namespace MphRead::Mods::Launcher::Gui
                 return;
             }
             ++frame;
-            // Keep the real, unpaused match running long enough for warm-up
-            // and FPS samples; counting draw calls alone ends it too soon
-            // when Unlimited exceeds the simulation's fixed 60 Hz.
-            if (frame == 151 && qEnvironmentVariableIntValue("FRUITY_FPSCHECK") != 0)
+            // Enter through the real Fire input before measuring or switching
+            // the match. A loaded room with bots is still the main player's
+            // "Press fire to begin" screen until that input is received.
+            if (frame == 151)
             {
-                static const auto matchStart = std::chrono::steady_clock::now();
-                if (std::chrono::steady_clock::now() - matchStart < std::chrono::seconds(10))
+                static const auto spawnStart = std::chrono::steady_clock::now();
+                static std::optional<std::chrono::steady_clock::time_point> matchStart;
+                const auto now = std::chrono::steady_clock::now();
+                const auto main = MphRead::Entities::PlayerEntity::Main();
+                const auto playing = MphRead::Entities::LoadFlags::Active | MphRead::Entities::LoadFlags::Spawned;
+                const bool active = window.HasScene() && main
+                    && (main->LoadFlags() & playing) == playing && main->Health() > 0;
+                if (!active)
+                {
+                    if (now - spawnStart > std::chrono::seconds(5))
+                        throw std::runtime_error("Shell check main player did not spawn after Fire.");
+                    const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(now - spawnStart).count();
+                    const bool down = (milliseconds / 100) % 2 == 0;
+                    auto* target = MphRead::Qt::GameWindow();
+                    const QPointF centre(target->width() / 2, target->height() / 2);
+                    QMouseEvent fire(down ? QEvent::MouseButtonPress : QEvent::MouseButtonRelease,
+                        centre, QPointF(target->mapToGlobal(centre.toPoint())), ::Qt::LeftButton,
+                        down ? ::Qt::LeftButton : ::Qt::NoButton, ::Qt::NoModifier);
+                    QCoreApplication::sendEvent(target, &fire);
+                    --frame;
+                    return;
+                }
+                if (!matchStart)
+                {
+                    matchStart = now;
+                    auto* target = MphRead::Qt::GameWindow();
+                    QMouseEvent release(QEvent::MouseButtonRelease, QPointF(), QPointF(),
+                        ::Qt::LeftButton, ::Qt::NoButton, ::Qt::NoModifier);
+                    QCoreApplication::sendEvent(target, &release);
+                    std::cout << "[shellcheck] main player spawned; simulation_frame="
+                        << window.Scene().FrameCount() << '\n';
+                }
+                if (qEnvironmentVariableIntValue("FRUITY_FPSCHECK") != 0
+                    && now - *matchStart < std::chrono::seconds(10))
                 {
                     --frame;
                     return;

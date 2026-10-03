@@ -53,8 +53,12 @@ unsigned OpenGlCommandList::VertexArray()
     const auto& desc = _applied ? _applied->Desc() : empty;
     const auto buffers = _sceneGeometry ? _sceneBuffers : std::span<const VertexBufferLayoutDesc>(desc.vertexBuffers);
     const auto attributes = _sceneGeometry ? _sceneAttributes : std::span<const VertexAttributeDesc>(desc.vertexAttributes);
-    std::vector<std::uint64_t> key{buffers.size(), attributes.size()};
-    std::vector<int> names;
+    // Cache lookup is the ordinary draw path. Retain its scratch storage so
+    // cached meshes do not allocate a key and attribute set on every draw.
+    auto& key = _vertexArrayKey;
+    key.clear();
+    key.reserve(3 + buffers.size() * 5 + attributes.size() * 4);
+    key.insert(key.end(), {buffers.size(), attributes.size()});
     for (const auto& layout : buffers)
     {
         const auto found = _vertexBindings.find(layout.slot);
@@ -63,23 +67,27 @@ unsigned OpenGlCommandList::VertexArray()
         const auto& binding = found->second;
         key.insert(key.end(), {layout.slot, layout.stride, static_cast<unsigned>(layout.inputRate),
             static_cast<unsigned>(binding.Buffer->Name()), binding.Offset});
-        names.push_back(binding.Buffer->Name());
     }
-    std::unordered_set<std::uint32_t> locations;
-    for (const auto& attr : attributes)
+    for (std::size_t i = 0; i < attributes.size(); ++i)
     {
+        const auto& attr = attributes[i];
         const auto found = std::find_if(buffers.begin(), buffers.end(), [&](const auto& value) { return value.slot == attr.bufferSlot; });
         const auto format = AttributeFormat(attr.format);
         if (found == buffers.end() || attr.location >= _device->GetCapabilities().maxVertexBuffers
-            || !locations.insert(attr.location).second || attr.offset > found->stride || format.Bytes > found->stride - attr.offset)
+            || std::any_of(attributes.begin(), attributes.begin() + i,
+                [&](const auto& previous) { return previous.location == attr.location; })
+            || attr.offset > found->stride || format.Bytes > found->stride - attr.offset)
             throw std::invalid_argument("OpenGL RHI: invalid vertex attribute layout.");
         const auto& binding = _vertexBindings.at(attr.bufferSlot);
         CheckBufferRange(*binding.Buffer, binding.Offset + attr.offset, format.Bytes);
         key.insert(key.end(), {attr.location, attr.bufferSlot, static_cast<unsigned>(attr.format), attr.offset});
     }
     key.push_back(_indexBuffer ? static_cast<unsigned>(_indexBuffer->Name()) : 0);
-    if (_indexBuffer) names.push_back(_indexBuffer->Name());
     if (const auto found = _vertexArrays.find(key); found != _vertexArrays.end()) return found->second.Name;
+    std::vector<int> names;
+    names.reserve(buffers.size() + (_indexBuffer ? 1 : 0));
+    for (const auto& layout : buffers) names.push_back(_vertexBindings.at(layout.slot).Buffer->Name());
+    if (_indexBuffer) names.push_back(_indexBuffer->Name());
     auto& api = _device->Api();
     unsigned vao = 0;
     OpenGlNative::Require(api.GenVertexArrays, "glGenVertexArrays")(1, &vao);
@@ -102,7 +110,7 @@ unsigned OpenGlCommandList::VertexArray()
         GL::BindBuffer(GL::BufferTarget::ElementArrayBuffer, _indexBuffer ? _indexBuffer->Name() : 0);
         api.BindVertexArray(0);
         GL::BindBuffer(GL::BufferTarget::ArrayBuffer, 0);
-        _vertexArrays.emplace(std::move(key), VertexArrayEntry{vao, std::move(names)});
+        _vertexArrays.emplace(key, VertexArrayEntry{vao, std::move(names)});
         return vao;
     }
     catch (...) { api.BindVertexArray(0); api.DeleteVertexArrays(1, &vao); throw; }

@@ -33,6 +33,21 @@ namespace MphRead
         return plan;
     }
 
+    std::vector<std::uint32_t> BuildGpuMeshTriangleIndices(const RendererGeometry& geometry)
+    {
+        const auto plan = BuildGpuMeshDrawPlan(geometry);
+        std::vector<std::uint32_t> indices;
+        indices.reserve(geometry.Indices.size());
+        for (const auto& range : plan.Ranges)
+        {
+            AppendSceneTriangleIndices(indices,
+                std::span(geometry.Indices).subspan(range.FirstIndex, range.IndexCount), range.Topology);
+            if (indices.size() > std::numeric_limits<std::uint32_t>::max())
+                throw std::overflow_error("GPU mesh triangle index count exceeds uint32_t.");
+        }
+        return indices;
+    }
+
     void BuildTransientIndexSequence(std::span<std::uint32_t> indices)
     {
         if (indices.size() > std::numeric_limits<std::uint32_t>::max())

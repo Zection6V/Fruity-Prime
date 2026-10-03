@@ -132,6 +132,8 @@ set(FRUITY_VULKAN_FEATURE_PROBE_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanFeatureProbe.cpp")
 set(FRUITY_VULKAN_COMMAND_SLOTS_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanCommandSlots.cpp")
+set(FRUITY_VULKAN_RESOURCES_TEST_SOURCE
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanResources.cpp")
 set(FRUITY_SHADER_INTERFACE_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestShaderInterface.cpp")
 set(FRUITY_GOLDEN_CAPTURE_VALIDATION_TEST_SOURCE
@@ -171,6 +173,7 @@ add_custom_target(fruity_golden_capture_provenance
     COMMENT "Refreshing GoldenCapture source provenance"
     VERBATIM)
 list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES
+    "${FRUITY_VULKAN_RESOURCES_TEST_SOURCE}"
     "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanErrors.cpp"
     "${FRUITY_MPHREAD_ROOT}/Testing/TestReadback.cpp"
     "${FRUITY_RENDERER_GEOMETRY_TEST_SOURCE}"
@@ -415,6 +418,15 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         target_include_directories(fruity_vulkan_command_slots_tests PRIVATE ${Vulkan_INCLUDE_DIRS})
         target_compile_features(fruity_vulkan_command_slots_tests PRIVATE cxx_std_20)
         add_test(NAME FruityPrime.VulkanCommandSlots COMMAND fruity_vulkan_command_slots_tests)
+        if(FRUITY_VMA_INCLUDE_DIR)
+            add_executable(fruity_vulkan_resources_tests
+                "${FRUITY_VULKAN_RESOURCES_TEST_SOURCE}"
+                "${FRUITY_MPHREAD_ROOT}/NativeRuntime/Rhi/Vulkan/VulkanResources.cpp")
+            target_compile_definitions(fruity_vulkan_resources_tests PRIVATE FRUITY_HAS_VULKAN)
+            target_include_directories(fruity_vulkan_resources_tests PRIVATE ${Vulkan_INCLUDE_DIRS} "${FRUITY_VMA_INCLUDE_DIR}")
+            target_compile_features(fruity_vulkan_resources_tests PRIVATE cxx_std_20)
+            add_test(NAME FruityPrime.VulkanResources COMMAND fruity_vulkan_resources_tests)
+        endif()
     endif()
 
     add_executable(fruity_golden_capture_validation_tests

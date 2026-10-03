@@ -26,6 +26,7 @@
 #include "VulkanUploadArena.hpp"
 #include "VulkanCommandSlots.hpp"
 #include "VulkanMemory.hpp"
+#include "VulkanResources.hpp"
 #include "../../../Testing/MemoryAdmissionCheck.hpp"
 #include "../SceneShaderAbi.hpp"
 #include "../../../Mods/Platform/AppPaths.hpp"
@@ -49,35 +50,6 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         [[nodiscard]] bool Has(TextureUsage value, TextureUsage flag) noexcept
         {
             return (static_cast<std::uint32_t>(value) & static_cast<std::uint32_t>(flag)) != 0;
-        }
-
-        [[nodiscard]] VkFormat ToVkFormat(TextureFormat format)
-        {
-            switch (format)
-            {
-            case TextureFormat::R8Unorm: return VK_FORMAT_R8_UNORM;
-            case TextureFormat::RG8Unorm: return VK_FORMAT_R8G8_UNORM;
-            // No desktop GPU renders to a three-byte format; RGB8 is stored as
-            // RGBA8 with alpha held at one (views swizzle it, pipelines mask it).
-            case TextureFormat::RGB8Unorm: return VK_FORMAT_R8G8B8A8_UNORM;
-            case TextureFormat::RGBA8Unorm: return VK_FORMAT_R8G8B8A8_UNORM;
-            case TextureFormat::RGBA8Srgb: return VK_FORMAT_R8G8B8A8_SRGB;
-            case TextureFormat::BGRA8Unorm: return VK_FORMAT_B8G8R8A8_UNORM;
-            case TextureFormat::BGRA8Srgb: return VK_FORMAT_B8G8R8A8_SRGB;
-            case TextureFormat::R16Float: return VK_FORMAT_R16_SFLOAT;
-            case TextureFormat::RG16Float: return VK_FORMAT_R16G16_SFLOAT;
-            case TextureFormat::RGBA16Float: return VK_FORMAT_R16G16B16A16_SFLOAT;
-            case TextureFormat::R32Float: return VK_FORMAT_R32_SFLOAT;
-            case TextureFormat::RG32Float: return VK_FORMAT_R32G32_SFLOAT;
-            case TextureFormat::RGB32Float: return VK_FORMAT_R32G32B32_SFLOAT;
-            case TextureFormat::RGBA32Float: return VK_FORMAT_R32G32B32A32_SFLOAT;
-            case TextureFormat::D16Unorm: return VK_FORMAT_D16_UNORM;
-            case TextureFormat::D24UnormS8Uint: return VK_FORMAT_D24_UNORM_S8_UINT;
-            case TextureFormat::D32Float: return VK_FORMAT_D32_SFLOAT;
-            case TextureFormat::D32FloatS8Uint: return VK_FORMAT_D32_SFLOAT_S8_UINT;
-            case TextureFormat::Undefined: break;
-            }
-            throw std::invalid_argument("Vulkan RHI: undefined or unsupported texture format.");
         }
 
         [[nodiscard]] std::uint32_t BytesPerPixel(TextureFormat format)
@@ -111,63 +83,6 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         [[nodiscard]] std::uint32_t StorageBytesPerPixel(TextureFormat format)
         {
             return format == TextureFormat::RGB8Unorm ? 4U : BytesPerPixel(format);
-        }
-
-        [[nodiscard]] VkImageAspectFlags Aspect(TextureFormat format)
-        {
-            switch (format)
-            {
-            case TextureFormat::D16Unorm:
-            case TextureFormat::D32Float:
-                return VK_IMAGE_ASPECT_DEPTH_BIT;
-            case TextureFormat::D24UnormS8Uint:
-            case TextureFormat::D32FloatS8Uint:
-                return VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-            case TextureFormat::Undefined:
-                throw std::invalid_argument("Vulkan RHI: an image view needs a defined format.");
-            default:
-                return VK_IMAGE_ASPECT_COLOR_BIT;
-            }
-        }
-
-        [[nodiscard]] VkSampleCountFlagBits ToVkSamples(std::uint32_t count)
-        {
-            switch (count)
-            {
-            case 1: return VK_SAMPLE_COUNT_1_BIT;
-            case 2: return VK_SAMPLE_COUNT_2_BIT;
-            case 4: return VK_SAMPLE_COUNT_4_BIT;
-            case 8: return VK_SAMPLE_COUNT_8_BIT;
-            case 16: return VK_SAMPLE_COUNT_16_BIT;
-            case 32: return VK_SAMPLE_COUNT_32_BIT;
-            case 64: return VK_SAMPLE_COUNT_64_BIT;
-            default: throw std::invalid_argument("Vulkan RHI: invalid texture sample count.");
-            }
-        }
-
-        [[nodiscard]] VkBufferUsageFlags ToVkBufferUsage(BufferUsage usage)
-        {
-            VkBufferUsageFlags result = 0;
-            if (Has(usage, BufferUsage::Vertex)) result |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-            if (Has(usage, BufferUsage::Index)) result |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-            if (Has(usage, BufferUsage::Uniform)) result |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
-            if (Has(usage, BufferUsage::Storage)) result |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
-            if (Has(usage, BufferUsage::TransferSrc)) result |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-            if (Has(usage, BufferUsage::TransferDst)) result |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-            return result;
-        }
-
-        [[nodiscard]] VkImageUsageFlags ToVkImageUsage(TextureUsage usage)
-        {
-            VkImageUsageFlags result = 0;
-            if (Has(usage, TextureUsage::Sampled)) result |= VK_IMAGE_USAGE_SAMPLED_BIT;
-            if (Has(usage, TextureUsage::Storage)) result |= VK_IMAGE_USAGE_STORAGE_BIT;
-            if (Has(usage, TextureUsage::ColorAttachment)) result |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-            if (Has(usage, TextureUsage::DepthStencilAttachment))
-                result |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-            if (Has(usage, TextureUsage::TransferSrc)) result |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-            if (Has(usage, TextureUsage::TransferDst)) result |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-            return result;
         }
 
         struct StateMapping final
@@ -281,21 +196,6 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             return result;
         }
 
-        [[nodiscard]] VmaAllocationCreateInfo ToVmaAllocation(MemoryUsage usage)
-        {
-            VmaAllocationCreateInfo result{};
-            result.usage = VMA_MEMORY_USAGE_AUTO;
-            if (usage == MemoryUsage::CpuToGpu)
-            {
-                result.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-            }
-            else if (usage == MemoryUsage::GpuToCpu)
-            {
-                result.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
-            }
-            return result;
-        }
-
         [[nodiscard]] VkBufferImageCopy ToVkBufferImageCopy(
             const BufferDesc& buffer, const TextureDesc& texture, const BufferTextureCopy& region)
         {
@@ -321,7 +221,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 || region.z > mipDepth || region.depth > mipDepth - region.z)
                 throw std::out_of_range("Vulkan RHI: image-copy region is outside the selected mip.");
 
-            const VkImageAspectFlags available = Aspect(texture.format);
+            const VkImageAspectFlags available = VulkanResources::AspectMask(texture.format);
             VkImageAspectFlags selected = available == VK_IMAGE_ASPECT_COLOR_BIT
                 ? VK_IMAGE_ASPECT_COLOR_BIT : VK_IMAGE_ASPECT_DEPTH_BIT;
             switch (region.aspect)
@@ -546,6 +446,26 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     maintenance.maxMemoryAllocationSize, properties.properties.limits.maxMemoryAllocationCount,
                     maintenance4.maxBufferSize, vk.memoryBudget});
                 Allocator = Memory->Allocator(); // Borrowed by transfer and retirement callbacks.
+                Resources = std::make_unique<VulkanResources>(VulkanResources::Dispatch{
+                    vk.physical, vk.device, vk.vkGetPhysicalDeviceImageFormatProperties, vk.vkGetPhysicalDeviceFormatProperties,
+                    vk.vkCreateImageView, vk.vkDestroyImageView, vk.vkCreateSampler, vk.vkDestroySampler, Check,
+                    [memory = Memory.get()](const VkBufferCreateInfo& info, const VmaAllocationCreateInfo& allocation) {
+                        VulkanResources::BufferStorage result{}; VmaAllocationInfo mapped{};
+                        memory->CreateBuffer(info, allocation, result.Buffer, result.Allocation, &mapped);
+                        result.Mapped = static_cast<std::byte*>(mapped.pMappedData); return result;
+                    },
+                    [allocator = Allocator](VulkanResources::BufferStorage storage) {
+                        vmaDestroyBuffer(allocator, storage.Buffer, storage.Allocation);
+                    },
+                    [memory = Memory.get()](const VkImageCreateInfo& info, const VmaAllocationCreateInfo& allocation) {
+                        VulkanResources::ImageStorage result{};
+                        memory->CreateImage(info, allocation, result.Image, result.Allocation); return result;
+                    },
+                    [allocator = Allocator](VulkanResources::ImageStorage storage) {
+                        vmaDestroyImage(allocator, storage.Image, storage.Allocation);
+                    },
+                    [context = &vk](VkObjectType type, std::uint64_t handle, const char* label) { context->Name(type, handle, label); }
+                }, context.Caps());
                 try
                 {
                     VkPhysicalDeviceProperties identity{};
@@ -610,6 +530,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     VmaTotalStatistics statistics{};
                     vmaCalculateStatistics(Allocator, &statistics);
                     OutstandingAllocationsAtShutdown = statistics.total.statistics.allocationCount;
+                    Resources->Close();
                     Memory->Close();
                     Allocator = VK_NULL_HANDLE;
                     if (PipelineCache) PipelineCache->Close();
@@ -709,6 +630,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             bool FrameActive = false;
             VmaAllocator Allocator = VK_NULL_HANDLE;
             std::unique_ptr<VulkanMemory> Memory;
+            std::unique_ptr<VulkanResources> Resources;
             std::atomic<std::uint32_t> Buffers{0};
             std::atomic<std::uint32_t> Textures{0};
             std::atomic<std::uint32_t> Shaders{0};
@@ -1256,23 +1178,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         VulkanBuffer::VulkanBuffer(std::shared_ptr<VulkanDeviceState> state, const BufferDesc& desc)
             : _device(std::move(state)), _registration(*_device, *this), _desc(desc), _state(ResourceState::Undefined)
         {
-            if (_desc.size == 0 || _desc.usage == BufferUsage::None || !IsValidBufferState(_desc, _desc.initialState))
-                throw std::invalid_argument("Vulkan RHI: buffers need a nonzero size and compatible usage/state.");
-            VkBufferCreateInfo create{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-            create.size = _desc.size;
-            create.usage = ToVkBufferUsage(_desc.usage);
-            create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-            auto allocation = ToVmaAllocation(_desc.memoryUsage);
-            if (_desc.memoryUsage == MemoryUsage::CpuToGpu) allocation.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
-            VmaAllocationInfo info{};
-            _device->Memory->CreateBuffer(create, allocation, _buffer, _allocation, &info);
-            _mapped = static_cast<std::byte*>(info.pMappedData);
-            if (_desc.memoryUsage == MemoryUsage::CpuToGpu && !_mapped)
-            {
-                vmaDestroyBuffer(_device->Allocator, _buffer, _allocation);
-                _buffer = VK_NULL_HANDLE; _allocation = VK_NULL_HANDLE;
-                throw std::runtime_error("Vulkan upload buffer is not persistently mapped.");
-            }
+            const auto storage = _device->Resources->CreateBuffer(desc);
+            _buffer = storage.Buffer; _allocation = storage.Allocation; _mapped = storage.Mapped;
             ++_device->Buffers;
         }
 
@@ -1295,53 +1202,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         VulkanSampler::VulkanSampler(std::shared_ptr<VulkanDeviceState> state, const SamplerDesc& desc)
             : _device(std::move(state)), _registration(*_device, *this), _desc(desc)
         {
-            auto& vk = *_device->ContextPointer->_impl;
-            const auto filter = [](Filter value)
-            {
-                return value == Filter::Nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
-            };
-            const auto address = [](SamplerAddressMode value)
-            {
-                switch (value)
-                {
-                case SamplerAddressMode::Repeat: return VK_SAMPLER_ADDRESS_MODE_REPEAT;
-                case SamplerAddressMode::MirroredRepeat: return VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
-                case SamplerAddressMode::ClampToEdge: return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-                case SamplerAddressMode::ClampToBorder: return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
-                }
-                throw std::invalid_argument("Vulkan RHI: invalid sampler address mode.");
-            };
-            VkSamplerCreateInfo create{VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
-            create.magFilter = filter(desc.magFilter);
-            create.minFilter = filter(desc.minFilter);
-            create.mipmapMode = desc.mipFilter == Filter::Nearest
-                ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR;
-            create.addressModeU = address(desc.addressU);
-            create.addressModeV = address(desc.addressV);
-            create.addressModeW = address(desc.addressW);
-            create.minLod = desc.minLod;
-            create.maxLod = desc.maxLod;
-            create.maxAnisotropy = 1.0F;
-            if (desc.maxAnisotropy > 1.0F)
-            {
-                if (!_device->ContextPointer->Caps().supportsAnisotropy)
-                    throw std::runtime_error("Vulkan RHI: anisotropic filtering is unavailable.");
-                create.anisotropyEnable = VK_TRUE;
-                create.maxAnisotropy = std::min(desc.maxAnisotropy,
-                    _device->ContextPointer->Caps().maxSamplerAnisotropy);
-            }
-            switch (desc.borderColor)
-            {
-            case BorderColor::TransparentBlack:
-                create.borderColor = VK_BORDER_COLOR_FLOAT_TRANSPARENT_BLACK; break;
-            case BorderColor::OpaqueBlack:
-                create.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK; break;
-            case BorderColor::OpaqueWhite:
-                create.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE; break;
-            }
-            Check(vk.vkCreateSampler(vk.device, &create, nullptr, &_sampler), "vkCreateSampler");
+            _sampler = _device->Resources->CreateSampler(desc);
             ++_device->Samplers;
-            vk.Name(VK_OBJECT_TYPE_SAMPLER, reinterpret_cast<std::uint64_t>(_sampler), "RHI sampler");
         }
 
         VulkanSampler::~VulkanSampler() { CloseNative(); }
@@ -1363,94 +1225,23 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             const TextureDesc& desc, TextureHandle handle)
             : _device(std::move(state)), _registration(*_device, *this), _desc(desc), _handle(handle), _state(ResourceState::Undefined)
         {
-            if (_desc.width == 0 || _desc.height == 0 || _desc.depth == 0
-                || _desc.mipLevels == 0 || _desc.arrayLayers == 0 || _desc.usage == TextureUsage::None
-                || !IsValidTextureState(_desc, _desc.initialState))
-                throw std::invalid_argument("Vulkan RHI: textures need nonzero extents/subresources and compatible usage/format/state.");
-            if (_desc.depth > 1 && _desc.arrayLayers != 1)
-                throw std::invalid_argument("Vulkan RHI: 3D texture arrays are not supported.");
-            if (_desc.memoryUsage != MemoryUsage::GpuOnly)
-                throw std::invalid_argument("Vulkan RHI: images must use GPU-only memory; use a buffer for host access.");
             CreateImage();
             ++_device->Textures;
         }
 
         void VulkanTexture::CreateImage()
         {
-            auto& vk = *_device->ContextPointer->_impl;
-            const Capabilities& caps = _device->ContextPointer->Caps();
-            if (_desc.width > caps.maxTexture2DDimension || _desc.height > caps.maxTexture2DDimension
-                || _desc.arrayLayers > caps.maxTextureArrayLayers)
-                throw std::out_of_range("Vulkan RHI: texture extent or layer count exceeds device limits.");
-            std::uint32_t maxExtent = std::max({_desc.width, _desc.height, _desc.depth});
-            std::uint32_t maxMipLevels = 1;
-            while (maxExtent > 1)
-            {
-                maxExtent >>= 1;
-                ++maxMipLevels;
-            }
-            if (_desc.mipLevels > maxMipLevels)
-                throw std::out_of_range("Vulkan RHI: texture mip count exceeds its extent.");
-            if (_desc.sampleCount != 1
-                && (Has(_desc.usage, TextureUsage::TransferSrc)
-                    || Has(_desc.usage, TextureUsage::TransferDst)))
-                throw std::invalid_argument("Vulkan RHI: multisampled images cannot be transfer resources.");
-            const VkFormat format = ToVkFormat(_desc.format);
-            VkImageFormatProperties imageProperties{};
-            Check(vk.vkGetPhysicalDeviceImageFormatProperties(vk.physical, format,
-                _desc.depth > 1 ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D,
-                VK_IMAGE_TILING_OPTIMAL, ToVkImageUsage(_desc.usage), 0, &imageProperties),
-                "vkGetPhysicalDeviceImageFormatProperties");
-            if (_desc.width > imageProperties.maxExtent.width
-                || _desc.height > imageProperties.maxExtent.height
-                || _desc.depth > imageProperties.maxExtent.depth
-                || _desc.arrayLayers > imageProperties.maxArrayLayers
-                || _desc.mipLevels > imageProperties.maxMipLevels
-                || (imageProperties.sampleCounts & ToVkSamples(_desc.sampleCount)) == 0)
-                throw std::out_of_range("Vulkan RHI: image description exceeds format/type limits.");
-            VkFormatProperties properties{};
-            vk.vkGetPhysicalDeviceFormatProperties(vk.physical, format, &properties);
-            VkFormatFeatureFlags required = 0;
-            if (Has(_desc.usage, TextureUsage::Sampled)) required |= VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
-            if (Has(_desc.usage, TextureUsage::Storage)) required |= VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT;
-            if (Has(_desc.usage, TextureUsage::ColorAttachment)) required |= VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;
-            if (Has(_desc.usage, TextureUsage::DepthStencilAttachment))
-                required |= VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
-            if ((properties.optimalTilingFeatures & required) != required)
-                throw std::runtime_error("Vulkan RHI: the selected texture format lacks a requested image usage.");
-
-            VkImageCreateInfo create{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-            create.imageType = _desc.depth > 1 ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D;
-            create.format = format;
-            create.extent = {_desc.width, _desc.height, _desc.depth};
-            create.mipLevels = _desc.mipLevels;
-            create.arrayLayers = _desc.arrayLayers;
-            create.samples = ToVkSamples(_desc.sampleCount);
-            create.tiling = VK_IMAGE_TILING_OPTIMAL;
-            create.usage = ToVkImageUsage(_desc.usage);
-            create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-            create.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-            const VmaAllocationCreateInfo allocation = ToVmaAllocation(_desc.memoryUsage);
-            _device->Memory->CreateImage(create, allocation, _image, _allocation);
-            vk.Name(VK_OBJECT_TYPE_IMAGE, reinterpret_cast<std::uint64_t>(_image), "RHI texture");
+            const auto storage = _device->Resources->CreateImage(_desc);
+            _image = storage.Image; _allocation = storage.Allocation;
         }
 
         VkImageView VulkanTexture::SampledView()
         {
             _device->RequireAlive();
             if (_sampledView != VK_NULL_HANDLE) return _sampledView;
-            auto& vk = *_device->ContextPointer->_impl;
-            VkImageViewCreateInfo create{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-            create.image = _image;
-            create.viewType = VK_IMAGE_VIEW_TYPE_2D;
-            create.format = ToVkFormat(_desc.format);
-            const VkImageAspectFlags aspect = Aspect(_desc.format);
-            create.subresourceRange.aspectMask = (aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0
-                ? VK_IMAGE_ASPECT_DEPTH_BIT : aspect;
-            if (_desc.format == TextureFormat::RGB8Unorm) create.components.a = VK_COMPONENT_SWIZZLE_ONE;
-            create.subresourceRange.levelCount = _desc.mipLevels;
-            create.subresourceRange.layerCount = 1;
-            Check(vk.vkCreateImageView(vk.device, &create, nullptr, &_sampledView), "vkCreateImageView(sampled)");
+            TextureViewDesc view{};
+            view.mipLevelCount = _desc.mipLevels; view.arrayLayerCount = _desc.arrayLayers;
+            _sampledView = _device->Resources->CreateView(_image, _desc, view, true);
             return _sampledView;
         }
 
@@ -1543,15 +1334,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             : _texture(texture), _device(texture.DeviceState()), _textureLifetime(texture.Lifetime()), _desc(desc)
         {
             _device->RequireAlive();
-            if (_desc.format == TextureFormat::Undefined)
-                _desc.format = texture.Desc().format;
-            if (_desc.format != texture.Desc().format)
-                throw std::invalid_argument("Vulkan RHI: texture view format reinterpretation is unsupported.");
-            if (_desc.mipLevelCount == 0 || _desc.baseMipLevel >= texture.Desc().mipLevels
-                || _desc.mipLevelCount > texture.Desc().mipLevels - _desc.baseMipLevel
-                || _desc.arrayLayerCount == 0 || _desc.baseArrayLayer >= texture.Desc().arrayLayers
-                || _desc.arrayLayerCount > texture.Desc().arrayLayers - _desc.baseArrayLayer)
-                throw std::invalid_argument("Vulkan RHI: texture view range is outside the image.");
+            _desc = VulkanResources::ResolveViewDesc(texture.Desc(), desc);
             texture.Register(*this);
         }
 
@@ -1565,19 +1348,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         {
             _device->RequireAlive();
             if (_view != VK_NULL_HANDLE) return;
-            auto& vk = *_texture.DeviceState()->ContextPointer->_impl;
-            VkImageViewCreateInfo create{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-            create.image = _texture.Native();
-            create.viewType = _texture.Desc().depth > 1 ? VK_IMAGE_VIEW_TYPE_3D
-                : (_texture.Desc().arrayLayers > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D);
-            create.format = ToVkFormat(_desc.format);
-            create.subresourceRange.aspectMask = Aspect(_desc.format);
-            create.subresourceRange.baseMipLevel = _desc.baseMipLevel;
-            create.subresourceRange.levelCount = _desc.mipLevelCount;
-            create.subresourceRange.baseArrayLayer = _desc.baseArrayLayer;
-            create.subresourceRange.layerCount = _desc.arrayLayerCount;
-            Check(vk.vkCreateImageView(vk.device, &create, nullptr, &_view), "vkCreateImageView");
-            vk.Name(VK_OBJECT_TYPE_IMAGE_VIEW, reinterpret_cast<std::uint64_t>(_view), "RHI texture view");
+            _view = _device->Resources->CreateView(_texture.Native(), _texture.Desc(), _desc);
         }
 
         void VulkanTextureView::DestroyNative() noexcept
@@ -1841,20 +1612,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 const auto makeUploads = [&] {
                     return std::make_unique<VulkanUploadArena>(VulkanUploadArena::Dispatch{
                         [device = _device.get()](VkDeviceSize size) {
-                            VulkanUploadArena::Page page{};
-                            VkBufferCreateInfo create{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-                            create.size = size;
-                            create.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT
-                                | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-                            create.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-                            VmaAllocationCreateInfo allocation{};
-                            allocation.usage = VMA_MEMORY_USAGE_AUTO;
-                            allocation.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT
-                                | VMA_ALLOCATION_CREATE_MAPPED_BIT;
-                            VmaAllocationInfo info{};
-                            device->Memory->CreateBuffer(create, allocation, page.Buffer, page.Allocation, &info);
-                            page.Data = static_cast<std::byte*>(info.pMappedData);
-                            page.Size = size;
+                            const auto storage = device->Resources->CreateBuffer({size,
+                                BufferUsage::Vertex | BufferUsage::Index | BufferUsage::Uniform | BufferUsage::TransferSrc,
+                                MemoryUsage::CpuToGpu});
+                            VulkanUploadArena::Page page{storage.Buffer, storage.Allocation, storage.Mapped, size};
                             ++device->UploadPages;
                             ++device->UploadPageCreations;
                             return page;
@@ -2220,7 +1981,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             depth.clearValue.depthStencil = {_target.DepthValue, _target.StencilValue};
             VkRenderingAttachmentInfo stencil = depth;
             stencil.loadOp = first && _target.ClearStencil ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
-            const bool hasStencil = _target.Depth && (Aspect(_target.Depth->Desc().format) & VK_IMAGE_ASPECT_STENCIL_BIT) != 0;
+            const bool hasStencil = _target.Depth && (VulkanResources::AspectMask(_target.Depth->Desc().format) & VK_IMAGE_ASPECT_STENCIL_BIT) != 0;
             std::uint32_t width = _target.Width;
             std::uint32_t height = _target.Height;
             for (const VulkanTexture* texture : {_target.Color, _target.Depth})
@@ -2598,7 +2359,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             RequireRecording();
             if (_renderingOpen && _clearsPending) Materialize();
             if (_renderingActive) EndNative();
-            const auto pixelAlignment = Aspect(texture.Desc().format) == VK_IMAGE_ASPECT_COLOR_BIT
+            const auto pixelAlignment = VulkanResources::AspectMask(texture.Desc().format) == VK_IMAGE_ASPECT_COLOR_BIT
                 ? StorageBytesPerPixel(texture.Desc().format) : 4U;
             // RGB32Float needs a multiple of 12, not merely a power-of-two alignment.
             const auto alignment = pixelAlignment == 12 ? 48U : 16U;
@@ -2906,7 +2667,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             barrier.image = texture.Native();
-            barrier.subresourceRange.aspectMask = Aspect(texture.Desc().format);
+            barrier.subresourceRange.aspectMask = VulkanResources::AspectMask(texture.Desc().format);
             barrier.subresourceRange.baseMipLevel = 0;
             barrier.subresourceRange.levelCount = texture.Desc().mipLevels;
             barrier.subresourceRange.baseArrayLayer = 0;
@@ -3390,8 +3151,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             FlushDevice(device);
         InteropImage result{};
         result.Image = reinterpret_cast<std::uint64_t>(native.Native());
-        result.Format = static_cast<std::uint32_t>(ToVkFormat(native.Desc().format));
-        result.Usage = static_cast<std::uint32_t>(ToVkImageUsage(native.Desc().usage));
+        result.Format = static_cast<std::uint32_t>(VulkanResources::Format(native.Desc().format));
+        result.Usage = static_cast<std::uint32_t>(VulkanResources::ImageUsage(native.Desc().usage));
         result.Layout = static_cast<std::uint32_t>(ToVkState(state, true,
             Has(native.Desc().usage, TextureUsage::Storage) && !Has(native.Desc().usage, TextureUsage::Sampled)).Layout);
         return result;
@@ -3539,7 +3300,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         auto texture = device.CreateTexture(textureDesc);
         VkImageFormatProperties properties{};
         const auto rgbSupported = state->ImageFormatProperties(VK_FORMAT_R32G32B32_SFLOAT,
-            ToVkImageUsage(textureDesc.usage), properties);
+            VulkanResources::ImageUsage(textureDesc.usage), properties);
         if (rgbSupported != VK_SUCCESS && rgbSupported != VK_ERROR_FORMAT_NOT_SUPPORTED)
             Check(rgbSupported, "vkGetPhysicalDeviceImageFormatProperties(upload fixture)");
         const auto floatChannels = rgbSupported == VK_SUCCESS ? 3U : 4U;

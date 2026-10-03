@@ -21,7 +21,7 @@ Phase A～E / H または R1～R20 がすべて完了したという記録では
 | R6 / R7: OpenGL command / sampler | Buffer / vertex・index binding / Draw / DrawIndexed / GPU Copy / BindingSet と独立 sampler・value cache を実装。Windows scene / transient geometry を同じ Buffer / CommandList / VAO 経由へ接続。共通 GPU fixture と旧新7画像の一致を確認。logical recording intervalと明示的transition / copyの状態契約を統一。単一2D画像以外の範囲、packed depth/stencil copy、全usage / formatの状態検証は残る |
 | R8: Session 寿命 | Vulkan の意図的に解放しない `VulkanScene` を削除。切替で scene / UI → commands → swapchain → device / context → window の順に解放する。OpenGL device は Session が単独所有。Vulkan も device 終了時に全 native owner を閉じ、shared state を context 非依存の CPU descriptor にする。両 backend で未送信 copy / 旧 wrapper を残す8回の shutdown / recreate を検査。swapchain は Session 終了前に解放する caller 契約を維持。device loss / admission failure の teardown は R17 / Phase H で続ける |
 | R9: presentation | request と実際の mode / capabilities を分離。typed acquire / present status を実装し、frame loop で利用。最小化・明示的 close request は一時停止、API の device / surface loss は別分類。OpenGL の generic conformance coverage は R19 で拡張する |
-| R10: Vulkan 責務分離 | `VulkanFrameScheduler` が queue submit / completion、`VulkanDescriptorAllocator` が slot ごとの pools、`VulkanUploadArena` が mapped pages / suballocation / flush / completion 後 reset / close を所有。`VulkanMemory` が VMA と buffer / image の admission / allocation を所有。pipeline library は R11 の専用 owner。`VulkanFeatureProbe` が instance / device の facts・必須条件・任意機能・queue選択・scoreを生成し、logical device生成と分離。`VulkanCommandSlots` が command listの2枠のnative pool / buffer / fence / allocators、再利用の調停を所有。logical recording / draw-stateとqueue schedulerは別の責務として維持。レビュー全体に照らした分離の最終監査は残る |
+| R10: Vulkan 責務分離 | `VulkanFrameScheduler` が queue submit / completion、`VulkanDescriptorAllocator` が slot ごとの pools、`VulkanUploadArena` が mapped pages / suballocation / flush / completion 後 reset / close を所有。`VulkanMemory` が VMA と buffer / image の admission / allocation を所有。`VulkanResources` が native buffer / image / view / sampler の検査・生成・生成失敗時のrollbackを所有し、通常リソースとupload pageが共用する。pipeline library は R11 の専用 owner。`VulkanFeatureProbe` が instance / device の facts・必須条件・任意機能・queue選択・scoreを生成し、logical device生成と分離。`VulkanCommandSlots` が command listの2枠のnative pool / buffer / fence / allocators、再利用の調停を所有。logical recording / draw-stateとqueue schedulerは別の責務として維持。レビュー全体に照らした分離の最終監査は残る |
 | R12: memory budget | API に依存しない snapshot / request / decision / telemetry と pure admission を実装。Vulkan は VMA / optional EXT live budget、OpenGL は optional NVX counters。未知・推定・driver 情報を区別し、buffer / texture / resize / thumbnail / interop target の確保前に判定。合成 heap / UMA / limits / overflow と両 backend の実 GPU 拒否・旧画像保持を検査。実 driver OOM、eviction、全 GPU の容量保証は含めない |
 | R13: upload | Vulkan の scene uniforms / transient geometry / texture と GPU-only buffer upload を slot ごとの persistent mapped arena へ統一。描画外の writes は専用 transfer stream で batch し、consumer / frame / readback / release の順序境界で submit。static mesh は GPU-only destination。CPU fake と実 GPU の再利用・コピー順・overflow・切替を検査。将来の API の機構は追加しない |
 | R11: native pipeline library | 既存 semantic cache を維持し、専用 `VulkanPipelineCache` を全 RHI native graphics pipeline 生成へ接続。identity / framing / checksum / size gate、atomic disk replacement、driver rejection / native cache 不可時の fallback と deterministic close を実装。CPU fault dispatch と実 GPU の cold / warm・破損・保存失敗を検証。速度向上・cache hit の計測は未実施。OpenGL は既存 linked-program cache、Metal / D3D12 は将来対応 |
@@ -2152,3 +2152,47 @@ storage-only textureのcombined readからのreadbackも同じfixtureで検査�
 今回のstate修正によるFPS改善や、差の原因を特定した証拠ではない。
 [FPS計測手順](Fruity-Prime-FPS-Measurement.md)のCLI / CSVを継続して利用できる。
 R19の全format / subresource / draw-state / presentation ownershipとR10の最終責務監査は残る。
+
+## Vulkanのnativeリソース生成policyの独立（R10 / Phase C）
+
+レビューの`VulkanResources.hpp/.cpp`を追加した。buffer / imageのdescriptor検査、
+用途とformat / extent / mip / layer / sample countのdevice適合性、VMA allocationの要求、
+samplerのanisotropy上限、viewのrange / type / depth aspect / RGB alpha swizzleをこのfactoryへ移した。
+通常のbuffer / texture / sampler / viewとpersistent upload pageが同じfactoryを使う。
+pipeline / interopもformat mappingをこのownerへ委譲する。
+
+VMA allocatorとbudget / admissionは引き続きVulkanMemoryが所有する。
+factoryは成功したnative valueをwrapper / upload arenaへ渡し、public handle・tracked state・
+native owner registration・GPU completion後のretirementはsession側の既存契約を使う。
+factoryのdispatchはsessionのallocator/contextを借り、session終了時にVMAより先に閉じる。
+factory自体はrecording / submit / fence / device waitを持たない。
+これは同じtranslation unitへ別断片をincludeするだけの変更ではなく、独立したclassと.cppである。
+
+従来はimage / sampler / viewの生成後にdebug namingが失敗すると、constructorからの例外で
+native objectを残し得た。factoryはこの段階で失敗したobjectを解放してから例外を返す。
+persistently mapped bufferのmappingが得られない場合もstorageを解放する。
+sampled viewのdimensionはtextureに合わせた2D / array / 3Dを選び、全mip / layerを保持する。
+モデル画素の複製、CPUへの描画移動、通常churnでのdevice-wide waitは追加していない。
+
+`TestVulkanResources`はGPU・VMA実allocatorを起動せず、同じfactoryのnative / allocation
+dispatchを置き換えて検査する。invalid descriptor / device limit / unsupported formatを確保前に拒否し、
+mapping・allocation・native create・debug namingの各失敗で所有数とretained resourceを確認する。
+viewのrange / aspect / swizzle / dimension、sampler上限、close後のnative call拒否も含む。
+driverのOOMやresetを注入する検査ではない。
+
+- MSVC Release PASS: `C:/tmp/gp/architecture-r10-resources-build.log`。
+- CPU CTest 16/16 PASS: `C:/tmp/gp/architecture-r10-resources-ctest.log`。
+- OpenGL / Vulkan共通GPU conformance PASS:
+  `C:/tmp/gp/architecture-r10-resources-conformance.log`。
+  resource state / binding / copies / session再生成 / async readbackを含み、Vulkan validation error=0。
+- Vulkan resource check PASS: `C:/tmp/gp/architecture-r10-resources-resourcecheck.log`。
+  upload64回、clear / bind / resize / release64回、失敗resizeの旧画素・view・handle保持、
+  通常churnのdevice-wide wait=0、最終live=0 / retired=0 / validation error=0。
+- Alinos PerchのSettings保存・Resumeを含む試合中3回切替PASS:
+  `C:/tmp/r18-fps-20261003-093043/opengl.log`。spawned Sylux +7 actors、world witness 3件、
+  texture-only source解放、validation error=0、native / wrapper exit=0。
+  GPU profileと240 FPS cap / validation ONの回帰検査で、FPS速度比較には混ぜない。
+
+R10の最終責務監査は続ける。GraphicsDeviceのtranslation unitにはまだcommand list / binding / shader /
+resource wrapperとsession調停が同居する。R19の全format / subresource / draw-state / presentation ownership、
+レビュー全体のcompletion auditも残る。Metal / D3D12は将来対応、Android / macOS実動作とremote CIは未実行。

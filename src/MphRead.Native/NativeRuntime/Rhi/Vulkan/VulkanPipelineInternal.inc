@@ -120,7 +120,7 @@ public:
                 && desc.depthStencilFormat != TextureFormat::D24UnormS8Uint && desc.depthStencilFormat != TextureFormat::D32FloatS8Uint)
                 throw std::invalid_argument("Vulkan RHI: color format used as depth attachment.");
             VkFormatProperties format{};
-            vk.vkGetPhysicalDeviceFormatProperties(vk.physical, ToVkFormat(desc.depthStencilFormat), &format);
+            vk.vkGetPhysicalDeviceFormatProperties(vk.physical, VulkanResources::Format(desc.depthStencilFormat), &format);
             if (!(format.optimalTilingFeatures & VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT))
                 throw std::invalid_argument("Vulkan RHI: unsupported depth attachment format.");
             if (desc.depthStencil.stencilTestEnable && desc.depthStencilFormat != TextureFormat::D24UnormS8Uint
@@ -136,7 +136,7 @@ public:
             if (i && !features.features.independentBlend && item != desc.blendAttachments.front())
                 throw std::invalid_argument("Vulkan RHI: independent blending unavailable.");
             VkFormatProperties format{};
-            vk.vkGetPhysicalDeviceFormatProperties(vk.physical, ToVkFormat(desc.colorFormats[i]), &format);
+            vk.vkGetPhysicalDeviceFormatProperties(vk.physical, VulkanResources::Format(desc.colorFormats[i]), &format);
             auto needed = VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;
             if (!(format.optimalTilingFeatures & needed)
                 || (item.blendEnable && !(format.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT)))
@@ -230,11 +230,11 @@ public:
             stages[0] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_VERTEX_BIT, vertex->Native(), vertex->Desc().entryPoint.c_str(), nullptr};
             stages[1] = {VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, nullptr, 0, VK_SHADER_STAGE_FRAGMENT_BIT, fragment->Native(), fragment->Desc().entryPoint.c_str(), nullptr};
             std::vector<VkFormat> formats;
-            for (const auto format : desc.colorFormats) formats.push_back(ToVkFormat(format));
+            for (const auto format : desc.colorFormats) formats.push_back(VulkanResources::Format(format));
             VkPipelineRenderingCreateInfo rendering{VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
             rendering.colorAttachmentCount = static_cast<std::uint32_t>(formats.size()); rendering.pColorAttachmentFormats = formats.data();
             rendering.depthAttachmentFormat = desc.depthStencilFormat == TextureFormat::Undefined
-                ? VK_FORMAT_UNDEFINED : ToVkFormat(desc.depthStencilFormat);
+                ? VK_FORMAT_UNDEFINED : VulkanResources::Format(desc.depthStencilFormat);
             if (desc.depthStencilFormat == TextureFormat::D24UnormS8Uint || desc.depthStencilFormat == TextureFormat::D32FloatS8Uint)
                 rendering.stencilAttachmentFormat = rendering.depthAttachmentFormat;
             VkGraphicsPipelineCreateInfo create{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};

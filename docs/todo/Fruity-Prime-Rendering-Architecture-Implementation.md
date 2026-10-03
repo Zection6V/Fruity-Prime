@@ -2615,3 +2615,33 @@ C# 版との不一致は、spawn03 の pickup 1個の icon（7×7 / 3×3 px）�
 したがって描画ではなく、移植のゲームロジック（item の出現 timing、RNG の消費、または probe 中の
 取得）か probe harness の進め方の差である。rendering architecture の範囲外として別 task にした。
 再現手順は、spawn03 の画像を `tools/validate-cross-backend-parity.py` で比較すること。
+
+## Vulkan 責務分離の最終監査（R10）
+
+レビュー §11.3 の推奨構造と、現在の owner の対応:
+
+| 推奨 | 現在 | 状態 |
+|---|---|---|
+| VulkanDevice | `VulkanGraphicsDevice.cpp`（device state、生成の窓口、owner の調停） | 3,652 → 2,165 行 |
+| VulkanResources | `VulkanResources`（native 生成・検査・rollback）、`VulkanMemory`（VMA・admission）、`VulkanResourceWrappersInternal.inc`（公開 wrapper） | 分離済み |
+| VulkanDeferredDeletion | device state の retirement queue（共通 `RetirementQueue` + `SubmissionSerial`） | 共通型で実装。独立ファイルにはしていない |
+| VulkanFrameScheduler | `VulkanFrameScheduler`（queue submit / timeline）、`VulkanFrameSlots`（fence / descriptor 世代） | 分離済み |
+| VulkanDescriptorAllocator | `VulkanDescriptorAllocator` | 分離済み |
+| VulkanUploadContext | `VulkanUploadArena`、`VulkanTransferScratch`、`VulkanRgbTransfer` | 分離済み |
+| VulkanPipelineLibrary | `VulkanPipelineCache`（native library）、`VulkanPipelineInternal.inc`（semantic cache） | 分離済み |
+| VulkanFeatureProbe | `VulkanFeatureProbe` | 分離済み |
+| VulkanSwapchain | `VulkanSwapchain` | 分離済み |
+| VulkanDiagnostics | `VulkanGpuDiagnosticsInternal.inc` | 分離済み（同じ TU） |
+| （command list） | `VulkanCommandListInternal.inc`、`VulkanCommandSlots`（native pool / buffer） | 今回 device 本体から分けた |
+
+今回の分割は、command list（1,376 行）と公開 resource wrapper（114 行）を、既存の `*Internal.inc` と
+同じ形で device 本体から別ファイルへ移したものである。同じ translation unit のままで、挙動は変えていない。
+
+検証: CPU テスト 19/19、`-rhiconformance` / `-presentconformance` 両 backend PASS、試合中3回切替
+（Vulkan 開始、validation 0）PASS。
+
+残るもの:
+- deferred deletion は、独立した型ではなく device state の queue である。共通の
+  `RetirementQueue` / `SubmissionSerial` で表しており、責務としては分かれている。
+- command list と device state は、同じ TU の内部型を共有したままである。ヘッダを持つ別 TU に分けるのは、
+  内部型の公開範囲を決め直す作業になり、将来の backend 追加のときに行う。

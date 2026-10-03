@@ -152,6 +152,7 @@ set_source_files_properties(
 # This target deliberately runs for every native build so source_commit cannot
 # go stale when an incremental worktree changes commits without changing the
 # harness files. The generator only rewrites the header when provenance changes.
+find_package(Git QUIET)
 add_custom_target(fruity_golden_capture_provenance
     COMMAND "${CMAKE_COMMAND}"
         "-DSOURCE_ROOT=${CMAKE_CURRENT_SOURCE_DIR}"
@@ -159,6 +160,7 @@ add_custom_target(fruity_golden_capture_provenance
         "-DGOLDEN_CAPTURE_HEADER=${FRUITY_GOLDEN_CAPTURE_HEADER_SOURCE}"
         "-DGOLDEN_CAPTURE_VALIDATION=${FRUITY_GOLDEN_CAPTURE_VALIDATION_SOURCE}"
         "-DOUTPUT_FILE=${FRUITY_GOLDEN_CAPTURE_PROVENANCE_HEADER}"
+        "-DGOLDEN_CAPTURE_GIT_EXECUTABLE=${GIT_EXECUTABLE}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateGoldenCaptureProvenance.cmake"
     BYPRODUCTS "${FRUITY_GOLDEN_CAPTURE_PROVENANCE_HEADER}"
     DEPENDS

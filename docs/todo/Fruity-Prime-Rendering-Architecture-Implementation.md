@@ -2059,6 +2059,24 @@ Renderer.cppの未使用BackendFactory / OpenGL固有header / GlNames importsも
 `C:/tmp/gp/architecture-r1-renderer-compile.log`と全体ビルドでbackend型への依存がないことを確認。
 全format / subresource、convenience draw / presentationのstateとownershipの最終監査は残る。
 
+### 固定画像の再確認とGit provenanceの修正
+
+push済み`b2ce899f`のRelease exeでGolden Captureの7ケースを両backendとも撮影した。
+`C:/tmp/gp/architecture-r19-usage-final-golden-{opengl,vulkan}/`。
+直近の固定画像`architecture-uploadarena-batched-golden-{opengl,vulkan}`と1600×900の
+decoded RGBを比較し、全14画像で相違byte=0。
+比較記録は`C:/tmp/gp/architecture-r19-usage-golden-comparison.txt`。
+HUD / fadeの同じsimulation updateのcontrolとの差を含むnative capture gateもPASS。
+これは同じbackendの画像回帰であり、Phase3/C#とのcross-revision provenanceを証明する検査ではない。
+
+この確認でnative manifestのsource_commitがunavailableになっていたことを発見した。
+MSVC wrapperがMinGW混入を避けるためPATHを整理しており、別のCMake script processがGitを
+再検索すると見つからなかった。configure時の`find_package(Git QUIET)`の結果をprovenance
+scriptへ渡し、Gitの絶対pathを引き継ぐよう修正した。Gitのないsource archiveのfallbackは維持する。
+`C:/tmp/gp/architecture-r19-golden-provenance-build.log`でRelease buildがPASSし、生成headerの
+SourceCommit=`b2ce899fa72af6db2def300bc26af22ee1a40cef`、GitHarnessState=clean、
+実Cpp blobとharness SHA-256が埋め込まれたことを確認した。
+
 ## 現行pacingと将来optional extensionの境界監査（R20）
 
 レビュー19.4 / 23.1は、将来Reflex / Anti-Lag / XeLL / native display timingなどを追加する場合に、

@@ -2572,3 +2572,24 @@ resource release は、自分専用の `glFenceSync` を入れずに、次に挿
 検証: CPU テスト 19/19、両 backend の conformance、`-shellshot` 両 backend（28 shots、validation 0）、
 試合中切替（OpenGL 開始）PASS。lifetime: `C:/tmp/gp/architecture-r4-marker-aggregation-lifetime40.log`。
 upload / map の driver 内部の暗黙 wait は計測対象外のまま。
+
+## presentation の共通 conformance（R9）
+
+`-presentconformance` は、共通の session / swapchain を通して、同じ場面を両 backend で検査する。
+Vulkan の native 検査（`-vulkanpresentcheck`）と同じ観点を、OpenGL にも初めて当てた。
+
+場面:
+- 可視 window で、本番 loop と同じく window target に描いて `Present` する。Vulkan は Present の中で
+  acquire するので、明示的な acquire は使わない。
+- window の resize と、swapchain の追従。
+- surface が提供する present mode をすべて要求し、要求がそのまま報告されること。
+- 最小化した window の frame が 250 ms 以内に返り、loss を報告しないこと。その後の restore と再描画。
+- shutdown。Vulkan は validation 付き。
+
+| backend | frames | present modes | 最小化 |
+|---|---|---|---|
+| OpenGL | 18 | 2（Immediate / FIFO） | temporarily unavailable、待機なし |
+| Vulkan | 21 | 3（Immediate / Mailbox / FIFO） | temporarily unavailable、待機なし |
+
+検証: `C:/tmp/gp/architecture-r9-present-conformance.log`、Vulkan validation error 0。
+実際の surface loss / device loss は注入していない。

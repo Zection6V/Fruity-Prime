@@ -353,6 +353,8 @@ namespace MphRead::Mods::Diagnostics
                 auto clearImage = device.CreateTexture(imageDesc);
                 auto clearOutput = device.CreateBuffer({16, BufferUsage::TransferDst, MemoryUsage::GpuToCpu});
                 commands->Begin();
+                constexpr auto sampledReads = ResourceState::ShaderRead | ResourceState::CopySrc;
+                commands->Transition(*sampled, ResourceState::ShaderRead, sampledReads);
                 rejectRecording("Draw outside rendering", [&] { commands->Draw(3); });
                 rejectRecording("DrawIndexed outside rendering", [&] { commands->DrawIndexed(3); });
                 commands->Transition(*clearOutput, ResourceState::Undefined, ResourceState::CopyDst);
@@ -380,6 +382,25 @@ namespace MphRead::Mods::Diagnostics
                 commands->SetScissor({0, 0, 8, 16});
                 if (indexed) { commands->SetIndexBuffer(*index, IndexType::UInt32); commands->DrawIndexed(3, 1, 1); }
                 else commands->Draw(3);
+                // Changing only the image layout must refresh applied
+                // descriptors, without requiring the caller to rebind the set.
+                commands->Transition(*sampled, sampledReads, ResourceState::ShaderRead);
+                if (indexed) commands->DrawIndexed(3, 1, 1); else commands->Draw(3);
+                commands->Transition(*sampled, ResourceState::ShaderRead, sampledReads);
+                if (indexed) commands->DrawIndexed(3, 1, 1); else commands->Draw(3);
+                commands->Transition(*sampled, sampledReads, ResourceState::CopyDst);
+                const auto beforeRejectedDraw = device.Statistics();
+                bool unreadableRejected = false;
+                try { if (indexed) commands->DrawIndexed(3, 1, 1); else commands->Draw(3); }
+                catch (const std::invalid_argument&) { unreadableRejected = true; }
+                const auto afterRejectedDraw = device.Statistics();
+                Expect(unreadableRejected && beforeRejectedDraw.Submitted == afterRejectedDraw.Submitted
+                    && beforeRejectedDraw.HostWaits == afterRejectedDraw.HostWaits
+                    && beforeRejectedDraw.DeviceWideWaits == afterRejectedDraw.DeviceWideWaits
+                    && beforeRejectedDraw.LiveObjects() == afterRejectedDraw.LiveObjects(),
+                    "Unreadable sampled draw reached native submission, waits or allocation.");
+                commands->Transition(*sampled, ResourceState::CopyDst, sampledReads);
+                if (indexed) commands->DrawIndexed(3, 1, 1); else commands->Draw(3);
                 std::array<unsigned char, 4> midway{};
                 commands->ReadColor(info, 4, 8, 1, 1, Rhi::TextureFormat::RGBA8Unorm, midway.data());
                 auto interleaved = device.CreateCommandList(); interleaved->Begin();
@@ -402,7 +423,11 @@ namespace MphRead::Mods::Diagnostics
                 commands->SetScissor({8, 0, 8, 16});
                 if (indexed) commands->DrawIndexed(3, 1, 1);
                 else commands->Draw(3);
-                commands->EndRendering(); commands->End();
+                commands->EndRendering();
+                // Sampling and submission restart must preserve combined read
+                // permissions, including their explicit tracked-state witness.
+                commands->Transition(*sampled, sampledReads, ResourceState::ShaderRead);
+                commands->End();
                 std::array<std::byte, 16> clearBytes{};
                 device.ReadBuffer(*clearOutput, 0, clearBytes);
                 for (std::size_t i = 0; i < clearBytes.size(); ++i)

@@ -22,6 +22,7 @@
 #include "VulkanContextInternal.hpp"
 #include "VulkanFrameScheduler.hpp"
 #include "VulkanFrameSlots.hpp"
+#include "VulkanSynchronization.hpp"
 #include "VulkanPipelineCache.hpp"
 #include "VulkanDescriptorAllocator.hpp"
 #include "VulkanUploadArena.hpp"
@@ -84,117 +85,6 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         [[nodiscard]] std::uint32_t StorageBytesPerPixel(TextureFormat format)
         {
             return format == TextureFormat::RGB8Unorm ? 4U : BytesPerPixel(format);
-        }
-
-        struct StateMapping final
-        {
-            VkImageLayout Layout = VK_IMAGE_LAYOUT_GENERAL;
-            VkPipelineStageFlags2 Stages = VK_PIPELINE_STAGE_2_NONE;
-            VkAccessFlags2 Access = VK_ACCESS_2_NONE;
-        };
-
-        // All Vulkan resource-state to synchronization2 mappings live here.
-        [[nodiscard]] StateMapping ToVkState(ResourceState state, bool image, bool storageOnly = false)
-        {
-            if (!IsValidResourceState(state))
-                throw std::invalid_argument("Vulkan RHI: invalid resource-state combination.");
-            if (state == ResourceState::Undefined)
-                return {VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE};
-            if (state == ResourceState::Present)
-            {
-                if (!image) throw std::invalid_argument("Vulkan RHI: Present is valid only for images.");
-                return {VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE};
-            }
-
-            StateMapping result{};
-            const auto has = [state](ResourceState flag) { return HasAny(state, flag); };
-            constexpr ResourceState bufferOnly = ResourceState::VertexBuffer
-                | ResourceState::IndexBuffer | ResourceState::ConstantBuffer;
-            constexpr ResourceState imageOnly = ResourceState::ColorAttachment
-                | ResourceState::DepthStencilRead | ResourceState::DepthStencilWrite;
-            if ((image && HasAny(state, bufferOnly)) || (!image && HasAny(state, imageOnly)))
-                throw std::invalid_argument("Vulkan RHI: resource state does not apply to this resource type.");
-            if (has(ResourceState::Common))
-            {
-                result.Stages |= VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-                result.Access |= VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
-            }
-            if (has(ResourceState::VertexBuffer))
-            {
-                result.Stages |= VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
-                result.Access |= VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
-            }
-            if (has(ResourceState::IndexBuffer))
-            {
-                result.Stages |= VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
-                result.Access |= VK_ACCESS_2_INDEX_READ_BIT;
-            }
-            if (has(ResourceState::ConstantBuffer))
-            {
-                result.Stages |= VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
-                result.Access |= VK_ACCESS_2_UNIFORM_READ_BIT;
-            }
-            if (has(ResourceState::ShaderRead))
-            {
-                result.Stages |= VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
-                result.Access |= image && !storageOnly ? (VK_ACCESS_2_SHADER_SAMPLED_READ_BIT
-                    | VK_ACCESS_2_SHADER_STORAGE_READ_BIT) : VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-            }
-            if (has(ResourceState::ShaderWrite))
-            {
-                result.Stages |= VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
-                result.Access |= VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-            }
-            if (has(ResourceState::ColorAttachment))
-            {
-                result.Stages |= VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-                result.Access |= VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-                result.Layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-            }
-            if (has(ResourceState::DepthStencilRead))
-            {
-                result.Stages |= VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT
-                    | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-                result.Access |= VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
-                result.Layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-            }
-            if (has(ResourceState::DepthStencilWrite))
-            {
-                result.Stages |= VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT
-                    | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-                result.Access |= VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT
-                    | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-                result.Layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-            }
-            if (has(ResourceState::CopySrc))
-            {
-                result.Stages |= VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-                result.Access |= VK_ACCESS_2_TRANSFER_READ_BIT;
-            }
-            if (has(ResourceState::CopyDst))
-            {
-                result.Stages |= VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-                result.Access |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
-            }
-
-            // Sampled-only reads use the specialized layout. Storage-only
-            // reads and combined read states use GENERAL.
-            if (image && state == ResourceState::ShaderRead && !storageOnly)
-                result.Layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            else if (image && state == ResourceState::CopySrc)
-                result.Layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-            else if (image && state == ResourceState::CopyDst)
-                result.Layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-            else if (image && state != ResourceState::ColorAttachment
-                && state != ResourceState::DepthStencilRead
-                && state != ResourceState::DepthStencilWrite
-                && state != ResourceState::Common)
-            {
-                result.Layout = VK_IMAGE_LAYOUT_GENERAL;
-            }
-            if (result.Stages == VK_PIPELINE_STAGE_2_NONE)
-                throw std::invalid_argument("Vulkan RHI: resource state has no pipeline stage mapping.");
-            return result;
         }
 
         [[nodiscard]] VkBufferImageCopy ToVkBufferImageCopy(
@@ -939,6 +829,30 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     }, entry.resource));
             }
             void ValidateResources() const { Validate(); }
+            void ValidateSampledAccess() const
+            {
+                for (const auto& entry : _desc.entries)
+                    if (Declaration(entry.binding).type == BindingType::SampledTexture)
+                    {
+                        const auto& texture = static_cast<const VulkanTexture&>(
+                            std::get<TextureBinding>(entry.resource).view->TextureResource());
+                        if (texture.State() != ResourceState::Common && !HasAny(texture.State(), ResourceState::ShaderRead))
+                            throw std::invalid_argument("Vulkan RHI: sampled draw requires shader-readable texture state.");
+                    }
+            }
+            [[nodiscard]] bool TextureDescriptorsCurrent() const
+            {
+                if (_textureDescriptors.size() != _desc.entries.size()) return false;
+                for (std::size_t i = 0; i < _desc.entries.size(); ++i)
+                    if (const auto* binding = std::get_if<TextureBinding>(&_desc.entries[i].resource))
+                    {
+                        const auto& view = dynamic_cast<const VulkanTextureView&>(*binding->view);
+                        const auto layout = Declaration(_desc.entries[i].binding).type == BindingType::StorageTexture
+                            ? VK_IMAGE_LAYOUT_GENERAL : ToVkSampledDescriptorLayout(static_cast<const VulkanTexture&>(view.TextureResource()).State());
+                        if (_textureDescriptors[i] != std::pair{view.Native(), layout}) return false;
+                    }
+                return true;
+            }
             [[nodiscard]] const BindingSetDesc& Desc() const noexcept override { return _desc; }
             [[nodiscard]] VkDeviceSize UniformOffsetAlignment() const noexcept
             {
@@ -1007,6 +921,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 // overwrite a descriptor previously recorded for GPU use.
                 std::vector<VkDescriptorBufferInfo> buffers(_desc.entries.size());
                 std::vector<VkDescriptorImageInfo> images(_desc.entries.size());
+                std::vector<std::pair<VkImageView, VkImageLayout>> textureDescriptors(_desc.entries.size());
                 std::vector<VkWriteDescriptorSet> writes;
                 writes.reserve(_desc.entries.size());
                 for (std::size_t i = 0; i < _desc.entries.size(); ++i)
@@ -1029,7 +944,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     {
                         images[i].imageView = dynamic_cast<const VulkanTextureView&>(*texture->view).Native();
                         images[i].imageLayout = declaration.type == BindingType::StorageTexture
-                            ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                            ? VK_IMAGE_LAYOUT_GENERAL : ToVkSampledDescriptorLayout(static_cast<const VulkanTexture&>(texture->view->TextureResource()).State());
+                        textureDescriptors[i] = {images[i].imageView, images[i].imageLayout};
                         write.pImageInfo = &images[i];
                     }
                     else
@@ -1041,6 +957,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     writes.push_back(write);
                 }
                 vk.vkUpdateDescriptorSets(vk.device, static_cast<std::uint32_t>(writes.size()), writes.data(), 0, nullptr);
+                _textureDescriptors = std::move(textureDescriptors);
                 return set;
             }
         private:
@@ -1114,6 +1031,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             BindingSetDesc _desc;
             std::shared_ptr<VulkanBindingLayout> _ownedLayout;
             std::vector<std::weak_ptr<void>> _resourceLifetimes;
+            mutable std::vector<std::pair<VkImageView, VkImageLayout>> _textureDescriptors;
             const VulkanBindingLayout* _layout = nullptr;
             VkPhysicalDeviceProperties _properties{};
         };
@@ -1537,7 +1455,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::unordered_map<VariantKey, Variant, VariantHash> _variants{};
 
             const VulkanSceneProgram* _setProgram = nullptr;
-            std::array<std::pair<VkImageView, VkSampler>, 4> _setTextures{};
+            struct SampledDescriptor final
+            {
+                VkImageView View = VK_NULL_HANDLE;
+                VkSampler Sampler = VK_NULL_HANDLE;
+                VkImageLayout Layout = VK_IMAGE_LAYOUT_UNDEFINED;
+                bool operator==(const SampledDescriptor&) const = default;
+            };
+            std::array<SampledDescriptor, 4> _setTextures{};
             std::vector<std::pair<RingSlice, std::uint64_t>> _uniformSlices;
             std::array<VkDescriptorSet, SceneShaderAbi::GroupCount> _sets{};
 
@@ -1998,6 +1923,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     throw std::logic_error("Vulkan RHI: draw needs a live vertex buffer.");
             }
             for (const auto& [slot, set] : _genericSets) set.Snapshot->ValidateResources();
+            for (const auto& [slot, set] : _genericSets) set.Snapshot->ValidateSampledAccess();
             auto& vk = *_device->ContextPointer->_impl;
             const bool restore = _genericDirty || _boundNative != _pipeline->Native();
             if (restore)
@@ -2016,7 +1942,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
             for (auto& [slot, set] : _genericSets)
             {
-                const bool fresh = set.Generation != _bindingGeneration;
+                const bool fresh = set.Generation != _bindingGeneration || !set.Snapshot->TextureDescriptorsCurrent();
                 if (fresh)
                 {
                     // This command slot owns the descriptor pool and resets it
@@ -2183,7 +2109,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (!program) throw std::logic_error("Vulkan RHI: scene draw with no program.");
             auto& vk = *_device->ContextPointer->_impl;
 
-            std::array<std::pair<VkImageView, VkSampler>, 4> textures{};
+            std::array<SampledDescriptor, 4> textures{};
             for (const auto& binding : program->Textures)
             {
                 const auto unit = binding.unit;
@@ -2194,12 +2120,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     texture = &Dummy();
                     sampler = _dummySampler.get();
                 }
-                if (texture->State() != ResourceState::ShaderRead)
+                if (!HasAny(texture->State(), ResourceState::ShaderRead))
                 {
                     if (_renderingActive) EndNative();
                     Barrier(*texture, ResourceState::ShaderRead);
                 }
-                textures[unit] = {texture->SampledView(), sampler->Native()};
+                textures[unit] = {texture->SampledView(), sampler->Native(), ToVkState(texture->State(), true).Layout};
             }
             if (!_renderingActive) Materialize();
 
@@ -2267,8 +2193,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     {
                         if (binding.group != group) continue;
                         const auto unit = binding.unit;
-                        images[unit * 2] = {VK_NULL_HANDLE, textures[unit].first, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
-                        images[unit * 2 + 1] = {textures[unit].second, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
+                        images[unit * 2] = {VK_NULL_HANDLE, textures[unit].View, textures[unit].Layout};
+                        images[unit * 2 + 1] = {textures[unit].Sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
                         write(binding.image, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE).pImageInfo = &images[unit * 2];
                         write(binding.sampler, VK_DESCRIPTOR_TYPE_SAMPLER).pImageInfo = &images[unit * 2 + 1];
                     }

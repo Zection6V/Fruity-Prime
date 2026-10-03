@@ -110,11 +110,22 @@ unsigned OpenGlCommandList::VertexArray()
 void OpenGlCommandList::RestoreDrawState()
 {
     if (!_applied && !_sceneGeometry) throw std::logic_error("OpenGL RHI: draw needs a pipeline.");
-    Touch();
     for (const auto& [group, set] : _genericSets) set->ValidateResources();
+    for (const auto& [group, set] : _genericSets)
+        for (const auto& entry : set->Desc().entries)
+        {
+            const auto& declarations = set->Desc().layout->Desc().entries;
+            const auto declaration = std::find_if(declarations.begin(), declarations.end(),
+                [&](const auto& item) { return item.binding == entry.binding; });
+            if (declaration->type != BindingType::SampledTexture) continue;
+            const auto& texture = ViewTexture(*std::get<TextureBinding>(entry.resource).view, _device);
+            if (texture.State() != ResourceState::Common && !HasAny(texture.State(), ResourceState::ShaderRead))
+                throw std::invalid_argument("OpenGL RHI: sampled draw requires shader-readable texture state.");
+        }
     for (const auto& unit : _units)
         if ((unit.Texture && unit.TextureLifetime.expired()) || (unit.Sampler && unit.SamplerLifetime.expired()))
             throw std::invalid_argument("OpenGL RHI: sampled binding resource has expired.");
+    Touch();
     if (!_nativeDirty) return;
     const auto framebuffer = _framebuffers.find(_current);
     if ((_current.Color || _current.Depth) && framebuffer == _framebuffers.end())

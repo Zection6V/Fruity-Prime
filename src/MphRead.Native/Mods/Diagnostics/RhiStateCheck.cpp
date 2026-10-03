@@ -2,11 +2,174 @@
 #include "../../NativeRuntime/Rhi/GraphicsDevice.hpp"
 #include "../../NativeRuntime/Rhi/CommandList.hpp"
 #include <array>
+#include <vector>
 #include <iostream>
 #include <stdexcept>
 
 namespace MphRead::Mods::Diagnostics
 {
+    void CheckRhiRgbCopies(NativeRuntime::Rhi::GraphicsDevice& device)
+    {
+        using namespace NativeRuntime::Rhi;
+        TextureDesc desc{}; desc.width = 4; desc.height = 3; desc.format = TextureFormat::RGB8Unorm;
+        desc.usage = TextureUsage::Sampled | TextureUsage::ColorAttachment | TextureUsage::TransferSrc | TextureUsage::TransferDst;
+        auto image = device.CreateTexture(desc);
+        std::array<std::byte, 36> black{};
+        device.WriteTexture(*image, {4, 3, TextureFormat::RGB8Unorm, black.data()});
+        auto input = device.CreateBuffer({64, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu});
+        auto output = device.CreateBuffer({64, BufferUsage::TransferDst, MemoryUsage::GpuToCpu});
+        auto padding = device.CreateBuffer({64, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu});
+        std::array<std::byte, 64> payload{}, sentinel{}, actual{}, expected{};
+        payload.fill(std::byte{0x4D}); sentinel.fill(std::byte{0xA7}); expected = sentinel;
+        for (unsigned row = 0; row < 2; ++row)
+            for (unsigned byte = 0; byte < 9; ++byte)
+            {
+                const auto value = static_cast<std::byte>(17 * (row * 9 + byte) + 5);
+                payload[11 + row * 15 + byte] = value; expected[7 + row * 18 + byte] = value;
+            }
+        device.WriteBuffer(*input, 0, payload); device.WriteBuffer(*padding, 0, sentinel);
+        auto commands = device.CreateCommandList(); commands->Begin();
+        commands->Transition(*input, ResourceState::Undefined, ResourceState::CopySrc);
+        commands->Transition(*output, ResourceState::Undefined, ResourceState::CopyDst);
+        commands->Transition(*padding, ResourceState::Undefined, ResourceState::CopySrc);
+        commands->CopyBuffer(*padding, 0, *output, 0, 64);
+        commands->Transition(*image, ResourceState::ShaderRead, ResourceState::CopyDst);
+        BufferTextureCopy upload{}; upload.bufferOffset = 11; upload.bytesPerRow = 15;
+        upload.x = 1; upload.y = 1; upload.width = 3; upload.height = 2;
+        const auto before = device.Statistics();
+        commands->CopyBufferToTexture(*input, *image, upload);
+        commands->Transition(*image, ResourceState::CopyDst, ResourceState::ShaderRead | ResourceState::CopySrc);
+        auto download = upload; download.bufferOffset = 7; download.bytesPerRow = 18;
+        commands->CopyTextureToBuffer(*image, *output, download);
+        const auto after = device.Statistics();
+        if (after.HostWaits != before.HostWaits || after.DeviceWideWaits != before.DeviceWideWaits)
+            throw std::runtime_error("RGB GPU transfer inserted a host/device wait.");
+        unsigned invalidCopies = 0;
+        const auto rejectCopy = [&](auto action) {
+            const auto old = device.Statistics(); bool rejected = false;
+            try { action(); } catch (const std::invalid_argument&) { rejected = true; }
+            catch (const std::out_of_range&) { rejected = true; }
+            const auto now = device.Statistics();
+            if (!rejected || old.Submitted != now.Submitted || old.HostWaits != now.HostWaits
+                || old.DeviceWideWaits != now.DeviceWideWaits || old.LiveObjects() != now.LiveObjects())
+                throw std::runtime_error("Invalid RGB copy changed GPU allocation, submission or waits.");
+            ++invalidCopies;
+        };
+        for (unsigned invalid = 0; invalid < 7; ++invalid)
+        {
+            auto bad = download;
+            if (invalid == 0) bad.bufferOffset = 61;
+            if (invalid == 1) bad.bytesPerRow = 10;
+            if (invalid == 2) bad.mipLevel = 1;
+            if (invalid == 3) bad.arrayLayer = 1;
+            if (invalid == 4) bad.aspect = TextureAspect::Stencil;
+            if (invalid == 5) bad.width = 0;
+            if (invalid == 6) bad.x = 2;
+            rejectCopy([&] { commands->CopyTextureToBuffer(*image, *output, bad); });
+            commands->Transition(*image, ResourceState::ShaderRead | ResourceState::CopySrc, ResourceState::CopyDst);
+            rejectCopy([&] { commands->CopyBufferToTexture(*input, *image, bad); });
+            commands->Transition(*image, ResourceState::CopyDst, ResourceState::ShaderRead | ResourceState::CopySrc);
+        }
+        commands->CopyTextureToBuffer(*image, *output, download);
+        commands->End(); device.ReadBuffer(*output, 0, actual);
+        if (actual != expected) throw std::runtime_error("RGB GPU copy changed channels or surrounding buffer padding.");
+        auto view = device.CreateTextureView(*image, {});
+        RenderingColorAttachment color{view.get()};
+        RenderingInfo info{}; info.width = 4; info.height = 3; info.colorAttachments = std::span(&color, 1);
+        std::array<std::byte, 48> rgba{}; commands->ReadColor(info, 0, 0, 4, 3, TextureFormat::RGBA8Unorm, rgba.data());
+        for (unsigned y = 0; y < 3; ++y)
+            for (unsigned x = 0; x < 4; ++x)
+            {
+                const auto offset = (y * 4 + x) * 4;
+                for (unsigned c = 0; c < 3; ++c)
+                {
+                    const auto value = x && y ? payload[11 + (y - 1) * 15 + (x - 1) * 3 + c] : std::byte{0};
+                    if (rgba[offset + c] != value) throw std::runtime_error("RGB GPU upload damaged untouched image pixels.");
+                }
+                if (rgba[offset + 3] != std::byte{255}) throw std::runtime_error("Logical RGB alpha must remain opaque.");
+            }
+        commands->Begin(); commands->Transition(*image, ResourceState::ShaderRead | ResourceState::CopySrc, ResourceState::ShaderRead);
+        commands->End();
+        if (device.GetBackend() == GraphicsBackend::Vulkan)
+        {
+            for (const bool volume : {false, true})
+            {
+                auto layered = desc; layered.width = 12; layered.height = 8; layered.depth = volume ? 4 : 1;
+                layered.arrayLayers = volume ? 1 : 3; layered.mipLevels = 2;
+                auto subImage = device.CreateTexture(layered);
+                auto subInput = device.CreateBuffer({256, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu});
+                auto subOutput = device.CreateBuffer({256, BufferUsage::TransferDst, MemoryUsage::GpuToCpu});
+                auto subPadding = device.CreateBuffer({256, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu});
+                std::array<std::byte, 256> subPayload{}, subSentinel{}, subActual{}, subExpected{};
+                subPayload.fill(std::byte{0x6A}); subSentinel.fill(std::byte{0xA3}); subExpected = subSentinel;
+                BufferTextureCopy sub{}; sub.mipLevel = 1; sub.arrayLayer = volume ? 0 : 2;
+                sub.bufferOffset = 11; sub.bytesPerRow = 18; sub.rowsPerImage = 5;
+                sub.x = sub.y = 1; sub.width = 4; sub.height = 3; sub.depth = volume ? 2 : 1;
+                auto subDownload = sub; subDownload.bufferOffset = 7; subDownload.bytesPerRow = 21; subDownload.rowsPerImage = 6;
+                for (unsigned z = 0; z < sub.depth; ++z) for (unsigned y = 0; y < 3; ++y) for (unsigned byte = 0; byte < 12; ++byte)
+                {
+                    const auto value = std::byte((z * 73 + y * 19 + byte * 11) % 256);
+                    subPayload[11 + z * 90 + y * 18 + byte] = value;
+                    subExpected[7 + z * 126 + y * 21 + byte] = value;
+                }
+                device.WriteBuffer(*subInput, 0, subPayload); device.WriteBuffer(*subPadding, 0, subSentinel);
+                commands->Begin();
+                commands->Transition(*subInput, ResourceState::Undefined, ResourceState::CopySrc);
+                commands->Transition(*subPadding, ResourceState::Undefined, ResourceState::CopySrc);
+                commands->Transition(*subOutput, ResourceState::Undefined, ResourceState::CopyDst);
+                commands->CopyBuffer(*subPadding, 0, *subOutput, 0, 256);
+                commands->Transition(*subImage, ResourceState::Undefined, ResourceState::CopyDst);
+                commands->CopyBufferToTexture(*subInput, *subImage, sub);
+                commands->Transition(*subImage, ResourceState::CopyDst, ResourceState::ShaderRead | ResourceState::CopySrc);
+                commands->CopyTextureToBuffer(*subImage, *subOutput, subDownload); commands->End();
+                device.ReadBuffer(*subOutput, 0, subActual);
+                if (subActual != subExpected) throw std::runtime_error("RGB mip/layer/volume GPU copy changed pixels or padding.");
+            }
+            std::cout << "[rgb copy] Vulkan mip/array/3D PASS; nonbase subresources; independent row/slice padding\n";
+        }
+
+        // Exercise more than one metadata batch and oversized scratch pages,
+        // then reuse both native command slots repeatedly without growth.
+        constexpr unsigned wide = 4097, tall = 5;
+        auto largeDesc = desc; largeDesc.width = wide; largeDesc.height = tall;
+        auto largeImage = device.CreateTexture(largeDesc);
+        const unsigned pitch = (wide + 2) * 3, size = 11 + pitch * tall;
+        auto largeInput = device.CreateBuffer({size, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu});
+        auto largeOutput = device.CreateBuffer({size, BufferUsage::TransferDst, MemoryUsage::GpuToCpu});
+        auto largePadding = device.CreateBuffer({size, BufferUsage::TransferSrc, MemoryUsage::CpuToGpu});
+        std::vector<std::byte> largePayload(size), largeSentinel(size, std::byte{0xA9}), largeActual(size), largeExpected = largeSentinel;
+        for (unsigned y = 0; y < tall; ++y) for (unsigned byte = 0; byte < wide * 3; ++byte)
+        {
+            const auto value = std::byte((y * 17 + byte * 13) % 256);
+            largePayload[11 + y * pitch + byte] = value; largeExpected[11 + y * pitch + byte] = value;
+        }
+        device.WriteBuffer(*largeInput, 0, largePayload); device.WriteBuffer(*largePadding, 0, largeSentinel);
+        commands->Begin(); commands->Transition(*largeInput, ResourceState::Undefined, ResourceState::CopySrc);
+        commands->Transition(*largePadding, ResourceState::Undefined, ResourceState::CopySrc);
+        commands->Transition(*largeOutput, ResourceState::Undefined, ResourceState::CopyDst);
+        commands->Transition(*largeImage, ResourceState::Undefined, ResourceState::CopyDst); commands->End();
+        BufferTextureCopy largeRegion{}; largeRegion.bufferOffset = 11; largeRegion.bytesPerRow = pitch;
+        largeRegion.width = wide; largeRegion.height = tall;
+        unsigned stableBuffers = 0;
+        for (unsigned cycle = 0; cycle < 64; ++cycle)
+        {
+            commands->Begin(); commands->CopyBuffer(*largePadding, 0, *largeOutput, 0, size);
+            commands->CopyBufferToTexture(*largeInput, *largeImage, largeRegion);
+            commands->Transition(*largeImage, ResourceState::CopyDst, ResourceState::ShaderRead | ResourceState::CopySrc);
+            commands->CopyTextureToBuffer(*largeImage, *largeOutput, largeRegion);
+            commands->Transition(*largeImage, ResourceState::ShaderRead | ResourceState::CopySrc, ResourceState::CopyDst); commands->End();
+            device.ReadBuffer(*largeOutput, 0, largeActual);
+            if (largeActual != largeExpected) throw std::runtime_error("Batched/oversized RGB GPU copy changed pixels or padding.");
+            const auto buffers = device.Statistics().Buffers;
+            if (cycle == 3) stableBuffers = buffers;
+            if (cycle > 3 && buffers != stableBuffers) throw std::runtime_error("RGB command scratch buffer count kept growing.");
+        }
+        std::cout << "[rgb copy] batched/oversized/reuse PASS; 64 cycles; scratch buffer count stable\n";
+        if (device.DrainErrors()) throw std::runtime_error("RGB GPU copy raised native errors.");
+        std::cout << "[rgb copy] PASS; rejected=" << invalidCopies
+            << "; three-byte pixels; unaligned offsets; independent row pitches; subrectangle; padding; opaque alpha; combined state; copy waits=0\n";
+    }
+
     void CheckRhiResourceStates(NativeRuntime::Rhi::GraphicsDevice& device)
     {
         using namespace NativeRuntime::Rhi;

@@ -100,7 +100,12 @@ namespace
                     [this](VkDeviceSize size) { const auto buffer = Handle<VkBuffer>(++Next); auto& page = Pages[buffer]; page.resize(size); return VulkanUploadArena::Page{buffer, Handle<VmaAllocation_T*>(++Next), page.data(), size}; },
                     [this](const auto& page) { Pages.erase(page.Buffer); }, [](const auto&, VkDeviceSize, VkDeviceSize) {}}, 64); },
                 [device] { return std::make_unique<VulkanDescriptorAllocator>(VulkanDescriptorAllocator::Dispatch{
-                    device, CreateDescriptors, DestroyDescriptors, ResetDescriptors, AllocateDescriptors, Check}, VulkanDescriptorAllocator::Capacity{2, {2, 0, 0, 0, 0}}); }};
+                    device, CreateDescriptors, DestroyDescriptors, ResetDescriptors, AllocateDescriptors, Check}, VulkanDescriptorAllocator::Capacity{2, {2, 0, 0, 0, 0}}); },
+                [this] { return std::make_unique<VulkanTransferScratch>(VulkanTransferScratch::Dispatch{
+                    [this](VkDeviceSize size) {
+                        const auto buffer = Handle<VkBuffer>(++Next); Pages[buffer].resize(size);
+                        return VulkanTransferScratch::Page{buffer, Handle<VmaAllocation_T*>(++Next), size};
+                    }, [this](const auto& page) { Pages.erase(page.Buffer); }}, 64); }};
         }
         void Clean() const { Expect(Pools.empty() && Buffers.empty() && Fences.empty() && Descriptors.empty() && Pages.empty() && !BadOrder, "Slot teardown leaked or destroyed pending resources."); }
     };
@@ -110,16 +115,22 @@ namespace
         Fake f; VulkanCommandSlots slots(f.Dispatch());
         Reject([&] { slots.End(); }); Reject([&] { slots.Submit(); });
         VkCommandBuffer first{};
+        VkBuffer firstScratch{};
         BindingLayoutDesc layout{{{0, BindingType::UniformBuffer, ShaderStage::Vertex, 1}}};
         for (unsigned cycle = 0; cycle < 64; ++cycle)
         {
             slots.Begin(); if (cycle == 0) first = slots.Buffer(); else if (cycle == 2) Expect(slots.Buffer() == first, "Slot did not rotate to its first native buffer.");
             const auto waits = f.Waits; Reject([&] { slots.Begin(); }); Reject([&] { slots.Submit(); });
             const auto slice = slots.Uploads().Allocate(32); slice.Data[0] = std::byte(cycle);
+            const auto scratch = slots.Scratch().Allocate(31);
+            if (cycle == 0) firstScratch = scratch.Buffer;
+            if (cycle == 2) Expect(scratch.Buffer == firstScratch && scratch.Offset == 0,
+                "Completed command slot did not reuse its GPU scratch page.");
             (void)slots.Descriptors().Allocate(Handle<VkDescriptorSetLayout>(1), layout);
             slots.WaitAll(); // Must leave this unsubmitted native recording alone.
             Expect(f.Waits - waits <= 1, "Drain waited on an unsubmitted recording.");
             slots.End(); slots.Submit();
+            Reject([&] { (void)slots.Scratch(); });
             Expect(!slots.PollComplete(), "Unsignaled work reported ready.");
             const auto before = f.Waits; (void)slots.CanBeginWithoutWait(); (void)slots.PollComplete();
             Expect(f.Waits == before, "Nonblocking poll waited for GPU completion.");
@@ -170,6 +181,11 @@ namespace
           Reject([&] { slots.PollComplete(); }); Reject([&] { slots.Uploads(); }); Reject([&] { slots.Descriptors(); }); f.Clean(); }
         { Fake f; auto dispatch = f.Dispatch(); dispatch.MakeDescriptors = []() -> std::unique_ptr<VulkanDescriptorAllocator> {
               throw std::runtime_error("injected allocator initialization failure"); };
+          Reject([&] { VulkanCommandSlots slots(std::move(dispatch)); }); f.Clean(); }
+        { Fake f; auto dispatch = f.Dispatch(); dispatch.MakeScratch = []() -> std::unique_ptr<VulkanTransferScratch> {
+              throw std::runtime_error("injected scratch initialization failure"); };
+          Reject([&] { VulkanCommandSlots slots(std::move(dispatch)); }); f.Clean(); }
+        { Fake f; auto dispatch = f.Dispatch(); dispatch.MakeScratch = [] { return std::unique_ptr<VulkanTransferScratch>{}; };
           Reject([&] { VulkanCommandSlots slots(std::move(dispatch)); }); f.Clean(); }
     }
 }

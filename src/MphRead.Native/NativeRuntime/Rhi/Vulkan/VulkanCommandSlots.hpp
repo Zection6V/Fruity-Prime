@@ -2,6 +2,7 @@
 #if defined(FRUITY_HAS_VULKAN)
 #include "VulkanDescriptorAllocator.hpp"
 #include "VulkanUploadArena.hpp"
+#include "VulkanTransferScratch.hpp"
 #include "../FrameContext.hpp"
 #include <array>
 #include <functional>
@@ -35,6 +36,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::function<void(VkCommandBuffer)> Name;
             std::function<std::unique_ptr<VulkanUploadArena>()> MakeUploads;
             std::function<std::unique_ptr<VulkanDescriptorAllocator>()> MakeDescriptors;
+            std::function<std::unique_ptr<VulkanTransferScratch>()> MakeScratch;
         };
         explicit VulkanCommandSlots(Dispatch dispatch);
         ~VulkanCommandSlots() { Close(); }
@@ -52,6 +54,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         [[nodiscard]] VkCommandBuffer Buffer() const noexcept { return _slots[_current].Buffer; }
         [[nodiscard]] VulkanUploadArena& Uploads() const;
         [[nodiscard]] VulkanDescriptorAllocator& Descriptors() const;
+        [[nodiscard]] VulkanTransferScratch& Scratch() const;
     private:
         enum class State { Idle, Recording, Executable, Pending };
         struct Slot final
@@ -63,6 +66,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             SubmissionSerial LastUse{};
             std::unique_ptr<VulkanUploadArena> Uploads;
             std::unique_ptr<VulkanDescriptorAllocator> Descriptors;
+            std::unique_ptr<VulkanTransferScratch> Scratch;
         };
         void RequireOpen() const;
         void Complete(Slot& slot);

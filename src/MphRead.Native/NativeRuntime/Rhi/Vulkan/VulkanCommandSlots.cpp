@@ -28,6 +28,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 Check(_dispatch.CreateFence(_dispatch.Device, &fence, nullptr, &slot.Fence), "vkCreateFence(slots)");
                 if (_dispatch.Name) _dispatch.Name(slot.Buffer);
                 slot.Uploads = _dispatch.MakeUploads(); slot.Descriptors = _dispatch.MakeDescriptors();
+                if (_dispatch.MakeScratch) slot.Scratch = _dispatch.MakeScratch();
+                if (_dispatch.MakeScratch && !slot.Scratch) throw std::invalid_argument("Empty GPU transfer scratch allocator.");
                 if (!slot.Uploads || !slot.Descriptors) throw std::invalid_argument("Empty Vulkan slot allocators.");
             }
         }
@@ -39,6 +41,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     { RequireOpen(); return *_slots[_current].Uploads; }
     VulkanDescriptorAllocator& VulkanCommandSlots::Descriptors() const
     { RequireOpen(); return *_slots[_current].Descriptors; }
+    VulkanTransferScratch& VulkanCommandSlots::Scratch() const
+    {
+        RequireOpen(); const auto& slot = _slots[_current];
+        if (slot.Status != State::Recording || !slot.Scratch)
+            throw std::logic_error("GPU transfer scratch requires a configured recording slot.");
+        return *slot.Scratch;
+    }
     void VulkanCommandSlots::Complete(Slot& slot)
     {
         if (slot.Status != State::Pending) return;
@@ -58,6 +67,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         const auto completed = _dispatch.Completed();
         if (completed < slot.LastUse) throw std::logic_error("Vulkan slot completion serial is still pending.");
         slot.Uploads->ResetAfterCompletion(completed); slot.Descriptors->ResetAfterCompletion(completed);
+        if (slot.Scratch) slot.Scratch->ResetAfterCompletion(completed);
         Check(_dispatch.ResetFence(_dispatch.Device, 1, &slot.Fence), "vkResetFences(slots)");
         slot.Status = State::Idle;
         if (_dispatch.Collect) _dispatch.Collect();
@@ -88,6 +98,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         {
             const auto completed = _dispatch.Completed();
             slot.Uploads->ResetAfterCompletion(completed); slot.Descriptors->ResetAfterCompletion(completed);
+            if (slot.Scratch) slot.Scratch->ResetAfterCompletion(completed);
         }
         Check(_dispatch.ResetPool(_dispatch.Device, slot.Pool, 0), "vkResetCommandPool(slots)");
         VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO}; begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -107,6 +118,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         VkSubmitInfo2 submit{VK_STRUCTURE_TYPE_SUBMIT_INFO_2}; submit.commandBufferInfoCount = 1; submit.pCommandBufferInfos = &command;
         slot.LastUse = _dispatch.Submit(submit, slot.Fence); slot.Status = State::Pending;
         slot.Descriptors->Submitted(slot.LastUse); slot.Uploads->Submitted(slot.LastUse);
+        if (slot.Scratch) slot.Scratch->Submitted(slot.LastUse);
         _current = (_current + 1) % _slots.size();
     }
     void VulkanCommandSlots::WaitAll()
@@ -122,6 +134,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         for (auto& slot : _slots)
         {
             slot.Uploads.reset(); slot.Descriptors.reset();
+            slot.Scratch.reset();
             if (slot.Fence) _dispatch.DestroyFence(_dispatch.Device, slot.Fence, nullptr);
             if (slot.Pool) _dispatch.DestroyPool(_dispatch.Device, slot.Pool, nullptr);
             slot.Fence = VK_NULL_HANDLE; slot.Pool = VK_NULL_HANDLE; slot.Buffer = VK_NULL_HANDLE; slot.Status = State::Idle;

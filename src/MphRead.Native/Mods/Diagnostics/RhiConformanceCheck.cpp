@@ -665,6 +665,7 @@ namespace MphRead::Mods::Diagnostics
                 ExerciseUnframedLifetime(device);
                 ExerciseRecordingInterval(device);
                 CheckRhiResourceStates(device);
+                CheckRhiRgbCopies(device);
                 CheckResourceOwnership(device);
                 ExerciseGpuDiagnostics(device);
                 CheckAsyncReadback(device);

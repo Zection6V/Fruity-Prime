@@ -126,7 +126,9 @@ ReadbackTicket VulkanCommandList::EnqueueReadColor(const RenderingInfo& info, st
         Transition(*result->Buffer, ResourceState::Undefined, ResourceState::CopyDst);
         BufferTextureCopy region{};
         region.x = x; region.y = y; region.width = width; region.height = height;
-        CopyTextureToBuffer(*texture, *result->Buffer, region);
+        // Output leases decode physical RGBA8 bytes, including alpha/BGRA
+        // handling. Public RGB buffer copies pack three bytes on the GPU.
+        CopyPhysicalTextureToBuffer(*texture, *result->Buffer, region);
         PrepareHostReadback(*result->Buffer);
         if (previous != ResourceState::Undefined) Barrier(*texture, previous);
         Flush();

@@ -76,7 +76,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         X(vkDeviceWaitIdle) X(vkDestroyDevice) X(vkGetDeviceQueue) X(vkGetDeviceBufferMemoryRequirements) X(vkGetDeviceImageMemoryRequirements) X(vkCreateCommandPool) \
         X(vkDestroyCommandPool) X(vkAllocateCommandBuffers) X(vkFreeCommandBuffers) X(vkResetCommandPool) \
         X(vkBeginCommandBuffer) X(vkEndCommandBuffer) X(vkCmdPipelineBarrier2) \
-        X(vkCmdBeginRendering) X(vkCmdEndRendering) X(vkCmdCopyBuffer) \
+        X(vkCmdBeginRendering) X(vkCmdEndRendering) X(vkCmdCopyBuffer) X(vkCmdFillBuffer) \
         X(vkCmdCopyBufferToImage) X(vkCmdCopyImageToBuffer) X(vkCreateImageView) \
         X(vkDestroyImageView) X(vkCreateSampler) X(vkDestroySampler) \
         X(vkCreateDescriptorSetLayout) X(vkDestroyDescriptorSetLayout) \

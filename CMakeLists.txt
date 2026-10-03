@@ -136,6 +136,8 @@ set(FRUITY_VULKAN_FRAME_SLOTS_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanFrameSlots.cpp")
 set(FRUITY_VULKAN_SYNCHRONIZATION_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanSynchronization.cpp")
+set(FRUITY_VULKAN_RGB_TRANSFER_TEST_SOURCE
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanRgbTransfer.cpp")
 set(FRUITY_VULKAN_RESOURCES_TEST_SOURCE
     "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanResources.cpp")
 set(FRUITY_SHADER_INTERFACE_TEST_SOURCE
@@ -179,6 +181,7 @@ add_custom_target(fruity_golden_capture_provenance
 list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES
     "${FRUITY_VULKAN_FRAME_SLOTS_TEST_SOURCE}"
     "${FRUITY_VULKAN_SYNCHRONIZATION_TEST_SOURCE}"
+    "${FRUITY_VULKAN_RGB_TRANSFER_TEST_SOURCE}"
     "${FRUITY_VULKAN_RESOURCES_TEST_SOURCE}"
     "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanErrors.cpp"
     "${FRUITY_MPHREAD_ROOT}/Testing/TestReadback.cpp"
@@ -418,6 +421,7 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         add_executable(fruity_vulkan_command_slots_tests
             "${FRUITY_VULKAN_COMMAND_SLOTS_TEST_SOURCE}"
             "${FRUITY_MPHREAD_ROOT}/NativeRuntime/Rhi/Vulkan/VulkanCommandSlots.cpp"
+            "${FRUITY_MPHREAD_ROOT}/NativeRuntime/Rhi/Vulkan/VulkanTransferScratch.cpp"
             "${FRUITY_MPHREAD_ROOT}/NativeRuntime/Rhi/Vulkan/VulkanDescriptorAllocator.cpp"
             "${FRUITY_MPHREAD_ROOT}/NativeRuntime/Rhi/Vulkan/VulkanUploadArena.cpp")
         target_compile_definitions(fruity_vulkan_command_slots_tests PRIVATE FRUITY_HAS_VULKAN)
@@ -439,6 +443,14 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         target_include_directories(fruity_vulkan_synchronization_tests PRIVATE ${Vulkan_INCLUDE_DIRS})
         target_compile_features(fruity_vulkan_synchronization_tests PRIVATE cxx_std_20)
         add_test(NAME FruityPrime.VulkanSynchronization COMMAND fruity_vulkan_synchronization_tests)
+        add_executable(fruity_vulkan_rgb_transfer_tests
+            "${FRUITY_VULKAN_RGB_TRANSFER_TEST_SOURCE}"
+            "${FRUITY_MPHREAD_ROOT}/NativeRuntime/Rhi/Vulkan/VulkanRgbTransfer.cpp"
+            "${FRUITY_MPHREAD_ROOT}/NativeRuntime/Rhi/Vulkan/VulkanTransferScratch.cpp")
+        target_compile_definitions(fruity_vulkan_rgb_transfer_tests PRIVATE FRUITY_HAS_VULKAN)
+        target_include_directories(fruity_vulkan_rgb_transfer_tests PRIVATE ${Vulkan_INCLUDE_DIRS})
+        target_compile_features(fruity_vulkan_rgb_transfer_tests PRIVATE cxx_std_20)
+        add_test(NAME FruityPrime.VulkanRgbTransfer COMMAND fruity_vulkan_rgb_transfer_tests)
         if(FRUITY_VMA_INCLUDE_DIR)
             add_executable(fruity_vulkan_resources_tests
                 "${FRUITY_VULKAN_RESOURCES_TEST_SOURCE}"

@@ -139,7 +139,7 @@ jobs:
       - name: Install Qt Quick for MSVC
         shell: pwsh
         run: |
-          python tools/qt/install-qt.py --kit msvc2022_64 --root "$env:RUNNER_TEMP/qt"
+          python target/tools/qt/install-qt.py --kit msvc2022_64 --root "$env:RUNNER_TEMP/qt"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "QT_ROOT=$env:RUNNER_TEMP/qt/6.11.2/msvc2022_64" >> $env:GITHUB_ENV
 

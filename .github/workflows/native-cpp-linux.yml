@@ -148,7 +148,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo apt-get install -y p7zip-full libxcb-cursor0 libxkbcommon-x11-0
+          sudo apt-get install -y p7zip-full libxcb-cursor0 libxkbcommon-x11-0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0
           python3 tools/qt/install-qt.py --kit gcc_64 --root "$RUNNER_TEMP/qt"
           echo "QT_ROOT=$RUNNER_TEMP/qt/6.11.2/gcc_64" >> "$GITHUB_ENV"
           echo "LD_LIBRARY_PATH=$RUNNER_TEMP/qt/6.11.2/gcc_64/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"

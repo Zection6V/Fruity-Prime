@@ -2115,3 +2115,40 @@ exe SHA-256=`487010964C3BB5FEB77F720F0C65C398D9A876BDA41B3C62DC5344128F865CB3`�
 60 / 144 / 240 / 165 / 40 Hz、jitter、vsync rate変化でもsimulation rateとcatch-up制限を確認した。
 これはvendor低遅延機能の実測・実装の証拠ではない。R20の現行境界監査を完了し、
 将来機能の実装・driver / vendor SDK検証は追加時の対応に残す。
+
+## 兼用するread stateからのGPUコピー（R19）
+
+ResourceStateの契約ではread-onlyの状態を組み合わせられるが、両backendのexplicit copyが
+CopySrcとの完全一致を要求していた。VertexBuffer | CopySrcのbufferや
+ShaderRead | CopySrcのtextureはtransitionで受理されても、コピーで拒否されていた。
+先に共通fixtureを追加し、旧処理でOpenGLの拒否によるexit=1を再現した:
+`C:/tmp/gp/architecture-r19-combined-before-conformance.log`。
+
+buffer / image upload / image readbackの3経路がCopySrcを含むread stateを受理するよう修正した。
+destinationのCopyDstは従来どおりexclusive。usage / ownership / 範囲検査は維持する。
+Vulkan image readbackはtracked stateからnative layoutを選び、combined readのGENERALを保つ。
+新しいCPU画素cache、host readbackによる転送代替、waitは追加しない。
+GPU fixtureで実画素とコピー後のstate保持を確認し、別command listからのtransitionも検査する。
+storage-only textureのcombined readからのreadbackも同じfixtureで検査する。
+
+- MSVC Release PASS: `C:/tmp/gp/architecture-r19-combined-final-build.log`。
+- CPU CTest 15/15 PASS: `C:/tmp/gp/architecture-r19-combined-final-ctest.log`。
+- 共通GPU conformance PASS: `C:/tmp/gp/architecture-r19-combined-final-conformance.log`。
+  両backendの55件の不正状態拒否と新しいcombined readコピー、最終release=0がPASS。
+  Vulkan validation error=0。既存の8回session再生成とasync readbackもPASS。
+- FPS-onlyの両開始rendererを再確認: `C:/tmp/r18-fps-20261003-091701/`。
+  各runで試合中3回切替、world witnessとsource release、native / wrapper exit=0。
+  Alinos Perch、出現済みSylux +7 actors、2560×1439、scale100、cel0 / fog1、
+  pause0 / focus1、FPS Counter Off、unlimited、Immediate、validation / GPU profilingなし。
+
+両開始runの対象行をtotal frames / total secondsで集計した結果:
+
+| 測定renderer | 行数 | FPS | 平均frame間隔 | CPU loop平均 | presentation CPU平均 |
+|---|---:|---:|---:|---:|---:|
+| OpenGL | 20 | 283.8 | 3.524 ms | 3.518 ms | 0.090 ms |
+| Vulkan | 16 | 973.3 | 1.027 ms | 1.025 ms | 0.086 ms |
+
+集計は同出力先の`summary.json`。captureを含むfixtureで差を再確認したもので、
+今回のstate修正によるFPS改善や、差の原因を特定した証拠ではない。
+[FPS計測手順](Fruity-Prime-FPS-Measurement.md)のCLI / CSVを継続して利用できる。
+R19の全format / subresource / draw-state / presentation ownershipとR10の最終責務監査は残る。

@@ -183,6 +183,7 @@ namespace MphRead::NativeRuntime::Rhi
             std::uint32_t firstInstance = 0) = 0;
 
         // Explicit copies require CopySrc / CopyDst states and transfer usage.
+        // CopySrc may combine with other read states; copies retain that state.
         // Convenience device uploads and readbacks perform their own transitions.
         virtual void CopyBuffer(const Buffer& source, std::uint64_t sourceOffset,
             Buffer& destination, std::uint64_t destinationOffset, std::uint64_t size) = 0;

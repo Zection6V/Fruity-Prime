@@ -2793,7 +2793,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (!Has(src.Desc().usage, BufferUsage::TransferSrc)
                 || !Has(dst.Desc().usage, BufferUsage::TransferDst))
                 throw std::invalid_argument("Vulkan RHI: buffer copies need TransferSrc and TransferDst usage.");
-            if (src.State() != ResourceState::CopySrc || dst.State() != ResourceState::CopyDst)
+            if (!HasAny(src.State(), ResourceState::CopySrc) || dst.State() != ResourceState::CopyDst)
                 throw std::invalid_argument("Vulkan RHI: buffer copies require CopySrc and CopyDst states.");
             if (size == 0 || sourceOffset > src.Desc().size || size > src.Desc().size - sourceOffset
                 || destinationOffset > dst.Desc().size || size > dst.Desc().size - destinationOffset)
@@ -2821,7 +2821,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (!Has(src.Desc().usage, BufferUsage::TransferSrc)
                 || !Has(dst.Desc().usage, TextureUsage::TransferDst))
                 throw std::invalid_argument("Vulkan RHI: image upload needs TransferSrc and TransferDst usage.");
-            if (src.State() != ResourceState::CopySrc || dst.State() != ResourceState::CopyDst)
+            if (!HasAny(src.State(), ResourceState::CopySrc) || dst.State() != ResourceState::CopyDst)
                 throw std::invalid_argument("Vulkan RHI: image uploads require CopySrc and CopyDst states.");
             const VkBufferImageCopy copy = ToVkBufferImageCopy(src.Desc(), dst.Desc(), region);
             PrepareTransfer();
@@ -2840,12 +2840,15 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (!Has(src.Desc().usage, TextureUsage::TransferSrc)
                 || !Has(dst.Desc().usage, BufferUsage::TransferDst))
                 throw std::invalid_argument("Vulkan RHI: image readback needs TransferSrc and TransferDst usage.");
-            if (src.State() != ResourceState::CopySrc || dst.State() != ResourceState::CopyDst)
+            if (!HasAny(src.State(), ResourceState::CopySrc) || dst.State() != ResourceState::CopyDst)
                 throw std::invalid_argument("Vulkan RHI: image readback requires CopySrc and CopyDst states.");
             const VkBufferImageCopy copy = ToVkBufferImageCopy(dst.Desc(), src.Desc(), region);
+            // Combined read permissions retain GENERAL. The copy layout must
+            // agree with the explicit transition; copying does not narrow it.
+            const VkImageLayout sourceLayout = ToVkState(src.State(), true).Layout;
             PrepareTransfer();
             _device->ContextPointer->_impl->vkCmdCopyImageToBuffer(_commandSlots->Buffer(),
-                src.Native(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst.Native(), 1, &copy);
+                src.Native(), sourceLayout, dst.Native(), 1, &copy);
         }
 
         void VulkanCommandList::Transition(Buffer& resource, ResourceState before, ResourceState after)

@@ -82,6 +82,28 @@ namespace MphRead::Mods::Diagnostics
         device.ReadBuffer(*output, 0, actual);
         if (actual != payload) throw std::runtime_error("Rejected state transitions damaged subsequent GPU copies.");
 
+        // CopySrc is a read permission, including when another read use is
+        // enabled. Exercise each explicit copy without narrowing the state.
+        constexpr auto bufferReads = ResourceState::VertexBuffer | ResourceState::CopySrc;
+        constexpr auto textureReads = ResourceState::ShaderRead | ResourceState::CopySrc;
+        auto combined = device.CreateBuffer({16, BufferUsage::Vertex | BufferUsage::TransferSrc,
+            MemoryUsage::CpuToGpu, bufferReads});
+        device.WriteBuffer(*combined, 0, payload);
+        commands->Begin(); commands->CopyBuffer(*combined, 0, *output, 0, 16); commands->End();
+        device.ReadBuffer(*output, 0, actual);
+        if (actual != payload) throw std::runtime_error("Combined buffer read states changed copied bytes.");
+        commands->Begin(); commands->Transition(*image, ResourceState::CopySrc, ResourceState::CopyDst);
+        commands->CopyBufferToTexture(*combined, *image, region);
+        commands->Transition(*image, ResourceState::CopyDst, textureReads);
+        commands->CopyTextureToBuffer(*image, *output, region);
+        // The copy must retain the combined state, including on another list.
+        commands->End();
+        auto combinedCommands = device.CreateCommandList(); combinedCommands->Begin();
+        combinedCommands->Transition(*image, textureReads, ResourceState::CopySrc);
+        combinedCommands->Transition(*combined, bufferReads, ResourceState::Common); combinedCommands->End();
+        device.ReadBuffer(*output, 0, actual);
+        if (actual != payload) throw std::runtime_error("Combined image read states changed transferred pixels.");
+
         auto other = device.CreateCommandList(); other->Begin();
         other->Transition(*source, ResourceState::CopySrc, ResourceState::Common); other->End();
         commands->Begin(); reject([&] { commands->Transition(*source, ResourceState::CopySrc, ResourceState::Common); });
@@ -103,7 +125,7 @@ namespace MphRead::Mods::Diagnostics
         commands->CopyBufferToTexture(*source, *storage, region);
         commands->Transition(*storage, ResourceState::CopyDst, ResourceState::ShaderWrite);
         commands->Transition(*storage, ResourceState::ShaderWrite, ResourceState::ShaderRead);
-        commands->Transition(*storage, ResourceState::ShaderRead, ResourceState::CopySrc);
+        commands->Transition(*storage, ResourceState::ShaderRead, textureReads);
         commands->CopyTextureToBuffer(*storage, *output, region); commands->End();
         device.ReadBuffer(*output, 0, actual);
         if (actual != payload) throw std::runtime_error("Storage texture state transitions changed transferred pixels.");
@@ -124,6 +146,6 @@ namespace MphRead::Mods::Diagnostics
         commands->CopyBuffer(*gpu, 0, *output, 0, 16); commands->End(); device.ReadBuffer(*output, 0, actual);
         if (actual != payload || device.DrainErrors()) throw std::runtime_error("GPU upload state or pixels differ.");
         std::cout << "[resource states] PASS; rejected=" << rejected
-            << "; initial/tracked state; invalid bits/type/write/usage/format; copies preserved; resize/upload/storage states\n";
+            << "; initial/tracked state; invalid bits/type/write/usage/format; copies preserved; combined reads; resize/upload/storage states\n";
     }
 }

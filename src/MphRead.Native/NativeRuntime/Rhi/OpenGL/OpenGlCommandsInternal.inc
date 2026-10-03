@@ -281,7 +281,7 @@ void OpenGlCommandList::CopyBuffer(const Buffer& source, std::uint64_t sourceOff
 {
     RequireRecording();
     const auto& from = CheckedBuffer(*_device, source); const auto& to = CheckedBuffer(*_device, destination);
-    if (from.State() != ResourceState::CopySrc || to.State() != ResourceState::CopyDst)
+    if (!HasAny(from.State(), ResourceState::CopySrc) || to.State() != ResourceState::CopyDst)
         throw std::invalid_argument("OpenGL RHI: buffer copies require CopySrc and CopyDst states.");
     CheckBufferRange(source, sourceOffset, size); CheckBufferRange(destination, destinationOffset, size);
     if (!Has(source.Desc().usage, BufferUsage::TransferSrc) || !Has(destination.Desc().usage, BufferUsage::TransferDst)
@@ -334,7 +334,7 @@ void OpenGlCommandList::CopyBufferToTexture(const Buffer& source, Texture& desti
 {
     RequireRecording();
     const auto& buffer = CheckedBuffer(*_device, source); auto& texture = Native(destination, _device);
-    if (buffer.State() != ResourceState::CopySrc || texture.State() != ResourceState::CopyDst)
+    if (!HasAny(buffer.State(), ResourceState::CopySrc) || texture.State() != ResourceState::CopyDst)
         throw std::invalid_argument("OpenGL RHI: image uploads require CopySrc and CopyDst states.");
     const auto bytes = CheckTextureCopy(destination, source, region);
     if (texture.IsRenderbuffer() || !Has(source.Desc().usage, BufferUsage::TransferSrc) || !Has(destination.Desc().usage, TextureUsage::TransferDst))
@@ -357,7 +357,7 @@ void OpenGlCommandList::CopyTextureToBuffer(const Texture& source, Buffer& desti
 {
     RequireRecording();
     const auto& buffer = CheckedBuffer(*_device, destination); const auto& texture = Native(source, _device);
-    if (texture.State() != ResourceState::CopySrc || buffer.State() != ResourceState::CopyDst)
+    if (!HasAny(texture.State(), ResourceState::CopySrc) || buffer.State() != ResourceState::CopyDst)
         throw std::invalid_argument("OpenGL RHI: image readback requires CopySrc and CopyDst states.");
     const auto bytes = CheckTextureCopy(source, destination, region);
     if (texture.IsRenderbuffer() || !Has(source.Desc().usage, TextureUsage::TransferSrc) || !Has(destination.Desc().usage, BufferUsage::TransferDst))

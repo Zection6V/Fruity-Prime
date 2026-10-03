@@ -249,6 +249,9 @@ void OpenGlCommandList::ApplyBindingSet(std::uint32_t group, const OpenGlBinding
     const auto* set = &resource;
     const auto& layout = _applied->Desc().pipelineLayout;
     auto& api = _device->Api();
+    // Without sampler objects a sampler is written onto its unit's texture,
+    // which a later entry of the same group may be what binds.
+    std::vector<std::pair<unsigned, const OpenGlSampler*>> textureSamplers;
     for (const auto& entry : set->Desc().entries)
     {
         const auto& declarations = layout.groups[group].entries;
@@ -267,7 +270,8 @@ void OpenGlCommandList::ApplyBindingSet(std::uint32_t group, const OpenGlBinding
         {
             const auto& sampler = dynamic_cast<const OpenGlSampler&>(*std::get<SamplerBinding>(entry.resource).sampler);
             if (slot >= static_cast<unsigned>(GL::GetInteger(0x8B4D))) throw std::out_of_range("OpenGL RHI: sampler binding exceeds device limit.");
-            OpenGlNative::Require(api.BindSampler, "glBindSampler")(slot, sampler.Name());
+            if (api.features.samplerObjects) ApplySampler(*_device, slot, &sampler);
+            else textureSamplers.emplace_back(slot, &sampler);
         }
         else
         {
@@ -287,6 +291,12 @@ void OpenGlCommandList::ApplyBindingSet(std::uint32_t group, const OpenGlBinding
             }
         }
     }
+    for (const auto& [slot, sampler] : textureSamplers)
+    {
+        GL::ActiveTexture(static_cast<GL::TextureUnit>(0x84C0 + slot));
+        ApplySampler(*_device, slot, sampler);
+    }
+    if (!textureSamplers.empty()) GL::ActiveTexture(GL::TextureUnit::Texture0);
 }
 void OpenGlCommandList::CopyBuffer(const Buffer& source, std::uint64_t sourceOffset, Buffer& destination, std::uint64_t destinationOffset, std::uint64_t size)
 {
@@ -298,6 +308,22 @@ void OpenGlCommandList::CopyBuffer(const Buffer& source, std::uint64_t sourceOff
     if (!Has(source.Desc().usage, BufferUsage::TransferSrc) || !Has(destination.Desc().usage, BufferUsage::TransferDst)
         || (&source == &destination && sourceOffset < destinationOffset + size && destinationOffset < sourceOffset + size))
         throw std::invalid_argument("OpenGL RHI: invalid or overlapping buffer copy.");
+    if (!_device->Api().features.copyBuffer)
+    {
+        // No ARB_copy_buffer: read the range back and upload it again. GL
+        // orders both against the commands already issued, as it would a copy.
+        auto& api = _device->Api();
+        std::vector<std::byte> staging(static_cast<std::size_t>(size));
+        const int previous = GL::GetInteger(0x8894); // ARRAY_BUFFER_BINDING
+        GL::BindBuffer(static_cast<GL::BufferTarget>(0x8892), from.Name());
+        OpenGlNative::Require(api.GetBufferSubData, "glGetBufferSubData")(0x8892,
+            static_cast<std::ptrdiff_t>(sourceOffset), static_cast<std::ptrdiff_t>(size), staging.data());
+        GL::BindBuffer(static_cast<GL::BufferTarget>(0x8892), to.Name());
+        OpenGlNative::Require(api.BufferSubData, "glBufferSubData")(0x8892,
+            static_cast<std::ptrdiff_t>(destinationOffset), static_cast<std::ptrdiff_t>(size), staging.data());
+        GL::BindBuffer(static_cast<GL::BufferTarget>(0x8892), previous);
+        return;
+    }
     GL::BindBuffer(static_cast<GL::BufferTarget>(0x8F36), from.Name()); GL::BindBuffer(static_cast<GL::BufferTarget>(0x8F37), to.Name());
     OpenGlNative::Require(_device->Api().CopyBufferSubData, "glCopyBufferSubData")(0x8F36, 0x8F37, sourceOffset, destinationOffset, size);
     GL::BindBuffer(static_cast<GL::BufferTarget>(0x8F36), 0); GL::BindBuffer(static_cast<GL::BufferTarget>(0x8F37), 0);

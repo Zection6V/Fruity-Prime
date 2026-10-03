@@ -1469,6 +1469,7 @@ const ObjectMetadata& GetObjectById(std::uint32_t id)
 const PlatformMetadata* GetPlatformById(int id)
 {
     if (id < 0 || id > static_cast<int>(Platforms.size())) throw std::invalid_argument("id");
+    if (id == 1) id = 0;
     const auto& value=Platforms.at(static_cast<std::size_t>(id));
     return value.get();
 }

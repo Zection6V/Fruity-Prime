@@ -147,7 +147,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         void ConfigureLowLatency(LowLatencyMode mode, std::uint32_t interval) override { _reflex->SetMode(mode, interval); }
         [[nodiscard]] LowLatencyCapabilities LowLatencyCaps() const noexcept override { return _reflex->Caps(); }
         [[nodiscard]] LowLatencyDiagnostics LowLatencyStats() const noexcept override { return _reflex->Stats(); }
+        [[nodiscard]] std::uint64_t LowLatencyFrameId() const noexcept { return _reflex ? _reflex->FrameId() : 0; }
         void MarkLowLatency(LowLatencyMarker marker) override { _reflex->Mark(marker); }
+        void AbandonLowLatencyFrame() noexcept override { if (_reflex) _reflex->AbandonFrame(); }
         [[nodiscard]] bool BeginLowLatencyFrame() override
         {
             const auto before = _reflex->FrameId();
@@ -294,25 +296,33 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         AcquireResult TryAcquireTexture() override
         {
-            if (_closed) return {PresentationStatus::SurfaceLost, nullptr};
+            if (_closed) { AbandonLowLatencyFrame(); return {PresentationStatus::SurfaceLost, nullptr}; }
             if (Closing())
+            {
+                AbandonLowLatencyFrame();
 #if defined(__ANDROID__)
                 return {PresentationStatus::SurfaceLost, nullptr};
 #else
                 return {PresentationStatus::TemporarilyUnavailable, nullptr};
 #endif
+            }
             try
             {
-                if (!TryAcquire()) return {PresentationStatus::TemporarilyUnavailable, nullptr};
+                if (!TryAcquire())
+                {
+                    AbandonLowLatencyFrame();
+                    return {PresentationStatus::TemporarilyUnavailable, nullptr};
+                }
                 return {_recreateAfterPresent ? PresentationStatus::ResizeRequired : PresentationStatus::Ready,
                     _images[_currentImage].texture.get()};
             }
-            catch (const BackendError& error) { return FailedAcquire(error); }
+            catch (const BackendError& error) { AbandonLowLatencyFrame(); return FailedAcquire(error); }
         }
         PresentationCapabilities PresentationCaps() const noexcept override { return _presentationCaps; }
         PresentMode RequestedPresentMode() const noexcept override { return _requestedMode; }
         PresentResult TryPresent() override
         {
+            if (!_acquired) AbandonLowLatencyFrame();
             if (_closed) return {PresentationStatus::SurfaceLost};
             if (!_acquired && Closing())
 #if defined(__ANDROID__)
@@ -1110,8 +1120,18 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                         for (auto mode : {LowLatencyMode::Off, LowLatencyMode::On, LowLatencyMode::OnBoost, LowLatencyMode::Off})
                         {
                             swapchain->ConfigureLowLatency(mode, interval);
-                            const auto generation = swapchain->LowLatencyStats().swapchainGeneration;
+                            const auto before = swapchain->LowLatencyStats();
+                            const auto generation = before.swapchainGeneration;
                             drawColor(0.1F, 0.3F, 0.6F);
+                            const auto after = swapchain->LowLatencyStats();
+                            if (!std::getenv("FRUITY_REFLEX_TEST_FAILURE"))
+                            {
+                                const auto frames = after.completedMeasurementFrames - before.completedMeasurementFrames;
+                                if (!frames || after.markerCalls - before.markerCalls != frames * 7
+                                    || (mode == LowLatencyMode::Off && after.sleepCalls != before.sleepCalls)
+                                    || (mode != LowLatencyMode::Off && after.sleepCalls - before.sleepCalls != frames))
+                                    throw std::runtime_error("Reflex Off/On/Boost measurement or sleep contract failed.");
+                            }
                             const auto state = ResolveLowLatency(mode, swapchain->LowLatencyCaps());
                             if (mode != LowLatencyMode::Off && !std::getenv("FRUITY_REFLEX_TEST_FAILURE")
                                 && (state.provider != LowLatencyProvider::Nvidia || state.authority != PacingAuthority::Native || state.effective != mode || !state.fallbackReason.empty()))
@@ -1236,11 +1256,31 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             // window stays exposed while the Dock animates it away: present
             // what is still offered until the surface actually goes.
             const auto unexposedDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+            std::uint64_t abandonedReflexId = 0;
             for (;;)
             {
+                if (reflexCheck)
+                {
+                    while (!swapchain->BeginLowLatencyFrame()) {}
+                    swapchain->MarkLowLatency(LowLatencyMarker::InputSample);
+                    swapchain->MarkLowLatency(LowLatencyMarker::SimulationStart);
+                    swapchain->MarkLowLatency(LowLatencyMarker::SimulationEnd);
+                }
+                const auto admittedId = vkSwapchain.LowLatencyFrameId();
+                const auto beforeAcquire = swapchain->LowLatencyStats();
                 const auto minimized = swapchain->TryAcquireTexture();
                 if (!minimized.texture)
                 {
+                    if (reflexCheck && admittedId)
+                    {
+                        const auto afterAcquire = swapchain->LowLatencyStats();
+                        if (vkSwapchain.LowLatencyFrameId()
+                            || afterAcquire.markerCalls != beforeAcquire.markerCalls
+                            || afterAcquire.completedMeasurementFrames != beforeAcquire.completedMeasurementFrames
+                            || afterAcquire.abandonedMeasurementFrames != beforeAcquire.abandonedMeasurementFrames + 1)
+                            throw std::runtime_error("Unavailable acquire retained an admitted Reflex frame or fabricated present markers.");
+                        abandonedReflexId = admittedId;
+                    }
                     if (minimized.status != PresentationStatus::TemporarilyUnavailable
                         || swapchain->TryPresent().status != PresentationStatus::TemporarilyUnavailable)
                         throw std::runtime_error("A minimized Vulkan swapchain did not report temporary unavailability.");
@@ -1291,6 +1331,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 std::this_thread::sleep_for(std::chrono::milliseconds(16));
             }
             drawColor(0.20F, 0.55F, 0.75F);
+            if (abandonedReflexId && swapchain->LowLatencyStats().frameId <= abandonedReflexId)
+                throw std::runtime_error("Restoring reused the abandoned Reflex frame identity.");
 
             swapchain->SetPresentMode(PresentMode::Mailbox);
             if (swapchain->RequestedPresentMode() != PresentMode::Mailbox
@@ -1310,6 +1352,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 std::cout << "[reflexcheck] native frames=" << nativeFrames << " sleeps=" << stats.sleepCalls
                     << " waits=" << stats.waitCalls << " modes=" << stats.modeCalls << " markers=" << stats.markerCalls
                     << " timing-reports=" << stats.timingReports << " generations=" << stats.swapchainGeneration << '\n';
+                std::cout << "[reflexcheck] completed=" << stats.completedMeasurementFrames
+                    << " abandoned=" << stats.abandonedMeasurementFrames << " timing-queries=" << stats.timingQueries << '\n';
             }
             if (forceFallback && (vkSwapchain.PresentFencesEnabled()
                 || vkSwapchain.FallbackRetiredReleases() == 0))

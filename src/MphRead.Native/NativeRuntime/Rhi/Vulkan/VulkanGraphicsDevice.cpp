@@ -1661,7 +1661,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         auto& state = *dynamic_cast<VulkanGraphicsDevice&>(device).State();
         state.FlushScene();
         const auto acquired = swapchain.TryAcquireTexture();
-        if (!acquired.texture) return {acquired.status, acquired.failure};
+        if (!acquired.texture)
+        {
+            swapchain.AbandonLowLatencyFrame();
+            return {acquired.status, acquired.failure};
+        }
         VulkanTexture* window = state.WindowColor.get();
         if (!window || window->State() == ResourceState::Undefined)
         {

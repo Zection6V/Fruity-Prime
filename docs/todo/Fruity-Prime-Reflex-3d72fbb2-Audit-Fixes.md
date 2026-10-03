@@ -1,5 +1,45 @@
 # Fruity Prime `3d72fbb2` — NVIDIA Reflex + Audit Fixes: Independent Audit
 
+## Resolution status (2026-10-04)
+
+The review below describes the historical audited SHA. On checking
+`131544595f7d483d2ef778a66286fefe217ecf71`, items 1–3 were still open;
+the macOS narrowing and Android incomplete-type corrections were already present.
+
+Implemented corrections:
+
+- Measurement availability and native pacing are separate. Off opens a measurement
+  frame and emits all seven markers with its submission/present ID, without native
+  sleep or generic GPU pacing. The desktop frame gate opens measurement before
+  returning for Off; native runtime failures still fall back in the same frame.
+- Timing queries use completed measurement frames, once per 120 completions.
+  Duplicate closure and abandoned frames do not advance the cadence.
+- `AbandonLowLatencyFrame()` clears readiness, pending admission, the marker mask
+  and current identity without fabricated Present markers or completion. Final
+  acquire failure, unavailable direct acquisition/presentation and zero-sized
+  desktop frames abandon the logical frame. Swapchain recreation within a frame
+  continues to preserve the admitted identity.
+- The controller regression covers Off markers/attribution, cadence before and
+  after exactly 120 sleeps, duplicate closure, abandonment in every mode,
+  pending-sleep mode changes, resize and optional native failures. Desktop CI
+  now builds and runs this regression on Windows, Linux and macOS.
+
+Local verification (Windows, MinGW Release, Qt Quick, RTX 5070 Ti):
+
+- Full native build passed; CTest **21/21 passed**.
+- `-reflexcheck -noupdate`, `FRUITY_RENDER_METRICS=1`: **passed**, validation
+  enabled, **0 errors**; 268 completed measurement frames, 1 abandoned frame,
+  2 timing queries, 149 native sleeps, 1879 markers. FIFO/Immediate/Mailbox,
+  Off/On/Boost, frame caps, resize/fullscreen and minimize/restore were exercised.
+- RHI isolation, frontend OpenGL, dependency classification, shader-interface
+  and legacy OpenGL static audits passed; `git diff --check` passed.
+
+Cross-platform CI for the implementation commit is pending. Nsight/Reflex
+verification tooling is not installed here; API counters and Vulkan validation
+verify the lifecycle contract, without claiming external display-latency measurements.
+
+---
+
 ## Scope
 
 Repository: `Zection6V/Fruity-Prime`  

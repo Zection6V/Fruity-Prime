@@ -215,6 +215,14 @@ jobs:
             exit $LASTEXITCODE
           }
 
+      - name: Reflex lifecycle regression
+        shell: pwsh
+        run: |
+          cmake --build build/native --config RelWithDebInfo --target fruity_vulkan_reflex_tests
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ctest --test-dir build/native -C RelWithDebInfo -R '^FruityPrime\.VulkanNvidiaReflex$' --output-on-failure --no-tests=error
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Backend contract (OpenGL, Vulkan, Qt Quick)
         shell: pwsh
         run: |
@@ -378,6 +386,13 @@ jobs:
         run: |
           set -euo pipefail
           cmake --build build/native --config RelWithDebInfo --parallel "$(nproc)" --target fruity_package
+
+      - name: Reflex lifecycle regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build build/native --config RelWithDebInfo --target fruity_vulkan_reflex_tests
+          ctest --test-dir build/native -C RelWithDebInfo -R '^FruityPrime\.VulkanNvidiaReflex$' --output-on-failure --no-tests=error
 
       - name: Backend contract (OpenGL, Vulkan, Qt Quick)
         shell: bash
@@ -563,6 +578,13 @@ jobs:
         run: |
           set -euo pipefail
           cmake --build build/native --config RelWithDebInfo --parallel "$(sysctl -n hw.ncpu)" --target fruity_package
+
+      - name: Reflex lifecycle regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build build/native --config RelWithDebInfo --target fruity_vulkan_reflex_tests
+          ctest --test-dir build/native -C RelWithDebInfo -R '^FruityPrime\.VulkanNvidiaReflex$' --output-on-failure --no-tests=error
 
       - name: Archive installed Qt application
         shell: bash

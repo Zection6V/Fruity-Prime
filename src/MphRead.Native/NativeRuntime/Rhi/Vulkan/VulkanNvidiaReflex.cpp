@@ -33,7 +33,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         // Attempt to leave driver pacing disabled even after a native failure.
         if (_swapchain && _dispatch.setMode)
         { VkLatencySleepModeInfoNV off{VK_STRUCTURE_TYPE_LATENCY_SLEEP_MODE_INFO_NV}; (void)_dispatch.setMode(_dispatch.device, _swapchain, &off); }
-        _available = _ready = false; _modeApplied = false;
+        AbandonFrame();
+        _available = false; _modeApplied = false;
         std::cout << "[reflex] fallback: " << _reason << '\n';
     }
     void VulkanNvidiaReflex::SetSwapchain(VkSwapchainKHR swapchain)
@@ -61,17 +62,17 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             : _dispatch.setMode(_dispatch.device, _swapchain, &info);
         if (result != VK_SUCCESS) { Fail("vkSetLatencySleepModeNV", result); return; }
         _applied = _mode; _appliedInterval = _interval; _modeApplied = true;
-        if (_mode == LowLatencyMode::Off) _ready = false;
         std::cout << "[reflex] mode=" << static_cast<int>(_mode) << " lowLatencyMode=" << info.lowLatencyMode
             << " lowLatencyBoost=" << info.lowLatencyBoost << " minimumIntervalUs=" << info.minimumIntervalUs << '\n';
     }
     bool VulkanNvidiaReflex::BeginFrame()
     {
-        if (!Active()) return true;
+        if (!MeasurementAvailable()) return true;
         if (_ready) return true;
         if (!_sleepPending)
         {
             _frameId = ++_sequence; _stats.frameId = _frameId; _markers = 0;
+            if (!PacingActive()) { _ready = true; return true; }
             VkLatencySleepInfoNV info{VK_STRUCTURE_TYPE_LATENCY_SLEEP_INFO_NV}; info.signalSemaphore = _semaphore; info.value = _frameId;
             ++_stats.sleepCalls;
             const auto result = Inject("sleep") ? VK_ERROR_UNKNOWN : _dispatch.sleep(_dispatch.device, _swapchain, &info);
@@ -100,7 +101,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     }
     void VulkanNvidiaReflex::PollTimings()
     {
-        if (!Available() || !_swapchain || !std::getenv("FRUITY_RENDER_METRICS") || _stats.sleepCalls % 120) return;
+        const auto completed = _stats.completedMeasurementFrames;
+        if (!MeasurementAvailable() || !std::getenv("FRUITY_RENDER_METRICS")
+            || !completed || completed % 120 || completed == _lastTimingPoll) return;
+        _lastTimingPoll = completed;
+        ++_stats.timingQueries;
         VkGetLatencyMarkerInfoNV info{VK_STRUCTURE_TYPE_GET_LATENCY_MARKER_INFO_NV};
         _dispatch.timings(_dispatch.device, _swapchain, &info);
         std::array<VkLatencyTimingsFrameReportNV, 64> reports{};
@@ -118,11 +123,23 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 << " present_start_us=" << r.presentStartTimeUs << " present_end_us=" << r.presentEndTimeUs << '\n';
         }
     }
-    void VulkanNvidiaReflex::FinishFrame() { PollTimings(); _ready = false; _markers = 0; }
+    void VulkanNvidiaReflex::FinishFrame()
+    {
+        if (!FrameId()) return;
+        ++_stats.completedMeasurementFrames;
+        _ready = false; _frameId = 0; _markers = 0;
+        PollTimings();
+    }
+    void VulkanNvidiaReflex::AbandonFrame() noexcept
+    {
+        if (_frameId) ++_stats.abandonedMeasurementFrames;
+        _ready = _sleepPending = false; _frameId = 0; _markers = 0;
+    }
     void VulkanNvidiaReflex::Shutdown() noexcept
     {
         // Owner drains the device first. Keep the semaphore until that boundary
         // even when optional runtime pacing failed.
+        AbandonFrame();
         SetSwapchain(VK_NULL_HANDLE);
         if (_semaphore) _dispatch.destroy(_dispatch.device, _semaphore, nullptr);
         _semaphore = VK_NULL_HANDLE; _available = false;

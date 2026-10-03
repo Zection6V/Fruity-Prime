@@ -6285,16 +6285,22 @@ namespace MphRead
         namespace Rhi = NativeRuntime::Rhi;
         ApplyFrameRateSettings();
         const auto size = FramebufferSize();
-        if (size.X <= 0 || size.Y <= 0) return true;
+        if (size.X <= 0 || size.Y <= 0)
+        {
+            _swapchain->AbandonLowLatencyFrame();
+            return true;
+        }
         auto state = Rhi::ResolveLowLatency(Mods::Launcher::LauncherPrefs::LowLatency(), _swapchain->LowLatencyCaps());
+        const bool nativePacing = state.authority == Rhi::PacingAuthority::Native;
+        // Native measurement also opens a frame in Off; only pacing is disabled.
+        if (!_swapchain->BeginLowLatencyFrame()) return false;
+        state = Rhi::ResolveLowLatency(state.requested, _swapchain->LowLatencyCaps());
         if (state.effective == Rhi::LowLatencyMode::Off) return true;
         if (state.authority == Rhi::PacingAuthority::Native)
         {
-            if (!_swapchain->BeginLowLatencyFrame()) return false;
-            state = Rhi::ResolveLowLatency(state.requested, _swapchain->LowLatencyCaps());
-            if (state.authority == Rhi::PacingAuthority::Native) return true;
-            ApplyFrameRateSettings(); // Native failure hands this frame to Generic.
+            return true;
         }
+        if (nativePacing) ApplyFrameRateSettings(); // Native failure hands this frame to Generic.
         return Rhi::SceneDevice().WaitForLatestSubmission(Rhi::PresentationScheduler::FrameBudgetWait.count());
     }
 

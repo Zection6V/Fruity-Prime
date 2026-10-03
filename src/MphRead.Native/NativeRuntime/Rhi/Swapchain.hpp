@@ -90,6 +90,8 @@ namespace MphRead::NativeRuntime::Rhi
         [[nodiscard]] virtual LowLatencyCapabilities LowLatencyCaps() const noexcept
         { return {true, false, LowLatencyProvider::Generic}; }
         [[nodiscard]] virtual bool BeginLowLatencyFrame() { return true; }
+        // End an admitted CPU frame that cannot reach a presentation attempt.
+        virtual void AbandonLowLatencyFrame() noexcept {}
         virtual void MarkLowLatency(LowLatencyMarker) {}
         [[nodiscard]] virtual LowLatencyDiagnostics LowLatencyStats() const noexcept { return {}; }
         // Nonblocking for unavailable/minimized surfaces. The synchronous

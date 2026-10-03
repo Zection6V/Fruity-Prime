@@ -2,6 +2,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <vector>
+#include <cstdlib>
 using namespace MphRead::NativeRuntime::Rhi;
 using namespace MphRead::NativeRuntime::Rhi::Vulkan;
 namespace {
@@ -9,7 +10,7 @@ void Expect(bool okay, const char* why) { if (!okay) throw std::runtime_error(wh
 struct Fake {
  static Fake* f;
  VkResult create = VK_SUCCESS, mode = VK_SUCCESS, sleep = VK_SUCCESS, wait = VK_SUCCESS;
- unsigned destroyed = 0, sleeps = 0, waits = 0;
+ unsigned destroyed = 0, sleeps = 0, waits = 0, timingQueries = 0;
  std::vector<VkLatencySleepModeInfoNV> modes;
  std::vector<VkSetLatencyMarkerInfoNV> markers;
  std::vector<std::uint64_t> ids;
@@ -34,7 +35,7 @@ struct Fake {
   ++f->waits; return f->wait;
  }
  static VKAPI_ATTR void VKAPI_CALL Marker(VkDevice, VkSwapchainKHR, const VkSetLatencyMarkerInfoNV* info) { f->markers.push_back(*info); }
- static VKAPI_ATTR void VKAPI_CALL Timings(VkDevice, VkSwapchainKHR, VkGetLatencyMarkerInfoNV* info) { info->timingCount = 0; }
+ static VKAPI_ATTR void VKAPI_CALL Timings(VkDevice, VkSwapchainKHR, VkGetLatencyMarkerInfoNV* info) { ++f->timingQueries; info->timingCount = 0; }
  VulkanNvidiaReflex::Dispatch Dispatch(unsigned revision = 3) { return {reinterpret_cast<VkDevice>(1), true, revision, "", Create, Destroy, Wait, Mode, Sleep, Marker, Timings}; }
 };
 Fake* Fake::f = nullptr;
@@ -58,8 +59,57 @@ void Run() {
   r.FinishFrame(); Expect(r.BeginFrame() && r.FrameId() == 42 && f.sleeps == 2, "Next present did not start a new frame."); r.FinishFrame();
   r.SetSwapchain(VK_NULL_HANDLE); Expect(!f.modes.back().lowLatencyMode, "Retiring chain was not disabled.");
   r.SetSwapchain(reinterpret_cast<VkSwapchainKHR>(3)); Expect(f.modes.back().lowLatencyBoost && r.Stats().swapchainGeneration == 2, "Requested Boost lost after recreate.");
-  r.SetMode(LowLatencyMode::Off, 0); Expect(!f.modes.back().lowLatencyBoost && r.SubmissionId() == 0 && r.BeginFrame() && f.sleeps == 2, "Off retains native pacing or explicit attribution.");
+  r.SetMode(LowLatencyMode::Off, 0); Expect(!f.modes.back().lowLatencyBoost && r.SubmissionId() == 0 && r.BeginFrame() && f.sleeps == 2, "Off retains native pacing.");
+  const auto offId = r.FrameId();
+  Expect(offId > 42 && r.SubmissionId() == offId && r.MeasurementAvailable() && !r.PacingActive(), "Off measurement identity absent.");
+  const auto markersBeforeOff = f.markers.size();
+  for (unsigned i = 0; i < 7; ++i) { r.Mark(static_cast<LowLatencyMarker>(i)); r.Mark(static_cast<LowLatencyMarker>(i)); }
+  Expect(f.markers.size() == markersBeforeOff + 7, "Off marker contract absent or duplicated.");
+  for (auto i = markersBeforeOff; i < f.markers.size(); ++i) Expect(f.markers[i].presentID == offId, "Off marker attribution differs.");
+  r.FinishFrame(); Expect(!r.FrameId() && r.SubmissionId() == 0, "Closed measurement keeps attribution.");
   r.Shutdown(); r.Shutdown(); Expect(f.destroyed == 1, "Timeline destruction not idempotent.");
+ }
+ {
+  Fake f; VulkanNvidiaReflex r(f.Dispatch(), sequence); r.SetSwapchain(chain);
+  for (auto mode : {LowLatencyMode::Off, LowLatencyMode::On, LowLatencyMode::OnBoost}) {
+   r.SetMode(mode, 0); Expect(r.BeginFrame(), "Frame admission failed.");
+   const auto abandonedId = r.FrameId();
+   r.Mark(LowLatencyMarker::InputSample); r.Mark(LowLatencyMarker::SimulationStart); r.Mark(LowLatencyMarker::SimulationEnd);
+   const auto markers = f.markers.size();
+   const auto completed = r.Stats().completedMeasurementFrames;
+   const auto abandoned = r.Stats().abandonedMeasurementFrames;
+   r.AbandonFrame(); r.AbandonFrame(); r.FinishFrame(); r.Mark(LowLatencyMarker::PresentStart); r.Mark(LowLatencyMarker::PresentEnd);
+   Expect(!r.FrameId() && r.SubmissionId() == 0 && f.markers.size() == markers
+    && r.Stats().completedMeasurementFrames == completed && r.Stats().abandonedMeasurementFrames == abandoned + 1,
+    "Abandon manufactured completion/markers or retained attribution.");
+   Expect(r.BeginFrame() && r.FrameId() > abandonedId, "Abandon reused a stale frame identity.");
+   r.Mark(LowLatencyMarker::InputSample); r.Mark(LowLatencyMarker::SimulationStart); r.Mark(LowLatencyMarker::SimulationEnd);
+   Expect(f.markers.size() == markers + 3, "Abandoned marker mask suppressed the next frame."); r.FinishFrame();
+  }
+ }
+ {
+  Fake f; VulkanNvidiaReflex r(f.Dispatch(), sequence); r.SetSwapchain(chain);
+  // No timing query at zero or on duplicate closure, including after 120 sleeps.
+  r.FinishFrame(); Expect(!f.timingQueries, "Empty closure polled timings.");
+  for (unsigned i = 0; i < 360; ++i) {
+   if (i == 120) r.SetMode(LowLatencyMode::OnBoost, 0);
+   if (i == 240) r.SetMode(LowLatencyMode::Off, 0);
+   Expect(r.BeginFrame(), "Cadence frame admission failed."); r.FinishFrame(); r.FinishFrame();
+   Expect(f.timingQueries == (i + 1) / 120, "Timing polling is not once per 120 completed measurement frames.");
+  }
+  Expect(f.sleeps == 120 && r.Stats().completedMeasurementFrames == 360 && r.Stats().timingQueries == 3,
+   "Timing cadence depends on native sleep count.");
+  for (unsigned i = 0; i < 120; ++i) { Expect(r.BeginFrame(), "Abandoned cadence admission failed."); r.AbandonFrame(); r.FinishFrame(); }
+  Expect(f.timingQueries == 3 && r.Stats().completedMeasurementFrames == 360, "Abandoned frames advanced timing cadence.");
+ }
+ {
+  Fake f; VulkanNvidiaReflex r(f.Dispatch(), sequence); r.SetSwapchain(chain); r.SetMode(LowLatencyMode::On, 0);
+  f.wait = VK_TIMEOUT; Expect(!r.BeginFrame(), "Pending sleep unexpectedly ready.");
+  r.SetMode(LowLatencyMode::Off, 0); f.wait = VK_SUCCESS;
+  Expect(r.BeginFrame() && f.sleeps == 1 && r.FrameId(), "Mode switch lost pending sleep identity.");
+  const auto id = r.FrameId(); r.SetSwapchain(VK_NULL_HANDLE); r.SetSwapchain(reinterpret_cast<VkSwapchainKHR>(3));
+  Expect(r.FrameId() == id && r.BeginFrame() && f.sleeps == 1, "Resize lost admitted Off measurement.");
+  r.FinishFrame(); Expect(r.BeginFrame() && r.FrameId() > id && f.sleeps == 1, "Off after pending sleep repeated pacing.");
  }
  {
   Fake f; VulkanNvidiaReflex r(f.Dispatch(2), sequence); r.SetSwapchain(chain); r.SetMode(LowLatencyMode::OnBoost, 0);
@@ -83,5 +133,11 @@ void Run() {
  }
 }
 }
-int main() { try { Run(); std::cout << "NVIDIA Reflex PASS: modes, dedicated timeline, bounded admission, frame IDs, markers, recreation, revision gate, failures\n"; return 0; }
+int main() {
+#if defined(_WIN32)
+ _putenv_s("FRUITY_RENDER_METRICS", "1");
+#else
+ setenv("FRUITY_RENDER_METRICS", "1", 1);
+#endif
+ try { Run(); std::cout << "NVIDIA Reflex PASS: modes, dedicated timeline, bounded admission, Off markers, timing cadence, abandon, recreation, revision gate, failures\n"; return 0; }
  catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; } }

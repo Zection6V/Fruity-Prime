@@ -1010,7 +1010,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             settings.Title = std::string(Mods::Branding::Name) + " Vulkan presentation check";
             settings.StartVisible = true;
             auto window = CreateWindow(settings);
+#if !defined(MPHREAD_QT)
             auto* const native = static_cast<GLFWwindow*>(window->NativeHandle());
+#endif
 
             SwapchainDesc desc{};
             desc.width = 1280;
@@ -1050,7 +1052,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     std::this_thread::sleep_for(std::chrono::milliseconds(8));
                 }
             };
-            const auto pumpFramebuffer = [](GLFWwindow* handle, int timeoutMs,
+            const auto pumpFramebuffer = [](Window& target, int timeoutMs,
                 const std::function<bool(int, int)>& ready)
             {
                 const auto deadline = std::chrono::steady_clock::now()
@@ -1059,7 +1061,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 do
                 {
                     ProcessEvents();
-                    ::glfwGetFramebufferSize(handle, &width, &height);
+                    const auto size = target.Size();
+                    width = size.X;
+                    height = size.Y;
                     if (ready(width, height)) return std::pair<int, int>{width, height};
                     std::this_thread::sleep_for(std::chrono::milliseconds(8));
                 } while (std::chrono::steady_clock::now() < deadline);
@@ -1100,7 +1104,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             drawColor(0.10F, 0.35F, 0.80F);
             const auto initialExtent = swapchain->Desc();
             window->ClientSize(::OpenTK::Mathematics::Vector2i(960, 600));
-            const auto resized = pumpFramebuffer(native, 3000,
+            const auto resized = pumpFramebuffer(*window, 3000,
                 [initialExtent](int width, int height)
                 {
                     return width > 0 && height > 0
@@ -1110,6 +1114,49 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             swapchain->Resize(static_cast<std::uint32_t>(resized.first), static_cast<std::uint32_t>(resized.second));
             drawColor(0.15F, 0.65F, 0.25F);
 
+#if defined(MPHREAD_QT)
+            // Qt's NativeHandle is the platform window id, not a GLFWwindow.
+            // Exercise the same borderless-fullscreen geometry path the Qt game
+            // uses instead of feeding that native id to GLFW diagnostics.
+            const auto oldBorder = window->WindowBorder();
+            const auto oldLocation = window->Location();
+            const auto oldSize = window->ClientSize();
+            const auto oldFramebuffer = window->Size();
+            const auto monitor = window->CurrentMonitorClientArea();
+            if (monitor.Size.X <= 0 || monitor.Size.Y <= 0)
+                throw std::runtime_error("The Vulkan presentation check requires a desktop monitor.");
+            window->WindowStateNormal();
+            window->WindowBorder(static_cast<std::int32_t>(WindowBorderValue::Hidden));
+            ProcessEvents();
+            window->Location(monitor.Min);
+            const auto currentClient = window->ClientSize();
+            const auto currentFramebuffer = window->Size();
+            const auto logicalWidth = currentFramebuffer.X > 0
+                ? std::max(1, monitor.Size.X * currentClient.X / currentFramebuffer.X)
+                : monitor.Size.X;
+            const auto logicalHeight = currentFramebuffer.Y > 0
+                ? std::max(1, monitor.Size.Y * currentClient.Y / currentFramebuffer.Y)
+                : monitor.Size.Y;
+            window->ClientSize({logicalWidth, logicalHeight});
+            const auto fullscreen = pumpFramebuffer(*window, 3000,
+                [monitor](int width, int height)
+                {
+                    return width == monitor.Size.X && height == monitor.Size.Y;
+                });
+            swapchain->Resize(static_cast<std::uint32_t>(fullscreen.first), static_cast<std::uint32_t>(fullscreen.second));
+            drawColor(0.75F, 0.22F, 0.08F);
+            window->WindowBorder(oldBorder);
+            ProcessEvents();
+            window->ClientSize(oldSize);
+            window->Location(oldLocation);
+            const auto windowed = pumpFramebuffer(*window, 3000,
+                [oldFramebuffer](int width, int height)
+                {
+                    return width == oldFramebuffer.X && height == oldFramebuffer.Y;
+                });
+            swapchain->Resize(static_cast<std::uint32_t>(windowed.first), static_cast<std::uint32_t>(windowed.second));
+            drawColor(0.65F, 0.55F, 0.12F);
+#else
             GLFWmonitor* const monitor = ::glfwGetPrimaryMonitor();
             const GLFWvidmode* const mode = monitor ? ::glfwGetVideoMode(monitor) : nullptr;
             if (!monitor || !mode)
@@ -1121,7 +1168,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             ::glfwGetFramebufferSize(native, &oldFramebufferWidth, &oldFramebufferHeight);
             ::glfwSetWindowMonitor(native, monitor, 0, 0,
                 mode->width, mode->height, mode->refreshRate);
-            const auto fullscreen = pumpFramebuffer(native, 3000,
+            const auto fullscreen = pumpFramebuffer(*window, 3000,
                 [mode](int width, int height)
                 {
                     return width == mode->width && height == mode->height;
@@ -1132,7 +1179,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             drawColor(0.75F, 0.22F, 0.08F);
             ::glfwSetWindowMonitor(native, nullptr, oldX, oldY,
                 oldSize.X, oldSize.Y, GLFW_DONT_CARE);
-            const auto windowed = pumpFramebuffer(native, 3000,
+            const auto windowed = pumpFramebuffer(*window, 3000,
                 [oldFramebufferWidth, oldFramebufferHeight](int width, int height)
                 {
                     return width == oldFramebufferWidth && height == oldFramebufferHeight;
@@ -1141,6 +1188,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 throw std::runtime_error("The GLFW window did not return to windowed mode.");
             swapchain->Resize(static_cast<std::uint32_t>(windowed.first), static_cast<std::uint32_t>(windowed.second));
             drawColor(0.65F, 0.55F, 0.12F);
+#endif
 
             window->WindowStateMinimized();
             const auto minimizeDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);

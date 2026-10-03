@@ -2328,3 +2328,16 @@ validation ON / GPU profile / 240 FPS capの別runでも試合中3回切替がPA
 `C:/tmp/r18-fps-20261003-101634/opengl.log`。
 world witness 3件、source release、Vulkan validation error=0、native / wrapper exit=0。
 このrunのFPSはvalidation OFFの速度比較へ混ぜない。
+
+
+push済み`c40f7b91e885e44838502361629f39dd5b6bd013`からReleaseを再ビルドし、
+Golden Captureの7ケースを両backendで確認した:
+`C:/tmp/gp/architecture-r19-sampled-state-final-golden-{opengl,vulkan}/`。
+全14manifestのsource SHA / clean harnessとHUD / fade / whiteout final-stage gateがPASS。
+同じharness / fixture入力の`architecture-uploadarena-batched-golden-{opengl,vulkan}`と
+1600×900のdecoded RGBを比較し、全14画像で相違byte=0。Vulkan validation error=0。
+比較記録は`C:/tmp/gp/architecture-r19-sampled-state-golden-comparison.txt`、
+exe / paths.txt / PNG / manifestのSHA-256とgateは
+`C:/tmp/gp/architecture-r19-sampled-state-golden-run-info.json`。
+同じbackendの固定画像回帰の確認であり、Phase3/C#とのcross-revision parityは未成立。
+撮影のsource SHAは後続の文書commitと区別して上記`c40f7b91`で記録する。

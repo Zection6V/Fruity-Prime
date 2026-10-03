@@ -21,7 +21,20 @@ namespace MphRead::NativeRuntime::Rhi
         bool needsWindowUi = false;
         bool validation = false;
 
-        std::unique_ptr<BackendSession> session;
+        // Released explicitly on every orderly path. Still alive at static
+        // destruction means the process is leaving through exit(), and by
+        // then the toolkit's per-thread state is gone -- on macOS the main
+        // thread's thread-locals are destroyed before statics, so the
+        // OpenGL device asking Qt for the current context segfaults. The
+        // process is ending and its GPU objects with it: leave the session
+        // to the OS rather than tear it down against a dead toolkit.
+        struct SessionHolder final
+        {
+            std::unique_ptr<BackendSession> value;
+            ~SessionHolder() { (void)value.release(); }
+        };
+        SessionHolder sessionHolder;
+        std::unique_ptr<BackendSession>& session = sessionHolder.value;
         unsigned retiredValidationErrors = 0;
 
         BackendSession& Session()

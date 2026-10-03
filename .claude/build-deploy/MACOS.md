@@ -89,6 +89,15 @@ Traps found on the way, each now handled:
 - A `QGuiApplication` still alive at static destruction (every diagnostic
   command leaves through `exit()`) is not deleted: `~QGuiApplication` then
   reads Qt's already-destroyed thread storage and segfaults.
+- The scene's renderer session gets the same rule (`SceneBackend.cpp`):
+  macOS destroys the main thread's thread-locals before statics, so an
+  OpenGL device torn down at static destruction asked Qt for the current
+  context and segfaulted -- every `-maptest` on OpenGL exited 139 after a
+  passing run. Orderly paths still release it explicitly.
+- Game files: passing a ROM as the only argument (`FruityPrime ROM.nds`)
+  checks its MD5 and extracts into the user-data directory; verified with a
+  Japan 1.0 (AMHJ0) dump, then `-shellshot` (switchcheck PASS) and an
+  8-bot `-maptest` on both renderers.
 - Minimise and restore are asynchronous on macOS; a restore asked for
   during the minimise animation is dropped. The presentation check keeps
   asking and waits for sustained presentation, not for Qt's state flag.

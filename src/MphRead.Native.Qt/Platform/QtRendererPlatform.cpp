@@ -511,7 +511,7 @@ namespace
         {
             _window->setMaximumSize(QSize(16777215, 16777215));
         }
-        else
+        else if (border == WindowBorderValue::Fixed)
         {
             _window->setMinimumSize(_window->size());
             _window->setMaximumSize(_window->size());

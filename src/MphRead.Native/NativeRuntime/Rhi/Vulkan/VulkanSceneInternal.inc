@@ -362,6 +362,7 @@ struct WindowUi::Impl final
         Premultiplied = pipeline(SceneProgram::Composite, true);
         Opaque = pipeline(SceneProgram::Composite, false);
         Backdrop = pipeline(SceneProgram::Backdrop, false);
+        Noise = CreateBackdropNoiseResources(device);
     }
 
     void Quad(std::span<const WindowQuadVertex, 4> strip)
@@ -405,6 +406,7 @@ struct WindowUi::Impl final
     std::unique_ptr<VulkanGraphicsPipeline> Premultiplied;
     std::unique_ptr<VulkanGraphicsPipeline> Opaque;
     std::unique_ptr<VulkanGraphicsPipeline> Backdrop;
+    BackdropNoiseResources Noise;
     std::uint32_t Width = 0;
     std::uint32_t Height = 0;
 };
@@ -468,7 +470,9 @@ void WindowUi::DrawBackdrop(const Texture& photo, const Sampler& sampler,
     program.Write("view_width", &width, 4, SceneShaderAbi::ValueType::Float);
     program.Write("view_height", &height, 4, SceneShaderAbi::ValueType::Float);
     commands.BindSampledTexture(0, &photo, &sampler);
+    commands.BindSampledTexture(1, _impl->Noise.Texture.get(), _impl->Noise.Sampler.get());
     _impl->Quad(strip);
+    commands.BindSampledTexture(1, nullptr, nullptr);
     commands.BindSampledTexture(0, nullptr, nullptr);
 }
 

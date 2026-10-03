@@ -1,4 +1,6 @@
 #include "OpenGlLauncherPhoto.hpp"
+#include "OpenGlDevice.hpp"
+#include "../BackdropNoise.hpp"
 
 #include "../../../Mods/DebugLog.hpp"
 #include "../../../Shaders.hpp"
@@ -25,6 +27,9 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
     namespace
     {
+        BackdropNoiseResources backdropNoise;
+        std::unique_ptr<CommandList> backdropNoiseCommands;
+        std::int32_t noiseUniform = -1;
         struct BufferCleanup final
         {
             std::int32_t Vertex = 0;
@@ -99,6 +104,9 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
     void OpenGlLauncherPhoto::Forget() noexcept
     {
+        backdropNoiseCommands.reset();
+        backdropNoise = {};
+        noiseUniform = -1;
         _texture = 0;
         _width = 0;
         _height = 0;
@@ -161,6 +169,9 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             _viewWidthUniform = GL::GetUniformLocation(program, "view_width");
             _viewHeightUniform = GL::GetUniformLocation(program, "view_height");
             _strengthUniform = GL::GetUniformLocation(program, "strength");
+            noiseUniform = GL::GetUniformLocation(program, "noise_tex");
+            backdropNoise = CreateBackdropNoiseResources(ContextDevice());
+            backdropNoiseCommands = ContextDevice().CreateCommandList();
             DebugLog::Line("ui", "the moving backdrop is on");
             return true;
         }
@@ -218,6 +229,9 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             const float seconds = static_cast<float>(
                 Runtime::TimeSpanTotalMilliseconds(Runtime::StopwatchGetElapsedTicks(BackdropClock())) / 1000.0);
             GL::Uniform1(_photoUniform, 0);
+            GL::Uniform1(noiseUniform, 1);
+            backdropNoiseCommands->Begin();
+            backdropNoiseCommands->BindSampledTexture(1, backdropNoise.Texture.get(), backdropNoise.Sampler.get());
             GL::Uniform1(_strengthUniform, Strength);
             GL::Uniform1(_timeUniform, seconds);
             GL::Uniform1(_viewWidthUniform, static_cast<float>(width));
@@ -293,6 +307,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         GL::BindTexture(GL::TextureTarget::Texture2D, 0);
         if (moving)
         {
+            backdropNoiseCommands->BindSampledTexture(1, nullptr, nullptr);
+            backdropNoiseCommands->End();
             GL::UseProgram(0);
         }
         GL::Enable(GL::EnableCap::Blend);

@@ -1,6 +1,7 @@
 #include "VulkanGraphicsDevice.hpp"
 #include "VulkanScene.hpp"
 #include "../ResourceStatePolicy.hpp"
+#include "../BackdropNoise.hpp"
 
 #include <algorithm>
 #include <array>

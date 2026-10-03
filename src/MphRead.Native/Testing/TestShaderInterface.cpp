@@ -159,8 +159,10 @@ namespace
         check("main", "mtx_stack", SceneShaderAbi::ValueType::Mat4, MatrixStackCapacity);
         check("shift", "shift_table", SceneShaderAbi::ValueType::Float, ShiftTableLength);
         check("shift", "white_table", SceneShaderAbi::ValueType::Float, WhiteoutTableLength);
-        Expect(SceneShaderAbi::Constants.size() == 55 && SceneShaderAbi::Textures.size() == 7,
+        Expect(SceneShaderAbi::Constants.size() == 55 && SceneShaderAbi::Textures.size() == 8,
             "production program interface coverage changed");
+        Expect(SceneShaderAbi::TextureUnit("backdrop", "noise_tex") == 1,
+            "backdrop noise must use the auxiliary texture unit");
     }
 
     void TestDesktopUniformContract()

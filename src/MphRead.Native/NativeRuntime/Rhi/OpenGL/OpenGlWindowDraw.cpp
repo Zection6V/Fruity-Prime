@@ -2,6 +2,7 @@
 #include "OpenGlWindowDraw.hpp"
 #include "OpenGlDevice.hpp"
 #include "../SceneShaderAbi.hpp"
+#include "../BackdropNoise.hpp"
 #include "../../OpenTK/GL.hpp"
 #include "../../../Shaders.hpp"
 #include "../../../Mods/DebugLog.hpp"
@@ -63,10 +64,12 @@ void main() { gl_FragColor = texture2D(image, uv); }
                 Backdrop = MakePipeline(*PhotoVertex, *PhotoFragment, false);
                 const auto program = ProgramFor(Device, *PhotoVertex, *PhotoFragment);
                 PhotoLocation = GL::GetUniformLocation(program, "photo");
+                NoiseLocation = GL::GetUniformLocation(program, "noise_tex");
                 StrengthLocation = GL::GetUniformLocation(program, "strength");
                 TimeLocation = GL::GetUniformLocation(program, "time");
                 WidthLocation = GL::GetUniformLocation(program, "view_width");
                 HeightLocation = GL::GetUniformLocation(program, "view_height");
+                Noise = CreateBackdropNoiseResources(Device);
             }
             catch (const std::exception& error)
             {
@@ -81,6 +84,8 @@ void main() { gl_FragColor = texture2D(image, uv); }
         std::unique_ptr<GraphicsPipeline> Premultiplied, Opaque, Backdrop;
         std::unique_ptr<Buffer> Vertices;
         std::unique_ptr<Rhi::Sampler> ImageSampler;
+        BackdropNoiseResources Noise;
+        int NoiseLocation = -1;
         bool BackdropTried = false;
         int PhotoLocation = -1, StrengthLocation = -1, TimeLocation = -1, WidthLocation = -1, HeightLocation = -1;
     };
@@ -101,6 +106,10 @@ void main() { gl_FragColor = texture2D(image, uv); }
             constexpr auto photoUnit = SceneShaderAbi::TextureUnit("backdrop", "photo");
             static_assert(photoUnit == 0); // Window photo interop uses logical slot 0.
             GL::Uniform1(state.PhotoLocation, static_cast<std::int32_t>(photoUnit));
+            constexpr auto noiseUnit = SceneShaderAbi::TextureUnit("backdrop", "noise_tex");
+            static_assert(noiseUnit == 1);
+            GL::Uniform1(state.NoiseLocation, static_cast<std::int32_t>(noiseUnit));
+            state.Commands->BindSampledTexture(noiseUnit, state.Noise.Texture.get(), state.Noise.Sampler.get());
             GL::Uniform1(state.StrengthLocation, strength);
             GL::Uniform1(state.TimeLocation, seconds); GL::Uniform1(state.WidthLocation, static_cast<float>(width));
             GL::Uniform1(state.HeightLocation, static_cast<float>(height));
@@ -108,6 +117,7 @@ void main() { gl_FragColor = texture2D(image, uv); }
         BindInteropTexture(*state.Commands, texture, *state.ImageSampler);
         state.Commands->SetVertexBuffer(0, *state.Vertices); state.Commands->Draw(4);
         state.Commands->EndRendering();
+        if (backdrop) state.Commands->BindSampledTexture(1, nullptr, nullptr);
         BindInteropTexture(*state.Commands, 0, *state.ImageSampler);
         GL::UseProgram(0); GL::Enable(GL::EnableCap::DepthTest);
         GL::BlendFunc(GL::BlendingFactor::SrcAlpha, GL::BlendingFactor::OneMinusSrcAlpha);

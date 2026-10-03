@@ -79,6 +79,7 @@ RHI_SCENE_CONSTANT("shift", "white_fac", Float, 0, Disruption)
 RHI_SCENE_TEXTURE("shift", "tex", PostTexture, PostSampler, 0)
 
 RHI_SCENE_TEXTURE("backdrop", "photo", PostTexture, PostSampler, 0)
+RHI_SCENE_TEXTURE("backdrop", "noise_tex", PostAuxTexture, PostAuxSampler, 1)
 RHI_SCENE_CONSTANT("backdrop", "strength", Float, 0, Backdrop)
 RHI_SCENE_CONSTANT("backdrop", "time", Float, 0, Backdrop)
 RHI_SCENE_CONSTANT("backdrop", "view_width", Float, 0, Backdrop)

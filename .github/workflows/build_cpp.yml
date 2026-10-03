@@ -521,7 +521,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          brew install autoconf autoconf-archive automake libtool curl libarchive zlib glfw openal-soft
+          brew install autoconf autoconf-archive automake libtool curl libarchive zlib glfw openal-soft vulkan-headers
           echo "CMAKE_PREFIX_PATH=$(brew --prefix curl);$(brew --prefix libarchive);$(brew --prefix zlib);$(brew --prefix glfw);$(brew --prefix openal-soft)" >> "$GITHUB_ENV"
 
       - name: Install native dependencies

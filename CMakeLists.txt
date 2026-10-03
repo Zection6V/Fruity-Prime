@@ -373,6 +373,20 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
     target_link_libraries(fruity_readback_tests PRIVATE Threads::Threads)
     add_test(NAME FruityPrime.Readback COMMAND fruity_readback_tests)
 
+    # The Reflex controller fixture uses fake dispatch only: it needs headers,
+    # but no loader, VMA, shader compiler or enabled production Vulkan backend.
+    find_path(FRUITY_REFLEX_VULKAN_INCLUDE_DIR NAMES vulkan/vulkan.h
+        HINTS ${Vulkan_INCLUDE_DIRS})
+    if(FRUITY_REFLEX_VULKAN_INCLUDE_DIR)
+        add_executable(fruity_vulkan_reflex_tests
+            "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanNvidiaReflex.cpp"
+            "${FRUITY_MPHREAD_ROOT}/NativeRuntime/Rhi/Vulkan/VulkanNvidiaReflex.cpp")
+        target_compile_definitions(fruity_vulkan_reflex_tests PRIVATE FRUITY_HAS_VULKAN)
+        target_include_directories(fruity_vulkan_reflex_tests PRIVATE ${FRUITY_REFLEX_VULKAN_INCLUDE_DIR})
+        target_compile_features(fruity_vulkan_reflex_tests PRIVATE cxx_std_20)
+        add_test(NAME FruityPrime.VulkanNvidiaReflex COMMAND fruity_vulkan_reflex_tests)
+    endif()
+
     if(TARGET fruity_vulkan_shaders)
         add_executable(fruity_vulkan_error_tests "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanErrors.cpp")
         target_compile_features(fruity_vulkan_error_tests PRIVATE cxx_std_20)
@@ -418,13 +432,6 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         target_include_directories(fruity_vulkan_feature_probe_tests PRIVATE ${Vulkan_INCLUDE_DIRS})
         target_compile_features(fruity_vulkan_feature_probe_tests PRIVATE cxx_std_20)
         add_test(NAME FruityPrime.VulkanFeatureProbe COMMAND fruity_vulkan_feature_probe_tests)
-        add_executable(fruity_vulkan_reflex_tests
-            "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanNvidiaReflex.cpp"
-            "${FRUITY_MPHREAD_ROOT}/NativeRuntime/Rhi/Vulkan/VulkanNvidiaReflex.cpp")
-        target_compile_definitions(fruity_vulkan_reflex_tests PRIVATE FRUITY_HAS_VULKAN)
-        target_include_directories(fruity_vulkan_reflex_tests PRIVATE ${Vulkan_INCLUDE_DIRS})
-        target_compile_features(fruity_vulkan_reflex_tests PRIVATE cxx_std_20)
-        add_test(NAME FruityPrime.VulkanNvidiaReflex COMMAND fruity_vulkan_reflex_tests)
 
 
         add_executable(fruity_vulkan_command_slots_tests

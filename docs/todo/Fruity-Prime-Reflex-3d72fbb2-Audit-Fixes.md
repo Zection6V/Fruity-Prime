@@ -31,8 +31,15 @@ Local verification (Windows, MinGW Release, Qt Quick, RTX 5070 Ti):
   enabled, **0 errors**; 268 completed measurement frames, 1 abandoned frame,
   2 timing queries, 149 native sleeps, 1879 markers. FIFO/Immediate/Mailbox,
   Off/On/Boost, frame caps, resize/fullscreen and minimize/restore were exercised.
+  Both sampled driver timing reports contain all seven nonzero timestamps in
+  input/simulation/submit/present order.
 - RHI isolation, frontend OpenGL, dependency classification, shader-interface
   and legacy OpenGL static audits passed; `git diff --check` passed.
+- `-vulkanresourcecheck -noupdate`: **passed**, validation enabled, **0 errors**,
+  no live/retired resources left at shutdown.
+- `FRUITY_REFLEX_TEST_FAILURE=sleep -reflexcheck -noupdate`: **passed**;
+  native failure preserved requested Boost and selected Generic On, with **0
+  validation errors**.
 
 Cross-platform CI for the implementation commit is pending. Nsight/Reflex
 verification tooling is not installed here; API counters and Vulkan validation

@@ -21,10 +21,9 @@ namespace MphRead::Mods::Diagnostics
         // The device that draws the window, whichever backend that is.
         Rhi::GraphicsDevice& device = Rhi::SceneDevice();
         auto commands = device.CreateCommandList();
-        // An OpenGL list needs no Begin, and its Begin changes the context's
-        // defaults under the frame that follows; a Vulkan one records nothing
-        // without it.
-        if (device.GetBackend() == Rhi::GraphicsBackend::Vulkan) commands->Begin();
+        // Both backends record only inside Begin/End: OpenGL refuses work on a
+        // list that is not recording since the recording scopes were enforced.
+        commands->Begin();
         const std::array<Rhi::ClearColor, 3> colors{{
             {1, 0, 0, 1}, {0, 1, 0, 1}, {0, 0, 1, 1}}};
         Rhi::RenderingInfo target{};
@@ -53,6 +52,7 @@ namespace MphRead::Mods::Diagnostics
         target.renderArea = {};
         commands->BeginRendering(target);
         commands->EndRendering();
+        commands->End();
         for (const auto& prefix : {screenshot, recording})
         {
             NativeRuntime::Image image;

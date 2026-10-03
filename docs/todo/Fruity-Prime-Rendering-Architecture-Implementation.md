@@ -2546,3 +2546,29 @@ conformance:
 
 検証: 両 backend の conformance PASS（`C:/tmp/gp/architecture-r16-format-readback-conformance.log`）、
 CPU テスト 19/19 PASS。recording の長時間 stress は R19 の stress（98be22e1、700 PNG）の範囲に留まる。
+
+## OpenGL release marker の集約（R4）
+
+resource release は、自分専用の `glFenceSync` を入れずに、次に挿入される marker の serial を受け取る
+（`SubmitForRetirement`）。その marker は、次の submission（list End / frame end）、poll、その serial
+への wait、finish のいずれかで挿入される。それまでの release はすべてその1個を共有する。
+
+これで正しい理由: GL の context stream では、その marker は解放された object の最後の使用より後に
+ある。retire に必要なのはそれだけである。完了前に破棄しないこと（serial > completed の間は保持）、
+`Finish` / teardown で漏れなく完了すること、release だけが続く区間でも poll で marker が入ることは、
+既存の lifetime / conformance / session 検査が覆う。ARB_sync のない GL 2.1 診断 context は、従来どおり
+その場で同期する。
+
+| Alinos Perch 40 cycles（OpenGL） | 以前 | 集約後 |
+|---|---|---|
+| submissions（marker） | 69,640 | 2,440 |
+| 最後の解放後の live / retired | 0 / 0 | 0 / 0 |
+| `Completed=Submitted` | yes | yes |
+| 各 cycle 末 2 frame の host wait | 0 | 0 |
+
+同時に、`-shellshot` の RHI 画像出力検査が OpenGL で `Begin` を省いていたのを直した。recording scope
+を強制した 4d457ed4 以降、その検査は "command list is not recording" で失敗していた。
+
+検証: CPU テスト 19/19、両 backend の conformance、`-shellshot` 両 backend（28 shots、validation 0）、
+試合中切替（OpenGL 開始）PASS。lifetime: `C:/tmp/gp/architecture-r4-marker-aggregation-lifetime40.log`。
+upload / map の driver 内部の暗黙 wait は計測対象外のまま。

@@ -33,6 +33,9 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         SubmissionSerial Submit(bool flush = false)
         {
             RequireHealthy();
+            // Releases since the last marker were handed this serial; the
+            // marker inserted now is the one that covers them.
+            _retirementPending = false;
             const auto serial = _progress.Next();
             if (!_dispatch.SyncSupported)
             {
@@ -59,19 +62,34 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         // Resource destructors cannot throw a driver failure. Preserve the
         // first failure for the next explicit operation and retain the object
         // until context teardown: no completion token covers a failed marker.
+        // A release does not insert a marker of its own: it takes the serial
+        // of the next one, which the next submission, poll, wait or finish
+        // inserts. Everything released in between shares that one marker --
+        // it follows every use the released objects had, which is all a
+        // retirement needs -- instead of one glFenceSync per object.
         SubmissionSerial SubmitForRetirement()
         {
-            try { return Submit(); }
-            catch (const BackendError&)
+            if (_retirementFailure) return {std::numeric_limits<std::uint64_t>::max()};
+            if (!_dispatch.SyncSupported)
             {
-                if (!_retirementFailure) _retirementFailure = std::current_exception();
-                return {std::numeric_limits<std::uint64_t>::max()};
+                try { return Submit(); }
+                catch (const BackendError&)
+                {
+                    if (!_retirementFailure) _retirementFailure = std::current_exception();
+                    return {std::numeric_limits<std::uint64_t>::max()};
+                }
             }
+            _retirementPending = true;
+            ++_aggregatedRetirements;
+            return _progress.Next();
         }
+        [[nodiscard]] bool RetirementPending() const noexcept { return _retirementPending; }
+        [[nodiscard]] std::uint64_t AggregatedRetirements() const noexcept { return _aggregatedRetirements; }
 
         SubmissionSerial Poll()
         {
             RequireHealthy();
+            if (_retirementPending) (void)Submit(true);
             while (!_fences.empty())
             {
                 const auto status = _dispatch.Wait(_dispatch.Context, _fences.front().Sync, false, 0);
@@ -85,6 +103,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
         void Wait(SubmissionSerial serial)
         {
+            if (_retirementPending && serial == _progress.Next()) (void)Submit(true);
             if (serial > Submitted()) throw std::logic_error("Unsubmitted OpenGL completion token.");
             if (serial <= Poll()) return;
             const auto found = std::find_if(_fences.begin(), _fences.end(),
@@ -107,6 +126,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         void Finish()
         {
             RequireHealthy();
+            // The pending releases' marker, so that finishing completes them.
+            if (_retirementPending) (void)Submit(false);
             ++_hostWaits;
             ++_deviceWideWaits;
             _dispatch.Finish(_dispatch.Context);
@@ -169,5 +190,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         std::deque<Entry> _fences;
         std::exception_ptr _retirementFailure;
         std::uint64_t _hostWaits = 0, _deviceWideWaits = 0;
+        bool _retirementPending = false;
+        std::uint64_t _aggregatedRetirements = 0;
     };
 }

@@ -164,7 +164,9 @@ namespace
 
         // For WindowSystem (Vulkan presentation) and the OpenGL swapchain.
         [[nodiscard]] bool CloseRequested() const noexcept { return _closeRequested; }
-        [[nodiscard]] bool Iconified() const { return _window->windowState() == Qt::WindowMinimized; }
+        // Rendering availability follows Qt exposure, not the window-manager
+        // state flag, which can lag behind a restore on X11/Openbox.
+        [[nodiscard]] bool Iconified() const { return !_window->isExposed(); }
 
         // For QtOpenGlSwapchain.
         void SetSwapInterval(int interval);

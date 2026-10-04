@@ -1274,6 +1274,7 @@ namespace MphRead
         _transientGeometry.reset();
         _celDepthView.reset();
         _celDepth.reset();
+        _celColorView.reset();
         _celColor.reset();
         _sceneDepthStencilView.reset();
         _sceneDepthStencil.reset();
@@ -1526,7 +1527,9 @@ namespace MphRead
         _sceneColorView = Gpu().CreateTextureView(*_sceneColor, Rhi::TextureViewDesc{Rhi::TextureFormat::RGB8Unorm});
         _celColor = Gpu().CreateTexture(Rhi::TextureDesc{width, height, 1, 1, 1, 1,
             Rhi::TextureFormat::RGB8Unorm,
-            Rhi::TextureUsage::Sampled | Rhi::TextureUsage::ColorAttachment | Rhi::TextureUsage::TransferDst});
+            Rhi::TextureUsage::Sampled | Rhi::TextureUsage::ColorAttachment | Rhi::TextureUsage::TransferDst
+                | Rhi::TextureUsage::TransferSrc});
+        _celColorView = Gpu().CreateTextureView(*_celColor, Rhi::TextureViewDesc{Rhi::TextureFormat::RGB8Unorm});
         const auto depthStencil = Gpu().GetCapabilities().depthStencilFormat;
         _sceneDepthStencil = Gpu().CreateTexture(Rhi::TextureDesc{width, height, 1, 1, 1, 1,
             depthStencil, Rhi::TextureUsage::DepthStencilAttachment});
@@ -1965,7 +1968,10 @@ namespace MphRead
         std::vector<std::uint8_t> buffer(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 3U);
         std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
         NativeRuntime::Rhi::RenderingDepthStencilAttachment depth{};
-        Commands().ReadColor(SceneRenderingInfo(color, depth), 0, 0,
+        NativeRuntime::Rhi::RenderingInfo info = SceneRenderingInfo(color, depth);
+        // The finished picture, outline and all (DrawCelOutline).
+        if (_celOutlined) color[0].view = _celColorView.get();
+        Commands().ReadColor(info, 0, 0,
             static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height),
             NativeRuntime::Rhi::TextureFormat::RGB8Unorm, buffer.data());
         return buffer;
@@ -2049,14 +2055,43 @@ namespace MphRead
         if (!Mods::RenderOptions::CelShading() || Mods::RenderOptions::CelEdge() <= 0.0F
             || !_celColor || !_sceneShaders || !_celDepth) return;
         const Vector2i target = _targetSize;
-        Commands().CopyColorAttachmentToTexture(*_celColor,
-            static_cast<std::uint32_t>(target.X), static_cast<std::uint32_t>(target.Y));
         if (_calibrateInk)
         {
+            // Once: the measurement reads the scene target back, so this frame
+            // copies the picture aside and draws the outline over it in place.
+            Commands().CopyColorAttachmentToTexture(*_celColor,
+                static_cast<std::uint32_t>(target.X), static_cast<std::uint32_t>(target.Y));
             _calibrateInk = false;
             CalibrateInk(target);
+            DrawCelQuad(target, false);
+            return;
         }
-        DrawCelQuad(target, false);
+        // Every other frame reads SceneColor where it is and draws the
+        // outlined picture into CelColor, which the composite then shows:
+        // nothing draws into the scene target after this. A copy of the whole
+        // target and a pass that loads what it then overwrites, the way this
+        // was, are most of a tiled GPU's memory traffic for the frame.
+        const auto& nearestClamp = SamplerFor(false, RepeatMode::Clamp, RepeatMode::Clamp);
+        BindSceneTexture(1, *_celDepth, nearestClamp);
+        BindSceneTexture(0, *_sceneColor, nearestClamp);
+        Commands().EndRendering();
+        {
+            std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
+            color[0].view = _celColorView.get();
+            // Every pixel is written: nothing of what was there is wanted.
+            color[0].loadOp = NativeRuntime::Rhi::LoadOp::Clear;
+            NativeRuntime::Rhi::RenderingInfo info{};
+            info.width = static_cast<std::uint32_t>(target.X);
+            info.height = static_cast<std::uint32_t>(target.Y);
+            info.colorAttachments = color;
+            Commands().BeginRendering(info);
+        }
+        DrawCelPicture(target, false);
+        UnbindSceneTexture(0);
+        UnbindSceneTexture(1);
+        Commands().EndRendering();
+        _celOutlined = true;
+        BeginSceneRendering();
     }
 
     void Scene::DrawCelQuad(Vector2i target, bool probe)
@@ -2066,6 +2101,17 @@ namespace MphRead
         BindSceneTexture(0, *_celColor, nearestClamp);
         Commands().EndRendering();
         BeginCelRendering();
+        DrawCelPicture(target, probe);
+        UnbindSceneTexture(0);
+        UnbindSceneTexture(1);
+        Commands().EndRendering();
+        BeginSceneRendering();
+    }
+
+    // The outline pass's quad, into whatever rendering is open, from the
+    // colour and depth bound on units 0 and 1.
+    void Scene::DrawCelPicture(Vector2i target, bool probe)
+    {
         Commands().SetPipeline(ScenePipeline(ScenePass::CelOutline, NativeRuntime::Rhi::CullMode::None,
             NativeRuntime::Rhi::FillMode::Solid, 1));
         _shaderConstants->Set(NativeRuntime::Rhi::CelPostConstants{
@@ -2077,10 +2123,6 @@ namespace MphRead
         TransientTexCoord3(1.0F, 0.0F, 0.0F); TransientVertex3(1.0F, -1.0F, 0.0F);
         TransientTexCoord3(0.0F, 0.0F, 0.0F); TransientVertex3(-1.0F, -1.0F, 0.0F);
         EndTransient();
-        UnbindSceneTexture(0);
-        UnbindSceneTexture(1);
-        Commands().EndRendering();
-        BeginSceneRendering();
     }
 
     void Scene::CalibrateInk(Vector2i target)
@@ -2163,6 +2205,7 @@ namespace MphRead
         {
             _transientGeometry->BeginFrame();
         }
+        _celOutlined = false;
         {
             using NativeRuntime::Rhi::LoadOp;
             BeginSceneRendering(LoadOp::Clear, LoadOp::Clear, LoadOp::Clear, SceneClearColor());
@@ -2228,7 +2271,7 @@ namespace MphRead
         BeginWindowRendering(NativeRuntime::Rhi::LoadOp::Clear, NativeRuntime::Rhi::LoadOp::Load, SceneClearColor());
         Commands().SetViewport(NativeRuntime::Rhi::Viewport{0.0F, 0.0F,
             static_cast<float>(_rendererSize.X), static_cast<float>(_rendererSize.Y)});
-        BindSceneTexture(0, *_sceneColor, SamplerFor(Mods::RenderOptions::ResolutionScale() < 100,
+        BindSceneTexture(0, _celOutlined ? *_celColor : *_sceneColor, SamplerFor(Mods::RenderOptions::ResolutionScale() < 100,
             RepeatMode::Repeat, RepeatMode::Repeat));
         BeginTransient(TransientPrimitiveTopology::TriangleStrip);
         TransientTexCoord3(1,1,0); TransientVertex3(1,1,0); TransientTexCoord3(0,1,0); TransientVertex3(-1,1,0);
@@ -3864,6 +3907,7 @@ namespace MphRead
         if (!SideScene()) Read::ClearCache();
         _celDepthView.reset();
         _celDepth.reset();
+        _celColorView.reset();
         _celColor.reset();
         _sceneDepthStencilView.reset();
         _sceneDepthStencil.reset();

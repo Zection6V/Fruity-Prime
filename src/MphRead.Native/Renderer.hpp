@@ -1048,6 +1048,7 @@ private: \
     void WriteOwnedTexture(std::int32_t bindingId, std::int32_t width, std::int32_t height, \
         MphRead::NativeRuntime::Rhi::TextureFormat format, const void* pixels); \
     void DrawCelQuad(OpenTK::Mathematics::Vector2i target, bool probe); \
+    void DrawCelPicture(OpenTK::Mathematics::Vector2i target, bool probe); \
     void CalibrateInk(OpenTK::Mathematics::Vector2i target); \
     void CountFrame(); \
     void LoadAndUnload(); \
@@ -1226,6 +1227,9 @@ private: \
     std::unique_ptr<MphRead::NativeRuntime::Rhi::Texture> _sceneDepthStencil{}; \
     std::unique_ptr<MphRead::NativeRuntime::Rhi::TextureView> _sceneDepthStencilView{}; \
     std::unique_ptr<MphRead::NativeRuntime::Rhi::Texture> _celColor{}; \
+    std::unique_ptr<MphRead::NativeRuntime::Rhi::TextureView> _celColorView{}; \
+    /* This frame's finished picture is in CelColor, the outline drawn there from SceneColor. */ \
+    bool _celOutlined = false; \
     std::unique_ptr<MphRead::NativeRuntime::Rhi::Texture> _celDepth{}; \
     std::unique_ptr<MphRead::NativeRuntime::Rhi::TextureView> _celDepthView{}; \
     std::array<std::unique_ptr<MphRead::NativeRuntime::Rhi::Sampler>, 18> _samplers{}; \

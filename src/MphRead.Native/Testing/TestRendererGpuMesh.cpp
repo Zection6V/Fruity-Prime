@@ -75,6 +75,35 @@ namespace
             && plan.Ranges[3].IndexByteOffset == 12 * sizeof(std::uint32_t), "quad-strip range");
     }
 
+    void TestMeshTriangleBatchPreservesPrimitiveBoundaries()
+    {
+        RendererGeometry geometry{};
+        for (std::uint32_t i = 0; i < 18; ++i) geometry.Indices.push_back(i);
+        geometry.Ranges = {
+            {ScenePrimitiveTopology::Triangles, 0, 3},
+            {ScenePrimitiveTopology::Quads, 3, 4},
+            {ScenePrimitiveTopology::TriangleStrip, 7, 5},
+            {ScenePrimitiveTopology::QuadStrip, 12, 6}
+        };
+        Expect(BuildGpuMeshTriangleIndices(geometry) == std::vector<std::uint32_t>{
+            0,1,2, 3,4,5,3,5,6, 7,8,9,9,8,10,9,10,11,
+            12,13,15,12,15,14,14,15,17,14,17,16},
+            "one mesh batch preserves primitive order and alternating strip winding");
+        geometry.Ranges = {
+            {ScenePrimitiveTopology::Triangles, 0, 4},
+            {ScenePrimitiveTopology::TriangleStrip, 4, 4},
+            {ScenePrimitiveTopology::TriangleStrip, 8, 2}
+        };
+        Expect(BuildGpuMeshTriangleIndices(geometry) == std::vector<std::uint32_t>{
+            0,1,2,4,5,6,6,5,7}, "incomplete tails do not join the next primitive");
+        geometry.Ranges = {{ScenePrimitiveTopology::Triangles, 17, 3}};
+        bool rejected = false;
+        try { (void)BuildGpuMeshTriangleIndices(geometry); }
+        catch (const std::out_of_range&) { rejected = true; }
+        Expect(rejected, "mesh batching rejects ranges outside the source buffer");
+        Expect(BuildGpuMeshTriangleIndices({}).empty(), "empty mesh has no draw indices");
+    }
+
     void TestTransientIndexSequencePreservesSubmissionOrder()
     {
         std::vector<std::uint32_t> indices(8, 0xFFFFFFFFU);
@@ -200,6 +229,7 @@ int main()
     try
     {
         TestDrawPlanPreservesRanges();
+        TestMeshTriangleBatchPreservesPrimitiveBoundaries();
         TestTransientIndexSequencePreservesSubmissionOrder();
         TestPrimitiveWindingAndIncompleteTails();
         TestCacheUsesLiveModelAndMeshIdentity();

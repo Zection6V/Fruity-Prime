@@ -147,7 +147,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         void ConfigureLowLatency(LowLatencyMode mode, std::uint32_t interval) override { _reflex->SetMode(mode, interval); }
         [[nodiscard]] LowLatencyCapabilities LowLatencyCaps() const noexcept override { return _reflex->Caps(); }
         [[nodiscard]] LowLatencyDiagnostics LowLatencyStats() const noexcept override { return _reflex->Stats(); }
+        [[nodiscard]] std::uint64_t LowLatencyFrameId() const noexcept { return _reflex ? _reflex->FrameId() : 0; }
         void MarkLowLatency(LowLatencyMarker marker) override { _reflex->Mark(marker); }
+        void AbandonLowLatencyFrame() noexcept override { if (_reflex) _reflex->AbandonFrame(); }
         [[nodiscard]] bool BeginLowLatencyFrame() override
         {
             const auto before = _reflex->FrameId();
@@ -201,6 +203,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 const auto h = static_cast<std::uint32_t>(height);
                 if (_suspended || _needsRecreate || w != _desc.width || h != _desc.height)
                     Recreate(w, h);
+                // The surface can still report a zero extent while the window
+                // says otherwise -- a CAMetalLayer not yet laid out on macOS --
+                // and Recreate then made no swapchain. Never acquire from none.
+                if (_suspended || _swapchain == VK_NULL_HANDLE)
+                {
+                    WaitForDrawable();
+                    continue;
+                }
 
                 Frame& frame = _frames[_frameIndex];
                 if (frame.submitted)
@@ -286,25 +296,33 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         AcquireResult TryAcquireTexture() override
         {
-            if (_closed) return {PresentationStatus::SurfaceLost, nullptr};
+            if (_closed) { AbandonLowLatencyFrame(); return {PresentationStatus::SurfaceLost, nullptr}; }
             if (Closing())
+            {
+                AbandonLowLatencyFrame();
 #if defined(__ANDROID__)
                 return {PresentationStatus::SurfaceLost, nullptr};
 #else
                 return {PresentationStatus::TemporarilyUnavailable, nullptr};
 #endif
+            }
             try
             {
-                if (!TryAcquire()) return {PresentationStatus::TemporarilyUnavailable, nullptr};
+                if (!TryAcquire())
+                {
+                    AbandonLowLatencyFrame();
+                    return {PresentationStatus::TemporarilyUnavailable, nullptr};
+                }
                 return {_recreateAfterPresent ? PresentationStatus::ResizeRequired : PresentationStatus::Ready,
                     _images[_currentImage].texture.get()};
             }
-            catch (const BackendError& error) { return FailedAcquire(error); }
+            catch (const BackendError& error) { AbandonLowLatencyFrame(); return FailedAcquire(error); }
         }
         PresentationCapabilities PresentationCaps() const noexcept override { return _presentationCaps; }
         PresentMode RequestedPresentMode() const noexcept override { return _requestedMode; }
         PresentResult TryPresent() override
         {
+            if (!_acquired) AbandonLowLatencyFrame();
             if (_closed) return {PresentationStatus::SurfaceLost};
             if (!_acquired && Closing())
 #if defined(__ANDROID__)
@@ -313,6 +331,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 return {PresentationStatus::TemporarilyUnavailable};
 #endif
             if (_suspended && !_acquired) return {PresentationStatus::TemporarilyUnavailable};
+#if !defined(__ANDROID__)
+            // TryAcquire refuses an iconified (unexposed) window without
+            // suspending; the present that follows must say the same thing.
+            if (!_acquired && WindowSystem::Iconified(_window->NativeHandle()))
+                return {PresentationStatus::TemporarilyUnavailable};
+#endif
             try
             {
                 return PresentCurrent();
@@ -1010,7 +1034,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             settings.Title = std::string(Mods::Branding::Name) + " Vulkan presentation check";
             settings.StartVisible = true;
             auto window = CreateWindow(settings);
+#if !defined(MPHREAD_QT)
             auto* const native = static_cast<GLFWwindow*>(window->NativeHandle());
+#endif
 
             SwapchainDesc desc{};
             desc.width = 1280;
@@ -1020,8 +1046,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             auto& vkSwapchain = dynamic_cast<VulkanSwapchain&>(*swapchain);
 
             std::uint64_t nativeFrames = 0;
-            const auto drawColor = [&vkSwapchain, &swapchain, reflexCheck, &nativeFrames](float r, float g, float b)
+            int drawStep = 0;
+            const auto drawColor = [&vkSwapchain, &swapchain, &window, &drawStep, reflexCheck, &nativeFrames](float r, float g, float b)
             {
+                ++drawStep;
                 // Present more frames than there are swapchain images so a
                 // replacement chain must reacquire an already presented image.
                 // Four frames did not exercise retirement on four-image Mesa
@@ -1038,8 +1066,21 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                         swapchain->MarkLowLatency(LowLatencyMarker::SimulationStart);
                         swapchain->MarkLowLatency(LowLatencyMarker::SimulationEnd);
                     }
-                    const auto acquired = swapchain->TryAcquireTexture();
-                    if (!acquired.texture) throw std::runtime_error("Typed Vulkan acquisition failed.");
+                    AcquireResult acquired{};
+                    const auto acquireDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+                    for (;;)
+                    {
+                        acquired = swapchain->TryAcquireTexture();
+                        if (acquired.texture) break;
+                        if (acquired.status != PresentationStatus::TemporarilyUnavailable)
+                            throw std::runtime_error("Typed Vulkan acquisition reported a loss at step "
+                                + std::to_string(drawStep) + " (status " + std::to_string(static_cast<int>(acquired.status)) + ").");
+                        if (std::chrono::steady_clock::now() >= acquireDeadline)
+                            throw std::runtime_error("Timed out waiting for the Vulkan drawable at step " + std::to_string(drawStep)
+                                + " (window state " + std::to_string(static_cast<int>(window->WindowState())) + ").");
+                        ProcessEvents();
+                        std::this_thread::sleep_for(std::chrono::milliseconds(8));
+                    }
                     if (reflexCheck && swapchain->LowLatencyStats().sleepCalls > sleepsBefore) ++nativeFrames;
                     vkSwapchain.ClearCurrent(r, g, b, 1.0F);
                     const auto presented = swapchain->TryPresent();
@@ -1050,7 +1091,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     std::this_thread::sleep_for(std::chrono::milliseconds(8));
                 }
             };
-            const auto pumpFramebuffer = [](GLFWwindow* handle, int timeoutMs,
+            const auto pumpFramebuffer = [](Window& target, int timeoutMs,
                 const std::function<bool(int, int)>& ready)
             {
                 const auto deadline = std::chrono::steady_clock::now()
@@ -1059,7 +1100,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 do
                 {
                     ProcessEvents();
-                    ::glfwGetFramebufferSize(handle, &width, &height);
+                    const auto size = target.Size();
+                    width = size.X;
+                    height = size.Y;
                     if (ready(width, height)) return std::pair<int, int>{width, height};
                     std::this_thread::sleep_for(std::chrono::milliseconds(8));
                 } while (std::chrono::steady_clock::now() < deadline);
@@ -1077,8 +1120,18 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                         for (auto mode : {LowLatencyMode::Off, LowLatencyMode::On, LowLatencyMode::OnBoost, LowLatencyMode::Off})
                         {
                             swapchain->ConfigureLowLatency(mode, interval);
-                            const auto generation = swapchain->LowLatencyStats().swapchainGeneration;
+                            const auto before = swapchain->LowLatencyStats();
+                            const auto generation = before.swapchainGeneration;
                             drawColor(0.1F, 0.3F, 0.6F);
+                            const auto after = swapchain->LowLatencyStats();
+                            if (!std::getenv("FRUITY_REFLEX_TEST_FAILURE"))
+                            {
+                                const auto frames = after.completedMeasurementFrames - before.completedMeasurementFrames;
+                                if (!frames || after.markerCalls - before.markerCalls != frames * 7
+                                    || (mode == LowLatencyMode::Off && after.sleepCalls != before.sleepCalls)
+                                    || (mode != LowLatencyMode::Off && after.sleepCalls - before.sleepCalls != frames))
+                                    throw std::runtime_error("Reflex Off/On/Boost measurement or sleep contract failed.");
+                            }
                             const auto state = ResolveLowLatency(mode, swapchain->LowLatencyCaps());
                             if (mode != LowLatencyMode::Off && !std::getenv("FRUITY_REFLEX_TEST_FAILURE")
                                 && (state.provider != LowLatencyProvider::Nvidia || state.authority != PacingAuthority::Native || state.effective != mode || !state.fallbackReason.empty()))
@@ -1100,7 +1153,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             drawColor(0.10F, 0.35F, 0.80F);
             const auto initialExtent = swapchain->Desc();
             window->ClientSize(::OpenTK::Mathematics::Vector2i(960, 600));
-            const auto resized = pumpFramebuffer(native, 3000,
+            const auto resized = pumpFramebuffer(*window, 3000,
                 [initialExtent](int width, int height)
                 {
                     return width > 0 && height > 0
@@ -1110,6 +1163,49 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             swapchain->Resize(static_cast<std::uint32_t>(resized.first), static_cast<std::uint32_t>(resized.second));
             drawColor(0.15F, 0.65F, 0.25F);
 
+#if defined(MPHREAD_QT)
+            // Qt's NativeHandle is the platform window id, not a GLFWwindow.
+            // Exercise the same borderless-fullscreen geometry path the Qt game
+            // uses instead of feeding that native id to GLFW diagnostics.
+            const auto oldBorder = window->WindowBorder();
+            const auto oldLocation = window->Location();
+            const auto oldSize = window->ClientSize();
+            const auto oldFramebuffer = window->Size();
+            const auto monitor = window->CurrentMonitorClientArea();
+            if (monitor.Size.X <= 0 || monitor.Size.Y <= 0)
+                throw std::runtime_error("The Vulkan presentation check requires a desktop monitor.");
+            window->WindowStateNormal();
+            window->WindowBorder(static_cast<std::int32_t>(WindowBorderValue::Hidden));
+            ProcessEvents();
+            window->Location(monitor.Min);
+            const auto currentClient = window->ClientSize();
+            const auto currentFramebuffer = window->Size();
+            const auto logicalWidth = currentFramebuffer.X > 0
+                ? std::max(1, monitor.Size.X * currentClient.X / currentFramebuffer.X)
+                : monitor.Size.X;
+            const auto logicalHeight = currentFramebuffer.Y > 0
+                ? std::max(1, monitor.Size.Y * currentClient.Y / currentFramebuffer.Y)
+                : monitor.Size.Y;
+            window->ClientSize({logicalWidth, logicalHeight});
+            const auto fullscreen = pumpFramebuffer(*window, 3000,
+                [monitor](int width, int height)
+                {
+                    return width == monitor.Size.X && height == monitor.Size.Y;
+                });
+            swapchain->Resize(static_cast<std::uint32_t>(fullscreen.first), static_cast<std::uint32_t>(fullscreen.second));
+            drawColor(0.75F, 0.22F, 0.08F);
+            window->WindowBorder(oldBorder);
+            ProcessEvents();
+            window->ClientSize(oldSize);
+            window->Location(oldLocation);
+            const auto windowed = pumpFramebuffer(*window, 3000,
+                [oldFramebuffer](int width, int height)
+                {
+                    return width == oldFramebuffer.X && height == oldFramebuffer.Y;
+                });
+            swapchain->Resize(static_cast<std::uint32_t>(windowed.first), static_cast<std::uint32_t>(windowed.second));
+            drawColor(0.65F, 0.55F, 0.12F);
+#else
             GLFWmonitor* const monitor = ::glfwGetPrimaryMonitor();
             const GLFWvidmode* const mode = monitor ? ::glfwGetVideoMode(monitor) : nullptr;
             if (!monitor || !mode)
@@ -1121,7 +1217,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             ::glfwGetFramebufferSize(native, &oldFramebufferWidth, &oldFramebufferHeight);
             ::glfwSetWindowMonitor(native, monitor, 0, 0,
                 mode->width, mode->height, mode->refreshRate);
-            const auto fullscreen = pumpFramebuffer(native, 3000,
+            const auto fullscreen = pumpFramebuffer(*window, 3000,
                 [mode](int width, int height)
                 {
                     return width == mode->width && height == mode->height;
@@ -1132,7 +1228,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             drawColor(0.75F, 0.22F, 0.08F);
             ::glfwSetWindowMonitor(native, nullptr, oldX, oldY,
                 oldSize.X, oldSize.Y, GLFW_DONT_CARE);
-            const auto windowed = pumpFramebuffer(native, 3000,
+            const auto windowed = pumpFramebuffer(*window, 3000,
                 [oldFramebufferWidth, oldFramebufferHeight](int width, int height)
                 {
                     return width == oldFramebufferWidth && height == oldFramebufferHeight;
@@ -1141,6 +1237,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 throw std::runtime_error("The GLFW window did not return to windowed mode.");
             swapchain->Resize(static_cast<std::uint32_t>(windowed.first), static_cast<std::uint32_t>(windowed.second));
             drawColor(0.65F, 0.55F, 0.12F);
+#endif
 
             window->WindowStateMinimized();
             const auto minimizeDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
@@ -1155,15 +1252,87 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             swapchain->Resize(0, 0);
             if (swapchain->Desc().width != 0 || swapchain->Desc().height != 0)
                 throw std::runtime_error("A minimized Vulkan swapchain did not suspend its zero-sized extent.");
-            const auto minimized = swapchain->TryAcquireTexture();
-            if (minimized.texture || minimized.status != PresentationStatus::TemporarilyUnavailable
-                || swapchain->TryPresent().status != PresentationStatus::TemporarilyUnavailable)
-                throw std::runtime_error("A minimized Vulkan swapchain did not report temporary unavailability.");
+            // Unavailability follows exposure, and on macOS a minimising
+            // window stays exposed while the Dock animates it away: present
+            // what is still offered until the surface actually goes.
+            const auto unexposedDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+            std::uint64_t abandonedReflexId = 0;
+            for (;;)
+            {
+                if (reflexCheck)
+                {
+                    while (!swapchain->BeginLowLatencyFrame()) {}
+                    swapchain->MarkLowLatency(LowLatencyMarker::InputSample);
+                    swapchain->MarkLowLatency(LowLatencyMarker::SimulationStart);
+                    swapchain->MarkLowLatency(LowLatencyMarker::SimulationEnd);
+                }
+                const auto admittedId = vkSwapchain.LowLatencyFrameId();
+                const auto beforeAcquire = swapchain->LowLatencyStats();
+                const auto minimized = swapchain->TryAcquireTexture();
+                if (!minimized.texture)
+                {
+                    if (reflexCheck && admittedId)
+                    {
+                        const auto afterAcquire = swapchain->LowLatencyStats();
+                        if (vkSwapchain.LowLatencyFrameId()
+                            || afterAcquire.markerCalls != beforeAcquire.markerCalls
+                            || afterAcquire.completedMeasurementFrames != beforeAcquire.completedMeasurementFrames
+                            || afterAcquire.abandonedMeasurementFrames != beforeAcquire.abandonedMeasurementFrames + 1)
+                            throw std::runtime_error("Unavailable acquire retained an admitted Reflex frame or fabricated present markers.");
+                        abandonedReflexId = admittedId;
+                    }
+                    if (minimized.status != PresentationStatus::TemporarilyUnavailable
+                        || swapchain->TryPresent().status != PresentationStatus::TemporarilyUnavailable)
+                        throw std::runtime_error("A minimized Vulkan swapchain did not report temporary unavailability.");
+                    break;
+                }
+                vkSwapchain.ClearCurrent(0.0F, 0.0F, 0.0F, 1.0F);
+                (void)swapchain->TryPresent();
+                if (std::chrono::steady_clock::now() >= unexposedDeadline)
+                    throw std::runtime_error("A minimized Vulkan window was still presentable after 3 s.");
+                ProcessEvents();
+                std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            }
             window->WindowStateNormal();
-            const auto restored = pumpFramebuffer(native, 3000,
+            const auto restored = pumpFramebuffer(*window, 3000,
                 [](int width, int height) { return width > 0 && height > 0; });
             swapchain->Resize(static_cast<std::uint32_t>(restored.first), static_cast<std::uint32_t>(restored.second));
+            // Qt reports a window state on request, before the platform has
+            // acted. On macOS a restore asked for while the Dock is still
+            // animating the minimise is dropped, and the minimise then
+            // completes: the window ends minimised for real. So keep asking
+            // while it falls back, and call it restored only once frames
+            // have presented for a sustained run -- TemporarilyUnavailable
+            // is the one answer allowed until then.
+            const auto presentableDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(8);
+            for (int presentedRun = 0; presentedRun < 20;)
+            {
+                ProcessEvents();
+                if (window->WindowState() == WindowStateValue::Minimized)
+                {
+                    presentedRun = 0;
+                    window->WindowStateNormal();
+                }
+                const auto attempt = swapchain->TryAcquireTexture();
+                if (attempt.texture)
+                {
+                    vkSwapchain.ClearCurrent(0.20F, 0.55F, 0.75F, 1.0F);
+                    const auto presented = swapchain->TryPresent();
+                    if (presented.status != PresentationStatus::Ready
+                        && presented.status != PresentationStatus::ResizeRequired)
+                        throw std::runtime_error("A restored Vulkan swapchain did not present.");
+                    ++presentedRun;
+                }
+                else if (attempt.status != PresentationStatus::TemporarilyUnavailable)
+                    throw std::runtime_error("A restored Vulkan swapchain failed to acquire.");
+                else presentedRun = 0;
+                if (std::chrono::steady_clock::now() >= presentableDeadline)
+                    throw std::runtime_error("A restored Vulkan swapchain never became presentable.");
+                std::this_thread::sleep_for(std::chrono::milliseconds(16));
+            }
             drawColor(0.20F, 0.55F, 0.75F);
+            if (abandonedReflexId && swapchain->LowLatencyStats().frameId <= abandonedReflexId)
+                throw std::runtime_error("Restoring reused the abandoned Reflex frame identity.");
 
             swapchain->SetPresentMode(PresentMode::Mailbox);
             if (swapchain->RequestedPresentMode() != PresentMode::Mailbox
@@ -1183,6 +1352,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 std::cout << "[reflexcheck] native frames=" << nativeFrames << " sleeps=" << stats.sleepCalls
                     << " waits=" << stats.waitCalls << " modes=" << stats.modeCalls << " markers=" << stats.markerCalls
                     << " timing-reports=" << stats.timingReports << " generations=" << stats.swapchainGeneration << '\n';
+                std::cout << "[reflexcheck] completed=" << stats.completedMeasurementFrames
+                    << " abandoned=" << stats.abandonedMeasurementFrames << " timing-queries=" << stats.timingQueries << '\n';
             }
             if (forceFallback && (vkSwapchain.PresentFencesEnabled()
                 || vkSwapchain.FallbackRetiredReleases() == 0))

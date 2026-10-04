@@ -91,11 +91,11 @@
 #include "NativeRuntime/OpenTK/Mathematics.hpp"
 
 #if defined(MPHREAD_SHELL)
-#include "Mods/Launcher/Gui/KeyRow.hpp"
-#include "Mods/Launcher/Gui/Shell.hpp"
+#include "Mods/Input/KeyCapture.hpp"
+#include "Mods/Launcher/Shell.hpp"
 #include "Mods/Render/LauncherHunter.hpp"
 #include "Mods/Render/UiOverlay.hpp"
-#include "NativeRuntime/Avalonia/Media.hpp"
+#include "NativeRuntime/System/Encoding.hpp"
 #endif
 
 #include <algorithm>
@@ -1481,7 +1481,7 @@ namespace MphRead
         }
         desc.blendAttachments.push_back(blend);
         desc.colorFormats.push_back(Rhi::TextureFormat::RGB8Unorm);
-        desc.depthStencilFormat = Rhi::TextureFormat::D24UnormS8Uint;
+        desc.depthStencilFormat = NativeRuntime::Rhi::SceneDevice().GetCapabilities().depthStencilFormat;
         return desc;
     }
 
@@ -1527,10 +1527,11 @@ namespace MphRead
         _celColor = Gpu().CreateTexture(Rhi::TextureDesc{width, height, 1, 1, 1, 1,
             Rhi::TextureFormat::RGB8Unorm,
             Rhi::TextureUsage::Sampled | Rhi::TextureUsage::ColorAttachment | Rhi::TextureUsage::TransferDst});
+        const auto depthStencil = Gpu().GetCapabilities().depthStencilFormat;
         _sceneDepthStencil = Gpu().CreateTexture(Rhi::TextureDesc{width, height, 1, 1, 1, 1,
-            Rhi::TextureFormat::D24UnormS8Uint, Rhi::TextureUsage::DepthStencilAttachment});
+            depthStencil, Rhi::TextureUsage::DepthStencilAttachment});
         _sceneDepthStencilView = Gpu().CreateTextureView(*_sceneDepthStencil,
-            Rhi::TextureViewDesc{Rhi::TextureFormat::D24UnormS8Uint});
+            Rhi::TextureViewDesc{depthStencil});
     }
 
     // The scene target: SceneColor, over CelDepth while the cel outline
@@ -1998,9 +1999,9 @@ namespace MphRead
         namespace Rhi = NativeRuntime::Rhi;
         _celDepth = Gpu().CreateTexture(Rhi::TextureDesc{
             static_cast<std::uint32_t>(target.X), static_cast<std::uint32_t>(target.Y), 1, 1, 1, 1,
-            Rhi::TextureFormat::D24UnormS8Uint,
+            Gpu().GetCapabilities().depthStencilFormat,
             Rhi::TextureUsage::Sampled | Rhi::TextureUsage::DepthStencilAttachment});
-        _celDepthView = Gpu().CreateTextureView(*_celDepth, Rhi::TextureViewDesc{Rhi::TextureFormat::D24UnormS8Uint});
+        _celDepthView = Gpu().CreateTextureView(*_celDepth, Rhi::TextureViewDesc{Gpu().GetCapabilities().depthStencilFormat});
         _claimedQuantum = MeasureDepthQuantum();
         _depthQuantum = _claimedQuantum;
         std::array<Rhi::RenderingColorAttachment, 1> color{};
@@ -6284,16 +6285,22 @@ namespace MphRead
         namespace Rhi = NativeRuntime::Rhi;
         ApplyFrameRateSettings();
         const auto size = FramebufferSize();
-        if (size.X <= 0 || size.Y <= 0) return true;
+        if (size.X <= 0 || size.Y <= 0)
+        {
+            _swapchain->AbandonLowLatencyFrame();
+            return true;
+        }
         auto state = Rhi::ResolveLowLatency(Mods::Launcher::LauncherPrefs::LowLatency(), _swapchain->LowLatencyCaps());
+        const bool nativePacing = state.authority == Rhi::PacingAuthority::Native;
+        // Native measurement also opens a frame in Off; only pacing is disabled.
+        if (!_swapchain->BeginLowLatencyFrame()) return false;
+        state = Rhi::ResolveLowLatency(state.requested, _swapchain->LowLatencyCaps());
         if (state.effective == Rhi::LowLatencyMode::Off) return true;
         if (state.authority == Rhi::PacingAuthority::Native)
         {
-            if (!_swapchain->BeginLowLatencyFrame()) return false;
-            state = Rhi::ResolveLowLatency(state.requested, _swapchain->LowLatencyCaps());
-            if (state.authority == Rhi::PacingAuthority::Native) return true;
-            ApplyFrameRateSettings(); // Native failure hands this frame to Generic.
+            return true;
         }
+        if (nativePacing) ApplyFrameRateSettings(); // Native failure hands this frame to Generic.
         return Rhi::SceneDevice().WaitForLatestSubmission(Rhi::PresentationScheduler::FrameBudgetWait.count());
     }
 
@@ -6724,7 +6731,7 @@ namespace MphRead
         {
             const std::u32string codePoint(1, static_cast<char32_t>(e.Unicode));
             Mods::Launcher::Gui::Shell::TextInput(
-                NativeRuntime::Avalonia::Media::ToUtf8(codePoint));
+                NativeRuntime::Utf32ToUtf8(codePoint));
             _window->BaseOnTextInput(e);
             return;
         }
@@ -6749,7 +6756,7 @@ namespace MphRead
         Mods::Input::InputSourceTracker::Note(Mods::Input::InputSource::KeyboardMouse);
 #if defined(MPHREAD_SHELL)
         if (Mods::Launcher::Gui::Shell::UiVisible()
-            && !Mods::Launcher::Gui::KeyRow::AnyListening()
+            && !Mods::Input::KeyCapture::AnyListening()
             && Mods::WindowMode::HandleKey(*this, e))
         {
             _window->BaseOnKeyDown(e);

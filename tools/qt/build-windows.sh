@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cross-compile the Qt flavour (FRUITY_UI=qt) for Windows x64 from Linux, and
+# Cross-compile the Qt Quick desktop for Windows x64 from Linux, and
 # lay out a runnable folder (exe + Qt DLLs, plugins, QML imports, libc++).
 # Nothing is installed on Windows. User-space tools:
 #   llvm-mingw   ~/.local/fp-zwin-tc/llvm-mingw-*          (github.com/mstorsjo/llvm-mingw, ucrt)
@@ -29,7 +29,6 @@ for h in Windows TlHelp32; do
 done
 
 cmake -S "$HERE" -B "$BUILD_DIR" -G Ninja \
-    -DFRUITY_UI=qt \
     -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     -DCMAKE_TOOLCHAIN_FILE="$HERE/tools/qt/mingw-toolchain.cmake" \
     -DQT_HOST_PATH="$QT_HOST" \

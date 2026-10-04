@@ -1,3 +1,4 @@
+import FruityPrime.Launcher
 import QtQuick
 
 // StartScreen: the wordmark over the backdrop, Play/Settings/Quit along the
@@ -51,7 +52,7 @@ FocusScope {
             width: page.column ? foot.width : implicitWidth
             height: implicitHeight
             key: "Profile"
-            value: shell.playerName
+            value: ShellHost.playerName
         }
         Grid {
             id: bar
@@ -97,7 +98,7 @@ FocusScope {
             heart: true
             tip: "Support this project <3"
             KeyNavigation.left: quitButton
-            onClicked: shell.openSupport()
+            onClicked: ShellHost.openSupport()
         }
     }
     DeckButton {
@@ -108,7 +109,7 @@ FocusScope {
         sizeEms: 1.55; padXEms: 0.9; padYEms: 0.7; lip: 5
         heart: true
         tip: "Support this project <3"
-        onClicked: shell.openSupport()
+        onClicked: ShellHost.openSupport()
     }
 
     // The version line; with an update waiting it can be pressed.
@@ -116,22 +117,22 @@ FocusScope {
         id: versionLine
         anchors.right: parent.right; anchors.top: parent.top
         anchors.rightMargin: 24; anchors.topMargin: 18
-        text: shell.version
+        text: ShellHost.version
         font.family: Theme.pixel; font.pixelSize: 12
-        color: shell.versionColour
-        activeFocusOnTab: shell.updatable
+        color: ShellHost.versionColour
+        activeFocusOnTab: ShellHost.updatable
         MouseArea {
             anchors.fill: parent
-            enabled: shell.updatable
-            cursorShape: shell.updatable ? Qt.PointingHandCursor : Qt.ArrowCursor
-            onClicked: shell.updateNow()
+            enabled: ShellHost.updatable
+            cursorShape: ShellHost.updatable ? Qt.PointingHandCursor : Qt.ArrowCursor
+            onClicked: ShellHost.updateNow()
         }
-        Keys.onReturnPressed: shell.updateNow()
-        Keys.onSpacePressed: shell.updateNow()
+        Keys.onReturnPressed: ShellHost.updateNow()
+        Keys.onSpacePressed: ShellHost.updateNow()
     }
     Component.onCompleted: {
-        shell.startUpdateCheck()
-        shell.refreshVersionLine()
+        ShellHost.startUpdateCheck()
+        ShellHost.refreshVersionLine()
     }
 
     Keys.onPressed: event => {

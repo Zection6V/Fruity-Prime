@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Backend.hpp"
+#include "Resources.hpp"
 
 #include <cstdint>
 
@@ -32,6 +33,10 @@ namespace MphRead::NativeRuntime::Rhi
         // Where false, creating such an image with transfer usage is
         // refused, rather than failing at the copy.
         bool supportsPackedDepthStencilTransfer = false;
+        // The depth+stencil attachment format this device draws with. Vulkan
+        // guarantees D24UnormS8Uint *or* D32FloatS8Uint, not both: Metal on a
+        // Mac (MoltenVK) commonly has only the second. Ask, never assume.
+        TextureFormat depthStencilFormat = TextureFormat::D24UnormS8Uint;
 
         bool operator==(const Capabilities&) const = default;
     };

@@ -285,11 +285,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
 
             // Exercise tightly packed two-channel uploads and the separate
-            // depth/stencil aspects of a packed image through the public RHI.
+            // depth/stencil aspects of a packed image through the public RHI,
+            // in the packed format this device draws with (D32S8 on MoltenVK).
+            const TextureFormat packed = device->GetCapabilities().depthStencilFormat;
             for (const auto [format, aspect, pixelBytes] : std::array{
                 std::tuple{TextureFormat::RG16Float, TextureAspect::Automatic, 4U},
-                std::tuple{TextureFormat::D24UnormS8Uint, TextureAspect::Depth, 4U},
-                std::tuple{TextureFormat::D24UnormS8Uint, TextureAspect::Stencil, 1U}})
+                std::tuple{packed, TextureAspect::Depth, 4U},
+                std::tuple{packed, TextureAspect::Stencil, 1U}})
             {
                 const std::size_t size = width * height * pixelBytes;
                 std::vector<std::byte> input(size, std::byte{0x11});

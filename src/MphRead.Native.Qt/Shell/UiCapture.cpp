@@ -35,6 +35,8 @@
 #include <QtQuick/QQuickWindow>
 
 #include <iostream>
+#include <chrono>
+#include <fstream>
 #include <memory>
 #include <algorithm>
 #include <vector>
@@ -57,12 +59,12 @@ namespace MphRead::Qt
 
         // FP_QT_UISHOT_SIZE=WxH: the desktop screens at another size, to judge
         // the text at a real window's resolution; 940x528 matches -uishot.
-        const QSize Window = []() {
+        QSize WindowSize() {
             const QStringList parts = qEnvironmentVariable("FP_QT_UISHOT_SIZE").split(u'x');
             const int w = parts.size() == 2 ? parts[0].toInt() : 0;
             const int h = parts.size() == 2 ? parts[1].toInt() : 0;
             return w > 0 && h > 0 ? QSize(w, h) : QSize(940, 528);
-        }();
+        }
         const QSize PhonePortrait(360, 800);
         const QSize PhoneLandscape(800, 360);
 
@@ -93,8 +95,17 @@ namespace MphRead::Qt
         }
     }
 
-    int UiCapture::Run(const QString& directory)
+    int UiCapture::Run(const std::string& outputDirectory, int benchmarkFrames, const std::string& report)
     {
+        const QSize Window = WindowSize();
+        std::ofstream timing;
+        if (!report.empty())
+        {
+            timing.open(report);
+            if (!timing) return 1;
+            timing << "screen,width,height,frames,completed_frame_ms\n";
+        }
+        const QString directory = QString::fromStdString(outputDirectory);
         EnsureApplication();
         QDir().mkpath(directory);
 
@@ -129,7 +140,6 @@ namespace MphRead::Qt
         }
         auto engine = std::make_unique<QQmlEngine>();
         RegisterQmlTypes();
-        engine->rootContext()->setContextProperty(QStringLiteral("shell"), &bridge);
         QQmlComponent component(engine.get(), QUrl(QStringLiteral("qrc:/qt/qml/FruityPrime/Ui/Main.qml")));
         std::unique_ptr<QObject> object(component.create());
         auto* const root = qobject_cast<QQuickItem*>(object.get());
@@ -216,6 +226,27 @@ namespace MphRead::Qt
                 control->sync();
                 control->render();
                 control->endFrame();
+            }
+            if (benchmarkFrames > 0)
+            {
+                gl->glFinish();
+                const auto started = std::chrono::steady_clock::now();
+                for (int frame = 0; frame < benchmarkFrames; ++frame)
+                {
+                    QCoreApplication::processEvents();
+                    control->polishItems();
+                    control->beginFrame();
+                    control->sync();
+                    control->render();
+                    control->endFrame();
+                    gl->glFinish();
+                }
+                const double milliseconds = std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - started).count() / benchmarkFrames;
+                std::cout << "[uibench] " << shot.Name << ' ' << shot.Size.width() << 'x'
+                    << shot.Size.height() << " completed-frame-ms=" << milliseconds << '\n';
+                if (timing) timing << shot.Name << ',' << shot.Size.width() << ',' << shot.Size.height()
+                    << ',' << benchmarkFrames << ',' << milliseconds << '\n';
             }
             // FP_QT_UISHOT_KEYS=Down,Down,Return: keys pressed before the
             // photograph, to check where the focus goes.

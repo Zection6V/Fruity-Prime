@@ -80,7 +80,7 @@ Item {
             Image {
                 id: shot
                 visible: row.answered && status === Image.Ready
-                source: row.answered ? shell.mapShot(row.modelData.roomKey || "") : ""
+                source: row.answered ? ShellHost.mapShot(row.modelData.roomKey || "") : ""
                 width: parent.width
                 height: sourceSize.width > 0 ? sourceSize.height * width / sourceSize.width : 0
                 y: (parent.height - height) / 2

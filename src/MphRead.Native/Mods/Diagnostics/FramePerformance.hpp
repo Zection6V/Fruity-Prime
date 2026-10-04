@@ -32,7 +32,7 @@ namespace MphRead::Mods::Diagnostics
         struct Conditions final
         {
             int backend, room, width, height, cap, requestedPresent, actualPresent, scale;
-            bool fpsCounter, cel, fog, paused, focused;
+            bool fpsCounter, cel, fog, paused, focused, mainActive;
             bool operator==(const Conditions&) const = default;
         };
         static Conditions ReadConditions(const RenderWindow& window, const NativeRuntime::Rhi::Swapchain& swapchain);

@@ -1,7 +1,6 @@
 #pragma once
 
-#include <QtCore/QString>
-#include <QtCore/QVariantList>
+#include <string>
 
 namespace MphRead::Qt
 {
@@ -11,6 +10,7 @@ namespace MphRead::Qt
         UiCapture() = delete;
 
         // Writes DIR/<screen>.png for each screen -uishot knows; 0 when all were.
-        [[nodiscard]] static int Run(const QString& directory);
+        [[nodiscard]] static int Run(const std::string& directory,
+            int benchmarkFrames = 0, const std::string& report = {});
     };
 }

@@ -29,6 +29,8 @@ namespace
         facts.Color.optimalTilingFeatures = VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT
             | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
         facts.Depth.optimalTilingFeatures = VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        facts.DepthStencil24.optimalTilingFeatures = VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        facts.DepthStencil32.optimalTilingFeatures = VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
         VkQueueFamilyProperties queue{}; queue.queueCount = 1;
         queue.queueFlags = VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT; queue.timestampValidBits = 48;
         facts.Queues = {{queue, true}};
@@ -61,6 +63,12 @@ namespace
             VK_FORMAT_FEATURE_TRANSFER_SRC_BIT, VK_FORMAT_FEATURE_TRANSFER_DST_BIT})
             missing([bit](auto& v) { v.Color.optimalTilingFeatures &= ~bit; }, "RGBA8");
         missing([](auto& v) { v.Depth.optimalTilingFeatures = 0; }, "D32");
+        missing([](auto& v) { v.DepthStencil24.optimalTilingFeatures = v.DepthStencil32.optimalTilingFeatures = 0; }, "D24S8 or D32S8");
+        Expect(good.Caps.depthStencilFormat == TextureFormat::D24UnormS8Uint, "D24S8 not preferred where offered.");
+        auto metal = facts; metal.DepthStencil24.optimalTilingFeatures = 0; // MoltenVK on a Mac
+        const auto onlyD32 = EvaluatePhysicalDevice(metal, true);
+        Expect(onlyD32.Eligible && onlyD32.Caps.depthStencilFormat == TextureFormat::D32FloatS8Uint,
+            "A device with only D32S8 did not draw with it.");
         missing([](auto& v) { v.Queues[0].Properties.queueFlags = VK_QUEUE_COMPUTE_BIT; }, "graphics queue");
         missing([](auto& v) { v.Queues[0].Presents = false; }, "presentation queue");
         missing([](auto& v) { v.Queues[0].Properties.queueCount = 0; }, "graphics queue");
@@ -159,7 +167,11 @@ namespace
         }
     }
     VKAPI_ATTR void VKAPI_CALL Formats(VkPhysicalDevice, VkFormat format, VkFormatProperties* data)
-    { *data = format == VK_FORMAT_D32_SFLOAT ? queried.Depth : queried.Color; }
+    {
+        *data = format == VK_FORMAT_D32_SFLOAT ? queried.Depth
+            : format == VK_FORMAT_D24_UNORM_S8_UINT ? queried.DepthStencil24
+            : format == VK_FORMAT_D32_SFLOAT_S8_UINT ? queried.DepthStencil32 : queried.Color;
+    }
     VKAPI_ATTR void VKAPI_CALL Queues(VkPhysicalDevice, std::uint32_t* count, VkQueueFamilyProperties* data)
     { if (data) for (std::size_t i = 0; i < queried.Queues.size(); ++i) data[i] = queried.Queues[i].Properties; *count = static_cast<std::uint32_t>(queried.Queues.size()); }
     VKAPI_ATTR void VKAPI_CALL Memory(VkPhysicalDevice, VkPhysicalDeviceMemoryProperties* data) { *data = queried.Memory; }

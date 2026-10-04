@@ -4,7 +4,8 @@ plugins {
 
 def nativeVersionName = System.getenv("FRUITY_ANDROID_VERSION_NAME") ?: "0.0.0-dev"
 def nativeVersionCodeText = System.getenv("FRUITY_ANDROID_VERSION_CODE") ?: "1"
-def nativeMinSdk = Integer.parseInt(System.getenv("ANDROID_MIN_API") ?: "26")
+// The shared C# contract stays at 26; this Qt 6.11 native head needs API 28.
+def nativeMinSdk = Math.max(28, Integer.parseInt(System.getenv("ANDROID_MIN_API") ?: "28"))
 def generatedAssetsDir = file("$buildDir/generated/fruityAssets")
 def generatedResourcesDir = file("$buildDir/generated/fruityResources")
 
@@ -22,9 +23,11 @@ android {
 
     sourceSets {
         main {
-            jniLibs.srcDirs = ["src/main/jniLibs"]
-            res.srcDirs = ["src/main/res", generatedResourcesDir]
+            jniLibs.srcDirs = ["../qt-generated/libs"]
+            res.srcDirs = ["src/main/res", generatedResourcesDir, "../qt-generated/res"]
             assets.srcDir(generatedAssetsDir)
+            assets.srcDir("../qt-generated/assets")
+            java.srcDir("../qt-generated/src")
         }
     }
 
@@ -84,5 +87,6 @@ tasks.named("preBuild").configure {
 }
 
 dependencies {
+    implementation fileTree(dir: "../qt-generated/libs", include: ["*.jar"])
     implementation "androidx.core:core:1.15.0"
 }

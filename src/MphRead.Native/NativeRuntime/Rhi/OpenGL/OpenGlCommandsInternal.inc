@@ -53,8 +53,12 @@ unsigned OpenGlCommandList::VertexArray()
     const auto& desc = _applied ? _applied->Desc() : empty;
     const auto buffers = _sceneGeometry ? _sceneBuffers : std::span<const VertexBufferLayoutDesc>(desc.vertexBuffers);
     const auto attributes = _sceneGeometry ? _sceneAttributes : std::span<const VertexAttributeDesc>(desc.vertexAttributes);
-    std::vector<std::uint64_t> key{buffers.size(), attributes.size()};
-    std::vector<int> names;
+    // Cache lookup is the ordinary draw path. Retain its scratch storage so
+    // cached meshes do not allocate a key and attribute set on every draw.
+    auto& key = _vertexArrayKey;
+    key.clear();
+    key.reserve(3 + buffers.size() * 5 + attributes.size() * 4);
+    key.insert(key.end(), {buffers.size(), attributes.size()});
     for (const auto& layout : buffers)
     {
         const auto found = _vertexBindings.find(layout.slot);
@@ -63,23 +67,27 @@ unsigned OpenGlCommandList::VertexArray()
         const auto& binding = found->second;
         key.insert(key.end(), {layout.slot, layout.stride, static_cast<unsigned>(layout.inputRate),
             static_cast<unsigned>(binding.Buffer->Name()), binding.Offset});
-        names.push_back(binding.Buffer->Name());
     }
-    std::unordered_set<std::uint32_t> locations;
-    for (const auto& attr : attributes)
+    for (std::size_t i = 0; i < attributes.size(); ++i)
     {
+        const auto& attr = attributes[i];
         const auto found = std::find_if(buffers.begin(), buffers.end(), [&](const auto& value) { return value.slot == attr.bufferSlot; });
         const auto format = AttributeFormat(attr.format);
         if (found == buffers.end() || attr.location >= _device->GetCapabilities().maxVertexBuffers
-            || !locations.insert(attr.location).second || attr.offset > found->stride || format.Bytes > found->stride - attr.offset)
+            || std::any_of(attributes.begin(), attributes.begin() + i,
+                [&](const auto& previous) { return previous.location == attr.location; })
+            || attr.offset > found->stride || format.Bytes > found->stride - attr.offset)
             throw std::invalid_argument("OpenGL RHI: invalid vertex attribute layout.");
         const auto& binding = _vertexBindings.at(attr.bufferSlot);
         CheckBufferRange(*binding.Buffer, binding.Offset + attr.offset, format.Bytes);
         key.insert(key.end(), {attr.location, attr.bufferSlot, static_cast<unsigned>(attr.format), attr.offset});
     }
     key.push_back(_indexBuffer ? static_cast<unsigned>(_indexBuffer->Name()) : 0);
-    if (_indexBuffer) names.push_back(_indexBuffer->Name());
     if (const auto found = _vertexArrays.find(key); found != _vertexArrays.end()) return found->second.Name;
+    std::vector<int> names;
+    names.reserve(buffers.size() + (_indexBuffer ? 1 : 0));
+    for (const auto& layout : buffers) names.push_back(_vertexBindings.at(layout.slot).Buffer->Name());
+    if (_indexBuffer) names.push_back(_indexBuffer->Name());
     auto& api = _device->Api();
     unsigned vao = 0;
     OpenGlNative::Require(api.GenVertexArrays, "glGenVertexArrays")(1, &vao);
@@ -102,7 +110,7 @@ unsigned OpenGlCommandList::VertexArray()
         GL::BindBuffer(GL::BufferTarget::ElementArrayBuffer, _indexBuffer ? _indexBuffer->Name() : 0);
         api.BindVertexArray(0);
         GL::BindBuffer(GL::BufferTarget::ArrayBuffer, 0);
-        _vertexArrays.emplace(std::move(key), VertexArrayEntry{vao, std::move(names)});
+        _vertexArrays.emplace(key, VertexArrayEntry{vao, std::move(names)});
         return vao;
     }
     catch (...) { api.BindVertexArray(0); api.DeleteVertexArrays(1, &vao); throw; }
@@ -249,6 +257,9 @@ void OpenGlCommandList::ApplyBindingSet(std::uint32_t group, const OpenGlBinding
     const auto* set = &resource;
     const auto& layout = _applied->Desc().pipelineLayout;
     auto& api = _device->Api();
+    // Without sampler objects a sampler is written onto its unit's texture,
+    // which a later entry of the same group may be what binds.
+    std::vector<std::pair<unsigned, const OpenGlSampler*>> textureSamplers;
     for (const auto& entry : set->Desc().entries)
     {
         const auto& declarations = layout.groups[group].entries;
@@ -267,7 +278,8 @@ void OpenGlCommandList::ApplyBindingSet(std::uint32_t group, const OpenGlBinding
         {
             const auto& sampler = dynamic_cast<const OpenGlSampler&>(*std::get<SamplerBinding>(entry.resource).sampler);
             if (slot >= static_cast<unsigned>(GL::GetInteger(0x8B4D))) throw std::out_of_range("OpenGL RHI: sampler binding exceeds device limit.");
-            OpenGlNative::Require(api.BindSampler, "glBindSampler")(slot, sampler.Name());
+            if (api.features.samplerObjects) ApplySampler(*_device, slot, &sampler);
+            else textureSamplers.emplace_back(slot, &sampler);
         }
         else
         {
@@ -287,6 +299,12 @@ void OpenGlCommandList::ApplyBindingSet(std::uint32_t group, const OpenGlBinding
             }
         }
     }
+    for (const auto& [slot, sampler] : textureSamplers)
+    {
+        GL::ActiveTexture(static_cast<GL::TextureUnit>(0x84C0 + slot));
+        ApplySampler(*_device, slot, sampler);
+    }
+    if (!textureSamplers.empty()) GL::ActiveTexture(GL::TextureUnit::Texture0);
 }
 void OpenGlCommandList::CopyBuffer(const Buffer& source, std::uint64_t sourceOffset, Buffer& destination, std::uint64_t destinationOffset, std::uint64_t size)
 {
@@ -298,6 +316,22 @@ void OpenGlCommandList::CopyBuffer(const Buffer& source, std::uint64_t sourceOff
     if (!Has(source.Desc().usage, BufferUsage::TransferSrc) || !Has(destination.Desc().usage, BufferUsage::TransferDst)
         || (&source == &destination && sourceOffset < destinationOffset + size && destinationOffset < sourceOffset + size))
         throw std::invalid_argument("OpenGL RHI: invalid or overlapping buffer copy.");
+    if (!_device->Api().features.copyBuffer)
+    {
+        // No ARB_copy_buffer: read the range back and upload it again. GL
+        // orders both against the commands already issued, as it would a copy.
+        auto& api = _device->Api();
+        std::vector<std::byte> staging(static_cast<std::size_t>(size));
+        const int previous = GL::GetInteger(0x8894); // ARRAY_BUFFER_BINDING
+        GL::BindBuffer(static_cast<GL::BufferTarget>(0x8892), from.Name());
+        OpenGlNative::Require(api.GetBufferSubData, "glGetBufferSubData")(0x8892,
+            static_cast<std::ptrdiff_t>(sourceOffset), static_cast<std::ptrdiff_t>(size), staging.data());
+        GL::BindBuffer(static_cast<GL::BufferTarget>(0x8892), to.Name());
+        OpenGlNative::Require(api.BufferSubData, "glBufferSubData")(0x8892,
+            static_cast<std::ptrdiff_t>(destinationOffset), static_cast<std::ptrdiff_t>(size), staging.data());
+        GL::BindBuffer(static_cast<GL::BufferTarget>(0x8892), previous);
+        return;
+    }
     GL::BindBuffer(static_cast<GL::BufferTarget>(0x8F36), from.Name()); GL::BindBuffer(static_cast<GL::BufferTarget>(0x8F37), to.Name());
     OpenGlNative::Require(_device->Api().CopyBufferSubData, "glCopyBufferSubData")(0x8F36, 0x8F37, sourceOffset, destinationOffset, size);
     GL::BindBuffer(static_cast<GL::BufferTarget>(0x8F36), 0); GL::BindBuffer(static_cast<GL::BufferTarget>(0x8F37), 0);

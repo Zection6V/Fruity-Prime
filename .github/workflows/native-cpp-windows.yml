@@ -124,12 +124,20 @@ jobs:
         with:
           version: "v0.16.0"
 
+      - name: Install Qt Quick for MSVC
+        shell: pwsh
+        run: |
+          python tools/qt/install-qt.py --kit msvc2022_64 --root "$env:RUNNER_TEMP/qt"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "QT_ROOT=$env:RUNNER_TEMP/qt/6.11.2/msvc2022_64" >> $env:GITHUB_ENV
+
       - name: Configure with MSVC
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path build/native | Out-Null
           cmake -S . -B build/native -G "Ninja Multi-Config" `
             -DCMAKE_TOOLCHAIN_FILE="$env:CMAKE_TOOLCHAIN_FILE" `
+            -DQt6_ROOT="$env:QT_ROOT" `
             -DVCPKG_TARGET_TRIPLET=x64-windows `
             -DFRUITY_REQUIRE_VULKAN=ON `
             -DCMAKE_C_COMPILER_LAUNCHER=sccache `

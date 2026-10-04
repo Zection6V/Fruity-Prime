@@ -1,3 +1,19 @@
+// Allocation, upload and the fallback read and copy go through ARRAY_BUFFER,
+// which every GL version has: COPY_READ_BUFFER and COPY_WRITE_BUFFER are GL
+// 3.1, and macOS's legacy 2.1 context -- the only one with immediate mode
+// there -- answers them with INVALID_ENUM. The previous binding is put back,
+// since that state belongs to whoever drew last.
+namespace
+{
+    constexpr unsigned UploadTarget = 0x8892;        // ARRAY_BUFFER
+    constexpr unsigned UploadTargetBinding = 0x8894; // ARRAY_BUFFER_BINDING
+    struct UploadBinding final
+    {
+        int Previous = GL::GetInteger(UploadTargetBinding);
+        ~UploadBinding() { GL::BindBuffer(static_cast<GL::BufferTarget>(UploadTarget), Previous); }
+    };
+}
+
 std::unique_ptr<Buffer> OpenGlGraphicsDevice::CreateBuffer(const BufferDesc& desc)
 {
     if (!desc.size || desc.usage == BufferUsage::None || !IsValidBufferState(desc, desc.initialState)
@@ -8,10 +24,12 @@ std::unique_ptr<Buffer> OpenGlGraphicsDevice::CreateBuffer(const BufferDesc& des
     if (!name) throw std::runtime_error("OpenGL returned buffer object zero.");
     try
     {
-        GL::BindBuffer(static_cast<GL::BufferTarget>(0x8F37), name);
-        GL::BufferData(static_cast<GL::BufferTarget>(0x8F37), static_cast<std::size_t>(desc.size), nullptr,
-            desc.memoryUsage == MemoryUsage::GpuOnly ? GL::BufferUsageHint::StaticDraw : GL::BufferUsageHint::StreamDraw);
-        GL::BindBuffer(static_cast<GL::BufferTarget>(0x8F37), 0);
+        {
+            UploadBinding restore;
+            GL::BindBuffer(static_cast<GL::BufferTarget>(UploadTarget), name);
+            GL::BufferData(static_cast<GL::BufferTarget>(UploadTarget), static_cast<std::size_t>(desc.size), nullptr,
+                desc.memoryUsage == MemoryUsage::GpuOnly ? GL::BufferUsageHint::StaticDraw : GL::BufferUsageHint::StreamDraw);
+        }
         CheckStorageResult("OpenGL buffer allocation");
         auto buffer = std::make_unique<OpenGlBuffer>(*this, desc, name);
         Track(*buffer);
@@ -45,13 +63,15 @@ void OpenGlGraphicsDevice::WriteBuffer(Buffer& resource, std::uint64_t offset, s
     auto& buffer = CheckedBuffer(*this, resource);
     CheckBufferRange(resource, offset, data.size());
     if (!offset && data.size() == buffer.Desc().size) AdmitStorage(data.size());
-    GL::BindBuffer(static_cast<GL::BufferTarget>(0x8F37), buffer.Name());
-    if (!offset && data.size() == buffer.Desc().size)
-        GL::BufferData(static_cast<GL::BufferTarget>(0x8F37), data.size(), data.data(),
-            buffer.Desc().memoryUsage == MemoryUsage::GpuOnly ? GL::BufferUsageHint::StaticDraw : GL::BufferUsageHint::StreamDraw);
-    else OpenGlNative::Require(_api.BufferSubData, "glBufferSubData")(0x8F37,
-        static_cast<std::ptrdiff_t>(offset), static_cast<std::ptrdiff_t>(data.size()), data.data());
-    GL::BindBuffer(static_cast<GL::BufferTarget>(0x8F37), 0);
+    {
+        UploadBinding restore;
+        GL::BindBuffer(static_cast<GL::BufferTarget>(UploadTarget), buffer.Name());
+        if (!offset && data.size() == buffer.Desc().size)
+            GL::BufferData(static_cast<GL::BufferTarget>(UploadTarget), data.size(), data.data(),
+                buffer.Desc().memoryUsage == MemoryUsage::GpuOnly ? GL::BufferUsageHint::StaticDraw : GL::BufferUsageHint::StreamDraw);
+        else OpenGlNative::Require(_api.BufferSubData, "glBufferSubData")(UploadTarget,
+            static_cast<std::ptrdiff_t>(offset), static_cast<std::ptrdiff_t>(data.size()), data.data());
+    }
     CheckStorageResult("OpenGL buffer upload");
     // CPU uploads retain the state; GPU-only writes use the transfer path's
     // final state, as on Vulkan, without changing an established read state.
@@ -64,6 +84,15 @@ void OpenGlGraphicsDevice::ReadBuffer(Buffer& resource, std::uint64_t offset, st
     CheckBufferRange(resource, offset, data.size());
     if (resource.Desc().memoryUsage != MemoryUsage::GpuToCpu)
         throw std::invalid_argument("OpenGL RHI: readback requires a GpuToCpu buffer.");
+    if (!_api.features.mapBufferRange)
+    {
+        UploadBinding restore;
+        GL::BindBuffer(static_cast<GL::BufferTarget>(UploadTarget), buffer.Name());
+        OpenGlNative::Require(_api.GetBufferSubData, "glGetBufferSubData")(UploadTarget,
+            static_cast<std::ptrdiff_t>(offset), static_cast<std::ptrdiff_t>(data.size()), data.data());
+        CheckStorageResult("OpenGL buffer readback");
+        return;
+    }
     GL::BindBuffer(static_cast<GL::BufferTarget>(0x8F36), buffer.Name());
     void* mapped = OpenGlNative::Require(_api.MapBufferRange, "glMapBufferRange")(0x8F36,
         static_cast<std::ptrdiff_t>(offset), static_cast<std::ptrdiff_t>(data.size()), 1);
@@ -74,6 +103,32 @@ void OpenGlGraphicsDevice::ReadBuffer(Buffer& resource, std::uint64_t offset, st
     if (!valid) throw std::runtime_error("OpenGL buffer readback was invalidated.");
 }
 
+// A sampler's state as GL parameters, written through whatever holds it: a
+// sampler object, or -- in a context without them, macOS's legacy 2.1 -- the
+// texture bound where it is sampled. One list, so the two cannot disagree.
+template <class Integer, class Scalar, class Vector>
+void WriteSamplerState(const SamplerDesc& desc, bool anisotropy, Integer integer, Scalar scalar, Vector vector)
+{
+    // Texture allocation sets its actual mip range. The sampler remains
+    // independent, so one image can be sampled through different filters.
+    const int minification = desc.minFilter == Filter::Nearest
+        ? (desc.mipFilter == Filter::Nearest ? 0x2700 : 0x2702)
+        : (desc.mipFilter == Filter::Nearest ? 0x2701 : 0x2703);
+    integer(0x2801, minification);
+    integer(0x2800, ToGl(desc.magFilter, false));
+    integer(0x2802, ToGl(desc.addressU)); integer(0x2803, ToGl(desc.addressV)); integer(0x8072, ToGl(desc.addressW));
+    scalar(0x813A, desc.minLod); scalar(0x813B, desc.maxLod);
+#if !defined(__ANDROID__)
+    const std::array<float, 4> border = desc.borderColor == BorderColor::OpaqueWhite
+        ? std::array<float, 4>{1, 1, 1, 1} : desc.borderColor == BorderColor::OpaqueBlack
+            ? std::array<float, 4>{0, 0, 0, 1} : std::array<float, 4>{0, 0, 0, 0};
+    vector(0x1004, border.data());
+    if (anisotropy) scalar(0x84FE, desc.maxAnisotropy);
+#else
+    (void)vector; (void)anisotropy;
+#endif
+}
+
 OpenGlSamplerStorage::OpenGlSamplerStorage(OpenGlGraphicsDevice& device, SamplerDesc desc)
     : Device(&device), Desc(desc)
 {
@@ -82,28 +137,25 @@ OpenGlSamplerStorage::OpenGlSamplerStorage(OpenGlGraphicsDevice& device, Sampler
         || desc.maxAnisotropy > device.GetCapabilities().maxSamplerAnisotropy)
         throw std::invalid_argument("OpenGL RHI: invalid sampler LOD or anisotropy.");
     auto& api = device.Api();
+    if (!api.features.samplerObjects)
+    {
+        // No sampler objects: the description is the sampler, applied to the
+        // texture each time the two are bound together (ApplySampler).
+        device.Track(*this);
+        return;
+    }
     OpenGlNative::Require(api.GenSamplers, "glGenSamplers")(1, &Name);
     if (!Name) throw std::runtime_error("OpenGL returned sampler object zero.");
     try
     {
-        // Texture allocation sets its actual mip range. The sampler remains
-        // independent, so one image can be sampled through different filters.
-        const int minification = desc.minFilter == Filter::Nearest
-            ? (desc.mipFilter == Filter::Nearest ? 0x2700 : 0x2702)
-            : (desc.mipFilter == Filter::Nearest ? 0x2701 : 0x2703);
         auto integer = OpenGlNative::Require(api.SamplerParameteri, "glSamplerParameteri");
         auto scalar = OpenGlNative::Require(api.SamplerParameterf, "glSamplerParameterf");
-        integer(Name, 0x2801, minification);
-        integer(Name, 0x2800, ToGl(desc.magFilter, false));
-        integer(Name, 0x2802, ToGl(desc.addressU)); integer(Name, 0x2803, ToGl(desc.addressV)); integer(Name, 0x8072, ToGl(desc.addressW));
-        scalar(Name, 0x813A, desc.minLod); scalar(Name, 0x813B, desc.maxLod);
-#if !defined(__ANDROID__)
-        const std::array<float, 4> border = desc.borderColor == BorderColor::OpaqueWhite
-            ? std::array<float, 4>{1, 1, 1, 1} : desc.borderColor == BorderColor::OpaqueBlack
-                ? std::array<float, 4>{0, 0, 0, 1} : std::array<float, 4>{0, 0, 0, 0};
-        OpenGlNative::Require(api.SamplerParameterfv, "glSamplerParameterfv")(Name, 0x1004, border.data());
-        if (device.GetCapabilities().supportsAnisotropy) scalar(Name, 0x84FE, desc.maxAnisotropy);
-#endif
+        auto vector = OpenGlNative::Require(api.SamplerParameterfv, "glSamplerParameterfv");
+        const unsigned name = Name;
+        WriteSamplerState(desc, device.GetCapabilities().supportsAnisotropy,
+            [&](unsigned key, int value) { integer(name, key, value); },
+            [&](unsigned key, float value) { scalar(name, key, value); },
+            [&](unsigned key, const float* value) { vector(name, key, value); });
         const int error = static_cast<int>(GL::GetError());
         if (error) throw std::runtime_error("OpenGL sampler creation failed: " + std::to_string(error));
         device.Track(*this);
@@ -115,8 +167,30 @@ OpenGlSamplerStorage::~OpenGlSamplerStorage()
     if (Device)
     {
         Device->Untrack(*this);
-        Device->Retire({GlObject::Kind::Sampler, static_cast<int>(Name), Device->Api().DeleteSamplers});
+        if (Name) Device->Retire({GlObject::Kind::Sampler, static_cast<int>(Name), Device->Api().DeleteSamplers});
     }
+}
+
+// Sample texture unit `unit` through `sampler` (none: the texture's own state).
+// With sampler objects that is a bind; without them the state is written onto
+// the 2D texture bound on that unit, which must be the active one.
+void ApplySampler(OpenGlGraphicsDevice& device, unsigned unit, const OpenGlSampler* sampler)
+{
+    auto& api = device.Api();
+    if (api.features.samplerObjects)
+    {
+        OpenGlNative::Require(api.BindSampler, "glBindSampler")(unit, sampler ? sampler->Name() : 0);
+        return;
+    }
+    if (!sampler) return;
+    constexpr unsigned target = 0x0DE1; // TEXTURE_2D
+    auto integer = OpenGlNative::Require(api.TexParameteri, "glTexParameteri");
+    auto scalar = OpenGlNative::Require(api.TexParameterf, "glTexParameterf");
+    auto vector = OpenGlNative::Require(api.TexParameterfv, "glTexParameterfv");
+    WriteSamplerState(sampler->Desc(), device.GetCapabilities().supportsAnisotropy,
+        [&](unsigned key, int value) { integer(target, key, value); },
+        [&](unsigned key, float value) { scalar(target, key, value); },
+        [&](unsigned key, const float* value) { vector(target, key, value); });
 }
 
 const OpenGlBindingLayout& CheckedLayout(OpenGlGraphicsDevice& device, const BindingLayout* value)

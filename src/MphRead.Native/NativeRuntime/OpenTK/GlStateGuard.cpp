@@ -1,6 +1,7 @@
 #include "GlStateGuard.hpp"
 #if !defined(__ANDROID__)
 #include "GL.hpp"
+#include "GlFeatures.hpp"
 
 #include <algorithm>
 
@@ -75,6 +76,19 @@ namespace OpenTK::Graphics::OpenGL
             e.Viewport = Load<I4>("glViewport");
             e.Scissor = Load<I4>("glScissor");
             e.ColorMask = Load<B4>("glColorMask");
+            // Every name above resolves on macOS whatever the context is, so
+            // the GL 3.x ones are kept only where the context offers them.
+            const GlFeatures features = GlFeatures::Current();
+            if (features.Major)
+            {
+                if (!features.Supports(3, 3, "GL_ARB_sampler_objects")) e.BindSampler = nullptr;
+                if (!features.Supports(3, 0, "GL_ARB_vertex_array_object"))
+                    e.BindVertexArray = features.Has("GL_APPLE_vertex_array_object")
+                        ? Load<U1>("glBindVertexArrayAPPLE") : nullptr;
+                if (!features.AtLeast(3, 3))
+                    e.VertexAttribDivisor = features.Has("GL_ARB_instanced_arrays")
+                        ? Load<U2>("glVertexAttribDivisorARB") : nullptr;
+            }
             return e;
         }
 

@@ -75,6 +75,7 @@ namespace MphRead::Droid
         std::mutex Gate;
         std::condition_variable Work;
         std::shared_ptr<Job> Next;
+        std::shared_ptr<Job> MatchPicture;
         std::shared_ptr<Worker> CurrentWorker;
         std::size_t WorkPermits = 0;
         bool Retire = false;
@@ -149,7 +150,7 @@ namespace MphRead::Droid
                 return NullImageTask();
             }
         }
-        if (width <= 0 || height <= 0 || InMatch())
+        if (width <= 0 || height <= 0)
         {
             return NullImageTask();
         }
@@ -161,6 +162,14 @@ namespace MphRead::Droid
         job->Height = height;
         std::shared_future<std::optional<std::vector<std::uint8_t>>> result =
             job->Done.get_future().share();
+
+        if (InMatch())
+        {
+            std::lock_guard lock(_state->Gate);
+            if (_state->MatchPicture) _state->MatchPicture->Done.set_value(std::nullopt);
+            _state->MatchPicture = std::move(job);
+            return result;
+        }
 
         std::shared_ptr<Job> dropped;
         {
@@ -212,6 +221,11 @@ namespace MphRead::Droid
         {
             std::lock_guard lock(_state->Gate);
             _state->Retire = true;
+            if (_state->MatchPicture)
+            {
+                _state->MatchPicture->Done.set_value(std::nullopt);
+                _state->MatchPicture.reset();
+            }
             if (_state->Next != nullptr)
             {
                 _state->Next->Done.set_value(std::nullopt);
@@ -544,6 +558,43 @@ namespace MphRead::Droid
             }
         }
         return bgra;
+    }
+
+    void AndroidHunterShot::RenderMatchPicture(Scene& scene)
+    {
+        const auto current = Current();
+        if (!current) return;
+        std::shared_ptr<Job> job;
+        {
+            std::lock_guard lock(current->_state->Gate);
+            job = std::move(current->_state->MatchPicture);
+        }
+        if (!job) return;
+        const auto previousHunter = Scene::LauncherHunter;
+        const auto previousSuit = Scene::LauncherSuit;
+        try
+        {
+            Scene::LauncherHunter = job->HunterValue;
+            Scene::LauncherSuit = job->Suit;
+            const auto rgb = scene.ModPreviewPixels(job->Width, job->Height);
+            std::optional<std::vector<std::uint8_t>> pixels;
+            if (rgb)
+            {
+                pixels.emplace(static_cast<std::size_t>(job->Width) * job->Height * 4);
+                for (int y = 0; y < job->Height; ++y)
+                    for (int x = 0; x < job->Width; ++x)
+                    {
+                        const auto from = (static_cast<std::size_t>(job->Height - 1 - y) * job->Width + x) * 3;
+                        const auto to = (static_cast<std::size_t>(y) * job->Width + x) * 4;
+                        (*pixels)[to] = (*rgb)[from + 2]; (*pixels)[to + 1] = (*rgb)[from + 1];
+                        (*pixels)[to + 2] = (*rgb)[from]; (*pixels)[to + 3] = 255;
+                    }
+            }
+            job->Done.set_value(std::move(pixels));
+        }
+        catch (...) { job->Done.set_exception(std::current_exception()); }
+        Scene::LauncherHunter = previousHunter;
+        Scene::LauncherSuit = previousSuit;
     }
 
     bool AndroidHunterShot::InMatch() noexcept

@@ -522,7 +522,7 @@ namespace MphRead::Mods::Diagnostics
                 for (auto* value : {&frameSet, &drawSet, &nearestSet, &linearSet}) held->Keep(std::move(*value));
                 held->Keep(device.CreateShader(Shader(device.GetBackend(), ShaderStage::Vertex)));
                 held->Keep(device.CreateShader(Shader(device.GetBackend(), ShaderStage::Fragment)));
-                targetDesc.format = Rhi::TextureFormat::D24UnormS8Uint;
+                targetDesc.format = device.GetCapabilities().depthStencilFormat;
                 targetDesc.usage = TextureUsage::DepthStencilAttachment;
                 held->Keep(device.CreateTexture(targetDesc));
             }

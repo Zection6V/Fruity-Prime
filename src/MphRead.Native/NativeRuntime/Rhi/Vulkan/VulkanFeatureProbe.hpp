@@ -42,7 +42,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         VkPhysicalDeviceProperties Properties{};
         VkPhysicalDeviceFeatures Features{};
         VkPhysicalDeviceMemoryProperties Memory{};
-        VkFormatProperties Color{}, Depth{};
+        VkFormatProperties Color{}, Depth{}, DepthStencil24{}, DepthStencil32{};
         std::vector<std::string> Extensions;
         std::uint32_t NvLowLatency2SpecVersion = 0;
         bool NvLowLatency2 = false, PresentId = false;

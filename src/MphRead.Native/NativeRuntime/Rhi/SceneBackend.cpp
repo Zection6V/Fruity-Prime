@@ -2,7 +2,6 @@
 #include "WindowUi.hpp"
 
 #include "BackendSession.hpp"
-#include "../Skia/VulkanInterop.hpp"
 #if defined(FRUITY_HAS_VULKAN)
 #include "Vulkan/VulkanGraphicsDevice.hpp"
 #endif
@@ -22,7 +21,20 @@ namespace MphRead::NativeRuntime::Rhi
         bool needsWindowUi = false;
         bool validation = false;
 
-        std::unique_ptr<BackendSession> session;
+        // Released explicitly on every orderly path. Still alive at static
+        // destruction means the process is leaving through exit(), and by
+        // then the toolkit's per-thread state is gone -- on macOS the main
+        // thread's thread-locals are destroyed before statics, so the
+        // OpenGL device asking Qt for the current context segfaults. The
+        // process is ending and its GPU objects with it: leave the session
+        // to the OS rather than tear it down against a dead toolkit.
+        struct SessionHolder final
+        {
+            std::unique_ptr<BackendSession> value;
+            ~SessionHolder() { (void)value.release(); }
+        };
+        SessionHolder sessionHolder;
+        std::unique_ptr<BackendSession>& session = sessionHolder.value;
         unsigned retiredValidationErrors = 0;
 
         BackendSession& Session()
@@ -177,12 +189,7 @@ namespace MphRead::NativeRuntime::Rhi
 #else
         text += "vulkan=absent\nvulkan-shader-stages=0\n";
 #endif
-#if defined(MPHREAD_QT)
-        // The Qt menus draw through Qt Quick on the scene's own device.
-        text += "skia-vulkan=absent\nui=qt\n";
-#else
-        text += std::string("skia-vulkan=") + (Skia::VulkanInterop::Available() ? "compiled" : "absent") + "\n";
-#endif
+        text += "ui=qt\n";
 #if defined(__ANDROID__)
         text += "platform=android\n";
 #elif defined(_WIN32)

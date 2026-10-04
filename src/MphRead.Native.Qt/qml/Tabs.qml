@@ -1,3 +1,4 @@
+import FruityPrime.Launcher
 import QtQuick
 
 // UiTabs: faces, not words with dots between them. The one that is up
@@ -12,7 +13,7 @@ Row {
     // not a sub-page's).
     property bool padTabs: true
     Connections {
-        target: shell
+        target: ShellHost
         enabled: tabs.padTabs && tabs.visible
         function onTabStep(direction) { tabs.step(direction) }
     }

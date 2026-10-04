@@ -1,3 +1,4 @@
+import FruityPrime.Launcher
 import QtQuick
 
 // The menus' root: the front screen or the pause menu under a stack of
@@ -10,7 +11,7 @@ Item {
     readonly property bool stacked: stack.length > 0
 
     // The captures hold everything still and switch the phone curve on.
-    property bool still: false
+    property bool still: ShellHost.backdropSuspended
     property bool phone: Qt.platform.os === "android" || Qt.platform.os === "ios"
     // What the base screen is asked to show (the end panel's tab).
     property var baseProps: ({})
@@ -23,8 +24,8 @@ Item {
     }
     function pop() {
         stack = stack.slice(0, stack.length - 1)
-        if (!stacked && shell.page === "pause" && !base.item)
-            shell.resume()
+        if (!stacked && ShellHost.page === "pause" && !base.item)
+            ShellHost.resume()
     }
     function reset() {
         stack = []
@@ -36,7 +37,7 @@ Item {
 
     // StartScreen's ways out of the front screen.
     function openPlay() {
-        if (!shell.gameFilesReady) {
+        if (!ShellHost.gameFilesReady) {
             openSetup()
             return
         }
@@ -63,23 +64,27 @@ Item {
         }
     }
     function openVote() {
-        const why = shell.whyNotVoting()
+        const why = ShellHost.whyNotVoting()
         if (why.length > 0) {
-            shell.systemMessage(why)
-            shell.resume()
+            ShellHost.systemMessage(why)
+            ShellHost.resume()
             return
         }
         push("PlayPage.qml", { face: 4, overGame: true })
     }
     function askToQuit() {
-        push("ConfirmPage.qml", { question: "Quit " + shell.brand + "?", yesAction: () => shell.quit() })
+        push("ConfirmPage.qml", { question: "Quit " + ShellHost.brand + "?", yesAction: () => ShellHost.quit() })
     }
 
     Connections {
-        target: shell
+        target: ShellHost
+        function onBackRequested() {
+            if (root.stacked) root.pop()
+            else ShellHost.quit()
+        }
         function onPageChanged() {
             root.reset()
-            if (shell.page === "front" && !shell.gameFilesReady)
+            if (ShellHost.page === "front" && !ShellHost.gameFilesReady)
                 root.openSetup()
         }
         function onLobbyOpened() { root.openLobby() }
@@ -100,9 +105,9 @@ Item {
         visible: !root.stacked
         enabled: visible
         focus: !root.stacked
-        sourceComponent: shell.page === "front" ? start
-                       : shell.page === "pause" ? pause
-                       : shell.page === "end" ? end
+        sourceComponent: ShellHost.page === "front" ? start
+                       : ShellHost.page === "pause" ? pause
+                       : ShellHost.page === "end" ? end
                        : null
         onLoaded: if (!root.stacked) item.forceActiveFocus()
     }

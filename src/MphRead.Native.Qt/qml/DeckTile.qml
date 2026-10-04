@@ -1,3 +1,4 @@
+import FruityPrime.Launcher
 import QtQuick
 import QtQuick.Effects
 import QtQuick.Shapes
@@ -71,7 +72,7 @@ FocusScope {
             }
             Image {
                 anchors.fill: parent
-                source: shell.mapShot(tile.roomKey)
+                source: ShellHost.mapShot(tile.roomKey)
                 fillMode: Image.PreserveAspectCrop
                 smooth: false
                 asynchronous: !Theme.still
@@ -80,7 +81,7 @@ FocusScope {
             // Drift: a warm and a cool glow, placed from the room key.
             Item {
                 id: drift
-                readonly property real phase: shell.roomPhase(tile.roomKey)
+                readonly property real phase: ShellHost.roomPhase(tile.roomKey)
                 x: (phase - 0.5) * 0.08 * tile.width - tile.width * 0.25
                 y: (phase - 0.5) * 0.06 * tile.height - tile.height * 0.25
                 width: tile.width * 1.5

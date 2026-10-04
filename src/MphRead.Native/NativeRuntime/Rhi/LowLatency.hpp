@@ -46,5 +46,6 @@ namespace MphRead::NativeRuntime::Rhi
 
     enum class LowLatencyMarker : std::uint8_t { InputSample, SimulationStart, SimulationEnd, RenderSubmitStart, RenderSubmitEnd, PresentStart, PresentEnd };
     struct LowLatencyDiagnostics final
-    { std::uint64_t sleepCalls = 0, waitCalls = 0, modeCalls = 0, markerCalls = 0, timingReports = 0, frameId = 0, swapchainGeneration = 0; };
+    { std::uint64_t sleepCalls = 0, waitCalls = 0, modeCalls = 0, markerCalls = 0, timingReports = 0, frameId = 0, swapchainGeneration = 0;
+      std::uint64_t completedMeasurementFrames = 0, abandonedMeasurementFrames = 0, timingQueries = 0; };
 }

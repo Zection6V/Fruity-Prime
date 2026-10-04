@@ -1,7 +1,6 @@
 #include "UiOverlay.hpp"
 
 #include "LauncherHunter.hpp"
-#include "LauncherPhoto.hpp"
 #include "SceneWindowUi.hpp"
 #include "../../NativeRuntime/Rhi/OpenGL/OpenGlLauncherOverlay.hpp"
 #include "../../NativeRuntime/Rhi/SceneBackend.hpp"
@@ -175,14 +174,12 @@ namespace MphRead::Mods::Render
             ui->Begin(static_cast<std::uint32_t>(std::max(width, 1)), static_cast<std::uint32_t>(std::max(height, 1)),
                 true);
             ui->End();
-            LauncherPhoto::Draw(width, height);
             Draw(width, height);
             LauncherHunter::Draw(window, width, height);
             return;
         }
 #endif
         Rhi::OpenGL::OpenGlLauncherOverlay::Clear(width, height);
-        LauncherPhoto::Draw(width, height);
         Draw(width, height);
         LauncherHunter::Draw(window, width, height);
     }

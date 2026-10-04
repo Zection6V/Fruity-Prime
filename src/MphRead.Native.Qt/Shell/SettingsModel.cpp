@@ -1,4 +1,5 @@
 #include "SettingsModel.hpp"
+#include "../../MphRead.Native/Mods/Input/KeyCapture.hpp"
 
 #include "ShellBridge.hpp"
 #include "../Platform/QtKeys.hpp"
@@ -36,7 +37,7 @@
 #include "../../MphRead.Native/Mods/WindowMode.hpp"
 #include "../../MphRead.Native/NativeRuntime/Rhi/LowLatency.hpp"
 #include "../../MphRead.Native/NativeRuntime/Rhi/SceneBackend.hpp"
-#include "../../MphRead.Native/Mods/Launcher/Gui/Shell.hpp"
+#include "../../MphRead.Native/Mods/Launcher/Shell.hpp"
 #include "../../MphRead.Native/NativeRuntime/System/Globalization.hpp"
 #include "../../MphRead.Native/NativeRuntime/System/IO.hpp"
 #include "../../MphRead.Native/NativeRuntime/System/Runtime.hpp"
@@ -87,7 +88,7 @@ namespace MphRead::Qt
             {"30 fps", 30}, {"60 fps", 60}, {"75 fps", 75}, {"90 fps", 90},
             {"100 fps", 100}, {"120 fps", 120}, {"144 fps", 144},
             {"165 fps", 165}, {"180 fps", 180}, {"200 fps", 200},
-            {"240 fps", 240}, {"Unlimited", Render::FrameTiming::MaxCap}
+            {"240 fps", 240}, {"Unlimited", Render::FrameTiming::Unlimited}
         }};
 
         const std::array<const char*, 6> LanguageNames{{
@@ -114,7 +115,7 @@ namespace MphRead::Qt
                 }
             }
             std::int32_t best = 0;
-            for (std::size_t i = 1; i < FpsLimitStops.size(); ++i)
+            for (std::size_t i = 1; i + 1 < FpsLimitStops.size(); ++i)
             {
                 if (FpsLimitStops[i].Cap <= cap)
                 {
@@ -362,6 +363,13 @@ namespace MphRead::Qt
 
     SettingsModel::~SettingsModel()
     {
+        stopKey();
+        if (!_saved)
+        {
+            Mods::RenderOptions::FieldOfView(Mods::RenderOptions::ParseFov(
+                std::string_view(_settings->FieldOfView), Mods::RenderOptions::DefaultFov));
+            LauncherPrefs::LowLatency(static_cast<NativeRuntime::Rhi::LowLatencyMode>(_originalLowLatency));
+        }
         if (_setup->Device.has_value())
         {
             Input::GamepadContexts::Capturing(false);
@@ -666,6 +674,7 @@ namespace MphRead::Qt
             return;
         }
         _keyRow = row;
+        Input::KeyCapture::Listening(true);
         _keyHintRow = -1;
         (void)_keyEdges->Update(Input::GamepadManager::Snapshot());
         _keyTimer.start();
@@ -758,6 +767,7 @@ namespace MphRead::Qt
             return;
         }
         _keyRow = -1;
+        Input::KeyCapture::Listening(false);
         _keyTimer.stop();
         emit listeningChanged();
         _keyboard.Refresh();
@@ -2082,7 +2092,9 @@ namespace MphRead::Qt
             NativeRuntime::Rhi::SceneBackendRequest request{};
             if (NativeRuntime::Rhi::ParseSceneBackendRequest(chosen, request))
             {
+#if !defined(__ANDROID__)
                 Mods::Launcher::Gui::Shell::RequestRenderer(request, true);
+#endif
             }
         }
         if (_display.Find(QStringLiteral("window")) != nullptr)

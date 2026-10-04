@@ -112,7 +112,7 @@ if not defined PKG_PREFIX (
     exit /b 1
 )
 set "P=!PKG_PREFIX!"
-set "MSYS2_PACKAGES=!P!-!PKG_COMPILER! !P!-cmake !P!-ninja !P!-pkgconf !P!-zlib !P!-curl !P!-libarchive"
+set "MSYS2_PACKAGES=!P!-!PKG_COMPILER! !P!-cmake !P!-ninja !P!-pkgconf !P!-zlib !P!-curl !P!-libarchive !P!-glfw !P!-openal !P!-qt6-base !P!-qt6-declarative !P!-qt6-tools"
 
 if "%DO_DEPS%"=="1" (
     rem Only what is missing: "pacman -S" on packages already installed
@@ -160,7 +160,7 @@ if exist "!ENV_BIN!\ninja.exe" (
 )
 
 set "BUILD_DIR=%OUT_ROOT%\msys2-!MSYS2_ENV!-%CONFIG%"
-set "CONFIGURE_ARGS=-G "!GENERATOR!" -DCMAKE_BUILD_TYPE=%CONFIG% -DCMAKE_CXX_COMPILER=!CXX_NAME! -DFRUITY_REQUIRE_VULKAN=ON -DFRUITY_REQUIRE_SKIA_VULKAN=ON"
+set "CONFIGURE_ARGS=-G "!GENERATOR!" -DCMAKE_BUILD_TYPE=%CONFIG% -DCMAKE_CXX_COMPILER=!CXX_NAME! -DFRUITY_REQUIRE_VULKAN=ON"
 set "BUILD_ARGS="
 goto :run
 
@@ -204,7 +204,7 @@ if not exist "!VCPKG_ROOT!\vcpkg.exe" (
 )
 
 rem A clean PATH: an MSYS2 prefix on it makes find_package take MinGW
-rem libraries (libopenal, Skia without Vulkan) into an MSVC link. English
+rem libraries (OpenAL and Qt) into an MSVC link. English
 rem compiler messages, and Ninja from the Visual Studio environment.
 set "VSLANG=1033"
 set "PATH=%SystemRoot%\system32;%SystemRoot%;%SystemRoot%\System32\WindowsPowerShell\v1.0"
@@ -221,7 +221,7 @@ if not defined CMAKE_EXE (
     exit /b 1
 )
 
-rem The same package list as the Windows CI job: Skia with Vulkan, the
+rem The same package list as the Windows CI job: Vulkan, the
 rem Vulkan loader, VMA and shaderc are what make -rhi vulkan work.
 set "VCPKG_PACKAGES="
 for /f "usebackq delims=" %%P in ("%REPO_ROOT%\tools\ci\dependencies\windows-game.txt") do set "VCPKG_PACKAGES=!VCPKG_PACKAGES! %%P"
@@ -234,10 +234,17 @@ if "%DO_DEPS%"=="1" (
     )
 )
 
+if not defined QT_ROOT set "QT_ROOT=C:\Qt\6.11.2\msvc2022_64"
+if not exist "!QT_ROOT!\lib\cmake\Qt6\Qt6Config.cmake" (
+    echo [build] ERROR: Qt Quick MSVC kit is missing at !QT_ROOT!.
+    echo [build] Run python tools\qt\install-qt.py --kit msvc2022_64, or set QT_ROOT.
+    exit /b 1
+)
+
 echo [build] Visual Studio: !VS_PATH! ^(!VS_VERSION!^)
 set "GENERATOR=Ninja"
 set "BUILD_DIR=%OUT_ROOT%\msvc-%CONFIG%"
-set "CONFIGURE_ARGS=-G Ninja -DCMAKE_BUILD_TYPE=%CONFIG% -DCMAKE_TOOLCHAIN_FILE="!VCPKG_ROOT!\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DVCPKG_MANIFEST_MODE=OFF -DFRUITY_REQUIRE_VULKAN=ON -DFRUITY_REQUIRE_SKIA_VULKAN=ON -DCMAKE_NINJA_CMCLDEPS_RC=OFF -DCMAKE_IGNORE_PREFIX_PATH=C:/msys64/mingw64;C:/msys64/ucrt64;C:/msys64/clang64 "-DCMAKE_CXX_FLAGS=/utf-8 /EHsc" "-DCMAKE_C_FLAGS=/utf-8""
+set "CONFIGURE_ARGS=-G Ninja -DCMAKE_BUILD_TYPE=%CONFIG% -DCMAKE_TOOLCHAIN_FILE="!VCPKG_ROOT!\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DVCPKG_MANIFEST_MODE=OFF -DFRUITY_REQUIRE_VULKAN=ON -DQt6_ROOT="!QT_ROOT!" -DCMAKE_NINJA_CMCLDEPS_RC=OFF -DCMAKE_IGNORE_PREFIX_PATH=C:/msys64/mingw64;C:/msys64/ucrt64;C:/msys64/clang64 "-DCMAKE_CXX_FLAGS=/utf-8 /EHsc" "-DCMAKE_C_FLAGS=/utf-8""
 set "BUILD_ARGS="
 goto :run
 
@@ -309,7 +316,7 @@ exit /b 0
 
 rem ----------------------------------------------------------------------
 :detect_toolchain
-rem MSVC first: it is the toolchain with a Skia that has Vulkan (vcpkg).
+rem MSVC first: the supported Qt kit matches the vcpkg dependency ABI.
 if exist "!VSWHERE!" (
     if defined VCPKG_ROOT set "TOOLCHAIN=msvc"
     if exist "C:\vcpkg\vcpkg.exe" set "TOOLCHAIN=msvc"

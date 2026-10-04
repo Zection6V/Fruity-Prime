@@ -20,9 +20,24 @@
 #include <QtCore/QLibrary>
 #include <QtCore/QThread>
 #if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #include <vulkan/vulkan_win32.h>
 #undef CreateWindow
+#elif defined(__linux__)
+#include <xcb/xcb.h>
+#include <wayland-client.h>
+#include <vulkan/vulkan_xcb.h>
+#include <vulkan/vulkan_wayland.h>
+#elif defined(__APPLE__)
+#include <QtCore/QDir>
+#include <CoreGraphics/CGGeometry.h>
+#include <objc/message.h>
+#include <objc/runtime.h>
+#include <cstdlib>
+#include <vulkan/vulkan_metal.h>
 #endif
 #endif
 
@@ -56,6 +71,7 @@
 #include <string>
 #include <thread>
 #include <utility>
+#include <vector>
 
 namespace
 {
@@ -156,7 +172,9 @@ namespace
 
         // For WindowSystem (Vulkan presentation) and the OpenGL swapchain.
         [[nodiscard]] bool CloseRequested() const noexcept { return _closeRequested; }
-        [[nodiscard]] bool Iconified() const { return _window->windowState() == Qt::WindowMinimized; }
+        // Rendering availability follows Qt exposure, not the window-manager
+        // state flag, which can lag behind a restore on X11/Openbox.
+        [[nodiscard]] bool Iconified() const { return !_window->isExposed(); }
 
         // For QtOpenGlSwapchain.
         void SetSwapInterval(int interval);
@@ -206,6 +224,7 @@ namespace
         void MouseMove(QMouseEvent* event);
         void Wheel(QWheelEvent* event);
         void RecentreGrabbedCursor();
+        void CheckGrabbedMouse();
 
         std::unique_ptr<GameQWindow> _window;
         std::unique_ptr<QOpenGLContext> _context;
@@ -227,6 +246,7 @@ namespace
         float _lastReportedMouseY = 0.0F;
         QPointF _grabCentre{};
         bool _warping = false;
+        bool _mouseChecked = false;
         Rhi::PresentationScheduler _presentation;
         Rhi::PresentationScheduler::Time _presentationFrameStart{};
     };
@@ -388,6 +408,11 @@ namespace
             FrameEventArgs args;
             args.Time = elapsed;
             events.OnRenderFrame(args);
+            if (!_mouseChecked && _grabbed && qEnvironmentVariableIntValue("FRUITY_MOUSECHECK") != 0)
+            {
+                _mouseChecked = true;
+                CheckGrabbedMouse();
+            }
         }
         events.OnClosing();
         _events = nullptr;
@@ -503,7 +528,7 @@ namespace
         {
             _window->setMaximumSize(QSize(16777215, 16777215));
         }
-        else
+        else if (border == WindowBorderValue::Fixed)
         {
             _window->setMinimumSize(_window->size());
             _window->setMaximumSize(_window->size());
@@ -750,11 +775,46 @@ namespace
         }
     }
 
+    void QtWindow::CheckGrabbedMouse()
+    {
+        const auto startX = _cursorX;
+        const auto startY = _cursorY;
+        const QPoint centre = _grabCentre.toPoint();
+        const auto move = [&](QPoint local)
+        {
+            QMouseEvent event(QEvent::MouseMove, QPointF(local),
+                QPointF(_window->mapToGlobal(local)), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(_window.get(), &event);
+        };
+        for (int i = 0; i < 256; ++i)
+        {
+            move(centre + QPoint(i % 2 ? -8 : 8, 0));
+            move(centre); // Include every synthetic re-centre event.
+        }
+        const auto deltaX = _cursorX - startX;
+        const auto deltaY = _cursorY - startY;
+        move(centre + QPoint(0, 4));
+        move(centre);
+        const bool verticalWorks = _cursorY - startY == 4.0F * Scale();
+        move(centre - QPoint(0, 4));
+        move(centre);
+        const bool pass = deltaX == 0.0F && deltaY == 0.0F
+            && verticalWorks && _cursorY == startY;
+        std::cout << "[mousecheck] " << (pass ? "PASS" : "FAIL")
+            << " horizontal moves=256 client=" << _window->width() << 'x' << _window->height()
+            << " scale=" << Scale() << " accumulated_delta=" << deltaX << ',' << deltaY
+            << " vertical_motion=" << verticalWorks << '\n';
+        if (!pass) throw std::runtime_error("Horizontal mouse motion accumulated aim drift.");
+    }
+
     void QtWindow::RecentreGrabbedCursor()
     {
         // QCursor::setPos is a no-op on Wayland, where pointer lock needs the
         // relative-pointer protocol; X11, Windows and macOS warp.
-        _grabCentre = QPointF(_window->width() / 2.0, _window->height() / 2.0);
+        // Use exactly the integer position passed to QCursor::setPos. A half
+        // pixel centre in an odd-height window adds +0.5 to every horizontal
+        // move after Qt rounds the warp target, steadily pitching aim down.
+        _grabCentre = QPoint(_window->width() / 2, _window->height() / 2);
         _warping = true;
         QCursor::setPos(_window->screen(), _window->mapToGlobal(_grabCentre.toPoint()));
     }
@@ -968,6 +1028,131 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan::WindowSystem
         {
             return g_qtWindow != nullptr && g_qtWindow->NativeHandle() == nativeWindow ? g_qtWindow : nullptr;
         }
+
+#if defined(__linux__)
+        [[nodiscard]] bool IsXcbPlatform()
+        {
+            MphRead::Qt::EnsureApplication();
+            return QGuiApplication::platformName() == QStringLiteral("xcb");
+        }
+
+        [[nodiscard]] bool IsWaylandPlatform()
+        {
+            MphRead::Qt::EnsureApplication();
+            return QGuiApplication::platformName().startsWith(QStringLiteral("wayland"));
+        }
+
+        [[nodiscard]] xcb_connection_t* XcbConnection()
+        {
+            MphRead::Qt::EnsureApplication();
+            if (auto* const native = qGuiApp->nativeInterface<QNativeInterface::QX11Application>())
+            {
+                return reinterpret_cast<xcb_connection_t*>(native->connection());
+            }
+            return nullptr;
+        }
+
+        [[nodiscard]] xcb_visualid_t XcbVisual()
+        {
+            xcb_connection_t* const connection = XcbConnection();
+            if (connection == nullptr)
+            {
+                return XCB_NONE;
+            }
+            const xcb_setup_t* const setup = xcb_get_setup(connection);
+            if (setup == nullptr)
+            {
+                return XCB_NONE;
+            }
+            const xcb_screen_iterator_t screen = xcb_setup_roots_iterator(setup);
+            return screen.data != nullptr ? screen.data->root_visual : XCB_NONE;
+        }
+
+        [[nodiscard]] wl_display* WaylandDisplay()
+        {
+            MphRead::Qt::EnsureApplication();
+            if (auto* const native = qGuiApp->nativeInterface<QNativeInterface::QWaylandApplication>())
+            {
+                return native->display();
+            }
+            return nullptr;
+        }
+#elif defined(__APPLE__)
+        // winId() of a VulkanSurface QWindow is its NSView, which Qt backs with
+        // a CAMetalLayer -- the one thing VK_EXT_metal_surface takes. Reached
+        // through the Objective-C runtime so this file stays C++.
+        [[nodiscard]] void* MetalLayer(void* nsView)
+        {
+            if (nsView == nullptr)
+            {
+                throw std::runtime_error("The Qt window has no NSView.");
+            }
+            const auto send = reinterpret_cast<id (*)(id, SEL)>(objc_msgSend);
+            const auto isKind = reinterpret_cast<BOOL (*)(id, SEL, Class)>(objc_msgSend);
+            Class const metalLayer = objc_getClass("CAMetalLayer");
+            if (metalLayer == nil)
+            {
+                throw std::runtime_error("QuartzCore has no CAMetalLayer.");
+            }
+            const auto view = static_cast<id>(nsView);
+            id layer = send(view, sel_registerName("layer"));
+            if (layer != nil && isKind(layer, sel_registerName("isKindOfClass:"), metalLayer))
+            {
+                std::cout << "[vulkan] macOS surface: Qt's own CAMetalLayer" << std::endl;
+                return layer;
+            }
+            // A Qt built without Vulkan backs the view with a plain CALayer.
+            // Host a Metal layer instead, the way GLFW and SDL do. A hosted
+            // layer is sized by AppKit only when the view's frame next
+            // changes, and this view already has its size: without a frame of
+            // its own the layer stays 0x0, the surface reports a zero extent
+            // and no swapchain can ever be made. Autoresizing keeps it
+            // matched to the view after that.
+            layer = send(reinterpret_cast<id>(metalLayer), sel_registerName("layer"));
+            reinterpret_cast<void (*)(id, SEL, id)>(objc_msgSend)(view, sel_registerName("setLayer:"), layer);
+            reinterpret_cast<void (*)(id, SEL, BOOL)>(objc_msgSend)(view, sel_registerName("setWantsLayer:"), YES);
+            if (g_gameWindow != nullptr)
+            {
+                const CGRect frame{{0, 0}, {static_cast<CGFloat>(g_gameWindow->width()),
+                    static_cast<CGFloat>(g_gameWindow->height())}};
+                reinterpret_cast<void (*)(id, SEL, CGRect)>(objc_msgSend)(layer, sel_registerName("setFrame:"), frame);
+                reinterpret_cast<void (*)(id, SEL, double)>(objc_msgSend)(layer,
+                    sel_registerName("setContentsScale:"), g_gameWindow->devicePixelRatio());
+            }
+            constexpr unsigned kCALayerWidthSizable = 1U << 1, kCALayerHeightSizable = 1U << 4;
+            reinterpret_cast<void (*)(id, SEL, unsigned)>(objc_msgSend)(layer,
+                sel_registerName("setAutoresizingMask:"), kCALayerWidthSizable | kCALayerHeightSizable);
+            std::cout << "[vulkan] macOS surface: hosted CAMetalLayer" << std::endl;
+            return layer;
+        }
+
+        // Where a Mac keeps the loader. A program started from Finder has no
+        // DYLD path, so Homebrew's prefix is not searched unless named here;
+        // MoltenVK on its own exports vkGetInstanceProcAddr too, and is the
+        // last resort when no loader is installed at all.
+        [[nodiscard]] std::vector<QString> LoaderCandidates()
+        {
+            std::vector<QString> directories;
+            const QString app = QCoreApplication::applicationDirPath();
+            directories.push_back(app);
+            directories.push_back(QDir(app).filePath(QStringLiteral("../Frameworks")));
+            if (const char* sdk = std::getenv("VULKAN_SDK"); sdk != nullptr && *sdk != '\0')
+            {
+                directories.push_back(QDir(QString::fromLocal8Bit(sdk)).filePath(QStringLiteral("lib")));
+            }
+            directories.push_back(QStringLiteral("/opt/homebrew/lib"));
+            directories.push_back(QStringLiteral("/usr/local/lib"));
+            std::vector<QString> candidates;
+            for (const auto& name : {QStringLiteral("libvulkan.1.dylib"), QStringLiteral("libMoltenVK.dylib")})
+            {
+                for (const auto& directory : directories)
+                {
+                    candidates.push_back(QDir(directory).filePath(name));
+                }
+            }
+            return candidates;
+        }
+#endif
     }
 
     PFN_vkGetInstanceProcAddr LoaderEntry()
@@ -980,10 +1165,35 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan::WindowSystem
 #else
             static QLibrary library(QStringLiteral("vulkan"), 1);
 #endif
+#if defined(__APPLE__)
             if (!library.load())
+            {
+                for (const auto& candidate : LoaderCandidates())
+                {
+                    library.setFileName(candidate);
+                    if (library.load())
+                    {
+                        break;
+                    }
+                }
+            }
+#endif
+            if (!library.isLoaded() && !library.load())
             {
                 return nullptr;
             }
+#if defined(__APPLE__)
+            // Qt Quick's QVulkanInstance adopts the renderer's VkInstance, so
+            // it has to call into this same loader -- and left to itself it
+            // asks dyld for a bare name, which a program started from Finder
+            // cannot resolve ("Qt could not adopt the renderer's Vulkan
+            // instance"). QT_VULKAN_LIB is Qt's documented override; a value
+            // the user set is theirs.
+            if (!qEnvironmentVariableIsSet("QT_VULKAN_LIB"))
+            {
+                qputenv("QT_VULKAN_LIB", QFile::encodeName(library.fileName()));
+            }
+#endif
             return reinterpret_cast<PFN_vkGetInstanceProcAddr>(library.resolve("vkGetInstanceProcAddr"));
         }();
         if (entry == nullptr)
@@ -1004,11 +1214,34 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan::WindowSystem
             reason = "no Vulkan loader or driver was found";
             return false;
         }
-#if !defined(_WIN32)
-        reason = "Vulkan presentation in the Qt build is implemented for Windows only";
-        return false;
-#else
+#if defined(_WIN32)
         return true;
+#elif defined(__linux__)
+        if (IsXcbPlatform())
+        {
+            if (XcbConnection() != nullptr)
+            {
+                return true;
+            }
+            reason = "Qt xcb platform has no XCB connection";
+            return false;
+        }
+        if (IsWaylandPlatform())
+        {
+            if (WaylandDisplay() != nullptr)
+            {
+                return true;
+            }
+            reason = "Qt Wayland platform has no wl_display";
+            return false;
+        }
+        reason = "Qt Vulkan presentation requires the xcb or Wayland platform plugin on Linux";
+        return false;
+#elif defined(__APPLE__)
+        return true;
+#else
+        reason = "Vulkan presentation in the Qt build is not implemented on this platform";
+        return false;
 #endif
     }
 
@@ -1017,6 +1250,24 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan::WindowSystem
 #if defined(_WIN32)
         static constexpr std::array<const char*, 2> names{
             VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_WIN32_SURFACE_EXTENSION_NAME};
+        return names;
+#elif defined(__linux__)
+        if (IsXcbPlatform())
+        {
+            static constexpr std::array<const char*, 2> names{
+                VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_XCB_SURFACE_EXTENSION_NAME};
+            return names;
+        }
+        if (IsWaylandPlatform())
+        {
+            static constexpr std::array<const char*, 2> names{
+                VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME};
+            return names;
+        }
+        return {};
+#elif defined(__APPLE__)
+        static constexpr std::array<const char*, 2> names{
+            VK_KHR_SURFACE_EXTENSION_NAME, VK_EXT_METAL_SURFACE_EXTENSION_NAME};
         return names;
 #else
         return {};
@@ -1038,11 +1289,65 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan::WindowSystem
         VkSurfaceKHR surface = VK_NULL_HANDLE;
         Check(create(instance, &info, nullptr, &surface), "vkCreateWin32SurfaceKHR");
         return surface;
+#elif defined(__linux__)
+        if (IsXcbPlatform())
+        {
+            xcb_connection_t* const connection = XcbConnection();
+            if (connection == nullptr)
+            {
+                throw std::runtime_error("Qt xcb platform has no XCB connection.");
+            }
+            const auto create = reinterpret_cast<PFN_vkCreateXcbSurfaceKHR>(
+                instanceProc(instance, "vkCreateXcbSurfaceKHR"));
+            if (create == nullptr)
+            {
+                throw std::runtime_error("vkCreateXcbSurfaceKHR is unavailable.");
+            }
+            VkXcbSurfaceCreateInfoKHR info{VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR};
+            info.connection = connection;
+            info.window = static_cast<xcb_window_t>(reinterpret_cast<std::uintptr_t>(nativeWindow));
+            VkSurfaceKHR surface = VK_NULL_HANDLE;
+            Check(create(instance, &info, nullptr, &surface), "vkCreateXcbSurfaceKHR");
+            return surface;
+        }
+        if (IsWaylandPlatform())
+        {
+            wl_display* const display = WaylandDisplay();
+            if (display == nullptr)
+            {
+                throw std::runtime_error("Qt Wayland platform has no wl_display.");
+            }
+            const auto create = reinterpret_cast<PFN_vkCreateWaylandSurfaceKHR>(
+                instanceProc(instance, "vkCreateWaylandSurfaceKHR"));
+            if (create == nullptr)
+            {
+                throw std::runtime_error("vkCreateWaylandSurfaceKHR is unavailable.");
+            }
+            VkWaylandSurfaceCreateInfoKHR info{VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR};
+            info.display = display;
+            info.surface = reinterpret_cast<wl_surface*>(nativeWindow);
+            VkSurfaceKHR surface = VK_NULL_HANDLE;
+            Check(create(instance, &info, nullptr, &surface), "vkCreateWaylandSurfaceKHR");
+            return surface;
+        }
+        throw std::runtime_error("Qt Vulkan presentation requires the xcb or Wayland platform plugin on Linux.");
+#elif defined(__APPLE__)
+        const auto create = reinterpret_cast<PFN_vkCreateMetalSurfaceEXT>(
+            instanceProc(instance, "vkCreateMetalSurfaceEXT"));
+        if (create == nullptr)
+        {
+            throw std::runtime_error("vkCreateMetalSurfaceEXT is unavailable.");
+        }
+        VkMetalSurfaceCreateInfoEXT info{VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT};
+        info.pLayer = static_cast<const CAMetalLayer*>(MetalLayer(nativeWindow));
+        VkSurfaceKHR surface = VK_NULL_HANDLE;
+        Check(create(instance, &info, nullptr, &surface), "vkCreateMetalSurfaceEXT");
+        return surface;
 #else
         (void)instance;
         (void)nativeWindow;
         (void)instanceProc;
-        throw std::runtime_error("Vulkan presentation in the Qt build is implemented for Windows only.");
+        throw std::runtime_error("Vulkan presentation in the Qt build is not implemented on this platform.");
 #endif
     }
 
@@ -1053,6 +1358,40 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan::WindowSystem
         const auto query = reinterpret_cast<PFN_vkGetPhysicalDeviceWin32PresentationSupportKHR>(
             instanceProc(instance, "vkGetPhysicalDeviceWin32PresentationSupportKHR"));
         return query != nullptr && query(physical, family) == VK_TRUE;
+#elif defined(__linux__)
+        if (IsXcbPlatform())
+        {
+            xcb_connection_t* const connection = XcbConnection();
+            const xcb_visualid_t visual = XcbVisual();
+            if (connection == nullptr || visual == XCB_NONE)
+            {
+                return false;
+            }
+            const auto query = reinterpret_cast<PFN_vkGetPhysicalDeviceXcbPresentationSupportKHR>(
+                instanceProc(instance, "vkGetPhysicalDeviceXcbPresentationSupportKHR"));
+            return query != nullptr && query(physical, family, connection, visual) == VK_TRUE;
+        }
+        if (IsWaylandPlatform())
+        {
+            wl_display* const display = WaylandDisplay();
+            if (display == nullptr)
+            {
+                return false;
+            }
+            const auto query = reinterpret_cast<PFN_vkGetPhysicalDeviceWaylandPresentationSupportKHR>(
+                instanceProc(instance, "vkGetPhysicalDeviceWaylandPresentationSupportKHR"));
+            return query != nullptr && query(physical, family, display) == VK_TRUE;
+        }
+        return false;
+#elif defined(__APPLE__)
+        // Metal has no per-queue-family presentation query; MoltenVK presents
+        // from every graphics family, and vkGetPhysicalDeviceSurfaceSupportKHR
+        // still decides once the surface exists.
+        (void)instance;
+        (void)physical;
+        (void)family;
+        (void)instanceProc;
+        return true;
 #else
         (void)instance;
         (void)physical;

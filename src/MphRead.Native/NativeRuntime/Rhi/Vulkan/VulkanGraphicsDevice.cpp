@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <limits>
 #include <map>
+#include <memory_resource>
 #include <iostream>
 #include <mutex>
 #include <stdexcept>
@@ -45,6 +46,17 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         {
             static std::atomic<std::uint64_t> next{1};
             return next.fetch_add(1, std::memory_order_relaxed);
+        }
+        std::int32_t NextTextureIdentity()
+        {
+            // A match retains texture handles through GL/Vulkan switches.
+            // New devices must not restart numbering and allocate window or
+            // Qt targets under identities that the match will restore.
+            static std::atomic<std::int64_t> next{3'000'000};
+            const auto value = next.fetch_add(1, std::memory_order_relaxed);
+            if (value > std::numeric_limits<std::int32_t>::max())
+                throw std::overflow_error("Vulkan texture identities exhausted.");
+            return static_cast<std::int32_t>(value);
         }
         [[noreturn]] void Unsupported(const char* operation)
         {
@@ -421,11 +433,6 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             void* RecordingList = nullptr; // VulkanCommandList*
             std::mutex TextureMutex{};
             std::unordered_map<std::int32_t, VulkanTexture*> TexturesByHandle{};
-            // Above every name the OpenGL side chooses (UiOverlay 1e6, thumbnails
-            // 1.1e6, GlNames 2e6+): a scene switched to OpenGL recreates its
-            // textures under these same handles, and a low one could be a
-            // name Skia takes from glGenTextures there.
-            std::int32_t NextTextureHandle = 3'000'000;
 
             // The window's own colour and depth, which every command list on
             // this device draws into as OpenGL draws into the default
@@ -1222,10 +1229,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 std::int32_t handle;
                 {
                     std::lock_guard lock(_state->TextureMutex);
-                    handle = _state->NextTextureHandle;
+                    handle = NextTextureIdentity();
                     while (_state->TexturesByHandle.contains(handle))
-                        handle = handle == std::numeric_limits<std::int32_t>::max() ? 1 : handle + 1;
-                    _state->NextTextureHandle = handle == std::numeric_limits<std::int32_t>::max() ? 1 : handle + 1;
+                        handle = NextTextureIdentity();
                 }
                 auto texture = std::make_unique<VulkanTexture>(_state, desc, TextureHandle{handle});
                 InitializeTextureState(*texture, desc.initialState);
@@ -1656,7 +1662,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         auto& state = *dynamic_cast<VulkanGraphicsDevice&>(device).State();
         state.FlushScene();
         const auto acquired = swapchain.TryAcquireTexture();
-        if (!acquired.texture) return {acquired.status, acquired.failure};
+        if (!acquired.texture)
+        {
+            swapchain.AbandonLowLatencyFrame();
+            return {acquired.status, acquired.failure};
+        }
         VulkanTexture* window = state.WindowColor.get();
         if (!window || window->State() == ResourceState::Undefined)
         {
@@ -2037,7 +2047,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 desc.vertexAttributes.push_back({1, 0, VertexFormat::Float3, 16});
                 desc.vertexAttributes.push_back({2, 0, VertexFormat::Float4, 28});
-                desc.depthStencilFormat = TextureFormat::D24UnormS8Uint;
+                desc.depthStencilFormat = device.GetCapabilities().depthStencilFormat;
                 desc.depthStencil.depthTestEnable = true; desc.depthStencil.depthWriteEnable = true;
             }
             auto pipeline = device.CreateGraphicsPipeline(desc);

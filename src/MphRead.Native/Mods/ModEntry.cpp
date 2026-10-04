@@ -17,7 +17,7 @@
 #include "Diagnostics/BackdropParityCheck.hpp"
 #include "Diagnostics/FramePerformance.hpp"
 #include "Diagnostics/PlatformDiagnostics.hpp"
-#if defined(MPHREAD_AVALONIA_SHELL)
+#if defined(MPHREAD_SHELL)
 #include "Diagnostics/GlfwPathCheck.hpp"
 #include "Diagnostics/LauncherWindowCheck.hpp"
 #include "Diagnostics/ThumbnailWindowCheck.hpp"
@@ -31,20 +31,13 @@
 #include "MapGen/AltFormProbe.hpp"
 #include "MapGen/MapCheck.hpp"
 #include "Multiplayer/ResourceAudit.hpp"
-#if defined(MPHREAD_AVALONIA)
-#include "Launcher/Gui/GuiLauncher.hpp"
-#include "Launcher/Gui/TapCheck.hpp"
-#include "Launcher/Gui/UiCapture.hpp"
-#include "Launcher/Gui/UiDesigns.hpp"
-#endif
-#if defined(MPHREAD_AVALONIA_SHELL)
-#include "Launcher/Gui/DeckTile.hpp"
-#include "Launcher/Gui/UiBench.hpp"
-#include "Launcher/Gui/UiSurface.hpp"
+#if defined(MPHREAD_QT) && !defined(__ANDROID__)
+#include "../../MphRead.Native.Qt/Shell/UiCapture.hpp"
+#include "../../MphRead.Native.Qt/Shell/UiChecks.hpp"
 #endif
 #if defined(MPHREAD_SHELL)
-#include "Launcher/Gui/GuiLauncher.hpp"
-#include "Launcher/Gui/Shell.hpp"
+#include "Launcher/GuiLauncher.hpp"
+#include "Launcher/Shell.hpp"
 #endif
 #include "Launcher/Portable/LauncherPrefs.hpp"
 #include "Launcher/Portable/TextLauncher.hpp"
@@ -672,9 +665,7 @@ namespace
         {
             std::optional<int> measurementCap;
             if (fpsCap && !StartsWithHyphen(fpsCap))
-                measurementCap = MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase(*fpsCap, "unlimited")
-                    || MphRead::NativeRuntime::StringEqualsOrdinalIgnoreCase(*fpsCap, "uncapped")
-                    ? -1 : FrameTiming::ParseCap(*fpsCap, FrameTiming::FrameRateCap());
+                measurementCap = FrameTiming::ParseCap(*fpsCap, FrameTiming::FrameRateCap());
             MphRead::Mods::Diagnostics::FramePerformance::Configure(*measure, HasFlag(args, "gpuprofile"), measurementCap);
         }
         if (fpsCap.has_value() && !StartsWithHyphen(fpsCap))
@@ -895,19 +886,11 @@ namespace
 #endif
     int RunUiCapture(const std::string& directory)
     {
-#if defined(MPHREAD_AVALONIA)
-        try
-        {
-            return MphRead::Mods::Launcher::Gui::UiCapture::Run(directory);
-        }
-        catch (const std::exception& ex)
-        {
-            WriteLine(std::string("[uishot] no launcher toolkit here: ") + ex.what());
-            return 1;
-        }
+#if defined(MPHREAD_QT) && !defined(__ANDROID__)
+        return MphRead::Qt::UiCapture::Run(directory);
 #else
         (void)directory;
-        WriteLine("[uishot] this build has no Avalonia launcher");
+        WriteLine("[uishot] this head has no desktop Qt launcher");
         return 1;
 #endif
     }
@@ -919,31 +902,29 @@ namespace
 #endif
     int RunUiBench(const std::vector<std::string>& args)
     {
-#if defined(MPHREAD_AVALONIA_SHELL)
-        try
+#if defined(MPHREAD_QT) && !defined(__ANDROID__)
+        // Qt's GPU benchmark measures completed render passes, excluding PNG
+        // encoding/readback. The old CPU-copy rig's modes are not comparable.
+        for (const char* option : {"uibenchslow", "uibenchandroid", "uibenchfree",
+                "uibenchonly", "uibenchscale"})
         {
-            using namespace MphRead::Mods::Launcher::Gui;
-            UiBench::Slow = HasFlag(args, "uibenchslow");
-            UiBench::AsAndroid = HasFlag(args, "uibenchandroid");
-            UiBench::FreeFrames = HasFlag(args, "uibenchfree");
-            UiBench::OnlySize = ValueAfter(args, "uibenchsize");
-            UiBench::OnlyMove = ValueAfter(args, "uibenchonly");
-            UiBench::Shot = ValueAfter(args, "uibenchshot");
-            double parsed = 0;
-            if (TryParseDoubleInvariant(ValueAfter(args, "uibenchscale"), parsed, false))
+            if (HasFlag(args, option))
             {
-                UiBench::ScaleOverride = parsed;
+                WriteLine(std::string("[uibench] the CPU-raster option is unavailable with Qt: ") + option);
+                return 1;
             }
-            return UiBench::Run(ValueAfter(args, "uibench"));
         }
-        catch (const std::exception& ex)
+        if (ValueAfter(args, "uibenchsize"))
         {
-            WriteLine(std::string("[uibench] no launcher toolkit here: ") + ex.what());
+            WriteLine("[uibench] select resolution with FP_QT_UISHOT_SIZE=WxH");
             return 1;
         }
+        const std::string output = ValueAfter(args, "uibenchshot").value_or("qt-uibench-shots");
+        const std::string report = ValueAfter(args, "uibench").value_or("qt-uibench.csv");
+        return MphRead::Qt::UiCapture::Run(output, 120, report);
 #else
         (void)args;
-        WriteLine("[uibench] this build has no launcher surface to measure");
+        WriteLine("[uibench] this head has no desktop Qt render-control surface");
         return 1;
 #endif
     }
@@ -955,21 +936,9 @@ namespace
 #endif
     int RunUiDesigns(const std::string& directory)
     {
-#if defined(MPHREAD_AVALONIA)
-        try
-        {
-            return MphRead::Mods::Launcher::Gui::UiDesigns::Run(directory);
-        }
-        catch (const std::exception& ex)
-        {
-            WriteLine(std::string("[uidesign] no launcher toolkit here: ") + ex.what());
-            return 1;
-        }
-#else
         (void)directory;
-        WriteLine("[uidesign] this build has no Avalonia launcher");
+        WriteLine("[uidesign] the six experimental CPU layouts were retired; use -uishot for the Qt screens");
         return 1;
-#endif
     }
 
 #if defined(_MSC_VER)
@@ -1007,8 +976,8 @@ namespace
 #endif
     int RunTapCheck()
     {
-#if defined(MPHREAD_AVALONIA)
-        return MphRead::Mods::Launcher::Gui::TapCheck::Run();
+#if defined(MPHREAD_QT) && !defined(__ANDROID__)
+        return MphRead::Qt::RunTapChecks();
 #else
         WriteLine("[tapcheck] this build has no launcher");
         return 1;
@@ -1052,6 +1021,13 @@ namespace MphRead::Mods
 {
     bool ModEntry::TryHandleHeadless(const std::vector<std::string>& args)
     {
+        // UI diagnostics return from this dispatch before normal launcher
+        // startup. Apply their rendering/window overrides before creating Qt.
+        ApplyRenderOverrides(args);
+        if (::HasFlag(args, "fullscreen") || ::HasFlag(args, "borderless"))
+            WindowMode::Startup(WindowStartMode::BorderlessFullscreen);
+        else if (::HasFlag(args, "windowed"))
+            WindowMode::Startup(WindowStartMode::Windowed);
         if (const std::optional<std::string> contract = ValueAfter(args, "rhicontract"); contract.has_value())
         {
             try
@@ -1110,7 +1086,7 @@ namespace MphRead::Mods
             SetExitCode(::MphRead::NativeRuntime::Rhi::Vulkan::RunPresentationCheck(true));
             return true;
         }
-#if defined(MPHREAD_AVALONIA_SHELL)
+#if defined(MPHREAD_SHELL)
         if (::HasFlag(args, "glfwpathcheck"))
         {
             SetExitCode(Diagnostics::GlfwPathCheck::Run());
@@ -1462,7 +1438,7 @@ namespace MphRead::Mods
 #endif
         if ((::HasFlag(args, "launcher") || doubleClicked) && !::HasFlag(args, "menu"))
         {
-#if defined(MPHREAD_SHELL) || defined(MPHREAD_AVALONIA)
+#if defined(MPHREAD_SHELL)
             if (!::HasFlag(args, "text") && Launcher::Gui::GuiLauncher::TryRun())
             {
                 return true;
@@ -1756,12 +1732,7 @@ namespace MphRead::Mods
             Features::HelmetOpacity(0);
             Features::VisorOpacity(0);
         }
-        if (::HasFlag(args, "uinativeres"))
-        {
-#if defined(MPHREAD_AVALONIA_SHELL)
-            Launcher::Gui::UiSurface::NativeRaster(true);
-#endif
-        }
+        // Qt Quick always draws at the native window resolution; -uinativeres remains accepted.
         if (::HasFlag(args, "netdebug"))
         {
             Network::NetDiagnostics::SetEnabled(true);

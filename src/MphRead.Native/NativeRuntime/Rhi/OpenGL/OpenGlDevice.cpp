@@ -1418,7 +1418,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 _units[0] = {nullptr, native, {}, native->Lifetime(), texture, true};
                 GL::ActiveTexture(GL::TextureUnit::Texture0);
                 GL::BindTexture(GL::TextureTarget::Texture2D, texture);
-                OpenGlNative::Require(_device->Api().BindSampler, "glBindSampler")(0, texture ? native->Name() : 0);
+                ApplySampler(*_device, 0, texture ? native : nullptr);
             }
             void CopyBuffer(const Buffer& source, std::uint64_t sourceOffset, Buffer& destination, std::uint64_t destinationOffset, std::uint64_t size) override;
             void CopyBufferToTexture(const Buffer& source, Texture& destination, const BufferTextureCopy& region) override;
@@ -1447,7 +1447,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                         static_cast<std::int32_t>(GL::TextureUnit::Texture0) + static_cast<std::int32_t>(slot)));
                 }
                 GL::BindTexture(GL::TextureTarget::Texture2D, image ? image->Name() : 0);
-                OpenGlNative::Require(_device->Api().BindSampler, "glBindSampler")(slot, texture && native ? native->Name() : 0);
+                ApplySampler(*_device, slot, texture ? native : nullptr);
                 if (slot != 0)
                 {
                     GL::ActiveTexture(GL::TextureUnit::Texture0);
@@ -1644,6 +1644,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             IndexType _indexType = IndexType::UInt32;
             struct VertexArrayEntry final { unsigned Name; std::vector<int> Buffers; };
             std::map<std::vector<std::uint64_t>, VertexArrayEntry> _vertexArrays;
+            std::vector<std::uint64_t> _vertexArrayKey;
             bool _sceneGeometry = false;
             std::span<const VertexBufferLayoutDesc> _sceneBuffers;
             std::span<const VertexAttributeDesc> _sceneAttributes;
@@ -1867,7 +1868,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             for (OpenGlBuffer* buffer : _resourceBuffers) buffer->Detach();
             for (OpenGlSamplerStorage* sampler : _samplers)
             {
-                _api.DeleteSamplers(1, &sampler->Name);
+                if (sampler->Name) _api.DeleteSamplers(1, &sampler->Name);
                 sampler->Name = 0; sampler->Device = nullptr;
             }
             _retired.CollectAll(DestroyNative);
@@ -1939,7 +1940,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             for (auto* texture : _live) objects.emplace_back(texture->IsRenderbuffer() ? _api.IsRenderbuffer : _api.IsTexture, texture->Name());
             for (auto* shader : _shaders) objects.emplace_back(_api.IsShader, shader->Name());
             for (auto* program : _livePrograms) objects.emplace_back(_api.IsProgram, program->Name);
-            for (auto* sampler : _samplers) objects.emplace_back(_api.IsSampler, sampler->Name);
+            for (auto* sampler : _samplers)
+                if (sampler->Name) objects.emplace_back(_api.IsSampler, sampler->Name); // none without sampler objects
             for (auto* list : _lists) list->CaptureNativeObjects(objects);
             if (objects.empty()) throw std::logic_error("Native release check needs live objects.");
             for (const auto& [exists, name] : objects)

@@ -240,16 +240,8 @@ public:
         }
         _colorMode = !anyColor ? Mode::Inherited : allColor ? Mode::Static : Mode::Mixed;
         _normalMode = !anyNormal ? Mode::Inherited : allNormal ? Mode::Static : Mode::Mixed;
-        const MphRead::GpuMeshDrawPlan plan = MphRead::BuildGpuMeshDrawPlan(geometry);
-        std::vector<std::uint32_t> indices;
-        for (const auto& range : plan.Ranges)
-        {
-            const std::size_t first = indices.size();
-            MphRead::AppendSceneTriangleIndices(indices, std::span(geometry.Indices).subspan(range.FirstIndex, range.IndexCount),
-                range.Topology);
-            if (indices.size() > first)
-                _ranges.push_back({static_cast<std::uint32_t>(first), static_cast<std::uint32_t>(indices.size() - first)});
-        }
+        const auto indices = MphRead::BuildGpuMeshTriangleIndices(geometry);
+        _indexCount = static_cast<std::uint32_t>(indices.size());
         if (!_vertices.empty())
             _vertexBuffer = Upload(device, std::as_bytes(std::span(_vertices)), BufferUsage::Vertex);
         if (!indices.empty())
@@ -259,7 +251,7 @@ public:
     void Draw() override
     {
         using MphRead::SceneVertexAttributeState;
-        if (_vertexBuffer && _indexBuffer && !_ranges.empty())
+        if (_vertexBuffer && _indexBuffer && _indexCount)
         {
             constexpr VkDeviceSize stride = 13U * sizeof(float);
             const VkBuffer vb = _vertexBuffer->Native();
@@ -271,12 +263,8 @@ public:
             draw.Streams[1] = Stream(_normalMode, 3, 3, SceneVertexAttributeState::Normal,
                 _device->CurrentNormal.data());
             draw.IndexBuffer = _indexBuffer->Native();
-            for (const auto& range : _ranges)
-            {
-                draw.IndexOffset = static_cast<VkDeviceSize>(range.first) * sizeof(std::uint32_t);
-                draw.IndexCount = range.second;
-                _commands.DrawScene(draw);
-            }
+            draw.IndexCount = _indexCount;
+            _commands.DrawScene(draw);
         }
         // The current attributes the display list leaves behind.
         if (MphRead::HasSceneVertexAttributeState(_terminalState, SceneVertexAttributeState::Color))
@@ -332,7 +320,7 @@ private:
     MphRead::SceneVertexAttributeState _terminalState{};
     std::vector<MphRead::SceneVertexAttributeState> _states;
     std::vector<float> _vertices;
-    std::vector<std::pair<std::uint32_t, std::uint32_t>> _ranges;
+    std::uint32_t _indexCount = 0;
     Mode _colorMode = Mode::Inherited;
     Mode _normalMode = Mode::Inherited;
     std::unique_ptr<VulkanBuffer> _vertexBuffer;

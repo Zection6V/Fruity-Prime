@@ -69,7 +69,9 @@ namespace MphRead::Qt
 
         // Vulkan: Qt's view of the RHI's own instance, and the texture drawn into.
         bool _vulkan = false;
+#if defined(FRUITY_HAS_VULKAN)
         std::unique_ptr<QVulkanInstance> _vulkanInstance;
+#endif
         std::unique_ptr<::MphRead::NativeRuntime::Rhi::Texture> _rhiTexture;
         std::unique_ptr<QQuickRenderControl> _control;
         std::unique_ptr<QQuickWindow> _window;
@@ -78,6 +80,7 @@ namespace MphRead::Qt
         bool _initialised = false;
         bool _failed = false;
         bool _dirty = true;
+        bool _dumped = false;
         unsigned _texture = 0;
         QSize _targetSize{};
         ::MphRead::Mods::Input::GamepadUiRouter _router;

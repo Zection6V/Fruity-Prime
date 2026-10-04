@@ -1,6 +1,7 @@
 #include "FramePerformance.hpp"
 #include "../../Renderer.hpp"
 #include "../../Scene.hpp"
+#include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/Rhi/SceneBackend.hpp"
 #include "../Render/FrameTiming.hpp"
 #include "../RenderOptions.hpp"
@@ -30,11 +31,14 @@ namespace MphRead::Mods::Diagnostics
     FramePerformance::Conditions FramePerformance::ReadConditions(const RenderWindow& window, const Rhi::Swapchain& swapchain)
     {
         const auto size = window.FramebufferSize();
+        const auto main = Entities::PlayerEntity::Main();
+        const auto playing = Entities::LoadFlags::Active | Entities::LoadFlags::Spawned;
         return {static_cast<int>(Rhi::SelectedSceneBackend()), window.HasScene() ? window.Scene().RoomId() : -1,
             size.X, size.Y, EffectiveCap(Render::FrameTiming::FrameRateCap()),
             static_cast<int>(swapchain.RequestedPresentMode()), static_cast<int>(swapchain.Desc().presentMode), RenderOptions::ResolutionScale(),
             RenderOptions::ShowFps(), RenderOptions::CelShading(), RenderOptions::Fog(),
-            GameState::MenuPause() || GameState::DialogPause(), window.IsFocused()};
+            GameState::MenuPause() || GameState::DialogPause(), window.IsFocused(),
+            window.HasScene() && main && (main->LoadFlags() & playing) == playing && main->Health() > 0};
     }
     std::string FramePerformance::Describe(const Conditions& conditions)
     {
@@ -44,7 +48,7 @@ namespace MphRead::Mods::Diagnostics
             << (conditions.cap == -1 ? "unlimited" : Render::FrameTiming::CapString(conditions.cap)) << ','
             << conditions.requestedPresent << ',' << conditions.actualPresent << ','
             << conditions.scale << ',' << conditions.fpsCounter << ',' << conditions.cel << ',' << conditions.fog << ','
-            << conditions.paused << ',' << conditions.focused;
+            << conditions.paused << ',' << conditions.focused << ',' << conditions.mainActive;
         return out.str();
     }
     std::unique_ptr<FramePerformance> FramePerformance::Create()
@@ -55,7 +59,7 @@ namespace MphRead::Mods::Diagnostics
         std::filesystem::create_directories(file.parent_path());
         _csv.open(file, std::ios::out | std::ios::trunc); _csv.imbue(std::locale::classic());
         if (!_csv) throw std::runtime_error("Cannot open FPS measurement CSV: " + path);
-        _csv << "segment,backend,room_id,width,height,fps_cap,present_requested,present_actual,resolution_scale,fps_counter,cel,fog,paused,focused,frames,seconds,fps,mean_frame_ms,p50_ms,p95_ms,p99_ms,percentile_samples,mean_loop_ms,mean_present_ms,gpu_scene_samples,gpu_scene_mean_ms,gpu_dropped_samples\n";
+        _csv << "segment,backend,room_id,width,height,fps_cap,present_requested,present_actual,resolution_scale,fps_counter,cel,fog,paused,focused,main_active,frames,seconds,fps,mean_frame_ms,p50_ms,p95_ms,p99_ms,percentile_samples,mean_loop_ms,mean_present_ms,gpu_scene_samples,gpu_scene_mean_ms,gpu_dropped_samples\n";
         active = this;
         std::cout << "[fps measure] CSV=" << file.string() << "; warmup=2s per context; window=1s; gpu=" << gpu << '\n';
     }

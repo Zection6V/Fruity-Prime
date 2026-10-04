@@ -43,7 +43,7 @@ namespace MphRead::Mods::Render
     std::int32_t FrameTimingCheck::Run()
     {
         ::MphRead::NativeRuntime::Random rng(20260905);
-        std::array<std::unique_ptr<Case>, 7> cases{};
+        std::array<std::unique_ptr<Case>, 8> cases{};
 
         cases[0] = std::make_unique<Case>();
         cases[0]->Name = "60 Hz display";
@@ -94,7 +94,31 @@ namespace MphRead::Mods::Render
         };
         cases[6]->MaxStepsInOneFrame = 2;
 
+        cases[7] = std::make_unique<Case>();
+        cases[7]->Name = "1500 Hz unlimited drawing";
+        cases[7]->Seconds = 120.0;
+        cases[7]->FrameTime = [](std::int32_t) { return 1.0 / 1500.0; };
+        cases[7]->MaxStepsInOneFrame = 1;
+
         std::int32_t failures = 0;
+        const auto savedCap = FrameTiming::FrameRateCap();
+        FrameTiming::SetFrameRateCap(FrameTiming::Unlimited);
+        bool capsOk = FrameTiming::FrameRateCap() == FrameTiming::Unlimited;
+        for (const auto* alias : {"unlimited", "UNCAPPED", " -1 "})
+            capsOk &= FrameTiming::ParseCap(std::string(alias), 144) == FrameTiming::Unlimited;
+        for (const auto cap : {FrameTiming::Unlimited, FrameTiming::DisplayRate, 144, 500})
+            capsOk &= FrameTiming::ParseCap(FrameTiming::CapString(cap), 60) == cap;
+        capsOk &= FrameTiming::ParseSavedCap(std::string("500"), 144) == FrameTiming::Unlimited;
+        capsOk &= FrameTiming::ParseSavedCap(std::string("240"), 144) == 240;
+        capsOk &= FrameTiming::ParseSavedCap(std::string("invalid"), 500) == 500;
+        capsOk &= FrameTiming::ParseSavedCap(std::nullopt, 500) == 500;
+        capsOk &= FrameTiming::ParseCap(std::string("500"), 144) == 500;
+        FrameTiming::SetFrameRateCap(-2);
+        capsOk &= FrameTiming::FrameRateCap() == FrameTiming::DisplayRate;
+        FrameTiming::SetFrameRateCap(savedCap);
+        std::cout << "FRAMETIMING " << (capsOk ? "ok  " : "FAIL")
+            << " unlimited cap round-trip and legacy Settings migration\n";
+        failures += capsOk ? 0 : 1;
         for (const std::unique_ptr<Case>& test : cases)
         {
             failures += RunCase(*test) ? 0 : 1;

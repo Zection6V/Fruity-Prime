@@ -3,9 +3,9 @@
 #include "../Renderer.hpp"
 
 #include "WindowMode.hpp"
-#if defined(MPHREAD_AVALONIA)
-#include "Launcher/Gui/GuiLauncher.hpp"
-#include "Launcher/Gui/Shell.hpp"
+#if defined(MPHREAD_SHELL)
+#include "Launcher/GuiLauncher.hpp"
+#include "Launcher/Shell.hpp"
 #endif
 
 #include <atomic>
@@ -38,7 +38,7 @@ namespace MphRead::Mods
 
     bool PauseMenu::HandleEscape(MphRead::RenderWindow& window)
     {
-#if defined(MPHREAD_AVALONIA)
+#if defined(MPHREAD_SHELL)
         if (!Launcher::Gui::GuiLauncher::EnsureSetup())
         {
             return false;
@@ -79,7 +79,7 @@ namespace MphRead::Mods
             _quit.store(false, std::memory_order_release);
             _quitProgram = true;
             Close();
-#if defined(MPHREAD_AVALONIA)
+#if defined(MPHREAD_SHELL)
             Launcher::Gui::Shell::Quit(window);
 #else
             window.Close();
@@ -90,7 +90,7 @@ namespace MphRead::Mods
             _leaveRequested.store(false, std::memory_order_release);
             _leftMatch = true;
             Close();
-#if defined(MPHREAD_AVALONIA)
+#if defined(MPHREAD_SHELL)
             Launcher::Gui::Shell::LeaveMatch(window);
 #else
             window.Close();
@@ -129,7 +129,7 @@ namespace MphRead::Mods
 
     void PauseMenu::OpenMenu()
     {
-#if defined(MPHREAD_AVALONIA)
+#if defined(MPHREAD_SHELL)
         const bool opened = Launcher::Gui::Shell::OpenPauseMenu();
         _open.store(opened, std::memory_order_release);
 #endif
@@ -137,7 +137,7 @@ namespace MphRead::Mods
 
     void PauseMenu::Close()
     {
-#if defined(MPHREAD_AVALONIA)
+#if defined(MPHREAD_SHELL)
         Launcher::Gui::Shell::CloseMenu();
 #endif
         _open.store(false, std::memory_order_release);

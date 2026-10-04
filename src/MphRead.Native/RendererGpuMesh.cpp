@@ -33,6 +33,21 @@ namespace MphRead
         return plan;
     }
 
+    std::vector<std::uint32_t> BuildGpuMeshTriangleIndices(const RendererGeometry& geometry)
+    {
+        const auto plan = BuildGpuMeshDrawPlan(geometry);
+        std::vector<std::uint32_t> indices;
+        indices.reserve(geometry.Indices.size());
+        for (const auto& range : plan.Ranges)
+        {
+            AppendSceneTriangleIndices(indices,
+                std::span(geometry.Indices).subspan(range.FirstIndex, range.IndexCount), range.Topology);
+            if (indices.size() > std::numeric_limits<std::uint32_t>::max())
+                throw std::overflow_error("GPU mesh triangle index count exceeds uint32_t.");
+        }
+        return indices;
+    }
+
     void BuildTransientIndexSequence(std::span<std::uint32_t> indices)
     {
         if (indices.size() > std::numeric_limits<std::uint32_t>::max())
@@ -42,6 +57,58 @@ namespace MphRead
         for (std::size_t i = 0; i < indices.size(); ++i)
         {
             indices[i] = static_cast<std::uint32_t>(i);
+        }
+    }
+
+    void AppendSceneTriangleIndices(std::vector<std::uint32_t>& output,
+        std::span<const std::uint32_t> input, ScenePrimitiveTopology topology)
+    {
+        const auto n = input.size();
+        switch (topology)
+        {
+        case ScenePrimitiveTopology::Triangles:
+            output.insert(output.end(), input.begin(), input.begin() + static_cast<std::ptrdiff_t>(n / 3 * 3));
+            break;
+        case ScenePrimitiveTopology::Quads:
+            for (std::size_t i = 0; i + 3 < n; i += 4)
+                output.insert(output.end(), {input[i], input[i + 1], input[i + 2], input[i], input[i + 2], input[i + 3]});
+            break;
+        case ScenePrimitiveTopology::TriangleStrip:
+            for (std::size_t i = 0; i + 2 < n; ++i)
+                if (i % 2 == 0) output.insert(output.end(), {input[i], input[i + 1], input[i + 2]});
+                else output.insert(output.end(), {input[i + 1], input[i], input[i + 2]});
+            break;
+        case ScenePrimitiveTopology::QuadStrip:
+            for (std::size_t i = 0; i + 3 < n; i += 2)
+                output.insert(output.end(), {input[i], input[i + 1], input[i + 3], input[i], input[i + 3], input[i + 2]});
+            break;
+        default: throw std::invalid_argument("Unknown scene primitive topology.");
+        }
+    }
+
+    void AppendTransientDrawIndices(std::vector<std::uint32_t>& output,
+        std::span<const std::uint32_t> input, TransientPrimitiveTopology topology)
+    {
+        switch (topology)
+        {
+        case TransientPrimitiveTopology::LineLoop:
+            if (input.size() >= 2)
+                for (std::size_t i = 0; i < input.size(); ++i)
+                    output.insert(output.end(), {input[i], input[(i + 1) % input.size()]});
+            break;
+        case TransientPrimitiveTopology::TriangleFan:
+            for (std::size_t i = 1; i + 1 < input.size(); ++i)
+                output.insert(output.end(), {input[0], input[i], input[i + 1]});
+            break;
+        case TransientPrimitiveTopology::Triangles:
+            AppendSceneTriangleIndices(output, input, ScenePrimitiveTopology::Triangles); break;
+        case TransientPrimitiveTopology::TriangleStrip:
+            AppendSceneTriangleIndices(output, input, ScenePrimitiveTopology::TriangleStrip); break;
+        case TransientPrimitiveTopology::Quads:
+            AppendSceneTriangleIndices(output, input, ScenePrimitiveTopology::Quads); break;
+        case TransientPrimitiveTopology::QuadStrip:
+            AppendSceneTriangleIndices(output, input, ScenePrimitiveTopology::QuadStrip); break;
+        default: throw std::invalid_argument("Unknown transient primitive topology.");
         }
     }
 

@@ -22,6 +22,7 @@ namespace MphRead::Mods::Render
         static void SetFrameRateCap(std::int32_t value) noexcept;
 
         static constexpr std::int32_t DisplayRate = 0;
+        static constexpr std::int32_t Unlimited = -1;
         static constexpr std::int32_t MinCap = 30;
         static constexpr std::int32_t MaxCap = 500;
 
@@ -43,6 +44,8 @@ namespace MphRead::Mods::Render
         static std::int32_t Advance(double elapsedSeconds);
 
         [[nodiscard]] static std::int32_t ParseCap(
+            const std::optional<std::string>& value, std::int32_t fallback) noexcept;
+        [[nodiscard]] static std::int32_t ParseSavedCap(
             const std::optional<std::string>& value, std::int32_t fallback) noexcept;
         [[nodiscard]] static std::string CapString(std::int32_t cap);
 

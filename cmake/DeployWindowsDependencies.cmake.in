@@ -1,0 +1,18 @@
+# Qt's Windows deploy tool covers Qt. Resolve the executable's complete PE
+# dependency graph as well, so curl, archive, OpenAL, GLFW and Vulkan ship.
+set(CMAKE_GET_RUNTIME_DEPENDENCIES_PLATFORM "windows+pe")
+set(CMAKE_GET_RUNTIME_DEPENDENCIES_TOOL "dumpbin")
+set(CMAKE_GET_RUNTIME_DEPENDENCIES_COMMAND "@FRUITY_DUMPBIN@")
+file(GET_RUNTIME_DEPENDENCIES
+    EXECUTABLES "$<TARGET_FILE:fruity_prime>"
+    DIRECTORIES "$<TARGET_FILE_DIR:fruity_prime>" "$<TARGET_FILE_DIR:Qt6::Core>"
+    RESOLVED_DEPENDENCIES_VAR fruity_resolved
+    UNRESOLVED_DEPENDENCIES_VAR fruity_unresolved
+    PRE_EXCLUDE_REGEXES "[Aa][Pp][Ii]-[Mm][Ss]-.*" "[Ee][Xx][Tt]-[Mm][Ss]-.*"
+    POST_EXCLUDE_REGEXES ".*[/\\][Ww][Ii][Nn][Dd][Oo][Ww][Ss][/\\].*")
+if(fruity_unresolved)
+    message(FATAL_ERROR "Unresolved package dependencies: ${fruity_unresolved}")
+endif()
+foreach(fruity_library IN LISTS fruity_resolved)
+    file(INSTALL "${fruity_library}" DESTINATION "${CMAKE_INSTALL_PREFIX}/bin")
+endforeach()

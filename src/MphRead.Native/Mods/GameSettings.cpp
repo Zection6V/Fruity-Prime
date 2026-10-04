@@ -203,8 +203,9 @@ namespace MphRead::Mods
             AsStringView(settings->TextureFiltering), RenderOptions::TextureFiltering()));
         RenderOptions::ShowFps(RenderOptions::ParseOnOff(
             AsStringView(settings->ShowFps), RenderOptions::ShowFps()));
-        Render::FrameTiming::SetFrameRateCap(Render::FrameTiming::ParseCap(
+        Render::FrameTiming::SetFrameRateCap(Render::FrameTiming::ParseSavedCap(
             settings->FrameRateCap, Render::FrameTiming::FrameRateCap()));
+        settings->FrameRateCap = Render::FrameTiming::CapString(Render::FrameTiming::FrameRateCap());
         RenderOptions::CelShading(RenderOptions::ParseOnOff(
             AsStringView(settings->CelShading), RenderOptions::CelShading()));
         RenderOptions::CelBands(8);

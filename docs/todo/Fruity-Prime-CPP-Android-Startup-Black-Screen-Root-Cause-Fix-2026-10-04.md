@@ -837,11 +837,28 @@ TextureView (§5) は今回の発火原因ではなかった (同じ TextureView
 
 fatal / ANR なし、process 生存。
 
+## CI 証拠: run `37216039276` (`1d45ff55`) — API 28 / 30 / 35 matrix
+
+x86_64 emulator API 28 (default), 30 / 35 (google_apis) の全てで 4 case PASS:
+normal, lifecycle, qml-error, native-fail。
+
+lifecycle case (起動済み launcher に対し、同一 process 維持・非 blank・failure panel / watchdog timeout なし):
+
+| step | API 28 | API 30 | API 35 |
+|---|---|---|---|
+| HOME → 再前面化 | PASS | PASS | PASS |
+| 通知シェードで focus lost → 復帰 | PASS | PASS | PASS |
+| reverse-landscape (configChanges) | PASS | PASS | PASS |
+| landscape | PASS | PASS | PASS |
+| uiMode night / day | PASS | PASS | PASS |
+
+Activity は `configChanges` で再生成されない契約なので、再生成経路は対象外 (manifest 契約どおり)。
+
 ## 未検証 (端末/ゲームファイルが必要)
 
-- game files ありの cold start → front、lifecycle、front → match → pause → end → launcher
+- game files ありの cold start → front、front → match → pause → end → launcher
   (CI emulator にはゲームファイルがない。ローカル emulator は WHPX が `HypervisorPresent=0` のため起動不可)
-- API 28 / 35、arm64 実機、GPU vendor 差、報告端末での確認
+- arm64 実機、GPU vendor 差 (Adreno / Mali / Pixel)、報告端末での確認
 - 報告端末で black が再現しない限り TextureView A/B は不要。再発時は
   `adb shell am start -n fr.livetek.fruityprime/.MainActivity --es fruity.surfaceContainer default`
   と `adb logcat -s FruityStartup FruityQt` で 1 変数比較する。

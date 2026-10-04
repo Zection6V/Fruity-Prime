@@ -119,7 +119,8 @@ void main() { gl_FragColor = texture2D(image, uv); }
         state.Commands->EndRendering();
         if (backdrop) state.Commands->BindSampledTexture(1, nullptr, nullptr);
         BindInteropTexture(*state.Commands, 0, *state.ImageSampler);
-        GL::UseProgram(0); GL::Enable(GL::EnableCap::DepthTest);
+        OpenGL::UseProgram(state.Device, 0); GL::Enable(GL::EnableCap::DepthTest);
+        OpenGL::InvalidateContextState();
         GL::BlendFunc(GL::BlendingFactor::SrcAlpha, GL::BlendingFactor::OneMinusSrcAlpha);
     }
 }

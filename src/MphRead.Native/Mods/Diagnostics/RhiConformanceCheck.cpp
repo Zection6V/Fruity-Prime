@@ -411,6 +411,13 @@ namespace MphRead::Mods::Diagnostics
                 interleaved->SetBindingSet(1, *otherMaterial); interleaved->SetBindingSet(2, *drawSet);
                 interleaved->Draw(3); interleaved->EndRendering(); interleaved->End();
                 device.EndFrame(); (void)device.BeginFrame();
+                if (device.GetBackend() == GraphicsBackend::OpenGl)
+                {
+                    // Simulate an external GL owner changing the current
+                    // program. The original list must recover its pipeline,
+                    // VAO and immutable snapshots without caller rebinding.
+                    OpenGL::DisruptNativeBindingsForCheck(device);
+                }
                 // The caller does not rebind pipeline, vertices, index or sets
                 // after diagnostic/frame/other-list submissions.
                 commands->Transition(*upload, ResourceState::CopySrc, ResourceState::Common);

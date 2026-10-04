@@ -9,8 +9,10 @@ namespace
 {
     void Expect(bool value, const char* reason) { if (!value) throw std::runtime_error(reason); }
     std::int32_t capacityKiB = 1024, freeKiB = 512;
+    unsigned memoryQueries = 0;
     std::int32_t MemoryCounter(std::int32_t counter)
     {
+        ++memoryQueries;
         if (counter == 0x9047) return capacityKiB;
         if (counter == 0x9049) return freeKiB;
         throw std::runtime_error("GL memory query combined different native pools.");
@@ -50,6 +52,40 @@ namespace
             && OpenGL::TextureStorageEstimate(TextureFormat::RGB8Unorm, 4, 8) == 128,
             "GL float/RGB padding estimate differs.");
         live.Close(); Expect(live.Snapshot(0).HeapCount == 0, "Closed GL owner queried native memory.");
+    }
+    void CheckGlFrameAdmission()
+    {
+        capacityKiB = 1024; freeKiB = 512;
+        OpenGL::OpenGlMemory memory{true, MemoryCounter};
+        memory.BeginFrame();
+        const auto before = memoryQueries;
+        memory.Admit(200 * 1024, 0); memory.Admit(200 * 1024, 0);
+        bool rejected = false;
+        try { memory.Admit(200 * 1024, 0); } catch (const BackendError& error)
+        { rejected = error.Kind() == BackendErrorKind::OutOfMemory; }
+        Expect(rejected && memoryQueries == before + 2,
+            "Frame budget either queried per allocation or ignored cumulative orphan charges.");
+        const auto accepted = memory.Telemetry().AcceptedRequests;
+        freeKiB = 0;
+        memory.EndFrame(); memory.BeginFrame();
+        rejected = false;
+        try { memory.Admit(1, 0); } catch (const BackendError&) { rejected = true; }
+        Expect(rejected && memoryQueries == before + 4 && memory.Telemetry().AcceptedRequests == accepted,
+            "Next frame reused a stale driver budget or lost denial accounting.");
+        freeKiB = 512;
+        memory.EndFrame();
+        const auto cold = memoryQueries;
+        memory.Admit(1, 0); memory.Admit(1, 0);
+        Expect(memoryQueries == cold + 4, "Outside-frame admission stopped checking live driver memory.");
+        memory.BeginFrame(); memory.Admit(1, 0);
+        memory.SetBudgetCeilingForCheck(64);
+        rejected = false;
+        try { memory.Admit(65, 0); } catch (const BackendError&) { rejected = true; }
+        Expect(rejected, "A forced budget ceiling failed to invalidate admission state.");
+        memory.Close();
+        rejected = false;
+        try { memory.Admit(1, 0); } catch (const std::logic_error&) { rejected = true; }
+        Expect(rejected, "Closed frame admission touched a native query.");
     }
     void Check()
     {
@@ -107,6 +143,6 @@ namespace
 }
 int main()
 {
-    try { Check(); CheckGlSource(); std::cout << "Memory admission: live/estimated/unknown, heaps, UMA, reservations, limits, overflow, NVX source/units/errors PASS\n"; return 0; }
+    try { Check(); CheckGlSource(); CheckGlFrameAdmission(); std::cout << "Memory admission: live/estimated/unknown, heaps, UMA, reservations, limits, overflow, NVX source/units/errors, frame admission PASS\n"; return 0; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

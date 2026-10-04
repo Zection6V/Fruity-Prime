@@ -230,3 +230,72 @@ renderer switching, and backdrop parity. Logs are `bottleneck-dense-{check}.log`
 0.19844 ms (`bottleneck-dense-gpu.csv`); this diagnostic is excluded from FPS
 acceptance. Its allocator counters still show ordinary overflow for groups
 admitted at 32 sets, so the full steady-allocation/telemetry goal is not complete.
+
+## OpenGL context ownership and memory-admission follow-up
+
+The dense Vulkan work was delivered as
+`4c9db2c37acd957a6785525dd78f85423943a62a`; post-commit FPS was 1552.60.
+Remote `build_cpp` run 37199326759 passed all 12 jobs, including Windows,
+Linux, macOS, both Android ABIs and APK. The tested executable and PDB were
+copied to the user's `reflex-bin` (executable SHA-256
+`55C5014C70E0BBF46836E810A8EEB935879F56A99ABA92B1BE2E687190534DD6`).
+
+OpenGL now resolves `mat_alpha`/`alpha_test` locations when a program is linked,
+retains their values per program, and tracks the bound program and VAO in the
+context owner. Scene constants and small constants share the same alpha cache.
+Ordinary draws keep their VAO; deletion invalidates it. Device initialization
+queries immutable binding limits/alignment only for supported features. Generic
+binding sets retain a shared immutable snapshot in a fixed group array rather
+than copying a description and allocating nodes on each bind. Expired borrowed
+resources are still rejected, while releasing public set/layout wrappers remains
+valid. The fallback sampler scratch retains its capacity.
+
+Qt Quick and the Android overlay use explicit external-GL boundaries. Entering
+interop binds VAO 0 before external attribute/index writes and invalidates the
+context state; leaving invalidates again. The next RHI draw restores its state.
+The conformance check deliberately changes native program/VAO/viewport/scissor
+state through the backend and verifies recovery without caller rebinds.
+
+An initial FPS-only run improved OpenGL from 534.04 to 565.78, but CPU sampling
+then isolated repeated NVX free-memory queries during transient buffer orphaning.
+Memory admission now takes a fresh driver snapshot on the first allocation of
+each render frame, conservatively charges every admitted allocation/orphan in
+that frame, and refreshes on the next frame. Explicit snapshots and admission
+outside a render frame still query live driver counters. EndFrame/WaitIdle/Close
+end the admission scope. Native storage-error checks and budget safety reserves
+remain enabled. Unit checks cover cumulative rejection, next-frame exhaustion,
+cold live queries, forced ceiling invalidation and closed-owner rejection.
+
+| Sequential FPS-only fixture | Mean FPS | Mean loop ms | Mean present ms |
+|---|---:|---:|---:|
+| Delivered dense Vulkan revision, OpenGL baseline | 534.04 | 1.960694 | 0.085528 |
+| Program/VAO/binding ownership, before budget fix | 565.78 | 1.854803 | 0.085427 |
+| Complete OpenGL candidate, run 1 | 826.35 | 1.227885 | 0.088368 |
+| Complete OpenGL candidate, run 2 | 840.15 | 1.211939 | 0.084151 |
+| Complete candidate, Vulkan regression check | 1550.44 | 0.642849 | 0.092804 |
+
+Evidence: `bottleneck-opengl-before-fps.csv`, `bottleneck-opengl-owner-fps.csv`,
+`bottleneck-opengl-budget-fps{,2}.csv` and
+`bottleneck-opengl-budget-vulkan-fps.csv`. These use the unchanged active
+Alinos Perch fixture, first seven complete warm windows, Immediate/Unlimited,
+Low Latency Off, no metrics, sampling or GPU profiling. Separate diagnostic
+GPU runs report OpenGL scene time 1.117615 ms before the budget change and
+0.637106 ms afterward. These timings include driver submission bubbles and
+do not establish a shader-work reduction. The geometry/effects are unchanged.
+The CPU sampler's exclusive `NtGdiDdDDIEscape` count fell from 2469 to 56;
+the latter diagnostic collected 6979 stacks. Inclusive samples overlap and
+are not summed as percentages. CPU loop cost still exceeds scene GPU time,
+so no claim of a completely GPU-bound OpenGL frontend is made.
+
+MSVC Release and CTest 21/21 pass. Latest candidate Golden captures/parity
+pass 7/7; all seven OpenGL PNG SHA-256 hashes are exactly equal to the delivered
+dense revision's captures. Full RHI conformance, explicit interop disruption,
+Vulkan resource validation (errors=0, live=0), shared presentation conformance,
+Qt Settings-driven active-match renderer switching, and backdrop parity pass.
+Alinos Perch OpenGL lifetime passes 3/3 cycles with zero live/retired resources
+and zero waits in the final 15 frames of each cycle. Runtime logs use the
+`bottleneck-opengl-budget-` prefix. Remote CI for this OpenGL follow-up is pending.
+The full plan remains open, including remaining historical boundaries,
+whole-DrawScene allocation/phase/API telemetry, native descriptor-group overflow,
+deferred acquire-completion proof, final latency/failure matrix and exclusive
+fullscreen (last, per the user's priority).

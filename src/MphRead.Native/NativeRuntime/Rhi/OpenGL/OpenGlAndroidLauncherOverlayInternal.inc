@@ -1,4 +1,5 @@
 #include "OpenGlLauncherOverlay.hpp"
+#include "OpenGlDevice.hpp"
 
 #include "../../OpenTK/GL.hpp"
 #include "../../OpenTK/GpuTrace.hpp"
@@ -85,6 +86,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         {
             GL::Viewport(0, 0, width, height);
         }
+        BeginExternalGlInterop();
         GL::UseProgram(0);
         GL::Disable(GL::EnableCap::DepthTest);
         GL::Disable(GL::EnableCap::CullFace);
@@ -160,6 +162,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         GL::BindTexture(GL::TextureTarget::Texture2D, 0);
         GL::BlendFunc(GL::BlendingFactor::SrcAlpha, GL::BlendingFactor::OneMinusSrcAlpha);
         GL::Enable(GL::EnableCap::DepthTest);
+        EndExternalGlInterop();
     }
 
     void OpenGlLauncherOverlay::Clear(std::int32_t width, std::int32_t height)

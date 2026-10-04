@@ -52,7 +52,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             std::int32_t OverrideColor = 0;
             std::int32_t UsePaletteOverride = 0;
             std::int32_t PaletteOverrideColor = 0;
-            std::int32_t MaterialAlpha = 0;
+
             std::int32_t MaterialMode = 0;
             std::int32_t ViewMatrix = 0;
             std::int32_t ViewInvMatrix = 0;
@@ -78,7 +78,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         class OpenGlShaderConstants final : public ShaderConstantSink
         {
         public:
-            explicit OpenGlShaderConstants(const ShaderLocations& locations) : _l(locations) {}
+            OpenGlShaderConstants(GraphicsDevice& device, const ShaderLocations& locations) : _device(device), _l(locations) {}
 
             void Set(const FrameConstants& constants) override
             {
@@ -118,7 +118,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void Set(const MaterialConstants& constants) override
             {
                 SetSurface(constants);
-                GL::Uniform1(_l.MaterialAlpha, constants.Alpha);
+                SetMaterialAlpha(constants.Alpha);
             }
 
             void Set(const DrawConstants& constants) override
@@ -201,7 +201,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 GL::Uniform1(_l.MaterialMode, constants.PolygonMode);
             }
 
-            void SetMaterialAlpha(float alpha) override { GL::Uniform1(_l.MaterialAlpha, alpha); }
+            void SetMaterialAlpha(float alpha) override { OpenGL::SetMaterialAlpha(_device, alpha); }
             void SetUseTexture(bool enabled) override { GL::Uniform1(_l.UseTexture, enabled ? 1 : 0); }
 
             void SetTexgen(std::int32_t mode, const Matrix4& textureMatrix) override
@@ -250,6 +250,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             }
 
         private:
+            GraphicsDevice& _device;
             const ShaderLocations& _l;
         };
 
@@ -328,7 +329,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 l.OverrideColor = at(main, "override_color");
                 l.UsePaletteOverride = at(main, "use_pal_override");
                 l.PaletteOverrideColor = at(main, "pal_override_color");
-                l.MaterialAlpha = at(main, "mat_alpha");
+
                 l.MaterialMode = at(main, "mat_mode");
                 l.ViewMatrix = at(main, "view_mtx");
                 l.ViewInvMatrix = at(main, "view_inv_mtx");
@@ -350,7 +351,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 l.ViewWidth = at(composite, "view_width");
                 l.ViewHeight = at(composite, "view_height");
                 const auto textureUnits = [&](std::int32_t native, std::string_view program) {
-                    GL::UseProgram(native);
+                    OpenGL::UseProgram(device, native);
                     for (const auto& texture : SceneShaderAbi::Textures)
                         if (texture.program == program)
                             GL::Uniform1(at(native, texture.name.data()), static_cast<std::int32_t>(texture.unit));
@@ -365,10 +366,10 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 l.LerpFactor = at(shift, "lerp_fac");
                 l.WhiteoutTable = at(shift, "white_table");
                 l.WhiteoutFactor = at(shift, "white_fac");
-                _constants = std::make_unique<OpenGlShaderConstants>(_locations);
-                GL::UseProgram(shift);
+                _constants = std::make_unique<OpenGlShaderConstants>(device, _locations);
+                OpenGL::UseProgram(device, shift);
                 _constants->SetShiftTable(sources.ShiftTable);
-                GL::UseProgram(main);
+                OpenGL::UseProgram(device, main);
                 GL::Uniform3(l.ToonTable, static_cast<std::int32_t>(sources.ToonTable.size() / 3U),
                     sources.ToonTable.data());
             }

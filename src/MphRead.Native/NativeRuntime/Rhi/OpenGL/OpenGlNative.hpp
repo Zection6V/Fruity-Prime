@@ -1,8 +1,8 @@
 #pragma once
 
 #include "../../OpenTK/GLFW.hpp"
-#if !defined(__ANDROID__)
 #include "../../OpenTK/GL.hpp"
+#if !defined(__ANDROID__)
 #include "../../OpenTK/GlFeatures.hpp"
 #endif
 #if defined(__ANDROID__)
@@ -114,12 +114,17 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             bool mapBufferRange = true; // else glMapBuffer / glGetBufferSubData
             bool copyBuffer = true;     // else a read back and a re-upload
             bool uniformBuffers = true;
+            bool storageBuffers = false;
         } features;
 
         OpenGlNative()
         {
 #if !defined(__ANDROID__)
             ApplyContextFeatures(::OpenTK::Graphics::OpenGL::GlFeatures::Current());
+#else
+            const auto version = ::OpenTK::Graphics::OpenGL::GL::GetString(::OpenTK::Graphics::OpenGL::GL::StringName::Version);
+            features.storageBuffers = version.find("OpenGL ES 3.1") != std::string::npos
+                || version.find("OpenGL ES 3.2") != std::string::npos;
 #endif
         }
 
@@ -165,6 +170,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             features.copyBuffer = gl.Supports(3, 1, "GL_ARB_copy_buffer");
             Prefer(CopyBufferSubData, features.copyBuffer, false, nullptr);
             features.uniformBuffers = gl.Supports(3, 1, "GL_ARB_uniform_buffer_object");
+            features.storageBuffers = gl.Supports(4, 3, "GL_ARB_shader_storage_buffer_object");
             Prefer(BindBufferRange, features.uniformBuffers, false, nullptr);
             const bool images = gl.Supports(4, 2, "GL_ARB_shader_image_load_store");
             Prefer(BindImageTexture, images, false, nullptr);

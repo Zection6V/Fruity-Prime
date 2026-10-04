@@ -23,4 +23,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
     // session shutdown released them. The context must still be current.
     [[nodiscard]] std::function<void()> NativeReleaseCheck(GraphicsDevice& device);
     void CheckMemoryAdmission(GraphicsDevice& device);
+    // Deliberately clobber bindings as an external GL consumer would. RHI
+    // conformance must recover without the caller rebinding its draw state.
+    void DisruptNativeBindingsForCheck(GraphicsDevice& device);
 }

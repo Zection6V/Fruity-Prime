@@ -28,6 +28,15 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
     // Defensively release native state before its context goes away. The
     // session keeps ownership of the inert wrapper. Its context is current.
     void ReleaseContextDevice() noexcept;
+    // Explicit ownership boundary around external GL consumers. Invalidates
+    // remembered native bindings and program values without creating a device.
+    void InvalidateContextState() noexcept;
+    void BeginExternalGlInterop();
+    void EndExternalGlInterop() noexcept;
+    // Backend shader initialization and constants share the program owner's
+    // linked locations and cached values with command-list small constants.
+    void UseProgram(GraphicsDevice& device, std::int32_t program);
+    void SetMaterialAlpha(GraphicsDevice& device, float alpha);
     // The current context's viewport, over the whole window.
     void ResetWindowViewport(std::int32_t width, std::int32_t height);
 

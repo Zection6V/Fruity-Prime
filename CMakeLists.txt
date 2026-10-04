@@ -181,6 +181,8 @@ add_custom_target(fruity_golden_capture_provenance
     COMMENT "Refreshing GoldenCapture source provenance"
     VERBATIM)
 list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestOpenGlUniformState.cpp"
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestFrameTelemetry.cpp"
     "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanNvidiaReflex.cpp"
     "${FRUITY_VULKAN_FRAME_SLOTS_TEST_SOURCE}"
     "${FRUITY_VULKAN_FRAME_SCHEDULER_TEST_SOURCE}"
@@ -293,6 +295,15 @@ target_include_directories(fruity_mphread_native
     PRIVATE "${FRUITY_GOLDEN_CAPTURE_PROVENANCE_DIR}")
 add_dependencies(fruity_mphread_native fruity_golden_capture_provenance)
 target_compile_features(fruity_mphread_native PUBLIC cxx_std_20)
+option(FRUITY_NEW_TELEMETRY "Intercept application C++ new in a diagnostic build" OFF)
+option(FRUITY_PERF_TELEMETRY "Enable opt-in sampled CPU phases and API counters" OFF)
+if(FRUITY_NEW_TELEMETRY OR FRUITY_PERF_TELEMETRY)
+    target_compile_definitions(fruity_mphread_native PUBLIC FRUITY_PERF_TELEMETRY)
+endif()
+if(FRUITY_NEW_TELEMETRY)
+    set_property(SOURCE "${FRUITY_MPHREAD_ROOT}/NativeRuntime/FrameTelemetry.cpp"
+        APPEND PROPERTY COMPILE_DEFINITIONS FRUITY_NEW_TELEMETRY)
+endif()
 if(FRUITY_STOP_TOKEN_OPTIONS)
     target_compile_options(fruity_mphread_native PUBLIC ${FRUITY_STOP_TOKEN_OPTIONS})
     target_link_options(fruity_mphread_native PUBLIC ${FRUITY_STOP_TOKEN_OPTIONS})
@@ -312,6 +323,18 @@ set_target_properties(fruity_mphread_native PROPERTIES OUTPUT_NAME "MphRead.Nati
 # focused tests whenever a host native owner is built; Android cross-compiles
 # the production decoder but cannot execute the host test binary.
 if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
+    add_executable(fruity_opengl_uniform_tests
+        "${FRUITY_MPHREAD_ROOT}/Testing/TestOpenGlUniformState.cpp"
+        "${FRUITY_MPHREAD_ROOT}/NativeRuntime/FrameTelemetry.cpp")
+    target_compile_definitions(fruity_opengl_uniform_tests PRIVATE FRUITY_NEW_TELEMETRY FRUITY_PERF_TELEMETRY)
+    target_compile_features(fruity_opengl_uniform_tests PRIVATE cxx_std_20)
+    add_test(NAME FruityPrime.OpenGlUniformState COMMAND fruity_opengl_uniform_tests)
+    add_executable(fruity_frame_telemetry_tests
+        "${FRUITY_MPHREAD_ROOT}/Testing/TestFrameTelemetry.cpp"
+        "${FRUITY_MPHREAD_ROOT}/NativeRuntime/FrameTelemetry.cpp")
+    target_compile_definitions(fruity_frame_telemetry_tests PRIVATE FRUITY_NEW_TELEMETRY FRUITY_PERF_TELEMETRY)
+    target_compile_features(fruity_frame_telemetry_tests PRIVATE cxx_std_20)
+    add_test(NAME FruityPrime.FrameTelemetry COMMAND fruity_frame_telemetry_tests)
     add_executable(fruity_renderer_geometry_tests
         "${FRUITY_RENDERER_GEOMETRY_TEST_SOURCE}"
         "${FRUITY_MPHREAD_ROOT}/RendererGeometry.cpp")
@@ -516,7 +539,7 @@ endif()
 if(WIN32)
     target_compile_definitions(fruity_mphread_native PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     # The launcher's file picker is the platform's own common dialog.
-    target_link_libraries(fruity_mphread_native PUBLIC ws2_32 bcrypt comdlg32 iphlpapi)
+    target_link_libraries(fruity_mphread_native PUBLIC ws2_32 bcrypt comdlg32 iphlpapi dbghelp)
 endif()
 
 # The renderer's GL entry points and the sound mixer's OpenAL ones, which the
@@ -555,6 +578,9 @@ fruity_report_owner("MphRead.Native.Qt" MPHREAD_QT_SOURCES MPHREAD_QT_HEADERS)
 add_library(fruity_mphread_qt OBJECT ${MPHREAD_QT_SOURCES} ${MPHREAD_QT_HEADERS})
 set_target_properties(fruity_mphread_qt PROPERTIES AUTOMOC ON)
 target_compile_features(fruity_mphread_qt PUBLIC cxx_std_20)
+if(FRUITY_NEW_TELEMETRY OR FRUITY_PERF_TELEMETRY)
+    target_compile_definitions(fruity_mphread_qt PRIVATE FRUITY_PERF_TELEMETRY)
+endif()
 target_compile_definitions(fruity_mphread_qt PRIVATE MPHREAD_QT)
 if(NOT ANDROID)
     target_compile_definitions(fruity_mphread_qt PRIVATE MPHREAD_SHELL)

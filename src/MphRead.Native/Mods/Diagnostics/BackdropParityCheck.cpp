@@ -124,10 +124,17 @@ namespace MphRead::Mods::Diagnostics
                     Expect(captures.at("resize-return") == captures.at("1280x720-t0.000000"), "Resize changed fixed-time backdrop.");
                     // Same borderless monitor rectangle used by WindowMode::Enter.
                     const auto savedLocation = window->Location();
+                    const auto savedBorder = window->WindowBorder();
                     const auto monitor = window->CurrentMonitorClientArea();
-                    window->WindowBorder(2); window->Location(monitor.Min);
+                    window->WindowBorder(2); Pump(); window->Location(monitor.Min);
                     window->ClientSize(monitor.Size); Pump(); frame("fullscreen",0.5F);
-                    window->WindowBorder(0); window->Location(savedLocation); window->ClientSize({1280,720}); Pump();
+                    // Qt applies changed native frame margins through events.
+                    // Set the restored client extent after that transition, as
+                    // the production WindowMode and presentation check do.
+                    window->WindowBorder(savedBorder); Pump();
+                    window->Location(savedLocation); window->ClientSize({1280,720}); Pump();
+                    Expect(window->Size().X == 1280 && window->Size().Y == 720,
+                        "Fullscreen return did not restore the requested capture resolution.");
                     frame("fullscreen-return",0);
                     Expect(captures.at("fullscreen-return") == captures.at("resize-return"), "Fullscreen return changed backdrop.");
                     for (int i = 0; i < 16; ++i) frame("animation-"+std::to_string(i),i/15.0F);

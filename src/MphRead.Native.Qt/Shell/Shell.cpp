@@ -18,6 +18,7 @@
 #include "../../MphRead.Native/GameState.hpp"
 #include "../../MphRead.Native/Scene.hpp"
 #include "../../MphRead.Native/Entities/Players/PlayerEntity.hpp"
+#include "../../MphRead.Native/Entities/PlayerSpawnEntity.hpp"
 #include "../../MphRead.Native/Menu.hpp"
 #include "../../MphRead.Native/Metadata/Metadata.hpp"
 #include "../../MphRead.Native/Renderer.hpp"
@@ -277,6 +278,53 @@ namespace MphRead::Mods::Launcher::Gui
                 return;
             }
             ++frame;
+            // Historical and current renderers use the same active-match
+            // fixture. Keep simulation and bots running while holding only
+            // the main player's input and initial spawn/camera fixed.
+            if (qEnvironmentVariableIntValue("FRUITY_FPSCHECK_ONLY") != 0)
+            {
+                if (frame == 30)
+                {
+                    LaunchPlan::Init init;
+                    init.Kind = LaunchKind::Offline;
+                    init.RoomKey = qEnvironmentVariable("FRUITY_SHOT_ROOM").toStdString();
+                    init.Mode = MphRead::GameMode::Battle;
+                    init.Hunter = MphRead::Hunter::Sylux;
+                    init.Bots = 3;
+                    init.BotLevel = 1;
+                    Decided(LaunchPlan(init));
+                }
+                else if (frame == 31)
+                {
+                    if (!window.HasScene()) { --frame; return; }
+                    const auto main = MphRead::Entities::PlayerEntity::Main();
+                    auto spawns = window.Scene().GetPlayerSpawnEntities().GetEnumerator();
+                    if (!main || !spawns.MoveNext())
+                        throw std::runtime_error("FPS fixture needs the main player and first spawn.");
+                    const auto& first = *spawns.Current();
+                    main->Spawn(first.Position, first.FacingVector(), first.UpVector(), first.NodeRef, true);
+                    std::cout << "[fps fixture] first spawn; Sylux; 3 bots; simulation_frame="
+                        << window.Scene().FrameCount() << '\n';
+                }
+                else if (frame == 32)
+                {
+                    static const auto start = std::chrono::steady_clock::now();
+                    if (std::chrono::steady_clock::now() - start < std::chrono::seconds(10))
+                    { --frame; return; }
+                    const auto main = MphRead::Entities::PlayerEntity::Main();
+                    const auto playing = MphRead::Entities::LoadFlags::Active | MphRead::Entities::LoadFlags::Spawned;
+                    if (!main || (main->LoadFlags() & playing) != playing || main->Health() == 0)
+                        throw std::runtime_error("FPS fixture lost the active main player.");
+                    QDir().mkpath(dir);
+                    const auto size = window.FramebufferSize();
+                    const auto path = QDir(dir).filePath(QStringLiteral("fps-active.png")).toStdString();
+                    if (!MphRead::Mods::ScreenCapture::SaveWindow(size.X, size.Y, path))
+                        throw std::runtime_error("FPS fixture could not capture its active match.");
+                    std::cout << "[fps fixture] captured active match: " << path << '\n';
+                    window.Close();
+                }
+                return;
+            }
             // Enter through the real Fire input before measuring or switching
             // the match. A loaded room with bots is still the main player's
             // "Press fire to begin" screen until that input is received.

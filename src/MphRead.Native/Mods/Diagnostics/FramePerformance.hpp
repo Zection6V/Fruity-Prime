@@ -1,6 +1,7 @@
 #pragma once
 #include "FrameStatistics.hpp"
 #include "../../NativeRuntime/Rhi/GpuDiagnostics.hpp"
+#include "../../NativeRuntime/FrameTelemetry.hpp"
 #include <chrono>
 #include <deque>
 #include <fstream>
@@ -10,6 +11,7 @@ namespace MphRead::NativeRuntime::Rhi { class GraphicsDevice; class CommandList;
 namespace MphRead { class RenderWindow; }
 namespace MphRead::Mods::Diagnostics
 {
+    class CpuSampling;
     // Single main window, render-thread owned. HUD display is independent.
     class FramePerformance final
     {
@@ -38,6 +40,8 @@ namespace MphRead::Mods::Diagnostics
         static Conditions ReadConditions(const RenderWindow& window, const NativeRuntime::Rhi::Swapchain& swapchain);
         static std::string Describe(const Conditions& conditions);
         std::ofstream _csv;
+        std::unique_ptr<CpuSampling> _cpuSampling;
+        std::unique_ptr<NativeRuntime::FrameTelemetry::Session> _telemetry;
         bool _gpu = false;
         std::string _context;
         std::optional<Conditions> _conditions;

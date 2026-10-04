@@ -10,8 +10,10 @@
 #include "QtSwapchain.hpp"
 
 #include "../../MphRead.Native/Renderer.hpp"
+#include "../../MphRead.Native/NativeRuntime/FrameTelemetry.hpp"
 #include "../../MphRead.Native/Mods/Chat/ChatBox.hpp"
 #include "../../MphRead.Native/NativeRuntime/Rhi/Swapchain.hpp"
+#include "../../MphRead.Native/NativeRuntime/Rhi/OpenGL/OpenGlDevice.hpp"
 #include "../../MphRead.Native/NativeRuntime/Rhi/PresentationScheduler.hpp"
 #include "../../MphRead.Native/NativeRuntime/Rhi/PresentationSleep.hpp"
 #if defined(FRUITY_HAS_VULKAN)
@@ -337,6 +339,11 @@ namespace
     {
         if (_context != nullptr)
         {
+            // Harnesses create successive windows while the lazy scene session
+            // remains alive. Detach its native device before deleting the Qt
+            // context, so a recycled QOpenGLContext address cannot reuse it.
+            if (_context->makeCurrent(_window.get()))
+                ::MphRead::NativeRuntime::Rhi::OpenGL::ReleaseContextDevice();
             _context->doneCurrent();
         }
         _context.reset();
@@ -366,11 +373,17 @@ namespace
         auto previous = std::chrono::steady_clock::now();
         while (!_closeRequested)
         {
+            using namespace ::MphRead::NativeRuntime::FrameTelemetry;
+            Frame measuredFrame;
             ::MphRead::NativeRuntime::FrameHeartbeat();
             // As the GLFW loop: native low-latency sleep precedes every fresh
             // input read, and a busy generic budget is polled with events
             // serviced but no frame recorded and discarded.
-            if (!events.BeforeFrame())
+            const bool admitted = [&] {
+                Scope phase(Phase::Admission);
+                return events.BeforeFrame();
+            }();
+            if (!admitted)
             {
                 if (events.CanSampleInputWhileWaiting())
                 {
@@ -379,12 +392,16 @@ namespace
                 continue;
             }
             Rhi::SleepForPresentation(_presentation.Deadline(Rhi::PresentationScheduler::Clock::now()));
-            events.OnInputSample();
-            // OpenTK's NewInputFrame: the frame sees the cursor where it was
-            // before this frame's events arrived.
-            _mouse.X = _cursorX;
-            _mouse.Y = _cursorY;
-            QCoreApplication::processEvents(QEventLoop::AllEvents);
+            {
+                Scope inputPhase(Phase::Events);
+                events.OnInputSample();
+                // OpenTK's NewInputFrame: the frame sees the cursor where it was
+                // before this frame's events arrived.
+                _mouse.X = _cursorX;
+                _mouse.Y = _cursorY;
+                Count(Counter::EventPumps);
+                QCoreApplication::processEvents(QEventLoop::AllEvents);
+            }
             if (_closeRequested)
             {
                 break;

@@ -80,6 +80,21 @@ namespace MphRead::NativeRuntime::Rhi::SceneShaderAbi
     };
 #undef RHI_SCENE_CONSTANT
 #undef RHI_SCENE_TEXTURE
+
+    // A semantic name has one dense slot across logical programs. Repeated
+    // names (e.g. far_plane) share a slot; each program owns its own metadata.
+    [[nodiscard]] constexpr std::size_t ConstantIndexOf(std::string_view name) noexcept
+    {
+        for (std::size_t i = 0; i < Constants.size(); ++i)
+            if (Constants[i].name == name) return i;
+        return Constants.size();
+    }
+    [[nodiscard]] consteval std::size_t ConstantIndex(std::string_view name)
+    {
+        const auto index = ConstantIndexOf(name);
+        if (index == Constants.size()) throw "Unknown scene constant.";
+        return index;
+    }
 #define RHI_SCENE_CONSTANT(...)
 #define RHI_SCENE_TEXTURE(program, name, image, sampler, unit) Texture{program, name, image, sampler, unit},
     inline constexpr std::array Textures{

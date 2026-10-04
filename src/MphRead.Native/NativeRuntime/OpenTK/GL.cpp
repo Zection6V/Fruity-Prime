@@ -1,4 +1,5 @@
 #include "GL.hpp"
+#include "../FrameTelemetry.hpp"
 #include "../System/Enum.hpp"
 #include "../Rhi/OpenGL/OpenGlDevice.hpp"
 
@@ -263,6 +264,8 @@ namespace OpenTK::Graphics::OpenGL::GL
             throw std::runtime_error("glBindBuffer is unavailable.");
         }
         fn(ToEnum(target), static_cast<GLuint>(buffer));
+        if (target == BufferTarget::ArrayBuffer)
+            ::MphRead::NativeRuntime::Rhi::OpenGL::ArrayBufferBound(buffer);
     }
 
     void BufferData(BufferTarget target, std::size_t size, const void* data, BufferUsageHint usage)
@@ -404,6 +407,7 @@ namespace OpenTK::Graphics::OpenGL::GL
         }
         const GLuint value = static_cast<GLuint>(buffer);
         fn(1, &value);
+        ::MphRead::NativeRuntime::Rhi::OpenGL::ArrayBufferDeleted(buffer);
     }
 
     void DeleteProgram(std::int32_t program)
@@ -536,7 +540,8 @@ namespace OpenTK::Graphics::OpenGL::GL
 
     void Finish()
     {
-        ::glFinish();
+        ::MphRead::NativeRuntime::FrameTelemetry::Count(::MphRead::NativeRuntime::FrameTelemetry::Counter::DeviceIdle);
+        ::MphRead::NativeRuntime::FrameTelemetry::HostWait([] { ::glFinish(); });
     }
 
     std::int32_t GenBuffer()
@@ -580,6 +585,9 @@ namespace OpenTK::Graphics::OpenGL::GL
 
     std::int32_t GetInteger(std::int32_t pname)
     {
+        ::MphRead::NativeRuntime::FrameTelemetry::Count(::MphRead::NativeRuntime::FrameTelemetry::Counter::GlIntegerQueries);
+        if (pname == 0x8B8D) ::MphRead::NativeRuntime::FrameTelemetry::Count(::MphRead::NativeRuntime::FrameTelemetry::Counter::GlCurrentProgramQueries);
+        if (pname == 0x9047 || pname == 0x9049) ::MphRead::NativeRuntime::FrameTelemetry::Count(::MphRead::NativeRuntime::FrameTelemetry::Counter::GlMemoryQueries);
         GLint value = 0;
         ::glGetIntegerv(static_cast<GLenum>(pname), &value);
         return static_cast<std::int32_t>(value);
@@ -706,6 +714,7 @@ namespace OpenTK::Graphics::OpenGL::GL
 
     std::int32_t GetUniformLocation(std::int32_t program, const std::string& name)
     {
+        ::MphRead::NativeRuntime::FrameTelemetry::Count(::MphRead::NativeRuntime::FrameTelemetry::Counter::GlUniformLocations);
         if (const auto fn = GetGetUniformLocation())
         {
             return static_cast<std::int32_t>(fn(static_cast<GLuint>(program), name.c_str()));
@@ -875,6 +884,8 @@ namespace OpenTK::Graphics::OpenGL::GL
     {
         if (const auto fn = GetUniform1f())
         {
+            const ::MphRead::NativeRuntime::FrameTelemetry::Scope measured(::MphRead::NativeRuntime::FrameTelemetry::Phase::Uniform);
+            ::MphRead::NativeRuntime::FrameTelemetry::Count(::MphRead::NativeRuntime::FrameTelemetry::Counter::GlUniformWrites);
             fn(location, v0);
         }
     }
@@ -883,6 +894,8 @@ namespace OpenTK::Graphics::OpenGL::GL
     {
         if (const auto fn = GetUniform1i())
         {
+            const ::MphRead::NativeRuntime::FrameTelemetry::Scope measured(::MphRead::NativeRuntime::FrameTelemetry::Phase::Uniform);
+            ::MphRead::NativeRuntime::FrameTelemetry::Count(::MphRead::NativeRuntime::FrameTelemetry::Counter::GlUniformWrites);
             fn(location, v0);
         }
     }
@@ -891,6 +904,8 @@ namespace OpenTK::Graphics::OpenGL::GL
     {
         if (const auto fn = GetUniform1fv())
         {
+            const ::MphRead::NativeRuntime::FrameTelemetry::Scope measured(::MphRead::NativeRuntime::FrameTelemetry::Phase::Uniform);
+            ::MphRead::NativeRuntime::FrameTelemetry::Count(::MphRead::NativeRuntime::FrameTelemetry::Counter::GlUniformWrites);
             fn(location, count, value);
         }
     }
@@ -899,6 +914,8 @@ namespace OpenTK::Graphics::OpenGL::GL
     {
         if (const auto fn = GetUniform3f())
         {
+            const ::MphRead::NativeRuntime::FrameTelemetry::Scope measured(::MphRead::NativeRuntime::FrameTelemetry::Phase::Uniform);
+            ::MphRead::NativeRuntime::FrameTelemetry::Count(::MphRead::NativeRuntime::FrameTelemetry::Counter::GlUniformWrites);
             fn(location, data.X, data.Y, data.Z);
         }
     }
@@ -907,6 +924,8 @@ namespace OpenTK::Graphics::OpenGL::GL
     {
         if (const auto fn = GetUniform3fv())
         {
+            const ::MphRead::NativeRuntime::FrameTelemetry::Scope measured(::MphRead::NativeRuntime::FrameTelemetry::Phase::Uniform);
+            ::MphRead::NativeRuntime::FrameTelemetry::Count(::MphRead::NativeRuntime::FrameTelemetry::Counter::GlUniformWrites);
             fn(location, count, value);
         }
     }
@@ -915,6 +934,8 @@ namespace OpenTK::Graphics::OpenGL::GL
     {
         if (const auto fn = GetUniform4f())
         {
+            const ::MphRead::NativeRuntime::FrameTelemetry::Scope measured(::MphRead::NativeRuntime::FrameTelemetry::Phase::Uniform);
+            ::MphRead::NativeRuntime::FrameTelemetry::Count(::MphRead::NativeRuntime::FrameTelemetry::Counter::GlUniformWrites);
             fn(location, data.X, data.Y, data.Z, data.W);
         }
     }
@@ -923,6 +944,8 @@ namespace OpenTK::Graphics::OpenGL::GL
     {
         if (const auto fn = GetUniform4f())
         {
+            const ::MphRead::NativeRuntime::FrameTelemetry::Scope measured(::MphRead::NativeRuntime::FrameTelemetry::Phase::Uniform);
+            ::MphRead::NativeRuntime::FrameTelemetry::Count(::MphRead::NativeRuntime::FrameTelemetry::Counter::GlUniformWrites);
             fn(location, v0, v1, v2, v3);
         }
     }
@@ -934,6 +957,8 @@ namespace OpenTK::Graphics::OpenGL::GL
     {
         if (const auto fn = GetUniform4i())
         {
+            const ::MphRead::NativeRuntime::FrameTelemetry::Scope measured(::MphRead::NativeRuntime::FrameTelemetry::Phase::Uniform);
+            ::MphRead::NativeRuntime::FrameTelemetry::Count(::MphRead::NativeRuntime::FrameTelemetry::Counter::GlUniformWrites);
             fn(location, v0, v1, v2, v3);
         }
     }
@@ -943,6 +968,8 @@ namespace OpenTK::Graphics::OpenGL::GL
     {
         if (const auto fn = GetUniformMatrix4fv())
         {
+            const ::MphRead::NativeRuntime::FrameTelemetry::Scope measured(::MphRead::NativeRuntime::FrameTelemetry::Phase::Uniform);
+            ::MphRead::NativeRuntime::FrameTelemetry::Count(::MphRead::NativeRuntime::FrameTelemetry::Counter::GlUniformWrites);
             // Matrix4 is sixteen floats in row order, which is the layout
             // OpenTK hands GL.
             fn(location, 1, transpose ? GL_TRUE : GL_FALSE, &matrix.M11);
@@ -954,6 +981,8 @@ namespace OpenTK::Graphics::OpenGL::GL
     {
         if (const auto fn = GetUniformMatrix4fv())
         {
+            const ::MphRead::NativeRuntime::FrameTelemetry::Scope measured(::MphRead::NativeRuntime::FrameTelemetry::Phase::Uniform);
+            ::MphRead::NativeRuntime::FrameTelemetry::Count(::MphRead::NativeRuntime::FrameTelemetry::Counter::GlUniformWrites);
             fn(location, count, transpose ? GL_TRUE : GL_FALSE, value);
         }
     }

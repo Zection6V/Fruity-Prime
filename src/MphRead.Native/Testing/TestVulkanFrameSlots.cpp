@@ -1,4 +1,5 @@
 #include "../NativeRuntime/Rhi/Vulkan/VulkanFrameSlots.hpp"
+#include "../NativeRuntime/Rhi/Vulkan/VulkanReacquireProof.hpp"
 #include "../NativeRuntime/Rhi/Vulkan/VulkanResult.hpp"
 #include <iostream>
 #include <map>
@@ -172,9 +173,31 @@ namespace
             "Closing a drained active frame added work or blocked again.");
         f.Clean();
     }
+    void ReacquireRetirement()
+    {
+        VulkanReacquireProof older, newer;
+        older.Acquired(true, 3);
+        Reject([&] { (void)older.CompleteAfterFenceSignal(); });
+        Expect(!older.Pending(), "Acquisition alone was treated as queue completion.");
+        // A failed queue submit must leave the proof unsubmitted; retrying the
+        // acquire record does not release any old presentation resources.
+        older.Acquired(true, 3); older.Submitted();
+        Reject([&] { older.Acquired(true, 4); });
+        Reject([&] { older.Submitted(); });
+        newer.Acquired(true, 4); newer.Submitted();
+        Expect(newer.CompleteAfterFenceSignal() == 4 && older.CompleteAfterFenceSignal() == 3,
+            "Delayed/out-of-order completion changed a retirement ceiling.");
+        Reject([&] { (void)older.CompleteAfterFenceSignal(); });
+        older.Acquired(false, 5); older.Submitted();
+        Expect(older.CompleteAfterFenceSignal() == 0,
+            "A never-presented image falsely proved old present completion.");
+        older.Acquired(true, 6); older.Submitted();
+        Expect(older.CompleteAfterFenceSignal() == 6 && !older.Pending(),
+            "Frame-slot reuse retained a stale reacquisition proof.");
+    }
 }
 int main()
 {
-    try { Rotation(); CompletionAndFailures(); DeviceLoss(); ExternalDrain(); std::cout << "Vulkan frame slots PASS; 64 rotations; fenced descriptor/transient lifetime; timeline proof; timeout; retries; loss; drained active-frame close\n"; return 0; }
+    try { Rotation(); CompletionAndFailures(); DeviceLoss(); ExternalDrain(); ReacquireRetirement(); std::cout << "Vulkan frame slots PASS; 64 rotations; fenced descriptor/transient lifetime; timeline proof; timeout; retries; loss; drained active-frame close; deferred reacquisition ceilings\n"; return 0; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

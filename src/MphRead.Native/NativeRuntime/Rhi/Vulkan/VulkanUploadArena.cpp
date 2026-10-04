@@ -1,4 +1,5 @@
 #include "VulkanUploadArena.hpp"
+#include "../../FrameTelemetry.hpp"
 
 #if defined(FRUITY_HAS_VULKAN)
 #include <algorithm>
@@ -48,6 +49,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             throw std::overflow_error("Vulkan upload reserved bytes overflow.");
         // Retention allocation happens before native allocation, so a vector
         // allocation failure cannot lose an already-created native page.
+        if (_pages.size() == _pages.capacity()) FrameTelemetry::Count(FrameTelemetry::Counter::VectorGrowth);
         _pages.reserve(_pages.size() + 1);
         auto page = _dispatch.Create(capacity);
         if (!page.Buffer || !page.Allocation || !page.Data || page.Size != capacity)

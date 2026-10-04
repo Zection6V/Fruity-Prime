@@ -61,7 +61,7 @@ void Run() {
   r.SetSwapchain(reinterpret_cast<VkSwapchainKHR>(3)); Expect(f.modes.back().lowLatencyBoost && r.Stats().swapchainGeneration == 2, "Requested Boost lost after recreate.");
   r.SetMode(LowLatencyMode::Off, 0); Expect(!f.modes.back().lowLatencyBoost && r.SubmissionId() == 0 && r.BeginFrame() && f.sleeps == 2, "Off retains native pacing.");
   const auto offId = r.FrameId();
-  Expect(offId > 42 && r.SubmissionId() == offId && r.MeasurementAvailable() && !r.PacingActive(), "Off measurement identity absent.");
+  Expect(offId > 42 && r.SubmissionId() == 0 && r.MeasurementAvailable() && !r.PacingActive(), "Off lost measurement identity or retained explicit queue attribution.");
   const auto markersBeforeOff = f.markers.size();
   for (unsigned i = 0; i < 7; ++i) { r.Mark(static_cast<LowLatencyMarker>(i)); r.Mark(static_cast<LowLatencyMarker>(i)); }
   Expect(f.markers.size() == markersBeforeOff + 7, "Off marker contract absent or duplicated.");
@@ -94,7 +94,9 @@ void Run() {
   for (unsigned i = 0; i < 360; ++i) {
    if (i == 120) r.SetMode(LowLatencyMode::OnBoost, 0);
    if (i == 240) r.SetMode(LowLatencyMode::Off, 0);
-   Expect(r.BeginFrame(), "Cadence frame admission failed."); r.FinishFrame(); r.FinishFrame();
+   Expect(r.BeginFrame(), "Cadence frame admission failed.");
+   Expect(r.SubmissionId() == (i >= 120 && i < 240 ? r.FrameId() : 0), "Off/Boost/Off did not switch implicit/explicit attribution.");
+   r.FinishFrame(); r.FinishFrame();
    Expect(f.timingQueries == (i + 1) / 120, "Timing polling is not once per 120 completed measurement frames.");
   }
   Expect(f.sleeps == 120 && r.Stats().completedMeasurementFrames == 360 && r.Stats().timingQueries == 3,

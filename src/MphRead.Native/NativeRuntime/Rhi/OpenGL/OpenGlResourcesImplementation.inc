@@ -6,10 +6,9 @@
 namespace
 {
     constexpr unsigned UploadTarget = 0x8892;        // ARRAY_BUFFER
-    constexpr unsigned UploadTargetBinding = 0x8894; // ARRAY_BUFFER_BINDING
     struct UploadBinding final
     {
-        int Previous = GL::GetInteger(UploadTargetBinding);
+        int Previous = ArrayBufferBinding();
         ~UploadBinding() { GL::BindBuffer(static_cast<GL::BufferTarget>(UploadTarget), Previous); }
     };
 }
@@ -199,7 +198,7 @@ const OpenGlBindingLayout& CheckedLayout(OpenGlGraphicsDevice& device, const Bin
     if (!layout || layout->Device() != &device) throw std::invalid_argument("OpenGL RHI: invalid binding layout.");
     return *layout;
 }
-OpenGlBindingSet::OpenGlBindingSet(OpenGlGraphicsDevice& device, const BindingSetDesc& desc)
+OpenGlBindingSnapshot::OpenGlBindingSnapshot(OpenGlGraphicsDevice& device, const BindingSetDesc& desc)
     : _device(&device), _lifetime(DeviceLifetime(device)), _layout(device, CheckedLayout(device, desc.layout).Desc()), _desc(desc)
 {
     _desc.layout = &_layout;
@@ -221,10 +220,11 @@ OpenGlBindingSet::OpenGlBindingSet(OpenGlGraphicsDevice& device, const BindingSe
             if (!value || !value->buffer) throw std::invalid_argument("OpenGL RHI: wrong buffer binding type.");
             const auto& buffer = CheckedBuffer(device, *value->buffer);
             const bool uniform = found->type == BindingType::UniformBuffer;
-            const auto alignment = GL::GetInteger(uniform ? 0x8A34 : 0x90DF);
+            const auto alignment = uniform ? device.Limits().UniformAlignment : device.Limits().StorageAlignment;
+            const auto limit = uniform ? device.Limits().UniformBuffers : device.Limits().StorageBuffers;
             const auto size = value->size ? value->size : buffer.Desc().size - value->offset;
             CheckBufferRange(buffer, value->offset, size);
-            if (!Has(buffer.Desc().usage, uniform ? BufferUsage::Uniform : BufferUsage::Storage)
+            if (!limit || !Has(buffer.Desc().usage, uniform ? BufferUsage::Uniform : BufferUsage::Storage)
                 || alignment <= 0 || value->offset % static_cast<std::uint64_t>(alignment))
                 throw std::invalid_argument("OpenGL RHI: invalid buffer binding usage or alignment.");
         }
@@ -255,7 +255,7 @@ OpenGlBindingSet::OpenGlBindingSet(OpenGlGraphicsDevice& device, const BindingSe
     }
 }
 
-void OpenGlBindingSet::ValidateResources() const
+void OpenGlBindingSnapshot::ValidateResources() const
 {
     if (_lifetime.expired()) throw std::invalid_argument("OpenGL RHI: binding set session has ended.");
     for (const auto& lifetime : _resourceLifetimes)

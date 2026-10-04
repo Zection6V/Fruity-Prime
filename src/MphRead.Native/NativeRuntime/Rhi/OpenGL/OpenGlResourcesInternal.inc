@@ -45,12 +45,12 @@ private:
 
 // A set keeps its layout description alive independently of the caller's
 // temporary layout object, just as pipeline layout descriptions do.
-class OpenGlBindingSet final : public BindingSet
+class OpenGlBindingSnapshot final
 {
 public:
-    OpenGlBindingSet(OpenGlGraphicsDevice& device, const BindingSetDesc& desc);
+    OpenGlBindingSnapshot(OpenGlGraphicsDevice& device, const BindingSetDesc& desc);
     void ValidateResources() const;
-    const BindingSetDesc& Desc() const noexcept override { return _desc; }
+    const BindingSetDesc& Desc() const noexcept { return _desc; }
     OpenGlGraphicsDevice* Device() const noexcept { return _lifetime.expired() ? nullptr : _device; }
 private:
     OpenGlGraphicsDevice* _device;
@@ -58,6 +58,22 @@ private:
     OpenGlBindingLayout _layout;
     BindingSetDesc _desc;
     std::vector<std::weak_ptr<void>> _resourceLifetimes;
+};
+
+// The description and borrowed-resource lifetime checks are immutable. Binding
+// a set retains this owner; destroying public set/layout wrappers does not copy
+// vectors or invalidate recorded bindings.
+class OpenGlBindingSet final : public BindingSet
+{
+public:
+    OpenGlBindingSet(OpenGlGraphicsDevice& device, const BindingSetDesc& desc)
+        : _snapshot(std::make_shared<OpenGlBindingSnapshot>(device, desc)) {}
+    void ValidateResources() const { _snapshot->ValidateResources(); }
+    const BindingSetDesc& Desc() const noexcept override { return _snapshot->Desc(); }
+    OpenGlGraphicsDevice* Device() const noexcept { return _snapshot->Device(); }
+    const std::shared_ptr<const OpenGlBindingSnapshot>& Snapshot() const noexcept { return _snapshot; }
+private:
+    std::shared_ptr<const OpenGlBindingSnapshot> _snapshot;
 };
 
 struct OpenGlSamplerStorage final

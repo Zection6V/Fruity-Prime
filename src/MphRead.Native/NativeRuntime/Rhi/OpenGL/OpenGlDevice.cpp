@@ -1,4 +1,5 @@
 #include "OpenGlDevice.hpp"
+#include "../../FrameTelemetry.hpp"
 #include "../ResourceStatePolicy.hpp"
 #include "OpenGlNative.hpp"
 #include "OpenGlFrameScheduler.hpp"
@@ -289,7 +290,6 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         constexpr std::int32_t CapBlend = 0x0BE2;
         constexpr std::int32_t CapCullFace = 0x0B44;
         constexpr std::int32_t CapPolygonOffsetFill = 0x8037;
-        constexpr std::int32_t CurrentProgram = 0x8B8D; // GL_CURRENT_PROGRAM
 
         void SetCap(std::int32_t cap, bool on)
         {
@@ -309,6 +309,20 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             ~OpenGlProgramStorage();
             OpenGlGraphicsDevice* Device;
             std::int32_t Name;
+            std::int32_t MaterialAlphaLocation = -1, AlphaTestLocation = -1;
+            float MaterialAlpha = 1;
+            std::int32_t AlphaTest = 0;
+            bool MaterialAlphaCurrent = false, AlphaTestCurrent = false;
+#if !defined(__ANDROID__)
+            OpenGlUniformState Uniforms;
+#endif
+            void InvalidateValues() noexcept
+            {
+                MaterialAlphaCurrent = AlphaTestCurrent = false;
+#if !defined(__ANDROID__)
+                Uniforms.Invalidate();
+#endif
+            }
             void Detach() noexcept { Device = nullptr; Name = 0; }
         };
 
@@ -325,6 +339,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             [[nodiscard]] const GraphicsPipelineDesc& Desc() const noexcept override { return _desc; }
             // 0: the pipeline leaves the current program alone.
             [[nodiscard]] std::int32_t Program() const noexcept { return _program ? _program->Name : 0; }
+            [[nodiscard]] OpenGlProgramStorage* ProgramStorage() const noexcept { return _program.get(); }
             OpenGlGraphicsDevice* Device() const noexcept { return _lifetime.expired() ? nullptr : _device; }
 
         private:
@@ -536,8 +551,30 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         class OpenGlGraphicsDevice final : public GraphicsDevice
         {
         public:
+            struct BindingLimits final
+            {
+                std::uint32_t UniformBuffers = 0, StorageBuffers = 0, Textures = 0, Images = 0;
+                std::uint64_t UniformAlignment = 1, StorageAlignment = 1;
+            };
             OpenGlGraphicsDevice() : _scheduler(SchedulerDispatch(_api)), _contextKey(ContextKey())
             {
+                const auto limit = [](std::int32_t name) { return static_cast<std::uint32_t>(std::max(0, GL::GetInteger(name))); };
+                _bindingLimits.Textures = limit(0x8B4D);
+                if (_api.features.uniformBuffers)
+                {
+                    _bindingLimits.UniformBuffers = limit(0x8A2F);
+                    _bindingLimits.UniformAlignment = limit(0x8A34);
+                }
+                if (_api.features.storageBuffers)
+                {
+                    _bindingLimits.StorageBuffers = limit(0x90DD);
+                    _bindingLimits.StorageAlignment = limit(0x90DF);
+                }
+                if (_api.BindImageTexture
+#if defined(__ANDROID__)
+                    && _api.features.storageBuffers
+#endif
+                    ) _bindingLimits.Images = limit(0x8F38);
                 _capabilities.backend = GraphicsBackend::OpenGl;
                 _capabilities.maxColorAttachments = 1;
                 _capabilities.supportsWireframe = true;
@@ -580,6 +617,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             }
 
             ~OpenGlGraphicsDevice() override;
+            const BindingLimits& Limits() const noexcept { return _bindingLimits; }
             void CloseNative();
             std::function<void()> NativeReleaseCheck();
             void CheckMemoryAdmission();
@@ -818,6 +856,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 _scheduler.Wait(_slots[slot].Serial);
                 CollectCompleted();
                 _frameOpen = true;
+                _memory.BeginFrame();
                 _readbacks.Poll();
                 return {_frame, static_cast<std::uint32_t>(slot)};
             }
@@ -825,6 +864,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void EndFrame() override
             {
                 if (!_frameOpen) return;
+                _memory.EndFrame();
                 // This marker covers the entire context stream, including the
                 // window compositor. A frame number never acts as completion.
                 const auto serial = _scheduler.Submit(true);
@@ -837,6 +877,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void WaitIdle() override
             {
                 _scheduler.Finish();
+                _memory.EndFrame();
                 _frameOpen = false;
                 _completedFrame = _frame;
                 _retired.Collect(_scheduler.Completed(), DestroyNative);
@@ -854,6 +895,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
 
             void Retire(const GlObject& object)
             {
+                if (object.What == GlObject::Kind::VertexArray) ForgetVertexArray(static_cast<unsigned>(object.Name));
                 if (object.What == GlObject::Kind::Buffer)
                 {
                     ForgetBuffer(object.Name);
@@ -1008,7 +1050,91 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             { _lists.erase(&list); if (_nativeOwner == &list) _nativeOwner = nullptr; }
             bool Activate(OpenGlCommandList& list) noexcept
             { return std::exchange(_nativeOwner, &list) != &list; }
-            void InvalidateDrawState() noexcept { _nativeOwner = nullptr; }
+            void InvalidateDrawState() noexcept
+            {
+                _nativeOwner = nullptr; _nativeProgram = nullptr; _programKnown = false;
+                _vertexArrayKnown = false;
+                _arrayBufferKnown = false;
+                for (auto* program : _livePrograms) program->InvalidateValues();
+            }
+            void BindProgram(OpenGlProgramStorage* program)
+            {
+                if (!_programKnown || _nativeProgram != program)
+                {
+                    GL::UseProgram(program ? program->Name : 0);
+                    _nativeProgram = program; _programKnown = true;
+                }
+            }
+            void BindProgram(std::int32_t name)
+            {
+                if (!name) { BindProgram(static_cast<OpenGlProgramStorage*>(nullptr)); return; }
+                for (auto* program : _livePrograms)
+                    if (program->Name == name) { BindProgram(program); return; }
+                throw std::invalid_argument("OpenGL RHI: program is outside this device's ownership.");
+            }
+            void MaterialAlpha(float alpha)
+            {
+                if (!_nativeProgram || !_programKnown) return;
+                auto& program = *_nativeProgram;
+                if (program.MaterialAlphaLocation != -1
+                    && (!program.MaterialAlphaCurrent || program.MaterialAlpha != alpha))
+                {
+                    GL::Uniform1(program.MaterialAlphaLocation, alpha);
+                    program.MaterialAlpha = alpha; program.MaterialAlphaCurrent = true;
+                }
+            }
+            bool UpdateUniform(ShaderUniformLocation uniform, OpenGlUniformState::Kind kind, std::span<const std::byte> bytes)
+            {
+                if (uniform.Location == -1) return false;
+#if defined(__ANDROID__)
+                // GLES fixed-function emulation also mutates native uniforms.
+                return true;
+#else
+                if (!_programKnown || !_nativeProgram) return true;
+                if (_nativeProgram->Name != uniform.Program)
+                { _nativeProgram->Uniforms.Invalidate(); return true; }
+                return _nativeProgram->Uniforms.Update(uniform.Semantic, uniform.Location, kind, bytes);
+#endif
+            }
+            void AlphaTest(AlphaTestMode mode)
+            {
+                if (!_nativeProgram || !_programKnown) return;
+                auto& program = *_nativeProgram;
+                const auto value = static_cast<std::int32_t>(mode);
+                if (program.AlphaTestLocation != -1
+                    && (!program.AlphaTestCurrent || program.AlphaTest != value))
+                {
+                    GL::Uniform1(program.AlphaTestLocation, value);
+                    program.AlphaTest = value; program.AlphaTestCurrent = true;
+                }
+            }
+            void BindVertexArray(unsigned name)
+            {
+                if (!_vertexArrayKnown || _nativeVertexArray != name)
+                {
+                    OpenGlNative::Require(_api.BindVertexArray, "glBindVertexArray")(name);
+                    FrameTelemetry::Count(FrameTelemetry::Counter::VaoBinds);
+                    _nativeVertexArray = name; _vertexArrayKnown = true;
+                }
+                else FrameTelemetry::Count(FrameTelemetry::Counter::VaoSuppressed);
+            }
+            void ForgetVertexArray(unsigned name) noexcept
+            { if (_vertexArrayKnown && _nativeVertexArray == name) _vertexArrayKnown = false; }
+            std::int32_t ArrayBinding()
+            {
+#if defined(__ANDROID__)
+                // The GLES fixed-function adapter also issues raw buffer binds.
+                // Keep its live-query contract until those mutations have an owner.
+                return GL::GetInteger(0x8894);
+#else
+                if (!_arrayBufferKnown) ArrayBound(GL::GetInteger(0x8894));
+                return _nativeArrayBuffer;
+#endif
+            }
+            void ArrayBound(std::int32_t name) noexcept
+            { _nativeArrayBuffer = name; _arrayBufferKnown = true; }
+            void ArrayDeleted(std::int32_t name) noexcept
+            { if (_arrayBufferKnown && _nativeArrayBuffer == name) _nativeArrayBuffer = 0; }
             void ForgetBuffer(std::int32_t name);
 
             // Storage for a render target: TexImage2D with no data, or a
@@ -1113,6 +1239,12 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             std::unordered_set<std::int32_t> _buffers{};
             std::map<std::pair<const Shader*, const Shader*>, std::shared_ptr<OpenGlProgramStorage>> _programs{};
             std::unordered_set<OpenGlProgramStorage*> _livePrograms;
+            OpenGlProgramStorage* _nativeProgram = nullptr;
+            BindingLimits _bindingLimits{};
+            bool _programKnown = false, _vertexArrayKnown = false;
+            unsigned _nativeVertexArray = 0;
+            bool _arrayBufferKnown = false;
+            std::int32_t _nativeArrayBuffer = 0;
             std::unordered_set<OpenGlTimestampSet*> _timestampSets;
             std::shared_ptr<TimestampBudget> _timestampBudget = std::make_shared<TimestampBudget>();
             TimestampProperties _timestampProperties;
@@ -1179,7 +1311,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             {
                 RequireAlive();
                 if (_recording) throw std::logic_error("OpenGL RHI: command list is already recording.");
-                _genericSets.clear(); _units = {}; _vertexBindings.clear(); _indexBuffer = nullptr;
+                _genericSets.fill({}); _units = {}; _vertexBindings.clear(); _indexBuffer = nullptr;
                 _applied = nullptr; _hasViewport = false; _nativeDirty = true;
                 _recording = true;
             }
@@ -1303,16 +1435,15 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     return;
                 }
                 _applied = &pipeline;
-                for (auto it = _genericSets.begin(); it != _genericSets.end();)
-                    if (it->first >= pipeline.Desc().pipelineLayout.groups.size()
-                        || it->second->Desc().layout->Desc() != pipeline.Desc().pipelineLayout.groups[it->first])
-                        it = _genericSets.erase(it);
-                    else ++it;
+                for (std::size_t group = 0; group < _genericSets.size(); ++group)
+                    if (_genericSets[group] && (group >= pipeline.Desc().pipelineLayout.groups.size()
+                        || _genericSets[group]->Desc().layout->Desc() != pipeline.Desc().pipelineLayout.groups[group]))
+                        _genericSets[group].reset();
                 const GraphicsPipelineDesc& desc = pipeline.Desc();
                 const std::int32_t program = static_cast<const OpenGlGraphicsPipeline&>(pipeline).Program();
                 if (program != 0)
                 {
-                    GL::UseProgram(program);
+                    _device->BindProgram(native->ProgramStorage());
                 }
 
                 const RasterizerStateDesc& raster = desc.rasterizer;
@@ -1390,14 +1521,9 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     throw std::invalid_argument("OpenGL RHI: invalid small draw constants.");
                 RestoreDrawState();
                 ApplyAlphaTest(static_cast<AlphaTestMode>(constants.alphaTest));
-                const auto program = GL::GetInteger(CurrentProgram);
-                if (program)
-                {
-                    const auto location = GL::GetUniformLocation(program, "mat_alpha");
-                    if (location != -1) GL::Uniform1(location, constants.materialAlpha);
-                }
+                _device->MaterialAlpha(constants.materialAlpha);
             }
-            void ApplyBindingSet(std::uint32_t group, const OpenGlBindingSet& set);
+            void ApplyBindingSet(std::uint32_t group, const OpenGlBindingSnapshot& set);
             void SetStencilReference(std::uint32_t reference) override
             {
                 RequireRecording();
@@ -1589,11 +1715,14 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             {
                 while (_debugDepth) { _device->Api().PopDebugGroup(); --_debugDepth; }
                 for (const auto& [key, vao] : _vertexArrays)
+                {
+                    _device->ForgetVertexArray(vao.Name);
                     _device->Api().DeleteVertexArrays(1, &vao.Name);
+                }
                 for (const auto& [key, framebuffer] : _framebuffers)
                     DestroyNative({GlObject::Kind::Framebuffer, framebuffer});
                 _vertexArrays.clear(); _framebuffers.clear(); _vertexBindings.clear();
-                _genericSets.clear(); _units = {};
+                _genericSets.fill({}); _units = {};
                 _applied = nullptr; _indexBuffer = nullptr; _device = nullptr;
                 _recording = false;
                 _renderingOpen = false;
@@ -1602,8 +1731,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             void ForgetBuffer(std::int32_t name);
 
             void ForgetPipeline(const GraphicsPipeline& pipeline) noexcept
-            { if (_applied == &pipeline) { _applied = nullptr; _genericSets.clear(); } }
-            void ForgetProgram(std::int32_t program) { _alphaTestLocations.erase(program); }
+            { if (_applied == &pipeline) { _applied = nullptr; _genericSets.fill({}); } }
+            void ForgetProgram(std::int32_t) noexcept {}
 
         private:
             unsigned VertexArray();
@@ -1615,7 +1744,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             Scissor _scissor{};
             bool _scissorEnabled = false;
             std::uint32_t _renderWidth = 0, _renderHeight = 0;
-            std::map<std::uint32_t, std::unique_ptr<OpenGlBindingSet>> _genericSets;
+            std::array<std::shared_ptr<const OpenGlBindingSnapshot>, 4> _genericSets{};
+            std::vector<std::pair<unsigned, const OpenGlSampler*>> _textureSamplers;
             struct SampledBinding final
             {
                 const OpenGlTexture* Texture = nullptr;
@@ -1692,21 +1822,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 }
                 return;
 #endif
-                const std::int32_t program = GL::GetInteger(CurrentProgram);
-                if (program == 0)
-                {
-                    return;
-                }
-                auto found = _alphaTestLocations.find(program);
-                if (found == _alphaTestLocations.end())
-                {
-                    found = _alphaTestLocations.emplace(program,
-                        GL::GetUniformLocation(program, "alpha_test")).first;
-                }
-                if (found->second != -1)
-                {
-                    GL::Uniform1(found->second, static_cast<std::int32_t>(mode));
-                }
+                _device->AlphaTest(mode);
             }
 
             // The framebuffer for these attachments, built if need be without
@@ -1786,7 +1902,6 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             FramebufferKey _current{};
             const GraphicsPipeline* _applied = nullptr;
             std::uint32_t _stencilReference = 0;
-            std::unordered_map<std::int32_t, std::int32_t> _alphaTestLocations{};
         };
 
         #include "OpenGlCommandsInternal.inc"
@@ -1842,6 +1957,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             while (!_timestampSets.empty()) (*_timestampSets.begin())->Close(true);
             _readbacks.Close();
             GL::UseProgram(0);
+            _nativeProgram = nullptr; _programKnown = false; _vertexArrayKnown = false;
             GL::BindFramebuffer(GL::FramebufferTarget::Framebuffer, 0);
             if (_api.BindVertexArray) _api.BindVertexArray(0);
             for (OpenGlTexture* texture : _live)
@@ -1957,11 +2073,12 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         { for (auto* list : _lists) list->ForgetPipeline(pipeline); }
         void OpenGlGraphicsDevice::ForgetProgram(std::int32_t program)
         {
-            if (GL::GetInteger(CurrentProgram) == program) GL::UseProgram(0);
+            if (_nativeProgram && _nativeProgram->Name == program) BindProgram(static_cast<OpenGlProgramStorage*>(nullptr));
             for (auto* list : _lists) list->ForgetProgram(program);
         }
         OpenGlProgramStorage::OpenGlProgramStorage(OpenGlGraphicsDevice& device, std::int32_t name)
-            : Device(&device), Name(name) { device.Track(*this); }
+            : Device(&device), Name(name), MaterialAlphaLocation(GL::GetUniformLocation(name, "mat_alpha")),
+                AlphaTestLocation(GL::GetUniformLocation(name, "alpha_test")) { device.Track(*this); }
         OpenGlProgramStorage::~OpenGlProgramStorage()
         {
             if (!Device) return;
@@ -1970,6 +2087,46 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             Device->Retire({GlObject::Kind::Program, Name});
         }
     }
+
+    void InvalidateContextState() noexcept
+    {
+        if (const auto found = ContextDevices().find(ContextKey()); found != ContextDevices().end())
+            found->second->InvalidateDrawState();
+    }
+    void BeginExternalGlInterop()
+    {
+        // External legacy attribute/index writes must not modify a retained
+        // RHI VAO. Consumers that own their own VAO can bind it afterward.
+        if (const auto found = ContextDevices().find(ContextKey()); found != ContextDevices().end())
+        {
+            found->second->BindVertexArray(0);
+            found->second->InvalidateDrawState();
+        }
+    }
+    void EndExternalGlInterop() noexcept { InvalidateContextState(); }
+    std::int32_t ArrayBufferBinding()
+    {
+        if (const auto found = ContextDevices().find(ContextKey()); found != ContextDevices().end())
+            return found->second->ArrayBinding();
+        return GL::GetInteger(0x8894);
+    }
+    void ArrayBufferBound(std::int32_t name) noexcept
+    {
+        if (const auto found = ContextDevices().find(ContextKey()); found != ContextDevices().end())
+            found->second->ArrayBound(name);
+    }
+    void ArrayBufferDeleted(std::int32_t name) noexcept
+    {
+        if (const auto found = ContextDevices().find(ContextKey()); found != ContextDevices().end())
+            found->second->ArrayDeleted(name);
+    }
+    void UseProgram(GraphicsDevice& device, std::int32_t program)
+    { static_cast<OpenGlGraphicsDevice&>(device).BindProgram(program); }
+    void SetMaterialAlpha(GraphicsDevice& device, float alpha)
+    { static_cast<OpenGlGraphicsDevice&>(device).MaterialAlpha(alpha); }
+    bool UpdateShaderUniform(GraphicsDevice& device, ShaderUniformLocation uniform,
+        OpenGlUniformState::Kind kind, std::span<const std::byte> bytes)
+    { return static_cast<OpenGlGraphicsDevice&>(device).UpdateUniform(uniform, kind, bytes); }
 
     GraphicsDevice& ContextDevice()
     {
@@ -1994,6 +2151,42 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         auto* native = dynamic_cast<OpenGlGraphicsDevice*>(&device);
         if (!native) throw std::invalid_argument("Memory admission check requires OpenGL.");
         native->CheckMemoryAdmission();
+    }
+
+    void DisruptNativeBindingsForCheck(GraphicsDevice& device)
+    {
+        auto* native = dynamic_cast<OpenGlGraphicsDevice*>(&device);
+        if (!native || &ContextDevice() != &device)
+            throw std::invalid_argument("Interop check requires the current OpenGL device.");
+        const auto previousBuffer = GL::GetInteger(0x8894);
+        const auto externalBuffer = GL::GenBuffer();
+        struct RestoreBuffer final
+        {
+            int Previous, External;
+            ~RestoreBuffer() { GL::DeleteBuffer(External); GL::BindBuffer(GL::BufferTarget::ArrayBuffer, Previous); }
+        } restore{previousBuffer, externalBuffer};
+        BufferDesc scratchDesc{16, BufferUsage::Vertex | BufferUsage::TransferDst, MemoryUsage::CpuToGpu};
+        auto scratch = device.CreateBuffer(scratchDesc);
+        std::array<std::byte, 16> bytes{};
+        GL::BindBuffer(GL::BufferTarget::ArrayBuffer, 0);
+        (void)ArrayBufferBinding();
+        BeginExternalGlInterop();
+        GL::BindBuffer(GL::BufferTarget::ArrayBuffer, externalBuffer);
+        EndExternalGlInterop();
+        device.WriteBuffer(*scratch, 0, bytes);
+        device.WriteBuffer(*scratch, 0, bytes);
+        if (GL::GetInteger(0x8894) != externalBuffer)
+            throw std::runtime_error("OpenGL upload lost the external owner's buffer binding.");
+        GL::DeleteBuffer(externalBuffer); restore.External = 0;
+        device.WriteBuffer(*scratch, 0, bytes);
+        if (GL::GetInteger(0x8894) != 0)
+            throw std::runtime_error("OpenGL upload retained a deleted buffer binding.");
+        InvalidateContextState();
+        GL::UseProgram(0);
+        OpenGlNative::Require(native->Api().BindVertexArray, "glBindVertexArray")(0);
+        GL::Viewport(0, 0, 1, 1);
+        GL::Disable(static_cast<GL::EnableCap>(0x0C11));
+        InvalidateContextState();
     }
 
     void AdmitInteropTextureStorage(TextureFormat format, std::uint32_t width, std::uint32_t height)

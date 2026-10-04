@@ -242,7 +242,6 @@
             std::array<std::pair<VulkanTexture*, const VulkanSampler*>, 4> _units{};
             std::unordered_map<VariantKey, Variant, VariantHash> _variants{};
 
-            const VulkanSceneProgram* _setProgram = nullptr;
             struct SampledDescriptor final
             {
                 VkImageView View = VK_NULL_HANDLE;
@@ -251,58 +250,33 @@
                 std::uint64_t Identity = 0, Generation = 0, SamplerIdentity = 0;
                 bool operator==(const SampledDescriptor&) const = default;
             };
-            std::array<SampledDescriptor, 4> _setTextures{};
-            std::vector<std::pair<RingSlice, std::uint64_t>> _uniformSlices;
-            std::array<VkDescriptorSet, SceneShaderAbi::GroupCount> _sets{};
-            struct DescriptorKey final
-            {
-                std::array<std::uint64_t, 64> Words{};
-                bool operator==(const DescriptorKey&) const = default;
-            };
-            struct DescriptorHash final
-            {
-                std::size_t operator()(const DescriptorKey& key) const noexcept
-                {
-                    std::size_t hash = 0;
-                    for (const auto word : key.Words)
-                        hash ^= std::hash<std::uint64_t>{}(word) + 0x9e3779b9U + (hash << 6) + (hash >> 2);
-                    return hash;
-                }
-            };
-            // Cleared at each native buffer/pool generation. Bounded; overflow
-            // records an uncached set in the existing slot allocator.
-            // These bounded caches are cleared on every recording generation.
-            // Recycle their CPU nodes; entries never survive the GPU slot reset.
-            std::pmr::unsynchronized_pool_resource _sceneCacheMemory;
-            std::pmr::unordered_map<DescriptorKey, VkDescriptorSet, DescriptorHash> _descriptorCache{&_sceneCacheMemory};
-            std::pmr::map<std::array<std::uint64_t, 3>, RingSlice> _uniformCache{&_sceneCacheMemory};
+            using ProgramUniformState = VulkanSceneBindingState<RingSlice, VkDescriptorSet, SampledDescriptor>;
+            std::array<ProgramUniformState, static_cast<std::size_t>(SceneProgram::Backdrop) + 1> _programUniforms{};
+            VulkanSceneDescriptorState<VkDescriptorSet, SampledDescriptor> _sceneDescriptors;
+            std::uint64_t _descriptorEpoch = 1;
             std::array<VkDescriptorSet, SceneShaderAbi::GroupCount> _boundSceneSets{};
-            PipelineLayout _boundSceneLayout{};
+            const PipelineLayout* _boundSceneLayout = nullptr;
             std::uint32_t _boundSmallBytes = 0;
-            std::unordered_map<const void*, std::uint64_t> _programIdentities;
+            std::array<std::pair<const void*, std::uint64_t>, static_cast<std::size_t>(SceneProgram::Backdrop) + 1> _programIdentities{};
             std::uint64_t _metricFixedSlots = 0, _metricFixedOverflow = 0;
             std::uint64_t _metricOptionalSkips = 0;
-            struct PersistentMaterialKey final
-            {
-                DescriptorKey Objects;
-                std::array<std::byte, 1024> Data{};
-                std::uint32_t Size = 0;
-                bool operator==(const PersistentMaterialKey&) const = default;
-            };
-            struct PersistentMaterialHash final
-            {
-                std::size_t operator()(const PersistentMaterialKey& key) const noexcept
-                {
-                    return DescriptorHash{}(key.Objects) ^ std::hash<std::string_view>{}(
-                        {reinterpret_cast<const char*>(key.Data.data()), key.Size});
-                }
-            };
             struct PersistentMaterial final
             {
-                VkDescriptorSet Set;
-                VulkanResources::BufferStorage Uniform;
+                struct Slot final
+                {
+                    VkDescriptorSet Set = VK_NULL_HANDLE;
+                    std::uint64_t Generation = 0, Recording = 0;
+                    std::array<SampledDescriptor, 4> Textures{};
+                };
+                VulkanResources::BufferStorage Uniform{};
+                std::uint64_t ProgramIdentity = 0;
+                VkDeviceSize Stride = 0;
+                std::array<Slot, FramesInFlight> Slots{};
             };
-            std::unordered_map<PersistentMaterialKey, PersistentMaterial, PersistentMaterialHash> _persistentMaterials;
+            static constexpr std::size_t MaterialsPerPage = 64, MaterialCapacity = 4096;
+            using PersistentMaterialPage = std::array<PersistentMaterial, MaterialsPerPage>;
+            std::vector<std::unique_ptr<PersistentMaterialPage>> _persistentMaterials;
+            std::size_t _persistentMaterialCount = 0;
             std::shared_ptr<VulkanDescriptorAllocator> _persistentDescriptors;
             std::uint64_t _metricPersistentHits = 0, _metricPersistentMisses = 0, _metricPersistentFull = 0;
             VkDescriptorSet PersistentMaterialSet(const VulkanSceneProgram&, const std::array<SampledDescriptor, 4>&);
@@ -370,7 +344,8 @@
                 _device->SceneForgetters[this] = [this](const void* object) { Forget(object); };
                 _device->SceneViewReplacers[this] = [this](VkImageView before, VkImageView after) {
                     ClearPersistentMaterials();
-                    _descriptorCache.clear(); _boundSceneSets.fill(VK_NULL_HANDLE);
+                    ++_descriptorEpoch;
+                    for (auto& state : _programUniforms) { state.Sets = {}; state.Textures = {}; } _boundSceneSets.fill(VK_NULL_HANDLE);
                     for (auto& [slot, set] : _genericSets) set.Generation = 0;
                     _genericDirty = true;
                     const bool matches = _target.ColorView == before || _target.DepthView == before;
@@ -425,7 +400,7 @@
             if (_commandSlots) _commandSlots->Close(_device->Closing);
             _commandSlots.reset();
             _recording = _autoRestart = _renderingActive = _renderingOpen = _clearsPending = false;
-            _target = {}; _pipeline = nullptr; _units = {}; _setProgram = nullptr; _sets.fill(VK_NULL_HANDLE);
+            _target = {}; _pipeline = nullptr; _units = {}; _programUniforms = {};
             _closed = true;
         }
 
@@ -449,10 +424,8 @@
             _boundNative = VK_NULL_HANDLE;
             _smallPipeline = nullptr;
             _smallCurrent = false;
-            _sets.fill(VK_NULL_HANDLE);
-            _setProgram = nullptr;
+            for (auto& state : _programUniforms) state.Sets = {};
             _device->SceneFlushers[this] = [this] { Flush(); };
-            _descriptorCache.clear(); _uniformCache.clear();
             _boundSceneSets.fill(VK_NULL_HANDLE); _boundSceneLayout = {}; _boundSmallBytes = 0;
             _device->RecordingList = this;
             for (const auto& label : _debugLabels) NativeBeginLabel(label);
@@ -509,8 +482,7 @@
                     << " persistent_material_misses=" << _metricPersistentMisses
                     << " persistent_material_full=" << _metricPersistentFull
                     << " optional_work_busy_skip_count=" << _metricOptionalSkips << '\n';
-            _sets.fill(VK_NULL_HANDLE);
-            _setProgram = nullptr;
+            for (auto& state : _programUniforms) state.Sets = {};
             _boundNative = VK_NULL_HANDLE;
         }
 
@@ -577,14 +549,17 @@
 
         void VulkanCommandList::Forget(const void* object)
         {
+            ++_descriptorEpoch;
             ClearPersistentMaterials();
-            if (const auto found = _programIdentities.find(object); found != _programIdentities.end())
+            for (auto& identity : _programIdentities)
             {
+                if (identity.first != object) continue;
                 for (std::uint32_t group = 0; group < SceneShaderAbi::GroupCount; ++group)
-                    _commandSlots->RetireDescriptors((found->second << 3) | group);
-                _programIdentities.erase(found);
+                    _commandSlots->RetireDescriptors((identity.second << 3) | group);
+                identity = {};
             }
-            _descriptorCache.clear(); _uniformCache.clear(); _boundSceneSets.fill(VK_NULL_HANDLE);
+            _programUniforms = {}; _boundSceneSets.fill(VK_NULL_HANDLE);
+            _boundSceneLayout = nullptr;
             _smallPipeline = nullptr; _smallCurrent = false;
             for (auto& unit : _units)
                 if (unit.first == object || unit.second == object) unit = {};
@@ -597,7 +572,6 @@
             }
             for (auto it = _variants.begin(); it != _variants.end();)
                 it = it->first.Program == object || it->first.Base == object ? _variants.erase(it) : std::next(it);
-            if (_setProgram == object) _setProgram = nullptr;
             if (_pipeline == object) { _pipeline = nullptr; _genericSets.clear(); }
         }
 
@@ -953,6 +927,13 @@
                 desc.vertexAttributes = {{0, 0, VertexFormat::Float3, 0}, {3, 3, VertexFormat::Float3, 0}};
             auto native = std::make_shared<VulkanGraphicsPipeline>(_device, desc, true);
             auto& entry = _variants[key];
+            if (entry.Native && _boundSceneLayout == &entry.Native->Desc().pipelineLayout)
+            {
+                _boundSceneLayout = nullptr;
+                _boundSceneSets.fill(VK_NULL_HANDLE);
+                _smallPipeline = nullptr;
+                _smallCurrent = false;
+            }
             entry.BaseDesc = base;
             entry.Native = std::move(native);
             return *entry.Native;
@@ -1014,67 +995,84 @@
             auto entries = std::move(_persistentMaterials);
             _persistentMaterials.clear();
             auto descriptors = std::move(_persistentDescriptors);
-            for (const auto& [key, entry] : entries)
-            {
-                _device->Retire([allocator = _device->Allocator, buffer = entry.Uniform] {
-                    vmaDestroyBuffer(allocator, buffer.Buffer, buffer.Allocation);
-                });
-                --_device->Buffers;
-            }
+            _persistentMaterialCount = 0;
+            for (const auto& page : entries)
+                if (page) for (const auto& entry : *page)
+                    if (entry.Uniform.Buffer)
+                    {
+                        _device->Retire([allocator = _device->Allocator, buffer = entry.Uniform] {
+                            vmaDestroyBuffer(allocator, buffer.Buffer, buffer.Allocation);
+                        });
+                        --_device->Buffers;
+                    }
             if (descriptors) _device->Retire([descriptors = std::move(descriptors)] { descriptors->Close(); });
-            _sets.fill(VK_NULL_HANDLE);
+            for (auto& state : _programUniforms) state.Sets = {};
         }
 
         VkDescriptorSet VulkanCommandList::PersistentMaterialSet(const VulkanSceneProgram& program,
             const std::array<SampledDescriptor, 4>& textures)
         {
-            if (program.Id != SceneProgram::Main) return VK_NULL_HANDLE;
+            const FrameTelemetry::Scope measured(FrameTelemetry::Phase::Material);
+            FrameTelemetry::Count(FrameTelemetry::Counter::PersistentLookup);
+            const auto identity = program.MaterialOwnerIdentity();
+            const auto* foundBlock = program.MaterialBlock();
+            if (program.Id != SceneProgram::Main || !identity || !foundBlock) return VK_NULL_HANDLE;
             const auto group = static_cast<std::uint32_t>(SceneShaderAbi::Group::Material);
-            const auto foundBlock = std::find_if(program.Blocks.begin(), program.Blocks.end(),
-                [group](const auto& block) { return !block.Small && block.Group == group; });
-            if (foundBlock == program.Blocks.end() || foundBlock->Data.size() > 1024) return VK_NULL_HANDLE;
-            PersistentMaterialKey key;
-            key.Objects.Words[0] = program.Identity;
-            key.Objects.Words[1] = group;
-            std::size_t word = 2;
-            for (const auto& binding : program.Textures)
+            const auto pageIndex = static_cast<std::size_t>(identity / MaterialsPerPage);
+            if (_persistentMaterials.size() <= pageIndex) _persistentMaterials.resize(pageIndex + 1);
+            if (!_persistentMaterials[pageIndex])
+                _persistentMaterials[pageIndex] = std::make_unique<PersistentMaterialPage>();
+            auto& entry = (*_persistentMaterials[pageIndex])[identity % MaterialsPerPage];
+            if (entry.ProgramIdentity && entry.ProgramIdentity != program.Identity)
+                throw std::logic_error("Persistent material survived its program lifetime.");
+            auto& slot = entry.Slots[_commandSlots->SlotIndex()];
+            const bool unchanged = slot.Generation == foundBlock->Generation && slot.Textures == textures;
+            if (slot.Set && unchanged)
             {
-                if (binding.group != group) continue;
-                const auto& texture = textures[binding.unit];
-                key.Objects.Words.at(word++) = texture.Identity; key.Objects.Words.at(word++) = texture.Generation;
-                key.Objects.Words.at(word++) = texture.SamplerIdentity;
-                key.Objects.Words.at(word++) = reinterpret_cast<std::uint64_t>(texture.View);
-                key.Objects.Words.at(word++) = reinterpret_cast<std::uint64_t>(texture.Sampler);
-                key.Objects.Words.at(word++) = texture.Layout;
-            }
-            key.Size = static_cast<std::uint32_t>(foundBlock->Data.size());
-            std::copy(foundBlock->Data.begin(), foundBlock->Data.end(), key.Data.begin());
-            if (const auto found = _persistentMaterials.find(key); found != _persistentMaterials.end())
-            {
+                slot.Recording = _bindingGeneration;
                 if (_metricsEnabled) ++_metricPersistentHits;
-                return found->second.Set;
+                return slot.Set;
             }
-            // Immutable entries are never evicted or overwritten in flight.
-            // A full cache uses the frame-local/fixed/generic path unchanged.
-            if (_persistentMaterials.size() == 256)
+            // Never overwrite a set or uniform range already referenced by this
+            // recording, even when one owner draws multiple variants in a pass.
+            if (slot.Recording == _bindingGeneration)
+            { if (_metricsEnabled) ++_metricPersistentFull; return VK_NULL_HANDLE; }
+            if (!entry.Uniform.Buffer && _persistentMaterialCount >= MaterialCapacity)
             { if (_metricsEnabled) ++_metricPersistentFull; return VK_NULL_HANDLE; }
             if (_metricsEnabled) ++_metricPersistentMisses;
             if (!_persistentDescriptors)
             {
-                _persistentDescriptors = _device->MakeDescriptors({256, {256, 0, 256, 0, 256}});
+                constexpr auto capacity = static_cast<std::uint32_t>(MaterialCapacity * FramesInFlight);
+                _persistentDescriptors = _device->MakeDescriptors({capacity, {capacity, 0, capacity, 0, capacity}});
                 _persistentDescriptors->ResetAfterCompletion({0});
             }
             auto& vk = *_device->ContextPointer->_impl;
-            const auto uniform = _device->Resources->CreateBuffer({key.Size, BufferUsage::Uniform, MemoryUsage::CpuToGpu});
-            try
+            if (!entry.Uniform.Buffer)
             {
-                if (!uniform.Mapped) throw std::runtime_error("Persistent material buffer is not mapped.");
-                std::memcpy(uniform.Mapped, key.Data.data(), key.Size);
-                Check(vmaFlushAllocation(_device->Allocator, uniform.Allocation, 0, key.Size), "vmaFlushAllocation(material)");
+                const auto alignment = _device->UniformAlignment;
+                entry.Stride = (foundBlock->Data.size() + alignment - 1) / alignment * alignment;
+                entry.Uniform = _device->Resources->CreateBuffer({entry.Stride * FramesInFlight,
+                    BufferUsage::Uniform, MemoryUsage::CpuToGpu});
+                entry.ProgramIdentity = program.Identity;
+                ++_persistentMaterialCount; ++_device->Buffers;
+            }
+            if (!entry.Uniform.Mapped) throw std::runtime_error("Persistent material buffer is not mapped.");
+            const auto offset = entry.Stride * _commandSlots->SlotIndex();
+            if (slot.Generation != foundBlock->Generation)
+            {
+                std::memcpy(static_cast<std::byte*>(entry.Uniform.Mapped) + offset,
+                    foundBlock->Data.data(), foundBlock->Data.size());
+                Check(vmaFlushAllocation(_device->Allocator, entry.Uniform.Allocation, offset,
+                    foundBlock->Data.size()), "vmaFlushAllocation(material)");
+            }
+            const bool updateDescriptors = !slot.Set || slot.Textures != textures;
+            if (updateDescriptors)
+            {
                 const auto& layout = *program.Layouts[group];
-                const auto set = _persistentDescriptors->Allocate(layout.Native(), layout.Desc());
+                if (!slot.Set) slot.Set = _persistentDescriptors->Allocate(layout.Native(), layout.Desc());
+                const auto set = slot.Set;
                 std::array<VkWriteDescriptorSet, 9> writes{};
-                const VkDescriptorBufferInfo buffer{uniform.Buffer, 0, key.Size};
+                const VkDescriptorBufferInfo buffer{entry.Uniform.Buffer, offset, foundBlock->Data.size()};
                 std::array<VkDescriptorImageInfo, 8> images{};
                 std::uint32_t count = 1;
                 writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
@@ -1097,16 +1095,16 @@
                     }
                 }
                 vk.vkUpdateDescriptorSets(vk.device, count, writes.data(), 0, nullptr);
-                _persistentMaterials.emplace(std::move(key), PersistentMaterial{set, uniform});
-                ++_device->Buffers;
-                if (_metricsEnabled) { ++_metricAllocations; ++_metricUpdates; }
-                return set;
+                if (_metricsEnabled) { ++_metricUpdates; }
             }
-            catch (...) { vmaDestroyBuffer(_device->Allocator, uniform.Buffer, uniform.Allocation); throw; }
+            slot.Generation = foundBlock->Generation; slot.Textures = textures;
+            slot.Recording = _bindingGeneration;
+            return slot.Set;
         }
 
         void VulkanCommandList::DrawScene(const SceneDraw& draw)
         {
+            const FrameTelemetry::Scope measured(FrameTelemetry::Phase::DrawScene);
             if (draw.IndexCount == 0) return;
             if (_metricsEnabled) ++_metricDraws;
             RequireRecording();
@@ -1156,30 +1154,41 @@
             const auto& groups = native.Desc().pipelineLayout.groups;
             for (std::size_t group = 0; group < groups.size(); ++group)
             {
-                compatible = compatible && group < _boundSceneLayout.groups.size()
-                    && _boundSceneLayout.groups[group] == groups[group];
+                compatible = compatible && _boundSceneLayout && group < _boundSceneLayout->groups.size()
+                    && _boundSceneLayout->groups[group] == groups[group];
                 if (!compatible) _boundSceneSets[group] = VK_NULL_HANDLE;
             }
-            _boundSceneLayout = native.Desc().pipelineLayout;
+            _boundSceneLayout = &native.Desc().pipelineLayout;
             _boundSmallBytes = native.Desc().smallConstantBytes;
             ApplyDynamicState();
 
             const auto alphaMode = static_cast<std::int32_t>(_pipeline->Desc().alphaTest);
-            program->Write("alpha_test", &alphaMode, sizeof(alphaMode), SceneShaderAbi::ValueType::Int);
-            if (_setProgram != program)
+            program->Write(SceneShaderAbi::ConstantIndex("alpha_test"), &alphaMode, sizeof(alphaMode), SceneShaderAbi::ValueType::Int);
+            auto& uniforms = _programUniforms.at(static_cast<std::size_t>(program->Id));
+            auto& identity = _programIdentities.at(static_cast<std::size_t>(program->Id));
+            if (identity.second != program->Identity)
             {
-                _uniformSlices.assign(program->Blocks.size(), {});
-                _sets.fill(VK_NULL_HANDLE);
-                _setTextures = {};
-                _setProgram = program;
+                if (identity.second)
+                    for (std::uint32_t group = 0; group < SceneShaderAbi::GroupCount; ++group)
+                        _commandSlots->RetireDescriptors((identity.second << 3) | group);
+                identity = {program, program->Identity};
+            }
+            if (program->Blocks.size() > uniforms.Blocks.size())
+                throw std::logic_error("Vulkan scene program exceeds its admitted uniform block capacity.");
+            uniforms.Prepare(program->Identity, _bindingGeneration);
+            auto& sets = uniforms.Sets;
+            if (uniforms.SelectMaterialOwner(program->MaterialOwnerIdentity()))
+            {
+                for (std::size_t i = 0; i < program->Blocks.size(); ++i)
+                    if (program->BlockAt(i).Group == static_cast<std::uint32_t>(SceneShaderAbi::Group::Material))
+                    { uniforms.Blocks[i] = {}; sets[program->BlockAt(i).Group] = VK_NULL_HANDLE; }
             }
             for (const auto& binding : program->Textures)
-                if (textures[binding.unit] != _setTextures[binding.unit])
-                    _sets[binding.group] = VK_NULL_HANDLE;
+                uniforms.SelectTexture(binding.unit, binding.group, textures[binding.unit]);
             const auto alignment = _device->UniformAlignment;
             for (std::size_t i = 0; i < program->Blocks.size(); ++i)
             {
-                const auto& block = program->Blocks[i];
+                const auto& block = program->BlockAt(i);
                 if (block.Small)
                 {
                     if (block.Data.size() != sizeof(SmallDrawConstants))
@@ -1189,14 +1198,14 @@
                     SetSmallConstants(constants);
                     continue;
                 }
-                auto& [slice, generation] = _uniformSlices[i];
+                auto& [slice, generation] = uniforms.Blocks[i];
                 if (program->Id == SceneProgram::Main
                     && block.Group == static_cast<std::uint32_t>(SceneShaderAbi::Group::Material))
                 {
-                    if (_sets[block.Group] && generation == block.Generation) continue;
+                    if (sets[block.Group] && generation == block.Generation) continue;
                     if (const auto persistent = PersistentMaterialSet(*program, textures))
                     {
-                        _sets[block.Group] = persistent;
+                        sets[block.Group] = persistent;
                         generation = block.Generation;
                         slice = {};
                         continue;
@@ -1204,112 +1213,101 @@
                 }
                 if (!slice.Buffer || generation != block.Generation)
                 {
-                    const std::array key{program->Identity, static_cast<std::uint64_t>(i), block.Generation};
-                    if (const auto found = _uniformCache.find(key); found != _uniformCache.end()) slice = found->second;
-                    else
-                    {
-                        slice = Allocate(block.Data.size(), alignment);
-                        std::memcpy(slice.Data, block.Data.data(), block.Data.size());
-                        if (_uniformCache.size() < 16384) _uniformCache.emplace(key, slice);
-                    }
+                    slice = Allocate(block.Data.size(), alignment);
+                    std::memcpy(slice.Data, block.Data.data(), block.Data.size());
                     generation = block.Generation;
-                    _sets[block.Group] = VK_NULL_HANDLE;
+                    sets[block.Group] = VK_NULL_HANDLE;
+                    ++uniforms.UniformVersions[block.Group];
                 }
             }
-            for (std::uint32_t group = 0; group < SceneShaderAbi::GroupCount; ++group)
             {
-                const auto& layout = *program->Layouts[group];
-                if (layout.Desc().entries.empty()) continue;
-                if (!_sets[group])
+                const FrameTelemetry::Scope descriptorPhase(FrameTelemetry::Phase::Descriptor);
+                for (std::uint32_t group = 0; group < SceneShaderAbi::GroupCount; ++group)
                 {
-                    DescriptorKey key{};
-                    std::size_t k = 0;
-                    key.Words[k++] = program->Identity; key.Words[k++] = group;
-                    for (std::size_t i = 0; i < program->Blocks.size(); ++i)
+                    const auto& layout = *program->Layouts[group];
+                    if (layout.Desc().entries.empty()) continue;
+                    if (!sets[group])
                     {
-                        const auto& block = program->Blocks[i];
-                        if (block.Small || block.Group != group) continue;
-                        const auto& slice = _uniformSlices[i].first;
-                        key.Words.at(k++) = reinterpret_cast<std::uint64_t>(slice.Buffer);
-                        key.Words.at(k++) = slice.Offset; key.Words.at(k++) = block.Data.size();
-                    }
-                    for (const auto& binding : program->Textures)
-                    {
-                        if (binding.group != group) continue;
-                        const auto& texture = textures[binding.unit];
-                        key.Words.at(k++) = texture.Identity; key.Words.at(k++) = texture.Generation;
-                        key.Words.at(k++) = texture.SamplerIdentity;
-                        key.Words.at(k++) = reinterpret_cast<std::uint64_t>(texture.View);
-                        key.Words.at(k++) = reinterpret_cast<std::uint64_t>(texture.Sampler);
-                        key.Words.at(k++) = texture.Layout;
-                    }
-                    if (const auto found = _descriptorCache.find(key); found != _descriptorCache.end())
-                    {
-                        _sets[group] = found->second;
-                        if (_metricsEnabled) ++_metricHits;
-                    }
-                    else
-                    {
-                        if (_metricsEnabled) ++_metricMisses;
-                        _programIdentities.try_emplace(program, program->Identity);
-                        const auto fixedIdentity = (program->Identity << 3) | group;
-                        // First use, only this command list's current slot. Small
-                        // bounded page; all overflow uses the ordinary allocator.
-                        _commandSlots->Descriptors().Preallocate(fixedIdentity, layout.Native(), layout.Desc(), 32);
-                        auto set = _commandSlots->Descriptors().AllocateFixed(fixedIdentity);
-                        if (set)
-                        {
-                            if (_metricsEnabled) ++_metricFixedSlots;
-                        }
+                        std::uint64_t textureToken = 0;
+                        for (const auto& binding : program->Textures)
+                            if (binding.group == group) { textureToken = textures[binding.unit].Identity; break; }
+                        FrameTelemetry::Count(FrameTelemetry::Counter::DescriptorLookup);
+                        sets[group] = _sceneDescriptors.Find(program->Id, group, textureToken, program->Identity,
+                            _bindingGeneration, _descriptorEpoch, uniforms.UniformVersions[group], uniforms.Textures);
+                        if (sets[group])
+                        { if (_metricsEnabled) ++_metricHits; FrameTelemetry::Count(FrameTelemetry::Counter::DescriptorHit); }
                         else
                         {
-                            set = AllocateSet(layout);
-                            if (_metricsEnabled) { ++_metricAllocations; ++_metricFixedOverflow; }
+                            if (_metricsEnabled) ++_metricMisses;
+                            FrameTelemetry::Count(FrameTelemetry::Counter::DescriptorMiss);
+                            const auto fixedIdentity = (program->Identity << 3) | group;
+                            // First use, only this command list's current slot. Small
+                            // bounded page; all overflow uses the ordinary allocator.
+                            const auto capacity = group == static_cast<std::uint32_t>(SceneShaderAbi::Group::Draw) ? 1024U
+                                : group == static_cast<std::uint32_t>(SceneShaderAbi::Group::Frame) ? 128U : 32U;
+                            _commandSlots->Descriptors().Preallocate(fixedIdentity, layout.Native(), layout.Desc(), capacity);
+                            auto set = _commandSlots->Descriptors().AllocateFixed(fixedIdentity);
+                            if (set)
+                            {
+                                if (_metricsEnabled) ++_metricFixedSlots;
+                            }
+                            else
+                            {
+                                set = AllocateSet(layout);
+                                constexpr std::array groupCounters{FrameTelemetry::Counter::FrameDescriptors,
+                                    FrameTelemetry::Counter::MaterialDescriptors, FrameTelemetry::Counter::DrawDescriptors,
+                                    FrameTelemetry::Counter::PassDescriptors};
+                                FrameTelemetry::Count(groupCounters.at(group));
+                                if (_metricsEnabled) { ++_metricAllocations; ++_metricFixedOverflow; }
+                            }
+                            std::array<VkDescriptorBufferInfo, SceneShaderAbi::Bindings.size()> buffers{};
+                            std::array<VkDescriptorImageInfo, 8> images{};
+                            std::array<VkWriteDescriptorSet, SceneShaderAbi::Bindings.size()> writes{};
+                            std::uint32_t count = 0;
+                            const auto write = [&](std::uint32_t binding, VkDescriptorType type) -> VkWriteDescriptorSet& {
+                                auto& item = writes.at(count++);
+                                item = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                                item.dstSet = set; item.dstBinding = binding;
+                                item.descriptorCount = 1; item.descriptorType = type;
+                                return item;
+                            };
+                            for (std::size_t i = 0; i < program->Blocks.size(); ++i)
+                            {
+                                const auto& block = program->BlockAt(i);
+                                if (block.Small || block.Group != group) continue;
+                                const auto& slice = uniforms.Blocks[i].first;
+                                buffers[i] = {slice.Buffer, slice.Offset, block.Data.size()};
+                                write(block.Binding, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER).pBufferInfo = &buffers[i];
+                            }
+                            for (const auto& binding : program->Textures)
+                            {
+                                if (binding.group != group) continue;
+                                const auto unit = binding.unit;
+                                images[unit * 2] = {VK_NULL_HANDLE, textures[unit].View, textures[unit].Layout};
+                                images[unit * 2 + 1] = {textures[unit].Sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
+                                write(binding.image, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE).pImageInfo = &images[unit * 2];
+                                write(binding.sampler, VK_DESCRIPTOR_TYPE_SAMPLER).pImageInfo = &images[unit * 2 + 1];
+                            }
+                            vk.vkUpdateDescriptorSets(vk.device, count, writes.data(), 0, nullptr);
+                            if (_metricsEnabled) ++_metricUpdates;
+                            sets[group] = set;
+                            _sceneDescriptors.Store(program->Id, group, textureToken, program->Identity,
+                                _bindingGeneration, _descriptorEpoch, uniforms.UniformVersions[group], uniforms.Textures, set);
                         }
-                        std::array<VkDescriptorBufferInfo, SceneShaderAbi::Bindings.size()> buffers{};
-                        std::array<VkDescriptorImageInfo, 8> images{};
-                        std::array<VkWriteDescriptorSet, SceneShaderAbi::Bindings.size()> writes{};
-                        std::uint32_t count = 0;
-                        const auto write = [&](std::uint32_t binding, VkDescriptorType type) -> VkWriteDescriptorSet& {
-                            auto& item = writes.at(count++);
-                            item = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-                            item.dstSet = set; item.dstBinding = binding;
-                            item.descriptorCount = 1; item.descriptorType = type;
-                            return item;
-                        };
-                        for (std::size_t i = 0; i < program->Blocks.size(); ++i)
-                        {
-                            const auto& block = program->Blocks[i];
-                            if (block.Small || block.Group != group) continue;
-                            const auto& slice = _uniformSlices[i].first;
-                            buffers[i] = {slice.Buffer, slice.Offset, block.Data.size()};
-                            write(block.Binding, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER).pBufferInfo = &buffers[i];
-                        }
-                        for (const auto& binding : program->Textures)
-                        {
-                            if (binding.group != group) continue;
-                            const auto unit = binding.unit;
-                            images[unit * 2] = {VK_NULL_HANDLE, textures[unit].View, textures[unit].Layout};
-                            images[unit * 2 + 1] = {textures[unit].Sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
-                            write(binding.image, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE).pImageInfo = &images[unit * 2];
-                            write(binding.sampler, VK_DESCRIPTOR_TYPE_SAMPLER).pImageInfo = &images[unit * 2 + 1];
-                        }
-                        vk.vkUpdateDescriptorSets(vk.device, count, writes.data(), 0, nullptr);
-                        if (_metricsEnabled) ++_metricUpdates;
-                        _sets[group] = set;
-                        if (_descriptorCache.size() < 16384) _descriptorCache.emplace(key, set);
+                    }
+                    else
+                    { if (_metricsEnabled) ++_metricHits; FrameTelemetry::Count(FrameTelemetry::Counter::DescriptorHit); }
+                    if (_boundSceneSets[group] != sets[group])
+                    {
+                        vk.vkCmdBindDescriptorSets(_commandSlots->Buffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            native.Layout(), group, 1, &sets[group], 0, nullptr);
+                        if (_metricsEnabled) ++_metricBinds;
+                        _boundSceneSets[group] = sets[group];
                     }
                 }
-                if (_boundSceneSets[group] != _sets[group])
-                {
-                    vk.vkCmdBindDescriptorSets(_commandSlots->Buffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        native.Layout(), group, 1, &_sets[group], 0, nullptr);
-                    if (_metricsEnabled) ++_metricBinds;
-                    _boundSceneSets[group] = _sets[group];
-                }
             }
-            _setTextures = textures;
 
+            const FrameTelemetry::Scope commandPhase(FrameTelemetry::Phase::Commands);
             std::array<VkBuffer, 5> buffers{};
             std::array<VkDeviceSize, 5> offsets{};
             std::array<VkDeviceSize, 5> strides{};

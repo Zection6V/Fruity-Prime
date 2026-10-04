@@ -36,7 +36,17 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
     void OpenGlMemory::Admit(std::uint64_t bytes, std::uint64_t reserved)
     {
         if (!_query) throw std::logic_error("OpenGL memory owner is closed.");
-        const auto decision = EvaluateAllocation(Snapshot(reserved), {bytes});
+        if (_frame && !_admission) _admission = Snapshot(reserved);
+        auto snapshot = _frame ? *_admission : Snapshot(reserved);
+        if (snapshot.HeapCount)
+        {
+            auto& heap = snapshot.Heaps[0];
+            heap.ReservedBytes = reserved;
+            heap.PendingBytes = _frame ? _admittedBytes : 0;
+        }
+        auto decision = EvaluateAllocation(snapshot, {bytes});
+        if (_frame && bytes > UINT64_MAX - _admittedBytes)
+            decision = {false, AllocationReason::ArithmeticOverflow};
         if (!decision.Allowed)
         {
             ++_telemetry.DeniedRequests;
@@ -45,6 +55,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 + " (" + std::to_string(bytes) + " bytes).");
         }
         ++_telemetry.AcceptedRequests;
+        if (_frame) _admittedBytes += bytes;
     }
     void OpenGlMemory::CheckNativeResult(std::int32_t error, const char* operation)
     {

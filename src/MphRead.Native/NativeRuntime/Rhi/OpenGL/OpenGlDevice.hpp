@@ -2,6 +2,7 @@
 
 #include "../GraphicsDevice.hpp"
 #include "../VertexSemantics.hpp"
+#include "OpenGlUniformState.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -28,6 +29,23 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
     // Defensively release native state before its context goes away. The
     // session keeps ownership of the inert wrapper. Its context is current.
     void ReleaseContextDevice() noexcept;
+    // Explicit ownership boundary around external GL consumers. Invalidates
+    // remembered native bindings and program values without creating a device.
+    void InvalidateContextState() noexcept;
+    void BeginExternalGlInterop();
+    void EndExternalGlInterop() noexcept;
+    // ARRAY_BUFFER is context state, independent of the retained VAO. Wrapper
+    // binds/deletions report mutations; an external ownership boundary makes
+    // the next upload query once before preserving the caller's binding.
+    [[nodiscard]] std::int32_t ArrayBufferBinding();
+    void ArrayBufferBound(std::int32_t name) noexcept;
+    void ArrayBufferDeleted(std::int32_t name) noexcept;
+    // Backend shader initialization and constants share the program owner's
+    // linked locations and cached values with command-list small constants.
+    void UseProgram(GraphicsDevice& device, std::int32_t program);
+    void SetMaterialAlpha(GraphicsDevice& device, float alpha);
+    [[nodiscard]] bool UpdateShaderUniform(GraphicsDevice& device, ShaderUniformLocation uniform,
+        OpenGlUniformState::Kind kind, std::span<const std::byte> bytes);
     // The current context's viewport, over the whole window.
     void ResetWindowViewport(std::int32_t width, std::int32_t height);
 

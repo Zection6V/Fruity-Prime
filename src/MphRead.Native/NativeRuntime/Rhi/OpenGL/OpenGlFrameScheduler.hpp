@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Submission.hpp"
+#include "../../FrameTelemetry.hpp"
 #include "../BackendError.hpp"
 #include "../PresentationScheduler.hpp"
 #include <cstdlib>
@@ -121,7 +122,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             ++_hostWaits;
             for (;;)
             {
-                const auto status = _dispatch.Wait(_dispatch.Context, found->Sync, true, 1'000'000'000ULL);
+                const auto status = FrameTelemetry::HostWait([&] { return _dispatch.Wait(_dispatch.Context, found->Sync, true, 1'000'000'000ULL); });
                 if (status == WaitStatus::Timeout) continue;
                 RequireCompletion(status);
                 break;
@@ -156,7 +157,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             if (found == _fences.end()) throw std::logic_error("Missing OpenGL presentation frame fence.");
             ++_hostWaits;
             const auto start = _measureWaits ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
-            const auto status = _dispatch.Wait(_dispatch.Context, found->Sync, true, timeoutNanoseconds);
+            const auto status = FrameTelemetry::HostWait([&] { return _dispatch.Wait(_dispatch.Context, found->Sync, true, timeoutNanoseconds); });
             if (_measureWaits)
             { ++_waits.count; _waits.nanoseconds += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count(); }
             if (status == WaitStatus::Timeout) return false;

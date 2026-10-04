@@ -11,6 +11,7 @@
 #include "../../MphRead.Native/Mods/Render/UiOverlay.hpp"
 #include "../../MphRead.Native/NativeRuntime/OpenTK/GlStateGuard.hpp"
 #include "../../MphRead.Native/NativeRuntime/Rhi/Resources.hpp"
+#include "../../MphRead.Native/NativeRuntime/Rhi/OpenGL/OpenGlDevice.hpp"
 #include "../../MphRead.Native/NativeRuntime/Rhi/SceneBackend.hpp"
 #if defined(FRUITY_HAS_VULKAN)
 #include "../../MphRead.Native/NativeRuntime/Rhi/Vulkan/VulkanGraphicsDevice.hpp"
@@ -324,6 +325,11 @@ namespace MphRead::Qt
                 // Qt Quick binds its own GL state; the game's renderer tracks
                 // what it bound, so that comes back exactly as it was rather
                 // than as GL's defaults.
+                struct ExternalGl final
+                {
+                    ExternalGl() { ::MphRead::NativeRuntime::Rhi::OpenGL::BeginExternalGlInterop(); }
+                    ~ExternalGl() { ::MphRead::NativeRuntime::Rhi::OpenGL::EndExternalGlInterop(); }
+                } externalGl;
                 const ::OpenTK::Graphics::OpenGL::GlStateGuard guard;
                 _control->polishItems();
                 _control->beginFrame();

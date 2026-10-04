@@ -364,6 +364,19 @@ namespace MphRead::Entities
         _loggedCapture = captured;
     }
 
+    // Input is not read while a menu or chat owns it, but the match keeps
+    // simulating. Without this the last frame's mouse delta is applied again
+    // every step and the aim keeps turning behind the pause menu. Dropping the
+    // snapshots also stops the first frame back turning by however far the
+    // cursor travelled over the menu.
+    void PlayerEntity::PlayerInput::Suspend() noexcept
+    {
+        _mouseDeltaX = _mouseDeltaY = 0.0F;
+        PrevKeyboardState.reset(); KeyboardState.reset();
+        PrevMouseState.reset(); MouseState.reset();
+        HasInput = false;
+    }
+
     void PlayerEntity::ProcessInput()
     {
         if (Mods::Network::NetSession::Active() && !_isBot)
@@ -2503,9 +2516,22 @@ namespace MphRead::Entities
             {
                 continue;
             }
-            if (noPlayerInput || i != Mods::Network::NetHooks::LocalSlot()
-                || Mods::SpectatorMode::IsSpectating())
+            if (i != Mods::Network::NetHooks::LocalSlot() || Mods::SpectatorMode::IsSpectating())
             {
+                continue;
+            }
+            if (noPlayerInput)
+            {
+                player._input.Suspend();
+                for (const std::shared_ptr<Keybind>& control : player._controls.All())
+                {
+                    if (control)
+                    {
+                        control->SetIsReleased(control->IsDown());
+                        control->SetIsDown(false);
+                        control->SetIsPressed(false);
+                    }
+                }
                 continue;
             }
             player._input.HasInput = false;

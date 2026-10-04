@@ -351,9 +351,9 @@ namespace MphRead::Entities
             : MouseState.has_value() && MouseState->IsButtonDown(MouseButton::Left), !active && captured);
         // (MouseState?.X - PrevMouseState?.X) ?? 0: null when either is.
         const bool both = MouseState.has_value() && PrevMouseState.has_value();
+        const auto delta = both ? MouseState->DeltaFrom(*PrevMouseState) : std::pair<float, float>{};
         std::tie(_mouseDeltaX, _mouseDeltaY) = active ? Mods::Input::PointerDevice::TakeDelta()
-            : Mods::Input::PointerInput::Filter(both ? MouseState->X - PrevMouseState->X : 0.0F,
-                both ? MouseState->Y - PrevMouseState->Y : 0.0F);
+            : Mods::Input::PointerInput::Filter(delta.first, delta.second);
         if (Mods::DebugLog::Active() && captured && !_loggedCapture)
         {
             PlayerControls& controls = Mods::InputSettings::Current();

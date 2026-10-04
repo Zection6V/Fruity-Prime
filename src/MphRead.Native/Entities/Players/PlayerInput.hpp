@@ -11,6 +11,7 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <utility>
 
 namespace OpenTK::Windowing::GraphicsLibraryFramework
 {
@@ -53,10 +54,20 @@ namespace OpenTK::Windowing::GraphicsLibraryFramework
     public:
         float X = 0.0F;
         float Y = 0.0F;
+        // Snapshots can span a virtual/absolute cursor transition or a new
+        // native window. Such positions are valid for UI, but not comparable
+        // as aim motion. Other input platforms retain the default epoch.
+        std::uint64_t PositionEpoch = 0;
+        bool MotionValid = true;
         ::OpenTK::Mathematics::Vector2 Scroll{};
 
         MouseState() = default;
         [[nodiscard]] MouseState GetSnapshot() const { return *this; }
+        [[nodiscard]] std::pair<float, float> DeltaFrom(const MouseState& previous) const noexcept
+        {
+            if (!MotionValid || !previous.MotionValid || PositionEpoch != previous.PositionEpoch) return {};
+            return {X - previous.X, Y - previous.Y};
+        }
         [[nodiscard]] bool IsButtonDown(MouseButton button) const noexcept;
         void SetButtonDown(MouseButton button, bool down) noexcept;
 

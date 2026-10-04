@@ -442,6 +442,7 @@ namespace MphRead
             [[nodiscard]] virtual bool BeforeFrame() { return true; }
             virtual bool CanSampleInputWhileWaiting() const { return true; }
             virtual void OnInputSample() {}
+            virtual void OnInputEventsProcessed() {}
             virtual void OnRenderFrame(const FrameEventArgs& args) { (void)args; }
             virtual void OnResize(const ResizeEventArgs& e) { (void)e; }
             virtual void OnMove(const WindowPositionEventArgs& e) { (void)e; }
@@ -743,6 +744,10 @@ namespace MphRead
         bool BeforeFrame() override;
         bool CanSampleInputWhileWaiting() const override;
         void OnInputSample() override;
+#if !defined(__ANDROID__)
+        void OnInputEventsProcessed() override;
+        void UpdateCursorCapture();
+#endif
     };
 
 }

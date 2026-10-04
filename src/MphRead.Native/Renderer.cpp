@@ -6321,6 +6321,54 @@ namespace MphRead
     void RenderWindow::OnInputSample()
     { _swapchain->MarkLowLatency(NativeRuntime::Rhi::LowLatencyMarker::InputSample); }
 
+    void RenderWindow::OnInputEventsProcessed()
+    {
+        // Reuse the gameplay capture policy after key/focus/UI events and before
+        // the platform latches accumulated motion into this simulation frame.
+        UpdateCursorCapture();
+    }
+
+    void RenderWindow::UpdateCursorCapture()
+    {
+        if (!_scene)
+        {
+            _window->Cursor(RendererPlatform::CursorState::Normal);
+            return;
+        }
+        const bool playerCamera = _scene->CameraMode() == MphRead::CameraMode::Player;
+        const bool freeCamera = _scene->IsFreeCam();
+        const bool frameAdvance = _scene->FrameAdvance();
+        const bool pauseOpen = Mods::PauseMenu::Open();
+        const bool endScreen = Mods::EndScreen::Available();
+        const bool stylusMode = Mods::Input::PointerInput::StylusMode();
+        const bool stylusPlacing = Mods::Input::StylusZone::Placing();
+        const bool sceneShowsCursor = _scene->ShowCursor();
+        const bool dialogPause = GameState::DialogPause();
+        const bool menuPause = GameState::MenuPause();
+        const bool focused = IsFocused();
+        const bool grab = (playerCamera || freeCamera) && !frameAdvance && !pauseOpen && !endScreen
+            && !stylusMode && !stylusPlacing && !sceneShowsCursor && !dialogPause && !menuPause
+            && focused && !Mods::Chat::ChatBox::Composing();
+        if (Mods::DebugLog::Active())
+        {
+            static std::optional<std::pair<bool, bool>> lastCursorState;
+            const std::pair<bool, bool> cursorState{grab, focused};
+            if (!lastCursorState.has_value() || *lastCursorState != cursorState)
+            {
+                const auto bit = [](bool value) { return value ? "1" : "0"; };
+                Mods::DebugLog::Line("input", std::string("cursor grab=") + bit(grab)
+                    + " focus=" + bit(focused) + " player=" + bit(playerCamera)
+                    + " freecam=" + bit(freeCamera) + " frameadvance=" + bit(frameAdvance)
+                    + " pause=" + bit(pauseOpen) + " end=" + bit(endScreen)
+                    + " stylus=" + bit(stylusMode) + " stylusplacing=" + bit(stylusPlacing)
+                    + " weaponwheel=" + bit(sceneShowsCursor) + " dialog=" + bit(dialogPause)
+                    + " menupause=" + bit(menuPause));
+                lastCursorState = cursorState;
+            }
+        }
+        _window->Cursor(grab ? RendererPlatform::CursorState::Grabbed : RendererPlatform::CursorState::Normal);
+    }
+
     void RenderWindow::ApplyFrameRateSettings()
     {
         const std::int32_t cap = Mods::Diagnostics::FramePerformance::EffectiveCap(Mods::Render::FrameTiming::FrameRateCap());
@@ -6456,37 +6504,7 @@ namespace MphRead
             return;
         }
 #endif
-        const bool playerCamera = _scene->CameraMode() == MphRead::CameraMode::Player;
-        const bool freeCamera = _scene->IsFreeCam();
-        const bool frameAdvance = _scene->FrameAdvance();
-        const bool pauseOpen = Mods::PauseMenu::Open();
-        const bool endScreen = Mods::EndScreen::Available();
-        const bool stylusMode = Mods::Input::PointerInput::StylusMode();
-        const bool stylusPlacing = Mods::Input::StylusZone::Placing();
-        const bool sceneShowsCursor = _scene->ShowCursor();
-        const bool dialogPause = GameState::DialogPause();
-        const bool menuPause = GameState::MenuPause();
-        const bool focused = IsFocused();
-        const bool grab = (playerCamera || freeCamera) && !frameAdvance && !pauseOpen && !endScreen
-            && !stylusMode && !stylusPlacing && !sceneShowsCursor && !dialogPause && !menuPause;
-        if (Mods::DebugLog::Active())
-        {
-            static std::optional<std::pair<bool, bool>> lastCursorState;
-            const std::pair<bool, bool> cursorState{grab, focused};
-            if (!lastCursorState.has_value() || *lastCursorState != cursorState)
-            {
-                const auto bit = [](bool value) { return value ? "1" : "0"; };
-                Mods::DebugLog::Line("input", std::string("cursor grab=") + bit(grab)
-                    + " focus=" + bit(focused) + " player=" + bit(playerCamera)
-                    + " freecam=" + bit(freeCamera) + " frameadvance=" + bit(frameAdvance)
-                    + " pause=" + bit(pauseOpen) + " end=" + bit(endScreen)
-                    + " stylus=" + bit(stylusMode) + " stylusplacing=" + bit(stylusPlacing)
-                    + " weaponwheel=" + bit(sceneShowsCursor) + " dialog=" + bit(dialogPause)
-                    + " menupause=" + bit(menuPause));
-                lastCursorState = cursorState;
-            }
-        }
-        _window->Cursor(grab ? RendererPlatform::CursorState::Grabbed : RendererPlatform::CursorState::Normal);
+        UpdateCursorCapture();
         const Vector2i clientSize = _window->ClientSize();
         const float pointerX = _window->Mouse().X / static_cast<float>(std::max(clientSize.X, 1));
         const float pointerY = _window->Mouse().Y / static_cast<float>(std::max(clientSize.Y, 1));
@@ -6712,6 +6730,11 @@ namespace MphRead
 #endif
         // Filtered for the same reason the player's aim is: the free
         // camera is reached from a match, with the same pointer.
+        if (!IsFocused())
+        {
+            _window->BaseOnMouseMove(e);
+            return;
+        }
         const auto [deltaX, deltaY] = _scene->IsFreeCam()
             ? Mods::Input::PointerInput::Filter(e.DeltaX, e.DeltaY) : std::pair<float, float>(e.DeltaX, e.DeltaY);
         _scene->OnMouseMove(deltaX, deltaY);

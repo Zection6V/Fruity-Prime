@@ -172,3 +172,61 @@ stacks. The previous NtDelayExecution/SleepEx present-delay hotspot is gone from
 the leading exclusive samples; remaining work includes VulkanSceneUniforms::Write
 and native Windows queue submissions. CSV symbol fields are quoted so demangled
 template names remain parseable. This diagnostic run is not FPS acceptance.
+
+## Delivery and dense binding follow-up
+
+Commit `785dfb57bba0343ecf96fd45e76c0514cb4ccdca` was pushed normally to
+`develop3_rendering` and fetched back with exact local/remote SHA equality. The
+user's `tools/build/out/reflex-bin/FruityPrime.exe` was updated to that tested
+build (SHA-256 `CBD297C427F34DCEB2F5B2F78FB3AB726F5172F3D09417FBF62C5EF197583701`).
+Remote `build_cpp` run 37187688132 passed all 12 jobs, including MSVC, GCC,
+Clang, both Android NDK ABIs and APK packaging. Golden adapter run 37187685513
+passed all three jobs. The full audit is still open.
+
+The follow-up removes the 64-word semantic descriptor hash and node map,
+replacing it with per-program/group binding versions and a bounded direct
+texture-token table. Program identity, recording, resource invalidation epoch,
+uploaded uniform version, and texture view/generation/sampler/layout all guard
+reuse. A collision replaces CPU lookup data only; it never overwrites a GPU set
+already referenced by a recording. Construction allocates the bounded table;
+the 10,000-operation alternating-texture test detects zero subsequent CPU heap
+allocations. Native Draw-group slots admit 1,024 immutable sets per completed
+command slot; other groups admit 32, with the existing ordinary allocation path
+preserved on admission failure or exhaustion.
+
+Early descriptor-only FPS runs were 810.71 / 808.13 / 811.33, below the gate.
+A same-period re-run of the unchanged delivered executable was also only 730.62
+FPS, so those results do not isolate a code regression. They were not accepted
+or delivered. Separate diagnostic logs show that fixed slots reduce ordinary
+descriptor allocation, but descriptor writes remain frequent when draw constants
+change. Profiling still identified uniform string lookup as a major CPU cost.
+
+Uniform writes now use compile-time semantic slots into each program's dense
+metadata array. The generated packing, validation, inactive-uniform behavior,
+material ownership and change detection are unchanged; string lookup remains for
+cold/dynamic callers. Tests exercise all 55 generated constants through both
+paths, repeated unchanged writes, and missing semantics without allocation.
+
+| Sequential FPS-only fixture | Mean FPS | Mean loop ms | Mean present ms |
+|---|---:|---:|---:|
+| Dense uniform/binding candidate, run 1 | 1555.44 | 0.64 | 0.09 |
+| Delivered 785dfb57 re-run immediately afterward | 1183.28 | 0.85 | 0.09 |
+| Dense uniform/binding candidate, run 2 | 1564.61 | 0.64 | 0.09 |
+
+Evidence: `bottleneck-dense-uniform{,2}-fps.csv` and
+`bottleneck-dense-baseline2-fps.csv`. First seven complete warm windows, unchanged
+active Sylux/three-bot Alinos Perch fixture, native Reflex available Off,
+Immediate/Unlimited, 2560x1439, no sampler/GPU profiling/metrics. MSVC Release
+and CTest 21/21 pass. Latest candidate Golden GL/Vulkan captures and parity pass
+7/7 with unchanged tolerances (`bottleneck-dense-golden-*`). Resource check
+passes with validation enabled, zero errors and zero live native objects.
+All follow-up runtime gates pass: full RHI conformance (including four async
+readback shutdown/recreate cycles), Reflex Off/On/Boost toggles, fallback present,
+shared present conformance, Alinos Perch lifetime 3/3 cycles with zero live or
+retired native objects and zero steady host waits, Settings-driven active-match
+renderer switching, and backdrop parity. Logs are `bottleneck-dense-{check}.log`,
+`bottleneck-dense-lifetime.log`, `bottleneck-dense-switch.log` and
+`bottleneck-dense-backdrop.log`. Separate GPU profiling reports mean scene time
+0.19844 ms (`bottleneck-dense-gpu.csv`); this diagnostic is excluded from FPS
+acceptance. Its allocator counters still show ordinary overflow for groups
+admitted at 32 sets, so the full steady-allocation/telemetry goal is not complete.

@@ -12,7 +12,6 @@
 #include <cstdlib>
 #include <limits>
 #include <map>
-#include <memory_resource>
 #include <iostream>
 #include <mutex>
 #include <stdexcept>
@@ -29,6 +28,7 @@
 #include "VulkanDescriptorAllocator.hpp"
 #include "VulkanUploadArena.hpp"
 #include "VulkanCommandSlots.hpp"
+#include "VulkanSceneBindingState.hpp"
 #include "VulkanRgbTransfer.hpp"
 #include "VulkanMemory.hpp"
 #include "VulkanResources.hpp"

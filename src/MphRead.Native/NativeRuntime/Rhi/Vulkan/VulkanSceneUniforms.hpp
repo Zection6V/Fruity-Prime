@@ -68,6 +68,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                         throw std::invalid_argument("Overlapping Vulkan scene uniform members.");
                 if (!Members.emplace(desc.name, desc).second)
                     throw std::invalid_argument("Duplicate Vulkan scene uniform member.");
+                const auto slot = SceneShaderAbi::ConstantIndexOf(desc.name);
+                if (slot < _denseMembers.size()) _denseMembers[slot] = desc;
             }
         }
         [[nodiscard]] const MemberDesc* Find(std::string_view name) const
@@ -77,7 +79,16 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         }
         void Write(std::string_view name, const void* data, std::size_t size, SceneShaderAbi::ValueType type)
         {
-            const auto* member = Find(name);
+            WriteMember(Find(name), data, size, type);
+        }
+        void Write(std::size_t slot, const void* data, std::size_t size, SceneShaderAbi::ValueType type)
+        {
+            const auto& member = _denseMembers.at(slot);
+            WriteMember(member ? &*member : nullptr, data, size, type);
+        }
+    private:
+        void WriteMember(const MemberDesc* member, const void* data, std::size_t size, SceneShaderAbi::ValueType type)
+        {
             if (!member) return; // OpenGL's inactive uniform semantics
             const auto intBool = type == SceneShaderAbi::ValueType::Int && member->type == SceneShaderAbi::ValueType::Bool;
             if (member->count || size != member->size || (type != member->type && !intBool) || !data)
@@ -92,12 +103,22 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (std::memcmp(destination, data, size) != 0)
             {
                 std::memcpy(destination, data, size); ++block.Generation;
-                if (!_owner && name == "cel_bands") ++_globalMaterialGeneration;
+                if (!_owner && member->name == "cel_bands") ++_globalMaterialGeneration;
             }
         }
+    public:
         void WriteArray(std::string_view name, const float* data, std::size_t elementFloats, std::size_t count)
         {
-            const auto* member = Find(name);
+            WriteArrayMember(Find(name), data, elementFloats, count);
+        }
+        void WriteArray(std::size_t slot, const float* data, std::size_t elementFloats, std::size_t count)
+        {
+            const auto& member = _denseMembers.at(slot);
+            WriteArrayMember(member ? &*member : nullptr, data, elementFloats, count);
+        }
+    private:
+        void WriteArrayMember(const MemberDesc* member, const float* data, std::size_t elementFloats, std::size_t count)
+        {
             if (!member) return;
             if (!member->count || elementFloats != ValueSize(member->type) / sizeof(float) || (count && !data))
                 throw std::invalid_argument("Vulkan scene array write does not match the shader ABI.");
@@ -116,9 +137,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (changed)
             {
                 ++block.Generation;
-                if (!_owner && name == "toon_table") ++_globalMaterialGeneration;
+                if (!_owner && member->name == "toon_table") ++_globalMaterialGeneration;
             }
         }
+    public:
         void SelectMaterialOwner(std::uint64_t identity)
         {
             _owner = nullptr; _ownerIdentity = 0;
@@ -174,5 +196,6 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             throw std::invalid_argument("Unknown Vulkan scene value type.");
         }
         std::unordered_map<std::string_view, MemberDesc> Members;
+        std::array<std::optional<MemberDesc>, SceneShaderAbi::Constants.size()> _denseMembers{};
     };
 }

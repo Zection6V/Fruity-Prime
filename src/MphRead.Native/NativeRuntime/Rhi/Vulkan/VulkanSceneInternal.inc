@@ -22,76 +22,76 @@ public:
     }
     void SetLight(std::size_t index, const LightConstants& c) override
     {
-        if (index == 0) { Vec3("light1vec", c.Vector); Vec3("light1col", c.Color); }
-        else if (index == 1) { Vec3("light2vec", c.Vector); Vec3("light2col", c.Color); }
+        if (index == 0) { Vec3(SceneShaderAbi::ConstantIndex("light1vec"), c.Vector); Vec3(SceneShaderAbi::ConstantIndex("light1col"), c.Color); }
+        else if (index == 1) { Vec3(SceneShaderAbi::ConstantIndex("light2vec"), c.Vector); Vec3(SceneShaderAbi::ConstantIndex("light2col"), c.Color); }
     }
     void Set(const SceneFogConstants& c) override
     {
-        Vec4("fog_color", c.Color); Float("fog_min", c.MinDistance); Float("fog_max", c.MaxDistance);
+        Vec4(SceneShaderAbi::ConstantIndex("fog_color"), c.Color); Float(SceneShaderAbi::ConstantIndex("fog_min"), c.MinDistance); Float(SceneShaderAbi::ConstantIndex("fog_max"), c.MaxDistance);
     }
-    void Set(const MaterialConstants& c) override { SetSurface(c); Float("mat_alpha", c.Alpha); }
+    void Set(const MaterialConstants& c) override { SetSurface(c); Float(SceneShaderAbi::ConstantIndex("mat_alpha"), c.Alpha); }
     void Set(const DrawConstants& c) override
     {
         const std::size_t count = std::min(c.MatrixStack.size() / 16U, MatrixStackCapacity);
         if (count == 0) return;
-        if (auto* p = Current()) p->WriteArray("mtx_stack", c.MatrixStack.data(), 16, count);
+        if (auto* p = Current()) p->WriteArray(SceneShaderAbi::ConstantIndex("mtx_stack"), c.MatrixStack.data(), 16, count);
     }
     void Set(const CelPostConstants& c) override
     {
-        Float("texel_w", c.TexelWidth); Float("texel_h", c.TexelHeight); Float("outline", c.Outline);
-        Float("near_plane", c.NearPlane); Float("far_plane", c.FarPlane);
-        Float("depth_quantum", c.DepthQuantum); Int("probe", c.Probe ? 1 : 0);
+        Float(SceneShaderAbi::ConstantIndex("texel_w"), c.TexelWidth); Float(SceneShaderAbi::ConstantIndex("texel_h"), c.TexelHeight); Float(SceneShaderAbi::ConstantIndex("outline"), c.Outline);
+        Float(SceneShaderAbi::ConstantIndex("near_plane"), c.NearPlane); Float(SceneShaderAbi::ConstantIndex("far_plane"), c.FarPlane);
+        Float(SceneShaderAbi::ConstantIndex("depth_quantum"), c.DepthQuantum); Int(SceneShaderAbi::ConstantIndex("probe"), c.Probe ? 1 : 0);
     }
-    void SetFadeColor(const Vector4& color) override { Vec4("fade_color", color); }
-    void SetLayerAlpha(float alpha) override { Float("alpha", alpha); }
-    void SetUseMask(bool useMask) override { Int("use_mask", useMask ? 1 : 0); }
-    void SetViewSize(float width, float height) override { Float("view_width", width); Float("view_height", height); }
+    void SetFadeColor(const Vector4& color) override { Vec4(SceneShaderAbi::ConstantIndex("fade_color"), color); }
+    void SetLayerAlpha(float alpha) override { Float(SceneShaderAbi::ConstantIndex("alpha"), alpha); }
+    void SetUseMask(bool useMask) override { Int(SceneShaderAbi::ConstantIndex("use_mask"), useMask ? 1 : 0); }
+    void SetViewSize(float width, float height) override { Float(SceneShaderAbi::ConstantIndex("view_width"), width); Float(SceneShaderAbi::ConstantIndex("view_height"), height); }
     void Set(const DisruptionPostConstants& c) override
     {
-        Float("shift_fac", c.ShiftFactor); Int("shift_idx", c.ShiftIndex);
-        Float("lerp_fac", c.LerpFactor); Float("white_fac", c.WhiteoutFactor);
+        Float(SceneShaderAbi::ConstantIndex("shift_fac"), c.ShiftFactor); Int(SceneShaderAbi::ConstantIndex("shift_idx"), c.ShiftIndex);
+        Float(SceneShaderAbi::ConstantIndex("lerp_fac"), c.LerpFactor); Float(SceneShaderAbi::ConstantIndex("white_fac"), c.WhiteoutFactor);
     }
     void SetShiftTable(std::span<const float> table) override
     {
-        if (auto* p = Current()) p->WriteArray("shift_table", table.data(), 1, std::min(table.size(), ShiftTableLength));
+        if (auto* p = Current()) p->WriteArray(SceneShaderAbi::ConstantIndex("shift_table"), table.data(), 1, std::min(table.size(), ShiftTableLength));
     }
     void SetWhiteoutTable(std::span<const float> table) override
     {
-        if (auto* p = Current()) p->WriteArray("white_table", table.data(), 1, std::min(table.size(), WhiteoutTableLength));
+        if (auto* p = Current()) p->WriteArray(SceneShaderAbi::ConstantIndex("white_table"), table.data(), 1, std::min(table.size(), WhiteoutTableLength));
     }
-    void SetView(const Matrix4& view) override { Mat4("view_mtx", view); }
-    void SetProjection(const Matrix4& projection) override { Mat4("proj_mtx", projection); }
-    void SetFogEnabled(bool enabled) override { Int("fog_enable", enabled ? 1 : 0); }
-    void SetCelBands(std::int32_t bands) override { Int("cel_bands", bands); }
-    void SetShowColors(bool show) override { Int("show_colors", show ? 1 : 0); }
-    void SetBillboard(const Matrix4& viewInverse) override { Mat4("view_inv_mtx", viewInverse); }
+    void SetView(const Matrix4& view) override { Mat4(SceneShaderAbi::ConstantIndex("view_mtx"), view); }
+    void SetProjection(const Matrix4& projection) override { Mat4(SceneShaderAbi::ConstantIndex("proj_mtx"), projection); }
+    void SetFogEnabled(bool enabled) override { Int(SceneShaderAbi::ConstantIndex("fog_enable"), enabled ? 1 : 0); }
+    void SetCelBands(std::int32_t bands) override { Int(SceneShaderAbi::ConstantIndex("cel_bands"), bands); }
+    void SetShowColors(bool show) override { Int(SceneShaderAbi::ConstantIndex("show_colors"), show ? 1 : 0); }
+    void SetBillboard(const Matrix4& viewInverse) override { Mat4(SceneShaderAbi::ConstantIndex("view_inv_mtx"), viewInverse); }
     void SetSurface(const MaterialConstants& c) override
     {
-        Int("use_light", c.UseLight ? 1 : 0);
-        Vec3("diffuse", c.Diffuse); Vec3("ambient", c.Ambient); Vec3("specular", c.Specular);
-        Vec3("emission", c.Emission); Int("mat_mode", c.PolygonMode);
+        Int(SceneShaderAbi::ConstantIndex("use_light"), c.UseLight ? 1 : 0);
+        Vec3(SceneShaderAbi::ConstantIndex("diffuse"), c.Diffuse); Vec3(SceneShaderAbi::ConstantIndex("ambient"), c.Ambient); Vec3(SceneShaderAbi::ConstantIndex("specular"), c.Specular);
+        Vec3(SceneShaderAbi::ConstantIndex("emission"), c.Emission); Int(SceneShaderAbi::ConstantIndex("mat_mode"), c.PolygonMode);
     }
-    void SetMaterialAlpha(float alpha) override { Float("mat_alpha", alpha); }
-    void SetUseTexture(bool enabled) override { Int("use_texture", enabled ? 1 : 0); }
+    void SetMaterialAlpha(float alpha) override { Float(SceneShaderAbi::ConstantIndex("mat_alpha"), alpha); }
+    void SetUseTexture(bool enabled) override { Int(SceneShaderAbi::ConstantIndex("use_texture"), enabled ? 1 : 0); }
     void SetTexgen(std::int32_t mode, const Matrix4& textureMatrix) override
     {
-        Int("texgen_mode", mode); Mat4("tex_mtx", textureMatrix);
+        Int(SceneShaderAbi::ConstantIndex("texgen_mode"), mode); Mat4(SceneShaderAbi::ConstantIndex("tex_mtx"), textureMatrix);
     }
     void SetOverride(const Vector4* color) override
     {
-        Int("use_override", color ? 1 : 0);
-        if (color) Vec4("override_color", *color);
+        Int(SceneShaderAbi::ConstantIndex("use_override"), color ? 1 : 0);
+        if (color) Vec4(SceneShaderAbi::ConstantIndex("override_color"), *color);
     }
-    void SetOverrideColor(const Vector4& color) override { Vec4("override_color", color); }
+    void SetOverrideColor(const Vector4& color) override { Vec4(SceneShaderAbi::ConstantIndex("override_color"), color); }
     void SetPaletteOverride(const Vector4* color) override
     {
-        Int("use_pal_override", color ? 1 : 0);
-        if (color) Vec4("pal_override_color", *color);
+        Int(SceneShaderAbi::ConstantIndex("use_pal_override"), color ? 1 : 0);
+        if (color) Vec4(SceneShaderAbi::ConstantIndex("pal_override_color"), *color);
     }
     void SetFlatColor(const Vector3* color) override
     {
-        Int("use_flat", color ? 1 : 0);
-        if (color) Vec3("flat_color", *color);
+        Int(SceneShaderAbi::ConstantIndex("use_flat"), color ? 1 : 0);
+        if (color) Vec3(SceneShaderAbi::ConstantIndex("flat_color"), *color);
     }
     // glColor4f / glTexCoord3f: context state, not program state.
     void SetInheritedColor(const Vector4& color) override
@@ -108,22 +108,22 @@ private:
     {
         return static_cast<VulkanSceneProgram*>(_device->CurrentSceneProgram);
     }
-    void Float(std::string_view name, float value) { if (auto* p = Current()) p->Write(name, &value, 4, SceneShaderAbi::ValueType::Float); }
-    void Int(std::string_view name, std::int32_t value) { if (auto* p = Current()) p->Write(name, &value, 4, SceneShaderAbi::ValueType::Int); }
-    void Vec3(std::string_view name, const Vector3& v)
+    void Float(std::size_t slot, float value) { if (auto* p = Current()) p->Write(slot, &value, 4, SceneShaderAbi::ValueType::Float); }
+    void Int(std::size_t slot, std::int32_t value) { if (auto* p = Current()) p->Write(slot, &value, 4, SceneShaderAbi::ValueType::Int); }
+    void Vec3(std::size_t slot, const Vector3& v)
     {
         const float data[3]{v.X, v.Y, v.Z};
-        if (auto* p = Current()) p->Write(name, data, sizeof(data), SceneShaderAbi::ValueType::Vec3);
+        if (auto* p = Current()) p->Write(slot, data, sizeof(data), SceneShaderAbi::ValueType::Vec3);
     }
-    void Vec4(std::string_view name, const Vector4& v)
+    void Vec4(std::size_t slot, const Vector4& v)
     {
         const float data[4]{v.X, v.Y, v.Z, v.W};
-        if (auto* p = Current()) p->Write(name, data, sizeof(data), SceneShaderAbi::ValueType::Vec4);
+        if (auto* p = Current()) p->Write(slot, data, sizeof(data), SceneShaderAbi::ValueType::Vec4);
     }
     // Untransposed: Matrix4's memory order is what glUniformMatrix4fv(false) reads.
-    void Mat4(std::string_view name, const Matrix4& m)
+    void Mat4(std::size_t slot, const Matrix4& m)
     {
-        if (auto* p = Current()) p->Write(name, &m.M11, 64, SceneShaderAbi::ValueType::Mat4);
+        if (auto* p = Current()) p->Write(slot, &m.M11, 64, SceneShaderAbi::ValueType::Mat4);
     }
 
     std::shared_ptr<VulkanDeviceState> _device;
@@ -148,9 +148,9 @@ public:
             Generated::backdrop_uniforms, Generated::backdrop_textures, Generated::backdrop_blocks);
         // What OpenGlSceneShaderSet sets as it links: the shift table on the
         // shift program and the toon table on the main one, which is left current.
-        Program(SceneProgram::Shift).WriteArray("shift_table", shiftTable.data(), 1,
+        Program(SceneProgram::Shift).WriteArray(SceneShaderAbi::ConstantIndex("shift_table"), shiftTable.data(), 1,
             std::min(shiftTable.size(), ShiftTableLength));
-        Program(SceneProgram::Main).WriteArray("toon_table", toonTable.data(), 3, toonTable.size() / 3U);
+        Program(SceneProgram::Main).WriteArray(SceneShaderAbi::ConstantIndex("toon_table"), toonTable.data(), 3, toonTable.size() / 3U);
         _device->CurrentSceneProgram = &Program(SceneProgram::Main);
     }
 

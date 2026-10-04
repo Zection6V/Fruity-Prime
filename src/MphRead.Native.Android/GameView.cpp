@@ -28,6 +28,7 @@
 #include "../MphRead.Native/Renderer.hpp"
 #include "../MphRead.Native/Scene.hpp"
 
+#include <limits>
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
 #include <android/api-level.h>
@@ -1390,6 +1391,7 @@ namespace MphRead::Droid
                 desc.height = static_cast<std::uint32_t>(std::max(ANativeWindow_getHeight(nativeWindow), 1));
                 desc.format = MphRead::NativeRuntime::Rhi::TextureFormat::RGBA8Unorm;
                 _swapchain = MphRead::NativeRuntime::Rhi::CreateSceneSurfaceSwapchain(desc);
+                _presentModeCap = NoPresentModeCap;
             }
             catch (...)
             {
@@ -1646,6 +1648,7 @@ namespace MphRead::Droid
             {
                 if (_surfaceAssigned && _swapchain)
                 {
+                    ApplyPresentMode();
                     MphRead::NativeRuntime::Rhi::PresentSceneWindow(*_swapchain);
                 }
                 return true;
@@ -1702,6 +1705,26 @@ namespace MphRead::Droid
             _uiHole = 0;
         }
 
+        // The desktop's rule (RenderWindow): the display's rate is FIFO, any
+        // other cap is the loop's to pace, so presentation must not hold it to
+        // the refresh. Android has no immediate mode; mailbox is the one that
+        // does not wait (the swapchain falls back to FIFO where it is missing).
+        void ApplyPresentMode()
+        {
+            const std::int32_t cap =
+                MphRead::Mods::Render::FrameTiming::FrameRateCap();
+            if (cap == _presentModeCap)
+            {
+                return;
+            }
+            _presentModeCap = cap;
+            _swapchain->SetPresentMode(
+                cap == MphRead::Mods::Render::FrameTiming::DisplayRate
+                    ? MphRead::NativeRuntime::Rhi::PresentMode::Fifo
+                    : MphRead::NativeRuntime::Rhi::PresentMode::Mailbox
+            );
+        }
+
         void RequestFrameRate()
         {
             const std::int32_t cap =
@@ -1742,7 +1765,10 @@ namespace MphRead::Droid
                 SurfaceSetFrameRate(
                     env,
                     window.Get(),
+                    // No preference for the display's rate or no cap at all:
+                    // setFrameRate takes no negative rate.
                     cap == MphRead::Mods::Render::FrameTiming::DisplayRate
+                        || cap == MphRead::Mods::Render::FrameTiming::Unlimited
                         ? 0.0F
                         : static_cast<float>(cap)
                 );
@@ -2234,6 +2260,9 @@ namespace MphRead::Droid
         double _nextFrame = 0.0;
         double _lastFrameStart = 0.0;
         std::int32_t _requestedFrameRate = -1;
+        // The cap the swapchain's present mode was set for; none yet.
+        static constexpr std::int32_t NoPresentModeCap = std::numeric_limits<std::int32_t>::min();
+        std::int32_t _presentModeCap = NoPresentModeCap;
 
         std::int32_t _uiDrawn = 0;
         std::int32_t _uiSkipped = 0;

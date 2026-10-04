@@ -154,6 +154,7 @@ namespace MphRead::Droid
         [[nodiscard]] virtual bool BaseDispatchGenericMotionEvent(
             MainActivity& activity, jobject event) = 0;
         virtual void Finish(MainActivity& activity) = 0;
+        virtual void RequestRomPick(MainActivity& activity) = 0;
 
         // Content/View mechanics.
         [[nodiscard]] virtual MainActivityObjectRef ContentViewGroup(
@@ -343,6 +344,7 @@ namespace MphRead::Droid
         void EndMatch();
         void EndMatchToLobby();
         void Finish();
+        void RequestRomPick();
 
     private:
         friend class AndroidWebLink;

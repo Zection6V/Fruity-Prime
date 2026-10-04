@@ -237,6 +237,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     Recreate(w, h);
                     continue;
                 }
+                if (_transformSuboptimal && acquire == VK_SUBOPTIMAL_KHR) acquire = VK_SUCCESS;
                 if (acquire != VK_SUCCESS && acquire != VK_SUBOPTIMAL_KHR)
                     Check(acquire, "vkAcquireNextImageKHR");
                 if (imageIndex >= _images.size())
@@ -599,6 +600,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         bool _suspended = false;
         bool _needsRecreate = true;
         bool _recreateAfterPresent = false;
+        // The swapchain's transform is not the surface's, by choice (Recreate).
+        bool _transformSuboptimal = false;
         bool _closed = false;
         std::uint64_t _presentFenceWaits = 0;
         std::uint64_t _fallbackRetiredReleases = 0;
@@ -736,6 +739,17 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
             else create.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
             create.preTransform = capabilities.currentTransform;
+#if defined(__ANDROID__)
+            // A landscape game on a panel that is portrait at rest reports a
+            // 90-degree current transform: chosen, it says the picture comes
+            // already turned, and nothing here turns it. Identity has the
+            // compositor do it.
+            if (capabilities.supportedTransforms & VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR)
+                create.preTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+#endif
+            // Android then calls every acquire and present suboptimal: that is
+            // the choice, not a resize (which comes as out-of-date).
+            _transformSuboptimal = create.preTransform != capabilities.currentTransform;
             create.compositeAlpha = composite;
             create.presentMode = selectedMode;
             create.clipped = VK_TRUE;
@@ -1039,7 +1053,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (frameId)
             { presentId.swapchainCount = 1; presentId.pPresentIds = &frameId; presentId.pNext = present.pNext; present.pNext = &presentId; }
             _reflex->Mark(LowLatencyMarker::PresentStart);
-            const VkResult result = vk.vkQueuePresentKHR(vk.present, &present);
+            VkResult result = vk.vkQueuePresentKHR(vk.present, &present);
+            if (_transformSuboptimal && result == VK_SUBOPTIMAL_KHR) result = VK_SUCCESS;
             _reflex->Mark(LowLatencyMarker::PresentEnd);
             _reflex->FinishFrame();
             // Rejected surface/out-of-date presents still enqueue their wait

@@ -10,6 +10,7 @@
 #include "TouchOverlayView.hpp"
 
 #include "../MphRead.Native/Formats/Types.hpp"
+#include "../MphRead.Native/Mods/Launcher/Portable/NativeFilePicker.hpp"
 #include "../MphRead.Native/Renderer.hpp"
 #include "../MphRead.Native/Scene.hpp"
 #include "../MphRead.Native/NativeRuntime/System/Exceptions.hpp"
@@ -30,6 +31,7 @@
 #include <iomanip>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -1009,6 +1011,18 @@ namespace
                 scoped.Get(),
                 state->Activity,
                 "finish",
+                "()V"
+            );
+        }
+
+        void RequestRomPick(MphRead::Droid::MainActivity& activity) override
+        {
+            const auto state = State(activity);
+            ScopedEnv scoped(state->Vm);
+            CallVoid(
+                scoped.Get(),
+                state->Activity,
+                "requestRomPick",
                 "()V"
             );
         }
@@ -2391,6 +2405,27 @@ FRUITY_ACTIVITY_INT_CALLBACK(nativeOnInputDeviceChanged, OnInputDeviceChanged)
 FRUITY_ACTIVITY_INT_CALLBACK(nativeOnInputDeviceRemoved, OnInputDeviceRemoved)
 
 #undef FRUITY_ACTIVITY_INT_CALLBACK
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_fr_livetek_fruityprime_MainActivity_nativeOnRomPicked(
+    JNIEnv* env,
+    jclass,
+    jstring path
+)
+{
+    std::optional<std::string> picked;
+    if (path != nullptr)
+    {
+        const char* chars = env->GetStringUTFChars(path, nullptr);
+        if (chars != nullptr)
+        {
+            picked = std::string(chars);
+            env->ReleaseStringUTFChars(path, chars);
+        }
+    }
+    MphRead::Mods::Launcher::NativeFilePicker::Deliver(std::move(picked));
+}
 
 extern "C"
 JNIEXPORT void JNICALL

@@ -326,6 +326,14 @@ namespace MphRead::Qt
         return path.isEmpty() ? QString() : QUrl::fromLocalFile(path).toString();
     }
 
+    double ShellBridge::DeviceDensity() const
+    {
+        // Handed over by the Android Activity before Qt starts.
+        bool ok = false;
+        const double density = qEnvironmentVariable("FRUITY_DENSITY").toDouble(&ok);
+        return ok && density >= 1.0 && density <= 6.0 ? density : 1.0;
+    }
+
     void ShellBridge::SetSettings(std::shared_ptr<::MphRead::MenuSettings> settings)
     {
         _settings = std::move(settings);

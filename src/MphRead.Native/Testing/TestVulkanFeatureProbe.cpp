@@ -1,4 +1,5 @@
 #include "../NativeRuntime/Rhi/Vulkan/VulkanFeatureProbe.hpp"
+#include "../NativeRuntime/Rhi/Vulkan/VulkanLegacy.hpp"
 #include "../NativeRuntime/Rhi/BackendError.hpp"
 #include "../NativeRuntime/Rhi/PresentationScheduler.hpp"
 #include "../NativeRuntime/Rhi/Vulkan/VulkanPresentResult.hpp"
@@ -54,7 +55,20 @@ namespace
             Expect(!result.Eligible && result.Score == 0, "Missing required feature remained eligible.");
             Expect(RejectionReasons(result.Findings).find(requirement) != std::string::npos, "Missing requirement lost its finding.");
         };
-        missing([](auto& v) { v.Properties.apiVersion = VK_API_VERSION_1_2; }, "device API 1.3");
+        missing([](auto& v) { v.Properties.apiVersion = VK_API_VERSION_1_0; }, "device API 1.1");
+        Expect(!good.Legacy && !good.TimelineSemaphoreExtension, "A 1.3 device was put on the legacy path.");
+        // A Mali-G78: 1.1, timeline semaphores by extension, no dynamic
+        // rendering or synchronization2 -- the legacy path, and eligible.
+        auto mali = facts; mali.Properties.apiVersion = VK_MAKE_API_VERSION(0, 1, 1, 213);
+        mali.DynamicRendering = mali.Synchronization2 = false;
+        const auto legacy = EvaluatePhysicalDevice(mali, true);
+        Expect(legacy.Eligible && legacy.Legacy && legacy.TimelineSemaphoreExtension, "A 1.1 device was refused the legacy path.");
+        mali.Properties.apiVersion = VK_API_VERSION_1_2;
+        const auto twelve = EvaluatePhysicalDevice(mali, true);
+        Expect(twelve.Eligible && twelve.Legacy && !twelve.TimelineSemaphoreExtension, "A 1.2 device lost its core timeline names.");
+        mali.TimelineSemaphore = false;
+        Expect(RejectionReasons(EvaluatePhysicalDevice(mali, true).Findings).find("timeline semaphore") != std::string::npos,
+            "The legacy path admitted a device without timeline semaphores.");
         missing([](auto& v) { v.Extensions.clear(); }, "swapchain extension");
         missing([](auto& v) { v.DynamicRendering = false; }, "dynamic rendering");
         missing([](auto& v) { v.Synchronization2 = false; }, "synchronization2");
@@ -119,8 +133,11 @@ namespace
         InstanceSnapshot facts; facts.LoaderVersion = VK_API_VERSION_1_3;
         facts.WindowExtensions = {VK_KHR_SURFACE_EXTENSION_NAME, "VK_KHR_test_surface"}; facts.Extensions = facts.WindowExtensions;
         Expect(EvaluateInstance(facts, true, true).Eligible && !EvaluateInstance(facts, true, true).Validation, "Optional absent validation rejected.");
-        auto bad = facts; bad.LoaderVersion = VK_API_VERSION_1_2;
+        auto bad = facts; bad.LoaderVersion = VK_API_VERSION_1_0;
         Expect(!EvaluateInstance(bad, false, true).Eligible, "Old loader admitted.");
+        bad.LoaderVersion = VK_API_VERSION_1_1;
+        Expect(EvaluateInstance(bad, false, true).Eligible && EvaluateInstance(bad, false, true).LoaderVersion == VK_API_VERSION_1_1,
+            "A 1.1 loader was refused, or its version lost.");
         bad = facts; bad.WindowExtensions.clear(); Expect(!EvaluateInstance(bad, false, true).Eligible, "Missing window system admitted.");
         bad = facts; bad.Extensions.pop_back();
         Expect(RejectionReasons(EvaluateInstance(bad, false, true).Findings).find("VK_KHR_test_surface") != std::string::npos, "Missing extension name discarded.");
@@ -136,9 +153,37 @@ namespace
         Expect(!EvaluateInstance(facts, true, false).SurfaceMaintenance1, "Maintenance override ignored.");
     }
 
+    // synchronization2 in 1.0's terms, as the legacy path's barriers and submits use it.
+    void CheckLegacyTranslation()
+    {
+        using namespace MphRead::NativeRuntime::Rhi::Vulkan::Legacy;
+        Expect(ToStages(VK_PIPELINE_STAGE_2_NONE, true) == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
+            && ToStages(VK_PIPELINE_STAGE_2_NONE, false) == VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, "An empty stage mask stayed empty.");
+        Expect(ToStages(VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, true)
+            == (VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_ALL_COMMANDS_BIT), "A 1.0 stage changed value.");
+        Expect(ToStages(VK_PIPELINE_STAGE_2_COPY_BIT, true) == VK_PIPELINE_STAGE_TRANSFER_BIT
+            && ToStages(VK_PIPELINE_STAGE_2_BLIT_BIT | VK_PIPELINE_STAGE_2_CLEAR_BIT, false) == VK_PIPELINE_STAGE_TRANSFER_BIT,
+            "A transfer stage of synchronization2 was not a transfer.");
+        Expect(ToStages(VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT, false) == VK_PIPELINE_STAGE_VERTEX_INPUT_BIT
+            && ToStages(VK_PIPELINE_STAGE_2_PRE_RASTERIZATION_SHADERS_BIT, false) == VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+            "Vertex input or pre-rasterization lost.");
+        Expect(ToAccess(VK_ACCESS_2_SHADER_SAMPLED_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT)
+            == (VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT)
+            && ToAccess(VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_HOST_READ_BIT) == (VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_HOST_READ_BIT),
+            "Access flags lost in translation.");
+        Expect(ToLayout(VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT) == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+            && ToLayout(VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)
+                == VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+            && ToLayout(VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT) == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+            && ToLayout(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_ASPECT_COLOR_BIT) == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            "A synchronization2 layout reached a 1.0 barrier.");
+    }
+
     PhysicalDeviceSnapshot queried = Supported();
     unsigned featureCalls = 0, platformCalls = 0, surfaceCalls = 0, extensionDataCalls = 0;
     bool incompleteOnce = false, failSurface = false;
+    // Which structs the last feature query chained.
+    bool saw13 = false, sawTimeline = false;
     VKAPI_ATTR VkResult VKAPI_CALL Devices(VkInstance, std::uint32_t* count, VkPhysicalDevice* data)
     { if (data && *count) data[0] = reinterpret_cast<VkPhysicalDevice>(1); *count = 1; return VK_SUCCESS; }
     VKAPI_ATTR void VKAPI_CALL Properties(VkPhysicalDevice, VkPhysicalDeviceProperties* data) { *data = queried.Properties; }
@@ -155,11 +200,18 @@ namespace
     VKAPI_ATTR void VKAPI_CALL Features(VkPhysicalDevice, VkPhysicalDeviceFeatures2* data)
     {
         ++featureCalls; data->features = queried.Features;
-        auto* features12 = static_cast<VkPhysicalDeviceVulkan12Features*>(data->pNext);
-        features12->timelineSemaphore = queried.TimelineSemaphore;
-        auto* features13 = static_cast<VkPhysicalDeviceVulkan13Features*>(features12->pNext);
-        features13->dynamicRendering = queried.DynamicRendering; features13->synchronization2 = queried.Synchronization2;
-        for (auto* node = static_cast<VkBaseOutStructure*>(features13->pNext); node; node = node->pNext) {
+        saw13 = sawTimeline = false;
+        for (auto* node = static_cast<VkBaseOutStructure*>(data->pNext); node; node = node->pNext) {
+            if (node->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES)
+                reinterpret_cast<VkPhysicalDeviceVulkan12Features*>(node)->timelineSemaphore = queried.TimelineSemaphore;
+            if (node->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES)
+            { sawTimeline = true; reinterpret_cast<VkPhysicalDeviceTimelineSemaphoreFeatures*>(node)->timelineSemaphore = queried.TimelineSemaphore; }
+            if (node->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES)
+            {
+                saw13 = true;
+                auto* features13 = reinterpret_cast<VkPhysicalDeviceVulkan13Features*>(node);
+                features13->dynamicRendering = queried.DynamicRendering; features13->synchronization2 = queried.Synchronization2;
+            }
             if (node->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT)
                 reinterpret_cast<VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT*>(node)->swapchainMaintenance1 = queried.SwapchainMaintenance1;
             if (node->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR)
@@ -205,9 +257,21 @@ namespace
         const auto surface = reinterpret_cast<VkSurfaceKHR>(1);
         results = QueryPhysicalDevices(dispatch, surface, true);
         Expect(surfaceCalls == 1 && platformCalls == 2, "Real surface substituted by platform presentation support.");
-        queried.Properties.apiVersion = VK_API_VERSION_1_2; const auto before = featureCalls;
+        queried.Properties.apiVersion = VK_API_VERSION_1_2;
         results = QueryPhysicalDevices(dispatch, VK_NULL_HANDLE, false);
-        Expect(featureCalls == before && !EvaluatePhysicalDevice(results[0], false).Eligible, "Old device received a 1.3 feature chain.");
+        Expect(!saw13 && sawTimeline && EvaluatePhysicalDevice(results[0], false).Legacy
+            && EvaluatePhysicalDevice(results[0], false).Eligible, "A 1.2 device received a 1.3 feature chain or lost timelines.");
+        queried.Properties.apiVersion = VK_API_VERSION_1_1;
+        results = QueryPhysicalDevices(dispatch, VK_NULL_HANDLE, false);
+        Expect(!saw13 && !sawTimeline && !EvaluatePhysicalDevice(results[0], false).Eligible
+            && results[0].Features.samplerAnisotropy, "A 1.1 device without the timeline extension was asked for it, or lost its features.");
+        queried.Extensions.push_back(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
+        results = QueryPhysicalDevices(dispatch, VK_NULL_HANDLE, false);
+        Expect(!saw13 && sawTimeline && EvaluatePhysicalDevice(results[0], false).Eligible,
+            "A 1.1 device's timeline extension was not asked about.");
+        queried.Properties.apiVersion = VK_API_VERSION_1_0; const auto before = featureCalls;
+        results = QueryPhysicalDevices(dispatch, VK_NULL_HANDLE, false);
+        Expect(featureCalls == before && !EvaluatePhysicalDevice(results[0], false).Eligible, "A 1.0 device was queried or admitted.");
         queried = Supported(); failSurface = true; bool rejected = false;
         try { (void)QueryPhysicalDevices(dispatch, surface, false); }
         catch (const BackendError& error) { rejected = error.Kind() == BackendErrorKind::SurfaceLost; }
@@ -218,7 +282,7 @@ int main()
 {
     try
     {
-        CheckPolicy(); CheckInstance(); CheckQueries();
+        CheckPolicy(); CheckInstance(); CheckQueries(); CheckLegacyTranslation();
         const auto ready = NativePresentResult(VK_SUCCESS);
         const auto suboptimal = NativePresentResult(VK_SUBOPTIMAL_KHR);
         const auto acquireSuboptimal = NativePresentResult(VK_SUCCESS, true);
@@ -239,7 +303,7 @@ int main()
             catch (const BackendError& error) { auto result = FailedPresent(error); caught = !result.accepted && result.failure->nativeCode == code; }
             Expect(caught, "Presentation loss lost typed native error.");
         }
-        std::cout << "Vulkan feature probe PASS: requirements, optional features, queue selection, device scoring, enumeration, native-query boundaries\n";
+        std::cout << "Vulkan feature probe PASS: requirements, optional features, queue selection, device scoring, enumeration, native-query boundaries, legacy translation\n";
         return 0;
     }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }

@@ -7,6 +7,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -149,9 +150,23 @@ namespace MphRead::Hud
         void SetAnimation(std::int32_t start, std::int32_t target,
             std::int32_t frames, std::int32_t afterAnim, HudObjectLoopType loopType);
         void ProcessAnimation(Scene& scene);
+        // Bind the first width x height texels of Texture: the texture that
+        // picture already has, or a new one. A bound texture is never rewritten.
+        void BindPicture(Scene& scene, std::int32_t width, std::int32_t height);
 
     private:
         void DoTexture(Scene& scene);
+
+        // One texture per picture this instance has shown: the HUD's text is
+        // one 8x8 instance given every character in turn, and rewriting a
+        // texture between draws ends a Vulkan render pass -- which, on a
+        // tiled GPU, is the whole target written out and read back, a
+        // hundred times a frame. A picture seen again binds its texture.
+        static constexpr std::size_t MaxCachedPictures = 4096;
+        Scene* _pictureScene = nullptr;
+        std::unordered_map<std::string, std::int32_t> _pictures;
+        // Past the cap, pictures are rewritten in place here, as before.
+        std::int32_t _overflowBinding = -1;
     };
 
     class LayerInfo

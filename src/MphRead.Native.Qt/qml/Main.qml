@@ -13,11 +13,29 @@ Item {
     // The captures hold everything still and switch the phone curve on.
     property bool still: ShellHost.backdropSuspended
     property bool phone: Qt.platform.os === "android" || Qt.platform.os === "ios"
+    // Qt on Android sizes this view's root in physical pixels, and what its
+    // device pixel ratio then does with that varies: at 1 a 440 dpi phone
+    // draws the desktop's 1/96-inch layout at about a third of its size, and
+    // at the screen's 2.75 the root is 2.75 times wider than the screen and
+    // the picture is cropped and zoomed. Either way the menus are laid out in
+    // a stage of the size the screen has in 1/160-inch dp (what the phone
+    // curve in Theme is written for), and the stage is drawn at whatever
+    // scale the ratio leaves to reach the view's pixels. Off Android the
+    // density is 1 and the stage is the view.
+    readonly property real density: ShellHost.deviceDensity
+    readonly property real uiScale: density / Math.max(1, Screen.devicePixelRatio)
+    Item {
+        id: stage
+        width: root.width / root.density
+        height: root.height / root.density
+        scale: root.uiScale
+        transformOrigin: Item.TopLeft
+    }
     // What the base screen is asked to show (the end panel's tab).
     property var baseProps: ({})
     Binding { target: Theme; property: "still"; value: root.still }
     Binding { target: Theme; property: "phone"; value: root.phone }
-    Binding { target: Theme; property: "em"; value: Theme.emFor(root.width, root.height) }
+    Binding { target: Theme; property: "em"; value: Theme.emFor(stage.width, stage.height) }
 
     function push(url, props) {
         stack = stack.concat([{ url: url, props: props || {} }])
@@ -101,6 +119,7 @@ Item {
 
     Loader {
         id: base
+        parent: stage
         anchors.fill: parent
         visible: !root.stacked
         enabled: visible
@@ -132,6 +151,7 @@ Item {
 
     Loader {
         id: top
+        parent: stage
         anchors.fill: parent
         focus: root.stacked
         readonly property var entry: root.stacked ? root.stack[root.stack.length - 1] : null
@@ -150,6 +170,7 @@ Item {
 
     ControllerKeyboard {
         id: controllerKeyboard
+        parent: stage
         Component.onCompleted: Theme.keyboard = controllerKeyboard
     }
 
@@ -159,6 +180,7 @@ Item {
     // no game files -- so it draws whatever else has not loaded yet.
     Rectangle {
         id: boot
+        parent: stage
         anchors.fill: parent
         visible: ShellHost.startupState !== "FrontReady"
         color: "#10141c"

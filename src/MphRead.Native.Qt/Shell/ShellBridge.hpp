@@ -46,6 +46,8 @@ namespace MphRead::Qt
         Q_PROPERTY(QString windowLabel READ WindowLabel NOTIFY windowChanged)
         Q_PROPERTY(QString brand READ Brand CONSTANT)
         Q_PROPERTY(QString fontOverride READ FontOverride CONSTANT)
+        // Android's display density (px per dp); 1 everywhere else.
+        Q_PROPERTY(double deviceDensity READ DeviceDensity CONSTANT)
         Q_PROPERTY(bool backdropSuspended READ BackdropSuspended WRITE SetBackdropSuspended NOTIFY backdropSuspendedChanged)
 
     public:
@@ -85,6 +87,7 @@ namespace MphRead::Qt
         [[nodiscard]] QString WindowLabel() const;
         [[nodiscard]] QString Brand() const;
         [[nodiscard]] QString FontOverride() const;
+        [[nodiscard]] double DeviceDensity() const;
         [[nodiscard]] bool BackdropSuspended() const { return _backdropSuspended; }
         void SetBackdropSuspended(bool value) { _backdropSuspended = value; emit backdropSuspendedChanged(); }
 

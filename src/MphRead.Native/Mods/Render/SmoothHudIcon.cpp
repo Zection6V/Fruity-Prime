@@ -93,14 +93,7 @@ namespace MphRead::Mods::Render
                     : transparent;
             }
         }
-        if (inst.BindingId == -1)
-        {
-            inst.BindingId = scene.BindGetTexture(texture, outWidth, outHeight);
-        }
-        else
-        {
-            scene.BindTexture(texture, outWidth, outHeight, inst.BindingId);
-        }
+        inst.BindPicture(scene, outWidth, outHeight);
     }
 
     float SmoothHudIcon::Ink(const Hud::ReadOnlyList<std::uint8_t>& data,

@@ -9,6 +9,8 @@
 #include "../../../NativeRuntime/System/Runtime.hpp"
 
 #include <exception>
+#include <memory>
+#include <mutex>
 #include <thread>
 
 #if defined(_WIN32)
@@ -58,9 +60,40 @@ namespace MphRead::Mods::Launcher
         }
     }
 
+#if defined(__ANDROID__)
+    namespace
+    {
+        std::mutex AndroidGate;
+        std::shared_ptr<std::promise<std::optional<std::string>>> AndroidPending;
+    }
+
+    void NativeFilePicker::AndroidRequest(std::function<void()> request)
+    {
+        _androidRequest = std::move(request);
+    }
+
+    void NativeFilePicker::Deliver(std::optional<std::string> path)
+    {
+        std::shared_ptr<std::promise<std::optional<std::string>>> pending;
+        {
+            std::lock_guard lock(AndroidGate);
+            pending = std::move(AndroidPending);
+        }
+        if (pending)
+        {
+            pending->set_value(std::move(path));
+        }
+    }
+#else
+    void NativeFilePicker::AndroidRequest(std::function<void()>) {}
+    void NativeFilePicker::Deliver(std::optional<std::string>) {}
+#endif
+
     bool NativeFilePicker::Available()
     {
-#if defined(_WIN32) || defined(__APPLE__)
+#if defined(__ANDROID__)
+        return !_suppressed && static_cast<bool>(_androidRequest);
+#elif defined(_WIN32) || defined(__APPLE__)
         return !_suppressed;
 #elif defined(__linux__) && !defined(__ANDROID__)
         return !_suppressed && LinuxTool().has_value();
@@ -79,6 +112,28 @@ namespace MphRead::Mods::Launcher
         return TaskRun([title, extension] { return MacFile(title, extension); });
 #elif defined(__linux__) && !defined(__ANDROID__)
         return TaskRun([title, description, extension] { return LinuxFile(title, description, extension); });
+#elif defined(__ANDROID__)
+        (void)title;
+        (void)description;
+        (void)extension;
+        if (!_androidRequest)
+        {
+            return FromResult(std::nullopt);
+        }
+        auto promise = std::make_shared<std::promise<std::optional<std::string>>>();
+        std::shared_future<std::optional<std::string>> future = promise->get_future().share();
+        std::shared_ptr<std::promise<std::optional<std::string>>> previous;
+        {
+            std::lock_guard lock(AndroidGate);
+            previous = std::move(AndroidPending);
+            AndroidPending = promise;
+        }
+        if (previous)
+        {
+            previous->set_value(std::nullopt);
+        }
+        _androidRequest();
+        return future;
 #else
         (void)title;
         (void)description;

@@ -4004,6 +4004,12 @@ namespace MphRead
 
     void Scene::RenderItem(const std::shared_ptr<MphRead::RenderItem>& item)
     {
+        _shaderConstants->SelectMaterialOwner(item->MaterialOwnerId);
+        struct ReturnMaterialOwner final
+        {
+            NativeRuntime::Rhi::ShaderConstantSink& Sink;
+            ~ReturnMaterialOwner() { Sink.SelectMaterialOwner(0); }
+        } returnMaterialOwner{*_shaderConstants};
         UseLight1(item->LightInfo.Light1Vector, item->LightInfo.Light1Color);
         UseLight2(item->LightInfo.Light2Vector, item->LightInfo.Light2Color);
         const ManagedArray<float>& matrixStack = RequireReference(item->MatrixStack);

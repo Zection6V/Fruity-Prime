@@ -132,6 +132,7 @@ namespace MphRead
     class RenderItem
     {
     public:
+        const std::uint64_t MaterialOwnerId;
         RenderItemType Type = RenderItemType::Mesh;
         std::int32_t PolygonId = 0;
         float Alpha = 0.0F;

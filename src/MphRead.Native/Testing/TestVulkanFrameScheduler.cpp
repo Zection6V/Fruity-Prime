@@ -236,8 +236,50 @@ void Attribution()
     ++id; (void)scheduler.Submit(work); Expect(f.AttributedId == 6, "Next frame submission reused stale identity.");
     id = 0; (void)scheduler.MarkExternalWork(); Expect(f.AttributedId == 0, "Off/fallback did not clear explicit queue attribution.");
 }
+void ReusedSignalStorage()
+{
+    Fake f;
+    auto dispatch = f.Dispatch();
+    VulkanFrameScheduler* current = nullptr;
+    bool recursive = false;
+    dispatch.RenderSubmitStart = [&] {
+        if (recursive) Reject([&] { (void)current->MarkExternalWork(); });
+    };
+    VulkanFrameScheduler scheduler(dispatch);
+    current = &scheduler;
+    VkSubmitInfo2 work{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+    std::array<VkSemaphoreSubmitInfo, 8> signals{};
+    for (unsigned i = 0; i < signals.size(); ++i)
+    {
+        signals[i] = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+        signals[i].semaphore = Handle<VkSemaphore>(20 + i);
+        signals[i].stageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    }
+    work.signalSemaphoreInfoCount = static_cast<std::uint32_t>(signals.size());
+    work.pSignalSemaphoreInfos = signals.data();
+    (void)scheduler.Submit(work);
+    const auto* storage = f.Work.pSignalSemaphoreInfos;
+    const auto growths = scheduler.SignalStorageGrowths();
+    Expect(growths == 1, "Larger signal array did not establish its high-water storage.");
+    recursive = true;
+    for (unsigned i = 0; i < 256; ++i)
+    {
+        (void)scheduler.MarkExternalWork();
+        (void)scheduler.Submit(work);
+        Expect(f.Work.pSignalSemaphoreInfos == storage && scheduler.SignalStorageGrowths() == growths,
+            "Steady-state submit grew or replaced its signal storage.");
+    }
+    bool rejected = false;
+    std::thread other([&] {
+        try { (void)scheduler.Submit(work); }
+        catch (const std::logic_error&) { rejected = true; }
+    });
+    other.join();
+    Expect(rejected && scheduler.Submitted().Value == 513,
+        "Foreign submission thread changed graphics queue progress.");
+}
 int main()
 {
-    try { Run(); Budget(); Attribution(); std::cout << "Vulkan queue scheduler PASS; latest-submission bounded budget; 64 serials; external markers; native arrays/fence preserved; submit/poll failure; completion guards; creation rollback\n"; return 0; }
+    try { Run(); Budget(); Attribution(); ReusedSignalStorage(); std::cout << "Vulkan queue scheduler PASS; retained signal storage; owner thread and reentrancy guards; latest-submission bounded budget; 64 serials; external markers; native arrays/fence preserved; submit/poll failure; completion guards; creation rollback\n"; return 0; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

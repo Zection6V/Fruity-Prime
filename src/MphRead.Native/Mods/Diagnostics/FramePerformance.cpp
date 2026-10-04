@@ -1,4 +1,5 @@
 #include "FramePerformance.hpp"
+#include "CpuSampling.hpp"
 #include "../../Renderer.hpp"
 #include "../../Scene.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
@@ -61,11 +62,13 @@ namespace MphRead::Mods::Diagnostics
         if (!_csv) throw std::runtime_error("Cannot open FPS measurement CSV: " + path);
         _csv << "segment,backend,room_id,width,height,fps_cap,present_requested,present_actual,resolution_scale,fps_counter,cel,fog,paused,focused,main_active,frames,seconds,fps,mean_frame_ms,p50_ms,p95_ms,p99_ms,percentile_samples,mean_loop_ms,mean_present_ms,gpu_scene_samples,gpu_scene_mean_ms,gpu_dropped_samples\n";
         active = this;
+        _cpuSampling = CpuSampling::Create(file.string() + ".cpu.csv");
         std::cout << "[fps measure] CSV=" << file.string() << "; warmup=2s per context; window=1s; gpu=" << gpu << '\n';
     }
     FramePerformance::~FramePerformance() { Reset(); if (active == this) active = nullptr; }
     void FramePerformance::Reset()
     {
+        if (_cpuSampling) _cpuSampling->SetActive(false);
         _pending.clear(); _context.clear(); _conditions.reset(); _previous.reset(); _statistics.Reset();
         _draws = _gpuSamples = _gpuDrops = 0; _gpuMs = 0;
     }
@@ -79,10 +82,16 @@ namespace MphRead::Mods::Diagnostics
             ++_segment; _warmup = _start + std::chrono::seconds(2);
         }
         PollGpu();
+        if (_cpuSampling) _cpuSampling->SetActive(conditions.mainActive && conditions.focused
+            && !conditions.paused && _start >= _warmup);
     }
     void FramePerformance::Presented(const RenderWindow& window, const Rhi::Swapchain& swapchain, double presentSeconds)
     {
-        if (!_conditions || ReadConditions(window, swapchain) != *_conditions) { _conditions.reset(); _previous.reset(); return; }
+        if (!_conditions || ReadConditions(window, swapchain) != *_conditions)
+        {
+            if (_cpuSampling) _cpuSampling->SetActive(false);
+            _conditions.reset(); _previous.reset(); return;
+        }
         const auto now = std::chrono::steady_clock::now(); ++_draws;
         if (now < _warmup) { _previous = now; return; }
         if (_previous) _statistics.Add(Seconds(now - *_previous), Seconds(now - _start), presentSeconds);

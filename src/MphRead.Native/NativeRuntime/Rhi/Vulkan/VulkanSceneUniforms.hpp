@@ -2,6 +2,9 @@
 
 #include "../SceneShaderAbi.hpp"
 #include <algorithm>
+#include <array>
+#include <memory>
+#include <optional>
 #include <cstring>
 #include <span>
 #include <stdexcept>
@@ -46,6 +49,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                         throw std::invalid_argument("Duplicate Vulkan scene uniform block.");
                 if (desc.small && desc.size > 128) throw std::invalid_argument("Small constant budget exceeded.");
                 Blocks.push_back({desc.group, desc.binding, std::vector<std::byte>(desc.size), 1, desc.small});
+                if (desc.group == static_cast<std::uint32_t>(SceneShaderAbi::Group::Material) && !desc.small)
+                    _materialBlock = Blocks.size() - 1;
             }
             for (const auto& desc : members)
             {
@@ -82,10 +87,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 std::int32_t value; std::memcpy(&value, data, sizeof(value));
                 if (value != 0 && value != 1) throw std::invalid_argument("Invalid Vulkan scene boolean.");
             }
-            auto& block = Blocks[member->block];
+            auto& block = BlockAt(member->block);
             auto* destination = block.Data.data() + member->offset;
             if (std::memcmp(destination, data, size) != 0)
-            { std::memcpy(destination, data, size); ++block.Generation; }
+            {
+                std::memcpy(destination, data, size); ++block.Generation;
+                if (!_owner && name == "cel_bands") ++_globalMaterialGeneration;
+            }
         }
         void WriteArray(std::string_view name, const float* data, std::size_t elementFloats, std::size_t count)
         {
@@ -95,7 +103,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 throw std::invalid_argument("Vulkan scene array write does not match the shader ABI.");
             const auto stride = member->size / member->count;
             count = std::min<std::size_t>(count, member->count);
-            auto& block = Blocks[member->block];
+            auto& block = BlockAt(member->block);
             bool changed = false;
             for (std::size_t i = 0; i < count; ++i)
             {
@@ -105,10 +113,54 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 if (std::memcmp(destination, source, size) != 0)
                 { std::memcpy(destination, source, size); changed = true; }
             }
-            if (changed) ++block.Generation;
+            if (changed)
+            {
+                ++block.Generation;
+                if (!_owner && name == "toon_table") ++_globalMaterialGeneration;
+            }
         }
+        void SelectMaterialOwner(std::uint64_t identity)
+        {
+            _owner = nullptr; _ownerIdentity = 0;
+            if (!identity || !_materialBlock || identity >= OwnerLimit) return;
+            const auto pageIndex = static_cast<std::size_t>(identity / OwnersPerPage);
+            if (_owners.size() <= pageIndex) _owners.resize(pageIndex + 1);
+            if (!_owners[pageIndex]) _owners[pageIndex] = std::make_unique<OwnerPage>();
+            auto& owner = (*_owners[pageIndex])[identity % OwnersPerPage];
+            if (owner.Material.Data.empty()) owner.Material = Blocks[*_materialBlock];
+            if (owner.GlobalGeneration != _globalMaterialGeneration)
+            {
+                // Item writes stay in the owner's block; only these constants
+                // inherit the program-wide material state.
+                for (const auto name : {"toon_table", "cel_bands"})
+                    if (const auto* member = Find(name))
+                    {
+                        const auto* source = Blocks[member->block].Data.data() + member->offset;
+                        auto* destination = owner.Material.Data.data() + member->offset;
+                        if (std::memcmp(destination, source, member->size) != 0)
+                        { std::memcpy(destination, source, member->size); ++owner.Material.Generation; }
+                    }
+                owner.GlobalGeneration = _globalMaterialGeneration;
+            }
+            _owner = &owner; _ownerIdentity = identity;
+        }
+        [[nodiscard]] std::uint64_t MaterialOwnerIdentity() const noexcept { return _ownerIdentity; }
+        [[nodiscard]] Block& BlockAt(std::size_t index)
+        { return _owner && _materialBlock == index ? _owner->Material : Blocks.at(index); }
+        [[nodiscard]] const Block& BlockAt(std::size_t index) const
+        { return _owner && _materialBlock == index ? _owner->Material : Blocks.at(index); }
+        [[nodiscard]] const Block* MaterialBlock() const
+        { return _materialBlock ? &BlockAt(*_materialBlock) : nullptr; }
+        inline static constexpr std::uint64_t OwnerLimit = 1U << 20;
         std::vector<Block> Blocks;
     private:
+        struct Owner final { Block Material{}; std::uint64_t GlobalGeneration = 0; };
+        inline static constexpr std::size_t OwnersPerPage = 64;
+        using OwnerPage = std::array<Owner, OwnersPerPage>;
+        std::vector<std::unique_ptr<OwnerPage>> _owners;
+        std::optional<std::size_t> _materialBlock;
+        Owner* _owner = nullptr;
+        std::uint64_t _ownerIdentity = 0, _globalMaterialGeneration = 1;
         static std::uint32_t ValueSize(SceneShaderAbi::ValueType type)
         {
             using SceneShaderAbi::ValueType;

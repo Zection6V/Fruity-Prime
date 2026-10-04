@@ -110,6 +110,8 @@ namespace MphRead::NativeRuntime::Rhi
     class ShaderConstantSink
     {
     public:
+        // Stable render-item ownership. Zero returns to program-wide state.
+        virtual void SelectMaterialOwner(std::uint64_t) {}
         virtual ~ShaderConstantSink() = default;
 
         virtual void Set(const FrameConstants& constants) = 0;

@@ -61,6 +61,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         // Ordinary close drains only this stream's submitted slots.
         void Close(bool deviceDrained = false) noexcept;
         [[nodiscard]] VkCommandBuffer Buffer() const noexcept { return _slots[_current].Buffer; }
+        // Begin has proved completion before callers mutate this slot's storage.
+        [[nodiscard]] std::size_t SlotIndex() const noexcept { return _current; }
         [[nodiscard]] VulkanUploadArena& Uploads() const;
         [[nodiscard]] VulkanDescriptorAllocator& Descriptors() const;
         [[nodiscard]] VulkanTransferScratch& Scratch() const;

@@ -7,6 +7,7 @@
 #include "NativeRuntime/System/Globalization.hpp"
 
 #include <array>
+#include <atomic>
 #include <bit>
 #include <charconv>
 #include <cmath>
@@ -87,7 +88,8 @@ namespace MphRead
     }
 
     RenderItem::RenderItem()
-        : MatrixStack(std::make_shared<ManagedArray<float>>(16U * 31U)),
+        : MaterialOwnerId([] { static std::atomic<std::uint64_t> next{1}; return next.fetch_add(1, std::memory_order_relaxed); }()),
+          MatrixStack(std::make_shared<ManagedArray<float>>(16U * 31U)),
           Points(ManagedArray<OpenTK::Mathematics::Vector3>::Empty())
     {
     }

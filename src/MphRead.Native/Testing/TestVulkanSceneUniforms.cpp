@@ -67,6 +67,37 @@ namespace
         }
         store.Write("not-active-on-this-program", nullptr, 0, ValueType::Float);
     }
+    void MaterialOwners()
+    {
+        Store store(Vulkan::Generated::main_blocks, Vulkan::Generated::main_uniforms);
+        const float red[3]{1, 0, 0}, green[3]{0, 1, 0};
+        const auto material = store.Find("diffuse")->block;
+        store.SelectMaterialOwner(1);
+        store.Write("diffuse", red, sizeof(red), ValueType::Vec3);
+        const auto redGeneration = store.BlockAt(material).Generation;
+        const auto* redStorage = store.BlockAt(material).Data.data();
+        store.SelectMaterialOwner(70); // a second page must not invalidate an owner
+        store.Write("diffuse", green, sizeof(green), ValueType::Vec3);
+        store.SelectMaterialOwner(1);
+        Expect(store.BlockAt(material).Data.data() == redStorage, "Owner storage moved on another owner's admission.");
+        store.Write("diffuse", red, sizeof(red), ValueType::Vec3);
+        Expect(store.BlockAt(material).Generation == redGeneration, "Selecting an unchanged owner dirtied its material.");
+        Expect(std::memcmp(store.BlockAt(material).Data.data() + store.Find("diffuse")->offset,
+            red, sizeof(red)) == 0, "An owner's material inherited another owner's values.");
+        store.SelectMaterialOwner(0);
+        const std::int32_t bands = 4;
+        store.Write("cel_bands", &bands, sizeof(bands), ValueType::Int);
+        store.SelectMaterialOwner(1);
+        Expect(store.BlockAt(material).Generation == redGeneration + 1, "Program-wide cel changes did not dirty an owner.");
+        const auto propagated = store.BlockAt(material).Generation;
+        store.SelectMaterialOwner(0); store.SelectMaterialOwner(1);
+        Expect(store.BlockAt(material).Generation == propagated, "Unchanged global constants repeatedly dirtied an owner.");
+        store.Write("diffuse", green, sizeof(green), ValueType::Vec3);
+        Expect(store.BlockAt(material).Generation == propagated + 1, "Owner mutation did not advance its generation.");
+        store.SelectMaterialOwner(Store::OwnerLimit);
+        Expect(store.MaterialOwnerIdentity() == 0 && &store.BlockAt(material) == &store.Blocks[material],
+            "Out-of-budget identities did not preserve the ordinary uniform path.");
+    }
     void InvalidMetadataAndWrites()
     {
         Store store(Vulkan::Generated::main_blocks, Vulkan::Generated::main_uniforms);
@@ -107,6 +138,7 @@ int main()
         CheckProgram(Vulkan::Generated::shift_blocks, Vulkan::Generated::shift_uniforms);
         CheckProgram(Vulkan::Generated::backdrop_blocks, Vulkan::Generated::backdrop_uniforms);
         InvalidMetadataAndWrites();
+        MaterialOwners();
         std::cout << "Production Vulkan uniform packing: all five programs, 55 constants, per-block generations PASS\n";
         return 0;
     }

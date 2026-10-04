@@ -12,6 +12,8 @@ class VulkanSceneConstants final : public ShaderConstantSink
 {
 public:
     explicit VulkanSceneConstants(std::shared_ptr<VulkanDeviceState> device) : _device(std::move(device)) {}
+    void SelectMaterialOwner(std::uint64_t identity) override
+    { if (auto* p = Current()) p->SelectMaterialOwner(identity); }
 
     void Set(const FrameConstants& c) override { SetView(c.View); SetProjection(c.Projection); }
     void Set(const SceneLightConstants& c) override

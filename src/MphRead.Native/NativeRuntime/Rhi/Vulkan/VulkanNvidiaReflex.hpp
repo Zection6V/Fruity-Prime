@@ -43,7 +43,17 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             : LowLatencyCapabilities{true, false, LowLatencyProvider::Generic, _reason}; }
         [[nodiscard]] std::uint64_t FrameId() const noexcept { return MeasurementAvailable() && _ready ? _frameId : 0; }
         [[nodiscard]] std::optional<std::uint64_t> SubmissionId() const noexcept
-        { return _dispatch.enabled && _dispatch.revision >= 3 ? std::optional(FrameId()) : std::nullopt; }
+        {
+            // Off keeps all measurement markers, but uses the extension's
+            // implicit frame attribution (the PresentStart marker supplies the
+            // frame identity). Clear the queue's explicit ID with zero, also
+            // when returning from On/Boost. A nonzero explicit ID in Off makes
+            // NVIDIA 617.14 serialize immediate presentation on this device.
+            // On/Boost still explicitly associate external Qt and RHI work.
+            return _dispatch.enabled && _dispatch.revision >= 3
+                ? std::optional(_mode == LowLatencyMode::Off ? std::uint64_t{0} : FrameId())
+                : std::nullopt;
+        }
         [[nodiscard]] LowLatencyDiagnostics Stats() const noexcept { return _stats; }
     private:
         void Fail(const char* operation, VkResult result);

@@ -1,5 +1,6 @@
 #include "VulkanSwapchain.hpp"
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -259,9 +260,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 }
 
                 ImageState& image = _images[imageIndex];
-                if (image.lastFrame != VK_NULL_HANDLE && image.lastFrame != frame.fence)
-                    Check(WaitFenceReporting(_context._impl->vkWaitForFences, _context._impl->device, &image.lastFrame, "vkWaitForFences(swapchain image)"), "vkWaitForFences(swapchain image)");
-                WaitForPresent(image);
+                // imageAvailable supplies the GPU dependency. The frame slot
+                // above owns the CPU command pool; this image owns no mutable
+                // CPU storage requiring an additional image/present host wait.
                 _currentImage = imageIndex;
                 _acquired = true;
                 _commandsReady = false;
@@ -521,10 +522,17 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         struct ImageState final
         {
+            struct PresentCompletion final
+            {
+                VkFence Fence = VK_NULL_HANDLE;
+                bool Pending = false;
+            };
             std::unique_ptr<VulkanSwapchainTexture> texture;
             VkSemaphore renderFinished = VK_NULL_HANDLE;
-            VkFence presentFence = VK_NULL_HANDLE;
-            VkFence lastFrame = VK_NULL_HANDLE;
+            // Completion proofs are independent of image admission. A bounded
+            // ring allows recording without waiting on the previous present.
+            std::array<PresentCompletion, 4> Completions{};
+            std::size_t NextCompletion = 0;
             bool presentPending = false;
         };
 
@@ -799,14 +807,16 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 {
                     VkFenceCreateInfo fence{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
                     fence.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-                    Check(vk.vkCreateFence(vk.device, &fence, nullptr, &state.presentFence),
-                        "vkCreateFence(present completion)");
+                    for (auto& completion : state.Completions)
+                        Check(vk.vkCreateFence(vk.device, &fence, nullptr, &completion.Fence),
+                            "vkCreateFence(present completion)");
                 }
                 _images.push_back(std::move(state));
                 }
                 catch (...)
                 {
-                    if (state.presentFence) vk.vkDestroyFence(vk.device, state.presentFence, nullptr);
+                    for (const auto& completion : state.Completions)
+                        if (completion.Fence) vk.vkDestroyFence(vk.device, completion.Fence, nullptr);
                     if (state.renderFinished) vk.vkDestroySemaphore(vk.device, state.renderFinished, nullptr);
                     if (imageView) vk.vkDestroyImageView(vk.device, imageView, nullptr);
                     throw;
@@ -822,12 +832,43 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         void WaitForPresent(ImageState& image)
         {
-            if (image.presentPending && image.presentFence)
+            for (auto& completion : image.Completions)
             {
-                Check(WaitFenceReporting(_context._impl->vkWaitForFences, _context._impl->device, &image.presentFence, "vkWaitForFences(present)"), "vkWaitForFences(present)");
+                if (!completion.Pending) continue;
+                Check(WaitFenceReporting(_context._impl->vkWaitForFences, _context._impl->device,
+                    &completion.Fence, "vkWaitForFences(present cleanup)"), "vkWaitForFences(present cleanup)");
                 ++_presentFenceWaits;
-                image.presentPending = false;
+                completion.Pending = false;
             }
+            if (image.Completions[0].Fence) image.presentPending = false;
+        }
+
+        ImageState::PresentCompletion* AdmitPresentCompletion(ImageState& image)
+        {
+            if (!image.Completions[0].Fence) return nullptr;
+            auto& vk = *_context._impl;
+            for (std::size_t offset = 0; offset < image.Completions.size(); ++offset)
+            {
+                const auto index = (image.NextCompletion + offset) % image.Completions.size();
+                auto& completion = image.Completions[index];
+                if (completion.Pending)
+                {
+                    const auto result = vk.vkGetFenceStatus(vk.device, completion.Fence);
+                    if (result == VK_NOT_READY) continue;
+                    Check(result, "vkGetFenceStatus(present completion)");
+                    completion.Pending = false;
+                }
+                image.NextCompletion = (index + 1) % image.Completions.size();
+                return &completion;
+            }
+            // Exhaustion is the only admission wait. Never reset a fence still
+            // referenced by presentation, or let completion storage grow forever.
+            auto& completion = image.Completions[image.NextCompletion];
+            Check(WaitFenceReporting(vk.vkWaitForFences, vk.device, &completion.Fence,
+                "vkWaitForFences(present ring exhaustion)"), "vkWaitForFences(present ring exhaustion)");
+            ++_presentFenceWaits; completion.Pending = false;
+            image.NextCompletion = (image.NextCompletion + 1) % image.Completions.size();
+            return &completion;
         }
 
         void WaitOutstanding()
@@ -853,7 +894,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             for (ImageState& image : images)
             {
                 if (image.renderFinished) vk.vkDestroySemaphore(vk.device, image.renderFinished, nullptr);
-                if (image.presentFence) vk.vkDestroyFence(vk.device, image.presentFence, nullptr);
+                for (const auto& completion : image.Completions)
+                    if (completion.Fence) vk.vkDestroyFence(vk.device, completion.Fence, nullptr);
                 if (image.texture && image.texture->View()) vk.vkDestroyImageView(vk.device, image.texture->View(), nullptr);
             }
             images.clear();
@@ -925,10 +967,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             auto& vk = *_context._impl;
             Frame& frame = _frames[_frameIndex];
             ImageState& image = _images[_currentImage];
-            if (image.presentFence)
+            auto* const completion = AdmitPresentCompletion(image);
+            if (completion)
             {
-                WaitForPresent(image);
-                Check(vk.vkResetFences(vk.device, 1, &image.presentFence), "vkResetFences(present)");
+                Check(vk.vkResetFences(vk.device, 1, &completion->Fence), "vkResetFences(present)");
             }
             VkSemaphoreSubmitInfo wait{VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
             wait.semaphore = frame.imageAvailable;
@@ -952,7 +994,6 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             Check(vk.vkQueueSubmit2(vk.graphics, 1, &submit, frame.fence), "vkQueueSubmit2(present)");
             _reflex->Mark(LowLatencyMarker::RenderSubmitEnd);
             frame.submitted = true;
-            image.lastFrame = frame.fence;
 
             VkPresentInfoKHR present{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
             present.waitSemaphoreCount = 1;
@@ -962,10 +1003,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             present.pImageIndices = &_currentImage;
             VkSwapchainPresentFenceInfoEXT presentFenceInfo{
                 VK_STRUCTURE_TYPE_SWAPCHAIN_PRESENT_FENCE_INFO_EXT};
-            if (image.presentFence)
+            if (completion)
             {
                 presentFenceInfo.swapchainCount = 1;
-                presentFenceInfo.pFences = &image.presentFence;
+                presentFenceInfo.pFences = &completion->Fence;
                 present.pNext = &presentFenceInfo;
             }
             const auto frameId = _reflex->FrameId();
@@ -980,7 +1021,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             // operations. Their completion fence must be waited before cleanup.
             if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR
                 || result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_ERROR_SURFACE_LOST_KHR)
+            {
                 image.presentPending = true;
+                if (completion) completion->Pending = true;
+            }
             if (result == VK_ERROR_OUT_OF_DATE_KHR)
                 _needsRecreate = true;
             else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
@@ -993,9 +1037,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             const auto outcome = NativePresentResult(result, _recreateAfterPresent);
             _recreateAfterPresent = false;
             _frameIndex = (_frameIndex + 1) % static_cast<std::uint32_t>(FrameCount);
-#if !defined(__ANDROID__)
-            ::MphRead::RendererPlatform::ProcessEvents();
-#endif
+            // The platform window loop owns event delivery. Presenting must
+            // not recursively pump Qt input/window events inside that frame.
             return outcome;
         }
     };

@@ -12,6 +12,7 @@
 #include "../../MphRead.Native/Renderer.hpp"
 #include "../../MphRead.Native/Mods/Chat/ChatBox.hpp"
 #include "../../MphRead.Native/NativeRuntime/Rhi/Swapchain.hpp"
+#include "../../MphRead.Native/NativeRuntime/Rhi/OpenGL/OpenGlDevice.hpp"
 #include "../../MphRead.Native/NativeRuntime/Rhi/PresentationScheduler.hpp"
 #include "../../MphRead.Native/NativeRuntime/Rhi/PresentationSleep.hpp"
 #if defined(FRUITY_HAS_VULKAN)
@@ -337,6 +338,11 @@ namespace
     {
         if (_context != nullptr)
         {
+            // Harnesses create successive windows while the lazy scene session
+            // remains alive. Detach its native device before deleting the Qt
+            // context, so a recycled QOpenGLContext address cannot reuse it.
+            if (_context->makeCurrent(_window.get()))
+                ::MphRead::NativeRuntime::Rhi::OpenGL::ReleaseContextDevice();
             _context->doneCurrent();
         }
         _context.reset();

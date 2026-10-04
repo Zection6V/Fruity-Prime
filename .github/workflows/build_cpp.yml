@@ -415,7 +415,7 @@ jobs:
           for run in a b; do
             python3 tools/generate-vulkan-scene-shaders.py --source src/MphRead.Native/Shaders.cpp --output "$RUNNER_TEMP/spirv-$run"
             for source in "$RUNNER_TEMP"/spirv-$run/*.vert "$RUNNER_TEMP"/spirv-$run/*.frag; do
-              "$glslc" --target-env=vulkan1.3 --target-spv=spv1.5 -O0 "$source" -o "$source.spv"
+              "$glslc" --target-env=vulkan1.1 -O0 "$source" -o "$source.spv"
             done
           done
           count=0

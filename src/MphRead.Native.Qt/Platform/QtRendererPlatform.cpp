@@ -46,6 +46,9 @@
 #include "../../MphRead.Native/NativeRuntime/System/Heartbeat.hpp"
 #include "QtApp.hpp"
 #include "QtKeys.hpp"
+#if defined(_WIN32)
+#include "WindowsRawMouseInput.hpp"
+#endif
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QEventLoop>
@@ -56,6 +59,7 @@
 #include <QtGui/QMouseEvent>
 #include <QtGui/QOpenGLContext>
 #include <QtGui/QOpenGLFunctions>
+#include <QtGui/QPlatformSurfaceEvent>
 #include <QtGui/QScreen>
 #include <QtGui/QSurfaceFormat>
 #include <QtGui/QWheelEvent>
@@ -78,6 +82,7 @@
 namespace
 {
     QWindow* g_gameWindow = nullptr;
+    std::uint64_t g_mousePositionEpoch = 0; // Qt GUI thread, across replacement windows.
     namespace Rhi = ::MphRead::NativeRuntime::Rhi;
     QEvent* g_currentEvent = nullptr;
 
@@ -227,8 +232,13 @@ namespace
         void Wheel(QWheelEvent* event);
         void RecentreGrabbedCursor();
         void CheckGrabbedMouse();
+        void ApplyRawMouse();
 
         std::unique_ptr<GameQWindow> _window;
+#if defined(_WIN32)
+        std::unique_ptr<MphRead::Qt::WindowsRawMouseInput> _rawMouse;
+        bool _rawMotionOwner = false;
+#endif
         std::unique_ptr<QOpenGLContext> _context;
         GraphicsWindowMode _graphicsMode = GraphicsWindowMode::OpenGL;
         WindowEvents* _events = nullptr;
@@ -241,7 +251,8 @@ namespace
         MphRead::RendererPlatform::MouseState _mouse{};
         // The cursor position the game sees, in framebuffer-sized window
         // pixels. While grabbed it is virtual and unbounded, as GLFW's
-        // CURSOR_DISABLED is: the real cursor is re-centred after each move.
+        // CURSOR_DISABLED is. Raw capture uses device counts; the fallback
+        // re-centres the real cursor after each move.
         float _cursorX = 0.0F;
         float _cursorY = 0.0F;
         float _lastReportedMouseX = 0.0F;
@@ -323,12 +334,17 @@ namespace
                       << (format.profile() == QSurfaceFormat::CompatibilityProfile ? " compatibility)" : ")")
                       << '\n';
         }
+#if defined(_WIN32)
+        _rawMouse = std::make_unique<MphRead::Qt::WindowsRawMouseInput>();
+        _rawMouse->Attach(reinterpret_cast<void*>(_window->winId()));
+#endif
         _updateFrequency = settings.UpdateFrequency;
         const QPointF cursor = _window->mapFromGlobal(QCursor::pos());
         _cursorX = _lastReportedMouseX = static_cast<float>(cursor.x() * Scale());
         _cursorY = _lastReportedMouseY = static_cast<float>(cursor.y() * Scale());
         _mouse.X = _cursorX;
         _mouse.Y = _cursorY;
+        _mouse.PositionEpoch = ++g_mousePositionEpoch;
         if (settings.StartVisible)
         {
             _window->show();
@@ -337,6 +353,9 @@ namespace
 
     QtWindow::~QtWindow()
     {
+#if defined(_WIN32)
+        _rawMouse.reset(); // Detach while the native HWND still exists.
+#endif
         if (_context != nullptr)
         {
             // Harnesses create successive windows while the lazy scene session
@@ -401,6 +420,7 @@ namespace
                 _mouse.Y = _cursorY;
                 Count(Counter::EventPumps);
                 QCoreApplication::processEvents(QEventLoop::AllEvents);
+                events.OnInputEventsProcessed();
             }
             if (_closeRequested)
             {
@@ -414,6 +434,7 @@ namespace
                     std::chrono::duration<double>(1.0 / _updateFrequency - elapsed));
                 continue;
             }
+            ApplyRawMouse();
             previous = now;
             _presentationFrameStart = now;
             // Qt creates a window's EGL surface when it is first exposed; a
@@ -454,22 +475,73 @@ namespace
     void QtWindow::Cursor(CursorState value)
     {
         const bool grab = value == CursorState::Grabbed;
-        if (grab == _grabbed)
-        {
-            return;
-        }
+#if defined(_WIN32)
+        const bool wasRaw = _rawMotionOwner;
+        const bool raw = grab && _window->isActive() && _rawMouse && _rawMouse->Available();
+        const bool sourceChanged = raw != _rawMotionOwner;
+        if (_rawMouse) _rawMouse->SetCapture(raw);
+        _rawMotionOwner = raw;
+#else
+        const bool sourceChanged = false;
+#endif
+        if (grab == _grabbed && !sourceChanged) return;
+        _mouse.PositionEpoch = ++g_mousePositionEpoch;
+        const bool wasGrabbed = _grabbed;
         _grabbed = grab;
         if (grab)
         {
             _window->setCursor(Qt::BlankCursor);
-            _window->setMouseGrabEnabled(true);
+            _window->setMouseGrabEnabled(_window->isActive());
+            // Once on capture/source transition, never once per raw packet.
             RecentreGrabbedCursor();
         }
         else
         {
             _window->setMouseGrabEnabled(false);
             _window->unsetCursor();
+            _warping = false;
+#if defined(_WIN32)
+            if (wasRaw)
+            {
+                // The next menu click needs the real absolute pointer, rather
+                // than the unbounded device-count position used for aiming.
+                const QPointF local = _window->mapFromGlobal(QCursor::pos());
+                _mouse.X = _lastReportedMouseX = _cursorX = static_cast<float>(local.x() * Scale());
+                _mouse.Y = _lastReportedMouseY = _cursorY = static_cast<float>(local.y() * Scale());
+            }
+#endif
         }
+        if (grab && (!wasGrabbed || sourceChanged))
+        {
+            _mouse.X = _lastReportedMouseX = _cursorX;
+            _mouse.Y = _lastReportedMouseY = _cursorY;
+        }
+    }
+
+    void QtWindow::ApplyRawMouse()
+    {
+        _mouse.MotionValid = _window->isActive();
+#if defined(_WIN32)
+        if (!_rawMouse) return;
+        // A read failure can change the source during processEvents. Re-centre
+        // before admitting any fallback move and discard this frame's raw data.
+        if (_rawMotionOwner && !_rawMouse->CaptureActive()) Cursor(_grabbed ? CursorState::Grabbed : CursorState::Normal);
+        const auto [dx, dy] = _rawMouse->TakeDelta();
+        if (_rawMotionOwner && (dx != 0 || dy != 0))
+        {
+            _cursorX += static_cast<float>(dx);
+            _cursorY += static_cast<float>(dy);
+            _mouse.X = _lastReportedMouseX = _cursorX;
+            _mouse.Y = _lastReportedMouseY = _cursorY;
+            MouseMoveEventArgs args{};
+            args.X = _cursorX;
+            args.Y = _cursorY;
+            args.DeltaX = static_cast<float>(dx);
+            args.DeltaY = static_cast<float>(dy);
+            if (_events) _events->OnMouseMove(args);
+        }
+        _rawMouse->EndFrame(_grabbed && _window->isActive() && !_rawMotionOwner);
+#endif
     }
 
     void QtWindow::SetSwapInterval(int interval)
@@ -626,6 +698,20 @@ namespace
     {
         switch (event->type())
         {
+#if defined(_WIN32)
+        case QEvent::PlatformSurface:
+            if (_rawMouse)
+            {
+                _rawMouse->SetCapture(false);
+                _rawMouse->Discard();
+                if (static_cast<QPlatformSurfaceEvent*>(event)->surfaceEventType() == QPlatformSurfaceEvent::SurfaceAboutToBeDestroyed)
+                    _rawMouse->Detach();
+                else
+                    _rawMouse->Attach(reinterpret_cast<void*>(_window->winId()));
+                _rawMotionOwner = false;
+            }
+            return false;
+#endif
         case QEvent::Close:
             // The close button asks; the loop ends and the renderer closes.
             _closeRequested = true;
@@ -663,6 +749,15 @@ namespace
         }
         case QEvent::FocusIn:
         case QEvent::FocusOut:
+#if defined(_WIN32)
+            if (event->type() == QEvent::FocusOut && _rawMouse)
+            {
+                _mouse.MotionValid = false;
+                _rawMouse->SetCapture(false);
+                _rawMouse->Discard();
+                _window->setMouseGrabEnabled(false);
+            }
+#endif
             if (_events != nullptr)
             {
                 _events->OnFocusedChanged(event->type() == QEvent::FocusIn);
@@ -728,6 +823,10 @@ namespace
                 }
             }
         }
+        // A chat/menu key can close capture and reopen it in the same pump.
+        // Apply the renderer's policy here too, so motion between those keys
+        // cannot survive in the accumulator when the final policy is grabbed.
+        if (_events) _events->OnInputEventsProcessed();
     }
 
     void QtWindow::MouseButton(QMouseEvent* event, bool down)
@@ -758,6 +857,10 @@ namespace
 
     void QtWindow::MouseMove(QMouseEvent* event)
     {
+#if defined(_WIN32)
+        // Keep ownership for the whole pump even if a raw read failed midway.
+        if (_grabbed && (_rawMotionOwner || !_window->isActive())) return;
+#endif
         const QPointF local = event->position();
         if (_grabbed)
         {
@@ -794,6 +897,19 @@ namespace
 
     void QtWindow::CheckGrabbedMouse()
     {
+#if defined(_WIN32)
+        if (_rawMotionOwner)
+        {
+            const auto start = std::pair{_cursorX, _cursorY};
+            QMouseEvent move(QEvent::MouseMove, QPointF(_grabCentre + QPointF(50, 50)),
+                QPointF(_window->mapToGlobal(_grabCentre.toPoint())), Qt::NoButton, Qt::NoButton, Qt::NoModifier);
+            QCoreApplication::sendEvent(_window.get(), &move);
+            if (start != std::pair{_cursorX, _cursorY})
+                throw std::runtime_error("Qt motion was added during raw mouse capture.");
+            std::cout << "[mousecheck] PASS raw capture excludes Qt motion\n";
+            return;
+        }
+#endif
         const auto startX = _cursorX;
         const auto startY = _cursorY;
         const QPoint centre = _grabCentre.toPoint();

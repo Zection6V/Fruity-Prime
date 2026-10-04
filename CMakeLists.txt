@@ -323,6 +323,9 @@ set_target_properties(fruity_mphread_native PROPERTIES OUTPUT_NAME "MphRead.Nati
 # focused tests whenever a host native owner is built; Android cross-compiles
 # the production decoder but cannot execute the host test binary.
 if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
+    add_executable(fruity_raw_mouse_motion_tests "${CMAKE_CURRENT_SOURCE_DIR}/tools/testing/TestRawMouseMotion.cpp")
+    target_compile_features(fruity_raw_mouse_motion_tests PRIVATE cxx_std_20)
+    add_test(NAME FruityPrime.RawMouseMotion COMMAND fruity_raw_mouse_motion_tests)
     add_executable(fruity_opengl_uniform_tests
         "${FRUITY_MPHREAD_ROOT}/Testing/TestOpenGlUniformState.cpp"
         "${FRUITY_MPHREAD_ROOT}/NativeRuntime/FrameTelemetry.cpp")
@@ -604,6 +607,24 @@ endif()
 target_include_directories(fruity_mphread_qt PRIVATE
     "${FRUITY_MPHREAD_ROOT}" "${FRUITY_NCSFPLAY_ROOT}")
 target_link_libraries(fruity_mphread_qt PUBLIC Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick)
+if(WIN32)
+    target_link_libraries(fruity_mphread_native PUBLIC user32)
+    if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
+        add_executable(fruity_windows_raw_mouse_tests
+            "${CMAKE_CURRENT_SOURCE_DIR}/tools/testing/TestWindowsRawMouseInput.cpp"
+            "${FRUITY_QT_ROOT}/Platform/WindowsRawMouseInput.cpp")
+        target_compile_features(fruity_windows_raw_mouse_tests PRIVATE cxx_std_20)
+        target_compile_definitions(fruity_windows_raw_mouse_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+        target_link_libraries(fruity_windows_raw_mouse_tests PRIVATE Qt6::Core user32)
+        add_test(NAME FruityPrime.WindowsRawMouseInput COMMAND fruity_windows_raw_mouse_tests)
+        add_executable(fruity_qt_raw_mouse_window_tests "${CMAKE_CURRENT_SOURCE_DIR}/tools/testing/TestQtRawMouseWindow.cpp")
+        target_compile_features(fruity_qt_raw_mouse_window_tests PRIVATE cxx_std_20)
+        target_compile_definitions(fruity_qt_raw_mouse_window_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+        target_link_libraries(fruity_qt_raw_mouse_window_tests PRIVATE fruity_mphread_native)
+
+    endif()
+endif()
+
 if(UNIX AND NOT APPLE AND NOT ANDROID)
     # Qt loads its xcb platform plugin dynamically, so link libxcb explicitly
     # for the Vulkan presentation probe's default-visual query.

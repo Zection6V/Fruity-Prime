@@ -212,7 +212,8 @@ public:
         if (scene)
         {
             dynamicStates.push_back(VK_DYNAMIC_STATE_STENCIL_REFERENCE);
-            dynamicStates.push_back(VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE);
+            // The legacy path has the strides in desc.vertexBuffers instead (VariantFor).
+            if (!vk.legacy) dynamicStates.push_back(VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE);
         }
         VkPipelineDynamicStateCreateInfo dynamic{VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
         dynamic.dynamicStateCount = static_cast<std::uint32_t>(dynamicStates.size()); dynamic.pDynamicStates = dynamicStates.data();
@@ -247,6 +248,12 @@ public:
                 rendering.stencilAttachmentFormat = rendering.depthAttachmentFormat;
             VkGraphicsPipelineCreateInfo create{VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
             create.pNext = &rendering; create.stageCount = 2; create.pStages = stages.data();
+            if (vk.legacy)
+            {
+                create.pNext = nullptr;
+                create.renderPass = Legacy::CompatibleRenderPass(formats, rendering.depthAttachmentFormat,
+                    rendering.stencilAttachmentFormat != VK_FORMAT_UNDEFINED, multisample.rasterizationSamples);
+            }
             create.pVertexInputState = &input; create.pInputAssemblyState = &assembly; create.pViewportState = &viewport;
             create.pRasterizationState = &raster; create.pMultisampleState = &multisample; create.pDepthStencilState = &depth;
             create.pColorBlendState = &blend; create.pDynamicState = &dynamic; create.layout = _layout;

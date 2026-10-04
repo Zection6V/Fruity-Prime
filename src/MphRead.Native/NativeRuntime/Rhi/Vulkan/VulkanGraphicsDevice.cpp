@@ -43,6 +43,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 {
     namespace
     {
+        // The version the device is used at: its own, up to 1.3, without the patch.
+        std::uint32_t DeviceApiVersion(std::uint32_t version) noexcept
+        {
+            return std::min<std::uint32_t>(VK_API_VERSION_1_3,
+                VK_MAKE_API_VERSION(0, VK_API_VERSION_MAJOR(version), VK_API_VERSION_MINOR(version), 0));
+        }
         std::uint64_t NextSceneResourceIdentity() noexcept
         {
             static std::atomic<std::uint64_t> next{1};
@@ -234,12 +240,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 create.instance = vk.instance;
                 create.physicalDevice = vk.physical;
                 create.device = vk.device;
-                create.vulkanApiVersion = VK_API_VERSION_1_3;
+                create.vulkanApiVersion = DeviceApiVersion(vk.apiVersion);
                 create.pVulkanFunctions = &functions;
                 if (vk.memoryBudget) create.flags |= VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT;
                 VkPhysicalDeviceMaintenance3Properties maintenance{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_3_PROPERTIES};
+                // maintenance4 is 1.3's; below it maxBufferSize stays 0, which is no limit.
                 VkPhysicalDeviceMaintenance4Properties maintenance4{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_PROPERTIES};
-                maintenance.pNext = &maintenance4;
+                if (vk.apiVersion >= VK_API_VERSION_1_3) maintenance.pNext = &maintenance4;
                 VkPhysicalDeviceProperties2 properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
                 properties.pNext = &maintenance;
                 vk.vkGetPhysicalDeviceProperties2(vk.physical, &properties);
@@ -1615,7 +1622,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         result.Device = reinterpret_cast<std::uint64_t>(vk.device);
         result.Queue = reinterpret_cast<std::uint64_t>(vk.graphics);
         result.QueueFamily = vk.graphicsFamily;
-        result.ApiVersion = VK_API_VERSION_1_3;
+        result.ApiVersion = DeviceApiVersion(vk.apiVersion);
         result.GetInstanceProcAddr = reinterpret_cast<void*>(Context::Impl::InstanceProc());
         result.GetDeviceProcAddr = reinterpret_cast<void*>(vk.vkGetDeviceProcAddr);
         return result;

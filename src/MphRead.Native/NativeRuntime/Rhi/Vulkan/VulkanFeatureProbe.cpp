@@ -1,4 +1,6 @@
 #include "VulkanFeatureProbe.hpp"
+
+#include <cstdlib>
 #if defined(FRUITY_HAS_VULKAN)
 #include "VulkanResult.hpp"
 #include <algorithm>
@@ -52,7 +54,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     InstanceProbe EvaluateInstance(const InstanceSnapshot& snapshot, bool validation, bool allowMaintenance)
     {
         InstanceProbe result;
-        result.Findings.push_back({"loader API 1.3", true, snapshot.LoaderVersion >= VK_API_VERSION_1_3, {}});
+        result.LoaderVersion = snapshot.LoaderVersion;
+        result.Findings.push_back({"loader API 1.1", true, snapshot.LoaderVersion >= VK_API_VERSION_1_1, {}});
         result.Findings.push_back({"window-system extensions", true, !snapshot.WindowExtensions.empty(), {}});
         for (const auto& extension : snapshot.WindowExtensions)
         {
@@ -102,9 +105,20 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 if (std::string_view(value.extensionName) == VK_NV_LOW_LATENCY_2_EXTENSION_NAME)
                 { snapshot.NvLowLatency2 = true; snapshot.NvLowLatency2SpecVersion = value.specVersion; }
             }
-            // Older devices still get a structured rejection without asking
-            // them for the application's 1.3 feature chain.
-            if (snapshot.Properties.apiVersion >= VK_API_VERSION_1_3)
+            // Below 1.3 only what the legacy path needs is asked for: timeline
+            // semaphores, through the extension's struct on a 1.1 device that
+            // has it. Older devices are never asked for the 1.3 feature chain.
+            if (snapshot.Properties.apiVersion >= VK_API_VERSION_1_1 && snapshot.Properties.apiVersion < VK_API_VERSION_1_3)
+            {
+                VkPhysicalDeviceTimelineSemaphoreFeatures timeline{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
+                VkPhysicalDeviceFeatures2 features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+                if (snapshot.Properties.apiVersion >= VK_API_VERSION_1_2
+                    || Has(snapshot.Extensions, VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME))
+                    features.pNext = &timeline;
+                dispatch.Features(device, &features); snapshot.Features = features.features;
+                snapshot.TimelineSemaphore = timeline.timelineSemaphore != 0;
+            }
+            else if (snapshot.Properties.apiVersion >= VK_API_VERSION_1_3)
             {
                 VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT maintenance{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT};
                 VkPhysicalDeviceVulkan13Features features13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
@@ -154,9 +168,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         PhysicalDeviceProbe result; result.Snapshot = std::move(snapshot);
         const auto& facts = result.Snapshot;
         const auto required = [&](const char* name, bool supported) { result.Findings.push_back({name, true, supported, {}}); };
-        required("device API 1.3", facts.Properties.apiVersion >= VK_API_VERSION_1_3);
+        const auto* forceLegacy = std::getenv("FRUITY_VULKAN_LEGACY");
+        result.Legacy = facts.Properties.apiVersion < VK_API_VERSION_1_3 || (forceLegacy && *forceLegacy && *forceLegacy != '0');
+        result.TimelineSemaphoreExtension = facts.Properties.apiVersion < VK_API_VERSION_1_2;
+        required("device API 1.1", facts.Properties.apiVersion >= VK_API_VERSION_1_1);
         required("swapchain extension", Has(facts.Extensions, VK_KHR_SWAPCHAIN_EXTENSION_NAME));
-        required("dynamic rendering", facts.DynamicRendering); required("synchronization2", facts.Synchronization2);
+        // 1.3 devices use dynamic rendering and synchronization2 as before; the
+        // rest run the legacy path, which needs neither.
+        if (!result.Legacy) { required("dynamic rendering", facts.DynamicRendering); required("synchronization2", facts.Synchronization2); }
         required("timeline semaphore", facts.TimelineSemaphore);
         constexpr auto color = VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT
             | VK_FORMAT_FEATURE_TRANSFER_SRC_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT;

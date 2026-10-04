@@ -30,10 +30,12 @@ add_custom_command(
         "${CMAKE_CURRENT_SOURCE_DIR}/src/MphRead.Native/NativeRuntime/Rhi/SceneShaderAbi.hpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/src/MphRead.Native/NativeRuntime/Rhi/VertexSemantics.hpp"
     VERBATIM)
+# Vulkan 1.1 is SPIR-V 1.3: the backend's legacy path runs 1.1 devices (a
+# Mali-G78 goes no further), and a 1.3 device reads 1.3 SPIR-V as well.
 foreach(_source IN LISTS _fruity_generated_glsl)
     add_custom_command(
         OUTPUT "${_source}.spv"
-        COMMAND "${FRUITY_GLSLC}" --target-env=vulkan1.3 --target-spv=spv1.5 -O0
+        COMMAND "${FRUITY_GLSLC}" --target-env=vulkan1.1 -O0
             "${_source}" -o "${_source}.spv"
         DEPENDS "${_source}" "${FRUITY_GLSLC}"
         VERBATIM)
@@ -62,7 +64,7 @@ add_custom_command(
     DEPENDS "${_rhi_fixture_source}" "${_rhi_fixture_builder}" VERBATIM)
 foreach(_stage vert frag)
     add_custom_command(OUTPUT "${FRUITY_VULKAN_SHADER_DIR}/conformance.${_stage}.spv"
-        COMMAND "${FRUITY_GLSLC}" --target-env=vulkan1.3 --target-spv=spv1.5 -DFRUITY_VULKAN=1 -O0
+        COMMAND "${FRUITY_GLSLC}" --target-env=vulkan1.1 -DFRUITY_VULKAN=1 -O0
             "${FRUITY_VULKAN_SHADER_DIR}/conformance.${_stage}" -o "${FRUITY_VULKAN_SHADER_DIR}/conformance.${_stage}.spv"
         DEPENDS "${FRUITY_VULKAN_SHADER_DIR}/conformance.${_stage}" "${FRUITY_GLSLC}" VERBATIM)
 endforeach()

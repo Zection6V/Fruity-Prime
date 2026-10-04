@@ -33,6 +33,7 @@
 #include "VulkanNvidiaReflex.hpp"
 #include "VulkanResult.hpp"
 #include "VulkanFeatureProbe.hpp"
+#include "VulkanLegacy.hpp"
 #include "VulkanWindowSystem.hpp"
 
 namespace MphRead::NativeRuntime::Rhi::Vulkan
@@ -55,6 +56,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         bool validation = false;
         bool swapchainMaintenance1 = false;
         bool memoryBudget = false;
+        // See PhysicalDeviceProbe::Legacy: no dynamic rendering, synchronization2 or 1.3 dynamic state.
+        bool legacy = false;
         bool nvLowLatency2 = false;
         std::uint32_t nvLowLatency2Revision = 0;
         std::string reflexUnavailableReason;
@@ -83,12 +86,19 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         X(vkCreateDevice) X(vkGetDeviceProcAddr)
 #define VULKAN_CACHE_FUNCTIONS(X) \
         X(vkCreatePipelineCache) X(vkDestroyPipelineCache) X(vkGetPipelineCacheData)
+// The 1.2 and 1.3 entry points: a legacy device has shims (VulkanLegacy.hpp),
+// or the timeline extension's names, in their place.
+#define VULKAN_MODERN_DEVICE_FUNCTIONS(X) \
+        X(vkCmdWriteTimestamp2) X(vkGetDeviceBufferMemoryRequirements) X(vkGetDeviceImageMemoryRequirements) \
+        X(vkCmdPipelineBarrier2) X(vkCmdBeginRendering) X(vkCmdEndRendering) X(vkQueueSubmit2) X(vkCmdBindVertexBuffers2)
+#define VULKAN_TIMELINE_DEVICE_FUNCTIONS(X) \
+        X(vkWaitSemaphores) X(vkGetSemaphoreCounterValue)
 #define VULKAN_DEVICE_FUNCTIONS(X) \
-        X(vkCreateQueryPool) X(vkDestroyQueryPool) X(vkGetQueryPoolResults) X(vkCmdResetQueryPool) X(vkCmdWriteTimestamp2) \
-        X(vkWaitSemaphores) X(vkCmdPushConstants) X(vkDeviceWaitIdle) X(vkDestroyDevice) X(vkGetDeviceQueue) X(vkGetDeviceBufferMemoryRequirements) X(vkGetDeviceImageMemoryRequirements) X(vkCreateCommandPool) \
+        X(vkCreateQueryPool) X(vkDestroyQueryPool) X(vkGetQueryPoolResults) X(vkCmdResetQueryPool) \
+        X(vkCmdPushConstants) X(vkDeviceWaitIdle) X(vkDestroyDevice) X(vkGetDeviceQueue) X(vkCreateCommandPool) \
         X(vkDestroyCommandPool) X(vkAllocateCommandBuffers) X(vkFreeCommandBuffers) X(vkResetCommandPool) \
-        X(vkBeginCommandBuffer) X(vkEndCommandBuffer) X(vkCmdPipelineBarrier2) \
-        X(vkCmdBeginRendering) X(vkCmdEndRendering) X(vkCmdCopyBuffer) X(vkCmdFillBuffer) \
+        X(vkBeginCommandBuffer) X(vkEndCommandBuffer) \
+        X(vkCmdCopyBuffer) X(vkCmdFillBuffer) \
         X(vkCmdCopyBufferToImage) X(vkCmdCopyImageToBuffer) X(vkCreateImageView) \
         X(vkDestroyImageView) X(vkCreateSampler) X(vkDestroySampler) \
         X(vkCreateDescriptorSetLayout) X(vkDestroyDescriptorSetLayout) \
@@ -98,15 +108,17 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         X(vkCreatePipelineLayout) X(vkDestroyPipelineLayout) \
         X(vkCreateShaderModule) X(vkDestroyShaderModule) \
         X(vkCreateGraphicsPipelines) X(vkDestroyPipeline) X(vkCmdBindPipeline) \
-        X(vkCreateSemaphore) X(vkDestroySemaphore) X(vkGetSemaphoreCounterValue) \
+        X(vkCreateSemaphore) X(vkDestroySemaphore) \
         X(vkCreateFence) X(vkDestroyFence) X(vkWaitForFences) X(vkResetFences) \
         X(vkCreateSwapchainKHR) X(vkDestroySwapchainKHR) X(vkGetSwapchainImagesKHR) \
-        X(vkAcquireNextImageKHR) X(vkQueueSubmit2) X(vkQueuePresentKHR) \
-        X(vkCmdSetViewport) X(vkCmdSetScissor) X(vkCmdBindVertexBuffers2) X(vkCmdBindIndexBuffer) \
+        X(vkAcquireNextImageKHR) X(vkQueuePresentKHR) \
+        X(vkCmdSetViewport) X(vkCmdSetScissor) X(vkCmdBindIndexBuffer) \
         X(vkCmdSetStencilReference) X(vkCmdDraw) X(vkCmdDrawIndexed) X(vkCmdCopyImage) X(vkCmdClearColorImage) X(vkCmdBlitImage) X(vkGetFenceStatus)
 #define DECLARE_VULKAN_FUNCTION(name) PFN_##name name = nullptr;
         VULKAN_INSTANCE_FUNCTIONS(DECLARE_VULKAN_FUNCTION)
         VULKAN_DEVICE_FUNCTIONS(DECLARE_VULKAN_FUNCTION)
+        VULKAN_MODERN_DEVICE_FUNCTIONS(DECLARE_VULKAN_FUNCTION)
+        VULKAN_TIMELINE_DEVICE_FUNCTIONS(DECLARE_VULKAN_FUNCTION)
         VULKAN_CACHE_FUNCTIONS(DECLARE_VULKAN_FUNCTION)
         DECLARE_VULKAN_FUNCTION(vkEnumerateInstanceExtensionProperties)
         DECLARE_VULKAN_FUNCTION(vkEnumerateInstanceLayerProperties)
@@ -159,6 +171,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 if (!vkDestroyDevice && vkGetDeviceProcAddr)
                     vkDestroyDevice = reinterpret_cast<PFN_vkDestroyDevice>(vkGetDeviceProcAddr(device, "vkDestroyDevice"));
                 if (vkDeviceWaitIdle) vkDeviceWaitIdle(device);
+                if (legacy) Legacy::Uninstall(device);
                 if (vkDestroyDevice) vkDestroyDevice(device, nullptr);
                 device = VK_NULL_HANDLE;
             }
@@ -251,7 +264,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             const VkInstanceCreateFlags flags = instanceProbe.PortabilityEnumeration ? VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR : 0;
             const char* layer = "VK_LAYER_KHRONOS_validation";
             VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
-            app.pApplicationName = Mods::Branding::Name.data(); app.apiVersion = VK_API_VERSION_1_3;
+            app.pApplicationName = Mods::Branding::Name.data(); app.apiVersion = std::min<std::uint32_t>(VK_API_VERSION_1_3, instanceProbe.LoaderVersion);
             VkDebugUtilsMessengerCreateInfoEXT debug{VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
             debug.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
             debug.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
@@ -334,13 +347,30 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 VkDeviceQueueCreateInfo q{VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
                 q.queueFamilyIndex = family; q.queueCount = 1; q.pQueuePriorities = &priority; queues.push_back(q);
             }
+            legacy = probe.Legacy;
+            // Each enabled feature struct goes on the front of the chain. A 1.1
+            // device knows none of the VulkanNN structs: its timeline semaphores
+            // are the extension's.
+            void* featureChain = nullptr;
+            const auto chain = [&featureChain](auto& feature) { feature.pNext = featureChain; featureChain = &feature; };
             VkPhysicalDeviceVulkan13Features enabled13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
             enabled13.dynamicRendering = VK_TRUE; enabled13.synchronization2 = VK_TRUE;
             VkPhysicalDeviceVulkan12Features enabled12{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
-            enabled12.timelineSemaphore = VK_TRUE; enabled12.pNext = &enabled13;
+            enabled12.timelineSemaphore = VK_TRUE;
+            VkPhysicalDeviceTimelineSemaphoreFeatures enabledTimeline{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_TIMELINE_SEMAPHORE_FEATURES};
+            enabledTimeline.timelineSemaphore = VK_TRUE;
             VkPhysicalDeviceSwapchainMaintenance1FeaturesEXT enabledMaintenance1{
                 VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SWAPCHAIN_MAINTENANCE_1_FEATURES_EXT};
             std::vector<const char*> deviceExtensionNames{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+            if (probe.TimelineSemaphoreExtension)
+            {
+                chain(enabledTimeline);
+                deviceExtensionNames.push_back(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
+            }
+            else chain(enabled12);
+            // A 1.3 device forced onto the legacy path does not enable what it
+            // must not use, so that validation says when it is used.
+            if (!legacy) chain(enabled13);
             nvLowLatency2Revision = probe.NvLowLatency2SpecVersion;
             nvLowLatency2 = probe.NvLowLatency2;
             reflexUnavailableReason = probe.ReflexUnavailableReason;
@@ -354,7 +384,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (nvLowLatency2)
             {
                 enabledPresentId.presentId = VK_TRUE;
-                enabled13.pNext = &enabledPresentId;
+                chain(enabledPresentId);
                 deviceExtensionNames.push_back(VK_NV_LOW_LATENCY_2_EXTENSION_NAME);
                 deviceExtensionNames.push_back(VK_KHR_PRESENT_ID_EXTENSION_NAME);
             }
@@ -363,8 +393,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (maintenance1)
             {
                 enabledMaintenance1.swapchainMaintenance1 = VK_TRUE;
-                enabledMaintenance1.pNext = enabled13.pNext;
-                enabled13.pNext = &enabledMaintenance1;
+                chain(enabledMaintenance1);
                 deviceExtensionNames.push_back(VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
             }
             VkPhysicalDeviceFeatures enabled{};
@@ -374,7 +403,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             enabled.wideLines = selectedFeatures.wideLines;
             enabled.independentBlend = selectedFeatures.independentBlend;
             VkDeviceCreateInfo createDevice{VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
-            createDevice.pNext = &enabled12; createDevice.pEnabledFeatures = &enabled;
+            createDevice.pNext = featureChain; createDevice.pEnabledFeatures = &enabled;
             createDevice.queueCreateInfoCount = static_cast<std::uint32_t>(queues.size()); createDevice.pQueueCreateInfos = queues.data();
             createDevice.enabledExtensionCount = static_cast<std::uint32_t>(deviceExtensionNames.size());
             createDevice.ppEnabledExtensionNames = deviceExtensionNames.data();
@@ -382,7 +411,33 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             swapchainMaintenance1 = maintenance1;
 #define LOAD_VULKAN_DEVICE_FUNCTION(name) name = reinterpret_cast<PFN_##name>(vkGetDeviceProcAddr(device, #name)); if (!name) throw std::runtime_error("Missing Vulkan device entry point: " #name);
             VULKAN_DEVICE_FUNCTIONS(LOAD_VULKAN_DEVICE_FUNCTION)
+            if (!probe.TimelineSemaphoreExtension) { VULKAN_TIMELINE_DEVICE_FUNCTIONS(LOAD_VULKAN_DEVICE_FUNCTION) }
+            if (!legacy) { VULKAN_MODERN_DEVICE_FUNCTIONS(LOAD_VULKAN_DEVICE_FUNCTION) }
 #undef LOAD_VULKAN_DEVICE_FUNCTION
+            if (probe.TimelineSemaphoreExtension)
+            {
+                vkWaitSemaphores = reinterpret_cast<PFN_vkWaitSemaphores>(vkGetDeviceProcAddr(device, "vkWaitSemaphoresKHR"));
+                vkGetSemaphoreCounterValue = reinterpret_cast<PFN_vkGetSemaphoreCounterValue>(
+                    vkGetDeviceProcAddr(device, "vkGetSemaphoreCounterValueKHR"));
+                if (!vkWaitSemaphores || !vkGetSemaphoreCounterValue)
+                    throw std::runtime_error("Missing Vulkan device entry point: VK_KHR_timeline_semaphore.");
+            }
+            if (legacy)
+            {
+                Legacy::Install(device, vkGetDeviceProcAddr);
+                vkCmdWriteTimestamp2 = Legacy::CmdWriteTimestamp2;
+                vkGetDeviceBufferMemoryRequirements = Legacy::GetDeviceBufferMemoryRequirements;
+                vkGetDeviceImageMemoryRequirements = Legacy::GetDeviceImageMemoryRequirements;
+                vkCmdPipelineBarrier2 = Legacy::CmdPipelineBarrier2;
+                vkCmdBeginRendering = Legacy::CmdBeginRendering;
+                vkCmdEndRendering = Legacy::CmdEndRendering;
+                vkQueueSubmit2 = Legacy::QueueSubmit2;
+                vkCmdBindVertexBuffers2 = Legacy::CmdBindVertexBuffers2;
+                // Every view goes past the legacy path: its format names a
+                // rendering's attachments, and its end retires framebuffers.
+                vkCreateImageView = Legacy::CreateImageView;
+                vkDestroyImageView = Legacy::DestroyImageView;
+            }
 #define LOAD_VULKAN_CACHE_FUNCTION(name) name = reinterpret_cast<PFN_##name>(vkGetDeviceProcAddr(device, #name));
             VULKAN_CACHE_FUNCTIONS(LOAD_VULKAN_CACHE_FUNCTION)
 #undef LOAD_VULKAN_CACHE_FUNCTION
@@ -409,13 +464,15 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             Name(VK_OBJECT_TYPE_QUEUE, reinterpret_cast<std::uint64_t>(graphics), "RHI graphics queue");
             std::cout << "[vulkan] selected " << name << " graphics=" << graphicsFamily
                 << " present=" << presentFamily << " validation=" << validation
-                << " swapchainMaintenance1=" << maintenance1 << '\n';
+                << " swapchainMaintenance1=" << maintenance1 << " legacy=" << legacy << '\n';
         }
     };
 
 }
 #undef VULKAN_INSTANCE_FUNCTIONS
 #undef VULKAN_DEVICE_FUNCTIONS
+#undef VULKAN_MODERN_DEVICE_FUNCTIONS
+#undef VULKAN_TIMELINE_DEVICE_FUNCTIONS
 #undef VULKAN_CACHE_FUNCTIONS
 
 namespace MphRead::NativeRuntime::Rhi

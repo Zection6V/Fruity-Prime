@@ -30,6 +30,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         std::vector<std::string> EnabledExtensions;
         bool Eligible = false, Validation = false, DebugUtils = false;
         bool SurfaceMaintenance1 = false, PortabilityEnumeration = false;
+        std::uint32_t LoaderVersion = VK_API_VERSION_1_0;
     };
     struct QueueSnapshot final
     {
@@ -57,6 +58,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         std::uint32_t GraphicsFamily = UINT32_MAX, PresentFamily = UINT32_MAX;
         std::uint64_t DeviceLocalBytes = 0, Score = 0;
         bool Eligible = false, MemoryBudget = false, PortabilitySubset = false, SwapchainMaintenance1 = false;
+        // The device is below Vulkan 1.3 (or FRUITY_VULKAN_LEGACY forces it):
+        // render passes, classic barriers and submits, and static vertex strides
+        // stand in for dynamic rendering, synchronization2 and the 1.3 dynamic state.
+        bool Legacy = false;
+        // vkWaitSemaphores and friends are the core 1.2 names, or VK_KHR_timeline_semaphore's.
+        bool TimelineSemaphoreExtension = false;
         bool NvLowLatency2 = false, PresentId = false;
         std::uint32_t NvLowLatency2SpecVersion = 0;
         std::string ReflexUnavailableReason;

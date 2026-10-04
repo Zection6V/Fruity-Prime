@@ -1,13 +1,21 @@
 package fr.livetek.fruityprime;
 
 import android.content.Context;
+import android.content.Intent;
+import android.content.pm.ApplicationInfo;
 import android.content.res.AssetManager;
 import android.content.res.Configuration;
 import android.hardware.display.DisplayManager;
 import android.hardware.input.InputManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
+import android.system.ErrnoException;
+import android.system.Os;
+import android.util.DisplayMetrics;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -33,13 +41,79 @@ public final class MainActivity extends Activity
     private InputManager inputManager;
     private boolean destroyed;
     private boolean resumed;
+    private boolean startupFailed;
+    private final Handler startupHandler = new Handler(Looper.getMainLooper());
+
+    // Startup is a sequence of observable states, never a black window:
+    // Qt QML loads, the native side is created, the front screen is published
+    // and Qt presents its first frame. Any step that fails or never arrives
+    // ends in a persistent panel saying so, with the reason in logcat.
+    private static final String STARTUP_TAG = "FruityStartup";
+    private static final long STARTUP_TIMEOUT_MS = 20000;
+    // Bits of MphRead::Droid::StartupFlag.
+    private static final int STARTUP_NATIVE_CREATED = 1;
+    private static final int STARTUP_FRONT_PUBLISHED = 2;
+    private static final int STARTUP_FIRST_FRAME = 4;
+    private static final int STARTUP_FAILED = 8;
+
+    static void startupPhase(String phase) {
+        Log.i(STARTUP_TAG, "[android-startup] " + phase);
+    }
+
+    // Fault injection for the startup gate: a debuggable build, or a release
+    // build whose external files directory holds the marker, which only adb
+    // (or a cable) can put there. CI pushes it before launching the APK.
+    private boolean startupTestHooks() {
+        if ((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0) return true;
+        final File external = getExternalFilesDir(null);
+        if (external != null && new File(external, "fruity-startup-test").isFile()) return true;
+        // debug.* properties are settable from adb shell and nothing else.
+        try {
+            final Class<?> properties = Class.forName("android.os.SystemProperties");
+            final Object value = properties.getMethod("get", String.class, String.class)
+                    .invoke(null, "debug.fruityprime.startuptest", "0");
+            return "1".equals(value);
+        } catch (ReflectiveOperationException | RuntimeException unavailable) {
+            return false;
+        }
+    }
+
+    private static void setEnv(String name, String value) {
+        try {
+            Os.setenv(name, value, true);
+        } catch (ErrnoException error) {
+            Log.w(STARTUP_TAG, "could not set " + name, error);
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        final DisplayMetrics metrics = getResources().getDisplayMetrics();
+        startupPhase("activity_on_create sdk=" + Build.VERSION.SDK_INT
+                + " device=" + Build.MANUFACTURER + "/" + Build.MODEL
+                + " abi=" + String.join(",", Build.SUPPORTED_ABIS)
+                + " screen=" + metrics.widthPixels + "x" + metrics.heightPixels
+                + " orientation=" + getResources().getConfiguration().orientation);
+
+        // Read before Qt starts: its main() reads the environment once.
+        // FRUITY_SURFACE_CONTAINER is an A/B switch for a device whose
+        // launcher stays black, so it is honoured in a release build too.
+        final Intent intent = getIntent();
+        final String container = intent == null ? null : intent.getStringExtra("fruity.surfaceContainer");
+        if ("default".equals(container)) setEnv("FRUITY_SURFACE_CONTAINER", "default");
+        String qmlSource = null;
+        if (intent != null && startupTestHooks()) {
+            qmlSource = intent.getStringExtra("fruity.testQmlSource");
+            if (intent.getBooleanExtra("fruity.testNativeCreateFail", false)) {
+                setEnv("FRUITY_TEST_NATIVE_CREATE_FAIL", "1");
+            }
+        }
 
         root = new FrameLayout(this);
-        launcher = new LauncherView(this);
+        launcher = qmlSource == null ? new LauncherView(this) : new LauncherView(this, qmlSource);
+        startupPhase("launcher_view_constructed container=" + (container == null ? "textureview" : container)
+                + (qmlSource == null ? "" : " qml=" + qmlSource));
         root.addView(
                 launcher,
                 new FrameLayout.LayoutParams(
@@ -47,21 +121,102 @@ public final class MainActivity extends Activity
                         FrameLayout.LayoutParams.MATCH_PARENT));
         launcher.setStatusChangeListener(new org.qtproject.qt.android.QtQmlStatusChangeListener() {
             @Override public void onStatusChanged(org.qtproject.qt.android.QtQmlStatus status) {
-            if (status == org.qtproject.qt.android.QtQmlStatus.READY) {
-                runOnUiThread(() -> {
-                    if (!destroyed && nativeHandle == 0) {
-                        InstallResultReceiver.ensureBound();
-                        nativeHandle = nativeCreate(savedInstanceState, root, launcher);
-                        if (resumed) nativeOnResume(nativeHandle);
-                        nativeOnWindowFocusChanged(nativeHandle, hasWindowFocus());
-                    }
-                });
-            } else if (status == org.qtproject.qt.android.QtQmlStatus.ERROR) {
-                runOnUiThread(() -> Toast.makeText(MainActivity.this, "Could not load the Qt menus", Toast.LENGTH_LONG).show());
-            }
+                if (status == org.qtproject.qt.android.QtQmlStatus.LOADING) {
+                    startupPhase("qml_status_loading");
+                } else if (status == org.qtproject.qt.android.QtQmlStatus.READY) {
+                    startupPhase("qml_status_ready");
+                    runOnUiThread(() -> createNative(savedInstanceState));
+                } else if (status == org.qtproject.qt.android.QtQmlStatus.ERROR) {
+                    startupPhase("qml_status_error native_handle=" + nativeHandle);
+                    runOnUiThread(() -> failStartup(
+                            "The menus could not be loaded (QML error). See logcat tags FruityQt and FruityStartup."));
+                }
             }
         });
         setContentView(root);
+        startupHandler.postDelayed(this::checkStartup, STARTUP_TIMEOUT_MS);
+    }
+
+    private void createNative(Bundle savedInstanceState) {
+        if (destroyed || startupFailed || nativeHandle != 0) {
+            return;
+        }
+        startupPhase("native_create_begin");
+        long handle = 0;
+        String error = null;
+        try {
+            InstallResultReceiver.ensureBound();
+            handle = nativeCreate(savedInstanceState, root, launcher);
+        } catch (Throwable failure) {
+            // A LinkageError is not a RuntimeException, and one escaping
+            // here is swallowed by Qt's status listener: catch everything.
+            Log.e(STARTUP_TAG, "[android-startup] native_create_threw", failure);
+            error = failure.getClass().getSimpleName() + ": " + failure.getMessage();
+        }
+        if (handle == 0) {
+            startupPhase("native_create_failed " + (error == null ? "handle=0" : error));
+            failStartup("Native startup failed" + (error == null ? "." : ": " + error));
+            return;
+        }
+        nativeHandle = handle;
+        startupPhase("native_create_ok handle=" + handle);
+        if (resumed) nativeOnResume(nativeHandle);
+        nativeOnWindowFocusChanged(nativeHandle, hasWindowFocus());
+    }
+
+    // The watchdog: by now Qt has presented a frame and the front screen is
+    // published, or startup is reported as failed rather than left black.
+    private void checkStartup() {
+        if (destroyed || startupFailed) {
+            return;
+        }
+        if (!resumed) {
+            // A hidden Activity draws nothing; judge it once it is back.
+            startupHandler.postDelayed(this::checkStartup, STARTUP_TIMEOUT_MS);
+            return;
+        }
+        int flags;
+        String nativeError = "";
+        try {
+            flags = nativeStartupFlags();
+            nativeError = nativeStartupError();
+        } catch (UnsatisfiedLinkError notLoaded) {
+            failStartup("The game library did not load within " + (STARTUP_TIMEOUT_MS / 1000) + " seconds.");
+            return;
+        }
+        final boolean done = (flags & STARTUP_FIRST_FRAME) != 0 && (flags & STARTUP_FRONT_PUBLISHED) != 0;
+        if (done) {
+            startupPhase("startup_complete");
+            return;
+        }
+        String missing = (flags & STARTUP_FAILED) != 0 ? nativeError
+                : nativeHandle == 0 ? "the menus never became ready"
+                : (flags & STARTUP_FRONT_PUBLISHED) == 0 ? "the front screen was never published"
+                : "Qt never presented a frame";
+        startupPhase("startup_timeout flags=" + flags + " reason=" + missing);
+        failStartup("Startup did not finish: " + missing + ".");
+    }
+
+    // A failure is a state with a screen of its own: an opaque native panel
+    // over everything, which needs neither Qt nor the game to draw.
+    private void failStartup(String message) {
+        if (destroyed || startupFailed) {
+            return;
+        }
+        startupFailed = true;
+        Log.e(STARTUP_TAG, "[android-startup] failure_panel " + message);
+        final TextView panel = fruityCreateNoticeTextView(
+                "Fruity Prime could not start\n\n" + message
+                        + "\n\nAndroid " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + "), "
+                        + Build.MANUFACTURER + " " + Build.MODEL,
+                0xFFE8ECF4, 0xFF10141C);
+        panel.setPadding(48, 48, 48, 48);
+        panel.setClickable(true);
+        if (launcher != null) launcher.setVisibility(View.GONE);
+        root.addView(panel, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
+        panel.bringToFront();
     }
 
     @Override
@@ -101,6 +256,7 @@ public final class MainActivity extends Activity
     @Override
     protected void onDestroy() {
         destroyed = true;
+        startupHandler.removeCallbacksAndMessages(null);
         final long handle = nativeHandle;
         nativeHandle = 0;
         if (handle != 0) {
@@ -322,4 +478,6 @@ public final class MainActivity extends Activity
     private native void nativeOnInputDeviceRemoved(long handle, int deviceId);
 
     private static native void nativeRunTask(long token);
+    private static native int nativeStartupFlags();
+    private static native String nativeStartupError();
 }

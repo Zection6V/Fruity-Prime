@@ -152,4 +152,41 @@ Item {
         id: controllerKeyboard
         Component.onCompleted: Theme.keyboard = controllerKeyboard
     }
+
+    // Until the host says the front screen is ready, something opaque is
+    // drawn: a host that is still starting, or that failed, must never look
+    // like a black window. Plain primitives only -- no images, no settings,
+    // no game files -- so it draws whatever else has not loaded yet.
+    Rectangle {
+        id: boot
+        anchors.fill: parent
+        visible: ShellHost.startupState !== "FrontReady"
+        color: "#10141c"
+        z: 1000
+        // Swallow input meant for the pages underneath.
+        MouseArea { anchors.fill: parent; enabled: boot.visible }
+        Column {
+            anchors.centerIn: parent
+            width: Math.min(parent.width - 48, 640)
+            spacing: 16
+            Text {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                color: "#e8ecf4"
+                font.pixelSize: Math.max(18, Math.round(boot.height / 24))
+                text: ShellHost.startupState === "Failed"
+                    ? ShellHost.brand + " could not start"
+                    : "Starting " + ShellHost.brand + "…"
+            }
+            Text {
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+                color: "#a8b0c0"
+                font.pixelSize: Math.max(12, Math.round(boot.height / 40))
+                visible: text.length > 0
+                text: ShellHost.startupState === "Failed" ? ShellHost.startupError : ""
+            }
+        }
+    }
 }

@@ -2146,7 +2146,7 @@ Java_fr_livetek_fruityprime_MainActivity_nativeCreate(
     jobject launcher
 )
 {
-    MphRead::Droid::StartupPhase("native_create_begin");
+    MphRead::Droid::StartupPhase("native_create_jni_enter");
     MphRead::Droid::QuickStartup("QtReady");
     MphRead::Droid::QuickStartup("BootingNative");
     try

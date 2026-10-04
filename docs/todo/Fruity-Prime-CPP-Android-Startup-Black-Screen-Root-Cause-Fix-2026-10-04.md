@@ -784,3 +784,64 @@ Activity always has visible startup state
 その上で affected device に対して `QT_ANDROID_SURFACE_CONTAINER_TYPE=1` のA/Bを行い、TextureViewが**端末依存の発火トリガー**かを1変数実験で確定する。
 
 この順序なら、原因を隠す場当たり修正を避けつつ、black screenそのものを構造的に再発不能にできる。
+
+---
+
+# 13. 実施結果 (2026-10-05)
+
+## 確定した直接原因
+
+新設した emulator startup gate の初回実行 (run `37213383297`) で、全端末共通の直接原因を特定した。
+
+```text
+qml_status_ready
+native_create_begin
+java.lang.UnsatisfiedLinkError: dlopen failed: library "libFruityPrime.so" not found
+  at InstallResultReceiver.<clinit> (System.loadLibrary("FruityPrime"))
+  at InstallResultReceiver.ensureBound
+  at MainActivity READY callback
+```
+
+`InstallResultReceiver` は Qt 移行前の library 名 `libFruityPrime.so` を load していたが、Qt 版 APK には
+`libFruityPrime_<abi>.so` しか存在しない。`LinkageError` が READY callback から投げられ、Qt の listener
+が握りつぶすため `nativeCreate()` は一度も実行されず、`page` は空のまま = 全端末で永久 black screen。
+§1 の構造欠陥 (fail-black) がこの単一の例外を black screen に縮退させていた。
+
+修正: `5c59b8bd` — ABI 名 (`FruityPrime_<abi>`) で load、`createNative` は `Throwable` を捕捉して failure panel へ。
+
+TextureView (§5) は今回の発火原因ではなかった (同じ TextureView 経路で正常起動・first frame 到達)。
+
+## 実装 (`f358d504`, `5c59b8bd`)
+
+| 項目 | 状態 |
+|---|---|
+| startup state を `page` から分離 (`ShellBridge.startupState/startupError`) | 完了 |
+| native bootstrap 前の不透明 boot UI (`Main.qml`, primitives のみ) | 完了 |
+| `QtQmlStatus.ERROR` → persistent native failure panel | 完了・CI 検証済 |
+| `nativeCreate() == 0` / 例外 → failure panel、後続 native call なし | 完了・CI 検証済 |
+| `QuickFront()` 分割 (launcher state → game files → front publish → room list は次 loop) | 完了 |
+| first Qt frame marker (`frameSwapped`) | 完了・CI で観測 |
+| startup watchdog (resumed 中 20 s、front + first frame 必須) | 完了・初回 run で実際に発火 |
+| phase marker / device info / Qt message → logcat (`FruityStartup`, `FruityQt`) | 完了 |
+| TextureView A/B 切替 (`--es fruity.surfaceContainer default`、release でも有効) | 実装済 |
+| emulator startup CI (`android-startup-smoke`, x86_64 API 30) | 完了・PASS |
+| QML error / nativeCreate failure の fault injection CI | 完了・PASS |
+
+## CI 証拠: run `37214793543` (`5c59b8bd`)、artifact `android-startup-smoke-436`
+
+| case | markers | 画面 |
+|---|---|---|
+| normal (game files なし) | qml_status_ready → native_create_ok → quick_front_begin → front_published game_files=missing → first_qt_frame_presented (opengl, textureview) | game files setup 画面 (variance 303, 163 levels) |
+| qml-error | qml_status_error native_handle=0 → failure_panel | 「Fruity Prime could not start」panel |
+| native-fail | native_create_failed RuntimeException → failure_panel | 同 panel |
+
+fatal / ANR なし、process 生存。
+
+## 未検証 (端末/ゲームファイルが必要)
+
+- game files ありの cold start → front、lifecycle、front → match → pause → end → launcher
+  (CI emulator にはゲームファイルがない。ローカル emulator は WHPX が `HypervisorPresent=0` のため起動不可)
+- API 28 / 35、arm64 実機、GPU vendor 差、報告端末での確認
+- 報告端末で black が再現しない限り TextureView A/B は不要。再発時は
+  `adb shell am start -n fr.livetek.fruityprime/.MainActivity --es fruity.surfaceContainer default`
+  と `adb logcat -s FruityStartup FruityQt` で 1 変数比較する。

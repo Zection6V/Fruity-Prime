@@ -299,3 +299,47 @@ The full plan remains open, including remaining historical boundaries,
 whole-DrawScene allocation/phase/API telemetry, native descriptor-group overflow,
 deferred acquire-completion proof, final latency/failure matrix and exclusive
 fullscreen (last, per the user's priority).
+
+## Deferred fallback acquisition completion
+
+OpenGL follow-up `d59b0b98b41e0a1d42196d1e2d9246adefac14b0` was pushed and
+fetched with exact SHA equality. A fresh committed build measured 815.19 FPS
+on OpenGL and was copied with its PDB to `reflex-bin`; executable SHA-256
+`D43E3D9E619050F0886275AB3D7C7D2E4905654B4BA1BDEF8621C5B77BBC68F2`.
+Remote `build_cpp` run 37201289117 is still running; Windows/static jobs passed.
+
+Fallback presentation no longer creates or immediately waits/resets an acquire
+fence. It uses the existing GPU wait on `imageAvailable`; completion of the
+submission that consumed that semaphore proves the reacquired image's previous
+present has finished. This follows the [Khronos semaphore-reuse guide](https://docs.vulkan.org/guide/latest/swapchain_semaphore_reuse.html).
+It does not treat a queue fence as proof of the *new* presentation finishing.
+Image-indexed present semaphores and the maintenance present-fence ring remain.
+
+Each frame captures the retirement serial ceiling at acquisition and becomes
+pending only after successful queue submission. The ceiling is consumed only
+after observing its actual submission fence. It releases only the older retired
+prefix, so delayed/out-of-order completion cannot destroy a later replacement.
+Current-image presentation history remains conservative. The normal reuse path
+polls the frame fence first and waits only if that bounded command slot is busy;
+teardown waits have a separate count. Resize/teardown still drain the necessary
+work. The existing unextended shutdown limitation documented by Khronos is not
+claimed to be solved by an unrelated queue fence.
+
+Tests cover unsubmitted/failed-submit records, duplicate submission, still-pending
+slot reuse, newer/older proof completion order, a never-presented image, and
+fresh slot reuse. MSVC Release/CTest 21/21 pass. The validation-enabled forced
+fallback diagnostic passes with six retired chains released, 26 completed
+reacquisition proofs, zero frame-slot waits and zero cleanup-frame waits
+(`bottleneck-deferred-acquire-fallback.log`). Native Reflex presentation also
+passes Off/On/Boost toggles, resize, modes, fullscreen, minimize/restore and clean
+shutdown with zero validation errors. Full RHI/resource/presentation conformance,
+Alinos Perch lifetime 3/3, Settings-driven renderer switching, backdrop parity,
+and Golden parity 7/7 pass (`bottleneck-deferred-acquire-*`).
+
+An initial FPS-only candidate measured 1419.87 FPS. A controlled sequential
+recheck of the unchanged delivered d59 build measured 1544.60 FPS
+(loop 0.645176 ms, present 0.092593 ms); the deferred candidate immediately
+afterward measured 1558.13 FPS (loop 0.639482 ms, present 0.093047 ms).
+Maintenance is enabled in this fixture, so the fallback change is not credited
+as a throughput gain. The full audit's remaining telemetry/allocation,
+historical-boundary, failure-matrix and final fullscreen work is still open.

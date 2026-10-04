@@ -160,7 +160,7 @@ if exist "!ENV_BIN!\ninja.exe" (
 )
 
 set "BUILD_DIR=%OUT_ROOT%\msys2-!MSYS2_ENV!-%CONFIG%"
-set "CONFIGURE_ARGS=-G "!GENERATOR!" -DCMAKE_BUILD_TYPE=%CONFIG% -DCMAKE_CXX_COMPILER=!CXX_NAME! -DFRUITY_REQUIRE_VULKAN=ON"
+set "CONFIGURE_ARGS=-UCMAKE_RUNTIME_OUTPUT_DIRECTORY -G "!GENERATOR!" -DCMAKE_BUILD_TYPE=%CONFIG% -DCMAKE_CXX_COMPILER=!CXX_NAME! -DFRUITY_REQUIRE_VULKAN=ON"
 set "BUILD_ARGS="
 goto :run
 
@@ -209,11 +209,16 @@ rem compiler messages, and Ninja from the Visual Studio environment.
 set "VSLANG=1033"
 set "PATH=%SystemRoot%\system32;%SystemRoot%;%SystemRoot%\System32\WindowsPowerShell\v1.0"
 for /d %%V in ("C:\VulkanSDK\*") do if exist "%%V\Bin\glslc.exe" set "PATH=!PATH!;%%V\Bin"
+set "PATH=!PATH!;%ProgramFiles(x86)%\Microsoft Visual Studio\Installer"
+rem vcvars64 (VS 17.14+) replaces VCPKG_ROOT with its bundled, manifest-only
+rem vcpkg, which cannot do the classic-mode install below. Keep ours.
+set "FRUITY_VCPKG_ROOT=!VCPKG_ROOT!"
 call "!VS_PATH!\VC\Auxiliary\Build\vcvars64.bat" >nul
 if errorlevel 1 (
     echo [build] ERROR: vcvars64.bat failed.
     exit /b 1
 )
+set "VCPKG_ROOT=!FRUITY_VCPKG_ROOT!"
 set "CMAKE_EXE="
 for /f "delims=" %%c in ('where cmake 2^>nul') do if not defined CMAKE_EXE set "CMAKE_EXE=%%c"
 if not defined CMAKE_EXE (
@@ -244,7 +249,7 @@ if not exist "!QT_ROOT!\lib\cmake\Qt6\Qt6Config.cmake" (
 echo [build] Visual Studio: !VS_PATH! ^(!VS_VERSION!^)
 set "GENERATOR=Ninja"
 set "BUILD_DIR=%OUT_ROOT%\msvc-%CONFIG%"
-set "CONFIGURE_ARGS=-G Ninja -DCMAKE_BUILD_TYPE=%CONFIG% -DCMAKE_TOOLCHAIN_FILE="!VCPKG_ROOT!\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DVCPKG_MANIFEST_MODE=OFF -DFRUITY_REQUIRE_VULKAN=ON -DQt6_ROOT="!QT_ROOT!" -DCMAKE_NINJA_CMCLDEPS_RC=OFF -DCMAKE_IGNORE_PREFIX_PATH=C:/msys64/mingw64;C:/msys64/ucrt64;C:/msys64/clang64 "-DCMAKE_CXX_FLAGS=/utf-8 /EHsc" "-DCMAKE_C_FLAGS=/utf-8""
+set "CONFIGURE_ARGS=-UCMAKE_RUNTIME_OUTPUT_DIRECTORY -G Ninja -DCMAKE_BUILD_TYPE=%CONFIG% -DCMAKE_TOOLCHAIN_FILE="!VCPKG_ROOT!\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows -DVCPKG_MANIFEST_MODE=OFF -DFRUITY_REQUIRE_VULKAN=ON -DQt6_ROOT="!QT_ROOT!" -DCMAKE_NINJA_CMCLDEPS_RC=OFF -DCMAKE_IGNORE_PREFIX_PATH=C:/msys64/mingw64;C:/msys64/ucrt64;C:/msys64/clang64 "-DCMAKE_CXX_FLAGS=/utf-8 /EHsc" "-DCMAKE_C_FLAGS=/utf-8""
 set "BUILD_ARGS="
 goto :run
 

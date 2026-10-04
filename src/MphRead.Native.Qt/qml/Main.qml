@@ -13,11 +13,30 @@ Item {
     // The captures hold everything still and switch the phone curve on.
     property bool still: ShellHost.backdropSuspended
     property bool phone: Qt.platform.os === "android" || Qt.platform.os === "ios"
+    // Qt on Android hands this view a surface in physical pixels (the device
+    // pixel ratio is 1), so a layout authored in the desktop's 1/96-inch
+    // units comes out at a fraction of its size on a 440 dpi phone. Everything
+    // below is laid out in a stage of the size the screen has in 1/160-inch dp
+    // and scaled up to fill the view; where Qt already reports a ratio, or off
+    // Android, the factor is 1 and the stage is the view.
+    readonly property real uiScale: {
+        if (Qt.platform.os !== "android" || Screen.devicePixelRatio > 1.01)
+            return 1
+        const dpi = Screen.pixelDensity * 25.4
+        return dpi > 0 ? Math.min(4, Math.max(1, dpi / 160)) : 1
+    }
+    Item {
+        id: stage
+        width: root.width / root.uiScale
+        height: root.height / root.uiScale
+        scale: root.uiScale
+        transformOrigin: Item.TopLeft
+    }
     // What the base screen is asked to show (the end panel's tab).
     property var baseProps: ({})
     Binding { target: Theme; property: "still"; value: root.still }
     Binding { target: Theme; property: "phone"; value: root.phone }
-    Binding { target: Theme; property: "em"; value: Theme.emFor(root.width, root.height) }
+    Binding { target: Theme; property: "em"; value: Theme.emFor(stage.width, stage.height) }
 
     function push(url, props) {
         stack = stack.concat([{ url: url, props: props || {} }])
@@ -101,6 +120,7 @@ Item {
 
     Loader {
         id: base
+        parent: stage
         anchors.fill: parent
         visible: !root.stacked
         enabled: visible
@@ -132,6 +152,7 @@ Item {
 
     Loader {
         id: top
+        parent: stage
         anchors.fill: parent
         focus: root.stacked
         readonly property var entry: root.stacked ? root.stack[root.stack.length - 1] : null
@@ -150,6 +171,7 @@ Item {
 
     ControllerKeyboard {
         id: controllerKeyboard
+        parent: stage
         Component.onCompleted: Theme.keyboard = controllerKeyboard
     }
 
@@ -159,6 +181,7 @@ Item {
     // no game files -- so it draws whatever else has not loaded yet.
     Rectangle {
         id: boot
+        parent: stage
         anchors.fill: parent
         visible: ShellHost.startupState !== "FrontReady"
         color: "#10141c"

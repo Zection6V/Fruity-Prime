@@ -66,7 +66,16 @@ public final class MainActivity extends Activity
     private boolean startupTestHooks() {
         if ((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) != 0) return true;
         final File external = getExternalFilesDir(null);
-        return external != null && new File(external, "fruity-startup-test").isFile();
+        if (external != null && new File(external, "fruity-startup-test").isFile()) return true;
+        // debug.* properties are settable from adb shell and nothing else.
+        try {
+            final Class<?> properties = Class.forName("android.os.SystemProperties");
+            final Object value = properties.getMethod("get", String.class, String.class)
+                    .invoke(null, "debug.fruityprime.startuptest", "0");
+            return "1".equals(value);
+        } catch (ReflectiveOperationException | RuntimeException unavailable) {
+            return false;
+        }
     }
 
     private static void setEnv(String name, String value) {
@@ -138,8 +147,11 @@ public final class MainActivity extends Activity
         try {
             InstallResultReceiver.ensureBound();
             handle = nativeCreate(savedInstanceState, root, launcher);
-        } catch (RuntimeException failure) {
-            error = failure.getMessage();
+        } catch (Throwable failure) {
+            // A LinkageError is not a RuntimeException, and one escaping
+            // here is swallowed by Qt's status listener: catch everything.
+            Log.e(STARTUP_TAG, "[android-startup] native_create_threw", failure);
+            error = failure.getClass().getSimpleName() + ": " + failure.getMessage();
         }
         if (handle == 0) {
             startupPhase("native_create_failed " + (error == null ? "handle=0" : error));

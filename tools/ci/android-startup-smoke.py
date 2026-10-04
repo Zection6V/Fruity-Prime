@@ -27,6 +27,7 @@ import time
 PACKAGE = "fr.livetek.fruityprime"
 ACTIVITY = PACKAGE + "/.MainActivity"
 MARKER = "/sdcard/Android/data/%s/files/fruity-startup-test" % PACKAGE
+PROPERTY = "debug.fruityprime.startuptest"
 FATAL = ("FATAL EXCEPTION", "Fatal signal", "ANR in " + PACKAGE)
 
 
@@ -86,11 +87,16 @@ def run_case(name, out_dir, timeout):
         extras = ["--es", "fruity.testQmlSource", "qrc:/qt/qml/FruityPrime/Ui/DoesNotExist.qml"]
     elif name == "native-fail":
         extras = ["--ez", "fruity.testNativeCreateFail", "true"]
+    # Two ways to arm the hooks, since scoped storage refuses the shell some
+    # writes into Android/data: the marker file, and a debug.* property.
     if extras:
-        adb("shell", "mkdir", "-p", os.path.dirname(MARKER), check=False)
-        adb("shell", "touch", MARKER)
+        local = os.path.join(out_dir, "fruity-startup-test")
+        open(local, "w").close()
+        adb("push", local, MARKER, check=False)
+        adb("shell", "setprop", PROPERTY, "1")
     else:
         adb("shell", "rm", "-f", MARKER, check=False)
+        adb("shell", "setprop", PROPERTY, "0", check=False)
     print(adb("shell", "am", "start", "-W", "-n", ACTIVITY, *extras).strip())
 
     expected = {
@@ -127,6 +133,7 @@ def run_case(name, out_dir, timeout):
     if not failures:
         print("PASS %s" % name)
     adb("shell", "rm", "-f", MARKER, check=False)
+    adb("shell", "setprop", PROPERTY, "0", check=False)
     return not failures
 
 

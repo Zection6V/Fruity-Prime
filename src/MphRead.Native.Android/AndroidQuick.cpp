@@ -12,6 +12,7 @@
 #include "../MphRead.Native/Mods/ThumbnailGenerator.hpp"
 #include "../MphRead.Native/Mods/Launcher/Portable/GameFiles.hpp"
 #include "../MphRead.Native/Mods/Launcher/Portable/LauncherPrefs.hpp"
+#include "../MphRead.Native/Mods/Launcher/Portable/NativeFilePicker.hpp"
 
 #include <QtCore/QMetaObject>
 #include <QtCore/QTimer>
@@ -218,6 +219,8 @@ int main(int argc, char** argv)
     MphRead::Qt::RegisterQmlTypes();
     Bridge::Actions actions;
     actions.Launch = [](Bridge::LaunchPlan plan) { OnActivity([plan](auto& activity) { activity.StartMatch(plan); }); };
+    // The setup screen's "choose your .nds file" -- the system document picker.
+    MphRead::Mods::Launcher::NativeFilePicker::AndroidRequest([] { OnActivity([](auto& activity) { activity.RequestRomPick(); }); });
     actions.Quit = [] { OnActivity([](auto& activity) { activity.Finish(); }); };
     actions.Resume = [] { OnActivity([callback = resume](auto& activity) { if (callback) callback(); else activity.OnBackPressed(); }); };
     actions.Leave = [] { OnActivity([callback = leave](auto& activity) { if (callback) callback(); else activity.EndMatch(); }); };

@@ -14,6 +14,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -445,14 +446,46 @@ namespace MphRead::Hud
                 }
             }
         }
-        if (BindingId == -1)
+        BindPicture(scene, Width, Height);
+    }
+
+    void HudObjectInstance::BindPicture(Scene& scene, std::int32_t width, std::int32_t height)
+    {
+        if (_pictureScene != &scene)
         {
-            BindingId = scene.BindGetTexture(*Texture, Width, Height);
+            _pictures.clear();
+            _overflowBinding = -1;
+            _pictureScene = &scene;
+        }
+        const std::size_t pixels = static_cast<std::size_t>(width) * static_cast<std::size_t>(height);
+        std::string key(sizeof(std::int32_t) * 2 + pixels * sizeof(std::uint32_t), '\0');
+        std::memcpy(key.data(), &width, sizeof(std::int32_t));
+        std::memcpy(key.data() + sizeof(std::int32_t), &height, sizeof(std::int32_t));
+        for (std::size_t i = 0; i < pixels && i < Texture->size(); ++i)
+        {
+            const std::uint32_t value = (*Texture)[i].ToUint();
+            std::memcpy(key.data() + sizeof(std::int32_t) * 2 + i * sizeof(std::uint32_t), &value, sizeof(value));
+        }
+        if (const auto found = _pictures.find(key); found != _pictures.end())
+        {
+            BindingId = found->second;
+            return;
+        }
+        if (_pictures.size() < MaxCachedPictures)
+        {
+            BindingId = scene.BindGetTexture(*Texture, width, height);
+            _pictures.emplace(std::move(key), BindingId);
+            return;
+        }
+        if (_overflowBinding == -1)
+        {
+            _overflowBinding = scene.BindGetTexture(*Texture, width, height);
         }
         else
         {
-            scene.BindTexture(*Texture, Width, Height, BindingId);
+            scene.BindTexture(*Texture, width, height, _overflowBinding);
         }
+        BindingId = _overflowBinding;
     }
 
     void HudObjectInstance::SetIndex(std::int32_t frame, Scene& scene)

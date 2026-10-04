@@ -453,7 +453,8 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
 
         add_executable(fruity_vulkan_feature_probe_tests
             "${FRUITY_VULKAN_FEATURE_PROBE_TEST_SOURCE}"
-            "${FRUITY_MPHREAD_ROOT}/NativeRuntime/Rhi/Vulkan/VulkanFeatureProbe.cpp")
+            "${FRUITY_MPHREAD_ROOT}/NativeRuntime/Rhi/Vulkan/VulkanFeatureProbe.cpp"
+            "${FRUITY_MPHREAD_ROOT}/NativeRuntime/Rhi/Vulkan/VulkanLegacy.cpp")
         target_compile_definitions(fruity_vulkan_feature_probe_tests PRIVATE FRUITY_HAS_VULKAN)
         target_include_directories(fruity_vulkan_feature_probe_tests PRIVATE ${Vulkan_INCLUDE_DIRS})
         target_compile_features(fruity_vulkan_feature_probe_tests PRIVATE cxx_std_20)

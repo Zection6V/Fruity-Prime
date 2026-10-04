@@ -157,6 +157,9 @@
                 TextureFormat Color = TextureFormat::Undefined;
                 TextureFormat Depth = TextureFormat::Undefined;
                 bool Lines = false;
+                // The draw's stream strides, on the legacy path only: it has
+                // no dynamic stride, so they are the pipeline's. Zero otherwise.
+                std::array<std::uint32_t, 5> Strides{};
                 bool operator==(const VariantKey&) const = default;
             };
             struct VariantHash final
@@ -167,6 +170,7 @@
                     h ^= std::hash<const void*>{}(key.Program) + 0x9e3779b9U + (h << 6) + (h >> 2);
                     h ^= (static_cast<std::size_t>(key.Color) << 1) ^ (static_cast<std::size_t>(key.Depth) << 9)
                         ^ (key.Lines ? 0x10000U : 0U);
+                    for (const auto stride : key.Strides) h ^= stride + 0x9e3779b9U + (h << 6) + (h >> 2);
                     return h;
                 }
             };
@@ -188,7 +192,7 @@
             void Barrier(VulkanTexture& texture, ResourceState after);
             void ApplyDynamicState();
             void RestoreGenericBindings();
-            [[nodiscard]] VulkanGraphicsPipeline& VariantFor(const VulkanSceneProgram& program, bool lines);
+            [[nodiscard]] VulkanGraphicsPipeline& VariantFor(const VulkanSceneProgram& program, const SceneDraw& draw);
             [[nodiscard]] VkDescriptorSet AllocateSet(const VulkanBindingLayout& layout);
             void EnsureWindowTargets(std::uint32_t width, std::uint32_t height);
             [[nodiscard]] VulkanTexture& Dummy();
@@ -874,11 +878,15 @@
             _dynamicDirty = false;
         }
 
-        VulkanGraphicsPipeline& VulkanCommandList::VariantFor(const VulkanSceneProgram& program, bool lines)
+        VulkanGraphicsPipeline& VulkanCommandList::VariantFor(const VulkanSceneProgram& program, const SceneDraw& draw)
         {
-            const VariantKey key{_pipeline, &program,
+            const bool lines = draw.Lines;
+            VariantKey key{_pipeline, &program,
                 _target.Color ? _target.Color->Desc().format : TextureFormat::Undefined,
                 _target.Depth ? _target.Depth->Desc().format : TextureFormat::Undefined, lines};
+            if (_device->ContextPointer->_impl->legacy)
+                for (std::size_t i = 0; i < key.Strides.size(); ++i)
+                    key.Strides[i] = static_cast<std::uint32_t>(draw.Streams[i].Stride);
             const auto found = _variants.find(key);
             if (found != _variants.end() && found->second.BaseDesc == _pipeline->Desc())
                 return *found->second.Native;
@@ -915,6 +923,8 @@
             }
             desc.vertexBuffers = {{0, 12}, {1, 12}, {2, 16}, {3, 12}};
             if (program.Id == SceneProgram::Backdrop) desc.vertexBuffers.push_back({4, 8});
+            if (_device->ContextPointer->_impl->legacy)
+                for (auto& buffer : desc.vertexBuffers) buffer.stride = key.Strides[buffer.slot];
             // Only the inputs the program declares: the post programs read
             // position and texcoord and nothing else.
             if (program.Id == SceneProgram::Main)
@@ -1138,7 +1148,7 @@
             }
             if (!_renderingActive) Materialize();
 
-            VulkanGraphicsPipeline& native = VariantFor(*program, draw.Lines);
+            VulkanGraphicsPipeline& native = VariantFor(*program, draw);
             if (native.Native() != _boundNative)
             {
                 vk.vkCmdBindPipeline(_commandSlots->Buffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, native.Native());

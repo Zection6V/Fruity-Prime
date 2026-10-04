@@ -1799,6 +1799,11 @@ namespace MphRead::Droid
         GetMainActivityOwner().Finish(*this);
     }
 
+    void MainActivity::RequestRomPick()
+    {
+        GetMainActivityOwner().RequestRomPick(*this);
+    }
+
     const std::string& MainActivity::RequireRoomKey(
         const MphRead::Mods::Launcher::LaunchPlan& plan
     ) const

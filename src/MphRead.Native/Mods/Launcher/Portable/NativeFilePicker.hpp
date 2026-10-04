@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <future>
 #include <optional>
 #include <string>
@@ -23,6 +24,13 @@ namespace MphRead::Mods::Launcher
         [[nodiscard]] static bool Suppressed() noexcept { return _suppressed; }
         static void Suppressed(bool value) noexcept { _suppressed = value; }
 
+        // Android has no dialog to run from here: the Activity owns the system
+        // document picker. The head installs the request (which must reach the
+        // UI thread) and the Activity answers through Deliver, with the path
+        // of a local copy -- or nothing when cancelled.
+        static void AndroidRequest(std::function<void()> request);
+        static void Deliver(std::optional<std::string> path);
+
         // Whether this machine has a dialog this can open.
         [[nodiscard]] static bool Available();
 
@@ -37,6 +45,7 @@ namespace MphRead::Mods::Launcher
 
         static inline void* _owner = nullptr;
         static inline bool _suppressed = false;
+        static inline std::function<void()> _androidRequest;
 
         [[nodiscard]] static std::shared_future<std::optional<std::string>> WindowsFile(
             const std::string& title, const std::string& description, const std::string& extension, void* owner);

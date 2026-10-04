@@ -7,6 +7,7 @@ import android.content.res.AssetManager;
 import android.content.res.Configuration;
 import android.hardware.display.DisplayManager;
 import android.hardware.input.InputManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -95,6 +96,10 @@ public final class MainActivity extends Activity
                 + " abi=" + String.join(",", Build.SUPPORTED_ABIS)
                 + " screen=" + metrics.widthPixels + "x" + metrics.heightPixels
                 + " orientation=" + getResources().getConfiguration().orientation);
+
+        // The menus are told the display density directly: Qt sizes their
+        // view in physical pixels whatever its own pixel ratio then is.
+        setEnv("FRUITY_DENSITY", Float.toString(metrics.density));
 
         // Read before Qt starts: its main() reads the environment once.
         // FRUITY_SURFACE_CONTAINER is an A/B switch for a device whose
@@ -456,6 +461,62 @@ public final class MainActivity extends Activity
             }
         }
     }
+
+    private static final int REQUEST_PICK_ROM = 4201;
+
+    /**
+     * "Choose your .nds file": Android's own document picker. The result is a
+     * content:// document with no path behind it, so it is copied into the
+     * app's cache for the extractor, which reads a real file. Called by the
+     * native side (on the UI thread) and answered through nativeOnRomPicked,
+     * with null when the player cancelled or the copy failed.
+     */
+    public void requestRomPick() {
+        try {
+            final Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            // .nds has no MIME type of its own; anything else would grey the file out.
+            intent.setType("*/*");
+            startActivityForResult(intent, REQUEST_PICK_ROM);
+        } catch (RuntimeException failure) {
+            Log.w(STARTUP_TAG, "document picker unavailable", failure);
+            nativeOnRomPicked(null);
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQUEST_PICK_ROM) {
+            return;
+        }
+        final Uri uri = resultCode == RESULT_OK && data != null ? data.getData() : null;
+        if (uri == null) {
+            nativeOnRomPicked(null);
+            return;
+        }
+        // A cartridge dump is 64-128 MB: not on the UI thread.
+        new Thread(() -> {
+            String result = null;
+            final File destination = new File(getCacheDir(), "picked-rom.nds");
+            try (InputStream input = getContentResolver().openInputStream(uri);
+                 FileOutputStream output = new FileOutputStream(destination, false)) {
+                if (input != null) {
+                    final byte[] buffer = new byte[256 * 1024];
+                    int read;
+                    while ((read = input.read(buffer)) >= 0) {
+                        output.write(buffer, 0, read);
+                    }
+                    result = destination.getAbsolutePath();
+                }
+            } catch (IOException | RuntimeException failure) {
+                Log.w(STARTUP_TAG, "could not copy the picked file", failure);
+            }
+            nativeOnRomPicked(result);
+        }, "rom-pick-copy").start();
+    }
+
+    private static native void nativeOnRomPicked(String path);
 
     private native long nativeCreate(
             Bundle savedInstanceState,

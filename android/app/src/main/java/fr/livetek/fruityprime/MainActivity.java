@@ -97,6 +97,10 @@ public final class MainActivity extends Activity
                 + " screen=" + metrics.widthPixels + "x" + metrics.heightPixels
                 + " orientation=" + getResources().getConfiguration().orientation);
 
+        // The menus are told the display density directly: Qt sizes their
+        // view in physical pixels whatever its own pixel ratio then is.
+        setEnv("FRUITY_DENSITY", Float.toString(metrics.density));
+
         // Read before Qt starts: its main() reads the environment once.
         // FRUITY_SURFACE_CONTAINER is an A/B switch for a device whose
         // launcher stays black, so it is honoured in a release build too.

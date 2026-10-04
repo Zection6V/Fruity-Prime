@@ -13,22 +13,21 @@ Item {
     // The captures hold everything still and switch the phone curve on.
     property bool still: ShellHost.backdropSuspended
     property bool phone: Qt.platform.os === "android" || Qt.platform.os === "ios"
-    // Qt on Android hands this view a surface in physical pixels (the device
-    // pixel ratio is 1), so a layout authored in the desktop's 1/96-inch
-    // units comes out at a fraction of its size on a 440 dpi phone. Everything
-    // below is laid out in a stage of the size the screen has in 1/160-inch dp
-    // and scaled up to fill the view; where Qt already reports a ratio, or off
-    // Android, the factor is 1 and the stage is the view.
-    readonly property real uiScale: {
-        if (Qt.platform.os !== "android" || Screen.devicePixelRatio > 1.01)
-            return 1
-        const dpi = Screen.pixelDensity * 25.4
-        return dpi > 0 ? Math.min(4, Math.max(1, dpi / 160)) : 1
-    }
+    // Qt on Android sizes this view's root in physical pixels, and what its
+    // device pixel ratio then does with that varies: at 1 a 440 dpi phone
+    // draws the desktop's 1/96-inch layout at about a third of its size, and
+    // at the screen's 2.75 the root is 2.75 times wider than the screen and
+    // the picture is cropped and zoomed. Either way the menus are laid out in
+    // a stage of the size the screen has in 1/160-inch dp (what the phone
+    // curve in Theme is written for), and the stage is drawn at whatever
+    // scale the ratio leaves to reach the view's pixels. Off Android the
+    // density is 1 and the stage is the view.
+    readonly property real density: ShellHost.deviceDensity
+    readonly property real uiScale: density / Math.max(1, Screen.devicePixelRatio)
     Item {
         id: stage
-        width: root.width / root.uiScale
-        height: root.height / root.uiScale
+        width: root.width / root.density
+        height: root.height / root.density
         scale: root.uiScale
         transformOrigin: Item.TopLeft
     }

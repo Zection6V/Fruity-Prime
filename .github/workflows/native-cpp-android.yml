@@ -398,10 +398,20 @@ jobs:
   # screen and present a frame, and an injected QML error or nativeCreate
   # failure must end on the persistent failure panel -- never a black window.
   android-startup-smoke:
-    name: Android startup smoke (x86_64 emulator)
+    name: Android startup smoke (x86_64 API ${{ matrix.api }})
     needs: [android-apk]
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - api: 28
+            target: default
+          - api: 30
+            target: google_apis
+          - api: 35
+            target: google_apis
 
     steps:
       - name: Checkout
@@ -425,17 +435,17 @@ jobs:
       - name: Run startup gate on emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 30
+          api-level: ${{ matrix.api }}
           arch: x86_64
-          target: google_apis
+          target: ${{ matrix.target }}
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: python3 tools/ci/android-startup-smoke.py apk/FruityPrime.apk --out android-startup-smoke
+          script: python3 tools/ci/android-startup-smoke.py apk/FruityPrime.apk --out android-startup-smoke-${{ matrix.api }}
 
       - name: Upload startup evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android-startup-smoke-${{ github.run_number }}
+          name: android-startup-smoke-api${{ matrix.api }}-${{ github.run_number }}
           if-no-files-found: ignore
-          path: android-startup-smoke/
+          path: android-startup-smoke-${{ matrix.api }}/

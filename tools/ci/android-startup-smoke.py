@@ -78,6 +78,49 @@ def screenshot_variance(path):
     return mean, variance, len(set(values))
 
 
+def lifecycle(out_dir, pid):
+    """Background/foreground, focus loss and two configuration changes on a
+    started launcher: the same process must survive each one and keep
+    drawing, and none may end on the failure panel."""
+    failures = []
+
+    def check(step):
+        time.sleep(4)
+        now = adb("shell", "pidof", PACKAGE, check=False).strip()
+        if now != pid:
+            failures.append("%s: process changed (%s -> %s)" % (step, pid, now or "dead"))
+        mean, variance, levels = screenshot_variance(os.path.join(out_dir, "lifecycle-%s.raw" % step))
+        print("  %s: screen mean=%.1f variance=%.1f levels=%d" % (step, mean, variance, levels))
+        if levels < 3 or variance < 1.0:
+            failures.append("%s: screenshot is blank" % step)
+
+    adb("shell", "input", "keyevent", "3")             # HOME: onPause/onStop
+    time.sleep(3)
+    adb("shell", "am", "start", "-W", "-n", ACTIVITY)   # back to the same task
+    check("foreground")
+    adb("shell", "cmd", "statusbar", "expand-notifications", check=False)  # focus lost
+    time.sleep(2)
+    adb("shell", "cmd", "statusbar", "collapse", check=False)              # regained
+    check("focus")
+    adb("shell", "settings", "put", "system", "accelerometer_rotation", "0", check=False)
+    # The Activity is sensorLandscape and handles its own configuration
+    # changes: the two landscapes and a uiMode flip all reach
+    # onConfigurationChanged without recreating it.
+    adb("shell", "settings", "put", "system", "user_rotation", "3", check=False)
+    check("reverse-landscape")
+    adb("shell", "settings", "put", "system", "user_rotation", "1", check=False)
+    check("landscape")
+    adb("shell", "cmd", "uimode", "night", "yes", check=False)
+    check("night-mode")
+    adb("shell", "cmd", "uimode", "night", "no", check=False)
+    check("day-mode")
+    log = logcat()
+    for bad in ("failure_panel", "startup_timeout") + FATAL:
+        if bad in log:
+            failures.append("lifecycle: %s" % bad)
+    return failures
+
+
 def run_case(name, out_dir, timeout):
     print("== case %s" % name)
     adb("shell", "am", "force-stop", PACKAGE, check=False)
@@ -101,6 +144,7 @@ def run_case(name, out_dir, timeout):
 
     expected = {
         "normal": ["qml_status_ready", "native_create_ok", "front_published", "first_qt_frame_presented"],
+        "lifecycle": ["qml_status_ready", "native_create_ok", "front_published", "first_qt_frame_presented"],
         "qml-error": ["qml_status_error", "failure_panel"],
         "native-fail": ["native_create_failed", "failure_panel"],
     }[name]
@@ -125,6 +169,11 @@ def run_case(name, out_dir, timeout):
     print("screen mean=%.1f variance=%.1f levels=%d" % (mean, variance, levels))
     if levels < 3 or variance < 1.0:
         failures.append("screenshot is blank (mean=%.1f variance=%.2f levels=%d)" % (mean, variance, levels))
+    if name == "lifecycle" and not failures:
+        failures += lifecycle(out_dir, pid)
+        log = logcat()
+        with open(os.path.join(out_dir, "%s-logcat.txt" % name), "w", encoding="utf-8") as out:
+            out.write(log)
     for line in log.splitlines():
         if "[android-startup]" in line:
             print("  " + line.strip())
@@ -141,13 +190,13 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("apk")
     parser.add_argument("--out", default="android-startup-smoke")
-    parser.add_argument("--case", action="append", choices=["normal", "qml-error", "native-fail"])
+    parser.add_argument("--case", action="append", choices=["normal", "lifecycle", "qml-error", "native-fail"])
     parser.add_argument("--timeout", type=int, default=90)
     args = parser.parse_args()
     os.makedirs(args.out, exist_ok=True)
     adb("wait-for-device", timeout=600)
     print(adb("install", "-r", "-g", args.apk, timeout=600).strip())
-    results = [run_case(case, args.out, args.timeout) for case in (args.case or ["normal", "qml-error", "native-fail"])]
+    results = [run_case(case, args.out, args.timeout) for case in (args.case or ["normal", "lifecycle", "qml-error", "native-fail"])]
     adb("shell", "am", "force-stop", PACKAGE, check=False)
     sys.exit(0 if all(results) else 1)
 

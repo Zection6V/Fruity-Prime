@@ -1,4 +1,5 @@
 #include "VulkanFrameSlots.hpp"
+#include "../../FrameTelemetry.hpp"
 #if defined(FRUITY_HAS_VULKAN)
 #include "VulkanResult.hpp"
 #include <algorithm>
@@ -33,7 +34,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (_dispatch.HostWait) _dispatch.HostWait();
             for (unsigned seconds = 2;; seconds += 2)
             {
-                const auto result = _dispatch.WaitFence(_dispatch.Device, 1, &slot.Fence, VK_TRUE, 2'000'000'000ULL);
+                const auto result = FrameTelemetry::HostWait([&] { return _dispatch.WaitFence(_dispatch.Device, 1, &slot.Fence, VK_TRUE, 2'000'000'000ULL); });
                 if (result == VK_TIMEOUT)
                 { std::cerr << "[vulkan] still waiting for frame slot after " << seconds << " s\n"; continue; }
                 Check(result, "vkWaitForFences(frame slots)"); break;

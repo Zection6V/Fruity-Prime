@@ -9,24 +9,24 @@ requirements, including Vulkan mean >=850 FPS and image correctness, have eviden
 | Requirement | Status / authoritative evidence |
 |---|---|
 | Phase 0, `dc1ffe` → `dd69cb` A/B before renderer edits | Passed matched active fixture, two sequential A/B pairs before renderer edits; see evidence below. |
-| Remaining historical boundaries: `3d72fbb`, `cc0d2e90`, `ec6e98b`, `f2597d92`, `e03978dc`, `9ce34a39` | Pending; no inferred timings from old summaries. |
-| Phase 1, uniform state by program/block/slot generation | Implemented fixed program/block arrays stamped by recording generation; MSVC Release / CTest 21/21 passed. Runtime/mutation/lifetime verification in progress. |
-| Phase 1, descriptor group dirty/version state | Pending. Current full semantic key construction/hash confirmed. |
+| Remaining historical boundaries | `3d72fbb` and `cc0d2e90` measured below; `ec6e98b`, `f2597d92`, `e03978dc`, and clean `9ce34a39` remain pending. |
+| Phase 1, uniform state by program/block/slot generation | Delivered dense semantic slots and recording/version stamps in 4c9db2c; mutation/lifetime/RHI/resource/Golden gates pass. Warm diagnostic string lookups and uniform heap allocations are zero. |
+| Phase 1, descriptor group dirty/version state | Delivered fixed program/group state and bounded texture-token table in 4c9db2c. Full semantic hash/tree lookup removed from steady DrawScene; measured heap allocations zero. |
 | Phase 1, material owner identity/version state | Implemented stable RenderItem owner IDs, paged owner CPU data/version state, and two completion-safe GPU slices per owner. Full material content hashing removed; same-recording mutation uses immutable fallback. Unit tests and resource/lifetime gates pass. Remaining descriptor hot-path work pending. |
-| Phase 1, unchanged update/bind suppression, push constants, mutation/lifetime correctness | Pending. Must preserve while replacing cache. |
-| Phase 2, program-owned uniform locations and alpha values | Pending. Current draw-time program/location queries confirmed. |
-| Phase 2, device-owned immutable limits | Pending. Current binding-time driver queries confirmed. |
-| Phase 2, retained VAO and explicit Qt interop invalidation | Pending. Current post-draw VAO zero bind confirmed. |
-| Generic OpenGL binding snapshot reuse without system heap churn | Pending. |
+| Phase 1, unchanged update/bind suppression, push constants, mutation/lifetime correctness | Preserved; unit and RHI mutation/lifetime checks pass, including resumed draws and invalid borrowed bindings. |
+| Phase 2, program-owned uniform locations and alpha values | Delivered d59b0b98; warm current-program and uniform-location queries zero. Other uniform-write redundancy remains measurable. |
+| Phase 2, device-owned immutable limits | Delivered d59b0b98; queries gated by supported features and resolved at context initialization. |
+| Phase 2, retained VAO and explicit Qt interop invalidation | Delivered d59b0b98; unchanged VAO native binds suppressed; external program/VAO/state disruption recovers without caller rebinds. |
+| Generic OpenGL binding snapshot reuse without system heap churn | Delivered shared immutable snapshots in fixed group storage; warm Draw/DrawIndexed C++ allocations zero. |
 | Phase 3, submit helper high-water storage and thread/reentrancy contract | Implemented retained signal storage, constructing-thread ownership and reentrancy rejection; native-array/failure/high-water/foreign-thread tests pass. |
-| Phase 3, window-owned event pump | Removed the swapchain event pump; window loop retains event delivery. Native/fallback presentation and RHI conformance pass; final switch gate pending. |
-| Phase 3, nonblocking acquire/image/present retirement; bounded frame-slot reuse | Removed image.lastFrame host waits and acquire-time present waits. Four present completion tickets per image, polled before reuse; bounded exhaustion wait and teardown proof remain. Native/fallback presentation gates pass. Deferred acquire-fence proof and separate steady/teardown telemetry pending. |
+| Phase 3, window-owned event pump | Delivered; Qt owns one event pump per accepted measured frame on both backends. Settings-driven active-match switches pass. |
+| Phase 3, nonblocking acquire/image/present retirement; bounded frame-slot reuse | Delivered d10e33d9 deferred reacquisition proof with retirement ceiling; forced fallback releases six retired chains after 26 completed proofs. Frame-slot and cleanup waits separately zero in this fixture. |
 | Phase 4, Off throughput / Generic On latency / native Reflex single authority | Pending final matrix; do not remove intentional On waits. |
-| Sampling profiler and allocation/API/wait/event telemetry | Opt-in Windows main-thread 1 ms stack sampling implemented, heap preallocated and symbols resolved after capture. WPR unavailable (policy permission 0xc5585011); built-in sample recorded 6,919 stacks. Allocation/API/wait/event counters still pending. |
+| Sampling profiler and allocation/API/wait/event telemetry | Windows sampling plus compile-time opt-in phase/new/API counters implemented; clocks sampled at 1/128 or 1/256 frames, totals emitted after shutdown. Application C++ new scope and foreign allocation exclusions are explicit; see latest evidence below. |
 | Same room/hunter/bots/spawn/camera/size/render settings; warmup excluded | Historical and Qt diagnostic fixture uses first spawn, Sylux +3 bots, Alinos Perch, 2560x1439, scale 100, fog on, cel/FPS display off, Low Latency Off, Unlimited, requested/actual Immediate. |
-| FPS-only Vulkan >=850 FPS, <=1.18 ms; goal >=950 FPS | Passed current task source: native Reflex available Off, 1182.49 / 1189.08 FPS, 0.85030 / 0.84573 ms loop, same fixture, no profiling or validation. Final source delivery/CI still pending. |
-| GPU scene and present CPU time, OpenGL CPU/GPU comparison | Pending separate profiling runs. |
-| Windows MSVC, Linux GCC, macOS Clang, Android NDK, full CTest | Pending final revision. Starting revision CI run 37146220993 completed successfully. |
+| FPS-only Vulkan >=850 FPS, <=1.18 ms; goal >=950 FPS | Passed delivered 4c9db2c/d10e33d9 at 1552.60/1558.13 FPS; current follow-up 1642.20 FPS, loop 0.60456 ms. Profilers/validation/counters disabled in acceptance runs. |
+| GPU scene and present CPU time, OpenGL CPU/GPU comparison | Vulkan 0.19844 ms and OpenGL 0.637106 ms in separate prior diagnostics. OpenGL CPU loop still exceeds GPU scene time; further frontend redundancy is measurable. |
+| Windows MSVC, Linux GCC, macOS Clang, Android NDK, full CTest | d10e33d9 remote build_cpp 37201956163 passes all 12 jobs. Current telemetry follow-up MSVC/CTest 22/22 pass; final revision CI pending. |
 | RHI conformance, resources, validation, GPU lifetime cycles | Current task source passes full RHI conformance, resource validation and 3 GPU lifetime cycles; zero live/retired objects, validation errors 0, steady lifetime host waits 0. |
 | Immediate/FIFO/Mailbox, resize/fullscreen/minimize/restore, renderer switches | Pending final revision. |
 | Off/On/Boost, native/fallback/toggles, no double pacing | Current source native Reflex check passes FIFO/Immediate/Mailbox, 5 cap choices, Off/On/Boost/Off transitions, resize/minimize/restore, 268 completed and 1 abandoned frame, validation 0 errors. Runtime failure/fallback matrix still pending. |
@@ -343,3 +343,79 @@ afterward measured 1558.13 FPS (loop 0.639482 ms, present 0.093047 ms).
 Maintenance is enabled in this fixture, so the fallback change is not credited
 as a throughput gain. The full audit's remaining telemetry/allocation,
 historical-boundary, failure-matrix and final fullscreen work is still open.
+
+## Sampled phase telemetry and remaining native allocation
+
+Deferred-proof revision `d10e33d97dbcbbe06720313796b6bfe2cd0ae700` is delivered
+to `reflex-bin` (EXE SHA-256
+`C6F463F4AEA18B2DAF5D708B03E81C2F00D620207D6F1F0B0FB04876CA3FA106`).
+Remote `build_cpp` run 37201956163 passed all 12 jobs. The prior d59 run was
+cancelled by that newer run; it is not counted as an all-platform success.
+
+`FRUITY_PERF_TELEMETRY` and `FRUITY_NEW_TELEMETRY` are CMake options, both OFF
+by default. NEW implies PERF and replaces application C++ new/delete only in
+that diagnostic binary. It does not count malloc, foreign DLL or driver heap
+operations. `FRUITY_PHASE_STATS=128|256` selects the timing cadence and writes
+`<fps CSV>.phases.csv` after the session ends. Ordinary builds reject that opt-in
+explicitly, and compile the hot scopes/counters out. Both native and Qt object
+owners receive the diagnostic definition; a development run missing the Qt
+definition had zero accepted frames and was rejected, not used as allocation
+evidence. Tests exercise both cadences, eligibility changes, discarded warmup
+and unpresented frames, nested inclusive new counts, alignment, void/result
+wait operations and thread-owner release. Phase times/allocations are inclusive;
+overlapping rows must not be summed.
+
+The initial valid Vulkan diagnostic (`bottleneck-telemetry-vulkan`) accepted
+11,462 warm active frames. DrawScene, uniform, material, descriptor and submit
+scopes all had zero application new operations, but the entire scene-render
+scope had 6,937,609. Native descriptor allocations were 140,611, all from the
+32-set Frame-group reservation. Frame reservations are now bounded at 128
+sets per completed command slot; Draw remains 1,024 and other groups 32.
+Capacity/admission failure retains the existing ordinary fallback. Vulkan
+transient geometry retains its index sequence/output scratch and copies the
+result into submission-owned upload storage before returning. GPU work never
+borrows those CPU vectors.
+
+Final Vulkan diagnostics accepted 12,187 frames at 1/128 and 12,105 at 1/256
+(`bottleneck-telemetry-final-vulkan` and `bottleneck-telemetry-256-vulkan`). Both
+report zero DrawScene/uniform/material/descriptor/submit C++ allocations, zero
+native descriptor allocation calls/sets and group overflows, zero vector growth,
+zero host waits/device idle calls, no uniform string lookups, five queue submits
+and one event pump per accepted frame. Scene-render allocations fell to exactly
+two per frame (96 bytes); scene traversal still allocates about 81 times/frame.
+Whole-frame heap freedom is not claimed.
+
+Desktop OpenGL upload binding state now belongs to the current context, with
+wrapper bind/delete notifications and explicit external-boundary invalidation.
+The next upload after interop queries once, then preserves that caller's binding;
+normal uploads reuse known state. GLES retains its existing live-query contract
+because its fixed-function adapter also issues raw binds. RHI conformance checks
+two uploads after external disruption and upload after deletion, verifies the
+actual native binding, then resumes the original draw without caller rebinding.
+The final OpenGL diagnostic accepted 6,422 frames: zero Draw/DrawIndexed C++
+allocations, uniform-location/current-program queries, host waits and device idle;
+one event pump per frame. Integer queries fell from approximately 459/frame to
+22/frame (`bottleneck-telemetry-final-opengl` versus
+`bottleneck-telemetry-query-opengl`), including two live NVX budget counters per
+frame. This does not claim all GL query APIs or required storage-error checks
+are gone. Uniform writes remain approximately 8,050/frame.
+
+With both diagnostic options OFF, a sequential unchanged d10 OpenGL baseline
+measured 842.83 FPS (loop 1.208281 ms, present 0.084222 ms), followed by candidate
+833.01 (loop 1.223388 ms, present 0.084442 ms). This does not establish a separate
+throughput gain from upload binding retention. Vulkan candidate measured
+1,642.20 FPS (loop 0.604562 ms, present 0.092049 ms). Same active fixture and
+first seven complete warm windows; no profiling, validation or counters in these
+acceptance runs. Separate GPU diagnostics give scene time 0.199275 ms Vulkan and
+0.647106 ms OpenGL (`bottleneck-telemetry-gpu-*`), preserving the prior workload.
+OpenGL CPU loop still exceeds GPU time, so a fully GPU-bound frontend is not
+claimed.
+
+MSVC Release, CTest 22/22, all static GL/RHI audits, RHI/resource/presentation
+conformance, forced-fallback retirement, native Reflex toggles, both backends'
+Alinos Perch lifetime 3/3, active-match Settings renderer switches, backdrop
+parity and Golden parity 7/7 pass (`bottleneck-telemetry-*`). OpenGL Golden PNGs
+match the delivered dense revision's SHA-256 exactly, 7/7. Validation errors
+and released live/retired GPU objects are zero. Remaining historical boundaries,
+final runtime failure/fallback matrix, final revision CI and selectable exclusive
+fullscreen remain open.

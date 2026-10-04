@@ -33,6 +33,12 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
     void InvalidateContextState() noexcept;
     void BeginExternalGlInterop();
     void EndExternalGlInterop() noexcept;
+    // ARRAY_BUFFER is context state, independent of the retained VAO. Wrapper
+    // binds/deletions report mutations; an external ownership boundary makes
+    // the next upload query once before preserving the caller's binding.
+    [[nodiscard]] std::int32_t ArrayBufferBinding();
+    void ArrayBufferBound(std::int32_t name) noexcept;
+    void ArrayBufferDeleted(std::int32_t name) noexcept;
     // Backend shader initialization and constants share the program owner's
     // linked locations and cached values with command-list small constants.
     void UseProgram(GraphicsDevice& device, std::int32_t program);

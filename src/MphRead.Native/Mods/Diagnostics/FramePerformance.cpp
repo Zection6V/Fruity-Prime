@@ -61,13 +61,15 @@ namespace MphRead::Mods::Diagnostics
         _csv.open(file, std::ios::out | std::ios::trunc); _csv.imbue(std::locale::classic());
         if (!_csv) throw std::runtime_error("Cannot open FPS measurement CSV: " + path);
         _csv << "segment,backend,room_id,width,height,fps_cap,present_requested,present_actual,resolution_scale,fps_counter,cel,fog,paused,focused,main_active,frames,seconds,fps,mean_frame_ms,p50_ms,p95_ms,p99_ms,percentile_samples,mean_loop_ms,mean_present_ms,gpu_scene_samples,gpu_scene_mean_ms,gpu_dropped_samples\n";
-        active = this;
         _cpuSampling = CpuSampling::Create(file.string() + ".cpu.csv");
+        _telemetry = NativeRuntime::FrameTelemetry::Create(file.string());
+        active = this;
         std::cout << "[fps measure] CSV=" << file.string() << "; warmup=2s per context; window=1s; gpu=" << gpu << '\n';
     }
     FramePerformance::~FramePerformance() { Reset(); if (active == this) active = nullptr; }
     void FramePerformance::Reset()
     {
+        if (_telemetry) _telemetry->Eligible(false);
         if (_cpuSampling) _cpuSampling->SetActive(false);
         _pending.clear(); _context.clear(); _conditions.reset(); _previous.reset(); _statistics.Reset();
         _draws = _gpuSamples = _gpuDrops = 0; _gpuMs = 0;
@@ -84,11 +86,14 @@ namespace MphRead::Mods::Diagnostics
         PollGpu();
         if (_cpuSampling) _cpuSampling->SetActive(conditions.mainActive && conditions.focused
             && !conditions.paused && _start >= _warmup);
+        if (_telemetry) _telemetry->Eligible(conditions.mainActive && conditions.focused
+            && !conditions.paused && _start >= _warmup);
     }
     void FramePerformance::Presented(const RenderWindow& window, const Rhi::Swapchain& swapchain, double presentSeconds)
     {
         if (!_conditions || ReadConditions(window, swapchain) != *_conditions)
         {
+            if (_telemetry) _telemetry->Eligible(false);
             if (_cpuSampling) _cpuSampling->SetActive(false);
             _conditions.reset(); _previous.reset(); return;
         }

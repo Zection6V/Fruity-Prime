@@ -1,4 +1,5 @@
 #include "VulkanSwapchain.hpp"
+#include "../../FrameTelemetry.hpp"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -185,6 +186,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         [[nodiscard]] Texture& AcquireNextTexture() override
         {
+            const FrameTelemetry::Scope measured(FrameTelemetry::Phase::Acquire);
             if (_closed) throw std::logic_error("The Vulkan swapchain is closed.");
             if (_acquired) throw std::logic_error("A Vulkan swapchain image is already acquired.");
             for (;;)
@@ -824,8 +826,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             for (auto& completion : image.Completions)
             {
                 if (!completion.Pending) continue;
-                Check(WaitFenceReporting(_context._impl->vkWaitForFences, _context._impl->device,
-                    &completion.Fence, "vkWaitForFences(present cleanup)"), "vkWaitForFences(present cleanup)");
+                Check(FrameTelemetry::HostWait([&] { return WaitFenceReporting(_context._impl->vkWaitForFences, _context._impl->device,
+                    &completion.Fence, "vkWaitForFences(present cleanup)"); }), "vkWaitForFences(present cleanup)");
                 ++_presentFenceWaits;
                 completion.Pending = false;
             }
@@ -853,8 +855,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             // Exhaustion is the only admission wait. Never reset a fence still
             // referenced by presentation, or let completion storage grow forever.
             auto& completion = image.Completions[image.NextCompletion];
-            Check(WaitFenceReporting(vk.vkWaitForFences, vk.device, &completion.Fence,
-                "vkWaitForFences(present ring exhaustion)"), "vkWaitForFences(present ring exhaustion)");
+            Check(FrameTelemetry::HostWait([&] { return WaitFenceReporting(vk.vkWaitForFences, vk.device, &completion.Fence,
+                "vkWaitForFences(present ring exhaustion)"); }), "vkWaitForFences(present ring exhaustion)");
             ++_presentFenceWaits; completion.Pending = false;
             image.NextCompletion = (image.NextCompletion + 1) % image.Completions.size();
             return &completion;
@@ -869,8 +871,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             {
                 if (cleanup) ++_cleanupFrameFenceWaits;
                 else ++_frameFenceWaits;
-                result = WaitFenceReporting(vk.vkWaitForFences, vk.device, &frame.fence,
-                    cleanup ? "frame cleanup" : "frame slot exhaustion");
+                result = FrameTelemetry::HostWait([&] { return WaitFenceReporting(vk.vkWaitForFences, vk.device, &frame.fence,
+                    cleanup ? "frame cleanup" : "frame slot exhaustion"); });
             }
             Check(result, "vkGetFenceStatus/wait(frame completion)");
             const auto through = frame.Proof.CompleteAfterFenceSignal();
@@ -887,6 +889,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (!vk.device) return;
             for (Frame& frame : _frames) CompleteFrame(frame, true);
             for (ImageState& image : _images) WaitForPresent(image);
+            FrameTelemetry::Count(FrameTelemetry::Counter::DeviceIdle);
             Check(vk.vkDeviceWaitIdle(vk.device), "vkDeviceWaitIdle(swapchain)");
         }
 
@@ -1012,6 +1015,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             VkLatencySubmissionPresentIdNV attribution{VK_STRUCTURE_TYPE_LATENCY_SUBMISSION_PRESENT_ID_NV};
             if (const auto id = _reflex->SubmissionId()) { attribution.presentID = *id; attribution.pNext = submit.pNext; submit.pNext = &attribution; }
             _reflex->Mark(LowLatencyMarker::RenderSubmitStart);
+            FrameTelemetry::Count(FrameTelemetry::Counter::QueueSubmits);
             Check(vk.vkQueueSubmit2(vk.graphics, 1, &submit, frame.fence), "vkQueueSubmit2(present)");
             _reflex->Mark(LowLatencyMarker::RenderSubmitEnd);
             frame.Proof.Submitted();

@@ -1012,6 +1012,8 @@
         VkDescriptorSet VulkanCommandList::PersistentMaterialSet(const VulkanSceneProgram& program,
             const std::array<SampledDescriptor, 4>& textures)
         {
+            const FrameTelemetry::Scope measured(FrameTelemetry::Phase::Material);
+            FrameTelemetry::Count(FrameTelemetry::Counter::PersistentLookup);
             const auto identity = program.MaterialOwnerIdentity();
             const auto* foundBlock = program.MaterialBlock();
             if (program.Id != SceneProgram::Main || !identity || !foundBlock) return VK_NULL_HANDLE;
@@ -1102,6 +1104,7 @@
 
         void VulkanCommandList::DrawScene(const SceneDraw& draw)
         {
+            const FrameTelemetry::Scope measured(FrameTelemetry::Phase::DrawScene);
             if (draw.IndexCount == 0) return;
             if (_metricsEnabled) ++_metricDraws;
             RequireRecording();
@@ -1217,82 +1220,94 @@
                     ++uniforms.UniformVersions[block.Group];
                 }
             }
-            for (std::uint32_t group = 0; group < SceneShaderAbi::GroupCount; ++group)
             {
-                const auto& layout = *program->Layouts[group];
-                if (layout.Desc().entries.empty()) continue;
-                if (!sets[group])
+                const FrameTelemetry::Scope descriptorPhase(FrameTelemetry::Phase::Descriptor);
+                for (std::uint32_t group = 0; group < SceneShaderAbi::GroupCount; ++group)
                 {
-                    std::uint64_t textureToken = 0;
-                    for (const auto& binding : program->Textures)
-                        if (binding.group == group) { textureToken = textures[binding.unit].Identity; break; }
-                    sets[group] = _sceneDescriptors.Find(program->Id, group, textureToken, program->Identity,
-                        _bindingGeneration, _descriptorEpoch, uniforms.UniformVersions[group], uniforms.Textures);
-                    if (sets[group])
-                    { if (_metricsEnabled) ++_metricHits; }
-                    else
+                    const auto& layout = *program->Layouts[group];
+                    if (layout.Desc().entries.empty()) continue;
+                    if (!sets[group])
                     {
-                        if (_metricsEnabled) ++_metricMisses;
-                        const auto fixedIdentity = (program->Identity << 3) | group;
-                        // First use, only this command list's current slot. Small
-                        // bounded page; all overflow uses the ordinary allocator.
-                        const auto capacity = group == static_cast<std::uint32_t>(SceneShaderAbi::Group::Draw) ? 1024U : 32U;
-                        _commandSlots->Descriptors().Preallocate(fixedIdentity, layout.Native(), layout.Desc(), capacity);
-                        auto set = _commandSlots->Descriptors().AllocateFixed(fixedIdentity);
-                        if (set)
-                        {
-                            if (_metricsEnabled) ++_metricFixedSlots;
-                        }
+                        std::uint64_t textureToken = 0;
+                        for (const auto& binding : program->Textures)
+                            if (binding.group == group) { textureToken = textures[binding.unit].Identity; break; }
+                        FrameTelemetry::Count(FrameTelemetry::Counter::DescriptorLookup);
+                        sets[group] = _sceneDescriptors.Find(program->Id, group, textureToken, program->Identity,
+                            _bindingGeneration, _descriptorEpoch, uniforms.UniformVersions[group], uniforms.Textures);
+                        if (sets[group])
+                        { if (_metricsEnabled) ++_metricHits; FrameTelemetry::Count(FrameTelemetry::Counter::DescriptorHit); }
                         else
                         {
-                            set = AllocateSet(layout);
-                            if (_metricsEnabled) { ++_metricAllocations; ++_metricFixedOverflow; }
+                            if (_metricsEnabled) ++_metricMisses;
+                            FrameTelemetry::Count(FrameTelemetry::Counter::DescriptorMiss);
+                            const auto fixedIdentity = (program->Identity << 3) | group;
+                            // First use, only this command list's current slot. Small
+                            // bounded page; all overflow uses the ordinary allocator.
+                            const auto capacity = group == static_cast<std::uint32_t>(SceneShaderAbi::Group::Draw) ? 1024U
+                                : group == static_cast<std::uint32_t>(SceneShaderAbi::Group::Frame) ? 128U : 32U;
+                            _commandSlots->Descriptors().Preallocate(fixedIdentity, layout.Native(), layout.Desc(), capacity);
+                            auto set = _commandSlots->Descriptors().AllocateFixed(fixedIdentity);
+                            if (set)
+                            {
+                                if (_metricsEnabled) ++_metricFixedSlots;
+                            }
+                            else
+                            {
+                                set = AllocateSet(layout);
+                                constexpr std::array groupCounters{FrameTelemetry::Counter::FrameDescriptors,
+                                    FrameTelemetry::Counter::MaterialDescriptors, FrameTelemetry::Counter::DrawDescriptors,
+                                    FrameTelemetry::Counter::PassDescriptors};
+                                FrameTelemetry::Count(groupCounters.at(group));
+                                if (_metricsEnabled) { ++_metricAllocations; ++_metricFixedOverflow; }
+                            }
+                            std::array<VkDescriptorBufferInfo, SceneShaderAbi::Bindings.size()> buffers{};
+                            std::array<VkDescriptorImageInfo, 8> images{};
+                            std::array<VkWriteDescriptorSet, SceneShaderAbi::Bindings.size()> writes{};
+                            std::uint32_t count = 0;
+                            const auto write = [&](std::uint32_t binding, VkDescriptorType type) -> VkWriteDescriptorSet& {
+                                auto& item = writes.at(count++);
+                                item = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                                item.dstSet = set; item.dstBinding = binding;
+                                item.descriptorCount = 1; item.descriptorType = type;
+                                return item;
+                            };
+                            for (std::size_t i = 0; i < program->Blocks.size(); ++i)
+                            {
+                                const auto& block = program->BlockAt(i);
+                                if (block.Small || block.Group != group) continue;
+                                const auto& slice = uniforms.Blocks[i].first;
+                                buffers[i] = {slice.Buffer, slice.Offset, block.Data.size()};
+                                write(block.Binding, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER).pBufferInfo = &buffers[i];
+                            }
+                            for (const auto& binding : program->Textures)
+                            {
+                                if (binding.group != group) continue;
+                                const auto unit = binding.unit;
+                                images[unit * 2] = {VK_NULL_HANDLE, textures[unit].View, textures[unit].Layout};
+                                images[unit * 2 + 1] = {textures[unit].Sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
+                                write(binding.image, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE).pImageInfo = &images[unit * 2];
+                                write(binding.sampler, VK_DESCRIPTOR_TYPE_SAMPLER).pImageInfo = &images[unit * 2 + 1];
+                            }
+                            vk.vkUpdateDescriptorSets(vk.device, count, writes.data(), 0, nullptr);
+                            if (_metricsEnabled) ++_metricUpdates;
+                            sets[group] = set;
+                            _sceneDescriptors.Store(program->Id, group, textureToken, program->Identity,
+                                _bindingGeneration, _descriptorEpoch, uniforms.UniformVersions[group], uniforms.Textures, set);
                         }
-                        std::array<VkDescriptorBufferInfo, SceneShaderAbi::Bindings.size()> buffers{};
-                        std::array<VkDescriptorImageInfo, 8> images{};
-                        std::array<VkWriteDescriptorSet, SceneShaderAbi::Bindings.size()> writes{};
-                        std::uint32_t count = 0;
-                        const auto write = [&](std::uint32_t binding, VkDescriptorType type) -> VkWriteDescriptorSet& {
-                            auto& item = writes.at(count++);
-                            item = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
-                            item.dstSet = set; item.dstBinding = binding;
-                            item.descriptorCount = 1; item.descriptorType = type;
-                            return item;
-                        };
-                        for (std::size_t i = 0; i < program->Blocks.size(); ++i)
-                        {
-                            const auto& block = program->BlockAt(i);
-                            if (block.Small || block.Group != group) continue;
-                            const auto& slice = uniforms.Blocks[i].first;
-                            buffers[i] = {slice.Buffer, slice.Offset, block.Data.size()};
-                            write(block.Binding, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER).pBufferInfo = &buffers[i];
-                        }
-                        for (const auto& binding : program->Textures)
-                        {
-                            if (binding.group != group) continue;
-                            const auto unit = binding.unit;
-                            images[unit * 2] = {VK_NULL_HANDLE, textures[unit].View, textures[unit].Layout};
-                            images[unit * 2 + 1] = {textures[unit].Sampler, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_UNDEFINED};
-                            write(binding.image, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE).pImageInfo = &images[unit * 2];
-                            write(binding.sampler, VK_DESCRIPTOR_TYPE_SAMPLER).pImageInfo = &images[unit * 2 + 1];
-                        }
-                        vk.vkUpdateDescriptorSets(vk.device, count, writes.data(), 0, nullptr);
-                        if (_metricsEnabled) ++_metricUpdates;
-                        sets[group] = set;
-                        _sceneDescriptors.Store(program->Id, group, textureToken, program->Identity,
-                            _bindingGeneration, _descriptorEpoch, uniforms.UniformVersions[group], uniforms.Textures, set);
                     }
-                }
-                else if (_metricsEnabled) ++_metricHits;
-                if (_boundSceneSets[group] != sets[group])
-                {
-                    vk.vkCmdBindDescriptorSets(_commandSlots->Buffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
-                        native.Layout(), group, 1, &sets[group], 0, nullptr);
-                    if (_metricsEnabled) ++_metricBinds;
-                    _boundSceneSets[group] = sets[group];
+                    else
+                    { if (_metricsEnabled) ++_metricHits; FrameTelemetry::Count(FrameTelemetry::Counter::DescriptorHit); }
+                    if (_boundSceneSets[group] != sets[group])
+                    {
+                        vk.vkCmdBindDescriptorSets(_commandSlots->Buffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            native.Layout(), group, 1, &sets[group], 0, nullptr);
+                        if (_metricsEnabled) ++_metricBinds;
+                        _boundSceneSets[group] = sets[group];
+                    }
                 }
             }
 
+            const FrameTelemetry::Scope commandPhase(FrameTelemetry::Phase::Commands);
             std::array<VkBuffer, 5> buffers{};
             std::array<VkDeviceSize, 5> offsets{};
             std::array<VkDeviceSize, 5> strides{};

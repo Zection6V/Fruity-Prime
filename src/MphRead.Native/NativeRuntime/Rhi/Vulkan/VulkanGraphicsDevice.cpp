@@ -1,4 +1,5 @@
 #include "VulkanGraphicsDevice.hpp"
+#include "../../FrameTelemetry.hpp"
 #include "VulkanScene.hpp"
 #include "../ResourceStatePolicy.hpp"
 #include "../BackdropNoise.hpp"
@@ -1424,6 +1425,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
             void WaitIdle() override
             {
+                FrameTelemetry::Count(FrameTelemetry::Counter::DeviceIdle);
                 _state->FlushScene();
                 ++_state->HostWaits;
                 ++_state->DeviceWideWaits;

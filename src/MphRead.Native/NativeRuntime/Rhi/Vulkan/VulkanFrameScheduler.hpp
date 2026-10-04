@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../Submission.hpp"
+#include "../../FrameTelemetry.hpp"
 #include "../PresentationScheduler.hpp"
 #include <cstdlib>
 
@@ -60,6 +61,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
         SubmissionSerial Submit(const VkSubmitInfo2& work, VkFence fence = VK_NULL_HANDLE, bool mark = true)
         {
+            const FrameTelemetry::Scope measured(FrameTelemetry::Phase::Submit);
             if (std::this_thread::get_id() != _submissionThread || _submitting)
                 throw std::logic_error("Vulkan queue submission must be non-reentrant on its owning thread.");
             struct SubmissionScope final
@@ -78,7 +80,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             const auto serial = _progress.Next();
             const auto required = static_cast<std::size_t>(work.signalSemaphoreInfoCount) + 1;
             if (required > _signals.capacity())
-            { _signals.reserve(required); ++_signalStorageGrowths; }
+            { _signals.reserve(required); ++_signalStorageGrowths; FrameTelemetry::Count(FrameTelemetry::Counter::VectorGrowth); }
             _signals.clear();
             if (work.signalSemaphoreInfoCount)
                 _signals.assign(work.pSignalSemaphoreInfos,
@@ -96,6 +98,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 if (const auto id = _dispatch.Attribution())
                 { attribution.presentID = *id; attribution.pNext = submit.pNext; submit.pNext = &attribution; }
             if (mark && _dispatch.RenderSubmitStart) _dispatch.RenderSubmitStart();
+            FrameTelemetry::Count(FrameTelemetry::Counter::QueueSubmits);
             _dispatch.CheckResult(_dispatch.QueueSubmit(_dispatch.Queue, 1, &submit, fence),
                 "vkQueueSubmit2(submission timeline)");
             _progress.Submitted(serial);
@@ -126,7 +129,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             VkSemaphoreWaitInfo wait{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
             wait.semaphoreCount = 1; wait.pSemaphores = &_timeline; wait.pValues = &serial.Value;
             const auto start = _measureWaits ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
-            const auto result = _dispatch.Wait(_dispatch.Device, &wait, timeoutNanoseconds);
+            const auto result = FrameTelemetry::HostWait([&] { return _dispatch.Wait(_dispatch.Device, &wait, timeoutNanoseconds); });
             if (_measureWaits)
             { ++_waits.count; _waits.nanoseconds += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count(); }
             if (result == VK_TIMEOUT) return false;

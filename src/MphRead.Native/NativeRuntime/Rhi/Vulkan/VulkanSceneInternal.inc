@@ -487,11 +487,16 @@ public:
         using T = MphRead::TransientPrimitiveTopology;
         if (vertices.empty()) return;
         const std::size_t n = vertices.size();
-        std::vector<std::uint32_t> sequence(n);
+        auto& sequence = _sequence;
+        if (n > sequence.capacity()) FrameTelemetry::Count(FrameTelemetry::Counter::VectorGrowth);
+        sequence.resize(n);
         MphRead::BuildTransientIndexSequence(sequence);
-        std::vector<std::uint32_t> indices;
+        auto& indices = _indices;
+        indices.clear();
         const bool lines = topology == T::LineLoop;
+        const auto previousCapacity = indices.capacity();
         MphRead::AppendTransientDrawIndices(indices, sequence, topology);
+        if (indices.capacity() != previousCapacity) FrameTelemetry::Count(FrameTelemetry::Counter::VectorGrowth);
         if (indices.empty()) return;
         auto positions = _commands.Allocate(n * 24U);
         auto* out = reinterpret_cast<float*>(positions.Data);
@@ -524,4 +529,7 @@ public:
 private:
     std::shared_ptr<VulkanDeviceState> _device;
     VulkanCommandList& _commands;
+    // Uploads copy into submission-owned storage before Draw returns. Retain
+    // index generation scratch; it is never referenced by queued GPU work.
+    std::vector<std::uint32_t> _sequence, _indices;
 };

@@ -1,4 +1,5 @@
 #include "OpenGlDevice.hpp"
+#include "../../FrameTelemetry.hpp"
 #include "../ResourceStatePolicy.hpp"
 #include "OpenGlNative.hpp"
 #include "OpenGlFrameScheduler.hpp"
@@ -1044,6 +1045,7 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             {
                 _nativeOwner = nullptr; _nativeProgram = nullptr; _programKnown = false;
                 _vertexArrayKnown = false;
+                _arrayBufferKnown = false;
                 for (auto* program : _livePrograms) program->InvalidateValues();
             }
             void BindProgram(OpenGlProgramStorage* program)
@@ -1089,11 +1091,28 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 if (!_vertexArrayKnown || _nativeVertexArray != name)
                 {
                     OpenGlNative::Require(_api.BindVertexArray, "glBindVertexArray")(name);
+                    FrameTelemetry::Count(FrameTelemetry::Counter::VaoBinds);
                     _nativeVertexArray = name; _vertexArrayKnown = true;
                 }
+                else FrameTelemetry::Count(FrameTelemetry::Counter::VaoSuppressed);
             }
             void ForgetVertexArray(unsigned name) noexcept
             { if (_vertexArrayKnown && _nativeVertexArray == name) _vertexArrayKnown = false; }
+            std::int32_t ArrayBinding()
+            {
+#if defined(__ANDROID__)
+                // The GLES fixed-function adapter also issues raw buffer binds.
+                // Keep its live-query contract until those mutations have an owner.
+                return GL::GetInteger(0x8894);
+#else
+                if (!_arrayBufferKnown) ArrayBound(GL::GetInteger(0x8894));
+                return _nativeArrayBuffer;
+#endif
+            }
+            void ArrayBound(std::int32_t name) noexcept
+            { _nativeArrayBuffer = name; _arrayBufferKnown = true; }
+            void ArrayDeleted(std::int32_t name) noexcept
+            { if (_arrayBufferKnown && _nativeArrayBuffer == name) _nativeArrayBuffer = 0; }
             void ForgetBuffer(std::int32_t name);
 
             // Storage for a render target: TexImage2D with no data, or a
@@ -1202,6 +1221,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             BindingLimits _bindingLimits{};
             bool _programKnown = false, _vertexArrayKnown = false;
             unsigned _nativeVertexArray = 0;
+            bool _arrayBufferKnown = false;
+            std::int32_t _nativeArrayBuffer = 0;
             std::unordered_set<OpenGlTimestampSet*> _timestampSets;
             std::shared_ptr<TimestampBudget> _timestampBudget = std::make_shared<TimestampBudget>();
             TimestampProperties _timestampProperties;
@@ -2061,6 +2082,22 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         }
     }
     void EndExternalGlInterop() noexcept { InvalidateContextState(); }
+    std::int32_t ArrayBufferBinding()
+    {
+        if (const auto found = ContextDevices().find(ContextKey()); found != ContextDevices().end())
+            return found->second->ArrayBinding();
+        return GL::GetInteger(0x8894);
+    }
+    void ArrayBufferBound(std::int32_t name) noexcept
+    {
+        if (const auto found = ContextDevices().find(ContextKey()); found != ContextDevices().end())
+            found->second->ArrayBound(name);
+    }
+    void ArrayBufferDeleted(std::int32_t name) noexcept
+    {
+        if (const auto found = ContextDevices().find(ContextKey()); found != ContextDevices().end())
+            found->second->ArrayDeleted(name);
+    }
     void UseProgram(GraphicsDevice& device, std::int32_t program)
     { static_cast<OpenGlGraphicsDevice&>(device).BindProgram(program); }
     void SetMaterialAlpha(GraphicsDevice& device, float alpha)
@@ -2096,6 +2133,29 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
         auto* native = dynamic_cast<OpenGlGraphicsDevice*>(&device);
         if (!native || &ContextDevice() != &device)
             throw std::invalid_argument("Interop check requires the current OpenGL device.");
+        const auto previousBuffer = GL::GetInteger(0x8894);
+        const auto externalBuffer = GL::GenBuffer();
+        struct RestoreBuffer final
+        {
+            int Previous, External;
+            ~RestoreBuffer() { GL::DeleteBuffer(External); GL::BindBuffer(GL::BufferTarget::ArrayBuffer, Previous); }
+        } restore{previousBuffer, externalBuffer};
+        BufferDesc scratchDesc{16, BufferUsage::Vertex | BufferUsage::TransferDst, MemoryUsage::CpuToGpu};
+        auto scratch = device.CreateBuffer(scratchDesc);
+        std::array<std::byte, 16> bytes{};
+        GL::BindBuffer(GL::BufferTarget::ArrayBuffer, 0);
+        (void)ArrayBufferBinding();
+        BeginExternalGlInterop();
+        GL::BindBuffer(GL::BufferTarget::ArrayBuffer, externalBuffer);
+        EndExternalGlInterop();
+        device.WriteBuffer(*scratch, 0, bytes);
+        device.WriteBuffer(*scratch, 0, bytes);
+        if (GL::GetInteger(0x8894) != externalBuffer)
+            throw std::runtime_error("OpenGL upload lost the external owner's buffer binding.");
+        GL::DeleteBuffer(externalBuffer); restore.External = 0;
+        device.WriteBuffer(*scratch, 0, bytes);
+        if (GL::GetInteger(0x8894) != 0)
+            throw std::runtime_error("OpenGL upload retained a deleted buffer binding.");
         InvalidateContextState();
         GL::UseProgram(0);
         OpenGlNative::Require(native->Api().BindVertexArray, "glBindVertexArray")(0);

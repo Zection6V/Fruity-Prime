@@ -2153,6 +2153,7 @@ namespace MphRead
 
     bool Scene::OnRenderFrame()
     {
+        const NativeRuntime::FrameTelemetry::Scope measured(NativeRuntime::FrameTelemetry::Phase::SceneRender);
         const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
         CountFrame();
         if (_exiting) return false;
@@ -4710,6 +4711,7 @@ namespace MphRead
 
     void Scene::DoMaterial(const MphRead::RenderItem& item)
     {
+        const NativeRuntime::FrameTelemetry::Scope measured(NativeRuntime::FrameTelemetry::Phase::Material);
         _shaderConstants->SetInheritedColor(Vector4(item.Diffuse, 1.0F));
         _shaderConstants->Set(NativeRuntime::Rhi::MaterialConstants{
             LightingOn() && item.Lighting, item.Diffuse, item.Ambient, item.Specular,
@@ -6389,6 +6391,7 @@ namespace MphRead
         if (_performance) _performance->BeginFrame(*this, *_swapchain);
         const auto present = [&]
         {
+            const NativeRuntime::FrameTelemetry::Scope measured(NativeRuntime::FrameTelemetry::Phase::Present);
             _swapchain->MarkLowLatency(NativeRuntime::Rhi::LowLatencyMarker::SimulationEnd);
             if (std::getenv("FRUITY_RENDER_METRICS") && ++_presentationMetricFrames % 120 == 0)
             {
@@ -6403,13 +6406,13 @@ namespace MphRead
             if (!_performance)
             {
                 const auto result = NativeRuntime::Rhi::PresentSceneWindow(*_swapchain);
-                if (result.accepted) _window->PresentationAccepted();
+                if (result.accepted) { _window->PresentationAccepted(); NativeRuntime::FrameTelemetry::Rendered(); }
                 else _window->PresentationUnavailable();
                 return;
             }
             const auto start = std::chrono::steady_clock::now();
             const auto result = NativeRuntime::Rhi::PresentSceneWindow(*_swapchain);
-            if (result.accepted) _window->PresentationAccepted();
+            if (result.accepted) { _window->PresentationAccepted(); NativeRuntime::FrameTelemetry::Rendered(); }
             else _window->PresentationUnavailable();
             if (_performance) _performance->Presented(*this, *_swapchain,
                 std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
@@ -6512,6 +6515,7 @@ namespace MphRead
         }
         for (std::int32_t i = 0; i < steps; ++i)
         {
+            const NativeRuntime::FrameTelemetry::Scope measured(NativeRuntime::FrameTelemetry::Phase::Simulation);
             _scene->OnSimulationFrame();
         }
         _swapchain->MarkLowLatency(NativeRuntime::Rhi::LowLatencyMarker::SimulationEnd);
@@ -6531,7 +6535,10 @@ namespace MphRead
         {
             Mods::Chat::ChatBox::Open(false);
         }
-        _scene->OnDrawFrame();
+        {
+            const NativeRuntime::FrameTelemetry::Scope measured(NativeRuntime::FrameTelemetry::Phase::Traversal);
+            _scene->OnDrawFrame();
+        }
         if (!_scene->OnRenderFrame())
         {
             return;
@@ -6541,11 +6548,14 @@ namespace MphRead
         // shares the window context only as a compositor backend; map/model/
         // HUD rendering above remains entirely on the existing OpenGL path.
         // When the UI is hidden TickUi performs no Ganesh render at all.
-        Mods::Launcher::Gui::Shell::TickUi(*this);
-        const Vector2i framebuffer = FramebufferSize();
-        Mods::Render::UiOverlay::Draw(framebuffer.X, framebuffer.Y);
-        Mods::Render::LauncherHunter::Draw(*this, framebuffer.X, framebuffer.Y);
-        Mods::Launcher::Gui::Shell::AfterDraw(*this);
+        {
+            const NativeRuntime::FrameTelemetry::Scope measured(NativeRuntime::FrameTelemetry::Phase::Ui);
+            Mods::Launcher::Gui::Shell::TickUi(*this);
+            const Vector2i framebuffer = FramebufferSize();
+            Mods::Render::UiOverlay::Draw(framebuffer.X, framebuffer.Y);
+            Mods::Render::LauncherHunter::Draw(*this, framebuffer.X, framebuffer.Y);
+            Mods::Launcher::Gui::Shell::AfterDraw(*this);
+        }
 #endif
         present();
         Reveal();

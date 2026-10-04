@@ -1,4 +1,5 @@
 #include "VulkanDescriptorAllocator.hpp"
+#include "../../FrameTelemetry.hpp"
 
 #if defined(FRUITY_HAS_VULKAN)
 #include <algorithm>
@@ -54,6 +55,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         create.pPoolSizes = sizeCount ? sizes.data() : nullptr;
         // Reserve before native admission: retaining a successfully created
         // pool must not allocate or throw, including during overflow growth.
+        if (_pages.size() == _pages.capacity()) FrameTelemetry::Count(FrameTelemetry::Counter::VectorGrowth);
         _pages.reserve(_pages.size() + 1);
         _dispatch.CheckResult(_dispatch.Create(_dispatch.Device, &create, nullptr, &page.Pool),
             "vkCreateDescriptorPool(allocator)");
@@ -78,6 +80,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             allocate.descriptorSetCount = 1;
             allocate.pSetLayouts = &layout;
             VkDescriptorSet set = VK_NULL_HANDLE;
+            if (available)
+            {
+                FrameTelemetry::Count(FrameTelemetry::Counter::NativeDescriptorCalls);
+                FrameTelemetry::Count(FrameTelemetry::Counter::NativeDescriptorSets);
+            }
             const auto result = available ? _dispatch.Allocate(_dispatch.Device, &allocate, &set)
                 : VK_ERROR_OUT_OF_POOL_MEMORY;
             if (result == VK_SUCCESS)
@@ -150,6 +157,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         {
             VkDescriptorSetAllocateInfo allocate{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
             allocate.descriptorPool = page.Pool; allocate.descriptorSetCount = count; allocate.pSetLayouts = layouts.data();
+            FrameTelemetry::Count(FrameTelemetry::Counter::NativeDescriptorCalls);
+            FrameTelemetry::Count(FrameTelemetry::Counter::NativeDescriptorSets, count);
             const auto allocated = _dispatch.Allocate(_dispatch.Device, &allocate, page.Sets.data());
             if (capacityFailure(allocated))
             {

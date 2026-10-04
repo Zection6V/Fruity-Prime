@@ -6,10 +6,9 @@
 namespace
 {
     constexpr unsigned UploadTarget = 0x8892;        // ARRAY_BUFFER
-    constexpr unsigned UploadTargetBinding = 0x8894; // ARRAY_BUFFER_BINDING
     struct UploadBinding final
     {
-        int Previous = GL::GetInteger(UploadTargetBinding);
+        int Previous = ArrayBufferBinding();
         ~UploadBinding() { GL::BindBuffer(static_cast<GL::BufferTarget>(UploadTarget), Previous); }
     };
 }

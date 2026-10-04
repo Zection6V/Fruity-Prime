@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../SceneShaderAbi.hpp"
+#include "../../FrameTelemetry.hpp"
 #include <algorithm>
 #include <array>
 #include <memory>
@@ -79,10 +80,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         }
         void Write(std::string_view name, const void* data, std::size_t size, SceneShaderAbi::ValueType type)
         {
+            FrameTelemetry::Count(FrameTelemetry::Counter::UniformNames);
             WriteMember(Find(name), data, size, type);
         }
         void Write(std::size_t slot, const void* data, std::size_t size, SceneShaderAbi::ValueType type)
         {
+            const FrameTelemetry::Scope measured(FrameTelemetry::Phase::Uniform);
+            FrameTelemetry::Count(FrameTelemetry::Counter::UniformSlots);
             const auto& member = _denseMembers.at(slot);
             WriteMember(member ? &*member : nullptr, data, size, type);
         }
@@ -109,10 +113,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     public:
         void WriteArray(std::string_view name, const float* data, std::size_t elementFloats, std::size_t count)
         {
+            FrameTelemetry::Count(FrameTelemetry::Counter::UniformNames);
             WriteArrayMember(Find(name), data, elementFloats, count);
         }
         void WriteArray(std::size_t slot, const float* data, std::size_t elementFloats, std::size_t count)
         {
+            const FrameTelemetry::Scope measured(FrameTelemetry::Phase::Uniform);
+            FrameTelemetry::Count(FrameTelemetry::Counter::UniformSlots);
             const auto& member = _denseMembers.at(slot);
             WriteArrayMember(member ? &*member : nullptr, data, elementFloats, count);
         }

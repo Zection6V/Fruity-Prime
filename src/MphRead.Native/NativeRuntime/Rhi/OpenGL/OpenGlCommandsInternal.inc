@@ -176,6 +176,7 @@ void OpenGlGraphicsDevice::ForgetBuffer(std::int32_t name)
 }
 void OpenGlCommandList::Draw(std::uint32_t count, std::uint32_t instances, std::uint32_t first, std::uint32_t firstInstance)
 {
+    const FrameTelemetry::Scope measured(FrameTelemetry::Phase::DrawScene);
     RequireRendering();
     if (!count || !instances) return;
     RestoreDrawState();
@@ -189,6 +190,7 @@ void OpenGlCommandList::Draw(std::uint32_t count, std::uint32_t instances, std::
 }
 void OpenGlCommandList::DrawIndexed(std::uint32_t count, std::uint32_t instances, std::uint32_t first, std::int32_t base, std::uint32_t firstInstance)
 {
+    const FrameTelemetry::Scope measured(FrameTelemetry::Phase::DrawScene);
     RequireRendering();
     if (!count || !instances) return;
     RestoreDrawState();
@@ -323,7 +325,7 @@ void OpenGlCommandList::CopyBuffer(const Buffer& source, std::uint64_t sourceOff
         // orders both against the commands already issued, as it would a copy.
         auto& api = _device->Api();
         std::vector<std::byte> staging(static_cast<std::size_t>(size));
-        const int previous = GL::GetInteger(0x8894); // ARRAY_BUFFER_BINDING
+        const int previous = ArrayBufferBinding();
         GL::BindBuffer(static_cast<GL::BufferTarget>(0x8892), from.Name());
         OpenGlNative::Require(api.GetBufferSubData, "glGetBufferSubData")(0x8892,
             static_cast<std::ptrdiff_t>(sourceOffset), static_cast<std::ptrdiff_t>(size), staging.data());

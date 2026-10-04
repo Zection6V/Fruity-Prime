@@ -1,6 +1,7 @@
 #pragma once
 #include "FrameStatistics.hpp"
 #include "../../NativeRuntime/Rhi/GpuDiagnostics.hpp"
+#include "../../NativeRuntime/FrameTelemetry.hpp"
 #include <chrono>
 #include <deque>
 #include <fstream>
@@ -40,6 +41,7 @@ namespace MphRead::Mods::Diagnostics
         static std::string Describe(const Conditions& conditions);
         std::ofstream _csv;
         std::unique_ptr<CpuSampling> _cpuSampling;
+        std::unique_ptr<NativeRuntime::FrameTelemetry::Session> _telemetry;
         bool _gpu = false;
         std::string _context;
         std::optional<Conditions> _conditions;

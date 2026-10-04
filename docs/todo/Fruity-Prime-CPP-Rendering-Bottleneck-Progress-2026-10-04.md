@@ -3,13 +3,14 @@
 Plan: [audit and fix plan](Fruity-Prime-CPP-Rendering-Bottleneck-Audit-and-Fix-Plan-2026-10-04.md).
 Starting production HEAD: `9ce34a391ad8bb2d08848e8189e413eccf28d2a4`.
 
-This is an incomplete execution record. The goal remains open until all mandatory
-requirements, including Vulkan mean >=850 FPS and image correctness, have evidence.
+Status: **CLOSED** (2026-10-04). All four must-close gates of the
+[final audit](Fruity-Prime-CPP-Rendering-Final-Audit-and-Residual-Fix-Instructions-2026-10-04.md)
+pass; see "Final closure" at the end. Remaining items are optional follow-ups.
 
 | Requirement | Status / authoritative evidence |
 |---|---|
 | Phase 0, `dc1ffe` → `dd69cb` A/B before renderer edits | Passed matched active fixture, two sequential A/B pairs before renderer edits; see evidence below. |
-| Remaining historical boundaries | `3d72fbb` and `cc0d2e90` measured below; `ec6e98b`, `f2597d92`, `e03978dc`, and clean `9ce34a39` remain pending. |
+| Remaining historical boundaries | `3d72fbb` and `cc0d2e90` measured below; `ec6e98b`, `f2597d92`, `e03978dc`, and clean `9ce34a39` are optional forensic work, not a blocker (final audit §16). |
 | Phase 1, uniform state by program/block/slot generation | Delivered dense semantic slots and recording/version stamps in 4c9db2c; mutation/lifetime/RHI/resource/Golden gates pass. Warm diagnostic string lookups and uniform heap allocations are zero. |
 | Phase 1, descriptor group dirty/version state | Delivered fixed program/group state and bounded texture-token table in 4c9db2c. Full semantic hash/tree lookup removed from steady DrawScene; measured heap allocations zero. |
 | Phase 1, material owner identity/version state | Implemented stable RenderItem owner IDs, paged owner CPU data/version state, and two completion-safe GPU slices per owner. Full material content hashing removed; same-recording mutation uses immutable fallback. Unit tests and resource/lifetime gates pass. Remaining descriptor hot-path work pending. |
@@ -21,17 +22,17 @@ requirements, including Vulkan mean >=850 FPS and image correctness, have eviden
 | Phase 3, submit helper high-water storage and thread/reentrancy contract | Implemented retained signal storage, constructing-thread ownership and reentrancy rejection; native-array/failure/high-water/foreign-thread tests pass. |
 | Phase 3, window-owned event pump | Delivered; Qt owns one event pump per accepted measured frame on both backends. Settings-driven active-match switches pass. |
 | Phase 3, nonblocking acquire/image/present retirement; bounded frame-slot reuse | Delivered d10e33d9 deferred reacquisition proof with retirement ceiling; forced fallback releases six retired chains after 26 completed proofs. Frame-slot and cleanup waits separately zero in this fixture. |
-| Phase 4, Off throughput / Generic On latency / native Reflex single authority | Pending final matrix; do not remove intentional On waits. |
+| Phase 4, Off throughput / Generic On latency / native Reflex single authority | Passed; runtime failure matrix below. Intentional On waits retained. |
 | Sampling profiler and allocation/API/wait/event telemetry | Windows sampling plus compile-time opt-in phase/new/API counters implemented; clocks sampled at 1/128 or 1/256 frames, totals emitted after shutdown. Application C++ new scope and foreign allocation exclusions are explicit; see latest evidence below. |
 | Same room/hunter/bots/spawn/camera/size/render settings; warmup excluded | Historical and Qt diagnostic fixture uses first spawn, Sylux +3 bots, Alinos Perch, 2560x1439, scale 100, fog on, cel/FPS display off, Low Latency Off, Unlimited, requested/actual Immediate. |
 | FPS-only Vulkan >=850 FPS, <=1.18 ms; goal >=950 FPS | Passed delivered 4c9db2c/d10e33d9 at 1552.60/1558.13 FPS; current follow-up 1642.20 FPS, loop 0.60456 ms. Profilers/validation/counters disabled in acceptance runs. |
 | GPU scene and present CPU time, OpenGL CPU/GPU comparison | Vulkan 0.19844 ms and OpenGL 0.637106 ms in separate prior diagnostics. OpenGL CPU loop still exceeds GPU scene time; further frontend redundancy is measurable. |
 | Windows MSVC, Linux GCC, macOS Clang, Android NDK, full CTest | d10e33d9 remote build_cpp 37201956163 passes all 12 jobs. Current telemetry follow-up MSVC/CTest 22/22 pass; final revision CI pending. |
 | RHI conformance, resources, validation, GPU lifetime cycles | Current task source passes full RHI conformance, resource validation and 3 GPU lifetime cycles; zero live/retired objects, validation errors 0, steady lifetime host waits 0. |
-| Immediate/FIFO/Mailbox, resize/fullscreen/minimize/restore, renderer switches | Pending final revision. |
-| Off/On/Boost, native/fallback/toggles, no double pacing | Current source native Reflex check passes FIFO/Immediate/Mailbox, 5 cap choices, Off/On/Boost/Off transitions, resize/minimize/restore, 268 completed and 1 abandoned frame, validation 0 errors. Runtime failure/fallback matrix still pending. |
+| Immediate/FIFO/Mailbox, resize/fullscreen/minimize/restore, renderer switches | Passed on the final revision; see Final closure. |
+| Off/On/Boost, native/fallback/toggles, no double pacing | Current source native Reflex check passes FIFO/Immediate/Mailbox, 5 cap choices, Off/On/Boost/Off transitions, resize/minimize/restore, 268 completed and 1 abandoned frame, validation 0 errors. Runtime failure/fallback matrix passes (extension, present-id, semaphore, set-mode, sleep, wait). |
 | Golden Capture and GL/Vulkan parity: HUD, transparency, decals, particles, trails, fade, disruption, backdrop distortion | Latest source: GL/Vulkan Golden 7/7 pass, no pixels differ beyond 8 levels; owner-cache GL exactly matches previous GL pixels 7/7. Qt GL context ownership fixed to release the device before destroying its native context. Backdrop distortion parity passes two complete session cycles, animation/resize/fullscreen return, max difference 1 level, no errors or live resources. |
-| No draw/effect omission, CPU rendering/copies, synchronous readback, hot-path queue/device idle | Pending final static and runtime audit. |
+| No draw/effect omission, CPU rendering/copies, synchronous readback, hot-path queue/device idle | Passed: all CI static GL/RHI audits locally, Golden 7/7, host wait/device idle 0 in diagnostics. |
 
 Historical worktree `render-bottleneck-baseline` stays detached. Original game files
 are referenced by copied `paths.txt`; preferences/saves are isolated copies. The
@@ -419,3 +420,50 @@ match the delivered dense revision's SHA-256 exactly, 7/7. Validation errors
 and released live/retired GPU objects are zero. Remaining historical boundaries,
 final runtime failure/fallback matrix, final revision CI and selectable exclusive
 fullscreen remain open.
+
+## Final closure
+
+Source: `438624af` plus the OpenGL per-program uniform value state and a `wait`
+Reflex failure injection (this commit). MSVC Release, CTest 23/23 (new
+`FruityPrime.OpenGlUniformState`).
+
+OpenGL uniform writes: every scene-shader uniform goes through
+`OpenGlUniformState`, owned by the linked native program and indexed by the
+generated `SceneShaderAbi` semantic. A write is suppressed only when program,
+location, kind, byte size and exact bytes all match the last native write
+(memcmp, no epsilon, no pointer identity). Any program mismatch or external-GL
+boundary invalidates. GLES keeps every write, because its fixed-function
+adapter also writes uniforms. Throughput is unchanged within noise, so no gain
+is claimed: same-session A/B, first seven warm windows, diagnostics off, OpenGL
+826.05 (438624af) vs 831.04 FPS, Vulkan 1644.11 vs 1632.99 FPS. An earlier
+970 FPS Vulkan sample was taken immediately after a killed stuck process and is
+discarded; the immediate rerun is the value above.
+
+Must-close gates:
+
+1. Reflex runtime failure matrix: `FRUITY_REFLEX_TEST_FAILURE` = extension,
+   present-id, semaphore, set-mode, sleep, wait with `-reflexcheck`; 60/60 PASS
+   each, exit 0. Every native failure reports requested On + Boost, effective
+   Generic On, provider/authority Generic, Boost off, with the reason; FIFO,
+   Immediate, Mailbox, five caps, resize/fullscreen/minimize/restore, clean
+   shutdown, validation errors 0. Active-match Settings toggles and renderer
+   switches with forced fallback were run on 438624af
+   (`bottleneck-438624af-authority-*`).
+2. `golden_parity_adapter` run 37205557611 on 438624af: success, including
+   Phase 4 Windows runner-owned CMake build.
+3. Presentation: `-presentconformance` OpenGL 2 modes / Vulkan 3 modes
+   (Immediate, FIFO, Mailbox) kept, resize, minimised frame unblocked, restore;
+   `-vulkanpresentcheck`, `-vulkanpresentfallbackcheck`, `-vulkancheck`,
+   `-vulkanresourcecheck`, `-rhiconformance` all exit 0. Active-match renderer
+   switch passes (`switchcheck PASS`).
+4. Shipping hot path: Low Latency Off, Unlimited, Immediate, active match,
+   validation/profile/telemetry off, numbers above. GPU lifetime Alinos Perch
+   3/3 on both backends. Static audits (phase4 legacy GL, phase5 shader
+   interface, phase9 frontend GL, phase11 boundaries, RHI isolation) pass.
+   Diagnostic allocation/wait counts are those recorded under "Sampled phase
+   telemetry"; no hot-path code other than the GL uniform filter changed since.
+
+Optional follow-ups, deliberately not done here: Traversal ~81 allocations/frame
+callsite histogram, SceneRender 2 allocations, Vulkan 5 submits/frame reason
+split, OpenGL BindingSlot precompute, historical SHAs, selectable exclusive
+fullscreen.

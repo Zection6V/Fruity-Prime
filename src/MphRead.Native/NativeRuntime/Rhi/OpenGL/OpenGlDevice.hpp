@@ -2,6 +2,7 @@
 
 #include "../GraphicsDevice.hpp"
 #include "../VertexSemantics.hpp"
+#include "OpenGlUniformState.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -43,6 +44,8 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
     // linked locations and cached values with command-list small constants.
     void UseProgram(GraphicsDevice& device, std::int32_t program);
     void SetMaterialAlpha(GraphicsDevice& device, float alpha);
+    [[nodiscard]] bool UpdateShaderUniform(GraphicsDevice& device, ShaderUniformLocation uniform,
+        OpenGlUniformState::Kind kind, std::span<const std::byte> bytes);
     // The current context's viewport, over the whole window.
     void ResetWindowViewport(std::int32_t width, std::int32_t height);
 

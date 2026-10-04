@@ -313,7 +313,16 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
             float MaterialAlpha = 1;
             std::int32_t AlphaTest = 0;
             bool MaterialAlphaCurrent = false, AlphaTestCurrent = false;
-            void InvalidateValues() noexcept { MaterialAlphaCurrent = AlphaTestCurrent = false; }
+#if !defined(__ANDROID__)
+            OpenGlUniformState Uniforms;
+#endif
+            void InvalidateValues() noexcept
+            {
+                MaterialAlphaCurrent = AlphaTestCurrent = false;
+#if !defined(__ANDROID__)
+                Uniforms.Invalidate();
+#endif
+            }
             void Detach() noexcept { Device = nullptr; Name = 0; }
         };
 
@@ -1073,6 +1082,19 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                     GL::Uniform1(program.MaterialAlphaLocation, alpha);
                     program.MaterialAlpha = alpha; program.MaterialAlphaCurrent = true;
                 }
+            }
+            bool UpdateUniform(ShaderUniformLocation uniform, OpenGlUniformState::Kind kind, std::span<const std::byte> bytes)
+            {
+                if (uniform.Location == -1) return false;
+#if defined(__ANDROID__)
+                // GLES fixed-function emulation also mutates native uniforms.
+                return true;
+#else
+                if (!_programKnown || !_nativeProgram) return true;
+                if (_nativeProgram->Name != uniform.Program)
+                { _nativeProgram->Uniforms.Invalidate(); return true; }
+                return _nativeProgram->Uniforms.Update(uniform.Semantic, uniform.Location, kind, bytes);
+#endif
             }
             void AlphaTest(AlphaTestMode mode)
             {
@@ -2102,6 +2124,9 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
     { static_cast<OpenGlGraphicsDevice&>(device).BindProgram(program); }
     void SetMaterialAlpha(GraphicsDevice& device, float alpha)
     { static_cast<OpenGlGraphicsDevice&>(device).MaterialAlpha(alpha); }
+    bool UpdateShaderUniform(GraphicsDevice& device, ShaderUniformLocation uniform,
+        OpenGlUniformState::Kind kind, std::span<const std::byte> bytes)
+    { return static_cast<OpenGlGraphicsDevice&>(device).UpdateUniform(uniform, kind, bytes); }
 
     GraphicsDevice& ContextDevice()
     {

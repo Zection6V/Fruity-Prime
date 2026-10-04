@@ -181,6 +181,7 @@ add_custom_target(fruity_golden_capture_provenance
     COMMENT "Refreshing GoldenCapture source provenance"
     VERBATIM)
 list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestOpenGlUniformState.cpp"
     "${FRUITY_MPHREAD_ROOT}/Testing/TestFrameTelemetry.cpp"
     "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanNvidiaReflex.cpp"
     "${FRUITY_VULKAN_FRAME_SLOTS_TEST_SOURCE}"
@@ -322,6 +323,12 @@ set_target_properties(fruity_mphread_native PROPERTIES OUTPUT_NAME "MphRead.Nati
 # focused tests whenever a host native owner is built; Android cross-compiles
 # the production decoder but cannot execute the host test binary.
 if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
+    add_executable(fruity_opengl_uniform_tests
+        "${FRUITY_MPHREAD_ROOT}/Testing/TestOpenGlUniformState.cpp"
+        "${FRUITY_MPHREAD_ROOT}/NativeRuntime/FrameTelemetry.cpp")
+    target_compile_definitions(fruity_opengl_uniform_tests PRIVATE FRUITY_NEW_TELEMETRY FRUITY_PERF_TELEMETRY)
+    target_compile_features(fruity_opengl_uniform_tests PRIVATE cxx_std_20)
+    add_test(NAME FruityPrime.OpenGlUniformState COMMAND fruity_opengl_uniform_tests)
     add_executable(fruity_frame_telemetry_tests
         "${FRUITY_MPHREAD_ROOT}/Testing/TestFrameTelemetry.cpp"
         "${FRUITY_MPHREAD_ROOT}/NativeRuntime/FrameTelemetry.cpp")

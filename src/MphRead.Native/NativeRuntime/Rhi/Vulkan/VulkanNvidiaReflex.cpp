@@ -82,7 +82,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         VkSemaphoreWaitInfo wait{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO}; wait.semaphoreCount = 1;
         wait.pSemaphores = &_semaphore; wait.pValues = &_frameId;
         ++_stats.waitCalls;
-        const auto result = _dispatch.wait(_dispatch.device, &wait, 2'000'000);
+        const auto result = Inject("wait") ? VK_ERROR_UNKNOWN : _dispatch.wait(_dispatch.device, &wait, 2'000'000);
         if (result == VK_TIMEOUT && std::chrono::steady_clock::now() - _sleepStart < std::chrono::milliseconds(250)) return false;
         if (result != VK_SUCCESS) { Fail("vkWaitSemaphores(Reflex sleep)", result); return true; }
         _sleepPending = false; _ready = true; return true;

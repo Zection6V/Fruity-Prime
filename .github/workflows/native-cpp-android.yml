@@ -391,3 +391,51 @@ jobs:
           name: FruityPrime-cpp-android-${{ github.run_number }}
           if-no-files-found: error
           path: android/app/build/outputs/apk/release/FruityPrime.apk
+
+  # Building, linking, packaging and signing say nothing about whether the
+  # launcher appears. This installs the APK on an x86_64 emulator and checks
+  # the startup states and the picture: a normal start must reach the front
+  # screen and present a frame, and an injected QML error or nativeCreate
+  # failure must end on the persistent failure panel -- never a black window.
+  android-startup-smoke:
+    name: Android startup smoke (x86_64 emulator)
+    needs: [android-apk]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.checkout_ref || github.sha }}
+
+      - name: Download APK
+        uses: actions/download-artifact@v5
+        with:
+          name: FruityPrime-cpp-android-${{ github.run_number }}
+          path: apk
+
+      - name: Enable KVM
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run startup gate on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: python3 tools/ci/android-startup-smoke.py apk/FruityPrime.apk --out android-startup-smoke
+
+      - name: Upload startup evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-startup-smoke-${{ github.run_number }}
+          if-no-files-found: ignore
+          path: android-startup-smoke/

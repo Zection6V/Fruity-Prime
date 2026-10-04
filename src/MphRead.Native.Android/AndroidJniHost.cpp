@@ -2,6 +2,7 @@
 #include "MainActivity.hpp"
 
 #include "AndroidMatch.hpp"
+#include "AndroidQuick.hpp"
 #include "AndroidUiSurface.hpp"
 #include "ApkInstaller.hpp"
 #include "GameView.hpp"
@@ -20,6 +21,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <exception>
 #include <filesystem>
@@ -2144,8 +2146,17 @@ Java_fr_livetek_fruityprime_MainActivity_nativeCreate(
     jobject launcher
 )
 {
+    MphRead::Droid::StartupPhase("native_create_begin");
+    MphRead::Droid::QuickStartup("QtReady");
+    MphRead::Droid::QuickStartup("BootingNative");
     try
     {
+        // Fault injection for the startup gate: the Activity sets this only
+        // in a debuggable build, from an intent extra.
+        if (const char* inject = std::getenv("FRUITY_TEST_NATIVE_CREATE_FAIL"); inject && *inject)
+        {
+            throw std::runtime_error("injected nativeCreate failure");
+        }
         auto handle = std::make_unique<NativeActivityHandle>();
         handle->Activity =
             std::make_unique<MphRead::Droid::MainActivity>(env, self);
@@ -2176,13 +2187,32 @@ Java_fr_livetek_fruityprime_MainActivity_nativeCreate(
             throw;
         }
 
-        return reinterpret_cast<jlong>(handle.release());
+        const jlong value = reinterpret_cast<jlong>(handle.release());
+        MphRead::Droid::StartupMark(MphRead::Droid::StartupNativeCreated);
+        MphRead::Droid::StartupPhase("native_create_ok", "handle=" + std::to_string(value));
+        return value;
     }
     catch (...)
     {
+        MphRead::Droid::StartupFail("Native startup failed: " + ExceptionMessage(std::current_exception()));
         ThrowJavaRuntime(env, std::current_exception());
         return 0;
     }
+}
+
+// What the Activity's startup watchdog reads: MphRead::Droid::StartupFlag bits.
+extern "C"
+JNIEXPORT jint JNICALL
+Java_fr_livetek_fruityprime_MainActivity_nativeStartupFlags(JNIEnv*, jclass)
+{
+    return MphRead::Droid::StartupFlags();
+}
+
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_fr_livetek_fruityprime_MainActivity_nativeStartupError(JNIEnv* env, jclass)
+{
+    return env->NewStringUTF(MphRead::Droid::StartupError().c_str());
 }
 
 extern "C"

@@ -12,8 +12,14 @@ public final class LauncherView extends QtQuickView {
             requestFocus();
         }
     }
+    static final String MAIN_QML = "qrc:/qt/qml/FruityPrime/Ui/Main.qml";
+
     public LauncherView(Context context) {
-        super(context, "qrc:/qt/qml/FruityPrime/Ui/Main.qml", "FruityPrime");
+        this(context, MAIN_QML);
+    }
+    /** Another QML source: the startup gate's fault injection, debug builds only. */
+    public LauncherView(Context context, String qmlSource) {
+        super(context, qmlSource, "FruityPrime");
         setFocusable(true);
         setFocusableInTouchMode(true);
     }

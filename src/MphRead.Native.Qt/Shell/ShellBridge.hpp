@@ -31,6 +31,11 @@ namespace MphRead::Qt
         Q_OBJECT
         // "front", "pause", "end" or empty.
         Q_PROPERTY(QString page READ Page NOTIFY pageChanged)
+        // Startup is a state of its own, never inferred from an empty page:
+        // BootingQt, QtReady, BootingNative, FrontReady or Failed. Hosts with
+        // no separate bootstrap (the desktop shell) start at FrontReady.
+        Q_PROPERTY(QString startupState READ StartupState NOTIFY startupChanged)
+        Q_PROPERTY(QString startupError READ StartupError NOTIFY startupChanged)
         Q_PROPERTY(QVariantList rooms READ Rooms NOTIFY roomsChanged)
         Q_PROPERTY(bool gameFilesReady READ GameFilesReady NOTIFY roomsChanged)
         Q_PROPERTY(QString playerName READ PlayerName NOTIFY profileChanged)
@@ -67,6 +72,9 @@ namespace MphRead::Qt
         [[nodiscard]] QString Page() const { return _page; }
         [[nodiscard]] bool Showing() const noexcept { return !_page.isEmpty(); }
         void SetPage(QString page);
+        [[nodiscard]] QString StartupState() const { return _startupState; }
+        [[nodiscard]] QString StartupError() const { return _startupError; }
+        void SetStartup(QString state, QString error = {});
         [[nodiscard]] QVariantList Rooms() const { return _rooms; }
         void SetRooms(const std::vector<std::string>& rooms, bool gameFilesReady);
         [[nodiscard]] bool GameFilesReady() const noexcept { return _gameFilesReady; }
@@ -138,6 +146,7 @@ namespace MphRead::Qt
 
     signals:
         void pageChanged();
+        void startupChanged();
         void roomsChanged();
         void profileChanged();
         void windowChanged();
@@ -152,6 +161,8 @@ namespace MphRead::Qt
     private:
         Actions _actions;
         QString _page;
+        QString _startupState = QStringLiteral("FrontReady");
+        QString _startupError;
         QVariantList _rooms;
         bool _gameFilesReady = false;
         bool _backdropSuspended = false;

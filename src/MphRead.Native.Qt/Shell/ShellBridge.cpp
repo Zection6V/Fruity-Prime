@@ -75,6 +75,17 @@ namespace MphRead::Qt
         emit pageChanged();
     }
 
+    void ShellBridge::SetStartup(QString state, QString error)
+    {
+        if (state == _startupState && error == _startupError)
+        {
+            return;
+        }
+        _startupState = std::move(state);
+        _startupError = std::move(error);
+        emit startupChanged();
+    }
+
     void ShellBridge::SetRooms(const std::vector<std::string>& rooms, bool gameFilesReady)
     {
         _rooms.clear();

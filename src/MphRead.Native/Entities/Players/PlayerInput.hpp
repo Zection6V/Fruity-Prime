@@ -319,6 +319,7 @@ private:                                                                        
         [[nodiscard]] float PointerX() const;                                                   \
         [[nodiscard]] float PointerY() const;                                                   \
         void UpdatePointer();                                                                   \
+        void Suspend() noexcept;                                                                \
     private:                                                                                    \
         float _mouseDeltaX = 0.0F;                                                              \
         float _mouseDeltaY = 0.0F;                                                              \

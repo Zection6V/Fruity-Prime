@@ -12,6 +12,11 @@
 #elif defined(__ANDROID__)
 #include <dlfcn.h>
 #include <jni.h>
+
+// Set by the Android head's JNI_OnLoad. JNI_GetCreatedJavaVMs is not reachable
+// by dlsym from an app's namespace on every device (it is not on a Galaxy S21),
+// and the VM is already known from loading the library.
+extern "C" { JavaVM* FruityPrimeJavaVm = nullptr; }
 #elif defined(__APPLE__)
 #include <dlfcn.h>
 #else
@@ -336,22 +341,29 @@ namespace
     public:
         ScopedAndroidJniEnv()
         {
-            using GetCreatedJavaVMs = jint (*)(JavaVM**, jsize, jsize*);
-            const auto getCreatedJavaVMs = reinterpret_cast<GetCreatedJavaVMs>(
-                dlsym(RTLD_DEFAULT, "JNI_GetCreatedJavaVMs"));
-            if (getCreatedJavaVMs == nullptr)
+            if (FruityPrimeJavaVm != nullptr)
             {
-                throw std::runtime_error(
-                    "Android Java VM discovery is unavailable.");
+                _javaVm = FruityPrimeJavaVm;
             }
-
-            jsize count = 0;
-            if (getCreatedJavaVMs(&_javaVm, 1, &count) != JNI_OK
-                || count != 1
-                || _javaVm == nullptr)
+            else
             {
-                throw std::runtime_error(
-                    "Android Java VM is not available.");
+                using GetCreatedJavaVMs = jint (*)(JavaVM**, jsize, jsize*);
+                const auto getCreatedJavaVMs = reinterpret_cast<GetCreatedJavaVMs>(
+                    dlsym(RTLD_DEFAULT, "JNI_GetCreatedJavaVMs"));
+                if (getCreatedJavaVMs == nullptr)
+                {
+                    throw std::runtime_error(
+                        "Android Java VM discovery is unavailable.");
+                }
+
+                jsize count = 0;
+                if (getCreatedJavaVMs(&_javaVm, 1, &count) != JNI_OK
+                    || count != 1
+                    || _javaVm == nullptr)
+                {
+                    throw std::runtime_error(
+                        "Android Java VM is not available.");
+                }
             }
 
             const jint result = _javaVm->GetEnv(

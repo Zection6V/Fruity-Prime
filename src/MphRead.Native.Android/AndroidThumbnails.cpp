@@ -657,6 +657,13 @@ namespace
             )
         );
         CheckJavaException(env);
+        // startService answers null, without throwing, for a service the
+        // manifest does not declare. Counting that as a worker leaves the
+        // watcher waiting a full minute for previews nobody is drawing.
+        if (!component)
+        {
+            throw std::runtime_error("the service is not declared in this APK");
+        }
     }
 
     void InvokeReport(

@@ -7,6 +7,7 @@
 #include "../GameState.hpp"
 #include "../Formats/Formats.hpp"
 #include "../Mods/Diagnostics/PlatformDiagnostics.hpp"
+#include "../Mods/ThumbnailMode.hpp"
 #include "../NativeRuntime/System/Encoding.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 
@@ -427,7 +428,9 @@ namespace MphRead
         g_volumeFadeTimer.Reset();
         g_stopAfterFade = false;
         for (TrackFaderState& fader : g_trackFaders) fader.Reset();
-        if (!MusicPlayer::Available()) return;
+        // The warm-up waits for a whole sequence to load: seconds per scene,
+        // for a room preview that plays no music.
+        if (!MusicPlayer::Available() || Mods::ThumbnailMode::Active()) return;
         MusicPlayer::Load(SeqId::WIN);
         MusicPlayer::WaitForLoad();
         MusicPlayer::Play(Volume());

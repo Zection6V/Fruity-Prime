@@ -85,6 +85,18 @@ namespace MphRead::NativeRuntime::Rhi
     // Why Vulkan cannot be used here, or empty when it can. forWindow: the
     // presented window's launcher as well (Skia with Vulkan).
     [[nodiscard]] std::string VulkanUnavailableReason(bool forWindow);
+    // For the renderer setting: can this machine run Vulkan, and which API
+    // version ("1.1"). Probed once (instance and physical devices only).
+    struct VulkanSupport final
+    {
+        bool Available = false;
+        std::string Version;
+    };
+    [[nodiscard]] const VulkanSupport& ProbeVulkanSupport();
+    // The calling thread takes over the scene session's GPU submissions.
+    // Only under a lock that keeps every other thread off the session (the
+    // Android GPU lease); a no-op before the session exists.
+    void AdoptSceneSessionThread();
     // What this binary carries, one "key=value" a line, for CI to assert:
     // the backends, Skia's Vulkan, the embedded SPIR-V stages and the
     // scene programs. Needs no GPU and no game files.

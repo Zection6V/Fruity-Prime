@@ -139,7 +139,12 @@ namespace MphRead::Mods::Launcher
     bool LauncherPrefs::_hostOnMaster = true;
     std::int32_t LauncherPrefs::_lastKind = 0;
     bool LauncherPrefs::_autoUpdate = true;
+#if defined(__ANDROID__)
+    // Vulkan first, OpenGL ES when the phone cannot start it.
+    std::string LauncherPrefs::_renderer = "auto";
+#else
     std::string LauncherPrefs::_renderer = "opengl";
+#endif
     NativeRuntime::Rhi::LowLatencyMode LauncherPrefs::_lowLatency = NativeRuntime::Rhi::LowLatencyMode::Off;
     std::int32_t LauncherPrefs::_windowWidth = 0;
     std::int32_t LauncherPrefs::_windowHeight = 0;
@@ -574,7 +579,14 @@ namespace MphRead::Mods::Launcher
                         _windowMaximized = maximized;
                     }
                 }
+#if defined(__ANDROID__)
+                // Its own key: every earlier Android build saved
+                // renderer=opengl whether anyone chose it or not, and that
+                // must not keep a phone off the Vulkan default.
+                else if (key == "android_renderer")
+#else
                 else if (key == "renderer")
+#endif
                 {
                     ::MphRead::NativeRuntime::Rhi::SceneBackendRequest request{};
                     if (::MphRead::NativeRuntime::Rhi::ParseSceneBackendRequest(value, request))
@@ -653,7 +665,11 @@ namespace MphRead::Mods::Launcher
                 std::string("host_on_master=")
                     + (_hostOnMaster ? "true" : "false"));
             lines.emplace_back("last_kind=" + ::MphRead::NativeRuntime::ToStringInvariant(_lastKind));
+#if defined(__ANDROID__)
+            lines.emplace_back("android_renderer=" + _renderer);
+#else
             lines.emplace_back("renderer=" + _renderer);
+#endif
             lines.emplace_back(std::string("low_latency=") + (_lowLatency == NativeRuntime::Rhi::LowLatencyMode::Off
                 ? "off" : _lowLatency == NativeRuntime::Rhi::LowLatencyMode::On ? "on" : "onboost"));
             lines.emplace_back(

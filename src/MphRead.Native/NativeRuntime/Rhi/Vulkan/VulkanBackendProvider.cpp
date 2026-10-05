@@ -91,11 +91,20 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     _context = std::make_unique<Context>(_options.validation, Context::AndroidWindow{native});
                     _device = CreateGraphicsDevice(*_context);
                 }
-                else _context->ReplaceAndroidSurface(native);
+                else
+                {
+                    // A later match draws from its own render thread.
+                    Vulkan::AdoptSubmissionThread(*_device);
+                    _context->ReplaceAndroidSurface(native);
+                }
 #else
                 (void)native;
                 throw std::runtime_error("Native surface attachment is available only on Android.");
 #endif
+            }
+            void AdoptCurrentThread() override
+            {
+                if (_device) Vulkan::AdoptSubmissionThread(*_device);
             }
             void DetachSurface() noexcept override
             {
@@ -135,6 +144,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 #endif
                 return Context::ProbePassive();
             }
+            std::string ProbedVersion() const override { return Context::ProbedApiVersion(); }
             std::unique_ptr<BackendSession> CreateSession(BackendSessionOptions options) const override
             { return std::make_unique<Session>(options); }
         };

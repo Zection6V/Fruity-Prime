@@ -1666,6 +1666,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         native.DeviceState()->Scheduler->MarkExternalWork();
     }
 
+    void AdoptSubmissionThread(GraphicsDevice& device)
+    {
+        dynamic_cast<VulkanGraphicsDevice&>(device).State()->Scheduler->AdoptCurrentThread();
+    }
+
     PresentResult PresentWindow(GraphicsDevice& device, Swapchain& swapchain)
     {
         auto& state = *dynamic_cast<VulkanGraphicsDevice&>(device).State();

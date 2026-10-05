@@ -105,6 +105,16 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             return serial;
         }
 
+        // The device can outlive the thread that made it (Android keeps it
+        // across matches, each with its own render thread). The new owner
+        // takes over once the previous one has stopped submitting.
+        void AdoptCurrentThread()
+        {
+            if (_submitting)
+                throw std::logic_error("Vulkan queue ownership cannot move during a submission.");
+            _submissionThread = std::this_thread::get_id();
+        }
+
         SubmissionSerial MarkExternalWork(bool mark = true)
         {
             const VkSubmitInfo2 marker{VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
@@ -144,7 +154,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         Dispatch _dispatch;
         VkSemaphore _timeline = VK_NULL_HANDLE;
         SubmissionProgress _progress;
-        const std::thread::id _submissionThread = std::this_thread::get_id();
+        std::thread::id _submissionThread = std::this_thread::get_id();
         bool _submitting = false;
         std::vector<VkSemaphoreSubmitInfo> _signals;
         std::uint64_t _signalStorageGrowths = 0;

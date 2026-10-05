@@ -291,6 +291,14 @@ namespace MphRead
         catch (...) { restore(); throw; }
     }
 
+    // ModPreviewPixels with no match frame around it: a launcher screen
+    // that has no window to draw into (Android on Vulkan).
+    std::optional<std::vector<std::uint8_t>> Scene::ModPreviewPixelsAlone(std::int32_t width, std::int32_t height)
+    {
+        if (!LauncherPreview || !Commands().TryPrepareOptionalWork()) return std::nullopt;
+        return ModPreviewPixels(width, height);
+    }
+
     void Scene::ModDrawPreview()
     {
         if (_previewItems.empty() || !_previewWanted)

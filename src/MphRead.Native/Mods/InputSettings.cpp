@@ -380,7 +380,7 @@ namespace MphRead::Mods
         "MoveUp", "MoveDown", "MoveLeft", "MoveRight",
         "Jump", "Boost", "Shoot", "Zoom",
         "Morph", "AltAttack", "NextWeapon", "PrevWeapon",
-        "WeaponMenu", "ScanVisor", "Pause", "HudOverlay"
+        "WeaponMenu", "ScanVisor", "Pause", "AdventureMapLegend"
     };
 
     float InputSettings::MouseSensitivity() noexcept
@@ -541,7 +541,7 @@ namespace MphRead::Mods
             {"OmegaCannon", [](Entities::PlayerControls& c) -> Entities::Keybind& { return c.OmegaCannon(); }},
             {"AffinitySlot", [](Entities::PlayerControls& c) -> Entities::Keybind& { return c.AffinitySlot(); }},
             {"Pause", [](Entities::PlayerControls& c) -> Entities::Keybind& { return c.Pause(); }},
-            {"HudOverlay", [](Entities::PlayerControls& c) -> Entities::Keybind& { return c.HudOverlay(); }}
+            {"AdventureMapLegend", [](Entities::PlayerControls& c) -> Entities::Keybind& { return c.AdventureMapLegend(); }, "HudOverlay"}
         }};
 
         const auto orderIndex = [](std::string_view name)
@@ -915,7 +915,7 @@ namespace MphRead::Mods
                     bindings.begin(), bindings.end(),
                     [&](const InputBindingProperty& item)
                     {
-                        return item.Name == key;
+                        return item.PersistedName() == key;
                     });
                 if (property != bindings.end())
                 {
@@ -1052,7 +1052,7 @@ namespace MphRead::Mods
                 {
                     value = "Key:" + KeyToString(bind.Key());
                 }
-                lines.push_back(std::string(property.Name) + "=" + value);
+                lines.push_back(std::string(property.PersistedName()) + "=" + value);
             }
             Input::GamepadOptions::Write(lines);
             lines.push_back("gamepad_preset=" + Input::PadBindings::Preset());

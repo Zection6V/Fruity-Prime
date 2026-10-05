@@ -223,6 +223,11 @@ namespace
             _window->showNormal();
         }
         bool WindowStateFullscreen() override;
+        [[nodiscard]] double RefreshRate() const override
+        {
+            const QScreen* const screen = _window->screen();
+            return screen != nullptr ? screen->refreshRate() : 0.0;
+        }
         void Floating(bool value) override { _window->setFlag(Qt::WindowStaysOnTopHint, value); }
         [[nodiscard]] bool IsFocused() const override { return _window->isActive(); }
         [[nodiscard]] Vector2i ClientLocation() const override;

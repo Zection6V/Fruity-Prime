@@ -83,8 +83,7 @@ namespace MphRead::Qt
             std::int32_t Cap;
         };
 
-        const std::array<FpsLimitStop, 13> FpsLimitStops{{
-            {"Display (VSync)", Render::FrameTiming::DisplayRate},
+        const std::array<FpsLimitStop, 12> FpsLimitStops{{
             {"30 fps", 30}, {"60 fps", 60}, {"75 fps", 75}, {"90 fps", 90},
             {"100 fps", 100}, {"120 fps", 120}, {"144 fps", 144},
             {"165 fps", 165}, {"180 fps", 180}, {"200 fps", 200},
@@ -471,6 +470,7 @@ namespace MphRead::Qt
         rows.push_back(Slider(QStringLiteral("scale"), QStringLiteral("Render scale"),
             Mods::RenderOptions::ResolutionScale(),
             [](int value) { return QString::number(std::max(Mods::RenderOptions::MinScale, value)) + QStringLiteral("%"); }));
+        rows.push_back(Toggle(QStringLiteral("vsync"), QStringLiteral("VSync"), Render::FrameTiming::VSync()));
         rows.push_back(Slider(QStringLiteral("fpsLimit"), QStringLiteral("FPS limit"),
             FpsLimitStopIndex(Render::FrameTiming::FrameRateCap()),
             [](int value)
@@ -2129,6 +2129,8 @@ namespace MphRead::Qt
         const std::int32_t cap = FpsLimitStops[static_cast<std::size_t>(fpsIndex)].Cap;
         Render::FrameTiming::SetFrameRateCap(cap);
         settings.FrameRateCap = Render::FrameTiming::CapString(cap);
+        Render::FrameTiming::SetVSync(on(_display, "vsync"));
+        settings.VSync = std::string(Mods::RenderOptions::OnOff(Render::FrameTiming::VSync()));
         settings.CelShading = std::string(Mods::RenderOptions::OnOff(on(_display, "cel")));
         settings.CelBands = "8";
         settings.CelEdge = "50";

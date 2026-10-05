@@ -537,6 +537,9 @@ namespace MphRead
             // A window that cannot do it answers false and WindowMode
             // falls back to borderless.
             [[nodiscard]] virtual bool WindowStateFullscreen() { return false; }
+            // The refresh rate of the screen the window is on, in Hz, or 0
+            // when the toolkit does not say. Diagnostics only.
+            [[nodiscard]] virtual double RefreshRate() const { return 0.0; }
             virtual void Floating(bool value) = 0;
             [[nodiscard]] virtual bool IsFocused() const = 0;
             // NativeWindow.ClientLocation: the client area's screen origin.
@@ -695,6 +698,7 @@ namespace MphRead
         void WindowStateMaximized();
         void WindowStateNormal();
         [[nodiscard]] bool WindowStateFullscreen();
+        [[nodiscard]] double RefreshRate() const;
         void Floating(bool value);
         [[nodiscard]] bool IsFocused() const;
         [[nodiscard]] OpenTK::Mathematics::Vector2i ClientLocation() const;
@@ -726,6 +730,7 @@ namespace MphRead
         [[nodiscard]] std::pair<double, double> PointerPixels(double x, double y) const;
         void FitToScreen();
         void ApplyFrameRateSettings();
+        void ReportReflexPacing(const NativeRuntime::Rhi::LowLatencyDiagnostics& reflex);
         // For what the window draws with no scene: the lobby's cleared frame,
         // the viewport after a resize.
         [[nodiscard]] NativeRuntime::Rhi::CommandList& WindowCommands();
@@ -746,6 +751,7 @@ namespace MphRead
         std::int32_t _applyStartupIn = 0;
         bool _sceneReady = false;
         std::int32_t _appliedFrameRateCap = -2;
+        bool _appliedVSync = false;
         std::optional<NativeRuntime::Rhi::LowLatencyState> _reportedLatency;
         std::uint64_t _presentationMetricFrames = 0;
         bool BeforeFrame() override;

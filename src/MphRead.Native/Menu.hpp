@@ -37,7 +37,10 @@ namespace MphRead
         std::string Fog = "on";
         std::string TextureFiltering = "off";
         std::string ShowFps = "off";
-        std::string FrameRateCap = "display";
+        std::string FrameRateCap = "unlimited";
+        // Empty in a file written before VSync was its own setting: then the
+        // old cap decides, "display" having meant VSync on.
+        std::string VSync;
         std::string CelShading = "off";
         std::string CelBands = "8";
         std::string CelEdge = "50";

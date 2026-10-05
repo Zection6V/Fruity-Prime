@@ -78,7 +78,9 @@ namespace MphRead::Mods::Render
     static_assert(sizeof(std::int64_t) == 8,
         "FrameTiming requires .NET Int64-compatible 64-bit integers.");
 
-    std::int32_t FrameTiming::_frameRateCap = FrameTiming::DisplayRate;
+    std::int32_t FrameTiming::_frameRateCap = FrameTiming::Unlimited;
+    bool FrameTiming::_vsync = true;
+    bool FrameTiming::_vsyncForced = false;
     bool FrameTiming::_active = false;
     double FrameTiming::_accumulator = 0.0;
     std::int32_t FrameTiming::_stepsThisFrame = 0;
@@ -101,6 +103,27 @@ namespace MphRead::Mods::Render
     std::int32_t FrameTiming::FrameRateCap() noexcept
     {
         return _frameRateCap;
+    }
+
+    bool FrameTiming::VSync() noexcept
+    {
+        return _vsync;
+    }
+
+    void FrameTiming::SetVSync(bool value) noexcept
+    {
+        _vsync = value;
+    }
+
+    void FrameTiming::ForceVSync(bool value) noexcept
+    {
+        _vsync = value;
+        _vsyncForced = true;
+    }
+
+    bool FrameTiming::VSyncForced() noexcept
+    {
+        return _vsyncForced;
     }
 
     void FrameTiming::SetFrameRateCap(std::int32_t value) noexcept

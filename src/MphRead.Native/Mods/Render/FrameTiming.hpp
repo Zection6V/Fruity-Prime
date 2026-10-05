@@ -21,6 +21,17 @@ namespace MphRead::Mods::Render
         [[nodiscard]] static std::int32_t FrameRateCap() noexcept;
         static void SetFrameRateCap(std::int32_t value) noexcept;
 
+        // VSync, apart from the cap: on presents FIFO (no tearing, never
+        // above the refresh rate), off presents Immediate. The cap is then
+        // only ever a number or Unlimited. DisplayRate survives as the old
+        // saved/typed value "display", which means VSync on and no cap.
+        [[nodiscard]] static bool VSync() noexcept;
+        static void SetVSync(bool value) noexcept;
+        // -vsync on the command line: settings.json is read after the flags,
+        // and must not overwrite what was typed for this run.
+        static void ForceVSync(bool value) noexcept;
+        [[nodiscard]] static bool VSyncForced() noexcept;
+
         static constexpr std::int32_t DisplayRate = 0;
         static constexpr std::int32_t Unlimited = -1;
         static constexpr std::int32_t MinCap = 30;
@@ -56,6 +67,8 @@ namespace MphRead::Mods::Render
         static void ReportWindow();
 
         static std::int32_t _frameRateCap;
+        static bool _vsync;
+        static bool _vsyncForced;
         static bool _active;
         static double _accumulator;
         static std::int32_t _stepsThisFrame;

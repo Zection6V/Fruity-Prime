@@ -4,6 +4,8 @@
 #include <array>
 #include <cstdlib>
 #include <iostream>
+#include <span>
+#include <string_view>
 
 namespace MphRead::NativeRuntime::Rhi::Vulkan
 {
@@ -11,6 +13,24 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     {
         bool Inject(const char* value)
         { const auto* flag = std::getenv("FRUITY_REFLEX_TEST_FAILURE"); return flag && std::string_view(flag) == value; }
+        bool Flag(const char* name)
+        { const auto* value = std::getenv(name); return value && *value && std::string_view(value) != "0"; }
+        double Microseconds(std::chrono::steady_clock::duration duration)
+        { return std::chrono::duration<double, std::micro>(duration).count(); }
+        LowLatencyTimingSummary Summarise(std::span<float> samples) noexcept
+        {
+            LowLatencyTimingSummary summary{static_cast<std::uint32_t>(samples.size())};
+            if (samples.empty()) return summary;
+            std::sort(samples.begin(), samples.end());
+            const auto at = [&samples](double q)
+            {
+                const auto index = std::min(samples.size() - 1,
+                    static_cast<std::size_t>(q * static_cast<double>(samples.size())));
+                return static_cast<double>(samples[index]);
+            };
+            summary.p50 = at(0.50); summary.p95 = at(0.95); summary.p99 = at(0.99); summary.max = samples.back();
+            return summary;
+        }
     }
     VulkanNvidiaReflex::VulkanNvidiaReflex(Dispatch dispatch, std::uint64_t& sequence)
         : _dispatch(std::move(dispatch)), _sequence(sequence), _reason(_dispatch.reason)
@@ -25,6 +45,14 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             : _dispatch.create(_dispatch.device, &create, nullptr, &_semaphore);
         if (result != VK_SUCCESS || !_semaphore) { Fail("vkCreateSemaphore(Reflex sleep)", result); return; }
         _available = true; _reason.clear();
+        // Measurement and the A/B arms are developer-only and off by default.
+        // The sleep bypass is a performance control equal to Off, never a
+        // fixed On: it is announced so a run with it cannot pass for one.
+        _metrics = Flag("FRUITY_RENDER_METRICS");
+        _explicitSubmissionId = Flag("FRUITY_REFLEX_EXPLICIT_SUBMISSION_ID");
+        _bypassSleep = Flag("FRUITY_REFLEX_DIAGNOSTIC_BYPASS_SLEEP");
+        if (_explicitSubmissionId) std::cout << "[reflex] diagnostic: explicit submission IDs in On/Boost" << std::endl;
+        if (_bypassSleep) std::cout << "[reflex] diagnostic: vkLatencySleepNV bypassed (this is not Reflex On)" << std::endl;
     }
     VulkanNvidiaReflex::~VulkanNvidiaReflex() { Shutdown(); }
     void VulkanNvidiaReflex::Fail(const char* operation, VkResult result)
@@ -72,19 +100,29 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         if (!_sleepPending)
         {
             _frameId = ++_sequence; _stats.frameId = _frameId; _markers = 0;
-            if (!PacingActive()) { _ready = true; return true; }
+            if (!PacingActive() || _bypassSleep) { _ready = true; return true; }
             VkLatencySleepInfoNV info{VK_STRUCTURE_TYPE_LATENCY_SLEEP_INFO_NV}; info.signalSemaphore = _semaphore; info.value = _frameId;
             ++_stats.sleepCalls;
+            _sleepStart = std::chrono::steady_clock::now();
             const auto result = Inject("sleep") ? VK_ERROR_UNKNOWN : _dispatch.sleep(_dispatch.device, _swapchain, &info);
             if (result != VK_SUCCESS) { Fail("vkLatencySleepNV", result); return true; }
-            _sleepPending = true; _sleepStart = std::chrono::steady_clock::now();
+            _sleepPending = true;
+            if (_metrics) { _frameSleepUs = Microseconds(std::chrono::steady_clock::now() - _sleepStart); _frameWaitUs = 0; }
         }
         VkSemaphoreWaitInfo wait{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO}; wait.semaphoreCount = 1;
         wait.pSemaphores = &_semaphore; wait.pValues = &_frameId;
         ++_stats.waitCalls;
+        const auto waitStart = _metrics ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
         const auto result = Inject("wait") ? VK_ERROR_UNKNOWN : _dispatch.wait(_dispatch.device, &wait, 2'000'000);
-        if (result == VK_TIMEOUT && std::chrono::steady_clock::now() - _sleepStart < std::chrono::milliseconds(250)) return false;
+        const auto waitEnd = std::chrono::steady_clock::now();
+        if (_metrics) _frameWaitUs += Microseconds(waitEnd - waitStart);
+        if (result == VK_TIMEOUT)
+        {
+            ++_stats.waitTimeouts; ++_windowTimeouts;
+            if (waitEnd - _sleepStart < std::chrono::milliseconds(250)) return false;
+        }
         if (result != VK_SUCCESS) { Fail("vkWaitSemaphores(Reflex sleep)", result); return true; }
+        if (_metrics) RecordPacing(_frameSleepUs, _frameWaitUs, Microseconds(waitEnd - _sleepStart));
         _sleepPending = false; _ready = true; return true;
     }
     void VulkanNvidiaReflex::Mark(LowLatencyMarker marker)
@@ -123,11 +161,30 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 << " present_start_us=" << r.presentStartTimeUs << " present_end_us=" << r.presentEndTimeUs << '\n';
         }
     }
+    void VulkanNvidiaReflex::RecordPacing(double sleepUs, double waitUs, double admissionUs) noexcept
+    {
+        if (_pacingCount >= PacingWindow) return; // window full: keep the first samples
+        _sleepSamples[_pacingCount] = static_cast<float>(sleepUs);
+        _waitSamples[_pacingCount] = static_cast<float>(waitUs);
+        _admissionSamples[_pacingCount] = static_cast<float>(admissionUs);
+        ++_pacingCount;
+    }
+    void VulkanNvidiaReflex::SummarisePacing() noexcept
+    {
+        auto& pacing = _stats.pacing;
+        pacing.sleepCall = Summarise(std::span(_sleepSamples.data(), _pacingCount));
+        pacing.wait = Summarise(std::span(_waitSamples.data(), _pacingCount));
+        pacing.admission = Summarise(std::span(_admissionSamples.data(), _pacingCount));
+        pacing.waitTimeouts = _windowTimeouts;
+        pacing.windowFrames = 120;
+        _pacingCount = 0; _windowTimeouts = 0;
+    }
     void VulkanNvidiaReflex::FinishFrame()
     {
         if (!FrameId()) return;
         ++_stats.completedMeasurementFrames;
         _ready = false; _frameId = 0; _markers = 0;
+        if (_metrics && _stats.completedMeasurementFrames % 120 == 0) SummarisePacing();
         PollTimings();
     }
     void VulkanNvidiaReflex::AbandonFrame() noexcept

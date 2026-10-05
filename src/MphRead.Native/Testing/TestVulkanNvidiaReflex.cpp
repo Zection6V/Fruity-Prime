@@ -39,8 +39,72 @@ struct Fake {
  VulkanNvidiaReflex::Dispatch Dispatch(unsigned revision = 3) { return {reinterpret_cast<VkDevice>(1), true, revision, "", Create, Destroy, Wait, Mode, Sleep, Marker, Timings}; }
 };
 Fake* Fake::f = nullptr;
+void SetEnv(const char* name, const char* value) {
+#if defined(_WIN32)
+ _putenv_s(name, value ? value : "");
+#else
+ if (value) setenv(name, value, 1); else unsetenv(name);
+#endif
+}
+void RunIntervalMapping() {
+ // ApplyFrameRateSettings goes through this helper; 265 FPS has no source in it.
+ Expect(ReflexMinimumIntervalUs(-1) == 0 && ReflexMinimumIntervalUs(0) == 0, "Unlimited/display must be uncapped (0 us).");
+ Expect(ReflexMinimumIntervalUs(30) == 33334 && ReflexMinimumIntervalUs(60) == 16667, "30/60 FPS interval differs.");
+ Expect(ReflexMinimumIntervalUs(144) == 6945 && ReflexMinimumIntervalUs(240) == 4167 && ReflexMinimumIntervalUs(500) == 2000,
+  "144/240/500 FPS interval differs.");
+ // VSync with Reflex pacing: the refresh period is the floor, a lower cap wins.
+ Expect(ReflexMinimumIntervalUs(-1, 540.2) == 1852 && ReflexMinimumIntervalUs(-1, 60.0) == 16667,
+  "VSync did not hold the interval to the refresh period.");
+ Expect(ReflexMinimumIntervalUs(240, 540.2) == 4167 && ReflexMinimumIntervalUs(500, 144.0) == 6945,
+  "VSync interval did not keep the slower of cap and refresh.");
+ Expect(ReflexMinimumIntervalUs(-1, 0.0) == 0, "Unknown refresh rate invented a cap.");
+}
+void RunDiagnosticArms(std::uint64_t& sequence) {
+ const auto chain = reinterpret_cast<VkSwapchainKHR>(2);
+ {
+  // Developer A/B: explicit IDs back in On/Boost only, never in Off.
+  SetEnv("FRUITY_REFLEX_EXPLICIT_SUBMISSION_ID", "1");
+  Fake f; VulkanNvidiaReflex r(f.Dispatch(), sequence); r.SetSwapchain(chain);
+  SetEnv("FRUITY_REFLEX_EXPLICIT_SUBMISSION_ID", nullptr);
+  r.SetMode(LowLatencyMode::On, 0); Expect(r.BeginFrame() && r.SubmissionId() == r.FrameId() && r.FrameId(), "Explicit A/B lost its ID in On.");
+  const auto first = r.FrameId(); r.FinishFrame();
+  r.SetMode(LowLatencyMode::OnBoost, 0); Expect(r.BeginFrame() && r.SubmissionId() == r.FrameId() && r.FrameId() > first,
+   "Explicit A/B IDs are not monotonic.");
+  r.FinishFrame();
+  r.SetMode(LowLatencyMode::Off, 0); Expect(r.BeginFrame() && r.SubmissionId() == 0, "Explicit A/B leaked an ID into Off."); r.FinishFrame();
+ }
+ {
+  // The sleep bypass admits frames without vkLatencySleepNV and is no fix.
+  SetEnv("FRUITY_REFLEX_DIAGNOSTIC_BYPASS_SLEEP", "1");
+  Fake f; VulkanNvidiaReflex r(f.Dispatch(), sequence); r.SetSwapchain(chain);
+  SetEnv("FRUITY_REFLEX_DIAGNOSTIC_BYPASS_SLEEP", nullptr);
+  r.SetMode(LowLatencyMode::On, 0);
+  for (int i = 0; i < 3; ++i) { Expect(r.BeginFrame() && r.FrameId(), "Bypass blocked admission."); r.FinishFrame(); }
+  Expect(f.sleeps == 0 && f.waits == 0, "Bypass still slept.");
+ }
+ {
+  // Pacing summary: one sleep per frame across timeouts, and a report after
+  // 120 completed frames whose sample count is the frames that slept.
+  Fake f; VulkanNvidiaReflex r(f.Dispatch(), sequence); r.SetSwapchain(chain); r.SetMode(LowLatencyMode::On, 0);
+  for (unsigned i = 0; i < 120; ++i) {
+   if (i == 5) { f.wait = VK_TIMEOUT; Expect(!r.BeginFrame(), "Timeout admitted."); f.wait = VK_SUCCESS; }
+   Expect(r.BeginFrame(), "Admission failed."); r.FinishFrame();
+  }
+  const auto stats = r.Stats();
+  Expect(f.sleeps == 120 && f.waits == 121, "Timeout poll repeated vkLatencySleepNV.");
+  Expect(stats.waitTimeouts == 1 && stats.pacing.waitTimeouts == 1 && stats.pacing.admission.samples == 120
+   && stats.pacing.sleepCall.samples == 120 && stats.pacing.wait.samples == 120, "Pacing summary miscounted.");
+  Expect(stats.pacing.admission.p50 <= stats.pacing.admission.p95 && stats.pacing.admission.p95 <= stats.pacing.admission.max,
+   "Percentiles out of order.");
+  Expect(stats.revision == 3 && stats.minimumIntervalUs == 0, "Provenance lost revision/interval.");
+  r.SetMode(LowLatencyMode::On, 4167); Expect(r.Stats().minimumIntervalUs == 4167, "Provenance interval differs from the driver's.");
+  r.SetMode(LowLatencyMode::Off, 4167); Expect(r.Stats().minimumIntervalUs == 0, "Off reported a pacing interval.");
+ }
+}
 void Run() {
  std::uint64_t sequence = 40;
+ RunIntervalMapping();
+ { std::uint64_t armSequence = 1000; RunDiagnosticArms(armSequence); }
  const auto chain = reinterpret_cast<VkSwapchainKHR>(2);
  {
   Fake f; VulkanNvidiaReflex r(f.Dispatch(), sequence); r.SetSwapchain(chain);
@@ -51,7 +115,7 @@ void Run() {
   auto modeCalls = f.modes.size(); r.SetMode(LowLatencyMode::On, 6945); Expect(f.modes.size() == modeCalls, "Steady state repeats SetMode.");
   r.SetMode(LowLatencyMode::OnBoost, 4167); Expect(f.modes.back().lowLatencyBoost, "Boost did not reach driver.");
   f.wait = VK_TIMEOUT; Expect(!r.BeginFrame() && !r.BeginFrame() && f.sleeps == 1 && f.waits == 2, "Bounded polls repeated native sleep.");
-  f.wait = VK_SUCCESS; Expect(r.BeginFrame() && r.FrameId() == 41 && r.SubmissionId() == 41, "Frame identity lost.");
+  f.wait = VK_SUCCESS; Expect(r.BeginFrame() && r.FrameId() == 41 && r.SubmissionId() == 0, "Frame identity lost or explicit attribution in On.");
   Expect(r.BeginFrame() && f.sleeps == 1, "Ready frame repeated sleep.");
   for (unsigned i = 0; i < 7; ++i) { r.Mark(static_cast<LowLatencyMarker>(i)); r.Mark(static_cast<LowLatencyMarker>(i)); }
   Expect(f.markers.size() == 7, "Markers duplicated or absent.");
@@ -95,7 +159,7 @@ void Run() {
    if (i == 120) r.SetMode(LowLatencyMode::OnBoost, 0);
    if (i == 240) r.SetMode(LowLatencyMode::Off, 0);
    Expect(r.BeginFrame(), "Cadence frame admission failed.");
-   Expect(r.SubmissionId() == (i >= 120 && i < 240 ? r.FrameId() : 0), "Off/Boost/Off did not switch implicit/explicit attribution.");
+   Expect(r.SubmissionId() == 0, "A mode used explicit queue attribution by default.");
    r.FinishFrame(); r.FinishFrame();
    Expect(f.timingQueries == (i + 1) / 120, "Timing polling is not once per 120 completed measurement frames.");
   }
@@ -141,5 +205,5 @@ int main() {
 #else
  setenv("FRUITY_RENDER_METRICS", "1", 1);
 #endif
- try { Run(); std::cout << "NVIDIA Reflex PASS: modes, dedicated timeline, bounded admission, Off markers, timing cadence, abandon, recreation, revision gate, failures\n"; return 0; }
+ try { Run(); std::cout << "NVIDIA Reflex PASS: interval mapping, implicit attribution, diagnostic arms, pacing summary, modes, dedicated timeline, bounded admission, Off markers, timing cadence, abandon, recreation, revision gate, failures\n"; return 0; }
  catch (const std::exception& e) { std::cerr << e.what() << '\n'; return 1; } }

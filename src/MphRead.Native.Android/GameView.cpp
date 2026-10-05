@@ -1713,13 +1713,16 @@ namespace MphRead::Droid
         {
             const std::int32_t cap =
                 MphRead::Mods::Render::FrameTiming::FrameRateCap();
-            if (cap == _presentModeCap)
+            // VSync is its own setting now; the cap only limits the rate.
+            const bool vsync = MphRead::Mods::Render::FrameTiming::VSync();
+            const std::int32_t key = cap * 2 + (vsync ? 1 : 0);
+            if (key == _presentModeCap)
             {
                 return;
             }
-            _presentModeCap = cap;
+            _presentModeCap = key;
             _swapchain->SetPresentMode(
-                cap == MphRead::Mods::Render::FrameTiming::DisplayRate
+                vsync
                     ? MphRead::NativeRuntime::Rhi::PresentMode::Fifo
                     : MphRead::NativeRuntime::Rhi::PresentMode::Mailbox
             );

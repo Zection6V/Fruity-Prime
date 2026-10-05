@@ -243,7 +243,9 @@ namespace MphRead::Mods
             + std::to_string(Launcher::LauncherPrefs::WindowY())
             + (Launcher::LauncherPrefs::WindowMaximized() ? ", maximized" : "")
             + (Launcher::LauncherPrefs::WindowMode() == WindowStartMode::BorderlessFullscreen
-                ? ", fullscreen" : ""));
+                ? ", fullscreen"
+                : Launcher::LauncherPrefs::WindowMode() == WindowStartMode::ExclusiveFullscreen
+                    ? ", exclusive fullscreen" : ""));
     }
 
     void WindowGeometry::NoteMode()
@@ -252,9 +254,7 @@ namespace MphRead::Mods
         {
             return;
         }
-        const WindowStartMode mode = WindowMode::IsFullscreen()
-            ? WindowStartMode::BorderlessFullscreen
-            : WindowStartMode::Windowed;
+        const WindowStartMode mode = WindowMode::Active();
         if (Launcher::LauncherPrefs::WindowMode() == mode)
         {
             return;

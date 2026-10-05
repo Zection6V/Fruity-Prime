@@ -587,11 +587,13 @@ namespace
         std::cout << '\n';
         LauncherPrefs::PlayerName(AskName());
         LauncherPrefs::LastHunter(AskHunter());
-        const bool fullscreen = LauncherPrefs::WindowMode()
-            == MphRead::Mods::WindowStartMode::BorderlessFullscreen;
+        const MphRead::Mods::WindowStartMode current = LauncherPrefs::WindowMode();
+        const bool fullscreen = current != MphRead::Mods::WindowStartMode::Windowed;
+        // A yes keeps the fullscreen kind already chosen (exclusive stays
+        // exclusive); this prompt only asks whether, not which.
         LauncherPrefs::WindowMode(
             AskYesNo("  Start fullscreen", fullscreen)
-                ? MphRead::Mods::WindowStartMode::BorderlessFullscreen
+                ? (fullscreen ? current : MphRead::Mods::WindowStartMode::BorderlessFullscreen)
                 : MphRead::Mods::WindowStartMode::Windowed);
 
         const std::string endpoint = Ask("  Default server",

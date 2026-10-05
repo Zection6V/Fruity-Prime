@@ -19,9 +19,8 @@
 #endif
 
 #if defined(MPHREAD_SHELL)
-#include "../Launcher/Gui/GuiLauncher.hpp"
-#include "../../NativeRuntime/Avalonia/Platform.hpp"
-#include "../../NativeRuntime/Skia/Skia.hpp"
+#include "../Launcher/GuiLauncher.hpp"
+#include "../../NativeRuntime/System/AssetLoader.hpp"
 #endif
 
 #include "../../NativeRuntime/OpenTK/GLFW.hpp"
@@ -140,23 +139,14 @@ namespace MphRead::Mods::Diagnostics
         }, failures);
 
 #if defined(MPHREAD_SHELL)
-        Check("Avalonia", []
+        Check("Qt Quick", []
         {
             if (!Launcher::Gui::GuiLauncher::EnsureSetup(false))
             {
-                ThrowInvalidOperation("Avalonia initialization failed.");
+                ThrowInvalidOperation("Qt initialization failed.");
             }
         }, failures);
-        Check("Skia", []
-        {
-            NativeRuntime::Skia::Bitmap bitmap(2, 2);
-            bitmap.Clear(NativeRuntime::Skia::Color{0, 128, 0, 255});
-            const std::uint8_t* pixel = bitmap.Pixels();
-            if (pixel[0] != 0 || pixel[1] != 128 || pixel[2] != 0 || pixel[3] != 255)
-            {
-                ThrowInvalidOperation("Skia rasterization failed.");
-            }
-        }, failures);
+
         Check("launcher resources", []
         {
             constexpr std::array<std::string_view, 5> resources = {
@@ -164,7 +154,7 @@ namespace MphRead::Mods::Diagnostics
                 "Fonts/Roboto-Bold.ttf", "Backgrounds/launcher-bg.jpg"};
             for (const std::string_view resource : resources)
             {
-                const std::vector<std::uint8_t> bytes = NativeRuntime::Avalonia::Platform::AssetLoader::Open(
+                const std::vector<std::uint8_t> bytes = NativeRuntime::AssetLoader::Open(
                     "avares://FruityPrime/Assets/" + std::string(resource));
                 if (bytes.empty())
                 {
@@ -177,13 +167,10 @@ namespace MphRead::Mods::Diagnostics
 
         if (Runtime::IsMacOS())
         {
-            constexpr std::array<std::pair<std::string_view, std::string_view>, 6> libraries = {{
+            constexpr std::array<std::pair<std::string_view, std::string_view>, 3> libraries = {{
                 {"libopenal.1.dylib", "alcOpenDevice"},
                 {"libglfw.3.dylib", "glfwGetVersion"},
-                {"libminiaudio.dylib", "ma_version_string"},
-                {"libSkiaSharp.dylib", "sk_version_get_milestone"},
-                {"libHarfBuzzSharp.dylib", "hb_version_string"},
-                {"libAvaloniaNative.dylib", "CreateAvaloniaNative"}}};
+                {"libminiaudio.dylib", "ma_version_string"}}};
             for (const auto& [file, symbol] : libraries)
             {
                 Check(file, [file, symbol]

@@ -1,4 +1,5 @@
 #include "Renderer.hpp"
+#include "Mods/Diagnostics/FramePerformance.hpp"
 #include "NativeRuntime/Rhi/BackendFactory.hpp"
 
 #if defined(__ANDROID__)
@@ -59,6 +60,10 @@ namespace MphRead
     void RenderWindow::LogCreatingWindow()
     {
     }
+
+    bool RenderWindow::BeforeFrame() { ThrowDesktopWindowUnavailable(); }
+    bool RenderWindow::CanSampleInputWhileWaiting() const { return false; }
+    void RenderWindow::OnInputSample() { ThrowDesktopWindowUnavailable(); }
 
     RenderWindow::RenderWindow(bool shell)
         : _shell(shell)
@@ -335,6 +340,16 @@ namespace MphRead
 
     void RenderWindow::WindowStateNormal()
     {
+    }
+
+    bool RenderWindow::WindowStateFullscreen()
+    {
+        return false;
+    }
+
+    double RenderWindow::RefreshRate() const
+    {
+        return 0.0;
     }
 
     void RenderWindow::Floating(bool)

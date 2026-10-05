@@ -11,6 +11,7 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <utility>
 
 namespace OpenTK::Windowing::GraphicsLibraryFramework
 {
@@ -53,10 +54,20 @@ namespace OpenTK::Windowing::GraphicsLibraryFramework
     public:
         float X = 0.0F;
         float Y = 0.0F;
+        // Snapshots can span a virtual/absolute cursor transition or a new
+        // native window. Such positions are valid for UI, but not comparable
+        // as aim motion. Other input platforms retain the default epoch.
+        std::uint64_t PositionEpoch = 0;
+        bool MotionValid = true;
         ::OpenTK::Mathematics::Vector2 Scroll{};
 
         MouseState() = default;
         [[nodiscard]] MouseState GetSnapshot() const { return *this; }
+        [[nodiscard]] std::pair<float, float> DeltaFrom(const MouseState& previous) const noexcept
+        {
+            if (!MotionValid || !previous.MotionValid || PositionEpoch != previous.PositionEpoch) return {};
+            return {X - previous.X, Y - previous.Y};
+        }
         [[nodiscard]] bool IsButtonDown(MouseButton button) const noexcept;
         void SetButtonDown(MouseButton button, bool down) noexcept;
 
@@ -156,7 +167,7 @@ namespace MphRead::Entities
             std::shared_ptr<Keybind> judicator, std::shared_ptr<Keybind> magmaul,
             std::shared_ptr<Keybind> shockCoil, std::shared_ptr<Keybind> omegaCannon,
             std::shared_ptr<Keybind> affinitySlot, std::shared_ptr<Keybind> pause,
-            std::shared_ptr<Keybind> hudOverlay);
+            std::shared_ptr<Keybind> adventureMapLegend);
 
         [[nodiscard]] bool MouseAim() const noexcept { return _mouseAim; }
         void SetMouseAim(bool value) noexcept { _mouseAim = value; }
@@ -204,7 +215,7 @@ namespace MphRead::Entities
         MPHREAD_CONTROL_ACCESSOR(OmegaCannon, _omegaCannon)
         MPHREAD_CONTROL_ACCESSOR(AffinitySlot, _affinitySlot)
         MPHREAD_CONTROL_ACCESSOR(Pause, _pause)
-        MPHREAD_CONTROL_ACCESSOR(HudOverlay, _hudOverlay)
+        MPHREAD_CONTROL_ACCESSOR(AdventureMapLegend, _adventureMapLegend)
 #undef MPHREAD_CONTROL_ACCESSOR
 
         [[nodiscard]] std::array<std::shared_ptr<Keybind>, 35>& All() noexcept { return _all; }
@@ -258,7 +269,7 @@ namespace MphRead::Entities
         std::shared_ptr<Keybind> _omegaCannon{};
         std::shared_ptr<Keybind> _affinitySlot{};
         std::shared_ptr<Keybind> _pause{};
-        std::shared_ptr<Keybind> _hudOverlay{};
+        std::shared_ptr<Keybind> _adventureMapLegend{};
         std::array<std::shared_ptr<Keybind>, 35> _all{};
     };
 
@@ -319,6 +330,7 @@ private:                                                                        
         [[nodiscard]] float PointerX() const;                                                   \
         [[nodiscard]] float PointerY() const;                                                   \
         void UpdatePointer();                                                                   \
+        void Suspend() noexcept;                                                                \
     private:                                                                                    \
         float _mouseDeltaX = 0.0F;                                                              \
         float _mouseDeltaY = 0.0F;                                                              \

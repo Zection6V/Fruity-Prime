@@ -209,7 +209,7 @@ namespace MphRead::Entities
         std::shared_ptr<Keybind> judicator, std::shared_ptr<Keybind> magmaul,
         std::shared_ptr<Keybind> shockCoil, std::shared_ptr<Keybind> omegaCannon,
         std::shared_ptr<Keybind> affinitySlot, std::shared_ptr<Keybind> pause,
-        std::shared_ptr<Keybind> hudOverlay)
+        std::shared_ptr<Keybind> adventureMapLegend)
         : _moveLeft(std::move(moveLeft)), _moveRight(std::move(moveRight)),
           _moveUp(std::move(moveUp)), _moveDown(std::move(moveDown)),
           _rollLeft(std::move(rollLeft)), _rollRight(std::move(rollRight)),
@@ -227,13 +227,13 @@ namespace MphRead::Entities
           _judicator(std::move(judicator)), _magmaul(std::move(magmaul)),
           _shockCoil(std::move(shockCoil)), _omegaCannon(std::move(omegaCannon)),
           _affinitySlot(std::move(affinitySlot)), _pause(std::move(pause)),
-          _hudOverlay(std::move(hudOverlay)),
+          _adventureMapLegend(std::move(adventureMapLegend)),
           _all{_moveLeft, _moveRight, _moveUp, _moveDown, _rollLeft, _rollRight,
               _rollUp, _rollDown, _aimLeft, _aimRight, _aimUp, _aimDown,
               _shoot, _zoom, _jump, _morph, _boost, _altAttack, _scanVisor, _scan,
               _nextWeapon, _prevWeapon, _weaponMenu, _powerBeam, _missile, _voltDriver,
               _battlehammer, _imperialist, _judicator, _magmaul, _shockCoil,
-              _omegaCannon, _affinitySlot, _pause, _hudOverlay}
+              _omegaCannon, _affinitySlot, _pause, _adventureMapLegend}
     {
         _mouseAim = true;
         _keyboardAim = true;
@@ -316,7 +316,7 @@ namespace MphRead::Entities
         std::shared_ptr<Keybind> omegaCannon = key(Keys::D9);
         std::shared_ptr<Keybind> affinitySlot = key(Keys::Unknown);
         std::shared_ptr<Keybind> pause = key(Keys::Tab);
-        std::shared_ptr<Keybind> hudOverlay = key(Keys::LeftShift);
+        std::shared_ptr<Keybind> adventureMapLegend = key(Keys::LeftShift);
 
         return PlayerControls(
             std::move(moveLeft), std::move(moveRight), std::move(moveUp), std::move(moveDown),
@@ -328,7 +328,7 @@ namespace MphRead::Entities
             std::move(powerBeam), std::move(missile), std::move(voltDriver),
             std::move(battlehammer), std::move(imperialist), std::move(judicator),
             std::move(magmaul), std::move(shockCoil), std::move(omegaCannon),
-            std::move(affinitySlot), std::move(pause), std::move(hudOverlay));
+            std::move(affinitySlot), std::move(pause), std::move(adventureMapLegend));
     }
 
     float PlayerEntity::PlayerInput::PointerX() const
@@ -351,9 +351,9 @@ namespace MphRead::Entities
             : MouseState.has_value() && MouseState->IsButtonDown(MouseButton::Left), !active && captured);
         // (MouseState?.X - PrevMouseState?.X) ?? 0: null when either is.
         const bool both = MouseState.has_value() && PrevMouseState.has_value();
+        const auto delta = both ? MouseState->DeltaFrom(*PrevMouseState) : std::pair<float, float>{};
         std::tie(_mouseDeltaX, _mouseDeltaY) = active ? Mods::Input::PointerDevice::TakeDelta()
-            : Mods::Input::PointerInput::Filter(both ? MouseState->X - PrevMouseState->X : 0.0F,
-                both ? MouseState->Y - PrevMouseState->Y : 0.0F);
+            : Mods::Input::PointerInput::Filter(delta.first, delta.second);
         if (Mods::DebugLog::Active() && captured && !_loggedCapture)
         {
             PlayerControls& controls = Mods::InputSettings::Current();
@@ -362,6 +362,19 @@ namespace MphRead::Entities
                 + " AltAttack=" + std::string(ToString(controls.AltAttack().Type())) + ":" + controls.AltAttack().ToString());
         }
         _loggedCapture = captured;
+    }
+
+    // Input is not read while a menu or chat owns it, but the match keeps
+    // simulating. Without this the last frame's mouse delta is applied again
+    // every step and the aim keeps turning behind the pause menu. Dropping the
+    // snapshots also stops the first frame back turning by however far the
+    // cursor travelled over the menu.
+    void PlayerEntity::PlayerInput::Suspend() noexcept
+    {
+        _mouseDeltaX = _mouseDeltaY = 0.0F;
+        PrevKeyboardState.reset(); KeyboardState.reset();
+        PrevMouseState.reset(); MouseState.reset();
+        HasInput = false;
     }
 
     void PlayerEntity::ProcessInput()
@@ -2503,9 +2516,22 @@ namespace MphRead::Entities
             {
                 continue;
             }
-            if (noPlayerInput || i != Mods::Network::NetHooks::LocalSlot()
-                || Mods::SpectatorMode::IsSpectating())
+            if (i != Mods::Network::NetHooks::LocalSlot() || Mods::SpectatorMode::IsSpectating())
             {
+                continue;
+            }
+            if (noPlayerInput)
+            {
+                player._input.Suspend();
+                for (const std::shared_ptr<Keybind>& control : player._controls.All())
+                {
+                    if (control)
+                    {
+                        control->SetIsReleased(control->IsDown());
+                        control->SetIsDown(false);
+                        control->SetIsPressed(false);
+                    }
+                }
                 continue;
             }
             player._input.HasInput = false;

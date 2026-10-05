@@ -27,6 +27,9 @@ namespace MphRead
     };
 
     [[nodiscard]] GpuMeshDrawPlan BuildGpuMeshDrawPlan(const RendererGeometry& geometry);
+    // All primitive ranges in one mesh share draw state. Lower their winding
+    // once and upload one triangle list, preserving the submitted order.
+    [[nodiscard]] std::vector<std::uint32_t> BuildGpuMeshTriangleIndices(const RendererGeometry& geometry);
 
     class GpuMeshResource
     {
@@ -86,6 +89,13 @@ namespace MphRead
     // supported transient topology. Fill the scene-owned IBO with that stable
     // sequence without exposing backend buffer names to renderer/domain types.
     void BuildTransientIndexSequence(std::span<std::uint32_t> indices);
+
+    // Preserve the cartridge primitive winding when lowering legacy quads,
+    // strips and fans to the triangle/line lists shared by current backends.
+    void AppendSceneTriangleIndices(std::vector<std::uint32_t>& output,
+        std::span<const std::uint32_t> input, ScenePrimitiveTopology topology);
+    void AppendTransientDrawIndices(std::vector<std::uint32_t>& output,
+        std::span<const std::uint32_t> input, TransientPrimitiveTopology topology);
 
     class TransientGeometryResource
     {

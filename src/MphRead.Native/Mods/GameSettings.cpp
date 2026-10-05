@@ -203,8 +203,22 @@ namespace MphRead::Mods
             AsStringView(settings->TextureFiltering), RenderOptions::TextureFiltering()));
         RenderOptions::ShowFps(RenderOptions::ParseOnOff(
             AsStringView(settings->ShowFps), RenderOptions::ShowFps()));
-        Render::FrameTiming::SetFrameRateCap(Render::FrameTiming::ParseCap(
-            settings->FrameRateCap, Render::FrameTiming::FrameRateCap()));
+        {
+            const std::int32_t cap = Render::FrameTiming::ParseSavedCap(
+                settings->FrameRateCap, Render::FrameTiming::FrameRateCap());
+            // Before VSync had a row of its own, "display" was how it was
+            // said; read it that way once, then keep the two apart.
+            const bool vsync = settings->VSync.empty() ? cap == Render::FrameTiming::DisplayRate
+                : RenderOptions::ParseOnOff(AsStringView(settings->VSync), Render::FrameTiming::VSync());
+            if (!Render::FrameTiming::VSyncForced())
+            {
+                Render::FrameTiming::SetVSync(vsync);
+            }
+            Render::FrameTiming::SetFrameRateCap(cap == Render::FrameTiming::DisplayRate
+                ? Render::FrameTiming::Unlimited : cap);
+        }
+        settings->FrameRateCap = Render::FrameTiming::CapString(Render::FrameTiming::FrameRateCap());
+        settings->VSync = std::string(RenderOptions::OnOff(Render::FrameTiming::VSync()));
         RenderOptions::CelShading(RenderOptions::ParseOnOff(
             AsStringView(settings->CelShading), RenderOptions::CelShading()));
         RenderOptions::CelBands(8);

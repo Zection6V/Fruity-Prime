@@ -21,13 +21,19 @@ namespace MphRead::Mods
     using InputMouseButton = std::remove_cvref_t<
         decltype(std::declval<Entities::Keybind&>().MouseButton())>;
 
-    // Mechanical replacement for System.Reflection.PropertyInfo. C++ has no
-    // runtime property reflection; the descriptor preserves the reflected
-    // property name and GetValue operation used by InputSettings.cs.
+    // Native descriptor for one rebindable action. Name is the logical action
+    // name used by native code and the settings UI. ConfigKey is an optional
+    // compatibility boundary for controls.txt; when empty, Name is persisted.
     struct InputBindingProperty final
     {
         std::string_view Name;
         Entities::Keybind& (*GetValue)(Entities::PlayerControls&);
+        std::string_view ConfigKey{};
+
+        [[nodiscard]] constexpr std::string_view PersistedName() const noexcept
+        {
+            return ConfigKey.empty() ? Name : ConfigKey;
+        }
     };
 
     class InputSettings final

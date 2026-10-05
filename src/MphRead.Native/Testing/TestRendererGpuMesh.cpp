@@ -75,6 +75,35 @@ namespace
             && plan.Ranges[3].IndexByteOffset == 12 * sizeof(std::uint32_t), "quad-strip range");
     }
 
+    void TestMeshTriangleBatchPreservesPrimitiveBoundaries()
+    {
+        RendererGeometry geometry{};
+        for (std::uint32_t i = 0; i < 18; ++i) geometry.Indices.push_back(i);
+        geometry.Ranges = {
+            {ScenePrimitiveTopology::Triangles, 0, 3},
+            {ScenePrimitiveTopology::Quads, 3, 4},
+            {ScenePrimitiveTopology::TriangleStrip, 7, 5},
+            {ScenePrimitiveTopology::QuadStrip, 12, 6}
+        };
+        Expect(BuildGpuMeshTriangleIndices(geometry) == std::vector<std::uint32_t>{
+            0,1,2, 3,4,5,3,5,6, 7,8,9,9,8,10,9,10,11,
+            12,13,15,12,15,14,14,15,17,14,17,16},
+            "one mesh batch preserves primitive order and alternating strip winding");
+        geometry.Ranges = {
+            {ScenePrimitiveTopology::Triangles, 0, 4},
+            {ScenePrimitiveTopology::TriangleStrip, 4, 4},
+            {ScenePrimitiveTopology::TriangleStrip, 8, 2}
+        };
+        Expect(BuildGpuMeshTriangleIndices(geometry) == std::vector<std::uint32_t>{
+            0,1,2,4,5,6,6,5,7}, "incomplete tails do not join the next primitive");
+        geometry.Ranges = {{ScenePrimitiveTopology::Triangles, 17, 3}};
+        bool rejected = false;
+        try { (void)BuildGpuMeshTriangleIndices(geometry); }
+        catch (const std::out_of_range&) { rejected = true; }
+        Expect(rejected, "mesh batching rejects ranges outside the source buffer");
+        Expect(BuildGpuMeshTriangleIndices({}).empty(), "empty mesh has no draw indices");
+    }
+
     void TestTransientIndexSequencePreservesSubmissionOrder()
     {
         std::vector<std::uint32_t> indices(8, 0xFFFFFFFFU);
@@ -87,6 +116,31 @@ namespace
         std::vector<std::uint32_t> empty{};
         BuildTransientIndexSequence(empty);
         Expect(empty.empty(), "empty transient draw keeps an empty IBO");
+    }
+
+    void TestPrimitiveWindingAndIncompleteTails()
+    {
+        const std::vector<std::uint32_t> input{10, 11, 12, 13, 14, 15, 16};
+        const auto scene = [&](ScenePrimitiveTopology topology, std::vector<std::uint32_t> expected) {
+            std::vector<std::uint32_t> result{99};
+            expected.insert(expected.begin(), 99);
+            AppendSceneTriangleIndices(result, input, topology);
+            Expect(result == expected, "triangle lowering preserves winding and ignores incomplete primitives");
+        };
+        scene(ScenePrimitiveTopology::Triangles, {10,11,12,13,14,15});
+        scene(ScenePrimitiveTopology::Quads, {10,11,12,10,12,13});
+        scene(ScenePrimitiveTopology::TriangleStrip, {10,11,12,12,11,13,12,13,14,14,13,15,14,15,16});
+        scene(ScenePrimitiveTopology::QuadStrip, {10,11,13,10,13,12,12,13,15,12,15,14});
+        std::vector<std::uint32_t> result;
+        AppendTransientDrawIndices(result, std::span(input).first(4), TransientPrimitiveTopology::LineLoop);
+        Expect(result == std::vector<std::uint32_t>{10,11,11,12,12,13,13,10}, "line loop closes exactly once");
+        result.clear();
+        AppendTransientDrawIndices(result, std::span(input).first(4), TransientPrimitiveTopology::TriangleFan);
+        Expect(result == std::vector<std::uint32_t>{10,11,12,10,12,13}, "fan keeps its common first vertex");
+        result.clear();
+        AppendSceneTriangleIndices(result, {}, ScenePrimitiveTopology::TriangleStrip);
+        AppendTransientDrawIndices(result, std::span(input).first(1), TransientPrimitiveTopology::LineLoop);
+        Expect(result.empty(), "incomplete primitives emit no indices");
     }
 
     void TestCacheUsesLiveModelAndMeshIdentity()
@@ -175,7 +229,9 @@ int main()
     try
     {
         TestDrawPlanPreservesRanges();
+        TestMeshTriangleBatchPreservesPrimitiveBoundaries();
         TestTransientIndexSequencePreservesSubmissionOrder();
+        TestPrimitiveWindingAndIncompleteTails();
         TestCacheUsesLiveModelAndMeshIdentity();
         std::cout << "RendererGpuMesh tests passed.\n";
         return 0;

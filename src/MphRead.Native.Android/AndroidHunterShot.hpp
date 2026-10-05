@@ -34,6 +34,8 @@ namespace MphRead::Droid
         [[nodiscard]] static std::shared_ptr<AndroidHunterShot> Current();
         static void RetireCurrent();
         static void ResumeCurrent();
+        // Called only by the match's render thread, after its world composite.
+        static void RenderMatchPicture(Scene& scene);
 
         [[nodiscard]] std::shared_future<
             std::optional<std::vector<std::uint8_t>>> RenderAsync(

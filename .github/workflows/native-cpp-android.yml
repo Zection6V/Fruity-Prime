@@ -160,8 +160,7 @@ jobs:
             "curl:${triplet}" \
             "libarchive[core,bzip2,crypto,lz4,lzma,zstd]:${triplet}" \
             "zlib:${triplet}" \
-            "freetype:${triplet}" \
-            "libjpeg-turbo:${triplet}" \
+            "vulkan-memory-allocator:${triplet}" \
             --clean-after-build
 
       - name: Save Android vcpkg binary cache
@@ -172,11 +171,31 @@ jobs:
           path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
           key: native-android-vcpkg-v1-${{ matrix.abi }}-${{ steps.vcpkg.outputs.commit }}-${{ hashFiles('.github/workflows/native-cpp-android.yml') }}
 
+      # Refresh immutable snapshots weekly; avoid a full duplicate on every push.
+      - name: Select compiler cache generation
+        shell: bash
+        run: echo "COMPILER_CACHE_WEEK=$(date -u +%G-%V)" >> "$GITHUB_ENV"
+
       - name: Set up ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
-          key: native-ccache-android-${{ matrix.abi }}
-          max-size: 1G
+          key: native-ccache-android-${{ matrix.abi }}-${{ env.COMPILER_CACHE_WEEK }}
+          max-size: 500M
+          append-timestamp: false
+
+      - name: Install Qt Quick host and Android kit
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y p7zip-full libxcb-cursor0 libxkbcommon-x11-0
+          kit="android_${{ matrix.abi }}"
+          kit="${kit/arm64-v8a/arm64_v8a}"
+          python3 tools/qt/install-qt.py --kit gcc_64 --root "$RUNNER_TEMP/qt"
+          python3 tools/qt/install-qt.py --kit "$kit" --root "$RUNNER_TEMP/qt"
+          echo "QT_HOST_PATH=$RUNNER_TEMP/qt/6.11.2/gcc_64" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$RUNNER_TEMP/qt/6.11.2/gcc_64/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+          echo "QT_ROOT=$RUNNER_TEMP/qt/6.11.2/$kit" >> "$GITHUB_ENV"
 
       - name: Configure and build shared library
         shell: bash
@@ -192,8 +211,14 @@ jobs:
             -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
             -DVCPKG_TARGET_TRIPLET="${VCPKG_TARGET_TRIPLET}" \
             -DANDROID_ABI="$abi" \
-            -DANDROID_PLATFORM="android-${ANDROID_MIN_API}" \
-            -DANDROID_STL=c++_static \
+            -DANDROID_PLATFORM=android-28 \
+            -DANDROID_STL=c++_shared \
+            -DQt6_DIR="$QT_ROOT/lib/cmake/Qt6" \
+            -DCMAKE_PREFIX_PATH="$QT_ROOT" \
+            -DCMAKE_FIND_ROOT_PATH="$QT_ROOT" \
+            -DQT_HOST_PATH="$QT_HOST_PATH" \
+            -DANDROID_SDK_ROOT="$ANDROID_SDK_ROOT" \
+            -DANDROID_NDK_ROOT="$ANDROID_NDK_HOME" \
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache 2>&1 | tee "$build_dir/configure.log"
@@ -204,9 +229,26 @@ jobs:
             --verbose \
             --target fruity_mphread_native_android 2>&1 | tee "$build_dir/build.log"
 
-          test -f "$build_dir/libFruityPrime.so"
+          test -f "$build_dir/libFruityPrime_${abi}.so"
           "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" \
-            -d "$build_dir/libFruityPrime.so" | tee "$build_dir/readelf-dynamic.log"
+            -d "$build_dir/libFruityPrime_${abi}.so" | tee "$build_dir/readelf-dynamic.log"
+
+          # Both renderers in the one library: GLES as before, and the shared
+          # Vulkan backend with its SPIR-V and the Android surface path.
+          grep -F -- '-- Android Vulkan backend: on' "$build_dir/configure.log"
+          # Ten scene stages plus the two backdrop stages.
+          test "$(ls "$build_dir"/generated/vulkan-shaders/*.spv | wc -l)" -eq 12
+          nm="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
+          "$nm" -C --defined-only "$build_dir/libFruityPrime_${abi}.so" > "$build_dir/symbols.txt"
+          for symbol in 'Rhi::AttachSceneSurface' 'Rhi::Vulkan::CreateSurfaceSwapchain' 'Rhi::Vulkan::WindowUi::DrawTexture' 'Rhi::OpenGL::ContextDevice'; do
+            grep -qF "$symbol" "$build_dir/symbols.txt" || { echo "missing $symbol" >&2; exit 1; }
+          done
+
+      - name: Package Qt dependencies for this ABI
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tools/qt/prepare-android.py --build-dir "build/native-android-${{ matrix.abi }}" --abi "${{ matrix.abi }}" --host "$QT_HOST_PATH" --output "build/native-android-${{ matrix.abi }}/qt-package"
 
       - name: Upload Android shared library
         uses: actions/upload-artifact@v4
@@ -214,7 +256,7 @@ jobs:
           name: native-cpp-android-so-${{ matrix.abi }}-${{ github.sha }}
           if-no-files-found: error
           retention-days: 7
-          path: build/native-android-${{ matrix.abi }}/libFruityPrime.so
+          path: build/native-android-${{ matrix.abi }}/qt-package/
 
       - name: Upload Android native build diagnostics
         if: always()
@@ -278,18 +320,15 @@ jobs:
           pattern: native-cpp-android-so-*
           path: native-artifacts
 
-      - name: Assemble jniLibs tree
+      - name: Merge Qt packages for both ABIs
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf android/app/src/main/jniLibs
+          python3 tools/qt/prepare-android.py --output android/qt-generated --merge native-artifacts/*
           for abi in $FRUITY_ANDROID_ABIS; do
-            mkdir -p "android/app/src/main/jniLibs/$abi"
-            library="$(find native-artifacts -path "*${abi}*" -name libFruityPrime.so -print -quit)"
-            test -n "$library"
-            cp "$library" "android/app/src/main/jniLibs/$abi/libFruityPrime.so"
+            test -f "android/qt-generated/libs/$abi/libFruityPrime_${abi}.so"
+            test -f "android/qt-generated/libs/$abi/libQt6Quick_${abi}.so"
           done
-          find android/app/src/main/jniLibs -maxdepth 3 -type f -print
 
       - name: Resolve APK version
         shell: bash
@@ -352,3 +391,61 @@ jobs:
           name: FruityPrime-cpp-android-${{ github.run_number }}
           if-no-files-found: error
           path: android/app/build/outputs/apk/release/FruityPrime.apk
+
+  # Building, linking, packaging and signing say nothing about whether the
+  # launcher appears. This installs the APK on an x86_64 emulator and checks
+  # the startup states and the picture: a normal start must reach the front
+  # screen and present a frame, and an injected QML error or nativeCreate
+  # failure must end on the persistent failure panel -- never a black window.
+  android-startup-smoke:
+    name: Android startup smoke (x86_64 API ${{ matrix.api }})
+    needs: [android-apk]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - api: 28
+            target: default
+          - api: 30
+            target: google_apis
+          - api: 35
+            target: google_apis
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.checkout_ref || github.sha }}
+
+      - name: Download APK
+        uses: actions/download-artifact@v5
+        with:
+          name: FruityPrime-cpp-android-${{ github.run_number }}
+          path: apk
+
+      - name: Enable KVM
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run startup gate on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: ${{ matrix.target }}
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader -no-snapshot -noaudio -no-boot-anim
+          script: python3 tools/ci/android-startup-smoke.py apk/FruityPrime.apk --out android-startup-smoke-${{ matrix.api }}
+
+      - name: Upload startup evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-startup-smoke-api${{ matrix.api }}-${{ github.run_number }}
+          if-no-files-found: ignore
+          path: android-startup-smoke-${{ matrix.api }}/

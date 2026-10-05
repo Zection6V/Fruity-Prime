@@ -10,7 +10,7 @@
 // uniform location, program id or binding number anywhere in it. A backend
 // turns these into whatever it has: the OpenGL one into glUniform calls on
 // the locations it looked up itself (OpenGlShaderConstants), a Vulkan one into
-// uniform-buffer writes against VulkanShaderInterface.hpp's blocks.
+// uniform-buffer writes through its generated std140 packing adapter.
 //
 // Each structure is exactly the set of values one frontend call site sets
 // together, so replacing that call site's uniform calls with one Set() changes
@@ -110,6 +110,8 @@ namespace MphRead::NativeRuntime::Rhi
     class ShaderConstantSink
     {
     public:
+        // Stable render-item ownership. Zero returns to program-wide state.
+        virtual void SelectMaterialOwner(std::uint64_t) {}
         virtual ~ShaderConstantSink() = default;
 
         virtual void Set(const FrameConstants& constants) = 0;

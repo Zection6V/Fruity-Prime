@@ -1,7 +1,7 @@
 #include "AppIcon.hpp"
 
 #include "../DebugLog.hpp"
-#include "../../NativeRuntime/Avalonia/Platform.hpp"
+#include "../../NativeRuntime/System/AssetLoader.hpp"
 #include "../../NativeRuntime/Stb/Image.hpp"
 #include "../../NativeRuntime/System/ExceptionText.hpp"
 
@@ -28,13 +28,13 @@ namespace MphRead::Mods::Render
         try
         {
             constexpr std::string_view resource = "avares://FruityPrime/Assets/fruity-prime-mark.png";
-            if (!::MphRead::NativeRuntime::Avalonia::Platform::AssetLoader::Exists(resource))
+            if (!::MphRead::NativeRuntime::AssetLoader::Exists(resource))
             {
                 DebugLog::Line("window", "no icon resource in this build");
                 return nullptr;
             }
             const std::vector<std::uint8_t> bytes
-                = ::MphRead::NativeRuntime::Avalonia::Platform::AssetLoader::Open(resource);
+                = ::MphRead::NativeRuntime::AssetLoader::Open(resource);
             const ::MphRead::NativeRuntime::Image image = ::MphRead::NativeRuntime::LoadPng(bytes, 4);
             if (image.Width <= 0 || image.Height <= 0)
             {

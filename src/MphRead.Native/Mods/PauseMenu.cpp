@@ -3,9 +3,9 @@
 #include "../Renderer.hpp"
 
 #include "WindowMode.hpp"
-#if defined(MPHREAD_AVALONIA)
-#include "Launcher/Gui/GuiLauncher.hpp"
-#include "Launcher/Gui/Shell.hpp"
+#if defined(MPHREAD_SHELL)
+#include "Launcher/GuiLauncher.hpp"
+#include "Launcher/Shell.hpp"
 #endif
 
 #include <atomic>
@@ -17,6 +17,7 @@ namespace MphRead::Mods
     std::atomic_bool PauseMenu::_leaveRequested{false};
     std::atomic_bool PauseMenu::_quit{false};
     std::atomic_bool PauseMenu::_toggleFullscreen{false};
+    std::atomic_bool PauseMenu::_applyWindowMode{false};
     std::atomic_bool PauseMenu::_refocus{false};
     bool PauseMenu::_leftMatch = false;
     bool PauseMenu::_quitProgram = false;
@@ -38,7 +39,7 @@ namespace MphRead::Mods
 
     bool PauseMenu::HandleEscape(MphRead::RenderWindow& window)
     {
-#if defined(MPHREAD_AVALONIA)
+#if defined(MPHREAD_SHELL)
         if (!Launcher::Gui::GuiLauncher::EnsureSetup())
         {
             return false;
@@ -74,12 +75,17 @@ namespace MphRead::Mods
             _toggleFullscreen.store(false, std::memory_order_release);
             WindowMode::Toggle(window);
         }
+        if (_applyWindowMode.load(std::memory_order_acquire))
+        {
+            _applyWindowMode.store(false, std::memory_order_release);
+            WindowMode::Apply(window, WindowMode::Startup());
+        }
         if (_quit.load(std::memory_order_acquire))
         {
             _quit.store(false, std::memory_order_release);
             _quitProgram = true;
             Close();
-#if defined(MPHREAD_AVALONIA)
+#if defined(MPHREAD_SHELL)
             Launcher::Gui::Shell::Quit(window);
 #else
             window.Close();
@@ -90,7 +96,7 @@ namespace MphRead::Mods
             _leaveRequested.store(false, std::memory_order_release);
             _leftMatch = true;
             Close();
-#if defined(MPHREAD_AVALONIA)
+#if defined(MPHREAD_SHELL)
             Launcher::Gui::Shell::LeaveMatch(window);
 #else
             window.Close();
@@ -121,6 +127,11 @@ namespace MphRead::Mods
         _toggleFullscreen.store(true, std::memory_order_release);
     }
 
+    void PauseMenu::RequestApplyWindowMode() noexcept
+    {
+        _applyWindowMode.store(true, std::memory_order_release);
+    }
+
     void PauseMenu::MarkClosed() noexcept
     {
         _open.store(false, std::memory_order_release);
@@ -129,7 +140,7 @@ namespace MphRead::Mods
 
     void PauseMenu::OpenMenu()
     {
-#if defined(MPHREAD_AVALONIA)
+#if defined(MPHREAD_SHELL)
         const bool opened = Launcher::Gui::Shell::OpenPauseMenu();
         _open.store(opened, std::memory_order_release);
 #endif
@@ -137,7 +148,7 @@ namespace MphRead::Mods
 
     void PauseMenu::Close()
     {
-#if defined(MPHREAD_AVALONIA)
+#if defined(MPHREAD_SHELL)
         Launcher::Gui::Shell::CloseMenu();
 #endif
         _open.store(false, std::memory_order_release);

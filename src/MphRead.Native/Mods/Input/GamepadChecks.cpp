@@ -18,8 +18,8 @@
 #include "WeaponSelectionDirection.hpp"
 #include "../InputSettings.hpp"
 #include "../Launcher/Portable/LauncherPrefs.hpp"
-#if defined(MPHREAD_SHELL)
-#include "../Launcher/Gui/GamepadUiChecks.hpp"
+#if defined(MPHREAD_QT) && !defined(__ANDROID__)
+#include "../../../MphRead.Native.Qt/Shell/UiChecks.hpp"
 #endif
 #include "../../Entities/Players/PlayerInput.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
@@ -305,7 +305,9 @@ namespace MphRead::Mods::Input
             Check(GamepadProbe::Actions(GamepadButtons::Y).find("Fire / alt attack") != std::string::npos, "probe uses remapped actions");
             CheckPersistence();
 #if defined(MPHREAD_SHELL)
-            ::MphRead::Mods::Launcher::Gui::GamepadUiChecks::Run(shots);
+#if defined(MPHREAD_QT) && !defined(__ANDROID__)
+            ::MphRead::Qt::RunUiChecks(shots);
+#endif
 #endif
             Runtime::ConsoleWriteLine("[gamepadcheck] PASS: " + std::to_string(_checks) + " deterministic checks");
             result = 0;

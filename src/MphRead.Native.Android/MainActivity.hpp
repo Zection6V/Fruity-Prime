@@ -27,7 +27,7 @@
 
 namespace MphRead::Mods::Launcher::Gui
 {
-    class EndPanelView;
+
 }
 
 namespace MphRead::Droid
@@ -84,35 +84,6 @@ namespace MphRead::Droid
         using BoolAction = std::function<void(bool)>;
 
         virtual ~MainActivityOwner() = default;
-
-        // AndroidApp's unavoidable Avalonia owner. MainActivity.cpp supplies
-        // AndroidAppOwner itself so Finish/StartMatch still use the exact
-        // MainActivity.Instance lookup from AndroidApp.cs.
-        virtual void AddUnhandledExceptionRaiser(
-            AndroidApp& application,
-            AndroidUnhandledExceptionHandler handler) = 0;
-        virtual void AddFluentTheme(AndroidApp& application) = 0;
-        virtual void SetRequestedThemeVariantDark(AndroidApp& application) = 0;
-        virtual void BaseInitialize(AndroidApp& application) = 0;
-        [[nodiscard]] virtual AndroidActivityLifetime
-            ActivityApplicationLifetime(AndroidApp& application) = 0;
-        virtual void SetActivityMainViewFactory(
-            const AndroidActivityLifetime& lifetime,
-            AndroidMainViewFactory factory) = 0;
-        [[nodiscard]] virtual AndroidSingleViewLifetime
-            SingleViewApplicationLifetime(AndroidApp& application) = 0;
-        virtual void SetSingleViewMainView(
-            const AndroidSingleViewLifetime& lifetime,
-            Av::Controls::ControlPtr mainView) = 0;
-        virtual void BaseOnFrameworkInitializationCompleted(
-            AndroidApp& application) = 0;
-
-        // AvaloniaMainActivity<AndroidApp>.CustomizeAppBuilder and Inter.
-        [[nodiscard]] virtual MainActivityAppBuilderRef BaseCustomizeAppBuilder(
-            MainActivity& activity,
-            MainActivityAppBuilderRef builder) = 0;
-        [[nodiscard]] virtual MainActivityAppBuilderRef WithInterFont(
-            MainActivityAppBuilderRef builder) = 0;
 
         // Android Context/Application filesystem/resource calls. String/path
         // conversion and System.IO calls stay behind the runtime owner so this
@@ -183,6 +154,7 @@ namespace MphRead::Droid
         [[nodiscard]] virtual bool BaseDispatchGenericMotionEvent(
             MainActivity& activity, jobject event) = 0;
         virtual void Finish(MainActivity& activity) = 0;
+        virtual void RequestRomPick(MainActivity& activity) = 0;
 
         // Content/View mechanics.
         [[nodiscard]] virtual MainActivityObjectRef ContentViewGroup(
@@ -350,6 +322,7 @@ namespace MphRead::Droid
         void OnWindowFocusChanged(bool hasFocus);
         void OnDestroy();
         void OnBackPressed();
+        void ShowLauncher(bool visible);
 
         [[nodiscard]] bool DispatchKeyEvent(jobject event);
         [[nodiscard]] bool DispatchTouchEvent(jobject event);
@@ -371,6 +344,7 @@ namespace MphRead::Droid
         void EndMatch();
         void EndMatchToLobby();
         void Finish();
+        void RequestRomPick();
 
     private:
         friend class AndroidWebLink;
@@ -437,7 +411,7 @@ namespace MphRead::Droid
         NativeRuntime::AtomicSharedPtr<void> _gameView{};
         MainActivityObjectRef _overlay{};
         MainActivityObjectRef _notice{};
-        std::shared_ptr<MphRead::Mods::Launcher::Gui::EndPanelView> _endPanel{};
+        bool _endPanel = false;
         MainActivityObjectRef _displays{};
         MainActivityObjectRef _inputDevices{};
 

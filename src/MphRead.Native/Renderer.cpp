@@ -1,10 +1,10 @@
 #include "Renderer.hpp"
+#include "NativeRuntime/System/ErrorDialog.hpp"
+#include "NativeRuntime/System/ExceptionText.hpp"
+#include "Mods/Diagnostics/FramePerformance.hpp"
 #include "RendererGeometry.hpp"
 #include "NativeRuntime/System/Runtime.hpp"
-#include "NativeRuntime/Rhi/BackendFactory.hpp"
-#include "NativeRuntime/Rhi/OpenGL/OpenGlDevice.hpp"
-#include "NativeRuntime/Rhi/OpenGL/OpenGlGeometry.hpp"
-#include "NativeRuntime/Rhi/OpenGL/OpenGlShaderInterface.hpp"
+#include "NativeRuntime/Rhi/SceneBackend.hpp"
 #include "NativeRuntime/System/Console.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
 #include "NativeRuntime/System/IO.hpp"
@@ -73,7 +73,6 @@
 #include "Mods/Render/DesktopGlContext.hpp"
 #include "Mods/Render/FrameTiming.hpp"
 #include "Mods/Render/MapThumbnail.hpp"
-#include "Mods/Render/GlNames.hpp"
 #include "Mods/Render/LauncherHunter.hpp"
 #include "Mods/Render/AppIcon.hpp"
 #include "Export/Images.hpp"
@@ -92,12 +91,11 @@
 #include "NativeRuntime/OpenTK/Mathematics.hpp"
 
 #if defined(MPHREAD_SHELL)
-#include "Mods/Launcher/Gui/KeyRow.hpp"
-#include "Mods/Launcher/Gui/Shell.hpp"
-#include "Mods/Render/GlNames.hpp"
+#include "Mods/Input/KeyCapture.hpp"
+#include "Mods/Launcher/Shell.hpp"
 #include "Mods/Render/LauncherHunter.hpp"
 #include "Mods/Render/UiOverlay.hpp"
-#include "NativeRuntime/Avalonia/Media.hpp"
+#include "NativeRuntime/System/Encoding.hpp"
 #endif
 
 #include <algorithm>
@@ -349,6 +347,8 @@ namespace MphRead
             return "Windowed";
         case Mods::WindowStartMode::BorderlessFullscreen:
             return "BorderlessFullscreen";
+        case Mods::WindowStartMode::ExclusiveFullscreen:
+            return "ExclusiveFullscreen";
         }
         return std::to_string(static_cast<std::int32_t>(mode));
     }
@@ -683,7 +683,7 @@ namespace MphRead
                 << ", fog " << BoolOnOff(Mods::RenderOptions::Fog()) << '\n';
             InitShaders();
             _transientGeometry
-                = NativeRuntime::Rhi::OpenGL::CreateTransientGeometryResource();
+                = NativeRuntime::Rhi::CreateSceneTransientGeometry(Gpu(), Commands());
         }
         AllocateEffects();
         CollisionDetection::Init();
@@ -771,7 +771,7 @@ namespace MphRead
             toon.push_back(vector.Y);
             toon.push_back(vector.Z);
         }
-        NativeRuntime::Rhi::OpenGL::SceneShaderSources sources{};
+        NativeRuntime::Rhi::SceneShaderSources sources{};
         sources.MainVertex = &Shaders::VertexShader;
         sources.MainFragment = &Shaders::FragmentShader;
         sources.CompositeVertex = &Shaders::RttVertexShader;
@@ -782,7 +782,7 @@ namespace MphRead
         sources.ShiftTable = shifts;
         try
         {
-            _sceneShaders = NativeRuntime::Rhi::OpenGL::CreateSceneShaderSet(Gpu(), sources);
+            _sceneShaders = NativeRuntime::Rhi::CreateSceneShaderSet(Gpu(), Commands(), sources);
         }
         catch (const std::exception& ex)
         {
@@ -864,9 +864,9 @@ namespace MphRead
             const std::shared_ptr<const void> modelLifetime = model;
             const std::shared_ptr<const void> meshLifetime = meshValue;
             (void)_gpuMeshCache.GetOrCreate(modelLifetime, meshLifetime,
-                [&geometry]()
+                [this, &geometry]()
                 {
-                    return NativeRuntime::Rhi::OpenGL::CreateGpuMeshResource(geometry);
+                    return NativeRuntime::Rhi::CreateSceneGpuMesh(Gpu(), Commands(), geometry);
                 });
         }
     }
@@ -880,6 +880,12 @@ namespace MphRead
         }
         std::shared_ptr<GpuMeshResource> gpuMesh
             = _gpuMeshCache.Find(model.get(), mesh.get());
+        if (!gpuMesh)
+        {
+            // Released for a renderer switch: made again from the model.
+            GenerateGpuMeshes(model, IsRoomModel(model.get()));
+            gpuMesh = _gpuMeshCache.Find(model.get(), mesh.get());
+        }
         if (!gpuMesh)
         {
             throw ProgramException("GPU mesh cache entry is missing for model " + model->Name
@@ -1151,6 +1157,8 @@ namespace MphRead
         Gpu().WriteTexture(*owned, NativeRuntime::Rhi::TextureWrite{
             static_cast<std::uint32_t>(texture.Width), static_cast<std::uint32_t>(texture.Height),
             NativeRuntime::Rhi::TextureFormat::RGBA8Unorm, pixels.data()});
+        _modelTextureSources.insert_or_assign(bindingId,
+            SceneModelTextureSource{model, textureId, paletteId, recolorId});
         _ownedTextures.insert_or_assign(bindingId, std::move(owned));
         _flatColors[bindingId] = average.Result();
         return {bindingId, onlyOpaque};
@@ -1187,6 +1195,7 @@ namespace MphRead
         const std::int32_t bindingId = owned->Handle().value;
         Gpu().WriteTexture(*owned, NativeRuntime::Rhi::TextureWrite{
             static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), format, pixels});
+        KeepTextureCopy(bindingId, width, height, format, pixels, true);
         _ownedTextures.insert_or_assign(bindingId, std::move(owned));
         return bindingId;
     }
@@ -1208,6 +1217,145 @@ namespace MphRead
         }
         Gpu().WriteTexture(*texture, NativeRuntime::Rhi::TextureWrite{
             static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), format, pixels});
+        KeepTextureCopy(bindingId, width, height, format, pixels, _ownedTextures.contains(bindingId));
+    }
+
+    void Scene::KeepTextureCopy(std::int32_t bindingId, std::int32_t width, std::int32_t height,
+        NativeRuntime::Rhi::TextureFormat format, const void* pixels, bool owned)
+    {
+        using NativeRuntime::Rhi::TextureFormat;
+        std::size_t bytes = 0;
+        switch (format)
+        {
+        case TextureFormat::R8Unorm: bytes = 1; break;
+        case TextureFormat::RG8Unorm: bytes = 2; break;
+        case TextureFormat::RGB8Unorm: bytes = 3; break;
+        case TextureFormat::RGBA8Unorm:
+        case TextureFormat::RGBA8Srgb:
+        case TextureFormat::BGRA8Unorm:
+        case TextureFormat::BGRA8Srgb: bytes = 4; break;
+        default: return;
+        }
+        if (pixels == nullptr || width <= 0 || height <= 0) return;
+        SceneTextureCopy& copy = _textureCopies[bindingId];
+        copy.Width = width;
+        copy.Height = height;
+        copy.Format = format;
+        copy.Owned = owned;
+        const auto* begin = static_cast<const std::uint8_t*>(pixels);
+        copy.Pixels.assign(begin, begin + static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * bytes);
+    }
+
+    bool Scene::IsRoomModel(const Model* model) const
+    {
+        if (_room == nullptr || model == nullptr) return false;
+        for (const std::shared_ptr<ModelInstance>& inst : _room->GetModels())
+        {
+            if (inst && inst->Model().get() == model) return true;
+        }
+        return false;
+    }
+
+    void Scene::RebindInput(MphRead::RendererPlatform::KeyboardState& keyboard,
+        MphRead::RendererPlatform::MouseState& mouse) noexcept
+    {
+        _keyboardState = &keyboard;
+        _mouseState = &mouse;
+    }
+
+    // The renderer is being switched under a running match. Everything this
+    // scene holds on the device goes; everything it knows stays -- the
+    // texture/palette map and every handle in it, the original models and
+    // HUD/dynamic recovery data -- so RebuildGpuAfterSwitch can put it all back
+    // on the next device under the same handles.
+    void Scene::ReleaseGpuForSwitch()
+    {
+        if (Mods::Headless::Active()) return;
+        _ownedTextures.clear();
+        _gpuMeshCache.Clear();
+        _transientGeometry.reset();
+        _celDepthView.reset();
+        _celDepth.reset();
+        _celColorView.reset();
+        _celColor.reset();
+        _sceneDepthStencilView.reset();
+        _sceneDepthStencil.reset();
+        _sceneColorView.reset();
+        _sceneColor.reset();
+        for (auto& sampler : _samplers) sampler.reset();
+        _commands.reset();
+        _pipelines.clear();
+        _shaderConstants = &_noShaderConstants;
+        _sceneShaders.reset();
+        auto* device = std::exchange(_gpu, nullptr);
+        if (device != nullptr)
+        {
+            try { device->WaitIdle(); }
+            catch (const NativeRuntime::Rhi::BackendError& error)
+            {
+                // A lost device cannot establish ordinary completion. Its
+                // session teardown closes all remaining native ownership.
+                if (error.Kind() != NativeRuntime::Rhi::BackendErrorKind::DeviceLost) throw;
+            }
+        }
+    }
+
+    void Scene::RebuildGpuAfterSwitch(const std::function<void()>& checkpoint)
+    {
+        if (Mods::Headless::Active()) return;
+        Commands().Begin();
+        InitShaders();
+        _transientGeometry = NativeRuntime::Rhi::CreateSceneTransientGeometry(Gpu(), Commands());
+        std::size_t textures = 0;
+        for (const auto& [bindingId, source] : _modelTextureSources)
+        {
+            const auto& model = source.Model;
+            const auto& texture = model->Recolors->at(static_cast<std::size_t>(source.RecolorId))
+                ->Textures->at(static_cast<std::size_t>(source.TextureId));
+            auto made = Gpu().CreateTexture(NativeRuntime::Rhi::TextureDesc{
+                static_cast<std::uint32_t>(texture.Width), static_cast<std::uint32_t>(texture.Height), 1, 1, 1, 1,
+                NativeRuntime::Rhi::TextureFormat::RGBA8Unorm,
+                NativeRuntime::Rhi::TextureUsage::Sampled | NativeRuntime::Rhi::TextureUsage::TransferDst},
+                NativeRuntime::Rhi::TextureHandle{bindingId});
+            std::vector<std::uint32_t> pixels;
+            for (ColorRgba pixel : model->GetPixels(source.TextureId, source.PaletteId, source.RecolorId))
+                pixels.push_back(pixel.ToUint());
+            Gpu().WriteTexture(*made, NativeRuntime::Rhi::TextureWrite{
+                static_cast<std::uint32_t>(texture.Width), static_cast<std::uint32_t>(texture.Height),
+                NativeRuntime::Rhi::TextureFormat::RGBA8Unorm, pixels.data()});
+            _ownedTextures.insert_or_assign(bindingId, std::move(made));
+            ++textures;
+            if (textures == 1 && checkpoint) checkpoint();
+        }
+        std::size_t recoveryBytes = 0;
+        for (const auto& [bindingId, copy] : _textureCopies)
+        {
+            const NativeRuntime::Rhi::TextureHandle handle{bindingId};
+            NativeRuntime::Rhi::Texture* texture = Gpu().FindTexture(handle);
+            if (texture == nullptr)
+            {
+                auto made = Gpu().CreateTexture(NativeRuntime::Rhi::TextureDesc{
+                    static_cast<std::uint32_t>(copy.Width), static_cast<std::uint32_t>(copy.Height), 1, 1, 1, 1,
+                    copy.Format,
+                    NativeRuntime::Rhi::TextureUsage::Sampled | NativeRuntime::Rhi::TextureUsage::TransferDst},
+                    handle);
+                texture = made.get();
+                if (copy.Owned) _ownedTextures.insert_or_assign(bindingId, std::move(made));
+                else texture = &Gpu().RetainTexture(std::move(made));
+            }
+            Gpu().WriteTexture(*texture, NativeRuntime::Rhi::TextureWrite{
+                static_cast<std::uint32_t>(copy.Width), static_cast<std::uint32_t>(copy.Height), copy.Format,
+                copy.Pixels.data()});
+            ++textures;
+            recoveryBytes += copy.Pixels.size();
+            if (textures == 1 && checkpoint) checkpoint();
+        }
+        if (textures == 0 && checkpoint) checkpoint();
+        UpdateProjection();
+        Mods::DebugLog::Line("render", "the match's GPU side was rebuilt on the new renderer: "
+            + std::to_string(textures) + " textures (" + std::to_string(_modelTextureSources.size())
+            + " from original model data, " + std::to_string(recoveryBytes)
+            + " recovery bytes for HUD/dynamic textures); meshes follow as they are drawn");
     }
 
     // The device for this scene's GL context, and this scene's command list.
@@ -1218,7 +1366,7 @@ namespace MphRead
     {
         if (_gpu == nullptr)
         {
-            _gpu = &NativeRuntime::Rhi::OpenGL::ContextDevice();
+            _gpu = &NativeRuntime::Rhi::SceneDevice();
         }
         return *_gpu;
     }
@@ -1336,7 +1484,7 @@ namespace MphRead
         }
         desc.blendAttachments.push_back(blend);
         desc.colorFormats.push_back(Rhi::TextureFormat::RGB8Unorm);
-        desc.depthStencilFormat = Rhi::TextureFormat::D24UnormS8Uint;
+        desc.depthStencilFormat = NativeRuntime::Rhi::SceneDevice().GetCapabilities().depthStencilFormat;
         return desc;
     }
 
@@ -1381,11 +1529,14 @@ namespace MphRead
         _sceneColorView = Gpu().CreateTextureView(*_sceneColor, Rhi::TextureViewDesc{Rhi::TextureFormat::RGB8Unorm});
         _celColor = Gpu().CreateTexture(Rhi::TextureDesc{width, height, 1, 1, 1, 1,
             Rhi::TextureFormat::RGB8Unorm,
-            Rhi::TextureUsage::Sampled | Rhi::TextureUsage::ColorAttachment | Rhi::TextureUsage::TransferDst});
+            Rhi::TextureUsage::Sampled | Rhi::TextureUsage::ColorAttachment | Rhi::TextureUsage::TransferDst
+                | Rhi::TextureUsage::TransferSrc});
+        _celColorView = Gpu().CreateTextureView(*_celColor, Rhi::TextureViewDesc{Rhi::TextureFormat::RGB8Unorm});
+        const auto depthStencil = Gpu().GetCapabilities().depthStencilFormat;
         _sceneDepthStencil = Gpu().CreateTexture(Rhi::TextureDesc{width, height, 1, 1, 1, 1,
-            Rhi::TextureFormat::D24UnormS8Uint, Rhi::TextureUsage::DepthStencilAttachment});
+            depthStencil, Rhi::TextureUsage::DepthStencilAttachment});
         _sceneDepthStencilView = Gpu().CreateTextureView(*_sceneDepthStencil,
-            Rhi::TextureViewDesc{Rhi::TextureFormat::D24UnormS8Uint});
+            Rhi::TextureViewDesc{depthStencil});
     }
 
     // The scene target: SceneColor, over CelDepth while the cel outline
@@ -1819,7 +1970,10 @@ namespace MphRead
         std::vector<std::uint8_t> buffer(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 3U);
         std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
         NativeRuntime::Rhi::RenderingDepthStencilAttachment depth{};
-        Commands().ReadColor(SceneRenderingInfo(color, depth), 0, 0,
+        NativeRuntime::Rhi::RenderingInfo info = SceneRenderingInfo(color, depth);
+        // The finished picture, outline and all (DrawCelOutline).
+        if (_celOutlined) color[0].view = _celColorView.get();
+        Commands().ReadColor(info, 0, 0,
             static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height),
             NativeRuntime::Rhi::TextureFormat::RGB8Unorm, buffer.data());
         return buffer;
@@ -1827,6 +1981,7 @@ namespace MphRead
 
     void Scene::AfterRenderFrame()
     {
+        Images::PollReadbacks();
         if (_recording)
         {
             std::ostringstream name;
@@ -1852,9 +2007,9 @@ namespace MphRead
         namespace Rhi = NativeRuntime::Rhi;
         _celDepth = Gpu().CreateTexture(Rhi::TextureDesc{
             static_cast<std::uint32_t>(target.X), static_cast<std::uint32_t>(target.Y), 1, 1, 1, 1,
-            Rhi::TextureFormat::D24UnormS8Uint,
+            Gpu().GetCapabilities().depthStencilFormat,
             Rhi::TextureUsage::Sampled | Rhi::TextureUsage::DepthStencilAttachment});
-        _celDepthView = Gpu().CreateTextureView(*_celDepth, Rhi::TextureViewDesc{Rhi::TextureFormat::D24UnormS8Uint});
+        _celDepthView = Gpu().CreateTextureView(*_celDepth, Rhi::TextureViewDesc{Gpu().GetCapabilities().depthStencilFormat});
         _claimedQuantum = MeasureDepthQuantum();
         _depthQuantum = _claimedQuantum;
         std::array<Rhi::RenderingColorAttachment, 1> color{};
@@ -1902,14 +2057,43 @@ namespace MphRead
         if (!Mods::RenderOptions::CelShading() || Mods::RenderOptions::CelEdge() <= 0.0F
             || !_celColor || !_sceneShaders || !_celDepth) return;
         const Vector2i target = _targetSize;
-        Commands().CopyColorAttachmentToTexture(*_celColor,
-            static_cast<std::uint32_t>(target.X), static_cast<std::uint32_t>(target.Y));
         if (_calibrateInk)
         {
+            // Once: the measurement reads the scene target back, so this frame
+            // copies the picture aside and draws the outline over it in place.
+            Commands().CopyColorAttachmentToTexture(*_celColor,
+                static_cast<std::uint32_t>(target.X), static_cast<std::uint32_t>(target.Y));
             _calibrateInk = false;
             CalibrateInk(target);
+            DrawCelQuad(target, false);
+            return;
         }
-        DrawCelQuad(target, false);
+        // Every other frame reads SceneColor where it is and draws the
+        // outlined picture into CelColor, which the composite then shows:
+        // nothing draws into the scene target after this. A copy of the whole
+        // target and a pass that loads what it then overwrites, the way this
+        // was, are most of a tiled GPU's memory traffic for the frame.
+        const auto& nearestClamp = SamplerFor(false, RepeatMode::Clamp, RepeatMode::Clamp);
+        BindSceneTexture(1, *_celDepth, nearestClamp);
+        BindSceneTexture(0, *_sceneColor, nearestClamp);
+        Commands().EndRendering();
+        {
+            std::array<NativeRuntime::Rhi::RenderingColorAttachment, 1> color{};
+            color[0].view = _celColorView.get();
+            // Every pixel is written: nothing of what was there is wanted.
+            color[0].loadOp = NativeRuntime::Rhi::LoadOp::Clear;
+            NativeRuntime::Rhi::RenderingInfo info{};
+            info.width = static_cast<std::uint32_t>(target.X);
+            info.height = static_cast<std::uint32_t>(target.Y);
+            info.colorAttachments = color;
+            Commands().BeginRendering(info);
+        }
+        DrawCelPicture(target, false);
+        UnbindSceneTexture(0);
+        UnbindSceneTexture(1);
+        Commands().EndRendering();
+        _celOutlined = true;
+        BeginSceneRendering();
     }
 
     void Scene::DrawCelQuad(Vector2i target, bool probe)
@@ -1919,6 +2103,17 @@ namespace MphRead
         BindSceneTexture(0, *_celColor, nearestClamp);
         Commands().EndRendering();
         BeginCelRendering();
+        DrawCelPicture(target, probe);
+        UnbindSceneTexture(0);
+        UnbindSceneTexture(1);
+        Commands().EndRendering();
+        BeginSceneRendering();
+    }
+
+    // The outline pass's quad, into whatever rendering is open, from the
+    // colour and depth bound on units 0 and 1.
+    void Scene::DrawCelPicture(Vector2i target, bool probe)
+    {
         Commands().SetPipeline(ScenePipeline(ScenePass::CelOutline, NativeRuntime::Rhi::CullMode::None,
             NativeRuntime::Rhi::FillMode::Solid, 1));
         _shaderConstants->Set(NativeRuntime::Rhi::CelPostConstants{
@@ -1930,10 +2125,6 @@ namespace MphRead
         TransientTexCoord3(1.0F, 0.0F, 0.0F); TransientVertex3(1.0F, -1.0F, 0.0F);
         TransientTexCoord3(0.0F, 0.0F, 0.0F); TransientVertex3(-1.0F, -1.0F, 0.0F);
         EndTransient();
-        UnbindSceneTexture(0);
-        UnbindSceneTexture(1);
-        Commands().EndRendering();
-        BeginSceneRendering();
     }
 
     void Scene::CalibrateInk(Vector2i target)
@@ -2006,19 +2197,23 @@ namespace MphRead
 
     bool Scene::OnRenderFrame()
     {
+        const NativeRuntime::FrameTelemetry::Scope measured(NativeRuntime::FrameTelemetry::Phase::SceneRender);
         const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
         CountFrame();
+        if (_exiting) return false;
+        std::unique_ptr<NativeRuntime::Rhi::TimestampQuerySet> gpuSample;
+        if (!SideScene()) gpuSample = Mods::Diagnostics::FramePerformance::BeginGpu(Gpu(), Commands());
         if (_transientGeometry)
         {
             _transientGeometry->BeginFrame();
         }
+        _celOutlined = false;
         {
             using NativeRuntime::Rhi::LoadOp;
             BeginSceneRendering(LoadOp::Clear, LoadOp::Clear, LoadOp::Clear, SceneClearColor());
         }
         UpdateUniforms();
         SetPauseMenuUniforms();
-        if (_exiting) return false;
         BeginScenePass(ScenePass::Opaque);
         for (const auto& item : _nonDecalItems) RenderItem(item);
         BeginScenePass(ScenePass::Decal);
@@ -2078,7 +2273,7 @@ namespace MphRead
         BeginWindowRendering(NativeRuntime::Rhi::LoadOp::Clear, NativeRuntime::Rhi::LoadOp::Load, SceneClearColor());
         Commands().SetViewport(NativeRuntime::Rhi::Viewport{0.0F, 0.0F,
             static_cast<float>(_rendererSize.X), static_cast<float>(_rendererSize.Y)});
-        BindSceneTexture(0, *_sceneColor, SamplerFor(Mods::RenderOptions::ResolutionScale() < 100,
+        BindSceneTexture(0, _celOutlined ? *_celColor : *_sceneColor, SamplerFor(Mods::RenderOptions::ResolutionScale() < 100,
             RepeatMode::Repeat, RepeatMode::Repeat));
         BeginTransient(TransientPrimitiveTopology::TriangleStrip);
         TransientTexCoord3(1,1,0); TransientVertex3(1,1,0); TransientTexCoord3(0,1,0); TransientVertex3(-1,1,0);
@@ -2125,6 +2320,7 @@ namespace MphRead
         Commands().SetPipeline(ScenePipeline(ScenePass::FrameEnd,
             _faceCulling ? NativeRuntime::Rhi::CullMode::Back : NativeRuntime::Rhi::CullMode::None,
             NativeRuntime::Rhi::FillMode::Solid, 1));
+        Mods::Diagnostics::FramePerformance::EndGpu(std::move(gpuSample), Commands());
         Gpu().EndFrame();
         return true;
     }
@@ -2211,6 +2407,8 @@ namespace MphRead
                 {
                     (void)key;
                     _ownedTextures.erase(value.BindingId);
+                    _textureCopies.erase(value.BindingId);
+                    _modelTextureSources.erase(value.BindingId);
                     _flatColors.erase(value.BindingId);
                 }
                 _texPalMap.erase(mapIt);
@@ -2785,6 +2983,37 @@ namespace MphRead
             ReleaseFromOwner(element);
             UnlinkEffectElement(element);
             --i;
+        }
+    }
+
+    void Scene::BreakEffectCycles()
+    {
+        // An element owns its particles and each particle points back at its
+        // element; an element and its entry point at each other. The pools
+        // outlive nothing but this scene, so a discarded scene has to cut
+        // them or every element it ever made stays alive with its particle
+        // definitions and their models.
+        ClearEffects();
+        const auto cut = [](const std::shared_ptr<EffectElementEntry>& element)
+        {
+            if (!element) return;
+            for (const auto& particle : *element->Particles)
+            {
+                if (particle) particle->Owner.reset();
+            }
+            element->Particles->clear();
+            element->EffectEntry.reset();
+        };
+        for (const auto& element : _activeElements) cut(element);
+        _activeElements.clear();
+        for (; !_inactiveElements.empty(); _inactiveElements.pop()) cut(_inactiveElements.front());
+        for (; !_inactiveParticles.empty(); _inactiveParticles.pop())
+        {
+            if (_inactiveParticles.front()) _inactiveParticles.front()->Owner.reset();
+        }
+        for (; !_inactiveEffects.empty(); _inactiveEffects.pop())
+        {
+            if (_inactiveEffects.front()) _inactiveEffects.front()->Elements->clear();
         }
     }
 
@@ -3643,6 +3872,7 @@ namespace MphRead
             }
             Entities::PlatformEntity::DestroyBeams();
             Entities::EnemyInstanceEntity::DestroyBeams();
+            BreakEffectCycles();
             Sound::Sfx::ShutDown();
             OutputStop();
             if (const std::shared_ptr<std::stop_source> decoderCts = _decoderCts.load())
@@ -3667,13 +3897,19 @@ namespace MphRead
         // pairs, HUD art, trails, the movie frames -- is in _ownedTextures.
         _texPalMap.clear();
         _ownedTextures.clear();
+        _textureCopies.clear();
+        _modelTextureSources.clear();
         _flatColors.clear();
         _gpuMeshCache.Clear();
         _transientGeometry.reset();
         _transientVertices.clear();
-        Read::ClearCache();
+        // A launcher preview shares Read's model/particle/effect cache with
+        // the running match. Releasing its GPU resources during a renderer
+        // switch must not discard the definitions that future shots/bombs use.
+        if (!SideScene()) Read::ClearCache();
         _celDepthView.reset();
         _celDepth.reset();
+        _celColorView.reset();
         _celColor.reset();
         _sceneDepthStencilView.reset();
         _sceneDepthStencil.reset();
@@ -3815,6 +4051,12 @@ namespace MphRead
 
     void Scene::RenderItem(const std::shared_ptr<MphRead::RenderItem>& item)
     {
+        _shaderConstants->SelectMaterialOwner(item->MaterialOwnerId);
+        struct ReturnMaterialOwner final
+        {
+            NativeRuntime::Rhi::ShaderConstantSink& Sink;
+            ~ReturnMaterialOwner() { Sink.SelectMaterialOwner(0); }
+        } returnMaterialOwner{*_shaderConstants};
         UseLight1(item->LightInfo.Light1Vector, item->LightInfo.Light1Color);
         UseLight2(item->LightInfo.Light2Vector, item->LightInfo.Light2Color);
         const ManagedArray<float>& matrixStack = RequireReference(item->MatrixStack);
@@ -4515,6 +4757,7 @@ namespace MphRead
 
     void Scene::DoMaterial(const MphRead::RenderItem& item)
     {
+        const NativeRuntime::FrameTelemetry::Scope measured(NativeRuntime::FrameTelemetry::Phase::Material);
         _shaderConstants->SetInheritedColor(Vector4(item.Diffuse, 1.0F));
         _shaderConstants->Set(NativeRuntime::Rhi::MaterialConstants{
             LightingOn() && item.Lighting, item.Diffuse, item.Ambient, item.Specular,
@@ -5667,8 +5910,14 @@ namespace MphRead
 #if !defined(__ANDROID__)
     const RendererPlatform::WindowSettings& RenderWindow::Settings()
     {
-        static const RendererPlatform::WindowSettings settings = Mods::Render::DesktopGlContext::Settings(
-            false, RendererPlatform::GraphicsWindowMode::OpenGL);
+        // A Vulkan scene presents the window itself, so the window has no GL
+        // context at all; an OpenGL one is its context.
+        // Asked again for every window: Settings can switch the renderer and
+        // remake the window on the other one.
+        static RendererPlatform::WindowSettings settings{};
+        settings = Mods::Render::DesktopGlContext::Settings(
+            false, NativeRuntime::Rhi::ScenePresentsWindow()
+                ? RendererPlatform::GraphicsWindowMode::NoApi : RendererPlatform::GraphicsWindowMode::OpenGL);
         return settings;
     }
 
@@ -5687,19 +5936,8 @@ namespace MphRead
     RenderWindow::RenderWindow(bool shell)
         : _window(RendererPlatform::CreateWindow(Settings())), _shell(shell)
     {
-        NativeRuntime::Rhi::SwapchainDesc swapchainDesc{};
-        const Vector2i framebufferSize = _window->Size();
-        swapchainDesc.width = static_cast<std::uint32_t>(std::max(framebufferSize.X, 1));
-        swapchainDesc.height = static_cast<std::uint32_t>(std::max(framebufferSize.Y, 1));
-        _swapchain = NativeRuntime::Rhi::BackendFactory::CreateSwapchain(
-            NativeRuntime::Rhi::GraphicsBackend::OpenGl, *_window, swapchainDesc);
-        IgnoreUnavailableGlfwFeatures();
-#if !defined(__ANDROID__)
-        if (const RendererPlatform::WindowIcon* icon = Mods::Render::AppIcon::Load())
-        {
-            _window->SetIcon(*icon);
-        }
-#endif
+        CreatePresentation();
+        _performance = Mods::Diagnostics::FramePerformance::Create();
         const Vector2i clientSize = _window->ClientSize();
         const Vector2i size = _window->Size();
         Mods::DebugLog::Line("render", "game window created, " + std::to_string(clientSize.X)
@@ -5718,21 +5956,145 @@ namespace MphRead
         FitToScreen();
     }
 
+    void RenderWindow::CreatePresentation()
+    {
+        NativeRuntime::Rhi::SwapchainDesc swapchainDesc{};
+        const Vector2i framebufferSize = _window->Size();
+        swapchainDesc.width = static_cast<std::uint32_t>(std::max(framebufferSize.X, 1));
+        swapchainDesc.height = static_cast<std::uint32_t>(std::max(framebufferSize.Y, 1));
+        _swapchain = NativeRuntime::Rhi::CreateSceneWindowSwapchain(*_window, swapchainDesc);
+        IgnoreUnavailableGlfwFeatures();
+#if !defined(__ANDROID__)
+        if (const RendererPlatform::WindowIcon* icon = Mods::Render::AppIcon::Load())
+        {
+            _window->SetIcon(*icon);
+        }
+#endif
+        const std::string backend = NativeRuntime::Rhi::DescribeSceneBackend(_swapchain.get());
+        std::cout << "[render] backend " << backend << std::endl;
+        Mods::DebugLog::Line("render", "backend " + backend);
+    }
+
+    void RenderWindow::RequestRendererSwitch(NativeRuntime::Rhi::SceneBackendRequest request)
+    {
+        if (request == NativeRuntime::Rhi::RequestedSceneBackend()) return;
+        _rendererSwitch = request;
+        _window->Close();
+    }
+
+    // The window and everything on its device go; the scene's simulation,
+    // the launcher's screens and every handle survive, and are put back on
+    // the new device. A backend that cannot start is said, and the one that
+    // was running comes back.
+    void RenderWindow::SwitchRenderer(NativeRuntime::Rhi::SceneBackendRequest request)
+    {
+        if (ObserveRendererSwitch) ObserveRendererSwitch(*this, true);
+        const NativeRuntime::Rhi::SceneBackendRequest previous = NativeRuntime::Rhi::RequestedSceneBackend();
+        const Vector2i clientSize = ClientSize();
+        const Vector2i location = Location();
+        const std::int32_t border = WindowBorder();
+        const auto state = WindowState();
+        Mods::DebugLog::Line("render", std::string("switching the renderer to ")
+            + std::string(NativeRuntime::Rhi::SceneBackendRequestName(request)) + " in place");
+        if (_shell) Mods::WindowGeometry::Remember(*this);
+        const auto release = [&]
+        {
+            if (_performance) _performance->Reset();
+            if (_scene) _scene->ReleaseGpuForSwitch();
+            if (BeforeRendererSwitch) BeforeRendererSwitch();
+#if defined(MPHREAD_SHELL)
+            if (_shell) Mods::Render::LauncherHunter::ReleaseGl();
+#endif
+            _windowCommands.reset();
+            _swapchain.reset();
+            if (ObserveRendererSwitchStage) ObserveRendererSwitchStage(*this, RendererSwitchStage::ReleasedResources);
+            NativeRuntime::Rhi::DetachSceneWindow();
+            _window.reset();
+        };
+        const auto create = [&](NativeRuntime::Rhi::SceneBackendRequest target)
+        {
+            _appliedFrameRateCap = -2;
+            // Replacement windows start hidden, including a recovery window.
+            _startedHidden = true;
+            _applyStartupIn = 0;
+            NativeRuntime::Rhi::ReselectSceneBackend(target);
+            if (ObserveRendererSwitchStage) ObserveRendererSwitchStage(*this, RendererSwitchStage::BeforeWindow);
+            _window = RendererPlatform::CreateWindow(Settings());
+            CreatePresentation();
+            if (ObserveRendererSwitchStage) ObserveRendererSwitchStage(*this, RendererSwitchStage::Presentation);
+            FitToScreen();
+            WindowBorder(border);
+            Location(location);
+            ClientSize(clientSize);
+            if (state == RendererPlatform::WindowStateValue::Maximized) WindowStateMaximized();
+            if (state == RendererPlatform::WindowStateValue::Fullscreen) (void)WindowStateFullscreen();
+            Floating(Mods::WindowMode::IsFullscreen());
+            if (_scene)
+            {
+                _scene->RebindInput(_window->Keyboard(), _window->Mouse());
+                _scene->Size(FramebufferSize());
+                _scene->RebuildGpuAfterSwitch([&]
+                {
+                    if (ObserveRendererSwitchStage) ObserveRendererSwitchStage(*this, RendererSwitchStage::Resources);
+                });
+            }
+            if (AfterRendererSwitch) AfterRendererSwitch(*this);
+            if (!_scene && ObserveRendererSwitchStage) ObserveRendererSwitchStage(*this, RendererSwitchStage::Resources);
+        };
+        release();
+        try { create(request); }
+        catch (const std::exception&)
+        {
+            const auto incoming = std::current_exception();
+            Mods::DebugLog::Exception("renderer switch", incoming);
+            try { release(); create(previous); }
+            catch (const std::exception&)
+            {
+                const auto recovery = std::current_exception();
+                // Release partial recovery resources while their device and
+                // context still exist. Preserve both failures if cleanup fails.
+                try { release(); } catch (...) {}
+                if (ReportRendererSwitchFailure) ReportRendererSwitchFailure(incoming, false);
+                throw NativeRuntime::Rhi::SceneBackendRecoveryFailed(
+                    "Renderer switch failed: " + NativeRuntime::ExceptionMessage(incoming)
+                    + "\nRecovery also failed: " + NativeRuntime::ExceptionMessage(recovery), incoming, recovery);
+            }
+            if (ReportRendererSwitchFailure) ReportRendererSwitchFailure(incoming, true);
+            else NativeRuntime::ShowErrorDialog(std::string(Mods::Branding::Name),
+                NativeRuntime::ExceptionMessage(incoming) + "\n\nThe renderer you were using is back.");
+        }
+        if (ObserveRendererSwitch) ObserveRendererSwitch(*this, false);
+    }
+
     RenderWindow::~RenderWindow()
     {
+        // Teardown must reach the session/context even when a lost device
+        // rejects idle. Explicit operations retain and report the first error.
+        const auto cleanup = [](auto&& action) noexcept
+        {
+            try { action(); }
+            catch (...) {}
+        };
+        cleanup([this] { _performance.reset(); });
+        if (_shell && BeforeRendererSwitch) cleanup([] { BeforeRendererSwitch(); });
 #if defined(MPHREAD_SHELL)
         if (_shell)
         {
             // LauncherHunter owns a process-static side Scene. Release its GL
             // resources and destroy that Scene before _window tears down GLFW
             // and the owning OpenGL context.
-            Mods::Render::LauncherHunter::ReleaseGl();
+            cleanup([] { Mods::Render::LauncherHunter::ReleaseGl(); });
         }
 #endif
         if (_scene)
         {
-            _scene->ReleaseGpuResources();
+            cleanup([this] { _scene->ReleaseGpuResources(); });
         }
+        _windowCommands.reset();
+        _swapchain.reset();
+        if (ObserveRendererSwitchStage)
+            cleanup([this] { ObserveRendererSwitchStage(*this, RendererSwitchStage::FinalRelease); });
+        NativeRuntime::Rhi::DetachSceneWindow();
     }
 
     bool RenderWindow::HasScene() const noexcept
@@ -5894,11 +6256,24 @@ namespace MphRead
 
     void RenderWindow::Run()
     {
-        _window->Run(*this);
+        for (;;)
+        {
+            _window->Run(*this);
+            if (!_rendererSwitch.has_value()) break;
+            const NativeRuntime::Rhi::SceneBackendRequest request = *_rendererSwitch;
+            _rendererSwitch.reset();
+            SwitchRenderer(request);
+        }
     }
 
     void RenderWindow::OnClosing()
     {
+        if (_rendererSwitch.has_value())
+        {
+            // Not closing: the window is being remade for another renderer.
+            _window->BaseOnClosing();
+            return;
+        }
         if (_shell)
         {
             Mods::WindowGeometry::Remember(*this);
@@ -5960,15 +6335,119 @@ namespace MphRead
         _window->BaseOnLoad();
     }
 
+    bool RenderWindow::BeforeFrame()
+    {
+        namespace Rhi = NativeRuntime::Rhi;
+        ApplyFrameRateSettings();
+        const auto size = FramebufferSize();
+        if (size.X <= 0 || size.Y <= 0)
+        {
+            _swapchain->AbandonLowLatencyFrame();
+            return true;
+        }
+        auto state = Rhi::ResolveLowLatency(Mods::Launcher::LauncherPrefs::LowLatency(), _swapchain->LowLatencyCaps());
+        const bool nativePacing = state.authority == Rhi::PacingAuthority::Native;
+        // Native measurement also opens a frame in Off; only pacing is disabled.
+        if (!_swapchain->BeginLowLatencyFrame()) return false;
+        state = Rhi::ResolveLowLatency(state.requested, _swapchain->LowLatencyCaps());
+        if (state.effective == Rhi::LowLatencyMode::Off) return true;
+        if (state.authority == Rhi::PacingAuthority::Native)
+        {
+            return true;
+        }
+        if (nativePacing) ApplyFrameRateSettings(); // Native failure hands this frame to Generic.
+        return Rhi::SceneDevice().WaitForLatestSubmission(Rhi::PresentationScheduler::FrameBudgetWait.count());
+    }
+
+    bool RenderWindow::CanSampleInputWhileWaiting() const
+    {
+        return NativeRuntime::Rhi::ResolveLowLatency(Mods::Launcher::LauncherPrefs::LowLatency(),
+            _swapchain->LowLatencyCaps()).authority != NativeRuntime::Rhi::PacingAuthority::Native;
+    }
+
+    void RenderWindow::OnInputSample()
+    { _swapchain->MarkLowLatency(NativeRuntime::Rhi::LowLatencyMarker::InputSample); }
+
+    void RenderWindow::OnInputEventsProcessed()
+    {
+        // Reuse the gameplay capture policy after key/focus/UI events and before
+        // the platform latches accumulated motion into this simulation frame.
+        UpdateCursorCapture();
+    }
+
+    void RenderWindow::UpdateCursorCapture()
+    {
+        if (!_scene)
+        {
+            _window->Cursor(RendererPlatform::CursorState::Normal);
+            return;
+        }
+        const bool playerCamera = _scene->CameraMode() == MphRead::CameraMode::Player;
+        const bool freeCamera = _scene->IsFreeCam();
+        const bool frameAdvance = _scene->FrameAdvance();
+        const bool pauseOpen = Mods::PauseMenu::Open();
+        const bool endScreen = Mods::EndScreen::Available();
+        const bool stylusMode = Mods::Input::PointerInput::StylusMode();
+        const bool stylusPlacing = Mods::Input::StylusZone::Placing();
+        const bool sceneShowsCursor = _scene->ShowCursor();
+        const bool dialogPause = GameState::DialogPause();
+        const bool menuPause = GameState::MenuPause();
+        const bool focused = IsFocused();
+        const bool grab = (playerCamera || freeCamera) && !frameAdvance && !pauseOpen && !endScreen
+            && !stylusMode && !stylusPlacing && !sceneShowsCursor && !dialogPause && !menuPause
+            && focused && !Mods::Chat::ChatBox::Composing();
+        if (Mods::DebugLog::Active())
+        {
+            static std::optional<std::pair<bool, bool>> lastCursorState;
+            const std::pair<bool, bool> cursorState{grab, focused};
+            if (!lastCursorState.has_value() || *lastCursorState != cursorState)
+            {
+                const auto bit = [](bool value) { return value ? "1" : "0"; };
+                Mods::DebugLog::Line("input", std::string("cursor grab=") + bit(grab)
+                    + " focus=" + bit(focused) + " player=" + bit(playerCamera)
+                    + " freecam=" + bit(freeCamera) + " frameadvance=" + bit(frameAdvance)
+                    + " pause=" + bit(pauseOpen) + " end=" + bit(endScreen)
+                    + " stylus=" + bit(stylusMode) + " stylusplacing=" + bit(stylusPlacing)
+                    + " weaponwheel=" + bit(sceneShowsCursor) + " dialog=" + bit(dialogPause)
+                    + " menupause=" + bit(menuPause));
+                lastCursorState = cursorState;
+            }
+        }
+        _window->Cursor(grab ? RendererPlatform::CursorState::Grabbed : RendererPlatform::CursorState::Normal);
+    }
+
     void RenderWindow::ApplyFrameRateSettings()
     {
-        const std::int32_t cap = Mods::Render::FrameTiming::FrameRateCap();
-        if (cap == _appliedFrameRateCap)
+        const std::int32_t cap = Mods::Diagnostics::FramePerformance::EffectiveCap(Mods::Render::FrameTiming::FrameRateCap());
+        const bool vsync = Mods::Render::FrameTiming::VSync();
+        const auto latency = NativeRuntime::Rhi::ResolveLowLatency(Mods::Launcher::LauncherPrefs::LowLatency(),
+            NativeRuntime::Rhi::SceneDevice().LowLatencyCaps());
+        // With Reflex pacing, FIFO alone did not hold the frame rate to the
+        // display (1136 FPS presented FIFO on a 540 Hz screen), so VSync also
+        // gives Reflex the refresh period as its minimum interval -- the
+        // driver-side cap NVIDIA describes for Reflex with VSync. A lower
+        // FPS cap still wins.
+        _swapchain->ConfigureLowLatency(Mods::Launcher::LauncherPrefs::LowLatency(),
+            NativeRuntime::Rhi::ReflexMinimumIntervalUs(cap,
+                vsync && latency.authority == NativeRuntime::Rhi::PacingAuthority::Native ? RefreshRate() : 0.0));
+        if (!_reportedLatency || *_reportedLatency != latency)
+        {
+            _reportedLatency = latency;
+            std::cout << "[presentation] requested_low_latency_mode=" << static_cast<int>(latency.requested)
+                << " effective_low_latency_mode=" << static_cast<int>(latency.effective)
+                << " low_latency_provider=" << static_cast<int>(latency.provider)
+                << " boost_supported=" << latency.boostSupported
+                << " pacing_authority=" << static_cast<int>(latency.authority)
+                << " reason=" << latency.fallbackReason << '\n';
+        }
+        _window->PresentationTiming(_swapchain->Desc().presentMode, cap, latency.authority);
+        if (cap == _appliedFrameRateCap && vsync == _appliedVSync)
         {
             return;
         }
         _appliedFrameRateCap = cap;
-        if (cap == Mods::Render::FrameTiming::DisplayRate)
+        _appliedVSync = vsync;
+        if (vsync)
         {
             _swapchain->SetPresentMode(NativeRuntime::Rhi::PresentMode::Fifo);
             _window->UpdateFrequency(0.0);
@@ -5976,8 +6455,9 @@ namespace MphRead
         else
         {
             _swapchain->SetPresentMode(NativeRuntime::Rhi::PresentMode::Immediate);
-            _window->UpdateFrequency(static_cast<double>(cap));
+            _window->UpdateFrequency(0.0);
         }
+        _window->PresentationTiming(_swapchain->Desc().presentMode, cap, latency.authority);
     }
 
     void RenderWindow::Reveal()
@@ -5998,18 +6478,93 @@ namespace MphRead
         }
     }
 
+    void RenderWindow::ReportReflexPacing(const NativeRuntime::Rhi::LowLatencyDiagnostics& reflex)
+    {
+        // Which machine set this frame rate, on one line: the cap and the
+        // interval it became, the present mode asked for and the one the
+        // surface gave, the screen's rate, and where native admission spent
+        // its time. The 265 FPS question is answered by reading this.
+        namespace Rhi = NativeRuntime::Rhi;
+        const auto state = Rhi::ResolveLowLatency(Mods::Launcher::LauncherPrefs::LowLatency(), _swapchain->LowLatencyCaps());
+        const auto present = [](Rhi::PresentMode mode)
+        { return mode == Rhi::PresentMode::Immediate ? "Immediate" : mode == Rhi::PresentMode::Mailbox ? "Mailbox" : "Fifo"; };
+        const auto mode = [](Rhi::LowLatencyMode value)
+        { return value == Rhi::LowLatencyMode::OnBoost ? "OnBoost" : value == Rhi::LowLatencyMode::On ? "On" : "Off"; };
+        const auto provider = [](Rhi::LowLatencyProvider value)
+        {
+            return value == Rhi::LowLatencyProvider::Nvidia ? "Nvidia" : value == Rhi::LowLatencyProvider::Amd ? "Amd"
+                : value == Rhi::LowLatencyProvider::Generic ? "Generic" : "None";
+        };
+        const std::int32_t cap = Mods::Diagnostics::FramePerformance::EffectiveCap(Mods::Render::FrameTiming::FrameRateCap());
+        const auto& p = reflex.pacing;
+        std::ostringstream line;
+        line.imbue(std::locale::classic());
+        line << std::fixed << std::setprecision(1)
+             << "[reflex-pacing] mode=" << mode(state.requested) << " effective=" << mode(state.effective)
+             << " provider=" << provider(state.provider)
+             << " authority=" << (state.authority == Rhi::PacingAuthority::Native ? "Native" : "Generic")
+             << " cap=" << (cap == -1 ? std::string("unlimited") : cap == 0 ? std::string("display") : std::to_string(cap))
+             << " vsync=" << (Mods::Render::FrameTiming::VSync() ? "on" : "off")
+             << " minimum_interval_us=" << reflex.minimumIntervalUs
+             << " present_requested=" << present(_swapchain->RequestedPresentMode())
+             << " present_actual=" << present(_swapchain->Desc().presentMode)
+             << " screen_hz=" << RefreshRate()
+             << " images=" << _swapchain->Desc().imageCount
+             << " revision=" << reflex.revision
+             << " frame=" << reflex.frameId
+             << " completed=" << reflex.completedMeasurementFrames
+             << " abandoned=" << reflex.abandonedMeasurementFrames
+             << " samples=" << p.admission.samples
+             << " sleep_call_us=" << p.sleepCall.p50 << '/' << p.sleepCall.p95 << '/' << p.sleepCall.p99 << '/' << p.sleepCall.max
+             << " wait_us=" << p.wait.p50 << '/' << p.wait.p95 << '/' << p.wait.p99 << '/' << p.wait.max
+             << " admission_us=" << p.admission.p50 << '/' << p.admission.p95 << '/' << p.admission.p99 << '/' << p.admission.max
+             << " wait_timeouts=" << p.waitTimeouts;
+        std::cout << line.str() << '\n';
+    }
+
     NativeRuntime::Rhi::CommandList& RenderWindow::WindowCommands()
     {
         if (!_windowCommands)
         {
-            _windowCommands = NativeRuntime::Rhi::OpenGL::ContextDevice().CreateCommandList();
+            auto commands = NativeRuntime::Rhi::SceneDevice().CreateCommandList();
+            commands->Begin();
+            _windowCommands = std::move(commands);
         }
         return *_windowCommands;
     }
 
     void RenderWindow::OnRenderFrame(const RendererPlatform::FrameEventArgs& args)
     {
-        ApplyFrameRateSettings();
+        if (_performance) _performance->BeginFrame(*this, *_swapchain);
+        const auto present = [&]
+        {
+            const NativeRuntime::FrameTelemetry::Scope measured(NativeRuntime::FrameTelemetry::Phase::Present);
+            _swapchain->MarkLowLatency(NativeRuntime::Rhi::LowLatencyMarker::SimulationEnd);
+            if (std::getenv("FRUITY_RENDER_METRICS") && ++_presentationMetricFrames % 120 == 0)
+            {
+                const auto waits = NativeRuntime::Rhi::SceneDevice().PresentationWaits();
+                std::cout << "[presentation-metrics] present_wait_count=" << waits.count
+                    << " present_wait_ns=" << waits.nanoseconds << '\n';
+                const auto reflex = _swapchain->LowLatencyStats();
+                std::cout << "[reflex-metrics] sleep=" << reflex.sleepCalls << " wait=" << reflex.waitCalls
+                    << " modes=" << reflex.modeCalls << " markers=" << reflex.markerCalls << " reports=" << reflex.timingReports
+                    << " frame=" << reflex.frameId << " generation=" << reflex.swapchainGeneration << '\n';
+                ReportReflexPacing(reflex);
+            }
+            if (!_performance)
+            {
+                const auto result = NativeRuntime::Rhi::PresentSceneWindow(*_swapchain);
+                if (result.accepted) { _window->PresentationAccepted(); NativeRuntime::FrameTelemetry::Rendered(); }
+                else _window->PresentationUnavailable();
+                return;
+            }
+            const auto start = std::chrono::steady_clock::now();
+            const auto result = NativeRuntime::Rhi::PresentSceneWindow(*_swapchain);
+            if (result.accepted) { _window->PresentationAccepted(); NativeRuntime::FrameTelemetry::Rendered(); }
+            else _window->PresentationUnavailable();
+            if (_performance) _performance->Presented(*this, *_swapchain,
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
+        };
         if (Mods::Network::NetLaunch::TickTerminalLobby(*this))
         {
             {
@@ -6023,7 +6578,7 @@ namespace MphRead
                 commands.BeginRendering(info);
                 commands.EndRendering();
             }
-            _swapchain->Present();
+            present();
             _window->BaseOnRenderFrame(args);
             return;
         }
@@ -6032,6 +6587,8 @@ namespace MphRead
         Mods::Launcher::Gui::Shell::TickEndPanel();
         if (_scene == nullptr)
         {
+            _swapchain->MarkLowLatency(NativeRuntime::Rhi::LowLatencyMarker::SimulationStart);
+            _swapchain->MarkLowLatency(NativeRuntime::Rhi::LowLatencyMarker::SimulationEnd);
             // With no game scene the launcher owns the whole frame, so its
             // Ganesh pass may run before the launcher background/composite.
             Mods::Launcher::Gui::Shell::TickUi(*this);
@@ -6040,44 +6597,14 @@ namespace MphRead
             const Vector2i framebuffer = FramebufferSize();
             Mods::Render::UiOverlay::DrawAlone(*this, framebuffer.X, framebuffer.Y);
             Mods::Launcher::Gui::Shell::AfterDraw(*this);
-            _swapchain->Present();
+            present();
             Reveal();
             Mods::PauseMenu::Poll(*this);
             _window->BaseOnRenderFrame(args);
             return;
         }
 #endif
-        const bool playerCamera = _scene->CameraMode() == MphRead::CameraMode::Player;
-        const bool freeCamera = _scene->IsFreeCam();
-        const bool frameAdvance = _scene->FrameAdvance();
-        const bool pauseOpen = Mods::PauseMenu::Open();
-        const bool endScreen = Mods::EndScreen::Available();
-        const bool stylusMode = Mods::Input::PointerInput::StylusMode();
-        const bool stylusPlacing = Mods::Input::StylusZone::Placing();
-        const bool sceneShowsCursor = _scene->ShowCursor();
-        const bool dialogPause = GameState::DialogPause();
-        const bool menuPause = GameState::MenuPause();
-        const bool focused = IsFocused();
-        const bool grab = (playerCamera || freeCamera) && !frameAdvance && !pauseOpen && !endScreen
-            && !stylusMode && !stylusPlacing && !sceneShowsCursor && !dialogPause && !menuPause;
-        if (Mods::DebugLog::Active())
-        {
-            static std::optional<std::pair<bool, bool>> lastCursorState;
-            const std::pair<bool, bool> cursorState{grab, focused};
-            if (!lastCursorState.has_value() || *lastCursorState != cursorState)
-            {
-                const auto bit = [](bool value) { return value ? "1" : "0"; };
-                Mods::DebugLog::Line("input", std::string("cursor grab=") + bit(grab)
-                    + " focus=" + bit(focused) + " player=" + bit(playerCamera)
-                    + " freecam=" + bit(freeCamera) + " frameadvance=" + bit(frameAdvance)
-                    + " pause=" + bit(pauseOpen) + " end=" + bit(endScreen)
-                    + " stylus=" + bit(stylusMode) + " stylusplacing=" + bit(stylusPlacing)
-                    + " weaponwheel=" + bit(sceneShowsCursor) + " dialog=" + bit(dialogPause)
-                    + " menupause=" + bit(menuPause));
-                lastCursorState = cursorState;
-            }
-        }
-        _window->Cursor(grab ? RendererPlatform::CursorState::Grabbed : RendererPlatform::CursorState::Normal);
+        UpdateCursorCapture();
         const Vector2i clientSize = _window->ClientSize();
         const float pointerX = _window->Mouse().X / static_cast<float>(std::max(clientSize.X, 1));
         const float pointerY = _window->Mouse().Y / static_cast<float>(std::max(clientSize.Y, 1));
@@ -6093,6 +6620,7 @@ namespace MphRead
             Mods::Input::StylusZone::PlacementDrag(pointerX, pointerY);
         }
         GameState::ApplyPause();
+        _swapchain->MarkLowLatency(NativeRuntime::Rhi::LowLatencyMarker::SimulationStart);
         std::int32_t steps;
         if (_scene->FrameAdvance())
         {
@@ -6105,8 +6633,10 @@ namespace MphRead
         }
         for (std::int32_t i = 0; i < steps; ++i)
         {
+            const NativeRuntime::FrameTelemetry::Scope measured(NativeRuntime::FrameTelemetry::Phase::Simulation);
             _scene->OnSimulationFrame();
         }
+        _swapchain->MarkLowLatency(NativeRuntime::Rhi::LowLatencyMarker::SimulationEnd);
         if (Mods::Chat::ChatBox::Composing()
             && Mods::Input::GamepadInput::TakePress(
                 Mods::Input::GamepadButtons::B | Mods::Input::GamepadButtons::Start))
@@ -6123,7 +6653,10 @@ namespace MphRead
         {
             Mods::Chat::ChatBox::Open(false);
         }
-        _scene->OnDrawFrame();
+        {
+            const NativeRuntime::FrameTelemetry::Scope measured(NativeRuntime::FrameTelemetry::Phase::Traversal);
+            _scene->OnDrawFrame();
+        }
         if (!_scene->OnRenderFrame())
         {
             return;
@@ -6133,13 +6666,16 @@ namespace MphRead
         // shares the window context only as a compositor backend; map/model/
         // HUD rendering above remains entirely on the existing OpenGL path.
         // When the UI is hidden TickUi performs no Ganesh render at all.
-        Mods::Launcher::Gui::Shell::TickUi(*this);
-        const Vector2i framebuffer = FramebufferSize();
-        Mods::Render::UiOverlay::Draw(framebuffer.X, framebuffer.Y);
-        Mods::Render::LauncherHunter::Draw(*this, framebuffer.X, framebuffer.Y);
-        Mods::Launcher::Gui::Shell::AfterDraw(*this);
+        {
+            const NativeRuntime::FrameTelemetry::Scope measured(NativeRuntime::FrameTelemetry::Phase::Ui);
+            Mods::Launcher::Gui::Shell::TickUi(*this);
+            const Vector2i framebuffer = FramebufferSize();
+            Mods::Render::UiOverlay::Draw(framebuffer.X, framebuffer.Y);
+            Mods::Render::LauncherHunter::Draw(*this, framebuffer.X, framebuffer.Y);
+            Mods::Launcher::Gui::Shell::AfterDraw(*this);
+        }
 #endif
-        _swapchain->Present();
+        present();
         Reveal();
         Mods::PauseMenu::Poll(*this);
         _scene->AfterRenderFrame();
@@ -6294,6 +6830,11 @@ namespace MphRead
 #endif
         // Filtered for the same reason the player's aim is: the free
         // camera is reached from a match, with the same pointer.
+        if (!IsFocused())
+        {
+            _window->BaseOnMouseMove(e);
+            return;
+        }
         const auto [deltaX, deltaY] = _scene->IsFreeCam()
             ? Mods::Input::PointerInput::Filter(e.DeltaX, e.DeltaY) : std::pair<float, float>(e.DeltaX, e.DeltaY);
         _scene->OnMouseMove(deltaX, deltaY);
@@ -6329,7 +6870,7 @@ namespace MphRead
         {
             const std::u32string codePoint(1, static_cast<char32_t>(e.Unicode));
             Mods::Launcher::Gui::Shell::TextInput(
-                NativeRuntime::Avalonia::Media::ToUtf8(codePoint));
+                NativeRuntime::Utf32ToUtf8(codePoint));
             _window->BaseOnTextInput(e);
             return;
         }
@@ -6354,7 +6895,7 @@ namespace MphRead
         Mods::Input::InputSourceTracker::Note(Mods::Input::InputSource::KeyboardMouse);
 #if defined(MPHREAD_SHELL)
         if (Mods::Launcher::Gui::Shell::UiVisible()
-            && !Mods::Launcher::Gui::KeyRow::AnyListening()
+            && !Mods::Input::KeyCapture::AnyListening()
             && Mods::WindowMode::HandleKey(*this, e))
         {
             _window->BaseOnKeyDown(e);
@@ -6575,6 +7116,16 @@ namespace MphRead
     void RenderWindow::WindowStateNormal()
     {
         _window->WindowStateNormal();
+    }
+
+    bool RenderWindow::WindowStateFullscreen()
+    {
+        return _window->WindowStateFullscreen();
+    }
+
+    double RenderWindow::RefreshRate() const
+    {
+        return _window->RefreshRate();
     }
 
     void RenderWindow::Floating(bool value)

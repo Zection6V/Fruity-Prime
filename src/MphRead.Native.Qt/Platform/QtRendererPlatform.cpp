@@ -16,6 +16,7 @@
 #include "../../MphRead.Native/NativeRuntime/Rhi/OpenGL/OpenGlDevice.hpp"
 #include "../../MphRead.Native/NativeRuntime/Rhi/PresentationScheduler.hpp"
 #include "../../MphRead.Native/NativeRuntime/Rhi/PresentationSleep.hpp"
+#include "../../MphRead.Native/NativeRuntime/Rhi/FullscreenExclusive.hpp"
 #if defined(FRUITY_HAS_VULKAN)
 #include "../../MphRead.Native/NativeRuntime/Rhi/Vulkan/VulkanWindowSystem.hpp"
 #include "../../MphRead.Native/NativeRuntime/Rhi/Vulkan/VulkanResult.hpp"
@@ -50,6 +51,7 @@
 #include "WindowsRawMouseInput.hpp"
 #endif
 
+#include <QtCore/QAbstractNativeEventFilter>
 #include <QtCore/QCoreApplication>
 #include <QtCore/QEventLoop>
 #include <QtGui/QCursor>
@@ -214,7 +216,13 @@ namespace
         [[nodiscard]] WindowStateValue WindowState() const override;
         void WindowStateMinimized() override { _window->showMinimized(); }
         void WindowStateMaximized() override { _window->showMaximized(); }
-        void WindowStateNormal() override { _window->showNormal(); }
+        void WindowStateNormal() override
+        {
+            _exclusiveMonitor = nullptr;
+            Rhi::FullscreenExclusive::Request(nullptr);
+            _window->showNormal();
+        }
+        bool WindowStateFullscreen() override;
         void Floating(bool value) override { _window->setFlag(Qt::WindowStaysOnTopHint, value); }
         [[nodiscard]] bool IsFocused() const override { return _window->isActive(); }
         [[nodiscard]] Vector2i ClientLocation() const override;
@@ -222,6 +230,9 @@ namespace
 
         // From GameQWindow.
         bool HandleEvent(QEvent* event);
+#if defined(_WIN32)
+        static void InstallAltF4Filter();
+#endif
 
     private:
         [[nodiscard]] qreal Scale() const { return _window->devicePixelRatio(); }
@@ -235,6 +246,11 @@ namespace
         void ApplyRawMouse();
 
         std::unique_ptr<GameQWindow> _window;
+        // The monitor exclusive fullscreen was entered on, while it is the
+        // mode. The swapchain is only asked to hold the display while the
+        // window has focus: holding it after Alt+Tab is what kept the
+        // desktop from coming back.
+        void* _exclusiveMonitor = nullptr;
 #if defined(_WIN32)
         std::unique_ptr<MphRead::Qt::WindowsRawMouseInput> _rawMouse;
         bool _rawMotionOwner = false;
@@ -313,6 +329,9 @@ namespace
         _window->create();
         g_gameWindow = _window.get();
         g_qtWindow = this;
+#if defined(_WIN32)
+        InstallAltF4Filter();
+#endif
 
         if (gl)
         {
@@ -376,6 +395,42 @@ namespace
         }
         _window.reset();
     }
+
+#if defined(_WIN32)
+    namespace
+    {
+        // Alt+F4 at the Win32 message, before Qt decides who gets the key.
+        // A QKeyEvent check on the game window alone was not enough: in a
+        // match the key went somewhere the game window's handler never saw,
+        // and Qt passes Windows' own Alt+F4 handling only keys nobody
+        // accepted. Any window of this process, the game window closes.
+        class AltF4Filter final : public QAbstractNativeEventFilter
+        {
+        public:
+            bool nativeEventFilter(const QByteArray&, void* message, qintptr*) override
+            {
+                const MSG* msg = static_cast<const MSG*>(message);
+                if (msg->message == WM_SYSKEYDOWN && msg->wParam == VK_F4
+                    && (msg->lParam & (1 << 29)) != 0 && g_qtWindow != nullptr)
+                {
+                    g_qtWindow->Close();
+                    return true;
+                }
+                return false;
+            }
+        };
+    }
+
+    void QtWindow::InstallAltF4Filter()
+    {
+        static AltF4Filter* filter = nullptr;
+        if (filter == nullptr && QCoreApplication::instance() != nullptr)
+        {
+            filter = new AltF4Filter();
+            QCoreApplication::instance()->installNativeEventFilter(filter);
+        }
+    }
+#endif
 
     void QtWindow::Run(WindowEvents& events)
     {
@@ -648,6 +703,41 @@ namespace
         _window->resize(value.X, value.Y);
     }
 
+    bool QtWindow::WindowStateFullscreen()
+    {
+#if defined(_WIN32)
+        // Not Qt's showFullScreen: on Windows that keeps a one-pixel border
+        // round an OpenGL/Vulkan surface, which is exactly what stops the
+        // driver from giving it the display. A game's fullscreen is a popup
+        // with no frame covering the monitor to the pixel, and -- on Vulkan
+        // -- a swapchain that asks for the display outright
+        // (VK_EXT_full_screen_exclusive, see FullscreenExclusive.hpp).
+        _window->showNormal();
+        _window->setFlag(Qt::FramelessWindowHint, true);
+        _window->show();
+        const HWND hwnd = reinterpret_cast<HWND>(_window->winId());
+        const HMONITOR monitor = ::MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO info{};
+        info.cbSize = sizeof(info);
+        if (monitor == nullptr || !::GetMonitorInfoW(monitor, &info))
+        {
+            return false;
+        }
+        const RECT& r = info.rcMonitor;
+        ::SetWindowPos(hwnd, HWND_TOP, r.left, r.top, r.right - r.left, r.bottom - r.top,
+            SWP_FRAMECHANGED | SWP_SHOWWINDOW | SWP_NOOWNERZORDER);
+        _exclusiveMonitor = monitor;
+        if (_window->isActive())
+        {
+            Rhi::FullscreenExclusive::Request(monitor);
+        }
+        return true;
+#else
+        _window->showFullScreen();
+        return true;
+#endif
+    }
+
     QScreen* QtWindow::ScreenOf() const
     {
         QScreen* screen = _window->screen();
@@ -758,6 +848,24 @@ namespace
                 _window->setMouseGrabEnabled(false);
             }
 #endif
+            if (_exclusiveMonitor != nullptr)
+            {
+                // Give the display back the moment something else is in
+                // front (Alt+Tab, Win key, a notification taking focus) and
+                // stop being topmost, so whatever took focus is drawn over
+                // us; take the display again on the way back in. Not
+                // minimised: a window minimised from here came back with its
+                // frame loop stalled.
+                if (event->type() == QEvent::FocusOut)
+                {
+                    Rhi::FullscreenExclusive::Request(nullptr);
+                    _window->setFlag(Qt::WindowStaysOnTopHint, false);
+                }
+                else
+                {
+                    Rhi::FullscreenExclusive::Request(_exclusiveMonitor);
+                }
+            }
             if (_events != nullptr)
             {
                 _events->OnFocusedChanged(event->type() == QEvent::FocusIn);
@@ -765,6 +873,18 @@ namespace
             return false;
         case QEvent::KeyPress:
         case QEvent::KeyRelease:
+            // Qt hands Windows its default handling only for keys nobody
+            // accepted, and this window accepts every key -- so Alt+F4 never
+            // became a close. Answer it here, on every platform.
+            if (event->type() == QEvent::KeyPress)
+            {
+                const auto* key = static_cast<QKeyEvent*>(event);
+                if (key->key() == Qt::Key_F4 && key->modifiers().testFlag(Qt::AltModifier))
+                {
+                    _closeRequested = true;
+                    return true;
+                }
+            }
             Key(static_cast<QKeyEvent*>(event), event->type() == QEvent::KeyPress);
             return true;
         case QEvent::MouseButtonPress:

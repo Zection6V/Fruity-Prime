@@ -321,7 +321,7 @@ namespace MphRead::Entities
         {
             return;
         }
-        if (!RequireReference(_scene).NavMapRoomSymbols() || Controls().HudOverlay().IsDown())
+        if (!RequireReference(_scene).NavMapRoomSymbols() || Controls().AdventureMapLegend().IsDown())
         {
             return;
         }
@@ -546,7 +546,7 @@ namespace MphRead::Entities
                     }
                     _textSpacingY = 0.0F;
                 }
-                if (Controls().HudOverlay().IsDown())
+                if (Controls().AdventureMapLegend().IsDown())
                 {
                     ManagedAt(_mapLegendInfo, 0).Unlocked = _availableWeapons[BeamType::Battlehammer];
                     ManagedAt(_mapLegendInfo, 1).Unlocked = _availableWeapons[BeamType::VoltDriver];
@@ -938,7 +938,7 @@ namespace MphRead::Entities
 
     void PlayerEntity::GetPauseMapRenderItems()
     {
-        if (!_navMapModelEnabled || _drawPauseState != 1 || Controls().HudOverlay().IsDown())
+        if (!_navMapModelEnabled || _drawPauseState != 1 || Controls().AdventureMapLegend().IsDown())
         {
             return;
         }

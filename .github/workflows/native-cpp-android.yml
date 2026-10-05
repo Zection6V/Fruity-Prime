@@ -439,7 +439,7 @@ jobs:
           arch: x86_64
           target: ${{ matrix.target }}
           disable-animations: true
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          emulator-options: -no-window -gpu swiftshader -no-snapshot -noaudio -no-boot-anim
           script: python3 tools/ci/android-startup-smoke.py apk/FruityPrime.apk --out android-startup-smoke-${{ matrix.api }}
 
       - name: Upload startup evidence

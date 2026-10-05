@@ -342,6 +342,11 @@ namespace MphRead
     {
     }
 
+    bool RenderWindow::WindowStateFullscreen()
+    {
+        return false;
+    }
+
     void RenderWindow::Floating(bool)
     {
     }

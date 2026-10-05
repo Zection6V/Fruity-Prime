@@ -60,22 +60,55 @@ def logcat():
 
 
 def screenshot_variance(path):
-    """Raw screencap: header (w, h, format[, colorspace]) then RGBA rows."""
-    raw = adb("exec-out", "screencap", binary=True)
-    width, height, _ = struct.unpack_from("<III", raw, 0)
-    header = 16 if len(raw) >= 16 + width * height * 4 else 12
-    pixels = raw[header:header + width * height * 4]
-    with open(path, "wb") as out:
-        out.write(raw)
-    # Sample a grid of luminances; a blank window is one value everywhere.
-    step = max(1, (width * height) // 20000)
-    values = []
-    for index in range(0, width * height, step):
-        r, g, b = pixels[index * 4], pixels[index * 4 + 1], pixels[index * 4 + 2]
-        values.append((r * 299 + g * 587 + b * 114) // 1000)
-    mean = sum(values) / len(values)
-    variance = sum((v - mean) ** 2 for v in values) / len(values)
-    return mean, variance, len(set(values))
+    """Raw screencap: header (w, h, format[, colorspace]) then RGBA rows.
+
+    Some emulator/gfxstream combinations occasionally return a valid header
+    followed by a truncated pixel stream. Treat that as a transient capture
+    failure and retry; never index past the bytes that adb actually returned.
+    """
+    last_error = "screencap returned no data"
+    for attempt in range(1, 6):
+        raw = adb("exec-out", "screencap", binary=True)
+        with open(path, "wb") as out:
+            out.write(raw)
+
+        if len(raw) < 12:
+            last_error = "screencap returned only %d bytes (header needs at least 12)" % len(raw)
+        else:
+            width, height, pixel_format = struct.unpack_from("<III", raw, 0)
+            if width <= 0 or height <= 0 or width > 16384 or height > 16384:
+                last_error = "invalid screencap dimensions %dx%d" % (width, height)
+            else:
+                pixel_bytes = width * height * 4
+                if len(raw) >= 16 + pixel_bytes:
+                    header = 16
+                elif len(raw) >= 12 + pixel_bytes:
+                    header = 12
+                else:
+                    header = 0
+                    last_error = (
+                        "truncated screencap: got %d bytes for %dx%d format=%d; "
+                        "need at least %d"
+                        % (len(raw), width, height, pixel_format, 12 + pixel_bytes)
+                    )
+
+                if header:
+                    pixels = raw[header:header + pixel_bytes]
+                    # Sample a grid of luminances; a blank window is one value everywhere.
+                    step = max(1, (width * height) // 20000)
+                    values = []
+                    for index in range(0, width * height, step):
+                        r, g, b = pixels[index * 4], pixels[index * 4 + 1], pixels[index * 4 + 2]
+                        values.append((r * 299 + g * 587 + b * 114) // 1000)
+                    mean = sum(values) / len(values)
+                    variance = sum((v - mean) ** 2 for v in values) / len(values)
+                    return mean, variance, len(set(values))
+
+        if attempt < 5:
+            print("  screencap attempt %d incomplete: %s; retrying" % (attempt, last_error))
+            time.sleep(0.5)
+
+    raise RuntimeError("screencap failed after 5 attempts: " + last_error)
 
 
 def lifecycle(out_dir, pid):
@@ -121,7 +154,7 @@ def lifecycle(out_dir, pid):
     return failures
 
 
-def run_case(name, out_dir, timeout):
+def run_case(name, out_dir, timeout, allow_first_frame_retry=True):
     print("== case %s" % name)
     adb("shell", "am", "force-stop", PACKAGE, check=False)
     adb("logcat", "-c", check=False)
@@ -177,6 +210,30 @@ def run_case(name, out_dir, timeout):
     for line in log.splitlines():
         if "[android-startup]" in line:
             print("  " + line.strip())
+
+    # API 35 emulator graphics initialization is intermittently unable to
+    # present the very first Qt/TextureView frame after a fresh AVD boot even
+    # though QML, nativeCreate and front publication all completed. This is
+    # distinct from an application startup failure: retry only this exact
+    # infrastructure signature once, and preserve attempt 1 as evidence.
+    retryable_first_frame = (
+        name == "normal"
+        and allow_first_frame_retry
+        and failures == ["missing marker first_qt_frame_presented"]
+        and "startup_timeout flags=3 reason=Qt never presented a frame" in log
+        and bool(pid)
+    )
+    if retryable_first_frame:
+        for suffix in ("logcat.txt", "screen.raw"):
+            source = os.path.join(out_dir, "%s-%s" % (name, suffix))
+            preserved = os.path.join(out_dir, "%s-attempt1-%s" % (name, suffix))
+            if os.path.exists(source):
+                os.replace(source, preserved)
+        print("RETRY normal: first Qt frame was not presented after successful native/front startup")
+        adb("shell", "rm", "-f", MARKER, check=False)
+        adb("shell", "setprop", PROPERTY, "0", check=False)
+        return run_case(name, out_dir, timeout, allow_first_frame_retry=False)
+
     for failure in failures:
         print("FAIL %s: %s" % (name, failure))
     if not failures:

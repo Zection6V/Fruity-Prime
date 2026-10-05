@@ -19,10 +19,30 @@
 #include "VulkanPresentResult.hpp"
 #include "VulkanReacquireProof.hpp"
 #include "VulkanWindowSystem.hpp"
+#include "../FullscreenExclusive.hpp"
 namespace MphRead::NativeRuntime::Rhi::Vulkan
 {
     namespace
     {
+        // VK_EXT_full_screen_exclusive's structs and entry points, as
+        // vulkan_win32.h declares them, without pulling <windows.h> into this
+        // file: HMONITOR is a pointer, VkFullScreenExclusiveEXT an int.
+        struct SurfaceFullScreenExclusiveInfo
+        {
+            VkStructureType sType = VK_STRUCTURE_TYPE_SURFACE_FULL_SCREEN_EXCLUSIVE_INFO_EXT;
+            void* pNext = nullptr;
+            std::int32_t fullScreenExclusive = 0;
+        };
+        struct SurfaceFullScreenExclusiveWin32Info
+        {
+            VkStructureType sType = VK_STRUCTURE_TYPE_SURFACE_FULL_SCREEN_EXCLUSIVE_WIN32_INFO_EXT;
+            const void* pNext = nullptr;
+            void* hmonitor = nullptr;
+        };
+        constexpr std::int32_t FullScreenExclusiveDisallowed = 2;
+        constexpr std::int32_t FullScreenExclusiveApplicationControlled = 3;
+        using FullScreenExclusiveModeFn = VkResult (VKAPI_PTR*)(VkDevice, VkSwapchainKHR);
+
         VkFormat ToVkFormat(TextureFormat format)
         {
             switch (format)
@@ -205,8 +225,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 }
                 const auto w = static_cast<std::uint32_t>(width);
                 const auto h = static_cast<std::uint32_t>(height);
+                if (_exclusiveGeneration != FullscreenExclusive::Generation())
+                    _needsRecreate = true;
                 if (_suspended || _needsRecreate || w != _desc.width || h != _desc.height)
                     Recreate(w, h);
+                else if (_exclusiveWanted && !_exclusiveHeld && --_exclusiveRetryIn == 0)
+                    AcquireExclusive();
                 // The surface can still report a zero extent while the window
                 // says otherwise -- a CAMetalLayer not yet laid out on macOS --
                 // and Recreate then made no swapchain. Never acquire from none.
@@ -232,7 +256,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     std::cerr << "[vulkan] still waiting to acquire a swapchain image after " << seconds << " s"
                         << std::endl;
                 }
-                if (acquire == VK_ERROR_OUT_OF_DATE_KHR)
+                if (acquire == VK_ERROR_OUT_OF_DATE_KHR || acquire == VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT)
                 {
                     Recreate(w, h);
                     continue;
@@ -603,6 +627,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         // The swapchain's transform is not the surface's, by choice (Recreate).
         bool _transformSuboptimal = false;
         bool _closed = false;
+        // Exclusive fullscreen: the request generation the swapchain was made
+        // for, whether it holds the display, and when to try again after the
+        // driver took it away (alt-tab, another fullscreen program).
+        std::uint64_t _exclusiveGeneration = 0;
+        bool _exclusiveWanted = false;
+        bool _exclusiveHeld = false;
+        std::uint32_t _exclusiveRetryIn = 0;
         std::uint64_t _presentFenceWaits = 0;
         std::uint64_t _fallbackRetiredReleases = 0;
         std::uint64_t _fallbackCompletedProofs = 0;
@@ -629,6 +660,21 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 fence.flags = VK_FENCE_CREATE_SIGNALED_BIT;
                 Check(vk.vkCreateFence(vk.device, &fence, nullptr, &frame.fence), "vkCreateFence(frame)");
             }
+        }
+
+        void AcquireExclusive()
+        {
+            auto& vk = *_context._impl;
+            const auto acquire = reinterpret_cast<FullScreenExclusiveModeFn>(vk.vkAcquireFullScreenExclusiveModeEXT);
+            const VkResult result = acquire(vk.device, _swapchain);
+            const bool held = result == VK_SUCCESS;
+            if (held != _exclusiveHeld || !held)
+                std::cout << "[vulkan] full-screen exclusive " << (held ? "acquired" : "not acquired")
+                          << " (" << static_cast<int>(result) << ")" << std::endl;
+            _exclusiveHeld = held;
+            // Refused while the window is not in front: ask again in about a
+            // second rather than every frame.
+            _exclusiveRetryIn = held ? 0 : 60;
         }
 
         void Recreate(std::uint32_t requestedWidth, std::uint32_t requestedHeight)
@@ -754,6 +800,38 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             create.presentMode = selectedMode;
             create.clipped = VK_TRUE;
             create.oldSwapchain = oldSwapchain;
+            _exclusiveGeneration = FullscreenExclusive::Generation();
+            void* const exclusiveMonitor = vk.fullScreenExclusive ? FullscreenExclusive::Monitor() : nullptr;
+            SurfaceFullScreenExclusiveWin32Info exclusiveMonitorInfo{};
+            SurfaceFullScreenExclusiveInfo exclusiveInfo{};
+            if (exclusiveMonitor != nullptr)
+            {
+                exclusiveMonitorInfo.hmonitor = exclusiveMonitor;
+                exclusiveMonitorInfo.pNext = create.pNext;
+                exclusiveInfo.fullScreenExclusive = FullScreenExclusiveApplicationControlled;
+                exclusiveInfo.pNext = &exclusiveMonitorInfo;
+                create.pNext = &exclusiveInfo;
+            }
+            else if (vk.fullScreenExclusive)
+            {
+                // Otherwise say no outright. Left at the default the driver
+                // takes the display on its own whenever the window covers the
+                // monitor, and then reports it lost on every present once the
+                // window is in the background -- a recreate a frame.
+                exclusiveInfo.fullScreenExclusive = FullScreenExclusiveDisallowed;
+                exclusiveInfo.pNext = const_cast<void*>(create.pNext);
+                create.pNext = &exclusiveInfo;
+            }
+            if (_exclusiveHeld && oldSwapchain)
+            {
+                (void)reinterpret_cast<FullScreenExclusiveModeFn>(vk.vkReleaseFullScreenExclusiveModeEXT)(
+                    vk.device, oldSwapchain);
+            }
+            _exclusiveHeld = false;
+            if (_exclusiveWanted != (exclusiveMonitor != nullptr))
+                std::cout << "[vulkan] full-screen exclusive " << (exclusiveMonitor ? "requested" : "released")
+                          << std::endl;
+            _exclusiveWanted = exclusiveMonitor != nullptr;
             VkSwapchainLatencyCreateInfoNV latency{VK_STRUCTURE_TYPE_SWAPCHAIN_LATENCY_CREATE_INFO_NV};
             if (vk.nvLowLatency2)
             { latency.latencyModeEnable = VK_TRUE; latency.pNext = create.pNext; create.pNext = &latency; }
@@ -771,6 +849,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
             _swapchain = replacement;
             _reflex->SetSwapchain(replacement);
+            if (_exclusiveWanted) AcquireExclusive();
             if (oldSwapchain)
             {
                 RetireImages(oldSwapchain);
@@ -832,7 +911,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::cout << "[vulkan] swapchain " << _desc.width << 'x' << _desc.height
                 << " images=" << _desc.imageCount << " present="
                 << (_desc.presentMode == PresentMode::Fifo ? "FIFO"
-                    : _desc.presentMode == PresentMode::Mailbox ? "MAILBOX" : "IMMEDIATE") << '\n';
+                    : _desc.presentMode == PresentMode::Mailbox ? "MAILBOX" : "IMMEDIATE") << std::endl;
         }
 
         void WaitForPresent(ImageState& image)
@@ -1059,6 +1138,16 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             _reflex->FinishFrame();
             // Rejected surface/out-of-date presents still enqueue their wait
             // operations. Their completion fence must be waited before cleanup.
+            if (result == VK_ERROR_FULL_SCREEN_EXCLUSIVE_MODE_LOST_EXT)
+            {
+                // The display was taken back (alt-tab): the present still
+                // enqueued its waits; remake the chain and ask again.
+                _exclusiveHeld = false;
+                image.presentPending = true;
+                if (completion) completion->Pending = true;
+                _needsRecreate = true;
+                result = VK_SUCCESS;
+            }
             if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR
                 || result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_ERROR_SURFACE_LOST_KHR)
             {

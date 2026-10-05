@@ -17,6 +17,7 @@ namespace MphRead::Mods
     std::atomic_bool PauseMenu::_leaveRequested{false};
     std::atomic_bool PauseMenu::_quit{false};
     std::atomic_bool PauseMenu::_toggleFullscreen{false};
+    std::atomic_bool PauseMenu::_applyWindowMode{false};
     std::atomic_bool PauseMenu::_refocus{false};
     bool PauseMenu::_leftMatch = false;
     bool PauseMenu::_quitProgram = false;
@@ -74,6 +75,11 @@ namespace MphRead::Mods
             _toggleFullscreen.store(false, std::memory_order_release);
             WindowMode::Toggle(window);
         }
+        if (_applyWindowMode.load(std::memory_order_acquire))
+        {
+            _applyWindowMode.store(false, std::memory_order_release);
+            WindowMode::Apply(window, WindowMode::Startup());
+        }
         if (_quit.load(std::memory_order_acquire))
         {
             _quit.store(false, std::memory_order_release);
@@ -119,6 +125,11 @@ namespace MphRead::Mods
     void PauseMenu::RequestFullscreenToggle() noexcept
     {
         _toggleFullscreen.store(true, std::memory_order_release);
+    }
+
+    void PauseMenu::RequestApplyWindowMode() noexcept
+    {
+        _applyWindowMode.store(true, std::memory_order_release);
     }
 
     void PauseMenu::MarkClosed() noexcept

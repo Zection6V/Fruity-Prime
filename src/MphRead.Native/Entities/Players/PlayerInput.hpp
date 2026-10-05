@@ -167,7 +167,7 @@ namespace MphRead::Entities
             std::shared_ptr<Keybind> judicator, std::shared_ptr<Keybind> magmaul,
             std::shared_ptr<Keybind> shockCoil, std::shared_ptr<Keybind> omegaCannon,
             std::shared_ptr<Keybind> affinitySlot, std::shared_ptr<Keybind> pause,
-            std::shared_ptr<Keybind> hudOverlay);
+            std::shared_ptr<Keybind> adventureMapLegend);
 
         [[nodiscard]] bool MouseAim() const noexcept { return _mouseAim; }
         void SetMouseAim(bool value) noexcept { _mouseAim = value; }
@@ -215,7 +215,7 @@ namespace MphRead::Entities
         MPHREAD_CONTROL_ACCESSOR(OmegaCannon, _omegaCannon)
         MPHREAD_CONTROL_ACCESSOR(AffinitySlot, _affinitySlot)
         MPHREAD_CONTROL_ACCESSOR(Pause, _pause)
-        MPHREAD_CONTROL_ACCESSOR(HudOverlay, _hudOverlay)
+        MPHREAD_CONTROL_ACCESSOR(AdventureMapLegend, _adventureMapLegend)
 #undef MPHREAD_CONTROL_ACCESSOR
 
         [[nodiscard]] std::array<std::shared_ptr<Keybind>, 35>& All() noexcept { return _all; }
@@ -269,7 +269,7 @@ namespace MphRead::Entities
         std::shared_ptr<Keybind> _omegaCannon{};
         std::shared_ptr<Keybind> _affinitySlot{};
         std::shared_ptr<Keybind> _pause{};
-        std::shared_ptr<Keybind> _hudOverlay{};
+        std::shared_ptr<Keybind> _adventureMapLegend{};
         std::array<std::shared_ptr<Keybind>, 35> _all{};
     };
 

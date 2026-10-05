@@ -666,7 +666,9 @@ namespace MphRead::Mods::Launcher
                 std::string("window_mode=")
                     + (static_cast<std::int32_t>(_windowMode) == 1
                         ? "borderless"
-                        : "windowed"));
+                        : static_cast<std::int32_t>(_windowMode) == 2
+                            ? "exclusive"
+                            : "windowed"));
             lines.emplace_back("window_size=" + ::MphRead::NativeRuntime::ToStringInvariant(_windowWidth)
                 + "x" + ::MphRead::NativeRuntime::ToStringInvariant(_windowHeight));
             lines.emplace_back("window_pos=" + ::MphRead::NativeRuntime::ToStringInvariant(_windowX)

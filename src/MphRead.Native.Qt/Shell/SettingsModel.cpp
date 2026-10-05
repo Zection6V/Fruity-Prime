@@ -417,8 +417,10 @@ namespace MphRead::Qt
 #if !defined(__ANDROID__)
         rows.push_back(Heading(QStringLiteral("Window")));
         rows.push_back(Choice(QStringLiteral("window"), QStringLiteral("Mode"),
-            {QStringLiteral("Windowed"), QStringLiteral("Fullscreen (borderless)")},
-            LauncherPrefs::WindowMode() == Mods::WindowStartMode::BorderlessFullscreen ? 1 : 0));
+            {QStringLiteral("Windowed"), QStringLiteral("Fullscreen (borderless)"),
+                QStringLiteral("Fullscreen (exclusive)")},
+            LauncherPrefs::WindowMode() == Mods::WindowStartMode::ExclusiveFullscreen ? 2
+                : LauncherPrefs::WindowMode() == Mods::WindowStartMode::BorderlessFullscreen ? 1 : 0));
 #endif
         // Switched in place on save: the window is remade on the chosen
         // renderer and the match and these menus carry on.
@@ -2099,14 +2101,15 @@ namespace MphRead::Qt
         }
         if (_display.Find(QStringLiteral("window")) != nullptr)
         {
-            const Mods::WindowStartMode mode = index(_display, "window") == 1
-                ? Mods::WindowStartMode::BorderlessFullscreen : Mods::WindowStartMode::Windowed;
+            const int choice = index(_display, "window");
+            const Mods::WindowStartMode mode = choice == 2 ? Mods::WindowStartMode::ExclusiveFullscreen
+                : choice == 1 ? Mods::WindowStartMode::BorderlessFullscreen
+                : Mods::WindowStartMode::Windowed;
             LauncherPrefs::WindowMode(mode);
             Mods::WindowMode::Startup(mode);
-            const bool wantFullscreen = mode == Mods::WindowStartMode::BorderlessFullscreen;
-            if (wantFullscreen != Mods::WindowMode::IsFullscreen())
+            if (mode != Mods::WindowMode::Active())
             {
-                Mods::PauseMenu::RequestFullscreenToggle();
+                Mods::PauseMenu::RequestApplyWindowMode();
             }
         }
         {

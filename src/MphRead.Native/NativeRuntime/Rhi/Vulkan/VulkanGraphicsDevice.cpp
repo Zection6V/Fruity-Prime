@@ -1172,6 +1172,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::unique_ptr<VulkanShader> Fragment;
             std::array<std::unique_ptr<VulkanBindingLayout>, SceneShaderAbi::GroupCount> Layouts;
             std::vector<Generated::TextureBinding> Textures;
+            // Per block: its place among its group's dynamic offsets, which
+            // Vulkan takes in binding order.
+            std::vector<std::uint8_t> DynamicSlot;
         };
 
 #include "VulkanCommandListInternal.inc"

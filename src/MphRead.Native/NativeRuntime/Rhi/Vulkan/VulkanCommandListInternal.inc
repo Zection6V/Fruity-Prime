@@ -2,13 +2,23 @@
 // Vulkan *Internal.inc files): the command list -- recording, draw
 // state, bindings, transfers and transitions -- kept apart from the device
 // that owns and schedules it.
-        // The per-draw uniform block is a dynamic uniform buffer, unless an A/B
-        // check asks for the plain one with FRUITY_VK_STATIC_DRAW=1.
-        [[nodiscard]] inline bool DynamicDrawBlock() noexcept
+        // The frame and draw groups' uniform blocks (camera, lights, fog; the
+        // matrix stack) are dynamic uniform buffers: their sets name upload
+        // pages and the bind gives each block's offset. FRUITY_VK_STATIC_DRAW=1
+        // (A/B checks only) keeps them plain uniform buffers.
+        [[nodiscard]] inline bool DynamicUniformGroup(std::uint32_t group) noexcept
         {
             static const bool dynamic = std::getenv("FRUITY_VK_STATIC_DRAW") == nullptr;
-            return dynamic;
+            return dynamic && (group == static_cast<std::uint32_t>(SceneShaderAbi::Group::Frame)
+                || group == static_cast<std::uint32_t>(SceneShaderAbi::Group::Draw));
         }
+        // One group's dynamic offsets, in binding order.
+        struct DynamicOffsets final
+        {
+            std::array<std::uint32_t, 4> Values{};
+            std::uint32_t Count = 0;
+            bool operator==(const DynamicOffsets&) const = default;
+        };
 
         class VulkanCommandList final : public CommandList, public VulkanNativeOwner
         {
@@ -253,10 +263,17 @@
 
             std::array<std::pair<VulkanTexture*, const VulkanSampler*>, 4> _units{};
             std::unordered_map<VariantKey, Variant, VariantHash> _variants{};
-            // The last variant found, for the run of draws under one SetPipeline:
-            // the pipeline cannot change under it, so neither hash nor desc compare.
-            VariantKey _lastVariantKey{};
-            VulkanGraphicsPipeline* _lastVariant = nullptr;
+            // The last few variants found. A pipeline's desc never changes and a
+            // destroyed one is forgotten (Forget), so a hit needs neither the hash
+            // nor the desc comparison. Draws alternate between a few pass pipelines.
+            struct RecentVariant final { VariantKey Key{}; VulkanGraphicsPipeline* Native = nullptr; };
+            std::array<RecentVariant, 4> _recentVariants{};
+            std::size_t _recentVariantNext = 0;
+            void RememberVariant(const VariantKey& key, VulkanGraphicsPipeline* native)
+            {
+                _recentVariants[_recentVariantNext] = {key, native};
+                _recentVariantNext = (_recentVariantNext + 1) % _recentVariants.size();
+            }
 
             struct SampledDescriptor final
             {
@@ -271,7 +288,7 @@
             VulkanSceneDescriptorState<VkDescriptorSet, SampledDescriptor> _sceneDescriptors;
             std::uint64_t _descriptorEpoch = 1;
             std::array<VkDescriptorSet, SceneShaderAbi::GroupCount> _boundSceneSets{};
-            std::uint32_t _boundDrawOffset = 0;
+            std::array<DynamicOffsets, SceneShaderAbi::GroupCount> _boundOffsets{};
             const PipelineLayout* _boundSceneLayout = nullptr;
             std::uint32_t _boundSmallBytes = 0;
             std::array<std::pair<const void*, std::uint64_t>, static_cast<std::size_t>(SceneProgram::Backdrop) + 1> _programIdentities{};
@@ -408,7 +425,7 @@
             }
             if (!_device->Closing) { try { WaitAll(); } catch (...) {} }
             ClearPersistentMaterials();
-            _variants.clear(); _lastVariant = nullptr;
+            _variants.clear(); _recentVariants = {};
             _genericSets.clear(); _vertexBindings.clear(); _indexBinding = {};
             _dummy.reset();
             if (_transferOnly) --_device->UploadCommandLists;
@@ -589,7 +606,7 @@
             }
             for (auto it = _variants.begin(); it != _variants.end();)
                 it = it->first.Program == object || it->first.Base == object ? _variants.erase(it) : std::next(it);
-            _lastVariant = nullptr;
+            _recentVariants = {};
             if (_pipeline == object) { _pipeline = nullptr; _genericSets.clear(); }
         }
 
@@ -774,7 +791,6 @@
                 throw std::invalid_argument("Vulkan RHI: pipeline belongs to another device.");
             RequireRecording();
             if (_boundNative != native->Native()) _genericDirty = true;
-            _lastVariant = nullptr;
             for (auto it = _genericSets.begin(); it != _genericSets.end();)
                 if (it->first >= native->Desc().pipelineLayout.groups.size()
                     || it->second.Snapshot->Desc().layout->Desc() != native->Desc().pipelineLayout.groups[it->first])
@@ -902,12 +918,13 @@
             if (_device->ContextPointer->_impl->legacy)
                 for (std::size_t i = 0; i < key.Strides.size(); ++i)
                     key.Strides[i] = static_cast<std::uint32_t>(draw.Streams[i].Stride);
-            if (_lastVariant && _lastVariantKey == key) return *_lastVariant;
+            for (const auto& recent : _recentVariants)
+                if (recent.Native && recent.Key == key) return *recent.Native;
             const auto found = _variants.find(key);
             if (found != _variants.end() && found->second.BaseDesc == _pipeline->Desc())
             {
-                _lastVariantKey = key; _lastVariant = found->second.Native.get();
-                return *_lastVariant;
+                RememberVariant(key, found->second.Native.get());
+                return *found->second.Native;
             }
             GraphicsPipelineDesc desc = _pipeline->Desc();
             const GraphicsPipelineDesc base = desc;
@@ -965,7 +982,9 @@
             }
             entry.BaseDesc = base;
             entry.Native = std::move(native);
-            _lastVariantKey = key; _lastVariant = entry.Native.get();
+            // The entry's previous pipeline, if any, is gone: drop it from the recent ones.
+            for (auto& recent : _recentVariants) if (recent.Key == key) recent = {};
+            RememberVariant(key, entry.Native.get());
             return *entry.Native;
         }
 
@@ -1216,12 +1235,7 @@
             for (const auto& binding : program->Textures)
                 uniforms.SelectTexture(binding.unit, binding.group, textures[binding.unit]);
             const auto alignment = _device->UniformAlignment;
-            // FRUITY_VK_STATIC_DRAW=1 (A/B checks only) keeps the draw block a plain uniform buffer.
-            const auto drawGroup = DynamicDrawBlock() ? static_cast<std::uint32_t>(SceneShaderAbi::Group::Draw)
-                : SceneShaderAbi::GroupCount;
-            // The draw group's one uniform block is a dynamic uniform buffer:
-            // its set names the ring page, the bind gives the slice's offset.
-            std::uint32_t drawOffset = 0;
+            std::array<DynamicOffsets, SceneShaderAbi::GroupCount> dynamicOffsets{};
             for (std::size_t i = 0; i < program->Blocks.size(); ++i)
             {
                 const auto& block = program->BlockAt(i);
@@ -1253,13 +1267,19 @@
                     slice = Allocate(block.Data.size(), alignment);
                     std::memcpy(slice.Data, block.Data.data(), block.Data.size());
                     generation = block.Generation;
-                    if (block.Group != drawGroup || slice.Buffer != page)
+                    // A dynamic block's set stays valid while its slices come from one page.
+                    if (!DynamicUniformGroup(block.Group) || slice.Buffer != page)
                     {
                         sets[block.Group] = VK_NULL_HANDLE;
                         ++uniforms.UniformVersions[block.Group];
                     }
                 }
-                if (block.Group == drawGroup) drawOffset = static_cast<std::uint32_t>(slice.Offset);
+                if (DynamicUniformGroup(block.Group))
+                {
+                    auto& offsets = dynamicOffsets[block.Group];
+                    offsets.Values.at(program->DynamicSlot.at(i)) = static_cast<std::uint32_t>(slice.Offset);
+                    ++offsets.Count;
+                }
             }
             {
                 const FrameTelemetry::Scope descriptorPhase(FrameTelemetry::Phase::Descriptor);
@@ -1317,7 +1337,7 @@
                                 const auto& block = program->BlockAt(i);
                                 if (block.Small || block.Group != group) continue;
                                 const auto& slice = uniforms.Blocks[i].first;
-                                const bool dynamic = group == drawGroup;
+                                const bool dynamic = DynamicUniformGroup(group);
                                 buffers[i] = {slice.Buffer, dynamic ? 0 : slice.Offset, block.Data.size()};
                                 write(block.Binding, dynamic ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC
                                     : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER).pBufferInfo = &buffers[i];
@@ -1340,14 +1360,14 @@
                     }
                     else
                     { if (_metricsEnabled) ++_metricHits; FrameTelemetry::Count(FrameTelemetry::Counter::DescriptorHit); }
-                    const bool dynamic = group == drawGroup;
-                    if (_boundSceneSets[group] != sets[group] || (dynamic && _boundDrawOffset != drawOffset))
+                    const auto& offsets = dynamicOffsets[group];
+                    if (_boundSceneSets[group] != sets[group] || (offsets.Count && _boundOffsets[group] != offsets))
                     {
                         vk.vkCmdBindDescriptorSets(_commandSlots->Buffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            native.Layout(), group, 1, &sets[group], dynamic ? 1 : 0, dynamic ? &drawOffset : nullptr);
+                            native.Layout(), group, 1, &sets[group], offsets.Count, offsets.Values.data());
                         if (_metricsEnabled) ++_metricBinds;
                         _boundSceneSets[group] = sets[group];
-                        if (dynamic) _boundDrawOffset = drawOffset;
+                        _boundOffsets[group] = offsets;
                     }
                 }
             }

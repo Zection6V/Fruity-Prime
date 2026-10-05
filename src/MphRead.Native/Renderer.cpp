@@ -1543,8 +1543,14 @@ namespace MphRead
     NativeRuntime::Rhi::TextureUsage Scene::SceneDepthCopyUsage()
     {
         namespace Rhi = NativeRuntime::Rhi;
+#if defined(__ANDROID__)
+        // A tiled GPU would write the depth out to memory for the copy: not
+        // measured on a phone, so Android keeps drawing it again.
+        return Rhi::TextureUsage{};
+#else
         return Rhi::SelectedSceneBackend() == Rhi::GraphicsBackend::Vulkan
             ? Rhi::TextureUsage::TransferSrc | Rhi::TextureUsage::TransferDst : Rhi::TextureUsage{};
+#endif
     }
 
     void Scene::CreateSceneTargets(Vector2i size)

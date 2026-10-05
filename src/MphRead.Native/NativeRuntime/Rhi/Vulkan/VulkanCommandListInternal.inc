@@ -115,6 +115,8 @@
             void ReadColor(const RenderingInfo& info, std::uint32_t x, std::uint32_t y,
                 std::uint32_t width, std::uint32_t height, TextureFormat format, void* destination) override;
             void CopyColorAttachmentToTexture(Texture& destination, std::uint32_t width, std::uint32_t height) override;
+            [[nodiscard]] bool SaveAttachmentDepth() override { return CopyAttachmentDepth(true); }
+            [[nodiscard]] bool RestoreAttachmentDepth() override { return CopyAttachmentDepth(false); }
 
             // The scene's draws. A stream with a zero stride is one value for
             // every vertex: OpenGL's current attribute where a mesh has no array.
@@ -323,6 +325,9 @@
 
             std::unique_ptr<VulkanTexture> _dummy;
             std::unique_ptr<VulkanSampler> _dummySampler;
+            // SaveAttachmentDepth's copy: grown, never shrunk, with the target.
+            std::unique_ptr<VulkanTexture> _savedDepth;
+            bool CopyAttachmentDepth(bool save);
         };
 
         VulkanCommandList::VulkanCommandList(std::shared_ptr<VulkanDeviceState> state, bool transferOnly)
@@ -428,6 +433,7 @@
             _variants.clear(); _recentVariants = {};
             _genericSets.clear(); _vertexBindings.clear(); _indexBinding = {};
             _dummy.reset();
+            _savedDepth.reset();
             if (_transferOnly) --_device->UploadCommandLists;
             else if (--_device->CommandLists == 0) _device->ReleaseWindowTarget();
             _dummySampler.reset();
@@ -1585,6 +1591,47 @@
             if (Has(target.Desc().usage, TextureUsage::Sampled)) Barrier(target, ResourceState::ShaderRead);
         }
 
+
+        bool VulkanCommandList::CopyAttachmentDepth(bool save)
+        {
+            RequireRecording();
+            if (!_renderingOpen || !_target.Depth) return false;
+            VulkanTexture& depth = *_target.Depth;
+            const TextureDesc& desc = depth.Desc();
+            if (!Has(desc.usage, TextureUsage::TransferSrc) || !Has(desc.usage, TextureUsage::TransferDst)
+                || !(VulkanResources::AspectMask(desc.format) & VK_IMAGE_ASPECT_DEPTH_BIT))
+                return false;
+            const std::uint32_t width = std::min(_target.Width, desc.width);
+            const std::uint32_t height = std::min(_target.Height, desc.height);
+            if (save && (!_savedDepth || _savedDepth->Desc().format != desc.format
+                || _savedDepth->Desc().width < width || _savedDepth->Desc().height < height))
+            {
+                // The old copy's recorded uses are submitted before it is retired.
+                if (_savedDepth) Flush();
+                TextureDesc store = desc;
+                store.width = std::max(width, _savedDepth ? _savedDepth->Desc().width : 0U);
+                store.height = std::max(height, _savedDepth ? _savedDepth->Desc().height : 0U);
+                store.usage = TextureUsage::TransferSrc | TextureUsage::TransferDst;
+                _savedDepth = std::make_unique<VulkanTexture>(_device, store, TextureHandle{});
+                RequireRecording();
+            }
+            if (!save && (!_savedDepth || _savedDepth->Desc().format != desc.format)) return false;
+            if (_clearsPending) Materialize();
+            if (_renderingActive) EndNative();
+            VulkanTexture& source = save ? depth : *_savedDepth;
+            VulkanTexture& destination = save ? *_savedDepth : depth;
+            Barrier(source, ResourceState::CopySrc);
+            Barrier(destination, ResourceState::CopyDst);
+            VkImageCopy region{};
+            region.srcSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
+            region.dstSubresource = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 0, 1};
+            region.extent = {width, height, 1};
+            _device->ContextPointer->_impl->vkCmdCopyImage(_commandSlots->Buffer(), source.Native(),
+                VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, destination.Native(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+            // The next draw resumes rendering, which takes the attachment back.
+            Barrier(depth, ResourceState::DepthStencilWrite);
+            return true;
+        }
 
         void VulkanCommandList::CopyBuffer(const Buffer& source, std::uint64_t sourceOffset,
             Buffer& destination, std::uint64_t destinationOffset, std::uint64_t size)

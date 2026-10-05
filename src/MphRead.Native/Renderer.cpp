@@ -1526,6 +1526,27 @@ namespace MphRead
             NativeRuntime::Rhi::FillMode::Solid, 1));
     }
 
+    namespace
+    {
+        // FRUITY_REBUILD_DEPTH=1 (A/B checks only): draw the opaque depth again
+        // as before, instead of copying it aside and back.
+        bool SaveOpaqueDepth() noexcept
+        {
+            static const bool save = std::getenv("FRUITY_REBUILD_DEPTH") == nullptr;
+            return save;
+        }
+    }
+
+    // The scene's depth targets can be copied on Vulkan, where the opaque
+    // depth is kept aside instead of drawn again (SaveAttachmentDepth). OpenGL
+    // keeps its targets as they were.
+    NativeRuntime::Rhi::TextureUsage Scene::SceneDepthCopyUsage()
+    {
+        namespace Rhi = NativeRuntime::Rhi;
+        return Rhi::SelectedSceneBackend() == Rhi::GraphicsBackend::Vulkan
+            ? Rhi::TextureUsage::TransferSrc | Rhi::TextureUsage::TransferDst : Rhi::TextureUsage{};
+    }
+
     void Scene::CreateSceneTargets(Vector2i size)
     {
         namespace Rhi = NativeRuntime::Rhi;
@@ -1544,7 +1565,7 @@ namespace MphRead
         _celColorView = Gpu().CreateTextureView(*_celColor, Rhi::TextureViewDesc{Rhi::TextureFormat::RGB8Unorm});
         const auto depthStencil = Gpu().GetCapabilities().depthStencilFormat;
         _sceneDepthStencil = Gpu().CreateTexture(Rhi::TextureDesc{width, height, 1, 1, 1, 1,
-            depthStencil, Rhi::TextureUsage::DepthStencilAttachment});
+            depthStencil, Rhi::TextureUsage::DepthStencilAttachment | SceneDepthCopyUsage()});
         _sceneDepthStencilView = Gpu().CreateTextureView(*_sceneDepthStencil,
             Rhi::TextureViewDesc{depthStencil});
     }
@@ -2018,7 +2039,7 @@ namespace MphRead
         _celDepth = Gpu().CreateTexture(Rhi::TextureDesc{
             static_cast<std::uint32_t>(target.X), static_cast<std::uint32_t>(target.Y), 1, 1, 1, 1,
             Gpu().GetCapabilities().depthStencilFormat,
-            Rhi::TextureUsage::Sampled | Rhi::TextureUsage::DepthStencilAttachment});
+            Rhi::TextureUsage::Sampled | Rhi::TextureUsage::DepthStencilAttachment | SceneDepthCopyUsage()});
         _celDepthView = Gpu().CreateTextureView(*_celDepth, Rhi::TextureViewDesc{Gpu().GetCapabilities().depthStencilFormat});
         _claimedQuantum = MeasureDepthQuantum();
         _depthQuantum = _claimedQuantum;
@@ -2226,6 +2247,9 @@ namespace MphRead
         SetPauseMenuUniforms();
         BeginScenePass(ScenePass::Opaque);
         for (const auto& item : _nonDecalItems) RenderItem(item);
+        // The depth the rebuild pass below would draw again, kept aside.
+        const bool opaqueDepthSaved = !Mods::RenderOptions::PerformanceMode() && SaveOpaqueDepth()
+            && Commands().SaveAttachmentDepth();
         BeginScenePass(ScenePass::Decal);
         for (const auto& item : _decalItems) RenderItem(item);
         if (Mods::RenderOptions::PerformanceMode())
@@ -2242,14 +2266,22 @@ namespace MphRead
             {
                 Commands().SetStencilReference(static_cast<std::uint32_t>(item->PolygonId)); RenderItem(item);
             }
-            Commands().EndRendering();
+            if (opaqueDepthSaved && Commands().RestoreAttachmentDepth())
             {
-                // Colour and the stencil the translucent pass just wrote are kept.
-                using NativeRuntime::Rhi::LoadOp;
-                BeginSceneRendering(LoadOp::Load, LoadOp::Clear, LoadOp::Load);
+                // The opaque depth put back, the stencil kept: what the depth
+                // clear and the rebuild pass make, without drawing it again.
             }
-            BeginScenePass(ScenePass::DepthRebuild);
-            for (const auto& item : _nonDecalItems) RenderItem(item);
+            else
+            {
+                Commands().EndRendering();
+                {
+                    // Colour and the stencil the translucent pass just wrote are kept.
+                    using NativeRuntime::Rhi::LoadOp;
+                    BeginSceneRendering(LoadOp::Load, LoadOp::Clear, LoadOp::Load);
+                }
+                BeginScenePass(ScenePass::DepthRebuild);
+                for (const auto& item : _nonDecalItems) RenderItem(item);
+            }
             BeginScenePass(ScenePass::TranslucentNotEqual);
             for (const auto& item : _translucentItems)
             {

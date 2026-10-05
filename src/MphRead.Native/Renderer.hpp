@@ -1053,6 +1053,7 @@ private: \
         MphRead::NativeRuntime::Rhi::ClearColor clearColor = {}, \
         MphRead::NativeRuntime::Rhi::Scissor area = {}); \
     [[nodiscard]] MphRead::NativeRuntime::Rhi::ClearColor SceneClearColor() const; \
+    [[nodiscard]] static MphRead::NativeRuntime::Rhi::TextureUsage SceneDepthCopyUsage(); \
     [[nodiscard]] MphRead::NativeRuntime::Rhi::Texture* TextureFor(std::int32_t bindingId) const; \
     [[nodiscard]] const MphRead::NativeRuntime::Rhi::Sampler& SamplerFor(bool linear, \
         MphRead::RepeatMode s, MphRead::RepeatMode t); \

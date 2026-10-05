@@ -833,7 +833,15 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                           << std::endl;
             _exclusiveWanted = exclusiveMonitor != nullptr;
             VkSwapchainLatencyCreateInfoNV latency{VK_STRUCTURE_TYPE_SWAPCHAIN_LATENCY_CREATE_INFO_NV};
-            if (vk.nvLowLatency2)
+            // FRUITY_REFLEX_DISABLE_SWAPCHAIN_LATENCY_MODE: developer A/B on
+            // whether the opt-in itself changes cadence. Default: chained.
+            static const bool latencyOptOut = [] {
+                const char* v = std::getenv("FRUITY_REFLEX_DISABLE_SWAPCHAIN_LATENCY_MODE");
+                const bool off = v && *v && std::string_view(v) != "0";
+                if (off) std::cout << "[reflex] diagnostic: swapchain latency opt-in disabled" << std::endl;
+                return off;
+            }();
+            if (vk.nvLowLatency2 && !latencyOptOut)
             { latency.latencyModeEnable = VK_TRUE; latency.pNext = create.pNext; create.pNext = &latency; }
             _reflex->SetSwapchain(VK_NULL_HANDLE);
             VkSwapchainKHR replacement = VK_NULL_HANDLE;

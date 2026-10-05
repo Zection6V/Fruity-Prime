@@ -347,6 +347,11 @@ namespace MphRead
         return false;
     }
 
+    double RenderWindow::RefreshRate() const
+    {
+        return 0.0;
+    }
+
     void RenderWindow::Floating(bool)
     {
     }

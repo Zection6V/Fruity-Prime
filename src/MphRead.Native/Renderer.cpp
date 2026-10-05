@@ -6419,10 +6419,17 @@ namespace MphRead
     void RenderWindow::ApplyFrameRateSettings()
     {
         const std::int32_t cap = Mods::Diagnostics::FramePerformance::EffectiveCap(Mods::Render::FrameTiming::FrameRateCap());
-        _swapchain->ConfigureLowLatency(Mods::Launcher::LauncherPrefs::LowLatency(),
-            cap > 0 ? static_cast<std::uint32_t>((1'000'000ULL + cap - 1) / cap) : 0);
+        const bool vsync = Mods::Render::FrameTiming::VSync();
         const auto latency = NativeRuntime::Rhi::ResolveLowLatency(Mods::Launcher::LauncherPrefs::LowLatency(),
             NativeRuntime::Rhi::SceneDevice().LowLatencyCaps());
+        // With Reflex pacing, FIFO alone did not hold the frame rate to the
+        // display (1136 FPS presented FIFO on a 540 Hz screen), so VSync also
+        // gives Reflex the refresh period as its minimum interval -- the
+        // driver-side cap NVIDIA describes for Reflex with VSync. A lower
+        // FPS cap still wins.
+        _swapchain->ConfigureLowLatency(Mods::Launcher::LauncherPrefs::LowLatency(),
+            NativeRuntime::Rhi::ReflexMinimumIntervalUs(cap,
+                vsync && latency.authority == NativeRuntime::Rhi::PacingAuthority::Native ? RefreshRate() : 0.0));
         if (!_reportedLatency || *_reportedLatency != latency)
         {
             _reportedLatency = latency;
@@ -6434,12 +6441,13 @@ namespace MphRead
                 << " reason=" << latency.fallbackReason << '\n';
         }
         _window->PresentationTiming(_swapchain->Desc().presentMode, cap, latency.authority);
-        if (cap == _appliedFrameRateCap)
+        if (cap == _appliedFrameRateCap && vsync == _appliedVSync)
         {
             return;
         }
         _appliedFrameRateCap = cap;
-        if (cap == Mods::Render::FrameTiming::DisplayRate)
+        _appliedVSync = vsync;
+        if (vsync)
         {
             _swapchain->SetPresentMode(NativeRuntime::Rhi::PresentMode::Fifo);
             _window->UpdateFrequency(0.0);
@@ -6470,6 +6478,50 @@ namespace MphRead
         }
     }
 
+    void RenderWindow::ReportReflexPacing(const NativeRuntime::Rhi::LowLatencyDiagnostics& reflex)
+    {
+        // Which machine set this frame rate, on one line: the cap and the
+        // interval it became, the present mode asked for and the one the
+        // surface gave, the screen's rate, and where native admission spent
+        // its time. The 265 FPS question is answered by reading this.
+        namespace Rhi = NativeRuntime::Rhi;
+        const auto state = Rhi::ResolveLowLatency(Mods::Launcher::LauncherPrefs::LowLatency(), _swapchain->LowLatencyCaps());
+        const auto present = [](Rhi::PresentMode mode)
+        { return mode == Rhi::PresentMode::Immediate ? "Immediate" : mode == Rhi::PresentMode::Mailbox ? "Mailbox" : "Fifo"; };
+        const auto mode = [](Rhi::LowLatencyMode value)
+        { return value == Rhi::LowLatencyMode::OnBoost ? "OnBoost" : value == Rhi::LowLatencyMode::On ? "On" : "Off"; };
+        const auto provider = [](Rhi::LowLatencyProvider value)
+        {
+            return value == Rhi::LowLatencyProvider::Nvidia ? "Nvidia" : value == Rhi::LowLatencyProvider::Amd ? "Amd"
+                : value == Rhi::LowLatencyProvider::Generic ? "Generic" : "None";
+        };
+        const std::int32_t cap = Mods::Diagnostics::FramePerformance::EffectiveCap(Mods::Render::FrameTiming::FrameRateCap());
+        const auto& p = reflex.pacing;
+        std::ostringstream line;
+        line.imbue(std::locale::classic());
+        line << std::fixed << std::setprecision(1)
+             << "[reflex-pacing] mode=" << mode(state.requested) << " effective=" << mode(state.effective)
+             << " provider=" << provider(state.provider)
+             << " authority=" << (state.authority == Rhi::PacingAuthority::Native ? "Native" : "Generic")
+             << " cap=" << (cap == -1 ? std::string("unlimited") : cap == 0 ? std::string("display") : std::to_string(cap))
+             << " vsync=" << (Mods::Render::FrameTiming::VSync() ? "on" : "off")
+             << " minimum_interval_us=" << reflex.minimumIntervalUs
+             << " present_requested=" << present(_swapchain->RequestedPresentMode())
+             << " present_actual=" << present(_swapchain->Desc().presentMode)
+             << " screen_hz=" << RefreshRate()
+             << " images=" << _swapchain->Desc().imageCount
+             << " revision=" << reflex.revision
+             << " frame=" << reflex.frameId
+             << " completed=" << reflex.completedMeasurementFrames
+             << " abandoned=" << reflex.abandonedMeasurementFrames
+             << " samples=" << p.admission.samples
+             << " sleep_call_us=" << p.sleepCall.p50 << '/' << p.sleepCall.p95 << '/' << p.sleepCall.p99 << '/' << p.sleepCall.max
+             << " wait_us=" << p.wait.p50 << '/' << p.wait.p95 << '/' << p.wait.p99 << '/' << p.wait.max
+             << " admission_us=" << p.admission.p50 << '/' << p.admission.p95 << '/' << p.admission.p99 << '/' << p.admission.max
+             << " wait_timeouts=" << p.waitTimeouts;
+        std::cout << line.str() << '\n';
+    }
+
     NativeRuntime::Rhi::CommandList& RenderWindow::WindowCommands()
     {
         if (!_windowCommands)
@@ -6497,6 +6549,7 @@ namespace MphRead
                 std::cout << "[reflex-metrics] sleep=" << reflex.sleepCalls << " wait=" << reflex.waitCalls
                     << " modes=" << reflex.modeCalls << " markers=" << reflex.markerCalls << " reports=" << reflex.timingReports
                     << " frame=" << reflex.frameId << " generation=" << reflex.swapchainGeneration << '\n';
+                ReportReflexPacing(reflex);
             }
             if (!_performance)
             {
@@ -7068,6 +7121,11 @@ namespace MphRead
     bool RenderWindow::WindowStateFullscreen()
     {
         return _window->WindowStateFullscreen();
+    }
+
+    double RenderWindow::RefreshRate() const
+    {
+        return _window->RefreshRate();
     }
 
     void RenderWindow::Floating(bool value)

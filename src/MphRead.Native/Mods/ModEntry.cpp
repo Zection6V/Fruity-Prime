@@ -670,8 +670,17 @@ namespace
         }
         if (fpsCap.has_value() && !StartsWithHyphen(fpsCap))
         {
-            FrameTiming::SetFrameRateCap(
-                FrameTiming::ParseCap(*fpsCap, FrameTiming::FrameRateCap()));
+            const std::int32_t cap = FrameTiming::ParseCap(*fpsCap, FrameTiming::FrameRateCap());
+            if (cap == FrameTiming::DisplayRate)
+            {
+                FrameTiming::ForceVSync(true);
+            }
+            FrameTiming::SetFrameRateCap(cap == FrameTiming::DisplayRate ? FrameTiming::Unlimited : cap);
+        }
+        const std::optional<std::string> vsync = ValueAfter(args, "vsync");
+        if (vsync.has_value() && !StartsWithHyphen(vsync))
+        {
+            FrameTiming::ForceVSync(RenderOptions::ParseOnOff(*vsync, FrameTiming::VSync()));
         }
 
         const std::optional<std::string> bands = ValueAfter(args, "celbands");

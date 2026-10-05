@@ -51,6 +51,13 @@ namespace MphRead::Mods
         [[nodiscard]] static bool CelShading() noexcept;
         static void CelShading(bool value) noexcept;
 
+        // Performance mode: translucent polygons are drawn once, blended over
+        // the opaque depth, instead of the DS's stencil passes that keep two
+        // translucent polygons of one polygon ID from blending over each
+        // other. Fewer draws; that overlap is the only difference.
+        [[nodiscard]] static bool PerformanceMode() noexcept;
+        static void PerformanceMode(bool value) noexcept;
+
         [[nodiscard]] static bool ShowFps() noexcept;
         static void ShowFps(bool value) noexcept;
 
@@ -88,6 +95,7 @@ namespace MphRead::Mods
         static std::int32_t _resolutionScale;
         static bool _lighting;
         static bool _celShading;
+        static bool _performanceMode;
         static bool _showFps;
         static std::int32_t _celBands;
         static float _celEdge;

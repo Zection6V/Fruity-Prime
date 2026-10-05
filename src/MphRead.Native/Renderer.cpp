@@ -680,7 +680,8 @@ namespace MphRead
             std::cout << "[render] cel shading " << (Mods::RenderOptions::CelShading() ? "on" : "off")
                 << ", " << Mods::RenderOptions::CelBands() << " bands, outline "
                 << NativeRuntime::ToStringInvariant(Mods::RenderOptions::CelEdge(), "0.00")
-                << ", fog " << BoolOnOff(Mods::RenderOptions::Fog()) << '\n';
+                << ", fog " << BoolOnOff(Mods::RenderOptions::Fog())
+                << ", performance mode " << BoolOnOff(Mods::RenderOptions::PerformanceMode()) << '\n';
             InitShaders();
             _transientGeometry
                 = NativeRuntime::Rhi::CreateSceneTransientGeometry(Gpu(), Commands());
@@ -1439,6 +1440,11 @@ namespace MphRead
         case ScenePass::TranslucentEqual:
             stencil(Rhi::StencilOp::Keep, Rhi::StencilOp::Keep, Rhi::StencilOp::Keep,
                 pass == ScenePass::TranslucentEqual ? Rhi::CompareOp::Equal : Rhi::CompareOp::NotEqual);
+            desc.alphaTest = Rhi::AlphaTestMode::LessThanOne;
+            ds.depthWriteEnable = false;
+            blend.blendEnable = true;
+            break;
+        case ScenePass::TranslucentSingle:
             desc.alphaTest = Rhi::AlphaTestMode::LessThanOne;
             ds.depthWriteEnable = false;
             blend.blendEnable = true;
@@ -2222,28 +2228,38 @@ namespace MphRead
         for (const auto& item : _nonDecalItems) RenderItem(item);
         BeginScenePass(ScenePass::Decal);
         for (const auto& item : _decalItems) RenderItem(item);
-        BeginScenePass(ScenePass::TranslucentStencil);
-        for (const auto& item : _translucentItems)
+        if (Mods::RenderOptions::PerformanceMode())
         {
-            Commands().SetStencilReference(static_cast<std::uint32_t>(item->PolygonId)); RenderItem(item);
+            // Performance mode: each translucent item once, blended over the
+            // opaque depth. No stencil pass, depth clear or depth rebuild.
+            BeginScenePass(ScenePass::TranslucentSingle);
+            for (const auto& item : _translucentItems) RenderItem(item);
         }
-        Commands().EndRendering();
+        else
         {
-            // Colour and the stencil the translucent pass just wrote are kept.
-            using NativeRuntime::Rhi::LoadOp;
-            BeginSceneRendering(LoadOp::Load, LoadOp::Clear, LoadOp::Load);
-        }
-        BeginScenePass(ScenePass::DepthRebuild);
-        for (const auto& item : _nonDecalItems) RenderItem(item);
-        BeginScenePass(ScenePass::TranslucentNotEqual);
-        for (const auto& item : _translucentItems)
-        {
-            Commands().SetStencilReference(static_cast<std::uint32_t>(item->PolygonId)); RenderItem(item);
-        }
-        BeginScenePass(ScenePass::TranslucentEqual);
-        for (const auto& item : _translucentItems)
-        {
-            Commands().SetStencilReference(static_cast<std::uint32_t>(item->PolygonId)); RenderItem(item);
+            BeginScenePass(ScenePass::TranslucentStencil);
+            for (const auto& item : _translucentItems)
+            {
+                Commands().SetStencilReference(static_cast<std::uint32_t>(item->PolygonId)); RenderItem(item);
+            }
+            Commands().EndRendering();
+            {
+                // Colour and the stencil the translucent pass just wrote are kept.
+                using NativeRuntime::Rhi::LoadOp;
+                BeginSceneRendering(LoadOp::Load, LoadOp::Clear, LoadOp::Load);
+            }
+            BeginScenePass(ScenePass::DepthRebuild);
+            for (const auto& item : _nonDecalItems) RenderItem(item);
+            BeginScenePass(ScenePass::TranslucentNotEqual);
+            for (const auto& item : _translucentItems)
+            {
+                Commands().SetStencilReference(static_cast<std::uint32_t>(item->PolygonId)); RenderItem(item);
+            }
+            BeginScenePass(ScenePass::TranslucentEqual);
+            for (const auto& item : _translucentItems)
+            {
+                Commands().SetStencilReference(static_cast<std::uint32_t>(item->PolygonId)); RenderItem(item);
+            }
         }
         BeginScenePass(ScenePass::AfterScene);
         ModDrawPreview();

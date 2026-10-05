@@ -484,6 +484,8 @@ namespace MphRead::Qt
         rows.push_back(Toggle(QStringLiteral("filtering"), QStringLiteral("Texture filtering"),
             Mods::RenderOptions::TextureFiltering()));
         rows.push_back(Toggle(QStringLiteral("fps"), QStringLiteral("FPS counter"), Mods::RenderOptions::ShowFps()));
+        rows.push_back(Toggle(QStringLiteral("performance"), QStringLiteral("Performance mode"),
+            Mods::RenderOptions::PerformanceMode()));
 
         rows.push_back(Heading(QStringLiteral("Cel shading")));
         rows.push_back(Toggle(QStringLiteral("cel"), QStringLiteral("Cel shading"), Mods::RenderOptions::CelShading()));
@@ -2132,6 +2134,8 @@ namespace MphRead::Qt
         Render::FrameTiming::SetVSync(on(_display, "vsync"));
         settings.VSync = std::string(Mods::RenderOptions::OnOff(Render::FrameTiming::VSync()));
         settings.CelShading = std::string(Mods::RenderOptions::OnOff(on(_display, "cel")));
+        Mods::RenderOptions::PerformanceMode(on(_display, "performance"));
+        settings.PerformanceMode = std::string(Mods::RenderOptions::OnOff(Mods::RenderOptions::PerformanceMode()));
         settings.CelBands = "8";
         settings.CelEdge = "50";
         ::MphRead::Features::ProHud(on(_display, "proHud"));

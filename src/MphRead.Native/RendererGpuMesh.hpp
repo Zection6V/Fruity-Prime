@@ -66,7 +66,8 @@ namespace MphRead
         CelOutline,          // the cel pass's ink over SceneColor
         Composite,           // the scene target into the window, the HUD layers and the fade
         CompositeShift,      // the same under disruption / whiteout
-        FrameEnd             // the state the frame hands on to whatever draws after it
+        FrameEnd,            // the state the frame hands on to whatever draws after it
+        TranslucentSingle    // performance mode: alpha < 1, blended, no depth write, no stencil
     };
 
     enum class TransientPrimitiveTopology : std::uint8_t

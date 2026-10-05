@@ -14,6 +14,7 @@
 #include "../NativeRuntime/System/Globalization.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
 
+#include <cstdlib>
 #include <charconv>
 #include <cmath>
 #include <cstddef>

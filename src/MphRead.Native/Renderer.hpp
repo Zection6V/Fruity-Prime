@@ -531,6 +531,12 @@ namespace MphRead
             virtual void WindowStateMinimized() = 0;
             virtual void WindowStateMaximized() = 0;
             virtual void WindowStateNormal() = 0;
+            // The toolkit's own fullscreen state: the window *is* the
+            // monitor, at its exact size, which is what lets the driver
+            // give the swapchain the display (exclusive / independent flip).
+            // A window that cannot do it answers false and WindowMode
+            // falls back to borderless.
+            [[nodiscard]] virtual bool WindowStateFullscreen() { return false; }
             virtual void Floating(bool value) = 0;
             [[nodiscard]] virtual bool IsFocused() const = 0;
             // NativeWindow.ClientLocation: the client area's screen origin.
@@ -688,6 +694,7 @@ namespace MphRead
         void WindowStateMinimized();
         void WindowStateMaximized();
         void WindowStateNormal();
+        [[nodiscard]] bool WindowStateFullscreen();
         void Floating(bool value);
         [[nodiscard]] bool IsFocused() const;
         [[nodiscard]] OpenTK::Mathematics::Vector2i ClientLocation() const;

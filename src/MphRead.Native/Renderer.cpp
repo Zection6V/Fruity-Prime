@@ -347,6 +347,8 @@ namespace MphRead
             return "Windowed";
         case Mods::WindowStartMode::BorderlessFullscreen:
             return "BorderlessFullscreen";
+        case Mods::WindowStartMode::ExclusiveFullscreen:
+            return "ExclusiveFullscreen";
         }
         return std::to_string(static_cast<std::int32_t>(mode));
     }
@@ -6025,6 +6027,7 @@ namespace MphRead
             Location(location);
             ClientSize(clientSize);
             if (state == RendererPlatform::WindowStateValue::Maximized) WindowStateMaximized();
+            if (state == RendererPlatform::WindowStateValue::Fullscreen) (void)WindowStateFullscreen();
             Floating(Mods::WindowMode::IsFullscreen());
             if (_scene)
             {
@@ -7060,6 +7063,11 @@ namespace MphRead
     void RenderWindow::WindowStateNormal()
     {
         _window->WindowStateNormal();
+    }
+
+    bool RenderWindow::WindowStateFullscreen()
+    {
+        return _window->WindowStateFullscreen();
     }
 
     void RenderWindow::Floating(bool value)

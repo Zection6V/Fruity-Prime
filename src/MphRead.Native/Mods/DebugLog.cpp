@@ -558,6 +558,10 @@ namespace
         {
             return "BorderlessFullscreen";
         }
+        if (raw == 2)
+        {
+            return "ExclusiveFullscreen";
+        }
         return std::to_string(raw);
     }
 

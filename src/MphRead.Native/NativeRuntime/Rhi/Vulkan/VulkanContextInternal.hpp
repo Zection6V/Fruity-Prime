@@ -60,6 +60,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         bool legacy = false;
         bool nvLowLatency2 = false;
         std::uint32_t nvLowLatency2Revision = 0;
+        // VK_EXT_full_screen_exclusive (Windows only), and its entry points
+        // kept untyped so this header needs no <windows.h>: the swapchain
+        // casts them with vulkan_win32.h in scope.
+        bool surfaceCapabilities2 = false;
+        bool fullScreenExclusive = false;
+        PFN_vkVoidFunction vkAcquireFullScreenExclusiveModeEXT = nullptr;
+        PFN_vkVoidFunction vkReleaseFullScreenExclusiveModeEXT = nullptr;
         std::string reflexUnavailableReason;
         VulkanNvidiaReflex* reflex = nullptr; // Runtime controller owned by presentation swapchain.
         std::uint64_t reflexFrameSequence = 0;
@@ -259,6 +266,22 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     "Vulkan instance eligibility: " + RejectionReasons(instanceProbe.Findings));
             std::vector<const char*> extensions;
             for (const auto& extension : instanceProbe.EnabledExtensions) extensions.push_back(extension.c_str());
+#if defined(_WIN32)
+            // VK_EXT_full_screen_exclusive needs this on the instance; surface
+            // maintenance may already have asked for it.
+            surfaceCapabilities2 = std::any_of(extensions.begin(), extensions.end(), [](const char* name)
+                { return std::strcmp(name, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME) == 0; });
+            if (!surfaceCapabilities2)
+            {
+                std::uint32_t count = 0;
+                vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr);
+                std::vector<VkExtensionProperties> available(count);
+                vkEnumerateInstanceExtensionProperties(nullptr, &count, available.data());
+                surfaceCapabilities2 = std::any_of(available.begin(), available.end(), [](const auto& e)
+                    { return std::strcmp(e.extensionName, VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME) == 0; });
+                if (surfaceCapabilities2) extensions.push_back(VK_KHR_GET_SURFACE_CAPABILITIES_2_EXTENSION_NAME);
+            }
+#endif
             const bool debugUtils = instanceProbe.DebugUtils;
             validation = instanceProbe.Validation;
             const VkInstanceCreateFlags flags = instanceProbe.PortabilityEnumeration ? VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR : 0;
@@ -396,6 +419,18 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 chain(enabledMaintenance1);
                 deviceExtensionNames.push_back(VK_EXT_SWAPCHAIN_MAINTENANCE_1_EXTENSION_NAME);
             }
+#if defined(_WIN32)
+            if (surfaceCapabilities2 && surface != VK_NULL_HANDLE)
+            {
+                std::uint32_t count = 0;
+                vkEnumerateDeviceExtensionProperties(physical, nullptr, &count, nullptr);
+                std::vector<VkExtensionProperties> available(count);
+                vkEnumerateDeviceExtensionProperties(physical, nullptr, &count, available.data());
+                fullScreenExclusive = std::any_of(available.begin(), available.end(), [](const auto& e)
+                    { return std::strcmp(e.extensionName, "VK_EXT_full_screen_exclusive") == 0; });
+                if (fullScreenExclusive) deviceExtensionNames.push_back("VK_EXT_full_screen_exclusive");
+            }
+#endif
             VkPhysicalDeviceFeatures enabled{};
             enabled.samplerAnisotropy = selectedFeatures.samplerAnisotropy;
             enabled.fillModeNonSolid = selectedFeatures.fillModeNonSolid;
@@ -409,6 +444,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             createDevice.ppEnabledExtensionNames = deviceExtensionNames.data();
             Check(vkCreateDevice(physical, &createDevice, nullptr, &device), "vkCreateDevice");
             swapchainMaintenance1 = maintenance1;
+            if (fullScreenExclusive)
+            {
+                vkAcquireFullScreenExclusiveModeEXT = vkGetDeviceProcAddr(device, "vkAcquireFullScreenExclusiveModeEXT");
+                vkReleaseFullScreenExclusiveModeEXT = vkGetDeviceProcAddr(device, "vkReleaseFullScreenExclusiveModeEXT");
+                fullScreenExclusive = vkAcquireFullScreenExclusiveModeEXT && vkReleaseFullScreenExclusiveModeEXT;
+            }
+            std::cout << "[vulkan] full-screen exclusive " << (fullScreenExclusive ? "available" : "unavailable") << std::endl;
 #define LOAD_VULKAN_DEVICE_FUNCTION(name) name = reinterpret_cast<PFN_##name>(vkGetDeviceProcAddr(device, #name)); if (!name) throw std::runtime_error("Missing Vulkan device entry point: " #name);
             VULKAN_DEVICE_FUNCTIONS(LOAD_VULKAN_DEVICE_FUNCTION)
             if (!probe.TimelineSemaphoreExtension) { VULKAN_TIMELINE_DEVICE_FUNCTIONS(LOAD_VULKAN_DEVICE_FUNCTION) }

@@ -24,7 +24,12 @@ namespace MphRead::Mods
     enum class WindowStartMode : std::int32_t
     {
         Windowed,
-        BorderlessFullscreen
+        BorderlessFullscreen,
+        // The toolkit's real fullscreen state at the monitor's exact size,
+        // which the driver may turn into exclusive ownership of the display
+        // (flip without the compositor). Borderless deliberately stays one
+        // pixel short of the monitor so that it never does.
+        ExclusiveFullscreen
     };
 
     class WindowMode final
@@ -56,6 +61,15 @@ namespace MphRead::Mods
 
         [[nodiscard]] static bool IsFullscreen() noexcept;
 
+        // Which mode the window is in now: Windowed, or the fullscreen kind
+        // Enter actually managed (exclusive falls back to borderless on a
+        // window that cannot do it).
+        [[nodiscard]] static WindowStartMode Active() noexcept;
+
+        // The fullscreen kind F11 and the pause menu enter: the preferred one
+        // when that is a fullscreen mode, borderless otherwise.
+        [[nodiscard]] static WindowStartMode PreferredFullscreen() noexcept;
+
         // The shape the window had before fullscreen took it, for whoever
         // needs the *windowed* geometry while the window is reporting the
         // monitor's.
@@ -73,6 +87,10 @@ namespace MphRead::Mods
             const OpenTK::Windowing::Common::KeyboardKeyEventArgs& e);
         static void Toggle(MphRead::RenderWindow& window);
         static void Enter(MphRead::RenderWindow& window);
+        static void Enter(MphRead::RenderWindow& window, WindowStartMode mode);
+        // Bring the window to `mode`, switching between the two fullscreen
+        // kinds through windowed when it has to.
+        static void Apply(MphRead::RenderWindow& window, WindowStartMode mode);
         static void Leave(MphRead::RenderWindow& window);
 
         [[nodiscard]] static bool IsTopmost() noexcept;

@@ -1024,7 +1024,9 @@ namespace MphRead::Mods
         // UI diagnostics return from this dispatch before normal launcher
         // startup. Apply their rendering/window overrides before creating Qt.
         ApplyRenderOverrides(args);
-        if (::HasFlag(args, "fullscreen") || ::HasFlag(args, "borderless"))
+        if (::HasFlag(args, "exclusivefullscreen"))
+            WindowMode::Startup(WindowStartMode::ExclusiveFullscreen);
+        else if (::HasFlag(args, "fullscreen") || ::HasFlag(args, "borderless"))
             WindowMode::Startup(WindowStartMode::BorderlessFullscreen);
         else if (::HasFlag(args, "windowed"))
             WindowMode::Startup(WindowStartMode::Windowed);
@@ -1420,7 +1422,11 @@ namespace MphRead::Mods
             return true;
         }
 
-        if (::HasFlag(args, "fullscreen") || ::HasFlag(args, "borderless"))
+        if (::HasFlag(args, "exclusivefullscreen"))
+        {
+            WindowMode::Startup(WindowStartMode::ExclusiveFullscreen);
+        }
+        else if (::HasFlag(args, "fullscreen") || ::HasFlag(args, "borderless"))
         {
             WindowMode::Startup(WindowStartMode::BorderlessFullscreen);
         }

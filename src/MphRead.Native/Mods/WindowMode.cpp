@@ -38,6 +38,7 @@ namespace
     WindowStartMode startupState = WindowStartMode::Windowed;
     bool startupForcedState = false;
     bool fullscreenState = false;
+    WindowStartMode activeState = WindowStartMode::Windowed;
     std::int32_t savedBorderState = ResizableWindowBorder;
     OpenTK::Mathematics::Vector2i savedLocationState{};
     OpenTK::Mathematics::Vector2i savedSizeState{};
@@ -75,6 +76,18 @@ namespace MphRead::Mods
         return fullscreenState;
     }
 
+    WindowStartMode WindowMode::Active() noexcept
+    {
+        return fullscreenState ? activeState : WindowStartMode::Windowed;
+    }
+
+    WindowStartMode WindowMode::PreferredFullscreen() noexcept
+    {
+        return startupState == WindowStartMode::ExclusiveFullscreen
+            ? WindowStartMode::ExclusiveFullscreen
+            : WindowStartMode::BorderlessFullscreen;
+    }
+
     OpenTK::Mathematics::Vector2i WindowMode::WindowedSize() noexcept
     {
         return savedState ? savedSizeState : OpenTK::Mathematics::Vector2i();
@@ -87,10 +100,9 @@ namespace MphRead::Mods
 
     void WindowMode::ApplyStartup(MphRead::RenderWindow& window)
     {
-        if (startupState == WindowStartMode::BorderlessFullscreen
-            && !fullscreenState)
+        if (startupState != WindowStartMode::Windowed && !fullscreenState)
         {
-            Enter(window);
+            Enter(window, startupState);
         }
     }
 
@@ -119,9 +131,27 @@ namespace MphRead::Mods
         }
     }
 
+    void WindowMode::Apply(MphRead::RenderWindow& window, WindowStartMode mode)
+    {
+        if (Active() == mode)
+        {
+            return;
+        }
+        Leave(window);
+        if (mode != WindowStartMode::Windowed)
+        {
+            Enter(window, mode);
+        }
+    }
+
     void WindowMode::Enter(MphRead::RenderWindow& window)
     {
-        if (fullscreenState)
+        Enter(window, PreferredFullscreen());
+    }
+
+    void WindowMode::Enter(MphRead::RenderWindow& window, WindowStartMode mode)
+    {
+        if (fullscreenState || mode == WindowStartMode::Windowed)
         {
             return;
         }
@@ -148,6 +178,21 @@ namespace MphRead::Mods
         const RendererPlatform::MonitorArea monitor
             = window.CurrentMonitorClientArea();
         fullscreenState = true;
+
+        // The toolkit's own fullscreen: no border to hide and no geometry to
+        // set -- the window takes the monitor it is on, at its exact size.
+        // Leave's showNormal hands the old geometry back.
+        if (mode == WindowStartMode::ExclusiveFullscreen)
+        {
+            activeState = WindowStartMode::ExclusiveFullscreen;
+            if (window.WindowStateFullscreen())
+            {
+                SetTopmost(window, true);
+                WindowGeometry::NoteMode();
+                return;
+            }
+        }
+        activeState = WindowStartMode::BorderlessFullscreen;
 
         window.WindowStateNormal();
         window.WindowBorder(HiddenWindowBorder);
@@ -238,6 +283,12 @@ namespace MphRead::Mods
         }
 
         const std::string_view text = StringTrimView(*value);
+        if (StringEqualsOrdinalIgnoreCase(text, "exclusive")
+            || StringEqualsOrdinalIgnoreCase(text, "exclusive fullscreen")
+            || text == "2")
+        {
+            return WindowStartMode::ExclusiveFullscreen;
+        }
         if (StringEqualsOrdinalIgnoreCase(text, "borderless")
             || StringEqualsOrdinalIgnoreCase(text, "fullscreen")
             || StringEqualsOrdinalIgnoreCase(text, "borderless fullscreen")

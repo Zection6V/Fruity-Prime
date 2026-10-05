@@ -1255,6 +1255,9 @@ private: \
     MphRead::ScenePass _itemPass = MphRead::ScenePass::Opaque; \
     bool _previewIntoWindow = false; \
     std::unordered_map<std::uint32_t, std::unique_ptr<MphRead::NativeRuntime::Rhi::GraphicsPipeline>> _pipelines{}; \
+    /* The pass pipelines last asked for: every item asks for one. */ \
+    std::array<std::pair<std::uint32_t, const MphRead::NativeRuntime::Rhi::GraphicsPipeline*>, 8> _recentPipelines{}; \
+    std::size_t _recentPipelineNext = 0; \
     OpenTK::Mathematics::Vector2i _targetSize{}; \
     std::unordered_map<std::int32_t, OpenTK::Mathematics::Vector3> _flatColors{}; \
     inline static bool _breakNextFrame = false; \

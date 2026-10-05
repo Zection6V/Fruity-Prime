@@ -1284,7 +1284,7 @@ namespace MphRead
         _sceneColor.reset();
         for (auto& sampler : _samplers) sampler.reset();
         _commands.reset();
-        _pipelines.clear();
+        _pipelines.clear(); _recentPipelines = {};
         _shaderConstants = &_noShaderConstants;
         _sceneShaders.reset();
         auto* device = std::exchange(_gpu, nullptr);
@@ -1494,6 +1494,8 @@ namespace MphRead
         const std::uint32_t key = (static_cast<std::uint32_t>(pass) << 16U)
             | (static_cast<std::uint32_t>(cull) << 12U) | (static_cast<std::uint32_t>(fill) << 8U)
             | (static_cast<std::uint32_t>(lineWidth) & 0xFFU);
+        for (const auto& [recentKey, recent] : _recentPipelines)
+            if (recent && recentKey == key) return *recent;
         auto& pipeline = _pipelines[key];
         if (!pipeline)
         {
@@ -1503,6 +1505,8 @@ namespace MphRead
             desc.rasterizer.lineWidth = static_cast<float>(lineWidth);
             pipeline = Gpu().CreateGraphicsPipeline(desc);
         }
+        _recentPipelines[_recentPipelineNext] = {key, pipeline.get()};
+        _recentPipelineNext = (_recentPipelineNext + 1) % _recentPipelines.size();
         return *pipeline;
     }
 
@@ -3921,7 +3925,7 @@ namespace MphRead
         }
         // The command list owns the framebuffers built on those targets.
         _commands.reset();
-        _pipelines.clear();
+        _pipelines.clear(); _recentPipelines = {};
         // The movie frames were owned textures, already released above.
         _topMovieBinding = -1;
         _botMovieBinding = -1;

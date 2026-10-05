@@ -349,6 +349,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     SceneFlushers.clear(); SceneForgetters.clear(); SceneViewReplacers.clear();
                     RecordingList = nullptr; CurrentSceneProgram = nullptr;
                     TexturesByHandle.clear();
+                    TexturesGeneration.fetch_add(1, std::memory_order_release);
                 }
             }
 
@@ -441,6 +442,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             void* RecordingList = nullptr; // VulkanCommandList*
             std::mutex TextureMutex{};
             std::unordered_map<std::int32_t, VulkanTexture*> TexturesByHandle{};
+            // Bumped, under TextureMutex, by every change to any device's
+            // TexturesByHandle: FindTexture's per-thread cache is good while it
+            // has not moved. One counter for all devices, so a device made again
+            // at a freed one's address never meets that one's cache entries.
+            inline static std::atomic<std::uint64_t> TexturesGeneration{1};
 
             // The window's own colour and depth, which every command list on
             // this device draws into as OpenGL draws into the default
@@ -1055,7 +1061,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 std::lock_guard lock(_device->TextureMutex);
                 const auto found = _device->TexturesByHandle.find(_handle.value);
                 if (found != _device->TexturesByHandle.end() && found->second == this)
+                {
                     _device->TexturesByHandle.erase(found);
+                    _device->TexturesGeneration.fetch_add(1, std::memory_order_release);
+                }
             }
             --_device->Textures;
             _handle = {};
@@ -1252,6 +1261,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 {
                     std::lock_guard lock(_state->TextureMutex);
                     inserted = _state->TexturesByHandle.emplace(handle, texture.get()).second;
+                    _state->TexturesGeneration.fetch_add(1, std::memory_order_release);
                 }
                 if (!inserted) throw std::invalid_argument("Vulkan RHI: texture handle already live.");
                 return texture;
@@ -1267,6 +1277,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 {
                     std::lock_guard lock(_state->TextureMutex);
                     inserted = _state->TexturesByHandle.emplace(handle.value, texture.get()).second;
+                    _state->TexturesGeneration.fetch_add(1, std::memory_order_release);
                 }
                 if (!inserted) throw std::invalid_argument("Vulkan RHI: texture handle already live.");
                 return texture;
@@ -1274,9 +1285,31 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 
             [[nodiscard]] Texture* FindTexture(TextureHandle handle) noexcept override
             {
+                // Every bound texture of every draw comes through here. A small
+                // per-thread cache answers without the lock while no texture has
+                // been created or destroyed on this device since it was filled.
+                struct Cached final { std::int32_t Handle = 0; VulkanTexture* Texture = nullptr; };
+                struct Cache final
+                {
+                    const VulkanDeviceState* Device = nullptr;
+                    std::uint64_t Generation = 0;
+                    std::array<Cached, 256> Entries{};
+                };
+                thread_local Cache cache;
+                const auto generation = _state->TexturesGeneration.load(std::memory_order_acquire);
+                if (cache.Device != _state.get() || cache.Generation != generation)
+                {
+                    cache.Device = _state.get(); cache.Generation = generation; cache.Entries = {};
+                }
+                auto& entry = cache.Entries[static_cast<std::uint32_t>(handle.value) % cache.Entries.size()];
+                if (handle.value != 0 && entry.Handle == handle.value) return entry.Texture;
                 std::lock_guard lock(_state->TextureMutex);
                 const auto found = _state->TexturesByHandle.find(handle.value);
-                return found == _state->TexturesByHandle.end() ? nullptr : found->second;
+                if (found == _state->TexturesByHandle.end()) return nullptr;
+                // Only an entry read at the generation the cache holds is kept.
+                if (_state->TexturesGeneration.load(std::memory_order_relaxed) == cache.Generation)
+                    entry = {handle.value, found->second};
+                return found->second;
             }
 
             Texture& RetainTexture(std::unique_ptr<Texture> texture) override

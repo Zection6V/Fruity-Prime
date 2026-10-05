@@ -684,7 +684,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                         return binding.binding == entry.binding;
                     }))
                         throw std::invalid_argument("Vulkan RHI: duplicate layout binding.");
-                    bindings.push_back({entry.binding, ToVkDescriptorType(entry.type),
+                    bindings.push_back({entry.binding,
+                        entry.dynamic && entry.type == BindingType::UniformBuffer
+                            ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC : ToVkDescriptorType(entry.type),
                         entry.count, ToVkShaderStages(entry.stages), nullptr});
                 }
                 VkDescriptorSetLayoutCreateInfo create{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};

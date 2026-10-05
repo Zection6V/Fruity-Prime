@@ -199,7 +199,10 @@ private:
         for (const auto& block : blocks)
         {
             if (block.small) continue;
-            layouts.at(block.group).entries.push_back({block.binding, BindingType::UniformBuffer, ShaderStage::AllGraphics, 1});
+            // The per-draw block is bound at an offset in the upload ring, so
+            // a new slice needs no new descriptor set.
+            const bool dynamic = DynamicDrawBlock() && block.group == static_cast<std::uint32_t>(SceneShaderAbi::Group::Draw);
+            layouts.at(block.group).entries.push_back({block.binding, BindingType::UniformBuffer, ShaderStage::AllGraphics, 1, dynamic});
         }
         for (const auto& texture : textures)
         {

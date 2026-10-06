@@ -69,6 +69,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                         throw std::invalid_argument("Overlapping Vulkan scene uniform members.");
                 if (!Members.emplace(desc.name, desc).second)
                     throw std::invalid_argument("Duplicate Vulkan scene uniform member.");
+                if (desc.name == "cel_bands") _celBands = std::pair{desc.block, desc.offset};
+                if (desc.name == "toon_table") _toonTable = std::pair{desc.block, desc.offset};
                 const auto slot = SceneShaderAbi::ConstantIndexOf(desc.name);
                 if (slot < _denseMembers.size()) _denseMembers[slot] = desc;
             }
@@ -104,10 +106,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
             auto& block = BlockAt(member->block);
             auto* destination = block.Data.data() + member->offset;
-            if (std::memcmp(destination, data, size) != 0)
+            if (!SameBytes(destination, data, size))
             {
-                std::memcpy(destination, data, size); ++block.Generation;
-                if (!_owner && member->name == "cel_bands") ++_globalMaterialGeneration;
+                CopyBytes(destination, data, size); ++block.Generation;
+                if (!_owner && _celBands == std::pair{member->block, member->offset}) ++_globalMaterialGeneration;
             }
         }
     public:
@@ -138,13 +140,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 auto* destination = block.Data.data() + member->offset + i * stride;
                 const auto* source = data + i * elementFloats;
                 const auto size = ValueSize(member->type);
-                if (std::memcmp(destination, source, size) != 0)
-                { std::memcpy(destination, source, size); changed = true; }
+                if (!SameBytes(destination, source, size))
+                { CopyBytes(destination, source, size); changed = true; }
             }
             if (changed)
             {
                 ++block.Generation;
-                if (!_owner && member->name == "toon_table") ++_globalMaterialGeneration;
+                if (!_owner && _toonTable == std::pair{member->block, member->offset}) ++_globalMaterialGeneration;
             }
         }
     public:
@@ -190,6 +192,32 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         std::optional<std::size_t> _materialBlock;
         Owner* _owner = nullptr;
         std::uint64_t _ownerIdentity = 0, _globalMaterialGeneration = 1;
+        // The two members every material owner inherits from the program (block, offset).
+        std::optional<std::pair<std::uint32_t, std::uint32_t>> _celBands, _toonTable;
+        // Constant sizes, so the compiler compares and copies in registers
+        // instead of calling memcmp/memcpy for every constant a draw sets.
+        static bool SameBytes(const std::byte* destination, const void* source, std::size_t size) noexcept
+        {
+            switch (size)
+            {
+            case 4: return std::memcmp(destination, source, 4) == 0;
+            case 12: return std::memcmp(destination, source, 12) == 0;
+            case 16: return std::memcmp(destination, source, 16) == 0;
+            case 64: return std::memcmp(destination, source, 64) == 0;
+            default: return std::memcmp(destination, source, size) == 0;
+            }
+        }
+        static void CopyBytes(std::byte* destination, const void* source, std::size_t size) noexcept
+        {
+            switch (size)
+            {
+            case 4: std::memcpy(destination, source, 4); break;
+            case 12: std::memcpy(destination, source, 12); break;
+            case 16: std::memcpy(destination, source, 16); break;
+            case 64: std::memcpy(destination, source, 64); break;
+            default: std::memcpy(destination, source, size); break;
+            }
+        }
         static std::uint32_t ValueSize(SceneShaderAbi::ValueType type)
         {
             using SceneShaderAbi::ValueType;

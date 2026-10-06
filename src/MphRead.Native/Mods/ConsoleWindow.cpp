@@ -974,7 +974,8 @@ namespace MphRead
             return;
 #else
             const bool console = HasFlag(args, "console");
-            const bool launcher = HasFlag(args, "launcher");
+            // No arguments means the launcher, and the launcher is a window.
+            const bool launcher = args.empty() || HasFlag(args, "launcher");
 
             if (!console && (launcher || IsOutputRedirected()))
             {

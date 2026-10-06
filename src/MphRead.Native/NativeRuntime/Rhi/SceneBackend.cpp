@@ -19,9 +19,12 @@ namespace MphRead::NativeRuntime::Rhi
         // Vulkan when the phone can start it, else OpenGL ES.
         SceneBackendRequest requested = SceneBackendRequest::Auto;
 #else
+        // The harnesses' default. The game asks for its preference, Auto
+        // unless chosen otherwise, through LauncherPrefs.
         SceneBackendRequest requested = SceneBackendRequest::OpenGL;
 #endif
         bool requestExplicit = false;
+        bool autoFellBack = false;
         bool resolved = false;
         bool needsWindowUi = false;
         bool validation = false;
@@ -82,6 +85,8 @@ namespace MphRead::NativeRuntime::Rhi
         resolved = false;
     }
     void SceneBackendNeedsWindowUi(bool value) noexcept { needsWindowUi = value; }
+    void NoteAutoFallBack() noexcept { autoFellBack = true; }
+    bool AutoFellBack() noexcept { return autoFellBack; }
 
     bool ParseSceneBackendRequest(std::string_view text, SceneBackendRequest& request) noexcept
     {

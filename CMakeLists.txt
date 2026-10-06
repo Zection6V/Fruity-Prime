@@ -687,7 +687,12 @@ endfunction()
 # the library above.
 if(NOT ANDROID)
     qt_add_executable(fruity_prime "${CMAKE_CURRENT_SOURCE_DIR}/src/FruityPrime/Main.cpp")
-    if(APPLE)
+    if(WIN32)
+        # A GUI binary, as the C# WinExe was: double-clicked it opens the game
+        # window and no console. The command-line modes attach to the parent
+        # console, or open one, themselves (ConsoleWindow::Prepare).
+        set_target_properties(fruity_prime PROPERTIES WIN32_EXECUTABLE TRUE)
+    elseif(APPLE)
         set_target_properties(fruity_prime PROPERTIES MACOSX_BUNDLE TRUE)
     elseif(UNIX)
         set_target_properties(fruity_prime PROPERTIES INSTALL_RPATH "$ORIGIN/../lib")

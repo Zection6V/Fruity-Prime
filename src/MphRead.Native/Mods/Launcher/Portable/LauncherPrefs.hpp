@@ -127,6 +127,7 @@ namespace MphRead::Mods::Launcher
         static void Save();
 
     private:
+        static void LoadFile();
         [[nodiscard]] static std::string Path();
 
         // "1280x768" or "40,60" -- one parser for both, since the only

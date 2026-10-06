@@ -735,6 +735,7 @@ namespace MphRead
         // the viewport after a resize.
         [[nodiscard]] NativeRuntime::Rhi::CommandList& WindowCommands();
         void SwitchRenderer(NativeRuntime::Rhi::SceneBackendRequest request);
+        void CreateWindowOrFallBack();
         void CreatePresentation();
         std::optional<NativeRuntime::Rhi::SceneBackendRequest> _rendererSwitch{};
 

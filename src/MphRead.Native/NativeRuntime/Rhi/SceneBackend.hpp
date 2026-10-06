@@ -70,6 +70,11 @@ namespace MphRead::NativeRuntime::Rhi
     // The launcher will draw into the window (the shell): Vulkan then also
     // needs a Skia that can draw through it. Harness windows never say so.
     void SceneBackendNeedsWindowUi(bool value) noexcept;
+    // Auto chose Vulkan and it could not start (device, swapchain or the
+    // menus on it), so this run plays on OpenGL. Asking for Auto again does
+    // not try Vulkan a second time.
+    void NoteAutoFallBack() noexcept;
+    [[nodiscard]] bool AutoFellBack() noexcept;
     // "opengl" / "gl" / "vulkan" / "vk" / "auto"; false for anything else.
     [[nodiscard]] bool ParseSceneBackendRequest(std::string_view text, SceneBackendRequest& request) noexcept;
     [[nodiscard]] std::string_view SceneBackendRequestName(SceneBackendRequest request) noexcept;

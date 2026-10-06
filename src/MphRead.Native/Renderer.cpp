@@ -5992,9 +5992,9 @@ namespace MphRead
     }
 
     RenderWindow::RenderWindow(bool shell)
-        : _window(RendererPlatform::CreateWindow(Settings())), _shell(shell)
+        : _shell(shell)
     {
-        CreatePresentation();
+        CreateWindowOrFallBack();
         _performance = Mods::Diagnostics::FramePerformance::Create();
         const Vector2i clientSize = _window->ClientSize();
         const Vector2i size = _window->Size();
@@ -6012,6 +6012,37 @@ namespace MphRead
         }
         _sceneReady = true;
         FitToScreen();
+    }
+
+    // Auto is Vulkan first, as on Android: a machine whose driver passes the
+    // probe but cannot make the device or the swapchain plays on OpenGL
+    // rather than stopping on an error. Nothing lives on the Vulkan session
+    // yet, so the window is simply made again on the other renderer. An
+    // explicit Vulkan still fails with its error.
+    void RenderWindow::CreateWindowOrFallBack()
+    {
+        namespace Rhi = NativeRuntime::Rhi;
+        const bool automatic = Rhi::RequestedSceneBackend() == Rhi::SceneBackendRequest::Auto;
+        try
+        {
+            _window = RendererPlatform::CreateWindow(Settings());
+            CreatePresentation();
+            return;
+        }
+        catch (const std::exception& ex)
+        {
+            if (!automatic || Rhi::SelectedSceneBackend() != Rhi::GraphicsBackend::Vulkan) throw;
+            std::cout << "[render] auto: Vulkan could not start (" << ex.what() << "); falling back to OpenGL"
+                      << std::endl;
+            Mods::DebugLog::Line("render", std::string("auto: Vulkan could not start, OpenGL instead: ") + ex.what());
+        }
+        _swapchain.reset();
+        Rhi::DetachSceneWindow();
+        _window.reset();
+        Rhi::SelectSceneBackend(Rhi::GraphicsBackend::OpenGl);
+        Rhi::NoteAutoFallBack();
+        _window = RendererPlatform::CreateWindow(Settings());
+        CreatePresentation();
     }
 
     void RenderWindow::CreatePresentation()
@@ -6036,6 +6067,9 @@ namespace MphRead
     void RenderWindow::RequestRendererSwitch(NativeRuntime::Rhi::SceneBackendRequest request)
     {
         if (request == NativeRuntime::Rhi::RequestedSceneBackend()) return;
+        // Auto already fell back to OpenGL this run: asking for Auto again
+        // (Settings saved with the renderer untouched) is what is running.
+        if (request == NativeRuntime::Rhi::SceneBackendRequest::Auto && NativeRuntime::Rhi::AutoFellBack()) return;
         _rendererSwitch = request;
         _window->Close();
     }

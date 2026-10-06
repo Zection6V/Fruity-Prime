@@ -429,7 +429,8 @@ namespace MphRead::Qt
         int RendererChoice()
         {
             const std::string renderer = LauncherPrefs::Renderer();
-            if (renderer == "auto") return NativeRuntime::Rhi::ProbeVulkanSupport().Available ? 1 : 0;
+            if (renderer == "auto")
+                return !NativeRuntime::Rhi::AutoFellBack() && NativeRuntime::Rhi::ProbeVulkanSupport().Available ? 1 : 0;
             return renderer == "vulkan" ? 1 : 0;
         }
     }

@@ -688,6 +688,15 @@ namespace MphRead::Mods::Render
     {
         glUseProgram(GlName(program));
         _program = program;
+        if (program == 0)
+        {
+            // Unbinding: program 0 is not a program object, and asking it
+            // for a uniform location raises GL_INVALID_VALUE -- an error the
+            // next RHI allocation check then reads as its own failure.
+            _immColorLoc = -1;
+            _alphaTestLoc = -1;
+            return;
+        }
         const auto found = _programLocs.find(program);
         if (found == _programLocs.end())
         {

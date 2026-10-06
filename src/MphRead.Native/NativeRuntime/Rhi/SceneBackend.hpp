@@ -70,6 +70,11 @@ namespace MphRead::NativeRuntime::Rhi
     // The launcher will draw into the window (the shell): Vulkan then also
     // needs a Skia that can draw through it. Harness windows never say so.
     void SceneBackendNeedsWindowUi(bool value) noexcept;
+    // Auto chose Vulkan and it could not start (device, swapchain or the
+    // menus on it), so this run plays on OpenGL. Asking for Auto again does
+    // not try Vulkan a second time.
+    void NoteAutoFallBack() noexcept;
+    [[nodiscard]] bool AutoFellBack() noexcept;
     // "opengl" / "gl" / "vulkan" / "vk" / "auto"; false for anything else.
     [[nodiscard]] bool ParseSceneBackendRequest(std::string_view text, SceneBackendRequest& request) noexcept;
     [[nodiscard]] std::string_view SceneBackendRequestName(SceneBackendRequest request) noexcept;
@@ -85,6 +90,18 @@ namespace MphRead::NativeRuntime::Rhi
     // Why Vulkan cannot be used here, or empty when it can. forWindow: the
     // presented window's launcher as well (Skia with Vulkan).
     [[nodiscard]] std::string VulkanUnavailableReason(bool forWindow);
+    // For the renderer setting: can this machine run Vulkan, and which API
+    // version ("1.1"). Probed once (instance and physical devices only).
+    struct VulkanSupport final
+    {
+        bool Available = false;
+        std::string Version;
+    };
+    [[nodiscard]] const VulkanSupport& ProbeVulkanSupport();
+    // The calling thread takes over the scene session's GPU submissions.
+    // Only under a lock that keeps every other thread off the session (the
+    // Android GPU lease); a no-op before the session exists.
+    void AdoptSceneSessionThread();
     // What this binary carries, one "key=value" a line, for CI to assert:
     // the backends, Skia's Vulkan, the embedded SPIR-V stages and the
     // scene programs. Needs no GPU and no game files.

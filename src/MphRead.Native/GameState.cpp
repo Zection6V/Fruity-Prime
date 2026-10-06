@@ -3007,6 +3007,7 @@ namespace MphRead::GameStateDetail
             ReadString(object2, "FrameRateCap", value->FrameRateCap);
             ReadString(object2, "VSync", value->VSync);
             ReadString(object2, "CelShading", value->CelShading);
+            ReadString(object2, "PerformanceMode", value->PerformanceMode);
             ReadString(object2, "CelBands", value->CelBands);
             ReadString(object2, "CelEdge", value->CelEdge);
             ReadString(object2, "PointGoal", value->PointGoal);
@@ -3080,6 +3081,7 @@ namespace MphRead::GameStateDetail
         object->Set("FrameRateCap", Json::MakeString(value->FrameRateCap));
         object->Set("VSync", Json::MakeString(value->VSync));
         object->Set("CelShading", Json::MakeString(value->CelShading));
+        object->Set("PerformanceMode", Json::MakeString(value->PerformanceMode));
         object->Set("CelBands", Json::MakeString(value->CelBands));
         object->Set("CelEdge", Json::MakeString(value->CelEdge));
         object->Set("PointGoal", Json::MakeString(value->PointGoal));

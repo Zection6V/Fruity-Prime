@@ -23,6 +23,9 @@ namespace MphRead::NativeRuntime::Rhi
         BindingType type = BindingType::UniformBuffer;
         ShaderStage stages = ShaderStage::None;
         std::uint32_t count = 1;
+        // A uniform buffer whose offset is given when the set is bound
+        // (Vulkan's dynamic uniform buffer). Backends without one ignore it.
+        bool dynamic = false;
 
         bool operator==(const BindingLayoutEntry&) const = default;
     };

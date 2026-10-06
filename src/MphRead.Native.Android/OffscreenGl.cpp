@@ -4,6 +4,8 @@
 #error "OffscreenGl is only valid for the Android native target."
 #endif
 
+#include "../MphRead.Native/NativeRuntime/Rhi/OpenGL/OpenGlDevice.hpp"
+
 #include <cstdint>
 #include <iostream>
 #include <memory>
@@ -154,6 +156,15 @@ namespace MphRead::Droid
 
         try
         {
+            // The scene session's OpenGL device is keyed to this context.
+            // Close it while the context is still current, or the next
+            // context (a match, the next preview batch) inherits a device
+            // whose context is gone: "The current context has no OpenGL
+            // session."
+            if (_contextAssigned && eglGetCurrentContext() == _context)
+            {
+                ::MphRead::NativeRuntime::Rhi::OpenGL::ReleaseContextDevice();
+            }
             (void)eglMakeCurrent(
                 _display,
                 EGL_NO_SURFACE,

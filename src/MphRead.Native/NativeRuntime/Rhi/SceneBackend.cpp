@@ -15,8 +15,16 @@ namespace MphRead::NativeRuntime::Rhi
     namespace
     {
         GraphicsBackend selected = GraphicsBackend::OpenGl;
+#if defined(__ANDROID__)
+        // Vulkan when the phone can start it, else OpenGL ES.
+        SceneBackendRequest requested = SceneBackendRequest::Auto;
+#else
+        // The harnesses' default. The game asks for its preference, Auto
+        // unless chosen otherwise, through LauncherPrefs.
         SceneBackendRequest requested = SceneBackendRequest::OpenGL;
+#endif
         bool requestExplicit = false;
+        bool autoFellBack = false;
         bool resolved = false;
         bool needsWindowUi = false;
         bool validation = false;
@@ -77,6 +85,8 @@ namespace MphRead::NativeRuntime::Rhi
         resolved = false;
     }
     void SceneBackendNeedsWindowUi(bool value) noexcept { needsWindowUi = value; }
+    void NoteAutoFallBack() noexcept { autoFellBack = true; }
+    bool AutoFellBack() noexcept { return autoFellBack; }
 
     bool ParseSceneBackendRequest(std::string_view text, SceneBackendRequest& request) noexcept
     {
@@ -101,6 +111,19 @@ namespace MphRead::NativeRuntime::Rhi
     {
         const auto* provider = FindBackendProvider(GraphicsBackend::Vulkan);
         return provider ? provider->ProbePassive(forWindow) : "this build has no Vulkan backend";
+    }
+
+    const VulkanSupport& ProbeVulkanSupport()
+    {
+        static const VulkanSupport support = []
+        {
+            VulkanSupport result;
+            const auto* provider = FindBackendProvider(GraphicsBackend::Vulkan);
+            result.Available = provider && provider->ProbePassive(needsWindowUi).empty();
+            if (result.Available) result.Version = provider->ProbedVersion();
+            return result;
+        }();
+        return support;
     }
 
     GraphicsBackend SelectedSceneBackend()
@@ -250,6 +273,11 @@ namespace MphRead::NativeRuntime::Rhi
         const auto result = Session().Present(swapchain);
         RequirePresentation(result, Session().Backend());
         return result;
+    }
+
+    void AdoptSceneSessionThread()
+    {
+        if (session) session->AdoptCurrentThread();
     }
 
     void DetachSceneWindow() noexcept

@@ -42,6 +42,7 @@ public: \
     [[nodiscard]] static std::int32_t PreviewDrawnSuit() noexcept { return _previewDrawnSuit; } \
     [[nodiscard]] bool ModDrawPreviewAlone(::OpenTK::Mathematics::Vector2i windowSize); \
     [[nodiscard]] std::optional<std::vector<std::uint8_t>> ModPreviewPixels(std::int32_t width, std::int32_t height); \
+    [[nodiscard]] std::optional<std::vector<std::uint8_t>> ModPreviewPixelsAlone(std::int32_t width, std::int32_t height); \
 private: \
     void ModCollectPreview(); \
     void ModDrawPreview(); \

@@ -14,6 +14,7 @@
 #include "../NativeRuntime/System/Globalization.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
 
+#include <cstdlib>
 #include <charconv>
 #include <cmath>
 #include <cstddef>
@@ -221,6 +222,13 @@ namespace MphRead::Mods
         settings->VSync = std::string(RenderOptions::OnOff(Render::FrameTiming::VSync()));
         RenderOptions::CelShading(RenderOptions::ParseOnOff(
             AsStringView(settings->CelShading), RenderOptions::CelShading()));
+        RenderOptions::PerformanceMode(RenderOptions::ParseOnOff(
+            AsStringView(settings->PerformanceMode), RenderOptions::PerformanceMode()));
+        // Bench runs (FP_BENCH_PERFORMANCE=on|off) choose it whatever is saved.
+        if (const char* bench = std::getenv("FP_BENCH_PERFORMANCE"))
+        {
+            RenderOptions::PerformanceMode(RenderOptions::ParseOnOff(bench, RenderOptions::PerformanceMode()));
+        }
         RenderOptions::CelBands(8);
         RenderOptions::CelEdge(0.5F);
     }

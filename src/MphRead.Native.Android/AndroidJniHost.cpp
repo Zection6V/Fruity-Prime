@@ -7,6 +7,8 @@
 #include "ApkInstaller.hpp"
 #include "GameView.hpp"
 #include "PreviewRun.hpp"
+#include "PreviewService.hpp"
+#include "AndroidConsole.hpp"
 #include "TouchOverlayView.hpp"
 
 #include "../MphRead.Native/Formats/Types.hpp"
@@ -2665,4 +2667,58 @@ Java_fr_livetek_fruityprime_InstallResultReceiver_nativeOnReceive(
             intent
         );
     });
+}
+
+namespace
+{
+    // Every PreviewWorkerN.java shares this peer; the Java class names the
+    // process it runs in.
+    class PreviewWorkerPeer final : public MphRead::Droid::PreviewService
+    {
+    public:
+        using PreviewService::PreviewService;
+    };
+}
+
+extern "C"
+JNIEXPORT jlong JNICALL
+Java_fr_livetek_fruityprime_PreviewService_nativeCreate(
+    JNIEnv* env,
+    jclass,
+    jobject service
+)
+{
+    try
+    {
+        MphRead::Droid::AndroidConsole::Install();
+        return reinterpret_cast<jlong>(new PreviewWorkerPeer(env, service));
+    }
+    catch (...)
+    {
+        ThrowJavaRuntime(env, std::current_exception());
+        return 0;
+    }
+}
+
+extern "C"
+JNIEXPORT jint JNICALL
+Java_fr_livetek_fruityprime_PreviewService_nativeOnStartCommand(
+    JNIEnv* env,
+    jclass,
+    jlong handle,
+    jobject intent,
+    jint flags,
+    jint startId
+)
+{
+    try
+    {
+        return static_cast<jint>(RequirePeer<PreviewWorkerPeer>(handle)
+            .OnStartCommand(env, intent, flags, startId));
+    }
+    catch (...)
+    {
+        ThrowJavaRuntime(env, std::current_exception());
+        return 2; // START_NOT_STICKY
+    }
 }

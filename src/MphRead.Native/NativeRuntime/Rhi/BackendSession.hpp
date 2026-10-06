@@ -43,6 +43,9 @@ namespace MphRead::NativeRuntime::Rhi
 
         virtual void AttachSurface(void*) { throw std::runtime_error("This backend has no native surface attachment."); }
         virtual void DetachSurface() noexcept {}
+        // The calling thread becomes the one that submits GPU work, for a
+        // session handed between threads under an outside lock.
+        virtual void AdoptCurrentThread() {}
         [[nodiscard]] virtual std::unique_ptr<Swapchain> CreateSurfaceSwapchain(const SwapchainDesc&)
         { throw std::runtime_error("This backend has no native surface swapchain."); }
     };
@@ -54,6 +57,9 @@ namespace MphRead::NativeRuntime::Rhi
         [[nodiscard]] virtual GraphicsBackend Backend() const noexcept = 0;
         // Eligibility only: no logical device, queue, or GPU resource creation.
         [[nodiscard]] virtual std::string ProbePassive(bool windowUi) const = 0;
+        // "1.1" for the API the last eligible ProbePassive found; empty when
+        // the backend has no version to show.
+        [[nodiscard]] virtual std::string ProbedVersion() const { return {}; }
         [[nodiscard]] virtual std::unique_ptr<BackendSession> CreateSession(BackendSessionOptions options) const = 0;
     };
 

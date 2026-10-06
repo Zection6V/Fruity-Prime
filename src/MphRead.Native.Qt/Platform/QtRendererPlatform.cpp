@@ -249,6 +249,7 @@ namespace
         void RecentreGrabbedCursor();
         void CheckGrabbedMouse();
         void ApplyRawMouse();
+        void ConfineCursor(bool confine);
 
         std::unique_ptr<GameQWindow> _window;
         // The monitor exclusive fullscreen was entered on, while it is the
@@ -259,6 +260,10 @@ namespace
 #if defined(_WIN32)
         std::unique_ptr<MphRead::Qt::WindowsRawMouseInput> _rawMouse;
         bool _rawMotionOwner = false;
+        // The client rectangle the cursor is held in while aiming, as GLFW's
+        // CURSOR_DISABLED does; empty when it is free.
+        RECT _cursorClip{};
+        bool _cursorClipped = false;
 #endif
         std::unique_ptr<QOpenGLContext> _context;
         GraphicsWindowMode _graphicsMode = GraphicsWindowMode::OpenGL;
@@ -378,6 +383,7 @@ namespace
     QtWindow::~QtWindow()
     {
 #if defined(_WIN32)
+        ConfineCursor(false);
         _rawMouse.reset(); // Detach while the native HWND still exists.
 #endif
         if (_context != nullptr)
@@ -557,6 +563,7 @@ namespace
         }
         else
         {
+            ConfineCursor(false);
             _window->setMouseGrabEnabled(false);
             _window->unsetCursor();
             _warping = false;
@@ -578,10 +585,53 @@ namespace
         }
     }
 
+    void QtWindow::ConfineCursor(bool confine)
+    {
+#if defined(_WIN32)
+        // Raw capture never moves the real cursor back to the centre, so
+        // without a clip the hidden pointer wanders off the window while
+        // aiming and the next click lands on whatever is under it. Checked
+        // every frame: Windows drops a clip on its own (focus changes,
+        // Ctrl+Alt+Del), and the window can move or be resized.
+        const HWND hwnd = reinterpret_cast<HWND>(_window->winId());
+        RECT client{};
+        if (confine && hwnd != nullptr && ::GetClientRect(hwnd, &client) != FALSE
+            && client.right > client.left && client.bottom > client.top)
+        {
+            ::MapWindowPoints(hwnd, nullptr, reinterpret_cast<POINT*>(&client), 2);
+            RECT current{};
+            const bool held = ::GetClipCursor(&current) != FALSE && ::EqualRect(&current, &client) != FALSE;
+            if (!held || !_cursorClipped)
+            {
+                if (::ClipCursor(&client) != FALSE)
+                {
+                    _cursorClip = client;
+                    _cursorClipped = true;
+                }
+            }
+            return;
+        }
+        if (_cursorClipped)
+        {
+            // Only our own clip is let go of.
+            RECT current{};
+            if (::GetClipCursor(&current) != FALSE && ::EqualRect(&current, &_cursorClip) != FALSE)
+            {
+                (void)::ClipCursor(nullptr);
+            }
+            _cursorClipped = false;
+            _cursorClip = RECT{};
+        }
+#else
+        (void)confine;
+#endif
+    }
+
     void QtWindow::ApplyRawMouse()
     {
         _mouse.MotionValid = _window->isActive();
 #if defined(_WIN32)
+        ConfineCursor(_grabbed && _window->isActive() && _window->isExposed());
         if (!_rawMouse) return;
         // A read failure can change the source during processEvents. Re-centre
         // before admitting any fallback move and discard this frame's raw data.

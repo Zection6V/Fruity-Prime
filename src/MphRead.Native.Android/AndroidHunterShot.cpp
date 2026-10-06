@@ -13,6 +13,7 @@
 #include "../MphRead.Native/Mods/Render/EsBindings.hpp"
 #include "../MphRead.Native/Mods/Render/GlEs.hpp"
 #include "../MphRead.Native/NativeRuntime/OpenTK/GL.hpp"
+#include "../MphRead.Native/NativeRuntime/Rhi/SceneBackend.hpp"
 #include "../MphRead.Native/NativeRuntime/System/Console.hpp"
 #include "../MphRead.Native/NativeRuntime/System/ExceptionText.hpp"
 #include "../MphRead.Native/Renderer.hpp"
@@ -499,12 +500,29 @@ namespace MphRead::Droid
         Scene::PreviewRight(1.0F);
         Scene::PreviewBottom(1.0F);
 
+        // On Vulkan there is no window here and no GL framebuffer to read:
+        // the hunter is drawn into the scene's own target and read back.
+        const bool vulkan = ::MphRead::NativeRuntime::Rhi::SelectedSceneBackend()
+            == ::MphRead::NativeRuntime::Rhi::GraphicsBackend::Vulkan;
+        // The target is smaller when the render scale is under 100%.
+        const auto target = scene.RenderSize();
+        const std::int32_t drawnWidth = vulkan ? std::min(width, target.X) : width;
+        const std::int32_t drawnHeight = vulkan ? std::min(height, target.Y) : height;
+        std::optional<std::vector<std::uint8_t>> drawnPixels;
         bool drawn = false;
         for (std::int32_t i = 0; i < 3 && !drawn; ++i)
         {
             Scene::LauncherPreview = true;
-            drawn = scene.ModDrawPreviewAlone(
-                ::OpenTK::Mathematics::Vector2i(width, height));
+            if (vulkan)
+            {
+                drawnPixels = scene.ModPreviewPixelsAlone(drawnWidth, drawnHeight);
+                drawn = drawnPixels.has_value();
+            }
+            else
+            {
+                drawn = scene.ModDrawPreviewAlone(
+                    ::OpenTK::Mathematics::Vector2i(width, height));
+            }
         }
         Scene::LauncherPreview = false;
         Scene::PreviewWanted(false);
@@ -528,16 +546,36 @@ namespace MphRead::Droid
             throw std::length_error("hunter preview dimensions are too large");
         }
         std::vector<std::uint8_t> rgb(pixelCount * 3U);
-        GL::BindFramebuffer(GL::FramebufferTarget::ReadFramebuffer, 0);
-        GL::PixelStore(GL::PixelStoreParameter::PackAlignment, 1);
-        GL::ReadPixels(
-            0,
-            0,
-            width,
-            height,
-            GL::PixelFormat::Rgb,
-            GL::PixelType::UnsignedByte,
-            rgb.data());
+        if (vulkan)
+        {
+            for (std::int32_t y = 0; y < height; ++y)
+            {
+                const std::size_t fromRow = static_cast<std::size_t>(
+                    static_cast<std::int64_t>(y) * drawnHeight / height) * drawnWidth;
+                for (std::int32_t x = 0; x < width; ++x)
+                {
+                    const std::size_t from = (fromRow + static_cast<std::size_t>(
+                        static_cast<std::int64_t>(x) * drawnWidth / width)) * 3U;
+                    const std::size_t to = (static_cast<std::size_t>(y) * width + x) * 3U;
+                    rgb[to] = (*drawnPixels)[from];
+                    rgb[to + 1U] = (*drawnPixels)[from + 1U];
+                    rgb[to + 2U] = (*drawnPixels)[from + 2U];
+                }
+            }
+        }
+        else
+        {
+            GL::BindFramebuffer(GL::FramebufferTarget::ReadFramebuffer, 0);
+            GL::PixelStore(GL::PixelStoreParameter::PackAlignment, 1);
+            GL::ReadPixels(
+                0,
+                0,
+                width,
+                height,
+                GL::PixelFormat::Rgb,
+                GL::PixelType::UnsignedByte,
+                rgb.data());
+        }
 
         std::vector<std::uint8_t> bgra(pixelCount * 4U);
         for (std::int32_t y = 0; y < height; ++y)

@@ -678,6 +678,15 @@ namespace MphRead::Mods::Launcher::Gui
         }
         const OpenTK::Mathematics::Vector2i framebuffer = window.FramebufferSize();
         g_host->Tick(framebuffer.X, framebuffer.Y);
+        // Auto picked Vulkan and the menus cannot draw on it: the window is
+        // remade on OpenGL rather than left without a launcher.
+        namespace Rhi = MphRead::NativeRuntime::Rhi;
+        if (g_host->VulkanFailed() && !Rhi::AutoFellBack() && Portable::LauncherPrefs::Renderer() == "auto")
+        {
+            std::cout << "[render] auto: the menus could not start on Vulkan; falling back to OpenGL\n";
+            Rhi::NoteAutoFallBack();
+            window.RequestRendererSwitch(Rhi::SceneBackendRequest::OpenGL);
+        }
     }
 
     void Shell::TickEndPanel()

@@ -37,6 +37,9 @@
 #include "../../MphRead.Native/Mods/WindowMode.hpp"
 #include "../../MphRead.Native/NativeRuntime/Rhi/LowLatency.hpp"
 #include "../../MphRead.Native/NativeRuntime/Rhi/SceneBackend.hpp"
+#if defined(__ANDROID__)
+#include "../../MphRead.Native.Android/AndroidGlContextGate.hpp"
+#endif
 #include "../../MphRead.Native/Mods/Launcher/Shell.hpp"
 #include "../../MphRead.Native/NativeRuntime/System/Globalization.hpp"
 #include "../../MphRead.Native/NativeRuntime/System/IO.hpp"
@@ -410,6 +413,27 @@ namespace MphRead::Qt
 
     // ------------------------------------------------------------ Display
 
+    namespace
+    {
+        // "Vulkan 1.1": the API version the GPU offers, or why it cannot be
+        // chosen here.
+        QString VulkanChoiceLabel()
+        {
+            const auto& vulkan = NativeRuntime::Rhi::ProbeVulkanSupport();
+            if (!vulkan.Available) return QStringLiteral("Vulkan (not supported)");
+            return vulkan.Version.empty() ? QStringLiteral("Vulkan")
+                : QStringLiteral("Vulkan ") + QString::fromStdString(vulkan.Version);
+        }
+
+        // 0 OpenGL, 1 Vulkan.
+        int RendererChoice()
+        {
+            const std::string renderer = LauncherPrefs::Renderer();
+            if (renderer == "auto") return NativeRuntime::Rhi::ProbeVulkanSupport().Available ? 1 : 0;
+            return renderer == "vulkan" ? 1 : 0;
+        }
+    }
+
     void SettingsModel::BuildDisplay()
     {
         std::vector<Row> rows;
@@ -422,11 +446,10 @@ namespace MphRead::Qt
                 : LauncherPrefs::WindowMode() == Mods::WindowStartMode::BorderlessFullscreen ? 1 : 0));
 #endif
         // Switched in place on save: the window is remade on the chosen
-        // renderer and the match and these menus carry on.
-        const std::string renderer = LauncherPrefs::Renderer();
+        // renderer and the match and these menus carry on. A preference never
+        // chosen ("auto") shows as what it runs: Vulkan where it can start.
         rows.push_back(Choice(QStringLiteral("renderer"), QStringLiteral("Renderer"),
-            {QStringLiteral("OpenGL"), QStringLiteral("Vulkan"), QStringLiteral("Auto")},
-            renderer == "vulkan" ? 1 : renderer == "auto" ? 2 : 0));
+            {QStringLiteral("OpenGL"), VulkanChoiceLabel()}, RendererChoice()));
 
         rows.push_back(Heading(QStringLiteral("View")));
         Row fov = Slider(QStringLiteral("fov"), QStringLiteral("Field of view"), Mods::RenderOptions::FieldOfView(),
@@ -2090,14 +2113,19 @@ namespace MphRead::Qt
         LauncherPrefs::LowLatency(static_cast<NativeRuntime::Rhi::LowLatencyMode>(
             std::clamp(index(_display, "lowLatency"), 0, 2)));
         {
-            static constexpr std::array<const char*, 3> Renderers{"opengl", "vulkan", "auto"};
-            const char* const chosen = Renderers[static_cast<std::size_t>(std::clamp(index(_display, "renderer"), 0, 2))];
+            const int choice = std::clamp(index(_display, "renderer"), 0, 1);
+            // Left on the default: stays "auto", which keeps the OpenGL
+            // fallback should Vulkan fail to start on this device.
+            const char* const chosen = LauncherPrefs::Renderer() == "auto" && choice == RendererChoice() ? "auto"
+                : choice == 1 ? "vulkan" : "opengl";
             LauncherPrefs::Renderer(chosen);
             NativeRuntime::Rhi::SceneBackendRequest request{};
             if (NativeRuntime::Rhi::ParseSceneBackendRequest(chosen, request))
             {
 #if !defined(__ANDROID__)
                 Mods::Launcher::Gui::Shell::RequestRenderer(request, true);
+#else
+                Droid::RequestAndroidRenderer(request);
 #endif
             }
         }

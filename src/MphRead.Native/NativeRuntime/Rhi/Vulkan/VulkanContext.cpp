@@ -1,6 +1,7 @@
 #include "VulkanContext.hpp"
 #include "../../../Renderer.hpp"
 #include "../../../Mods/Branding.hpp"
+#include <atomic>
 #include <iostream>
 #include <stdexcept>
 
@@ -67,15 +68,24 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
 #endif
     }
     Context::~Context() = default;
+    namespace { std::atomic<std::uint32_t> probedApiVersion{0}; }
+    std::string Context::ProbedApiVersion()
+    {
+        const std::uint32_t version = probedApiVersion.load();
+        if (version == 0) return {};
+        return std::to_string(VK_API_VERSION_MAJOR(version)) + "." + std::to_string(VK_API_VERSION_MINOR(version));
+    }
     std::string Context::ProbePassive()
     {
         try
         {
             Impl probe;
             probe.Initialize(false, nullptr, true, false);
+            const auto chosen = SelectPhysicalDevice(probe.deviceProbes);
             if (probe.device || probe.graphics || probe.present || !probe.physical
-                || !probe.instanceProbe.Eligible || !SelectPhysicalDevice(probe.deviceProbes))
+                || !probe.instanceProbe.Eligible || !chosen)
                 throw std::logic_error("Vulkan passive eligibility violated its instance/physical-device-only boundary.");
+            probedApiVersion.store(probe.deviceProbes[*chosen].Snapshot.Properties.apiVersion);
             std::cout << "[vulkan probe] passive eligible; logical-device=0; queues=0; candidates="
                 << probe.deviceProbes.size() << '\n';
             return {};

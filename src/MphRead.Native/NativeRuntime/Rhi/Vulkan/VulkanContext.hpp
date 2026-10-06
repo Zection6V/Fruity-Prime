@@ -45,6 +45,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         [[nodiscard]] bool ValidationEnabled() const noexcept;
         // Instance/physical-device queries only; no device, queues or VMA.
         [[nodiscard]] static std::string ProbePassive();
+        // "1.1": the selected device's API version from the last passive
+        // probe that found one; empty before that.
+        [[nodiscard]] static std::string ProbedApiVersion();
         void WaitIdle();
         void Shutdown();
         void CheckCommandBufferDebugName();

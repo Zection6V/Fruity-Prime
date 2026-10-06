@@ -43,5 +43,47 @@
         <receiver
             android:name=".InstallResultReceiver"
             android:exported="false" />
+
+        <!-- Room previews, rendered in parallel processes (PreviewService.java). -->
+        <service
+            android:name=".PreviewWorker0"
+            android:exported="false"
+            android:process=":preview0" />
+        <service
+            android:name=".PreviewWorker1"
+            android:exported="false"
+            android:process=":preview1" />
+        <service
+            android:name=".PreviewWorker2"
+            android:exported="false"
+            android:process=":preview2" />
+        <service
+            android:name=".PreviewWorker3"
+            android:exported="false"
+            android:process=":preview3" />
+        <service
+            android:name=".PreviewWorker4"
+            android:exported="false"
+            android:process=":preview4" />
+        <service
+            android:name=".PreviewWorker5"
+            android:exported="false"
+            android:process=":preview5" />
+        <service
+            android:name=".PreviewWorker6"
+            android:exported="false"
+            android:process=":preview6" />
+        <service
+            android:name=".PreviewWorker7"
+            android:exported="false"
+            android:process=":preview7" />
+        <service
+            android:name=".PreviewWorker8"
+            android:exported="false"
+            android:process=":preview8" />
+        <service
+            android:name=".PreviewWorker9"
+            android:exported="false"
+            android:process=":preview9" />
     </application>
 </manifest>

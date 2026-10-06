@@ -1024,6 +1024,35 @@ namespace MphRead::Droid
             DestroyContext();
         }
 
+        // The window surface may already be gone (Back, the home button) by
+        // the time the match is torn down, which leaves the context unbound
+        // and its scene objects and RHI device unreachable. A context can be
+        // current with no surface only where EGL_KHR_surfaceless_context
+        // exists, so fall back to a 1x1 pbuffer.
+        void BindForTeardown() noexcept
+        {
+            if (_vulkan || !_contextAssigned || _context == EGL_NO_CONTEXT
+                || eglGetCurrentContext() == _context)
+            {
+                return;
+            }
+            if (eglMakeCurrent(_display, EGL_NO_SURFACE, EGL_NO_SURFACE, _context) == EGL_TRUE)
+            {
+                return;
+            }
+            if (_teardownSurface == EGL_NO_SURFACE)
+            {
+                const EGLint size[] = { EGL_WIDTH, 1, EGL_HEIGHT, 1, EGL_NONE };
+                _teardownSurface = eglCreatePbufferSurface(_display, _config, size);
+            }
+            if (_teardownSurface == EGL_NO_SURFACE
+                || eglMakeCurrent(_display, _teardownSurface, _teardownSurface, _context) != EGL_TRUE)
+            {
+                std::cout << "[android] could not rebind the GL context for teardown ("
+                    << EglHex(eglGetError()) << ")" << std::endl;
+            }
+        }
+
         void ReleaseGlEsContext() noexcept
         {
             if (_vulkan)
@@ -1036,6 +1065,10 @@ namespace MphRead::Droid
             // this exact context is current; if ordinary surface loss already
             // unbound it, clear the process-global bookkeeping and let context
             // destruction reclaim the objects.
+            // Surface loss unbinds the context, but the scene session's
+            // OpenGL device is still keyed to it: rebind it so the device is
+            // closed here, not inherited by the next context.
+            BindForTeardown();
             if (_contextAssigned
                 && _context != EGL_NO_CONTEXT
                 && eglGetCurrentContext() == _context)
@@ -1091,9 +1124,27 @@ namespace MphRead::Droid
                     wanted = _wanted;
                 }
 
-                if (!BindSurface(holder, wanted))
+                if (_scene != nullptr)
+                {
+                    if (const auto request = TakePendingAndroidRenderer())
+                    {
+                        SwitchRenderer(*request);
+                    }
+                }
+
+                if (!BindSwitchedSurface(holder, wanted))
                 {
                     continue;
+                }
+
+                if (_rebuildAfterSwitch && _scene != nullptr)
+                {
+                    _rebuildAfterSwitch = false;
+                    _scene->Size(_size);
+                    _scene->RebuildGpuAfterSwitch();
+                    std::cout << "[android] renderer: "
+                        << MphRead::NativeRuntime::Rhi::DescribeSceneBackend(_vulkan ? _swapchain.get() : nullptr)
+                        << std::endl;
                 }
 
                 if (_scene == nullptr)
@@ -1115,8 +1166,59 @@ namespace MphRead::Droid
             MphRead::Scene* scene = _scene.get();
             if (scene != nullptr)
             {
+                // The scene's GPU objects live in this context.
+                BindForTeardown();
                 End(*scene);
             }
+        }
+
+        // Settings changed the renderer during the match: everything on the
+        // GPU goes, the game stays, and the next pass of the loop makes the
+        // new context and surface and rebuilds the scene's GPU objects on
+        // them -- the desktop's in-place switch.
+        void SwitchRenderer(MphRead::NativeRuntime::Rhi::SceneBackendRequest request)
+        {
+            namespace Rhi = MphRead::NativeRuntime::Rhi;
+            std::cout << "[android] switching the renderer to "
+                << Rhi::SceneBackendRequestName(request) << " during the match" << std::endl;
+            if (!_rebuildAfterSwitch)
+            {
+                _switchedFrom = Rhi::RequestedSceneBackend();
+                BindForTeardown();
+                _scene->ReleaseGpuForSwitch();
+            }
+            ReleaseGlEsContext();
+            ReleaseSurface();
+            DestroyContext();
+            Rhi::DetachSceneWindow();
+            Rhi::ReselectSceneBackend(request);
+            _size = OpenTK::Mathematics::Vector2i{};
+            _rebuildAfterSwitch = true;
+        }
+
+        // A renderer that will not start mid-match puts the previous one back
+        // rather than ending the match.
+        bool BindSwitchedSurface(
+            const std::shared_ptr<JavaGlobalRef>& holder,
+            OpenTK::Mathematics::Vector2i wanted
+        )
+        {
+            if (!_rebuildAfterSwitch)
+            {
+                return BindSurface(holder, wanted);
+            }
+            try
+            {
+                return BindSurface(holder, wanted);
+            }
+            catch (const std::exception& ex)
+            {
+                std::cout << "[android] the new renderer could not start ("
+                    << ex.what() << "); back to "
+                    << MphRead::NativeRuntime::Rhi::SceneBackendRequestName(_switchedFrom) << std::endl;
+            }
+            SwitchRenderer(_switchedFrom);
+            return BindSurface(holder, wanted);
         }
 
         bool BoundTo(
@@ -1144,7 +1246,7 @@ namespace MphRead::Droid
             if (!BoundTo(holder) || !_surfaceAssigned)
             {
                 ReleaseSurface();
-                if (!CreateSurface(holder))
+                if (!CreateSurfaceOrFallBack(holder))
                 {
                     return false;
                 }
@@ -1170,6 +1272,33 @@ namespace MphRead::Droid
                 }
             }
             return true;
+        }
+
+        // Auto is Vulkan first: a phone whose driver passes the probe but
+        // cannot make the device or the swapchain plays on OpenGL ES rather
+        // than stopping on an error. Before the scene exists nothing lives on
+        // the Vulkan session, so it can be dropped here.
+        bool CreateSurfaceOrFallBack(const std::shared_ptr<JavaGlobalRef>& holder)
+        {
+            namespace Rhi = MphRead::NativeRuntime::Rhi;
+            if (!_vulkan || _scene != nullptr
+                || Rhi::RequestedSceneBackend() != Rhi::SceneBackendRequest::Auto)
+            {
+                return CreateSurface(holder);
+            }
+            try
+            {
+                return CreateSurface(holder);
+            }
+            catch (const std::exception& ex)
+            {
+                std::cout << "[android] vulkan could not start (" << ex.what()
+                    << "); falling back to OpenGL ES" << std::endl;
+            }
+            Rhi::DetachSceneWindow();
+            Rhi::SelectSceneBackend(Rhi::GraphicsBackend::OpenGl);
+            _displayAssigned = false;
+            return CreateContext() && CreateSurface(holder);
         }
 
         bool CreateContext()
@@ -1207,10 +1336,13 @@ namespace MphRead::Droid
                 );
             }
 
-            const EGLint attributes[] =
+            // Pbuffer too where the driver offers it: teardown rebinds the
+            // context to a 1x1 one once the window surface is gone (see
+            // BindForTeardown). A window-only config is the fallback.
+            EGLint attributes[] =
             {
                 EGL_RENDERABLE_TYPE, OpenGlEs3Bit,
-                EGL_SURFACE_TYPE, EGL_WINDOW_BIT,
+                EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_PBUFFER_BIT,
                 EGL_RED_SIZE, 8,
                 EGL_GREEN_SIZE, 8,
                 EGL_BLUE_SIZE, 8,
@@ -1222,13 +1354,19 @@ namespace MphRead::Droid
 
             EGLConfig configs[1] = { nullptr };
             EGLint found = 0;
-            if (eglChooseConfig(
+            if (eglChooseConfig(_display, attributes, &configs[0], 1, &found) != EGL_TRUE
+                || found < 1 || configs[0] == nullptr)
+            {
+                attributes[3] = EGL_WINDOW_BIT;
+                found = 0;
+            }
+            if ((found < 1 && eglChooseConfig(
                     _display,
                     attributes,
                     &configs[0],
                     1,
                     &found
-                ) != EGL_TRUE
+                ) != EGL_TRUE)
                 || found < 1
                 || configs[0] == nullptr)
             {
@@ -1341,7 +1479,7 @@ namespace MphRead::Droid
                 _holdingSurface = true;
             }
 
-            if (_scene == nullptr)
+            if (_scene == nullptr || _rebuildAfterSwitch)
             {
                 MphRead::Mods::Render::EsBindings::Load();
                 MphRead::Mods::Render::GlEs::Reset();
@@ -1515,6 +1653,11 @@ namespace MphRead::Droid
                     EGL_NO_SURFACE,
                     EGL_NO_CONTEXT
                 );
+                if (_teardownSurface != EGL_NO_SURFACE)
+                {
+                    (void)eglDestroySurface(_display, _teardownSurface);
+                    _teardownSurface = EGL_NO_SURFACE;
+                }
                 if (_contextAssigned)
                 {
                     (void)eglDestroyContext(_display, _context);
@@ -2251,6 +2394,7 @@ namespace MphRead::Droid
         bool _displayAssigned = false;
         EGLConfig _config = nullptr;
         EGLSurface _eglSurface = EGL_NO_SURFACE;
+        EGLSurface _teardownSurface = EGL_NO_SURFACE;
         bool _surfaceAssigned = false;
         EGLContext _context = EGL_NO_CONTEXT;
         bool _contextAssigned = false;
@@ -2275,6 +2419,8 @@ namespace MphRead::Droid
         std::unique_ptr<MphRead::Scene> _scene;
         // The Vulkan path: the surface's swapchain on the scene device.
         bool _vulkan = false;
+        bool _rebuildAfterSwitch = false;
+        MphRead::NativeRuntime::Rhi::SceneBackendRequest _switchedFrom{};
         std::unique_ptr<MphRead::NativeRuntime::Rhi::Swapchain> _swapchain;
         std::atomic<MphRead::Scene*> _publishedScene{nullptr};
     };

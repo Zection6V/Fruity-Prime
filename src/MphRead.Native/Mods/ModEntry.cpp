@@ -636,6 +636,17 @@ namespace
             RenderOptions::CelShading(true);
         }
 
+        const std::optional<std::string> performance = ValueAfter(args, "performance");
+        if (performance.has_value() && !StartsWithHyphen(performance))
+        {
+            RenderOptions::PerformanceMode(
+                RenderOptions::ParseOnOff(*performance, RenderOptions::PerformanceMode()));
+        }
+        else if (HasFlag(args, "performance"))
+        {
+            RenderOptions::PerformanceMode(true);
+        }
+
         const std::optional<std::string> fog = ValueAfter(args, "fog");
         if (fog.has_value() && !StartsWithHyphen(fog))
         {

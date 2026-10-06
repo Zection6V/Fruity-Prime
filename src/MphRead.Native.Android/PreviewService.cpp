@@ -1,6 +1,7 @@
 #include "PreviewService.hpp"
 
 #include "AndroidGlContextGate.hpp"
+#include "AndroidMaps.hpp"
 
 #if !defined(__ANDROID__)
 #error "PreviewService is only valid for the Android native target."
@@ -550,14 +551,10 @@ namespace
         );
         CheckJavaException(env);
 
-        std::optional<std::string> root = FileAbsolutePath(
+        const std::optional<std::string> externalRoot = FileAbsolutePath(
             env,
             external.Get()
         );
-        if (root.has_value())
-        {
-            return std::move(*root);
-        }
 
         const jmethodID filesMethod = GetMethodId(
             env,
@@ -570,10 +567,26 @@ namespace
             env->CallObjectMethod(service, filesMethod)
         );
         CheckJavaException(env);
+        const std::optional<std::string> internalRoot =
+            FileAbsolutePath(env, files.Get());
 
-        root = FileAbsolutePath(env, files.Get());
-        return root.has_value()
-            ? std::move(*root)
+        // The activity's rule (MainActivity::ChooseRoot): the directory that
+        // holds the game's paths.txt, else external storage first.
+        for (const auto* root : { &externalRoot, &internalRoot })
+        {
+            std::error_code error;
+            if (root->has_value() && std::filesystem::is_regular_file(
+                    std::filesystem::path(**root) / "paths.txt", error))
+            {
+                return **root;
+            }
+        }
+        if (externalRoot.has_value())
+        {
+            return *externalRoot;
+        }
+        return internalRoot.has_value()
+            ? *internalRoot
             : std::string();
     }
 
@@ -898,6 +911,8 @@ namespace MphRead::Droid
         }
 
         Mods::Launcher::GameFiles::ApplyPaths();
+        // Generated rooms are in the room list this process starts with.
+        AndroidMaps::EnsureBuilt();
         Mods::ThumbnailGenerator::EnsureCacheDirectory();
         Mods::ScreenCapture::PngWriter(AndroidPng::Write);
 

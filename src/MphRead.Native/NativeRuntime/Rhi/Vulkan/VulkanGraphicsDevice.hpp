@@ -59,4 +59,6 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
     [[nodiscard]] InteropImage PrepareForExternal(GraphicsDevice& device, Texture& texture, ResourceState state);
     // The other client left the texture in this state.
     void AdoptExternalState(Texture& texture, ResourceState state);
+    // Make the calling thread the one that submits to the device's queue.
+    void AdoptSubmissionThread(GraphicsDevice& device);
 }

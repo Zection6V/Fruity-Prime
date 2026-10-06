@@ -42,6 +42,8 @@ namespace MphRead
         // old cap decides, "display" having meant VSync on.
         std::string VSync;
         std::string CelShading = "off";
+        // Performance mode: one translucent pass instead of the DS's three.
+        std::string PerformanceMode = "off";
         std::string CelBands = "8";
         std::string CelEdge = "50";
         std::string PointGoal = "7";

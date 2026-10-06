@@ -139,7 +139,9 @@ namespace MphRead::Mods::Launcher
     bool LauncherPrefs::_hostOnMaster = true;
     std::int32_t LauncherPrefs::_lastKind = 0;
     bool LauncherPrefs::_autoUpdate = true;
-    std::string LauncherPrefs::_renderer = "opengl";
+    // Vulkan first on every platform (a 1.1 device runs the legacy path),
+    // OpenGL when the machine cannot start it.
+    std::string LauncherPrefs::_renderer = "auto";
     NativeRuntime::Rhi::LowLatencyMode LauncherPrefs::_lowLatency = NativeRuntime::Rhi::LowLatencyMode::Off;
     std::int32_t LauncherPrefs::_windowWidth = 0;
     std::int32_t LauncherPrefs::_windowHeight = 0;
@@ -424,6 +426,18 @@ namespace MphRead::Mods::Launcher
 
     void LauncherPrefs::Load()
     {
+        LoadFile();
+        // The preference, or Auto when there is none. The command line's
+        // -rhi, when given, still wins.
+        ::MphRead::NativeRuntime::Rhi::SceneBackendRequest request{};
+        if (::MphRead::NativeRuntime::Rhi::ParseSceneBackendRequest(_renderer, request))
+        {
+            ::MphRead::NativeRuntime::Rhi::RequestSceneBackend(request, false);
+        }
+    }
+
+    void LauncherPrefs::LoadFile()
+    {
         if (!FileExists(Path()))
         {
             return;
@@ -574,14 +588,19 @@ namespace MphRead::Mods::Launcher
                         _windowMaximized = maximized;
                     }
                 }
-                else if (key == "renderer")
+                // Its own key: every earlier build saved renderer=opengl
+                // whether anyone chose it or not, and that must not keep a
+                // machine off the Vulkan default.
+#if defined(__ANDROID__)
+                else if (key == "android_renderer")
+#else
+                else if (key == "desktop_renderer")
+#endif
                 {
                     ::MphRead::NativeRuntime::Rhi::SceneBackendRequest request{};
                     if (::MphRead::NativeRuntime::Rhi::ParseSceneBackendRequest(value, request))
                     {
                         _renderer = std::string(::MphRead::NativeRuntime::Rhi::SceneBackendRequestName(request));
-                        // The command line's -rhi, when given, still wins.
-                        ::MphRead::NativeRuntime::Rhi::RequestSceneBackend(request, false);
                     }
                 }
                 else if (key == "low_latency")
@@ -653,7 +672,11 @@ namespace MphRead::Mods::Launcher
                 std::string("host_on_master=")
                     + (_hostOnMaster ? "true" : "false"));
             lines.emplace_back("last_kind=" + ::MphRead::NativeRuntime::ToStringInvariant(_lastKind));
-            lines.emplace_back("renderer=" + _renderer);
+#if defined(__ANDROID__)
+            lines.emplace_back("android_renderer=" + _renderer);
+#else
+            lines.emplace_back("desktop_renderer=" + _renderer);
+#endif
             lines.emplace_back(std::string("low_latency=") + (_lowLatency == NativeRuntime::Rhi::LowLatencyMode::Off
                 ? "off" : _lowLatency == NativeRuntime::Rhi::LowLatencyMode::On ? "on" : "onboost"));
             lines.emplace_back(

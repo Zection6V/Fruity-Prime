@@ -198,8 +198,20 @@ private:
         std::array<BindingLayoutDesc, SceneShaderAbi::GroupCount> layouts{};
         for (const auto& block : blocks)
         {
+            std::uint8_t slot = 0;
+            if (!block.small && DynamicUniformGroup(block.group))
+                for (const auto& other : blocks)
+                    if (!other.small && other.group == block.group && other.binding < block.binding) ++slot;
+            if (slot >= 4) throw std::logic_error("Vulkan scene program: too many dynamic uniform blocks in a group.");
+            program->DynamicSlot.push_back(slot);
+        }
+        for (const auto& block : blocks)
+        {
             if (block.small) continue;
-            layouts.at(block.group).entries.push_back({block.binding, BindingType::UniformBuffer, ShaderStage::AllGraphics, 1});
+            // The frame and draw groups' blocks are bound at offsets in the
+            // upload ring, so a new slice needs no new descriptor set.
+            const bool dynamic = DynamicUniformGroup(block.group);
+            layouts.at(block.group).entries.push_back({block.binding, BindingType::UniformBuffer, ShaderStage::AllGraphics, 1, dynamic});
         }
         for (const auto& texture : textures)
         {

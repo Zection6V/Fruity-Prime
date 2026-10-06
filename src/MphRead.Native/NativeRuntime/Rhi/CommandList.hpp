@@ -253,6 +253,12 @@ namespace MphRead::NativeRuntime::Rhi
         // Copy a region of the current colour attachment into a texture.
         virtual void CopyColorAttachmentToTexture(
             Texture& destination, std::uint32_t width, std::uint32_t height) = 0;
+        // Keep the depth of the current depth-stencil attachment aside, or put
+        // what was kept back; its stencil is left as it is. False where the
+        // backend cannot (or the attachment has no transfer usage): the caller
+        // then draws the depth again.
+        [[nodiscard]] virtual bool SaveAttachmentDepth() { return false; }
+        [[nodiscard]] virtual bool RestoreAttachmentDepth() { return false; }
 
     protected:
         CommandList() = default;

@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <iostream>
 #include <cstring>
 #include <limits>
 #include <map>
@@ -1145,6 +1146,15 @@ namespace MphRead::NativeRuntime::Rhi::OpenGL
                 const auto before = gl.HasStorage() ? TextureStorageEstimate(gl.Desc().format, gl.Desc().width, gl.Desc().height) : 0;
                 const auto after = TextureStorageEstimate(gl.Desc().format, width, height);
                 AdmitStorage(after);
+                // GL errors are sticky: one left by an earlier call would be
+                // read below as this allocation failing.
+                for (int drained = 0; drained < 8; ++drained)
+                {
+                    const auto stale = static_cast<int>(GL::GetError());
+                    if (!stale) break;
+                    std::cerr << "[gl] error " << stale << " pending before a texture allocation ("
+                        << width << "x" << height << ")\n";
+                }
                 if (gl.IsRenderbuffer())
                 {
                     GL::BindRenderbuffer(GL::RenderbufferTarget::Renderbuffer, gl.Name());

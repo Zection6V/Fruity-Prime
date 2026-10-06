@@ -118,6 +118,7 @@ namespace MphRead::Mods
     std::int32_t RenderOptions::_resolutionScale = 100;
     bool RenderOptions::_lighting = true;
     bool RenderOptions::_celShading = false;
+    bool RenderOptions::_performanceMode = false;
     bool RenderOptions::_showFps = false;
     std::int32_t RenderOptions::_celBands = 8;
     float RenderOptions::_celEdge = 0.5f;
@@ -152,6 +153,16 @@ namespace MphRead::Mods
     void RenderOptions::CelShading(bool value) noexcept
     {
         _celShading = value;
+    }
+
+    bool RenderOptions::PerformanceMode() noexcept
+    {
+        return _performanceMode;
+    }
+
+    void RenderOptions::PerformanceMode(bool value) noexcept
+    {
+        _performanceMode = value;
     }
 
     bool RenderOptions::ShowFps() noexcept

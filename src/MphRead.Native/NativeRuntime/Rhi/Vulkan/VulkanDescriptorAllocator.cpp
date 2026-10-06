@@ -41,7 +41,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         constexpr std::array<VkDescriptorType, 5> types{
             VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
             VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_SAMPLER};
-        std::array<VkDescriptorPoolSize, 5> sizes{};
+        std::array<VkDescriptorPoolSize, 6> sizes{};
         std::uint32_t sizeCount = 0;
         Page page{};
         for (std::size_t i = 0; i < needed.size(); ++i)
@@ -49,6 +49,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             page.Capacity[i] = std::max(_capacity.Counts[i], static_cast<std::uint32_t>(needed[i]));
             if (page.Capacity[i]) sizes[sizeCount++] = {types[i], page.Capacity[i]};
         }
+        // A uniform buffer binding may be dynamic (BindingLayoutEntry::dynamic):
+        // the same budget, in the native type such a set allocates from.
+        if (page.Capacity[0]) sizes[sizeCount++] = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, page.Capacity[0]};
         VkDescriptorPoolCreateInfo create{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
         create.maxSets = _capacity.Sets;
         create.poolSizeCount = sizeCount;
@@ -132,6 +135,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 throw std::invalid_argument("Fixed descriptor count overflow.");
             if (requirements[i]) sizes.push_back({types[i], static_cast<std::uint32_t>(requirements[i] * count)});
         }
+        if (requirements[0])
+            sizes.push_back({VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, static_cast<std::uint32_t>(requirements[0] * count)});
         const auto started = _metrics ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
         const auto elapsed = [&] { if (_metrics) _fixedSetupNs += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - started).count(); };
         const auto capacityFailure = [](VkResult value) {

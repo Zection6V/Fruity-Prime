@@ -680,7 +680,8 @@ namespace MphRead
             std::cout << "[render] cel shading " << (Mods::RenderOptions::CelShading() ? "on" : "off")
                 << ", " << Mods::RenderOptions::CelBands() << " bands, outline "
                 << NativeRuntime::ToStringInvariant(Mods::RenderOptions::CelEdge(), "0.00")
-                << ", fog " << BoolOnOff(Mods::RenderOptions::Fog()) << '\n';
+                << ", fog " << BoolOnOff(Mods::RenderOptions::Fog())
+                << ", performance mode " << BoolOnOff(Mods::RenderOptions::PerformanceMode()) << '\n';
             InitShaders();
             _transientGeometry
                 = NativeRuntime::Rhi::CreateSceneTransientGeometry(Gpu(), Commands());
@@ -1284,7 +1285,7 @@ namespace MphRead
         _sceneColor.reset();
         for (auto& sampler : _samplers) sampler.reset();
         _commands.reset();
-        _pipelines.clear();
+        _pipelines.clear(); _recentPipelines = {};
         _shaderConstants = &_noShaderConstants;
         _sceneShaders.reset();
         auto* device = std::exchange(_gpu, nullptr);
@@ -1443,6 +1444,11 @@ namespace MphRead
             ds.depthWriteEnable = false;
             blend.blendEnable = true;
             break;
+        case ScenePass::TranslucentSingle:
+            desc.alphaTest = Rhi::AlphaTestMode::LessThanOne;
+            ds.depthWriteEnable = false;
+            blend.blendEnable = true;
+            break;
         case ScenePass::AfterScene:
             blend.blendEnable = true;
             break;
@@ -1494,6 +1500,8 @@ namespace MphRead
         const std::uint32_t key = (static_cast<std::uint32_t>(pass) << 16U)
             | (static_cast<std::uint32_t>(cull) << 12U) | (static_cast<std::uint32_t>(fill) << 8U)
             | (static_cast<std::uint32_t>(lineWidth) & 0xFFU);
+        for (const auto& [recentKey, recent] : _recentPipelines)
+            if (recent && recentKey == key) return *recent;
         auto& pipeline = _pipelines[key];
         if (!pipeline)
         {
@@ -1503,6 +1511,8 @@ namespace MphRead
             desc.rasterizer.lineWidth = static_cast<float>(lineWidth);
             pipeline = Gpu().CreateGraphicsPipeline(desc);
         }
+        _recentPipelines[_recentPipelineNext] = {key, pipeline.get()};
+        _recentPipelineNext = (_recentPipelineNext + 1) % _recentPipelines.size();
         return *pipeline;
     }
 
@@ -1514,6 +1524,33 @@ namespace MphRead
         _itemPass = pass;
         Commands().SetPipeline(ScenePipeline(pass, NativeRuntime::Rhi::CullMode::None,
             NativeRuntime::Rhi::FillMode::Solid, 1));
+    }
+
+    namespace
+    {
+        // FRUITY_REBUILD_DEPTH=1 (A/B checks only): draw the opaque depth again
+        // as before, instead of copying it aside and back.
+        bool SaveOpaqueDepth() noexcept
+        {
+            static const bool save = std::getenv("FRUITY_REBUILD_DEPTH") == nullptr;
+            return save;
+        }
+    }
+
+    // The scene's depth targets can be copied on Vulkan, where the opaque
+    // depth is kept aside instead of drawn again (SaveAttachmentDepth). OpenGL
+    // keeps its targets as they were.
+    NativeRuntime::Rhi::TextureUsage Scene::SceneDepthCopyUsage()
+    {
+        namespace Rhi = NativeRuntime::Rhi;
+#if defined(__ANDROID__)
+        // A tiled GPU would write the depth out to memory for the copy: not
+        // measured on a phone, so Android keeps drawing it again.
+        return Rhi::TextureUsage{};
+#else
+        return Rhi::SelectedSceneBackend() == Rhi::GraphicsBackend::Vulkan
+            ? Rhi::TextureUsage::TransferSrc | Rhi::TextureUsage::TransferDst : Rhi::TextureUsage{};
+#endif
     }
 
     void Scene::CreateSceneTargets(Vector2i size)
@@ -1534,7 +1571,7 @@ namespace MphRead
         _celColorView = Gpu().CreateTextureView(*_celColor, Rhi::TextureViewDesc{Rhi::TextureFormat::RGB8Unorm});
         const auto depthStencil = Gpu().GetCapabilities().depthStencilFormat;
         _sceneDepthStencil = Gpu().CreateTexture(Rhi::TextureDesc{width, height, 1, 1, 1, 1,
-            depthStencil, Rhi::TextureUsage::DepthStencilAttachment});
+            depthStencil, Rhi::TextureUsage::DepthStencilAttachment | SceneDepthCopyUsage()});
         _sceneDepthStencilView = Gpu().CreateTextureView(*_sceneDepthStencil,
             Rhi::TextureViewDesc{depthStencil});
     }
@@ -2008,7 +2045,7 @@ namespace MphRead
         _celDepth = Gpu().CreateTexture(Rhi::TextureDesc{
             static_cast<std::uint32_t>(target.X), static_cast<std::uint32_t>(target.Y), 1, 1, 1, 1,
             Gpu().GetCapabilities().depthStencilFormat,
-            Rhi::TextureUsage::Sampled | Rhi::TextureUsage::DepthStencilAttachment});
+            Rhi::TextureUsage::Sampled | Rhi::TextureUsage::DepthStencilAttachment | SceneDepthCopyUsage()});
         _celDepthView = Gpu().CreateTextureView(*_celDepth, Rhi::TextureViewDesc{Gpu().GetCapabilities().depthStencilFormat});
         _claimedQuantum = MeasureDepthQuantum();
         _depthQuantum = _claimedQuantum;
@@ -2216,30 +2253,51 @@ namespace MphRead
         SetPauseMenuUniforms();
         BeginScenePass(ScenePass::Opaque);
         for (const auto& item : _nonDecalItems) RenderItem(item);
+        // The depth the rebuild pass below would draw again, kept aside.
+        const bool opaqueDepthSaved = !Mods::RenderOptions::PerformanceMode() && SaveOpaqueDepth()
+            && Commands().SaveAttachmentDepth();
         BeginScenePass(ScenePass::Decal);
         for (const auto& item : _decalItems) RenderItem(item);
-        BeginScenePass(ScenePass::TranslucentStencil);
-        for (const auto& item : _translucentItems)
+        if (Mods::RenderOptions::PerformanceMode())
         {
-            Commands().SetStencilReference(static_cast<std::uint32_t>(item->PolygonId)); RenderItem(item);
+            // Performance mode: each translucent item once, blended over the
+            // opaque depth. No stencil pass, depth clear or depth rebuild.
+            BeginScenePass(ScenePass::TranslucentSingle);
+            for (const auto& item : _translucentItems) RenderItem(item);
         }
-        Commands().EndRendering();
+        else
         {
-            // Colour and the stencil the translucent pass just wrote are kept.
-            using NativeRuntime::Rhi::LoadOp;
-            BeginSceneRendering(LoadOp::Load, LoadOp::Clear, LoadOp::Load);
-        }
-        BeginScenePass(ScenePass::DepthRebuild);
-        for (const auto& item : _nonDecalItems) RenderItem(item);
-        BeginScenePass(ScenePass::TranslucentNotEqual);
-        for (const auto& item : _translucentItems)
-        {
-            Commands().SetStencilReference(static_cast<std::uint32_t>(item->PolygonId)); RenderItem(item);
-        }
-        BeginScenePass(ScenePass::TranslucentEqual);
-        for (const auto& item : _translucentItems)
-        {
-            Commands().SetStencilReference(static_cast<std::uint32_t>(item->PolygonId)); RenderItem(item);
+            BeginScenePass(ScenePass::TranslucentStencil);
+            for (const auto& item : _translucentItems)
+            {
+                Commands().SetStencilReference(static_cast<std::uint32_t>(item->PolygonId)); RenderItem(item);
+            }
+            if (opaqueDepthSaved && Commands().RestoreAttachmentDepth())
+            {
+                // The opaque depth put back, the stencil kept: what the depth
+                // clear and the rebuild pass make, without drawing it again.
+            }
+            else
+            {
+                Commands().EndRendering();
+                {
+                    // Colour and the stencil the translucent pass just wrote are kept.
+                    using NativeRuntime::Rhi::LoadOp;
+                    BeginSceneRendering(LoadOp::Load, LoadOp::Clear, LoadOp::Load);
+                }
+                BeginScenePass(ScenePass::DepthRebuild);
+                for (const auto& item : _nonDecalItems) RenderItem(item);
+            }
+            BeginScenePass(ScenePass::TranslucentNotEqual);
+            for (const auto& item : _translucentItems)
+            {
+                Commands().SetStencilReference(static_cast<std::uint32_t>(item->PolygonId)); RenderItem(item);
+            }
+            BeginScenePass(ScenePass::TranslucentEqual);
+            for (const auto& item : _translucentItems)
+            {
+                Commands().SetStencilReference(static_cast<std::uint32_t>(item->PolygonId)); RenderItem(item);
+            }
         }
         BeginScenePass(ScenePass::AfterScene);
         ModDrawPreview();
@@ -3921,7 +3979,7 @@ namespace MphRead
         }
         // The command list owns the framebuffers built on those targets.
         _commands.reset();
-        _pipelines.clear();
+        _pipelines.clear(); _recentPipelines = {};
         // The movie frames were owned textures, already released above.
         _topMovieBinding = -1;
         _botMovieBinding = -1;
@@ -5934,9 +5992,9 @@ namespace MphRead
     }
 
     RenderWindow::RenderWindow(bool shell)
-        : _window(RendererPlatform::CreateWindow(Settings())), _shell(shell)
+        : _shell(shell)
     {
-        CreatePresentation();
+        CreateWindowOrFallBack();
         _performance = Mods::Diagnostics::FramePerformance::Create();
         const Vector2i clientSize = _window->ClientSize();
         const Vector2i size = _window->Size();
@@ -5954,6 +6012,37 @@ namespace MphRead
         }
         _sceneReady = true;
         FitToScreen();
+    }
+
+    // Auto is Vulkan first, as on Android: a machine whose driver passes the
+    // probe but cannot make the device or the swapchain plays on OpenGL
+    // rather than stopping on an error. Nothing lives on the Vulkan session
+    // yet, so the window is simply made again on the other renderer. An
+    // explicit Vulkan still fails with its error.
+    void RenderWindow::CreateWindowOrFallBack()
+    {
+        namespace Rhi = NativeRuntime::Rhi;
+        const bool automatic = Rhi::RequestedSceneBackend() == Rhi::SceneBackendRequest::Auto;
+        try
+        {
+            _window = RendererPlatform::CreateWindow(Settings());
+            CreatePresentation();
+            return;
+        }
+        catch (const std::exception& ex)
+        {
+            if (!automatic || Rhi::SelectedSceneBackend() != Rhi::GraphicsBackend::Vulkan) throw;
+            std::cout << "[render] auto: Vulkan could not start (" << ex.what() << "); falling back to OpenGL"
+                      << std::endl;
+            Mods::DebugLog::Line("render", std::string("auto: Vulkan could not start, OpenGL instead: ") + ex.what());
+        }
+        _swapchain.reset();
+        Rhi::DetachSceneWindow();
+        _window.reset();
+        Rhi::SelectSceneBackend(Rhi::GraphicsBackend::OpenGl);
+        Rhi::NoteAutoFallBack();
+        _window = RendererPlatform::CreateWindow(Settings());
+        CreatePresentation();
     }
 
     void RenderWindow::CreatePresentation()
@@ -5978,6 +6067,9 @@ namespace MphRead
     void RenderWindow::RequestRendererSwitch(NativeRuntime::Rhi::SceneBackendRequest request)
     {
         if (request == NativeRuntime::Rhi::RequestedSceneBackend()) return;
+        // Auto already fell back to OpenGL this run: asking for Auto again
+        // (Settings saved with the renderer untouched) is what is running.
+        if (request == NativeRuntime::Rhi::SceneBackendRequest::Auto && NativeRuntime::Rhi::AutoFellBack()) return;
         _rendererSwitch = request;
         _window->Close();
     }

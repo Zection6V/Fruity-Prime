@@ -735,6 +735,7 @@ namespace MphRead
         // the viewport after a resize.
         [[nodiscard]] NativeRuntime::Rhi::CommandList& WindowCommands();
         void SwitchRenderer(NativeRuntime::Rhi::SceneBackendRequest request);
+        void CreateWindowOrFallBack();
         void CreatePresentation();
         std::optional<NativeRuntime::Rhi::SceneBackendRequest> _rendererSwitch{};
 
@@ -1053,6 +1054,7 @@ private: \
         MphRead::NativeRuntime::Rhi::ClearColor clearColor = {}, \
         MphRead::NativeRuntime::Rhi::Scissor area = {}); \
     [[nodiscard]] MphRead::NativeRuntime::Rhi::ClearColor SceneClearColor() const; \
+    [[nodiscard]] static MphRead::NativeRuntime::Rhi::TextureUsage SceneDepthCopyUsage(); \
     [[nodiscard]] MphRead::NativeRuntime::Rhi::Texture* TextureFor(std::int32_t bindingId) const; \
     [[nodiscard]] const MphRead::NativeRuntime::Rhi::Sampler& SamplerFor(bool linear, \
         MphRead::RepeatMode s, MphRead::RepeatMode t); \
@@ -1255,6 +1257,9 @@ private: \
     MphRead::ScenePass _itemPass = MphRead::ScenePass::Opaque; \
     bool _previewIntoWindow = false; \
     std::unordered_map<std::uint32_t, std::unique_ptr<MphRead::NativeRuntime::Rhi::GraphicsPipeline>> _pipelines{}; \
+    /* The pass pipelines last asked for: every item asks for one. */ \
+    std::array<std::pair<std::uint32_t, const MphRead::NativeRuntime::Rhi::GraphicsPipeline*>, 8> _recentPipelines{}; \
+    std::size_t _recentPipelineNext = 0; \
     OpenTK::Mathematics::Vector2i _targetSize{}; \
     std::unordered_map<std::int32_t, OpenTK::Mathematics::Vector3> _flatColors{}; \
     inline static bool _breakNextFrame = false; \

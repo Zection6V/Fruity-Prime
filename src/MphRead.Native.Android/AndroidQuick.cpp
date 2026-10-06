@@ -10,6 +10,7 @@
 #include "../MphRead.Native/Mods/GameSettings.hpp"
 #include "../MphRead.Native/Mods/InputSettings.hpp"
 #include "../MphRead.Native/Mods/ThumbnailGenerator.hpp"
+#include "../MphRead.Native/Mods/ThumbnailHost.hpp"
 #include "../MphRead.Native/Mods/Launcher/Portable/GameFiles.hpp"
 #include "../MphRead.Native/Mods/Launcher/Portable/LauncherPrefs.hpp"
 #include "../MphRead.Native/Mods/Launcher/Portable/NativeFilePicker.hpp"
@@ -28,6 +29,7 @@
 #include <memory>
 #include <mutex>
 #include <string_view>
+#include <thread>
 
 namespace
 {
@@ -154,6 +156,28 @@ namespace MphRead::Droid
         {
             if (ready) bridge->SetRooms(Mods::ThumbnailGenerator::MultiplayerRooms(), true);
         }
+        // Game files copied by hand, an extraction interrupted, a cache
+        // cleared: previews still missing at start are drawn in the
+        // background, once per process, and the deck reloads when done.
+        void RenderMissingPreviews(bool ready)
+        {
+            static std::atomic<bool> started{false};
+            if (!ready || started.exchange(true)) return;
+            if (Mods::ThumbnailGenerator::MissingThumbnails().empty()) return;
+            auto task = Mods::ThumbnailHost::RenderMissingAsync([](const std::string& line)
+            {
+                __android_log_write(ANDROID_LOG_INFO, "FruityPrime", line.c_str());
+            });
+            std::thread([task = std::move(task)]
+            {
+                try { (void)task.get(); }
+                catch (const std::exception& error)
+                {
+                    __android_log_write(ANDROID_LOG_WARN, "FruityPrime", error.what());
+                }
+                OnQt([] { BuildRoomList(Mods::Launcher::GameFiles::Ready()); });
+            }).detach();
+        }
     }
 
     void QuickFront()
@@ -168,7 +192,7 @@ namespace MphRead::Droid
                 PublishFront(ready);
                 OnQt([ready]
                 {
-                    try { BuildRoomList(ready); }
+                    try { BuildRoomList(ready); RenderMissingPreviews(ready); }
                     catch (const std::exception& error) { LogStartup("room_list_failed", error.what()); }
                 });
             }

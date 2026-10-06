@@ -23,10 +23,13 @@ on:
 permissions:
   contents: read
 
-# One run per branch: a push and the PR it updates build the same commit,
-# and a newer push makes an older run's result worthless.
+# One run per branch and per event: a newer push makes an older run's result
+# worthless. The push and the pull_request run of the same commit stay in
+# separate groups: sharing one, the PR run cancelled the push run on every
+# push, and the PR showed a cancelled build each time. (The PR run builds the
+# merge with the base branch, so it is not the same build anyway.)
 concurrency:
-  group: build_cpp-${{ github.workflow }}-${{ inputs.checkout_ref || github.head_ref || github.ref_name }}
+  group: build_cpp-${{ github.workflow }}-${{ github.event_name }}-${{ inputs.checkout_ref || github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:

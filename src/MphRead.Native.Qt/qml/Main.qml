@@ -21,9 +21,13 @@ Item {
     // a stage of the size the screen has in 1/160-inch dp (what the phone
     // curve in Theme is written for), and the stage is drawn at whatever
     // scale the ratio leaves to reach the view's pixels. Off Android the
-    // density is 1 and the stage is the view.
+    // density is 1 and the stage is the view: the root is already in
+    // logical pixels and Qt Quick draws it at the window's device pixel
+    // ratio, so dividing by that ratio again drew the menus at half size in
+    // the top-left quarter of a 4K screen at 200%.
     readonly property real density: ShellHost.deviceDensity
-    readonly property real uiScale: density / Math.max(1, Screen.devicePixelRatio)
+    readonly property real uiScale: density
+        / (Qt.platform.os === "android" ? Math.max(1, Screen.devicePixelRatio) : 1)
     Item {
         id: stage
         width: root.width / root.density

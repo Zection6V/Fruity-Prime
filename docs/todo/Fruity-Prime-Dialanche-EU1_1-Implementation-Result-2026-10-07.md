@@ -124,3 +124,35 @@ Enemy / Doorのproduction攻撃判定、共通native cadence / sampled pose、�
 reactionの維持は引き続き受入対象であり、上記36/37とprocessing order検証でPASSした。
 Playerの2-client / authority network parityもPASSし、新packet fieldやProtocolVersion変更は加えていない。
 この確定した受入条件に対する実装・検証・commit / pushは完了した。
+
+## C++版のSRP整理 — 2026-10-07
+
+ダイアランチの姿勢履歴、幾何判定、攻撃の適用を以下の責務に分けた。
+
+- `DialancheNativeCollision`: Playerごとの固定サイズの2世代履歴とnative tickの定義。
+- `Mods/Combat/DialancheHitTest`: 保存済みの左右の岩とvolumeのoverlap、扉のcontact volumeの構築。
+  Scene、Player、damage、SFX、networkの状態を読み書きしない。
+- `Entities/Players/PlayerDialanche.cpp`: native tickに対応する履歴の選択と、Player / Halfturretへの
+  reaction。Story botのdamage選択は`DialanchePlayerDamage`へ分離した。
+- `PlayerCollision.cpp`: ハンターごとのdispatchと既存Enemy / Doorのreaction。
+  ダイアランチの共通幾何判定・Player damage計算を内包しない。
+
+RockRadiusは幾何判定側へ移した。履歴のデータ構造、30Hz位相、previous poseの選択、
+左右OR、damage倍率、Story botの2/3/5、SFX、既存TakeDamage、ProtocolVersion16は維持した。
+追加のheap allocation、lock、cooldown、hit latch、packet fieldはない。
+source gateも抽出先を追うよう更新した。
+
+| 整理後の検証 | 結果 |
+|---|---|
+| MSVC Release game / native collision test | build成功 |
+| `FruityPrime.DialancheNativeCollision` | CTest PASS |
+| `check-spire-alt-pose.ps1` | source gate 8/8 PASS |
+| `check-dialanche-combat.ps1` | production assertions 28件と独立UDP peers 2つがPASS |
+| `check-dialanche-network.ps1` | 通常joinでauthority / 両clientsの4 events、最終HP67が一致。native phase / base8 / 同tick最大1件がPASS |
+| `spireposecheck` | active44 frames / native samples22 / moving L/R22/22、headless PASS |
+| Android arm64 Clang | PlayerCollision、PlayerDialanche、DialancheHitTestの3 translation unitsをcompile成功 |
+
+整理後のlogsは`tools/build/out/dialanche-srp-{build.log,android.log,pose.log}`、
+`dialanche-srp-combat/`、`dialanche-srp-network/`に保存した。
+上記のCI結果は整理前の実装に対する証拠であり、今回のSRP整理後のCIは未実施。
+Android APK / 実機操作、ROM画像比較、手動プレイ確認も今回の検証には含めていない。

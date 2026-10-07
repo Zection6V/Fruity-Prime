@@ -783,7 +783,9 @@ namespace MphRead::Mods::Network
             dest[Size] = ChargeLevel;
             dest[Size + 1] = BoostDamage;
             dest[Size + 2] = ShotFlags;
-            dest[Size + 3] = 0;
+            dest[Size + 3] = TouchFlags;
+            W16(Slice(dest, static_cast<std::size_t>(Size + StateSize)), static_cast<std::uint16_t>(TouchDelta4X));
+            W16(Slice(dest, static_cast<std::size_t>(Size + StateSize + 2)), static_cast<std::uint16_t>(TouchDelta4Y));
         }
     }
     IntentPacket IntentPacket::Read(std::span<const std::uint8_t> src)
@@ -808,8 +810,14 @@ namespace MphRead::Mods::Network
         packet.AmmoMissiles = R16(Slice(src, 35 + PressHistory * 4));
         packet.AckFrame = R32(Slice(src, 37 + PressHistory * 4));
         packet.AckSubFrame = At(src, 41 + PressHistory * 4);
-        const bool full = src.size() >= static_cast<std::size_t>(FullSize);
+        const bool full = src.size() >= static_cast<std::size_t>(Size + StateSize);
         packet.HasState = full;
+        if (src.size() >= static_cast<std::size_t>(FullSize))
+        {
+            packet.TouchFlags = src[Size + 3];
+            packet.TouchDelta4X = static_cast<std::int16_t>(R16(Slice(src, static_cast<std::size_t>(Size + StateSize))));
+            packet.TouchDelta4Y = static_cast<std::int16_t>(R16(Slice(src, static_cast<std::size_t>(Size + StateSize + 2))));
+        }
         packet.ChargeLevel = full ? src[Size] : static_cast<std::uint8_t>(0);
         packet.BoostDamage = full ? src[Size + 1] : static_cast<std::uint8_t>(0);
         packet.ShotFlags = full ? src[Size + 2] : static_cast<std::uint8_t>(0);

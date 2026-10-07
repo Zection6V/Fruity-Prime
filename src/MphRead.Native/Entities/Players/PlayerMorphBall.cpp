@@ -3,6 +3,7 @@
 // arithmetic itself is MorphBallTouchRules's and the touch state is the input
 // adapter's.
 #include "PlayerEntity.hpp"
+#include "MorphBallBoostStateMachine.hpp"
 #include "MorphBallTouchRules.hpp"
 #include "../../Features.hpp"
 #include "../../Scene.hpp"
@@ -43,78 +44,64 @@ namespace MphRead::Entities
         speedDelta.Z += roll.Z;
     }
 
-    // 0202360C-02023A24: the touch boost is decided before R, and an armed
-    // continued contact that does not clear the threshold skips R this frame.
+    // 0202360C-02023A24. Which boost fires is MorphBallBoostStateMachine's
+    // call; this applies it to the ball.
     void PlayerEntity::ProcessBoost(Vector3& speedDelta)
     {
+        namespace Boost = MorphBallBoostStateMachine;
         const Mods::Input::NativeTouchState& touch = _input.Touch();
-        if (!touch.Down)
+        Boost::State state{TestFlag(_flags1, PlayerFlags1::Boosting),
+            TestFlag(_flags1, PlayerFlags1::CanTouchBoost), _boostCharge};
+        const Boost::Result result = Boost::Advance(state,
+            {touch.Down, touch.Continued, touch.Delta4X, touch.Delta4Y, _controls.Boost().IsDown()},
+            {static_cast<std::uint16_t>(_values.BoostChargeMin * 2), static_cast<std::uint16_t>(_values.BoostChargeMax * 2),
+                Features::FullBoostCharge()});
+        if (state.Boosting) _flags1 |= PlayerFlags1::Boosting;
+        else _flags1 &= ~PlayerFlags1::Boosting;
+        if (state.CanTouchBoost) _flags1 |= PlayerFlags1::CanTouchBoost;
+        else _flags1 &= ~PlayerFlags1::CanTouchBoost;
+        _boostCharge = state.Charge;
+
+        const Boost::BoostValues values{Fixed::ToFloat(_values.BoostSpeedMin), Fixed::ToFloat(_values.BoostSpeedMax),
+            Fixed::ToFloat(_values.BoostSpeedCap), static_cast<std::uint16_t>(_values.AltAttackDamage)};
+        switch (result.Boost)
         {
-            _flags1 |= PlayerFlags1::CanTouchBoost;
-        }
-        switch (MorphBallTouchRules::Arbitrate(TestFlag(_flags1, PlayerFlags1::Boosting),
-            TestFlag(_flags1, PlayerFlags1::CanTouchBoost), touch.Continued, touch.Delta4X, touch.Delta4Y))
-        {
-        case MorphBallTouchRules::BoostBranch::TouchBoost:
-            FireNativeTouchBoost(touch.Delta4X, touch.Delta4Y, speedDelta);
+        case Boost::Fired::TouchBoost:
+            ApplyTouchBoost(touch.Delta4X, touch.Delta4Y, Boost::TouchBoostStrength(values), speedDelta);
             break;
-        case MorphBallTouchRules::BoostBranch::Shoulder:
-            ProcessShoulderBoost(speedDelta);
+        case Boost::Fired::ShoulderBoost:
+            ApplyShoulderBoost(Boost::ShoulderBoostStrength(values, result.ChargeSpent,
+                static_cast<std::uint16_t>(_values.BoostChargeMax * 2)), speedDelta);
             break;
-        case MorphBallTouchRules::BoostBranch::SkipShoulder:
+        case Boost::Fired::None:
             break;
         }
     }
 
-    // EU1.1 0202366C-02023840. Full strength whatever R holds, and R's charge
-    // is left exactly where it was: this branch never reaches 02023A1C.
-    void PlayerEntity::FireNativeTouchBoost(std::int32_t dx, std::int32_t dy, Vector3& speedDelta)
+    // 0202366C-02023840: along the swipe, against the current camera basis.
+    void PlayerEntity::ApplyTouchBoost(std::int32_t dx, std::int32_t dy,
+        const MorphBallBoostStateMachine::Strength& strength, Vector3& speedDelta)
     {
         const auto& camera = RequireReference(_cameraInfo);
-        const auto impulse = MorphBallTouchRules::TouchBoostImpulse(dx, dy,
-            Fixed::ToFloat(_values.BoostSpeedMax), camera.Field48, camera.Field4C, camera.Field50, camera.Field54);
-        const float boostHCap = Fixed::ToFloat(_values.BoostSpeedCap);
-        if (_hSpeedCap < boostHCap) _hSpeedCap = boostHCap;
-        PlayBoostSideEffects();
-        _altAttackCooldown = static_cast<std::uint16_t>(_values.AltAttackCooldown * 2);
-        _flags1 |= PlayerFlags1::Boosting;
-        _flags1 &= ~PlayerFlags1::CanTouchBoost;
-        _boostDamage = static_cast<std::uint16_t>(_values.AltAttackDamage);
+        const auto impulse = MorphBallTouchRules::TouchBoostImpulse(dx, dy, strength.Speed,
+            camera.Field48, camera.Field4C, camera.Field50, camera.Field54);
         speedDelta = AddZ(AddX(speedDelta, impulse.X), impulse.Z);
+        ApplyBoostCommon(strength);
     }
 
-    // EU1.1 02023844-02023A20, unchanged from MphRead.
-    void PlayerEntity::ProcessShoulderBoost(Vector3& speedDelta)
+    // 02023844-02023A20: along the way the player faces.
+    void PlayerEntity::ApplyShoulderBoost(const MorphBallBoostStateMachine::Strength& strength, Vector3& speedDelta)
     {
-        if (_controls.Boost().IsDown())
-        {
-            if (_boostCharge < _values.BoostChargeMax * 2)
-            {
-                ++_boostCharge;
-            }
-            return;
-        }
-        if (_boostCharge > _values.BoostChargeMin * 2)
-        {
-            if (Features::FullBoostCharge())
-            {
-                _boostCharge = static_cast<std::uint16_t>(_values.BoostChargeMax * 2);
-            }
-            const float boostHCap = Fixed::ToFloat(_values.BoostSpeedCap) * _boostCharge
-                / static_cast<float>(_values.BoostChargeMax * 2);
-            if (_hSpeedCap < boostHCap) _hSpeedCap = boostHCap;
-            const float factor = Fixed::ToFloat(_values.BoostSpeedMin)
-                + _boostCharge * (Fixed::ToFloat(_values.BoostSpeedMax)
-                    - Fixed::ToFloat(_values.BoostSpeedMin))
-                / static_cast<float>(_values.BoostChargeMax * 2);
-            speedDelta = AddZ(AddX(speedDelta, _field70 * factor), _field74 * factor);
-            _altAttackCooldown = static_cast<std::uint16_t>(_values.AltAttackCooldown * 2);
-            _flags1 |= PlayerFlags1::Boosting;
-            _boostDamage = static_cast<std::uint16_t>(
-                _values.AltAttackDamage * _boostCharge / (_values.BoostChargeMax * 2));
-            PlayBoostSideEffects();
-        }
-        _boostCharge = 0;
+        speedDelta = AddZ(AddX(speedDelta, _field70 * strength.Speed), _field74 * strength.Speed);
+        ApplyBoostCommon(strength);
+    }
+
+    void PlayerEntity::ApplyBoostCommon(const MorphBallBoostStateMachine::Strength& strength)
+    {
+        if (_hSpeedCap < strength.Cap) _hSpeedCap = strength.Cap;
+        _altAttackCooldown = static_cast<std::uint16_t>(_values.AltAttackCooldown * 2);
+        _boostDamage = strength.Damage;
+        PlayBoostSideEffects();
     }
 
     // What both boosts do besides move the ball: the sound, the pad's kick,

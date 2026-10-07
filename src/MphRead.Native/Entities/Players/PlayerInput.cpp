@@ -379,6 +379,11 @@ namespace MphRead::Entities
         _touch.Suspend();
     }
 
+    void PlayerEntity::PlayerInput::ApplyReportedTouch(const Mods::Input::NativeTouchState::Reported& reported) noexcept
+    {
+        _touch.ApplyReported(reported);
+    }
+
     void PlayerEntity::ProcessInput()
     {
         if (Mods::Network::NetSession::Active() && !_isBot)

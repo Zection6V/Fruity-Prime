@@ -1,11 +1,15 @@
 // EU1.1 02029778 (touch producer) and 02021C28's touch branches, pinned.
+#include "../Entities/Players/MorphBallBoostStateMachine.hpp"
 #include "../Entities/Players/MorphBallTouchRules.hpp"
 #include "../Mods/Input/DsTouchSurface.hpp"
 #include "../Mods/Input/MouseMotionTouchSource.hpp"
+#include "../Mods/Input/NativeTouchClock.hpp"
 #include "../Mods/Input/NativeTouchState.hpp"
 
 #include <cmath>
 #include <cstdio>
+#include <limits>
+#include <vector>
 #include <stdexcept>
 #include <utility>
 
@@ -69,30 +73,134 @@ namespace
 
     void Mouse()
     {
+        // One Tick is one native touch tick; AddMotion is one 60 Hz step.
         NativeTouchState t{};
         MouseMotionTouchSource m{};
-        m.Step(0, 0, t);
+        m.Tick(t);
         Expect(!t.Down, "a resting mouse is no contact");
-        m.Step(40, 0, t);
-        Expect(t.Down && !t.Continued && t.Delta4X == 0, "first moving step is the touch-down frame");
-        for (int i = 0; i < 4; ++i) m.Step(40, 0, t);
-        Expect(t.Continued && t.Delta4X == 40, "40 px a step at 0.25 is 10 DS units, summed over four");
-        m.Step(2, 0, t);
-        m.Step(2, 0, t);
+        m.AddMotion(40, 0);
+        m.Tick(t);
+        Expect(t.Down && !t.Continued && t.Delta4X == 0, "first moving tick is the touch-down frame");
+        for (int i = 0; i < 4; ++i)
+        {
+            m.AddMotion(20, 0);
+            m.AddMotion(20, 0);
+            m.Tick(t);
+        }
+        Expect(t.Continued && t.Delta4X == 40, "both steps' motion reach the tick: 40 px is 10 DS units, summed over four");
+        m.AddMotion(2, 0);
+        m.Tick(t);
+        m.AddMotion(2, 0);
+        m.Tick(t);
         Expect(t.DeltaHistoryX[3] == 1, "fractions carry");
-        for (int i = 0; i < MouseMotionTouchSource::IdleStepsBeforeLift - 1; ++i) m.Step(0, 0, t);
+        for (int i = 0; i < MouseMotionTouchSource::IdleTicksBeforeLift - 1; ++i) m.Tick(t);
         Expect(t.Down, "a polling gap does not lift the stylus");
-        m.Step(0, 0, t);
+        m.Tick(t);
         Expect(!t.Down && t.Delta4X == 0, "resting lifts it");
-        // A flick: 400 px a step is 100 DS units; the boost needs the SUM of
-        // four over 90 on a continued contact.
-        m.Step(400, 0, t);
-        m.Step(400, 0, t);
+        // A flick: 400 px a tick is 100 DS units.
+        m.AddMotion(400, 0);
+        m.Tick(t);
+        m.AddMotion(400, 0);
+        m.Tick(t);
         Expect(Arbitrate(false, true, t) == BoostBranch::TouchBoost, "a mouse flick fires");
+        m.AddMotion(std::numeric_limits<float>::infinity(), 0);
+        m.Tick(t);
+        Expect(t.Down && t.DeltaHistoryX[3] == 0, "non-finite motion is dropped");
         NativeTouchState big{};
         big.UpdateRelative(true, 0, 0);
         big.UpdateRelative(true, 5000, -5000);
         Expect(big.Delta4X == 255 && big.Delta4Y == -191, "relative deltas clamp to a DS stroke");
+    }
+
+    void Clock()
+    {
+        NativeTouchClock clock{};
+        Expect(clock.Advance() && !clock.Advance() && clock.Advance() && !clock.Advance(),
+            "the producer ticks on every other 60 Hz step, starting with the first");
+        clock.Advance();
+        clock.Reset();
+        Expect(clock.Advance(), "a reset starts on a tick");
+    }
+
+    // A stylus moving at a steady speed, sampled the way EU1.1 does (one
+    // producer tick at 30 Hz) against Fruity's clock (60 Hz steps, a tick on
+    // every other one). The rolling SUM, the boost tick and the roll a frame
+    // gets must be the native ones.
+    void Cadence()
+    {
+        constexpr int nativeTicks = 15; // 0.5 s
+        const auto positionAt = [](double seconds, double speed) {
+            return static_cast<std::int32_t>(std::lround(20.0 + speed * seconds));
+        };
+        for (const double speed : {600.0, 700.0, 1350.0})
+        {
+            NativeTouchState reference{};
+            int referenceBoostTick = -1;
+            std::vector<std::int16_t> referenceSums{};
+            for (int tick = 0; tick < nativeTicks; ++tick)
+            {
+                reference.Update(true, positionAt(tick / 30.0, speed), 96);
+                referenceSums.push_back(reference.Delta4X);
+                if (referenceBoostTick < 0 && Arbitrate(false, true, reference) == BoostBranch::TouchBoost)
+                {
+                    referenceBoostTick = tick;
+                }
+            }
+
+            NativeTouchState fruity{};
+            NativeTouchClock clock{};
+            int fruityBoostStep = -1;
+            int tick = 0;
+            for (int step = 0; step < nativeTicks * 2; ++step)
+            {
+                if (clock.Advance())
+                {
+                    fruity.Update(true, positionAt(step / 60.0, speed), 96);
+                    Expect(fruity.Delta4X == referenceSums[static_cast<std::size_t>(tick)],
+                        "the rolling SUM matches the 30 Hz reference tick for tick");
+                    ++tick;
+                }
+                if (fruityBoostStep < 0 && Arbitrate(false, true, fruity) == BoostBranch::TouchBoost)
+                {
+                    fruityBoostStep = step;
+                }
+                // The roll a 60 Hz frame adds is the native tick's roll: both
+                // substeps of a tick read the same SUM.
+                const auto roll = MorphBallTouchRules::TouchRoll(fruity.Delta4X, fruity.Delta4Y,
+                    MorphBallTouchRules::TouchRollPerDsPixel, 1, 0, 0, 1);
+                const auto native = MorphBallTouchRules::TouchRoll(referenceSums[static_cast<std::size_t>(step / 2)], 0,
+                    MorphBallTouchRules::TouchRollPerDsPixel, 1, 0, 0, 1);
+                Expect(Near(roll.X, native.X) && Near(roll.Z, native.Z), "a frame's touch roll is its native tick's");
+            }
+            // 675 DS units/s is the native boundary: 90 over four 30 Hz deltas.
+            if (speed < 675.0)
+            {
+                Expect(referenceBoostTick < 0 && fruityBoostStep < 0, "a native non-trigger gesture does not boost");
+            }
+            else
+            {
+                Expect(referenceBoostTick >= 0 && fruityBoostStep >= 0, "a native trigger gesture boosts");
+                const double referenceSeconds = referenceBoostTick / 30.0;
+                const double fruitySeconds = fruityBoostStep / 60.0;
+                Expect(std::fabs(referenceSeconds - fruitySeconds) <= 1.0 / 60.0 + 1e-9,
+                    "the boost fires within one 60 Hz step of the native time");
+            }
+        }
+    }
+
+    void Reported()
+    {
+        NativeTouchState owner{};
+        owner.Update(true, 10, 10);
+        for (int x : {40, 70, 100, 130}) owner.Update(true, x, 10);
+        NativeTouchState remote{};
+        remote.Assign(owner.Report());
+        Expect(remote.Report() == owner.Report(), "the authority reads what the owner's producer read");
+        Expect(Arbitrate(false, true, remote) == Arbitrate(false, true, owner), "and takes the same branch");
+        remote.Assign({false, true, 50, 50});
+        Expect(!remote.Down && !remote.Continued && remote.Delta4X == 0, "no contact carries no delta");
+        remote.Assign({true, false, 50, 50});
+        Expect(remote.Down && !remote.Continued && remote.Delta4X == 0, "a first contact carries no delta");
     }
 
     void Roll()
@@ -145,75 +253,70 @@ namespace
         Expect(Near(right.X, -0.4F) && Near(right.Z, 0.3F), "drag right is -camera side");
     }
 
-    // The 02023624 state machine around R, the way ProcessAlt drives it.
-    struct Machine
-    {
-        bool Boosting = false;
-        bool CanTouchBoost = true;
-        int Charge = 0;
-        int ChargeMax = 20;
-        int Fired = 0;
-        int ShoulderFired = 0;
+    namespace Boost = MphRead::Entities::MorphBallBoostStateMachine;
 
-        void Step(const NativeTouchState& touch, bool rHeld)
-        {
-            if (!touch.Down) CanTouchBoost = true;
-            switch (Arbitrate(Boosting, CanTouchBoost, touch))
-            {
-            case BoostBranch::TouchBoost:
-                ++Fired;
-                Boosting = true;
-                CanTouchBoost = false;
-                break;
-            case BoostBranch::SkipShoulder:
-                break;
-            case BoostBranch::Shoulder:
-                if (rHeld)
-                {
-                    if (Charge < ChargeMax) ++Charge;
-                }
-                else
-                {
-                    if (Charge > 2)
-                    {
-                        ++ShoulderFired;
-                        Boosting = true;
-                    }
-                    Charge = 0;
-                }
-                break;
-            }
-        }
-    };
+    constexpr Boost::ChargeLimits Limits{4, 20, false};
 
-    void Chain()
+    Boost::Inputs In(const NativeTouchState& touch, bool shoulder)
     {
-        NativeTouchState none{};
-        // Small continued touch: R charge does not move and is not released.
-        Machine m{};
-        m.Charge = 7;
-        m.Step(Continued(0, 0), true);
-        Expect(m.Charge == 7, "small continued touch skips the R increment");
-        m.Step(Continued(0, 0), false);
-        Expect(m.Charge == 7 && m.ShoulderFired == 0, "small continued touch skips the R release");
+        return {touch.Down, touch.Continued, touch.Delta4X, touch.Delta4Y, shoulder};
+    }
+
+    // The production state machine PlayerEntity::ProcessBoost runs.
+    void StateMachine()
+    {
+        const NativeTouchState none{};
+
+        // Small continued touch: the charge neither grows nor is released.
+        Boost::State small{false, true, 7};
+        Expect(Boost::Advance(small, In(Continued(0, 0), true), Limits).Boost == Boost::Fired::None
+            && small.Charge == 7, "small continued touch freezes the charge while R is held");
+        Expect(Boost::Advance(small, In(Continued(0, 0), false), Limits).Boost == Boost::Fired::None
+            && small.Charge == 7, "small continued touch skips the R release");
 
         // R held -> touch boost -> R held -> R release.
-        Machine c{};
-        c.Charge = 7;
-        c.Step(Continued(120, 0), true);
-        Expect(c.Fired == 1 && c.Charge == 7 && c.Boosting && !c.CanTouchBoost, "touch boost leaves R charge alone");
-        c.Step(Continued(120, 0), true);
-        Expect(c.Charge == 8, "next frame R path runs while held");
-        c.Step(none, true);
-        Expect(c.CanTouchBoost && c.Charge == 9, "release re-arms");
-        c.Step(none, false);
-        Expect(c.ShoulderFired == 1 && c.Charge == 0, "R release boosts after a touch boost");
+        Boost::State chain{false, true, 7};
+        Boost::Result r = Boost::Advance(chain, In(Continued(120, 0), true), Limits);
+        Expect(r.Boost == Boost::Fired::TouchBoost && chain.Charge == 7 && chain.Boosting && !chain.CanTouchBoost,
+            "touch boost fires and leaves the charge alone");
+        r = Boost::Advance(chain, In(Continued(120, 0), true), Limits);
+        Expect(r.Boost == Boost::Fired::None && chain.Charge == 8, "a repeated contact does not boost again; R charges");
+        r = Boost::Advance(chain, In(none, true), Limits);
+        Expect(chain.CanTouchBoost && chain.Charge == 9, "release re-arms");
+        r = Boost::Advance(chain, In(none, false), Limits);
+        Expect(r.Boost == Boost::Fired::ShoulderBoost && r.ChargeSpent == 9 && chain.Charge == 0,
+            "R release boosts after a touch boost and spends the charge");
+
+        // A release below the minimum spends the charge without boosting.
+        Boost::State weak{false, true, 4};
+        r = Boost::Advance(weak, In(none, false), Limits);
+        Expect(r.Boost == Boost::Fired::None && weak.Charge == 0 && !weak.Boosting, "min is strict");
+        Boost::State full{false, true, 5};
+        r = Boost::Advance(full, In(none, false), {4, 20, true});
+        Expect(r.Boost == Boost::Fired::ShoulderBoost && r.ChargeSpent == 20, "FullBoostCharge spends the max");
+
+        // Charge stops at the max.
+        Boost::State cap{false, true, 20};
+        (void)Boost::Advance(cap, In(none, true), Limits);
+        Expect(cap.Charge == 20, "charge stops at the max");
 
         // Disarmed continued touch falls through to R.
-        Machine d{};
-        d.CanTouchBoost = false;
-        d.Step(Continued(0, 0), true);
-        Expect(d.Charge == 1, "continued touch while disarmed -> R path");
+        Boost::State disarmed{false, false, 0};
+        (void)Boost::Advance(disarmed, In(Continued(0, 0), true), Limits);
+        Expect(disarmed.Charge == 1, "continued touch while disarmed -> R path");
+        // So does a contact while boosting.
+        Boost::State boosting{true, true, 0};
+        r = Boost::Advance(boosting, In(Continued(200, 0), true), Limits);
+        Expect(r.Boost == Boost::Fired::None && boosting.Charge == 1, "boosting -> R path");
+
+        // Strength: the touch boost is full, the shoulder boost proportional.
+        const Boost::BoostValues values{0.2F, 0.6F, 1.5F, 30};
+        const Boost::Strength touch = Boost::TouchBoostStrength(values);
+        Expect(Near(touch.Speed, 0.6F) && Near(touch.Cap, 1.5F) && touch.Damage == 30, "touch boost is full strength");
+        const Boost::Strength half = Boost::ShoulderBoostStrength(values, 10, 20);
+        Expect(Near(half.Speed, 0.4F) && Near(half.Cap, 0.75F) && half.Damage == 15, "shoulder boost scales with charge");
+        const Boost::Strength max = Boost::ShoulderBoostStrength(values, 20, 20);
+        Expect(Near(max.Speed, 0.6F) && Near(max.Cap, 1.5F) && max.Damage == 30, "a full charge is full strength");
     }
 }
 
@@ -227,7 +330,10 @@ int main()
         Roll();
         Threshold();
         Impulse();
-        Chain();
+        Clock();
+        Cadence();
+        Reported();
+        StateMachine();
     }
     catch (const std::exception& e)
     {

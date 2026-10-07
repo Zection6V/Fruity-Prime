@@ -8,26 +8,34 @@ namespace MphRead::Mods::Input
 {
     void MouseMotionTouchSource::Reset() noexcept
     {
+        _pendingX = _pendingY = 0;
         _carryX = _carryY = 0;
-        _idle = IdleStepsBeforeLift;
+        _idle = IdleTicksBeforeLift;
     }
 
-    void MouseMotionTouchSource::Step(float pixelDx, float pixelDy, NativeTouchState& touch) noexcept
+    void MouseMotionTouchSource::AddMotion(float pixelDx, float pixelDy) noexcept
     {
-        if (!std::isfinite(pixelDx) || !std::isfinite(pixelDy))
+        if (std::isfinite(pixelDx) && std::isfinite(pixelDy))
         {
-            pixelDx = pixelDy = 0;
+            _pendingX += pixelDx;
+            _pendingY += pixelDy;
         }
+    }
+
+    void MouseMotionTouchSource::Tick(NativeTouchState& touch) noexcept
+    {
+        const float pixelDx = _pendingX;
+        const float pixelDy = _pendingY;
+        _pendingX = _pendingY = 0;
         if (pixelDx != 0 || pixelDy != 0)
         {
             _idle = 0;
         }
-        else if (_idle < IdleStepsBeforeLift)
+        else if (_idle < IdleTicksBeforeLift)
         {
             ++_idle;
         }
-        const bool down = _idle < IdleStepsBeforeLift;
-        if (!down)
+        if (_idle >= IdleTicksBeforeLift)
         {
             _carryX = _carryY = 0;
             touch.UpdateRelative(false, 0, 0);

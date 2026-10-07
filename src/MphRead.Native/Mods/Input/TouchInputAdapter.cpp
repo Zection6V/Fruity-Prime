@@ -19,23 +19,23 @@ namespace MphRead::Mods::Input
     {
         if (!StylusZoneContact())
         {
-            _state.Update(false, 0, 0);
+            _sample.State().Update(false, 0, 0);
             return;
         }
         const PointerSample& sample = PointerDevice::Current();
-        _state.Update(true,
+        _sample.State().Update(true,
             DsTouchSurface::ToX(sample.X / PointerDevice::SurfaceWidth(), StylusZone::Left(), StylusZone::Width()),
             DsTouchSurface::ToY(sample.Y / PointerDevice::SurfaceHeight(), StylusZone::Top(), StylusZone::Height()));
     }
 
     void TouchInputAdapter::Step(const Frame& frame) noexcept
     {
-        const bool tick = _clock.Advance();
+        const bool tick = _sample.AdvanceLocal();
         if (HostTouch::Published())
         {
             if (tick)
             {
-                _state.Update(HostTouch::Down(), HostTouch::X(), HostTouch::Y());
+                _sample.State().Update(HostTouch::Down(), HostTouch::X(), HostTouch::Y());
             }
         }
         else if (frame.PointerActive)
@@ -51,24 +51,24 @@ namespace MphRead::Mods::Input
             _mouseMotion.AddMotion(frame.MouseDeltaX, frame.MouseDeltaY);
             if (tick)
             {
-                _mouseMotion.Tick(_state);
+                _mouseMotion.Tick(_sample.State());
             }
         }
         else if (tick)
         {
-            _state.Update(false, 0, 0);
+            _sample.State().Update(false, 0, 0);
         }
     }
 
     void TouchInputAdapter::Suspend() noexcept
     {
-        _state.Clear();
-        _clock.Reset();
+        _sample.Suspend();
         _mouseMotion.Reset();
     }
 
-    void TouchInputAdapter::ApplyReported(const NativeTouchState::Reported& reported) noexcept
+    void TouchInputAdapter::ApplyReported(const NativeTouchState::Reported& reported,
+        std::uint16_t generation, std::uint16_t life) noexcept
     {
-        _state.Assign(reported);
+        _sample.ApplyReported(reported, generation, life);
     }
 }

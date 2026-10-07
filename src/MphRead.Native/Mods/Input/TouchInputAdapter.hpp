@@ -1,8 +1,7 @@
 #pragma once
 
 #include "MouseMotionTouchSource.hpp"
-#include "NativeTouchClock.hpp"
-#include "NativeTouchState.hpp"
+#include "NativeTouchSample.hpp"
 
 namespace MphRead::Mods::Input
 {
@@ -33,16 +32,18 @@ namespace MphRead::Mods::Input
         void Suspend() noexcept;
         // A player driven by somebody else's intent: the state the owner's
         // producer had, as it reported it. See NetPlayerBridge.
-        void ApplyReported(const NativeTouchState::Reported& reported) noexcept;
+        void ApplyReported(const NativeTouchState::Reported& reported,
+            std::uint16_t generation, std::uint16_t life) noexcept;
 
-        [[nodiscard]] const NativeTouchState& State() const noexcept { return _state; }
+        void BeginStep() noexcept { _sample.BeginStep(); }
+        [[nodiscard]] const NativeTouchState& State() const noexcept { return _sample.State(); }
+        [[nodiscard]] const NativeTouchSample& Sample() const noexcept { return _sample; }
 
     private:
         [[nodiscard]] static bool StylusZoneContact() noexcept;
         void TickStylusZone() noexcept;
 
-        NativeTouchState _state{};
-        NativeTouchClock _clock{};
+        NativeTouchSample _sample{};
         MouseMotionTouchSource _mouseMotion{};
     };
 }

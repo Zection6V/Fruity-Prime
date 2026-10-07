@@ -174,12 +174,7 @@ namespace MphRead::Mods::Network
         intent.ShotFlags = static_cast<std::uint8_t>((player.DoubleDamage() ? IntentPacket::FlagDoubleDamage : 0)
             | (player.IsPrimeHunter() ? IntentPacket::FlagPrimeHunter : 0));
         intent.HasState = true;
-        const Mods::Input::NativeTouchState::Reported touch = player.ModTouchReport();
-        intent.TouchFlags = static_cast<std::uint8_t>(IntentPacket::TouchPresent
-            | (touch.Down ? IntentPacket::TouchDown : 0)
-            | (touch.Continued ? IntentPacket::TouchContinued : 0));
-        intent.TouchDelta4X = touch.Delta4X;
-        intent.TouchDelta4Y = touch.Delta4Y;
+        intent.SetTouchReport(player.ModTouchReport());
         intent.AckFrame = NetHooks::SnapshotOwnsPuppets() && NetSession::AppliedSnapshotFrame() != 0
             ? NetSession::AppliedSnapshotFrame()
             : NetSession::LastSnapshotFrame();
@@ -281,9 +276,7 @@ namespace MphRead::Mods::Network
         }
         // Every intent, with or without a touch block: one without (a demo
         // recorded before) is no contact, never the last contact repeated.
-        player.ModSetReportedTouch({(intent.TouchFlags & IntentPacket::TouchDown) != 0,
-            (intent.TouchFlags & IntentPacket::TouchContinued) != 0,
-            intent.TouchDelta4X, intent.TouchDelta4Y});
+        player.ModSetReportedTouch(intent.TouchReport(), intent.SlotGeneration, intent.LifeId);
         if (intent.HasState && (NetSession::IsAuthority() || NetSession::IsHost()))
         {
             player.ModSetShotState(intent.ChargeLevel, intent.BoostDamage,

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include "MorphBallTouchRules.hpp"
 
 namespace MphRead::Entities::MorphBallBoostStateMachine
 {
@@ -48,10 +49,23 @@ namespace MphRead::Entities::MorphBallBoostStateMachine
         // For ShoulderBoost: the charge the release spent (the state's own
         // charge is 0 by then).
         std::uint16_t ChargeSpent = 0;
+        MorphBallTouchRules::BoostBranch Branch = MorphBallTouchRules::BoostBranch::Shoulder;
+    };
+
+    struct SampleLatch
+    {
+        bool Valid = false;
+        std::uint64_t Identity = 0;
+        MorphBallTouchRules::BoostBranch Branch = MorphBallTouchRules::BoostBranch::Shoulder;
     };
 
     // One frame. Updates state and says what fired.
     [[nodiscard]] Result Advance(State& state, const Inputs& inputs, const ChargeLimits& limits) noexcept;
+
+    // Touch arbitration once per native sample; Shoulder retains its 60 Hz
+    // adaptation. TouchBoost and SkipShoulder own the entire sample pair.
+    [[nodiscard]] Result AdvanceSample(State& state, const Inputs& inputs, const ChargeLimits& limits,
+        SampleLatch& latch, std::uint64_t sampleIdentity) noexcept;
 
     // How hard a fired boost is. Speed is the impulse magnitude, Cap the
     // horizontal speed cap it raises to, Damage the boost's collision damage.

@@ -10,8 +10,9 @@ namespace MphRead::Mods::Input
     // samples span (66.7 ms instead of 133.3 ms) and with it the distance a
     // swipe covers inside the >90 window -- a swipe would need twice the
     // speed. Between ticks the state is held, so both 60 Hz substeps read
-    // the same native sample, the way MphRead's doubled counters already
-    // read one native tick as two frames.
+    // the same native sample. NativeTouchSample distributes half its roll
+    // impulse to each substep and the boost consumer latches the branch;
+    // holding the producer state alone does not adapt its consumption.
     class NativeTouchClock final
     {
     public:

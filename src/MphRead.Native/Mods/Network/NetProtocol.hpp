@@ -1,4 +1,5 @@
 #pragma once
+#include "../Input/NativeTouchState.hpp"
 
 #include "MatchDefinition.hpp"
 #include "../../Formats/Types.hpp"
@@ -399,7 +400,10 @@ namespace MphRead::Mods::Network
         // four bytes after it. The authority runs the owner's touch roll and
         // touch/shoulder boost arbitration from it. A payload that stops at
         // StateSize -- a demo recorded before -- reads as no contact.
-        static constexpr std::int32_t TouchSize = 4;
+        static constexpr std::int32_t LegacyTouchSize = 4;
+        // Protocol 16 appends the native sample sequence. The sibling bit
+        // lives in TouchFlags; identical deltas still identify distinct ticks.
+        static constexpr std::int32_t TouchSize = LegacyTouchSize + 4;
         static constexpr std::int32_t FullSize = Size + StateSize + TouchSize;
 
         std::uint8_t ChargeLevel = 0;
@@ -417,10 +421,16 @@ namespace MphRead::Mods::Network
         static constexpr std::uint8_t TouchPresent = 1U << 0;
         static constexpr std::uint8_t TouchDown = 1U << 1;
         static constexpr std::uint8_t TouchContinued = 1U << 2;
+        static constexpr std::uint8_t TouchSamplePresent = 1U << 3;
+        static constexpr std::uint8_t TouchSecondStep = 1U << 4;
         std::uint8_t TouchFlags = 0;
         std::int16_t TouchDelta4X = 0;
         std::int16_t TouchDelta4Y = 0;
+        std::uint32_t TouchSampleSequence = 0;
         [[nodiscard]] bool HasTouch() const noexcept { return (TouchFlags & TouchPresent) != 0; }
+        [[nodiscard]] bool HasTouchSample() const noexcept { return (TouchFlags & TouchSamplePresent) != 0; }
+        void SetTouchReport(const ::MphRead::Mods::Input::NativeTouchState::Reported& touch) noexcept;
+        [[nodiscard]] ::MphRead::Mods::Input::NativeTouchState::Reported TouchReport() const noexcept;
 
         std::uint32_t Frame = 0;
         IntentButtons Buttons = IntentButtons::None;
@@ -592,7 +602,7 @@ namespace MphRead::Mods::Network
     public:
         static constexpr std::uint16_t DefaultPort = 27888;
         static constexpr std::int32_t MaxPacketSize = 1232;
-        static constexpr std::int32_t ProtocolVersion = 15;
+        static constexpr std::int32_t ProtocolVersion = 16;
         static constexpr std::int32_t IntentSendInterval = 1;
         static constexpr double TimeoutSeconds = 30.0;
 

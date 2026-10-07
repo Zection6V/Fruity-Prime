@@ -27,6 +27,13 @@ namespace MphRead::Entities::MorphBallTouchRules
         };
     }
 
+    PlanarDelta TouchRollStep(std::int16_t delta4X, std::int16_t delta4Y, float scale,
+        float rollFbX, float rollFbZ, float rollLrX, float rollLrZ, float share) noexcept
+    {
+        const auto native = TouchRoll(delta4X, delta4Y, scale, rollFbX, rollFbZ, rollLrX, rollLrZ);
+        return {native.X * share, native.Z * share};
+    }
+
     PlanarDelta TouchBoostImpulse(std::int32_t dx, std::int32_t dy, float boostSpeedMax,
         float cameraForwardX, float cameraForwardZ, float cameraSideX, float cameraSideZ) noexcept
     {

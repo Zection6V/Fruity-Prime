@@ -37,6 +37,11 @@ namespace MphRead::Entities::MorphBallTouchRules
     [[nodiscard]] PlanarDelta TouchRoll(std::int16_t delta4X, std::int16_t delta4Y, float scale,
         float rollFbX, float rollFbZ, float rollLrX, float rollLrZ) noexcept;
 
+    // A simulation step's share of the native impulse; normally 1/2, zero
+    // for a repeated remote substep. The native coefficient stays unchanged.
+    [[nodiscard]] PlanarDelta TouchRollStep(std::int16_t delta4X, std::int16_t delta4Y, float scale,
+        float rollFbX, float rollFbZ, float rollLrX, float rollLrZ, float share) noexcept;
+
     // 0202366C-020236A0 and 020237BC-0202383C: full BoostSpeedMax along
     // -delta, against the current camera basis.
     [[nodiscard]] PlanarDelta TouchBoostImpulse(std::int32_t dx, std::int32_t dy, float boostSpeedMax,

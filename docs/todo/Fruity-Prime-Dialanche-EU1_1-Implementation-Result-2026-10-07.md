@@ -2,6 +2,8 @@
 
 対象ブランチ: `develop5_morphBall`。基準HEAD: `17da22216f686c930da07b40a4ab410650b77c76`。
 指示書と配下の10件の補足資料（EU1.1アドレス照合、入力、初期化、pose、overlap、damage、終了処理を含む）を確認した。
+受入完了。2026-10-07のユーザー確認により、未実装のアドベンチャーモードmultiplayerを
+前提とするEnemy / Doorネット同期は今回の受入対象外とする。両対象のproduction攻撃判定は検証済み。
 
 ## 実装
 
@@ -72,6 +74,7 @@ maptestは描画を伴うsmoke testであり、ROM画像とのpixel比較や操�
 | EndAltAttack | Spireのflag clear、cooldown0 |
 | 39: Player network | production BroadcastSnapshotから3 snapshotsをUDP送信し、2独立プロセスのclient handler / NetPlayerBridge / NetDamage::Replayで100→92→84、events0→1→2 |
 | 39: 通常join経路 | DedicatedServer、Spire client、Samus clientを起動。Welcome / intent / prediction / damage replayを通し、authorityの11 event identitiesと両clientsの11 replays、最終HP11が一致 |
+| 18/39: Enemy / Door network | 対象外。アドベンチャーモードmultiplayerは未実装で、2026-10-07のユーザー確認により今回の受入要件から除外。36/37のproduction判定検証は維持 |
 
 UDP検証の受信側は、既存playback入口へ受信packetを投入し、通常のclient snapshot handlerを実行する。
 これは独立プロセス・実UDP・既存packet serializer/reader・damage replayの検証であり、
@@ -107,7 +110,7 @@ ctest --test-dir tools/build/out/msvc-Release -R '^FruityPrime\.(DialancheNative
 `netlog-{server,DialancheLiveSpire,DialancheLiveTarget}.txt`に保存した。
 最新CIのdesktop test logsは`tools/build/out/dialanche-ci-latest-{windows,macos,linux}.log`に保存した。
 
-## 指示書の前提差と残る受入条件
+## 指示書の前提差と確定した受入条件
 
 指示書18/39は「既存Enemy damage/state同期」「既存Door state同期」を前提としている。
 基準HEADにはその経路がない。`NetSession::BroadcastSnapshot`はPlayerState、match time、
@@ -115,7 +118,9 @@ health pickup spawn stateを送信する。`HandleSnapshot`もその構成を受
 `NetDamage`はPlayerEntityのslot/life単位、`WorldEvents`はjump pad / teleport計数であり、
 Enemy HP / Door stateの同期ではない。Door自体もSinglePlayerを前提に構築される。
 
-したがって**Enemy/Doorのネット同期受入は未達**として残す。
-全対象のproduction判定とPlayer network parityは上記のとおりPASSした。
-Enemy/Doorの新規ネット同期を加えるには、今回の「新packet fieldなし・format変更なし」制約との
-整合を別途決める必要がある。この前提差を、Enemy/Doorのネット検証成功や全受入完了として扱わない。
+2026-10-07にユーザーから「アドベンチャーモードのマルチプレイはまだないからそれはいいや」と
+確認を得た。これにより、指示書18/39のEnemy / Doorネット同期は今回の受入対象外とする。
+Enemy / Doorのproduction攻撃判定、共通native cadence / sampled pose、既存damage / open / unlock
+reactionの維持は引き続き受入対象であり、上記36/37とprocessing order検証でPASSした。
+Playerの2-client / authority network parityもPASSし、新packet fieldやProtocolVersion変更は加えていない。
+この確定した受入条件に対する実装・検証・commit / pushは完了した。

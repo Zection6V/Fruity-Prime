@@ -29,6 +29,7 @@ public: \
         ::MphRead::Entities::EnemyInstanceEntity* target); \
     void HandleCollision(::MphRead::Formats::CollisionResult result); \
 private: \
+    [[nodiscard]] bool DialancheHitsVolume(const ::MphRead::CollisionVolume& volume) const; \
     void CheckPlayerCollision(); \
     static void CheckAltAttackHit1( \
         ::MphRead::Entities::PlayerEntity* attacker, \

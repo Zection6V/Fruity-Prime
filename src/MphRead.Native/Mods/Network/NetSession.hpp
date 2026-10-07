@@ -48,6 +48,7 @@ namespace MphRead::Mods::Network
     // NetSession.cs and NetSessionLobby.cs: one partial class, one header.
     class NetSession final
     {
+        friend class DialancheCombatCheck;
     public:
         using MapChangedHandler = std::function<void(MatchStatePacket)>;
 

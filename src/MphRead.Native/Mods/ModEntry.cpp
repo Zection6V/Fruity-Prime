@@ -70,6 +70,7 @@
 #include "Network/NetStatus.hpp"
 #include "Network/NetUnlagged.hpp"
 #include "Network/SpireAltPoseCheck.hpp"
+#include "Network/DialancheCombatCheck.hpp"
 #include "Network/ServerSimCheck.hpp"
 #include "Network/WeaponDps.hpp"
 #include "Render/Crosshair.hpp"
@@ -1208,7 +1209,8 @@ namespace MphRead::Mods
             return true;
         }
 
-        if (!::HasFlag(args, "spireposecheck") && !::HasFlag(args, "formcheck"))
+        if (!::HasFlag(args, "spireposecheck") && !::HasFlag(args, "dialanchecheck")
+            && !::HasFlag(args, "dialanchepeercheck") && !::HasFlag(args, "formcheck"))
         {
             Update::DesktopUpdate::Clean();
         }
@@ -1985,6 +1987,26 @@ namespace MphRead::Mods
         if (mapMaterials.has_value())
         {
             SetExitCode(MapGen::MapReport::ListMaterials(*mapMaterials));
+            return true;
+        }
+
+        const auto dialancheCheck = ValueAfter(args, "dialanchecheck");
+        const auto dialanchePeerCheck = ValueAfter(args, "dialanchepeercheck");
+        if (dialanchePeerCheck.has_value())
+        {
+            int port = 0;
+            const auto value = ValueAfter(args, "port");
+            if (value.has_value()) Int32TryParseCurrentCulture(*value, port);
+            SetExitCode(Network::DialancheCombatCheck::RunPeer(*dialanchePeerCheck, port));
+            return true;
+        }
+        if (dialancheCheck.has_value())
+        {
+            int peerA = 0, peerB = 0;
+            const auto a = ValueAfter(args, "dialanchepeera"), b = ValueAfter(args, "dialanchepeerb");
+            if (a.has_value()) Int32TryParseCurrentCulture(*a, peerA);
+            if (b.has_value()) Int32TryParseCurrentCulture(*b, peerB);
+            SetExitCode(Network::DialancheCombatCheck::Run(*dialancheCheck, peerA, peerB));
             return true;
         }
 

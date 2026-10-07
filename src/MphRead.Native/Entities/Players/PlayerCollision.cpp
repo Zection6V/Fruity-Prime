@@ -236,6 +236,22 @@ namespace MphRead::Entities
         }
     }
 
+    bool PlayerEntity::DialancheHitsVolume(const CollisionVolume& volume) const
+    {
+        const auto frame = RequireReference(_scene).FrameCount();
+        if (!DialancheNativeCollision::IsNativeCollisionStep(frame))
+        {
+            return false;
+        }
+        // EU1.1 0200B808/0211DA34: two radius-0.5 rocks, one OR result.
+        // The current tick's visual sample is hidden for every target type.
+        const auto pose = _dialancheNativeCollision.PoseForHit(
+            DialancheNativeCollision::NativeTick(frame));
+        CollisionResult unused{};
+        return CollisionDetection::CheckSphereOverlapVolume(&volume, pose.Left, DialancheNativeCollision::RockRadius, unused)
+            || CollisionDetection::CheckSphereOverlapVolume(&volume, pose.Right, DialancheNativeCollision::RockRadius, unused);
+    }
+
     void PlayerEntity::CheckAltAttackHit1(
         PlayerEntity* attacker, PlayerEntity* target, bool halfturret)
     {
@@ -244,7 +260,6 @@ namespace MphRead::Entities
             && TestFlag(source.Flags2(), PlayerFlags2::AltAttack))
         {
             PlayerEntity& victim = RequireReference(target);
-            CollisionResult unused{};
             bool hit = false;
             if (halfturret)
             {
@@ -252,18 +267,12 @@ namespace MphRead::Entities
                 auto* turret = ObjectPointer(halfturretValue);
                 CollisionVolume otherVolume(
                     static_cast<Vector3>(RequireReference(turret).Position), 0.45F);
-                hit = CollisionDetection::CheckSphereOverlapVolume(
-                          &otherVolume, source._spireRockPosL, 0.5F, unused)
-                    || CollisionDetection::CheckSphereOverlapVolume(
-                          &otherVolume, source._spireRockPosR, 0.5F, unused);
+                hit = source.DialancheHitsVolume(otherVolume);
             }
             else
             {
                 CollisionVolume targetVolume = victim.Volume();
-                hit = CollisionDetection::CheckSphereOverlapVolume(
-                          &targetVolume, source._spireRockPosL, 0.5F, unused)
-                    || CollisionDetection::CheckSphereOverlapVolume(
-                          &targetVolume, source._spireRockPosR, 0.5F, unused);
+                hit = source.DialancheHitsVolume(targetVolume);
             }
             if (hit)
             {
@@ -451,12 +460,8 @@ namespace MphRead::Entities
         if (Hunter() == MphRead::Hunter::Spire
             && TestFlag(Flags2(), PlayerFlags2::AltAttack))
         {
-            CollisionResult unused{};
             CollisionVolume hurtVolume = enemy.HurtVolume();
-            if (CollisionDetection::CheckSphereOverlapVolume(
-                    &hurtVolume, _spireRockPosL, 0.5F, unused)
-                || CollisionDetection::CheckSphereOverlapVolume(
-                    &hurtVolume, _spireRockPosR, 0.5F, unused))
+            if (DialancheHitsVolume(hurtVolume))
             {
                 enemy.TakeDamage(Values().AltAttackDamage, this);
                 _soundSource.PlaySfx(SfxId::SPIRE_ALT_ATTACK_HIT);
@@ -527,6 +532,19 @@ namespace MphRead::Entities
 
     void PlayerEntity::AltAttackHitDoor(DoorEntity* door)
     {
+        if (Hunter() == MphRead::Hunter::Spire && TestFlag(Flags2(), PlayerFlags2::AltAttack))
+        {
+            DoorEntity& target = RequireReference(door);
+            // Preserve the extension's door contact slab (depth +/-1.25)
+            // and aperture, but test the sampled rocks rather than the body.
+            const Vector3 facing = target.FacingVector();
+            const CollisionVolume volume(facing,
+                target.LockPosition() - ScaleVector(facing, 1.25F), target.Radius(), 2.5F);
+            if (!DialancheHitsVolume(volume))
+            {
+                return;
+            }
+        }
         if (((Hunter() == MphRead::Hunter::Spire
                     || Hunter() == MphRead::Hunter::Trace
                     || Hunter() == MphRead::Hunter::Weavel)
@@ -731,6 +749,8 @@ namespace MphRead::Entities
                 continue;
             }
             Vector3 lockPos = door.LockPosition();
+            const bool dialanche = Hunter() == MphRead::Hunter::Spire && TestFlag(Flags2(), PlayerFlags2::AltAttack);
+            if (dialanche) AltAttackHitDoor(&door);
             Vector3 doorFacing = door.FacingVector();
             Vector3 between = static_cast<Vector3>(Position) - lockPos;
             float dot = Vector3::Dot(between, doorFacing);
@@ -758,7 +778,7 @@ namespace MphRead::Entities
                         + doorResult.Plane.Z
                             * (lockPos.Z + 0.4F * doorResult.Plane.Z);
                     HandleCollision(doorResult);
-                    AltAttackHitDoor(&door);
+                    if (!dialanche) AltAttackHitDoor(&door);
                 }
             }
         }

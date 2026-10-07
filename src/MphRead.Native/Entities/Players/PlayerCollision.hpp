@@ -30,6 +30,8 @@ public: \
     void HandleCollision(::MphRead::Formats::CollisionResult result); \
 private: \
     [[nodiscard]] bool DialancheHitsVolume(const ::MphRead::CollisionVolume& volume) const; \
+    [[nodiscard]] std::uint16_t DialanchePlayerDamage() const; \
+    void CheckDialanchePlayerHit(::MphRead::Entities::PlayerEntity& victim, bool halfturret); \
     void CheckPlayerCollision(); \
     static void CheckAltAttackHit1( \
         ::MphRead::Entities::PlayerEntity* attacker, \

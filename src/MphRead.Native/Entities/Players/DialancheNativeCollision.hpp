@@ -17,7 +17,6 @@ namespace MphRead::Entities
             OpenTK::Mathematics::Vector3 Right{};
         };
 
-        static constexpr float RockRadius = 0.5F;
         void Reset(OpenTK::Mathematics::Vector3 position) noexcept;
         void Record(std::uint64_t nativeTick, OpenTK::Mathematics::Vector3 left,
             OpenTK::Mathematics::Vector3 right) noexcept;

@@ -4,6 +4,7 @@
 
 #include "../../Formats/Culling.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../Mods/Combat/HalfturretFireRate.hpp"
 
 #include <cstdint>
 #include <limits>
@@ -35,6 +36,7 @@ namespace MphRead::Entities
 
     class HalfturretEntity : public DynamicLightEntityBase
     {
+        friend class WeavelAltFormParityTest;
     public:
         HalfturretEntity(std::shared_ptr<PlayerEntity> owner, Scene* scene);
 
@@ -55,7 +57,11 @@ namespace MphRead::Entities
         [[nodiscard]] std::shared_ptr<MphRead::EquipInfo> EquipInfo() const noexcept;
 
         void Create();
+        void ResetForSpawn();
         void Initialize() override;
+        [[nodiscard]] std::int32_t CooldownFactorRaw() const noexcept { return _cooldownFactorRaw; }
+        [[nodiscard]] std::uint32_t NativeShotThreshold() const;
+        [[nodiscard]] bool Grounded() const noexcept { return _grounded; }
         void GetVectors(::OpenTK::Mathematics::Vector3& position,
             ::OpenTK::Mathematics::Vector3& up,
             ::OpenTK::Mathematics::Vector3& facing) override;
@@ -85,6 +91,7 @@ namespace MphRead::Entities
             Node& node, std::int32_t recolor = -1) override;
 
     private:
+        [[nodiscard]] bool ProcessNativeGameplay();
         std::shared_ptr<PlayerEntity> _owner{};
         std::shared_ptr<EntityBase> _target{};
         std::shared_ptr<Formats::NodeData3> _closestNode{};
@@ -101,7 +108,7 @@ namespace MphRead::Entities
         ::OpenTK::Mathematics::Vector3 _aimVector{};
         std::uint16_t _targetTimer = 0;
         std::uint16_t _cooldownTimer = 0;
-        float _cooldownFactor = 1.5F;
+        std::int32_t _cooldownFactorRaw = Mods::Combat::HalfturretFireRate::Normal;
 
         std::shared_ptr<MphRead::EquipInfo> _equipInfo{};
 

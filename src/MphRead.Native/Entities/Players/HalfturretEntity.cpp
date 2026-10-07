@@ -1,5 +1,6 @@
 #include "HalfturretEntity.hpp"
 #include "../../Mods/Multiplayer/TeamLayout.hpp"
+#include "../../Mods/Gameplay/NativeGameplayClock.hpp"
 
 #include "../BeamProjectileEntity.hpp"
 #include "../RoomEntity.hpp"
@@ -165,8 +166,40 @@ namespace MphRead::Entities
         _altIceModel = _models.Items().back();
     }
 
+    void HalfturretEntity::ResetForSpawn()
+    {
+        if (_burnEffect != nullptr)
+        {
+            RequireReference(_scene).UnlinkEffectEntry(_burnEffect);
+            _burnEffect.reset();
+        }
+        _target.reset();
+        _closestNode.reset();
+        _health = 0;
+        _timeSinceDamage = std::numeric_limits<std::uint16_t>::max();
+        _timeSinceFrozen = 0;
+        _freezeTimer = 0;
+        _burnTimer = 0;
+        _ySpeed = 0.0F;
+        _grounded = false;
+        _aimVector = {};
+        _targetTimer = 0;
+        _cooldownTimer = 0;
+        _cooldownFactorRaw = Mods::Combat::HalfturretFireRate::Normal;
+        // EquipInfo owns transient overrides; shared weapon metadata stays intact.
+        RequireReference(_equipInfo) = MphRead::EquipInfo{};
+    }
+
+    std::uint32_t HalfturretEntity::NativeShotThreshold() const
+    {
+        return Mods::Combat::HalfturretFireRate::Threshold(
+            RequireReference(RequireReference(_equipInfo).Weapon).ShotCooldown,
+            _cooldownFactorRaw);
+    }
+
     void HalfturretEntity::Initialize()
     {
+        ResetForSpawn();
         PlayerEntity& owner = RequireReference(_owner);
         SetRecolor(owner.Recolor());
         DynamicLightEntityBase::Initialize();
@@ -216,30 +249,26 @@ namespace MphRead::Entities
     void HalfturretEntity::OnTakeDamage(std::shared_ptr<EntityBase> attacker, std::uint32_t damage)
     {
         _target = std::move(attacker);
-        _targetTimer = 30 * 2;
-        const std::int64_t product = 61LL * static_cast<std::int64_t>(damage);
-        _cooldownFactor -= static_cast<float>(product);
-        if (_cooldownFactor < 0.7F)
-        {
-            _cooldownFactor = 0.7F;
-        }
+        _targetTimer = 30;
+        _cooldownFactorRaw = Mods::Combat::HalfturretFireRate::AfterDamage(
+            _cooldownFactorRaw, damage);
     }
 
     void HalfturretEntity::OnFrozen()
     {
-        if (_timeSinceFrozen > 60 * 2)
+        if (_timeSinceFrozen > 60)
         {
-            _freezeTimer = 75 * 2;
+            _freezeTimer = 75;
         }
-        else if (_freezeTimer < 15 * 2)
+        else if (_freezeTimer < 15)
         {
-            _freezeTimer = 15 * 2;
+            _freezeTimer = 15;
         }
     }
 
     void HalfturretEntity::OnSetOnFire()
     {
-        _burnTimer = 150 * 2;
+        _burnTimer = 150;
         if (_burnEffect != nullptr)
         {
             RequireReference(_scene).UnlinkEffectEntry(_burnEffect);
@@ -263,11 +292,22 @@ namespace MphRead::Entities
         {
             return false;
         }
+        // Every turret observes the same scene phase, independent of input resets.
+        if (!Mods::Gameplay::NativeGameplayClock::IsNativeTick(
+            RequireReference(_scene).FrameCount()))
+        {
+            return true;
+        }
+        return ProcessNativeGameplay();
+    }
+
+    bool HalfturretEntity::ProcessNativeGameplay()
+    {
         PlayerEntity& owner = RequireReference(_owner);
         if (_burnTimer > 0)
         {
             --_burnTimer;
-            if (_burnTimer % (8 * 2) == 0)
+            if (_burnTimer % 8 == 0)
             {
                 owner.TakeDamage(1,
                     DamageFlags::NoSfx | DamageFlags::Burn | DamageFlags::NoDmgInvuln | DamageFlags::Halfturret,
@@ -296,16 +336,7 @@ namespace MphRead::Entities
             {
                 _target.reset();
             }
-            if (_cooldownFactor < 1.5F)
-            {
-                _cooldownFactor = ::MphRead::NativeRuntime::MathMin(
-                    _cooldownFactor + 0.015F / 2.0F, 1.5F);
-            }
-            else if (_cooldownFactor > 1.5F)
-            {
-                _cooldownFactor = ::MphRead::NativeRuntime::MathMax(
-                    _cooldownFactor - 0.015F / 2.0F, 1.5F);
-            }
+            _cooldownFactorRaw = Mods::Combat::HalfturretFireRate::Recover(_cooldownFactorRaw);
             if (_target == nullptr)
             {
                 float minDistSqr = 15.0F * 15.0F;
@@ -347,7 +378,7 @@ namespace MphRead::Entities
                     }
                     else
                     {
-                        _cooldownTimer = 65 * 2;
+                        _cooldownTimer = 65;
                     }
                 }
                 else
@@ -355,10 +386,8 @@ namespace MphRead::Entities
                     _cooldownTimer = 1;
                 }
                 (void)UpdateAim(muzzlePos, _target->Position, _equipInfo, _aimVector);
-                const float cooldownValue = static_cast<float>(RequireReference(RequireReference(_equipInfo).Weapon).ShotCooldown)
-                    * _cooldownFactor;
-                const float cooldown = cooldownValue < 7.5F ? 7.0F : cooldownValue;
-                if (owner.TimeSinceShot() >= cooldown * 2.0F && _cooldownTimer < 60 * 2)
+                // Player's shared weapon timer still counts 60 Hz steps.
+                if (owner.TimeSinceShot() >= NativeShotThreshold() * 2U && _cooldownTimer < 60)
                 {
                     if (owner.IsBot() && GameState::SinglePlayer()
                         && (encounter == 1 || encounter == 3 || encounter == 4))
@@ -412,8 +441,8 @@ namespace MphRead::Entities
         if (!_grounded)
         {
             const Vector3 prevPos = Position;
-            _ySpeed -= 0.02F / 2.0F;
-            Position = TypeExtensions::AddY(Position, _ySpeed / 2.0F);
+            _ySpeed -= 0.02F;
+            Position = TypeExtensions::AddY(Position, _ySpeed);
             ManagedArray<Formats::CollisionResult> results(1);
             if (Formats::CollisionDetection::CheckSphereBetweenPoints(
                 prevPos, Position, 0.45F, 1, false, Formats::TestFlags::None,
@@ -535,7 +564,7 @@ namespace MphRead::Entities
         Model& model = RequireReference(inst.Model());
         const std::shared_ptr<AnimationInfo>& animInfo = inst.AnimInfo;
         PlayerEntity& owner = RequireReference(_owner);
-        if (_timeSinceDamage < owner.Values().DamageFlashTime * 2)
+        if (_timeSinceDamage < owner.Values().DamageFlashTime)
         {
             SetPaletteOverride(Metadata::RedPalette);
         }

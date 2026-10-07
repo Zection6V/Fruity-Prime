@@ -28,7 +28,8 @@ namespace MphRead::Mods::Network
             Jump,
             Sniper,
             Duel,
-            Volley
+            Volley,
+            Dialanche
         };
 
         [[nodiscard]] static ::MphRead::BeamType VolleyWeapon() noexcept { return _volleyWeapon; }
@@ -61,6 +62,7 @@ namespace MphRead::Mods::Network
         static constexpr float FiringCone = 2.5F;
 
         static void DriveRunner(Entities::PlayerEntity& player, Entities::PlayerControls& c, Entities::PlayerEntity* other);
+        static void DriveDialanche(Entities::PlayerEntity& player, Entities::PlayerControls& c, Entities::PlayerEntity* other);
         static void DriveSniper(Entities::PlayerEntity& player, Entities::PlayerControls& c, Entities::PlayerEntity* other);
         static void HoldRange(Entities::PlayerEntity& player, Entities::PlayerControls& c, float range, float want);
         [[nodiscard]] static bool AimAt(Entities::PlayerEntity& player, Entities::PlayerEntity* target, float headHeight);

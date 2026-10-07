@@ -37,12 +37,18 @@ Intent / PlayerState / DamageEvent / replayの形式とProtocolVersion16は変�
 | source gate `tools/check-spire-alt-pose.ps1` | 8/8 PASS |
 | asset-backed `-dialanchecheck` | 28 production assertions PASS |
 | `tools/check-dialanche-combat.ps1` | authority + 独立したUDP clientプロセス2つ、両方PASS |
+| `tools/check-dialanche-network.ps1` | 通常のDedicatedServerへのjoin、Spire/Samusの2 clients、両方exit0。authority/両clientsで11 events・最終HP11一致 |
 | `-spireposecheck "AD2 ALINOS PERCH"` | headless PASS、active44 frames、native samples22、左右ともmoving22、same-tick非公開/odd不更新PASS |
 | `-maptest "AD2 ALINOS PERCH" -players 8 -hunter Spire -bots -seconds 8` | exit0、480frames、spawn8/8、simulation継続 |
 
 ゲームdataは`paths.txt`のAMHP1（EU1.1）を使用した。
-Windows/Linux/macOS CIにはpure helper testを追加したが、remote CIの成功はこの記録では主張しない。
-Androidの証拠は上記objectsのcross compileであり、APK buildや実機操作の証拠ではない。
+Windows/Linux/macOS CIにはpure helper testを追加した。
+実装commit `3395328f12c14474a7feef4f94483ca2f48a7c29`の
+[CI run](https://github.com/Zection6V/Fruity-Prime/actions/runs/37584120805)では、
+macOS / Clang、Android NDK arm64-v8a / x86_64、APKと各static auditが成功した。
+記録時点ではWindows / MSVC、Linux / GCC、Android emulator startup smokeが実行中で、全CI成功は未確認。
+ローカルAndroid検証は上記objectsのcross compileであり、ローカルAPK buildや実機操作は行っていない。
+追加したHitRig、NetCheckClient、ModEntryもAndroid arm64でcompileした。
 maptestは描画を伴うsmoke testであり、ROM画像とのpixel比較や操作感の実機評価ではない。
 
 ## production受入項目
@@ -62,11 +68,20 @@ maptestは描画を伴うsmoke testであり、ROM画像とのpixel比較や操�
 | 共通geometry / processing order | PlayerがRecord前、Halfturret・Enemy・DoorがRecord後でも同じprevious contact sampleへhit。新current sampleは遠方に置いて検出 |
 | EndAltAttack | Spireのflag clear、cooldown0 |
 | 39: Player network | production BroadcastSnapshotから3 snapshotsをUDP送信し、2独立プロセスのclient handler / NetPlayerBridge / NetDamage::Replayで100→92→84、events0→1→2 |
+| 39: 通常join経路 | DedicatedServer、Spire client、Samus clientを起動。Welcome / intent / prediction / damage replayを通し、authorityの11 event identitiesと両clientsの11 replays、最終HP11が一致 |
 
 UDP検証の受信側は、既存playback入口へ受信packetを投入し、通常のclient snapshot handlerを実行する。
 これは独立プロセス・実UDP・既存packet serializer/reader・damage replayの検証であり、
 DedicatedServerへの通常のjoin/Welcome/intent交換を再現するテストではない。
 duplicate snapshotsとdamage historyの再送も重複damageを生成しなかった。
+
+通常join検証の`-hitrig dialanche`は既存HitRigから移動・morph・AltAttackの入力を送る。
+forced form、pose書換え、damage注入は行わない。default prediction / claimsも有効のまま。
+authority-hitの全11件はweapon None・damage8で、native位相に一致し、同frame/victimの二重body eventはなかった。
+連続contactはauthority frame255/257/259/261/263/265でも各1件を確認した。
+NetFrameはgameplay前、Scene.FrameCountはgameplay後に進むため、logのauthorityFrameは奇数になる。
+targetのspawn HP99から11回×8 damageで11となった。event数は接近・入力timingで変わるため、
+scriptは2件以上、全event identity一致、native位相、base8、各tick/bodyの最大1件、最終HP一致を検証する。
 Enemyの計数は既存reaction callback、Doorの計数はShotOpenと実際のSFX要求で行い、
 架空のEnemy/Door用NetDamage eventは追加していない。
 
@@ -76,6 +91,8 @@ Enemyの計数は既存reaction callback、Doorの計数はShotOpenと実際のS
 ctest --test-dir tools/build/out/msvc-Release -R '^FruityPrime\.(DialancheNativeCollision|NativeTouchState|IntentTouchPayload|VulkanNvidiaReflex|RawMouseMotion|WindowsRawMouseInput)$' --output-on-failure --no-tests=error
 ./tools/check-spire-alt-pose.ps1
 ./tools/check-dialanche-combat.ps1
+# TEST ARENAのrecipeを実行binaryのmaps/arena/へ配置して実行する。
+./tools/check-dialanche-network.ps1
 # ゲームdataを参照するpaths.txtは実行binaryの横へ配置する。
 ./tools/build/out/msvc-Release/FruityPrime.exe -spireposecheck "AD2 ALINOS PERCH" -noupdate
 ```
@@ -83,6 +100,8 @@ ctest --test-dir tools/build/out/msvc-Release -R '^FruityPrime\.(DialancheNative
 詳細logsはignoredの`tools/build/out/dialanche-validation/{authority,peer-0,peer-1}.log`、
 `dialanche-build.log`、`dialanche-android-compile.log`、`dialanche-spirepose.log`、
 `dialanche-maptest.log`にある。
+通常joinのlogsは`tools/build/out/dialanche-live/`のserver / spire / target logsと
+`netlog-{server,DialancheLiveSpire,DialancheLiveTarget}.txt`に保存した。
 
 ## 指示書の前提差と残る受入条件
 

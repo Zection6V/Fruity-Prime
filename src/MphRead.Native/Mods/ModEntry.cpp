@@ -1279,7 +1279,7 @@ namespace MphRead::Mods
             }
             else
             {
-                WriteLine("[net] -hitrig " + *rig + " refused: jump, sniper or duel");
+                WriteLine("[net] -hitrig " + *rig + " refused: jump, sniper, duel, dialanche or a weapon name");
             }
         }
         const std::optional<std::string> maxRewind = ValueAfter(args, "maxrewind");

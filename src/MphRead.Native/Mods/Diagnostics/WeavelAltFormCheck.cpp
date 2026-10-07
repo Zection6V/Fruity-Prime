@@ -274,6 +274,40 @@ namespace MphRead::Mods::Diagnostics
             for (int i = 0; i < 120 && !turret->Grounded(); ++i) process(700 + i * 2);
             check(turret->Grounded() && turret->_ySpeed == 0, "native sphere sweep lands the turret and clears vertical velocity");
 
+            // Scene::UpdateScene expires HUD messages before processing entities.
+            // A one-frame energy message must be renewed on both 60 Hz siblings.
+            fresh(100); turret->_grounded = true; turret->_cooldownFactorRaw = 2867;
+            check(PlayerEntity::Main().get() == &owner && scene.FrameTime() > 0.001F,
+                "HUD fixture uses the main player and real simulation frame duration");
+            for (const auto& message : owner._hudMessageQueue) message->Lifetime = 0;
+            const auto energyMessages = [&]()
+            {
+                return std::count_if(owner._hudMessageQueue.begin(), owner._hudMessageQueue.end(),
+                    [](const auto& message) { return message->Lifetime > 0 && message->Position.Y == 150; });
+            };
+            for (std::uint64_t frame = 901; frame <= 908; ++frame)
+            {
+                owner.ProcessHudMessageQueue();
+                check(energyMessages() == 0, "previous one-frame energy HUD expires before entity processing");
+                const auto factor = turret->CooldownFactorRaw();
+                process(frame);
+                check(energyMessages() == 1, "energy HUD stays visible on every native and nonnative sibling");
+                check(turret->CooldownFactorRaw() == factor + (frame % 2 == 0 ? 61 : 0),
+                    "60Hz HUD refresh keeps gameplay recovery at30Hz");
+            }
+            turret->SetHealth(49); owner.ProcessHudMessageQueue(); process(909);
+            check(std::any_of(owner._hudMessageQueue.begin(), owner._hudMessageQueue.end(),
+                [](const auto& message) { return message->Lifetime > 0 && message->Position.Y == 150
+                    && std::u16string(message->Text.data()).find(u"49") != std::u16string::npos
+                    && message->Category == 0 && message->DialogHide; }),
+                "odd sibling refreshes current energy without blink category or dialog changes");
+            PlayerEntity::SetMainPlayerIndex(1);
+            owner.ProcessHudMessageQueue(); process(911);
+            check(energyMessages() == 0, "another player's turret does not publish to the local HUD");
+            PlayerEntity::SetMainPlayerIndex(0);
+            turret->Die(); owner.ProcessHudMessageQueue(); scene._frameCount = 913;
+            check(!turret->Process() && energyMessages() == 0, "dead turret stops refreshing energy HUD");
+
             fresh(100); victim.SetHealth(100); victim.Position = static_cast<Vector3>(turret->Position) + Vector3(5, 0, 0);
             victim._curAlpha = 1; victim.SetTeamIndex(-1); owner.SetTeamIndex(-1);
             turret->OnTakeDamage(PlayerEntity::Players()[1], 0);

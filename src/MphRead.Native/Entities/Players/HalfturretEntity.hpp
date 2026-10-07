@@ -100,6 +100,7 @@ namespace MphRead::Entities
     private:
         void InitializeSpawn(bool splitHealth);
         [[nodiscard]] bool ProcessNativeGameplay();
+        void QueueEnergyHudMessage();
         std::shared_ptr<PlayerEntity> _owner{};
         std::shared_ptr<EntityBase> _target{};
         std::shared_ptr<Formats::NodeData3> _closestNode{};

@@ -319,12 +319,15 @@ namespace MphRead::Entities
         if (!Mods::Gameplay::NativeGameplayClock::IsNativeTick(
             RequireReference(_scene).FrameCount()))
         {
+            QueueEnergyHudMessage();
             return true;
         }
         // Halfturret precedes Player in the scene's entity list. Advance the
         // owner's native clocks once, before either entity's decision reads them.
         RequireReference(_owner).AdvanceNativeWeaponTimers();
-        return ProcessNativeGameplay();
+        const bool active = ProcessNativeGameplay();
+        QueueEnergyHudMessage();
+        return active;
     }
 
     bool HalfturretEntity::ProcessNativeGameplay()
@@ -451,18 +454,6 @@ namespace MphRead::Entities
         {
             ++_timeSinceDamage;
         }
-        if (_owner == PlayerEntity::Main())
-        {
-            std::string message = Text::Strings::GetHudMessage(233);
-            const std::string replacement = ::MphRead::NativeRuntime::ToString(_health);
-            std::size_t pos = 0;
-            while ((pos = message.find("%d", pos)) != std::string::npos)
-            {
-                message.replace(pos, 2, replacement);
-                pos += replacement.size();
-            }
-            owner.QueueHudMessage(128, 150, 1.0F / 1000.0F, 0, message, true);
-        }
         if (!_grounded)
         {
             const Vector3 prevPos = Position;
@@ -495,6 +486,22 @@ namespace MphRead::Entities
             Die();
         }
         return true;
+    }
+
+    void HalfturretEntity::QueueEnergyHudMessage()
+    {
+        // This one-frame HUD message must be refreshed at 60 Hz, independently
+        // of the native 30 Hz timers, combat decisions and physics.
+        if (_health == 0 || _owner != PlayerEntity::Main()) return;
+        std::string message = Text::Strings::GetHudMessage(233);
+        const std::string replacement = ::MphRead::NativeRuntime::ToString(_health);
+        std::size_t pos = 0;
+        while ((pos = message.find("%d", pos)) != std::string::npos)
+        {
+            message.replace(pos, 2, replacement);
+            pos += replacement.size();
+        }
+        RequireReference(_owner).QueueHudMessage(128, 150, 1.0F / 1000.0F, 0, message, true);
     }
 
     void HalfturretEntity::ResetGroundedState()

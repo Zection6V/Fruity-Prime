@@ -1,5 +1,6 @@
 #pragma once
 
+#include "../../Mods/Input/NativeTouchState.hpp"
 #include "../../Mods/Input/PointerDevice.hpp"
 #include "../../Formats/Enums.hpp"
 #include "../../Formats/Types.hpp"
@@ -300,6 +301,9 @@ private:                                                                        
     [[nodiscard]] bool TryFireWeapon();                                                        \
     void UpdateAdventureModeBotWeapon();                                                       \
     void ProcessAlt();                                                                         \
+    void FireNativeTouchBoost(std::int32_t dx, std::int32_t dy, ::OpenTK::Mathematics::Vector3& speedDelta); \
+    void ProcessShoulderBoost(::OpenTK::Mathematics::Vector3& speedDelta);                                 \
+    void PlayBoostSideEffects();                                                               \
     void SpawnBomb();                                                                          \
     void EndAltAttack();                                                                       \
     void ProcessMovement();                                                                    \
@@ -325,6 +329,8 @@ private:                                                                        
         bool HasInput = false;                                                                  \
         bool StylusWeaponMenuDown = false;                                                      \
         ::MphRead::Mods::Input::PointerBindings Primary{};                                      \
+        ::MphRead::Mods::Input::NativeTouchState Touch{};                                       \
+        ::MphRead::Mods::Input::MouseStylus Stylus{};                                           \
         [[nodiscard]] float MouseDeltaX() const noexcept { return _mouseDeltaX; }               \
         [[nodiscard]] float MouseDeltaY() const noexcept { return _mouseDeltaY; }               \
         [[nodiscard]] float PointerX() const;                                                   \

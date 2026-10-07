@@ -15,6 +15,7 @@
 #include "../MphRead.Native/Mods/DebugLog.hpp"
 #include "../MphRead.Native/Mods/EndScreen.hpp"
 #include "../MphRead.Native/Mods/Input/GamepadInput.hpp"
+#include "../MphRead.Native/Mods/Input/NativeTouchState.hpp"
 #include "../MphRead.Native/Mods/InputSettings.hpp"
 #include "../MphRead.Native/Mods/Network/MapVote.hpp"
 #include "../MphRead.Native/Mods/Network/NetSession.hpp"
@@ -2137,6 +2138,7 @@ namespace MphRead::Droid
             (void)_controls->TakeDoubleTapJump();
             _controls->ScanVisorActive(false);
             _controls->SwipeBoostEnabled(false);
+            MphRead::Mods::Input::HostTouch::Publish(false, 0, 0);
         }
 
         void HandleChat()
@@ -2255,14 +2257,18 @@ namespace MphRead::Droid
             _input->Apply(controls.Jump(), jump);
             _input->Apply(controls.Boost(), jump);
 
-            _controls->SwipeBoostEnabled(main.IsAltForm());
-            const TouchControls::SwipeBoostResult swipe =
-                _controls->TakeSwipeBoost();
-            if (swipe.Fired && main.IsAltForm())
+            // The aim finger is the DS stylus: the whole screen is the
+            // 256x192 surface, and Touch Roll / Touch Boost are the ROM's,
+            // read off NativeTouchState rather than off a swipe heuristic.
+            _controls->SwipeBoostEnabled(false);
+            (void)_controls->TakeSwipeBoost();
             {
-                main.SetSwipeBoostRequested(true);
-                main.SetSwipeBoostX(swipe.X);
-                main.SetSwipeBoostY(swipe.Y);
+                const TouchControls::PositionResult aim = _controls->AimPosition();
+                const float w = _controls->Width();
+                const float h = _controls->Height();
+                MphRead::Mods::Input::HostTouch::Publish(aim.Down,
+                    MphRead::Mods::Input::ToDsX(w > 0.0F ? aim.X / w : 0.0F, 0.0F, 1.0F),
+                    MphRead::Mods::Input::ToDsY(h > 0.0F ? aim.Y / h : 0.0F, 0.0F, 1.0F));
             }
 
             _input->Apply(

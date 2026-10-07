@@ -182,6 +182,7 @@ add_custom_target(fruity_golden_capture_provenance
     VERBATIM)
 list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES
     "${FRUITY_MPHREAD_ROOT}/Testing/TestOpenGlUniformState.cpp"
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestNativeTouchState.cpp"
     "${FRUITY_MPHREAD_ROOT}/Testing/TestFrameTelemetry.cpp"
     "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanNvidiaReflex.cpp"
     "${FRUITY_VULKAN_FRAME_SLOTS_TEST_SOURCE}"
@@ -326,6 +327,11 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
     add_executable(fruity_raw_mouse_motion_tests "${CMAKE_CURRENT_SOURCE_DIR}/tools/testing/TestRawMouseMotion.cpp")
     target_compile_features(fruity_raw_mouse_motion_tests PRIVATE cxx_std_20)
     add_test(NAME FruityPrime.RawMouseMotion COMMAND fruity_raw_mouse_motion_tests)
+    add_executable(fruity_native_touch_state_tests
+        "${FRUITY_MPHREAD_ROOT}/Testing/TestNativeTouchState.cpp"
+        "${FRUITY_MPHREAD_ROOT}/Mods/Input/NativeTouchState.cpp")
+    target_compile_features(fruity_native_touch_state_tests PRIVATE cxx_std_20)
+    add_test(NAME FruityPrime.NativeTouchState COMMAND fruity_native_touch_state_tests)
     add_executable(fruity_opengl_uniform_tests
         "${FRUITY_MPHREAD_ROOT}/Testing/TestOpenGlUniformState.cpp"
         "${FRUITY_MPHREAD_ROOT}/NativeRuntime/FrameTelemetry.cpp")

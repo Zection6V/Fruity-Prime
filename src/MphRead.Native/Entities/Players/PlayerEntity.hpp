@@ -28,7 +28,6 @@ private: \
 #include "../../Mods/Chat/PlayerEntityChatHud.hpp"
 #include "../../Mods/Input/AimAssist/AimAssistWorld.hpp"
 #include "../../Mods/Input/PlayerEntityHaptics.hpp"
-#include "../../Mods/Input/PlayerEntityMouseFlick.hpp"
 #include "../../Mods/Network/PlayerEntityNetAim.hpp"
 #include "../../Mods/Network/PlayerEntityNetHud.hpp"
 #include "../../Mods/Render/PlayerEntityAmmoClear.hpp"
@@ -637,12 +636,6 @@ namespace MphRead::Entities
         [[nodiscard]] MphRead::BeamType PreviousWeapon() const noexcept { return _previousWeapon; }
         [[nodiscard]] MphRead::BeamType WeaponSelection() const noexcept { return _weaponSelection; }
         [[nodiscard]] Entities::GunAnimation GunAnimation() const noexcept { return _gunAnimation; }
-        [[nodiscard]] bool SwipeBoostRequested() const noexcept { return _swipeBoostRequested; }
-        void SetSwipeBoostRequested(bool value) noexcept { _swipeBoostRequested = value; }
-        [[nodiscard]] float SwipeBoostX() const noexcept { return _swipeBoostX; }
-        void SetSwipeBoostX(float value) noexcept { _swipeBoostX = value; }
-        [[nodiscard]] float SwipeBoostY() const noexcept { return _swipeBoostY; }
-        void SetSwipeBoostY(float value) noexcept { _swipeBoostY = value; }
 
         [[nodiscard]] MphRead::Team Team() const noexcept { return _team; }
         void SetTeam(MphRead::Team value) noexcept { _team = value; }
@@ -786,7 +779,6 @@ namespace MphRead::Entities
         MPHREAD_PLAYER_VOTE_HUD_MEMBERS
         MPHREAD_PLAYER_ENTITY_AIM_ASSIST_MEMBERS
         MPHREAD_PLAYER_ENTITY_HAPTICS_MEMBERS
-        MPHREAD_PLAYER_ENTITY_MOUSE_FLICK_MEMBERS
         MPHREAD_PLAYER_GOLDEN_CAPTURE_MEMBERS
 
     private:
@@ -882,12 +874,6 @@ namespace MphRead::Entities
         std::uint16_t _bombOveruse = 0;
         std::uint16_t _boostCharge = 0;
         std::uint16_t _boostDamage = 0;
-        bool _swipeBoostRequested = false;
-        float _swipeBoostX = 0.0F;
-        float _swipeBoostY = 0.0F;
-        // Frames of committed travel left on a boost a flick aimed, during
-        // which the roll binds do not steer.
-        std::uint16_t _boostAimLock = 0;
         std::uint16_t _altAttackCooldown = 0;
         std::uint16_t _altAttackTime = 0;
         float _altSpinSpeed = 0.0F;

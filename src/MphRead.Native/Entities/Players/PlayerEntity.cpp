@@ -914,7 +914,6 @@ namespace MphRead::Entities
             _spawnInvulnTimer = static_cast<std::uint16_t>(_values.SpawnInvulnerability * 2);
         }
         _boostCharge = 0;
-        _boostAimLock = 0;
         _altAttackCooldown = 0;
         _field4E8 = Vector3::Zero;
         _modelTransform = IdentityMatrix();

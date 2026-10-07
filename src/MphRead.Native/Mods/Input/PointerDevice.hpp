@@ -36,6 +36,8 @@ namespace MphRead::Mods::Input
         [[nodiscard]] static const PointerSample& Current() noexcept { return _current; }
         [[nodiscard]] static bool Active() noexcept { return _active; }
         [[nodiscard]] static bool PrimaryDown() noexcept { return _primaryDown; }
+        [[nodiscard]] static float SurfaceWidth() noexcept { return _surfaceWidth; }
+        [[nodiscard]] static float SurfaceHeight() noexcept { return _surfaceHeight; }
         static void Update(const PointerSample& sample, std::int32_t width, std::int32_t height,
             bool independentPrimaryDown = false, bool acceptsInput = true);
         [[nodiscard]] static bool ResolvePrimary(bool tipDown, bool independentDown, bool captured) noexcept;
@@ -49,6 +51,8 @@ namespace MphRead::Mods::Input
         inline static bool _acceptingInput = false;
         inline static float _pendingX = 0;
         inline static float _pendingY = 0;
+        inline static float _surfaceWidth = 1;
+        inline static float _surfaceHeight = 1;
     };
 
     class PointerBindings final

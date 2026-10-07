@@ -14,6 +14,7 @@
 #include "DemoRecorder.hpp"
 #include "MapVote.hpp"
 #include "NetFeatureCheck.hpp"
+#include "NetDamage.hpp"
 #include "NetHitPrediction.hpp"
 #include "NetLag.hpp"
 #include "NetLaunch.hpp"
@@ -830,6 +831,31 @@ namespace MphRead::Mods::Network
                 << ", of which " << _duelShots
                 << " with an opponent in view, busiest frame "
                 << ::MphRead::NativeRuntime::ToString(_litFraction * 100.0, "0.0") << "% lit\n";
+        }
+        if (HitRig::Mode() == HitRig::RigMode::Dialanche)
+        {
+            // This rig tests one-way alt damage. The tour's bilateral gun,
+            // jump, and facing requirements do not describe this scenario.
+            bool ok = false;
+            for (const auto& player : Entities::PlayerEntity::Players())
+            {
+                if (!player || player->Hunter() == Hunter::Spire
+                    || !TestFlag(player->LoadFlags(), Entities::LoadFlags::Active)) continue;
+                const auto slot = static_cast<std::size_t>(player->SlotIndex());
+                const auto& state = NetSession::RemoteStates[slot];
+                const int replayed = NetDamage::Replayed[slot];
+                ok = NetSession::IsClient() && NetSession::RemoteStateValid[slot]
+                    && NetSession::SnapshotsReceived() > 3 && replayed >= 2
+                    && replayed == state.DamageEventId && player->Health() == state.Health;
+                std::cout << "  DIALANCHE LIVE " << (ok ? "PASS" : "FAIL")
+                    << " victim=" << slot << " HP=" << player->Health()
+                    << " authorityHP=" << state.Health << " events=" << replayed
+                    << " latestEvent=" << state.DamageEventId << '\n';
+                break;
+            }
+            _featureFailures = ok ? 0 : 1;
+            std::cout << "  RESULT: " << (Passed() && ok ? "PASS" : "FAIL") << '\n';
+            return;
         }
         std::int32_t featureFailures = 0;
         const bool featuresOk = _features->Report(featureFailures);

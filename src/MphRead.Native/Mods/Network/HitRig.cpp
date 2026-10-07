@@ -27,6 +27,7 @@ namespace MphRead::Mods::Network
         case HitRig::RigMode::Sniper: return "Sniper";
         case HitRig::RigMode::Duel: return "Duel";
         case HitRig::RigMode::Volley: return "Volley";
+        case HitRig::RigMode::Dialanche: return "Dialanche";
         }
         return std::to_string(static_cast<std::int32_t>(value));
     }
@@ -66,6 +67,7 @@ namespace MphRead::Mods::Network
         if (key == "shockcoil") return volley(::MphRead::BeamType::ShockCoil);
         if (key == "voltdriver") return volley(::MphRead::BeamType::VoltDriver);
         if (key == "powerbeam") return volley(::MphRead::BeamType::PowerBeam);
+        if (key == "dialanche") { _mode = RigMode::Dialanche; return true; }
         return false;
     }
 
@@ -105,7 +107,11 @@ namespace MphRead::Mods::Network
             return;
         }
         PlayerEntity* other = Opponent(player);
-        if (IsSniper())
+        if (_mode == RigMode::Dialanche)
+        {
+            DriveDialanche(player, c, other);
+        }
+        else if (IsSniper())
         {
             DriveSniper(player, c, other);
         }
@@ -114,6 +120,38 @@ namespace MphRead::Mods::Network
             DriveRunner(player, c, other);
         }
         FinishControls(player, c);
+    }
+
+    void HitRig::DriveDialanche(PlayerEntity& player, PlayerControls& c, PlayerEntity* other)
+    {
+        _aimDeltaX = _aimDeltaY = 0;
+        // A real Spire intent stream approaches a human target that settles
+        // after a short walk (also exercises the client's movement report).
+        // No teleport, forced form, damage injection, or authority hook.
+        if (player.Hunter() != ::MphRead::Hunter::Spire)
+        {
+            c.MoveUp().SetIsDown(_frame < 60);
+            return;
+        }
+        if (other == nullptr) return;
+        const bool onTarget = AimAt(player, other, 0);
+        const float range = OpenTK::Mathematics::Length(static_cast<OpenTK::Mathematics::Vector3>(player.Position)
+            - static_cast<OpenTK::Mathematics::Vector3>(other->Position));
+        if (!player.IsAltForm())
+        {
+            c.MoveUp().SetIsDown(onTarget && range > 1.1F);
+            c.Morph().SetIsDown(range < 1.5F && !player.IsMorphing() && !player.IsUnmorphing() && _frame % 20 == 0);
+            return;
+        }
+        c.RollUp().SetIsDown(onTarget && range > 1.1F);
+        if (onTarget && range < 2.5F && !player.IsMorphing() && _frame % 48 == 0)
+        {
+            c.AltAttack().SetIsDown(true);
+            ++_triggers;
+        }
+        _framesOnTarget += onTarget ? 1 : 0;
+        _rangeSum += range;
+        ++_rangeSamples;
     }
 
     void HitRig::DriveRunner(PlayerEntity& player, PlayerControls& c, PlayerEntity* other)
@@ -306,6 +344,11 @@ namespace MphRead::Mods::Network
         if (!Active())
         {
             return "hit rig: off";
+        }
+        if (_mode == RigMode::Dialanche)
+        {
+            return "hit rig: Dialanche, " + std::to_string(_triggers) + " attack press edges, "
+                + std::to_string(_framesOnTarget) + " frames on target";
         }
         const std::string role = IsSniper() ? "sniper" : "runner";
         if (IsSniper())

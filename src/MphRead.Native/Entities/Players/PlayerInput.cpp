@@ -1764,6 +1764,7 @@ namespace MphRead::Entities
                         _soundSource.PlaySfx(SfxId::SPIRE_ALT_ATTACK);
                         _spireRockPosR = static_cast<Vector3>(Position);
                         _spireRockPosL = static_cast<Vector3>(Position);
+                        _dialancheNativeCollision.Reset(static_cast<Vector3>(Position));
                         _spireAltUp = _fieldC0;
                         const Vector3 cross = Vector3::Cross(_facingVector, _spireAltUp);
                         _spireAltFacing = Vector3::Cross(_spireAltUp, cross).Normalized();

@@ -2076,12 +2076,18 @@ namespace MphRead::Entities
 
     void PlayerEntity::UpdateSpireAltCollisionPose()
     {
-        // Keep collision pose advancing even when no draw pass runs.
+        // Animate the continuous rocks even without a draw pass; only the
+        // even-frame sample below becomes collision geometry on the next tick.
         AnimateSpireAltAttack();
         _spireRockPosL = RequireReference(ManagedAt(_spireAltNodes, 0).get()).Animation.Row3().Xyz()
             + static_cast<Vector3>(Position);
         _spireRockPosR = RequireReference(ManagedAt(_spireAltNodes, 1).get()).Animation.Row3().Xyz()
             + static_cast<Vector3>(Position);
+        const auto frame = RequireReference(_scene).FrameCount();
+        if (DialancheNativeCollision::IsNativeCollisionStep(frame))
+        {
+            _dialancheNativeCollision.Record(DialancheNativeCollision::NativeTick(frame), _spireRockPosL, _spireRockPosR);
+        }
     }
 
     std::pair<Vector3, Vector3> PlayerEntity::ModSpireAltCollisionPose() const

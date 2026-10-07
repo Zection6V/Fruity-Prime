@@ -329,7 +329,10 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
     add_test(NAME FruityPrime.RawMouseMotion COMMAND fruity_raw_mouse_motion_tests)
     add_executable(fruity_native_touch_state_tests
         "${FRUITY_MPHREAD_ROOT}/Testing/TestNativeTouchState.cpp"
-        "${FRUITY_MPHREAD_ROOT}/Mods/Input/NativeTouchState.cpp")
+        "${FRUITY_MPHREAD_ROOT}/Mods/Input/NativeTouchState.cpp"
+        "${FRUITY_MPHREAD_ROOT}/Mods/Input/DsTouchSurface.cpp"
+        "${FRUITY_MPHREAD_ROOT}/Mods/Input/MouseMotionTouchSource.cpp"
+        "${FRUITY_MPHREAD_ROOT}/Entities/Players/MorphBallTouchRules.cpp")
     target_compile_features(fruity_native_touch_state_tests PRIVATE cxx_std_20)
     add_test(NAME FruityPrime.NativeTouchState COMMAND fruity_native_touch_state_tests)
     add_executable(fruity_opengl_uniform_tests

@@ -260,6 +260,17 @@ namespace MphRead::Entities
                 const auto collision = Formats::Collision::Collision::GetCollision(&modelMeta);
                 SetCollision(collision, 0, &inst);
             }
+            const auto player = PlayerEntity::Main();
+            _useDelano7 = GameState::Mode() == GameMode::SinglePlayer
+                && TestFlag(_flags, PlatformFlags::SamusShip)
+                && _meta->Name == "SamusShip" && player != nullptr
+                && player->Hunter() == Hunter::Sylux;
+            if (_useDelano7)
+            {
+                // Keep the gunship's landing/takeoff rig and collision for
+                // story scripts; Delano 7 supplies the visible ship only.
+                SetUpModel("SyluxShip", -1);
+            }
         }
 
         if (EntityCollision[0] == nullptr)
@@ -1107,7 +1118,22 @@ namespace MphRead::Entities
 
             if (draw)
             {
-                EntityBase::GetDrawInfo();
+                if (_useDelano7)
+                {
+                    UpdateTransforms(_models[0], 0);
+                    UpdateTransforms(_models[1], 1);
+                    if (!Hidden) GetDrawItems(_models[1], 1);
+                    if (RequireReference(_scene).ShowCollision()
+                        && (RequireReference(_scene).ColEntDisplay() == EntityType::All
+                            || RequireReference(_scene).ColEntDisplay() == Type))
+                    {
+                        GetCollisionDrawInfo();
+                    }
+                }
+                else
+                {
+                    EntityBase::GetDrawInfo();
+                }
                 _animFlags |= PlatAnimFlags::WasDrawn;
             }
 
@@ -1528,8 +1554,14 @@ namespace MphRead::Entities
     Matrix4 PlatformEntity::GetModelTransform(
         ModelInstance& inst, std::int32_t index)
     {
-        static_cast<void>(index);
         const Model& model = RequireReference(inst.Model());
+        if (_useDelano7 && index == 1)
+        {
+            // The original root includes the planet intro/departure motion.
+            const Model& rig = RequireReference(_models[0].Model());
+            const Node& root = RequireReference(RequireReference(rig.Nodes).at(0));
+            return Multiply(CreateScale(model.Scale), root.Animation);
+        }
         return Multiply(CreateScale(model.Scale), GetTransform());
     }
 

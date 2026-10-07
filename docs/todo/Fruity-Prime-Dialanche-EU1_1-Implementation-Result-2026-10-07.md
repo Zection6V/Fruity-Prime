@@ -40,13 +40,16 @@ Intent / PlayerState / DamageEvent / replayの形式とProtocolVersion16は変�
 | `tools/check-dialanche-network.ps1` | 通常のDedicatedServerへのjoin、Spire/Samusの2 clients、両方exit0。authority/両clientsで11 events・最終HP11一致 |
 | `-spireposecheck "AD2 ALINOS PERCH"` | headless PASS、active44 frames、native samples22、左右ともmoving22、same-tick非公開/odd不更新PASS |
 | `-maptest "AD2 ALINOS PERCH" -players 8 -hunter Spire -bots -seconds 8` | exit0、480frames、spawn8/8、simulation継続 |
+| 最新code commitのGitHub CI | 全15 jobs成功。Windows / MSVC、Linux / GCC、macOS / Clang、Android NDK両ABI、APK、API28 / 30 / 35 startup smokeを含む |
 
 ゲームdataは`paths.txt`のAMHP1（EU1.1）を使用した。
 Windows/Linux/macOS CIにはpure helper testを追加した。
-実装commit `3395328f12c14474a7feef4f94483ca2f48a7c29`の
-[CI run](https://github.com/Zection6V/Fruity-Prime/actions/runs/37584120805)では、
-macOS / Clang、Android NDK arm64-v8a / x86_64、APKと各static auditが成功した。
-記録時点ではWindows / MSVC、Linux / GCC、Android emulator startup smokeが実行中で、全CI成功は未確認。
+最新code commit `a09a63de41bcc0981da2356c60ef7b46fef2e4be`の
+[CI run](https://github.com/Zection6V/Fruity-Prime/actions/runs/37585600635)は全15 jobs成功した。
+Windows / MSVCはDialancheを含むCTest6/6、macOS / ClangとLinux / GCCは各5/5を
+実際のjob logsでも確認した。Android NDK arm64-v8a / x86_64、APK、
+API28 / 30 / 35 emulator startup smokeと各static auditも成功した。
+emulator startup smokeは起動gateの証拠であり、Android上のDialanche実操作や実機parityの証拠ではない。
 ローカルAndroid検証は上記objectsのcross compileであり、ローカルAPK buildや実機操作は行っていない。
 追加したHitRig、NetCheckClient、ModEntryもAndroid arm64でcompileした。
 maptestは描画を伴うsmoke testであり、ROM画像とのpixel比較や操作感の実機評価ではない。
@@ -102,6 +105,7 @@ ctest --test-dir tools/build/out/msvc-Release -R '^FruityPrime\.(DialancheNative
 `dialanche-maptest.log`にある。
 通常joinのlogsは`tools/build/out/dialanche-live/`のserver / spire / target logsと
 `netlog-{server,DialancheLiveSpire,DialancheLiveTarget}.txt`に保存した。
+最新CIのdesktop test logsは`tools/build/out/dialanche-ci-latest-{windows,macos,linux}.log`に保存した。
 
 ## 指示書の前提差と残る受入条件
 

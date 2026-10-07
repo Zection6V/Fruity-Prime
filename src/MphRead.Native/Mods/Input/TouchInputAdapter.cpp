@@ -15,8 +15,13 @@ namespace MphRead::Mods::Input
             && StylusZone::Held() == StylusRegion::Aim;
     }
 
-    void TouchInputAdapter::StepStylusZone() noexcept
+    void TouchInputAdapter::TickStylusZone() noexcept
     {
+        if (!StylusZoneContact())
+        {
+            _state.Update(false, 0, 0);
+            return;
+        }
         const PointerSample& sample = PointerDevice::Current();
         _state.Update(true,
             DsTouchSurface::ToX(sample.X / PointerDevice::SurfaceWidth(), StylusZone::Left(), StylusZone::Width()),
@@ -25,26 +30,31 @@ namespace MphRead::Mods::Input
 
     void TouchInputAdapter::Step(const Frame& frame) noexcept
     {
+        const bool tick = _clock.Advance();
         if (HostTouch::Published())
         {
-            _state.Update(HostTouch::Down(), HostTouch::X(), HostTouch::Y());
+            if (tick)
+            {
+                _state.Update(HostTouch::Down(), HostTouch::X(), HostTouch::Y());
+            }
         }
         else if (frame.PointerActive)
         {
-            if (StylusZoneContact())
+            if (tick)
             {
-                StepStylusZone();
-            }
-            else
-            {
-                _state.Update(false, 0, 0);
+                TickStylusZone();
             }
         }
         else if (frame.MouseAim)
         {
-            _mouseMotion.Step(frame.MouseDeltaX, frame.MouseDeltaY, _state);
+            // Motion between ticks is not lost: it is collected every step.
+            _mouseMotion.AddMotion(frame.MouseDeltaX, frame.MouseDeltaY);
+            if (tick)
+            {
+                _mouseMotion.Tick(_state);
+            }
         }
-        else
+        else if (tick)
         {
             _state.Update(false, 0, 0);
         }
@@ -53,6 +63,12 @@ namespace MphRead::Mods::Input
     void TouchInputAdapter::Suspend() noexcept
     {
         _state.Clear();
+        _clock.Reset();
         _mouseMotion.Reset();
+    }
+
+    void TouchInputAdapter::ApplyReported(const NativeTouchState::Reported& reported) noexcept
+    {
+        _state.Assign(reported);
     }
 }

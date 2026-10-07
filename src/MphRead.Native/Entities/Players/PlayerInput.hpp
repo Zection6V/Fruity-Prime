@@ -1,5 +1,6 @@
 #pragma once
 
+#include "MorphBallBoostStateMachine.hpp"
 #include "../../Mods/Input/TouchInputAdapter.hpp"
 #include "../../Mods/Input/PointerDevice.hpp"
 #include "../../Formats/Enums.hpp"
@@ -301,8 +302,12 @@ private:                                                                        
     [[nodiscard]] bool TryFireWeapon();                                                        \
     void UpdateAdventureModeBotWeapon();                                                       \
     void ProcessAlt();                                                                         \
-    void FireNativeTouchBoost(std::int32_t dx, std::int32_t dy, ::OpenTK::Mathematics::Vector3& speedDelta); \
-    void ProcessShoulderBoost(::OpenTK::Mathematics::Vector3& speedDelta);                                 \
+    void ApplyTouchBoost(std::int32_t dx, std::int32_t dy,                                     \
+        const ::MphRead::Entities::MorphBallBoostStateMachine::Strength& strength,             \
+        ::OpenTK::Mathematics::Vector3& speedDelta);                                           \
+    void ApplyShoulderBoost(const ::MphRead::Entities::MorphBallBoostStateMachine::Strength& strength, \
+        ::OpenTK::Mathematics::Vector3& speedDelta);                                           \
+    void ApplyBoostCommon(const ::MphRead::Entities::MorphBallBoostStateMachine::Strength& strength); \
     void PlayBoostSideEffects();                                                               \
     void ApplyTouchRoll(::OpenTK::Mathematics::Vector3& speedDelta);                           \
     void ProcessBoost(::OpenTK::Mathematics::Vector3& speedDelta);                             \
@@ -338,6 +343,7 @@ private:                                                                        
         [[nodiscard]] float PointerY() const;                                                   \
         void UpdatePointer();                                                                   \
         void Suspend() noexcept;                                                                \
+        void ApplyReportedTouch(const ::MphRead::Mods::Input::NativeTouchState::Reported& reported) noexcept; \
     private:                                                                                    \
         float _mouseDeltaX = 0.0F;                                                              \
         float _mouseDeltaY = 0.0F;                                                              \

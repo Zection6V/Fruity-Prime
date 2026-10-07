@@ -16,6 +16,19 @@ namespace MphRead::Mods::Input
     // Entities::MorphBallTouchRules's.
     struct NativeTouchState
     {
+        // Everything the Morph Ball reads (+0x34 bits 0/3, +0x2A, +0x2C):
+        // what a player's owner reports for the authority to run the same
+        // branches on. The history and positions behind it stay local.
+        struct Reported
+        {
+            bool Down = false;
+            bool Continued = false;
+            std::int16_t Delta4X = 0;
+            std::int16_t Delta4Y = 0;
+
+            friend bool operator==(const Reported&, const Reported&) = default;
+        };
+
         bool Down = false;
         bool PreviousDown = false;
         bool Continued = false;
@@ -41,6 +54,11 @@ namespace MphRead::Mods::Input
         void UpdateRelative(bool down, std::int32_t dx, std::int32_t dy) noexcept;
 
         void Clear() noexcept;
+
+        [[nodiscard]] Reported Report() const noexcept { return {Down, Continued, Delta4X, Delta4Y}; }
+        // Take a reported state as this one: the gameplay fields are set and
+        // the local history is dropped, since it describes nobody's stylus.
+        void Assign(const Reported& reported) noexcept;
 
     private:
         // The contact bits and the clear path every tick shares. True when

@@ -604,6 +604,20 @@ wraps. `Scene.ShowCursor` is what forks the two.
 
 ## Boosting with a flick of the mouse
 
+**The C++ build no longer has any of this.** `src/MphRead.Native` runs the
+EU1.1 ROM's own Touch Roll and Touch Boost (`02021C28`) off a 02029778-style
+producer (`Mods/Input/NativeTouchState`): a 4-sample SUM of DS-unit deltas,
+roll at 5/4096 per DS pixel, a boost on a strictly-over-90 swipe at full
+BoostSpeedMax along the camera basis that leaves R's charge alone, and an
+armed continued contact that skips R for the frame. A contact on the stylus
+zone's aim surface (desktop) or the aim finger (Android) is a DS touch, and so
+is a mouse with mouse aim on (`MouseStylus`): its relative motion becomes DS
+units at 0.25 per pixel, "down" while it moves and for four idle steps after.
+Because that stylus is down while the mouse moves, R's charge does not advance
+on a frame the mouse is steering the ball slowly -- the ROM's own rule, not a bug.
+`MouseFlick`, `_boostAimLock` and the projection below are gone from C++;
+what follows describes the C# build only. Tests: `FruityPrime.NativeTouchState`.
+
 **A whip of the mouse boosts Samus's ball, in the direction of the whip**
 (`Mods/Input/MouseFlick.cs`). The gesture already existed on the touch head --
 a flick on the aim side, the way a flick of the stylus did on the DS -- and

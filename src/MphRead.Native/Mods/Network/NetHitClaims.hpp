@@ -227,6 +227,13 @@ namespace MphRead::Mods::Network
         static std::int32_t _disagreementsLogged;
 
         static std::array<std::uint32_t, Slots> _deathFire;
+        // The authority frame a slot went down on. A shot its owner fired
+        // while still displaying an earlier world was taken before that
+        // player could know they were dead, and it stands.
+        static std::array<std::uint32_t, Slots> _deathFrame;
+        [[nodiscard]] static bool FiredAfterOwnDeath(std::size_t shooter, std::uint32_t fired) noexcept;
+        static void FinishLethal(const Pending& entry);
+        inline static std::int64_t _finishedHere = 0;
         static std::array<bool, Slots> _dead;
         static std::array<std::uint32_t, Slots> _lastHitFire;
         static std::array<bool, Slots> _wasInPlay;

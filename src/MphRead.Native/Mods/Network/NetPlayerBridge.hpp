@@ -53,6 +53,25 @@ namespace MphRead::Mods::Network
         static void NoteRoomChanged();
         static void Reset();
         static void ForgetSlot(std::int32_t slot);
+        // The victim's view of a remote shot. A remote player's aim is the
+        // one they had on their own screen, where this player stood a round
+        // trip ago; drawn as is, the shot sails past and the damage lands
+        // anyway. When that aim was on this player in the world the shooter
+        // was looking at, it is turned onto where this player is now, so the
+        // shot that hits is also the shot that is seen hitting.
+        [[nodiscard]] static OpenTK::Mathematics::Vector3 RetargetAtLocal(const Entities::PlayerEntity& shooter,
+            OpenTK::Mathematics::Vector3 origin, OpenTK::Mathematics::Vector3 aim, std::uint32_t ackFrame,
+            OpenTK::Mathematics::Vector3 reportedPosition);
+        [[nodiscard]] static std::int64_t AimsRetargeted() noexcept { return _aimsRetargeted; }
+        static void RetargetEnabled(bool value) noexcept { _retargetEnabled = value; }
+        [[nodiscard]] static std::int64_t KillsResynced() noexcept { return _killsResynced; }
+        // Apply the next snapshot of this slot as a fresh life: used when a
+        // kill shown here is refused, so the player is put back where and as
+        // the authority has them.
+        static void Resync(std::int32_t slot) noexcept
+        {
+            if (slot >= 0 && slot < Slots) _lifeApplied[static_cast<std::size_t>(slot)] = false;
+        }
 
         static void ApplyReportedPosition(Entities::PlayerEntity& player, const IntentPacket& intent);
         static void RestoreSnapshotPosition(Entities::PlayerEntity& player, const PlayerState& state);
@@ -109,6 +128,13 @@ namespace MphRead::Mods::Network
 
         inline static std::array<std::uint16_t, Slots> _appliedLifeId{};
         inline static std::array<bool, Slots> _lifeApplied{};
+        inline static std::int64_t _killsResynced = 0;
+        static constexpr std::int32_t LocalHistory = 128;
+        inline static std::array<std::uint32_t, LocalHistory> _localFrames{};
+        inline static std::array<OpenTK::Mathematics::Vector3, LocalHistory> _localPositions{};
+        inline static std::int64_t _aimsRetargeted = 0;
+        inline static bool _retargetEnabled = true;
+        inline static std::uint32_t _lastRetargetFrame = 0;
         inline static std::array<std::int32_t, Slots> _divergedFrames{};
 
         inline static std::array<OpenTK::Mathematics::Vector3, Slots> _lastReportPosition{};

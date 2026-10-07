@@ -3,6 +3,8 @@
 #include "NetSession.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Metadata/Weapons.hpp"
+#include "../../Entities/JumpPadEntity.hpp"
+#include "../../Scene.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/System/Number.hpp"
@@ -28,6 +30,7 @@ namespace MphRead::Mods::Network
         case HitRig::RigMode::Duel: return "Duel";
         case HitRig::RigMode::Volley: return "Volley";
         case HitRig::RigMode::Dialanche: return "Dialanche";
+        case HitRig::RigMode::All: return "All";
         }
         return std::to_string(static_cast<std::int32_t>(value));
     }
@@ -67,7 +70,12 @@ namespace MphRead::Mods::Network
         if (key == "shockcoil") return volley(::MphRead::BeamType::ShockCoil);
         if (key == "voltdriver") return volley(::MphRead::BeamType::VoltDriver);
         if (key == "powerbeam") return volley(::MphRead::BeamType::PowerBeam);
+        if (key == "imperialist") return volley(::MphRead::BeamType::Imperialist);
+        if (key == "omega" || key == "omegacannon") return volley(::MphRead::BeamType::OmegaCannon);
         if (key == "dialanche") { _mode = RigMode::Dialanche; return true; }
+        // Every weapon in turn against a target that never leaves the jump
+        // pads: the runner walks back onto the nearest pad each time it lands.
+        if (key == "all" || key == "pads") { _mode = RigMode::All; return true; }
         return false;
     }
 
@@ -86,6 +94,8 @@ namespace MphRead::Mods::Network
         _worstVerticalSpeed = 0;
         _verticalSpeedSum = 0;
         _verticalSpeedSamples = 0;
+        _padLaunches = 0;
+        _wasAirborne = false;
     }
 
     bool HitRig::IsSniper()
@@ -114,6 +124,10 @@ namespace MphRead::Mods::Network
         else if (IsSniper())
         {
             DriveSniper(player, c, other);
+        }
+        else if (_mode == RigMode::All)
+        {
+            DrivePadRider(player, c, other);
         }
         else
         {
@@ -173,13 +187,132 @@ namespace MphRead::Mods::Network
         Square(c, _mode == RigMode::Jump ? 50 : 80);
     }
 
+    ::MphRead::BeamType HitRig::CycleWeapon() noexcept
+    {
+        static constexpr ::MphRead::BeamType Cycle[] = {
+            ::MphRead::BeamType::PowerBeam, ::MphRead::BeamType::VoltDriver,
+            ::MphRead::BeamType::Missile, ::MphRead::BeamType::Battlehammer,
+            ::MphRead::BeamType::Imperialist, ::MphRead::BeamType::Judicator,
+            ::MphRead::BeamType::Magmaul, ::MphRead::BeamType::ShockCoil,
+            ::MphRead::BeamType::OmegaCannon,
+        };
+        return Cycle[static_cast<std::size_t>(_frame / CycleFrames) % std::size(Cycle)];
+    }
+
+    namespace
+    {
+        OpenTK::Mathematics::Vector3 PadCenter(const ::MphRead::CollisionVolume& volume)
+        {
+            using OpenTK::Mathematics::Scale;
+            using OpenTK::Mathematics::Vector3;
+            switch (volume.Type)
+            {
+            case ::MphRead::VolumeType::Box:
+                return volume.BoxPosition + Scale(Scale(volume.BoxVector1, volume.BoxDot1)
+                    + Scale(volume.BoxVector2, volume.BoxDot2) + Scale(volume.BoxVector3, volume.BoxDot3), 0.5F);
+            case ::MphRead::VolumeType::Cylinder:
+                return volume.CylinderPosition + Scale(volume.CylinderVector, volume.CylinderDot / 2.0F);
+            case ::MphRead::VolumeType::Sphere:
+                return volume.SpherePosition;
+            default:
+                return Vector3::Zero;
+            }
+        }
+    }
+
+    void HitRig::DrivePadRider(PlayerEntity& player, PlayerControls& c, PlayerEntity* other)
+    {
+        using OpenTK::Mathematics::Vector3;
+        const bool airborne = !::MphRead::TestFlag(player.Flags1(), Entities::PlayerFlags1::Standing);
+        const float rise = std::abs(player.Speed().Y);
+        _verticalSpeedSum += rise;
+        Runtime::IncrementInPlace(_verticalSpeedSamples);
+        _worstVerticalSpeed = std::max(_worstVerticalSpeed, rise);
+        if (airborne)
+        {
+            Runtime::IncrementInPlace(_framesAirborne);
+            // A rise this steep is a pad, not a jump: count the launches so a
+            // run can tell a rider that kept riding from one stuck in a corner.
+            if (!_wasAirborne && player.Speed().Y > 0.5F)
+            {
+                Runtime::IncrementInPlace(_padLaunches);
+            }
+            _wasAirborne = true;
+            // In the air the pad does the steering, so the rider shoots back
+            // with the same weapon of the cycle: that is what puts two players
+            // killing each other inside one round trip, the case the kill
+            // arbitration exists for.
+            const ::MphRead::BeamType weapon = CycleWeapon();
+            if (player.CurrentWeapon() != weapon)
+            {
+                player.ModArmWeapon(weapon);
+            }
+            player.ModSetAmmo(std::numeric_limits<std::int32_t>::max(), std::numeric_limits<std::int32_t>::max());
+            const bool onTarget = AimAt(player, other, HeadAimHeight);
+            const std::int32_t tap = Runtime::RequireReference(
+                (*::MphRead::Weapons::Current)[static_cast<std::size_t>(weapon)]).ShotCooldown * 2 + 3;
+            c.Shoot().SetIsDown(onTarget && _frame % tap < 3);
+            if (c.Shoot().IsDown() && _frame % tap == 0)
+            {
+                Runtime::IncrementInPlace(_triggers);
+            }
+            return;
+        }
+        _wasAirborne = false;
+        Scene* scene = _scene;
+        if (scene == nullptr)
+        {
+            Square(c, 50);
+            return;
+        }
+        const Vector3 position = player.Position;
+        Vector3 best = Vector3::Zero;
+        float bestDistance = std::numeric_limits<float>::max();
+        auto entities = scene->Entities().GetEnumerator();
+        while (entities.MoveNext())
+        {
+            auto* pad = dynamic_cast<Entities::JumpPadEntity*>(entities.Current().get());
+            if (pad == nullptr || !pad->Active)
+            {
+                continue;
+            }
+            const Vector3 center = PadCenter(pad->ModVolume());
+            const float dx = center.X - position.X;
+            const float dz = center.Z - position.Z;
+            const float distance = dx * dx + dz * dz;
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                best = center;
+            }
+        }
+        if (bestDistance == std::numeric_limits<float>::max())
+        {
+            // No pads in this room: fall back to the jump runner.
+            c.Jump().SetIsDown(_frame % 24 < 3);
+            Square(c, 50);
+            return;
+        }
+        // Face the pad at eye height and walk onto it. The pad does the rest.
+        const auto [turnX, turnY] = player.ModAimDeltaTowards(
+            Vector3(best.X, position.Y + 0.6F, best.Z));
+        if (!std::isfinite(turnX) || !std::isfinite(turnY))
+        {
+            return;
+        }
+        _aimDeltaX = std::clamp(turnX, -TurnRate, TurnRate);
+        _aimDeltaY = std::clamp(turnY, -TurnRate, TurnRate);
+        c.MoveUp().SetIsDown(std::abs(turnX) < 45.0F);
+    }
+
     void HitRig::DriveSniper(PlayerEntity& player, PlayerControls& c, PlayerEntity* other)
     {
-        if (_mode == RigMode::Volley)
+        if (_mode == RigMode::Volley || _mode == RigMode::All)
         {
-            if (player.CurrentWeapon() != _volleyWeapon)
+            const ::MphRead::BeamType weapon = _mode == RigMode::All ? CycleWeapon() : _volleyWeapon;
+            if (player.CurrentWeapon() != weapon)
             {
-                player.ModArmWeapon(_volleyWeapon);
+                player.ModArmWeapon(weapon);
             }
         }
         else if (player.CurrentWeapon() != ::MphRead::BeamType::Imperialist)
@@ -187,7 +320,9 @@ namespace MphRead::Mods::Network
             player.ModArmZoomWeapon();
         }
         player.ModSetAmmo(std::numeric_limits<std::int32_t>::max(), std::numeric_limits<std::int32_t>::max());
-        if (_mode != RigMode::Volley && player.ModCanZoom()
+        const bool volley = _mode == RigMode::Volley || _mode == RigMode::All;
+        const ::MphRead::BeamType weapon = _mode == RigMode::All ? CycleWeapon() : _volleyWeapon;
+        if (!volley && player.ModCanZoom()
             && !player.EquipInfo()->Zoomed && _frame % 8 == 0)
         {
             c.Zoom().SetIsDown(true);
@@ -208,9 +343,9 @@ namespace MphRead::Mods::Network
         _rangeSum += range;
         Runtime::IncrementInPlace(_rangeSamples);
         HoldRange(player, c, range, _mode == RigMode::Sniper ? LongRange
-            : _mode == RigMode::Volley && _volleyWeapon != ::MphRead::BeamType::ShockCoil ? VolleyRange : CloseRange);
-        const std::int32_t tap = _mode == RigMode::Volley
-            ? Runtime::RequireReference((*::MphRead::Weapons::Current)[static_cast<std::size_t>(_volleyWeapon)]).ShotCooldown * 2 + 3
+            : volley && weapon != ::MphRead::BeamType::ShockCoil ? VolleyRange : CloseRange);
+        const std::int32_t tap = volley
+            ? Runtime::RequireReference((*::MphRead::Weapons::Current)[static_cast<std::size_t>(weapon)]).ShotCooldown * 2 + 3
             : 63;
         const std::int32_t clock = _mode == RigMode::Duel && NetSession::LastSnapshotFrame() != 0
             ? std::bit_cast<std::int32_t>(NetSession::LastSnapshotFrame())
@@ -350,7 +485,7 @@ namespace MphRead::Mods::Network
             return "hit rig: Dialanche, " + std::to_string(_triggers) + " attack press edges, "
                 + std::to_string(_framesOnTarget) + " frames on target";
         }
-        const std::string role = IsSniper() ? "sniper" : "runner";
+        const std::string role = IsSniper() ? "sniper" : _mode == RigMode::All ? "pad rider" : "runner";
         if (IsSniper())
         {
             const double range = _rangeSamples > 0 ? _rangeSum / static_cast<double>(_rangeSamples) : 0;
@@ -360,6 +495,8 @@ namespace MphRead::Mods::Network
         const double rise = _verticalSpeedSamples > 0 ? _verticalSpeedSum / static_cast<double>(_verticalSpeedSamples) : 0;
         return "hit rig: " + ToString(_mode) + " as " + role + ", " + std::to_string(_framesAirborne) + " frames airborne, "
             + "mean |vertical speed| " + Runtime::ToString(rise, "F3") + " units/frame, worst "
-            + Runtime::ToString(_worstVerticalSpeed, "F3");
+            + Runtime::ToString(_worstVerticalSpeed, "F3")
+            + (_mode == RigMode::All ? ", " + std::to_string(_padLaunches) + " pad launches, "
+                + std::to_string(_triggers) + " triggers in the air" : std::string());
     }
 }

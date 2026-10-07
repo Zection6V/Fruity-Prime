@@ -36,6 +36,20 @@ namespace MphRead::Mods::Network
         inline static std::array<
             std::array<std::int32_t, Entities::PlayerEntity::SlotCapacity>,
             Entities::PlayerEntity::SlotCapacity> PlayerOverlapsByShooter{};
+        // The victim's side of a hit: of the hits the authority dealt this
+        // machine's player, how many followed a remote shot drawn touching
+        // them within VisibleWindow frames -- the hit that was also seen.
+        static constexpr std::uint32_t VisibleWindow = 45;
+        inline static std::array<std::uint32_t, Entities::PlayerEntity::SlotCapacity> LastOverlapOnLocal{};
+        inline static std::int64_t HitsTaken = 0;
+        inline static std::int64_t HitsTakenSeen = 0;
+        inline static std::array<std::int64_t, 11> HitsTakenByBeam{};
+        inline static std::array<std::int64_t, 11> HitsTakenSeenByBeam{};
+        // Hits not yet matched to a drawn impact, which may still come: the
+        // remote shot can be in the air here when the authority's damage lands.
+        static constexpr std::size_t UnseenDepth = 16;
+        inline static std::array<std::array<std::uint32_t, UnseenDepth>, Entities::PlayerEntity::SlotCapacity> UnseenFrame{};
+        inline static std::array<std::array<std::uint8_t, UnseenDepth>, Entities::PlayerEntity::SlotCapacity> UnseenBeam{};
 
         inline static std::array<double, Entities::PlayerEntity::SlotCapacity> AimDrift{};
         inline static std::array<double, Entities::PlayerEntity::SlotCapacity> WorstDrift{};

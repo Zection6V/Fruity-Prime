@@ -1,4 +1,5 @@
 #include "NetHitPrediction.hpp"
+#include "NetPlayerBridge.hpp"
 
 #include "../../Entities/BeamProjectileEntity.hpp"
 #include "../../Entities/BombEntity.hpp"
@@ -308,7 +309,7 @@ namespace MphRead::Mods::Network
                     "victim=" + std::to_string(victimSlot) + " damage=" + std::to_string(damage));
             }
             const bool claimedLethal = lethal;
-            if (lethal && !self)
+            if (lethal && !self && !DeathEnabled())
             {
                 damage = static_cast<std::uint32_t>(std::max(0, victim.Health() - 1));
                 flags = static_cast<Entities::DamageFlags>(static_cast<std::int32_t>(flags)
@@ -362,6 +363,10 @@ namespace MphRead::Mods::Network
                 else
                 {
                     _deathsPredicted++;
+                    if (victimSlot >= 0 && victimSlot < static_cast<std::int32_t>(_killShownFrame.size()))
+                    {
+                        _killShownFrame[Index(victimSlot)] = std::max(1U, NetSession::NetFrame());
+                    }
                 }
             }
         }
@@ -486,6 +491,7 @@ namespace MphRead::Mods::Network
         {
             return;
         }
+        _killShownFrame[Index(slot)] = 0;
         if (slot == NetSession::LocalSlot())
         {
             ForgetPending();
@@ -502,6 +508,8 @@ namespace MphRead::Mods::Network
         {
             return;
         }
+        // The authority has the death now: nothing shown here is waiting.
+        _killShownFrame[Index(slot)] = 0;
         for (std::size_t i = 0; i < PendingCapacity; i++)
         {
             _pendingLethal[Index(slot)][i] = false;
@@ -698,6 +706,28 @@ namespace MphRead::Mods::Network
         return std::clamp(authorityHealth + credit, 1, max);
     }
 
+    bool NetHitPrediction::ShowingKill(std::int32_t slot)
+    {
+        if (slot < 0 || slot >= static_cast<std::int32_t>(_killShownFrame.size()))
+        {
+            return false;
+        }
+        const std::uint32_t shown = _killShownFrame[Index(slot)];
+        // The authority's death comes back a round trip plus the claim's
+        // grace window later; past that, it is not coming.
+        return shown != 0 && NetSession::NetFrame() - shown < static_cast<std::uint32_t>(HoldFrames() + 30);
+    }
+
+    std::int32_t NetHitPrediction::KillsShown()
+    {
+        std::int32_t count = 0;
+        for (std::int32_t slot = 0; slot < static_cast<std::int32_t>(_killShownFrame.size()); slot++)
+        {
+            count += ShowingKill(slot) ? 1 : 0;
+        }
+        return count;
+    }
+
     bool NetHitPrediction::HeldDead(std::int32_t slot)
     {
         EnsureLife(slot);
@@ -818,6 +848,12 @@ namespace MphRead::Mods::Network
         if (!answered && !confirmed && !_pendingSelf[s][h])
         {
             _denied++;
+            if (_pendingLethal[s][h])
+            {
+                // Never answered: the next snapshot decides, not this guess.
+                NetPlayerBridge::Resync(slot);
+                _deathsUndone++;
+            }
         }
         _pendingClaim[s][h] = 0;
         _pendingSpent[s][h] = false;
@@ -827,7 +863,7 @@ namespace MphRead::Mods::Network
         return answered ? -1 : head;
     }
 
-    void NetHitPrediction::Settle(std::int32_t slot, std::uint16_t claimId, bool confirmed)
+    void NetHitPrediction::Settle(std::int32_t slot, std::uint16_t claimId, bool confirmed, bool victimDown)
     {
         EnsureLife(slot);
         if (!_enabled || slot < 0 || slot >= Slots || claimId == 0 || _pendingCount[Index(slot)] == 0)
@@ -868,8 +904,11 @@ namespace MphRead::Mods::Network
             else
             {
                 _denied++;
-                if (_pendingLethal[s][a])
+                if (_pendingLethal[s][a] && !victimDown)
                 {
+                    // A kill shown here that the authority refused: put the
+                    // player back as the authority has them.
+                    NetPlayerBridge::Resync(slot);
                     _deathsUndone++;
                     if (bucket >= 0 && bucket < BeamBuckets)
                     {
@@ -923,7 +962,7 @@ namespace MphRead::Mods::Network
         }
         const double agreed = static_cast<double>(_confirmed) * 100.0 / static_cast<double>(_predicted);
         std::string deaths = DeathEnabled()
-            ? std::to_string(_deathsPredicted) + " kills predicted, " + std::to_string(_deathsUndone) + " undone"
+            ? std::to_string(_deathsPredicted) + " kills predicted, " + std::to_string(_deathsUndone) + " undone, " + std::to_string(NetPlayerBridge::KillsResynced()) + " stood back up unconfirmed"
             : std::to_string(_lethalHeld) + " lethal hits held (" + std::to_string(_lethalConfirmed) + " confirmed, "
                 + std::to_string(_lethalDenied) + " denied)";
         if (_selfDeathsPredicted > 0)

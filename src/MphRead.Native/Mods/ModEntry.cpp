@@ -63,6 +63,7 @@
 #include "Network/NetHooks.hpp"
 #include "Network/NetHitClaims.hpp"
 #include "Network/NetHitPrediction.hpp"
+#include "Network/NetPlayerBridge.hpp"
 #include "Network/NetLag.hpp"
 #include "MapGen/MapDefinition.hpp"
 #include "Network/NetMaster.hpp"
@@ -1280,7 +1281,7 @@ namespace MphRead::Mods
             }
             else
             {
-                WriteLine("[net] -hitrig " + *rig + " refused: jump, sniper, duel, dialanche or a weapon name");
+                WriteLine("[net] -hitrig " + *rig + " refused: jump, sniper, duel, dialanche, all or a weapon name");
             }
         }
         const std::optional<std::string> maxRewind = ValueAfter(args, "maxrewind");
@@ -1309,8 +1310,14 @@ namespace MphRead::Mods
             Network::NetHitPrediction::SetMarkerEnabled(false);
             WriteLine("[hud] hit marker off");
         }
-        if (::HasFlag(args, "deathprediction") || ::HasFlag(args, "nodeathprediction"))
+        if (::HasFlag(args, "noretarget"))
         {
+            Network::NetPlayerBridge::RetargetEnabled(false);
+            WriteLine("[net] remote shots are drawn with their shooter's own aim");
+        }
+        if (::HasFlag(args, "nodeathprediction"))
+        {
+            Network::NetHitPrediction::SetDeathEnabled(false);
             WriteLine("[net] remote death waits for authority; self-death remains predicted");
         }
         if (::HasFlag(args, "noclaims"))

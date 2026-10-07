@@ -7,6 +7,11 @@
 #include <string>
 #include <vector>
 
+namespace MphRead
+{
+    class Scene;
+}
+
 namespace MphRead::Entities
 {
     class PlayerControls;
@@ -29,7 +34,8 @@ namespace MphRead::Mods::Network
             Sniper,
             Duel,
             Volley,
-            Dialanche
+            Dialanche,
+            All
         };
 
         [[nodiscard]] static ::MphRead::BeamType VolleyWeapon() noexcept { return _volleyWeapon; }
@@ -49,6 +55,7 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static std::int64_t VerticalSpeedSamples() noexcept { return _verticalSpeedSamples; }
 
         static void Reset();
+        static void SetScene(Scene* scene) noexcept { _scene = scene; }
         [[nodiscard]] static bool IsSniper();
         static void Drive(Entities::PlayerEntity& player);
         [[nodiscard]] static std::string Describe();
@@ -60,9 +67,13 @@ namespace MphRead::Mods::Network
         static constexpr float HeadAimHeight = 0.95F;
         static constexpr float TurnRate = 6.0F;
         static constexpr float FiringCone = 2.5F;
+        // -hitrig all: the shooter holds each weapon this long, then the next.
+        static constexpr std::int32_t CycleFrames = 20 * 60;
 
         static void DriveRunner(Entities::PlayerEntity& player, Entities::PlayerControls& c, Entities::PlayerEntity* other);
         static void DriveDialanche(Entities::PlayerEntity& player, Entities::PlayerControls& c, Entities::PlayerEntity* other);
+        static void DrivePadRider(Entities::PlayerEntity& player, Entities::PlayerControls& c, Entities::PlayerEntity* other);
+        [[nodiscard]] static ::MphRead::BeamType CycleWeapon() noexcept;
         static void DriveSniper(Entities::PlayerEntity& player, Entities::PlayerControls& c, Entities::PlayerEntity* other);
         static void HoldRange(Entities::PlayerEntity& player, Entities::PlayerControls& c, float range, float want);
         [[nodiscard]] static bool AimAt(Entities::PlayerEntity& player, Entities::PlayerEntity* target, float headHeight);
@@ -88,6 +99,9 @@ namespace MphRead::Mods::Network
         inline static double _verticalSpeedSum = 0;
         inline static std::int64_t _verticalSpeedSamples = 0;
         inline static std::vector<bool> _wasDown{};
+        inline static std::int64_t _padLaunches = 0;
+        inline static bool _wasAirborne = false;
+        inline static Scene* _scene = nullptr;
     };
 
     // HitRig.RigMode.ToString().

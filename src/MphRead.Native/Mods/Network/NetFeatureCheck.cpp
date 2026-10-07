@@ -859,6 +859,23 @@ namespace MphRead::Mods::Network
         }
         ConsoleWriteLine(collision);
 
+        ConsoleWriteLine("    hits taken that were seen landing: " + ::MphRead::NativeRuntime::ToString(NetDamage::HitsTakenSeen)
+            + " of " + ::MphRead::NativeRuntime::ToString(NetDamage::HitsTaken) + " (remote aims turned onto this player on "
+            + ::MphRead::NativeRuntime::ToString(NetPlayerBridge::AimsRetargeted()) + " frames)");
+        {
+            static constexpr const char* names[] = {"PowerBeam", "VoltDriver", "Missile", "Battlehammer",
+                "Imperialist", "Judicator", "Magmaul", "ShockCoil", "OmegaCannon", "Platform", "other"};
+            std::string byBeam = "    seen landing by weapon:";
+            for (std::size_t i = 0; i < NetDamage::HitsTakenByBeam.size(); i++)
+            {
+                if (NetDamage::HitsTakenByBeam[i] > 0)
+                {
+                    byBeam += std::string(" ") + names[i] + " " + ::MphRead::NativeRuntime::ToString(NetDamage::HitsTakenSeenByBeam[i])
+                        + "/" + ::MphRead::NativeRuntime::ToString(NetDamage::HitsTakenByBeam[i]);
+                }
+            }
+            ConsoleWriteLine(byBeam);
+        }
         std::string pairs = "    player overlaps by shooter:";
         for (std::int32_t shooter = 0; shooter < Entities::PlayerEntity::SlotCapacity; ++shooter)
         {

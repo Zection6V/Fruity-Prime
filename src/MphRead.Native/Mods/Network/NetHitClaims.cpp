@@ -85,6 +85,7 @@ namespace MphRead::Mods::Network
     std::array<std::int64_t, NetHitClaims::AltBeamBuckets> NetHitClaims::_resolvedByBeam{};
     std::int32_t NetHitClaims::_disagreementsLogged = 0;
     std::array<std::uint32_t, NetHitClaims::Slots> NetHitClaims::_deathFire{};
+    std::array<std::uint32_t, NetHitClaims::Slots> NetHitClaims::_deathFrame{};
     std::array<bool, NetHitClaims::Slots> NetHitClaims::_dead{};
     std::array<std::uint32_t, NetHitClaims::Slots> NetHitClaims::_lastHitFire{};
     std::array<bool, NetHitClaims::Slots> NetHitClaims::_wasInPlay{};
@@ -389,7 +390,9 @@ namespace MphRead::Mods::Network
                     break;
                 case HitVerdictPacket::ResultDeadVictim:
                     _refusedDeadVictim++;
-                    NetHitPrediction::Settle(entry.VictimSlot, id, false);
+                    // The victim is down on the authority as well: whatever
+                    // this machine drew, a body on the floor is the truth.
+                    NetHitPrediction::Settle(entry.VictimSlot, id, false, true);
                     break;
                 default:
                     _refusedOther++;
@@ -707,7 +710,7 @@ namespace MphRead::Mods::Network
         }
         const std::uint32_t fired = claim.LaunchFrame != 0 ? claim.LaunchFrame : claim.AckFrame;
         const auto s = static_cast<std::size_t>(shooterSlot);
-        if (_dead[s] && _deathFire[s] < fired)
+        if (FiredAfterOwnDeath(s, fired))
         {
             _voidedDeadShooter++;
             return HitVerdictPacket::ResultDeadShooter;
@@ -865,6 +868,7 @@ namespace MphRead::Mods::Network
                     entry.Live = false;
                     _duplicateHere++;
                     NoteAgreement(entry.ShooterSlot, entry.VictimSlot, entry.Beam, entry.Damage, resolved);
+                    FinishLethal(entry);
                     Answer(entry.ShooterSlot, entry.Id, HitVerdictPacket::ResultDuplicate);
                     continue;
                 }
@@ -907,6 +911,19 @@ namespace MphRead::Mods::Network
         FlushVerdicts();
     }
 
+    // Favour the shooter, all the way. The old test voided a shot whenever its
+    // shooter had been hit by something aimed at an earlier world than the one
+    // the shot was aimed at -- the honest order on the machine keeping score,
+    // and exactly the kill players watched stand back up: on the shooter's
+    // screen they were alive and their target fell. The only shot that is
+    // really late is one fired while its owner was already displaying their
+    // own death, which a client cannot do. Everything else stands, so a trade
+    // inside a round trip is two kills and nobody's screen is taken back.
+    bool NetHitClaims::FiredAfterOwnDeath(std::size_t shooter, std::uint32_t fired) noexcept
+    {
+        return _dead[shooter] && _deathFrame[shooter] != 0 && fired >= _deathFrame[shooter];
+    }
+
     void NetHitClaims::TrackDeaths()
     {
         for (std::int32_t i = 0; i < Slots; i++)
@@ -919,11 +936,13 @@ namespace MphRead::Mods::Network
             {
                 _dead[s] = true;
                 _deathFire[s] = _lastHitFire[s] != 0 ? _lastHitFire[s] : NetSession::NetFrame();
+                _deathFrame[s] = NetSession::NetFrame();
             }
             else if (!_wasInPlay[s] && inPlay)
             {
                 _dead[s] = false;
                 _deathFire[s] = 0;
+                _deathFrame[s] = 0;
                 _lastHitFire[s] = 0;
                 for (std::int32_t j = 0; j < Slots; j++)
                 {
@@ -994,6 +1013,54 @@ namespace MphRead::Mods::Network
         return false;
     }
 
+    // The authority resolved the same shot itself, but left the victim
+    // standing on a sliver of health the shooter's machine did not have --
+    // a hit one side counted and the other did not, a tick of a continuous
+    // weapon. The shooter already watched this player die, and the claim has
+    // passed every test a rescue has, so the kill is made real rather than
+    // taken back: what the shooter saw is what happened.
+    void NetHitClaims::FinishLethal(const Pending& entry)
+    {
+        if ((entry.Flags & HitClaimPacket::FlagLethal) == 0
+            || entry.VictimSlot >= static_cast<std::int32_t>(PlayerEntity::Players().size())
+            || entry.ShooterSlot >= static_cast<std::int32_t>(PlayerEntity::Players().size()))
+        {
+            return;
+        }
+        PlayerEntity& victim = PlayerAt(entry.VictimSlot);
+        if (victim.Health() <= 0 || entry.Damage < static_cast<std::int32_t>(victim.Health())
+            || !HasLoadFlag(victim.LoadFlags(), LoadFlags::Active) || !victim.ModIsInPlay()
+            || FiredAfterOwnDeath(static_cast<std::size_t>(entry.ShooterSlot),
+                entry.LaunchFrame != 0 ? entry.LaunchFrame : entry.AckFrame))
+        {
+            return;
+        }
+        PlayerEntity& shooter = PlayerAt(entry.ShooterSlot);
+        const std::int32_t left = victim.Health();
+        _applyingClaim = true;
+        _applyingClaimAck = entry.AckFrame;
+        _applyingClaimLaunch = entry.LaunchFrame;
+        try
+        {
+            const NetDamage::ClaimScope scope(entry.Beam == HitClaimPacket::NoBeam
+                ? ::MphRead::BeamType::None : static_cast<::MphRead::BeamType>(entry.Beam));
+            victim.TakeDamage(static_cast<std::uint32_t>(left), DamageFlags::NoDmgInvuln, std::nullopt, &shooter);
+        }
+        catch (...)
+        {
+            _applyingClaim = false;
+            throw;
+        }
+        _applyingClaim = false;
+        if (victim.Health() <= 0)
+        {
+            _finishedHere++;
+            NetLog::Event("finished slot " + std::to_string(entry.VictimSlot) + " (" + std::to_string(left)
+                + " health left) for slot " + std::to_string(entry.ShooterSlot)
+                + ": its lethal claim matched a hit this authority resolved short of a kill");
+        }
+    }
+
     void NetHitClaims::ApplyOne(Pending& entry)
     {
         const std::int32_t victimSlot = entry.VictimSlot;
@@ -1020,7 +1087,7 @@ namespace MphRead::Mods::Network
             return;
         }
         const auto s = static_cast<std::size_t>(shooterSlot);
-        if (_dead[s] && _deathFire[s] < (entry.LaunchFrame != 0 ? entry.LaunchFrame : entry.AckFrame))
+        if (FiredAfterOwnDeath(s, entry.LaunchFrame != 0 ? entry.LaunchFrame : entry.AckFrame))
         {
             _voidedDeadShooter++;
             Answer(shooterSlot, entry.Id, HitVerdictPacket::ResultDeadShooter);
@@ -1163,6 +1230,7 @@ namespace MphRead::Mods::Network
         _authorityHitUsed = {};
         for (auto& row : _authorityHitHead) row.fill(0);
         _deathFire.fill(0);
+        _deathFrame.fill(0);
         _dead.fill(false);
         _lastHitFire.fill(0);
         _wasInPlay.fill(false);
@@ -1181,6 +1249,7 @@ namespace MphRead::Mods::Network
         _received = 0;
         _appliedHere = 0;
         _duplicateHere = 0;
+        _finishedHere = 0;
         _voidedDeadShooter = 0;
         _voidedDeadVictim = 0;
         _refusedHere = 0;
@@ -1236,6 +1305,7 @@ namespace MphRead::Mods::Network
         _newestId[s] = 0;
         _lastResult[s] = 0;
         _deathFire[s] = 0;
+        _deathFrame[s] = 0;
         _dead[s] = false;
         _lastHitFire[s] = 0;
         _wasInPlay[s] = false;
@@ -1260,6 +1330,7 @@ namespace MphRead::Mods::Network
         _authorityHitUsed = {};
         for (auto& row : _authorityHitHead) row.fill(0);
         _deathFire.fill(0);
+        _deathFrame.fill(0);
         _dead.fill(false);
         _lastHitFire.fill(0);
         _wasInPlay.fill(false);
@@ -1276,7 +1347,7 @@ namespace MphRead::Mods::Network
             return "hit claims (as authority): " + std::to_string(_received) + " received, "
                 + std::to_string(_appliedHere) + " applied (" + std::to_string(_rescuedDamage) + " damage, "
                 + std::to_string(_rescuedKills) + " kills, " + std::to_string(_rescuedHeadshots)
-                + " headshots rescued), " + std::to_string(_duplicateHere) + " already resolved, "
+                + " headshots rescued), " + std::to_string(_duplicateHere) + " already resolved (" + std::to_string(_finishedHere) + " finished as kills), "
                 + std::to_string(_voidedDeadShooter) + " from a shooter already dead, "
                 + std::to_string(_voidedDeadVictim) + " on a victim already down, "
                 + std::to_string(_refusedHere) + " refused, " + std::to_string(_tooOldHere) + " too old, "

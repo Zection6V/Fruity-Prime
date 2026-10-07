@@ -198,7 +198,10 @@ namespace MphRead::Entities
             return;
         }
         const std::int32_t slotForAim = (*this).SlotIndex();
-        ModSetAim(Mods::Network::NetSession::RemoteIntents[slotForAim].Aim);
+        const auto& intent = Mods::Network::NetSession::RemoteIntents[slotForAim];
+        const OpenTK::Mathematics::Vector3 origin = LengthSquared(_muzzlePos) > 0.0001F
+            ? _muzzlePos : OpenTK::Mathematics::Vector3(Position.X, Position.Y + 0.6F, Position.Z);
+        ModSetAim(Mods::Network::NetPlayerBridge::RetargetAtLocal(*this, origin, intent.Aim, intent.AckFrame, intent.Position));
     }
 
     void PlayerEntity::ModSetAim(OpenTK::Mathematics::Vector3 aim)
@@ -1067,7 +1070,10 @@ namespace MphRead::Entities
             return;
         }
         const std::int32_t slotForAim = (*this).SlotIndex();
-        ModSetAim(Mods::Network::NetSession::RemoteIntents[slotForAim].Aim);
+        const auto& intent = Mods::Network::NetSession::RemoteIntents[slotForAim];
+        const OpenTK::Mathematics::Vector3 origin = LengthSquared(_muzzlePos) > 0.0001F
+            ? _muzzlePos : OpenTK::Mathematics::Vector3(Position.X, Position.Y + 0.6F, Position.Z);
+        ModSetAim(Mods::Network::NetPlayerBridge::RetargetAtLocal(*this, origin, intent.Aim, intent.AckFrame, intent.Position));
     }
 
     void PlayerEntity::ApplyGamepadAim()

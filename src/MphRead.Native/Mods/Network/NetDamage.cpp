@@ -117,6 +117,23 @@ namespace MphRead::Mods::Network
         }
         const std::int32_t shooterSlot = shooter->SlotIndex();
         const std::int32_t targetSlot = target.SlotIndex();
+        if (shooterSlot >= 0 && shooterSlot < Slots && targetSlot == NetHooks::LocalSlot() && shooterSlot != targetSlot)
+        {
+            const std::uint32_t now = NetSession::NetFrame();
+            LastOverlapOnLocal[static_cast<std::size_t>(shooterSlot)] = std::max(1U, now);
+            // An impact drawn just after the damage it belongs to.
+            auto& frames = UnseenFrame[static_cast<std::size_t>(shooterSlot)];
+            for (std::size_t i = 0; i < UnseenDepth; i++)
+            {
+                if (frames[i] != 0 && now - frames[i] <= VisibleWindow)
+                {
+                    frames[i] = 0;
+                    IncrementInPlace(HitsTakenSeen);
+                    IncrementInPlace(HitsTakenSeenByBeam[UnseenBeam[static_cast<std::size_t>(shooterSlot)][i]]);
+                    break;
+                }
+            }
+        }
         if (shooterSlot >= 0 && shooterSlot < Slots && targetSlot >= 0 && targetSlot < Slots)
         {
             IncrementInPlace(PlayerOverlapsByShooter[static_cast<std::size_t>(shooterSlot)]
@@ -502,6 +519,32 @@ namespace MphRead::Mods::Network
                     + " victim=" + std::to_string(slot) + "/" + std::to_string(state.SlotGeneration)
                     + "/" + std::to_string(state.LifeId) + " event=" + std::to_string(hit.EventId)
                     + " shooter=" + std::to_string(hit.AttackerSlot) + "/" + std::to_string(hit.AttackerGeneration));
+            }
+            if (slot == NetHooks::LocalSlot() && feedback.AttackerSlot != NoSlot
+                && static_cast<std::int32_t>(feedback.AttackerSlot) != slot
+                && static_cast<std::size_t>(feedback.AttackerSlot) < LastOverlapOnLocal.size())
+            {
+                IncrementInPlace(HitsTaken);
+                const auto beam = static_cast<std::size_t>(feedback.DamageBeam == NoBeam || feedback.DamageBeam > 9
+                    ? 10 : feedback.DamageBeam);
+                IncrementInPlace(HitsTakenByBeam[beam]);
+                const std::uint32_t seen = LastOverlapOnLocal[static_cast<std::size_t>(feedback.AttackerSlot)];
+                if (seen != 0 && NetSession::NetFrame() - seen <= VisibleWindow)
+                {
+                    IncrementInPlace(HitsTakenSeen);
+                    IncrementInPlace(HitsTakenSeenByBeam[beam]);
+                }
+                else
+                {
+                    auto& frames = UnseenFrame[static_cast<std::size_t>(feedback.AttackerSlot)];
+                    std::size_t oldest = 0;
+                    for (std::size_t i = 1; i < UnseenDepth; i++)
+                    {
+                        if (frames[i] < frames[oldest]) oldest = i;
+                    }
+                    frames[oldest] = std::max(1U, NetSession::NetFrame());
+                    UnseenBeam[static_cast<std::size_t>(feedback.AttackerSlot)][oldest] = static_cast<std::uint8_t>(beam);
+                }
             }
             ReplayEvent(player, feedback);
         }

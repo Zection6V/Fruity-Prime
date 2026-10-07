@@ -1,4 +1,6 @@
 #include "NetHooks.hpp"
+#include "HitRig.hpp"
+#include "NetHitPrediction.hpp"
 
 #include "DemoPlayback.hpp"
 #include "MapAudit.hpp"
@@ -240,6 +242,7 @@ namespace MphRead::Mods::Network
             }
             if (!Mods::SpectatorMode::IsSpectating())
             {
+                HitRig::SetScene(&scene);
                 NetTestScript::Apply(player);
             }
             NetPlayerBridge::RecordPresses(*player);
@@ -290,6 +293,20 @@ namespace MphRead::Mods::Network
         if (!NetRoomChange::GameplayReady())
         {
             return;
+        }
+        // Deaths first: a snapshot that brings the authority's own count of a
+        // kill shown here must not also have it added again, whichever of the
+        // two players it happens to apply first.
+        for (std::int32_t i = 0; i < static_cast<std::int32_t>(Entities::PlayerEntity::Players().size()); ++i)
+        {
+            if (::MphRead::NativeRuntime::ManagedAt(NetSession::RemoteStateValid, i))
+            {
+                const PlayerState& state = ::MphRead::NativeRuntime::ManagedAt(NetSession::RemoteStates, i);
+                if (state.Health == 0 || (state.Flags & PlayerState::FlagSpawned) == 0)
+                {
+                    NetHitPrediction::ForgetShownKill(i);
+                }
+            }
         }
         for (std::int32_t i = 0;
             i < static_cast<std::int32_t>(Entities::PlayerEntity::Players().size());

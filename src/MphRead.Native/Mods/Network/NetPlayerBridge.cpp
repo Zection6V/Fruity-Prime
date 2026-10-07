@@ -408,9 +408,14 @@ namespace MphRead::Mods::Network
         _formSaid[s] = static_cast<std::uint8_t>((state.Flags & PlayerState::FlagAltForm) != 0 ? 2 : 1);
         if (!NetRoomChange::Settling())
         {
-            GameState::Points()[slot] = state.Points;
-            GameState::Kills()[slot] = state.Kills;
-            GameState::Deaths()[slot] = state.Deaths;
+            // A kill shown here ahead of the authority stays on the board until
+            // the authority's own count catches up, instead of flickering off.
+            const bool shownDead = !isLocal && NetHitPrediction::ShowingKill(slot);
+            const std::int32_t credit = isLocal ? NetHitPrediction::KillsShown() : 0;
+            const bool battle = GameState::Mode() == GameMode::Battle || GameState::Mode() == GameMode::BattleTeams;
+            GameState::Points()[slot] = state.Points + (battle ? credit : 0);
+            GameState::Kills()[slot] = state.Kills + credit;
+            GameState::Deaths()[slot] = state.Deaths + (shownDead ? 1 : 0);
         }
         NetDamage::Replay(player, state);
         if (!spawned)
@@ -429,7 +434,15 @@ namespace MphRead::Mods::Network
         }
         if (!fresh && player.Health() <= 0)
         {
-            return;
+            // Dead here, alive on the authority in the same life: a kill this
+            // machine showed is still on its way, or it is never coming. Only
+            // the second is worth undoing, and only once it is certain.
+            if (isLocal || NetHitPrediction::ShowingKill(slot))
+            {
+                return;
+            }
+            NativeRuntime::IncrementInPlace(_killsResynced);
+            BeginRemoteLife(player, state);
         }
         if (!isLocal)
         {
@@ -451,9 +464,88 @@ namespace MphRead::Mods::Network
                 _divergedFrames[s] = 0;
             }
             player.SetHealth(NetHitPrediction::LocalHealthFor(player, state.Health));
+            // Where the authority had this player, by authority frame: what
+            // every other player is drawing of us, a round trip late.
+            const std::uint32_t frame = NetSession::AppliedSnapshotFrame();
+            if (frame != 0)
+            {
+                _localFrames[frame % LocalHistory] = frame;
+                _localPositions[frame % LocalHistory] = state.Position;
+            }
         }
         player.ModSetFrozen((state.Flags & PlayerState::FlagFrozen) != 0);
         ApplyAfflictions(player, state);
+    }
+
+    OpenTK::Mathematics::Vector3 NetPlayerBridge::RetargetAtLocal(const Entities::PlayerEntity& shooter,
+        OpenTK::Mathematics::Vector3 origin, OpenTK::Mathematics::Vector3 aim, std::uint32_t ackFrame,
+        OpenTK::Mathematics::Vector3 reportedPosition)
+    {
+        using OpenTK::Mathematics::Vector3;
+        const std::int32_t local = NetHooks::LocalSlot();
+        if (!_retargetEnabled || !NetSession::Active() || NetSession::IsHost() || NetSession::IsAuthority() || ackFrame == 0
+            || local < 0 || local >= static_cast<std::int32_t>(Entities::PlayerEntity::Players().size())
+            || shooter.SlotIndex() == local)
+        {
+            return aim;
+        }
+        const Entities::PlayerEntity& me = *Entities::PlayerEntity::Players()[static_cast<std::size_t>(local)];
+        const float length = OpenTK::Mathematics::Length(aim);
+        if (me.Health() <= 0 || !(length > 0.0001F))
+        {
+            return aim;
+        }
+        // The newest recorded frame at or before the one the shooter drew.
+        Vector3 past{};
+        bool found = false;
+        for (std::uint32_t back = 0; back < 8 && back < ackFrame; back++)
+        {
+            const std::uint32_t frame = ackFrame - back;
+            if (_localFrames[frame % LocalHistory] == frame)
+            {
+                past = _localPositions[frame % LocalHistory];
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+        {
+            return aim;
+        }
+        const Vector3 direction = OpenTK::Mathematics::Scale(aim, 1.0F / length);
+        // The aim was taken from where the shooter really stood, which on a
+        // pad is several units from the puppet drawn here: test the ray from
+        // there, then draw the turned shot from the gun this player can see.
+        const Vector3 muzzleOffset = origin - static_cast<Vector3>(shooter.Position);
+        const Vector3 aimedFrom = Sane(reportedPosition) && LengthSquared(reportedPosition) > 0.0001F
+            ? reportedPosition + muzzleOffset : origin;
+        const Vector3 toPast = past - aimedFrom;
+        const float along = Vector3::Dot(toPast, direction);
+        if (along <= 0)
+        {
+            return aim;
+        }
+        // Where on that old body the aim crossed it: the same capsule the
+        // beam test uses, -0.5 to +1.1 above Position and half a unit wide,
+        // with a little slack for the puppet's own interpolation.
+        const Vector3 offset = aimedFrom + OpenTK::Mathematics::Scale(direction, along) - past;
+        if (offset.X * offset.X + offset.Z * offset.Z > 0.9F * 0.9F || offset.Y < -0.6F || offset.Y > 1.2F)
+        {
+            return aim;
+        }
+        const Vector3 target = static_cast<Vector3>(me.Position) + offset;
+        const Vector3 turned = target - origin;
+        const float turnedLength = OpenTK::Mathematics::Length(turned);
+        if (!(turnedLength > 0.0001F))
+        {
+            return aim;
+        }
+        if (_lastRetargetFrame != NetSession::NetFrame())
+        {
+            _lastRetargetFrame = NetSession::NetFrame();
+            NativeRuntime::IncrementInPlace(_aimsRetargeted);
+        }
+        return OpenTK::Mathematics::Scale(turned, length / turnedLength);
     }
 
     void NetPlayerBridge::ApplyAfflictions(Entities::PlayerEntity& player, PlayerState state)

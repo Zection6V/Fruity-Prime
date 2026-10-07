@@ -6,7 +6,7 @@
 
 ## 完了判定
 
-Phase 1～8は実装済みで、以下のローカル受入検証は合格。最終code commitのdesktop CIを残す。
+Phase 1～8の実装と指示書§32の受入gateを完了。ローカル検証と最終code commitのWindows / Linux / macOS CIが合格した。
 ユーザー指定によりC# mirrorは対象外。
 
 | 要件 | 受入を証明する検証 | 現状 |
@@ -20,10 +20,47 @@ Phase 1～8は実装済みで、以下のローカル受入検証は合格。最
 | Phase 6 protocol | version17、旧16拒否、PlayerStateサイズ、複数player境界、MaxPacketSize | 128 bytes/player。実UDP serverが旧16をReasonProtocolで拒否。8人＋56 health spawnersの全配信合格 |
 | Phase 7 timers / physics | target30、freeze75/15、burn150/every8、Story65/<60、shot timer、native physics/sweep | native timer、owner u8 shot timer、native gravity/sweep、実地形への着地合格 |
 | Phase 8 fixed constants | Story lunge 1228/4096、1843/4096 | production Story bot入力・移動で確認。通常移動のgravity/damping適用後の速度も検証 |
-| Windows / Linux / macOS CI | 今回の最終code commitのjobsとtest logs | 3 desktop jobsにCTest追加済み。最終code commitをpush後、実行結果を確認する |
+| Windows / Linux / macOS CI | 今回の最終code commitのjobsとtest logs | `1686cf5e7619ca57a4a3f6408f82b09c68a370ce`で全3 jobs成功。Weavelを含むCTestはWindows 7/7、Linux 6/6、macOS 6/6合格 |
 
 projectile authorityの推測変更、LoS追加、touch clock流用は行わない。
 手動操作・実機ROM比較、ローカルbuild、asset-backed checks、CIはそれぞれ別の証拠として扱う。
+
+## 最終CIと完了監査
+
+検証した最終code commit: [`1686cf5e7619ca57a4a3f6408f82b09c68a370ce`](https://github.com/Zection6V/Fruity-Prime/commit/1686cf5e7619ca57a4a3f6408f82b09c68a370ce)。
+[build_cpp run 37665965149](https://github.com/Zection6V/Fruity-Prime/actions/runs/37665965149)は全15 jobs成功。
+この追記は検証記録のみで、検証対象コードは変更していない。
+
+| CI job | 実行ログで確認した結果 |
+|---|---|
+| [Windows / MSVC](https://github.com/Zection6V/Fruity-Prime/actions/runs/37665965149/job/112945139223) | build、WeavelAltFormParityを含むCTest 7/7、配布artifact成功 |
+| [Linux / GCC](https://github.com/Zection6V/Fruity-Prime/actions/runs/37665965149/job/112945138963) | build、WeavelAltFormParityを含むCTest 6/6、配布artifact成功 |
+| [macOS / Clang](https://github.com/Zection6V/Fruity-Prime/actions/runs/37665965149/job/112945139283) | build、WeavelAltFormParityを含むCTest 6/6、配布artifact成功 |
+| Android | arm64-v8a / x86_64 native build、APK、emulator startup smoke API 28 / 30 / 35成功。実機のgameplay検証ではない |
+| 静的監査 | legacy GL、shader interface、frontend GL、GL分類、RHI隔離、Android build contract成功 |
+
+指示書の番号ごとに現行コードと検証内容を照合した結果:
+
+| 指示書項目 | 実装と受入証拠 |
+|---|---|
+| §1～3 対象・順序・成果物 | 基準HEADを祖先に持つ`develop6_weavelAlt`。Native C++、CMake / CTest、3 desktop CI、再現scriptと本記録を追加 |
+| §4～5 raw factor / final damage | `HalfturretFireRate`とproduction `OnTakeDamage`。6144 / 6083 / 5412 / 3948 / 2867、巨大damageのoverflow防止をCTestで確認 |
+| §6～8 fresh spawn / EquipInfo / split | `ResetForSpawn`を`InitializeSpawn`冒頭で実行。burn effect unlink、全transientとStory overridesのdefault復元、実exit/re-enter、100/101のsplitを確認 |
+| §9～12 recovery / threshold / native phase | raw +61、54 native ticks、above-normal truncate、15/15/13/10/7。freeze中停止、odd step発射なし、scene共通phaseをCTestとproduction checksで確認 |
+| §13～16 input edge / cooldown / hold | `WeavelLungeInput`とproduction timer advance / `ProcessInput`。1受理・2拒否・拒否edge消費・hold・odd edge保持、Story botとremote press historyの共通経路を確認 |
+| §17～19 force lifecycle | `ModForceWeavelState` / `FinalizeWeavelForm`。split life、turret生死、morph / unmorphを別に扱い、重複HP不変、alive merge、dead Alt継続、active lunge終了を確認 |
+| §20～22 wire / version | 使用済み8-bit Flagsを変更せず独立14-byte fieldsを追加。PlayerState 128 bytes、protocol17、3状態のround trip、旧114-byte layoutと実UDP旧16拒否を確認 |
+| §23～25 publish / apply / physical report | production publisher / receiver / `NetPlayerBridge`。authority HP、splitなしreplica activation、HP / position / grounded、古いlife・重複・逆順・非finite reportの拒否を確認 |
+| §26 native timers | target30、freeze75/15、burn150 / every8、Story65 / gate<60、owner u8 shot timer。turretが先に処理されてもframe guardで1回のみadvanceすることを確認 |
+| §27 native physics | gravity / velocity / position / sphere sweepをnative tickに1回実行。odd hold、2-step位置と実地形への着地をproduction checksで確認。renderはnative stateを保持 |
+| §28 fixed constants | Story encounter1で1228/4096と1843/4096を使用。通常60Hz移動のdamping / gravityを含む結果を1e-6 toleranceで確認 |
+| §29 tests | 独立CTestは179 checks＋health sync assertions。実assetsのproduction checksは383件。8人＋56 health spawnersを全員省略せずpacket容量内で巡回配信するケースも確認 |
+| §30 C# mirror | ユーザーのNative C++限定指定により対象外。C#変更・buildなし |
+| §31 禁止変更 | float canonical / Alt boolによるdead turret復活 / replica二重split / touch clock共有 / 単なるtimer割算 / projectile authority推測変更なし |
+| §32～33 gate / SRP | 全受入gate合格。raw arithmetic、cadence、input latch、player lifecycle、turret mechanics、wire replicationに責務を分離 |
+
+CI logsのローカル保存先はignored `tools/build/out/weavel-ci-{windows,linux,macos}.log`。
+手動ROM比較と実機でのプレイは実施していない。指示書が証拠境界を残すROM Wi-Fi projectile同期について、byte-perfect parityは主張しない。
 
 ## 2026-10-08 最終実装とローカル受入
 

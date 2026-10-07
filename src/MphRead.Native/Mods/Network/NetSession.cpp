@@ -1,4 +1,5 @@
 #include "NetSession.hpp"
+#include "../../Entities/Players/HalfturretEntity.hpp"
 
 #include "../../NativeRuntime/System/Enum.hpp"
 
@@ -1645,6 +1646,15 @@ namespace MphRead::Mods::Network
             state.Health = static_cast<std::uint16_t>(std::clamp(player.Health(), 0,
                 static_cast<std::int32_t>(std::numeric_limits<std::uint16_t>::max())));
             state.CurrentWeapon = static_cast<std::uint8_t>(player.CurrentWeapon());
+            if (player.Hunter() == Hunter::Weavel && HasFlag(player.Flags2(), Entities::PlayerFlags2::Halfturret)
+                && player.Halfturret() && player.Halfturret()->Health() > 0)
+            {
+                const auto& turret = *player.Halfturret();
+                state.WeavelFlags = static_cast<std::uint8_t>(PlayerState::WeavelFlagTurretActive
+                    | (turret.Grounded() ? PlayerState::WeavelFlagTurretGrounded : 0));
+                state.HalfturretHealth = static_cast<std::uint8_t>(std::clamp(turret.Health(), 0, 255));
+                state.HalfturretPosition = turret.Position;
+            }
             state.Team = static_cast<std::uint8_t>(player.Team());
             state.Points = static_cast<std::int16_t>(std::clamp(GameState::Points()[slot],
                 static_cast<std::int32_t>(std::numeric_limits<std::int16_t>::min()),

@@ -1,6 +1,8 @@
 param(
     [string]$Executable = 'tools/build/out/msvc-Release/FruityPrime.exe',
-    [string]$OutputDirectory = 'tools/build/out/dialanche-live'
+    [string]$OutputDirectory = 'tools/build/out/dialanche-live',
+    [ValidateRange(1, 60)][int]$SpireSeconds = 16,
+    [ValidateRange(1, 60)][int]$TargetSeconds = 18
 )
 
 # Real DedicatedServer / Welcome / intent / prediction / damage replay.
@@ -28,10 +30,12 @@ try {
         if (!$ready) { Start-Sleep -Milliseconds 100 }
     } until ($ready -or [DateTime]::UtcNow -ge $deadline)
     if (!$ready) { throw 'Server did not become ready' }
-    $spire = Start-Process $taskExe -ArgumentList @('-netcheck','127.0.0.1','-port',$port,'-name','DialancheLiveSpire','-hunter','Spire','-hitrig','dialanche','-seconds','16','-noupdate','-debuglog') -WorkingDirectory $taskGame -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $taskOut 'spire.log') -RedirectStandardError (Join-Path $taskOut 'spire.err')
+    $spire = Start-Process $taskExe -ArgumentList @('-netcheck','127.0.0.1','-port',$port,'-name','DialancheLiveSpire','-hunter','Spire','-hitrig','dialanche','-seconds',$SpireSeconds,'-noupdate','-debuglog') -WorkingDirectory $taskGame -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $taskOut 'spire.log') -RedirectStandardError (Join-Path $taskOut 'spire.err')
+    $null = $spire.Handle
     $taskProcesses += $spire
     Start-Sleep -Milliseconds 200
-    $target = Start-Process $taskExe -ArgumentList @('-netcheck','127.0.0.1','-port',$port,'-name','DialancheLiveTarget','-hunter','Samus','-hitrig','dialanche','-seconds','18','-noupdate','-debuglog') -WorkingDirectory $taskGame -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $taskOut 'target.log') -RedirectStandardError (Join-Path $taskOut 'target.err')
+    $target = Start-Process $taskExe -ArgumentList @('-netcheck','127.0.0.1','-port',$port,'-name','DialancheLiveTarget','-hunter','Samus','-hitrig','dialanche','-seconds',$TargetSeconds,'-noupdate','-debuglog') -WorkingDirectory $taskGame -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $taskOut 'target.log') -RedirectStandardError (Join-Path $taskOut 'target.err')
+    $null = $target.Handle
     $taskProcesses += $target
     foreach ($client in @($spire,$target)) {
         if (!$client.WaitForExit(45000)) { throw 'Client timed out' }

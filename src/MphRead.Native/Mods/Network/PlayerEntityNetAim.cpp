@@ -1,4 +1,5 @@
 #include "PlayerEntityNetAim.hpp"
+#include "../../Entities/Players/HalfturretEntity.hpp"
 
 #include "../Input/GamepadOptions.hpp"
 #include "../../Entities/EntityBase.hpp"
@@ -568,6 +569,13 @@ namespace MphRead::Entities
 
     void PlayerEntity::ModForceForm(bool altForm)
     {
+        if (_hunter == Hunter::Weavel)
+        {
+            const bool active = TypeExtensions::TestFlag(_flags2, PlayerFlags2::Halfturret)
+                && _halfturret && _halfturret->Health() > 0;
+            ModForceWeavelState(altForm, altForm && (!_weavelAltLife || active));
+            return;
+        }
         if (altForm == (*this).IsAltForm())
         {
             // Unmorph changes the form bit before its animation ends. If

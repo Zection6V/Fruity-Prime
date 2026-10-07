@@ -476,7 +476,8 @@ namespace MphRead::Mods::Network
         std::uint16_t SlotGeneration = 0;
         std::uint16_t LifeId = 0;
         static constexpr std::int32_t DamageHistory = 4;
-        static constexpr std::int32_t Size = 54 + DamageEvent::Size * DamageHistory;
+        static constexpr std::int32_t LegacySize = 54 + DamageEvent::Size * DamageHistory;
+        static constexpr std::int32_t Size = LegacySize + 14;
 
         std::uint8_t SlotIndex = 0;
         std::uint8_t Flags = 0;
@@ -500,6 +501,12 @@ namespace MphRead::Mods::Network
         std::int16_t Points = 0;
         std::uint16_t Kills = 0;
         std::uint16_t Deaths = 0;
+
+        std::uint8_t WeavelFlags = 0;
+        std::uint8_t HalfturretHealth = 0;
+        ::OpenTK::Mathematics::Vector3 HalfturretPosition{};
+        static constexpr std::uint8_t WeavelFlagTurretActive = 1U << 0;
+        static constexpr std::uint8_t WeavelFlagTurretGrounded = 1U << 1;
 
         static constexpr std::uint8_t FlagActive = 1U << 0;
         static constexpr std::uint8_t FlagAltForm = 1U << 1;
@@ -602,7 +609,7 @@ namespace MphRead::Mods::Network
     public:
         static constexpr std::uint16_t DefaultPort = 27888;
         static constexpr std::int32_t MaxPacketSize = 1232;
-        static constexpr std::int32_t ProtocolVersion = 16;
+        static constexpr std::int32_t ProtocolVersion = 17;
         static constexpr std::int32_t IntentSendInterval = 1;
         static constexpr double TimeoutSeconds = 30.0;
 

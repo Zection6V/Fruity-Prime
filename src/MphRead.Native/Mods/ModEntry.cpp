@@ -70,6 +70,7 @@
 #include "Network/NetStatus.hpp"
 #include "Network/NetUnlagged.hpp"
 #include "Network/SpireAltPoseCheck.hpp"
+#include "Diagnostics/WeavelAltFormCheck.hpp"
 #include "Network/DialancheCombatCheck.hpp"
 #include "Diagnostics/LockjawEnemyCheck.hpp"
 #include "Network/ServerSimCheck.hpp"
@@ -1992,6 +1993,12 @@ namespace MphRead::Mods
         }
 
         const auto lockjawEnemyCheck = ValueAfter(args, "lockjawenemycheck");
+        const auto weavelAltCheck = ValueAfter(args, "weavelaltcheck");
+        if (weavelAltCheck.has_value())
+        {
+            SetExitCode(Diagnostics::WeavelAltFormCheck::Run(*weavelAltCheck));
+            return true;
+        }
         if (lockjawEnemyCheck.has_value())
         {
             SetExitCode(Diagnostics::LockjawEnemyCheck::Run(*lockjawEnemyCheck));

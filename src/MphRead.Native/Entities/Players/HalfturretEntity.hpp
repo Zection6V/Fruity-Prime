@@ -11,6 +11,8 @@
 #include <memory>
 #include <optional>
 
+namespace MphRead::Mods::Diagnostics { class WeavelAltFormCheck; }
+
 namespace MphRead
 {
     class EquipInfo;
@@ -37,6 +39,7 @@ namespace MphRead::Entities
     class HalfturretEntity : public DynamicLightEntityBase
     {
         friend class WeavelAltFormParityTest;
+        friend class ::MphRead::Mods::Diagnostics::WeavelAltFormCheck;
     public:
         HalfturretEntity(std::shared_ptr<PlayerEntity> owner, Scene* scene);
 
@@ -59,6 +62,10 @@ namespace MphRead::Entities
         void Create();
         void ResetForSpawn();
         void Initialize() override;
+        void InitializeFromNetworkState(std::int32_t health,
+            ::OpenTK::Mathematics::Vector3 position, bool grounded);
+        void ApplyNetworkState(std::int32_t health,
+            ::OpenTK::Mathematics::Vector3 position, bool grounded);
         [[nodiscard]] std::int32_t CooldownFactorRaw() const noexcept { return _cooldownFactorRaw; }
         [[nodiscard]] std::uint32_t NativeShotThreshold() const;
         [[nodiscard]] bool Grounded() const noexcept { return _grounded; }
@@ -91,6 +98,7 @@ namespace MphRead::Entities
             Node& node, std::int32_t recolor = -1) override;
 
     private:
+        void InitializeSpawn(bool splitHealth);
         [[nodiscard]] bool ProcessNativeGameplay();
         std::shared_ptr<PlayerEntity> _owner{};
         std::shared_ptr<EntityBase> _target{};

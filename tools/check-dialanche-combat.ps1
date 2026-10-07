@@ -21,6 +21,7 @@ try {
         ) -WorkingDirectory (Split-Path $taskExe) -WindowStyle Hidden -PassThru `
             -RedirectStandardOutput (Join-Path $taskOutput "peer-$index.log") `
             -RedirectStandardError (Join-Path $taskOutput "peer-$index.err")
+        $null = $taskProcesses[-1].Handle
     }
     $deadline = [DateTime]::UtcNow.AddSeconds(30)
     do {
@@ -38,6 +39,7 @@ try {
         -RedirectStandardOutput (Join-Path $taskOutput 'authority.log') `
         -RedirectStandardError (Join-Path $taskOutput 'authority.err')
     $taskProcesses += $authority
+    $null = $authority.Handle
     foreach ($process in $taskProcesses) {
         if (!$process.WaitForExit(45000)) { throw "Process $($process.Id) timed out" }
         if ($process.ExitCode -ne 0) { throw "Process $($process.Id) failed (exit $($process.ExitCode)); logs: $taskOutput" }

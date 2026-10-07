@@ -58,9 +58,11 @@ namespace MphRead::Mods::Network
         data[5] = 0;
         NetHealthSync::Receive(data);
         check(NetHealthSync::TryGet(4, state) && state.Available, "old match mutated health");
-        check(SnapshotHeader::Size + PlayerState::Size * Entities::PlayerEntity::SlotCapacity
-            + NetMatchTimeSync::Size + NetHealthSync::HeaderSize + NetHealthSync::MaxSpawns * NetHealthSync::EntrySize
-            < NetConfig::MaxPacketSize, "full snapshot exceeds datagram budget");
+        constexpr auto playerBytes = SnapshotHeader::Size + PlayerState::Size * Entities::PlayerEntity::SlotCapacity
+            + NetMatchTimeSync::Size;
+        constexpr auto capacity = NetHealthSync::PacketEntries(NetConfig::MaxPacketSize - 1 - playerBytes);
+        check(capacity > 0 && playerBytes + NetHealthSync::HeaderSize + capacity * NetHealthSync::EntrySize
+            < NetConfig::MaxPacketSize, "bounded snapshot exceeds datagram budget");
         std::array<std::uint8_t, NetMatchTimeSync::Size> times{};
         Runtime::WriteSingleLittleEndian(std::span<std::uint8_t>(times).subspan(60), 100);
         check(NetMatchTimeSync::Validate(times), "valid objective clocks rejected");

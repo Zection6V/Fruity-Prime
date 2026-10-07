@@ -199,6 +199,29 @@ namespace MphRead::Entities
 
     void HalfturretEntity::Initialize()
     {
+        InitializeSpawn(true);
+    }
+
+    void HalfturretEntity::InitializeFromNetworkState(std::int32_t health, Vector3 position, bool grounded)
+    {
+        InitializeSpawn(false);
+        ApplyNetworkState(health, position, grounded);
+    }
+
+    void HalfturretEntity::ApplyNetworkState(std::int32_t health, Vector3 position, bool grounded)
+    {
+        const Vector3 previous = Position;
+        _health = health;
+        Position = position;
+        _grounded = grounded;
+        if (grounded) _ySpeed = 0.0F;
+        NodeRef = RequireReference(_scene).UpdateNodeRef(NodeRef, previous, position);
+        _closestNode.reset();
+        UpdateLightSources(position);
+    }
+
+    void HalfturretEntity::InitializeSpawn(bool splitHealth)
+    {
         ResetForSpawn();
         PlayerEntity& owner = RequireReference(_owner);
         SetRecolor(owner.Recolor());
@@ -210,12 +233,12 @@ namespace MphRead::Entities
         _aimVector = facing;
         NodeRef = owner.NodeRef;
         const std::int32_t health = owner.Health();
-        if (health > 1)
+        if (splitHealth && health > 1)
         {
             _health = health / 2;
             owner.SetHealth(health - _health);
         }
-        else
+        else if (splitHealth)
         {
             _health = 1;
         }
@@ -298,6 +321,9 @@ namespace MphRead::Entities
         {
             return true;
         }
+        // Halfturret precedes Player in the scene's entity list. Advance the
+        // owner's native clocks once, before either entity's decision reads them.
+        RequireReference(_owner).AdvanceNativeWeaponTimers();
         return ProcessNativeGameplay();
     }
 
@@ -386,8 +412,7 @@ namespace MphRead::Entities
                     _cooldownTimer = 1;
                 }
                 (void)UpdateAim(muzzlePos, _target->Position, _equipInfo, _aimVector);
-                // Player's shared weapon timer still counts 60 Hz steps.
-                if (owner.TimeSinceShot() >= NativeShotThreshold() * 2U && _cooldownTimer < 60)
+                if (owner.NativeTimeSinceShot() >= NativeShotThreshold() && _cooldownTimer < 60)
                 {
                     if (owner.IsBot() && GameState::SinglePlayer()
                         && (encounter == 1 || encounter == 3 || encounter == 4))

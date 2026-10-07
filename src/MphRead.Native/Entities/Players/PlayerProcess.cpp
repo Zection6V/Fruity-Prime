@@ -552,10 +552,6 @@ namespace MphRead::Entities
         {
             --_altAttackCooldown;
         }
-        if (_boostAimLock > 0)
-        {
-            --_boostAimLock;
-        }
         if (_jumpPadControlLock > 0)
         {
             --_jumpPadControlLock;

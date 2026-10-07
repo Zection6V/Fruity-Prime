@@ -362,6 +362,7 @@ namespace MphRead::Entities
                 + " AltAttack=" + std::string(ToString(controls.AltAttack().Type())) + ":" + controls.AltAttack().ToString());
         }
         _loggedCapture = captured;
+        _touch.Step({active, Mods::InputSettings::Current().MouseAim(), _mouseDeltaX, _mouseDeltaY});
     }
 
     // Input is not read while a menu or chat owns it, but the match keeps
@@ -375,6 +376,7 @@ namespace MphRead::Entities
         PrevKeyboardState.reset(); KeyboardState.reset();
         PrevMouseState.reset(); MouseState.reset();
         HasInput = false;
+        _touch.Suspend();
     }
 
     void PlayerEntity::ProcessInput()
@@ -1535,7 +1537,9 @@ namespace MphRead::Entities
         _flags1 |= PlayerFlags1::UsedJump;
         if (_frozenTimer == 0 && _health > 0)
         {
-            if ((!_controls.RollRight().IsDown() && !_controls.RolltLeft().IsDown()
+            // 02021C78: a touch delta releases the override too.
+            if (_input.Touch().Delta4X != 0 || _input.Touch().Delta4Y != 0
+                || (!_controls.RollRight().IsDown() && !_controls.RolltLeft().IsDown()
                     && !_controls.RollUp().IsDown() && !_controls.RollDown().IsDown())
                 || _controls.RollRight().IsPressed() || _controls.RolltLeft().IsPressed()
                 || _controls.RollUp().IsPressed() || _controls.RollDown().IsPressed())
@@ -1669,13 +1673,8 @@ namespace MphRead::Entities
                 {
                     traction *= Fixed::ToFloat(_values.JumpPadSlideFactor);
                 }
-                // A boost a flick aimed travels where it was aimed. See
-                // _boostAimLock: roll traction across a dash rotates it, so it
-                // is held off for a short while after an aimed one only.
-                if (_boostAimLock > 0)
-                {
-                    traction = 0;
-                }
+                // 02021DD0-02021F0C: touch roll first, then the digital roll adds to it.
+                ApplyTouchRoll(speedDelta);
                 if (_controls.RollUp().IsDown())
                 {
                     speedDelta.X += _altRollFbX * traction;
@@ -1828,120 +1827,7 @@ namespace MphRead::Entities
                 }
                 if (TestFlag(_abilities, AbilityFlags::Boost) && _attachedEnemy == nullptr)
                 {
-                    // A whip of the mouse is the same gesture from the
-                    // desktop's end, and asks through the same one-shot.
-                    // See Mods::Input::MouseFlick.
-                    ModCheckMouseFlick();
-                    const bool swipeBoost = _swipeBoostRequested;
-                    _swipeBoostRequested = false;
-                    float boostDirX = _field70;
-                    float boostDirZ = _field74;
-                    bool boostAimed = false;
-                    if (swipeBoost && (_swipeBoostX != 0.0F || _swipeBoostY != 0.0F))
-                    {
-                        const float forward = -_swipeBoostY;
-                        const float left = -_swipeBoostX;
-                        const float dirX = _altRollFbX * forward + _altRollLrX * left;
-                        const float dirZ = _altRollFbZ * forward + _altRollLrZ * left;
-                        const float dirMag = std::sqrt(dirX * dirX + dirZ * dirZ);
-                        if (dirMag > 1.0F / 4096.0F)
-                        {
-                            boostDirX = dirX / dirMag;
-                            boostDirZ = dirZ / dirMag;
-                            boostAimed = true;
-                            // Long enough to read as the direction asked for,
-                            // short enough that the ball stays steerable.
-                            _boostAimLock = 18;
-                            if (Mods::DebugLog::Active())
-                            {
-                                Mods::DebugLog::Line("input", "boost flick screen ("
-                                    + ::MphRead::NativeRuntime::ToString(_swipeBoostX, "0.00") + ", "
-                                    + ::MphRead::NativeRuntime::ToString(_swipeBoostY, "0.00") + ") -> ("
-                                    + ::MphRead::NativeRuntime::ToString(forward, "0.00") + " fwd, "
-                                    + ::MphRead::NativeRuntime::ToString(left, "0.00") + " left) -> world ("
-                                    + ::MphRead::NativeRuntime::ToString(boostDirX, "0.00") + ", "
-                                    + ::MphRead::NativeRuntime::ToString(boostDirZ, "0.00") + ")");
-                            }
-                        }
-                    }
-                    _swipeBoostX = 0.0F;
-                    _swipeBoostY = 0.0F;
-                    if (_controls.Boost().IsDown() && !swipeBoost)
-                    {
-                        if (_boostCharge < _values.BoostChargeMax * 2)
-                        {
-                            ++_boostCharge;
-                        }
-                    }
-                    else
-                    {
-                        if (swipeBoost)
-                        {
-                            _boostCharge = static_cast<std::uint16_t>(_values.BoostChargeMax * 2);
-                        }
-                        if (_boostCharge > _values.BoostChargeMin * 2)
-                        {
-                            if (Features::FullBoostCharge())
-                            {
-                                _boostCharge = static_cast<std::uint16_t>(_values.BoostChargeMax * 2);
-                            }
-                            if (_boostCharge > 0)
-                            {
-                                const auto hunterSfx = Metadata::HunterSfx();
-                                const auto& hunterSounds = ManagedAt(
-                                    RequireReference(hunterSfx), static_cast<std::int32_t>(_hunter));
-                                const std::int32_t sfx = ManagedAt(
-                                    hunterSounds, static_cast<std::int32_t>(HunterSfx::Boost));
-                                _soundSource.PlaySfx(sfx);
-                            }
-                            const float boostHCap = Fixed::ToFloat(_values.BoostSpeedCap) * _boostCharge
-                                / static_cast<float>(_values.BoostChargeMax * 2);
-                            if (_hSpeedCap < boostHCap) _hSpeedCap = boostHCap;
-                            const float factor = Fixed::ToFloat(_values.BoostSpeedMin)
-                                + _boostCharge * (Fixed::ToFloat(_values.BoostSpeedMax)
-                                    - Fixed::ToFloat(_values.BoostSpeedMin))
-                                / static_cast<float>(_values.BoostChargeMax * 2);
-                            if (boostAimed)
-                            {
-                                // What the roll binds put into this frame goes
-                                // first, and the ball leaves along the flick
-                                // with the momentum it already had that way.
-                                speedDelta.X = 0;
-                                speedDelta.Z = 0;
-                                float along = _speed.X * boostDirX + _speed.Z * boostDirZ;
-                                if (along < 0)
-                                {
-                                    along = 0;
-                                }
-                                _speed = WithZ(WithX(_speed, boostDirX * along), boostDirZ * along);
-                            }
-                            speedDelta = AddZ(AddX(speedDelta, boostDirX * factor), boostDirZ * factor);
-                            _altAttackCooldown = static_cast<std::uint16_t>(_values.AltAttackCooldown * 2);
-                            _flags1 |= PlayerFlags1::Boosting;
-                            ModControllerFeedback(Mods::Input::GamepadFeedback::Boost);
-                            _boostDamage = static_cast<std::uint16_t>(
-                                _values.AltAttackDamage * _boostCharge / (_values.BoostChargeMax * 2));
-                            if (IsMainPlayer())
-                            {
-                                RequireReference(_boostInst).SetAnimation(0, 10, 11, 0);
-                            }
-                            if (_boostEffect != nullptr)
-                            {
-                                RequireReference(_scene).UnlinkEffectEntry(_boostEffect);
-                                _boostEffect.reset();
-                            }
-                            const Vector3 boostVec1 = boostAimed
-                                ? Vector3(boostDirZ, 0.0F, -boostDirX) : _gunVec2;
-                            const Vector3 boostVec2 = boostAimed
-                                ? Vector3(boostDirX, 0.0F, boostDirZ) : _facingVector;
-                            _boostEffect = RequireReference(_scene).SpawnEffectGetEntry(136, boostVec1, boostVec2, static_cast<Vector3>(Position));
-                            if (_boostEffect != nullptr)
-                            {
-                                _boostEffect->SetElementExtension(true);
-                            }
-                        }
-                        _boostCharge = 0;
-                    }
+                    ProcessBoost(speedDelta);
                 }
             }
 

@@ -17,6 +17,8 @@ namespace MphRead::Mods::Input
         _acceptingInput = acceptsInput;
         const PointerSample previous = _current;
         _current = sample;
+        _surfaceWidth = static_cast<float>(std::max(width, 1));
+        _surfaceHeight = static_cast<float>(std::max(height, 1));
         StylusZone::AspectCorrection(static_cast<float>(width) / static_cast<float>(std::max(height, 1)));
         if (sample.Device != previous.Device || sample.Id != previous.Id)
         {

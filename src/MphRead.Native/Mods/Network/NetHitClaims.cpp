@@ -151,7 +151,7 @@ namespace MphRead::Mods::Network
 
     std::uint16_t NetHitClaims::Declare(PlayerEntity& victim, PlayerEntity& attacker, ::MphRead::BeamType beam,
         std::uint32_t damage, DamageFlags flags, bool lethal, OpenTK::Mathematics::Vector3 hitPoint,
-        std::uint32_t launchFrame)
+        std::uint32_t launchFrame, std::optional<OpenTK::Mathematics::Vector3> impulse, ::MphRead::Affliction afflictions)
     {
         if (!Claiming() || &victim == &attacker || damage == 0
             || NetPlayerLifecycle::Get(victim.SlotIndex()) == 0 || NetPlayerLifecycle::Get(attacker.SlotIndex()) == 0)
@@ -172,9 +172,21 @@ namespace MphRead::Mods::Network
         {
             claimFlags = static_cast<std::uint8_t>(claimFlags | HitClaimPacket::FlagLethal);
         }
-        if (victim.ModFrozen())
+        if (victim.ModFrozen() || ::MphRead::TestFlag(afflictions, ::MphRead::Affliction::Freeze))
         {
             claimFlags = static_cast<std::uint8_t>(claimFlags | HitClaimPacket::FlagFrozen);
+        }
+        if (::MphRead::TestFlag(afflictions, ::MphRead::Affliction::Burn))
+        {
+            claimFlags = static_cast<std::uint8_t>(claimFlags | HitClaimPacket::FlagBurning);
+        }
+        if (::MphRead::TestFlag(afflictions, ::MphRead::Affliction::Disrupt))
+        {
+            claimFlags = static_cast<std::uint8_t>(claimFlags | HitClaimPacket::FlagDisrupted);
+        }
+        if (impulse.has_value())
+        {
+            claimFlags = static_cast<std::uint8_t>(claimFlags | HitClaimPacket::FlagImpulse);
         }
         std::int32_t index = -1;
         for (std::int32_t i = 0; i < OutboxCapacity; i++)
@@ -219,6 +231,7 @@ namespace MphRead::Mods::Network
         entry.Damage = static_cast<std::uint16_t>(std::min<std::uint32_t>(damage, 0xFFFFU));
         entry.Flags = claimFlags;
         entry.HitPoint = hitPoint;
+        entry.Impulse = impulse.value_or(OpenTK::Mathematics::Vector3::Zero);
         entry.Age = 0;
         entry.Sends = 0;
         entry.Live = true;
@@ -277,6 +290,7 @@ namespace MphRead::Mods::Network
             packet.Damage = entry.Damage;
             packet.Flags = entry.Flags;
             packet.HitPoint = entry.HitPoint;
+            packet.Impulse = entry.Impulse;
             packet.Write(Runtime::SpanSlice(dest, offset));
             offset += HitClaimPacket::Size;
             if (entry.Sends > 0)
@@ -803,8 +817,16 @@ namespace MphRead::Mods::Network
         entry.AckFrame = claim.AckFrame;
         entry.LaunchFrame = claim.LaunchFrame;
         entry.HitPoint = claim.HitPoint;
+        entry.Impulse = claim.Impulse;
         entry.Arrived = NetSession::NetFrame();
-        entry.Grace = GraceFor(shooterSlot);
+        // With shooter-authoritative hits there is no copy of the authority's
+        // own to wait for: the claim is the hit, applied on the next tick in
+        // fire-frame order.
+        // A bot victim is still resolved here as well, so its claims keep the
+        // window that pairs them with the authority's own copy.
+        const bool botVictim = claim.VictimSlot < PlayerEntity::Players().size()
+            && PlayerAt(claim.VictimSlot).IsBot();
+        entry.Grace = _shooterHits && !botVictim ? 0 : GraceFor(shooterSlot);
         entry.Live = true;
         _pending[static_cast<std::size_t>(index)] = entry;
     }
@@ -1108,7 +1130,10 @@ namespace MphRead::Mods::Network
         {
             const NetDamage::ClaimScope scope(entry.Beam == HitClaimPacket::NoBeam
                 ? ::MphRead::BeamType::None : static_cast<::MphRead::BeamType>(entry.Beam));
-            victim.TakeDamage(static_cast<std::uint32_t>(entry.Damage), flags, std::nullopt, &shooter);
+            victim.TakeDamage(static_cast<std::uint32_t>(entry.Damage), flags,
+                (entry.Flags & HitClaimPacket::FlagImpulse) != 0
+                    ? std::optional<OpenTK::Mathematics::Vector3>(entry.Impulse) : std::nullopt,
+                &shooter);
         }
         catch (...)
         {
@@ -1121,6 +1146,14 @@ namespace MphRead::Mods::Network
             _refusedHere++;
             Answer(shooterSlot, entry.Id, HitVerdictPacket::ResultNoDamage);
             return;
+        }
+        if ((entry.Flags & HitClaimPacket::FlagBurning) != 0 && victim.Health() > 0)
+        {
+            victim.ModSetBurning(true);
+        }
+        if ((entry.Flags & HitClaimPacket::FlagDisrupted) != 0 && victim.Health() > 0)
+        {
+            victim.ModSetDisrupted(true);
         }
         if ((entry.Flags & HitClaimPacket::FlagFrozen) != 0 && victim.Health() > 0)
         {
@@ -1250,6 +1283,7 @@ namespace MphRead::Mods::Network
         _appliedHere = 0;
         _duplicateHere = 0;
         _finishedHere = 0;
+        _serverCopiesSuppressed = 0;
         _voidedDeadShooter = 0;
         _voidedDeadVictim = 0;
         _refusedHere = 0;
@@ -1347,7 +1381,7 @@ namespace MphRead::Mods::Network
             return "hit claims (as authority): " + std::to_string(_received) + " received, "
                 + std::to_string(_appliedHere) + " applied (" + std::to_string(_rescuedDamage) + " damage, "
                 + std::to_string(_rescuedKills) + " kills, " + std::to_string(_rescuedHeadshots)
-                + " headshots rescued), " + std::to_string(_duplicateHere) + " already resolved (" + std::to_string(_finishedHere) + " finished as kills), "
+                + " headshots rescued), " + std::to_string(_duplicateHere) + " already resolved (" + std::to_string(_finishedHere) + " finished as kills), " + (_shooterHits ? "shooter-authoritative (" + std::to_string(_serverCopiesSuppressed) + " server copies not applied), " : std::string())
                 + std::to_string(_voidedDeadShooter) + " from a shooter already dead, "
                 + std::to_string(_voidedDeadVictim) + " on a victim already down, "
                 + std::to_string(_refusedHere) + " refused, " + std::to_string(_tooOldHere) + " too old, "

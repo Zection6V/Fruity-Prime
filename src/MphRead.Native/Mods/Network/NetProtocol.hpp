@@ -405,6 +405,14 @@ namespace MphRead::Mods::Network
         // lives in TouchFlags; identical deltas still identify distinct ticks.
         static constexpr std::int32_t TouchSize = LegacyTouchSize + 4;
         static constexpr std::int32_t FullSize = Size + StateSize + TouchSize;
+        // The ray of the shot this frame actually fired, after spread: the
+        // authority fires the same ray instead of rebuilding one from a body
+        // position and a gun vector a frame older than the trigger.
+        static constexpr std::int32_t ShotSize = 24;
+        static constexpr std::int32_t ShotFullSize = FullSize + ShotSize;
+        bool HasShot = false;
+        ::OpenTK::Mathematics::Vector3 ShotOrigin{};
+        ::OpenTK::Mathematics::Vector3 ShotDirection{};
 
         std::uint8_t ChargeLevel = 0;
         std::uint8_t BoostDamage = 0;
@@ -543,7 +551,7 @@ namespace MphRead::Mods::Network
         std::uint16_t ShooterLifeId = 0;
         std::uint16_t VictimGeneration = 0;
         std::uint16_t VictimLifeId = 0;
-        static constexpr std::int32_t Size = 2 + 4 + 4 + 4 + 1 + 1 + 2 + 1 + 12 + 18;
+        static constexpr std::int32_t Size = 2 + 4 + 4 + 4 + 1 + 1 + 2 + 1 + 12 + 18 + 12;
 
         static constexpr std::int32_t MaxPerPacket = 6;
 
@@ -554,6 +562,9 @@ namespace MphRead::Mods::Network
         static constexpr std::uint8_t FlagFrozen = 1U << 2;
         static constexpr std::uint8_t FlagBurning = 1U << 3;
         static constexpr std::uint8_t FlagDisrupted = 1U << 4;
+        // Impulse holds the knockback the shooter's machine applied; the
+        // authority applies the same one, since it no longer resolves the hit.
+        static constexpr std::uint8_t FlagImpulse = 1U << 5;
 
         std::uint16_t ClaimId = 0;
         std::uint32_t Frame = 0;
@@ -564,6 +575,7 @@ namespace MphRead::Mods::Network
         std::uint16_t Damage = 0;
         std::uint8_t Flags = 0;
         ::OpenTK::Mathematics::Vector3 HitPoint{};
+        ::OpenTK::Mathematics::Vector3 Impulse{};
 
         void Write(std::span<std::uint8_t> dest) const;
         [[nodiscard]] static HitClaimPacket Read(std::span<const std::uint8_t> src);
@@ -602,7 +614,7 @@ namespace MphRead::Mods::Network
     public:
         static constexpr std::uint16_t DefaultPort = 27888;
         static constexpr std::int32_t MaxPacketSize = 1232;
-        static constexpr std::int32_t ProtocolVersion = 16;
+        static constexpr std::int32_t ProtocolVersion = 17;
         static constexpr std::int32_t IntentSendInterval = 1;
         static constexpr double TimeoutSeconds = 30.0;
 

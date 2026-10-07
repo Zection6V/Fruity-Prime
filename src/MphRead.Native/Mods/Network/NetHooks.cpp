@@ -118,9 +118,40 @@ namespace MphRead::Mods::Network
         {
             return current;
         }
+        const IntentPacket& intent = NetSession::RemoteIntents.at(static_cast<std::size_t>(player.SlotIndex()));
+        // The shooter's own ray, when the intent that pulled this trigger
+        // carries it -- but never one far from where the authority has them.
+        if (intent.HasShot && OpenTK::Mathematics::LengthSquared(intent.ShotOrigin - intent.Position) < 9.0F)
+        {
+            return intent.ShotOrigin;
+        }
         return current
             + NetSession::RemoteIntents.at(static_cast<std::size_t>(player.SlotIndex())).Position
             - player.Position;
+    }
+
+    OpenTK::Mathematics::Vector3 NetHooks::DrawnRemoteShot(
+        Entities::PlayerEntity& player, OpenTK::Mathematics::Vector3 origin, OpenTK::Mathematics::Vector3 current)
+    {
+        if (!NetSession::Active() || NetSession::IsAuthority() || NetSession::IsHost()
+            || player.SlotIndex() == NetSession::LocalSlot() || player.IsBot())
+        {
+            return current;
+        }
+        // A remote player's shot drawn here: their exact ray when it came with
+        // the intent, turned onto this player when it was aimed at them in
+        // the world the shooter was looking at -- from the gun drawn here, so
+        // the shot that hits is the shot seen arriving.
+        OpenTK::Mathematics::Vector3 from{};
+        OpenTK::Mathematics::Vector3 direction{};
+        std::uint32_t ack = 0;
+        NetPlayerBridge::ShooterRay(player, origin, from, direction, ack);
+        if (!(direction.LengthSquared() > 0.0001F))
+        {
+            return current;
+        }
+        const OpenTK::Mathematics::Vector3 turned = NetPlayerBridge::RetargetAtLocal(player, origin, direction, ack, from);
+        return (turned - direction).LengthSquared() == 0.0F ? current : turned;
     }
 
     OpenTK::Mathematics::Vector3 NetHooks::RemoteShotDirection(
@@ -131,6 +162,11 @@ namespace MphRead::Mods::Network
             && static_cast<std::size_t>(player.SlotIndex()) < NetSession::RemoteIntents.size()
             && NetPlayerBridge::AimTrusted(player.SlotIndex()))
         {
+            const IntentPacket& intent = NetSession::RemoteIntents.at(static_cast<std::size_t>(player.SlotIndex()));
+            if (intent.HasShot && OpenTK::Mathematics::LengthSquared(intent.ShotOrigin - intent.Position) < 9.0F)
+            {
+                return intent.ShotDirection.Normalized();
+            }
             const OpenTK::Mathematics::Vector3 aim
                 = NetSession::RemoteIntents.at(
                     static_cast<std::size_t>(player.SlotIndex())).Aim;
@@ -248,7 +284,16 @@ namespace MphRead::Mods::Network
             NetPlayerBridge::RecordPresses(*player);
             if (NetSession::NetFrame() % NetConfig::IntentSendInterval == 0)
             {
-                NetSession::SendIntent(NetPlayerBridge::CaptureIntent(*player));
+                // Captured now, before the simulation, so the position and
+                // the buttons are the ones the frame starts from; sent after
+                // it (AfterSimulation), carrying the ray the frame fired.
+                if (_intentPending)
+                {
+                    NetSession::SendIntent(_pendingIntent);
+                }
+                _pendingIntent = NetPlayerBridge::CaptureIntent(*player);
+                _pendingIntent.Frame = std::max(1U, NetSession::NetFrame());
+                _intentPending = true;
             }
         }
         else
@@ -262,6 +307,12 @@ namespace MphRead::Mods::Network
         if (!NetSession::Active() || !NetRoomChange::GameplayReady())
         {
             return;
+        }
+        if (_intentPending)
+        {
+            _intentPending = false;
+            NetPlayerBridge::AttachLocalShot(_pendingIntent);
+            NetSession::SendIntent(_pendingIntent);
         }
         NetSmoothing::Tick();
 

@@ -861,7 +861,8 @@ namespace MphRead::Mods::Network
 
         ConsoleWriteLine("    hits taken that were seen landing: " + ::MphRead::NativeRuntime::ToString(NetDamage::HitsTakenSeen)
             + " of " + ::MphRead::NativeRuntime::ToString(NetDamage::HitsTaken) + " (remote aims turned onto this player on "
-            + ::MphRead::NativeRuntime::ToString(NetPlayerBridge::AimsRetargeted()) + " frames)");
+            + ::MphRead::NativeRuntime::ToString(NetPlayerBridge::AimsRetargeted()) + " frames, "
+            + ::MphRead::NativeRuntime::ToString(NetPlayerBridge::ShotsSteered()) + " shots in flight steered onto it)");
         {
             static constexpr const char* names[] = {"PowerBeam", "VoltDriver", "Missile", "Battlehammer",
                 "Imperialist", "Judicator", "Magmaul", "ShockCoil", "OmegaCannon", "Platform", "other"};

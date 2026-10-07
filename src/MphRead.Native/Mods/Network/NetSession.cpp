@@ -1548,13 +1548,19 @@ namespace MphRead::Mods::Network
         {
             return;
         }
-        intent.Frame = _netFrame;
+        // A deferred intent keeps the frame it was captured on (NetHooks sends
+        // it after the simulation, to carry the ray the frame really fired).
+        if (intent.Frame == 0)
+        {
+            intent.Frame = _netFrame;
+        }
         intent.MatchId = CurrentMatchId();
         intent.AuthorityEpoch = AuthorityEpoch();
         intent.SlotGeneration = NetPlayerLifecycle::Generation(_localSlot);
         intent.LifeId = NetPlayerLifecycle::Get(_localSlot);
-        intent.Write(_scratch);
-        _transport->Send(_hostEndPoint, PacketType::Intent, First(_scratch, IntentPacket::FullSize));
+        const auto size = static_cast<std::size_t>(intent.HasShot ? IntentPacket::ShotFullSize : IntentPacket::FullSize);
+        intent.Write(std::span<std::uint8_t>(_scratch.data(), size));
+        _transport->Send(_hostEndPoint, PacketType::Intent, First(_scratch, size));
         if (_localSlot >= 0)
         {
             DemoRecorder::RecordOwnIntent(_localSlot, First(_scratch, IntentPacket::FullSize));

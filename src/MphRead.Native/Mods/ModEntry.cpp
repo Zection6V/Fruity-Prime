@@ -1310,6 +1310,11 @@ namespace MphRead::Mods
             Network::NetHitPrediction::SetMarkerEnabled(false);
             WriteLine("[hud] hit marker off");
         }
+        if (::HasFlag(args, "servershots"))
+        {
+            Network::NetHitClaims::ShooterHits(false);
+            WriteLine("[net] the authority resolves remote players' hits itself; claims only rescue");
+        }
         if (::HasFlag(args, "noretarget"))
         {
             Network::NetPlayerBridge::RetargetEnabled(false);

@@ -53,6 +53,9 @@ namespace MphRead::Mods::Network
         static void NoteRoomChanged();
         static void Reset();
         static void ForgetSlot(std::int32_t slot);
+        // The ray this machine's own player fired on this frame, after spread.
+        static void NoteLocalShot(OpenTK::Mathematics::Vector3 origin, OpenTK::Mathematics::Vector3 direction) noexcept;
+        static void AttachLocalShot(IntentPacket& intent) noexcept;
         // The victim's view of a remote shot. A remote player's aim is the
         // one they had on their own screen, where this player stood a round
         // trip ago; drawn as is, the shot sails past and the damage lands
@@ -61,8 +64,17 @@ namespace MphRead::Mods::Network
         // shot that hits is also the shot that is seen hitting.
         [[nodiscard]] static OpenTK::Mathematics::Vector3 RetargetAtLocal(const Entities::PlayerEntity& shooter,
             OpenTK::Mathematics::Vector3 origin, OpenTK::Mathematics::Vector3 aim, std::uint32_t ackFrame,
-            OpenTK::Mathematics::Vector3 reportedPosition);
+            OpenTK::Mathematics::Vector3 aimedFrom);
+        // The shooter's own ray, when the intent carries it, else its aim
+        // from where it reported standing (plus the drawn gun's offset).
+        static void ShooterRay(const Entities::PlayerEntity& shooter, OpenTK::Mathematics::Vector3 drawnMuzzle,
+            OpenTK::Mathematics::Vector3& from, OpenTK::Mathematics::Vector3& direction, std::uint32_t& ackFrame);
         [[nodiscard]] static std::int64_t AimsRetargeted() noexcept { return _aimsRetargeted; }
+        // The authority says that player hit this one: if one of their shots
+        // drawn here is still in the air, it is the one, and it is turned onto
+        // this player so the hit is seen arriving with the damage.
+        static void SteerIncoming(std::int32_t attackerSlot);
+        [[nodiscard]] static std::int64_t ShotsSteered() noexcept { return _shotsSteered; }
         static void RetargetEnabled(bool value) noexcept { _retargetEnabled = value; }
         [[nodiscard]] static std::int64_t KillsResynced() noexcept { return _killsResynced; }
         // Apply the next snapshot of this slot as a fresh life: used when a
@@ -133,7 +145,11 @@ namespace MphRead::Mods::Network
         inline static std::array<std::uint32_t, LocalHistory> _localFrames{};
         inline static std::array<OpenTK::Mathematics::Vector3, LocalHistory> _localPositions{};
         inline static std::int64_t _aimsRetargeted = 0;
+        inline static std::int64_t _shotsSteered = 0;
         inline static bool _retargetEnabled = true;
+        inline static std::uint32_t _localShotFrame = 0;
+        inline static OpenTK::Mathematics::Vector3 _localShotOrigin{};
+        inline static OpenTK::Mathematics::Vector3 _localShotDirection{};
         inline static std::uint32_t _lastRetargetFrame = 0;
         inline static std::array<std::int32_t, Slots> _divergedFrames{};
 

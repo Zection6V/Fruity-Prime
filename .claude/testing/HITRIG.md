@@ -105,6 +105,14 @@ a shot travels towards a point a fixed distance down the aim ray, so aiming
 straight at something further away lands low, and on a 0.3-unit band low is a
 body shot.
 
+**`-hitrig all` is the fourth, native only**, and the one the shooter-authoritative
+work was measured with ([NETWORK-SHOOTER-AUTHORITY](../multiplayer/NETWORK-SHOOTER-AUTHORITY.md)).
+The odd slot rides `TEST PADS`'s jump pads without stopping -- it walks back onto
+the nearest pad every time it lands -- and shoots back while airborne; the even
+slot holds range and fires each of the nine weapons for 20 s in turn, ammo
+refilled. It is the only mode in which both players shoot with every weapon at a
+target that is always in the air.
+
 ## The map
 
 `TEST ARENA` (`maps/arena/arena.json`), because it guarantees the one thing the

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../Formats/Types.hpp"
+#include "NetProtocol.hpp"
 
 #include <cstdint>
 
@@ -31,6 +32,8 @@ namespace MphRead::Mods::Network
         static void AfterRemoteMovement(Entities::PlayerEntity& player);
         [[nodiscard]] static OpenTK::Mathematics::Vector3 RemoteShotOrigin(
             Entities::PlayerEntity& player, OpenTK::Mathematics::Vector3 current);
+        [[nodiscard]] static OpenTK::Mathematics::Vector3 DrawnRemoteShot(
+            Entities::PlayerEntity& player, OpenTK::Mathematics::Vector3 origin, OpenTK::Mathematics::Vector3 current);
         [[nodiscard]] static OpenTK::Mathematics::Vector3 RemoteShotDirection(
             Entities::PlayerEntity& player, OpenTK::Mathematics::Vector3 current);
         [[nodiscard]] static bool TryApplyRemoteInput(
@@ -44,6 +47,8 @@ namespace MphRead::Mods::Network
         static constexpr std::uint32_t StaleIntentFrames = 30U;
 
         inline static bool _pinPuppetsOnClients = false;
+        inline static bool _intentPending = false;
+        inline static IntentPacket _pendingIntent{};
         inline static bool _snapshotOwnsPuppets = true;
 
         [[nodiscard]] static bool SnapshotPositions();

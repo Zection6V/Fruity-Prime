@@ -1363,6 +1363,7 @@ namespace MphRead::Entities
         {
             shotVec = Mods::Network::NetHooks::RemoteShotDirection(*this, shotVec);
         }
+        shotVec = Mods::Network::NetHooks::DrawnRemoteShot(*this, shotOrigin, shotVec);
         if (_disruptedTimer > 0)
         {
             shotVec.X += Fixed::ToFloat(static_cast<std::int32_t>(Rng::GetRandomInt2(24576)) - 12288);
@@ -1370,6 +1371,11 @@ namespace MphRead::Entities
             shotVec.Z += Fixed::ToFloat(static_cast<std::int32_t>(Rng::GetRandomInt2(24576)) - 12288);
         }
         shotVec = shotVec.Normalized();
+        if (Mods::Network::NetSession::Active() && SlotIndex() == Mods::Network::NetHooks::LocalSlot()
+            && !Mods::Network::NetSession::IsAuthority())
+        {
+            Mods::Network::NetPlayerBridge::NoteLocalShot(shotOrigin, shotVec);
+        }
         const std::shared_ptr<WeaponInfo> curWeapon = _equipInfo->Weapon;
         if (IsPrimeHunter())
         {

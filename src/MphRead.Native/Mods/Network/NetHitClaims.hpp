@@ -61,7 +61,16 @@ namespace MphRead::Mods::Network
         static std::uint16_t Declare(::MphRead::Entities::PlayerEntity& victim,
             ::MphRead::Entities::PlayerEntity& attacker, ::MphRead::BeamType beam, std::uint32_t damage,
             ::MphRead::Entities::DamageFlags flags, bool lethal, OpenTK::Mathematics::Vector3 hitPoint,
-            std::uint32_t launchFrame);
+            std::uint32_t launchFrame, std::optional<OpenTK::Mathematics::Vector3> impulse = std::nullopt,
+            ::MphRead::Affliction afflictions = ::MphRead::Affliction::None);
+        // Shooter-authoritative hits: a remote player's hit on another player
+        // is the one their own machine resolved, validated here, and the
+        // authority's own copy of it is not applied (NetDamage::Suppress).
+        // -servershots restores the authority resolving them itself.
+        [[nodiscard]] static bool ShooterHits() noexcept { return _shooterHits; }
+        static void ShooterHits(bool value) noexcept { _shooterHits = value; }
+        [[nodiscard]] static bool ApplyingClaimNow() noexcept { return _applyingClaim; }
+        static void NoteServerCopySuppressed() noexcept { _serverCopiesSuppressed++; }
         [[nodiscard]] static std::int32_t Compose(std::span<std::uint8_t> dest);
         static void ApplyVerdicts(std::span<const std::uint8_t> payload);
 
@@ -136,6 +145,7 @@ namespace MphRead::Mods::Network
             std::uint16_t Damage = 0;
             std::uint8_t Flags = 0;
             OpenTK::Mathematics::Vector3 HitPoint{};
+            OpenTK::Mathematics::Vector3 Impulse{};
             std::int32_t Age = 0;
             std::int32_t Sends = 0;
             bool Live = false;
@@ -158,6 +168,7 @@ namespace MphRead::Mods::Network
             std::uint32_t AckFrame = 0;
             std::uint32_t LaunchFrame = 0;
             OpenTK::Mathematics::Vector3 HitPoint{};
+            OpenTK::Mathematics::Vector3 Impulse{};
             std::uint32_t Arrived = 0;
             std::int32_t Grace = 0;
             bool Live = false;
@@ -234,6 +245,8 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static bool FiredAfterOwnDeath(std::size_t shooter, std::uint32_t fired) noexcept;
         static void FinishLethal(const Pending& entry);
         inline static std::int64_t _finishedHere = 0;
+        inline static bool _shooterHits = true;
+        inline static std::int64_t _serverCopiesSuppressed = 0;
         static std::array<bool, Slots> _dead;
         static std::array<std::uint32_t, Slots> _lastHitFire;
         static std::array<bool, Slots> _wasInPlay;

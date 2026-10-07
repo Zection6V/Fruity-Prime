@@ -1278,6 +1278,8 @@ namespace MphRead::Entities
                     }
                     else
                     {
+                        // An explosion reaching a player is an impact they see.
+                        Mods::Network::NetDamage::NotePlayerOverlap(_owner.get(), player);
                         const Vector3 damageDir = GetDamageDirection(Position, player.Position);
                         const float ratio = dist / _splashRadius;
                         const std::int32_t damage = static_cast<std::int32_t>(

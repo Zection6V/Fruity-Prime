@@ -15,6 +15,8 @@
 #include "NetUnlagged.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../Metadata/Weapons.hpp"
+#include "../../Entities/BeamProjectileEntity.hpp"
 
 #include <algorithm>
 #include <array>
@@ -477,9 +479,107 @@ namespace MphRead::Mods::Network
         ApplyAfflictions(player, state);
     }
 
+    void NetPlayerBridge::SteerIncoming(std::int32_t attackerSlot)
+    {
+        using OpenTK::Mathematics::Vector3;
+        const std::int32_t local = NetHooks::LocalSlot();
+        const auto& players = Entities::PlayerEntity::Players();
+        if (!_retargetEnabled || local < 0 || attackerSlot < 0 || attackerSlot == local
+            || static_cast<std::size_t>(attackerSlot) >= players.size() || static_cast<std::size_t>(local) >= players.size())
+        {
+            return;
+        }
+        Entities::PlayerEntity& shooter = *players[static_cast<std::size_t>(attackerSlot)];
+        const Entities::PlayerEntity& me = *players[static_cast<std::size_t>(local)];
+        if (shooter.EquipInfo() == nullptr || shooter.EquipInfo()->Beams == nullptr)
+        {
+            return;
+        }
+        const Vector3 chest = static_cast<Vector3>(me.Position) + Vector3(0.0F, 0.3F, 0.0F);
+        auto& beams = *shooter.EquipInfo()->Beams;
+        Entities::BeamProjectileEntity* best = nullptr;
+        float bestDistance = 40.0F * 40.0F;
+        for (std::int32_t i = 0; i < beams.Length(); ++i)
+        {
+            Entities::BeamProjectileEntity* beam = beams[i].get();
+            if (beam == nullptr || beam->Lifespan() <= 0
+                || ::MphRead::TestFlag(beam->Flags(), Entities::BeamFlags::Collided)
+                || ::MphRead::TestFlag(beam->Flags(), Entities::BeamFlags::Continuous))
+            {
+                continue;
+            }
+            const Vector3 toMe = chest - static_cast<Vector3>(beam->Position);
+            const float distance = toMe.LengthSquared();
+            if (distance < bestDistance && Vector3::Dot(toMe, beam->Velocity()) > 0.0F)
+            {
+                bestDistance = distance;
+                best = beam;
+            }
+        }
+        if (best == nullptr)
+        {
+            return;
+        }
+        const float speed = OpenTK::Mathematics::Length(best->Velocity());
+        const Vector3 toMe = chest - static_cast<Vector3>(best->Position);
+        const float length = OpenTK::Mathematics::Length(toMe);
+        if (!(speed > 0.0001F) || !(length > 0.0001F))
+        {
+            return;
+        }
+        best->SetVelocity(OpenTK::Mathematics::Scale(toMe, speed / length));
+        NativeRuntime::IncrementInPlace(_shotsSteered);
+    }
+
+    void NetPlayerBridge::ShooterRay(const Entities::PlayerEntity& shooter, OpenTK::Mathematics::Vector3 drawnMuzzle,
+        OpenTK::Mathematics::Vector3& from, OpenTK::Mathematics::Vector3& direction, std::uint32_t& ackFrame)
+    {
+        const std::int32_t slot = shooter.SlotIndex();
+        from = drawnMuzzle;
+        direction = OpenTK::Mathematics::Vector3::Zero;
+        ackFrame = 0;
+        if (slot < 0 || static_cast<std::size_t>(slot) >= NetSession::RemoteIntents.size()
+            || !NetSession::RemoteIntentValid[static_cast<std::size_t>(slot)])
+        {
+            return;
+        }
+        const IntentPacket& intent = NetSession::RemoteIntents[static_cast<std::size_t>(slot)];
+        ackFrame = intent.AckFrame;
+        if (intent.HasShot)
+        {
+            from = intent.ShotOrigin;
+            direction = intent.ShotDirection;
+            return;
+        }
+        direction = intent.Aim;
+        if (Sane(intent.Position) && LengthSquared(intent.Position) > 0.0001F)
+        {
+            from = intent.Position + (drawnMuzzle - static_cast<OpenTK::Mathematics::Vector3>(shooter.Position));
+        }
+    }
+
+    void NetPlayerBridge::NoteLocalShot(OpenTK::Mathematics::Vector3 origin, OpenTK::Mathematics::Vector3 direction) noexcept
+    {
+        _localShotFrame = std::max(1U, NetSession::NetFrame());
+        _localShotOrigin = origin;
+        _localShotDirection = direction;
+    }
+
+    void NetPlayerBridge::AttachLocalShot(IntentPacket& intent) noexcept
+    {
+        if (_localShotFrame == 0 || _localShotFrame != std::max(1U, NetSession::NetFrame()))
+        {
+            return;
+        }
+        intent.HasShot = true;
+        intent.ShotOrigin = _localShotOrigin;
+        intent.ShotDirection = _localShotDirection;
+        _localShotFrame = 0;
+    }
+
     OpenTK::Mathematics::Vector3 NetPlayerBridge::RetargetAtLocal(const Entities::PlayerEntity& shooter,
         OpenTK::Mathematics::Vector3 origin, OpenTK::Mathematics::Vector3 aim, std::uint32_t ackFrame,
-        OpenTK::Mathematics::Vector3 reportedPosition)
+        OpenTK::Mathematics::Vector3 aimedFrom)
     {
         using OpenTK::Mathematics::Vector3;
         const std::int32_t local = NetHooks::LocalSlot();
@@ -516,25 +616,64 @@ namespace MphRead::Mods::Network
         // The aim was taken from where the shooter really stood, which on a
         // pad is several units from the puppet drawn here: test the ray from
         // there, then draw the turned shot from the gun this player can see.
-        const Vector3 muzzleOffset = origin - static_cast<Vector3>(shooter.Position);
-        const Vector3 aimedFrom = Sane(reportedPosition) && LengthSquared(reportedPosition) > 0.0001F
-            ? reportedPosition + muzzleOffset : origin;
+        if (!Sane(aimedFrom) || !(LengthSquared(aimedFrom) > 0.0001F))
+        {
+            aimedFrom = origin;
+        }
         const Vector3 toPast = past - aimedFrom;
         const float along = Vector3::Dot(toPast, direction);
         if (along <= 0)
         {
             return aim;
         }
+        // A weapon that falls (the Battlehammer) is aimed above its target,
+        // so its ray never crosses the old body: it was aimed at this player
+        // when it left within a cone of them, and it is turned by the same
+        // rotation that carries the old line of sight onto the new one, which
+        // keeps the arc's own elevation.
+        const auto beam = static_cast<std::size_t>(shooter.CurrentWeapon());
+        const bool arcs = beam < (*::MphRead::Weapons::Current).size()
+            && NativeRuntime::RequireReference((*::MphRead::Weapons::Current)[beam]).UnchargedGravity != 0;
         // Where on that old body the aim crossed it: the same capsule the
         // beam test uses, -0.5 to +1.1 above Position and half a unit wide,
         // with a little slack for the puppet's own interpolation.
         const Vector3 offset = aimedFrom + OpenTK::Mathematics::Scale(direction, along) - past;
-        if (offset.X * offset.X + offset.Z * offset.Z > 0.9F * 0.9F || offset.Y < -0.6F || offset.Y > 1.2F)
+        const bool crossed = offset.X * offset.X + offset.Z * offset.Z <= 0.9F * 0.9F
+            && offset.Y >= -0.6F && offset.Y <= 1.2F;
+        Vector3 turned{};
+        if (crossed && !arcs)
+        {
+            turned = static_cast<Vector3>(me.Position) + offset - origin;
+        }
+        else if (arcs)
+        {
+            const Vector3 chest(0.0F, 0.3F, 0.0F);
+            const Vector3 was = (past + chest - aimedFrom).Normalized();
+            const Vector3 now = (static_cast<Vector3>(me.Position) + chest - origin).Normalized();
+            if (Vector3::Dot(was, direction) < std::cos(OpenTK::Mathematics::MathHelper::DegToRad * 20.0F))
+            {
+                return aim;
+            }
+            // Rodrigues: rotate the fired direction by the rotation was -> now.
+            const Vector3 axis = Vector3::Cross(was, now);
+            const float sine = OpenTK::Mathematics::Length(axis);
+            const float cosine = Vector3::Dot(was, now);
+            if (sine < 1e-5F)
+            {
+                turned = direction;
+            }
+            else
+            {
+                const Vector3 k = OpenTK::Mathematics::Scale(axis, 1.0F / sine);
+                turned = OpenTK::Mathematics::Scale(direction, cosine)
+                    + OpenTK::Mathematics::Scale(Vector3::Cross(k, direction), sine)
+                    + OpenTK::Mathematics::Scale(k, Vector3::Dot(k, direction) * (1.0F - cosine));
+            }
+        }
+        else
         {
             return aim;
         }
-        const Vector3 target = static_cast<Vector3>(me.Position) + offset;
-        const Vector3 turned = target - origin;
         const float turnedLength = OpenTK::Mathematics::Length(turned);
         if (!(turnedLength > 0.0001F))
         {

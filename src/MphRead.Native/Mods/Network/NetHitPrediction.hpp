@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace MphRead::Entities
@@ -92,9 +93,12 @@ namespace MphRead::Mods::Network
             std::uint32_t& damage,
             ::MphRead::BeamType beam = ::MphRead::BeamType::None,
             std::uint32_t launchFrame = 0,
-            float flight = 0);
+            float flight = 0,
+            std::optional<OpenTK::Mathematics::Vector3> impulse = std::nullopt,
+            ::MphRead::Affliction afflictions = ::MphRead::Affliction::None);
 
         [[nodiscard]] static bool Confirm(std::int32_t slot, std::int32_t landed = 1, bool authorityHeadshot = false);
+        [[nodiscard]] static Entities::PlayerEntity* OwnerOf(Entities::EntityBase* source);
         static void ForgetSlot(std::int32_t slot);
         static void NoteRespawn(std::int32_t slot);
         static void NoteDeath(std::int32_t slot);
@@ -141,7 +145,6 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static bool MovingNow();
         static void ResolveHeld(std::int32_t slot, std::int32_t at, bool confirmed);
         static void EnsureLife(std::int32_t slot);
-        [[nodiscard]] static Entities::PlayerEntity* OwnerOf(Entities::EntityBase* source);
         [[nodiscard]] static std::int32_t Debit(std::int32_t slot);
         [[nodiscard]] static std::int32_t Push(std::int32_t slot, std::uint32_t frame, std::int32_t damage,
             bool lethal, bool headshot, ::MphRead::BeamType beam, bool self);

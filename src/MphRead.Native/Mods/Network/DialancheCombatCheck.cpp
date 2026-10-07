@@ -1,4 +1,5 @@
 #include "DialancheCombatCheck.hpp"
+#include "NetHitClaims.hpp"
 
 #include "NetDamage.hpp"
 #include "NetPlayerLifecycle.hpp"
@@ -68,6 +69,10 @@ namespace MphRead::Mods::Network
 
     std::int32_t DialancheCombatCheck::Run(const std::string& room, std::int32_t peerA, std::int32_t peerB)
     {
+        // This check drives the authority's own Dialanche collision, which is
+        // what -servershots and bot attackers still use: with shooter-
+        // authoritative hits the attacking player's machine would claim it.
+        NetHitClaims::ShooterHits(false);
         std::string reason;
         if (!ServerSim::Available(reason)) { Runtime::ConsoleWriteLine("DIALANCHE FAIL " + reason); return 1; }
         ServerSim sim;
@@ -255,7 +260,7 @@ namespace MphRead::Mods::Network
             attacker._altAttackCooldown = 0; attacker.EndAltAttack();
             check(!TestFlag(attacker.Flags2(), PlayerFlags2::AltAttack) && attacker._altAttackCooldown == 0,
                 "Spire EndAltAttack clears flag without cooldown");
-            check(NetConfig::ProtocolVersion == 16, "network protocol remains 16");
+            check(NetConfig::ProtocolVersion == 17, "network protocol remains 17");
             Runtime::ConsoleWriteLine("DIALANCHE PASS " + std::to_string(checks) + " production assertions | EU1.1 0200B55C/0200B808");
             result = 0;
         }

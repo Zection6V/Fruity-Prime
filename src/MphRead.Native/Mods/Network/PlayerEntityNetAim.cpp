@@ -201,7 +201,12 @@ namespace MphRead::Entities
         const auto& intent = Mods::Network::NetSession::RemoteIntents[slotForAim];
         const OpenTK::Mathematics::Vector3 origin = LengthSquared(_muzzlePos) > 0.0001F
             ? _muzzlePos : OpenTK::Mathematics::Vector3(Position.X, Position.Y + 0.6F, Position.Z);
-        ModSetAim(Mods::Network::NetPlayerBridge::RetargetAtLocal(*this, origin, intent.Aim, intent.AckFrame, intent.Position));
+        OpenTK::Mathematics::Vector3 aimedFrom{};
+        OpenTK::Mathematics::Vector3 shotDirection{};
+        std::uint32_t ackFrame = 0;
+        Mods::Network::NetPlayerBridge::ShooterRay(*this, origin, aimedFrom, shotDirection, ackFrame);
+        static_cast<void>(shotDirection);
+        ModSetAim(Mods::Network::NetPlayerBridge::RetargetAtLocal(*this, origin, intent.Aim, ackFrame, aimedFrom));
     }
 
     void PlayerEntity::ModSetAim(OpenTK::Mathematics::Vector3 aim)
@@ -1073,7 +1078,12 @@ namespace MphRead::Entities
         const auto& intent = Mods::Network::NetSession::RemoteIntents[slotForAim];
         const OpenTK::Mathematics::Vector3 origin = LengthSquared(_muzzlePos) > 0.0001F
             ? _muzzlePos : OpenTK::Mathematics::Vector3(Position.X, Position.Y + 0.6F, Position.Z);
-        ModSetAim(Mods::Network::NetPlayerBridge::RetargetAtLocal(*this, origin, intent.Aim, intent.AckFrame, intent.Position));
+        OpenTK::Mathematics::Vector3 aimedFrom{};
+        OpenTK::Mathematics::Vector3 shotDirection{};
+        std::uint32_t ackFrame = 0;
+        Mods::Network::NetPlayerBridge::ShooterRay(*this, origin, aimedFrom, shotDirection, ackFrame);
+        static_cast<void>(shotDirection);
+        ModSetAim(Mods::Network::NetPlayerBridge::RetargetAtLocal(*this, origin, intent.Aim, ackFrame, aimedFrom));
     }
 
     void PlayerEntity::ApplyGamepadAim()

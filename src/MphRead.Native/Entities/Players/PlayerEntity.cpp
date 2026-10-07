@@ -1918,7 +1918,8 @@ namespace MphRead::Entities
             flags, direction, damage, bomb != nullptr, beam != nullptr ? beam->ModLaunchFrame : 0U);
         Mods::Network::NetHitPrediction::NoteHit(*this, attacker, flags, damage,
             beam != nullptr ? beam->Beam() : MphRead::BeamType::None,
-            beam != nullptr ? beam->ModLaunchFrame : 0U, beam != nullptr ? beam->Age() : 0.0F);
+            beam != nullptr ? beam->ModLaunchFrame : 0U, beam != nullptr ? beam->Age() : 0.0F,
+            direction, beam != nullptr ? beam->Afflictions() : MphRead::Affliction::None);
         if (attacker != this)
         {
             Mods::Input::AimAssist::AimAssistTelemetry::Hit(attacker,

@@ -267,6 +267,25 @@ namespace MphRead::Mods::Network
         }
         if (NetSession::IsHost() || NetSession::IsAuthority())
         {
+            // Shooter-authoritative hits: what a remote player's own machine
+            // resolved arrives as a claim and is applied from it. The copy
+            // simulated here, a round trip later against a different world,
+            // would be a second opinion -- the one players saw as a hit with
+            // no hit marker, or a kill taken back.
+            if (NetHitClaims::ShooterHits() && !NetHitClaims::ApplyingClaimNow() && !_replaying)
+            {
+                Entities::PlayerEntity* owner = NetHitPrediction::OwnerOf(source);
+                // Both ends human: a bot has no machine of its own to resolve
+                // hits on it, so hits on bots stay the authority's.
+                if (owner != nullptr && owner != &victim && !owner->IsBot() && !victim.IsBot()
+                    && owner->SlotIndex() != NetSession::LocalSlot() && owner->SlotIndex() >= 0
+                    && static_cast<std::size_t>(owner->SlotIndex()) < NetSession::SlotOccupied.size()
+                    && NetSession::SlotOccupied[static_cast<std::size_t>(owner->SlotIndex())])
+                {
+                    NetHitClaims::NoteServerCopySuppressed();
+                    return true;
+                }
+            }
             if (projectile != nullptr && projectile->ModLaunchFrame != 0)
             {
                 Entities::PlayerEntity* owner = dynamic_cast<Entities::PlayerEntity*>(projectile->Owner().get());
@@ -536,6 +555,7 @@ namespace MphRead::Mods::Network
                 }
                 else
                 {
+                    NetPlayerBridge::SteerIncoming(static_cast<std::int32_t>(feedback.AttackerSlot));
                     auto& frames = UnseenFrame[static_cast<std::size_t>(feedback.AttackerSlot)];
                     std::size_t oldest = 0;
                     for (std::size_t i = 1; i < UnseenDepth; i++)

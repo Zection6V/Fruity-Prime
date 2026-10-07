@@ -1,6 +1,8 @@
 #pragma once
 
+#include "MorphBallBoostStateMachine.hpp"
 #include "../../Mods/Input/TouchInputAdapter.hpp"
+#include "MorphBallBoostStateMachine.hpp"
 #include "../../Mods/Input/PointerDevice.hpp"
 #include "../../Formats/Enums.hpp"
 #include "../../Formats/Types.hpp"
@@ -301,8 +303,12 @@ private:                                                                        
     [[nodiscard]] bool TryFireWeapon();                                                        \
     void UpdateAdventureModeBotWeapon();                                                       \
     void ProcessAlt();                                                                         \
-    void FireNativeTouchBoost(std::int32_t dx, std::int32_t dy, ::OpenTK::Mathematics::Vector3& speedDelta); \
-    void ProcessShoulderBoost(::OpenTK::Mathematics::Vector3& speedDelta);                                 \
+    void ApplyTouchBoost(std::int32_t dx, std::int32_t dy,                                     \
+        const ::MphRead::Entities::MorphBallBoostStateMachine::Strength& strength,             \
+        ::OpenTK::Mathematics::Vector3& speedDelta);                                           \
+    void ApplyShoulderBoost(const ::MphRead::Entities::MorphBallBoostStateMachine::Strength& strength, \
+        ::OpenTK::Mathematics::Vector3& speedDelta);                                           \
+    void ApplyBoostCommon(const ::MphRead::Entities::MorphBallBoostStateMachine::Strength& strength); \
     void PlayBoostSideEffects();                                                               \
     void ApplyTouchRoll(::OpenTK::Mathematics::Vector3& speedDelta);                           \
     void ProcessBoost(::OpenTK::Mathematics::Vector3& speedDelta);                             \
@@ -334,10 +340,14 @@ private:                                                                        
         [[nodiscard]] float MouseDeltaX() const noexcept { return _mouseDeltaX; }               \
         [[nodiscard]] float MouseDeltaY() const noexcept { return _mouseDeltaY; }               \
         [[nodiscard]] const ::MphRead::Mods::Input::NativeTouchState& Touch() const noexcept { return _touch.State(); } \
+        [[nodiscard]] const ::MphRead::Mods::Input::NativeTouchSample& TouchSample() const noexcept { return _touch.Sample(); } \
+        void BeginTouchStep() noexcept { _touch.BeginStep(); } \
         [[nodiscard]] float PointerX() const;                                                   \
         [[nodiscard]] float PointerY() const;                                                   \
         void UpdatePointer();                                                                   \
         void Suspend() noexcept;                                                                \
+        void ApplyReportedTouch(const ::MphRead::Mods::Input::NativeTouchState::Reported& reported, \
+            std::uint16_t generation, std::uint16_t life) noexcept; \
     private:                                                                                    \
         float _mouseDeltaX = 0.0F;                                                              \
         float _mouseDeltaY = 0.0F;                                                              \
@@ -345,7 +355,8 @@ private:                                                                        
         ::MphRead::Mods::Input::TouchInputAdapter _touch{};                                      \
     };                                                                                          \
     ::MphRead::Entities::PlayerControls _controls = ::MphRead::Entities::PlayerControls::GetDefault(); \
-    PlayerInput _input{};                                                                       \
+    PlayerInput _input{}; \
+    ::MphRead::Entities::MorphBallBoostStateMachine::SampleLatch _touchBoostSample{}; \
     inline static const std::array<::MphRead::BeamType, 9> _weaponOrder =                     \
     {                                                                                          \
         ::MphRead::BeamType::PowerBeam, ::MphRead::BeamType::Missile,                         \

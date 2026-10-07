@@ -15,6 +15,7 @@ private: \
 #endif
 
 #include "DynamicLightEntity.hpp"
+#include "DialancheNativeCollision.hpp"
 #include "PlayerCamera.hpp"
 #include "PlayerCollision.hpp"
 #include "PlayerDialog.hpp"
@@ -72,6 +73,8 @@ namespace MphRead
 namespace MphRead::Mods::Network
 {
     class NetCombatCheck;
+    class DialancheCombatCheck;
+    class SpireAltPoseCheck;
 }
 
 namespace MphRead::Mods::Input
@@ -593,6 +596,8 @@ namespace MphRead::Entities
     {
         // NetCombatCheck reads private state the way the C# reads it by reflection.
         friend class ::MphRead::Mods::Network::NetCombatCheck;
+        friend class ::MphRead::Mods::Network::DialancheCombatCheck;
+        friend class ::MphRead::Mods::Network::SpireAltPoseCheck;
         friend class ::MphRead::Mods::Input::PointerCheck;
 
     public:
@@ -841,6 +846,7 @@ namespace MphRead::Entities
         std::array<std::shared_ptr<MphRead::Node>, 4> _spireAltNodes{};
         ::OpenTK::Mathematics::Vector3 _spireRockPosL{};
         ::OpenTK::Mathematics::Vector3 _spireRockPosR{};
+        DialancheNativeCollision _dialancheNativeCollision{};
         ::OpenTK::Mathematics::Vector3 _spireAltFacing{};
         ::OpenTK::Mathematics::Vector3 _spireAltUp{};
         std::array<::OpenTK::Mathematics::Vector3, 16> _spireAltVecs{};

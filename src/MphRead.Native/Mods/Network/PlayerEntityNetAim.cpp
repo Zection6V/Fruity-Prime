@@ -664,6 +664,18 @@ namespace MphRead::Entities
         return {ua, missiles};
     }
 
+    // The owner's DS touch state, so this machine's ProcessAlt runs the same
+    // touch roll and the same touch/shoulder boost arbitration the owner did.
+    void PlayerEntity::ModSetReportedTouch(const Mods::Input::NativeTouchState::Reported& reported,
+        std::uint16_t generation, std::uint16_t life)
+    {
+        if (SlotIndex() == Mods::Network::NetHooks::LocalSlot())
+        {
+            return;
+        }
+        _input.ApplyReportedTouch(reported, generation, life);
+    }
+
     void PlayerEntity::ModSetShotState(std::int32_t chargeLevel, std::int32_t boostDamage, bool doubleDamage)
     {
         if (SlotIndex() == Mods::Network::NetHooks::LocalSlot())

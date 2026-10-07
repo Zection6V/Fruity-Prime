@@ -379,6 +379,12 @@ namespace MphRead::Entities
         _touch.Suspend();
     }
 
+    void PlayerEntity::PlayerInput::ApplyReportedTouch(const Mods::Input::NativeTouchState::Reported& reported,
+        std::uint16_t generation, std::uint16_t life) noexcept
+    {
+        _touch.ApplyReported(reported, generation, life);
+    }
+
     void PlayerEntity::ProcessInput()
     {
         if (Mods::Network::NetSession::Active() && !_isBot)
@@ -1758,6 +1764,7 @@ namespace MphRead::Entities
                         _soundSource.PlaySfx(SfxId::SPIRE_ALT_ATTACK);
                         _spireRockPosR = static_cast<Vector3>(Position);
                         _spireRockPosL = static_cast<Vector3>(Position);
+                        _dialancheNativeCollision.Reset(static_cast<Vector3>(Position));
                         _spireAltUp = _fieldC0;
                         const Vector3 cross = Vector3::Cross(_facingVector, _spireAltUp);
                         _spireAltFacing = Vector3::Cross(_spireAltUp, cross).Normalized();
@@ -2386,6 +2393,7 @@ namespace MphRead::Entities
                 throw System::NullReferenceException();
             }
             PlayerEntity& player = *playerPtr;
+            player._input.BeginTouchStep();
             if (player._isBot)
             {
                 if (TestFlag(player._loadFlags, LoadFlags::Active))

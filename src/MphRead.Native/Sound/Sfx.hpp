@@ -30,6 +30,11 @@ namespace MphRead::Formats::Sound
     struct Sound3dEntry;
 }
 
+namespace MphRead::Mods::Network
+{
+    class DialancheCombatCheck;
+}
+
 namespace MphRead::Sound
 {
     class SfxInstanceBase;
@@ -84,6 +89,7 @@ namespace MphRead::Sound
 
     class Sfx final
     {
+        friend class ::MphRead::Mods::Network::DialancheCombatCheck;
     public:
         Sfx() = delete;
 

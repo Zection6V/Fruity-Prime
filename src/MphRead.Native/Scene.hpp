@@ -28,6 +28,11 @@ namespace MphRead::Mods::Input
     class PointerCheck;
 }
 
+namespace MphRead::Mods::Network
+{
+    class DialancheCombatCheck;
+}
+
 namespace MphRead::Entities
 {
     class PlatformEntity;
@@ -831,6 +836,7 @@ namespace MphRead
     {
         // C# reflection on _cameraMode; see pitfall 12e.
         friend class ::MphRead::Mods::Input::PointerCheck;
+        friend class ::MphRead::Mods::Network::DialancheCombatCheck;
 
     public:
         Scene() = delete;

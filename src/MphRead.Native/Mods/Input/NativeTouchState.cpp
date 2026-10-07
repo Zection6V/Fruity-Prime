@@ -17,6 +17,16 @@ namespace MphRead::Mods::Input
         *this = NativeTouchState{};
     }
 
+    void NativeTouchState::Assign(const Reported& reported) noexcept
+    {
+        Clear();
+        Down = reported.Down;
+        Continued = reported.Down && reported.Continued;
+        PreviousDown = Continued;
+        Delta4X = Continued ? reported.Delta4X : static_cast<std::int16_t>(0);
+        Delta4Y = Continued ? reported.Delta4Y : static_cast<std::int16_t>(0);
+    }
+
     void NativeTouchState::ClearHistory() noexcept
     {
         DeltaHistoryX.fill(0);

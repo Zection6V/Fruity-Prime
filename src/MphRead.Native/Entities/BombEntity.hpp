@@ -14,6 +14,7 @@ namespace MphRead::Effects
 namespace MphRead::Entities
 {
     class PlayerEntity;
+    class EnemyInstanceEntity;
 
     enum class BombFlags : std::uint8_t
     {
@@ -114,6 +115,7 @@ namespace MphRead::Entities
 
     private:
         void LockjawCheckTargeting(PlayerEntity& player, EntityBase*& hitEntity);
+        void LockjawCheckTargeting(EnemyInstanceEntity& enemy, EntityBase*& hitEntity);
         [[nodiscard]] bool LockjawCheckSnare(OpenTK::Mathematics::Vector3 position);
         void ProcessTargeting();
         void DrawLockjawTrail(
@@ -129,6 +131,10 @@ namespace MphRead::Entities
         std::int32_t _bombIndex = 0;
 
         EntityBase* _target = nullptr;
+        // Adventure enemies can leave the scene while the chain is homing.
+        // Keep them alive until the target is released; do not retain players,
+        // since a self-targeted chain is owned by its player.
+        std::shared_ptr<EnemyInstanceEntity> _enemyTarget{};
         OpenTK::Mathematics::Vector3 _speed = OpenTK::Mathematics::Vector3::Zero;
 
         std::int32_t _countdown = 0;

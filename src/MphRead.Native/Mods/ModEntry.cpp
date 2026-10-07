@@ -71,6 +71,7 @@
 #include "Network/NetUnlagged.hpp"
 #include "Network/SpireAltPoseCheck.hpp"
 #include "Network/DialancheCombatCheck.hpp"
+#include "Diagnostics/LockjawEnemyCheck.hpp"
 #include "Network/ServerSimCheck.hpp"
 #include "Network/WeaponDps.hpp"
 #include "Render/Crosshair.hpp"
@@ -1987,6 +1988,13 @@ namespace MphRead::Mods
         if (mapMaterials.has_value())
         {
             SetExitCode(MapGen::MapReport::ListMaterials(*mapMaterials));
+            return true;
+        }
+
+        const auto lockjawEnemyCheck = ValueAfter(args, "lockjawenemycheck");
+        if (lockjawEnemyCheck.has_value())
+        {
+            SetExitCode(Diagnostics::LockjawEnemyCheck::Run(*lockjawEnemyCheck));
             return true;
         }
 

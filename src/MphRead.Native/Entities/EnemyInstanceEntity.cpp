@@ -475,7 +475,14 @@ namespace MphRead::Entities
         const Vector3 between
             = static_cast<Vector3>(Position) - static_cast<Vector3>(bombRef.Position);
         const float radius = bombRef.Radius();
-        if (LengthSquared(between) > radius * radius)
+        bool overlaps = LengthSquared(between) <= radius * radius;
+        if (bombRef.BombType() == BombType::Lockjaw)
+        {
+            Formats::CollisionResult result{};
+            overlaps = Formats::CollisionDetection::CheckSphereOverlapVolume(
+                &_hurtVolume, bombRef.Position, radius, result);
+        }
+        if (!overlaps)
         {
             return false;
         }

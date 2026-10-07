@@ -2,6 +2,7 @@
 
 #include "../Headless.hpp"
 #include "../Input/SyntheticInput.hpp"
+#include "../Combat/LockjawCollision.hpp"
 #include "../../Entities/BombEntity.hpp"
 #include "../../Entities/EnemyInstanceEntity.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
@@ -69,6 +70,26 @@ namespace MphRead::Mods::Diagnostics
             owner->Position = Vector3(2000, 2000, 2000);
             owner->SetIsBot(false);
             const Vector3 base(1000, 1000, 1000);
+            using Mods::Combat::LockjawCollision;
+            const LockjawCollision::Triangle triangle{
+                base, base + Vector3(6, 0, 0), base + Vector3(3, 0, 6)};
+            check(LockjawCollision::SnareContainsPoint(triangle, base + Vector3(3, 0, 2)),
+                "hunter snare contains interior point");
+            check(LockjawCollision::SnareContainsPoint(
+                {triangle[0], triangle[2], triangle[1]}, base + Vector3(3, 0, 2)),
+                "hunter snare accepts reversed winding");
+            check(!LockjawCollision::SnareContainsPoint(triangle, base + Vector3(3, 0, 0)),
+                "hunter snare excludes its edge");
+            check(!LockjawCollision::SnareContainsPoint(triangle, base + Vector3(7, 0, 2)),
+                "hunter snare excludes exterior point");
+            check(LockjawCollision::SnareContainsPoint(triangle, base + Vector3(3, 0.74F, 2)),
+                "hunter snare includes point within plane tolerance");
+            check(!LockjawCollision::SnareContainsPoint(triangle, base + Vector3(3, 0.75F, 2))
+                && !LockjawCollision::SnareContainsPoint(triangle, base + Vector3(3, -0.75F, 2)),
+                "hunter snare excludes both thickness boundaries");
+            check(!LockjawCollision::SnareContainsPoint(
+                {base, base + Vector3(3, 0, 0), base + Vector3(6, 0, 0)}, base + Vector3(3, 0, 2)),
+                "hunter snare rejects collinear bombs");
             std::vector<std::shared_ptr<BombEntity>> bombs;
             std::shared_ptr<TargetEnemy> enemy;
             const auto reset = [&](std::initializer_list<Vector3> points, CollisionVolume volume,

@@ -1,4 +1,5 @@
 #include "BombEntity.hpp"
+#include "../Mods/Combat/LockjawCollision.hpp"
 #include "../Mods/Multiplayer/TeamLayout.hpp"
 #include "../Mods/Render/LockjawTrailNoise.hpp"
 
@@ -139,40 +140,11 @@ namespace MphRead::Entities
             return ObjectPointer(player.Halfturret());
         }
 
-        [[nodiscard]] bool WireOverlapsVolume(
-            const CollisionVolume& volume, Vector3 from, Vector3 to)
+        [[nodiscard]] Mods::Combat::LockjawCollision::Triangle SnarePositions(PlayerEntity& owner)
         {
-            if (LengthSquared(to - from) < 0.000001F)
-            {
-                return volume.TestPoint(from);
-            }
-            if (volume.Type != VolumeType::Box)
-            {
-                Formats::CollisionResult result{};
-                return Formats::CollisionDetection::CheckCylinderOverlapVolume(
-                    &volume, from, to, 0.0F, result);
-            }
-            // The beam helper handles spheres and cylinders. Clip the wire
-            // against each pair of planes for a box hurt volume.
-            float enter = 0.0F, exit = 1.0F;
-            const Vector3 axes[]{volume.BoxVector1, volume.BoxVector2, volume.BoxVector3};
-            const float lengths[]{volume.BoxDot1, volume.BoxDot2, volume.BoxDot3};
-            for (int i = 0; i < 3; ++i)
-            {
-                const float start = Vector3::Dot(from - volume.BoxPosition, axes[i]);
-                const float delta = Vector3::Dot(to - from, axes[i]);
-                if (std::abs(delta) < 0.000001F)
-                {
-                    if (start < 0.0F || start > lengths[i]) return false;
-                    continue;
-                }
-                const float a = -start / delta;
-                const float b = (lengths[i] - start) / delta;
-                enter = std::max(enter, std::min(a, b));
-                exit = std::min(exit, std::max(a, b));
-                if (enter > exit) return false;
-            }
-            return true;
+            return {RequireReference(BombAt(owner, 0)).Position,
+                RequireReference(BombAt(owner, 1)).Position,
+                RequireReference(BombAt(owner, 2)).Position};
         }
     }
 
@@ -341,8 +313,7 @@ namespace MphRead::Entities
     void BombEntity::Reposition(Vector3 offset)
     {
         Position = static_cast<Vector3>(Position) + offset;
-        _target = nullptr;
-        _enemyTarget.reset();
+        SetTarget(nullptr);
     }
 
     bool BombEntity::Process()
@@ -417,7 +388,7 @@ namespace MphRead::Entities
                         - static_cast<Vector3>(Position);
                     if (LengthSquared(between) < 5.0F * 5.0F)
                     {
-                        _target = &player;
+                        SetTarget(&player);
                         _speed = ScaleVector(FacingVector(), 0.3F);
                     }
                 }
@@ -434,7 +405,7 @@ namespace MphRead::Entities
                         - static_cast<Vector3>(Position);
                     if (LengthSquared(between) < 5.0F * 5.0F)
                     {
-                        _target = &halfturret;
+                        SetTarget(&halfturret);
                         _speed = ScaleVector(FacingVector(), 0.3F);
                     }
                 }
@@ -530,8 +501,7 @@ namespace MphRead::Entities
                     assert(bomb != nullptr);
                     BombEntity& bombRef = RequireReference(bomb);
                     bombRef._countdown = 1;
-                    bombRef._target = _owner;
-                    bombRef._enemyTarget.reset();
+                    bombRef.SetTarget(_owner);
                 }
             }
         }
@@ -543,8 +513,7 @@ namespace MphRead::Entities
             }
             else
             {
-                _target = nullptr;
-                _enemyTarget.reset();
+                SetTarget(nullptr);
             }
         }
         if (_bombType == MphRead::BombType::Lockjaw)
@@ -562,9 +531,7 @@ namespace MphRead::Entities
                     BombEntity* bomb = BombAt(owner, i);
                     assert(bomb != nullptr);
                     BombEntity& bombRef = RequireReference(bomb);
-                    bombRef._target = hitEntity;
-                    bombRef._enemyTarget = hitEntity->Type == EntityType::EnemyInstance
-                        ? SharedFrom(static_cast<EnemyInstanceEntity*>(hitEntity)) : nullptr;
+                    bombRef.SetTarget(hitEntity);
                     if (bombRef._countdown > 22 * 2)
                     {
                         bombRef._countdown = 22 * 2;
@@ -580,8 +547,7 @@ namespace MphRead::Entities
                 return false;
             }
             _flags |= BombFlags::Exploded;
-            _target = nullptr;
-            _enemyTarget.reset();
+            SetTarget(nullptr);
             _models = ModelList{};
             if (_effect)
             {
@@ -851,26 +817,18 @@ namespace MphRead::Entities
 
     void BombEntity::LockjawCheckTargeting(EnemyInstanceEntity& enemy, EntityBase*& hitEntity)
     {
-        if (TestFlag(enemy.Flags(), EnemyFlags::Invincible)) return;
+        if (TestFlag(enemy.Flags(), EnemyFlags::Invincible))
+        {
+            return;
+        }
         PlayerEntity& owner = RequireReference(_owner);
         const CollisionVolume volume = enemy.HurtVolume();
         if (_bombIndex == 0 && owner.SyluxBombCount() == 3)
         {
-            const Vector3 origin = BombAt(owner, 0)->Position;
-            const Vector3 normal = Vector3::Cross(
-                static_cast<Vector3>(BombAt(owner, 1)->Position) - origin,
-                static_cast<Vector3>(BombAt(owner, 2)->Position) - origin);
-            const float lengthSquared = LengthSquared(normal);
-            if (lengthSquared < 0.000001F) return;
-            const Vector3 center = volume.GetCenter();
-            const Vector3 projected = center - ScaleVector(normal,
-                Vector3::Dot(center - origin, normal) / lengthSquared);
-            Formats::CollisionResult result{};
-            // Test the actual body against the snare plane, so tall enemies
-            // standing inside it are caught even when their center is higher.
-            if (!LockjawCheckSnare(projected)
-                || !Formats::CollisionDetection::CheckSphereOverlapVolume(
-                    &volume, projected, 0.75F, result)) return;
+            if (!Mods::Combat::LockjawCollision::SnareOverlapsVolume(SnarePositions(owner), volume))
+            {
+                return;
+            }
             for (int i = 0; i < owner.SyluxBombCount(); ++i)
             {
                 BombEntity& bomb = RequireReference(BombAt(owner, i));
@@ -881,7 +839,8 @@ namespace MphRead::Entities
         }
         for (int i = 0; i < _bombIndex; ++i)
         {
-            if (WireOverlapsVolume(volume, Position, BombAt(owner, i)->Position))
+            if (Mods::Combat::LockjawCollision::WireOverlapsVolume(
+                volume, Position, RequireReference(BombAt(owner, i)).Position))
             {
                 enemy.TakeDamage(20, this);
                 RequireReference(_scene).SendMessage(
@@ -895,46 +854,18 @@ namespace MphRead::Entities
 
     bool BombEntity::LockjawCheckSnare(Vector3 position)
     {
-        PlayerEntity& owner = RequireReference(_owner);
-        BombEntity* bombZero = BombAt(owner, 0);
-        BombEntity* bombOne = BombAt(owner, 1);
-        BombEntity* bombTwo = BombAt(owner, 2);
-        assert(bombZero != nullptr);
-        assert(bombOne != nullptr);
-        assert(bombTwo != nullptr);
-        BombEntity& zero = RequireReference(bombZero);
-        BombEntity& one = RequireReference(bombOne);
-        BombEntity& two = RequireReference(bombTwo);
-        const Vector3 zeroToOne
-            = static_cast<Vector3>(one.Position) - static_cast<Vector3>(zero.Position);
-        const Vector3 oneToTwo
-            = static_cast<Vector3>(two.Position) - static_cast<Vector3>(one.Position);
-        const Vector3 cross1 = Vector3::Cross(oneToTwo, zeroToOne).Normalized();
-        const Vector3 zeroToPosition = position - static_cast<Vector3>(zero.Position);
-        const float dot = Vector3::Dot(cross1, zeroToPosition);
-        if (dot > -0.75F && dot < 0.75F)
-        {
-            const Vector3 cross2 = Vector3::Cross(zeroToPosition, zeroToOne);
-            if (Vector3::Dot(cross2, cross1) > 0.0F)
-            {
-                const Vector3 oneToPosition = position - static_cast<Vector3>(one.Position);
-                const Vector3 cross3 = Vector3::Cross(oneToPosition, oneToTwo);
-                if (Vector3::Dot(cross3, cross1) > 0.0F)
-                {
-                    const Vector3 twoToPosition
-                        = position - static_cast<Vector3>(two.Position);
-                    const Vector3 twoToZero
-                        = static_cast<Vector3>(zero.Position)
-                        - static_cast<Vector3>(two.Position);
-                    const Vector3 cross4 = Vector3::Cross(twoToPosition, twoToZero);
-                    if (Vector3::Dot(cross4, cross1) > 0.0F)
-                    {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
+        return Mods::Combat::LockjawCollision::SnareContainsPoint(
+            SnarePositions(RequireReference(_owner)), position);
+    }
+
+    void BombEntity::SetTarget(EntityBase* target)
+    {
+        // Resolve ownership before changing either field. Players own their
+        // bombs, so retain only enemies to avoid a player/bomb ownership cycle.
+        auto enemy = target != nullptr && target->Type == EntityType::EnemyInstance
+            ? SharedFrom(static_cast<EnemyInstanceEntity*>(target)) : nullptr;
+        _target = target;
+        _enemyTarget = std::move(enemy);
     }
 
     void BombEntity::ProcessTargeting()
@@ -1172,8 +1103,7 @@ namespace MphRead::Entities
             RequireReference(_scene).UnlinkEffectEntry(_effect);
         }
         _effect.reset();
-        _target = nullptr;
-        _enemyTarget.reset();
+        SetTarget(nullptr);
         _owner = nullptr;
         RequireReference(_scene).UnlinkBomb(this);
         EntityBase::Destroy();
@@ -1212,8 +1142,7 @@ namespace MphRead::Entities
         }
         bomb->_owner = owner;
         bomb->_bombType = type;
-        bomb->_target = nullptr;
-        bomb->_enemyTarget.reset();
+        bomb->SetTarget(nullptr);
         bomb->_speed = Vector3::Zero;
         // Bomb entities are pooled; a new placement starts a new visual clock.
         bomb->_lockjawVisualTick = 0;

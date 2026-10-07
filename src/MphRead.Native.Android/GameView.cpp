@@ -15,7 +15,8 @@
 #include "../MphRead.Native/Mods/DebugLog.hpp"
 #include "../MphRead.Native/Mods/EndScreen.hpp"
 #include "../MphRead.Native/Mods/Input/GamepadInput.hpp"
-#include "../MphRead.Native/Mods/Input/NativeTouchState.hpp"
+#include "../MphRead.Native/Mods/Input/HostTouch.hpp"
+#include "../MphRead.Native/Mods/Input/DsTouchSurface.hpp"
 #include "../MphRead.Native/Mods/InputSettings.hpp"
 #include "../MphRead.Native/Mods/Network/MapVote.hpp"
 #include "../MphRead.Native/Mods/Network/NetSession.hpp"
@@ -2267,8 +2268,8 @@ namespace MphRead::Droid
                 const float w = _controls->Width();
                 const float h = _controls->Height();
                 MphRead::Mods::Input::HostTouch::Publish(aim.Down,
-                    MphRead::Mods::Input::ToDsX(w > 0.0F ? aim.X / w : 0.0F, 0.0F, 1.0F),
-                    MphRead::Mods::Input::ToDsY(h > 0.0F ? aim.Y / h : 0.0F, 0.0F, 1.0F));
+                    MphRead::Mods::Input::DsTouchSurface::ToX(w > 0.0F ? aim.X / w : 0.0F, 0.0F, 1.0F),
+                    MphRead::Mods::Input::DsTouchSurface::ToY(h > 0.0F ? aim.Y / h : 0.0F, 0.0F, 1.0F));
             }
 
             _input->Apply(

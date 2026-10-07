@@ -611,7 +611,7 @@ roll at 5/4096 per DS pixel, a boost on a strictly-over-90 swipe at full
 BoostSpeedMax along the camera basis that leaves R's charge alone, and an
 armed continued contact that skips R for the frame. A contact on the stylus
 zone's aim surface (desktop) or the aim finger (Android) is a DS touch, and so
-is a mouse with mouse aim on (`MouseStylus`): its relative motion becomes DS
+is a mouse with mouse aim on (`MouseMotionTouchSource`): its relative motion becomes DS
 units at 0.25 per pixel, "down" while it moves and for four idle steps after.
 Because that stylus is down while the mouse moves, R's charge does not advance
 on a frame the mouse is steering the ball slowly -- the ROM's own rule, not a bug.

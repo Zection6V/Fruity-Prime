@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../Mods/Input/NativeTouchState.hpp"
+#include "../../Mods/Input/TouchInputAdapter.hpp"
 #include "../../Mods/Input/PointerDevice.hpp"
 #include "../../Formats/Enums.hpp"
 #include "../../Formats/Types.hpp"
@@ -304,6 +304,8 @@ private:                                                                        
     void FireNativeTouchBoost(std::int32_t dx, std::int32_t dy, ::OpenTK::Mathematics::Vector3& speedDelta); \
     void ProcessShoulderBoost(::OpenTK::Mathematics::Vector3& speedDelta);                                 \
     void PlayBoostSideEffects();                                                               \
+    void ApplyTouchRoll(::OpenTK::Mathematics::Vector3& speedDelta);                           \
+    void ProcessBoost(::OpenTK::Mathematics::Vector3& speedDelta);                             \
     void SpawnBomb();                                                                          \
     void EndAltAttack();                                                                       \
     void ProcessMovement();                                                                    \
@@ -329,10 +331,9 @@ private:                                                                        
         bool HasInput = false;                                                                  \
         bool StylusWeaponMenuDown = false;                                                      \
         ::MphRead::Mods::Input::PointerBindings Primary{};                                      \
-        ::MphRead::Mods::Input::NativeTouchState Touch{};                                       \
-        ::MphRead::Mods::Input::MouseStylus Stylus{};                                           \
         [[nodiscard]] float MouseDeltaX() const noexcept { return _mouseDeltaX; }               \
         [[nodiscard]] float MouseDeltaY() const noexcept { return _mouseDeltaY; }               \
+        [[nodiscard]] const ::MphRead::Mods::Input::NativeTouchState& Touch() const noexcept { return _touch.State(); } \
         [[nodiscard]] float PointerX() const;                                                   \
         [[nodiscard]] float PointerY() const;                                                   \
         void UpdatePointer();                                                                   \
@@ -341,6 +342,7 @@ private:                                                                        
         float _mouseDeltaX = 0.0F;                                                              \
         float _mouseDeltaY = 0.0F;                                                              \
         bool _loggedCapture = false;                                                            \
+        ::MphRead::Mods::Input::TouchInputAdapter _touch{};                                      \
     };                                                                                          \
     ::MphRead::Entities::PlayerControls _controls = ::MphRead::Entities::PlayerControls::GetDefault(); \
     PlayerInput _input{};                                                                       \

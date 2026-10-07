@@ -1,4 +1,7 @@
 // EU1.1 02029778 (touch producer) and 02021C28's touch branches, pinned.
+#include "../Entities/Players/MorphBallTouchRules.hpp"
+#include "../Mods/Input/DsTouchSurface.hpp"
+#include "../Mods/Input/MouseMotionTouchSource.hpp"
 #include "../Mods/Input/NativeTouchState.hpp"
 
 #include <cmath>
@@ -7,7 +10,8 @@
 #include <utility>
 
 using namespace MphRead::Mods::Input;
-using MorphTouchRom::BoostBranch;
+namespace MorphBallTouchRules = MphRead::Entities::MorphBallTouchRules;
+using MorphBallTouchRules::BoostBranch;
 
 namespace
 {
@@ -17,6 +21,11 @@ namespace
     }
 
     bool Near(float a, float b) { return std::fabs(a - b) <= 1e-6F; }
+
+    BoostBranch Arbitrate(bool boosting, bool canTouchBoost, const NativeTouchState& touch)
+    {
+        return MorphBallTouchRules::Arbitrate(boosting, canTouchBoost, touch.Continued, touch.Delta4X, touch.Delta4Y);
+    }
 
     void Producer()
     {
@@ -51,17 +60,17 @@ namespace
 
     void Adapter()
     {
-        Expect(ToDsX(0.5F, 0.5F, 0.25F) == 0 && ToDsX(0.75F, 0.5F, 0.25F) == 255, "zone X endpoints");
-        Expect(ToDsY(0.0F, 0.0F, 1.0F) == 0 && ToDsY(1.0F, 0.0F, 1.0F) == 191, "zone Y endpoints");
-        Expect(ToDsX(0.5F, 0.0F, 1.0F) == 128, "X midpoint rounds half away");
-        Expect(ToDsX(2.0F, 0.0F, 1.0F) == 255 && ToDsX(-1.0F, 0.0F, 1.0F) == 0, "outside the zone clamps");
-        Expect(ToDsX(0.5F, 0.0F, 0.0F) == 0, "degenerate zone");
+        Expect(DsTouchSurface::ToX(0.5F, 0.5F, 0.25F) == 0 && DsTouchSurface::ToX(0.75F, 0.5F, 0.25F) == 255, "zone X endpoints");
+        Expect(DsTouchSurface::ToY(0.0F, 0.0F, 1.0F) == 0 && DsTouchSurface::ToY(1.0F, 0.0F, 1.0F) == 191, "zone Y endpoints");
+        Expect(DsTouchSurface::ToX(0.5F, 0.0F, 1.0F) == 128, "X midpoint rounds half away");
+        Expect(DsTouchSurface::ToX(2.0F, 0.0F, 1.0F) == 255 && DsTouchSurface::ToX(-1.0F, 0.0F, 1.0F) == 0, "outside the zone clamps");
+        Expect(DsTouchSurface::ToX(0.5F, 0.0F, 0.0F) == 0, "degenerate zone");
     }
 
     void Mouse()
     {
         NativeTouchState t{};
-        MouseStylus m{};
+        MouseMotionTouchSource m{};
         m.Step(0, 0, t);
         Expect(!t.Down, "a resting mouse is no contact");
         m.Step(40, 0, t);
@@ -71,7 +80,7 @@ namespace
         m.Step(2, 0, t);
         m.Step(2, 0, t);
         Expect(t.DeltaHistoryX[3] == 1, "fractions carry");
-        for (int i = 0; i < MouseStylus::IdleStepsBeforeLift - 1; ++i) m.Step(0, 0, t);
+        for (int i = 0; i < MouseMotionTouchSource::IdleStepsBeforeLift - 1; ++i) m.Step(0, 0, t);
         Expect(t.Down, "a polling gap does not lift the stylus");
         m.Step(0, 0, t);
         Expect(!t.Down && t.Delta4X == 0, "resting lifts it");
@@ -79,7 +88,7 @@ namespace
         // four over 90 on a continued contact.
         m.Step(400, 0, t);
         m.Step(400, 0, t);
-        Expect(MorphTouchRom::Arbitrate(false, true, t) == BoostBranch::TouchBoost, "a mouse flick fires");
+        Expect(Arbitrate(false, true, t) == BoostBranch::TouchBoost, "a mouse flick fires");
         NativeTouchState big{};
         big.UpdateRelative(true, 0, 0);
         big.UpdateRelative(true, 5000, -5000);
@@ -88,13 +97,13 @@ namespace
 
     void Roll()
     {
-        const auto one = MorphTouchRom::TouchRoll(0, 1, MorphTouchRom::TouchRollPerDsPixel, 1, 0, 0, 1);
+        const auto one = MorphBallTouchRules::TouchRoll(0, 1, MorphBallTouchRules::TouchRollPerDsPixel, 1, 0, 0, 1);
         Expect(Near(std::hypot(one.X, one.Z), 5.0F / 4096.0F), "touch roll is 5/4096 per DS pixel, not 5");
-        const auto forty = MorphTouchRom::TouchRoll(0, 40, MorphTouchRom::TouchRollPerDsPixel, 1, 0, 0, 1);
+        const auto forty = MorphBallTouchRules::TouchRoll(0, 40, MorphBallTouchRules::TouchRollPerDsPixel, 1, 0, 0, 1);
         Expect(Near(forty.X, -0.048828125F) && Near(forty.Z, 0.0F), "Delta4Y=40 along -forward");
-        const auto side = MorphTouchRom::TouchRoll(-8, 0, MorphTouchRom::TouchRollPerDsPixel, 1, 0, 0, 1);
+        const auto side = MorphBallTouchRules::TouchRoll(-8, 0, MorphBallTouchRules::TouchRollPerDsPixel, 1, 0, 0, 1);
         Expect(Near(side.Z, 40.0F / 4096.0F) && Near(side.X, 0.0F), "Delta4X along -side");
-        const auto locked = MorphTouchRom::TouchRoll(0, 40, MorphTouchRom::TouchRollPerDsPixel * 0.0F, 1, 0, 0, 1);
+        const auto locked = MorphBallTouchRules::TouchRoll(0, 40, MorphBallTouchRules::TouchRollPerDsPixel * 0.0F, 1, 0, 0, 1);
         Expect(locked.X == 0.0F && locked.Z == 0.0F, "JumpPadSlideFactor 0 removes it");
     }
 
@@ -109,16 +118,16 @@ namespace
 
     void Threshold()
     {
-        Expect(MorphTouchRom::Arbitrate(false, true, Continued(90, 0)) == BoostBranch::SkipShoulder, "8100 is not > 8100");
-        Expect(MorphTouchRom::Arbitrate(false, true, Continued(91, 0)) == BoostBranch::TouchBoost, "8281 fires");
-        Expect(MorphTouchRom::Arbitrate(false, true, Continued(54, 72)) == BoostBranch::SkipShoulder, "54,72 is 8100");
-        Expect(MorphTouchRom::Arbitrate(false, true, Continued(55, 72)) == BoostBranch::TouchBoost, "55,72 fires");
-        Expect(MorphTouchRom::Arbitrate(true, true, Continued(91, 0)) == BoostBranch::Shoulder, "boosting -> R path");
-        Expect(MorphTouchRom::Arbitrate(false, false, Continued(91, 0)) == BoostBranch::Shoulder, "disarmed -> R path");
+        Expect(Arbitrate(false, true, Continued(90, 0)) == BoostBranch::SkipShoulder, "8100 is not > 8100");
+        Expect(Arbitrate(false, true, Continued(91, 0)) == BoostBranch::TouchBoost, "8281 fires");
+        Expect(Arbitrate(false, true, Continued(54, 72)) == BoostBranch::SkipShoulder, "54,72 is 8100");
+        Expect(Arbitrate(false, true, Continued(55, 72)) == BoostBranch::TouchBoost, "55,72 fires");
+        Expect(Arbitrate(true, true, Continued(91, 0)) == BoostBranch::Shoulder, "boosting -> R path");
+        Expect(Arbitrate(false, false, Continued(91, 0)) == BoostBranch::Shoulder, "disarmed -> R path");
         NativeTouchState first = Continued(91, 0);
         first.Continued = false;
-        Expect(MorphTouchRom::Arbitrate(false, true, first) == BoostBranch::Shoulder, "first frame -> R path");
-        Expect(MorphTouchRom::Arbitrate(false, true, Continued(0, 0)) == BoostBranch::SkipShoulder,
+        Expect(Arbitrate(false, true, first) == BoostBranch::Shoulder, "first frame -> R path");
+        Expect(Arbitrate(false, true, Continued(0, 0)) == BoostBranch::SkipShoulder,
             "armed continued small touch skips R (02023668 -> 02023A24)");
     }
 
@@ -127,12 +136,12 @@ namespace
         const float max = 0.5F;
         for (auto [dx, dy] : {std::pair{91, 0}, std::pair{0, -200}, std::pair{55, 72}, std::pair{-300, 300}})
         {
-            const auto i = MorphTouchRom::TouchBoostImpulse(dx, dy, max, 1, 0, 0, 1);
+            const auto i = MorphBallTouchRules::TouchBoostImpulse(dx, dy, max, 1, 0, 0, 1);
             Expect(Near(std::hypot(i.X, i.Z), max), "full BoostSpeedMax for any qualifying swipe");
         }
-        const auto up = MorphTouchRom::TouchBoostImpulse(0, -100, max, 0.6F, 0.8F, 0.8F, -0.6F);
+        const auto up = MorphBallTouchRules::TouchBoostImpulse(0, -100, max, 0.6F, 0.8F, 0.8F, -0.6F);
         Expect(Near(up.X, 0.3F) && Near(up.Z, 0.4F), "drag up is camera forward");
-        const auto right = MorphTouchRom::TouchBoostImpulse(100, 0, max, 0.6F, 0.8F, 0.8F, -0.6F);
+        const auto right = MorphBallTouchRules::TouchBoostImpulse(100, 0, max, 0.6F, 0.8F, 0.8F, -0.6F);
         Expect(Near(right.X, -0.4F) && Near(right.Z, 0.3F), "drag right is -camera side");
     }
 
@@ -149,7 +158,7 @@ namespace
         void Step(const NativeTouchState& touch, bool rHeld)
         {
             if (!touch.Down) CanTouchBoost = true;
-            switch (MorphTouchRom::Arbitrate(Boosting, CanTouchBoost, touch))
+            switch (Arbitrate(Boosting, CanTouchBoost, touch))
             {
             case BoostBranch::TouchBoost:
                 ++Fired;

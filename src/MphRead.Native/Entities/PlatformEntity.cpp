@@ -267,9 +267,12 @@ namespace MphRead::Entities
                 && player->Hunter() == Hunter::Sylux;
             if (_useDelano7)
             {
-                // Keep the gunship's landing/takeoff rig and collision for
-                // story scripts; Delano 7 supplies the visible ship only.
+                // Keep the gunship's intro rig and collision for story scripts;
+                // Delano 7 supplies the visible ship and its own departure.
                 SetUpModel("SyluxShip", -1);
+                const PlatformMetadata& turret = RequireReference(Metadata::GetPlatformById(21));
+                SetUpModel(turret.Name,
+                    AnimationIdAt(turret, static_cast<std::int32_t>(PlatAnimId::InstantSleep)));
             }
         }
 
@@ -449,7 +452,8 @@ namespace MphRead::Entities
     {
         EntityBase::Initialize();
 
-        if (TestFlag(_flags, PlatformFlags::SamusShip))
+        // Delano 7 in Weapons Complex has no gunship nozzle attachments.
+        if (TestFlag(_flags, PlatformFlags::SamusShip) && !_useDelano7)
         {
             ModelInstance& instance = _models[0];
             Model& model = RequireReference(instance.Model());
@@ -630,6 +634,15 @@ namespace MphRead::Entities
         {
             assert(!_models[0].IsPlaceholder);
             _models[0].SetAnimation(index, flags);
+        }
+        if (_useDelano7)
+        {
+            _delano7TakingOff = index == GetAnimation(PlatAnimId::Sleep);
+            _delano7Hidden = index == GetAnimation(PlatAnimId::InstantSleep);
+            const PlatformMetadata& delano = RequireReference(Metadata::GetPlatformById(8));
+            _models[1].SetAnimation(_delano7TakingOff
+                ? AnimationIdAt(delano, static_cast<std::int32_t>(PlatAnimId::Sleep))
+                : -1, flags);
         }
     }
 
@@ -1001,8 +1014,20 @@ namespace MphRead::Entities
             UpdateAnimFrames(_models[0]);
         }
 
+        if (_delano7TakingOff)
+        {
+            UpdateAnimFrames(_models[1]);
+        }
+        if (_useDelano7)
+        {
+            UpdateAnimFrames(_models[2]);
+        }
+
+        // Delano 7's departure is longer than the gunship's. Let its own clip
+        // finish before applying the sleeping/hidden state.
+        const ModelInstance& animModel = _models[_delano7TakingOff ? 1 : 0];
         if (_currentAnimState != -2
-            && TestFlag((*_models[0].AnimInfo->Flags)[0], AnimFlags::Ended))
+            && TestFlag((*animModel.AnimInfo->Flags)[0], AnimFlags::Ended))
         {
             SetPlatAnimation(_currentAnimState, AnimFlags::None);
             _currentAnimState = -2;
@@ -1110,8 +1135,9 @@ namespace MphRead::Entities
                 }
             }
 
-            if (TestFlag(_animFlags, PlatAnimFlags::HasAnim)
-                && _currentAnimId < 0)
+            if ((TestFlag(_animFlags, PlatAnimFlags::HasAnim)
+                    && _currentAnimId < 0)
+                || (_useDelano7 && _delano7Hidden))
             {
                 draw = false;
             }
@@ -1122,7 +1148,12 @@ namespace MphRead::Entities
                 {
                     UpdateTransforms(_models[0], 0);
                     UpdateTransforms(_models[1], 1);
-                    if (!Hidden) GetDrawItems(_models[1], 1);
+                    UpdateTransforms(_models[2], 2);
+                    if (!Hidden)
+                    {
+                        GetDrawItems(_models[1], 1);
+                        GetDrawItems(_models[2], 2);
+                    }
                     if (RequireReference(_scene).ShowCollision()
                         && (RequireReference(_scene).ColEntDisplay() == EntityType::All
                             || RequireReference(_scene).ColEntDisplay() == Type))
@@ -1555,9 +1586,19 @@ namespace MphRead::Entities
         ModelInstance& inst, std::int32_t index)
     {
         const Model& model = RequireReference(inst.Model());
-        if (_useDelano7 && index == 1)
+        if (_useDelano7 && index == 2)
         {
-            // The original root includes the planet intro/departure motion.
+            // Weapons Complex mounts the turret at the ship's root attachment
+            // with no offset. Follow that node through both flight animations.
+            const Model& ship = RequireReference(_models[1].Model());
+            const Node& attachment = RequireReference(RequireReference(ship.Nodes).at(0));
+            return Multiply(CreateScale(model.Scale), attachment.Animation);
+        }
+        if (_useDelano7 && index == 1 && !_delano7TakingOff)
+        {
+            // Follow the original intro root. During departure, Delano 7's
+            // own root animates relative to the platform, without a second
+            // layer of gunship motion.
             const Model& rig = RequireReference(_models[0].Model());
             const Node& root = RequireReference(RequireReference(rig.Nodes).at(0));
             return Multiply(CreateScale(model.Scale), root.Animation);

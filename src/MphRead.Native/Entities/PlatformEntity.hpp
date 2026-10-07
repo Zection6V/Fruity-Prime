@@ -334,6 +334,8 @@ namespace MphRead::Entities
         const PlatformEntityData _data;
         const PlatformMetadata* _meta = nullptr;
         bool _useDelano7 = false;
+        bool _delano7TakingOff = false;
+        bool _delano7Hidden = false;
 
         PlatformFlags _flags = PlatformFlags::None;
         std::array<std::int32_t, 4> _effectNodeIds{{-1, -1, -1, -1}};

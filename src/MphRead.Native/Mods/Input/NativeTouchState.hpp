@@ -26,6 +26,10 @@ namespace MphRead::Mods::Input
             std::int16_t Delta4X = 0;
             std::int16_t Delta4Y = 0;
 
+            // Adapter-owned identity, unchanged through the sibling step.
+            std::uint32_t SampleSequence = 0;
+            bool SecondStep = false;
+
             friend bool operator==(const Reported&, const Reported&) = default;
         };
 

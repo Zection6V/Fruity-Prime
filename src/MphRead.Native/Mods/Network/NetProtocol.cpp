@@ -778,16 +778,43 @@ namespace MphRead::Mods::Network
         W16(Slice(dest, at + 14), AmmoMissiles);
         W32(Slice(dest, at + 16), AckFrame);
         At(dest, at + 20) = AckSubFrame;
-        if (dest.size() >= static_cast<std::size_t>(FullSize))
+        if (dest.size() >= static_cast<std::size_t>(Size + StateSize))
         {
             dest[Size] = ChargeLevel;
             dest[Size + 1] = BoostDamage;
             dest[Size + 2] = ShotFlags;
-            dest[Size + 3] = TouchFlags;
+            dest[Size + 3] = 0;
+        }
+        if (dest.size() >= static_cast<std::size_t>(Size + StateSize + LegacyTouchSize))
+        {
+            dest[Size + 3] = static_cast<std::uint8_t>(TouchFlags & ~(TouchSamplePresent | TouchSecondStep));
             W16(Slice(dest, static_cast<std::size_t>(Size + StateSize)), static_cast<std::uint16_t>(TouchDelta4X));
             W16(Slice(dest, static_cast<std::size_t>(Size + StateSize + 2)), static_cast<std::uint16_t>(TouchDelta4Y));
         }
+        if (dest.size() >= static_cast<std::size_t>(FullSize))
+        {
+            dest[Size + 3] = TouchFlags;
+            W32(Slice(dest, static_cast<std::size_t>(Size + StateSize + LegacyTouchSize)), TouchSampleSequence);
+        }
     }
+    void IntentPacket::SetTouchReport(const ::MphRead::Mods::Input::NativeTouchState::Reported& touch) noexcept
+    {
+        TouchFlags = static_cast<std::uint8_t>(TouchPresent | TouchSamplePresent
+            | (touch.Down ? TouchDown : 0) | (touch.Continued ? TouchContinued : 0)
+            | (touch.SecondStep ? TouchSecondStep : 0));
+        TouchDelta4X = touch.Delta4X;
+        TouchDelta4Y = touch.Delta4Y;
+        TouchSampleSequence = touch.SampleSequence;
+    }
+
+    ::MphRead::Mods::Input::NativeTouchState::Reported IntentPacket::TouchReport() const noexcept
+    {
+        return {HasTouch() && (TouchFlags & TouchDown) != 0,
+            HasTouch() && (TouchFlags & TouchContinued) != 0, TouchDelta4X, TouchDelta4Y,
+            HasTouchSample() ? TouchSampleSequence : Frame / 2,
+            HasTouchSample() ? (TouchFlags & TouchSecondStep) != 0 : (Frame & 1U) != 0};
+    }
+
     IntentPacket IntentPacket::Read(std::span<const std::uint8_t> src)
     {
         auto presses = std::make_shared<std::vector<std::uint32_t>>(PressHistory);
@@ -812,11 +839,16 @@ namespace MphRead::Mods::Network
         packet.AckSubFrame = At(src, 41 + PressHistory * 4);
         const bool full = src.size() >= static_cast<std::size_t>(Size + StateSize);
         packet.HasState = full;
+        if (src.size() >= static_cast<std::size_t>(Size + StateSize + LegacyTouchSize))
+        {
+            packet.TouchFlags = static_cast<std::uint8_t>(src[Size + 3] & ~(TouchSamplePresent | TouchSecondStep));
+            packet.TouchDelta4X = static_cast<std::int16_t>(R16(Slice(src, static_cast<std::size_t>(Size + StateSize))));
+            packet.TouchDelta4Y = static_cast<std::int16_t>(R16(Slice(src, static_cast<std::size_t>(Size + StateSize + 2))));
+        }
         if (src.size() >= static_cast<std::size_t>(FullSize))
         {
             packet.TouchFlags = src[Size + 3];
-            packet.TouchDelta4X = static_cast<std::int16_t>(R16(Slice(src, static_cast<std::size_t>(Size + StateSize))));
-            packet.TouchDelta4Y = static_cast<std::int16_t>(R16(Slice(src, static_cast<std::size_t>(Size + StateSize + 2))));
+            packet.TouchSampleSequence = R32(Slice(src, static_cast<std::size_t>(Size + StateSize + LegacyTouchSize)));
         }
         packet.ChargeLevel = full ? src[Size] : static_cast<std::uint8_t>(0);
         packet.BoostDamage = full ? src[Size + 1] : static_cast<std::uint8_t>(0);

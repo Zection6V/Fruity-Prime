@@ -30,29 +30,55 @@ namespace MphRead::Entities::MorphBallBoostStateMachine
         }
     }
 
+    namespace
+    {
+        MorphBallTouchRules::BoostBranch SelectBranch(State& state, const Inputs& inputs) noexcept
+        {
+            // 0202360C: a native sample without contact re-arms the boost.
+            if (!inputs.TouchDown) state.CanTouchBoost = true;
+            return MorphBallTouchRules::Arbitrate(state.Boosting, state.CanTouchBoost,
+                inputs.TouchContinued, inputs.TouchDelta4X, inputs.TouchDelta4Y);
+        }
+
+        Result AdvanceBranch(State& state, const Inputs& inputs, const ChargeLimits& limits,
+            MorphBallTouchRules::BoostBranch branch, bool newSample) noexcept
+        {
+            switch (branch)
+            {
+            case MorphBallTouchRules::BoostBranch::TouchBoost:
+                // 02023780-02023790: preserve R's charge, fire only once.
+                if (newSample)
+                {
+                    state.Boosting = true;
+                    state.CanTouchBoost = false;
+                }
+                return {newSample ? Fired::TouchBoost : Fired::None, 0, branch};
+            case MorphBallTouchRules::BoostBranch::SkipShoulder:
+                // 02023668 -> 02023A24: neither boost runs, charge holds.
+                return {Fired::None, 0, branch};
+            case MorphBallTouchRules::BoostBranch::Shoulder:
+            default:
+                return AdvanceShoulder(state, inputs.ShoulderHeld, limits);
+            }
+        }
+    }
+
     Result Advance(State& state, const Inputs& inputs, const ChargeLimits& limits) noexcept
     {
-        // 0202360C: every frame without contact re-arms the touch boost.
-        if (!inputs.TouchDown)
+        return AdvanceBranch(state, inputs, limits, SelectBranch(state, inputs), true);
+    }
+
+    Result AdvanceSample(State& state, const Inputs& inputs, const ChargeLimits& limits,
+        SampleLatch& latch, std::uint64_t sampleIdentity) noexcept
+    {
+        const bool newSample = !latch.Valid || latch.Identity != sampleIdentity;
+        if (newSample)
         {
-            state.CanTouchBoost = true;
+            latch.Valid = true;
+            latch.Identity = sampleIdentity;
+            latch.Branch = SelectBranch(state, inputs);
         }
-        switch (MorphBallTouchRules::Arbitrate(state.Boosting, state.CanTouchBoost,
-            inputs.TouchContinued, inputs.TouchDelta4X, inputs.TouchDelta4Y))
-        {
-        case MorphBallTouchRules::BoostBranch::TouchBoost:
-            // 02023780-02023790. The charge is not touched: this branch never
-            // reaches 02023A1C.
-            state.Boosting = true;
-            state.CanTouchBoost = false;
-            return {Fired::TouchBoost, 0};
-        case MorphBallTouchRules::BoostBranch::SkipShoulder:
-            // 02023668 -> 02023A24: neither boost runs, the charge holds.
-            return {};
-        case MorphBallTouchRules::BoostBranch::Shoulder:
-        default:
-            return AdvanceShoulder(state, inputs.ShoulderHeld, limits);
-        }
+        return AdvanceBranch(state, inputs, limits, latch.Branch, newSample);
     }
 
     Strength TouchBoostStrength(const BoostValues& values) noexcept

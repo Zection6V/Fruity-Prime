@@ -3,6 +3,12 @@
 Answers `Fruity-Prime-develop5_morphBall-Implementation-Gap-Audit-EU1_1`
 (audited HEAD `57174384`), finding by finding.
 
+This records the original `48090b47` implementation. The follow-up EU1.1
+recheck found that holding a 30 Hz sample alone doubled Touch Roll and allowed
+Shoulder to resume on a TouchBoost's sibling step. Those consumer findings,
+their replacement tests and current verification are recorded in
+[the recheck closure](Fruity-Prime-MorphBall-Implementation-Recheck-Closure-2026-10-07.md).
+
 | Priority | Finding | Outcome |
 | --- | --- | --- |
 | P1 | `FruityPrime.NativeTouchState` not run by CI | **Fixed.** `build_cpp.yml` builds and runs it on the Windows, Linux and macOS host jobs, beside the new `FruityPrime.IntentTouchPayload`. The step is renamed *Reflex lifecycle, raw mouse and Morph Ball input regression*. |

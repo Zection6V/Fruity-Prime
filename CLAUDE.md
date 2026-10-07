@@ -624,12 +624,20 @@ and `FruityPrime.IntentTouchPayload`, both run in CI.
   reading the same sample. Ticking it every step halves the time its four
   samples span, so a swipe would need twice the speed to clear 90. Do not
   "fix" that by changing 8100 or the history length.
+  `NativeTouchSample` gives each 60 Hz step half the native roll impulse,
+  so the pair integrates to one 30 Hz contribution, not two.
 - **Which boost fires is `MorphBallBoostStateMachine`'s**, the same code
   `PlayerEntity::ProcessBoost` runs; `PlayerMorphBall.cpp` only applies it.
-- **Online, the owner's touch state travels in the intent** (protocol 15):
-  flags in the state block's spare byte, `Delta4X`/`Delta4Y` after it, so the
-  authority runs the same roll and the same touch/shoulder arbitration. A
-  payload without it (an older demo) reads as no contact.
+  Its `AdvanceSample` latches TouchBoost/SkipShoulder across the sample pair;
+  a TouchBoost fires once and its sibling cannot start charging or release R.
+  A Shoulder decision still charges/releases every 60 Hz simulation step.
+- **Online, the owner's touch state travels in the intent** (protocol 16):
+  flags in the state block's spare byte, `Delta4X`/`Delta4Y` and a 32-bit
+  sample sequence after it, plus a flag identifying the sibling step. The
+  authority rejects duplicate/stale substeps without reusing their roll,
+  and latches the same touch/shoulder decision. Slot generation and life ID
+  scope sample identities across rejoin/respawn. Protocol 15 touch payloads
+  retain their deltas when read; payloads without touch read as no contact.
 - The ROM's touch-control-mode bit (`player+0x364 & 0x10`) has no byte here;
   the touch adapter raising `Down` is its stand-in. `02021D40`'s Message 24
   is not ported: nothing in the game reads it.

@@ -379,9 +379,10 @@ namespace MphRead::Entities
         _touch.Suspend();
     }
 
-    void PlayerEntity::PlayerInput::ApplyReportedTouch(const Mods::Input::NativeTouchState::Reported& reported) noexcept
+    void PlayerEntity::PlayerInput::ApplyReportedTouch(const Mods::Input::NativeTouchState::Reported& reported,
+        std::uint16_t generation, std::uint16_t life) noexcept
     {
-        _touch.ApplyReported(reported);
+        _touch.ApplyReported(reported, generation, life);
     }
 
     void PlayerEntity::ProcessInput()
@@ -2391,6 +2392,7 @@ namespace MphRead::Entities
                 throw System::NullReferenceException();
             }
             PlayerEntity& player = *playerPtr;
+            player._input.BeginTouchStep();
             if (player._isBot)
             {
                 if (TestFlag(player._loadFlags, LoadFlags::Active))

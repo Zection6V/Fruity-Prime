@@ -38,8 +38,8 @@ namespace MphRead::Entities
         {
             scale *= Fixed::ToFloat(_values.JumpPadSlideFactor);
         }
-        const auto roll = MorphBallTouchRules::TouchRoll(touch.Delta4X, touch.Delta4Y, scale,
-            _altRollFbX, _altRollFbZ, _altRollLrX, _altRollLrZ);
+        const auto roll = MorphBallTouchRules::TouchRollStep(touch.Delta4X, touch.Delta4Y, scale,
+            _altRollFbX, _altRollFbZ, _altRollLrX, _altRollLrZ, _input.TouchSample().RollShare());
         speedDelta.X += roll.X;
         speedDelta.Z += roll.Z;
     }
@@ -52,10 +52,10 @@ namespace MphRead::Entities
         const Mods::Input::NativeTouchState& touch = _input.Touch();
         Boost::State state{TestFlag(_flags1, PlayerFlags1::Boosting),
             TestFlag(_flags1, PlayerFlags1::CanTouchBoost), _boostCharge};
-        const Boost::Result result = Boost::Advance(state,
+        const Boost::Result result = Boost::AdvanceSample(state,
             {touch.Down, touch.Continued, touch.Delta4X, touch.Delta4Y, _controls.Boost().IsDown()},
             {static_cast<std::uint16_t>(_values.BoostChargeMin * 2), static_cast<std::uint16_t>(_values.BoostChargeMax * 2),
-                Features::FullBoostCharge()});
+                Features::FullBoostCharge()}, _touchBoostSample, _input.TouchSample().Identity());
         if (state.Boosting) _flags1 |= PlayerFlags1::Boosting;
         else _flags1 &= ~PlayerFlags1::Boosting;
         if (state.CanTouchBoost) _flags1 |= PlayerFlags1::CanTouchBoost;

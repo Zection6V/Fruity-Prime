@@ -447,6 +447,7 @@ namespace MphRead::Entities
         _octolithFlag.reset();
         _lastJumpPad.reset();
         _burnedBy.reset();
+        _burnLaunchFrame = 0;
         _lastTarget.reset();
         _shockCoilTarget.reset();
         if (_beams)
@@ -813,6 +814,7 @@ namespace MphRead::Entities
         _targetAlpha = 1.0F;
         _disruptedTimer = 0;
         _burnedBy.reset();
+        _burnLaunchFrame = 0;
         _burnTimer = 0;
         _hSpeedCap = Fixed::ToFloat(_values.WalkSpeedCap);
         _speed = Vector3::Zero;
@@ -1948,7 +1950,9 @@ namespace MphRead::Entities
             flags, direction, damage, bomb != nullptr, beam != nullptr ? beam->ModLaunchFrame : 0U);
         Mods::Network::NetHitPrediction::NoteHit(*this, attacker, flags, damage,
             beam != nullptr ? beam->Beam() : MphRead::BeamType::None,
-            beam != nullptr ? beam->ModLaunchFrame : 0U, beam != nullptr ? beam->Age() : 0.0F,
+            beam != nullptr ? beam->ModLaunchFrame
+                : TestFlag(flags, DamageFlags::Burn) ? _burnLaunchFrame : 0U,
+            beam != nullptr ? beam->Age() : 0.0F,
             direction, beam != nullptr ? beam->Afflictions() : MphRead::Affliction::None);
         if (attacker != this)
         {
@@ -2604,6 +2608,7 @@ namespace MphRead::Entities
                             }
                         }
                         _burnedBy = beam->Owner();
+                        _burnLaunchFrame = beam->ModLaunchFrame;
                         _burnTimer = time;
                         CreateBurnEffect();
                     }

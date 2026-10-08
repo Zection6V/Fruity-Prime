@@ -971,6 +971,9 @@ namespace MphRead::Entities
         std::shared_ptr<OctolithFlagEntity> _octolithFlag{};
         std::shared_ptr<JumpPadEntity> _lastJumpPad{};
         std::shared_ptr<EntityBase> _burnedBy{};
+        // The launch frame of the shot that set this player burning: a burn
+        // tick is that shot's damage, however long after it lands.
+        std::uint32_t _burnLaunchFrame = 0;
         std::shared_ptr<EntityBase> _lastTarget{};
         std::shared_ptr<EntityBase> _shockCoilTarget{};
 

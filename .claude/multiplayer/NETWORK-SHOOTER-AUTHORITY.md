@@ -151,6 +151,29 @@ machine said it did (`NetHitClaims::ShotPlausible`, `RecordIntent`):
   skipped, worst simulation step 6.7 ms -> 1.9 ms, mean unchanged (0.20 ms),
   RSS unchanged (~69 MB). History is still recorded: claims are checked
   against it.
+- **The weapon is the shooter's own.** Every check above reads the row the
+  shooter actually fires (`NetHitClaims::FiredWeapon`): a hunter's affinity
+  weapon is its own row of the table (index + 9, as `TryEquipWeapon` picks
+  it), and two of them home when charged -- Samus's missile (81) and
+  Kanden's Volt Driver (40), where the base rows have no homing at all.
+  Read off the base row, the ray check held those homing shots to a straight
+  line: on a target moving fast the missile curved onto it 2-7 units off the
+  fired ray and the hit was refused, so the shooter watched the bar go back
+  up. In a real match (NL, 2026-10-08, Samus then Kanden against Trace and
+  Sylux) that was 24 of 79 missile claims and 2 of 9 Volt Driver claims,
+  every refusal of the session.
+- **Straight means no bounce of any kind.** The Judicator has neither
+  ricochet flag, yet a round of it that meets a wall spawns the ricochet
+  weapon's round off it in a new direction (`UnchargedRicochetWeapon`):
+  a weapon with a ricochet weapon is not held to its ray either.
+- **A burn tick is the shot that lit it.** A tick has no projectile, so its
+  claim used to carry no launch frame and was dated by its ack: when the
+  shooter died while the victim still burned, every later tick was "fired
+  after its owner's death" and voided (369 and 382 a run of Spire against
+  Spire, every bar point of it shown and taken back). The victim keeps the
+  launch frame of the shot that set it burning (`_burnLaunchFrame`) and the
+  tick is claimed with it. Left: a tick that arrives after its shooter has
+  respawned is refused as an old life (about 7 a five-minute run).
 
 ## Measuring it
 

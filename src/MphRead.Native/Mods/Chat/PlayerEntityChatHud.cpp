@@ -271,7 +271,6 @@ namespace MphRead::Entities
     {
         _input.Suspend();
         _nativeDual = {};
-        _nativeInputShadow.Clear();
         _aimFrame = {};
         _buttonAimX = _buttonAimY = 0;
     }

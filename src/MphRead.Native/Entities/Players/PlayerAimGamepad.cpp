@@ -23,6 +23,9 @@ namespace MphRead::Entities
         y = assisted.Y();
         if (x == 0.0F && y == 0.0F)
         {
+            // A centred stick is zero input, not no input: Facing still
+            // follows the gun on each axis, as it does for every source.
+            UpdateAimY(0); UpdateAimX(0);
             return;
         }
 

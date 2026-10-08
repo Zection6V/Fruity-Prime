@@ -122,3 +122,16 @@ online, presentation, performance or full-platform acceptance.
   in either style, and a pointer always steers it directly.
 - Checks: `-aimcheck` 1896 PASS (adds FreeCamera-per-step, modern host-touch and
   Classic-every-step cases), CTest 30/30, `tools/check-bomb-network.ps1` 12/12 PASS.
+
+## Audit response (mphCodex `Aim-Implementation-Audit-develop7_1to1Aim-EU1_1.md`, audited HEAD 192f3139)
+
+| ID | Resolution |
+|---|---|
+| A1 P0 | `GameView.cpp` no longer reads the removed `FrameTiming::MaxCap`. Display rate and Unlimited do not sleep (eglSwapBuffers paces Display); a numeric cap sleeps 1/cap with no ceiling and no 30 fps floor. Local NDK arm64-v8a build: PASS. x86_64, APK and launch smoke: CI only. |
+| A2 P1 | Not a regression: `PlayerInput.cpp` still applies `_buttonAimX/Y` for bots outside the Local-only block. Now proven by `-aimcheck` "bot Biped aim turns the bot". |
+| A3/A4 P1/P2 | The ActionSpec selectors (AimAction 0x10, EnableAction 0x20, touch fallback bits 2/4/5) could never be true on PC. Dual now reads a typed `NativeAim::AimButtons` (Left/Right/Up/Down/Enable/Aim/TouchDown). Enable and Aim stay false, because no PC button stands behind them, so the default Control (0x28, unconditional) is unaffected. Every gate of the conditional configuration is covered exhaustively in `FruityPrime.NativeAimRules`. |
+| A5 P2 | Pad only (mouse and key aim off) now selects the Gamepad source, and a centred stick runs the zero-input Follow on each axis. `-aimcheck`: "pad-only centred stick still follows on each axis". |
+| A6/A7 P2 | `NativeInputSlot.hpp` (an incomplete 0x48-byte mirror with no +0x06 held, one counter bank, no +0x0C consumer and an unverified clock) is removed, together with the Player slot and shadow. A strict ROM InputSlot, if ever needed, should be a separate complete `RomInputSlot`. |
+| A8 Gate | Unchanged: real-ROM trace, WiFi 4-slot, measured high-FPS acceptance and full Android CI remain NOT_RUN. |
+
+Checks after the response: `-aimcheck` 1901 PASS, NativeAimRules 149 PASS, CTest 30/30.

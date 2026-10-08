@@ -2309,7 +2309,6 @@ namespace MphRead::Entities
             {
                 player._input.Suspend();
                 player._nativeDual = {};
-                player._nativeInputShadow.Clear();
                 player._aimFrame = {};
                 player._buttonAimX = player._buttonAimY = 0;
                 for (const std::shared_ptr<Keybind>& control : player._controls.All())

@@ -49,12 +49,10 @@ namespace MphRead::Mods::Diagnostics
             "NoAimInput blocks Touch independently of Dual policy");
         player._flags1 &= ~Entities::PlayerFlags1::NoAimInput;
         player.Controls().SetNativeAim(false); player.Controls().NativeControl() = {};
-        player._nativeInputSlot.Produce(0x15, true, 0);
-        player._nativeInputShadow = player._nativeInputSlot;
-        const auto producer = player._nativeInputSlot.Bytes;
+        player._nativeDual.X = 3; player._nativeDual.Y = -3;
         player.ModForgetInputDeltas(); player._aimFrame = {};
-        check(player._nativeInputSlot.Bytes == producer && player._nativeInputShadow.Read(0) == 0,
-            "suspending a player clears only the copied input shadow, preserving producer history");
+        check(player._nativeDual.X == 0 && player._nativeDual.Y == 0,
+            "suspending a player drops its Dual velocity");
         return checks;
     }
 }

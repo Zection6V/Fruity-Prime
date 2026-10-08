@@ -35,57 +35,46 @@ int main()
     Check(near(NativeZoomSensitivity(39, 39, 0.1F), 1), "affine zoom unity");
     Check(near(NativeZoomSensitivity(20, 39, 0.025F), 0.525F), "affine zoom retains fractional precision");
     Check(near(AimEnvelopeCos * AimEnvelopeCos + AimEnvelopeSin * AimEnvelopeSin, 1), "ideal 15 degree envelope is unit length");
-    for (unsigned counter = 0; counter < 256; ++counter)
-    {
-        InputSlot slot; slot.Bytes[0xE] = static_cast<std::uint8_t>(counter);
-        slot.Produce(1, true, 0);
-        Check(slot.Read(0xA) == ((counter >= 4 && counter <= 7) ? 1 : 0), "filtered press4..7 exhaustive");
-        Check(slot.Read(0xC) == ((counter >= 3 && counter <= 7) ? 1 : 0), "filtered press3..7 exhaustive");
-        Check(slot.Bytes[0xE] == 0, "pressed key resets");
-        for (unsigned other = 1; other < 12; ++other) Check(slot.Bytes[0xE + other] == 255, "other11 keys invalidate");
-        const auto original = slot;
-        auto shadow = slot; shadow.Clear();
-        Check(slot.Bytes == original.Bytes, "shadow clear does not clear global");
-    }
-    InputSlot slot;
-    slot.Produce(1, false, 0); Check(slot.Read(0) == 0, "InputSlot OR gate closed");
-    slot.Produce(1, false, 1); Check(slot.Read(4) == 1, "84E opens InputSlot producer");
-    slot.Produce(0, true, 0); Check(slot.Read(8) == 1, "release edge");
-    slot.Produce(0, true, 0); slot.Produce(0, true, 0); slot.Produce(0, true, 0);
-    slot.Produce(1, true, 0); Check(slot.Read(0xA) == 1 && slot.Read(0xC) == 1, "repress timeline");
-    slot.Clear(); slot.Produce(3, true, 0);
-    Check(slot.Bytes[0xE] == 255 && slot.Bytes[0xF] == 0, "simultaneous press scan order");
-    for (unsigned selectors = 0; selectors < 8; ++selectors)
-        for (unsigned offset : {0U, 4U, 8U, 0xAU})
-            for (unsigned touch = 0; touch < 64; ++touch)
-                for (unsigned fallback = 0; fallback < 2; ++fallback)
-                {
-                    slot.Clear(); slot.Write(offset, 1); slot.Bytes[0x34] = static_cast<std::uint8_t>(touch);
-                    const auto spec = 1U | ((selectors & 1) ? 0x40000U : 0U) | ((selectors & 2) ? 0x100000U : 0U)
-                        | ((selectors & 4) ? 0x80000U : 0U) | (fallback ? 0x10000U : 0U);
-                    const unsigned selected = (selectors & 1) ? 4 : (selectors & 2) ? 8 : (selectors & 4) ? 0xA : 0;
-                    const unsigned bit = (selectors & 1) ? 2 : (selectors & 2) ? 4 : (selectors & 4) ? 5 : 0;
-                    Check(TestAction(slot, spec) == (selected == offset || (fallback && (touch & (1U << bit)))), "ActionSpec priority/fallback");
-                }
     Control control;
     DualState dual;
-    slot.Clear(); slot.Write(0, 15);
+    AimButtons all; all.Left = all.Right = all.Up = all.Down = true;
     Check(dual.X == 0 && dual.Y == 0, "old axes before first producer");
-    dual.Produce(slot, control, Form::Biped);
+    dual.Produce(all, control, Form::Biped);
     Check(near(dual.X, -3.2F) && near(dual.Y, 3.2F), "opposite key priority differs by axis");
     control.Flag84E = 1;
     const auto old = dual;
-    Check(!dual.Produce(slot, control, Form::Biped) && dual.X == old.X && dual.Y == old.Y, "84E only skips next producer");
-    dual.Produce(slot, control, Form::FreeCamera);
+    Check(!dual.Produce(all, control, Form::Biped) && dual.X == old.X && dual.Y == old.Y, "84E only skips next producer");
+    dual.Produce(all, control, Form::FreeCamera);
     Check(dual.X != old.X && dual.Y != old.Y, "FreeCamera separate same-step producer");
-    control.Flag84E = 0; slot.Clear();
-    Check(dual.Produce(slot, control, Form::Biped), "conditional AutoPitch");
+    control.Flag84E = 0;
+    const AimButtons none;
+    Check(dual.Produce(none, control, Form::Biped), "conditional AutoPitch");
     control.Flags |= 0x40;
-    Check(!dual.Produce(slot, control, Form::Biped), "0x40 inhibits extra Pitch");
-    control.Flags &= ~0x40; slot.Write(0, 16);
-    Check(!dual.Produce(slot, control, Form::Biped), "ActionSpec3A4 inhibits extra Pitch");
-    slot.Clear(); control.AutoPitchTimer = 1;
-    Check(!dual.Produce(slot, control, Form::Biped), "unsigned timer gate");
+    Check(!dual.Produce(none, control, Form::Biped), "0x40 inhibits extra Pitch");
+    control.Flags &= ~0x40;
+    AimButtons aim; aim.Aim = true;
+    Check(!dual.Produce(aim, control, Form::Biped), "Aim action inhibits extra Pitch");
+    control.AutoPitchTimer = 1;
+    Check(!dual.Produce(none, control, Form::Biped), "unsigned timer gate");
+    control.AutoPitchTimer = 0;
+    // Every gate of the conditional (non-0x08) configuration, exhaustively.
+    for (unsigned flags = 0; flags < 8; ++flags)
+        for (unsigned held = 0; held < 8; ++held)
+        {
+            Control gated; gated.Flags = static_cast<std::uint16_t>(0x20 | ((flags & 1) ? 2 : 0) | ((flags & 2) ? 4 : 0) | ((flags & 4) ? 8 : 0));
+            AimButtons b; b.Left = b.Up = true;
+            b.Enable = (held & 1) != 0; b.Aim = (held & 2) != 0; b.TouchDown = (held & 4) != 0;
+            const bool unconditional = (flags & 4) != 0;
+            const bool horizontal = unconditional || (!((flags & 2) && !b.Enable) && !((flags & 1) && b.TouchDown) && !b.Aim);
+            const bool vertical = unconditional || b.Enable;
+            DualState d; d.Produce(b, gated, Form::Biped);
+            Check((d.X != 0) == horizontal, "horizontal gate: Enable/TouchDown/Aim");
+            Check((d.Y != 0) == vertical, "vertical gate: unconditional or Enable");
+        }
+    AimButtons gatedTouch; gatedTouch.Left = gatedTouch.TouchDown = true;
+    Control touchFlag; touchFlag.Flags = 0x22;
+    DualState d; d.Produce(gatedTouch, touchFlag, Form::FreeCamera);
+    Check(d.X != 0, "FreeCamera ignores every gate");
     NativeTouchSample touch;
     unsigned ticks = 0;
     for (unsigned step = 0; step < 60; ++step) ticks += touch.AdvanceLocal();

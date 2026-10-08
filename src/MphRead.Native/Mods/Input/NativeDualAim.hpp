@@ -1,11 +1,21 @@
 #pragma once
 #include <algorithm>
 #include "NativeAimControl.hpp"
-#include "NativeInputSlot.hpp"
 
 namespace MphRead::Mods::Input::NativeAim
 {
     enum class Form : std::uint8_t { Biped, AltStrafe, FreeCamera };
+
+    // What Dual reads this step, as typed state. The ROM tests the same things
+    // through ActionSpec selectors over its 0x48-byte InputSlot; the PC has no
+    // buttons behind the Enable and Aim actions, so those stay false unless a
+    // caller has one. Only held state is read: no edge or re-press window.
+    struct AimButtons final
+    {
+        bool Left = false, Right = false, Up = false, Down = false;
+        bool Enable = false, Aim = false, TouchDown = false;
+    };
+
     constexpr float Floor(float maximum, Form /*form*/, bool negative) noexcept
     {
         return maximum * (negative ? -0.4F : 0.4F);
@@ -24,20 +34,19 @@ namespace MphRead::Mods::Input::NativeAim
         float X = 0, Y = 0;
         // Called AFTER old X/Y consumption for Biped/Alt, BEFORE consumption
         // for FreeCamera. Consumers, including zero-input Follow, remain separate.
-        constexpr bool Produce(const InputSlot& slot, const Control& control, Form form, bool halfStep = false) noexcept
+        // True when the conditional AutoPitch consumer should also run.
+        constexpr bool Produce(const AimButtons& buttons, const Control& control, Form form, bool halfStep = false) noexcept
         {
             if (form != Form::FreeCamera && control.Flag84E != 0) return false;
             const bool unconditional = (control.Flags & 8U) != 0;
-            const bool enabled = TestAction(slot, control.EnableAction);
-            const bool aim = TestAction(slot, control.AimAction);
-            const bool horizontal = form == Form::FreeCamera || unconditional || (!((control.Flags & 4U) && !enabled)
-                && !((control.Flags & 2U) && (slot.Bytes[0x34] & 1U)) && !aim);
-            const bool vertical = form == Form::FreeCamera || unconditional || enabled;
-            X = ProduceAxis(X, control.MaxX, !horizontal ? 0 : TestAction(slot, control.Right) ? -1 : TestAction(slot, control.Left) ? 1 : 0, form, halfStep);
-            const bool up = vertical && TestAction(slot, control.Up);
-            const bool down = vertical && TestAction(slot, control.Down);
+            const bool horizontal = form == Form::FreeCamera || unconditional
+                || (!((control.Flags & 4U) && !buttons.Enable) && !((control.Flags & 2U) && buttons.TouchDown) && !buttons.Aim);
+            const bool vertical = form == Form::FreeCamera || unconditional || buttons.Enable;
+            X = ProduceAxis(X, control.MaxX, !horizontal ? 0 : buttons.Right ? -1 : buttons.Left ? 1 : 0, form, halfStep);
+            const bool up = vertical && buttons.Up;
+            const bool down = vertical && buttons.Down;
             Y = ProduceAxis(Y, control.MaxY, up ? 1 : down ? -1 : 0, form, halfStep);
-            return form != Form::FreeCamera && vertical && !up && !down && !(control.Flags & 0x40U) && !aim
+            return form != Form::FreeCamera && vertical && !up && !down && !(control.Flags & 0x40U) && !buttons.Aim
                 && control.AutoPitchTimer <= control.AutoPitchLimit;
         }
     };

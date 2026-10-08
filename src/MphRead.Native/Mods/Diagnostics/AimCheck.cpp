@@ -72,7 +72,7 @@ namespace MphRead::Mods::Diagnostics
                 player.Controls().SetKeyboardAim((mask & 2) != 0);
                 player._aimTrace.Clear();
                 player.ProcessBiped();
-                check(player._aimTrace.Get(Input::AimOperation::Follow) == (mask ? 2U : 0U), "one selected zero-input axis pair");
+                check(player._aimTrace.Get(Input::AimOperation::Follow) == 2U, "one selected zero-input axis pair, pad-only included");
                 std::cout << "AIM candidate mouse=" << (mask & 1) << " dual=" << ((mask >> 1) & 1)
                     << " pitch=" << player._aimTrace.Get(Input::AimOperation::Pitch)
                     << " yaw=" << player._aimTrace.Get(Input::AimOperation::Yaw)
@@ -222,6 +222,28 @@ namespace MphRead::Mods::Diagnostics
                 check(std::fabs(player._cameraInfo->Facing.X - before.X) > 0.05F, "Classic death camera turns with the mouse");
                 player.Controls().SetNativeAim(false);
                 player.SwitchCamera(Entities::CameraType::First, player._facingVector);
+            }
+            {
+                // Audit A5: pad only (no mouse or key aim), stick centred.
+                reset(); player.Controls().SetMouseAim(false); player.Controls().SetKeyboardAim(false);
+                player._facingVector = Vector3(0.1F, 0, 1).Normalized();
+                const float before = player._facingVector.X;
+                Entities::PlayerEntity::ProcessInput(keyboard, mouse, false);
+                player.PrepareAimInput(); player._aimTrace.Clear(); player.ApplyLocalAim(false);
+                check(player._aimFrame.Source == Input::AimSource::Gamepad
+                    && player._aimTrace.Get(Input::AimOperation::Follow) == 2 && player._facingVector.X < before,
+                    "pad-only centred stick still follows on each axis");
+                player.Controls().SetMouseAim(true); player.Controls().SetKeyboardAim(true);
+            }
+            {
+                // Audit A2: a bot's Biped aim turns it (PlayerInput's bot consumer).
+                reset(); player._isBot = true;
+                player._buttonAimX = 5.0F; player._buttonAimY = 0.0F;
+                player._aimTrace.Clear(); player.ProcessBiped();
+                const float yaw = std::atan2(player._gunVec1.X, player._gunVec1.Z) * 180.0F / 3.14159265F;
+                player._isBot = false; player._buttonAimX = 0;
+                check(player._aimFrame.Owner == Input::AimOwner::Bot && std::fabs(yaw) > 4.0F
+                    && player._aimTrace.Get(Input::AimOperation::Yaw) >= 1, "bot Biped aim turns the bot");
             }
             {
                 // Respawn re-arms the Power Beam whatever was held at death.

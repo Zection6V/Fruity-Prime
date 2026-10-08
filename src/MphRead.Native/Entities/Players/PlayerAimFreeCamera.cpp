@@ -16,15 +16,8 @@ namespace MphRead::Entities
         const auto& control = _controls.NativeControl();
         // A camera is not gameplay: keys respond on every 60 Hz step, with
         // half-step rates so a held key turns as fast as on the DS tick.
-        std::uint16_t held = 0;
-        if (_controls.AimLeft().IsDown()) held |= 1;
-        if (_controls.AimRight().IsDown()) held |= 2;
-        if (_controls.AimUp().IsDown()) held |= 4;
-        if (_controls.AimDown().IsDown()) held |= 8;
-        _nativeInputSlot.Produce(held, true, control.Flag84E);
-        _nativeInputShadow = _nativeInputSlot;
         // EU1.1 0201ABB0: FreeCamera makes this step's velocity first.
-        _nativeDual.Produce(_nativeInputShadow, control, Native::Form::FreeCamera, true);
+        _nativeDual.Produce(ReadNativeAimButtons(), control, Native::Form::FreeCamera, true);
         float x = _nativeDual.X * 0.5F, y = _nativeDual.Y * 0.5F;
         if (_controls.InvertAimX()) x = -x;
         if (_controls.InvertAimY()) y = -y;

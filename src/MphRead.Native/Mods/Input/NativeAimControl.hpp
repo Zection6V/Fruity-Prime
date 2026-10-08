@@ -5,10 +5,10 @@ namespace MphRead::Mods::Input::NativeAim
 {
     struct Control final
     {
-        std::uint16_t Flags = 0x28; // Exact + unconditional Dual direction
+        // 0x02 Touch aim, 0x04 vertical needs Enable, 0x08 unconditional Dual,
+        // 0x20 Exact, 0x40 no AutoPitch. The default is Exact + unconditional.
+        std::uint16_t Flags = 0x28;
         std::uint8_t Flag84E = 0;
-        std::uint32_t Left = 1, Right = 2, Up = 4, Down = 8;
-        std::uint32_t AimAction = 16, EnableAction = 32, Movement = 0xF00;
         // Degrees per native gameplay tick. Preserve intent without Q12 truncation.
         float MaxX = 8.0F, MaxY = 8.0F;
         // EU1.1 stock preset 020BDFA0+0x94/+0x98 -> Player+3F8/+3FC.

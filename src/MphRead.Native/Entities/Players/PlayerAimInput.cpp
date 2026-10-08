@@ -78,6 +78,8 @@ namespace MphRead::Entities
                     _aimFrame.Source = Input::AimSource::Dual;
                 else if (_controls.MouseAim()) _aimFrame.Source = Input::AimSource::Mouse;
                 else if (_controls.KeyboardAim()) _aimFrame.Source = Input::AimSource::Dual;
+                // Neither mouse nor keys aim: the pad is the only aim device left.
+                else _aimFrame.Source = Input::AimSource::Gamepad;
                 // The source is the PC's; what it does to the aim is the DS's.
                 _aimFrame.Native = classic && _aimFrame.Source != Input::AimSource::None;
             }

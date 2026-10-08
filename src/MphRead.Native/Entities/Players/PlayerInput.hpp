@@ -313,6 +313,7 @@ private:                                                                        
     void ApplyNativeFreeCamera(::MphRead::Entities::CameraInfo& camera);                       \
     void ReadDirectFreeCameraAim(float& aimX, float& aimY);                                    \
     void ReadFreeCameraPointer(float& aimX, float& aimY);                                      \
+    [[nodiscard]] ::MphRead::Mods::Input::NativeAim::AimButtons ReadNativeAimButtons() const;  \
     void ProjectAimTarget();                                                                   \
     [[nodiscard]] float AimSensitivity() const;                                                \
     void RebuildAimBasis();                                                                    \
@@ -348,8 +349,6 @@ private:                                                                        
     ::MphRead::Mods::Input::AimTrace _aimTrace{};                                               \
     ::MphRead::Mods::Input::AimFrame _aimFrame{};                                               \
     ::MphRead::Mods::Input::NativeAim::DualState _nativeDual{};                                 \
-    ::MphRead::Mods::Input::NativeAim::InputSlot _nativeInputSlot{};                            \
-    ::MphRead::Mods::Input::NativeAim::InputSlot _nativeInputShadow{};                          \
     static constexpr float _maxButtonAimX = 8.0F;                                              \
     static constexpr float _maxButtonAimY = 8.0F;                                              \
     class PlayerInput final                                                                    \

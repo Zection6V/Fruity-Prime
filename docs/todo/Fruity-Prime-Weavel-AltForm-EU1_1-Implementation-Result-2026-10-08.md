@@ -6,8 +6,7 @@
 
 ## 完了判定
 
-追補監査（対象`c8848e55`）でP1 local snapshot reconciliationの不足を確認したため、追補の受入完了まではCLOSEDとしない。
-P1の修正・追加production checks・修正code commitのWindows / Linux / macOS CIを今回の完了gateとする。
+追補監査（対象`c8848e55`）のP1 local snapshot reconciliationを修正し、追加production checksと修正code commitのWindows / Linux / macOS CIが合格した。ユーザーが了承したP2の近似を含む今回の対象範囲はCLOSED。
 P2の落下物理・sphere sweep半径はユーザーが「近似でもいい」と明示了承したため、`_ySpeed -= 0.02F` / `0.45F`と既存の近似値テストを維持する。ROM raw演算との完全一致は主張しない。
 ユーザー指定によりC# mirrorは対象外。
 
@@ -27,12 +26,28 @@ P2の落下物理・sphere sweep半径はユーザーが「近似でもいい」
 | Adventure enemy extension | 対象外。既存extensionと別検証を維持 |
 | projectile Wi-Fi authority | 静的証拠境界を維持。推測変更なし |
 | local turret HP専用correction API | 追加しない。form intent ackのない現protocolでremote lifecycle APIをlocalへ流用しない |
-| build / asset-backed / desktop CI | MSVC Release build成功。P1追加49 checks、既存Weavel421 checks、Adventure extension29 checks、Lockjaw93 checks、関連CTest4/4、Dialanche28 assertions＋独立UDP peers2件成功。修正code commitのdesktop CIは確認中 |
+| build / asset-backed / desktop CI | MSVC Release build成功。P1追加49 checks、既存Weavel421 checks、Adventure extension29 checks、Lockjaw93 checks、関連CTest4/4、Dialanche28 assertions＋独立UDP peers2件成功。修正code commitのdesktop CIも全3 jobs成功（詳細は下表） |
 
 追補のlocal logs: ignored `tools/build/out/weavel-followup-validation/`、`weavel-followup-dialanche/`。
 再現: `powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-weavel-alt.ps1 -OutputDirectory tools/build/out/weavel-followup-validation`。
 
-補足のliveハーネス`check-dialanche-network.ps1 -SpireSeconds 8 -TargetSeconds 10`は、今回のbinaryでSpireがAltへ入らず`events=0`のため失敗。同じcommandを保存済み`FruityPrime-SrpCheck.exe`（2026-10-07生成、本修正前）で実行しても`events=0`で失敗した。ここはP1成功・regressionなしの証拠に含めない。logs: `weavel-followup-network/`、`weavel-followup-network-baseline/`。一方、上記asset-backed Dialanche28 assertionsと独立UDP peersは今回のbinaryで成功している。
+補足のliveハーネス`check-dialanche-network.ps1 -SpireSeconds 8 -TargetSeconds 10`は、今回のbinaryでSpireがAltへ入らず`events=0`のため失敗。同じcommandを保存済み`FruityPrime-SrpCheck.exe`（2026-10-07 19:11:36生成、本修正前、SHA256 `C69ACD669A29476C00D334D53DF43CDE7A697B16B1C32BD085C5580831B05D7B`）で実行しても`events=0`で失敗した。ここはP1成功・regressionなしの証拠に含めない。logs: `weavel-followup-network/`、`weavel-followup-network-baseline/`。一方、上記asset-backed Dialanche28 assertionsと独立UDP peersは今回のbinaryで成功している。
+
+追補の修正code commit: [`0c9ceaa987061782a1ed2f61b8ff2701f2eed2ca`](https://github.com/Zection6V/Fruity-Prime/commit/0c9ceaa987061782a1ed2f61b8ff2701f2eed2ca)。CI: [build_cpp run 37709271668](https://github.com/Zection6V/Fruity-Prime/actions/runs/37709271668)、全15 jobs成功。runのhead SHAが修正code commitと一致することを確認。以下の旧CI runを本修正の合格証拠として流用しない。
+
+| 追補CI job | 実行ログで確認した結果 |
+|---|---|
+| [Windows / MSVC](https://github.com/Zection6V/Fruity-Prime/actions/runs/37709271668/job/113091068311) | build成功、WeavelAltFormParityを含むCTest 7/7合格 |
+| [Linux / GCC](https://github.com/Zection6V/Fruity-Prime/actions/runs/37709271668/job/113091068327) | build成功、WeavelAltFormParityを含むCTest 6/6合格 |
+| [macOS / Clang](https://github.com/Zection6V/Fruity-Prime/actions/runs/37709271668/job/113091068476) | build成功、WeavelAltFormParityを含むCTest 6/6合格 |
+
+CI logs: ignored `tools/build/out/weavel-followup-ci-{windows,linux,macos}.log`。この受入記録の追記は文書のみで、上記検証対象コードは変更していない。
+
+### 今回のP1修正のSRP確認
+
+`NetPlayerBridge::ApplyState`はsnapshotをlocal / remoteのどちらへ適用するかという同期方針を担当し、Weavelの明示的なreconciliationをremoteへ限定する。フォーム・turret lifecycleの変更は既存の`PlayerEntity::ModApplyWeavelState`（`PlayerWeavel.cpp`）、turret HP / position / groundedの反映は`HalfturretEntity::ApplyNetworkState`が担当する。bridgeにゲームの状態遷移ロジックは追加していない。
+
+追加のlocal prediction / remote reconciliation検証は専用`WeavelLocalSnapshotCheck.cpp`に分離し、通常のWeavel production checksとAdventure enemy extension checksから独立している。今回の変更について責務の混在は確認されず、追加リファクタリングは不要と判断した。実際の3 entry pathsと49 checksのローカル実行結果を判断根拠とし、desktop CIのCTestとは別の証拠として扱う。
 
 以下のPhase 1～8表とCI記録は**追補前の受入履歴**。local stale snapshotを含む現在の完了判定は上記追補gateを基準にする。
 

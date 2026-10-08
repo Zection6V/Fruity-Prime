@@ -15,7 +15,8 @@
 #   HITLOC_OUT    where runs land (default ~/fp-hitloc/runs)
 #   HITLOC_CLIENT_EXTRA   more client flags
 #   Another box: HITLOC_JP_HOST, HITLOC_REMOTE_PREFIX (default /opt/fruityprime-;
-#   the side is appended), HITLOC_PORT_BASE / HITLOC_PORT_DEV (27896 / 27895).
+#   the side is appended), HITLOC_PORT_BASE / HITLOC_PORT_DEV (27896 / 27895),
+#   HITLOC_DEV_DIR (the after arm's directory name, default dev).
 set -u
 LABEL="${1:?label}"; SIDE="${2:?base|dev}"; MAP="${3:?map}"; MODE="${4:?mode}"; SECS="${5:?seconds}"
 BIN="${HITLOC_BIN:?set HITLOC_BIN}"
@@ -24,7 +25,8 @@ HOST="${HITLOC_JP_HOST:-13.78.14.98}"
 USER_="${HITLOC_JP_USER:-livetek}"
 KEY="${HITLOC_JP_KEY:-$HOME/.ssh/fp_japan}"
 case "$SIDE" in base) PORT="${HITLOC_PORT_BASE:-27896}" ;; dev) PORT="${HITLOC_PORT_DEV:-27895}" ;; *) echo "side: base|dev" >&2; exit 2 ;; esac
-REMOTE="${HITLOC_REMOTE_PREFIX:-/opt/fruityprime-}$SIDE"
+DIR="$SIDE"; [ "$SIDE" = dev ] && DIR="${HITLOC_DEV_DIR:-dev}"
+REMOTE="${HITLOC_REMOTE_PREFIX:-/opt/fruityprime-}$DIR"
 SSH=(ssh -i "$KEY" "$USER_@$HOST")
 mkdir -p "$OUT"
 

@@ -24,7 +24,7 @@ done
 echo
 for entry in "${MAPS[@]}"; do
   IFS=: read -r map tag mode <<<"$entry"
-  echo "######## $map (Japan)"
+  echo "######## $map (${HITLOC_JP_HOST:-13.78.14.98})"
   python3 "$HERE/hitloc.py" "before:$tag=$(seq -s, -f "$OUT/$PREFIX-base-$tag-%g" 1 "$ROUNDS")" \
     "after:$tag=$(seq -s, -f "$OUT/$PREFIX-after-$tag-%g" 1 "$ROUNDS")"
 done

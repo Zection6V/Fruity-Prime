@@ -175,6 +175,13 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         void AbandonLowLatencyFrame() noexcept override { if (_reflex) _reflex->AbandonFrame(); }
         [[nodiscard]] bool BeginLowLatencyFrame() override
         {
+            SyncExclusive();
+            if (_context._impl->fullScreenExclusive && FullscreenExclusive::Monitor()
+                && !FullscreenExclusive::Active())
+            {
+                AbandonLowLatencyFrame();
+                return true;
+            }
             const auto before = _reflex->FrameId();
             const bool ready = _reflex->BeginFrame();
             if (ready && !before && _reflex->FrameId() && _context._impl->nvLowLatency2Revision >= 3
@@ -225,8 +232,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 }
                 const auto w = static_cast<std::uint32_t>(width);
                 const auto h = static_cast<std::uint32_t>(height);
-                if (_exclusiveGeneration != FullscreenExclusive::Generation())
-                    _needsRecreate = true;
+                SyncExclusive();
                 if (_suspended || _needsRecreate || w != _desc.width || h != _desc.height)
                     Recreate(w, h);
                 else if (_exclusiveWanted && !_exclusiveHeld && --_exclusiveRetryIn == 0)
@@ -293,6 +299,9 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         [[nodiscard]] bool TryAcquire()
         {
             if (_closed || Closing()) return false;
+            SyncExclusive();
+            if (_context._impl->fullScreenExclusive && FullscreenExclusive::Monitor()
+                && !FullscreenExclusive::Active()) return false;
 #if !defined(__ANDROID__)
             if (WindowSystem::Iconified(_window->NativeHandle()))
                 return false;
@@ -347,6 +356,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 return {PresentationStatus::TemporarilyUnavailable};
 #endif
             if (_suspended && !_acquired) return {PresentationStatus::TemporarilyUnavailable};
+            if (!_acquired && _context._impl->fullScreenExclusive && FullscreenExclusive::Monitor()
+                && !FullscreenExclusive::Active()) return {PresentationStatus::TemporarilyUnavailable};
 #if !defined(__ANDROID__)
             // TryAcquire refuses an iconified (unexposed) window without
             // suspending; the present that follows must say the same thing.
@@ -502,6 +513,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         }
 
         [[nodiscard]] bool ValidationEnabled() const noexcept { return _context.ValidationEnabled(); }
+        [[nodiscard]] bool ExclusiveSupported() const noexcept { return _context._impl->fullScreenExclusive; }
         [[nodiscard]] unsigned ValidationErrors() const noexcept { return _context.ValidationErrors(); }
         [[nodiscard]] bool PresentFencesEnabled() const noexcept { return _context._impl->swapchainMaintenance1; }
         [[nodiscard]] std::uint64_t PresentFenceWaits() const noexcept { return _presentFenceWaits; }
@@ -631,6 +643,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         // for, whether it holds the display, and when to try again after the
         // driver took it away (alt-tab, another fullscreen program).
         std::uint64_t _exclusiveGeneration = 0;
+        void* _exclusiveMonitor = nullptr;
         bool _exclusiveWanted = false;
         bool _exclusiveHeld = false;
         std::uint32_t _exclusiveRetryIn = 0;
@@ -660,6 +673,33 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 fence.flags = VK_FENCE_CREATE_SIGNALED_BIT;
                 Check(vk.vkCreateFence(vk.device, &fence, nullptr, &frame.fence), "vkCreateFence(frame)");
             }
+        }
+
+        void SyncExclusive()
+        {
+            const auto generation = FullscreenExclusive::Generation();
+            if (_exclusiveGeneration == generation) return;
+            auto& vk = *_context._impl;
+            void* monitor = vk.fullScreenExclusive ? FullscreenExclusive::Monitor() : nullptr;
+            if (monitor != _exclusiveMonitor)
+            {
+                _needsRecreate = true;
+                return;
+            }
+            _exclusiveGeneration = generation;
+            _exclusiveWanted = monitor != nullptr && FullscreenExclusive::Active();
+            // Reuse application-controlled chains across focus changes. The
+            // release API forbids presentation until reacquired; TryAcquire
+            // reports temporary unavailability while simulation keeps running.
+            if (_exclusiveHeld && !_exclusiveWanted)
+            {
+                (void)reinterpret_cast<FullScreenExclusiveModeFn>(vk.vkReleaseFullScreenExclusiveModeEXT)(
+                    vk.device, _swapchain);
+                _exclusiveHeld = false;
+                std::cout << "[vulkan] full-screen exclusive released (focus)\n";
+            }
+            else if (_exclusiveWanted && !_exclusiveHeld && _swapchain)
+                AcquireExclusive();
         }
 
         void AcquireExclusive()
@@ -828,10 +868,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     vk.device, oldSwapchain);
             }
             _exclusiveHeld = false;
-            if (_exclusiveWanted != (exclusiveMonitor != nullptr))
-                std::cout << "[vulkan] full-screen exclusive " << (exclusiveMonitor ? "requested" : "released")
+            const bool exclusiveWanted = exclusiveMonitor != nullptr && FullscreenExclusive::Active();
+            if (_exclusiveWanted != exclusiveWanted)
+                std::cout << "[vulkan] full-screen exclusive " << (exclusiveWanted ? "requested" : "released")
                           << std::endl;
-            _exclusiveWanted = exclusiveMonitor != nullptr;
+            _exclusiveMonitor = exclusiveMonitor;
+            _exclusiveWanted = exclusiveWanted;
             VkSwapchainLatencyCreateInfoNV latency{VK_STRUCTURE_TYPE_SWAPCHAIN_LATENCY_CREATE_INFO_NV};
             // FRUITY_REFLEX_DISABLE_SWAPCHAIN_LATENCY_MODE: developer A/B on
             // whether the opt-in itself changes cadence. Default: chained.
@@ -1374,6 +1416,34 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 });
             swapchain->Resize(static_cast<std::uint32_t>(fullscreen.first), static_cast<std::uint32_t>(fullscreen.second));
             drawColor(0.75F, 0.22F, 0.08F);
+#if defined(_WIN32)
+            if (std::getenv("FRUITY_FOCUSCHECK") && vkSwapchain.ExclusiveSupported())
+            {
+                if (!window->WindowStateFullscreen())
+                    throw std::runtime_error("Focus check could not enter exclusive fullscreen.");
+                window->Focus();
+                ProcessEvents();
+                FullscreenExclusive::Active(true);
+                drawColor(0.75F, 0.22F, 0.08F);
+                const auto generation = swapchain->LowLatencyStats().swapchainGeneration;
+                for (int cycle = 0; cycle < 3; ++cycle)
+                {
+                    FullscreenExclusive::Active(false);
+                    const auto start = std::chrono::steady_clock::now();
+                    if (!swapchain->BeginLowLatencyFrame()
+                        || swapchain->TryAcquireTexture().status != PresentationStatus::TemporarilyUnavailable
+                        || swapchain->TryPresent().status != PresentationStatus::TemporarilyUnavailable
+                        || std::chrono::steady_clock::now() - start > std::chrono::milliseconds(250))
+                        throw std::runtime_error("Unfocused exclusive presentation blocked or remained available.");
+                    FullscreenExclusive::Active(true);
+                    drawColor(0.75F, 0.22F, 0.08F);
+                    if (generation != swapchain->LowLatencyStats().swapchainGeneration)
+                        throw std::runtime_error("Focus transition recreated the exclusive swapchain.");
+                }
+                window->WindowStateNormal();
+                std::cout << "[vulkan] exclusive focus PASS; unavailable without blocking; restored; same swapchain\n";
+            }
+#endif
             window->WindowBorder(oldBorder);
             ProcessEvents();
             window->ClientSize(oldSize);

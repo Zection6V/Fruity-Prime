@@ -181,6 +181,7 @@ add_custom_target(fruity_golden_capture_provenance
     COMMENT "Refreshing GoldenCapture source provenance"
     VERBATIM)
 list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestSyluxMuzzleGuard.cpp"
     "${FRUITY_MPHREAD_ROOT}/Testing/TestOpenGlUniformState.cpp"
     "${FRUITY_MPHREAD_ROOT}/Testing/TestNativeTouchState.cpp"
     "${FRUITY_MPHREAD_ROOT}/Testing/TestNativeAimRules.cpp"
@@ -328,6 +329,10 @@ set_target_properties(fruity_mphread_native PROPERTIES OUTPUT_NAME "MphRead.Nati
 # focused tests whenever a host native owner is built; Android cross-compiles
 # the production decoder but cannot execute the host test binary.
 if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
+    add_executable(fruity_sylux_muzzle_guard_tests "${FRUITY_MPHREAD_ROOT}/Testing/TestSyluxMuzzleGuard.cpp")
+    target_link_libraries(fruity_sylux_muzzle_guard_tests PRIVATE fruity_mphread_native)
+    target_compile_features(fruity_sylux_muzzle_guard_tests PRIVATE cxx_std_20)
+    add_test(NAME FruityPrime.SyluxMuzzleGuard COMMAND fruity_sylux_muzzle_guard_tests)
     add_executable(fruity_native_aim_rules_tests "${FRUITY_MPHREAD_ROOT}/Testing/TestNativeAimRules.cpp")
     target_compile_features(fruity_native_aim_rules_tests PRIVATE cxx_std_20)
     add_test(NAME FruityPrime.NativeAimRules COMMAND fruity_native_aim_rules_tests)

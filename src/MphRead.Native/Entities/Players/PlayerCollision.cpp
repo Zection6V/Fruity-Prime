@@ -2,6 +2,7 @@
 
 #include "../../Features.hpp"
 #include "../../GameState.hpp"
+#include "../../Mods/Combat/DialancheHitTest.hpp"
 #include "../../Scene.hpp"
 #include "../CamSeq/CameraSequence.hpp"
 #include "../DoorEntity.hpp"
@@ -236,22 +237,6 @@ namespace MphRead::Entities
         }
     }
 
-    bool PlayerEntity::DialancheHitsVolume(const CollisionVolume& volume) const
-    {
-        const auto frame = RequireReference(_scene).FrameCount();
-        if (!DialancheNativeCollision::IsNativeCollisionStep(frame))
-        {
-            return false;
-        }
-        // EU1.1 0200B808/0211DA34: two radius-0.5 rocks, one OR result.
-        // The current tick's visual sample is hidden for every target type.
-        const auto pose = _dialancheNativeCollision.PoseForHit(
-            DialancheNativeCollision::NativeTick(frame));
-        CollisionResult unused{};
-        return CollisionDetection::CheckSphereOverlapVolume(&volume, pose.Left, DialancheNativeCollision::RockRadius, unused)
-            || CollisionDetection::CheckSphereOverlapVolume(&volume, pose.Right, DialancheNativeCollision::RockRadius, unused);
-    }
-
     void PlayerEntity::CheckAltAttackHit1(
         PlayerEntity* attacker, PlayerEntity* target, bool halfturret)
     {
@@ -259,62 +244,7 @@ namespace MphRead::Entities
         if (source.Hunter() == MphRead::Hunter::Spire
             && TestFlag(source.Flags2(), PlayerFlags2::AltAttack))
         {
-            PlayerEntity& victim = RequireReference(target);
-            bool hit = false;
-            if (halfturret)
-            {
-                auto&& halfturretValue = victim.Halfturret();
-                auto* turret = ObjectPointer(halfturretValue);
-                CollisionVolume otherVolume(
-                    static_cast<Vector3>(RequireReference(turret).Position), 0.45F);
-                hit = source.DialancheHitsVolume(otherVolume);
-            }
-            else
-            {
-                CollisionVolume targetVolume = victim.Volume();
-                hit = source.DialancheHitsVolume(targetVolume);
-            }
-            if (hit)
-            {
-                Vector3 dir = Vector3::Zero;
-                if (!halfturret)
-                {
-                    float x = static_cast<Vector3>(victim.Position).X
-                        - static_cast<Vector3>(source.Position).X;
-                    float z = static_cast<Vector3>(victim.Position).Z
-                        - static_cast<Vector3>(source.Position).Z;
-                    float factor = std::sqrt(x * x + z * z) * 4.0F;
-                    dir.X = x / factor;
-                    dir.Z = z / factor;
-                }
-                std::uint16_t damage = source.Values().AltAttackDamage;
-                if (source.IsBot() && GameState::SinglePlayer())
-                {
-                    std::int32_t encounter
-                        = ManagedAt(GameState::EncounterState(), source.SlotIndex());
-                    if (encounter == 1 || encounter == 3 || encounter == 4
-                        || (encounter == 0 && source.BotLevel() == 0))
-                    {
-                        damage = 2;
-                    }
-                    else if (encounter != 0 || source.BotLevel() < 2)
-                    {
-                        damage = 3;
-                    }
-                    else
-                    {
-                        damage = 5;
-                    }
-                }
-                DamageFlags flags
-                    = DamageFlags::NoSfx | DamageFlags::NoDmgInvuln;
-                if (halfturret)
-                {
-                    flags |= DamageFlags::Halfturret;
-                }
-                victim.TakeDamage(damage, flags, dir, &source);
-                source._soundSource.PlaySfx(SfxId::SPIRE_ALT_ATTACK_HIT);
-            }
+            source.CheckDialanchePlayerHit(RequireReference(target), halfturret);
         }
         else if (source.Hunter() == MphRead::Hunter::Noxus
             && source._altAttackTime >= source.Values().AltAttackStartup * 2)
@@ -537,9 +467,8 @@ namespace MphRead::Entities
             DoorEntity& target = RequireReference(door);
             // Preserve the extension's door contact slab (depth +/-1.25)
             // and aperture, but test the sampled rocks rather than the body.
-            const Vector3 facing = target.FacingVector();
-            const CollisionVolume volume(facing,
-                target.LockPosition() - ScaleVector(facing, 1.25F), target.Radius(), 2.5F);
+            const CollisionVolume volume = Mods::Combat::DialancheHitTest::DoorContactVolume(
+                target.LockPosition(), target.FacingVector(), target.Radius());
             if (!DialancheHitsVolume(volume))
             {
                 return;

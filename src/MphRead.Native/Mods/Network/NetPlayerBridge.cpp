@@ -393,7 +393,11 @@ namespace MphRead::Mods::Network
         {
             return;
         }
-        if (!Sane(state.Position) || !Sane(state.Speed) || !Sane(state.Facing))
+        if (!Sane(state.Position) || !Sane(state.Speed) || !Sane(state.Facing)
+            || (player.Hunter() == Hunter::Weavel
+                && ((state.WeavelFlags & ~(PlayerState::WeavelFlagTurretActive | PlayerState::WeavelFlagTurretGrounded)) != 0
+                    || ((state.WeavelFlags & PlayerState::WeavelFlagTurretActive) != 0
+                        && (!Sane(state.HalfturretPosition) || state.HalfturretHealth == 0)))))
         {
             NativeRuntime::IncrementInPlace(_rejectedUpdates);
             return;
@@ -439,7 +443,8 @@ namespace MphRead::Mods::Network
             player.ModSetFacing(state.Facing);
             player.ModSetWeapon(static_cast<BeamType>(state.CurrentWeapon));
             player.EquipInfo()->Zoomed = (state.Flags & PlayerState::FlagZoomed) != 0;
-            ApplyForm(player, (state.Flags & PlayerState::FlagAltForm) != 0);
+            if (player.Hunter() != Hunter::Weavel)
+                ApplyForm(player, (state.Flags & PlayerState::FlagAltForm) != 0);
             player.ModSetSpectating((state.Flags & PlayerState::FlagSpectating) != 0);
         }
         else
@@ -451,6 +456,14 @@ namespace MphRead::Mods::Network
                 _divergedFrames[s] = 0;
             }
             player.SetHealth(NetHitPrediction::LocalHealthFor(player, state.Health));
+        }
+        // Explicit turret reconciliation owns remote replicas. A local owner
+        // predicts form and turret lifecycle; an older snapshot has no form ack.
+        if (player.Hunter() == Hunter::Weavel && !isLocal)
+        {
+            player.ModApplyWeavelState((state.Flags & PlayerState::FlagAltForm) != 0,
+                (state.WeavelFlags & PlayerState::WeavelFlagTurretActive) != 0, state.HalfturretHealth,
+                state.HalfturretPosition, (state.WeavelFlags & PlayerState::WeavelFlagTurretGrounded) != 0);
         }
         player.ModSetFrozen((state.Flags & PlayerState::FlagFrozen) != 0);
         ApplyAfflictions(player, state);

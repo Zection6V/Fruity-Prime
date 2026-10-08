@@ -6,6 +6,8 @@ $inputCode = Get-Content -Raw (Join-Path $root 'src/MphRead/Entities/Players/Pla
 $nativeProcess = Get-Content -Raw (Join-Path $root 'src/MphRead.Native/Entities/Players/PlayerProcess.cpp')
 $nativeInput = Get-Content -Raw (Join-Path $root 'src/MphRead.Native/Entities/Players/PlayerInput.cpp')
 $nativeCollision = Get-Content -Raw (Join-Path $root 'src/MphRead.Native/Entities/Players/PlayerCollision.cpp')
+$nativeDialanche = Get-Content -Raw (Join-Path $root 'src/MphRead.Native/Entities/Players/PlayerDialanche.cpp')
+$nativeHitTest = Get-Content -Raw (Join-Path $root 'src/MphRead.Native/Mods/Combat/DialancheHitTest.cpp')
 
 $checks = @(
     @{ Name = 'pose follows alt animation update'; Ok = $process -match '(?s)UpdateAnimFrames\(_altModel\);\s*}\s*if \(Hunter == Hunter\.Spire && Flags2\.TestFlag\(PlayerFlags2\.AltAttack\)\)\s*{\s*UpdateSpireAltCollisionPose\(\);' },
@@ -17,8 +19,8 @@ $checks = @(
 $checks += @(
     @{ Name = 'native headless pose records only on shared even phase'; Ok = $nativeProcess -match '(?s)UpdateSpireAltCollisionPose\(\).*?AnimateSpireAltAttack\(\);.*?IsNativeCollisionStep\(frame\).*?_dialancheNativeCollision.Record' },
     @{ Name = 'native attack resets both continuous rocks and history'; Ok = $nativeInput -match '(?s)_spireRockPosR = static_cast<Vector3>\(Position\);\s*_spireRockPosL = static_cast<Vector3>\(Position\);\s*_dialancheNativeCollision.Reset\(static_cast<Vector3>\(Position\)\);' },
-    @{ Name = 'native attack consumers never read continuous rocks'; Ok = $nativeCollision -notmatch '_spireRockPos[LR]' },
-    @{ Name = 'native overlap consumes strictly older history'; Ok = $nativeCollision -match '(?s)DialancheHitsVolume.*?IsNativeCollisionStep\(frame\).*?PoseForHit' }
+    @{ Name = 'native attack consumers never read continuous rocks'; Ok = ($nativeCollision + $nativeDialanche + $nativeHitTest) -notmatch '_spireRockPos[LR]' },
+    @{ Name = 'native overlap consumes strictly older history'; Ok = $nativeDialanche -match '(?s)DialancheHitsVolume.*?IsNativeCollisionStep\(frame\).*?PoseForHit.*?DialancheHitTest::Overlaps' }
 )
 
 foreach ($check in $checks) {

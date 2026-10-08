@@ -4,6 +4,7 @@
 #include "../GameState.hpp"
 #include "../Metadata/Enemies.hpp"
 #include "../Metadata/Metadata.hpp"
+#include "../Mods/Combat/Extensions/LockjawEnemyExtension.hpp"
 #include "../Scene.hpp"
 #include "../SceneSetup.hpp"
 #include "BeamProjectileEntity.hpp"
@@ -475,7 +476,12 @@ namespace MphRead::Entities
         const Vector3 between
             = static_cast<Vector3>(Position) - static_cast<Vector3>(bombRef.Position);
         const float radius = bombRef.Radius();
-        if (LengthSquared(between) > radius * radius)
+        bool overlaps = LengthSquared(between) <= radius * radius;
+        if (bombRef.BombType() == BombType::Lockjaw)
+        {
+            overlaps = Mods::Combat::Extensions::LockjawEnemyExtension::ExplosionOverlaps(bombRef, *this);
+        }
+        if (!overlaps)
         {
             return false;
         }

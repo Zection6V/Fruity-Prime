@@ -4,9 +4,12 @@
 #
 #   hitloc-japan.sh <label> <base|dev> <map> <mode: wells|lanes|all> <seconds>
 #
-# The server is restarted with a one-map rotation first -- which is also what
-# zeroes its counters and truncates its -hitlog -- and its log comes back
-# beside the clients' as hl-server.csv. Deploy with hitloc-deploy.sh first.
+# The server is started fresh with a one-map rotation for every run -- which
+# is also what zeroes its counters and truncates its -hitlog -- and stopped
+# afterwards, so the two arms never share the box; its log comes back beside
+# the clients' as hl-server.csv. It runs as the login user straight out of
+# /opt/fruityprime-<side> (no systemd, no sudo): the two bench units are
+# disabled while this rig owns those directories.
 #
 #   HITLOC_BIN    directory holding the client FruityPrime, paths.txt, maps/ (required)
 #   HITLOC_OUT    where runs land (default ~/fp-hitloc/runs)
@@ -20,12 +23,15 @@ USER_="${HITLOC_JP_USER:-livetek}"
 KEY="${HITLOC_JP_KEY:-$HOME/.ssh/fp_japan}"
 case "$SIDE" in base) PORT=27896 ;; dev) PORT=27895 ;; *) echo "side: base|dev" >&2; exit 2 ;; esac
 REMOTE="/opt/fruityprime-$SIDE"
-SERVICE="fruityprime-$SIDE"
-SSH=(ssh -i "$KEY" -o BatchMode=yes "$USER_@$HOST")
+SSH=(ssh -i "$KEY" "$USER_@$HOST")
 mkdir -p "$OUT"
 
-"${SSH[@]}" "printf '%s | Battle | 60 | 999\n' '$MAP' | sudo -u fpserver tee $REMOTE/maprotation.txt >/dev/null \
-  && sudo systemctl restart $SERVICE && sleep 8 && systemctl is-active $SERVICE" | tail -1
+"${SSH[@]}" "R=$REMOTE; cd \$R || exit 1
+  [ -f server.pid ] && kill \$(cat server.pid) 2>/dev/null && sleep 2
+  printf '%s | Battle | 60 | 999\n' '$MAP' > maprotation.txt
+  ALSOFT_DRIVERS=null setsid nohup ./FruityPrime -server -port $PORT -players 8 -nomaster -noautoupdate \
+    -rotation \$R/maprotation.txt -hitlog \$R/logs/hl-server.csv > \$R/logs/server-console.log 2>&1 < /dev/null &
+  echo \$! > server.pid; sleep 8; kill -0 \$(cat server.pid) && echo server up on $PORT"
 
 cd "$BIN" || exit 1
 export ALSOFT_DRIVERS=null
@@ -41,8 +47,9 @@ B=$!
 wait "$A" "$B"
 sleep 2
 
-"${SSH[@]}" "sudo cat $REMOTE/logs/hl-server.csv" > "$OUT/hl-server.csv"
-"${SSH[@]}" "sudo journalctl -u $SERVICE --no-pager --since '-$(( SECS + 60 )) seconds'" > "$OUT/authority.log"
+"${SSH[@]}" "kill \$(cat $REMOTE/server.pid) 2>/dev/null; sleep 2; rm -f $REMOTE/server.pid"
+"${SSH[@]}" "cat $REMOTE/logs/hl-server.csv" > "$OUT/hl-server.csv"
+"${SSH[@]}" "cat $REMOTE/logs/server-console.log" > "$OUT/authority.log"
 echo "== $LABEL ($SIDE:$PORT, $MAP, -hitrig $MODE, ${SECS}s) -> $OUT"
 grep -h "hit rig:" "$OUT/ALPHA.log" "$OUT/BRAVO.log"
 grep -h "round trip\|rtt" "$OUT/ALPHA.log" | head -2

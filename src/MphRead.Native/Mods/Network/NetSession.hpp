@@ -19,6 +19,8 @@
 #include <utility>
 #include <vector>
 
+namespace MphRead::Mods::Diagnostics { class WeavelAltFormCheck; }
+
 namespace MphRead::Mods::Network
 {
     enum class NetRole : std::int32_t
@@ -48,6 +50,7 @@ namespace MphRead::Mods::Network
     // NetSession.cs and NetSessionLobby.cs: one partial class, one header.
     class NetSession final
     {
+        friend class ::MphRead::Mods::Diagnostics::WeavelAltFormCheck;
         friend class DialancheCombatCheck;
     public:
         using MapChangedHandler = std::function<void(MatchStatePacket)>;

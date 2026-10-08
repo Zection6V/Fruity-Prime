@@ -611,6 +611,11 @@ namespace MphRead::Entities
         _field35C.reset();
         RequireReference(_equipInfo).ChargeLevel = 0;
         _timeSinceShot = 255;
+        _nativeTimeSinceShot = 255;
+        _nativeWeaponTimerFrame = std::numeric_limits<std::uint64_t>::max();
+        _weavelLungeInput.Reset();
+        _weavelNativeAttackPress = false;
+        _weavelAltLife = false;
         _timeSinceDamage = 255;
         _timeSincePickup = 255;
         _timeSinceHeal = 255;
@@ -889,6 +894,11 @@ namespace MphRead::Entities
         _attachedEnemy.reset();
         _field35C.reset();
         _timeSinceShot = 255;
+        _nativeTimeSinceShot = 255;
+        _nativeWeaponTimerFrame = std::numeric_limits<std::uint64_t>::max();
+        _weavelLungeInput.Reset();
+        _weavelNativeAttackPress = false;
+        _weavelAltLife = false;
         _timeSinceDamage = 255;
         _timeSincePickup = 255;
         _timeSinceHeal = 255;

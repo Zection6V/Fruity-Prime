@@ -1,6 +1,7 @@
 #include "PlayerInput.hpp"
 
 #include "PlayerEntity.hpp"
+#include "../../Mods/Gameplay/NativeGameplayClock.hpp"
 #include "PlayerHud.hpp"
 #include "../BeamProjectileEntity.hpp"
 #include "../BombEntity.hpp"
@@ -387,6 +388,18 @@ namespace MphRead::Entities
 
     void PlayerEntity::ProcessInput()
     {
+        const bool nativeTick = Mods::Gameplay::NativeGameplayClock::IsNativeTick(
+            RequireReference(_scene).FrameCount());
+        if (_hunter == Hunter::Weavel && _health > 0 && (IsAltForm() || IsMorphing()))
+        {
+            _weavelLungeInput.Capture(_controls.AltAttack().IsPressed());
+        }
+        else
+        {
+            _weavelLungeInput.Reset();
+        }
+        // Rejecting an edge (frozen, morphing or cooling down) consumes it too.
+        _weavelNativeAttackPress = _weavelLungeInput.Consume(nativeTick);
         if (Mods::Network::NetSession::Active() && !_isBot)
         {
             const bool local = _slotIndex == Mods::Network::NetSession::LocalSlot()
@@ -1403,7 +1416,7 @@ namespace MphRead::Entities
             shotVec, _gunVec1));
         ModControllerFeedback(EquipWeapon().MinCharge > 0 && _equipInfo->ChargeLevel >= EquipWeapon().MinCharge * 2
             ? Mods::Input::GamepadFeedback::ChargedShot : Mods::Input::GamepadFeedback::Fire);
-        _timeSinceShot = 0;
+        SetTimeSinceShot(0);
         if (IsMainPlayer())
         {
             HudOnFiredShot();
@@ -1800,13 +1813,14 @@ namespace MphRead::Entities
                         _soundSource.PlaySfx(SfxId::TRACE_ALT_ATTACK);
                     }
                 }
-                if (TestFlag(_abilities, AbilityFlags::WeavelAltAttack))
+                if (TestFlag(_abilities, AbilityFlags::WeavelAltAttack)
+                    && Mods::Gameplay::NativeGameplayClock::IsNativeTick(RequireReference(_scene).FrameCount()))
                 {
                     if (TestFlag(_flags2, PlayerFlags2::AltAttack) || _altAttackCooldown > 0)
                     {
                         if (TestFlag(_flags1, PlayerFlags1::Standing)) EndAltAttack();
                     }
-                    else if (_controls.AltAttack().IsPressed())
+                    else if (_weavelNativeAttackPress)
                     {
                         _flags2 |= PlayerFlags2::AltAttack;
                         float attackHSpeed = Fixed::ToFloat(_values.LungeHSpeed);
@@ -1814,8 +1828,8 @@ namespace MphRead::Entities
                         if (_isBot && GameState::SinglePlayer()
                             && ManagedAt(GameState::EncounterState(), _slotIndex) == 1)
                         {
-                            attackHSpeed = 0.3F;
-                            attackVSpeed = 0.45F;
+                            attackHSpeed = Fixed::ToFloat(1228);
+                            attackVSpeed = Fixed::ToFloat(1843);
                         }
                         if (_field70 * _speed.X + _field74 * _speed.Z < attackHSpeed)
                         {
@@ -1998,11 +2012,12 @@ namespace MphRead::Entities
                 if (_isBot && GameState::SinglePlayer()
                     && ManagedAt(GameState::EncounterState(), _slotIndex) == 1)
                 {
-                    _altAttackCooldown = 20;
+                    _altAttackCooldown = _hunter == Hunter::Weavel ? 10 : 20;
                 }
                 else
                 {
-                    _altAttackCooldown = static_cast<std::uint16_t>(_values.AltAttackCooldown * 2);
+                    _altAttackCooldown = static_cast<std::uint16_t>(
+                        _values.AltAttackCooldown * (_hunter == Hunter::Weavel ? 1 : 2));
                 }
             }
         }

@@ -115,7 +115,6 @@ namespace MphRead::Entities
 
     private:
         void LockjawCheckTargeting(PlayerEntity& player, EntityBase*& hitEntity);
-        void LockjawCheckTargeting(EnemyInstanceEntity& enemy, EntityBase*& hitEntity);
         [[nodiscard]] bool LockjawCheckSnare(OpenTK::Mathematics::Vector3 position);
         void SetTarget(EntityBase* target);
         void ProcessTargeting();

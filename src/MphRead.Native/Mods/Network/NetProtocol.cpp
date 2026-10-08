@@ -905,6 +905,7 @@ namespace MphRead::Mods::Network
     }
     void PlayerState::Write(std::span<std::uint8_t> dest) const
     {
+        if (dest.size() < Size) throw std::out_of_range("PlayerState protocol 17 requires 128 bytes");
         At(dest, 0) = SlotIndex;
         At(dest, 1) = Flags;
         WriteVec(Slice(dest, 2), Position);
@@ -923,9 +924,13 @@ namespace MphRead::Mods::Network
         {
             EventAt(i).Write(Slice(dest, 54 + static_cast<std::size_t>(i) * DamageEvent::Size));
         }
+        At(dest, LegacySize) = WeavelFlags;
+        At(dest, LegacySize + 1) = HalfturretHealth;
+        WriteVec(Slice(dest, LegacySize + 2), HalfturretPosition);
     }
     PlayerState PlayerState::Read(std::span<const std::uint8_t> src)
     {
+        if (src.size() < Size) throw std::out_of_range("PlayerState protocol 16 layout is incompatible");
         PlayerState state;
         state.SlotIndex = At(src, 0);
         state.Flags = At(src, 1);
@@ -945,6 +950,9 @@ namespace MphRead::Mods::Network
         state.Damage1 = DamageEvent::Read(Slice(src, 54 + DamageEvent::Size));
         state.Damage2 = DamageEvent::Read(Slice(src, 54 + 2 * DamageEvent::Size));
         state.Damage3 = DamageEvent::Read(Slice(src, 54 + 3 * DamageEvent::Size));
+        state.WeavelFlags = At(src, LegacySize);
+        state.HalfturretHealth = At(src, LegacySize + 1);
+        state.HalfturretPosition = ReadVec(Slice(src, LegacySize + 2));
 
         DamageEvent latest{};
         for (std::int32_t i = DamageHistory - 1; i >= 0; i--)

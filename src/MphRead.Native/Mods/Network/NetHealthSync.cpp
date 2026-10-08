@@ -9,6 +9,7 @@
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/BinaryPrimitives.hpp"
 #include "../../Program.hpp"
+#include <algorithm>
 
 namespace MphRead::Mods::Network
 {
@@ -38,6 +39,7 @@ namespace MphRead::Mods::Network
     {
         _spawns.clear();
         _states.clear();
+        _nextSpawn = 0;
     }
 
     void NetHealthSync::Register(::MphRead::Entities::ItemSpawnEntity& spawn)
@@ -74,16 +76,18 @@ namespace MphRead::Mods::Network
 
     std::int32_t NetHealthSync::Write(std::span<std::uint8_t> dest)
     {
-        const std::int32_t length = HeaderSize + EntrySize * static_cast<std::int32_t>(_spawns.size());
-        if (dest.size() < static_cast<std::size_t>(length))
+        const std::size_t count = std::min(_spawns.size(), static_cast<std::size_t>(PacketEntries(dest.size())));
+        const std::int32_t length = HeaderSize + EntrySize * static_cast<std::int32_t>(count);
+        if (dest.size() < HeaderSize || (!_spawns.empty() && count == 0))
         {
             throw ::MphRead::ProgramException("Health state exceeds snapshot capacity.");
         }
         Runtime::WriteUInt16LittleEndian(dest, NetSession::CurrentMatchId());
-        dest[2] = static_cast<std::uint8_t>(_spawns.size());
+        dest[2] = static_cast<std::uint8_t>(count);
         std::size_t offset = HeaderSize;
-        for (const std::shared_ptr<::MphRead::Entities::ItemSpawnEntity>& spawn : _spawns)
+        for (std::size_t i = 0; i < count; ++i)
         {
+            const auto& spawn = _spawns[(_nextSpawn + i) % _spawns.size()];
             const HealthSpawnState state = spawn->ModHealthState();
             const std::int32_t encodedPicker = state.PickerSlot + 1;
             if (encodedPicker < 0 || encodedPicker > ::MphRead::Entities::PlayerEntity::SlotCapacity)
@@ -98,6 +102,7 @@ namespace MphRead::Mods::Network
             Runtime::WriteUInt16LittleEndian(Runtime::SpanSlice(dest, offset + 5), state.SpawnCount);
             offset += EntrySize;
         }
+        if (!_spawns.empty()) _nextSpawn = (_nextSpawn + count) % _spawns.size();
         return length;
     }
 
@@ -138,7 +143,6 @@ namespace MphRead::Mods::Network
         {
             return;
         }
-        _states.clear();
         for (std::size_t offset = HeaderSize; offset < src.size(); offset += EntrySize)
         {
             const std::uint8_t flags = src[offset + 2];
@@ -150,8 +154,9 @@ namespace MphRead::Mods::Network
             state.Cooldown = Runtime::ReadUInt16LittleEndian(Runtime::SpanSlice(src, offset + 3));
             state.SpawnCount = Runtime::ReadUInt16LittleEndian(Runtime::SpanSlice(src, offset + 5));
             state.PickerSlot = pickerSlot;
-            // Dictionary.Add: Validate has already refused a repeated id.
-            _states.emplace(id, state);
+            // Each bounded packet repeats a rotating subset. Retain the other
+            // spawners until BeginRoom clears this match's cache.
+            _states.insert_or_assign(id, state);
         }
     }
 }

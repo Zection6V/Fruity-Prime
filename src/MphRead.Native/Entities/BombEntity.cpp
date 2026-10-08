@@ -1,5 +1,6 @@
 #include "BombEntity.hpp"
 #include "../Mods/Combat/LockjawCollision.hpp"
+#include "../Mods/Combat/Extensions/LockjawEnemyExtension.hpp"
 #include "../Mods/Multiplayer/TeamLayout.hpp"
 #include "../Mods/Render/LockjawTrailNoise.hpp"
 
@@ -431,7 +432,11 @@ namespace MphRead::Entities
                             && _target == nullptr
                             && !TestFlag(_flags, BombFlags::Exploding))
                         {
-                            LockjawCheckTargeting(enemy, hitEntity);
+                            if (Mods::Combat::Extensions::LockjawEnemyExtension::TryHit(
+                                *this, enemy, RequireReference(_scene)))
+                            {
+                                hitEntity = &enemy;
+                            }
                         }
                     }
                 }
@@ -812,43 +817,6 @@ namespace MphRead::Entities
                 DamageFlags::NoDmgInvuln | DamageFlags::Halfturret,
                 std::nullopt,
                 this);
-        }
-    }
-
-    void BombEntity::LockjawCheckTargeting(EnemyInstanceEntity& enemy, EntityBase*& hitEntity)
-    {
-        if (TestFlag(enemy.Flags(), EnemyFlags::Invincible))
-        {
-            return;
-        }
-        PlayerEntity& owner = RequireReference(_owner);
-        const CollisionVolume volume = enemy.HurtVolume();
-        if (_bombIndex == 0 && owner.SyluxBombCount() == 3)
-        {
-            if (!Mods::Combat::LockjawCollision::SnareOverlapsVolume(SnarePositions(owner), volume))
-            {
-                return;
-            }
-            for (int i = 0; i < owner.SyluxBombCount(); ++i)
-            {
-                BombEntity& bomb = RequireReference(BombAt(owner, i));
-                bomb._damage = bomb._enemyDamage = 60;
-            }
-            hitEntity = &enemy;
-            return;
-        }
-        for (int i = 0; i < _bombIndex; ++i)
-        {
-            if (Mods::Combat::LockjawCollision::WireOverlapsVolume(
-                volume, Position, RequireReference(BombAt(owner, i)).Position))
-            {
-                enemy.TakeDamage(20, this);
-                RequireReference(_scene).SendMessage(
-                    Message::Impact, this, _owner,
-                    std::make_shared<const std::any>(static_cast<EntityBase*>(&enemy)), BoxInt32(0));
-                hitEntity = &enemy;
-                return;
-            }
         }
     }
 

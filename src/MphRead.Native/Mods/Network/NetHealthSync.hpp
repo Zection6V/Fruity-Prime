@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstddef>
 #include <map>
 #include <memory>
 #include <span>
@@ -35,6 +36,10 @@ namespace MphRead::Mods::Network
         static constexpr std::int32_t MaxSpawns = 56;
         static constexpr std::int32_t HeaderSize = 3;
         static constexpr std::int32_t EntrySize = 7;
+        [[nodiscard]] static constexpr std::int32_t PacketEntries(std::size_t bytes) noexcept
+        {
+            return bytes < HeaderSize ? 0 : static_cast<std::int32_t>((bytes - HeaderSize) / EntrySize);
+        }
 
         [[nodiscard]] static const std::vector<std::shared_ptr<::MphRead::Entities::ItemSpawnEntity>>&
             RegisteredSpawns() noexcept;
@@ -52,6 +57,7 @@ namespace MphRead::Mods::Network
         static void Receive(std::span<const std::uint8_t> src);
 
     private:
+        inline static std::size_t _nextSpawn = 0;
         static constexpr std::int32_t PickerShift = 2;
         static constexpr std::int32_t PickerMask = 0xF;
         static constexpr std::int32_t ReservedMask = 0xC0;

@@ -14,6 +14,7 @@
 
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Metadata/Metadata.hpp"
+#include "../../Metadata/Weapons.hpp"
 #include "../../NativeRuntime/System/BinaryPrimitives.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
@@ -725,12 +726,12 @@ namespace MphRead::Mods::Network
             _refusedHere++;
             return HitVerdictPacket::ResultInvalidLaunch;
         }
-        if (claim.Damage > MaxDamageFor(claim.Beam))
+        if (claim.Damage > MaxDamageFor(shooterSlot, claim.Beam))
         {
             _refusedHere++;
             NetLog::Event("slot " + std::to_string(shooterSlot) + " claimed " + std::to_string(claim.Damage)
                 + " damage with beam " + std::to_string(claim.Beam) + ", which cannot deal more than "
-                + std::to_string(MaxDamageFor(claim.Beam)));
+                + std::to_string(MaxDamageFor(shooterSlot, claim.Beam)));
             return HitVerdictPacket::ResultDamageLimit;
         }
         OpenTK::Mathematics::Vector3 was{};
@@ -891,13 +892,30 @@ namespace MphRead::Mods::Network
         _pending[static_cast<std::size_t>(index)] = entry;
     }
 
-    std::int32_t NetHitClaims::MaxDamageFor(std::uint8_t beam)
+    const ::MphRead::WeaponInfo* NetHitClaims::FiredWeapon(std::int32_t shooterSlot, std::uint8_t beam)
+    {
+        const auto& current = ::MphRead::Weapons::Current;
+        if (beam == HitClaimPacket::NoBeam || current == nullptr || beam >= 9 || beam >= current->size())
+        {
+            return nullptr;
+        }
+        std::size_t index = beam;
+        // As PlayerEntity::TryEquipWeapon picks it in a match.
+        if (shooterSlot >= 0 && static_cast<std::size_t>(shooterSlot) < PlayerEntity::Players().size()
+            && static_cast<std::uint8_t>(::MphRead::Weapons::GetAffinityBeam(PlayerAt(shooterSlot).Hunter())) == beam
+            && beam + 9U < current->size())
+        {
+            index = beam + 9U;
+        }
+        return &Runtime::RequireReference((*current)[index]);
+    }
+
+    std::int32_t NetHitClaims::MaxDamageFor(std::int32_t shooterSlot, std::uint8_t beam)
     {
         std::int32_t raw = 200;
-        const auto& current = ::MphRead::Weapons::Current;
-        if (beam != HitClaimPacket::NoBeam && current != nullptr && beam < current->size())
+        if (const ::MphRead::WeaponInfo* fired = FiredWeapon(shooterSlot, beam); fired != nullptr)
         {
-            const ::MphRead::WeaponInfo& info = Runtime::RequireReference((*current)[beam]);
+            const ::MphRead::WeaponInfo& info = *fired;
             raw = std::max<std::int32_t>(info.ChargedHeadshotDamage,
                 std::max<std::int32_t>(info.HeadshotDamage,
                 std::max<std::int32_t>(info.MinChargeHeadshotDamage,
@@ -1064,12 +1082,13 @@ namespace MphRead::Mods::Network
     // shot -- splash, ricochets, several victims -- share a launch frame.
     bool NetHitClaims::RatePlausible(std::int32_t shooterSlot, std::uint8_t beam, std::uint32_t launch)
     {
+        const ::MphRead::WeaponInfo* fired = FiredWeapon(shooterSlot, beam);
         if (shooterSlot < 0 || shooterSlot >= static_cast<std::int32_t>(_recentLaunches.size()) || beam >= 9
-            || launch == 0 || ::MphRead::Weapons::Current == nullptr || beam >= (*::MphRead::Weapons::Current).size())
+            || launch == 0 || fired == nullptr)
         {
             return true;
         }
-        const ::MphRead::WeaponInfo& w = Runtime::RequireReference((*::MphRead::Weapons::Current)[beam]);
+        const ::MphRead::WeaponInfo& w = *fired;
         const std::int32_t cooldown = std::min<std::int32_t>(w.ShotCooldown, w.AutofireCooldown);
         if (cooldown <= 0)
         {
@@ -1098,18 +1117,24 @@ namespace MphRead::Mods::Network
         return true;
     }
 
-    bool NetHitClaims::StraightWeapon(std::uint8_t beam)
+    bool NetHitClaims::StraightWeapon(std::int32_t shooterSlot, std::uint8_t beam)
     {
-        if (beam == HitClaimPacket::NoBeam || ::MphRead::Weapons::Current == nullptr
-            || beam >= (*::MphRead::Weapons::Current).size())
+        // The shooter's own variant: Samus's charged missile and Kanden's
+        // charged Volt Driver home, where everybody else's fly straight.
+        // Straight means no gravity, no homing and no bounce of any kind.
+        const ::MphRead::WeaponInfo* fired = FiredWeapon(shooterSlot, beam);
+        if (fired == nullptr)
         {
             return false;
         }
-        const ::MphRead::WeaponInfo& w = Runtime::RequireReference((*::MphRead::Weapons::Current)[beam]);
+        const ::MphRead::WeaponInfo& w = *fired;
         return w.UnchargedGravity == 0 && w.MinChargeGravity == 0 && w.ChargedGravity == 0
             && w.UnchargedHoming == 0 && w.MinChargeHoming == 0 && w.ChargedHoming == 0
             && !::MphRead::TestFlag(w.Flags, ::MphRead::WeaponFlags::RicochetUncharged)
-            && !::MphRead::TestFlag(w.Flags, ::MphRead::WeaponFlags::RicochetCharged);
+            && !::MphRead::TestFlag(w.Flags, ::MphRead::WeaponFlags::RicochetCharged)
+            // The Judicator carries neither flag, but a shot of it that meets
+            // a wall spawns a ricochet weapon's round off it, in a new direction.
+            && w.UnchargedRicochetWeapon() == nullptr && w.ChargedRicochetWeapon() == nullptr;
     }
 
     // The claim is the hit, so it has to be one the shooter's own shots can
@@ -1146,7 +1171,7 @@ namespace MphRead::Mods::Network
                 return false;
             }
         }
-        if (!claim.Impact.Known() || (claim.Flags & HitClaimPacket::FlagSplash) != 0 || !StraightWeapon(claim.Beam))
+        if (!claim.Impact.Known() || (claim.Flags & HitClaimPacket::FlagSplash) != 0 || !StraightWeapon(shooterSlot, claim.Beam))
         {
             return true;
         }
@@ -1405,10 +1430,9 @@ namespace MphRead::Mods::Network
         // the damage kept: freezing with a Power Beam is not a hit to refuse
         // but a flag nobody honest sends. Frozen also rides on a victim that
         // was already frozen on the shooter's screen.
-        if (entry.Beam != HitClaimPacket::NoBeam && ::MphRead::Weapons::Current != nullptr
-            && entry.Beam < (*::MphRead::Weapons::Current).size())
+        if (const ::MphRead::WeaponInfo* fired = FiredWeapon(shooterSlot, entry.Beam); fired != nullptr)
         {
-            const ::MphRead::WeaponInfo& weapon = Runtime::RequireReference((*::MphRead::Weapons::Current)[entry.Beam]);
+            const ::MphRead::WeaponInfo& weapon = *fired;
             const auto& table = Runtime::RequireReference(weapon.Afflictions);
             ::MphRead::Affliction allowed = ::MphRead::Affliction::None;
             for (const ::MphRead::Affliction affliction : table)

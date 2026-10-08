@@ -23,6 +23,7 @@ namespace MphRead::Entities
 namespace MphRead
 {
     class Scene;
+    class WeaponInfo;
 }
 
 namespace MphRead::Mods::Network
@@ -232,7 +233,11 @@ namespace MphRead::Mods::Network
         static void NoteAgreement(std::int32_t shooter, std::int32_t victim, std::uint8_t beam,
             std::int32_t claimed, std::int32_t resolved);
         static void Park(std::int32_t shooterSlot, const HitClaimPacket& claim);
-        [[nodiscard]] static std::int32_t MaxDamageFor(std::uint8_t beam);
+        [[nodiscard]] static std::int32_t MaxDamageFor(std::int32_t shooterSlot, std::uint8_t beam);
+        // The weapon the shooter actually fires for this beam: a hunter's
+        // affinity weapon is its own row of the table (index + 9), with its
+        // own homing, cooldown, damage and afflictions. Null for no beam.
+        [[nodiscard]] static const ::MphRead::WeaponInfo* FiredWeapon(std::int32_t shooterSlot, std::uint8_t beam);
         static void TrackDeaths();
         static void NoteRescued(std::int32_t attacker, std::int32_t victim, std::uint32_t launch);
         static void ApplyOne(Pending& entry);
@@ -308,7 +313,7 @@ namespace MphRead::Mods::Network
         inline static bool _lastBlocked = false;
         [[nodiscard]] static bool ShotPlausible(std::int32_t shooterSlot, const HitClaimPacket& claim,
             OpenTK::Mathematics::Vector3 was);
-        [[nodiscard]] static bool StraightWeapon(std::uint8_t beam);
+        [[nodiscard]] static bool StraightWeapon(std::int32_t shooterSlot, std::uint8_t beam);
         [[nodiscard]] static bool ImpactPlausible(const HitClaimPacket& claim, std::int32_t victimSlot);
         inline static bool _shooterHits = true;
         inline static std::int64_t _serverCopiesSuppressed = 0;

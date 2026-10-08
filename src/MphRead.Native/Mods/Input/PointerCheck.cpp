@@ -347,7 +347,9 @@ namespace MphRead::Mods::Input
             Launcher::LauncherPrefs::Directory(directory);
             Runtime::FileWriteAllText(path, "pointer_jump_guard=true\nstylus_zone=true\n");
             InputSettings::Load();
-            Require(PointerInput::StylusMode() && PointerInput::GuardJumps() && StylusZone::Enabled(), "legacy enabled file migrates");
+            Require(!PointerInput::StylusMode() && PointerInput::GuardJumps()
+                && StylusZone::Wanted() && !StylusZone::Enabled(),
+                "legacy guard keeps ordinary mouse mode and remembers requested zone");
             Runtime::FileWriteAllText(path, "pointer_jump_guard=false\n");
             InputSettings::Load();
             Require(!PointerInput::StylusMode(), "legacy disabled file migrates");

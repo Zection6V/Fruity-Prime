@@ -131,13 +131,18 @@ the guess with the authority's word:
 A claim is the hit, so the authority holds it to what the shooter's own
 machine said it did (`NetHitClaims::ShotPlausible`, `RecordIntent`):
 
-- **Its ack**: resolved against a world the shooter was still drawing -- no
-  more than 20 frames before the newest ack its intents carried (honest
-  claims travel with their intents: gap 0 at p99).
+- **Its ack**: the ack the shooter's own intent reported on the frame it
+  declared the claim (resends keep that frame), within 3; if that intent was
+  lost, within the rewind ceiling of its newest ack. (Checking against the
+  newest ack alone refused 15 honest resends at 2% loss: a resend trails by
+  21 or 43 frames.)
 - **Its ray**: for weapons that fly straight (no gravity, homing or
-  ricochet), the impact must lie within 0.75 of the ray the intent says that
-  frame fired (honest: p99 0.11, worst 0.36), with **line of sight** from the
+  ricochet), the impact -- placed from the authority's history of the victim
+  -- within claim radius + 0.75 of the ray the intent says that frame fired
+  (honest: p99 0.11; one 1.58 at 2% loss), with **line of sight** from the
   muzzle (world geometry, `TestFlags::Beams`).
+- **Its rate**: two different shots of one weapon no closer than half its
+  cooldown (several hits of one shot share a launch frame).
 - **Its weapon's afflictions**: a burn, freeze or disrupt the weapon cannot
   inflict is dropped from the claim and counted, the damage kept.
 - **No rewind for it.** A human's shot is no longer rewound on the authority

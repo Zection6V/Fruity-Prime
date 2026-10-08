@@ -90,14 +90,17 @@ namespace MphRead::Mods::Network
         // checked against them (ShotPlausible).
         static void RecordIntent(std::int32_t slot, const IntentPacket& intent) noexcept;
         static void SetScene(MphRead::Scene* scene) noexcept { _scene = scene; }
-        // Beyond this many frames before the shooter's newest ack, a claim
-        // is resolving against a world the shooter was no longer drawing.
-        // Measured: an honest claim travels with its intents, gap 0 (p99 0);
-        // the slack is for a claim resent after a lost datagram.
-        static constexpr std::int32_t AckSlackFrames = 20;
-        // How far the impact may sit from the ray the intent says was fired.
-        // Measured over straight weapons: p99 0.11, worst 0.36.
-        static constexpr float RayTolerance = 0.75F;
+        // A claim's ack against the ack the shooter's own intent reported on
+        // the frame it declared the claim (resends keep that frame): honest,
+        // 0. When that intent was lost, against its newest ack, which a
+        // resend can trail by a resend interval or two (21, 43 measured at 2%
+        // loss) -- so that fallback only bounds it to the rewind ceiling.
+        static constexpr std::int32_t AckSlackFrames = 3;
+        static constexpr std::int32_t AckFallbackFrames = 45;
+        // How far the impact may sit from the ray the intent says was fired:
+        // the impact is placed from the authority's history of the victim, so
+        // the claim radius is part of it, plus 0.75 (honest p99 0.11).
+        static constexpr float RayTolerance = ClaimRadius + 0.75F;
         // Shooter-authoritative hits: a remote player's hit on another player
         // is the one their own machine resolved, validated here, and the
         // authority's own copy of it is not applied (NetDamage::Suppress).
@@ -289,9 +292,16 @@ namespace MphRead::Mods::Network
         inline static std::array<std::array<ClaimShotRay, 32>, 8> _shotRays{};
         inline static std::array<std::size_t, 8> _shotRayNext{};
         inline static std::array<std::uint32_t, 8> _latestAck{};
+        // (intent frame, ack) the shooter reported, recent ones.
+        inline static std::array<std::array<std::uint32_t, 64>, 8> _ackFrameOf{};
+        inline static std::array<std::array<std::uint32_t, 64>, 8> _ackValueOf{};
         inline static std::int64_t _ackRefused = 0;
         inline static std::int64_t _rayRefused = 0;
         inline static std::int64_t _losRefused = 0;
+        inline static std::int64_t _rateRefused = 0;
+        // The distinct launch frames recently claimed, per shooter and weapon.
+        inline static std::array<std::array<std::array<std::uint32_t, 8>, 9>, 8> _recentLaunches{};
+        [[nodiscard]] static bool RatePlausible(std::int32_t shooterSlot, std::uint8_t beam, std::uint32_t launch);
         // Measured for every claim (ShotPlausible), for -hitlog.
         inline static std::int32_t _lastAckGap = 0;
         inline static float _lastRayDistance = -1.0F;

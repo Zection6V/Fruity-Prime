@@ -751,6 +751,13 @@ namespace MphRead::Mods::Network
                 + std::to_string(claim.AckFrame) + " put them");
             return HitVerdictPacket::ResultGeometry;
         }
+        if (!RatePlausible(shooterSlot, claim.Beam, claim.LaunchFrame != 0 ? claim.LaunchFrame : claim.AckFrame))
+        {
+            _refusedHere++;
+            NetLog::Event("slot " + std::to_string(shooterSlot) + " claimed a shot of beam " + std::to_string(claim.Beam)
+                + " launched closer to another than the weapon can fire");
+            return HitVerdictPacket::ResultGeometry;
+        }
         if (!ShotPlausible(shooterSlot, claim, was))
         {
             _refusedHere++;
@@ -1042,11 +1049,53 @@ namespace MphRead::Mods::Network
         {
             _latestAck[s] = intent.AckFrame;
         }
+        _ackFrameOf[s][intent.Frame % 64U] = intent.Frame;
+        _ackValueOf[s][intent.Frame % 64U] = intent.AckFrame;
         if (intent.HasShot)
         {
             _shotRays[s][_shotRayNext[s]] = ClaimShotRay{intent.AckFrame, intent.ShotOrigin, intent.ShotDirection.Normalized()};
             _shotRayNext[s] = (_shotRayNext[s] + 1) % _shotRays[s].size();
         }
+    }
+
+    // Two different shots of one weapon cannot be launched closer together
+    // than its cooldown allows (in 30 Hz frames, so twice that here); half of
+    // that is the floor, for acks that jump with jitter. Several hits of one
+    // shot -- splash, ricochets, several victims -- share a launch frame.
+    bool NetHitClaims::RatePlausible(std::int32_t shooterSlot, std::uint8_t beam, std::uint32_t launch)
+    {
+        if (shooterSlot < 0 || shooterSlot >= static_cast<std::int32_t>(_recentLaunches.size()) || beam >= 9
+            || launch == 0 || ::MphRead::Weapons::Current == nullptr || beam >= (*::MphRead::Weapons::Current).size())
+        {
+            return true;
+        }
+        const ::MphRead::WeaponInfo& w = Runtime::RequireReference((*::MphRead::Weapons::Current)[beam]);
+        const std::int32_t cooldown = std::min<std::int32_t>(w.ShotCooldown, w.AutofireCooldown);
+        if (cooldown <= 0)
+        {
+            return true;
+        }
+        const std::uint32_t floor = static_cast<std::uint32_t>(cooldown);
+        auto& recent = _recentLaunches[static_cast<std::size_t>(shooterSlot)][beam];
+        for (const std::uint32_t seen : recent)
+        {
+            if (seen == 0 || seen == launch)
+            {
+                continue;
+            }
+            const std::uint32_t gap = seen > launch ? seen - launch : launch - seen;
+            if (gap < floor)
+            {
+                _rateRefused++;
+                return false;
+            }
+        }
+        if (std::find(recent.begin(), recent.end(), launch) == recent.end())
+        {
+            std::rotate(recent.rbegin(), recent.rbegin() + 1, recent.rend());
+            recent[0] = launch;
+        }
+        return true;
     }
 
     bool NetHitClaims::StraightWeapon(std::uint8_t beam)
@@ -1079,10 +1128,19 @@ namespace MphRead::Mods::Network
             return true;
         }
         const auto s = static_cast<std::size_t>(shooterSlot);
-        if (_latestAck[s] != 0)
+        if (claim.Frame != 0 && _ackFrameOf[s][claim.Frame % 64U] == claim.Frame)
+        {
+            _lastAckGap = static_cast<std::int32_t>(_ackValueOf[s][claim.Frame % 64U] - claim.AckFrame);
+            if (std::abs(_lastAckGap) > AckSlackFrames)
+            {
+                _ackRefused++;
+                return false;
+            }
+        }
+        else if (_latestAck[s] != 0)
         {
             _lastAckGap = static_cast<std::int32_t>(_latestAck[s] - claim.AckFrame);
-            if (_lastAckGap > AckSlackFrames || _lastAckGap < -2)
+            if (_lastAckGap > AckFallbackFrames || _lastAckGap < -2)
             {
                 _ackRefused++;
                 return false;
@@ -1527,7 +1585,11 @@ namespace MphRead::Mods::Network
         _ackRefused = 0;
         _rayRefused = 0;
         _losRefused = 0;
+        _rateRefused = 0;
+        for (auto& weapons : _recentLaunches) for (auto& launches : weapons) launches.fill(0);
         _latestAck.fill(0);
+        for (auto& frames : _ackFrameOf) frames.fill(0);
+        for (auto& acks : _ackValueOf) acks.fill(0);
         for (auto& rays : _shotRays) rays.fill(ClaimShotRay{});
         _serverCopiesSuppressed = 0;
         _voidedDeadShooter = 0;
@@ -1631,7 +1693,8 @@ namespace MphRead::Mods::Network
                 + std::to_string(_impactRefused) + " landing off the body, "
                 + std::to_string(_afflictionsStripped) + " afflictions dropped, " + std::to_string(_ackRefused)
                 + " resolved against a stale ack, " + std::to_string(_rayRefused) + " off the fired ray, "
-                + std::to_string(_losRefused) + " through a wall, " + (_shooterHits ? "shooter-authoritative (" + std::to_string(_serverCopiesSuppressed) + " server copies not applied), " : std::string())
+                + std::to_string(_losRefused) + " through a wall, " + std::to_string(_rateRefused)
+                + " faster than the weapon fires, " + (_shooterHits ? "shooter-authoritative (" + std::to_string(_serverCopiesSuppressed) + " server copies not applied), " : std::string())
                 + std::to_string(_voidedDeadShooter) + " from a shooter already dead, "
                 + std::to_string(_voidedDeadVictim) + " on a victim already down, "
                 + std::to_string(_refusedHere) + " refused, " + std::to_string(_tooOldHere) + " too old, "

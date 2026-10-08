@@ -15,6 +15,10 @@ authority's history instead of the shooter's screen (left as is: shooter wins).
 
 ## In order
 
+Done since (`bafbfb7f` and after): observers (1), Battlehammer blast, adaptive
+hold and Shock Coil aim (2), ack/ray/line-of-sight/affliction checks (3, fire
+rate still open), no rewind for human shots (4). Lead aim tried and dropped.
+
 1. **Observers.** Two-player tests cannot see it: in a match of eight, C
    watching A shoot B still gets the old drawing -- nothing confirms A's shot
    on C's screen. The snapshot already carries B's damage events (impact,

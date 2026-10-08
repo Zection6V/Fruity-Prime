@@ -588,6 +588,20 @@ namespace MphRead::Mods::Network
         const std::int32_t local = NetHooks::LocalSlot();
         // The shooter's own machine predicted this hit itself; any other
         // machine is the victim's or an observer's.
+        if (_confirmedImpacts && attackerSlot >= 0 && attackerSlot < static_cast<std::int32_t>(_coilVictim.size())
+            && attackerSlot != local && victimSlot >= 0 && victimSlot != attackerSlot
+            && beam == static_cast<std::uint8_t>(::MphRead::BeamType::ShockCoil)
+            && (victimSlot == local || _observedImpacts) && impact.Known())
+        {
+            // A tick of the continuous beam: nothing to bring in, but the
+            // beam itself is aimed at where the ticks land for a few frames.
+            const auto a = static_cast<std::size_t>(attackerSlot);
+            _coilVictim[a] = victimSlot;
+            _coilOffset[a] = impact.Value();
+            _coilUntil[a] = NetSession::NetFrame() + 12U;
+            NativeRuntime::IncrementInPlace(_coilTicks);
+            return;
+        }
         if (!_confirmedImpacts || local < 0 || attackerSlot < 0 || attackerSlot == local || attackerSlot == victimSlot
             || victimSlot < 0 || static_cast<std::size_t>(attackerSlot) >= players.size()
             || static_cast<std::size_t>(victimSlot) >= players.size() || !ConfirmableBeam(beam)
@@ -816,6 +830,35 @@ namespace MphRead::Mods::Network
         HitLocation::Synthesized(attackerSlot, victim, beam, launch, point, headshot);
     }
 
+    bool NetPlayerBridge::CoilAimFor(const Entities::PlayerEntity& shooter, OpenTK::Mathematics::Vector3 muzzle,
+        OpenTK::Mathematics::Vector3& aim)
+    {
+        const std::int32_t slot = shooter.SlotIndex();
+        const auto& players = Entities::PlayerEntity::Players();
+        if (slot < 0 || slot >= static_cast<std::int32_t>(_coilVictim.size())
+            || shooter.CurrentWeapon() != ::MphRead::BeamType::ShockCoil)
+        {
+            return false;
+        }
+        const auto s = static_cast<std::size_t>(slot);
+        const std::int32_t victim = _coilVictim[s];
+        if (victim < 0 || static_cast<std::size_t>(victim) >= players.size()
+            || static_cast<std::int32_t>(NetSession::NetFrame() - _coilUntil[s]) >= 0)
+        {
+            return false;
+        }
+        const OpenTK::Mathematics::Vector3 to = static_cast<OpenTK::Mathematics::Vector3>(players[static_cast<std::size_t>(victim)]->Position)
+            + _coilOffset[s] - muzzle;
+        const float length = OpenTK::Mathematics::Length(to);
+        const float scale = OpenTK::Mathematics::Length(aim);
+        if (!(length > 0.0001F))
+        {
+            return false;
+        }
+        aim = OpenTK::Mathematics::Scale(to, (scale > 0.0001F ? scale : 1.0F) / length);
+        return true;
+    }
+
     std::uint32_t NetPlayerBridge::HoldFrames() noexcept
     {
         if (_confirmDelayCount < 16)
@@ -844,6 +887,7 @@ namespace MphRead::Mods::Network
             + std::to_string(_confirmsAtSpawn) + " brought in from the moment they appeared, "
             + std::to_string(_impactsSynthesized) + " drawn on the spot (shot gone or never drawn), "
             + std::to_string(_seenAsBlast) + " already seen as the blast that reached them, "
+            + std::to_string(_coilTicks) + " Shock Coil ticks aiming its beam, "
             + std::to_string(_passedThrough) + " unconfirmed shots let through, "
             + std::to_string(_observedConfirms) + " of them on other players (observed), "
             + std::to_string(_confirmsIgnored) + " not applicable (continuous beam, own or unknown shooter)";

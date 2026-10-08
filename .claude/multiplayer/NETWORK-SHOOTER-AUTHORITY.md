@@ -111,6 +111,11 @@ the guess with the authority's word:
   it, an observer saw 38% of A's hits as the same shot and 52% of B's damage
   with an impact; after, 93% and 99% (`HITLOC_OBSERVER=1`, a third headless
   client on `-hitrig observe`). `-noobservedimpacts` keeps it to this player.
+- **The Shock Coil** has no projectile to bring in: while its ticks keep
+  being confirmed on a player, the beam drawn from that shooter is pointed at
+  the spot they land on (`CoilAimFor`). Marginal -- height disagreement p90
+  8.0% -> 7.4% of the body for the victim, 5.2% -> 4.9% for an observer -- the
+  continuous beam was already close.
 - **A blast is an impact.** A shot that went out in an explosion reaching the
   victim needs nothing more drawn when its splash damage is confirmed (the
   Battlehammer drew two impacts for one damage: 72% precision).

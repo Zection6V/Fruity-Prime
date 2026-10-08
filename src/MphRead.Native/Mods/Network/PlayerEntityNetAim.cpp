@@ -206,7 +206,9 @@ namespace MphRead::Entities
         std::uint32_t ackFrame = 0;
         Mods::Network::NetPlayerBridge::ShooterRay(*this, origin, aimedFrom, shotDirection, ackFrame);
         static_cast<void>(shotDirection);
-        ModSetAim(Mods::Network::NetPlayerBridge::RetargetAtLocal(*this, origin, intent.Aim, ackFrame, aimedFrom));
+        OpenTK::Mathematics::Vector3 aim = Mods::Network::NetPlayerBridge::RetargetAtLocal(*this, origin, intent.Aim, ackFrame, aimedFrom);
+        static_cast<void>(Mods::Network::NetPlayerBridge::CoilAimFor(*this, origin, aim));
+        ModSetAim(aim);
     }
 
     void PlayerEntity::ModSetAim(OpenTK::Mathematics::Vector3 aim)
@@ -1083,7 +1085,9 @@ namespace MphRead::Entities
         std::uint32_t ackFrame = 0;
         Mods::Network::NetPlayerBridge::ShooterRay(*this, origin, aimedFrom, shotDirection, ackFrame);
         static_cast<void>(shotDirection);
-        ModSetAim(Mods::Network::NetPlayerBridge::RetargetAtLocal(*this, origin, intent.Aim, ackFrame, aimedFrom));
+        OpenTK::Mathematics::Vector3 aim = Mods::Network::NetPlayerBridge::RetargetAtLocal(*this, origin, intent.Aim, ackFrame, aimedFrom);
+        static_cast<void>(Mods::Network::NetPlayerBridge::CoilAimFor(*this, origin, aim));
+        ModSetAim(aim);
     }
 
     void PlayerEntity::ApplyGamepadAim()

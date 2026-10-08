@@ -120,6 +120,11 @@ namespace MphRead::Mods::Network
         // Confirmed impacts drawn between two other players too (this
         // machine watching A hit B); -noobservedimpacts keeps them to this player.
         static void ObservedImpacts(bool value) noexcept { _observedImpacts = value; }
+        // The Shock Coil: while its ticks keep being confirmed on a player,
+        // the beam drawn from that shooter is pointed at the spot the ticks
+        // land on. True (and aim set) when it is.
+        static bool CoilAimFor(const Entities::PlayerEntity& shooter, OpenTK::Mathematics::Vector3 muzzle,
+            OpenTK::Mathematics::Vector3& aim);
         static void OnRemoteShotSpawned(Entities::BeamProjectileEntity& beam);
         static void NoteRemoteShotGone(const Entities::BeamProjectileEntity& beam);
         // Called for every player a projectile meets: true when this is a
@@ -222,6 +227,10 @@ namespace MphRead::Mods::Network
         inline static std::int64_t _confirmsIgnored = 0;
         inline static double _homeAngleSum = 0;
         inline static bool _observedImpacts = true;
+        inline static std::array<std::int32_t, 8> _coilVictim{-1, -1, -1, -1, -1, -1, -1, -1};
+        inline static std::array<OpenTK::Mathematics::Vector3, 8> _coilOffset{};
+        inline static std::array<std::uint32_t, 8> _coilUntil{};
+        inline static std::int64_t _coilTicks = 0;
         inline static std::int64_t _observedConfirms = 0;
         inline static double _homeAngleMax = 0;
         [[nodiscard]] static const ConfirmGoneShot* RecentlyGone(std::int32_t attackerSlot, std::uint8_t launchLow);

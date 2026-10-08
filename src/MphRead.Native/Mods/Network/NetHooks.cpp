@@ -150,6 +150,11 @@ namespace MphRead::Mods::Network
         {
             return current;
         }
+        OpenTK::Mathematics::Vector3 coil = direction;
+        if (NetPlayerBridge::CoilAimFor(player, origin, coil))
+        {
+            return coil;
+        }
         const OpenTK::Mathematics::Vector3 turned = NetPlayerBridge::RetargetAtLocal(player, origin, direction, ack, from);
         return (turned - direction).LengthSquared() == 0.0F ? current : turned;
     }

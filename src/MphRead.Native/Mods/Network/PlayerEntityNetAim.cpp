@@ -1,4 +1,5 @@
 #include "PlayerEntityNetAim.hpp"
+#include "../../Entities/Players/HalfturretEntity.hpp"
 
 #include "../Input/GamepadOptions.hpp"
 #include "../../Entities/EntityBase.hpp"
@@ -192,28 +193,22 @@ namespace MphRead::Entities
             return;
         }
         const std::int32_t slotForValid = (*this).SlotIndex();
-        if (!Mods::Network::NetSession::RemoteIntentValid[slotForValid]
-            || !Mods::Network::NetPlayerBridge::AimTrusted(slotForValid))
+        if (_isBot || slotForValid < 0 || static_cast<std::size_t>(slotForValid) >= Mods::Network::NetSession::RemoteIntents.size())
         {
             return;
         }
-        const std::int32_t slotForAim = (*this).SlotIndex();
-        const auto& intent = Mods::Network::NetSession::RemoteIntents[slotForAim];
-        const OpenTK::Mathematics::Vector3 origin = LengthSquared(_muzzlePos) > 0.0001F
-            ? _muzzlePos : OpenTK::Mathematics::Vector3(Position.X, Position.Y + 0.6F, Position.Z);
-        OpenTK::Mathematics::Vector3 aimedFrom{};
-        OpenTK::Mathematics::Vector3 shotDirection{};
-        std::uint32_t ackFrame = 0;
-        Mods::Network::NetPlayerBridge::ShooterRay(*this, origin, aimedFrom, shotDirection, ackFrame);
-        static_cast<void>(shotDirection);
-        OpenTK::Mathematics::Vector3 aim = Mods::Network::NetPlayerBridge::RetargetAtLocal(*this, origin, intent.Aim, ackFrame, aimedFrom);
-        static_cast<void>(Mods::Network::NetPlayerBridge::CoilAimFor(*this, origin, aim));
-        ModSetAim(aim);
+        // Packet admission belongs to ApplyModAim. Even when an intent expires,
+        // the previously committed gun direction follows the current camera.
+        // Rotation/Follow was admitted before movement. Camera has now moved:
+        // only reproject the committed gun direction, without another Follow
+        // or an invented camera position overwriting UpdateCamera's result.
+        ProjectAimTarget();
     }
 
     void PlayerEntity::ModSetAim(OpenTK::Mathematics::Vector3 aim)
     {
-        if (!(LengthSquared(aim) > 0.0001F))
+        if (!std::isfinite(aim.X) || !std::isfinite(aim.Y) || !std::isfinite(aim.Z)
+            || !std::isfinite(LengthSquared(aim)) || !(LengthSquared(aim) > 0.0001F))
         {
             return;
         }
@@ -242,15 +237,14 @@ namespace MphRead::Entities
         }
 
         const Vector3 gun = aim.Normalized();
+        _aimTrace.Count(Mods::Input::AimOperation::Normalize);
         ((*this)._gunVec1 = gun);
         const float flat = std::sqrt(gun.X * gun.X + gun.Z * gun.Z);
         constexpr float RadiansToDegrees = ::OpenTK::Mathematics::MathHelper::RadToDeg;
         const float aimY = std::clamp(
             std::atan2(gun.Y, flat) * RadiansToDegrees, -85.0F, 85.0F);
         ((*this)._aimY = aimY);
-        const Vector3 cameraPosition = (*this).CameraInfo()->Position;
-        const std::int32_t aimDistance = (*this).Values().AimDistance;
-        ((*this)._aimPosition = cameraPosition + Multiply(gun, MphRead::Fixed::ToFloat(aimDistance)));
+        ProjectAimTarget();
         (*this).UpdateAimFacing();
     }
 
@@ -578,6 +572,13 @@ namespace MphRead::Entities
 
     void PlayerEntity::ModForceForm(bool altForm)
     {
+        if (_hunter == Hunter::Weavel)
+        {
+            const bool active = TypeExtensions::TestFlag(_flags2, PlayerFlags2::Halfturret)
+                && _halfturret && _halfturret->Health() > 0;
+            ModForceWeavelState(altForm, altForm && (!_weavelAltLife || active));
+            return;
+        }
         if (altForm == (*this).IsAltForm())
         {
             // Unmorph changes the form bit before its animation ends. If
@@ -1051,8 +1052,7 @@ namespace MphRead::Entities
 
     void PlayerEntity::ApplyModAim()
     {
-        ApplyGamepadAim();
-        if (!Mods::Network::NetSession::Active())
+        if (_aimFrame.Source != Mods::Input::AimSource::Network && _aimFrame.Source != Mods::Input::AimSource::Script)
         {
             return;
         }
@@ -1061,7 +1061,7 @@ namespace MphRead::Entities
         const std::int32_t localSlot = Mods::Network::NetHooks::LocalSlot();
         if (slotForLocal == localSlot)
         {
-            if (Mods::Network::NetTestScript::Enabled())
+            if (_aimFrame.Source == Mods::Input::AimSource::Script)
             {
                 const float deltaY = Mods::Network::NetTestScript::AimDeltaY();
                 (*this).UpdateAimY(deltaY);
@@ -1071,8 +1071,7 @@ namespace MphRead::Entities
             return;
         }
         const std::int32_t slotForValid = (*this).SlotIndex();
-        if (!Mods::Network::NetSession::RemoteIntentValid[slotForValid]
-            || !Mods::Network::NetPlayerBridge::AimTrusted(slotForValid))
+        if (!Mods::Network::NetPlayerBridge::AimAvailable(slotForValid))
         {
             return;
         }
@@ -1088,34 +1087,6 @@ namespace MphRead::Entities
         OpenTK::Mathematics::Vector3 aim = Mods::Network::NetPlayerBridge::RetargetAtLocal(*this, origin, intent.Aim, ackFrame, aimedFrom);
         static_cast<void>(Mods::Network::NetPlayerBridge::CoilAimFor(*this, origin, aim));
         ModSetAim(aim);
-    }
-
-    void PlayerEntity::ApplyGamepadAim()
-    {
-        const std::uint32_t flags1 = static_cast<std::uint32_t>((*this).Flags1());
-        if ((*this).IsBot() || (*this).SlotIndex() != PlayerEntity::MainPlayerIndex()
-            || Mods::SpectatorMode::IsSpectating()
-            || ::HasFlag(flags1, PlayerFlagNoAimInput))
-        {
-            _controllerAssist.Reset();
-            return;
-        }
-        const bool zoomed = ::MphRead::NativeRuntime::RequireReference(_equipInfo).Zoomed;
-        float x = Mods::Input::GamepadInput::AimDeltaX() * (zoomed ? Mods::Input::GamepadOptions::ScopedX() : 1);
-        float y = Mods::Input::GamepadInput::AimDeltaY() * (zoomed ? Mods::Input::GamepadOptions::ScopedY() : 1);
-        const auto assisted = ApplyControllerAssist(x, y);
-        x = assisted.X();
-        y = assisted.Y();
-        if (x == 0.0F && y == 0.0F)
-        {
-            return;
-        }
-
-        ModNoteInput();
-        (*this).UpdateHudShiftY(y);
-        (*this).UpdateHudShiftX(x);
-        (*this).UpdateAimY(y);
-        (*this).UpdateAimX(x);
     }
 
     void PlayerEntity::ModNoteInput()

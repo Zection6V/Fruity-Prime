@@ -28,6 +28,7 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static bool PinPuppetsOnClients() noexcept { return _pinPuppetsOnClients; }
         static void PinPuppetsOnClients(bool value) noexcept { _pinPuppetsOnClients = value; }
         [[nodiscard]] static bool SnapshotOwnsPuppets() noexcept { return _snapshotOwnsPuppets; }
+        static constexpr std::uint32_t StaleIntentFrames = 30U;
         static void SnapshotOwnsPuppets(bool value) noexcept { _snapshotOwnsPuppets = value; }
         static void AfterRemoteMovement(Entities::PlayerEntity& player);
         [[nodiscard]] static OpenTK::Mathematics::Vector3 RemoteShotOrigin(
@@ -44,7 +45,6 @@ namespace MphRead::Mods::Network
 
     private:
         static constexpr std::uint32_t SnapshotStaleFrames = 12U;
-        static constexpr std::uint32_t StaleIntentFrames = 30U;
 
         inline static bool _pinPuppetsOnClients = false;
         inline static bool _intentPending = false;

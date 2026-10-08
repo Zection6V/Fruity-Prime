@@ -413,6 +413,20 @@ namespace MphRead::Mods
         _invertMouseX = value;
     }
 
+    bool InputSettings::ClassicAim()
+    {
+        return Current().NativeAim();
+    }
+
+    void InputSettings::ClassicAim(bool value)
+    {
+        auto& controls = Current();
+        controls.SetNativeAim(value);
+        // DS aim rules on the 60 Hz simulation: every pointer delta lands on
+        // the step it arrives in; only the strict -nativeaim cadence waits.
+        if (value) controls.NativeControl() = {};
+    }
+
     bool InputSettings::ScrollAllWeapons() noexcept
     {
         return _scrollAllWeapons;
@@ -691,6 +705,8 @@ namespace MphRead::Mods
             target.SetMouseButton(source.MouseButton());
         }
         controls.SetScrollAllWeapons(ScrollAllWeapons());
+        controls.SetNativeAim(_current->NativeAim());
+        controls.NativeControl() = _current->NativeControl();
     }
 
     void InputSettings::ApplyToPlayers()
@@ -764,6 +780,11 @@ namespace MphRead::Mods
                 if (key == "invert_y" && BooleanTryParse(value, boolean))
                 {
                     InvertMouseY(boolean);
+                    continue;
+                }
+                if (key == "aim_style")
+                {
+                    ClassicAim(StringEqualsOrdinalIgnoreCase(value, "classic"));
                     continue;
                 }
                 if (key == "invert_x" && BooleanTryParse(value, boolean))
@@ -996,6 +1017,7 @@ namespace MphRead::Mods
                 "sensitivity=" + ::MphRead::NativeRuntime::ToStringInvariant(MouseSensitivity(), "0.###"),
                 "invert_y=" + BoolToLower(InvertMouseY()),
                 "invert_x=" + BoolToLower(InvertMouseX()),
+                "aim_style=" + std::string(ClassicAim() ? "classic" : "modern"),
                 "scroll_all_weapons=" + BoolToLower(ScrollAllWeapons()),
                 "stylus_mode=" + BoolToLower(Input::PointerInput::StylusMode()),
                 "pointer_jump_guard="

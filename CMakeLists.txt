@@ -183,7 +183,9 @@ add_custom_target(fruity_golden_capture_provenance
 list(REMOVE_ITEM MPHREAD_NATIVE_SOURCES
     "${FRUITY_MPHREAD_ROOT}/Testing/TestOpenGlUniformState.cpp"
     "${FRUITY_MPHREAD_ROOT}/Testing/TestNativeTouchState.cpp"
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestNativeAimRules.cpp"
     "${FRUITY_MPHREAD_ROOT}/Testing/TestDialancheNativeCollision.cpp"
+    "${FRUITY_MPHREAD_ROOT}/Testing/TestWeavelAltFormParity.cpp"
     "${FRUITY_MPHREAD_ROOT}/Testing/TestIntentTouchPayload.cpp"
     "${FRUITY_MPHREAD_ROOT}/Testing/TestFrameTelemetry.cpp"
     "${FRUITY_MPHREAD_ROOT}/Testing/TestVulkanNvidiaReflex.cpp"
@@ -326,6 +328,9 @@ set_target_properties(fruity_mphread_native PROPERTIES OUTPUT_NAME "MphRead.Nati
 # focused tests whenever a host native owner is built; Android cross-compiles
 # the production decoder but cannot execute the host test binary.
 if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
+    add_executable(fruity_native_aim_rules_tests "${FRUITY_MPHREAD_ROOT}/Testing/TestNativeAimRules.cpp")
+    target_compile_features(fruity_native_aim_rules_tests PRIVATE cxx_std_20)
+    add_test(NAME FruityPrime.NativeAimRules COMMAND fruity_native_aim_rules_tests)
     add_executable(fruity_raw_mouse_motion_tests "${CMAKE_CURRENT_SOURCE_DIR}/tools/testing/TestRawMouseMotion.cpp")
     target_compile_features(fruity_raw_mouse_motion_tests PRIVATE cxx_std_20)
     add_test(NAME FruityPrime.RawMouseMotion COMMAND fruity_raw_mouse_motion_tests)
@@ -343,6 +348,11 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         "${FRUITY_MPHREAD_ROOT}/Entities/Players/DialancheNativeCollision.cpp")
     target_compile_features(fruity_dialanche_native_collision_tests PRIVATE cxx_std_20)
     add_test(NAME FruityPrime.DialancheNativeCollision COMMAND fruity_dialanche_native_collision_tests)
+    add_executable(fruity_weavel_alt_form_parity_tests
+        "${FRUITY_MPHREAD_ROOT}/Testing/TestWeavelAltFormParity.cpp")
+    target_link_libraries(fruity_weavel_alt_form_parity_tests PRIVATE fruity_mphread_native)
+    target_compile_features(fruity_weavel_alt_form_parity_tests PRIVATE cxx_std_20)
+    add_test(NAME FruityPrime.WeavelAltFormParity COMMAND fruity_weavel_alt_form_parity_tests)
     add_executable(fruity_intent_touch_payload_tests "${FRUITY_MPHREAD_ROOT}/Testing/TestIntentTouchPayload.cpp")
     target_link_libraries(fruity_intent_touch_payload_tests PRIVATE fruity_mphread_native)
     target_compile_features(fruity_intent_touch_payload_tests PRIVATE cxx_std_20)

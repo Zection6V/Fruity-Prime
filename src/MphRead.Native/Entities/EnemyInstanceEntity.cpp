@@ -4,6 +4,7 @@
 #include "../GameState.hpp"
 #include "../Metadata/Enemies.hpp"
 #include "../Metadata/Metadata.hpp"
+#include "../Mods/Combat/Extensions/LockjawEnemyExtension.hpp"
 #include "../Scene.hpp"
 #include "../SceneSetup.hpp"
 #include "BeamProjectileEntity.hpp"
@@ -478,9 +479,7 @@ namespace MphRead::Entities
         bool overlaps = LengthSquared(between) <= radius * radius;
         if (bombRef.BombType() == BombType::Lockjaw)
         {
-            Formats::CollisionResult result{};
-            overlaps = Formats::CollisionDetection::CheckSphereOverlapVolume(
-                &_hurtVolume, bombRef.Position, radius, result);
+            overlaps = Mods::Combat::Extensions::LockjawEnemyExtension::ExplosionOverlaps(bombRef, *this);
         }
         if (!overlaps)
         {

@@ -37,6 +37,9 @@ namespace MphRead::Mods::Input
         bool PreviousDown = false;
         bool Continued = false;
 
+        // InputSlot+0x32, in producer samples, independent of draw FPS.
+        std::uint16_t ContactDuration = 0;
+
         std::uint8_t X = 0;
         std::uint8_t Y = 0;
         std::uint8_t PreviousX = 0;

@@ -548,7 +548,8 @@ namespace MphRead::Entities
         {
             ++_timeSinceShot;
         }
-        if (_altAttackCooldown > 0)
+        AdvanceNativeWeaponTimers();
+        if (_altAttackCooldown > 0 && _hunter != Hunter::Weavel)
         {
             --_altAttackCooldown;
         }
@@ -2199,11 +2200,18 @@ namespace MphRead::Entities
         }
         else if (_hunter == Hunter::Weavel)
         {
+            _weavelLungeInput.Reset();
+            _weavelNativeAttackPress = false;
             RequireReference(_altModel).SetAnimation(static_cast<std::int32_t>(WeavelAltAnim::Idle));
-            _flags2 |= PlayerFlags2::Halfturret;
-            HalfturretEntity& halfturret = RequireReference(_halfturret);
-            halfturret.NodeRef = NodeRef;
-            scene().AddEntity(_halfturret);
+            if (!_weavelAltLife)
+            {
+                _weavelAltLife = true;
+                _flags2 |= PlayerFlags2::Halfturret;
+                RequireReference(_halfturret).NodeRef = NodeRef;
+                // An exit/re-enter can precede the next scene removal pass.
+                scene().RemoveEntity(_halfturret);
+                scene().AddEntity(_halfturret);
+            }
         }
         else if (_hunter == Hunter::Samus)
         {
@@ -2235,6 +2243,9 @@ namespace MphRead::Entities
 
     void PlayerEntity::ExitAltForm()
     {
+        _weavelLungeInput.Reset();
+        _weavelNativeAttackPress = false;
+        _weavelAltLife = false;
         if (TestFlag(_flags2, PlayerFlags2::Halfturret))
         {
             _flags2 &= ~PlayerFlags2::Halfturret;

@@ -12,6 +12,9 @@
 #include <memory>
 #include <string>
 
+namespace MphRead::Mods::Diagnostics { class WeavelAltFormCheck; }
+namespace MphRead::Mods::Diagnostics { class AimCheck; }
+
 namespace MphRead
 {
     class Scene;
@@ -26,6 +29,8 @@ namespace MphRead::Mods::Network
     class ServerSim final
     {
         // NetCombatCheck reads _scene the way the C# reads it by reflection.
+        friend class ::MphRead::Mods::Diagnostics::WeavelAltFormCheck;
+        friend class ::MphRead::Mods::Diagnostics::AimCheck;
         friend class NetCombatCheck;
         friend class DialancheCombatCheck;
         friend class SpireAltPoseCheck;

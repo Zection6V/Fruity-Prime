@@ -898,10 +898,6 @@ namespace MphRead::Mods::Network
         WI16(Slice(dest, 9), PackDirection(Direction.X));
         WI16(Slice(dest, 11), PackDirection(Direction.Y));
         WI16(Slice(dest, 13), PackDirection(Direction.Z));
-        At(dest, 15) = LaunchLow;
-        At(dest, 16) = static_cast<std::uint8_t>(Impact.X);
-        At(dest, 17) = static_cast<std::uint8_t>(Impact.Y);
-        At(dest, 18) = static_cast<std::uint8_t>(Impact.Z);
     }
     ImpactOffset ImpactOffset::From(::OpenTK::Mathematics::Vector3 offset) noexcept
     {
@@ -932,10 +928,6 @@ namespace MphRead::Mods::Network
             UnpackDirection(RI16(Slice(src, 9))),
             UnpackDirection(RI16(Slice(src, 11))),
             UnpackDirection(RI16(Slice(src, 13))));
-        value.LaunchLow = At(src, 15);
-        value.Impact.X = static_cast<std::int8_t>(At(src, 16));
-        value.Impact.Y = static_cast<std::int8_t>(At(src, 17));
-        value.Impact.Z = static_cast<std::int8_t>(At(src, 18));
         return value;
     }
     DamageEvent PlayerState::EventAt(std::int32_t index) const
@@ -951,6 +943,7 @@ namespace MphRead::Mods::Network
     }
     void PlayerState::Write(std::span<std::uint8_t> dest) const
     {
+        if (dest.size() < Size) throw std::out_of_range("PlayerState protocol 19 requires " + std::to_string(Size) + " bytes");
         At(dest, 0) = SlotIndex;
         At(dest, 1) = Flags;
         WriteVec(Slice(dest, 2), Position);
@@ -969,9 +962,22 @@ namespace MphRead::Mods::Network
         {
             EventAt(i).Write(Slice(dest, 54 + static_cast<std::size_t>(i) * DamageEvent::Size));
         }
+        At(dest, LegacySize) = WeavelFlags;
+        At(dest, LegacySize + 1) = HalfturretHealth;
+        WriteVec(Slice(dest, LegacySize + 2), HalfturretPosition);
+        At(dest, LegacySize + 14) = ImpactLaunchLow;
+        At(dest, LegacySize + 15) = static_cast<std::uint8_t>(Impact.Y);
+        std::uint8_t bearing = 0;
+        if (Impact.Known() && (Impact.X != 0 || Impact.Z != 0))
+        {
+            const double angle = std::atan2(static_cast<double>(Impact.Z), static_cast<double>(Impact.X));
+            bearing = static_cast<std::uint8_t>(static_cast<std::int32_t>(std::lround(angle * 128.0 / 3.141592653589793)) & 0xFF);
+        }
+        At(dest, LegacySize + 16) = bearing;
     }
     PlayerState PlayerState::Read(std::span<const std::uint8_t> src)
     {
+        if (src.size() < Size) throw std::out_of_range("PlayerState layout older than protocol 19 is incompatible");
         PlayerState state;
         state.SlotIndex = At(src, 0);
         state.Flags = At(src, 1);
@@ -991,6 +997,18 @@ namespace MphRead::Mods::Network
         state.Damage1 = DamageEvent::Read(Slice(src, 54 + DamageEvent::Size));
         state.Damage2 = DamageEvent::Read(Slice(src, 54 + 2 * DamageEvent::Size));
         state.Damage3 = DamageEvent::Read(Slice(src, 54 + 3 * DamageEvent::Size));
+        state.WeavelFlags = At(src, LegacySize);
+        state.HalfturretHealth = At(src, LegacySize + 1);
+        state.HalfturretPosition = ReadVec(Slice(src, LegacySize + 2));
+        state.ImpactLaunchLow = At(src, LegacySize + 14);
+        const auto height = static_cast<std::int8_t>(At(src, LegacySize + 15));
+        if (height != ImpactOffset::None)
+        {
+            const double angle = static_cast<std::int8_t>(At(src, LegacySize + 16)) * 3.141592653589793 / 128.0;
+            state.Impact = ImpactOffset::From(::OpenTK::Mathematics::Vector3(
+                static_cast<float>(std::cos(angle)) * ImpactRadius, height / ImpactOffset::Scale,
+                static_cast<float>(std::sin(angle)) * ImpactRadius));
+        }
 
         DamageEvent latest{};
         for (std::int32_t i = DamageHistory - 1; i >= 0; i--)

@@ -479,7 +479,7 @@ namespace MphRead::Mods::Network
 
     struct DamageEvent
     {
-        static constexpr std::int32_t Size = 19;
+        static constexpr std::int32_t Size = 15;
 
         std::uint16_t EventId = 0;
         std::uint16_t AttackerGeneration = 0;
@@ -488,10 +488,6 @@ namespace MphRead::Mods::Network
         std::uint8_t Beam = 0;
         std::uint8_t Flags = 0;
         ::OpenTK::Mathematics::Vector3 Direction{};
-        // The low byte of the shot's launch frame (the shooter's ack): which
-        // of the shooter's shots this was, among those still in the air.
-        std::uint8_t LaunchLow = 0;
-        ImpactOffset Impact{};
 
         void Write(std::span<std::uint8_t> dest) const;
         [[nodiscard]] static DamageEvent Read(std::span<const std::uint8_t> src);
@@ -507,7 +503,9 @@ namespace MphRead::Mods::Network
         std::uint16_t SlotGeneration = 0;
         std::uint16_t LifeId = 0;
         static constexpr std::int32_t DamageHistory = 4;
-        static constexpr std::int32_t Size = 54 + DamageEvent::Size * DamageHistory;
+        static constexpr std::int32_t LegacySize = 54 + DamageEvent::Size * DamageHistory;
+        // + Weavel (14) + the newest damage event's confirmed impact (3).
+        static constexpr std::int32_t Size = LegacySize + 14 + 3;
 
         std::uint8_t SlotIndex = 0;
         std::uint8_t Flags = 0;
@@ -531,6 +529,20 @@ namespace MphRead::Mods::Network
         std::int16_t Points = 0;
         std::uint16_t Kills = 0;
         std::uint16_t Deaths = 0;
+
+        std::uint8_t WeavelFlags = 0;
+        std::uint8_t HalfturretHealth = 0;
+        ::OpenTK::Mathematics::Vector3 HalfturretPosition{};
+        // The newest damage event (DamageEventId): the low byte of its shot's
+        // launch frame, and where on the body the shooter saw it land --
+        // height in 1/64 unit, bearing in 256 steps, drawn at ImpactRadius.
+        // Per player and not per event, so eight states still leave the
+        // health sync its room; an older event in the history goes without.
+        std::uint8_t ImpactLaunchLow = 0;
+        ImpactOffset Impact{};
+        static constexpr float ImpactRadius = 0.55F;
+        static constexpr std::uint8_t WeavelFlagTurretActive = 1U << 0;
+        static constexpr std::uint8_t WeavelFlagTurretGrounded = 1U << 1;
 
         static constexpr std::uint8_t FlagActive = 1U << 0;
         static constexpr std::uint8_t FlagAltForm = 1U << 1;
@@ -641,7 +653,7 @@ namespace MphRead::Mods::Network
     public:
         static constexpr std::uint16_t DefaultPort = 27888;
         static constexpr std::int32_t MaxPacketSize = 1232;
-        static constexpr std::int32_t ProtocolVersion = 18;
+        static constexpr std::int32_t ProtocolVersion = 19;
         static constexpr std::int32_t IntentSendInterval = 1;
         static constexpr double TimeoutSeconds = 30.0;
 

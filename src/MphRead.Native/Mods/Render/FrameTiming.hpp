@@ -35,7 +35,6 @@ namespace MphRead::Mods::Render
         static constexpr std::int32_t DisplayRate = 0;
         static constexpr std::int32_t Unlimited = -1;
         static constexpr std::int32_t MinCap = 30;
-        static constexpr std::int32_t MaxCap = 500;
 
         [[nodiscard]] static bool Active() noexcept;
         [[nodiscard]] static std::int32_t StepsThisFrame() noexcept;

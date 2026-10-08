@@ -1127,6 +1127,7 @@ private: \
     void SetFlatColor(std::int32_t bindingId); \
     [[nodiscard]] bool ScoreboardOverFreeCamera() const; \
     void OnKeyHeld(); \
+    void MoveRoamCamera(); \
     void UpdatePointModule(); \
     void OutputStart(); \
     void OutputStop(); \
@@ -1319,6 +1320,9 @@ private: \
     std::shared_ptr<MphRead::Hud::LayerInfo> _layer5Info{}; \
     std::array<float, 16 * 31> _hudMatrixStack{}; \
     bool _freeCam = false; \
+    /* The spectator free camera moves once per 60 Hz step, with the world. */ \
+    float _roamMouseX = 0, _roamMouseY = 0; \
+    float _roamPadMoveX = 0, _roamPadMoveY = 0, _roamPadRise = 0, _roamPadLookX = 0, _roamPadLookY = 0; \
     MphRead::EntityType _colEntDisplay = MphRead::EntityType::Room; \
     MphRead::Terrain _colTerDisplay = MphRead::Terrain::All; \
     MphRead::CollisionType _colTypeDisplay = MphRead::CollisionType::Any; \

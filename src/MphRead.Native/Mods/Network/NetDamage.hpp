@@ -45,6 +45,9 @@ namespace MphRead::Mods::Network
         inline static std::int64_t HitsTakenSeen = 0;
         inline static std::array<std::int64_t, 11> HitsTakenByBeam{};
         inline static std::array<std::int64_t, 11> HitsTakenSeenByBeam{};
+        // The newest damage event's shot and confirmed impact, per victim.
+        inline static std::array<std::uint8_t, Entities::PlayerEntity::SlotCapacity> _impactLaunch{};
+        inline static std::array<ImpactOffset, Entities::PlayerEntity::SlotCapacity> _impact{};
         // Hits not yet matched to a drawn impact, which may still come: the
         // remote shot can be in the air here when the authority's damage lands.
         static constexpr std::size_t UnseenDepth = 16;

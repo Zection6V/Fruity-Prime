@@ -74,6 +74,7 @@ namespace MphRead::Mods::Network
         static void NoteSpawn(std::int32_t slot);
         inline static std::array<std::uint32_t, Entities::PlayerEntity::SlotCapacity> SpawnFrame{};
         [[nodiscard]] static bool AimTrusted(std::int32_t slot);
+        [[nodiscard]] static bool AimAvailable(std::int32_t slot);
 
         static void ApplyState(Entities::PlayerEntity& player, const PlayerState& state, bool isLocal);
         [[nodiscard]] static FormCorrection ReconcileForm(std::int32_t slot, std::uint32_t frame, bool desiredAlt,
@@ -115,8 +116,10 @@ namespace MphRead::Mods::Network
         static void SetScene(MphRead::Scene* scene) noexcept { _scene = scene; }
         static void ConfirmedImpacts(bool value) noexcept { _confirmedImpacts = value; }
         [[nodiscard]] static bool ConfirmedImpacts() noexcept { return _confirmedImpacts; }
+        // keyed: the damage event is the player state's newest, the one the
+        // launch byte and impact belong to; an older one is drawn at the chest.
         static void ConfirmIncoming(std::int32_t attackerSlot, std::int32_t victimSlot, std::uint8_t beam,
-            std::uint8_t launchLow, ImpactOffset impact, bool headshot = false);
+            bool keyed, std::uint8_t launchLow, ImpactOffset impact, bool headshot = false);
         // Confirmed impacts drawn between two other players too (this
         // machine watching A hit B); -noobservedimpacts keeps them to this player.
         static void ObservedImpacts(bool value) noexcept { _observedImpacts = value; }
@@ -231,6 +234,7 @@ namespace MphRead::Mods::Network
         inline static std::array<OpenTK::Mathematics::Vector3, 8> _coilOffset{};
         inline static std::array<std::uint32_t, 8> _coilUntil{};
         inline static std::int64_t _coilTicks = 0;
+        inline static std::int64_t _unkeyedImpacts = 0;
         inline static std::int64_t _observedConfirms = 0;
         inline static double _homeAngleMax = 0;
         [[nodiscard]] static const ConfirmGoneShot* RecentlyGone(std::int32_t attackerSlot, std::uint8_t launchLow);

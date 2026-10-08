@@ -301,6 +301,19 @@ namespace MphRead::Mods::Network
         _aimHeld[s] = true;
     }
 
+    bool NetPlayerBridge::AimAvailable(std::int32_t slot)
+    {
+        if (slot < 0 || slot >= static_cast<std::int32_t>(NetSession::RemoteIntents.size())
+            || !NetSession::RemoteIntentValid[slot] || !AimTrusted(slot)
+            || NetSession::RemoteIntentAge(slot) > NetHooks::StaleIntentFrames)
+            return false;
+        const auto& intent = NetSession::RemoteIntents[slot];
+        return intent.MatchId != 0 && intent.AuthorityEpoch != 0
+            && intent.MatchId == NetSession::CurrentMatchId() && intent.AuthorityEpoch == NetSession::AuthorityEpoch()
+            && intent.LifeId != 0 && NetPlayerLifecycle::Matches(slot, intent.SlotGeneration, intent.LifeId)
+            && HasFlag(intent.Buttons, IntentButtons::InPlayState) && Sane(intent.Aim);
+    }
+
     bool NetPlayerBridge::AimTrusted(std::int32_t slot)
     {
         return slot < 0 || slot >= static_cast<std::int32_t>(_aimHeld.size()) || !_aimHeld[Index(slot)];
@@ -397,7 +410,11 @@ namespace MphRead::Mods::Network
         {
             return;
         }
-        if (!Sane(state.Position) || !Sane(state.Speed) || !Sane(state.Facing))
+        if (!Sane(state.Position) || !Sane(state.Speed) || !Sane(state.Facing)
+            || (player.Hunter() == Hunter::Weavel
+                && ((state.WeavelFlags & ~(PlayerState::WeavelFlagTurretActive | PlayerState::WeavelFlagTurretGrounded)) != 0
+                    || ((state.WeavelFlags & PlayerState::WeavelFlagTurretActive) != 0
+                        && (!Sane(state.HalfturretPosition) || state.HalfturretHealth == 0)))))
         {
             NativeRuntime::IncrementInPlace(_rejectedUpdates);
             return;
@@ -456,7 +473,8 @@ namespace MphRead::Mods::Network
             player.ModSetFacing(state.Facing);
             player.ModSetWeapon(static_cast<BeamType>(state.CurrentWeapon));
             player.EquipInfo()->Zoomed = (state.Flags & PlayerState::FlagZoomed) != 0;
-            ApplyForm(player, (state.Flags & PlayerState::FlagAltForm) != 0);
+            if (player.Hunter() != Hunter::Weavel)
+                ApplyForm(player, (state.Flags & PlayerState::FlagAltForm) != 0);
             player.ModSetSpectating((state.Flags & PlayerState::FlagSpectating) != 0);
         }
         else
@@ -476,6 +494,14 @@ namespace MphRead::Mods::Network
                 _localFrames[frame % LocalHistory] = frame;
                 _localPositions[frame % LocalHistory] = state.Position;
             }
+        }
+        // Explicit turret reconciliation owns remote replicas. A local owner
+        // predicts form and turret lifecycle; an older snapshot has no form ack.
+        if (player.Hunter() == Hunter::Weavel && !isLocal)
+        {
+            player.ModApplyWeavelState((state.Flags & PlayerState::FlagAltForm) != 0,
+                (state.WeavelFlags & PlayerState::WeavelFlagTurretActive) != 0, state.HalfturretHealth,
+                state.HalfturretPosition, (state.WeavelFlags & PlayerState::WeavelFlagTurretGrounded) != 0);
         }
         player.ModSetFrozen((state.Flags & PlayerState::FlagFrozen) != 0);
         ApplyAfflictions(player, state);
@@ -581,8 +607,21 @@ namespace MphRead::Mods::Network
     }
 
     void NetPlayerBridge::ConfirmIncoming(std::int32_t attackerSlot, std::int32_t victimSlot, std::uint8_t beam,
-        std::uint8_t launchLow, ImpactOffset impact, bool headshot)
+        bool keyed, std::uint8_t launchLow, ImpactOffset impact, bool headshot)
     {
+        if (!keyed)
+        {
+            // An older event of the history, which carries no shot key: the
+            // hit is still drawn, at the chest, with no shot brought in.
+            const std::int32_t me = NetHooks::LocalSlot();
+            if (_confirmedImpacts && attackerSlot >= 0 && attackerSlot != me && victimSlot >= 0
+                && attackerSlot != victimSlot && ConfirmableBeam(beam) && (victimSlot == me || _observedImpacts))
+            {
+                NativeRuntime::IncrementInPlace(_unkeyedImpacts);
+                SynthesizeImpact(attackerSlot, victimSlot, beam, 0, OpenTK::Mathematics::Vector3(0.0F, 0.3F, 0.0F), headshot);
+            }
+            return;
+        }
         using OpenTK::Mathematics::Vector3;
         const auto& players = Entities::PlayerEntity::Players();
         const std::int32_t local = NetHooks::LocalSlot();
@@ -888,6 +927,7 @@ namespace MphRead::Mods::Network
             + std::to_string(_impactsSynthesized) + " drawn on the spot (shot gone or never drawn), "
             + std::to_string(_seenAsBlast) + " already seen as the blast that reached them, "
             + std::to_string(_coilTicks) + " Shock Coil ticks aiming its beam, "
+            + std::to_string(_unkeyedImpacts) + " older events drawn at the chest, "
             + std::to_string(_passedThrough) + " unconfirmed shots let through, "
             + std::to_string(_observedConfirms) + " of them on other players (observed), "
             + std::to_string(_confirmsIgnored) + " not applicable (continuous beam, own or unknown shooter)";

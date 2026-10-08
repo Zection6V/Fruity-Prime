@@ -23,6 +23,8 @@
 #include <utility>
 #include <vector>
 
+namespace MphRead::Mods::Diagnostics { class WeavelAltFormCheck; }
+
 namespace MphRead::Mods::Input
 {
     class PointerCheck;
@@ -837,6 +839,7 @@ namespace MphRead
         // C# reflection on _cameraMode; see pitfall 12e.
         friend class ::MphRead::Mods::Input::PointerCheck;
         friend class ::MphRead::Mods::Network::DialancheCombatCheck;
+        friend class ::MphRead::Mods::Diagnostics::WeavelAltFormCheck;
 
     public:
         Scene() = delete;

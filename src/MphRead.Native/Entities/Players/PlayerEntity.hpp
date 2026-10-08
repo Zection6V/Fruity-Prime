@@ -1,5 +1,7 @@
 #pragma once
 
+#include <source_location>
+
 #define MPHREAD_PLAYER_ENTITY_CANONICAL_HEADER 1
 
 #ifndef MPHREAD_PLAYER_AI_MEMBERS
@@ -16,6 +18,7 @@ private: \
 
 #include "DynamicLightEntity.hpp"
 #include "DialancheNativeCollision.hpp"
+#include "WeavelLungeInput.hpp"
 #include "PlayerCamera.hpp"
 #include "PlayerCollision.hpp"
 #include "PlayerDialog.hpp"
@@ -51,6 +54,9 @@ private: \
 #include <optional>
 #include <string>
 #include <utility>
+
+namespace MphRead::Mods::Diagnostics { class WeavelAltFormCheck; }
+namespace MphRead::Mods::Diagnostics { class AimCheck; }
 
 namespace MphRead
 {
@@ -595,6 +601,9 @@ namespace MphRead::Entities
     class PlayerEntity : public DynamicLightEntityBase
     {
         // NetCombatCheck reads private state the way the C# reads it by reflection.
+        friend class ::MphRead::Mods::Diagnostics::WeavelAltFormCheck;
+        friend class ::MphRead::Mods::Diagnostics::AimCheck;
+        friend class HalfturretEntity;
         friend class ::MphRead::Mods::Network::NetCombatCheck;
         friend class ::MphRead::Mods::Network::DialancheCombatCheck;
         friend class ::MphRead::Mods::Network::SpireAltPoseCheck;
@@ -692,7 +701,12 @@ namespace MphRead::Entities
         void SetPrevPosition(::OpenTK::Mathematics::Vector3 value) noexcept { _prevPosition = value; }
         [[nodiscard]] ::OpenTK::Mathematics::Vector3 IdlePosition() const noexcept { return _idlePosition; }
         [[nodiscard]] std::uint16_t TimeSinceShot() const noexcept { return _timeSinceShot; }
-        void SetTimeSinceShot(std::uint16_t value) noexcept { _timeSinceShot = value; }
+        void SetTimeSinceShot(std::uint16_t value) noexcept
+        {
+            _timeSinceShot = value;
+            _nativeTimeSinceShot = static_cast<std::uint8_t>(value / 2U > 255U ? 255U : value / 2U);
+        }
+        [[nodiscard]] std::uint8_t NativeTimeSinceShot() const noexcept { return _nativeTimeSinceShot; }
         [[nodiscard]] std::uint16_t RespawnTimer() const noexcept { return _respawnTimer; }
         void SetRespawnTimer(std::uint16_t value) noexcept { _respawnTimer = value; }
         [[nodiscard]] float DeathCountdown() const noexcept { return _deathCountdown; }
@@ -791,6 +805,7 @@ namespace MphRead::Entities
 
     private:
         explicit PlayerEntity(std::int32_t slotIndex, MphRead::Scene* scene);
+        void AdvanceNativeWeaponTimers();
 
         [[nodiscard]] MphRead::WeaponInfo& EquipWeapon() const;
         void SetFlags1(PlayerFlags1 value) noexcept { _flags1 = value; }
@@ -818,7 +833,9 @@ namespace MphRead::Entities
         void ResetMorphBallTrail();
         void UpdateMorphBallTrail();
         void InitializeWeapon();
-        [[nodiscard]] bool TryEquipWeapon(MphRead::BeamType beam, bool silent = false, bool debug = false);
+        // caller: only the -debuglog [weapon] line reads it.
+        [[nodiscard]] bool TryEquipWeapon(MphRead::BeamType beam, bool silent = false, bool debug = false,
+            std::source_location caller = std::source_location::current());
         void ShowNoAmmoMessage();
         void UpdateAffinityWeaponSlot(MphRead::BeamType beam, std::int32_t slot = 2);
         void UnequipOmegaCannon();
@@ -979,6 +996,11 @@ namespace MphRead::Entities
         std::uint16_t _powerBeamAutofire = 0;
         std::uint16_t _timeSinceInput = 0;
         std::uint16_t _timeSinceShot = 0;
+        std::uint8_t _nativeTimeSinceShot = 0;
+        std::uint64_t _nativeWeaponTimerFrame = std::numeric_limits<std::uint64_t>::max();
+        WeavelLungeInput _weavelLungeInput{};
+        bool _weavelNativeAttackPress = false;
+        bool _weavelAltLife = false;
         std::uint16_t _timeSinceDamage = 0;
         std::uint16_t _timeSincePickup = 0;
         std::uint16_t _timeSinceHeal = 0;

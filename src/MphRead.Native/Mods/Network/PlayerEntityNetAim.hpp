@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 
@@ -61,6 +62,13 @@ public: \
  \
     void ModStartFormSwitch(); \
     void ModForceForm(bool altForm); \
+    void ModForceWeavelState(bool desiredAlt, bool desiredTurretActive, \
+        std::optional<std::int32_t> desiredTurretHealth = std::nullopt); \
+    void ModApplyWeavelState(bool desiredAlt, bool turretActive, std::int32_t turretHealth, \
+        OpenTK::Mathematics::Vector3 turretPosition, bool turretGrounded); \
+private: \
+    void FinalizeWeavelForm(bool desiredAlt); \
+public: \
  \
     void ModSetWeapon(MphRead::BeamType weapon); \
     [[nodiscard]] std::pair<std::int32_t, std::int32_t> ModAmmo() const; \
@@ -124,8 +132,7 @@ private: \
     [[nodiscard]] std::shared_ptr<PlayerSpawnEntity> ModNearestSpawn( \
         OpenTK::Mathematics::Vector3 position, bool& any); \
  \
-    void ApplyModAim(); \
-    void ApplyGamepadAim();
+    void ApplyModAim();
 
 #ifndef MPHREAD_PLAYER_ENTITY_CANONICAL_HEADER
 #include "../../Entities/Players/PlayerEntity.hpp"

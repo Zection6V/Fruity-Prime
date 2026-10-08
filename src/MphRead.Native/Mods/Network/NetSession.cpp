@@ -1,4 +1,5 @@
 #include "NetSession.hpp"
+#include "../../Entities/Players/HalfturretEntity.hpp"
 
 #include "../../NativeRuntime/System/Enum.hpp"
 
@@ -147,6 +148,12 @@ namespace
 
 namespace MphRead::Mods::Network
 {
+    // Eight player states, the header and the objective clocks in one
+    // datagram (NetHealthSync takes what is left): Weavel's turret state and
+    // the confirmed-impact bytes both live in a player state.
+    static_assert(SnapshotHeader::Size + 8 * PlayerState::Size + NetMatchTimeSync::Size
+        <= NetConfig::MaxPacketSize - 1, "a full snapshot no longer fits one datagram");
+
     std::unique_ptr<NetTransport> NetSession::_transport{};
     bool NetSession::_playback = false;
     std::vector<std::shared_ptr<RemotePeer>> NetSession::_peers{};
@@ -1653,6 +1660,15 @@ namespace MphRead::Mods::Network
             state.Health = static_cast<std::uint16_t>(std::clamp(player.Health(), 0,
                 static_cast<std::int32_t>(std::numeric_limits<std::uint16_t>::max())));
             state.CurrentWeapon = static_cast<std::uint8_t>(player.CurrentWeapon());
+            if (player.Hunter() == Hunter::Weavel && HasFlag(player.Flags2(), Entities::PlayerFlags2::Halfturret)
+                && player.Halfturret() && player.Halfturret()->Health() > 0)
+            {
+                const auto& turret = *player.Halfturret();
+                state.WeavelFlags = static_cast<std::uint8_t>(PlayerState::WeavelFlagTurretActive
+                    | (turret.Grounded() ? PlayerState::WeavelFlagTurretGrounded : 0));
+                state.HalfturretHealth = static_cast<std::uint8_t>(std::clamp(turret.Health(), 0, 255));
+                state.HalfturretPosition = turret.Position;
+            }
             state.Team = static_cast<std::uint8_t>(player.Team());
             state.Points = static_cast<std::int16_t>(std::clamp(GameState::Points()[slot],
                 static_cast<std::int32_t>(std::numeric_limits<std::int16_t>::min()),

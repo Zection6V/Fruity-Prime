@@ -1,6 +1,7 @@
 #include "PlayerInput.hpp"
 
 #include "PlayerEntity.hpp"
+#include "../../Mods/Gameplay/NativeGameplayClock.hpp"
 #include "PlayerHud.hpp"
 #include "../BeamProjectileEntity.hpp"
 #include "../BombEntity.hpp"
@@ -22,6 +23,8 @@
 #include "../../Mods/Input/GamepadUiRouter.hpp"
 #include "../../Mods/Input/PointerDevice.hpp"
 #include "../../Mods/Input/PointerInput.hpp"
+#include "../../Mods/Input/AimInputSourceTracker.hpp"
+#include "../../NativeRuntime/System/Runtime.hpp"
 #include "../../Mods/Input/WeaponWheel.hpp"
 #include "../../Mods/Network/ContinuousWeaponPhase.hpp"
 #include "../../Mods/Network/NetSession.hpp"
@@ -354,6 +357,9 @@ namespace MphRead::Entities
         const auto delta = both ? MouseState->DeltaFrom(*PrevMouseState) : std::pair<float, float>{};
         std::tie(_mouseDeltaX, _mouseDeltaY) = active ? Mods::Input::PointerDevice::TakeDelta()
             : Mods::Input::PointerInput::Filter(delta.first, delta.second);
+        Mods::Input::AimInputSourceTracker::Pointer(_mouseDeltaX, _mouseDeltaY,
+            active && Mods::Input::PointerDevice::Current().Device != Mods::Input::PointerDeviceType::Mouse,
+            NativeRuntime::EnvironmentTickCount64());
         if (Mods::DebugLog::Active() && captured && !_loggedCapture)
         {
             PlayerControls& controls = Mods::InputSettings::Current();
@@ -387,6 +393,18 @@ namespace MphRead::Entities
 
     void PlayerEntity::ProcessInput()
     {
+        const bool nativeTick = Mods::Gameplay::NativeGameplayClock::IsNativeTick(
+            RequireReference(_scene).FrameCount());
+        if (_hunter == Hunter::Weavel && _health > 0 && (IsAltForm() || IsMorphing()))
+        {
+            _weavelLungeInput.Capture(_controls.AltAttack().IsPressed());
+        }
+        else
+        {
+            _weavelLungeInput.Reset();
+        }
+        // Rejecting an edge (frozen, morphing or cooling down) consumes it too.
+        _weavelNativeAttackPress = _weavelLungeInput.Consume(nativeTick);
         if (Mods::Network::NetSession::Active() && !_isBot)
         {
             const bool local = _slotIndex == Mods::Network::NetSession::LocalSlot()
@@ -664,103 +682,6 @@ namespace MphRead::Entities
         return selected;
     }
 
-    void PlayerEntity::UpdateAimFacing()
-    {
-        if (Features::FixedCrosshair())
-        {
-            _facingVector = _gunVec1;
-            return;
-        }
-        const float dot = Vector3::Dot(_gunVec1, _facingVector);
-        if (dot < Fixed::ToFloat(3956))
-        {
-            const Vector3 temp1 = Subtract(_facingVector, Multiply(_gunVec1, dot)).Normalized();
-            _facingVector = Add(Multiply(_gunVec1, Fixed::ToFloat(3956)),
-                Multiply(temp1, Fixed::ToFloat(1060)));
-        }
-        _facingVector = Add(_facingVector, Multiply(Subtract(_gunVec1, _facingVector), 0.1F)).Normalized();
-    }
-
-    void PlayerEntity::UpdateAimY(float amount)
-    {
-        if (_controls.InvertAimY())
-        {
-            amount *= -1.0F;
-        }
-        float sensitivity = 1.0F;
-        if (_equipInfo->Zoomed)
-        {
-            const float normalFov = Fixed::ToFloat(_values.NormalFov) * 2.0F;
-            if (normalFov != 0.0F)
-            {
-                sensitivity = _cameraInfo->Fov / normalFov;
-            }
-        }
-        amount *= sensitivity;
-        const float prevAim = _aimY;
-        _aimY += amount;
-        _aimY = IsAltForm() ? std::clamp(_aimY, -25.0F, 5.0F) : std::clamp(_aimY, -85.0F, 85.0F);
-        const float diff = DegreesToRadians(_aimY - prevAim);
-        const Matrix4 transform = GetTransformMatrix(_gunVec1, Vector3(0.0F, 1.0F, 0.0F));
-        Vector3 vector;
-        if (diff <= 0.0F)
-        {
-            vector = Vector3(0.0F, std::sin(diff), std::cos(diff));
-        }
-        else
-        {
-            vector = Vector3(0.0F, -std::sin(-diff), std::cos(-diff));
-        }
-        _gunVec1 = Matrix::Vec3MultMtx3(vector, transform).Normalized();
-        _aimPosition = Add(_cameraInfo->Position, Multiply(_gunVec1, Fixed::ToFloat(_values.AimDistance)));
-        UpdateAimFacing();
-    }
-
-    void PlayerEntity::UpdateAimX(float amount)
-    {
-        if (_controls.InvertAimX())
-        {
-            amount *= -1.0F;
-        }
-        float sensitivity = 1.0F;
-        if (_equipInfo->Zoomed)
-        {
-            const float normalFov = Fixed::ToFloat(_values.NormalFov) * 2.0F;
-            if (normalFov != 0.0F)
-            {
-                sensitivity = _cameraInfo->Fov / normalFov;
-            }
-        }
-        amount *= sensitivity;
-        const float angle = DegreesToRadians(amount);
-        float sinValue;
-        float cosValue;
-        if (amount <= 0.0F)
-        {
-            sinValue = std::sin(angle);
-            cosValue = std::cos(angle);
-        }
-        else
-        {
-            sinValue = -std::sin(-angle);
-            cosValue = std::cos(-angle);
-        }
-        const float x = _gunVec1.X;
-        const float z = _gunVec1.Z;
-        _gunVec1.X = x * cosValue + z * sinValue;
-        _gunVec1.Z = x * -sinValue + z * cosValue;
-        _gunVec1 = _gunVec1.Normalized();
-        _aimPosition = Add(_cameraInfo->Position, Multiply(_gunVec1, Fixed::ToFloat(_values.AimDistance)));
-        if (_equipInfo->Zoomed)
-        {
-            _facingVector = _gunVec1;
-        }
-        else
-        {
-            UpdateAimFacing();
-        }
-    }
-
     void PlayerEntity::UpdateHudShiftY(float amount)
     {
         if (IsMainPlayer())
@@ -860,33 +781,12 @@ namespace MphRead::Entities
                 flags |= AnimFlags::NoLoop;
                 SetBiped2Flags(flags);
             }
+            PrepareAimInput();
             ApplyModAim();
-            if (_controls.MouseAim() && !TestFlag(_flags1, PlayerFlags1::NoAimInput) && !_isBot)
+            ApplyLocalAim(false);
+            if (_aimFrame.Owner == Mods::Input::AimOwner::Local)
             {
-                float aimY = -_input.MouseDeltaY() / 4.0F * Mods::InputSettings::MouseSensitivity()
-                    * (Mods::InputSettings::InvertMouseY() ? -1.0F : 1.0F);
-                float aimX = -_input.MouseDeltaX() / 4.0F * Mods::InputSettings::MouseSensitivity()
-                    * (Mods::InputSettings::InvertMouseX() ? -1.0F : 1.0F);
-                if ((Formats::CameraSequence::Current() != nullptr
-                        && TestFlag(Formats::CameraSequence::Current()->Flags(), Formats::CamSeqFlags::BlockInput))
-                    || RequireReference(_scene).FrameAdvance() || RequireReference(_scene).FrameAdvanceLastFrame())
-                {
-                    aimX = aimY = 0.0F;
-                }
-                if (_controls.KeyboardAim()
-                    && (_controls.AimLeft().IsDown() || _controls.AimRight().IsDown()
-                        || _controls.AimUp().IsDown() || _controls.AimDown().IsDown()))
-                {
-                    aimX = aimY = 0.0F;
-                }
-                if (aimX != 0.0F || aimY != 0.0F)
-                {
-                    _input.HasInput = true;
-                }
-                UpdateHudShiftY(aimY);
-                UpdateHudShiftX(aimX);
-                UpdateAimY(aimY);
-                UpdateAimX(aimX);
+                const float aimX = _aimFrame.Yaw;
                 if (TestFlag(_flags1, PlayerFlags1::Grounded))
                 {
                     if (aimX > 3.0F)
@@ -922,7 +822,7 @@ namespace MphRead::Entities
                     }
                 }
             }
-            if (_controls.KeyboardAim() || _isBot)
+            if (_aimFrame.Source == Mods::Input::AimSource::Dual && _isBot)
             {
                 UpdateAimX(_buttonAimX);
                 UpdateAimY(_buttonAimY);
@@ -1407,9 +1307,16 @@ namespace MphRead::Entities
         }
         static_cast<void>(Mods::Network::NetShotDiagnostics::Finish(*this, Mods::Network::ShotAttemptResult::Spawned,
             shotVec, _gunVec1));
+        if (_aimTrace.Enabled)
+        {
+            _aimTrace.Count(Mods::Input::AimOperation::Shot);
+            _aimTrace.LastShot = shotVec;
+            _aimTrace.LastMuzzle = shotOrigin;
+            _aimTrace.LastTarget = _aimPosition;
+        }
         ModControllerFeedback(EquipWeapon().MinCharge > 0 && _equipInfo->ChargeLevel >= EquipWeapon().MinCharge * 2
             ? Mods::Input::GamepadFeedback::ChargedShot : Mods::Input::GamepadFeedback::Fire);
-        _timeSinceShot = 0;
+        SetTimeSinceShot(0);
         if (IsMainPlayer())
         {
             HudOnFiredShot();
@@ -1599,33 +1506,14 @@ namespace MphRead::Entities
 
             if (_values.AltFormStrafe != 0)
             {
+                PrepareAimInput();
                 ApplyModAim();
-                if (_controls.MouseAim() && !TestFlag(_flags1, PlayerFlags1::NoAimInput) && !_isBot)
+                ApplyLocalAim(true);
+                if (_aimFrame.Owner == Mods::Input::AimOwner::Local)
+                    updateAnimation(_aimFrame.Yaw, _aimFrame.Pitch);
+                if (_aimFrame.Source == Mods::Input::AimSource::Dual && _isBot)
                 {
-                    float aimY = -_input.MouseDeltaY() / 4.0F * Mods::InputSettings::MouseSensitivity()
-                        * (Mods::InputSettings::InvertMouseY() ? -1.0F : 1.0F);
-                    float aimX = -_input.MouseDeltaX() / 4.0F * Mods::InputSettings::MouseSensitivity()
-                        * (Mods::InputSettings::InvertMouseX() ? -1.0F : 1.0F);
-                    if ((Formats::CameraSequence::Current() != nullptr
-                            && TestFlag(Formats::CameraSequence::Current()->Flags(), Formats::CamSeqFlags::BlockInput))
-                        || RequireReference(_scene).FrameAdvance() || RequireReference(_scene).FrameAdvanceLastFrame())
-                    {
-                        aimX = aimY = 0.0F;
-                    }
-                    if (aimX != 0.0F || aimY != 0.0F)
-                    {
-                        _input.HasInput = true;
-                    }
-                    UpdateHudShiftY(aimY);
-                    UpdateHudShiftX(aimX);
-                    UpdateAimY(aimY);
-                    UpdateAimX(aimX);
-                    updateAnimation(aimX, aimY);
-                }
-                if (_controls.KeyboardAim() || _isBot)
-                {
-                    UpdateAimX(_buttonAimX);
-                    UpdateAimY(_buttonAimY);
+                    UpdateAimX(_buttonAimX); UpdateAimY(_buttonAimY);
                     updateAnimation(_buttonAimX, _buttonAimY);
                 }
                 if (!TestFlag(_flags2, PlayerFlags2::BipedLock)
@@ -1806,13 +1694,14 @@ namespace MphRead::Entities
                         _soundSource.PlaySfx(SfxId::TRACE_ALT_ATTACK);
                     }
                 }
-                if (TestFlag(_abilities, AbilityFlags::WeavelAltAttack))
+                if (TestFlag(_abilities, AbilityFlags::WeavelAltAttack)
+                    && Mods::Gameplay::NativeGameplayClock::IsNativeTick(RequireReference(_scene).FrameCount()))
                 {
                     if (TestFlag(_flags2, PlayerFlags2::AltAttack) || _altAttackCooldown > 0)
                     {
                         if (TestFlag(_flags1, PlayerFlags1::Standing)) EndAltAttack();
                     }
-                    else if (_controls.AltAttack().IsPressed())
+                    else if (_weavelNativeAttackPress)
                     {
                         _flags2 |= PlayerFlags2::AltAttack;
                         float attackHSpeed = Fixed::ToFloat(_values.LungeHSpeed);
@@ -1820,8 +1709,8 @@ namespace MphRead::Entities
                         if (_isBot && GameState::SinglePlayer()
                             && ManagedAt(GameState::EncounterState(), _slotIndex) == 1)
                         {
-                            attackHSpeed = 0.3F;
-                            attackVSpeed = 0.45F;
+                            attackHSpeed = Fixed::ToFloat(1228);
+                            attackVSpeed = Fixed::ToFloat(1843);
                         }
                         if (_field70 * _speed.X + _field74 * _speed.Z < attackHSpeed)
                         {
@@ -2004,11 +1893,12 @@ namespace MphRead::Entities
                 if (_isBot && GameState::SinglePlayer()
                     && ManagedAt(GameState::EncounterState(), _slotIndex) == 1)
                 {
-                    _altAttackCooldown = 20;
+                    _altAttackCooldown = _hunter == Hunter::Weavel ? 10 : 20;
                 }
                 else
                 {
-                    _altAttackCooldown = static_cast<std::uint16_t>(_values.AltAttackCooldown * 2);
+                    _altAttackCooldown = static_cast<std::uint16_t>(
+                        _values.AltAttackCooldown * (_hunter == Hunter::Weavel ? 1 : 2));
                 }
             }
         }
@@ -2102,9 +1992,10 @@ namespace MphRead::Entities
             _field80 = _field70;
             _field84 = _field74;
         }
-        _aimPosition = Add(Multiply(_gunVec1, Fixed::ToFloat(_values.AimDistance)), _cameraInfo->Position);
-        hMag = std::sqrt(_gunVec1.X * _gunVec1.X + _gunVec1.Z * _gunVec1.Z);
-        _aimY = RadiansToDegrees(std::atan2(_gunVec1.Y, hMag));
+        if (_aimFrame.Exact) ProjectAimTarget(); else MaintainNonExactAimTarget();
+        const auto pitchVector = _aimFrame.Exact ? _gunVec1 : _facingVector;
+        hMag = std::sqrt(pitchVector.X * pitchVector.X + pitchVector.Z * pitchVector.Z);
+        _aimY = RadiansToDegrees(std::atan2(pitchVector.Y, hMag));
         if (_aimY > 75.0F || _aimY < -75.0F)
         {
             UpdateAimY(0.0F);
@@ -2423,6 +2314,9 @@ namespace MphRead::Entities
             if (noPlayerInput)
             {
                 player._input.Suspend();
+                player._nativeDual = {};
+                player._aimFrame = {};
+                player._buttonAimX = player._buttonAimY = 0;
                 for (const std::shared_ptr<Keybind>& control : player._controls.All())
                 {
                     if (control)
@@ -2445,7 +2339,10 @@ namespace MphRead::Entities
             _isScrollingUp = false;
             _isScrollingDown = false;
             const float curScrollY = mouseSnap.Scroll.Y;
-            const float prevScrollY = prevMouseSnap.has_value() ? prevMouseSnap->Scroll.Y : 0.0F;
+            // Scroll is a running total. With no previous snapshot (a new match, a
+            // respawn or a menu suspended input) there is no step to compare: the
+            // whole total read as one notch and cycled the weapon on the first frame.
+            const float prevScrollY = prevMouseSnap.has_value() ? prevMouseSnap->Scroll.Y : curScrollY;
             if (curScrollY > prevScrollY)
             {
                 _isScrollingUp = true;

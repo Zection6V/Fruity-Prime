@@ -4,12 +4,10 @@
 #include "AimAssistDebug.hpp"
 #include "AimAssistMath.hpp"
 #include "AimAssistTelemetry.hpp"
-#include "../AimInputSourceTracker.hpp"
 #include "../GamepadAnalog.hpp"
 #include "../GamepadInput.hpp"
 #include "../GamepadOptions.hpp"
 #include "../GamepadUiRouter.hpp"
-#include "../PointerDevice.hpp"
 #include "../../SpectatorMode.hpp"
 #include "../../../Entities/Players/PlayerEntity.hpp"
 #include "../../../Formats/CollisionDetection.hpp"
@@ -61,22 +59,18 @@ namespace MphRead::Entities
         const std::int64_t context = Input::GamepadContexts::Revision();
         const void* room = ::MphRead::NativeRuntime::RequireReference(_scene).Room().get();
         if (_assistDeviceRevision != snapshot.Revision || _assistContextRevision != context
-            || _aimSourceRevision != Input::AimInputSourceTracker::Revision() || _assistRoom != room)
+            || _aimSourceRevision != static_cast<std::int64_t>(_aimFrame.Source) || _assistRoom != room)
         {
             _controllerAssist.Reset();
             _assistDeviceRevision = snapshot.Revision;
             _assistContextRevision = context;
         }
-        _aimSourceRevision = Input::AimInputSourceTracker::Revision();
+        _aimSourceRevision = static_cast<std::int64_t>(_aimFrame.Source);
         _assistRoom = room;
-        Input::AimInputSourceTracker::Pointer(_input.MouseDeltaX(), _input.MouseDeltaY(),
-            Input::PointerDevice::Active() && Input::PointerDevice::Current().Device != Input::PointerDeviceType::Mouse,
-            ::MphRead::NativeRuntime::EnvironmentTickCount64());
         const auto aim = Input::GamepadInput::AimStick();
-        Input::AimInputSourceTracker::Stick(aim.first, aim.second, ::MphRead::NativeRuntime::EnvironmentTickCount64());
         const bool eligible = snapshot.State.Connected && Input::GamepadContexts::Focused() && !Input::GamepadContexts::MenuVisible()
             && Input::GamepadContexts::Current() == Input::GamepadContext::Gameplay && !Input::GamepadInput::WheelHeld()
-            && Input::AimInputSourceTracker::Current() == Input::AimInputSource::Gamepad && _health > 0
+            && _aimFrame.Owner == Input::AimOwner::Local && _aimFrame.Source == Input::AimSource::Gamepad && _health > 0
             && TestFlag(_loadFlags, LoadFlags::Spawned) && !IsAltForm() && !Mods::SpectatorMode::IsSpectating();
         AimAssistWeaponClass weapon = AimAssistWeaponClass::Standard;
         switch (_currentWeapon)

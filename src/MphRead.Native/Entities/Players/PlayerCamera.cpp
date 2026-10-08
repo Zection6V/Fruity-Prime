@@ -756,85 +756,14 @@ namespace MphRead::Entities
 
             float aimY = 0.0F;
             float aimX = 0.0F;
-            if (Controls().MouseAim() && !IsBot())
+            // A pointer always steers the free camera directly at the
+            // simulation rate; only classic key aim keeps the Dual curve.
+            if (Controls().NativeAim() && !(Controls().NativeControl().Flags & 2U))
             {
-                if (!Controls().KeyboardAim()
-                    || (!Controls().AimUp().IsDown() && !Controls().AimDown().IsDown()))
-                {
-                    aimY = -_input.MouseDeltaY() / 4.0F
-                        * Mods::InputSettings::MouseSensitivity();
-                }
-                if (!Controls().KeyboardAim()
-                    || (!Controls().AimLeft().IsDown() && !Controls().AimRight().IsDown()))
-                {
-                    aimX = -_input.MouseDeltaX() / 4.0F
-                        * Mods::InputSettings::MouseSensitivity();
-                }
+                ApplyNativeFreeCamera(camera);
+                ReadFreeCameraPointer(aimX, aimY);
             }
-
-            if (Controls().KeyboardAim() || IsBot())
-            {
-                const float maxAimX = _maxButtonAimX * 30.0F;
-                const float aimStepX = maxAimX * (40.0F / 4096.0F);
-                const float maxAimY = _maxButtonAimY * 30.0F;
-                const float aimStepY = maxAimY * (40.0F / 4096.0F);
-
-                if (Controls().AimRight().IsDown())
-                {
-                    std::tie(_buttonAimX, aimX) = ConstantAcceleration(
-                        -aimStepX, _buttonAimX, -maxAimX, -maxAimX * 0.4F);
-                }
-                else if (Controls().AimLeft().IsDown())
-                {
-                    std::tie(_buttonAimX, aimX) = ConstantAcceleration(
-                        aimStepX, _buttonAimX, maxAimY * 0.4F, maxAimX);
-                }
-                else if (_buttonAimX != 0.0F)
-                {
-                    if ((_buttonAimX > 0.0F && _buttonAimX < 1.0F / 4096.0F)
-                        || (_buttonAimX < 0.0F && _buttonAimX > -1.0F / 4096.0F))
-                    {
-                        _buttonAimX = 0.0F;
-                    }
-                    else
-                    {
-                        float updateAimX;
-                        std::tie(_buttonAimX, updateAimX) = Drag(0.4F, _buttonAimX);
-                        if (aimX == 0.0F)
-                        {
-                            aimX = updateAimX;
-                        }
-                    }
-                }
-
-                if (Controls().AimUp().IsDown())
-                {
-                    std::tie(_buttonAimY, aimY) = ConstantAcceleration(
-                        aimStepY, _buttonAimY, maxAimY * 0.4F, maxAimY);
-                }
-                else if (Controls().AimDown().IsDown())
-                {
-                    std::tie(_buttonAimY, aimY) = ConstantAcceleration(
-                        -aimStepY, _buttonAimY, -maxAimY, -maxAimY * 0.4F);
-                }
-                else if (_buttonAimY != 0.0F)
-                {
-                    if ((_buttonAimY > 0.0F && _buttonAimY < 1.0F / 4096.0F)
-                        || (_buttonAimY < 0.0F && _buttonAimY > -1.0F / 4096.0F))
-                    {
-                        _buttonAimY = 0.0F;
-                    }
-                    else
-                    {
-                        float updateAimY;
-                        std::tie(_buttonAimY, updateAimY) = Drag(0.4F, _buttonAimY);
-                        if (aimY == 0.0F)
-                        {
-                            aimY = updateAimY;
-                        }
-                    }
-                }
-            }
+            else ReadDirectFreeCameraAim(aimX, aimY);
 
             if (Controls().InvertAimY())
             {

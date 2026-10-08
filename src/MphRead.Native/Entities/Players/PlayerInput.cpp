@@ -2333,7 +2333,10 @@ namespace MphRead::Entities
             _isScrollingUp = false;
             _isScrollingDown = false;
             const float curScrollY = mouseSnap.Scroll.Y;
-            const float prevScrollY = prevMouseSnap.has_value() ? prevMouseSnap->Scroll.Y : 0.0F;
+            // Scroll is a running total. With no previous snapshot (a new match, a
+            // respawn or a menu suspended input) there is no step to compare: the
+            // whole total read as one notch and cycled the weapon on the first frame.
+            const float prevScrollY = prevMouseSnap.has_value() ? prevMouseSnap->Scroll.Y : curScrollY;
             if (curScrollY > prevScrollY)
             {
                 _isScrollingUp = true;

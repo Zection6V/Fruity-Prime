@@ -224,6 +224,21 @@ namespace MphRead::Mods::Diagnostics
                 player.SwitchCamera(Entities::CameraType::First, player._facingVector);
             }
             {
+                // The wheel is a running total: a respawn or a new match (no
+                // previous snapshot) must not read the whole total as a notch.
+                reset();
+                mouse.Scroll = OpenTK::Mathematics::Vector2(0, 7);
+                Entities::PlayerEntity::ProcessInput(keyboard, mouse, false);
+                player.ModForgetInputDeltas();
+                Entities::PlayerEntity::ProcessInput(keyboard, mouse, false);
+                const bool phantom = Entities::PlayerEntity::_isScrollingUp || Entities::PlayerEntity::_isScrollingDown;
+                mouse.Scroll = OpenTK::Mathematics::Vector2(0, 8);
+                Entities::PlayerEntity::ProcessInput(keyboard, mouse, false);
+                check(!phantom && Entities::PlayerEntity::_isScrollingUp,
+                    "no phantom wheel notch after input is reset; a real notch still reads");
+                mouse.Scroll = {};
+            }
+            {
                 // Audit A5: pad only (no mouse or key aim), stick centred.
                 reset(); player.Controls().SetMouseAim(false); player.Controls().SetKeyboardAim(false);
                 player._facingVector = Vector3(0.1F, 0, 1).Normalized();

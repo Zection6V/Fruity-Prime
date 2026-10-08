@@ -1380,7 +1380,7 @@ namespace MphRead::Entities
         }
     }
 
-    bool PlayerEntity::TryEquipWeapon(MphRead::BeamType beam, bool silent, bool debug)
+    bool PlayerEntity::TryEquipWeapon(MphRead::BeamType beam, bool silent, bool debug, std::source_location caller)
     {
         const std::int32_t index = static_cast<std::int32_t>(beam);
         if (index < 0 || index >= 9)
@@ -1425,7 +1425,10 @@ namespace MphRead::Entities
                 + (_controls.Shoot().IsReleased() ? "r" : "-")
                 + " missileKey=" + (_controls.Missile().IsPressed() ? "p" : "-")
                 + " menu=" + (_controls.WeaponMenu().IsDown() ? "d" : "-")
-                + " selection=" + std::to_string(static_cast<int>(_weaponSelection)));
+                + " selection=" + std::to_string(static_cast<int>(_weaponSelection))
+                + " from=" + std::string(std::string_view(caller.file_name()).substr(
+                    std::string_view(caller.file_name()).find_last_of("/\\") + 1))
+                + ":" + std::to_string(caller.line()));
         }
         StopBeamChargeSfx(_currentWeapon);
         UpdateZoom(false);

@@ -263,7 +263,7 @@ namespace MphRead::Mods::Diagnostics
                 int spawnedAt = -1;
                 for (int frame = 0; frame < 900; ++frame)
                 {
-                    const bool click = player.Health() == 0 && frame % 40 == 39;
+                    const bool click = (player.Health() == 0 && frame % 40 == 39) || (spawnedAt >= 0 && frame <= spawnedAt + 3);
                     mouse.SetButtonDown(OpenTK::Windowing::GraphicsLibraryFramework::MouseButton::Left, click);
                     Entities::PlayerEntity::ProcessInput(keyboard, mouse, false);
                     const bool wasDead = player.Health() == 0;

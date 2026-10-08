@@ -1,5 +1,7 @@
 #pragma once
 
+#include <source_location>
+
 #define MPHREAD_PLAYER_ENTITY_CANONICAL_HEADER 1
 
 #ifndef MPHREAD_PLAYER_AI_MEMBERS
@@ -828,7 +830,9 @@ namespace MphRead::Entities
         void ResetMorphBallTrail();
         void UpdateMorphBallTrail();
         void InitializeWeapon();
-        [[nodiscard]] bool TryEquipWeapon(MphRead::BeamType beam, bool silent = false, bool debug = false);
+        // caller: only the -debuglog [weapon] line reads it.
+        [[nodiscard]] bool TryEquipWeapon(MphRead::BeamType beam, bool silent = false, bool debug = false,
+            std::source_location caller = std::source_location::current());
         void ShowNoAmmoMessage();
         void UpdateAffinityWeaponSlot(MphRead::BeamType beam, std::int32_t slot = 2);
         void UnequipOmegaCannon();

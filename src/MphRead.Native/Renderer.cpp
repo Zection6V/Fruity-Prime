@@ -1795,15 +1795,16 @@ namespace MphRead
                 spectator.ApplyView();
                 Mods::SpectatorMode::NoteScoreboard(
                     _keyboardState->IsKeyDown(RendererPlatform::Key::Tab) || spectator.Scoreboard());
-                if (_freeCam)
-                {
-                    _cameraPosition = _cameraPosition
-                        + Multiply(_cameraFacing, spectator.MoveY() * 0.15F)
-                        + Multiply(_cameraRight, spectator.MoveX() * 0.15F);
-                    _cameraPosition.Y += (spectator.Ascend() - spectator.Descend()) * 0.15F;
-                    UpdateCameraRotation(DegreesToRadians(spectator.LookX()),
-                        DegreesToRadians(spectator.LookY()));
-                }
+                // Rates per 60 Hz step; MoveRoamCamera applies them per drawn frame.
+                _roamPadMoveX = _freeCam ? spectator.MoveX() : 0.0F;
+                _roamPadMoveY = _freeCam ? spectator.MoveY() : 0.0F;
+                _roamPadRise = _freeCam ? spectator.Ascend() - spectator.Descend() : 0.0F;
+                _roamPadLookX = _freeCam ? spectator.LookX() : 0.0F;
+                _roamPadLookY = _freeCam ? spectator.LookY() : 0.0F;
+            }
+            else
+            {
+                _roamPadMoveX = _roamPadMoveY = _roamPadRise = _roamPadLookX = _roamPadLookY = 0.0F;
             }
             Mods::EndScreen::PollGamepad();
             const bool noPlayerInput = _inputMode == InputMode::CameraOnly
@@ -1818,6 +1819,7 @@ namespace MphRead
             if (_room) _room->UpdateTransition();
         }
         OnKeyHeld();
+        MoveRoamCamera();
         if (ProcessFrame() && _room)
         {
             GameState::ProcessFrame(this);
@@ -4933,6 +4935,12 @@ namespace MphRead
                 _pivotAngleY += moveX / 1.5F;
                 _pivotAngleY = std::fmod(_pivotAngleY, 360.0F);
             }
+            else if (_cameraMode == MphRead::CameraMode::Roam && _freeCam)
+            {
+                // Applied on the next simulation step (MoveRoamCamera).
+                _roamMouseX += moveX;
+                _roamMouseY += moveY;
+            }
             else if (_cameraMode == MphRead::CameraMode::Roam)
             {
                 UpdateCameraRotation(DegreesToRadians(moveX / 1.5F), DegreesToRadians(-moveY / 1.5F));
@@ -4976,30 +4984,7 @@ namespace MphRead
         {
             return;
         }
-        if (_cameraMode == MphRead::CameraMode::Roam)
-        {
-            const bool shift = _keyboardState->IsKeyDown(Key::LeftShift) || _keyboardState->IsKeyDown(RendererPlatform::RightShiftKey);
-            const float moveStep = shift ? 0.5F : 0.1F;
-            const float rotStep = DegreesToRadians(shift ? 3.0F : 1.5F);
-            if (_keyboardState->IsKeyDown(Key::W)) _cameraPosition = _cameraPosition + Vector3(_cameraFacing.X * moveStep, _cameraFacing.Y * moveStep, _cameraFacing.Z * moveStep);
-            else if (_keyboardState->IsKeyDown(Key::S)) _cameraPosition = _cameraPosition - Vector3(_cameraFacing.X * moveStep, _cameraFacing.Y * moveStep, _cameraFacing.Z * moveStep);
-            if (_keyboardState->IsKeyDown(Key::Space)) _cameraPosition.Y += moveStep;
-            else if (_keyboardState->IsKeyDown(Key::V)) _cameraPosition.Y -= moveStep;
-            if (_keyboardState->IsKeyDown(Key::A)) _cameraPosition = _cameraPosition - Vector3(_cameraRight.X * moveStep, _cameraRight.Y * moveStep, _cameraRight.Z * moveStep);
-            else if (_keyboardState->IsKeyDown(Key::D)) _cameraPosition = _cameraPosition + Vector3(_cameraRight.X * moveStep, _cameraRight.Y * moveStep, _cameraRight.Z * moveStep);
-            if (_keyboardState->IsKeyDown(Key::Left) || _keyboardState->IsKeyDown(Key::Right)
-                || _keyboardState->IsKeyDown(Key::Up) || _keyboardState->IsKeyDown(Key::Down))
-            {
-                float stepH = 0.0F;
-                float stepV = 0.0F;
-                if (_keyboardState->IsKeyDown(Key::Left)) stepH = -rotStep;
-                else if (_keyboardState->IsKeyDown(Key::Right)) stepH = rotStep;
-                if (_keyboardState->IsKeyDown(Key::Up)) stepV = rotStep;
-                else if (_keyboardState->IsKeyDown(Key::Down)) stepV = -rotStep;
-                UpdateCameraRotation(stepH, stepV);
-            }
-        }
-        else if (_cameraMode == MphRead::CameraMode::Pivot)
+        if (_cameraMode == MphRead::CameraMode::Pivot)
         {
             const bool shift = _keyboardState->IsKeyDown(Key::LeftShift) || _keyboardState->IsKeyDown(RendererPlatform::RightShiftKey);
             const float rotStep = shift ? -3.0F : -1.5F;
@@ -5024,6 +5009,47 @@ namespace MphRead
                 _pivotAngleY = std::fmod(_pivotAngleY, 360.0F);
             }
         }
+    }
+
+    // The free camera moves once per 60 Hz simulation step, mouse look
+    // included: the world it looks at changes at that rate, and a camera that
+    // slides between steps makes every moving thing in view judder against it.
+    void Scene::MoveRoamCamera()
+    {
+        using RendererPlatform::Key;
+        const float mouseX = _roamMouseX, mouseY = _roamMouseY;
+        _roamMouseX = _roamMouseY = 0.0F;
+        if (_cameraMode != MphRead::CameraMode::Roam || !AllowCameraMovement() || _inputMode == InputMode::PlayerOnly
+            || Mods::PauseMenu::Open() || Mods::Chat::ChatBox::Composing())
+        {
+            return;
+        }
+        constexpr float steps = 1.0F;
+        const bool keys = !(_keyboardState->IsKeyDown(RendererPlatform::LeftAltKey) || _keyboardState->IsKeyDown(RendererPlatform::RightAltKey));
+        const bool shift = keys && (_keyboardState->IsKeyDown(Key::LeftShift) || _keyboardState->IsKeyDown(RendererPlatform::RightShiftKey));
+        // The death camera's speed (PlayerEntity::UpdateCameraFree: 0.4 / 2 a step).
+        constexpr float DeathCameraStep = 0.4F / 2.0F;
+        const float moveStep = (shift ? DeathCameraStep * 5.0F : DeathCameraStep) * steps;
+        const float rotStep = DegreesToRadians(shift ? 3.0F : 1.5F) * steps;
+        float forward = _roamPadMoveY * DeathCameraStep * steps, right = _roamPadMoveX * DeathCameraStep * steps, rise = _roamPadRise * DeathCameraStep * steps;
+        float stepH = DegreesToRadians(_roamPadLookX + mouseX / 1.5F) * steps;
+        float stepV = DegreesToRadians(_roamPadLookY - mouseY / 1.5F) * steps;
+        if (keys)
+        {
+            if (_keyboardState->IsKeyDown(Key::W)) forward += moveStep;
+            else if (_keyboardState->IsKeyDown(Key::S)) forward -= moveStep;
+            if (_keyboardState->IsKeyDown(Key::Space)) rise += moveStep;
+            else if (_keyboardState->IsKeyDown(Key::V)) rise -= moveStep;
+            if (_keyboardState->IsKeyDown(Key::A)) right -= moveStep;
+            else if (_keyboardState->IsKeyDown(Key::D)) right += moveStep;
+            if (_keyboardState->IsKeyDown(Key::Left)) stepH -= rotStep;
+            else if (_keyboardState->IsKeyDown(Key::Right)) stepH += rotStep;
+            if (_keyboardState->IsKeyDown(Key::Up)) stepV += rotStep;
+            else if (_keyboardState->IsKeyDown(Key::Down)) stepV -= rotStep;
+        }
+        _cameraPosition = _cameraPosition + Multiply(_cameraFacing, forward) + Multiply(_cameraRight, right);
+        _cameraPosition.Y += rise;
+        if (stepH != 0.0F || stepV != 0.0F) UpdateCameraRotation(stepH, stepV);
     }
 
     void Scene::UpdatePointModule()

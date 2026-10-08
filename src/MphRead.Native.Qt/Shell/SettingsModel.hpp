@@ -11,6 +11,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace MphRead
 {
@@ -130,6 +131,7 @@ namespace MphRead::Qt
         bool _saved = false;
         QString _error;
         RowModel _display;
+        std::vector<std::int32_t> _fpsLimitCaps;
         RowModel _audio;
         RowModel _keyboard;
         RowModel _gamepad;

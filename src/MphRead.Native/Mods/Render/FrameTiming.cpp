@@ -129,7 +129,7 @@ namespace MphRead::Mods::Render
     void FrameTiming::SetFrameRateCap(std::int32_t value) noexcept
     {
         _frameRateCap = value == Unlimited ? Unlimited
-            : value <= 0 ? DisplayRate : std::clamp(value, MinCap, MaxCap);
+            : value <= 0 ? DisplayRate : std::max(value, MinCap);
     }
 
     bool FrameTiming::Active() noexcept
@@ -321,7 +321,7 @@ namespace MphRead::Mods::Render
         if (Int32TryParseCurrentCulture(trimmed, parsed))
         {
             return parsed == Unlimited ? Unlimited
-                : parsed <= 0 ? DisplayRate : std::clamp(parsed, MinCap, MaxCap);
+                : parsed <= 0 ? DisplayRate : std::max(parsed, MinCap);
         }
         return fallback;
     }
@@ -333,7 +333,7 @@ namespace MphRead::Mods::Render
         // explicit CLI 500 cap available, but migrate that persisted choice.
         std::int32_t legacyCap = 0;
         if (value && Int32TryParseCurrentCulture(TrimLikeDotNet(*value), legacyCap)
-            && legacyCap == MaxCap)
+            && legacyCap == 500)
         {
             return Unlimited;
         }

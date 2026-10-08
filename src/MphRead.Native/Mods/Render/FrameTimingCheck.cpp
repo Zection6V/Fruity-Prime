@@ -106,8 +106,14 @@ namespace MphRead::Mods::Render
         bool capsOk = FrameTiming::FrameRateCap() == FrameTiming::Unlimited;
         for (const auto* alias : {"unlimited", "UNCAPPED", " -1 "})
             capsOk &= FrameTiming::ParseCap(std::string(alias), 144) == FrameTiming::Unlimited;
-        for (const auto cap : {FrameTiming::Unlimited, FrameTiming::DisplayRate, 144, 500})
+        for (const auto cap : {FrameTiming::Unlimited, FrameTiming::DisplayRate, 144, 500, 540, 1000, 10000})
+        {
             capsOk &= FrameTiming::ParseCap(FrameTiming::CapString(cap), 60) == cap;
+            FrameTiming::SetFrameRateCap(cap);
+            capsOk &= FrameTiming::FrameRateCap() == cap;
+        }
+        capsOk &= FrameTiming::ParseSavedCap(std::string("540"), 144) == 540;
+        capsOk &= FrameTiming::ParseSavedCap(std::string("1000"), 144) == 1000;
         capsOk &= FrameTiming::ParseSavedCap(std::string("500"), 144) == FrameTiming::Unlimited;
         capsOk &= FrameTiming::ParseSavedCap(std::string("240"), 144) == 240;
         capsOk &= FrameTiming::ParseSavedCap(std::string("invalid"), 500) == 500;

@@ -90,7 +90,7 @@ namespace MphRead::Mods::Network
             Entities::PlayerControls& controls,
             bool morphing);
         static void AltAttackOrShoot(
-            Entities::PlayerControls& controls,
+            Entities::PlayerEntity& player,
             bool attacking,
             bool onTarget);
         static void Clear(Entities::PlayerControls& controls);

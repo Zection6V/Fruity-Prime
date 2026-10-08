@@ -55,6 +55,11 @@ namespace MphRead::Mods
         [[nodiscard]] static bool InvertMouseX() noexcept;
         static void InvertMouseX(bool value) noexcept;
 
+        // Classic = the DS's own aim (touch producer and Dual keys on the
+        // DS's 30 Hz gameplay tick). Modern = every source each 60 Hz step.
+        [[nodiscard]] static bool ClassicAim();
+        static void ClassicAim(bool value);
+
         [[nodiscard]] static bool ScrollAllWeapons() noexcept;
         static void ScrollAllWeapons(bool value) noexcept;
 

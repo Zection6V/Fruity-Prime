@@ -9,6 +9,7 @@
 #include "PadBindings.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Entities/Players/PlayerInput.hpp"
+#include "../../NativeRuntime/System/Runtime.hpp"
 
 namespace MphRead::Mods::Input
 {
@@ -108,6 +109,7 @@ namespace MphRead::Mods::Input
             return;
         }
         const auto [x, y] = AimStick();
+        AimInputSourceTracker::Stick(x, y, ::MphRead::NativeRuntime::EnvironmentTickCount64());
         _aimDeltaX = -GamepadAnalog::ApplyResponseCurve(x, GamepadOptions::Curve()) * TurnRate * GamepadOptions::LookX()
             * (GamepadOptions::InvertX() ? -1 : 1);
         _aimDeltaY = GamepadAnalog::ApplyResponseCurve(y, GamepadOptions::Curve()) * TurnRate * GamepadOptions::LookY()

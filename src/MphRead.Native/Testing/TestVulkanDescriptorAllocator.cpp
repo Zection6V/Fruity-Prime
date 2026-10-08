@@ -122,7 +122,9 @@ namespace
             wide.entries.push_back({type, static_cast<BindingType>(type), ShaderStage::Fragment, 7});
         allocator.Allocate(Layout, wide);
         const auto& page = driver.Pages.begin()->second;
-        Expect(page.Counts.size() == 5, "Descriptor types not admitted.");
+        // Uniform bindings also reserve a dynamic-uniform pool entry.
+        Expect(page.Counts.size() == 6 && page.Counts.contains(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC),
+            "Descriptor types not admitted.");
         for (const auto& [type, count] : page.Counts) Expect(count == 7, "Page did not admit whole large layout.");
         auto overflow = Need(BindingType::Sampler, UINT32_MAX);
         overflow.entries.push_back({1, BindingType::Sampler, ShaderStage::Fragment, 1});

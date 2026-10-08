@@ -1,5 +1,7 @@
 #pragma once
 
+#include <source_location>
+
 #define MPHREAD_PLAYER_ENTITY_CANONICAL_HEADER 1
 
 #ifndef MPHREAD_PLAYER_AI_MEMBERS
@@ -54,6 +56,7 @@ private: \
 #include <utility>
 
 namespace MphRead::Mods::Diagnostics { class WeavelAltFormCheck; }
+namespace MphRead::Mods::Diagnostics { class AimCheck; }
 
 namespace MphRead
 {
@@ -599,6 +602,7 @@ namespace MphRead::Entities
     {
         // NetCombatCheck reads private state the way the C# reads it by reflection.
         friend class ::MphRead::Mods::Diagnostics::WeavelAltFormCheck;
+        friend class ::MphRead::Mods::Diagnostics::AimCheck;
         friend class HalfturretEntity;
         friend class ::MphRead::Mods::Network::NetCombatCheck;
         friend class ::MphRead::Mods::Network::DialancheCombatCheck;
@@ -826,7 +830,9 @@ namespace MphRead::Entities
         void ResetMorphBallTrail();
         void UpdateMorphBallTrail();
         void InitializeWeapon();
-        [[nodiscard]] bool TryEquipWeapon(MphRead::BeamType beam, bool silent = false, bool debug = false);
+        // caller: only the -debuglog [weapon] line reads it.
+        [[nodiscard]] bool TryEquipWeapon(MphRead::BeamType beam, bool silent = false, bool debug = false,
+            std::source_location caller = std::source_location::current());
         void ShowNoAmmoMessage();
         void UpdateAffinityWeaponSlot(MphRead::BeamType beam, std::int32_t slot = 2);
         void UnequipOmegaCannon();

@@ -6,8 +6,35 @@
 
 ## 完了判定
 
-Phase 1～8の実装と指示書§32の受入gateを完了。ローカル検証と最終code commitのWindows / Linux / macOS CIが合格した。
+追補監査（対象`c8848e55`）でP1 local snapshot reconciliationの不足を確認したため、追補の受入完了まではCLOSEDとしない。
+P1の修正・追加production checks・修正code commitのWindows / Linux / macOS CIを今回の完了gateとする。
+P2の落下物理・sphere sweep半径はユーザーが「近似でもいい」と明示了承したため、`_ySpeed -= 0.02F` / `0.45F`と既存の近似値テストを維持する。ROM raw演算との完全一致は主張しない。
 ユーザー指定によりC# mirrorは対象外。
+
+## 2026-10-08 追補監査への対応
+
+入力資料: `Fruity-Prime-develop6-Weavel-AltForm-Implementation-Audit-EU1_1.md`、`Fruity-Prime-develop6-Weavel-AltForm-Followup-Fix-Instructions-EU1_1.md`、更新された`0211013C-weavel-halfturret-process-target-fire-EU1_1.md`。
+
+| 追補要件 | 対応 / 受入証拠 |
+|---|---|
+| P1 local ownership policy | `NetPlayerBridge::ApplyState`のWeavel reconciliationを`!isLocal`に限定。localの`LocalHealthFor`、player divergence correction、freeze / affliction処理は従来経路を維持 |
+| local morph + stale Biped | `WeavelLocalSnapshotCheck.cpp`で実EnterAltForm中に古いBiped snapshotを適用。Morphingと生存turretを保つことを検証 |
+| local Alt + live turret + stale inactive | 生存・HP・位置・groundedをsnapshotで上書きしないことを検証 |
+| local Alt + dead turret + stale active | dead turretを再生成しないことを検証 |
+| remote active / dead / Biped | 同じsnapshotをremoteとして適用し、二重HP split / mergeなしの従来reconciliationを検証 |
+| 3 production entry paths | `ApplyState(..., true/false)`直接、非authority clientの実`NetHooks::AfterInput`、実`NetHooks::AfterSimulation`。hookは`StatesApplied`増加も確認し、早期returnによる見かけの成功を除外 |
+| P2 gravity / sweep | ユーザー了承済みの近似。native 30 Hz cadence・reset・着地は既存production checksを維持。raw -81/-162およびraw1843への変更は今回不要 |
+| Adventure enemy extension | 対象外。既存extensionと別検証を維持 |
+| projectile Wi-Fi authority | 静的証拠境界を維持。推測変更なし |
+| local turret HP専用correction API | 追加しない。form intent ackのない現protocolでremote lifecycle APIをlocalへ流用しない |
+| build / asset-backed / desktop CI | MSVC Release build成功。P1追加49 checks、既存Weavel421 checks、Adventure extension29 checks、Lockjaw93 checks、関連CTest4/4、Dialanche28 assertions＋独立UDP peers2件成功。修正code commitのdesktop CIは確認中 |
+
+追補のlocal logs: ignored `tools/build/out/weavel-followup-validation/`、`weavel-followup-dialanche/`。
+再現: `powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-weavel-alt.ps1 -OutputDirectory tools/build/out/weavel-followup-validation`。
+
+補足のliveハーネス`check-dialanche-network.ps1 -SpireSeconds 8 -TargetSeconds 10`は、今回のbinaryでSpireがAltへ入らず`events=0`のため失敗。同じcommandを保存済み`FruityPrime-SrpCheck.exe`（2026-10-07生成、本修正前）で実行しても`events=0`で失敗した。ここはP1成功・regressionなしの証拠に含めない。logs: `weavel-followup-network/`、`weavel-followup-network-baseline/`。一方、上記asset-backed Dialanche28 assertionsと独立UDP peersは今回のbinaryで成功している。
+
+以下のPhase 1～8表とCI記録は**追補前の受入履歴**。local stale snapshotを含む現在の完了判定は上記追補gateを基準にする。
 
 | 要件 | 受入を証明する検証 | 現状 |
 |---|---|---|
@@ -25,7 +52,7 @@ Phase 1～8の実装と指示書§32の受入gateを完了。ローカル検証�
 projectile authorityの推測変更、LoS追加、touch clock流用は行わない。
 手動操作・実機ROM比較、ローカルbuild、asset-backed checks、CIはそれぞれ別の証拠として扱う。
 
-## 最終CIと完了監査
+## 追補前のCIと完了監査（履歴）
 
 検証した最終code commit: [`1686cf5e7619ca57a4a3f6408f82b09c68a370ce`](https://github.com/Zection6V/Fruity-Prime/commit/1686cf5e7619ca57a4a3f6408f82b09c68a370ce)。
 [build_cpp run 37665965149](https://github.com/Zection6V/Fruity-Prime/actions/runs/37665965149)は全15 jobs成功。

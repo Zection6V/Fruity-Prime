@@ -13,6 +13,8 @@ namespace MphRead::Mods::Diagnostics
     public:
         static std::int32_t Run(const std::string& room);
     private:
+        static void CheckLocalSnapshotPrediction(Scene& scene, Entities::PlayerEntity& owner,
+            Entities::HalfturretEntity& turret);
         static void CheckEnemyExtension(Scene& scene, Entities::PlayerEntity& owner,
             Entities::HalfturretEntity& turret);
     };

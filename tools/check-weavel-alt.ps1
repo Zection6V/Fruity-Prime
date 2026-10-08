@@ -19,4 +19,4 @@ if ($assetCheck.ExitCode -ne 0) {
     if ($first -match 'standard error is being written to (.+)$') { Get-Content -LiteralPath $Matches[1] -Tail 8 }
     throw "Weavel asset check exited $($assetCheck.ExitCode)"
 }
-Get-Content -LiteralPath $assetLog | Select-String 'WEAVEL PASS (\d+ production checks|old16 refused)|WEAVEL EXTENSION PASS \d+ checks'
+Get-Content -LiteralPath $assetLog | Select-String 'WEAVEL PASS (\d+ production checks|old16 refused)|WEAVEL (EXTENSION|LOCAL SNAPSHOT) PASS \d+ checks'

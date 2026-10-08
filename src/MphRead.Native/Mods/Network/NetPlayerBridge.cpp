@@ -457,7 +457,9 @@ namespace MphRead::Mods::Network
             }
             player.SetHealth(NetHitPrediction::LocalHealthFor(player, state.Health));
         }
-        if (player.Hunter() == Hunter::Weavel)
+        // Explicit turret reconciliation owns remote replicas. A local owner
+        // predicts form and turret lifecycle; an older snapshot has no form ack.
+        if (player.Hunter() == Hunter::Weavel && !isLocal)
         {
             player.ModApplyWeavelState((state.Flags & PlayerState::FlagAltForm) != 0,
                 (state.WeavelFlags & PlayerState::WeavelFlagTurretActive) != 0, state.HalfturretHealth,

@@ -1,4 +1,6 @@
 #include "../../MphRead.Native/Mods/Diagnostics/LauncherWindowCheck.hpp"
+#include "../../MphRead.Native/Mods/Diagnostics/AimCheck.hpp"
+#include "../../MphRead.Native/Mods/Render/FrameTiming.hpp"
 // Shell on Qt: the same one-window shell the renderer drives (BeforeFrame,
 // TickUi, pointer and key routing), with the menus as a Qt Quick scene (UiHost)
 // instead of the Skia-drawn Avalonia port. The match lifecycle below is the
@@ -321,6 +323,8 @@ namespace MphRead::Mods::Launcher::Gui
                     if (!MphRead::Mods::ScreenCapture::SaveWindow(size.X, size.Y, path))
                         throw std::runtime_error("FPS fixture could not capture its active match.");
                     std::cout << "[fps fixture] captured active match: " << path << '\n';
+                    std::cout << "[fps fixture] " << MphRead::Mods::Render::FrameTiming::Describe() << '\n';
+                    MphRead::Mods::Diagnostics::AimCheck::ReportClock(*main);
                     window.Close();
                 }
                 return;

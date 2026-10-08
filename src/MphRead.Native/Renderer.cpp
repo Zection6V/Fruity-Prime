@@ -1807,7 +1807,8 @@ namespace MphRead
             }
             Mods::EndScreen::PollGamepad();
             const bool noPlayerInput = _inputMode == InputMode::CameraOnly
-                || Mods::PauseMenu::Open() || Mods::Chat::ChatBox::Composing();
+                || Mods::PauseMenu::Open() || Mods::Chat::ChatBox::Composing()
+                || (!Mods::Headless::Active() && !Mods::Input::GamepadContexts::Focused());
             Entities::PlayerEntity::ProcessInput(*_keyboardState, *_mouseState, noPlayerInput);
             if (!noPlayerInput && !Mods::SpectatorMode::IsSpectating())
             {

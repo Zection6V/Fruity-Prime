@@ -2,6 +2,9 @@
 
 #include "MorphBallBoostStateMachine.hpp"
 #include "../../Mods/Input/TouchInputAdapter.hpp"
+#include "../../Mods/Input/AimTrace.hpp"
+#include "../../Mods/Input/AimFrame.hpp"
+#include "../../Mods/Input/NativeDualAim.hpp"
 #include "MorphBallBoostStateMachine.hpp"
 #include "../../Mods/Input/PointerDevice.hpp"
 #include "../../Formats/Enums.hpp"
@@ -173,6 +176,10 @@ namespace MphRead::Entities
             std::shared_ptr<Keybind> adventureMapLegend);
 
         [[nodiscard]] bool MouseAim() const noexcept { return _mouseAim; }
+        [[nodiscard]] bool NativeAim() const noexcept { return _nativeAim; }
+        void SetNativeAim(bool value) noexcept { _nativeAim = value; }
+        [[nodiscard]] ::MphRead::Mods::Input::NativeAim::Control& NativeControl() noexcept { return _nativeControl; }
+        [[nodiscard]] const ::MphRead::Mods::Input::NativeAim::Control& NativeControl() const noexcept { return _nativeControl; }
         void SetMouseAim(bool value) noexcept { _mouseAim = value; }
         [[nodiscard]] bool KeyboardAim() const noexcept { return _keyboardAim; }
         void SetKeyboardAim(bool value) noexcept { _keyboardAim = value; }
@@ -234,6 +241,8 @@ namespace MphRead::Entities
         [[nodiscard]] const Keybind& RequireControl(const std::shared_ptr<Keybind>& control) const;
 
         bool _mouseAim = true;
+        bool _nativeAim = false;
+        ::MphRead::Mods::Input::NativeAim::Control _nativeControl{};
         bool _keyboardAim = true;
         bool _invertAimY = false;
         bool _invertAimX = false;
@@ -295,6 +304,19 @@ private:                                                                        
     [[nodiscard]] bool CanCycleToWeapon(::MphRead::BeamType beam);                            \
     [[nodiscard]] bool EndWeaponMenu();                                                        \
     void UpdateAimFacing();                                                                    \
+    void PrepareAimInput();                                                                    \
+    void ApplyLocalAim(bool alt);                                                              \
+    void ApplyTouchAim();                                                                      \
+    void ApplyDualAim(bool alt);                                                               \
+    void ApplyMouseAim();                                                                      \
+    void ApplyGamepadAim();                                                                    \
+    void ApplyNativeFreeCamera(::MphRead::Entities::CameraInfo& camera);                       \
+    void ReadDirectFreeCameraAim(float& aimX, float& aimY);                                    \
+    void ReadFreeCameraPointer(float& aimX, float& aimY);                                      \
+    void ProjectAimTarget();                                                                   \
+    [[nodiscard]] float AimSensitivity() const;                                                \
+    void RebuildAimBasis();                                                                    \
+    void MaintainNonExactAimTarget();                                                          \
     void UpdateAimY(float amount);                                                             \
     void UpdateAimX(float amount);                                                             \
     void UpdateHudShiftY(float amount);                                                        \
@@ -323,6 +345,11 @@ private:                                                                        
     std::array<float, 8> _pastAimY{};                                                          \
     float _buttonAimX = 0.0F;                                                                  \
     float _buttonAimY = 0.0F;                                                                  \
+    ::MphRead::Mods::Input::AimTrace _aimTrace{};                                               \
+    ::MphRead::Mods::Input::AimFrame _aimFrame{};                                               \
+    ::MphRead::Mods::Input::NativeAim::DualState _nativeDual{};                                 \
+    ::MphRead::Mods::Input::NativeAim::InputSlot _nativeInputSlot{};                            \
+    ::MphRead::Mods::Input::NativeAim::InputSlot _nativeInputShadow{};                          \
     static constexpr float _maxButtonAimX = 8.0F;                                              \
     static constexpr float _maxButtonAimY = 8.0F;                                              \
     class PlayerInput final                                                                    \

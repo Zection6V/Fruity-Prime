@@ -269,9 +269,10 @@ namespace MphRead::Entities
 
     void PlayerEntity::ModForgetInputDeltas()
     {
-        _input.MouseState.reset();
-        _input.PrevMouseState.reset();
-        _input.KeyboardState.reset();
-        _input.PrevKeyboardState.reset();
+        _input.Suspend();
+        _nativeDual = {};
+        _nativeInputShadow.Clear();
+        _aimFrame = {};
+        _buttonAimX = _buttonAimY = 0;
     }
 }

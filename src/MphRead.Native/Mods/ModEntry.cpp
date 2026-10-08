@@ -71,6 +71,7 @@
 #include "Network/NetUnlagged.hpp"
 #include "Network/SpireAltPoseCheck.hpp"
 #include "Diagnostics/WeavelAltFormCheck.hpp"
+#include "Diagnostics/AimCheck.hpp"
 #include "Network/DialancheCombatCheck.hpp"
 #include "Diagnostics/LockjawEnemyCheck.hpp"
 #include "Network/ServerSimCheck.hpp"
@@ -1135,6 +1136,17 @@ namespace MphRead::Mods
         }
 
         InputSettings::Load();
+        if (const auto nativeAim = ValueAfter(args, "nativeaim"); nativeAim.has_value())
+        {
+            const bool touch = *nativeAim == "touch" || *nativeAim == "nonexact-touch";
+            const bool dual = *nativeAim == "dual" || *nativeAim == "nonexact-dual";
+            if (!touch && !dual) throw ProgramException("-nativeaim requires touch, dual, nonexact-touch or nonexact-dual");
+            auto& controls = InputSettings::Current();
+            controls.SetNativeAim(true);
+            controls.NativeControl().RomCadence = true;
+            controls.NativeControl().Flags = static_cast<std::uint16_t>((touch ? 2 : 8)
+                | ((*nativeAim == "touch" || *nativeAim == "dual") ? 0x20 : 0));
+        }
         Launcher::LauncherPrefs::Load();
         if (::HasFlag(args, "debuglog"))
         {
@@ -1993,6 +2005,11 @@ namespace MphRead::Mods
         }
 
         const auto lockjawEnemyCheck = ValueAfter(args, "lockjawenemycheck");
+        if (const auto aimCheck = ValueAfter(args, "aimcheck"); aimCheck.has_value())
+        {
+            SetExitCode(Diagnostics::AimCheck::Run(*aimCheck));
+            return true;
+        }
         const auto weavelAltCheck = ValueAfter(args, "weavelaltcheck");
         if (weavelAltCheck.has_value())
         {

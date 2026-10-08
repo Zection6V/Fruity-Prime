@@ -43,6 +43,8 @@ namespace MphRead::Mods::Input
         PreviousY = Y;
         Down = down;
         Continued = down && wasDown;
+        ContactDuration = !down ? 0 : !wasDown ? 1
+            : ContactDuration == 0xFFFF ? ContactDuration : static_cast<std::uint16_t>(ContactDuration + 1);
         if (!Continued)
         {
             // 0202A058: no contact, or the first frame of one, clears the

@@ -45,6 +45,7 @@ namespace MphRead::Mods::Network
         static void NoteSpawn(std::int32_t slot);
         inline static std::array<std::uint32_t, Entities::PlayerEntity::SlotCapacity> SpawnFrame{};
         [[nodiscard]] static bool AimTrusted(std::int32_t slot);
+        [[nodiscard]] static bool AimAvailable(std::int32_t slot);
 
         static void ApplyState(Entities::PlayerEntity& player, const PlayerState& state, bool isLocal);
         [[nodiscard]] static FormCorrection ReconcileForm(std::int32_t slot, std::uint32_t frame, bool desiredAlt,

@@ -843,6 +843,10 @@ namespace MphRead::Entities
         _buttonAimX = 0.0F;
         _buttonAimY = 0.0F;
         NodeRef = nodeRef;
+        _nativeDual = {};
+        _nativeInputShadow.Clear();
+        _aimFrame = {};
+        _input.Suspend();
         _gunViewBob = 0.0F;
         _walkViewBob = 0.0F;
 

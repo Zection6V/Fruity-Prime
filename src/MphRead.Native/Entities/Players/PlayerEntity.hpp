@@ -54,6 +54,7 @@ private: \
 #include <utility>
 
 namespace MphRead::Mods::Diagnostics { class WeavelAltFormCheck; }
+namespace MphRead::Mods::Diagnostics { class AimCheck; }
 
 namespace MphRead
 {
@@ -599,6 +600,7 @@ namespace MphRead::Entities
     {
         // NetCombatCheck reads private state the way the C# reads it by reflection.
         friend class ::MphRead::Mods::Diagnostics::WeavelAltFormCheck;
+        friend class ::MphRead::Mods::Diagnostics::AimCheck;
         friend class HalfturretEntity;
         friend class ::MphRead::Mods::Network::NetCombatCheck;
         friend class ::MphRead::Mods::Network::DialancheCombatCheck;

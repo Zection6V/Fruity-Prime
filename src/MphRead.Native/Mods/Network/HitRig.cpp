@@ -1,5 +1,6 @@
 #include "HitRig.hpp"
 
+#include "HitLocation.hpp"
 #include "NetSession.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Metadata/Weapons.hpp"
@@ -34,6 +35,7 @@ namespace MphRead::Mods::Network
         case HitRig::RigMode::Wells: return "Wells";
         case HitRig::RigMode::Lanes: return "Lanes";
         case HitRig::RigMode::Observe: return "Observe";
+        case HitRig::RigMode::Strafe: return "Strafe";
         }
         return std::to_string(static_cast<std::int32_t>(value));
     }
@@ -50,12 +52,24 @@ namespace MphRead::Mods::Network
         {
             const std::string weapon = key.substr(colon + 1);
             key = key.substr(0, colon);
-            if (!Configure(weapon) || _mode != RigMode::Volley || (key != "wells" && key != "lanes"))
+            if (key == "strafe" && (weapon == "missilevolt" || weapon == "knockback"))
+            {
+                _knockbackPair = true;
+            }
+            else if (key == "strafe" && weapon == "affinity")
+            {
+                _affinity = true;
+            }
+            else if (!Configure(weapon) || _mode != RigMode::Volley
+                || (key != "wells" && key != "lanes" && key != "strafe"))
             {
                 return false;
             }
-            _hasFixedWeapon = true;
-            _fixedWeapon = _volleyWeapon;
+            else
+            {
+                _hasFixedWeapon = true;
+                _fixedWeapon = _volleyWeapon;
+            }
         }
         const auto volley = [](::MphRead::BeamType weapon)
         {
@@ -94,7 +108,74 @@ namespace MphRead::Mods::Network
         if (key == "wells") { _mode = RigMode::Wells; return true; }
         if (key == "lanes") { _mode = RigMode::Lanes; return true; }
         if (key == "observe" || key == "observer") { _mode = RigMode::Observe; return true; }
+        if (key == "strafe" || key == "rewind") { _mode = RigMode::Strafe; return true; }
         return false;
+    }
+
+    bool HitRig::ConfigureSpeed(const std::optional<std::string>& value)
+    {
+        if (!value.has_value())
+        {
+            return false;
+        }
+        try
+        {
+            const float scale = std::stof(*value);
+            if (!(scale >= 1.0F && scale <= 3.0F))
+            {
+                return false;
+            }
+            _moveScale = scale;
+            return true;
+        }
+        catch (...)
+        {
+            return false;
+        }
+    }
+
+    bool HitRig::ConfigureRange(const std::optional<std::string>& value)
+    {
+        if (!value.has_value())
+        {
+            return false;
+        }
+        try
+        {
+            const float range = std::stof(*value);
+            if (!(range >= 8.0F && range <= 40.0F))
+            {
+                return false;
+            }
+            _strafeHalfRange = range / 2.0F;
+            return true;
+        }
+        catch (...)
+        {
+            return false;
+        }
+    }
+
+    bool HitRig::ConfigureStrafePeriod(const std::optional<std::string>& value)
+    {
+        if (!value.has_value())
+        {
+            return false;
+        }
+        try
+        {
+            const std::int32_t frames = std::stoi(*value);
+            if (frames < 8 || frames > 240)
+            {
+                return false;
+            }
+            _strafePeriod = frames;
+            return true;
+        }
+        catch (...)
+        {
+            return false;
+        }
     }
 
     void HitRig::Reset()
@@ -116,6 +197,8 @@ namespace MphRead::Mods::Network
         _wasAirborne = false;
         _placements = 0;
         _highest = 0;
+        _turns = 0;
+        _fastest = 0;
     }
 
     bool HitRig::IsSniper()
@@ -126,6 +209,7 @@ namespace MphRead::Mods::Network
     void HitRig::Drive(PlayerEntity& player)
     {
         Runtime::IncrementInPlace(_frame);
+        HitLocation::Watch();
         PlayerControls& c = player.Controls();
         ClearControls(c);
         if (player.Health() == 0)
@@ -144,6 +228,10 @@ namespace MphRead::Mods::Network
         else if (_mode == RigMode::Wells || _mode == RigMode::Lanes)
         {
             DriveWells(player, c, CellOpponent(player));
+        }
+        else if (_mode == RigMode::Strafe)
+        {
+            DriveStrafe(player, c);
         }
         else if (_mode == RigMode::Observe)
         {
@@ -284,6 +372,145 @@ namespace MphRead::Mods::Network
             }
             return;
         }
+        c.Shoot().SetIsDown(onTarget && _frame % tap < 3);
+        if (c.Shoot().IsDown() && _frame % tap == 0)
+        {
+            Runtime::IncrementInPlace(_triggers);
+        }
+    }
+
+    float HitRig::CorridorZ(std::int32_t slot) noexcept
+    {
+        return FirstCorridorZ + CorridorSpacing * static_cast<float>(std::clamp(slot, 0, 7) / 2);
+    }
+
+    PlayerEntity* HitRig::PairOpponent(PlayerEntity& self)
+    {
+        const std::int32_t want = NetSession::LocalSlot() ^ 1;
+        const auto& players = PlayerEntity::Players();
+        if (want < 0 || static_cast<std::size_t>(want) >= players.size())
+        {
+            return nullptr;
+        }
+        PlayerEntity& other = Runtime::RequireReference(players[static_cast<std::size_t>(want)]);
+        if (&other == &self || !::MphRead::TestFlag(other.LoadFlags(), Entities::LoadFlags::Active)
+            || !::MphRead::TestFlag(other.LoadFlags(), Entities::LoadFlags::Spawned) || other.Health() == 0)
+        {
+            return nullptr;
+        }
+        return &other;
+    }
+
+    void HitRig::DriveStrafe(PlayerEntity& player, PlayerControls& c)
+    {
+        // Each pair has its corridor (slot / 2) and each player its side
+        // (slot % 2). A client picks its own spawn before it sees anybody, so
+        // one found in another corridor, or across the middle, is put back.
+        // Nothing else moves a player: a knockback is walked back from.
+        const std::int32_t slot = std::max(NetSession::LocalSlot(), 0);
+        const float cellX = slot % 2 == 0 ? -_strafeHalfRange : _strafeHalfRange;
+        const float cellZ = CorridorZ(slot);
+        const OpenTK::Mathematics::Vector3 at = player.Position;
+        if (std::abs(at.Z - cellZ) > CorridorSpacing / 2.0F - 1.0F || at.X * cellX < 1.0F)
+        {
+            player.ModPlaceAt(OpenTK::Mathematics::Vector3(cellX, 0.6F, cellZ));
+            Runtime::IncrementInPlace(_placements);
+            HitLocation::Placed(player);
+            return;
+        }
+        const OpenTK::Mathematics::Vector3 speed = player.Speed();
+        const float flat = std::sqrt(speed.X * speed.X + speed.Z * speed.Z);
+        _fastest = std::max(_fastest, flat);
+        _rangeSum += flat;
+        Runtime::IncrementInPlace(_rangeSamples);
+        PlayerEntity* other = PairOpponent(player);
+
+        // Side to side along Z, turning round every StrafePeriod frames or
+        // at the end of the reach. Which key moves which way depends on the
+        // facing, so it is learned: a key held for a while that moved the
+        // player the wrong way swaps the two.
+        std::int32_t want = _frame / _strafePeriod % 2 == 0 ? 1 : -1;
+        if (at.Z > cellZ + StrafeReach)
+        {
+            want = -1;
+        }
+        else if (at.Z < cellZ - StrafeReach)
+        {
+            want = 1;
+        }
+        static std::int32_t previousWant = 0;
+        if (want != previousWant)
+        {
+            Runtime::IncrementInPlace(_turns);
+            previousWant = want;
+            _strafeHeld = 0;
+            _strafeFrom = at.Z;
+        }
+        else if (++_strafeHeld == 12 && (at.Z - _strafeFrom) * static_cast<float>(want) < -0.2F)
+        {
+            _strafeSign = -_strafeSign;
+        }
+        const bool right = want * _strafeSign > 0;
+        c.MoveRight().SetIsDown(right);
+        c.MoveLeft().SetIsDown(!right);
+        // Range: back to 12 units from the other side after a knock.
+        const float fromMiddle = std::abs(at.X);
+        c.MoveUp().SetIsDown(fromMiddle > _strafeHalfRange + 0.8F);
+        c.MoveDown().SetIsDown(fromMiddle < _strafeHalfRange - 0.8F);
+
+        ::MphRead::BeamType weapon = CycleWeapon();
+        if (_affinity)
+        {
+            weapon = ::MphRead::Weapons::GetAffinityBeam(player.Hunter());
+        }
+        else if (_knockbackPair)
+        {
+            weapon = (_frame / CycleFrames + slot / 2) % 2 == 0 ? ::MphRead::BeamType::Missile
+                : ::MphRead::BeamType::VoltDriver;
+        }
+        else if (!_hasFixedWeapon)
+        {
+            // Every pair on another weapon at any moment: four in parallel.
+            static constexpr std::int32_t Weapons = 9;
+            static constexpr ::MphRead::BeamType Cycle[] = {
+                ::MphRead::BeamType::PowerBeam, ::MphRead::BeamType::VoltDriver,
+                ::MphRead::BeamType::Missile, ::MphRead::BeamType::Battlehammer,
+                ::MphRead::BeamType::Imperialist, ::MphRead::BeamType::Judicator,
+                ::MphRead::BeamType::Magmaul, ::MphRead::BeamType::ShockCoil,
+                ::MphRead::BeamType::OmegaCannon,
+            };
+            weapon = Cycle[static_cast<std::size_t>((_frame / CycleFrames + 2 * (slot / 2)) % Weapons)];
+        }
+        if (player.CurrentWeapon() != weapon)
+        {
+            player.ModArmWeapon(weapon);
+        }
+        player.ModSetAmmo(std::numeric_limits<std::int32_t>::max(), std::numeric_limits<std::int32_t>::max());
+        const bool onTarget = AimAt(player, other, _frame / 300 % 2 == 0 ? HeadAimHeight : ChestAimHeight);
+        if (onTarget)
+        {
+            Runtime::IncrementInPlace(_framesOnTarget);
+        }
+        const auto& info = Runtime::RequireReference((*::MphRead::Weapons::Current)[static_cast<std::size_t>(weapon)]);
+        // The missile and the Volt Driver are fired charged one phase in two
+        // (their charged shots are the ones that knock hardest).
+        const bool chargeable = _affinity
+            ? ::MphRead::TestFlag(info.Flags, ::MphRead::WeaponFlags::CanCharge)
+            : weapon == ::MphRead::BeamType::Missile || weapon == ::MphRead::BeamType::VoltDriver
+                || weapon == ::MphRead::BeamType::Magmaul;
+        const std::int32_t hold = static_cast<std::int32_t>(info.FullCharge) * 2 + 8;
+        const std::int32_t phaseLength = std::max(hold + 20, 100);
+        if (chargeable && _frame / phaseLength % 2 == 1)
+        {
+            const std::int32_t phase = static_cast<std::int32_t>(_frame % phaseLength);
+            c.Shoot().SetIsDown(phase < hold && (onTarget || phase > 0));
+            if (phase == hold)
+            {
+                Runtime::IncrementInPlace(_chargedReleases);
+            }
+            return;
+        }
+        const std::int32_t tap = static_cast<std::int32_t>(info.ShotCooldown) * 2 + 3;
         c.Shoot().SetIsDown(onTarget && _frame % tap < 3);
         if (c.Shoot().IsDown() && _frame % tap == 0)
         {
@@ -608,6 +835,17 @@ namespace MphRead::Mods::Network
         if (_mode == RigMode::Dialanche)
         {
             return "hit rig: Dialanche, " + std::to_string(_triggers) + " attack press edges, "
+                + std::to_string(_framesOnTarget) + " frames on target";
+        }
+        if (_mode == RigMode::Strafe)
+        {
+            const double mean = _rangeSamples > 0 ? _rangeSum / static_cast<double>(_rangeSamples) : 0;
+            return "hit rig: Strafe, slot " + std::to_string(NetSession::LocalSlot()) + " (pair "
+                + std::to_string(std::max(NetSession::LocalSlot(), 0) / 2) + "), range " + Runtime::ToString(_strafeHalfRange * 2.0F, "F0") + ", speed x" + Runtime::ToString(_moveScale, "F2")
+                + ", turn every " + std::to_string(_strafePeriod) + " frames, " + std::to_string(_turns) + " turns, "
+                + "mean |horizontal speed| " + Runtime::ToString(mean, "F3") + " units/frame, fastest "
+                + Runtime::ToString(_fastest, "F3") + ", " + std::to_string(_placements) + " placement(s), "
+                + std::to_string(_triggers) + " triggers, " + std::to_string(_chargedReleases) + " charged releases, "
                 + std::to_string(_framesOnTarget) + " frames on target";
         }
         const std::string role = _mode == RigMode::Wells ? "well" : _mode == RigMode::Lanes ? "lane"

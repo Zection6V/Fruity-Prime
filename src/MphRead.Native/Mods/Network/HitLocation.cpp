@@ -1,11 +1,13 @@
 #include "HitLocation.hpp"
 
 #include "NetHitPrediction.hpp"
+#include "NetPlayerLifecycle.hpp"
 #include "NetSession.hpp"
 
 #include "../../Entities/BeamProjectileEntity.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -223,5 +225,118 @@ namespace MphRead::Mods::Network
             return;
         }
         Row("dmg", attacker, victim, beam, 0, false, headshot, damage, victim.Position, std::string());
+    }
+
+    std::array<HitLocation::Track, 8> HitLocation::_tracks{};
+    std::array<HitLocation::JumpStats, 2> HitLocation::_jumps{};
+
+    void HitLocation::Watch()
+    {
+        if (!NetSession::Active() || NetSession::IsAuthority() || NetSession::IsHost())
+        {
+            return;
+        }
+        const std::int32_t local = NetSession::LocalSlot();
+        const auto& players = Entities::PlayerEntity::Players();
+        const Entities::PlayerEntity* me = local >= 0 && static_cast<std::size_t>(local) < players.size()
+            ? players[static_cast<std::size_t>(local)].get() : nullptr;
+        // What this machine is firing: the weapon a rise or a jump happened under.
+        const std::int32_t weapon = me != nullptr ? static_cast<std::int32_t>(me->CurrentWeapon()) : -1;
+        for (std::size_t i = 0; i < players.size() && i < _tracks.size(); i++)
+        {
+            const Entities::PlayerEntity* player = players[i].get();
+            Track& track = _tracks[i];
+            if (player == nullptr || !::MphRead::TestFlag(player->LoadFlags(), Entities::LoadFlags::Active)
+                || !::MphRead::TestFlag(player->LoadFlags(), Entities::LoadFlags::Spawned))
+            {
+                track.Seen = false;
+                continue;
+            }
+            const auto slot = static_cast<std::int32_t>(i);
+            const std::uint16_t life = NetPlayerLifecycle::Get(slot);
+            const std::int32_t health = player->Health();
+            const OpenTK::Mathematics::Vector3 position = player->Position;
+            if (!track.Seen || track.Life != life)
+            {
+                track = Track{true, life, health, 1, position, position};
+                continue;
+            }
+            if (health != track.Health)
+            {
+                _healthChanges++;
+                const std::string what = std::to_string(track.Health) + ';' + std::to_string(health) + ';'
+                    + std::to_string(life);
+                // A rise in the same life with nothing that heals in the room:
+                // a bar that went down here and was put back.
+                const bool rise = health > track.Health && track.Health > 0;
+                if (rise)
+                {
+                    _healthRises++;
+                }
+                if (_writer)
+                {
+                    Row(rise ? "hpup" : "hp", -1, *player, weapon, 0, false, false, health - track.Health,
+                        position, what);
+                }
+                track.Health = health;
+            }
+            if (health <= 0)
+            {
+                track.Samples = 0; // a body falling is not a jump
+                track.P1 = track.P2 = position;
+                continue;
+            }
+            if (track.Samples >= 2)
+            {
+                const OpenTK::Mathematics::Vector3 step = position - track.P1;
+                const OpenTK::Mathematics::Vector3 before = track.P1 - track.P2;
+                const float residual = OpenTK::Mathematics::Length(step - before);
+                JumpStats& stats = _jumps[slot == local ? 0 : 1];
+                stats.Samples++;
+                stats.Over25 += residual > 0.25F ? 1 : 0;
+                stats.Over50 += residual > 0.5F ? 1 : 0;
+                stats.Over100 += residual > 1.0F ? 1 : 0;
+                stats.Worst = std::max(stats.Worst, residual);
+                if (residual > JumpThreshold && _writer)
+                {
+                    // How far the step turned from the one before (cosine):
+                    // -1 is straight back the way the player came.
+                    const float lengths = OpenTK::Mathematics::Length(step) * OpenTK::Mathematics::Length(before);
+                    const float turn = lengths > 1e-6F
+                        ? OpenTK::Mathematics::Vector3::Dot(step, before) / lengths : 1.0F;
+                    Row("jump", -1, *player, weapon, 0, false, false, 0, position,
+                        Num(residual) + ';' + Num(OpenTK::Mathematics::Length(step)) + ';'
+                            + Num(OpenTK::Mathematics::Length(before)) + ';' + std::to_string(life) + ';' + Num(turn));
+                }
+            }
+            track.P2 = track.P1;
+            track.P1 = position;
+            track.Samples++;
+        }
+    }
+
+    void HitLocation::Placed(const Entities::PlayerEntity& player)
+    {
+        const std::int32_t slot = player.SlotIndex();
+        if (slot >= 0 && static_cast<std::size_t>(slot) < _tracks.size())
+        {
+            _tracks[static_cast<std::size_t>(slot)].Samples = 0;
+        }
+        if (_writer)
+        {
+            Row("placed", -1, player, -1, 0, false, false, 0, player.Position, std::string());
+        }
+    }
+
+    std::string HitLocation::DescribeWatch()
+    {
+        const auto line = [](const char* who, const JumpStats& stats)
+        {
+            return std::string(who) + " " + std::to_string(stats.Over25) + "/" + std::to_string(stats.Over50) + "/"
+                + std::to_string(stats.Over100) + " of " + std::to_string(stats.Samples) + " (worst " + Num(stats.Worst) + ")";
+        };
+        return "rewind watch: steps off the motion >0.25/>0.5/>1.0: " + line("own", _jumps[0]) + ", "
+            + line("others", _jumps[1]) + "; health changes " + std::to_string(_healthChanges) + ", rises "
+            + std::to_string(_healthRises);
     }
 }

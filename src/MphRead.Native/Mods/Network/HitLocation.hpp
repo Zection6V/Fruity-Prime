@@ -2,6 +2,7 @@
 
 #include "../../Formats/Types.hpp"
 
+#include <array>
 #include <cstdint>
 #include <fstream>
 #include <memory>
@@ -68,7 +69,41 @@ namespace MphRead::Mods::Network
         static void Damage(std::int32_t attacker, const Entities::PlayerEntity& victim, std::uint8_t beam,
             std::int32_t damage, bool headshot);
 
+        // Once a frame on a client (the strafe rig calls it): every player's
+        // health as drawn here, and every position step the player's own
+        // motion does not explain. Rows: hp (a change), hpup (a rise in the
+        // same life: a bar going back up), jump (the step's departure from
+        // the previous step over JumpThreshold).
+        static void Watch();
+        // The rig put this machine's player somewhere: not a jump.
+        static void Placed(const Entities::PlayerEntity& player);
+        [[nodiscard]] static std::string DescribeWatch();
+
     private:
+        static constexpr float JumpThreshold = 0.25F;
+        struct Track
+        {
+            bool Seen = false;
+            std::uint16_t Life = 0;
+            std::int32_t Health = 0;
+            std::int32_t Samples = 0;
+            OpenTK::Mathematics::Vector3 P1{};
+            OpenTK::Mathematics::Vector3 P2{};
+        };
+        struct JumpStats
+        {
+            std::int64_t Samples = 0;
+            std::int64_t Over25 = 0;
+            std::int64_t Over50 = 0;
+            std::int64_t Over100 = 0;
+            float Worst = 0;
+        };
+        static std::array<Track, 8> _tracks;
+        // [0] this machine's own player, [1] everybody else as drawn here.
+        static std::array<JumpStats, 2> _jumps;
+        inline static std::int64_t _healthRises = 0;
+        inline static std::int64_t _healthChanges = 0;
+
         struct Body
         {
             float Dy = 0;

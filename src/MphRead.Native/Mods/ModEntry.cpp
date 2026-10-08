@@ -1301,8 +1301,26 @@ namespace MphRead::Mods
             }
             else
             {
-                WriteLine("[net] -hitrig " + *rig + " refused: jump, sniper, duel, dialanche, all, wells, lanes or a weapon name");
+                WriteLine("[net] -hitrig " + *rig + " refused: jump, sniper, duel, dialanche, all, wells, lanes, strafe or a weapon name");
             }
+        }
+        if (const std::optional<std::string> speed = ValueAfter(args, "rigspeed"); speed.has_value())
+        {
+            WriteLine(Network::HitRig::ConfigureSpeed(speed)
+                ? "[net] hit rig strafes x" + *speed + " faster"
+                : "[net] -rigspeed " + *speed + " refused: 1 to 3");
+        }
+        if (const std::optional<std::string> range = ValueAfter(args, "rigrange"); range.has_value())
+        {
+            WriteLine(Network::HitRig::ConfigureRange(range)
+                ? "[net] hit rig pairs stand " + *range + " units apart"
+                : "[net] -rigrange " + *range + " refused: 8 to 40 units");
+        }
+        if (const std::optional<std::string> period = ValueAfter(args, "rigstrafe"); period.has_value())
+        {
+            WriteLine(Network::HitRig::ConfigureStrafePeriod(period)
+                ? "[net] hit rig turns round every " + *period + " frames"
+                : "[net] -rigstrafe " + *period + " refused: 8 to 240 frames");
         }
         const std::optional<std::string> maxRewind = ValueAfter(args, "maxrewind");
         if (maxRewind.has_value())

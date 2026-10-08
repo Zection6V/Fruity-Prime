@@ -1,6 +1,7 @@
 #include "NetCheckClient.hpp"
 #include "../../NativeRuntime/Rhi/SceneBackend.hpp"
 #include "../../NativeRuntime/OpenTK/GL.hpp"
+#include "HitLocation.hpp"
 #include "HitRig.hpp"
 #include "NetHitClaims.hpp"
 #include "NetShotDiagnostics.hpp"
@@ -741,6 +742,10 @@ namespace MphRead::Mods::Network
         if (HitRig::Active())
         {
             std::cout << "  " << HitRig::Describe() << '\n';
+            if (HitRig::Mode() == HitRig::RigMode::Strafe)
+            {
+                std::cout << "  " << HitLocation::DescribeWatch() << '\n';
+            }
         }
 
         const RoomMetadata* roomMetadata

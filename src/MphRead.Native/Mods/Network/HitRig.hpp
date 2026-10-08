@@ -43,13 +43,28 @@ namespace MphRead::Mods::Network
             Lanes,
             // A third player standing off to the side, never shooting and
             // never shot: what an observer sees of the two cells' duel.
-            Observe
+            Observe,
+            // TEST STRAFE: up to four pairs in one match, each in its own
+            // walled corridor (slot / 2), both players shooting and
+            // strafing side to side non-stop, nothing holding them in place:
+            // the knockback is real. What the rewind log (-hitlog) is
+            // measured with.
+            Strafe
         };
 
         [[nodiscard]] static ::MphRead::BeamType VolleyWeapon() noexcept { return _volleyWeapon; }
         [[nodiscard]] static RigMode Mode() noexcept { return _mode; }
         [[nodiscard]] static bool Active() noexcept { return _mode != RigMode::Off; }
         [[nodiscard]] static bool Configure(const std::optional<std::string>& value);
+        // -rigspeed F: the rig's own player strafes F times faster (cap and
+        // traction), 1 to 3. The position is the owner's, so nobody else needs it.
+        [[nodiscard]] static bool ConfigureSpeed(const std::optional<std::string>& value);
+        // -rigstrafe N: frames each way before the strafe turns round (8 to 240).
+        [[nodiscard]] static bool ConfigureStrafePeriod(const std::optional<std::string>& value);
+        // -rigrange N: the two players of a strafe pair stand N units apart (8 to 40).
+        [[nodiscard]] static bool ConfigureRange(const std::optional<std::string>& value);
+        [[nodiscard]] static float MoveScale() noexcept { return _moveScale; }
+        [[nodiscard]] static std::int32_t StrafePeriod() noexcept { return _strafePeriod; }
 
         [[nodiscard]] static float AimDeltaX() noexcept { return _aimDeltaX; }
         [[nodiscard]] static float AimDeltaY() noexcept { return _aimDeltaY; }
@@ -81,11 +96,20 @@ namespace MphRead::Mods::Network
         static constexpr float FiringCone = 2.5F;
         // -hitrig all: the shooter holds each weapon this long, then the next.
         static constexpr std::int32_t CycleFrames = 20 * 60;
+        // TEST STRAFE: corridor k runs along Z around -22.5 + 15k, the two
+        // players of a pair 12 apart on X, strafing within StrafeReach of it.
+        static constexpr float CorridorSpacing = 15.0F;
+        static constexpr float FirstCorridorZ = -22.5F;
+        static constexpr float StrafeReach = 4.5F;
 
         static void DriveRunner(Entities::PlayerEntity& player, Entities::PlayerControls& c, Entities::PlayerEntity* other);
         static void DriveDialanche(Entities::PlayerEntity& player, Entities::PlayerControls& c, Entities::PlayerEntity* other);
         static void DrivePadRider(Entities::PlayerEntity& player, Entities::PlayerControls& c, Entities::PlayerEntity* other);
         static void DriveWells(Entities::PlayerEntity& player, Entities::PlayerControls& c, Entities::PlayerEntity* other);
+        static void DriveStrafe(Entities::PlayerEntity& player, Entities::PlayerControls& c);
+        // The other player of this slot's pair (slot ^ 1), if it is in play.
+        [[nodiscard]] static Entities::PlayerEntity* PairOpponent(Entities::PlayerEntity& self);
+        [[nodiscard]] static float CorridorZ(std::int32_t slot) noexcept;
         // The player in the other cell (never an observer standing nearer).
         [[nodiscard]] static Entities::PlayerEntity* CellOpponent(Entities::PlayerEntity& self);
         [[nodiscard]] static ::MphRead::BeamType CycleWeapon() noexcept;
@@ -120,6 +144,20 @@ namespace MphRead::Mods::Network
         inline static bool _hasFixedWeapon = false;
         inline static ::MphRead::BeamType _fixedWeapon = ::MphRead::BeamType::PowerBeam;
         inline static std::int64_t _chargedReleases = 0;
+        inline static float _moveScale = 1.0F;
+        inline static float _strafeHalfRange = CellX;
+        inline static std::int32_t _strafePeriod = 24;
+        inline static std::int64_t _turns = 0;
+        inline static float _fastest = 0;
+        inline static std::int32_t _strafeSign = 1;
+        inline static std::int32_t _strafeHeld = 0;
+        inline static float _strafeFrom = 0;
+        // -hitrig strafe:missilevolt -- the two weapons the rewind was seen
+        // with, in turn, charged and uncharged.
+        inline static bool _knockbackPair = false;
+        // -hitrig strafe:affinity -- every player fires its own hunter's
+        // affinity weapon (its own row of the table), charged one phase in two.
+        inline static bool _affinity = false;
         inline static float _highest = 0;
         inline static bool _wasAirborne = false;
         inline static Scene* _scene = nullptr;

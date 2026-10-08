@@ -269,3 +269,51 @@ python3 tools/hitrig/hitloc.py ~/fp-hitloc/runs/base-wells ~/fp-hitloc/runs/afte
 loopback, the line made up by the clients (`HITLOC_LAG`, default `250:40`, the
 Japan line's shape; `HITLOC_LOSS`). `hitloc-japan.sh` runs the same against
 one of the bench box's unlisted servers.
+
+## Rewinds, four pairs at a time (`-hitrig strafe`)
+
+What a player calls a rewind is a hit shown and then taken back: the bar of
+the player they shot goes down and comes back up, or a body is pulled back
+along its path. The cell maps cannot show it -- their glass holds every
+player in place, so no knockback ever moves anybody -- and two clients a run
+make every measurement an hour.
+
+**TEST STRAFE** (`maps/strafe`) is four walled corridors side by side. Slot
+`2k` and `2k+1` share corridor `k`, 12 units apart on X by default
+(`-rigrange N`, up to 40), and strafe along Z non-stop, turning every
+`-rigstrafe N` frames (24) or at the end of their reach; `-rigspeed F`
+(1 to 3) makes the rig's own player F times faster (speed cap and traction:
+the position is the owner's on the wire, so nothing else needs it). Nothing
+holds anybody: a knockback is walked back from. The walls stop every shot,
+so eight clients in one match are four independent duels. Each pair is on a
+different weapon of the cycle at any moment; `strafe:missilevolt` alternates
+the two the complaint was about, charged one phase in two, and
+`strafe:WEAPON` holds one.
+
+Every client running it also writes, through `-hitlog`, what it **drew**
+once a frame (`HitLocation::Watch`): `hp` for every change of any player's
+health, `hpup` for a rise in the same life (a bar going back up), `jump` for
+a step its previous step does not explain (residual over 0.25, with the
+cosine of the turn), `placed` when the rig moved its own player.
+
+```bash
+REWIND_BIN=~/fp-rewind/bin-after tools/hitrig/rewind-run.sh local 120        # loopback, -netlag 40:10
+REWIND_BIN=... REWIND_HOST=20.16.135.109 REWIND_PORT=27897 \
+  REWIND_REMOTE_DIR=/opt/fruityprime-rewind REWIND_SSH=~/GIT/fp-net/nl.sh \
+  REWIND_RIG=strafe:missilevolt REWIND_SPEED=2 REWIND_RANGE=24 REWIND_HUNTERS="Samus Kanden" \
+  tools/hitrig/rewind-ab.sh mv 3 300                                          # interleaved A/B of two server binaries
+python3 tools/hitrig/rewind.py RUN...                                         # the table, by weapon
+```
+
+`rewind.py` joins each victim's own bar with its shooter's view of it, life
+by life: **bar rewinds** (a rise on the shooter's screen), lives ending on
+different health, puppet and own jumps by kind (`back` turned more than
+120 degrees; `stall` restarted from standing, which is the playout buffer,
+not a rewind), and the authority's verdicts by reason.
+
+**Pick the hunters.** `REWIND_HUNTERS` gives A and B of every pair their
+hunter. The first refusals found this way were Samus's and Kanden's: their
+affinity weapons home when charged, and the authority had been reading the
+base row (see `NETWORK-SHOOTER-AUTHORITY.md`, *the weapon is the shooter's
+own*). An all-Samus run at 12 units barely shows it -- a homing missile only
+leaves its ray by more than two units at range on a fast target.

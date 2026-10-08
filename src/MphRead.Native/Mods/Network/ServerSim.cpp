@@ -165,6 +165,7 @@ namespace MphRead::Mods::Network
             scene->OnLoad();
 
             _scene = std::move(scene);
+            NetHitClaims::SetScene(_scene.get());
             _frames = 0;
             _stepSeconds = 0.0;
             _worstStepSeconds = 0.0;
@@ -235,6 +236,7 @@ namespace MphRead::Mods::Network
         {
             return;
         }
+        NetHitClaims::SetScene(nullptr);
 
         _scene.reset();
         _room.clear();

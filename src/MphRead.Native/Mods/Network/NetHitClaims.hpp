@@ -20,11 +20,24 @@ namespace MphRead::Entities
     enum class DamageFlags : std::int32_t;
 }
 
+namespace MphRead
+{
+    class Scene;
+}
+
 namespace MphRead::Mods::Network
 {
     // A shot the authority cannot find is declared, checked and arbitrated.
     // See .claude/multiplayer/NETWORK-HITCLAIMS.md.
     class NetCombatCheck;
+
+    // A ray a shooter's intent said it fired (NetHitClaims::RecordIntent).
+    struct ClaimShotRay
+    {
+        std::uint32_t Ack = 0;
+        OpenTK::Mathematics::Vector3 Origin{};
+        OpenTK::Mathematics::Vector3 Direction{};
+    };
 
     class NetHitClaims final
     {
@@ -72,6 +85,19 @@ namespace MphRead::Mods::Network
         // While a claim is being applied: where it landed on the victim, for
         // the damage event the victim's machine will read (NetDamage::Note).
         [[nodiscard]] static ImpactOffset CurrentClaimImpact() noexcept { return _applyingImpact; }
+        // The authority keeps what each shooter's intents said: the newest
+        // ack, and the rays its recent shots were fired along. A claim is
+        // checked against them (ShotPlausible).
+        static void RecordIntent(std::int32_t slot, const IntentPacket& intent) noexcept;
+        static void SetScene(MphRead::Scene* scene) noexcept { _scene = scene; }
+        // Beyond this many frames before the shooter's newest ack, a claim
+        // is resolving against a world the shooter was no longer drawing.
+        // Measured: an honest claim travels with its intents, gap 0 (p99 0);
+        // the slack is for a claim resent after a lost datagram.
+        static constexpr std::int32_t AckSlackFrames = 20;
+        // How far the impact may sit from the ray the intent says was fired.
+        // Measured over straight weapons: p99 0.11, worst 0.36.
+        static constexpr float RayTolerance = 0.75F;
         // Shooter-authoritative hits: a remote player's hit on another player
         // is the one their own machine resolved, validated here, and the
         // authority's own copy of it is not applied (NetDamage::Suppress).
@@ -258,6 +284,21 @@ namespace MphRead::Mods::Network
         inline static std::int64_t _finishedHere = 0;
         inline static ImpactOffset _applyingImpact{};
         inline static std::int64_t _impactRefused = 0;
+        inline static std::int64_t _afflictionsStripped = 0;
+        inline static MphRead::Scene* _scene = nullptr;
+        inline static std::array<std::array<ClaimShotRay, 32>, 8> _shotRays{};
+        inline static std::array<std::size_t, 8> _shotRayNext{};
+        inline static std::array<std::uint32_t, 8> _latestAck{};
+        inline static std::int64_t _ackRefused = 0;
+        inline static std::int64_t _rayRefused = 0;
+        inline static std::int64_t _losRefused = 0;
+        // Measured for every claim (ShotPlausible), for -hitlog.
+        inline static std::int32_t _lastAckGap = 0;
+        inline static float _lastRayDistance = -1.0F;
+        inline static bool _lastBlocked = false;
+        [[nodiscard]] static bool ShotPlausible(std::int32_t shooterSlot, const HitClaimPacket& claim,
+            OpenTK::Mathematics::Vector3 was);
+        [[nodiscard]] static bool StraightWeapon(std::uint8_t beam);
         [[nodiscard]] static bool ImpactPlausible(const HitClaimPacket& claim, std::int32_t victimSlot);
         inline static bool _shooterHits = true;
         inline static std::int64_t _serverCopiesSuppressed = 0;

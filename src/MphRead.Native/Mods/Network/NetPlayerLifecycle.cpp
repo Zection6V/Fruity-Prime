@@ -97,9 +97,11 @@ namespace MphRead::Mods::Network
         PlayerEntity* owner = OwnerPlayer(beam);
         beam.ModNearestLocal = -1.0F;
         beam.ModTouchedLocal = false;
-        beam.ModConfirmedLocal = false;
-        beam.ModPassedLocal = false;
+        beam.ModConfirmedTarget = false;
+        beam.ModPassedTarget = false;
         beam.ModHeldUntil = 0;
+        beam.ModTargetSlot = -1;
+        beam.ModTouchedTarget = false;
         if (parent != nullptr && NetSession::Active() && CurrentProjectile(*parent)
             && owner != nullptr && owner->SlotIndex() == parent->ModLaunchKey().ShooterSlot)
         {

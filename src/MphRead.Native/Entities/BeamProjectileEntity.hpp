@@ -153,13 +153,19 @@ namespace MphRead::Entities
         // Mods.Network.NetPlayerBridge confirmed impacts: the authority said
         // this remote shot hit this machine's player, ModConfirmedOffset from
         // their Position -- it homes onto that spot and is drawn hitting it.
-        // An unconfirmed one passes through them (ModPassedLocal).
-        bool ModConfirmedLocal = false;
+        // An unconfirmed one passes through them (ModPassedTarget).
+        bool ModConfirmedTarget = false;
+        // The player this remote shot is being confirmed against: this
+        // machine's own, or (as an observer) the puppet it met or was said
+        // to have hit. -1 until it meets somebody or the word comes.
+        std::int32_t ModTargetSlot = -1;
+        bool ModTouchedTarget = false;
         OpenTK::Mathematics::Vector3 ModConfirmedOffset{};
-        bool ModPassedLocal = false;
+        bool ModPassedTarget = false;
         // Met this machine's player before any word came: held where it met
         // the body until ModHeldUntil, then homed (confirmed) or let through.
         std::uint32_t ModHeldUntil = 0;
+        std::uint32_t ModHeldSince = 0;
         OpenTK::Mathematics::Vector3 ModHeldPoint{};
         void ModHomeConfirmed();
         // The weapon's own impact effect at a point, as a hit there draws it.

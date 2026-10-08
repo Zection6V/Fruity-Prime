@@ -1,6 +1,7 @@
 #include "NetUnlagged.hpp"
 
 #include "NetPlayerBridge.hpp"
+#include "NetHitClaims.hpp"
 #include "NetPlayerLifecycle.hpp"
 #include "NetSession.hpp"
 #include "NetShotDiagnostics.hpp"
@@ -93,6 +94,7 @@ namespace MphRead::Mods::Network
         _shooter = nullptr;
         _rewind = 0;
         _shotsCompensated = 0;
+        _rewindsSkipped = 0;
         _framesRewound = 0;
         _worstRewind = 0;
         _shotsClamped = 0;
@@ -202,6 +204,19 @@ namespace MphRead::Mods::Network
         return depth < 0 ? 0 : depth;
     }
 
+    bool NetUnlagged::AnyBotInPlay()
+    {
+        for (const std::shared_ptr<Entities::PlayerEntity>& player : Entities::PlayerEntity::Players())
+        {
+            if (player != nullptr && player->IsBot()
+                && ::MphRead::TestFlag(player->LoadFlags(), Entities::LoadFlags::Active))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     bool NetUnlagged::Simulating()
     {
         return NetSession::Active() && (NetSession::Role() == NetRole::Host || NetSession::IsAuthority());
@@ -217,6 +232,15 @@ namespace MphRead::Mods::Network
         _rewind = 0;
         if (!Enabled() || !Simulating() || shooter.IsBot())
         {
+            return;
+        }
+        // Shooter-authoritative hits: a human's shot at another human is the
+        // claim, and the copy simulated here is thrown away. Rewinding every
+        // player (and catching the projectile up) for it is server time spent
+        // on nothing -- unless a bot is in play, which only this copy can hit.
+        if (NetHitClaims::ShooterHits() && !AnyBotInPlay())
+        {
+            Runtime::IncrementInPlace(_rewindsSkipped);
             return;
         }
         const std::int32_t slot = shooter.SlotIndex();
@@ -492,7 +516,8 @@ namespace MphRead::Mods::Network
         if (_shotsCompensated == 0)
         {
             return "lag compensation: on, nothing to compensate (history misses "
-                + std::to_string(_historyMisses) + ")";
+                + std::to_string(_historyMisses) + ", " + std::to_string(_rewindsSkipped)
+                + " human shots not rewound: their hits are the shooter's claims)";
         }
         const double mean = static_cast<double>(_framesRewound) / static_cast<double>(_shotsCompensated);
         std::string text = "lag compensation: " + std::to_string(_shotsCompensated)

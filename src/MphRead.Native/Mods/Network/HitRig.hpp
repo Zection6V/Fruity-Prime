@@ -40,7 +40,10 @@ namespace MphRead::Mods::Network
             // place by glass, both shooting, every weapon in turn; Lanes also
             // strafes. What the hit location log (-hitlog) is measured with.
             Wells,
-            Lanes
+            Lanes,
+            // A third player standing off to the side, never shooting and
+            // never shot: what an observer sees of the two cells' duel.
+            Observe
         };
 
         [[nodiscard]] static ::MphRead::BeamType VolleyWeapon() noexcept { return _volleyWeapon; }
@@ -83,6 +86,8 @@ namespace MphRead::Mods::Network
         static void DriveDialanche(Entities::PlayerEntity& player, Entities::PlayerControls& c, Entities::PlayerEntity* other);
         static void DrivePadRider(Entities::PlayerEntity& player, Entities::PlayerControls& c, Entities::PlayerEntity* other);
         static void DriveWells(Entities::PlayerEntity& player, Entities::PlayerControls& c, Entities::PlayerEntity* other);
+        // The player in the other cell (never an observer standing nearer).
+        [[nodiscard]] static Entities::PlayerEntity* CellOpponent(Entities::PlayerEntity& self);
         [[nodiscard]] static ::MphRead::BeamType CycleWeapon() noexcept;
         static void DriveSniper(Entities::PlayerEntity& player, Entities::PlayerControls& c, Entities::PlayerEntity* other);
         static void HoldRange(Entities::PlayerEntity& player, Entities::PlayerControls& c, float range, float want);
@@ -111,6 +116,10 @@ namespace MphRead::Mods::Network
         inline static std::vector<bool> _wasDown{};
         inline static std::int64_t _padLaunches = 0;
         inline static std::int64_t _placements = 0;
+        // -hitrig wells:magmaul -- one weapon for the whole run instead of the cycle.
+        inline static bool _hasFixedWeapon = false;
+        inline static ::MphRead::BeamType _fixedWeapon = ::MphRead::BeamType::PowerBeam;
+        inline static std::int64_t _chargedReleases = 0;
         inline static float _highest = 0;
         inline static bool _wasAirborne = false;
         inline static Scene* _scene = nullptr;

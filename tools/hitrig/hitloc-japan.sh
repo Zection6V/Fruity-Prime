@@ -49,6 +49,7 @@ B=$!
 wait "$A" "$B"
 sleep 2
 
+"${SSH[@]}" "ps -o rss=,cputime=,etimes= -p \$(cat $REMOTE/server.pid)" > "$OUT/server-cost.txt" 2>/dev/null
 "${SSH[@]}" "kill \$(cat $REMOTE/server.pid) 2>/dev/null; sleep 2; rm -f $REMOTE/server.pid"
 "${SSH[@]}" "cat $REMOTE/logs/hl-server.csv" > "$OUT/hl-server.csv"
 "${SSH[@]}" "cat $REMOTE/logs/server-console.log" > "$OUT/authority.log"

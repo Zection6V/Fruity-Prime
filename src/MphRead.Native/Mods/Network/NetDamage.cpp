@@ -544,6 +544,23 @@ namespace MphRead::Mods::Network
                     + "/" + std::to_string(state.LifeId) + " event=" + std::to_string(hit.EventId)
                     + " shooter=" + std::to_string(hit.AttackerSlot) + "/" + std::to_string(hit.AttackerGeneration));
             }
+            if (slot != NetHooks::LocalSlot() && feedback.AttackerSlot != NoSlot
+                && static_cast<std::int32_t>(feedback.AttackerSlot) != slot
+                && static_cast<std::int32_t>(feedback.AttackerSlot) != NetHooks::LocalSlot())
+            {
+                // Two other players: this machine is watching A hit B.
+                HitLocation::ObservedDamage(static_cast<std::int32_t>(feedback.AttackerSlot), player, hit.Beam,
+                    static_cast<std::int32_t>(hit.Damage),
+                    (hit.Flags & static_cast<std::int32_t>(Entities::DamageFlags::Headshot)) != 0);
+                NetPlayerBridge::ConfirmIncoming(static_cast<std::int32_t>(feedback.AttackerSlot), slot, hit.Beam,
+                    hit.LaunchLow, hit.Impact,
+                    (hit.Flags & static_cast<std::int32_t>(Entities::DamageFlags::Headshot)) != 0);
+            }
+            if (slot == NetHooks::LocalSlot() && feedback.AttackerSlot == NoSlot)
+            {
+                // Nobody's: the world, a self-hit -- or a burn tick nobody owns.
+                HitLocation::Damage(-1, player, hit.Beam, static_cast<std::int32_t>(hit.Damage), false);
+            }
             if (slot == NetHooks::LocalSlot() && feedback.AttackerSlot != NoSlot
                 && static_cast<std::int32_t>(feedback.AttackerSlot) != slot
                 && static_cast<std::size_t>(feedback.AttackerSlot) < LastOverlapOnLocal.size())
@@ -551,7 +568,7 @@ namespace MphRead::Mods::Network
                 HitLocation::Damage(static_cast<std::int32_t>(feedback.AttackerSlot), player, hit.Beam,
                     static_cast<std::int32_t>(hit.Damage),
                     (hit.Flags & static_cast<std::int32_t>(Entities::DamageFlags::Headshot)) != 0);
-                NetPlayerBridge::ConfirmIncoming(static_cast<std::int32_t>(feedback.AttackerSlot), hit.Beam,
+                NetPlayerBridge::ConfirmIncoming(static_cast<std::int32_t>(feedback.AttackerSlot), slot, hit.Beam,
                     hit.LaunchLow, hit.Impact,
                     (hit.Flags & static_cast<std::int32_t>(Entities::DamageFlags::Headshot)) != 0);
                 IncrementInPlace(HitsTaken);

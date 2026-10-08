@@ -33,6 +33,7 @@ namespace MphRead::Mods::Network
         case HitRig::RigMode::All: return "All";
         case HitRig::RigMode::Wells: return "Wells";
         case HitRig::RigMode::Lanes: return "Lanes";
+        case HitRig::RigMode::Observe: return "Observe";
         }
         return std::to_string(static_cast<std::int32_t>(value));
     }
@@ -43,7 +44,19 @@ namespace MphRead::Mods::Network
         {
             return false;
         }
-        const std::string key = Runtime::ToLowerInvariant(Runtime::StringTrim(*value));
+        std::string key = Runtime::ToLowerInvariant(Runtime::StringTrim(*value));
+        // wells:magmaul / lanes:judicator: the cell rig with one weapon.
+        if (const std::size_t colon = key.find(':'); colon != std::string::npos)
+        {
+            const std::string weapon = key.substr(colon + 1);
+            key = key.substr(0, colon);
+            if (!Configure(weapon) || _mode != RigMode::Volley || (key != "wells" && key != "lanes"))
+            {
+                return false;
+            }
+            _hasFixedWeapon = true;
+            _fixedWeapon = _volleyWeapon;
+        }
         const auto volley = [](::MphRead::BeamType weapon)
         {
             _mode = RigMode::Volley;
@@ -80,6 +93,7 @@ namespace MphRead::Mods::Network
         if (key == "all" || key == "pads") { _mode = RigMode::All; return true; }
         if (key == "wells") { _mode = RigMode::Wells; return true; }
         if (key == "lanes") { _mode = RigMode::Lanes; return true; }
+        if (key == "observe" || key == "observer") { _mode = RigMode::Observe; return true; }
         return false;
     }
 
@@ -129,7 +143,17 @@ namespace MphRead::Mods::Network
         }
         else if (_mode == RigMode::Wells || _mode == RigMode::Lanes)
         {
-            DriveWells(player, c, other);
+            DriveWells(player, c, CellOpponent(player));
+        }
+        else if (_mode == RigMode::Observe)
+        {
+            _aimDeltaX = _aimDeltaY = 0;
+            const OpenTK::Mathematics::Vector3 at = player.Position;
+            if (std::abs(at.X) > 1.0F || std::abs(at.Z - 9.0F) > 1.0F)
+            {
+                player.ModPlaceAt(OpenTK::Mathematics::Vector3(0.0F, 0.6F, 9.0F));
+                Runtime::IncrementInPlace(_placements);
+            }
         }
         else if (IsSniper())
         {
@@ -237,7 +261,10 @@ namespace MphRead::Mods::Network
         player.ModSetAmmo(std::numeric_limits<std::int32_t>::max(), std::numeric_limits<std::int32_t>::max());
         // Head and chest in turn, five seconds each: the two bands whose
         // boundary the location measurement has to agree on.
-        const float height = _frame / 300 % 2 == 0 ? HeadAimHeight : ChestAimHeight;
+        const bool charging = weapon == ::MphRead::BeamType::Magmaul && _frame / 100 % 2 == 0;
+        // A charged Magmaul round falls about a unit and a half over the 12
+        // between the cells: aimed over the head, it lands on the body.
+        const float height = charging ? 2.6F : _frame / 300 % 2 == 0 ? HeadAimHeight : ChestAimHeight;
         const bool onTarget = AimAt(player, other, height);
         if (onTarget)
         {
@@ -245,6 +272,18 @@ namespace MphRead::Mods::Network
         }
         const std::int32_t tap = Runtime::RequireReference(
             (*::MphRead::Weapons::Current)[static_cast<std::size_t>(weapon)]).ShotCooldown * 2 + 3;
+        // The Magmaul burns only when charged: every other 100 frames it is
+        // held 80 and released, so the burn is in the measurement too.
+        if (charging)
+        {
+            const std::int32_t phase = static_cast<std::int32_t>(_frame % 100);
+            c.Shoot().SetIsDown(phase < 80 && (onTarget || phase > 0));
+            if (phase == 80)
+            {
+                Runtime::IncrementInPlace(_chargedReleases);
+            }
+            return;
+        }
         c.Shoot().SetIsDown(onTarget && _frame % tap < 3);
         if (c.Shoot().IsDown() && _frame % tap == 0)
         {
@@ -254,6 +293,10 @@ namespace MphRead::Mods::Network
 
     ::MphRead::BeamType HitRig::CycleWeapon() noexcept
     {
+        if (_hasFixedWeapon)
+        {
+            return _fixedWeapon;
+        }
         static constexpr ::MphRead::BeamType Cycle[] = {
             ::MphRead::BeamType::PowerBeam, ::MphRead::BeamType::VoltDriver,
             ::MphRead::BeamType::Missile, ::MphRead::BeamType::Battlehammer,
@@ -473,6 +516,23 @@ namespace MphRead::Mods::Network
         return std::abs(turnX) < FiringCone && std::abs(turnY) < FiringCone;
     }
 
+    PlayerEntity* HitRig::CellOpponent(PlayerEntity& self)
+    {
+        const float mine = static_cast<OpenTK::Mathematics::Vector3>(self.Position).X;
+        for (const std::shared_ptr<PlayerEntity>& otherPtr : PlayerEntity::Players())
+        {
+            PlayerEntity& other = Runtime::RequireReference(otherPtr);
+            const float x = static_cast<OpenTK::Mathematics::Vector3>(other.Position).X;
+            if (&other != &self && ::MphRead::TestFlag(other.LoadFlags(), Entities::LoadFlags::Active)
+                && ::MphRead::TestFlag(other.LoadFlags(), Entities::LoadFlags::Spawned) && other.Health() > 0
+                && std::abs(x + mine) < 2.5F && std::abs(x) > CellX - 2.5F)
+            {
+                return &other;
+            }
+        }
+        return nullptr;
+    }
+
     PlayerEntity* HitRig::Opponent(PlayerEntity& self)
     {
         PlayerEntity* best = nullptr;
@@ -566,6 +626,7 @@ namespace MphRead::Mods::Network
                 + std::to_string(_triggers) + " triggers in the air" : std::string())
             + (_mode == RigMode::Wells || _mode == RigMode::Lanes ? ", highest " + Runtime::ToString(_highest, "F2")
                 + ", " + std::to_string(_placements) + " placement(s) into the cell, " + std::to_string(_triggers)
-                + " triggers, " + std::to_string(_framesOnTarget) + " frames on target" : std::string());
+                + " triggers, " + std::to_string(_chargedReleases) + " charged releases, "
+                + std::to_string(_framesOnTarget) + " frames on target" : std::string());
     }
 }

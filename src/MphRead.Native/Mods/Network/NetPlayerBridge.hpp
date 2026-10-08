@@ -33,12 +33,16 @@ namespace MphRead::Mods::Network
         std::uint32_t Until = 0;
         bool Live = false;
         bool Headshot = false;
+        std::int32_t Victim = -1;
     };
     struct ConfirmGoneShot
     {
         std::int32_t Attacker = -1;
         std::uint8_t LaunchLow = 0;
         std::uint32_t Frame = 0;
+        // A shot that went out in a blast: where, and how far it reached.
+        OpenTK::Mathematics::Vector3 Where{};
+        float Blast = 0;
     };
 
     class NetPlayerBridge final
@@ -111,20 +115,27 @@ namespace MphRead::Mods::Network
         static void SetScene(MphRead::Scene* scene) noexcept { _scene = scene; }
         static void ConfirmedImpacts(bool value) noexcept { _confirmedImpacts = value; }
         [[nodiscard]] static bool ConfirmedImpacts() noexcept { return _confirmedImpacts; }
-        static void ConfirmIncoming(std::int32_t attackerSlot, std::uint8_t beam, std::uint8_t launchLow,
-            ImpactOffset impact, bool headshot = false);
+        static void ConfirmIncoming(std::int32_t attackerSlot, std::int32_t victimSlot, std::uint8_t beam,
+            std::uint8_t launchLow, ImpactOffset impact, bool headshot = false);
+        // Confirmed impacts drawn between two other players too (this
+        // machine watching A hit B); -noobservedimpacts keeps them to this player.
+        static void ObservedImpacts(bool value) noexcept { _observedImpacts = value; }
         static void OnRemoteShotSpawned(Entities::BeamProjectileEntity& beam);
         static void NoteRemoteShotGone(const Entities::BeamProjectileEntity& beam);
-        // Called for every player a projectile is tested against: true when
-        // this is an unconfirmed remote shot meeting this machine's player.
-        [[nodiscard]] static bool PassesThroughLocal(Entities::BeamProjectileEntity& beam,
+        // Called for every player a projectile meets: true when this is a
+        // remote shot nobody has confirmed against that player.
+        [[nodiscard]] static bool PassesThrough(Entities::BeamProjectileEntity& beam,
             const Entities::PlayerEntity& player);
         static void TickConfirms();
-        // How long a remote shot that met this player waits for the word.
-        static constexpr std::uint32_t HoldFrames = 6;
+        // How long a remote shot that met a player waits for the word: the
+        // 90th percentile of how long the word actually took on this line
+        // (the last 64 held shots that were confirmed), plus one, within 2-8;
+        // 6 until 16 have been seen. A miss is held no longer than it must be.
+        [[nodiscard]] static std::uint32_t HoldFrames() noexcept;
+        static void NoteConfirmDelay(std::uint32_t frames) noexcept;
         static void NotePassedLocal(const Entities::BeamProjectileEntity& beam);
-        static void SynthesizeImpact(std::int32_t attackerSlot, std::uint8_t beam, std::uint8_t launchLow,
-            OpenTK::Mathematics::Vector3 offset, bool headshot = false);
+        static void SynthesizeImpact(std::int32_t attackerSlot, std::int32_t victimSlot, std::uint8_t beam,
+            std::uint8_t launchLow, OpenTK::Mathematics::Vector3 offset, bool headshot = false);
         [[nodiscard]] static std::string DescribeConfirms();
         [[nodiscard]] static std::int64_t ShotsSteered() noexcept { return _shotsSteered; }
         static void RetargetEnabled(bool value) noexcept { _retargetEnabled = value; }
@@ -210,8 +221,14 @@ namespace MphRead::Mods::Network
         inline static std::int64_t _passedThrough = 0;
         inline static std::int64_t _confirmsIgnored = 0;
         inline static double _homeAngleSum = 0;
+        inline static bool _observedImpacts = true;
+        inline static std::int64_t _observedConfirms = 0;
         inline static double _homeAngleMax = 0;
-        [[nodiscard]] static bool RecentlyGone(std::int32_t attackerSlot, std::uint8_t launchLow);
+        [[nodiscard]] static const ConfirmGoneShot* RecentlyGone(std::int32_t attackerSlot, std::uint8_t launchLow);
+        inline static std::int64_t _seenAsBlast = 0;
+        inline static std::array<std::uint8_t, 64> _confirmDelays{};
+        inline static std::size_t _confirmDelayCount = 0;
+        inline static std::size_t _confirmDelayNext = 0;
         inline static bool _retargetEnabled = true;
         inline static std::uint32_t _localShotFrame = 0;
         inline static OpenTK::Mathematics::Vector3 _localShotOrigin{};

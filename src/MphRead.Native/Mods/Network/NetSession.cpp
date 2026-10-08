@@ -1081,6 +1081,7 @@ namespace MphRead::Mods::Network
         peer->LastSeenTime = time;
         const auto index = static_cast<std::size_t>(peer->SlotIndex);
         RemoteIntents.at(index) = intent;
+        NetHitClaims::RecordIntent(peer->SlotIndex, intent);
         RemoteIntentValid.at(index) = true;
         RemoteIntentArrived.at(index) = std::max(_netFrame, 1U);
     }
@@ -1118,6 +1119,7 @@ namespace MphRead::Mods::Network
         }
         _lastSlotIntentFrame[index] = intent.Frame;
         RemoteIntents[index] = intent;
+        NetHitClaims::RecordIntent(slot, intent);
         RemoteIntentValid[index] = true;
         RemoteIntentArrived[index] = std::max(_netFrame, 1U);
         IncrementInPlace(_intentsReceived);

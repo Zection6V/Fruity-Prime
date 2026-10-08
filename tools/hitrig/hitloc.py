@@ -114,6 +114,10 @@ def classify(rows):
             out["M"].append(r)
         elif ev == "dmg" and r["victim"] == local:
             out["D"].append(r)
+        elif ev == "hit" and r["shooter"] != local and r["victim"] != local:
+            out["O"].append(r)
+        elif ev == "odmg":
+            out["OD"].append(r)
     return out
 
 
@@ -281,6 +285,33 @@ def analyse(run):
         add(b, "impacts_drawn", 1)
         add(b, "impact_had_damage", 1 if id(v) in used else 0)
 
+    # A third machine watching the duel: the same pairings, the observer's
+    # puppet of the victim in place of the victim's own body.
+    if c["O"] or c["OD"]:
+        for s, o in pair([r for r in c["S"] if not r["splash"]], [r for r in c["O"] if not r["splash"]], tolerance=3):
+            b = beam_name(s["beam"])
+            add(b, "obs_same_shot", 1 if o is not None else 0)
+            if o is not None:
+                add(b, "obs_d_hpct", abs(s["hpct"] - o["hpct"]))
+        by_obs = defaultdict(list)
+        for o in c["O"]:
+            by_obs[(o["_file"], o["shooter"], o["victim"], o["beam"])].append(o)
+        oused = set()
+        for d in sorted(c["OD"], key=lambda r: r["wall_ms"]):
+            b = beam_name(d["beam"])
+            best = None
+            for o in by_obs.get((d["_file"], d["shooter"], d["victim"], d["beam"]), []):
+                if id(o) in oused:
+                    continue
+                gap = d["wall_ms"] - o["wall_ms"]
+                if abs(gap) <= SEEN_WINDOW_MS and (best is None or abs(gap) < abs(best[0])):
+                    best = (gap, o)
+            add(b, "obs_dmg_seen", 0 if best is None else 1)
+            if best is not None:
+                oused.add(id(best[1]))
+        for o in c["O"]:
+            add(beam_name(o["beam"]), "obs_impact_had_damage", 1 if id(o) in oused else 0)
+
     def summarise(bucket):
         out = {}
         for name, values in bucket.items():
@@ -288,7 +319,8 @@ def analyse(run):
                 out[name] = len(values)
             elif name in ("seen_same_shot", "hs_agree", "band_agree", "claimed", "claim_ok", "applied",
                           "dmg_equal", "shadow_agree", "shadow_hs_agree", "dmg_seen", "impact_had_damage",
-                          "splash_seen", "miss_found", "seen_as_flying_shot"):
+                          "splash_seen", "miss_found", "seen_as_flying_shot", "obs_same_shot", "obs_dmg_seen",
+                          "obs_impact_had_damage"):
                 out[name] = {"n": len(values), "rate": sum(values) / len(values) if values else None}
             else:
                 out[name] = stats(values)
@@ -323,6 +355,10 @@ ROWS = [
     ("  damage applied = damage predicted", "dmg_equal", "rate"),
     ("  victim drawn vs authority history, Y (p90)", "drawn_vs_history_y", "p90"),
     ("  victim drawn vs authority history, XZ (p90)", "drawn_vs_history_xz", "p90"),
+    ("observer drew the same shot hitting", "obs_same_shot", "rate"),
+    ("  |height| shooter vs observer, % body (p90)", "obs_d_hpct", "p90"),
+    ("  observer: damage seen landing", "obs_dmg_seen", "rate"),
+    ("  observer: impacts that came with damage", "obs_impact_had_damage", "rate"),
     ("authority's own copy agreed (shadow)", "shadow_agree", "rate"),
     ("  |height| shooter vs authority copy (p90)", "shadow_d_hpct", "p90"),
 ]

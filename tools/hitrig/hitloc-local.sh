@@ -10,6 +10,7 @@
 #   HITLOC_LOSS   each client's -netloss percentage (default 0)
 #   HITLOC_PORT   loopback port (default 28190)
 #   HITLOC_SERVER_EXTRA / HITLOC_CLIENT_EXTRA   more flags for either side
+#   HITLOC_OBSERVER=1   a third client that only watches (-hitrig observe)
 #
 # Everything goes through -headless: no window and no GPU, so a run cannot be
 # lost to a driver, and it measures nothing but the netcode.
@@ -41,8 +42,19 @@ A=$!
 sleep 2
 client BRAVO &
 B=$!
-wait "$A" "$B"
+C=""
+if [ -n "${HITLOC_OBSERVER:-}" ]; then
+  # A third player, watching: -hitrig observe stands it off to the side.
+  sleep 2
+  ./FruityPrime -netcheck 127.0.0.1 -port "$PORT" -name CHARLIE -hunter Samus -seconds "$SECS" \
+    -hitrig observe -headless -netlag "$LAG" -netloss "$LOSS" -hitlog "$OUT/hl-CHARLIE.csv" \
+    ${HITLOC_CLIENT_EXTRA:-} > "$OUT/CHARLIE.log" 2>&1 &
+  C=$!
+fi
+wait "$A" "$B" $C
 sleep 2
+# What the authority cost: resident memory and CPU time over the whole run.
+ps -o rss=,cputime=,etimes= -p "$SERVER" > "$OUT/server-cost.txt" 2>/dev/null
 kill "$SERVER" 2>/dev/null
 wait "$SERVER" 2>/dev/null
 echo "== $LABEL ($MAP, -hitrig $MODE, ${SECS}s, -netlag $LAG) -> $OUT"

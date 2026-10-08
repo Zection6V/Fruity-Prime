@@ -105,6 +105,42 @@ the guess with the authority's word:
   median) and then let through: it is not drawn as a hit.
 - The Shock Coil is left as drawn: one continuous beam, no projectile to
   bring in. `-noconfirmedimpacts` restores PR #109's behaviour.
+- **Observers too.** Every player state carries its damage events, so a
+  third machine watching A hit B confirms A's shot against B's puppet the
+  same way (`ConfirmIncoming(attacker, victim, ...)`, `ModTargetSlot`). Before
+  it, an observer saw 38% of A's hits as the same shot and 52% of B's damage
+  with an impact; after, 93% and 99% (`HITLOC_OBSERVER=1`, a third headless
+  client on `-hitrig observe`). `-noobservedimpacts` keeps it to this player.
+- **A blast is an impact.** A shot that went out in an explosion reaching the
+  victim needs nothing more drawn when its splash damage is confirmed (the
+  Battlehammer drew two impacts for one damage: 72% precision).
+- **The hold follows the line**: the 90th percentile of how long the word
+  actually took for the last 64 held shots, plus one, within 2-8 frames (6
+  until 16 are seen). A miss is held on a body no longer than it must be.
+- Leading the turned shot onto where the victim will be (its speed and
+  acceleration over the flight) was tried and taken out: on pads it made 17
+  points fewer of the drawn shots arrive (49% -> 32% wells, 37% -> 20% lanes).
+
+## What the authority checks, and what it no longer does
+
+A claim is the hit, so the authority holds it to what the shooter's own
+machine said it did (`NetHitClaims::ShotPlausible`, `RecordIntent`):
+
+- **Its ack**: resolved against a world the shooter was still drawing -- no
+  more than 20 frames before the newest ack its intents carried (honest
+  claims travel with their intents: gap 0 at p99).
+- **Its ray**: for weapons that fly straight (no gravity, homing or
+  ricochet), the impact must lie within 0.75 of the ray the intent says that
+  frame fired (honest: p99 0.11, worst 0.36), with **line of sight** from the
+  muzzle (world geometry, `TestFlags::Beams`).
+- **Its weapon's afflictions**: a burn, freeze or disrupt the weapon cannot
+  inflict is dropped from the claim and counted, the damage kept.
+- **No rewind for it.** A human's shot is no longer rewound on the authority
+  unless a bot is in play (the only target its own copy can still hit): over a
+  200 s two-player run, 1360 rewinds and 6667 projectile catch-up steps
+  skipped, worst simulation step 6.7 ms -> 1.9 ms, mean unchanged (0.20 ms),
+  RSS unchanged (~69 MB). History is still recorded: claims are checked
+  against it.
 
 ## Measuring it
 

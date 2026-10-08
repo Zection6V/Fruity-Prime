@@ -549,9 +549,11 @@ namespace MphRead::Entities
 
     void BeamProjectileEntity::ModHomeConfirmed()
     {
+        const auto& players = PlayerEntity::Players();
+        const bool targetKnown = ModTargetSlot >= 0 && ModTargetSlot < static_cast<std::int32_t>(players.size());
         if (ModHeldUntil != 0)
         {
-            if (ModConfirmedLocal)
+            if (ModConfirmedTarget)
             {
                 ModHeldUntil = 0;
             }
@@ -559,16 +561,11 @@ namespace MphRead::Entities
             {
                 // No word: it did not hit. On it goes, through them.
                 ModHeldUntil = 0;
-                ModPassedLocal = true;
+                ModPassedTarget = true;
                 Mods::Network::NetPlayerBridge::NotePassedLocal(*this);
-                if (Mods::Network::HitLocation::Enabled())
+                if (Mods::Network::HitLocation::Enabled() && targetKnown)
                 {
-                    const std::int32_t local = Mods::Network::NetSession::LocalSlot();
-                    if (local >= 0 && local < static_cast<std::int32_t>(PlayerEntity::Players().size()))
-                    {
-                        Mods::Network::HitLocation::Passed(*this,
-                            *PlayerEntity::Players()[static_cast<std::size_t>(local)], ModHeldPoint);
-                    }
+                    Mods::Network::HitLocation::Passed(*this, *players[static_cast<std::size_t>(ModTargetSlot)], ModHeldPoint);
                 }
             }
             else
@@ -579,27 +576,22 @@ namespace MphRead::Entities
                 return;
             }
         }
-        if (!ModConfirmedLocal || ModTouchedLocal)
+        if (!ModConfirmedTarget || ModTouchedTarget || !targetKnown)
         {
             return;
         }
-        const std::int32_t local = Mods::Network::NetSession::LocalSlot();
-        if (local < 0 || local >= static_cast<std::int32_t>(PlayerEntity::Players().size()))
-        {
-            return;
-        }
-        const PlayerEntity& me = *PlayerEntity::Players()[static_cast<std::size_t>(local)];
-        if (me.Health() <= 0)
+        const PlayerEntity& victim = *players[static_cast<std::size_t>(ModTargetSlot)];
+        if (victim.Health() <= 0)
         {
             // Died before it arrived (this hit, or another): a body takes no
             // collision, so the hit is drawn on it here and the shot is spent.
-            ModTouchedLocal = true;
+            ModTouchedTarget = true;
             PlayerEntity* owner = Mods::Network::NetHitPrediction::OwnerOf(this);
-            Mods::Network::NetPlayerBridge::SynthesizeImpact(owner != nullptr ? owner->SlotIndex() : -1,
+            Mods::Network::NetPlayerBridge::SynthesizeImpact(owner != nullptr ? owner->SlotIndex() : -1, ModTargetSlot,
                 static_cast<std::uint8_t>(_beam), static_cast<std::uint8_t>(ModShooterAck & 0xFFU), ModConfirmedOffset);
             return;
         }
-        const Vector3 toTarget = static_cast<Vector3>(me.Position) + ModConfirmedOffset - static_cast<Vector3>(Position);
+        const Vector3 toTarget = static_cast<Vector3>(victim.Position) + ModConfirmedOffset - static_cast<Vector3>(Position);
         const float distance = Length(toTarget);
         const float speed = Length(_velocity);
         if (!(distance > 0.0001F) || !(speed > 0.0001F))
@@ -862,15 +854,18 @@ namespace MphRead::Entities
             }
 
             if (hitPlayer && playerRes.Distance < minDist
-                && Mods::Network::NetPlayerBridge::PassesThroughLocal(*this, player))
+                && Mods::Network::NetPlayerBridge::PassesThrough(*this, player))
             {
-                // Met this machine's player with no word that it hit them. The
-                // word usually follows the shot by a frame or two: hold it on
-                // the body that long rather than fly it through them.
-                if (!ModPassedLocal && ModHeldUntil == 0)
+                // Met a player with no word that it hit them. The word usually
+                // follows the shot by a frame or two: hold it on the body that
+                // long rather than fly it through them. (The first body it
+                // meets is the one it waits on; any other it passes through.)
+                if (!ModPassedTarget && ModHeldUntil == 0
+                    && (ModTargetSlot < 0 || ModTargetSlot == player.SlotIndex()))
                 {
-                    ModHeldUntil = std::max(1U,
-                        Mods::Network::NetSession::NetFrame() + Mods::Network::NetPlayerBridge::HoldFrames);
+                    ModTargetSlot = player.SlotIndex();
+                    ModHeldSince = Mods::Network::NetSession::NetFrame();
+                    ModHeldUntil = std::max(1U, ModHeldSince + Mods::Network::NetPlayerBridge::HoldFrames());
                     ModHeldPoint = playerRes.Position;
                     Position = ModHeldPoint;
                 }
@@ -878,7 +873,7 @@ namespace MphRead::Entities
             }
             if (hitPlayer && playerRes.Distance < minDist)
             {
-                if (ModConfirmedLocal && player.SlotIndex() == Mods::Network::NetSession::LocalSlot())
+                if (ModConfirmedTarget && player.SlotIndex() == ModTargetSlot)
                 {
                     // Drawn where the shooter saw it land.
                     playerRes.Position = static_cast<Vector3>(player.Position) + ModConfirmedOffset;
@@ -1056,6 +1051,10 @@ namespace MphRead::Entities
                     if (player->SlotIndex() == Mods::Network::NetSession::LocalSlot())
                     {
                         ModTouchedLocal = true;
+                    }
+                    if (player->SlotIndex() == ModTargetSlot)
+                    {
+                        ModTouchedTarget = true;
                     }
                     if (Mods::Network::HitLocation::Enabled())
                     {
@@ -1485,6 +1484,10 @@ namespace MphRead::Entities
                         {
                             ModTouchedLocal = true;
                         }
+                        if (player.SlotIndex() == ModTargetSlot)
+                        {
+                            ModTouchedTarget = true;
+                        }
                         if (Mods::Network::HitLocation::Enabled())
                         {
                             Mods::Network::HitLocation::Contact(*this, player, Position, false,
@@ -1835,16 +1838,18 @@ namespace MphRead::Entities
                     ModNearestLocalPoint, ModNearestLocal);
             }
         }
-        if (!ModTouchedLocal && _owner)
+        if (!ModTouchedTarget && _owner)
         {
             Mods::Network::NetPlayerBridge::NoteRemoteShotGone(*this);
         }
         ModNearestLocal = -1.0F;
         ModTouchedLocal = false;
         ModShooterAck = 0;
-        ModConfirmedLocal = false;
-        ModPassedLocal = false;
+        ModConfirmedTarget = false;
+        ModPassedTarget = false;
         ModHeldUntil = 0;
+        ModTargetSlot = -1;
+        ModTouchedTarget = false;
         _soundSource.StopAllSfx();
         _lifespan = 0.0F;
         if (_effect)

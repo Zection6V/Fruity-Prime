@@ -166,7 +166,7 @@ namespace MphRead::Mods::Network
 
     void HitLocation::Claim(std::int32_t shooter, const Entities::PlayerEntity& victim, std::uint8_t beam,
         std::uint32_t launch, std::int32_t damage, std::uint8_t flags, OpenTK::Mathematics::Vector3 drawn,
-        OpenTK::Mathematics::Vector3 history, bool historyKnown, std::int32_t verdict)
+        OpenTK::Mathematics::Vector3 history, bool historyKnown, std::int32_t verdict, const std::string& checks)
     {
         if (!_writer)
         {
@@ -177,7 +177,7 @@ namespace MphRead::Mods::Network
         const std::string extra = (historyKnown
                 ? Num(history.X) + ';' + Num(history.Y) + ';' + Num(history.Z)
                 : std::string("na;na;na"))
-            + ';' + std::to_string(verdict) + ';' + std::to_string(flags);
+            + ';' + std::to_string(verdict) + ';' + std::to_string(flags) + (checks.empty() ? "" : ";" + checks);
         Row("claim", shooter, victim, beam, launch, false, (flags & 0x01U) != 0, damage, drawn, extra);
     }
 
@@ -194,13 +194,25 @@ namespace MphRead::Mods::Network
     }
 
     void HitLocation::Synthesized(std::int32_t attacker, const Entities::PlayerEntity& victim, std::uint8_t beam,
-        std::uint32_t launch, OpenTK::Mathematics::Vector3 point, bool headshot)
+        std::uint32_t launch, OpenTK::Mathematics::Vector3 point, bool headshot, bool blast)
     {
         if (!_writer)
         {
             return;
         }
-        Row("hit", attacker, victim, beam, launch, false, headshot, 0, point, std::to_string(launch) + ";0;synth");
+        // A blast already drawn is logged as the splash it was (no new impact).
+        Row(blast ? "blast" : "hit", attacker, victim, beam, launch, blast, headshot, 0, point,
+            std::to_string(launch) + (blast ? ";0;blast" : ";0;synth"));
+    }
+
+    void HitLocation::ObservedDamage(std::int32_t attacker, const Entities::PlayerEntity& victim, std::uint8_t beam,
+        std::int32_t damage, bool headshot)
+    {
+        if (!_writer)
+        {
+            return;
+        }
+        Row("odmg", attacker, victim, beam, 0, false, headshot, damage, victim.Position, std::string());
     }
 
     void HitLocation::Damage(std::int32_t attacker, const Entities::PlayerEntity& victim, std::uint8_t beam,

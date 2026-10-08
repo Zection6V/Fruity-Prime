@@ -10,6 +10,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 namespace MphRead
 {
@@ -233,7 +234,8 @@ namespace MphRead::Entities
         void Initialize() override;
         void Reposition(::OpenTK::Mathematics::Vector3 offset);
         [[nodiscard]] bool Process() override;
-        void OnCollision(Formats::CollisionResult colRes, EntityBase* colWith);
+        void OnCollision(Formats::CollisionResult colRes, EntityBase* colWith,
+            const ::OpenTK::Mathematics::Vector4* muzzlePlane = nullptr);
         void GetDrawInfo() override;
         void Destroy() override;
         void SpawnDamageEffect(Effectiveness effectiveness);
@@ -246,7 +248,8 @@ namespace MphRead::Entities
             BeamSpawnFlags spawnFlags,
             Formats::Culling::NodeRef nodeRef,
             Scene* scene,
-            BeamProjectileEntity* parent = nullptr);
+            BeamProjectileEntity* parent = nullptr,
+            std::optional<::OpenTK::Mathematics::Vector3> syluxGuardStart = std::nullopt);
 
     protected:
         [[nodiscard]] ::OpenTK::Mathematics::Matrix4 GetModelTransform(
@@ -258,11 +261,14 @@ namespace MphRead::Entities
 
         Mods::Network::ShotKey _modLaunchKey{};
         void CheckCollision();
+        void ApplyCollisionResult(Formats::CollisionResult collision, EntityBase* entity,
+            bool noCollisionEffect, bool hitHalfturret = false,
+            const ::OpenTK::Mathematics::Vector4* muzzlePlane = nullptr);
         void ProcessRicochet(Formats::CollisionResult colRes);
         void PlayRicochetSfx();
         void StopHomingSfx();
         void PlayBeamHitSfx();
-        void CheckSplashDamage(EntityBase* colWith);
+        void CheckSplashDamage(EntityBase* colWith, const ::OpenTK::Mathematics::Vector4* muzzlePlane = nullptr);
         [[nodiscard]] float GetInterpolatedValue(
             std::int32_t type, float value1, float value2, float ratio) const;
         void Draw00();
@@ -285,13 +291,14 @@ namespace MphRead::Entities
             const std::shared_ptr<BeamProjectileEntity>& beam,
             const std::shared_ptr<EquipInfo>& equip,
             Scene* scene);
-        void SpawnIceWave(const std::shared_ptr<WeaponInfo>& weapon, float chargePct);
-        void CheckIceWaveCollision(float angle);
+        void SpawnIceWave(const std::shared_ptr<WeaponInfo>& weapon, float chargePct,
+            const ::OpenTK::Mathematics::Vector4* muzzlePlane = nullptr);
+        void CheckIceWaveCollision(float angle, const ::OpenTK::Mathematics::Vector4* muzzlePlane = nullptr);
         void CheckIceWaveCollision(
             PlayerEntity& player,
             ::OpenTK::Mathematics::Vector3 position,
             float angleCos,
-            bool halfturret);
+            bool halfturret, const ::OpenTK::Mathematics::Vector4* muzzlePlane = nullptr);
         [[nodiscard]] ::OpenTK::Mathematics::Vector3 GetDamageDirection(
             ::OpenTK::Mathematics::Vector3 beamPos,
             ::OpenTK::Mathematics::Vector3 targetPos) const;

@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <string>
 
+namespace MphRead { class Scene; }
+
 namespace MphRead::Entities
 {
     class PlayerEntity;
@@ -33,6 +35,7 @@ namespace MphRead::Mods::Network
         static void InvulnerableClaimIsRefused();
         static void ClaimArbitrationHasDeadline();
         static void ContinuousPhaseAgreesAcrossPeers();
+        static void SyluxMuzzleGuardCases(Scene& scene);
 
         inline static std::int32_t _checks = 0;
     };

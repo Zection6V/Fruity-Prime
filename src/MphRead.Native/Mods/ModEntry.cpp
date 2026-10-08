@@ -73,6 +73,7 @@
 #include "Diagnostics/WeavelAltFormCheck.hpp"
 #include "Diagnostics/AimCheck.hpp"
 #include "Network/DialancheCombatCheck.hpp"
+#include "Network/NetCombatCheck.hpp"
 #include "Diagnostics/LockjawEnemyCheck.hpp"
 #include "Network/ServerSimCheck.hpp"
 #include "Network/WeaponDps.hpp"
@@ -2022,6 +2023,12 @@ namespace MphRead::Mods
             return true;
         }
 
+        const auto netCombatCheck = ValueAfter(args, "netcombatcheck");
+        if (netCombatCheck.has_value())
+        {
+            SetExitCode(Network::NetCombatCheck::Run(*netCombatCheck));
+            return true;
+        }
         const auto dialancheCheck = ValueAfter(args, "dialanchecheck");
         const auto dialanchePeerCheck = ValueAfter(args, "dialanchepeercheck");
         if (dialanchePeerCheck.has_value())

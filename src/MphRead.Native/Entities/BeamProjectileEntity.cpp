@@ -2,6 +2,10 @@
 
 #include "../NativeRuntime/System/Buffers.hpp"
 
+#include "../Mods/Combat/BeamObstacleTrace.hpp"
+#include "../Mods/Combat/SyluxMuzzleGuard.hpp"
+#include "../Mods/Network/NetHitClaims.hpp"
+#include "../Mods/Network/NetUnlagged.hpp"
 #include "../Features.hpp"
 #include "../GameState.hpp"
 #include "../MemoryArrays.hpp"
@@ -521,82 +525,12 @@ namespace MphRead::Entities
 
         if (TestFlag(_flags, BeamFlags::SurfaceCollision))
         {
-            Formats::CollisionResult colRes{};
-            if (Formats::CollisionDetection::CheckBetweenPoints(
-                    _backPosition, Position, Formats::TestFlags::Beams, _scene, colRes)
-                && colRes.Distance < minDist)
+            if (const auto hit = Mods::Combat::TraceFirstBeamObstacle(_backPosition, Position, scene, minDist))
             {
-                const float dot = Vector3::Dot(_backPosition, colRes.Plane.Xyz()) - colRes.Plane.W;
-                if (dot >= 0.0F)
-                {
-                    minDist = colRes.Distance;
-                    anyRes = colRes;
-                }
-            }
-
-            auto doors = scene.GetDoorEntities().GetEnumerator();
-            while (doors.MoveNext())
-            {
-                const std::shared_ptr<DoorEntity> doorPtr = doors.Current();
-                DoorEntity& door = RequireReference(doorPtr);
-                if (TestFlag(door.Flags(), DoorFlags::Open) || door.ConnectorInactive())
-                {
-                    continue;
-                }
-                const Vector3 doorFacing = door.FacingVector();
-                const Vector3 lockPos = door.LockPosition();
-                Vector4 plane(doorFacing, 0.0F);
-                if (Vector3::Dot(_backPosition - lockPos, doorFacing) < 0.0F)
-                {
-                    plane.X *= -1.0F; plane.Y *= -1.0F; plane.Z *= -1.0F; plane.W *= -1.0F;
-                }
-                const Vector3 wvec = ComponentMultiply(
-                    plane.Xyz(), lockPos + ::Scale(plane.Xyz(), 0.4F));
-                plane.W = wvec.X + wvec.Y + wvec.Z;
-                if (Formats::CollisionDetection::CheckCylinderIntersectPlane(
-                        _backPosition, Position, plane, colRes)
-                    && colRes.Distance < minDist)
-                {
-                    const Vector3 between = colRes.Position - lockPos;
-                    if (LengthSquared(between) < door.RadiusSquared())
-                    {
-                        minDist = colRes.Distance;
-                        anyRes = colRes;
-                        colWith = doorPtr.get();
-                        noColEff = false;
-                        anyRes.Field0 = 0;
-                        anyRes.Plane = plane;
-                        anyRes.Flags = Formats::Collision::CollisionFlags::None;
-                    }
-                }
-            }
-
-            auto forceFields = scene.GetForceFieldEntities().GetEnumerator();
-            while (forceFields.MoveNext())
-            {
-                const std::shared_ptr<ForceFieldEntity> forceFieldPtr = forceFields.Current();
-                ForceFieldEntity& forceField = RequireReference(forceFieldPtr);
-                if (forceField.Active()
-                    && Formats::CollisionDetection::CheckCylinderIntersectPlane(
-                        _backPosition, Position, forceField.Plane(), colRes)
-                    && colRes.Distance < minDist)
-                {
-                    const Vector3 between = colRes.Position - static_cast<Vector3>(forceField.Position);
-                    float dot = Vector3::Dot(between, forceField.FieldUpVector());
-                    if (dot <= forceField.Height() && dot >= -forceField.Height())
-                    {
-                        dot = Vector3::Dot(between, forceField.FieldRightVector());
-                        if (dot <= forceField.Width() && dot >= -forceField.Width())
-                        {
-                            minDist = colRes.Distance;
-                            anyRes = colRes;
-                            colWith = forceFieldPtr.get();
-                            noColEff = false;
-                            anyRes.Field0 = 0;
-                            anyRes.Plane = forceField.Plane();
-                        }
-                    }
-                }
+                minDist = hit->Collision.Distance;
+                anyRes = hit->Collision;
+                colWith = hit->Entity;
+                if (colWith != nullptr) noColEff = false;
             }
         }
 
@@ -771,6 +705,15 @@ namespace MphRead::Entities
             return;
         }
 
+        ApplyCollisionResult(anyRes, colWith, noColEff, hitHalfturret);
+    }
+
+    void BeamProjectileEntity::ApplyCollisionResult(
+        Formats::CollisionResult anyRes, EntityBase* colWith, bool noColEff, bool hitHalfturret,
+        const Vector4* muzzlePlane)
+    {
+        Scene& scene = RequireReference(_scene);
+        EntityBase& owner = RequireReference(_owner);
         const float amt = Fixed::ToFloat(204);
         Position = Vector3(
             anyRes.Position.X + anyRes.Plane.X * amt,
@@ -889,7 +832,7 @@ namespace MphRead::Entities
                         SpawnCollisionEffect(anyRes, true);
                     }
                 }
-                OnCollision(anyRes, colWith);
+                OnCollision(anyRes, colWith, muzzlePlane);
                 PlayBeamHitSfx();
                 ricochet = false;
             }
@@ -928,7 +871,7 @@ namespace MphRead::Entities
                         enemy->TakeDamage(static_cast<std::uint32_t>(damage), this);
                         SpawnCollisionEffect(anyRes, true);
                     }
-                    OnCollision(anyRes, colWith);
+                    OnCollision(anyRes, colWith, muzzlePlane);
                     PlayBeamHitSfx();
                 }
                 ricochet = false;
@@ -937,7 +880,7 @@ namespace MphRead::Entities
             {
                 DoorEntity* door = static_cast<DoorEntity*>(colWith);
                 SpawnCollisionEffect(anyRes, true);
-                OnCollision(anyRes, colWith);
+                OnCollision(anyRes, colWith, muzzlePlane);
                 PlayBeamHitSfx();
                 if (_owner && _owner->Type == EntityType::Player)
                 {
@@ -971,7 +914,7 @@ namespace MphRead::Entities
                 if (!TestFlag(_flags, BeamFlags::Ricochet))
                 {
                     SpawnCollisionEffect(anyRes, true);
-                    OnCollision(anyRes, colWith);
+                    OnCollision(anyRes, colWith, muzzlePlane);
                     PlayBeamHitSfx();
                     const auto lock = forceField->Lock();
                     if (lock)
@@ -988,7 +931,7 @@ namespace MphRead::Entities
                 {
                     SpawnCollisionEffect(anyRes, true);
                 }
-                OnCollision(anyRes, colWith);
+                OnCollision(anyRes, colWith, muzzlePlane);
                 PlayBeamHitSfx();
                 if (TestFlag(other->_flags, BeamFlags::ForceEffect))
                 {
@@ -1069,7 +1012,7 @@ namespace MphRead::Entities
                 {
                     _soundSource.PlaySfx(SfxId::GENERIC_HIT, false, true);
                 }
-                OnCollision(anyRes, nullptr);
+                OnCollision(anyRes, nullptr, muzzlePlane);
                 ricochet = false;
             }
         }
@@ -1170,7 +1113,7 @@ namespace MphRead::Entities
         }
     }
 
-    void BeamProjectileEntity::OnCollision(Formats::CollisionResult colRes, EntityBase* colWith)
+    void BeamProjectileEntity::OnCollision(Formats::CollisionResult colRes, EntityBase* colWith, const Vector4* muzzlePlane)
     {
         if (_effect)
         {
@@ -1181,7 +1124,7 @@ namespace MphRead::Entities
         {
             assert(_equip != nullptr);
             assert(_owner != nullptr);
-            CheckSplashDamage(colWith);
+            CheckSplashDamage(colWith, muzzlePlane);
             if (_ricochetWeapon && (colWith == nullptr || colWith->Type != EntityType::Player))
             {
                 const Vector3 factor = ::Scale(_velocity, 7.0F);
@@ -1241,7 +1184,7 @@ namespace MphRead::Entities
         }
     }
 
-    void BeamProjectileEntity::CheckSplashDamage(EntityBase* colWith)
+    void BeamProjectileEntity::CheckSplashDamage(EntityBase* colWith, const Vector4* muzzlePlane)
     {
         Scene& scene = RequireReference(_scene);
         auto players = scene.GetPlayerEntities().GetEnumerator();
@@ -1249,7 +1192,8 @@ namespace MphRead::Entities
         {
             const std::shared_ptr<PlayerEntity> playerPtr = players.Current();
             PlayerEntity& player = RequireReference(playerPtr);
-            if (playerPtr.get() == colWith)
+            if (playerPtr.get() == colWith || (muzzlePlane != nullptr
+                && Vector3::Dot(player.Position, muzzlePlane->Xyz()) < muzzlePlane->W))
             {
                 continue;
             }
@@ -1271,8 +1215,10 @@ namespace MphRead::Entities
                     Formats::CollisionResult discard{};
                     const float dist = Vector3::Distance(player.Position, Position);
                     if (dist >= _splashRadius
-                        || Formats::CollisionDetection::CheckBetweenPoints(
-                            Position, player.Position, Formats::TestFlags::Beams, _scene, discard))
+                        || (muzzlePlane != nullptr
+                            ? Mods::Combat::TraceFirstBeamObstacle(Position, player.Position, scene).has_value()
+                            : Formats::CollisionDetection::CheckBetweenPoints(
+                                Position, player.Position, Formats::TestFlags::Beams, _scene, discard)))
                     {
                         omegaCannonFlash();
                     }
@@ -1303,15 +1249,18 @@ namespace MphRead::Entities
         {
             const std::shared_ptr<EnemyInstanceEntity> enemyPtr = enemies.Current();
             EnemyInstanceEntity& enemy = RequireReference(enemyPtr);
-            if (enemyPtr.get() == colWith || !TestFlag(enemy.Flags(), EnemyFlags::CollideBeam))
+            if (enemyPtr.get() == colWith || !TestFlag(enemy.Flags(), EnemyFlags::CollideBeam)
+                || (muzzlePlane != nullptr && Vector3::Dot(enemy.Position, muzzlePlane->Xyz()) < muzzlePlane->W))
             {
                 continue;
             }
             Formats::CollisionResult res{};
             const float dist = Vector3::Distance(enemy.Position, Position);
             if (dist < _splashRadius
-                && !Formats::CollisionDetection::CheckBetweenPoints(
-                    Position, enemy.Position, Formats::TestFlags::Beams, _scene, res))
+                && !(muzzlePlane != nullptr
+                    ? Mods::Combat::TraceFirstBeamObstacle(Position, enemy.Position, scene).has_value()
+                    : Formats::CollisionDetection::CheckBetweenPoints(
+                        Position, enemy.Position, Formats::TestFlags::Beams, _scene, res)))
             {
                 const float damage = GetInterpolatedValue(
                     _splashDamageType, _splashDamage, 0.0F, dist / _splashRadius);
@@ -1687,7 +1636,8 @@ namespace MphRead::Entities
         BeamSpawnFlags spawnFlags,
         Formats::Culling::NodeRef nodeRef,
         Scene* scene,
-        BeamProjectileEntity* parent)
+        BeamProjectileEntity* parent,
+        std::optional<Vector3> syluxGuardStart)
     {
         if (Mods::Network::NetSession::Active() && parent != nullptr
             && !Mods::Network::NetPlayerLifecycle::CurrentProjectile(*parent))
@@ -1754,9 +1704,24 @@ namespace MphRead::Entities
         {
             cost = Mods::Network::ContinuousWeaponPhase::Amount(cost, phase, false);
         }
+        const bool guardedShot = Mods::Combat::SyluxMuzzleGuard::Enabled && syluxGuardStart
+            && parent == nullptr && firingPlayer != nullptr
+            && firingPlayer->Hunter() == Hunter::Sylux;
+        using GuardMetrics = Mods::Combat::SyluxMuzzleGuardMetrics;
+        if (guardedShot && GuardMetrics::Enabled) ++GuardMetrics::Counters.ShotAttempt;
         const std::int32_t ammo = equipRef.Ammo();
         if (ammo >= 0 && cost > ammo)
         {
+            if (guardedShot && GuardMetrics::Enabled) ++GuardMetrics::Counters.AmmoNoSpawn;
+            return BeamResultFlags::NoSpawn;
+        }
+        if (guardedShot && TestFlag(weapon.Flags, WeaponFlags::SurfaceCollision)
+            && !Mods::Combat::SyluxMuzzleGuard::ValidSegment(*syluxGuardStart, position))
+        {
+            // Invalid external coordinates must not turn a skipped query into a legal shot.
+            Mods::Network::NetHitClaims::NoteMuzzleObstruction(
+                Mods::Network::ShotKey::For(firingPlayer->SlotIndex(),
+                    Mods::Network::NetUnlagged::LaunchFrameFor(*firingPlayer)), weapon.Beam, {});
             return BeamResultFlags::NoSpawn;
         }
         equipRef.Ammo(UncheckedSubtract(ammo, cost));
@@ -1789,6 +1754,9 @@ namespace MphRead::Entities
         {
             return result;
         }
+
+        const auto preHit = guardedShot && TestFlag(weapon.Flags, WeaponFlags::SurfaceCollision)
+            ? GuardMetrics::Trace(*syluxGuardStart, position, RequireReference(scene)) : std::nullopt;
 
         const bool instantAoe = (charged && TestFlag(weapon.Flags, WeaponFlags::AoeCharged))
             || (!charged && TestFlag(weapon.Flags, WeaponFlags::AoeUncharged));
@@ -1976,6 +1944,10 @@ namespace MphRead::Entities
             Mods::Network::NetPlayerLifecycle::StampProjectile(beamRef, parent);
             beamRef._beam = weapon.Beam;
             beamRef._beamKind = weapon.BeamKind;
+            if (preHit && i == 0)
+                Mods::Network::NetHitClaims::NoteMuzzleObstruction(beamRef.ModLaunchKey(), weapon.Beam, *preHit);
+            else if (parent != nullptr && i == 0)
+                Mods::Network::NetHitClaims::NoteMuzzleDescendant(beamRef.ModLaunchKey(), weapon.Beam);
             if (Mods::Network::NetLog::Enabled())
             {
                 Mods::Network::NetShotDiagnostics::Trace("spawn", beamRef.ModLaunchKey(), beamRef._beam);
@@ -2027,7 +1999,16 @@ namespace MphRead::Entities
 
             if (instantAoe)
             {
-                beamRef.SpawnIceWave(weaponPtr, chargePct);
+                if (preHit)
+                {
+                    beamRef._velocity = ::Scale(direction, speed);
+                    beamRef._acceleration = acceleration;
+                    beamRef._soundSource.Update(position, 0);
+                    beamRef.ApplyCollisionResult(preHit->Collision, preHit->Entity, false, false,
+                        &preHit->Collision.Plane);
+                    if (GuardMetrics::Enabled) ++GuardMetrics::Counters.HitApplied;
+                }
+                beamRef.SpawnIceWave(weaponPtr, chargePct, preHit ? &preHit->Collision.Plane : nullptr);
                 beamRef._velocity = Vector3::Zero;
                 beamRef._acceleration = Vector3::Zero;
                 beamRef._flags = BeamFlags::Collided;
@@ -2105,7 +2086,7 @@ namespace MphRead::Entities
             }
 
             assert(!beamRef._target);
-            if (TestFlag(beamRef._flags, BeamFlags::Homing))
+            if (!preHit && TestFlag(beamRef._flags, BeamFlags::Homing))
             {
                 if (CheckHomingTargets(beam, equip, scene))
                 {
@@ -2150,6 +2131,20 @@ namespace MphRead::Entities
             }
             beamRef._soundSource.Update(beamRef.Position, 0);
             RequireReference(scene).AddEntity(beam);
+            if (preHit)
+            {
+                beamRef.ApplyCollisionResult(preHit->Collision, preHit->Entity, false, false,
+                    &preHit->Collision.Plane);
+                if (GuardMetrics::Enabled) ++GuardMetrics::Counters.HitApplied;
+                if (TestFlag(beamRef._flags, BeamFlags::Continuous))
+                {
+                    // The normal continuous first-frame collision already happened.
+                    // Its next Process takes the existing age>0 sound/retirement path.
+                    beamRef._age = RequireReference(scene).FrameTime();
+                    beamRef._velocity = Vector3::Zero;
+                    beamRef._acceleration = Vector3::Zero;
+                }
+            }
         }
         return result;
     }
@@ -2300,7 +2295,7 @@ namespace MphRead::Entities
     }
 
     void BeamProjectileEntity::SpawnIceWave(
-        const std::shared_ptr<WeaponInfo>& weaponPtr, float chargePct)
+        const std::shared_ptr<WeaponInfo>& weaponPtr, float chargePct, const Vector4* muzzlePlane)
     {
         WeaponInfo& weapon = RequireReference(weaponPtr);
         float angle = chargePct <= 0.0F
@@ -2310,7 +2305,7 @@ namespace MphRead::Entities
                     weapon.ChargedSpread, weapon.MinChargeSpread)) * chargePct;
         angle /= 4096.0F;
         assert(angle == 60.0F);
-        CheckIceWaveCollision(angle);
+        CheckIceWaveCollision(angle, muzzlePlane);
 
         const Vector3 up = _direction;
         Vector3 facing{};
@@ -2334,7 +2329,7 @@ namespace MphRead::Entities
         }
     }
 
-    void BeamProjectileEntity::CheckIceWaveCollision(float angle)
+    void BeamProjectileEntity::CheckIceWaveCollision(float angle, const Vector4* muzzlePlane)
     {
         const float angleCos = std::cos(DegreesToRadians(angle));
         auto enumerator = RequireReference(_scene).GetPlayerEntities().GetEnumerator();
@@ -2346,17 +2341,19 @@ namespace MphRead::Entities
             {
                 continue;
             }
-            CheckIceWaveCollision(player, player.Position, angleCos, false);
+            CheckIceWaveCollision(player, player.Position, angleCos, false, muzzlePlane);
             if (TestFlag(player.Flags2(), PlayerFlags2::Halfturret))
             {
-                CheckIceWaveCollision(player, RequireReference(player.Halfturret()).Position, angleCos, true);
+                CheckIceWaveCollision(player, RequireReference(player.Halfturret()).Position, angleCos, true, muzzlePlane);
             }
         }
     }
 
     void BeamProjectileEntity::CheckIceWaveCollision(
-        PlayerEntity& player, Vector3 position, float angleCos, bool halfturret)
+        PlayerEntity& player, Vector3 position, float angleCos, bool halfturret, const Vector4* muzzlePlane)
     {
+        if (muzzlePlane != nullptr && (Vector3::Dot(position, muzzlePlane->Xyz()) < muzzlePlane->W
+            || Mods::Combat::TraceFirstBeamObstacle(Position, position, RequireReference(_scene)))) return;
         const Vector3 full = position - static_cast<Vector3>(Position);
         Vector3 between = full;
         const float dot = Vector3::Dot(between, _up);

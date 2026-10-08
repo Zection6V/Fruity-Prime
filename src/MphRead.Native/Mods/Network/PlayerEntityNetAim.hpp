@@ -132,8 +132,7 @@ private: \
     [[nodiscard]] std::shared_ptr<PlayerSpawnEntity> ModNearestSpawn( \
         OpenTK::Mathematics::Vector3 position, bool& any); \
  \
-    void ApplyModAim(); \
-    void ApplyGamepadAim();
+    void ApplyModAim();
 
 #ifndef MPHREAD_PLAYER_ENTITY_CANONICAL_HEADER
 #include "../../Entities/Players/PlayerEntity.hpp"

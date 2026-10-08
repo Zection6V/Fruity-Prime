@@ -80,18 +80,10 @@ namespace MphRead::Qt
             return QString::fromUtf8(text.data(), static_cast<qsizetype>(text.size()));
         }
 
-        struct FpsLimitStop
-        {
-            const char* Label;
-            std::int32_t Cap;
+        const std::array<std::int32_t, 16> FpsLimitStops{
+            30, 60, 75, 90, 100, 120, 144, 165, 180, 200, 240,
+            360, 480, 540, 1000, Render::FrameTiming::Unlimited
         };
-
-        const std::array<FpsLimitStop, 12> FpsLimitStops{{
-            {"30 fps", 30}, {"60 fps", 60}, {"75 fps", 75}, {"90 fps", 90},
-            {"100 fps", 100}, {"120 fps", 120}, {"144 fps", 144},
-            {"165 fps", 165}, {"180 fps", 180}, {"200 fps", 200},
-            {"240 fps", 240}, {"Unlimited", Render::FrameTiming::Unlimited}
-        }};
 
         const std::array<const char*, 6> LanguageNames{{
             "English", "Japanese", "French", "Spanish", "German", "Italian"
@@ -106,26 +98,6 @@ namespace MphRead::Qt
         }};
 
         const std::array<const char*, 4> Resolutions{{"Swap", "Replace", "Keep Both", "Cancel"}};
-
-        [[nodiscard]] std::int32_t FpsLimitStopIndex(std::int32_t cap)
-        {
-            for (std::size_t i = 0; i < FpsLimitStops.size(); ++i)
-            {
-                if (FpsLimitStops[i].Cap == cap)
-                {
-                    return static_cast<std::int32_t>(i);
-                }
-            }
-            std::int32_t best = 0;
-            for (std::size_t i = 1; i + 1 < FpsLimitStops.size(); ++i)
-            {
-                if (FpsLimitStops[i].Cap <= cap)
-                {
-                    best = static_cast<std::int32_t>(i);
-                }
-            }
-            return best;
-        }
 
         [[nodiscard]] std::int32_t Percent(std::string_view stored, std::int32_t fallback)
         {
@@ -495,14 +467,27 @@ namespace MphRead::Qt
             Mods::RenderOptions::ResolutionScale(),
             [](int value) { return QString::number(std::max(Mods::RenderOptions::MinScale, value)) + QStringLiteral("%"); }));
         rows.push_back(Toggle(QStringLiteral("vsync"), QStringLiteral("VSync"), Render::FrameTiming::VSync()));
+        const auto currentCap = Render::FrameTiming::FrameRateCap();
+        _fpsLimitCaps.assign(FpsLimitStops.begin(), FpsLimitStops.end());
+        auto current = std::find(_fpsLimitCaps.begin(), _fpsLimitCaps.end(), currentCap);
+        if (current == _fpsLimitCaps.end())
+        {
+            // Retain custom CLI/saved limits when another Settings row is saved.
+            current = _fpsLimitCaps.insert(std::lower_bound(_fpsLimitCaps.begin(),
+                _fpsLimitCaps.end() - 1, currentCap), currentCap);
+        }
+        const auto currentIndex = static_cast<int>(current - _fpsLimitCaps.begin());
         rows.push_back(Slider(QStringLiteral("fpsLimit"), QStringLiteral("FPS limit"),
-            FpsLimitStopIndex(Render::FrameTiming::FrameRateCap()),
-            [](int value)
+            currentIndex,
+            [caps = _fpsLimitCaps](int value)
             {
-                const int index = std::clamp(value, 0, static_cast<int>(FpsLimitStops.size()) - 1);
-                return QString::fromLatin1(FpsLimitStops[static_cast<std::size_t>(index)].Label);
+                const int index = std::clamp(value, 0, static_cast<int>(caps.size()) - 1);
+                const auto cap = caps[static_cast<std::size_t>(index)];
+                return cap == Render::FrameTiming::Unlimited ? QStringLiteral("Unlimited")
+                    : cap == Render::FrameTiming::DisplayRate ? QStringLiteral("Display")
+                    : QString::number(cap) + QStringLiteral(" fps");
             },
-            120, 0, static_cast<int>(FpsLimitStops.size()) - 1, 1));
+            120, 0, static_cast<int>(_fpsLimitCaps.size()) - 1, 1));
         rows.push_back(Toggle(QStringLiteral("lighting"), QStringLiteral("Lighting"), Mods::RenderOptions::Lighting()));
         rows.push_back(Toggle(QStringLiteral("fog"), QStringLiteral("Fog"), Mods::RenderOptions::Fog()));
         rows.push_back(Toggle(QStringLiteral("filtering"), QStringLiteral("Texture filtering"),
@@ -621,6 +606,9 @@ namespace MphRead::Qt
             Mods::InputSettings::InvertMouseY()));
         rows.push_back(Toggle(QStringLiteral("invertX"), QStringLiteral("Invert horizontal aim"),
             Mods::InputSettings::InvertMouseX()));
+        // Off is modern PC aim; on reproduces the DS's own (stylus at 30 Hz).
+        rows.push_back(Toggle(QStringLiteral("classicAim"), QStringLiteral("Classic DS aim"),
+            Mods::InputSettings::ClassicAim()));
 
         Row advanced = Button(QStringLiteral("advanced"), QStringLiteral("Advanced"), QStringLiteral("slate"), 8, 4);
         advanced.Clicked = [this]() { _keyboardAdvanced = !_keyboardAdvanced; };
@@ -1227,6 +1215,10 @@ namespace MphRead::Qt
         if (Row* row = _keyboard.Find(QStringLiteral("invertX")))
         {
             row->On = Mods::InputSettings::InvertMouseX();
+        }
+        if (Row* row = _keyboard.Find(QStringLiteral("classicAim")))
+        {
+            row->On = Mods::InputSettings::ClassicAim();
         }
         if (Row* row = _keyboard.Find(QStringLiteral("scrollAll")))
         {
@@ -2156,8 +2148,8 @@ namespace MphRead::Qt
         settings.Fog = std::string(Mods::RenderOptions::OnOff(on(_display, "fog")));
         settings.TextureFiltering = std::string(Mods::RenderOptions::OnOff(on(_display, "filtering")));
         settings.ShowFps = std::string(Mods::RenderOptions::OnOff(on(_display, "fps")));
-        const int fpsIndex = std::clamp(value(_display, "fpsLimit"), 0, static_cast<int>(FpsLimitStops.size()) - 1);
-        const std::int32_t cap = FpsLimitStops[static_cast<std::size_t>(fpsIndex)].Cap;
+        const int fpsIndex = std::clamp(value(_display, "fpsLimit"), 0, static_cast<int>(_fpsLimitCaps.size()) - 1);
+        const std::int32_t cap = _fpsLimitCaps[static_cast<std::size_t>(fpsIndex)];
         Render::FrameTiming::SetFrameRateCap(cap);
         settings.FrameRateCap = Render::FrameTiming::CapString(cap);
         Render::FrameTiming::SetVSync(on(_display, "vsync"));
@@ -2182,6 +2174,7 @@ namespace MphRead::Qt
         Mods::InputSettings::MouseSensitivity(SliderToSensitivity(value(_keyboard, "sensitivity")));
         Mods::InputSettings::InvertMouseY(on(_keyboard, "invertY"));
         Mods::InputSettings::InvertMouseX(on(_keyboard, "invertX"));
+        Mods::InputSettings::ClassicAim(on(_keyboard, "classicAim"));
         Input::PointerInput::StylusMode(on(_stylus, "stylusMode"));
         if (_stylus.Find(QStringLiteral("repositionFilter")) != nullptr)
         {

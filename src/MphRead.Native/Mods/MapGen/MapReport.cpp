@@ -276,6 +276,13 @@ namespace MphRead::Mods::MapGen
             {
                 line += FormatRenderMode(material.RenderMode);
             }
+            // How the texture is wrapped and placed: what a smeared surface is about.
+            const auto repeat = [](RepeatMode mode)
+            { return mode == RepeatMode::Clamp ? "clamp" : mode == RepeatMode::Mirror ? "mirror" : "repeat"; };
+            line += std::string(" wrap ") + repeat(material.XRepeat) + "/" + repeat(material.YRepeat)
+                + " texgen " + std::to_string(static_cast<int>(material.TexgenMode))
+                + " scale " + ::MphRead::NativeRuntime::ToString(material.ScaleS) + "," + ::MphRead::NativeRuntime::ToString(material.ScaleT)
+                + " anim " + std::to_string(material.TexcoordAnimationId);
             WriteLine(line);
         }
         return 0;

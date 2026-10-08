@@ -305,13 +305,13 @@ namespace MphRead::Mods::Network
             MorphOrShoot(playerValue, controls, Even());
             break;
         case TestPhase::AltAttackA:
-            AltAttackOrShoot(controls, Even(), onTarget);
+            AltAttackOrShoot(playerValue, Even(), onTarget);
             break;
         case TestPhase::MorphB:
             MorphOrShoot(playerValue, controls, !Even());
             break;
         case TestPhase::AltAttackB:
-            AltAttackOrShoot(controls, !Even(), onTarget);
+            AltAttackOrShoot(playerValue, !Even(), onTarget);
             break;
         case TestPhase::Unmorph:
         {
@@ -453,12 +453,21 @@ namespace MphRead::Mods::Network
     }
 
     void NetTestScript::AltAttackOrShoot(
-        Entities::PlayerControls& controls,
+        Entities::PlayerEntity& player,
         bool attacking,
         bool onTarget)
     {
+        auto& controls = player.Controls();
         if (attacking)
         {
+            // A death during this phase respawns in biped form. Drive the
+            // normal morph input until the alt attack becomes reachable.
+            // Pressing AltAttack in biped would leave bombs unexercised.
+            if (!player.IsAltForm() || !Settled(player))
+            {
+                MorphOrShoot(player, controls, true);
+                return;
+            }
             Square(controls);
             Entities::Keybind& altAttack = controls.AltAttack();
             const bool attackDown = _frame % 45 < 6;

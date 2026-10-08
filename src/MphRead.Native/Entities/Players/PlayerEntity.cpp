@@ -19,6 +19,7 @@
 #include "../../GameState.hpp"
 #include "../../Read.hpp"
 #include "../../Scene.hpp"
+#include "../../Mods/DebugLog.hpp"
 #include "../../SceneSetup.hpp"
 #include "../../Strings.hpp"
 #include "../../Metadata/Enemies.hpp"
@@ -842,6 +843,9 @@ namespace MphRead::Entities
         _aimY = 0.0F;
         _buttonAimX = 0.0F;
         _buttonAimY = 0.0F;
+        _nativeDual = {};
+        _aimFrame = {};
+        _input.Suspend();
         NodeRef = nodeRef;
         _gunViewBob = 0.0F;
         _walkViewBob = 0.0F;
@@ -1376,7 +1380,7 @@ namespace MphRead::Entities
         }
     }
 
-    bool PlayerEntity::TryEquipWeapon(MphRead::BeamType beam, bool silent, bool debug)
+    bool PlayerEntity::TryEquipWeapon(MphRead::BeamType beam, bool silent, bool debug, std::source_location caller)
     {
         const std::int32_t index = static_cast<std::int32_t>(beam);
         if (index < 0 || index >= 9)
@@ -1410,6 +1414,22 @@ namespace MphRead::Entities
             return false;
         }
 
+        if (IsMainPlayer() && Mods::DebugLog::Active() && beam != _currentWeapon)
+        {
+            // Which input asked: "a weapon changed and nobody touched anything".
+            Mods::DebugLog::Line("weapon", "frame " + std::to_string(RequireReference(_scene).FrameCount())
+                + " " + std::to_string(static_cast<int>(_currentWeapon)) + " -> " + std::to_string(index)
+                + " silent=" + (silent ? "1" : "0") + " bind=" + (debug ? "1" : "0")
+                + " health=" + std::to_string(_health)
+                + " shoot=" + (_controls.Shoot().IsDown() ? "d" : "-") + (_controls.Shoot().IsPressed() ? "p" : "-")
+                + (_controls.Shoot().IsReleased() ? "r" : "-")
+                + " missileKey=" + (_controls.Missile().IsPressed() ? "p" : "-")
+                + " menu=" + (_controls.WeaponMenu().IsDown() ? "d" : "-")
+                + " selection=" + std::to_string(static_cast<int>(_weaponSelection))
+                + " from=" + std::string(std::string_view(caller.file_name()).substr(
+                    std::string_view(caller.file_name()).find_last_of("/\\") + 1))
+                + ":" + std::to_string(caller.line()));
+        }
         StopBeamChargeSfx(_currentWeapon);
         UpdateZoom(false);
         _previousWeapon = _currentWeapon;

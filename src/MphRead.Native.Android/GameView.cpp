@@ -943,8 +943,6 @@ namespace MphRead::Droid
         }
 
     private:
-        static constexpr double MinFrameSeconds =
-            1.0 / MphRead::Mods::Render::FrameTiming::MaxCap;
         static constexpr float AimScale = 1.0F;
         static constexpr EGLint OpenGlEs3Bit = 0x40;
         static constexpr std::int32_t SurfaceReleaseMs = 2000;
@@ -1991,13 +1989,10 @@ namespace MphRead::Droid
             double now = ClockSeconds();
             const std::int32_t cap =
                 MphRead::Mods::Render::FrameTiming::FrameRateCap();
-            const double interval =
-                cap == MphRead::Mods::Render::FrameTiming::DisplayRate
-                    ? MinFrameSeconds
-                    : std::max(
-                        MinFrameSeconds,
-                        1.0 / static_cast<double>(cap)
-                    );
+            // Display rate and Unlimited never sleep here: eglSwapBuffers
+            // paces the first, and the second asks for no pacing. A number
+            // is a cap, with no ceiling (FrameTiming has none any more).
+            const double interval = cap > 0 ? 1.0 / static_cast<double>(cap) : 0.0;
 
             const double wait = _nextFrame - now;
             if (wait > 0.001)

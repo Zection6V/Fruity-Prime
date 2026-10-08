@@ -13,6 +13,7 @@
 #include <string>
 
 namespace MphRead::Mods::Diagnostics { class WeavelAltFormCheck; }
+namespace MphRead::Mods::Diagnostics { class AimCheck; }
 
 namespace MphRead
 {
@@ -29,6 +30,7 @@ namespace MphRead::Mods::Network
     {
         // NetCombatCheck reads _scene the way the C# reads it by reflection.
         friend class ::MphRead::Mods::Diagnostics::WeavelAltFormCheck;
+        friend class ::MphRead::Mods::Diagnostics::AimCheck;
         friend class NetCombatCheck;
         friend class DialancheCombatCheck;
         friend class SpireAltPoseCheck;

@@ -297,6 +297,19 @@ namespace MphRead::Mods::Network
         _aimHeld[s] = true;
     }
 
+    bool NetPlayerBridge::AimAvailable(std::int32_t slot)
+    {
+        if (slot < 0 || slot >= static_cast<std::int32_t>(NetSession::RemoteIntents.size())
+            || !NetSession::RemoteIntentValid[slot] || !AimTrusted(slot)
+            || NetSession::RemoteIntentAge(slot) > NetHooks::StaleIntentFrames)
+            return false;
+        const auto& intent = NetSession::RemoteIntents[slot];
+        return intent.MatchId != 0 && intent.AuthorityEpoch != 0
+            && intent.MatchId == NetSession::CurrentMatchId() && intent.AuthorityEpoch == NetSession::AuthorityEpoch()
+            && intent.LifeId != 0 && NetPlayerLifecycle::Matches(slot, intent.SlotGeneration, intent.LifeId)
+            && HasFlag(intent.Buttons, IntentButtons::InPlayState) && Sane(intent.Aim);
+    }
+
     bool NetPlayerBridge::AimTrusted(std::int32_t slot)
     {
         return slot < 0 || slot >= static_cast<std::int32_t>(_aimHeld.size()) || !_aimHeld[Index(slot)];

@@ -8,6 +8,7 @@
 #include "../../MphRead.Native/Mods/Input/GamepadUiRouter.hpp"
 #include "../../MphRead.Native/Mods/Input/KeyCapture.hpp"
 #include "../../MphRead.Native/Mods/Launcher/Portable/LauncherPrefs.hpp"
+#include "../../MphRead.Native/Mods/Render/FrameTiming.hpp"
 
 #include <QtCore/QDir>
 #include <QtCore/QTemporaryDir>
@@ -72,6 +73,20 @@ Flickable {
         const auto check = Input::GamepadChecks::Check;
         EnsureApplication();
         const auto originalLatency = Prefs::LowLatency();
+        const auto originalCap = ::MphRead::Mods::Render::FrameTiming::FrameRateCap();
+        for (const int cap : {540, 1000, 1234})
+        {
+            ::MphRead::Mods::Render::FrameTiming::SetFrameRateCap(cap);
+            SettingsModel model;
+            auto& display = *static_cast<RowModel*>(model.Display());
+            Row* row = display.Find(QStringLiteral("fpsLimit"));
+            check(row && row->Format(row->Value) == QString::number(cap) + QStringLiteral(" fps"),
+                "Qt FPS slider retains high and custom limits");
+            check(row && row->Format(row->Max) == QStringLiteral("Unlimited"),
+                "Qt FPS slider keeps Unlimited after high limits");
+            model.cancel();
+        }
+        ::MphRead::Mods::Render::FrameTiming::SetFrameRateCap(originalCap);
         {
             SettingsModel model;
             auto& keyboard = *static_cast<RowModel*>(model.Keyboard());

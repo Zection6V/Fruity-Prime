@@ -6560,22 +6560,23 @@ namespace MphRead
                 << " reason=" << latency.fallbackReason << '\n';
         }
         _window->PresentationTiming(_swapchain->Desc().presentMode, cap, latency.authority);
-        if (cap == _appliedFrameRateCap && vsync == _appliedVSync)
+        // The swapchain's own request is checked as well as the settings: a
+        // swapchain made after the last change starts at FIFO, and with VSync
+        // off that pinned the frame rate to the refresh until a setting moved.
+        const auto wanted = vsync ? NativeRuntime::Rhi::PresentMode::Fifo : NativeRuntime::Rhi::PresentMode::Immediate;
+        if (cap == _appliedFrameRateCap && vsync == _appliedVSync && _swapchain->RequestedPresentMode() == wanted)
         {
             return;
         }
+        if (Mods::DebugLog::Active() && cap == _appliedFrameRateCap && vsync == _appliedVSync)
+        {
+            Mods::DebugLog::Line("render", std::string("present mode drifted from the VSync setting; re-applying ")
+                + (vsync ? "FIFO" : "Immediate"));
+        }
         _appliedFrameRateCap = cap;
         _appliedVSync = vsync;
-        if (vsync)
-        {
-            _swapchain->SetPresentMode(NativeRuntime::Rhi::PresentMode::Fifo);
-            _window->UpdateFrequency(0.0);
-        }
-        else
-        {
-            _swapchain->SetPresentMode(NativeRuntime::Rhi::PresentMode::Immediate);
-            _window->UpdateFrequency(0.0);
-        }
+        _swapchain->SetPresentMode(wanted);
+        _window->UpdateFrequency(0.0);
         _window->PresentationTiming(_swapchain->Desc().presentMode, cap, latency.authority);
     }
 

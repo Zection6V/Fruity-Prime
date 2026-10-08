@@ -10,6 +10,7 @@
 #include "../Metadata/Weapons.hpp"
 #include "../Messaging.hpp"
 #include "../Mods/Network/NetDamage.hpp"
+#include "../Mods/Network/HitLocation.hpp"
 #include "../Mods/Network/NetHitPrediction.hpp"
 #include "../Mods/Network/NetLog.hpp"
 #include "../Mods/Network/ContinuousWeaponPhase.hpp"
@@ -478,9 +479,79 @@ namespace MphRead::Entities
         return true;
     }
 
+    void BeamProjectileEntity::ModTrackNearLocal()
+    {
+        // A remote player's shot drawn on this machine: how close it comes to
+        // this machine's own player, segment against the body's axis.
+        if (!Mods::Network::NetSession::Active() || Mods::Network::NetSession::IsAuthority()
+            || Mods::Network::NetSession::IsHost() || TestFlag(_flags, BeamFlags::Continuous) || ModTouchedLocal)
+        {
+            return;
+        }
+        PlayerEntity* owner = Mods::Network::NetHitPrediction::OwnerOf(this);
+        const std::int32_t local = Mods::Network::NetSession::LocalSlot();
+        if (owner == nullptr || owner->IsBot() || owner->SlotIndex() == local || local < 0
+            || local >= static_cast<std::int32_t>(PlayerEntity::Players().size()))
+        {
+            return;
+        }
+        const PlayerEntity& me = *PlayerEntity::Players()[static_cast<std::size_t>(local)];
+        if (me.Health() <= 0)
+        {
+            return;
+        }
+        const Vector3 position = me.Position;
+        const Vector3 bottom = AddY(position, Fixed::ToFloat(me.Values().MinPickupHeight));
+        const float height = Fixed::ToFloat(me.Values().MaxPickupHeight) - Fixed::ToFloat(me.Values().MinPickupHeight);
+        // Closest points between the shot's step and the body's axis.
+        const Vector3 p1 = _backPosition;
+        const Vector3 d1 = static_cast<Vector3>(Position) - _backPosition;
+        const Vector3 d2(0.0F, height, 0.0F);
+        const Vector3 r = p1 - bottom;
+        const float a = Vector3::Dot(d1, d1);
+        const float e = height * height;
+        const float f = Vector3::Dot(d2, r);
+        float s = 0.0F;
+        float t = 0.0F;
+        if (a <= 1e-8F)
+        {
+            t = std::clamp(f / e, 0.0F, 1.0F);
+        }
+        else
+        {
+            const float c = Vector3::Dot(d1, r);
+            const float b = Vector3::Dot(d1, d2);
+            const float denom = a * e - b * b;
+            s = denom > 1e-8F ? std::clamp((b * f - c * e) / denom, 0.0F, 1.0F) : 0.0F;
+            t = (b * s + f) / e;
+            if (t < 0.0F)
+            {
+                t = 0.0F;
+                s = std::clamp(-c / a, 0.0F, 1.0F);
+            }
+            else if (t > 1.0F)
+            {
+                t = 1.0F;
+                s = std::clamp((b - c) / a, 0.0F, 1.0F);
+            }
+        }
+        const Vector3 onShot = p1 + ::Scale(d1, s);
+        const Vector3 onBody = bottom + ::Scale(d2, t);
+        const float gap = Vector3::Distance(onShot, onBody) - Fixed::ToFloat(me.Values().BipedColRadius);
+        if (ModNearestLocal < 0.0F || gap < ModNearestLocal)
+        {
+            ModNearestLocal = std::max(0.0F, gap);
+            ModNearestLocalPoint = onShot;
+        }
+    }
+
     void BeamProjectileEntity::CheckCollision()
     {
         Scene& scene = RequireReference(_scene);
+        if (Mods::Network::HitLocation::Enabled())
+        {
+            ModTrackNearLocal();
+        }
         Formats::CollisionResult anyRes{};
         EntityBase* colWith = nullptr;
         bool noColEff = false;
@@ -868,6 +939,15 @@ namespace MphRead::Entities
                     }
                     wholeDamage = static_cast<std::uint32_t>(std::clamp(
                         damage, 0.0F, static_cast<float>(std::numeric_limits<std::int32_t>::max())));
+                    if (Mods::Network::HitLocation::Enabled())
+                    {
+                        if (player->SlotIndex() == Mods::Network::NetSession::LocalSlot())
+                        {
+                            ModTouchedLocal = true;
+                        }
+                        Mods::Network::HitLocation::Contact(*this, *player, anyRes.Position, isHeadshot,
+                            wholeDamage, false, player->ModInvulnerable());
+                    }
                     if (wholeDamage != 0)
                     {
                         player->TakeDamage(wholeDamage, damageFlags, damageDir, this);
@@ -1284,6 +1364,15 @@ namespace MphRead::Entities
                         const float ratio = dist / _splashRadius;
                         const std::int32_t damage = static_cast<std::int32_t>(
                             GetInterpolatedValue(_splashDamageType, _splashDamage, 0.0F, ratio));
+                        if (Mods::Network::HitLocation::Enabled())
+                        {
+                            if (player.SlotIndex() == Mods::Network::NetSession::LocalSlot())
+                            {
+                                ModTouchedLocal = true;
+                            }
+                            Mods::Network::HitLocation::Contact(*this, player, Position, false,
+                                static_cast<std::uint32_t>(std::max(0, damage)), true, false);
+                        }
                         player.TakeDamage(damage, DamageFlags::NoDmgInvuln, damageDir, this);
                         if (_owner)
                         {
@@ -1616,6 +1705,19 @@ namespace MphRead::Entities
 
     void BeamProjectileEntity::Destroy()
     {
+        if (Mods::Network::HitLocation::Enabled() && !ModTouchedLocal && ModNearestLocal >= 0.0F
+            && ModNearestLocal < 3.0F && _owner)
+        {
+            const std::int32_t local = Mods::Network::NetSession::LocalSlot();
+            if (local >= 0 && local < static_cast<std::int32_t>(PlayerEntity::Players().size()))
+            {
+                Mods::Network::HitLocation::NearMiss(*this, *PlayerEntity::Players()[static_cast<std::size_t>(local)],
+                    ModNearestLocalPoint, ModNearestLocal);
+            }
+        }
+        ModNearestLocal = -1.0F;
+        ModTouchedLocal = false;
+        ModShooterAck = 0;
         _soundSource.StopAllSfx();
         _lifespan = 0.0F;
         if (_effect)

@@ -31,6 +31,8 @@ namespace MphRead::Mods::Network
         case HitRig::RigMode::Volley: return "Volley";
         case HitRig::RigMode::Dialanche: return "Dialanche";
         case HitRig::RigMode::All: return "All";
+        case HitRig::RigMode::Wells: return "Wells";
+        case HitRig::RigMode::Lanes: return "Lanes";
         }
         return std::to_string(static_cast<std::int32_t>(value));
     }
@@ -76,6 +78,8 @@ namespace MphRead::Mods::Network
         // Every weapon in turn against a target that never leaves the jump
         // pads: the runner walks back onto the nearest pad each time it lands.
         if (key == "all" || key == "pads") { _mode = RigMode::All; return true; }
+        if (key == "wells") { _mode = RigMode::Wells; return true; }
+        if (key == "lanes") { _mode = RigMode::Lanes; return true; }
         return false;
     }
 
@@ -96,6 +100,8 @@ namespace MphRead::Mods::Network
         _verticalSpeedSamples = 0;
         _padLaunches = 0;
         _wasAirborne = false;
+        _placements = 0;
+        _highest = 0;
     }
 
     bool HitRig::IsSniper()
@@ -120,6 +126,10 @@ namespace MphRead::Mods::Network
         if (_mode == RigMode::Dialanche)
         {
             DriveDialanche(player, c, other);
+        }
+        else if (_mode == RigMode::Wells || _mode == RigMode::Lanes)
+        {
+            DriveWells(player, c, other);
         }
         else if (IsSniper())
         {
@@ -185,6 +195,61 @@ namespace MphRead::Mods::Network
         }
         c.Jump().SetIsDown(_mode == RigMode::Jump ? _frame % 24 < 3 : _frame % 90 < 3);
         Square(c, _mode == RigMode::Jump ? 50 : 80);
+    }
+
+    void HitRig::DriveWells(PlayerEntity& player, PlayerControls& c, PlayerEntity* other)
+    {
+        // A client picks its own spawn, at least ten units from anybody it
+        // can see -- and at the very first spawn it sees nobody yet, so two
+        // players can land in the same well. Each slot has its cell; a player
+        // found outside it is put back (the authority takes the reported
+        // position, as it does every frame).
+        const float cellX = NetSession::LocalSlot() % 2 == 0 ? -CellX : CellX;
+        const OpenTK::Mathematics::Vector3 at = player.Position;
+        if (std::abs(at.X - cellX) > 2.0F)
+        {
+            player.ModPlaceAt(OpenTK::Mathematics::Vector3(cellX, 0.6F, 0.0F));
+            Runtime::IncrementInPlace(_placements);
+            return;
+        }
+        _highest = std::max(_highest, at.Y);
+        const bool airborne = !::MphRead::TestFlag(player.Flags1(), Entities::PlayerFlags1::Standing);
+        if (airborne)
+        {
+            Runtime::IncrementInPlace(_framesAirborne);
+        }
+        const float rise = std::abs(player.Speed().Y);
+        _verticalSpeedSum += rise;
+        Runtime::IncrementInPlace(_verticalSpeedSamples);
+        _worstVerticalSpeed = std::max(_worstVerticalSpeed, rise);
+        // The glass and the pad do the moving; in a lane the rig strafes.
+        if (_mode == RigMode::Lanes)
+        {
+            const bool left = _frame / 40 % 2 == 0;
+            c.MoveLeft().SetIsDown(left);
+            c.MoveRight().SetIsDown(!left);
+        }
+        const ::MphRead::BeamType weapon = CycleWeapon();
+        if (player.CurrentWeapon() != weapon)
+        {
+            player.ModArmWeapon(weapon);
+        }
+        player.ModSetAmmo(std::numeric_limits<std::int32_t>::max(), std::numeric_limits<std::int32_t>::max());
+        // Head and chest in turn, five seconds each: the two bands whose
+        // boundary the location measurement has to agree on.
+        const float height = _frame / 300 % 2 == 0 ? HeadAimHeight : ChestAimHeight;
+        const bool onTarget = AimAt(player, other, height);
+        if (onTarget)
+        {
+            Runtime::IncrementInPlace(_framesOnTarget);
+        }
+        const std::int32_t tap = Runtime::RequireReference(
+            (*::MphRead::Weapons::Current)[static_cast<std::size_t>(weapon)]).ShotCooldown * 2 + 3;
+        c.Shoot().SetIsDown(onTarget && _frame % tap < 3);
+        if (c.Shoot().IsDown() && _frame % tap == 0)
+        {
+            Runtime::IncrementInPlace(_triggers);
+        }
     }
 
     ::MphRead::BeamType HitRig::CycleWeapon() noexcept
@@ -485,8 +550,9 @@ namespace MphRead::Mods::Network
             return "hit rig: Dialanche, " + std::to_string(_triggers) + " attack press edges, "
                 + std::to_string(_framesOnTarget) + " frames on target";
         }
-        const std::string role = IsSniper() ? "sniper" : _mode == RigMode::All ? "pad rider" : "runner";
-        if (IsSniper())
+        const std::string role = _mode == RigMode::Wells ? "well" : _mode == RigMode::Lanes ? "lane"
+            : IsSniper() ? "sniper" : _mode == RigMode::All ? "pad rider" : "runner";
+        if (IsSniper() && _mode != RigMode::Wells && _mode != RigMode::Lanes)
         {
             const double range = _rangeSamples > 0 ? _rangeSum / static_cast<double>(_rangeSamples) : 0;
             return "hit rig: " + ToString(_mode) + " as " + role + ", " + std::to_string(_triggers) + " triggers, "
@@ -497,6 +563,9 @@ namespace MphRead::Mods::Network
             + "mean |vertical speed| " + Runtime::ToString(rise, "F3") + " units/frame, worst "
             + Runtime::ToString(_worstVerticalSpeed, "F3")
             + (_mode == RigMode::All ? ", " + std::to_string(_padLaunches) + " pad launches, "
-                + std::to_string(_triggers) + " triggers in the air" : std::string());
+                + std::to_string(_triggers) + " triggers in the air" : std::string())
+            + (_mode == RigMode::Wells || _mode == RigMode::Lanes ? ", highest " + Runtime::ToString(_highest, "F2")
+                + ", " + std::to_string(_placements) + " placement(s) into the cell, " + std::to_string(_triggers)
+                + " triggers, " + std::to_string(_framesOnTarget) + " frames on target" : std::string());
     }
 }

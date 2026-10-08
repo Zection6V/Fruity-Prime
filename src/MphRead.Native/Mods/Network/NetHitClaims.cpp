@@ -1,4 +1,5 @@
 #include "NetHitClaims.hpp"
+#include "HitLocation.hpp"
 
 #include "NetDamage.hpp"
 #include "NetHitPrediction.hpp"
@@ -612,11 +613,25 @@ namespace MphRead::Mods::Network
                 || !NetPlayerLifecycle::Matches(shooterSlot, claim.ShooterGeneration, claim.ShooterLifeId))
             {
                 Runtime::IncrementInPlace(NetPlayerLifecycle::OldLifeClaims);
+                if (HitLocation::Enabled() && claim.VictimSlot < PlayerEntity::Players().size())
+                {
+                    // 201: the shooter's own life or the match is not the current one.
+                    HitLocation::Claim(shooterSlot, PlayerAt(claim.VictimSlot), claim.Beam,
+                        claim.LaunchFrame != 0 ? claim.LaunchFrame : claim.AckFrame, claim.Damage, claim.Flags,
+                        claim.HitPoint, claim.HitPoint, false, 201);
+                }
                 continue;
             }
             if (!NetPlayerLifecycle::Matches(claim.VictimSlot, claim.VictimGeneration, claim.VictimLifeId))
             {
                 Runtime::IncrementInPlace(NetPlayerLifecycle::OldLifeClaims);
+                if (HitLocation::Enabled() && claim.VictimSlot < PlayerEntity::Players().size())
+                {
+                    // 202: the victim the shooter drew is a life this authority has already ended.
+                    HitLocation::Claim(shooterSlot, PlayerAt(claim.VictimSlot), claim.Beam,
+                        claim.LaunchFrame != 0 ? claim.LaunchFrame : claim.AckFrame, claim.Damage, claim.Flags,
+                        claim.HitPoint, claim.HitPoint, false, 202);
+                }
                 Answer(shooterSlot, claim.ClaimId, HitVerdictPacket::ResultWrongLife, false);
                 continue;
             }
@@ -639,6 +654,15 @@ namespace MphRead::Mods::Network
                 NetShotDiagnostics::Bucket(static_cast<::MphRead::BeamType>(claim.Beam)))]);
             Remember(shooterSlot, claim.ClaimId, ResultPending);
             const std::uint8_t immediate = Judge(shooterSlot, claim);
+            if (HitLocation::Enabled() && claim.VictimSlot < PlayerEntity::Players().size())
+            {
+                OpenTK::Mathematics::Vector3 history{};
+                const bool known = NetUnlagged::PositionAt(claim.VictimSlot, claim.AckFrame,
+                    claim.VictimGeneration, claim.VictimLifeId, history);
+                HitLocation::Claim(shooterSlot, PlayerAt(claim.VictimSlot), claim.Beam,
+                    claim.LaunchFrame != 0 ? claim.LaunchFrame : claim.AckFrame, claim.Damage, claim.Flags,
+                    claim.HitPoint, history, known, immediate);
+            }
             if (immediate != HitVerdictPacket::ResultApplied)
             {
                 Answer(shooterSlot, claim.ClaimId, immediate);
@@ -1160,6 +1184,15 @@ namespace MphRead::Mods::Network
             victim.ModSetFrozen(true);
         }
         _appliedHere++;
+        if (HitLocation::Enabled())
+        {
+            // 100: applied on the tick it was parked for, with what it dealt.
+            // The damage column is what was claimed; what it took off a
+            // victim with less health left than that is the lethal clamp.
+            HitLocation::Claim(shooterSlot, victim, entry.Beam,
+                entry.LaunchFrame != 0 ? entry.LaunchFrame : entry.AckFrame,
+                entry.Damage, entry.Flags, entry.HitPoint, entry.HitPoint, false, 100);
+        }
         NoteRescued(shooterSlot, victimSlot, entry.LaunchFrame);
         const std::uint32_t dealt = before - static_cast<std::uint32_t>(std::max(0, victim.Health()));
         _rescuedDamage += dealt;

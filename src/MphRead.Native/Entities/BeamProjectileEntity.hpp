@@ -140,6 +140,16 @@ namespace MphRead::Entities
         // machines. Stamped by Mods.Network.NetUnlagged on every machine that
         // spawns it. Zero for anything nobody aimed.
         std::uint32_t ModLaunchFrame = 0;
+        // A remote player's shot drawn on a third machine: the ack of the
+        // intent that fired it, which is the shooter's own ModLaunchFrame for
+        // the same shot (diagnostic only -- Mods.Network.HitLocation).
+        std::uint32_t ModShooterAck = 0;
+        // The closest this remote shot came to this machine's own player,
+        // and where, while it has not touched them (HitLocation near misses).
+        float ModNearestLocal = -1.0F;
+        OpenTK::Mathematics::Vector3 ModNearestLocalPoint{};
+        bool ModTouchedLocal = false;
+        void ModTrackNearLocal();
         [[nodiscard]] const Mods::Network::ShotKey& ModLaunchKey() const noexcept { return _modLaunchKey; }
         // Spawn's firing phase must survive until a Shock Coil beam tests an enemy.
         std::uint64_t ModContinuousPhase = 0;

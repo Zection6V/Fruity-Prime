@@ -64,6 +64,7 @@
 #include "Network/NetHitClaims.hpp"
 #include "Network/NetHitPrediction.hpp"
 #include "Network/NetPlayerBridge.hpp"
+#include "Network/HitLocation.hpp"
 #include "Network/NetLag.hpp"
 #include "MapGen/MapDefinition.hpp"
 #include "Network/NetMaster.hpp"
@@ -1281,7 +1282,7 @@ namespace MphRead::Mods
             }
             else
             {
-                WriteLine("[net] -hitrig " + *rig + " refused: jump, sniper, duel, dialanche, all or a weapon name");
+                WriteLine("[net] -hitrig " + *rig + " refused: jump, sniper, duel, dialanche, all, wells, lanes or a weapon name");
             }
         }
         const std::optional<std::string> maxRewind = ValueAfter(args, "maxrewind");
@@ -1309,6 +1310,10 @@ namespace MphRead::Mods
         {
             Network::NetHitPrediction::SetMarkerEnabled(false);
             WriteLine("[hud] hit marker off");
+        }
+        if (const std::optional<std::string> hitlog = ValueAfter(args, "hitlog"); hitlog.has_value())
+        {
+            Network::HitLocation::Open(*hitlog);
         }
         if (::HasFlag(args, "servershots"))
         {
@@ -2316,6 +2321,7 @@ namespace MphRead::Mods
                 rejoinAt = parsedRejoin;
             }
             Network::NetCheckClient::ShowWindow = ::HasFlag(args, "hudshots");
+            Network::NetCheckClient::Headless = ::HasFlag(args, "headless") && !Network::NetCheckClient::ShowWindow;
             const std::optional<std::string> mapVote = ValueAfter(args, "mapvote");
             std::int32_t mapVoteRow = -1;
             if (mapVote.has_value() && Int32TryParseCurrentCulture(*mapVote, mapVoteRow))

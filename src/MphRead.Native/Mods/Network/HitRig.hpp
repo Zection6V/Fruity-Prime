@@ -35,7 +35,12 @@ namespace MphRead::Mods::Network
             Duel,
             Volley,
             Dialanche,
-            All
+            All,
+            // TEST WELLS / TEST WELLS STILL / TEST LANES: both players held in
+            // place by glass, both shooting, every weapon in turn; Lanes also
+            // strafes. What the hit location log (-hitlog) is measured with.
+            Wells,
+            Lanes
         };
 
         [[nodiscard]] static ::MphRead::BeamType VolleyWeapon() noexcept { return _volleyWeapon; }
@@ -65,6 +70,10 @@ namespace MphRead::Mods::Network
         static constexpr float LongRange = 34.0F;
         static constexpr float VolleyRange = 16.0F;
         static constexpr float HeadAimHeight = 0.95F;
+        // Mid-torso: well clear of the 0.80 line where a headshot starts.
+        static constexpr float ChestAimHeight = 0.30F;
+        // TEST WELLS / TEST LANES: the cells' centres, even slots on the left.
+        static constexpr float CellX = 6.0F;
         static constexpr float TurnRate = 6.0F;
         static constexpr float FiringCone = 2.5F;
         // -hitrig all: the shooter holds each weapon this long, then the next.
@@ -73,6 +82,7 @@ namespace MphRead::Mods::Network
         static void DriveRunner(Entities::PlayerEntity& player, Entities::PlayerControls& c, Entities::PlayerEntity* other);
         static void DriveDialanche(Entities::PlayerEntity& player, Entities::PlayerControls& c, Entities::PlayerEntity* other);
         static void DrivePadRider(Entities::PlayerEntity& player, Entities::PlayerControls& c, Entities::PlayerEntity* other);
+        static void DriveWells(Entities::PlayerEntity& player, Entities::PlayerControls& c, Entities::PlayerEntity* other);
         [[nodiscard]] static ::MphRead::BeamType CycleWeapon() noexcept;
         static void DriveSniper(Entities::PlayerEntity& player, Entities::PlayerControls& c, Entities::PlayerEntity* other);
         static void HoldRange(Entities::PlayerEntity& player, Entities::PlayerControls& c, float range, float want);
@@ -100,6 +110,8 @@ namespace MphRead::Mods::Network
         inline static std::int64_t _verticalSpeedSamples = 0;
         inline static std::vector<bool> _wasDown{};
         inline static std::int64_t _padLaunches = 0;
+        inline static std::int64_t _placements = 0;
+        inline static float _highest = 0;
         inline static bool _wasAirborne = false;
         inline static Scene* _scene = nullptr;
     };

@@ -333,6 +333,13 @@ namespace MphRead::Mods::MapGen
         void Solid(bool value) noexcept;
         [[nodiscard]] bool Damaging() const noexcept;
         void Damaging(bool value) noexcept;
+        // Stops a player and lets a shot through (the collision format's
+        // IgnoreBeams), the way a Quake player-clip does.
+        [[nodiscard]] bool NoBeams() const noexcept;
+        void NoBeams(bool value) noexcept;
+        // False: collision only, nothing drawn -- a pane of glass.
+        [[nodiscard]] bool Visible() const noexcept;
+        void Visible(bool value) noexcept;
         [[nodiscard]] const std::optional<std::string>& Terrain() const noexcept;
         void Terrain(std::optional<std::string> value) noexcept;
 
@@ -344,6 +351,8 @@ namespace MphRead::Mods::MapGen
         float _shade = 1.0F;
         bool _solid = true;
         bool _damaging = false;
+        bool _noBeams = false;
+        bool _visible = true;
         std::optional<std::string> _terrain{};
     };
 

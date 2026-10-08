@@ -1,4 +1,5 @@
 #include "NetDamage.hpp"
+#include "HitLocation.hpp"
 
 #include "../../GameState.hpp"
 #include "../../Entities/BeamProjectileEntity.hpp"
@@ -543,6 +544,9 @@ namespace MphRead::Mods::Network
                 && static_cast<std::int32_t>(feedback.AttackerSlot) != slot
                 && static_cast<std::size_t>(feedback.AttackerSlot) < LastOverlapOnLocal.size())
             {
+                HitLocation::Damage(static_cast<std::int32_t>(feedback.AttackerSlot), player, hit.Beam,
+                    static_cast<std::int32_t>(hit.Damage),
+                    (hit.Flags & static_cast<std::int32_t>(Entities::DamageFlags::Headshot)) != 0);
                 IncrementInPlace(HitsTaken);
                 const auto beam = static_cast<std::size_t>(feedback.DamageBeam == NoBeam || feedback.DamageBeam > 9
                     ? 10 : feedback.DamageBeam);

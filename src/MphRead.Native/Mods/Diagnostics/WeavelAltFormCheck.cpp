@@ -414,6 +414,7 @@ namespace MphRead::Mods::Diagnostics
             }
             check(sim.StepFailures() == 0, "asset-backed scene retains zero simulation failures");
             Runtime::ConsoleWriteLine("WEAVEL PASS " + std::to_string(checks) + " production checks | EU1.1 phases1-8");
+            CheckEnemyExtension(scene, owner, *turret);
             result = 0;
         }
         catch (...) { Runtime::ConsoleErrorWriteLine("WEAVEL FAIL " + Runtime::ExceptionToString(std::current_exception())); }

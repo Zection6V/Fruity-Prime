@@ -1,6 +1,7 @@
 #include "HalfturretEntity.hpp"
 #include "../../Mods/Multiplayer/TeamLayout.hpp"
 #include "../../Mods/Gameplay/NativeGameplayClock.hpp"
+#include "../../Mods/Combat/Extensions/HalfturretEnemyExtension.hpp"
 
 #include "../BeamProjectileEntity.hpp"
 #include "../RoomEntity.hpp"
@@ -366,6 +367,12 @@ namespace MphRead::Entities
                 _target.reset();
             }
             _cooldownFactorRaw = Mods::Combat::HalfturretFireRate::Recover(_cooldownFactorRaw);
+            if (_target != nullptr
+                && !Mods::Combat::Extensions::HalfturretEnemyExtension::KeepTarget(
+                    RequireReference(_scene), owner, *_target, Position))
+            {
+                _target.reset();
+            }
             if (_target == nullptr)
             {
                 float minDistSqr = 15.0F * 15.0F;
@@ -393,6 +400,13 @@ namespace MphRead::Entities
                     }
                 }
             }
+            // The ROM hunter scan above retains priority; Adventure enemies
+            // are supplied by an explicit extension at the same native tick.
+            if (_target == nullptr)
+            {
+                _target = Mods::Combat::Extensions::HalfturretEnemyExtension::FindTarget(
+                    RequireReference(_scene), owner, Position);
+            }
             if (_target != nullptr)
             {
                 const Vector3 muzzlePos = TypeExtensions::AddY(Position, 0.4F);
@@ -414,7 +428,9 @@ namespace MphRead::Entities
                 {
                     _cooldownTimer = 1;
                 }
-                (void)UpdateAim(muzzlePos, _target->Position, _equipInfo, _aimVector);
+                (void)UpdateAim(muzzlePos,
+                    Mods::Combat::Extensions::HalfturretEnemyExtension::AimPosition(*_target),
+                    _equipInfo, _aimVector);
                 if (owner.NativeTimeSinceShot() >= NativeShotThreshold() && _cooldownTimer < 60)
                 {
                     if (owner.IsBot() && GameState::SinglePlayer()

@@ -606,6 +606,9 @@ namespace MphRead::Qt
             Mods::InputSettings::InvertMouseY()));
         rows.push_back(Toggle(QStringLiteral("invertX"), QStringLiteral("Invert horizontal aim"),
             Mods::InputSettings::InvertMouseX()));
+        // Off is modern PC aim; on reproduces the DS's own (stylus at 30 Hz).
+        rows.push_back(Toggle(QStringLiteral("classicAim"), QStringLiteral("Classic DS aim"),
+            Mods::InputSettings::ClassicAim()));
 
         Row advanced = Button(QStringLiteral("advanced"), QStringLiteral("Advanced"), QStringLiteral("slate"), 8, 4);
         advanced.Clicked = [this]() { _keyboardAdvanced = !_keyboardAdvanced; };
@@ -1212,6 +1215,10 @@ namespace MphRead::Qt
         if (Row* row = _keyboard.Find(QStringLiteral("invertX")))
         {
             row->On = Mods::InputSettings::InvertMouseX();
+        }
+        if (Row* row = _keyboard.Find(QStringLiteral("classicAim")))
+        {
+            row->On = Mods::InputSettings::ClassicAim();
         }
         if (Row* row = _keyboard.Find(QStringLiteral("scrollAll")))
         {
@@ -2167,6 +2174,7 @@ namespace MphRead::Qt
         Mods::InputSettings::MouseSensitivity(SliderToSensitivity(value(_keyboard, "sensitivity")));
         Mods::InputSettings::InvertMouseY(on(_keyboard, "invertY"));
         Mods::InputSettings::InvertMouseX(on(_keyboard, "invertX"));
+        Mods::InputSettings::ClassicAim(on(_keyboard, "classicAim"));
         Input::PointerInput::StylusMode(on(_stylus, "stylusMode"));
         if (_stylus.Find(QStringLiteral("repositionFilter")) != nullptr)
         {

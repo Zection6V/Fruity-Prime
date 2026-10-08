@@ -181,6 +181,28 @@ namespace MphRead::Mods::Network
         Row("claim", shooter, victim, beam, launch, false, (flags & 0x01U) != 0, damage, drawn, extra);
     }
 
+    void HitLocation::Passed(const Entities::BeamProjectileEntity& beam, const Entities::PlayerEntity& victim,
+        OpenTK::Mathematics::Vector3 point)
+    {
+        if (!_writer)
+        {
+            return;
+        }
+        Entities::PlayerEntity* owner = NetHitPrediction::OwnerOf(const_cast<Entities::BeamProjectileEntity*>(&beam));
+        Row("pass", owner != nullptr ? owner->SlotIndex() : -1, victim, static_cast<std::int32_t>(beam.Beam()),
+            LaunchOf(beam), false, false, 0, point, std::string());
+    }
+
+    void HitLocation::Synthesized(std::int32_t attacker, const Entities::PlayerEntity& victim, std::uint8_t beam,
+        std::uint32_t launch, OpenTK::Mathematics::Vector3 point, bool headshot)
+    {
+        if (!_writer)
+        {
+            return;
+        }
+        Row("hit", attacker, victim, beam, launch, false, headshot, 0, point, std::to_string(launch) + ";0;synth");
+    }
+
     void HitLocation::Damage(std::int32_t attacker, const Entities::PlayerEntity& victim, std::uint8_t beam,
         std::int32_t damage, bool headshot)
     {

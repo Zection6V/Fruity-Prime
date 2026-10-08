@@ -150,6 +150,21 @@ namespace MphRead::Entities
         OpenTK::Mathematics::Vector3 ModNearestLocalPoint{};
         bool ModTouchedLocal = false;
         void ModTrackNearLocal();
+        // Mods.Network.NetPlayerBridge confirmed impacts: the authority said
+        // this remote shot hit this machine's player, ModConfirmedOffset from
+        // their Position -- it homes onto that spot and is drawn hitting it.
+        // An unconfirmed one passes through them (ModPassedLocal).
+        bool ModConfirmedLocal = false;
+        OpenTK::Mathematics::Vector3 ModConfirmedOffset{};
+        bool ModPassedLocal = false;
+        // Met this machine's player before any word came: held where it met
+        // the body until ModHeldUntil, then homed (confirmed) or let through.
+        std::uint32_t ModHeldUntil = 0;
+        OpenTK::Mathematics::Vector3 ModHeldPoint{};
+        void ModHomeConfirmed();
+        // The weapon's own impact effect at a point, as a hit there draws it.
+        static void ModSpawnImpact(Scene* scene, BeamType beam, OpenTK::Mathematics::Vector3 point,
+            OpenTK::Mathematics::Vector3 up);
         [[nodiscard]] const Mods::Network::ShotKey& ModLaunchKey() const noexcept { return _modLaunchKey; }
         // Spawn's firing phase must survive until a Shock Coil beam tests an enemy.
         std::uint64_t ModContinuousPhase = 0;

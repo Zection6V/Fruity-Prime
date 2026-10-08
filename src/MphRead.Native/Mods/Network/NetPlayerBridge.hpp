@@ -8,14 +8,39 @@
 #include <cstdint>
 #include <string>
 
+namespace MphRead
+{
+    class Scene;
+}
+
 namespace MphRead::Entities
 {
     class Keybind;
     class PlayerControls;
+    class BeamProjectileEntity;
 }
 
 namespace MphRead::Mods::Network
 {
+    // NetPlayerBridge's confirmed impacts: a damage that arrived before its
+    // shot appeared here, and the shots that already went by.
+    struct ConfirmPending
+    {
+        std::int32_t Attacker = -1;
+        std::uint8_t LaunchLow = 0;
+        std::uint8_t Beam = 0;
+        OpenTK::Mathematics::Vector3 Offset{};
+        std::uint32_t Until = 0;
+        bool Live = false;
+        bool Headshot = false;
+    };
+    struct ConfirmGoneShot
+    {
+        std::int32_t Attacker = -1;
+        std::uint8_t LaunchLow = 0;
+        std::uint32_t Frame = 0;
+    };
+
     class NetPlayerBridge final
     {
     public:
@@ -74,6 +99,33 @@ namespace MphRead::Mods::Network
         // drawn here is still in the air, it is the one, and it is turned onto
         // this player so the hit is seen arriving with the damage.
         static void SteerIncoming(std::int32_t attackerSlot);
+
+        // Confirmed impacts (protocol 18). The authority's damage names the
+        // shot (the low byte of its launch frame) and where on this player the
+        // shooter saw it land. That one shot is the one drawn arriving there:
+        // homed onto the spot if it is in the air here, homed from the moment
+        // it appears if it has not appeared yet, and drawn as an impact on the
+        // spot if it is already gone. A remote shot nobody confirmed passes
+        // through this player instead of being drawn hitting them -- the
+        // impacts the shooter never made.
+        static void SetScene(MphRead::Scene* scene) noexcept { _scene = scene; }
+        static void ConfirmedImpacts(bool value) noexcept { _confirmedImpacts = value; }
+        [[nodiscard]] static bool ConfirmedImpacts() noexcept { return _confirmedImpacts; }
+        static void ConfirmIncoming(std::int32_t attackerSlot, std::uint8_t beam, std::uint8_t launchLow,
+            ImpactOffset impact, bool headshot = false);
+        static void OnRemoteShotSpawned(Entities::BeamProjectileEntity& beam);
+        static void NoteRemoteShotGone(const Entities::BeamProjectileEntity& beam);
+        // Called for every player a projectile is tested against: true when
+        // this is an unconfirmed remote shot meeting this machine's player.
+        [[nodiscard]] static bool PassesThroughLocal(Entities::BeamProjectileEntity& beam,
+            const Entities::PlayerEntity& player);
+        static void TickConfirms();
+        // How long a remote shot that met this player waits for the word.
+        static constexpr std::uint32_t HoldFrames = 6;
+        static void NotePassedLocal(const Entities::BeamProjectileEntity& beam);
+        static void SynthesizeImpact(std::int32_t attackerSlot, std::uint8_t beam, std::uint8_t launchLow,
+            OpenTK::Mathematics::Vector3 offset, bool headshot = false);
+        [[nodiscard]] static std::string DescribeConfirms();
         [[nodiscard]] static std::int64_t ShotsSteered() noexcept { return _shotsSteered; }
         static void RetargetEnabled(bool value) noexcept { _retargetEnabled = value; }
         [[nodiscard]] static std::int64_t KillsResynced() noexcept { return _killsResynced; }
@@ -146,6 +198,20 @@ namespace MphRead::Mods::Network
         inline static std::array<OpenTK::Mathematics::Vector3, LocalHistory> _localPositions{};
         inline static std::int64_t _aimsRetargeted = 0;
         inline static std::int64_t _shotsSteered = 0;
+        static constexpr std::uint32_t ConfirmWaitFrames = 10;
+        inline static MphRead::Scene* _scene = nullptr;
+        inline static bool _confirmedImpacts = true;
+        inline static std::array<ConfirmPending, 16> _pendingConfirms{};
+        inline static std::array<ConfirmGoneShot, 32> _goneShots{};
+        inline static std::size_t _goneNext = 0;
+        inline static std::int64_t _confirmsInFlight = 0;
+        inline static std::int64_t _confirmsAtSpawn = 0;
+        inline static std::int64_t _impactsSynthesized = 0;
+        inline static std::int64_t _passedThrough = 0;
+        inline static std::int64_t _confirmsIgnored = 0;
+        inline static double _homeAngleSum = 0;
+        inline static double _homeAngleMax = 0;
+        [[nodiscard]] static bool RecentlyGone(std::int32_t attackerSlot, std::uint8_t launchLow);
         inline static bool _retargetEnabled = true;
         inline static std::uint32_t _localShotFrame = 0;
         inline static OpenTK::Mathematics::Vector3 _localShotOrigin{};

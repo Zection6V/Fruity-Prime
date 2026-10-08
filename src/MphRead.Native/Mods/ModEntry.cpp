@@ -1320,6 +1320,11 @@ namespace MphRead::Mods
             Network::NetHitClaims::ShooterHits(false);
             WriteLine("[net] the authority resolves remote players' hits itself; claims only rescue");
         }
+        if (::HasFlag(args, "noconfirmedimpacts"))
+        {
+            Network::NetPlayerBridge::ConfirmedImpacts(false);
+            WriteLine("[net] remote shots are drawn as they fly; damage does not bring the shot in");
+        }
         if (::HasFlag(args, "noretarget"))
         {
             Network::NetPlayerBridge::RetargetEnabled(false);

@@ -458,9 +458,28 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static IntentPacket Read(std::span<const std::uint8_t> src);
     };
 
+    // Where on a hunter a hit landed, relative to their Position, in 1/64
+    // units on a signed byte per axis (+-1.98): what the shooter's machine
+    // resolved, carried by its claim and handed on to the victim with the
+    // damage, so the victim's screen shows the hit where the shooter's did.
+    struct ImpactOffset
+    {
+        static constexpr float Scale = 64.0F;
+        static constexpr std::int8_t None = -128;
+        std::int8_t X = None;
+        std::int8_t Y = None;
+        std::int8_t Z = None;
+        [[nodiscard]] bool Known() const noexcept { return X != None; }
+        [[nodiscard]] ::OpenTK::Mathematics::Vector3 Value() const noexcept
+        {
+            return ::OpenTK::Mathematics::Vector3(X / Scale, Y / Scale, Z / Scale);
+        }
+        [[nodiscard]] static ImpactOffset From(::OpenTK::Mathematics::Vector3 offset) noexcept;
+    };
+
     struct DamageEvent
     {
-        static constexpr std::int32_t Size = 15;
+        static constexpr std::int32_t Size = 19;
 
         std::uint16_t EventId = 0;
         std::uint16_t AttackerGeneration = 0;
@@ -469,6 +488,10 @@ namespace MphRead::Mods::Network
         std::uint8_t Beam = 0;
         std::uint8_t Flags = 0;
         ::OpenTK::Mathematics::Vector3 Direction{};
+        // The low byte of the shot's launch frame (the shooter's ack): which
+        // of the shooter's shots this was, among those still in the air.
+        std::uint8_t LaunchLow = 0;
+        ImpactOffset Impact{};
 
         void Write(std::span<std::uint8_t> dest) const;
         [[nodiscard]] static DamageEvent Read(std::span<const std::uint8_t> src);
@@ -551,7 +574,7 @@ namespace MphRead::Mods::Network
         std::uint16_t ShooterLifeId = 0;
         std::uint16_t VictimGeneration = 0;
         std::uint16_t VictimLifeId = 0;
-        static constexpr std::int32_t Size = 2 + 4 + 4 + 4 + 1 + 1 + 2 + 1 + 12 + 18 + 12;
+        static constexpr std::int32_t Size = 2 + 4 + 4 + 4 + 1 + 1 + 2 + 1 + 12 + 18 + 12 + 3;
 
         static constexpr std::int32_t MaxPerPacket = 6;
 
@@ -565,6 +588,9 @@ namespace MphRead::Mods::Network
         // Impulse holds the knockback the shooter's machine applied; the
         // authority applies the same one, since it no longer resolves the hit.
         static constexpr std::uint8_t FlagImpulse = 1U << 5;
+        // The hit was the projectile's splash, not its body: Impact is then
+        // the blast's centre relative to the victim.
+        static constexpr std::uint8_t FlagSplash = 1U << 6;
 
         std::uint16_t ClaimId = 0;
         std::uint32_t Frame = 0;
@@ -576,6 +602,7 @@ namespace MphRead::Mods::Network
         std::uint8_t Flags = 0;
         ::OpenTK::Mathematics::Vector3 HitPoint{};
         ::OpenTK::Mathematics::Vector3 Impulse{};
+        ImpactOffset Impact{};
 
         void Write(std::span<std::uint8_t> dest) const;
         [[nodiscard]] static HitClaimPacket Read(std::span<const std::uint8_t> src);
@@ -614,7 +641,7 @@ namespace MphRead::Mods::Network
     public:
         static constexpr std::uint16_t DefaultPort = 27888;
         static constexpr std::int32_t MaxPacketSize = 1232;
-        static constexpr std::int32_t ProtocolVersion = 17;
+        static constexpr std::int32_t ProtocolVersion = 18;
         static constexpr std::int32_t IntentSendInterval = 1;
         static constexpr double TimeoutSeconds = 30.0;
 

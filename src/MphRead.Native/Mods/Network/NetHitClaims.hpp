@@ -37,7 +37,12 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static bool Enabled() noexcept { return _enabled; }
         static void Enabled(bool value) noexcept { _enabled = value; }
 
-        static constexpr float ClaimRadius = 2.0F;
+        // How far the victim the shooter drew may be from where this
+        // authority's history had them at that frame. Measured (-hitlog, 2581
+        // claims at 250 ms +-40): p99 0.26, p99.9 0.67, worst 0.95 -- the
+        // puppet is read off the same frame the authority rewinds to. It was
+        // 2.0 when the authority still checked every hit itself.
+        static constexpr float ClaimRadius = 1.25F;
         static constexpr float MeleeRadius = 4.0F;
 
         [[nodiscard]] static std::int32_t GraceFor(std::int32_t slot);
@@ -62,7 +67,11 @@ namespace MphRead::Mods::Network
             ::MphRead::Entities::PlayerEntity& attacker, ::MphRead::BeamType beam, std::uint32_t damage,
             ::MphRead::Entities::DamageFlags flags, bool lethal, OpenTK::Mathematics::Vector3 hitPoint,
             std::uint32_t launchFrame, std::optional<OpenTK::Mathematics::Vector3> impulse = std::nullopt,
-            ::MphRead::Affliction afflictions = ::MphRead::Affliction::None);
+            ::MphRead::Affliction afflictions = ::MphRead::Affliction::None,
+            std::optional<OpenTK::Mathematics::Vector3> impact = std::nullopt, bool splash = false);
+        // While a claim is being applied: where it landed on the victim, for
+        // the damage event the victim's machine will read (NetDamage::Note).
+        [[nodiscard]] static ImpactOffset CurrentClaimImpact() noexcept { return _applyingImpact; }
         // Shooter-authoritative hits: a remote player's hit on another player
         // is the one their own machine resolved, validated here, and the
         // authority's own copy of it is not applied (NetDamage::Suppress).
@@ -146,6 +155,7 @@ namespace MphRead::Mods::Network
             std::uint8_t Flags = 0;
             OpenTK::Mathematics::Vector3 HitPoint{};
             OpenTK::Mathematics::Vector3 Impulse{};
+            ImpactOffset Impact{};
             std::int32_t Age = 0;
             std::int32_t Sends = 0;
             bool Live = false;
@@ -169,6 +179,7 @@ namespace MphRead::Mods::Network
             std::uint32_t LaunchFrame = 0;
             OpenTK::Mathematics::Vector3 HitPoint{};
             OpenTK::Mathematics::Vector3 Impulse{};
+            ImpactOffset Impact{};
             std::uint32_t Arrived = 0;
             std::int32_t Grace = 0;
             bool Live = false;
@@ -245,6 +256,9 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static bool FiredAfterOwnDeath(std::size_t shooter, std::uint32_t fired) noexcept;
         static void FinishLethal(const Pending& entry);
         inline static std::int64_t _finishedHere = 0;
+        inline static ImpactOffset _applyingImpact{};
+        inline static std::int64_t _impactRefused = 0;
+        [[nodiscard]] static bool ImpactPlausible(const HitClaimPacket& claim, std::int32_t victimSlot);
         inline static bool _shooterHits = true;
         inline static std::int64_t _serverCopiesSuppressed = 0;
         static std::array<bool, Slots> _dead;

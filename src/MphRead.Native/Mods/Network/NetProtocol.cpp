@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <cstddef>
 #include <stdexcept>
 #include <string_view>
@@ -897,6 +898,26 @@ namespace MphRead::Mods::Network
         WI16(Slice(dest, 9), PackDirection(Direction.X));
         WI16(Slice(dest, 11), PackDirection(Direction.Y));
         WI16(Slice(dest, 13), PackDirection(Direction.Z));
+        At(dest, 15) = LaunchLow;
+        At(dest, 16) = static_cast<std::uint8_t>(Impact.X);
+        At(dest, 17) = static_cast<std::uint8_t>(Impact.Y);
+        At(dest, 18) = static_cast<std::uint8_t>(Impact.Z);
+    }
+    ImpactOffset ImpactOffset::From(::OpenTK::Mathematics::Vector3 offset) noexcept
+    {
+        ImpactOffset packed{};
+        if (!std::isfinite(offset.X) || !std::isfinite(offset.Y) || !std::isfinite(offset.Z))
+        {
+            return packed;
+        }
+        const auto pack = [](float value)
+        {
+            return static_cast<std::int8_t>(std::clamp(std::lround(value * Scale), -127L, 127L));
+        };
+        packed.X = pack(offset.X);
+        packed.Y = pack(offset.Y);
+        packed.Z = pack(offset.Z);
+        return packed;
     }
     DamageEvent DamageEvent::Read(std::span<const std::uint8_t> src)
     {
@@ -911,6 +932,10 @@ namespace MphRead::Mods::Network
             UnpackDirection(RI16(Slice(src, 9))),
             UnpackDirection(RI16(Slice(src, 11))),
             UnpackDirection(RI16(Slice(src, 13))));
+        value.LaunchLow = At(src, 15);
+        value.Impact.X = static_cast<std::int8_t>(At(src, 16));
+        value.Impact.Y = static_cast<std::int8_t>(At(src, 17));
+        value.Impact.Z = static_cast<std::int8_t>(At(src, 18));
         return value;
     }
     DamageEvent PlayerState::EventAt(std::int32_t index) const
@@ -1072,6 +1097,9 @@ namespace MphRead::Mods::Network
         WF(Slice(dest, 49), Impulse.X);
         WF(Slice(dest, 53), Impulse.Y);
         WF(Slice(dest, 57), Impulse.Z);
+        At(dest, 61) = static_cast<std::uint8_t>(Impact.X);
+        At(dest, 62) = static_cast<std::uint8_t>(Impact.Y);
+        At(dest, 63) = static_cast<std::uint8_t>(Impact.Z);
     }
     HitClaimPacket HitClaimPacket::Read(std::span<const std::uint8_t> src)
     {
@@ -1093,6 +1121,9 @@ namespace MphRead::Mods::Network
         packet.HitPoint = ::OpenTK::Mathematics::Vector3(
             RF(Slice(src, 19)), RF(Slice(src, 23)), RF(Slice(src, 27)));
         packet.Impulse = ::OpenTK::Mathematics::Vector3(RF(Slice(src, 49)), RF(Slice(src, 53)), RF(Slice(src, 57)));
+        packet.Impact.X = static_cast<std::int8_t>(At(src, 61));
+        packet.Impact.Y = static_cast<std::int8_t>(At(src, 62));
+        packet.Impact.Z = static_cast<std::int8_t>(At(src, 63));
         if (!std::isfinite(packet.Impulse.X) || !std::isfinite(packet.Impulse.Y) || !std::isfinite(packet.Impulse.Z)
             || packet.Impulse.LengthSquared() > 4.0F)
         {

@@ -13,7 +13,9 @@
 #include "NetShotDiagnostics.hpp"
 #include "NetSmoothing.hpp"
 #include "NetUnlagged.hpp"
+#include "HitLocation.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../Formats/Types.hpp"
 #include "../../Metadata/Weapons.hpp"
 #include "../../Entities/BeamProjectileEntity.hpp"
@@ -529,6 +531,262 @@ namespace MphRead::Mods::Network
         }
         best->SetVelocity(OpenTK::Mathematics::Scale(toMe, speed / length));
         NativeRuntime::IncrementInPlace(_shotsSteered);
+    }
+
+    namespace
+    {
+        // The same shot's launch frame as two machines stamped it: the
+        // victim's copy is the ack of whichever intent was newest when the
+        // trigger pull arrived, a frame or two either side of the shooter's.
+        bool SameLaunch(std::uint8_t a, std::uint8_t b) noexcept
+        {
+            const auto diff = static_cast<std::uint8_t>(a - b);
+            return diff <= 3U || diff >= 253U;
+        }
+
+        bool ConfirmableBeam(std::uint8_t beam) noexcept
+        {
+            // The Shock Coil is one continuous beam drawn every frame: there
+            // is no projectile to bring in, and its ticks would each be an
+            // impact. It is drawn as the shooter aims it.
+            return beam < 9 && static_cast<::MphRead::BeamType>(beam) != ::MphRead::BeamType::ShockCoil;
+        }
+
+        Entities::PlayerEntity* LocalPlayer() noexcept
+        {
+            const std::int32_t local = NetHooks::LocalSlot();
+            const auto& players = Entities::PlayerEntity::Players();
+            if (local < 0 || static_cast<std::size_t>(local) >= players.size())
+            {
+                return nullptr;
+            }
+            return players[static_cast<std::size_t>(local)].get();
+        }
+
+        // A remote human's projectile on a machine that only draws it.
+        Entities::PlayerEntity* RemoteShooterOf(Entities::BeamProjectileEntity& beam) noexcept
+        {
+            if (!NetSession::Active() || NetSession::IsAuthority() || NetSession::IsHost())
+            {
+                return nullptr;
+            }
+            Entities::PlayerEntity* owner = NetHitPrediction::OwnerOf(&beam);
+            if (owner == nullptr || owner->IsBot() || owner->SlotIndex() == NetHooks::LocalSlot()
+                || owner->SlotIndex() < 0)
+            {
+                return nullptr;
+            }
+            return owner;
+        }
+    }
+
+    void NetPlayerBridge::ConfirmIncoming(std::int32_t attackerSlot, std::uint8_t beam, std::uint8_t launchLow,
+        ImpactOffset impact, bool headshot)
+    {
+        using OpenTK::Mathematics::Vector3;
+        Entities::PlayerEntity* me = LocalPlayer();
+        const auto& players = Entities::PlayerEntity::Players();
+        if (!_confirmedImpacts || me == nullptr || attackerSlot < 0 || attackerSlot == me->SlotIndex()
+            || static_cast<std::size_t>(attackerSlot) >= players.size() || !ConfirmableBeam(beam))
+        {
+            NativeRuntime::IncrementInPlace(_confirmsIgnored);
+            return;
+        }
+        // Where the shooter saw it land; the chest when the authority
+        // resolved the hit itself and nobody said.
+        const Vector3 offset = impact.Known() ? impact.Value() : Vector3(0.0F, 0.3F, 0.0F);
+        Entities::PlayerEntity& shooter = *players[static_cast<std::size_t>(attackerSlot)];
+        if (shooter.EquipInfo() != nullptr && shooter.EquipInfo()->Beams != nullptr)
+        {
+            // The closest launch frame wins: a fast weapon has a shot in the
+            // air every few frames, and the neighbour is not the one that hit.
+            auto& beams = *shooter.EquipInfo()->Beams;
+            Entities::BeamProjectileEntity* best = nullptr;
+            std::int32_t bestGap = 4;
+            for (std::int32_t i = 0; i < beams.Length(); ++i)
+            {
+                Entities::BeamProjectileEntity* shot = beams[i].get();
+                if (shot == nullptr || shot->Lifespan() <= 0 || shot->ModShooterAck == 0 || shot->ModConfirmedLocal
+                    || ::MphRead::TestFlag(shot->Flags(), Entities::BeamFlags::Collided))
+                {
+                    continue;
+                }
+                const auto diff = static_cast<std::int8_t>(static_cast<std::uint8_t>(shot->ModShooterAck & 0xFFU) - launchLow);
+                const std::int32_t gap = std::abs(static_cast<std::int32_t>(diff));
+                if (gap < bestGap)
+                {
+                    bestGap = gap;
+                    best = shot;
+                }
+            }
+            if (best != nullptr && !best->ModPassedLocal && !best->ModTouchedLocal && best->ModHeldUntil == 0)
+            {
+                // Bringing it in must not mean turning it round: a shot that
+                // has gone past, or would have to bend more than 60 degrees,
+                // is drawn landing on the spot instead.
+                const Vector3 toTarget = static_cast<Vector3>(me->Position) + offset
+                    - static_cast<Vector3>(best->Position);
+                const Vector3 velocity = best->Velocity();
+                const float lengths = OpenTK::Mathematics::Length(toTarget) * OpenTK::Mathematics::Length(velocity);
+                const float cosine = lengths > 0.0001F ? Vector3::Dot(toTarget, velocity) / lengths : 1.0F;
+                if (cosine < 0.5F)
+                {
+                    best->ModPassedLocal = true;
+                    NoteRemoteShotGone(*best);
+                    SynthesizeImpact(attackerSlot, beam, launchLow, offset, headshot);
+                    return;
+                }
+                const double angle = std::acos(std::clamp(static_cast<double>(cosine), -1.0, 1.0)) * 57.29578;
+                _homeAngleSum += angle;
+                _homeAngleMax = std::max(_homeAngleMax, angle);
+            }
+            if (best != nullptr && !best->ModPassedLocal && !best->ModTouchedLocal)
+            {
+                best->ModConfirmedLocal = true;
+                best->ModConfirmedOffset = offset;
+                NativeRuntime::IncrementInPlace(_confirmsInFlight);
+                return;
+            }
+            if (best != nullptr)
+            {
+                // It went by before the word came: draw the hit where it was.
+                SynthesizeImpact(attackerSlot, beam, launchLow, offset, headshot);
+                return;
+            }
+        }
+        if (!RecentlyGone(attackerSlot, launchLow))
+        {
+            // Not drawn yet: the damage outran the relayed trigger pull. Wait
+            // a few frames for the shot to appear before drawing it ourselves.
+            for (ConfirmPending& pending : _pendingConfirms)
+            {
+                if (!pending.Live)
+                {
+                    pending = ConfirmPending{attackerSlot, launchLow, beam, offset,
+                        NetSession::NetFrame() + ConfirmWaitFrames, true, headshot};
+                    return;
+                }
+            }
+        }
+        SynthesizeImpact(attackerSlot, beam, launchLow, offset, headshot);
+    }
+
+    void NetPlayerBridge::OnRemoteShotSpawned(Entities::BeamProjectileEntity& beam)
+    {
+        if (!_confirmedImpacts || beam.ModShooterAck == 0)
+        {
+            return;
+        }
+        Entities::PlayerEntity* owner = RemoteShooterOf(beam);
+        if (owner == nullptr)
+        {
+            return;
+        }
+        const auto low = static_cast<std::uint8_t>(beam.ModShooterAck & 0xFFU);
+        for (ConfirmPending& pending : _pendingConfirms)
+        {
+            if (pending.Live && pending.Attacker == owner->SlotIndex() && SameLaunch(pending.LaunchLow, low))
+            {
+                beam.ModConfirmedLocal = true;
+                beam.ModConfirmedOffset = pending.Offset;
+                pending.Live = false;
+                NativeRuntime::IncrementInPlace(_confirmsAtSpawn);
+                return;
+            }
+        }
+    }
+
+    void NetPlayerBridge::NoteRemoteShotGone(const Entities::BeamProjectileEntity& beam)
+    {
+        if (beam.ModShooterAck == 0)
+        {
+            return;
+        }
+        Entities::PlayerEntity* owner = RemoteShooterOf(const_cast<Entities::BeamProjectileEntity&>(beam));
+        if (owner == nullptr)
+        {
+            return;
+        }
+        _goneShots[_goneNext] = ConfirmGoneShot{owner->SlotIndex(),
+            static_cast<std::uint8_t>(beam.ModShooterAck & 0xFFU), std::max(1U, NetSession::NetFrame())};
+        _goneNext = (_goneNext + 1) % _goneShots.size();
+    }
+
+    bool NetPlayerBridge::RecentlyGone(std::int32_t attackerSlot, std::uint8_t launchLow)
+    {
+        const std::uint32_t now = NetSession::NetFrame();
+        for (const ConfirmGoneShot& gone : _goneShots)
+        {
+            if (gone.Frame != 0 && gone.Attacker == attackerSlot && SameLaunch(gone.LaunchLow, launchLow)
+                && now - gone.Frame < 120U)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool NetPlayerBridge::PassesThroughLocal(Entities::BeamProjectileEntity& beam, const Entities::PlayerEntity& player)
+    {
+        return _confirmedImpacts && !beam.ModConfirmedLocal && player.SlotIndex() == NetHooks::LocalSlot()
+            && !::MphRead::TestFlag(beam.Flags(), Entities::BeamFlags::Continuous) && RemoteShooterOf(beam) != nullptr;
+    }
+
+    void NetPlayerBridge::NotePassedLocal(const Entities::BeamProjectileEntity& beam)
+    {
+        NativeRuntime::IncrementInPlace(_passedThrough);
+        NoteRemoteShotGone(beam);
+    }
+
+    void NetPlayerBridge::TickConfirms()
+    {
+        const std::uint32_t now = NetSession::NetFrame();
+        for (ConfirmPending& pending : _pendingConfirms)
+        {
+            if (pending.Live && static_cast<std::int32_t>(now - pending.Until) >= 0)
+            {
+                pending.Live = false;
+                SynthesizeImpact(pending.Attacker, pending.Beam, pending.LaunchLow, pending.Offset, pending.Headshot);
+            }
+        }
+    }
+
+    void NetPlayerBridge::SynthesizeImpact(std::int32_t attackerSlot, std::uint8_t beam, std::uint8_t launchLow,
+        OpenTK::Mathematics::Vector3 offset, bool headshot)
+    {
+        // Drawn on a body that is falling as well: the shot that kills you
+        // is the one most worth seeing.
+        Entities::PlayerEntity* me = LocalPlayer();
+        if (me == nullptr)
+        {
+            return;
+        }
+        const OpenTK::Mathematics::Vector3 point = static_cast<OpenTK::Mathematics::Vector3>(me->Position) + offset;
+        Entities::BeamProjectileEntity::ModSpawnImpact(_scene, static_cast<::MphRead::BeamType>(beam), point,
+            OpenTK::Mathematics::Vector3(offset.X, 0.0F, offset.Z).LengthSquared() > 0.0001F
+                ? OpenTK::Mathematics::Vector3(offset.X, 0.0F, offset.Z).Normalized()
+                : OpenTK::Mathematics::Vector3(0.0F, 1.0F, 0.0F));
+        NativeRuntime::IncrementInPlace(_impactsSynthesized);
+        // The shot key's full frame, from the newest ack this shooter sent.
+        std::uint32_t launch = launchLow;
+        const auto s = static_cast<std::size_t>(attackerSlot);
+        if (s < NetSession::RemoteIntents.size() && NetSession::RemoteIntentValid[s])
+        {
+            const std::uint32_t newest = NetSession::RemoteIntents[s].AckFrame;
+            launch = newest - static_cast<std::uint8_t>(static_cast<std::uint8_t>(newest & 0xFFU) - launchLow);
+        }
+        HitLocation::Synthesized(attackerSlot, *me, beam, launch, point, headshot);
+    }
+
+    std::string NetPlayerBridge::DescribeConfirms()
+    {
+        return "confirmed impacts: " + std::to_string(_confirmsInFlight) + " shots in the air brought in (turned "
+            + NativeRuntime::ToString(_confirmsInFlight > 0 ? _homeAngleSum / static_cast<double>(_confirmsInFlight) : 0.0, "F1")
+            + " deg on average, at most " + NativeRuntime::ToString(_homeAngleMax, "F1") + "), "
+            + std::to_string(_confirmsAtSpawn) + " brought in from the moment they appeared, "
+            + std::to_string(_impactsSynthesized) + " drawn on the spot (shot gone or never drawn), "
+            + std::to_string(_passedThrough) + " unconfirmed shots let through, "
+            + std::to_string(_confirmsIgnored) + " not applicable (continuous beam, own or unknown shooter)";
     }
 
     void NetPlayerBridge::ShooterRay(const Entities::PlayerEntity& shooter, OpenTK::Mathematics::Vector3 drawnMuzzle,

@@ -260,7 +260,7 @@ namespace MphRead::Mods::Network
             attacker._altAttackCooldown = 0; attacker.EndAltAttack();
             check(!TestFlag(attacker.Flags2(), PlayerFlags2::AltAttack) && attacker._altAttackCooldown == 0,
                 "Spire EndAltAttack clears flag without cooldown");
-            check(NetConfig::ProtocolVersion == 17, "network protocol remains 17");
+            check(NetConfig::ProtocolVersion == 18, "network protocol remains 18");
             Runtime::ConsoleWriteLine("DIALANCHE PASS " + std::to_string(checks) + " production assertions | EU1.1 0200B55C/0200B808");
             result = 0;
         }

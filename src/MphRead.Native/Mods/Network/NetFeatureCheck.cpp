@@ -859,6 +859,7 @@ namespace MphRead::Mods::Network
         }
         ConsoleWriteLine(collision);
 
+        ConsoleWriteLine("    " + NetPlayerBridge::DescribeConfirms());
         ConsoleWriteLine("    hits taken that were seen landing: " + ::MphRead::NativeRuntime::ToString(NetDamage::HitsTakenSeen)
             + " of " + ::MphRead::NativeRuntime::ToString(NetDamage::HitsTaken) + " (remote aims turned onto this player on "
             + ::MphRead::NativeRuntime::ToString(NetPlayerBridge::AimsRetargeted()) + " frames, "

@@ -279,6 +279,7 @@ namespace MphRead::Mods::Network
             if (!Mods::SpectatorMode::IsSpectating())
             {
                 HitRig::SetScene(&scene);
+                NetPlayerBridge::SetScene(&scene);
                 NetTestScript::Apply(player);
             }
             NetPlayerBridge::RecordPresses(*player);
@@ -313,6 +314,10 @@ namespace MphRead::Mods::Network
             _intentPending = false;
             NetPlayerBridge::AttachLocalShot(_pendingIntent);
             NetSession::SendIntent(_pendingIntent);
+        }
+        if (!NetSession::IsAuthority() && !NetSession::IsHost())
+        {
+            NetPlayerBridge::TickConfirms();
         }
         NetSmoothing::Tick();
 

@@ -340,7 +340,9 @@ namespace MphRead::Mods::Network
             if (!self && attacker != nullptr)
             {
                 const std::uint16_t claimId = NetHitClaims::Declare(victim, *attacker, beam, claimedDamage,
-                    flags, claimedLethal, victim.Position, launchFrame, impulse, afflictions);
+                    flags, claimedLethal, victim.Position, launchFrame, impulse, afflictions,
+                    _impactKnown ? std::optional<OpenTK::Mathematics::Vector3>(_impact) : std::nullopt,
+                    _impactSplash);
                 StampClaim(victimSlot, at, claimId);
             }
             if (headshot && !self)

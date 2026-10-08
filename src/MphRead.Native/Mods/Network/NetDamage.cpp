@@ -416,6 +416,10 @@ namespace MphRead::Mods::Network
         latest.Beam = _beam[index];
         latest.Flags = _flags[index];
         latest.Direction = _direction[index];
+        // Which shot, and where on the body the shooter saw it land: the
+        // victim's machine shows that same shot arriving there.
+        latest.LaunchLow = static_cast<std::uint8_t>(launchFrame & 0xFFU);
+        latest.Impact = NetHitClaims::ApplyingClaimNow() ? NetHitClaims::CurrentClaimImpact() : ImpactOffset{};
         history[PlayerState::DamageHistory - 1] = latest;
     }
 
@@ -547,6 +551,9 @@ namespace MphRead::Mods::Network
                 HitLocation::Damage(static_cast<std::int32_t>(feedback.AttackerSlot), player, hit.Beam,
                     static_cast<std::int32_t>(hit.Damage),
                     (hit.Flags & static_cast<std::int32_t>(Entities::DamageFlags::Headshot)) != 0);
+                NetPlayerBridge::ConfirmIncoming(static_cast<std::int32_t>(feedback.AttackerSlot), hit.Beam,
+                    hit.LaunchLow, hit.Impact,
+                    (hit.Flags & static_cast<std::int32_t>(Entities::DamageFlags::Headshot)) != 0);
                 IncrementInPlace(HitsTaken);
                 const auto beam = static_cast<std::size_t>(feedback.DamageBeam == NoBeam || feedback.DamageBeam > 9
                     ? 10 : feedback.DamageBeam);
@@ -559,7 +566,10 @@ namespace MphRead::Mods::Network
                 }
                 else
                 {
-                    NetPlayerBridge::SteerIncoming(static_cast<std::int32_t>(feedback.AttackerSlot));
+                    if (!NetPlayerBridge::ConfirmedImpacts())
+                    {
+                        NetPlayerBridge::SteerIncoming(static_cast<std::int32_t>(feedback.AttackerSlot));
+                    }
                     auto& frames = UnseenFrame[static_cast<std::size_t>(feedback.AttackerSlot)];
                     std::size_t oldest = 0;
                     for (std::size_t i = 1; i < UnseenDepth; i++)

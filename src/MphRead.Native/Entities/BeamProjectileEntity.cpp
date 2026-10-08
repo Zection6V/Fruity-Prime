@@ -11,6 +11,8 @@
 #include "../Messaging.hpp"
 #include "../Mods/Network/NetDamage.hpp"
 #include "../Mods/Network/HitLocation.hpp"
+#include "../Mods/Network/NetPlayerBridge.hpp"
+#include "../Mods/Headless.hpp"
 #include "../Mods/Network/NetHitPrediction.hpp"
 #include "../Mods/Network/NetLog.hpp"
 #include "../Mods/Network/ContinuousWeaponPhase.hpp"
@@ -545,9 +547,101 @@ namespace MphRead::Entities
         }
     }
 
+    void BeamProjectileEntity::ModHomeConfirmed()
+    {
+        if (ModHeldUntil != 0)
+        {
+            if (ModConfirmedLocal)
+            {
+                ModHeldUntil = 0;
+            }
+            else if (static_cast<std::int32_t>(Mods::Network::NetSession::NetFrame() - ModHeldUntil) >= 0)
+            {
+                // No word: it did not hit. On it goes, through them.
+                ModHeldUntil = 0;
+                ModPassedLocal = true;
+                Mods::Network::NetPlayerBridge::NotePassedLocal(*this);
+                if (Mods::Network::HitLocation::Enabled())
+                {
+                    const std::int32_t local = Mods::Network::NetSession::LocalSlot();
+                    if (local >= 0 && local < static_cast<std::int32_t>(PlayerEntity::Players().size()))
+                    {
+                        Mods::Network::HitLocation::Passed(*this,
+                            *PlayerEntity::Players()[static_cast<std::size_t>(local)], ModHeldPoint);
+                    }
+                }
+            }
+            else
+            {
+                // Still waiting: it stays where it met the body.
+                Position = ModHeldPoint;
+                _backPosition = ModHeldPoint;
+                return;
+            }
+        }
+        if (!ModConfirmedLocal || ModTouchedLocal)
+        {
+            return;
+        }
+        const std::int32_t local = Mods::Network::NetSession::LocalSlot();
+        if (local < 0 || local >= static_cast<std::int32_t>(PlayerEntity::Players().size()))
+        {
+            return;
+        }
+        const PlayerEntity& me = *PlayerEntity::Players()[static_cast<std::size_t>(local)];
+        if (me.Health() <= 0)
+        {
+            // Died before it arrived (this hit, or another): a body takes no
+            // collision, so the hit is drawn on it here and the shot is spent.
+            ModTouchedLocal = true;
+            PlayerEntity* owner = Mods::Network::NetHitPrediction::OwnerOf(this);
+            Mods::Network::NetPlayerBridge::SynthesizeImpact(owner != nullptr ? owner->SlotIndex() : -1,
+                static_cast<std::uint8_t>(_beam), static_cast<std::uint8_t>(ModShooterAck & 0xFFU), ModConfirmedOffset);
+            return;
+        }
+        const Vector3 toTarget = static_cast<Vector3>(me.Position) + ModConfirmedOffset - static_cast<Vector3>(Position);
+        const float distance = Length(toTarget);
+        const float speed = Length(_velocity);
+        if (!(distance > 0.0001F) || !(speed > 0.0001F))
+        {
+            return;
+        }
+        // Straight at the spot, at the speed it was already flying: the shot
+        // the shooter saw land, arriving where it landed.
+        _velocity = ::Scale(toTarget, speed / distance);
+    }
+
+    void BeamProjectileEntity::ModSpawnImpact(Scene* scene, BeamType beam, Vector3 point, Vector3 up)
+    {
+        if (scene == nullptr || Mods::Headless::Active())
+        {
+            return;
+        }
+        const auto index = static_cast<std::size_t>(beam);
+        if (index >= (*::MphRead::Weapons::Current).size())
+        {
+            return;
+        }
+        const auto& weapon = RequireReference((*::MphRead::Weapons::Current)[index]);
+        const std::uint8_t effect = ManagedAt(RequireReference(weapon.CollisionEffects), 0U);
+        if (effect == 255)
+        {
+            return;
+        }
+        Matrix4 transform = GetTransformMatrix(GetCrossVector(up), up);
+        SetRow3(transform, point);
+        const std::shared_ptr<BeamEffectEntity> ent = BeamEffectEntity::Create(
+            BeamEffectEntityData(effect, true, transform, nullptr), scene);
+        if (ent)
+        {
+            scene->AddEntity(ent);
+        }
+    }
+
     void BeamProjectileEntity::CheckCollision()
     {
         Scene& scene = RequireReference(_scene);
+        ModHomeConfirmed();
         if (Mods::Network::HitLocation::Enabled())
         {
             ModTrackNearLocal();
@@ -767,8 +861,28 @@ namespace MphRead::Entities
                 }
             }
 
+            if (hitPlayer && playerRes.Distance < minDist
+                && Mods::Network::NetPlayerBridge::PassesThroughLocal(*this, player))
+            {
+                // Met this machine's player with no word that it hit them. The
+                // word usually follows the shot by a frame or two: hold it on
+                // the body that long rather than fly it through them.
+                if (!ModPassedLocal && ModHeldUntil == 0)
+                {
+                    ModHeldUntil = std::max(1U,
+                        Mods::Network::NetSession::NetFrame() + Mods::Network::NetPlayerBridge::HoldFrames);
+                    ModHeldPoint = playerRes.Position;
+                    Position = ModHeldPoint;
+                }
+                hitPlayer = false;
+            }
             if (hitPlayer && playerRes.Distance < minDist)
             {
+                if (ModConfirmedLocal && player.SlotIndex() == Mods::Network::NetSession::LocalSlot())
+                {
+                    // Drawn where the shooter saw it land.
+                    playerRes.Position = static_cast<Vector3>(player.Position) + ModConfirmedOffset;
+                }
                 Mods::Network::NetDamage::NotePlayerOverlap(_owner.get(), player);
                 if (Mods::Network::NetLog::Enabled())
                 {
@@ -939,18 +1053,21 @@ namespace MphRead::Entities
                     }
                     wholeDamage = static_cast<std::uint32_t>(std::clamp(
                         damage, 0.0F, static_cast<float>(std::numeric_limits<std::int32_t>::max())));
+                    if (player->SlotIndex() == Mods::Network::NetSession::LocalSlot())
+                    {
+                        ModTouchedLocal = true;
+                    }
                     if (Mods::Network::HitLocation::Enabled())
                     {
-                        if (player->SlotIndex() == Mods::Network::NetSession::LocalSlot())
-                        {
-                            ModTouchedLocal = true;
-                        }
                         Mods::Network::HitLocation::Contact(*this, *player, anyRes.Position, isHeadshot,
                             wholeDamage, false, player->ModInvulnerable());
                     }
                     if (wholeDamage != 0)
                     {
+                        Mods::Network::NetHitPrediction::SetImpact(
+                            static_cast<Vector3>(anyRes.Position) - static_cast<Vector3>(player->Position), false);
                         player->TakeDamage(wholeDamage, damageFlags, damageDir, this);
+                        Mods::Network::NetHitPrediction::ClearImpact();
                     }
                     if (TestFlag(_flags, BeamFlags::LifeDrain) && owner.Type == EntityType::Player)
                     {
@@ -1364,16 +1481,19 @@ namespace MphRead::Entities
                         const float ratio = dist / _splashRadius;
                         const std::int32_t damage = static_cast<std::int32_t>(
                             GetInterpolatedValue(_splashDamageType, _splashDamage, 0.0F, ratio));
+                        if (player.SlotIndex() == Mods::Network::NetSession::LocalSlot())
+                        {
+                            ModTouchedLocal = true;
+                        }
                         if (Mods::Network::HitLocation::Enabled())
                         {
-                            if (player.SlotIndex() == Mods::Network::NetSession::LocalSlot())
-                            {
-                                ModTouchedLocal = true;
-                            }
                             Mods::Network::HitLocation::Contact(*this, player, Position, false,
                                 static_cast<std::uint32_t>(std::max(0, damage)), true, false);
                         }
+                        Mods::Network::NetHitPrediction::SetImpact(
+                            static_cast<Vector3>(Position) - static_cast<Vector3>(player.Position), true);
                         player.TakeDamage(damage, DamageFlags::NoDmgInvuln, damageDir, this);
+                        Mods::Network::NetHitPrediction::ClearImpact();
                         if (_owner)
                         {
                             scene.SendMessage(Message::Impact, this, _owner.get(),
@@ -1715,9 +1835,16 @@ namespace MphRead::Entities
                     ModNearestLocalPoint, ModNearestLocal);
             }
         }
+        if (!ModTouchedLocal && _owner)
+        {
+            Mods::Network::NetPlayerBridge::NoteRemoteShotGone(*this);
+        }
         ModNearestLocal = -1.0F;
         ModTouchedLocal = false;
         ModShooterAck = 0;
+        ModConfirmedLocal = false;
+        ModPassedLocal = false;
+        ModHeldUntil = 0;
         _soundSource.StopAllSfx();
         _lifespan = 0.0F;
         if (_effect)

@@ -97,6 +97,9 @@ namespace MphRead::Mods::Network
         PlayerEntity* owner = OwnerPlayer(beam);
         beam.ModNearestLocal = -1.0F;
         beam.ModTouchedLocal = false;
+        beam.ModConfirmedLocal = false;
+        beam.ModPassedLocal = false;
+        beam.ModHeldUntil = 0;
         if (parent != nullptr && NetSession::Active() && CurrentProjectile(*parent)
             && owner != nullptr && owner->SlotIndex() == parent->ModLaunchKey().ShooterSlot)
         {
@@ -122,6 +125,7 @@ namespace MphRead::Mods::Network
             && NetSession::RemoteIntentValid[static_cast<std::size_t>(owner->SlotIndex())])
         {
             beam.ModShooterAck = NetSession::RemoteIntents[static_cast<std::size_t>(owner->SlotIndex())].AckFrame;
+            NetPlayerBridge::OnRemoteShotSpawned(beam);
         }
         beam.ModLaunchKey(ShotKey(beam.ModLaunchAuthority, beam.ModLaunchMatch,
             owner != nullptr ? owner->SlotIndex() : -1, beam.ModLaunchGeneration, beam.ModLaunchLife,

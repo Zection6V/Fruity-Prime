@@ -3,6 +3,7 @@
 
     hitloc.py RUN_DIR [RUN_DIR...]          one table per run, side by side
     hitloc.py --json RUN_DIR                 the same numbers, machine-readable
+    hitloc.py NAME=DIR1,DIR2 ...             several runs of one arm pooled as one column
 
 A run directory holds the -hitlog CSVs of one match: one per client
 (hl-<name>.csv) and the authority's (hl-server.csv, or any file whose rows
@@ -53,12 +54,19 @@ def wrap(angle):
 
 def load(run):
     rows = []
+    for directory in run.split(","):
+        rows += load_one(directory)
+    return rows
+
+
+def load_one(run):
+    rows = []
     for path in sorted(glob.glob(os.path.join(run, "hl-*.csv"))):
         with open(path, newline="") as f:
             for r in csv.DictReader(f):
                 if r.get("ev") in (None, "ev"):
                     continue
-                r["_file"] = os.path.basename(path)
+                r["_file"] = path
                 for k in ("wall_ms", "frame", "snap", "auth", "local", "shooter", "victim", "beam",
                           "launch", "splash", "hs", "dmg", "alt"):
                     try:
@@ -94,6 +102,7 @@ def classify(rows):
             continue
         parts = r["extra"].split(";") if ev == "hit" else []
         r["blocked"] = len(parts) > 1 and parts[1] == "1"
+        r["synth"] = len(parts) > 2 and parts[2] == "synth"
         if ev == "hit" and r["shooter"] == local and r["victim"] != local:
             # A hit the victim's invulnerability swallowed deals nothing and
             # is claimed by nobody: counted, and left out of every pairing.
@@ -163,6 +172,9 @@ def stats(values):
 
 
 def analyse(run):
+    name = None
+    if "=" in run:
+        name, run = run.split("=", 1)
     rows = load(run)
     c = classify(rows)
     per = defaultdict(lambda: defaultdict(list))
@@ -170,7 +182,11 @@ def analyse(run):
 
     def add(beam, name, value):
         per[beam][name].append(value)
-        total[name].append(value)
+        # The Shock Coil is one continuous beam dealing a tick every few
+        # frames, each its own "hit" on the shooter's screen; it would swamp
+        # every rate here, so it is reported on its own and kept out of these.
+        if beam != "ShockCoil":
+            total[name].append(value)
 
     # Shooter against victim: the same shot, drawn on the two screens.
     sv = pair([r for r in c["S"] if not r["splash"]], [r for r in c["V"] if not r["splash"]], tolerance=3)
@@ -188,6 +204,7 @@ def analyse(run):
             add(b, "hs_agree", 1 if s["hs"] == v["hs"] else 0)
             add(b, "band_agree", 1 if (s["hpct"] >= HEAD_PCT) == (v["hpct"] >= HEAD_PCT) else 0)
             add(b, "victim_late_ms", v["wall_ms"] - s["wall_ms"])
+            add(b, "seen_as_flying_shot", 0 if v.get("synth") else 1)
         else:
             add(b, "seen_same_shot", 0)
             near = None
@@ -271,13 +288,13 @@ def analyse(run):
                 out[name] = len(values)
             elif name in ("seen_same_shot", "hs_agree", "band_agree", "claimed", "claim_ok", "applied",
                           "dmg_equal", "shadow_agree", "shadow_hs_agree", "dmg_seen", "impact_had_damage",
-                          "splash_seen", "miss_found"):
+                          "splash_seen", "miss_found", "seen_as_flying_shot"):
                 out[name] = {"n": len(values), "rate": sum(values) / len(values) if values else None}
             else:
                 out[name] = stats(values)
         return out
 
-    return {"run": run, "counts": {k: len(v) for k, v in c.items()},
+    return {"run": name or run, "counts": {k: len(v) for k, v in c.items()},
             "total": summarise(total), "weapons": {b: summarise(v) for b, v in sorted(per.items())}}
 
 
@@ -285,6 +302,7 @@ ROWS = [
     ("shots that hit, shooter's view", "direct", "count"),
     ("  (more absorbed by invulnerability, not counted)", "blocked", "count"),
     ("  victim drew the same shot hitting", "seen_same_shot", "rate"),
+    ("  of which the drawn shot itself arrived", "seen_as_flying_shot", "rate"),
     ("  |height| shooter vs victim, % body (p50)", "d_hpct", "p50"),
     ("  |height| shooter vs victim, % body (p90)", "d_hpct", "p90"),
     ("  |height| shooter vs victim, units (p90)", "d_dy", "p90"),
@@ -322,7 +340,7 @@ def cell(summary, name, field):
 
 
 def print_table(results, scope="total"):
-    names = [os.path.basename(r["run"].rstrip("/")) for r in results]
+    names = [os.path.basename(r["run"].rstrip("/").split(",")[0]) for r in results]
     width = max(46, max(len(n) for n in names))
     print(f"{'':{width}}" + "".join(f"{n:>22}" for n in names))
     for label, name, field in ROWS:
@@ -342,7 +360,7 @@ def main(argv):
     if as_json:
         print(json.dumps(results, indent=1))
         return 0
-    print("== all weapons")
+    print("== all weapons but the Shock Coil (its own section below)")
     print_table(results)
     weapons = sorted({w for r in results for w in r["weapons"]})
     for w in weapons:

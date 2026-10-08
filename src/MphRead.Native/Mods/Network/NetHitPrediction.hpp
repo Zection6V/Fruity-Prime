@@ -99,6 +99,16 @@ namespace MphRead::Mods::Network
 
         [[nodiscard]] static bool Confirm(std::int32_t slot, std::int32_t landed = 1, bool authorityHeadshot = false);
         [[nodiscard]] static Entities::PlayerEntity* OwnerOf(Entities::EntityBase* source);
+        // Where on the victim the hit about to be dealt landed, relative to
+        // their Position: set by the projectile around its TakeDamage call,
+        // read by NoteHit for the claim (HitClaimPacket::Impact).
+        static void SetImpact(OpenTK::Mathematics::Vector3 offset, bool splash) noexcept
+        {
+            _impact = offset;
+            _impactKnown = true;
+            _impactSplash = splash;
+        }
+        static void ClearImpact() noexcept { _impactKnown = false; _impactSplash = false; }
         static void ForgetSlot(std::int32_t slot);
         static void NoteRespawn(std::int32_t slot);
         static void NoteDeath(std::int32_t slot);
@@ -152,6 +162,9 @@ namespace MphRead::Mods::Network
         static void StampClaim(std::int32_t slot, std::int32_t at, std::uint16_t claimId);
 
         inline static bool _deathEnabled = true;
+        inline static OpenTK::Mathematics::Vector3 _impact{};
+        inline static bool _impactKnown = false;
+        inline static bool _impactSplash = false;
         inline static std::array<std::uint32_t, 8> _killShownFrame{};
 
         inline static bool _enabled = true;

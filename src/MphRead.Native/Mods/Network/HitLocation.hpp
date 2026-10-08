@@ -53,6 +53,13 @@ namespace MphRead::Mods::Network
         static void Claim(std::int32_t shooter, const Entities::PlayerEntity& victim, std::uint8_t beam,
             std::uint32_t launch, std::int32_t damage, std::uint8_t flags, OpenTK::Mathematics::Vector3 drawn,
             OpenTK::Mathematics::Vector3 history, bool historyKnown, std::int32_t verdict);
+        // An unconfirmed remote shot met this machine's player and was let through.
+        static void Passed(const Entities::BeamProjectileEntity& beam, const Entities::PlayerEntity& victim,
+            OpenTK::Mathematics::Vector3 point);
+        // An impact drawn on this machine's player at the spot the shooter
+        // saw, for a confirmed shot that was not (or no longer) in the air here.
+        static void Synthesized(std::int32_t attacker, const Entities::PlayerEntity& victim, std::uint8_t beam,
+            std::uint32_t launch, OpenTK::Mathematics::Vector3 point, bool headshot);
         // The authority's damage reached this machine's own player.
         static void Damage(std::int32_t attacker, const Entities::PlayerEntity& victim, std::uint8_t beam,
             std::int32_t damage, bool headshot);

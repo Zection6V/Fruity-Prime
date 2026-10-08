@@ -574,7 +574,7 @@ namespace MphRead::Mods::Network
 
     void NetLobbyTest::ProtocolChecks()
     {
-        Check(NetConfig::ProtocolVersion == 17 && static_cast<std::uint8_t>(PacketType::SessionState) == 36
+        Check(NetConfig::ProtocolVersion == 18 && static_cast<std::uint8_t>(PacketType::SessionState) == 36
             && static_cast<std::uint8_t>(PacketType::MapOffer) == 32 && static_cast<std::uint8_t>(PacketType::MapDone) == 35,
             "combined protocol and non-overlapping map/lobby IDs");
         SessionStatePacket state{};

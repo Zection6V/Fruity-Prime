@@ -47,8 +47,39 @@ namespace MphRead::Mods::Network
         [[nodiscard]] std::int64_t Duplicated() const noexcept { return _duplicated; }
         [[nodiscard]] std::int64_t Reordered() const noexcept { return _reordered; }
 
+        // Latency spikes (-netspike): episodes arriving at random, on average
+        // perMinute of them a minute, each adding minMs..maxMs to every
+        // datagram for 0.2-1.5 s. Datagrams stay in order, as behind a real
+        // queue that fills: when a spike ends, what it held arrives at once.
+        void ConfigureSpikes(std::int32_t seed, double perMinute, double minMs, double maxMs)
+        {
+            _spikeRandom = ::MphRead::NativeRuntime::Random(seed);
+            _spikeRate = std::max(0.0, perMinute) / 60000.0;
+            _spikeMin = std::max(0.0, minMs);
+            _spikeMax = std::max(_spikeMin, maxMs);
+        }
+        [[nodiscard]] std::int64_t Spikes() const noexcept { return _spikes; }
+
         void Enqueue(double nowMs, T value, double extraDelayMs = 0)
         {
+            if (_spikeRate > 0)
+            {
+                if (nowMs >= _spikeEnd)
+                {
+                    const double elapsed = _lastSpikeCheck > 0 ? std::max(0.0, nowMs - _lastSpikeCheck) : 0.0;
+                    if (_spikeRandom.NextDouble() < 1.0 - std::exp(-_spikeRate * elapsed))
+                    {
+                        _spikeExtra = _spikeMin + _spikeRandom.NextDouble() * (_spikeMax - _spikeMin);
+                        _spikeEnd = nowMs + 200.0 + _spikeRandom.NextDouble() * 1300.0;
+                        ::MphRead::NativeRuntime::IncrementInPlace(_spikes);
+                    }
+                }
+                _lastSpikeCheck = nowMs;
+                if (nowMs < _spikeEnd)
+                {
+                    extraDelayMs += _spikeExtra;
+                }
+            }
             if (_random.NextDouble() < _loss)
             {
                 ::MphRead::NativeRuntime::IncrementInPlace(_dropped);
@@ -160,5 +191,13 @@ namespace MphRead::Mods::Network
         std::int64_t _dropped = 0;
         std::int64_t _duplicated = 0;
         std::int64_t _reordered = 0;
+        ::MphRead::NativeRuntime::Random _spikeRandom{1};
+        double _spikeRate = 0;
+        double _spikeMin = 0;
+        double _spikeMax = 0;
+        double _spikeExtra = 0;
+        double _spikeEnd = 0;
+        double _lastSpikeCheck = 0;
+        std::int64_t _spikes = 0;
     };
 }

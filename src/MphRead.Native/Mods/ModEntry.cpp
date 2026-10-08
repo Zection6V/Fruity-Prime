@@ -1226,6 +1226,12 @@ namespace MphRead::Mods
                 + " is not a number of milliseconds (try -netlag 200 or -netlag 200:40)");
             return true;
         }
+        const std::optional<std::string> netSpike = ValueAfter(args, "netspike");
+        if (netSpike.has_value() && !Network::NetLag::ConfigureSpikes(*netSpike))
+        {
+            WriteLine("[net] -netspike " + *netSpike + " is not SPIKES_PER_MINUTE:MIN_MS-MAX_MS (try -netspike 6:50-500)");
+            return true;
+        }
         const std::optional<std::string> netLoss = ValueAfter(args, "netloss");
         if (netLoss.has_value() && !Network::NetLag::ConfigureLoss(*netLoss))
         {

@@ -3,6 +3,9 @@
 #include "../../Scene.hpp"
 #include "../../Mods/Gameplay/NativeGameplayClock.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../Mods/Network/NetLog.hpp"
+
+#include <string>
 
 #include <limits>
 
@@ -94,6 +97,7 @@ namespace MphRead::Entities
                 _weavelAltLife = true;
                 EnterAltForm();
                 _weavelReplicaMorphFrame = frame;
+                Mods::Network::NetLog::Event("slot " + std::to_string(SlotIndex()) + " replica Weavel morph started");
             }
             // Snap only if the animation never finishes.
             morphing = frame - _weavelReplicaMorphFrame < 90;
@@ -107,6 +111,7 @@ namespace MphRead::Entities
             ExitAltForm();
             _weavelReplicaMorphFrame = frame;
             morphing = true;
+            Mods::Network::NetLog::Event("slot " + std::to_string(SlotIndex()) + " replica Weavel unmorph started");
         }
         else if (!desiredAlt && IsUnmorphing())
         {
@@ -114,6 +119,13 @@ namespace MphRead::Entities
         }
         if (!morphing)
         {
+            if (_weavelReplicaMorphFrame != 0)
+            {
+                Mods::Network::NetLog::Event("slot " + std::to_string(SlotIndex()) + " replica Weavel "
+                    + (IsMorphing() || IsUnmorphing() ? "transition stalled, snapped" : "transition finished")
+                    + " after " + std::to_string(frame - _weavelReplicaMorphFrame) + " frames");
+                _weavelReplicaMorphFrame = 0;
+            }
             FinalizeWeavelForm(desiredAlt);
         }
         _weavelAltLife = desiredAlt;

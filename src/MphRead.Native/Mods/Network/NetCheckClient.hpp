@@ -4,6 +4,7 @@
 
 #include "../../Formats/Enums.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
+#include "../Input/SyntheticInput.hpp"
 
 
 #include <chrono>
@@ -29,6 +30,11 @@ namespace MphRead::Mods::Network
     private:
         std::shared_ptr<MphRead::RendererPlatform::Window> _window;
         std::unique_ptr<MphRead::NativeRuntime::Rhi::Swapchain> _swapchain;
+        Mods::Input::KeyboardState _headlessKeyboard{};
+        Mods::Input::MouseState _headlessMouse{};
+        bool _headlessClosing = false;
+        void RunHeadless();
+        void HeadlessFrame();
 
         [[nodiscard]] OpenTK::Mathematics::Vector2i ClientSize() const;
         void Close();
@@ -151,6 +157,11 @@ namespace MphRead::Mods::Network
 
         inline static std::int32_t MapVoteRow = -1;
         inline static bool ShowWindow = false;
+        // -headless: no window, no GPU, the simulation stepped at 60 Hz by
+        // the wall clock -- what the dedicated server does. A test client then
+        // needs no display, and cannot fail on a driver that has nothing to
+        // do with the netcode under test.
+        inline static bool Headless = false;
 
         [[nodiscard]] static std::int32_t Run(
             std::string host,

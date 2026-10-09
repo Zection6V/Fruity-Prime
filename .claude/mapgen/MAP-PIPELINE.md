@@ -464,6 +464,12 @@ one that earns its keep on a converted level**: a Quake player-clip brush is a
 wall shots are meant to fly through, and without it every clip in the level
 stops bullets. The cartridge's own MP3 PROVING GROUND uses it on four faces.
 
+A recipe's **brush** can say the same without an OBJ: `"noBeams": true` on
+all six faces, and `"visible": false` for collision with nothing drawn -- a
+pane of glass. The hit-location maps (`maps/wells`, `.claude/testing/HITRIG.md`)
+hold each player in a glass cell that way: no knockback can move them, and
+every shot still reaches them.
+
 A face with **no material at all is plain metal**, no attributes -- which is
 what an ordinary OBJ out of a tool nobody asked to write materials means, and
 is also what every converted map is today, since nothing in the importer has

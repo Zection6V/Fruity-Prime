@@ -141,6 +141,37 @@ namespace MphRead::Entities
         // machines. Stamped by Mods.Network.NetUnlagged on every machine that
         // spawns it. Zero for anything nobody aimed.
         std::uint32_t ModLaunchFrame = 0;
+        // A remote player's shot drawn on a third machine: the ack of the
+        // intent that fired it, which is the shooter's own ModLaunchFrame for
+        // the same shot (diagnostic only -- Mods.Network.HitLocation).
+        std::uint32_t ModShooterAck = 0;
+        // The closest this remote shot came to this machine's own player,
+        // and where, while it has not touched them (HitLocation near misses).
+        float ModNearestLocal = -1.0F;
+        OpenTK::Mathematics::Vector3 ModNearestLocalPoint{};
+        bool ModTouchedLocal = false;
+        void ModTrackNearLocal();
+        // Mods.Network.NetPlayerBridge confirmed impacts: the authority said
+        // this remote shot hit this machine's player, ModConfirmedOffset from
+        // their Position -- it homes onto that spot and is drawn hitting it.
+        // An unconfirmed one passes through them (ModPassedTarget).
+        bool ModConfirmedTarget = false;
+        // The player this remote shot is being confirmed against: this
+        // machine's own, or (as an observer) the puppet it met or was said
+        // to have hit. -1 until it meets somebody or the word comes.
+        std::int32_t ModTargetSlot = -1;
+        bool ModTouchedTarget = false;
+        OpenTK::Mathematics::Vector3 ModConfirmedOffset{};
+        bool ModPassedTarget = false;
+        // Met this machine's player before any word came: held where it met
+        // the body until ModHeldUntil, then homed (confirmed) or let through.
+        std::uint32_t ModHeldUntil = 0;
+        std::uint32_t ModHeldSince = 0;
+        OpenTK::Mathematics::Vector3 ModHeldPoint{};
+        void ModHomeConfirmed();
+        // The weapon's own impact effect at a point, as a hit there draws it.
+        static void ModSpawnImpact(Scene* scene, BeamType beam, OpenTK::Mathematics::Vector3 point,
+            OpenTK::Mathematics::Vector3 up);
         [[nodiscard]] const Mods::Network::ShotKey& ModLaunchKey() const noexcept { return _modLaunchKey; }
         // Spawn's firing phase must survive until a Shock Coil beam tests an enemy.
         std::uint64_t ModContinuousPhase = 0;

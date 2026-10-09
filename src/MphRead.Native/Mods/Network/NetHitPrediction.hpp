@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace MphRead::Entities
@@ -54,8 +55,21 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static std::int64_t SelfPredicted() noexcept { return _selfPredicted; }
         [[nodiscard]] static std::int64_t SelfConfirmed() noexcept { return _selfConfirmed; }
 
-        [[nodiscard]] static bool DeathEnabled() noexcept { return false; }
-        static void SetDeathEnabled(bool value) noexcept { static_cast<void>(value); }
+        // A kill this machine resolves is shown the frame it happens, like a
+        // local match. The authority favours the shooter (NetHitClaims), so
+        // the body only stands back up for a claim it genuinely refuses.
+        [[nodiscard]] static bool DeathEnabled() noexcept { return _deathEnabled; }
+        static void SetDeathEnabled(bool value) noexcept { _deathEnabled = value; }
+        // Whether a kill this machine showed on that slot is still waiting
+        // for the authority's own death of the same life.
+        [[nodiscard]] static bool ShowingKill(std::int32_t slot);
+        // Kills shown here the authority has not reported yet: the scoreboard
+        // keeps them rather than taking them back for a round trip.
+        [[nodiscard]] static std::int32_t KillsShown();
+        static void ForgetShownKill(std::int32_t slot) noexcept
+        {
+            if (slot >= 0 && slot < static_cast<std::int32_t>(_killShownFrame.size())) _killShownFrame[static_cast<std::size_t>(slot)] = 0;
+        }
 
         [[nodiscard]] static std::int64_t LethalConfirmed() noexcept { return _lethalConfirmed; }
         [[nodiscard]] static std::int64_t LethalDenied() noexcept { return _lethalDenied; }
@@ -79,9 +93,22 @@ namespace MphRead::Mods::Network
             std::uint32_t& damage,
             ::MphRead::BeamType beam = ::MphRead::BeamType::None,
             std::uint32_t launchFrame = 0,
-            float flight = 0);
+            float flight = 0,
+            std::optional<OpenTK::Mathematics::Vector3> impulse = std::nullopt,
+            ::MphRead::Affliction afflictions = ::MphRead::Affliction::None);
 
         [[nodiscard]] static bool Confirm(std::int32_t slot, std::int32_t landed = 1, bool authorityHeadshot = false);
+        [[nodiscard]] static Entities::PlayerEntity* OwnerOf(Entities::EntityBase* source);
+        // Where on the victim the hit about to be dealt landed, relative to
+        // their Position: set by the projectile around its TakeDamage call,
+        // read by NoteHit for the claim (HitClaimPacket::Impact).
+        static void SetImpact(OpenTK::Mathematics::Vector3 offset, bool splash) noexcept
+        {
+            _impact = offset;
+            _impactKnown = true;
+            _impactSplash = splash;
+        }
+        static void ClearImpact() noexcept { _impactKnown = false; _impactSplash = false; }
         static void ForgetSlot(std::int32_t slot);
         static void NoteRespawn(std::int32_t slot);
         static void NoteDeath(std::int32_t slot);
@@ -108,7 +135,7 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static bool HeldDead(std::int32_t slot);
 
         static void Tick();
-        static void Settle(std::int32_t slot, std::uint16_t claimId, bool confirmed);
+        static void Settle(std::int32_t slot, std::uint16_t claimId, bool confirmed, bool victimDown = false);
 
         [[nodiscard]] static std::string Describe();
         [[nodiscard]] static std::string DescribeByWeapon();
@@ -128,12 +155,17 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static bool MovingNow();
         static void ResolveHeld(std::int32_t slot, std::int32_t at, bool confirmed);
         static void EnsureLife(std::int32_t slot);
-        [[nodiscard]] static Entities::PlayerEntity* OwnerOf(Entities::EntityBase* source);
         [[nodiscard]] static std::int32_t Debit(std::int32_t slot);
         [[nodiscard]] static std::int32_t Push(std::int32_t slot, std::uint32_t frame, std::int32_t damage,
             bool lethal, bool headshot, ::MphRead::BeamType beam, bool self);
         static std::int32_t RetireHead(std::int32_t slot, bool confirmed);
         static void StampClaim(std::int32_t slot, std::int32_t at, std::uint16_t claimId);
+
+        inline static bool _deathEnabled = true;
+        inline static OpenTK::Mathematics::Vector3 _impact{};
+        inline static bool _impactKnown = false;
+        inline static bool _impactSplash = false;
+        inline static std::array<std::uint32_t, 8> _killShownFrame{};
 
         inline static bool _enabled = true;
         inline static bool _markerEnabled = true;

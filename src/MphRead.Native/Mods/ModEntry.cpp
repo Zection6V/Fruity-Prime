@@ -63,6 +63,8 @@
 #include "Network/NetHooks.hpp"
 #include "Network/NetHitClaims.hpp"
 #include "Network/NetHitPrediction.hpp"
+#include "Network/NetPlayerBridge.hpp"
+#include "Network/HitLocation.hpp"
 #include "Network/NetLag.hpp"
 #include "MapGen/MapDefinition.hpp"
 #include "Network/NetMaster.hpp"
@@ -1238,6 +1240,12 @@ namespace MphRead::Mods
                 + " is not a number of milliseconds (try -netlag 200 or -netlag 200:40)");
             return true;
         }
+        const std::optional<std::string> netSpike = ValueAfter(args, "netspike");
+        if (netSpike.has_value() && !Network::NetLag::ConfigureSpikes(*netSpike))
+        {
+            WriteLine("[net] -netspike " + *netSpike + " is not SPIKES_PER_MINUTE:MIN_MS-MAX_MS (try -netspike 6:50-500)");
+            return true;
+        }
         const std::optional<std::string> netLoss = ValueAfter(args, "netloss");
         if (netLoss.has_value() && !Network::NetLag::ConfigureLoss(*netLoss))
         {
@@ -1294,8 +1302,26 @@ namespace MphRead::Mods
             }
             else
             {
-                WriteLine("[net] -hitrig " + *rig + " refused: jump, sniper, duel, dialanche or a weapon name");
+                WriteLine("[net] -hitrig " + *rig + " refused: jump, sniper, duel, dialanche, all, wells, lanes, strafe or a weapon name");
             }
+        }
+        if (const std::optional<std::string> speed = ValueAfter(args, "rigspeed"); speed.has_value())
+        {
+            WriteLine(Network::HitRig::ConfigureSpeed(speed)
+                ? "[net] hit rig strafes x" + *speed + " faster"
+                : "[net] -rigspeed " + *speed + " refused: 1 to 3");
+        }
+        if (const std::optional<std::string> range = ValueAfter(args, "rigrange"); range.has_value())
+        {
+            WriteLine(Network::HitRig::ConfigureRange(range)
+                ? "[net] hit rig pairs stand " + *range + " units apart"
+                : "[net] -rigrange " + *range + " refused: 8 to 40 units");
+        }
+        if (const std::optional<std::string> period = ValueAfter(args, "rigstrafe"); period.has_value())
+        {
+            WriteLine(Network::HitRig::ConfigureStrafePeriod(period)
+                ? "[net] hit rig turns round every " + *period + " frames"
+                : "[net] -rigstrafe " + *period + " refused: 8 to 240 frames");
         }
         const std::optional<std::string> maxRewind = ValueAfter(args, "maxrewind");
         if (maxRewind.has_value())
@@ -1323,8 +1349,33 @@ namespace MphRead::Mods
             Network::NetHitPrediction::SetMarkerEnabled(false);
             WriteLine("[hud] hit marker off");
         }
-        if (::HasFlag(args, "deathprediction") || ::HasFlag(args, "nodeathprediction"))
+        if (const std::optional<std::string> hitlog = ValueAfter(args, "hitlog"); hitlog.has_value())
         {
+            Network::HitLocation::Open(*hitlog);
+        }
+        if (::HasFlag(args, "servershots"))
+        {
+            Network::NetHitClaims::ShooterHits(false);
+            WriteLine("[net] the authority resolves remote players' hits itself; claims only rescue");
+        }
+        if (::HasFlag(args, "noobservedimpacts"))
+        {
+            Network::NetPlayerBridge::ObservedImpacts(false);
+            WriteLine("[net] shots between two other players are drawn as they fly");
+        }
+        if (::HasFlag(args, "noconfirmedimpacts"))
+        {
+            Network::NetPlayerBridge::ConfirmedImpacts(false);
+            WriteLine("[net] remote shots are drawn as they fly; damage does not bring the shot in");
+        }
+        if (::HasFlag(args, "noretarget"))
+        {
+            Network::NetPlayerBridge::RetargetEnabled(false);
+            WriteLine("[net] remote shots are drawn with their shooter's own aim");
+        }
+        if (::HasFlag(args, "nodeathprediction"))
+        {
+            Network::NetHitPrediction::SetDeathEnabled(false);
             WriteLine("[net] remote death waits for authority; self-death remains predicted");
         }
         if (::HasFlag(args, "noclaims"))
@@ -2335,6 +2386,7 @@ namespace MphRead::Mods
                 rejoinAt = parsedRejoin;
             }
             Network::NetCheckClient::ShowWindow = ::HasFlag(args, "hudshots");
+            Network::NetCheckClient::Headless = ::HasFlag(args, "headless") && !Network::NetCheckClient::ShowWindow;
             const std::optional<std::string> mapVote = ValueAfter(args, "mapvote");
             std::int32_t mapVoteRow = -1;
             if (mapVote.has_value() && Int32TryParseCurrentCulture(*mapVote, mapVoteRow))

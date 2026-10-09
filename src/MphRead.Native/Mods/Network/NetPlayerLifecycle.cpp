@@ -95,6 +95,13 @@ namespace MphRead::Mods::Network
     void NetPlayerLifecycle::StampProjectile(BeamProjectileEntity& beam, BeamProjectileEntity* parent)
     {
         PlayerEntity* owner = OwnerPlayer(beam);
+        beam.ModNearestLocal = -1.0F;
+        beam.ModTouchedLocal = false;
+        beam.ModConfirmedTarget = false;
+        beam.ModPassedTarget = false;
+        beam.ModHeldUntil = 0;
+        beam.ModTargetSlot = -1;
+        beam.ModTouchedTarget = false;
         if (parent != nullptr && NetSession::Active() && CurrentProjectile(*parent)
             && owner != nullptr && owner->SlotIndex() == parent->ModLaunchKey().ShooterSlot)
         {
@@ -105,6 +112,7 @@ namespace MphRead::Mods::Network
             beam.ModLaunchGeneration = parent->ModLaunchGeneration;
             beam.ModLaunchLife = parent->ModLaunchLife;
             beam.ModLaunchFrame = parent->ModLaunchFrame;
+            beam.ModShooterAck = parent->ModShooterAck;
             return;
         }
         beam.ModLaunchMatch = NetSession::CurrentMatchId();
@@ -112,6 +120,15 @@ namespace MphRead::Mods::Network
         beam.ModLaunchGeneration = owner == nullptr ? static_cast<std::uint16_t>(0) : Generation(owner->SlotIndex());
         beam.ModLaunchLife = owner == nullptr ? static_cast<std::uint16_t>(0) : Get(owner->SlotIndex());
         beam.ModLaunchFrame = owner == nullptr ? 0U : NetUnlagged::LaunchFrameFor(*owner);
+        beam.ModShooterAck = 0;
+        if (owner != nullptr && NetSession::Active() && !NetSession::IsAuthority() && !NetSession::IsHost()
+            && owner->SlotIndex() != NetSession::LocalSlot() && !owner->IsBot() && owner->SlotIndex() >= 0
+            && static_cast<std::size_t>(owner->SlotIndex()) < NetSession::RemoteIntents.size()
+            && NetSession::RemoteIntentValid[static_cast<std::size_t>(owner->SlotIndex())])
+        {
+            beam.ModShooterAck = NetSession::RemoteIntents[static_cast<std::size_t>(owner->SlotIndex())].AckFrame;
+            NetPlayerBridge::OnRemoteShotSpawned(beam);
+        }
         beam.ModLaunchKey(ShotKey(beam.ModLaunchAuthority, beam.ModLaunchMatch,
             owner != nullptr ? owner->SlotIndex() : -1, beam.ModLaunchGeneration, beam.ModLaunchLife,
             beam.ModLaunchFrame));

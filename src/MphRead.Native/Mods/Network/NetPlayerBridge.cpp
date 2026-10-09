@@ -13,8 +13,12 @@
 #include "NetShotDiagnostics.hpp"
 #include "NetSmoothing.hpp"
 #include "NetUnlagged.hpp"
+#include "HitLocation.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
+#include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../Formats/Types.hpp"
+#include "../../Metadata/Weapons.hpp"
+#include "../../Entities/BeamProjectileEntity.hpp"
 
 #include <algorithm>
 #include <array>
@@ -425,9 +429,14 @@ namespace MphRead::Mods::Network
         _formSaid[s] = static_cast<std::uint8_t>((state.Flags & PlayerState::FlagAltForm) != 0 ? 2 : 1);
         if (!NetRoomChange::Settling())
         {
-            GameState::Points()[slot] = state.Points;
-            GameState::Kills()[slot] = state.Kills;
-            GameState::Deaths()[slot] = state.Deaths;
+            // A kill shown here ahead of the authority stays on the board until
+            // the authority's own count catches up, instead of flickering off.
+            const bool shownDead = !isLocal && NetHitPrediction::ShowingKill(slot);
+            const std::int32_t credit = isLocal ? NetHitPrediction::KillsShown() : 0;
+            const bool battle = GameState::Mode() == GameMode::Battle || GameState::Mode() == GameMode::BattleTeams;
+            GameState::Points()[slot] = state.Points + (battle ? credit : 0);
+            GameState::Kills()[slot] = state.Kills + credit;
+            GameState::Deaths()[slot] = state.Deaths + (shownDead ? 1 : 0);
         }
         NetDamage::Replay(player, state);
         if (!spawned)
@@ -446,7 +455,15 @@ namespace MphRead::Mods::Network
         }
         if (!fresh && player.Health() <= 0)
         {
-            return;
+            // Dead here, alive on the authority in the same life: a kill this
+            // machine showed is still on its way, or it is never coming. Only
+            // the second is worth undoing, and only once it is certain.
+            if (isLocal || NetHitPrediction::ShowingKill(slot))
+            {
+                return;
+            }
+            NativeRuntime::IncrementInPlace(_killsResynced);
+            BeginRemoteLife(player, state);
         }
         if (!isLocal)
         {
@@ -469,6 +486,14 @@ namespace MphRead::Mods::Network
                 _divergedFrames[s] = 0;
             }
             player.SetHealth(NetHitPrediction::LocalHealthFor(player, state.Health));
+            // Where the authority had this player, by authority frame: what
+            // every other player is drawing of us, a round trip late.
+            const std::uint32_t frame = NetSession::AppliedSnapshotFrame();
+            if (frame != 0)
+            {
+                _localFrames[frame % LocalHistory] = frame;
+                _localPositions[frame % LocalHistory] = state.Position;
+            }
         }
         // Explicit turret reconciliation owns remote replicas. A local owner
         // predicts form and turret lifecycle; an older snapshot has no form ack.
@@ -480,6 +505,589 @@ namespace MphRead::Mods::Network
         }
         player.ModSetFrozen((state.Flags & PlayerState::FlagFrozen) != 0);
         ApplyAfflictions(player, state);
+    }
+
+    void NetPlayerBridge::SteerIncoming(std::int32_t attackerSlot)
+    {
+        using OpenTK::Mathematics::Vector3;
+        const std::int32_t local = NetHooks::LocalSlot();
+        const auto& players = Entities::PlayerEntity::Players();
+        if (!_retargetEnabled || local < 0 || attackerSlot < 0 || attackerSlot == local
+            || static_cast<std::size_t>(attackerSlot) >= players.size() || static_cast<std::size_t>(local) >= players.size())
+        {
+            return;
+        }
+        Entities::PlayerEntity& shooter = *players[static_cast<std::size_t>(attackerSlot)];
+        const Entities::PlayerEntity& me = *players[static_cast<std::size_t>(local)];
+        if (shooter.EquipInfo() == nullptr || shooter.EquipInfo()->Beams == nullptr)
+        {
+            return;
+        }
+        const Vector3 chest = static_cast<Vector3>(me.Position) + Vector3(0.0F, 0.3F, 0.0F);
+        auto& beams = *shooter.EquipInfo()->Beams;
+        Entities::BeamProjectileEntity* best = nullptr;
+        float bestDistance = 40.0F * 40.0F;
+        for (std::int32_t i = 0; i < beams.Length(); ++i)
+        {
+            Entities::BeamProjectileEntity* beam = beams[i].get();
+            if (beam == nullptr || beam->Lifespan() <= 0
+                || ::MphRead::TestFlag(beam->Flags(), Entities::BeamFlags::Collided)
+                || ::MphRead::TestFlag(beam->Flags(), Entities::BeamFlags::Continuous))
+            {
+                continue;
+            }
+            const Vector3 toMe = chest - static_cast<Vector3>(beam->Position);
+            const float distance = toMe.LengthSquared();
+            if (distance < bestDistance && Vector3::Dot(toMe, beam->Velocity()) > 0.0F)
+            {
+                bestDistance = distance;
+                best = beam;
+            }
+        }
+        if (best == nullptr)
+        {
+            return;
+        }
+        const float speed = OpenTK::Mathematics::Length(best->Velocity());
+        const Vector3 toMe = chest - static_cast<Vector3>(best->Position);
+        const float length = OpenTK::Mathematics::Length(toMe);
+        if (!(speed > 0.0001F) || !(length > 0.0001F))
+        {
+            return;
+        }
+        best->SetVelocity(OpenTK::Mathematics::Scale(toMe, speed / length));
+        NativeRuntime::IncrementInPlace(_shotsSteered);
+    }
+
+    namespace
+    {
+        // The same shot's launch frame as two machines stamped it: the
+        // victim's copy is the ack of whichever intent was newest when the
+        // trigger pull arrived, a frame or two either side of the shooter's.
+        bool SameLaunch(std::uint8_t a, std::uint8_t b) noexcept
+        {
+            const auto diff = static_cast<std::uint8_t>(a - b);
+            return diff <= 3U || diff >= 253U;
+        }
+
+        bool ConfirmableBeam(std::uint8_t beam) noexcept
+        {
+            // The Shock Coil is one continuous beam drawn every frame: there
+            // is no projectile to bring in, and its ticks would each be an
+            // impact. It is drawn as the shooter aims it.
+            return beam < 9 && static_cast<::MphRead::BeamType>(beam) != ::MphRead::BeamType::ShockCoil;
+        }
+
+        Entities::PlayerEntity* LocalPlayer() noexcept
+        {
+            const std::int32_t local = NetHooks::LocalSlot();
+            const auto& players = Entities::PlayerEntity::Players();
+            if (local < 0 || static_cast<std::size_t>(local) >= players.size())
+            {
+                return nullptr;
+            }
+            return players[static_cast<std::size_t>(local)].get();
+        }
+
+        // A remote human's projectile on a machine that only draws it.
+        Entities::PlayerEntity* RemoteShooterOf(Entities::BeamProjectileEntity& beam) noexcept
+        {
+            if (!NetSession::Active() || NetSession::IsAuthority() || NetSession::IsHost())
+            {
+                return nullptr;
+            }
+            Entities::PlayerEntity* owner = NetHitPrediction::OwnerOf(&beam);
+            if (owner == nullptr || owner->IsBot() || owner->SlotIndex() == NetHooks::LocalSlot()
+                || owner->SlotIndex() < 0)
+            {
+                return nullptr;
+            }
+            return owner;
+        }
+    }
+
+    void NetPlayerBridge::ConfirmIncoming(std::int32_t attackerSlot, std::int32_t victimSlot, std::uint8_t beam,
+        bool keyed, std::uint8_t launchLow, ImpactOffset impact, bool headshot)
+    {
+        if (!keyed)
+        {
+            // An older event of the history, which carries no shot key: the
+            // hit is still drawn, at the chest, with no shot brought in.
+            const std::int32_t me = NetHooks::LocalSlot();
+            if (_confirmedImpacts && attackerSlot >= 0 && attackerSlot != me && victimSlot >= 0
+                && attackerSlot != victimSlot && ConfirmableBeam(beam) && (victimSlot == me || _observedImpacts))
+            {
+                NativeRuntime::IncrementInPlace(_unkeyedImpacts);
+                SynthesizeImpact(attackerSlot, victimSlot, beam, 0, OpenTK::Mathematics::Vector3(0.0F, 0.3F, 0.0F), headshot);
+            }
+            return;
+        }
+        using OpenTK::Mathematics::Vector3;
+        const auto& players = Entities::PlayerEntity::Players();
+        const std::int32_t local = NetHooks::LocalSlot();
+        // The shooter's own machine predicted this hit itself; any other
+        // machine is the victim's or an observer's.
+        if (_confirmedImpacts && attackerSlot >= 0 && attackerSlot < static_cast<std::int32_t>(_coilVictim.size())
+            && attackerSlot != local && victimSlot >= 0 && victimSlot != attackerSlot
+            && beam == static_cast<std::uint8_t>(::MphRead::BeamType::ShockCoil)
+            && (victimSlot == local || _observedImpacts) && impact.Known())
+        {
+            // A tick of the continuous beam: nothing to bring in, but the
+            // beam itself is aimed at where the ticks land for a few frames.
+            const auto a = static_cast<std::size_t>(attackerSlot);
+            _coilVictim[a] = victimSlot;
+            _coilOffset[a] = impact.Value();
+            _coilUntil[a] = NetSession::NetFrame() + 12U;
+            NativeRuntime::IncrementInPlace(_coilTicks);
+            return;
+        }
+        if (!_confirmedImpacts || local < 0 || attackerSlot < 0 || attackerSlot == local || attackerSlot == victimSlot
+            || victimSlot < 0 || static_cast<std::size_t>(attackerSlot) >= players.size()
+            || static_cast<std::size_t>(victimSlot) >= players.size() || !ConfirmableBeam(beam)
+            || (victimSlot != local && !_observedImpacts))
+        {
+            NativeRuntime::IncrementInPlace(_confirmsIgnored);
+            return;
+        }
+        if (victimSlot != local)
+        {
+            NativeRuntime::IncrementInPlace(_observedConfirms);
+        }
+        const Entities::PlayerEntity& victim = *players[static_cast<std::size_t>(victimSlot)];
+        // Where the shooter saw it land; the chest when the authority
+        // resolved the hit itself and nobody said.
+        const Vector3 offset = impact.Known() ? impact.Value() : Vector3(0.0F, 0.3F, 0.0F);
+        Entities::PlayerEntity& shooter = *players[static_cast<std::size_t>(attackerSlot)];
+        if (shooter.EquipInfo() != nullptr && shooter.EquipInfo()->Beams != nullptr)
+        {
+            // The closest launch frame wins: a fast weapon has a shot in the
+            // air every few frames, and the neighbour is not the one that hit.
+            auto& beams = *shooter.EquipInfo()->Beams;
+            Entities::BeamProjectileEntity* best = nullptr;
+            std::int32_t bestGap = 4;
+            for (std::int32_t i = 0; i < beams.Length(); ++i)
+            {
+                Entities::BeamProjectileEntity* shot = beams[i].get();
+                if (shot == nullptr || shot->Lifespan() <= 0 || shot->ModShooterAck == 0 || shot->ModConfirmedTarget
+                    || ::MphRead::TestFlag(shot->Flags(), Entities::BeamFlags::Collided)
+                    || (shot->ModTargetSlot >= 0 && shot->ModTargetSlot != victimSlot))
+                {
+                    continue;
+                }
+                const auto diff = static_cast<std::int8_t>(static_cast<std::uint8_t>(shot->ModShooterAck & 0xFFU) - launchLow);
+                const std::int32_t gap = std::abs(static_cast<std::int32_t>(diff));
+                if (gap < bestGap)
+                {
+                    bestGap = gap;
+                    best = shot;
+                }
+            }
+            if (best != nullptr && !best->ModPassedTarget && !best->ModTouchedTarget && best->ModHeldUntil == 0)
+            {
+                // Bringing it in must not mean turning it round: a shot that
+                // has gone past, or would have to bend more than 60 degrees,
+                // is drawn landing on the spot instead.
+                const Vector3 toTarget = static_cast<Vector3>(victim.Position) + offset
+                    - static_cast<Vector3>(best->Position);
+                const Vector3 velocity = best->Velocity();
+                const float lengths = OpenTK::Mathematics::Length(toTarget) * OpenTK::Mathematics::Length(velocity);
+                const float cosine = lengths > 0.0001F ? Vector3::Dot(toTarget, velocity) / lengths : 1.0F;
+                if (cosine < 0.5F)
+                {
+                    best->ModTargetSlot = victimSlot;
+                    best->ModPassedTarget = true;
+                    NoteRemoteShotGone(*best);
+                    SynthesizeImpact(attackerSlot, victimSlot, beam, launchLow, offset, headshot);
+                    return;
+                }
+                const double angle = std::acos(std::clamp(static_cast<double>(cosine), -1.0, 1.0)) * 57.29578;
+                _homeAngleSum += angle;
+                _homeAngleMax = std::max(_homeAngleMax, angle);
+            }
+            if (best != nullptr && !best->ModPassedTarget && !best->ModTouchedTarget)
+            {
+                if (best->ModHeldUntil != 0)
+                {
+                    NoteConfirmDelay(NetSession::NetFrame() - best->ModHeldSince);
+                }
+                best->ModTargetSlot = victimSlot;
+                best->ModConfirmedTarget = true;
+                best->ModConfirmedOffset = offset;
+                NativeRuntime::IncrementInPlace(_confirmsInFlight);
+                return;
+            }
+            if (best != nullptr)
+            {
+                // It went by before the word came: draw the hit where it was.
+                SynthesizeImpact(attackerSlot, victimSlot, beam, launchLow, offset, headshot);
+                return;
+            }
+        }
+        const ConfirmGoneShot* gone = RecentlyGone(attackerSlot, launchLow);
+        if (gone != nullptr && gone->Blast > 0.0F
+            && OpenTK::Mathematics::Length(gone->Where - static_cast<Vector3>(victim.Position)) <= gone->Blast + 1.6F)
+        {
+            // It went out in a blast that reached them here: that explosion is
+            // the hit they saw. Another impact on top would be one too many.
+            NativeRuntime::IncrementInPlace(_seenAsBlast);
+            HitLocation::Synthesized(attackerSlot, victim, beam, 0, gone->Where, headshot, true);
+            return;
+        }
+        if (gone == nullptr)
+        {
+            // Not drawn yet: the damage outran the relayed trigger pull. Wait
+            // a few frames for the shot to appear before drawing it ourselves.
+            for (ConfirmPending& pending : _pendingConfirms)
+            {
+                if (!pending.Live)
+                {
+                    pending = ConfirmPending{attackerSlot, launchLow, beam, offset,
+                        NetSession::NetFrame() + ConfirmWaitFrames, true, headshot, victimSlot};
+                    return;
+                }
+            }
+        }
+        SynthesizeImpact(attackerSlot, victimSlot, beam, launchLow, offset, headshot);
+    }
+
+    void NetPlayerBridge::OnRemoteShotSpawned(Entities::BeamProjectileEntity& beam)
+    {
+        if (!_confirmedImpacts || beam.ModShooterAck == 0)
+        {
+            return;
+        }
+        Entities::PlayerEntity* owner = RemoteShooterOf(beam);
+        if (owner == nullptr)
+        {
+            return;
+        }
+        const auto low = static_cast<std::uint8_t>(beam.ModShooterAck & 0xFFU);
+        for (ConfirmPending& pending : _pendingConfirms)
+        {
+            if (pending.Live && pending.Attacker == owner->SlotIndex() && SameLaunch(pending.LaunchLow, low))
+            {
+                beam.ModTargetSlot = pending.Victim;
+                beam.ModConfirmedTarget = true;
+                beam.ModConfirmedOffset = pending.Offset;
+                pending.Live = false;
+                NativeRuntime::IncrementInPlace(_confirmsAtSpawn);
+                return;
+            }
+        }
+    }
+
+    void NetPlayerBridge::NoteRemoteShotGone(const Entities::BeamProjectileEntity& beam)
+    {
+        if (beam.ModShooterAck == 0)
+        {
+            return;
+        }
+        Entities::PlayerEntity* owner = RemoteShooterOf(const_cast<Entities::BeamProjectileEntity&>(beam));
+        if (owner == nullptr)
+        {
+            return;
+        }
+        const bool blast = beam.SplashDamage() > 0.0F
+            && ::MphRead::TestFlag(beam.Flags(), Entities::BeamFlags::Collided);
+        _goneShots[_goneNext] = ConfirmGoneShot{owner->SlotIndex(),
+            static_cast<std::uint8_t>(beam.ModShooterAck & 0xFFU), std::max(1U, NetSession::NetFrame()),
+            static_cast<OpenTK::Mathematics::Vector3>(beam.Position), blast ? beam.SplashRadius() : 0.0F};
+        _goneNext = (_goneNext + 1) % _goneShots.size();
+    }
+
+    const ConfirmGoneShot* NetPlayerBridge::RecentlyGone(std::int32_t attackerSlot, std::uint8_t launchLow)
+    {
+        const std::uint32_t now = NetSession::NetFrame();
+        for (const ConfirmGoneShot& gone : _goneShots)
+        {
+            if (gone.Frame != 0 && gone.Attacker == attackerSlot && SameLaunch(gone.LaunchLow, launchLow)
+                && now - gone.Frame < 120U)
+            {
+                return &gone;
+            }
+        }
+        return nullptr;
+    }
+
+    bool NetPlayerBridge::PassesThrough(Entities::BeamProjectileEntity& beam, const Entities::PlayerEntity& player)
+    {
+        if (!_confirmedImpacts || (beam.ModConfirmedTarget && beam.ModTargetSlot == player.SlotIndex())
+            || ::MphRead::TestFlag(beam.Flags(), Entities::BeamFlags::Continuous))
+        {
+            return false;
+        }
+        const Entities::PlayerEntity* owner = RemoteShooterOf(beam);
+        return owner != nullptr && owner != &player
+            && (player.SlotIndex() == NetHooks::LocalSlot() || _observedImpacts);
+    }
+
+    void NetPlayerBridge::NotePassedLocal(const Entities::BeamProjectileEntity& beam)
+    {
+        NativeRuntime::IncrementInPlace(_passedThrough);
+        NoteRemoteShotGone(beam);
+    }
+
+    void NetPlayerBridge::TickConfirms()
+    {
+        const std::uint32_t now = NetSession::NetFrame();
+        for (ConfirmPending& pending : _pendingConfirms)
+        {
+            if (pending.Live && static_cast<std::int32_t>(now - pending.Until) >= 0)
+            {
+                pending.Live = false;
+                SynthesizeImpact(pending.Attacker, pending.Victim, pending.Beam, pending.LaunchLow, pending.Offset,
+                    pending.Headshot);
+            }
+        }
+    }
+
+    void NetPlayerBridge::SynthesizeImpact(std::int32_t attackerSlot, std::int32_t victimSlot, std::uint8_t beam,
+        std::uint8_t launchLow, OpenTK::Mathematics::Vector3 offset, bool headshot)
+    {
+        // Drawn on a body that is falling as well: the shot that kills you
+        // is the one most worth seeing.
+        const auto& players = Entities::PlayerEntity::Players();
+        if (victimSlot < 0 || static_cast<std::size_t>(victimSlot) >= players.size())
+        {
+            return;
+        }
+        const Entities::PlayerEntity& victim = *players[static_cast<std::size_t>(victimSlot)];
+        const OpenTK::Mathematics::Vector3 point = static_cast<OpenTK::Mathematics::Vector3>(victim.Position) + offset;
+        Entities::BeamProjectileEntity::ModSpawnImpact(_scene, static_cast<::MphRead::BeamType>(beam), point,
+            OpenTK::Mathematics::Vector3(offset.X, 0.0F, offset.Z).LengthSquared() > 0.0001F
+                ? OpenTK::Mathematics::Vector3(offset.X, 0.0F, offset.Z).Normalized()
+                : OpenTK::Mathematics::Vector3(0.0F, 1.0F, 0.0F));
+        NativeRuntime::IncrementInPlace(_impactsSynthesized);
+        // The shot key's full frame, from the newest ack this shooter sent.
+        std::uint32_t launch = launchLow;
+        const auto s = static_cast<std::size_t>(attackerSlot);
+        if (attackerSlot >= 0 && s < NetSession::RemoteIntents.size() && NetSession::RemoteIntentValid[s])
+        {
+            const std::uint32_t newest = NetSession::RemoteIntents[s].AckFrame;
+            launch = newest - static_cast<std::uint8_t>(static_cast<std::uint8_t>(newest & 0xFFU) - launchLow);
+        }
+        HitLocation::Synthesized(attackerSlot, victim, beam, launch, point, headshot);
+    }
+
+    bool NetPlayerBridge::CoilAimFor(const Entities::PlayerEntity& shooter, OpenTK::Mathematics::Vector3 muzzle,
+        OpenTK::Mathematics::Vector3& aim)
+    {
+        const std::int32_t slot = shooter.SlotIndex();
+        const auto& players = Entities::PlayerEntity::Players();
+        if (slot < 0 || slot >= static_cast<std::int32_t>(_coilVictim.size())
+            || shooter.CurrentWeapon() != ::MphRead::BeamType::ShockCoil)
+        {
+            return false;
+        }
+        const auto s = static_cast<std::size_t>(slot);
+        const std::int32_t victim = _coilVictim[s];
+        if (victim < 0 || static_cast<std::size_t>(victim) >= players.size()
+            || static_cast<std::int32_t>(NetSession::NetFrame() - _coilUntil[s]) >= 0)
+        {
+            return false;
+        }
+        const OpenTK::Mathematics::Vector3 to = static_cast<OpenTK::Mathematics::Vector3>(players[static_cast<std::size_t>(victim)]->Position)
+            + _coilOffset[s] - muzzle;
+        const float length = OpenTK::Mathematics::Length(to);
+        const float scale = OpenTK::Mathematics::Length(aim);
+        if (!(length > 0.0001F))
+        {
+            return false;
+        }
+        aim = OpenTK::Mathematics::Scale(to, (scale > 0.0001F ? scale : 1.0F) / length);
+        return true;
+    }
+
+    std::uint32_t NetPlayerBridge::HoldFrames() noexcept
+    {
+        if (_confirmDelayCount < 16)
+        {
+            return 6;
+        }
+        std::array<std::uint8_t, 64> sorted = _confirmDelays;
+        const auto used = static_cast<std::ptrdiff_t>(std::min(_confirmDelayCount, sorted.size()));
+        std::sort(sorted.begin(), sorted.begin() + used);
+        const std::uint32_t p90 = sorted[static_cast<std::size_t>((used - 1) * 9 / 10)];
+        return std::clamp(p90 + 1U, 2U, 8U);
+    }
+
+    void NetPlayerBridge::NoteConfirmDelay(std::uint32_t frames) noexcept
+    {
+        _confirmDelays[_confirmDelayNext] = static_cast<std::uint8_t>(std::min(frames, 255U));
+        _confirmDelayNext = (_confirmDelayNext + 1) % _confirmDelays.size();
+        _confirmDelayCount++;
+    }
+
+    std::string NetPlayerBridge::DescribeConfirms()
+    {
+        return "confirmed impacts (hold " + std::to_string(HoldFrames()) + " frames): " + std::to_string(_confirmsInFlight) + " shots in the air brought in (turned "
+            + NativeRuntime::ToString(_confirmsInFlight > 0 ? _homeAngleSum / static_cast<double>(_confirmsInFlight) : 0.0, "F1")
+            + " deg on average, at most " + NativeRuntime::ToString(_homeAngleMax, "F1") + "), "
+            + std::to_string(_confirmsAtSpawn) + " brought in from the moment they appeared, "
+            + std::to_string(_impactsSynthesized) + " drawn on the spot (shot gone or never drawn), "
+            + std::to_string(_seenAsBlast) + " already seen as the blast that reached them, "
+            + std::to_string(_coilTicks) + " Shock Coil ticks aiming its beam, "
+            + std::to_string(_unkeyedImpacts) + " older events drawn at the chest, "
+            + std::to_string(_passedThrough) + " unconfirmed shots let through, "
+            + std::to_string(_observedConfirms) + " of them on other players (observed), "
+            + std::to_string(_confirmsIgnored) + " not applicable (continuous beam, own or unknown shooter)";
+    }
+
+    void NetPlayerBridge::ShooterRay(const Entities::PlayerEntity& shooter, OpenTK::Mathematics::Vector3 drawnMuzzle,
+        OpenTK::Mathematics::Vector3& from, OpenTK::Mathematics::Vector3& direction, std::uint32_t& ackFrame)
+    {
+        const std::int32_t slot = shooter.SlotIndex();
+        from = drawnMuzzle;
+        direction = OpenTK::Mathematics::Vector3::Zero;
+        ackFrame = 0;
+        if (slot < 0 || static_cast<std::size_t>(slot) >= NetSession::RemoteIntents.size()
+            || !NetSession::RemoteIntentValid[static_cast<std::size_t>(slot)])
+        {
+            return;
+        }
+        const IntentPacket& intent = NetSession::RemoteIntents[static_cast<std::size_t>(slot)];
+        ackFrame = intent.AckFrame;
+        if (intent.HasShot)
+        {
+            from = intent.ShotOrigin;
+            direction = intent.ShotDirection;
+            return;
+        }
+        direction = intent.Aim;
+        if (Sane(intent.Position) && LengthSquared(intent.Position) > 0.0001F)
+        {
+            from = intent.Position + (drawnMuzzle - static_cast<OpenTK::Mathematics::Vector3>(shooter.Position));
+        }
+    }
+
+    void NetPlayerBridge::NoteLocalShot(OpenTK::Mathematics::Vector3 origin, OpenTK::Mathematics::Vector3 direction) noexcept
+    {
+        _localShotFrame = std::max(1U, NetSession::NetFrame());
+        _localShotOrigin = origin;
+        _localShotDirection = direction;
+    }
+
+    void NetPlayerBridge::AttachLocalShot(IntentPacket& intent) noexcept
+    {
+        if (_localShotFrame == 0 || _localShotFrame != std::max(1U, NetSession::NetFrame()))
+        {
+            return;
+        }
+        intent.HasShot = true;
+        intent.ShotOrigin = _localShotOrigin;
+        intent.ShotDirection = _localShotDirection;
+        _localShotFrame = 0;
+    }
+
+    OpenTK::Mathematics::Vector3 NetPlayerBridge::RetargetAtLocal(const Entities::PlayerEntity& shooter,
+        OpenTK::Mathematics::Vector3 origin, OpenTK::Mathematics::Vector3 aim, std::uint32_t ackFrame,
+        OpenTK::Mathematics::Vector3 aimedFrom)
+    {
+        using OpenTK::Mathematics::Vector3;
+        const std::int32_t local = NetHooks::LocalSlot();
+        if (!_retargetEnabled || !NetSession::Active() || NetSession::IsHost() || NetSession::IsAuthority() || ackFrame == 0
+            || local < 0 || local >= static_cast<std::int32_t>(Entities::PlayerEntity::Players().size())
+            || shooter.SlotIndex() == local)
+        {
+            return aim;
+        }
+        const Entities::PlayerEntity& me = *Entities::PlayerEntity::Players()[static_cast<std::size_t>(local)];
+        const float length = OpenTK::Mathematics::Length(aim);
+        if (me.Health() <= 0 || !(length > 0.0001F))
+        {
+            return aim;
+        }
+        // The newest recorded frame at or before the one the shooter drew.
+        Vector3 past{};
+        bool found = false;
+        for (std::uint32_t back = 0; back < 8 && back < ackFrame; back++)
+        {
+            const std::uint32_t frame = ackFrame - back;
+            if (_localFrames[frame % LocalHistory] == frame)
+            {
+                past = _localPositions[frame % LocalHistory];
+                found = true;
+                break;
+            }
+        }
+        if (!found)
+        {
+            return aim;
+        }
+        const Vector3 direction = OpenTK::Mathematics::Scale(aim, 1.0F / length);
+        // The aim was taken from where the shooter really stood, which on a
+        // pad is several units from the puppet drawn here: test the ray from
+        // there, then draw the turned shot from the gun this player can see.
+        if (!Sane(aimedFrom) || !(LengthSquared(aimedFrom) > 0.0001F))
+        {
+            aimedFrom = origin;
+        }
+        const Vector3 toPast = past - aimedFrom;
+        const float along = Vector3::Dot(toPast, direction);
+        if (along <= 0)
+        {
+            return aim;
+        }
+        // A weapon that falls (the Battlehammer) is aimed above its target,
+        // so its ray never crosses the old body: it was aimed at this player
+        // when it left within a cone of them, and it is turned by the same
+        // rotation that carries the old line of sight onto the new one, which
+        // keeps the arc's own elevation.
+        const auto beam = static_cast<std::size_t>(shooter.CurrentWeapon());
+        const bool arcs = beam < (*::MphRead::Weapons::Current).size()
+            && NativeRuntime::RequireReference((*::MphRead::Weapons::Current)[beam]).UnchargedGravity != 0;
+        // Where on that old body the aim crossed it: the same capsule the
+        // beam test uses, -0.5 to +1.1 above Position and half a unit wide,
+        // with a little slack for the puppet's own interpolation.
+        const Vector3 offset = aimedFrom + OpenTK::Mathematics::Scale(direction, along) - past;
+        const bool crossed = offset.X * offset.X + offset.Z * offset.Z <= 0.9F * 0.9F
+            && offset.Y >= -0.6F && offset.Y <= 1.2F;
+        Vector3 turned{};
+        if (crossed && !arcs)
+        {
+            const Vector3 at = me.Position;
+            turned = at + offset - origin;
+        }
+        else if (arcs)
+        {
+            const Vector3 chest(0.0F, 0.3F, 0.0F);
+            const Vector3 was = (past + chest - aimedFrom).Normalized();
+            const Vector3 now = (static_cast<Vector3>(me.Position) + chest - origin).Normalized();
+            if (Vector3::Dot(was, direction) < std::cos(OpenTK::Mathematics::MathHelper::DegToRad * 20.0F))
+            {
+                return aim;
+            }
+            // Rodrigues: rotate the fired direction by the rotation was -> now.
+            const Vector3 axis = Vector3::Cross(was, now);
+            const float sine = OpenTK::Mathematics::Length(axis);
+            const float cosine = Vector3::Dot(was, now);
+            if (sine < 1e-5F)
+            {
+                turned = direction;
+            }
+            else
+            {
+                const Vector3 k = OpenTK::Mathematics::Scale(axis, 1.0F / sine);
+                turned = OpenTK::Mathematics::Scale(direction, cosine)
+                    + OpenTK::Mathematics::Scale(Vector3::Cross(k, direction), sine)
+                    + OpenTK::Mathematics::Scale(k, Vector3::Dot(k, direction) * (1.0F - cosine));
+            }
+        }
+        else
+        {
+            return aim;
+        }
+        const float turnedLength = OpenTK::Mathematics::Length(turned);
+        if (!(turnedLength > 0.0001F))
+        {
+            return aim;
+        }
+        if (_lastRetargetFrame != NetSession::NetFrame())
+        {
+            _lastRetargetFrame = NetSession::NetFrame();
+            NativeRuntime::IncrementInPlace(_aimsRetargeted);
+        }
+        return OpenTK::Mathematics::Scale(turned, length / turnedLength);
     }
 
     void NetPlayerBridge::ApplyAfflictions(Entities::PlayerEntity& player, PlayerState state)

@@ -1,0 +1,261 @@
+{
+  "//": "TEST STRAFE: four walled corridors side by side, one per pair of players (slot / 2), the two of a pair 12 units apart on X by default (-rigrange, up to 40) and strafing along Z. No glass: a knockback moves the player, as in a match. The walls between corridors stop every shot, so four pairs measure in parallel without a splash crossing over. -hitrig strafe drives it. Regenerate with FruityPrime -mapgen \"TEST STRAFE\".",
+  "name": "TEST STRAFE",
+  "inGameName": "Test Strafe",
+  "textureSource": "MP3 PROVING GROUND",
+  "scaleFactor": 4,
+  "killHeight": -12,
+  "farClip": 160,
+  "fogEnabled": false,
+  "light1Color": [
+    31,
+    29,
+    26
+  ],
+  "light1Vector": [
+    0.3,
+    -1.0,
+    0.2
+  ],
+  "light2Color": [
+    12,
+    13,
+    18
+  ],
+  "light2Vector": [
+    -0.3,
+    1.0,
+    -0.2
+  ],
+  "pointLimit": 999,
+  "battleTimeLimit": 108000,
+  "preview": {
+    "position": [
+      0.0,
+      14.0,
+      34.0
+    ],
+    "target": [
+      0.0,
+      3.0,
+      0.0
+    ]
+  },
+  "materials": [
+    {
+      "name": "floor",
+      "sourceMaterial": 2,
+      "texScale": 16
+    },
+    {
+      "name": "wall",
+      "sourceMaterial": 3,
+      "texScale": 16
+    }
+  ],
+  "brushes": [
+    {
+      "min": [
+        -22,
+        -1,
+        -30
+      ],
+      "max": [
+        22,
+        0,
+        30
+      ],
+      "material": 0,
+      "shade": 1.0,
+      "solid": true
+    },
+    {
+      "min": [
+        -22,
+        16,
+        -30
+      ],
+      "max": [
+        22,
+        17,
+        30
+      ],
+      "material": 1,
+      "shade": 0.7,
+      "solid": true
+    },
+    {
+      "min": [
+        -22,
+        0,
+        -31
+      ],
+      "max": [
+        22,
+        16,
+        -30
+      ],
+      "material": 1,
+      "shade": 0.85,
+      "solid": true
+    },
+    {
+      "min": [
+        -22,
+        0,
+        30
+      ],
+      "max": [
+        22,
+        16,
+        31
+      ],
+      "material": 1,
+      "shade": 0.85,
+      "solid": true
+    },
+    {
+      "min": [
+        -23,
+        0,
+        -30
+      ],
+      "max": [
+        -22,
+        16,
+        30
+      ],
+      "material": 1,
+      "shade": 0.85,
+      "solid": true
+    },
+    {
+      "min": [
+        22,
+        0,
+        -30
+      ],
+      "max": [
+        23,
+        16,
+        30
+      ],
+      "material": 1,
+      "shade": 0.85,
+      "solid": true
+    },
+    {
+      "min": [
+        -22,
+        0,
+        -15.5
+      ],
+      "max": [
+        22,
+        16,
+        -14.5
+      ],
+      "material": 1,
+      "shade": 0.9,
+      "solid": true
+    },
+    {
+      "min": [
+        -22,
+        0,
+        -0.5
+      ],
+      "max": [
+        22,
+        16,
+        0.5
+      ],
+      "material": 1,
+      "shade": 0.9,
+      "solid": true
+    },
+    {
+      "min": [
+        -22,
+        0,
+        14.5
+      ],
+      "max": [
+        22,
+        16,
+        15.5
+      ],
+      "material": 1,
+      "shade": 0.9,
+      "solid": true
+    }
+  ],
+  "spawns": [
+    {
+      "position": [
+        -6.0,
+        0.1,
+        -22.5
+      ],
+      "yaw": 90.0
+    },
+    {
+      "position": [
+        6.0,
+        0.1,
+        -22.5
+      ],
+      "yaw": 270.0
+    },
+    {
+      "position": [
+        -6.0,
+        0.1,
+        -7.5
+      ],
+      "yaw": 90.0
+    },
+    {
+      "position": [
+        6.0,
+        0.1,
+        -7.5
+      ],
+      "yaw": 270.0
+    },
+    {
+      "position": [
+        -6.0,
+        0.1,
+        7.5
+      ],
+      "yaw": 90.0
+    },
+    {
+      "position": [
+        6.0,
+        0.1,
+        7.5
+      ],
+      "yaw": 270.0
+    },
+    {
+      "position": [
+        -6.0,
+        0.1,
+        22.5
+      ],
+      "yaw": 90.0
+    },
+    {
+      "position": [
+        6.0,
+        0.1,
+        22.5
+      ],
+      "yaw": 270.0
+    }
+  ],
+  "items": [],
+  "jumpPads": []
+}

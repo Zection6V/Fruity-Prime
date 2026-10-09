@@ -148,6 +148,12 @@ namespace
 
 namespace MphRead::Mods::Network
 {
+    // Eight player states, the header and the objective clocks in one
+    // datagram (NetHealthSync takes what is left): Weavel's turret state and
+    // the confirmed-impact bytes both live in a player state.
+    static_assert(SnapshotHeader::Size + 8 * PlayerState::Size + NetMatchTimeSync::Size
+        <= NetConfig::MaxPacketSize - 1, "a full snapshot no longer fits one datagram");
+
     std::unique_ptr<NetTransport> NetSession::_transport{};
     bool NetSession::_playback = false;
     std::vector<std::shared_ptr<RemotePeer>> NetSession::_peers{};
@@ -1082,6 +1088,7 @@ namespace MphRead::Mods::Network
         peer->LastSeenTime = time;
         const auto index = static_cast<std::size_t>(peer->SlotIndex);
         RemoteIntents.at(index) = intent;
+        NetHitClaims::RecordIntent(peer->SlotIndex, intent);
         RemoteIntentValid.at(index) = true;
         RemoteIntentArrived.at(index) = std::max(_netFrame, 1U);
     }
@@ -1119,6 +1126,7 @@ namespace MphRead::Mods::Network
         }
         _lastSlotIntentFrame[index] = intent.Frame;
         RemoteIntents[index] = intent;
+        NetHitClaims::RecordIntent(slot, intent);
         RemoteIntentValid[index] = true;
         RemoteIntentArrived[index] = std::max(_netFrame, 1U);
         IncrementInPlace(_intentsReceived);
@@ -1549,13 +1557,19 @@ namespace MphRead::Mods::Network
         {
             return;
         }
-        intent.Frame = _netFrame;
+        // A deferred intent keeps the frame it was captured on (NetHooks sends
+        // it after the simulation, to carry the ray the frame really fired).
+        if (intent.Frame == 0)
+        {
+            intent.Frame = _netFrame;
+        }
         intent.MatchId = CurrentMatchId();
         intent.AuthorityEpoch = AuthorityEpoch();
         intent.SlotGeneration = NetPlayerLifecycle::Generation(_localSlot);
         intent.LifeId = NetPlayerLifecycle::Get(_localSlot);
-        intent.Write(_scratch);
-        _transport->Send(_hostEndPoint, PacketType::Intent, First(_scratch, IntentPacket::FullSize));
+        const auto size = static_cast<std::size_t>(intent.HasShot ? IntentPacket::ShotFullSize : IntentPacket::FullSize);
+        intent.Write(std::span<std::uint8_t>(_scratch.data(), size));
+        _transport->Send(_hostEndPoint, PacketType::Intent, First(_scratch, size));
         if (_localSlot >= 0)
         {
             DemoRecorder::RecordOwnIntent(_localSlot, First(_scratch, IntentPacket::FullSize));

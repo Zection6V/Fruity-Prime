@@ -1076,7 +1076,17 @@ namespace MphRead::Entities
             return;
         }
         const std::int32_t slotForAim = (*this).SlotIndex();
-        ModSetAim(Mods::Network::NetSession::RemoteIntents[slotForAim].Aim);
+        const auto& intent = Mods::Network::NetSession::RemoteIntents[slotForAim];
+        const OpenTK::Mathematics::Vector3 origin = LengthSquared(_muzzlePos) > 0.0001F
+            ? _muzzlePos : OpenTK::Mathematics::Vector3(Position.X, Position.Y + 0.6F, Position.Z);
+        OpenTK::Mathematics::Vector3 aimedFrom{};
+        OpenTK::Mathematics::Vector3 shotDirection{};
+        std::uint32_t ackFrame = 0;
+        Mods::Network::NetPlayerBridge::ShooterRay(*this, origin, aimedFrom, shotDirection, ackFrame);
+        static_cast<void>(shotDirection);
+        OpenTK::Mathematics::Vector3 aim = Mods::Network::NetPlayerBridge::RetargetAtLocal(*this, origin, intent.Aim, ackFrame, aimedFrom);
+        static_cast<void>(Mods::Network::NetPlayerBridge::CoilAimFor(*this, origin, aim));
+        ModSetAim(aim);
     }
 
     void PlayerEntity::ModNoteInput()

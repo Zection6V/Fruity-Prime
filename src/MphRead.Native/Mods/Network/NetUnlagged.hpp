@@ -38,6 +38,8 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static float ClampErrorWorst() noexcept { return _clampErrorWorst; }
         [[nodiscard]] static float ClampErrorWorstVertical() noexcept { return _clampErrorWorstVertical; }
         [[nodiscard]] static std::int64_t ShotsCompensated() noexcept { return _shotsCompensated; }
+        [[nodiscard]] static bool AnyBotInPlay();
+        inline static std::int64_t _rewindsSkipped = 0;
         [[nodiscard]] static std::int64_t FramesRewound() noexcept { return _framesRewound; }
         [[nodiscard]] static std::int32_t WorstRewind() noexcept { return _worstRewind; }
         [[nodiscard]] static std::int64_t ShotsClamped() noexcept { return _shotsClamped; }

@@ -1,4 +1,5 @@
 #include "NetDamage.hpp"
+#include "HitLocation.hpp"
 
 #include "../../GameState.hpp"
 #include "../../Entities/BeamProjectileEntity.hpp"
@@ -117,6 +118,23 @@ namespace MphRead::Mods::Network
         }
         const std::int32_t shooterSlot = shooter->SlotIndex();
         const std::int32_t targetSlot = target.SlotIndex();
+        if (shooterSlot >= 0 && shooterSlot < Slots && targetSlot == NetHooks::LocalSlot() && shooterSlot != targetSlot)
+        {
+            const std::uint32_t now = NetSession::NetFrame();
+            LastOverlapOnLocal[static_cast<std::size_t>(shooterSlot)] = std::max(1U, now);
+            // An impact drawn just after the damage it belongs to.
+            auto& frames = UnseenFrame[static_cast<std::size_t>(shooterSlot)];
+            for (std::size_t i = 0; i < UnseenDepth; i++)
+            {
+                if (frames[i] != 0 && now - frames[i] <= VisibleWindow)
+                {
+                    frames[i] = 0;
+                    IncrementInPlace(HitsTakenSeen);
+                    IncrementInPlace(HitsTakenSeenByBeam[UnseenBeam[static_cast<std::size_t>(shooterSlot)][i]]);
+                    break;
+                }
+            }
+        }
         if (shooterSlot >= 0 && shooterSlot < Slots && targetSlot >= 0 && targetSlot < Slots)
         {
             IncrementInPlace(PlayerOverlapsByShooter[static_cast<std::size_t>(shooterSlot)]
@@ -250,6 +268,25 @@ namespace MphRead::Mods::Network
         }
         if (NetSession::IsHost() || NetSession::IsAuthority())
         {
+            // Shooter-authoritative hits: what a remote player's own machine
+            // resolved arrives as a claim and is applied from it. The copy
+            // simulated here, a round trip later against a different world,
+            // would be a second opinion -- the one players saw as a hit with
+            // no hit marker, or a kill taken back.
+            if (NetHitClaims::ShooterHits() && !NetHitClaims::ApplyingClaimNow() && !_replaying)
+            {
+                Entities::PlayerEntity* owner = NetHitPrediction::OwnerOf(source);
+                // Both ends human: a bot has no machine of its own to resolve
+                // hits on it, so hits on bots stay the authority's.
+                if (owner != nullptr && owner != &victim && !owner->IsBot() && !victim.IsBot()
+                    && owner->SlotIndex() != NetSession::LocalSlot() && owner->SlotIndex() >= 0
+                    && static_cast<std::size_t>(owner->SlotIndex()) < NetSession::SlotOccupied.size()
+                    && NetSession::SlotOccupied[static_cast<std::size_t>(owner->SlotIndex())])
+                {
+                    NetHitClaims::NoteServerCopySuppressed();
+                    return true;
+                }
+            }
             if (projectile != nullptr && projectile->ModLaunchFrame != 0)
             {
                 Entities::PlayerEntity* owner = dynamic_cast<Entities::PlayerEntity*>(projectile->Owner().get());
@@ -379,6 +416,10 @@ namespace MphRead::Mods::Network
         latest.Beam = _beam[index];
         latest.Flags = _flags[index];
         latest.Direction = _direction[index];
+        // Which shot, and where on the body the shooter saw it land: the
+        // victim's machine shows that same shot arriving there.
+        _impactLaunch[index] = static_cast<std::uint8_t>(launchFrame & 0xFFU);
+        _impact[index] = NetHitClaims::ApplyingClaimNow() ? NetHitClaims::CurrentClaimImpact() : ImpactOffset{};
         history[PlayerState::DamageHistory - 1] = latest;
     }
 
@@ -448,6 +489,8 @@ namespace MphRead::Mods::Network
         state.DamageBeam = _beam[index];
         state.DamageFlags = _flags[index];
         state.HitDirection = _direction[index];
+        state.ImpactLaunchLow = _impactLaunch[index];
+        state.Impact = _impact[index];
     }
 
     void NetDamage::BeginLife(std::int32_t slot, const PlayerState& state)
@@ -502,6 +545,59 @@ namespace MphRead::Mods::Network
                     + " victim=" + std::to_string(slot) + "/" + std::to_string(state.SlotGeneration)
                     + "/" + std::to_string(state.LifeId) + " event=" + std::to_string(hit.EventId)
                     + " shooter=" + std::to_string(hit.AttackerSlot) + "/" + std::to_string(hit.AttackerGeneration));
+            }
+            if (slot != NetHooks::LocalSlot() && feedback.AttackerSlot != NoSlot
+                && static_cast<std::int32_t>(feedback.AttackerSlot) != slot
+                && static_cast<std::int32_t>(feedback.AttackerSlot) != NetHooks::LocalSlot())
+            {
+                // Two other players: this machine is watching A hit B.
+                HitLocation::ObservedDamage(static_cast<std::int32_t>(feedback.AttackerSlot), player, hit.Beam,
+                    static_cast<std::int32_t>(hit.Damage),
+                    (hit.Flags & static_cast<std::int32_t>(Entities::DamageFlags::Headshot)) != 0);
+                NetPlayerBridge::ConfirmIncoming(static_cast<std::int32_t>(feedback.AttackerSlot), slot, hit.Beam,
+                    hit.EventId == state.DamageEventId, state.ImpactLaunchLow, state.Impact,
+                    (hit.Flags & static_cast<std::int32_t>(Entities::DamageFlags::Headshot)) != 0);
+            }
+            if (slot == NetHooks::LocalSlot() && feedback.AttackerSlot == NoSlot)
+            {
+                // Nobody's: the world, a self-hit -- or a burn tick nobody owns.
+                HitLocation::Damage(-1, player, hit.Beam, static_cast<std::int32_t>(hit.Damage), false);
+            }
+            if (slot == NetHooks::LocalSlot() && feedback.AttackerSlot != NoSlot
+                && static_cast<std::int32_t>(feedback.AttackerSlot) != slot
+                && static_cast<std::size_t>(feedback.AttackerSlot) < LastOverlapOnLocal.size())
+            {
+                HitLocation::Damage(static_cast<std::int32_t>(feedback.AttackerSlot), player, hit.Beam,
+                    static_cast<std::int32_t>(hit.Damage),
+                    (hit.Flags & static_cast<std::int32_t>(Entities::DamageFlags::Headshot)) != 0);
+                NetPlayerBridge::ConfirmIncoming(static_cast<std::int32_t>(feedback.AttackerSlot), slot, hit.Beam,
+                    hit.EventId == state.DamageEventId, state.ImpactLaunchLow, state.Impact,
+                    (hit.Flags & static_cast<std::int32_t>(Entities::DamageFlags::Headshot)) != 0);
+                IncrementInPlace(HitsTaken);
+                const auto beam = static_cast<std::size_t>(feedback.DamageBeam == NoBeam || feedback.DamageBeam > 9
+                    ? 10 : feedback.DamageBeam);
+                IncrementInPlace(HitsTakenByBeam[beam]);
+                const std::uint32_t seen = LastOverlapOnLocal[static_cast<std::size_t>(feedback.AttackerSlot)];
+                if (seen != 0 && NetSession::NetFrame() - seen <= VisibleWindow)
+                {
+                    IncrementInPlace(HitsTakenSeen);
+                    IncrementInPlace(HitsTakenSeenByBeam[beam]);
+                }
+                else
+                {
+                    if (!NetPlayerBridge::ConfirmedImpacts())
+                    {
+                        NetPlayerBridge::SteerIncoming(static_cast<std::int32_t>(feedback.AttackerSlot));
+                    }
+                    auto& frames = UnseenFrame[static_cast<std::size_t>(feedback.AttackerSlot)];
+                    std::size_t oldest = 0;
+                    for (std::size_t i = 1; i < UnseenDepth; i++)
+                    {
+                        if (frames[i] < frames[oldest]) oldest = i;
+                    }
+                    frames[oldest] = std::max(1U, NetSession::NetFrame());
+                    UnseenBeam[static_cast<std::size_t>(feedback.AttackerSlot)][oldest] = static_cast<std::uint8_t>(beam);
+                }
             }
             ReplayEvent(player, feedback);
         }

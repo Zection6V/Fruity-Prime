@@ -21,11 +21,25 @@ namespace MphRead::Entities
     enum class DamageFlags : std::int32_t;
 }
 
+namespace MphRead
+{
+    class Scene;
+    class WeaponInfo;
+}
+
 namespace MphRead::Mods::Network
 {
     // A shot the authority cannot find is declared, checked and arbitrated.
     // See .claude/multiplayer/NETWORK-HITCLAIMS.md.
     class NetCombatCheck;
+
+    // A ray a shooter's intent said it fired (NetHitClaims::RecordIntent).
+    struct ClaimShotRay
+    {
+        std::uint32_t Ack = 0;
+        OpenTK::Mathematics::Vector3 Origin{};
+        OpenTK::Mathematics::Vector3 Direction{};
+    };
 
     class NetHitClaims final
     {
@@ -38,7 +52,12 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static bool Enabled() noexcept { return _enabled; }
         static void Enabled(bool value) noexcept { _enabled = value; }
 
-        static constexpr float ClaimRadius = 2.0F;
+        // How far the victim the shooter drew may be from where this
+        // authority's history had them at that frame. Measured (-hitlog, 2581
+        // claims at 250 ms +-40): p99 0.26, p99.9 0.67, worst 0.95 -- the
+        // puppet is read off the same frame the authority rewinds to. It was
+        // 2.0 when the authority still checked every hit itself.
+        static constexpr float ClaimRadius = 1.25F;
         static constexpr float MeleeRadius = 4.0F;
 
         [[nodiscard]] static std::int32_t GraceFor(std::int32_t slot);
@@ -62,7 +81,36 @@ namespace MphRead::Mods::Network
         static std::uint16_t Declare(::MphRead::Entities::PlayerEntity& victim,
             ::MphRead::Entities::PlayerEntity& attacker, ::MphRead::BeamType beam, std::uint32_t damage,
             ::MphRead::Entities::DamageFlags flags, bool lethal, OpenTK::Mathematics::Vector3 hitPoint,
-            std::uint32_t launchFrame);
+            std::uint32_t launchFrame, std::optional<OpenTK::Mathematics::Vector3> impulse = std::nullopt,
+            ::MphRead::Affliction afflictions = ::MphRead::Affliction::None,
+            std::optional<OpenTK::Mathematics::Vector3> impact = std::nullopt, bool splash = false);
+        // While a claim is being applied: where it landed on the victim, for
+        // the damage event the victim's machine will read (NetDamage::Note).
+        [[nodiscard]] static ImpactOffset CurrentClaimImpact() noexcept { return _applyingImpact; }
+        // The authority keeps what each shooter's intents said: the newest
+        // ack, and the rays its recent shots were fired along. A claim is
+        // checked against them (ShotPlausible).
+        static void RecordIntent(std::int32_t slot, const IntentPacket& intent) noexcept;
+        static void SetScene(MphRead::Scene* scene) noexcept { _scene = scene; }
+        // A claim's ack against the ack the shooter's own intent reported on
+        // the frame it declared the claim (resends keep that frame): honest,
+        // 0. When that intent was lost, against its newest ack, which a
+        // resend can trail by a resend interval or two (21, 43 measured at 2%
+        // loss) -- so that fallback only bounds it to the rewind ceiling.
+        static constexpr std::int32_t AckSlackFrames = 3;
+        static constexpr std::int32_t AckFallbackFrames = 45;
+        // How far the impact may sit from the ray the intent says was fired:
+        // the impact is placed from the authority's history of the victim, so
+        // the claim radius is part of it, plus 0.75 (honest p99 0.11).
+        static constexpr float RayTolerance = ClaimRadius + 0.75F;
+        // Shooter-authoritative hits: a remote player's hit on another player
+        // is the one their own machine resolved, validated here, and the
+        // authority's own copy of it is not applied (NetDamage::Suppress).
+        // -servershots restores the authority resolving them itself.
+        [[nodiscard]] static bool ShooterHits() noexcept { return _shooterHits; }
+        static void ShooterHits(bool value) noexcept { _shooterHits = value; }
+        [[nodiscard]] static bool ApplyingClaimNow() noexcept { return _applyingClaim; }
+        static void NoteServerCopySuppressed() noexcept { _serverCopiesSuppressed++; }
         [[nodiscard]] static std::int32_t Compose(std::span<std::uint8_t> dest);
         static void ApplyVerdicts(std::span<const std::uint8_t> payload);
 
@@ -141,6 +189,8 @@ namespace MphRead::Mods::Network
             std::uint16_t Damage = 0;
             std::uint8_t Flags = 0;
             OpenTK::Mathematics::Vector3 HitPoint{};
+            OpenTK::Mathematics::Vector3 Impulse{};
+            ImpactOffset Impact{};
             std::int32_t Age = 0;
             std::int32_t Sends = 0;
             bool Live = false;
@@ -163,6 +213,8 @@ namespace MphRead::Mods::Network
             std::uint32_t AckFrame = 0;
             std::uint32_t LaunchFrame = 0;
             OpenTK::Mathematics::Vector3 HitPoint{};
+            OpenTK::Mathematics::Vector3 Impulse{};
+            ImpactOffset Impact{};
             std::uint32_t Arrived = 0;
             std::int32_t Grace = 0;
             bool Live = false;
@@ -190,7 +242,11 @@ namespace MphRead::Mods::Network
         static void NoteAgreement(std::int32_t shooter, std::int32_t victim, std::uint8_t beam,
             std::int32_t claimed, std::int32_t resolved);
         static void Park(std::int32_t shooterSlot, const HitClaimPacket& claim);
-        [[nodiscard]] static std::int32_t MaxDamageFor(std::uint8_t beam);
+        [[nodiscard]] static std::int32_t MaxDamageFor(std::int32_t shooterSlot, std::uint8_t beam);
+        // The weapon the shooter actually fires for this beam: a hunter's
+        // affinity weapon is its own row of the table (index + 9), with its
+        // own homing, cooldown, damage and afflictions. Null for no beam.
+        [[nodiscard]] static const ::MphRead::WeaponInfo* FiredWeapon(std::int32_t shooterSlot, std::uint8_t beam);
         static void TrackDeaths();
         static void NoteRescued(std::int32_t attacker, std::int32_t victim, std::uint32_t launch);
         static void ApplyOne(Pending& entry);
@@ -239,6 +295,40 @@ namespace MphRead::Mods::Network
         static std::int32_t _disagreementsLogged;
 
         static std::array<std::uint32_t, Slots> _deathFire;
+        // The authority frame a slot went down on. A shot its owner fired
+        // while still displaying an earlier world was taken before that
+        // player could know they were dead, and it stands.
+        static std::array<std::uint32_t, Slots> _deathFrame;
+        [[nodiscard]] static bool FiredAfterOwnDeath(std::size_t shooter, std::uint32_t fired) noexcept;
+        static void FinishLethal(const Pending& entry);
+        inline static std::int64_t _finishedHere = 0;
+        inline static ImpactOffset _applyingImpact{};
+        inline static std::int64_t _impactRefused = 0;
+        inline static std::int64_t _afflictionsStripped = 0;
+        inline static MphRead::Scene* _scene = nullptr;
+        inline static std::array<std::array<ClaimShotRay, 32>, 8> _shotRays{};
+        inline static std::array<std::size_t, 8> _shotRayNext{};
+        inline static std::array<std::uint32_t, 8> _latestAck{};
+        // (intent frame, ack) the shooter reported, recent ones.
+        inline static std::array<std::array<std::uint32_t, 64>, 8> _ackFrameOf{};
+        inline static std::array<std::array<std::uint32_t, 64>, 8> _ackValueOf{};
+        inline static std::int64_t _ackRefused = 0;
+        inline static std::int64_t _rayRefused = 0;
+        inline static std::int64_t _losRefused = 0;
+        inline static std::int64_t _rateRefused = 0;
+        // The distinct launch frames recently claimed, per shooter and weapon.
+        inline static std::array<std::array<std::array<std::uint32_t, 8>, 9>, 8> _recentLaunches{};
+        [[nodiscard]] static bool RatePlausible(std::int32_t shooterSlot, std::uint8_t beam, std::uint32_t launch);
+        // Measured for every claim (ShotPlausible), for -hitlog.
+        inline static std::int32_t _lastAckGap = 0;
+        inline static float _lastRayDistance = -1.0F;
+        inline static bool _lastBlocked = false;
+        [[nodiscard]] static bool ShotPlausible(std::int32_t shooterSlot, const HitClaimPacket& claim,
+            OpenTK::Mathematics::Vector3 was);
+        [[nodiscard]] static bool StraightWeapon(std::int32_t shooterSlot, std::uint8_t beam);
+        [[nodiscard]] static bool ImpactPlausible(const HitClaimPacket& claim, std::int32_t victimSlot);
+        inline static bool _shooterHits = true;
+        inline static std::int64_t _serverCopiesSuppressed = 0;
         static std::array<bool, Slots> _dead;
         static std::array<std::uint32_t, Slots> _lastHitFire;
         static std::array<bool, Slots> _wasInPlay;

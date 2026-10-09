@@ -1120,6 +1120,14 @@ namespace MphRead::Mods::MapGen
                 {
                     result._damaging = JsonBool(item);
                 }
+                else if (StringEqualsOrdinalIgnoreCase(name, "NoBeams"))
+                {
+                    result._noBeams = JsonBool(item);
+                }
+                else if (StringEqualsOrdinalIgnoreCase(name, "Visible"))
+                {
+                    result._visible = JsonBool(item);
+                }
                 else if (StringEqualsOrdinalIgnoreCase(name, "Terrain"))
                 {
                     result._terrain = item.Kind == JsonKind::Null
@@ -1415,6 +1423,14 @@ namespace MphRead::Mods::MapGen
             Property(output, depth, first, "Shade", [&] { WriteFloat(output, value._shade); });
             Property(output, depth, first, "Solid", [&] { output += value._solid ? "true" : "false"; });
             Property(output, depth, first, "Damaging", [&] { output += value._damaging ? "true" : "false"; });
+            if (value._noBeams)
+            {
+                Property(output, depth, first, "NoBeams", [&] { output += "true"; });
+            }
+            if (!value._visible)
+            {
+                Property(output, depth, first, "Visible", [&] { output += "false"; });
+            }
             if (value._terrain)
             {
                 Property(output, depth, first, "Terrain", [&] { WriteJsonString(output, *value._terrain); });
@@ -1893,6 +1909,10 @@ namespace MphRead::Mods::MapGen
     void MapBrush::Solid(bool value) noexcept { _solid = value; }
     bool MapBrush::Damaging() const noexcept { return _damaging; }
     void MapBrush::Damaging(bool value) noexcept { _damaging = value; }
+    bool MapBrush::NoBeams() const noexcept { return _noBeams; }
+    void MapBrush::NoBeams(bool value) noexcept { _noBeams = value; }
+    bool MapBrush::Visible() const noexcept { return _visible; }
+    void MapBrush::Visible(bool value) noexcept { _visible = value; }
     const std::optional<std::string>& MapBrush::Terrain() const noexcept { return _terrain; }
     void MapBrush::Terrain(std::optional<std::string> value) noexcept { _terrain = std::move(value); }
 

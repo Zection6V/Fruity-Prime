@@ -1458,7 +1458,7 @@ namespace MphRead::Mods::Network
         }
         const std::span<const std::uint8_t> payload = packet.Payload();
         if (payload.size() < static_cast<std::size_t>(IntentPacket::Size)
-            || payload.size() > static_cast<std::size_t>(IntentPacket::FullSize))
+            || payload.size() > static_cast<std::size_t>(IntentPacket::ShotFullSize))
         {
             return;
         }

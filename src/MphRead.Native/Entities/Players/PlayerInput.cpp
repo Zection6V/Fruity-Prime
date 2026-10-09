@@ -1,3 +1,4 @@
+#include "../../Mods/Combat/SyluxMuzzleGuard.hpp"
 #include "PlayerInput.hpp"
 
 #include "PlayerEntity.hpp"
@@ -1289,9 +1290,12 @@ namespace MphRead::Entities
         {
             flags |= BeamSpawnFlags::PrimeHunter;
         }
+        const auto syluxGuardStart = Mods::Combat::SyluxMuzzleGuard::Enabled
+            ? Mods::Combat::SyluxMuzzleGuard::Start(
+            _hunter, _gunDrawPos, _aimVec, _muzzlePos, shotOrigin) : std::nullopt;
         Mods::Network::NetUnlagged::BeginShot(*this);
         const BeamResultFlags result = BeamProjectileEntity::Spawn(
-            SharedFrom<EntityBase>(this), _equipInfo, shotOrigin, shotVec, flags, NodeRef, _scene);
+            SharedFrom<EntityBase>(this), _equipInfo, shotOrigin, shotVec, flags, NodeRef, _scene, nullptr, syluxGuardStart);
         Mods::Network::NetUnlagged::EndShot(*this);
         if (result == BeamResultFlags::NoSpawn)
         {

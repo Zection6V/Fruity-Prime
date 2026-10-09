@@ -63,7 +63,7 @@ namespace MphRead::Mods::Network
             return 1;
         }
         ServerSim sim{};
-        if (!sim.Start(room, GameMode::Battle, 2, [](std::span<const std::uint8_t>) {}, []() {}))
+        if (!sim.Start(room, GameMode::Battle, 4, [](std::span<const std::uint8_t>) {}, []() {}))
         {
             return 1;
         }
@@ -80,8 +80,8 @@ namespace MphRead::Mods::Network
             roster.MatchId = 1;
             roster.AuthorityEpoch = 1;
             roster.Revision = 1;
-            roster.Count = 2;
-            for (std::uint8_t i = 0; i < 2; i++)
+            roster.Count = 4;
+            for (std::uint8_t i = 0; i < 4; i++)
             {
                 (*roster.Slots)[i] = i;
                 (*roster.Generations)[i] = 1;
@@ -102,6 +102,7 @@ namespace MphRead::Mods::Network
             MutualKillOrdering();
             ClaimArbitrationHasDeadline();
             ContinuousPhaseAgreesAcrossPeers();
+            SyluxMuzzleGuardCases(*scene);
             GameState::PointGoal(1000);
             GameState::MatchTime(3600);
             std::fill(GameState::Points().begin(), GameState::Points().end(), 0);

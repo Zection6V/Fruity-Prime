@@ -228,7 +228,7 @@ namespace
             const QScreen* const screen = _window->screen();
             return screen != nullptr ? screen->refreshRate() : 0.0;
         }
-        void Floating(bool value) override { _window->setFlag(Qt::WindowStaysOnTopHint, value); }
+        void Floating(bool value) override;
         [[nodiscard]] bool IsFocused() const override { return _window->isActive(); }
         [[nodiscard]] Vector2i ClientLocation() const override;
         void Focus() override { _window->requestActivate(); }
@@ -758,6 +758,20 @@ namespace
         _window->resize(value.X, value.Y);
     }
 
+    void QtWindow::Floating(bool value)
+    {
+#if defined(_WIN32)
+        // Changing QWindow flags reapplies the native window style during a
+        // focus transition. Change only its Z order: keep the Vulkan surface,
+        // fullscreen geometry and presentation state intact.
+        ::SetWindowPos(reinterpret_cast<HWND>(_window->winId()),
+            value ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+#else
+        _window->setFlag(Qt::WindowStaysOnTopHint, value);
+#endif
+    }
+
     bool QtWindow::WindowStateFullscreen()
     {
 #if defined(_WIN32)
@@ -782,10 +796,8 @@ namespace
         ::SetWindowPos(hwnd, HWND_TOP, r.left, r.top, r.right - r.left, r.bottom - r.top,
             SWP_FRAMECHANGED | SWP_SHOWWINDOW | SWP_NOOWNERZORDER);
         _exclusiveMonitor = monitor;
-        if (_window->isActive())
-        {
-            Rhi::FullscreenExclusive::Request(monitor);
-        }
+        Rhi::FullscreenExclusive::Active(_window->isActive());
+        Rhi::FullscreenExclusive::Request(monitor);
         return true;
 #else
         _window->showFullScreen();
@@ -911,15 +923,7 @@ namespace
                 // us; take the display again on the way back in. Not
                 // minimised: a window minimised from here came back with its
                 // frame loop stalled.
-                if (event->type() == QEvent::FocusOut)
-                {
-                    Rhi::FullscreenExclusive::Request(nullptr);
-                    _window->setFlag(Qt::WindowStaysOnTopHint, false);
-                }
-                else
-                {
-                    Rhi::FullscreenExclusive::Request(_exclusiveMonitor);
-                }
+                Rhi::FullscreenExclusive::Active(event->type() == QEvent::FocusIn);
             }
             if (_events != nullptr)
             {

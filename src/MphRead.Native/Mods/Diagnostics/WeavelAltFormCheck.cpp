@@ -347,7 +347,7 @@ namespace MphRead::Mods::Diagnostics
             check((dead.Flags & PlayerState::FlagAltForm) != 0 && dead.WeavelFlags == 0, "publisher preserves Alt with dead turret");
             owner.ModForceForm(false); owner.SetHealth(100);
             NetPlayerBridge::ApplyState(owner, active, false);
-            check(owner.Health() == 51 && turret->Health() == 50 && owner.IsAltForm() && turret->Grounded(),
+            check(owner.Health() == 51 && turret->Health() == 50 && (owner.IsAltForm() || owner.IsMorphing()) && turret->Grounded(),
                 "replica activation uses authority HP without a second split");
             const Vector3 replicaPosition = owner.Position;
             NetPlayerBridge::ApplyState(owner, active, false);
@@ -360,7 +360,7 @@ namespace MphRead::Mods::Diagnostics
             check(owner.Health() == 51 && turret->Health() == 47 && !turret->Grounded()
                 && OpenTK::Mathematics::Equal(turret->Position, airborne.HalfturretPosition), "active replica updates airborne physical report and HP separately from player");
             NetPlayerBridge::ApplyState(owner, dead, false); NetPlayerBridge::ApplyState(owner, dead, false);
-            check(owner.IsAltForm() && turret->Health() == 0 && owner.Health() == 51, "replica Alt plus dead turret never respawns");
+            check((owner.IsAltForm() || owner.IsMorphing()) && turret->Health() == 0 && owner.Health() == 51, "replica Alt plus dead turret never respawns");
             auto biped = dead; biped.Flags &= ~PlayerState::FlagAltForm; biped.Health = 100;
             NetPlayerBridge::ApplyState(owner, biped, false); NetPlayerBridge::ApplyState(owner, biped, false);
             check(!owner.IsAltForm() && owner.Health() == 100 && turret->Health() == 0, "biped snapshots do not merge authority HP twice");
@@ -381,7 +381,7 @@ namespace MphRead::Mods::Diagnostics
             check(NetSession::RemoteStateValid[0] && NetSession::RemoteStates[0].WeavelFlags == 0
                 && NetSession::LastSnapshotFrame() == 501, "receiver rejects duplicated and reordered snapshots");
             NetPlayerBridge::ApplyState(owner, NetSession::RemoteStates[0], false);
-            check(owner.IsAltForm() && turret->Health() == 0, "reordered old active packet cannot revive dead replica");
+            check((owner.IsAltForm() || owner.IsMorphing()) && turret->Health() == 0, "reordered old active packet cannot revive dead replica");
 
             // Eight active players plus the maximum 56 health spawners must all fit.
             roster.Count = 8; roster.Revision = 2; NetSession::ApplyRoster(roster);

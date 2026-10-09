@@ -79,7 +79,43 @@ namespace MphRead::Entities
         Vector3 turretPosition, bool turretGrounded)
     {
         if (_hunter != Hunter::Weavel) return;
-        FinalizeWeavelForm(desiredAlt);
+        // A replica going to Alt plays the morph like every other hunter's
+        // puppet does (ProcessPlayer applies the form when the animation
+        // ends) instead of snapping into it, which drew no animation at all
+        // for anyone watching. _weavelAltLife is set first so EnterAltForm
+        // spawns no turret: the turret below is the authority's.
+        const auto frame = static_cast<std::uint64_t>(
+            ::MphRead::NativeRuntime::RequireReference(_scene).FrameCount());
+        bool morphing = false;
+        if (desiredAlt && !IsAltForm() && !IsUnmorphing() && _health > 0)
+        {
+            if (!IsMorphing())
+            {
+                _weavelAltLife = true;
+                EnterAltForm();
+                _weavelReplicaMorphFrame = frame;
+            }
+            // Snap only if the animation never finishes.
+            morphing = frame - _weavelReplicaMorphFrame < 90;
+        }
+        else if (!desiredAlt && IsAltForm() && !IsMorphing() && _health > 0)
+        {
+            // The way back, the same: ExitAltForm plays the unmorph. The
+            // turret flag goes first so it merges no turret health -- the
+            // snapshot's health already holds the authority's merge.
+            _flags2 &= ~PlayerFlags2::Halfturret;
+            ExitAltForm();
+            _weavelReplicaMorphFrame = frame;
+            morphing = true;
+        }
+        else if (!desiredAlt && IsUnmorphing())
+        {
+            morphing = frame - _weavelReplicaMorphFrame < 90;
+        }
+        if (!morphing)
+        {
+            FinalizeWeavelForm(desiredAlt);
+        }
         _weavelAltLife = desiredAlt;
         if (!desiredAlt)
         {

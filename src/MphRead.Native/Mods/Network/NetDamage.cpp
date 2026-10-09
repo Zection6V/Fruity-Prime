@@ -395,7 +395,7 @@ namespace MphRead::Mods::Network
             NetLog::Event(line);
         }
         NetHitClaims::NoteAuthorityHit(attacker != nullptr ? attacker->SlotIndex() : -1, slot, launchFrame,
-            signedAmount);
+            signedAmount, beam, launchKey);
         _attacker[index] = attacker != nullptr && attacker->SlotIndex() >= 0 && attacker->SlotIndex() < Slots
             ? static_cast<std::uint8_t>(attacker->SlotIndex())
             : NoSlot;

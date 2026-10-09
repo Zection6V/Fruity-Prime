@@ -3,6 +3,7 @@
 #include "../../Formats/CollisionDetection.hpp"
 
 #include "NetDamage.hpp"
+#include "../Combat/SyluxMuzzleGuard.hpp"
 #include "NetHitPrediction.hpp"
 #include "NetLifecycleTracker.hpp"
 #include "NetLog.hpp"
@@ -82,6 +83,9 @@ namespace MphRead::Mods::Network
     NetHitClaims::Ledger<bool> NetHitClaims::_authorityHitUsed{};
     NetHitClaims::Ledger<std::int32_t> NetHitClaims::_authorityHitDamage{};
     NetHitClaims::Grid<std::int32_t, NetHitClaims::Slots, NetHitClaims::Slots> NetHitClaims::_authorityHitHead{};
+    NetHitClaims::Ledger<ShotKey> NetHitClaims::_authorityHitKeys{};
+    NetHitClaims::Ledger<BeamType> NetHitClaims::_authorityHitBeam{};
+    MuzzleObstructionHistory NetHitClaims::_muzzleObstructions{};
     std::array<std::int64_t, NetHitClaims::AltBeamBuckets> NetHitClaims::_agreeByBeam{};
     std::array<std::int64_t, NetHitClaims::AltBeamBuckets> NetHitClaims::_differByBeam{};
     std::array<std::int64_t, NetHitClaims::AltBeamBuckets> NetHitClaims::_claimedByBeam{};
@@ -431,7 +435,7 @@ namespace MphRead::Mods::Network
     }
 
     void NetHitClaims::NoteLedger(std::int32_t attacker, std::int32_t victim, std::uint32_t ack,
-        std::uint32_t launch, std::int32_t damage, bool used)
+        std::uint32_t launch, std::int32_t damage, bool used, BeamType beam, std::optional<ShotKey> launchKey)
     {
         const auto a = static_cast<std::size_t>(attacker);
         const auto v = static_cast<std::size_t>(victim);
@@ -442,6 +446,8 @@ namespace MphRead::Mods::Network
         _authorityHitLaunch[a][v][h] = launch;
         _authorityHitDamage[a][v][h] = damage;
         _authorityHitUsed[a][v][h] = used;
+        _authorityHitKeys[a][v][h] = launchKey.value_or(ShotKey::For(attacker, launch));
+        _authorityHitBeam[a][v][h] = beam;
         _authorityHitHead[a][v] = (head + 1) % LedgerDepth;
     }
 
@@ -481,11 +487,28 @@ namespace MphRead::Mods::Network
     }
 
     bool NetHitClaims::TakeLedger(std::int32_t attacker, std::int32_t victim, std::uint32_t claimAck,
-        std::uint32_t claimLaunch, std::uint32_t arrived, std::int32_t window, std::int32_t& authorityDamage)
+        std::uint32_t claimLaunch, std::uint32_t arrived, std::int32_t window, std::int32_t& authorityDamage,
+        std::optional<ShotKey> strictKey, BeamType strictBeam)
     {
         const auto a = static_cast<std::size_t>(attacker);
         const auto v = static_cast<std::size_t>(victim);
         authorityDamage = 0;
+        if (strictKey)
+        {
+            // Obstructed shots cannot borrow a nearby open shot's ledger entry.
+            for (std::size_t i = 0; i < LedgerDepth; ++i)
+            {
+                if (!_authorityHitUsed[a][v][i] && _authorityHit[a][v][i] != 0
+                    && _authorityHitKeys[a][v][i] == *strictKey && _authorityHitBeam[a][v][i] == strictBeam)
+                {
+                    _authorityHitUsed[a][v][i] = true;
+                    authorityDamage = _authorityHitDamage[a][v][i];
+                    ++_matchedByLaunch;
+                    return true;
+                }
+            }
+            return false;
+        }
         if (claimLaunch != 0)
         {
             for (std::size_t i = 0; i < LedgerDepth; i++)
@@ -568,7 +591,7 @@ namespace MphRead::Mods::Network
     }
 
     void NetHitClaims::NoteAuthorityHit(std::int32_t attackerSlot, std::int32_t victimSlot,
-        std::uint32_t launchFrame, std::int32_t damage)
+        std::uint32_t launchFrame, std::int32_t damage, BeamType beam, std::optional<ShotKey> launchKey)
     {
         if (!Arbitrating() || victimSlot < 0 || victimSlot >= Slots)
         {
@@ -585,8 +608,28 @@ namespace MphRead::Mods::Network
             NoteLedger(attackerSlot, victimSlot,
                 _applyingClaim ? _applyingClaimAck : fire,
                 _applyingClaim ? _applyingClaimLaunch : launchFrame,
-                damage, _applyingClaim);
+                damage, _applyingClaim, beam, launchKey);
         }
+    }
+
+    void NetHitClaims::NoteMuzzleObstruction(const ShotKey& key, BeamType beam,
+        const Combat::BeamObstacleHit& hit)
+    {
+        if (Combat::SyluxMuzzleGuard::Enabled && Arbitrating()) _muzzleObstructions.Record(key, beam, hit, NetSession::NetFrame());
+    }
+
+    bool NetHitClaims::MuzzleObstructed(const Pending& entry)
+    {
+        return Combat::SyluxMuzzleGuard::Enabled && (entry.RequireAuthorityHit || _muzzleObstructions.Contains(
+            ShotKey(entry.AuthorityEpoch, entry.MatchId, entry.ShooterSlot,
+                entry.ShooterGeneration, entry.ShooterLifeId, entry.LaunchFrame),
+            static_cast<BeamType>(entry.Beam), NetSession::NetFrame()));
+    }
+
+    void NetHitClaims::NoteMuzzleDescendant(const ShotKey& key, BeamType beam)
+    {
+        if (Combat::SyluxMuzzleGuard::Enabled && Arbitrating())
+            _muzzleObstructions.RecordDescendant(key, beam, NetSession::NetFrame());
     }
 
     std::uint32_t NetHitClaims::FireFrameOf(std::int32_t slot)
@@ -724,6 +767,12 @@ namespace MphRead::Mods::Network
         if (claim.LaunchFrame > claim.AckFrame)
         {
             _refusedHere++;
+            return HitVerdictPacket::ResultInvalidLaunch;
+        }
+        if (Combat::SyluxMuzzleGuard::Enabled && claim.LaunchFrame == 0 && claim.Beam < 9
+            && PlayerAt(shooterSlot).Hunter() == Hunter::Sylux)
+        {
+            ++_refusedHere;
             return HitVerdictPacket::ResultInvalidLaunch;
         }
         if (claim.Damage > MaxDamageFor(shooterSlot, claim.Beam))
@@ -888,6 +937,7 @@ namespace MphRead::Mods::Network
         const bool botVictim = claim.VictimSlot < PlayerEntity::Players().size()
             && PlayerAt(claim.VictimSlot).IsBot();
         entry.Grace = _shooterHits && !botVictim ? 0 : GraceFor(shooterSlot);
+        entry.RequireAuthorityHit = MuzzleObstructed(entry);
         entry.Live = true;
         _pending[static_cast<std::size_t>(index)] = entry;
     }
@@ -961,9 +1011,13 @@ namespace MphRead::Mods::Network
                     Runtime::IncrementInPlace(NetPlayerLifecycle::OldLifeClaims);
                     continue;
                 }
+                entry.RequireAuthorityHit = MuzzleObstructed(entry);
+                const auto strictKey = entry.RequireAuthorityHit
+                    ? std::optional(ShotKey(entry.AuthorityEpoch, entry.MatchId, entry.ShooterSlot,
+                        entry.ShooterGeneration, entry.ShooterLifeId, entry.LaunchFrame)) : std::nullopt;
                 std::int32_t resolved = 0;
                 if (TakeLedger(entry.ShooterSlot, entry.VictimSlot, entry.AckFrame,
-                        entry.LaunchFrame, entry.Arrived, entry.Grace, resolved))
+                        entry.LaunchFrame, entry.Arrived, entry.Grace, resolved, strictKey, static_cast<BeamType>(entry.Beam)))
                 {
                     entry.Live = false;
                     _duplicateHere++;
@@ -1391,6 +1445,27 @@ namespace MphRead::Mods::Network
             Answer(shooterSlot, entry.Id, HitVerdictPacket::ResultDeadShooter);
             return;
         }
+        if (MuzzleObstructed(entry))
+        {
+            const ShotKey key(entry.AuthorityEpoch, entry.MatchId, entry.ShooterSlot,
+                entry.ShooterGeneration, entry.ShooterLifeId, entry.LaunchFrame);
+            std::int32_t resolved = 0;
+            if (TakeLedger(shooterSlot, victimSlot, entry.AckFrame, entry.LaunchFrame,
+                entry.Arrived, entry.Grace, resolved, key, static_cast<BeamType>(entry.Beam)))
+            {
+                ++_duplicateHere;
+                NoteAgreement(shooterSlot, victimSlot, entry.Beam, entry.Damage, resolved);
+                Answer(shooterSlot, entry.Id, HitVerdictPacket::ResultDuplicate);
+                return;
+            }
+            // Tick matched legal splash/ricochet damage first. No direct/splash
+            // proof exists on the wire, so unmatched obstructed damage is unsafe.
+            ++_refusedHere;
+            if (Combat::SyluxMuzzleGuardMetrics::Enabled)
+                ++Combat::SyluxMuzzleGuardMetrics::Counters.NetClaimRejected;
+            Answer(shooterSlot, entry.Id, HitVerdictPacket::ResultGeometry);
+            return;
+        }
         DamageFlags flags = DamageFlags::NoDmgInvuln;
         if ((entry.Flags & HitClaimPacket::FlagHeadshot) != 0)
         {
@@ -1572,6 +1647,7 @@ namespace MphRead::Mods::Network
 
     void NetHitClaims::Reset()
     {
+        _muzzleObstructions.Reset();
         _outbox.fill(Outgoing{});
         _pending.fill(Pending{});
         for (auto& row : _seenIds) row.fill(0);
@@ -1641,6 +1717,7 @@ namespace MphRead::Mods::Network
             return;
         }
         const auto s = static_cast<std::size_t>(slot);
+        _muzzleObstructions.ForgetSlot(slot);
         for (Outgoing& entry : _outbox)
         {
             if (entry.VictimSlot == slot || slot == NetSession::LocalSlot())
@@ -1684,6 +1761,7 @@ namespace MphRead::Mods::Network
 
     void NetHitClaims::ForgetPending()
     {
+        _muzzleObstructions.Reset();
         for (auto& row : _seenIds) row.fill(0);
         for (auto& row : _seenResults) row.fill(0);
         _newestId.fill(0);

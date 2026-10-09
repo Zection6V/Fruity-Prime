@@ -6854,6 +6854,9 @@ namespace MphRead
 
     void RenderWindow::OnFocusedChanged(bool focused)
     {
+        // Focus can leave and return between polls (external capture/Alt+Tab).
+        // Keep the cached fullscreen state and platform flag in one owner.
+        Mods::WindowMode::SetTopmost(*this, Mods::WindowMode::IsFullscreen() && focused);
         Mods::Input::GamepadContexts::Focused(focused);
         if (!focused)
         {

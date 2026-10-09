@@ -45,10 +45,16 @@
 #include <QtCore/QCoreApplication>
 #include <QtCore/QVariantMap>
 #include <QtGui/QImage>
+#include <QtGui/QFocusEvent>
+#include <QtGui/QGuiApplication>
 #include <QtGui/QMouseEvent>
 #include <QtGui/QOpenGLContext>
 #include <QtGui/QOpenGLFunctions>
 #include <QtGui/QWindow>
+#if defined(_WIN32)
+#include <QtCore/qt_windows.h>
+#undef CreateWindow
+#endif
 
 #include <exception>
 #include <chrono>
@@ -311,18 +317,53 @@ namespace MphRead::Mods::Launcher::Gui
                 else if (frame == 32)
                 {
                     static const auto start = std::chrono::steady_clock::now();
-                    if (std::chrono::steady_clock::now() - start < std::chrono::seconds(10))
+                    const auto elapsed = std::chrono::steady_clock::now() - start;
+                    static const bool focusCheck = qEnvironmentVariableIntValue("FRUITY_FOCUSCHECK") != 0;
+                    static bool focusChecked = false;
+                    if (focusCheck && !focusChecked && elapsed >= std::chrono::seconds(2))
+                    {
+                        QWindow* target = QGuiApplication::focusWindow();
+                        if (target != nullptr && WindowMode::IsFullscreen())
+                        {
+                            const auto topmost = [target] {
+#if defined(_WIN32)
+                                return (::GetWindowLongPtrW(reinterpret_cast<HWND>(target->winId()),
+                                    GWL_EXSTYLE) & WS_EX_TOPMOST) != 0;
+#else
+                                return target->flags().testFlag(::Qt::WindowStaysOnTopHint);
+#endif
+                            };
+                            // A capture utility can lose and restore focus before Poll
+                            // observes either event. Check both state owners immediately.
+                            for (int i = 0; i < 3; ++i)
+                            {
+                                QFocusEvent out(QEvent::FocusOut);
+                                QCoreApplication::sendEvent(target, &out);
+                                if (WindowMode::IsTopmost() || topmost())
+                                    throw std::runtime_error("Focus loss left stale fullscreen topmost state.");
+                                QFocusEvent in(QEvent::FocusIn);
+                                QCoreApplication::sendEvent(target, &in);
+                                if (!WindowMode::IsTopmost() || !topmost())
+                                    throw std::runtime_error("Focus return did not restore fullscreen topmost state.");
+                            }
+                            focusChecked = true;
+                            std::cout << "[focus fixture] rapid focus round trips: PASS\n";
+                        }
+                    }
+                    if (elapsed < std::chrono::seconds(focusCheck ? 20 : 10))
                     { --frame; return; }
                     const auto main = MphRead::Entities::PlayerEntity::Main();
                     const auto playing = MphRead::Entities::LoadFlags::Active | MphRead::Entities::LoadFlags::Spawned;
                     if (!main || (main->LoadFlags() & playing) != playing || main->Health() == 0)
                         throw std::runtime_error("FPS fixture lost the active main player.");
+                    if (focusCheck && !focusChecked)
+                        throw std::runtime_error("Focus fixture never reached focused fullscreen gameplay.");
                     QDir().mkpath(dir);
                     const auto size = window.FramebufferSize();
                     const auto path = QDir(dir).filePath(QStringLiteral("fps-active.png")).toStdString();
-                    if (!MphRead::Mods::ScreenCapture::SaveWindow(size.X, size.Y, path))
+                    if (!focusCheck && !MphRead::Mods::ScreenCapture::SaveWindow(size.X, size.Y, path))
                         throw std::runtime_error("FPS fixture could not capture its active match.");
-                    std::cout << "[fps fixture] captured active match: " << path << '\n';
+                    if (!focusCheck) std::cout << "[fps fixture] captured active match: " << path << '\n';
                     std::cout << "[fps fixture] " << MphRead::Mods::Render::FrameTiming::Describe() << '\n';
                     MphRead::Mods::Diagnostics::AimCheck::ReportClock(*main);
                     window.Close();

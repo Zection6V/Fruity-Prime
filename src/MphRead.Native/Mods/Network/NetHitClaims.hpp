@@ -2,6 +2,7 @@
 
 #include "NetProtocol.hpp"
 #include "NetShotDiagnostics.hpp"
+#include "MuzzleObstructionHistory.hpp"
 
 #include "../../Formats/Enums.hpp"
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
@@ -133,7 +134,11 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static bool Arbitrating();
 
         static void NoteAuthorityHit(std::int32_t attackerSlot, std::int32_t victimSlot,
-            std::uint32_t launchFrame = 0, std::int32_t damage = 0);
+            std::uint32_t launchFrame = 0, std::int32_t damage = 0,
+            BeamType beam = BeamType::None, std::optional<ShotKey> launchKey = std::nullopt);
+        static void NoteMuzzleObstruction(const ShotKey& key, BeamType beam,
+            const Combat::BeamObstacleHit& hit);
+        static void NoteMuzzleDescendant(const ShotKey& key, BeamType beam);
         static void Receive(std::int32_t shooterSlot, std::span<const std::uint8_t> payload);
         [[nodiscard]] static std::string DescribeAgreement();
         static void Tick();
@@ -213,18 +218,22 @@ namespace MphRead::Mods::Network
             std::uint32_t Arrived = 0;
             std::int32_t Grace = 0;
             bool Live = false;
+            bool RequireAuthorityHit = false;
         };
 
         [[nodiscard]] static std::int32_t MaxClaimAge();
         [[nodiscard]] static std::int32_t ResendInterval();
         static void TickOutbox();
         static void NoteLedger(std::int32_t attacker, std::int32_t victim, std::uint32_t ack,
-            std::uint32_t launch, std::int32_t damage, bool used = false);
+            std::uint32_t launch, std::int32_t damage, bool used = false,
+            BeamType beam = BeamType::None, std::optional<ShotKey> launchKey = std::nullopt);
         [[nodiscard]] static std::int32_t NearestLedgerOffset(
             std::int32_t attacker, std::int32_t victim, std::uint32_t arrived);
         [[nodiscard]] static bool TakeLedger(std::int32_t attacker, std::int32_t victim,
             std::uint32_t claimAck, std::uint32_t claimLaunch, std::uint32_t arrived, std::int32_t window,
-            std::int32_t& authorityDamage);
+            std::int32_t& authorityDamage, std::optional<ShotKey> strictKey = std::nullopt,
+            BeamType strictBeam = BeamType::None);
+        [[nodiscard]] static bool MuzzleObstructed(const Pending& entry);
         static void ClearLedger(std::int32_t attacker, std::int32_t victim);
         [[nodiscard]] static std::uint32_t FireFrameOf(std::int32_t slot);
         [[nodiscard]] static bool Seen(std::int32_t slot, std::uint16_t id);
@@ -274,6 +283,9 @@ namespace MphRead::Mods::Network
         static Ledger<std::uint32_t> _authorityHitLaunch;
         static Ledger<bool> _authorityHitUsed;
         static Ledger<std::int32_t> _authorityHitDamage;
+        static Ledger<ShotKey> _authorityHitKeys;
+        static Ledger<BeamType> _authorityHitBeam;
+        static MuzzleObstructionHistory _muzzleObstructions;
         static Grid<std::int32_t, Slots, Slots> _authorityHitHead;
 
         static std::array<std::int64_t, AltBeamBuckets> _agreeByBeam;

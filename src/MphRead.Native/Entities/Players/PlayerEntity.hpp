@@ -684,6 +684,9 @@ namespace MphRead::Entities
         [[nodiscard]] std::shared_ptr<EntityBase> ShockCoilTarget() const noexcept { return _shockCoilTarget; }
 
         [[nodiscard]] bool IsAltForm() const noexcept;
+        // Whether a hit taken now would be swallowed by spawn or damage
+        // invulnerability (TakeDamage's own gate; diagnostics only).
+        [[nodiscard]] bool ModInvulnerable() const noexcept { return _spawnInvulnTimer > 0 || _damageInvulnTimer > 0; }
         [[nodiscard]] bool IsMorphing() const noexcept;
         [[nodiscard]] bool IsUnmorphing() const noexcept;
         [[nodiscard]] PlayerFlags1 Flags1() const noexcept { return _flags1; }
@@ -968,6 +971,9 @@ namespace MphRead::Entities
         std::shared_ptr<OctolithFlagEntity> _octolithFlag{};
         std::shared_ptr<JumpPadEntity> _lastJumpPad{};
         std::shared_ptr<EntityBase> _burnedBy{};
+        // The launch frame of the shot that set this player burning: a burn
+        // tick is that shot's damage, however long after it lands.
+        std::uint32_t _burnLaunchFrame = 0;
         std::shared_ptr<EntityBase> _lastTarget{};
         std::shared_ptr<EntityBase> _shockCoilTarget{};
 

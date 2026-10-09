@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cmath>
 #include <cstddef>
 #include <stdexcept>
 #include <string_view>
@@ -796,6 +797,16 @@ namespace MphRead::Mods::Network
             dest[Size + 3] = TouchFlags;
             W32(Slice(dest, static_cast<std::size_t>(Size + StateSize + LegacyTouchSize)), TouchSampleSequence);
         }
+        if (HasShot && dest.size() >= static_cast<std::size_t>(ShotFullSize))
+        {
+            const auto at = static_cast<std::size_t>(FullSize);
+            WF(Slice(dest, at), ShotOrigin.X);
+            WF(Slice(dest, at + 4), ShotOrigin.Y);
+            WF(Slice(dest, at + 8), ShotOrigin.Z);
+            WF(Slice(dest, at + 12), ShotDirection.X);
+            WF(Slice(dest, at + 16), ShotDirection.Y);
+            WF(Slice(dest, at + 20), ShotDirection.Z);
+        }
     }
     void IntentPacket::SetTouchReport(const ::MphRead::Mods::Input::NativeTouchState::Reported& touch) noexcept
     {
@@ -853,6 +864,17 @@ namespace MphRead::Mods::Network
         packet.ChargeLevel = full ? src[Size] : static_cast<std::uint8_t>(0);
         packet.BoostDamage = full ? src[Size + 1] : static_cast<std::uint8_t>(0);
         packet.ShotFlags = full ? src[Size + 2] : static_cast<std::uint8_t>(0);
+        if (src.size() >= static_cast<std::size_t>(ShotFullSize))
+        {
+            const auto at = static_cast<std::size_t>(FullSize);
+            packet.ShotOrigin = ::OpenTK::Mathematics::Vector3(RF(Slice(src, at)), RF(Slice(src, at + 4)), RF(Slice(src, at + 8)));
+            packet.ShotDirection = ::OpenTK::Mathematics::Vector3(
+                RF(Slice(src, at + 12)), RF(Slice(src, at + 16)), RF(Slice(src, at + 20)));
+            packet.HasShot = std::isfinite(packet.ShotOrigin.X) && std::isfinite(packet.ShotOrigin.Y)
+                && std::isfinite(packet.ShotOrigin.Z) && std::isfinite(packet.ShotDirection.X)
+                && std::isfinite(packet.ShotDirection.Y) && std::isfinite(packet.ShotDirection.Z)
+                && packet.ShotDirection.LengthSquared() > 0.25F && packet.ShotDirection.LengthSquared() < 4.0F;
+        }
         return packet;
     }
     std::int16_t DamageEvent::PackDirection(float value) noexcept
@@ -876,6 +898,22 @@ namespace MphRead::Mods::Network
         WI16(Slice(dest, 9), PackDirection(Direction.X));
         WI16(Slice(dest, 11), PackDirection(Direction.Y));
         WI16(Slice(dest, 13), PackDirection(Direction.Z));
+    }
+    ImpactOffset ImpactOffset::From(::OpenTK::Mathematics::Vector3 offset) noexcept
+    {
+        ImpactOffset packed{};
+        if (!std::isfinite(offset.X) || !std::isfinite(offset.Y) || !std::isfinite(offset.Z))
+        {
+            return packed;
+        }
+        const auto pack = [](float value)
+        {
+            return static_cast<std::int8_t>(std::clamp(std::lround(value * Scale), -127L, 127L));
+        };
+        packed.X = pack(offset.X);
+        packed.Y = pack(offset.Y);
+        packed.Z = pack(offset.Z);
+        return packed;
     }
     DamageEvent DamageEvent::Read(std::span<const std::uint8_t> src)
     {
@@ -905,7 +943,7 @@ namespace MphRead::Mods::Network
     }
     void PlayerState::Write(std::span<std::uint8_t> dest) const
     {
-        if (dest.size() < Size) throw std::out_of_range("PlayerState protocol 17 requires 128 bytes");
+        if (dest.size() < Size) throw std::out_of_range("PlayerState protocol 19 requires " + std::to_string(Size) + " bytes");
         At(dest, 0) = SlotIndex;
         At(dest, 1) = Flags;
         WriteVec(Slice(dest, 2), Position);
@@ -927,10 +965,19 @@ namespace MphRead::Mods::Network
         At(dest, LegacySize) = WeavelFlags;
         At(dest, LegacySize + 1) = HalfturretHealth;
         WriteVec(Slice(dest, LegacySize + 2), HalfturretPosition);
+        At(dest, LegacySize + 14) = ImpactLaunchLow;
+        At(dest, LegacySize + 15) = static_cast<std::uint8_t>(Impact.Y);
+        std::uint8_t bearing = 0;
+        if (Impact.Known() && (Impact.X != 0 || Impact.Z != 0))
+        {
+            const double angle = std::atan2(static_cast<double>(Impact.Z), static_cast<double>(Impact.X));
+            bearing = static_cast<std::uint8_t>(static_cast<std::int32_t>(std::lround(angle * 128.0 / 3.141592653589793)) & 0xFF);
+        }
+        At(dest, LegacySize + 16) = bearing;
     }
     PlayerState PlayerState::Read(std::span<const std::uint8_t> src)
     {
-        if (src.size() < Size) throw std::out_of_range("PlayerState protocol 16 layout is incompatible");
+        if (src.size() < Size) throw std::out_of_range("PlayerState layout older than protocol 19 is incompatible");
         PlayerState state;
         state.SlotIndex = At(src, 0);
         state.Flags = At(src, 1);
@@ -953,6 +1000,15 @@ namespace MphRead::Mods::Network
         state.WeavelFlags = At(src, LegacySize);
         state.HalfturretHealth = At(src, LegacySize + 1);
         state.HalfturretPosition = ReadVec(Slice(src, LegacySize + 2));
+        state.ImpactLaunchLow = At(src, LegacySize + 14);
+        const auto height = static_cast<std::int8_t>(At(src, LegacySize + 15));
+        if (height != ImpactOffset::None)
+        {
+            const double angle = static_cast<std::int8_t>(At(src, LegacySize + 16)) * 3.141592653589793 / 128.0;
+            state.Impact = ImpactOffset::From(::OpenTK::Mathematics::Vector3(
+                static_cast<float>(std::cos(angle)) * ImpactRadius, height / ImpactOffset::Scale,
+                static_cast<float>(std::sin(angle)) * ImpactRadius));
+        }
 
         DamageEvent latest{};
         for (std::int32_t i = DamageHistory - 1; i >= 0; i--)
@@ -1056,6 +1112,12 @@ namespace MphRead::Mods::Network
         WF(Slice(dest, 19), HitPoint.X);
         WF(Slice(dest, 23), HitPoint.Y);
         WF(Slice(dest, 27), HitPoint.Z);
+        WF(Slice(dest, 49), Impulse.X);
+        WF(Slice(dest, 53), Impulse.Y);
+        WF(Slice(dest, 57), Impulse.Z);
+        At(dest, 61) = static_cast<std::uint8_t>(Impact.X);
+        At(dest, 62) = static_cast<std::uint8_t>(Impact.Y);
+        At(dest, 63) = static_cast<std::uint8_t>(Impact.Z);
     }
     HitClaimPacket HitClaimPacket::Read(std::span<const std::uint8_t> src)
     {
@@ -1076,6 +1138,16 @@ namespace MphRead::Mods::Network
         packet.Flags = At(src, 18);
         packet.HitPoint = ::OpenTK::Mathematics::Vector3(
             RF(Slice(src, 19)), RF(Slice(src, 23)), RF(Slice(src, 27)));
+        packet.Impulse = ::OpenTK::Mathematics::Vector3(RF(Slice(src, 49)), RF(Slice(src, 53)), RF(Slice(src, 57)));
+        packet.Impact.X = static_cast<std::int8_t>(At(src, 61));
+        packet.Impact.Y = static_cast<std::int8_t>(At(src, 62));
+        packet.Impact.Z = static_cast<std::int8_t>(At(src, 63));
+        if (!std::isfinite(packet.Impulse.X) || !std::isfinite(packet.Impulse.Y) || !std::isfinite(packet.Impulse.Z)
+            || packet.Impulse.LengthSquared() > 4.0F)
+        {
+            packet.Impulse = ::OpenTK::Mathematics::Vector3::Zero;
+            packet.Flags = static_cast<std::uint8_t>(packet.Flags & ~FlagImpulse);
+        }
         return packet;
     }
     void HitVerdictPacket::Write(std::span<std::uint8_t> dest,

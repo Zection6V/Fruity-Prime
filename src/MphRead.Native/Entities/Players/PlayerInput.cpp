@@ -29,6 +29,7 @@
 #include "../../Mods/Input/WeaponWheel.hpp"
 #include "../../Mods/Network/ContinuousWeaponPhase.hpp"
 #include "../../Mods/Network/NetSession.hpp"
+#include "../../Mods/Network/HitRig.hpp"
 #include "../../Mods/Network/NetShotDiagnostics.hpp"
 #include "../../NativeRuntime/System/Number.hpp"
 #include "../../Mods/Input/StylusZone.hpp"
@@ -96,6 +97,14 @@ namespace
     using OpenTK::Windowing::GraphicsLibraryFramework::Keys;
     using OpenTK::Windowing::GraphicsLibraryFramework::MouseButton;
     using OpenTK::Windowing::GraphicsLibraryFramework::MouseState;
+
+    // -rigspeed: the bench rig's own player moves faster (the position is
+    // the owner's on the wire, so no other machine needs to know).
+    [[nodiscard]] float RigMoveScale(const PlayerEntity& player)
+    {
+        const float scale = MphRead::Mods::Network::HitRig::MoveScale();
+        return scale != 1.0F && player.IsMainPlayer() ? scale : 1.0F;
+    }
 
     [[nodiscard]] constexpr bool VectorEquals(Vector3 a, Vector3 b) noexcept
     {
@@ -843,7 +852,7 @@ namespace MphRead::Entities
                     {
                         _flags1 &= ~PlayerFlags1::Walking;
                     }
-                    float traction = Fixed::ToFloat(_values.StrafeBipedTraction);
+                    float traction = Fixed::ToFloat(_values.StrafeBipedTraction) * RigMoveScale(*this);
                     if (_jumpPadControlLockMin > 0)
                     {
                         traction *= Fixed::ToFloat(_values.JumpPadSlideFactor);
@@ -878,7 +887,7 @@ namespace MphRead::Entities
                     {
                         _flags1 &= ~PlayerFlags1::Walking;
                     }
-                    float traction = Fixed::ToFloat(_values.WalkBipedTraction);
+                    float traction = Fixed::ToFloat(_values.WalkBipedTraction) * RigMoveScale(*this);
                     if (_jumpPadControlLockMin > 0)
                     {
                         traction *= Fixed::ToFloat(_values.JumpPadSlideFactor);
@@ -1264,6 +1273,7 @@ namespace MphRead::Entities
         {
             shotVec = Mods::Network::NetHooks::RemoteShotDirection(*this, shotVec);
         }
+        shotVec = Mods::Network::NetHooks::DrawnRemoteShot(*this, shotOrigin, shotVec);
         if (_disruptedTimer > 0)
         {
             shotVec.X += Fixed::ToFloat(static_cast<std::int32_t>(Rng::GetRandomInt2(24576)) - 12288);
@@ -1271,6 +1281,11 @@ namespace MphRead::Entities
             shotVec.Z += Fixed::ToFloat(static_cast<std::int32_t>(Rng::GetRandomInt2(24576)) - 12288);
         }
         shotVec = shotVec.Normalized();
+        if (Mods::Network::NetSession::Active() && SlotIndex() == Mods::Network::NetHooks::LocalSlot()
+            && !Mods::Network::NetSession::IsAuthority())
+        {
+            Mods::Network::NetPlayerBridge::NoteLocalShot(shotOrigin, shotVec);
+        }
         const std::shared_ptr<WeaponInfo> curWeapon = _equipInfo->Weapon;
         if (IsPrimeHunter())
         {
@@ -1969,7 +1984,7 @@ namespace MphRead::Entities
             else
             {
                 const bool strafing = TestFlag(_flags1, PlayerFlags1::Strafing);
-                _hSpeedCap = Fixed::ToFloat(strafing ? _values.StrafeSpeedCap : _values.WalkSpeedCap);
+                _hSpeedCap = Fixed::ToFloat(strafing ? _values.StrafeSpeedCap : _values.WalkSpeedCap) * RigMoveScale(*this);
             }
             if (IsPrimeHunter() && !IsAltForm())
             {

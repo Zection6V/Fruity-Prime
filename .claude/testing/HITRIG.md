@@ -105,6 +105,14 @@ a shot travels towards a point a fixed distance down the aim ray, so aiming
 straight at something further away lands low, and on a 0.3-unit band low is a
 body shot.
 
+**`-hitrig all` is the fourth, native only**, and the one the shooter-authoritative
+work was measured with ([NETWORK-SHOOTER-AUTHORITY](../multiplayer/NETWORK-SHOOTER-AUTHORITY.md)).
+The odd slot rides `TEST PADS`'s jump pads without stopping -- it walks back onto
+the nearest pad every time it lands -- and shoots back while airborne; the even
+slot holds range and fires each of the nine weapons for 20 s in turn, ammo
+refilled. It is the only mode in which both players shoot with every weapon at a
+target that is always in the air.
+
 ## The map
 
 `TEST ARENA` (`maps/arena/arena.json`), because it guarantees the one thing the
@@ -205,3 +213,107 @@ Japan one.
   `NetDamage.ResetForRoomChange` are per-match, so an arm that rotates
   underneath itself reports half a run. `run-local.sh` writes a one-map
   rotation at 20 minutes for this reason.
+
+## Where a hit lands (`-hitlog`)
+
+The tables above count hits. They cannot say whether the shooter and the
+victim saw the **same** hit in the **same place**, which is what a player
+means by "it felt right". `-hitlog FILE` (`Mods/Network/HitLocation`) writes
+one CSV row per event on every machine, the point given in the victim's body
+frame -- `dy` above Position, `hpct` as a share of the capsule (the head band
+is the top 18.75%), `ang` the bearing from the way the victim faces:
+
+| row | written by | what |
+|---|---|---|
+| `hit` | shooter's client | its shot met a puppet (`;1` in `extra`: swallowed by invulnerability, nothing claimed) |
+| `hit` | victim's client | a remote shot drawn meeting this player (`;synth`: an impact drawn on the spot for a confirmed shot that was not in the air) |
+| `pass` / `miss` | victim's client | an unconfirmed remote shot let through / one that came closest without touching |
+| `dmg` | victim's client | the authority's damage arriving |
+| `hit` | authority | its own copy of a remote player's shot, which no longer counts (the shadow) |
+| `claim` | authority | judged (`extra`: history position; verdict) or applied (verdict 100) |
+
+Rows join on the shot key (shooter, victim, weapon, launch frame); a remote
+shot drawn on the victim's machine carries the ack of the intent that fired it
+(`ModShooterAck`), which is the shooter's launch frame within a frame or two.
+`tools/hitrig/hitloc.py RUN...` prints the joined table, one column per run,
+all weapons but the Shock Coil (which ticks; it has its own section) and then
+weapon by weapon.
+
+**The maps** (`maps/wells`, `wellsstill`, `lanes`). Two players 12 units
+apart -- inside the 15 at which every weapon scores headshots -- each held in
+a glass cell: brushes with `"noBeams": true, "visible": false`, which stop a
+player and let every shot through, so no knockback can move the target out
+of the measurement. **TEST WELLS** puts a vertical jump pad in each cell,
+bouncing one player to 6.2 units and the other to about 4.6, so the two never
+fall into step with each other or with the round trip (a pad's `speed` is not
+its launch velocity: these were measured with `highest`, not solved).
+**TEST WELLS STILL** is the control, nobody moving; **TEST LANES** the
+horizontal case, strafing. `-hitrig wells` / `lanes` makes both players shoot,
+all nine weapons in turn (20 s each, so a run wants 180 s and 360 s is two
+cycles), aiming at the head and at the chest five seconds each, and puts each
+slot back in its own cell (a client picks its own spawn before it can see
+anybody).
+
+**Headless.** `-netcheck ... -headless` runs a client with no window and no
+GPU, stepping the simulation at 60 Hz by the wall clock like the dedicated
+server. The windowed client could not run on the WSL box at all (OpenGL
+memory admission, no Vulkan backend in that build), and a netcode measurement
+has no business depending on a driver.
+
+```bash
+HITLOC_BIN=~/fp-hitloc/bin-after tools/hitrig/hitloc-local.sh after-wells "TEST WELLS" wells 360
+python3 tools/hitrig/hitloc.py ~/fp-hitloc/runs/base-wells ~/fp-hitloc/runs/after-wells
+```
+
+`hitloc-local.sh` runs a native server and two headless clients on the
+loopback, the line made up by the clients (`HITLOC_LAG`, default `250:40`, the
+Japan line's shape; `HITLOC_LOSS`). `hitloc-japan.sh` runs the same against
+one of the bench box's unlisted servers.
+
+## Rewinds, four pairs at a time (`-hitrig strafe`)
+
+What a player calls a rewind is a hit shown and then taken back: the bar of
+the player they shot goes down and comes back up, or a body is pulled back
+along its path. The cell maps cannot show it -- their glass holds every
+player in place, so no knockback ever moves anybody -- and two clients a run
+make every measurement an hour.
+
+**TEST STRAFE** (`maps/strafe`) is four walled corridors side by side. Slot
+`2k` and `2k+1` share corridor `k`, 12 units apart on X by default
+(`-rigrange N`, up to 40), and strafe along Z non-stop, turning every
+`-rigstrafe N` frames (24) or at the end of their reach; `-rigspeed F`
+(1 to 3) makes the rig's own player F times faster (speed cap and traction:
+the position is the owner's on the wire, so nothing else needs it). Nothing
+holds anybody: a knockback is walked back from. The walls stop every shot,
+so eight clients in one match are four independent duels. Each pair is on a
+different weapon of the cycle at any moment; `strafe:missilevolt` alternates
+the two the complaint was about, charged one phase in two, and
+`strafe:WEAPON` holds one.
+
+Every client running it also writes, through `-hitlog`, what it **drew**
+once a frame (`HitLocation::Watch`): `hp` for every change of any player's
+health, `hpup` for a rise in the same life (a bar going back up), `jump` for
+a step its previous step does not explain (residual over 0.25, with the
+cosine of the turn), `placed` when the rig moved its own player.
+
+```bash
+REWIND_BIN=~/fp-rewind/bin-after tools/hitrig/rewind-run.sh local 120        # loopback, -netlag 40:10
+REWIND_BIN=... REWIND_HOST=20.16.135.109 REWIND_PORT=27897 \
+  REWIND_REMOTE_DIR=/opt/fruityprime-rewind REWIND_SSH=~/GIT/fp-net/nl.sh \
+  REWIND_RIG=strafe:missilevolt REWIND_SPEED=2 REWIND_RANGE=24 REWIND_HUNTERS="Samus Kanden" \
+  tools/hitrig/rewind-ab.sh mv 3 300                                          # interleaved A/B of two server binaries
+python3 tools/hitrig/rewind.py RUN...                                         # the table, by weapon
+```
+
+`rewind.py` joins each victim's own bar with its shooter's view of it, life
+by life: **bar rewinds** (a rise on the shooter's screen), lives ending on
+different health, puppet and own jumps by kind (`back` turned more than
+120 degrees; `stall` restarted from standing, which is the playout buffer,
+not a rewind), and the authority's verdicts by reason.
+
+**Pick the hunters.** `REWIND_HUNTERS` gives A and B of every pair their
+hunter. The first refusals found this way were Samus's and Kanden's: their
+affinity weapons home when charged, and the authority had been reading the
+base row (see `NETWORK-SHOOTER-AUTHORITY.md`, *the weapon is the shooter's
+own*). An all-Samus run at 12 units barely shows it -- a homing missile only
+leaves its ray by more than two units at range on a fast target.

@@ -1,4 +1,6 @@
 #include "NetHitClaims.hpp"
+#include "HitLocation.hpp"
+#include "../../Formats/CollisionDetection.hpp"
 
 #include "NetDamage.hpp"
 #include "../Combat/SyluxMuzzleGuard.hpp"
@@ -13,6 +15,7 @@
 
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Metadata/Metadata.hpp"
+#include "../../Metadata/Weapons.hpp"
 #include "../../NativeRuntime/System/BinaryPrimitives.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
@@ -89,6 +92,7 @@ namespace MphRead::Mods::Network
     std::array<std::int64_t, NetHitClaims::AltBeamBuckets> NetHitClaims::_resolvedByBeam{};
     std::int32_t NetHitClaims::_disagreementsLogged = 0;
     std::array<std::uint32_t, NetHitClaims::Slots> NetHitClaims::_deathFire{};
+    std::array<std::uint32_t, NetHitClaims::Slots> NetHitClaims::_deathFrame{};
     std::array<bool, NetHitClaims::Slots> NetHitClaims::_dead{};
     std::array<std::uint32_t, NetHitClaims::Slots> NetHitClaims::_lastHitFire{};
     std::array<bool, NetHitClaims::Slots> NetHitClaims::_wasInPlay{};
@@ -154,7 +158,8 @@ namespace MphRead::Mods::Network
 
     std::uint16_t NetHitClaims::Declare(PlayerEntity& victim, PlayerEntity& attacker, ::MphRead::BeamType beam,
         std::uint32_t damage, DamageFlags flags, bool lethal, OpenTK::Mathematics::Vector3 hitPoint,
-        std::uint32_t launchFrame)
+        std::uint32_t launchFrame, std::optional<OpenTK::Mathematics::Vector3> impulse, ::MphRead::Affliction afflictions,
+        std::optional<OpenTK::Mathematics::Vector3> impact, bool splash)
     {
         if (!Claiming() || &victim == &attacker || damage == 0
             || NetPlayerLifecycle::Get(victim.SlotIndex()) == 0 || NetPlayerLifecycle::Get(attacker.SlotIndex()) == 0)
@@ -175,9 +180,25 @@ namespace MphRead::Mods::Network
         {
             claimFlags = static_cast<std::uint8_t>(claimFlags | HitClaimPacket::FlagLethal);
         }
-        if (victim.ModFrozen())
+        if (victim.ModFrozen() || ::MphRead::TestFlag(afflictions, ::MphRead::Affliction::Freeze))
         {
             claimFlags = static_cast<std::uint8_t>(claimFlags | HitClaimPacket::FlagFrozen);
+        }
+        if (::MphRead::TestFlag(afflictions, ::MphRead::Affliction::Burn))
+        {
+            claimFlags = static_cast<std::uint8_t>(claimFlags | HitClaimPacket::FlagBurning);
+        }
+        if (::MphRead::TestFlag(afflictions, ::MphRead::Affliction::Disrupt))
+        {
+            claimFlags = static_cast<std::uint8_t>(claimFlags | HitClaimPacket::FlagDisrupted);
+        }
+        if (impulse.has_value())
+        {
+            claimFlags = static_cast<std::uint8_t>(claimFlags | HitClaimPacket::FlagImpulse);
+        }
+        if (splash)
+        {
+            claimFlags = static_cast<std::uint8_t>(claimFlags | HitClaimPacket::FlagSplash);
         }
         std::int32_t index = -1;
         for (std::int32_t i = 0; i < OutboxCapacity; i++)
@@ -222,6 +243,8 @@ namespace MphRead::Mods::Network
         entry.Damage = static_cast<std::uint16_t>(std::min<std::uint32_t>(damage, 0xFFFFU));
         entry.Flags = claimFlags;
         entry.HitPoint = hitPoint;
+        entry.Impulse = impulse.value_or(OpenTK::Mathematics::Vector3::Zero);
+        entry.Impact = impact.has_value() ? ImpactOffset::From(*impact) : ImpactOffset{};
         entry.Age = 0;
         entry.Sends = 0;
         entry.Live = true;
@@ -280,6 +303,8 @@ namespace MphRead::Mods::Network
             packet.Damage = entry.Damage;
             packet.Flags = entry.Flags;
             packet.HitPoint = entry.HitPoint;
+            packet.Impulse = entry.Impulse;
+            packet.Impact = entry.Impact;
             packet.Write(Runtime::SpanSlice(dest, offset));
             offset += HitClaimPacket::Size;
             if (entry.Sends > 0)
@@ -393,7 +418,9 @@ namespace MphRead::Mods::Network
                     break;
                 case HitVerdictPacket::ResultDeadVictim:
                     _refusedDeadVictim++;
-                    NetHitPrediction::Settle(entry.VictimSlot, id, false);
+                    // The victim is down on the authority as well: whatever
+                    // this machine drew, a body on the floor is the truth.
+                    NetHitPrediction::Settle(entry.VictimSlot, id, false, true);
                     break;
                 default:
                     _refusedOther++;
@@ -638,11 +665,25 @@ namespace MphRead::Mods::Network
                 || !NetPlayerLifecycle::Matches(shooterSlot, claim.ShooterGeneration, claim.ShooterLifeId))
             {
                 Runtime::IncrementInPlace(NetPlayerLifecycle::OldLifeClaims);
+                if (HitLocation::Enabled() && claim.VictimSlot < PlayerEntity::Players().size())
+                {
+                    // 201: the shooter's own life or the match is not the current one.
+                    HitLocation::Claim(shooterSlot, PlayerAt(claim.VictimSlot), claim.Beam,
+                        claim.LaunchFrame != 0 ? claim.LaunchFrame : claim.AckFrame, claim.Damage, claim.Flags,
+                        claim.HitPoint, claim.HitPoint, false, 201);
+                }
                 continue;
             }
             if (!NetPlayerLifecycle::Matches(claim.VictimSlot, claim.VictimGeneration, claim.VictimLifeId))
             {
                 Runtime::IncrementInPlace(NetPlayerLifecycle::OldLifeClaims);
+                if (HitLocation::Enabled() && claim.VictimSlot < PlayerEntity::Players().size())
+                {
+                    // 202: the victim the shooter drew is a life this authority has already ended.
+                    HitLocation::Claim(shooterSlot, PlayerAt(claim.VictimSlot), claim.Beam,
+                        claim.LaunchFrame != 0 ? claim.LaunchFrame : claim.AckFrame, claim.Damage, claim.Flags,
+                        claim.HitPoint, claim.HitPoint, false, 202);
+                }
                 Answer(shooterSlot, claim.ClaimId, HitVerdictPacket::ResultWrongLife, false);
                 continue;
             }
@@ -665,6 +706,18 @@ namespace MphRead::Mods::Network
                 NetShotDiagnostics::Bucket(static_cast<::MphRead::BeamType>(claim.Beam)))]);
             Remember(shooterSlot, claim.ClaimId, ResultPending);
             const std::uint8_t immediate = Judge(shooterSlot, claim);
+            if (HitLocation::Enabled() && claim.VictimSlot < PlayerEntity::Players().size())
+            {
+                OpenTK::Mathematics::Vector3 history{};
+                const bool known = NetUnlagged::PositionAt(claim.VictimSlot, claim.AckFrame,
+                    claim.VictimGeneration, claim.VictimLifeId, history);
+                // ack gap; distance off the fired ray (-1: not judged); blocked
+                HitLocation::Claim(shooterSlot, PlayerAt(claim.VictimSlot), claim.Beam,
+                    claim.LaunchFrame != 0 ? claim.LaunchFrame : claim.AckFrame, claim.Damage, claim.Flags,
+                    claim.HitPoint, history, known, immediate,
+                    std::to_string(_lastAckGap) + ";" + Runtime::ToString(_lastRayDistance, "F3") + ";"
+                        + (_lastBlocked ? "1" : "0"));
+            }
             if (immediate != HitVerdictPacket::ResultApplied)
             {
                 Answer(shooterSlot, claim.ClaimId, immediate);
@@ -722,12 +775,12 @@ namespace MphRead::Mods::Network
             ++_refusedHere;
             return HitVerdictPacket::ResultInvalidLaunch;
         }
-        if (claim.Damage > MaxDamageFor(claim.Beam))
+        if (claim.Damage > MaxDamageFor(shooterSlot, claim.Beam))
         {
             _refusedHere++;
             NetLog::Event("slot " + std::to_string(shooterSlot) + " claimed " + std::to_string(claim.Damage)
                 + " damage with beam " + std::to_string(claim.Beam) + ", which cannot deal more than "
-                + std::to_string(MaxDamageFor(claim.Beam)));
+                + std::to_string(MaxDamageFor(shooterSlot, claim.Beam)));
             return HitVerdictPacket::ResultDamageLimit;
         }
         OpenTK::Mathematics::Vector3 was{};
@@ -748,6 +801,30 @@ namespace MphRead::Mods::Network
                 + std::to_string(claim.AckFrame) + " put them");
             return HitVerdictPacket::ResultGeometry;
         }
+        if (!RatePlausible(shooterSlot, claim.Beam, claim.LaunchFrame != 0 ? claim.LaunchFrame : claim.AckFrame))
+        {
+            _refusedHere++;
+            NetLog::Event("slot " + std::to_string(shooterSlot) + " claimed a shot of beam " + std::to_string(claim.Beam)
+                + " launched closer to another than the weapon can fire");
+            return HitVerdictPacket::ResultGeometry;
+        }
+        if (!ShotPlausible(shooterSlot, claim, was))
+        {
+            _refusedHere++;
+            NetLog::Event("slot " + std::to_string(shooterSlot) + " claimed a hit on slot " + std::to_string(victimSlot)
+                + " that its own shots cannot have made (ack gap " + std::to_string(_lastAckGap) + ", "
+                + Runtime::ToString(_lastRayDistance, "F2") + " off its ray, " + (_lastBlocked ? "blocked" : "clear") + ")");
+            return HitVerdictPacket::ResultGeometry;
+        }
+        if (!ImpactPlausible(claim, victimSlot))
+        {
+            _refusedHere++;
+            _impactRefused++;
+            NetLog::Event("slot " + std::to_string(shooterSlot) + " claimed a hit on slot " + std::to_string(victimSlot)
+                + " landing at " + claim.Impact.Value().ToString() + " from its Position, flags "
+                + std::to_string(claim.Flags) + ": not on the body, or not on the head it claims");
+            return HitVerdictPacket::ResultGeometry;
+        }
         PlayerEntity& victim = PlayerAt(victimSlot);
         if (!HasLoadFlag(victim.LoadFlags(), LoadFlags::Active) || !victim.ModIsInPlay())
         {
@@ -756,7 +833,7 @@ namespace MphRead::Mods::Network
         }
         const std::uint32_t fired = claim.LaunchFrame != 0 ? claim.LaunchFrame : claim.AckFrame;
         const auto s = static_cast<std::size_t>(shooterSlot);
-        if (_dead[s] && _deathFire[s] < fired)
+        if (FiredAfterOwnDeath(s, fired))
         {
             _voidedDeadShooter++;
             return HitVerdictPacket::ResultDeadShooter;
@@ -849,20 +926,46 @@ namespace MphRead::Mods::Network
         entry.AckFrame = claim.AckFrame;
         entry.LaunchFrame = claim.LaunchFrame;
         entry.HitPoint = claim.HitPoint;
+        entry.Impulse = claim.Impulse;
+        entry.Impact = claim.Impact;
         entry.Arrived = NetSession::NetFrame();
-        entry.Grace = GraceFor(shooterSlot);
+        // With shooter-authoritative hits there is no copy of the authority's
+        // own to wait for: the claim is the hit, applied on the next tick in
+        // fire-frame order.
+        // A bot victim is still resolved here as well, so its claims keep the
+        // window that pairs them with the authority's own copy.
+        const bool botVictim = claim.VictimSlot < PlayerEntity::Players().size()
+            && PlayerAt(claim.VictimSlot).IsBot();
+        entry.Grace = _shooterHits && !botVictim ? 0 : GraceFor(shooterSlot);
         entry.RequireAuthorityHit = MuzzleObstructed(entry);
         entry.Live = true;
         _pending[static_cast<std::size_t>(index)] = entry;
     }
 
-    std::int32_t NetHitClaims::MaxDamageFor(std::uint8_t beam)
+    const ::MphRead::WeaponInfo* NetHitClaims::FiredWeapon(std::int32_t shooterSlot, std::uint8_t beam)
+    {
+        const auto& current = ::MphRead::Weapons::Current;
+        if (beam == HitClaimPacket::NoBeam || current == nullptr || beam >= 9 || beam >= current->size())
+        {
+            return nullptr;
+        }
+        std::size_t index = beam;
+        // As PlayerEntity::TryEquipWeapon picks it in a match.
+        if (shooterSlot >= 0 && static_cast<std::size_t>(shooterSlot) < PlayerEntity::Players().size()
+            && static_cast<std::uint8_t>(::MphRead::Weapons::GetAffinityBeam(PlayerAt(shooterSlot).Hunter())) == beam
+            && beam + 9U < current->size())
+        {
+            index = beam + 9U;
+        }
+        return &Runtime::RequireReference((*current)[index]);
+    }
+
+    std::int32_t NetHitClaims::MaxDamageFor(std::int32_t shooterSlot, std::uint8_t beam)
     {
         std::int32_t raw = 200;
-        const auto& current = ::MphRead::Weapons::Current;
-        if (beam != HitClaimPacket::NoBeam && current != nullptr && beam < current->size())
+        if (const ::MphRead::WeaponInfo* fired = FiredWeapon(shooterSlot, beam); fired != nullptr)
         {
-            const ::MphRead::WeaponInfo& info = Runtime::RequireReference((*current)[beam]);
+            const ::MphRead::WeaponInfo& info = *fired;
             raw = std::max<std::int32_t>(info.ChargedHeadshotDamage,
                 std::max<std::int32_t>(info.HeadshotDamage,
                 std::max<std::int32_t>(info.MinChargeHeadshotDamage,
@@ -919,6 +1022,7 @@ namespace MphRead::Mods::Network
                     entry.Live = false;
                     _duplicateHere++;
                     NoteAgreement(entry.ShooterSlot, entry.VictimSlot, entry.Beam, entry.Damage, resolved);
+                    FinishLethal(entry);
                     Answer(entry.ShooterSlot, entry.Id, HitVerdictPacket::ResultDuplicate);
                     continue;
                 }
@@ -961,6 +1065,214 @@ namespace MphRead::Mods::Network
         FlushVerdicts();
     }
 
+    // Favour the shooter, all the way. The old test voided a shot whenever its
+    // shooter had been hit by something aimed at an earlier world than the one
+    // the shot was aimed at -- the honest order on the machine keeping score,
+    // and exactly the kill players watched stand back up: on the shooter's
+    // screen they were alive and their target fell. The only shot that is
+    // really late is one fired while its owner was already displaying their
+    // own death, which a client cannot do. Everything else stands, so a trade
+    // inside a round trip is two kills and nobody's screen is taken back.
+    // Where the shooter's machine says the shot met the body has to be on the
+    // body: inside the capsule the beam test uses (plus the widest beam and a
+    // little slack), and in the head band if it claims a headshot. A splash
+    // reaches a player from its blast's centre, which can be anywhere within
+    // the blast. A claim with no impact (an older path, a melee hit) is left
+    // to the history check alone.
+    bool NetHitClaims::ImpactPlausible(const HitClaimPacket& claim, std::int32_t victimSlot)
+    {
+        if (!claim.Impact.Known() || victimSlot < 0
+            || victimSlot >= static_cast<std::int32_t>(PlayerEntity::Players().size()))
+        {
+            return true;
+        }
+        const PlayerEntity& victim = PlayerAt(victimSlot);
+        const OpenTK::Mathematics::Vector3 at = claim.Impact.Value();
+        if ((claim.Flags & HitClaimPacket::FlagSplash) != 0)
+        {
+            return OpenTK::Mathematics::Length(at) <= 8.0F;
+        }
+        if (victim.IsAltForm())
+        {
+            return OpenTK::Mathematics::Length(at) <= 2.5F;
+        }
+        const float minY = Fixed::ToFloat(victim.Values().MinPickupHeight);
+        const float maxY = Fixed::ToFloat(victim.Values().MaxPickupHeight);
+        const float radius = Fixed::ToFloat(victim.Values().BipedColRadius);
+        constexpr float slack = 0.6F;
+        if (at.X * at.X + at.Z * at.Z > (radius + slack) * (radius + slack)
+            || at.Y < minY - slack || at.Y > maxY + slack)
+        {
+            return false;
+        }
+        // The band a headshot needs is the top 0.3 of the capsule; a quarter
+        // of that again is the rounding of two machines' collision.
+        return (claim.Flags & HitClaimPacket::FlagHeadshot) == 0 || at.Y >= maxY - 0.3F - 0.075F;
+    }
+
+    void NetHitClaims::RecordIntent(std::int32_t slot, const IntentPacket& intent) noexcept
+    {
+        if (slot < 0 || slot >= static_cast<std::int32_t>(_latestAck.size()))
+        {
+            return;
+        }
+        const auto s = static_cast<std::size_t>(slot);
+        if (intent.AckFrame > _latestAck[s] || intent.AckFrame + 600U < _latestAck[s])
+        {
+            _latestAck[s] = intent.AckFrame;
+        }
+        _ackFrameOf[s][intent.Frame % 64U] = intent.Frame;
+        _ackValueOf[s][intent.Frame % 64U] = intent.AckFrame;
+        if (intent.HasShot)
+        {
+            _shotRays[s][_shotRayNext[s]] = ClaimShotRay{intent.AckFrame, intent.ShotOrigin, intent.ShotDirection.Normalized()};
+            _shotRayNext[s] = (_shotRayNext[s] + 1) % _shotRays[s].size();
+        }
+    }
+
+    // Two different shots of one weapon cannot be launched closer together
+    // than its cooldown allows (in 30 Hz frames, so twice that here); half of
+    // that is the floor, for acks that jump with jitter. Several hits of one
+    // shot -- splash, ricochets, several victims -- share a launch frame.
+    bool NetHitClaims::RatePlausible(std::int32_t shooterSlot, std::uint8_t beam, std::uint32_t launch)
+    {
+        const ::MphRead::WeaponInfo* fired = FiredWeapon(shooterSlot, beam);
+        if (shooterSlot < 0 || shooterSlot >= static_cast<std::int32_t>(_recentLaunches.size()) || beam >= 9
+            || launch == 0 || fired == nullptr)
+        {
+            return true;
+        }
+        const ::MphRead::WeaponInfo& w = *fired;
+        const std::int32_t cooldown = std::min<std::int32_t>(w.ShotCooldown, w.AutofireCooldown);
+        if (cooldown <= 0)
+        {
+            return true;
+        }
+        const std::uint32_t floor = static_cast<std::uint32_t>(cooldown);
+        auto& recent = _recentLaunches[static_cast<std::size_t>(shooterSlot)][beam];
+        for (const std::uint32_t seen : recent)
+        {
+            if (seen == 0 || seen == launch)
+            {
+                continue;
+            }
+            const std::uint32_t gap = seen > launch ? seen - launch : launch - seen;
+            if (gap < floor)
+            {
+                _rateRefused++;
+                return false;
+            }
+        }
+        if (std::find(recent.begin(), recent.end(), launch) == recent.end())
+        {
+            std::rotate(recent.rbegin(), recent.rbegin() + 1, recent.rend());
+            recent[0] = launch;
+        }
+        return true;
+    }
+
+    bool NetHitClaims::StraightWeapon(std::int32_t shooterSlot, std::uint8_t beam)
+    {
+        // The shooter's own variant: Samus's charged missile and Kanden's
+        // charged Volt Driver home, where everybody else's fly straight.
+        // Straight means no gravity, no homing and no bounce of any kind.
+        const ::MphRead::WeaponInfo* fired = FiredWeapon(shooterSlot, beam);
+        if (fired == nullptr)
+        {
+            return false;
+        }
+        const ::MphRead::WeaponInfo& w = *fired;
+        return w.UnchargedGravity == 0 && w.MinChargeGravity == 0 && w.ChargedGravity == 0
+            && w.UnchargedHoming == 0 && w.MinChargeHoming == 0 && w.ChargedHoming == 0
+            && !::MphRead::TestFlag(w.Flags, ::MphRead::WeaponFlags::RicochetUncharged)
+            && !::MphRead::TestFlag(w.Flags, ::MphRead::WeaponFlags::RicochetCharged)
+            // The Judicator carries neither flag, but a shot of it that meets
+            // a wall spawns a ricochet weapon's round off it, in a new direction.
+            && w.UnchargedRicochetWeapon() == nullptr && w.ChargedRicochetWeapon() == nullptr;
+    }
+
+    // The claim is the hit, so it has to be one the shooter's own shots can
+    // have made: resolved against a world it was still drawing (its newest
+    // ack), on the ray its intent says it fired, with nothing solid between
+    // the gun and the body. Weapons that curve, home or bounce are held to
+    // the first only; a claim with no impact or no recorded ray is not judged.
+    bool NetHitClaims::ShotPlausible(std::int32_t shooterSlot, const HitClaimPacket& claim,
+        OpenTK::Mathematics::Vector3 was)
+    {
+        _lastAckGap = 0;
+        _lastRayDistance = -1.0F;
+        _lastBlocked = false;
+        if (shooterSlot < 0 || shooterSlot >= static_cast<std::int32_t>(_latestAck.size()))
+        {
+            return true;
+        }
+        const auto s = static_cast<std::size_t>(shooterSlot);
+        if (claim.Frame != 0 && _ackFrameOf[s][claim.Frame % 64U] == claim.Frame)
+        {
+            _lastAckGap = static_cast<std::int32_t>(_ackValueOf[s][claim.Frame % 64U] - claim.AckFrame);
+            if (std::abs(_lastAckGap) > AckSlackFrames)
+            {
+                _ackRefused++;
+                return false;
+            }
+        }
+        else if (_latestAck[s] != 0)
+        {
+            _lastAckGap = static_cast<std::int32_t>(_latestAck[s] - claim.AckFrame);
+            if (_lastAckGap > AckFallbackFrames || _lastAckGap < -2)
+            {
+                _ackRefused++;
+                return false;
+            }
+        }
+        if (!claim.Impact.Known() || (claim.Flags & HitClaimPacket::FlagSplash) != 0 || !StraightWeapon(shooterSlot, claim.Beam))
+        {
+            return true;
+        }
+        const std::uint32_t launch = claim.LaunchFrame != 0 ? claim.LaunchFrame : claim.AckFrame;
+        const ClaimShotRay* ray = nullptr;
+        std::uint32_t bestGap = 3;
+        for (const ClaimShotRay& candidate : _shotRays[s])
+        {
+            const std::uint32_t gap = candidate.Ack > launch ? candidate.Ack - launch : launch - candidate.Ack;
+            if (candidate.Ack != 0 && gap < bestGap)
+            {
+                bestGap = gap;
+                ray = &candidate;
+            }
+        }
+        if (ray == nullptr)
+        {
+            return true;
+        }
+        const OpenTK::Mathematics::Vector3 point = was + claim.Impact.Value();
+        const OpenTK::Mathematics::Vector3 toPoint = point - ray->Origin;
+        const float along = std::max(0.0F, OpenTK::Mathematics::Vector3::Dot(toPoint, ray->Direction));
+        _lastRayDistance = OpenTK::Mathematics::Length(toPoint - OpenTK::Mathematics::Scale(ray->Direction, along));
+        if (_lastRayDistance > RayTolerance)
+        {
+            _rayRefused++;
+            return false;
+        }
+        if (_scene != nullptr)
+        {
+            Formats::CollisionResult blocked{};
+            _lastBlocked = Formats::CollisionDetection::CheckBetweenPoints(ray->Origin, point,
+                Formats::TestFlags::Beams, _scene, blocked);
+            if (_lastBlocked)
+            {
+                _losRefused++;
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool NetHitClaims::FiredAfterOwnDeath(std::size_t shooter, std::uint32_t fired) noexcept
+    {
+        return _dead[shooter] && _deathFrame[shooter] != 0 && fired >= _deathFrame[shooter];
+    }
+
     void NetHitClaims::TrackDeaths()
     {
         for (std::int32_t i = 0; i < Slots; i++)
@@ -973,11 +1285,13 @@ namespace MphRead::Mods::Network
             {
                 _dead[s] = true;
                 _deathFire[s] = _lastHitFire[s] != 0 ? _lastHitFire[s] : NetSession::NetFrame();
+                _deathFrame[s] = NetSession::NetFrame();
             }
             else if (!_wasInPlay[s] && inPlay)
             {
                 _dead[s] = false;
                 _deathFire[s] = 0;
+                _deathFrame[s] = 0;
                 _lastHitFire[s] = 0;
                 for (std::int32_t j = 0; j < Slots; j++)
                 {
@@ -1048,6 +1362,57 @@ namespace MphRead::Mods::Network
         return false;
     }
 
+    // The authority resolved the same shot itself, but left the victim
+    // standing on a sliver of health the shooter's machine did not have --
+    // a hit one side counted and the other did not, a tick of a continuous
+    // weapon. The shooter already watched this player die, and the claim has
+    // passed every test a rescue has, so the kill is made real rather than
+    // taken back: what the shooter saw is what happened.
+    void NetHitClaims::FinishLethal(const Pending& entry)
+    {
+        if ((entry.Flags & HitClaimPacket::FlagLethal) == 0
+            || entry.VictimSlot >= static_cast<std::int32_t>(PlayerEntity::Players().size())
+            || entry.ShooterSlot >= static_cast<std::int32_t>(PlayerEntity::Players().size()))
+        {
+            return;
+        }
+        PlayerEntity& victim = PlayerAt(entry.VictimSlot);
+        if (victim.Health() <= 0 || entry.Damage < static_cast<std::int32_t>(victim.Health())
+            || !HasLoadFlag(victim.LoadFlags(), LoadFlags::Active) || !victim.ModIsInPlay()
+            || FiredAfterOwnDeath(static_cast<std::size_t>(entry.ShooterSlot),
+                entry.LaunchFrame != 0 ? entry.LaunchFrame : entry.AckFrame))
+        {
+            return;
+        }
+        PlayerEntity& shooter = PlayerAt(entry.ShooterSlot);
+        const std::int32_t left = victim.Health();
+        _applyingClaim = true;
+        _applyingClaimAck = entry.AckFrame;
+        _applyingClaimLaunch = entry.LaunchFrame;
+        _applyingImpact = entry.Impact;
+        try
+        {
+            const NetDamage::ClaimScope scope(entry.Beam == HitClaimPacket::NoBeam
+                ? ::MphRead::BeamType::None : static_cast<::MphRead::BeamType>(entry.Beam));
+            victim.TakeDamage(static_cast<std::uint32_t>(left), DamageFlags::NoDmgInvuln, std::nullopt, &shooter);
+        }
+        catch (...)
+        {
+            _applyingClaim = false;
+            _applyingImpact = ImpactOffset{};
+            throw;
+        }
+        _applyingClaim = false;
+        _applyingImpact = ImpactOffset{};
+        if (victim.Health() <= 0)
+        {
+            _finishedHere++;
+            NetLog::Event("finished slot " + std::to_string(entry.VictimSlot) + " (" + std::to_string(left)
+                + " health left) for slot " + std::to_string(entry.ShooterSlot)
+                + ": its lethal claim matched a hit this authority resolved short of a kill");
+        }
+    }
+
     void NetHitClaims::ApplyOne(Pending& entry)
     {
         const std::int32_t victimSlot = entry.VictimSlot;
@@ -1074,7 +1439,7 @@ namespace MphRead::Mods::Network
             return;
         }
         const auto s = static_cast<std::size_t>(shooterSlot);
-        if (_dead[s] && _deathFire[s] < (entry.LaunchFrame != 0 ? entry.LaunchFrame : entry.AckFrame))
+        if (FiredAfterOwnDeath(s, entry.LaunchFrame != 0 ? entry.LaunchFrame : entry.AckFrame))
         {
             _voidedDeadShooter++;
             Answer(shooterSlot, entry.Id, HitVerdictPacket::ResultDeadShooter);
@@ -1110,31 +1475,87 @@ namespace MphRead::Mods::Network
         _applyingClaim = true;
         _applyingClaimAck = entry.AckFrame;
         _applyingClaimLaunch = entry.LaunchFrame;
+        _applyingImpact = entry.Impact;
         const bool lethal = victim.Health() <= entry.Damage;
         const auto before = static_cast<std::uint32_t>(victim.Health());
         try
         {
             const NetDamage::ClaimScope scope(entry.Beam == HitClaimPacket::NoBeam
                 ? ::MphRead::BeamType::None : static_cast<::MphRead::BeamType>(entry.Beam));
-            victim.TakeDamage(static_cast<std::uint32_t>(entry.Damage), flags, std::nullopt, &shooter);
+            victim.TakeDamage(static_cast<std::uint32_t>(entry.Damage), flags,
+                (entry.Flags & HitClaimPacket::FlagImpulse) != 0
+                    ? std::optional<OpenTK::Mathematics::Vector3>(entry.Impulse) : std::nullopt,
+                &shooter);
         }
         catch (...)
         {
             _applyingClaim = false;
+            _applyingImpact = ImpactOffset{};
             throw;
         }
         _applyingClaim = false;
+        _applyingImpact = ImpactOffset{};
         if (static_cast<std::uint32_t>(victim.Health()) >= before)
         {
             _refusedHere++;
             Answer(shooterSlot, entry.Id, HitVerdictPacket::ResultNoDamage);
             return;
         }
+        // An affliction the weapon cannot inflict (either charge) is dropped,
+        // the damage kept: freezing with a Power Beam is not a hit to refuse
+        // but a flag nobody honest sends. Frozen also rides on a victim that
+        // was already frozen on the shooter's screen.
+        if (const ::MphRead::WeaponInfo* fired = FiredWeapon(shooterSlot, entry.Beam); fired != nullptr)
+        {
+            const ::MphRead::WeaponInfo& weapon = *fired;
+            const auto& table = Runtime::RequireReference(weapon.Afflictions);
+            ::MphRead::Affliction allowed = ::MphRead::Affliction::None;
+            for (const ::MphRead::Affliction affliction : table)
+            {
+                allowed = static_cast<::MphRead::Affliction>(static_cast<std::int32_t>(allowed) | static_cast<std::int32_t>(affliction));
+            }
+            const std::uint8_t before = entry.Flags;
+            if (!::MphRead::TestFlag(allowed, ::MphRead::Affliction::Burn))
+            {
+                entry.Flags = static_cast<std::uint8_t>(entry.Flags & ~HitClaimPacket::FlagBurning);
+            }
+            if (!::MphRead::TestFlag(allowed, ::MphRead::Affliction::Disrupt))
+            {
+                entry.Flags = static_cast<std::uint8_t>(entry.Flags & ~HitClaimPacket::FlagDisrupted);
+            }
+            if (!::MphRead::TestFlag(allowed, ::MphRead::Affliction::Freeze) && !victim.ModFrozen())
+            {
+                entry.Flags = static_cast<std::uint8_t>(entry.Flags & ~HitClaimPacket::FlagFrozen);
+            }
+            if (entry.Flags != before)
+            {
+                _afflictionsStripped++;
+                NetLog::Event("claim " + std::to_string(entry.Id) + " from slot " + std::to_string(shooterSlot)
+                    + " carried afflictions its weapon cannot inflict (flags " + std::to_string(before) + "): dropped");
+            }
+        }
+        if ((entry.Flags & HitClaimPacket::FlagBurning) != 0 && victim.Health() > 0)
+        {
+            victim.ModSetBurning(true);
+        }
+        if ((entry.Flags & HitClaimPacket::FlagDisrupted) != 0 && victim.Health() > 0)
+        {
+            victim.ModSetDisrupted(true);
+        }
         if ((entry.Flags & HitClaimPacket::FlagFrozen) != 0 && victim.Health() > 0)
         {
             victim.ModSetFrozen(true);
         }
         _appliedHere++;
+        if (HitLocation::Enabled())
+        {
+            // 100: applied on the tick it was parked for, with what it dealt.
+            // The damage column is what was claimed; what it took off a
+            // victim with less health left than that is the lethal clamp.
+            HitLocation::Claim(shooterSlot, victim, entry.Beam,
+                entry.LaunchFrame != 0 ? entry.LaunchFrame : entry.AckFrame,
+                entry.Damage, entry.Flags, entry.HitPoint, entry.HitPoint, false, 100);
+        }
         NoteRescued(shooterSlot, victimSlot, entry.LaunchFrame);
         const std::uint32_t dealt = before - static_cast<std::uint32_t>(std::max(0, victim.Health()));
         _rescuedDamage += dealt;
@@ -1239,6 +1660,7 @@ namespace MphRead::Mods::Network
         _authorityHitUsed = {};
         for (auto& row : _authorityHitHead) row.fill(0);
         _deathFire.fill(0);
+        _deathFrame.fill(0);
         _dead.fill(false);
         _lastHitFire.fill(0);
         _wasInPlay.fill(false);
@@ -1257,6 +1679,19 @@ namespace MphRead::Mods::Network
         _received = 0;
         _appliedHere = 0;
         _duplicateHere = 0;
+        _finishedHere = 0;
+        _impactRefused = 0;
+        _afflictionsStripped = 0;
+        _ackRefused = 0;
+        _rayRefused = 0;
+        _losRefused = 0;
+        _rateRefused = 0;
+        for (auto& weapons : _recentLaunches) for (auto& launches : weapons) launches.fill(0);
+        _latestAck.fill(0);
+        for (auto& frames : _ackFrameOf) frames.fill(0);
+        for (auto& acks : _ackValueOf) acks.fill(0);
+        for (auto& rays : _shotRays) rays.fill(ClaimShotRay{});
+        _serverCopiesSuppressed = 0;
         _voidedDeadShooter = 0;
         _voidedDeadVictim = 0;
         _refusedHere = 0;
@@ -1313,6 +1748,7 @@ namespace MphRead::Mods::Network
         _newestId[s] = 0;
         _lastResult[s] = 0;
         _deathFire[s] = 0;
+        _deathFrame[s] = 0;
         _dead[s] = false;
         _lastHitFire[s] = 0;
         _wasInPlay[s] = false;
@@ -1338,6 +1774,7 @@ namespace MphRead::Mods::Network
         _authorityHitUsed = {};
         for (auto& row : _authorityHitHead) row.fill(0);
         _deathFire.fill(0);
+        _deathFrame.fill(0);
         _dead.fill(false);
         _lastHitFire.fill(0);
         _wasInPlay.fill(false);
@@ -1354,7 +1791,12 @@ namespace MphRead::Mods::Network
             return "hit claims (as authority): " + std::to_string(_received) + " received, "
                 + std::to_string(_appliedHere) + " applied (" + std::to_string(_rescuedDamage) + " damage, "
                 + std::to_string(_rescuedKills) + " kills, " + std::to_string(_rescuedHeadshots)
-                + " headshots rescued), " + std::to_string(_duplicateHere) + " already resolved, "
+                + " headshots rescued), " + std::to_string(_duplicateHere) + " already resolved (" + std::to_string(_finishedHere) + " finished as kills), "
+                + std::to_string(_impactRefused) + " landing off the body, "
+                + std::to_string(_afflictionsStripped) + " afflictions dropped, " + std::to_string(_ackRefused)
+                + " resolved against a stale ack, " + std::to_string(_rayRefused) + " off the fired ray, "
+                + std::to_string(_losRefused) + " through a wall, " + std::to_string(_rateRefused)
+                + " faster than the weapon fires, " + (_shooterHits ? "shooter-authoritative (" + std::to_string(_serverCopiesSuppressed) + " server copies not applied), " : std::string())
                 + std::to_string(_voidedDeadShooter) + " from a shooter already dead, "
                 + std::to_string(_voidedDeadVictim) + " on a victim already down, "
                 + std::to_string(_refusedHere) + " refused, " + std::to_string(_tooOldHere) + " too old, "

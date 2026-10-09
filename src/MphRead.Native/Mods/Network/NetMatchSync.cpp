@@ -44,11 +44,13 @@ namespace MphRead::Mods::Network
         }
 
         const MatchStatePacket state = NetSession::ServerMatch().value();
-        const std::string& roomKey = state.RoomKey.value();
-        if (roomKey.length() == 0)
+        // No room yet (a server simulation before its first match state, as
+        // -simcheck runs it) is the same as an empty one, not an exception.
+        if (!state.RoomKey.has_value() || state.RoomKey->empty())
         {
             return;
         }
+        const std::string& roomKey = *state.RoomKey;
 
         const GameMode mode = ::MphRead::IsDefinedGameMode(state.Mode)
             ? static_cast<GameMode>(state.Mode)

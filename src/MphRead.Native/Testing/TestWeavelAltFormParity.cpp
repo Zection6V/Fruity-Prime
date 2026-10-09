@@ -66,8 +66,10 @@ namespace
         Expect(!input.Consume(true), "hold or rejected edge never repeats");
         input.Capture(true); input.Reset();
         Expect(!input.Consume(true), "spawn reset discards previous input edge");
-        Expect(NetConfig::ProtocolVersion == 17 && PlayerState::Size == 128
-            && PlayerState::Size - PlayerState::LegacySize == 14, "protocol 17 adds 14 bytes per player");
+        // Protocol 17 added the 14 Weavel bytes; 19 adds 3 for the newest
+        // damage event's confirmed impact: 54 + 4 x 15 + 14 + 3.
+        Expect(NetConfig::ProtocolVersion == 19 && PlayerState::Size == 131
+            && PlayerState::Size - PlayerState::LegacySize == 17, "Weavel and the impact add 17 bytes per player");
         for (int mode = 0; mode < 3; ++mode)
         {
             PlayerState state;
@@ -112,7 +114,10 @@ namespace
                 && state.HalfturretPosition.X == i, "all eight players have independent wire boundaries");
         }
         Expect(SnapshotHeader::Read(bytes).Frame == 456 && bytes[end] == 0, "snapshot header and health tail remain aligned");
-        Expect(NetHealthSync::PacketEntries(NetConfig::MaxPacketSize - 1 - end) == 16,
+        // 16 before protocol 19; the 3 bytes of confirmed impact per player
+        // (24 at eight) leave 13 -- a pickup cycle of 56 spawns takes five
+        // snapshots instead of four.
+        Expect(NetHealthSync::PacketEntries(NetConfig::MaxPacketSize - 1 - end) == 13,
             "eight-player packet reserves bounded health capacity without omitting players");
     }
 }

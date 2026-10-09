@@ -405,6 +405,14 @@ namespace MphRead::Mods::Network
         // lives in TouchFlags; identical deltas still identify distinct ticks.
         static constexpr std::int32_t TouchSize = LegacyTouchSize + 4;
         static constexpr std::int32_t FullSize = Size + StateSize + TouchSize;
+        // The ray of the shot this frame actually fired, after spread: the
+        // authority fires the same ray instead of rebuilding one from a body
+        // position and a gun vector a frame older than the trigger.
+        static constexpr std::int32_t ShotSize = 24;
+        static constexpr std::int32_t ShotFullSize = FullSize + ShotSize;
+        bool HasShot = false;
+        ::OpenTK::Mathematics::Vector3 ShotOrigin{};
+        ::OpenTK::Mathematics::Vector3 ShotDirection{};
 
         std::uint8_t ChargeLevel = 0;
         std::uint8_t BoostDamage = 0;
@@ -450,6 +458,25 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static IntentPacket Read(std::span<const std::uint8_t> src);
     };
 
+    // Where on a hunter a hit landed, relative to their Position, in 1/64
+    // units on a signed byte per axis (+-1.98): what the shooter's machine
+    // resolved, carried by its claim and handed on to the victim with the
+    // damage, so the victim's screen shows the hit where the shooter's did.
+    struct ImpactOffset
+    {
+        static constexpr float Scale = 64.0F;
+        static constexpr std::int8_t None = -128;
+        std::int8_t X = None;
+        std::int8_t Y = None;
+        std::int8_t Z = None;
+        [[nodiscard]] bool Known() const noexcept { return X != None; }
+        [[nodiscard]] ::OpenTK::Mathematics::Vector3 Value() const noexcept
+        {
+            return ::OpenTK::Mathematics::Vector3(X / Scale, Y / Scale, Z / Scale);
+        }
+        [[nodiscard]] static ImpactOffset From(::OpenTK::Mathematics::Vector3 offset) noexcept;
+    };
+
     struct DamageEvent
     {
         static constexpr std::int32_t Size = 15;
@@ -477,7 +504,8 @@ namespace MphRead::Mods::Network
         std::uint16_t LifeId = 0;
         static constexpr std::int32_t DamageHistory = 4;
         static constexpr std::int32_t LegacySize = 54 + DamageEvent::Size * DamageHistory;
-        static constexpr std::int32_t Size = LegacySize + 14;
+        // + Weavel (14) + the newest damage event's confirmed impact (3).
+        static constexpr std::int32_t Size = LegacySize + 14 + 3;
 
         std::uint8_t SlotIndex = 0;
         std::uint8_t Flags = 0;
@@ -505,6 +533,14 @@ namespace MphRead::Mods::Network
         std::uint8_t WeavelFlags = 0;
         std::uint8_t HalfturretHealth = 0;
         ::OpenTK::Mathematics::Vector3 HalfturretPosition{};
+        // The newest damage event (DamageEventId): the low byte of its shot's
+        // launch frame, and where on the body the shooter saw it land --
+        // height in 1/64 unit, bearing in 256 steps, drawn at ImpactRadius.
+        // Per player and not per event, so eight states still leave the
+        // health sync its room; an older event in the history goes without.
+        std::uint8_t ImpactLaunchLow = 0;
+        ImpactOffset Impact{};
+        static constexpr float ImpactRadius = 0.55F;
         static constexpr std::uint8_t WeavelFlagTurretActive = 1U << 0;
         static constexpr std::uint8_t WeavelFlagTurretGrounded = 1U << 1;
 
@@ -550,7 +586,7 @@ namespace MphRead::Mods::Network
         std::uint16_t ShooterLifeId = 0;
         std::uint16_t VictimGeneration = 0;
         std::uint16_t VictimLifeId = 0;
-        static constexpr std::int32_t Size = 2 + 4 + 4 + 4 + 1 + 1 + 2 + 1 + 12 + 18;
+        static constexpr std::int32_t Size = 2 + 4 + 4 + 4 + 1 + 1 + 2 + 1 + 12 + 18 + 12 + 3;
 
         static constexpr std::int32_t MaxPerPacket = 6;
 
@@ -561,6 +597,12 @@ namespace MphRead::Mods::Network
         static constexpr std::uint8_t FlagFrozen = 1U << 2;
         static constexpr std::uint8_t FlagBurning = 1U << 3;
         static constexpr std::uint8_t FlagDisrupted = 1U << 4;
+        // Impulse holds the knockback the shooter's machine applied; the
+        // authority applies the same one, since it no longer resolves the hit.
+        static constexpr std::uint8_t FlagImpulse = 1U << 5;
+        // The hit was the projectile's splash, not its body: Impact is then
+        // the blast's centre relative to the victim.
+        static constexpr std::uint8_t FlagSplash = 1U << 6;
 
         std::uint16_t ClaimId = 0;
         std::uint32_t Frame = 0;
@@ -571,6 +613,8 @@ namespace MphRead::Mods::Network
         std::uint16_t Damage = 0;
         std::uint8_t Flags = 0;
         ::OpenTK::Mathematics::Vector3 HitPoint{};
+        ::OpenTK::Mathematics::Vector3 Impulse{};
+        ImpactOffset Impact{};
 
         void Write(std::span<std::uint8_t> dest) const;
         [[nodiscard]] static HitClaimPacket Read(std::span<const std::uint8_t> src);
@@ -609,7 +653,7 @@ namespace MphRead::Mods::Network
     public:
         static constexpr std::uint16_t DefaultPort = 27888;
         static constexpr std::int32_t MaxPacketSize = 1232;
-        static constexpr std::int32_t ProtocolVersion = 17;
+        static constexpr std::int32_t ProtocolVersion = 19;
         static constexpr std::int32_t IntentSendInterval = 1;
         static constexpr double TimeoutSeconds = 30.0;
 

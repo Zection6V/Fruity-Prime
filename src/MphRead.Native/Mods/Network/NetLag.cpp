@@ -21,7 +21,8 @@ namespace MphRead::Mods::Network
 
     bool NetLag::Active() noexcept
     {
-        return _roundTripMs > 0 || _jitterMs > 0 || _lossPercent > 0 || _reorderRate > 0 || _duplicateRate > 0;
+        return _roundTripMs > 0 || _jitterMs > 0 || _lossPercent > 0 || _reorderRate > 0 || _duplicateRate > 0
+            || _spikesPerMinute > 0;
     }
 
     bool NetLag::ConfigureSeed(const std::optional<std::string>& value)
@@ -132,6 +133,33 @@ namespace MphRead::Mods::Network
         return true;
     }
 
+    bool NetLag::ConfigureSpikes(const std::optional<std::string>& value)
+    {
+        if (!value.has_value())
+        {
+            return false;
+        }
+        const std::size_t colon = value->find(':');
+        const std::size_t dash = value->find('-', colon == std::string::npos ? 0 : colon);
+        if (colon == std::string::npos || dash == std::string::npos)
+        {
+            return false;
+        }
+        double rate = 0;
+        std::int32_t low = 0;
+        std::int32_t high = 0;
+        if (!Runtime::DoubleTryParseInvariant(value->substr(0, colon), rate) || !std::isfinite(rate) || rate < 0 || rate > 600
+            || !Runtime::Int32TryParseInvariant(value->substr(colon + 1, dash - colon - 1), low)
+            || !Runtime::Int32TryParseInvariant(value->substr(dash + 1), high) || low < 0 || high < low || high > 10000)
+        {
+            return false;
+        }
+        _spikesPerMinute = rate;
+        _spikeMinMs = low;
+        _spikeMaxMs = high;
+        return true;
+    }
+
     bool NetLag::ConfigureLoss(const std::optional<std::string>& value)
     {
         double rate = 0;
@@ -159,6 +187,12 @@ namespace MphRead::Mods::Network
         if (_lossPercent > 0)
         {
             text += ", " + Runtime::ToString(_lossPercent, "0.##") + "% packet loss each way";
+        }
+        if (_spikesPerMinute > 0)
+        {
+            text += ", " + Runtime::ToString(_spikesPerMinute, "0.##") + " spikes a minute each way of +"
+                + Runtime::ToString(static_cast<std::int32_t>(_spikeMinMs)) + ".."
+                + Runtime::ToString(static_cast<std::int32_t>(_spikeMaxMs)) + " ms";
         }
         return text + ", reorder " + Runtime::ToString(_reorderRate, "P1") + ", duplicate "
             + Runtime::ToString(_duplicateRate, "P1") + ", seed " + Runtime::ToString(_seed);

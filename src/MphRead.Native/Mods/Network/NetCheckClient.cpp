@@ -1,6 +1,7 @@
 #include "NetCheckClient.hpp"
 #include "../../NativeRuntime/Rhi/SceneBackend.hpp"
 #include "../../NativeRuntime/OpenTK/GL.hpp"
+#include "HitLocation.hpp"
 #include "HitRig.hpp"
 #include "NetHitClaims.hpp"
 #include "NetShotDiagnostics.hpp"
@@ -26,6 +27,7 @@
 #include "NetUnlagged.hpp"
 #include "../SpectatorMode.hpp"
 #include "../ScreenCapture.hpp"
+#include "../Headless.hpp"
 #include "../Chat/ChatBox.hpp"
 #include "../../GameState.hpp"
 #include "../../Metadata/Metadata.hpp"
@@ -50,6 +52,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
+#include <thread>
 #include <type_traits>
 #include <utility>
 
@@ -134,7 +137,52 @@ namespace MphRead::Mods::Network
 
     void NetCheckClient::Run()
     {
+        if (!_window)
+        {
+            RunHeadless();
+            return;
+        }
         _window->Run(*this);
+    }
+
+    void NetCheckClient::RunHeadless()
+    {
+        OnLoad();
+        // The dedicated server's clock: one simulation step per 1/60 s of
+        // wall time, catching up after a slow step rather than drifting, and
+        // giving up on a backlog longer than a quarter second.
+        using Clock = std::chrono::steady_clock;
+        const auto step = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0 / 60.0));
+        Clock::time_point next = Clock::now();
+        while (!_headlessClosing)
+        {
+            HeadlessFrame();
+            next += step;
+            const Clock::time_point now = Clock::now();
+            if (now - next > std::chrono::milliseconds(250))
+            {
+                next = now;
+            }
+            std::this_thread::sleep_until(next);
+        }
+        OnClosing();
+    }
+
+    void NetCheckClient::HeadlessFrame()
+    {
+        GameState::ApplyPause();
+        _scene->OnSimulationFrame();
+        IncrementInPlace(_frame);
+        UpdateSpectating();
+        DriveVoteTest();
+        DriveRebindTest();
+        Observe();
+        _features->Observe(*_scene);
+        SampleScoreboardOnServerClock();
+        if (_frame >= _seconds * 60.0)
+        {
+            Close();
+        }
     }
 
     void NetCheckClient::Dispose()
@@ -150,17 +198,25 @@ namespace MphRead::Mods::Network
 
     OpenTK::Mathematics::Vector2i NetCheckClient::ClientSize() const
     {
-        return _window->Size();
+        return _window ? _window->Size() : OpenTK::Mathematics::Vector2i(256, 192);
     }
 
     void NetCheckClient::Close()
     {
+        if (!_window)
+        {
+            _headlessClosing = true;
+            return;
+        }
         _window->Close();
     }
 
     void NetCheckClient::Present()
     {
-        _swapchain->Present();
+        if (_swapchain)
+        {
+            _swapchain->Present();
+        }
     }
 
     NetCheckClient::NetCheckClient(
@@ -176,7 +232,7 @@ namespace MphRead::Mods::Network
         double spectateAt,
         double rejoinAt,
         std::int32_t color)
-        : _window(RendererPlatform::CreateWindow(WindowSettings(width, height))),
+        : _window(Headless ? nullptr : RendererPlatform::CreateWindow(WindowSettings(width, height))),
           _name(std::move(name)),
           _shotDirectory(std::move(shotDirectory)),
           _seconds(seconds),
@@ -188,22 +244,37 @@ namespace MphRead::Mods::Network
           _remotes(static_cast<std::size_t>(Entities::PlayerEntity::MaxPlayers())),
           _features(std::make_unique<NetFeatureCheck>())
     {
-        NativeRuntime::Rhi::SwapchainDesc swapchainDesc{};
-        const OpenTK::Mathematics::Vector2i framebufferSize = _window->Size();
-        swapchainDesc.width = static_cast<std::uint32_t>(std::max(framebufferSize.X, 1));
-        swapchainDesc.height = static_cast<std::uint32_t>(std::max(framebufferSize.Y, 1));
-        _swapchain = NativeRuntime::Rhi::BackendFactory::CreateSwapchain(
-            NativeRuntime::Rhi::GraphicsBackend::OpenGl, *_window, swapchainDesc);
+        if (_window)
+        {
+            NativeRuntime::Rhi::SwapchainDesc swapchainDesc{};
+            const OpenTK::Mathematics::Vector2i framebufferSize = _window->Size();
+            swapchainDesc.width = static_cast<std::uint32_t>(std::max(framebufferSize.X, 1));
+            swapchainDesc.height = static_cast<std::uint32_t>(std::max(framebufferSize.Y, 1));
+            _swapchain = NativeRuntime::Rhi::BackendFactory::CreateSwapchain(
+                NativeRuntime::Rhi::GraphicsBackend::OpenGl, *_window, swapchainDesc);
+        }
+        else
+        {
+            _headlessKeyboard = Mods::Input::SyntheticInput::CreateKeyboard();
+            _headlessMouse = Mods::Input::SyntheticInput::CreateMouse();
+        }
         for (std::unique_ptr<RemoteView>& remote : _remotes)
         {
             remote = std::make_unique<RemoteView>();
         }
-        _scene = std::make_unique<MphRead::Scene>(
-            _window->Size(),
-            _window->Keyboard(),
-            _window->Mouse(),
-            [](auto&&) {},
-            [this]() { Close(); });
+        _scene = _window
+            ? std::make_unique<MphRead::Scene>(
+                _window->Size(),
+                _window->Keyboard(),
+                _window->Mouse(),
+                [](auto&&) {},
+                [this]() { Close(); })
+            : std::make_unique<MphRead::Scene>(
+                ClientSize(),
+                *_headlessKeyboard,
+                *_headlessMouse,
+                [](auto&&) {},
+                [this]() { Close(); });
         NetLaunch::BuildPlayers(*_scene, hunter, color, GameState::IsTeamMode(mode));
         _scene->AddRoom(roomKey, mode, NetLaunch::RoomPlayerCount());
     }
@@ -224,6 +295,10 @@ namespace MphRead::Mods::Network
     {
         _scene->Size(ClientSize());
         _scene->OnLoad();
+        if (!_window)
+        {
+            return;
+        }
         _window->BaseOnLoad();
         ::MphRead::NativeRuntime::Rhi::ResetWindowViewport(ClientSize().X, ClientSize().Y);
         _scene->OnResize();
@@ -578,7 +653,10 @@ namespace MphRead::Mods::Network
     void NetCheckClient::OnClosing()
     {
         _scene->DoCleanup();
-        _window->BaseOnClosing();
+        if (_window)
+        {
+            _window->BaseOnClosing();
+        }
     }
 
     void NetCheckClient::SayHello()
@@ -664,6 +742,10 @@ namespace MphRead::Mods::Network
         if (HitRig::Active())
         {
             std::cout << "  " << HitRig::Describe() << '\n';
+            if (HitRig::Mode() == HitRig::RigMode::Strafe)
+            {
+                std::cout << "  " << HitLocation::DescribeWatch() << '\n';
+            }
         }
 
         const RoomMetadata* roomMetadata
@@ -890,6 +972,11 @@ namespace MphRead::Mods::Network
         double rejoinAt,
         std::int32_t color)
     {
+        if (Headless)
+        {
+            Mods::Headless::Enter();
+            std::cout << "[netcheck] " << name << " runs headless: no window, no GPU\n";
+        }
         if (!NetLaunch::Join(host, port, name, hunter, 8000, color))
         {
             std::cout << "[netcheck] " << name << " could not join\n";

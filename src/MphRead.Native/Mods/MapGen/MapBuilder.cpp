@@ -511,13 +511,17 @@ namespace MphRead::Mods::MapGen
                 faceShade);
             face->Damaging(brush->Damaging());
             face->Terrain(terrain);
+            face->IgnoreBeams = brush->NoBeams();
 
             if (map == nullptr)
             {
                 throw System::NullReferenceException();
             }
             BuiltFace* ownedFace = map->OwnFace(std::move(face));
-            map->Faces().push_back(ownedFace);
+            if (brush->Visible())
+            {
+                map->Faces().push_back(ownedFace);
+            }
             if (brush->Solid())
             {
                 map->Solid().push_back(ownedFace);

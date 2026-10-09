@@ -27,9 +27,15 @@ namespace MphRead::Mods::Network
         template <typename T>
         [[nodiscard]] static NetFaultQueue<T> CreateQueue(bool outbound)
         {
-            return NetFaultQueue<T>(::MphRead::NativeRuntime::UncheckedAdd(
+            NetFaultQueue<T> queue(::MphRead::NativeRuntime::UncheckedAdd(
                 _seed, outbound ? std::int32_t{1} : std::int32_t{0}),
                 _roundTripMs / 2.0, _jitterMs, _lossPercent / 100, _reorderRate, _duplicateRate);
+            if (_spikesPerMinute > 0)
+            {
+                queue.ConfigureSpikes(::MphRead::NativeRuntime::UncheckedAdd(_seed, outbound ? 101 : 100),
+                    _spikesPerMinute, _spikeMinMs, _spikeMaxMs);
+            }
+            return queue;
         }
 
         [[nodiscard]] static bool ConfigureSeed(const std::optional<std::string>& value);
@@ -38,6 +44,9 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static bool ConfigureDuplicate(const std::optional<std::string>& value);
         [[nodiscard]] static bool Configure(const std::optional<std::string>& value);
         [[nodiscard]] static bool ConfigureLoss(const std::optional<std::string>& value);
+        // -netspike N:MIN-MAX -- N latency spikes a minute each way, each
+        // adding MIN..MAX ms for 0.2-1.5 s (NetFaultQueue::ConfigureSpikes).
+        [[nodiscard]] static bool ConfigureSpikes(const std::optional<std::string>& value);
         [[nodiscard]] static std::optional<std::string> Describe();
 
     private:
@@ -49,5 +58,8 @@ namespace MphRead::Mods::Network
         static double _reorderRate;
         static double _duplicateRate;
         static std::int32_t _seed;
+        inline static double _spikesPerMinute = 0;
+        inline static double _spikeMinMs = 0;
+        inline static double _spikeMaxMs = 0;
     };
 }

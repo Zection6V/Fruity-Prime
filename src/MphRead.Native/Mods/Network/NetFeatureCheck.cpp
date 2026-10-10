@@ -5,6 +5,7 @@
 #include "NetPlayerBridge.hpp"
 #include "NetProtocol.hpp"
 #include "NetSession.hpp"
+#include "NetShotEvents.hpp"
 #include "NetTestScript.hpp"
 #include "../SpectatorMode.hpp"
 #include "../WorldEvents.hpp"
@@ -148,6 +149,8 @@ namespace MphRead::Mods::Network
         double FacingDegrees = 0.0;
         std::int32_t BeamFrames = 0;
         std::int32_t ShotsFired = 0;
+        // Shot events: made, for my own player; fired from events, for a copy.
+        double ShotEvents = 0;
         std::int32_t LastFiredTotal = 0;
         std::int32_t BombFrames = 0;
         std::int32_t HalfturretFrames = 0;
@@ -187,36 +190,46 @@ namespace MphRead::Mods::Network
         std::int32_t LastWorldEvents = 0;
     };
 
-    std::array<NetFeatureCheck::Feature, 23> NetFeatureCheck::_features{{
-        {"spawn", [](const Record& r) -> double { return r.SpawnedFrames; }, 30, "frames"},
-        {"movement", [](const Record& r) -> double { return r.Travelled; }, 5, "units"},
-        {"jump", &NetFeatureCheck::Height, 1.5, "units"},
+    // Parity tolerances are measured, not chosen: two clients at 150 +-20 ms
+    // and 5% loss (2026-10-10) agreed within 2% on every running count below,
+    // once Weavel's copies stopped trailing a whole morph animation (protocol
+    // 22) -- which is what this check found. At 25% loss the form and bomb
+    // counts drift 4-9% either way, past these tolerances. A count of
+    // discrete things (shots, hits) is exact but for the tail still in flight
+    // when the window closed. Facing sums every degree turned, jitter
+    // included, so it measures the copy's aim noise and is not compared.
+    std::array<NetFeatureCheck::Feature, NetFeatureCheck::FeatureCount> NetFeatureCheck::_features{{
+        {"spawn", [](const Record& r) -> double { return r.SpawnedFrames; }, 30, "frames", {0.01, 30}},
+        {"movement", [](const Record& r) -> double { return r.Travelled; }, 5, "units", {0.03, 1}},
+        {"jump", &NetFeatureCheck::Height, 1.5, "units", {0.05, 0.2}},
         {"facing", [](const Record& r) -> double { return r.FacingDegrees; }, 180, "deg"},
-        {"shooting", [](const Record& r) -> double { return r.BeamFrames; }, 10, "beam-frames"},
-        {"shots", [](const Record& r) -> double { return r.ShotsFired; }, 10, "shots"},
-        {"weapon-switch", [](const Record& r) -> double { return r.WeaponChanges; }, 2, "changes", true},
-        {"alt-attack", [](const Record& r) -> double { return r.AltAttackPresses; }, 3, "presses", true},
-        {"alt-form", [](const Record& r) -> double { return r.AltFormInMorphPhase; }, 30, "frames"},
+        {"shooting", [](const Record& r) -> double { return r.BeamFrames; }, 10, "beam-frames", {0.03, 10}},
+        {"shots", [](const Record& r) -> double { return r.ShotsFired; }, 10, "shots", {0, 2}},
+        {"shot-events", [](const Record& r) -> double { return r.ShotEvents; }, 10, "events", {0, 2}},
+        {"weapon-switch", [](const Record& r) -> double { return r.WeaponChanges; }, 2, "changes", {}, true},
+        {"alt-attack", [](const Record& r) -> double { return r.AltAttackPresses; }, 3, "presses", {}, true},
+        {"alt-form", [](const Record& r) -> double { return r.AltFormInMorphPhase; }, 30, "frames", {0.03, 15}},
         {"alt-form-total", [](const Record& r) -> double { return r.AltFormFrames; }},
-        {"unmorph", [](const Record& r) -> double { return r.BipedInUnmorphPhase; }, 30, "frames"},
-        {"bombs", [](const Record& r) -> double { return r.BombFrames; }, 5, "frames", false,
+        {"unmorph", [](const Record& r) -> double { return r.BipedInUnmorphPhase; }, 30, "frames", {0.03, 15}},
+        {"bombs", [](const Record& r) -> double { return r.BombFrames; }, 5, "frames", {0.03, 15}, false,
             &NetFeatureCheck::LaysBombs},
-        {"halfturret", [](const Record& r) -> double { return r.HalfturretFrames; }, 5, "frames", false,
+        {"halfturret", [](const Record& r) -> double { return r.HalfturretFrames; }, 5, "frames", {0.03, 15}, false,
             &NetFeatureCheck::IsWeavel},
-        {"zoom", [](const Record& r) -> double { return r.ZoomFrames; }, 10, "frames"},
+        {"zoom", [](const Record& r) -> double { return r.ZoomFrames; }, 10, "frames", {0.03, 10}},
         {"frozen", [](const Record& r) -> double { return r.FrozenFrames; }},
         {"disrupted", [](const Record& r) -> double { return r.DisruptedFrames; }},
         {"burning", [](const Record& r) -> double { return r.BurningFrames; }},
         {"spectating", [](const Record& r) -> double { return r.SpectatingFrames; }},
-        {"double-damage", [](const Record& r) -> double { return r.DoubleDamageFrames; }, 10, "frames"},
-        {"damage-taken", [](const Record& r) -> double { return r.DamageEvents; }, 1, "hits"},
-        {"hit-in-alt-form", [](const Record& r) -> double { return r.DamageInAltForm; }, 2, "hits", true},
-        {"deaths", [](const Record& r) -> double { return r.Deaths; }, 1, "deaths", true},
+        {"double-damage", [](const Record& r) -> double { return r.DoubleDamageFrames; }, 10, "frames", {0.03, 10}},
+        {"damage-taken", [](const Record& r) -> double { return r.DamageEvents; }, 1, "hits", {0, 1}},
+        {"hit-in-alt-form", [](const Record& r) -> double { return r.DamageInAltForm; }, 2, "hits", {}, true},
+        {"deaths", [](const Record& r) -> double { return r.Deaths; }, 1, "deaths", {}, true},
         {"teleports", [](const Record& r) -> double { return r.Teleports; }}
     }};
 
     NetFeatureCheck::NetFeatureCheck()
         : _records(ManagedArrayLength(Entities::PlayerEntity::MaxPlayers())),
+          _pairs(ManagedArrayLength(Entities::PlayerEntity::MaxPlayers())),
           Boards(_boards)
     {
         for (std::unique_ptr<Record>& record : _records)
@@ -256,6 +269,57 @@ namespace MphRead::Mods::Network
         {
             record = std::make_unique<Record>();
         }
+        std::fill(_pairs.begin(), _pairs.end(), PairWindow{});
+    }
+
+    NetFeatureCheck::Values NetFeatureCheck::Read(const Record& record)
+    {
+        Values values{};
+        for (std::size_t i = 0; i < _features.size(); ++i)
+        {
+            values[i] = _features[i].Get(record);
+        }
+        return values;
+    }
+
+    void NetFeatureCheck::TrackPairs()
+    {
+        const Values mine = Read(RecordAt(_localSlot));
+        const auto& players = Entities::PlayerEntity::Players();
+        for (std::size_t slot = 0; slot < _pairs.size(); ++slot)
+        {
+            PairWindow& pair = _pairs[slot];
+            const bool present = static_cast<std::int32_t>(slot) != _localSlot && slot < players.size()
+                && players[slot] != nullptr && TestFlag(players[slot]->LoadFlags(), LoadFlags::Active);
+            if (present && !pair.Present)
+            {
+                pair.Start = mine;
+                pair.Opened = true;
+            }
+            else if (!present && pair.Present)
+            {
+                for (std::size_t i = 0; i < mine.size(); ++i)
+                {
+                    pair.Total[i] += mine[i] - pair.Start[i];
+                }
+            }
+            pair.Present = present;
+        }
+    }
+
+    NetFeatureCheck::Values NetFeatureCheck::MineWith(std::int32_t slot) const
+    {
+        const PairWindow& pair = ManagedAt(_pairs, slot);
+        Values values = pair.Total;
+        if (pair.Present)
+        {
+            const Values mine = Read(RecordAt(_localSlot));
+            for (std::size_t i = 0; i < mine.size(); ++i)
+            {
+                values[i] += mine[i] - pair.Start[i];
+            }
+        }
+        return values;
     }
 
     void NetFeatureCheck::Count(
@@ -397,6 +461,9 @@ namespace MphRead::Mods::Network
                     record.ShotsFired, SubInt32(firedTotal, record.LastFiredTotal));
             }
             record.LastFiredTotal = firedTotal;
+            record.ShotEvents = slot == _localSlot
+                ? static_cast<double>(NetShotEvents::Sent())
+                : static_cast<double>(NetShotEvents::Stats(slot).Fired);
 
             if (ManagedAt(bombs, slot) > 0)
             {
@@ -601,6 +668,7 @@ namespace MphRead::Mods::Network
                 record.WorstPositionGap = MathMax(worstPositionGapCurrent, gap);
             }
         }
+        TrackPairs();
     }
 
     bool NetFeatureCheck::Report(std::int32_t& failures)
@@ -646,6 +714,12 @@ namespace MphRead::Mods::Network
                     + ::MphRead::NativeRuntime::ToString(feature.Needed, "0.##") + " "
                     + (feature.Pairwise ? "pairwise" : "single"));
             }
+            if (feature.Agreement.Fraction >= 0)
+            {
+                ConsoleWriteLine("  netcheck-parity " + feature.Name + " "
+                    + ::MphRead::NativeRuntime::ToString(feature.Agreement.Fraction, "0.###") + " "
+                    + ::MphRead::NativeRuntime::ToString(feature.Agreement.Absolute, "0.##"));
+            }
             if (feature.Applies != nullptr && !feature.Applies(mine.Hunter))
             {
                 ConsoleWriteLine("  netcheck-na " + me + " " + feature.Name);
@@ -678,6 +752,16 @@ namespace MphRead::Mods::Network
             for (const Feature& feature : _features)
             {
                 emit("saw", them, feature.Name, feature.Get(other));
+            }
+            // What I did while they were here: what their "saw" of me is
+            // compared with.
+            if (ManagedAt(_pairs, slot).Opened)
+            {
+                const Values with = MineWith(slot);
+                for (std::size_t i = 0; i < _features.size(); ++i)
+                {
+                    emit("mine-with", them, _features[i].Name, with[i]);
+                }
             }
             fails = UncheckedAdd(fails, ReportOne(mine, other, them));
         }

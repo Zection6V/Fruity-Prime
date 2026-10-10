@@ -85,9 +85,26 @@ namespace
             "an unchanged form is only finalized");
         // Protocol 17 added the 14 Weavel bytes; 19 adds 3 for the newest
         // damage event's confirmed impact: 54 + 4 x 15 + 14 + 3. 20 changes
-        // only the intent (shot events); 21 the shot events and the claims.
-        Expect(NetConfig::ProtocolVersion == 21 && PlayerState::Size == 131
+        // only the intent (shot events); 21 the shot events and the claims;
+        // 22 the meaning of two spare Weavel flag bits.
+        Expect(NetConfig::ProtocolVersion == 22 && PlayerState::Size == 131
             && PlayerState::Size - PlayerState::LegacySize == 17, "Weavel and the impact add 17 bytes per player");
+        {
+            // A transition under way on the authority is the form being
+            // entered, so a watcher's copy starts its animation with it.
+            PlayerState heading;
+            heading.Flags = PlayerState::FlagActive | PlayerState::FlagSpawned;
+            Expect(!heading.HeadingAlt(), "biped and still: biped");
+            heading.WeavelFlags = PlayerState::WeavelFlagMorphing;
+            Expect(heading.HeadingAlt(), "morphing: heading for Alt before FlagAltForm says so");
+            heading.Flags |= PlayerState::FlagAltForm;
+            heading.WeavelFlags = PlayerState::WeavelFlagUnmorphing;
+            Expect(!heading.HeadingAlt(), "unmorphing: heading for biped while FlagAltForm still holds");
+            std::vector<std::uint8_t> bytes(PlayerState::Size, 0);
+            heading.Write(bytes);
+            Expect(PlayerState::Read(bytes).WeavelFlags == PlayerState::WeavelFlagUnmorphing,
+                "the transition flags round trip");
+        }
         for (int mode = 0; mode < 3; ++mode)
         {
             PlayerState state;

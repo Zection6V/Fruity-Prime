@@ -26,6 +26,8 @@ namespace MphRead::Mods::Network
         // The history, into an intent about to be sent.
         void Fill(IntentPacket& intent) const noexcept;
         void Reset() noexcept;
+        // How many shots this machine has numbered: the sequence of the last.
+        [[nodiscard]] std::uint32_t Sent() const noexcept { return _sequence; }
 
     private:
         [[nodiscard]] static constexpr std::uint32_t Advance(std::uint32_t sequence) noexcept

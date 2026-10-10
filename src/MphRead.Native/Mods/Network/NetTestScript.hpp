@@ -81,6 +81,10 @@ namespace MphRead::Mods::Network
 
     private:
         [[nodiscard]] static double ReadPhaseSeconds();
+        // The server's match clock, carried forward between the MatchState
+        // packets that set it (one a second, and lossy), so every client's
+        // tour turns the page on the same frame give or take a trip.
+        [[nodiscard]] static double ServerElapsed(float received) noexcept;
 
         static void Drive(const std::shared_ptr<Entities::PlayerEntity>& player);
         [[nodiscard]] static bool Settled(Entities::PlayerEntity& player);
@@ -138,6 +142,8 @@ namespace MphRead::Mods::Network
         };
 
         inline static bool _enabled = false;
+        inline static float _serverElapsed = -1.0F;
+        inline static std::uint32_t _serverElapsedFrame = 0;
         inline static std::int32_t _frame = 0;
         inline static std::int32_t _stuckFrames = 0;
         inline static bool _stuckDirection = false;

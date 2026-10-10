@@ -1672,6 +1672,12 @@ namespace MphRead::Mods::Network
                 state.HalfturretHealth = static_cast<std::uint8_t>(std::clamp(turret.Health(), 0, 255));
                 state.HalfturretPosition = turret.Position;
             }
+            if (player.Hunter() == Hunter::Weavel)
+            {
+                state.WeavelFlags = static_cast<std::uint8_t>(state.WeavelFlags
+                    | (player.IsMorphing() ? PlayerState::WeavelFlagMorphing : 0)
+                    | (player.IsUnmorphing() ? PlayerState::WeavelFlagUnmorphing : 0));
+            }
             state.Team = static_cast<std::uint8_t>(player.Team());
             state.Points = static_cast<std::int16_t>(std::clamp(GameState::Points()[slot],
                 static_cast<std::int32_t>(std::numeric_limits<std::int16_t>::min()),

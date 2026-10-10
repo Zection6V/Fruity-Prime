@@ -11,21 +11,42 @@ namespace MphRead::Mods::Network
 {
     // What became of a remote player's shot events on this machine. Kept
     // across lives: it describes the connection.
+    //
+    // Every event received ends in exactly one of Fired, Stale, Overflow,
+    // Abandoned, or is still Waiting:
+    //   Received == Fired + Stale + Overflow + Abandoned + Waiting
+    // and every sequence skipped by a newer one in exactly one of Recovered
+    // (then counted in Received), Lost, or still Pending:
+    //   Gaps == Recovered + Lost + Pending
     struct ShotQueueStats final
     {
-        // Events queued to be fired.
-        std::uint64_t Queued = 0;
-        // Sequences skipped by an event that arrived ahead of them: shots
-        // possibly lost, possibly only late.
+        // Distinct events that arrived, each counted once however many
+        // intents repeated it.
+        std::uint64_t Received = 0;
+        // Fired by the player's copy here.
+        std::uint64_t Fired = 0;
+        // Too old by the time the copy could fire it (in the ball, holding
+        // on to an enemy).
+        std::uint64_t Stale = 0;
+        // Pushed out of a full queue.
+        std::uint64_t Overflow = 0;
+        // Still queued when the life they were fired in ended.
+        std::uint64_t Abandoned = 0;
+        // Sequences an event arrived ahead of: possibly lost, possibly late.
         std::uint64_t Gaps = 0;
         // Of those, the ones a later (reordered) intent still delivered.
         std::uint64_t Recovered = 0;
         // Of those, the ones that never came.
         std::uint64_t Lost = 0;
-        // Queued events never fired: too old by the time they could be, or
-        // pushed out of a full queue.
-        std::uint64_t Stale = 0;
-        std::uint64_t Overflow = 0;
+        // Fired after a newer shot had already been fired: delivered late,
+        // by a reordered intent. Counted, never waited for.
+        std::uint64_t OutOfOrder = 0;
+        // Right now: queued and not yet fired, and skipped and still awaited.
+        std::uint64_t Waiting = 0;
+        std::uint64_t Pending = 0;
+
+        // Events that arrived and were never fired.
+        [[nodiscard]] std::uint64_t Unfired() const noexcept { return Stale + Overflow + Abandoned; }
 
         ShotQueueStats& operator+=(const ShotQueueStats& other) noexcept;
     };
@@ -54,18 +75,26 @@ namespace MphRead::Mods::Network
         void Receive(const IntentPacket& intent) noexcept;
         // The oldest unspent event, after dropping stale ones.
         [[nodiscard]] std::optional<IntentPacket::ShotEvent> Next() noexcept;
+        // The copy fired the oldest event.
         void Consume() noexcept;
         // Whether this player sends shot events at all: a slot that never
         // sent an intent (a bot) keeps firing from its own controls.
         [[nodiscard]] bool Active() const noexcept { return _active; }
-        // A new life: what was pending is forgotten, the statistics stay.
+        // The player's copy begins a life. What the last one left unfired is
+        // abandoned; the sequence carries on, since the sender never reuses
+        // one, so the old life's shots repeated by the next intents are not
+        // taken for new ones. The first life seen keeps what arrived before
+        // it: those are its own shots.
+        void BeginLife() noexcept;
+        // A new occupant: their sequence starts again. The statistics stay.
         void Reset() noexcept;
-        [[nodiscard]] const ShotQueueStats& Stats() const noexcept { return _stats; }
+        [[nodiscard]] ShotQueueStats Stats() const noexcept;
 
     private:
         void Enqueue(const IntentPacket::ShotEvent& event) noexcept;
         void PopFront() noexcept;
         void AwaitSkipped(std::uint32_t from, std::uint32_t to) noexcept;
+        void Await(std::uint32_t sequence) noexcept;
         [[nodiscard]] bool TakeSkipped(std::uint32_t sequence) noexcept;
         void ExpireSkipped() noexcept;
 
@@ -74,8 +103,10 @@ namespace MphRead::Mods::Network
         std::array<std::uint32_t, MissingWindow> _skipped{};
         std::size_t _skippedCount = 0;
         std::uint32_t _lastSequence = 0;
+        std::uint32_t _lastFired = 0;
         std::uint32_t _newestIntentFrame = 0;
         bool _active = false;
+        bool _lived = false;
         ShotQueueStats _stats{};
     };
 }

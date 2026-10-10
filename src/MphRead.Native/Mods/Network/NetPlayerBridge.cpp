@@ -413,7 +413,9 @@ namespace MphRead::Mods::Network
         }
         if (!Sane(state.Position) || !Sane(state.Speed) || !Sane(state.Facing)
             || (player.Hunter() == Hunter::Weavel
-                && ((state.WeavelFlags & ~(PlayerState::WeavelFlagTurretActive | PlayerState::WeavelFlagTurretGrounded)) != 0
+                && ((state.WeavelFlags & ~PlayerState::WeavelFlagsKnown) != 0
+                    || ((state.WeavelFlags & PlayerState::WeavelFlagMorphing) != 0
+                        && (state.WeavelFlags & PlayerState::WeavelFlagUnmorphing) != 0)
                     || ((state.WeavelFlags & PlayerState::WeavelFlagTurretActive) != 0
                         && (!Sane(state.HalfturretPosition) || state.HalfturretHealth == 0)))))
         {
@@ -500,7 +502,7 @@ namespace MphRead::Mods::Network
         // predicts form and turret lifecycle; an older snapshot has no form ack.
         if (player.Hunter() == Hunter::Weavel && !isLocal)
         {
-            player.ModApplyWeavelState((state.Flags & PlayerState::FlagAltForm) != 0,
+            player.ModApplyWeavelState(state.HeadingAlt(),
                 (state.WeavelFlags & PlayerState::WeavelFlagTurretActive) != 0, state.HalfturretHealth,
                 state.HalfturretPosition, (state.WeavelFlags & PlayerState::WeavelFlagTurretGrounded) != 0);
         }
@@ -1205,7 +1207,7 @@ namespace MphRead::Mods::Network
         _lastPressFrame[s] = 0;
         _pressSeen[s] = false;
         _aimHeld[s] = false;
-        NetShotEvents::Forget(slot);
+        NetShotEvents::BeginLife(slot);
         SpawnFrame[s] = 0;
         ShootPressAge[s] = 0;
         _respawnRequested[s] = false;

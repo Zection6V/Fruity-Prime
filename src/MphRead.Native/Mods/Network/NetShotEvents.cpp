@@ -157,6 +157,15 @@ namespace MphRead::Mods::Network
         return _ledger[static_cast<std::size_t>(slot)].Find(sequence);
     }
 
+    ShotQueueStats NetShotEvents::Stats(std::int32_t slot) noexcept
+    {
+        if (slot < 0 || slot >= Slots)
+        {
+            return {};
+        }
+        return _remote[static_cast<std::size_t>(slot)].Stats();
+    }
+
     std::optional<std::string> NetShotEvents::Describe()
     {
         ShotQueueStats total{};
@@ -168,18 +177,35 @@ namespace MphRead::Mods::Network
             staleRefused += _ledger[s].StaleRefused();
             conflicts += _ledger[s].Conflicts();
         }
-        if (total.Queued == 0 && total.Gaps == 0)
+        if (total.Received == 0 && total.Gaps == 0)
         {
             return std::nullopt;
         }
-        return "shot events (received): " + std::to_string(total.Queued) + " queued, "
-            + std::to_string(total.Gaps) + " skipped by a newer one ("
+        return "shot events (received): " + std::to_string(total.Received) + " received -- "
+            + std::to_string(total.Fired) + " fired (" + std::to_string(total.OutOfOrder) + " after a newer one), "
+            + std::to_string(total.Stale) + " stale, "
+            + std::to_string(total.Overflow) + " pushed out, "
+            + std::to_string(total.Abandoned) + " abandoned with a life, "
+            + std::to_string(total.Waiting) + " waiting; "
+            + std::to_string(total.Gaps) + " skipped by a newer one -- "
             + std::to_string(total.Recovered) + " recovered late, "
-            + std::to_string(total.Lost) + " never arrived), "
-            + std::to_string(total.Stale) + " dropped stale, "
-            + std::to_string(total.Overflow) + " dropped for room; ledger: "
+            + std::to_string(total.Lost) + " never arrived, "
+            + std::to_string(total.Pending) + " still awaited; ledger: "
             + std::to_string(staleRefused) + " older shots refused, "
             + std::to_string(conflicts) + " contradicting a kept shot";
+    }
+
+    void NetShotEvents::BeginLife(std::int32_t slot) noexcept
+    {
+        if (slot < 0 || slot >= Slots)
+        {
+            return;
+        }
+        _remote[static_cast<std::size_t>(slot)].BeginLife();
+        if (slot == NetHooks::LocalSlot())
+        {
+            _local.Reset();
+        }
     }
 
     void NetShotEvents::Forget(std::int32_t slot) noexcept

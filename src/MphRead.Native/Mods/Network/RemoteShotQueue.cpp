@@ -7,14 +7,28 @@
 
 namespace MphRead::Mods::Network
 {
+    namespace
+    {
+        // Whether 0 -- a sequence no sender uses -- lies in [from, from + span).
+        [[nodiscard]] constexpr bool CoversZero(std::uint32_t from, std::uint32_t span) noexcept
+        {
+            return static_cast<std::uint32_t>(0U - from) < span;
+        }
+    }
+
     ShotQueueStats& ShotQueueStats::operator+=(const ShotQueueStats& other) noexcept
     {
-        Queued += other.Queued;
+        Received += other.Received;
+        Fired += other.Fired;
+        Stale += other.Stale;
+        Overflow += other.Overflow;
+        Abandoned += other.Abandoned;
         Gaps += other.Gaps;
         Recovered += other.Recovered;
         Lost += other.Lost;
-        Stale += other.Stale;
-        Overflow += other.Overflow;
+        OutOfOrder += other.OutOfOrder;
+        Waiting += other.Waiting;
+        Pending += other.Pending;
         return *this;
     }
 
@@ -25,6 +39,9 @@ namespace MphRead::Mods::Network
         {
             _newestIntentFrame = intent.Frame;
         }
+        // The first intent from a sender repeats shots fired before this
+        // machine was watching: where the sequence is, not shots to fire.
+        const bool watching = _lastSequence != 0;
         const std::size_t length = std::min<std::size_t>(intent.ShotHistoryLength, intent.ShotHistory.size());
         for (std::size_t i = 0; i < length; ++i)
         {
@@ -36,6 +53,11 @@ namespace MphRead::Mods::Network
             }
             if (_lastSequence == 0 || NetLifecycleTracker::Newer(event.Sequence, _lastSequence))
             {
+                if (!watching && intent.Frame - event.Frame > FreshFrames)
+                {
+                    _lastSequence = event.Sequence;
+                    continue;
+                }
                 if (_lastSequence != 0)
                 {
                     AwaitSkipped(_lastSequence + 1U, event.Sequence);
@@ -69,22 +91,57 @@ namespace MphRead::Mods::Network
 
     void RemoteShotQueue::Consume() noexcept
     {
-        if (_count > 0)
+        if (_count == 0)
         {
-            PopFront();
+            return;
         }
+        const std::uint32_t sequence = _queue[0].Sequence;
+        if (_lastFired != 0 && NetLifecycleTracker::Newer(_lastFired, sequence))
+        {
+            ++_stats.OutOfOrder;
+        }
+        else
+        {
+            _lastFired = sequence;
+        }
+        ++_stats.Fired;
+        PopFront();
+    }
+
+    void RemoteShotQueue::BeginLife() noexcept
+    {
+        if (!_lived)
+        {
+            _lived = true;
+            return;
+        }
+        _stats.Abandoned += _count;
+        _stats.Lost += _skippedCount;
+        _count = 0;
+        _skippedCount = 0;
+        _lastFired = 0;
     }
 
     void RemoteShotQueue::Reset() noexcept
     {
+        _stats.Abandoned += _count;
         _stats.Lost += _skippedCount;
         const ShotQueueStats stats = _stats;
         *this = RemoteShotQueue{};
         _stats = stats;
     }
 
+    ShotQueueStats RemoteShotQueue::Stats() const noexcept
+    {
+        ShotQueueStats stats = _stats;
+        stats.Waiting = _count;
+        stats.Pending = _skippedCount;
+        return stats;
+    }
+
     void RemoteShotQueue::Enqueue(const IntentPacket::ShotEvent& event) noexcept
     {
+        ++_stats.Received;
         if (_count == _queue.size())
         {
             ++_stats.Overflow;
@@ -99,7 +156,6 @@ namespace MphRead::Mods::Network
         }
         _queue[at] = event;
         ++_count;
-        ++_stats.Queued;
     }
 
     void RemoteShotQueue::PopFront() noexcept
@@ -110,35 +166,32 @@ namespace MphRead::Mods::Network
 
     void RemoteShotQueue::AwaitSkipped(std::uint32_t from, std::uint32_t to) noexcept
     {
-        if (to - from > MissingWindow)
+        // [from, to): every sequence the sender used in between, once each.
+        const std::uint32_t span = to - from;
+        _stats.Gaps += span - (CoversZero(from, span) ? 1U : 0U);
+        // Only the newest MissingWindow can still be carried by an intent in
+        // flight; anything before them is lost already.
+        const std::uint32_t tracked = std::min(span, MissingWindow);
+        const std::uint32_t untracked = span - tracked;
+        _stats.Lost += untracked - (CoversZero(from, untracked) ? 1U : 0U);
+        for (std::uint32_t sequence = to - tracked; sequence != to; ++sequence)
         {
-            // A jump no intent still in flight can fill: counted, not walked.
-            const std::uint32_t span = to - from;
-            _stats.Gaps += span;
-            _stats.Lost += span - MissingWindow;
-            from = to - MissingWindow;
+            if (sequence != 0)
+            {
+                Await(sequence);
+            }
         }
-        for (std::uint32_t sequence = from; sequence != to; ++sequence)
+    }
+
+    void RemoteShotQueue::Await(std::uint32_t sequence) noexcept
+    {
+        if (_skippedCount == _skipped.size())
         {
-            ++_stats.Gaps;
-            if (sequence == 0)
-            {
-                continue;
-            }
-            if (to - sequence > MissingWindow)
-            {
-                // Too far behind to be carried by anything still in flight.
-                ++_stats.Lost;
-                continue;
-            }
-            if (_skippedCount == _skipped.size())
-            {
-                ++_stats.Lost;
-                std::rotate(_skipped.begin(), _skipped.begin() + 1, _skipped.end());
-                --_skippedCount;
-            }
-            _skipped[_skippedCount++] = sequence;
+            ++_stats.Lost;
+            std::rotate(_skipped.begin(), _skipped.begin() + 1, _skipped.end());
+            --_skippedCount;
         }
+        _skipped[_skippedCount++] = sequence;
     }
 
     bool RemoteShotQueue::TakeSkipped(std::uint32_t sequence) noexcept

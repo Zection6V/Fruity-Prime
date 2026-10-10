@@ -113,7 +113,7 @@ namespace MphRead::Mods::Network
     {
         const std::optional<MatchStatePacket> serverMatch = NetSession::ServerMatch();
         const double elapsed = serverMatch.has_value()
-            ? static_cast<double>(serverMatch->TimeElapsed)
+            ? ServerElapsed(serverMatch->TimeElapsed)
             : static_cast<double>(_frame) / 60.0;
         const std::int32_t quotient
             = ConvertToInt32Net9(elapsed / PhaseSeconds());
@@ -122,8 +122,28 @@ namespace MphRead::Mods::Network
         return _order[CheckedIndex(index, _order.size())];
     }
 
+    double NetTestScript::ServerElapsed(float received) noexcept
+    {
+        const std::uint32_t frame = NetSession::NetFrame();
+        const double carried = static_cast<double>(_serverElapsed)
+            + static_cast<double>(frame - _serverElapsedFrame) / 60.0;
+        // A packet re-anchors the clock forward. One a little behind it is
+        // the server a one-way trip ago, not a clock running backwards; one
+        // far behind is a new match.
+        constexpr double NewMatchStep = 2.0;
+        if (received != _serverElapsed
+            && (_serverElapsed < 0.0F || received >= carried || carried - received > NewMatchStep))
+        {
+            _serverElapsed = received;
+            _serverElapsedFrame = frame;
+            return received;
+        }
+        return carried;
+    }
+
     void NetTestScript::Reset()
     {
+        _serverElapsed = -1.0F;
         _frame = 0;
         _stuckFrames = 0;
         _lastPosition = OpenTK::Mathematics::Vector3::Zero;

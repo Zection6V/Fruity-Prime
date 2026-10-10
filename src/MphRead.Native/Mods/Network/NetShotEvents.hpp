@@ -80,11 +80,18 @@ namespace MphRead::Mods::Network
         // A shot a remote player reported, by sequence: what a hit claim
         // naming it is checked against.
         [[nodiscard]] static std::optional<IntentPacket::ShotEvent> Find(std::int32_t slot, std::uint32_t sequence) noexcept;
-        // A new life, a rejoin, a room change.
+        // The player in the slot begins a life: what their last one left
+        // unfired is abandoned. Their sequence and the ledger carry on, since
+        // a sequence is never reused and a claim may still name an old shot.
+        static void BeginLife(std::int32_t slot) noexcept;
+        // A new occupant, or a room change: everything about the slot.
         static void Forget(std::int32_t slot) noexcept;
-        // What became of every remote shot event this machine received --
-        // queued, skipped and recovered or lost, dropped stale or for room --
-        // and what the ledger refused; nullopt before any arrived.
+        // What became of one remote player's shot events here.
+        [[nodiscard]] static ShotQueueStats Stats(std::int32_t slot) noexcept;
+        // How many shots this machine's own player has made events of.
+        [[nodiscard]] static std::uint32_t Sent() noexcept { return _local.Sent(); }
+        // What became of every remote shot event this machine received, and
+        // what the ledger refused; nullopt before any arrived.
         [[nodiscard]] static std::optional<std::string> Describe();
 
     private:

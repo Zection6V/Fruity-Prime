@@ -115,6 +115,7 @@ namespace
     {
         RemoteShotQueue shots;
         Expect(!shots.Next().has_value() && !shots.Active(), "nothing pending, and no events driving, on a new life");
+        shots.BeginLife();
 
         // The Omega shot, then the switch to the Power Beam arriving first:
         // the switch is WeaponSelect's business, the shot keeps its weapon.
@@ -162,12 +163,14 @@ namespace
         Expect(!shots.Next().has_value(), "a stale event is dropped");
 
         // Death and respawn: a new life starts empty and takes the sender's
-        // sequence wherever it is.
+        // sequence wherever it is; the old life's shot, repeated by the next
+        // intent, is not taken for a new one.
         shots.Receive(WithShots(400, {{9, 399, Id(BeamType::ShockCoil)}}));
-        shots.Reset();
+        shots.BeginLife();
         Expect(!shots.Next().has_value(), "a new life holds none of the old life's shots");
-        shots.Receive(WithShots(410, {{10, 409, Id(BeamType::VoltDriver)}}));
+        shots.Receive(WithShots(410, {{9, 399, Id(BeamType::ShockCoil)}, {10, 409, Id(BeamType::VoltDriver)}}));
         Expect(NextWeapon(shots) == Id(BeamType::VoltDriver), "and takes the new life's");
+        Expect(shots.Stats().Abandoned == 1, "the old life's unfired shot is abandoned, once");
         shots.Reset();
 
         // Nonsense from the wire is refused.
@@ -250,31 +253,92 @@ namespace
         Expect(wrap.Find(wrapped).has_value(), "a wrapped sequence is newer");
     }
 
-    // What became of the shots: skipped and lost, stale, no room.
+    // Every event received ends fired, stale, pushed out, abandoned or still
+    // waiting; every sequence skipped ends recovered, lost or still awaited.
+    bool Balanced(const RemoteShotQueue& shots)
+    {
+        const auto stats = shots.Stats();
+        return stats.Received == stats.Fired + stats.Unfired() + stats.Waiting
+            && stats.Gaps == stats.Recovered + stats.Lost + stats.Pending;
+    }
+
+    // What became of the shots: skipped and lost, late, stale, no room.
     void ShotQueueMetrics()
     {
-        RemoteShotQueue shots;
-        shots.Receive(WithShots(100, {{1, 100, Id(BeamType::PowerBeam)}}));
-        shots.Consume();
-        // Shots 2..4 skipped; none ever comes, and the queue moves on.
-        shots.Receive(WithShots(120, {{5, 118, Id(BeamType::PowerBeam)}}));
-        Expect(shots.Stats().Gaps == 3 && shots.Stats().Lost == 0, "a skip is a candidate, not yet a loss");
-        shots.Consume();
-        shots.Receive(WithShots(200, {{5 + RemoteShotQueue::MissingWindow + 1, 199, Id(BeamType::PowerBeam)}}));
-        Expect(shots.Stats().Lost >= 3, "skipped shots past the window are lost");
-        // Never fired in time: stale.
-        shots.Receive(WithShots(260, {}));
-        Expect(!shots.Next().has_value() && shots.Stats().Stale == 1, "an event its copy could not fire goes stale");
+        // A jump of 19: 18 skipped, counted once. The 16 newest are still
+        // awaited, the 2 before them are lost.
+        RemoteShotQueue jump;
+        jump.Receive(WithShots(100, {{1, 100, Id(BeamType::PowerBeam)}}));
+        jump.Consume();
+        jump.Receive(WithShots(110, {{20, 110, Id(BeamType::PowerBeam)}}));
+        Expect(jump.Stats().Gaps == 18 && jump.Stats().Lost == 2 && jump.Stats().Pending == 16,
+            "a long skip is counted once, and only past the window as lost");
+        Expect(Balanced(jump), "and the books balance");
+        // Later sequences push the awaited ones out of the window.
+        jump.Receive(WithShots(120, {{20 + RemoteShotQueue::MissingWindow + 1, 120, Id(BeamType::PowerBeam)}}));
+        Expect(jump.Stats().Pending == RemoteShotQueue::MissingWindow && jump.Stats().Lost == 2 + 16
+            && Balanced(jump), "skipped shots past the window are lost");
+
+        // The sender's sequence wraps past 0, which it never uses.
+        RemoteShotQueue wrap;
+        wrap.Receive(WithShots(100, {{0xFFFFFFFFU, 100, Id(BeamType::Missile)}}));
+        wrap.Receive(WithShots(101, {{1, 101, Id(BeamType::Missile)}}));
+        Expect(wrap.Stats().Gaps == 0 && wrap.Stats().Received == 2, "0 is not a shot skipped");
+        RemoteShotQueue wrapGap;
+        wrapGap.Receive(WithShots(100, {{0xFFFFFFFEU, 100, Id(BeamType::Missile)}}));
+        wrapGap.Receive(WithShots(101, {{2, 101, Id(BeamType::Missile)}}));
+        Expect(wrapGap.Stats().Gaps == 2 && wrapGap.Stats().Pending == 2, "0xFFFFFFFF and 1 skipped, not 0");
+
+        // Recovered is not fired: late, and then too late to fire.
+        RemoteShotQueue late;
+        late.Receive(WithShots(200, {{2, 200, Id(BeamType::Missile)}}));
+        late.Consume();
+        late.Receive(WithShots(260, {{4, 259, Id(BeamType::Missile)}}));
+        late.Receive(WithShots(230, {{3, 228, Id(BeamType::Missile)}}));
+        Expect(late.Stats().Recovered == 1, "a reordered intent delivers the skipped shot");
+        Expect(NextWeapon(late) == Id(BeamType::Missile) && late.Stats().Stale == 1,
+            "but past FreshFrames it is dropped, not fired");
+        late.Consume();
+        Expect(late.Stats().Fired == 2 && late.Stats().Recovered == 1 && Balanced(late),
+            "fired counts what the copy fired, not what arrived");
+
+        // Fired after a newer one: counted, never waited for.
+        RemoteShotQueue order;
+        order.Receive(WithShots(300, {{5, 300, Id(BeamType::Missile)}}));
+        order.Consume();
+        order.Receive(WithShots(310, {{7, 310, Id(BeamType::Missile)}}));
+        order.Consume();
+        order.Receive(WithShots(306, {{6, 305, Id(BeamType::Judicator)}}));
+        Expect(NextWeapon(order) == Id(BeamType::Judicator), "the late shot still fires");
+        order.Consume();
+        Expect(order.Stats().OutOfOrder == 1 && order.Stats().Fired == 3 && Balanced(order),
+            "and is counted as fired out of order");
+
         // More waiting than the queue holds: the oldest makes room.
         RemoteShotQueue full;
         for (std::uint32_t i = 1; i <= RemoteShotQueue::Capacity + 1; ++i)
         {
             full.Receive(WithShots(300 + i, {{i, 300 + i, Id(BeamType::Missile)}}));
         }
-        Expect(full.Stats().Overflow == 1, "a full queue counts what it pushed out");
-        // A new life keeps the statistics.
+        Expect(full.Stats().Overflow == 1 && Balanced(full), "a full queue counts what it pushed out");
+
+        // A life: the first one seen keeps what arrived before it (its own
+        // shots); a later one abandons what the last left unfired.
+        full.BeginLife();
+        Expect(full.Stats().Waiting == RemoteShotQueue::Capacity && full.Stats().Abandoned == 0,
+            "the first life keeps its shots");
+        full.BeginLife();
+        Expect(full.Stats().Waiting == 0 && full.Stats().Abandoned == RemoteShotQueue::Capacity && Balanced(full),
+            "a new life abandons the old one's");
         full.Reset();
-        Expect(!full.Next().has_value() && full.Stats().Overflow == 1, "the statistics outlive the life");
+        Expect(!full.Next().has_value() && full.Stats().Overflow == 1, "the statistics outlive the occupant");
+
+        // Shots fired before this machine was watching are where the
+        // sequence is, not shots to fire or count.
+        RemoteShotQueue joined;
+        joined.Receive(WithShots(1000, {{40, 900, Id(BeamType::Missile)}, {41, 995, Id(BeamType::PowerBeam)}}));
+        Expect(joined.Stats().Received == 1 && NextWeapon(joined) == Id(BeamType::PowerBeam) && joined.Stats().Gaps == 0,
+            "a joiner takes only the shot still fresh");
     }
 
     IntentPacket Transport(const NativeTouchState::Reported& report)

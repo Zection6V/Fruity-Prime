@@ -584,6 +584,28 @@ namespace MphRead::Mods::Network
         static constexpr float ImpactRadius = 0.55F;
         static constexpr std::uint8_t WeavelFlagTurretActive = 1U << 0;
         static constexpr std::uint8_t WeavelFlagTurretGrounded = 1U << 1;
+        // The authority's copy is playing a transition (protocol 22): every
+        // other copy starts the same animation now, rather than once the
+        // authority's has ended and FlagAltForm says so -- which put each
+        // watcher a whole animation (40 frames in, 57 out) behind the player.
+        static constexpr std::uint8_t WeavelFlagMorphing = 1U << 2;
+        static constexpr std::uint8_t WeavelFlagUnmorphing = 1U << 3;
+        static constexpr std::uint8_t WeavelFlagsKnown = WeavelFlagTurretActive | WeavelFlagTurretGrounded
+            | WeavelFlagMorphing | WeavelFlagUnmorphing;
+
+        // The form the player is in or on the way to.
+        [[nodiscard]] bool HeadingAlt() const noexcept
+        {
+            if ((WeavelFlags & WeavelFlagMorphing) != 0)
+            {
+                return true;
+            }
+            if ((WeavelFlags & WeavelFlagUnmorphing) != 0)
+            {
+                return false;
+            }
+            return (Flags & FlagAltForm) != 0;
+        }
 
         static constexpr std::uint8_t FlagActive = 1U << 0;
         static constexpr std::uint8_t FlagAltForm = 1U << 1;
@@ -698,7 +720,7 @@ namespace MphRead::Mods::Network
     public:
         static constexpr std::uint16_t DefaultPort = 27888;
         static constexpr std::int32_t MaxPacketSize = 1232;
-        static constexpr std::int32_t ProtocolVersion = 21;
+        static constexpr std::int32_t ProtocolVersion = 22;
         static constexpr std::int32_t IntentSendInterval = 1;
         static constexpr double TimeoutSeconds = 30.0;
 

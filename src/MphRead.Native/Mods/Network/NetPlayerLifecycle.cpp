@@ -164,6 +164,7 @@ namespace MphRead::Mods::Network
     void NetPlayerLifecycle::OnSlotChanged(std::int32_t slot)
     {
         NetPlayerBridge::ForgetSlot(slot);
+        NetShotEvents::Forget(slot);
         NetDamage::ForgetSlot(slot);
         NetHitPrediction::ForgetSlot(slot);
         NetHitClaims::ForgetSlot(slot);

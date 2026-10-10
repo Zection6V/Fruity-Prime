@@ -84,9 +84,13 @@ namespace MphRead::Mods::Network
         // unfired is abandoned. Their sequence and the ledger carry on, since
         // a sequence is never reused and a claim may still name an old shot.
         static void BeginLife(std::int32_t slot) noexcept;
-        // A new occupant, or a room change: everything about the slot.
+        // A new occupant, or a room change: everything about the slot. Its
+        // statistics move to the machine's total (Describe) and stay the
+        // slot's (Stats) until a new occupant's first event arrives -- a
+        // player who left before the report is still a player it describes.
         static void Forget(std::int32_t slot) noexcept;
-        // What became of one remote player's shot events here.
+        // What became of the slot's occupant's shot events here: the current
+        // one's, or the last one's to leave if nobody has sent since.
         [[nodiscard]] static ShotQueueStats Stats(std::int32_t slot) noexcept;
         // How many shots this machine's own player has made events of.
         [[nodiscard]] static std::uint32_t Sent() noexcept { return _local.Sent(); }
@@ -101,5 +105,8 @@ namespace MphRead::Mods::Network
         inline static LocalShotLog _local{};
         inline static std::array<RemoteShotQueue, Slots> _remote{};
         inline static std::array<ShotEventLedger, Slots> _ledger{};
+        // Occupants gone: still part of what this machine received.
+        inline static ShotQueueStats _departed{};
+        inline static std::array<ShotQueueStats, Slots> _lastDeparted{};
     };
 }

@@ -27,7 +27,14 @@ Verdicts per (player, observer, feature):
 
 Shot events are exact: every event an observer received has to have been
 fired by its copy of the shooter. Events still waiting or awaited when the
-run ended are the tail, reported and not judged.
+run ended are the tail, reported and not judged -- unless they are overdue,
+older than the copy could still have fired, which counts as not fired.
+
+Every file passed is one client of the run, and every client has to have
+seen every other: a file with no report (a client that died or never
+joined) and a pair nobody compared are failures, not omissions. A player
+others saw who left no report of their own (not a -netcheck client) cannot
+be compared, which is incomplete.
 
 Exit code: 0 pass, 1 any FAIL or MISMATCH, 2 no failure but something was
 not run.
@@ -57,8 +64,15 @@ class Reports:
         self.not_applicable = defaultdict(set)              # player -> features
         self.hunters = {}
         self.shots = defaultdict(dict)                      # observer -> shooter -> counts
+        self.unreported = []                                # files with no report in them
 
     def read(self, path):
+        before = len(self.hunters)
+        self._read(path)
+        if len(self.hunters) == before:
+            self.unreported.append(path)
+
+    def _read(self, path):
         with open(path, encoding="utf-8", errors="replace") as handle:
             for text in handle:
                 if m := NEEDED.match(text):
@@ -124,14 +138,18 @@ def judge_feature(reports, tally, player, observer, feature):
 
 
 def judge_shots(reports, tally, player, observer):
-    counts = reports.shots.get(observer, {}).get(player)
-    if counts is None:
-        return
-    unfired = sum(counts.get(k, 0) for k in ("stale", "pushed", "abandoned", "lost"))
+    counts = reports.shots.get(observer, {}).get(player, {})
+    unfired = sum(counts.get(k, 0) for k in ("stale", "pushed", "abandoned", "lost", "overdue"))
     received = counts.get("received", 0)
+    window = reports.own_with[player].get(observer, reports.own[player])
+    made = window.get("shot-events", 0.0)
     if received == 0 and counts.get("gaps", 0) == 0:
-        verdict = "not run"
-        tally.not_run += 1
+        if made >= reports.needed.get("shot-events", (1, False))[0]:
+            verdict = "FAIL"
+            tally.failures += 1
+        else:
+            verdict = "not run"
+            tally.not_run += 1
     elif unfired == 0:
         verdict = "ok"
         tally.agreed += 1
@@ -142,7 +160,8 @@ def judge_shots(reports, tally, player, observer):
           f" ({counts.get('late', 0)} after a newer one); not fired: stale {counts.get('stale', 0)},"
           f" pushed out {counts.get('pushed', 0)}, abandoned {counts.get('abandoned', 0)},"
           f" never arrived {counts.get('lost', 0)} (recovered late {counts.get('recovered', 0)});"
-          f" tail: waiting {counts.get('waiting', 0)}, awaited {counts.get('pending', 0)}  {verdict}")
+          f" tail: waiting {counts.get('waiting', 0)} ({counts.get('overdue', 0)} overdue, counted above),"
+          f" awaited {counts.get('pending', 0)}  {verdict}")
 
 
 def main(paths):
@@ -153,12 +172,26 @@ def main(paths):
         print("no netcheck report found in", ", ".join(paths))
         return 1
     tally = Tally()
+    for path in reports.unreported:
+        print(f"FAIL: {path} holds no netcheck report -- that client died or never finished")
+        tally.failures += 1
+    participants = sorted(reports.hunters)
+    for observer in sorted(reports.seen):
+        for player in sorted(reports.seen[observer]):
+            if player not in reports.hunters:
+                print(f"INCOMPLETE: {observer} saw {player}, who left no report to compare with")
+                tally.not_run += 1
     pairs = 0
-    for player in sorted(reports.own):
-        for observer in sorted(reports.seen):
-            if observer == player or player not in reports.seen[observer]:
+    for player in participants:
+        for observer in participants:
+            if observer == player:
                 continue
             pairs += 1
+            if player not in reports.seen[observer]:
+                print(f"--- {player} as {observer} saw them ---")
+                print(f"  FAIL: {observer} never saw {player} at all")
+                tally.failures += 1
+                continue
             window = "while both were in the match" if observer in reports.own_with[player] \
                 else "whole run: no window reported"
             print(f"--- {player} ({reports.hunters.get(player, '?')}) as {observer} saw them, {window} ---")
@@ -166,7 +199,7 @@ def main(paths):
                 judge_feature(reports, tally, player, observer, feature)
             judge_shots(reports, tally, player, observer)
     if pairs == 0:
-        print("nobody saw anybody: run at least two clients and pass every output")
+        print("one client is nobody to compare with: run at least two and pass every output")
         return 1
     summary = f"{tally.covered} covered, {tally.agreed} in agreement"
     if tally.failures:

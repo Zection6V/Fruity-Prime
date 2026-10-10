@@ -193,8 +193,12 @@ namespace MphRead::Mods::Network
     // Parity tolerances are measured, not chosen: two clients at 150 +-20 ms
     // and 5% loss (2026-10-10) agreed within 2% on every running count below,
     // once Weavel's copies stopped trailing a whole morph animation (protocol
-    // 22) -- which is what this check found. At 25% loss the form and bomb
-    // counts drift 4-9% either way, past these tolerances. A count of
+    // 22) -- which is what this check found. Shooting and bombs count frames
+    // a projectile or bomb is alive, which ends on whatever it meets -- and a
+    // copy meets things a few frames apart from the original: 93-109% over
+    // every run at 0-250 ms, hence 12%. Whether every shot was reproduced is
+    // shot-events', exactly. At 25% loss the form and bomb counts drift past
+    // these tolerances. A count of
     // discrete things (shots, hits) is exact but for the tail still in flight
     // when the window closed. Facing sums every degree turned, jitter
     // included, so it measures the copy's aim noise and is not compared.
@@ -203,15 +207,18 @@ namespace MphRead::Mods::Network
         {"movement", [](const Record& r) -> double { return r.Travelled; }, 5, "units", {0.03, 1}},
         {"jump", &NetFeatureCheck::Height, 1.5, "units", {0.05, 0.2}},
         {"facing", [](const Record& r) -> double { return r.FacingDegrees; }, 180, "deg"},
-        {"shooting", [](const Record& r) -> double { return r.BeamFrames; }, 10, "beam-frames", {0.03, 10}},
+        {"shooting", [](const Record& r) -> double { return r.BeamFrames; }, 10, "beam-frames", {0.12, 10}},
         {"shots", [](const Record& r) -> double { return r.ShotsFired; }, 10, "shots", {0, 2}},
         {"shot-events", [](const Record& r) -> double { return r.ShotEvents; }, 10, "events", {0, 2}},
         {"weapon-switch", [](const Record& r) -> double { return r.WeaponChanges; }, 2, "changes", {}, true},
         {"alt-attack", [](const Record& r) -> double { return r.AltAttackPresses; }, 3, "presses", {}, true},
-        {"alt-form", [](const Record& r) -> double { return r.AltFormInMorphPhase; }, 30, "frames", {0.03, 15}},
-        {"alt-form-total", [](const Record& r) -> double { return r.AltFormFrames; }},
-        {"unmorph", [](const Record& r) -> double { return r.BipedInUnmorphPhase; }, 30, "frames", {0.03, 15}},
-        {"bombs", [](const Record& r) -> double { return r.BombFrames; }, 5, "frames", {0.03, 15}, false,
+        // Counted inside the phases only, so a copy's later start is cut off
+        // and its later finish is not: these measure the latency, which is
+        // why parity is the total's.
+        {"alt-form", [](const Record& r) -> double { return r.AltFormInMorphPhase; }, 30, "frames"},
+        {"alt-form-total", [](const Record& r) -> double { return r.AltFormFrames; }, 30, "frames", {0.03, 15}},
+        {"unmorph", [](const Record& r) -> double { return r.BipedInUnmorphPhase; }, 30, "frames"},
+        {"bombs", [](const Record& r) -> double { return r.BombFrames; }, 5, "frames", {0.12, 15}, false,
             &NetFeatureCheck::LaysBombs},
         {"halfturret", [](const Record& r) -> double { return r.HalfturretFrames; }, 5, "frames", {0.03, 15}, false,
             &NetFeatureCheck::IsWeavel},

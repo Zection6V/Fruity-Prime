@@ -10,7 +10,7 @@
 namespace MphRead::Mods::Network
 {
     // What became of a remote player's shot events on this machine. Kept
-    // across lives: it describes the connection.
+    // across lives, not across occupants: it describes one connection.
     //
     // Every event received ends in exactly one of Fired, Stale, Overflow,
     // Abandoned, or is still Waiting:
@@ -44,6 +44,10 @@ namespace MphRead::Mods::Network
         // Right now: queued and not yet fired, and skipped and still awaited.
         std::uint64_t Waiting = 0;
         std::uint64_t Pending = 0;
+        // Of Waiting, those already past FreshFrames: nothing asked for them
+        // in time (Next would have dropped them stale), so they are shots the
+        // copy could not fire, not the tail of a run still in flight.
+        std::uint64_t Overdue = 0;
 
         // Events that arrived and were never fired.
         [[nodiscard]] std::uint64_t Unfired() const noexcept { return Stale + Overflow + Abandoned; }
@@ -86,8 +90,10 @@ namespace MphRead::Mods::Network
         // taken for new ones. The first life seen keeps what arrived before
         // it: those are its own shots.
         void BeginLife() noexcept;
-        // A new occupant: their sequence starts again. The statistics stay.
-        void Reset() noexcept;
+        // The occupant leaves: what was waiting is abandoned and what was
+        // awaited lost. Returns their statistics, which leave with them, and
+        // starts over for the next occupant, whose sequence starts again.
+        [[nodiscard]] ShotQueueStats Retire() noexcept;
         [[nodiscard]] ShotQueueStats Stats() const noexcept;
 
     private:

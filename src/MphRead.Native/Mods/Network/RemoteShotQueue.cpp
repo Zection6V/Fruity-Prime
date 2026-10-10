@@ -29,6 +29,7 @@ namespace MphRead::Mods::Network
         OutOfOrder += other.OutOfOrder;
         Waiting += other.Waiting;
         Pending += other.Pending;
+        Overdue += other.Overdue;
         return *this;
     }
 
@@ -122,13 +123,13 @@ namespace MphRead::Mods::Network
         _lastFired = 0;
     }
 
-    void RemoteShotQueue::Reset() noexcept
+    ShotQueueStats RemoteShotQueue::Retire() noexcept
     {
         _stats.Abandoned += _count;
         _stats.Lost += _skippedCount;
         const ShotQueueStats stats = _stats;
         *this = RemoteShotQueue{};
-        _stats = stats;
+        return stats;
     }
 
     ShotQueueStats RemoteShotQueue::Stats() const noexcept
@@ -136,6 +137,13 @@ namespace MphRead::Mods::Network
         ShotQueueStats stats = _stats;
         stats.Waiting = _count;
         stats.Pending = _skippedCount;
+        for (std::size_t i = 0; i < _count; ++i)
+        {
+            if (_newestIntentFrame - _queue[i].Frame > FreshFrames)
+            {
+                ++stats.Overdue;
+            }
+        }
         return stats;
     }
 

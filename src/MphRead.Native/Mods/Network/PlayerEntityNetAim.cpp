@@ -724,7 +724,10 @@ namespace MphRead::Entities
     {
         const bool canZoom = ((*this).EquipInfo()->Weapon != nullptr)
             && (static_cast<std::uint32_t>((*this).EquipInfo()->Weapon->Flags) & WeaponFlagCanZoom) != 0;
-        const bool wanted = zoomed && canZoom;
+        // Dead here is unzoomed, whatever the owner or a snapshot not yet
+        // told of the kill still says: death unzooms, and nothing alive
+        // brings it back before the next life.
+        const bool wanted = zoomed && canZoom && (*this).Health() > 0;
         if ((*this).EquipInfo()->Zoomed != wanted)
         {
             (*this).UpdateZoom(wanted);

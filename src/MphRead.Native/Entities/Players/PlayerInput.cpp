@@ -1087,7 +1087,7 @@ namespace MphRead::Entities
 
                 if (TestFlag(equipWeapon.Flags, WeaponFlags::CanZoom))
                 {
-                    if (_controls.Zoom().IsPressed())
+                    if (_controls.Zoom().IsPressed() && !Mods::Network::NetHooks::ZoomIsReported(*this))
                     {
                         UpdateZoom(!_equipInfo->Zoomed);
                     }

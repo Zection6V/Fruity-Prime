@@ -58,6 +58,11 @@ namespace MphRead::Mods::Network
             && player.SlotIndex() != LocalSlot();
     }
 
+    bool NetHooks::ZoomIsReported(Entities::PlayerEntity& player)
+    {
+        return IsPuppet(player) && !player.IsBot();
+    }
+
     bool NetHooks::KeepSlotAlive(Entities::PlayerEntity&)
     {
         return NetSession::Active();

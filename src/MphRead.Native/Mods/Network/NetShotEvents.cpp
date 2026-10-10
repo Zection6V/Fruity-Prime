@@ -141,6 +141,10 @@ namespace MphRead::Mods::Network
             return;
         }
         const auto s = static_cast<std::size_t>(slot);
+        if (intent.ShotHistoryLength > 0)
+        {
+            _lastDeparted[s] = {};
+        }
         _remote[s].Receive(intent);
         for (std::size_t i = 0; i < intent.ShotHistoryLength && i < intent.ShotHistory.size(); ++i)
         {
@@ -163,12 +167,14 @@ namespace MphRead::Mods::Network
         {
             return {};
         }
-        return _remote[static_cast<std::size_t>(slot)].Stats();
+        const auto s = static_cast<std::size_t>(slot);
+        const ShotQueueStats current = _remote[s].Stats();
+        return current.Received == 0 && current.Gaps == 0 ? _lastDeparted[s] : current;
     }
 
     std::optional<std::string> NetShotEvents::Describe()
     {
-        ShotQueueStats total{};
+        ShotQueueStats total = _departed;
         std::uint64_t staleRefused = 0;
         std::uint64_t conflicts = 0;
         for (std::size_t s = 0; s < _remote.size(); ++s)
@@ -186,7 +192,7 @@ namespace MphRead::Mods::Network
             + std::to_string(total.Stale) + " stale, "
             + std::to_string(total.Overflow) + " pushed out, "
             + std::to_string(total.Abandoned) + " abandoned with a life, "
-            + std::to_string(total.Waiting) + " waiting; "
+            + std::to_string(total.Waiting) + " waiting (" + std::to_string(total.Overdue) + " overdue); "
             + std::to_string(total.Gaps) + " skipped by a newer one -- "
             + std::to_string(total.Recovered) + " recovered late, "
             + std::to_string(total.Lost) + " never arrived, "
@@ -214,7 +220,12 @@ namespace MphRead::Mods::Network
         {
             return;
         }
-        _remote[static_cast<std::size_t>(slot)].Reset();
+        const ShotQueueStats departed = _remote[static_cast<std::size_t>(slot)].Retire();
+        if (departed.Received != 0 || departed.Gaps != 0)
+        {
+            _departed += departed;
+            _lastDeparted[static_cast<std::size_t>(slot)] = departed;
+        }
         _ledger[static_cast<std::size_t>(slot)].Reset();
         if (slot == NetHooks::LocalSlot())
         {

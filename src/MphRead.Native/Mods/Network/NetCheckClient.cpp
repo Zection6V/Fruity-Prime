@@ -755,6 +755,7 @@ namespace MphRead::Mods::Network
                 << " received " << shots.Received << " fired " << shots.Fired
                 << " stale " << shots.Stale << " pushed " << shots.Overflow
                 << " abandoned " << shots.Abandoned << " waiting " << shots.Waiting
+                << " overdue " << shots.Overdue
                 << " gaps " << shots.Gaps << " recovered " << shots.Recovered
                 << " lost " << shots.Lost << " pending " << shots.Pending
                 << " late " << shots.OutOfOrder << '\n';

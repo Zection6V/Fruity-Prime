@@ -475,7 +475,7 @@ namespace MphRead::Mods::Network
             player.SetHealth(NetHitPrediction::HealthFor(slot, state.Health));
             player.ModSetFacing(state.Facing);
             player.ModSetWeapon(static_cast<BeamType>(state.CurrentWeapon));
-            player.EquipInfo()->Zoomed = (state.Flags & PlayerState::FlagZoomed) != 0;
+            player.ModSetZoom((state.Flags & PlayerState::FlagZoomed) != 0);
             if (player.Hunter() != Hunter::Weavel)
                 ApplyForm(player, (state.Flags & PlayerState::FlagAltForm) != 0);
             player.ModSetSpectating((state.Flags & PlayerState::FlagSpectating) != 0);

@@ -171,13 +171,13 @@ namespace
         shots.Receive(WithShots(410, {{9, 399, Id(BeamType::ShockCoil)}, {10, 409, Id(BeamType::VoltDriver)}}));
         Expect(NextWeapon(shots) == Id(BeamType::VoltDriver), "and takes the new life's");
         Expect(shots.Stats().Abandoned == 1, "the old life's unfired shot is abandoned, once");
-        shots.Reset();
+        static_cast<void>(shots.Retire());
 
         // Nonsense from the wire is refused.
         shots.Receive(WithShots(500, {{11, 500, 0x7F}, {0, 500, Id(BeamType::Missile)}}));
         Expect(!shots.Next().has_value(), "an unknown weapon or a zero sequence is ignored");
         Expect(shots.Active(), "a player who sends intents is driven by events, fired or not");
-        shots.Reset();
+        static_cast<void>(shots.Retire());
 
         // The charge rides with the shot.
         shots.Receive(WithShots(600, {{12, 600, Id(BeamType::Magmaul), 48}}));
@@ -330,8 +330,19 @@ namespace
         full.BeginLife();
         Expect(full.Stats().Waiting == 0 && full.Stats().Abandoned == RemoteShotQueue::Capacity && Balanced(full),
             "a new life abandons the old one's");
-        full.Reset();
-        Expect(!full.Next().has_value() && full.Stats().Overflow == 1, "the statistics outlive the occupant");
+        const auto retired = full.Retire();
+        Expect(retired.Overflow == 1 && retired.Abandoned == RemoteShotQueue::Capacity,
+            "an occupant leaving takes their statistics");
+        Expect(!full.Next().has_value() && full.Stats().Received == 0 && full.Stats().Overflow == 0,
+            "and the next occupant's start from nothing");
+
+        // A shot still queued once FreshFrames have passed is overdue: nothing
+        // asked for it, which is not a shot in flight at the end of a run.
+        RemoteShotQueue stuck;
+        stuck.Receive(WithShots(700, {{1, 700, Id(BeamType::Missile)}}));
+        Expect(stuck.Stats().Waiting == 1 && stuck.Stats().Overdue == 0, "a fresh shot waiting is the tail");
+        stuck.Receive(WithShots(700 + RemoteShotQueue::FreshFrames + 1, {}));
+        Expect(stuck.Stats().Waiting == 1 && stuck.Stats().Overdue == 1, "an old one is overdue");
 
         // Shots fired before this machine was watching are where the
         // sequence is, not shots to fire or count.

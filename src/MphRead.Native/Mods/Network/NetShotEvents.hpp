@@ -15,30 +15,40 @@ namespace MphRead::Entities
 
 namespace MphRead::Mods::Network
 {
-    // Which weapon a remote player's shot is: the one their own machine fired
-    // it with, carried as a shot event (protocol 20), never the one their copy
-    // here holds when the trigger arrives. The single place the game asks.
+    // A remote player's shots, as their own machine fired them (protocol 20
+    // shot events). The single place the game asks whether a remote copy may
+    // fire, and with what.
     //
-    // Firing the Omega Cannon unequips it in the same frame, and the switch
-    // that follows can reach other machines before the shot does; reading the
-    // held weapon fired a Power Beam in the Omega's place.
+    // A copy fires each event as it arrives -- with the event's weapon and
+    // charge, without waiting for a trigger or a cooldown the owner's machine
+    // already kept -- and fires nothing without one. So a copy can neither
+    // invent a shot (a trigger held through a respawn) nor change its weapon
+    // (the Omega Cannon unequips itself as it fires, and the switch can
+    // arrive first), and a shot fired just before its owner was killed still
+    // leaves the body. The shot it fires is a picture: hits are the shooter's
+    // claims (NetHitClaims), never resolved again from it. Continuous fire
+    // makes no events and stays the trigger's; so do bots, which send no
+    // intents.
     //
     // Owner side: Fired records the shot, Attach puts the history in the
-    // intent. Receiving side: Receive takes events from every intent of the
-    // player's current life, PrepareShot puts the event's weapon in the copy's
-    // hand as it pulls the trigger, Fired spends the event. WeaponSelect keeps
-    // syncing the weapon held; the damage, the ray and the claims are not
-    // touched here.
+    // intent. WeaponSelect keeps syncing the weapon held; the damage, the ray
+    // and the claims are not touched here.
     class NetShotEvents final
     {
     public:
+        static constexpr std::int32_t Slots = 8; // PlayerEntity::SlotCapacity, checked in the .cpp
+
         // After a shot leaves PlayerEntity::TryFireWeapon. continuous: a Shock
         // Coil frame, which makes no event and spends none.
         static void Fired(const Entities::PlayerEntity& shooter, ::MphRead::BeamType weapon, bool continuous) noexcept;
-        // Before TryFireWeapon decides anything: a remote copy whose trigger is
-        // engaged takes up the weapon of its oldest unspent event, keeping the
-        // charge it has built.
+        // First thing in TryFireWeapon: a copy driven by events takes up the
+        // weapon and charge of its oldest unspent event.
         static void PrepareShot(Entities::PlayerEntity& shooter);
+        // Whether TryFireWeapon may go on to fire.
+        [[nodiscard]] static bool MayFire(const Entities::PlayerEntity& shooter) noexcept;
+        // Fires every event waiting for this copy, alive or just killed.
+        // Returns how many left.
+        static std::int32_t FireReady(Entities::PlayerEntity& shooter);
         static void Attach(IntentPacket& intent) noexcept;
         // Before the frame-order check that refuses an older intent: its
         // movement is stale, its shots are not.
@@ -47,10 +57,8 @@ namespace MphRead::Mods::Network
         // A new life, a rejoin, a room change.
         static void Forget(std::int32_t slot) noexcept;
 
-        static constexpr std::int32_t Slots = 8; // PlayerEntity::SlotCapacity, checked in the .cpp
-
     private:
-        [[nodiscard]] static bool IsRemote(std::int32_t slot) noexcept;
+        [[nodiscard]] static bool Drives(const Entities::PlayerEntity& shooter) noexcept;
 
         inline static LocalShotLog _local{};
         inline static std::array<RemoteShotQueue, Slots> _remote{};

@@ -826,7 +826,7 @@ namespace MphRead::Mods::Network
                 W32(Slice(dest, entry), event.Sequence);
                 W32(Slice(dest, entry + 4), event.Frame);
                 At(dest, entry + 8) = event.WeaponId;
-                At(dest, entry + 9) = 0;
+                At(dest, entry + 9) = event.Charge;
                 At(dest, entry + 10) = 0;
                 At(dest, entry + 11) = 0;
             }
@@ -906,7 +906,8 @@ namespace MphRead::Mods::Network
             for (std::size_t i = 0; i < count; ++i)
             {
                 const std::size_t entry = history + 4 + i * static_cast<std::size_t>(ShotEventSize);
-                packet.ShotHistory[i] = {R32(Slice(src, entry)), R32(Slice(src, entry + 4)), At(src, entry + 8)};
+                packet.ShotHistory[i] = {R32(Slice(src, entry)), R32(Slice(src, entry + 4)), At(src, entry + 8),
+                    At(src, entry + 9)};
             }
         }
         return packet;

@@ -12,9 +12,20 @@ namespace MphRead::Mods::Network
 {
     static_assert(NetShotEvents::Slots == Entities::PlayerEntity::SlotCapacity);
 
-    bool NetShotEvents::IsRemote(std::int32_t slot) noexcept
+    namespace
     {
-        return NetSession::Active() && slot >= 0 && slot < Slots && slot != NetHooks::LocalSlot();
+        [[nodiscard]] bool Continuous(const Entities::PlayerEntity& shooter) noexcept
+        {
+            const auto& weapon = NativeRuntime::RequireReference(shooter.EquipInfo()).Weapon;
+            return weapon != nullptr && ::MphRead::TestFlag(weapon->Flags, ::MphRead::WeaponFlags::Continuous);
+        }
+    }
+
+    bool NetShotEvents::Drives(const Entities::PlayerEntity& shooter) noexcept
+    {
+        const std::int32_t slot = shooter.SlotIndex();
+        return NetSession::Active() && slot >= 0 && slot < Slots && slot != NetHooks::LocalSlot()
+            && !shooter.IsBot() && _remote[static_cast<std::size_t>(slot)].Active();
     }
 
     void NetShotEvents::Fired(const Entities::PlayerEntity& shooter, ::MphRead::BeamType weapon, bool continuous) noexcept
@@ -29,10 +40,11 @@ namespace MphRead::Mods::Network
             // The authority's own shots are resolved where they are fired.
             if (!NetSession::IsAuthority())
             {
-                _local.Record(std::max(1U, NetSession::NetFrame()), weapon);
+                _local.Record(std::max(1U, NetSession::NetFrame()), weapon,
+                    NativeRuntime::RequireReference(shooter.EquipInfo()).ChargeLevel);
             }
         }
-        else if (IsRemote(slot))
+        else if (Drives(shooter))
         {
             _remote[static_cast<std::size_t>(slot)].Consume();
         }
@@ -40,26 +52,49 @@ namespace MphRead::Mods::Network
 
     void NetShotEvents::PrepareShot(Entities::PlayerEntity& shooter)
     {
-        const std::int32_t slot = shooter.SlotIndex();
-        if (!IsRemote(slot))
+        if (!Drives(shooter))
         {
             return;
         }
-        Entities::PlayerControls& controls = shooter.Controls();
-        if (!controls.Shoot().IsDown() && !controls.Shoot().IsPressed() && !controls.Shoot().IsReleased())
+        const std::optional<IntentPacket::ShotEvent> event = _remote[static_cast<std::size_t>(shooter.SlotIndex())].Next();
+        if (!event.has_value())
         {
             return;
         }
-        const std::optional<::MphRead::BeamType> fired = _remote[static_cast<std::size_t>(slot)].Next();
-        if (!fired.has_value() || *fired == shooter.CurrentWeapon())
+        const auto weapon = static_cast<::MphRead::BeamType>(event->WeaponId);
+        if (weapon != shooter.CurrentWeapon())
         {
-            return;
+            shooter.ModSetWeapon(weapon);
         }
-        // Equipping resets the charge, and the charge belongs to this shot.
-        ::MphRead::EquipInfo& equip = NativeRuntime::RequireReference(shooter.EquipInfo());
-        const std::uint16_t charge = equip.ChargeLevel;
-        shooter.ModSetWeapon(*fired);
-        equip.ChargeLevel = charge;
+        // After the switch, which resets it: the charge is the shot's.
+        NativeRuntime::RequireReference(shooter.EquipInfo()).ChargeLevel = event->Charge;
+    }
+
+    bool NetShotEvents::MayFire(const Entities::PlayerEntity& shooter) noexcept
+    {
+        return !Drives(shooter) || Continuous(shooter)
+            || _remote[static_cast<std::size_t>(shooter.SlotIndex())].Next().has_value();
+    }
+
+    std::int32_t NetShotEvents::FireReady(Entities::PlayerEntity& shooter)
+    {
+        // A beam weapon is fired standing: an event met in the ball waits for
+        // the copy to stand, or goes stale.
+        if (!Drives(shooter) || shooter.IsAltForm() || shooter.IsMorphing())
+        {
+            return 0;
+        }
+        RemoteShotQueue& shots = _remote[static_cast<std::size_t>(shooter.SlotIndex())];
+        std::int32_t fired = 0;
+        for (std::size_t i = 0; i < RemoteShotQueue::Capacity && shots.Next().has_value(); ++i)
+        {
+            if (!shooter.ModFireShotEvent())
+            {
+                break;
+            }
+            ++fired;
+        }
+        return fired;
     }
 
     void NetShotEvents::Attach(IntentPacket& intent) noexcept

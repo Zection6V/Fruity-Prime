@@ -1,6 +1,7 @@
 #include "RemoteShotQueue.hpp"
 
 #include "NetLifecycleTracker.hpp"
+#include "../../Formats/Enums.hpp"
 
 #include <algorithm>
 
@@ -8,6 +9,7 @@ namespace MphRead::Mods::Network
 {
     void RemoteShotQueue::Receive(const IntentPacket& intent) noexcept
     {
+        _active = true;
         if (_newestIntentFrame == 0 || NetLifecycleTracker::Newer(intent.Frame, _newestIntentFrame))
         {
             _newestIntentFrame = intent.Frame;
@@ -33,7 +35,7 @@ namespace MphRead::Mods::Network
         }
     }
 
-    std::optional<::MphRead::BeamType> RemoteShotQueue::Next() noexcept
+    std::optional<IntentPacket::ShotEvent> RemoteShotQueue::Next() noexcept
     {
         while (_count > 0 && _newestIntentFrame - _queue[0].Frame > FreshFrames)
         {
@@ -43,7 +45,7 @@ namespace MphRead::Mods::Network
         {
             return std::nullopt;
         }
-        return static_cast<::MphRead::BeamType>(_queue[0].WeaponId);
+        return _queue[0];
     }
 
     void RemoteShotQueue::Consume() noexcept
@@ -56,7 +58,8 @@ namespace MphRead::Mods::Network
 
     void RemoteShotQueue::PopFront() noexcept
     {
-        std::rotate(_queue.begin(), _queue.begin() + 1, _queue.begin() + static_cast<std::ptrdiff_t>(_count));
+        const auto end = static_cast<std::ptrdiff_t>(_count);
+        std::rotate(_queue.begin(), _queue.begin() + 1, _queue.begin() + end);
         --_count;
     }
 }

@@ -15,7 +15,7 @@ namespace MphRead::Mods::Network
     class LocalShotLog final
     {
     public:
-        void Record(std::uint32_t frame, ::MphRead::BeamType weapon) noexcept;
+        void Record(std::uint32_t frame, ::MphRead::BeamType weapon, std::uint16_t charge) noexcept;
         // The history, and -- when the intent carries this frame's ray --
         // that shot's sequence and weapon.
         void Fill(IntentPacket& intent, std::uint32_t frame) const noexcept;

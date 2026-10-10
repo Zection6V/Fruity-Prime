@@ -421,11 +421,14 @@ namespace MphRead::Mods::Network
         //   ray      origin xyz, direction xyz             24
         //   this     ShotSequence u32, ShotWeaponId u8, 3   8
         //   history  count u8, 3, then ShotHistoryCount x
-        //            (sequence u32, frame u32, weapon u8, 3) 4 + 4 x 12
+        //            (sequence u32, frame u32, weapon u8,
+        //             charge u8, 2)                          4 + 4 x 12
         // The history is the sender's last few shot events, newest last, in
         // every intent: an intent lost, or refused for arriving behind a
         // newer one, loses no shot, and the receiver deduplicates on the
-        // sequence. Continuous fire (Shock Coil) makes no events.
+        // sequence. Continuous fire (Shock Coil) makes no events. A remote
+        // player's copy fires one shot per event and none without one
+        // (NetShotEvents): the trigger it is sent only times the shot.
         static constexpr std::int32_t ShotSize = 32;
         static constexpr std::int32_t ShotEventSize = 12;
         static constexpr std::int32_t ShotHistoryCount = 4;
@@ -437,6 +440,8 @@ namespace MphRead::Mods::Network
             std::uint32_t Sequence = 0;
             std::uint32_t Frame = 0;
             std::uint8_t WeaponId = NoWeapon;
+            // EquipInfo::ChargeLevel as the shot left, clamped to a byte.
+            std::uint8_t Charge = 0;
         };
         bool HasShot = false;
         ::OpenTK::Mathematics::Vector3 ShotOrigin{};

@@ -494,6 +494,8 @@ namespace MphRead::Entities
         else
         {
             _showScoreboard = GameState::Multiplayer() && _controls.Pause().IsDown();
+            // Shots its owner fired before being killed still leave the body.
+            static_cast<void>(Mods::Network::NetShotEvents::FireReady(*this));
         }
         if (IsAltForm() || IsMorphing())
         {
@@ -1161,6 +1163,13 @@ namespace MphRead::Entities
                         }
                     }
                 }
+                // A remote copy fires its owner's shots as they arrive, not
+                // its trigger's. Mods.Network.NetShotEvents.
+                if (Mods::Network::NetShotEvents::FireReady(*this) > 0)
+                {
+                    anim2 = PlayerAnimation::Shoot;
+                    animFlags2 |= AnimFlags::NoLoop;
+                }
 
                 if ((!TestFlag(_flags2, PlayerFlags2::BipedStuck)
                         && TestFlag(_abilities, AbilityFlags::AltForm) && _controls.Morph().IsPressed())
@@ -1241,6 +1250,10 @@ namespace MphRead::Entities
             return false;
         }
         Mods::Network::NetShotEvents::PrepareShot(*this);
+        if (!Mods::Network::NetShotEvents::MayFire(*this))
+        {
+            return false;
+        }
         const bool pressed = _controls.Shoot().IsPressed();
         const WeaponInfo& equipWeapon = EquipWeapon();
         if (pressed || _currentWeapon != BeamType::PowerBeam)

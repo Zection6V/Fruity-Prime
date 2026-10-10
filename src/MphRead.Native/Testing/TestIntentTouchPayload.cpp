@@ -4,7 +4,6 @@
 #include "../Mods/Network/LocalShotLog.hpp"
 #include "../Mods/Network/RemoteShotQueue.hpp"
 #include "../Mods/Network/ReplayedPressOrder.hpp"
-#include "../Mods/Network/RespawnTriggerGuard.hpp"
 #include "../Mods/Input/HostTouch.hpp"
 #include "../Mods/Input/TouchInputAdapter.hpp"
 #include "../Entities/Players/MorphBallBoostStateMachine.hpp"
@@ -37,7 +36,6 @@ namespace
     using MphRead::Mods::Network::LocalShotLog;
     using MphRead::Mods::Network::RemoteShotQueue;
     using MphRead::Mods::Network::ReplayedPressOrder;
-    using MphRead::Mods::Network::RespawnTriggerGuard;
 
     IntentPacket WithShots(std::uint32_t frame, std::initializer_list<ShotEvent> events)
     {
@@ -52,12 +50,18 @@ namespace
 
     std::uint8_t Id(BeamType beam) { return static_cast<std::uint8_t>(beam); }
 
+    std::uint8_t NextWeapon(RemoteShotQueue& shots)
+    {
+        const auto event = shots.Next();
+        return event.has_value() ? event->WeaponId : IntentPacket::NoWeapon;
+    }
+
     // Protocol 20 on the wire: the ray, this frame's shot, and the history.
     void ShotEventWire()
     {
         IntentPacket shot{};
         shot.ShotHistory[0] = {41, 100, Id(BeamType::Missile)};
-        shot.ShotHistory[1] = {42, 104, Id(BeamType::OmegaCannon)};
+        shot.ShotHistory[1] = {42, 104, Id(BeamType::OmegaCannon), 37};
         shot.ShotHistoryLength = 2;
         std::vector<std::uint8_t> bytes(IntentPacket::ShotFullSize);
         shot.Write(bytes);
@@ -65,7 +69,8 @@ namespace
         Expect(!noRay.HasShot && noRay.ShotSequence == 0 && noRay.ShotWeaponId == IntentPacket::NoWeapon,
             "a frame that fired nothing carries no shot of its own");
         Expect(noRay.ShotHistoryLength == 2 && noRay.ShotHistory[1].Sequence == 42
-            && noRay.ShotHistory[1].Frame == 104 && noRay.ShotHistory[1].WeaponId == Id(BeamType::OmegaCannon),
+            && noRay.ShotHistory[1].Frame == 104 && noRay.ShotHistory[1].WeaponId == Id(BeamType::OmegaCannon)
+            && noRay.ShotHistory[1].Charge == 37,
             "but still carries the history");
 
         shot.HasShot = true;
@@ -99,14 +104,14 @@ namespace
     void ShotEventReceiver()
     {
         RemoteShotQueue shots;
-        Expect(!shots.Next().has_value(), "nothing pending on a new life");
+        Expect(!shots.Next().has_value() && !shots.Active(), "nothing pending, and no events driving, on a new life");
 
         // The Omega shot, then the switch to the Power Beam arriving first:
         // the switch is WeaponSelect's business, the shot keeps its weapon.
         IntentPacket switched = WithShots(205, {{1, 200, Id(BeamType::OmegaCannon)}});
         switched.WeaponSelect = Id(BeamType::PowerBeam);
         shots.Receive(switched);
-        Expect(shots.Next() == BeamType::OmegaCannon, "the shot fires the weapon it left, whatever is held now");
+        Expect(NextWeapon(shots) == Id(BeamType::OmegaCannon), "the shot fires the weapon it left, whatever is held now");
 
         // The same event again, in a later intent and in an older one.
         shots.Receive(WithShots(206, {{1, 200, Id(BeamType::OmegaCannon)}}));
@@ -117,22 +122,22 @@ namespace
         // Rapid fire: each shot keeps its own weapon, in firing order.
         shots.Receive(WithShots(230, {
             {2, 220, Id(BeamType::Missile)}, {3, 224, Id(BeamType::PowerBeam)}, {4, 228, Id(BeamType::Missile)}}));
-        Expect(shots.Next() == BeamType::Missile, "first shot: Missile");
+        Expect(NextWeapon(shots) == Id(BeamType::Missile), "first shot: Missile");
         shots.Consume();
-        Expect(shots.Next() == BeamType::PowerBeam, "second shot: Power Beam");
+        Expect(NextWeapon(shots) == Id(BeamType::PowerBeam), "second shot: Power Beam");
         shots.Consume();
-        Expect(shots.Next() == BeamType::Missile, "third shot: Missile");
+        Expect(NextWeapon(shots) == Id(BeamType::Missile), "third shot: Missile");
         shots.Consume();
 
         // A lost intent: the next one still carries the shot.
         shots.Receive(WithShots(242, {{4, 228, Id(BeamType::Missile)}, {5, 240, Id(BeamType::Imperialist)}}));
-        Expect(shots.Next() == BeamType::Imperialist, "a shot whose intent was lost arrives with the next");
+        Expect(NextWeapon(shots) == Id(BeamType::Imperialist), "a shot whose intent was lost arrives with the next");
         shots.Consume();
 
         // Out of order: the newer intent first, then an older one.
         shots.Receive(WithShots(260, {{7, 258, Id(BeamType::Judicator)}}));
         shots.Receive(WithShots(250, {{6, 248, Id(BeamType::Magmaul)}}));
-        Expect(shots.Next() == BeamType::Judicator, "a sequence behind one already queued is not queued again");
+        Expect(NextWeapon(shots) == Id(BeamType::Judicator), "a sequence behind one already queued is not queued again");
         shots.Consume();
 
         // An event whose trigger never fired here goes stale rather than
@@ -147,12 +152,21 @@ namespace
         shots.Reset();
         Expect(!shots.Next().has_value(), "a new life holds none of the old life's shots");
         shots.Receive(WithShots(410, {{10, 409, Id(BeamType::VoltDriver)}}));
-        Expect(shots.Next() == BeamType::VoltDriver, "and takes the new life's");
+        Expect(NextWeapon(shots) == Id(BeamType::VoltDriver), "and takes the new life's");
         shots.Reset();
 
         // Nonsense from the wire is refused.
         shots.Receive(WithShots(500, {{11, 500, 0x7F}, {0, 500, Id(BeamType::Missile)}}));
         Expect(!shots.Next().has_value(), "an unknown weapon or a zero sequence is ignored");
+        Expect(shots.Active(), "a player who sends intents is driven by events, fired or not");
+        shots.Reset();
+
+        // The charge rides with the shot.
+        shots.Receive(WithShots(600, {{12, 600, Id(BeamType::Magmaul), 48}}));
+        Expect(shots.Next().has_value() && shots.Next()->Charge == 48, "the event carries the charge it left with");
+
+        shots.Consume();
+        Expect(!shots.Next().has_value(), "fired once, gone");
     }
 
     // The owner's side: a sequence per shot, the last few in every intent.
@@ -161,7 +175,7 @@ namespace
         LocalShotLog log;
         for (std::uint32_t i = 0; i < 6; ++i)
         {
-            log.Record(100 + i, i % 2 == 0 ? BeamType::Missile : BeamType::OmegaCannon);
+            log.Record(100 + i, i % 2 == 0 ? BeamType::Missile : BeamType::OmegaCannon, static_cast<std::uint16_t>(i));
         }
         IntentPacket intent{};
         intent.HasShot = true;
@@ -177,27 +191,13 @@ namespace
         Expect(later.ShotSequence == 0 && later.ShotHistoryLength == IntentPacket::ShotHistoryCount,
             "a later frame's ray that made no event names none, the history still rides");
         log.Reset();
-        log.Record(200, BeamType::PowerBeam);
+        log.Record(200, BeamType::PowerBeam, 400);
         IntentPacket respawned{};
         log.Fill(respawned, 200);
         Expect(respawned.ShotHistoryLength == 1 && respawned.ShotHistory[0].Sequence == 7,
             "a new life empties the history but never reuses a sequence");
-    }
-
-    // The trigger a remote player respawned with fires only what the owner fired.
-    void RespawnTrigger()
-    {
-        RespawnTriggerGuard guard;
-        Expect(guard.TriggerAllowed(true, true, true, false), "an unarmed guard passes everything");
-        guard.Arm();
-        Expect(guard.TriggerAllowed(false, true, true, false) && guard.Armed(),
-            "a dead player's trigger is the respawn press and always goes through");
-        Expect(!guard.TriggerAllowed(true, true, false, false), "a held respawn press fires nothing by itself");
-        Expect(!guard.TriggerAllowed(true, true, true, false), "nor a replayed one");
-        Expect(guard.TriggerAllowed(true, true, true, true), "unless the owner's machine reports the shot");
-        Expect(guard.Armed(), "and it stays armed while the trigger is held");
-        Expect(guard.TriggerAllowed(true, false, false, false) && !guard.Armed(), "letting go disarms it");
-        Expect(guard.TriggerAllowed(true, true, true, false), "after which the trigger is the copy's own");
+        Expect(respawned.ShotHistory[0].Charge == 0xFF, "a charge past a byte is clamped");
+        Expect(intent.ShotHistory[3].Charge == 5, "the charge is recorded with the shot");
     }
 
     // A morph replayed in the same intent as a trigger waits behind the shot.
@@ -416,7 +416,6 @@ int main()
         ShotEventReceiver();
         ShotEventSender();
         PressOrder();
-        RespawnTrigger();
         OwnerAuthorityParity();
         PacketFaults();
     }

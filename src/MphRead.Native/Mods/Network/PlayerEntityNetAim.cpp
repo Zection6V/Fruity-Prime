@@ -873,6 +873,15 @@ namespace MphRead::Entities
         }
     }
 
+    // A remote player's shot event, fired now: the owner's machine already
+    // spaced it, so this copy's cooldown does not hold it back.
+    // Mods.Network.NetShotEvents.FireReady.
+    bool PlayerEntity::ModFireShotEvent()
+    {
+        SetTimeSinceShot(std::numeric_limits<std::uint16_t>::max());
+        return TryFireWeapon();
+    }
+
     bool PlayerEntity::ModBurning() const
     {
         return (*this)._burnTimer > 0;

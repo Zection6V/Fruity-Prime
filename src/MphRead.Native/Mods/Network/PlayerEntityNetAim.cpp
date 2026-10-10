@@ -873,12 +873,18 @@ namespace MphRead::Entities
         }
     }
 
-    // A remote player's shot event, fired now: the owner's machine already
-    // spaced it, so this copy's cooldown does not hold it back.
-    // Mods.Network.NetShotEvents.FireReady.
+    // A remote player's shot event, fired now. Its owner's machine already
+    // kept the cooldown and had the gun up, so neither this copy's cooldown
+    // nor its gun -- lowered for want of input, or still rising after an
+    // unmorph -- holds the shot back. Mods.Network.NetShotEvents.FireReady.
     bool PlayerEntity::ModFireShotEvent()
     {
         SetTimeSinceShot(std::numeric_limits<std::uint16_t>::max());
+        _timeSinceInput = 0;
+        if (_gunAnimation == GunAnimation::UpDown)
+        {
+            SetGunAnimation(GunAnimation::Idle, AnimFlags::None);
+        }
         return TryFireWeapon();
     }
 

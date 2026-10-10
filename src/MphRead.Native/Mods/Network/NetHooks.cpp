@@ -119,6 +119,11 @@ namespace MphRead::Mods::Network
         {
             return current;
         }
+        // The shot event being fired: its own ray, however late it arrived.
+        if (const auto event = NetShotEvents::FiringRay(player); event.has_value())
+        {
+            return event->Origin;
+        }
         const IntentPacket& intent = NetSession::RemoteIntents.at(static_cast<std::size_t>(player.SlotIndex()));
         // The shooter's own ray, when the intent that pulled this trigger
         // carries it -- but never one far from where the authority has them.
@@ -168,6 +173,10 @@ namespace MphRead::Mods::Network
             && static_cast<std::size_t>(player.SlotIndex()) < NetSession::RemoteIntents.size()
             && NetPlayerBridge::AimTrusted(player.SlotIndex()))
         {
+            if (const auto event = NetShotEvents::FiringRay(player); event.has_value())
+            {
+                return event->Direction.Normalized();
+            }
             const IntentPacket& intent = NetSession::RemoteIntents.at(static_cast<std::size_t>(player.SlotIndex()));
             if (intent.HasShot && OpenTK::Mathematics::LengthSquared(intent.ShotOrigin - intent.Position) < 9.0F)
             {

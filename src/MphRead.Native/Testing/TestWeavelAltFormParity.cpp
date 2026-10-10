@@ -85,8 +85,8 @@ namespace
             "an unchanged form is only finalized");
         // Protocol 17 added the 14 Weavel bytes; 19 adds 3 for the newest
         // damage event's confirmed impact: 54 + 4 x 15 + 14 + 3. 20 changes
-        // only the intent (shot events).
-        Expect(NetConfig::ProtocolVersion == 20 && PlayerState::Size == 131
+        // only the intent (shot events); 21 the shot events and the claims.
+        Expect(NetConfig::ProtocolVersion == 21 && PlayerState::Size == 131
             && PlayerState::Size - PlayerState::LegacySize == 17, "Weavel and the impact add 17 bytes per player");
         for (int mode = 0; mode < 3; ++mode)
         {

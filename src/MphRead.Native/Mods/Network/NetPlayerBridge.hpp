@@ -3,7 +3,6 @@
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "FormReconciliation.hpp"
 #include "NetProtocol.hpp"
-#include "ReplayedPressOrder.hpp"
 
 #include <array>
 #include <cstdint>
@@ -209,7 +208,6 @@ namespace MphRead::Mods::Network
         inline static std::array<bool, Slots> _pressSeen{};
         inline static std::array<bool, Slots> _respawnRequested{};
         inline static std::array<bool, Slots> _aimHeld{};
-        inline static std::array<ReplayedPressOrder, Slots> _pressOrder{};
 
         inline static std::array<std::uint16_t, Slots> _appliedLifeId{};
         inline static std::array<bool, Slots> _lifeApplied{};

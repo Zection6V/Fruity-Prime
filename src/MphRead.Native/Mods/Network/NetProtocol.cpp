@@ -808,11 +808,6 @@ namespace MphRead::Mods::Network
             WF(Slice(dest, at + 12), direction.X);
             WF(Slice(dest, at + 16), direction.Y);
             WF(Slice(dest, at + 20), direction.Z);
-            W32(Slice(dest, at + 24), HasShot ? ShotSequence : 0U);
-            At(dest, at + 28) = HasShot ? ShotWeaponId : NoWeapon;
-            At(dest, at + 29) = 0;
-            At(dest, at + 30) = 0;
-            At(dest, at + 31) = 0;
             const auto history = static_cast<std::size_t>(FullSize + ShotSize);
             const std::uint8_t count = std::min<std::uint8_t>(ShotHistoryLength, ShotHistoryCount);
             At(dest, history) = count;
@@ -825,10 +820,17 @@ namespace MphRead::Mods::Network
                 const std::size_t entry = history + 4 + i * static_cast<std::size_t>(ShotEventSize);
                 W32(Slice(dest, entry), event.Sequence);
                 W32(Slice(dest, entry + 4), event.Frame);
-                At(dest, entry + 8) = event.WeaponId;
-                At(dest, entry + 9) = event.Charge;
-                At(dest, entry + 10) = 0;
-                At(dest, entry + 11) = 0;
+                W32(Slice(dest, entry + 8), event.AckFrame);
+                At(dest, entry + 12) = event.WeaponId;
+                At(dest, entry + 13) = event.Charge;
+                At(dest, entry + 14) = 0;
+                At(dest, entry + 15) = 0;
+                WF(Slice(dest, entry + 16), event.Origin.X);
+                WF(Slice(dest, entry + 20), event.Origin.Y);
+                WF(Slice(dest, entry + 24), event.Origin.Z);
+                WF(Slice(dest, entry + 28), event.Direction.X);
+                WF(Slice(dest, entry + 32), event.Direction.Y);
+                WF(Slice(dest, entry + 36), event.Direction.Z);
             }
         }
     }
@@ -898,16 +900,30 @@ namespace MphRead::Mods::Network
                 && std::isfinite(packet.ShotOrigin.Z) && std::isfinite(packet.ShotDirection.X)
                 && std::isfinite(packet.ShotDirection.Y) && std::isfinite(packet.ShotDirection.Z)
                 && packet.ShotDirection.LengthSquared() > 0.25F && packet.ShotDirection.LengthSquared() < 4.0F;
-            packet.ShotSequence = R32(Slice(src, at + 24));
-            packet.ShotWeaponId = At(src, at + 28);
             const auto history = static_cast<std::size_t>(FullSize + ShotSize);
             const std::uint8_t count = std::min<std::uint8_t>(At(src, history), ShotHistoryCount);
             packet.ShotHistoryLength = count;
             for (std::size_t i = 0; i < count; ++i)
             {
                 const std::size_t entry = history + 4 + i * static_cast<std::size_t>(ShotEventSize);
-                packet.ShotHistory[i] = {R32(Slice(src, entry)), R32(Slice(src, entry + 4)), At(src, entry + 8),
-                    At(src, entry + 9)};
+                IntentPacket::ShotEvent& event = packet.ShotHistory[i];
+                event.Sequence = R32(Slice(src, entry));
+                event.Frame = R32(Slice(src, entry + 4));
+                event.AckFrame = R32(Slice(src, entry + 8));
+                event.WeaponId = At(src, entry + 12);
+                event.Charge = At(src, entry + 13);
+                event.Origin = ::OpenTK::Mathematics::Vector3(
+                    RF(Slice(src, entry + 16)), RF(Slice(src, entry + 20)), RF(Slice(src, entry + 24)));
+                event.Direction = ::OpenTK::Mathematics::Vector3(
+                    RF(Slice(src, entry + 28)), RF(Slice(src, entry + 32)), RF(Slice(src, entry + 36)));
+                const bool finite = std::isfinite(event.Origin.X) && std::isfinite(event.Origin.Y)
+                    && std::isfinite(event.Origin.Z) && std::isfinite(event.Direction.X)
+                    && std::isfinite(event.Direction.Y) && std::isfinite(event.Direction.Z)
+                    && event.Direction.LengthSquared() < 4.0F;
+                if (!finite)
+                {
+                    event.Origin = event.Direction = ::OpenTK::Mathematics::Vector3::Zero;
+                }
             }
         }
         return packet;
@@ -1153,6 +1169,7 @@ namespace MphRead::Mods::Network
         At(dest, 61) = static_cast<std::uint8_t>(Impact.X);
         At(dest, 62) = static_cast<std::uint8_t>(Impact.Y);
         At(dest, 63) = static_cast<std::uint8_t>(Impact.Z);
+        W32(Slice(dest, 64), ShotSequence);
     }
     HitClaimPacket HitClaimPacket::Read(std::span<const std::uint8_t> src)
     {
@@ -1183,6 +1200,7 @@ namespace MphRead::Mods::Network
             packet.Impulse = ::OpenTK::Mathematics::Vector3::Zero;
             packet.Flags = static_cast<std::uint8_t>(packet.Flags & ~FlagImpulse);
         }
+        packet.ShotSequence = R32(Slice(src, 64));
         return packet;
     }
     void HitVerdictPacket::Write(std::span<std::uint8_t> dest,

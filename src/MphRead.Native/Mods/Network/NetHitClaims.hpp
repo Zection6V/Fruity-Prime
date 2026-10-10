@@ -83,7 +83,8 @@ namespace MphRead::Mods::Network
             ::MphRead::Entities::DamageFlags flags, bool lethal, OpenTK::Mathematics::Vector3 hitPoint,
             std::uint32_t launchFrame, std::optional<OpenTK::Mathematics::Vector3> impulse = std::nullopt,
             ::MphRead::Affliction afflictions = ::MphRead::Affliction::None,
-            std::optional<OpenTK::Mathematics::Vector3> impact = std::nullopt, bool splash = false);
+            std::optional<OpenTK::Mathematics::Vector3> impact = std::nullopt, bool splash = false,
+            std::uint32_t shotSequence = 0);
         // While a claim is being applied: where it landed on the victim, for
         // the damage event the victim's machine will read (NetDamage::Note).
         [[nodiscard]] static ImpactOffset CurrentClaimImpact() noexcept { return _applyingImpact; }
@@ -174,6 +175,7 @@ namespace MphRead::Mods::Network
 
         struct Outgoing final
         {
+            std::uint32_t ShotSequence = 0;
             std::uint16_t MatchId = 0;
             std::uint64_t AuthorityEpoch = 0;
             std::uint16_t ShooterGeneration = 0;
@@ -314,6 +316,17 @@ namespace MphRead::Mods::Network
         inline static std::array<std::array<std::uint32_t, 64>, 8> _ackValueOf{};
         inline static std::int64_t _ackRefused = 0;
         inline static std::int64_t _rayRefused = 0;
+        // Claims naming a shot event whose weapon or launch frame they
+        // contradict, and claims checked against the event they named.
+        // How far a claim's launch frame may stand from the world its named
+        // shot was aimed in: the frame the ack ticks over between the two.
+        static constexpr std::uint32_t NamedShotAckSlack = 2;
+        [[nodiscard]] static bool NamedShotAgrees(std::int32_t shooterSlot, const HitClaimPacket& claim,
+            std::uint32_t launch, std::optional<IntentPacket::ShotEvent>& named);
+        inline static std::int64_t _eventRefused = 0;
+        inline static std::int64_t _eventMatched = 0;
+        inline static std::int64_t _eventNamed = 0;
+        inline static std::int64_t _eventUnknown = 0;
         inline static std::int64_t _losRefused = 0;
         inline static std::int64_t _rateRefused = 0;
         // The distinct launch frames recently claimed, per shooter and weapon.

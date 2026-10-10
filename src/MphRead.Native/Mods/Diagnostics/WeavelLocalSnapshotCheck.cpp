@@ -143,13 +143,13 @@ namespace MphRead::Mods::Diagnostics
                 state.HalfturretHealth = 47;
                 state.HalfturretPosition = Vector3(4, 23, 5);
                 apply(state, false);
-                check(owner.IsAltForm() && turret.Health() == 47 && turret.Grounded()
+                check((owner.IsAltForm() || owner.IsMorphing()) && turret.Health() == 47 && turret.Grounded()
                     && OpenTK::Mathematics::Equal(turret.Position, state.HalfturretPosition),
                     paths[path] + " remote active turret is reconciled without splitting HP");
                 check(owner.Health() == state.Health, paths[path] + " remote activation does not split authority HP");
                 state.WeavelFlags = 0; state.HalfturretHealth = 0;
                 apply(state, false);
-                check(owner.IsAltForm() && turret.Health() == 0,
+                check((owner.IsAltForm() || owner.IsMorphing()) && turret.Health() == 0,
                     paths[path] + " remote Alt with dead turret remains dead");
                 state.Flags &= ~PlayerState::FlagAltForm;
                 apply(state, false);

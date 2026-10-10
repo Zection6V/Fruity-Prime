@@ -1,4 +1,5 @@
 #include "NetHitClaims.hpp"
+#include "NetShotEvents.hpp"
 #include "HitLocation.hpp"
 #include "../../Formats/CollisionDetection.hpp"
 
@@ -159,7 +160,7 @@ namespace MphRead::Mods::Network
     std::uint16_t NetHitClaims::Declare(PlayerEntity& victim, PlayerEntity& attacker, ::MphRead::BeamType beam,
         std::uint32_t damage, DamageFlags flags, bool lethal, OpenTK::Mathematics::Vector3 hitPoint,
         std::uint32_t launchFrame, std::optional<OpenTK::Mathematics::Vector3> impulse, ::MphRead::Affliction afflictions,
-        std::optional<OpenTK::Mathematics::Vector3> impact, bool splash)
+        std::optional<OpenTK::Mathematics::Vector3> impact, bool splash, std::uint32_t shotSequence)
     {
         if (!Claiming() || &victim == &attacker || damage == 0
             || NetPlayerLifecycle::Get(victim.SlotIndex()) == 0 || NetPlayerLifecycle::Get(attacker.SlotIndex()) == 0)
@@ -238,6 +239,7 @@ namespace MphRead::Mods::Network
         entry.Frame = NetSession::NetFrame();
         entry.AckFrame = ack;
         entry.LaunchFrame = launchFrame;
+        entry.ShotSequence = shotSequence;
         entry.VictimSlot = static_cast<std::uint8_t>(slot);
         entry.Beam = beam == ::MphRead::BeamType::None ? HitClaimPacket::NoBeam : static_cast<std::uint8_t>(beam);
         entry.Damage = static_cast<std::uint16_t>(std::min<std::uint32_t>(damage, 0xFFFFU));
@@ -298,6 +300,7 @@ namespace MphRead::Mods::Network
             packet.Frame = entry.Frame;
             packet.AckFrame = entry.AckFrame;
             packet.LaunchFrame = entry.LaunchFrame;
+            packet.ShotSequence = entry.ShotSequence;
             packet.VictimSlot = entry.VictimSlot;
             packet.Beam = entry.Beam;
             packet.Damage = entry.Damage;
@@ -1225,15 +1228,32 @@ namespace MphRead::Mods::Network
                 return false;
             }
         }
+        const std::uint32_t launch = claim.LaunchFrame != 0 ? claim.LaunchFrame : claim.AckFrame;
+        std::optional<IntentPacket::ShotEvent> event{};
+        if (!NamedShotAgrees(shooterSlot, claim, launch, event))
+        {
+            return false;
+        }
         if (!claim.Impact.Known() || (claim.Flags & HitClaimPacket::FlagSplash) != 0 || !StraightWeapon(shooterSlot, claim.Beam))
         {
             return true;
         }
-        const std::uint32_t launch = claim.LaunchFrame != 0 ? claim.LaunchFrame : claim.AckFrame;
         const ClaimShotRay* ray = nullptr;
+        // The shot event the claim names: the exact ray of that shot.
+        ClaimShotRay named{};
+        if (event.has_value() && event->HasRay())
+        {
+            named = ClaimShotRay{event->AckFrame, event->Origin, event->Direction.Normalized()};
+            ray = &named;
+            _eventMatched++;
+        }
         std::uint32_t bestGap = 3;
         for (const ClaimShotRay& candidate : _shotRays[s])
         {
+            if (ray == &named)
+            {
+                break;
+            }
             const std::uint32_t gap = candidate.Ack > launch ? candidate.Ack - launch : launch - candidate.Ack;
             if (candidate.Ack != 0 && gap < bestGap)
             {
@@ -1264,6 +1284,32 @@ namespace MphRead::Mods::Network
                 _losRefused++;
                 return false;
             }
+        }
+        return true;
+    }
+
+    // A claim naming a shot event must be that shot: the weapon it left with
+    // and the world it was aimed in, whatever kind of hit -- splash too. A
+    // shot not reported yet (its intent lost, the next not arrived) is judged
+    // the old way.
+    bool NetHitClaims::NamedShotAgrees(std::int32_t shooterSlot, const HitClaimPacket& claim, std::uint32_t launch,
+        std::optional<IntentPacket::ShotEvent>& named)
+    {
+        named = NetShotEvents::Find(shooterSlot, claim.ShotSequence);
+        if (!named.has_value())
+        {
+            if (claim.ShotSequence != 0)
+            {
+                _eventUnknown++;
+            }
+            return true;
+        }
+        _eventNamed++;
+        const std::uint32_t gap = named->AckFrame > launch ? named->AckFrame - launch : launch - named->AckFrame;
+        if (named->WeaponId != claim.Beam || (named->AckFrame != 0 && gap > NamedShotAckSlack))
+        {
+            _eventRefused++;
+            return false;
         }
         return true;
     }
@@ -1684,6 +1730,10 @@ namespace MphRead::Mods::Network
         _afflictionsStripped = 0;
         _ackRefused = 0;
         _rayRefused = 0;
+        _eventRefused = 0;
+        _eventMatched = 0;
+        _eventNamed = 0;
+        _eventUnknown = 0;
         _losRefused = 0;
         _rateRefused = 0;
         for (auto& weapons : _recentLaunches) for (auto& launches : weapons) launches.fill(0);
@@ -1795,6 +1845,10 @@ namespace MphRead::Mods::Network
                 + std::to_string(_impactRefused) + " landing off the body, "
                 + std::to_string(_afflictionsStripped) + " afflictions dropped, " + std::to_string(_ackRefused)
                 + " resolved against a stale ack, " + std::to_string(_rayRefused) + " off the fired ray, "
+                + std::to_string(_eventNamed) + " naming a reported shot ("
+                + std::to_string(_eventMatched) + " ray-checked against it, "
+                + std::to_string(_eventRefused) + " contradicting it), "
+                + std::to_string(_eventUnknown) + " naming one not yet reported, "
                 + std::to_string(_losRefused) + " through a wall, " + std::to_string(_rateRefused)
                 + " faster than the weapon fires, " + (_shooterHits ? "shooter-authoritative (" + std::to_string(_serverCopiesSuppressed) + " server copies not applied), " : std::string())
                 + std::to_string(_voidedDeadShooter) + " from a shooter already dead, "

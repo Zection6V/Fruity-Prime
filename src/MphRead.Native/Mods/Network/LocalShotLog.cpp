@@ -4,27 +4,23 @@
 
 namespace MphRead::Mods::Network
 {
-    void LocalShotLog::Record(std::uint32_t frame, ::MphRead::BeamType weapon, std::uint16_t charge) noexcept
+    std::uint32_t LocalShotLog::Record(IntentPacket::ShotEvent shot) noexcept
     {
-        _sequence = std::max(1U, _sequence + 1U);
+        _sequence = Advance(_sequence);
+        shot.Sequence = _sequence;
         if (_length == _history.size())
         {
             std::rotate(_history.begin(), _history.begin() + 1, _history.end());
             --_length;
         }
-        _history[_length++] = {_sequence, frame, static_cast<std::uint8_t>(weapon),
-            static_cast<std::uint8_t>(std::min<std::uint16_t>(charge, 0xFF))};
+        _history[_length++] = shot;
+        return _sequence;
     }
 
-    void LocalShotLog::Fill(IntentPacket& intent, std::uint32_t frame) const noexcept
+    void LocalShotLog::Fill(IntentPacket& intent) const noexcept
     {
         intent.ShotHistory = _history;
         intent.ShotHistoryLength = _length;
-        if (intent.HasShot && _length > 0 && _history[_length - 1].Frame == frame)
-        {
-            intent.ShotSequence = _history[_length - 1].Sequence;
-            intent.ShotWeaponId = _history[_length - 1].WeaponId;
-        }
     }
 
     void LocalShotLog::Reset() noexcept

@@ -3,7 +3,7 @@
 #include "../Mods/Network/NetProtocol.hpp"
 #include "../Mods/Network/LocalShotLog.hpp"
 #include "../Mods/Network/RemoteShotQueue.hpp"
-#include "../Mods/Network/ReplayedPressOrder.hpp"
+#include "../Mods/Network/ShotEventLedger.hpp"
 #include "../Mods/Input/HostTouch.hpp"
 #include "../Mods/Input/TouchInputAdapter.hpp"
 #include "../Entities/Players/MorphBallBoostStateMachine.hpp"
@@ -35,7 +35,8 @@ namespace
     using MphRead::BeamType;
     using MphRead::Mods::Network::LocalShotLog;
     using MphRead::Mods::Network::RemoteShotQueue;
-    using MphRead::Mods::Network::ReplayedPressOrder;
+    using MphRead::Mods::Network::ShotEventLedger;
+    using MphRead::Mods::Network::HitClaimPacket;
 
     IntentPacket WithShots(std::uint32_t frame, std::initializer_list<ShotEvent> events)
     {
@@ -61,28 +62,37 @@ namespace
     {
         IntentPacket shot{};
         shot.ShotHistory[0] = {41, 100, Id(BeamType::Missile)};
-        shot.ShotHistory[1] = {42, 104, Id(BeamType::OmegaCannon), 37};
+        shot.ShotHistory[1] = {42, 104, Id(BeamType::OmegaCannon), 37, 99,
+            OpenTK::Mathematics::Vector3(4, 5, 6), OpenTK::Mathematics::Vector3(0, 1, 0)};
         shot.ShotHistoryLength = 2;
         std::vector<std::uint8_t> bytes(IntentPacket::ShotFullSize);
         shot.Write(bytes);
         const IntentPacket noRay = IntentPacket::Read(bytes);
-        Expect(!noRay.HasShot && noRay.ShotSequence == 0 && noRay.ShotWeaponId == IntentPacket::NoWeapon,
-            "a frame that fired nothing carries no shot of its own");
+        Expect(!noRay.HasShot, "a frame that fired nothing carries no ray of its own");
         Expect(noRay.ShotHistoryLength == 2 && noRay.ShotHistory[1].Sequence == 42
             && noRay.ShotHistory[1].Frame == 104 && noRay.ShotHistory[1].WeaponId == Id(BeamType::OmegaCannon)
             && noRay.ShotHistory[1].Charge == 37,
             "but still carries the history");
+        Expect(noRay.ShotHistory[1].AckFrame == 99 && Near(noRay.ShotHistory[1].Origin.Z, 6.0F)
+            && Near(noRay.ShotHistory[1].Direction.Y, 1.0F) && noRay.ShotHistory[1].HasRay(),
+            "each event carries the world it was aimed in and its own ray");
+        Expect(!noRay.ShotHistory[0].HasRay(), "an event recorded without a ray says so");
+
+        HitClaimPacket claim{};
+        claim.ShotSequence = 0xA1B2C3D4U;
+        claim.Beam = Id(BeamType::Missile);
+        std::vector<std::uint8_t> claimBytes(HitClaimPacket::Size);
+        claim.Write(claimBytes);
+        Expect(HitClaimPacket::Read(claimBytes).ShotSequence == 0xA1B2C3D4U, "a claim names its shot");
 
         shot.HasShot = true;
         shot.ShotOrigin = OpenTK::Mathematics::Vector3(1, 2, 3);
         shot.ShotDirection = OpenTK::Mathematics::Vector3(0, 0, -1);
-        shot.ShotSequence = 42;
-        shot.ShotWeaponId = Id(BeamType::OmegaCannon);
         shot.Write(bytes);
         const IntentPacket withRay = IntentPacket::Read(bytes);
         Expect(withRay.HasShot && Near(withRay.ShotOrigin.Y, 2.0F) && Near(withRay.ShotDirection.Z, -1.0F)
-            && withRay.ShotSequence == 42 && withRay.ShotWeaponId == Id(BeamType::OmegaCannon),
-            "the ray, sequence and weapon of this frame's shot round-trip");
+            && withRay.ShotHistory[1].Sequence == 42,
+            "this frame's ray and the history share the payload");
 
         // A Shock Coil frame: a ray with no event.
         IntentPacket coil{};
@@ -91,7 +101,7 @@ namespace
         coil.ShotDirection = OpenTK::Mathematics::Vector3(1, 0, 0);
         coil.Write(bytes);
         const IntentPacket coilRead = IntentPacket::Read(bytes);
-        Expect(coilRead.HasShot && coilRead.ShotSequence == 0, "continuous fire keeps its ray without a sequence");
+        Expect(coilRead.HasShot && coilRead.ShotHistoryLength == 0, "continuous fire keeps its ray without an event");
 
         bytes[static_cast<std::size_t>(IntentPacket::FullSize + IntentPacket::ShotSize)] = 0xFF;
         Expect(IntentPacket::Read(bytes).ShotHistoryLength == IntentPacket::ShotHistoryCount,
@@ -100,7 +110,7 @@ namespace
             "an intent without the block has no history");
     }
 
-    // The receiver: ShotWeaponId decides the weapon, once per sequence.
+    // The receiver: the event's weapon is the shot's, once per sequence.
     void ShotEventReceiver()
     {
         RemoteShotQueue shots;
@@ -173,42 +183,50 @@ namespace
     void ShotEventSender()
     {
         LocalShotLog log;
+        Expect(log.Latest() == nullptr, "nothing fired yet");
         for (std::uint32_t i = 0; i < 6; ++i)
         {
-            log.Record(100 + i, i % 2 == 0 ? BeamType::Missile : BeamType::OmegaCannon, static_cast<std::uint16_t>(i));
+            IntentPacket::ShotEvent shot{};
+            shot.Frame = 100 + i;
+            shot.WeaponId = Id(i % 2 == 0 ? BeamType::Missile : BeamType::OmegaCannon);
+            shot.Charge = static_cast<std::uint8_t>(i);
+            shot.AckFrame = 90 + i;
+            const std::uint32_t sequence = log.Record(shot);
+            Expect(log.Latest() != nullptr && log.Latest()->Sequence == sequence && sequence == i + 1,
+                "the projectiles spawned after a shot carry its sequence");
         }
         IntentPacket intent{};
-        intent.HasShot = true;
-        log.Fill(intent, 105);
+        log.Fill(intent);
         Expect(intent.ShotHistoryLength == IntentPacket::ShotHistoryCount
             && intent.ShotHistory[0].Sequence == 3 && intent.ShotHistory[3].Sequence == 6,
             "the history keeps the newest shots, oldest first");
-        Expect(intent.ShotSequence == 6 && intent.ShotWeaponId == Id(BeamType::OmegaCannon),
-            "this frame's ray names its shot");
-        IntentPacket later{};
-        later.HasShot = true;
-        log.Fill(later, 110);
-        Expect(later.ShotSequence == 0 && later.ShotHistoryLength == IntentPacket::ShotHistoryCount,
-            "a later frame's ray that made no event names none, the history still rides");
+        Expect(intent.ShotHistory[3].WeaponId == Id(BeamType::OmegaCannon), "newest last");
         log.Reset();
-        log.Record(200, BeamType::PowerBeam, 400);
+        IntentPacket::ShotEvent after{};
+        after.Frame = 200;
+        after.WeaponId = Id(BeamType::PowerBeam);
+        static_cast<void>(log.Record(after));
         IntentPacket respawned{};
-        log.Fill(respawned, 200);
+        log.Fill(respawned);
         Expect(respawned.ShotHistoryLength == 1 && respawned.ShotHistory[0].Sequence == 7,
             "a new life empties the history but never reuses a sequence");
-        Expect(respawned.ShotHistory[0].Charge == 0xFF, "a charge past a byte is clamped");
-        Expect(intent.ShotHistory[3].Charge == 5, "the charge is recorded with the shot");
+        Expect(intent.ShotHistory[3].Charge == 5 && intent.ShotHistory[3].AckFrame == 95,
+            "the charge and the world are recorded with the shot");
     }
 
-    // A morph replayed in the same intent as a trigger waits behind the shot.
-    void PressOrder()
+    // The authority's record of a shooter's shots, for the claims naming them.
+    void ShotLedger()
     {
-        ReplayedPressOrder order;
-        Expect(order.MorphPressed(true, false, true), "a morph alone goes through");
-        Expect(!order.MorphPressed(true, true, true), "a morph with an unspent shot waits");
-        Expect(order.MorphPressed(false, false, false), "and goes through the next frame");
-        Expect(!order.MorphPressed(false, false, false), "once");
-        Expect(order.MorphPressed(true, true, false), "with no shot pending, nothing is held");
+        ShotEventLedger ledger;
+        Expect(!ledger.Find(0).has_value() && !ledger.Find(7).has_value(), "nothing named before it is reported");
+        ledger.Note({7, 300, Id(BeamType::Missile), 0, 280});
+        Expect(ledger.Find(7).has_value() && ledger.Find(7)->AckFrame == 280, "a reported shot is found by its sequence");
+        ledger.Note({7, 300, Id(BeamType::Missile), 0, 280});
+        Expect(ledger.Find(7).has_value(), "and stays, however many claims name it");
+        ledger.Note({7 + ShotEventLedger::Capacity, 900, Id(BeamType::PowerBeam)});
+        Expect(!ledger.Find(7).has_value(), "a shot pushed out by newer ones is no longer named");
+        ledger.Reset();
+        Expect(!ledger.Find(7 + ShotEventLedger::Capacity).has_value(), "a new life names nothing");
     }
 
     IntentPacket Transport(const NativeTouchState::Reported& report)
@@ -415,7 +433,7 @@ int main()
         ShotEventWire();
         ShotEventReceiver();
         ShotEventSender();
-        PressOrder();
+        ShotLedger();
         OwnerAuthorityParity();
         PacketFaults();
     }

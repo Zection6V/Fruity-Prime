@@ -1953,7 +1953,8 @@ namespace MphRead::Entities
             beam != nullptr ? beam->ModLaunchFrame
                 : TestFlag(flags, DamageFlags::Burn) ? _burnLaunchFrame : 0U,
             beam != nullptr ? beam->Age() : 0.0F,
-            direction, beam != nullptr ? beam->Afflictions() : MphRead::Affliction::None);
+            direction, beam != nullptr ? beam->Afflictions() : MphRead::Affliction::None,
+            beam != nullptr ? beam->ModShotSequence : 0U);
         if (attacker != this)
         {
             Mods::Input::AimAssist::AimAssistTelemetry::Hit(attacker,

@@ -1301,8 +1301,8 @@ namespace MphRead::Entities
         {
             Mods::Network::NetPlayerBridge::NoteLocalShot(shotOrigin, shotVec);
         }
-        Mods::Network::NetShotEvents::Fired(*this, _currentWeapon,
-            TestFlag(RequireReference(_equipInfo->Weapon).Flags, WeaponFlags::Continuous));
+        Mods::Network::NetShotEvents::Fired(*this, {_currentWeapon,
+            TestFlag(RequireReference(_equipInfo->Weapon).Flags, WeaponFlags::Continuous), shotOrigin, shotVec});
         const std::shared_ptr<WeaponInfo> curWeapon = _equipInfo->Weapon;
         if (IsPrimeHunter())
         {

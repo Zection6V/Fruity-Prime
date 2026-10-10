@@ -9,6 +9,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <string>
 
 namespace MphRead::Entities
 {
@@ -81,6 +82,10 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static std::optional<IntentPacket::ShotEvent> Find(std::int32_t slot, std::uint32_t sequence) noexcept;
         // A new life, a rejoin, a room change.
         static void Forget(std::int32_t slot) noexcept;
+        // What became of every remote shot event this machine received --
+        // queued, skipped and recovered or lost, dropped stale or for room --
+        // and what the ledger refused; nullopt before any arrived.
+        [[nodiscard]] static std::optional<std::string> Describe();
 
     private:
         [[nodiscard]] static bool Drives(const Entities::PlayerEntity& shooter) noexcept;

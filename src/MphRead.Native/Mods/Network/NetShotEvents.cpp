@@ -157,6 +157,31 @@ namespace MphRead::Mods::Network
         return _ledger[static_cast<std::size_t>(slot)].Find(sequence);
     }
 
+    std::optional<std::string> NetShotEvents::Describe()
+    {
+        ShotQueueStats total{};
+        std::uint64_t staleRefused = 0;
+        std::uint64_t conflicts = 0;
+        for (std::size_t s = 0; s < _remote.size(); ++s)
+        {
+            total += _remote[s].Stats();
+            staleRefused += _ledger[s].StaleRefused();
+            conflicts += _ledger[s].Conflicts();
+        }
+        if (total.Queued == 0 && total.Gaps == 0)
+        {
+            return std::nullopt;
+        }
+        return "shot events (received): " + std::to_string(total.Queued) + " queued, "
+            + std::to_string(total.Gaps) + " skipped by a newer one ("
+            + std::to_string(total.Recovered) + " recovered late, "
+            + std::to_string(total.Lost) + " never arrived), "
+            + std::to_string(total.Stale) + " dropped stale, "
+            + std::to_string(total.Overflow) + " dropped for room; ledger: "
+            + std::to_string(staleRefused) + " older shots refused, "
+            + std::to_string(conflicts) + " contradicting a kept shot";
+    }
+
     void NetShotEvents::Forget(std::int32_t slot) noexcept
     {
         if (slot < 0 || slot >= Slots)

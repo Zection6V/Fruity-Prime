@@ -46,10 +46,22 @@ namespace MphRead::Mods::Network
     private:
         class Record;
 
+        // One measured feature: how it is read from a record and, for the
+        // cross-check, how much of it counts as having happened. The single
+        // source of every threshold -- printed with the report, so
+        // tools/netcheck/compare-reports.py reads them rather than copies them.
         struct Feature final
         {
             std::string Name{};
             double (*Get)(const Record&) = nullptr;
+            // 0: recorded, never checked.
+            double Needed = 0;
+            std::string Unit{};
+            // Either side doing it is enough, and either answer is fine: a
+            // diagnostic, never a failure.
+            bool Pairwise = false;
+            // The hunters it can happen to; null for all.
+            bool (*Applies)(MphRead::Hunter) noexcept = nullptr;
         };
 
         static constexpr float TeleportStep = 9.0F;
@@ -63,6 +75,7 @@ namespace MphRead::Mods::Network
         [[nodiscard]] std::int32_t ReportOne(
             const Record& mine, const Record& other, const std::string& them) const;
         [[nodiscard]] static bool LaysBombs(MphRead::Hunter hunter) noexcept;
+        [[nodiscard]] static bool IsWeavel(MphRead::Hunter hunter) noexcept;
         [[nodiscard]] static double Height(const Record& record) noexcept;
 
         static std::array<Feature, 23> _features;

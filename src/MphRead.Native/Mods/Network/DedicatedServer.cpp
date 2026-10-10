@@ -16,6 +16,7 @@
 #include "MapRotation.hpp"
 #include "NetHealthSync.hpp"
 #include "NetHitClaims.hpp"
+#include "NetShotEvents.hpp"
 #include "NetLifecycleTracker.hpp"
 #include "NetMaster.hpp"
 #include "NetMatchTimeSync.hpp"
@@ -224,6 +225,10 @@ namespace MphRead::Mods::Network
                             Log("sim: " + *claimLine);
                         }
                         Log("sim: " + _sim->DescribeShots());
+                        if (const std::optional<std::string> events = NetShotEvents::Describe(); events.has_value())
+                        {
+                            Log("sim: " + *events);
+                        }
                         for (const std::string& agreement : Runtime::StringSplit(_sim->DescribeAgreement(), '\n'))
                         {
                             Log("sim: " + agreement);

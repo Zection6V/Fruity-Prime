@@ -144,11 +144,16 @@ namespace
         Expect(NextWeapon(shots) == Id(BeamType::Imperialist), "a shot whose intent was lost arrives with the next");
         shots.Consume();
 
-        // Out of order: the newer intent first, then an older one.
+        // Out of order: the newer intent first, then an older one carrying a
+        // shot the newer skipped. Late, not lost: it is fired, in order.
         shots.Receive(WithShots(260, {{7, 258, Id(BeamType::Judicator)}}));
         shots.Receive(WithShots(250, {{6, 248, Id(BeamType::Magmaul)}}));
-        Expect(NextWeapon(shots) == Id(BeamType::Judicator), "a sequence behind one already queued is not queued again");
+        Expect(NextWeapon(shots) == Id(BeamType::Magmaul), "a skipped shot delivered late is fired first");
         shots.Consume();
+        Expect(NextWeapon(shots) == Id(BeamType::Judicator), "then the newer one");
+        shots.Consume();
+        Expect(shots.Stats().Gaps == 1 && shots.Stats().Recovered == 1 && shots.Stats().Lost == 0,
+            "and it is counted as recovered, not lost");
 
         // An event whose trigger never fired here goes stale rather than
         // lending an old weapon to a later shot.
@@ -227,6 +232,49 @@ namespace
         Expect(!ledger.Find(7).has_value(), "a shot pushed out by newer ones is no longer named");
         ledger.Reset();
         Expect(!ledger.Find(7 + ShotEventLedger::Capacity).has_value(), "a new life names nothing");
+
+        // A late intent's event a whole ledger older shares the newer shot's
+        // entry: it must not take its place.
+        ledger.Note({100, 500, Id(BeamType::Missile), 0, 480});
+        ledger.Note({100 - ShotEventLedger::Capacity, 100, Id(BeamType::PowerBeam), 0, 80});
+        Expect(ledger.Find(100).has_value() && ledger.StaleRefused() == 1, "an older shot cannot overwrite a newer one");
+        // The same sequence saying something else is noted, never kept.
+        ledger.Note({100, 500, Id(BeamType::Judicator), 0, 480});
+        Expect(ledger.Find(100)->WeaponId == Id(BeamType::Missile) && ledger.Conflicts() == 1,
+            "a contradicting repeat is counted and ignored");
+        // Wrapping sequences still order: the shot after 0xFFFFFFFF is newer.
+        ShotEventLedger wrap;
+        wrap.Note({0xFFFFFFFFU, 1, Id(BeamType::Missile)});
+        constexpr auto wrapped = static_cast<std::uint32_t>(0xFFFFFFFFULL + ShotEventLedger::Capacity);
+        wrap.Note({wrapped, 2, Id(BeamType::PowerBeam)});
+        Expect(wrap.Find(wrapped).has_value(), "a wrapped sequence is newer");
+    }
+
+    // What became of the shots: skipped and lost, stale, no room.
+    void ShotQueueMetrics()
+    {
+        RemoteShotQueue shots;
+        shots.Receive(WithShots(100, {{1, 100, Id(BeamType::PowerBeam)}}));
+        shots.Consume();
+        // Shots 2..4 skipped; none ever comes, and the queue moves on.
+        shots.Receive(WithShots(120, {{5, 118, Id(BeamType::PowerBeam)}}));
+        Expect(shots.Stats().Gaps == 3 && shots.Stats().Lost == 0, "a skip is a candidate, not yet a loss");
+        shots.Consume();
+        shots.Receive(WithShots(200, {{5 + RemoteShotQueue::MissingWindow + 1, 199, Id(BeamType::PowerBeam)}}));
+        Expect(shots.Stats().Lost >= 3, "skipped shots past the window are lost");
+        // Never fired in time: stale.
+        shots.Receive(WithShots(260, {}));
+        Expect(!shots.Next().has_value() && shots.Stats().Stale == 1, "an event its copy could not fire goes stale");
+        // More waiting than the queue holds: the oldest makes room.
+        RemoteShotQueue full;
+        for (std::uint32_t i = 1; i <= RemoteShotQueue::Capacity + 1; ++i)
+        {
+            full.Receive(WithShots(300 + i, {{i, 300 + i, Id(BeamType::Missile)}}));
+        }
+        Expect(full.Stats().Overflow == 1, "a full queue counts what it pushed out");
+        // A new life keeps the statistics.
+        full.Reset();
+        Expect(!full.Next().has_value() && full.Stats().Overflow == 1, "the statistics outlive the life");
     }
 
     IntentPacket Transport(const NativeTouchState::Reported& report)
@@ -434,6 +482,7 @@ int main()
         ShotEventReceiver();
         ShotEventSender();
         ShotLedger();
+        ShotQueueMetrics();
         OwnerAuthorityParity();
         PacketFaults();
     }

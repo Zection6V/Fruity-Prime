@@ -4,6 +4,7 @@
 #include "HitLocation.hpp"
 #include "HitRig.hpp"
 #include "NetHitClaims.hpp"
+#include "NetShotEvents.hpp"
 #include "NetShotDiagnostics.hpp"
 #include "NetSmoothing.hpp"
 #include "NetTimingDiagnostics.hpp"
@@ -735,6 +736,10 @@ namespace MphRead::Mods::Network
         {
             std::cout << "  " << *claims << '\n';
         }
+        if (const std::optional<std::string> events = NetShotEvents::Describe(); events.has_value())
+        {
+            std::cout << "  " << *events << '\n';
+        }
         if (const std::optional<std::string> smoothing = NetSmoothing::Describe(); smoothing.has_value())
         {
             std::cout << "  " << *smoothing << '\n';
@@ -954,7 +959,7 @@ namespace MphRead::Mods::Network
             {
                 std::cout << "no other player was on the map and moving; ";
             }
-            std::cout << featureFailures << " feature(s) did not cross\n";
+            std::cout << featureFailures << " check(s) failed\n";
         }
     }
 

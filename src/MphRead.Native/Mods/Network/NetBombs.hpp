@@ -71,8 +71,8 @@ namespace MphRead::Mods::Network
         static void Keep(HeldBombs& held, const std::shared_ptr<Entities::BombEntity>& bomb, std::uint32_t sequence);
 
         inline static std::uint32_t _sequence = 0;
-        inline static HeldBombs _own{};
+        static HeldBombs _own;
         inline static std::array<RemoteBombState, Slots> _remote{};
-        inline static std::array<HeldBombs, Slots> _copies{};
+        static std::array<HeldBombs, Slots> _copies;
     };
 }

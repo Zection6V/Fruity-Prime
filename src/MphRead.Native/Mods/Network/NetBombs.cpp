@@ -13,6 +13,9 @@ namespace MphRead::Mods::Network
 {
     static_assert(NetBombs::Slots == Entities::PlayerEntity::SlotCapacity);
 
+    NetBombs::HeldBombs NetBombs::_own{};
+    std::array<NetBombs::HeldBombs, NetBombs::Slots> NetBombs::_copies{};
+
     std::shared_ptr<Entities::BombEntity> NetBombs::Standing(const Held& held) noexcept
     {
         std::shared_ptr<Entities::BombEntity> bomb = held.Bomb.lock();

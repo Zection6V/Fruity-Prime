@@ -121,6 +121,10 @@ namespace MphRead::Mods::Network
         static void Hold(Entities::Keybind& bind, bool down);
         static void SelfDestruct(Entities::PlayerEntity& player, Entities::PlayerControls& c);
         static constexpr ::MphRead::BeamType SelfDestructBeam = ::MphRead::BeamType::Magmaul;
+        // MPHREAD_FEET_MISSILE: the self-destruct phase walks forward firing
+        // uncharged Missiles at its own feet instead -- a splash on its own
+        // shooter the frame it is fired, which a Magmaul's bounce is not.
+        static void FeetMissile(Entities::PlayerEntity& player, Entities::PlayerControls& c, bool aimed);
 
         static constexpr float TurnRate = 6.0F;
         static constexpr float FiringCone = 6.0F;

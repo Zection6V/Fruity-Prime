@@ -104,8 +104,9 @@ namespace
         // damage event's confirmed impact: 54 + 4 x 15 + 14 + 3. 20 changes
         // only the intent (shot events); 21 the shot events and the claims;
         // 22 the meaning of two spare Weavel flag bits; 23 only the claim;
-        // 24 only the intent (bombs).
-        Expect(NetConfig::ProtocolVersion == 24 && PlayerState::Size == 131
+        // 24 only the intent (bombs); 25 only what a claim may name (a
+        // player's hits on itself).
+        Expect(NetConfig::ProtocolVersion == 25 && PlayerState::Size == 131
             && PlayerState::Size - PlayerState::LegacySize == 17, "Weavel and the impact add 17 bytes per player");
         {
             // A transition under way on the authority is the form being

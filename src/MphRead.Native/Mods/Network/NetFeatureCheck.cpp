@@ -164,6 +164,9 @@ namespace MphRead::Mods::Network
         std::int32_t WeaponChanges = 0;
         std::int32_t AltAttackPresses = 0;
         std::int32_t DamageEvents = 0;
+        // Health that went up while alive: a pickup, a drain -- or damage
+        // shown and then taken back, which is what it is here to count.
+        std::int32_t HealthRises = 0;
         std::int32_t DamageInAltForm = 0;
         std::int32_t Deaths = 0;
         std::int32_t ZoomFrames = 0;
@@ -235,6 +238,7 @@ namespace MphRead::Mods::Network
         {"spectating", [](const Record& r) -> double { return r.SpectatingFrames; }},
         {"double-damage", [](const Record& r) -> double { return r.DoubleDamageFrames; }, 10, "frames", {0.03, 10}},
         {"damage-taken", [](const Record& r) -> double { return r.DamageEvents; }, 1, "hits", {0, 1}},
+        {"health-rises", [](const Record& r) -> double { return r.HealthRises; }},
         {"hit-in-alt-form", [](const Record& r) -> double { return r.DamageInAltForm; }, 2, "hits", {}, true},
         {"deaths", [](const Record& r) -> double { return r.Deaths; }, 1, "deaths", {}, true},
         {"teleports", [](const Record& r) -> double { return r.Teleports; }}
@@ -566,6 +570,10 @@ namespace MphRead::Mods::Network
                     IncrementInPlace(record.WeaponChanges);
                 }
                 record.LastWeapon = player.CurrentWeapon();
+            }
+            if (record.LastHealth > 0 && player.Health() > record.LastHealth)
+            {
+                IncrementInPlace(record.HealthRises);
             }
             if (record.LastHealth > 0 && player.Health() > 0
                 && player.Health() < record.LastHealth)

@@ -413,9 +413,11 @@ namespace MphRead::Mods::Network
             Hold(c.Morph(), Settled(player) && _frame % 40 == 0);
             return;
         }
-        if (player.CurrentWeapon() != SelfDestructBeam)
+        static const bool feetMissile = NativeRuntime::EnvironmentGetVariable("MPHREAD_FEET_MISSILE").has_value();
+        const ::MphRead::BeamType beam = feetMissile ? ::MphRead::BeamType::Missile : SelfDestructBeam;
+        if (player.CurrentWeapon() != beam)
         {
-            player.ModArmWeapon(SelfDestructBeam);
+            player.ModArmWeapon(beam);
         }
         const OpenTK::Mathematics::Vector3 ahead(player.Field70(), 0.0F, player.Field74());
         const OpenTK::Mathematics::Vector3 position = player.Position;
@@ -428,6 +430,11 @@ namespace MphRead::Mods::Network
         _aimDeltaX = std::clamp(turnX, -TurnRate, TurnRate);
         _aimDeltaY = std::clamp(turnY, -TurnRate, TurnRate);
         const bool aimed = std::abs(turnX) < FiringCone && std::abs(turnY) < FiringCone;
+        if (feetMissile)
+        {
+            FeetMissile(player, c, aimed);
+            return;
+        }
         if (_releaseFrames > 0)
         {
             _releaseFrames--;
@@ -439,6 +446,14 @@ namespace MphRead::Mods::Network
             return;
         }
         Hold(c.Shoot(), true);
+    }
+
+    void NetTestScript::FeetMissile(Entities::PlayerEntity& player, Entities::PlayerControls& c, bool aimed)
+    {
+        static_cast<void>(player);
+        Hold(c.MoveUp(), true);
+        // A tap, so the Missile leaves uncharged.
+        Hold(c.Shoot(), aimed && _frame % 30 < 2);
     }
 
     bool NetTestScript::Settled(Entities::PlayerEntity& player)

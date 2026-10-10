@@ -337,7 +337,10 @@ namespace MphRead::Mods::Network
                 _pendingHeld[Index(victimSlot)][Index(at)] = claimedLethal && !self;
                 _pendingTravelled[Index(victimSlot)][Index(at)] = !self && flight > TravelFlight;
             }
-            if (!self && attacker != nullptr)
+            // Hits on itself too: its own shot and its own body are both on
+            // this machine, exactly where they are -- the authority's copy is
+            // a trip behind and walking somewhere else.
+            if (attacker != nullptr)
             {
                 const std::uint16_t claimId = NetHitClaims::Declare(victim, *attacker, beam, claimedDamage,
                     flags, claimedLethal, victim.Position, launchFrame, impulse, afflictions,
@@ -922,7 +925,12 @@ namespace MphRead::Mods::Network
                     _beamDenied[Index(bucket)]++;
                 }
             }
-            if (confirmed)
+            if (confirmed && _pendingSelf[s][a])
+            {
+                // A hit on itself, claimed and applied.
+                _selfConfirmed++;
+            }
+            else if (confirmed)
             {
                 _confirmed++;
                 if (_settledCredit[s] < SettledCreditMax)

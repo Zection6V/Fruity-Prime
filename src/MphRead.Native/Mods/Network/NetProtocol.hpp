@@ -750,7 +750,7 @@ namespace MphRead::Mods::Network
     public:
         static constexpr std::uint16_t DefaultPort = 27888;
         static constexpr std::int32_t MaxPacketSize = 1232;
-        static constexpr std::int32_t ProtocolVersion = 24;
+        static constexpr std::int32_t ProtocolVersion = 25;
         static constexpr std::int32_t IntentSendInterval = 1;
         static constexpr double TimeoutSeconds = 30.0;
 

@@ -178,7 +178,7 @@ namespace MphRead::Mods::Network
         std::optional<OpenTK::Mathematics::Vector3> impact, bool splash, std::uint32_t shotSequence,
         std::uint32_t turretDamage)
     {
-        if (!Claiming() || &victim == &attacker || (damage == 0 && turretDamage == 0)
+        if (!Claiming() || (damage == 0 && turretDamage == 0)
             || NetPlayerLifecycle::Get(victim.SlotIndex()) == 0 || NetPlayerLifecycle::Get(attacker.SlotIndex()) == 0)
         {
             return 0;
@@ -772,7 +772,7 @@ namespace MphRead::Mods::Network
     std::uint8_t NetHitClaims::Judge(std::int32_t shooterSlot, const HitClaimPacket& claim)
     {
         const std::int32_t victimSlot = claim.VictimSlot;
-        if (victimSlot < 0 || victimSlot >= Slots || victimSlot == shooterSlot
+        if (victimSlot < 0 || victimSlot >= Slots
             || victimSlot >= static_cast<std::int32_t>(PlayerEntity::Players().size()))
         {
             _refusedHere++;
@@ -804,8 +804,16 @@ namespace MphRead::Mods::Network
                 + std::to_string(MaxDamageFor(shooterSlot, claim.Beam)));
             return HitVerdictPacket::ResultDamageLimit;
         }
+        // A hit on another player is checked against where the shooter saw
+        // them, the world it was looking at; one on itself against where it
+        // is now, as its intents have it -- its own screen was never a trip
+        // behind itself, and walking it would be units from that world.
         OpenTK::Mathematics::Vector3 was{};
-        if (!NetUnlagged::PositionAt(victimSlot, claim.AckFrame, claim.VictimGeneration, claim.VictimLifeId, was))
+        if (victimSlot == shooterSlot)
+        {
+            was = static_cast<OpenTK::Mathematics::Vector3>(PlayerAt(victimSlot).Position);
+        }
+        else if (!NetUnlagged::PositionAt(victimSlot, claim.AckFrame, claim.VictimGeneration, claim.VictimLifeId, was))
         {
             _tooOldHere++;
             return HitVerdictPacket::ResultTooOld;

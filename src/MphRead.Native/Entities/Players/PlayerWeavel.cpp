@@ -7,6 +7,7 @@
 
 #include <string>
 
+#include <algorithm>
 #include <limits>
 
 namespace MphRead::Entities
@@ -50,6 +51,37 @@ namespace MphRead::Entities
     {
         const HalfturretEntity& turret = NativeRuntime::RequireReference(_halfturret);
         return _health > turret.Health() ? damage - damage / 2 : damage / 2;
+    }
+
+    void PlayerEntity::GainDrainedHealth(std::uint32_t health)
+    {
+        const auto amount = static_cast<std::int32_t>(std::min<std::uint32_t>(health, 0x7FFFFFFFU));
+        std::int32_t playerHealth = _health;
+        if (playerHealth <= 0)
+        {
+            return;
+        }
+        if (TypeExtensions::TestFlag(_flags2, PlayerFlags2::Halfturret))
+        {
+            HalfturretEntity& halfturret = NativeRuntime::RequireReference(_halfturret);
+            std::int32_t turretHealth = halfturret.Health();
+            if (playerHealth <= turretHealth)
+            {
+                playerHealth += amount - amount / 2;
+                turretHealth += amount / 2;
+            }
+            else
+            {
+                playerHealth += amount / 2;
+                turretHealth += amount - amount / 2;
+            }
+            halfturret.SetHealth(std::min(turretHealth, 100));
+        }
+        else
+        {
+            playerHealth += amount;
+        }
+        SetHealth(std::min(playerHealth, HealthMax()));
     }
 
     void PlayerEntity::DamageHalfturret(std::uint32_t damage)

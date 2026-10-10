@@ -679,6 +679,9 @@ namespace MphRead::Entities
         // part off the turret, destroying it if it is all it had.
         [[nodiscard]] std::uint32_t HalfturretShare(std::uint32_t damage) const;
         void DamageHalfturret(std::uint32_t damage);
+        // A life-draining hit's heal: `health` more, shared with a Weavel's
+        // turret, never past the maximum, and nothing for the dead.
+        void GainDrainedHealth(std::uint32_t health);
         [[nodiscard]] std::shared_ptr<EnemySpawnEntity> EnemySpawner() const noexcept { return _enemySpawner; }
         void SetEnemySpawner(std::shared_ptr<EnemySpawnEntity> value) noexcept { _enemySpawner = std::move(value); }
         [[nodiscard]] std::shared_ptr<EnemyInstanceEntity> AttachedEnemy() const noexcept { return _attachedEnemy; }

@@ -5,6 +5,7 @@
 
 #include "NetDamage.hpp"
 #include "../Combat/SyluxMuzzleGuard.hpp"
+#include "../Multiplayer/TeamLayout.hpp"
 #include "NetHitPrediction.hpp"
 #include "NetLifecycleTracker.hpp"
 #include "NetLog.hpp"
@@ -981,6 +982,16 @@ namespace MphRead::Mods::Network
         return &Runtime::RequireReference((*current)[index]);
     }
 
+    bool NetHitClaims::Drains(std::int32_t shooterSlot, std::uint8_t beam)
+    {
+        // Continuous fire is never charged, and the Shock Coil is the one
+        // weapon that drains; its claim carries no charge, so either flag.
+        const ::MphRead::WeaponInfo* fired = FiredWeapon(shooterSlot, beam);
+        return fired != nullptr
+            && (::MphRead::TestFlag(fired->Flags, ::MphRead::WeaponFlags::LifeDrainUncharged)
+                || ::MphRead::TestFlag(fired->Flags, ::MphRead::WeaponFlags::LifeDrainCharged));
+    }
+
     std::int32_t NetHitClaims::MaxDamageFor(std::int32_t shooterSlot, std::uint8_t beam)
     {
         std::int32_t raw = 200;
@@ -1578,6 +1589,14 @@ namespace MphRead::Mods::Network
                     (entry.Flags & HitClaimPacket::FlagImpulse) != 0
                         ? std::optional<OpenTK::Mathematics::Vector3>(entry.Impulse) : std::nullopt,
                     &shooter);
+                // A Shock Coil's drain comes with its hit, by the same rules as
+                // the projectile's: the shooter's machine credited it as the
+                // hit landed, and only this makes it last.
+                if (Drains(shooterSlot, entry.Beam) && &shooter != &victim && !shooter.IsPrimeHunter()
+                    && !Mods::Multiplayer::TeamRules::AreAllies(shooter.TeamIndex(), victim.TeamIndex()))
+                {
+                    shooter.GainDrainedHealth(applied);
+                }
             }
         }
         catch (...)

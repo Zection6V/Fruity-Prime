@@ -342,6 +342,8 @@ namespace MphRead::Mods::Network
             OpenTK::Mathematics::Vector3 was);
         [[nodiscard]] static bool StraightWeapon(std::int32_t shooterSlot, std::uint8_t beam);
         [[nodiscard]] static bool ImpactPlausible(const HitClaimPacket& claim, std::int32_t victimSlot);
+        // Whether the weapon a claim names heals its shooter by the hit.
+        [[nodiscard]] static bool Drains(std::int32_t shooterSlot, std::uint8_t beam);
         inline static bool _shooterHits = true;
         inline static std::int64_t _serverCopiesSuppressed = 0;
         static std::array<bool, Slots> _dead;

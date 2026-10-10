@@ -477,6 +477,7 @@ namespace MphRead::Mods::Network
         {
             _healCount = 0;
             _healHead = 0;
+            _drainBaseline = 0;
         }
         _pendingCount[s] = 0;
         _pendingHead[s] = 0;
@@ -678,9 +679,35 @@ namespace MphRead::Mods::Network
             + std::to_string(_healthOverPoints) + " (worst " + std::to_string(_healthOverWorst) + ")";
     }
 
+    void NetHitPrediction::SettleDrain(std::int32_t authorityHealth)
+    {
+        const std::uint32_t frame = NetSession::AppliedSnapshotFrame();
+        if (frame == _drainSnapshotFrame)
+        {
+            return;
+        }
+        _drainSnapshotFrame = frame;
+        std::int32_t landed = _drainBaseline > 0 && authorityHealth > _drainBaseline
+            ? authorityHealth - _drainBaseline : 0;
+        _drainBaseline = authorityHealth;
+        while (landed > 0 && _healCount > 0)
+        {
+            std::int32_t& owed = _healAmount[Index(_healHead)];
+            const std::int32_t taken = std::min(owed, landed);
+            owed -= taken;
+            landed -= taken;
+            if (owed == 0)
+            {
+                _healHead = (_healHead + 1) % HealCapacity;
+                _healCount--;
+            }
+        }
+    }
+
     std::int32_t NetHitPrediction::LocalHealthFor(Entities::PlayerEntity& player, std::int32_t authorityHealth)
     {
         EnsureLife(player.SlotIndex());
+        SettleDrain(authorityHealth);
         if (!_enabled || authorityHealth <= 0)
         {
             return authorityHealth;

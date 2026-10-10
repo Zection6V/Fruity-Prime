@@ -248,6 +248,14 @@ namespace MphRead::Mods::Network
         Set(c.MoveUp(), HasFlag(intent.Buttons, IntentButtons::MoveUp), HasFlag(missed, IntentButtons::MoveUp));
         Set(c.MoveDown(), HasFlag(intent.Buttons, IntentButtons::MoveDown), HasFlag(missed, IntentButtons::MoveDown));
         Set(c.Shoot(), HasFlag(intent.Buttons, IntentButtons::Shoot), HasFlag(missed, IntentButtons::Shoot));
+        if (const std::int32_t slot = player.SlotIndex(); slot >= 0 && slot < Slots
+            && !_respawnTrigger[Index(slot)].TriggerAllowed(player.Health() > 0, c.Shoot().IsDown(), c.Shoot().IsPressed(),
+                NetShotEvents::HasPending(slot)))
+        {
+            c.Shoot().SetIsDown(false);
+            c.Shoot().SetIsPressed(false);
+            c.Shoot().SetIsReleased(false);
+        }
         Set(c.Zoom(), HasFlag(intent.Buttons, IntentButtons::Zoom), HasFlag(missed, IntentButtons::Zoom));
         Set(c.Jump(), HasFlag(intent.Buttons, IntentButtons::Jump), HasFlag(missed, IntentButtons::Jump));
         Set(c.Morph(), HasFlag(intent.Buttons, IntentButtons::Morph), HasFlag(missed, IntentButtons::Morph));
@@ -309,6 +317,7 @@ namespace MphRead::Mods::Network
         const auto s = Index(slot);
         _pressSeen[s] = false;
         ShootPressAge[s] = 0;
+        _respawnTrigger[s].Arm();
         SpawnFrame[s] = NetSession::NetFrame();
         _aimHeld[s] = true;
     }
@@ -1208,6 +1217,7 @@ namespace MphRead::Mods::Network
         _pressSeen[s] = false;
         _aimHeld[s] = false;
         _pressOrder[s].Reset();
+        _respawnTrigger[s].Arm();
         NetShotEvents::Forget(slot);
         SpawnFrame[s] = 0;
         ShootPressAge[s] = 0;

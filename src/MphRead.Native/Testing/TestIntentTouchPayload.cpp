@@ -4,6 +4,7 @@
 #include "../Mods/Network/LocalShotLog.hpp"
 #include "../Mods/Network/RemoteShotQueue.hpp"
 #include "../Mods/Network/ReplayedPressOrder.hpp"
+#include "../Mods/Network/RespawnTriggerGuard.hpp"
 #include "../Mods/Input/HostTouch.hpp"
 #include "../Mods/Input/TouchInputAdapter.hpp"
 #include "../Entities/Players/MorphBallBoostStateMachine.hpp"
@@ -36,6 +37,7 @@ namespace
     using MphRead::Mods::Network::LocalShotLog;
     using MphRead::Mods::Network::RemoteShotQueue;
     using MphRead::Mods::Network::ReplayedPressOrder;
+    using MphRead::Mods::Network::RespawnTriggerGuard;
 
     IntentPacket WithShots(std::uint32_t frame, std::initializer_list<ShotEvent> events)
     {
@@ -180,6 +182,22 @@ namespace
         log.Fill(respawned, 200);
         Expect(respawned.ShotHistoryLength == 1 && respawned.ShotHistory[0].Sequence == 7,
             "a new life empties the history but never reuses a sequence");
+    }
+
+    // The trigger a remote player respawned with fires only what the owner fired.
+    void RespawnTrigger()
+    {
+        RespawnTriggerGuard guard;
+        Expect(guard.TriggerAllowed(true, true, true, false), "an unarmed guard passes everything");
+        guard.Arm();
+        Expect(guard.TriggerAllowed(false, true, true, false) && guard.Armed(),
+            "a dead player's trigger is the respawn press and always goes through");
+        Expect(!guard.TriggerAllowed(true, true, false, false), "a held respawn press fires nothing by itself");
+        Expect(!guard.TriggerAllowed(true, true, true, false), "nor a replayed one");
+        Expect(guard.TriggerAllowed(true, true, true, true), "unless the owner's machine reports the shot");
+        Expect(guard.Armed(), "and it stays armed while the trigger is held");
+        Expect(guard.TriggerAllowed(true, false, false, false) && !guard.Armed(), "letting go disarms it");
+        Expect(guard.TriggerAllowed(true, true, true, false), "after which the trigger is the copy's own");
     }
 
     // A morph replayed in the same intent as a trigger waits behind the shot.
@@ -398,6 +416,7 @@ int main()
         ShotEventReceiver();
         ShotEventSender();
         PressOrder();
+        RespawnTrigger();
         OwnerAuthorityParity();
         PacketFaults();
     }

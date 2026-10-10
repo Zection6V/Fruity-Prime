@@ -300,6 +300,7 @@ namespace MphRead::Mods::Network
     {
         const std::shared_ptr<const RotationEntry> entry = _rotation->Advance();
         _phase = SessionPhase::InMatch;
+        FreezeMapWorldProfile();
         NormalizeTeams();
         _matchStarted = now;
         _matchEndedAt = -1;
@@ -327,7 +328,15 @@ namespace MphRead::Mods::Network
         }
         CloseBallot();
         BroadcastMapChoices();
-        Log("rotating to " + entry->ToString());
+        Log("rotating to " + entry->ToString() + ", resources "
+            + Multiplayer::ToString(_mapWorldProfile.Resources) + " for " + std::to_string(_peers.size()) + " player(s)");
+        // The new world before the map change, here and to every client, so
+        // the room is loaded with it on both ends.
+        if (_sim != nullptr)
+        {
+            NetSession::ApplySessionState(BuildSessionState());
+        }
+        BroadcastSessionState();
         MatchStatePacket state = BuildState(now);
         if (_sim != nullptr)
         {
@@ -391,6 +400,14 @@ namespace MphRead::Mods::Network
                 _transport->Send(peer->EndPoint, PacketType::MatchState, First(_scratch, MatchStatePacket::Size));
             }
         }
+    }
+
+    void DedicatedServer::FreezeMapWorldProfile()
+    {
+        // The pickups follow the people actually playing, not the server's
+        // capacity: an 8-slot server with three in it is a three-player map.
+        _mapWorldProfile = LobbyRules::ResolveWorldProfile(CurrentDefinition(),
+            std::max<std::int32_t>(2, static_cast<std::int32_t>(_peers.size())));
     }
 
     void DedicatedServer::StartSimulation()

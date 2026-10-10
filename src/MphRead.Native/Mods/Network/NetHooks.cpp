@@ -9,6 +9,7 @@
 #include "NetMatchEnd.hpp"
 #include "NetMatchSync.hpp"
 #include "NetPlayerBridge.hpp"
+#include "NetShotEvents.hpp"
 #include "NetPlayerSetup.hpp"
 #include "NetProtocol.hpp"
 #include "NetRoomChange.hpp"
@@ -318,6 +319,7 @@ namespace MphRead::Mods::Network
         {
             _intentPending = false;
             NetPlayerBridge::AttachLocalShot(_pendingIntent);
+            NetShotEvents::Attach(_pendingIntent);
             NetSession::SendIntent(_pendingIntent);
         }
         if (!NetSession::IsAuthority() && !NetSession::IsHost())

@@ -1,6 +1,9 @@
 // The Morph Ball touch block of IntentPacket: what an owner reports so the
 // authority can run the same touch roll and touch/shoulder boost branches.
 #include "../Mods/Network/NetProtocol.hpp"
+#include "../Mods/Network/LocalShotLog.hpp"
+#include "../Mods/Network/RemoteShotQueue.hpp"
+#include "../Mods/Network/ReplayedPressOrder.hpp"
 #include "../Mods/Input/HostTouch.hpp"
 #include "../Mods/Input/TouchInputAdapter.hpp"
 #include "../Entities/Players/MorphBallBoostStateMachine.hpp"
@@ -8,6 +11,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <initializer_list>
 #include <limits>
 #include <stdexcept>
 #include <tuple>
@@ -26,6 +30,168 @@ namespace
     }
 
     bool Near(float a, float b) { return std::fabs(a - b) <= 1e-6F; }
+
+    using ShotEvent = IntentPacket::ShotEvent;
+    using MphRead::BeamType;
+    using MphRead::Mods::Network::LocalShotLog;
+    using MphRead::Mods::Network::RemoteShotQueue;
+    using MphRead::Mods::Network::ReplayedPressOrder;
+
+    IntentPacket WithShots(std::uint32_t frame, std::initializer_list<ShotEvent> events)
+    {
+        IntentPacket packet{};
+        packet.Frame = frame;
+        for (const ShotEvent& event : events)
+        {
+            packet.ShotHistory[packet.ShotHistoryLength++] = event;
+        }
+        return packet;
+    }
+
+    std::uint8_t Id(BeamType beam) { return static_cast<std::uint8_t>(beam); }
+
+    // Protocol 20 on the wire: the ray, this frame's shot, and the history.
+    void ShotEventWire()
+    {
+        IntentPacket shot{};
+        shot.ShotHistory[0] = {41, 100, Id(BeamType::Missile)};
+        shot.ShotHistory[1] = {42, 104, Id(BeamType::OmegaCannon)};
+        shot.ShotHistoryLength = 2;
+        std::vector<std::uint8_t> bytes(IntentPacket::ShotFullSize);
+        shot.Write(bytes);
+        const IntentPacket noRay = IntentPacket::Read(bytes);
+        Expect(!noRay.HasShot && noRay.ShotSequence == 0 && noRay.ShotWeaponId == IntentPacket::NoWeapon,
+            "a frame that fired nothing carries no shot of its own");
+        Expect(noRay.ShotHistoryLength == 2 && noRay.ShotHistory[1].Sequence == 42
+            && noRay.ShotHistory[1].Frame == 104 && noRay.ShotHistory[1].WeaponId == Id(BeamType::OmegaCannon),
+            "but still carries the history");
+
+        shot.HasShot = true;
+        shot.ShotOrigin = OpenTK::Mathematics::Vector3(1, 2, 3);
+        shot.ShotDirection = OpenTK::Mathematics::Vector3(0, 0, -1);
+        shot.ShotSequence = 42;
+        shot.ShotWeaponId = Id(BeamType::OmegaCannon);
+        shot.Write(bytes);
+        const IntentPacket withRay = IntentPacket::Read(bytes);
+        Expect(withRay.HasShot && Near(withRay.ShotOrigin.Y, 2.0F) && Near(withRay.ShotDirection.Z, -1.0F)
+            && withRay.ShotSequence == 42 && withRay.ShotWeaponId == Id(BeamType::OmegaCannon),
+            "the ray, sequence and weapon of this frame's shot round-trip");
+
+        // A Shock Coil frame: a ray with no event.
+        IntentPacket coil{};
+        coil.HasShot = true;
+        coil.ShotOrigin = OpenTK::Mathematics::Vector3(1, 2, 3);
+        coil.ShotDirection = OpenTK::Mathematics::Vector3(1, 0, 0);
+        coil.Write(bytes);
+        const IntentPacket coilRead = IntentPacket::Read(bytes);
+        Expect(coilRead.HasShot && coilRead.ShotSequence == 0, "continuous fire keeps its ray without a sequence");
+
+        bytes[static_cast<std::size_t>(IntentPacket::FullSize + IntentPacket::ShotSize)] = 0xFF;
+        Expect(IntentPacket::Read(bytes).ShotHistoryLength == IntentPacket::ShotHistoryCount,
+            "a corrupt history count is clamped");
+        Expect(IntentPacket::Read(std::span(bytes).first(static_cast<std::size_t>(IntentPacket::FullSize))).ShotHistoryLength == 0,
+            "an intent without the block has no history");
+    }
+
+    // The receiver: ShotWeaponId decides the weapon, once per sequence.
+    void ShotEventReceiver()
+    {
+        RemoteShotQueue shots;
+        Expect(!shots.Next().has_value(), "nothing pending on a new life");
+
+        // The Omega shot, then the switch to the Power Beam arriving first:
+        // the switch is WeaponSelect's business, the shot keeps its weapon.
+        IntentPacket switched = WithShots(205, {{1, 200, Id(BeamType::OmegaCannon)}});
+        switched.WeaponSelect = Id(BeamType::PowerBeam);
+        shots.Receive(switched);
+        Expect(shots.Next() == BeamType::OmegaCannon, "the shot fires the weapon it left, whatever is held now");
+
+        // The same event again, in a later intent and in an older one.
+        shots.Receive(WithShots(206, {{1, 200, Id(BeamType::OmegaCannon)}}));
+        shots.Receive(WithShots(201, {{1, 200, Id(BeamType::OmegaCannon)}}));
+        shots.Consume();
+        Expect(!shots.Next().has_value(), "one event fires once however often it arrives");
+
+        // Rapid fire: each shot keeps its own weapon, in firing order.
+        shots.Receive(WithShots(230, {
+            {2, 220, Id(BeamType::Missile)}, {3, 224, Id(BeamType::PowerBeam)}, {4, 228, Id(BeamType::Missile)}}));
+        Expect(shots.Next() == BeamType::Missile, "first shot: Missile");
+        shots.Consume();
+        Expect(shots.Next() == BeamType::PowerBeam, "second shot: Power Beam");
+        shots.Consume();
+        Expect(shots.Next() == BeamType::Missile, "third shot: Missile");
+        shots.Consume();
+
+        // A lost intent: the next one still carries the shot.
+        shots.Receive(WithShots(242, {{4, 228, Id(BeamType::Missile)}, {5, 240, Id(BeamType::Imperialist)}}));
+        Expect(shots.Next() == BeamType::Imperialist, "a shot whose intent was lost arrives with the next");
+        shots.Consume();
+
+        // Out of order: the newer intent first, then an older one.
+        shots.Receive(WithShots(260, {{7, 258, Id(BeamType::Judicator)}}));
+        shots.Receive(WithShots(250, {{6, 248, Id(BeamType::Magmaul)}}));
+        Expect(shots.Next() == BeamType::Judicator, "a sequence behind one already queued is not queued again");
+        shots.Consume();
+
+        // An event whose trigger never fired here goes stale rather than
+        // lending an old weapon to a later shot.
+        shots.Receive(WithShots(300, {{8, 300, Id(BeamType::OmegaCannon)}}));
+        shots.Receive(WithShots(340, {}));
+        Expect(!shots.Next().has_value(), "a stale event is dropped");
+
+        // Death and respawn: a new life starts empty and takes the sender's
+        // sequence wherever it is.
+        shots.Receive(WithShots(400, {{9, 399, Id(BeamType::ShockCoil)}}));
+        shots.Reset();
+        Expect(!shots.Next().has_value(), "a new life holds none of the old life's shots");
+        shots.Receive(WithShots(410, {{10, 409, Id(BeamType::VoltDriver)}}));
+        Expect(shots.Next() == BeamType::VoltDriver, "and takes the new life's");
+        shots.Reset();
+
+        // Nonsense from the wire is refused.
+        shots.Receive(WithShots(500, {{11, 500, 0x7F}, {0, 500, Id(BeamType::Missile)}}));
+        Expect(!shots.Next().has_value(), "an unknown weapon or a zero sequence is ignored");
+    }
+
+    // The owner's side: a sequence per shot, the last few in every intent.
+    void ShotEventSender()
+    {
+        LocalShotLog log;
+        for (std::uint32_t i = 0; i < 6; ++i)
+        {
+            log.Record(100 + i, i % 2 == 0 ? BeamType::Missile : BeamType::OmegaCannon);
+        }
+        IntentPacket intent{};
+        intent.HasShot = true;
+        log.Fill(intent, 105);
+        Expect(intent.ShotHistoryLength == IntentPacket::ShotHistoryCount
+            && intent.ShotHistory[0].Sequence == 3 && intent.ShotHistory[3].Sequence == 6,
+            "the history keeps the newest shots, oldest first");
+        Expect(intent.ShotSequence == 6 && intent.ShotWeaponId == Id(BeamType::OmegaCannon),
+            "this frame's ray names its shot");
+        IntentPacket later{};
+        later.HasShot = true;
+        log.Fill(later, 110);
+        Expect(later.ShotSequence == 0 && later.ShotHistoryLength == IntentPacket::ShotHistoryCount,
+            "a later frame's ray that made no event names none, the history still rides");
+        log.Reset();
+        log.Record(200, BeamType::PowerBeam);
+        IntentPacket respawned{};
+        log.Fill(respawned, 200);
+        Expect(respawned.ShotHistoryLength == 1 && respawned.ShotHistory[0].Sequence == 7,
+            "a new life empties the history but never reuses a sequence");
+    }
+
+    // A morph replayed in the same intent as a trigger waits behind the shot.
+    void PressOrder()
+    {
+        ReplayedPressOrder order;
+        Expect(order.MorphPressed(true, false, true), "a morph alone goes through");
+        Expect(!order.MorphPressed(true, true, true), "a morph with an unspent shot waits");
+        Expect(order.MorphPressed(false, false, false), "and goes through the next frame");
+        Expect(!order.MorphPressed(false, false, false), "once");
+        Expect(order.MorphPressed(true, true, false), "with no shot pending, nothing is held");
+    }
 
     IntentPacket Transport(const NativeTouchState::Reported& report)
     {
@@ -228,6 +394,10 @@ int main()
         bytes.resize(static_cast<std::size_t>(IntentPacket::Size));
         const IntentPacket bare = IntentPacket::Read(bytes);
         Expect(!bare.HasState && !bare.HasTouch(), "a bare intent has neither block");
+        ShotEventWire();
+        ShotEventReceiver();
+        ShotEventSender();
+        PressOrder();
         OwnerAuthorityParity();
         PacketFaults();
     }

@@ -5,6 +5,7 @@
 #include "../../Formats/Types.hpp"
 #include "../../NativeRuntime/System/Guid.hpp"
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -408,11 +409,42 @@ namespace MphRead::Mods::Network
         // The ray of the shot this frame actually fired, after spread: the
         // authority fires the same ray instead of rebuilding one from a body
         // position and a gun vector a frame older than the trigger.
-        static constexpr std::int32_t ShotSize = 24;
-        static constexpr std::int32_t ShotFullSize = FullSize + ShotSize;
+        //
+        // Protocol 20: a shot is an event with a weapon and a sequence
+        // number. The weapon is the one the shot actually left, taken when it
+        // was fired -- never the receiver's guess from the weapon held now:
+        // firing the Omega Cannon unequips it in the same frame, so a copy
+        // that read the current weapon fired a Power Beam in its place.
+        // WeaponSelect stays what it was, the weapon held.
+        //
+        // Layout past FullSize, always written (zeros where nothing fired):
+        //   ray      origin xyz, direction xyz             24
+        //   this     ShotSequence u32, ShotWeaponId u8, 3   8
+        //   history  count u8, 3, then ShotHistoryCount x
+        //            (sequence u32, frame u32, weapon u8, 3) 4 + 4 x 12
+        // The history is the sender's last few shot events, newest last, in
+        // every intent: an intent lost, or refused for arriving behind a
+        // newer one, loses no shot, and the receiver deduplicates on the
+        // sequence. Continuous fire (Shock Coil) makes no events.
+        static constexpr std::int32_t ShotSize = 32;
+        static constexpr std::int32_t ShotEventSize = 12;
+        static constexpr std::int32_t ShotHistoryCount = 4;
+        static constexpr std::int32_t ShotHistorySize = 4 + ShotEventSize * ShotHistoryCount;
+        static constexpr std::int32_t ShotFullSize = FullSize + ShotSize + ShotHistorySize;
+        static constexpr std::uint8_t NoWeapon = 0xFF;
+        struct ShotEvent
+        {
+            std::uint32_t Sequence = 0;
+            std::uint32_t Frame = 0;
+            std::uint8_t WeaponId = NoWeapon;
+        };
         bool HasShot = false;
         ::OpenTK::Mathematics::Vector3 ShotOrigin{};
         ::OpenTK::Mathematics::Vector3 ShotDirection{};
+        std::uint8_t ShotWeaponId = NoWeapon;
+        std::uint32_t ShotSequence = 0;
+        std::array<ShotEvent, ShotHistoryCount> ShotHistory{};
+        std::uint8_t ShotHistoryLength = 0;
 
         std::uint8_t ChargeLevel = 0;
         std::uint8_t BoostDamage = 0;
@@ -653,7 +685,7 @@ namespace MphRead::Mods::Network
     public:
         static constexpr std::uint16_t DefaultPort = 27888;
         static constexpr std::int32_t MaxPacketSize = 1232;
-        static constexpr std::int32_t ProtocolVersion = 19;
+        static constexpr std::int32_t ProtocolVersion = 20;
         static constexpr std::int32_t IntentSendInterval = 1;
         static constexpr double TimeoutSeconds = 30.0;
 

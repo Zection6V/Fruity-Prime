@@ -36,6 +36,7 @@
 #include "../../Mods/Network/NetDamage.hpp"
 #include "../../Mods/Network/NetHooks.hpp"
 #include "../../Mods/Network/NetPlayerBridge.hpp"
+#include "../../Mods/Network/NetShotEvents.hpp"
 #include "../../Mods/Network/NetUnlagged.hpp"
 #include "../../Mods/SpectatorMode.hpp"
 #include "../../Utility/Rng.hpp"
@@ -1239,6 +1240,7 @@ namespace MphRead::Entities
         {
             return false;
         }
+        Mods::Network::NetShotEvents::PrepareShot(*this);
         const bool pressed = _controls.Shoot().IsPressed();
         const WeaponInfo& equipWeapon = EquipWeapon();
         if (pressed || _currentWeapon != BeamType::PowerBeam)
@@ -1286,6 +1288,8 @@ namespace MphRead::Entities
         {
             Mods::Network::NetPlayerBridge::NoteLocalShot(shotOrigin, shotVec);
         }
+        Mods::Network::NetShotEvents::Fired(*this, _currentWeapon,
+            TestFlag(RequireReference(_equipInfo->Weapon).Flags, WeaponFlags::Continuous));
         const std::shared_ptr<WeaponInfo> curWeapon = _equipInfo->Weapon;
         if (IsPrimeHunter())
         {

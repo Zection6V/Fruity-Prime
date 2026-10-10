@@ -19,6 +19,7 @@ private: \
 #include "DynamicLightEntity.hpp"
 #include "DialancheNativeCollision.hpp"
 #include "WeavelLungeInput.hpp"
+#include "WeavelReplicaTransition.hpp"
 #include "PlayerCamera.hpp"
 #include "PlayerCollision.hpp"
 #include "PlayerDialog.hpp"
@@ -1004,8 +1005,7 @@ namespace MphRead::Entities
         WeavelLungeInput _weavelLungeInput{};
         bool _weavelNativeAttackPress = false;
         bool _weavelAltLife = false;
-        // Frame a remote replica started its morph animation, to give up and snap if it stalls.
-        std::uint64_t _weavelReplicaMorphFrame = 0;
+        WeavelReplicaTransition _weavelReplicaTransition{};
         std::uint16_t _timeSinceDamage = 0;
         std::uint16_t _timeSincePickup = 0;
         std::uint16_t _timeSinceHeal = 0;

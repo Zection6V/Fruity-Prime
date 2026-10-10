@@ -3,6 +3,7 @@
 #include "../Metadata/Metadata.hpp"
 #include "../Mods/Gameplay/NativeGameplayClock.hpp"
 #include "../Entities/Players/WeavelLungeInput.hpp"
+#include "../Entities/Players/WeavelReplicaTransition.hpp"
 #include "../Mods/Network/NetProtocol.hpp"
 #include "../Mods/Network/NetHealthSync.hpp"
 #include "../Mods/Network/NetMatchTimeSync.hpp"
@@ -66,9 +67,26 @@ namespace
         Expect(!input.Consume(true), "hold or rejected edge never repeats");
         input.Capture(true); input.Reset();
         Expect(!input.Consume(true), "spawn reset discards previous input edge");
+
+        // A remote Weavel's copy plays its transformations instead of snapping.
+        using Step = MphRead::Entities::WeavelReplicaTransition::Step;
+        MphRead::Entities::WeavelReplicaTransition replica;
+        Expect(replica.Decide(true, false, false, false, true, 100) == Step::StartMorph, "replica Alt starts the morph");
+        Expect(replica.Decide(true, false, true, false, true, 120) == Step::Wait, "and lets it play");
+        Expect(replica.Decide(true, true, false, false, true, 141) == Step::Finalize && replica.Started(),
+            "a finished morph is finalized and reported");
+        replica.Close();
+        Expect(replica.Decide(false, true, false, false, true, 300) == Step::StartUnmorph, "replica biped starts the unmorph");
+        Expect(replica.Decide(false, false, false, true, true, 330) == Step::Wait, "and lets it play");
+        Expect(replica.Decide(false, false, false, true, true, 390) == Step::Finalize, "a stalled unmorph snaps");
+        replica.Close();
+        Expect(replica.Decide(true, false, false, false, false, 500) == Step::Finalize, "a dead copy never starts one");
+        Expect(replica.Decide(true, true, false, false, true, 510) == Step::Finalize && !replica.Started(),
+            "an unchanged form is only finalized");
         // Protocol 17 added the 14 Weavel bytes; 19 adds 3 for the newest
-        // damage event's confirmed impact: 54 + 4 x 15 + 14 + 3.
-        Expect(NetConfig::ProtocolVersion == 19 && PlayerState::Size == 131
+        // damage event's confirmed impact: 54 + 4 x 15 + 14 + 3. 20 changes
+        // only the intent (shot events).
+        Expect(NetConfig::ProtocolVersion == 20 && PlayerState::Size == 131
             && PlayerState::Size - PlayerState::LegacySize == 17, "Weavel and the impact add 17 bytes per player");
         for (int mode = 0; mode < 3; ++mode)
         {

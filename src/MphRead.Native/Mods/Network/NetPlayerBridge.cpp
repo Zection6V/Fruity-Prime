@@ -8,6 +8,7 @@
 #include "NetHooks.hpp"
 #include "NetLog.hpp"
 #include "NetPlayerLifecycle.hpp"
+#include "NetShotEvents.hpp"
 #include "NetRoomChange.hpp"
 #include "NetSession.hpp"
 #include "NetShotDiagnostics.hpp"
@@ -250,6 +251,17 @@ namespace MphRead::Mods::Network
         Set(c.Zoom(), HasFlag(intent.Buttons, IntentButtons::Zoom), HasFlag(missed, IntentButtons::Zoom));
         Set(c.Jump(), HasFlag(intent.Buttons, IntentButtons::Jump), HasFlag(missed, IntentButtons::Jump));
         Set(c.Morph(), HasFlag(intent.Buttons, IntentButtons::Morph), HasFlag(missed, IntentButtons::Morph));
+        if (const std::int32_t slot = player.SlotIndex(); slot >= 0 && slot < Slots)
+        {
+            const bool morph = _pressOrder[Index(slot)].MorphPressed(c.Morph().IsPressed(), c.Shoot().IsPressed(),
+                NetShotEvents::HasPending(slot));
+            if (morph != c.Morph().IsPressed())
+            {
+                c.Morph().SetIsPressed(morph);
+                c.Morph().SetIsDown(c.Morph().IsDown() || morph);
+                c.Morph().SetIsReleased(c.Morph().IsReleased() && !morph);
+            }
+        }
         if (c.Morph().IsPressed())
         {
             NetLog::Event("slot " + std::to_string(player.SlotIndex()) + " morph press received, now " + player.ModFormState());
@@ -1195,6 +1207,8 @@ namespace MphRead::Mods::Network
         _lastPressFrame[s] = 0;
         _pressSeen[s] = false;
         _aimHeld[s] = false;
+        _pressOrder[s].Reset();
+        NetShotEvents::Forget(slot);
         SpawnFrame[s] = 0;
         ShootPressAge[s] = 0;
         _respawnRequested[s] = false;

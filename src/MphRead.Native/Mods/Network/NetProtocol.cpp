@@ -797,15 +797,39 @@ namespace MphRead::Mods::Network
             dest[Size + 3] = TouchFlags;
             W32(Slice(dest, static_cast<std::size_t>(Size + StateSize + LegacyTouchSize)), TouchSampleSequence);
         }
-        if (HasShot && dest.size() >= static_cast<std::size_t>(ShotFullSize))
+        if (dest.size() >= static_cast<std::size_t>(ShotFullSize))
         {
             const auto at = static_cast<std::size_t>(FullSize);
-            WF(Slice(dest, at), ShotOrigin.X);
-            WF(Slice(dest, at + 4), ShotOrigin.Y);
-            WF(Slice(dest, at + 8), ShotOrigin.Z);
-            WF(Slice(dest, at + 12), ShotDirection.X);
-            WF(Slice(dest, at + 16), ShotDirection.Y);
-            WF(Slice(dest, at + 20), ShotDirection.Z);
+            const ::OpenTK::Mathematics::Vector3 origin = HasShot ? ShotOrigin : ::OpenTK::Mathematics::Vector3::Zero;
+            const ::OpenTK::Mathematics::Vector3 direction = HasShot ? ShotDirection : ::OpenTK::Mathematics::Vector3::Zero;
+            WF(Slice(dest, at), origin.X);
+            WF(Slice(dest, at + 4), origin.Y);
+            WF(Slice(dest, at + 8), origin.Z);
+            WF(Slice(dest, at + 12), direction.X);
+            WF(Slice(dest, at + 16), direction.Y);
+            WF(Slice(dest, at + 20), direction.Z);
+            W32(Slice(dest, at + 24), HasShot ? ShotSequence : 0U);
+            At(dest, at + 28) = HasShot ? ShotWeaponId : NoWeapon;
+            At(dest, at + 29) = 0;
+            At(dest, at + 30) = 0;
+            At(dest, at + 31) = 0;
+            const auto history = static_cast<std::size_t>(FullSize + ShotSize);
+            const std::uint8_t count = std::min<std::uint8_t>(ShotHistoryLength, ShotHistoryCount);
+            At(dest, history) = count;
+            At(dest, history + 1) = 0;
+            At(dest, history + 2) = 0;
+            At(dest, history + 3) = 0;
+            for (std::size_t i = 0; i < static_cast<std::size_t>(ShotHistoryCount); ++i)
+            {
+                const ShotEvent event = i < count ? ShotHistory[i] : ShotEvent{};
+                const std::size_t entry = history + 4 + i * static_cast<std::size_t>(ShotEventSize);
+                W32(Slice(dest, entry), event.Sequence);
+                W32(Slice(dest, entry + 4), event.Frame);
+                At(dest, entry + 8) = event.WeaponId;
+                At(dest, entry + 9) = 0;
+                At(dest, entry + 10) = 0;
+                At(dest, entry + 11) = 0;
+            }
         }
     }
     void IntentPacket::SetTouchReport(const ::MphRead::Mods::Input::NativeTouchState::Reported& touch) noexcept
@@ -874,6 +898,16 @@ namespace MphRead::Mods::Network
                 && std::isfinite(packet.ShotOrigin.Z) && std::isfinite(packet.ShotDirection.X)
                 && std::isfinite(packet.ShotDirection.Y) && std::isfinite(packet.ShotDirection.Z)
                 && packet.ShotDirection.LengthSquared() > 0.25F && packet.ShotDirection.LengthSquared() < 4.0F;
+            packet.ShotSequence = R32(Slice(src, at + 24));
+            packet.ShotWeaponId = At(src, at + 28);
+            const auto history = static_cast<std::size_t>(FullSize + ShotSize);
+            const std::uint8_t count = std::min<std::uint8_t>(At(src, history), ShotHistoryCount);
+            packet.ShotHistoryLength = count;
+            for (std::size_t i = 0; i < count; ++i)
+            {
+                const std::size_t entry = history + 4 + i * static_cast<std::size_t>(ShotEventSize);
+                packet.ShotHistory[i] = {R32(Slice(src, entry)), R32(Slice(src, entry + 4)), At(src, entry + 8)};
+            }
         }
         return packet;
     }

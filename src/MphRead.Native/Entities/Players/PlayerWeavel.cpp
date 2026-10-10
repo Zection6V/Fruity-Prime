@@ -82,51 +82,36 @@ namespace MphRead::Entities
         Vector3 turretPosition, bool turretGrounded)
     {
         if (_hunter != Hunter::Weavel) return;
-        // A replica going to Alt plays the morph like every other hunter's
-        // puppet does (ProcessPlayer applies the form when the animation
-        // ends) instead of snapping into it, which drew no animation at all
-        // for anyone watching. _weavelAltLife is set first so EnterAltForm
-        // spawns no turret: the turret below is the authority's.
+        // WeavelReplicaTransition decides; the turret flags are arranged here
+        // so the copy neither spawns a turret of its own nor merges one's
+        // health -- the turret below, and the health, are the authority's.
         const auto frame = static_cast<std::uint64_t>(
             ::MphRead::NativeRuntime::RequireReference(_scene).FrameCount());
-        bool morphing = false;
-        if (desiredAlt && !IsAltForm() && !IsUnmorphing() && _health > 0)
+        switch (_weavelReplicaTransition.Decide(desiredAlt, IsAltForm(), IsMorphing(), IsUnmorphing(),
+            _health > 0, frame))
         {
-            if (!IsMorphing())
-            {
-                _weavelAltLife = true;
-                EnterAltForm();
-                _weavelReplicaMorphFrame = frame;
-                Mods::Network::NetLog::Event("slot " + std::to_string(SlotIndex()) + " replica Weavel morph started");
-            }
-            // Snap only if the animation never finishes.
-            morphing = frame - _weavelReplicaMorphFrame < 90;
-        }
-        else if (!desiredAlt && IsAltForm() && !IsMorphing() && _health > 0)
-        {
-            // The way back, the same: ExitAltForm plays the unmorph. The
-            // turret flag goes first so it merges no turret health -- the
-            // snapshot's health already holds the authority's merge.
+        case WeavelReplicaTransition::Step::StartMorph:
+            _weavelAltLife = true;
+            EnterAltForm();
+            Mods::Network::NetLog::Event("slot " + std::to_string(SlotIndex()) + " replica Weavel morph started");
+            break;
+        case WeavelReplicaTransition::Step::StartUnmorph:
             _flags2 &= ~PlayerFlags2::Halfturret;
             ExitAltForm();
-            _weavelReplicaMorphFrame = frame;
-            morphing = true;
             Mods::Network::NetLog::Event("slot " + std::to_string(SlotIndex()) + " replica Weavel unmorph started");
-        }
-        else if (!desiredAlt && IsUnmorphing())
-        {
-            morphing = frame - _weavelReplicaMorphFrame < 90;
-        }
-        if (!morphing)
-        {
-            if (_weavelReplicaMorphFrame != 0)
+            break;
+        case WeavelReplicaTransition::Step::Wait:
+            break;
+        case WeavelReplicaTransition::Step::Finalize:
+            if (_weavelReplicaTransition.Started())
             {
                 Mods::Network::NetLog::Event("slot " + std::to_string(SlotIndex()) + " replica Weavel "
                     + (IsMorphing() || IsUnmorphing() ? "transition stalled, snapped" : "transition finished")
-                    + " after " + std::to_string(frame - _weavelReplicaMorphFrame) + " frames");
-                _weavelReplicaMorphFrame = 0;
+                    + " after " + std::to_string(frame - _weavelReplicaTransition.StartFrame()) + " frames");
+                _weavelReplicaTransition.Close();
             }
             FinalizeWeavelForm(desiredAlt);
+            break;
         }
         _weavelAltLife = desiredAlt;
         if (!desiredAlt)

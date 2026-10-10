@@ -1556,18 +1556,25 @@ namespace MphRead::Mods::Network
         const auto before = static_cast<std::uint32_t>(victim.Health());
         // The turret's share as the shooter's machine split it, on the
         // authority's turret -- if it still has one to take it.
+        // A hit on a turret is applied whole, as the turret hit it was: the
+        // turret reacts to all of it (its target, its fire rate), the split
+        // follows this machine's health, and the turret still keeps its owner
+        // alive. A turret gone here leaves the body's share alone.
         const bool turretHit = entry.TurretDamage > 0 && LiveTurretPosition(victim).has_value();
+        const std::uint32_t applied = turretHit
+            ? static_cast<std::uint32_t>(entry.Damage) + entry.TurretDamage : entry.Damage;
+        if (turretHit)
+        {
+            flags = static_cast<DamageFlags>(static_cast<std::int32_t>(flags)
+                | static_cast<std::int32_t>(DamageFlags::Halfturret));
+        }
         try
         {
             const NetDamage::ClaimScope scope(entry.Beam == HitClaimPacket::NoBeam
                 ? ::MphRead::BeamType::None : static_cast<::MphRead::BeamType>(entry.Beam));
-            if (turretHit)
+            if (applied > 0)
             {
-                victim.DamageHalfturret(entry.TurretDamage);
-            }
-            if (entry.Damage > 0)
-            {
-                victim.TakeDamage(static_cast<std::uint32_t>(entry.Damage), flags,
+                victim.TakeDamage(applied, flags,
                     (entry.Flags & HitClaimPacket::FlagImpulse) != 0
                         ? std::optional<OpenTK::Mathematics::Vector3>(entry.Impulse) : std::nullopt,
                     &shooter);

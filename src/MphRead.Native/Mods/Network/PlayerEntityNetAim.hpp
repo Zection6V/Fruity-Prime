@@ -96,6 +96,7 @@ public: \
     [[nodiscard]] bool ModFrozen() const; \
     void ModSetFrozen(bool frozen); \
     void ModRefreshVolume(); \
+    void ModRefreshAttachedEffects(); \
     [[nodiscard]] bool ModBurning() const; \
     [[nodiscard]] bool ModDisrupted() const; \
     void ModSetDisrupted(bool disrupted); \

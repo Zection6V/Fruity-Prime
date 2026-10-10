@@ -862,6 +862,17 @@ namespace MphRead::Entities
         (*this)._volume = CollisionVolume::Move((*this)._volumeUnxf, (*this).Position);
     }
 
+    // The boost trail follows Position in the simulation step, which for a
+    // remote player runs before the network moves it: drawn from there it
+    // trails the ball by a step. Put it where the ball now is.
+    void PlayerEntity::ModRefreshAttachedEffects()
+    {
+        if ((*this)._boostEffect != nullptr)
+        {
+            (*this)._boostEffect->Transform((*this)._gunVec2, (*this)._facingVector, (*this).Position);
+        }
+    }
+
     bool PlayerEntity::ModBurning() const
     {
         return (*this)._burnTimer > 0;

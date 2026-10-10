@@ -1330,5 +1330,6 @@ namespace MphRead::Mods::Network
         player.SetPrevPosition(position);
         player.ModRefreshNodeRef(previous);
         player.ModRefreshVolume();
+        player.ModRefreshAttachedEffects();
     }
 }

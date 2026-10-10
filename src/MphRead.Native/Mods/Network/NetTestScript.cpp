@@ -51,6 +51,7 @@ namespace
 namespace MphRead::Mods::Network
 {
     double NetTestScript::_phaseSeconds = NetTestScript::ReadPhaseSeconds();
+    std::optional<TestPhase> NetTestScript::_pinnedPhase = NetTestScript::ReadPinnedPhase();
     OpenTK::Mathematics::Vector3 NetTestScript::_lastPosition
         = OpenTK::Mathematics::Vector3::Zero;
 
@@ -109,8 +110,28 @@ namespace MphRead::Mods::Network
         return 5.0;
     }
 
+    std::optional<TestPhase> NetTestScript::ReadPinnedPhase()
+    {
+        const std::optional<std::string> value = NativeRuntime::EnvironmentGetVariable("MPHREAD_PHASE");
+        if (value.has_value())
+        {
+            for (const TestPhase phase : _order)
+            {
+                if (ToString(phase) == *value)
+                {
+                    return phase;
+                }
+            }
+        }
+        return std::nullopt;
+    }
+
     TestPhase NetTestScript::Phase()
     {
+        if (_pinnedPhase.has_value())
+        {
+            return *_pinnedPhase;
+        }
         const std::optional<MatchStatePacket> serverMatch = NetSession::ServerMatch();
         const double elapsed = serverMatch.has_value()
             ? ServerElapsed(serverMatch->TimeElapsed)

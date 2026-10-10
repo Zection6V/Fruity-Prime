@@ -3,6 +3,7 @@
 #include "../Metadata/Metadata.hpp"
 #include "../Mods/Gameplay/NativeGameplayClock.hpp"
 #include "../Entities/Players/WeavelLungeInput.hpp"
+#include "../Entities/Players/WeavelOwnedTurret.hpp"
 #include "../Entities/Players/WeavelReplicaTransition.hpp"
 #include "../Mods/Network/NetProtocol.hpp"
 #include "../Mods/Network/NetHealthSync.hpp"
@@ -68,6 +69,22 @@ namespace
         input.Capture(true); input.Reset();
         Expect(!input.Consume(true), "spawn reset discards previous input edge");
 
+        // The owner's own turret: the authority's health, and the authority's
+        // destruction -- never a turret it has not placed yet.
+        {
+            using Own = MphRead::Entities::WeavelOwnedTurret;
+            Own own;
+            Expect(own.Decide(true, true, true, false) == Own::Step::Keep,
+                "a turret the authority has not placed yet is kept");
+            Expect(own.Decide(true, true, true, true) == Own::Step::AdoptHealth, "a standing one takes its health");
+            Expect(own.Decide(true, true, false, false) == Own::Step::Keep, "unmorphing there is not destruction");
+            Expect(own.Decide(true, true, true, false) == Own::Step::Destroy, "gone while still alt is destroyed");
+            Expect(own.Decide(true, false, true, false) == Own::Step::Keep, "and once is enough");
+            Expect(own.Decide(false, false, false, false) == Own::Step::Keep
+                && own.Decide(true, true, true, false) == Own::Step::Keep,
+                "a new alt life waits for the authority's turret again");
+        }
+
         // A remote Weavel's copy plays its transformations instead of snapping.
         using Step = MphRead::Entities::WeavelReplicaTransition::Step;
         MphRead::Entities::WeavelReplicaTransition replica;
@@ -86,8 +103,8 @@ namespace
         // Protocol 17 added the 14 Weavel bytes; 19 adds 3 for the newest
         // damage event's confirmed impact: 54 + 4 x 15 + 14 + 3. 20 changes
         // only the intent (shot events); 21 the shot events and the claims;
-        // 22 the meaning of two spare Weavel flag bits.
-        Expect(NetConfig::ProtocolVersion == 22 && PlayerState::Size == 131
+        // 22 the meaning of two spare Weavel flag bits; 23 only the claim.
+        Expect(NetConfig::ProtocolVersion == 23 && PlayerState::Size == 131
             && PlayerState::Size - PlayerState::LegacySize == 17, "Weavel and the impact add 17 bytes per player");
         {
             // A transition under way on the authority is the form being

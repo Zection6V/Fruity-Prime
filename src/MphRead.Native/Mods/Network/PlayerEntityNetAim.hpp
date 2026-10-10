@@ -66,6 +66,8 @@ public: \
         std::optional<std::int32_t> desiredTurretHealth = std::nullopt); \
     void ModApplyWeavelState(bool desiredAlt, bool turretActive, std::int32_t turretHealth, \
         OpenTK::Mathematics::Vector3 turretPosition, bool turretGrounded); \
+    /* The authority's word on this machine's own turret: WeavelOwnedTurret. */ \
+    void ModApplyOwnWeavelTurret(bool authorityHeadingAlt, bool authorityTurretActive, std::int32_t turretHealth); \
 private: \
     void FinalizeWeavelForm(bool desiredAlt); \
 public: \

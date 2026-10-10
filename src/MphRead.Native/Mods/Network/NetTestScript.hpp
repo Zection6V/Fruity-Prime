@@ -2,6 +2,7 @@
 
 #include "../../Formats/Types.hpp"
 
+#include <optional>
 #include <string>
 #include <array>
 #include <cstdint>
@@ -81,6 +82,10 @@ namespace MphRead::Mods::Network
 
     private:
         [[nodiscard]] static double ReadPhaseSeconds();
+        // MPHREAD_PHASE=MorphA holds the tour on that one phase: a scripted
+        // player doing one thing for as long as a live test needs it (a
+        // Weavel that stays a turret to be shot at).
+        [[nodiscard]] static std::optional<TestPhase> ReadPinnedPhase();
         // The server's match clock, carried forward between the MatchState
         // packets that set it (one a second, and lossy), so every client's
         // tour turns the page on the same frame give or take a trip.
@@ -122,6 +127,7 @@ namespace MphRead::Mods::Network
         static constexpr float PreferredRange = 4.0F;
 
         static double _phaseSeconds;
+        static std::optional<TestPhase> _pinnedPhase;
         inline static const std::array<TestPhase, 16> _order{
             TestPhase::Idle,
             TestPhase::Walk,

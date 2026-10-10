@@ -84,7 +84,7 @@ namespace MphRead::Mods::Network
             std::uint32_t launchFrame, std::optional<OpenTK::Mathematics::Vector3> impulse = std::nullopt,
             ::MphRead::Affliction afflictions = ::MphRead::Affliction::None,
             std::optional<OpenTK::Mathematics::Vector3> impact = std::nullopt, bool splash = false,
-            std::uint32_t shotSequence = 0);
+            std::uint32_t shotSequence = 0, std::uint32_t turretDamage = 0);
         // While a claim is being applied: where it landed on the victim, for
         // the damage event the victim's machine will read (NetDamage::Note).
         [[nodiscard]] static ImpactOffset CurrentClaimImpact() noexcept { return _applyingImpact; }
@@ -189,6 +189,7 @@ namespace MphRead::Mods::Network
             std::uint8_t VictimSlot = 0;
             std::uint8_t Beam = 0;
             std::uint16_t Damage = 0;
+            std::uint16_t TurretDamage = 0;
             std::uint8_t Flags = 0;
             OpenTK::Mathematics::Vector3 HitPoint{};
             OpenTK::Mathematics::Vector3 Impulse{};
@@ -211,6 +212,7 @@ namespace MphRead::Mods::Network
             std::uint8_t VictimSlot = 0;
             std::uint8_t Beam = 0;
             std::uint16_t Damage = 0;
+            std::uint16_t TurretDamage = 0;
             std::uint8_t Flags = 0;
             std::uint32_t AckFrame = 0;
             std::uint32_t LaunchFrame = 0;

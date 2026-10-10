@@ -499,12 +499,18 @@ namespace MphRead::Mods::Network
             }
         }
         // Explicit turret reconciliation owns remote replicas. A local owner
-        // predicts form and turret lifecycle; an older snapshot has no form ack.
+        // predicts form and turret placement, and takes the authority's word
+        // on the turret's health and destruction (WeavelOwnedTurret).
         if (player.Hunter() == Hunter::Weavel && !isLocal)
         {
             player.ModApplyWeavelState(state.HeadingAlt(),
                 (state.WeavelFlags & PlayerState::WeavelFlagTurretActive) != 0, state.HalfturretHealth,
                 state.HalfturretPosition, (state.WeavelFlags & PlayerState::WeavelFlagTurretGrounded) != 0);
+        }
+        else if (player.Hunter() == Hunter::Weavel && !NetSession::IsAuthority())
+        {
+            player.ModApplyOwnWeavelTurret(state.HeadingAlt(),
+                (state.WeavelFlags & PlayerState::WeavelFlagTurretActive) != 0, state.HalfturretHealth);
         }
         player.ModSetFrozen((state.Flags & PlayerState::FlagFrozen) != 0);
         ApplyAfflictions(player, state);

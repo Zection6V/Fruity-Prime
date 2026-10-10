@@ -96,7 +96,8 @@ namespace MphRead::Mods::Network
             float flight = 0,
             std::optional<OpenTK::Mathematics::Vector3> impulse = std::nullopt,
             ::MphRead::Affliction afflictions = ::MphRead::Affliction::None,
-            std::uint32_t shotSequence = 0);
+            std::uint32_t shotSequence = 0,
+            std::uint32_t turretDamage = 0);
 
         [[nodiscard]] static bool Confirm(std::int32_t slot, std::int32_t landed = 1, bool authorityHeadshot = false);
         [[nodiscard]] static Entities::PlayerEntity* OwnerOf(Entities::EntityBase* source);

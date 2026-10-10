@@ -19,6 +19,7 @@ private: \
 #include "DynamicLightEntity.hpp"
 #include "DialancheNativeCollision.hpp"
 #include "WeavelLungeInput.hpp"
+#include "WeavelOwnedTurret.hpp"
 #include "WeavelReplicaTransition.hpp"
 #include "PlayerCamera.hpp"
 #include "PlayerCollision.hpp"
@@ -673,6 +674,11 @@ namespace MphRead::Entities
         [[nodiscard]] bool Field6D0() const noexcept { return _field6D0; }
 
         [[nodiscard]] std::shared_ptr<HalfturretEntity> Halfturret() const noexcept { return _halfturret; }
+        // A hit shared with the turret: the turret's part of `damage` (the
+        // half whichever of the two has more health takes), and taking that
+        // part off the turret, destroying it if it is all it had.
+        [[nodiscard]] std::uint32_t HalfturretShare(std::uint32_t damage) const;
+        void DamageHalfturret(std::uint32_t damage);
         [[nodiscard]] std::shared_ptr<EnemySpawnEntity> EnemySpawner() const noexcept { return _enemySpawner; }
         void SetEnemySpawner(std::shared_ptr<EnemySpawnEntity> value) noexcept { _enemySpawner = std::move(value); }
         [[nodiscard]] std::shared_ptr<EnemyInstanceEntity> AttachedEnemy() const noexcept { return _attachedEnemy; }
@@ -1006,6 +1012,7 @@ namespace MphRead::Entities
         bool _weavelNativeAttackPress = false;
         bool _weavelAltLife = false;
         WeavelReplicaTransition _weavelReplicaTransition{};
+        WeavelOwnedTurret _weavelOwnedTurret{};
         std::uint16_t _timeSinceDamage = 0;
         std::uint16_t _timeSincePickup = 0;
         std::uint16_t _timeSinceHeal = 0;

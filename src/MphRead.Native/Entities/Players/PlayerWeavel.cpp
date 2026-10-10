@@ -46,6 +46,26 @@ namespace MphRead::Entities
         _weavelNativeAttackPress = false;
     }
 
+    std::uint32_t PlayerEntity::HalfturretShare(std::uint32_t damage) const
+    {
+        const HalfturretEntity& turret = NativeRuntime::RequireReference(_halfturret);
+        return _health > turret.Health() ? damage - damage / 2 : damage / 2;
+    }
+
+    void PlayerEntity::DamageHalfturret(std::uint32_t damage)
+    {
+        HalfturretEntity& turret = NativeRuntime::RequireReference(_halfturret);
+        if (turret.Health() <= 0 || static_cast<std::uint32_t>(turret.Health()) <= damage)
+        {
+            turret.Die();
+        }
+        else
+        {
+            turret.SetHealth(turret.Health() - static_cast<std::int32_t>(damage));
+        }
+        turret.SetTimeSinceDamage(0);
+    }
+
     void PlayerEntity::ModForceWeavelState(bool desiredAlt, bool desiredTurretActive,
         std::optional<std::int32_t> desiredTurretHealth)
     {
@@ -76,6 +96,30 @@ namespace MphRead::Entities
             _halfturret->SetHealth(*desiredTurretHealth);
         }
         FinalizeWeavelForm(desiredAlt);
+    }
+
+    void PlayerEntity::ModApplyOwnWeavelTurret(bool authorityHeadingAlt, bool authorityTurretActive,
+        std::int32_t turretHealth)
+    {
+        if (_hunter != Hunter::Weavel) return;
+        const bool alive = TypeExtensions::TestFlag(_flags2, PlayerFlags2::Halfturret)
+            && _halfturret && _halfturret->Health() > 0;
+        switch (_weavelOwnedTurret.Decide(IsAltForm() || IsMorphing(), alive, authorityHeadingAlt, authorityTurretActive))
+        {
+        case WeavelOwnedTurret::Step::AdoptHealth:
+            if (turretHealth > 0 && turretHealth < _halfturret->Health())
+            {
+                _halfturret->SetHealth(turretHealth);
+            }
+            break;
+        case WeavelOwnedTurret::Step::Destroy:
+            Mods::Network::NetLog::Event("slot " + std::to_string(SlotIndex())
+                + " own turret destroyed on the authority: destroyed here too");
+            _halfturret->Die();
+            break;
+        case WeavelOwnedTurret::Step::Keep:
+            break;
+        }
     }
 
     void PlayerEntity::ModApplyWeavelState(bool desiredAlt, bool turretActive, std::int32_t turretHealth,

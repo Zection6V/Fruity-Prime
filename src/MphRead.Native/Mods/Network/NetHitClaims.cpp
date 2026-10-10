@@ -14,6 +14,7 @@
 #include "NetSmoothing.hpp"
 #include "NetUnlagged.hpp"
 
+#include "../../Entities/Players/HalfturretEntity.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Metadata/Metadata.hpp"
 #include "../../Metadata/Weapons.hpp"
@@ -34,6 +35,19 @@ namespace MphRead::Mods::Network
         using ::MphRead::Entities::DamageFlags;
         using ::MphRead::Entities::LoadFlags;
         using ::MphRead::Entities::PlayerEntity;
+
+        // Where a victim's turret stands, if they have one still standing:
+        // what a claim's turret share is checked against and applied to.
+        [[nodiscard]] std::optional<OpenTK::Mathematics::Vector3> LiveTurretPosition(const PlayerEntity& victim)
+        {
+            const std::shared_ptr<::MphRead::Entities::HalfturretEntity> turret = victim.Halfturret();
+            if (!turret || !::MphRead::TestFlag(victim.Flags2(), ::MphRead::Entities::PlayerFlags2::Halfturret)
+                || turret->Health() <= 0)
+            {
+                return std::nullopt;
+            }
+            return static_cast<OpenTK::Mathematics::Vector3>(turret->Position);
+        }
 
         [[nodiscard]] bool HasDamageFlag(DamageFlags value, DamageFlags flag) noexcept
         {
@@ -160,9 +174,10 @@ namespace MphRead::Mods::Network
     std::uint16_t NetHitClaims::Declare(PlayerEntity& victim, PlayerEntity& attacker, ::MphRead::BeamType beam,
         std::uint32_t damage, DamageFlags flags, bool lethal, OpenTK::Mathematics::Vector3 hitPoint,
         std::uint32_t launchFrame, std::optional<OpenTK::Mathematics::Vector3> impulse, ::MphRead::Affliction afflictions,
-        std::optional<OpenTK::Mathematics::Vector3> impact, bool splash, std::uint32_t shotSequence)
+        std::optional<OpenTK::Mathematics::Vector3> impact, bool splash, std::uint32_t shotSequence,
+        std::uint32_t turretDamage)
     {
-        if (!Claiming() || &victim == &attacker || damage == 0
+        if (!Claiming() || &victim == &attacker || (damage == 0 && turretDamage == 0)
             || NetPlayerLifecycle::Get(victim.SlotIndex()) == 0 || NetPlayerLifecycle::Get(attacker.SlotIndex()) == 0)
         {
             return 0;
@@ -243,6 +258,7 @@ namespace MphRead::Mods::Network
         entry.VictimSlot = static_cast<std::uint8_t>(slot);
         entry.Beam = beam == ::MphRead::BeamType::None ? HitClaimPacket::NoBeam : static_cast<std::uint8_t>(beam);
         entry.Damage = static_cast<std::uint16_t>(std::min<std::uint32_t>(damage, 0xFFFFU));
+        entry.TurretDamage = static_cast<std::uint16_t>(std::min<std::uint32_t>(turretDamage, 0xFFFFU));
         entry.Flags = claimFlags;
         entry.HitPoint = hitPoint;
         entry.Impulse = impulse.value_or(OpenTK::Mathematics::Vector3::Zero);
@@ -304,6 +320,7 @@ namespace MphRead::Mods::Network
             packet.VictimSlot = entry.VictimSlot;
             packet.Beam = entry.Beam;
             packet.Damage = entry.Damage;
+            packet.TurretDamage = entry.TurretDamage;
             packet.Flags = entry.Flags;
             packet.HitPoint = entry.HitPoint;
             packet.Impulse = entry.Impulse;
@@ -778,10 +795,10 @@ namespace MphRead::Mods::Network
             ++_refusedHere;
             return HitVerdictPacket::ResultInvalidLaunch;
         }
-        if (claim.Damage > MaxDamageFor(shooterSlot, claim.Beam))
+        if (claim.Damage + claim.TurretDamage > MaxDamageFor(shooterSlot, claim.Beam))
         {
             _refusedHere++;
-            NetLog::Event("slot " + std::to_string(shooterSlot) + " claimed " + std::to_string(claim.Damage)
+            NetLog::Event("slot " + std::to_string(shooterSlot) + " claimed " + std::to_string(claim.Damage + claim.TurretDamage)
                 + " damage with beam " + std::to_string(claim.Beam) + ", which cannot deal more than "
                 + std::to_string(MaxDamageFor(shooterSlot, claim.Beam)));
             return HitVerdictPacket::ResultDamageLimit;
@@ -925,6 +942,7 @@ namespace MphRead::Mods::Network
         entry.VictimSlot = claim.VictimSlot;
         entry.Beam = claim.Beam;
         entry.Damage = claim.Damage;
+        entry.TurretDamage = claim.TurretDamage;
         entry.Flags = claim.Flags;
         entry.AckFrame = claim.AckFrame;
         entry.LaunchFrame = claim.LaunchFrame;
@@ -1090,6 +1108,12 @@ namespace MphRead::Mods::Network
             return true;
         }
         const PlayerEntity& victim = PlayerAt(victimSlot);
+        // A hit on a turret did not land on the body, which can stand metres
+        // away: ShotPlausible judges a straight one at the turret instead.
+        if (claim.TurretDamage > 0 && LiveTurretPosition(victim).has_value())
+        {
+            return true;
+        }
         const OpenTK::Mathematics::Vector3 at = claim.Impact.Value();
         if ((claim.Flags & HitClaimPacket::FlagSplash) != 0)
         {
@@ -1234,7 +1258,13 @@ namespace MphRead::Mods::Network
         {
             return false;
         }
-        if (!claim.Impact.Known() || (claim.Flags & HitClaimPacket::FlagSplash) != 0 || !StraightWeapon(shooterSlot, claim.Beam))
+        // A hit on a turret is judged at the turret, which does not move once
+        // placed: the impact is an offset around the body, and a turret
+        // standing metres from it put every such hit off the ray.
+        const std::optional<OpenTK::Mathematics::Vector3> turret = claim.TurretDamage > 0
+            ? LiveTurretPosition(PlayerAt(claim.VictimSlot)) : std::nullopt;
+        if ((!claim.Impact.Known() && !turret.has_value()) || (claim.Flags & HitClaimPacket::FlagSplash) != 0
+            || !StraightWeapon(shooterSlot, claim.Beam))
         {
             return true;
         }
@@ -1265,7 +1295,7 @@ namespace MphRead::Mods::Network
         {
             return true;
         }
-        const OpenTK::Mathematics::Vector3 point = was + claim.Impact.Value();
+        const OpenTK::Mathematics::Vector3 point = turret.value_or(was + claim.Impact.Value());
         const OpenTK::Mathematics::Vector3 toPoint = point - ray->Origin;
         const float along = std::max(0.0F, OpenTK::Mathematics::Vector3::Dot(toPoint, ray->Direction));
         _lastRayDistance = OpenTK::Mathematics::Length(toPoint - OpenTK::Mathematics::Scale(ray->Direction, along));
@@ -1524,14 +1554,24 @@ namespace MphRead::Mods::Network
         _applyingImpact = entry.Impact;
         const bool lethal = victim.Health() <= entry.Damage;
         const auto before = static_cast<std::uint32_t>(victim.Health());
+        // The turret's share as the shooter's machine split it, on the
+        // authority's turret -- if it still has one to take it.
+        const bool turretHit = entry.TurretDamage > 0 && LiveTurretPosition(victim).has_value();
         try
         {
             const NetDamage::ClaimScope scope(entry.Beam == HitClaimPacket::NoBeam
                 ? ::MphRead::BeamType::None : static_cast<::MphRead::BeamType>(entry.Beam));
-            victim.TakeDamage(static_cast<std::uint32_t>(entry.Damage), flags,
-                (entry.Flags & HitClaimPacket::FlagImpulse) != 0
-                    ? std::optional<OpenTK::Mathematics::Vector3>(entry.Impulse) : std::nullopt,
-                &shooter);
+            if (turretHit)
+            {
+                victim.DamageHalfturret(entry.TurretDamage);
+            }
+            if (entry.Damage > 0)
+            {
+                victim.TakeDamage(static_cast<std::uint32_t>(entry.Damage), flags,
+                    (entry.Flags & HitClaimPacket::FlagImpulse) != 0
+                        ? std::optional<OpenTK::Mathematics::Vector3>(entry.Impulse) : std::nullopt,
+                    &shooter);
+            }
         }
         catch (...)
         {
@@ -1541,7 +1581,7 @@ namespace MphRead::Mods::Network
         }
         _applyingClaim = false;
         _applyingImpact = ImpactOffset{};
-        if (static_cast<std::uint32_t>(victim.Health()) >= before)
+        if (static_cast<std::uint32_t>(victim.Health()) >= before && !turretHit)
         {
             _refusedHere++;
             Answer(shooterSlot, entry.Id, HitVerdictPacket::ResultNoDamage);

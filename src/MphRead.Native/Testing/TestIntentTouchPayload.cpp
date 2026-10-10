@@ -81,9 +81,13 @@ namespace
         HitClaimPacket claim{};
         claim.ShotSequence = 0xA1B2C3D4U;
         claim.Beam = Id(BeamType::Missile);
+        claim.Damage = 9;
+        claim.TurretDamage = 10;
         std::vector<std::uint8_t> claimBytes(HitClaimPacket::Size);
         claim.Write(claimBytes);
         Expect(HitClaimPacket::Read(claimBytes).ShotSequence == 0xA1B2C3D4U, "a claim names its shot");
+        Expect(HitClaimPacket::Read(claimBytes).Damage == 9 && HitClaimPacket::Read(claimBytes).TurretDamage == 10,
+            "and splits a hit on a turret into the body's share and the turret's");
 
         shot.HasShot = true;
         shot.ShotOrigin = OpenTK::Mathematics::Vector3(1, 2, 3);

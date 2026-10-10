@@ -1170,6 +1170,7 @@ namespace MphRead::Mods::Network
         At(dest, 62) = static_cast<std::uint8_t>(Impact.Y);
         At(dest, 63) = static_cast<std::uint8_t>(Impact.Z);
         W32(Slice(dest, 64), ShotSequence);
+        W16(Slice(dest, 68), TurretDamage);
     }
     HitClaimPacket HitClaimPacket::Read(std::span<const std::uint8_t> src)
     {
@@ -1201,6 +1202,7 @@ namespace MphRead::Mods::Network
             packet.Flags = static_cast<std::uint8_t>(packet.Flags & ~FlagImpulse);
         }
         packet.ShotSequence = R32(Slice(src, 64));
+        packet.TurretDamage = R16(Slice(src, 68));
         return packet;
     }
     void HitVerdictPacket::Write(std::span<std::uint8_t> dest,

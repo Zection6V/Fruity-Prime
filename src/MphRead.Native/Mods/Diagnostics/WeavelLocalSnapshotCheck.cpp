@@ -120,13 +120,19 @@ namespace MphRead::Mods::Diagnostics
                 check(OpenTK::Mathematics::Equal(turret.Position, Vector3(2, 20, 3)) && turret.Grounded(),
                     paths[path] + " stale inactive report cannot rewind turret physics");
 
+                // Other players' hits on the turret land on the authority only:
+                // a lower health is damage taken there, a higher one only an
+                // older report. Position and footing stay the owner's.
                 state.WeavelFlags = PlayerState::WeavelFlagTurretActive; // stale airborne report
                 state.HalfturretHealth = 47;
                 state.HalfturretPosition = Vector3(4, 23, 5);
                 apply(state, true);
-                check(turret.Health() == 50 && turret.Grounded()
+                check(turret.Health() == 47 && turret.Grounded()
                     && OpenTK::Mathematics::Equal(turret.Position, Vector3(2, 20, 3)),
-                    paths[path] + " stale active report cannot overwrite local turret HP/position/grounded");
+                    paths[path] + " active report lowers local turret HP, never its position/grounded");
+                state.HalfturretHealth = 49;
+                apply(state, true);
+                check(turret.Health() == 47, paths[path] + " an older, higher turret HP cannot raise it");
 
                 turret.Die();
                 apply(state, true);

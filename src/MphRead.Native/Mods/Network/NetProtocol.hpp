@@ -455,6 +455,30 @@ namespace MphRead::Mods::Network
         std::array<ShotEvent, ShotHistoryCount> ShotHistory{};
         std::uint8_t ShotHistoryLength = 0;
 
+        // Protocol 24: the sender's bombs, so a copy lays and loses exactly
+        // the bombs its owner has (NetBombs): every one standing, and every
+        // one gone in the last few frames -- a Lockjaw that closes a triangle
+        // nobody is in goes off the next frame, and a bomb standing for one
+        // frame is otherwise lost with the one intent that carried it.
+        // Past ShotFullSize:
+        //   count u8, reported u8, gone mask u8, 1 reserved,
+        //   then BombCount x (sequence u32, xyz)                    4 + 6 x 16
+        static constexpr std::int32_t BombCount = 6;
+        static constexpr std::int32_t BombSize = 16;
+        static constexpr std::int32_t BombStateSize = 4 + BombSize * BombCount;
+        static constexpr std::int32_t BombFullSize = ShotFullSize + BombStateSize;
+        struct Bomb
+        {
+            std::uint32_t Sequence = 0;
+            ::OpenTK::Mathematics::Vector3 Position{};
+            // Already gone on the sender's machine.
+            bool Gone = false;
+        };
+        std::array<Bomb, BombCount> Bombs{};
+        std::uint8_t BombsLength = 0;
+        // Whether the sender reported its bombs at all.
+        bool HasBombs = false;
+
         std::uint8_t ChargeLevel = 0;
         std::uint8_t BoostDamage = 0;
         std::uint8_t ShotFlags = 0;
@@ -683,9 +707,10 @@ namespace MphRead::Mods::Network
         // one with none (continuous fire, a turret's shot).
         std::uint32_t ShotSequence = 0;
         // A hit on a Weavel's turret: the share of it the turret took on the
-        // shooter's machine, Damage being the rest (the body's). Without it
-        // the authority applied only the body's share, and nobody but the
-        // authority itself could ever destroy a turret.
+        // shooter's machine, Damage being the rest (the body's). The
+        // authority applies the two together as the turret hit they were,
+        // split by its own health. Without it the authority applied only the
+        // body's share, and nobody but the authority could destroy a turret.
         std::uint16_t TurretDamage = 0;
 
         void Write(std::span<std::uint8_t> dest) const;
@@ -725,7 +750,7 @@ namespace MphRead::Mods::Network
     public:
         static constexpr std::uint16_t DefaultPort = 27888;
         static constexpr std::int32_t MaxPacketSize = 1232;
-        static constexpr std::int32_t ProtocolVersion = 23;
+        static constexpr std::int32_t ProtocolVersion = 24;
         static constexpr std::int32_t IntentSendInterval = 1;
         static constexpr double TimeoutSeconds = 30.0;
 

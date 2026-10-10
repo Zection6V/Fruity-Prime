@@ -28,6 +28,7 @@
 #include "../../NativeRuntime/System/Runtime.hpp"
 #include "../../Mods/Input/WeaponWheel.hpp"
 #include "../../Mods/Network/ContinuousWeaponPhase.hpp"
+#include "../../Mods/Network/NetBombs.hpp"
 #include "../../Mods/Network/NetSession.hpp"
 #include "../../Mods/Network/HitRig.hpp"
 #include "../../Mods/Network/NetShotDiagnostics.hpp"
@@ -404,6 +405,8 @@ namespace MphRead::Entities
 
     void PlayerEntity::ProcessInput()
     {
+        // A copy's bombs are its owner's: laid and detonated as reported.
+        Mods::Network::NetBombs::Reconcile(*this);
         const bool nativeTick = Mods::Gameplay::NativeGameplayClock::IsNativeTick(
             RequireReference(_scene).FrameCount());
         if (_hunter == Hunter::Weavel && _health > 0 && (IsAltForm() || IsMorphing()))
@@ -1630,7 +1633,8 @@ namespace MphRead::Entities
             if (!IsMorphing())
             {
                 if (TestFlag(_abilities, AbilityFlags::Bombs) && _controls.AltAttack().IsPressed()
-                    && _bombAmmo > 0 && _bombCooldown == 0 && _field35C == nullptr)
+                    && _bombAmmo > 0 && _bombCooldown == 0 && _field35C == nullptr
+                    && !Mods::Network::NetBombs::Drives(*this))
                 {
                     SpawnBomb();
                 }
@@ -1844,6 +1848,20 @@ namespace MphRead::Entities
             transform = GetTransformMatrix(Vector3(0.0F, 0.0F, 1.0F),
                 Vector3(0.0F, 1.0F, 0.0F), AddY(Position, Fixed::ToFloat(-1000)));
         }
+        Mods::Network::NetBombs::Laid(*this, PlaceBomb(transform, true));
+    }
+
+    std::shared_ptr<BombEntity> PlayerEntity::ModPlaceReportedBomb(Vector3 position)
+    {
+        if (_hunter == Hunter::Sylux && _syluxBombCount >= 3)
+        {
+            return nullptr;
+        }
+        return PlaceBomb(GetTransformMatrix(Vector3(0.0F, 0.0F, 1.0F), Vector3(0.0F, 1.0F, 0.0F), position), false);
+    }
+
+    std::shared_ptr<BombEntity> PlayerEntity::PlaceBomb(const Matrix4& transform, bool spend)
+    {
         const auto bomb = BombEntity::Spawn(this, transform, _scene);
         if (bomb == nullptr)
         {
@@ -1888,6 +1906,12 @@ namespace MphRead::Entities
                 bomb->SetDamage(static_cast<std::uint16_t>(bomb->Damage() * 2));
                 bomb->SetEnemyDamage(static_cast<std::uint16_t>(bomb->EnemyDamage() * 2));
             }
+            if (!spend)
+            {
+                // A reported bomb: the owner's ammo and cooldown are the owner's.
+                bomb->PlaySpawnSfx();
+                return bomb;
+            }
             if (_bombAmmo >= 2)
             {
                 _bombRefillTimer = static_cast<std::uint16_t>(_values.BombRefillTime * 2);
@@ -1908,6 +1932,7 @@ namespace MphRead::Entities
             }
             bomb->PlaySpawnSfx();
         }
+        return bomb;
     }
 
     void PlayerEntity::EndAltAttack()

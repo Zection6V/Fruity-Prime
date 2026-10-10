@@ -1,4 +1,5 @@
 #include "NetHooks.hpp"
+#include "NetBombs.hpp"
 #include "HitRig.hpp"
 #include "NetHitPrediction.hpp"
 
@@ -334,6 +335,7 @@ namespace MphRead::Mods::Network
             _intentPending = false;
             NetPlayerBridge::AttachLocalShot(_pendingIntent);
             NetShotEvents::Attach(_pendingIntent);
+            NetBombs::Attach(_pendingIntent);
             NetSession::SendIntent(_pendingIntent);
         }
         if (!NetSession::IsAuthority() && !NetSession::IsHost())

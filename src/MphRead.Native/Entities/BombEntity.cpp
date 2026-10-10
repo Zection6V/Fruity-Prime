@@ -15,6 +15,7 @@
 #include "../Renderer.hpp"
 #include "../Scene.hpp"
 #include "../Utility/Rng.hpp"
+#include "../Mods/Network/NetBombs.hpp"
 #include "../Mods/Network/NetDamage.hpp"
 #include "DoorEntity.hpp"
 #include "Enemies/02_Temroid.hpp"
@@ -336,8 +337,10 @@ namespace MphRead::Entities
         }
         if (!TestFlag(_flags, BombFlags::Exploded))
         {
+            // A copy's bomb goes off when its owner's does (NetBombs), not by
+            // touching somebody here.
             auto playerEnumerator = RequireReference(_scene).GetPlayerEntities().GetEnumerator();
-            while (playerEnumerator.MoveNext())
+            while (Mods::Network::NetBombs::DetonatesOnContact(*this) && playerEnumerator.MoveNext())
             {
                 PlayerEntity& player = RequireReference(playerEnumerator.Current());
                 if (&player == _owner
@@ -1033,6 +1036,7 @@ namespace MphRead::Entities
 
     void BombEntity::Destroy()
     {
+        ModSequence = 0;
         _soundSource.StopAllSfx();
         std::int32_t owned = 0;
         if (_owner != nullptr)
@@ -1114,6 +1118,7 @@ namespace MphRead::Entities
         bomb->_speed = Vector3::Zero;
         // Bomb entities are pooled; a new placement starts a new visual clock.
         bomb->_lockjawVisualTick = 0;
+        bomb->ModSequence = 0;
         bomb->Transform = transform;
         bomb->SetRecolor(ownerRef.Recolor());
         bomb->_flags = BombFlags::None;

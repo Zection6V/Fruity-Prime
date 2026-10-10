@@ -833,6 +833,29 @@ namespace MphRead::Mods::Network
                 WF(Slice(dest, entry + 36), event.Direction.Z);
             }
         }
+        if (dest.size() >= static_cast<std::size_t>(BombFullSize))
+        {
+            const auto at = static_cast<std::size_t>(ShotFullSize);
+            const std::uint8_t count = HasBombs ? std::min<std::uint8_t>(BombsLength, BombCount) : 0;
+            std::uint8_t gone = 0;
+            for (std::size_t i = 0; i < count; ++i)
+            {
+                gone = static_cast<std::uint8_t>(gone | (Bombs[i].Gone ? 1U << i : 0U));
+            }
+            At(dest, at) = count;
+            At(dest, at + 1) = HasBombs ? 1 : 0;
+            At(dest, at + 2) = gone;
+            At(dest, at + 3) = 0;
+            for (std::size_t i = 0; i < static_cast<std::size_t>(BombCount); ++i)
+            {
+                const Bomb bomb = i < count ? Bombs[i] : Bomb{};
+                const std::size_t entry = at + 4 + i * static_cast<std::size_t>(BombSize);
+                W32(Slice(dest, entry), bomb.Sequence);
+                WF(Slice(dest, entry + 4), bomb.Position.X);
+                WF(Slice(dest, entry + 8), bomb.Position.Y);
+                WF(Slice(dest, entry + 12), bomb.Position.Z);
+            }
+        }
     }
     void IntentPacket::SetTouchReport(const ::MphRead::Mods::Input::NativeTouchState::Reported& touch) noexcept
     {
@@ -924,6 +947,20 @@ namespace MphRead::Mods::Network
                 {
                     event.Origin = event.Direction = ::OpenTK::Mathematics::Vector3::Zero;
                 }
+            }
+        }
+        if (src.size() >= static_cast<std::size_t>(BombFullSize))
+        {
+            const auto at = static_cast<std::size_t>(ShotFullSize);
+            packet.HasBombs = At(src, at + 1) != 0;
+            packet.BombsLength = std::min<std::uint8_t>(At(src, at), BombCount);
+            for (std::size_t i = 0; i < packet.BombsLength; ++i)
+            {
+                const std::size_t entry = at + 4 + i * static_cast<std::size_t>(BombSize);
+                packet.Bombs[i].Sequence = R32(Slice(src, entry));
+                packet.Bombs[i].Position = ::OpenTK::Mathematics::Vector3(
+                    RF(Slice(src, entry + 4)), RF(Slice(src, entry + 8)), RF(Slice(src, entry + 12)));
+                packet.Bombs[i].Gone = (At(src, at + 2) & (1U << i)) != 0;
             }
         }
         return packet;

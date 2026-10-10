@@ -2,6 +2,7 @@
 // authority can run the same touch roll and touch/shoulder boost branches.
 #include "../Mods/Network/NetProtocol.hpp"
 #include "../Mods/Network/LocalShotLog.hpp"
+#include "../Mods/Network/RemoteBombState.hpp"
 #include "../Mods/Network/RemoteShotQueue.hpp"
 #include "../Mods/Network/ShotEventLedger.hpp"
 #include "../Mods/Input/HostTouch.hpp"
@@ -356,6 +357,97 @@ namespace
             "a joiner takes only the shot still fresh");
     }
 
+    IntentPacket WithBombs(std::uint32_t frame, std::initializer_list<IntentPacket::Bomb> bombs)
+    {
+        IntentPacket packet{};
+        packet.Frame = frame;
+        packet.HasBombs = true;
+        for (const IntentPacket::Bomb& bomb : bombs)
+        {
+            packet.Bombs[packet.BombsLength++] = bomb;
+        }
+        return packet;
+    }
+
+    // A copy's bombs are the owner's reported ones: laid once, detonated
+    // when no longer reported, never from an out-of-date report.
+    void BombState()
+    {
+        using MphRead::Mods::Network::RemoteBombState;
+        using OpenTK::Mathematics::Vector3;
+
+        IntentPacket sent = WithBombs(50, {{7, Vector3(1, 2, 3)}, {8, Vector3(4, 5, 6)}});
+        std::vector<std::uint8_t> bytes(IntentPacket::BombFullSize);
+        sent.Write(bytes);
+        const IntentPacket read = IntentPacket::Read(bytes);
+        Expect(read.HasBombs && read.BombsLength == 2 && read.Bombs[1].Sequence == 8
+            && Near(read.Bombs[1].Position.Y, 5.0F), "the standing bombs ride the intent");
+        IntentPacket none{};
+        none.HasBombs = true;
+        none.Write(bytes);
+        Expect(IntentPacket::Read(bytes).HasBombs && IntentPacket::Read(bytes).BombsLength == 0,
+            "no bombs is a report too");
+        IntentPacket gone = WithBombs(60, {{9, Vector3(1, 1, 1)}, {10, Vector3(2, 2, 2), true}});
+        gone.Write(bytes);
+        Expect(!IntentPacket::Read(bytes).Bombs[0].Gone && IntentPacket::Read(bytes).Bombs[1].Gone,
+            "a bomb just gone is still reported, as gone");
+        std::vector<std::uint8_t> older(IntentPacket::ShotFullSize);
+        sent.Write(older);
+        Expect(!IntentPacket::Read(older).HasBombs, "a payload without the block reports nothing");
+
+        RemoteBombState state;
+        Expect(!state.Active(), "a player who never reported lays its own");
+        state.Receive(WithBombs(100, {{1, Vector3(1, 0, 0)}, {2, Vector3(2, 0, 0)}}));
+        auto plan = state.Reconcile({});
+        Expect(state.Active() && plan.LayCount == 2 && plan.Lay[0].Sequence == 1 && plan.DetonateCount == 0,
+            "reported bombs are laid, oldest first");
+        state.Laid(1);
+        state.Laid(2);
+        const std::uint32_t both[] = {1, 2};
+        plan = state.Reconcile(both);
+        Expect(plan.LayCount == 0 && plan.DetonateCount == 0, "and once");
+
+        // The owner's second bomb went off: the copy's follows.
+        state.Receive(WithBombs(110, {{1, Vector3(1, 0, 0)}}));
+        plan = state.Reconcile(both);
+        Expect(plan.DetonateCount == 1 && plan.Detonate[0] == 2, "a bomb no longer reported is detonated");
+        // An older intent still listing it changes nothing.
+        state.Receive(WithBombs(105, {{1, Vector3(1, 0, 0)}, {2, Vector3(2, 0, 0)}, {3, Vector3(3, 0, 0)}}));
+        plan = state.Reconcile(both);
+        Expect(plan.DetonateCount == 1 && plan.LayCount == 0, "an out-of-date report is ignored");
+
+        // A bomb detonated here early (it never is, by touch) is not laid again.
+        const std::uint32_t one[] = {1};
+        state.Receive(WithBombs(120, {{1, Vector3(1, 0, 0)}, {2, Vector3(2, 0, 0)}}));
+        plan = state.Reconcile(one);
+        Expect(plan.LayCount == 0, "a sequence laid once is never laid again");
+
+        // A bomb that cannot be placed yet is planned again until it is.
+        state.Receive(WithBombs(130, {{3, Vector3(3, 0, 0)}}));
+        plan = state.Reconcile({});
+        Expect(plan.LayCount == 1 && plan.Lay[0].Sequence == 3, "a bomb not yet placed is still planned");
+        plan = state.Reconcile({});
+        Expect(plan.LayCount == 1, "until Laid records it");
+
+        // A bomb that moved on its owner's machine is where they say.
+        state.Receive(WithBombs(135, {{3, Vector3(7, 0, 0)}}));
+        Expect(state.StandingAt(3).has_value() && Near(state.StandingAt(3)->X, 7.0F) && !state.StandingAt(2).has_value(),
+            "a standing bomb's place is the owner's");
+
+        // A bomb that stood for a frame: laid here as it goes off.
+        state.Laid(3);
+        state.Receive(WithBombs(140, {{4, Vector3(4, 0, 0), true}}));
+        plan = state.Reconcile({});
+        Expect(plan.LayCount == 1 && plan.Lay[0].Gone, "a bomb seen only gone is still laid, to go off");
+        const std::uint32_t four[] = {4};
+        state.Laid(4);
+        plan = state.Reconcile(four);
+        Expect(plan.DetonateCount == 1 && plan.LayCount == 0, "and a gone one held here is detonated");
+
+        state.Reset();
+        Expect(!state.Active(), "a new occupant starts over");
+    }
+
     IntentPacket Transport(const NativeTouchState::Reported& report)
     {
         IntentPacket packet{};
@@ -562,6 +654,7 @@ int main()
         ShotEventSender();
         ShotLedger();
         ShotQueueMetrics();
+        BombState();
         OwnerAuthorityParity();
         PacketFaults();
     }

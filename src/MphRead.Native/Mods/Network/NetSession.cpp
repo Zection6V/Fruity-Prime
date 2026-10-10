@@ -24,6 +24,7 @@
 #include "NetMatchSync.hpp"
 #include "NetMatchTimeSync.hpp"
 #include "NetPlayerBridge.hpp"
+#include "NetBombs.hpp"
 #include "NetShotEvents.hpp"
 #include "NetPlayerLifecycle.hpp"
 #include "NetPlayerSetup.hpp"
@@ -1081,6 +1082,7 @@ namespace MphRead::Mods::Network
             return;
         }
         NetShotEvents::Receive(peer->SlotIndex, intent);
+        NetBombs::Receive(peer->SlotIndex, intent);
         if (peer->LastIntentFrame != 0 && !NetLifecycleTracker::Newer(intent.Frame, peer->LastIntentFrame))
         {
             return;
@@ -1121,6 +1123,7 @@ namespace MphRead::Mods::Network
             return;
         }
         NetShotEvents::Receive(slot, intent);
+        NetBombs::Receive(slot, intent);
         const auto index = static_cast<std::size_t>(slot);
         if (_lastSlotIntentFrame[index] != 0 && !NetLifecycleTracker::Newer(intent.Frame, _lastSlotIntentFrame[index]))
         {
@@ -1570,7 +1573,7 @@ namespace MphRead::Mods::Network
         intent.AuthorityEpoch = AuthorityEpoch();
         intent.SlotGeneration = NetPlayerLifecycle::Generation(_localSlot);
         intent.LifeId = NetPlayerLifecycle::Get(_localSlot);
-        const auto size = static_cast<std::size_t>(IntentPacket::ShotFullSize);
+        const auto size = static_cast<std::size_t>(IntentPacket::BombFullSize);
         intent.Write(std::span<std::uint8_t>(_scratch.data(), size));
         _transport->Send(_hostEndPoint, PacketType::Intent, First(_scratch, size));
         if (_localSlot >= 0)

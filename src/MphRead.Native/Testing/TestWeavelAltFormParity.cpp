@@ -103,8 +103,9 @@ namespace
         // Protocol 17 added the 14 Weavel bytes; 19 adds 3 for the newest
         // damage event's confirmed impact: 54 + 4 x 15 + 14 + 3. 20 changes
         // only the intent (shot events); 21 the shot events and the claims;
-        // 22 the meaning of two spare Weavel flag bits; 23 only the claim.
-        Expect(NetConfig::ProtocolVersion == 23 && PlayerState::Size == 131
+        // 22 the meaning of two spare Weavel flag bits; 23 only the claim;
+        // 24 only the intent (bombs).
+        Expect(NetConfig::ProtocolVersion == 24 && PlayerState::Size == 131
             && PlayerState::Size - PlayerState::LegacySize == 17, "Weavel and the impact add 17 bytes per player");
         {
             // A transition under way on the authority is the form being

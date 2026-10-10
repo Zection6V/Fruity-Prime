@@ -153,6 +153,10 @@ namespace MphRead::Mods::Network
         double ShotEvents = 0;
         std::int32_t LastFiredTotal = 0;
         std::int32_t BombFrames = 0;
+        // Bombs that appeared: each bomb entity counted the frame it is first
+        // seen, so a bomb another machine never laid, or laid twice, shows.
+        std::int32_t BombsLaid = 0;
+        std::vector<const Entities::BombEntity*> LastBombs{};
         std::int32_t HalfturretFrames = 0;
         std::int32_t AltFormFrames = 0;
         std::int32_t AltFormInMorphPhase = 0;
@@ -219,6 +223,8 @@ namespace MphRead::Mods::Network
         {"alt-form-total", [](const Record& r) -> double { return r.AltFormFrames; }, 30, "frames", {0.03, 15}},
         {"unmorph", [](const Record& r) -> double { return r.BipedInUnmorphPhase; }, 30, "frames"},
         {"bombs", [](const Record& r) -> double { return r.BombFrames; }, 5, "frames", {0.12, 15}, false,
+            &NetFeatureCheck::LaysBombs},
+        {"bombs-laid", [](const Record& r) -> double { return r.BombsLaid; }, 3, "bombs", {0, 2}, false,
             &NetFeatureCheck::LaysBombs},
         {"halfturret", [](const Record& r) -> double { return r.HalfturretFrames; }, 5, "frames", {0.03, 15}, false,
             &NetFeatureCheck::IsWeavel},
@@ -386,6 +392,7 @@ namespace MphRead::Mods::Network
         const std::size_t bombCount = ManagedArrayLength(
             Entities::PlayerEntity::MaxPlayers());
         std::vector<std::int32_t> bombs(bombCount, 0);
+        std::vector<std::vector<const Entities::BombEntity*>> bombEntities(bombCount);
         const std::size_t turretCount = ManagedArrayLength(
             Entities::PlayerEntity::MaxPlayers());
         std::vector<std::int32_t> turrets(turretCount, 0);
@@ -410,6 +417,12 @@ namespace MphRead::Mods::Network
                     const auto bomb
                         = std::dynamic_pointer_cast<Entities::BombEntity>(entity);
                     Count(bombs, bomb ? bomb->Owner() : nullptr);
+                    if (const auto* owner = bomb ? dynamic_cast<Entities::PlayerEntity*>(bomb->Owner()) : nullptr;
+                        owner != nullptr && owner->SlotIndex() >= 0
+                        && static_cast<std::size_t>(owner->SlotIndex()) < bombEntities.size())
+                    {
+                        bombEntities[static_cast<std::size_t>(owner->SlotIndex())].push_back(bomb.get());
+                    }
                 }
                 else if (entity->Type == EntityType::Halfturret)
                 {
@@ -475,6 +488,17 @@ namespace MphRead::Mods::Network
             if (ManagedAt(bombs, slot) > 0)
             {
                 IncrementInPlace(record.BombFrames);
+            }
+            {
+                const auto& now = bombEntities[static_cast<std::size_t>(slot)];
+                for (const Entities::BombEntity* bomb : now)
+                {
+                    if (std::find(record.LastBombs.begin(), record.LastBombs.end(), bomb) == record.LastBombs.end())
+                    {
+                        IncrementInPlace(record.BombsLaid);
+                    }
+                }
+                record.LastBombs = now;
             }
             if (player.Controls().AltAttack().IsPressed())
             {

@@ -1,4 +1,5 @@
 #include "NetPlayerLifecycle.hpp"
+#include "NetBombs.hpp"
 #include "NetShotEvents.hpp"
 
 #include "NetDamage.hpp"
@@ -165,6 +166,7 @@ namespace MphRead::Mods::Network
     {
         NetPlayerBridge::ForgetSlot(slot);
         NetShotEvents::Forget(slot);
+        NetBombs::Forget(slot);
         NetDamage::ForgetSlot(slot);
         NetHitPrediction::ForgetSlot(slot);
         NetHitClaims::ForgetSlot(slot);

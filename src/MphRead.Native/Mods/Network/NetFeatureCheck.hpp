@@ -77,7 +77,7 @@ namespace MphRead::Mods::Network
             bool (*Applies)(MphRead::Hunter) noexcept = nullptr;
         };
 
-        static constexpr std::size_t FeatureCount = 24;
+        static constexpr std::size_t FeatureCount = 25;
         using Values = std::array<double, FeatureCount>;
 
         // What my player did while one other player was in the match: the

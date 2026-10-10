@@ -144,11 +144,19 @@ namespace MphRead::Mods::Network
             const auto bomb = Standing(h);
             const std::optional<OpenTK::Mathematics::Vector3> at = bomb != nullptr
                 ? _remote[s].StandingAt(h.Sequence) : std::nullopt;
-            if (at.has_value()
-                && (*at - static_cast<OpenTK::Mathematics::Vector3>(bomb->Position)).LengthSquared()
-                    > DriftTolerance * DriftTolerance)
+            if (!at.has_value())
             {
-                bomb->Position = *at;
+                continue;
+            }
+            const OpenTK::Mathematics::Vector3 here = static_cast<OpenTK::Mathematics::Vector3>(bomb->Position);
+            const float distance = OpenTK::Mathematics::Length(*at - here);
+            if (distance > SnapDistance)
+            {
+                bomb->ModMoveTo(*at);
+            }
+            else if (distance > StillDistance)
+            {
+                bomb->ModMoveTo(here + OpenTK::Mathematics::Scale(*at - here, Follow));
             }
         }
         for (std::size_t i = 0; i < plan.LayCount; ++i)

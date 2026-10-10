@@ -57,10 +57,15 @@ namespace MphRead::Mods::Network
         using HeldBombs = std::array<Held, 8>;
         // How long a bomb gone on the owner's machine is still reported.
         static constexpr std::uint32_t GoneFrames = 15;
-        // How far a copy's bomb may stray from where its owner has it before
-        // it is put back: less than this is the two machines' rounding, and
-        // correcting it would only make a still bomb shiver.
-        static constexpr float DriftTolerance = 0.5F;
+        // A copy's bomb follows where its owner has it every step, this
+        // fraction of the way: reports arrive a step apart, so it glides
+        // along the owner's path instead of standing still and hopping, and
+        // an intent lost on the way is a step slower, not a jump.
+        static constexpr float Follow = 0.5F;
+        // Past this it was not moving but put somewhere: it is snapped.
+        static constexpr float SnapDistance = 4.0F;
+        // Below this the two are the same place.
+        static constexpr float StillDistance = 0.001F;
 
         [[nodiscard]] static std::shared_ptr<Entities::BombEntity> Standing(const Held& held) noexcept;
         static void Keep(HeldBombs& held, const std::shared_ptr<Entities::BombEntity>& bomb, std::uint32_t sequence);

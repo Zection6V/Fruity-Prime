@@ -312,6 +312,17 @@ namespace MphRead::Entities
         }
     }
 
+    void BombEntity::ModMoveTo(Vector3 position)
+    {
+        const Vector3 step = position - static_cast<Vector3>(Position);
+        Position = position;
+        // As ProcessTargeting does: a Stinglarva faces its motion.
+        if (_bombType != MphRead::BombType::Lockjaw && (step.X != 0.0F || step.Z != 0.0F))
+        {
+            SetTransform(step.Normalized(), UpVector(), position);
+        }
+    }
+
     void BombEntity::Reposition(Vector3 offset)
     {
         Position = static_cast<Vector3>(Position) + offset;

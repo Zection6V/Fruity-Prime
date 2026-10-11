@@ -13,6 +13,8 @@
 
 namespace MphRead::Mods::Network
 {
+    std::array<NetPowerUpPrediction::Entry, NetPowerUpPrediction::Capacity> NetPowerUpPrediction::_entries{};
+
     namespace
     {
         [[nodiscard]] Entities::PlayerEntity* LocalPlayer()

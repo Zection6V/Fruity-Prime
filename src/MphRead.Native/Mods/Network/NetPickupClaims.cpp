@@ -21,6 +21,10 @@
 
 namespace MphRead::Mods::Network
 {
+    std::array<NetPickupClaims::Outgoing, NetPickupClaims::OutboxCapacity> NetPickupClaims::_outbox{};
+    std::array<std::array<NetPickupClaims::Remembered, NetPickupClaims::RememberedPerSlot>, NetPickupClaims::Slots>
+        NetPickupClaims::_remembered{};
+
     namespace Runtime = ::MphRead::NativeRuntime;
 
     namespace

@@ -67,7 +67,7 @@ namespace MphRead::Mods::Network
 
         static void Undo(const Entry& entry);
 
-        inline static std::array<Entry, Capacity> _entries{};
+        static std::array<Entry, Capacity> _entries;
         inline static std::array<std::uint8_t, PowerUpCount> _seen{};
         inline static std::int64_t _predicted = 0;
         inline static std::int64_t _confirmed = 0;

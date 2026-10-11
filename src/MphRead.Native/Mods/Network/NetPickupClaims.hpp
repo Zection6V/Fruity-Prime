@@ -81,9 +81,9 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static bool Reachable(std::int32_t slot, const PickupClaimPacket& claim,
             const Entities::PlayerEntity& player, OpenTK::Mathematics::Vector3 item);
 
-        inline static std::array<Outgoing, OutboxCapacity> _outbox{};
+        static std::array<Outgoing, OutboxCapacity> _outbox;
         inline static std::uint16_t _nextId = 0;
-        inline static std::array<std::array<Remembered, RememberedPerSlot>, Slots> _remembered{};
+        static std::array<std::array<Remembered, RememberedPerSlot>, Slots> _remembered;
         inline static VerdictWriter _verdictSink{};
         inline static std::array<std::int64_t, 7> _results{};
         inline static std::int64_t _declared = 0;

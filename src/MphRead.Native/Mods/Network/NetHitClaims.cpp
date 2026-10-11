@@ -1,4 +1,5 @@
 #include "NetHitClaims.hpp"
+#include "ClaimResend.hpp"
 #include "NetShotEvents.hpp"
 #include "HitLocation.hpp"
 #include "../../Formats/CollisionDetection.hpp"
@@ -268,6 +269,7 @@ namespace MphRead::Mods::Network
         entry.Impact = impact.has_value() ? ImpactOffset::From(*impact) : ImpactOffset{};
         entry.Age = 0;
         entry.Sends = 0;
+        entry.LastSentAge = 0;
         entry.Live = true;
         _outbox[static_cast<std::size_t>(index)] = entry;
         const std::uint16_t id = _nextId;
@@ -304,7 +306,7 @@ namespace MphRead::Mods::Network
             {
                 continue;
             }
-            if (entry.Sends > 0 && (entry.Sends >= MaxSends || entry.Age % interval != 0))
+            if (!ClaimResendDue(entry.Sends, MaxSends, entry.Age, entry.LastSentAge, interval))
             {
                 continue;
             }
@@ -336,6 +338,7 @@ namespace MphRead::Mods::Network
                 _resends++;
             }
             entry.Sends++;
+            entry.LastSentAge = entry.Age;
             count++;
         }
         if (count == 0)
@@ -747,7 +750,15 @@ namespace MphRead::Mods::Network
                 Answer(shooterSlot, claim.ClaimId, immediate);
                 continue;
             }
-            Park(shooterSlot, claim);
+            if (!Park(shooterSlot, claim))
+            {
+                // Every pending entry taken: say so, and remember it, so that a
+                // resend of this claim is answered the same way instead of
+                // waiting on a verdict that will never come.
+                _busyHere++;
+                Remember(shooterSlot, claim.ClaimId, HitVerdictPacket::ResultBusy);
+                Answer(shooterSlot, claim.ClaimId, HitVerdictPacket::ResultBusy);
+            }
         }
     }
 
@@ -927,7 +938,7 @@ namespace MphRead::Mods::Network
         return any ? text : std::string("predicted vs resolved damage: nothing paired");
     }
 
-    void NetHitClaims::Park(std::int32_t shooterSlot, const HitClaimPacket& claim)
+    bool NetHitClaims::Park(std::int32_t shooterSlot, const HitClaimPacket& claim)
     {
         std::int32_t index = -1;
         for (std::int32_t i = 0; i < PendingCapacity; i++)
@@ -940,7 +951,7 @@ namespace MphRead::Mods::Network
         }
         if (index < 0)
         {
-            return;
+            return false;
         }
         Pending entry;
         entry.MatchId = claim.MatchId;
@@ -974,6 +985,7 @@ namespace MphRead::Mods::Network
         entry.RequireAuthorityHit = MuzzleObstructed(entry);
         entry.Live = true;
         _pending[static_cast<std::size_t>(index)] = entry;
+        return true;
     }
 
     const ::MphRead::WeaponInfo* NetHitClaims::FiredWeapon(std::int32_t shooterSlot, std::uint8_t beam)
@@ -1857,6 +1869,7 @@ namespace MphRead::Mods::Network
         _voidedDeadShooter = 0;
         _voidedDeadVictim = 0;
         _refusedHere = 0;
+        _busyHere = 0;
         _tooOldHere = 0;
         _repeatsHere = 0;
         _suppressedHere = 0;
@@ -1968,7 +1981,8 @@ namespace MphRead::Mods::Network
                 + " faster than the weapon fires, " + (_shooterHits ? "shooter-authoritative (" + std::to_string(_serverCopiesSuppressed) + " server copies not applied), " : std::string())
                 + std::to_string(_voidedDeadShooter) + " from a shooter already dead, "
                 + std::to_string(_voidedDeadVictim) + " on a victim already down, "
-                + std::to_string(_refusedHere) + " refused, " + std::to_string(_tooOldHere) + " too old, "
+                + std::to_string(_refusedHere) + " refused, " + std::to_string(_busyHere) + " with no room to judge, "
+                + std::to_string(_tooOldHere) + " too old, "
                 + std::to_string(_repeatsHere) + " repeats "
                 + "(matched " + std::to_string(_matchedByLaunch) + " by shot, " + std::to_string(_matchedByWindow)
                 + " by window, " + std::to_string(_suppressedHere) + " of its own refused as already rescued)";

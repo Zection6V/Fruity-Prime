@@ -1,6 +1,7 @@
 #pragma once
 #include "../Input/NativeTouchState.hpp"
 
+#include "ConnectionSecret.hpp"
 #include "MatchDefinition.hpp"
 #include "../../Formats/Types.hpp"
 #include "../../NativeRuntime/System/Guid.hpp"
@@ -68,6 +69,8 @@ namespace MphRead::Mods::Network
         static constexpr std::uint8_t ReasonProtocol = 2;
         static constexpr std::uint8_t ReasonKicked = 3;
         static constexpr std::uint8_t ReasonInMatch = 4;
+        // A Hello naming a connection already held, without its secret.
+        static constexpr std::uint8_t ReasonIdentity = 5;
 
         std::uint8_t Reason = 0;
         std::uint8_t Players = 0;
@@ -76,6 +79,27 @@ namespace MphRead::Mods::Network
         void Write(std::span<std::uint8_t> dest) const;
         [[nodiscard]] static RefusedPacket Read(std::span<const std::uint8_t> src);
         [[nodiscard]] std::string Describe(const std::optional<std::string>& where) const;
+    };
+
+    // A client asking for a slot, or saying where it now is.
+    struct HelloPacket
+    {
+        static constexpr std::int32_t Size = 38;
+        static constexpr std::uint8_t AnySlot = 0xFF;
+
+        std::uint8_t Protocol = 0;
+        // The slot this client held before, or AnySlot.
+        std::uint8_t Slot = AnySlot;
+        std::uint32_t ClientId = 0;
+        // Room ownership for a lobby this client asked a directory to open;
+        // nothing to do with who the connection belongs to.
+        ::MphRead::NativeRuntime::Guid OwnerToken{};
+        ConnectionSecret Secret{};
+
+        void Write(std::span<std::uint8_t> dest) const;
+        // What a short hello (a reachability probe) leaves out reads as
+        // unset -- and a connection opened without a secret is never moved.
+        [[nodiscard]] static HelloPacket Read(std::span<const std::uint8_t> src);
     };
 
     struct HostRequestPacket
@@ -418,21 +442,30 @@ namespace MphRead::Mods::Network
         // shot by sequence (HitClaimPacket::ShotSequence) and is checked
         // against it. The weapon held stays WeaponSelect's.
         //
-        // Layout past FullSize, always written (zeros where nothing fired):
-        //   ray      this frame's origin xyz, direction xyz          24
-        //   history  count u8, 3 reserved, then ShotHistoryCount x
-        //            (sequence u32, frame u32, ack u32, weapon u8,
-        //             charge u8, 2 reserved, origin xyz, direction xyz) 4 + 4 x 40
         // The ray is any shot this frame fired, continuous fire included (it
-        // makes no events). The history is the sender's last few events,
-        // oldest first, in every intent: an intent lost, or refused for
-        // arriving behind a newer one, loses no shot, and the receiver
-        // deduplicates on the sequence.
+        // makes no events). The history is the sender's latest events, oldest
+        // first, repeated in every intent while a receiver could still fire
+        // them: an intent lost, or refused for arriving behind a newer one,
+        // loses no shot, and the receiver deduplicates on the sequence.
+        //
+        // Past FullSize only what there is (protocol 27) -- an idle intent was
+        // 388 bytes of zeros and repeats, eight players relaying them all to
+        // each other at 60 Hz:
+        //   sections u8     SectionRay | SectionShots | SectionBombs
+        //   ray             origin xyz, direction xyz                  24
+        //   shots           count u8, then count x (sequence u32, frame u32,
+        //                   ack u32, weapon u8, charge u8, 2 reserved,
+        //                   origin xyz, direction xyz)                 1 + n x 40
+        //   bombs           count u8, gone mask u8, then
+        //                   count x (sequence u32, xyz)                2 + n x 16
+        // each present only when its bit is set. A section cut short is read
+        // as absent, never half read.
         static constexpr std::int32_t ShotSize = 24;
         static constexpr std::int32_t ShotEventSize = 40;
         static constexpr std::int32_t ShotHistoryCount = 4;
-        static constexpr std::int32_t ShotHistorySize = 4 + ShotEventSize * ShotHistoryCount;
-        static constexpr std::int32_t ShotFullSize = FullSize + ShotSize + ShotHistorySize;
+        static constexpr std::uint8_t SectionRay = 1U << 0;
+        static constexpr std::uint8_t SectionShots = 1U << 1;
+        static constexpr std::uint8_t SectionBombs = 1U << 2;
         static constexpr std::uint8_t NoWeapon = 0xFF;
         struct ShotEvent
         {
@@ -455,18 +488,15 @@ namespace MphRead::Mods::Network
         std::array<ShotEvent, ShotHistoryCount> ShotHistory{};
         std::uint8_t ShotHistoryLength = 0;
 
-        // Protocol 24: the sender's bombs, so a copy lays and loses exactly
+        // The sender's bombs (protocol 24), so a copy lays and loses exactly
         // the bombs its owner has (NetBombs): every one standing, and every
         // one gone in the last few frames -- a Lockjaw that closes a triangle
         // nobody is in goes off the next frame, and a bomb standing for one
         // frame is otherwise lost with the one intent that carried it.
-        // Past ShotFullSize:
-        //   count u8, reported u8, gone mask u8, 1 reserved,
-        //   then BombCount x (sequence u32, xyz)                    4 + 6 x 16
         static constexpr std::int32_t BombCount = 6;
         static constexpr std::int32_t BombSize = 16;
-        static constexpr std::int32_t BombStateSize = 4 + BombSize * BombCount;
-        static constexpr std::int32_t BombFullSize = ShotFullSize + BombStateSize;
+        static constexpr std::int32_t MaxWireSize = FullSize + 1 + ShotSize
+            + 1 + ShotEventSize * ShotHistoryCount + 2 + BombSize * BombCount;
         struct Bomb
         {
             std::uint32_t Sequence = 0;
@@ -478,6 +508,15 @@ namespace MphRead::Mods::Network
         std::uint8_t BombsLength = 0;
         // Whether the sender reported its bombs at all.
         bool HasBombs = false;
+
+        // The bytes Write fills: FullSize and the sections there are.
+        [[nodiscard]] std::size_t WireSize() const noexcept;
+
+    private:
+        void WriteSections(std::span<std::uint8_t> dest) const;
+        void ReadSections(std::span<const std::uint8_t> src);
+
+    public:
 
         std::uint8_t ChargeLevel = 0;
         std::uint8_t BoostDamage = 0;
@@ -744,6 +783,9 @@ namespace MphRead::Mods::Network
         static constexpr std::uint8_t ResultDamageLimit = 8;
         static constexpr std::uint8_t ResultInvalidLaunch = 9;
         static constexpr std::uint8_t ResultNoDamage = 10;
+        // Every claim the authority can hold was already waiting: refused,
+        // and answered, rather than never answered.
+        static constexpr std::uint8_t ResultBusy = 11;
 
         std::uint16_t ClaimId = 0;
         std::uint8_t Result = 0;
@@ -760,7 +802,7 @@ namespace MphRead::Mods::Network
     public:
         static constexpr std::uint16_t DefaultPort = 27888;
         static constexpr std::int32_t MaxPacketSize = 1232;
-        static constexpr std::int32_t ProtocolVersion = 26;
+        static constexpr std::int32_t ProtocolVersion = 28;
         static constexpr std::int32_t IntentSendInterval = 1;
         static constexpr double TimeoutSeconds = 30.0;
 

@@ -17,10 +17,17 @@ namespace MphRead::Mods::Network
         return _sequence;
     }
 
-    void LocalShotLog::Fill(IntentPacket& intent) const noexcept
+    void LocalShotLog::Fill(IntentPacket& intent, std::uint32_t now) const noexcept
     {
-        intent.ShotHistory = _history;
-        intent.ShotHistoryLength = _length;
+        intent.ShotHistory = {};
+        intent.ShotHistoryLength = 0;
+        for (std::size_t i = 0; i < _length; ++i)
+        {
+            if (now - _history[i].Frame <= RepeatFrames)
+            {
+                intent.ShotHistory[intent.ShotHistoryLength++] = _history[i];
+            }
+        }
     }
 
     void LocalShotLog::Reset() noexcept

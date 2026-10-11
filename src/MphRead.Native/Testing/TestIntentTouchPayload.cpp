@@ -2,7 +2,11 @@
 // authority can run the same touch roll and touch/shoulder boost branches.
 #include "../Mods/Network/NetProtocol.hpp"
 #include "../Mods/Network/LocalShotLog.hpp"
+#include "../Mods/Network/ClaimResend.hpp"
+#include "../Mods/Network/ConnectionSecret.hpp"
 #include "../Mods/Network/DeathaltWitness.hpp"
+#include "../Mods/Network/InboxShedding.hpp"
+#include "../Mods/Network/PredictionMatch.hpp"
 #include "../Mods/Network/RemoteBombState.hpp"
 #include "../Mods/Network/RemoteShotQueue.hpp"
 #include "../Mods/Network/ShotEventLedger.hpp"
@@ -15,6 +19,7 @@
 #include <cstdio>
 #include <initializer_list>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <tuple>
 #include <vector>
@@ -67,9 +72,9 @@ namespace
         shot.ShotHistory[1] = {42, 104, Id(BeamType::OmegaCannon), 37, 99,
             OpenTK::Mathematics::Vector3(4, 5, 6), OpenTK::Mathematics::Vector3(0, 1, 0)};
         shot.ShotHistoryLength = 2;
-        std::vector<std::uint8_t> bytes(IntentPacket::ShotFullSize);
+        std::vector<std::uint8_t> bytes(IntentPacket::MaxWireSize);
         shot.Write(bytes);
-        const IntentPacket noRay = IntentPacket::Read(bytes);
+        const IntentPacket noRay = IntentPacket::Read(std::span(bytes).first(shot.WireSize()));
         Expect(!noRay.HasShot, "a frame that fired nothing carries no ray of its own");
         Expect(noRay.ShotHistoryLength == 2 && noRay.ShotHistory[1].Sequence == 42
             && noRay.ShotHistory[1].Frame == 104 && noRay.ShotHistory[1].WeaponId == Id(BeamType::OmegaCannon)
@@ -116,7 +121,7 @@ namespace
         shot.ShotOrigin = OpenTK::Mathematics::Vector3(1, 2, 3);
         shot.ShotDirection = OpenTK::Mathematics::Vector3(0, 0, -1);
         shot.Write(bytes);
-        const IntentPacket withRay = IntentPacket::Read(bytes);
+        const IntentPacket withRay = IntentPacket::Read(std::span(bytes).first(shot.WireSize()));
         Expect(withRay.HasShot && Near(withRay.ShotOrigin.Y, 2.0F) && Near(withRay.ShotDirection.Z, -1.0F)
             && withRay.ShotHistory[1].Sequence == 42,
             "this frame's ray and the history share the payload");
@@ -127,14 +132,30 @@ namespace
         coil.ShotOrigin = OpenTK::Mathematics::Vector3(1, 2, 3);
         coil.ShotDirection = OpenTK::Mathematics::Vector3(1, 0, 0);
         coil.Write(bytes);
-        const IntentPacket coilRead = IntentPacket::Read(bytes);
+        const IntentPacket coilRead = IntentPacket::Read(std::span(bytes).first(coil.WireSize()));
         Expect(coilRead.HasShot && coilRead.ShotHistoryLength == 0, "continuous fire keeps its ray without an event");
 
-        bytes[static_cast<std::size_t>(IntentPacket::FullSize + IntentPacket::ShotSize)] = 0xFF;
+        // Only what there is: an idle intent is the fixed part and one byte.
+        IntentPacket idle{};
+        Expect(idle.WireSize() == static_cast<std::size_t>(IntentPacket::FullSize) + 1, "an idle intent carries no sections");
+        idle.HasBombs = true;
+        Expect(idle.WireSize() == static_cast<std::size_t>(IntentPacket::FullSize) + 3,
+            "a report of no bombs is two bytes");
+        Expect(shot.WireSize() == static_cast<std::size_t>(IntentPacket::FullSize) + 1 + IntentPacket::ShotSize
+            + 1 + 2 * IntentPacket::ShotEventSize, "a ray and two shots, and nothing else");
+        Expect(static_cast<std::size_t>(IntentPacket::MaxWireSize) < 388, "never larger than the fixed layout was");
+
+        // A section cut short is absent, never half read; a corrupt count
+        // is clamped, and then only read if every entry it names is there.
+        shot.Write(bytes);
+        const std::size_t whole = shot.WireSize();
+        Expect(IntentPacket::Read(std::span(bytes).first(whole - 1)).ShotHistoryLength == 0,
+            "a history missing its last byte is not read");
+        Expect(IntentPacket::Read(std::span(bytes).first(static_cast<std::size_t>(IntentPacket::FullSize))).ShotHistoryLength == 0,
+            "an intent without the sections has no history");
+        bytes[static_cast<std::size_t>(IntentPacket::FullSize + 1 + IntentPacket::ShotSize)] = 0xFF;
         Expect(IntentPacket::Read(bytes).ShotHistoryLength == IntentPacket::ShotHistoryCount,
             "a corrupt history count is clamped");
-        Expect(IntentPacket::Read(std::span(bytes).first(static_cast<std::size_t>(IntentPacket::FullSize))).ShotHistoryLength == 0,
-            "an intent without the block has no history");
     }
 
     // The receiver: the event's weapon is the shot's, once per sequence.
@@ -231,7 +252,7 @@ namespace
                 "the projectiles spawned after a shot carry its sequence");
         }
         IntentPacket intent{};
-        log.Fill(intent);
+        log.Fill(intent, 106);
         Expect(intent.ShotHistoryLength == IntentPacket::ShotHistoryCount
             && intent.ShotHistory[0].Sequence == 3 && intent.ShotHistory[3].Sequence == 6,
             "the history keeps the newest shots, oldest first");
@@ -242,11 +263,25 @@ namespace
         after.WeaponId = Id(BeamType::PowerBeam);
         static_cast<void>(log.Record(after));
         IntentPacket respawned{};
-        log.Fill(respawned);
+        log.Fill(respawned, 200);
         Expect(respawned.ShotHistoryLength == 1 && respawned.ShotHistory[0].Sequence == 7,
             "a new life empties the history but never reuses a sequence");
         Expect(intent.ShotHistory[3].Charge == 5 && intent.ShotHistory[3].AckFrame == 95,
             "the charge and the world are recorded with the shot");
+        // Repeated only while a receiver could still fire it.
+        IntentPacket later{};
+        log.Fill(later, 200 + LocalShotLog::RepeatFrames);
+        Expect(later.ShotHistoryLength == 1, "a shot is repeated for RepeatFrames");
+        log.Fill(later, 201 + LocalShotLog::RepeatFrames);
+        Expect(later.ShotHistoryLength == 0, "and then no longer sent");
+
+        // A claim's resend is timed from its last send.
+        using MphRead::Mods::Network::ClaimResendDue;
+        Expect(ClaimResendDue(0, 6, 0, 0, 10), "first chance: sent");
+        Expect(!ClaimResendDue(1, 6, 9, 0, 10) && ClaimResendDue(1, 6, 10, 0, 10), "then once the interval has passed");
+        Expect(ClaimResendDue(1, 6, 13, 0, 10), "a send held back by a full packet goes on the next chance");
+        Expect(ClaimResendDue(2, 6, 17, 12, 5), "a shorter interval measured since applies at once");
+        Expect(!ClaimResendDue(6, 6, 100, 0, 10), "never past the most sends");
     }
 
     // The authority's record of a shooter's shots, for the claims naming them.
@@ -399,23 +434,25 @@ namespace
         using OpenTK::Mathematics::Vector3;
 
         IntentPacket sent = WithBombs(50, {{7, Vector3(1, 2, 3)}, {8, Vector3(4, 5, 6)}});
-        std::vector<std::uint8_t> bytes(IntentPacket::BombFullSize);
+        std::vector<std::uint8_t> bytes(IntentPacket::MaxWireSize);
         sent.Write(bytes);
-        const IntentPacket read = IntentPacket::Read(bytes);
+        const IntentPacket read = IntentPacket::Read(std::span(bytes).first(sent.WireSize()));
         Expect(read.HasBombs && read.BombsLength == 2 && read.Bombs[1].Sequence == 8
             && Near(read.Bombs[1].Position.Y, 5.0F), "the standing bombs ride the intent");
         IntentPacket none{};
         none.HasBombs = true;
         none.Write(bytes);
-        Expect(IntentPacket::Read(bytes).HasBombs && IntentPacket::Read(bytes).BombsLength == 0,
+        Expect(IntentPacket::Read(std::span(bytes).first(none.WireSize())).HasBombs
+            && IntentPacket::Read(std::span(bytes).first(none.WireSize())).BombsLength == 0,
             "no bombs is a report too");
         IntentPacket gone = WithBombs(60, {{9, Vector3(1, 1, 1)}, {10, Vector3(2, 2, 2), true}});
         gone.Write(bytes);
         Expect(!IntentPacket::Read(bytes).Bombs[0].Gone && IntentPacket::Read(bytes).Bombs[1].Gone,
             "a bomb just gone is still reported, as gone");
-        std::vector<std::uint8_t> older(IntentPacket::ShotFullSize);
-        sent.Write(older);
-        Expect(!IntentPacket::Read(older).HasBombs, "a payload without the block reports nothing");
+        IntentPacket quiet{};
+        quiet.Write(bytes);
+        Expect(!IntentPacket::Read(std::span(bytes).first(quiet.WireSize())).HasBombs,
+            "an intent without the section reports nothing");
 
         RemoteBombState state;
         Expect(!state.Active(), "a player who never reported lays its own");
@@ -553,6 +590,69 @@ namespace
         HostTouch::Withdraw();
     }
 
+    void ConnectionIdentity()
+    {
+        using MphRead::Mods::Network::ConnectionSecret;
+        using MphRead::Mods::Network::HelloPacket;
+        using MphRead::Mods::Network::MayRebind;
+        ConnectionSecret held{};
+        held.fill(0x5A);
+        ConnectionSecret other = held;
+        other[15] ^= 1U;
+        Expect(MayRebind(held, held), "the secret a slot was opened with moves it");
+        Expect(!MayRebind(held, other), "one bit wrong does not");
+        Expect(!MayRebind(ConnectionSecret{}, ConnectionSecret{}), "an unset secret proves nothing");
+
+        HelloPacket hello{};
+        hello.Protocol = 28;
+        hello.Slot = 3;
+        hello.ClientId = 0xA1B2C3D4U;
+        hello.Secret = held;
+        std::vector<std::uint8_t> bytes(HelloPacket::Size);
+        hello.Write(bytes);
+        const HelloPacket read = HelloPacket::Read(bytes);
+        Expect(read.Protocol == 28 && read.Slot == 3 && read.ClientId == 0xA1B2C3D4U && read.Secret == held,
+            "a hello reads back as written");
+        const HelloPacket probe = HelloPacket::Read(std::span(bytes).first(2));
+        Expect(probe.Protocol == 28 && probe.ClientId == 0 && probe.Slot == 3
+            && !MphRead::Mods::Network::IsSet(probe.Secret), "a probe's hello leaves the rest unset");
+    }
+
+    void InboxShedding()
+    {
+        using MphRead::Mods::Network::PacketType;
+        using MphRead::Mods::Network::ShedIndex;
+        const auto type = [](PacketType t) { return t; };
+        const std::vector<PacketType> mixed{ PacketType::Welcome, PacketType::MatchState, PacketType::Snapshot,
+            PacketType::Intent };
+        Expect(ShedIndex(mixed, type) == 2, "a full queue drops the oldest snapshot before a welcome");
+        const std::vector<PacketType> control{ PacketType::HitVerdict, PacketType::MapChange };
+        Expect(ShedIndex(control, type) == 0, "and the oldest of all when nothing is superseded");
+        Expect(ShedIndex(std::vector<PacketType>{}, type) == 0, "an empty queue is index zero");
+    }
+
+    void PredictionMatching()
+    {
+        using MphRead::Mods::Network::AnsweredShot;
+        using MphRead::Mods::Network::MatchPrediction;
+        using MphRead::Mods::Network::PredictedShot;
+        // Power Beam (bucket 0) fired at 10 and 12, a Missile (bucket 2) at 11.
+        const std::vector<PredictedShot> waiting{ { 0, 10, false }, { 2, 11, false }, { 0, 12, false } };
+        Expect(MatchPrediction(waiting, AnsweredShot{ 2, std::nullopt }) == 1,
+            "a Missile hit retires the Missile, not the older Power Beam shot");
+        Expect(MatchPrediction(waiting, AnsweredShot{ 0, std::uint8_t{ 12 } }) == 2,
+            "a named launch frame picks that very shot");
+        Expect(MatchPrediction(waiting, AnsweredShot{ 0, std::uint8_t{ 99 } }) == 0,
+            "an unknown launch frame falls back to the oldest of the weapon");
+        Expect(MatchPrediction(waiting, AnsweredShot{ 5, std::nullopt }) == 0,
+            "a weapon with nothing waiting falls back to the oldest");
+        const std::vector<PredictedShot> refused{ { 2, 11, true }, { 2, 13, false } };
+        Expect(MatchPrediction(refused, AnsweredShot{ 2, std::uint8_t{ 11 } }) == 1,
+            "a refused claim is never the answer");
+        Expect(MatchPrediction(std::vector<PredictedShot>{}, AnsweredShot{ 0, std::nullopt }) == 0,
+            "nothing waiting is offset zero");
+    }
+
     void PacketFaults()
     {
         TouchInputAdapter remote{};
@@ -679,6 +779,9 @@ int main()
         BombState();
         OwnerAuthorityParity();
         PacketFaults();
+        PredictionMatching();
+        InboxShedding();
+        ConnectionIdentity();
     }
     catch (const std::exception& e)
     {

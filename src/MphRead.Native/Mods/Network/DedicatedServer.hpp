@@ -74,6 +74,8 @@ namespace MphRead::Mods::Network
             std::uint8_t Ballot = 0;
             std::string Pick{};
             std::uint32_t ClientId = 0;
+            // What a Hello from a new address must carry to take this peer over.
+            ConnectionSecret Secret{};
             double LastProposal = -std::numeric_limits<double>::infinity();
         };
 
@@ -277,7 +279,7 @@ namespace MphRead::Mods::Network
         void BroadcastSessionState();
         [[nodiscard]] std::int8_t ChooseTeam(const MatchDefinition& match, const Peer* exclude = nullptr) const;
         void NormalizeTeams();
-        void ClaimOwner(const std::shared_ptr<Peer>& peer, std::span<const std::uint8_t> hello);
+        void ClaimOwner(const std::shared_ptr<Peer>& peer, const ::MphRead::NativeRuntime::Guid& ownerToken);
         void HandleLobbyCommand(const ReceivedPacket& packet, double now);
         [[nodiscard]] LobbyResultCode ExecuteLobbyCommand(const std::shared_ptr<Peer>& peer,
             const LobbyCommandPacket& command, std::string& reason);

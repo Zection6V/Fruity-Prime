@@ -618,11 +618,13 @@ namespace MphRead::Mods::Network
                     UnseenBeam[static_cast<std::size_t>(feedback.AttackerSlot)][oldest] = static_cast<std::uint8_t>(beam);
                 }
             }
-            ReplayEvent(player, feedback);
+            ReplayEvent(player, feedback, hit.EventId == state.DamageEventId
+                ? std::optional<std::uint8_t>(state.ImpactLaunchLow) : std::nullopt);
         }
     }
 
-    void NetDamage::ReplayEvent(Entities::PlayerEntity& player, const PlayerState& state)
+    void NetDamage::ReplayEvent(Entities::PlayerEntity& player, const PlayerState& state,
+        std::optional<std::uint8_t> launchLow)
     {
         const std::int32_t slot = player.SlotIndex();
         constexpr std::int32_t landed = 1;
@@ -630,7 +632,10 @@ namespace MphRead::Mods::Network
         const bool lethal = state.Health == 0;
         const bool mine = static_cast<std::int32_t>(state.AttackerSlot) == NetHooks::LocalSlot();
         const bool authorityHeadshot = (state.DamageFlags & static_cast<std::int32_t>(Entities::DamageFlags::Headshot)) != 0;
-        const bool predicted = mine && NetHitPrediction::Confirm(slot, landed, authorityHeadshot);
+        const NetHitPrediction::HitIdentity identity{ state.DamageBeam == NoBeam
+            ? MphRead::BeamType::None
+            : static_cast<MphRead::BeamType>(std::bit_cast<std::int8_t>(state.DamageBeam)), launchLow };
+        const bool predicted = mine && NetHitPrediction::Confirm(slot, landed, authorityHeadshot, identity);
         if (player.Health() <= 0)
         {
             return; // already down here; the respawn is what matters next

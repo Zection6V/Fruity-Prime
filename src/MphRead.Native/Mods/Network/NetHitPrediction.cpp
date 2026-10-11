@@ -12,6 +12,7 @@
 #include "NetPlayerLifecycle.hpp"
 #include "NetSession.hpp"
 #include "NetShotDiagnostics.hpp"
+#include "PredictionMatch.hpp"
 #include "../../Formats/Types.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
@@ -22,6 +23,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <span>
 #include <string>
 
 using ::MphRead::NativeRuntime::HasFlag;
@@ -339,7 +342,7 @@ namespace MphRead::Mods::Network
                     std::min(static_cast<std::int32_t>(damage), std::max(0, victim.Health()));
             }
             const std::int32_t at = Push(victimSlot, NetSession::NetFrame(), static_cast<std::int32_t>(damage),
-                lethal, headshot, beam, self);
+                lethal, headshot, beam, self, launchFrame);
             if (at >= 0)
             {
                 _pendingHeld[Index(victimSlot)][Index(at)] = claimedLethal && !self;
@@ -390,7 +393,8 @@ namespace MphRead::Mods::Network
         }
     }
 
-    bool NetHitPrediction::Confirm(std::int32_t slot, std::int32_t landed, bool authorityHeadshot)
+    bool NetHitPrediction::Confirm(std::int32_t slot, std::int32_t landed, bool authorityHeadshot,
+        std::optional<HitIdentity> identity)
     {
         EnsureLife(slot);
         if (slot < 0 || slot >= Slots)
@@ -421,6 +425,18 @@ namespace MphRead::Mods::Network
                 }
             }
             return fromSettled > 0;
+        }
+        if (identity.has_value() && _pendingCount[s] > 1)
+        {
+            std::array<PredictedShot, PendingCapacity> waiting{};
+            for (std::int32_t i = 0; i < _pendingCount[s]; i++)
+            {
+                const auto at = Index((_pendingHead[s] + i) % PendingCapacity);
+                waiting[Index(i)] = PredictedShot{ _pendingBeam[s][at], _pendingLaunch[s][at],
+                    _pendingSpent[s][at] && _pendingDamage[s][at] == 0 };
+            }
+            const AnsweredShot answered{ Bucket(identity->Beam), identity->LaunchLow };
+            PromoteToHead(slot, MatchPrediction(std::span(waiting).first(Index(_pendingCount[s])), answered));
         }
         const bool self = slot == NetHooks::LocalSlot();
         const std::int32_t take = std::clamp(landed, 1, _pendingCount[s]);
@@ -483,6 +499,7 @@ namespace MphRead::Mods::Network
             _pendingSpent[s][i] = false;
             _pendingTravelled[s][i] = false;
             _pendingSelf[s][i] = false;
+            _pendingLaunch[s][i] = 0;
         }
         if (slot == NetHooks::LocalSlot())
         {
@@ -826,7 +843,7 @@ namespace MphRead::Mods::Network
     }
 
     std::int32_t NetHitPrediction::Push(std::int32_t slot, std::uint32_t frame, std::int32_t damage, bool lethal,
-        bool headshot, ::MphRead::BeamType beam, bool self)
+        bool headshot, ::MphRead::BeamType beam, bool self, std::uint32_t launchFrame)
     {
         EnsureLife(slot);
         if (slot < 0 || slot >= Slots)
@@ -852,6 +869,7 @@ namespace MphRead::Mods::Network
         _pendingSpent[s][t] = false;
         _pendingTravelled[s][t] = false;
         _pendingSelf[s][t] = self;
+        _pendingLaunch[s][t] = static_cast<std::uint8_t>(launchFrame & 0xFFU);
         _pendingCount[s]++;
         if (!self)
         {
@@ -864,6 +882,40 @@ namespace MphRead::Mods::Network
             }
         }
         return tail;
+    }
+
+    void NetHitPrediction::PromoteToHead(std::int32_t slot, std::int32_t offset)
+    {
+        const auto s = Index(slot);
+        if (offset <= 0 || offset >= _pendingCount[s])
+        {
+            return;
+        }
+        const auto at = [&](std::int32_t i) { return Index((_pendingHead[s] + i) % PendingCapacity); };
+        const auto rotate = [&](auto& pending)
+        {
+            auto& ring = pending[s];
+            const auto moved = ring[at(offset)];
+            for (std::int32_t i = offset; i > 0; i--)
+            {
+                ring[at(i)] = ring[at(i - 1)];
+            }
+            ring[at(0)] = moved;
+        };
+        // Every per-prediction array, or an entry is torn in two.
+        rotate(_pendingFrame);
+        rotate(_pendingDamage);
+        rotate(_pendingLethal);
+        rotate(_pendingHeadshot);
+        rotate(_pendingBeam);
+        rotate(_pendingClaim);
+        rotate(_pendingSpent);
+        rotate(_pendingTravelled);
+        rotate(_pendingSelf);
+        rotate(_pendingLaunch);
+        rotate(_pendingHeld);
+        rotate(_pendingLife);
+        rotate(_pendingGeneration);
     }
 
     std::int32_t NetHitPrediction::RetireHead(std::int32_t slot, bool confirmed)

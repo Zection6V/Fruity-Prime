@@ -23,8 +23,12 @@ namespace MphRead::Mods::Network
         }
         // Gives the shot its sequence and keeps it.
         std::uint32_t Record(IntentPacket::ShotEvent shot) noexcept;
-        // The history, into an intent about to be sent.
-        void Fill(IntentPacket& intent) const noexcept;
+        // How long a shot is repeated: as long as a receiver may still fire it
+        // (RemoteShotQueue::FreshFrames, checked where both are known).
+        static constexpr std::uint32_t RepeatFrames = 30;
+        // The history, into an intent about to be sent on frame `now`: the
+        // shots fired in the last RepeatFrames, oldest first.
+        void Fill(IntentPacket& intent, std::uint32_t now) const noexcept;
         void Reset() noexcept;
         // How many shots this machine has numbered: the sequence of the last.
         [[nodiscard]] std::uint32_t Sent() const noexcept { return _sequence; }

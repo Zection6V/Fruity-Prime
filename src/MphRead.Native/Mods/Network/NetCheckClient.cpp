@@ -736,6 +736,11 @@ namespace MphRead::Mods::Network
         {
             std::cout << "  " << *claims << '\n';
         }
+        if (NetSession::IntentsSent() > 0)
+        {
+            std::cout << "  intents sent: " << NetSession::IntentsSent() << ", "
+                << NetSession::IntentBytesSent() / NetSession::IntentsSent() << " bytes each on average\n";
+        }
         if (const std::optional<std::string> events = NetShotEvents::Describe(); events.has_value())
         {
             std::cout << "  " << *events << '\n';

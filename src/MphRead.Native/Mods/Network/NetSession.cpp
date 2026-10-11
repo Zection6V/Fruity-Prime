@@ -180,6 +180,7 @@ namespace MphRead::Mods::Network
     Hunter NetSession::_localHunter = Hunter::Samus;
     std::int32_t NetSession::_localColor = 0;
     const std::uint32_t NetSession::ClientId = NetSession::NewClientId();
+    const ConnectionSecret NetSession::Secret = NetSession::NewSecret();
 
     bool NetSession::_connectionLost = false;
     double NetSession::_lastServerPacket = 0.0;
@@ -347,6 +348,8 @@ namespace MphRead::Mods::Network
         _snapshotsOutOfOrder = 0;
         _statesApplied = 0;
         _intentsReceived = 0;
+        _intentsSent = 0;
+        _intentBytesSent = 0;
         _intentsOutOfOrder = 0;
         NetPlayerBridge::Reset();
         NetDamage::Reset();
@@ -455,6 +458,8 @@ namespace MphRead::Mods::Network
         _appliedSnapshotFrame = 0;
         _statesApplied = 0;
         _intentsReceived = 0;
+        _intentsSent = 0;
+        _intentBytesSent = 0;
         _serverMatch.reset();
         NetUnlagged::Reset();
         NetHitPrediction::Reset();
@@ -485,19 +490,32 @@ namespace MphRead::Mods::Network
         return id == 0 ? 1U : id;
     }
 
+    ConnectionSecret NetSession::NewSecret()
+    {
+        ConnectionSecret secret{};
+        while (!IsSet(secret))
+        {
+            Runtime::RandomNumberGeneratorFill(secret.data(), secret.size());
+        }
+        return secret;
+    }
+
     void NetSession::SendHello()
     {
         if (_transport == nullptr || _hostEndPoint == nullptr)
         {
             return;
         }
-        _scratch[0] = NetConfig::ProtocolVersion;
-        _scratch[1] = _localSlot >= 0 && _localSlot < 0xFF
+        HelloPacket hello{};
+        hello.Protocol = NetConfig::ProtocolVersion;
+        hello.Slot = _localSlot >= 0 && _localSlot < HelloPacket::AnySlot
             ? static_cast<std::uint8_t>(_localSlot)
-            : 0xFFU;
-        Runtime::WriteUInt32LittleEndian(Scratch(_scratch).subspan(2, 4), ClientId);
-        static_cast<void>(_ownerToken.TryWriteBytes(Scratch(_scratch).subspan(6, 16)));
-        _transport->Send(_hostEndPoint, PacketType::Hello, First(_scratch, 22));
+            : HelloPacket::AnySlot;
+        hello.ClientId = ClientId;
+        hello.OwnerToken = _ownerToken;
+        hello.Secret = Secret;
+        hello.Write(Scratch(_scratch));
+        _transport->Send(_hostEndPoint, PacketType::Hello, First(_scratch, HelloPacket::Size));
     }
 
     void NetSession::RebindSocket()
@@ -1573,9 +1591,11 @@ namespace MphRead::Mods::Network
         intent.AuthorityEpoch = AuthorityEpoch();
         intent.SlotGeneration = NetPlayerLifecycle::Generation(_localSlot);
         intent.LifeId = NetPlayerLifecycle::Get(_localSlot);
-        const auto size = static_cast<std::size_t>(IntentPacket::BombFullSize);
+        const std::size_t size = intent.WireSize();
         intent.Write(std::span<std::uint8_t>(_scratch.data(), size));
         _transport->Send(_hostEndPoint, PacketType::Intent, First(_scratch, size));
+        IncrementInPlace(_intentsSent);
+        _intentBytesSent += static_cast<std::int64_t>(size);
         if (_localSlot >= 0)
         {
             DemoRecorder::RecordOwnIntent(_localSlot, First(_scratch, IntentPacket::FullSize));

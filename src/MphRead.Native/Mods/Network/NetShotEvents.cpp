@@ -12,6 +12,8 @@
 namespace MphRead::Mods::Network
 {
     static_assert(NetShotEvents::Slots == Entities::PlayerEntity::SlotCapacity);
+    static_assert(LocalShotLog::RepeatFrames == RemoteShotQueue::FreshFrames,
+        "a shot is repeated exactly as long as a receiver may still fire it");
 
     namespace
     {
@@ -131,7 +133,7 @@ namespace MphRead::Mods::Network
 
     void NetShotEvents::Attach(IntentPacket& intent) noexcept
     {
-        _local.Fill(intent);
+        _local.Fill(intent, std::max(1U, NetSession::NetFrame()));
     }
 
     void NetShotEvents::Receive(std::int32_t slot, const IntentPacket& intent) noexcept
@@ -207,11 +209,10 @@ namespace MphRead::Mods::Network
         {
             return;
         }
+        // This machine's own log is kept: a shot fired just before the death
+        // still has to reach everyone, and Fill already stops repeating it
+        // once it is too old to be fired. Only a new occupant (Forget) clears it.
         _remote[static_cast<std::size_t>(slot)].BeginLife();
-        if (slot == NetHooks::LocalSlot())
-        {
-            _local.Reset();
-        }
     }
 
     void NetShotEvents::Forget(std::int32_t slot) noexcept

@@ -1,5 +1,6 @@
 #include "NetTransport.hpp"
 
+#include "InboxShedding.hpp"
 #include "NetLag.hpp"
 #include "NetProtocol.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
@@ -10,6 +11,7 @@
 #include <bit>
 #include <chrono>
 #include <condition_variable>
+#include <cstddef>
 #include <cstring>
 #include <deque>
 #include <exception>
@@ -136,7 +138,10 @@ namespace MphRead::Mods::Network
             return true;
         }
 
-        [[nodiscard]] bool TryDropOldestInbox()
+        // Makes room in a full inbox: the oldest packet a newer one
+        // supersedes goes first, so a burst of intents and snapshots cannot
+        // push out a welcome, a match state or a verdict (InboxShedding).
+        [[nodiscard]] bool TryShedInbox()
         {
             {
                 std::lock_guard lock(InboxLock);
@@ -144,7 +149,11 @@ namespace MphRead::Mods::Network
                 {
                     return false;
                 }
-                Inbox.pop_front();
+                const std::size_t index = ShedIndex(Inbox, [](const ReceivedPacket& packet)
+                {
+                    return static_cast<PacketType>((*packet.Data)[0]);
+                });
+                Inbox.erase(Inbox.begin() + static_cast<std::ptrdiff_t>(index));
             }
             InboxCount.fetch_sub(1, std::memory_order_seq_cst);
             return true;
@@ -300,7 +309,7 @@ namespace MphRead::Mods::Network
                     if (InboxCount.load(std::memory_order_seq_cst)
                         >= NetTransport::MaxQueuedPackets)
                     {
-                        (void)TryDropOldestInbox();
+                        (void)TryShedInbox();
                         Dropped.fetch_add(1, std::memory_order_seq_cst);
                         NetTransport::TotalPacketsDropped.fetch_add(1, std::memory_order_seq_cst);
                     }

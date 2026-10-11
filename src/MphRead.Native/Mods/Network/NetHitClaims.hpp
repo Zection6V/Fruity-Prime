@@ -199,6 +199,8 @@ namespace MphRead::Mods::Network
             ImpactOffset Impact{};
             std::int32_t Age = 0;
             std::int32_t Sends = 0;
+            // Age at the last send: what the next resend is timed from.
+            std::int32_t LastSentAge = 0;
             bool Live = false;
         };
 
@@ -249,7 +251,8 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static std::uint8_t Judge(std::int32_t shooterSlot, const HitClaimPacket& claim);
         static void NoteAgreement(std::int32_t shooter, std::int32_t victim, std::uint8_t beam,
             std::int32_t claimed, std::int32_t resolved);
-        static void Park(std::int32_t shooterSlot, const HitClaimPacket& claim);
+        // False when every pending entry is taken: the claim has not been parked.
+        [[nodiscard]] static bool Park(std::int32_t shooterSlot, const HitClaimPacket& claim);
         [[nodiscard]] static std::int32_t MaxDamageFor(std::int32_t shooterSlot, std::uint8_t beam);
         // The weapon the shooter actually fires for this beam: a hunter's
         // affinity weapon is its own row of the table (index + 9), with its
@@ -372,6 +375,7 @@ namespace MphRead::Mods::Network
         static std::int64_t _voidedDeadShooter;
         static std::int64_t _voidedDeadVictim;
         static std::int64_t _refusedHere;
+        inline static std::int64_t _busyHere = 0;
         static std::int64_t _tooOldHere;
         static std::int64_t _repeatsHere;
         static std::int64_t _matchedByLaunch;

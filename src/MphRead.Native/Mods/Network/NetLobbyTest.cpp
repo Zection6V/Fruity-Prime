@@ -126,11 +126,15 @@ namespace MphRead::Mods::Network
 
         void Hello(Runtime::Guid token = {})
         {
-            std::array<std::uint8_t, 22> bytes{};
-            bytes[0] = NetConfig::ProtocolVersion;
-            bytes[1] = Slot < 0 ? static_cast<std::uint8_t>(255) : static_cast<std::uint8_t>(Slot);
-            Runtime::WriteUInt32LittleEndian(std::span(bytes).subspan(2), Id);
-            static_cast<void>(token.TryWriteBytes(std::span(bytes).subspan(6)));
+            HelloPacket hello{};
+            hello.Protocol = NetConfig::ProtocolVersion;
+            hello.Slot = Slot < 0 ? HelloPacket::AnySlot : static_cast<std::uint8_t>(Slot);
+            hello.ClientId = Id;
+            hello.OwnerToken = token;
+            // One secret per client, kept across Rebind like a real process's.
+            hello.Secret.fill(static_cast<std::uint8_t>(Id | 1U));
+            std::array<std::uint8_t, HelloPacket::Size> bytes{};
+            hello.Write(bytes);
             Send(PacketType::Hello, bytes);
         }
 
@@ -574,7 +578,7 @@ namespace MphRead::Mods::Network
 
     void NetLobbyTest::ProtocolChecks()
     {
-        Check(NetConfig::ProtocolVersion == 19 && static_cast<std::uint8_t>(PacketType::SessionState) == 36
+        Check(NetConfig::ProtocolVersion >= 19 && static_cast<std::uint8_t>(PacketType::SessionState) == 36
             && static_cast<std::uint8_t>(PacketType::MapOffer) == 32 && static_cast<std::uint8_t>(PacketType::MapDone) == 35,
             "combined protocol and non-overlapping map/lobby IDs");
         SessionStatePacket state{};

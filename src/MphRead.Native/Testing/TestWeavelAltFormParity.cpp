@@ -105,8 +105,10 @@ namespace
         // only the intent (shot events); 21 the shot events and the claims;
         // 22 the meaning of two spare Weavel flag bits; 23 only the claim;
         // 24 only the intent (bombs); 25 only what a claim may name (a
-        // player's hits on itself); 26 a claim's cause (a Death Alt).
-        Expect(NetConfig::ProtocolVersion == 26 && PlayerState::Size == 131
+        // player's hits on itself); 26 a claim's cause (a Death Alt); 27 an
+        // intent's variable-length sections; 28 only the hello (a connection
+        // secret).
+        Expect(NetConfig::ProtocolVersion == 28 && PlayerState::Size == 131
             && PlayerState::Size - PlayerState::LegacySize == 17, "Weavel and the impact add 17 bytes per player");
         {
             // A transition under way on the authority is the form being

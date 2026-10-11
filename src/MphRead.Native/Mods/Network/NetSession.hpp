@@ -204,6 +204,7 @@ namespace MphRead::Mods::Network
         static void HandleHitClaim(ReceivedPacket packet);
         static void SendVerdicts(std::int32_t slot,
             std::span<const std::pair<std::uint16_t, std::uint8_t>> verdicts);
+        static void SendPickupVerdicts(std::int32_t slot, std::span<const PickupVerdictPacket::Entry> verdicts);
         static void HandleChat(ReceivedPacket packet, double time);
         static void BroadcastHostControl();
         static void HandleHello(ReceivedPacket packet, double time);

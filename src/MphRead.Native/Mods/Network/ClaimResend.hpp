@@ -19,4 +19,12 @@ namespace MphRead::Mods::Network
         }
         return sends < maxSends && age - lastSentAge >= (interval > 0 ? interval : 1);
     }
+
+    // Frames between sends of a claim: a little over one round trip at the
+    // sender's measured ping, never under 8 frames or over 40.
+    [[nodiscard]] constexpr std::int32_t ClaimResendInterval(std::int32_t pingMs) noexcept
+    {
+        const std::int32_t frames = static_cast<std::int32_t>(static_cast<float>(pingMs) * 0.06F) + 6;
+        return frames < 8 ? 8 : frames > 40 ? 40 : frames;
+    }
 }

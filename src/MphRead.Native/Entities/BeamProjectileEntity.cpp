@@ -2140,6 +2140,8 @@ namespace MphRead::Entities
             beamRef.ModContinuousPhase = phase;
             beamRef.ModHasSharedContinuousPhase = sharedPhase;
             Mods::Network::NetPlayerLifecycle::StampProjectile(beamRef, parent);
+            beamRef.ModDoubleDamage = TestFlag(spawnFlags, BeamSpawnFlags::DoubleDamage)
+                || (parent != nullptr && parent->ModDoubleDamage);
             beamRef._beam = weapon.Beam;
             beamRef._beamKind = weapon.BeamKind;
             if (preHit && i == 0)

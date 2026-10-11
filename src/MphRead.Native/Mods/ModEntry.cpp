@@ -53,6 +53,7 @@
 #include "Network/DedicatedServer.hpp"
 #include "Network/DemoInfo.hpp"
 #include "Network/HealthSimulationTest.hpp"
+#include "Network/PowerUpSimulationTest.hpp"
 #include "Network/HitRig.hpp"
 #include "Network/LocalServer.hpp"
 #include "Network/MapAudit.hpp"
@@ -1872,6 +1873,13 @@ namespace MphRead::Mods
             healthRoom.has_value())
         {
             SetExitCode(Network::HealthSimulationTest::Run(*healthRoom));
+            return true;
+        }
+
+        if (const std::optional<std::string> powerUpRoom = ValueAfter(args, "powerupsimtest");
+            powerUpRoom.has_value())
+        {
+            SetExitCode(Network::PowerUpSimulationTest::Run(*powerUpRoom));
             return true;
         }
 

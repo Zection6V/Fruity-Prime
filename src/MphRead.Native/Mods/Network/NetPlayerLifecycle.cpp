@@ -1,4 +1,5 @@
 #include "NetPlayerLifecycle.hpp"
+#include "NetPowerUps.hpp"
 #include "NetBombs.hpp"
 #include "NetShotEvents.hpp"
 
@@ -170,6 +171,7 @@ namespace MphRead::Mods::Network
         NetDamage::ForgetSlot(slot);
         NetHitPrediction::ForgetSlot(slot);
         NetHitClaims::ForgetSlot(slot);
+        NetPowerUps::ForgetSlot(slot);
         NetSmoothing::ResetSlot(slot);
         NetUnlagged::ResetSlot(slot);
         NetSession::ForgetSlot(slot);

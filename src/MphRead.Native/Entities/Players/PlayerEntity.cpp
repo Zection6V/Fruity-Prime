@@ -1797,6 +1797,8 @@ namespace MphRead::Entities
         }
 
         PlayerEntity* attacker = nullptr;
+        // The damage carries its source's double damage (HitClaimPacket::FlagDoubled).
+        bool contactDoubled = false;
         bool fromHalfturret = false;
         BombEntity* bomb = nullptr;
         BeamProjectileEntity* beam = nullptr;
@@ -1847,6 +1849,7 @@ namespace MphRead::Entities
                 if (attacker->_doubleDmgTimer > 0 && !Mods::Network::NetDamage::ApplyingClaim())
                 {
                     damage *= 2;
+                    contactDoubled = true;
                 }
             }
             else if (source->Type == MphRead::EntityType::Bomb)
@@ -1938,7 +1941,8 @@ namespace MphRead::Entities
                 : TestFlag(flags, DamageFlags::Burn) ? _burnLaunchFrame : 0U,
             beam != nullptr ? beam->Age() : 0.0F,
             direction, beam != nullptr ? beam->Afflictions() : MphRead::Affliction::None,
-            beam != nullptr ? beam->ModShotSequence : 0U, turretDamage);
+            beam != nullptr ? beam->ModShotSequence : 0U, turretDamage,
+            beam != nullptr ? beam->ModDoubleDamage : bomb != nullptr ? bomb->ModDoubleDamage : contactDoubled);
         if (attacker != this)
         {
             Mods::Input::AimAssist::AimAssistTelemetry::Hit(attacker,

@@ -1,6 +1,8 @@
 #include "NetHitClaims.hpp"
 #include "ClaimResend.hpp"
 #include "NetShotEvents.hpp"
+#include "NetPowerUps.hpp"
+#include "PowerUps.hpp"
 #include "HitLocation.hpp"
 #include "../../Formats/CollisionDetection.hpp"
 
@@ -162,9 +164,7 @@ namespace MphRead::Mods::Network
 
     std::int32_t NetHitClaims::ResendInterval()
     {
-        const std::int32_t ping = Ping(NetSession::LocalSlot());
-        return Runtime::MathClamp(static_cast<std::int32_t>(static_cast<float>(ping) * 0.06F) + 6,
-            MinResendInterval, 40);
+        return ClaimResendInterval(Ping(NetSession::LocalSlot()));
     }
 
     bool NetHitClaims::Claiming()
@@ -177,7 +177,7 @@ namespace MphRead::Mods::Network
         std::uint32_t damage, DamageFlags flags, bool lethal, OpenTK::Mathematics::Vector3 hitPoint,
         std::uint32_t launchFrame, std::optional<OpenTK::Mathematics::Vector3> impulse, ::MphRead::Affliction afflictions,
         std::optional<OpenTK::Mathematics::Vector3> impact, bool splash, std::uint32_t shotSequence,
-        std::uint32_t turretDamage)
+        std::uint32_t turretDamage, bool doubled)
     {
         if (!Claiming() || (damage == 0 && turretDamage == 0)
             || NetPlayerLifecycle::Get(victim.SlotIndex()) == 0 || NetPlayerLifecycle::Get(attacker.SlotIndex()) == 0)
@@ -217,6 +217,10 @@ namespace MphRead::Mods::Network
         if (splash)
         {
             claimFlags = static_cast<std::uint8_t>(claimFlags | HitClaimPacket::FlagSplash);
+        }
+        if (doubled)
+        {
+            claimFlags = static_cast<std::uint8_t>(claimFlags | HitClaimPacket::FlagDoubled);
         }
 
         std::int32_t index = -1;
@@ -685,7 +689,7 @@ namespace MphRead::Mods::Network
             {
                 break;
             }
-            const HitClaimPacket claim = HitClaimPacket::Read(Runtime::SpanSlice(payload, at));
+            HitClaimPacket claim = HitClaimPacket::Read(Runtime::SpanSlice(payload, at));
             _received++;
             if (claim.ShooterLifeId == 0 || claim.VictimLifeId == 0
                 || !NetSession::MatchesStream(claim.MatchId, claim.AuthorityEpoch)
@@ -726,6 +730,7 @@ namespace MphRead::Mods::Network
                 }
                 continue;
             }
+            claim = WithGrantedDoubling(shooterSlot, claim);
             const auto claimAt = static_cast<std::size_t>(claim.ClaimId % SeenCapacity);
             _seenBeams[s][claimAt] = static_cast<::MphRead::BeamType>(claim.Beam);
             _seenKeys[s][claimAt] = ShotKey::For(shooterSlot, claim.LaunchFrame);
@@ -1048,13 +1053,6 @@ namespace MphRead::Mods::Network
         }
         TrackDeaths();
         const std::uint32_t now = NetSession::NetFrame();
-        for (std::int32_t slot = 0; slot < Slots && static_cast<std::size_t>(slot) < PlayerEntity::Players().size(); ++slot)
-        {
-            if (const auto& player = PlayerEntity::Players()[static_cast<std::size_t>(slot)])
-            {
-                _deathalt.Observe(slot, player->DeathaltRunning(), now);
-            }
-        }
         while (true)
         {
             std::int32_t next = -1;
@@ -1505,10 +1503,37 @@ namespace MphRead::Mods::Network
         return static_cast<DamageFlags>(flags);
     }
 
+    HitClaimPacket NetHitClaims::WithGrantedDoubling(std::int32_t shooterSlot, HitClaimPacket claim)
+    {
+        if ((claim.Flags & HitClaimPacket::FlagDoubled) == 0)
+        {
+            return claim;
+        }
+        const std::uint32_t fired = claim.LaunchFrame != 0 ? claim.LaunchFrame : claim.AckFrame;
+        if (NetPowerUps::RanAt(shooterSlot, PowerUp::DoubleDamage, fired))
+        {
+            return claim;
+        }
+        // Doubled on a machine whose double damage the authority never
+        // granted, or not then: the hit stands, at its own damage.
+        claim.Damage = static_cast<std::uint16_t>((claim.Damage + 1U) / 2U);
+        claim.TurretDamage = static_cast<std::uint16_t>((claim.TurretDamage + 1U) / 2U);
+        claim.Flags = static_cast<std::uint8_t>(claim.Flags & ~HitClaimPacket::FlagDoubled);
+        _undoubledHere++;
+        if (NetLog::Enabled())
+        {
+            NetLog::Event("[powerup] slot " + std::to_string(shooterSlot) + " claim " + std::to_string(claim.ClaimId)
+                + " doubled at frame " + std::to_string(fired) + " without a grant: halved");
+        }
+        return claim;
+    }
+
     bool NetHitClaims::CauseVouched(const Pending& entry)
     {
+        // The Death Alt the authority granted, running in the world the
+        // shooter's screen showed when it hit.
         return entry.Cause == HitClaimPacket::CauseDeathalt
-            && _deathalt.Vouches(entry.ShooterSlot, NetSession::NetFrame());
+            && NetPowerUps::RanAt(entry.ShooterSlot, PowerUp::Deathalt, entry.AckFrame);
     }
 
     void NetHitClaims::FinishLethal(const Pending& entry)
@@ -1870,6 +1895,7 @@ namespace MphRead::Mods::Network
         _voidedDeadVictim = 0;
         _refusedHere = 0;
         _busyHere = 0;
+        _undoubledHere = 0;
         _tooOldHere = 0;
         _repeatsHere = 0;
         _suppressedHere = 0;
@@ -1891,7 +1917,6 @@ namespace MphRead::Mods::Network
         {
             return;
         }
-        _deathalt.Forget(slot);
         const auto s = static_cast<std::size_t>(slot);
         _muzzleObstructions.ForgetSlot(slot);
         for (Outgoing& entry : _outbox)
@@ -1982,6 +2007,7 @@ namespace MphRead::Mods::Network
                 + std::to_string(_voidedDeadShooter) + " from a shooter already dead, "
                 + std::to_string(_voidedDeadVictim) + " on a victim already down, "
                 + std::to_string(_refusedHere) + " refused, " + std::to_string(_busyHere) + " with no room to judge, "
+                + std::to_string(_undoubledHere) + " doubled without a grant, "
                 + std::to_string(_tooOldHere) + " too old, "
                 + std::to_string(_repeatsHere) + " repeats "
                 + "(matched " + std::to_string(_matchedByLaunch) + " by shot, " + std::to_string(_matchedByWindow)

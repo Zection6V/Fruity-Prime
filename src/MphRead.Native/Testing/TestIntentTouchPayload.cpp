@@ -4,7 +4,10 @@
 #include "../Mods/Network/LocalShotLog.hpp"
 #include "../Mods/Network/ClaimResend.hpp"
 #include "../Mods/Network/ConnectionSecret.hpp"
-#include "../Mods/Network/DeathaltWitness.hpp"
+#include "../Mods/Network/ItemAuthority.hpp"
+#include "../Mods/Network/PickupReach.hpp"
+#include "../Mods/Network/PowerUpLedger.hpp"
+#include "../Mods/Network/PowerUpSync.hpp"
 #include "../Mods/Network/InboxShedding.hpp"
 #include "../Mods/Network/PredictionMatch.hpp"
 #include "../Mods/Network/RemoteBombState.hpp"
@@ -104,18 +107,9 @@ namespace
         claimBytes[70] = 0x7F;
         Expect(HitClaimPacket::Read(claimBytes).Cause == HitClaimPacket::CauseHit, "a cause nobody knows is a plain hit");
 
-        // A shooter's Death Alt is taken from what the authority saw of it.
-        MphRead::Mods::Network::DeathaltWitness witness;
-        Expect(!witness.Vouches(2, 100), "nobody seen with one: not vouched for");
-        witness.Observe(2, true, 100);
-        witness.Observe(2, false, 140);
-        Expect(witness.Vouches(2, 100 + MphRead::Mods::Network::DeathaltWitness::SlackFrames),
-            "a claim a trip behind the power-up running out is still its");
-        Expect(!witness.Vouches(2, 101 + MphRead::Mods::Network::DeathaltWitness::SlackFrames),
-            "past the slack it is not");
-        Expect(!witness.Vouches(3, 100), "and one player's Death Alt is not another's");
-        witness.Forget(2);
-        Expect(!witness.Vouches(2, 100), "a new life starts unseen");
+        claim.Flags = HitClaimPacket::FlagDoubled;
+        claim.Write(claimBytes);
+        Expect(HitClaimPacket::Read(claimBytes).Flags == HitClaimPacket::FlagDoubled, "a doubled hit says so");
 
         shot.HasShot = true;
         shot.ShotOrigin = OpenTK::Mathematics::Vector3(1, 2, 3);
@@ -653,6 +647,89 @@ namespace
             "nothing waiting is offset zero");
     }
 
+    void PowerUpAuthority()
+    {
+        using namespace MphRead::Mods::Network;
+        // The ledger: when each grant ran, by the world frame of the contact.
+        PowerUpLedger ledger;
+        Expect(!ledger.RanAt(2, PowerUp::Deathalt, 100, 15), "nothing granted: nothing ran");
+        const PowerUpLedger::Grant first = ledger.Begin(2, PowerUp::Deathalt, 100, PowerUpFrames);
+        Expect(first.Sequence == 1 && first.Expire == 100 + PowerUpFrames, "a grant runs its full time from the contact");
+        Expect(ledger.RanAt(2, PowerUp::Deathalt, 100, 15) && !ledger.RanAt(2, PowerUp::Deathalt, 99, 15),
+            "from the contact on, never before it");
+        Expect(!ledger.RanAt(3, PowerUp::Deathalt, 150, 15) && !ledger.RanAt(2, PowerUp::Cloak, 150, 15),
+            "one player's power-up is not another's, nor another kind");
+        ledger.End(2, PowerUp::Deathalt, 400);
+        Expect(ledger.RanAt(2, PowerUp::Deathalt, 414, 15) && !ledger.RanAt(2, PowerUp::Deathalt, 415, 15),
+            "a death ends it, with a trip of slack");
+        const PowerUpLedger::Grant second = ledger.Begin(2, PowerUp::Deathalt, 1000, PowerUpFrames);
+        Expect(second.Sequence == 2 && ledger.RanAt(2, PowerUp::Deathalt, 200, 15),
+            "a new grant keeps the old one's record for hits judged late");
+        ledger.Begin(2, PowerUp::Deathalt, 1100, PowerUpFrames);
+        Expect(ledger.Current(2, PowerUp::Deathalt).Start == 1100 && !ledger.RanAt(2, PowerUp::Deathalt, 1500 + PowerUpFrames, 15)
+            && ledger.RanAt(2, PowerUp::Deathalt, 1099, 0), "picked up again: the old one ends where the new begins");
+        ledger.Forget(2);
+        Expect(!ledger.RanAt(2, PowerUp::Deathalt, 1100, 15), "a new occupant has nothing");
+        std::uint8_t sequence = 0;
+        for (int i = 0; i < 40; ++i)
+        {
+            sequence = NextGrantSequence(sequence);
+            Expect(sequence >= 1 && sequence <= MaxGrantSequence, "a sequence fits its five bits and is never 0");
+        }
+
+        // The wire: five bits of sequence, eleven of frames left.
+        const PowerUpReport report{ 31, PowerUpFrames };
+        Expect(UnpackReport(PackReport(report)).Sequence == 31 && UnpackReport(PackReport(report)).Remaining == PowerUpFrames,
+            "a report survives the wire");
+        Expect(UnpackReport(PackReport(PowerUpReport{ 1, 5000 })).Remaining == RemainingMask, "frames are clamped, not wrapped");
+
+        // A client's copy: corrected, never assigned each snapshot.
+        Expect(ReconcilePowerUp({ 4, 1700 }, 3, 0, false) == PowerUpStep::Start, "a grant not shown here starts");
+        Expect(ReconcilePowerUp({ 4, 1700 }, 3, 1704, false) == PowerUpStep::Keep,
+            "a predicted one a few frames off is left alone");
+        Expect(ReconcilePowerUp({ 4, 1700 }, 3, 1790, false) == PowerUpStep::Retime, "one far off is retimed");
+        Expect(ReconcilePowerUp({ 4, 1650 }, 4, 1700, false) == PowerUpStep::Keep, "the same grant counts down on its own");
+        Expect(ReconcilePowerUp({ 4, 0 }, 4, 12, false) == PowerUpStep::End, "the authority's has ended: so does this");
+        Expect(ReconcilePowerUp({ 3, 0 }, 3, 1790, true) == PowerUpStep::Keep,
+            "a prediction the snapshots have not caught up with is not ended");
+
+        // Who settles a pickup.
+        PickupContext context{};
+        Expect(RouteFor(context) == PickupRoute::Local, "offline: this machine");
+        context = PickupContext{ true, false, true, true, true, true };
+        Expect(RouteFor(context) == PickupRoute::Claim, "a client's own player and a power-up: predicted and claimed");
+        context.OwnPlayer = false;
+        Expect(RouteFor(context) == PickupRoute::None, "somebody else's contact: the authority's word");
+        context = PickupContext{ true, false, true, true, false, true };
+        Expect(RouteFor(context) == PickupRoute::None, "health is not predicted");
+        context.Authority = true;
+        Expect(RouteFor(context) == PickupRoute::Authority, "the authority hands it out itself");
+        context = PickupContext{ true, false, false, true, true, true };
+        Expect(RouteFor(context) == PickupRoute::Local, "an item no spawner put out stays local");
+
+        // Reach: generous, but not across the room.
+        using OpenTK::Mathematics::Vector3;
+        Expect(WithinPickupReach(Vector3(0.0F, 0.0F, 0.0F), Vector3(0.9F, 0.65F, 0.0F)), "standing on it");
+        Expect(!WithinPickupReach(Vector3(0.0F, 0.0F, 0.0F), Vector3(4.0F, 0.65F, 0.0F)), "four units away");
+        Expect(!WithinPickupReach(Vector3(0.0F, 0.0F, 0.0F), Vector3(0.0F, 5.0F, 0.0F)), "a floor above");
+
+        // The claim, on the wire.
+        PickupClaimPacket claim{};
+        claim.MatchId = 7;
+        claim.AuthorityEpoch = 0x1122334455667788ULL;
+        claim.ClaimId = 9;
+        claim.SpawnId = -3;
+        claim.SpawnCount = 41;
+        claim.ContactFrame = 123456;
+        claim.Position = Vector3(1.5F, -2.0F, 3.25F);
+        std::vector<std::uint8_t> bytes(PickupClaimPacket::Size);
+        claim.Write(bytes);
+        const PickupClaimPacket read = PickupClaimPacket::Read(bytes);
+        Expect(read.MatchId == 7 && read.AuthorityEpoch == claim.AuthorityEpoch && read.ClaimId == 9
+            && read.SpawnId == -3 && read.SpawnCount == 41 && read.ContactFrame == 123456
+            && read.Position.Z == 3.25F, "a pickup claim reads back as written");
+    }
+
     void PacketFaults()
     {
         TouchInputAdapter remote{};
@@ -782,6 +859,7 @@ int main()
         PredictionMatching();
         InboxShedding();
         ConnectionIdentity();
+        PowerUpAuthority();
     }
     catch (const std::exception& e)
     {

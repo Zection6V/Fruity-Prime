@@ -5,7 +5,7 @@
 #include "DemoPlayback.hpp"
 #include "LobbyRules.hpp"
 #include "MapRotation.hpp"
-#include "NetHealthSyncTest.hpp"
+#include "NetItemStateTest.hpp"
 #include "NetLag.hpp"
 #include "NetLaunch.hpp"
 #include "NetLifecycleTracker.hpp"
@@ -551,7 +551,7 @@ namespace MphRead::Mods::Network
         std::int32_t result = 0;
         try
         {
-            NetHealthSyncTest::Run();
+            NetItemStateTest::Run();
             ProtocolChecks();
             DemoProtocolCheck();
             LayoutChecks();

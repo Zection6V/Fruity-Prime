@@ -1,14 +1,15 @@
 #include "HealthSimulationTest.hpp"
 
-#include "NetHealthSync.hpp"
+#include "NetItemState.hpp"
 #include "NetLaunch.hpp"
 #include "NetMatchTimeSync.hpp"
 #include "NetProtocol.hpp"
 #include "NetSession.hpp"
 #include "ServerSim.hpp"
 #include "SessionProtocol.hpp"
+#include "SimulationFixture.hpp"
 #include "../Input/SyntheticInput.hpp"
-#include "../Multiplayer/MatchWorldProfile.hpp"
+#include "../Multiplayer/MapResourceRules.hpp"
 #include "../../Entities/ItemInstanceEntity.hpp"
 #include "../../Entities/ItemSpawnEntity.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
@@ -34,33 +35,8 @@ namespace MphRead::Mods::Network
         std::int32_t result = 1;
         try
         {
-            SessionStatePacket session{};
-            session.Phase = SessionPhase::InMatch;
-            session.Policy = ServerSessionPolicy::Lobby;
-            session.Revision = 1;
-            session.MatchId = 1;
-            session.AuthorityEpoch = 1;
-            session.MaxPlayers = 8;
-            session.OwnerSlot = 0;
-            session.Match.RoomKey = room;
-            session.Match.Mode = GameMode::Battle;
-            session.Match.Format = MatchFormat::FreeForAll;
-            session.Match.PointGoal = 999;
-            session.Match.TimeLimitSeconds = 600;
-            session.WorldProfile = Multiplayer::MatchWorldProfile::Resolve(8);
-            RosterPacket roster = RosterPacket::Create();
-            roster.MatchId = 1;
-            roster.AuthorityEpoch = 1;
-            roster.Revision = 1;
-            roster.SessionRevision = 1;
-            for (std::uint8_t i = 0; i < 8; i++)
-            {
-                (*roster.Slots)[i] = i;
-                (*roster.Generations)[i] = 1;
-                (*roster.Teams)[i] = -1;
-                (*roster.Names)[i] = "Health" + Runtime::ToString(i);
-                roster.Count++;
-            }
+            const SessionStatePacket session = SimulationFixture::Session(room);
+            const RosterPacket roster = SimulationFixture::Roster("Health");
             std::vector<std::uint8_t> latest;
             if (!sim.Start(room, GameMode::Battle, 8,
                     [&latest](std::span<const std::uint8_t> payload) { latest.assign(payload.begin(), payload.end()); },
@@ -73,9 +49,10 @@ namespace MphRead::Mods::Network
                 sim.Step();
             }
             std::shared_ptr<ItemSpawnEntity> spawn{};
-            for (const std::shared_ptr<ItemSpawnEntity>& candidate : NetHealthSync::RegisteredSpawns())
+            for (const std::shared_ptr<ItemSpawnEntity>& candidate : NetItemState::RegisteredSpawns())
             {
-                if (candidate->Item() != nullptr && candidate->Active)
+                if (candidate->Item() != nullptr && candidate->Active
+                    && Multiplayer::MapResourceRules::IsHealth(candidate->Data().ItemType))
                 {
                     spawn = candidate;
                     break;
@@ -85,7 +62,7 @@ namespace MphRead::Mods::Network
             {
                 throw System::InvalidOperationException("Sequence contains no matching element");
             }
-            const std::size_t count = NetHealthSync::RegisteredSpawns().size();
+            const std::size_t count = NetItemState::RegisteredSpawns().size();
             const auto id = static_cast<std::int16_t>(spawn->Id);
             spawn->Item()->OnPickedUp();
             for (std::int32_t i = 0; i < 3; i++)
@@ -123,12 +100,12 @@ namespace MphRead::Mods::Network
             NetLaunch::BuildPlayers(*scene, Hunter::Samus, 0, false, -1);
             scene->AddRoom(room, GameMode::Battle, NetLaunch::RoomPlayerCount());
             scene->OnLoad();
-            if (NetHealthSync::RegisteredSpawns().size() != count)
+            if (NetItemState::RegisteredSpawns().size() != count)
             {
-                throw ProgramException("Replica constructed different health entities.");
+                throw ProgramException("Replica constructed different item spawners.");
             }
             std::shared_ptr<ItemSpawnEntity> replica{};
-            for (const std::shared_ptr<ItemSpawnEntity>& candidate : NetHealthSync::RegisteredSpawns())
+            for (const std::shared_ptr<ItemSpawnEntity>& candidate : NetItemState::RegisteredSpawns())
             {
                 if (candidate->Id == id)
                 {
@@ -143,7 +120,7 @@ namespace MphRead::Mods::Network
             {
                 throw System::InvalidOperationException("Sequence contains no matching element");
             }
-            NetHealthSync::Receive(unavailable);
+            NetItemState::Receive(unavailable);
             for (std::int32_t i = 0; i < 3; i++)
             {
                 scene->OnSimulationFrame();
@@ -152,16 +129,16 @@ namespace MphRead::Mods::Network
             {
                 throw ProgramException("Replica spawned unavailable health.");
             }
-            NetHealthSync::Receive(available);
+            NetItemState::Receive(available);
             for (std::int32_t i = 0; i < 3; i++)
             {
                 scene->OnSimulationFrame();
             }
-            if (replica->Item() == nullptr || NetHealthSync::OwnsPickup(*replica->Item()))
+            if (replica->Item() == nullptr || !NetItemState::Mirrors(*replica))
             {
                 throw ProgramException("Replica did not restore authoritative availability.");
             }
-            NetHealthSync::Receive(unavailable);
+            NetItemState::Receive(unavailable);
             for (std::int32_t i = 0; i < 3; i++)
             {
                 scene->OnSimulationFrame();
@@ -171,7 +148,7 @@ namespace MphRead::Mods::Network
                 throw ProgramException("Replica did not remove consumed health.");
             }
             Runtime::ConsoleWriteLine("[healthsimtest] PASS " + room + ": " + Runtime::ToString(count)
-                + " health spawners; authority pickup/respawn and replica convergence.");
+                + " item spawners; authority health pickup/respawn and replica convergence.");
             result = 0;
         }
         catch (...)
@@ -194,7 +171,7 @@ namespace MphRead::Mods::Network
         }
         const std::size_t start = SnapshotHeader::Size
             + static_cast<std::size_t>(SnapshotHeader::Read(snapshot).PlayerCount) * PlayerState::Size + NetMatchTimeSync::Size;
-        if (snapshot.size() < start || !NetHealthSync::Validate(std::span<const std::uint8_t>(snapshot).subspan(start)))
+        if (snapshot.size() < start || !NetItemState::Validate(std::span<const std::uint8_t>(snapshot).subspan(start)))
         {
             throw ProgramException("Invalid health snapshot tail.");
         }

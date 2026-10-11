@@ -166,6 +166,31 @@ namespace MphRead::Mods::Network
         return std::isfinite(position.X) && std::isfinite(position.Y) && std::isfinite(position.Z);
     }
 
+    bool NetUnlagged::PassedNear(std::int32_t slot, std::uint16_t expectedGeneration, std::uint16_t expectedLife,
+        OpenTK::Mathematics::Vector3 point, float radius)
+    {
+        if (slot < 0 || slot >= Slots || !(radius > 0.0F))
+        {
+            return false;
+        }
+        const auto s = static_cast<std::size_t>(slot);
+        const float limit = radius * radius;
+        for (std::size_t index = 0; index < static_cast<std::size_t>(HistoryFrames); index++)
+        {
+            if (_stamp[index] == 0 || !_inPlay[s][index] || _life[s][index] != expectedLife
+                || _generation[s][index] != expectedGeneration)
+            {
+                continue;
+            }
+            const OpenTK::Mathematics::Vector3 between = _position[s][index] - point;
+            if (OpenTK::Mathematics::Vector3::Dot(between, between) <= limit)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     double NetUnlagged::RewindFor(std::int32_t slot, std::int32_t& requested)
     {
         requested = 0;

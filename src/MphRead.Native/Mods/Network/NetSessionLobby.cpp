@@ -1,8 +1,11 @@
 #include "NetSession.hpp"
+#include "NetPickupClaims.hpp"
+#include "NetPowerUpPrediction.hpp"
+#include "NetPowerUps.hpp"
 
 #include "DemoPlayback.hpp"
 #include "NetDamage.hpp"
-#include "NetHealthSync.hpp"
+#include "NetItemState.hpp"
 #include "NetHitClaims.hpp"
 #include "NetHitPrediction.hpp"
 #include "NetLifecycleTracker.hpp"
@@ -287,7 +290,10 @@ namespace MphRead::Mods::Network
     // The socket, local slot, identity, authoritative roster and lobby state survive this reset.
     void NetSession::ResetMatchState()
     {
-        NetHealthSync::BeginRoom();
+        NetItemState::BeginRoom();
+        NetPickupClaims::Reset();
+        NetPowerUps::Reset();
+        NetPowerUpPrediction::Reset();
         NetPlayerSetup::Reset();
         SpectatorMode::Reset();
         NetMatchSync::Reset();
@@ -299,6 +305,9 @@ namespace MphRead::Mods::Network
         NetUnlagged::Reset();
         NetHitPrediction::Reset();
         NetHitClaims::Reset();
+        NetPickupClaims::Reset();
+        NetPowerUps::Reset();
+        NetPowerUpPrediction::Reset();
         NetSmoothing::Reset();
         RemoteStateValid.fill(false);
         RemoteIntentValid.fill(false);

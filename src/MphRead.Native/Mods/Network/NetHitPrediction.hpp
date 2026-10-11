@@ -97,7 +97,8 @@ namespace MphRead::Mods::Network
             std::optional<OpenTK::Mathematics::Vector3> impulse = std::nullopt,
             ::MphRead::Affliction afflictions = ::MphRead::Affliction::None,
             std::uint32_t shotSequence = 0,
-            std::uint32_t turretDamage = 0);
+            std::uint32_t turretDamage = 0,
+            bool doubled = false);
 
         // Which shot an authority hit was: its weapon, and the low byte of the
         // frame it was launched in when the snapshot names it.

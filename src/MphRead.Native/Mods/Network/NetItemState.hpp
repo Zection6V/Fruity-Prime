@@ -1,5 +1,8 @@
 #pragma once
 
+#include "ItemAuthority.hpp"
+#include "../../Formats/Enums.hpp"
+
 #include <cstdint>
 #include <cstddef>
 #include <map>
@@ -11,11 +14,12 @@ namespace MphRead::Entities
 {
     class ItemInstanceEntity;
     class ItemSpawnEntity;
+    class PlayerEntity;
 }
 
 namespace MphRead::Mods::Network
 {
-    struct HealthSpawnState final
+    struct ItemSpawnState final
     {
         bool Available = false;
         bool Active = false;
@@ -23,15 +27,17 @@ namespace MphRead::Mods::Network
         std::uint16_t SpawnCount = 0;
         std::int8_t PickerSlot = 0;
 
-        [[nodiscard]] friend bool operator==(const HealthSpawnState&, const HealthSpawnState&) = default;
+        [[nodiscard]] friend bool operator==(const ItemSpawnState&, const ItemSpawnState&) = default;
     };
 
-    // A bounded tail on the normal authoritative snapshot, not a second
-    // channel. Full state repeats so loss and joining late repair themselves.
-    class NetHealthSync final
+    // The items the authority hands out -- health and the power-ups -- and
+    // the state of every spawner that puts them out, as a bounded tail on the
+    // normal authoritative snapshot, not a second channel. Full state repeats
+    // so loss and joining late repair themselves.
+    class NetItemState final
     {
     public:
-        NetHealthSync() = delete;
+        NetItemState() = delete;
 
         static constexpr std::int32_t MaxSpawns = 56;
         static constexpr std::int32_t HeaderSize = 3;
@@ -44,12 +50,20 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static const std::vector<std::shared_ptr<::MphRead::Entities::ItemSpawnEntity>>&
             RegisteredSpawns() noexcept;
         [[nodiscard]] static bool IsReplica();
-        [[nodiscard]] static bool OwnsPickup(const ::MphRead::Entities::ItemInstanceEntity& item);
+        // Health and the power-ups: what only the authority hands out.
+        [[nodiscard]] static bool ServerOwned(::MphRead::ItemType type) noexcept;
+        // A replica's spawner of such an item, which shows the authority's
+        // state rather than running its own.
+        [[nodiscard]] static bool Mirrors(const ::MphRead::Entities::ItemSpawnEntity& spawn);
+        // Who settles `player` touching `item` (ItemAuthority).
+        [[nodiscard]] static PickupRoute Route(const ::MphRead::Entities::PlayerEntity& player,
+            const ::MphRead::Entities::ItemInstanceEntity& item);
+        [[nodiscard]] static std::shared_ptr<::MphRead::Entities::ItemSpawnEntity> Find(std::int16_t id);
 
         static void BeginRoom();
         static void Register(::MphRead::Entities::ItemSpawnEntity& spawn);
 
-        [[nodiscard]] static bool TryGet(std::int16_t id, HealthSpawnState& state);
+        [[nodiscard]] static bool TryGet(std::int16_t id, ItemSpawnState& state);
         [[nodiscard]] static bool IsCurrentMatch(std::span<const std::uint8_t> src);
 
         [[nodiscard]] static std::int32_t Write(std::span<std::uint8_t> dest);
@@ -63,6 +77,6 @@ namespace MphRead::Mods::Network
         static constexpr std::int32_t ReservedMask = 0xC0;
 
         static std::vector<std::shared_ptr<::MphRead::Entities::ItemSpawnEntity>> _spawns;
-        static std::map<std::int16_t, HealthSpawnState> _states;
+        static std::map<std::int16_t, ItemSpawnState> _states;
     };
 }

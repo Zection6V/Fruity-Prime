@@ -227,6 +227,8 @@ namespace MphRead::Mods::Network
         void SyncSimulationState(double now);
         void Handle(const ReceivedPacket& packet, double now);
         void HandleHitClaim(const ReceivedPacket& packet, double now);
+        void HandlePickupClaim(const ReceivedPacket& packet, double now);
+        void SendPickupVerdicts(std::int32_t slot, std::span<const PickupVerdictPacket::Entry> verdicts);
         void SendVerdicts(std::int32_t slot, std::span<const std::pair<std::uint16_t, std::uint8_t>> verdicts);
         void HandleVote(const ReceivedPacket& packet, double now);
         void OpenBallot();

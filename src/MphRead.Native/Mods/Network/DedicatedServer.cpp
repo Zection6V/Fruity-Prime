@@ -14,7 +14,9 @@
 #include "../Update/ServerUpdate.hpp"
 #include "LobbyRules.hpp"
 #include "MapRotation.hpp"
-#include "NetHealthSync.hpp"
+#include "NetItemState.hpp"
+#include "NetPickupClaims.hpp"
+#include "NetPowerUps.hpp"
 #include "NetHitClaims.hpp"
 #include "NetShotEvents.hpp"
 #include "NetLifecycleTracker.hpp"
@@ -225,6 +227,8 @@ namespace MphRead::Mods::Network
                             Log("sim: " + *claimLine);
                         }
                         Log("sim: " + _sim->DescribeShots());
+                        Log("sim: " + NetPickupClaims::Describe());
+                        Log("sim: " + NetPowerUps::Describe());
                         if (const std::optional<std::string> events = NetShotEvents::Describe(); events.has_value())
                         {
                             Log("sim: " + *events);
@@ -279,6 +283,7 @@ namespace MphRead::Mods::Network
         }
         _sim.reset();
         NetHitClaims::VerdictSink(nullptr);
+        NetPickupClaims::VerdictSink(nullptr);
     }
 
     void DedicatedServer::EndMatch(double now, const std::string& reason)
@@ -445,6 +450,10 @@ namespace MphRead::Mods::Network
         {
             SendVerdicts(slot, verdicts);
         });
+        NetPickupClaims::VerdictSink([this](std::int32_t slot, std::span<const PickupVerdictPacket::Entry> verdicts)
+        {
+            SendPickupVerdicts(slot, verdicts);
+        });
         SyncSimulationState(_now);
     }
 
@@ -534,6 +543,9 @@ namespace MphRead::Mods::Network
         case PacketType::HitClaim:
             HandleHitClaim(packet, now);
             break;
+        case PacketType::PickupClaim:
+            HandlePickupClaim(packet, now);
+            break;
         default:
             break;
         }
@@ -552,6 +564,43 @@ namespace MphRead::Mods::Network
         }
         peer->LastSeen = now;
         NetHitClaims::Receive(peer->SlotIndex, packet.Payload());
+    }
+
+    void DedicatedServer::HandlePickupClaim(const ReceivedPacket& packet, double now)
+    {
+        if (_phase != SessionPhase::InMatch)
+        {
+            return;
+        }
+        const std::shared_ptr<Peer> peer = Find(packet.Sender);
+        if (peer == nullptr || peer->SlotIndex < 0 || !Simulating())
+        {
+            return;
+        }
+        peer->LastSeen = now;
+        NetPickupClaims::Receive(peer->SlotIndex, packet.Payload());
+    }
+
+    void DedicatedServer::SendPickupVerdicts(std::int32_t slot, std::span<const PickupVerdictPacket::Entry> verdicts)
+    {
+        if (verdicts.empty() || _transport == nullptr)
+        {
+            return;
+        }
+        for (const std::shared_ptr<Peer>& peer : _peers)
+        {
+            if (peer->SlotIndex != slot)
+            {
+                continue;
+            }
+            const std::span<const PickupVerdictPacket::Entry> sent = verdicts.first(
+                std::min<std::size_t>(verdicts.size(), PickupVerdictPacket::MaxPerPacket));
+            PickupVerdictPacket::Write(_scratch, sent, NetSession::CurrentMatchId(), NetSession::AuthorityEpoch(),
+                NetPlayerLifecycle::Generation(slot), NetPlayerLifecycle::Get(slot));
+            _transport->Send(peer->EndPoint, PacketType::PickupVerdict,
+                First(_scratch, PickupVerdictPacket::HeaderSize + sent.size() * PickupVerdictPacket::EntrySize));
+            return;
+        }
     }
 
     void DedicatedServer::SendVerdicts(std::int32_t slot,
@@ -1561,7 +1610,7 @@ namespace MphRead::Mods::Network
             || header.PlayerCount > Entities::PlayerEntity::SlotCapacity
             || healthOffset > payload.size()
             || !NetMatchTimeSync::Validate(payload.subspan(timeOffset, NetMatchTimeSync::Size))
-            || !NetHealthSync::Validate(payload.subspan(healthOffset))
+            || !NetItemState::Validate(payload.subspan(healthOffset))
             || Runtime::ReadUInt16LittleEndian(payload.subspan(healthOffset)) != _matchId
             || (_snapshotSeen && !NetLifecycleTracker::Newer(header.Frame, _snapshotFrame)))
         {

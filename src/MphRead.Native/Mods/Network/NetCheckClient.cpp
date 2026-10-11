@@ -4,6 +4,9 @@
 #include "HitLocation.hpp"
 #include "HitRig.hpp"
 #include "NetHitClaims.hpp"
+#include "NetPickupClaims.hpp"
+#include "NetPowerUpPrediction.hpp"
+#include "NetPowerUps.hpp"
 #include "NetShotEvents.hpp"
 #include "NetShotDiagnostics.hpp"
 #include "NetSmoothing.hpp"
@@ -28,6 +31,7 @@
 #include "NetUnlagged.hpp"
 #include "../SpectatorMode.hpp"
 #include "../ScreenCapture.hpp"
+#include "../AudioMute.hpp"
 #include "../Headless.hpp"
 #include "../Chat/ChatBox.hpp"
 #include "../../GameState.hpp"
@@ -736,6 +740,9 @@ namespace MphRead::Mods::Network
         {
             std::cout << "  " << *claims << '\n';
         }
+        std::cout << "  " << NetPickupClaims::Describe() << '\n';
+        std::cout << "  " << NetPowerUpPrediction::Describe() << '\n';
+        std::cout << "  " << NetPowerUps::Describe() << '\n';
         if (NetSession::IntentsSent() > 0)
         {
             std::cout << "  intents sent: " << NetSession::IntentsSent() << ", "
@@ -1002,6 +1009,9 @@ namespace MphRead::Mods::Network
         double rejoinAt,
         std::int32_t color)
     {
+        // A scripted client is an instrument: it makes no sound beside the
+        // person playing in the same session.
+        Mods::AudioMute::Enter();
         if (Headless)
         {
             Mods::Headless::Enter();

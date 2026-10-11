@@ -1901,6 +1901,7 @@ namespace MphRead::Entities
                 bomb->SetDamage(damage);
                 bomb->SetEnemyDamage(damage);
             }
+            bomb->ModDoubleDamage = _doubleDmgTimer > 0;
             if (_doubleDmgTimer > 0)
             {
                 bomb->SetDamage(static_cast<std::uint16_t>(bomb->Damage() * 2));

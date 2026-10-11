@@ -79,7 +79,7 @@ public: \
     [[nodiscard]] std::pair<std::int32_t, std::int32_t> ModAmmo() const; \
     [[nodiscard]] std::int32_t ModAmmoCap() const { return _ammoMax[UA]; } \
     [[nodiscard]] std::int32_t ModBoostDamage() const noexcept { return _boostDamage; } \
-    void ModSetShotState(std::int32_t chargeLevel, std::int32_t boostDamage, bool doubleDamage); \
+    void ModSetShotState(std::int32_t chargeLevel, std::int32_t boostDamage); \
     [[nodiscard]] ::MphRead::Mods::Input::NativeTouchState::Reported ModTouchReport() const noexcept \
     { \
         return _input.TouchSample().Report(); \

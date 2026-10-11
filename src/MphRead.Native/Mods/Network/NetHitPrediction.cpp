@@ -276,7 +276,7 @@ namespace MphRead::Mods::Network
     void NetHitPrediction::NoteHit(Entities::PlayerEntity& victim, Entities::PlayerEntity* attacker,
         Entities::DamageFlags& flags, std::uint32_t& damage, ::MphRead::BeamType beam,
         std::uint32_t launchFrame, float flight, std::optional<OpenTK::Mathematics::Vector3> impulse,
-        ::MphRead::Affliction afflictions, std::uint32_t shotSequence, std::uint32_t turretDamage)
+        ::MphRead::Affliction afflictions, std::uint32_t shotSequence, std::uint32_t turretDamage, bool doubled)
     {
         const std::int32_t local = NetHooks::LocalSlot();
         if (local < 0)
@@ -356,7 +356,7 @@ namespace MphRead::Mods::Network
                 const std::uint16_t claimId = NetHitClaims::Declare(victim, *attacker, beam, claimedDamage,
                     flags, claimedLethal, victim.Position, launchFrame, impulse, afflictions,
                     _impactKnown ? std::optional<OpenTK::Mathematics::Vector3>(_impact) : std::nullopt,
-                    _impactSplash, shotSequence, turretDamage);
+                    _impactSplash, shotSequence, turretDamage, doubled);
                 StampClaim(victimSlot, at, claimId);
             }
             if (headshot && !self)

@@ -6,9 +6,9 @@
 #include "../Entities/Players/WeavelOwnedTurret.hpp"
 #include "../Entities/Players/WeavelReplicaTransition.hpp"
 #include "../Mods/Network/NetProtocol.hpp"
-#include "../Mods/Network/NetHealthSync.hpp"
+#include "../Mods/Network/NetItemState.hpp"
 #include "../Mods/Network/NetMatchTimeSync.hpp"
-#include "../Mods/Network/NetHealthSyncTest.hpp"
+#include "../Mods/Network/NetItemStateTest.hpp"
 
 #include <array>
 #include <cstdio>
@@ -107,9 +107,11 @@ namespace
         // 24 only the intent (bombs); 25 only what a claim may name (a
         // player's hits on itself); 26 a claim's cause (a Death Alt); 27 an
         // intent's variable-length sections; 28 only the hello (a connection
-        // secret).
-        Expect(NetConfig::ProtocolVersion == 28 && PlayerState::Size == 131
-            && PlayerState::Size - PlayerState::LegacySize == 17, "Weavel and the impact add 17 bytes per player");
+        // secret); 29 the power-ups the authority grants (6 bytes a player),
+        // the pickup claim and a doubled hit's flag.
+        Expect(NetConfig::ProtocolVersion == 29 && PlayerState::Size == 137
+            && PlayerState::PowerUpOffset - PlayerState::LegacySize == 17,
+            "Weavel and the impact add 17 bytes per player, the power-ups 6 more");
         {
             // A transition under way on the authority is the form being
             // entered, so a watcher's copy starts its animation with it.
@@ -154,8 +156,8 @@ namespace
         catch (const std::out_of_range&) { rejected = true; }
         Expect(rejected, "legacy protocol 16 player layout is rejected");
         constexpr auto end = SnapshotHeader::Size + 8 * PlayerState::Size + NetMatchTimeSync::Size;
-        static_assert(end + NetHealthSync::HeaderSize + 1 < NetConfig::MaxPacketSize);
-        std::vector<std::uint8_t> bytes(end + NetHealthSync::HeaderSize, 0);
+        static_assert(end + NetItemState::HeaderSize + 1 < NetConfig::MaxPacketSize);
+        std::vector<std::uint8_t> bytes(end + NetItemState::HeaderSize, 0);
         SnapshotHeader header; header.Frame = 456; header.PlayerCount = 8; header.Write(bytes);
         for (std::uint8_t i = 0; i < 8; ++i)
         {
@@ -171,10 +173,10 @@ namespace
         }
         Expect(SnapshotHeader::Read(bytes).Frame == 456 && bytes[end] == 0, "snapshot header and health tail remain aligned");
         // 16 before protocol 19; the 3 bytes of confirmed impact per player
-        // (24 at eight) leave 13 -- a pickup cycle of 56 spawns takes five
-        // snapshots instead of four.
-        Expect(NetHealthSync::PacketEntries(NetConfig::MaxPacketSize - 1 - end) == 13,
-            "eight-player packet reserves bounded health capacity without omitting players");
+        // (24 at eight) left 13, and the 6 of power-ups (48) leave 6 -- a
+        // cycle of 56 spawners takes ten snapshots, a sixth of a second.
+        Expect(NetItemState::PacketEntries(NetConfig::MaxPacketSize - 1 - end) == 6,
+            "eight-player packet reserves bounded item capacity without omitting players");
     }
 }
 
@@ -260,7 +262,7 @@ int main()
     {
         FireRateAndClock();
         InputAndProtocol();
-        MphRead::Mods::Network::NetHealthSyncTest::Run();
+        MphRead::Mods::Network::NetItemStateTest::Run();
         MphRead::Entities::WeavelAltFormParityTest::Run();
         std::printf("WeavelAltFormParity PASS %d checks (fire rate, cadence, reused turret reset)\n", checks);
         return 0;

@@ -14,8 +14,11 @@
 #include "DemoPlayback.hpp"
 #include "DemoRecorder.hpp"
 #include "NetDamage.hpp"
-#include "NetHealthSync.hpp"
+#include "NetItemState.hpp"
 #include "NetHitClaims.hpp"
+#include "NetPickupClaims.hpp"
+#include "NetPowerUpPrediction.hpp"
+#include "NetPowerUps.hpp"
 #include "NetHitPrediction.hpp"
 #include "MapVote.hpp"
 #include "NetLifecycleTracker.hpp"
@@ -151,7 +154,7 @@ namespace
 namespace MphRead::Mods::Network
 {
     // Eight player states, the header and the objective clocks in one
-    // datagram (NetHealthSync takes what is left): Weavel's turret state and
+    // datagram (NetItemState takes what is left): Weavel's turret state and
     // the confirmed-impact bytes both live in a player state.
     static_assert(SnapshotHeader::Size + 8 * PlayerState::Size + NetMatchTimeSync::Size
         <= NetConfig::MaxPacketSize - 1, "a full snapshot no longer fits one datagram");
@@ -252,6 +255,9 @@ namespace MphRead::Mods::Network
         NetUnlagged::Reset();
         NetHitPrediction::Reset();
         NetHitClaims::Reset();
+        NetPickupClaims::Reset();
+        NetPowerUps::Reset();
+        NetPowerUpPrediction::Reset();
         NetSmoothing::Reset();
     }
 
@@ -274,6 +280,7 @@ namespace MphRead::Mods::Network
             _netFrame = 0;
             _lastError.reset();
             NetHitClaims::VerdictSink(SendVerdicts);
+            NetPickupClaims::VerdictSink(SendPickupVerdicts);
             ConsoleWriteLine("[net] hosting on UDP " + Runtime::ToString(_transport->LocalPort()));
         }
         catch (const std::exception& ex)
@@ -335,6 +342,9 @@ namespace MphRead::Mods::Network
         NetUnlagged::Reset();
         NetHitPrediction::Reset();
         NetHitClaims::Reset();
+        NetPickupClaims::Reset();
+        NetPowerUps::Reset();
+        NetPowerUpPrediction::Reset();
         NetSmoothing::Reset();
         _hasSnapshot = false;
         _lastSnapshotFrame = 0;
@@ -464,6 +474,9 @@ namespace MphRead::Mods::Network
         NetUnlagged::Reset();
         NetHitPrediction::Reset();
         NetHitClaims::Reset();
+        NetPickupClaims::Reset();
+        NetPowerUps::Reset();
+        NetPowerUpPrediction::Reset();
         NetSmoothing::Reset();
     }
 
@@ -810,6 +823,21 @@ namespace MphRead::Mods::Network
                 HandleHitClaim(packet);
             }
             break;
+        case PacketType::PickupVerdict:
+            if (_role == NetRole::Client)
+            {
+                NetPickupClaims::ApplyVerdicts(payload);
+            }
+            break;
+        case PacketType::PickupClaim:
+            if (_role == NetRole::Host)
+            {
+                if (const std::shared_ptr<RemotePeer> peer = FindPeer(packet.Sender); peer != nullptr && peer->SlotIndex >= 0)
+                {
+                    NetPickupClaims::Receive(peer->SlotIndex, payload);
+                }
+            }
+            break;
         case PacketType::Chat:
             HandleChat(packet, time);
             break;
@@ -860,6 +888,28 @@ namespace MphRead::Mods::Network
                 NetPlayerLifecycle::Generation(slot), NetPlayerLifecycle::Get(slot));
             _transport->Send(peer->EndPoint, PacketType::HitVerdict,
                 First(_scratch, HitVerdictPacket::HeaderSize + verdicts.size() * HitVerdictPacket::EntrySize));
+            return;
+        }
+    }
+
+    void NetSession::SendPickupVerdicts(std::int32_t slot, std::span<const PickupVerdictPacket::Entry> verdicts)
+    {
+        if (verdicts.empty() || _transport == nullptr)
+        {
+            return;
+        }
+        for (const std::shared_ptr<RemotePeer>& peer : _peers)
+        {
+            if (peer->SlotIndex != slot)
+            {
+                continue;
+            }
+            const std::span<const PickupVerdictPacket::Entry> sent = verdicts.first(
+                std::min<std::size_t>(verdicts.size(), PickupVerdictPacket::MaxPerPacket));
+            PickupVerdictPacket::Write(_scratch, sent, CurrentMatchId(), AuthorityEpoch(),
+                NetPlayerLifecycle::Generation(slot), NetPlayerLifecycle::Get(slot));
+            _transport->Send(peer->EndPoint, PacketType::PickupVerdict,
+                First(_scratch, PickupVerdictPacket::HeaderSize + sent.size() * PickupVerdictPacket::EntrySize));
             return;
         }
     }
@@ -1439,8 +1489,8 @@ namespace MphRead::Mods::Network
             return;
         }
         if (!NetMatchTimeSync::Validate(payload.subspan(timeOffset, NetMatchTimeSync::Size))
-            || !NetHealthSync::Validate(payload.subspan(healthOffset))
-            || !NetHealthSync::IsCurrentMatch(payload.subspan(healthOffset)))
+            || !NetItemState::Validate(payload.subspan(healthOffset))
+            || !NetItemState::IsCurrentMatch(payload.subspan(healthOffset)))
         {
             return;
         }
@@ -1491,7 +1541,7 @@ namespace MphRead::Mods::Network
         NetTimingDiagnostics::Snapshot(packet.ArrivedAt);
         NetSmoothing::Record(header.Frame, std::span<const PlayerState>(_snapshotScratch.data(), count));
         NetMatchTimeSync::Receive(payload.subspan(timeOffset, NetMatchTimeSync::Size));
-        NetHealthSync::Receive(payload.subspan(healthOffset));
+        NetItemState::Receive(payload.subspan(healthOffset));
     }
 
     void NetSession::HandleBye(ReceivedPacket packet)
@@ -1605,6 +1655,11 @@ namespace MphRead::Mods::Network
         {
             _transport->Send(_hostEndPoint, PacketType::HitClaim, First(_scratch, static_cast<std::size_t>(claims)));
         }
+        const std::int32_t pickups = NetPickupClaims::Compose(_scratch);
+        if (pickups > 0)
+        {
+            _transport->Send(_hostEndPoint, PacketType::PickupClaim, First(_scratch, static_cast<std::size_t>(pickups)));
+        }
     }
 
     void NetSession::SendMatchEnd()
@@ -1710,6 +1765,7 @@ namespace MphRead::Mods::Network
             state.Deaths = static_cast<std::uint16_t>(std::clamp(GameState::Deaths()[slot], 0,
                 static_cast<std::int32_t>(std::numeric_limits<std::uint16_t>::max())));
             NetDamage::Write(slot, state);
+            NetPowerUps::Capture(player, state);
             static_cast<void>(NetPlayerLifecycle::AcceptState(state, _netFrame));
             state.Write(Scratch(_scratch, offset));
             offset += PlayerState::Size;
@@ -1717,7 +1773,7 @@ namespace MphRead::Mods::Network
         }
         NetMatchTimeSync::Write(Scratch(_scratch, offset));
         offset += NetMatchTimeSync::Size;
-        offset += static_cast<std::size_t>(NetHealthSync::Write(
+        offset += static_cast<std::size_t>(NetItemState::Write(
             Scratch(_scratch, offset).first(NetConfig::MaxPacketSize - 1 - offset)));
 
         SnapshotHeader header{};

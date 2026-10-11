@@ -1,4 +1,5 @@
 #include "NetPlayerBridge.hpp"
+#include "NetPowerUps.hpp"
 
 #include "../../GameState.hpp"
 #include "../EndScreen.hpp"
@@ -176,8 +177,7 @@ namespace MphRead::Mods::Network
         intent.Presses = std::make_shared<std::vector<std::uint32_t>>(_pressHistory.begin(), _pressHistory.end());
         intent.ChargeLevel = static_cast<std::uint8_t>(std::clamp(_hasLatch ? _latchedCharge : player.ModChargeLevel(), 0, 255));
         intent.BoostDamage = static_cast<std::uint8_t>(std::clamp(_hasLatch ? _latchedBoostDamage : player.ModBoostDamage(), 0, 255));
-        intent.ShotFlags = static_cast<std::uint8_t>((player.DoubleDamage() ? IntentPacket::FlagDoubleDamage : 0)
-            | (player.IsPrimeHunter() ? IntentPacket::FlagPrimeHunter : 0));
+        intent.ShotFlags = static_cast<std::uint8_t>(player.IsPrimeHunter() ? IntentPacket::FlagPrimeHunter : 0);
         intent.HasState = true;
         intent.SetTouchReport(player.ModTouchReport());
         intent.AckFrame = NetHooks::SnapshotOwnsPuppets() && NetSession::AppliedSnapshotFrame() != 0
@@ -284,8 +284,7 @@ namespace MphRead::Mods::Network
         player.ModSetReportedTouch(intent.TouchReport(), intent.SlotGeneration, intent.LifeId);
         if (intent.HasState && (NetSession::IsAuthority() || NetSession::IsHost()))
         {
-            player.ModSetShotState(intent.ChargeLevel, intent.BoostDamage,
-                (intent.ShotFlags & IntentPacket::FlagDoubleDamage) != 0);
+            player.ModSetShotState(intent.ChargeLevel, intent.BoostDamage);
         }
     }
 
@@ -514,6 +513,7 @@ namespace MphRead::Mods::Network
         }
         player.ModSetFrozen((state.Flags & PlayerState::FlagFrozen) != 0);
         ApplyAfflictions(player, state);
+        NetPowerUps::Apply(player, state, isLocal);
     }
 
     void NetPlayerBridge::SteerIncoming(std::int32_t attackerSlot)

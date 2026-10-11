@@ -79,7 +79,7 @@ public: \
     [[nodiscard]] std::pair<std::int32_t, std::int32_t> ModAmmo() const; \
     [[nodiscard]] std::int32_t ModAmmoCap() const { return _ammoMax[UA]; } \
     [[nodiscard]] std::int32_t ModBoostDamage() const noexcept { return _boostDamage; } \
-    void ModSetShotState(std::int32_t chargeLevel, std::int32_t boostDamage, bool doubleDamage); \
+    void ModSetShotState(std::int32_t chargeLevel, std::int32_t boostDamage); \
     [[nodiscard]] ::MphRead::Mods::Input::NativeTouchState::Reported ModTouchReport() const noexcept \
     { \
         return _input.TouchSample().Report(); \
@@ -100,6 +100,10 @@ public: \
  \
     [[nodiscard]] bool ModFrozen() const; \
     void ModSetFrozen(bool frozen); \
+    /* Frames this player has left frozen (the authority's to say). */ \
+    [[nodiscard]] std::uint16_t ModFrozenFrames() const; \
+    /* Frozen for exactly `frames`, ice included; 0 thaws (NoxusIceWaveFreezeSync). */ \
+    void ModMirrorFrozen(std::uint16_t frames); \
     void ModRefreshVolume(); \
     void ModRefreshAttachedEffects(); \
     [[nodiscard]] bool ModFireShotEvent(); \

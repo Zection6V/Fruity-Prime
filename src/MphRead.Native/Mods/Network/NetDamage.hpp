@@ -207,6 +207,9 @@ namespace MphRead::Mods::Network
             OpenTK::Mathematics::Vector3 impulse);
         static void SaveScores();
         static void RestoreScores();
-        static void ReplayEvent(Entities::PlayerEntity& player, const PlayerState& state);
+        // launchLow: the low byte of the shot's launch frame, when the snapshot
+        // names it -- only for the newest hit it carries.
+        static void ReplayEvent(Entities::PlayerEntity& player, const PlayerState& state,
+            std::optional<std::uint8_t> launchLow);
     };
 }

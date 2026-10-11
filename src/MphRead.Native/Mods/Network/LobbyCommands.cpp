@@ -158,14 +158,13 @@ namespace MphRead::Mods::Network
         }
     }
 
-    void DedicatedServer::ClaimOwner(const std::shared_ptr<Peer>& peer, std::span<const std::uint8_t> hello)
+    void DedicatedServer::ClaimOwner(const std::shared_ptr<Peer>& peer, const Runtime::Guid& ownerToken)
     {
         if (_sessionPolicy != ServerSessionPolicy::Lobby || _lobbyOwnerClientId != 0 || peer->ClientId == 0)
         {
             return;
         }
-        const bool tokenMatches = _ownerToken != Runtime::Guid::Empty() && hello.size() == 22
-            && Runtime::Guid(hello.subspan(6, 16)) == _ownerToken;
+        const bool tokenMatches = _ownerToken != Runtime::Guid::Empty() && ownerToken == _ownerToken;
         if (_ownerToken != Runtime::Guid::Empty() && !tokenMatches)
         {
             return;

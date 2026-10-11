@@ -97,9 +97,20 @@ namespace MphRead::Mods::Network
             std::optional<OpenTK::Mathematics::Vector3> impulse = std::nullopt,
             ::MphRead::Affliction afflictions = ::MphRead::Affliction::None,
             std::uint32_t shotSequence = 0,
-            std::uint32_t turretDamage = 0);
+            std::uint32_t turretDamage = 0,
+            bool doubled = false);
 
-        [[nodiscard]] static bool Confirm(std::int32_t slot, std::int32_t landed = 1, bool authorityHeadshot = false);
+        // Which shot an authority hit was: its weapon, and the low byte of the
+        // frame it was launched in when the snapshot names it.
+        struct HitIdentity
+        {
+            ::MphRead::BeamType Beam = ::MphRead::BeamType::None;
+            std::optional<std::uint8_t> LaunchLow;
+        };
+
+        // Without an identity the oldest waiting prediction is the answer.
+        [[nodiscard]] static bool Confirm(std::int32_t slot, std::int32_t landed = 1, bool authorityHeadshot = false,
+            std::optional<HitIdentity> identity = std::nullopt);
         [[nodiscard]] static Entities::PlayerEntity* OwnerOf(Entities::EntityBase* source);
         // Where on the victim the hit about to be dealt landed, relative to
         // their Position: set by the projectile around its TakeDamage call,
@@ -159,8 +170,11 @@ namespace MphRead::Mods::Network
         static void EnsureLife(std::int32_t slot);
         [[nodiscard]] static std::int32_t Debit(std::int32_t slot);
         [[nodiscard]] static std::int32_t Push(std::int32_t slot, std::uint32_t frame, std::int32_t damage,
-            bool lethal, bool headshot, ::MphRead::BeamType beam, bool self);
+            bool lethal, bool headshot, ::MphRead::BeamType beam, bool self, std::uint32_t launchFrame);
         static std::int32_t RetireHead(std::int32_t slot, bool confirmed);
+        // Moves the prediction `offset` places from the oldest to the front,
+        // the ones before it keeping their order, so that RetireHead retires it.
+        static void PromoteToHead(std::int32_t slot, std::int32_t offset);
         static void StampClaim(std::int32_t slot, std::int32_t at, std::uint16_t claimId);
         // The authority's drain arrives as the health it reports for this
         // machine's player rising: that much of the drain credited here has
@@ -187,6 +201,7 @@ namespace MphRead::Mods::Network
         inline static Pending<bool> _pendingSpent{};
         inline static Pending<bool> _pendingTravelled{};
         inline static Pending<bool> _pendingSelf{};
+        inline static Pending<std::uint8_t> _pendingLaunch{};
         inline static std::array<std::int32_t, Slots> _settledCredit{};
         inline static std::array<std::uint32_t, Slots> _settledFrame{};
         inline static std::array<std::int32_t, Slots> _pendingCount{};

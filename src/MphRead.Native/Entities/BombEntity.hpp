@@ -97,6 +97,8 @@ namespace MphRead::Entities
 
         [[nodiscard]] std::uint16_t EnemyDamage() const noexcept;
         void SetEnemyDamage(std::uint16_t value) noexcept;
+        // Laid with its owner's double damage (BeamProjectileEntity's twin).
+        bool ModDoubleDamage = false;
 
         [[nodiscard]] std::shared_ptr<Effects::EffectEntry> Effect() const noexcept;
 

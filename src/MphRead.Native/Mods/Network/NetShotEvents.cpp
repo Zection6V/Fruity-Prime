@@ -1,6 +1,7 @@
 #include "NetShotEvents.hpp"
 
 #include "NetHooks.hpp"
+#include "ServerBots.hpp"
 #include "NetSession.hpp"
 #include "NetUnlagged.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
@@ -12,6 +13,8 @@
 namespace MphRead::Mods::Network
 {
     static_assert(NetShotEvents::Slots == Entities::PlayerEntity::SlotCapacity);
+    static_assert(LocalShotLog::RepeatFrames == RemoteShotQueue::FreshFrames,
+        "a shot is repeated exactly as long as a receiver may still fire it");
 
     namespace
     {
@@ -29,11 +32,25 @@ namespace MphRead::Mods::Network
             && !shooter.IsBot() && _remote[static_cast<std::size_t>(slot)].Active();
     }
 
+    LocalShotLog* NetShotEvents::LogFor(const Entities::PlayerEntity& shooter) noexcept
+    {
+        const std::int32_t slot = shooter.SlotIndex();
+        if (!NetSession::Active() || slot < 0 || slot >= Slots)
+        {
+            return nullptr;
+        }
+        if (NetSession::IsAuthority())
+        {
+            // The authority's own shots are resolved where they are fired;
+            // a bot's are also told to every client, which draws them.
+            return shooter.IsBot() && ServerBots::Holds(slot) ? &_bots[static_cast<std::size_t>(slot)] : nullptr;
+        }
+        return slot == NetHooks::LocalSlot() ? &_local : nullptr;
+    }
+
     bool NetShotEvents::Records(const Entities::PlayerEntity& shooter) noexcept
     {
-        // The authority's own shots are resolved where they are fired.
-        return NetSession::Active() && !NetSession::IsAuthority()
-            && shooter.SlotIndex() == NetHooks::LocalSlot() && shooter.SlotIndex() >= 0;
+        return LogFor(shooter) != nullptr;
     }
 
     void NetShotEvents::Fired(Entities::PlayerEntity& shooter, const FiredShot& shot)
@@ -53,7 +70,7 @@ namespace MphRead::Mods::Network
             event.AckFrame = NetUnlagged::LaunchFrameFor(shooter);
             event.Origin = shot.Origin;
             event.Direction = shot.Direction;
-            static_cast<void>(_local.Record(event));
+            static_cast<void>(LogFor(shooter)->Record(event));
         }
         else if (Drives(shooter))
         {
@@ -63,7 +80,8 @@ namespace MphRead::Mods::Network
 
     std::uint32_t NetShotEvents::SequenceOfShotFired(const Entities::PlayerEntity& shooter) noexcept
     {
-        const IntentPacket::ShotEvent* latest = Records(shooter) ? _local.Latest() : nullptr;
+        const LocalShotLog* log = LogFor(shooter);
+        const IntentPacket::ShotEvent* latest = log != nullptr ? log->Latest() : nullptr;
         return latest != nullptr && latest->Frame == std::max(1U, NetSession::NetFrame()) ? latest->Sequence : 0U;
     }
 
@@ -131,7 +149,15 @@ namespace MphRead::Mods::Network
 
     void NetShotEvents::Attach(IntentPacket& intent) noexcept
     {
-        _local.Fill(intent);
+        _local.Fill(intent, std::max(1U, NetSession::NetFrame()));
+    }
+
+    void NetShotEvents::AttachFor(std::int32_t slot, IntentPacket& intent) noexcept
+    {
+        if (slot >= 0 && slot < Slots)
+        {
+            _bots[static_cast<std::size_t>(slot)].Fill(intent, std::max(1U, NetSession::NetFrame()));
+        }
     }
 
     void NetShotEvents::Receive(std::int32_t slot, const IntentPacket& intent) noexcept
@@ -207,11 +233,10 @@ namespace MphRead::Mods::Network
         {
             return;
         }
+        // This machine's own log is kept: a shot fired just before the death
+        // still has to reach everyone, and Fill already stops repeating it
+        // once it is too old to be fired. Only a new occupant (Forget) clears it.
         _remote[static_cast<std::size_t>(slot)].BeginLife();
-        if (slot == NetHooks::LocalSlot())
-        {
-            _local.Reset();
-        }
     }
 
     void NetShotEvents::Forget(std::int32_t slot) noexcept
@@ -227,6 +252,7 @@ namespace MphRead::Mods::Network
             _lastDeparted[static_cast<std::size_t>(slot)] = departed;
         }
         _ledger[static_cast<std::size_t>(slot)].Reset();
+        _bots[static_cast<std::size_t>(slot)].Reset();
         if (slot == NetHooks::LocalSlot())
         {
             _local.Reset();

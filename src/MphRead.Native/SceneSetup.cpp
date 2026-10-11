@@ -10,7 +10,10 @@
 #include "Menu.hpp"
 #include "Mods/Multiplayer/MapResourceRules.hpp"
 #include "Mods/ThumbnailMode.hpp"
-#include "Mods/Network/NetHealthSync.hpp"
+#include "Mods/Network/NetItemState.hpp"
+#include "Mods/Network/NetPickupClaims.hpp"
+#include "Mods/Network/NetPowerUpPrediction.hpp"
+#include "Mods/Network/NetPowerUps.hpp"
 #include "Mods/Network/NetLaunch.hpp"
 #include "Mods/Network/NetSession.hpp"
 #include "NativeRuntime/System/Runtime.hpp"
@@ -569,7 +572,10 @@ namespace MphRead
             (*collision).Active = false;
         }
         room->Setup(metadata->Name, metadata, collision, nodeLayerMask, metadata->Id);
-        Mods::Network::NetHealthSync::BeginRoom();
+        Mods::Network::NetItemState::BeginRoom();
+        Mods::Network::NetPickupClaims::Reset();
+        Mods::Network::NetPowerUps::Reset();
+        Mods::Network::NetPowerUpPrediction::Reset();
         const Mods::Multiplayer::ResourceSpawnProfile resources = IsMode(mode, GameMode::SinglePlayer)
             ? Mods::Multiplayer::ResourceSpawnProfile::Low
             : Mods::Network::NetSession::Active()

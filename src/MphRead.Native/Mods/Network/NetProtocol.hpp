@@ -1,7 +1,10 @@
 #pragma once
 #include "../Input/NativeTouchState.hpp"
 
+#include "ConnectionSecret.hpp"
 #include "MatchDefinition.hpp"
+#include "PowerUpSync.hpp"
+#include "PowerUps.hpp"
 #include "../../Formats/Types.hpp"
 #include "../../NativeRuntime/System/Guid.hpp"
 
@@ -58,6 +61,10 @@ namespace MphRead::Mods::Network
         LobbyCommandResult = 38,
         MatchLoaded = 39,
         MatchLoadFailed = 40,
+        // A client's own player touched a power-up, and the authority's
+        // answer (protocol 29): NetPickupClaims.
+        PickupClaim = 41,
+        PickupVerdict = 42,
         MapDone = 35
     };
 
@@ -68,6 +75,8 @@ namespace MphRead::Mods::Network
         static constexpr std::uint8_t ReasonProtocol = 2;
         static constexpr std::uint8_t ReasonKicked = 3;
         static constexpr std::uint8_t ReasonInMatch = 4;
+        // A Hello naming a connection already held, without its secret.
+        static constexpr std::uint8_t ReasonIdentity = 5;
 
         std::uint8_t Reason = 0;
         std::uint8_t Players = 0;
@@ -76,6 +85,82 @@ namespace MphRead::Mods::Network
         void Write(std::span<std::uint8_t> dest) const;
         [[nodiscard]] static RefusedPacket Read(std::span<const std::uint8_t> src);
         [[nodiscard]] std::string Describe(const std::optional<std::string>& where) const;
+    };
+
+    // A client asking for a slot, or saying where it now is.
+    struct HelloPacket
+    {
+        static constexpr std::int32_t Size = 38;
+        static constexpr std::uint8_t AnySlot = 0xFF;
+
+        std::uint8_t Protocol = 0;
+        // The slot this client held before, or AnySlot.
+        std::uint8_t Slot = AnySlot;
+        std::uint32_t ClientId = 0;
+        // Room ownership for a lobby this client asked a directory to open;
+        // nothing to do with who the connection belongs to.
+        ::MphRead::NativeRuntime::Guid OwnerToken{};
+        ConnectionSecret Secret{};
+
+        void Write(std::span<std::uint8_t> dest) const;
+        // What a short hello (a reachability probe) leaves out reads as
+        // unset -- and a connection opened without a secret is never moved.
+        [[nodiscard]] static HelloPacket Read(std::span<const std::uint8_t> src);
+    };
+
+    // A client's own player touched an item a spawner put out (protocol 29).
+    // The authority checks it against the spawn it names and where it had
+    // that player, and grants it once -- to whoever it reaches first.
+    struct PickupClaimPacket
+    {
+        static constexpr std::int32_t Size = 2 + 8 + 2 + 2 + 2 + 2 + 2 + 4 + 12;
+        static constexpr std::int32_t MaxPerPacket = 4;
+
+        std::uint16_t MatchId = 0;
+        std::uint64_t AuthorityEpoch = 0;
+        std::uint16_t SlotGeneration = 0;
+        std::uint16_t LifeId = 0;
+        std::uint16_t ClaimId = 0;
+        // The spawner, and which of its spawns: a claim for an item that has
+        // since come back is not a claim for the new one.
+        std::int16_t SpawnId = 0;
+        std::uint16_t SpawnCount = 0;
+        // The authority frame the claimant's world was at when it touched it:
+        // where a granted power-up starts.
+        std::uint32_t ContactFrame = 0;
+        ::OpenTK::Mathematics::Vector3 Position{};
+
+        void Write(std::span<std::uint8_t> dest) const;
+        [[nodiscard]] static PickupClaimPacket Read(std::span<const std::uint8_t> src);
+    };
+
+    struct PickupVerdictPacket
+    {
+        static constexpr std::int32_t HeaderSize = 15;
+        static constexpr std::int32_t EntrySize = 4;
+        static constexpr std::int32_t MaxPerPacket = 8;
+
+        static constexpr std::uint8_t ResultGranted = 0;
+        // Somebody else had it first.
+        static constexpr std::uint8_t ResultTaken = 1;
+        // Not the spawn the claim names: gone, or come back since.
+        static constexpr std::uint8_t ResultGone = 2;
+        static constexpr std::uint8_t ResultOutOfReach = 3;
+        static constexpr std::uint8_t ResultTooOld = 4;
+        static constexpr std::uint8_t ResultWrongLife = 5;
+        static constexpr std::uint8_t ResultNotClaimable = 6;
+
+        struct Entry
+        {
+            std::uint16_t ClaimId = 0;
+            std::uint8_t Result = 0;
+            // The grant's sequence (PowerUpLedger) when granted.
+            std::uint8_t Sequence = 0;
+        };
+
+        static void Write(std::span<std::uint8_t> dest, std::span<const Entry> entries,
+            std::uint16_t matchId, std::uint64_t epoch, std::uint16_t generation, std::uint16_t lifeId);
+        [[nodiscard]] static std::string Describe(std::uint8_t result);
     };
 
     struct HostRequestPacket
@@ -418,21 +503,30 @@ namespace MphRead::Mods::Network
         // shot by sequence (HitClaimPacket::ShotSequence) and is checked
         // against it. The weapon held stays WeaponSelect's.
         //
-        // Layout past FullSize, always written (zeros where nothing fired):
-        //   ray      this frame's origin xyz, direction xyz          24
-        //   history  count u8, 3 reserved, then ShotHistoryCount x
-        //            (sequence u32, frame u32, ack u32, weapon u8,
-        //             charge u8, 2 reserved, origin xyz, direction xyz) 4 + 4 x 40
         // The ray is any shot this frame fired, continuous fire included (it
-        // makes no events). The history is the sender's last few events,
-        // oldest first, in every intent: an intent lost, or refused for
-        // arriving behind a newer one, loses no shot, and the receiver
-        // deduplicates on the sequence.
+        // makes no events). The history is the sender's latest events, oldest
+        // first, repeated in every intent while a receiver could still fire
+        // them: an intent lost, or refused for arriving behind a newer one,
+        // loses no shot, and the receiver deduplicates on the sequence.
+        //
+        // Past FullSize only what there is (protocol 27) -- an idle intent was
+        // 388 bytes of zeros and repeats, eight players relaying them all to
+        // each other at 60 Hz:
+        //   sections u8     SectionRay | SectionShots | SectionBombs
+        //   ray             origin xyz, direction xyz                  24
+        //   shots           count u8, then count x (sequence u32, frame u32,
+        //                   ack u32, weapon u8, charge u8, 2 reserved,
+        //                   origin xyz, direction xyz)                 1 + n x 40
+        //   bombs           count u8, gone mask u8, then
+        //                   count x (sequence u32, xyz)                2 + n x 16
+        // each present only when its bit is set. A section cut short is read
+        // as absent, never half read.
         static constexpr std::int32_t ShotSize = 24;
         static constexpr std::int32_t ShotEventSize = 40;
         static constexpr std::int32_t ShotHistoryCount = 4;
-        static constexpr std::int32_t ShotHistorySize = 4 + ShotEventSize * ShotHistoryCount;
-        static constexpr std::int32_t ShotFullSize = FullSize + ShotSize + ShotHistorySize;
+        static constexpr std::uint8_t SectionRay = 1U << 0;
+        static constexpr std::uint8_t SectionShots = 1U << 1;
+        static constexpr std::uint8_t SectionBombs = 1U << 2;
         static constexpr std::uint8_t NoWeapon = 0xFF;
         struct ShotEvent
         {
@@ -455,18 +549,15 @@ namespace MphRead::Mods::Network
         std::array<ShotEvent, ShotHistoryCount> ShotHistory{};
         std::uint8_t ShotHistoryLength = 0;
 
-        // Protocol 24: the sender's bombs, so a copy lays and loses exactly
+        // The sender's bombs (protocol 24), so a copy lays and loses exactly
         // the bombs its owner has (NetBombs): every one standing, and every
         // one gone in the last few frames -- a Lockjaw that closes a triangle
         // nobody is in goes off the next frame, and a bomb standing for one
         // frame is otherwise lost with the one intent that carried it.
-        // Past ShotFullSize:
-        //   count u8, reported u8, gone mask u8, 1 reserved,
-        //   then BombCount x (sequence u32, xyz)                    4 + 6 x 16
         static constexpr std::int32_t BombCount = 6;
         static constexpr std::int32_t BombSize = 16;
-        static constexpr std::int32_t BombStateSize = 4 + BombSize * BombCount;
-        static constexpr std::int32_t BombFullSize = ShotFullSize + BombStateSize;
+        static constexpr std::int32_t MaxWireSize = FullSize + 1 + ShotSize
+            + 1 + ShotEventSize * ShotHistoryCount + 2 + BombSize * BombCount;
         struct Bomb
         {
             std::uint32_t Sequence = 0;
@@ -479,11 +570,21 @@ namespace MphRead::Mods::Network
         // Whether the sender reported its bombs at all.
         bool HasBombs = false;
 
+        // The bytes Write fills: FullSize and the sections there are.
+        [[nodiscard]] std::size_t WireSize() const noexcept;
+
+    private:
+        void WriteSections(std::span<std::uint8_t> dest) const;
+        void ReadSections(std::span<const std::uint8_t> src);
+
+    public:
+
         std::uint8_t ChargeLevel = 0;
         std::uint8_t BoostDamage = 0;
         std::uint8_t ShotFlags = 0;
 
-        static constexpr std::uint8_t FlagDoubleDamage = 1U << 0;
+        // Bit 0 was the owner's double damage, which the authority now grants
+        // and records itself (NetPowerUps); it is never set.
         // Sent but not applied: who the Prime Hunter is is the authority's
         // own state. It travels so that a mismatch shows up in a log.
         static constexpr std::uint8_t FlagPrimeHunter = 1U << 1;
@@ -569,8 +670,12 @@ namespace MphRead::Mods::Network
         std::uint16_t LifeId = 0;
         static constexpr std::int32_t DamageHistory = 4;
         static constexpr std::int32_t LegacySize = 54 + DamageEvent::Size * DamageHistory;
-        // + Weavel (14) + the newest damage event's confirmed impact (3).
-        static constexpr std::int32_t Size = LegacySize + 14 + 3;
+        // + Weavel (14) + the newest damage event's confirmed impact (3)
+        // + the power-ups the authority granted (protocol 29, 2 each).
+        static constexpr std::int32_t PowerUpOffset = LegacySize + 14 + 3;
+        // + the frames the player has left frozen (protocol 30, 1).
+        static constexpr std::int32_t FrozenOffset = PowerUpOffset + 2 * static_cast<std::int32_t>(PowerUpCount);
+        static constexpr std::int32_t Size = FrozenOffset + 1;
 
         std::uint8_t SlotIndex = 0;
         std::uint8_t Flags = 0;
@@ -605,6 +710,11 @@ namespace MphRead::Mods::Network
         // health sync its room; an older event in the history goes without.
         std::uint8_t ImpactLaunchLow = 0;
         ImpactOffset Impact{};
+        // Double damage, cloak, Death Alt (PowerUp order): the authority's
+        // grant and what it has left (NetPowerUps).
+        std::array<PowerUpReport, PowerUpCount> PowerUps{};
+        // The authority's freeze: frames left, 0 when not frozen (NoxusIceWaveFreezeSync).
+        std::uint8_t FrozenFrames = 0;
         static constexpr float ImpactRadius = 0.55F;
         static constexpr std::uint8_t WeavelFlagTurretActive = 1U << 0;
         static constexpr std::uint8_t WeavelFlagTurretGrounded = 1U << 1;
@@ -692,11 +802,15 @@ namespace MphRead::Mods::Network
         // The hit was the projectile's splash, not its body: Impact is then
         // the blast's centre relative to the victim.
         static constexpr std::uint8_t FlagSplash = 1U << 6;
+        // The damage was doubled on the shooter's machine (protocol 29): held
+        // against the double damage the authority granted, at the frame the
+        // shot was fired, and halved when it was not running then.
+        static constexpr std::uint8_t FlagDoubled = 1U << 7;
         // What did the damage, past the weapon (protocol 26): what the
         // victim's screen names a kill after, and what the authority
         // applies it as. Taken only when the authority can vouch for it --
-        // a Death Alt its own copy of the shooter had running
-        // (DeathaltWitness). A burn's ticks are never claimed: the
+        // a Death Alt it granted, running in the world the hit was resolved
+        // in (NetPowerUps). A burn's ticks are never claimed: the
         // authority applies them itself.
         static constexpr std::uint8_t CauseHit = 0;
         static constexpr std::uint8_t CauseDeathalt = 1;
@@ -744,6 +858,9 @@ namespace MphRead::Mods::Network
         static constexpr std::uint8_t ResultDamageLimit = 8;
         static constexpr std::uint8_t ResultInvalidLaunch = 9;
         static constexpr std::uint8_t ResultNoDamage = 10;
+        // Every claim the authority can hold was already waiting: refused,
+        // and answered, rather than never answered.
+        static constexpr std::uint8_t ResultBusy = 11;
 
         std::uint16_t ClaimId = 0;
         std::uint8_t Result = 0;
@@ -760,7 +877,7 @@ namespace MphRead::Mods::Network
     public:
         static constexpr std::uint16_t DefaultPort = 27888;
         static constexpr std::int32_t MaxPacketSize = 1232;
-        static constexpr std::int32_t ProtocolVersion = 26;
+        static constexpr std::int32_t ProtocolVersion = 30;
         static constexpr std::int32_t IntentSendInterval = 1;
         static constexpr double TimeoutSeconds = 30.0;
 

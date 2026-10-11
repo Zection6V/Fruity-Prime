@@ -7,6 +7,10 @@
 #include "NetLaunch.hpp"
 #include "NetLog.hpp"
 #include "NetSession.hpp"
+#if defined(MPHREAD_SHELL)
+#include "../Launcher/GuiLauncher.hpp"
+#include "../Launcher/Shell.hpp"
+#endif
 #include "../../NativeRuntime/System/Managed.hpp"
 
 #include <optional>
@@ -23,6 +27,26 @@ namespace MphRead::Mods::Network
     void NetConnectCommand::Run(const std::string& host, std::int32_t port,
         const std::string& playerName, Hunter hunter, std::int32_t recolor)
     {
+#if defined(MPHREAD_SHELL)
+        // The launcher's own JOIN, typed: the match is played in the one
+        // window, so Escape opens the pause menu there as it does in any match.
+        if (!NetLaunch::Connect(host, port, playerName, hunter, 8000, recolor))
+        {
+            NativeRuntime::ConsoleWriteLine("[net] could not join: " + NetLaunch::LastJoinError());
+            NetSession::Stop();
+            return;
+        }
+        Launcher::LaunchPlan::Init init;
+        init.Kind = Launcher::LaunchKind::Online;
+        init.Hunter = hunter;
+        init.PlayerName = playerName;
+        init.RoomKey = "";
+        init.Mode = GameMode::Battle;
+        init.Port = port;
+        Launcher::Gui::Shell::LaunchOnStart(Launcher::LaunchPlan(init));
+        static_cast<void>(Launcher::Gui::GuiLauncher::TryRun());
+        NetLog::Close();
+#else
         if (!NetLaunch::Join(host, port, playerName, hunter, 8000, recolor))
         {
             NativeRuntime::ConsoleWriteLine("[net] could not join; giving up");
@@ -53,5 +77,6 @@ namespace MphRead::Mods::Network
                 NetSession::Stop();
                 NetLog::Close();
             });
+#endif
     }
 }

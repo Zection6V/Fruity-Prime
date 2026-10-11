@@ -1,4 +1,6 @@
 #include "NetPlayerBridge.hpp"
+#include "NetPowerUps.hpp"
+#include "NoxusIceWaveFreezeSync.hpp"
 
 #include "../../GameState.hpp"
 #include "../EndScreen.hpp"
@@ -131,7 +133,7 @@ namespace MphRead::Mods::Network
         }
     }
 
-    IntentPacket NetPlayerBridge::CaptureIntent(Entities::PlayerEntity& player)
+    IntentPacket NetPlayerBridge::StateIntent(Entities::PlayerEntity& player)
     {
         Entities::PlayerControls& c = player.Controls();
         IntentButtons buttons = IntentButtons::None;
@@ -162,10 +164,6 @@ namespace MphRead::Mods::Network
         {
             buttons |= IntentButtons::SpectatingState;
         }
-        if (Mods::EndScreen::Ready())
-        {
-            buttons |= IntentButtons::ReadyState;
-        }
         IntentPacket intent{};
         intent.Buttons = buttons;
         intent.Aim = player.ModGunVector();
@@ -173,13 +171,29 @@ namespace MphRead::Mods::Network
         intent.WeaponSelect = static_cast<std::uint8_t>(player.CurrentWeapon());
         intent.AmmoUa = static_cast<std::uint16_t>(std::clamp(player.ModAmmo().first, 0, 0xFFFF));
         intent.AmmoMissiles = static_cast<std::uint16_t>(std::clamp(player.ModAmmo().second, 0, 0xFFFF));
-        intent.Presses = std::make_shared<std::vector<std::uint32_t>>(_pressHistory.begin(), _pressHistory.end());
-        intent.ChargeLevel = static_cast<std::uint8_t>(std::clamp(_hasLatch ? _latchedCharge : player.ModChargeLevel(), 0, 255));
-        intent.BoostDamage = static_cast<std::uint8_t>(std::clamp(_hasLatch ? _latchedBoostDamage : player.ModBoostDamage(), 0, 255));
-        intent.ShotFlags = static_cast<std::uint8_t>((player.DoubleDamage() ? IntentPacket::FlagDoubleDamage : 0)
-            | (player.IsPrimeHunter() ? IntentPacket::FlagPrimeHunter : 0));
+        intent.Presses = std::make_shared<std::vector<std::uint32_t>>(IntentPacket::PressHistory);
+        intent.ChargeLevel = static_cast<std::uint8_t>(std::clamp(player.ModChargeLevel(), 0, 255));
+        intent.BoostDamage = static_cast<std::uint8_t>(std::clamp(player.ModBoostDamage(), 0, 255));
+        intent.ShotFlags = static_cast<std::uint8_t>(player.IsPrimeHunter() ? IntentPacket::FlagPrimeHunter : 0);
         intent.HasState = true;
         intent.SetTouchReport(player.ModTouchReport());
+        return intent;
+    }
+
+    IntentPacket NetPlayerBridge::CaptureIntent(Entities::PlayerEntity& player)
+    {
+        Entities::PlayerControls& c = player.Controls();
+        IntentPacket intent = StateIntent(player);
+        if (Mods::EndScreen::Ready())
+        {
+            intent.Buttons |= IntentButtons::ReadyState;
+        }
+        intent.Presses = std::make_shared<std::vector<std::uint32_t>>(_pressHistory.begin(), _pressHistory.end());
+        if (_hasLatch)
+        {
+            intent.ChargeLevel = static_cast<std::uint8_t>(std::clamp(_latchedCharge, 0, 255));
+            intent.BoostDamage = static_cast<std::uint8_t>(std::clamp(_latchedBoostDamage, 0, 255));
+        }
         intent.AckFrame = NetHooks::SnapshotOwnsPuppets() && NetSession::AppliedSnapshotFrame() != 0
             ? NetSession::AppliedSnapshotFrame()
             : NetSession::LastSnapshotFrame();
@@ -284,8 +298,7 @@ namespace MphRead::Mods::Network
         player.ModSetReportedTouch(intent.TouchReport(), intent.SlotGeneration, intent.LifeId);
         if (intent.HasState && (NetSession::IsAuthority() || NetSession::IsHost()))
         {
-            player.ModSetShotState(intent.ChargeLevel, intent.BoostDamage,
-                (intent.ShotFlags & IntentPacket::FlagDoubleDamage) != 0);
+            player.ModSetShotState(intent.ChargeLevel, intent.BoostDamage);
         }
     }
 
@@ -512,8 +525,10 @@ namespace MphRead::Mods::Network
             player.ModApplyOwnWeavelTurret(state.HeadingAlt(),
                 (state.WeavelFlags & PlayerState::WeavelFlagTurretActive) != 0, state.HalfturretHealth);
         }
-        player.ModSetFrozen((state.Flags & PlayerState::FlagFrozen) != 0);
+        // The authority's frames, ice and all (NoxusIceWaveFreezeSync).
+        NoxusIceWaveFreezeSync::Apply(player, state);
         ApplyAfflictions(player, state);
+        NetPowerUps::Apply(player, state, isLocal);
     }
 
     void NetPlayerBridge::SteerIncoming(std::int32_t attackerSlot)

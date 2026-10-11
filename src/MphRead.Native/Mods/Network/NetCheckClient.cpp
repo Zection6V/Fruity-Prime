@@ -4,6 +4,9 @@
 #include "HitLocation.hpp"
 #include "HitRig.hpp"
 #include "NetHitClaims.hpp"
+#include "NetPickupClaims.hpp"
+#include "NetPowerUpPrediction.hpp"
+#include "NetPowerUps.hpp"
 #include "NetShotEvents.hpp"
 #include "NetShotDiagnostics.hpp"
 #include "NetSmoothing.hpp"
@@ -28,7 +31,9 @@
 #include "NetUnlagged.hpp"
 #include "../SpectatorMode.hpp"
 #include "../ScreenCapture.hpp"
+#include "../AudioMute.hpp"
 #include "../Headless.hpp"
+#include "NetBotRoles.hpp"
 #include "../Chat/ChatBox.hpp"
 #include "../../GameState.hpp"
 #include "../../Metadata/Metadata.hpp"
@@ -736,6 +741,14 @@ namespace MphRead::Mods::Network
         {
             std::cout << "  " << *claims << '\n';
         }
+        std::cout << "  " << NetPickupClaims::Describe() << '\n';
+        std::cout << "  " << NetPowerUpPrediction::Describe() << '\n';
+        std::cout << "  " << NetPowerUps::Describe() << '\n';
+        if (NetSession::IntentsSent() > 0)
+        {
+            std::cout << "  intents sent: " << NetSession::IntentsSent() << ", "
+                << NetSession::IntentBytesSent() / NetSession::IntentsSent() << " bytes each on average\n";
+        }
         if (const std::optional<std::string> events = NetShotEvents::Describe(); events.has_value())
         {
             std::cout << "  " << *events << '\n';
@@ -997,6 +1010,9 @@ namespace MphRead::Mods::Network
         double rejoinAt,
         std::int32_t color)
     {
+        // A scripted client is an instrument: it makes no sound beside the
+        // person playing in the same session.
+        Mods::AudioMute::Enter();
         if (Headless)
         {
             Mods::Headless::Enter();
@@ -1009,7 +1025,12 @@ namespace MphRead::Mods::Network
             return 1;
         }
         NetTestScript::Reset();
-        NetTestScript::SetEnabled(true);
+        NetTestScript::SetEnabled(!AiLevel.has_value());
+        NetBotRoles::PlayLocalAs(AiLevel);
+        if (AiLevel.has_value())
+        {
+            std::cout << "[netcheck] " << name << " is played by the AI at level " << *AiLevel << "\n";
+        }
 
         const auto roomOptional = NetLaunch::ServerRoom();
         const auto [roomKey, roomMode] = roomOptional.value();
@@ -1079,6 +1100,7 @@ namespace MphRead::Mods::Network
         }
         SpectatorMode::Reset();
         NetTestScript::SetEnabled(false);
+        NetBotRoles::PlayLocalAs(std::nullopt);
         NetSession::Stop();
         NetLog::Close();
         return result;

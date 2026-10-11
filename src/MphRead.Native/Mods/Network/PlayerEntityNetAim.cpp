@@ -687,7 +687,10 @@ namespace MphRead::Entities
         _input.ApplyReportedTouch(reported, generation, life);
     }
 
-    void PlayerEntity::ModSetShotState(std::int32_t chargeLevel, std::int32_t boostDamage, bool doubleDamage)
+    // Double damage is not among them: the authority grants that itself
+    // (Mods.Network.NetPowerUps), and an owner's word for it is checked
+    // against the grant, never adopted.
+    void PlayerEntity::ModSetShotState(std::int32_t chargeLevel, std::int32_t boostDamage)
     {
         if (SlotIndex() == Mods::Network::NetHooks::LocalSlot())
         {
@@ -697,19 +700,6 @@ namespace MphRead::Entities
         }
         ::MphRead::NativeRuntime::RequireReference(EquipInfo()).ChargeLevel = static_cast<std::uint16_t>(std::clamp(chargeLevel, 0, 0xFFFF));
         _boostDamage = static_cast<std::uint16_t>(std::clamp(boostDamage, 0, 0xFFFF));
-        if (doubleDamage)
-        {
-            // Held up rather than counted down: the owner says so again
-            // every couple of frames for as long as it lasts.
-            if (_doubleDmgTimer < 8)
-            {
-                _doubleDmgTimer = 8;
-            }
-        }
-        else
-        {
-            _doubleDmgTimer = 0;
-        }
     }
 
     void PlayerEntity::ModSetAmmo(std::int32_t ua, std::int32_t missiles)
@@ -858,6 +848,41 @@ namespace MphRead::Entities
         {
             ((*this)._frozenTimer = 1);
         }
+    }
+
+    std::uint16_t PlayerEntity::ModFrozenFrames() const
+    {
+        return (*this)._frozenTimer;
+    }
+
+    void PlayerEntity::ModMirrorFrozen(std::uint16_t frames)
+    {
+        if ((*this).Health() <= 0)
+        {
+            return;
+        }
+        if (frames == 0)
+        {
+            if ((*this)._frozenTimer > 1)
+            {
+                // Thaws on the next step, the way running out does.
+                ((*this)._frozenTimer = 1);
+            }
+            return;
+        }
+        if ((*this)._frozenTimer == 0)
+        {
+            (*this)._soundSource.PlaySfx(SfxId::SHOTGUN_FREEZE);
+            if ((*this).IsMainPlayer())
+            {
+                (*this).ResetCombatVisor();
+                ((*this)._drawIceLayer = true);
+            }
+            (*this).EndAltAttack();
+        }
+        ((*this)._frozenTimer = frames);
+        // The ice outlasts the freeze by the five frames it always has.
+        ((*this)._frozenGfxTimer = static_cast<std::uint16_t>(frames + 5 * 2));
     }
 
     void PlayerEntity::ModRefreshVolume()

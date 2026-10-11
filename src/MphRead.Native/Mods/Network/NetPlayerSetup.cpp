@@ -3,6 +3,7 @@
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../NativeRuntime/System/Console.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
+#include "NetBotRoles.hpp"
 #include "NetSession.hpp"
 
 #include <cstdint>
@@ -48,20 +49,15 @@ namespace MphRead::Mods::Network
             {
                 continue;
             }
-            if (slot == local)
-            {
-                player->SetIsBot(false);
-                continue;
-            }
-            player->SetIsBot(false);
-            player->SetBotLevel(0);
+            // A person's copy, or this server's own AI in a slot of its own.
+            NetBotRoles::Assign(*player);
         }
 
         std::string message = "[net] player slots prepared -- local slot ";
         message += ::MphRead::NativeRuntime::ToString(local);
         message += ", ";
         message += ::MphRead::NativeRuntime::ToString(CountActive());
-        message += " active, AI disabled on remote slots";
+        message += " active, AI only where NetBotRoles puts it";
         NativeRuntime::ConsoleWriteLine(message);
     }
 

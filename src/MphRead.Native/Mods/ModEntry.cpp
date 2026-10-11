@@ -53,6 +53,8 @@
 #include "Network/DedicatedServer.hpp"
 #include "Network/DemoInfo.hpp"
 #include "Network/HealthSimulationTest.hpp"
+#include "Network/ServerBots.hpp"
+#include "Network/PowerUpSimulationTest.hpp"
 #include "Network/HitRig.hpp"
 #include "Network/LocalServer.hpp"
 #include "Network/MapAudit.hpp"
@@ -1758,6 +1760,20 @@ namespace MphRead::Mods
         server.FriendlyFire(::HasFlag(args, "friendlyfire"));
         server.ShadowFreeze(!::HasFlag(args, "noshadowfreeze"));
         server.AffinityWeapons(::HasFlag(args, "affinityweapons"));
+        // -bots N [-botlevel L]: the game's own AI in the top N slots.
+        if (const std::optional<std::string> bots = ValueAfter(args, "bots"); bots.has_value())
+        {
+            std::int32_t count = 0;
+            std::int32_t level = Network::ServerBots::DefaultLevel;
+            if (const std::optional<std::string> botLevel = ValueAfter(args, "botlevel"); botLevel.has_value())
+            {
+                static_cast<void>(Int32TryParseCurrentCulture(*botLevel, level));
+            }
+            if (Int32TryParseCurrentCulture(*bots, count))
+            {
+                server.Bots(count, level);
+            }
+        }
         server.AllowMapVotes(!::HasFlag(args, "novote"));
         server.AutoUpdate(true);
         // Whether this server will also open *extra* matches, on ports of its
@@ -1872,6 +1888,13 @@ namespace MphRead::Mods
             healthRoom.has_value())
         {
             SetExitCode(Network::HealthSimulationTest::Run(*healthRoom));
+            return true;
+        }
+
+        if (const std::optional<std::string> powerUpRoom = ValueAfter(args, "powerupsimtest");
+            powerUpRoom.has_value())
+        {
+            SetExitCode(Network::PowerUpSimulationTest::Run(*powerUpRoom));
             return true;
         }
 
@@ -2396,6 +2419,15 @@ namespace MphRead::Mods
                 rejoinAt = parsedRejoin;
             }
             Network::NetCheckClient::ShowWindow = ::HasFlag(args, "hudshots");
+            if (::HasFlag(args, "ai"))
+            {
+                std::int32_t aiLevel = Network::ServerBots::DefaultLevel;
+                if (const std::optional<std::string> value = ValueAfter(args, "ai"); value.has_value())
+                {
+                    static_cast<void>(Int32TryParseCurrentCulture(*value, aiLevel));
+                }
+                Network::NetCheckClient::AiLevel = aiLevel;
+            }
             Network::NetCheckClient::Headless = ::HasFlag(args, "headless") && !Network::NetCheckClient::ShowWindow;
             const std::optional<std::string> mapVote = ValueAfter(args, "mapvote");
             std::int32_t mapVoteRow = -1;

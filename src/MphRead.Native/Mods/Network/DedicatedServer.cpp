@@ -14,7 +14,10 @@
 #include "../Update/ServerUpdate.hpp"
 #include "LobbyRules.hpp"
 #include "MapRotation.hpp"
-#include "NetHealthSync.hpp"
+#include "NetItemState.hpp"
+#include "NetPickupClaims.hpp"
+#include "ServerBots.hpp"
+#include "NetPowerUps.hpp"
 #include "NetHitClaims.hpp"
 #include "NetShotEvents.hpp"
 #include "NetLifecycleTracker.hpp"
@@ -81,6 +84,51 @@ namespace MphRead::Mods::Network
 
     DedicatedServer::~DedicatedServer() = default;
 
+    void DedicatedServer::Bots(std::int32_t count, std::int32_t level)
+    {
+        ServerBots::Configure(count, level, _maxPlayers);
+        for (std::int32_t slot = 0; slot < _maxPlayers; slot++)
+        {
+            if (ServerBots::Holds(slot) && _slotGenerations[static_cast<std::size_t>(slot)] == 0)
+            {
+                _slotGenerations[static_cast<std::size_t>(slot)] = 1;
+            }
+        }
+        if (ServerBots::Count() > 0)
+        {
+            Log(std::to_string(ServerBots::Count()) + " bot(s) at level " + std::to_string(ServerBots::Level())
+                + " in slots " + std::to_string(_maxPlayers - ServerBots::Count()) + "-" + std::to_string(_maxPlayers - 1));
+        }
+    }
+
+    void DedicatedServer::RelayBots()
+    {
+        if (ServerBots::Count() == 0 || _transport == nullptr || _peers.empty()
+            || NetSession::NetFrame() == _botRelayFrame)
+        {
+            return;
+        }
+        _botRelayFrame = NetSession::NetFrame();
+        const auto& players = Entities::PlayerEntity::Players();
+        for (std::int32_t slot = 0; slot < _maxPlayers && static_cast<std::size_t>(slot) < players.size(); slot++)
+        {
+            const std::shared_ptr<Entities::PlayerEntity>& player = players[static_cast<std::size_t>(slot)];
+            if (!ServerBots::Holds(slot) || player == nullptr
+                || !Runtime::HasFlag(player->LoadFlags(), Entities::LoadFlags::Active))
+            {
+                continue;
+            }
+            const IntentPacket intent = ServerBots::IntentFor(*player);
+            _scratch[0] = static_cast<std::uint8_t>(slot);
+            intent.Write(From(_scratch, 1));
+            const std::size_t length = 1 + intent.WireSize();
+            for (const std::shared_ptr<Peer>& peer : _peers)
+            {
+                _transport->Send(peer->EndPoint, PacketType::SlotIntent, First(_scratch, length));
+            }
+        }
+    }
+
     bool DedicatedServer::Simulating() const
     {
         return _sim != nullptr && _sim->Running();
@@ -143,6 +191,7 @@ namespace MphRead::Mods::Network
                 if ((_phase == SessionPhase::InMatch || _phase == SessionPhase::PostMatch) && _sim != nullptr)
                 {
                     _sim->Advance(now);
+                    RelayBots();
                 }
                 const float limit = CurrentDefinition().TimeLimitSeconds;
                 if (_phase == SessionPhase::InMatch && _matchEndedAt < 0 && limit > 0 && !_peers.empty()
@@ -225,6 +274,8 @@ namespace MphRead::Mods::Network
                             Log("sim: " + *claimLine);
                         }
                         Log("sim: " + _sim->DescribeShots());
+                        Log("sim: " + NetPickupClaims::Describe());
+                        Log("sim: " + NetPowerUps::Describe());
                         if (const std::optional<std::string> events = NetShotEvents::Describe(); events.has_value())
                         {
                             Log("sim: " + *events);
@@ -279,6 +330,7 @@ namespace MphRead::Mods::Network
         }
         _sim.reset();
         NetHitClaims::VerdictSink(nullptr);
+        NetPickupClaims::VerdictSink(nullptr);
     }
 
     void DedicatedServer::EndMatch(double now, const std::string& reason)
@@ -445,6 +497,10 @@ namespace MphRead::Mods::Network
         {
             SendVerdicts(slot, verdicts);
         });
+        NetPickupClaims::VerdictSink([this](std::int32_t slot, std::span<const PickupVerdictPacket::Entry> verdicts)
+        {
+            SendPickupVerdicts(slot, verdicts);
+        });
         SyncSimulationState(_now);
     }
 
@@ -534,6 +590,9 @@ namespace MphRead::Mods::Network
         case PacketType::HitClaim:
             HandleHitClaim(packet, now);
             break;
+        case PacketType::PickupClaim:
+            HandlePickupClaim(packet, now);
+            break;
         default:
             break;
         }
@@ -552,6 +611,43 @@ namespace MphRead::Mods::Network
         }
         peer->LastSeen = now;
         NetHitClaims::Receive(peer->SlotIndex, packet.Payload());
+    }
+
+    void DedicatedServer::HandlePickupClaim(const ReceivedPacket& packet, double now)
+    {
+        if (_phase != SessionPhase::InMatch)
+        {
+            return;
+        }
+        const std::shared_ptr<Peer> peer = Find(packet.Sender);
+        if (peer == nullptr || peer->SlotIndex < 0 || !Simulating())
+        {
+            return;
+        }
+        peer->LastSeen = now;
+        NetPickupClaims::Receive(peer->SlotIndex, packet.Payload());
+    }
+
+    void DedicatedServer::SendPickupVerdicts(std::int32_t slot, std::span<const PickupVerdictPacket::Entry> verdicts)
+    {
+        if (verdicts.empty() || _transport == nullptr)
+        {
+            return;
+        }
+        for (const std::shared_ptr<Peer>& peer : _peers)
+        {
+            if (peer->SlotIndex != slot)
+            {
+                continue;
+            }
+            const std::span<const PickupVerdictPacket::Entry> sent = verdicts.first(
+                std::min<std::size_t>(verdicts.size(), PickupVerdictPacket::MaxPerPacket));
+            PickupVerdictPacket::Write(_scratch, sent, NetSession::CurrentMatchId(), NetSession::AuthorityEpoch(),
+                NetPlayerLifecycle::Generation(slot), NetPlayerLifecycle::Get(slot));
+            _transport->Send(peer->EndPoint, PacketType::PickupVerdict,
+                First(_scratch, PickupVerdictPacket::HeaderSize + sent.size() * PickupVerdictPacket::EntrySize));
+            return;
+        }
     }
 
     void DedicatedServer::SendVerdicts(std::int32_t slot,
@@ -1143,8 +1239,8 @@ namespace MphRead::Mods::Network
             SendRefusal(packet.Sender, RefusedPacket::ReasonProtocol);
             return;
         }
-        const std::uint32_t clientId = payload.size() >= 6
-            ? Runtime::ReadUInt32LittleEndian(payload.subspan(2, 4)) : 0U;
+        const HelloPacket hello = HelloPacket::Read(payload);
+        const std::uint32_t clientId = hello.ClientId;
         std::shared_ptr<Peer> peer = Find(packet.Sender);
         if (peer != nullptr && peer->ClientId != clientId)
         {
@@ -1157,6 +1253,14 @@ namespace MphRead::Mods::Network
             {
                 if (candidate->ClientId == clientId)
                 {
+                    if (!MayRebind(candidate->Secret, hello.Secret))
+                    {
+                        Log("refused to move slot " + std::to_string(candidate->SlotIndex) + " ("
+                            + candidate->Name + ") to " + packet.Sender->ToString()
+                            + ": the hello does not carry its connection secret");
+                        SendRefusal(packet.Sender, RefusedPacket::ReasonIdentity);
+                        return;
+                    }
                     peer = candidate;
                     Log("slot " + std::to_string(peer->SlotIndex) + " (" + peer->Name + ") came back on "
                         + packet.Sender->ToString() + ", was " + peer->EndPoint->ToString());
@@ -1168,9 +1272,9 @@ namespace MphRead::Mods::Network
         if (peer == nullptr)
         {
             std::int32_t slot = -1;
-            if (payload.size() >= 2 && payload[1] != 0xFF && payload[1] < _maxPlayers && SlotFree(payload[1]))
+            if (hello.Slot != HelloPacket::AnySlot && hello.Slot < _maxPlayers && SlotFree(hello.Slot))
             {
-                slot = payload[1];
+                slot = hello.Slot;
             }
             if (slot < 0)
             {
@@ -1211,6 +1315,7 @@ namespace MphRead::Mods::Network
             peer->EndPoint = packet.Sender;
             peer->SlotIndex = slot;
             peer->ClientId = clientId;
+            peer->Secret = hello.Secret;
             peer->TeamIndex = team;
             _peers.push_back(peer);
             _peerCount.store(static_cast<std::int32_t>(_peers.size()));
@@ -1233,7 +1338,7 @@ namespace MphRead::Mods::Network
             }
         }
         peer->ClientId = clientId;
-        ClaimOwner(peer, payload);
+        ClaimOwner(peer, hello.OwnerToken);
         peer->LastSeen = now;
         _scratch[0] = static_cast<std::uint8_t>(peer->SlotIndex);
         Runtime::WriteUInt32LittleEndian(From(_scratch, 1), clientId);
@@ -1445,6 +1550,23 @@ namespace MphRead::Mods::Network
             names[at] = !peer.Name.empty() ? peer.Name : "Player" + std::to_string(peer.SlotIndex + 1);
             roster.Count++;
         }
+        for (std::int32_t slot = 0; slot < _maxPlayers && roster.Count < RosterPacket::MaxSlots; slot++)
+        {
+            if (!ServerBots::Holds(slot))
+            {
+                continue;
+            }
+            const auto at = static_cast<std::size_t>(roster.Count);
+            slots[at] = static_cast<std::uint8_t>(slot);
+            generations[at] = _slotGenerations[static_cast<std::size_t>(slot)];
+            teams[at] = -1;
+            ready[at] = true;
+            hunters[at] = static_cast<std::uint8_t>(ServerBots::HunterFor(slot));
+            colors[at] = 0;
+            pings[at] = 0;
+            names[at] = ServerBots::NameFor(slot);
+            roster.Count++;
+        }
         return roster;
     }
 
@@ -1483,7 +1605,7 @@ namespace MphRead::Mods::Network
         }
         const std::span<const std::uint8_t> payload = packet.Payload();
         if (payload.size() < static_cast<std::size_t>(IntentPacket::Size)
-            || payload.size() > static_cast<std::size_t>(IntentPacket::BombFullSize))
+            || payload.size() > static_cast<std::size_t>(IntentPacket::MaxWireSize))
         {
             return;
         }
@@ -1500,12 +1622,19 @@ namespace MphRead::Mods::Network
         {
             NetSession::AcceptSlotIntent(peer->SlotIndex, intent);
         }
-        if (peer->LastIntentFrame != 0 && !NetLifecycleTracker::Newer(intent.Frame, peer->LastIntentFrame))
+        // An intent overtaken by a newer one moves nobody, but the shots it
+        // carries may be ones the newer no longer repeats: those still go
+        // to everybody, whose shot queues take a shot once however late.
+        const bool newest = peer->LastIntentFrame == 0 || NetLifecycleTracker::Newer(intent.Frame, peer->LastIntentFrame);
+        if (!newest && intent.ShotHistoryLength == 0)
         {
             return;
         }
-        peer->LastIntentFrame = intent.Frame;
-        peer->PostMatchReady = Runtime::HasFlag(intent.Buttons, IntentButtons::ReadyState);
+        if (newest)
+        {
+            peer->LastIntentFrame = intent.Frame;
+            peer->PostMatchReady = Runtime::HasFlag(intent.Buttons, IntentButtons::ReadyState);
+        }
         _scratch[0] = static_cast<std::uint8_t>(peer->SlotIndex);
         std::copy(payload.begin(), payload.end(), _scratch.begin() + 1);
         for (const std::shared_ptr<Peer>& other : _peers)
@@ -1545,7 +1674,7 @@ namespace MphRead::Mods::Network
             || header.PlayerCount > Entities::PlayerEntity::SlotCapacity
             || healthOffset > payload.size()
             || !NetMatchTimeSync::Validate(payload.subspan(timeOffset, NetMatchTimeSync::Size))
-            || !NetHealthSync::Validate(payload.subspan(healthOffset))
+            || !NetItemState::Validate(payload.subspan(healthOffset))
             || Runtime::ReadUInt16LittleEndian(payload.subspan(healthOffset)) != _matchId
             || (_snapshotSeen && !NetLifecycleTracker::Newer(header.Frame, _snapshotFrame)))
         {
@@ -1657,7 +1786,7 @@ namespace MphRead::Mods::Network
 
     bool DedicatedServer::SlotFree(std::int32_t slot) const
     {
-        return std::none_of(_peers.begin(), _peers.end(),
+        return !ServerBots::Holds(slot) && std::none_of(_peers.begin(), _peers.end(),
             [slot](const std::shared_ptr<Peer>& peer) { return peer->SlotIndex == slot; });
     }
 

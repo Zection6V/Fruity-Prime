@@ -1,4 +1,7 @@
 #include "NetPlayerLifecycle.hpp"
+#include "NetPowerUps.hpp"
+#include "NoxusIceWaveFreezeSync.hpp"
+#include "NetBotRoles.hpp"
 #include "NetBombs.hpp"
 #include "NetShotEvents.hpp"
 
@@ -170,6 +173,8 @@ namespace MphRead::Mods::Network
         NetDamage::ForgetSlot(slot);
         NetHitPrediction::ForgetSlot(slot);
         NetHitClaims::ForgetSlot(slot);
+        NetPowerUps::ForgetSlot(slot);
+        NoxusIceWaveFreezeSync::ForgetSlot(slot);
         NetSmoothing::ResetSlot(slot);
         NetUnlagged::ResetSlot(slot);
         NetSession::ForgetSlot(slot);
@@ -179,6 +184,8 @@ namespace MphRead::Mods::Network
 
     void NetPlayerLifecycle::OnSpawn(PlayerEntity& player)
     {
+        // On every machine that plays a bot: a server's own, a client's AI.
+        NetBotRoles::PrepareSpawn(player);
         if (!NetSession::Active() || _applyingSpawn || (!NetSession::IsHost() && !NetSession::IsAuthority()))
         {
             return;
@@ -189,6 +196,7 @@ namespace MphRead::Mods::Network
             SetOccupant(slot, 1);
         }
         (void)_slots[static_cast<std::size_t>(slot)].BeginLife();
+        NetPowerUps::BeginLife(slot);
         NetPlayerBridge::ForgetSlot(slot);
         NetDamage::ForgetSlot(slot);
         NetHitPrediction::NoteRespawn(slot);

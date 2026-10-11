@@ -87,6 +87,10 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static std::int64_t SnapshotsSent() noexcept { return _snapshotsSent; }
         [[nodiscard]] static std::int64_t StatesApplied() noexcept { return _statesApplied; }
         [[nodiscard]] static std::int64_t IntentsReceived() noexcept { return _intentsReceived; }
+        // This machine's intents as they went on the wire: how many, and their
+        // bytes (protocol 27's sections make the size vary with what is in them).
+        [[nodiscard]] static std::int64_t IntentsSent() noexcept { return _intentsSent; }
+        [[nodiscard]] static std::int64_t IntentBytesSent() noexcept { return _intentBytesSent; }
         static void NoteStatesApplied() noexcept;
         [[nodiscard]] static std::uint32_t AppliedSnapshotFrame() noexcept { return _appliedSnapshotFrame; }
 
@@ -112,6 +116,8 @@ namespace MphRead::Mods::Network
         inline static std::array<std::int32_t, Entities::PlayerEntity::SlotCapacity> SlotPing{};
 
         static const std::uint32_t ClientId;
+        // Proves this process opened ClientId's connection (ConnectionSecret).
+        static const ConnectionSecret Secret;
 
         static void RebindSocket();
         static void Update(double time);
@@ -192,11 +198,13 @@ namespace MphRead::Mods::Network
     private:
         static std::array<std::uint8_t, 4> ResolveIPv4(const std::string& address);
         [[nodiscard]] static std::uint32_t NewClientId();
+        [[nodiscard]] static ConnectionSecret NewSecret();
         static void SendHello();
         static void Handle(ReceivedPacket packet, double time);
         static void HandleHitClaim(ReceivedPacket packet);
         static void SendVerdicts(std::int32_t slot,
             std::span<const std::pair<std::uint16_t, std::uint8_t>> verdicts);
+        static void SendPickupVerdicts(std::int32_t slot, std::span<const PickupVerdictPacket::Entry> verdicts);
         static void HandleChat(ReceivedPacket packet, double time);
         static void BroadcastHostControl();
         static void HandleHello(ReceivedPacket packet, double time);
@@ -242,6 +250,8 @@ namespace MphRead::Mods::Network
         static std::int64_t _snapshotsSent;
         static std::int64_t _statesApplied;
         static std::int64_t _intentsReceived;
+        inline static std::int64_t _intentsSent = 0;
+        inline static std::int64_t _intentBytesSent = 0;
         static std::uint32_t _appliedSnapshotFrame;
 
         static SnapshotSink _snapshotSink;

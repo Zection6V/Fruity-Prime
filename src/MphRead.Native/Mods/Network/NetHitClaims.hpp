@@ -10,7 +10,6 @@
 #include <array>
 #include <cstdint>
 #include <functional>
-#include "DeathaltWitness.hpp"
 
 #include <optional>
 #include <span>
@@ -86,7 +85,7 @@ namespace MphRead::Mods::Network
             std::uint32_t launchFrame, std::optional<OpenTK::Mathematics::Vector3> impulse = std::nullopt,
             ::MphRead::Affliction afflictions = ::MphRead::Affliction::None,
             std::optional<OpenTK::Mathematics::Vector3> impact = std::nullopt, bool splash = false,
-            std::uint32_t shotSequence = 0, std::uint32_t turretDamage = 0);
+            std::uint32_t shotSequence = 0, std::uint32_t turretDamage = 0, bool doubled = false);
         // While a claim is being applied: where it landed on the victim, for
         // the damage event the victim's machine will read (NetDamage::Note).
         [[nodiscard]] static ImpactOffset CurrentClaimImpact() noexcept { return _applyingImpact; }
@@ -163,7 +162,6 @@ namespace MphRead::Mods::Network
         static constexpr std::int32_t OutboxCapacity = 32;
         static constexpr std::int32_t MaxSends = 6;
         static constexpr std::int32_t MaxAge = 60;
-        static constexpr std::int32_t MinResendInterval = 8;
         static constexpr std::int32_t PendingCapacity = 64;
         static constexpr std::int32_t SeenCapacity = 128;
         static constexpr std::uint8_t ResultPending = 255;
@@ -199,6 +197,8 @@ namespace MphRead::Mods::Network
             ImpactOffset Impact{};
             std::int32_t Age = 0;
             std::int32_t Sends = 0;
+            // Age at the last send: what the next resend is timed from.
+            std::int32_t LastSentAge = 0;
             bool Live = false;
         };
 
@@ -220,6 +220,8 @@ namespace MphRead::Mods::Network
             std::uint8_t Flags = 0;
             std::uint32_t AckFrame = 0;
             std::uint32_t LaunchFrame = 0;
+            // The shot event named, for the charge it left with.
+            std::uint32_t ShotSequence = 0;
             OpenTK::Mathematics::Vector3 HitPoint{};
             OpenTK::Mathematics::Vector3 Impulse{};
             ImpactOffset Impact{};
@@ -249,7 +251,8 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static std::uint8_t Judge(std::int32_t shooterSlot, const HitClaimPacket& claim);
         static void NoteAgreement(std::int32_t shooter, std::int32_t victim, std::uint8_t beam,
             std::int32_t claimed, std::int32_t resolved);
-        static void Park(std::int32_t shooterSlot, const HitClaimPacket& claim);
+        // False when every pending entry is taken: the claim has not been parked.
+        [[nodiscard]] static bool Park(std::int32_t shooterSlot, const HitClaimPacket& claim);
         [[nodiscard]] static std::int32_t MaxDamageFor(std::int32_t shooterSlot, std::uint8_t beam);
         // The weapon the shooter actually fires for this beam: a hunter's
         // affinity weapon is its own row of the table (index + 9), with its
@@ -315,7 +318,6 @@ namespace MphRead::Mods::Network
         inline static std::int64_t _afflictionsStripped = 0;
         inline static std::int64_t _causesVouched = 0;
         inline static std::int64_t _causesStripped = 0;
-        inline static DeathaltWitness _deathalt{};
         inline static MphRead::Scene* _scene = nullptr;
         inline static std::array<std::array<ClaimShotRay, 32>, 8> _shotRays{};
         inline static std::array<std::size_t, 8> _shotRayNext{};
@@ -353,6 +355,16 @@ namespace MphRead::Mods::Network
         // headshot, and its cause when the authority can vouch for it.
         [[nodiscard]] static ::MphRead::Entities::DamageFlags CauseFlags(const Pending& entry);
         [[nodiscard]] static bool CauseVouched(const Pending& entry);
+        // The frame the claimed shot was fired in (the world it was aimed in).
+        [[nodiscard]] static std::uint32_t FiredFrame(const Pending& entry) noexcept;
+        // A doubled claim waits for the double damage it was fired under:
+        // the pickup claim behind it may still be on its way.
+        [[nodiscard]] static bool DoublingSettled(const Pending& entry);
+        [[nodiscard]] static std::uint32_t DoublingHold(const Pending& entry);
+        // What the hit does, decided here as it is applied: doubled only
+        // under a granted double damage, and never past AllowedDamage.
+        static void SettleDamage(Pending& entry);
+        [[nodiscard]] static std::int32_t AllowedDamage(const Pending& entry, bool doubled);
         [[nodiscard]] static std::uint8_t CauseOf(::MphRead::Entities::DamageFlags flags) noexcept;
         // Whether the weapon a claim names heals its shooter by the hit.
         [[nodiscard]] static bool Drains(std::int32_t shooterSlot, std::uint8_t beam);
@@ -372,6 +384,9 @@ namespace MphRead::Mods::Network
         static std::int64_t _voidedDeadShooter;
         static std::int64_t _voidedDeadVictim;
         static std::int64_t _refusedHere;
+        inline static std::int64_t _busyHere = 0;
+        inline static std::int64_t _undoubledHere = 0;
+        inline static std::int64_t _cappedHere = 0;
         static std::int64_t _tooOldHere;
         static std::int64_t _repeatsHere;
         static std::int64_t _matchedByLaunch;

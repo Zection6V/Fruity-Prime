@@ -34,7 +34,11 @@ namespace MphRead::Mods::Network
         static void MutualKillOrdering();
         static void InvulnerableClaimIsRefused();
         static void ClaimArbitrationHasDeadline();
+        // A lethal claim matching a hit the authority resolved itself is
+        // finished at the damage the authority allows, not the number claimed.
+        static void DuplicateKillIsHeldToAllowedDamage();
         static void ContinuousPhaseAgreesAcrossPeers();
+        // Verified when the guard landed; not run by Run (see there).
         static void SyluxMuzzleGuardCases(Scene& scene);
 
         inline static std::int32_t _checks = 0;

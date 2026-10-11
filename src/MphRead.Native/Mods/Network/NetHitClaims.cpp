@@ -1,6 +1,7 @@
 #include "NetHitClaims.hpp"
 #include "ClaimResend.hpp"
 #include "NetShotEvents.hpp"
+#include "ClaimDamageBound.hpp"
 #include "NetPowerUps.hpp"
 #include "PowerUps.hpp"
 #include "HitLocation.hpp"
@@ -20,6 +21,7 @@
 
 #include "../../Entities/Players/HalfturretEntity.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
+#include "../../Metadata/Enemies.hpp"
 #include "../../Metadata/Metadata.hpp"
 #include "../../Metadata/Weapons.hpp"
 #include "../../NativeRuntime/System/BinaryPrimitives.hpp"
@@ -689,7 +691,7 @@ namespace MphRead::Mods::Network
             {
                 break;
             }
-            HitClaimPacket claim = HitClaimPacket::Read(Runtime::SpanSlice(payload, at));
+            const HitClaimPacket claim = HitClaimPacket::Read(Runtime::SpanSlice(payload, at));
             _received++;
             if (claim.ShooterLifeId == 0 || claim.VictimLifeId == 0
                 || !NetSession::MatchesStream(claim.MatchId, claim.AuthorityEpoch)
@@ -730,7 +732,6 @@ namespace MphRead::Mods::Network
                 }
                 continue;
             }
-            claim = WithGrantedDoubling(shooterSlot, claim);
             const auto claimAt = static_cast<std::size_t>(claim.ClaimId % SeenCapacity);
             _seenBeams[s][claimAt] = static_cast<::MphRead::BeamType>(claim.Beam);
             _seenKeys[s][claimAt] = ShotKey::For(shooterSlot, claim.LaunchFrame);
@@ -975,6 +976,7 @@ namespace MphRead::Mods::Network
         entry.Flags = claim.Flags;
         entry.AckFrame = claim.AckFrame;
         entry.LaunchFrame = claim.LaunchFrame;
+        entry.ShotSequence = claim.ShotSequence;
         entry.HitPoint = claim.HitPoint;
         entry.Impulse = claim.Impulse;
         entry.Impact = claim.Impact;
@@ -1110,8 +1112,11 @@ namespace MphRead::Mods::Network
             {
                 break;
             }
-            if (now - _pending[static_cast<std::size_t>(next)].Arrived
-                < static_cast<std::uint32_t>(_pending[static_cast<std::size_t>(next)].Grace))
+            const Pending& due = _pending[static_cast<std::size_t>(next)];
+            const std::uint32_t wait = DoublingSettled(due)
+                ? static_cast<std::uint32_t>(due.Grace)
+                : std::max(static_cast<std::uint32_t>(due.Grace), DoublingHold(due));
+            if (now - due.Arrived < wait)
             {
                 if (overdue < 0)
                 {
@@ -1503,29 +1508,103 @@ namespace MphRead::Mods::Network
         return static_cast<DamageFlags>(flags);
     }
 
-    HitClaimPacket NetHitClaims::WithGrantedDoubling(std::int32_t shooterSlot, HitClaimPacket claim)
+    std::uint32_t NetHitClaims::FiredFrame(const Pending& entry) noexcept
     {
-        if ((claim.Flags & HitClaimPacket::FlagDoubled) == 0)
+        return entry.LaunchFrame != 0 ? entry.LaunchFrame : entry.AckFrame;
+    }
+
+    bool NetHitClaims::DoublingSettled(const Pending& entry)
+    {
+        return (entry.Flags & HitClaimPacket::FlagDoubled) == 0
+            || NetPowerUps::RanAt(entry.ShooterSlot, PowerUp::DoubleDamage, FiredFrame(entry));
+    }
+
+    std::uint32_t NetHitClaims::DoublingHold(const Pending& entry)
+    {
+        // Two of the shooter's own resend intervals: a pickup claim lost once
+        // still arrives inside it.
+        return static_cast<std::uint32_t>(2 * ClaimResendInterval(Ping(entry.ShooterSlot)));
+    }
+
+    std::int32_t NetHitClaims::AllowedDamage(const Pending& entry, bool doubled)
+    {
+        DamageScale scale{};
+        scale.Doubled = doubled;
+        scale.Level = Metadata::DamageLevels.at(static_cast<std::size_t>(GameState::DamageLevel()));
+        scale.PrimeHunter = GameState::Mode() == GameMode::PrimeHunter;
+        const ::MphRead::WeaponInfo* weapon = FiredWeapon(entry.ShooterSlot, entry.Beam);
+        if (weapon == nullptr)
         {
-            return claim;
+            // Not a beam: a Death Alt, a ram, a bomb -- the game's 200 at most.
+            return ScaleBound(200.0F, scale);
         }
-        const std::uint32_t fired = claim.LaunchFrame != 0 ? claim.LaunchFrame : claim.AckFrame;
-        if (NetPowerUps::RanAt(shooterSlot, PowerUp::DoubleDamage, fired))
+        if (entry.VictimSlot < PlayerEntity::Players().size() && entry.Beam < 9)
         {
-            return claim;
+            const auto effectiveness = PlayerAt(entry.VictimSlot).BeamEffectiveness[entry.Beam];
+            scale.Effectiveness = Metadata::DamageMultipliers.at(static_cast<std::size_t>(effectiveness));
         }
-        // Doubled on a machine whose double damage the authority never
-        // granted, or not then: the hit stands, at its own damage.
-        claim.Damage = static_cast<std::uint16_t>((claim.Damage + 1U) / 2U);
-        claim.TurretDamage = static_cast<std::uint16_t>((claim.TurretDamage + 1U) / 2U);
-        claim.Flags = static_cast<std::uint8_t>(claim.Flags & ~HitClaimPacket::FlagDoubled);
-        _undoubledHere++;
+        const bool splash = (entry.Flags & HitClaimPacket::FlagSplash) != 0;
+        const bool headshot = (entry.Flags & HitClaimPacket::FlagHeadshot) != 0;
+        const ChargeAmounts amounts = splash
+            ? ChargeAmounts{ weapon->SplashDamage, weapon->MinChargeSplashDamage, weapon->ChargedSplashDamage }
+            : headshot
+            ? ChargeAmounts{ weapon->HeadshotDamage, weapon->MinChargeHeadshotDamage, weapon->ChargedHeadshotDamage }
+            : ChargeAmounts{ weapon->UnchargedDamage, weapon->MinChargeDamage, weapon->ChargedDamage };
+        // The shot's own charge, when its event names it; otherwise whatever
+        // charge would hit hardest.
+        float base = static_cast<float>(Largest(amounts));
+        if (entry.ShotSequence != 0)
+        {
+            const std::optional<IntentPacket::ShotEvent> shot = NetShotEvents::Find(entry.ShooterSlot, entry.ShotSequence);
+            if (shot.has_value() && shot->WeaponId == entry.Beam && shot->Charge < 0xFF)
+            {
+                base = AmountAt(amounts, ChargePercent(::MphRead::TestFlag(weapon->Flags, ::MphRead::WeaponFlags::CanCharge),
+                    ::MphRead::TestFlag(weapon->Flags, ::MphRead::WeaponFlags::PartialCharge),
+                    weapon->MinCharge, weapon->FullCharge, shot->Charge));
+            }
+        }
+        return ScaleBound(base, scale);
+    }
+
+    void NetHitClaims::SettleDamage(Pending& entry)
+    {
+        bool doubled = (entry.Flags & HitClaimPacket::FlagDoubled) != 0;
+        if (doubled && !NetPowerUps::RanAt(entry.ShooterSlot, PowerUp::DoubleDamage, FiredFrame(entry)))
+        {
+            // Doubled on a machine whose double damage the authority never
+            // granted, or not then: the hit stands, at its own damage.
+            entry.Damage = static_cast<std::uint16_t>((entry.Damage + 1U) / 2U);
+            entry.TurretDamage = static_cast<std::uint16_t>((entry.TurretDamage + 1U) / 2U);
+            entry.Flags = static_cast<std::uint8_t>(entry.Flags & ~HitClaimPacket::FlagDoubled);
+            doubled = false;
+            _undoubledHere++;
+            if (NetLog::Enabled())
+            {
+                NetLog::Event("[powerup] slot " + std::to_string(entry.ShooterSlot) + " claim " + std::to_string(entry.Id)
+                    + " doubled at frame " + std::to_string(FiredFrame(entry)) + " without a grant: halved");
+            }
+        }
+        // Whatever the flag said: a hit is never more than the authority can
+        // account for (a claim that drops the flag and doubles the number is
+        // held here too).
+        const std::int32_t allowed = AllowedDamage(entry, doubled
+            || NetPowerUps::RanAt(entry.ShooterSlot, PowerUp::DoubleDamage, FiredFrame(entry)));
+        const std::int32_t claimed = static_cast<std::int32_t>(entry.Damage) + entry.TurretDamage;
+        if (claimed <= allowed)
+        {
+            return;
+        }
+        _cappedHere++;
         if (NetLog::Enabled())
         {
-            NetLog::Event("[powerup] slot " + std::to_string(shooterSlot) + " claim " + std::to_string(claim.ClaimId)
-                + " doubled at frame " + std::to_string(fired) + " without a grant: halved");
+            NetLog::Event("[claim] slot " + std::to_string(entry.ShooterSlot) + " claim " + std::to_string(entry.Id)
+                + " beam " + std::to_string(entry.Beam) + " shot " + std::to_string(entry.ShotSequence)
+                + " flags " + std::to_string(entry.Flags) + " claimed " + std::to_string(claimed)
+                + ", held to " + std::to_string(allowed));
         }
-        return claim;
+        entry.Damage = static_cast<std::uint16_t>(std::min<std::int32_t>(entry.Damage, allowed));
+        entry.TurretDamage = static_cast<std::uint16_t>(std::min<std::int32_t>(entry.TurretDamage,
+            std::max(0, allowed - entry.Damage)));
     }
 
     bool NetHitClaims::CauseVouched(const Pending& entry)
@@ -1634,6 +1713,7 @@ namespace MphRead::Mods::Network
             Answer(shooterSlot, entry.Id, HitVerdictPacket::ResultGeometry);
             return;
         }
+        SettleDamage(entry);
         DamageFlags flags = CauseFlags(entry);
         if (entry.Cause != HitClaimPacket::CauseHit)
         {
@@ -1896,6 +1976,7 @@ namespace MphRead::Mods::Network
         _refusedHere = 0;
         _busyHere = 0;
         _undoubledHere = 0;
+        _cappedHere = 0;
         _tooOldHere = 0;
         _repeatsHere = 0;
         _suppressedHere = 0;
@@ -2008,6 +2089,7 @@ namespace MphRead::Mods::Network
                 + std::to_string(_voidedDeadVictim) + " on a victim already down, "
                 + std::to_string(_refusedHere) + " refused, " + std::to_string(_busyHere) + " with no room to judge, "
                 + std::to_string(_undoubledHere) + " doubled without a grant, "
+                + std::to_string(_cappedHere) + " held to the most the shot could do, "
                 + std::to_string(_tooOldHere) + " too old, "
                 + std::to_string(_repeatsHere) + " repeats "
                 + "(matched " + std::to_string(_matchedByLaunch) + " by shot, " + std::to_string(_matchedByWindow)

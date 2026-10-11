@@ -18,6 +18,7 @@ namespace MphRead::Mods::Network
 
     std::vector<std::shared_ptr<::MphRead::Entities::ItemSpawnEntity>> NetItemState::_spawns{};
     std::map<std::int16_t, ItemSpawnState> NetItemState::_states{};
+    std::map<std::int16_t, NetItemState::Appearance> NetItemState::_appeared{};
 
     const std::vector<std::shared_ptr<::MphRead::Entities::ItemSpawnEntity>>&
         NetItemState::RegisteredSpawns() noexcept
@@ -65,10 +66,42 @@ namespace MphRead::Mods::Network
         return nullptr;
     }
 
+    void NetItemState::Observe()
+    {
+        if (!NetSession::Active() || !NetSession::IsAuthority())
+        {
+            return;
+        }
+        const std::uint32_t now = NetSession::NetFrame();
+        for (const auto& spawn : _spawns)
+        {
+            if (spawn == nullptr || spawn->Item() == nullptr || spawn->Item()->DespawnTimer() == 0)
+            {
+                continue;
+            }
+            Appearance& appearance = _appeared[static_cast<std::int16_t>(spawn->Id)];
+            if (appearance.Frame == 0 || appearance.SpawnCount != spawn->SpawnCount())
+            {
+                appearance = Appearance{ spawn->SpawnCount(), std::max(1U, now) };
+            }
+        }
+    }
+
+    std::optional<std::uint32_t> NetItemState::SpawnedAt(std::int16_t id, std::uint16_t spawnCount)
+    {
+        const auto found = _appeared.find(id);
+        if (found == _appeared.end() || found->second.SpawnCount != spawnCount)
+        {
+            return std::nullopt;
+        }
+        return found->second.Frame;
+    }
+
     void NetItemState::BeginRoom()
     {
         _spawns.clear();
         _states.clear();
+        _appeared.clear();
         _nextSpawn = 0;
     }
 

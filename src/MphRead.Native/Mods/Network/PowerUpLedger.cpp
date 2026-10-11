@@ -48,7 +48,7 @@ namespace MphRead::Mods::Network
         return record.Grants[record.Newest];
     }
 
-    bool PowerUpLedger::RanAt(std::int32_t slot, PowerUp kind, std::uint32_t frame, std::uint32_t late) const noexcept
+    bool PowerUpLedger::RanAt(std::int32_t slot, PowerUp kind, std::uint32_t frame) const noexcept
     {
         if (!Valid(slot))
         {
@@ -57,7 +57,7 @@ namespace MphRead::Mods::Network
         const Record& record = _records[static_cast<std::size_t>(slot)][IndexOf(kind)];
         return std::any_of(record.Grants.begin(), record.Grants.end(), [&](const Grant& grant)
         {
-            return grant.Sequence != 0 && grant.Start <= frame && frame < grant.Expire + late;
+            return grant.RunningAt(frame);
         });
     }
 

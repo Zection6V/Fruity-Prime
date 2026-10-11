@@ -1650,15 +1650,17 @@ namespace MphRead::Mods::Network
         {
             DemoRecorder::RecordOwnIntent(_localSlot, First(_scratch, IntentPacket::FullSize));
         }
-        const std::int32_t claims = NetHitClaims::Compose(_scratch);
-        if (claims > 0)
-        {
-            _transport->Send(_hostEndPoint, PacketType::HitClaim, First(_scratch, static_cast<std::size_t>(claims)));
-        }
+        // Pickups first: a hit fired under a power-up just picked up should
+        // find its grant already there (NetHitClaims also waits for it).
         const std::int32_t pickups = NetPickupClaims::Compose(_scratch);
         if (pickups > 0)
         {
             _transport->Send(_hostEndPoint, PacketType::PickupClaim, First(_scratch, static_cast<std::size_t>(pickups)));
+        }
+        const std::int32_t claims = NetHitClaims::Compose(_scratch);
+        if (claims > 0)
+        {
+            _transport->Send(_hostEndPoint, PacketType::HitClaim, First(_scratch, static_cast<std::size_t>(claims)));
         }
     }
 

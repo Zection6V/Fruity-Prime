@@ -61,8 +61,10 @@ namespace MphRead::Mods::Network
             // Granted, and a snapshot has shown the grant.
             bool Confirmed = false;
             std::uint8_t Sequence = 0;
-            // The grant this machine's player held when it was predicted.
+            // The grant this machine's player held when it was predicted, and
+            // what that grant still had: put back if this pickup is refused.
             std::uint8_t SeenBefore = 0;
+            std::uint16_t RemainingBefore = 0;
         };
 
         static void Undo(const Entry& entry);

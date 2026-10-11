@@ -59,7 +59,7 @@ namespace MphRead::Mods::Network
             return;
         }
         *free = Entry{ true, claimId, *kind, spawnId, spawnCount, std::max(1U, NetSession::NetFrame()), false, false, 0,
-            _seen[IndexOf(*kind)] };
+            _seen[IndexOf(*kind)], player.ItemEffectFrames(item.ItemType()) };
         player.GrantItemEffect(item.ItemType(), PowerUpFrames);
         item.SetDespawnTimer(0);
         _predicted++;
@@ -132,7 +132,11 @@ namespace MphRead::Mods::Network
         {
             return;
         }
-        player->SetItemEffectFrames(ItemTypeOf(entry.Kind), 0);
+        // Back to what was running before this pickup was shown, less the time
+        // since: a refused second double damage leaves the first one's.
+        const std::uint32_t elapsed = NetSession::NetFrame() - entry.Since;
+        const auto left = static_cast<std::uint16_t>(entry.RemainingBefore > elapsed ? entry.RemainingBefore - elapsed : 0U);
+        player->SetItemEffectFrames(ItemTypeOf(entry.Kind), left);
         _undone++;
         if (NetLog::Enabled())
         {

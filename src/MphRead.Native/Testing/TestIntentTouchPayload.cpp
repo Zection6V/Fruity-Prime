@@ -4,6 +4,7 @@
 #include "../Mods/Network/LocalShotLog.hpp"
 #include "../Mods/Network/ClaimResend.hpp"
 #include "../Mods/Network/ConnectionSecret.hpp"
+#include "../Mods/Network/ClaimDamageBound.hpp"
 #include "../Mods/Network/ItemAuthority.hpp"
 #include "../Mods/Network/PickupReach.hpp"
 #include "../Mods/Network/PowerUpLedger.hpp"
@@ -652,24 +653,26 @@ namespace
         using namespace MphRead::Mods::Network;
         // The ledger: when each grant ran, by the world frame of the contact.
         PowerUpLedger ledger;
-        Expect(!ledger.RanAt(2, PowerUp::Deathalt, 100, 15), "nothing granted: nothing ran");
+        Expect(!ledger.RanAt(2, PowerUp::Deathalt, 100), "nothing granted: nothing ran");
         const PowerUpLedger::Grant first = ledger.Begin(2, PowerUp::Deathalt, 100, PowerUpFrames);
         Expect(first.Sequence == 1 && first.Expire == 100 + PowerUpFrames, "a grant runs its full time from the contact");
-        Expect(ledger.RanAt(2, PowerUp::Deathalt, 100, 15) && !ledger.RanAt(2, PowerUp::Deathalt, 99, 15),
+        Expect(ledger.RanAt(2, PowerUp::Deathalt, 100) && !ledger.RanAt(2, PowerUp::Deathalt, 99),
             "from the contact on, never before it");
-        Expect(!ledger.RanAt(3, PowerUp::Deathalt, 150, 15) && !ledger.RanAt(2, PowerUp::Cloak, 150, 15),
+        Expect(ledger.RanAt(2, PowerUp::Deathalt, 99 + PowerUpFrames) && !ledger.RanAt(2, PowerUp::Deathalt, 100 + PowerUpFrames),
+            "up to its last frame and not one past it");
+        Expect(!ledger.RanAt(3, PowerUp::Deathalt, 150) && !ledger.RanAt(2, PowerUp::Cloak, 150),
             "one player's power-up is not another's, nor another kind");
         ledger.End(2, PowerUp::Deathalt, 400);
-        Expect(ledger.RanAt(2, PowerUp::Deathalt, 414, 15) && !ledger.RanAt(2, PowerUp::Deathalt, 415, 15),
-            "a death ends it, with a trip of slack");
+        Expect(ledger.RanAt(2, PowerUp::Deathalt, 399) && !ledger.RanAt(2, PowerUp::Deathalt, 400),
+            "a death ends it exactly there");
         const PowerUpLedger::Grant second = ledger.Begin(2, PowerUp::Deathalt, 1000, PowerUpFrames);
-        Expect(second.Sequence == 2 && ledger.RanAt(2, PowerUp::Deathalt, 200, 15),
+        Expect(second.Sequence == 2 && ledger.RanAt(2, PowerUp::Deathalt, 200),
             "a new grant keeps the old one's record for hits judged late");
         ledger.Begin(2, PowerUp::Deathalt, 1100, PowerUpFrames);
-        Expect(ledger.Current(2, PowerUp::Deathalt).Start == 1100 && !ledger.RanAt(2, PowerUp::Deathalt, 1500 + PowerUpFrames, 15)
-            && ledger.RanAt(2, PowerUp::Deathalt, 1099, 0), "picked up again: the old one ends where the new begins");
+        Expect(ledger.Current(2, PowerUp::Deathalt).Start == 1100 && !ledger.RanAt(2, PowerUp::Deathalt, 1100 + PowerUpFrames)
+            && ledger.RanAt(2, PowerUp::Deathalt, 1099), "picked up again: the old one ends where the new begins");
         ledger.Forget(2);
-        Expect(!ledger.RanAt(2, PowerUp::Deathalt, 1100, 15), "a new occupant has nothing");
+        Expect(!ledger.RanAt(2, PowerUp::Deathalt, 1100), "a new occupant has nothing");
         std::uint8_t sequence = 0;
         for (int i = 0; i < 40; ++i)
         {
@@ -684,14 +687,22 @@ namespace
         Expect(UnpackReport(PackReport(PowerUpReport{ 1, 5000 })).Remaining == RemainingMask, "frames are clamped, not wrapped");
 
         // A client's copy: corrected, never assigned each snapshot.
-        Expect(ReconcilePowerUp({ 4, 1700 }, 3, 0, false) == PowerUpStep::Start, "a grant not shown here starts");
-        Expect(ReconcilePowerUp({ 4, 1700 }, 3, 1704, false) == PowerUpStep::Keep,
+        Expect(ReconcilePowerUp({ 4, 1700 }, 3, 0, false, true) == PowerUpStep::Start, "a grant not shown here starts");
+        Expect(ReconcilePowerUp({ 4, 1700 }, 3, 0, false, false) == PowerUpStep::Keep, "but not on a dead copy");
+        Expect(ReconcilePowerUp({ 4, 1700 }, 3, 1704, false, true) == PowerUpStep::Keep,
             "a predicted one a few frames off is left alone");
-        Expect(ReconcilePowerUp({ 4, 1700 }, 3, 1790, false) == PowerUpStep::Retime, "one far off is retimed");
-        Expect(ReconcilePowerUp({ 4, 1650 }, 4, 1700, false) == PowerUpStep::Keep, "the same grant counts down on its own");
-        Expect(ReconcilePowerUp({ 4, 0 }, 4, 12, false) == PowerUpStep::End, "the authority's has ended: so does this");
-        Expect(ReconcilePowerUp({ 3, 0 }, 3, 1790, true) == PowerUpStep::Keep,
+        Expect(ReconcilePowerUp({ 4, 1700 }, 3, 1790, false, true) == PowerUpStep::Retime, "one far off is retimed");
+        Expect(ReconcilePowerUp({ 4, 1650 }, 4, 1700, false, true) == PowerUpStep::Keep, "the same grant counts down on its own");
+        Expect(ReconcilePowerUp({ 4, 0 }, 4, 12, false, true) == PowerUpStep::End, "the authority's has ended: so does this");
+        Expect(ReconcilePowerUp({ 3, 0 }, 3, 1790, true, true) == PowerUpStep::Keep,
             "a prediction the snapshots have not caught up with is not ended");
+        Expect(ReconcilePowerUp({ 4, 900 }, 4, 0, false, true) == PowerUpStep::Resume,
+            "a grant still running that this copy lost is put back");
+        Expect(ReconcilePowerUp({ 4, 6 }, 4, 0, false, true) == PowerUpStep::Keep,
+            "not its last few frames: those two copies merely ended apart");
+        Expect(ReconcilePowerUp({ 4, 900 }, 4, 0, true, true) == PowerUpStep::Keep
+            && ReconcilePowerUp({ 4, 900 }, 4, 0, false, false) == PowerUpStep::Keep,
+            "nor while a prediction waits, nor on a dead copy");
 
         // Who settles a pickup.
         PickupContext context{};
@@ -706,6 +717,28 @@ namespace
         Expect(RouteFor(context) == PickupRoute::Authority, "the authority hands it out itself");
         context = PickupContext{ true, false, false, true, true, true };
         Expect(RouteFor(context) == PickupRoute::Local, "an item no spawner put out stays local");
+
+        // A contact is looked for a round trip after it, not anywhere in history.
+        const FrameWindow window = ContactArrivalWindow(1000, 150, 2000);
+        Expect(window.From == 1000 && window.To == 1000 + 9 + ArrivalSlack, "150 ms is nine frames, and the slack");
+        Expect(ContactArrivalWindow(1000, 150, 1012).To == 1012, "never past now");
+
+        // Damage: what the shot could have done, not what the claim says.
+        const ChargeAmounts beam{ 6, 10, 36 };
+        Expect(ChargePercent(true, true, 6, 24, 0) == 0.0F && ChargePercent(true, true, 6, 24, 48) == 1.0F,
+            "a partial charge runs from its least to its full");
+        Expect(ChargePercent(true, true, 6, 24, 30) == 0.5F, "and halfway is half");
+        Expect(ChargePercent(true, false, 6, 24, 47) == 0.0F && ChargePercent(true, false, 6, 24, 48) == 1.0F,
+            "an all-or-nothing charge is one or the other");
+        Expect(ChargePercent(false, false, 6, 24, 99) == 0.0F, "a weapon that cannot charge is never charged");
+        Expect(AmountAt(beam, 0.0F) == 6.0F && AmountAt(beam, 0.5F) == 23.0F && AmountAt(beam, 1.0F) == 36.0F,
+            "the amount at a charge is the projectile's");
+        Expect(Largest(beam) == 36, "the most at any charge");
+        Expect(ScaleBound(6.0F, DamageScale{}) == 7, "an uncharged shot: its own damage and a point");
+        Expect(ScaleBound(6.0F, DamageScale{ 1.0F, 1.0F, true, false }) == 13, "doubled when double damage was granted");
+        Expect(ScaleBound(6.0F, DamageScale{ 1.0F, 1.0F, false, true }) == 10, "a Prime Hunter's half again");
+        Expect(ScaleBound(6.0F, DamageScale{ 1.0F, 1.0F, true, true }) == 13, "never both");
+        Expect(ScaleBound(36.0F, DamageScale{ 0.5F, 1.0F, false, false }) == 19, "a resistant victim takes half");
 
         // Reach: generous, but not across the room.
         using OpenTK::Mathematics::Vector3;

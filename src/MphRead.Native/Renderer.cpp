@@ -66,6 +66,7 @@
 #include "Mods/Network/DemoRecorder.hpp"
 #include "Mods/Network/NetHitClaims.hpp"
 #include "Mods/Network/NetHitPrediction.hpp"
+#include "Mods/Network/NetItemState.hpp"
 #include "Mods/Network/NetPickupClaims.hpp"
 #include "Mods/Network/NetPowerUpPrediction.hpp"
 #include "Mods/Network/NetPowerUps.hpp"
@@ -1834,6 +1835,7 @@ namespace MphRead
             }
             Mods::Network::NetHitClaims::Tick();
             Mods::Network::NetPowerUps::Observe();
+            Mods::Network::NetItemState::Observe();
             Mods::Network::NetPickupClaims::Tick();
             Mods::Network::NetPowerUpPrediction::Tick();
             Mods::Network::NetHooks::AfterSimulation();

@@ -56,9 +56,10 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static bool PositionAt(std::int32_t slot, std::uint32_t frame,
             std::uint16_t expectedGeneration, std::uint16_t expectedLife, OpenTK::Mathematics::Vector3& position);
         // Whether this copy of the player, in that life, stood within `radius`
-        // of `point` in any frame the history still holds.
+        // of `point` in some frame from `from` to `to` that the history holds.
         [[nodiscard]] static bool PassedNear(std::int32_t slot, std::uint16_t expectedGeneration,
-            std::uint16_t expectedLife, OpenTK::Mathematics::Vector3 point, float radius);
+            std::uint16_t expectedLife, OpenTK::Mathematics::Vector3 point, float radius,
+            std::uint32_t from, std::uint32_t to);
         static void BeginShot(Entities::PlayerEntity& shooter);
         [[nodiscard]] static std::uint32_t LaunchFrameFor(Entities::PlayerEntity& shooter);
         static void Restore();

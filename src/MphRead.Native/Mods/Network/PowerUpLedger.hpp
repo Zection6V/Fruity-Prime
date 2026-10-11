@@ -37,8 +37,10 @@ namespace MphRead::Mods::Network
         // The running grant ended early, at `frame` (a death).
         void End(std::int32_t slot, PowerUp kind, std::uint32_t frame) noexcept;
         [[nodiscard]] Grant Current(std::int32_t slot, PowerUp kind) const noexcept;
-        // Whether it was running at `frame`, or ended no more than `late` before.
-        [[nodiscard]] bool RanAt(std::int32_t slot, PowerUp kind, std::uint32_t frame, std::uint32_t late) const noexcept;
+        // Whether it was running at `frame`: from its start, up to and not
+        // including its end. Exact -- a claim's late arrival is absorbed by
+        // how long the claim is held, not by stretching the grant.
+        [[nodiscard]] bool RanAt(std::int32_t slot, PowerUp kind, std::uint32_t frame) const noexcept;
         // A new occupant: nothing granted to them yet.
         void Forget(std::int32_t slot) noexcept;
         void Reset() noexcept;

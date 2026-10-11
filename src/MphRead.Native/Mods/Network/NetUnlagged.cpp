@@ -167,7 +167,7 @@ namespace MphRead::Mods::Network
     }
 
     bool NetUnlagged::PassedNear(std::int32_t slot, std::uint16_t expectedGeneration, std::uint16_t expectedLife,
-        OpenTK::Mathematics::Vector3 point, float radius)
+        OpenTK::Mathematics::Vector3 point, float radius, std::uint32_t from, std::uint32_t to)
     {
         if (slot < 0 || slot >= Slots || !(radius > 0.0F))
         {
@@ -177,7 +177,8 @@ namespace MphRead::Mods::Network
         const float limit = radius * radius;
         for (std::size_t index = 0; index < static_cast<std::size_t>(HistoryFrames); index++)
         {
-            if (_stamp[index] == 0 || !_inPlay[s][index] || _life[s][index] != expectedLife
+            if (_stamp[index] == 0 || _stamp[index] < from || _stamp[index] > to
+                || !_inPlay[s][index] || _life[s][index] != expectedLife
                 || _generation[s][index] != expectedGeneration)
             {
                 continue;

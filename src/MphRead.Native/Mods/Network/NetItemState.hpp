@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <map>
 #include <memory>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -59,6 +60,10 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static PickupRoute Route(const ::MphRead::Entities::PlayerEntity& player,
             const ::MphRead::Entities::ItemInstanceEntity& item);
         [[nodiscard]] static std::shared_ptr<::MphRead::Entities::ItemSpawnEntity> Find(std::int16_t id);
+        // Authority, once a simulation step: the frame each spawner's current
+        // item came out. A claim's contact must come after it.
+        static void Observe();
+        [[nodiscard]] static std::optional<std::uint32_t> SpawnedAt(std::int16_t id, std::uint16_t spawnCount);
 
         static void BeginRoom();
         static void Register(::MphRead::Entities::ItemSpawnEntity& spawn);
@@ -78,5 +83,12 @@ namespace MphRead::Mods::Network
 
         static std::vector<std::shared_ptr<::MphRead::Entities::ItemSpawnEntity>> _spawns;
         static std::map<std::int16_t, ItemSpawnState> _states;
+
+        struct Appearance
+        {
+            std::uint16_t SpawnCount = 0;
+            std::uint32_t Frame = 0;
+        };
+        static std::map<std::int16_t, Appearance> _appeared;
     };
 }

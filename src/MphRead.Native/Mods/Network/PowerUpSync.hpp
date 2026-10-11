@@ -36,6 +36,10 @@ namespace MphRead::Mods::Network
         Start,
         // The same effect, retimed to the authority's without fuss.
         Retime,
+        // A grant this copy already took, still running on the authority,
+        // that this copy shows nothing of (a prediction taken back too far):
+        // put back quietly.
+        Resume,
         // The authority's has ended (it ran out, its holder died).
         End
     };
@@ -47,16 +51,17 @@ namespace MphRead::Mods::Network
     //
     // `seen` is the sequence this copy last took; `awaiting` is a prediction
     // of its own still waiting to be confirmed, which a snapshot that has not
-    // caught up with it must not end.
+    // caught up with it must not end. A copy that is not `alive` is never
+    // given anything: the snapshot that ends it is on its way.
     [[nodiscard]] constexpr PowerUpStep ReconcilePowerUp(PowerUpReport reported, std::uint8_t seen,
-        std::uint16_t local, bool awaiting) noexcept
+        std::uint16_t local, bool awaiting, bool alive) noexcept
     {
         constexpr std::uint16_t Tolerance = 8;
         if (reported.Sequence != seen && reported.Remaining > 0)
         {
             if (local == 0)
             {
-                return PowerUpStep::Start;
+                return alive ? PowerUpStep::Start : PowerUpStep::Keep;
             }
             const std::uint16_t gap = local > reported.Remaining
                 ? static_cast<std::uint16_t>(local - reported.Remaining)
@@ -66,6 +71,12 @@ namespace MphRead::Mods::Network
         if (reported.Remaining == 0 && local > 0 && !awaiting)
         {
             return PowerUpStep::End;
+        }
+        // More than the few frames two copies counting down apart can differ
+        // by at the end: a grant this copy lost, not one it saw run out.
+        if (reported.Sequence == seen && reported.Remaining > Tolerance && local == 0 && !awaiting && alive)
+        {
+            return PowerUpStep::Resume;
         }
         return PowerUpStep::Keep;
     }

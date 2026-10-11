@@ -96,7 +96,7 @@ namespace MphRead::Mods::Network
 
     bool NetPowerUps::RanAt(std::int32_t slot, PowerUp kind, std::uint32_t frame)
     {
-        return _ledger.RanAt(slot, kind, frame, LateFrames);
+        return _ledger.RanAt(slot, kind, frame);
     }
 
     PowerUpLedger::Grant NetPowerUps::Current(std::int32_t slot, PowerUp kind)
@@ -128,11 +128,15 @@ namespace MphRead::Mods::Network
             const ::MphRead::ItemType type = ItemTypeOf(kind);
             const PowerUpReport reported = state.PowerUps[k];
             const bool awaiting = isLocal && NetPowerUpPrediction::Awaiting(kind);
-            switch (ReconcilePowerUp(reported, seen[k], player.ItemEffectFrames(type), awaiting))
+            switch (ReconcilePowerUp(reported, seen[k], player.ItemEffectFrames(type), awaiting, player.Health() > 0))
             {
             case PowerUpStep::Start:
                 player.GrantItemEffect(type, reported.Remaining);
                 _started++;
+                break;
+            case PowerUpStep::Resume:
+                player.GrantItemEffect(type, reported.Remaining, false);
+                _resumed++;
                 break;
             case PowerUpStep::Retime:
                 player.SetItemEffectFrames(type, reported.Remaining);
@@ -170,6 +174,7 @@ namespace MphRead::Mods::Network
         _endedEarly = 0;
         _started = 0;
         _retimed = 0;
+        _resumed = 0;
         _ended = 0;
     }
 
@@ -177,6 +182,6 @@ namespace MphRead::Mods::Network
     {
         return "power-ups: " + std::to_string(_granted) + " granted here (" + std::to_string(_endedEarly)
             + " ended early), copies started " + std::to_string(_started) + ", retimed "
-            + std::to_string(_retimed) + ", ended " + std::to_string(_ended);
+            + std::to_string(_retimed) + ", resumed " + std::to_string(_resumed) + ", ended " + std::to_string(_ended);
     }
 }

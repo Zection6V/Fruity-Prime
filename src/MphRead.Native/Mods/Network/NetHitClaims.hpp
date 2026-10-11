@@ -220,6 +220,8 @@ namespace MphRead::Mods::Network
             std::uint8_t Flags = 0;
             std::uint32_t AckFrame = 0;
             std::uint32_t LaunchFrame = 0;
+            // The shot event named, for the charge it left with.
+            std::uint32_t ShotSequence = 0;
             OpenTK::Mathematics::Vector3 HitPoint{};
             OpenTK::Mathematics::Vector3 Impulse{};
             ImpactOffset Impact{};
@@ -353,9 +355,16 @@ namespace MphRead::Mods::Network
         // headshot, and its cause when the authority can vouch for it.
         [[nodiscard]] static ::MphRead::Entities::DamageFlags CauseFlags(const Pending& entry);
         [[nodiscard]] static bool CauseVouched(const Pending& entry);
-        // A claim whose damage was doubled keeps it doubled only if the
-        // authority's own double damage ran when the shot was fired.
-        [[nodiscard]] static HitClaimPacket WithGrantedDoubling(std::int32_t shooterSlot, HitClaimPacket claim);
+        // The frame the claimed shot was fired in (the world it was aimed in).
+        [[nodiscard]] static std::uint32_t FiredFrame(const Pending& entry) noexcept;
+        // A doubled claim waits for the double damage it was fired under:
+        // the pickup claim behind it may still be on its way.
+        [[nodiscard]] static bool DoublingSettled(const Pending& entry);
+        [[nodiscard]] static std::uint32_t DoublingHold(const Pending& entry);
+        // What the hit does, decided here as it is applied: doubled only
+        // under a granted double damage, and never past AllowedDamage.
+        static void SettleDamage(Pending& entry);
+        [[nodiscard]] static std::int32_t AllowedDamage(const Pending& entry, bool doubled);
         [[nodiscard]] static std::uint8_t CauseOf(::MphRead::Entities::DamageFlags flags) noexcept;
         // Whether the weapon a claim names heals its shooter by the hit.
         [[nodiscard]] static bool Drains(std::int32_t shooterSlot, std::uint8_t beam);
@@ -377,6 +386,7 @@ namespace MphRead::Mods::Network
         static std::int64_t _refusedHere;
         inline static std::int64_t _busyHere = 0;
         inline static std::int64_t _undoubledHere = 0;
+        inline static std::int64_t _cappedHere = 0;
         static std::int64_t _tooOldHere;
         static std::int64_t _repeatsHere;
         static std::int64_t _matchedByLaunch;

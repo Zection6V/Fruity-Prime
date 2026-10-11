@@ -1712,7 +1712,7 @@ namespace MphRead::Entities
         }
     }
 
-    void PlayerEntity::GrantItemEffect(ItemType type, std::uint16_t frames)
+    void PlayerEntity::GrantItemEffect(ItemType type, std::uint16_t frames, bool announce)
     {
         if (frames == 0)
         {
@@ -1725,7 +1725,10 @@ namespace MphRead::Entities
             _doubleDmgTimer = frames;
             if (IsMainPlayer())
             {
-                _soundSource.PlayFreeSfx(SfxId::DOUBLE_DAMAGE_POWER_UP);
+                if (announce)
+                {
+                    _soundSource.PlayFreeSfx(SfxId::DOUBLE_DAMAGE_POWER_UP);
+                }
                 UpdateDoubleDamageSfx(0, true);
                 UpdateDoubleDamageSpeed(1);
             }
@@ -1736,7 +1739,10 @@ namespace MphRead::Entities
             _flags2 |= PlayerFlags2::Cloaking;
             if (IsMainPlayer())
             {
-                _soundSource.PlayFreeSfx(SfxId::CLOAK_POWER_UP);
+                if (announce)
+                {
+                    _soundSource.PlayFreeSfx(SfxId::CLOAK_POWER_UP);
+                }
                 UpdateCloakSfx(0, true);
             }
             break;
@@ -1747,7 +1753,7 @@ namespace MphRead::Entities
             {
                 static_cast<void>(TrySwitchForms(true));
             }
-            if (IsMainPlayer())
+            if (IsMainPlayer() && announce)
             {
                 _soundSource.PlayFreeSfx(SfxId::DOUBLE_DAMAGE_POWER_UP);
             }

@@ -147,7 +147,7 @@ namespace MphRead::Mods::Network
             // Near enough for a claim, too far for the game's own pickup: only
             // the claim can take it. Stand there long enough to be on record.
             const Vector3 beside(item.X + 1.4F, item.Y - 0.65F, item.Z);
-            for (std::int32_t i = 0; i < 4; i++)
+            for (std::int32_t i = 0; i < 10; i++)
             {
                 Place(PlayerAt(claimant), beside);
                 sim.Step();
@@ -165,6 +165,13 @@ namespace MphRead::Mods::Network
             Expect(far == PickupVerdictPacket::ResultOutOfReach,
                 "a contact out of reach was answered: " + PickupVerdictPacket::Describe(far)
                 + " (frame " + std::to_string(now) + ")");
+            const std::optional<std::uint32_t> appeared = NetItemState::SpawnedAt(
+                static_cast<std::int16_t>(spawn->Id), spawn->SpawnCount());
+            Expect(appeared.has_value() && *appeared <= contact, "the spawn's appearance was not recorded");
+            const std::uint8_t elsewhen = Submit(claimant, ClaimFor(claimant, *spawn, 6, contact,
+                Vector3(item.X - 1.4F, item.Y - 0.65F, item.Z))).Result;
+            Expect(elsewhen == PickupVerdictPacket::ResultOutOfReach,
+                "a spot the claimant never stood on was taken: " + PickupVerdictPacket::Describe(elsewhen));
             PickupClaimPacket wrongSpawn = ClaimFor(claimant, *spawn, 3, contact, stood);
             wrongSpawn.SpawnCount = static_cast<std::uint16_t>(wrongSpawn.SpawnCount + 1);
             Expect(Submit(claimant, wrongSpawn).Result == PickupVerdictPacket::ResultGone,
@@ -220,6 +227,18 @@ namespace MphRead::Mods::Network
                 + std::to_string(static_cast<std::int32_t>(spawn->Data().SpawnInterval)) + ", spawns "
                 + std::to_string(spawn->SpawnCount()) + "/" + std::to_string(static_cast<std::int32_t>(spawn->Data().MaxSpawnCount))
                 + (spawn->Active ? ", active" : ", inactive"));
+            // Touched the frame before it came back: not this spawn.
+            for (std::int32_t i = 0; i < 4; i++)
+            {
+                sim.Step();
+            }
+            const std::optional<std::uint32_t> back = NetItemState::SpawnedAt(
+                static_cast<std::int16_t>(spawn->Id), spawn->SpawnCount());
+            Expect(back.has_value(), "the respawn's appearance was not recorded");
+            const std::uint8_t early = Submit(claimant, ClaimFor(claimant, *spawn, 7, *back - 1,
+                PlayerAt(claimant).Position)).Result;
+            Expect(early == PickupVerdictPacket::ResultGone,
+                "a contact before the item came out was answered: " + PickupVerdictPacket::Describe(early));
             for (std::int32_t i = 0; i < 8 && spawn->LastPickerSlot() != rival; i++)
             {
                 Place(PlayerAt(rival), Vector3(item.X, item.Y - 0.65F, item.Z));
@@ -229,7 +248,7 @@ namespace MphRead::Mods::Network
                 && PlayerAt(rival).ItemEffectFrames(type) > 0, "a contact the authority saw was not granted");
             Expect(sim.StepFailures() == 0, "the authority had failed steps");
             Runtime::ConsoleWriteLine("[powerupsimtest] PASS " + room + ": " + std::string(NameOf(kind))
-                + " claimed from the contact, resend answered once, stale/far/other-spawn/rival refused, "
+                + " claimed from the contact, resend answered once, stale/far/elsewhere/early/other-spawn/rival refused, "
                 + "authority contact granted, published.");
             result = 0;
         }

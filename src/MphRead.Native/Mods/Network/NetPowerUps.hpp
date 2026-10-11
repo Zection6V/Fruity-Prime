@@ -22,10 +22,6 @@ namespace MphRead::Mods::Network
     public:
         NetPowerUps() = delete;
 
-        // How long after a grant ended a client's word about it is still
-        // taken: its own timer ends a snapshot's trip later.
-        static constexpr std::uint32_t LateFrames = 15;
-
         // Authority: `player` touched a power-up here. A remote player's
         // contact happened in the world its last intent acknowledged.
         static void GrantContact(Entities::PlayerEntity& player, ::MphRead::ItemType type);
@@ -59,6 +55,7 @@ namespace MphRead::Mods::Network
         inline static std::int64_t _endedEarly = 0;
         inline static std::int64_t _started = 0;
         inline static std::int64_t _retimed = 0;
+        inline static std::int64_t _resumed = 0;
         inline static std::int64_t _ended = 0;
     };
 }

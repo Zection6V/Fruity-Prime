@@ -41,8 +41,9 @@ private:                                                                        
 public:                                                                                        \
     void PlayHealthPickupSfx(::MphRead::ItemType itemType);                                \
     /* What picking up a timed power-up does: its timer, its sounds for */                 \
-    /* this machine's player and, for a Death Alt, the morph. */                           \
-    void GrantItemEffect(::MphRead::ItemType type, std::uint16_t frames);                  \
+    /* this machine's player and, for a Death Alt, the morph. Without */                   \
+    /* `announce`, no pickup chime: an effect put back, not picked up. */                  \
+    void GrantItemEffect(::MphRead::ItemType type, std::uint16_t frames, bool announce = true);\
     /* Retimes a running power-up, quietly; 0 ends it as running out would. */             \
     void SetItemEffectFrames(::MphRead::ItemType type, std::uint16_t frames);              \
     /* Frames a power-up has left; the cloak's only while it is the item's. */             \

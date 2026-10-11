@@ -171,8 +171,11 @@ namespace MphRead::Mods::Network
         // had them; without a history to ask, where it has them now.
         if (NetUnlagged::Enabled())
         {
+            const std::int32_t ping = static_cast<std::size_t>(slot) < NetSession::SlotPing.size()
+                ? NetSession::SlotPing[static_cast<std::size_t>(slot)] : 0;
+            const FrameWindow window = ContactArrivalWindow(claim.ContactFrame, ping, NetSession::NetFrame());
             return NetUnlagged::PassedNear(slot, claim.SlotGeneration, claim.LifeId, claim.Position,
-                CorroborationRadius);
+                CorroborationRadius, window.From, window.To);
         }
         const OpenTK::Mathematics::Vector3 between = static_cast<OpenTK::Mathematics::Vector3>(player.Position) - claim.Position;
         return OpenTK::Mathematics::Vector3::Dot(between, between) <= 4.0F * CorroborationRadius * CorroborationRadius;
@@ -197,6 +200,12 @@ namespace MphRead::Mods::Network
             return Verdict(claim.ClaimId, PickupVerdictPacket::ResultWrongLife);
         }
         if (spawner->SpawnCount() != claim.SpawnCount)
+        {
+            return Verdict(claim.ClaimId, PickupVerdictPacket::ResultGone);
+        }
+        // Touched before this spawn came out: not this item.
+        const std::optional<std::uint32_t> appeared = NetItemState::SpawnedAt(claim.SpawnId, claim.SpawnCount);
+        if (!appeared.has_value() || claim.ContactFrame < *appeared)
         {
             return Verdict(claim.ClaimId, PickupVerdictPacket::ResultGone);
         }

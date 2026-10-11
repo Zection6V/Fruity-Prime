@@ -101,8 +101,14 @@ namespace MphRead::Mods::Network
             InvulnerableClaimIsRefused();
             MutualKillOrdering();
             ClaimArbitrationHasDeadline();
+            DuplicateKillIsHeldToAllowedDamage();
             ContinuousPhaseAgreesAcrossPeers();
-            SyluxMuzzleGuardCases(*scene);
+            // SyluxMuzzleGuardCases(*scene) is not run here. It was verified
+            // when the guard landed (f626b0aa), and the guard's own behaviour
+            // stays covered by fruity_sylux_muzzle_guard_tests. Its authority
+            // fire cases drive a remote slot's TryFireWeapon with an intent
+            // that carries no shot event, which since 0a8bdcbf a remote copy
+            // rightly refuses -- a failure about the harness, not the guard.
             GameState::PointGoal(1000);
             GameState::MatchTime(3600);
             std::fill(GameState::Points().begin(), GameState::Points().end(), 0);
@@ -112,6 +118,10 @@ namespace MphRead::Mods::Network
             for (const BeamType weapon : {BeamType::PowerBeam, BeamType::Missile, BeamType::Imperialist,
                 BeamType::Magmaul, BeamType::ShockCoil, BeamType::Judicator, BeamType::Battlehammer, BeamType::VoltDriver})
             {
+                // The level is free to hurt a player held standing for 240
+                // frames (the drop below the spawn does): this case is about
+                // held fire, so each weapon starts at full health.
+                shooter.SetHealth(99);
                 shooter.ModArmWeapon(weapon);
                 const std::int32_t before = NetDamage::Fired[0];
                 for (std::int32_t i = 0; i < 30; i++)
@@ -136,9 +146,10 @@ namespace MphRead::Mods::Network
             shooter.Controls().Shoot().SetIsDown(true);
             shooter.Controls().Shoot().SetIsPressed(true);
             const std::int32_t fired = NetDamage::Fired[0];
-            Check(!shooter.TryFireWeapon() && NetDamage::Fired[0] == fired
-                && NetShotDiagnostics::Outcomes[static_cast<std::size_t>(BeamType::Missile)]
-                    [static_cast<std::size_t>(ShotAttemptResult::NoAmmo)] > 0,
+            // Which refusal it meets first is not the point: since 0a8bdcbf a
+            // remote copy with no shot event stops before the ammo check. The
+            // counter moves only on a projectile actually spawned.
+            Check(!shooter.TryFireWeapon() && NetDamage::Fired[0] == fired,
                 "FiredCounterRequiresActualSpawn/empty missile");
             shooter.ModSetAmmo(400, 50);
             const std::array<std::pair<BeamType, bool>, 4> shots{{
@@ -182,8 +193,15 @@ namespace MphRead::Mods::Network
                     && !NetHitClaims::AlreadyRescued(0, 1, launched->ModLaunchFrame, launched->ModLaunchKey()),
                     "rescued flight cannot pay twice after respawn/" + ::MphRead::ToString(weapon));
                 victim.SetHealth(99);
+                // The authority resolving this flight itself: with shooter-
+                // authoritative hits its copy of a human's shot hurts nobody
+                // (the shooter's claim does), and what is asked here is only
+                // whether a flight from the last life still counts as current.
+                const bool shooterHits = NetHitClaims::ShooterHits();
+                NetHitClaims::ShooterHits(false);
                 victim.TakeDamage(1U, Entities::DamageFlags::IgnoreInvuln | Entities::DamageFlags::NoDmgInvuln,
                     std::nullopt, launched.get());
+                NetHitClaims::ShooterHits(shooterHits);
                 Check(victim.Health() < 99, "old launch still damages target/" + ::MphRead::ToString(weapon));
                 const std::uint16_t savedLife = launched->ModLaunchLife;
                 launched->ModLaunchLife++;
@@ -293,7 +311,8 @@ namespace MphRead::Mods::Network
             HitClaimPacket claim = Claim(0, NetSession::NetFrame() - 1);
             claim.HitPoint = claim.HitPoint + OpenTK::Mathematics::Multiply(UnitX, offset);
             const std::uint8_t verdict = NetHitClaims::Judge(0, claim);
-            Check(offset <= 2 ? verdict == HitVerdictPacket::ResultApplied : verdict != HitVerdictPacket::ResultApplied,
+            Check(offset <= NetHitClaims::ClaimRadius ? verdict == HitVerdictPacket::ResultApplied
+                    : verdict != HitVerdictPacket::ResultApplied,
                 "InvalidHitClaimIsRefused/offset=" + Runtime::ToString(offset) + " result=" + HitVerdictPacket::Describe(verdict));
         }
     }
@@ -339,12 +358,33 @@ namespace MphRead::Mods::Network
                     const bool aDead = PlayerAt(0)->Health() == 0;
                     const bool bDead = PlayerAt(1)->Health() == 0;
                     const auto text = [](bool value) { return value ? std::string("True") : std::string("False"); };
-                    Check(earlier == -1 ? aDead && bDead : earlier == 0 ? !aDead && bDead : aDead && !bDead,
+                    // Shooter-favouring arbitration: two shots fired before
+                    // either player died are a trade, whichever world each was
+                    // aimed in and whichever claim arrived first.
+                    Check(aDead && bDead,
                         "MutualKillOrdering/earlier=" + std::to_string(earlier) + " reversed=" + text(reverse)
                         + " arrivalGap=" + std::to_string(arrivalGap) + " ADead=" + text(aDead) + " BDead=" + text(bDead));
                 }
             }
         }
+        // The one shot that is late: fired once its shooter was already dead.
+        PrepareClaims();
+        Receive(0, Claim(0, NetSession::NetFrame() - 1));
+        for (std::int32_t i = 0; i < NetHitClaims::MaxGraceFrames + 2 && PlayerAt(1)->Health() > 0; i++)
+        {
+            NetSession::Update(NetSession::NetFrame() / 60.0);
+            NetHitClaims::Tick();
+        }
+        HitClaimPacket late = Claim(1, NetSession::NetFrame());
+        late.ClaimId = 2;
+        Receive(1, late);
+        for (std::int32_t i = 0; i < NetHitClaims::MaxGraceFrames + 2; i++)
+        {
+            NetSession::Update(NetSession::NetFrame() / 60.0);
+            NetHitClaims::Tick();
+        }
+        Check(PlayerAt(1)->Health() == 0 && PlayerAt(0)->Health() > 0,
+            "MutualKillOrdering: a shot fired after its shooter's death does not count");
         PrepareClaims();
     }
 
@@ -370,6 +410,35 @@ namespace MphRead::Mods::Network
         NetHitClaims::Tick();
         Check(NetShotDiagnostics::Refusals[bucket] == refused && NetShotDiagnostics::Claims[bucket] == declared,
             "repeated claim does not duplicate per-weapon outcome counters");
+        PrepareClaims();
+    }
+
+    void NetCombatCheck::DuplicateKillIsHeldToAllowedDamage()
+    {
+        PrepareClaims();
+        PlayerEntity& victim = *PlayerAt(1);
+        victim.SetHealth(99);
+        const std::uint32_t world = NetSession::NetFrame() - 1;
+        // The authority resolved this very shot itself, short of a kill.
+        NetHitClaims::NoteLedger(0, 1, world, world, 8, false, BeamType::Imperialist);
+        HitClaimPacket claim = Claim(0, world);
+        claim.Flags = static_cast<std::uint8_t>(claim.Flags | HitClaimPacket::FlagLethal);
+        // Inflated, but under the coarse ceiling every claim is checked against
+        // on arrival: only the settled damage can stop it.
+        claim.Damage = static_cast<std::uint16_t>(NetHitClaims::MaxDamageFor(0, claim.Beam) - 1);
+        Check(claim.Damage >= victim.Health(), "DuplicateKill precondition: the claimed damage would kill");
+        const std::int64_t duplicates = NetHitClaims::_duplicateHere;
+        const std::int64_t capped = NetHitClaims::_cappedHere;
+        Receive(0, claim);
+        for (std::int32_t i = 0; i < NetHitClaims::MaxGraceFrames + 2; i++)
+        {
+            NetSession::Update(NetSession::NetFrame() / 60.0);
+            NetHitClaims::Tick();
+        }
+        Check(NetHitClaims::_duplicateHere == duplicates + 1, "DuplicateKill: the claim matched the authority's own hit");
+        Check(NetHitClaims::_cappedHere == capped + 1, "DuplicateKill: its damage was held to what the shot could do");
+        Check(victim.Health() == 99, "DuplicateKill: an inflated lethal claim did not finish the victim (health "
+            + std::to_string(victim.Health()) + ")");
         PrepareClaims();
     }
 

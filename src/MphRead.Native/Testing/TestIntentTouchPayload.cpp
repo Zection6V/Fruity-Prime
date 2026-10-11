@@ -8,6 +8,7 @@
 #include "../Mods/Network/ItemAuthority.hpp"
 #include "../Mods/Network/PickupReach.hpp"
 #include "../Mods/Network/PowerUpLedger.hpp"
+#include "../Mods/Network/PredictionBook.hpp"
 #include "../Mods/Network/PowerUpSync.hpp"
 #include "../Mods/Network/InboxShedding.hpp"
 #include "../Mods/Network/PredictionMatch.hpp"
@@ -648,6 +649,208 @@ namespace
             "nothing waiting is offset zero");
     }
 
+    // One client's view of one power-up: the effect it shows, its book of
+    // pickups the authority has not ruled on, and what the snapshots say --
+    // driven through every order the answers can come in.
+    struct PickupClient
+    {
+        using PowerUp = MphRead::Mods::Network::PowerUp;
+        MphRead::Mods::Network::PredictionBook Book{};
+        PowerUp Kind = PowerUp::DoubleDamage;
+        std::uint16_t Local = 0;
+        std::uint8_t SeenSequence = 0;
+        std::uint16_t Life = 1;
+        bool Alive = true;
+        std::uint32_t Now = 1000;
+
+        void Step(std::uint32_t frames)
+        {
+            Now += frames;
+            Local = static_cast<std::uint16_t>(Local > frames ? Local - frames : 0U);
+        }
+        void Predict(std::uint16_t claim)
+        {
+            Book.Add(claim, Kind, static_cast<std::int16_t>(claim), 1, Life, Now, Local);
+            Local = MphRead::Mods::Network::PowerUpFrames;
+        }
+        void Answer(std::uint16_t claim, bool granted, std::uint8_t sequence = 0)
+        {
+            if (const auto rollback = Book.Settle(claim, granted, sequence, Now, Life, Alive))
+            {
+                Local = rollback->Frames;
+            }
+        }
+        void Snapshot(std::uint8_t sequence, std::uint16_t remaining)
+        {
+            using namespace MphRead::Mods::Network;
+            switch (ReconcilePowerUp(PowerUpReport{ sequence, remaining }, SeenSequence, Local, Book.Awaiting(Kind), Alive))
+            {
+            case PowerUpStep::Start:
+            case PowerUpStep::Retime:
+            case PowerUpStep::Resume:
+                Local = remaining;
+                break;
+            case PowerUpStep::End:
+                Local = 0;
+                break;
+            case PowerUpStep::Keep:
+                break;
+            }
+            SeenSequence = sequence;
+            Book.Seen(Kind, sequence);
+        }
+        // A double damage of 900 frames already running under grant 3.
+        void Holding()
+        {
+            Local = 900;
+            Snapshot(3, 900);
+        }
+        [[nodiscard]] bool Near(std::uint16_t expected) const
+        {
+            return Local + 1 >= expected && Local <= expected + 1;
+        }
+    };
+
+    void PredictionOrders()
+    {
+        {
+            // A second pickup refused while the first grant still runs.
+            PickupClient client;
+            client.Holding();
+            client.Predict(1);
+            client.Step(30);
+            client.Answer(1, false);
+            Expect(client.Near(870), "a refused pickup puts the running grant back, less the time since");
+            client.Snapshot(3, 870);
+            Expect(client.Near(870), "and the snapshots agree with it");
+        }
+        {
+            // A then B; A refused, then B refused.
+            PickupClient client;
+            client.Holding();
+            client.Predict(1);
+            client.Step(10);
+            client.Predict(2);
+            client.Step(10);
+            client.Answer(1, false);
+            Expect(client.Local == 1790, "an earlier refusal leaves a later pickup's effect alone");
+            client.Step(10);
+            client.Answer(2, false);
+            Expect(client.Near(870), "and the later refusal goes back to what ran before either");
+        }
+        {
+            // A then B; B refused, then A refused.
+            PickupClient client;
+            client.Holding();
+            client.Predict(1);
+            client.Step(10);
+            client.Predict(2);
+            client.Step(10);
+            client.Answer(2, false);
+            Expect(client.Near(1780), "a later refusal goes back to the earlier pickup, still waiting");
+            client.Step(10);
+            client.Answer(1, false);
+            Expect(client.Near(870), "and the earlier refusal to what ran before it");
+        }
+        for (const bool snapshotFirst : { false, true })
+        {
+            // A granted, B refused: the verdicts and the snapshot in both orders.
+            PickupClient client;
+            client.Holding();
+            client.Predict(1);
+            client.Step(10);
+            client.Predict(2);
+            client.Step(5);
+            client.Answer(1, true, 4);
+            if (snapshotFirst)
+            {
+                client.Snapshot(4, 1785);
+                client.Step(5);
+                client.Answer(2, false);
+            }
+            else
+            {
+                client.Step(5);
+                client.Answer(2, false);
+                client.Snapshot(4, 1780);
+            }
+            Expect(client.Near(1780), snapshotFirst
+                ? "A granted, its snapshot, then B refused: A's grant shows"
+                : "A granted, B refused, then A's snapshot: A's grant shows");
+        }
+        {
+            // A refused, B granted.
+            PickupClient client;
+            client.Holding();
+            client.Predict(1);
+            client.Step(10);
+            client.Predict(2);
+            client.Step(5);
+            client.Answer(1, false);
+            client.Step(5);
+            client.Answer(2, true, 4);
+            client.Snapshot(4, 1790);
+            Expect(client.Near(1790), "A refused, B granted: B's grant shows");
+        }
+        {
+            // Three pickups, refused middle, first, last.
+            PickupClient client;
+            client.Holding();
+            client.Predict(1);
+            client.Step(10);
+            client.Predict(2);
+            client.Step(10);
+            client.Predict(3);
+            client.Step(10);
+            client.Answer(2, false);
+            Expect(client.Local == 1790, "a refusal in the middle leaves the newest alone");
+            client.Answer(1, false);
+            Expect(client.Local == 1790, "so does the oldest's");
+            client.Answer(3, false);
+            Expect(client.Near(870), "the last refusal goes back to what ran before all three");
+        }
+        {
+            // Dying with a pickup waiting, refused while dead.
+            PickupClient client;
+            client.Holding();
+            client.Predict(1);
+            client.Step(10);
+            client.Alive = false;
+            client.Local = 0;
+            client.Answer(1, false);
+            Expect(client.Local == 0, "nothing is put back onto a dead player");
+        }
+        {
+            // A pickup from the last life refused in the next, with one waiting in it.
+            PickupClient client;
+            client.Holding();
+            client.Predict(1);
+            client.Step(10);
+            client.Local = 0;
+            client.Life = 2;
+            client.Book.BeginLife(2);
+            client.Answer(1, false);
+            Expect(client.Local == 0, "a respawn drops the last life's pickups");
+            client.Predict(2);
+            client.Step(10);
+            client.Answer(2, false);
+            Expect(client.Local == 0, "and the new life's refusal goes back to the new life's nothing");
+        }
+        {
+            // Both lives' pickups still waiting when the respawn is noticed late.
+            PickupClient client;
+            client.Holding();
+            client.Predict(1);
+            client.Step(10);
+            client.Local = 0;
+            client.Life = 2;
+            client.Predict(2);
+            client.Step(10);
+            client.Answer(1, false);
+            Expect(client.Local == 1790, "another life's refusal hands nothing on and rolls nothing back");
+        }
+    }
+
     void PowerUpAuthority()
     {
         using namespace MphRead::Mods::Network;
@@ -897,6 +1100,7 @@ int main()
         InboxShedding();
         ConnectionIdentity();
         PowerUpAuthority();
+        PredictionOrders();
     }
     catch (const std::exception& e)
     {

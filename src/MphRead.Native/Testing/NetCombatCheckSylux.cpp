@@ -181,8 +181,15 @@ namespace MphRead::Mods::Network
             clear();
             victim.Position = start + ScaleVector(normal, 0.5F);
             victim.SetHealth(99);
+            // The guard's question is whether the splash still lands, so the
+            // authority resolves this shot itself; with shooter-authoritative
+            // hits its copy of a human's shot never damages anyone (the
+            // shooter's claim does).
+            const bool shooterHits = NetHitClaims::ShooterHits();
+            NetHitClaims::ShooterHits(false);
             spawn(Weapons::Current->at(static_cast<int>(BeamType::Missile)), 1000, 0, 1, true,
                 "front-side splash remains legal");
+            NetHitClaims::ShooterHits(shooterHits);
             Check(victim.Health() < 99, "blocked missile preserves actual legal front-side splash damage");
             clear();
             victim.Position = oldVictimPosition;

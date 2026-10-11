@@ -3,6 +3,7 @@
 #include "NetItemState.hpp"
 #include "NetLog.hpp"
 #include "NetPickupClaims.hpp"
+#include "NetPlayerLifecycle.hpp"
 #include "NetSession.hpp"
 #include "../../Entities/ItemInstanceEntity.hpp"
 #include "../../Entities/ItemSpawnEntity.hpp"
@@ -13,8 +14,6 @@
 
 namespace MphRead::Mods::Network
 {
-    std::array<NetPowerUpPrediction::Entry, NetPowerUpPrediction::Capacity> NetPowerUpPrediction::_entries{};
-
     namespace
     {
         [[nodiscard]] Entities::PlayerEntity* LocalPlayer()
@@ -23,6 +22,11 @@ namespace MphRead::Mods::Network
             const auto& players = Entities::PlayerEntity::Players();
             return slot >= 0 && static_cast<std::size_t>(slot) < players.size()
                 ? players[static_cast<std::size_t>(slot)].get() : nullptr;
+        }
+
+        [[nodiscard]] std::uint16_t LocalLife()
+        {
+            return NetPlayerLifecycle::Get(NetSession::LocalSlot());
         }
 
         // The item sync no longer shows the predicted spawn out.
@@ -43,14 +47,10 @@ namespace MphRead::Mods::Network
         }
         const auto spawnId = static_cast<std::int16_t>(spawner->Id);
         const std::uint16_t spawnCount = spawner->SpawnCount();
-        if (Holds(spawnId, spawnCount))
+        if (_book.Holds(spawnId, spawnCount) || !_book.HasRoom())
         {
-            return;
-        }
-        const auto free = std::find_if(_entries.begin(), _entries.end(), [](const Entry& entry) { return !entry.Live; });
-        if (free == _entries.end())
-        {
-            // Left to the authority, which sees the same contact a trip later.
+            // A full book leaves it to the authority, which sees the same
+            // contact a trip later.
             return;
         }
         const std::uint16_t claimId = NetPickupClaims::Declare(player, *spawner);
@@ -58,8 +58,8 @@ namespace MphRead::Mods::Network
         {
             return;
         }
-        *free = Entry{ true, claimId, *kind, spawnId, spawnCount, std::max(1U, NetSession::NetFrame()), false, false, 0,
-            _seen[IndexOf(*kind)], player.ItemEffectFrames(item.ItemType()), ++_nextGeneration };
+        _book.Add(claimId, *kind, spawnId, spawnCount, LocalLife(), std::max(1U, NetSession::NetFrame()),
+            player.ItemEffectFrames(item.ItemType()));
         player.GrantItemEffect(item.ItemType(), PowerUpFrames);
         item.SetDespawnTimer(0);
         _predicted++;
@@ -72,136 +72,47 @@ namespace MphRead::Mods::Network
 
     bool NetPowerUpPrediction::Holds(std::int16_t spawnId, std::uint16_t spawnCount) noexcept
     {
-        return std::any_of(_entries.begin(), _entries.end(), [&](const Entry& entry)
-        {
-            return entry.Live && entry.SpawnId == spawnId && entry.SpawnCount == spawnCount;
-        });
+        return _book.Holds(spawnId, spawnCount);
     }
 
     bool NetPowerUpPrediction::Awaiting(PowerUp kind) noexcept
     {
-        return std::any_of(_entries.begin(), _entries.end(), [&](const Entry& entry)
-        {
-            return entry.Live && !entry.Confirmed && entry.Kind == kind;
-        });
+        return _book.Awaiting(kind);
     }
 
     void NetPowerUpPrediction::Settle(std::uint16_t claimId, bool granted, std::uint8_t sequence)
     {
-        for (Entry& entry : _entries)
+        Entities::PlayerEntity* player = LocalPlayer();
+        (granted ? _confirmed : _refused)++;
+        const std::optional<PredictionBook::Rollback> rollback = _book.Settle(claimId, granted, sequence,
+            NetSession::NetFrame(), LocalLife(), player != nullptr && player->Health() > 0);
+        if (!rollback.has_value() || player == nullptr)
         {
-            if (!entry.Live || entry.ClaimId != claimId || entry.Granted)
-            {
-                continue;
-            }
-            if (granted)
-            {
-                entry.Granted = true;
-                entry.Sequence = sequence;
-                entry.Confirmed = _seen[IndexOf(entry.Kind)] == sequence;
-                _confirmed++;
-            }
-            else
-            {
-                Refuse(entry);
-                _refused++;
-            }
             return;
         }
-    }
-
-    NetPowerUpPrediction::Entry* NetPowerUpPrediction::Successor(const Entry& entry) noexcept
-    {
-        Entry* next = nullptr;
-        for (Entry& other : _entries)
+        player->SetItemEffectFrames(ItemTypeOf(rollback->Kind), rollback->Frames);
+        _undone++;
+        if (NetLog::Enabled())
         {
-            if (other.Live && &other != &entry && other.Kind == entry.Kind && other.Generation > entry.Generation
-                && (next == nullptr || other.Generation < next->Generation))
-            {
-                next = &other;
-            }
+            NetLog::Event("[powerup] prediction undone " + std::string(NameOf(rollback->Kind)) + " claim="
+                + std::to_string(claimId) + ", back to " + std::to_string(rollback->Frames) + " frames");
         }
-        return next;
-    }
-
-    void NetPowerUpPrediction::Refuse(Entry& entry)
-    {
-        if (Entry* next = Successor(entry))
-        {
-            // A later pickup of the same kind is still waiting and owns the
-            // effect shown now. What it would roll back to was this one's
-            // prediction; it is this one's own "before" instead.
-            const std::uint32_t between = next->Since - entry.Since;
-            next->RemainingBefore = static_cast<std::uint16_t>(
-                entry.RemainingBefore > between ? entry.RemainingBefore - between : 0U);
-            next->SeenBefore = entry.SeenBefore;
-        }
-        else
-        {
-            Undo(entry);
-        }
-        entry.Live = false;
     }
 
     void NetPowerUpPrediction::Seen(PowerUp kind, std::uint8_t sequence)
     {
-        _seen[IndexOf(kind)] = sequence;
-        for (Entry& entry : _entries)
-        {
-            if (entry.Live && entry.Granted && entry.Kind == kind && entry.Sequence == sequence)
-            {
-                entry.Confirmed = true;
-            }
-        }
-    }
-
-    void NetPowerUpPrediction::Undo(const Entry& entry)
-    {
-        // Only while no grant has been shown since: one that has is the
-        // authority's, and the snapshots already rule on it.
-        Entities::PlayerEntity* player = LocalPlayer();
-        if (player == nullptr || _seen[IndexOf(entry.Kind)] != entry.SeenBefore)
-        {
-            return;
-        }
-        // Back to what was running before this pickup was shown, less the time
-        // since: a refused second double damage leaves the first one's.
-        const std::uint32_t elapsed = NetSession::NetFrame() - entry.Since;
-        const auto left = static_cast<std::uint16_t>(entry.RemainingBefore > elapsed ? entry.RemainingBefore - elapsed : 0U);
-        player->SetItemEffectFrames(ItemTypeOf(entry.Kind), left);
-        _undone++;
-        if (NetLog::Enabled())
-        {
-            NetLog::Event("[powerup] prediction undone " + std::string(NameOf(entry.Kind))
-                + " claim=" + std::to_string(entry.ClaimId));
-        }
+        _book.Seen(kind, sequence);
     }
 
     void NetPowerUpPrediction::Tick()
     {
-        const std::uint32_t now = NetSession::NetFrame();
-        for (Entry& entry : _entries)
-        {
-            if (!entry.Live)
-            {
-                continue;
-            }
-            const std::uint32_t age = now - entry.Since;
-            if (entry.Granted && !entry.Confirmed && age > UnseenFrames)
-            {
-                entry.Confirmed = true;
-            }
-            if (entry.Confirmed && (SpawnSettled(entry.SpawnId, entry.SpawnCount) || age > HoldFrames))
-            {
-                entry.Live = false;
-            }
-        }
+        _book.BeginLife(LocalLife());
+        _book.Tick(NetSession::NetFrame(), SpawnSettled);
     }
 
     void NetPowerUpPrediction::Reset()
     {
-        _entries = {};
-        _seen = {};
+        _book.Reset();
         _predicted = 0;
         _confirmed = 0;
         _refused = 0;

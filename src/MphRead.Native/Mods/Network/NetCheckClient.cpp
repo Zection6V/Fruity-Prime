@@ -33,6 +33,7 @@
 #include "../ScreenCapture.hpp"
 #include "../AudioMute.hpp"
 #include "../Headless.hpp"
+#include "NetBotRoles.hpp"
 #include "../Chat/ChatBox.hpp"
 #include "../../GameState.hpp"
 #include "../../Metadata/Metadata.hpp"
@@ -1024,7 +1025,12 @@ namespace MphRead::Mods::Network
             return 1;
         }
         NetTestScript::Reset();
-        NetTestScript::SetEnabled(true);
+        NetTestScript::SetEnabled(!AiLevel.has_value());
+        NetBotRoles::PlayLocalAs(AiLevel);
+        if (AiLevel.has_value())
+        {
+            std::cout << "[netcheck] " << name << " is played by the AI at level " << *AiLevel << "\n";
+        }
 
         const auto roomOptional = NetLaunch::ServerRoom();
         const auto [roomKey, roomMode] = roomOptional.value();
@@ -1094,6 +1100,7 @@ namespace MphRead::Mods::Network
         }
         SpectatorMode::Reset();
         NetTestScript::SetEnabled(false);
+        NetBotRoles::PlayLocalAs(std::nullopt);
         NetSession::Stop();
         NetLog::Close();
         return result;

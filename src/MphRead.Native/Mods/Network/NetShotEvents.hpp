@@ -94,6 +94,9 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static ShotQueueStats Stats(std::int32_t slot) noexcept;
         // How many shots this machine's own player has made events of.
         [[nodiscard]] static std::uint32_t Sent() noexcept { return _local.Sent(); }
+        // A server bot's shots, into the intent the server sends for it
+        // (ServerBots): every client fires them as it fires a person's.
+        static void AttachFor(std::int32_t slot, IntentPacket& intent) noexcept;
         // What became of every remote shot event this machine received, and
         // what the ledger refused; nullopt before any arrived.
         [[nodiscard]] static std::optional<std::string> Describe();
@@ -101,8 +104,12 @@ namespace MphRead::Mods::Network
     private:
         [[nodiscard]] static bool Drives(const Entities::PlayerEntity& shooter) noexcept;
         [[nodiscard]] static bool Records(const Entities::PlayerEntity& shooter) noexcept;
+        // The log a shooter's shots go in on this machine: its own player's,
+        // or a bot this server plays; none for anybody else.
+        [[nodiscard]] static LocalShotLog* LogFor(const Entities::PlayerEntity& shooter) noexcept;
 
         inline static LocalShotLog _local{};
+        inline static std::array<LocalShotLog, Slots> _bots{};
         inline static std::array<RemoteShotQueue, Slots> _remote{};
         inline static std::array<ShotEventLedger, Slots> _ledger{};
         // Occupants gone: still part of what this machine received.

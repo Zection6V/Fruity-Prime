@@ -66,6 +66,12 @@ namespace MphRead::Mods::Network
             Entities::PlayerEntity& player, OpenTK::Mathematics::Vector3 position, bool measuredInAlt);
 
         static void RecordPresses(Entities::PlayerEntity& player);
+        // What any player's copy is doing this frame, as an intent: the
+        // buttons its controls hold, its aim, position, weapon, ammo and
+        // charge. Reads the player and nothing else.
+        [[nodiscard]] static IntentPacket StateIntent(Entities::PlayerEntity& player);
+        // This machine's own player's intent: StateIntent and what only it
+        // has -- its press history, a latched charge, the world it has seen.
         [[nodiscard]] static IntentPacket CaptureIntent(Entities::PlayerEntity& player);
 
         [[nodiscard]] static bool RespawnRequested(std::int32_t slot);

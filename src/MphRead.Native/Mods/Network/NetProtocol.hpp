@@ -673,7 +673,9 @@ namespace MphRead::Mods::Network
         // + Weavel (14) + the newest damage event's confirmed impact (3)
         // + the power-ups the authority granted (protocol 29, 2 each).
         static constexpr std::int32_t PowerUpOffset = LegacySize + 14 + 3;
-        static constexpr std::int32_t Size = PowerUpOffset + 2 * static_cast<std::int32_t>(PowerUpCount);
+        // + the frames the player has left frozen (protocol 30, 1).
+        static constexpr std::int32_t FrozenOffset = PowerUpOffset + 2 * static_cast<std::int32_t>(PowerUpCount);
+        static constexpr std::int32_t Size = FrozenOffset + 1;
 
         std::uint8_t SlotIndex = 0;
         std::uint8_t Flags = 0;
@@ -711,6 +713,8 @@ namespace MphRead::Mods::Network
         // Double damage, cloak, Death Alt (PowerUp order): the authority's
         // grant and what it has left (NetPowerUps).
         std::array<PowerUpReport, PowerUpCount> PowerUps{};
+        // The authority's freeze: frames left, 0 when not frozen (NoxusIceWaveFreezeSync).
+        std::uint8_t FrozenFrames = 0;
         static constexpr float ImpactRadius = 0.55F;
         static constexpr std::uint8_t WeavelFlagTurretActive = 1U << 0;
         static constexpr std::uint8_t WeavelFlagTurretGrounded = 1U << 1;
@@ -873,7 +877,7 @@ namespace MphRead::Mods::Network
     public:
         static constexpr std::uint16_t DefaultPort = 27888;
         static constexpr std::int32_t MaxPacketSize = 1232;
-        static constexpr std::int32_t ProtocolVersion = 29;
+        static constexpr std::int32_t ProtocolVersion = 30;
         static constexpr std::int32_t IntentSendInterval = 1;
         static constexpr double TimeoutSeconds = 30.0;
 

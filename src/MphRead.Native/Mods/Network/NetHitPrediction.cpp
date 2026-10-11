@@ -6,6 +6,7 @@
 #include "../../Entities/Players/HalfturretEntity.hpp"
 #include "../../GameState.hpp"
 #include "NetDamage.hpp"
+#include "NoxusIceWaveFreezeSync.hpp"
 #include "NetHitClaims.hpp"
 #include "NetHooks.hpp"
 #include "NetLog.hpp"
@@ -362,6 +363,11 @@ namespace MphRead::Mods::Network
             if (headshot && !self)
             {
                 _headshotsPredicted++;
+            }
+            if (!self && ::MphRead::TestFlag(afflictions, ::MphRead::Affliction::Freeze))
+            {
+                // The freeze this hit put on the copy waits for the authority's.
+                NoxusIceWaveFreezeSync::NotePredicted(victimSlot);
             }
             if (self)
             {

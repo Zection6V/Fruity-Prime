@@ -117,6 +117,8 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static std::int32_t DamageLevel() noexcept { return 1; }
         [[nodiscard]] bool AffinityWeapons() const noexcept { return _affinityWeapons; }
         void AffinityWeapons(bool value) noexcept { _affinityWeapons = value; }
+        // AI players run by this server in the top `count` slots (ServerBots).
+        void Bots(std::int32_t count, std::int32_t level);
         [[nodiscard]] bool ShadowFreeze() const noexcept { return _shadowFreeze; }
         void ShadowFreeze(bool value) noexcept { _shadowFreeze = value; }
         [[nodiscard]] bool AutoUpdate() const noexcept { return _autoUpdate; }
@@ -162,6 +164,7 @@ namespace MphRead::Mods::Network
         std::array<std::uint8_t, NetConfig::MaxPacketSize> _scratch{};
         const std::int32_t _port;
         const std::int32_t _maxPlayers;
+        std::uint32_t _botRelayFrame = 0;
         const std::shared_ptr<MapRotation> _rotation;
         std::unique_ptr<NetTransport> _transport{};
         std::atomic<bool> _listening{false};
@@ -228,6 +231,8 @@ namespace MphRead::Mods::Network
         void Handle(const ReceivedPacket& packet, double now);
         void HandleHitClaim(const ReceivedPacket& packet, double now);
         void HandlePickupClaim(const ReceivedPacket& packet, double now);
+        // Tells every client what each of this server's bots did this step.
+        void RelayBots();
         void SendPickupVerdicts(std::int32_t slot, std::span<const PickupVerdictPacket::Entry> verdicts);
         void SendVerdicts(std::int32_t slot, std::span<const std::pair<std::uint16_t, std::uint8_t>> verdicts);
         void HandleVote(const ReceivedPacket& packet, double now);

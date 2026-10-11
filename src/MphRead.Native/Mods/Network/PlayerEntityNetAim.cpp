@@ -850,6 +850,41 @@ namespace MphRead::Entities
         }
     }
 
+    std::uint16_t PlayerEntity::ModFrozenFrames() const
+    {
+        return (*this)._frozenTimer;
+    }
+
+    void PlayerEntity::ModMirrorFrozen(std::uint16_t frames)
+    {
+        if ((*this).Health() <= 0)
+        {
+            return;
+        }
+        if (frames == 0)
+        {
+            if ((*this)._frozenTimer > 1)
+            {
+                // Thaws on the next step, the way running out does.
+                ((*this)._frozenTimer = 1);
+            }
+            return;
+        }
+        if ((*this)._frozenTimer == 0)
+        {
+            (*this)._soundSource.PlaySfx(SfxId::SHOTGUN_FREEZE);
+            if ((*this).IsMainPlayer())
+            {
+                (*this).ResetCombatVisor();
+                ((*this)._drawIceLayer = true);
+            }
+            (*this).EndAltAttack();
+        }
+        ((*this)._frozenTimer = frames);
+        // The ice outlasts the freeze by the five frames it always has.
+        ((*this)._frozenGfxTimer = static_cast<std::uint16_t>(frames + 5 * 2));
+    }
+
     void PlayerEntity::ModRefreshVolume()
     {
         (*this)._volume = CollisionVolume::Move((*this)._volumeUnxf, (*this).Position);

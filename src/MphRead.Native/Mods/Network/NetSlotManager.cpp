@@ -1,4 +1,5 @@
 #include "NetSlotManager.hpp"
+#include "NetBotRoles.hpp"
 #include "NetPlayerLifecycle.hpp"
 #include "../Multiplayer/TeamVisuals.hpp"
 
@@ -117,8 +118,7 @@ namespace MphRead::Mods::Network
         player.SetLoadFlags(player.LoadFlags() | Entities::LoadFlags::SlotActive);
         player.SetLoadFlags(player.LoadFlags() | Entities::LoadFlags::Active);
         player.SetLoadFlags(player.LoadFlags() | Entities::LoadFlags::Initial);
-        player.SetIsBot(false);
-        player.SetBotLevel(0);
+        NetBotRoles::Assign(player);
 
         SyncTeam(player, slot);
 

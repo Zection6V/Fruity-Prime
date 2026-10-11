@@ -16,6 +16,7 @@
 #include "MapRotation.hpp"
 #include "NetItemState.hpp"
 #include "NetPickupClaims.hpp"
+#include "ServerBots.hpp"
 #include "NetPowerUps.hpp"
 #include "NetHitClaims.hpp"
 #include "NetShotEvents.hpp"
@@ -83,6 +84,51 @@ namespace MphRead::Mods::Network
 
     DedicatedServer::~DedicatedServer() = default;
 
+    void DedicatedServer::Bots(std::int32_t count, std::int32_t level)
+    {
+        ServerBots::Configure(count, level, _maxPlayers);
+        for (std::int32_t slot = 0; slot < _maxPlayers; slot++)
+        {
+            if (ServerBots::Holds(slot) && _slotGenerations[static_cast<std::size_t>(slot)] == 0)
+            {
+                _slotGenerations[static_cast<std::size_t>(slot)] = 1;
+            }
+        }
+        if (ServerBots::Count() > 0)
+        {
+            Log(std::to_string(ServerBots::Count()) + " bot(s) at level " + std::to_string(ServerBots::Level())
+                + " in slots " + std::to_string(_maxPlayers - ServerBots::Count()) + "-" + std::to_string(_maxPlayers - 1));
+        }
+    }
+
+    void DedicatedServer::RelayBots()
+    {
+        if (ServerBots::Count() == 0 || _transport == nullptr || _peers.empty()
+            || NetSession::NetFrame() == _botRelayFrame)
+        {
+            return;
+        }
+        _botRelayFrame = NetSession::NetFrame();
+        const auto& players = Entities::PlayerEntity::Players();
+        for (std::int32_t slot = 0; slot < _maxPlayers && static_cast<std::size_t>(slot) < players.size(); slot++)
+        {
+            const std::shared_ptr<Entities::PlayerEntity>& player = players[static_cast<std::size_t>(slot)];
+            if (!ServerBots::Holds(slot) || player == nullptr
+                || !Runtime::HasFlag(player->LoadFlags(), Entities::LoadFlags::Active))
+            {
+                continue;
+            }
+            const IntentPacket intent = ServerBots::IntentFor(*player);
+            _scratch[0] = static_cast<std::uint8_t>(slot);
+            intent.Write(From(_scratch, 1));
+            const std::size_t length = 1 + intent.WireSize();
+            for (const std::shared_ptr<Peer>& peer : _peers)
+            {
+                _transport->Send(peer->EndPoint, PacketType::SlotIntent, First(_scratch, length));
+            }
+        }
+    }
+
     bool DedicatedServer::Simulating() const
     {
         return _sim != nullptr && _sim->Running();
@@ -145,6 +191,7 @@ namespace MphRead::Mods::Network
                 if ((_phase == SessionPhase::InMatch || _phase == SessionPhase::PostMatch) && _sim != nullptr)
                 {
                     _sim->Advance(now);
+                    RelayBots();
                 }
                 const float limit = CurrentDefinition().TimeLimitSeconds;
                 if (_phase == SessionPhase::InMatch && _matchEndedAt < 0 && limit > 0 && !_peers.empty()
@@ -1503,6 +1550,23 @@ namespace MphRead::Mods::Network
             names[at] = !peer.Name.empty() ? peer.Name : "Player" + std::to_string(peer.SlotIndex + 1);
             roster.Count++;
         }
+        for (std::int32_t slot = 0; slot < _maxPlayers && roster.Count < RosterPacket::MaxSlots; slot++)
+        {
+            if (!ServerBots::Holds(slot))
+            {
+                continue;
+            }
+            const auto at = static_cast<std::size_t>(roster.Count);
+            slots[at] = static_cast<std::uint8_t>(slot);
+            generations[at] = _slotGenerations[static_cast<std::size_t>(slot)];
+            teams[at] = -1;
+            ready[at] = true;
+            hunters[at] = static_cast<std::uint8_t>(ServerBots::HunterFor(slot));
+            colors[at] = 0;
+            pings[at] = 0;
+            names[at] = ServerBots::NameFor(slot);
+            roster.Count++;
+        }
         return roster;
     }
 
@@ -1722,7 +1786,7 @@ namespace MphRead::Mods::Network
 
     bool DedicatedServer::SlotFree(std::int32_t slot) const
     {
-        return std::none_of(_peers.begin(), _peers.end(),
+        return !ServerBots::Holds(slot) && std::none_of(_peers.begin(), _peers.end(),
             [slot](const std::shared_ptr<Peer>& peer) { return peer->SlotIndex == slot; });
     }
 

@@ -1226,6 +1226,7 @@ namespace MphRead::Mods::Network
         {
             W16(Slice(dest, static_cast<std::size_t>(PowerUpOffset) + 2 * i), PackReport(PowerUps[i]));
         }
+        At(dest, FrozenOffset) = FrozenFrames;
     }
     PlayerState PlayerState::Read(std::span<const std::uint8_t> src)
     {
@@ -1265,6 +1266,7 @@ namespace MphRead::Mods::Network
         {
             state.PowerUps[i] = UnpackReport(R16(Slice(src, static_cast<std::size_t>(PowerUpOffset) + 2 * i)));
         }
+        state.FrozenFrames = At(src, FrozenOffset);
 
         DamageEvent latest{};
         for (std::int32_t i = DamageHistory - 1; i >= 0; i--)

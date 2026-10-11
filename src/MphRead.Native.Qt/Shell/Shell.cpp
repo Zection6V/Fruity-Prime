@@ -840,6 +840,11 @@ namespace MphRead::Mods::Launcher::Gui
         g_pending = WithRoomKey(*g_played, std::move(roomKey));
     }
 
+    void Shell::LaunchOnStart(LaunchPlan plan)
+    {
+        g_pending = std::move(plan);
+    }
+
     void Shell::PointerMoved(double x, double y)
     {
         (void)x;

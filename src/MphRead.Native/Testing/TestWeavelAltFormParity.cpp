@@ -108,8 +108,9 @@ namespace
         // player's hits on itself); 26 a claim's cause (a Death Alt); 27 an
         // intent's variable-length sections; 28 only the hello (a connection
         // secret); 29 the power-ups the authority grants (6 bytes a player),
-        // the pickup claim and a doubled hit's flag.
-        Expect(NetConfig::ProtocolVersion == 29 && PlayerState::Size == 137
+        // the pickup claim and a doubled hit's flag; 30 the frames a player
+        // has left frozen (1 byte).
+        Expect(NetConfig::ProtocolVersion == 30 && PlayerState::Size == 138
             && PlayerState::PowerUpOffset - PlayerState::LegacySize == 17,
             "Weavel and the impact add 17 bytes per player, the power-ups 6 more");
         {
@@ -173,9 +174,9 @@ namespace
         }
         Expect(SnapshotHeader::Read(bytes).Frame == 456 && bytes[end] == 0, "snapshot header and health tail remain aligned");
         // 16 before protocol 19; the 3 bytes of confirmed impact per player
-        // (24 at eight) left 13, and the 6 of power-ups (48) leave 6 -- a
-        // cycle of 56 spawners takes ten snapshots, a sixth of a second.
-        Expect(NetItemState::PacketEntries(NetConfig::MaxPacketSize - 1 - end) == 6,
+        // (24 at eight) left 13, the 6 of power-ups (48) 6, and the freeze
+        // byte (8) leaves 5 -- 56 spawners in twelve snapshots, a fifth of a second.
+        Expect(NetItemState::PacketEntries(NetConfig::MaxPacketSize - 1 - end) == 5,
             "eight-player packet reserves bounded item capacity without omitting players");
     }
 }

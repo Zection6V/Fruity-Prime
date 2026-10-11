@@ -19,6 +19,7 @@
 #include "NetPickupClaims.hpp"
 #include "NetPowerUpPrediction.hpp"
 #include "NetPowerUps.hpp"
+#include "NoxusIceWaveFreezeSync.hpp"
 #include "NetHitPrediction.hpp"
 #include "MapVote.hpp"
 #include "NetLifecycleTracker.hpp"
@@ -257,6 +258,7 @@ namespace MphRead::Mods::Network
         NetHitClaims::Reset();
         NetPickupClaims::Reset();
         NetPowerUps::Reset();
+        NoxusIceWaveFreezeSync::Reset();
         NetPowerUpPrediction::Reset();
         NetSmoothing::Reset();
     }
@@ -344,6 +346,7 @@ namespace MphRead::Mods::Network
         NetHitClaims::Reset();
         NetPickupClaims::Reset();
         NetPowerUps::Reset();
+        NoxusIceWaveFreezeSync::Reset();
         NetPowerUpPrediction::Reset();
         NetSmoothing::Reset();
         _hasSnapshot = false;
@@ -476,6 +479,7 @@ namespace MphRead::Mods::Network
         NetHitClaims::Reset();
         NetPickupClaims::Reset();
         NetPowerUps::Reset();
+        NoxusIceWaveFreezeSync::Reset();
         NetPowerUpPrediction::Reset();
         NetSmoothing::Reset();
     }
@@ -1768,6 +1772,7 @@ namespace MphRead::Mods::Network
                 static_cast<std::int32_t>(std::numeric_limits<std::uint16_t>::max())));
             NetDamage::Write(slot, state);
             NetPowerUps::Capture(player, state);
+            NoxusIceWaveFreezeSync::Capture(player, state);
             static_cast<void>(NetPlayerLifecycle::AcceptState(state, _netFrame));
             state.Write(Scratch(_scratch, offset));
             offset += PlayerState::Size;

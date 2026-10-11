@@ -5,6 +5,7 @@
 #include "../Mods/Network/ClaimResend.hpp"
 #include "../Mods/Network/ConnectionSecret.hpp"
 #include "../Mods/Network/ClaimDamageBound.hpp"
+#include "../Mods/Network/NoxusIceWaveFreezeRules.hpp"
 #include "../Mods/Network/ItemAuthority.hpp"
 #include "../Mods/Network/PickupReach.hpp"
 #include "../Mods/Network/PowerUpLedger.hpp"
@@ -924,6 +925,14 @@ namespace
         Expect(RouteFor(context) == PickupRoute::Authority, "the authority hands it out itself");
         context = PickupContext{ true, false, false, true, true, true };
         Expect(RouteFor(context) == PickupRoute::Local, "an item no spawner put out stays local");
+
+        // A freeze is the authority's frames, held while this machine's own waits.
+        Expect(ReconcileFreeze(140, 0, false) == FreezeStep::Mirror && ReconcileFreeze(30, 150, true) == FreezeStep::Mirror,
+            "a reported freeze is copied, whatever this copy had");
+        Expect(ReconcileFreeze(0, 120, false) == FreezeStep::End, "the authority thawed: so does this copy");
+        Expect(ReconcileFreeze(0, 120, true) == FreezeStep::Keep, "but not one this machine's hit froze, until it hears");
+        Expect(ReconcileFreeze(0, 1, false) == FreezeStep::Keep && ReconcileFreeze(0, 0, false) == FreezeStep::Keep,
+            "a copy already thawing is left to it");
 
         // A contact is looked for a round trip after it, not anywhere in history.
         const FrameWindow window = ContactArrivalWindow(1000, 150, 2000);

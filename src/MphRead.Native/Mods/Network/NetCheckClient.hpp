@@ -157,6 +157,9 @@ namespace MphRead::Mods::Network
 
         inline static std::int32_t MapVoteRow = -1;
         inline static bool ShowWindow = false;
+        // -ai [LEVEL]: the game's own AI plays this client's player, in place
+        // of the scripted tour -- a fighting opponent on a real line.
+        inline static std::optional<std::int32_t> AiLevel{};
         // -headless: no window, no GPU, the simulation stepped at 60 Hz by
         // the wall clock -- what the dedicated server does. A test client then
         // needs no display, and cannot fail on a driver that has nothing to

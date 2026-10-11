@@ -1,4 +1,5 @@
 #include "NetRoomChange.hpp"
+#include "NetBotRoles.hpp"
 #include "NetHitClaims.hpp"
 #include "NetSmoothing.hpp"
 
@@ -162,8 +163,7 @@ namespace MphRead::Mods::Network
             created->SetLoadFlags(created->LoadFlags() | Entities::LoadFlags::Initial);
             created->NodeRef = Formats::Culling::NodeRef::None;
             created->CameraInfo()->NodeRef = Formats::Culling::NodeRef::None;
-            created->SetIsBot(false);
-            created->SetBotLevel(0);
+            NetBotRoles::Assign(*created);
             const bool occupied = slot == localSlot
                 || (slot < static_cast<std::int32_t>(NetSession::SlotOccupied.size())
                     && NetSession::SlotOccupied[slot]);

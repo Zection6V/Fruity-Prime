@@ -31,7 +31,12 @@ namespace MphRead::Mods::Network
         // Authority, once a simulation step: a power-up the game ended before
         // its time (a death) ends there in the ledger too.
         static void Observe();
-        [[nodiscard]] static bool RanAt(std::int32_t slot, PowerUp kind, std::uint32_t frame);
+        // Whether the player had it at `frame`, in life `life`.
+        [[nodiscard]] static bool RanAt(std::int32_t slot, PowerUp kind, std::uint32_t frame, std::uint16_t life);
+        // Authority: the player begins a new life, which carries no power-up
+        // over -- whatever the last one still had ends now, whether or not a
+        // step saw its timers drop (Observe).
+        static void BeginLife(std::int32_t slot);
         [[nodiscard]] static PowerUpLedger::Grant Current(std::int32_t slot, PowerUp kind);
 
         // Authority: what the snapshot says of `player`'s power-ups.

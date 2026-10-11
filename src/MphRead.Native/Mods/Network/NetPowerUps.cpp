@@ -1,6 +1,7 @@
 #include "NetPowerUps.hpp"
 
 #include "NetLog.hpp"
+#include "NetPlayerLifecycle.hpp"
 #include "NetPowerUpPrediction.hpp"
 #include "NetProtocol.hpp"
 #include "NetSession.hpp"
@@ -49,7 +50,8 @@ namespace MphRead::Mods::Network
     PowerUpLedger::Grant NetPowerUps::Grant(Entities::PlayerEntity& player, PowerUp kind, std::uint32_t start)
     {
         const std::uint32_t now = NetSession::NetFrame();
-        const PowerUpLedger::Grant grant = _ledger.Begin(player.SlotIndex(), kind, std::min(start, now), PowerUpFrames);
+        const PowerUpLedger::Grant grant = _ledger.Begin(player.SlotIndex(), kind, std::min(start, now), PowerUpFrames,
+            NetPlayerLifecycle::Get(player.SlotIndex()));
         if (grant.Sequence == 0)
         {
             return grant;
@@ -94,9 +96,17 @@ namespace MphRead::Mods::Network
         }
     }
 
-    bool NetPowerUps::RanAt(std::int32_t slot, PowerUp kind, std::uint32_t frame)
+    bool NetPowerUps::RanAt(std::int32_t slot, PowerUp kind, std::uint32_t frame, std::uint16_t life)
     {
-        return _ledger.RanAt(slot, kind, frame);
+        return _ledger.RanAt(slot, kind, frame, life);
+    }
+
+    void NetPowerUps::BeginLife(std::int32_t slot)
+    {
+        if (NetSession::Active() && NetSession::IsAuthority())
+        {
+            _ledger.EndAll(slot, NetSession::NetFrame());
+        }
     }
 
     PowerUpLedger::Grant NetPowerUps::Current(std::int32_t slot, PowerUp kind)

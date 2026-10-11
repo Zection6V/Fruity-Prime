@@ -186,7 +186,9 @@ namespace MphRead::Mods::Network
             const std::uint16_t left = PlayerAt(claimant).ItemEffectFrames(type);
             Expect(left == PowerUpFrames - (now - contact),
                 "the grant does not run from the contact: " + std::to_string(left) + " frames left");
-            Expect(NetPowerUps::RanAt(claimant, kind, contact) && !NetPowerUps::RanAt(claimant, kind, contact - 1),
+            const std::uint16_t life = NetPlayerLifecycle::Get(claimant);
+            Expect(NetPowerUps::RanAt(claimant, kind, contact, life) && !NetPowerUps::RanAt(claimant, kind, contact - 1, life)
+                && !NetPowerUps::RanAt(claimant, kind, contact, static_cast<std::uint16_t>(life + 1)),
                 "the ledger does not start at the contact");
 
             const PickupVerdictPacket::Entry again = Submit(claimant, claim);
@@ -246,9 +248,18 @@ namespace MphRead::Mods::Network
             }
             Expect(spawn->LastPickerSlot() == rival && NetPowerUps::Current(rival, kind).Sequence == 1
                 && PlayerAt(rival).ItemEffectFrames(type) > 0, "a contact the authority saw was not granted");
+            // A death ends the claimant's grant there, and its next life has none.
+            PlayerAt(claimant).TakeDamage(0, Entities::DamageFlags::Death, std::nullopt, nullptr);
+            for (std::int32_t i = 0; i < 2; i++)
+            {
+                sim.Step();
+            }
+            Expect(!NetPowerUps::RanAt(claimant, kind, NetSession::NetFrame() - 1, life),
+                "a dead player's grant still ran");
             Expect(sim.StepFailures() == 0, "the authority had failed steps");
             Runtime::ConsoleWriteLine("[powerupsimtest] PASS " + room + ": " + std::string(NameOf(kind))
                 + " claimed from the contact, resend answered once, stale/far/elsewhere/early/other-spawn/rival refused, "
+                + "ended by a death, "
                 + "authority contact granted, published.");
             result = 0;
         }

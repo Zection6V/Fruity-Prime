@@ -65,12 +65,20 @@ namespace MphRead::Mods::Network
             // what that grant still had: put back if this pickup is refused.
             std::uint8_t SeenBefore = 0;
             std::uint16_t RemainingBefore = 0;
+            // Order among this machine's predictions: what a refusal may roll
+            // back depends on which of them came after it.
+            std::uint32_t Generation = 0;
         };
 
+        // A refusal: rolls the effect back, or -- with a later prediction of
+        // the same kind still waiting -- hands that one what this one held.
+        static void Refuse(Entry& entry);
         static void Undo(const Entry& entry);
+        [[nodiscard]] static Entry* Successor(const Entry& entry) noexcept;
 
         static std::array<Entry, Capacity> _entries;
         inline static std::array<std::uint8_t, PowerUpCount> _seen{};
+        inline static std::uint32_t _nextGeneration = 0;
         inline static std::int64_t _predicted = 0;
         inline static std::int64_t _confirmed = 0;
         inline static std::int64_t _refused = 0;

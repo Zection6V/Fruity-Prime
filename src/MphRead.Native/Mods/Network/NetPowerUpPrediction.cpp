@@ -59,7 +59,7 @@ namespace MphRead::Mods::Network
             return;
         }
         *free = Entry{ true, claimId, *kind, spawnId, spawnCount, std::max(1U, NetSession::NetFrame()), false, false, 0,
-            _seen[IndexOf(*kind)], player.ItemEffectFrames(item.ItemType()) };
+            _seen[IndexOf(*kind)], player.ItemEffectFrames(item.ItemType()), ++_nextGeneration };
         player.GrantItemEffect(item.ItemType(), PowerUpFrames);
         item.SetDespawnTimer(0);
         _predicted++;
@@ -103,12 +103,44 @@ namespace MphRead::Mods::Network
             }
             else
             {
-                Undo(entry);
-                entry.Live = false;
+                Refuse(entry);
                 _refused++;
             }
             return;
         }
+    }
+
+    NetPowerUpPrediction::Entry* NetPowerUpPrediction::Successor(const Entry& entry) noexcept
+    {
+        Entry* next = nullptr;
+        for (Entry& other : _entries)
+        {
+            if (other.Live && &other != &entry && other.Kind == entry.Kind && other.Generation > entry.Generation
+                && (next == nullptr || other.Generation < next->Generation))
+            {
+                next = &other;
+            }
+        }
+        return next;
+    }
+
+    void NetPowerUpPrediction::Refuse(Entry& entry)
+    {
+        if (Entry* next = Successor(entry))
+        {
+            // A later pickup of the same kind is still waiting and owns the
+            // effect shown now. What it would roll back to was this one's
+            // prediction; it is this one's own "before" instead.
+            const std::uint32_t between = next->Since - entry.Since;
+            next->RemainingBefore = static_cast<std::uint16_t>(
+                entry.RemainingBefore > between ? entry.RemainingBefore - between : 0U);
+            next->SeenBefore = entry.SeenBefore;
+        }
+        else
+        {
+            Undo(entry);
+        }
+        entry.Live = false;
     }
 
     void NetPowerUpPrediction::Seen(PowerUp kind, std::uint8_t sequence)

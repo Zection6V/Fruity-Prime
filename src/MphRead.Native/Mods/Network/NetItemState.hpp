@@ -60,9 +60,10 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static PickupRoute Route(const ::MphRead::Entities::PlayerEntity& player,
             const ::MphRead::Entities::ItemInstanceEntity& item);
         [[nodiscard]] static std::shared_ptr<::MphRead::Entities::ItemSpawnEntity> Find(std::int16_t id);
-        // Authority, once a simulation step: the frame each spawner's current
-        // item came out. A claim's contact must come after it.
-        static void Observe();
+        // Authority: `spawn` has just put out its item -- the frame a claim's
+        // contact must come after. Called by the spawner itself, so no spawn
+        // can go unrecorded.
+        static void NoteSpawned(const ::MphRead::Entities::ItemSpawnEntity& spawn);
         [[nodiscard]] static std::optional<std::uint32_t> SpawnedAt(std::int16_t id, std::uint16_t spawnCount);
 
         static void BeginRoom();

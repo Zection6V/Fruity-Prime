@@ -653,26 +653,30 @@ namespace
         using namespace MphRead::Mods::Network;
         // The ledger: when each grant ran, by the world frame of the contact.
         PowerUpLedger ledger;
-        Expect(!ledger.RanAt(2, PowerUp::Deathalt, 100), "nothing granted: nothing ran");
-        const PowerUpLedger::Grant first = ledger.Begin(2, PowerUp::Deathalt, 100, PowerUpFrames);
+        Expect(!ledger.RanAt(2, PowerUp::Deathalt, 100, 1), "nothing granted: nothing ran");
+        const PowerUpLedger::Grant first = ledger.Begin(2, PowerUp::Deathalt, 100, PowerUpFrames, 1);
         Expect(first.Sequence == 1 && first.Expire == 100 + PowerUpFrames, "a grant runs its full time from the contact");
-        Expect(ledger.RanAt(2, PowerUp::Deathalt, 100) && !ledger.RanAt(2, PowerUp::Deathalt, 99),
+        Expect(ledger.RanAt(2, PowerUp::Deathalt, 100, 1) && !ledger.RanAt(2, PowerUp::Deathalt, 99, 1),
             "from the contact on, never before it");
-        Expect(ledger.RanAt(2, PowerUp::Deathalt, 99 + PowerUpFrames) && !ledger.RanAt(2, PowerUp::Deathalt, 100 + PowerUpFrames),
+        Expect(ledger.RanAt(2, PowerUp::Deathalt, 99 + PowerUpFrames, 1) && !ledger.RanAt(2, PowerUp::Deathalt, 100 + PowerUpFrames, 1),
             "up to its last frame and not one past it");
-        Expect(!ledger.RanAt(3, PowerUp::Deathalt, 150) && !ledger.RanAt(2, PowerUp::Cloak, 150),
+        Expect(!ledger.RanAt(3, PowerUp::Deathalt, 150, 1) && !ledger.RanAt(2, PowerUp::Cloak, 150, 1),
             "one player's power-up is not another's, nor another kind");
         ledger.End(2, PowerUp::Deathalt, 400);
-        Expect(ledger.RanAt(2, PowerUp::Deathalt, 399) && !ledger.RanAt(2, PowerUp::Deathalt, 400),
+        Expect(ledger.RanAt(2, PowerUp::Deathalt, 399, 1) && !ledger.RanAt(2, PowerUp::Deathalt, 400, 1),
             "a death ends it exactly there");
-        const PowerUpLedger::Grant second = ledger.Begin(2, PowerUp::Deathalt, 1000, PowerUpFrames);
-        Expect(second.Sequence == 2 && ledger.RanAt(2, PowerUp::Deathalt, 200),
+        const PowerUpLedger::Grant second = ledger.Begin(2, PowerUp::Deathalt, 1000, PowerUpFrames, 1);
+        Expect(second.Sequence == 2 && ledger.RanAt(2, PowerUp::Deathalt, 200, 1),
             "a new grant keeps the old one's record for hits judged late");
-        ledger.Begin(2, PowerUp::Deathalt, 1100, PowerUpFrames);
-        Expect(ledger.Current(2, PowerUp::Deathalt).Start == 1100 && !ledger.RanAt(2, PowerUp::Deathalt, 1100 + PowerUpFrames)
-            && ledger.RanAt(2, PowerUp::Deathalt, 1099), "picked up again: the old one ends where the new begins");
+        ledger.Begin(2, PowerUp::Deathalt, 1100, PowerUpFrames, 1);
+        Expect(ledger.Current(2, PowerUp::Deathalt).Start == 1100 && !ledger.RanAt(2, PowerUp::Deathalt, 1100 + PowerUpFrames, 1)
+            && ledger.RanAt(2, PowerUp::Deathalt, 1099, 1), "picked up again: the old one ends where the new begins");
+        Expect(!ledger.RanAt(2, PowerUp::Deathalt, 1500, 2), "a later life of the same player does not have it");
+        ledger.EndAll(2, 1200);
+        Expect(ledger.RanAt(2, PowerUp::Deathalt, 1199, 1) && !ledger.RanAt(2, PowerUp::Deathalt, 1200, 1),
+            "a new life ends every grant still running");
         ledger.Forget(2);
-        Expect(!ledger.RanAt(2, PowerUp::Deathalt, 1100), "a new occupant has nothing");
+        Expect(!ledger.RanAt(2, PowerUp::Deathalt, 1100, 1), "a new occupant has nothing");
         std::uint8_t sequence = 0;
         for (int i = 0; i < 40; ++i)
         {

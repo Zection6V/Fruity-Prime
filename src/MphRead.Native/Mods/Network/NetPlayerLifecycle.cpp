@@ -191,6 +191,7 @@ namespace MphRead::Mods::Network
             SetOccupant(slot, 1);
         }
         (void)_slots[static_cast<std::size_t>(slot)].BeginLife();
+        NetPowerUps::BeginLife(slot);
         NetPlayerBridge::ForgetSlot(slot);
         NetDamage::ForgetSlot(slot);
         NetHitPrediction::NoteRespawn(slot);

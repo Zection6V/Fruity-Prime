@@ -218,6 +218,7 @@ namespace MphRead::Entities
                 _spawnCooldown = static_cast<std::uint16_t>(
                     static_cast<std::int32_t>(_data.SpawnInterval) * 2);
                 ++_spawnCount;
+                Mods::Network::NetItemState::NoteSpawned(*this);
                 if (Mods::Network::NetItemState::ServerOwned(_data.ItemType))
                 {
                     _lastPickerSlot = -1;

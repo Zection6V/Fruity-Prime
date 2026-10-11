@@ -1079,11 +1079,17 @@ namespace MphRead::Mods::Network
                     ? std::optional(ShotKey(entry.AuthorityEpoch, entry.MatchId, entry.ShooterSlot,
                         entry.ShooterGeneration, entry.ShooterLifeId, entry.LaunchFrame)) : std::nullopt;
                 std::int32_t resolved = 0;
-                if (TakeLedger(entry.ShooterSlot, entry.VictimSlot, entry.AckFrame,
+                // A doubled claim still waiting on its pickup is not judged on
+                // any path until it has its answer or has waited long enough.
+                const bool settled = DoublingSettled(entry) || now - entry.Arrived >= DoublingHold(entry);
+                if (settled && TakeLedger(entry.ShooterSlot, entry.VictimSlot, entry.AckFrame,
                         entry.LaunchFrame, entry.Arrived, entry.Grace, resolved, strictKey, static_cast<BeamType>(entry.Beam)))
                 {
                     entry.Live = false;
                     _duplicateHere++;
+                    // A kill finished from a claim is finished at the damage
+                    // the authority allows it, never the number it claimed.
+                    SettleDamage(entry);
                     NoteAgreement(entry.ShooterSlot, entry.VictimSlot, entry.Beam, entry.Damage, resolved);
                     FinishLethal(entry);
                     Answer(entry.ShooterSlot, entry.Id, HitVerdictPacket::ResultDuplicate);
@@ -1516,7 +1522,7 @@ namespace MphRead::Mods::Network
     bool NetHitClaims::DoublingSettled(const Pending& entry)
     {
         return (entry.Flags & HitClaimPacket::FlagDoubled) == 0
-            || NetPowerUps::RanAt(entry.ShooterSlot, PowerUp::DoubleDamage, FiredFrame(entry));
+            || NetPowerUps::RanAt(entry.ShooterSlot, PowerUp::DoubleDamage, FiredFrame(entry), entry.ShooterLifeId);
     }
 
     std::uint32_t NetHitClaims::DoublingHold(const Pending& entry)
@@ -1568,8 +1574,10 @@ namespace MphRead::Mods::Network
 
     void NetHitClaims::SettleDamage(Pending& entry)
     {
+        const bool granted = NetPowerUps::RanAt(entry.ShooterSlot, PowerUp::DoubleDamage, FiredFrame(entry),
+            entry.ShooterLifeId);
         bool doubled = (entry.Flags & HitClaimPacket::FlagDoubled) != 0;
-        if (doubled && !NetPowerUps::RanAt(entry.ShooterSlot, PowerUp::DoubleDamage, FiredFrame(entry)))
+        if (doubled && !granted)
         {
             // Doubled on a machine whose double damage the authority never
             // granted, or not then: the hit stands, at its own damage.
@@ -1587,8 +1595,7 @@ namespace MphRead::Mods::Network
         // Whatever the flag said: a hit is never more than the authority can
         // account for (a claim that drops the flag and doubles the number is
         // held here too).
-        const std::int32_t allowed = AllowedDamage(entry, doubled
-            || NetPowerUps::RanAt(entry.ShooterSlot, PowerUp::DoubleDamage, FiredFrame(entry)));
+        const std::int32_t allowed = AllowedDamage(entry, doubled || granted);
         const std::int32_t claimed = static_cast<std::int32_t>(entry.Damage) + entry.TurretDamage;
         if (claimed <= allowed)
         {
@@ -1612,7 +1619,7 @@ namespace MphRead::Mods::Network
         // The Death Alt the authority granted, running in the world the
         // shooter's screen showed when it hit.
         return entry.Cause == HitClaimPacket::CauseDeathalt
-            && NetPowerUps::RanAt(entry.ShooterSlot, PowerUp::Deathalt, entry.AckFrame);
+            && NetPowerUps::RanAt(entry.ShooterSlot, PowerUp::Deathalt, entry.AckFrame, entry.ShooterLifeId);
     }
 
     void NetHitClaims::FinishLethal(const Pending& entry)
@@ -1692,6 +1699,7 @@ namespace MphRead::Mods::Network
             Answer(shooterSlot, entry.Id, HitVerdictPacket::ResultDeadShooter);
             return;
         }
+        SettleDamage(entry);
         if (MuzzleObstructed(entry))
         {
             const ShotKey key(entry.AuthorityEpoch, entry.MatchId, entry.ShooterSlot,
@@ -1713,7 +1721,6 @@ namespace MphRead::Mods::Network
             Answer(shooterSlot, entry.Id, HitVerdictPacket::ResultGeometry);
             return;
         }
-        SettleDamage(entry);
         DamageFlags flags = CauseFlags(entry);
         if (entry.Cause != HitClaimPacket::CauseHit)
         {

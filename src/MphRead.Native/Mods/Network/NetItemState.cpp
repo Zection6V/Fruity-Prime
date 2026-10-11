@@ -66,25 +66,14 @@ namespace MphRead::Mods::Network
         return nullptr;
     }
 
-    void NetItemState::Observe()
+    void NetItemState::NoteSpawned(const ::MphRead::Entities::ItemSpawnEntity& spawn)
     {
-        if (!NetSession::Active() || !NetSession::IsAuthority())
+        if (!NetSession::Active() || !NetSession::IsAuthority() || !ServerOwned(spawn.Data().ItemType))
         {
             return;
         }
-        const std::uint32_t now = NetSession::NetFrame();
-        for (const auto& spawn : _spawns)
-        {
-            if (spawn == nullptr || spawn->Item() == nullptr || spawn->Item()->DespawnTimer() == 0)
-            {
-                continue;
-            }
-            Appearance& appearance = _appeared[static_cast<std::int16_t>(spawn->Id)];
-            if (appearance.Frame == 0 || appearance.SpawnCount != spawn->SpawnCount())
-            {
-                appearance = Appearance{ spawn->SpawnCount(), std::max(1U, now) };
-            }
-        }
+        _appeared[static_cast<std::int16_t>(spawn.Id)] = Appearance{ spawn.SpawnCount(),
+            std::max(1U, NetSession::NetFrame()) };
     }
 
     std::optional<std::uint32_t> NetItemState::SpawnedAt(std::int16_t id, std::uint16_t spawnCount)

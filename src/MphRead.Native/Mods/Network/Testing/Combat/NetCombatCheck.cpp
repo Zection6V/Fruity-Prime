@@ -3,6 +3,7 @@
 #include "Mods/Network/Gameplay/Weapons/ContinuousWeaponPhase.hpp"
 #include "Mods/Network/Gameplay/Combat/NetDamage.hpp"
 #include "Mods/Network/Gameplay/Claims/Hit/NetHitClaims.hpp"
+#include "Mods/Network/Gameplay/Player/NetPlayerBridge.hpp"
 #include "Mods/Network/Gameplay/Player/NetPlayerLifecycle.hpp"
 #include "Mods/Network/Session/NetSession.hpp"
 #include "Mods/Network/Diagnostics/NetShotDiagnostics.hpp"
@@ -101,6 +102,7 @@ namespace MphRead::Mods::Network
             Check(shooter.ModIsInPlay() && victim.ModIsInPlay() && sim.StepFailures() == 0, "spawn both players");
             Scene* scene = &ServerSimFixture::RequireScene(sim);
             InvalidHitClaimIsRefused();
+            SpectatorInputAndDamageAreRefused();
             InvulnerableClaimIsRefused();
             MutualKillOrdering();
             ClaimArbitrationHasDeadline();
@@ -318,6 +320,82 @@ namespace MphRead::Mods::Network
                     : verdict != HitVerdictPacket::ResultApplied,
                 "InvalidHitClaimIsRefused/offset=" + Runtime::ToString(offset) + " result=" + HitVerdictPacket::Describe(verdict));
         }
+    }
+
+    void NetCombatCheck::SpectatorInputAndDamageAreRefused()
+    {
+        PrepareClaims();
+        PlayerEntity& shooter = *PlayerAt(0);
+        PlayerEntity& victim = *PlayerAt(1);
+        victim.ModSetSpectating(true);
+
+        // A spectator's local controls are cleared on transition. Even if a
+        // stale held state is presented again, CaptureState must not serialize
+        // combat buttons or mark the player as in combat.
+        victim.Controls().Shoot().SetIsDown(true);
+        victim.Controls().Morph().SetIsDown(true);
+        const IntentPacket captured = NetPlayerBridge::StateIntent(victim);
+        Check(Runtime::HasFlag(captured.Buttons, IntentButtons::SpectatingState)
+            && !Runtime::HasFlag(captured.Buttons, IntentButtons::InPlayState)
+            && !Runtime::HasFlag(captured.Buttons, IntentButtons::Shoot)
+            && !Runtime::HasFlag(captured.Buttons, IntentButtons::Morph),
+            "SpectatorIntentDoesNotReportCombatOrHeldActions");
+
+        // The authority normalizes contradictory state bits and advances the
+        // press cursor without replaying the old shooting/morph edges.
+        IntentPacket contradictory = Intent(victim, NetSession::NetFrame() + 1, true, true);
+        contradictory.Buttons |= IntentButtons::SpectatingState | IntentButtons::Morph;
+        (*contradictory.Presses)[0] = static_cast<std::uint32_t>(IntentButtons::Shoot);
+        NetPlayerBridge::ApplyIntent(victim, contradictory);
+        Check(victim.ModIsSpectating() && !victim.ModIsInPlay()
+            && !victim.Controls().Shoot().IsDown() && !victim.Controls().Shoot().IsPressed()
+            && !victim.Controls().Morph().IsDown() && !victim.Controls().Morph().IsPressed(),
+            "ContradictorySpectatorIntentCannotDriveGameplay");
+
+        IntentPacket rejoin = Intent(victim, NetSession::NetFrame() + 2, true, false);
+        (*rejoin.Presses)[0] = static_cast<std::uint32_t>(IntentButtons::Shoot);
+        NetPlayerBridge::ApplyIntent(victim, rejoin);
+        Check(!victim.ModIsSpectating() && victim.ModIsInPlay()
+            && !victim.Controls().Shoot().IsPressed(),
+            "RejoinDropsPressHistoryAccumulatedWhileSpectating");
+
+        victim.SetHealth(99);
+        const std::int32_t deathsBefore = Runtime::ManagedAt(GameState::Deaths(), 1);
+        const Entities::DamageFlags lethal = Entities::DamageFlags::Death
+            | Entities::DamageFlags::IgnoreInvuln | Entities::DamageFlags::NoDmgInvuln;
+        victim.ModSetSpectating(true);
+        Check(NetDamage::Suppress(victim, &shooter, lethal),
+            "SpectatorNetDamagePolicyRefusesDamageBeforeReplayOrOfflineShortcuts");
+        victim.TakeDamage(99U, lethal, std::nullopt, &shooter);
+        const HitClaimPacket claim = Claim(0, NetSession::NetFrame() - 1);
+        Check(NetHitClaimsFixture::Judge(0, claim) == HitVerdictPacket::ResultDeadVictim,
+            "SpectatorClaimIsRefusedByAuthorityEligibilityCheck");
+        Receive(0, claim);
+        Check(victim.Health() == 99
+            && Runtime::ManagedAt(GameState::Deaths(), 1) == deathsBefore
+            && NetHitClaims::AppliedHere() == 0,
+            "SpectatorDamageAndAuthorityClaimCannotChangeHealthOrDeaths");
+
+        victim.ModSetSpectating(false);
+        victim.TakeDamage(1U, Entities::DamageFlags::IgnoreInvuln
+            | Entities::DamageFlags::NoDmgInvuln, std::nullopt, nullptr);
+        Check(victim.ModIsInPlay() && victim.Health() < 99,
+            "RejoinedPlayerCanReceiveDamageAgain");
+
+        PrepareClaims();
+        PlayerEntity& claimVictim = *PlayerAt(1);
+        const HitClaimPacket pending = Claim(0, NetSession::NetFrame() - 1);
+        Receive(0, pending);
+        claimVictim.ModSetSpectating(true);
+        for (std::int32_t i = 0; i < NetHitClaims::MaxGraceFrames + 2; i++)
+        {
+            NetSession::Update(NetSession::NetFrame() / 60.0);
+            NetHitClaims::Tick();
+        }
+        Check(claimVictim.ModIsSpectating() && claimVictim.Health() == 1
+            && NetHitClaims::AppliedHere() == 0,
+            "ClaimAcceptedBeforeSpectatorTransitionIsRecheckedBeforeDamage");
+        PrepareClaims();
     }
 
     void NetCombatCheck::MutualKillOrdering()

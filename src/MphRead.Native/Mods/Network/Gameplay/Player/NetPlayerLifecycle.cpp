@@ -1,4 +1,6 @@
 #include "Mods/Network/Gameplay/Player/NetPlayerLifecycle.hpp"
+
+#include "Mods/SpectatorMode.hpp"
 #include "Mods/Network/Domain/NetworkVectorRules.hpp"
 #include "Mods/Network/Gameplay/Pickups/NetPowerUps.hpp"
 #include "Mods/Network/Gameplay/StatusEffects/FreezeStatusEffectPolicy.hpp"
@@ -184,6 +186,7 @@ namespace MphRead::Mods::Network
         NetSlotManager::ReleaseSlot(slot);
         OnSlotChanged(slot);
         _slots[static_cast<std::size_t>(slot)].SetOccupant(generation);
+        SpectatorMode::NotifyTargetChanged(slot);
     }
 
     void NetPlayerLifecycle::OnSlotChanged(std::int32_t slot)
@@ -217,6 +220,7 @@ namespace MphRead::Mods::Network
             SetOccupant(slot, 1);
         }
         (void)_slots[static_cast<std::size_t>(slot)].BeginLife();
+        SpectatorMode::NotifyTargetChanged(slot);
         NetPowerUps::BeginLife(slot);
         NetPlayerBridge::ForgetSlot(slot);
         NetDamage::ForgetSlot(slot);
@@ -276,6 +280,10 @@ namespace MphRead::Mods::Network
                 (state.Flags & PlayerState::FlagSpawned) != 0);
             return false;
         }
+        if (fresh || before != next)
+        {
+            SpectatorMode::NotifyTargetChanged(slot);
+        }
         if (fresh)
         {
             NetSmoothing::ResetSlot(slot);
@@ -322,6 +330,7 @@ namespace MphRead::Mods::Network
         {
             OnSlotChanged(i);
             _slots[static_cast<std::size_t>(i)].ResetLife();
+            SpectatorMode::NotifyTargetChanged(i);
         }
     }
 
@@ -330,6 +339,10 @@ namespace MphRead::Mods::Network
         for (NetLifecycleTracker& slot : _slots)
         {
             slot.SetOccupant(0);
+        }
+        for (std::int32_t slot = 0; slot < static_cast<std::int32_t>(_slots.size()); ++slot)
+        {
+            SpectatorMode::NotifyTargetChanged(slot);
         }
         _applyingSpawn = false;
         StaleLifeStates = WrongGeneration = InvalidResurrections = Transitions = Spawns = Deaths = 0;

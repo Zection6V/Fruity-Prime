@@ -46,7 +46,6 @@ namespace MphRead::Mods::Network
     {
         namespace Runtime = ::MphRead::NativeRuntime;
         using ::MphRead::Entities::DamageFlags;
-        using ::MphRead::Entities::LoadFlags;
         using ::MphRead::Entities::PlayerEntity;
 
         // Where a victim's turret stands, if they have one still standing:
@@ -68,12 +67,6 @@ namespace MphRead::Mods::Network
                 == static_cast<std::int32_t>(flag);
         }
 
-        [[nodiscard]] bool HasLoadFlag(LoadFlags value, LoadFlags flag) noexcept
-        {
-            using U = std::underlying_type_t<LoadFlags>;
-            return (static_cast<U>(value) & static_cast<U>(flag)) == static_cast<U>(flag);
-        }
-
         [[nodiscard]] std::int32_t Ping(std::int32_t slot)
         {
             return SessionSlots().PingAt(slot);
@@ -82,6 +75,22 @@ namespace MphRead::Mods::Network
         [[nodiscard]] PlayerEntity& PlayerAt(std::int32_t slot)
         {
             return Runtime::RequireReference(Runtime::ManagedAt(PlayerEntity::Players(), slot));
+        }
+
+        void LogSpectatorClaimRefusal(const PlayerEntity& victim, const char* phase,
+            std::int32_t shooterSlot, std::uint16_t claimId)
+        {
+            if (!victim.ModIsSpectating() || !NetLog::Enabled())
+            {
+                return;
+            }
+            const std::int32_t victimSlot = victim.SlotIndex();
+            NetLog::Event("[spectator-claim] phase=" + std::string(phase)
+                + " shooter=" + std::to_string(shooterSlot)
+                + " victim=" + std::to_string(victimSlot)
+                + " claim=" + std::to_string(claimId)
+                + " generation=" + std::to_string(NetPlayerLifecycle::Generation(victimSlot))
+                + " life=" + std::to_string(NetPlayerLifecycle::Get(victimSlot)));
         }
     }
 
@@ -600,8 +609,9 @@ namespace MphRead::Mods::Network
             return HitVerdictPacket::ResultGeometry;
         }
         PlayerEntity& victim = PlayerAt(victimSlot);
-        if (!HasLoadFlag(victim.LoadFlags(), LoadFlags::Active) || !victim.ModIsInPlay())
+        if (!victim.ModIsInPlay())
         {
+            LogSpectatorClaimRefusal(victim, "validate", shooterSlot, claim.ClaimId);
             _metrics.Increment(HitClaimMetrics::Counter::VoidedDeadVictim);
             return HitVerdictPacket::ResultDeadVictim;
         }
@@ -1061,7 +1071,6 @@ namespace MphRead::Mods::Network
         for (std::int32_t i = 0; i < Slots; i++)
         {
             const bool inPlay = i < static_cast<std::int32_t>(PlayerEntity::Players().size())
-                && HasLoadFlag(PlayerAt(i).LoadFlags(), LoadFlags::Active)
                 && PlayerAt(i).ModIsInPlay();
             if (_deathState.UpdateInPlay(i, inPlay, NetSession::NetFrame())
                 == HitClaimSlotTransition::Respawned)
@@ -1238,8 +1247,7 @@ namespace MphRead::Mods::Network
             return;
         }
         PlayerEntity& victim = PlayerAt(entry.VictimSlot);
-        if (victim.Health() <= 0 || entry.Damage < static_cast<std::int32_t>(victim.Health())
-            || !HasLoadFlag(victim.LoadFlags(), LoadFlags::Active) || !victim.ModIsInPlay()
+        if (entry.Damage < static_cast<std::int32_t>(victim.Health()) || !victim.ModIsInPlay()
             || _deathState.FiredAfterOwnDeath(entry.ShooterSlot,
                 entry.LaunchFrame != 0 ? entry.LaunchFrame : entry.AckFrame))
         {
@@ -1293,8 +1301,12 @@ namespace MphRead::Mods::Network
         }
         PlayerEntity& victim = PlayerAt(victimSlot);
         PlayerEntity& shooter = PlayerAt(shooterSlot);
-        if (!HasLoadFlag(victim.LoadFlags(), LoadFlags::Active) || !victim.ModIsInPlay())
+        // A claim may pass initial validation just before a spectator intent
+        // is accepted. The accepted server state is checked again here before
+        // the queued claim can change health.
+        if (!victim.ModIsInPlay())
         {
+            LogSpectatorClaimRefusal(victim, "apply", shooterSlot, entry.Id);
             _metrics.Increment(HitClaimMetrics::Counter::VoidedDeadVictim);
             Answer(shooterSlot, entry.Id, HitVerdictPacket::ResultDeadVictim);
             return;

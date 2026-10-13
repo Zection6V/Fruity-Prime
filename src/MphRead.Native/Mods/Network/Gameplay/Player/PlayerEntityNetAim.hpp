@@ -28,6 +28,7 @@ public: \
     void ModLogCollisionRange(); \
     void ModSetFacing(OpenTK::Mathematics::Vector3 facing); \
     void ModSetSpectating(bool value); \
+    [[nodiscard]] bool ModIsSpectating() const; \
     [[nodiscard]] bool ModInPlay() const; \
     [[nodiscard]] bool ModIsInPlay() const; \
  \

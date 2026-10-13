@@ -31,6 +31,7 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static HitClaimPacket Claim(std::int32_t shooter, std::uint32_t world);
         static void Receive(std::int32_t shooter, const HitClaimPacket& claim);
         static void InvalidHitClaimIsRefused();
+        static void SpectatorInputAndDamageAreRefused();
         static void MutualKillOrdering();
         static void InvulnerableClaimIsRefused();
         static void ClaimArbitrationHasDeadline();

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Formats/Culling.hpp"
+#include "Mods/Network/Gameplay/Player/ReplicaShadowVisibility.hpp"
 #include "NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <cstdint>
@@ -24,4 +25,9 @@ public: \
     void ModNetSpawn(OpenTK::Mathematics::Vector3 position, \
         OpenTK::Mathematics::Vector3 facing); \
     [[nodiscard]] static Formats::Culling::NodeRef ModSpawnNodeRef( \
-        MphRead::Scene& scene, OpenTK::Mathematics::Vector3 position);
+        MphRead::Scene& scene, OpenTK::Mathematics::Vector3 position); \
+private: \
+    [[nodiscard]] bool ModIsRemoteNetworkPlayer() const noexcept; \
+    void ModRefreshShadowProjection(); \
+    MphRead::Mods::Network::ReplicaShadowVisibility::Projection _modShadowProjection{}; \
+public:

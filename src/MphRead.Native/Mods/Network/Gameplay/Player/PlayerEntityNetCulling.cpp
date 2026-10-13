@@ -1,10 +1,13 @@
 #include "Mods/Network/Gameplay/Player/PlayerEntityNetCulling.hpp"
 
 #include "Entities/EntityBase.hpp"
+#include "Entities/RoomEntity.hpp"
 #include "Entities/Players/PlayerEntity.hpp"
-#include "Formats/CollisionDetection.hpp"
 #include "Mods/Network/Diagnostics/NetLog.hpp"
 #include "Mods/Network/Gameplay/Player/NetPlayerBridge.hpp"
+#include "Mods/Network/Gameplay/Player/ReplicaRoomPlacement.hpp"
+#include "Mods/Network/Gameplay/Player/ReplicaShadowVisibility.hpp"
+#include "Mods/Network/Session/NetSession.hpp"
 #include "NativeRuntime/OpenTK/Mathematics.hpp"
 #include "Scene.hpp"
 
@@ -52,6 +55,7 @@ namespace MphRead::Entities
     void PlayerEntity::ModRefreshNodeRef(Vector3 previousPosition)
     {
         (*this)._volume = CollisionVolume::Move((*this)._volumeUnxf, (*this).Position);
+        ModRefreshShadowProjection();
         MphRead::Scene& scene = (*(*this)._scene);
         const Formats::Culling::NodeRef currentForWalk = (*this).NodeRef;
         const Vector3 positionForWalk = static_cast<Vector3>((*this).Position);
@@ -141,28 +145,52 @@ namespace MphRead::Entities
         // location from the same displayed world position instead of walking
         // the previous NodeRef, whose portal may no longer be active here.
         (*this)._volume = CollisionVolume::Move((*this)._volumeUnxf, (*this).Position);
+        ModRefreshShadowProjection();
         MphRead::Scene& scene = (*(*this)._scene);
         const Vector3 position = static_cast<Vector3>((*this).Position);
         const Formats::Culling::NodeRef previous = (*this).NodeRef;
         const bool wasUnresolved = _modNodeUnresolved;
-        Formats::Culling::NodeRef found = scene.GetNodeRefByPosition(position);
-        if (found.PartIndex == -1)
+        const Vector3 bodyCenter = _volume.SpherePosition;
+        const bool clientReplicaMode = Mods::Network::NetSession::IsClient()
+            && !Mods::Network::NetSession::IsAuthority();
+        const bool useReplicaPlacement = clientReplicaMode
+            && SlotIndex() != Mods::Network::NetSession::LocalSlot() && !IsBot();
+        const auto room = useReplicaPlacement ? scene.Room() : nullptr;
+
+        bool ambiguous = false;
+        const auto lookup = [&](Vector3 probe)
         {
-            found = scene.GetNodeRefByPosition((*this)._volume.SpherePosition);
+            if (!room) return scene.GetNodeRefByPosition(probe);
+            const auto resolution = Mods::Network::ReplicaRoomPlacement::Find(
+                room.get(), probe, bodyCenter);
+            ambiguous = Mods::Network::ReplicaRoomPlacementRules::StopsProbeFallback(resolution.state);
+            return resolution.state == Mods::Network::ReplicaRoomPlacementRules::State::Resolved
+                ? resolution.node : Formats::Culling::NodeRef::None;
+        };
+        // Every fallback probe must place the same current-form collision
+        // center. No retained simulation/presentation node is trusted here.
+        Formats::Culling::NodeRef found = lookup(bodyCenter);
+        if (found.PartIndex == -1 && !ambiguous)
+        {
+            found = lookup(position);
         }
-        if (found.PartIndex == -1)
+        if (found.PartIndex == -1 && !ambiguous)
         {
-            found = scene.GetNodeRefByPosition(position + Multiply(Vector3::UnitY, 0.5F));
+            found = lookup(position + Multiply(Vector3::UnitY, 0.5F));
         }
-        if (found.PartIndex == -1)
+        if (found.PartIndex == -1 && !ambiguous)
         {
-            found = scene.GetNodeRefByPosition(position - Multiply(Vector3::UnitY, 0.5F));
+            found = lookup(position - Multiply(Vector3::UnitY, 0.5F));
         }
 
         if (found.PartIndex != -1)
         {
             ((*this).NodeRef = found);
             _modNodeUnresolved = false;
+            if (IsMainPlayer())
+            {
+                _cameraInfo->NodeRef = found;
+            }
             if ((wasUnresolved || previous.PartIndex != found.PartIndex)
                 && Mods::Network::NetLog::Enabled())
             {
@@ -177,6 +205,7 @@ namespace MphRead::Entities
                     + "," + std::to_string(position.Y)
                     + "," + std::to_string(position.Z));
             }
+
             return;
         }
 
@@ -194,9 +223,44 @@ namespace MphRead::Entities
         }
     }
 
+    void PlayerEntity::ModRefreshShadowProjection()
+    {
+        _modShadowProjection = {};
+        if (!ModIsRemoteNetworkPlayer())
+        {
+            return;
+        }
+
+        MphRead::Scene& scene = (*(*this)._scene);
+        _modShadowProjection = Mods::Network::ReplicaShadowVisibility::FindProjection(
+            &scene, _volume.SpherePosition);
+    }
+
     bool PlayerEntity::ModNodeUnresolved() const noexcept
     {
-        return _modNodeUnresolved;
+        if (_modNodeUnresolved) return true;
+        if (!ModIsRemoteNetworkPlayer())
+        {
+            return false;
+        }
+
+        const MphRead::Scene* scene = (*this)._scene;
+        if (!Mods::Network::ReplicaShadowVisibility::MatchesScene(
+            _modShadowProjection, scene))
+        {
+            return false;
+        }
+        const Mods::Network::ReplicaShadowVisibility::FadeState fade{
+            CurAlpha(), Health(), DeathCountdown(), RespawnTimer(), RespawnTime() };
+        return Mods::Network::ReplicaShadowVisibility::ShouldForceBody(
+            true, _modShadowProjection, fade);
+    }
+
+    bool PlayerEntity::ModIsRemoteNetworkPlayer() const noexcept
+    {
+        return (Mods::Network::NetSession::IsClient() || Mods::Network::NetSession::IsHost())
+            && SlotIndex() != Mods::Network::NetSession::LocalSlot()
+            && !IsBot();
     }
 
     void PlayerEntity::ModNetSpawn(Vector3 position, Vector3 facing)
@@ -208,6 +272,7 @@ namespace MphRead::Entities
         MphRead::Scene& scene = (*(*this)._scene);
         const Formats::Culling::NodeRef nodeRef = ModSpawnNodeRef(scene, position);
         (*this).Spawn(position, forward, up, nodeRef, true);
+        ModRefreshShadowProjection();
     }
 
     Formats::Culling::NodeRef PlayerEntity::ModSpawnNodeRef(

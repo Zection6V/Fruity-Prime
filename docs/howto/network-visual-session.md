@@ -11,6 +11,8 @@ MSVC Release版で、操作するプレイヤー1人と、遅延を付けたAI�
 
 この例はCombat Hall、操作プレイヤー1人、AIネットワーククライアント3人の4枠構成。AIクライアントはSylux、Samus、Kandenで、各クライアントに250ms RTTを設定する。専用サーバーの `-bots` は使わない。サーバー内Botは独立したネットワーククライアントではなく、Botごとの `-netlag` を適用できないため。
 
+目視確認ではポイントゴールを999にする。rotationの列は `ルーム | モード | 制限時間（分） | ポイントゴール`。
+
 ## 起動
 
 次のブロックを同じPowerShellで実行する。補助のサーバーとAIクライアントは非表示で起動し、最後に操作用ウィンドウを表示する。
@@ -25,7 +27,7 @@ New-Item -ItemType Directory -Path $sessionDir -Force | Out-Null
 
 # ルームローテーションを1部屋に固定する。
 $rotation = Join-Path $sessionDir 'rotation.txt'
-Set-Content -LiteralPath $rotation -Value 'MP3 PROVING GROUND | Battle | 7 | 7' -Encoding ascii
+Set-Content -LiteralPath $rotation -Value 'MP3 PROVING GROUND | Battle | 7 | 999' -Encoding ascii
 
 if (Get-NetUDPEndpoint -LocalPort $port -ErrorAction SilentlyContinue) {
     throw "UDP port $port is already in use. Change `$port and use the same port for every process."
@@ -97,6 +99,6 @@ $server | Stop-Process -ErrorAction SilentlyContinue
 
 - ポートが使用中なら `$port` を空いている値に変更する。サーバー・AI・操作クライアントは同じ値を使う。
 - 部屋を変更する場合はrotationの `MP3 PROVING GROUND` を `-rooms` が表示する内部キーに置き換える。Combat Hallの内部キーは `MP3 PROVING GROUND`。
-- Sic Transitの内部キーは `MP12 SIC TRANSIT`。rotationの例は `MP12 SIC TRANSIT | Battle | 7 | 7`。
+- Sic Transitの内部キーは `MP12 SIC TRANSIT`。rotationの例は `MP12 SIC TRANSIT | Battle | 7 | 999`。
 - Botの遅延を変える場合はAI起動引数の `'-netlag','250'` を変更する。全Botを同じ条件にするなら各AIクライアントの値をそろえる。
 - AIクライアントではなくサーバー内AIを使う構成は `-server -bots N` で作れるが、サーバー内Botにはクライアント別の `-netlag` を設定できない。

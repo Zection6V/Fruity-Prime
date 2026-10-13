@@ -1,4 +1,6 @@
 #include "ShellBridge.hpp"
+#include "../../MphRead.Native/Mods/MapGen/CustomRooms.hpp"
+#include <QtCore/QTimer>
 
 #include "FocusNav.hpp"
 
@@ -18,6 +20,9 @@
 #include "../../MphRead.Native/Mods/PauseMenu.hpp"
 #include "../../MphRead.Native/Mods/SpectatorMode.hpp"
 #include "../../MphRead.Native/Mods/ThumbnailGenerator.hpp"
+#include "../../MphRead.Native/Mods/MapGen/CustomRooms.hpp"
+#include "../../MphRead.Native/Mods/MapGen/MapDefinition.hpp"
+#include "../../MphRead.Native/NativeRuntime/System/Globalization.hpp"
 #include "../../MphRead.Native/Mods/Update/BuildVersion.hpp"
 #include "../../MphRead.Native/Mods/Update/UpdateInstall.hpp"
 #include "../../MphRead.Native/Mods/Update/Updater.hpp"
@@ -50,6 +55,63 @@ namespace MphRead::Qt
     {
         g_current = this;
         refreshVersionLine();
+        auto* timer = new QTimer(this);
+        timer->setInterval(250);
+        QObject::connect(timer, &QTimer::timeout, this, [this]() { pollMaps(); });
+        timer->start();
+    }
+
+    void ShellBridge::pollMaps()
+    {
+        const auto progress = ::MphRead::Mods::MapGen::CustomRooms::Progress();
+        const bool building = progress.Running && progress.Total > 0;
+        const bool previews = ::MphRead::Mods::ThumbnailGenerator::RefreshingPreviews();
+        // Fetching maps the player asked for, preparing them, then their
+        // previews: one line at the top of the launcher. A share
+        // below zero is a step whose length is not known.
+        const bool busy = progress.Running || previews;
+        double fraction = -1.0;
+        QString stage;
+        if (building)
+        {
+            fraction = static_cast<double>(progress.Done) / static_cast<double>(progress.Total);
+            stage = QString::fromUtf8(progress.Downloading ? "Downloading new maps: %1 (%2/%3)" : "Preparing maps: %1 (%2/%3)")
+                .arg(QString::fromStdString(progress.Current))
+                .arg(std::min(progress.Done + 1, progress.Total))
+                .arg(progress.Total);
+        }
+        else if (progress.Running)
+        {
+            stage = QString::fromUtf8("Preparing maps…");
+        }
+        else if (previews)
+        {
+            stage = QString::fromUtf8("Refreshing map previews…");
+        }
+        if (busy != _mapsBuilding || fraction != _mapsProgress || stage != _mapsStage)
+        {
+            _mapsBuilding = busy;
+            _mapsProgress = fraction;
+            _mapsStage = stage;
+            emit mapsChanged();
+        }
+        // Maps fetched at start are listed as soon as they arrive, before
+        // they are built: no restart to see them.
+        if (const std::int32_t version = ::MphRead::Mods::MapGen::CustomRooms::ListVersion(); version != _mapsListVersion)
+        {
+            _mapsListVersion = version;
+            GameFilesChanged();
+        }
+        // Done: the maps just built are listed with the others.
+        if (building)
+        {
+            _mapsSeenBuilding = true;
+        }
+        else if (_mapsSeenBuilding && !progress.Running)
+        {
+            _mapsSeenBuilding = false;
+            GameFilesChanged();
+        }
     }
 
     ShellBridge::~ShellBridge()
@@ -88,6 +150,18 @@ namespace MphRead::Qt
 
     void ShellBridge::SetRooms(const std::vector<std::string>& rooms, bool gameFilesReady)
     {
+        // Rooms read from a .pk3 or a map recipe, apart from the cartridge's.
+        std::vector<std::string> custom;
+        try
+        {
+            for (const auto& definition : ::MphRead::Mods::MapGen::CustomRooms::Definitions())
+            {
+                custom.push_back(definition->Name());
+            }
+        }
+        catch (...)
+        {
+        }
         _rooms.clear();
         for (const std::string& room : rooms)
         {
@@ -102,6 +176,11 @@ namespace MphRead::Qt
                 space == std::string::npos ? room : room.substr(0, space)));
             entry.insert(QStringLiteral("name"), QString::fromStdString(
                 meta != nullptr ? meta->InGameName.value_or("") : ""));
+            entry.insert(QStringLiteral("custom"), std::any_of(custom.begin(), custom.end(),
+                [&](const std::string& name)
+                {
+                    return ::MphRead::NativeRuntime::StringCompareOrdinalIgnoreCase(name, room) == 0;
+                }));
             _rooms.push_back(entry);
         }
         _gameFilesReady = gameFilesReady;

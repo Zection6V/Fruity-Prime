@@ -9,6 +9,7 @@
 #include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
+#include <map>
 #include <bit>
 #include <cmath>
 #include <cstddef>
@@ -157,7 +158,7 @@ namespace
     struct Entry final
     {
         std::uint16_t Count = 0;
-        std::uint16_t Start = 0;
+        std::uint32_t Start = 0;
     };
 
     [[nodiscard]] std::shared_ptr<CollisionDataEditor> RequireEditor(
@@ -176,19 +177,69 @@ namespace MphRead::Mods::MapGen
 {
     std::vector<std::uint8_t> MapCollisionPacker::Pack(
         const std::shared_ptr<const std::vector<
-            std::shared_ptr<MphRead::Utility::CollisionDataEditor>>>& data)
+            std::shared_ptr<MphRead::Utility::CollisionDataEditor>>>& input)
     {
         using MphRead::Formats::Collision::CollisionHeader;
         using MphRead::Utility::BinaryWriter;
 
-        if (!data)
+        if (!input)
         {
             throw System::NullReferenceException();
         }
-        if (data->empty())
+        if (input->empty())
         {
             throw MphRead::ProgramException("A map needs at least one solid face.");
         }
+
+        // The faces in the order of the grid's cells they start in, so the
+        // cells along a row list runs of the same faces in the same order,
+        // which the cells then share (below).
+        Vector3 lowest(
+            std::numeric_limits<float>::max(),
+            std::numeric_limits<float>::max(),
+            std::numeric_limits<float>::max());
+        for (const std::shared_ptr<CollisionDataEditor>& editorValue : *input)
+        {
+            for (const Vector3 point : *RequireEditor(editorValue)->Points)
+            {
+                lowest = ComponentMin(lowest, point);
+            }
+        }
+        std::vector<std::pair<std::array<std::int32_t, 6>, std::shared_ptr<CollisionDataEditor>>> keyed;
+        keyed.reserve(input->size());
+        for (const std::shared_ptr<CollisionDataEditor>& editorValue : *input)
+        {
+            const std::shared_ptr<CollisionDataEditor> editor = RequireEditor(editorValue);
+            Vector3 low(
+                std::numeric_limits<float>::max(),
+                std::numeric_limits<float>::max(),
+                std::numeric_limits<float>::max());
+            Vector3 high(
+                std::numeric_limits<float>::lowest(),
+                std::numeric_limits<float>::lowest(),
+                std::numeric_limits<float>::lowest());
+            for (const Vector3 point : *editor->Points)
+            {
+                low = ComponentMin(low, point);
+                high = ComponentMax(high, point);
+            }
+            const auto cell = [](float value, float origin)
+            {
+                return ConvertToInt32Net9(std::floor((value - origin) / CellSize));
+            };
+            keyed.emplace_back(std::array<std::int32_t, 6>{
+                cell(low.Y, lowest.Y), cell(low.Z, lowest.Z), cell(low.X, lowest.X),
+                cell(high.Y, lowest.Y), cell(high.Z, lowest.Z), cell(high.X, lowest.X)}, editor);
+        }
+        std::stable_sort(keyed.begin(), keyed.end(),
+            [](const auto& left, const auto& right) { return left.first < right.first; });
+        auto ordered = std::make_shared<std::vector<std::shared_ptr<CollisionDataEditor>>>();
+        ordered->reserve(keyed.size());
+        for (auto& [key, editor] : keyed)
+        {
+            ordered->push_back(std::move(editor));
+        }
+        const std::shared_ptr<std::vector<std::shared_ptr<CollisionDataEditor>>>& data = ordered;
 
         std::vector<Vector3> points;
         ManagedDictionary<Vector3, Vector3Hash, Vector3Equal> pointIds;
@@ -329,27 +380,54 @@ namespace MphRead::Mods::MapGen
                 cell ? ListCount(cell->size()) : 0);
         }
 
+        // A cell names where its faces start in one list of face indices,
+        // and how many there are, both in 16 bits -- so cells holding the
+        // same faces, as the cells a wide floor crosses do, share one run of
+        // the list. A large level fits where a list per cell would not.
         std::vector<std::uint16_t> dataIndices;
         std::vector<Entry> entries;
+        std::map<std::vector<std::uint16_t>, std::int32_t> runs;
         for (const std::optional<std::vector<std::uint16_t>>& cell : cells)
         {
-            const std::int32_t start = ListCount(dataIndices.size());
-            if (start > std::numeric_limits<std::uint16_t>::max())
+            if (!cell || cell->empty())
             {
-                throw MphRead::ProgramException(
-                    "The collision grid needs " + ::MphRead::NativeRuntime::ToString(references) + " face references "
-                    "(" + ::MphRead::NativeRuntime::ToString(partsX) + "x" + ::MphRead::NativeRuntime::ToString(partsY) + "x"
-                    + ::MphRead::NativeRuntime::ToString(partsZ) + " cells over " + ::MphRead::NativeRuntime::ToString(dataCount) + " faces), "
-                    "and the format indexes them with 16 bits. "
-                    "Convert at a larger scale, or with fewer solid surfaces.");
+                entries.push_back(Entry{0, 0});
+                continue;
             }
-            if (cell)
+            const auto found = runs.find(*cell);
+            std::int32_t start = 0;
+            // Or anywhere in the list already: a cell holding a few of a
+            // wide run's faces, in the same order, is a slice of it.
+            const auto within = found != runs.end() ? dataIndices.end()
+                : std::search(dataIndices.begin(), dataIndices.end(), cell->begin(), cell->end());
+            if (found != runs.end())
             {
-                dataIndices.insert(dataIndices.end(), cell->begin(), cell->end());
+                start = found->second;
+            }
+            else if (within != dataIndices.end())
+            {
+                start = ListCount(static_cast<std::size_t>(within - dataIndices.begin()));
+                runs.emplace(*cell, start);
+            }
+            else
+            {
+                // Neighbouring cells list their faces in the same order, so a
+                // new run often begins with the end of the last one: it
+                // starts inside it.
+                std::size_t overlap = std::min(cell->size(), dataIndices.size());
+                while (overlap > 0
+                    && !std::equal(cell->begin(), cell->begin() + static_cast<std::ptrdiff_t>(overlap),
+                        dataIndices.end() - static_cast<std::ptrdiff_t>(overlap)))
+                {
+                    --overlap;
+                }
+                start = ListCount(dataIndices.size() - overlap);
+                dataIndices.insert(dataIndices.end(), cell->begin() + static_cast<std::ptrdiff_t>(overlap), cell->end());
+                runs.emplace(*cell, start);
             }
             entries.push_back(Entry{
-                static_cast<std::uint16_t>(cell ? cell->size() : 0U),
-                static_cast<std::uint16_t>(start)
+                static_cast<std::uint16_t>(cell->size()),
+                static_cast<std::uint32_t>(start)
             });
         }
 
@@ -393,16 +471,28 @@ namespace MphRead::Mods::MapGen
         }
         Align(writer);
 
+        // A run starting past 16 bits -- a level as large as q3ctf2 -- needs
+        // the wide cells of wc32, which only this game reads.
+        const bool wide = std::any_of(entries.begin(), entries.end(),
+            [](const Entry& entry) { return entry.Start > std::numeric_limits<std::uint16_t>::max(); });
         const std::int32_t entryOffset = ToInt32Unchecked(writer.Position());
         for (const Entry& entry : entries)
         {
-            writer.Write(entry.Count);
-            writer.Write(entry.Start);
+            if (wide)
+            {
+                writer.Write(static_cast<std::uint32_t>(entry.Count));
+                writer.Write(entry.Start);
+            }
+            else
+            {
+                writer.Write(entry.Count);
+                writer.Write(static_cast<std::uint16_t>(entry.Start));
+            }
         }
         const std::int32_t portalOffset = ToInt32Unchecked(writer.Position());
 
         writer.Position(0);
-        writer.WriteString("wc01", 4);
+        writer.WriteString(wide ? "wc32" : "wc01", 4);
         writer.Write(ListCount(points.size()));
         writer.Write(pointOffset);
         writer.Write(ListCount(planes.size()));

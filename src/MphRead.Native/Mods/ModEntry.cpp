@@ -30,6 +30,11 @@
 #include "Input/PointerCheck.hpp"
 #include "InputSettings.hpp"
 #include "MapGen/AltFormProbe.hpp"
+#include "MapGen/PadProbe.hpp"
+#include "MapGen/MoverProbe.hpp"
+#include "MapGen/BotTour.hpp"
+#include "MapGen/MapCatalog.hpp"
+#include "MapGen/MphTextures.hpp"
 #include "MapGen/MapCheck.hpp"
 #include "Multiplayer/ResourceAudit.hpp"
 #if defined(MPHREAD_QT) && !defined(__ANDROID__)
@@ -1843,9 +1848,13 @@ namespace MphRead::Mods
     {
         const auto [width, height] = ParseSize(args);
 
-        if (!::HasFlag(args, "mapgen"))
+        // In the background: the launcher shows how far it is, and a room
+        // loaded before its map is ready waits for it (Scene::AddRoom). Not
+        // in a preview worker: the launcher that started it builds the maps,
+        // and ten workers building them all at once wrote over each other.
+        if (!::HasFlag(args, "mapgen") && ValuesAfter(args, "thumbnail").empty())
         {
-            MapGen::CustomRooms::GenerateMissing();
+            MapGen::CustomRooms::StartGenerating();
         }
 
         if (::HasFlag(args, "nohelmet"))
@@ -1954,10 +1963,7 @@ namespace MphRead::Mods
                 }
                 try
                 {
-                    MapGen::MapPacker::Generate(definition.get(),
-                        MapGen::CustomRooms::ArchiveDirectory(definition.get()),
-                        MapGen::CustomRooms::EntityDirectory(),
-                        MapGen::CustomRooms::NodeDirectory(), true /* verbose */);
+                    MapGen::CustomRooms::Build(definition.get(), true /* verbose */);
                     count = ::MphRead::NativeRuntime::UncheckedAdd(count, 1);
                 }
                 catch (...)
@@ -1971,7 +1977,7 @@ namespace MphRead::Mods
             }
             if (count == 0 && failed == 0)
             {
-                ::MphRead::NativeRuntime::ConsoleWriteLine("No maps to generate. Put a map JSON in "
+                ::MphRead::NativeRuntime::ConsoleWriteLine("No maps to generate. Put a Quake 3 .pk3 or a map JSON in "
                     + MapGen::CustomRooms::MapDirectory() + ".");
             }
             SetExitCode(failed == 0 ? 0 : 1);
@@ -1992,40 +1998,6 @@ namespace MphRead::Mods
             catch (const std::exception& ex)
             {
                 WriteLine("Could not read " + *q3Maps + ": " + ex.what());
-                SetExitCode(1);
-            }
-            return true;
-        }
-
-        const std::optional<std::string> q3Convert = ValueAfter(args, "q3convert");
-        if (q3Convert.has_value())
-        {
-            std::optional<float> scale;
-            float parsedScale = 0;
-            if (TryParseFloatInvariant(ValueAfter(args, "scale"), parsedScale,
-                false /* NumberStyles.Float has no thousands */) && parsedScale > 0)
-            {
-                scale = parsedScale;
-            }
-            int textureSize = MapGen::MapTextureBake::DefaultSize;
-            const std::optional<std::string> texSizeValue = ValueAfter(args, "texsize");
-            std::int32_t parsedTextureSize = 0;
-            if (texSizeValue.has_value() && Int32TryParseCurrentCulture(*texSizeValue, parsedTextureSize)
-                && parsedTextureSize >= 8 && parsedTextureSize <= 256)
-            {
-                textureSize = parsedTextureSize;
-            }
-            try
-            {
-                SetExitCode(MapGen::Q3Convert::Run(*q3Convert,
-                    ValueAfter(args, "map"), ValueAfter(args, "name"),
-                    ValueAfter(args, "out"), ::HasFlag(args, "noclip"), ::HasFlag(args, "noitems"), scale,
-                    textureSize));
-            }
-            catch (...)
-            {
-                WriteLine("Could not convert " + *q3Convert + ": "
-                    + ::MphRead::NativeRuntime::ExceptionMessage(std::current_exception()));
                 SetExitCode(1);
             }
             return true;
@@ -2071,6 +2043,117 @@ namespace MphRead::Mods
                     : std::nullopt);
             SetExitCode(MapGen::AltFormProbe::Run(*altProbe,
                 OpenTK::Mathematics::Vector3(atX, atY, atZ), ParseHunter(args)));
+            return true;
+        }
+
+        // -portalviews ["ROOM"|all]: render the views through a translated
+        // level's portals here and now, and build the room again with them.
+        if (::HasFlag(args, "portalviews"))
+        {
+            const std::optional<std::string> only = ValueAfter(args, "portalviews");
+            std::int32_t failed = 0;
+            for (const auto& definition : MapGen::CustomRooms::Definitions())
+            {
+                if (definition->Portals().empty()
+                    || (only.has_value() && !StringEqualsOrdinalIgnoreCase(*only, "all")
+                        && !StringEqualsOrdinalIgnoreCase(*only, definition->Name())))
+                {
+                    continue;
+                }
+                const bool ok = ThumbnailCapture::CaptureRoom(definition->Name() + "#portals",
+                    ThumbnailGenerator::PortalViewSize, ThumbnailGenerator::PortalViewSize);
+                WriteLine(definition->Name() + ": " + std::to_string(definition->Portals().size()) + " portal views "
+                    + (ok ? "rendered" : "NOT rendered"));
+                if (ok)
+                {
+                    MapGen::CustomRooms::Build(definition.get(), true, true);
+                }
+                else
+                {
+                    failed++;
+                }
+            }
+            SetExitCode(failed == 0 ? 0 : 1);
+            return true;
+        }
+
+        // -shotat "ROOM" -at X,Y,Z -look X,Y,Z -out FILE.png [-size W,H]: the
+        // room from one camera, for comparing with the level it came from.
+        if (const std::optional<std::string> shotRoom = ValueAfter(args, "shotat"); shotRoom.has_value())
+        {
+            const auto vector = [&](const char* name, OpenTK::Mathematics::Vector3& value) -> bool
+            {
+                const std::vector<std::string> parts = NativeRuntime::StringSplit(ValueAfter(args, name).value_or(""), ',');
+                return parts.size() == 3
+                    && TryParseFloatInvariant(std::optional<std::string>(parts[0]), value.X, false)
+                    && TryParseFloatInvariant(std::optional<std::string>(parts[1]), value.Y, false)
+                    && TryParseFloatInvariant(std::optional<std::string>(parts[2]), value.Z, false);
+            };
+            ThumbnailCapture::View view;
+            const std::optional<std::string> out = ValueAfter(args, "out");
+            if (!vector("at", view.Position) || !vector("look", view.Target) || !out.has_value())
+            {
+                WriteLine("-shotat needs -at X,Y,Z -look X,Y,Z -out FILE.png");
+                SetExitCode(1);
+                return true;
+            }
+            view.Path = *out;
+            std::int32_t width = 960;
+            std::int32_t height = 540;
+            if (const std::optional<std::string> size = ValueAfter(args, "size"))
+            {
+                const std::vector<std::string> parts = NativeRuntime::StringSplit(*size, ',');
+                if (parts.size() == 2)
+                {
+                    (void)Int32TryParseCurrentCulture(parts[0], width);
+                    (void)Int32TryParseCurrentCulture(parts[1], height);
+                }
+            }
+            SetExitCode(ThumbnailCapture::CaptureViews(*shotRoom, {view}, width, height) ? 0 : 1);
+            return true;
+        }
+
+        if (const std::optional<std::string> texDump = ValueAfter(args, "mphtexdump"); texDump.has_value())
+        {
+            SetExitCode(MapGen::MphTextures::Dump(*texDump));
+            return true;
+        }
+
+        // -mapsync: fetches the server's maps the map folder lacks, now.
+        if (::HasFlag(args, "mapsync"))
+        {
+            const std::int32_t arrived = MapGen::MapCatalog::Sync(
+                [](const std::string& pack, std::int32_t done, std::int32_t total)
+                {
+                    WriteLine("[maps] " + pack + " (" + std::to_string(done + 1) + "/" + std::to_string(total) + ")");
+                });
+            WriteLine("[maps] " + std::to_string(arrived) + " downloaded");
+            SetExitCode(0);
+            return true;
+        }
+
+        if (const std::optional<std::string> botTour = ValueAfter(args, "bottour"); botTour.has_value())
+        {
+            std::int32_t players = 6;
+            if (const std::optional<std::string> value = ValueAfter(args, "players"))
+            {
+                (void)Int32TryParseCurrentCulture(*value, players);
+            }
+            double seconds = 120.0;
+            (void)TryParseDoubleInvariant(ValueAfter(args, "seconds"), seconds);
+            SetExitCode(MapGen::BotTour::Run(*botTour, players, seconds));
+            return true;
+        }
+
+        if (const std::optional<std::string> moverProbe = ValueAfter(args, "moverprobe"); moverProbe.has_value())
+        {
+            SetExitCode(MapGen::MoverProbe::Run(*moverProbe));
+            return true;
+        }
+
+        if (const std::optional<std::string> padProbe = ValueAfter(args, "padprobe"); padProbe.has_value())
+        {
+            SetExitCode(MapGen::PadProbe::Run(*padProbe, ParseHunter(args), ::HasFlag(args, "alt")));
             return true;
         }
 

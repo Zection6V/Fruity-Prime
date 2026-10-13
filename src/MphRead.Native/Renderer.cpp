@@ -1,4 +1,5 @@
 #include "Renderer.hpp"
+#include "Mods/MapGen/CustomRooms.hpp"
 #include "NativeRuntime/System/ErrorDialog.hpp"
 #include "NativeRuntime/System/ExceptionText.hpp"
 #include "Mods/Diagnostics/FramePerformance.hpp"
@@ -467,6 +468,8 @@ namespace MphRead
     void Scene::AddRoom(std::string name, GameMode mode, std::int32_t playerCount,
         BossFlags bossFlags, std::int32_t nodeLayerMask, std::int32_t entityLayerId)
     {
+        // A map translated in the background may not be ready yet.
+        Mods::MapGen::CustomRooms::EnsureReady(name);
         if (_roomLoaded)
         {
             throw ProgramException("Cannot load more than one room in a scene.");
@@ -1059,6 +1062,15 @@ namespace MphRead
             {
                 material.RenderMode = RenderMode::Normal;
             }
+            {
+                std::size_t digits = 1;
+                while (digits < material.Name.size() && material.Name[digits] >= '0' && material.Name[digits] <= '9')
+                {
+                    ++digits;
+                }
+                material.Additive = material.Name.size() > digits && digits > 1
+                    && material.Name[0] == 'q' && material.Name[digits] == '+';
+            }
             for (std::int32_t i = 0; i < static_cast<std::int32_t>(model->Recolors->size()); ++i)
             {
                 combos.insert({material.TextureId, material.PaletteId, i});
@@ -1499,11 +1511,11 @@ namespace MphRead
     }
 
     const NativeRuntime::Rhi::GraphicsPipeline& Scene::ScenePipeline(ScenePass pass,
-        NativeRuntime::Rhi::CullMode cull, NativeRuntime::Rhi::FillMode fill, std::int32_t lineWidth)
+        NativeRuntime::Rhi::CullMode cull, NativeRuntime::Rhi::FillMode fill, std::int32_t lineWidth, bool additive)
     {
         const std::uint32_t key = (static_cast<std::uint32_t>(pass) << 16U)
             | (static_cast<std::uint32_t>(cull) << 12U) | (static_cast<std::uint32_t>(fill) << 8U)
-            | (static_cast<std::uint32_t>(lineWidth) & 0xFFU);
+            | (static_cast<std::uint32_t>(lineWidth) & 0xFFU) | (additive ? 1U << 24U : 0U);
         for (const auto& [recentKey, recent] : _recentPipelines)
             if (recent && recentKey == key) return *recent;
         auto& pipeline = _pipelines[key];
@@ -1513,6 +1525,13 @@ namespace MphRead
             desc.rasterizer.cullMode = cull;
             desc.rasterizer.fillMode = fill;
             desc.rasterizer.lineWidth = static_cast<float>(lineWidth);
+            // Added light: what is there already stays, the item's colour
+            // is added to it by its alpha (A5I3: alpha is how bright).
+            if (additive && !desc.blendAttachments.empty() && desc.blendAttachments.front().blendEnable)
+            {
+                desc.blendAttachments.front().dstColorFactor = NativeRuntime::Rhi::BlendFactor::One;
+                desc.blendAttachments.front().dstAlphaFactor = NativeRuntime::Rhi::BlendFactor::One;
+            }
             pipeline = Gpu().CreateGraphicsPipeline(desc);
         }
         _recentPipelines[_recentPipelineNext] = {key, pipeline.get()};
@@ -1729,6 +1748,13 @@ namespace MphRead
 
     void Scene::UpdateMaterial(Material& material, bool onlyOpaque)
     {
+        // A translated Quake 3 layer (MapPacker: a decal whose alpha comes
+        // and goes) is drawn over its face whatever its alpha.
+        if (material.RenderMode == RenderMode::Decal && material.CurrentAlpha < 1.0F
+            && material.Name.size() > 1 && material.Name[0] == 'q' && material.Name[1] >= '0' && material.Name[1] <= '9')
+        {
+            return;
+        }
         if (material.CurrentAlpha < 1.0F) material.RenderMode = RenderMode::Translucent;
         else if (material.RenderMode != RenderMode::Normal && onlyOpaque) material.RenderMode = RenderMode::Normal;
         else if (material.RenderMode == RenderMode::Normal && !onlyOpaque) material.RenderMode = RenderMode::Translucent;
@@ -3396,6 +3422,7 @@ namespace MphRead
         {
             auto item = _freeRenderItems.front();
             _freeRenderItems.pop();
+            item->Additive = false;
             return item;
         }
         return std::make_shared<MphRead::RenderItem>();
@@ -3422,6 +3449,7 @@ namespace MphRead
         item->Alpha = material.CurrentAlpha * alphaScale;
         item->PolygonMode = material.PolygonMode;
         item->RenderMode = material.RenderMode;
+        item->Additive = material.Additive;
         item->CullingMode = material.Culling;
         item->BillboardMode = billboardMode;
         item->Wireframe = material.Wireframe != 0;
@@ -3816,6 +3844,25 @@ namespace MphRead
         // over a Data Shrine match on one renderer, its own green on the other.
         SetShaderFog();
         _shaderConstants->SetFogEnabled(_hasFog && FogOn());
+        // A level read from Quake 3 fogs by its own volumes, what each ray
+        // crosses of them, whatever the room's fog (Q3Import::FogVolume).
+        {
+            NativeRuntime::Rhi::SceneFogBoxes boxes{};
+            boxes.Eye = _cameraPosition;
+            if (FogOn())
+            {
+                const auto nearest = Mods::MapGen::CustomRooms::Q3FogBoxes(
+                    RoomId(), _cameraPosition, NativeRuntime::Rhi::SceneFogBoxes::Capacity);
+                for (const auto& box : nearest)
+                {
+                    auto& out = boxes.Boxes[static_cast<std::size_t>(boxes.Count++)];
+                    out.Min = Vector4(box.Min.X, box.Min.Y, box.Min.Z, box.Depth);
+                    out.Max = Vector4(box.Max.X, box.Max.Y, box.Max.Z, 0.0F);
+                    out.Color = Vector4(box.Color.X, box.Color.Y, box.Color.Z, 1.0F);
+                }
+            }
+            _shaderConstants->Set(boxes);
+        }
         _shaderConstants->SetCelBands(Mods::RenderOptions::CelShading() ? Mods::RenderOptions::CelBands() : 0);
         _shaderConstants->SetShowColors(_showColors);
         if (ProcessFrame())
@@ -4188,7 +4235,7 @@ namespace MphRead
         const bool wireframe = _wireframeLevel > 0 || item->Wireframe;
         Commands().SetPipeline(ScenePipeline(_itemPass, cull,
             wireframe ? Rhi::FillMode::Wireframe : Rhi::FillMode::Solid,
-            wireframe ? std::max(1, _wireframeLevel) : 1));
+            wireframe ? std::max(1, _wireframeLevel) : 1, item->Additive));
         if (item->Type == RenderItemType::Mesh)
         {
             DrawGpuMesh(item->MeshModel, item->MeshObject);
@@ -4861,7 +4908,13 @@ namespace MphRead
     {
         if (item.HasTexture)
         {
-            BindSceneTexture(0, item.TextureBindingId, SamplerFor(FilteringOn(), item.XRepeat, item.YRepeat));
+            // A Quake 3 level's light layer (MapPacker: a decal mirrored at
+            // both edges) is smooth, as Quake's lightmaps are, whatever the
+            // filtering setting; its luxels are a hand's width.
+            const bool lightLayer = item.RenderMode == RenderMode::Decal
+                && item.XRepeat == RepeatMode::Mirror && item.YRepeat == RepeatMode::Mirror;
+            BindSceneTexture(0, item.TextureBindingId,
+                SamplerFor(FilteringOn() || lightLayer, item.XRepeat, item.YRepeat));
             _shaderConstants->SetTexgen(static_cast<std::int32_t>(item.TexgenMode), item.TexcoordMatrix);
         }
         _shaderConstants->SetUseTexture(item.HasTexture && _showTextures);

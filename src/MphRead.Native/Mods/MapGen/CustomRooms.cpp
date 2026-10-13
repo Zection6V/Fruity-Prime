@@ -1,7 +1,14 @@
 #include "CustomRooms.hpp"
+#include "MapCatalog.hpp"
 #include "../Platform/AppPaths.hpp"
 
 #include "MapBundle.hpp"
+#include <fstream>
+#include "Q3Convert.hpp"
+#include "../../Metadata/Metadata.hpp"
+#include "Q3Bsp.hpp"
+#include "Q3Import.hpp"
+#include "OpenArenaTextures.hpp"
 #include "MapDefinition.hpp"
 #include "MapPacker.hpp"
 #include "../../Formats/Types.hpp"
@@ -13,8 +20,13 @@
 #include "../../NativeRuntime/System/IO.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../NativeRuntime/System/Globalization.hpp"
+#include "../../NativeRuntime/System/Number.hpp"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <thread>
+#include <cmath>
 #include <array>
 #include <bit>
 #include <cerrno>
@@ -177,6 +189,8 @@ namespace
     struct CustomRoomsState final
     {
         std::shared_ptr<CustomRooms::DefinitionList> Definitions{};
+        // Lists replaced by Rescan, kept alive for whoever still walks them.
+        std::vector<std::shared_ptr<CustomRooms::DefinitionList>> Retired{};
         std::int32_t FirstId = -1;
         std::recursive_mutex Lock;
         std::string MapDirectory;
@@ -340,7 +354,660 @@ namespace MphRead::Mods::MapGen
                 ::MphRead::NativeRuntime::ConsoleWriteLine(message);
             }
         }
+        AddTranslated(*results);
         return results;
+    }
+
+    // Every level in every .pk3 or .zip in the map folder is a room, read
+    // from the archive as it is (Q3Convert::Translate) -- except one a recipe
+    // already imports, whose recipe says how it is to be played, and a name
+    // already taken.
+    void CustomRooms::AddTranslated(DefinitionList& results)
+    {
+        std::vector<std::string> archives;
+        for (const std::filesystem::directory_entry& entry :
+            std::filesystem::recursive_directory_iterator(
+                PathFromUtf8(MapDirectory()),
+                std::filesystem::directory_options::follow_directory_symlink
+                    | std::filesystem::directory_options::skip_permission_denied))
+        {
+            if (!entry.is_directory()
+                && (ExtensionMatches(entry.path(), ".pk3")
+                    || ExtensionMatches(entry.path(), ".PK3")
+                    || ExtensionMatches(entry.path(), ".zip")))
+            {
+                archives.push_back(PathToUtf8(entry.path()));
+            }
+        }
+        std::stable_sort(
+            archives.begin(), archives.end(),
+            [](const std::string& left, const std::string& right)
+            {
+                return ::MphRead::NativeRuntime::StringCompareOrdinalIgnoreCase(left, right) < 0;
+            });
+
+        std::vector<std::pair<std::string, std::string>> imported;
+        for (const std::shared_ptr<MapDefinition>& definition : results)
+        {
+            if (const MapImport* import = definition->Import())
+            {
+                if (const std::optional<std::string> source = import->Resolve())
+                {
+                    imported.emplace_back(
+                        PathGetFileName(*source),
+                        ::MphRead::NativeRuntime::ToLowerInvariant(import->MapName().value_or(std::string())));
+                }
+            }
+        }
+
+        for (const std::string& archive : archives)
+        {
+            std::vector<std::string> maps;
+            try
+            {
+                maps = Q3Bsp::ListMaps(archive);
+            }
+            catch (...)
+            {
+                ::MphRead::NativeRuntime::ConsoleWriteLine("Ignoring " + PathGetFileName(archive) + ": "
+                    + ::MphRead::NativeRuntime::ExceptionMessage(std::current_exception()));
+                continue;
+            }
+            for (const std::string& map : maps)
+            {
+                const std::string lower = ::MphRead::NativeRuntime::ToLowerInvariant(map);
+                const bool byRecipe = std::any_of(imported.begin(), imported.end(),
+                    [&](const auto& pair)
+                    {
+                        return ::MphRead::NativeRuntime::StringCompareOrdinalIgnoreCase(
+                                   pair.first, PathGetFileName(archive)) == 0
+                            && (pair.second.empty() || pair.second == lower);
+                    });
+                const bool taken = std::any_of(results.begin(), results.end(),
+                    [&](const std::shared_ptr<MapDefinition>& definition)
+                    {
+                        return ::MphRead::NativeRuntime::StringCompareOrdinalIgnoreCase(
+                                   definition->Name(), map) == 0;
+                    });
+                if (byRecipe || taken)
+                {
+                    continue;
+                }
+                try
+                {
+                    results.push_back(Q3Convert::Translate(archive, map));
+                }
+                catch (...)
+                {
+                    ::MphRead::NativeRuntime::ConsoleWriteLine("Ignoring map " + map + " in "
+                        + PathGetFileName(archive) + ": "
+                        + ::MphRead::NativeRuntime::ExceptionMessage(std::current_exception()));
+                }
+            }
+        }
+    }
+
+    std::string CustomRooms::PortalImagePath(MapDefinition* def, std::size_t portal)
+    {
+        return PathCombine(ArchiveDirectory(def), "portal_" + std::to_string(portal) + ".png");
+    }
+
+    std::vector<std::string> CustomRooms::RoomsWithoutPortalViews()
+    {
+        std::vector<std::string> rooms;
+        for (const std::shared_ptr<MapDefinition>& definition : Definitions())
+        {
+            if (!definition->Translated() || NeedsGenerating(definition.get()))
+            {
+                continue;
+            }
+            for (std::size_t i = 0; i < definition->Portals().size(); ++i)
+            {
+                if (!FileExists(PortalImagePath(definition.get(), i)))
+                {
+                    rooms.push_back(definition->Name());
+                    break;
+                }
+            }
+        }
+        return rooms;
+    }
+
+    float CustomRooms::Q3StepHeight(std::int32_t roomId)
+    {
+        static std::int32_t cachedRoom = -1;
+        static float cachedHeight = 0.0F;
+        if (roomId == cachedRoom)
+        {
+            return cachedHeight;
+        }
+        float height = 0.0F;
+        if (const ::MphRead::RoomMetadata* meta = ::MphRead::Metadata::GetRoomById(roomId, true))
+        {
+            for (const std::shared_ptr<MapDefinition>& definition : Definitions())
+            {
+                if (definition->Translated()
+                    && ::MphRead::NativeRuntime::StringCompareOrdinalIgnoreCase(definition->Name(), meta->Name) == 0)
+                {
+                    height = 18.0F / Q3Convert::UnitsPerUnit;
+                    break;
+                }
+            }
+        }
+        cachedRoom = roomId;
+        cachedHeight = height;
+        return height;
+    }
+
+    namespace
+    {
+        thread_local std::optional<std::array<float, 4>>* fogQuery = nullptr;
+        std::vector<Q3Import::FogVolume> fogVolumes;
+
+        // The level's lava and slime brushes: contents, and the planes
+        // (Quake's axes and units) the inside of each is behind.
+        struct LiquidBrush
+        {
+            std::int32_t Contents = 0;
+            std::vector<OpenTK::Mathematics::Vector4> Planes;
+        };
+        std::vector<LiquidBrush> liquidBrushes;
+
+        void ReadLiquids(const Q3Bsp& bsp)
+        {
+            liquidBrushes.clear();
+            constexpr std::int32_t hurts = CustomRooms::Q3ContentsLava | CustomRooms::Q3ContentsSlime;
+            for (const auto& brush : bsp.Brushes())
+            {
+                if (!brush || brush->Texture() < 0
+                    || static_cast<std::size_t>(brush->Texture()) >= bsp.Textures().size()
+                    || !bsp.Textures()[static_cast<std::size_t>(brush->Texture())])
+                {
+                    continue;
+                }
+                const std::int32_t contents = bsp.Textures()[static_cast<std::size_t>(brush->Texture())]->Contents() & hurts;
+                if (contents == 0)
+                {
+                    continue;
+                }
+                LiquidBrush liquid;
+                liquid.Contents = contents;
+                for (std::int32_t i = 0; i < brush->SideCount(); ++i)
+                {
+                    const std::size_t side = static_cast<std::size_t>(brush->FirstSide() + i);
+                    if (side >= bsp.BrushSides().size() || !bsp.BrushSides()[side])
+                    {
+                        continue;
+                    }
+                    const std::int32_t plane = bsp.BrushSides()[side]->Plane();
+                    if (plane < 0 || static_cast<std::size_t>(plane) >= bsp.Planes().size()
+                        || !bsp.Planes()[static_cast<std::size_t>(plane)])
+                    {
+                        continue;
+                    }
+                    const Q3Plane& p = *bsp.Planes()[static_cast<std::size_t>(plane)];
+                    liquid.Planes.emplace_back(p.X(), p.Y(), p.Z(), p.Distance());
+                }
+                if (!liquid.Planes.empty())
+                {
+                    liquidBrushes.push_back(std::move(liquid));
+                }
+            }
+        }
+
+        // The level's trigger_hurt boxes (Quake's axes and units): a pit that
+        // kills, a floor of spikes. A brush model, so the box is its bounds.
+        struct HurtBox
+        {
+            std::array<float, 3> Low{};
+            std::array<float, 3> High{};
+            std::int32_t Damage = 5;
+            bool Slow = false;
+        };
+        std::vector<HurtBox> hurtBoxes;
+
+        void ReadHurts(const Q3Bsp& bsp)
+        {
+            hurtBoxes.clear();
+            const auto field = [](const Q3Entity& entity, const char* key) -> const std::string*
+            {
+                for (const auto& [name, value] : entity)
+                {
+                    if (Q3StringEqual{}(name, std::string(key)))
+                    {
+                        return &value;
+                    }
+                }
+                return nullptr;
+            };
+            for (const std::shared_ptr<Q3Entity>& entity : bsp.Entities())
+            {
+                if (!entity)
+                {
+                    continue;
+                }
+                const std::string* classname = field(*entity, "classname");
+                const std::string* model = field(*entity, "model");
+                if (classname == nullptr || model == nullptr || model->size() < 2 || (*model)[0] != '*'
+                    || ::MphRead::NativeRuntime::StringCompareOrdinalIgnoreCase(*classname, "trigger_hurt") != 0)
+                {
+                    continue;
+                }
+                std::int32_t index = 0;
+                std::int32_t flags = 0;
+                std::int32_t damage = 5;
+                if (!::MphRead::NativeRuntime::Int32TryParseInvariant(model->substr(1), index) || index <= 0
+                    || static_cast<std::size_t>(index) >= bsp.Models().size() || !bsp.Models()[static_cast<std::size_t>(index)])
+                {
+                    continue;
+                }
+                if (const std::string* text = field(*entity, "spawnflags"))
+                {
+                    (void)::MphRead::NativeRuntime::Int32TryParseInvariant(*text, flags);
+                }
+                // START_OFF waits for a trigger_multiple to switch it on:
+                // not read, so it stays off.
+                if ((flags & 1) != 0)
+                {
+                    continue;
+                }
+                if (const std::string* text = field(*entity, "dmg"))
+                {
+                    (void)::MphRead::NativeRuntime::Int32TryParseInvariant(*text, damage);
+                }
+                if (damage <= 0)
+                {
+                    continue;
+                }
+                const Q3Model& brushes = *bsp.Models()[static_cast<std::size_t>(index)];
+                const std::vector<float>& mins = *brushes.Mins();
+                const std::vector<float>& maxs = *brushes.Maxs();
+                if (mins.size() < 3 || maxs.size() < 3)
+                {
+                    continue;
+                }
+                HurtBox box;
+                for (std::size_t k = 0; k < 3; ++k)
+                {
+                    box.Low[k] = mins[k];
+                    box.High[k] = maxs[k];
+                }
+                box.Damage = damage;
+                box.Slow = (flags & 16) != 0;
+                hurtBoxes.push_back(box);
+            }
+        }
+
+        [[nodiscard]] std::int32_t LiquidAt(float x, float y, float z)
+        {
+            std::int32_t contents = 0;
+            for (const LiquidBrush& brush : liquidBrushes)
+            {
+                bool inside = true;
+                for (const OpenTK::Mathematics::Vector4& plane : brush.Planes)
+                {
+                    if (plane.X * x + plane.Y * y + plane.Z * z - plane.W > 0.0F)
+                    {
+                        inside = false;
+                        break;
+                    }
+                }
+                if (inside)
+                {
+                    contents |= brush.Contents;
+                }
+            }
+            return contents;
+        }
+
+        // The level a translated room was read from, kept while the room is
+        // played: its tree for Q3Open, its fog volumes for Q3FogAt.
+        struct Q3Level
+        {
+            std::int32_t Room = -1;
+            std::shared_ptr<Q3Bsp> Bsp;
+            Q3Import::Lighting Lighting;
+        };
+    }
+
+    namespace
+    {
+        [[nodiscard]] Q3Level& Q3LevelCache()
+        {
+            static Q3Level level;
+            return level;
+        }
+    }
+
+    std::shared_ptr<Q3Bsp> CustomRooms::Q3LevelBsp(std::int32_t roomId)
+    {
+        (void)Q3Open(roomId, OpenTK::Mathematics::Vector3(0.0F, 0.0F, 0.0F));
+        return Q3LevelCache().Room == roomId ? Q3LevelCache().Bsp : nullptr;
+    }
+
+    std::vector<std::string> CustomRooms::Q3LevelArchives(std::int32_t roomId)
+    {
+        std::vector<std::string> archives;
+        const ::MphRead::RoomMetadata* meta = ::MphRead::Metadata::GetRoomById(roomId, true);
+        for (const std::shared_ptr<MapDefinition>& definition : Definitions())
+        {
+            if (meta != nullptr && definition->Translated() && definition->Import() != nullptr
+                && definition->SourcePath().has_value()
+                && ::MphRead::NativeRuntime::StringCompareOrdinalIgnoreCase(definition->Name(), meta->Name) == 0)
+            {
+                archives.push_back(*definition->SourcePath());
+                for (std::string& pak : definition->Import()->ResolveTexturePaks())
+                {
+                    archives.push_back(std::move(pak));
+                }
+                break;
+            }
+        }
+        return archives;
+    }
+
+    bool CustomRooms::Q3Open(std::int32_t roomId, OpenTK::Mathematics::Vector3 position)
+    {
+        Q3Level& level = Q3LevelCache();
+        std::int32_t& cachedRoom = level.Room;
+        std::shared_ptr<Q3Bsp>& cachedLevel = level.Bsp;
+        if (roomId != cachedRoom)
+        {
+            cachedRoom = roomId;
+            cachedLevel.reset();
+            level.Lighting = Q3Import::Lighting{};
+            fogVolumes.clear();
+            liquidBrushes.clear();
+            hurtBoxes.clear();
+            if (Q3StepHeight(roomId) > 0.0F)
+            {
+                const ::MphRead::RoomMetadata* meta = ::MphRead::Metadata::GetRoomById(roomId, true);
+                for (const std::shared_ptr<MapDefinition>& definition : Definitions())
+                {
+                    if (meta != nullptr && definition->Translated() && definition->Import() != nullptr
+                        && definition->SourcePath().has_value()
+                        && ::MphRead::NativeRuntime::StringCompareOrdinalIgnoreCase(definition->Name(), meta->Name) == 0)
+                    {
+                        try
+                        {
+                            cachedLevel = Q3Bsp::Load(*definition->SourcePath(), definition->Import()->MapName());
+                            level.Lighting = Q3Import::MakeLighting(cachedLevel.get(),
+                                std::vector<std::string>{*definition->SourcePath()});
+                            fogVolumes = level.Lighting.Fogs;
+                            ReadLiquids(*cachedLevel);
+                            ReadHurts(*cachedLevel);
+                        }
+                        catch (...)
+                        {
+                            cachedLevel.reset();
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        if (!cachedLevel)
+        {
+            return true;
+        }
+        const float unit = Q3Convert::UnitsPerUnit;
+        if (fogQuery != nullptr)
+        {
+            const float x = position.X * unit;
+            const float y = -position.Z * unit;
+            const float z = position.Y * unit;
+            for (const Q3Import::FogVolume& fog : level.Lighting.Fogs)
+            {
+                if (fog.Distance <= 0.0F || fog.Planes.empty())
+                {
+                    continue;
+                }
+                bool inside = true;
+                for (const OpenTK::Mathematics::Vector4& plane : fog.Planes)
+                {
+                    if (plane.X * x + plane.Y * y + plane.Z * z - plane.W > 0.0F)
+                    {
+                        inside = false;
+                        break;
+                    }
+                }
+                if (inside)
+                {
+                    // Quake fogs only what a ray crosses inside the volume:
+                    // in a layer thinner than the fog is deep, most rays
+                    // leave it soon, and the room reads far clearer than its
+                    // fogparms say. Thinned by how much thinner it is.
+                    float low = -1.0e9F;
+                    float high = 1.0e9F;
+                    for (const OpenTK::Mathematics::Vector4& plane : fog.Planes)
+                    {
+                        if (plane.Z > 0.999F)
+                        {
+                            high = std::min(high, plane.W);
+                        }
+                        else if (plane.Z < -0.999F)
+                        {
+                            low = std::max(low, -plane.W);
+                        }
+                    }
+                    const float thickness = high > low ? high - low : fog.Distance;
+                    const float thin = std::sqrt(std::sqrt(std::max(1.0F, fog.Distance / std::max(thickness, 1.0F))));
+                    *fogQuery = std::array<float, 4>{fog.Color.X, fog.Color.Y, fog.Color.Z, fog.Distance * thin / unit};
+                    break;
+                }
+            }
+            return true;
+        }
+        return cachedLevel->Open(position.X * unit, -position.Z * unit, position.Y * unit);
+    }
+
+    std::int32_t CustomRooms::Q3LiquidLevel(
+        std::int32_t roomId, OpenTK::Mathematics::Vector3 feet, std::int32_t& contents)
+    {
+        contents = 0;
+        (void)Q3Open(roomId, feet);
+        if (liquidBrushes.empty())
+        {
+            return 0;
+        }
+        // Quake's PM_SetWaterLevel: a point just above the feet, one at the
+        // waist and one at the eyes (MINS_Z -24, viewheight 26), in Quake's
+        // units and axes -- (x, y, z) is this game's (x, -z, y).
+        const float unit = Q3Convert::UnitsPerUnit;
+        const float x = feet.X * unit;
+        const float y = -feet.Z * unit;
+        const float z = feet.Y * unit;
+        contents = LiquidAt(x, y, z + 1.0F);
+        if (contents == 0)
+        {
+            return 0;
+        }
+        if (LiquidAt(x, y, z + 25.0F) == 0)
+        {
+            return 1;
+        }
+        return LiquidAt(x, y, z + 50.0F) == 0 ? 2 : 3;
+    }
+
+    std::int32_t CustomRooms::Q3HurtAt(
+        std::int32_t roomId, OpenTK::Mathematics::Vector3 feet, bool& slow)
+    {
+        slow = false;
+        (void)Q3Open(roomId, feet);
+        if (hurtBoxes.empty())
+        {
+            return 0;
+        }
+        // The hunter's box in Quake's units and axes -- (x, y, z) is this
+        // game's (x, -z, y) -- 30 wide and 56 tall from the feet (the player
+        // box, mins -15 -15 -24, maxs 15 15 32, about its origin).
+        const float unit = Q3Convert::UnitsPerUnit;
+        const float x = feet.X * unit;
+        const float y = -feet.Z * unit;
+        const float z = feet.Y * unit;
+        std::int32_t worst = 0;
+        for (const HurtBox& box : hurtBoxes)
+        {
+            if (x + 15.0F >= box.Low[0] && x - 15.0F <= box.High[0]
+                && y + 15.0F >= box.Low[1] && y - 15.0F <= box.High[1]
+                && z + 56.0F >= box.Low[2] && z <= box.High[2]
+                && box.Damage > worst)
+            {
+                worst = box.Damage;
+                slow = box.Slow;
+            }
+        }
+        return worst;
+    }
+
+    std::vector<CustomRooms::FogBox> CustomRooms::Q3FogBoxes(
+        std::int32_t roomId, OpenTK::Mathematics::Vector3 eye, std::size_t most)
+    {
+        static std::int32_t cachedRoom = -1;
+        static std::vector<FogBox> boxes;
+        if (roomId != cachedRoom)
+        {
+            cachedRoom = roomId;
+            boxes.clear();
+            (void)Q3Open(roomId, eye);
+            for (const Q3Import::FogVolume& fog : fogVolumes)
+            {
+                // The brush's box: its axial sides (a fog brush is a box in
+                // every level seen; a slanted side is left to its box).
+                std::array<float, 3> low{-1.0e9F, -1.0e9F, -1.0e9F};
+                std::array<float, 3> high{1.0e9F, 1.0e9F, 1.0e9F};
+                for (const OpenTK::Mathematics::Vector4& plane : fog.Planes)
+                {
+                    const std::array<float, 3> normal{plane.X, plane.Y, plane.Z};
+                    for (std::size_t k = 0; k < 3; ++k)
+                    {
+                        if (normal[k] > 0.999F)
+                        {
+                            high[k] = std::min(high[k], plane.W);
+                        }
+                        else if (normal[k] < -0.999F)
+                        {
+                            low[k] = std::max(low[k], -plane.W);
+                        }
+                    }
+                }
+                if (fog.Distance <= 0.0F || low[0] >= high[0] || low[1] >= high[1] || low[2] >= high[2]
+                    || high[0] > 1.0e8F || high[1] > 1.0e8F || high[2] > 1.0e8F)
+                {
+                    continue;
+                }
+                const float unit = Q3Convert::UnitsPerUnit;
+                FogBox box;
+                // Quake (x, y, z) is this game's (x, z, -y).
+                box.Min = OpenTK::Mathematics::Vector3(low[0] / unit, low[2] / unit, -high[1] / unit);
+                box.Max = OpenTK::Mathematics::Vector3(high[0] / unit, high[2] / unit, -low[1] / unit);
+                box.Color = fog.Color;
+                box.Depth = fog.Distance / unit;
+                boxes.push_back(box);
+            }
+        }
+        std::vector<FogBox> nearest = boxes;
+        const auto away = [&eye](const FogBox& box)
+        {
+            const float dx = std::max({box.Min.X - eye.X, 0.0F, eye.X - box.Max.X});
+            const float dy = std::max({box.Min.Y - eye.Y, 0.0F, eye.Y - box.Max.Y});
+            const float dz = std::max({box.Min.Z - eye.Z, 0.0F, eye.Z - box.Max.Z});
+            return dx * dx + dy * dy + dz * dz;
+        };
+        std::sort(nearest.begin(), nearest.end(),
+            [&away](const FogBox& a, const FogBox& b) { return away(a) < away(b); });
+        if (nearest.size() > most)
+        {
+            nearest.resize(most);
+        }
+        return nearest;
+    }
+
+    std::optional<std::array<float, 4>> CustomRooms::Q3FogAt(
+        std::int32_t roomId, OpenTK::Mathematics::Vector3 position)
+    {
+        std::optional<std::array<float, 4>> fog;
+        fogQuery = &fog;
+        (void)Q3Open(roomId, position);
+        fogQuery = nullptr;
+        return fog;
+    }
+
+    std::string CustomRooms::TranslatorStamp(MapDefinition* def)
+    {
+        const std::string& source = ::MphRead::NativeRuntime::RequireReference(def).SourcePath().value();
+        const auto time = GetLastWriteTimeUtc(source).time_since_epoch().count();
+        return "translator " + ::MphRead::NativeRuntime::ToString(Q3Convert::TranslatorVersion)
+            + " " + ::MphRead::NativeRuntime::ToString(static_cast<std::int64_t>(
+                std::filesystem::file_size(PathFromUtf8(source))))
+            + " " + ::MphRead::NativeRuntime::ToString(static_cast<std::int64_t>(time))
+            + " " + OpenArenaTextures::Stamp();
+    }
+
+    std::string CustomRooms::TranslatorStampPath(MapDefinition* def)
+    {
+        return PathCombine(ArchiveDirectory(def), "translated.txt");
+    }
+
+    namespace
+    {
+        std::recursive_mutex& BuildLock();
+    }
+
+    std::string CustomRooms::FailedStampPath(MapDefinition* def)
+    {
+        return PathCombine(ArchiveDirectory(def), "failed.txt");
+    }
+
+    void CustomRooms::Build(MapDefinition* def, bool verbose, bool keepPortalViews)
+    {
+        const std::lock_guard<std::recursive_mutex> building(BuildLock());
+        if (def == nullptr)
+        {
+            throw System::NullReferenceException();
+        }
+        const std::string archiveDirectory = ArchiveDirectory(def);
+        if (def->Translated())
+        {
+            // The textures baked last time are part of what is built again.
+            const std::string textures = PathCombine(archiveDirectory,
+                ::MphRead::NativeRuntime::ToLowerInvariant(def->Name()) + ".tex");
+            ::MphRead::NativeRuntime::RequireReference(def->Import()).Textures(textures);
+            std::error_code ignored;
+            std::filesystem::remove(PathFromUtf8(TranslatorStampPath(def)), ignored);
+            std::filesystem::remove(PathFromUtf8(FailedStampPath(def)), ignored);
+            std::filesystem::remove(PathFromUtf8(textures), ignored);
+            std::filesystem::create_directories(PathFromUtf8(archiveDirectory), ignored);
+            // The views through its portals belong to the level as it was:
+            // rendered again unless this build is the one that uses them.
+            if (!keepPortalViews)
+            {
+                for (std::size_t i = 0; i < def->Portals().size(); ++i)
+                {
+                    std::filesystem::remove(PathFromUtf8(PortalImagePath(def, i)), ignored);
+                }
+            }
+        }
+        try
+        {
+            MapPacker::Generate(def, archiveDirectory, EntityDirectory(), NodeDirectory(), verbose);
+        }
+        catch (...)
+        {
+            // Remembered, so the level is not tried again at every start
+            // until it or the translator changes (NeedsGenerating).
+            if (def->Translated())
+            {
+                std::ofstream failed(PathFromUtf8(FailedStampPath(def)), std::ios::trunc);
+                failed << TranslatorStamp(def) << '\n' << ::MphRead::NativeRuntime::ExceptionMessage(std::current_exception()) << '\n';
+            }
+            throw;
+        }
+        if (def->Translated())
+        {
+            std::ofstream stamp(PathFromUtf8(TranslatorStampPath(def)), std::ios::trunc);
+            stamp << TranslatorStamp(def);
+        }
     }
 
     const std::vector<std::string>& CustomRooms::AppendIds(
@@ -393,6 +1060,23 @@ namespace MphRead::Mods::MapGen
     {
         (void)AppendRooms(rooms);
         return std::move(rooms);
+    }
+
+    void CustomRooms::AppendMissingRooms(
+        std::vector<std::string>& ids,
+        std::vector<std::shared_ptr<MphRead::RoomMetadata>>& rooms)
+    {
+        for (const std::shared_ptr<MapDefinition>& definition : Definitions())
+        {
+            const std::string name = definition->Name();
+            if (std::find(ids.begin(), ids.end(), name) != ids.end())
+            {
+                continue;
+            }
+            const std::int32_t id = static_cast<std::int32_t>(ids.size());
+            rooms.push_back(MakeMetadata(definition.get(), id));
+            ids.push_back(name);
+        }
     }
 
     std::shared_ptr<MphRead::RoomMetadata> CustomRooms::MakeMetadata(
@@ -508,62 +1192,245 @@ namespace MphRead::Mods::MapGen
         {
             if (force || NeedsGenerating(def.get()))
             {
-                const std::string archiveDirectory =
-                    ArchiveDirectory(def.get());
-                const std::string entityDirectory =
-                    EntityDirectory();
-                const std::string nodeDirectory =
-                    NodeDirectory();
-
-                MapPacker::Generate(
-                    def.get(),
-                    archiveDirectory,
-                    entityDirectory,
-                    nodeDirectory,
-                    verbose);
+                Build(def.get(), verbose);
                 count = UncheckedAdd(count, 1);
             }
         }
         return count;
     }
 
-    void CustomRooms::GenerateMissing()
+    namespace
     {
-        const DefinitionList* definitions = nullptr;
+        // One map built at a time, whoever asks: the background start, a
+        // match about to load one, a portal view rendered.
+        std::recursive_mutex& BuildLock()
+        {
+            static std::recursive_mutex lock;
+            return lock;
+        }
+
+        struct GenerationState
+        {
+            std::mutex Lock;
+            CustomRooms::GenerationProgress Progress;
+            std::int32_t Downloaded = 0;
+            // Maps listed again since the launcher last looked.
+            std::int32_t ListVersion = 0;
+            // StartGenerating asked while the job ran: it goes round again.
+            bool Again = false;
+        };
+
+        // Matches about to load a map not built yet: the background job
+        // leaves the build lock to them (EnsureReady).
+        std::atomic<std::int32_t>& UrgentBuilds()
+        {
+            static std::atomic<std::int32_t> count{0};
+            return count;
+        }
+
+        void YieldToUrgent()
+        {
+            while (UrgentBuilds().load() > 0)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(25));
+            }
+        }
+
+        GenerationState& Generation()
+        {
+            static GenerationState state;
+            return state;
+        }
+    }
+
+    void CustomRooms::StartGenerating()
+    {
         try
         {
-            definitions = &Definitions();
+            // Listed here, before the thread reads the list.
+            (void)Definitions();
+        }
+        catch (...)
+        {
+            return;
+        }
+        GenerationState& state = Generation();
+        {
+            const std::lock_guard<std::mutex> guard(state.Lock);
+            if (state.Progress.Running)
+            {
+                state.Again = true;
+                return;
+            }
+            state.Progress = GenerationProgress{0, 0, {}, true};
+        }
+        std::thread([]()
+        {
+            // Nothing is fetched here: the server's maps come when the player
+            // asks (the Download maps page) or when a server plays one this
+            // device lacks (MapCatalog::EnsureRoom).
+            for (;;)
+            {
+                try
+                {
+                    GenerateMissing();
+                }
+                catch (...)
+                {
+                }
+                GenerationState& done = Generation();
+                const std::lock_guard<std::mutex> guard(done.Lock);
+                if (!done.Again)
+                {
+                    done.Progress.Running = false;
+                    done.Progress.Current.clear();
+                    break;
+                }
+                done.Again = false;
+            }
+        }).detach();
+    }
+
+    std::int32_t CustomRooms::TakeDownloaded()
+    {
+        GenerationState& state = Generation();
+        const std::lock_guard<std::mutex> guard(state.Lock);
+        const std::int32_t arrived = state.Downloaded;
+        state.Downloaded = 0;
+        return arrived;
+    }
+
+    std::int32_t CustomRooms::ListVersion()
+    {
+        GenerationState& state = Generation();
+        const std::lock_guard<std::mutex> guard(state.Lock);
+        return state.ListVersion;
+    }
+
+    void CustomRooms::NoteDownloaded(std::int32_t count)
+    {
+        GenerationState& state = Generation();
+        const std::lock_guard<std::mutex> guard(state.Lock);
+        state.Downloaded += count;
+    }
+
+    void CustomRooms::Rescan()
+    {
+        CustomRoomsState& state = State();
+        std::lock_guard<std::recursive_mutex> guard(state.Lock);
+        std::shared_ptr<DefinitionList> fresh = LoadDefinitions();
+        if (state.Definitions)
+        {
+            state.Retired.push_back(std::move(state.Definitions));
+        }
+        state.Definitions = std::move(fresh);
+    }
+
+    CustomRooms::GenerationProgress CustomRooms::Progress()
+    {
+        GenerationState& state = Generation();
+        const std::lock_guard<std::mutex> guard(state.Lock);
+        return state.Progress;
+    }
+
+    void CustomRooms::EnsureReady(const std::string& roomName)
+    {
+        DefinitionList definitions;
+        try
+        {
+            definitions = Definitions();
+        }
+        catch (...)
+        {
+            return;
+        }
+        for (const std::shared_ptr<MapDefinition>& def : definitions)
+        {
+            if (::MphRead::NativeRuntime::StringCompareOrdinalIgnoreCase(def->Name(), roomName) != 0)
+            {
+                continue;
+            }
+            // First in the queue: the background job lets go of the lock
+            // after the map it is on, and builds nothing else until this
+            // one is.
+            struct Urgent
+            {
+                Urgent() { UrgentBuilds().fetch_add(1); }
+                ~Urgent() { UrgentBuilds().fetch_sub(1); }
+            } urgent;
+            const std::lock_guard<std::recursive_mutex> guard(BuildLock());
+            try
+            {
+                if (NeedsGenerating(def.get()))
+                {
+                    ::MphRead::NativeRuntime::ConsoleWriteLine("[mapgen] building " + def->Name());
+                    Build(def.get(), false);
+                }
+            }
+            catch (...)
+            {
+                ::MphRead::NativeRuntime::ConsoleWriteLine("[mapgen] " + def->Name() + " could not be built: "
+                    + ::MphRead::NativeRuntime::ExceptionMessage(std::current_exception()));
+            }
+            return;
+        }
+    }
+
+    void CustomRooms::GenerateMissing()
+    {
+        DefinitionList definitions;
+        try
+        {
+            definitions = Definitions();
         }
         catch (...)
         {
             return;
         }
 
-        for (const std::shared_ptr<MapDefinition>& def : *definitions)
+        // The lock is held one map at a time, so a match about to load a map
+        // (EnsureReady) waits for the one being built, not for all of them.
+        std::vector<std::shared_ptr<MapDefinition>> missing;
+        for (const std::shared_ptr<MapDefinition>& def : definitions)
         {
             try
             {
-                if (!NeedsGenerating(def.get()))
+                if (NeedsGenerating(def.get()))
                 {
-                    continue;
+                    missing.push_back(def);
                 }
+            }
+            catch (...)
+            {
+                missing.push_back(def);
+            }
+        }
+        {
+            GenerationState& state = Generation();
+            const std::lock_guard<std::mutex> guard(state.Lock);
+            state.Progress.Total = static_cast<std::int32_t>(missing.size());
+            state.Progress.Done = 0;
+        }
 
-                ::MphRead::NativeRuntime::ConsoleWriteLine(
-                    "[mapgen] building " + def->Name());
-
-                const std::string archiveDirectory =
-                    ArchiveDirectory(def.get());
-                const std::string entityDirectory =
-                    EntityDirectory();
-                const std::string nodeDirectory =
-                    NodeDirectory();
-
-                MapPacker::Generate(
-                    def.get(),
-                    archiveDirectory,
-                    entityDirectory,
-                    nodeDirectory,
-                    false);
+        for (const std::shared_ptr<MapDefinition>& def : missing)
+        {
+            {
+                GenerationState& state = Generation();
+                const std::lock_guard<std::mutex> guard(state.Lock);
+                state.Progress.Current = def->InGameName().value_or(def->Name());
+            }
+            // A match waiting on a map goes first (EnsureReady).
+            YieldToUrgent();
+            try
+            {
+                const std::lock_guard<std::recursive_mutex> building(BuildLock());
+                // Built meanwhile for a match that could not wait.
+                if (NeedsGenerating(def.get()))
+                {
+                    ::MphRead::NativeRuntime::ConsoleWriteLine(
+                        "[mapgen] building " + def->Name());
+                    Build(def.get(), false);
+                }
             }
             catch (...)
             {
@@ -574,6 +1441,9 @@ namespace MphRead::Mods::MapGen
                     + ::MphRead::NativeRuntime::ExceptionMessage(error);
                 ::MphRead::NativeRuntime::ConsoleWriteLine(failureMessage);
             }
+            GenerationState& state = Generation();
+            const std::lock_guard<std::mutex> guard(state.Lock);
+            ++state.Progress.Done;
         }
     }
 
@@ -616,6 +1486,18 @@ namespace MphRead::Mods::MapGen
             throw System::NullReferenceException();
         }
 
+        // A level this translator could not build stays unbuilt until the
+        // level or the translator changes, rather than costing every start.
+        if (def->Translated())
+        {
+            std::ifstream failedFile(PathFromUtf8(FailedStampPath(def)));
+            std::string failed;
+            if (std::getline(failedFile, failed) && failed == TranslatorStamp(def))
+            {
+                return false;
+            }
+        }
+
         const std::string prefix =
             ::MphRead::NativeRuntime::ToLowerInvariant(def->Name());
 
@@ -647,6 +1529,14 @@ namespace MphRead::Mods::MapGen
         if (!source.has_value() || !FileExists(*source))
         {
             return false;
+        }
+
+        if (def->Translated())
+        {
+            std::ifstream stampFile(PathFromUtf8(TranslatorStampPath(def)));
+            std::string stamp;
+            std::getline(stampFile, stamp);
+            return stamp != TranslatorStamp(def);
         }
 
         const std::filesystem::file_time_type sourceTime =

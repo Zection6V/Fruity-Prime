@@ -1,3 +1,4 @@
+#include "ShaderAnim.hpp"
 #include "MapPacker.hpp"
 
 #include "CollisionObj.hpp"
@@ -45,6 +46,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <functional>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -556,7 +558,8 @@ namespace
             Vector2 t2,
             Vector3 normal,
             std::int32_t material,
-            float shade)
+            float shade,
+            std::vector<Vector3> colors = {})
             : Points(std::make_unique<ManagedArray<Vector3>>(3)),
               Texcoords(std::make_unique<ManagedArray<Vector2>>(3))
         {
@@ -572,6 +575,7 @@ namespace
                 normal,
                 material,
                 shade);
+            Face->Colors = std::move(colors);
         }
     };
 
@@ -597,10 +601,134 @@ namespace
             const Vector3 normal = face->Normal();
             const std::int32_t material = face->Material();
             const float shade = face->Shade();
+            std::vector<Vector3> colors;
+            if (face->Colors.size() == length)
+            {
+                colors = {face->Colors[0], face->Colors[i], face->Colors[i + 1]};
+            }
             result.push_back(std::make_unique<FanFaceOwner>(
-                p0, p1, p2, t0, t1, t2, normal, material, shade));
+                p0, p1, p2, t0, t1, t2, normal, material, shade, std::move(colors)));
         }
         return result;
+    }
+
+    // A texture coordinate is a 16-bit count of sixteenths of a texel
+    // (PackTexcoord), so a vertex sits no further than 2048 texels from its
+    // texture's origin -- and a Quake level's floor tiles a 512-texel image
+    // tens of times over. A face whose coordinates reach further is fanned
+    // into triangles, each cut in two across its longest side in texture
+    // space until it spans less than that, and each moved by whole repeats
+    // of its texture to start at the origin, which draws the same.
+    constexpr float TexcoordReach = 2040.0F;
+
+    [[nodiscard]] bool TexcoordsFit(BuiltFace* face)
+    {
+        ManagedArray<Vector2>* texcoords = FaceTexcoords(face);
+        for (std::size_t i = 0; i < texcoords->Length(); ++i)
+        {
+            const Vector2 t = (*texcoords)[i];
+            if (std::fabs(t.X) > TexcoordReach || std::fabs(t.Y) > TexcoordReach)
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    void FitTriangle(
+        const std::array<Vector3, 3>& points,
+        const std::array<Vector2, 3>& texcoords,
+        const std::array<Vector3, 3>& colors,
+        bool colored,
+        BuiltFace* face,
+        float width,
+        float height,
+        std::int32_t depth,
+        std::vector<std::unique_ptr<FanFaceOwner>>& result)
+    {
+        Vector2 low = texcoords[0];
+        Vector2 high = texcoords[0];
+        for (const Vector2 t : texcoords)
+        {
+            low = Vector2(std::min(low.X, t.X), std::min(low.Y, t.Y));
+            high = Vector2(std::max(high.X, t.X), std::max(high.Y, t.Y));
+        }
+        if ((high.X - low.X <= TexcoordReach && high.Y - low.Y <= TexcoordReach) || depth >= 16)
+        {
+            const Vector2 offset(
+                std::floor(low.X / width) * width,
+                std::floor(low.Y / height) * height);
+            result.push_back(std::make_unique<FanFaceOwner>(
+                points[0], points[1], points[2],
+                Vector2(texcoords[0].X - offset.X, texcoords[0].Y - offset.Y),
+                Vector2(texcoords[1].X - offset.X, texcoords[1].Y - offset.Y),
+                Vector2(texcoords[2].X - offset.X, texcoords[2].Y - offset.Y),
+                face->Normal(), face->Material(), face->Shade(),
+                colored ? std::vector<Vector3>{colors[0], colors[1], colors[2]} : std::vector<Vector3>{}));
+            return;
+        }
+
+        // The longest side, as the first two corners in the same winding.
+        std::size_t first = 0;
+        float longest = -1.0F;
+        for (std::size_t i = 0; i < 3; ++i)
+        {
+            const Vector2 next = texcoords[(i + 1) % 3];
+            const float reach = std::max(
+                std::fabs(next.X - texcoords[i].X), std::fabs(next.Y - texcoords[i].Y));
+            if (reach > longest)
+            {
+                longest = reach;
+                first = i;
+            }
+        }
+        const std::size_t a = first;
+        const std::size_t b = (first + 1) % 3;
+        const std::size_t c = (first + 2) % 3;
+        const Vector3 middle(
+            (points[a].X + points[b].X) * 0.5F,
+            (points[a].Y + points[b].Y) * 0.5F,
+            (points[a].Z + points[b].Z) * 0.5F);
+        const Vector2 middleUv(
+            (texcoords[a].X + texcoords[b].X) * 0.5F,
+            (texcoords[a].Y + texcoords[b].Y) * 0.5F);
+        const Vector3 middleColor(
+            (colors[a].X + colors[b].X) * 0.5F,
+            (colors[a].Y + colors[b].Y) * 0.5F,
+            (colors[a].Z + colors[b].Z) * 0.5F);
+        FitTriangle({points[a], middle, points[c]}, {texcoords[a], middleUv, texcoords[c]},
+            {colors[a], middleColor, colors[c]}, colored, face, width, height, depth + 1, result);
+        FitTriangle({middle, points[b], points[c]}, {middleUv, texcoords[b], texcoords[c]},
+            {middleColor, colors[b], colors[c]}, colored, face, width, height, depth + 1, result);
+    }
+
+    void FitTexcoords(
+        BuiltFace* face,
+        float width,
+        float height,
+        std::vector<std::unique_ptr<FanFaceOwner>>& result)
+    {
+        ManagedArray<Vector3>* points = FacePoints(face);
+        ManagedArray<Vector2>* texcoords = FaceTexcoords(face);
+        for (std::size_t i = 1; i + 1 < points->Length(); ++i)
+        {
+            const bool colored = face->Colors.size() == points->Length();
+            const Vector3 none(1.0F, 1.0F, 1.0F);
+            FitTriangle(
+                {(*points)[0], (*points)[i], (*points)[i + 1]},
+                {(*texcoords)[0], (*texcoords)[i], (*texcoords)[i + 1]},
+                {colored ? face->Colors[0] : none, colored ? face->Colors[i] : none, colored ? face->Colors[i + 1] : none},
+                colored, face, width, height, 0, result);
+        }
+    }
+
+    [[nodiscard]] std::uint32_t PackColor(Vector3 light) noexcept
+    {
+        const auto channel = [](float value) noexcept -> std::uint32_t
+        {
+            return static_cast<std::uint32_t>(std::clamp(RoundedInt32(31.0F * value), 0, 31));
+        };
+        return channel(light.X) | (channel(light.Y) << 5U) | (channel(light.Z) << 10U);
     }
 
     [[nodiscard]] std::uint32_t PackColor(float shade) noexcept
@@ -685,8 +813,15 @@ namespace
             instructions.push_back(
                 Instruction(InstructionCode::NORMAL, {PackNormal(face->Normal())}));
             ManagedArray<Vector3>* points = FacePoints(face);
+            const bool colored = face->Colors.size() == points->Length();
             for (std::size_t i = 0; i < points->Length(); ++i)
             {
+                // Light at each corner, where the face has it.
+                if (colored)
+                {
+                    instructions.push_back(
+                        Instruction(InstructionCode::COLOR, {PackColor(face->Colors[i])}));
+                }
                 ManagedArray<Vector2>* texcoords = FaceTexcoords(face);
                 const Vector2 texcoord = ManagedAt(texcoords, i);
                 instructions.push_back(Instruction(
@@ -705,7 +840,8 @@ namespace
         MapDefinition* def,
         const std::shared_ptr<std::vector<std::shared_ptr<Material>>>& materials,
         const std::shared_ptr<std::vector<std::shared_ptr<Repack::TextureInfo>>>& textures,
-        const std::shared_ptr<std::vector<std::shared_ptr<Repack::PaletteInfo>>>& palettes)
+        const std::shared_ptr<std::vector<std::shared_ptr<Repack::PaletteInfo>>>& palettes,
+        const std::vector<std::int32_t>* drawOrder = nullptr)
     {
         if (def == nullptr)
         {
@@ -717,7 +853,35 @@ namespace
         auto meshes = std::make_shared<std::vector<std::shared_ptr<Mesh>>>();
         std::int32_t vertexCount = 0;
         const std::int32_t materialCount = ListCount(materials->size());
-        for (std::int32_t materialId = 0; materialId < materialCount; ++materialId)
+        std::vector<std::int32_t> order;
+        if (drawOrder != nullptr)
+        {
+            order = *drawOrder;
+        }
+        else
+        {
+            for (std::int32_t materialId = 0; materialId < materialCount; ++materialId)
+            {
+                order.push_back(materialId);
+            }
+        }
+        // The level's own faces, then each mover's (BuiltFace::Mover), each
+        // in a node of its own that the room moves (Q3Movers).
+        std::vector<std::int32_t> movers{-1};
+        for (BuiltFace* face : map->Faces())
+        {
+            if (face != nullptr && face->Mover >= 0
+                && std::find(movers.begin(), movers.end(), face->Mover) == movers.end())
+            {
+                movers.push_back(face->Mover);
+            }
+        }
+        std::sort(movers.begin() + 1, movers.end());
+        std::vector<std::pair<std::int32_t, std::int32_t>> nodeMeshes;
+        for (const std::int32_t mover : movers)
+        {
+        const std::int32_t firstMesh = ListCount(meshes->size());
+        for (const std::int32_t materialId : order)
         {
             std::vector<BuiltFace*> group;
             for (BuiltFace* face : map->Faces())
@@ -726,7 +890,7 @@ namespace
                 {
                     throw System::NullReferenceException();
                 }
-                if (face->Material() == materialId)
+                if (face->Material() == materialId && face->Mover == mover)
                 {
                     group.push_back(face);
                 }
@@ -738,47 +902,62 @@ namespace
 
             auto instructions = std::make_shared<std::vector<std::shared_ptr<RenderInstruction>>>();
 
-            std::vector<BuiltFace*> triangles;
-            for (BuiltFace* face : group)
+            // The material's texture size, for FitTexcoords; a material with
+            // none of its own here is drawn as it comes.
+            float width = 0.0F;
+            float height = 0.0F;
+            if (materials != nullptr && textures != nullptr
+                && static_cast<std::size_t>(materialId) < materials->size())
             {
-                if (FacePoints(face)->Length() == 3)
+                const std::int32_t textureId = RequireReference((*materials)[static_cast<std::size_t>(materialId)]).TextureId;
+                if (textureId >= 0 && static_cast<std::size_t>(textureId) < textures->size())
                 {
-                    triangles.push_back(face);
+                    const Repack::TextureInfo& texture = RequireReference((*textures)[static_cast<std::size_t>(textureId)]);
+                    width = static_cast<float>(texture.Width);
+                    height = static_cast<float>(texture.Height);
                 }
             }
-            vertexCount = UncheckedAdd(
-                vertexCount,
-                EmitPrimitives(*instructions, triangles, 0U, scale));
 
+            std::vector<std::unique_ptr<FanFaceOwner>> fanOwners;
+            std::vector<BuiltFace*> triangles;
             std::vector<BuiltFace*> quads;
             for (BuiltFace* face : group)
             {
-                if (FacePoints(face)->Length() == 4)
+                const std::size_t length = FacePoints(face)->Length();
+                if (width > 0.0F && height > 0.0F && !TexcoordsFit(face))
+                {
+                    std::vector<std::unique_ptr<FanFaceOwner>> current;
+                    FitTexcoords(face, width, height, current);
+                    for (auto& owner : current)
+                    {
+                        triangles.push_back(owner->Face.get());
+                        fanOwners.push_back(std::move(owner));
+                    }
+                }
+                else if (length == 3)
+                {
+                    triangles.push_back(face);
+                }
+                else if (length == 4)
                 {
                     quads.push_back(face);
                 }
-            }
-            vertexCount = UncheckedAdd(
-                vertexCount,
-                EmitPrimitives(*instructions, quads, 1U, scale));
-
-            std::vector<std::unique_ptr<FanFaceOwner>> fanOwners;
-            std::vector<BuiltFace*> fanFaces;
-            for (BuiltFace* face : group)
-            {
-                if (FacePoints(face)->Length() > 4)
+                else if (length > 4)
                 {
                     std::vector<std::unique_ptr<FanFaceOwner>> current = Fan(face);
                     for (auto& owner : current)
                     {
-                        fanFaces.push_back(owner->Face.get());
+                        triangles.push_back(owner->Face.get());
                         fanOwners.push_back(std::move(owner));
                     }
                 }
             }
             vertexCount = UncheckedAdd(
                 vertexCount,
-                EmitPrimitives(*instructions, fanFaces, 0U, scale));
+                EmitPrimitives(*instructions, triangles, 0U, scale));
+            vertexCount = UncheckedAdd(
+                vertexCount,
+                EmitPrimitives(*instructions, quads, 1U, scale));
 
             while (instructions->size() % 4U != 0U)
             {
@@ -789,21 +968,29 @@ namespace
                 ListCount(renders->size())));
             renders->push_back(instructions);
         }
+        nodeMeshes.emplace_back(firstMesh, ListCount(meshes->size()) - firstMesh);
+        }
 
         auto nodes = std::make_shared<std::vector<std::shared_ptr<Node>>>();
         const std::u16string rootName = u"rmMain";
-        const std::u16string geometryName = u"geo1";
         nodes->push_back(MphRead::Mods::MapGen::RawStructs::MakeNode(
             std::u16string_view(rootName),
             0,
             0,
             -1,
             1));
-        nodes->push_back(MphRead::Mods::MapGen::RawStructs::MakeNode(
-            std::u16string_view(geometryName),
-            ListCount(meshes->size()),
-            0,
-            0));
+        for (std::size_t n = 0; n < movers.size(); ++n)
+        {
+            const std::u16string name = n == 0 ? std::u16string(u"geo1")
+                : ::MphRead::NativeRuntime::Utf8ToUtf16("q3model" + std::to_string(movers[n]));
+            nodes->push_back(MphRead::Mods::MapGen::RawStructs::MakeNode(
+                std::u16string_view(name),
+                nodeMeshes[n].second,
+                nodeMeshes[n].first,
+                0,
+                -1,
+                n + 1 < movers.size() ? static_cast<std::int32_t>(n + 2) : -1));
+        }
 
         auto dlists = std::make_shared<std::vector<DisplayList>>(renders->size());
         auto options = std::make_shared<Repack::RepackOptions>();
@@ -827,9 +1014,398 @@ namespace
         return {packed.first, vertexCount};
     }
 
+    // A room's animation (Read::LoadAnimation): one group of each kind,
+    // ShaderAnim::LoopFrames long, from the texture pack's moving shaders --
+    // their tcMods as texcoord animations, their waves as material alpha,
+    // their animMaps as texture animations -- each by its material's name.
+    [[nodiscard]] std::vector<std::uint8_t> BuildAnimation(
+        const MapTexturePack& pack,
+        const std::vector<std::string>& names)
+    {
+        namespace SA = ::MphRead::Mods::MapGen::ShaderAnim;
+        using MphRead::Utility::BinaryWriter;
+        constexpr std::int32_t Frames = SA::LoopFrames;
+        // A track, one value every Blend frames and its last frames each,
+        // as Model::InterpolateAnimation reads them.
+        constexpr std::int32_t Blend = 4;
+        constexpr std::int32_t Limit = ((Frames - 1) / Blend) * Blend;
+        const auto sample = [&](const std::function<float(float)>& at)
+        {
+            std::vector<float> values;
+            for (std::int32_t frame = 0; frame <= Limit - Blend; frame += Blend)
+            {
+                values.push_back(at(static_cast<float>(frame) / SA::FramesPerSecond));
+            }
+            for (std::int32_t frame = Limit; frame < Frames; ++frame)
+            {
+                values.push_back(at(static_cast<float>(frame) / SA::FramesPerSecond));
+            }
+            return values;
+        };
+        const auto constant = [](const std::vector<float>& values)
+        {
+            for (const float value : values)
+            {
+                if (std::abs(value - values.front()) > 0.00001F)
+                {
+                    return false;
+                }
+            }
+            return true;
+        };
+        const auto fixed = [](float value)
+        {
+            return static_cast<std::int32_t>(std::lround(static_cast<double>(value) * 4096.0));
+        };
+        const auto angle = [](float radians)
+        {
+            const double turns = static_cast<double>(radians) / (2.0 * 3.14159265358979323846);
+            return static_cast<std::uint16_t>(static_cast<std::int64_t>(std::llround(turns * 65536.0)) & 0xFFFF);
+        };
+        const auto writeName = [](BinaryWriter& writer, const std::string& name, std::size_t length)
+        {
+            for (std::size_t i = 0; i < length; ++i)
+            {
+                writer.Write(static_cast<std::uint8_t>(i < name.size() ? name[i] : 0));
+            }
+        };
+
+        // Track lookup tables; index 0 of each is the value that does not move.
+        std::vector<std::int32_t> scales{4096};
+        std::vector<std::uint16_t> rotations{0};
+        std::vector<std::int32_t> translations{0};
+        std::vector<std::uint8_t> colors{31, 0};
+        struct Track
+        {
+            std::uint16_t Length = 1;
+            std::uint16_t Index = 0;
+            std::uint8_t Blend = 0;
+        };
+        const auto addFixed = [&](std::vector<std::int32_t>& lut, const std::vector<float>& values, std::int32_t still)
+        {
+            Track track;
+            if (constant(values))
+            {
+                const std::int32_t value = fixed(values.front());
+                if (value == still)
+                {
+                    return track;
+                }
+                track.Index = static_cast<std::uint16_t>(lut.size());
+                lut.push_back(value);
+                return track;
+            }
+            track.Index = static_cast<std::uint16_t>(lut.size());
+            track.Length = static_cast<std::uint16_t>(values.size());
+            track.Blend = Blend;
+            for (const float value : values)
+            {
+                lut.push_back(fixed(value));
+            }
+            return track;
+        };
+
+        struct UvAnimation
+        {
+            std::string Name;
+            Track ScaleS, ScaleT, Rotate, TranslateS, TranslateT;
+        };
+        struct AlphaAnimation
+        {
+            std::string Name;
+            std::int32_t Material = 0;
+            Track Alpha;
+        };
+        struct FrameAnimation
+        {
+            std::string Name;
+            std::int32_t Material = 0;
+            std::int32_t Period = 0;
+            std::vector<std::pair<std::int32_t, std::int32_t>> Keys;
+        };
+        std::vector<UvAnimation> uvs;
+        std::vector<AlphaAnimation> alphas;
+        std::vector<FrameAnimation> frameAnimations;
+
+        std::unordered_map<std::int32_t, std::int32_t> entryBySource;
+        for (std::size_t e = 0; e < pack.Entries().size(); ++e)
+        {
+            entryBySource.emplace(pack.Entries()[e].SourceIndex(), static_cast<std::int32_t>(e));
+        }
+        for (std::size_t e = 0; e < pack.Entries().size(); ++e)
+        {
+            const MapTexturePack::Entry& entry = pack.Entries()[e];
+            if (entry.Meta().empty())
+            {
+                continue;
+            }
+            const SA::EntryMeta meta = SA::Decode(entry.Meta());
+            if (meta.Role == "frame")
+            {
+                continue;
+            }
+            const std::string& name = names.at(e);
+            if (meta.MovesTexcoords()
+                && (rotations.size() < 60000 && scales.size() < 60000 && translations.size() < 60000))
+            {
+                std::vector<float> scaleS, scaleT, rotate, translateS, translateT;
+                for (const float seconds : sample([](float t) { return t; }))
+                {
+                    const SA::TexcoordFrame frame = SA::Texcoords(meta.TcMods, seconds);
+                    scaleS.push_back(frame.ScaleS);
+                    scaleT.push_back(frame.ScaleT);
+                    rotate.push_back(frame.Rotate);
+                    translateS.push_back(frame.TranslateS);
+                    translateT.push_back(frame.TranslateT);
+                }
+                UvAnimation uv;
+                uv.Name = name;
+                uv.ScaleS = addFixed(scales, scaleS, 4096);
+                uv.ScaleT = addFixed(scales, scaleT, 4096);
+                uv.TranslateS = addFixed(translations, translateS, 0);
+                uv.TranslateT = addFixed(translations, translateT, 0);
+                if (!constant(rotate) || angle(rotate.front()) != 0)
+                {
+                    uv.Rotate.Index = static_cast<std::uint16_t>(rotations.size());
+                    if (constant(rotate))
+                    {
+                        rotations.push_back(angle(rotate.front()));
+                    }
+                    else
+                    {
+                        uv.Rotate.Length = static_cast<std::uint16_t>(rotate.size());
+                        uv.Rotate.Blend = Blend;
+                        for (const float value : rotate)
+                        {
+                            rotations.push_back(angle(value));
+                        }
+                    }
+                }
+                uvs.push_back(uv);
+            }
+            if (meta.Fade.has_value() && colors.size() < 60000)
+            {
+                AlphaAnimation alpha;
+                alpha.Name = name;
+                alpha.Material = static_cast<std::int32_t>(e);
+                alpha.Alpha.Index = static_cast<std::uint16_t>(colors.size());
+                const std::vector<float> values = sample([&](float t)
+                    { return std::clamp(SA::WaveValue(*meta.Fade, t), 0.0F, 1.0F); });
+                alpha.Alpha.Length = static_cast<std::uint16_t>(values.size());
+                alpha.Alpha.Blend = Blend;
+                for (const float value : values)
+                {
+                    colors.push_back(static_cast<std::uint8_t>(std::lround(value * 31.0F)));
+                }
+                alphas.push_back(alpha);
+            }
+            if (meta.FrameCount > 1 && meta.FrameRate > 0.0F)
+            {
+                FrameAnimation animation;
+                animation.Name = name;
+                animation.Material = static_cast<std::int32_t>(e);
+                animation.Period = std::max<std::int32_t>(1, static_cast<std::int32_t>(std::lround(
+                    static_cast<float>(meta.FrameCount) * SA::FramesPerSecond / meta.FrameRate)));
+                for (std::size_t f = 0; f < pack.Entries().size(); ++f)
+                {
+                    const MapTexturePack::Entry& frameEntry = pack.Entries()[f];
+                    if (frameEntry.Meta().empty())
+                    {
+                        continue;
+                    }
+                    const SA::EntryMeta frameMeta = SA::Decode(frameEntry.Meta());
+                    if (frameMeta.Role == "frame" && frameMeta.Of == entry.SourceIndex())
+                    {
+                        const std::int32_t at = static_cast<std::int32_t>(std::lround(
+                            static_cast<float>(frameMeta.Frame) * SA::FramesPerSecond / meta.FrameRate));
+                        animation.Keys.emplace_back(std::min(at, animation.Period - 1), static_cast<std::int32_t>(f));
+                    }
+                }
+                std::sort(animation.Keys.begin(), animation.Keys.end());
+                if (animation.Keys.size() > 1)
+                {
+                    frameAnimations.push_back(std::move(animation));
+                }
+            }
+        }
+        if (uvs.empty() && alphas.empty() && frameAnimations.empty())
+        {
+            return {};
+        }
+
+        BinaryWriter writer;
+        writer.Position(24);
+        const auto align = [&writer]()
+        {
+            while (writer.Position() % 4U != 0U)
+            {
+                writer.Write(static_cast<std::uint8_t>(0));
+            }
+        };
+
+        std::uint32_t materialGroup = 0;
+        if (!alphas.empty())
+        {
+            const std::uint32_t colorOffset = static_cast<std::uint32_t>(writer.Position());
+            for (const std::uint8_t value : colors)
+            {
+                writer.Write(value);
+            }
+            align();
+            const std::uint32_t animationOffset = static_cast<std::uint32_t>(writer.Position());
+            for (const AlphaAnimation& alpha : alphas)
+            {
+                writeName(writer, alpha.Name, 64);
+                writer.Write(static_cast<std::uint32_t>(0));
+                // Diffuse at full (index 0), ambient and specular none
+                // (index 1): the colour the material already has.
+                for (const std::uint16_t index : {std::uint16_t{0}, std::uint16_t{1}, std::uint16_t{1}})
+                {
+                    writer.Write(static_cast<std::uint8_t>(0));
+                    writer.Write(static_cast<std::uint8_t>(0));
+                    writer.Write(static_cast<std::uint8_t>(0));
+                    writer.Write(static_cast<std::uint8_t>(0));
+                    for (std::size_t c = 0; c < 3; ++c) writer.Write(static_cast<std::uint16_t>(1));
+                    for (std::size_t c = 0; c < 3; ++c) writer.Write(index);
+                }
+                for (std::size_t u = 0; u < 4; ++u) writer.Write(static_cast<std::uint32_t>(0));
+                writer.Write(alpha.Alpha.Blend);
+                writer.Write(static_cast<std::uint8_t>(0));
+                writer.Write(alpha.Alpha.Length);
+                writer.Write(alpha.Alpha.Index);
+                writer.Write(static_cast<std::uint16_t>(alpha.Material));
+            }
+            materialGroup = static_cast<std::uint32_t>(writer.Position());
+            writer.Write(static_cast<std::uint32_t>(Frames));
+            writer.Write(colorOffset);
+            writer.Write(static_cast<std::uint32_t>(alphas.size()));
+            writer.Write(animationOffset);
+            writer.Write(static_cast<std::uint16_t>(0));
+            writer.Write(static_cast<std::uint16_t>(0));
+        }
+
+        std::uint32_t texcoordGroup = 0;
+        if (!uvs.empty())
+        {
+            const std::uint32_t scaleOffset = static_cast<std::uint32_t>(writer.Position());
+            for (const std::int32_t value : scales) writer.Write(value);
+            const std::uint32_t rotateOffset = static_cast<std::uint32_t>(writer.Position());
+            for (const std::uint16_t value : rotations) writer.Write(value);
+            align();
+            const std::uint32_t translateOffset = static_cast<std::uint32_t>(writer.Position());
+            for (const std::int32_t value : translations) writer.Write(value);
+            const std::uint32_t animationOffset = static_cast<std::uint32_t>(writer.Position());
+            for (const UvAnimation& uv : uvs)
+            {
+                writeName(writer, uv.Name, 32);
+                writer.Write(uv.ScaleS.Blend);
+                writer.Write(uv.ScaleT.Blend);
+                writer.Write(uv.ScaleS.Length);
+                writer.Write(uv.ScaleT.Length);
+                writer.Write(uv.ScaleS.Index);
+                writer.Write(uv.ScaleT.Index);
+                writer.Write(uv.Rotate.Blend);
+                writer.Write(static_cast<std::uint8_t>(0));
+                writer.Write(uv.Rotate.Length);
+                writer.Write(uv.Rotate.Index);
+                writer.Write(uv.TranslateS.Blend);
+                writer.Write(uv.TranslateT.Blend);
+                writer.Write(uv.TranslateS.Length);
+                writer.Write(uv.TranslateT.Length);
+                writer.Write(uv.TranslateS.Index);
+                writer.Write(uv.TranslateT.Index);
+                writer.Write(static_cast<std::uint16_t>(0));
+            }
+            texcoordGroup = static_cast<std::uint32_t>(writer.Position());
+            writer.Write(static_cast<std::uint32_t>(Frames));
+            writer.Write(scaleOffset);
+            writer.Write(rotateOffset);
+            writer.Write(translateOffset);
+            writer.Write(static_cast<std::uint32_t>(uvs.size()));
+            writer.Write(animationOffset);
+            writer.Write(static_cast<std::uint16_t>(0));
+            writer.Write(static_cast<std::uint16_t>(0));
+        }
+
+        std::uint32_t textureGroup = 0;
+        if (!frameAnimations.empty())
+        {
+            std::vector<std::uint16_t> frameIndices;
+            std::vector<std::uint16_t> ids;
+            for (const FrameAnimation& animation : frameAnimations)
+            {
+                for (const auto& [frame, entry] : animation.Keys)
+                {
+                    frameIndices.push_back(static_cast<std::uint16_t>(frame));
+                    ids.push_back(static_cast<std::uint16_t>(entry));
+                }
+            }
+            const std::uint32_t frameOffset = static_cast<std::uint32_t>(writer.Position());
+            for (const std::uint16_t value : frameIndices) writer.Write(value);
+            align();
+            const std::uint32_t textureOffset = static_cast<std::uint32_t>(writer.Position());
+            for (const std::uint16_t value : ids) writer.Write(value);
+            align();
+            // Each entry is its own texture and palette (BuildModel).
+            const std::uint32_t paletteOffset = static_cast<std::uint32_t>(writer.Position());
+            for (const std::uint16_t value : ids) writer.Write(value);
+            align();
+            const std::uint32_t animationOffset = static_cast<std::uint32_t>(writer.Position());
+            std::uint16_t start = 0;
+            for (const FrameAnimation& animation : frameAnimations)
+            {
+                writeName(writer, animation.Name, 32);
+                writer.Write(static_cast<std::uint16_t>(animation.Keys.size()));
+                writer.Write(start);
+                writer.Write(static_cast<std::uint16_t>(0));
+                writer.Write(static_cast<std::uint16_t>(animation.Material));
+                writer.Write(static_cast<std::uint16_t>(0));
+                // Field2A: the frames it repeats over (Model::AnimateTextures).
+                writer.Write(static_cast<std::uint16_t>(animation.Period));
+                start = static_cast<std::uint16_t>(start + animation.Keys.size());
+            }
+            textureGroup = static_cast<std::uint32_t>(writer.Position());
+            writer.Write(static_cast<std::uint16_t>(Frames));
+            writer.Write(static_cast<std::uint16_t>(frameIndices.size()));
+            writer.Write(static_cast<std::uint16_t>(ids.size()));
+            writer.Write(static_cast<std::uint16_t>(ids.size()));
+            writer.Write(static_cast<std::uint16_t>(frameAnimations.size()));
+            writer.Write(static_cast<std::uint16_t>(0));
+            writer.Write(frameOffset);
+            writer.Write(textureOffset);
+            writer.Write(paletteOffset);
+            writer.Write(animationOffset);
+            writer.Write(static_cast<std::uint16_t>(0));
+            writer.Write(static_cast<std::uint16_t>(0));
+        }
+
+        // One group of each kind: the lists of their offsets, node and the
+        // unused kind empty.
+        const std::uint32_t nodeList = static_cast<std::uint32_t>(writer.Position());
+        writer.Write(static_cast<std::uint32_t>(0));
+        const std::uint32_t unusedList = static_cast<std::uint32_t>(writer.Position());
+        writer.Write(static_cast<std::uint32_t>(0));
+        const std::uint32_t materialList = static_cast<std::uint32_t>(writer.Position());
+        writer.Write(materialGroup);
+        const std::uint32_t texcoordList = static_cast<std::uint32_t>(writer.Position());
+        writer.Write(texcoordGroup);
+        const std::uint32_t textureList = static_cast<std::uint32_t>(writer.Position());
+        writer.Write(textureGroup);
+        writer.Position(0);
+        writer.Write(nodeList);
+        writer.Write(unusedList);
+        writer.Write(materialList);
+        writer.Write(texcoordList);
+        writer.Write(textureList);
+        writer.Write(static_cast<std::uint16_t>(1));
+        writer.Write(static_cast<std::uint16_t>(0));
+        return writer.ToArray();
+    }
+
     [[nodiscard]] std::pair<std::vector<std::uint8_t>, std::int32_t> BuildModel(
         BuiltMap* map,
-        MapTexturePack* pack)
+        MapTexturePack* pack,
+        std::vector<std::uint8_t>* animation = nullptr)
     {
         if (map == nullptr)
         {
@@ -844,47 +1420,121 @@ namespace
         {
             throw System::NullReferenceException();
         }
+        // Draw order: the faces, then the layers the level's light falls on,
+        // the light layer, and the glows it does not (ShaderAnim).
+        std::vector<std::int32_t> faces;
+        std::vector<std::int32_t> litLayers;
+        std::vector<std::int32_t> glows;
+        std::vector<std::string> names;
         for (const MapTexturePack::Entry& entry : pack->Entries())
         {
+            const std::int32_t index = ListCount(materials->size());
             auto pixels = std::shared_ptr<const std::vector<std::uint8_t>>(
                 std::addressof(entry.Pixels()),
                 [](const std::vector<std::uint8_t>*) {});
             auto palette = std::shared_ptr<const std::vector<std::uint16_t>>(
                 std::addressof(entry.Palette()),
                 [](const std::vector<std::uint16_t>*) {});
+            using PixelFormat = MapTexturePack::Entry::PixelFormat;
+            const TextureFormat format = entry.Format() == PixelFormat::A5I3 ? TextureFormat::PaletteA5I3
+                : (entry.Format() == PixelFormat::A3I5 ? TextureFormat::PaletteA3I5 : TextureFormat::Palette8Bit);
             textures->push_back(std::make_shared<Repack::TextureInfo>(
-                TextureFormat::Palette8Bit,
-                true,
+                format,
+                format == TextureFormat::Palette8Bit,
                 entry.Height(),
                 entry.Width(),
                 std::move(pixels)));
             palettes->push_back(
                 std::make_shared<Repack::PaletteInfo>(std::move(palette)));
 
-            std::u16string name = Utf8ToUtf16(entry.Name());
+            ::MphRead::Mods::MapGen::ShaderAnim::EntryMeta meta;
+            if (!entry.Meta().empty())
+            {
+                meta = ::MphRead::Mods::MapGen::ShaderAnim::Decode(entry.Meta());
+            }
+            std::string utf8 = entry.Name();
+            // A moving material is found by its name (Model::AnimateTexcoords
+            // and the rest), so its name is its own.
+            if (!entry.Meta().empty())
+            {
+                // "+" marks a moving stage Quake adds (Material::Additive):
+                // a glow that never changes keeps the see-through blend,
+                // which over its own lit fitting reads truer than adding.
+                const std::string prefix = "q" + std::to_string(index)
+                    + (meta.Blend == "add" && meta.Animated() ? "+" : "_");
+                utf8 = prefix + (utf8.size() > 30U - prefix.size() ? utf8.substr(utf8.size() - (30U - prefix.size())) : utf8);
+            }
+            std::u16string name = Utf8ToUtf16(utf8);
             if (name.size() > 30U)
             {
                 name = name.substr(name.size() - 30U);
             }
+            names.push_back(::MphRead::NativeRuntime::Utf16ToUtf8(name));
+            const RepeatMode repeat = meta.Clamp ? RepeatMode::Clamp : RepeatMode::Repeat;
+            const MphRead::RenderMode mode = meta.Role == "layer" ? MphRead::RenderMode::Decal
+                : (meta.Blend == "add" ? MphRead::RenderMode::Translucent : MphRead::RenderMode::Normal);
             materials->push_back(MphRead::Mods::MapGen::RawStructs::MakeMaterial(
                 std::u16string_view(name),
                 ListCount(textures->size()) - 1,
                 ListCount(palettes->size()) - 1,
-                RepeatMode::Repeat,
-                RepeatMode::Repeat,
+                repeat,
+                repeat,
                 false,
                 ColorRgb(31, 31, 31),
-                ColorRgb(0, 0, 0)));
+                ColorRgb(0, 0, 0),
+                mode,
+                meta.TwoSided ? MphRead::CullingMode::Neither : MphRead::CullingMode::Back));
+            (meta.Role != "layer" ? faces : (meta.Lit ? litLayers : glows)).push_back(index);
         }
         if (materials->empty())
         {
             throw ProgramException("The texture pack is empty.");
         }
-        return Assemble(map, def, materials, textures, palettes);
+        // The light layer (Q3Import::LightLayer): black, as see-through as the
+        // light is bright, drawn as a decal. Mirrored at both edges, which no
+        // cartridge decal is, is what tells the renderer to filter it
+        // smoothly whatever the texture filtering setting.
+        for (std::size_t page = 0; page < map->LightPages.size(); ++page)
+        {
+            std::vector<std::uint8_t> texels(map->LightPages[page].size());
+            for (std::size_t i = 0; i < texels.size(); ++i)
+            {
+                texels[i] = static_cast<std::uint8_t>((map->LightPages[page][i] & 0x1F) << 3);
+            }
+            textures->push_back(std::make_shared<Repack::TextureInfo>(
+                TextureFormat::PaletteA5I3,
+                false,
+                128,
+                128,
+                std::make_shared<const std::vector<std::uint8_t>>(std::move(texels))));
+            palettes->push_back(std::make_shared<Repack::PaletteInfo>(
+                std::make_shared<const std::vector<std::uint16_t>>(std::vector<std::uint16_t>(8, 0))));
+            const std::u16string name = Utf8ToUtf16("lightmap" + std::to_string(page));
+            materials->push_back(MphRead::Mods::MapGen::RawStructs::MakeMaterial(
+                std::u16string_view(name),
+                ListCount(textures->size()) - 1,
+                ListCount(palettes->size()) - 1,
+                RepeatMode::Mirror,
+                RepeatMode::Mirror,
+                false,
+                ColorRgb(31, 31, 31),
+                ColorRgb(0, 0, 0),
+                MphRead::RenderMode::Decal));
+            litLayers.push_back(ListCount(materials->size()) - 1);
+        }
+        std::vector<std::int32_t> drawOrder = faces;
+        drawOrder.insert(drawOrder.end(), litLayers.begin(), litLayers.end());
+        drawOrder.insert(drawOrder.end(), glows.begin(), glows.end());
+        if (animation != nullptr)
+        {
+            *animation = BuildAnimation(*pack, names);
+        }
+        return Assemble(map, def, materials, textures, palettes, &drawOrder);
     }
 
     [[nodiscard]] std::pair<std::vector<std::uint8_t>, std::int32_t> BuildModel(
-        BuiltMap* map)
+        BuiltMap* map,
+        std::vector<std::uint8_t>* animation = nullptr)
     {
         if (map == nullptr)
         {
@@ -901,7 +1551,7 @@ namespace
             : import->LoadTexturePack();
         if (own)
         {
-            return BuildModel(map, own.get());
+            return BuildModel(map, own.get(), animation);
         }
 
         const std::shared_ptr<MphRead::ModelInstance> instance
@@ -1034,15 +1684,11 @@ namespace
         return Assemble(map, def, materials, textures, palettes);
     }
 
-    [[nodiscard]] std::vector<std::uint8_t> BuildCollision(BuiltMap* map)
+    [[nodiscard]] std::vector<std::uint8_t> BuildCollision(const std::vector<BuiltFace*>& solid)
     {
         auto editors = std::make_shared<
             std::vector<std::shared_ptr<CollisionDataEditor>>>();
-        if (map == nullptr)
-        {
-            throw System::NullReferenceException();
-        }
-        for (BuiltFace* face : map->Solid())
+        for (BuiltFace* face : solid)
         {
             if (face == nullptr)
             {
@@ -1132,21 +1778,28 @@ namespace MphRead::Mods::MapGen
         }
         const std::string prefix = ::MphRead::NativeRuntime::ToLowerInvariant(def->Name());
 
-        auto [model, vertices] = BuildModel(map);
-        std::vector<std::uint8_t> collision = BuildCollision(map);
+        std::vector<std::uint8_t> animation;
+        auto [model, vertices] = BuildModel(map, &animation);
+        std::vector<std::uint8_t> collision = BuildCollision(map->Solid());
         std::vector<Editor::EntityEditorBase*>& entityList = map->Entities();
         std::vector<std::uint8_t> entities = Repack::PackEntities(
             std::span<Editor::EntityEditorBase* const>(
                 entityList.data(), entityList.size()));
-        auto [nodes, nodeCount, edges] = MapNodePacker::Pack(&map->Solid());
+        auto [nodes, nodeCount, edges] = MapNodePacker::Pack(&map->Solid(), &map->Links);
 
         const std::string modelPath = PathCombine(archiveDir, prefix + "_Model.bin");
         FileWriteAllBytes(modelPath, model);
         const std::string animPath = PathCombine(archiveDir, prefix + "_Anim.bin");
-        const std::vector<std::uint8_t> emptyAnim(24U);
-        FileWriteAllBytes(animPath, emptyAnim);
+        FileWriteAllBytes(animPath, animation.empty() ? std::vector<std::uint8_t>(24U) : animation);
         const std::string collisionPath = PathCombine(archiveDir, prefix + "_Collision.bin");
         FileWriteAllBytes(collisionPath, collision);
+        // Each Quake 3 mover's own collision, beside the room's
+        // (Q3MoverEntity).
+        for (const auto& [mover, faces] : map->MoverSolid)
+        {
+            FileWriteAllBytes(PathCombine(archiveDir, prefix + "_q3model" + std::to_string(mover) + "_Collision.bin"),
+                BuildCollision(faces));
+        }
         const std::string entityPath = PathCombine(entityDir, prefix + "_Ent.bin");
         FileWriteAllBytes(entityPath, entities);
         DirectoryCreateDirectory(nodeDir);

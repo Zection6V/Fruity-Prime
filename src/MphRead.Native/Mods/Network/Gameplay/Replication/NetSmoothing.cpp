@@ -51,6 +51,18 @@ namespace MphRead::Mods::Network
 
     namespace
     {
+        [[nodiscard]] float InterpolationAmount(std::uint32_t beforeFrame, std::uint32_t afterFrame,
+            std::uint32_t lowerFrame, double fraction) noexcept
+        {
+            const std::uint32_t span = afterFrame - beforeFrame;
+            if (span == 0)
+            {
+                return 0.0F;
+            }
+            const double elapsed = static_cast<double>(lowerFrame - beforeFrame) + fraction;
+            return static_cast<float>(std::clamp(elapsed / span, 0.0, 1.0));
+        }
+
         template <typename T, std::size_t Rows, std::size_t Columns>
         void ClearGrid(std::array<std::array<T, Columns>, Rows>& grid)
         {
@@ -326,10 +338,8 @@ namespace MphRead::Mods::Network
         // Bridge the nearest received snapshots instead of falling back to the
         // latest state, which jumps ahead of the shared playout clock.
         const std::uint32_t span = bracket.AfterFrame - bracket.BeforeFrame;
-        const double elapsed = static_cast<double>(lower - bracket.BeforeFrame) + fraction;
-        const float amount = span == 0 ? 0.0F
-            : static_cast<float>(std::clamp(elapsed / span, 0.0, 1.0));
-        if (fraction <= 0.0001 || span == 0 || altA != altB)
+        const float amount = InterpolationAmount(bracket.BeforeFrame, bracket.AfterFrame, lower, fraction);
+        if (amount <= 0.0001F || span == 0 || altA != altB)
         {
             // A form change switches the position origin. Hold the near pose
             // until the same presentation clock reaches the new form sample.
@@ -363,6 +373,7 @@ namespace MphRead::Mods::Network
             return false;
         }
         const auto lower = static_cast<std::uint32_t>(std::floor(_readFrame));
+        const double fraction = _readFrame - lower;
         ReplicatedFormState a{};
         SnapshotBracket bracket{};
         if (!FindSnapshotBracket(lower, bracket) || !LookupForm(slot, bracket.BeforeFrame, a))
@@ -382,9 +393,7 @@ namespace MphRead::Mods::Network
             return true;
         }
         const std::uint32_t span = bracket.AfterFrame - bracket.BeforeFrame;
-        const double elapsed = static_cast<double>(lower - bracket.BeforeFrame) + (_readFrame - lower);
-        const float amount = span == 0 ? 0.0F
-            : static_cast<float>(std::clamp(elapsed / span, 0.0, 1.0));
+        const float amount = InterpolationAmount(bracket.BeforeFrame, bracket.AfterFrame, lower, fraction);
         if (amount <= 0.0001F
             || a.Direction != b.Direction || a.AltForm != b.AltForm
             || a.Direction == ReplicatedFormState::Transition::None)
@@ -463,7 +472,7 @@ namespace MphRead::Mods::Network
         {
             return true;
         }
-        if (fraction <= 0.0001 || afterFrame == 0)
+        if (afterFrame == 0)
         {
             return true;
         }
@@ -480,8 +489,11 @@ namespace MphRead::Mods::Network
         {
             return true;
         }
-        const double elapsed = static_cast<double>(lower - beforeFrame) + fraction;
-        const float amount = static_cast<float>(std::clamp(elapsed / span, 0.0, 1.0));
+        const float amount = InterpolationAmount(beforeFrame, afterFrame, lower, fraction);
+        if (amount <= 0.0001F)
+        {
+            return true;
+        }
         const Vector3 travel = b->Position - a->Position;
         if (travel.LengthSquared() > SnapDistance * SnapDistance)
         {

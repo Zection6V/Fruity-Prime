@@ -130,9 +130,32 @@ namespace MphRead::Mods::Network
                     line += ", " + Runtime::ToString(std::max(0.0,
                         static_cast<double>(timeLimit) - (now - ports.matchStarted)), "0") + " s left";
                 }
-                if (ports.transport.PacketsDropped() > 0)
+                const NetTransportQueueStats queueStats = ports.transport.QueueStats();
+                const bool hasQueueDrops = queueStats.Inbox.ExistingSupersededDrops > 0
+                    || queueStats.Inbox.IncomingSupersededDrops > 0
+                    || queueStats.Inbox.CriticalOverflowDrops > 0
+                    || queueStats.HeldInput.LossDrops > 0
+                    || queueStats.HeldInput.CapacityDrops > 0
+                    || queueStats.HeldOutput.LossDrops > 0
+                    || queueStats.HeldOutput.CapacityDrops > 0;
+                if (hasQueueDrops)
                 {
-                    line += ", " + std::to_string(ports.transport.PacketsDropped()) + " packet(s) dropped";
+                    line += ", inbox=" + std::to_string(queueStats.Inbox.Depth)
+                        + "/" + std::to_string(queueStats.Inbox.Capacity)
+                        + " dropped(existing-superseded="
+                        + std::to_string(queueStats.Inbox.ExistingSupersededDrops)
+                        + ", incoming-superseded="
+                        + std::to_string(queueStats.Inbox.IncomingSupersededDrops)
+                        + ", critical-overflow="
+                        + std::to_string(queueStats.Inbox.CriticalOverflowDrops) + ")"
+                        + ", held-rx=" + std::to_string(queueStats.HeldInput.Depth)
+                        + "/" + std::to_string(queueStats.HeldInput.Capacity)
+                        + " dropped(loss=" + std::to_string(queueStats.HeldInput.LossDrops)
+                        + ", capacity=" + std::to_string(queueStats.HeldInput.CapacityDrops) + ")"
+                        + ", held-tx=" + std::to_string(queueStats.HeldOutput.Depth)
+                        + "/" + std::to_string(queueStats.HeldOutput.Capacity)
+                        + " dropped(loss=" + std::to_string(queueStats.HeldOutput.LossDrops)
+                        + ", capacity=" + std::to_string(queueStats.HeldOutput.CapacityDrops) + ")";
                 }
                 ports.writeLog(ports.context, line);
                 if (ports.matchLifecycle.Simulating())

@@ -640,10 +640,12 @@ namespace
         const auto type = [](PacketType t) { return t; };
         const std::vector<PacketType> mixed{ PacketType::Welcome, PacketType::MatchState, PacketType::Snapshot,
             PacketType::Intent };
-        Expect(ShedIndex(mixed, type) == 2, "a full queue drops the oldest snapshot before a welcome");
+        const auto snapshot = ShedIndex(mixed, type);
+        Expect(snapshot.has_value() && *snapshot == 2,
+            "a full queue selects the oldest replaceable snapshot before a welcome");
         const std::vector<PacketType> control{ PacketType::HitVerdict, PacketType::MapChange };
-        Expect(ShedIndex(control, type) == 0, "and the oldest of all when nothing is superseded");
-        Expect(ShedIndex(std::vector<PacketType>{}, type) == 0, "an empty queue is index zero");
+        Expect(!ShedIndex(control, type), "important packets are not implicit overflow victims");
+        Expect(!ShedIndex(std::vector<PacketType>{}, type), "an empty queue has no replacement candidate");
     }
 
     void PredictionMatching()

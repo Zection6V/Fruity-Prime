@@ -12,6 +12,17 @@
 using namespace MphRead::Mods::Network;
 using OpenTK::Mathematics::Vector3;
 
+namespace MphRead::Mods::Network
+{
+    struct NetSmoothingTestAccess final
+    {
+        static void SetReadFrame(double frame) noexcept
+        {
+            NetSmoothing::_readFrame = frame;
+        }
+    };
+}
+
 namespace
 {
     bool Check(bool condition, const char* message)
@@ -165,15 +176,139 @@ int main()
         "sparse timeline snapshots retain the active slot generation and life");
     NetSmoothing::Record(100, std::span<const PlayerState>(beforeStates));
     NetSmoothing::Record(103, std::span<const PlayerState>(afterStates));
-    NetSmoothing::Tick();
-    NetSmoothing::Tick();
-    NetSmoothing::Tick();
+    const std::array<NetSmoothing::TrackedPosition, 1> bombBefore{{
+        { 7, Vector3(0, 0, 0), true }
+    }};
+    const std::array<NetSmoothing::TrackedPosition, 1> bombAfter{{
+        { 7, Vector3(3, 0, 0), true }
+    }};
+    NetSmoothing::RecordTrackedPositions(100, 1, std::span<const NetSmoothing::TrackedPosition>(bombBefore));
+    NetSmoothing::RecordTrackedPositions(103, 1, std::span<const NetSmoothing::TrackedPosition>(bombAfter));
+    const std::array<float, 4> sparsePositions{ 0, 1, 2, 3 };
+    const std::array<std::uint8_t, 4> sparseProgress{ 0, 4, 8, 12 };
+    for (std::size_t i = 0; i < sparsePositions.size(); ++i)
+    {
+        NetSmoothingTestAccess::SetReadFrame(100.0 + static_cast<double>(i));
+        passed &= Check(NetSmoothing::Sample(1, playerPosition, altForm)
+            && std::abs(playerPosition.X - sparsePositions[i]) < 0.01F && !altForm,
+            "player position interpolates at every integer inside a sparse snapshot gap");
+        passed &= Check(NetSmoothing::SampleForm(1, form)
+            && form.Direction == ReplicatedFormState::Transition::Morph
+            && form.Progress == sparseProgress[i],
+            "form progress shares the sparse player-position presentation clock");
+        passed &= Check(NetSmoothing::SampleTrackedPosition(1, 7, bombPosition, bombPresent)
+            && bombPresent && std::abs(bombPosition.X - sparsePositions[i]) < 0.01F,
+            "tracked objects share the sparse player-position presentation clock");
+    }
+    NetSmoothingTestAccess::SetReadFrame(101.5);
     passed &= Check(NetSmoothing::Sample(1, playerPosition, altForm)
-        && std::abs(playerPosition.X - 1.14F) < 0.05F && !altForm,
-        "a dropped snapshot frame is interpolated from the nearest received positions");
+        && std::abs(playerPosition.X - 1.5F) < 0.01F,
+        "fractional sparse-frame position interpolation remains continuous");
+    passed &= Check(NetSmoothing::SampleForm(1, form) && form.Progress == 6,
+        "fractional form progress remains on the shared presentation clock");
+    passed &= Check(NetSmoothing::SampleTrackedPosition(1, 7, bombPosition, bombPresent)
+        && bombPresent && std::abs(bombPosition.X - 1.5F) < 0.01F,
+        "fractional tracked-object interpolation remains on the shared presentation clock");
+
+    NetSmoothing::Reset();
+    PlayerState formBoundaryBefore = sparseBefore;
+    formBoundaryBefore.Flags = static_cast<std::uint8_t>(formBoundaryBefore.Flags & ~PlayerState::FlagAltForm);
+    formBoundaryBefore.WeavelFlags = 0;
+    formBoundaryBefore.SetFormTransitionProgress(0);
+    formBoundaryBefore.Position = Vector3(0, 0, 0);
+    PlayerState formBoundaryAfter = formBoundaryBefore;
+    formBoundaryAfter.Flags |= PlayerState::FlagAltForm;
+    formBoundaryAfter.Position = Vector3(3, 0, 0);
+    const std::array<PlayerState, 1> formBoundaryBeforeStates{ formBoundaryBefore };
+    const std::array<PlayerState, 1> formBoundaryAfterStates{ formBoundaryAfter };
+    passed &= Check(NetPlayerLifecycle::AcceptState(formBoundaryBefore, 200)
+        && NetPlayerLifecycle::AcceptState(formBoundaryAfter, 203),
+        "form-boundary samples belong to the active slot generation and life");
+    NetSmoothing::Record(200, std::span<const PlayerState>(formBoundaryBeforeStates));
+    NetSmoothing::Record(203, std::span<const PlayerState>(formBoundaryAfterStates));
+    const std::array<NetSmoothing::TrackedPosition, 1> bombGone{{
+        { 7, Vector3(3, 0, 0), false }
+    }};
+    NetSmoothing::RecordTrackedPositions(200, 1, std::span<const NetSmoothing::TrackedPosition>(bombBefore));
+    NetSmoothing::RecordTrackedPositions(203, 1, std::span<const NetSmoothing::TrackedPosition>(bombGone));
+    NetSmoothingTestAccess::SetReadFrame(201.5);
+    passed &= Check(NetSmoothing::Sample(1, playerPosition, altForm)
+        && playerPosition.X == 0 && !altForm,
+        "position holds at the near side while the replicated form changes");
     passed &= Check(NetSmoothing::SampleForm(1, form)
-        && form.Direction == ReplicatedFormState::Transition::Morph && form.Progress == 5,
-        "form animation progress uses the same sparse-frame interpolation as its position");
+        && !form.AltForm && form.Direction == ReplicatedFormState::Transition::None,
+        "form state does not blend across a stable-form boundary");
+    passed &= Check(NetSmoothing::SampleTrackedPosition(1, 7, bombPosition, bombPresent)
+        && bombPresent && bombPosition.X == 0,
+        "a removed tracked object stays at its last present pose until its removal frame");
+
+    NetSmoothing::Reset();
+    PlayerState teleportBefore = formBoundaryBefore;
+    teleportBefore.Position = Vector3(0, 0, 0);
+    PlayerState teleportAfter = teleportBefore;
+    teleportAfter.Position = Vector3(10, 0, 0);
+    const std::array<PlayerState, 1> teleportBeforeStates{ teleportBefore };
+    const std::array<PlayerState, 1> teleportAfterStates{ teleportAfter };
+    passed &= Check(NetPlayerLifecycle::AcceptState(teleportBefore, 300)
+        && NetPlayerLifecycle::AcceptState(teleportAfter, 303),
+        "teleport-boundary samples belong to the active slot generation and life");
+    NetSmoothing::Record(300, std::span<const PlayerState>(teleportBeforeStates));
+    NetSmoothing::Record(303, std::span<const PlayerState>(teleportAfterStates));
+    const std::array<NetSmoothing::TrackedPosition, 1> bombTeleported{{
+        { 7, Vector3(10, 0, 0), true }
+    }};
+    NetSmoothing::RecordTrackedPositions(300, 1, std::span<const NetSmoothing::TrackedPosition>(bombBefore));
+    NetSmoothing::RecordTrackedPositions(303, 1, std::span<const NetSmoothing::TrackedPosition>(bombTeleported));
+    NetSmoothingTestAccess::SetReadFrame(301.5);
+    passed &= Check(NetSmoothing::Sample(1, playerPosition, altForm)
+        && playerPosition.X == 0,
+        "teleport-sized player movement keeps the near pose instead of interpolating");
+    passed &= Check(NetSmoothing::SampleTrackedPosition(1, 7, bombPosition, bombPresent)
+        && bombPresent && bombPosition.X == 0,
+        "teleport-sized tracked movement keeps the near pose instead of interpolating");
+
+    NetSmoothing::Reset();
+    PlayerState generationBefore = sparseBefore;
+    generationBefore.Position = Vector3(0, 0, 0);
+    const std::array<PlayerState, 1> generationBeforeStates{ generationBefore };
+    passed &= Check(NetPlayerLifecycle::AcceptState(generationBefore, 400),
+        "pre-rejoin sample belongs to the original occupant");
+    NetSmoothing::Record(400, std::span<const PlayerState>(generationBeforeStates));
+    NetSmoothing::RecordTrackedPositions(400, 1, std::span<const NetSmoothing::TrackedPosition>(bombBefore));
+    NetPlayerLifecycle::SetOccupant(1, 2);
+    NetSmoothingTestAccess::SetReadFrame(400.5);
+    passed &= Check(!NetSmoothing::Sample(1, playerPosition, altForm)
+        && !NetSmoothing::SampleTrackedPosition(1, 7, bombPosition, bombPresent),
+        "slot generation changes clear old sparse player and tracked samples");
+
+    NetSmoothing::Reset();
+    PlayerState lifeBefore = sparseBefore;
+    lifeBefore.SlotGeneration = 2;
+    lifeBefore.LifeId = 1;
+    lifeBefore.Position = Vector3(0, 0, 0);
+    const std::array<PlayerState, 1> lifeBeforeStates{ lifeBefore };
+    passed &= Check(NetPlayerLifecycle::AcceptState(lifeBefore, 500),
+        "pre-respawn sample belongs to the active slot life");
+    NetSmoothing::Record(500, std::span<const PlayerState>(lifeBeforeStates));
+    NetSmoothing::RecordTrackedPositions(500, 1, std::span<const NetSmoothing::TrackedPosition>(bombBefore));
+    PlayerState lifeAfter = lifeBefore;
+    lifeAfter.LifeId = 2;
+    lifeAfter.Position = Vector3(3, 0, 0);
+    const std::array<PlayerState, 1> lifeAfterStates{ lifeAfter };
+    passed &= Check(NetPlayerLifecycle::AcceptState(lifeAfter, 503),
+        "respawn advances life without changing the slot generation");
+    NetSmoothing::Record(503, std::span<const PlayerState>(lifeAfterStates));
+    NetSmoothing::RecordTrackedPositions(503, 1, std::span<const NetSmoothing::TrackedPosition>(bombAfter));
+    NetSmoothingTestAccess::SetReadFrame(501.5);
+    passed &= Check(!NetSmoothing::Sample(1, playerPosition, altForm)
+        && !NetSmoothing::SampleTrackedPosition(1, 7, bombPosition, bombPresent),
+        "life changes do not interpolate stale player or tracked samples across a respawn");
+    NetSmoothingTestAccess::SetReadFrame(503.0);
+    passed &= Check(NetSmoothing::Sample(1, playerPosition, altForm)
+        && playerPosition.X == 3.0F
+        && NetSmoothing::SampleTrackedPosition(1, 7, bombPosition, bombPresent)
+        && bombPresent && bombPosition.X == 3.0F,
+        "player and tracked samples resume at the new life's first frame");
 
     NetPlayerLifecycle::SetOccupant(1, 0);
     NetPlayerLifecycle::Reset();

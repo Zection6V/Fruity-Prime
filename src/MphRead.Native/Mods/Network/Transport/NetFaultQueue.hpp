@@ -46,7 +46,10 @@ namespace MphRead::Mods::Network
         {
             return static_cast<std::int32_t>(_queue.size());
         }
+        [[nodiscard]] std::int32_t Capacity() const noexcept { return _capacity; }
         [[nodiscard]] std::int64_t Dropped() const noexcept { return _dropped; }
+        [[nodiscard]] std::int64_t DroppedByLoss() const noexcept { return _lossDropped; }
+        [[nodiscard]] std::int64_t DroppedByCapacity() const noexcept { return _capacityDropped; }
         [[nodiscard]] std::int64_t Duplicated() const noexcept { return _duplicated; }
         [[nodiscard]] std::int64_t Reordered() const noexcept { return _reordered; }
 
@@ -89,6 +92,7 @@ namespace MphRead::Mods::Network
             if (_random.NextDouble() < loss)
             {
                 ::MphRead::NativeRuntime::IncrementInPlace(_dropped);
+                ::MphRead::NativeRuntime::IncrementInPlace(_lossDropped);
                 return;
             }
             // Jitter alone retains the old FIFO contract. Explicit reordering
@@ -162,6 +166,7 @@ namespace MphRead::Mods::Network
             if (static_cast<std::int32_t>(_queue.size()) >= _capacity)
             {
                 ::MphRead::NativeRuntime::IncrementInPlace(_dropped);
+                ::MphRead::NativeRuntime::IncrementInPlace(_capacityDropped);
                 return;
             }
             const std::int64_t order = _order;
@@ -196,6 +201,8 @@ namespace MphRead::Mods::Network
         std::int64_t _order = 0;
         double _lastDue = 0;
         std::int64_t _dropped = 0;
+        std::int64_t _lossDropped = 0;
+        std::int64_t _capacityDropped = 0;
         std::int64_t _duplicated = 0;
         std::int64_t _reordered = 0;
         ::MphRead::NativeRuntime::Random _spikeRandom{1};

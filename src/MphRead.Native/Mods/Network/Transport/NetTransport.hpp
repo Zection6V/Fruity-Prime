@@ -21,6 +21,30 @@ namespace MphRead::Mods::Network
 
 namespace MphRead::Mods::Network
 {
+    struct NetTransportInboxStats final
+    {
+        std::size_t Depth = 0;
+        std::size_t Capacity = 0;
+        std::int64_t ExistingSupersededDrops = 0;
+        std::int64_t IncomingSupersededDrops = 0;
+        std::int64_t CriticalOverflowDrops = 0;
+    };
+
+    struct NetTransportFaultQueueStats final
+    {
+        std::int32_t Depth = 0;
+        std::int32_t Capacity = 0;
+        std::int64_t LossDrops = 0;
+        std::int64_t CapacityDrops = 0;
+    };
+
+    struct NetTransportQueueStats final
+    {
+        NetTransportInboxStats Inbox{};
+        NetTransportFaultQueueStats HeldInput{};
+        NetTransportFaultQueueStats HeldOutput{};
+    };
+
     struct ReceivedPacket
     {
         const std::shared_ptr<System::Net::IPEndPoint> Sender{};
@@ -102,6 +126,7 @@ namespace MphRead::Mods::Network
 
         [[nodiscard]] std::int32_t LocalPort() const noexcept;
         [[nodiscard]] std::int64_t PacketsDropped() const noexcept;
+        [[nodiscard]] NetTransportQueueStats QueueStats() const;
 
         [[nodiscard]] static std::int64_t TotalPacketsDropped() noexcept
         {

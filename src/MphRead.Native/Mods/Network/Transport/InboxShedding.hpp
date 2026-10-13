@@ -3,6 +3,7 @@
 #include "Mods/Network/Protocol/NetProtocol.hpp"
 
 #include <cstddef>
+#include <optional>
 
 namespace MphRead::Mods::Network
 {
@@ -29,11 +30,10 @@ namespace MphRead::Mods::Network
         }
     }
 
-    // Which queued packet to drop when the queue is full, oldest first: the
-    // oldest that a newer one supersedes, and only when there is none, the
-    // oldest of all. `typeOf` reads a queued packet's type.
+    // Which queued packet a newer one can replace: the oldest superseded
+    // stream item. Important one-shot packets are never implicit victims.
     template <typename Queue, typename TypeOf>
-    [[nodiscard]] std::size_t ShedIndex(const Queue& queue, TypeOf typeOf)
+    [[nodiscard]] std::optional<std::size_t> ShedIndex(const Queue& queue, TypeOf typeOf)
     {
         std::size_t index = 0;
         for (const auto& packet : queue)
@@ -44,6 +44,6 @@ namespace MphRead::Mods::Network
             }
             index++;
         }
-        return 0;
+        return std::nullopt;
     }
 }

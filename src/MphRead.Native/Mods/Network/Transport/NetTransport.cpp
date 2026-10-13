@@ -1,5 +1,6 @@
 #include "Mods/Network/Transport/NetTransport.hpp"
 
+#include "Mods/Network/Transport/BoundedInbox.hpp"
 #include "Mods/Network/Transport/InboxShedding.hpp"
 #include "Mods/Network/Transport/NetLag.hpp"
 #include "Mods/Network/Protocol/NetProtocol.hpp"
@@ -13,7 +14,6 @@
 #include <condition_variable>
 #include <cstddef>
 #include <cstring>
-#include <deque>
 #include <exception>
 #include <limits>
 #include <mutex>
@@ -124,46 +124,50 @@ namespace MphRead::Mods::Network
 
         [[nodiscard]] bool TryDequeueInbox(std::optional<ReceivedPacket>& packet)
         {
-            {
-                std::lock_guard lock(InboxLock);
-                if (Inbox.empty())
-                {
-                    packet.reset();
-                    return false;
-                }
-                packet.emplace(Inbox.front());
-                Inbox.pop_front();
-            }
-            InboxCount.fetch_sub(1, std::memory_order_seq_cst);
-            return true;
+            return Inbox.TryDequeue(packet);
         }
 
-        // Makes room in a full inbox: the oldest packet a newer one
-        // supersedes goes first, so a burst of intents and snapshots cannot
-        // push out a welcome, a match state or a verdict (InboxShedding).
-        [[nodiscard]] bool TryShedInbox()
+        [[nodiscard]] InboxEnqueueResult TryEnqueueInbox(ReceivedPacket&& packet)
         {
-            {
-                std::lock_guard lock(InboxLock);
-                if (Inbox.empty())
+            const InboxEnqueueResult result = Inbox.TryEnqueue(std::move(packet),
+                [](const ReceivedPacket& queued)
                 {
-                    return false;
-                }
-                const std::size_t index = ShedIndex(Inbox, [](const ReceivedPacket& packet)
-                {
-                    return static_cast<PacketType>((*packet.Data)[0]);
+                    return queued.Type();
                 });
-                Inbox.erase(Inbox.begin() + static_cast<std::ptrdiff_t>(index));
+            if (result != InboxEnqueueResult::Enqueued)
+            {
+                // PacketsDropped keeps its historical meaning: packets lost
+                // to the production inbox's finite capacity, not simulated
+                // NetLag loss in either held scheduler.
+                Dropped.fetch_add(1, std::memory_order_seq_cst);
+                NetTransport::_totalPacketsDropped.fetch_add(1, std::memory_order_seq_cst);
             }
-            InboxCount.fetch_sub(1, std::memory_order_seq_cst);
-            return true;
+            return result;
         }
 
-        void EnqueueInbox(const ReceivedPacket& packet)
+        [[nodiscard]] NetTransportQueueStats QueueStats()
         {
-            InboxCount.fetch_add(1, std::memory_order_seq_cst);
-            std::lock_guard lock(InboxLock);
-            Inbox.push_back(packet);
+            NetTransportQueueStats stats{};
+            const BoundedInboxStatistics inboxStats = Inbox.Statistics();
+            stats.Inbox = {
+                inboxStats.Depth,
+                inboxStats.Capacity,
+                inboxStats.ExistingSupersededDrops,
+                inboxStats.IncomingSupersededDrops,
+                inboxStats.CriticalOverflowDrops
+            };
+            {
+                std::lock_guard lock(HeldLock);
+                stats.HeldInput = {
+                    HeldInput.Count(), HeldInput.Capacity(),
+                    HeldInput.DroppedByLoss(), HeldInput.DroppedByCapacity()
+                };
+                stats.HeldOutput = {
+                    HeldOutput.Count(), HeldOutput.Capacity(),
+                    HeldOutput.DroppedByLoss(), HeldOutput.DroppedByCapacity()
+                };
+            }
+            return stats;
         }
 
         void PromoteHeldArrivals()
@@ -179,7 +183,7 @@ namespace MphRead::Mods::Network
                         return;
                     }
                 }
-                EnqueueInbox(ReceivedPacket(packet.Sender, packet.Data, packet.Length));
+                (void)TryEnqueueInbox(std::move(packet));
             }
         }
 
@@ -306,14 +310,6 @@ namespace MphRead::Mods::Network
                         continue;
                     }
 
-                    if (InboxCount.load(std::memory_order_seq_cst)
-                        >= NetTransport::MaxQueuedPackets)
-                    {
-                        (void)TryShedInbox();
-                        Dropped.fetch_add(1, std::memory_order_seq_cst);
-                        NetTransport::_totalPacketsDropped.fetch_add(1, std::memory_order_seq_cst);
-                    }
-
                     if (LagWorkerPresent.load(std::memory_order_seq_cst))
                     {
                         std::lock_guard lock(HeldLock);
@@ -322,7 +318,7 @@ namespace MphRead::Mods::Network
                         continue;
                     }
 
-                    EnqueueInbox(ReceivedPacket(sender, data,
+                    (void)TryEnqueueInbox(ReceivedPacket(sender, data,
                         static_cast<std::int32_t>(data->size())));
                 }
                 catch (const ::MphRead::NativeRuntime::SocketException&)
@@ -353,12 +349,10 @@ namespace MphRead::Mods::Network
         std::atomic<bool> Running{false};
         std::atomic<bool> AutoPong{false};
         std::atomic<bool> LagWorkerPresent{false};
-        std::atomic<std::int32_t> InboxCount{0};
         std::atomic<std::int64_t> Dropped{0};
         std::int32_t LocalPort = 0;
 
-        std::mutex InboxLock;
-        std::deque<ReceivedPacket> Inbox;
+        BoundedInbox<ReceivedPacket> Inbox{NetTransport::MaxQueuedPackets};
 
         std::mutex HeldLock;
         NetFaultQueue<ReceivedPacket> HeldInput = NetLag::CreateQueue<ReceivedPacket>(false);
@@ -488,6 +482,11 @@ namespace MphRead::Mods::Network
         return _state->Dropped.load(std::memory_order_seq_cst);
     }
 
+    NetTransportQueueStats NetTransport::QueueStats() const
+    {
+        return _state->QueueStats();
+    }
+
     NetTransport::DrainEnumerable NetTransport::Drain()
     {
         return DrainEnumerable(_state);
@@ -496,11 +495,7 @@ namespace MphRead::Mods::Network
     void NetTransport::EnqueueForPlayback(
         const std::shared_ptr<std::vector<std::uint8_t>>& data, std::int32_t length)
     {
-        if (_state->InboxCount.load(std::memory_order_seq_cst) >= MaxQueuedPackets)
-        {
-            return;
-        }
-        _state->EnqueueInbox(ReceivedPacket(_playbackSender, data, length));
+        (void)_state->TryEnqueueInbox(ReceivedPacket(_playbackSender, data, length));
     }
 
     void NetTransport::Send(const std::shared_ptr<System::Net::IPEndPoint>& target,

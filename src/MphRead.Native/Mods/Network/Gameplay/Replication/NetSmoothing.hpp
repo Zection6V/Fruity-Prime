@@ -67,6 +67,8 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static std::optional<std::string> Describe();
 
     private:
+        friend struct NetSmoothingTestAccess;
+
         struct SnapshotBracket final
         {
             std::uint32_t BeforeFrame = 0;

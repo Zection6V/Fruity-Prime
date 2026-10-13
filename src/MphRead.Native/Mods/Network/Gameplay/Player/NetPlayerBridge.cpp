@@ -369,7 +369,10 @@ namespace MphRead::Mods::Network
                 throw;
             }
             NetPlayerLifecycle::ApplyingSpawn(false);
-            Move(player, state.Position, player.SlotIndex() != NetSession::LocalSlot());
+            // Resolve the final authority pose directly. Spawn applies a
+            // temporary vertical lift; walking from that pose can cross into
+            // the wrong Part where map levels overlap.
+            Move(player, state.Position, true);
             player.ModSetSpawnFacing(state.Facing);
             if (state.Health == 0)
             {

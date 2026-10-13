@@ -1,6 +1,6 @@
 #include "Mods/Network/Gameplay/Player/ReplicaRoomPlacementRules.hpp"
+#include "Mods/Network/Gameplay/Player/ReplicaShadowVisibility.hpp"
 
-#include <cmath>
 #include <iostream>
 #include <limits>
 
@@ -145,6 +145,26 @@ int main()
     passed &= Check(!Rules::IsValidNodeRef(NodeRef(nullptr, 1, 0, 3), 8, 2, 3)
         && !Rules::IsValidNodeRef(NodeRef(nullptr, 1, 0, 2), 8, 2, 2),
         "connector indexes outside either backing array are rejected");
+
+    using ShadowVisibility = MphRead::Mods::Network::ReplicaShadowVisibility;
+    const ShadowVisibility::Projection groundedShadow{ nullptr, nullptr, -1, true, 2.0F };
+    const ShadowVisibility::FadeState visibleFade{ 1.0F, 100, 0.0F, 0, 180 };
+    passed &= Check(ShadowVisibility::ShouldForceBody(true, groundedShadow, visibleFade),
+        "a remote replica with a drawable shadow projection bypasses Part culling");
+    passed &= Check(!ShadowVisibility::ShouldForceBody(false, groundedShadow, visibleFade),
+        "local players and offline bots do not use remote shadow visibility policy");
+    passed &= Check(!ShadowVisibility::ShouldForceBody(true,
+            ShadowVisibility::Projection{ nullptr, nullptr, -1, false, 0.0F }, visibleFade),
+        "a frame without a shadow surface keeps normal body culling");
+    passed &= Check(!ShadowVisibility::ShouldForceBody(true,
+            ShadowVisibility::Projection{ nullptr, nullptr, -1, true, 10.0F }, visibleFade),
+        "a shadow at or beyond its ten-unit fade distance does not force the body");
+    passed &= Check(!ShadowVisibility::ShouldForceBody(true, groundedShadow,
+            ShadowVisibility::FadeState{ 0.0F, 100, 0.0F, 0, 180 }),
+        "a fully transparent shadow does not force the body");
+    passed &= Check(!ShadowVisibility::ShouldForceBody(true, groundedShadow,
+            ShadowVisibility::FadeState{ 1.0F, 0, 0.0F, 0, 180 }),
+        "a dead player's fully faded shadow does not force the body");
 
     return passed ? 0 : 1;
 }

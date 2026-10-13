@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Mods/Network/NetItemState.hpp"
+#include "Mods/Network/Gameplay/Pickups/NetItemState.hpp"
 
 #include "../Formats/Entity.hpp"
 #include "EntityBase.hpp"

@@ -1,21 +1,22 @@
 // The Morph Ball touch block of IntentPacket: what an owner reports so the
 // authority can run the same touch roll and touch/shoulder boost branches.
-#include "../Mods/Network/NetProtocol.hpp"
-#include "../Mods/Network/LocalShotLog.hpp"
-#include "../Mods/Network/ClaimResend.hpp"
-#include "../Mods/Network/ConnectionSecret.hpp"
-#include "../Mods/Network/ClaimDamageBound.hpp"
-#include "../Mods/Network/NoxusIceWaveFreezeRules.hpp"
-#include "../Mods/Network/ItemAuthority.hpp"
-#include "../Mods/Network/PickupReach.hpp"
-#include "../Mods/Network/PowerUpLedger.hpp"
-#include "../Mods/Network/PredictionBook.hpp"
-#include "../Mods/Network/PowerUpSync.hpp"
-#include "../Mods/Network/InboxShedding.hpp"
-#include "../Mods/Network/PredictionMatch.hpp"
-#include "../Mods/Network/RemoteBombState.hpp"
-#include "../Mods/Network/RemoteShotQueue.hpp"
-#include "../Mods/Network/ShotEventLedger.hpp"
+#include "Mods/Network/Protocol/NetProtocol.hpp"
+#include "Mods/Network/Gameplay/Weapons/LocalShotLog.hpp"
+#include "Mods/Network/Gameplay/Claims/Common/ClaimResend.hpp"
+#include "Mods/Network/Protocol/ConnectionSecret.hpp"
+#include "Mods/Network/Gameplay/Claims/Hit/ClaimDamageBound.hpp"
+#include "Mods/Network/Gameplay/StatusEffects/TimedEffectSync.hpp"
+#include "Mods/Network/Gameplay/Pickups/ItemAuthority.hpp"
+#include "Mods/Network/Gameplay/Pickups/PickupReach.hpp"
+#include "Mods/Network/Gameplay/Pickups/PowerUpLedger.hpp"
+#include "Mods/Network/Gameplay/Pickups/PredictionBook.hpp"
+#include "Mods/Network/Protocol/PowerUpSync.hpp"
+#include "Mods/Network/Transport/InboxShedding.hpp"
+#include "Mods/Network/Gameplay/Pickups/PredictionMatch.hpp"
+#include "Mods/Network/Gameplay/Bombs/RemoteBombState.hpp"
+#include "Mods/Network/Gameplay/Bombs/NetBombs.hpp"
+#include "Mods/Network/Gameplay/Weapons/RemoteShotQueue.hpp"
+#include "Mods/Network/Gameplay/Weapons/ShotEventLedger.hpp"
 #include "../Mods/Input/HostTouch.hpp"
 #include "../Mods/Input/TouchInputAdapter.hpp"
 #include "../Entities/Players/MorphBallBoostStateMachine.hpp"
@@ -31,6 +32,7 @@
 #include <vector>
 
 using MphRead::Mods::Network::IntentPacket;
+using MphRead::Mods::Network::ReconcileTimedEffect;
 using namespace MphRead::Mods::Input;
 namespace Boost = MphRead::Entities::MorphBallBoostStateMachine;
 namespace Rules = MphRead::Entities::MorphBallTouchRules;
@@ -453,7 +455,9 @@ namespace
 
         RemoteBombState state;
         Expect(!state.Active(), "a player who never reported lays its own");
-        state.Receive(WithBombs(100, {{1, Vector3(1, 0, 0)}, {2, Vector3(2, 0, 0)}}));
+        Expect(!state.Receive(quiet), "an intent without a bomb section is not a complete bomb report");
+        Expect(state.Receive(WithBombs(100, {{1, Vector3(1, 0, 0)}, {2, Vector3(2, 0, 0)}})),
+            "the first complete bomb report is accepted");
         auto plan = state.Reconcile({});
         Expect(state.Active() && plan.LayCount == 2 && plan.Lay[0].Sequence == 1 && plan.DetonateCount == 0,
             "reported bombs are laid, oldest first");
@@ -464,22 +468,26 @@ namespace
         Expect(plan.LayCount == 0 && plan.DetonateCount == 0, "and once");
 
         // The owner's second bomb went off: the copy's follows.
-        state.Receive(WithBombs(110, {{1, Vector3(1, 0, 0)}}));
+        Expect(state.Receive(WithBombs(110, {{1, Vector3(1, 0, 0)}})),
+            "a newer complete bomb report is accepted");
         plan = state.Reconcile(both);
         Expect(plan.DetonateCount == 1 && plan.Detonate[0] == 2, "a bomb no longer reported is detonated");
         // An older intent still listing it changes nothing.
-        state.Receive(WithBombs(105, {{1, Vector3(1, 0, 0)}, {2, Vector3(2, 0, 0)}, {3, Vector3(3, 0, 0)}}));
+        Expect(!state.Receive(WithBombs(105, {{1, Vector3(1, 0, 0)}, {2, Vector3(2, 0, 0)}, {3, Vector3(3, 0, 0)}})),
+            "a stale bomb report is rejected");
         plan = state.Reconcile(both);
         Expect(plan.DetonateCount == 1 && plan.LayCount == 0, "an out-of-date report is ignored");
 
         // A bomb detonated here early (it never is, by touch) is not laid again.
         const std::uint32_t one[] = {1};
-        state.Receive(WithBombs(120, {{1, Vector3(1, 0, 0)}, {2, Vector3(2, 0, 0)}}));
+        Expect(state.Receive(WithBombs(120, {{1, Vector3(1, 0, 0)}, {2, Vector3(2, 0, 0)}})),
+            "a newer bomb report remains accepted");
         plan = state.Reconcile(one);
         Expect(plan.LayCount == 0, "a sequence laid once is never laid again");
 
         // A bomb that cannot be placed yet is planned again until it is.
-        state.Receive(WithBombs(130, {{3, Vector3(3, 0, 0)}}));
+        Expect(state.Receive(WithBombs(130, {{3, Vector3(3, 0, 0)}})),
+            "a later report for a not-yet-placeable bomb is accepted");
         plan = state.Reconcile({});
         Expect(plan.LayCount == 1 && plan.Lay[0].Sequence == 3, "a bomb not yet placed is still planned");
         plan = state.Reconcile({});
@@ -489,6 +497,16 @@ namespace
         state.Receive(WithBombs(135, {{3, Vector3(7, 0, 0)}}));
         Expect(state.StandingAt(3).has_value() && Near(state.StandingAt(3)->X, 7.0F) && !state.StandingAt(2).has_value(),
             "a standing bomb's place is the owner's");
+
+        MphRead::Mods::Network::NetBombs::Forget(1);
+        MphRead::Mods::Network::NetBombs::Receive(1, WithBombs(200, {{41, Vector3(4, 5, 6)}}));
+        const auto networkPlace = MphRead::Mods::Network::NetBombs::ReportedPosition(1, 41);
+        Expect(networkPlace.has_value() && Near(networkPlace->X, 4.0F)
+            && Near(networkPlace->Y, 5.0F) && Near(networkPlace->Z, 6.0F)
+            && !MphRead::Mods::Network::NetBombs::ReportedPosition(-1, 41).has_value()
+            && !MphRead::Mods::Network::NetBombs::ReportedPosition(1, 0).has_value(),
+            "runtime bomb replication exposes only a valid standing sequence and its exact reported XYZ");
+        MphRead::Mods::Network::NetBombs::Forget(1);
 
         // A bomb that stood for a frame: laid here as it goes off.
         state.Laid(3);
@@ -622,10 +640,12 @@ namespace
         const auto type = [](PacketType t) { return t; };
         const std::vector<PacketType> mixed{ PacketType::Welcome, PacketType::MatchState, PacketType::Snapshot,
             PacketType::Intent };
-        Expect(ShedIndex(mixed, type) == 2, "a full queue drops the oldest snapshot before a welcome");
+        const auto snapshot = ShedIndex(mixed, type);
+        Expect(snapshot.has_value() && *snapshot == 2,
+            "a full queue selects the oldest replaceable snapshot before a welcome");
         const std::vector<PacketType> control{ PacketType::HitVerdict, PacketType::MapChange };
-        Expect(ShedIndex(control, type) == 0, "and the oldest of all when nothing is superseded");
-        Expect(ShedIndex(std::vector<PacketType>{}, type) == 0, "an empty queue is index zero");
+        Expect(!ShedIndex(control, type), "important packets are not implicit overflow victims");
+        Expect(!ShedIndex(std::vector<PacketType>{}, type), "an empty queue has no replacement candidate");
     }
 
     void PredictionMatching()
@@ -926,13 +946,19 @@ namespace
         context = PickupContext{ true, false, false, true, true, true };
         Expect(RouteFor(context) == PickupRoute::Local, "an item no spawner put out stays local");
 
-        // A freeze is the authority's frames, held while this machine's own waits.
-        Expect(ReconcileFreeze(140, 0, false) == FreezeStep::Mirror && ReconcileFreeze(30, 150, true) == FreezeStep::Mirror,
-            "a reported freeze is copied, whatever this copy had");
-        Expect(ReconcileFreeze(0, 120, false) == FreezeStep::End, "the authority thawed: so does this copy");
-        Expect(ReconcileFreeze(0, 120, true) == FreezeStep::Keep, "but not one this machine's hit froze, until it hears");
-        Expect(ReconcileFreeze(0, 1, false) == FreezeStep::Keep && ReconcileFreeze(0, 0, false) == FreezeStep::Keep,
-            "a copy already thawing is left to it");
+        // The common timer lifecycle keeps a locally predicted freeze until
+        // the authority acknowledges it and lets an already-thawing copy end.
+        using TimedEffectSyncAction = MphRead::Mods::Network::TimedEffectSyncAction;
+        Expect(ReconcileTimedEffect(140, 0, false).Action == TimedEffectSyncAction::Start
+            && ReconcileTimedEffect(30, 150, true).Action == TimedEffectSyncAction::Update,
+            "an authoritative timed effect starts or corrects its remaining frames");
+        Expect(ReconcileTimedEffect(0, 120, false).Action == TimedEffectSyncAction::End,
+            "the authority ended the effect: this copy begins its end transition");
+        Expect(ReconcileTimedEffect(0, 120, true).Action == TimedEffectSyncAction::Keep,
+            "a locally predicted effect is kept until its report arrives");
+        Expect(ReconcileTimedEffect(0, 1, false).Action == TimedEffectSyncAction::Keep
+            && ReconcileTimedEffect(0, 0, false).Action == TimedEffectSyncAction::Keep,
+            "an effect already ending or ended is left alone");
 
         // A contact is looked for a round trip after it, not anywhere in history.
         const FrameWindow window = ContactArrivalWindow(1000, 150, 2000);

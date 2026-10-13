@@ -1,13 +1,16 @@
 #include "WeavelAltFormCheck.hpp"
-#include "../Network/ServerSim.hpp"
-#include "../Network/NetPlayerBridge.hpp"
-#include "../Network/NetPlayerLifecycle.hpp"
-#include "../Network/NetItemState.hpp"
-#include "../Network/NetMatchTimeSync.hpp"
-#include "../Network/NetDamage.hpp"
-#include "../Network/DedicatedServer.hpp"
-#include "../Network/NetTransport.hpp"
-#include "../Network/MapRotation.hpp"
+#include "Mods/Network/Server/Match/ServerSim.hpp"
+#include "Mods/Network/Testing/ServerSimFixture.hpp"
+#include "Mods/Network/Session/NetSession.hpp"
+#include "Mods/Network/Gameplay/Player/NetPlayerBridge.hpp"
+#include "Mods/Network/Gameplay/Player/NetPlayerLifecycle.hpp"
+#include "Mods/Network/Gameplay/Pickups/NetItemState.hpp"
+#include "Mods/Network/Session/NetMatchTimeSync.hpp"
+#include "Mods/Network/Gameplay/Combat/NetDamage.hpp"
+#include "Mods/Network/Server/Core/DedicatedServer.hpp"
+#include "Mods/Network/Transport/NetTransport.hpp"
+#include "Mods/Network/Server/Match/MapRotation.hpp"
+#include "Mods/Network/Testing/NetSessionFixture.hpp"
 #include "../../Entities/Players/HalfturretEntity.hpp"
 #include "../../Entities/ItemSpawnEntity.hpp"
 #include "../../GameState.hpp"
@@ -83,7 +86,8 @@ namespace MphRead::Mods::Diagnostics
         ServerSim sim;
         std::vector<std::uint8_t> snapshot;
         if (!sim.Start(room, GameMode::Battle, 8, [&snapshot](std::span<const std::uint8_t> bytes)
-            { snapshot.assign(bytes.begin(), bytes.end()); }, [] {})) return 1;
+            { snapshot.assign(bytes.begin(), bytes.end()); }, [] {},
+                Network::MakeNetSessionServerSimulationPort())) return 1;
         const auto originalSave = GameState::StorySave;
         int checks = 0, result = 1;
         const auto check = [&checks](bool ok, const std::string& name)
@@ -111,7 +115,7 @@ namespace MphRead::Mods::Diagnostics
             for (int i = 0; i < 120; ++i) sim.Step();
             auto& owner = *PlayerEntity::Players()[0];
             auto& victim = *PlayerEntity::Players()[1];
-            auto& scene = *sim._scene;
+            auto& scene = Network::ServerSimFixture::RequireScene(sim);
             auto turret = owner.Halfturret();
             check(owner.Hunter() == Hunter::Weavel && owner.ModIsInPlay() && sim.StepFailures() == 0,
                 "asset-backed authority spawns Weavel");
@@ -326,7 +330,7 @@ namespace MphRead::Mods::Diagnostics
             fresh(101); turret->ApplyNetworkState(50, Vector3(2, 20, 3), true); NetDamage::Reset();
             const auto publish = [&](std::uint32_t frame)
             {
-                NetSession::_netFrame = frame; NetSession::BroadcastSnapshot();
+                NetSessionFixture::SetFrame(frame); NetSession::BroadcastSnapshot();
                 check(!snapshot.empty() && snapshot.size() + 1 <= NetConfig::MaxPacketSize, "production snapshot fits bounded datagram");
                 return snapshot;
             };
@@ -375,12 +379,15 @@ namespace MphRead::Mods::Diagnostics
                 auto wire = std::make_shared<std::vector<std::uint8_t>>(bytes.size() + 1);
                 (*wire)[0] = static_cast<std::uint8_t>(PacketType::Snapshot);
                 std::copy(bytes.begin(), bytes.end(), wire->begin() + 1);
-                NetSession::HandleSnapshot(ReceivedPacket({}, wire, static_cast<std::int32_t>(wire->size())));
+                NetSessionFixture::ReceiveSnapshot(
+                    ReceivedPacket({}, wire, static_cast<std::int32_t>(wire->size())));
             };
             receive(activeBytes); receive(deadBytes); receive(activeBytes); receive(deadBytes);
-            check(NetSession::RemoteStateValid[0] && NetSession::RemoteStates[0].WeavelFlags == 0
+            check(NetSession::HasRemoteState(owner.SlotIndex())
+                && NetSession::RemoteState(static_cast<std::size_t>(owner.SlotIndex())).WeavelFlags == 0
                 && NetSession::LastSnapshotFrame() == 501, "receiver rejects duplicated and reordered snapshots");
-            NetPlayerBridge::ApplyState(owner, NetSession::RemoteStates[0], false);
+            NetPlayerBridge::ApplyState(owner,
+                NetSession::RemoteState(static_cast<std::size_t>(owner.SlotIndex())), false);
             check((owner.IsAltForm() || owner.IsMorphing()) && turret->Health() == 0, "reordered old active packet cannot revive dead replica");
 
             // Eight active players plus the maximum 56 health spawners must all fit.

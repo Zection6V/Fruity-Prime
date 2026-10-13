@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../Mods/Network/NetShotDiagnostics.hpp"
+#include "Mods/Network/Diagnostics/NetShotDiagnostics.hpp"
 
 #include "../Formats/CollisionDetection.hpp"
 #include "../Formats/Culling.hpp"

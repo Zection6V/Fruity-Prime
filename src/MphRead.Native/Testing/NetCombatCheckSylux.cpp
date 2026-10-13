@@ -1,8 +1,9 @@
-#include "../Mods/Network/NetCombatCheck.hpp"
+#include "Mods/Network/Testing/Combat/NetCombatCheck.hpp"
 
-#include "../Mods/Network/NetHitClaims.hpp"
-#include "../Mods/Network/NetSession.hpp"
-#include "../Mods/Network/NetUnlagged.hpp"
+#include "Mods/Network/Gameplay/Claims/Hit/NetHitClaims.hpp"
+#include "Mods/Network/Session/NetSession.hpp"
+#include "Mods/Network/Gameplay/Weapons/ContinuousWeaponPhase.hpp"
+#include "Mods/Network/Gameplay/Combat/NetUnlagged.hpp"
 #include "../Entities/BeamProjectileEntity.hpp"
 #include "../Entities/Players/PlayerEntity.hpp"
 #include "../Mods/Combat/SyluxMuzzleGuard.hpp"
@@ -146,7 +147,7 @@ namespace MphRead::Mods::Network
                 while (ContinuousWeaponPhase::Amount(10, ++frame, false) != expectedCost) {}
                 auto intent = Intent(shooter, frame, true, true);
                 NetSession::AcceptSlotIntent(0, intent);
-                NetSession::ContinuousPhase.ResetSlot(0);
+                SharedContinuousWeaponPhase().ResetSlot(0);
                 spawn(continuous, 0, 0, expectedCost == 0 ? 1 : 0, expectedCost == 0,
                     expectedCost == 0 ? "continuous zero-cost phase with ammo 0" : "continuous paid phase with ammo 0");
             }

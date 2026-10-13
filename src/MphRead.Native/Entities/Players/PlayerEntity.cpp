@@ -1,5 +1,7 @@
 #include "PlayerEntity.hpp"
 
+#include "Mods/Network/Gameplay/Weapons/ContinuousWeaponPhase.hpp"
+
 #include "../../Mods/Input/AimAssist/AimAssistTelemetry.hpp"
 #include "../../NativeRuntime/System/Enum.hpp"
 
@@ -26,12 +28,12 @@
 #include "../../Metadata/Metadata.hpp"
 #include "../../Metadata/Player.hpp"
 #include "../../Metadata/Weapons.hpp"
-#include "../../Mods/Network/NetDamage.hpp"
-#include "../../Mods/Network/NetHitPrediction.hpp"
-#include "../../Mods/Network/NetLog.hpp"
-#include "../../Mods/Network/NetPlayerBridge.hpp"
-#include "../../Mods/Network/NetPlayerLifecycle.hpp"
-#include "../../Mods/Network/NetSession.hpp"
+#include "Mods/Network/Gameplay/Combat/NetDamage.hpp"
+#include "Mods/Network/Gameplay/Combat/NetHitPrediction.hpp"
+#include "Mods/Network/Diagnostics/NetLog.hpp"
+#include "Mods/Network/Gameplay/Player/NetPlayerBridge.hpp"
+#include "Mods/Network/Gameplay/Player/NetPlayerLifecycle.hpp"
+#include "Mods/Network/Session/NetSession.hpp"
 #include "../../Mods/Multiplayer/TeamLayout.hpp"
 #include "../../Mods/RespawnChoice.hpp"
 #include "../../Sound/Music.hpp"
@@ -720,7 +722,7 @@ namespace MphRead::Entities
             return;
         }
         Mods::Network::NetPlayerLifecycle::OnSpawn(*this);
-        Mods::Network::NetSession::ContinuousPhase.ResetSlot(SlotIndex());
+        Mods::Network::SharedContinuousWeaponPhase().ResetSlot(SlotIndex());
         Mods::Network::NetPlayerBridge::NoteSpawn(SlotIndex());
         if (respawn)
         {

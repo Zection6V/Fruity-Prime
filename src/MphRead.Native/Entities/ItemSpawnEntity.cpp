@@ -1,9 +1,9 @@
 #include "ItemSpawnEntity.hpp"
 #include "Players/PlayerEntity.hpp"
 #include "../Mods/Multiplayer/MapResourceRules.hpp"
-#include "../Mods/Network/NetItemState.hpp"
-#include "../Mods/Network/NetPowerUpPrediction.hpp"
-#include "../Mods/Network/NetSession.hpp"
+#include "Mods/Network/Gameplay/Pickups/NetItemState.hpp"
+#include "Mods/Network/Gameplay/Pickups/NetPowerUpPrediction.hpp"
+#include "Mods/Network/Session/NetSession.hpp"
 
 #include "../GameState.hpp"
 #include "../MemoryArrays.hpp"

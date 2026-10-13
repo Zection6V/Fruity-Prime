@@ -5,6 +5,8 @@
 #include "Formats/CollisionDetection.hpp"
 #include "Mods/Network/Diagnostics/NetLog.hpp"
 #include "Mods/Network/Gameplay/Player/NetPlayerBridge.hpp"
+#include "Mods/Network/Gameplay/Player/ReplicaRoomPlacement.hpp"
+#include "Mods/Network/Session/NetSession.hpp"
 #include "NativeRuntime/OpenTK/Mathematics.hpp"
 #include "Scene.hpp"
 
@@ -145,18 +147,30 @@ namespace MphRead::Entities
         const Vector3 position = static_cast<Vector3>((*this).Position);
         const Formats::Culling::NodeRef previous = (*this).NodeRef;
         const bool wasUnresolved = _modNodeUnresolved;
-        Formats::Culling::NodeRef found = scene.GetNodeRefByPosition(position);
-        if (found.PartIndex == -1)
+        const Vector3 bodyCenter = _volume.SpherePosition;
+        const bool replica = Mods::Network::NetSession::IsClient() && !Mods::Network::NetSession::IsAuthority()
+            && SlotIndex() != Mods::Network::NetSession::LocalSlot() && !IsBot();
+        const auto room = replica ? scene.Room() : nullptr;
+        bool ambiguous = false;
+        const auto lookup = [&](Vector3 probe)
         {
-            found = scene.GetNodeRefByPosition((*this)._volume.SpherePosition);
+            return replica ? Mods::Network::ReplicaRoomPlacement::Find(room.get(), probe, bodyCenter, ambiguous)
+                : scene.GetNodeRefByPosition(probe);
+        };
+        // Every fallback probe must place the same current-form collision
+        // center. No retained simulation/presentation node is trusted here.
+        Formats::Culling::NodeRef found = lookup(bodyCenter);
+        if (found.PartIndex == -1 && !ambiguous)
+        {
+            found = lookup(position);
         }
-        if (found.PartIndex == -1)
+        if (found.PartIndex == -1 && !ambiguous)
         {
-            found = scene.GetNodeRefByPosition(position + Multiply(Vector3::UnitY, 0.5F));
+            found = lookup(position + Multiply(Vector3::UnitY, 0.5F));
         }
-        if (found.PartIndex == -1)
+        if (found.PartIndex == -1 && !ambiguous)
         {
-            found = scene.GetNodeRefByPosition(position - Multiply(Vector3::UnitY, 0.5F));
+            found = lookup(position - Multiply(Vector3::UnitY, 0.5F));
         }
 
         if (found.PartIndex != -1)

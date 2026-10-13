@@ -154,8 +154,12 @@ namespace MphRead::Entities
         bool ambiguous = false;
         const auto lookup = [&](Vector3 probe)
         {
-            return replica ? Mods::Network::ReplicaRoomPlacement::Find(room.get(), probe, bodyCenter, ambiguous)
-                : scene.GetNodeRefByPosition(probe);
+            if (!replica) return scene.GetNodeRefByPosition(probe);
+            const auto resolution = Mods::Network::ReplicaRoomPlacement::Find(
+                room.get(), probe, bodyCenter);
+            ambiguous = Mods::Network::ReplicaRoomPlacementRules::StopsProbeFallback(resolution.state);
+            return resolution.state == Mods::Network::ReplicaRoomPlacementRules::State::Resolved
+                ? resolution.node : Formats::Culling::NodeRef::None;
         };
         // Every fallback probe must place the same current-form collision
         // center. No retained simulation/presentation node is trusted here.

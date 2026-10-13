@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Formats/Culling.hpp"
+#include "Mods/Network/Gameplay/Player/ReplicaRoomPlacementRules.hpp"
 
 namespace MphRead::Entities
 {
@@ -14,11 +15,12 @@ namespace MphRead::Mods::Network
     class ReplicaRoomPlacement final
     {
     public:
+        using Resolution = ReplicaRoomPlacementRules::Resolution;
+
         ReplicaRoomPlacement() = delete;
 
-        [[nodiscard]] static Formats::Culling::NodeRef Find(const Entities::RoomEntity* room,
-            OpenTK::Mathematics::Vector3 probe, OpenTK::Mathematics::Vector3 bodyCenter,
-            bool& ambiguous);
+        [[nodiscard]] static Resolution Find(const Entities::RoomEntity* room,
+            OpenTK::Mathematics::Vector3 probe, OpenTK::Mathematics::Vector3 bodyCenter);
 
     private:
         [[nodiscard]] static bool GeometryBoundsContain(const Entities::RoomEntity& room,

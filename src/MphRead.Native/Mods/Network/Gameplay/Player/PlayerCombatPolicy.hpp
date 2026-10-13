@@ -10,10 +10,16 @@ namespace MphRead::Mods::Network
     public:
         PlayerCombatPolicy() = delete;
 
+        [[nodiscard]] static constexpr bool IsAliveAndSpawned(bool active, bool spawned,
+            std::int32_t health) noexcept
+        {
+            return active && spawned && health > 0;
+        }
+
         [[nodiscard]] static constexpr bool IsInPlay(bool active, bool spawned,
             std::int32_t health, bool spectating) noexcept
         {
-            return active && spawned && health > 0 && !spectating;
+            return IsAliveAndSpawned(active, spawned, health) && !spectating;
         }
 
         [[nodiscard]] static constexpr bool IntentIsInPlay(bool requestedInPlay,

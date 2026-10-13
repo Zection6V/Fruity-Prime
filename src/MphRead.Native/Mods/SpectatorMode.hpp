@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SpectatorTargetPolicy.hpp"
+#include "SpectatorCameraPolicy.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -39,6 +40,7 @@ namespace MphRead::Mods
         static void NoteFreeCamera(bool on) noexcept;
         [[nodiscard]] static std::optional<SpectatorCameraRequest> TakeCameraRequest() noexcept;
         [[nodiscard]] static bool CanUsePlayerCamera() noexcept;
+        [[nodiscard]] static bool CanBorrowLocalCameraPose() noexcept;
 
         static void Rejoin();
         static void Reset() noexcept;

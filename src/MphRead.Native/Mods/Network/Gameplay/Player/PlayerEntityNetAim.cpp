@@ -332,6 +332,22 @@ namespace MphRead::Entities
         {
             return;
         }
+        ModApplyReplicatedSpectating(value);
+        ModClearSpectatorInput();
+    }
+
+    void PlayerEntity::ModClearSpectatorInput()
+    {
+        (*this).Controls().ClearAll();
+        ::MphRead::Mods::Network::NetInputHistory::ForgetSlot(SlotIndex());
+    }
+
+    void PlayerEntity::ModApplyReplicatedSpectating(bool value)
+    {
+        if (ModIsSpectating() == value)
+        {
+            return;
+        }
         std::uint32_t flags = static_cast<std::uint32_t>((*this).Flags2());
         if (value)
         {
@@ -342,8 +358,6 @@ namespace MphRead::Entities
             flags &= ~PlayerFlagSpectating;
         }
         (*this).SetFlags2(static_cast<PlayerFlags2>(flags));
-        (*this).Controls().ClearAll();
-        ::MphRead::Mods::Network::NetInputHistory::ForgetSlot(SlotIndex());
     }
 
     bool PlayerEntity::ModIsSpectating() const

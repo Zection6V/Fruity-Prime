@@ -35,6 +35,18 @@ namespace
         }
     }
 
+    void ApplyLocalSpectatorRequest(PlayerEntity& player, bool spectating)
+    {
+        if (Network::NetSession::IsClient() && !Network::NetSession::IsAuthority())
+        {
+            // The local camera request is immediate, but the PlayerEntity bit
+            // remains the last state accepted by the authority.
+            player.ModClearSpectatorInput();
+            return;
+        }
+        player.ModSetSpectating(spectating);
+    }
+
     [[nodiscard]] bool HasPlayer(std::int32_t slot) noexcept
     {
         const auto& players = PlayerEntity::Players();
@@ -156,16 +168,18 @@ namespace MphRead::Mods
     bool SpectatorMode::CanUsePlayerCamera() noexcept
     {
         const std::int32_t mainSlot = PlayerEntity::MainPlayerIndex();
-        if (!_isSpectating)
-        {
-            return HasPlayer(mainSlot);
-        }
-        if (_target.has_value())
-        {
-            return _target->Slot == mainSlot && IdentityIsCurrent(*_target);
-        }
+        const bool targetIsCurrent = _target.has_value()
+            && _target->Slot == mainSlot && IdentityIsCurrent(*_target);
+        return SpectatorCameraPolicy::CanFollowPlayer(
+            _isSpectating, HasPlayer(mainSlot), _target.has_value(), targetIsCurrent);
+    }
+
+    bool SpectatorMode::CanBorrowLocalCameraPose() noexcept
+    {
         const std::int32_t localSlot = Network::NetHooks::LocalSlot();
-        return localSlot >= 0 && mainSlot == localSlot && HasPlayer(localSlot);
+        return SpectatorCameraPolicy::CanBorrowLocalPose(_isSpectating,
+            _target.has_value(), PlayerEntity::MainPlayerIndex() == localSlot,
+            localSlot >= 0 && HasPlayer(localSlot));
     }
 
     void SpectatorMode::Start(bool watchSomeone)
@@ -183,7 +197,7 @@ namespace MphRead::Mods
         const std::int32_t localSlot = Network::NetHooks::LocalSlot();
         if (HasPlayer(localSlot))
         {
-            ManagedAt(PlayerEntity::Players(), localSlot)->ModSetSpectating(true);
+            ApplyLocalSpectatorRequest(*ManagedAt(PlayerEntity::Players(), localSlot), true);
         }
 
         if (watchSomeone)
@@ -391,7 +405,7 @@ namespace MphRead::Mods
             {
                 localPlayer = player.get();
                 EnsureHudReady(*localPlayer);
-                localPlayer->ModSetSpectating(false);
+                ApplyLocalSpectatorRequest(*localPlayer, false);
                 PlayerEntity::SetMainPlayerIndex(localSlot);
             }
         }

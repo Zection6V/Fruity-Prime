@@ -1,7 +1,9 @@
 #include "Mods/Network/Gameplay/Player/NetPlayerIntent.hpp"
 
 #include "Entities/Players/PlayerEntity.hpp"
+#include "Mods/Network/Gameplay/Player/PlayerCombatPolicy.hpp"
 #include "NativeRuntime/System/Managed.hpp"
+#include "Formats/Enums.hpp"
 
 #include <algorithm>
 #include <memory>
@@ -11,10 +13,16 @@ namespace MphRead::Mods::Network
 {
     using ::MphRead::NativeRuntime::HasFlag;
 
-    IntentPacket NetPlayerIntent::CaptureState(Entities::PlayerEntity& player)
+    IntentPacket NetPlayerIntent::CaptureState(Entities::PlayerEntity& player,
+        std::optional<bool> localSpectatorRequest)
     {
         Entities::PlayerControls& controls = player.Controls();
-        const bool spectating = player.ModIsSpectating();
+        const bool spectating = localSpectatorRequest.value_or(player.ModIsSpectating());
+        const bool inPlay = localSpectatorRequest.has_value()
+            ? PlayerCombatPolicy::IsAliveAndSpawned(
+                HasFlag(player.LoadFlags(), Entities::LoadFlags::Active),
+                HasFlag(player.LoadFlags(), Entities::LoadFlags::Spawned), player.Health()) && !spectating
+            : player.ModIsInPlay();
         IntentButtons buttons = IntentButtons::None;
         if (!spectating)
         {
@@ -38,7 +46,7 @@ namespace MphRead::Mods::Network
             if (player.EquipInfo()->Zoomed) buttons |= IntentButtons::ZoomedState;
             if (player.IsAltForm()) buttons |= IntentButtons::AltFormState;
         }
-        if (player.ModIsInPlay())
+        if (inPlay)
         {
             buttons |= IntentButtons::InPlayState;
         }

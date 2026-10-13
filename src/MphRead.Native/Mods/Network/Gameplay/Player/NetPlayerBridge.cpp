@@ -24,6 +24,7 @@
 #include "Mods/Network/Gameplay/Replication/NetSmoothing.hpp"
 #include "Mods/Network/Gameplay/Combat/NetUnlagged.hpp"
 #include "Mods/Network/Gameplay/Combat/HitLocation.hpp"
+#include "Mods/SpectatorMode.hpp"
 #include "NativeRuntime/System/Managed.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
 #include "Formats/Types.hpp"
@@ -130,6 +131,10 @@ namespace MphRead::Mods::Network
 
     IntentPacket NetPlayerBridge::StateIntent(Entities::PlayerEntity& player)
     {
+        if (player.SlotIndex() == NetHooks::LocalSlot())
+        {
+            return NetPlayerIntent::CaptureState(player, SpectatorMode::IsSpectating());
+        }
         return NetPlayerIntent::CaptureState(player);
     }
 
@@ -196,6 +201,8 @@ namespace MphRead::Mods::Network
         // This is the authority's acceptance boundary. A claim already in
         // flight is checked against this state again before damage is applied.
         player.ModSetSpectating(spectating);
+        NetShotEvents::RecordAcceptedIntent(player.SlotIndex(), intent.SlotGeneration,
+            intent.LifeId, intent.Frame, inPlay && player.ModIsInPlay());
         const std::int32_t aimSlot = player.SlotIndex();
         if (aimSlot >= 0 && aimSlot < static_cast<std::int32_t>(_aimHeld.size()) && _aimHeld[Index(aimSlot)]
             && (intent.AckFrame >= SpawnFrame[Index(aimSlot)]
@@ -393,6 +400,9 @@ namespace MphRead::Mods::Network
             }
         }
         player.SetHealth(state.Health);
+        // Spawn resets Flags2. Restore the authority's spectator state after
+        // that reset for both first-state and same-life resynchronization.
+        player.ModSetSpectating((state.Flags & PlayerState::FlagSpectating) != 0);
     }
 
     void NetPlayerBridge::ApplyState(Entities::PlayerEntity& player, const PlayerState& state, bool isLocal)
@@ -424,10 +434,19 @@ namespace MphRead::Mods::Network
         const auto s = Index(slot);
         const bool fresh = !_lifeApplied[s] || _appliedLifeId[s] != state.LifeId;
         const bool spectating = (state.Flags & PlayerState::FlagSpectating) != 0;
-        player.ModSetSpectating(spectating);
         if (fresh)
         {
             BeginRemoteLife(player, state);
+        }
+        else if (isLocal)
+        {
+            // A local snapshot updates authority state, not the player's
+            // immediate spectator request or its pending input history.
+            player.ModApplyReplicatedSpectating(spectating);
+        }
+        else
+        {
+            player.ModSetSpectating(spectating);
         }
         const bool spawned = (state.Flags & PlayerState::FlagSpawned) != 0 && state.Health > 0;
         PlayerFormReplication::RecordAuthorityForm(slot, (state.Flags & PlayerState::FlagAltForm) != 0);

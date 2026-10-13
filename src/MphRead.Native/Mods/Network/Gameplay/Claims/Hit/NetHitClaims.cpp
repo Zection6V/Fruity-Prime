@@ -480,6 +480,17 @@ namespace MphRead::Mods::Network
                 }
                 continue;
             }
+            // The shot may arrive before the authority has applied the intent
+            // that establishes its sender-frame eligibility. Leave the claim
+            // unseen so the existing outbox retry can present it again after
+            // that state is accepted.
+            if (claim.ShotSequence != 0
+                && NetShotEvents::Find(shooterSlot, claim.ShotSequence).has_value()
+                && NetShotEvents::EligibilityFor(shooterSlot, claim.ShotSequence,
+                    claim.ShooterGeneration, claim.ShooterLifeId) == ShotEventEligibility::Pending)
+            {
+                continue;
+            }
             _replayLedger.Begin(shooterSlot, claim.ClaimId, ResultPending,
                 static_cast<::MphRead::BeamType>(claim.Beam), ShotKey::For(shooterSlot, claim.LaunchFrame));
             NetShotDiagnostics::RecordClaim(static_cast<::MphRead::BeamType>(claim.Beam));
@@ -1055,6 +1066,12 @@ namespace MphRead::Mods::Network
                 _metrics.Increment(HitClaimMetrics::Counter::EventUnknown);
             }
             return true;
+        }
+        if (NetShotEvents::EligibilityFor(shooterSlot, claim.ShotSequence,
+            claim.ShooterGeneration, claim.ShooterLifeId) != ShotEventEligibility::Allowed)
+        {
+            _metrics.Increment(HitClaimMetrics::Counter::EventRefused);
+            return false;
         }
         _metrics.Increment(HitClaimMetrics::Counter::EventNamed);
         const std::uint32_t gap = named->AckFrame > launch ? named->AckFrame - launch : launch - named->AckFrame;

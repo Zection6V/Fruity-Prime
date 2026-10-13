@@ -1,4 +1,6 @@
 #include "Mods/Network/Gameplay/Player/PlayerCombatPolicy.hpp"
+#include "Mods/Network/Gameplay/Weapons/ShotEventEligibility.hpp"
+#include "Mods/SpectatorCameraPolicy.hpp"
 #include "Mods/SpectatorTargetPolicy.hpp"
 
 #include <array>
@@ -23,6 +25,8 @@ int main()
 {
     using namespace MphRead::Mods;
     using MphRead::Mods::Network::PlayerCombatPolicy;
+    using MphRead::Mods::Network::ShotEventEligibility;
+    using MphRead::Mods::Network::ShotEventEligibilityTimeline;
     bool passed = true;
 
     constexpr SpectatorSlotSnapshot alive{true, true, true, false, true, 100, 4, 8};
@@ -106,6 +110,96 @@ int main()
     passed &= Check(!PlayerCombatPolicy::CanReceiveDamage(true)
         && PlayerCombatPolicy::CanReceiveDamage(false),
         "spectating players reject damage at the shared final gate");
+    passed &= Check(PlayerCombatPolicy::IsAliveAndSpawned(true, true, 1)
+        && !PlayerCombatPolicy::IsAliveAndSpawned(true, false, 1)
+        && !PlayerCombatPolicy::IsAliveAndSpawned(true, true, 0),
+        "a rejoin request requires an active spawned player with health");
+
+    passed &= Check(!SpectatorCameraPolicy::CanFollowPlayer(true, true, false, false)
+        && !SpectatorCameraPolicy::CanFollowPlayer(true, true, true, false)
+        && SpectatorCameraPolicy::CanFollowPlayer(true, true, true, true)
+        && SpectatorCameraPolicy::CanFollowPlayer(false, true, false, false),
+        "player-camera follow requires a current target while spectating");
+    passed &= Check(SpectatorCameraPolicy::CanBorrowLocalPose(true, false, true, true)
+        && !SpectatorCameraPolicy::CanBorrowLocalPose(true, true, true, true)
+        && !SpectatorCameraPolicy::CanBorrowLocalPose(false, false, true, true),
+        "the local pose is available only to initialize targetless free camera");
+
+    ShotEventEligibilityTimeline timeline;
+    timeline.Record(3, 7, 100, true);
+    timeline.Record(3, 7, 110, false);
+    passed &= Check(timeline.EvaluateFrame(3, 99) == ShotEventEligibility::Allowed
+        && timeline.Evaluate(3, 7, 99) == ShotEventEligibility::Allowed,
+        "a delayed pre-sample shot remains eligible when the first accepted state is in play");
+    passed &= Check(timeline.Evaluate(3, 7, 105) == ShotEventEligibility::Allowed
+        && timeline.Evaluate(3, 7, 109) == ShotEventEligibility::Allowed,
+        "a delayed shot fired before the accepted spectator boundary remains eligible");
+    passed &= Check(timeline.Evaluate(3, 7, 110) == ShotEventEligibility::Denied
+        && timeline.EvaluateFrame(3, 110) == ShotEventEligibility::Denied,
+        "shots fired at the accepted spectator boundary are denied");
+    timeline.Record(3, 7, 105, true);
+    passed &= Check(timeline.Evaluate(3, 7, 110) == ShotEventEligibility::Denied
+        && !timeline.LatestAllowsContinuousFire(3, 7),
+        "an older spoofed in-play report cannot replace accepted spectator state");
+    timeline.Record(3, 7, 120, false);
+    timeline.Record(3, 7, 130, true);
+    passed &= Check(timeline.Evaluate(3, 7, 125) == ShotEventEligibility::Denied
+        && timeline.Evaluate(3, 7, 130) == ShotEventEligibility::Allowed
+        && timeline.Evaluate(3, 7, 131) == ShotEventEligibility::Pending,
+        "an accepted rejoin opens eligibility at its sender frame");
+    timeline.Record(3, 8, 140, true);
+    passed &= Check(timeline.EvaluateFrame(3, 105) == ShotEventEligibility::Allowed
+        && timeline.EvaluateFrame(3, 110) == ShotEventEligibility::Denied
+        && timeline.Evaluate(3, 7, 105) == ShotEventEligibility::Allowed
+        && timeline.Evaluate(3, 8, 135) == ShotEventEligibility::Denied
+        && timeline.Evaluate(3, 8, 140) == ShotEventEligibility::Allowed,
+        "life changes preserve frame-accurate eligibility for delayed shots");
+    passed &= Check(timeline.EvaluateFrame(3, 141) == ShotEventEligibility::Pending
+        && timeline.Evaluate(3, 8, 141) == ShotEventEligibility::Pending,
+        "unaccepted future shot frames wait for an authority-accepted intent");
+    passed &= Check(timeline.Evaluate(4, 8, 140) == ShotEventEligibility::Pending,
+        "eligibility history is isolated by roster generation");
+    passed &= Check(!timeline.LatestAllowsContinuousFire(3, 7)
+        && timeline.LatestAllowsContinuousFire(3, 8)
+        && !timeline.LatestAllowsContinuousFire(4, 8),
+        "continuous fire requires the latest accepted in-play state for the same identity");
+    passed &= Check(timeline.EvaluateFrame(3, 105) == ShotEventEligibility::Allowed
+        && timeline.EvaluateFrame(3, 125) == ShotEventEligibility::Denied
+        && timeline.EvaluateFrame(3, 130) == ShotEventEligibility::Allowed,
+        "shot eligibility remains tied to the correct life across a rejoin boundary");
+    timeline.Record(3, 7, 140, false);
+    passed &= Check(!timeline.LatestAllowsContinuousFire(3, 7),
+        "continuous fire stops when the latest accepted intent is not in play");
+
+    ShotEventEligibilityTimeline wrappedTimeline;
+    wrappedTimeline.Record(1, 1, 0xFFFFFFFEU, true);
+    wrappedTimeline.Record(1, 1, 1, false);
+    passed &= Check(wrappedTimeline.Evaluate(1, 1, 0xFFFFFFFFU) == ShotEventEligibility::Allowed
+        && wrappedTimeline.Evaluate(1, 1, 1) == ShotEventEligibility::Denied
+        && wrappedTimeline.Evaluate(1, 1, 2) == ShotEventEligibility::Pending,
+        "eligibility transitions remain ordered across sender-frame wraparound");
+
+    ShotEventEligibilityTimeline conflictingFrame;
+    conflictingFrame.Record(1, 1, 20, true);
+    conflictingFrame.Record(1, 1, 20, false);
+    passed &= Check(conflictingFrame.Evaluate(1, 1, 20) == ShotEventEligibility::Denied,
+        "conflicting accepted state for one sender frame fails closed");
+
+    ShotEventEligibilityTimeline initiallySpectating;
+    initiallySpectating.Record(1, 4, 50, false);
+    passed &= Check(initiallySpectating.EvaluateFrame(1, 49) == ShotEventEligibility::Denied
+        && initiallySpectating.Evaluate(1, 4, 49) == ShotEventEligibility::Denied,
+        "an initial spectator state cannot authorize a shot from an unknown earlier frame");
+
+    ShotEventEligibilityTimeline claimWindow;
+    claimWindow.Record(1, 1, 1, true);
+    for (std::uint32_t frame = 2; frame <= 124; ++frame)
+    {
+        claimWindow.Record(1, 1, frame, (frame % 2) != 0);
+    }
+    passed &= Check(claimWindow.EvaluateFrame(1, 2) == ShotEventEligibility::Denied
+        && claimWindow.EvaluateFrame(1, 124) == ShotEventEligibility::Denied,
+        "spectator boundaries remain available throughout the full hit-claim rewind age");
 
     return passed ? 0 : 1;
 }

@@ -343,6 +343,22 @@ namespace
             ? ManagedAt(players, slot) : nullptr;
     }
 
+    [[nodiscard]] std::shared_ptr<MphRead::Entities::PlayerEntity> SpectatorCameraPosePlayer()
+    {
+        if (const auto target = SpectatorCameraPlayer(); target != nullptr)
+        {
+            return target;
+        }
+        if (!MphRead::Mods::SpectatorMode::CanBorrowLocalCameraPose())
+        {
+            return nullptr;
+        }
+        const std::int32_t slot = MphRead::Entities::PlayerEntity::MainPlayerIndex();
+        const auto& players = MphRead::Entities::PlayerEntity::Players();
+        return slot >= 0 && static_cast<std::size_t>(slot) < players.size()
+            ? ManagedAt(players, slot) : nullptr;
+    }
+
     [[nodiscard]] bool IsFiniteVector(Vector3 value) noexcept
     {
         return std::isfinite(value.X) && std::isfinite(value.Y) && std::isfinite(value.Z);
@@ -5037,7 +5053,7 @@ namespace MphRead
         }
         else
         {
-            const auto main = SpectatorCameraPlayer();
+            const auto main = SpectatorCameraPosePlayer();
             const auto cameraInfo = main != nullptr ? main->CameraInfo() : nullptr;
             if (cameraInfo != nullptr)
             {

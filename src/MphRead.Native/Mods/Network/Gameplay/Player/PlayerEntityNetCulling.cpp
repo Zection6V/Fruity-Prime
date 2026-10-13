@@ -1,10 +1,14 @@
 #include "Mods/Network/Gameplay/Player/PlayerEntityNetCulling.hpp"
 
 #include "Entities/EntityBase.hpp"
+#include "Entities/RoomEntity.hpp"
 #include "Entities/Players/PlayerEntity.hpp"
-#include "Formats/CollisionDetection.hpp"
 #include "Mods/Network/Diagnostics/NetLog.hpp"
 #include "Mods/Network/Gameplay/Player/NetPlayerBridge.hpp"
+#include "Mods/Network/Gameplay/Player/ReplicaPlayerPolicy.hpp"
+#include "Mods/Network/Gameplay/Player/ReplicaRoomPlacement.hpp"
+#include "Mods/Network/Gameplay/Player/ReplicaShadowVisibility.hpp"
+#include "Mods/Network/Session/NetSession.hpp"
 #include "NativeRuntime/OpenTK/Mathematics.hpp"
 #include "Scene.hpp"
 
@@ -18,6 +22,28 @@ using ::OpenTK::Mathematics::Multiply;
 namespace MphRead::Entities
 {
     using Vector3 = OpenTK::Mathematics::Vector3;
+
+    namespace
+    {
+        Mods::Network::ReplicaPlayerPolicy::Context ReplicaRoleContext(const PlayerEntity& player)
+        {
+            return {
+                Mods::Network::NetSession::IsClient(),
+                Mods::Network::NetSession::IsHost(),
+                Mods::Network::NetSession::IsAuthority(),
+                player.SlotIndex(),
+                Mods::Network::NetSession::LocalSlot(),
+                player.IsBot()
+            };
+        }
+
+        bool IsLocalNetworkPlayer(const PlayerEntity& player)
+        {
+            return Mods::Network::NetSession::Active()
+                && Mods::Network::ReplicaPlayerPolicy::IsLocalSlot(
+                    player.SlotIndex(), Mods::Network::NetSession::LocalSlot());
+        }
+    }
 
     Formats::Culling::NodeRef PlayerEntity::ModWalkNodeRef(
         MphRead::Scene& scene,
@@ -53,18 +79,21 @@ namespace MphRead::Entities
     {
         (*this)._volume = CollisionVolume::Move((*this)._volumeUnxf, (*this).Position);
         MphRead::Scene& scene = (*(*this)._scene);
+        const bool isLocalNetworkPlayer = IsLocalNetworkPlayer(*this);
         const Formats::Culling::NodeRef currentForWalk = (*this).NodeRef;
         const Vector3 positionForWalk = static_cast<Vector3>((*this).Position);
         Formats::Culling::NodeRef walked = ModWalkNodeRef(
             scene, currentForWalk, previousPosition, positionForWalk);
         if (walked != Formats::Culling::NodeRef::None)
         {
-            if (!scene.IsNodeRefVisible(walked))
+            if (!scene.IsNodeRefVisible(walked) && !isLocalNetworkPlayer)
             {
                 // Portal walking can retain a valid but stale part while a
                 // smoothed replica crosses a culling boundary. The shadow is
                 // drawn before the body, so that stale hidden part produces a
-                // shadow-only player. Re-resolve this hidden case by position.
+                // shadow-only player. Re-resolve this hidden replica by position.
+                // The local owner keeps portal tracking: position-only lookup
+                // is ambiguous where room layers overlap vertically.
                 const Formats::Culling::NodeRef positionNode
                     = scene.GetNodeRefByPosition(positionForWalk);
                 if (positionNode != Formats::Culling::NodeRef::None)
@@ -101,6 +130,15 @@ namespace MphRead::Entities
             return;
         }
 
+        if (isLocalNetworkPlayer)
+        {
+            // Never replace a local owner's missing portal walk with an
+            // ambiguous point lookup into vertically overlapping room parts.
+            _modNodeUnresolved = true;
+            Mods::Network::NetPlayerBridge::RecordUnresolvedNodeLookup();
+            return;
+        }
+
         const Vector3 position = static_cast<Vector3>((*this).Position);
         Formats::Culling::NodeRef found = scene.GetNodeRefByPosition(position);
         if (found.PartIndex == -1)
@@ -134,8 +172,16 @@ namespace MphRead::Entities
         }
     }
 
-    void PlayerEntity::ModResolveNetworkNodeRef()
+    void PlayerEntity::ModResolveNetworkNodeRef(Vector3 previousPosition)
     {
+        if (IsLocalNetworkPlayer(*this))
+        {
+            // A local position correction must keep the camera's established
+            // portal path; direct point lookup can select an overlapping floor.
+            ModRefreshNodeRef(previousPosition);
+            return;
+        }
+
         // A networked pose is sampled between authority snapshots and can
         // cross more than one portal in a single update. Rebuild its culling
         // location from the same displayed world position instead of walking
@@ -145,18 +191,37 @@ namespace MphRead::Entities
         const Vector3 position = static_cast<Vector3>((*this).Position);
         const Formats::Culling::NodeRef previous = (*this).NodeRef;
         const bool wasUnresolved = _modNodeUnresolved;
-        Formats::Culling::NodeRef found = scene.GetNodeRefByPosition(position);
-        if (found.PartIndex == -1)
+        const Vector3 bodyCenter = _volume.SpherePosition;
+        // Direct point placement is reserved for remote replicas; local owners
+        // returned above through their established Scene portal path.
+        const bool useReplicaPlacement = Mods::Network::ReplicaPlayerPolicy::UsesReplicaRoomPlacement(
+            ReplicaRoleContext(*this));
+        const auto room = useReplicaPlacement ? scene.Room() : nullptr;
+
+        bool ambiguous = false;
+        const auto lookup = [&](Vector3 probe)
         {
-            found = scene.GetNodeRefByPosition((*this)._volume.SpherePosition);
+            if (!room) return scene.GetNodeRefByPosition(probe);
+            const auto resolution = Mods::Network::ReplicaRoomPlacement::Find(
+                room.get(), probe, bodyCenter);
+            ambiguous = Mods::Network::ReplicaRoomPlacementRules::StopsProbeFallback(resolution.state);
+            return resolution.state == Mods::Network::ReplicaRoomPlacementRules::State::Resolved
+                ? resolution.node : Formats::Culling::NodeRef::None;
+        };
+        // Every fallback probe must place the same current-form collision
+        // center. No retained simulation/presentation node is trusted here.
+        Formats::Culling::NodeRef found = lookup(bodyCenter);
+        if (found.PartIndex == -1 && !ambiguous)
+        {
+            found = lookup(position);
         }
-        if (found.PartIndex == -1)
+        if (found.PartIndex == -1 && !ambiguous)
         {
-            found = scene.GetNodeRefByPosition(position + Multiply(Vector3::UnitY, 0.5F));
+            found = lookup(position + Multiply(Vector3::UnitY, 0.5F));
         }
-        if (found.PartIndex == -1)
+        if (found.PartIndex == -1 && !ambiguous)
         {
-            found = scene.GetNodeRefByPosition(position - Multiply(Vector3::UnitY, 0.5F));
+            found = lookup(position - Multiply(Vector3::UnitY, 0.5F));
         }
 
         if (found.PartIndex != -1)
@@ -177,6 +242,7 @@ namespace MphRead::Entities
                     + "," + std::to_string(position.Y)
                     + "," + std::to_string(position.Z));
             }
+
             return;
         }
 
@@ -194,9 +260,44 @@ namespace MphRead::Entities
         }
     }
 
+    void PlayerEntity::ModSetReplicaShadowVisible(bool visible)
+    {
+        _modShadowDrawState = {};
+        if (!visible || !ModIsRemoteNetworkPlayer())
+        {
+            return;
+        }
+
+        _modShadowDrawState = Mods::Network::ReplicaShadowVisibility::CaptureVisibleShadow(
+            (*this)._scene);
+    }
+
     bool PlayerEntity::ModNodeUnresolved() const noexcept
     {
         return _modNodeUnresolved;
+    }
+
+    bool PlayerEntity::ModMayBypassReplicaPartCulling() const noexcept
+    {
+        if (!ModIsRemoteNetworkPlayer())
+        {
+            return false;
+        }
+
+        const MphRead::Scene* scene = (*this)._scene;
+        if (!Mods::Network::ReplicaShadowVisibility::MatchesScene(
+            _modShadowDrawState, scene))
+        {
+            return false;
+        }
+        return Mods::Network::ReplicaShadowVisibility::ShouldForceBody(
+            true, _modShadowDrawState);
+    }
+
+    bool PlayerEntity::ModIsRemoteNetworkPlayer() const noexcept
+    {
+        return Mods::Network::ReplicaPlayerPolicy::UsesReplicaShadowVisibility(
+            ReplicaRoleContext(*this));
     }
 
     void PlayerEntity::ModNetSpawn(Vector3 position, Vector3 facing)

@@ -2255,7 +2255,7 @@ namespace MphRead::Mods
             SetExitCode(Network::MapAudit::Run(*mapTest, players, seconds, mode,
                 ::HasFlag(args, "bots"), ValueAfter(args, "shots"),
                 ::HasFlag(args, "renderprobe"), ::HasFlag(args, "allnodes"),
-                ::HasFlag(args, "itemshots")));
+                ::HasFlag(args, "itemshots"), ::HasFlag(args, "itempickupcheck")));
             return true;
         }
 

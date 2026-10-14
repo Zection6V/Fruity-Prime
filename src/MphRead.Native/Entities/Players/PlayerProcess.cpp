@@ -1,3 +1,5 @@
+#include "../../Mods/MapGen/CustomRooms.hpp"
+#include "../../Mods/WorldEvents.hpp"
 #include "PlayerProcess.hpp"
 
 #include "PlayerEntity.hpp"
@@ -1362,6 +1364,69 @@ namespace MphRead::Entities
             TakeDamage(1, flags, std::nullopt, nullptr);
         }
 
+        // A Quake 3 level's lava and slime hurt as in Quake (P_WorldEffects):
+        // 30 (lava) or 10 (slime) a time per level of depth, every 700 ms
+        // (the pain debounce), from the moment the hunter is in.
+        {
+            std::int32_t liquid = 0;
+            const std::int32_t depth = _health > 0
+                ? Mods::MapGen::CustomRooms::Q3LiquidLevel(scene().RoomId(), static_cast<Vector3>(Position), liquid)
+                : 0;
+            if (depth == 0)
+            {
+                _q3LiquidTimer = 0;
+            }
+            else if (_q3LiquidTimer > 0)
+            {
+                --_q3LiquidTimer;
+            }
+            else
+            {
+                _q3LiquidTimer = 42;
+                std::int32_t damage = 0;
+                if ((liquid & Mods::MapGen::CustomRooms::Q3ContentsLava) != 0)
+                {
+                    damage += 30 * depth;
+                }
+                if ((liquid & Mods::MapGen::CustomRooms::Q3ContentsSlime) != 0)
+                {
+                    damage += 10 * depth;
+                }
+                TakeDamage(static_cast<std::uint32_t>(damage), DamageFlags::IgnoreInvuln, std::nullopt, nullptr);
+            }
+        }
+
+        // A Quake 3 level's trigger_hurt (a pit, a field of spikes) hurts as
+        // Quake's hurt_touch: a hit every 100 ms, every second for a SLOW one,
+        // for as long as the hunter's box is in it. A hit of 99 or more is
+        // the death the level means.
+        {
+            bool slow = false;
+            const std::int32_t damage = _health > 0
+                ? Mods::MapGen::CustomRooms::Q3HurtAt(scene().RoomId(), static_cast<Vector3>(Position), slow)
+                : 0;
+            if (damage == 0)
+            {
+                _q3HurtTimer = 0;
+            }
+            else if (_q3HurtTimer > 0)
+            {
+                --_q3HurtTimer;
+            }
+            else
+            {
+                _q3HurtTimer = slow ? 60 : 6;
+                if (damage >= 99)
+                {
+                    TakeDamage(0, DamageFlags::Death, std::nullopt, nullptr);
+                }
+                else
+                {
+                    TakeDamage(static_cast<std::uint32_t>(damage), DamageFlags::IgnoreInvuln, std::nullopt, nullptr);
+                }
+            }
+        }
+
         assert(scene().Room() != nullptr);
         RoomEntity& room = RequireReference(scene().Room());
         if (GameState::Multiplayer() && room.Meta().HasLimits)
@@ -1472,8 +1537,38 @@ namespace MphRead::Entities
         {
             _soundSource.PlaySfx(SfxId::JUMP_PAD);
         }
+        // A Quake 3 pad throws the way the cartridge's do -- the same speed
+        // held across, the same rise with no gravity while the controls are
+        // locked, then this game's gravity and air control -- with the
+        // speed and lock that put a hunter at the top of Quake's arc (the
+        // pad's target) where and when Quake puts it. Its vector is Quake's
+        // launch velocity and its value Quake's gravity.
+        std::optional<std::uint16_t> q3Lock;
+        if (jumpPad != nullptr && jumpPad->Q3Kind() == JumpPadEntity::Q3Trigger::Push
+            && jumpPad->Q3Value() > 0.0F && vector.Y > 0.0F)
+        {
+            const float quakeGravity = jumpPad->Q3Value();
+            const float gravity = std::max(-Fixed::ToFloat(_values.BipedGravity), 0.0001F);
+            const float apexTime = vector.Y / quakeGravity;
+            const float height = vector.Y * vector.Y / (2.0F * quakeGravity);
+            // Frames locked (whole 60 Hz frames), then the rise left to the
+            // top under this game's gravity.
+            float locked = 0.0F;
+            if (gravity * apexTime * apexTime >= 2.0F * height)
+            {
+                const float rising = apexTime - std::sqrt(apexTime * apexTime - 2.0F * height / gravity);
+                locked = std::round((apexTime - rising) * 2.0F) / 2.0F;
+            }
+            const float up = gravity * (-locked + std::sqrt(locked * locked + 2.0F * height / gravity));
+            const float time = locked + up / gravity;
+            const float across = time > 0.0F ? apexTime / time : 1.0F;
+            vector = Vector3(vector.X * across, up, vector.Z * across);
+            q3Lock = static_cast<std::uint16_t>(std::lround(locked * 2.0F));
+        }
         _speed = vector;
         _jumpPadAccel = vector;
+        _q3PadGravity = 0.0F;
+        _q3AirSpeed = 0.0F;
         if (jumpPad == nullptr)
         {
             _lastJumpPad.reset();
@@ -1483,13 +1578,13 @@ namespace MphRead::Entities
             _lastJumpPad = SharedFrom(jumpPad);
         }
         _flags1 |= PlayerFlags1::UsedJumpPad;
-        lockTime = ManagedUInt16Multiply(lockTime, 2);
+        lockTime = q3Lock.has_value() ? *q3Lock : ManagedUInt16Multiply(lockTime, 2);
         _jumpPadControlLock = lockTime;
         _jumpPadControlLockMin = std::max(lockTime, static_cast<std::uint16_t>(5 * 2));
         _timeSinceJumpPad = 0;
         _flags1 &= ~PlayerFlags1::UsedJump;
         _flags1 |= PlayerFlags1::Standing;
-        if (IsAltForm())
+        if (IsAltForm() && _q3PadGravity == 0.0F)
         {
             const float accelY = _jumpPadAccel.Y;
             const float altGrav = Fixed::ToFloat(_values.AltAirGravity);
@@ -1502,6 +1597,29 @@ namespace MphRead::Entities
                 / accelY + 2.0F;
             _jumpPadControlLock = ManagedUInt16Add(
                 _jumpPadControlLock, FloatToUInt16Unchecked(lockInc * 2.0F));
+        }
+    }
+
+    // Quake's TeleportPlayer: out at the destination facing its way, moving
+    // at speed along it, and for the first sixth of a second not slowed by
+    // the ground (PMF_TIME_KNOCKBACK, 160 ms) -- the pad's own carry, which
+    // ends ten frames after landing.
+    void PlayerEntity::Q3Teleport(Vector3 position, Vector3 facing,
+        MphRead::Formats::Culling::NodeRef nodeRef, float speed)
+    {
+        Teleport(position, facing, nodeRef);
+        const Vector3 velocity(facing.X * speed, 0.0F, facing.Z * speed);
+        _speed = velocity;
+        _jumpPadAccel = velocity;
+        _q3PadGravity = 0.0F;
+        _lastJumpPad.reset();
+        _flags1 |= PlayerFlags1::UsedJumpPad;
+        _jumpPadControlLock = 0;
+        _jumpPadControlLockMin = 0;
+        _timeSinceJumpPad = 0;
+        if (IsBot())
+        {
+            RequireReference(AiData).Field118 = 148 * 2;
         }
     }
 
@@ -1707,6 +1825,7 @@ namespace MphRead::Entities
             }
             if (pickedUp)
             {
+                Mods::WorldEvents::NotePickup(*this);
                 item.OnPickedUp(this);
             }
         }

@@ -1,6 +1,10 @@
 #include "GeoCountry.hpp"
 
+#include "../../DebugLog.hpp"
+#include "GameFiles.hpp"
+#include "LauncherPrefs.hpp"
 #include "../../../NativeRuntime/System/AssetLoader.hpp"
+#include "../../../NativeRuntime/System/IO.hpp"
 #include "../../../NativeRuntime/System/Managed.hpp"
 #include "../../../NativeRuntime/System/Streams.hpp"
 
@@ -63,6 +67,36 @@ namespace MphRead::Mods::Launcher::Gui
                 || (b[0] == 169 && b[1] == 254));
     }
 
+    // The table's bytes: from the assets beside the program, or -- on Android,
+    // where they are copied into the app's own folder and the working
+    // directory is what finds them -- from the folders the launcher keeps its
+    // files in, whichever of them holds the copy.
+    std::vector<std::uint8_t> GeoCountry::ReadTable()
+    {
+        constexpr const char* uri = "avares://FruityPrime/Assets/Geo/ipcountry.bin.gz";
+        try
+        {
+            return ::MphRead::NativeRuntime::AssetLoader::Open(uri);
+        }
+        catch (const std::exception& first)
+        {
+            for (const std::string& root : {LauncherPrefs::Directory(), GameFiles::Root()})
+            {
+                if (root.empty())
+                {
+                    continue;
+                }
+                const std::string path = Runtime::PathCombine(root, "Assets/Geo/ipcountry.bin.gz");
+                if (Runtime::FileExists(path))
+                {
+                    DebugLog::Line("geo", "country table read from " + path + " (assets: " + first.what() + ")");
+                    return Runtime::FileReadAllBytes(path);
+                }
+            }
+            throw;
+        }
+    }
+
     void GeoCountry::Load()
     {
         if (_tried)
@@ -72,9 +106,7 @@ namespace MphRead::Mods::Launcher::Gui
         _tried = true;
         try
         {
-            auto packed = std::make_shared<Runtime::MemoryStream>(
-                ::MphRead::NativeRuntime::AssetLoader::Open(
-                    "avares://FruityPrime/Assets/Geo/ipcountry.bin.gz"), false);
+            auto packed = std::make_shared<Runtime::MemoryStream>(ReadTable(), false);
             Runtime::DeflateStream gz(packed, Runtime::CompressionMode::Decompress, false,
                 Runtime::DeflateStream::Format::GZip);
             const std::vector<std::uint8_t> data = gz.ReadToEnd();
@@ -127,11 +159,21 @@ namespace MphRead::Mods::Launcher::Gui
             _codes = std::move(codes);
             _first = std::move(first);
             _index = std::move(index);
+            DebugLog::Line("geo", "country table loaded: " + std::to_string(_first.size()) + " ranges");
         }
-        catch (const std::exception&)
+        catch (const std::exception& ex)
         {
             // A build without the table shows the neutral badge rather than
-            // no browser.
+            // no browser -- and says why in the debug log, since a badge
+            // with no flag looks the same whatever the reason.
+            DebugLog::Line("geo", std::string("country table not loaded: ") + ex.what());
+            // The first look can come before the game's files are in place (on
+            // Android they are copied as the app starts): try again a few
+            // times rather than for ever or never.
+            if (++_failures < 3)
+            {
+                _tried = false;
+            }
         }
     }
 }

@@ -1480,7 +1480,9 @@ namespace MphRead::Formats::Collision
         std::shared_ptr<CollisionInfo> info;
 
         if (::MphRead::MarshalExtensions::MarshalUtf8(header.Type)
-            == "wc01")
+            == "wc01"
+            || ::MphRead::MarshalExtensions::MarshalUtf8(header.Type)
+            == "wc32")
         {
             info = ReadMphCollision(
                 header,
@@ -1515,6 +1517,11 @@ namespace MphRead::Formats::Collision
                 std::move(name),
                 std::move(info),
                 isEntity);
+    }
+
+    std::shared_ptr<CollisionInstance> Collision::GetEntityCollision(const std::string& path)
+    {
+        return GetCollision(path, path, false, -1, true);
     }
 
     std::shared_ptr<MphCollisionInfo>
@@ -1553,11 +1560,27 @@ namespace MphRead::Formats::Collision
                 header.DataIndexOffset,
                 header.DataIndexCount);
 
-        const auto entries
-            = Read::DoOffsets<CollisionEntry>(
-                bytes,
-                header.EntryOffset,
-                header.EntryCount);
+        // The lists are held by name: a range-for over *DoOffsets(...) would
+        // walk a vector its temporary shared_ptr has already freed.
+        auto entries = std::make_shared<std::vector<CollisionEntry>>();
+        if (::MphRead::MarshalExtensions::MarshalUtf8(header.Type) == "wc32")
+        {
+            const auto raws = Read::DoOffsets<RawCollisionEntry32>(
+                bytes, header.EntryOffset, header.EntryCount);
+            for (const RawCollisionEntry32& raw : *raws)
+            {
+                entries->emplace_back(static_cast<std::uint16_t>(raw.DataCount), raw.DataStartIndex);
+            }
+        }
+        else
+        {
+            const auto raws = Read::DoOffsets<RawCollisionEntry>(
+                bytes, header.EntryOffset, header.EntryCount);
+            for (const RawCollisionEntry& raw : *raws)
+            {
+                entries->emplace_back(raw.DataCount, raw.DataStartIndex);
+            }
+        }
 
         auto portals = std::make_shared<
             std::vector<
@@ -1623,10 +1646,10 @@ namespace MphRead::Formats::Collision
                 {
                     std::uint16_t newCount = 0;
 
-                    const std::uint16_t
+                    const std::uint32_t
                         newStartIndex
                         = static_cast<
-                            std::uint16_t>(
+                            std::uint32_t>(
                                 finalIndices
                                     ->size());
 

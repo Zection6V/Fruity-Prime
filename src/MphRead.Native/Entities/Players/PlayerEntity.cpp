@@ -970,6 +970,7 @@ namespace MphRead::Entities
         _jumpPadControlLock = 0;
         _jumpPadControlLockMin = 0;
         _timeSinceJumpPad = std::numeric_limits<std::uint16_t>::max();
+        _q3PadGravity = 0.0F;
         if (IsMainPlayer())
         {
             ResetReticle();
@@ -1173,7 +1174,7 @@ namespace MphRead::Entities
     void PlayerEntity::Teleport(Vector3 position, Vector3 facing,
         MphRead::Formats::Culling::NodeRef nodeRef)
     {
-        _soundSource.PlaySfx(SfxId::TELEPORT_OUT, true);
+        _soundSource.PlaySfx(SfxId::TELEPORT_OUT, false, true);
         Reposition(position, facing, nodeRef);
         if (IsAltForm() || IsMorphing() || IsUnmorphing())
         {

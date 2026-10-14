@@ -952,6 +952,10 @@ namespace MphRead::Mods::MapGen
                 {
                     result._items = ReadObjectList<MapItem>(item, ReadMapItem);
                 }
+                else if (StringEqualsOrdinalIgnoreCase(name, "Teleporters"))
+                {
+                    result._teleporters = ReadObjectList<MapTeleporter>(item, ReadMapTeleporter);
+                }
                 // JsonIgnore properties and unknown properties are ignored.
             }
         }
@@ -1064,6 +1068,27 @@ namespace MphRead::Mods::MapGen
                 else if (StringEqualsOrdinalIgnoreCase(name, "KeepItems"))
                 {
                     result._keepItems = JsonBool(item);
+                }
+                else if (StringEqualsOrdinalIgnoreCase(name, "TexturePaks"))
+                {
+                    const auto paks = JsonArray<std::string>(item,
+                        [](const JsonValue& element) { return JsonString(element); });
+                    result._texturePaks = paks ? *paks : std::vector<std::string>{};
+                }
+                else if (StringEqualsOrdinalIgnoreCase(name, "TextureAliases"))
+                {
+                    result._textureAliases.clear();
+                    if (item.Kind != JsonKind::Null)
+                    {
+                        if (item.Kind != JsonKind::Object)
+                        {
+                            ConversionError();
+                        }
+                        for (const auto& [key, aliasValue] : item.Object)
+                        {
+                            result._textureAliases.emplace_back(key, JsonString(aliasValue));
+                        }
+                    }
                 }
                 // BaseDirectory and BundlePath are JsonIgnore.
             }
@@ -1196,6 +1221,31 @@ namespace MphRead::Mods::MapGen
             }
         }
 
+        static void ReadMapTeleporter(const JsonValue& value, MapTeleporter& result)
+        {
+            for (const auto& [name, item] : value.Object)
+            {
+                if (StringEqualsOrdinalIgnoreCase(name, "Position"))
+                {
+                    result._position = JsonArray<float>(item,
+                        [](const JsonValue& element) { return JsonFloat(element); });
+                }
+                else if (StringEqualsOrdinalIgnoreCase(name, "Target"))
+                {
+                    result._target = JsonArray<float>(item,
+                        [](const JsonValue& element) { return JsonFloat(element); });
+                }
+                else if (StringEqualsOrdinalIgnoreCase(name, "Yaw"))
+                {
+                    result._yaw = JsonFloat(item);
+                }
+                else if (StringEqualsOrdinalIgnoreCase(name, "Visible"))
+                {
+                    result._visible = JsonBool(item);
+                }
+            }
+        }
+
         static void ReadMapItem(const JsonValue& value, MapItem& result)
         {
             for (const auto& [name, item] : value.Object)
@@ -1316,6 +1366,10 @@ namespace MphRead::Mods::MapGen
             WriteObjectListProperty(output, depth, first, "Spawns", value._spawns, WriteMapSpawn);
             WriteObjectListProperty(output, depth, first, "JumpPads", value._jumpPads, WriteMapJumpPad);
             WriteObjectListProperty(output, depth, first, "Items", value._items, WriteMapItem);
+            if (value._teleporters && !value._teleporters->empty())
+            {
+                WriteObjectListProperty(output, depth, first, "Teleporters", value._teleporters, WriteMapTeleporter);
+            }
             if (!first)
             {
                 AppendNewLine(output);
@@ -1397,6 +1451,28 @@ namespace MphRead::Mods::MapGen
             Property(output, depth, first, "PatchLevel", [&] { WriteInteger(output, value._patchLevel); });
             Property(output, depth, first, "KeepSpawns", [&] { output += value._keepSpawns ? "true" : "false"; });
             Property(output, depth, first, "KeepItems", [&] { output += value._keepItems ? "true" : "false"; });
+            if (!value._texturePaks.empty())
+            {
+                Property(output, depth, first, "TexturePaks", [&]
+                {
+                    WriteArray(output, depth + 1, value._texturePaks,
+                        [&](const std::string& pak, int) { WriteJsonString(output, pak); });
+                });
+            }
+            if (!value._textureAliases.empty())
+            {
+                Property(output, depth, first, "TextureAliases", [&]
+                {
+                    output.push_back('{');
+                    bool dictionaryFirst = true;
+                    for (const auto& [key, alias] : value._textureAliases)
+                    {
+                        DictionaryProperty(output, depth + 1, dictionaryFirst, key,
+                            [&] { WriteJsonString(output, alias); });
+                    }
+                    FinishObject(output, depth + 1, dictionaryFirst);
+                });
+            }
             FinishObject(output, depth, first);
         }
 
@@ -1462,6 +1538,17 @@ namespace MphRead::Mods::MapGen
             FinishObject(output, depth, first);
         }
 
+        static void WriteMapTeleporter(std::string& output, int depth, const MapTeleporter& value)
+        {
+            output.push_back('{');
+            bool first = true;
+            WriteFloatArrayProperty(output, depth, first, "Position", value._position);
+            WriteFloatArrayProperty(output, depth, first, "Target", value._target);
+            Property(output, depth, first, "Yaw", [&] { WriteFloat(output, value._yaw); });
+            Property(output, depth, first, "Visible", [&] { output += value._visible ? "true" : "false"; });
+            FinishObject(output, depth, first);
+        }
+
         static void WriteMapItem(std::string& output, int depth, const MapItem& value)
         {
             output.push_back('{');
@@ -1519,7 +1606,8 @@ namespace MphRead::Mods::MapGen
           _brushes(std::make_shared<BrushList>()),
           _spawns(std::make_shared<SpawnList>()),
           _jumpPads(std::make_shared<JumpPadList>()),
-          _items(std::make_shared<ItemList>())
+          _items(std::make_shared<ItemList>()),
+          _teleporters(std::make_shared<TeleporterList>())
     {
     }
 
@@ -1583,12 +1671,19 @@ namespace MphRead::Mods::MapGen
     MapDefinition::ItemList* MapDefinition::Items() noexcept { return _items.get(); }
     const MapDefinition::ItemList* MapDefinition::Items() const noexcept { return _items.get(); }
     void MapDefinition::Items(std::shared_ptr<ItemList> value) noexcept { _items = std::move(value); }
+    MapDefinition::TeleporterList* MapDefinition::Teleporters() noexcept { return _teleporters.get(); }
+    const MapDefinition::TeleporterList* MapDefinition::Teleporters() const noexcept { return _teleporters.get(); }
+    void MapDefinition::Teleporters(std::shared_ptr<TeleporterList> value) noexcept { _teleporters = std::move(value); }
     const std::optional<std::string>& MapDefinition::BaseDirectory() const noexcept { return _baseDirectory; }
     void MapDefinition::BaseDirectory(std::optional<std::string> value) noexcept { _baseDirectory = std::move(value); }
     const std::optional<std::string>& MapDefinition::BundlePath() const noexcept { return _bundlePath; }
     void MapDefinition::BundlePath(std::optional<std::string> value) noexcept { _bundlePath = std::move(value); }
     const std::optional<std::string>& MapDefinition::SourcePath() const noexcept { return _sourcePath; }
     void MapDefinition::SourcePath(std::optional<std::string> value) noexcept { _sourcePath = std::move(value); }
+    bool MapDefinition::Translated() const noexcept { return _translated; }
+    const std::vector<MapDefinition::Portal>& MapDefinition::Portals() const noexcept { return _portals; }
+    void MapDefinition::Portals(std::vector<Portal> value) noexcept { _portals = std::move(value); }
+    void MapDefinition::Translated(bool value) noexcept { _translated = value; }
 
     std::shared_ptr<MapDefinition> MapDefinition::Load(const std::string& path)
     {
@@ -1878,6 +1973,34 @@ namespace MphRead::Mods::MapGen
     bool MapImport::KeepItems() const noexcept { return _keepItems; }
     void MapImport::KeepItems(bool value) noexcept { _keepItems = value; }
 
+    const std::vector<std::string>& MapImport::TexturePaks() const noexcept { return _texturePaks; }
+    void MapImport::TexturePaks(std::vector<std::string> value) noexcept { _texturePaks = std::move(value); }
+    std::vector<std::string> MapImport::ResolveTexturePaks() const
+    {
+        std::vector<std::string> result;
+        for (const std::string& pak : _texturePaks)
+        {
+            if (std::optional<std::string> path = ResolveCandidate(pak))
+            {
+                result.push_back(std::move(*path));
+            }
+        }
+        return result;
+    }
+    const std::vector<std::pair<std::string, std::string>>& MapImport::TextureAliases() const noexcept { return _textureAliases; }
+    void MapImport::TextureAliases(std::vector<std::pair<std::string, std::string>> value) noexcept { _textureAliases = std::move(value); }
+
+    std::vector<float>* MapTeleporter::Position() noexcept { return _position.get(); }
+    const std::vector<float>* MapTeleporter::Position() const noexcept { return _position.get(); }
+    void MapTeleporter::Position(std::shared_ptr<std::vector<float>> value) noexcept { _position = std::move(value); }
+    std::vector<float>* MapTeleporter::Target() noexcept { return _target.get(); }
+    const std::vector<float>* MapTeleporter::Target() const noexcept { return _target.get(); }
+    void MapTeleporter::Target(std::shared_ptr<std::vector<float>> value) noexcept { _target = std::move(value); }
+    float MapTeleporter::Yaw() const noexcept { return _yaw; }
+    void MapTeleporter::Yaw(float value) noexcept { _yaw = value; }
+    bool MapTeleporter::Visible() const noexcept { return _visible; }
+    void MapTeleporter::Visible(bool value) noexcept { _visible = value; }
+
     bool MapImport::KeepSpawns() const noexcept { return _keepSpawns; }
     void MapImport::KeepSpawns(bool value) noexcept { _keepSpawns = value; }
 
@@ -1949,6 +2072,14 @@ namespace MphRead::Mods::MapGen
     void MapJumpPad::CooldownTime(std::uint16_t value) noexcept { _cooldownTime = value; }
     std::uint16_t MapJumpPad::ControlLockTime() const noexcept { return _controlLockTime; }
     void MapJumpPad::ControlLockTime(std::uint16_t value) noexcept { _controlLockTime = value; }
+    const std::vector<float>* MapJumpPad::Box() const noexcept { return _box.get(); }
+    void MapJumpPad::Box(std::shared_ptr<std::vector<float>> value) noexcept { _box = std::move(value); }
+    std::uint8_t MapJumpPad::Q3Kind() const noexcept { return _q3Kind; }
+    void MapJumpPad::Q3Kind(std::uint8_t value) noexcept { _q3Kind = value; }
+    float MapJumpPad::Q3Value() const noexcept { return _q3Value; }
+    void MapJumpPad::Q3Value(float value) noexcept { _q3Value = value; }
+    std::uint16_t MapJumpPad::Q3Unit() const noexcept { return _q3Unit; }
+    void MapJumpPad::Q3Unit(std::uint16_t value) noexcept { _q3Unit = value; }
 
     MapItem::MapItem()
         : _position(std::make_shared<std::vector<float>>(3)),

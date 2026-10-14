@@ -1,3 +1,4 @@
+#include "../MphRead.Native/Mods/MapGen/MapCatalog.hpp"
 #include "AndroidMaps.hpp"
 
 #if !defined(__ANDROID__)
@@ -7,7 +8,9 @@
 #include "../MphRead.Native/Mods/Launcher/Portable/GameFiles.hpp"
 #include "../MphRead.Native/Mods/MapGen/CustomRooms.hpp"
 #include "../MphRead.Native/Mods/MapGen/MapBundle.hpp"
+#include "../MphRead.Native/Metadata/Metadata.hpp"
 
+#include <chrono>
 #include <cstdint>
 #include <exception>
 #include <filesystem>
@@ -19,6 +22,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -572,6 +576,29 @@ namespace MphRead::Droid
 
         const std::u16string directory = CombinePath(root, AssetFolder);
         Mods::MapGen::CustomRooms::MapDirectory(ToUtf8(directory));
+
+        // The game's room lists are made once, when the library loads, from the
+        // map folder as it was *then* -- the one beside the executable, which
+        // on this platform is not where the maps are. Every custom map, the
+        // downloaded packs included, was therefore missing from the lists until
+        // something happened to read the folder again (a pack arriving does:
+        // GameFilesChanged), which is why the maps came back after adding one.
+        // Read it again now that it is known, whichever way this returns.
+        struct RefreshRooms final
+        {
+            ~RefreshRooms()
+            {
+                try
+                {
+                    Mods::MapGen::CustomRooms::Rescan();
+                    (void)::MphRead::Metadata::AppendLateRooms();
+                }
+                catch (const std::exception& ex)
+                {
+                    LogLine(std::string("[android] could not list the custom maps: ") + ex.what());
+                }
+            }
+        } refreshRooms;
         if (assets == nullptr)
         {
             return;
@@ -699,7 +726,16 @@ namespace MphRead::Droid
                 return;
             }
             Mods::Launcher::GameFiles::ApplyPaths();
-            Mods::MapGen::CustomRooms::GenerateMissing();
+            // The job the desktop runs (list what the folder holds, build it),
+            // not a copy of it: the launcher reads its progress, so maps being
+            // built show as such and the lists refresh when they are done.
+            // Nothing is downloaded here. Waited for, since callers load a
+            // match or render previews from what it builds.
+            Mods::MapGen::CustomRooms::StartGenerating();
+            while (Mods::MapGen::CustomRooms::Progress().Running)
+            {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
         }
         catch (const std::exception& ex)
         {

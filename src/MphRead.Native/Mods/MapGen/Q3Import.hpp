@@ -3,8 +3,10 @@
 #include "../../Formats/Enums.hpp"
 #include "../../Formats/Types.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -31,6 +33,8 @@ namespace MphRead::Mods::MapGen
 
     class Q3Import final
     {
+        friend class Q3Convert;
+        friend class CustomRooms;
     public:
         [[nodiscard]] static std::shared_ptr<BuiltMap> Build(
             MapDefinition* def, bool verbose = true);
@@ -47,6 +51,29 @@ namespace MphRead::Mods::MapGen
         };
 
         [[nodiscard]] static std::vector<Q3Pickup> Pickups(Q3Bsp* bsp, float unitsPerUnit);
+
+        // A portal of the level, in Quake's units and axes: where its
+        // surface entity stands, where its camera is and what it looks at,
+        // and the camera's roll in degrees.
+        struct Q3Portal
+        {
+            OpenTK::Mathematics::Vector3 Surface{};
+            OpenTK::Mathematics::Vector3 Camera{};
+            OpenTK::Mathematics::Vector3 Aim{};
+            float Roll = 0.0F;
+            // Up in the view through it, seen from straight in front.
+            OpenTK::Mathematics::Vector3 Up{0.0F, 0.0F, 1.0F};
+        };
+        [[nodiscard]] static std::vector<Q3Portal> Portals(Q3Bsp* bsp);
+        [[nodiscard]] static bool IsPortalShader(const std::string& shader);
+        [[nodiscard]] static OpenTK::Mathematics::Vector3 PortalUp(Q3Bsp* bsp, const Q3Portal& portal);
+        // A point in Quake's units and axes, in this game's.
+        [[nodiscard]] static OpenTK::Mathematics::Vector3 WorldPoint(
+            OpenTK::Mathematics::Vector3 position, float unit) noexcept { return ToWorld(position, unit); }
+
+        // The top of the highest solid world brush below (x, y, z), in Quake
+        // units and axes; none when nothing is under it.
+        [[nodiscard]] static std::optional<float> Floor(Q3Bsp* bsp, float x, float y, float z);
 
         [[nodiscard]] static std::optional<std::string> BakeTextures(
             const std::shared_ptr<Q3Bsp>& bsp, MapImport* import, bool verbose);
@@ -103,15 +130,65 @@ namespace MphRead::Mods::MapGen
         static constexpr float SkyTiles = 2.0F;
         static constexpr float BrushCellSize = 512.0F;
 
+        // A corner of a triangle on its way to being drawn: where it is in
+        // this game and in Quake, its texture and lightmap coordinates, and
+        // the light at it.
+        struct LitCorner
+        {
+            OpenTK::Mathematics::Vector3 World{};
+            OpenTK::Mathematics::Vector3 Quake{};
+            OpenTK::Mathematics::Vector2 Uv{};
+            OpenTK::Mathematics::Vector2 Lightmap{};
+            OpenTK::Mathematics::Vector3 Color{1.0F, 1.0F, 1.0F};
+        };
+    public:
+        // A fog volume: its colour and the depth it is opaque at (fogparms),
+        // its brush's planes and the one it is seen through, Quake's axes.
+        struct FogVolume
+        {
+            OpenTK::Mathematics::Vector3 Color{};
+            float Distance = 0.0F;
+            std::vector<OpenTK::Mathematics::Vector4> Planes{};
+            std::optional<OpenTK::Mathematics::Vector4> Surface{};
+            // A fog filling most of the level, which a player stands in and
+            // looks through: drawn as the room's distance fog, not on its
+            // surfaces (Q3Convert::Translate).
+            bool Room = false;
+        };
+        struct Lighting
+        {
+            std::vector<FogVolume> Fogs{};
+            // The light layer: the material of page 0's layer (-1 none), the
+            // brightest light of each face's block of a page (page, x, y,
+            // width, height), and the pages.
+            std::int32_t LayerMaterial = -1;
+            std::map<std::array<std::int32_t, 5>, OpenTK::Mathematics::Vector3> Brightest{};
+            std::vector<std::vector<std::uint8_t>> Pages{};
+        };
+        // The level's lightmap as a layer drawn over its faces: each face lit
+        // by the brightest of its own light, and the layer darkening it luxel
+        // by luxel to the rest, as sharp as Quake's own -- the pools of light
+        // on a floor, a torch's glow, a pillar's shadow -- where light at the
+        // corners of its triangles can hold none of them.
+        static void LightLayer(Lighting& lighting, Q3Bsp* bsp);
+        [[nodiscard]] static Lighting MakeLighting(Q3Bsp* bsp, const std::vector<std::string>& archives);
+    private:
+        [[nodiscard]] static OpenTK::Mathematics::Vector3 SampleLightmap(
+            Q3Bsp* bsp, std::int32_t page, OpenTK::Mathematics::Vector2 st);
+        [[nodiscard]] static std::vector<BuiltFace*> LitFaces(
+            Q3Bsp* bsp, const Lighting* lighting, Q3Face* face,
+            std::array<LitCorner, 3> corners, OpenTK::Mathematics::Vector3 normal,
+            std::int32_t material, float shade, bool sky);
+
         [[nodiscard]] static MphRead::Enumerable<BuiltFace*> Triangles(
             Q3Bsp* bsp, Q3Face* face, float unit,
             std::int32_t width, std::int32_t height,
-            std::int32_t material, bool sky);
+            std::int32_t material, bool sky, const Lighting* lighting);
 
         [[nodiscard]] static MphRead::Enumerable<BuiltFace*> Tessellate(
             Q3Bsp* bsp, Q3Face* face, float unit,
             std::int32_t width, std::int32_t height,
-            std::int32_t material, bool sky, std::int32_t level);
+            std::int32_t material, bool sky, std::int32_t level, const Lighting* lighting);
 
         [[nodiscard]] static std::tuple<float, float, float> Weights(float t) noexcept;
 
@@ -120,6 +197,7 @@ namespace MphRead::Mods::MapGen
             const std::vector<OpenTK::Mathematics::Vector2>& uvs,
             const std::vector<OpenTK::Mathematics::Vector3>& normals,
             const std::vector<float>& shades,
+            const std::vector<OpenTK::Mathematics::Vector3>& lights,
             std::int32_t dimension,
             std::int32_t material,
             bool sky,
@@ -127,6 +205,10 @@ namespace MphRead::Mods::MapGen
             GridPoint p1,
             GridPoint p2);
 
+        // A Quake vertex colour as the light it gives: brightened as
+        // R_ColorShiftLightingBytes does (mapOverBrightBits 2, no hardware
+        // gamma), a channel past full bringing the others down with it.
+        [[nodiscard]] static OpenTK::Mathematics::Vector3 Light(const std::vector<std::uint8_t>* color);
         [[nodiscard]] static float Shade(float baked, bool sky) noexcept;
 
         [[nodiscard]] static BuiltFace* MakeFace(
@@ -134,9 +216,31 @@ namespace MphRead::Mods::MapGen
             std::vector<OpenTK::Mathematics::Vector2> uvs,
             OpenTK::Mathematics::Vector3 normal,
             std::int32_t material,
-            float shade);
+            float shade,
+            std::vector<OpenTK::Mathematics::Vector3> colors = {});
 
         static void ProjectSky(BuiltFace* face, float texelsPerUnit);
+
+        // The six sides of a Quake sky box as a box of drawn faces spanning
+        // [min, max] (Quake units and axes), each side its own material.
+        // Quake's cloud sky (tr_sky.c): a box round the level, each side cut
+        // 8 by 8, its texcoords where the view through each point meets a
+        // dome cloudHeight high; the base and then each layer over it.
+        static void AddCloudBox(
+            BuiltMap* map,
+            OpenTK::Mathematics::Vector3 min,
+            OpenTK::Mathematics::Vector3 max,
+            float unit,
+            float cloudHeight,
+            const std::vector<std::int32_t>& materials,
+            const std::vector<std::pair<std::int32_t, std::int32_t>>& textureSizes);
+        static void AddSkyBox(
+            BuiltMap* map,
+            OpenTK::Mathematics::Vector3 min,
+            OpenTK::Mathematics::Vector3 max,
+            float unit,
+            const std::array<std::int32_t, 6>& materials,
+            const std::vector<std::pair<std::int32_t, std::int32_t>>& textureSizes);
 
         [[nodiscard]] static bool Inside(
             OpenTK::Mathematics::Vector3 point,
@@ -192,6 +296,10 @@ namespace MphRead::Mods::MapGen
 
         [[nodiscard]] static std::vector<OpenTK::Mathematics::Vector3> Weld(
             const std::vector<OpenTK::Mathematics::Vector3>& points);
+
+        static void AddPortalFace(
+            BuiltMap* map, Q3Bsp* bsp, Q3Face* face, float unit,
+            std::int32_t material, std::int32_t width, std::int32_t height);
 
         static void AddEntities(
             BuiltMap* map, MapDefinition* def, Q3Bsp* bsp,

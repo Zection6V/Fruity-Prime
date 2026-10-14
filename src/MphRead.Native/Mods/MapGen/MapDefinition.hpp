@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -20,6 +21,7 @@ namespace MphRead::Mods::MapGen
     class MapSpawn;
     class MapJumpPad;
     class MapItem;
+    class MapTeleporter;
 
     class MapDefinition : public std::enable_shared_from_this<MapDefinition>
     {
@@ -29,6 +31,7 @@ namespace MphRead::Mods::MapGen
         using SpawnList = std::vector<std::shared_ptr<MapSpawn>>;
         using JumpPadList = std::vector<std::shared_ptr<MapJumpPad>>;
         using ItemList = std::vector<std::shared_ptr<MapItem>>;
+        using TeleporterList = std::vector<std::shared_ptr<MapTeleporter>>;
 
         MapDefinition();
         ~MapDefinition() = default;
@@ -110,6 +113,9 @@ namespace MphRead::Mods::MapGen
         [[nodiscard]] ItemList* Items() noexcept;
         [[nodiscard]] const ItemList* Items() const noexcept;
         void Items(std::shared_ptr<ItemList> value) noexcept;
+        [[nodiscard]] TeleporterList* Teleporters() noexcept;
+        [[nodiscard]] const TeleporterList* Teleporters() const noexcept;
+        void Teleporters(std::shared_ptr<TeleporterList> value) noexcept;
 
         [[nodiscard]] const std::optional<std::string>& BaseDirectory() const noexcept;
         void BaseDirectory(std::optional<std::string> value) noexcept;
@@ -117,6 +123,21 @@ namespace MphRead::Mods::MapGen
         void BundlePath(std::optional<std::string> value) noexcept;
         [[nodiscard]] const std::optional<std::string>& SourcePath() const noexcept;
         void SourcePath(std::optional<std::string> value) noexcept;
+        // Read from a Quake 3 level by Q3Convert::Translate rather than a
+        // recipe; SourcePath is the level's archive.
+        [[nodiscard]] bool Translated() const noexcept;
+        void Translated(bool value) noexcept;
+        // A translated level's portals: where each one's camera stands and
+        // what it looks at, in world units, and its roll in degrees.
+        struct Portal
+        {
+            std::array<float, 3> Camera{};
+            std::array<float, 3> Aim{};
+            float Roll = 0.0F;
+            std::array<float, 3> Up{0.0F, 1.0F, 0.0F};
+        };
+        [[nodiscard]] const std::vector<Portal>& Portals() const noexcept;
+        void Portals(std::vector<Portal> value) noexcept;
 
         [[nodiscard]] static std::shared_ptr<MapDefinition> Load(const std::string& path);
         void Save(const std::string& path) const;
@@ -149,9 +170,12 @@ namespace MphRead::Mods::MapGen
         std::shared_ptr<SpawnList> _spawns;
         std::shared_ptr<JumpPadList> _jumpPads;
         std::shared_ptr<ItemList> _items;
+        std::shared_ptr<TeleporterList> _teleporters;
         std::optional<std::string> _baseDirectory{};
         std::optional<std::string> _bundlePath{};
         std::optional<std::string> _sourcePath{};
+        bool _translated = false;
+        std::vector<Portal> _portals{};
     };
 
     // Collision read from a Wavefront OBJ rather than derived from the
@@ -262,6 +286,15 @@ namespace MphRead::Mods::MapGen
         // Take the level's own pickups as items, on top of the recipe's own.
         [[nodiscard]] bool KeepItems() const noexcept;
         void KeepItems(bool value) noexcept;
+        // More archives to look for the level's images in, after the level's
+        // own: the game's texture paks a level was built against and does not
+        // carry. Resolved like Source; one that is not there is skipped.
+        [[nodiscard]] const std::vector<std::string>& TexturePaks() const noexcept;
+        void TexturePaks(std::vector<std::string> value) noexcept;
+        [[nodiscard]] std::vector<std::string> ResolveTexturePaks() const;
+        // Shader name -> the shader or image to paint it with instead.
+        [[nodiscard]] const std::vector<std::pair<std::string, std::string>>& TextureAliases() const noexcept;
+        void TextureAliases(std::vector<std::pair<std::string, std::string>> value) noexcept;
 
     private:
         friend class MapDefinitionJson;
@@ -282,6 +315,8 @@ namespace MphRead::Mods::MapGen
         std::int32_t _patchLevel = 3;
         bool _keepSpawns = true;
         bool _keepItems = true;
+        std::vector<std::string> _texturePaks{};
+        std::vector<std::pair<std::string, std::string>> _textureAliases{};
     };
 
     class MapMaterial
@@ -409,6 +444,20 @@ namespace MphRead::Mods::MapGen
         [[nodiscard]] std::uint16_t ControlLockTime() const noexcept;
         void ControlLockTime(std::uint16_t value) noexcept;
 
+        // Set by the Quake 3 importer only, never read from a recipe.
+        // The trigger volume, minX minY minZ maxX maxY maxZ from Position,
+        // in place of Size's box standing on it.
+        [[nodiscard]] const std::vector<float>* Box() const noexcept;
+        void Box(std::shared_ptr<std::vector<float>> value) noexcept;
+        // JumpPadEntity::Q3Trigger and its float: 0 for a cartridge pad.
+        // A teleporter (2) sends you to Target, leaving at Speed.
+        [[nodiscard]] std::uint8_t Q3Kind() const noexcept;
+        void Q3Kind(std::uint8_t value) noexcept;
+        [[nodiscard]] float Q3Value() const noexcept;
+        void Q3Value(float value) noexcept;
+        [[nodiscard]] std::uint16_t Q3Unit() const noexcept;
+        void Q3Unit(std::uint16_t value) noexcept;
+
     private:
         friend class MapDefinitionJson;
         std::shared_ptr<std::vector<float>> _position;
@@ -419,6 +468,10 @@ namespace MphRead::Mods::MapGen
         std::uint32_t _modelId = 0;
         std::uint16_t _cooldownTime = 20;
         std::uint16_t _controlLockTime = 30;
+        std::shared_ptr<std::vector<float>> _box{};
+        std::uint8_t _q3Kind = 0;
+        float _q3Value = 0.0F;
+        std::uint16_t _q3Unit = 0;
     };
 
     class MapItem
@@ -448,5 +501,38 @@ namespace MphRead::Mods::MapGen
         std::shared_ptr<std::string> _type;
         bool _hasBase = true;
         std::uint16_t _spawnInterval = 300;
+    };
+
+    // A pad that moves whoever steps on it to Target, facing Yaw, the way the
+    // cartridge's multiplayer teleporters do. Position is the floor under it.
+    class MapTeleporter
+    {
+    public:
+        MapTeleporter() = default;
+        ~MapTeleporter() = default;
+        MapTeleporter(const MapTeleporter&) = delete;
+        MapTeleporter& operator=(const MapTeleporter&) = delete;
+        MapTeleporter(MapTeleporter&&) = delete;
+        MapTeleporter& operator=(MapTeleporter&&) = delete;
+
+        [[nodiscard]] std::vector<float>* Position() noexcept;
+        [[nodiscard]] const std::vector<float>* Position() const noexcept;
+        void Position(std::shared_ptr<std::vector<float>> value) noexcept;
+        [[nodiscard]] std::vector<float>* Target() noexcept;
+        [[nodiscard]] const std::vector<float>* Target() const noexcept;
+        void Target(std::shared_ptr<std::vector<float>> value) noexcept;
+        [[nodiscard]] float Yaw() const noexcept;
+        void Yaw(float value) noexcept;
+        // The cartridge's teleporter model on the pad, or nothing drawn --
+        // for a level that already draws its own.
+        [[nodiscard]] bool Visible() const noexcept;
+        void Visible(bool value) noexcept;
+
+    private:
+        friend class MapDefinitionJson;
+        std::shared_ptr<std::vector<float>> _position;
+        std::shared_ptr<std::vector<float>> _target;
+        float _yaw = 0.0F;
+        bool _visible = true;
     };
 }

@@ -1913,8 +1913,8 @@ namespace MphRead::Utility
             writer.Write(entity->ControlLockTime);
             writer.Write(entity->CooldownTime);
             writer.WriteByte(entity->Active);
-            writer.Write(static_cast<std::uint8_t>(0));
-            writer.Write(static_cast<std::uint16_t>(0));
+            writer.Write(entity->Padding81);
+            writer.Write(entity->Padding82);
             writer.Write(entity->ModelId);
             writer.Write(entity->BeamType);
             writer.Write(static_cast<std::uint32_t>(entity->TriggerFlags));

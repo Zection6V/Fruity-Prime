@@ -764,6 +764,8 @@ namespace MphRead::Editor
         C(ControlLockTime);
         C(CooldownTime);
         B(Active);
+        C(Padding81);
+        C(Padding82);
         C(ModelId);
         C(BeamType);
         C(TriggerFlags);
@@ -779,6 +781,8 @@ namespace MphRead::Editor
         P(ControlLockTime);
         P(CooldownTime);
         P(Active);
+        P(Padding81);
+        P(Padding82);
         P(ModelId);
         P(BeamType);
         P(TriggerFlags);

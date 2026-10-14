@@ -22,6 +22,9 @@
 #include "Entities/CamSeq/CameraSequence.hpp"
 #include "Entities/Players/PlayerEntity.hpp"
 #include "Metadata/Metadata.hpp"
+#include "Mods/MapGen/MapCatalog.hpp"
+#include "Mods/MapGen/CustomRooms.hpp"
+#include "Mods/Chat/ChatBox.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -29,12 +32,15 @@
 #include <exception>
 #include <memory>
 #include <string>
+#include <thread>
 #include <utility>
 
 namespace MphRead::Mods::Network
 {
     std::string NetRoomChange::_requested{};
     std::uint32_t NetRoomChange::_requestedFrame = 0;
+    std::string NetRoomChange::_fetchWanted{};
+    std::shared_ptr<std::atomic<int>> NetRoomChange::_fetchState{};
     bool NetRoomChange::_loadPending = false;
     std::uint16_t NetRoomChange::_requestedMatch = 0;
     std::uint16_t NetRoomChange::_loadedMatch = 0;
@@ -67,6 +73,8 @@ namespace MphRead::Mods::Network
         _loadPending = false;
         _requested = "";
         _requestedFrame = 0;
+        _fetchWanted.clear();
+        _fetchState.reset();
         _requestedMatch = 0;
         _loadedMatch = 0;
         _loadedFrame = 0;
@@ -116,9 +124,66 @@ namespace MphRead::Mods::Network
         static_cast<void>(ignored);
         if (meta == nullptr)
         {
-            NativeRuntime::ConsoleWriteLine(("[net] server switched to \"" + wanted
-                + "\", which this build does not know"));
-            NetLog::Event("unknown server map \"" + wanted + "\"");
+            // A map this device does not have: its pack is fetched in the
+            // background (the game goes on meanwhile) and listed here, on the
+            // thread that loads rooms, once it is on disk.
+            if (_fetchWanted != wanted)
+            {
+                _fetchWanted = wanted;
+                _fetchState = std::make_shared<std::atomic<int>>(0);
+                std::thread([wanted, state = _fetchState]()
+                {
+                    bool arrived = false;
+                    try
+                    {
+                        arrived = Mods::MapGen::MapCatalog::FetchForRoom(wanted);
+                    }
+                    catch (...)
+                    {
+                    }
+                    state->store(arrived ? 1 : 2);
+                }).detach();
+                NativeRuntime::ConsoleWriteLine(("[net] server switched to \"" + wanted
+                    + "\", which this device does not have: fetching it"));
+                NetLog::Event("fetching server map \"" + wanted + "\"");
+                return;
+            }
+            const int fetched = _fetchState ? _fetchState->load() : 2;
+            if (fetched == 0)
+            {
+                return;
+            }
+            if (fetched == 1 && Mods::MapGen::MapCatalog::EnsureRoom(wanted))
+            {
+                meta = Metadata::GetRoomByName(wanted).first;
+            }
+            if (meta == nullptr)
+            {
+                NativeRuntime::ConsoleWriteLine(("[net] server switched to \"" + wanted
+                    + "\", which this build does not know"));
+                NetLog::Event("unknown server map \"" + wanted + "\"");
+                _requested = wanted;
+                _requestedFrame = NetSession::NetFrame();
+                return;
+            }
+        }
+        // A custom map's room is made from its level the first time it is
+        // wanted (the launcher does it before a match, Scene::AddRoom would do
+        // it too, but too late to say so). Build it now, and if it cannot be
+        // built say why rather than loading a room whose files are not there:
+        // that dies with "Could not find a part of the path ...Collision.bin"
+        // and leaves the player in a black room.
+        Mods::MapGen::CustomRooms::EnsureReady(wanted);
+        if (const std::optional<std::string> why = Mods::MapGen::CustomRooms::WhyUnplayable(wanted))
+        {
+            static std::string reported;
+            if (reported != wanted)
+            {
+                reported = wanted;
+                Mods::Chat::ChatBox::System("Cannot load " + wanted + ": " + *why);
+            }
+            NativeRuntime::ConsoleWriteLine("[net] server switched to \"" + wanted + "\", which cannot be played here: " + *why);
+            NetLog::Event("cannot play server map \"" + wanted + "\": " + *why);
             _requested = wanted;
             _requestedFrame = NetSession::NetFrame();
             return;

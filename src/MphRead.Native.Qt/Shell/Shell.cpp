@@ -36,6 +36,7 @@
 #include "../../MphRead.Native/Mods/PauseMenu.hpp"
 #include "../../MphRead.Native/Mods/Render/UiOverlay.hpp"
 #include "../../MphRead.Native/Mods/ThumbnailGenerator.hpp"
+#include "../../MphRead.Native/Mods/MapGen/CustomRooms.hpp"
 #include "../../MphRead.Native/Mods/WindowMode.hpp"
 #include "../../MphRead.Native/NativeRuntime/System/Console.hpp"
 #include "../../MphRead.Native/NativeRuntime/System/ExceptionText.hpp"
@@ -59,6 +60,8 @@
 #include <exception>
 #include <chrono>
 #include <iostream>
+#include <atomic>
+#include <thread>
 #include <memory>
 #include <optional>
 #include <string>
@@ -114,6 +117,41 @@ namespace MphRead::Mods::Launcher::Gui
             g_pending = std::move(plan);
         }
 
+        // Previews of the maps (their levelshots, or drawn once built), out of
+        // the way of the menus; the list is shown again with them once they
+        // are there. One job at a time: a call meanwhile runs it once more.
+        void RefreshPreviews()
+        {
+            static std::atomic_bool running{false};
+            static std::atomic_bool again{false};
+            again = true;
+            if (running.exchange(true))
+            {
+                return;
+            }
+            std::thread([]()
+            {
+                while (again.exchange(false))
+                {
+                    try
+                    {
+                        MphRead::Mods::ThumbnailGenerator::EnsureCustomPreviews();
+                    }
+                    catch (...)
+                    {
+                    }
+                    QMetaObject::invokeMethod(QCoreApplication::instance(), []()
+                    {
+                        if (g_bridge != nullptr)
+                        {
+                            g_bridge->SetRooms(g_rooms, true);
+                        }
+                    }, ::Qt::QueuedConnection);
+                }
+                running = false;
+            }).detach();
+        }
+
         void EnsureBridge()
         {
             if (g_bridge != nullptr)
@@ -131,11 +169,22 @@ namespace MphRead::Mods::Launcher::Gui
                     return;
                 }
                 Portable::GameFiles::ApplyPaths();
+                // Maps the server sent: listed now, built in the background.
+                if (MphRead::Mods::MapGen::CustomRooms::TakeDownloaded() > 0)
+                {
+                    MphRead::Mods::MapGen::CustomRooms::Rescan();
+                    // The game's lists were made when it started: the new
+                    // rooms are added to them here, or they would wait for
+                    // the next start.
+                    (void)MphRead::Metadata::AppendLateRooms();
+                    MphRead::Mods::MapGen::CustomRooms::StartGenerating();
+                }
                 g_rooms = MphRead::Mods::ThumbnailGenerator::MultiplayerRooms();
                 if (g_bridge != nullptr)
                 {
                     g_bridge->SetRooms(g_rooms, true);
                 }
+                RefreshPreviews();
             };
             actions.ToggleFullscreen = []()
             {
@@ -605,7 +654,11 @@ namespace MphRead::Mods::Launcher::Gui
         if (Portable::GameFiles::Ready())
         {
             Portable::GameFiles::ApplyPaths();
-            MphRead::Mods::ThumbnailGenerator::EnsureCustomPreviews();
+            // Started before the paths were known (ModEntry), it found no map
+            // folder: new maps are looked for and prepared now, in the
+            // background, the launcher showing how far it is.
+            MphRead::Mods::MapGen::CustomRooms::StartGenerating();
+            RefreshPreviews();
         }
         MphRead::Mods::WindowMode::FullscreenKind(Portable::LauncherPrefs::FullscreenKind());
         if (!MphRead::Mods::WindowMode::StartupForced())

@@ -10,6 +10,7 @@
 #include "../../../Menu.hpp"
 #include "../../../Renderer.hpp"
 #include "../../MapGen/CustomRooms.hpp"
+#include "../../MapGen/MapCatalog.hpp"
 #include "Mods/Network/Replay/DemoPlayback.hpp"
 #include "Mods/Network/Integration/Launch/NetLaunch.hpp"
 #include "Mods/Network/Session/NetSession.hpp"
@@ -51,7 +52,6 @@ namespace MphRead::Mods::Launcher
         }
 
         GameFiles::ApplyPaths();
-        MphRead::Mods::MapGen::CustomRooms::GenerateMissing();
 
         if (plan.Kind() == LaunchKind::Adventure)
         {
@@ -105,6 +105,21 @@ namespace MphRead::Mods::Launcher
             return false;
         }
 
+        // A server plays a map this device does not have: fetched now, from
+        // FruityPrime's map server.
+        if (MphRead::Mods::Network::NetSession::Active()
+            && !MphRead::Mods::MapGen::MapCatalog::EnsureRoom(roomKey))
+        {
+            std::cout << "[launcher] the server plays " << roomKey
+                      << ", which this device does not have and the map server could not give"
+                      << std::endl;
+            return false;
+        }
+
+        // Only the map about to be played, ahead of the others the background
+        // is still building: a cartridge room, or a map built already, starts
+        // at once.
+        MphRead::Mods::MapGen::CustomRooms::EnsureReady(roomKey);
         std::optional<std::string> unplayable
             = MphRead::Mods::MapGen::CustomRooms::WhyUnplayable(roomKey);
         if (unplayable.has_value())

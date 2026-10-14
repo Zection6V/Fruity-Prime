@@ -37,8 +37,8 @@ int main(int argc, char** argv)
     failures += Check(TranslateMenuKey("menu.begin_game", MenuLanguage::Japanese) == "ゲーム開始", "stable Japanese ID");
     failures += Check(TranslateMenuKey("menu.begin_game", MenuLanguage::French) == "COMMENCER", "stable French ID");
 
-    failures += Check(TranslateMenuKey("menu.language_switch.label", MenuLanguage::Japanese) == "メニュー言語: 日本語", "switch Japanese");
-    failures += Check(TranslateMenuKey("menu.language_switch.label", MenuLanguage::French) == "LANGUE DU MENU : FRANÇAIS", "switch French");
+    failures += Check(TranslateMenuKey("menu.language_switch.label", MenuLanguage::Japanese) == "メニュー: 日本語", "switch Japanese");
+    failures += Check(TranslateMenuKey("menu.language_switch.label", MenuLanguage::French) == "MENU : FRANÇAIS", "switch French");
 
     const std::string multiline = "offline\nbots";
     failures += Check(TranslateMenuText(multiline, MenuLanguage::Japanese) == "オフライン\nBOT対戦", "Japanese multiline text");

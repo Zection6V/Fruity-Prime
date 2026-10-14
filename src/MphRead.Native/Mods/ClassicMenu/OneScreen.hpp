@@ -32,6 +32,8 @@ namespace MphRead::Mods::ClassicMenu
 
         // Lay the page out for a canvas of W x H units.
         void Layout(int page, float w, float h);
+        // Locale changes alter glyph widths; recompute placement on demand.
+        void InvalidateMeasurements() { _rest.clear(); }
         // The group an item is drawn with, by where it rests (or, an item
         // never seen at rest, where it is now: cx, cy combined).
         [[nodiscard]] const GroupPlace* PlaceOf(int item, float cx, float cy) const;

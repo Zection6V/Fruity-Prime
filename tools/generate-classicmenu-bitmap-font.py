@@ -124,7 +124,11 @@ def main():
     parser.add_argument("--bdf", required=True, type=Path)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
-    expected = generate_header(extract_glyphs(args.bdf, set(needed_characters())))
+    requested = set(needed_characters())
+    # U+2197 is used by the Qt launcher ("Share logs"), but the source
+    # bitmap font does not contain it: preserve the Qt fallback for this icon.
+    requested.discard(0x2197)
+    expected = generate_header(extract_glyphs(args.bdf, requested))
     if args.check:
         if OUTPUT.read_text(encoding="utf-8") != expected:
             raise SystemExit("k8x12L glyph data outdated; regenerate without --check")

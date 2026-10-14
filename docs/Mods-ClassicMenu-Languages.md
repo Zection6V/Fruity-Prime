@@ -29,7 +29,7 @@ Validate manually with all three languages in title, options, server browser, lo
 
 The original DS hudfont (8x8) is tried first through the game's
 `Strings::_nonAscii` correspondence table. For unsupported Japanese Unicode
-in `Languages/ja.json`, the menu uses 142 embedded 8x12 bitmap glyphs
+in `Languages/ja.json`, the menu uses 246 embedded 8x12 bitmap glyphs
 from **k8x12L (2021-05-05, Num Kadoma)**, precomputed at development time.
 The remaining unsupported characters use Qt as a last-resort fallback.
 DS game language and Mods/ClassicMenu language are independent.
@@ -54,3 +54,8 @@ table and exposes a read-only span. The reverse resolver
 `Mods/ClassicMenu/MenuGameGlyphMap.cpp::FindGameGlyphCode` belongs to the
 menu module; it initializes a sorted reverse index only when first needed,
 without per-frame allocations or modification of the game's string decoding.
+
+The unified Qt+DS menu translations currently require **246** k8x12L glyphs not
+present in DS hudfont. U+2197 (share-link arrow) is not present in k8x12L;
+Qt font fallback continues to render it. The glyph subset must be regenerated
+whenever the shared Japanese menu locale changes.

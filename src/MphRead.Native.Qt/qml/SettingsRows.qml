@@ -99,7 +99,7 @@ Column {
             Component {
                 id: slider
                 SliderRow {
-                    label: slot.row.label
+                    label: Theme.tr(slot.row.label)
                     min: slot.row.min; max: slot.row.max; step: slot.row.step
                     labelWidth: slot.row.labelWidth
                     Binding on value { value: slot.row.value }
@@ -110,7 +110,7 @@ Column {
             Component {
                 id: toggle
                 ToggleRow {
-                    label: slot.row.label
+                    label: Theme.tr(slot.row.label)
                     Binding on on { value: slot.row.on }
                     onChanged: rows.model.setOn(slot.index, on)
                 }
@@ -118,9 +118,10 @@ Column {
             Component {
                 id: field
                 FieldRow {
-                    label: slot.row.label
+                    label: Theme.tr(slot.row.label)
                     boxWidth: slot.row.boxWidth
-                    text: Theme.tr(slot.row.text)
+                    // User-entered values are data, never translatable UI labels.
+                    text: slot.row.text
                     onEdited: t => rows.model.setText(slot.index, t)
                 }
             }
@@ -156,7 +157,7 @@ Column {
             Component {
                 id: key
                 KeyRow {
-                    label: slot.row.label
+                    label: Theme.tr(slot.row.label)
                     binding: slot.row.live
                     keysOnly: slot.row.binding < 0
                     listening: rows.settings.listening && rows.settings.keyRow() === slot.index
@@ -170,7 +171,7 @@ Column {
             Component {
                 id: pad
                 PadRow {
-                    label: slot.row.label
+                    label: Theme.tr(slot.row.label)
                     pad: slot.row.extra
                     live: slot.row.live
                     chosenSlot: slot.row.index

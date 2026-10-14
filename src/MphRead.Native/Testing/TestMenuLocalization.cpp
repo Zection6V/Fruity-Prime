@@ -31,7 +31,7 @@ int main()
             fail += Check(K8x12LGlyphs[i - 1].Codepoint < glyph.Codepoint, "font glyph codes are sorted");
     }
     fail += Check(MenuLocalizationCatalogValid(), "generated catalog valid");
-    fail += Check(MenuLocalizationEntryCount() == 421, "all DS and Qt menu translations retained");
+    fail += Check(MenuLocalizationEntryCount() == 435, "all DS and Qt menu translations retained");
     fail += Check(ParseMenuLanguage("en") == MenuLanguage::English, "en");
     fail += Check(ParseMenuLanguage("ja") == MenuLanguage::Japanese, "ja");
     fail += Check(ParseMenuLanguage("fr") == MenuLanguage::French, "fr");

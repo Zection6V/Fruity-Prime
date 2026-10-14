@@ -1,4 +1,5 @@
 #include "ShellBridge.hpp"
+#include "../../MphRead.Native/Mods/ClassicMenu/MenuLocalization.hpp"
 #include "../../MphRead.Native/Mods/MapGen/CustomRooms.hpp"
 #include <QtCore/QTimer>
 
@@ -125,6 +126,34 @@ namespace MphRead::Qt
     ShellBridge* ShellBridge::Current() noexcept
     {
         return g_current;
+    }
+
+    QString ShellBridge::MenuLanguage() const
+    {
+        return QString::fromStdString(Mods::Launcher::LauncherPrefs::MenuLanguage());
+    }
+
+    QString ShellBridge::menuText(const QString& english) const
+    {
+        using namespace Mods::ClassicMenu;
+        const std::string utf8 = english.toStdString();
+        const std::string_view translated = TranslateMenuText(utf8,
+            ParseMenuLanguage(Mods::Launcher::LauncherPrefs::MenuLanguage()));
+        return QString::fromUtf8(translated.data(), static_cast<qsizetype>(translated.size()));
+    }
+
+    QString ShellBridge::menuTextKey(const QString& id) const
+    {
+        using namespace Mods::ClassicMenu;
+        const std::string key = id.toStdString();
+        const std::string_view translated = TranslateMenuKey(key,
+            ParseMenuLanguage(Mods::Launcher::LauncherPrefs::MenuLanguage()));
+        return QString::fromUtf8(translated.data(), static_cast<qsizetype>(translated.size()));
+    }
+
+    void ShellBridge::refreshMenuLanguage()
+    {
+        emit menuLanguageChanged();
     }
 
     void ShellBridge::SetPage(QString page)

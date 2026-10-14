@@ -94,8 +94,11 @@ namespace MphRead::Mods::ClassicMenu
                             : static_cast<std::uint8_t>(qAlpha(image.pixel(x, y))));
             }
         }
+        // 8x12 source pixels are drawn in an 8x8 DS-sized cell.
+        // Keep sampling all 12 BDF rows, but do not enlarge the menu's
+        // physical text size or change its line layout by 140-150%.
         const UnicodeGlyph glyph{
-            page->TextureId, width, height, advance,
+            page->TextureId, width, bitmap != nullptr ? 8 : height, advance,
             static_cast<float>(x0) / AtlasSide, static_cast<float>(y0) / AtlasSide,
             static_cast<float>(x0 + width) / AtlasSide, static_cast<float>(y0 + height) / AtlasSide
         };

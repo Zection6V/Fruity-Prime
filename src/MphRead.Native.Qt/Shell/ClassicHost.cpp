@@ -501,6 +501,8 @@ namespace MphRead::Qt
         Prefs::MenuLanguage(language == Menu::MenuLanguage::Japanese ? "ja"
             : language == Menu::MenuLanguage::French ? "fr" : "en");
         Prefs::Save();
+        if (ShellBridge* const bridge = ShellBridge::Current())
+            bridge->refreshMenuLanguage();
     }
 
     bool ClassicHost::Listening() const

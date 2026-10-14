@@ -51,6 +51,6 @@ namespace MphRead::Mods::Network
         };
 
         [[nodiscard]] static std::size_t At(std::uint32_t frame) noexcept;
-        inline static std::array<Frame, HistoryFrames> _frames{};
+        static std::array<Frame, HistoryFrames> _frames;
     };
 }

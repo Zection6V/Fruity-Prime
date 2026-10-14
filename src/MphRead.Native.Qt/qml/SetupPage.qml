@@ -69,7 +69,7 @@ Page {
     yes: Mark {
         id: choose
         shape: "accept"
-        label: setup.working ? "working..." : "choose your .nds file"
+        label: setup.working ? Theme.tr("working...") : Theme.tr("choose your .nds file")
         enabled: !setup.working
         onClicked: setup.choose()
     }

@@ -31,7 +31,7 @@ FocusScope {
                 Tabs {
                     id: tabs
                     anchors.horizontalCenter: parent.horizontalCenter
-                    names: ["Vote map", "Change hunter"]
+                    names: ["Vote map", "Change hunter"].map(x => Theme.tr(x))
                     index: panel.hunterTab ? 1 : 0
                 }
                 Item {

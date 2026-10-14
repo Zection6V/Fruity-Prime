@@ -25,7 +25,7 @@ Page {
 
     Tabs {
         id: tabs
-        names: ["Online", "Offline", "Story", "Clips"]
+        names: ["Online", "Offline", "Story", "Clips"].map(x => Theme.tr(x))
         index: play.face === 4 ? 0 : play.face
         visible: play.face !== 4
     }
@@ -316,7 +316,7 @@ Page {
                     id: sideGo
                     x: sideBack.width + 6
                     width: parent.width - x; height: implicitHeight
-                    text: play.sideOnline ? "JOIN" : "START"; face: Theme.moss; em: Theme.em
+                    text: play.sideOnline ? Theme.tr("JOIN") : Theme.tr("START"); face: Theme.moss; em: Theme.em
                     sizeEms: 1.4; padXEms: 1; padYEms: 0.45; lip: 6
                     onClicked: play.go()
                 }
@@ -328,7 +328,7 @@ Page {
     no: Mark { id: backMark; shape: "cancel"; label: Theme.tr("back"); onClicked: play.leave() }
     extra: Mark {
         id: lobbyMark
-        shape: "add"; label: play.current === 1 ? "download maps" : "create lobby"
+        shape: "add"; label: play.current === 1 ? Theme.tr("download maps") : Theme.tr("create lobby")
         visible: play.current === 0 || play.current === 1
         onClicked: {
             if (!play.nav)

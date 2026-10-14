@@ -43,7 +43,7 @@ Page {
             id: note
             y: parent.height - height
             width: parent.width
-            text: ShellHost.rooms.length === 0 ? "No multiplayer rooms were found. Set the game files up from Settings."
+            text: ShellHost.rooms.length === 0 ? Theme.tr("No multiplayer rooms were found. Set the game files up from Settings.")
                 : page.selected.length === 0 ? "Choose a map." : "Selected: " + ShellHost.roomName(page.selected)
             color: ShellHost.rooms.length === 0 ? Theme.warm : Theme.textDim
         }

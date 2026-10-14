@@ -34,7 +34,7 @@ Page {
         ChoiceRow { id: sizeD; width: parent.width; label: Theme.tr("Team D size"); options: page.numbers; index: page.sizeIndex(3); visible: page.count > 3 }
         Note {
             width: parent.width
-            text: page.valid ? page.describe() + " · " + page.total + " player slots"
+            text: page.valid ? page.describe() + " · " + page.total + " " + Theme.tr("player slots")
                              : "Custom teams must use no more than " + Math.max(2, Math.min(8, page.maxPlayers)) + " player slots."
             color: page.valid ? Theme.textDim : Theme.warm
         }

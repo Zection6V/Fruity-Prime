@@ -95,7 +95,7 @@ Item {
         push("PlayPage.qml", { face: 4, overGame: true })
     }
     function askToQuit() {
-        push("ConfirmPage.qml", { question: "Quit " + ShellHost.brand + "?", yesAction: () => ShellHost.quit() })
+        push("ConfirmPage.qml", { question: Theme.tr("Quit ") + ShellHost.brand + "?", yesAction: () => ShellHost.quit() })
     }
 
     Connections {
@@ -225,7 +225,7 @@ Item {
             anchors.centerIn: parent
             color: "#e8ecf4"
             font.pixelSize: 12
-            text: root.classic ? "DEBUG: FRUITY UI" : "DEBUG: DS UI"
+            text: root.classic ? Theme.tr("DEBUG: FRUITY UI") : Theme.tr("DEBUG: DS UI")
         }
         MouseArea {
             id: classicArea

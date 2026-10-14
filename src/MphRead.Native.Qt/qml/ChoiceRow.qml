@@ -37,7 +37,7 @@ FocusScope {
     Text {
         x: 4
         anchors.verticalCenter: parent.verticalCenter
-        text: row.label
+        text: Theme.tr(row.label)
         font.family: Theme.pixel; font.pixelSize: 13
         color: Theme.textDim
     }
@@ -46,7 +46,7 @@ FocusScope {
         width: Math.min(implicitWidth, Math.max(20, room))
         x: (row.leftX + 28 + row.rightX) / 2 - width / 2
         anchors.verticalCenter: parent.verticalCenter
-        text: row.value
+        text: Theme.tr(row.value)
         font.family: Theme.pixel; font.weight: Font.DemiBold; font.pixelSize: 13
         color: Theme.text
         elide: Text.ElideRight

@@ -1,4 +1,5 @@
 #include "MenuData.hpp"
+#include "MenuGameGlyphMap.hpp"
 
 #include "../../Formats/Formats.hpp"
 #include "../../Formats/Model.hpp"
@@ -428,6 +429,7 @@ namespace MphRead::Mods::ClassicMenu
             {
                 text.push_back(static_cast<char>(data[offset + i]));
             }
+            strings._translationIds.push_back(FindMenuTextIndex(text));
             strings._strings.push_back(std::move(text));
         }
         return strings;
@@ -437,6 +439,15 @@ namespace MphRead::Mods::ClassicMenu
     {
         static const std::string empty;
         return id >= 0 && static_cast<std::size_t>(id) < _strings.size() ? _strings[static_cast<std::size_t>(id)] : empty;
+    }
+
+    std::string_view MenuStrings::Localized(int id) const
+    {
+        if (id < 0 || static_cast<std::size_t>(id) >= _strings.size()) return {};
+        const std::size_t index = static_cast<std::size_t>(id);
+        if (_language == MenuLanguage::English || _translationIds[index] == UnknownMenuText)
+            return _strings[index];
+        return TranslateMenuIndex(_translationIds[index], _language);
     }
 
     int MenuStrings::IndexOf(const std::string& text) const
@@ -450,11 +461,15 @@ namespace MphRead::Mods::ClassicMenu
 
     void MenuStrings::Fill(int id, const std::string& text)
     {
-        if (id >= 0 && static_cast<std::size_t>(id) < _strings.size()) _strings[static_cast<std::size_t>(id)] = text;
+        if (id < 0 || static_cast<std::size_t>(id) >= _strings.size()) return;
+        const std::size_t index = static_cast<std::size_t>(id);
+        _strings[index] = text;
+        _translationIds[index] = FindMenuTextIndex(text);
     }
 
     int MenuStrings::Add(const std::string& text)
     {
+        _translationIds.push_back(FindMenuTextIndex(text));
         _strings.push_back(text);
         return static_cast<int>(_strings.size()) - 1;
     }
@@ -506,7 +521,7 @@ namespace MphRead::Mods::ClassicMenu
         constexpr int Columns = 16;
     }
 
-    MenuFont::MenuFont(UiTextureCache& textures)
+    MenuFont::MenuFont(UiTextureCache& textures) : _textures(textures)
     {
         // The glyph widths and offsets come from the game's code (arm9.bin),
         // read with the rest of its runtime data when a scene is first set
@@ -535,78 +550,132 @@ namespace MphRead::Mods::ClassicMenu
         });
     }
 
-    int MenuFont::Glyph(const std::string& text, std::size_t& i)
+    int MenuFont::Glyph(std::string_view text, std::size_t& i)
     {
-        int ch = static_cast<unsigned char>(text[i]);
-        if ((ch & 0x80) != 0 && i + 1 < text.size())
+        const unsigned char first = static_cast<unsigned char>(text[i]);
+        if (first < 0x80) return static_cast<int>(first) - MinCharacter;
+        const int count = first >= 0xF0 && first <= 0xF4 ? 4
+            : first >= 0xE0 && first <= 0xEF ? 3
+            : first >= 0xC2 && first <= 0xDF ? 2 : 0;
+        if (count == 0 || i + static_cast<std::size_t>(count) > text.size()) return '?' - MinCharacter;
+        char32_t cp = first & (count == 4 ? 7 : count == 3 ? 15 : 31);
+        for (int n = 1; n < count; ++n)
         {
-            ch = (static_cast<unsigned char>(text[++i]) & 0x3F) | ((ch & 0x1F) << 6);
+            const unsigned char next = static_cast<unsigned char>(text[i + static_cast<std::size_t>(n)]);
+            if ((next & 0xC0) != 0x80) return '?' - MinCharacter;
+            cp = (cp << 6) | (next & 0x3F);
         }
-        return ch - MinCharacter;
+        i += static_cast<std::size_t>(count - 1);
+        if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)
+            || (count == 2 && cp < 0x80) || (count == 3 && cp < 0x800)
+            || (count == 4 && cp < 0x10000)) return '?' - MinCharacter;
+        return static_cast<int>(cp) - MinCharacter;
+    }
+
+    int MenuFont::DsGlyph(int unicodeGlyph) const
+    {
+        if (unicodeGlyph < 0) return -1;
+        const char32_t unicode = static_cast<char32_t>(unicodeGlyph + MinCharacter);
+        const int code = FindGameGlyphCode(unicode);
+        const int index = code - MinCharacter;
+        if (code < MinCharacter || index < 0 || _atlasWidth < Cell || _atlasHeight < Cell
+            || index >= (_atlasWidth / Cell) * (_atlasHeight / Cell))
+        {
+            return -1;
+        }
+        // Unlike ASCII, non-ASCII requires the ROM's actual glyph metadata:
+        // a code point existing in the conversion table is not enough.
+        if (code >= 128 && (static_cast<std::size_t>(index) >= _widths.size()
+            || static_cast<std::size_t>(index) >= _offsets.size()))
+        {
+            return -1;
+        }
+        return index;
     }
 
     int MenuFont::Advance(int glyph) const
     {
-        return glyph >= 0 && static_cast<std::size_t>(glyph) < _widths.size() ? _widths[static_cast<std::size_t>(glyph)] : Cell;
+        const int dsGlyph = DsGlyph(glyph);
+        if (dsGlyph < 0) return Rasterize(static_cast<char32_t>(glyph + MinCharacter)).Advance;
+        return static_cast<std::size_t>(dsGlyph) < _widths.size()
+            ? _widths[static_cast<std::size_t>(dsGlyph)] : Cell;
     }
 
-    float MenuFont::Measure(const std::string& line, int spacing) const
+    float MenuFont::Measure(std::string_view line, int spacing) const
     {
         float width = 0;
         for (std::size_t i = 0; i < line.size(); ++i) width += static_cast<float>(Advance(Glyph(line, i)) + spacing);
         return width;
     }
 
-    std::vector<std::string> MenuFont::Lines(const std::string& text, int wrapWidth, int spacing) const
+    std::vector<std::string_view> MenuFont::Lines(std::string_view text, int wrapWidth, int spacing) const
     {
-        std::vector<std::string> lines;
+        std::vector<std::string_view> lines;
         std::size_t start = 0;
         for (;;)
         {
             const std::size_t end = text.find('\n', start);
-            const std::string raw = text.substr(start, end == std::string::npos ? std::string::npos : end - start);
+            const std::string_view raw = text.substr(start,
+                end == std::string_view::npos ? std::string_view::npos : end - start);
             if (wrapWidth <= 0 || Measure(raw, spacing) <= static_cast<float>(wrapWidth))
             {
                 lines.push_back(raw);
             }
+            else if (std::any_of(raw.begin(), raw.end(), [](unsigned char c) { return c >= 128; }))
+            {
+                // CJK may not contain spaces. Wrap by Unicode scalars with
+                // incremental width accounting (no temporary concatenations).
+                std::size_t segmentStart = 0;
+                float width = 0;
+                for (std::size_t i = 0; i < raw.size();)
+                {
+                    const std::size_t position = i;
+                    const int glyph = Glyph(raw, i);
+                    ++i;
+                    const float advance = static_cast<float>(Advance(glyph) + spacing);
+                    if (position > segmentStart && width + advance > static_cast<float>(wrapWidth))
+                    {
+                        lines.push_back(raw.substr(segmentStart, position - segmentStart));
+                        segmentStart = position;
+                        width = 0;
+                    }
+                    width += advance;
+                }
+                lines.push_back(raw.substr(segmentStart));
+            }
             else
             {
-                std::string current;
-                std::size_t wordStart = 0;
+                std::size_t segmentStart = 0, wordStart = 0;
                 for (;;)
                 {
                     const std::size_t space = raw.find(' ', wordStart);
-                    const std::string word = raw.substr(wordStart,
-                        space == std::string::npos ? std::string::npos : space - wordStart);
-                    const std::string candidate = current.empty() ? word : current + " " + word;
-                    if (!current.empty() && Measure(candidate, spacing) > static_cast<float>(wrapWidth))
+                    const std::size_t wordEnd = space == std::string_view::npos ? raw.size() : space;
+                    if (wordStart > segmentStart &&
+                        Measure(raw.substr(segmentStart, wordEnd - segmentStart), spacing) > static_cast<float>(wrapWidth))
                     {
-                        lines.push_back(current);
-                        current = word;
+                        const std::size_t trimEnd = wordStart - 1;
+                        lines.push_back(raw.substr(segmentStart, trimEnd - segmentStart));
+                        segmentStart = wordStart;
                     }
-                    else
-                    {
-                        current = candidate;
-                    }
-                    if (space == std::string::npos) break;
+                    if (space == std::string_view::npos) break;
                     wordStart = space + 1;
                 }
-                lines.push_back(current);
+                lines.push_back(raw.substr(segmentStart));
             }
-            if (end == std::string::npos) break;
+            if (end == std::string_view::npos) break;
             start = end + 1;
         }
         return lines;
     }
 
-    void MenuFont::Emit(const std::string& text, float x, float y, int align, int wrapWidth, float lineHeight,
+    void MenuFont::Emit(std::string_view text, float x, float y, int align, int wrapWidth, float lineHeight,
         float r, float g, float b, float a, float z, std::vector<WidgetTri>& output, float lineSpacing,
         int letterSpacing) const
     {
         // The anchor is the bottom of the first line, in text coordinates (Y
         // up from the bottom of the touch screen): menu-space y = textY - 192.
         float top = y - 192.0F + lineHeight;
-        for (const std::string& line : Lines(text, wrapWidth, letterSpacing))
+        const auto emitLine = [&](std::string_view line)
         {
             const float width = Measure(line, letterSpacing);
             float penX = align == 1 ? x - width : align == 2 ? x - std::floor(width / 2.0F) : x;
@@ -614,14 +683,26 @@ namespace MphRead::Mods::ClassicMenu
             {
                 const bool space = line[i] == ' ';
                 const int glyph = Glyph(line, i);
-                if (!space && glyph >= 0 && static_cast<std::size_t>(glyph) < std::max<std::size_t>(_widths.size(), 96))
+                const int dsGlyph = DsGlyph(glyph);
+                if (dsGlyph < 0)
                 {
-                    const float offset = static_cast<std::size_t>(glyph) < _offsets.size()
-                        ? static_cast<float>(_offsets[static_cast<std::size_t>(glyph)]) : 0.0F;
+                    const UnicodeGlyph& unicode = Rasterize(static_cast<char32_t>(glyph + MinCharacter));
+                    const float gy = top + 1.0F;
+                    const UiVertex p0{penX, gy, unicode.U0, unicode.V0, r, g, b, a};
+                    const UiVertex p1{penX + unicode.Width, gy, unicode.U1, unicode.V0, r, g, b, a};
+                    const UiVertex p2{penX + unicode.Width, gy - unicode.Height, unicode.U1, unicode.V1, r, g, b, a};
+                    const UiVertex p3{penX, gy - unicode.Height, unicode.U0, unicode.V1, r, g, b, a};
+                    output.push_back(WidgetTri{p0, p1, p2, z, 0, unicode.TextureId});
+                    output.push_back(WidgetTri{p0, p2, p3, z, 0, unicode.TextureId});
+                }
+                else if (!space)
+                {
+                    const float offset = static_cast<std::size_t>(dsGlyph) < _offsets.size()
+                        ? static_cast<float>(_offsets[static_cast<std::size_t>(dsGlyph)]) : 0.0F;
                     const float gy = top - offset;
                     constexpr float Inset = 0.02F;
-                    const float u0 = (static_cast<float>((glyph % Columns) * Cell) + Inset) / static_cast<float>(_atlasWidth);
-                    const float v0 = (static_cast<float>((glyph / Columns) * Cell) + Inset) / static_cast<float>(_atlasHeight);
+                    const float u0 = (static_cast<float>((dsGlyph % Columns) * Cell) + Inset) / static_cast<float>(_atlasWidth);
+                    const float v0 = (static_cast<float>((dsGlyph / Columns) * Cell) + Inset) / static_cast<float>(_atlasHeight);
                     const float u1 = u0 + (Cell - 2 * Inset) / static_cast<float>(_atlasWidth);
                     const float v1 = v0 + (Cell - 2 * Inset) / static_cast<float>(_atlasHeight);
                     const UiVertex p0{penX, gy, u0, v0, r, g, b, a};
@@ -634,7 +715,17 @@ namespace MphRead::Mods::ClassicMenu
                 penX += static_cast<float>(Advance(glyph) + letterSpacing);
             }
             top -= lineHeight + lineSpacing;
+        };
+        // The common single-line case pays no dynamic allocation for a
+        // temporary vector of wrapped line views.
+        if (text.find('\n') == std::string_view::npos
+            && (wrapWidth <= 0 || Measure(text, letterSpacing) <= static_cast<float>(wrapWidth)))
+        {
+            emitLine(text);
+            return;
         }
+        for (const std::string_view line : Lines(text, wrapWidth, letterSpacing))
+            emitLine(line);
     }
 
     // ---- MenuWidgets ----
@@ -1407,7 +1498,7 @@ namespace MphRead::Mods::ClassicMenu
         // over the backdrop by 31/32)
         const float a = std::min(lerp(Channel(style.StartColor, 24), Channel(style.EndColor, 24)), 30.0F / 31.0F);
         if (a <= 0) return;
-        _font.Emit(_strings[style.StringId], item.X, item.Y, style.Align, style.WrapWidth,
+        _font.Emit(_strings.Localized(style.StringId), item.X, item.Y, style.Align, style.WrapWidth,
             style.Size == 0 ? 8.0F : static_cast<float>(style.Size),
             lerp(Channel(style.StartColor, 0), Channel(style.EndColor, 0)),
             lerp(Channel(style.StartColor, 8), Channel(style.EndColor, 8)),

@@ -15,7 +15,7 @@ FocusScope {
     Rectangle { anchors.fill: parent; visible: row.activeFocus; radius: 4; color: Theme.panelLight }
     Text {
         x: 4; anchors.verticalCenter: parent.verticalCenter
-        text: row.label
+        text: Theme.tr(row.label)
         font.family: Theme.pixel; font.pixelSize: 13
         color: Theme.textDim
     }

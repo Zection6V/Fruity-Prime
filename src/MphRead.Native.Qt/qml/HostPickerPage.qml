@@ -12,7 +12,7 @@ Page {
     signal cancelled()
 
     widthEms: 44
-    heading: "host on"
+    heading: Theme.tr("host on")
 
     CreateServerModel { id: own; sample: page.sample }
 
@@ -78,8 +78,8 @@ Page {
         }
     }
 
-    no: Mark { shape: "cancel"; label: "back"; onClicked: page.close() }
-    extra: Mark { shape: "add"; label: "ask again"; onClicked: page.model.askAgain() }
+    no: Mark { shape: "cancel"; label: Theme.tr("back"); onClicked: page.close() }
+    extra: Mark { shape: "add"; label: Theme.tr("ask again"); onClicked: page.model.askAgain() }
 
     Keys.onPressed: event => {
         if (event.key === Qt.Key_Escape) {

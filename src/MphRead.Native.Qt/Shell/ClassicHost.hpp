@@ -73,6 +73,8 @@ namespace MphRead::Qt
         void ClickSetting(const std::string& section, const std::string& id) override;
         void SetSettingText(const std::string& section, const std::string& id, const std::string& text) override;
         void SaveSettings() override;
+        [[nodiscard]] Mods::ClassicMenu::MenuLanguage MenuLanguageSetting() const override;
+        void SetMenuLanguageSetting(Mods::ClassicMenu::MenuLanguage language) override;
         [[nodiscard]] bool Listening() const override;
 
         [[nodiscard]] Mods::ClassicMenu::PauseInfo Pause() const override;

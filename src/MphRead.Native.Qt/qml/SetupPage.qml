@@ -6,7 +6,7 @@ Page {
     id: page
     property var nav
     widthEms: 44
-    heading: "game files"
+    heading: Theme.tr("game files")
 
     SetupModel {
         id: setup
@@ -62,14 +62,14 @@ Page {
     }
 
     no: Mark {
-        shape: "cancel"; label: "back"
+        shape: "cancel"; label: Theme.tr("back")
         visible: setup.ready
         onClicked: if (page.nav) page.nav.pop()
     }
     yes: Mark {
         id: choose
         shape: "accept"
-        label: setup.working ? "working..." : "choose your .nds file"
+        label: setup.working ? Theme.tr("working...") : Theme.tr("choose your .nds file")
         enabled: !setup.working
         onClicked: setup.choose()
     }

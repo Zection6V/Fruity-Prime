@@ -10,7 +10,7 @@ Page {
     signal cancelled()
 
     widthEms: 44
-    heading: "custom teams"
+    heading: Theme.tr("custom teams")
 
     readonly property int count: countRow.index + 2
     readonly property var sizes: [sizeA.index + 1, sizeB.index + 1, sizeC.index + 1, sizeD.index + 1]
@@ -27,22 +27,22 @@ Page {
 
     body: Column {
         spacing: 2
-        ChoiceRow { id: countRow; width: parent.width; label: "Teams"; options: ["2", "3", "4"]; index: Math.max(0, page.layout[0] - 2); focus: true }
-        ChoiceRow { id: sizeA; width: parent.width; label: "Team A size"; options: page.numbers; index: page.sizeIndex(0) }
-        ChoiceRow { id: sizeB; width: parent.width; label: "Team B size"; options: page.numbers; index: page.sizeIndex(1) }
-        ChoiceRow { id: sizeC; width: parent.width; label: "Team C size"; options: page.numbers; index: page.sizeIndex(2); visible: page.count > 2 }
-        ChoiceRow { id: sizeD; width: parent.width; label: "Team D size"; options: page.numbers; index: page.sizeIndex(3); visible: page.count > 3 }
+        ChoiceRow { id: countRow; width: parent.width; label: Theme.tr("Teams"); options: ["2", "3", "4"]; index: Math.max(0, page.layout[0] - 2); focus: true }
+        ChoiceRow { id: sizeA; width: parent.width; label: Theme.tr("Team A size"); options: page.numbers; index: page.sizeIndex(0) }
+        ChoiceRow { id: sizeB; width: parent.width; label: Theme.tr("Team B size"); options: page.numbers; index: page.sizeIndex(1) }
+        ChoiceRow { id: sizeC; width: parent.width; label: Theme.tr("Team C size"); options: page.numbers; index: page.sizeIndex(2); visible: page.count > 2 }
+        ChoiceRow { id: sizeD; width: parent.width; label: Theme.tr("Team D size"); options: page.numbers; index: page.sizeIndex(3); visible: page.count > 3 }
         Note {
             width: parent.width
-            text: page.valid ? page.describe() + " · " + page.total + " player slots"
+            text: page.valid ? page.describe() + " · " + page.total + " " + Theme.tr("player slots")
                              : "Custom teams must use no more than " + Math.max(2, Math.min(8, page.maxPlayers)) + " player slots."
             color: page.valid ? Theme.textDim : Theme.warm
         }
     }
 
-    no: Mark { shape: "cancel"; label: "back"; onClicked: page.cancelled() }
+    no: Mark { shape: "cancel"; label: Theme.tr("back"); onClicked: page.cancelled() }
     yes: Mark {
-        shape: "accept"; label: "use teams"
+        shape: "accept"; label: Theme.tr("use teams")
         enabled: page.valid
         onClicked: page.done(page.count, page.sizes)
     }

@@ -1025,7 +1025,17 @@ namespace MphRead::Mods::ClassicMenu
             }
             const auto open = [this](const char* section) { return [this, section] { _section = section; _settingsReturn = OptionsPage; _settingsPage = 0; GoTo(SettingsPage); }; };
             std::vector<std::pair<std::function<std::string()>, std::function<void()>>> e = {
-                {[] { return std::string("DISPLAY"); }, open("display")}, {[] { return std::string("PROFILE"); }, open("profile")}};
+                {[] { return std::string("DISPLAY"); }, open("display")}, {[] { return std::string("PROFILE"); }, open("profile")},
+                {[this]
+                {
+                    return std::string(TranslateMenuKey("menu.language_switch.label", _strings.Language()));
+                }, [this]
+                {
+                    const MenuLanguage next = _strings.Language() == MenuLanguage::English ? MenuLanguage::Japanese
+                        : _strings.Language() == MenuLanguage::Japanese ? MenuLanguage::French : MenuLanguage::English;
+                    _strings.SetLanguage(next);
+                    if (_host) _host->SetMenuLanguageSetting(next);
+                }}};
             const int off = FindModel(23, "selectaoff");
             const int ref = FindText(23, "stylus mode\nright");
             for (std::size_t k = 0; k < e.size(); ++k)

@@ -7,6 +7,8 @@
 // LobbyModel, CreateServerModel, SettingsModel, ShellBridge), reached
 // through this. Nothing here knows about Qt.
 
+#include "MenuLocalization.hpp"
+
 #include <string>
 #include <vector>
 
@@ -132,6 +134,9 @@ namespace MphRead::Mods::ClassicMenu
         virtual void ClickSetting(const std::string& section, const std::string& id) = 0;
         virtual void SetSettingText(const std::string& section, const std::string& id, const std::string& text) = 0;
         virtual void SaveSettings() = 0;
+        // Mods menu language (not the game's language saved in settings.txt).
+        [[nodiscard]] virtual MenuLanguage MenuLanguageSetting() const = 0;
+        virtual void SetMenuLanguageSetting(MenuLanguage language) = 0;
         // A key row is waiting for its key: keys go to the settings, not the menus.
         [[nodiscard]] virtual bool Listening() const = 0;
 

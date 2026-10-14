@@ -42,7 +42,7 @@ FocusScope {
     TrackedText {
         x: 4
         y: Math.round((row.height - height) / 2)
-        text: row.label.toUpperCase()
+        text: Theme.tr(row.label).toUpperCase()
         size: 11
         color: row.enabled ? Theme.textDim : row.dim
     }
@@ -65,7 +65,7 @@ FocusScope {
     TrackedText {
         x: row.width - 4 - width
         y: Math.round((row.height - height) / 2)
-        text: row.valueText
+        text: Theme.tr(row.valueText)
         size: 12
         color: row.enabled ? Theme.text : row.dim
     }

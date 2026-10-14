@@ -600,7 +600,14 @@ namespace MphRead::Qt
                 index = static_cast<int>(i);
             }
         }
-        rows.push_back(Choice(QStringLiteral("language"), QStringLiteral("Text"), languages, index));
+        rows.push_back(Choice(QStringLiteral("language"), QStringLiteral("Game text"), languages, index));
+
+        // Independent of the game's Language setting. This one drives both
+        // Qt launcher pages and the original DS-styled ClassicMenu.
+        const std::string menu = LauncherPrefs::MenuLanguage();
+        const int menuIndex = menu == "ja" ? 1 : menu == "fr" ? 2 : 0;
+        rows.push_back(Choice(QStringLiteral("menuLanguage"), QStringLiteral("Menu language"),
+            {QStringLiteral("English"), QStringLiteral("日本語"), QStringLiteral("Français")}, menuIndex));
         _audio.Reset(std::move(rows));
     }
 
@@ -2185,6 +2192,8 @@ namespace MphRead::Qt
         settings.SfxVolume = Runtime::ToStringInvariant(static_cast<float>(value(_audio, "sfx")) / 100.0F);
         settings.MusicVolume = Runtime::ToStringInvariant(static_cast<float>(value(_audio, "music")) / 100.0F);
         settings.Language = chosen(_audio, "language");
+        const int menuIndex = std::clamp(index(_audio, "menuLanguage"), 0, 2);
+        LauncherPrefs::MenuLanguage(menuIndex == 1 ? "ja" : menuIndex == 2 ? "fr" : "en");
 
         Mods::InputSettings::MouseSensitivity(SliderToSensitivity(value(_keyboard, "sensitivity")));
         Mods::InputSettings::InvertMouseY(on(_keyboard, "invertY"));
@@ -2241,5 +2250,7 @@ namespace MphRead::Qt
         ::MphRead::GameState::CommitSettings(_settings);
         LauncherPrefs::Save();
         Mods::GameSettings::Apply(_settings);
+        if (ShellBridge* const bridge = ShellBridge::Current())
+            bridge->refreshMenuLanguage();
     }
 }

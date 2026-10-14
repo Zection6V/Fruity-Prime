@@ -117,7 +117,10 @@ namespace MphRead::Mods::Network
         static void ForgetSlot(std::int32_t slot);
 
         [[nodiscard]] static std::optional<MatchStatePacket> ServerMatch() { return _context._matchIdentity.State(); }
-        [[nodiscard]] static bool IsAuthority() noexcept { return _context._authorityState.IsAuthority(); }
+        [[nodiscard]] static bool IsAuthority() noexcept
+        {
+            return IsServer() && _context._authorityState.IsAuthority();
+        }
         [[nodiscard]] static bool ConsumeAuthorityStateSync() noexcept;
         [[nodiscard]] static std::int32_t ServerPlayerCount() noexcept;
 
@@ -135,7 +138,7 @@ namespace MphRead::Mods::Network
 
         static void SendIntent(IntentPacket intent);
         static void SendMatchEnd();
-        static void BroadcastSnapshot();
+        static void BroadcastSnapshot(MphRead::Scene& scene);
 
         // NetSessionLobby.cs
         [[nodiscard]] static const std::optional<SessionStatePacket>& ServerSession() noexcept
@@ -205,4 +208,9 @@ namespace MphRead::Mods::Network
 
         static SessionContext _context;
     };
+}
+
+namespace MphRead
+{
+    class Scene;
 }

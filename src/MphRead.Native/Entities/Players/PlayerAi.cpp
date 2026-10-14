@@ -102,6 +102,7 @@ namespace MphRead::Entities
         InitializeMain();
         ClearInput();
         UpdateExecutionPath(Personality, 0);
+        ApplyInstagibWeapons();
     }
 
     void PlayerEntity::PlayerAiData::InitializeGlobals()
@@ -606,6 +607,25 @@ namespace MphRead::Entities
             default: throw std::runtime_error("Invalid AI func 1.");
             }
         }
+        ApplyInstagibWeapons();
+    }
+
+    void PlayerEntity::PlayerAiData::ApplyInstagibWeapons()
+    {
+        // Instagib: the Imperialist is the only weapon a hunter holds. The
+        // personality scripts are told it is the Power Beam: their Imperialist
+        // branches are a sniper's (zoom, hold a vantage point), which left the
+        // bots standing still, while a Power Beam bot keeps moving. The shot
+        // itself is the Imperialist's (Func2143A40). No charge and no zoom, and
+        // no weapon to go and find, since nothing on the map can be picked up.
+        if (!InstagibRule())
+        {
+            return;
+        }
+        _weapon1 = 0;
+        _weapon2 = 0;
+        _findWeaponIndex = 4;
+        Flags4 &= ~(AiFlags4::Bit1 | AiFlags4::Bit2);
     }
 
     void PlayerEntity::PlayerAiData::ExecuteFuncs2(AiContext& context)

@@ -58,6 +58,7 @@
 #include "Mods/Network/Server/Core/DedicatedServer.hpp"
 #include "Mods/Network/Server/Core/ServerLaunchOptions.hpp"
 #include "Mods/Network/Server/Lobby/ServerMapUpload.hpp"
+#include "Mods/Render/InstagibRails.hpp"
 #include "Mods/Network/Replay/DemoInfo.hpp"
 #include "Mods/Network/Testing/Combat/HealthSimulationTest.hpp"
 #include "Mods/Network/Bots/ServerBots.hpp"
@@ -1786,6 +1787,7 @@ namespace MphRead::Mods
         server.FriendlyFire(::HasFlag(args, "friendlyfire"));
         server.ShadowFreeze(!::HasFlag(args, "noshadowfreeze"));
         server.AffinityWeapons(::HasFlag(args, "affinityweapons"));
+        server.Instagib(::HasFlag(args, "instagib"));
         // -bots N [-botlevel L]: the game's own AI in the top N slots.
         if (const std::optional<std::string> bots = ValueAfter(args, "bots"); bots.has_value())
         {
@@ -1876,6 +1878,19 @@ namespace MphRead::Mods
         if (!::HasFlag(args, "mapgen") && ValuesAfter(args, "thumbnail").empty())
         {
             MapGen::CustomRooms::StartGenerating();
+        }
+
+        // -instagib: the rule for a match this process plays alone (-maptest, a
+        // local match); a server broadcasts its own, and a client takes the
+        // server's.
+        if (::HasFlag(args, "instagibdemo"))
+        {
+            Render::InstagibRails::DemoMode(true);
+            GameState::Instagib(true);
+        }
+        if (::HasFlag(args, "instagib"))
+        {
+            GameState::Instagib(true);
         }
 
         if (::HasFlag(args, "nohelmet"))

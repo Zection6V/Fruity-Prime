@@ -45,6 +45,7 @@ namespace MphRead::Mods::Network
         options.FriendlyFire = GameState::FriendlyFire();
         options.ShadowFreeze = GameState::ShadowFreeze();
         options.AffinityWeapons = GameState::AffinityWeapons();
+        options.Instagib = GameState::Instagib();
         if (listing.has_value())
         {
             options.Reporter = std::make_shared<MasterReporter>(std::get<0>(*listing), std::get<1>(*listing));

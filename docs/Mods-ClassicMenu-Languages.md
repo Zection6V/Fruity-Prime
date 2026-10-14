@@ -1,27 +1,25 @@
-# Mods クラシックメニューの多言語対応
+# ClassicMenu localization — SRP / SSOT / AOT / DOD
 
-## 責務分離
+Mods/ClassicMenu's language is independent of the game's Scene/SettingsModel language.
+`LauncherPrefs` owns only menu-language persistence in `launcher.txt` (`menu_language=en|ja|fr`);
+`Compose` owns only user interaction; `MenuStrings` owns the ROM text ID mapping;
+`MenuLocalization` owns only lookup; `MenuUnicodeFont` owns only Unicode glyph rasterization.
 
-- `Languages/en.json` / `ja.json` / `fr.json`: **翻訳定義のみ**。同じ安定IDを各言語で持つ。英語の表示文言を変更しても翻訳IDを変更しない。
-- `Languages.qrc` と CMake: **配布のみ**。3つのJSONをQtリソースとしてアプリ・テストに組み込み、OS固有のファイル探索に依存しない。
-- `MenuLocalization.hpp/.cpp`: **翻訳解決のみ**。JSONロード、キー整合性検証、ID検索、ROM英語文字列互換の検索、英語フォールバック。
-- `LauncherPrefs`: **保存のみ**。`launcher.txt` の `menu_language=en|ja|fr`。ゲーム本体の `MenuSettings::Language` は参照・変更しない。
-- `Composer`: **UI操作のみ**。Optionsのメニュー言語項目で English → 日本語 → Français を切り替える。保存処理はHostに委譲する。
-- `MenuStrings`/`MenuEngine`: **レンダリング用の表示文言取得のみ**。ROM英語文字列と内部IDは変更しない。
-- `MenuUnicodeFont`: **非ASCII文字の描画のみ**。Qtのプラットフォームフォントで初回だけグリフを作り、テクスチャキャッシュを再利用する。
+## Translation source of truth
 
-## 翻訳IDの規則
+- `Languages/en.json`, `ja.json`, and `fr.json` contain all authored translations using stable `menu.*` IDs.
+- `tools/generate-classicmenu-locales.py` validates strict UTF-8, duplicate keys, missing/extra IDs, empty translations, duplicate English fallback strings and inconsistent placeholders.
+- CMake generates `generated/classicmenu/ClassicMenuLanguages.generated.hpp` during the build. The generated file is NOT checked in. Invalid translations fail the build.
+- At runtime, translation lookups use static read-only UTF-8 byte pools, compact offset/length records, and pre-sorted index arrays. No JSON parser or locale heap-allocated dictionary is used.
 
-`menu.begin_game` のように意味を表す固定IDを使う。JSONのキーを日本語訳や英語の文章にしてはならない。
+## Runtime data flow
 
-`Languages/en.json` は `ID → 英語原文`、`ja.json`・`fr.json` は同じIDから訳文への対応。既存ROMの描画箇所では、英語原文からIDへの索引を**初回のみ**作ることで操作ロジックを壊さずに移行できる。新しいUIは `TranslateMenuKey("menu.some_action", language)` を直接呼ぶ。
+ROM English strings resolve once into a compact `uint16_t` index per ROM ID as they are loaded. `Fill()` and `Add()` resolve only their changed ID. Rendering calls `Localized()` to read the static translation by index, without a per-frame hash search. Unknown or user-supplied text falls back to original text. Changing menu language changes only an enum and invalidates layout measurement when needed.
 
-翻訳の欠落・キー数の不一致・JSON破損・英語原文の重複はテストで検出する。未登録の動的テキストは入力そのままを表示し、名前や通信プロトコルの値を翻訳しない。
+`MenuFont` consumes `std::string_view` and wraps without allocating new strings for each line. Original ASCII draws from the DS `hudfont` texture; non-ASCII UTF-8 scalars are lazily rasterized into 256x256 shared atlas pages. No Unicode atlas exists if it is never used.
 
-## テスト
+## Validation and performance
 
-`ctest --test-dir <build> -R FruityPrime.MenuLocalization --output-on-failure`
+Build generation is mandatory for native and test builds, including Android cross compilation (Python runs on the host). The standalone `FruityPrime.MenuLocalization` regression executable uses pure C++ without Qt, GPU, display, network, or ROM files.
 
-この単体テストは Qt Core のみ使用し、実際の組込JSON、翻訳ID、英語互換検索、フォールバック、改行とUnicodeを確認する。Release構成でも検査が無効にならないようassertではなく終了コードで判定。
-
-画面確認項目: タイトル、Options、設定、サーバー一覧、ロビー、ポーズ、リザルトの各ページで3言語を確認し、再起動して保存が反映されることを確認する。ゲーム本体の言語が変わらないことも確認する。
+Validate manually with all three languages in title, options, server browser, lobby, pause, results and while switching language; verify the game language is unchanged. Measure initial load, text draw CPU cost, atlas pages/bytes and representative FPS before asserting numerical performance improvements.

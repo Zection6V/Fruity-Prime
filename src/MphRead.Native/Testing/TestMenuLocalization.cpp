@@ -1,11 +1,9 @@
 #include "../Mods/ClassicMenu/MenuLocalization.hpp"
 
-#include <QtCore/QCoreApplication>
 #include <iostream>
 #include <string>
 
 using namespace MphRead::Mods::ClassicMenu;
-
 namespace
 {
     int Check(bool condition, const char* message)
@@ -15,40 +13,31 @@ namespace
         return 1;
     }
 }
-
-int main(int argc, char** argv)
+int main()
 {
-    QCoreApplication application(argc, argv);
-    int failures = 0;
-    failures += Check(MenuLocalizationCatalogValid(), "all three JSON catalogs are embedded and consistent");
-    failures += Check(MenuLocalizationEntryCount() >= 200, "translated menu coverage");
-
-    failures += Check(ParseMenuLanguage("en") == MenuLanguage::English, "English code");
-    failures += Check(ParseMenuLanguage("ja") == MenuLanguage::Japanese, "Japanese code");
-    failures += Check(ParseMenuLanguage("fr") == MenuLanguage::French, "French code");
-    failures += Check(ParseMenuLanguage("unknown") == MenuLanguage::English, "invalid code fallback");
-
-    const std::string begin = "BEGIN GAME";
-    failures += Check(TranslateMenuText(begin, MenuLanguage::English) == begin, "original ROM text");
-    failures += Check(TranslateMenuText(begin, MenuLanguage::Japanese) == "ゲーム開始", "Japanese ROM translation");
-    failures += Check(TranslateMenuText(begin, MenuLanguage::French) == "COMMENCER", "French ROM translation");
-
-    failures += Check(TranslateMenuKey("menu.begin_game", MenuLanguage::English) == "BEGIN GAME", "stable English ID");
-    failures += Check(TranslateMenuKey("menu.begin_game", MenuLanguage::Japanese) == "ゲーム開始", "stable Japanese ID");
-    failures += Check(TranslateMenuKey("menu.begin_game", MenuLanguage::French) == "COMMENCER", "stable French ID");
-
-    failures += Check(TranslateMenuKey("menu.language_switch.label", MenuLanguage::Japanese) == "メニュー: 日本語", "switch Japanese");
-    failures += Check(TranslateMenuKey("menu.language_switch.label", MenuLanguage::French) == "MENU : FRANÇAIS", "switch French");
-
-    const std::string multiline = "offline\nbots";
-    failures += Check(TranslateMenuText(multiline, MenuLanguage::Japanese) == "オフライン\nBOT対戦", "Japanese multiline text");
-    failures += Check(TranslateMenuText(multiline, MenuLanguage::French) == "hors ligne\nbots", "French multiline text");
-
-    const std::string unknown = "PLAYER_CUSTOM_123";
-    failures += Check(TranslateMenuText(unknown, MenuLanguage::Japanese) == unknown, "unknown source fallback");
-    failures += Check(TranslateMenuText(unknown, MenuLanguage::French) == unknown, "unknown French fallback");
-    failures += Check(TranslateMenuKey("menu.unknown", MenuLanguage::Japanese).empty(), "unknown ID");
-
-    if (failures == 0) std::cout << "Menu localization: all checks passed\n";
-    return failures == 0 ? 0 : 1;
+    int fail = 0;
+    fail += Check(MenuLocalizationCatalogValid(), "generated catalog valid");
+    fail += Check(MenuLocalizationEntryCount() == 231, "all 231 original entries retained");
+    fail += Check(ParseMenuLanguage("en") == MenuLanguage::English, "en");
+    fail += Check(ParseMenuLanguage("ja") == MenuLanguage::Japanese, "ja");
+    fail += Check(ParseMenuLanguage("fr") == MenuLanguage::French, "fr");
+    fail += Check(ParseMenuLanguage("bogus") == MenuLanguage::English, "default English");
+    const std::string english = "BEGIN GAME";
+    fail += Check(TranslateMenuText(english, MenuLanguage::English) == english, "English remains original");
+    fail += Check(TranslateMenuText(english, MenuLanguage::Japanese) == "ゲーム開始", "Japanese");
+    fail += Check(TranslateMenuText(english, MenuLanguage::French) == "COMMENCER", "French");
+    const auto id = FindMenuTextIndex(english);
+    fail += Check(id != UnknownMenuText, "ROM index exists");
+    fail += Check(TranslateMenuIndex(id, MenuLanguage::Japanese) == "ゲーム開始", "ROM index ja");
+    fail += Check(TranslateMenuIndex(id, MenuLanguage::French) == "COMMENCER", "ROM index fr");
+    fail += Check(TranslateMenuIndex(UnknownMenuText, MenuLanguage::Japanese).empty(), "invalid index");
+    fail += Check(TranslateMenuKey("menu.begin_game", MenuLanguage::French) == "COMMENCER", "stable key fr");
+    fail += Check(TranslateMenuKey("menu.language_switch.label", MenuLanguage::Japanese) == "メニュー: 日本語", "switch");
+    fail += Check(TranslateMenuText("offline\nbots", MenuLanguage::Japanese) == "オフライン\nBOT対戦", "multiline");
+    const std::string custom = "My Custom Server Name";
+    fail += Check(FindMenuTextIndex(custom) == UnknownMenuText, "custom label is not indexed");
+    fail += Check(TranslateMenuText(custom, MenuLanguage::Japanese) == custom, "custom label unchanged");
+    fail += Check(TranslateMenuKey("menu.missing_id", MenuLanguage::Japanese).empty(), "unknown stable key");
+    if (fail == 0) std::cout << "AOT ClassicMenu localization checks passed\n";
+    return fail == 0 ? 0 : 1;
 }

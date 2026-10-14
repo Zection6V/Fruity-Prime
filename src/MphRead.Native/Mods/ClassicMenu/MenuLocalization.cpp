@@ -1,126 +1,27 @@
 #include "MenuLocalization.hpp"
+#include "ClassicMenuLanguages.generated.hpp"
 
-#include <QtCore/QFile>
-#include <QtCore/QJsonDocument>
-#include <QtCore/QJsonObject>
-#include <QtCore/QJsonParseError>
-
-#include <array>
-#include <functional>
-#include <string>
+#include <cstdint>
 #include <string_view>
-#include <unordered_map>
-#include <utility>
-
-// Q_INIT_RESOURCE must be invoked from global namespace so the qrc
-// initialization symbol resolves on all supported linkers.
-static void RegisterMenuLanguageResources()
-{
-    Q_INIT_RESOURCE(Languages);
-}
 
 namespace MphRead::Mods::ClassicMenu
 {
     namespace
     {
-        // Transparent lookup: no string allocation in the menu render path.
-        struct StringHash
-        {
-            using is_transparent = void;
-            std::size_t operator()(std::string_view value) const noexcept
-            {
-                return std::hash<std::string_view>{}(value);
-            }
-        };
+        using Generated::Record;
 
-        struct Translation final
+        std::string_view TextAt(const Record& row, unsigned column) noexcept
         {
-            std::array<std::string, 3> Text;
-        };
-
-        using Entries = std::unordered_map<std::string, Translation, StringHash, std::equal_to<>>;
-        using EnglishIndex = std::unordered_map<std::string, const Translation*, StringHash, std::equal_to<>>;
-
-        struct MenuCatalog final
-        {
-            Entries ById;
-            EnglishIndex ByEnglish;
-            bool Complete = false;
-        };
-
-        bool LoadLanguage(const char* filename, QJsonObject& result)
-        {
-            QFile file(QString::fromLatin1(filename));
-            if (!file.open(QIODevice::ReadOnly)) return false;
-            QJsonParseError error{};
-            const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &error);
-            if (error.error != QJsonParseError::NoError || !document.isObject()) return false;
-            result = document.object();
-            return !result.isEmpty();
+            const char* pool = column == 0 ? Generated::kIds
+                : column == 1 ? Generated::kEn
+                : column == 2 ? Generated::kJa : Generated::kFr;
+            return {pool + row.Offsets[column], row.Lengths[column]};
         }
 
-        MenuCatalog BuildCatalog()
+        unsigned ColumnFor(MenuLanguage language) noexcept
         {
-            RegisterMenuLanguageResources();
-            const char* const paths[] = {
-                ":/mods/classicmenu/Languages/en.json",
-                ":/mods/classicmenu/Languages/ja.json",
-                ":/mods/classicmenu/Languages/fr.json"
-            };
-            QJsonObject languages[3];
-            for (int i = 0; i < 3; ++i)
-            {
-                if (!LoadLanguage(paths[i], languages[i])) return {};
-            }
-
-            MenuCatalog result;
-            const qsizetype total = languages[0].size();
-            if (languages[1].size() != total || languages[2].size() != total) return result;
-
-            result.ById.reserve(static_cast<std::size_t>(total));
-            result.ByEnglish.reserve(static_cast<std::size_t>(total));
-
-            for (auto it = languages[0].constBegin(); it != languages[0].constEnd(); ++it)
-            {
-                const QString& key = it.key();
-                // Every language must translate every stable identifier.
-                if (!it.value().isString() || !languages[1].value(key).isString()
-                    || !languages[2].value(key).isString()) return {};
-                Translation entry;
-                for (int i = 0; i < 3; ++i)
-                {
-                    entry.Text[static_cast<std::size_t>(i)] =
-                        languages[i].value(key).toString().toUtf8().toStdString();
-                    if (entry.Text[static_cast<std::size_t>(i)].empty()) return {};
-                }
-                const std::string id = key.toUtf8().toStdString();
-                result.ById.emplace(id, std::move(entry));
-            }
-
-            // Build the ROM compatibility index once. Keeping the stable IDs
-            // in the catalog permits changing English copy without changing
-            // the Japanese/French keys. Pointer targets are stable because the
-            // by-ID map is no longer modified after this initialization.
-            for (auto& [id, entry] : result.ById)
-            {
-                const std::string& english = entry.Text[0];
-                if (!result.ByEnglish.emplace(english, &entry).second) return {};
-            }
-            result.Complete = true;
-            return result;
-        }
-
-        const MenuCatalog& Catalog()
-        {
-            static const MenuCatalog catalog = BuildCatalog();
-            return catalog;
-        }
-
-        const std::string& Display(const Translation& entry, MenuLanguage language)
-        {
-            const std::size_t index = language == MenuLanguage::Japanese ? 1
-                : language == MenuLanguage::French ? 2 : 0;
-            return entry.Text[index];
+            return language == MenuLanguage::Japanese ? 2U
+                : language == MenuLanguage::French ? 3U : 1U;
         }
     }
 
@@ -131,29 +32,59 @@ namespace MphRead::Mods::ClassicMenu
         return MenuLanguage::English;
     }
 
-    const std::string& TranslateMenuKey(std::string_view key, MenuLanguage language)
+    std::uint16_t FindMenuTextIndex(std::string_view english) noexcept
     {
-        static const std::string empty;
-        const auto& catalog = Catalog();
-        const auto found = catalog.ById.find(key);
-        return found == catalog.ById.end() ? empty : Display(found->second, language);
+        // The build generator sorts this small index in UTF-8 byte order.
+        // Called once per ROM text at load, then only on Fill / Add mutation.
+        std::size_t begin = 0, end = Generated::kByEnglish.size();
+        while (begin < end)
+        {
+            const std::size_t middle = begin + (end - begin) / 2;
+            const auto index = Generated::kByEnglish[middle];
+            if (TextAt(Generated::kRecords[index], 1) < english) begin = middle + 1;
+            else end = middle;
+        }
+        if (begin >= Generated::kByEnglish.size()) return UnknownMenuText;
+        const auto index = Generated::kByEnglish[begin];
+        return TextAt(Generated::kRecords[index], 1) == english ? index : UnknownMenuText;
     }
 
-    const std::string& TranslateMenuText(const std::string& english, MenuLanguage language)
+    std::string_view TranslateMenuIndex(std::uint16_t index, MenuLanguage language) noexcept
+    {
+        if (index >= Generated::kRecords.size()) return {};
+        return TextAt(Generated::kRecords[index], ColumnFor(language));
+    }
+
+    std::string_view TranslateMenuKey(std::string_view key, MenuLanguage language) noexcept
+    {
+        // The stable translation IDs are sorted at build time.
+        std::size_t begin = 0, end = Generated::kRecords.size();
+        while (begin < end)
+        {
+            const std::size_t middle = begin + (end - begin) / 2;
+            if (TextAt(Generated::kRecords[middle], 0) < key) begin = middle + 1;
+            else end = middle;
+        }
+        if (begin == Generated::kRecords.size() || TextAt(Generated::kRecords[begin], 0) != key) return {};
+        return TextAt(Generated::kRecords[begin], ColumnFor(language));
+    }
+
+    std::string_view TranslateMenuText(std::string_view english, MenuLanguage language) noexcept
     {
         if (language == MenuLanguage::English) return english;
-        const auto& catalog = Catalog();
-        const auto found = catalog.ByEnglish.find(english);
-        return found == catalog.ByEnglish.end() ? english : Display(*found->second, language);
+        const auto index = FindMenuTextIndex(english);
+        return index == UnknownMenuText ? english : TranslateMenuIndex(index, language);
     }
 
-    bool MenuLocalizationCatalogValid()
+    bool MenuLocalizationCatalogValid() noexcept
     {
-        return Catalog().Complete;
+        // The generator fails the build on missing/duplicate IDs, malformed
+        // UTF-8, missing values and inconsistent placeholders.
+        return !Generated::kRecords.empty();
     }
 
-    std::size_t MenuLocalizationEntryCount()
+    std::size_t MenuLocalizationEntryCount() noexcept
     {
-        return Catalog().ById.size();
+        return Generated::kRecords.size();
     }
 }

@@ -1,25 +1,20 @@
 #pragma once
-
 #include <cstddef>
-#include <string>
+#include <cstdint>
+#include <limits>
 #include <string_view>
 
 namespace MphRead::Mods::ClassicMenu
 {
-    // The Mods menu has its own language, unrelated to gameplay language.
+    // Independent of Scene/SettingsModel game language.
     enum class MenuLanguage { English, Japanese, French };
+    inline constexpr std::uint16_t UnknownMenuText = std::numeric_limits<std::uint16_t>::max();
 
     [[nodiscard]] MenuLanguage ParseMenuLanguage(std::string_view saved) noexcept;
-
-    // Stable IDs for authored UI; unknown IDs return an empty string.
-    [[nodiscard]] const std::string& TranslateMenuKey(std::string_view key, MenuLanguage language);
-
-    // Compatibility with original DS/ROM strings and existing Composer calls:
-    // English source text is resolved to a stable ID via Languages/en.json.
-    // Unknown strings (including user/server-supplied names) are unchanged.
-    [[nodiscard]] const std::string& TranslateMenuText(const std::string& english, MenuLanguage language);
-
-    // Diagnostics and invariant checks for the three embedded catalogs.
-    [[nodiscard]] bool MenuLocalizationCatalogValid();
-    [[nodiscard]] std::size_t MenuLocalizationEntryCount();
+    [[nodiscard]] std::uint16_t FindMenuTextIndex(std::string_view english) noexcept;
+    [[nodiscard]] std::string_view TranslateMenuIndex(std::uint16_t index, MenuLanguage language) noexcept;
+    [[nodiscard]] std::string_view TranslateMenuKey(std::string_view key, MenuLanguage language) noexcept;
+    [[nodiscard]] std::string_view TranslateMenuText(std::string_view english, MenuLanguage language) noexcept;
+    [[nodiscard]] bool MenuLocalizationCatalogValid() noexcept;
+    [[nodiscard]] std::size_t MenuLocalizationEntryCount() noexcept;
 }

@@ -964,10 +964,26 @@ endif()
 # objects go into the MphRead.Native archive, since the renderer calls the
 # shell and the window platform from inside it.
 find_package(Qt6 6.9 REQUIRED COMPONENTS Core Gui Qml Quick QuickShapes QuickEffects)
-# Embedded locale assets: one resource source shared by the app and its tests.
-qt_add_resources(FRUITY_CLASSICMENU_LANGUAGE_SOURCES
-    "${FRUITY_MPHREAD_ROOT}/Mods/ClassicMenu/Languages.qrc")
-target_sources(fruity_mphread_native PRIVATE ${FRUITY_CLASSICMENU_LANGUAGE_SOURCES})
+# AOT locale compiler (runs on the build host even for Android).
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+set(FRUITY_CLASSICMENU_LANGUAGES "${FRUITY_MPHREAD_ROOT}/Mods/ClassicMenu/Languages")
+set(FRUITY_CLASSICMENU_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated/classicmenu")
+set(FRUITY_CLASSICMENU_GENERATED_HEADER "${FRUITY_CLASSICMENU_GENERATED_DIR}/ClassicMenuLanguages.generated.hpp")
+add_custom_command(
+    OUTPUT "${FRUITY_CLASSICMENU_GENERATED_HEADER}"
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate-classicmenu-locales.py"
+        --languages "${FRUITY_CLASSICMENU_LANGUAGES}"
+        --output "${FRUITY_CLASSICMENU_GENERATED_HEADER}"
+    DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate-classicmenu-locales.py"
+        "${FRUITY_CLASSICMENU_LANGUAGES}/en.json"
+        "${FRUITY_CLASSICMENU_LANGUAGES}/ja.json"
+        "${FRUITY_CLASSICMENU_LANGUAGES}/fr.json"
+    COMMENT "Validate and generate static ClassicMenu locale catalog"
+    VERBATIM)
+add_custom_target(fruity_classicmenu_locale_data DEPENDS "${FRUITY_CLASSICMENU_GENERATED_HEADER}")
+add_dependencies(fruity_mphread_native fruity_classicmenu_locale_data)
+target_include_directories(fruity_mphread_native PRIVATE "${FRUITY_CLASSICMENU_GENERATED_DIR}")
 fruity_collect_owner("${FRUITY_QT_ROOT}" MPHREAD_QT_SOURCES MPHREAD_QT_HEADERS)
 if(ANDROID)
     list(FILTER MPHREAD_QT_SOURCES EXCLUDE REGEX "/(Shell|UiHost|UiCapture|UiChecks|QtRendererPlatform)[.]cpp$")
@@ -1281,8 +1297,8 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         src/MphRead.Native/Mods/ClassicMenu/MenuLocalization.cpp
         src/MphRead.Native/Testing/TestMenuLocalization.cpp)
     target_compile_features(fruity_menu_localization_tests PRIVATE cxx_std_20)
-    target_sources(fruity_menu_localization_tests PRIVATE ${FRUITY_CLASSICMENU_LANGUAGE_SOURCES})
-    target_link_libraries(fruity_menu_localization_tests PRIVATE Qt6::Core)
+    add_dependencies(fruity_menu_localization_tests fruity_classicmenu_locale_data)
+    target_include_directories(fruity_menu_localization_tests PRIVATE "${FRUITY_CLASSICMENU_GENERATED_DIR}")
     if(MSVC)
         target_compile_options(fruity_menu_localization_tests PRIVATE /utf-8)
     endif()

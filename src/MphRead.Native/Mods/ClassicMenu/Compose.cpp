@@ -1028,7 +1028,7 @@ namespace MphRead::Mods::ClassicMenu
                 {[] { return std::string("DISPLAY"); }, open("display")}, {[] { return std::string("PROFILE"); }, open("profile")},
                 {[this]
                 {
-                    return TranslateMenuKey("menu.language_switch.label", _strings.Language());
+                    return std::string(TranslateMenuKey("menu.language_switch.label", _strings.Language()));
                 }, [this]
                 {
                     const MenuLanguage next = _strings.Language() == MenuLanguage::English ? MenuLanguage::Japanese

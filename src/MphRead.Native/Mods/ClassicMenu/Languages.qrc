@@ -1,7 +1,0 @@
-<RCC>
-  <qresource prefix="/mods/classicmenu">
-    <file alias="Languages/en.json">Languages/en.json</file>
-    <file alias="Languages/ja.json">Languages/ja.json</file>
-    <file alias="Languages/fr.json">Languages/fr.json</file>
-  </qresource>
-</RCC>

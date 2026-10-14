@@ -173,7 +173,7 @@ namespace MphRead::Mods::ClassicMenu
     public:
         [[nodiscard]] static MenuStrings Load(const std::string& fileSystemRoot, const std::string& lang);
         [[nodiscard]] const std::string& operator[](int id) const;
-        [[nodiscard]] const std::string& Localized(int id) const;
+        [[nodiscard]] std::string_view Localized(int id) const;
         void SetLanguage(MenuLanguage language) noexcept { _language = language; }
         [[nodiscard]] MenuLanguage Language() const noexcept { return _language; }
         [[nodiscard]] int IndexOf(const std::string& text) const;
@@ -184,6 +184,8 @@ namespace MphRead::Mods::ClassicMenu
 
     private:
         std::vector<std::string> _strings;
+        // Two bytes per ROM text, precomputed once and refreshed on Fill/Add.
+        std::vector<std::uint16_t> _translationIds;
         MenuLanguage _language = MenuLanguage::English;
     };
 
@@ -211,6 +213,8 @@ namespace MphRead::Mods::ClassicMenu
         [[nodiscard]] int GetOrAdd(const std::string& key,
             const std::function<UiTexture()>& create);
         [[nodiscard]] const UiTexture& operator[](int id) const { return *_byId.at(static_cast<std::size_t>(id)); }
+        // Glyph atlas owner updates only the pixels of allocated atlas pages.
+        UiTexture& Mutable(int id) { return *_byId.at(static_cast<std::size_t>(id)); }
         [[nodiscard]] int Count() const noexcept { return static_cast<int>(_byId.size()); }
 
     private:
@@ -277,26 +281,33 @@ namespace MphRead::Mods::ClassicMenu
         // lineHeight places the first line under the anchor; each next one
         // is lineHeight + lineSpacing further down. letterSpacing is added to
         // every letter's advance, measuring included.
-        void Emit(const std::string& text, float x, float y, int align, int wrapWidth, float lineHeight,
+        void Emit(std::string_view text, float x, float y, int align, int wrapWidth, float lineHeight,
             float r, float g, float b, float a, float z, std::vector<WidgetTri>& output, float lineSpacing = 0,
             int letterSpacing = 0) const;
 
     private:
-        [[nodiscard]] static int Glyph(const std::string& text, std::size_t& i);
+        [[nodiscard]] static int Glyph(std::string_view text, std::size_t& i);
         struct UnicodeGlyph final
         {
             int TextureId = -1;
             int Width = 0;
             int Height = 0;
             int Advance = 0;
+            float U0 = 0, V0 = 0, U1 = 0, V1 = 0;
+        };
+        struct GlyphAtlas final
+        {
+            int TextureId = -1;
+            int NextX = 0, NextY = 0, RowHeight = 0;
         };
         [[nodiscard]] const UnicodeGlyph& Rasterize(char32_t cp) const;
         [[nodiscard]] int Advance(int glyph) const;
-        [[nodiscard]] float Measure(const std::string& line, int spacing) const;
-        [[nodiscard]] std::vector<std::string> Lines(const std::string& text, int wrapWidth, int spacing) const;
+        [[nodiscard]] float Measure(std::string_view line, int spacing) const;
+        [[nodiscard]] std::vector<std::string_view> Lines(std::string_view text, int wrapWidth, int spacing) const;
 
         UiTextureCache& _textures;
         mutable std::unordered_map<char32_t, UnicodeGlyph> _unicodeGlyphs;
+        mutable std::vector<GlyphAtlas> _glyphAtlases;
         std::vector<int> _widths;
         std::vector<int> _offsets;
         int _textureId = -1;

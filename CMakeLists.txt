@@ -964,6 +964,10 @@ endif()
 # objects go into the MphRead.Native archive, since the renderer calls the
 # shell and the window platform from inside it.
 find_package(Qt6 6.9 REQUIRED COMPONENTS Core Gui Qml Quick QuickShapes QuickEffects)
+# Embedded locale assets: one resource source shared by the app and its tests.
+qt_add_resources(FRUITY_CLASSICMENU_LANGUAGE_SOURCES
+    "${FRUITY_MPHREAD_ROOT}/Mods/ClassicMenu/Languages.qrc")
+target_sources(fruity_mphread_native PRIVATE ${FRUITY_CLASSICMENU_LANGUAGE_SOURCES})
 fruity_collect_owner("${FRUITY_QT_ROOT}" MPHREAD_QT_SOURCES MPHREAD_QT_HEADERS)
 if(ANDROID)
     list(FILTER MPHREAD_QT_SOURCES EXCLUDE REGEX "/(Shell|UiHost|UiCapture|UiChecks|QtRendererPlatform)[.]cpp$")
@@ -1277,6 +1281,8 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         src/MphRead.Native/Mods/ClassicMenu/MenuLocalization.cpp
         src/MphRead.Native/Testing/TestMenuLocalization.cpp)
     target_compile_features(fruity_menu_localization_tests PRIVATE cxx_std_20)
+    target_sources(fruity_menu_localization_tests PRIVATE ${FRUITY_CLASSICMENU_LANGUAGE_SOURCES})
+    target_link_libraries(fruity_menu_localization_tests PRIVATE Qt6::Core)
     if(MSVC)
         target_compile_options(fruity_menu_localization_tests PRIVATE /utf-8)
     endif()

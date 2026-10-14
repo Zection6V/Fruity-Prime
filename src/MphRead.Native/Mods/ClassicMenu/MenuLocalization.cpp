@@ -1,9 +1,129 @@
 #include "MenuLocalization.hpp"
 
+#include <QtCore/QFile>
+#include <QtCore/QJsonDocument>
+#include <QtCore/QJsonObject>
+#include <QtCore/QJsonParseError>
+
+#include <array>
+#include <functional>
+#include <string>
+#include <string_view>
 #include <unordered_map>
+#include <utility>
+
+// Q_INIT_RESOURCE must be invoked from global namespace so the qrc
+// initialization symbol resolves on all supported linkers.
+static void RegisterMenuLanguageResources()
+{
+    Q_INIT_RESOURCE(Languages);
+}
 
 namespace MphRead::Mods::ClassicMenu
 {
+    namespace
+    {
+        // Transparent lookup: no string allocation in the menu render path.
+        struct StringHash
+        {
+            using is_transparent = void;
+            std::size_t operator()(std::string_view value) const noexcept
+            {
+                return std::hash<std::string_view>{}(value);
+            }
+        };
+
+        struct Translation final
+        {
+            std::array<std::string, 3> Text;
+        };
+
+        using Entries = std::unordered_map<std::string, Translation, StringHash, std::equal_to<>>;
+        using EnglishIndex = std::unordered_map<std::string, const Translation*, StringHash, std::equal_to<>>;
+
+        struct MenuCatalog final
+        {
+            Entries ById;
+            EnglishIndex ByEnglish;
+            bool Complete = false;
+        };
+
+        bool LoadLanguage(const char* filename, QJsonObject& result)
+        {
+            QFile file(QString::fromLatin1(filename));
+            if (!file.open(QIODevice::ReadOnly)) return false;
+            QJsonParseError error{};
+            const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &error);
+            if (error.error != QJsonParseError::NoError || !document.isObject()) return false;
+            result = document.object();
+            return !result.isEmpty();
+        }
+
+        MenuCatalog BuildCatalog()
+        {
+            RegisterMenuLanguageResources();
+            const char* const paths[] = {
+                ":/mods/classicmenu/Languages/en.json",
+                ":/mods/classicmenu/Languages/ja.json",
+                ":/mods/classicmenu/Languages/fr.json"
+            };
+            QJsonObject languages[3];
+            for (int i = 0; i < 3; ++i)
+            {
+                if (!LoadLanguage(paths[i], languages[i])) return {};
+            }
+
+            MenuCatalog result;
+            const qsizetype total = languages[0].size();
+            if (languages[1].size() != total || languages[2].size() != total) return result;
+
+            result.ById.reserve(static_cast<std::size_t>(total));
+            result.ByEnglish.reserve(static_cast<std::size_t>(total));
+
+            for (auto it = languages[0].constBegin(); it != languages[0].constEnd(); ++it)
+            {
+                const QString& key = it.key();
+                // Every language must translate every stable identifier.
+                if (!it.value().isString() || !languages[1].value(key).isString()
+                    || !languages[2].value(key).isString()) return {};
+                Translation entry;
+                for (int i = 0; i < 3; ++i)
+                {
+                    entry.Text[static_cast<std::size_t>(i)] =
+                        languages[i].value(key).toString().toUtf8().toStdString();
+                    if (entry.Text[static_cast<std::size_t>(i)].empty()) return {};
+                }
+                const std::string id = key.toUtf8().toStdString();
+                result.ById.emplace(id, std::move(entry));
+            }
+
+            // Build the ROM compatibility index once. Keeping the stable IDs
+            // in the catalog permits changing English copy without changing
+            // the Japanese/French keys. Pointer targets are stable because the
+            // by-ID map is no longer modified after this initialization.
+            for (auto& [id, entry] : result.ById)
+            {
+                const std::string& english = entry.Text[0];
+                if (!result.ByEnglish.emplace(english, &entry).second) return {};
+            }
+            result.Complete = true;
+            return result;
+        }
+
+        const MenuCatalog& Catalog()
+        {
+            static const MenuCatalog catalog = BuildCatalog();
+            return catalog;
+        }
+
+        const std::string& Display(const Translation& entry, MenuLanguage language)
+        {
+            const std::size_t index = language == MenuLanguage::Japanese ? 1
+                : language == MenuLanguage::French ? 2 : 0;
+            return entry.Text[index];
+        }
+    }
+
     MenuLanguage ParseMenuLanguage(std::string_view saved) noexcept
     {
         if (saved == "ja" || saved == "Japanese") return MenuLanguage::Japanese;
@@ -11,250 +131,29 @@ namespace MphRead::Mods::ClassicMenu
         return MenuLanguage::English;
     }
 
+    const std::string& TranslateMenuKey(std::string_view key, MenuLanguage language)
+    {
+        static const std::string empty;
+        const auto& catalog = Catalog();
+        const auto found = catalog.ById.find(key);
+        return found == catalog.ById.end() ? empty : Display(found->second, language);
+    }
+
     const std::string& TranslateMenuText(const std::string& english, MenuLanguage language)
     {
         if (language == MenuLanguage::English) return english;
-        struct Text
-        {
-            std::string Japanese;
-            std::string French;
-        };
-        // Exact English IDs, intentionally not translated in MenuStrings' storage.
-        // Unknown or user-supplied text retains its original spelling.
-        static const std::unordered_map<std::string, Text> translations = {
-            {"BEGIN GAME", {"ゲーム開始", "COMMENCER"}},
-            {"ADVENTURE", {"アドベンチャー", "AVENTURE"}},
-            {"MULTIPLAYER", {"マルチプレイ", "MULTIJOUEUR"}},
-            {"OPTIONS", {"オプション", "OPTIONS"}},
-            {"CONTROLS", {"操作設定", "COMMANDES"}},
-            {"MOVIES", {"ムービー", "VIDÉOS"}},
-            {"CREDITS", {"スタッフ", "CRÉDITS"}},
-            {"QUIT", {"終了", "QUITTER"}},
-            {"QUIT GAME", {"ゲーム終了", "QUITTER LE JEU"}},
-            {"NEW GAME", {"新しく始める", "NOUVELLE PARTIE"}},
-            {"CONTINUE", {"つづきから", "CONTINUER"}},
-            {"create new game", {"新しく始める", "nouvelle partie"}},
-            {"continue", {"つづきから", "continuer"}},
-            {"erase file", {"データを消す", "effacer la sauvegarde"}},
-            {"copy file", {"データをコピー", "copier la sauvegarde"}},
-            {"select a file.", {"ファイルを選択", "choisissez un fichier."}},
-            {"file", {"ファイル", "fichier"}},
-            {"game", {"ゲーム", "partie"}},
-            {"play", {"プレイ", "jouer"}},
-            {"single player", {"ひとりで遊ぶ", "solo"}},
-            {"single-card play", {"ダウンロードプレイ", "jeu une carte"}},
-            {"multi-card play", {"ローカル対戦", "jeu multi-cartes"}},
-            {"nintendo wi-fi connection", {"オンライン対戦", "jeu en ligne"}},
-            {"offline\nbots", {"オフライン\nBOT対戦", "hors ligne\nbots"}},
-            {"lan", {"LAN対戦", "réseau local"}},
-            {"online", {"オンライン", "en ligne"}},
-            {"offline", {"オフライン", "hors ligne"}},
-            {"OFFLINE", {"オフライン", "HORS LIGNE"}},
-            {"ONLINE", {"オンライン", "EN LIGNE"}},
-            {"CHOOSE MULTIPLAYER TYPE", {"対戦方法を選ぶ", "TYPE DE MULTIJOUEUR"}},
-            {"choose multiplayer type", {"対戦方法を選ぶ", "mode multijoueur"}},
-            {"allow up to 3 other players to download and play battle mode.", {"ほかのプレイヤーとバトル", "jouez en mode combat avec vos amis."}},
-            {"up to 4 players or bots can hunt each other in 7 unique game modes.", {"7つのモードで対戦できます。", "affrontez des joueurs ou des bots dans 7 modes."}},
-            {"hunt anyone in the world with nintendo wi-fi connection.", {"世界中のプレイヤーと対戦できます。", "affrontez des joueurs du monde entier."}},
-            {"connect", {"接続", "connexion"}},
-            {"find game", {"ゲーム検索", "chercher une partie"}},
-            {"friends and rivals", {"フレンドとライバル", "amis et rivaux"}},
-            {"configure\nwi-fi", {"Wi-Fi\n設定", "configurer\nle Wi-Fi"}},
-            {"servers", {"サーバー", "serveurs"}},
-            {"create\nserver", {"サーバー\n作成", "créer un\nserveur"}},
-            {"configure\nonline", {"オンライン\n設定", "configurer\nle réseau"}},
-            {"server", {"サーバー", "serveur"}},
-            {"SERVERS", {"サーバー一覧", "SERVEURS"}},
-            {"SERVER BROWSER", {"サーバー一覧", "LISTE DES SERVEURS"}},
-            {"CREATE SERVER", {"サーバー作成", "CRÉER SERVEUR"}},
-            {"create game", {"ゲーム作成", "créer une partie"}},
-            {"CREATE GAME", {"ゲーム作成", "CRÉER UNE PARTIE"}},
-            {"create server", {"サーバー作成", "créer serveur"}},
-            {"REFRESH", {"更新", "ACTUALISER"}},
-            {"refresh", {"更新", "actualiser"}},
-            {"SEARCH", {"検索", "RECHERCHER"}},
-            {"JOIN", {"参加", "REJOINDRE"}},
-            {"JOIN GAME", {"ゲームに参加", "REJOINDRE"}},
-            {"name", {"名前", "nom"}},
-            {"NAME", {"名前", "NOM"}},
-            {"game type", {"ゲームモード", "mode de jeu"}},
-            {"GAME TYPE", {"ゲームモード", "MODE DE JEU"}},
-            {"your hunter", {"使用ハンター", "votre chasseur"}},
-            {"YOUR HUNTER", {"使用ハンター", "VOTRE CHASSEUR"}},
-            {"hunter", {"ハンター", "chasseur"}},
-            {"HUNTER", {"ハンター", "CHASSEUR"}},
-            {"suit", {"スーツ", "tenue"}},
-            {"SUIT", {"スーツ", "TENUE"}},
-            {"rotation", {"マップ順", "rotation"}},
-            {"host on", {"ホスト先", "héberger sur"}},
-            {"hosting", {"ホスト方式", "hébergement"}},
-            {"all arenas", {"すべてのマップ", "toutes les arènes"}},
-            {"this machine", {"このPC", "cet ordinateur"}},
-            {"hosted", {"ホスト", "hébergé"}},
-            {"dedicated", {"専用サーバー", "dédié"}},
-            {"arena", {"マップ", "arène"}},
-            {"ARENA", {"マップ", "ARÈNE"}},
-            {"VOTE FOR AN ARENA", {"マップを投票", "VOTER POUR UNE ARÈNE"}},
-            {"the rotation decides", {"ローテーション順", "selon la rotation"}},
-            {"vote", {"票", "vote"}},
-            {"votes", {"票", "votes"}},
-            {"yours", {"自分の投票", "votre vote"}},
-            {"tap to vote", {"押して投票", "touchez pour voter"}},
-            {"bots", {"BOT数", "bots"}},
-            {"BOTS", {"BOTS", "BOTS"}},
-            {"bot skill", {"BOTの強さ", "niveau des bots"}},
-            {"teams", {"チーム", "équipes"}},
-            {"TEAMS", {"チーム", "ÉQUIPES"}},
-            {"2 teams", {"2チーム", "2 équipes"}},
-            {"4 teams", {"4チーム", "4 équipes"}},
-            {"team", {"チーム", "équipe"}},
-            {"TEAM", {"チーム", "ÉQUIPE"}},
-            {"STATE", {"状態", "ÉTAT"}},
-            {"PLAYER", {"プレイヤー", "JOUEUR"}},
-            {"PLAYERS", {"プレイヤー", "JOUEURS"}},
-            {"ready", {"準備完了", "prêt"}},
-            {"READY", {"準備完了", "PRÊT"}},
-            {"READY!", {"準備完了！", "PRÊT !"}},
-            {"START", {"開始", "DÉMARRER"}},
-            {"START GAME", {"ゲーム開始", "DÉMARRER"}},
-            {"open", {"空き", "libre"}},
-            {"host", {"ホスト", "hôte"}},
-            {"waiting", {"待機中", "en attente"}},
-            {"chat", {"チャット", "discussion"}},
-            {"CHAT", {"チャット", "DISCUSSION"}},
-            {"chat here", {"チャット入力", "saisir un message"}},
-            {"MANAGE PLAYER", {"プレイヤー管理", "GÉRER JOUEUR"}},
-            {"MOVE TO RED", {"赤チームへ", "ÉQUIPE ROUGE"}},
-            {"MOVE TO BLUE", {"青チームへ", "ÉQUIPE BLEUE"}},
-            {"TRANSFER HOST", {"ホスト権限を渡す", "TRANSFÉRER L'HÔTE"}},
-            {"KICK", {"退出させる", "EXCLURE"}},
-            {"red", {"赤", "rouge"}},
-            {"blue", {"青", "bleu"}},
-            {"green", {"緑", "vert"}},
-            {"gold", {"金", "or"}},
-            {"easy", {"かんたん", "facile"}},
-            {"norm", {"ふつう", "normal"}},
-            {"hard", {"むずかしい", "difficile"}},
-            {"max", {"最強", "maximum"}},
-            {"off", {"オフ", "non"}},
-            {"on", {"オン", "oui"}},
-            {"OFF", {"オフ", "NON"}},
-            {"ON", {"オン", "OUI"}},
-            {"YES", {"はい", "OUI"}},
-            {"NO", {"いいえ", "NON"}},
-            {"ACCEPT", {"承諾", "ACCEPTER"}},
-            {"CANCEL", {"キャンセル", "ANNULER"}},
-            {"OK", {"決定", "OK"}},
-            {"BACK", {"戻る", "RETOUR"}},
-            {"RETURN", {"戻る", "RETOUR"}},
-            {"PAUSED", {"ポーズ中", "PAUSE"}},
-            {"RESUME", {"再開", "REPRENDRE"}},
-            {"ACCEPT VOTE", {"投票に賛成", "ACCEPTER LE VOTE"}},
-            {"DENY VOTE", {"投票に反対", "REFUSER LE VOTE"}},
-            {"REJOIN MATCH", {"試合に復帰", "REVENIR EN JEU"}},
-            {"SPECTATE", {"観戦", "SPECTATEUR"}},
-            {"LEAVE MATCH", {"試合を退出", "QUITTER LA PARTIE"}},
-            {"RESULTS", {"リザルト", "RÉSULTATS"}},
-            {"WINNER", {"勝者", "VAINQUEUR"}},
-            {"DEFEAT", {"敗北", "DÉFAITE"}},
-            {"VICTORY", {"勝利", "VICTOIRE"}},
-            {"BATTLE", {"バトル", "COMBAT"}},
-            {"SURVIVAL", {"サバイバル", "SURVIE"}},
-            {"BOUNTY", {"バウンティ", "PRIME"}},
-            {"DEFENDER", {"ディフェンダー", "DÉFENSE"}},
-            {"PRIME HUNTER", {"プライムハンター", "CHASSEUR PRIME"}},
-            {"CAPTURE", {"キャプチャー", "CAPTURE"}},
-            {"NODES", {"ノード", "NŒUDS"}},
-            {"battle", {"バトル", "combat"}},
-            {"survival", {"サバイバル", "survie"}},
-            {"bounty", {"バウンティ", "prime"}},
-            {"defender", {"ディフェンダー", "défense"}},
-            {"prime hunter", {"プライムハンター", "chasseur prime"}},
-            {"capture", {"キャプチャー", "capture"}},
-            {"nodes", {"ノード", "nœuds"}},
-            {"DISPLAY", {"画面", "AFFICHAGE"}},
-            {"AUDIO", {"音声", "AUDIO"}},
-            {"KEYBOARD", {"キーボード", "CLAVIER"}},
-            {"GAMEPAD", {"ゲームパッド", "MANETTE"}},
-            {"STYLUS", {"ペン", "STYLET"}},
-            {"PROFILE", {"プロフィール", "PROFIL"}},
-            {"display", {"画面", "affichage"}},
-            {"audio", {"音声", "audio"}},
-            {"keyboard", {"キーボード", "clavier"}},
-            {"gamepad", {"ゲームパッド", "manette"}},
-            {"stylus", {"ペン", "stylet"}},
-            {"profile", {"プロフィール", "profil"}},
-            {"language", {"言語", "langue"}},
-            {"Language", {"言語", "Langue"}},
-            {"English", {"英語", "anglais"}},
-            {"Japanese", {"日本語", "japonais"}},
-            {"French", {"フランス語", "français"}},
-            {"english", {"英語", "anglais"}},
-            {"japanese", {"日本語", "japonais"}},
-            {"french", {"フランス語", "français"}},
-            {"PRESS A KEY", {"キーを押してください", "APPUYEZ SUR UNE TOUCHE"}},
-            {"page", {"ページ", "page"}},
-            {"of", {"／", "sur"}},
-            {"how the game is drawn: window, renderer, view and the hud.", {"画面、描画方式、視点とHUDを設定します。", "réglez l'écran, le rendu, la vue et l'ATH."}},
-            {"change the balance of sound effects and music, and the language.", {"効果音、音楽、言語を設定します。", "réglez le son, la musique et la langue."}},
-            {"tap a key's box, then press the key or button you want.", {"変更するキーを選択して入力します。", "choisissez une touche, puis sa commande."}},
-            {"how a controller aims and which button does what.", {"ゲームパッドの視点とボタンを設定します。", "réglez la visée et les touches de la manette."}},
-            {"a pen tablet as the ds's touch screen.", {"ペンタブレットをDSタッチ画面として使います。", "utilisez un stylet comme l'écran tactile DS."}},
-            {"your name, your hunter and your suit.", {"名前、ハンター、スーツを設定します。", "votre nom, chasseur et tenue."}},
-            {"where fruity prime looks for servers, and whether it checks for updates.", {"サーバーの検索先と更新を設定します。", "recherche des serveurs et mises à jour."}},
-            {"you can wait for more players or add bots.", {"ほかのプレイヤーを待つかBOTを追加します。", "attendez des joueurs ou ajoutez des bots."}},
-            {"select the clip you want to watch.", {"再生するムービーを選んでください。", "choisissez une vidéo à regarder."}},
-            {"FRUITY PRIME", {"FRUITY PRIME", "FRUITY PRIME"}},
-            {"fruity prime, built on mphread.", {"Fruity Prime - MphReadを基盤に開発", "Fruity Prime, basé sur MphRead."}},
-            {"this fork: multiplayer, the server, the launcher", {"マルチプレイ、サーバー、ランチャー", "multijoueur, serveur, lanceur"}},
-            {"mphread: the renderer, the formats, the entities", {"描画、フォーマット、エンティティ", "rendu, formats, entités"}},
-            {"second hunt: the classic menus (mit)", {"クラシックメニュー (MIT)", "menus classiques (MIT)"}},
-            {"the recomp the menus are checked against", {"メニュー検証用の再コンパイル版", "recompilation de référence des menus"}},
-            {"the c++ port", {"C++移植", "portage C++"}},
-            {"time limit", {"制限時間", "temps limite"}},
-            {"POINT LIMIT", {"得点上限", "LIMITE DE POINTS"}},
-            {"point limit", {"得点上限", "limite de points"}},
-            {"friendly fire", {"味方への攻撃", "tir allié"}},
-            {"radar", {"レーダー", "radar"}},
-            {"affinity", {"得意武器", "affinité"}},
-            {"damage", {"ダメージ", "dégâts"}},
-            {"minutes", {"分", "minutes"}},
-            {"seconds", {"秒", "secondes"}},
-            {"loading", {"読み込み中", "chargement"}},
-            {"connecting", {"接続中", "connexion en cours"}},
-            {"disconnected", {"切断", "déconnecté"}},
-            {"error", {"エラー", "erreur"}},
-            {"failed", {"失敗", "échec"}},
-            {"every server, with its arena, mode, players and ping.", {"サーバー、マップ、モード、人数、応答速度を表示します。", "serveurs, arènes, modes, joueurs et latence."}},
-            {"LOCK PLAYERS", {"プレイヤーを確定", "VERROUILLER LES JOUEURS"}},
-            {"add bot", {"BOTを追加", "ajouter un bot"}},
-            {"select the movie you want to see.", {"再生するムービーを選んでください。", "choisissez la vidéo à regarder."}},
-            {"nintendo wfc will find opponents who want to play the same game as you.", {"同じモードで対戦する相手を探します。", "trouvez des adversaires pour le même mode."}},
-            {"organize a wi-fi battle with your friends and rivals.", {"フレンドと対戦します。", "organisez une partie avec vos amis."}},
-            {"point goal", {"目標スコア", "score cible"}},
-            {"team play", {"チーム戦", "jeu en équipe"}},
-            {"lives", {"残機", "vies"}},
-            {"octolith goal", {"オクトリス目標", "objectif octolithe"}},
-            {"auto reset", {"自動リセット", "réinit. auto"}},
-            {"time goal", {"目標時間", "temps cible"}},
-            {"affinity off", {"得意武器 オフ", "affinité non"}},
-            {"damage medium", {"ダメージ 中", "dégâts moyens"}},
-            {"friendly fire off", {"味方への攻撃 オフ", "tir allié non"}},
-            {"radar on", {"レーダー オン", "radar oui"}},
-            {"GAME MODE", {"ゲームモード", "MODE DE JEU"}},
-            {"MODE", {"モード", "MODE"}},
-            {"PING", {"応答", "PING"}},
-            {"ADDRESS", {"アドレス", "ADRESSE"}},
-            {"PASSWORD", {"パスワード", "MOT DE PASSE"}},
-            {"PORT", {"ポート", "PORT"}},
-            {"PAGE", {"ページ", "PAGE"}},
-            {"WAITING", {"待機中", "EN ATTENTE"}},
-            {"wait", {"待機中", "attente"}},
-            {"spectator", {"観戦者", "spectateur"}},
-            {"SPECTATOR", {"観戦者", "SPECTATEUR"}},
-        };
-        const auto found = translations.find(english);
-        if (found == translations.end()) return english;
-        return language == MenuLanguage::Japanese ? found->second.Japanese : found->second.French;
+        const auto& catalog = Catalog();
+        const auto found = catalog.ByEnglish.find(english);
+        return found == catalog.ByEnglish.end() ? english : Display(*found->second, language);
+    }
+
+    bool MenuLocalizationCatalogValid()
+    {
+        return Catalog().Complete;
+    }
+
+    std::size_t MenuLocalizationEntryCount()
+    {
+        return Catalog().ById.size();
     }
 }

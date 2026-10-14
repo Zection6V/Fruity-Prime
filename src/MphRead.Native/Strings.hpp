@@ -5,6 +5,7 @@
 #include <cassert>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -36,10 +37,12 @@ namespace MphRead::Text
         static float GetScanEntryTime(std::int32_t scanId);
         static std::shared_ptr<const std::vector<std::string>> ReadTextFile(bool downloadPlay = false);
         static std::string ReplaceNonAscii(const std::string& value);
-        // Unicode scalar to the original game's packed text code point.
-        // Returns -1 for characters not represented in the normal DS font.
-        // Duplicate Unicode values in the game table resolve to the first glyph.
-        [[nodiscard]] static std::int32_t FindGameGlyphCode(char32_t unicode);
+        // Read-only view of the original packed game-code -> UTF-8 correspondence.
+        // Rendering/mod-specific reverse lookup belongs to Mods, not Strings.
+        [[nodiscard]] static std::span<const std::string> NonAsciiGlyphMappings() noexcept
+        {
+            return _nonAscii;
+        }
 
         Strings() = delete;
         Strings(const Strings&) = delete;

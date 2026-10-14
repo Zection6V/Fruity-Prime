@@ -46,3 +46,11 @@ python tools/generate-classicmenu-bitmap-font.py --bdf /path/to/k8x12L.bdf --che
 ```
 The checked-in header contains only missing characters used by the locale;
 it is not the entire font and has no runtime BDF parsing.
+
+### Ownership of the original game glyph mapping
+
+`Text::Strings` owns the original packed game-code-to-Unicode conversion
+table and exposes a read-only span. The reverse resolver
+`Mods/ClassicMenu/MenuGameGlyphMap.cpp::FindGameGlyphCode` belongs to the
+menu module; it initializes a sorted reverse index only when first needed,
+without per-frame allocations or modification of the game's string decoding.

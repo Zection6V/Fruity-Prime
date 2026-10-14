@@ -3,7 +3,6 @@
 #include "Formats/RawFormats.hpp"
 #include "Read.hpp"
 #include "Scene.hpp"
-#include "NativeRuntime/System/Encoding.hpp"
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
@@ -42,47 +41,6 @@ namespace MphRead::Text
         "\xE3\x80\x88", "\xE3\x80\x89", " ", " ", "\xEF\xBD\xA2", "\xEF\xBD\xA3", " ", " ", " ", " ", "\xEF\xBC\x8B", "\xEF\xBC\x8D", "\xE2\x88\x93", "\xE2\xA8\x89", "\xC3\xB7", "\xEF\xBC\x9D", " ", " ", " ", " ", " ", "\xE2\x88\x9E", "\xE2\x88\xB4", " ", " ",
         "\xE3\x82\x9C", "\xE2\x80\xB2", "\xE3\x80\x83", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ",
         " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " ", " "};
-    std::int32_t Strings::FindGameGlyphCode(char32_t unicode)
-    {
-        // Ordinary ASCII is identity-mapped in the game's normal font.
-        if (unicode >= U' ' && unicode <= U'~')
-        {
-            return static_cast<std::int32_t>(unicode);
-        }
-
-        // The already-maintained _nonAscii table is the single source of truth
-        // for the game's non-ASCII code points. Build its reverse index once,
-        // not once per frame or once per menu object.
-        static const auto lookup = []
-        {
-            std::vector<std::pair<char32_t, std::int32_t>> entries;
-            entries.reserve(_nonAscii.size());
-            for (std::size_t i = 0; i < _nonAscii.size(); ++i)
-            {
-                const std::string& value = _nonAscii[i];
-                if (value.empty() || value == " ") continue;
-                const NativeRuntime::Utf8Scalar scalar = NativeRuntime::RuneDecodeFromUtf8(value);
-                if (!scalar.Valid() || scalar.Length != value.size()
-                    || scalar.Value < 0x80) continue;
-                entries.emplace_back(scalar.Value, static_cast<std::int32_t>(i + 128));
-            }
-            std::sort(entries.begin(), entries.end(),
-                [](const auto& a, const auto& b)
-                {
-                    return a.first < b.first
-                        || (a.first == b.first && a.second < b.second);
-                });
-            entries.erase(std::unique(entries.begin(), entries.end(),
-                [](const auto& a, const auto& b) { return a.first == b.first; }),
-                entries.end());
-            return entries;
-        }();
-
-        const auto found = std::lower_bound(lookup.begin(), lookup.end(), unicode,
-            [](const auto& entry, char32_t value) { return entry.first < value; });
-        return found != lookup.end() && found->first == unicode ? found->second : -1;
-    }
-
     void Strings::ClearCache()
     {
         _cache.clear();

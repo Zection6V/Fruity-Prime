@@ -1,4 +1,5 @@
 #include "MenuData.hpp"
+#include "MenuGameGlyphMap.hpp"
 
 #include "../../Formats/Formats.hpp"
 #include "../../Formats/Model.hpp"
@@ -575,7 +576,7 @@ namespace MphRead::Mods::ClassicMenu
     {
         if (unicodeGlyph < 0) return -1;
         const char32_t unicode = static_cast<char32_t>(unicodeGlyph + MinCharacter);
-        const int code = Text::Strings::FindGameGlyphCode(unicode);
+        const int code = FindGameGlyphCode(unicode);
         const int index = code - MinCharacter;
         if (code < MinCharacter || index < 0 || _atlasWidth < Cell || _atlasHeight < Cell
             || index >= (_atlasWidth / Cell) * (_atlasHeight / Cell))

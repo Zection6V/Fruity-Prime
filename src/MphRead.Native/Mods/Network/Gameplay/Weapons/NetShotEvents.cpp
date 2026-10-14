@@ -25,6 +25,8 @@ namespace MphRead::Mods::Network
     static_assert(ShotEventEligibilityTimeline::Capacity > RemoteShotQueue::FreshFrames,
         "shot eligibility history must cover the remote firing queue");
 
+    std::array<NetShotEvents::ContinuousFire, NetShotEvents::Slots> NetShotEvents::_continuousFire{};
+
     namespace
     {
         [[nodiscard]] bool Continuous(const Entities::PlayerEntity& shooter) noexcept

@@ -140,7 +140,7 @@ namespace MphRead::Mods::Network
             std::uint32_t RoleFrame = 0;
         };
         // Consumed by the intent that carries it, one frame at a time.
-        inline static std::array<ContinuousFire, Slots> _continuousFire{};
+        static std::array<ContinuousFire, Slots> _continuousFire;
         // Occupants gone: still part of what this machine received.
         inline static ShotQueueStats _departed{};
         inline static std::array<ShotQueueStats, Slots> _lastDeparted{};

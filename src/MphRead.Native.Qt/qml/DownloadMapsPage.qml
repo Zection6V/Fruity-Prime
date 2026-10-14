@@ -10,7 +10,7 @@ Page {
 
     widthEms: 44
     fill: true
-    heading: "download maps"
+    heading: Theme.tr("download maps")
 
     DownloadsModel { id: downloads }
 
@@ -35,9 +35,9 @@ Page {
         }
     }
 
-    no: Mark { shape: "cancel"; label: "back"; onClicked: if (page.nav) page.nav.pop() }
+    no: Mark { shape: "cancel"; label: Theme.tr("back"); onClicked: if (page.nav) page.nav.pop() }
     extra: Mark {
-        shape: "add"; label: "refresh"
+        shape: "add"; label: Theme.tr("refresh")
         enabled: !downloads.loading
         onClicked: downloads.refresh()
     }

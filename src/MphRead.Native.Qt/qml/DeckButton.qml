@@ -31,7 +31,7 @@ FocusScope {
     readonly property bool hot: enabled && (area.containsMouse || (activeFocus && Theme.keyboardDriving))
     readonly property bool ring: activeFocus && Theme.keyboardDriving
     readonly property bool down: area.pressed
-    readonly property var letters: text.split("")
+    readonly property var letters: Theme.tr(text).split("")
 
     activeFocusOnTab: true
     implicitWidth: heart ? Theme.roundEven(size * (glyphWidthEms + padXEms * 2))

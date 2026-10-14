@@ -20,7 +20,7 @@ Item {
         width: Math.min(implicitWidth, Math.max(40, row.width * 0.45))
         x: row.width - width - 4
         anchors.verticalCenter: parent.verticalCenter
-        text: row.detail
+        text: Theme.tr(row.detail)
         font.family: Theme.pixel; font.pixelSize: 12
         color: Theme.textDim
         elide: Text.ElideRight
@@ -31,7 +31,7 @@ Item {
         x: 14
         width: Math.min(implicitWidth, Math.max(40, rightEdge - 14))
         anchors.verticalCenter: parent.verticalCenter
-        text: row.title
+        text: Theme.tr(row.title)
         font.family: Theme.pixel; font.weight: Font.DemiBold; font.pixelSize: 14
         color: row.lit ? Theme.accent : Theme.text
         elide: Text.ElideRight

@@ -90,11 +90,11 @@ FocusScope {
             }
             Row {
                 spacing: 16
-                WordLink { size: 19; text: "Space"; onClicked: board.append(" ") }
-                WordLink { size: 19; text: "Shift"; onClicked: board.upper = !board.upper }
-                WordLink { size: 19; text: "Delete"; onClicked: board.text = board.text.slice(0, -1) }
-                WordLink { size: 19; text: "Done"; onClicked: board.close(true) }
-                WordLink { size: 19; text: "Cancel"; onClicked: board.close(false) }
+                WordLink { size: 19; text: Theme.tr("Space"); onClicked: board.append(" ") }
+                WordLink { size: 19; text: Theme.tr("Shift"); onClicked: board.upper = !board.upper }
+                WordLink { size: 19; text: Theme.tr("Delete"); onClicked: board.text = board.text.slice(0, -1) }
+                WordLink { size: 19; text: Theme.tr("Done"); onClicked: board.close(true) }
+                WordLink { size: 19; text: Theme.tr("Cancel"); onClicked: board.close(false) }
             }
         }
     }

@@ -126,7 +126,13 @@ namespace MphRead::Mods::ClassicMenu
                 _menu.Enter(TitlePage);
             }
 
-            void SetHost(Host* host) { _host = host; _compose.SetHost(host); }
+            void SetHost(Host* host)
+            {
+                _host = host;
+                _compose.SetHost(host);
+                if (host != nullptr) _strings.SetLanguage(host->MenuLanguageSetting());
+                _dirty = true;
+            }
 
             void Update(double seconds)
             {
@@ -281,6 +287,12 @@ namespace MphRead::Mods::ClassicMenu
                 const float w = portrait ? 256.0F : UnitsHigh * static_cast<float>(width) / static_cast<float>(height);
                 const float h = portrait ? 256.0F * static_cast<float>(height) / static_cast<float>(width) : UnitsHigh;
                 _unit = static_cast<float>(width) / w;
+                if (_layoutLanguage != _strings.Language())
+                {
+                    _layoutLanguage = _strings.Language();
+                    _screen.InvalidateMeasurements();
+                    _layoutPage = -1;
+                }
                 if (_layoutPage != page->Index || _layoutW != width || _layoutH != height)
                 {
                     _screen.Layout(page->Index, w, h);
@@ -631,6 +643,7 @@ namespace MphRead::Mods::ClassicMenu
             bool _collected = false;
             int _hover = -1;
             float _unit = 0;
+            MenuLanguage _layoutLanguage = MenuLanguage::English;
             int _layoutPage = -1, _layoutW = 0, _layoutH = 0;
         };
 

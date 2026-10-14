@@ -9,7 +9,7 @@ Item {
     Text {
         id: label
         y: caption.height - height - 4
-        text: caption.text.toUpperCase()
+        text: Theme.tr(caption.text).toUpperCase()
         font.family: Theme.pixel; font.weight: Font.DemiBold; font.pixelSize: 11
         color: Theme.textDim
     }

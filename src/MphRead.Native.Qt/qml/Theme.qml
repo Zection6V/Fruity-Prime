@@ -5,6 +5,13 @@ import QtQuick
 // GuiTheme and Deck, value for value: the numbers are what is kept in step
 // with the Avalonia launcher, not the types.
 QtObject {
+    // Shared menu language (Qt and DS menu); reads the observable property
+    // so bindings retranslate immediately after Settings saves.
+    function tr(text) {
+        ShellHost.menuLanguage
+        return ShellHost.menuText(text)
+    }
+
     // GuiTheme's palette.
     readonly property color ink: Qt.rgba(10 / 255, 12 / 255, 16 / 255, 1)
     readonly property color panel: Qt.rgba(18 / 255, 21 / 255, 28 / 255, 1)

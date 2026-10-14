@@ -45,6 +45,8 @@ namespace MphRead::Qt
         Q_PROPERTY(bool updatable READ Updatable NOTIFY versionChanged)
         Q_PROPERTY(QString windowLabel READ WindowLabel NOTIFY windowChanged)
         Q_PROPERTY(QString brand READ Brand CONSTANT)
+        // Shared launcher UI language; intentionally separate from game text language.
+        Q_PROPERTY(QString menuLanguage READ MenuLanguage NOTIFY menuLanguageChanged)
         Q_PROPERTY(QString fontOverride READ FontOverride CONSTANT)
         // Android's display density (px per dp); 1 everywhere else.
         Q_PROPERTY(double deviceDensity READ DeviceDensity CONSTANT)
@@ -91,6 +93,11 @@ namespace MphRead::Qt
         [[nodiscard]] bool Updatable() const noexcept { return _updatable; }
         [[nodiscard]] QString WindowLabel() const;
         [[nodiscard]] QString Brand() const;
+        [[nodiscard]] QString MenuLanguage() const;
+        // Called by Qt menu pages; text unknown to the catalog stays in English.
+        Q_INVOKABLE QString menuText(const QString& english) const;
+        Q_INVOKABLE QString menuTextKey(const QString& id) const;
+        void refreshMenuLanguage();
         [[nodiscard]] QString FontOverride() const;
         [[nodiscard]] double DeviceDensity() const;
         [[nodiscard]] bool BackdropSuspended() const { return _backdropSuspended; }
@@ -157,6 +164,7 @@ namespace MphRead::Qt
 
     signals:
         void mapsChanged();
+        void menuLanguageChanged();
         void pageChanged();
         void startupChanged();
         void roomsChanged();

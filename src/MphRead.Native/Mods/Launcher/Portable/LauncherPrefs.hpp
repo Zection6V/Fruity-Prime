@@ -128,6 +128,10 @@ namespace MphRead::Mods::Launcher
         [[nodiscard]] static bool WindowMaximized() noexcept;
         static void WindowMaximized(bool value) noexcept;
 
+        // Independent from the language of the game's text.
+        [[nodiscard]] static const std::string& MenuLanguage() noexcept;
+        static void MenuLanguage(std::string value);
+
         [[nodiscard]] static bool DebugLogs() noexcept;
         static void DebugLogs(bool value) noexcept;
 
@@ -171,6 +175,7 @@ namespace MphRead::Mods::Launcher
         static bool _windowMaximized;
         static bool _windowedFullscreen;
         static bool _windowedFullscreenRead;
+        static std::string _menuLanguage;
         static bool _debugLogs;
     };
 }

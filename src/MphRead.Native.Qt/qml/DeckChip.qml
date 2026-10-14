@@ -5,7 +5,7 @@ Item {
     id: root
     property string key
     property string value
-    readonly property string keyText: key.toUpperCase()
+    readonly property string keyText: Theme.tr(key).toUpperCase()
     readonly property string valueText: value.toUpperCase()
 
     TextMetrics { id: k; font.family: Theme.pixel; font.pixelSize: 10; text: root.keyText }

@@ -152,6 +152,7 @@ namespace MphRead::Mods::Launcher
     bool LauncherPrefs::_windowedFullscreenRead = false;
     MphRead::Mods::WindowStartMode LauncherPrefs::_windowMode
         = static_cast<MphRead::Mods::WindowStartMode>(0);
+    std::string LauncherPrefs::_menuLanguage = "en";
     bool LauncherPrefs::_debugLogs = true;
 
     std::string LauncherPrefs::Directory()
@@ -431,6 +432,17 @@ namespace MphRead::Mods::Launcher
         }
     }
 
+    const std::string& LauncherPrefs::MenuLanguage() noexcept
+    {
+        return _menuLanguage;
+    }
+
+    void LauncherPrefs::MenuLanguage(std::string value)
+    {
+        if (value == "en" || value == "ja" || value == "fr")
+            _menuLanguage = std::move(value);
+    }
+
     bool LauncherPrefs::DebugLogs() noexcept
     {
         return _debugLogs;
@@ -654,6 +666,10 @@ namespace MphRead::Mods::Launcher
                         _autoUpdate = autoUpdate;
                     }
                 }
+                else if (key == "menu_language")
+                {
+                    MenuLanguage(std::string(value));
+                }
                 else if (key == "debug_logs")
                 {
                     bool debugLogs = false;
@@ -686,7 +702,7 @@ namespace MphRead::Mods::Launcher
         {
             const std::string path = Path();
             std::vector<std::string> lines;
-            lines.reserve(18);
+            lines.reserve(26);
             lines.emplace_back(
                 "# " + std::string(Branding::Name) + " launcher preferences.");
             lines.emplace_back("server_address=" + _serverAddress);
@@ -719,6 +735,7 @@ namespace MphRead::Mods::Launcher
             lines.emplace_back(
                 std::string("auto_update=")
                     + (_autoUpdate ? "true" : "false"));
+            lines.emplace_back("menu_language=" + _menuLanguage);
             lines.emplace_back(
                 std::string("debug_logs=")
                     + (_debugLogs ? "true" : "false"));

@@ -91,7 +91,7 @@ Page {
         }
     }
 
-    no: Mark { shape: "cancel"; label: "back"; onClicked: page.close() }
+    no: Mark { shape: "cancel"; label: Theme.tr("back"); onClicked: page.close() }
     yes: Mark { shape: "accept"; label: page.single ? "use this map" : "use these maps"; onClicked: page.commit() }
 
     Keys.onPressed: event => {

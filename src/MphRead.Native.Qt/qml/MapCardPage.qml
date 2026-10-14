@@ -11,7 +11,7 @@ Page {
 
     widthEms: 44
     fill: true
-    heading: "choose map"
+    heading: Theme.tr("choose map")
 
     body: Item {
         MapSetSwitch {
@@ -43,15 +43,15 @@ Page {
             id: note
             y: parent.height - height
             width: parent.width
-            text: ShellHost.rooms.length === 0 ? "No multiplayer rooms were found. Set the game files up from Settings."
+            text: ShellHost.rooms.length === 0 ? Theme.tr("No multiplayer rooms were found. Set the game files up from Settings.")
                 : page.selected.length === 0 ? "Choose a map." : "Selected: " + ShellHost.roomName(page.selected)
             color: ShellHost.rooms.length === 0 ? Theme.warm : Theme.textDim
         }
     }
 
-    no: Mark { shape: "cancel"; label: "back"; onClicked: page.cancelled() }
+    no: Mark { shape: "cancel"; label: Theme.tr("back"); onClicked: page.cancelled() }
     yes: Mark {
-        shape: "accept"; label: "use map"
+        shape: "accept"; label: Theme.tr("use map")
         enabled: page.selected.length > 0
         onClicked: page.done(page.selected)
     }

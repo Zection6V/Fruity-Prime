@@ -61,14 +61,14 @@ Column {
                         y: parent.bare ? 0 : 8
                         width: parent.width
                         height: parent.bare ? 26 : 30
-                        text: slot.row.label
+                        text: Theme.tr(slot.row.label)
                     }
                 }
             }
             Component {
                 id: note
                 Note {
-                    text: slot.row.live
+                    text: Theme.tr(slot.row.live)
                     lines: slot.row.lines
                     color: slot.row.colour !== undefined ? slot.row.colour : Theme.textDim
                 }
@@ -76,7 +76,7 @@ Column {
             Component {
                 id: plain
                 Text {
-                    text: slot.row.text
+                    text: Theme.tr(slot.row.text)
                     wrapMode: Text.Wrap
                     font.family: Theme.pixel; font.pixelSize: 11
                     color: Theme.textDim
@@ -85,8 +85,8 @@ Column {
             Component {
                 id: choice
                 ChoiceRow {
-                    label: slot.row.label
-                    options: slot.row.options
+                    label: Theme.tr(slot.row.label)
+                    options: slot.row.options.map(x => Theme.tr(x))
                     Binding on index { value: slot.row.index }
                     onChanged: rows.model.setIndex(slot.index, index)
                     preview: slot.row.preview === "crosshair" ? crosshair : null
@@ -99,7 +99,7 @@ Column {
             Component {
                 id: slider
                 SliderRow {
-                    label: slot.row.label
+                    label: Theme.tr(slot.row.label)
                     min: slot.row.min; max: slot.row.max; step: slot.row.step
                     labelWidth: slot.row.labelWidth
                     Binding on value { value: slot.row.value }
@@ -110,7 +110,7 @@ Column {
             Component {
                 id: toggle
                 ToggleRow {
-                    label: slot.row.label
+                    label: Theme.tr(slot.row.label)
                     Binding on on { value: slot.row.on }
                     onChanged: rows.model.setOn(slot.index, on)
                 }
@@ -118,8 +118,9 @@ Column {
             Component {
                 id: field
                 FieldRow {
-                    label: slot.row.label
+                    label: Theme.tr(slot.row.label)
                     boxWidth: slot.row.boxWidth
+                    // User-entered values are data, never translatable UI labels.
                     text: slot.row.text
                     onEdited: t => rows.model.setText(slot.index, t)
                 }
@@ -132,7 +133,7 @@ Column {
                         id: link
                         size: slot.row.textSize
                         enabled: slot.row.enabled
-                        text: slot.row.live
+                        text: Theme.tr(slot.row.live)
                         colour: slot.row.colour !== undefined ? slot.row.colour : Theme.text
                         onClicked: rows.model.click(slot.index)
                     }
@@ -144,7 +145,7 @@ Column {
                     height: deck.height
                     DeckButton {
                         id: deck
-                        text: slot.row.text
+                        text: Theme.tr(slot.row.text)
                         face: Theme[slot.row.face] || Theme.slate
                         em: Theme.em
                         sizeEms: 0.9; padXEms: 0.8; padYEms: 0.38; lip: 3
@@ -156,7 +157,7 @@ Column {
             Component {
                 id: key
                 KeyRow {
-                    label: slot.row.label
+                    label: Theme.tr(slot.row.label)
                     binding: slot.row.live
                     keysOnly: slot.row.binding < 0
                     listening: rows.settings.listening && rows.settings.keyRow() === slot.index
@@ -170,7 +171,7 @@ Column {
             Component {
                 id: pad
                 PadRow {
-                    label: slot.row.label
+                    label: Theme.tr(slot.row.label)
                     pad: slot.row.extra
                     live: slot.row.live
                     chosenSlot: slot.row.index

@@ -303,7 +303,7 @@ namespace MphRead.Text
                 else
                 {
                     int index = value[++i] & 0x3F | ((c & 0x1F) << 6);
-                    if (index >= 128 && index - 128 <= _nonAscii.Count)
+                    if (index >= 128 && index - 128 < _nonAscii.Count)
                     {
                         sb.Append(_nonAscii[index - 128]);
                     }

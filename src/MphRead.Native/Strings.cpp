@@ -269,7 +269,7 @@ namespace MphRead::Text
             {
                 const std::uint8_t next = static_cast<std::uint8_t>(value.at(++i));
                 const std::int32_t index = static_cast<std::int32_t>(next & 0x3FU) | (static_cast<std::int32_t>(c & 0x1FU) << 6);
-                if (index >= 128 && static_cast<std::size_t>(index - 128) <= _nonAscii.size())
+                if (index >= 128 && static_cast<std::size_t>(index - 128) < _nonAscii.size())
                 {
                     result += _nonAscii.at(static_cast<std::size_t>(index - 128));
                 }

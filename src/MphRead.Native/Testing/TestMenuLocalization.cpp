@@ -1,5 +1,5 @@
 #include "../Mods/ClassicMenu/MenuLocalization.hpp"
-#include "../Mods/ClassicMenu/MenuK8x12LGlyphs.hpp"
+#include "MenuK8x12L.generated.hpp"
 
 #include <iostream>
 #include <string>
@@ -17,12 +17,15 @@ namespace
 int main()
 {
     int fail = 0;
-    // The generated, sorted k8x12L bitmap subset is compile-time data.
+    // The entire upstream bitmap font is included at build time, not a
+    // hand-maintained subset tied to one version of ja.json.
+    static_assert(K8x12LGlyphs.size() == 7170);
     static_assert(FindK8x12LGlyph(U'画') != nullptr);
     static_assert(FindK8x12LGlyph(U'音') != nullptr);
-    static_assert(FindK8x12LGlyph(U'あ') == nullptr); // Original DS glyph.
-    static_assert(FindK8x12LGlyph(U'ヶ') == nullptr); // Original DS glyph.
-    fail += Check(K8x12LGlyphs.size() > 100, "Japanese k8x12L subset is present");
+    static_assert(FindK8x12LGlyph(U'あ') != nullptr); // DS gets priority at draw time.
+    static_assert(FindK8x12LGlyph(U'ヶ') != nullptr); // Full font also contains kana.
+    static_assert(FindK8x12LGlyph(U'↗') == nullptr); // Not in upstream font.
+    fail += Check(K8x12LGlyphs.size() == 7170, "complete k8x12L font is present");
     for (std::size_t i = 0; i < K8x12LGlyphs.size(); ++i)
     {
         const auto& glyph = K8x12LGlyphs[i];

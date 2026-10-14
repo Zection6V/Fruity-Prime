@@ -1004,7 +1004,22 @@ add_custom_command(
     COMMENT "Validate and generate static ClassicMenu locale catalog"
     VERBATIM)
 add_custom_target(fruity_classicmenu_locale_data DEPENDS "${FRUITY_CLASSICMENU_GENERATED_HEADER}")
-add_dependencies(fruity_mphread_native fruity_classicmenu_locale_data)
+# Compile the complete, checked-in k8x12L BDF once on the build host.
+# Neither runtime font parsing nor a translation-specific glyph list is needed.
+set(FRUITY_CLASSICMENU_BDF "${FRUITY_MPHREAD_ROOT}/Mods/ClassicMenu/Fonts/k8x12L.bdf")
+set(FRUITY_CLASSICMENU_FONT_HEADER "${FRUITY_CLASSICMENU_GENERATED_DIR}/MenuK8x12L.generated.hpp")
+add_custom_command(
+    OUTPUT "${FRUITY_CLASSICMENU_FONT_HEADER}"
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate-classicmenu-bitmap-font.py"
+        --bdf "${FRUITY_CLASSICMENU_BDF}"
+        --output "${FRUITY_CLASSICMENU_FONT_HEADER}"
+    DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate-classicmenu-bitmap-font.py"
+        "${FRUITY_CLASSICMENU_BDF}"
+    COMMENT "Compile complete k8x12L font (all 7170 glyphs)"
+    VERBATIM)
+add_custom_target(fruity_classicmenu_font_data DEPENDS "${FRUITY_CLASSICMENU_FONT_HEADER}")
+add_dependencies(fruity_mphread_native fruity_classicmenu_locale_data fruity_classicmenu_font_data)
 target_include_directories(fruity_mphread_native PRIVATE "${FRUITY_CLASSICMENU_GENERATED_DIR}")
 fruity_collect_owner("${FRUITY_QT_ROOT}" MPHREAD_QT_SOURCES MPHREAD_QT_HEADERS)
 if(ANDROID)
@@ -1319,7 +1334,7 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
         src/MphRead.Native/Mods/ClassicMenu/MenuLocalization.cpp
         src/MphRead.Native/Testing/TestMenuLocalization.cpp)
     target_compile_features(fruity_menu_localization_tests PRIVATE cxx_std_20)
-    add_dependencies(fruity_menu_localization_tests fruity_classicmenu_locale_data)
+    add_dependencies(fruity_menu_localization_tests fruity_classicmenu_locale_data fruity_classicmenu_font_data)
     target_include_directories(fruity_menu_localization_tests PRIVATE "${FRUITY_CLASSICMENU_GENERATED_DIR}")
     if(MSVC)
         target_compile_options(fruity_menu_localization_tests PRIVATE /utf-8)

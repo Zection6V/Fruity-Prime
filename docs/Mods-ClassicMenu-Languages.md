@@ -25,37 +25,51 @@ Build generation is mandatory for native and test builds, including Android cros
 Validate manually with all three languages in title, options, server browser, lobby, pause, results and while switching language; verify the game language is unchanged. Measure initial load, text draw CPU cost, atlas pages/bytes and representative FPS before asserting numerical performance improvements.
 
 
-## Japanese bitmap glyph fallback
+## Japanese bitmap fallback: complete k8x12L
 
-The original DS hudfont (8x8) is tried first through the game's
-`Strings::_nonAscii` correspondence table. For unsupported Japanese Unicode
-in `Languages/ja.json`, the menu uses 249 embedded 8x12 bitmap glyphs
-from **k8x12L (2021-05-05, Num Kadoma)**, precomputed at development time.
-The remaining unsupported characters use Qt as a last-resort fallback.
-DS game language and Mods/ClassicMenu language are independent.
+The source of truth is the **complete upstream k8x12L.bdf**, checked in at
+`src/MphRead.Native/Mods/ClassicMenu/Fonts/k8x12L.bdf`. It is the original
+2021-05-05 version by Num Kadoma (**7,170 glyphs**). No transliteration
+tables, bitmap arrays, or per-Japanese-translation glyph lists are maintained.
 
-Source and license: https://littlelimit.net/k8x12.htm and
-https://littlelimit.net/font.htm#license. Copyright (C) 2015-2021 Num Kadoma.
-Unlimited permission to use, copy, modify and distribute commercially or
-noncommercially; no warranty. The checked-in glyph subset is derivative data.
+CMake runs `tools/generate-classicmenu-bitmap-font.py` with the complete
+BDF and emits `generated/classicmenu/MenuK8x12L.generated.hpp`
+**inside the build tree**. The output is not checked in. The build depends
+on both the script and the BDF, so changing the font automatically rebuilds
+the generated compact data. The 7,170 8x12 bitmaps plus 32-bit Unicode
+codepoints occupy **114,720 bytes (112.0 KiB)** of read-only memory (16
+bytes per record); neither the large BDF text nor a runtime parser is
+included in the executable.
 
-When the Japanese locale changes, download the original `k8x12L.bdf` and run:
+The menu's font resolver uses:
+1. Original DS 8x8 `hudfont` whenever a packed original-game glyph exists.
+2. k8x12L for other Unicode scalars present in the full bitmap font.
+3. Qt font rasterization only for characters not contained in either font.
+
+Glyph metadata is binary-searched directly in the sorted static array; no
+runtime hash map of the full font is constructed. Glyphs are **lazily copied**
+into shared 256x256 pixel atlas pages on first encounter, and only rendered
+characters consume GPU/CPU atlas space. Source bitmap rows remain 8x12 and
+are scaled to the same 8-unit display height as the DS glyphs. Glyphs
+already cached by the menu are not rasterized again. Qt's final fallback
+remains for e.g. U+2197, absent from k8x12L.
+
+**License / provenance:** k8x12L BDF (2021-05-05), Copyright (C)
+2015-2021 Num Kadoma; https://littlelimit.net/k8x12.htm and
+https://littlelimit.net/font.htm#license. Permission to use, copy, modify
+and distribute is unrestricted, including commercial use. Supplied AS IS,
+without warranty. The author's original BDF copyright header is retained.
+
+The font generator runs automatically with CMake; for manual regeneration:
 ```sh
-python tools/generate-classicmenu-bitmap-font.py --bdf /path/to/k8x12L.bdf
-python tools/generate-classicmenu-bitmap-font.py --bdf /path/to/k8x12L.bdf --check
+python tools/generate-classicmenu-bitmap-font.py \
+  --bdf src/MphRead.Native/Mods/ClassicMenu/Fonts/k8x12L.bdf \
+  --output /tmp/MenuK8x12L.generated.hpp
 ```
-The checked-in header contains only missing characters used by the locale;
-it is not the entire font and has no runtime BDF parsing.
 
-### Ownership of the original game glyph mapping
+### Glyph ownership
 
-`Text::Strings` owns the original packed game-code-to-Unicode conversion
-table and exposes a read-only span. The reverse resolver
-`Mods/ClassicMenu/MenuGameGlyphMap.cpp::FindGameGlyphCode` belongs to the
-menu module; it initializes a sorted reverse index only when first needed,
-without per-frame allocations or modification of the game's string decoding.
-
-The unified Qt+DS menu translations currently require **249** k8x12L glyphs not
-present in DS hudfont. U+2197 (share-link arrow) is not present in k8x12L;
-Qt font fallback continues to render it. The glyph subset must be regenerated
-whenever the shared Japanese menu locale changes.
+`Text::Strings` owns the original game's packed-code to Unicode table.
+`Mods/ClassicMenu/MenuGameGlyphMap.cpp::FindGameGlyphCode` performs the
+menu-only reverse lookup. Both original DS and k8x12L glyphs are drawn
+without changing the underlying game's language or string handling.

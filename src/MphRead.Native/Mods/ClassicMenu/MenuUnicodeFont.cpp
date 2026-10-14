@@ -1,5 +1,5 @@
 #include "MenuData.hpp"
-#include "MenuK8x12LGlyphs.hpp"
+#include "MenuK8x12L.generated.hpp"
 
 #include <QtCore/QString>
 #include <QtGui/QFont>

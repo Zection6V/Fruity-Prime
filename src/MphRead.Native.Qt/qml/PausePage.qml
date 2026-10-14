@@ -50,19 +50,19 @@ FocusScope {
                     face: Theme.slate
                     KeyNavigation.priority: KeyNavigation.BeforeItem
                 }
-                Entry { id: resume; text: "Resume"; face: Theme.moss; focus: true; onClicked: ShellHost.resume() }
-                Entry { text: "Accept map vote"; face: Theme.moss; visible: page.state.vote; onClicked: ShellHost.answerVote(true) }
-                Entry { text: "Deny map vote"; face: Theme.rust; visible: page.state.vote; onClicked: ShellHost.answerVote(false) }
-                Entry { text: "Vote map"; visible: page.state.net; onClicked: page.voteMap() }
-                Entry { text: "Rejoin match"; visible: page.state.spectating; onClicked: ShellHost.rejoin() }
-                Entry { text: "Spectate"; visible: page.state.canSpectate; onClicked: ShellHost.spectate() }
+                Entry { id: resume; text: Theme.tr("Resume"); face: Theme.moss; focus: true; onClicked: ShellHost.resume() }
+                Entry { text: Theme.tr("Accept map vote"); face: Theme.moss; visible: page.state.vote; onClicked: ShellHost.answerVote(true) }
+                Entry { text: Theme.tr("Deny map vote"); face: Theme.rust; visible: page.state.vote; onClicked: ShellHost.answerVote(false) }
+                Entry { text: Theme.tr("Vote map"); visible: page.state.net; onClicked: page.voteMap() }
+                Entry { text: Theme.tr("Rejoin match"); visible: page.state.spectating; onClicked: ShellHost.rejoin() }
+                Entry { text: Theme.tr("Spectate"); visible: page.state.canSpectate; onClicked: ShellHost.spectate() }
                 // A phone has no window to change.
                 Entry { text: ShellHost.windowLabel; visible: !Theme.phone; onClicked: ShellHost.toggleFullscreen() }
                 Entry { text: page.state.recording ? "Stop recording" : "Record demo"; visible: page.state.net
                         onClicked: ShellHost.toggleRecording() }
-                Entry { text: "Settings"; onClicked: page.settings() }
-                Entry { text: "Leave match"; face: Theme.brass; onClicked: ShellHost.leaveMatch() }
-                Entry { text: "Quit"; face: Theme.rust; onClicked: ShellHost.quitFromMatch() }
+                Entry { text: Theme.tr("Settings"); onClicked: page.settings() }
+                Entry { text: Theme.tr("Leave match"); face: Theme.brass; onClicked: ShellHost.leaveMatch() }
+                Entry { text: Theme.tr("Quit"); face: Theme.rust; onClicked: ShellHost.quitFromMatch() }
             }
         }
     }

@@ -63,7 +63,7 @@ FocusScope {
                         width: parent.width
                         anchors.verticalCenter: parent.verticalCenter
                         horizontalAlignment: Text.AlignHCenter
-                        text: "The rotation decides where next."
+                        text: Theme.tr("The rotation decides where next.")
                     }
                     Column {
                         visible: tabs.index === 1
@@ -79,7 +79,7 @@ FocusScope {
                         ChoiceRow {
                             id: hunterRow
                             width: parent.width
-                            label: "Hunter"
+                            label: Theme.tr("Hunter")
                             options: ["Samus", "Kanden", "Trace", "Sylux", "Noxus", "Spire", "Weavel"]
                             index: panel.state.hunter
                             onChanged: ShellHost.endPick(hunterRow.index, suitRow.index)
@@ -87,7 +87,7 @@ FocusScope {
                         ChoiceRow {
                             id: suitRow
                             width: parent.width
-                            label: "Suit"
+                            label: Theme.tr("Suit")
                             options: ["1", "2", "3", "4"]
                             index: panel.state.suit
                             preview: Component { Rectangle { radius: 3; color: ShellHost.suitColour(hunterRow.index, suitRow.index) } }
@@ -108,7 +108,7 @@ FocusScope {
                     DeckButton {
                         id: ready
                         anchors.right: parent.right
-                        text: "READY"
+                        text: Theme.tr("READY")
                         face: panel.state.ready ? Theme.moss : Theme.slate
                         em: Theme.em; sizeEms: 1.25; padXEms: 1.3; padYEms: 0.45; lip: 5
                         width: implicitWidth; height: implicitHeight

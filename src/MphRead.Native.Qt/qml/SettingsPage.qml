@@ -43,7 +43,7 @@ Page {
 
     Tabs {
         id: tabs
-        names: ["Display", "Audio", "Controls", "Profile", "Credits"]
+        names: ["Display", "Audio", "Controls", "Profile", "Credits"].map(x => Theme.tr(x))
         index: page.section
         onChanged: flick.contentY = 0
     }
@@ -68,7 +68,7 @@ Page {
                         id: subTabs
                         padTabs: false
                         x: Theme.roundEven((parent.width - width) / 2)
-                        names: ["Keyboard", "Gamepad", "Stylus"]
+                        names: ["Keyboard", "Gamepad", "Stylus"].map(x => Theme.tr(x))
                         index: page.subsection
                         onChanged: flick.contentY = 0
                     }
@@ -93,8 +93,8 @@ Page {
         ThinScroll { flick: flick }
     }
 
-    no: Mark { shape: "cancel"; label: "cancel"; onClicked: settings.cancel() }
-    yes: Mark { shape: "accept"; label: page.overGame ? "apply" : "save"; onClicked: settings.save() }
+    no: Mark { shape: "cancel"; label: Theme.tr("cancel"); onClicked: settings.cancel() }
+    yes: Mark { shape: "accept"; label: page.overGame ? Theme.tr("apply") : Theme.tr("save"); onClicked: settings.save() }
     // The save error floats over the foot, as SettingsView docks it.
     Note {
         visible: settings.error.length > 0

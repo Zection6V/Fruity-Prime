@@ -50,14 +50,14 @@ FocusScope {
                 anchors.horizontalCenter: parent.horizontalCenter
                 anchors.bottom: parent.bottom
                 spacing: 16
-                Mark { shape: "cancel"; label: "Leave"; onClicked: lobby.leave("") }
+                Mark { shape: "cancel"; label: Theme.tr("Leave"); onClicked: lobby.leave("") }
                 Mark {
                     shape: "accept"; label: lobby.readyLabel
                     enabled: lobby.playerEnabled
                     onClicked: lobby.toggleReady()
                 }
                 Mark {
-                    shape: "accept"; label: "Start match"
+                    shape: "accept"; label: Theme.tr("Start match")
                     visible: lobby.owner
                     enabled: lobby.startEnabled
                     onClicked: lobby.startMatch()
@@ -77,7 +77,7 @@ FocusScope {
                 anchors.bottomMargin: 5
                 spacing: 3
                 Text {
-                    text: "CHAT"
+                    text: Theme.tr("CHAT")
                     bottomPadding: 2
                     font.family: Theme.pixel; font.pixelSize: 11
                     color: Theme.textDim
@@ -111,7 +111,7 @@ FocusScope {
                     DeckButton {
                         id: send
                         x: parent.width - width
-                        text: "Send"; face: Theme.blue
+                        text: Theme.tr("Send"); face: Theme.blue
                         em: Theme.em; sizeEms: 0.82; padXEms: 0.8; padYEms: 0.34; lip: 4
                         width: implicitWidth; height: implicitHeight
                         onClicked: { lobby.sendChat(chatEntry.text); chatEntry.text = "" }
@@ -133,7 +133,7 @@ FocusScope {
                     id: leftColumn
                     width: columns.leftWidth - 18
                     spacing: 2
-                    Caption { width: parent.width; text: "Players" }
+                    Caption { width: parent.width; text: Theme.tr("Players") }
                     Repeater {
                         model: lobby.players
                         Item {
@@ -168,21 +168,21 @@ FocusScope {
                             }
                         }
                     }
-                    Caption { width: parent.width; text: "Your player" }
+                    Caption { width: parent.width; text: Theme.tr("Your player") }
                     ChoiceRow {
-                        width: parent.width; label: "Hunter"; options: lobby.hunters
+                        width: parent.width; label: Theme.tr("Hunter"); options: lobby.hunters
                         enabled: lobby.playerEnabled
                         Binding on index { value: lobby.hunter }
                         onChanged: lobby.setHunter(index)
                     }
                     ChoiceRow {
-                        width: parent.width; label: "Suit"; options: ["1", "2", "3", "4"]
+                        width: parent.width; label: Theme.tr("Suit"); options: ["1", "2", "3", "4"]
                         enabled: lobby.playerEnabled
                         Binding on index { value: lobby.suit }
                         onChanged: lobby.setSuit(index)
                     }
                     ChoiceRow {
-                        width: parent.width; label: "Team"; options: lobby.teams
+                        width: parent.width; label: Theme.tr("Team"); options: lobby.teams
                         visible: lobby.chooseTeams
                         enabled: lobby.teamEnabled
                         Binding on index { value: lobby.team }
@@ -192,14 +192,14 @@ FocusScope {
                         visible: lobby.owner
                         width: parent.width
                         spacing: 2
-                        Caption { width: parent.width; text: "Owner actions" }
+                        Caption { width: parent.width; text: Theme.tr("Owner actions") }
                         ChoiceRow {
-                            width: parent.width; label: "Manage player"; options: lobby.targets
+                            width: parent.width; label: Theme.tr("Manage player"); options: lobby.targets
                             Binding on index { value: lobby.target }
                             onChanged: lobby.target = index
                         }
                         ChoiceRow {
-                            width: parent.width; label: "Move to team"; options: lobby.teams
+                            width: parent.width; label: Theme.tr("Move to team"); options: lobby.teams
                             visible: lobby.chooseTeams
                             Binding on index { value: lobby.moveTeam }
                             onChanged: lobby.moveTeam = index
@@ -211,9 +211,9 @@ FocusScope {
                                 em: Theme.em; sizeEms: 0.82; padXEms: 0.8; padYEms: 0.34; lip: 4
                                 width: implicitWidth; height: implicitHeight
                             }
-                            Small { text: "Move"; face: Theme.blue; visible: lobby.chooseTeams; onClicked: lobby.admin(0) }
-                            Small { text: "Transfer"; face: Theme.brass; onClicked: lobby.admin(1) }
-                            Small { text: "Kick"; face: Theme.rust; onClicked: lobby.admin(2) }
+                            Small { text: Theme.tr("Move"); face: Theme.blue; visible: lobby.chooseTeams; onClicked: lobby.admin(0) }
+                            Small { text: Theme.tr("Transfer"); face: Theme.brass; onClicked: lobby.admin(1) }
+                            Small { text: Theme.tr("Kick"); face: Theme.rust; onClicked: lobby.admin(2) }
                         }
                     }
                 }
@@ -234,21 +234,21 @@ FocusScope {
                         visible: status === Image.Ready
                     }
                     PickRow {
-                        width: parent.width; label: "Map"; value: lobby.mapName
+                        width: parent.width; label: Theme.tr("Map"); value: lobby.mapName
                         onClicked: if (lobby.canEdit()) page.showing = "map"
                     }
                     ChoiceRow {
-                        width: parent.width; label: "Game type"; options: lobby.modes
+                        width: parent.width; label: Theme.tr("Game type"); options: lobby.modes
                         Binding on index { value: lobby.mode }
                         onChanged: lobby.setMode(index)
                     }
                     ChoiceRow {
-                        width: parent.width; label: "Matchup"; options: lobby.matchups
+                        width: parent.width; label: Theme.tr("Matchup"); options: lobby.matchups
                         Binding on index { value: lobby.matchup }
                         onChanged: lobby.setMatchup(index)
                     }
                     PickRow {
-                        width: parent.width; label: "Custom teams"; value: lobby.customTeams
+                        width: parent.width; label: Theme.tr("Custom teams"); value: lobby.customTeams
                         visible: lobby.customTeamsShown
                         onClicked: if (lobby.canEdit()) page.showing = "teams"
                     }
@@ -256,7 +256,7 @@ FocusScope {
                         width: parent.width
                         spacing: 12
                         FieldRow {
-                            width: (parent.width - 12) / 2; label: "Time limit (minutes)"; boxWidth: 80
+                            width: (parent.width - 12) / 2; label: Theme.tr("Time limit (minutes)"); boxWidth: 80
                             text: lobby.time
                             onEdited: t => lobby.setTime(t)
                         }

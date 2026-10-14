@@ -6,7 +6,7 @@ Page {
     id: page
     property var nav
     widthEms: 44
-    heading: "game files"
+    heading: Theme.tr("game files")
 
     SetupModel {
         id: setup
@@ -62,7 +62,7 @@ Page {
     }
 
     no: Mark {
-        shape: "cancel"; label: "back"
+        shape: "cancel"; label: Theme.tr("back")
         visible: setup.ready
         onClicked: if (page.nav) page.nav.pop()
     }

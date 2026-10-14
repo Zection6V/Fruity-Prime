@@ -11,7 +11,7 @@ Page {
 
     widthEms: 44
     fill: true
-    heading: "choose map"
+    heading: Theme.tr("choose map")
 
     body: Item {
         MapSetSwitch {
@@ -49,9 +49,9 @@ Page {
         }
     }
 
-    no: Mark { shape: "cancel"; label: "back"; onClicked: page.cancelled() }
+    no: Mark { shape: "cancel"; label: Theme.tr("back"); onClicked: page.cancelled() }
     yes: Mark {
-        shape: "accept"; label: "use map"
+        shape: "accept"; label: Theme.tr("use map")
         enabled: page.selected.length > 0
         onClicked: page.done(page.selected)
     }

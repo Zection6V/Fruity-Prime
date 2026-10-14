@@ -57,7 +57,7 @@ Page {
             DeckButton {
                 id: refresh
                 anchors.right: parent.right
-                text: "Refresh"; face: Theme.slate
+                text: Theme.tr("Refresh"); face: Theme.slate
                 em: Theme.em; sizeEms: 0.95; padXEms: 0.8; padYEms: 0.4; lip: 3
                 width: implicitWidth; height: implicitHeight
                 onClicked: playModel.reloadServers()
@@ -138,7 +138,7 @@ Page {
                 id: storyHunter
                 visible: play.current === 2
                 width: parent.width
-                label: "Hunter"
+                label: Theme.tr("Hunter")
                 options: playModel.hunters
                 index: playModel.lastHunter
                 KeyNavigation.down: storyStart
@@ -147,7 +147,7 @@ Page {
                 id: storyStart
                 visible: play.current === 2
                 width: parent.width
-                label: "Start"
+                label: Theme.tr("Start")
                 // RefreshStory: a slot in use can be continued.
                 options: list.selectedIndex >= 0 && playModel.saveSlots.length > list.selectedIndex
                          && playModel.saveSlots[list.selectedIndex].used ? ["Continue", "New game"] : ["New game"]
@@ -205,7 +205,7 @@ Page {
                         id: closeButton
                         anchors.right: parent.right
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "x"; face: Theme.slate; em: Theme.em
+                        text: Theme.tr("x"); face: Theme.slate; em: Theme.em
                         sizeEms: 1; padXEms: 0.6; padYEms: 0.3; lip: 2
                         width: implicitWidth; height: implicitHeight
                         onClicked: side.open = false
@@ -264,20 +264,20 @@ Page {
                             id: sideMode
                             visible: !play.sideOnline
                             width: parent.width
-                            label: "Match type"
+                            label: Theme.tr("Match type")
                             options: playModel.modes
                         }
                         ChoiceRow {
                             id: sideHunter
                             width: parent.width
-                            label: "Hunter"
+                            label: Theme.tr("Hunter")
                             options: playModel.hunters
                             index: playModel.lastHunter
                         }
                         ChoiceRow {
                             id: sideSuit
                             width: parent.width
-                            label: "Suit"
+                            label: Theme.tr("Suit")
                             options: ["1", "2", "3", "4"]
                             index: playModel.lastColour
                             preview: Component { Rectangle { radius: 3; color: playModel.suitColour(sideHunter.index, sideSuit.index) } }
@@ -286,7 +286,7 @@ Page {
                             id: sideBots
                             visible: !play.sideOnline
                             width: parent.width
-                            label: "Bots"
+                            label: Theme.tr("Bots")
                             options: playModel.bots
                             index: playModel.lastBots
                         }
@@ -294,7 +294,7 @@ Page {
                             id: sideSkill
                             visible: !play.sideOnline
                             width: parent.width
-                            label: "Bot skill"
+                            label: Theme.tr("Bot skill")
                             options: ["Easy", "Normal", "Hard", "Insane"]
                             index: playModel.lastSkill
                         }
@@ -306,7 +306,7 @@ Page {
                 height: sideGo.height
                 DeckButton {
                     id: sideBack
-                    text: "Back"; face: Theme.brass; em: Theme.em
+                    text: Theme.tr("Back"); face: Theme.brass; em: Theme.em
                     sizeEms: 1.1; padXEms: 0.9; padYEms: 0.5; lip: 5
                     width: implicitWidth; height: implicitHeight
                     anchors.verticalCenter: parent.verticalCenter
@@ -325,7 +325,7 @@ Page {
     }
 
     // ------------------------------------------------------------ marks
-    no: Mark { id: backMark; shape: "cancel"; label: "back"; onClicked: play.leave() }
+    no: Mark { id: backMark; shape: "cancel"; label: Theme.tr("back"); onClicked: play.leave() }
     extra: Mark {
         id: lobbyMark
         shape: "add"; label: play.current === 1 ? "download maps" : "create lobby"

@@ -29,7 +29,7 @@ Item {
         visible: screen.showing === "form"
         focus: visible
         widthEms: 44
-        heading: "create lobby"
+        heading: Theme.tr("create lobby")
 
         body: Item {
             implicitHeight: column.height
@@ -46,17 +46,17 @@ Item {
                     FieldRow {
                         id: nameRow
                         width: parent.width
-                        label: "Lobby name"
+                        label: Theme.tr("Lobby name")
                         boxWidth: 230
                         text: create.lobbyName
                         focus: true
                         KeyNavigation.down: modeRow
                     }
-                    ChoiceRow { id: modeRow; width: parent.width; label: "Game type"; options: create.modes; KeyNavigation.down: hunterRow }
+                    ChoiceRow { id: modeRow; width: parent.width; label: Theme.tr("Game type"); options: create.modes; KeyNavigation.down: hunterRow }
                     ChoiceRow {
                         id: hunterRow
                         width: parent.width
-                        label: "Your hunter"
+                        label: Theme.tr("Your hunter")
                         options: create.hunters
                         index: create.lastHunter
                         KeyNavigation.down: mapsRow
@@ -64,7 +64,7 @@ Item {
                     PickRow {
                         id: mapsRow
                         width: parent.width
-                        label: "Map rotation"
+                        label: Theme.tr("Map rotation")
                         value: create.mapsLabel
                         onClicked: if (!create.busy) screen.showing = "maps"
                         KeyNavigation.down: hostRow.visible ? hostRow : kindRow
@@ -73,7 +73,7 @@ Item {
                         id: hostRow
                         width: parent.width
                         visible: create.kind !== 1
-                        label: "Host on"
+                        label: Theme.tr("Host on")
                         value: create.hostLabel
                         onClicked: if (!create.busy) screen.showing = "hosts"
                         KeyNavigation.down: kindRow
@@ -82,7 +82,7 @@ Item {
                         id: kindRow
                         width: parent.width
                         visible: create.canRunHere
-                        label: "Hosting"
+                        label: Theme.tr("Hosting")
                         options: ["Hosted lobby", "Dedicated server"]
                         index: create.kind
                         onChanged: create.kind = index
@@ -99,7 +99,7 @@ Item {
             ThinScroll { flick: flick }
         }
 
-        no: Mark { shape: "cancel"; label: "back"; enabled: !create.busy; onClicked: screen.leave() }
+        no: Mark { shape: "cancel"; label: Theme.tr("back"); enabled: !create.busy; onClicked: screen.leave() }
         yes: Mark {
             shape: "accept"
             label: create.goLabel
@@ -108,7 +108,7 @@ Item {
         }
         extra: Mark {
             shape: "fetch"
-            label: "files required -- install"
+            label: Theme.tr("files required -- install")
             visible: create.fetchVisible
             onClicked: create.fetch()
         }

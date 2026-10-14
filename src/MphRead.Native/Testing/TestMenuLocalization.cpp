@@ -31,7 +31,7 @@ int main()
             fail += Check(K8x12LGlyphs[i - 1].Codepoint < glyph.Codepoint, "font glyph codes are sorted");
     }
     fail += Check(MenuLocalizationCatalogValid(), "generated catalog valid");
-    fail += Check(MenuLocalizationEntryCount() == 231, "all 231 original entries retained");
+    fail += Check(MenuLocalizationEntryCount() == 421, "all DS and Qt menu translations retained");
     fail += Check(ParseMenuLanguage("en") == MenuLanguage::English, "en");
     fail += Check(ParseMenuLanguage("ja") == MenuLanguage::Japanese, "ja");
     fail += Check(ParseMenuLanguage("fr") == MenuLanguage::French, "fr");
@@ -48,6 +48,12 @@ int main()
     fail += Check(TranslateMenuKey("menu.begin_game", MenuLanguage::French) == "COMMENCER", "stable key fr");
     fail += Check(TranslateMenuKey("menu.language_switch.label", MenuLanguage::Japanese) == "メニュー: 日本語", "switch");
     fail += Check(TranslateMenuText("offline\nbots", MenuLanguage::Japanese) == "オフライン\nBOT対戦", "multiline");
+    fail += Check(TranslateMenuText("SETTINGS", MenuLanguage::Japanese) == "設定", "Qt settings ja");
+    fail += Check(TranslateMenuText("Resume", MenuLanguage::Japanese) == "再開", "Qt pause ja");
+    fail += Check(TranslateMenuText("Menu language", MenuLanguage::Japanese) == "メニューの言語", "independent menu language ja");
+    fail += Check(TranslateMenuText("Menu language", MenuLanguage::French) == "Langue des menus", "menu language fr");
+    fail += Check(TranslateMenuText("Game text", MenuLanguage::Japanese) == "ゲーム内の文字", "game language separate");
+    fail += Check(TranslateMenuKey("menu.ui.settings", MenuLanguage::Japanese) == "設定", "Qt stable ID");
     const std::string custom = "My Custom Server Name";
     fail += Check(FindMenuTextIndex(custom) == UnknownMenuText, "custom label is not indexed");
     fail += Check(TranslateMenuText(custom, MenuLanguage::Japanese) == custom, "custom label unchanged");

@@ -23,3 +23,26 @@ ROM English strings resolve once into a compact `uint16_t` index per ROM ID as t
 Build generation is mandatory for native and test builds, including Android cross compilation (Python runs on the host). The standalone `FruityPrime.MenuLocalization` regression executable uses pure C++ without Qt, GPU, display, network, or ROM files.
 
 Validate manually with all three languages in title, options, server browser, lobby, pause, results and while switching language; verify the game language is unchanged. Measure initial load, text draw CPU cost, atlas pages/bytes and representative FPS before asserting numerical performance improvements.
+
+
+## Japanese bitmap glyph fallback
+
+The original DS hudfont (8x8) is tried first through the game's
+`Strings::_nonAscii` correspondence table. For unsupported Japanese Unicode
+in `Languages/ja.json`, the menu uses 142 embedded 8x12 bitmap glyphs
+from **k8x12L (2021-05-05, Num Kadoma)**, precomputed at development time.
+The remaining unsupported characters use Qt as a last-resort fallback.
+DS game language and Mods/ClassicMenu language are independent.
+
+Source and license: https://littlelimit.net/k8x12.htm and
+https://littlelimit.net/font.htm#license. Copyright (C) 2015-2021 Num Kadoma.
+Unlimited permission to use, copy, modify and distribute commercially or
+noncommercially; no warranty. The checked-in glyph subset is derivative data.
+
+When the Japanese locale changes, download the original `k8x12L.bdf` and run:
+```sh
+python tools/generate-classicmenu-bitmap-font.py --bdf /path/to/k8x12L.bdf
+python tools/generate-classicmenu-bitmap-font.py --bdf /path/to/k8x12L.bdf --check
+```
+The checked-in header contains only missing characters used by the locale;
+it is not the entire font and has no runtime BDF parsing.

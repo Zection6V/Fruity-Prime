@@ -1,4 +1,5 @@
 #include "MenuData.hpp"
+#include "MenuK8x12LGlyphs.hpp"
 
 #include <QtCore/QString>
 #include <QtGui/QFont>
@@ -23,22 +24,26 @@ namespace MphRead::Mods::ClassicMenu
         constexpr int AtlasSide = 256;
         constexpr int Padding = 1;
 
-        QFont font(QStringLiteral("Sans Serif"));
-        font.setPixelSize(11);
-        const QFontMetricsF metrics(font);
-        const QString letter = QString::fromUcs4(&cp, 1);
-        const int advance = std::max(1, static_cast<int>(std::ceil(metrics.horizontalAdvance(letter))));
-        const int width = advance + 2;
-        const int height = std::max(1, static_cast<int>(std::ceil(metrics.height()))) + 2;
-        if (width + Padding > AtlasSide || height + Padding > AtlasSide)
+        // Deterministic 8x12 bitmap for Japanese text outside DS hudfont.
+        // The QFont/QPainter path runs only for unsupported Unicode glyphs.
+        const K8x12LGlyph* bitmap = FindK8x12LGlyph(cp);
+        int width = 8, height = 12, advance = 8;
+        QImage image;
+        if (bitmap == nullptr)
         {
-            // Guard against unexpected gigantic fallback glyph metrics.
-            return Rasterize(U'?');
-        }
-
-        QImage image(width, height, QImage::Format_ARGB32);
-        image.fill(Qt::transparent);
-        {
+            QFont font(QStringLiteral("Sans Serif"));
+            font.setPixelSize(11);
+            const QFontMetricsF metrics(font);
+            const QString letter = QString::fromUcs4(&cp, 1);
+            advance = std::max(1, static_cast<int>(std::ceil(metrics.horizontalAdvance(letter))));
+            width = advance + 2;
+            height = std::max(1, static_cast<int>(std::ceil(metrics.height()))) + 2;
+            if (width + Padding > AtlasSide || height + Padding > AtlasSide)
+            {
+                return Rasterize(U'?');
+            }
+            image = QImage(width, height, QImage::Format_ARGB32);
+            image.fill(Qt::transparent);
             QPainter painter(&image);
             painter.setRenderHint(QPainter::TextAntialiasing);
             painter.setFont(font);
@@ -85,7 +90,8 @@ namespace MphRead::Mods::ClassicMenu
             {
                 texture.Pixels[static_cast<std::size_t>(y0 + y) * AtlasSide
                     + static_cast<std::size_t>(x0 + x)] = ColorRgba(255, 255, 255,
-                        static_cast<std::uint8_t>(qAlpha(image.pixel(x, y))));
+                        bitmap ? static_cast<std::uint8_t>((bitmap->Rows[static_cast<std::size_t>(y)] & (0x80U >> x)) ? 255 : 0)
+                            : static_cast<std::uint8_t>(qAlpha(image.pixel(x, y))));
             }
         }
         const UnicodeGlyph glyph{

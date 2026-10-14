@@ -12,6 +12,9 @@
 
 namespace MphRead::Mods::Network
 {
+    std::array<HomingTargetHistory::Frame, HomingTargetHistory::HistoryFrames>
+        HomingTargetHistory::_frames{};
+
     std::size_t HomingTargetHistory::At(std::uint32_t frame) noexcept
     {
         return static_cast<std::size_t>(frame % static_cast<std::uint32_t>(HistoryFrames));

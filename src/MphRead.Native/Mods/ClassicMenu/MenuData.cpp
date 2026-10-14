@@ -627,7 +627,7 @@ namespace MphRead::Mods::ClassicMenu
                     const std::size_t space = raw.find(' ', wordStart);
                     const std::size_t wordEnd = space == std::string_view::npos ? raw.size() : space;
                     if (wordStart > segmentStart &&
-                        Measure(raw.substr(segmentStart, wordEnd - segmentStart)) > static_cast<float>(wrapWidth))
+                        Measure(raw.substr(segmentStart, wordEnd - segmentStart), spacing) > static_cast<float>(wrapWidth))
                     {
                         const std::size_t trimEnd = wordStart - 1;
                         lines.push_back(raw.substr(segmentStart, trimEnd - segmentStart));

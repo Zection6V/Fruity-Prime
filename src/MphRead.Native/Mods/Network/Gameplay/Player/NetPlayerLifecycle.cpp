@@ -254,7 +254,8 @@ namespace MphRead::Mods::Network
             return false;
         }
         const NetworkPlayerState next = StateOf(state);
-        if (state.Health > 0 && ((state.Flags & PlayerState::FlagSpawned) == 0 || state.LifeId == 0))
+        if (state.Health > 0 && next != NetworkPlayerState::Spectating
+            && ((state.Flags & PlayerState::FlagSpawned) == 0 || state.LifeId == 0))
         {
             return false;
         }

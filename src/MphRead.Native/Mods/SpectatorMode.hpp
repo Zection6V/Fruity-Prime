@@ -21,6 +21,7 @@ namespace MphRead::Mods
         SpectatorMode() = delete;
 
         [[nodiscard]] static bool IsSpectating() noexcept;
+        [[nodiscard]] static bool ShouldHideLocalPlayerModel(std::int32_t slot) noexcept;
         [[nodiscard]] static bool FreeCamera() noexcept;
         [[nodiscard]] static bool CanSpectate();
 

@@ -8,6 +8,7 @@
 #include "Mods/Network/Integration/Hooks/NetHooks.hpp"
 #include "Mods/Network/Session/NetSession.hpp"
 #include "Mods/Network/Session/SessionRoster.hpp"
+#include "Mods/SpectatorVisibilityPolicy.hpp"
 
 #include <algorithm>
 #include <array>
@@ -153,6 +154,12 @@ namespace MphRead::Mods
     bool SpectatorMode::IsSpectating() noexcept
     {
         return _isSpectating;
+    }
+
+    bool SpectatorMode::ShouldHideLocalPlayerModel(std::int32_t slot) noexcept
+    {
+        return SpectatorVisibilityPolicy::ShouldHideLocalPlayerModel(
+            _isSpectating, slot, Network::NetHooks::LocalSlot());
     }
 
     bool SpectatorMode::FreeCamera() noexcept

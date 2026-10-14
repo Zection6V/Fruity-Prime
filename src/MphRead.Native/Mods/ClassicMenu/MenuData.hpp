@@ -12,6 +12,7 @@
 // draw list the scene renders.
 
 #include "../../Formats/Types.hpp"
+#include "MenuLocalization.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -19,6 +20,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -171,6 +173,9 @@ namespace MphRead::Mods::ClassicMenu
     public:
         [[nodiscard]] static MenuStrings Load(const std::string& fileSystemRoot, const std::string& lang);
         [[nodiscard]] const std::string& operator[](int id) const;
+        [[nodiscard]] const std::string& Localized(int id) const;
+        void SetLanguage(MenuLanguage language) noexcept { _language = language; }
+        [[nodiscard]] MenuLanguage Language() const noexcept { return _language; }
         [[nodiscard]] int IndexOf(const std::string& text) const;
         void Fill(int id, const std::string& text);
         // A string the ROM does not have (a label the single-screen pages add).
@@ -179,6 +184,7 @@ namespace MphRead::Mods::ClassicMenu
 
     private:
         std::vector<std::string> _strings;
+        MenuLanguage _language = MenuLanguage::English;
     };
 
     // ---- the draw list ----
@@ -277,10 +283,20 @@ namespace MphRead::Mods::ClassicMenu
 
     private:
         [[nodiscard]] static int Glyph(const std::string& text, std::size_t& i);
+        struct UnicodeGlyph final
+        {
+            int TextureId = -1;
+            int Width = 0;
+            int Height = 0;
+            int Advance = 0;
+        };
+        [[nodiscard]] const UnicodeGlyph& Rasterize(char32_t cp) const;
         [[nodiscard]] int Advance(int glyph) const;
         [[nodiscard]] float Measure(const std::string& line, int spacing) const;
         [[nodiscard]] std::vector<std::string> Lines(const std::string& text, int wrapWidth, int spacing) const;
 
+        UiTextureCache& _textures;
+        mutable std::unordered_map<char32_t, UnicodeGlyph> _unicodeGlyphs;
         std::vector<int> _widths;
         std::vector<int> _offsets;
         int _textureId = -1;

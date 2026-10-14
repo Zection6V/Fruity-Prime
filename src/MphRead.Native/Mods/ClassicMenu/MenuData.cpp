@@ -439,6 +439,11 @@ namespace MphRead::Mods::ClassicMenu
         return id >= 0 && static_cast<std::size_t>(id) < _strings.size() ? _strings[static_cast<std::size_t>(id)] : empty;
     }
 
+    const std::string& MenuStrings::Localized(int id) const
+    {
+        return TranslateMenuText((*this)[id], _language);
+    }
+
     int MenuStrings::IndexOf(const std::string& text) const
     {
         for (std::size_t i = 0; i < _strings.size(); ++i)
@@ -506,7 +511,7 @@ namespace MphRead::Mods::ClassicMenu
         constexpr int Columns = 16;
     }
 
-    MenuFont::MenuFont(UiTextureCache& textures)
+    MenuFont::MenuFont(UiTextureCache& textures) : _textures(textures)
     {
         // The glyph widths and offsets come from the game's code (arm9.bin),
         // read with the rest of its runtime data when a scene is first set
@@ -537,16 +542,29 @@ namespace MphRead::Mods::ClassicMenu
 
     int MenuFont::Glyph(const std::string& text, std::size_t& i)
     {
-        int ch = static_cast<unsigned char>(text[i]);
-        if ((ch & 0x80) != 0 && i + 1 < text.size())
+        const unsigned char first = static_cast<unsigned char>(text[i]);
+        if (first < 0x80) return static_cast<int>(first) - MinCharacter;
+        const int count = first >= 0xF0 && first <= 0xF4 ? 4
+            : first >= 0xE0 && first <= 0xEF ? 3
+            : first >= 0xC2 && first <= 0xDF ? 2 : 0;
+        if (count == 0 || i + static_cast<std::size_t>(count) > text.size()) return '?' - MinCharacter;
+        char32_t cp = first & (count == 4 ? 7 : count == 3 ? 15 : 31);
+        for (int n = 1; n < count; ++n)
         {
-            ch = (static_cast<unsigned char>(text[++i]) & 0x3F) | ((ch & 0x1F) << 6);
+            const unsigned char next = static_cast<unsigned char>(text[i + static_cast<std::size_t>(n)]);
+            if ((next & 0xC0) != 0x80) return '?' - MinCharacter;
+            cp = (cp << 6) | (next & 0x3F);
         }
-        return ch - MinCharacter;
+        i += static_cast<std::size_t>(count - 1);
+        if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)
+            || (count == 2 && cp < 0x80) || (count == 3 && cp < 0x800)
+            || (count == 4 && cp < 0x10000)) return '?' - MinCharacter;
+        return static_cast<int>(cp) - MinCharacter;
     }
 
     int MenuFont::Advance(int glyph) const
     {
+        if (glyph >= 96) return Rasterize(static_cast<char32_t>(glyph + MinCharacter)).Advance;
         return glyph >= 0 && static_cast<std::size_t>(glyph) < _widths.size() ? _widths[static_cast<std::size_t>(glyph)] : Cell;
     }
 
@@ -568,6 +586,26 @@ namespace MphRead::Mods::ClassicMenu
             if (wrapWidth <= 0 || Measure(raw, spacing) <= static_cast<float>(wrapWidth))
             {
                 lines.push_back(raw);
+            }
+            else if (std::any_of(raw.begin(), raw.end(), [](unsigned char c) { return c >= 128; }))
+            {
+                // Japanese may not contain ASCII spaces. Break between whole
+                // Unicode scalars, never in the middle of UTF-8 sequences.
+                std::string current;
+                for (std::size_t i = 0; i < raw.size();)
+                {
+                    const std::size_t begin = i;
+                    (void)Glyph(raw, i);
+                    ++i;
+                    const std::string piece = raw.substr(begin, i - begin);
+                    if (!current.empty() && Measure(current + piece, spacing) > static_cast<float>(wrapWidth))
+                    {
+                        lines.push_back(current);
+                        current.clear();
+                    }
+                    current += piece;
+                }
+                if (!current.empty()) lines.push_back(current);
             }
             else
             {
@@ -614,7 +652,18 @@ namespace MphRead::Mods::ClassicMenu
             {
                 const bool space = line[i] == ' ';
                 const int glyph = Glyph(line, i);
-                if (!space && glyph >= 0 && static_cast<std::size_t>(glyph) < std::max<std::size_t>(_widths.size(), 96))
+                if (glyph >= 96)
+                {
+                    const UnicodeGlyph& unicode = Rasterize(static_cast<char32_t>(glyph + MinCharacter));
+                    const float gy = top + 1.0F;
+                    const UiVertex p0{penX, gy, 0, 0, r, g, b, a};
+                    const UiVertex p1{penX + unicode.Width, gy, 1, 0, r, g, b, a};
+                    const UiVertex p2{penX + unicode.Width, gy - unicode.Height, 1, 1, r, g, b, a};
+                    const UiVertex p3{penX, gy - unicode.Height, 0, 1, r, g, b, a};
+                    output.push_back(WidgetTri{p0, p1, p2, z, 0, unicode.TextureId});
+                    output.push_back(WidgetTri{p0, p2, p3, z, 0, unicode.TextureId});
+                }
+                else if (!space && glyph >= 0 && static_cast<std::size_t>(glyph) < std::max<std::size_t>(_widths.size(), 96))
                 {
                     const float offset = static_cast<std::size_t>(glyph) < _offsets.size()
                         ? static_cast<float>(_offsets[static_cast<std::size_t>(glyph)]) : 0.0F;
@@ -1407,7 +1456,7 @@ namespace MphRead::Mods::ClassicMenu
         // over the backdrop by 31/32)
         const float a = std::min(lerp(Channel(style.StartColor, 24), Channel(style.EndColor, 24)), 30.0F / 31.0F);
         if (a <= 0) return;
-        _font.Emit(_strings[style.StringId], item.X, item.Y, style.Align, style.WrapWidth,
+        _font.Emit(_strings.Localized(style.StringId), item.X, item.Y, style.Align, style.WrapWidth,
             style.Size == 0 ? 8.0F : static_cast<float>(style.Size),
             lerp(Channel(style.StartColor, 0), Channel(style.EndColor, 0)),
             lerp(Channel(style.StartColor, 8), Channel(style.EndColor, 8)),

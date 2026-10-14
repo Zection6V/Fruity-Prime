@@ -236,6 +236,9 @@ if(NOT WIN32 AND NOT APPLE AND NOT ANDROID)
 endif()
 
 add_library(fruity_mphread_native STATIC)
+if(MSVC)
+    target_compile_options(fruity_mphread_native PRIVATE /utf-8)
+endif()
 option(FRUITY_REQUIRE_VULKAN "Require desktop Vulkan development files" OFF)
 if(NOT ANDROID)
     if(FRUITY_REQUIRE_VULKAN)
@@ -1266,6 +1269,18 @@ else()
     find_package(CURL REQUIRED)
     find_package(LibArchive REQUIRED)
     target_link_libraries(fruity_mphread_native PUBLIC CURL::libcurl LibArchive::LibArchive)
+endif()
+
+# Pure C++ locale regression gate: no game data, Qt display, network or GPU.
+if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
+    add_executable(fruity_menu_localization_tests
+        src/MphRead.Native/Mods/ClassicMenu/MenuLocalization.cpp
+        src/MphRead.Native/Testing/TestMenuLocalization.cpp)
+    target_compile_features(fruity_menu_localization_tests PRIVATE cxx_std_20)
+    if(MSVC)
+        target_compile_options(fruity_menu_localization_tests PRIVATE /utf-8)
+    endif()
+    add_test(NAME FruityPrime.MenuLocalization COMMAND fruity_menu_localization_tests)
 endif()
 
 # Test executables link the native owner, which includes Qt Core/Gui/Qml/Quick

@@ -126,7 +126,13 @@ namespace MphRead::Mods::ClassicMenu
                 _menu.Enter(TitlePage);
             }
 
-            void SetHost(Host* host) { _host = host; _compose.SetHost(host); }
+            void SetHost(Host* host)
+            {
+                _host = host;
+                _compose.SetHost(host);
+                if (host != nullptr) _strings.SetLanguage(host->MenuLanguageSetting());
+                _dirty = true;
+            }
 
             void Update(double seconds)
             {

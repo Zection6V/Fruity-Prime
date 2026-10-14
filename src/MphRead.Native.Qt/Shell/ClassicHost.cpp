@@ -491,6 +491,18 @@ namespace MphRead::Qt
         if (_settings != nullptr && !_settings->save()) Say(S(_settings->Error()));
     }
 
+    Menu::MenuLanguage ClassicHost::MenuLanguageSetting() const
+    {
+        return Menu::ParseMenuLanguage(Prefs::MenuLanguage());
+    }
+
+    void ClassicHost::SetMenuLanguageSetting(Menu::MenuLanguage language)
+    {
+        Prefs::MenuLanguage(language == Menu::MenuLanguage::Japanese ? "ja"
+            : language == Menu::MenuLanguage::French ? "fr" : "en");
+        Prefs::Save();
+    }
+
     bool ClassicHost::Listening() const
     {
         return _settings != nullptr && _settings->Listening();

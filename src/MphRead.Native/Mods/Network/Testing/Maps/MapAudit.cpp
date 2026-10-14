@@ -1,4 +1,5 @@
 #include "Mods/Network/Testing/Maps/MapAudit.hpp"
+#include "Mods/Network/Testing/Maps/MapAuditCleanup.hpp"
 #include "Mods/Network/Testing/Maps/MapItemPickupProbe.hpp"
 #include "NativeRuntime/Rhi/SceneBackend.hpp"
 #include "NativeRuntime/OpenTK/GL.hpp"
@@ -6,6 +7,7 @@
 
 #include "Mods/Network/Integration/Launch/NetLaunch.hpp"
 #include "Mods/Network/Testing/Harness/NetTestScript.hpp"
+#include "Mods/DebugLog.hpp"
 #include "Mods/ScreenCapture.hpp"
 #include "Mods/Render/InstagibRails.hpp"
 #include "Mods/WorldEvents.hpp"
@@ -14,9 +16,12 @@
 #include "Entities/ItemSpawnEntity.hpp"
 #include "Entities/JumpPadEntity.hpp"
 #include "Entities/Players/PlayerEntity.hpp"
+#include "Entities/RoomEntity.hpp"
 #include "Formats/Collision.hpp"
 #include "Formats/Entity.hpp"
 #include "GameState.hpp"
+#include "Metadata/FrontendMeta.hpp"
+#include "Metadata/Metadata.hpp"
 #include "Scene.hpp"
 #include "NativeRuntime/System/ExceptionText.hpp"
 #include "NativeRuntime/System/Managed.hpp"
@@ -29,6 +34,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <exception>
 #include <filesystem>
 #include <iomanip>
 #include <iostream>
@@ -249,13 +255,49 @@ namespace MphRead::Mods::Network
     void MapAudit::Dispose()
     {
         _itemPickupAudit.reset();
+        std::exception_ptr cleanupFailure{};
         if (_scene)
         {
-            _scene->ReleaseGpuResources();
-            _scene.reset();
+            const std::array cleanupSteps{
+                MapAuditCleanupStep<MapAudit>{"scene-stop", +[](MapAudit& audit)
+                {
+                    if (audit._cleanupExceptionProbe)
+                    {
+                        audit._cleanupExceptionProbe = false;
+                        Mods::DebugLog::Line("map-audit-cleanup",
+                            "injecting Scene::DoCleanup exception room=" + audit._room);
+                        audit._scene->ModInjectCleanupFailureForDiagnostics();
+                    }
+                    audit._scene->DoCleanup();
+                }},
+                MapAuditCleanupStep<MapAudit>{"gpu-release", +[](MapAudit& audit)
+                {
+                    audit._scene->ReleaseGpuResources();
+                }},
+                MapAuditCleanupStep<MapAudit>{"scene-destroy", +[](MapAudit& audit)
+                {
+                    audit._scene.reset();
+                }}
+            };
+            cleanupFailure = RunMapAuditCleanup(cleanupSteps, *this,
+                +[](MapAudit&, std::string_view operation, std::exception_ptr failure)
+                {
+                    Mods::DebugLog::Exception("map-audit-cleanup", failure);
+                    Mods::DebugLog::Line("map-audit-cleanup",
+                        "cleanup-error operation=" + std::string(operation));
+                });
         }
         _swapchain.reset();
         _window.reset();
+        if (_movieRoomTransitionProbe)
+        {
+            GameState::TransitionRoomId(-1);
+            GameState::TransitionState(TransitionState::None);
+        }
+        if (cleanupFailure)
+        {
+            std::rethrow_exception(cleanupFailure);
+        }
     }
 
     OpenTK::Mathematics::Vector2i MapAudit::ClientSize() const
@@ -281,16 +323,66 @@ namespace MphRead::Mods::Network
         bool bots,
         bool renderProbe,
         bool itemProbe,
-        bool itemPickupProbe)
+        bool itemPickupProbe,
+        bool playMovies,
+        bool movieChainProbe,
+        bool movieSkipProbe,
+        bool movieCloseProbe,
+        bool cleanupExceptionProbe,
+        bool partialInitializationProbe,
+        bool movieAudioCallProbe,
+        bool forceMovieForAudioCallProbe,
+        bool movieRoomTransitionProbe)
         : _window(RendererPlatform::CreateWindow(WindowSettings())),
           _room(std::move(room)),
           _players(players),
           _seconds(seconds),
           _renderProbe(renderProbe),
           _itemProbe(itemProbe),
+          _playMovies(playMovies),
+          _movieChainProbe(movieChainProbe),
+          _movieSkipProbe(movieSkipProbe),
+          _movieCloseProbe(movieCloseProbe),
+          _movieRoomTransitionProbe(movieRoomTransitionProbe),
+          _movieAudioCallProbe(movieAudioCallProbe),
+          _forceMovieForAudioCallProbe(forceMovieForAudioCallProbe),
+          _cleanupExceptionProbe(cleanupExceptionProbe),
           _scene(nullptr),
           _bots(bots)
     {
+        struct ConstructionCleanup final
+        {
+            MapAudit& Audit;
+            bool Complete = false;
+
+            ~ConstructionCleanup() noexcept
+            {
+                if (Complete)
+                {
+                    return;
+                }
+                try
+                {
+                    Mods::DebugLog::Line("map-audit-cleanup",
+                        "constructor-failure cleanup begin room=" + Audit._room);
+                    Audit.Dispose();
+                    Mods::DebugLog::Line("map-audit-cleanup",
+                        "constructor-failure cleanup complete room=" + Audit._room);
+                }
+                catch (...)
+                {
+                    try
+                    {
+                        Mods::DebugLog::Exception("map-audit-construction-cleanup",
+                            std::current_exception());
+                    }
+                    catch (...)
+                    {
+                    }
+                }
+            }
+        } constructionCleanup{*this};
+
         NativeRuntime::Rhi::SwapchainDesc swapchainDesc{};
         const Vector2i framebufferSize = _window->Size();
         swapchainDesc.width = static_cast<std::uint32_t>(std::max(framebufferSize.X, 1));
@@ -309,6 +401,18 @@ namespace MphRead::Mods::Network
             _window->Mouse(),
             [](auto&&) { },
             [this]() { Close(); });
+        _scene->ModSetMoviePlaybackPolicy(playMovies
+            ? ::MphRead::Mods::MoviePlaybackPolicy::Normal
+            : ::MphRead::Mods::MoviePlaybackPolicy::SuppressForAudit);
+        if (_movieAudioCallProbe)
+        {
+            _scene->ModArmMovieAudioCallProbeForDiagnostics();
+        }
+        if (playMovies)
+        {
+            ::MphRead::Mods::DebugLog::Line(
+                "movie", "map-audit movie_playback=normal room=" + _room);
+        }
 
         for (std::int32_t i = 0; i < players; ++i)
         {
@@ -335,10 +439,31 @@ namespace MphRead::Mods::Network
         Entities::PlayerEntity::SetPlayerCount(players);
         Entities::PlayerEntity::SetMainPlayerIndex(0);
         _scene->AddRoom(_room, mode, NetLaunch::RoomPlayerCount());
+        if (_movieRoomTransitionProbe)
+        {
+            const auto [firstTarget, firstTargetId] = Metadata::GetRoomByName("UNIT4_RM1");
+            const auto [secondTarget, secondTargetId] = Metadata::GetRoomByName("UNIT4_RM2");
+            if (firstTarget == nullptr || secondTarget == nullptr
+                || firstTargetId < 0 || secondTargetId < 0)
+            {
+                throw std::runtime_error("The Story movie transition targets are unavailable.");
+            }
+            _movieRoomTransitionTargets = {firstTargetId, secondTargetId};
+            _movieRoomTransitionObservedRoomId = _scene->RoomId();
+            Mods::DebugLog::Line("movie", "map-audit movie_room_transition_waiting_for_start_game from="
+                + _room + " to=UNIT4_RM1,UNIT4_RM2");
+        }
+        if (partialInitializationProbe)
+        {
+            Mods::DebugLog::Line("map-audit-cleanup",
+                "injecting partial-construction exception room=" + _room);
+            throw std::runtime_error("Injected MapAudit constructor failure after Scene::AddRoom.");
+        }
         if (itemPickupProbe)
         {
             _itemPickupAudit = std::make_unique<MapItemPickupProbe>(*_scene, _room);
         }
+        constructionCleanup.Complete = true;
     }
 
     MapAudit::~MapAudit() = default;
@@ -359,7 +484,43 @@ namespace MphRead::Mods::Network
         {
             _itemPickupAudit->Start();
         }
+        if (_movieChainProbe && !_movieChainStarted)
+        {
+            _scene->StartMovies(::MphRead::Movie::BadEndingPart1, ::MphRead::Movie::BadEndingPart2,
+                FadeType::FadeOutInWhite, 45.0F / 30.0F, FadeType::FadeOutBlack, 0.0F,
+                ::MphRead::AfterMovie::StartGame);
+            _movieChainStarted = true;
+            ::MphRead::Mods::DebugLog::Line("movie", "map-audit movie_chain=32,35 room=" + _room);
+        }
         _scene->OnSimulationFrame();
+        if (_movieRoomTransitionProbe && !_movieRoomTransitionStarted
+            && _scene->MoviePlaying())
+        {
+            _movieRoomTransitionInitialMovieSeen = true;
+        }
+        if (_forceMovieForAudioCallProbe && _room != "UNIT4_LAND"
+            && !_movieAudioCallProbeMovieStarted
+            && !_scene->MoviePlaying())
+        {
+            // The cycle checks task and resource isolation across real room
+            // Scenes; it does not need to reproduce the fade trigger for each room.
+            _scene->ModPlayMovieForDiagnostics(::MphRead::Movie::ArcterraLanding);
+            _movieAudioCallProbeMovieStarted = true;
+            ::MphRead::Mods::DebugLog::Line("movie", "map-audit movie_forced_for_scene_cycle room=" + _room
+                + " movie_id=7");
+        }
+        if ((_movieSkipProbe || _movieRoomTransitionProbe)
+            && !_movieSkipRequested && _scene->MoviePlaying())
+        {
+            ++_movieFramesObserved;
+            if (_movieFramesObserved >= 30)
+            {
+                _scene->SkipMovie();
+                _movieSkipRequested = true;
+                ::MphRead::Mods::DebugLog::Line("movie", "map-audit movie_skip_requested room=" + _room
+                    + " movie_frames=" + std::to_string(_movieFramesObserved));
+            }
+        }
         const std::uint64_t frameCountBefore = _scene->FrameCount();
         const std::int32_t draws = std::max<std::int32_t>(1, _drawRate);
         std::pair<std::uint64_t, std::int32_t> previousTrail{};
@@ -454,6 +615,124 @@ namespace MphRead::Mods::Network
         Present();
         _scene->AfterRenderFrame();
         _window->BaseOnRenderFrame(args);
+
+        if (_movieRoomTransitionProbe && _movieRoomTransitionInitialMovieSeen
+            && !_movieRoomTransitionStarted && !_scene->MoviePlaying())
+        {
+            if (!_scene->ModMovieMuteStateBalancedForDiagnostics(1, "start-game"))
+            {
+                std::cout << "MAPMOVIETRANSITION FAIL mute_state=unbalanced phase=start-game\n";
+                Close();
+                return;
+            }
+            GameState::TransitionRoomId(
+                _movieRoomTransitionTargets[_movieRoomTransitionIndex]);
+            _movieFramesObserved = 0;
+            _movieSkipRequested = false;
+            _scene->StartMovie(::MphRead::Movie::ArcterraLanding,
+                FadeType::FadeOutInBlack, 0.0F, FadeType::FadeOutWhite, 5.0F / 30.0F,
+                AfterMovie::LoadRoom);
+            _movieRoomTransitionStarted = true;
+            Mods::DebugLog::Line("movie", "map-audit movie_room_transition_armed from="
+                + _room + " to=UNIT4_RM1,UNIT4_RM2 after_action=load_room start_game=1");
+        }
+
+        if (_movieRoomTransitionProbe && !_movieRoomTransitionPassed
+            && _scene->RoomId() != _movieRoomTransitionObservedRoomId)
+        {
+            const std::int32_t expectedRoomId
+                = _movieRoomTransitionTargets[_movieRoomTransitionIndex];
+            if (_scene->RoomId() != expectedRoomId || _scene->MoviePlaying())
+            {
+                Mods::DebugLog::Line("movie", "map-audit movie_room_transition_fail expected_id="
+                    + std::to_string(expectedRoomId)
+                    + " actual_id=" + std::to_string(_scene->RoomId())
+                    + " movie_playing=" + std::to_string(_scene->MoviePlaying()));
+                std::cout << "MAPMOVIETRANSITION FAIL expected_room_id=" << expectedRoomId
+                    << " actual_room_id=" << _scene->RoomId()
+                    << " movie_playing=" << _scene->MoviePlaying() << '\n';
+                Close();
+                return;
+            }
+
+            const std::uint32_t expectedMovieCount
+                = static_cast<std::uint32_t>(_movieRoomTransitionIndex + 2);
+            if (!_scene->ModMovieMuteStateBalancedForDiagnostics(
+                    expectedMovieCount, _scene->Room()->Meta().Name))
+            {
+                std::cout << "MAPMOVIETRANSITION FAIL mute_state=unbalanced room="
+                    << _scene->Room()->Meta().Name << '\n';
+                Close();
+                return;
+            }
+
+            _movieRoomTransitionObservedRoomId = _scene->RoomId();
+            ++_movieRoomTransitionIndex;
+            Mods::DebugLog::Line("movie", "map-audit movie_room_transition_complete room="
+                + _scene->Room()->Meta().Name);
+            _movieRoomTransitionFramesSinceLoad = 0;
+            _movieRoomTransitionCapturePending = true;
+        }
+
+        if (_movieRoomTransitionProbe && _movieRoomTransitionCapturePending
+            && ++_movieRoomTransitionFramesSinceLoad >= 30)
+        {
+            const std::string roomName = _scene->Room()->Meta().Name;
+            if (_shotDirectory.has_value())
+            {
+                const std::string shotPath = PathCombine(
+                    *_shotDirectory,
+                    ReplaceRoomCharacters(roomName) + "-story-transition.png");
+                const bool saved = Mods::ScreenCapture::SaveWindow(_scene.get(), shotPath);
+                const std::string scenePath = PathCombine(
+                    *_shotDirectory,
+                    ReplaceRoomCharacters(roomName) + "-story-scene.png");
+                const bool sceneSaved = Mods::ScreenCapture::Save(_scene.get(), scenePath);
+                Mods::DebugLog::Line("movie", "map-audit movie_room_transition_screenshot room="
+                    + roomName + " window_saved=" + std::to_string(saved)
+                    + " scene_saved=" + std::to_string(sceneSaved));
+            }
+
+            _movieRoomTransitionCapturePending = false;
+            if (_movieRoomTransitionIndex == _movieRoomTransitionTargets.size())
+            {
+                _movieRoomTransitionPassed = true;
+                Mods::DebugLog::Line("movie",
+                    "map-audit movie_room_transition_pass rooms=UNIT4_LAND,UNIT4_RM1,UNIT4_RM2");
+                std::cout << "MAPMOVIETRANSITION PASS rooms=UNIT4_LAND,UNIT4_RM1,UNIT4_RM2\n";
+                Close();
+                return;
+            }
+
+            GameState::TransitionRoomId(
+                _movieRoomTransitionTargets[_movieRoomTransitionIndex]);
+            _movieFramesObserved = 0;
+            _movieSkipRequested = false;
+            _scene->StartMovie(::MphRead::Movie::ArcterraLanding,
+                FadeType::FadeOutInBlack, 0.0F, FadeType::FadeOutWhite, 5.0F / 30.0F,
+                AfterMovie::LoadRoom);
+            Mods::DebugLog::Line("movie", "map-audit movie_room_transition_next room="
+                + std::to_string(_movieRoomTransitionTargets[_movieRoomTransitionIndex])
+                + " movie_id=7 after_action=load_room");
+        }
+
+        if (_movieAudioCallProbe && !_movieCloseRequested
+            && _scene->ModMovieAudioCallProbeEntered())
+        {
+            _movieCloseRequested = true;
+            ::MphRead::Mods::DebugLog::Line("movie",
+                "map-audit movie_openal_call_probe_close_requested room=" + _room
+                + " frame=" + std::to_string(_frame)
+                + " operation=SourceQueueBuffers");
+            Close();
+        }
+        else if (_movieCloseProbe && !_movieCloseRequested && _scene->MoviePlaying())
+        {
+            _movieCloseRequested = true;
+            ::MphRead::Mods::DebugLog::Line("movie", "map-audit movie_close_requested room=" + _room
+                + " frame=" + std::to_string(_frame));
+            Close();
+        }
 
         if (_frame >= _seconds * 60.0
             && (_bots || (!StepProbe() && !StepAfflictionProbe())))
@@ -1278,6 +1557,22 @@ namespace MphRead::Mods::Network
 
     void MapAudit::SampleRender()
     {
+        if (_playMovies && _scene->MoviePlaying() && _shotDirectory.has_value()
+            && _frame % 4 == 0)
+        {
+            // The room sampler runs once per second; save each 15 Hz movie image instead.
+            const std::string name = ReplaceRoomCharacters(_room);
+            const std::string path = PathCombine(
+                *_shotDirectory,
+                name + "-movie-" + TwoDigits(_movieShotsSaved) + ".png");
+            // The movie is composited to the window after the scene target.
+            // Read that presented frame so the capture contains the movie.
+            if (Mods::ScreenCapture::SaveWindow(_scene.get(), path))
+            {
+                IncrementInPlace(_movieShotsSaved);
+            }
+            return;
+        }
         if (_frame % _litSampleFrames != 1)
         {
             return;
@@ -1332,6 +1627,22 @@ namespace MphRead::Mods::Network
     void MapAudit::OnClosing()
     {
         _scene->DoCleanup();
+        if (_movieAudioCallProbe)
+        {
+            _movieAudioCallProbePassed = _scene->ModMovieAudioCallProbeCompleted();
+            if (_movieAudioCallProbePassed)
+            {
+                ::MphRead::Mods::DebugLog::Line("movie",
+                    "map-audit movie_openal_call_probe_pass room=" + _room
+                    + " operation=SourceQueueBuffers");
+            }
+            else
+            {
+                ::MphRead::Mods::DebugLog::Line("movie",
+                    "map-audit movie_openal_call_probe_fail room=" + _room
+                    + " operation=SourceQueueBuffers");
+            }
+        }
         _window->BaseOnClosing();
     }
 
@@ -1722,7 +2033,16 @@ namespace MphRead::Mods::Network
         bool renderProbe,
         bool allNodes,
         bool itemProbe,
-        bool itemPickupProbe)
+        bool itemPickupProbe,
+        bool playMovies,
+        bool movieChainProbe,
+        bool movieSkipProbe,
+        bool movieCloseProbe,
+        bool cleanupExceptionProbe,
+        bool partialInitializationProbe,
+        bool movieAudioCallProbe,
+        bool forceMovieForAudioCallProbe,
+        bool movieRoomTransitionProbe)
     {
         std::unique_ptr<MapAudit> window;
         std::int32_t result = 1;
@@ -1739,7 +2059,16 @@ namespace MphRead::Mods::Network
                 bots,
                 renderProbe,
                 itemProbe,
-                itemPickupProbe));
+                itemPickupProbe,
+                playMovies,
+                movieChainProbe,
+                movieSkipProbe,
+                movieCloseProbe,
+                cleanupExceptionProbe,
+                partialInitializationProbe,
+                movieAudioCallProbe,
+                forceMovieForAudioCallProbe,
+                movieRoomTransitionProbe));
 
             window->_scene->ShowAllNodes(allNodes);
 
@@ -1750,10 +2079,39 @@ namespace MphRead::Mods::Network
             }
 
             window->Run();
-            result = window->Report();
+            if (window->_movieRoomTransitionProbe)
+            {
+                if (window->_movieRoomTransitionPassed)
+                {
+                    result = 0;
+                }
+                else
+                {
+                    std::cout << "MAPMOVIETRANSITION FAIL rooms=UNIT4_LAND,UNIT4_RM1,UNIT4_RM2\n";
+                    result = 1;
+                }
+            }
+            else if (window->_movieAudioCallProbe)
+            {
+                if (window->_movieAudioCallProbePassed)
+                {
+                    result = 0;
+                }
+                else
+                {
+                    std::cout << "MAPMOVIEAL FAIL " << room
+                        << " | the OpenAL SourceQueueBuffers gate was not reached\n";
+                    result = 1;
+                }
+            }
+            else
+            {
+                result = window->Report();
+            }
         }
         catch (const std::exception& ex)
         {
+            Mods::DebugLog::Line("map-audit", "run-exception room=" + room + " error=" + ex.what());
             std::cout
                 << "MAPCRASH " << room
                 << " | " << ExceptionTypeName(ex) << ": " << ex.what()
@@ -1763,6 +2121,7 @@ namespace MphRead::Mods::Network
         }
         catch (...)
         {
+            Mods::DebugLog::Line("map-audit", "run-exception room=" + room + " error=unknown");
             std::cout << "MAPCRASH " << room << " | Exception: unknown exception\n";
             std::cout << '\n';
             result = 1;
@@ -1771,8 +2130,63 @@ namespace MphRead::Mods::Network
         Entities::BombEntity::ModAuditLockjawDrawRng = false;
         if (window)
         {
-            window->Dispose();
+            try
+            {
+                window->Dispose();
+            }
+            catch (const std::exception& ex)
+            {
+                Mods::DebugLog::Exception("map-audit-cleanup", std::current_exception());
+                std::cout << "MAPCLEANUP " << room << " | " << ExceptionTypeName(ex)
+                    << ": " << ex.what() << '\n';
+                if (result == 0)
+                {
+                    result = 1;
+                }
+            }
+            catch (...)
+            {
+                Mods::DebugLog::Exception("map-audit-cleanup", std::current_exception());
+                std::cout << "MAPCLEANUP " << room << " | Exception: unknown cleanup failure\n";
+                if (result == 0)
+                {
+                    result = 1;
+                }
+            }
         }
         return result;
+    }
+
+    std::int32_t MapAudit::RunStoryMovieCycle()
+    {
+        constexpr std::array<std::string_view, 3> rooms{
+            "UNIT4_LAND", "UNIT4_RM1", "UNIT4_RM2"};
+        for (const std::string_view room : rooms)
+        {
+            Mods::DebugLog::Line("movie", "map-audit story-movie-cycle-start room=" + std::string(room));
+            const std::int32_t result = Run(std::string(room), 1, 5.0, GameMode::SinglePlayer,
+                false, std::nullopt, false, false, false, false, true,
+                false, false, false, false, false, true, true);
+            if (result != 0)
+            {
+                Mods::DebugLog::Line("movie", "map-audit story-movie-cycle-failed room="
+                    + std::string(room) + " result=" + std::to_string(result));
+                return result;
+            }
+        }
+        Mods::DebugLog::Line("movie", "map-audit story-movie-cycle-pass rooms=UNIT4_LAND,UNIT4_RM1,UNIT4_RM2");
+        std::cout << "MAPMOVIECYCLE PASS rooms=UNIT4_LAND,UNIT4_RM1,UNIT4_RM2\n";
+        return 0;
+    }
+
+    std::int32_t MapAudit::RunStoryMovieTransitionCycle()
+    {
+        ShowWindow(true);
+        DrawRate(1);
+        MainHunter(std::nullopt);
+        const std::string shots = "manual-story-movie-transition-20261015-final";
+        return Run("UNIT4_LAND", 1, 20.0, GameMode::SinglePlayer,
+            false, shots, false, false, false, false, true,
+            false, false, false, false, false, false, false, true);
     }
 }

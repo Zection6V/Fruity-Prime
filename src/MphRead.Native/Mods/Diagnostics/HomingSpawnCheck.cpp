@@ -236,7 +236,7 @@ namespace MphRead::Mods::Diagnostics
             std::unique_ptr<HomingCheckScene> loaded{};
             try
             {
-                loaded = std::make_unique<HomingCheckScene>(site.Room, true);
+                loaded = std::make_unique<HomingCheckScene>(site.Room, true, true, true);
             }
             catch (...)
             {

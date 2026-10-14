@@ -66,6 +66,8 @@ namespace MphRead::Mods::Diagnostics
         // A match room with a second player, or a story room as its
         // bosses stand before they are beaten (singlePlayer).
         explicit HomingCheckScene(const std::string& room, bool singlePlayer = false);
+        HomingCheckScene(const std::string& room, bool singlePlayer, bool waitForPlayers,
+            bool activateStorySpawns = false);
         ~HomingCheckScene();
         HomingCheckScene(const HomingCheckScene&) = delete;
         HomingCheckScene& operator=(const HomingCheckScene&) = delete;
@@ -89,6 +91,7 @@ namespace MphRead::Mods::Diagnostics
 
     private:
         void SpawnOthers();
+        void Cleanup();
 
         Input::KeyboardState _keyboard;
         Input::MouseState _mouse;

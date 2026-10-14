@@ -73,6 +73,7 @@ namespace MphRead::Mods::Network
 
         std::optional<std::string> _shotDirectory{};
         std::int32_t _shotsSaved = 0;
+        std::int32_t _movieShotsSaved = 0;
         std::int32_t _litSamples = 0;
         double _litMin = std::numeric_limits<double>::max();
         double _litMax = 0.0;
@@ -83,6 +84,28 @@ namespace MphRead::Mods::Network
 
         const bool _renderProbe;
         const bool _itemProbe;
+        const bool _playMovies;
+        const bool _movieChainProbe;
+        const bool _movieSkipProbe;
+        const bool _movieCloseProbe;
+        const bool _movieRoomTransitionProbe;
+        const bool _movieAudioCallProbe;
+        const bool _forceMovieForAudioCallProbe;
+        bool _movieAudioCallProbePassed = false;
+        bool _movieAudioCallProbeMovieStarted = false;
+        bool _cleanupExceptionProbe;
+        std::int32_t _movieFramesObserved = 0;
+        bool _movieChainStarted = false;
+        bool _movieSkipRequested = false;
+        bool _movieCloseRequested = false;
+        std::array<std::int32_t, 2> _movieRoomTransitionTargets{};
+        std::int32_t _movieRoomTransitionObservedRoomId = -1;
+        std::size_t _movieRoomTransitionIndex = 0;
+        std::int32_t _movieRoomTransitionFramesSinceLoad = 0;
+        bool _movieRoomTransitionInitialMovieSeen = false;
+        bool _movieRoomTransitionStarted = false;
+        bool _movieRoomTransitionCapturePending = false;
+        bool _movieRoomTransitionPassed = false;
         std::vector<OpenTK::Mathematics::Vector3> _itemSpots{};
         std::vector<std::string> _itemNames{};
         std::int32_t _itemIndex = -1;
@@ -176,7 +199,16 @@ namespace MphRead::Mods::Network
             bool bots,
             bool renderProbe,
             bool itemProbe,
-            bool itemPickupProbe);
+            bool itemPickupProbe,
+            bool playMovies,
+            bool movieChainProbe,
+            bool movieSkipProbe,
+            bool movieCloseProbe,
+            bool cleanupExceptionProbe,
+            bool partialInitializationProbe,
+            bool movieAudioCallProbe,
+            bool forceMovieForAudioCallProbe,
+            bool movieRoomTransitionProbe);
 
     public:
         MapAudit(const MapAudit&) = delete;
@@ -262,6 +294,17 @@ namespace MphRead::Mods::Network
             bool renderProbe = false,
             bool allNodes = false,
             bool itemProbe = false,
-            bool itemPickupProbe = false);
+            bool itemPickupProbe = false,
+            bool playMovies = false,
+            bool movieChainProbe = false,
+            bool movieSkipProbe = false,
+            bool movieCloseProbe = false,
+            bool cleanupExceptionProbe = false,
+            bool partialInitializationProbe = false,
+            bool movieAudioCallProbe = false,
+            bool forceMovieForAudioCallProbe = false,
+            bool movieRoomTransitionProbe = false);
+        [[nodiscard]] static std::int32_t RunStoryMovieCycle();
+        [[nodiscard]] static std::int32_t RunStoryMovieTransitionCycle();
     };
 }

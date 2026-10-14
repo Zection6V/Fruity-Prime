@@ -418,6 +418,7 @@ namespace MphRead
           _layer4Info(std::make_shared<LayerInfo>()),
           _layer5Info(std::make_shared<LayerInfo>())
     {
+        _modMovieSceneId = Mods::MoviePlaybackSession::NextSceneId();
         Read::ClearCache();
         Text::Strings::ClearCache();
         GameState::Reset();
@@ -1925,7 +1926,7 @@ namespace MphRead
                 ++_frameCount;
             }
             GameState::UpdateTime(this);
-            if (_movieFrameIndex != -1) UpdateMovie();
+            if (MovieUpdatePending()) UpdateMovie();
         }
         _frameAdvanceLastFrame = _frameAdvanceOn;
         _pendingEffectSteps = std::min(_pendingEffectSteps + 1, Mods::Render::FrameTiming::MaxCatchUpSteps);
@@ -4096,23 +4097,37 @@ namespace MphRead
 
     void Scene::DoCleanup()
     {
-        if (!_exiting)
+        const bool firstCleanup = !_exiting;
+        _exiting = true;
+        ModStopMoviePlayback("scene-cleanup", "Scene::DoCleanup");
+        ModReleaseMovieMute();
+        if (!firstCleanup)
         {
-            _exiting = true;
-            if (_room)
+            if (_modInjectCleanupFailureForDiagnostics)
             {
-                _room->CancelTransition();
+                _modInjectCleanupFailureForDiagnostics = false;
+                Mods::DebugLog::Line("map-audit-cleanup",
+                    "injected Scene::DoCleanup exception after prior cleanup");
+                throw std::runtime_error("Injected Scene::DoCleanup failure for MapAudit diagnostics.");
             }
-            Entities::PlatformEntity::DestroyBeams();
-            Entities::EnemyInstanceEntity::DestroyBeams();
-            BreakEffectCycles();
-            Sound::Sfx::ShutDown();
-            OutputStop();
-            if (const std::shared_ptr<std::stop_source> decoderCts = _decoderCts.load())
-            {
-                decoderCts->request_stop();
-            }
-            Selection::Clear();
+            return;
+        }
+        if (_room)
+        {
+            _room->CancelTransition();
+        }
+        Entities::PlatformEntity::DestroyBeams();
+        Entities::EnemyInstanceEntity::DestroyBeams();
+        BreakEffectCycles();
+        Sound::Sfx::ShutDown();
+        OutputStop();
+        Selection::Clear();
+        if (_modInjectCleanupFailureForDiagnostics)
+        {
+            _modInjectCleanupFailureForDiagnostics = false;
+            Mods::DebugLog::Line("map-audit-cleanup",
+                "injected Scene::DoCleanup exception after cleanup stages");
+            throw std::runtime_error("Injected Scene::DoCleanup failure for MapAudit diagnostics.");
         }
     }
 
@@ -4185,7 +4200,7 @@ namespace MphRead
         const AfterFade afterFade = _afterFade;
         // A headless process has no screen to show a film on, and the film's
         // decoding tasks outlive a scene that a check unloads behind them.
-        if (afterFade == AfterFade::PlayMovie && !Mods::Headless::Active())
+        if (afterFade == AfterFade::PlayMovie)
         {
             PlayMovie(_movieSettings.MovieId);
         }

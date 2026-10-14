@@ -20,6 +20,10 @@ is aspirational. It stays short on purpose: depth for a given area lives in
 `.claude/` (indexed in `.claude/CLAUDE-INDEX.md`) and is loaded only when that
 area is the one being touched.
 
+For software design trade-offs, use
+`.claude/design/Software_Design_Principles_and_Best_Practices.md` as a reference
+alongside the repository-specific boundaries below.
+
 ## Where things are
 
 | Path | What |
@@ -133,6 +137,8 @@ export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
 | `~/mph-net-test/hard/run-all.sh` / `run-all2.sh` | the hard-case batch against the Pi: a ninth player, a line that goes away, 100-300 ms, packet loss, everybody spectating, everybody recording, a match boundary, an authority leaving, and a ramp to twenty-odd matches at once. `.claude/testing/TEST-HARD-CASES.md` |
 | `~/mph-net-test/run-lag.sh MS SECONDS hunter...` | the same check against a loopback server behind `udp-lag.py`, which holds every datagram for `MS` before passing it on. A latency bug reproduced at a number you chose, rather than at whatever the internet is doing -- and the Pi answers in 7-17 ms, so it is the *worse* instrument for one |
 | `MphRead -maptest "ROOM" -players 8 -seconds 22` | load one room with a full house, drive every player, and report what the map holds and whether it survived |
+| `MphRead -maptest "ROOM" -maptestmovies` / `-maptestmoviechain` / `-maptestmovieskip` / `-maptestmovieclose` / `-maptestmoviealcall` / `-maptestcleanupexception` / `-maptestpartialinit` | visible MapAudit Movie playback and lifetime probes: chain Movie 32→35, skip after 30 movie frames, close after a Movie image or while the audio task is held at the real `AL::SourceQueueBuffers` call boundary, inject a `Scene::DoCleanup()` exception, or fail MapAudit construction after `Scene::AddRoom`. `-hudshots -shots DIR` saves visible window frames. Details and evidence: `docs/todo/Fruity-Prime-CPP-Movie-Async-Scene-Lifetime-Crash-Fix-Instructions-2026-10-14.md` |
+| `MphRead -mapteststorymoviecycle` | in one process, loads UNIT4_LAND, UNIT4_RM1 and UNIT4_RM2 as separate Scenes, starts the Arcterra Landing movie through LAND's natural room-start path and through a diagnostic direct-start in RM1/RM2, then verifies audio-task drain, OpenAL release and Scene destruction before moving to the next room. Exit 0 means all three per-room close probes passed. RM1/RM2 do not represent normal Story room transitions. |
 | `MphRead -maptest "ROOM" -players 8 -bots` | the same, but AI bots instead of the scripted tour -- a different code path, the only one that finds what only `PlayerAi` touches |
 | `MphRead -maptest "ROOM" -hunter H -hudshots` | put that hunter in slot 0, whose eyes and whose HUD every capture is taken through. Each of the eight lays its readouts out differently, so a HUD picture with no hunter named is a picture of Samus's and of nobody else's |
 | `MphRead -maptest "ROOM" -renderprobe` | stand on every spawn point in the room in turn, read the frame, walk forward five seconds, read the worst. Catches a room that draws nothing -- the failure no other check can see, because everything else about it passes. `-shots DIR` writes the PNGs, `-allnodes` draws without room-part culling (which separates "the geometry is missing" from "the cull lost it"), `-hudshots` uses a real visible window and reads *its* buffer, which is the only capture that includes the HUD, and `-size WxH` sets that window's shape -- the HUD is laid out in a 4:3 space and stretched, so how it looks is partly a question about the window. Under WSL a HUD capture needs the X11 backend: `WAYLAND_DISPLAY=` `DISPLAY=:0`, or every window read comes back black |

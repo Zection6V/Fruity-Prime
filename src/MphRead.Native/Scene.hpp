@@ -847,7 +847,8 @@ namespace MphRead
         Scene& operator=(const Scene&) = delete;
         Scene(Scene&&) = delete;
         Scene& operator=(Scene&&) = delete;
-        ~Scene() = default;
+        // Movie tasks borrow Scene members; Movie.cpp drains that lifetime before destruction.
+        ~Scene();
 
         [[nodiscard]] LinkedListIterator<Entities::EntityBase> Entities() noexcept;
 

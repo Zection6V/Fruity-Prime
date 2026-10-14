@@ -336,6 +336,16 @@ set_target_properties(fruity_mphread_native PROPERTIES OUTPUT_NAME "MphRead.Nati
 # focused tests whenever a host native owner is built; Android cross-compiles
 # the production decoder but cannot execute the host test binary.
 if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
+    add_executable(fruity_movie_playback_session_tests
+        "${FRUITY_MPHREAD_ROOT}/Testing/TestMoviePlaybackSession.cpp")
+    target_link_libraries(fruity_movie_playback_session_tests PRIVATE fruity_mphread_native)
+    target_compile_features(fruity_movie_playback_session_tests PRIVATE cxx_std_20)
+    add_test(NAME FruityPrime.MoviePlaybackSession COMMAND fruity_movie_playback_session_tests)
+    add_executable(fruity_map_audit_cleanup_tests
+        "${FRUITY_MPHREAD_ROOT}/Testing/TestMapAuditCleanup.cpp")
+    target_include_directories(fruity_map_audit_cleanup_tests PRIVATE "${FRUITY_MPHREAD_ROOT}")
+    target_compile_features(fruity_map_audit_cleanup_tests PRIVATE cxx_std_20)
+    add_test(NAME FruityPrime.MapAuditCleanup COMMAND fruity_map_audit_cleanup_tests)
     add_executable(fruity_sylux_muzzle_guard_tests "${FRUITY_MPHREAD_ROOT}/Testing/TestSyluxMuzzleGuard.cpp")
     target_link_libraries(fruity_sylux_muzzle_guard_tests PRIVATE fruity_mphread_native)
     target_compile_features(fruity_sylux_muzzle_guard_tests PRIVATE cxx_std_20)
@@ -1356,6 +1366,9 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND TARGET fruity_prime)
     add_test(NAME FruityPrime.HomingSpawn COMMAND fruity_prime -homingspawncheck 15 -noupdate)
     set_tests_properties(FruityPrime.HomingSpawn PROPERTIES
         SKIP_RETURN_CODE 77 LABELS "gamefiles;slow" TIMEOUT 3600)
+    add_test(NAME FruityPrime.MovieHeadless COMMAND fruity_prime -movieheadlesscheck -noupdate)
+    set_tests_properties(FruityPrime.MovieHeadless PROPERTIES
+        SKIP_RETURN_CODE 77 LABELS gamefiles TIMEOUT 180)
     add_test(NAME FruityPrime.HomingTraceCompare COMMAND Python3::Interpreter
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/testing/test-compare-homing-trace.py")
     add_test(NAME FruityPrime.NetworkCombat COMMAND fruity_prime -netcombatcheck "MP3 PROVING GROUND" -noupdate)

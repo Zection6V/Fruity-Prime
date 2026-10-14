@@ -24,7 +24,7 @@ Item {
         id: offButton
         x: onButton.x - 5 - width
         anchors.verticalCenter: parent.verticalCenter
-        text: "OFF"
+        text: Theme.tr("OFF")
         em: Theme.em
         sizeEms: 0.72; padXEms: 0.62; padYEms: 0.26; lip: 3
         face: row.on ? Theme.slate : Theme.rust
@@ -35,7 +35,7 @@ Item {
         id: onButton
         x: row.width - width
         anchors.verticalCenter: parent.verticalCenter
-        text: "ON"
+        text: Theme.tr("ON")
         em: Theme.em
         sizeEms: 0.72; padXEms: 0.72; padYEms: 0.26; lip: 3
         face: row.on ? Theme.moss : Theme.slate

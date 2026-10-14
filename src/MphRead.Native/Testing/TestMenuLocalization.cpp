@@ -1,4 +1,5 @@
 #include "../Mods/ClassicMenu/MenuLocalization.hpp"
+#include "../Mods/ClassicMenu/MenuK8x12LGlyphs.hpp"
 
 #include <iostream>
 #include <string>
@@ -16,6 +17,19 @@ namespace
 int main()
 {
     int fail = 0;
+    // The generated, sorted k8x12L bitmap subset is compile-time data.
+    static_assert(FindK8x12LGlyph(U'画') != nullptr);
+    static_assert(FindK8x12LGlyph(U'音') != nullptr);
+    static_assert(FindK8x12LGlyph(U'あ') == nullptr); // Original DS glyph.
+    static_assert(FindK8x12LGlyph(U'ヶ') == nullptr); // Original DS glyph.
+    fail += Check(K8x12LGlyphs.size() > 100, "Japanese k8x12L subset is present");
+    for (std::size_t i = 0; i < K8x12LGlyphs.size(); ++i)
+    {
+        const auto& glyph = K8x12LGlyphs[i];
+        fail += Check(FindK8x12LGlyph(glyph.Codepoint) == &glyph, "font lookup is exact");
+        if (i > 0)
+            fail += Check(K8x12LGlyphs[i - 1].Codepoint < glyph.Codepoint, "font glyph codes are sorted");
+    }
     fail += Check(MenuLocalizationCatalogValid(), "generated catalog valid");
     fail += Check(MenuLocalizationEntryCount() == 231, "all 231 original entries retained");
     fail += Check(ParseMenuLanguage("en") == MenuLanguage::English, "en");

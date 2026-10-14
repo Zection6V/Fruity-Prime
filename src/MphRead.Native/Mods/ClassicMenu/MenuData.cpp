@@ -571,10 +571,33 @@ namespace MphRead::Mods::ClassicMenu
         return static_cast<int>(cp) - MinCharacter;
     }
 
+    int MenuFont::DsGlyph(int unicodeGlyph) const
+    {
+        if (unicodeGlyph < 0) return -1;
+        const char32_t unicode = static_cast<char32_t>(unicodeGlyph + MinCharacter);
+        const int code = Text::Strings::FindGameGlyphCode(unicode);
+        const int index = code - MinCharacter;
+        if (code < MinCharacter || index < 0 || _atlasWidth < Cell || _atlasHeight < Cell
+            || index >= (_atlasWidth / Cell) * (_atlasHeight / Cell))
+        {
+            return -1;
+        }
+        // Unlike ASCII, non-ASCII requires the ROM's actual glyph metadata:
+        // a code point existing in the conversion table is not enough.
+        if (code >= 128 && (static_cast<std::size_t>(index) >= _widths.size()
+            || static_cast<std::size_t>(index) >= _offsets.size()))
+        {
+            return -1;
+        }
+        return index;
+    }
+
     int MenuFont::Advance(int glyph) const
     {
-        if (glyph >= 96) return Rasterize(static_cast<char32_t>(glyph + MinCharacter)).Advance;
-        return glyph >= 0 && static_cast<std::size_t>(glyph) < _widths.size() ? _widths[static_cast<std::size_t>(glyph)] : Cell;
+        const int dsGlyph = DsGlyph(glyph);
+        if (dsGlyph < 0) return Rasterize(static_cast<char32_t>(glyph + MinCharacter)).Advance;
+        return static_cast<std::size_t>(dsGlyph) < _widths.size()
+            ? _widths[static_cast<std::size_t>(dsGlyph)] : Cell;
     }
 
     float MenuFont::Measure(std::string_view line, int spacing) const
@@ -659,7 +682,8 @@ namespace MphRead::Mods::ClassicMenu
             {
                 const bool space = line[i] == ' ';
                 const int glyph = Glyph(line, i);
-                if (glyph >= 96)
+                const int dsGlyph = DsGlyph(glyph);
+                if (dsGlyph < 0)
                 {
                     const UnicodeGlyph& unicode = Rasterize(static_cast<char32_t>(glyph + MinCharacter));
                     const float gy = top + 1.0F;
@@ -670,14 +694,14 @@ namespace MphRead::Mods::ClassicMenu
                     output.push_back(WidgetTri{p0, p1, p2, z, 0, unicode.TextureId});
                     output.push_back(WidgetTri{p0, p2, p3, z, 0, unicode.TextureId});
                 }
-                else if (!space && glyph >= 0 && static_cast<std::size_t>(glyph) < std::max<std::size_t>(_widths.size(), 96))
+                else if (!space)
                 {
-                    const float offset = static_cast<std::size_t>(glyph) < _offsets.size()
-                        ? static_cast<float>(_offsets[static_cast<std::size_t>(glyph)]) : 0.0F;
+                    const float offset = static_cast<std::size_t>(dsGlyph) < _offsets.size()
+                        ? static_cast<float>(_offsets[static_cast<std::size_t>(dsGlyph)]) : 0.0F;
                     const float gy = top - offset;
                     constexpr float Inset = 0.02F;
-                    const float u0 = (static_cast<float>((glyph % Columns) * Cell) + Inset) / static_cast<float>(_atlasWidth);
-                    const float v0 = (static_cast<float>((glyph / Columns) * Cell) + Inset) / static_cast<float>(_atlasHeight);
+                    const float u0 = (static_cast<float>((dsGlyph % Columns) * Cell) + Inset) / static_cast<float>(_atlasWidth);
+                    const float v0 = (static_cast<float>((dsGlyph / Columns) * Cell) + Inset) / static_cast<float>(_atlasHeight);
                     const float u1 = u0 + (Cell - 2 * Inset) / static_cast<float>(_atlasWidth);
                     const float v1 = v0 + (Cell - 2 * Inset) / static_cast<float>(_atlasHeight);
                     const UiVertex p0{penX, gy, u0, v0, r, g, b, a};

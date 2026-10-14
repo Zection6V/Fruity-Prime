@@ -301,6 +301,8 @@ namespace MphRead::Mods::ClassicMenu
             int NextX = 0, NextY = 0, RowHeight = 0;
         };
         [[nodiscard]] const UnicodeGlyph& Rasterize(char32_t cp) const;
+        // Returns the original DS atlas index, or -1 if the glyph is absent.
+        [[nodiscard]] int DsGlyph(int unicodeGlyph) const;
         [[nodiscard]] int Advance(int glyph) const;
         [[nodiscard]] float Measure(std::string_view line, int spacing) const;
         [[nodiscard]] std::vector<std::string_view> Lines(std::string_view text, int wrapWidth, int spacing) const;

@@ -15,7 +15,7 @@ FocusScope {
     height: implicitHeight
     Text {
         id: label
-        text: word.text
+        text: Theme.tr(word.text)
         font.family: Theme.pixel
         font.pointSize: Theme.pt(word.size)
         color: !word.enabled ? Theme.textDim

@@ -204,7 +204,7 @@ FocusScope {
             TrackedText {
                 x: Theme.roundEven((slab.width - width) / 2)
                 y: Theme.roundEven((slab.height - height) / 2)
-                text: body.word
+                text: Theme.tr(body.word)
                 size: body.wordSize
             }
         }
@@ -214,7 +214,7 @@ FocusScope {
             x: body.pad
             y: Theme.roundEven(body.wordY - Theme.roundEven(tile.em * 0.3) - height)
             width: Math.max(10, tile.width - body.pad * 2)
-            text: tile.blurb
+            text: Theme.tr(tile.blurb)
             font.family: Theme.mono; font.pixelSize: size
             color: "#c7cfdd"
             elide: Text.ElideRight

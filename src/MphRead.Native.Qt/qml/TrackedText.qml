@@ -11,7 +11,7 @@ Row {
     readonly property real tracking: size * 0.04
     spacing: 0
     Repeater {
-        model: tracked.text.split(" ")
+        model: Theme.tr(tracked.text).split(" ")
         Row {
             required property string modelData
             required property int index

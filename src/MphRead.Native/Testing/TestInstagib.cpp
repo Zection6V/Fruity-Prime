@@ -102,13 +102,15 @@ int main()
     InstagibRules::ApplyDamage(BeamType::Imperialist, damage, headshot, splash);
     ok &= Check(damage == 45 && headshot == 200 && splash == 17
         && InstagibRules::PickupsAllowed()
-        && InstagibRules::AiWeapon(BeamType::PowerBeam) == BeamType::PowerBeam,
+        && InstagibRules::AiWeapon(BeamType::PowerBeam) == BeamType::PowerBeam
+        && !InstagibRules::DirectDamage(BeamType::Imperialist),
         "normal matches retain damage, pickups and AI weapon choice");
     GameState::Instagib(true);
     InstagibRules::ApplyDamage(BeamType::Imperialist, damage, headshot, splash);
     ok &= Check(damage == 9999 && headshot == 9999 && splash == 0
         && !InstagibRules::PickupsAllowed()
-        && InstagibRules::AiWeapon(BeamType::PowerBeam) == BeamType::Imperialist,
+        && InstagibRules::AiWeapon(BeamType::PowerBeam) == BeamType::Imperialist
+        && InstagibRules::DirectDamage(BeamType::Imperialist) == damage,
         "instagib applies lethal rails, no pickups and the bot firing weapon together");
     damage = 45; headshot = 200; splash = 17;
     InstagibRules::ApplyDamage(BeamType::PowerBeam, damage, headshot, splash);

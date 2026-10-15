@@ -25,14 +25,23 @@ namespace MphRead::Mods::Combat
         return Active() ? BeamType::Imperialist : selected;
     }
 
-    void InstagibRules::ApplyDamage(BeamType beam, std::int32_t& damage,
-        std::int32_t& headshotDamage, std::int32_t& splashDamage)
+    std::optional<std::int32_t> InstagibRules::DirectDamage(BeamType beam)
     {
         if (Active() && beam == BeamType::Imperialist)
         {
             // Within the wire's range, lethal scoped or unscoped.
-            damage = 9999;
-            headshotDamage = 9999;
+            return 9999;
+        }
+        return std::nullopt;
+    }
+
+    void InstagibRules::ApplyDamage(BeamType beam, std::int32_t& damage,
+        std::int32_t& headshotDamage, std::int32_t& splashDamage)
+    {
+        if (const auto override = DirectDamage(beam))
+        {
+            damage = *override;
+            headshotDamage = *override;
             splashDamage = 0;
         }
     }

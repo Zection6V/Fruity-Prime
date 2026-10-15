@@ -44,6 +44,13 @@ namespace MphRead::Mods::Network
         [[nodiscard]] bool Report(std::int32_t& failures);
         void SampleScoreboard(std::int32_t serverSecond);
 
+        // A lethal hit is still observed damage; excluding health zero made
+        // Instagib deaths look like untouched players in every report.
+        [[nodiscard]] static constexpr bool ObservedDamage(std::int32_t previous, std::int32_t current) noexcept
+        {
+            return previous > 0 && current >= 0 && current < previous;
+        }
+
     private:
         class Record;
 

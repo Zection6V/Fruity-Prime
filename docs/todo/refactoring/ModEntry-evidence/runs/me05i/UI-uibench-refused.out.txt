@@ -1,2 +1,0 @@
-[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-174409-32676-native.txt
-[uibench] the CPU-raster option is unavailable with Qt: uibenchslow

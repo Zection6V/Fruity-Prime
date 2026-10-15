@@ -1,3 +1,0 @@
-[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-202719-24456-native.txt
-[server] this platform takes the "win-x64" package
-[server] the latest release (v0.14.0) has no server package for win-x64

@@ -1,2 +1,0 @@
-[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-170304-34416-native.txt
-No map to bundle. A bundle is cooked from a recipe and the level it converts; put both in C:\Users\Admin\Documents\git\Fruity-Prime\docs\todo\refactoring\ModEntry-evidence\runs\me02-sandbox\emptymaps.

@@ -1,8 +1,0 @@
-[raw-mouse] registered target=0000000005A2056E foreground relative motion
-[vulkan] GPU NVIDIA GeForce RTX 5070 Ti API 1.4
-[vulkan probe] passive eligible; logical-device=0; queues=0; candidates=1
-[vulkan] GPU NVIDIA GeForce RTX 5070 Ti API 1.4
-[vulkan] full-screen exclusive unavailable
-[reflex probe] enabled=1 revision=3 presentId=1 reason=
-[vulkan] selected NVIDIA GeForce RTX 5070 Ti graphics=0 present=0 validation=1 swapchainMaintenance1=1 legacy=0
-[vulkan] foundation PASS; clean shutdown; validation=1

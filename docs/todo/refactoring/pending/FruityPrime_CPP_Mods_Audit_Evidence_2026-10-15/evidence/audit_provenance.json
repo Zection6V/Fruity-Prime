@@ -1,0 +1,16 @@
+{
+  "repository": "Zection6V/Fruity-Prime",
+  "ref": "main",
+  "verified_main_commit": "66fdfd4f23d0e84837c1b16b5a91b8b48113708b",
+  "git_tree_sha1_from_main_api": "2ee29a13cba4a76c8d32e235a21cdd76158ebd07",
+  "git_tree_sha1_reconstructed_from_zip": "2ee29a13cba4a76c8d32e235a21cdd76158ebd07",
+  "mods_tree_sha1": "43a8f77b40c3c9434ab28d110ee9021814bb9b08",
+  "git_tree_match": true,
+  "zip_file": "Fruity-Prime-main(1).zip",
+  "zip_sha256": "d4ae10724449a74435db1afe6b74318d499e82ee87f7d19d7c71dc4fcd2a28b8",
+  "zip_regular_files": 2761,
+  "mods_files": 947,
+  "mods_cpp": 439,
+  "mods_hpp": 502,
+  "note": "ZIP recreated as Git blobs and trees; modes are taken from ZIP external_attrs (755 or default 644). Matched main Git Trees API SHA. No git operations or source changes."
+}

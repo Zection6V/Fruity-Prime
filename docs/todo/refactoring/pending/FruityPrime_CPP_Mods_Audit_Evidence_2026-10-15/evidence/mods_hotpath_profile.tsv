@@ -1,0 +1,8 @@
+area	location_relative_to_Mods_except_noted	candidate	frequency_basis_NOT_MEASURED	cost_hypothesis_NOT_MEASURED	ticket	status_CPU_alloc_lock_wait_p95_p99
+ClassicMenu	ClassicMenu/Compose.cpp:479,486-494 + ClassicMenu/ClassicMenu.cpp:28,370-375	server browser tick	~29.91Hz nominal DS tick; conditional page/callback count	full vector + Qt->C++ row conversion repeated	M-01	medium
+ClassicMenu	ClassicMenu/Compose.cpp:618-640 + ClassicHost.cpp:424	settings tick	~29.91Hz nominal DS tick; only when page active	section row extraction + dynamic label/value materialization	M-02	medium
+Network	Network/Gameplay/Replication/NetSmoothing.cpp:268	FindSnapshotBracket	simulation tick, remote-sample calls (actual samples unmeasured)	64-stamp scan per call; already bounded	M-06	unmeasured
+Network	Network/Gameplay/Claims/Hit/NetHitClaims.cpp:877	Tick	simulation loop after GameState frame	Claim inbox loop and ledger probes; correctness higher priority	M-04	unmeasured
+Input	Input/GamepadManager.cpp:121,190-208	UpdateDevice / Publish	device poll / updates (unmeasured)	conditional duplicate Publish under recursive_mutex	M-09	unmeasured
+MapGen	MapGen/Q3Import.cpp:224	Q3Import::Build	map import, NOT 60Hz gameplay	large 851-line offline build function; memory peak unmeasured	M-11	cold
+MapGen	MapGen/MapTextureBake.cpp:1373	MapTextureBake::Bake	offline import/bake	676-line texture bake; no CPU/GPU measurement	M-11	cold

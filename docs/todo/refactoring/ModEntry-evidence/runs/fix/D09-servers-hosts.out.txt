@@ -1,3 +1,0 @@
-[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-203337-36688-native.txt
-[servers] asking 127.0.0.1:1
-[servers] no answer from 127.0.0.1:1 -- it may be down, or UDP may not reach it

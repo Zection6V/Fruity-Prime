@@ -1,0 +1,7 @@
+group	locations_relative_to_Mods	function	evidence	review_decision	phase	priority
+MapGen probe viewport	MapGen/AltFormProbe.cpp:49; BotTour.cpp:49; MoverProbe.cpp:68; PadProbe.cpp:71	WindowSettings	verified duplicate normalized body	Shared probe setup may be extracted if class specificity and texture/hardware parity survive; NOT hot gameplay	P3 / P9	low
+MapGen & diagnostic OnLoad	MapGen/AltFormProbe.cpp:133; BotTour.cpp:115; MoverProbe.cpp:127; PadProbe.cpp:133; Network/Testing/Combat/WeaponDps.cpp:192; Network/Testing/Maps/MapAudit.cpp:471	OnLoad	verified duplicate normalized body	Potential testing/probe adapter; preserve subclass overrides, no forced generalization	P9	low
+MapGen probe OnRenderFrame	MapGen/BotTour.cpp:124; MoverProbe.cpp:136; PadProbe.cpp:142	OnRenderFrame	verified duplicate normalized body	May be shared helper with explicit lifecycle; weigh readability	P9	low
+Win32 process error formatting	ThumbnailBatch.cpp:118; Update/ServerUpdate.cpp:315	WindowsErrorMessage	near-identical behavior, formatting differs	One platform-only formatter candidate, avoid dependency from update module to thumbnail	P10	medium
+Update error owner writes	Update/DesktopUpdate.cpp:628; Update/UpdateDownload.cpp:994	AssignLastError	verified duplicate normalized body	Two distinct LastErrorValue owners; DO NOT unify states; share only an independent conversion helper if needed	P10	medium
+Enum string overloads	Network/Session/NetLifecycleTracker.cpp:10; :17	ToString	same text, DIFFERENT enum types	Correctly distinct overloads; no action necessary	none	none

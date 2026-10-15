@@ -1,2 +1,0 @@
-[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-171834-34472-native.txt
-[net] invalid -netjitter value: x

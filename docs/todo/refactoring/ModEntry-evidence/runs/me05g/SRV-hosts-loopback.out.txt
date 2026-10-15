@@ -1,4 +1,0 @@
-[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-173911-35084-native.txt
-[hosts] asking 127.0.0.1:1 and everyone it names
-  127.0.0.1                    127.0.0.1:1                not answering
-[hosts] 0 of 1 can run a match

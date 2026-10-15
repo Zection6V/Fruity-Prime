@@ -1,9 +1,0 @@
-refusal-hostports	TIMEOUT
-servers	0
-hosts	0
-netcheck	0
-servers-after	0
-server-alive-before-stop	True
-master-alive-before-stop	True
-server-exit-after-ctrl-c	0
-master-exit-after-ctrl-c	0

@@ -1,0 +1,5 @@
+source	line	include
+src/MphRead.Native/Mods/ClassicMenu/MenuLocalization.cpp	2	ClassicMenuLanguages.generated.hpp
+src/MphRead.Native/Mods/ClassicMenu/MenuUnicodeFont.cpp	2	MenuK8x12L.generated.hpp
+src/MphRead.Native/Mods/Diagnostics/RhiConformanceCheck.cpp	13	FruityRhiConformanceShaders.hpp
+src/MphRead.Native/Mods/Render/GoldenCapture.cpp	3	GoldenCaptureProvenance.generated.hpp

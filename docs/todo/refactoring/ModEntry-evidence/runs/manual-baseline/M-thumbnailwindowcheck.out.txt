@@ -1,6 +1,0 @@
-[window] OpenGL 4.6 compatibility (asked 2.1)
-[raw-mouse] registered target=0000000001360F12 foreground relative motion
-GL debug output unavailable; continuing without optional diagnostics.
-GL 4.6.0 NVIDIA 617.14, profile compatibility, NVIDIA Corporation / NVIDIA GeForce RTX 5070 Ti/PCIe/SSE2
-Window composite check passed: premultiplied / opaque, orientation, inherited color, release=0.
-Thumbnail window check passed.

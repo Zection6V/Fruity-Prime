@@ -1,2 +1,0 @@
-[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-174415-36460-native.txt
-MOVIE HEADLESS PASS room=UNIT4_LAND suppressed_completions=1 frames_advanced=240 movie_playing=0 update_pending=0 slot0_in_play=1 player_spawn_count=1 active_player_spawns=1

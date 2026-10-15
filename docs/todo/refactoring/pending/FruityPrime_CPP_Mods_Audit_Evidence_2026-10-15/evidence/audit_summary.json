@@ -1,0 +1,713 @@
+{
+  "files": 947,
+  "cpp": 439,
+  "hpp": 502,
+  "other": 6,
+  "file_groups": {
+    "(root)": 62,
+    "Chat": 8,
+    "ClassicMenu": 20,
+    "Combat": 22,
+    "Diagnostics": 60,
+    "Gameplay": 1,
+    "Input": 118,
+    "Launcher": 22,
+    "Localization": 2,
+    "MapGen": 61,
+    "Multiplayer": 13,
+    "Network": 468,
+    "Platform": 4,
+    "Render": 66,
+    "Sound": 4,
+    "Update": 16
+  },
+  "bytes_groups": {
+    "(root)": 638578,
+    "Chat": 39929,
+    "ClassicMenu": 1172059,
+    "Combat": 40147,
+    "Diagnostics": 435932,
+    "Gameplay": 415,
+    "Input": 436745,
+    "Launcher": 182385,
+    "Localization": 1622,
+    "MapGen": 1273975,
+    "Multiplayer": 44919,
+    "Network": 2513352,
+    "Platform": 4955,
+    "Render": 340669,
+    "Sound": 42256,
+    "Update": 217036
+  },
+  "functions_lexical": 4699,
+  "qualified_functions": 3801,
+  "defs_per_area": {
+    "(root)": 499,
+    "Chat": 44,
+    "ClassicMenu": 184,
+    "Combat": 26,
+    "Diagnostics": 136,
+    "Input": 396,
+    "Launcher": 165,
+    "MapGen": 561,
+    "Multiplayer": 18,
+    "Network": 2081,
+    "Platform": 8,
+    "Render": 348,
+    "Sound": 81,
+    "Update": 152
+  },
+  "include_edges": 4219,
+  "include_unresolved": 4,
+  "include_cycles": 0,
+  "largest_cycles": [],
+  "mutable_candidates": 1097,
+  "dead_candidates": 75,
+  "duplicate_exact": 26,
+  "largest_functions": [
+    [
+      "src/MphRead.Native/Mods/MapGen/Q3Import.cpp",
+      224,
+      "Q3Import::Build",
+      851
+    ],
+    [
+      "src/MphRead.Native/Mods/ModEntry.cpp",
+      1871,
+      "ModEntry::TryHandle",
+      805
+    ],
+    [
+      "src/MphRead.Native/Mods/ModEntry.cpp",
+      1069,
+      "ModEntry::TryHandleHeadless",
+      800
+    ],
+    [
+      "src/MphRead.Native/Mods/MapGen/MapTextureBake.cpp",
+      1373,
+      "MapTextureBake::Bake",
+      676
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Testing/Harness/NetFeatureCheck.cpp",
+      571,
+      "NetFeatureCheck::Observe",
+      611
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Testing/Harness/NetFeatureCheck.cpp",
+      1184,
+      "NetFeatureCheck::Report",
+      450
+    ],
+    [
+      "src/MphRead.Native/Mods/MapGen/Q3Import.cpp",
+      2742,
+      "Q3Import::AddEntities",
+      422
+    ],
+    [
+      "src/MphRead.Native/Mods/Diagnostics/AimCheck.cpp",
+      29,
+      "AimCheck::Run",
+      420
+    ],
+    [
+      "src/MphRead.Native/Mods/ThumbnailBatch.cpp",
+      573,
+      "Start",
+      397
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Testing/Maps/MapAudit.cpp",
+      1649,
+      "MapAudit::Report",
+      375
+    ],
+    [
+      "src/MphRead.Native/Mods/Diagnostics/WeavelAltFormCheck.cpp",
+      84,
+      "WeavelAltFormCheck::Run",
+      362
+    ],
+    [
+      "src/MphRead.Native/Mods/MapGen/MapCollisionPacker.cpp",
+      336,
+      "MapCollisionPacker::Pack",
+      342
+    ],
+    [
+      "src/MphRead.Native/Mods/Diagnostics/RhiConformanceCheck.cpp",
+      206,
+      "Exercise",
+      330
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Testing/Harness/NetCheckClient.cpp",
+      785,
+      "NetCheckClient::Report",
+      298
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Discovery/NetStatus.cpp",
+      108,
+      "NetStatus::Query",
+      268
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Testing/Maps/MapAudit.cpp",
+      480,
+      "MapAudit::OnRenderFrame",
+      262
+    ],
+    [
+      "src/MphRead.Native/Mods/Render/GoldenCapture.cpp",
+      316,
+      "OnRenderFrame",
+      246
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Diagnostics/NetDiagnostics.cpp",
+      72,
+      "NetDiagnostics::Report",
+      238
+    ],
+    [
+      "src/MphRead.Native/Mods/InputSettings.cpp",
+      741,
+      "InputSettings::Load",
+      229
+    ],
+    [
+      "src/MphRead.Native/Mods/Launcher/Portable/LauncherPrefs.cpp",
+      490,
+      "LauncherPrefs::LoadFile",
+      226
+    ],
+    [
+      "src/MphRead.Native/Mods/Diagnostics/HomingParityCheck.cpp",
+      235,
+      "HomingParityCheck::Run",
+      223
+    ],
+    [
+      "src/MphRead.Native/Mods/Input/GamepadChecks.cpp",
+      103,
+      "GamepadChecks::Run",
+      222
+    ],
+    [
+      "src/MphRead.Native/Mods/MapGen/MapTextureBake.cpp",
+      496,
+      "ParseShaderScript",
+      215
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Gameplay/Claims/Hit/NetHitClaims.cpp",
+      1478,
+      "NetHitClaims::ApplyOne",
+      204
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Testing/Combat/DialancheCombatCheck.cpp",
+      72,
+      "DialancheCombatCheck::Run",
+      203
+    ],
+    [
+      "src/MphRead.Native/Mods/Update/DesktopUpdate.cpp",
+      271,
+      "StartProcess",
+      198
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Testing/Maps/MapAuditTeams.cpp",
+      59,
+      "MapAudit::RunTeamProbe",
+      196
+    ],
+    [
+      "src/MphRead.Native/Mods/ClassicMenu/ClassicMenu.cpp",
+      751,
+      "RasterizeRows",
+      195
+    ],
+    [
+      "src/MphRead.Native/Mods/Update/ServerUpdate.cpp",
+      350,
+      "StartProcess",
+      191
+    ],
+    [
+      "src/MphRead.Native/Mods/Diagnostics/LockjawEnemyCheck.cpp",
+      48,
+      "LockjawEnemyCheck::Run",
+      187
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Testing/Harness/NetCheckClient.cpp",
+      547,
+      "NetCheckClient::Observe",
+      187
+    ],
+    [
+      "src/MphRead.Native/Mods/ClassicMenu/Compose.cpp",
+      1009,
+      "Composer::PatchRom",
+      185
+    ],
+    [
+      "src/MphRead.Native/Mods/MapGen/Q3Import.cpp",
+      1582,
+      "Q3Import::Tessellate",
+      184
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Testing/Combat/NetCombatCheck.cpp",
+      301,
+      "NetCombatCheck::Run",
+      184
+    ],
+    [
+      "src/MphRead.Native/Mods/Launcher/Portable/GameFiles.cpp",
+      1211,
+      "GameFiles::RunSetup",
+      181
+    ]
+  ],
+  "most_included": [
+    [
+      "src/MphRead.Native/NativeRuntime/System/Managed.hpp",
+      142
+    ],
+    [
+      "src/MphRead.Native/Entities/Players/PlayerEntity.hpp",
+      132
+    ],
+    [
+      "src/MphRead.Native/NativeRuntime/System/Globalization.hpp",
+      117
+    ],
+    [
+      "src/MphRead.Native/NativeRuntime/System/Console.hpp",
+      86
+    ],
+    [
+      "src/MphRead.Native/Formats/Types.hpp",
+      84
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Protocol/NetProtocol.hpp",
+      78
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Session/NetSession.hpp",
+      76
+    ],
+    [
+      "src/MphRead.Native/GameState.hpp",
+      75
+    ],
+    [
+      "src/MphRead.Native/NativeRuntime/System/IO.hpp",
+      67
+    ],
+    [
+      "src/MphRead.Native/Scene.hpp",
+      66
+    ],
+    [
+      "src/MphRead.Native/Formats/Enums.hpp",
+      56
+    ],
+    [
+      "src/MphRead.Native/NativeRuntime/System/ExceptionText.hpp",
+      49
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Gameplay/Player/NetPlayerLifecycle.hpp",
+      47
+    ],
+    [
+      "src/MphRead.Native/NativeRuntime/OpenTK/Mathematics.hpp",
+      45
+    ],
+    [
+      "src/MphRead.Native/NativeRuntime/System/Runtime.hpp",
+      42
+    ],
+    [
+      "src/MphRead.Native/NativeRuntime/System/Exceptions.hpp",
+      42
+    ],
+    [
+      "src/MphRead.Native/NativeRuntime/System/Number.hpp",
+      41
+    ],
+    [
+      "src/MphRead.Native/NativeRuntime/System/Encoding.hpp",
+      40
+    ],
+    [
+      "src/MphRead.Native/Metadata/Metadata.hpp",
+      32
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Diagnostics/NetLog.hpp",
+      32
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Transport/NetTransport.hpp",
+      30
+    ],
+    [
+      "src/MphRead.Native/Renderer.hpp",
+      27
+    ],
+    [
+      "src/MphRead.Native/Entities/BeamProjectileEntity.hpp",
+      25
+    ],
+    [
+      "src/MphRead.Native/Program.hpp",
+      25
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Session/NetLifecycleTracker.hpp",
+      25
+    ]
+  ],
+  "most_definitions": [
+    [
+      "src/MphRead.Native/Mods/MapGen/MapDefinition.cpp",
+      146
+    ],
+    [
+      "src/MphRead.Native/Mods/Render/GlEs.cpp",
+      102
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Gameplay/Player/PlayerEntityNetAim.cpp",
+      68
+    ],
+    [
+      "src/MphRead.Native/Mods/ClassicMenu/MenuData.cpp",
+      66
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Gameplay/Claims/Hit/NetHitClaims.cpp",
+      63
+    ],
+    [
+      "src/MphRead.Native/Mods/Launcher/Portable/LauncherPrefs.cpp",
+      61
+    ],
+    [
+      "src/MphRead.Native/Mods/MapGen/Q3Bsp.hpp",
+      57
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Session/NetSession.cpp",
+      54
+    ],
+    [
+      "src/MphRead.Native/Mods/ClassicMenu/Compose.cpp",
+      49
+    ],
+    [
+      "src/MphRead.Native/Mods/DebugLog.cpp",
+      47
+    ],
+    [
+      "src/MphRead.Native/Mods/MapGen/Q3Import.cpp",
+      47
+    ],
+    [
+      "src/MphRead.Native/Mods/InputSettings.cpp",
+      46
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Testing/Maps/MapAudit.cpp",
+      46
+    ],
+    [
+      "src/MphRead.Native/Mods/ClassicMenu/ClassicMenu.cpp",
+      45
+    ],
+    [
+      "src/MphRead.Native/Mods/MapGen/CustomRooms.cpp",
+      45
+    ],
+    [
+      "src/MphRead.Native/Mods/Sound/SfxMixer.cpp",
+      44
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Gameplay/Combat/NetHitPrediction.cpp",
+      38
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Testing/Lobby/NetLobbyTest.cpp",
+      38
+    ],
+    [
+      "src/MphRead.Native/Mods/Update/UpdateDownload.cpp",
+      38
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Gameplay/Player/NetPlayerBridge.cpp",
+      35
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Testing/Harness/NetTestScript.cpp",
+      35
+    ],
+    [
+      "src/MphRead.Native/Mods/Launcher/Portable/GameFiles.cpp",
+      33
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Server/Core/DedicatedServer.cpp",
+      33
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Testing/Harness/NetCheckClient.cpp",
+      33
+    ],
+    [
+      "src/MphRead.Native/Mods/Sound/AlEs.cpp",
+      33
+    ],
+    [
+      "src/MphRead.Native/Mods/Input/GamepadOptions.cpp",
+      31
+    ],
+    [
+      "src/MphRead.Native/Mods/MapGen/Q3Bsp.cpp",
+      31
+    ],
+    [
+      "src/MphRead.Native/Mods/ConsoleWindow.cpp",
+      30
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Diagnostics/NetDamageMetrics.cpp",
+      30
+    ],
+    [
+      "src/MphRead.Native/Mods/Update/UpdateCheck.cpp",
+      30
+    ]
+  ],
+  "duplicate_examples": [
+    [
+      "src/MphRead.Native/Mods/MapGen/AltFormProbe.cpp",
+      49,
+      "AltFormProbe::WindowSettings",
+      "exact-body",
+      "4ac753433fae07f935ca892aeac215a4c8e44487f496929245e6ee8cd68ed6fc",
+      "src/MphRead.Native/Mods/MapGen/BotTour.cpp:49, src/MphRead.Native/Mods/MapGen/MoverProbe.cpp:68, src/MphRead.Native/Mods/MapGen/PadProbe.cpp:71"
+    ],
+    [
+      "src/MphRead.Native/Mods/MapGen/BotTour.cpp",
+      49,
+      "BotTour::WindowSettings",
+      "exact-body",
+      "4ac753433fae07f935ca892aeac215a4c8e44487f496929245e6ee8cd68ed6fc",
+      "src/MphRead.Native/Mods/MapGen/AltFormProbe.cpp:49, src/MphRead.Native/Mods/MapGen/MoverProbe.cpp:68, src/MphRead.Native/Mods/MapGen/PadProbe.cpp:71"
+    ],
+    [
+      "src/MphRead.Native/Mods/MapGen/MoverProbe.cpp",
+      68,
+      "MoverProbe::WindowSettings",
+      "exact-body",
+      "4ac753433fae07f935ca892aeac215a4c8e44487f496929245e6ee8cd68ed6fc",
+      "src/MphRead.Native/Mods/MapGen/AltFormProbe.cpp:49, src/MphRead.Native/Mods/MapGen/BotTour.cpp:49, src/MphRead.Native/Mods/MapGen/PadProbe.cpp:71"
+    ],
+    [
+      "src/MphRead.Native/Mods/MapGen/PadProbe.cpp",
+      71,
+      "PadProbe::WindowSettings",
+      "exact-body",
+      "4ac753433fae07f935ca892aeac215a4c8e44487f496929245e6ee8cd68ed6fc",
+      "src/MphRead.Native/Mods/MapGen/AltFormProbe.cpp:49, src/MphRead.Native/Mods/MapGen/BotTour.cpp:49, src/MphRead.Native/Mods/MapGen/MoverProbe.cpp:68"
+    ],
+    [
+      "src/MphRead.Native/Mods/MapGen/AltFormProbe.cpp",
+      133,
+      "AltFormProbe::OnLoad",
+      "exact-body",
+      "9eb8ce9aa1d1c0ff14198d24a7238bdb246c1a2684f4862b1eb64672e15c697f",
+      "src/MphRead.Native/Mods/MapGen/BotTour.cpp:115, src/MphRead.Native/Mods/MapGen/MoverProbe.cpp:127, src/MphRead.Native/Mods/MapGen/PadProbe.cpp:133, src/MphRead.Native/Mods/Network/Testing/Combat/WeaponDps.cpp:192, src/MphRead.Native/Mods/Network/Testing/Maps/MapAudit.cpp:471"
+    ],
+    [
+      "src/MphRead.Native/Mods/MapGen/BotTour.cpp",
+      115,
+      "BotTour::OnLoad",
+      "exact-body",
+      "9eb8ce9aa1d1c0ff14198d24a7238bdb246c1a2684f4862b1eb64672e15c697f",
+      "src/MphRead.Native/Mods/MapGen/AltFormProbe.cpp:133, src/MphRead.Native/Mods/MapGen/MoverProbe.cpp:127, src/MphRead.Native/Mods/MapGen/PadProbe.cpp:133, src/MphRead.Native/Mods/Network/Testing/Combat/WeaponDps.cpp:192, src/MphRead.Native/Mods/Network/Testing/Maps/MapAudit.cpp:471"
+    ],
+    [
+      "src/MphRead.Native/Mods/MapGen/MoverProbe.cpp",
+      127,
+      "MoverProbe::OnLoad",
+      "exact-body",
+      "9eb8ce9aa1d1c0ff14198d24a7238bdb246c1a2684f4862b1eb64672e15c697f",
+      "src/MphRead.Native/Mods/MapGen/AltFormProbe.cpp:133, src/MphRead.Native/Mods/MapGen/BotTour.cpp:115, src/MphRead.Native/Mods/MapGen/PadProbe.cpp:133, src/MphRead.Native/Mods/Network/Testing/Combat/WeaponDps.cpp:192, src/MphRead.Native/Mods/Network/Testing/Maps/MapAudit.cpp:471"
+    ],
+    [
+      "src/MphRead.Native/Mods/MapGen/PadProbe.cpp",
+      133,
+      "PadProbe::OnLoad",
+      "exact-body",
+      "9eb8ce9aa1d1c0ff14198d24a7238bdb246c1a2684f4862b1eb64672e15c697f",
+      "src/MphRead.Native/Mods/MapGen/AltFormProbe.cpp:133, src/MphRead.Native/Mods/MapGen/BotTour.cpp:115, src/MphRead.Native/Mods/MapGen/MoverProbe.cpp:127, src/MphRead.Native/Mods/Network/Testing/Combat/WeaponDps.cpp:192, src/MphRead.Native/Mods/Network/Testing/Maps/MapAudit.cpp:471"
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Testing/Combat/WeaponDps.cpp",
+      192,
+      "WeaponDps::OnLoad",
+      "exact-body",
+      "9eb8ce9aa1d1c0ff14198d24a7238bdb246c1a2684f4862b1eb64672e15c697f",
+      "src/MphRead.Native/Mods/MapGen/AltFormProbe.cpp:133, src/MphRead.Native/Mods/MapGen/BotTour.cpp:115, src/MphRead.Native/Mods/MapGen/MoverProbe.cpp:127, src/MphRead.Native/Mods/MapGen/PadProbe.cpp:133, src/MphRead.Native/Mods/Network/Testing/Maps/MapAudit.cpp:471"
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Testing/Maps/MapAudit.cpp",
+      471,
+      "MapAudit::OnLoad",
+      "exact-body",
+      "9eb8ce9aa1d1c0ff14198d24a7238bdb246c1a2684f4862b1eb64672e15c697f",
+      "src/MphRead.Native/Mods/MapGen/AltFormProbe.cpp:133, src/MphRead.Native/Mods/MapGen/BotTour.cpp:115, src/MphRead.Native/Mods/MapGen/MoverProbe.cpp:127, src/MphRead.Native/Mods/MapGen/PadProbe.cpp:133, src/MphRead.Native/Mods/Network/Testing/Combat/WeaponDps.cpp:192"
+    ],
+    [
+      "src/MphRead.Native/Mods/MapGen/BotTour.cpp",
+      124,
+      "BotTour::OnRenderFrame",
+      "exact-body",
+      "2699ccf93c4a2800b36758abd44a8909b95efff718cf82828d0f2e9545537fb1",
+      "src/MphRead.Native/Mods/MapGen/MoverProbe.cpp:136, src/MphRead.Native/Mods/MapGen/PadProbe.cpp:142"
+    ],
+    [
+      "src/MphRead.Native/Mods/MapGen/MoverProbe.cpp",
+      136,
+      "MoverProbe::OnRenderFrame",
+      "exact-body",
+      "2699ccf93c4a2800b36758abd44a8909b95efff718cf82828d0f2e9545537fb1",
+      "src/MphRead.Native/Mods/MapGen/BotTour.cpp:124, src/MphRead.Native/Mods/MapGen/PadProbe.cpp:142"
+    ],
+    [
+      "src/MphRead.Native/Mods/MapGen/PadProbe.cpp",
+      142,
+      "PadProbe::OnRenderFrame",
+      "exact-body",
+      "2699ccf93c4a2800b36758abd44a8909b95efff718cf82828d0f2e9545537fb1",
+      "src/MphRead.Native/Mods/MapGen/BotTour.cpp:124, src/MphRead.Native/Mods/MapGen/MoverProbe.cpp:136"
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Protocol/Codec/WirePrimitives.hpp",
+      228,
+      "ReadyAt",
+      "exact-body",
+      "dc0af38e51e6d3c0e49e9f7618b31beca384dadcb5fce8a83c49892a81d1f34a",
+      "src/MphRead.Native/Mods/Network/Protocol/Codec/WirePrimitives.hpp:241, src/MphRead.Native/Mods/Network/Protocol/Codec/WirePrimitives.hpp:254"
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Protocol/Codec/WirePrimitives.hpp",
+      241,
+      "AA",
+      "exact-body",
+      "dc0af38e51e6d3c0e49e9f7618b31beca384dadcb5fce8a83c49892a81d1f34a",
+      "src/MphRead.Native/Mods/Network/Protocol/Codec/WirePrimitives.hpp:228, src/MphRead.Native/Mods/Network/Protocol/Codec/WirePrimitives.hpp:254"
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Protocol/Codec/WirePrimitives.hpp",
+      254,
+      "AAM",
+      "exact-body",
+      "dc0af38e51e6d3c0e49e9f7618b31beca384dadcb5fce8a83c49892a81d1f34a",
+      "src/MphRead.Native/Mods/Network/Protocol/Codec/WirePrimitives.hpp:228, src/MphRead.Native/Mods/Network/Protocol/Codec/WirePrimitives.hpp:241"
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Session/NetLifecycleTracker.cpp",
+      10,
+      "ToString",
+      "exact-body",
+      "a3e2681f42088addfa71dd22566b8067b555eadc6efbecd0e907b28424fd5058",
+      "src/MphRead.Native/Mods/Network/Session/NetLifecycleTracker.cpp:17"
+    ],
+    [
+      "src/MphRead.Native/Mods/Network/Session/NetLifecycleTracker.cpp",
+      17,
+      "ToString",
+      "exact-body",
+      "a3e2681f42088addfa71dd22566b8067b555eadc6efbecd0e907b28424fd5058",
+      "src/MphRead.Native/Mods/Network/Session/NetLifecycleTracker.cpp:10"
+    ],
+    [
+      "src/MphRead.Native/Mods/Render/Crosshair.cpp",
+      35,
+      "TryParseEnum",
+      "exact-body",
+      "f86acb53e9460dae6748e35ff91c1b12cfb83e652b57d8651fe0f10b36f003ef",
+      "src/MphRead.Native/Mods/Render/Crosshair.cpp:36"
+    ],
+    [
+      "src/MphRead.Native/Mods/Render/Crosshair.cpp",
+      36,
+      "MphRead::NativeRuntime::EnumNameEntry",
+      "exact-body",
+      "f86acb53e9460dae6748e35ff91c1b12cfb83e652b57d8651fe0f10b36f003ef",
+      "src/MphRead.Native/Mods/Render/Crosshair.cpp:35"
+    ],
+    [
+      "src/MphRead.Native/Mods/ThumbnailBatch.cpp",
+      118,
+      "WindowsErrorMessage",
+      "exact-body",
+      "6de172f890417859e60ddac1ceb9f021151585cedb33669ee68b2137e5f0f52a",
+      "src/MphRead.Native/Mods/Update/ServerUpdate.cpp:315"
+    ],
+    [
+      "src/MphRead.Native/Mods/Update/ServerUpdate.cpp",
+      315,
+      "WindowsErrorMessage",
+      "exact-body",
+      "6de172f890417859e60ddac1ceb9f021151585cedb33669ee68b2137e5f0f52a",
+      "src/MphRead.Native/Mods/ThumbnailBatch.cpp:118"
+    ],
+    [
+      "src/MphRead.Native/Mods/Update/DesktopUpdate.cpp",
+      628,
+      "AssignLastError",
+      "exact-body",
+      "719b92a40abd3c356732c249646016de325d839f9d527520311982fc09a1e164",
+      "src/MphRead.Native/Mods/Update/UpdateDownload.cpp:994"
+    ],
+    [
+      "src/MphRead.Native/Mods/Update/UpdateDownload.cpp",
+      994,
+      "AssignLastError",
+      "exact-body",
+      "719b92a40abd3c356732c249646016de325d839f9d527520311982fc09a1e164",
+      "src/MphRead.Native/Mods/Update/DesktopUpdate.cpp:628"
+    ],
+    [
+      "src/MphRead.Native/Mods/Update/DesktopUpdate.cpp",
+      697,
+      "DesktopUpdate::LastError",
+      "exact-body",
+      "fdb3e17dab78c5a019c440456839c46dd182f8cf0905ec1cbbaf8fe187295646",
+      "src/MphRead.Native/Mods/Update/UpdateDownload.cpp:1134"
+    ],
+    [
+      "src/MphRead.Native/Mods/Update/UpdateDownload.cpp",
+      1134,
+      "UpdateDownload::LastError",
+      "exact-body",
+      "fdb3e17dab78c5a019c440456839c46dd182f8cf0905ec1cbbaf8fe187295646",
+      "src/MphRead.Native/Mods/Update/DesktopUpdate.cpp:697"
+    ]
+  ]
+}

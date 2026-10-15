@@ -1,4 +1,5 @@
 #include "Effects.hpp"
+#include "../Mods/Render/EffectTint.hpp"
 
 #include "Formats.hpp"
 #include "Model.hpp"
@@ -1527,7 +1528,7 @@ namespace MphRead::Effects
         if (Alpha > 0.0F)
         {
             _shouldDraw = true;
-            _color = Vector3(Red, Green, Blue);
+            _color = Mods::Render::EffectTint::ParticleColor(*this, Vector3(Red, Green, Blue));
             Vector3 ev1 = Multiply(_effectVec1, Scale);
             Vector3 ev2 = Multiply(_effectVec2, Scale);
 
@@ -1588,7 +1589,7 @@ namespace MphRead::Effects
         if (Alpha > 0.0F)
         {
             _shouldDraw = true;
-            _color = Vector3(Red, Green, Blue);
+            _color = Mods::Render::EffectTint::ParticleColor(*this, Vector3(Red, Green, Blue));
             float angle1 = DegreesToRadians(Rotation);
             float angle2 = DegreesToRadians(Rotation + 90.0F);
             float sin1 = std::sin(angle1);
@@ -1661,7 +1662,7 @@ namespace MphRead::Effects
         {
             _shouldDraw = true;
             _drawNode = true;
-            _color = Vector3(Red, Green, Blue);
+            _color = Mods::Render::EffectTint::ParticleColor(*this, Vector3(Red, Green, Blue));
             Vector4 ev4;
             EffectElementEntry& ownerForFlags = RequireReference(Owner);
             if (HasFlag(ownerForFlags.Flags, EffElemFlags::UseTransform))
@@ -1704,7 +1705,7 @@ namespace MphRead::Effects
             && (!skipIfZeroSpeed || LengthSquared(Speed) > 0.0F))
         {
             _shouldDraw = true;
-            _color = Vector3(Red, Green, Blue);
+            _color = Mods::Render::EffectTint::ParticleColor(*this, Vector3(Red, Green, Blue));
             Vector3 cross = Vector3::Cross(_effectVec1, _effectVec2).Normalized();
             Vector3 ev1 = Multiply(_effectVec1, Scale);
             cross = Multiply(cross, Rotation);

@@ -21,6 +21,9 @@
 #include "Mods/Network/Gameplay/Combat/HitLocation.hpp"
 #include "Mods/Network/Gameplay/Player/NetPlayerBridge.hpp"
 #include "../Mods/Headless.hpp"
+#include "../Mods/Combat/InstagibRules.hpp"
+#include "../Mods/Render/InstagibEffects.hpp"
+#include "../Mods/Render/EffectTint.hpp"
 #include "Mods/Network/Gameplay/Combat/NetHitPrediction.hpp"
 #include "Mods/Network/Diagnostics/HomingShotTrace.hpp"
 #include "Mods/Network/Diagnostics/NetLog.hpp"
@@ -1963,6 +1966,9 @@ namespace MphRead::Entities
             splashDmg *= 4;
         }
 
+        // Mod: resolve match-specific damage through the shared weapon policy.
+        Mods::Combat::InstagibRules::ApplyDamage(weapon.Beam, damage, hsDamage, splashDmg);
+
         const std::uint16_t damageInterpolation = ManagedAt(RequireReference(weapon.DamageInterpolations), charged ? 1U : 0U);
         const float maxDist = getAmount(
             weapon.UnchargedDistance, weapon.MinChargeDistance, weapon.ChargedDistance) / 4096.0F;
@@ -2412,7 +2418,8 @@ namespace MphRead::Entities
             if (!GameState::SinglePlayer() || colRes.Terrain() <= Terrain::Lava)
             {
                 const std::shared_ptr<BeamEffectEntity> ent = BeamEffectEntity::Create(
-                    BeamEffectEntityData(_collisionEffect, noSplat, transform, colRes.EntityCollision), _scene);
+                    BeamEffectEntityData(_collisionEffect, noSplat, transform, colRes.EntityCollision), _scene,
+                    Mods::Render::InstagibEffects::Tint(_beam, _owner.get()));
                 if (ent)
                 {
                     if (_splashDamage > 0.0F)
@@ -2461,12 +2468,20 @@ namespace MphRead::Entities
         }
         if (effectId > 0)
         {
-            RequireReference(_scene).SpawnEffect(effectId, transform);
+            Mods::Render::EffectTint::Spawn(RequireReference(_scene), effectId, transform,
+                Mods::Render::InstagibEffects::Tint(_beam, _owner.get()));
         }
     }
 
+
     void BeamProjectileEntity::SpawnSniperBeam()
     {
+        // Mod: a rail can replace the cartridge sniper beam.
+        if (Mods::Render::InstagibEffects::TryAddRail(RequireReference(_scene), _beam,
+                _owner.get(), _spawnPosition, static_cast<Vector3>(Position)))
+        {
+            return;
+        }
         const Vector3 spawnPos = _pastPositions[8];
         Vector3 up = static_cast<Vector3>(Position) - spawnPos;
         const float magnitude = Length(up);

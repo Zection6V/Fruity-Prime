@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../Formats/Enums.hpp"
+#include "../../Mods/Combat/InstagibRules.hpp"
 #include "../../Formats/Types.hpp"
 
 #include <algorithm>
@@ -806,6 +807,8 @@ namespace MphRead::Entities
         }
 
         void ExecuteFuncs1(const std::vector<std::int32_t>& funcsIds);
+        // Mod: Instagib loadout/movement policy is implemented under Mods/Combat.
+        void ModApplyInstagibWeapons();
         void ExecuteFuncs2(AiContext& context);
         [[nodiscard]] std::int32_t ExecuteFuncs3(AiContext& context, std::int32_t funcId,
             const Formats::AiPersonalityData5& param);
@@ -1894,7 +1897,7 @@ namespace MphRead::Entities
         std::int32_t Func3_213CC94(AiContext&,const Formats::AiPersonalityData5&){if(_player->_healthMax<=_player->_health)return 0;return _player->_healthMax-_player->_health;}
         std::int32_t Func3_213CBE4(AiContext&,const Formats::AiPersonalityData5& p){FindEntityRef(AiEntRefType::Type54);if(!_entityRefs.Field54)return 0;float d=p.Param1/4096.0F;return DistanceSquared(_entityRefs.Field54->Position,_player->Position)<d*d?1:0;}
         std::int32_t Func3_213CBC0(AiContext& c,const Formats::AiPersonalityData5& p){return Func3_213CBE4(c,p)^1;}
-        std::int32_t Func3_213CBB0(AiContext&,const Formats::AiPersonalityData5&){if(Func2137860())return 0;for (auto _enumerator8 = _scene.GetItemInstanceEntities().GetEnumerator(); _enumerator8.MoveNext(); )
+        std::int32_t Func3_213CBB0(AiContext&,const Formats::AiPersonalityData5&){if(Func2137860()||!Mods::Combat::InstagibRules::PickupsAllowed())return 0;for (auto _enumerator8 = _scene.GetItemInstanceEntities().GetEnumerator(); _enumerator8.MoveNext(); )
             if (const auto i = _enumerator8.Current(); true)if(!IsItemNotNeeded(i->ItemType())&&!Func21377FC(*i))return 1;return 0;}
         std::int32_t Func3_213CB8C(AiContext& c,const Formats::AiPersonalityData5& p){return Func3_213CBB0(c,p)^1;}
         std::int32_t Func3_213CADC(AiContext&,const Formats::AiPersonalityData5& p){FindEntityRef(AiEntRefType::Type55);if(!_entityRefs.Field55)return 0;float d=p.Param1/4096.0F;return DistanceSquared(_entityRefs.Field55->Position,_player->Position)<d*d?1:0;}
@@ -2435,7 +2438,8 @@ namespace MphRead::Entities
             const auto& equip = *_player->EquipInfo(); const WeaponInfo& weapon = _player->EquipWeapon();int shotDelay;
             if(_player->BotLevel()==0)shotDelay=60;else if(_player->BotLevel()==1)shotDelay=15;else if(_player->BotLevel()==2)shotDelay=5;else shotDelay=0;
             if((Flags2&AiFlags2::Bit21)!=AiFlags2::None)shotDelay/=2;shotDelay*=2;
-            BeamType beam=GetBeamType(_weapon1);if(beam!=BeamType::ShockCoil&&!_player->AvailableWeapons()[beam])return;
+            BeamType beam=Mods::Combat::InstagibRules::AiWeapon(GetBeamType(_weapon1));
+            if(beam!=BeamType::ShockCoil&&!_player->AvailableWeapons()[beam])return;
             auto setRandomDelay=[&](){_shotDelay=weapon.ShotCooldown*2+static_cast<int>(Rng::GetRandomInt2(shotDelay));};
             if(beam==BeamType::PowerBeam)
             {
@@ -2839,6 +2843,8 @@ namespace MphRead::Entities
         void FindEntityRef(AiEntRefType type)
         {
             if (_entityRefs.IsPopulated(static_cast<std::int32_t>(type))) return;
+            // Mod: suppress item targets using the shared match policy.
+            if (Mods::Combat::InstagibRules::SuppressPickupTarget(static_cast<std::int32_t>(type))) return;
             if (type == AiEntRefType::Type0)
             {
                 if (_player->ClosestNode) _entityRefs.Field0 = _player->ClosestNode;

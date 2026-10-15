@@ -5,6 +5,7 @@
 #include "../../Features.hpp"
 #include "../../Formats/CollisionDetection.hpp"
 #include "../../GameState.hpp"
+#include "../../Mods/Render/InstagibEffects.hpp"
 #include "Mods/SpectatorMode.hpp"
 #include "../../Metadata/Metadata.hpp"
 #include "../../Renderer.hpp"
@@ -380,6 +381,8 @@ namespace MphRead::Entities
                 ModelInstance& gun = RequireReference(_gunModel.get());
                 UpdateTransforms(gun, transform, Recolor());
                 Model& gunModel = RequireReference(gun.Model());
+                // Mod: apply the match presentation before producing draw items.
+                Mods::Render::InstagibEffects::TintGun(gun, CurrentWeapon(), SlotIndex());
                 GetDrawItems(gun, RequireReference(ManagedAt(gunModel.Nodes, 0)), _curAlpha);
                 if (TestFlag(Flags1(), PlayerFlags1::DrawGunSmoke))
                 {

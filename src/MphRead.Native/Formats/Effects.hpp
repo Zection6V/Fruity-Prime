@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -331,6 +332,8 @@ namespace MphRead::Effects
         std::int32_t EffectId = 0;
         const std::shared_ptr<std::vector<std::shared_ptr<EffectElementEntry>>> Elements
             = std::make_shared<std::vector<std::shared_ptr<EffectElementEntry>>>();
+        // Mod: optional presentation data interpreted by Mods::Render::EffectTint.
+        std::optional<OpenTK::Mathematics::Vector3> ModTint{};
 
         EffectEntry() = default;
         EffectEntry(const EffectEntry&) = delete;
@@ -380,6 +383,8 @@ namespace MphRead::Effects
         float ParticleAmount = 0.0F;
         bool Expired = false;
         std::int32_t ChildEffectId = 0;
+        // Mod: per-element override, including effects without an EffectEntry.
+        std::optional<OpenTK::Mathematics::Vector3> ModTint{};
         float RoField1 = 0.0F;
         float RoField2 = 0.0F;
         float RoField3 = 0.0F;

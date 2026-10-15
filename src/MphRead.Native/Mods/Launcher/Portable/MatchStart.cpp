@@ -162,6 +162,7 @@ namespace MphRead::Mods::Launcher
         }
         else
         {
+            ApplyLocalRules(plan);
             AddLocalPlayers(window, std::move(plan), teamPlay);
         }
 
@@ -172,6 +173,17 @@ namespace MphRead::Mods::Launcher
         window.LoadScene();
         MphRead::Mods::Network::NetSession::MarkMatchLoaded();
         return true;
+    }
+
+    void MatchStart::ApplyLocalRules(const LaunchPlan& plan)
+    {
+        // Instagib is the server's to say online; offline it is the Play
+        // screen's, and set every time so it never carries over from the last
+        // match.
+        if (plan.Kind() == LaunchKind::Offline)
+        {
+            MphRead::GameState::Instagib(plan.Instagib());
+        }
     }
 
     void MatchStart::EnsureScene(MphRead::RenderWindow& window)

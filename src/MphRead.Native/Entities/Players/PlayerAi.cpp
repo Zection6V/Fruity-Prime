@@ -102,6 +102,7 @@ namespace MphRead::Entities
         InitializeMain();
         ClearInput();
         UpdateExecutionPath(Personality, 0);
+        ModApplyInstagibWeapons();
     }
 
     void PlayerEntity::PlayerAiData::InitializeGlobals()
@@ -606,6 +607,7 @@ namespace MphRead::Entities
             default: throw std::runtime_error("Invalid AI func 1.");
             }
         }
+        ModApplyInstagibWeapons();
     }
 
     void PlayerEntity::PlayerAiData::ExecuteFuncs2(AiContext& context)

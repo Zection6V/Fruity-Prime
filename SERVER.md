@@ -89,6 +89,7 @@ existing systemd unit or launch script keeps working unchanged.
 | `-servername "NAME"` | the name shown in the browser |
 | `-rotation FILE` | default `maprotation.txt` in the platform user-data directory; beside the binary in the normal Windows/Linux layout |
 | `-friendlyfire` | team damage on |
+| `-instagib` | Instagib rule: everybody has the Imperialist with infinite ammo, one hit kills, nothing on the map can be picked up, and each shot leaves a Quake-style rail in the shooter's colour. Works with any game type; a server broadcasts it, so clients need nothing |
 | `-lobby` | wait in a persistent lobby before the owner starts the match |
 | `-format NAME` | match format, for example `Auto`, `FreeForAll` or `TwoVsTwo` |
 | `-requireready on\|off` | whether participants must be ready before starting |

@@ -552,6 +552,7 @@ namespace MphRead::Mods::Entry
         server.FriendlyFire(HasFlag(args, "friendlyfire"));
         server.ShadowFreeze(!HasFlag(args, "noshadowfreeze"));
         server.AffinityWeapons(HasFlag(args, "affinityweapons"));
+        server.Instagib(HasFlag(args, "instagib"));
         // -bots N [-botlevel L]: the game's own AI in the top N slots.
         if (const std::optional<std::string> bots = ValueAfter(args, "bots"); bots.has_value())
         {

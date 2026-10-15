@@ -597,6 +597,7 @@ namespace MphRead::Entities
         InitializeWeapon();
         _availableWeapons[MphRead::BeamType::PowerBeam] = true;
         TryEquipWeapon(MphRead::BeamType::PowerBeam, true);
+        ModApplyInstagibLoadout();
         _facingVector = Negate(Vector3(0.0F, 0.0F, 1.0F));
         _upVector = Vector3(0.0F, 1.0F, 0.0F);
         SetTransform(_facingVector, _upVector, Vector3::Zero);
@@ -809,6 +810,7 @@ namespace MphRead::Entities
         _deathaltTimer = 0;
         _previousWeapon = MphRead::BeamType::PowerBeam;
         TryEquipWeapon(MphRead::BeamType::PowerBeam, true);
+        ModApplyInstagibLoadout();
         Metadata::LoadEffectiveness(0x2AAAA, BeamEffectiveness);
         _frozenTimer = 0;
         _timeSinceFrozen = 255;

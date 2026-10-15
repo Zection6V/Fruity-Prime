@@ -9,6 +9,7 @@
 #include "Mods/Network/Testing/Harness/NetTestScript.hpp"
 #include "Mods/DebugLog.hpp"
 #include "Mods/ScreenCapture.hpp"
+#include "Mods/Render/InstagibRails.hpp"
 #include "Mods/WorldEvents.hpp"
 #include "Entities/BeamProjectileEntity.hpp"
 #include "Entities/ItemInstanceEntity.hpp"
@@ -1592,6 +1593,19 @@ namespace MphRead::Mods::Network
         if (lit > _litMax)
         {
             _litMax = lit;
+        }
+
+        // -instagibdemo: leave the eight rails in front of the camera for the
+        // next frame's picture, a little older each time (see InstagibRails).
+        if (Mods::Render::InstagibRails::DemoMode())
+        {
+            const std::shared_ptr<Entities::PlayerEntity> viewer = Entities::PlayerEntity::Main();
+            if (viewer != nullptr)
+            {
+                Mods::Render::InstagibRails::ShowDemo(*_scene,
+                    static_cast<Vector3>(viewer->Position) + Vector3(0.0F, 1.2F, 0.0F),
+                    viewer->FacingVector(), 0.04F + 0.12F * static_cast<float>((_shotsSaved + 1) % 8));
+            }
         }
 
         if (_shotDirectory.has_value())

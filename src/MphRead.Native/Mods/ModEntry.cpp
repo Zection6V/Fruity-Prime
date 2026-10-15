@@ -1,6 +1,7 @@
 #include "ModEntry.hpp"
 
 #include "../Features.hpp"
+#include "../GameState.hpp"
 #include "../Program.hpp"
 #include "../Utility/Console.hpp"
 #include "ConsoleWindow.hpp"
@@ -31,6 +32,7 @@
 #include "Launcher/Portable/LauncherPrefs.hpp"
 #include "Launcher/Portable/TextLauncher.hpp"
 #include "MapGen/CustomRooms.hpp"
+#include "Render/InstagibRails.hpp"
 #include "Mods/Network/Diagnostics/NetDiagnostics.hpp"
 #include "Mods/Network/Testing/Maps/MapAudit.hpp"
 #include "Render/FrameTimingCheck.hpp"
@@ -336,6 +338,17 @@ namespace MphRead::Mods
         if (!::HasFlag(args, "mapgen") && ValuesAfter(args, "thumbnail").empty())
         {
             MapGen::CustomRooms::StartGenerating();
+        }
+
+        // Local diagnostics use the rule directly; network clients receive it from the server.
+        if (::HasFlag(args, "instagibdemo"))
+        {
+            Render::InstagibRails::DemoMode(true);
+            GameState::Instagib(true);
+        }
+        if (::HasFlag(args, "instagib"))
+        {
+            GameState::Instagib(true);
         }
 
         if (::HasFlag(args, "nohelmet"))

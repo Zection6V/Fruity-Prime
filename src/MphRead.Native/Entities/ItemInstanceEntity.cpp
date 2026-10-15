@@ -1,4 +1,5 @@
 #include "ItemInstanceEntity.hpp"
+#include "../Mods/Combat/InstagibRules.hpp"
 
 #include "../Formats/Effects.hpp"
 #include "../GameState.hpp"
@@ -439,7 +440,8 @@ namespace MphRead::Entities
 
     void ItemInstanceEntity::GetDrawInfo()
     {
-        if (IsVisible(NodeRef))
+        // Instagib: the map has nothing to pick up, so it shows nothing.
+        if (IsVisible(NodeRef) && Mods::Combat::InstagibRules::PickupsAllowed())
         {
             SpinningEntityBase::GetDrawInfo();
         }

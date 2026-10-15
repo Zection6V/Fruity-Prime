@@ -1,0 +1,2 @@
+Thumbnail context policy passed: 3.2, Compatability.
+GLFW extraction path check passed.

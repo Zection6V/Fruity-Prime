@@ -1,0 +1,20 @@
+﻿[18:34:45.842] [crash] native stderr is being captured to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-183445-34352-native.txt
+[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-183445-34352-native.txt
+[18:34:45.842] [crash] no crash dump is configured. For a native stack from the next crash, start the game with these three set (type 4 is required -- a single-file app supports no other kind, and the file is around 110 MB, which zips well):
+[18:34:45.842] [crash]   DOTNET_DbgEnableMiniDump=1 DOTNET_DbgMiniDumpType=4 DOTNET_DbgMiniDumpName=C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\crash-%p.dmp
+[18:34:45.842] [build] Fruity Prime a local build, data format 0.35.1.0
+[18:34:45.842] [build] protocol 33, log started 2026-10-15 18:34:45 +09:00
+[18:34:45.842] [system] Microsoft Windows NT 10.0.22621.0 X64/X64, .NET native, 28 cpu(s)
+[18:34:45.842] [system] 64-bit process=True, culture=ja-JP
+[18:34:45.842] [paths] base=C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\
+[18:34:45.843] [paths] prefs=C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\
+[18:34:45.843] [paths] log=C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-183445-34352.log
+[18:34:45.843] [paths] game files ready=True
+[18:34:45.843] [args] C:/Users/Admin/Documents/git/Fruity-Prime/tools/build/out/msvc-Release/FruityPrime-me07b.exe -masterserver -port 27991 -hostports none -noupdate -noautoupdate -console -debuglog
+[18:34:45.843] [render] cel=off fog=on window=ExclusiveFullscreen
+[18:34:46] [master] listening on UDP 27991
+[18:34:46] [master] servers are dropped after 50 s of silence
+[18:34:46] [master] not starting games for anybody (no host port range)
+[18:34:49] [master] + 127.0.0.1:27992 "ME06 Loopback"
+[18:35:28] [master] shutting down
+[183528.819] [exit] process exiting

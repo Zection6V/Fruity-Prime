@@ -1,0 +1,9 @@
+0x7cd17d  MphRead::Paths::FileSystem+0x8d
+0x5a2ff0  MphRead::Mods::MapGen::CustomRooms::NodeDirectory+0x30
+0x5a24b9  MphRead::Mods::MapGen::CustomRooms::NeedsGenerating+0xa39
+0x10f0d40  MphRead::Mods::MapGen::MapBuilder::MultiplayerItems+0xb0
+0x596a8d  std::vector<std::shared_ptr<MphRead::Mods::MapGen::MapDefinition>,std::allocator<std::shared_ptr<MphRead::Mods::MapGen::MapDefinition> > >::_Assign_counted_range<std::shared_ptr<MphRead::Mods::MapGen::MapDefinition> * __ptr64>+0xbd
+0x10f0d70  MphRead::Mods::MapGen::MapBuilder::MultiplayerItems+0xe0
+0x59eb40  MphRead::Mods::MapGen::CustomRooms::GenerateMissing+0xa0
+0x59c015  MphRead::Mods::MapGen::Q3Import::Lighting::operator=+0x385
+0x599fce  std::vector<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> >,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >,std::allocator<std::pair<std::basic_string<char,std::char_traits<char>,std::allocator<char> >,std::basic_string<char,std::char_traits<char>,std::allocator<char> > > > >::_Emplace_reallocate<std::basic_string<char,std::char_traits<char>,std::allocator<char> >,std::basic_string<char,std::char_traits<char>,std::allocator<char> > >+0x1c4e

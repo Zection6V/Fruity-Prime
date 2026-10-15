@@ -1,0 +1,9 @@
+[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-175659-37480-native.txt
+[gamepad] watching for 1 s. dead zone 0.20, look 1.00, invert y off
+[gamepad] buttons: Fire / alt attack RT, Jump / boost A, Morph ball B, Zoom LT, Scan visor Y, Scan X, Next weapon RB or D-pad right, Cycle previous weapon LB or D-pad left, Missile D-pad up, Power beam D-pad down, Map / scoreboard Back, Menu Start, Chat Left stick, Weapon wheel Right stick, Volt Driver unbound, Battlehammer unbound, Imperialist unbound, Judicator unbound, Magmaul unbound, Shock Coil unbound, Omega Cannon unbound, Affinity weapon slot unbound, Last equipped weapon unbound
+[gamepad] no extra mappings loaded
+  slot 0: JC-PS101U -- mapped, usable
+    0.0s PS2 Controller  L( 0.00,-0.00) R( 0.00,-0.00) LT0.00 RT0.00  aim( -0.00,  0.00)
+    0.0s PS2 Controller  L(-0.01, 0.01) R(-0.01, 0.01) LT0.00 RT0.00  aim( -0.00,  0.00)
+
+[gamepad] a pad is connected, but nothing was pressed or moved far enough to read.

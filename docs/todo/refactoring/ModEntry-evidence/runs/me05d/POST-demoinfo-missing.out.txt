@@ -1,0 +1,2 @@
+[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-173129-31436-native.txt
+[demo] no such file: missing.fpdemo

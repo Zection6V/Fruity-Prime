@@ -1,0 +1,5 @@
+"Case","Exit","Seconds","Artifact","ExitCrashRetries","Args"
+"G-maptest","0","11.8","","0","-maptest ""TEST ARENA"" -players 2 -seconds 3 -size 640x360"
+"G-maptest-bots","0","4.3","","0","-maptest ""TEST ARENA"" -players 4 -seconds 3 -bots"
+"G-shotat","0","0.6","44741212DD34FF9BC22A8317BABD0844B1C781B0D9D3C851007A6B756904996B","0","-shotat ""MP3 PROVING GROUND"" -at 0,8,0 -look 10,8,10 -out C:\Users\Admin\Documents\git\Fruity-Prime\docs\todo\refactoring\ModEntry-evidence\runs\gpu-me00-baseline-sandbox\shot.png -size 320,180"
+"G-gpulifetime","0","1.2","","0","-gpulifetime ""TEST ARENA"" -cycles 1 -frames 10"

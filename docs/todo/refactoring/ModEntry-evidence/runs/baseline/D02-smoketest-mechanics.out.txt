@@ -1,0 +1,20 @@
+Fruity Prime compatibility smoke test
+Runtime: .NET native
+OS: Microsoft Windows 10.0.22621
+Architecture: X64
+RID: win-x64
+Fruity Prime a local build
+OS: Microsoft Windows 10.0.22621
+OS architecture: X64
+Process architecture: X64
+RID: win-x64
+Runtime: .NET native
+Base directory: C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\
+Launch directory: C:\Users\Admin\Documents\git\Fruity-Prime\docs\todo\refactoring\ModEntry-evidence\runs\baseline-sandbox
+Current directory: C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release
+User data: C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\
+[OK] configuration
+[OK] Qt Quick
+Maps: C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\maps
+[OK] maps
+Smoke test failed (1 checks).

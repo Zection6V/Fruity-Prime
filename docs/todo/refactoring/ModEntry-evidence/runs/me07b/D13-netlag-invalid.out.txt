@@ -1,0 +1,2 @@
+[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-181716-38044-native.txt
+[net] -netlag INVALID is not a number of milliseconds (try -netlag 200 or -netlag 200:40)

@@ -1,0 +1,3 @@
+[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-182903-33436-native.txt
+[hostlocal] nothing on this machine can run a server
+[hostlocal] there is no server binary on this machine yet

@@ -1,0 +1,43 @@
+run 1: exit 0xc0000005
+ACCESS VIOLATION (read of 0x258) at 0x7ff7b0ded17d (exe+0x7cd17d) on thread 33400
+live threads: 6
+--- faulting thread 33400
+  0x7ff7b0ded17d (exe+0x7cd17d)
+  0x278b8f0
+  0x420000
+  0x630faf0
+  raw stack scan (candidate return addresses into the exe, innermost first):
+    rsp+0x48: exe+0x5a2ff0
+    rsp+0x108: exe+0x5a24b9
+    rsp+0x3a8: exe+0x10f0d40
+    rsp+0x3e8: exe+0x596a8d
+    rsp+0x3f8: exe+0x10f0d70
+    rsp+0x428: exe+0x59eb40
+    rsp+0x5b8: exe+0x59c015
+    rsp+0x5e8: exe+0x599fce
+--- thread 40932
+  ZwWaitForAlertByThreadId+0x14
+  TpWorkOnBehalfClearTicket+0x2c3
+  RtlEnterCriticalSection+0x254
+  RtlEnterCriticalSection+0x42
+  RtlRegisterSecureMemoryCacheCallback+0x1bb0
+  EtwLogTraceEvent+0xbf08
+  RtlGetCurrentServiceSessionId+0x1294
+  RtlFreeHeap+0x51
+  0x7ff8dfd4364b
+--- thread 5356
+  ZwWaitForWorkViaWorkerFactory+0x14
+  RtlClearThreadWorkOnBehalfTicket+0x35e
+  0x7ff8e151257d
+--- thread 17924
+  ZwWaitForWorkViaWorkerFactory+0x14
+  RtlClearThreadWorkOnBehalfTicket+0x35e
+  0x7ff8e151257d
+--- thread 26268
+  ZwWaitForWorkViaWorkerFactory+0x14
+  RtlClearThreadWorkOnBehalfTicket+0x35e
+  0x7ff8e151257d
+--- thread 31488
+  NtDelayExecution+0x14
+  RtlDelayExecution+0x43
+  0x7ff8e004a3cd

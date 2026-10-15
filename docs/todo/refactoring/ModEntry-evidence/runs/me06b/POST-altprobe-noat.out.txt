@@ -1,0 +1,2 @@
+[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-175957-8928-native.txt
+-altprobe needs -at X,Y,Z

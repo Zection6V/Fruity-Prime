@@ -1,0 +1,23 @@
+me00-baseline installserver exit=1 files=0 bytes=
+[server] this platform takes the "win-x64" package
+[server] the latest release (v0.14.0) has no server package for win-x64
+me00-baseline mapsync exit=0 files=20 names=Facer2d.pk3,hub3aeroq3.pk3,map_cpm3a.pk3,mario.pk3.part,oa_pkvomit3.pk3,oa_pvomit.pk3,oa_pvomit2.pk3,oa_pvomit4.pk3,oa_pvomit5.pk3,overkill.pk3,pom_bots.pk3,q3dm0.pk3,q3dm1.pk3,q3dm11.pk3,q3dm17u.pk3,q3dm6.pk3,q3dm6test.pk3,q3tourney4.pk3,reqbath.pk3,simpsons.pk3
+[maps] downloaded reqbath.pk3
+
+[maps] simpsons.pk3 (20/20)
+[maps] downloaded simpsons.pk3
+
+[maps] 19 downloaded
+me07b installserver exit=1 files=0 bytes=
+[server] this platform takes the "win-x64" package
+[server] the latest release (v0.14.0) has no server package for win-x64
+me07b mapsync exit=0 files=20 names=Facer2d.pk3,hub3aeroq3.pk3,map_cpm3a.pk3,mario.pk3,oa_pkvomit3.pk3,oa_pvomit.pk3,oa_pvomit2.pk3,oa_pvomit4.pk3,oa_pvomit5.pk3,overkill.pk3,pom_bots.pk3,q3dm0.pk3,q3dm1.pk3,q3dm11.pk3,q3dm17u.pk3,q3dm6.pk3,q3dm6test.pk3,q3tourney4.pk3,reqbath.pk3,simpsons.pk3
+[maps] downloaded reqbath.pk3
+
+[maps] simpsons.pk3 (20/20)
+[maps] downloaded simpsons.pk3
+
+[maps] 20 downloaded
+server/ left behind: False
+
+[exited with code 0]

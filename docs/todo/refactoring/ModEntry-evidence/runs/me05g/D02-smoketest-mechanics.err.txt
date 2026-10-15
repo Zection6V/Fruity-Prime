@@ -1,0 +1,1 @@
+[FAIL] launcher resources (X64): System.IO.FileNotFoundException: The resource avares://FruityPrime/Assets/Fonts/heyNovember.ttf could not be found.

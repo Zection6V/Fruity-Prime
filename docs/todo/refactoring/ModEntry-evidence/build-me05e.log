@@ -1,0 +1,219 @@
+[build] Visual Studio: C:\Program Files\Microsoft Visual Studio\2022\Community (17.14.37628.2)
+[build] Repository : C:\Users\Admin\Documents\git\Fruity-Prime
+[build] Toolchain  : msvc
+[build] Config     : Release
+[build] Generator  : Ninja
+[build] CMake      : C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe
+[build] Build dir  : C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release
+
+-- Found ZLIB: optimized;C:/vcpkg/installed/x64-windows/lib/z.lib;debug;C:/vcpkg/installed/x64-windows/debug/lib/zd.lib (found version "1.3.2")
+-- NcsfPlay.Native: 36 C++ sources, 36 headers
+-- MphRead.Native: 694 C++ sources, 790 headers
+-- MphRead.Native.Qt: 23 C++ sources, 24 headers
+-- Found ZLIB: optimized;C:/vcpkg/installed/x64-windows/lib/z.lib;debug;C:/vcpkg/installed/x64-windows/debug/lib/zd.lib (found suitable version "1.3.2", minimum required is "1")
+-- Configuring done (20.6s)
+-- Generating done (1.4s)
+-- Build files have been written to: C:/Users/Admin/Documents/git/Fruity-Prime/tools/build/out/msvc-Release
+[0/2] Re-checking globbed directories...
+[1/193] Running native renderer geometry decoder tests
+RendererGeometry tests passed
+[2/193] Running native renderer GPU mesh cache tests
+RendererGpuMesh tests passed.
+[3/193] Running golden capture validation tests
+GoldenCapture validation tests passed
+[4/193] Refreshing GoldenCapture source provenance
+[5/192] Automatic MOC for target fruity_mphread_qt
+[6/191] Building CXX object CMakeFiles\fruity_mphread_native.dir\src\MphRead.Native\Mods\Entry\GameChecks.cpp.obj
+C:\Users\Admin\Documents\git\Fruity-Prime\src\MphRead.Native\Mods\Entry\GameChecks.cpp(226): warning C4834: [[nodiscard]] 属性を持つ関数の戻り値を破棄しています
+C:\Users\Admin\Documents\git\Fruity-Prime\src\MphRead.Native\Mods\Entry\GameChecks.cpp(234): warning C4834: [[nodiscard]] 属性を持つ関数の戻り値を破棄しています
+C:\Users\Admin\Documents\git\Fruity-Prime\src\MphRead.Native\Mods\Entry\GameChecks.cpp(235): warning C4834: [[nodiscard]] 属性を持つ関数の戻り値を破棄しています
+[7/191] Building CXX object CMakeFiles\fruity_mphread_native.dir\src\MphRead.Native\Mods\ModEntry.cpp.obj
+C:\Users\Admin\Documents\git\Fruity-Prime\src\MphRead.Native\Mods\ModEntry.cpp(859): warning C4834: [[nodiscard]] 属性を持つ関数の戻り値を破棄しています
+[8/191] Linking CXX static library MphRead.Native.lib
+[9/191] Automatic MOC for target fruity_prime
+[10/190] Linking CXX executable fruity_remote_player_channel_tests.exe
+[11/190] Linking CXX executable fruity_net_input_press_replay_tests.exe
+[12/190] Linking CXX executable fruity_net_inbox_tests.exe
+[13/190] Linking CXX executable fruity_session_authority_state_tests.exe
+[14/190] Linking CXX executable fruity_modentry_command_line_tests.exe
+[15/190] Linking CXX executable fruity_client_connection_health_tests.exe
+[16/190] Linking CXX executable fruity_client_replica_stream_tests.exe
+[17/190] Linking CXX executable fruity_session_match_identity_tests.exe
+[18/190] Linking CXX executable fruity_server_snapshot_stream_tests.exe
+[19/190] Linking CXX executable fruity_server_intent_validator_tests.exe
+[20/190] Linking CXX executable fruity_server_peer_intent_state_tests.exe
+[21/190] Linking CXX executable fruity_server_handshake_tests.exe
+[22/190] Linking CXX executable fruity_server_peer_identity_channel_tests.exe
+[23/190] Running AUTOMOC file extraction for target fruity_prime
+[24/87] Linking CXX executable fruity_form_reconciliation_tests.exe
+[25/87] Linking CXX executable fruity_hit_claim_outbox_tests.exe
+[26/87] Linking CXX executable fruity_claim_damage_policy_tests.exe
+[27/87] Linking CXX executable fruity_claim_impact_rules_tests.exe
+[28/87] Linking CXX executable fruity_hit_claim_death_state_tests.exe
+[29/87] Linking CXX executable fruity_hit_claim_metrics_tests.exe
+[30/87] Linking CXX executable fruity_hit_claim_rate_limiter_tests.exe
+[31/87] Building RC object CMakeFiles\fruity_prime.dir\FruityPrime.rc.res
+Microsoft (R) Windows (R) Resource Compiler Version 10.0.10011.16384
+Copyright (C) Microsoft Corporation.  All rights reserved.
+
+[32/87] Linking CXX executable fruity_authority_hit_inbox_tests.exe
+[33/87] Linking CXX executable fruity_demo_frame_clock_tests.exe
+[34/87] Linking CXX executable fruity_session_runtime_state_tests.exe
+[35/87] Linking CXX executable fruity_session_traffic_metrics_tests.exe
+[36/87] Linking CXX executable fruity_session_player_identity_tests.exe
+[37/87] Linking CXX executable fruity_movie_playback_session_tests.exe
+[38/87] Linking CXX executable fruity_sylux_muzzle_guard_tests.exe
+[39/87] Linking CXX executable fruity_weapon_combat_rules_tests.exe
+[40/87] Linking CXX executable fruity_session_simulation_callbacks_tests.exe
+[41/87] Linking CXX executable fruity_hit_claim_replay_ledger_tests.exe
+[42/87] Linking CXX executable fruity_session_connection_tests.exe
+[43/87] Linking CXX executable fruity_hit_verdict_outbox_tests.exe
+[44/87] Linking CXX executable fruity_hit_claim_intent_history_tests.exe
+[45/87] Linking CXX executable fruity_prediction_book_tests.exe
+[46/87] Linking CXX executable fruity_intent_touch_payload_tests.exe
+[47/87] Linking CXX executable fruity_weavel_alt_form_parity_tests.exe
+[48/87] Linking CXX executable fruity_pickup_claim_outbox_tests.exe
+[49/87] Linking CXX executable fruity_pickup_claim_replay_ledger_tests.exe
+[50/87] Linking CXX executable fruity_pickup_prediction_fault_tests.exe
+[51/87] Linking CXX executable fruity_modentry_options_tests.exe
+[52/87] Linking CXX executable fruity_server_snapshot_validator_tests.exe
+[53/87] Linking CXX executable fruity_net_input_history_tests.exe
+[54/87] Linking CXX executable fruity_network_lobby_tests.exe
+[55/87] Linking CXX executable fruity_modentry_values_tests.exe
+[56/87] Linking CXX executable fruity_network_protocol_golden_tests.exe
+[57/87] Linking CXX executable fruity_net_smoothing_tests.exe
+[58/87] Linking CXX executable fruity_replica_room_placement_tests.exe
+[59/87] Linking CXX executable fruity_server_peer_registry_tests.exe
+[60/87] Linking CXX executable fruity_peer_registry_tests.exe
+[61/87] Linking CXX executable fruity_server_match_rotation_controller_tests.exe
+[62/87] Linking CXX executable fruity_server_peer_identity_tests.exe
+[63/87] Linking CXX executable fruity_server_match_state_builder_tests.exe
+[64/87] Linking CXX executable fruity_server_peer_profile_tests.exe
+[65/87] Linking CXX executable fruity_collision_weld_tests.exe
+[66/87] Linking CXX executable fruity_server_lobby_state_tests.exe
+[67/87] Linking CXX executable fruity_server_lobby_peer_state_tests.exe
+[68/87] Linking CXX executable fruity_server_lobby_load_barrier_tests.exe
+[69/87] Linking CXX executable fruity_server_lobby_ownership_policy_tests.exe
+[70/87] Linking CXX executable fruity_freeze_prediction_ledger_tests.exe
+[71/87] Linking CXX executable fruity_authority_hit_ledger_tests.exe
+[72/87] Linking CXX executable fruity_server_slot_identity_tests.exe
+[73/87] Linking CXX executable fruity_server_authority_state_tests.exe
+[74/87] Linking CXX executable fruity_demo_own_intent_tests.exe
+[75/87] Linking CXX executable fruity_server_peer_liveness_tests.exe
+[76/87] Linking CXX executable fruity_net_fault_queue_tests.exe
+[77/87] Linking CXX executable fruity_client_lobby_state_tests.exe
+[78/87] Linking CXX executable fruity_peer_chat_rate_limiter_tests.exe
+[79/87] Linking CXX executable fruity_server_lobby_command_processor_tests.exe
+[80/87] Linking CXX executable fruity_server_session_state_builder_tests.exe
+[81/87] Linking CXX executable fruity_burn_status_effect_policy_tests.exe
+[82/87] Linking CXX executable fruity_net_session_simulation_adapter_tests.exe
+[83/87] Linking CXX executable fruity_session_lobby_synchronizer_tests.exe
+[84/87] Linking CXX executable fruity_net_damage_metrics_tests.exe
+[85/87] Linking CXX executable fruity_qt_raw_mouse_window_tests.exe
+[86/87] Linking CXX executable FruityPrime.exe
+Adding local dependencyC:/Users/Admin/Documents/git/Fruity-Prime/tools/build/out/msvc-Release/z.dll
+Adding local dependencyC:/Users/Admin/Documents/git/Fruity-Prime/tools/build/out/msvc-Release/glfw3.dll
+Adding local dependencyC:/Users/Admin/Documents/git/Fruity-Prime/tools/build/out/msvc-Release/OpenAL32.dll
+Adding local dependencyC:/Users/Admin/Documents/git/Fruity-Prime/tools/build/out/msvc-Release/libcurl.dll
+Adding local dependencyC:/Users/Admin/Documents/git/Fruity-Prime/tools/build/out/msvc-Release/archive.dll
+Adding local dependencyC:/Users/Admin/Documents/git/Fruity-Prime/tools/build/out/msvc-Release/fmt.dll
+Adding local dependencyC:/Users/Admin/Documents/git/Fruity-Prime/tools/build/out/msvc-Release/bz2.dll
+Adding local dependencyC:/Users/Admin/Documents/git/Fruity-Prime/tools/build/out/msvc-Release/liblzma.dll
+Adding local dependencyC:/Users/Admin/Documents/git/Fruity-Prime/tools/build/out/msvc-Release/lz4.dll
+Adding local dependencyC:/Users/Admin/Documents/git/Fruity-Prime/tools/build/out/msvc-Release/zstd.dll
+C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\FruityPrime.exe 64 bit, release executable [QML]
+Scanning C:\Users\Admin\Documents\git\Fruity-Prime\src\MphRead.Native.Qt\qml:
+QML imports:
+  'QtQuick' C:\Qt\6.11.2\msvc2022_64\qml\QtQuick
+  'QtQml' C:\Qt\6.11.2\msvc2022_64\qml\QtQml
+  'QML' C:\Qt\6.11.2\msvc2022_64\qml\QML
+  'QtQml.Models' C:\Qt\6.11.2\msvc2022_64\qml\QtQml\Models
+  'QtQml.WorkerScript' C:\Qt\6.11.2\msvc2022_64\qml\QtQml\WorkerScript
+  'QtQuick.Shapes' C:\Qt\6.11.2\msvc2022_64\qml\QtQuick\Shapes
+  'QtQuick.Effects' C:\Qt\6.11.2\msvc2022_64\qml\QtQuick\Effects
+Adding in plugin type generic for module: Qt6Gui
+Adding in plugin type iconengines for module: Qt6Gui
+Adding Qt6Svg for qsvgicon.dll from plugin type: iconengines
+Adding in plugin type imageformats for module: Qt6Gui
+Adding in plugin type networkinformation for module: Qt6Network
+Adding in plugin type platforms for module: Qt6Gui
+Adding in plugin type qmltooling for module: Qt6Qml
+Adding in plugin type tls for module: Qt6Network
+Skipping plugin qopensslbackend.dll. Use -force-openssl or specify -openssl-root if you want to use it.
+Performing additional pass of finding Qt plugins due to updated Qt module list: Qt6Core Qt6Gui Qt6Network Qt6OpenGL Qt6Qml Qt6QmlMeta Qt6QmlModels Qt6QmlWorkerScript Qt6Quick Qt6QuickEffects Qt6QuickShapes Qt6Svg
+Adding in plugin type generic for module: Qt6Gui
+Adding in plugin type iconengines for module: Qt6Gui
+Adding in plugin type imageformats for module: Qt6Gui
+Adding in plugin type networkinformation for module: Qt6Network
+Adding in plugin type platforms for module: Qt6Gui
+Adding in plugin type qmltooling for module: Qt6Qml
+Adding in plugin type tls for module: Qt6Network
+Skipping plugin qopensslbackend.dll. Use -force-openssl or specify -openssl-root if you want to use it.
+Direct dependencies: Qt6Core Qt6Gui Qt6Network Qt6OpenGL Qt6Qml Qt6QmlMeta Qt6QmlModels Qt6QmlWorkerScript Qt6Quick
+All dependencies   : Qt6Core Qt6Gui Qt6Network Qt6OpenGL Qt6Qml Qt6QmlMeta Qt6QmlModels Qt6QmlWorkerScript Qt6Quick Qt6QuickEffects Qt6QuickShapes
+To be deployed     : Qt6Core Qt6Gui Qt6Network Qt6OpenGL Qt6Qml Qt6QmlMeta Qt6QmlModels Qt6QmlWorkerScript Qt6Quick Qt6QuickEffects Qt6QuickShapes Qt6Svg
+Skipping system library C:/WINDOWS/system32/icuuc.dll
+Qt6Core.dll is up to date.
+Qt6Gui.dll is up to date.
+Qt6Network.dll is up to date.
+Qt6OpenGL.dll is up to date.
+Qt6Qml.dll is up to date.
+Qt6QmlMeta.dll is up to date.
+Qt6QmlModels.dll is up to date.
+Qt6QmlWorkerScript.dll is up to date.
+Qt6Quick.dll is up to date.
+Qt6QuickEffects.dll is up to date.
+Qt6QuickShapes.dll is up to date.
+Qt6Svg.dll is up to date.
+dxcompiler.dll is up to date.
+dxil.dll is up to date.
+qtuiotouchplugin.dll is up to date.
+qsvgicon.dll is up to date.
+qgif.dll is up to date.
+qico.dll is up to date.
+qjpeg.dll is up to date.
+qsvg.dll is up to date.
+qnetworklistmanager.dll is up to date.
+qwindows.dll is up to date.
+qmldbg_debugger.dll is up to date.
+qmldbg_inspector.dll is up to date.
+qmldbg_local.dll is up to date.
+qmldbg_messages.dll is up to date.
+qmldbg_native.dll is up to date.
+qmldbg_nativedebugger.dll is up to date.
+qmldbg_preview.dll is up to date.
+qmldbg_profiler.dll is up to date.
+qmldbg_quickeventreplay.dll is up to date.
+qmldbg_quickprofiler.dll is up to date.
+qmldbg_server.dll is up to date.
+qmldbg_tcp.dll is up to date.
+qcertonlybackend.dll is up to date.
+qschannelbackend.dll is up to date.
+qtquick2plugin.dll is up to date.
+plugins.qmltypes is up to date.
+qmldir is up to date.
+Skipping C:\Qt\6.11.2\msvc2022_64\qml\QtQuick\Controls\designer.
+qmlplugin.dll is up to date.
+plugins.qmltypes is up to date.
+qmldir is up to date.
+plugins.qmltypes is up to date.
+qmldir is up to date.
+modelsplugin.dll is up to date.
+plugins.qmltypes is up to date.
+qmldir is up to date.
+workerscriptplugin.dll is up to date.
+plugins.qmltypes is up to date.
+qmldir is up to date.
+qmlshapesplugin.dll is up to date.
+plugins.qmltypes is up to date.
+qmldir is up to date.
+effectsplugin.dll is up to date.
+plugins.qmltypes is up to date.
+qmldir is up to date.
+
+[build] Build succeeded:
+FruityPrime.exe
+C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\FruityPrime-SrpCheck.lib
+C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\FruityPrime.lib
+C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\MphRead.Native.lib
+C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\NcsfPlay.Native.lib

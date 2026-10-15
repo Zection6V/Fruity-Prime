@@ -6,6 +6,7 @@
 #include "Mods/Network/Gameplay/Player/NetPlayerLifecycle.hpp"
 #include "Mods/Network/Session/NetSession.hpp"
 #include "Mods/Network/Gameplay/Combat/NetUnlagged.hpp"
+#include "Mods/Network/Protocol/Packets/ShotRayValidation.hpp"
 
 #include "Entities/BeamProjectileEntity.hpp"
 #include "Entities/Players/PlayerEntity.hpp"
@@ -142,6 +143,42 @@ namespace MphRead::Mods::Network
                 + " weapon=" + ::MphRead::ToString(weapon) + " authorityFrame="
                 + Runtime::ToString(NetSession::NetFrame()) + " " + std::string(detail));
         }
+    }
+
+    void NetShotDiagnostics::TraceRayValidation(std::string_view stage, const ShotKey& key,
+        ::MphRead::BeamType weapon, std::uint32_t sequence, std::uint32_t ackFrame,
+        const OpenTK::Mathematics::Vector3& origin, const OpenTK::Mathematics::Vector3& direction,
+        const OpenTK::Mathematics::Vector3* shooterPosition, std::uint16_t shooterGeneration,
+        std::uint16_t shooterLifeId, bool rayValid, bool accepted)
+    {
+        if (!NetLog::Enabled())
+        {
+            return;
+        }
+        const auto vectorText = [](const OpenTK::Mathematics::Vector3& value)
+        {
+            return "(" + std::to_string(value.X) + "," + std::to_string(value.Y)
+                + "," + std::to_string(value.Z) + ")";
+        };
+        const std::string historicalPosition = shooterPosition != nullptr
+            ? vectorText(*shooterPosition) : std::string("missing");
+        const std::string shooterLife = shooterPosition != nullptr
+            ? std::to_string(shooterGeneration) + "/" + std::to_string(shooterLifeId)
+            : std::string("missing");
+        const std::string originOffset = shooterPosition != nullptr
+            ? std::to_string(OpenTK::Mathematics::Length(origin - *shooterPosition))
+            : std::string("missing");
+        Trace(stage, key, weapon,
+            "shotSequence=" + std::to_string(sequence)
+            + " ackFrame=" + std::to_string(ackFrame)
+            + " shooterGenerationLife=" + shooterLife
+            + " rawOrigin=" + vectorText(origin)
+            + " rawDirection=" + vectorText(direction)
+            + " shooterHistoricalPos=" + historicalPosition
+            + " originOffset=" + originOffset
+            + " maxOriginOffset=" + std::to_string(ShotRayValidation::MaximumOriginOffset)
+            + " rayValid=" + (rayValid ? "true" : "false")
+            + " decision=" + (accepted ? "accept" : "refuse"));
     }
 
     bool NetShotDiagnostics::Finish(::MphRead::Entities::PlayerEntity& shooter,

@@ -4,7 +4,9 @@
 #include "Mods/Network/Protocol/Packets/RealtimePackets.hpp"
 #include "NativeRuntime/OpenTK/Mathematics.hpp"
 
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 
 namespace MphRead::Mods::Network
@@ -34,6 +36,14 @@ namespace MphRead::Mods::Network
         float Range = 0.0F;
         float Tolerance = 0.0F;
         bool Continuous = false;
+        bool RequireReference = true;
+    };
+
+    struct HomingFireTargetValidation final
+    {
+        bool ShooterValid = false;
+        bool RayValid = false;
+        bool Accepted = false;
     };
 
     class HomingTargetSelection final
@@ -41,11 +51,23 @@ namespace MphRead::Mods::Network
     public:
         HomingTargetSelection() = delete;
 
+        [[nodiscard]] static HomingFireTargetValidation ValidateFireRay(
+            const HomingTargetSnapshot* shooterAtFire, std::int32_t shooterSlot,
+            const OpenTK::Mathematics::Vector3& rayOrigin,
+            const OpenTK::Mathematics::Vector3& rayDirection) noexcept;
+        [[nodiscard]] static HomingFireTargetValidation ValidateFireTarget(
+            const HomingTargetSnapshot* shooterAtFire, std::int32_t shooterSlot,
+            const HomingTargetSnapshot* targetAtFire, HomingTargetSelectionRequest request,
+            bool hasRay, const OpenTK::Mathematics::Vector3& rayOrigin,
+            const OpenTK::Mathematics::Vector3& rayDirection) noexcept;
         [[nodiscard]] static bool IsEligible(const HomingTargetSnapshot& candidate,
             const HomingTargetSelectionRequest& request) noexcept;
         [[nodiscard]] static bool CanAcquire(const HomingTargetSnapshot& candidate,
             const HomingTargetSelectionRequest& request) noexcept;
         [[nodiscard]] static IntentPacket::ShotTargetReference Select(
+            std::span<const HomingTargetSnapshot> candidates,
+            const HomingTargetSelectionRequest& request) noexcept;
+        [[nodiscard]] static std::optional<std::size_t> SelectIndex(
             std::span<const HomingTargetSnapshot> candidates,
             const HomingTargetSelectionRequest& request) noexcept;
     };

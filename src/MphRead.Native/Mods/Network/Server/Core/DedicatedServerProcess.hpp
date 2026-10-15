@@ -31,6 +31,7 @@ namespace MphRead::Mods::Network
         bool FriendlyFire = false;
         bool ShadowFreeze = true;
         bool AffinityWeapons = false;
+        bool Instagib = false;
         std::shared_ptr<MasterReporter> Reporter{};
     };
 

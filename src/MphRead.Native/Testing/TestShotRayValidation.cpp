@@ -59,5 +59,20 @@ int main()
         Vector3(0.0F, 0.0F, 0.0F), Vector3(0.0F, 0.0F, 0.0F),
         std::numeric_limits<float>::quiet_NaN()),
         "a non-finite muzzle offset is rejected");
+    passed &= Check(MphRead::Mods::Network::ShotRayValidation::IsPlausibleRay(
+        Vector3(13.0F, 20.0F, 30.0F), Vector3(0.0F, 0.0F, -1.0F), shooterPosition),
+        "a valid ray from a small muzzle offset is plausible");
+    passed &= Check(MphRead::Mods::Network::ShotRayValidation::IsPlausibleRay(
+        Vector3(16.0F, 20.0F, 30.0F), Vector3(0.0F, 0.0F, -1.0F), shooterPosition),
+        "a valid ray at the maximum muzzle offset is plausible");
+    passed &= Check(!MphRead::Mods::Network::ShotRayValidation::IsPlausibleRay(
+        Vector3(16.01F, 20.0F, 30.0F), Vector3(0.0F, 0.0F, -1.0F), shooterPosition),
+        "a valid direction cannot make a distant origin plausible");
+    passed &= Check(!MphRead::Mods::Network::ShotRayValidation::IsPlausibleRay(
+        shooterPosition, Vector3(0.0F, 0.0F, 0.0F), shooterPosition),
+        "a zero direction cannot pass ray validation");
+    passed &= Check(!MphRead::Mods::Network::ShotRayValidation::IsPlausibleRay(
+        shooterPosition, Vector3(std::numeric_limits<float>::quiet_NaN(), 0.0F, 1.0F), shooterPosition),
+        "a non-finite direction cannot pass ray validation");
     return passed ? 0 : 1;
 }

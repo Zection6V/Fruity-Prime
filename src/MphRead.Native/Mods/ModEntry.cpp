@@ -58,6 +58,7 @@
 #include "Mods/Network/Server/Core/DedicatedServer.hpp"
 #include "Mods/Network/Server/Core/ServerLaunchOptions.hpp"
 #include "Mods/Network/Server/Lobby/ServerMapUpload.hpp"
+#include "Mods/Render/InstagibRails.hpp"
 #include "Mods/Network/Replay/DemoInfo.hpp"
 #include "Mods/Network/Testing/Combat/HealthSimulationTest.hpp"
 #include "Mods/Network/Bots/ServerBots.hpp"
@@ -95,6 +96,7 @@
 #include "Diagnostics/HomingParityCheck.hpp"
 #include "Diagnostics/HostedAuthorityCheck.hpp"
 #include "Diagnostics/HomingSpawnCheck.hpp"
+#include "Diagnostics/MovieHeadlessCheck.hpp"
 #include "Mods/Network/Testing/Simulation/ServerSimCheck.hpp"
 #include "Mods/Network/Testing/Combat/WeaponDps.hpp"
 #include "Render/Crosshair.hpp"
@@ -1786,6 +1788,7 @@ namespace MphRead::Mods
         server.FriendlyFire(::HasFlag(args, "friendlyfire"));
         server.ShadowFreeze(!::HasFlag(args, "noshadowfreeze"));
         server.AffinityWeapons(::HasFlag(args, "affinityweapons"));
+        server.Instagib(::HasFlag(args, "instagib"));
         // -bots N [-botlevel L]: the game's own AI in the top N slots.
         if (const std::optional<std::string> bots = ValueAfter(args, "bots"); bots.has_value())
         {
@@ -1876,6 +1879,19 @@ namespace MphRead::Mods
         if (!::HasFlag(args, "mapgen") && ValuesAfter(args, "thumbnail").empty())
         {
             MapGen::CustomRooms::StartGenerating();
+        }
+
+        // -instagib: the rule for a match this process plays alone (-maptest, a
+        // local match); a server broadcasts its own, and a client takes the
+        // server's.
+        if (::HasFlag(args, "instagibdemo"))
+        {
+            Render::InstagibRails::DemoMode(true);
+            GameState::Instagib(true);
+        }
+        if (::HasFlag(args, "instagib"))
+        {
+            GameState::Instagib(true);
         }
 
         if (::HasFlag(args, "nohelmet"))
@@ -2212,6 +2228,17 @@ namespace MphRead::Mods
             SetExitCode(Diagnostics::WeavelAltFormCheck::Run(*weavelAltCheck));
             return true;
         }
+        if (::HasFlag(args, "movieheadlesscheck"))
+        {
+            if (!Launcher::GameFiles::Ready())
+            {
+                WriteLine("[check] -movieheadlesscheck needs the game files; skipped");
+                SetExitCode(77);
+                return true;
+            }
+            SetExitCode(Diagnostics::MovieHeadlessCheck::Run());
+            return true;
+        }
         // The homing checks fly real projectiles in a real room: without the
         // player's game files there is nothing to load, which CTest reads as
         // a skip (77) rather than a failure.
@@ -2342,6 +2369,18 @@ namespace MphRead::Mods
             return true;
         }
 
+        if (::HasFlag(args, "mapteststorymoviecycle"))
+        {
+            SetExitCode(Network::MapAudit::RunStoryMovieCycle());
+            return true;
+        }
+
+        if (::HasFlag(args, "mapteststorymovietransition"))
+        {
+            SetExitCode(Network::MapAudit::RunStoryMovieTransitionCycle());
+            return true;
+        }
+
         const std::optional<std::string> mapTest = ValueAfter(args, "maptest");
         if (mapTest.has_value())
         {
@@ -2400,10 +2439,20 @@ namespace MphRead::Mods
                     Network::MapAudit::WindowSize(OpenTK::Mathematics::Vector2i(auditWidth, auditHeight));
                 }
             }
+            const bool movieChainProbe = ::HasFlag(args, "maptestmoviechain");
+            const bool movieSkipProbe = ::HasFlag(args, "maptestmovieskip");
+            const bool movieCloseProbe = ::HasFlag(args, "maptestmovieclose");
+            const bool movieAudioCallProbe = ::HasFlag(args, "maptestmoviealcall");
+            const bool cleanupExceptionProbe = ::HasFlag(args, "maptestcleanupexception");
+            const bool partialInitializationProbe = ::HasFlag(args, "maptestpartialinit");
+            const bool playMovies = ::HasFlag(args, "maptestmovies") || movieChainProbe || movieSkipProbe
+                || movieCloseProbe || movieAudioCallProbe;
             SetExitCode(Network::MapAudit::Run(*mapTest, players, seconds, mode,
                 ::HasFlag(args, "bots"), ValueAfter(args, "shots"),
                 ::HasFlag(args, "renderprobe"), ::HasFlag(args, "allnodes"),
-                ::HasFlag(args, "itemshots"), ::HasFlag(args, "itempickupcheck")));
+                ::HasFlag(args, "itemshots"), ::HasFlag(args, "itempickupcheck"),
+                playMovies, movieChainProbe, movieSkipProbe, movieCloseProbe,
+                cleanupExceptionProbe, partialInitializationProbe, movieAudioCallProbe));
             return true;
         }
 

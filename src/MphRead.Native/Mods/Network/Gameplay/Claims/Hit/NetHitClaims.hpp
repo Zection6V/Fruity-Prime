@@ -203,6 +203,8 @@ namespace MphRead::Mods::Network
             std::int32_t& authorityDamage, std::optional<ShotKey> strictKey = std::nullopt,
             BeamType strictBeam = BeamType::None);
         [[nodiscard]] static bool MuzzleObstructed(const Pending& entry);
+        [[nodiscard]] static bool HomingDecisionSatisfied(bool required, bool recorded,
+            bool authorityConfirmedMuzzleContact) noexcept;
         static void ClearLedger(std::int32_t attacker, std::int32_t victim);
         [[nodiscard]] static std::uint32_t FireFrameOf(std::int32_t slot);
         [[nodiscard]] static bool Seen(std::int32_t slot, std::uint16_t id);

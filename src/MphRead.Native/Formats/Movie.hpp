@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../NativeRuntime/System/Streams.hpp"
-#include "NativeRuntime/System/AtomicSharedPtr.hpp"
+#include "../Mods/MoviePlaybackSession.hpp"
 #include "../NativeRuntime/System/Decimal.hpp"
 #include "Formats.hpp"
 #include "Sound.hpp"
@@ -77,6 +77,7 @@ namespace MphRead
     // expands contributor declaration fragments when that aggregate is closed.
 #define MPHREAD_SCENE_MOVIE_MEMBERS \
 private: \
+    std::uint64_t _modMovieSceneId = 0; \
     static constexpr std::int32_t _frameWidth = 256; \
     static constexpr std::int32_t _frameHeight = 192; \
     std::int32_t _topMovieBinding = -1; \
@@ -85,17 +86,39 @@ private: \
     std::atomic<std::int32_t> _movieFrameIndex{-1}; \
     std::int32_t _lastRenderedMovieFrameIndex = 0; \
     std::int32_t _movieFrameTotal = 0; \
+    std::uint32_t _modMovieMuteAcquireCount = 0; \
+    std::uint32_t _modMovieMuteReleaseCount = 0; \
 public: \
     [[nodiscard]] bool MoviePlaying() const noexcept; \
+    [[nodiscard]] bool MovieUpdatePending() const noexcept; \
+    [[nodiscard]] std::uint32_t MovieSuppressedCompletionCount() const noexcept; \
+    [[nodiscard]] bool ModMovieMuteStateBalancedForDiagnostics( \
+        std::uint32_t expectedCount, std::string_view phase); \
+    void ModSetMoviePlaybackPolicy(::MphRead::Mods::MoviePlaybackPolicy policy) noexcept; \
+    void ModInjectCleanupFailureForDiagnostics() noexcept; \
+    void ModArmMovieAudioCallProbeForDiagnostics(); \
+    void ModPlayMovieForDiagnostics(::MphRead::Movie movieId); \
+    [[nodiscard]] bool ModMovieAudioCallProbeEntered() const noexcept; \
+    [[nodiscard]] bool ModMovieAudioCallProbeCompleted() const noexcept; \
 private: \
     bool _skipMovie = false; \
     bool _playingLandingMovie = false; \
     bool _dualScreenMovie = true; \
+    ::MphRead::Mods::MoviePlaybackPolicy _modMoviePlaybackPolicy \
+        = ::MphRead::Mods::MoviePlaybackPolicy::Normal; \
+    std::uint32_t _modMovieSuppressedCompletionCount = 0; \
+    std::shared_ptr<::MphRead::Mods::MoviePlaybackSession> _modMovieSession{}; \
+    std::atomic<bool> _modMovieCompletionWithoutPlayback{false}; \
+    std::mutex _modMovieImageMutex{}; \
+    bool _modInjectCleanupFailureForDiagnostics = false; \
+    bool _modMovieAudioCallProbeForDiagnostics = false; \
+    bool _modMovieAudioCallProbeCompleted = false; \
+    bool _modMovieMuteHeld = false; \
+    bool _modMovieAudioBuffersCreated = false; \
     const std::shared_ptr<::MphRead::Formats::ClrArray<std::uint8_t>> _topImageBuffer \
         = std::make_shared<::MphRead::Formats::ClrArray<std::uint8_t>>(_frameWidth * _frameHeight * 3); \
     const std::shared_ptr<::MphRead::Formats::ClrArray<std::uint8_t>> _botImageBuffer \
         = std::make_shared<::MphRead::Formats::ClrArray<std::uint8_t>>(_frameWidth * _frameHeight * 3); \
-    ::MphRead::NativeRuntime::AtomicSharedPtr<std::stop_source> _decoderCts{}; \
 public: \
     void StartMovies(::MphRead::Movie movieId, ::MphRead::Movie afterMovieId, ::MphRead::FadeType fadeToMovieType, float fadeToMovieLength, \
         ::MphRead::FadeType fadeFromMovieType, float fadeFromMovieLength, ::MphRead::AfterMovie afterMovieAction = ::MphRead::AfterMovie::LoadRoom); \
@@ -115,13 +138,18 @@ private: \
     std::int32_t _audioBufferIndex = 0; \
     std::array<std::int32_t, _audioBufferCount> _audioBufferIds{}; \
     std::array<bool, _audioBufferCount> _audioBuffersAvailable{}; \
-    [[nodiscard]] ::MphRead::Formats::MovieNativeRuntime::MovieTask UpdateMovieAudio(std::stop_token token); \
+    [[nodiscard]] ::MphRead::Formats::MovieNativeRuntime::MovieTask UpdateMovieAudio( \
+        std::stop_token token, std::shared_ptr<::MphRead::Mods::MoviePlaybackSession> session); \
     void StopMovie(); \
+    void ModStopMoviePlayback(std::string_view reason, std::string_view requester); \
+    void ModReleaseMovieMute() noexcept; \
+    [[nodiscard]] std::string_view ModAfterMovieActionName() const noexcept; \
 public: \
     void SkipMovie(); \
 private: \
     void UpdateMovie(); \
-    [[nodiscard]] ::MphRead::Formats::MovieNativeRuntime::MovieTask UpdateMovieImage(std::stop_token token); \
+    [[nodiscard]] ::MphRead::Formats::MovieNativeRuntime::MovieTask UpdateMovieImage( \
+        std::stop_token token, std::shared_ptr<::MphRead::Mods::MoviePlaybackSession> session); \
     void DrawMovieFrame();
 
 }
@@ -390,6 +418,7 @@ namespace MphRead::Formats
                 bool await_suspend(std::coroutine_handle<> continuation);
                 void await_resume();
                 void GetResult();
+            void ObserveCompletion(std::function<void(std::exception_ptr)> completion) const noexcept;
             private:
                 std::shared_ptr<TaskState> _state;
             };
@@ -624,6 +653,7 @@ namespace MphRead::Formats
         VxDecoder& operator=(const VxDecoder&) = delete;
 
         void Reset();
+        void ModProgressCallback(std::function<void()> callback);
         [[nodiscard]] MovieNativeRuntime::MovieTask ExportAll();
         [[nodiscard]] MovieNativeRuntime::MovieTask Export(const std::string& filePath);
         [[nodiscard]] MovieNativeRuntime::MovieTask Decode(
@@ -644,7 +674,7 @@ namespace MphRead::Formats
         [[nodiscard]] std::span<const std::int16_t> GetAudioBuffer(std::int32_t index) const;
         [[nodiscard]] std::int32_t FramesQueued() const noexcept
         {
-            return _framesQueued.load(std::memory_order_relaxed);
+            return _framesQueued.load(std::memory_order_acquire);
         }
 
         [[nodiscard]] static constexpr std::int32_t SampleBufferCount() noexcept { return 5 * 12; }
@@ -659,6 +689,8 @@ namespace MphRead::Formats
         std::shared_ptr<std::vector<std::shared_ptr<VxFrame>>> _vxFrames{};
         mutable std::mutex _vxFramesMutex{};
         std::shared_ptr<MovieNativeRuntime::DecoderLifetime> _lifetime;
+        std::function<void()> _modProgressCallback{};
+        void ModNotifyProgress() noexcept;
 
         static const std::array<std::array<std::int32_t, 3>, 6> _quantizer4x4Table;
 

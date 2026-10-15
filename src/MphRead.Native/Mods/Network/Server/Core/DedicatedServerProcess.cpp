@@ -81,6 +81,7 @@ namespace MphRead::Mods::Network
             if (options.FriendlyFire) { start.ArgumentList.emplace_back("-friendlyfire"); }
             if (!options.ShadowFreeze) { start.ArgumentList.emplace_back("-noshadowfreeze"); }
             if (options.AffinityWeapons) { start.ArgumentList.emplace_back("-affinityweapons"); }
+            if (options.Instagib) { start.ArgumentList.emplace_back("-instagib"); }
             if (options.Reporter != nullptr)
             {
                 add("-master", options.Reporter->Host());

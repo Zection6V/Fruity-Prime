@@ -48,6 +48,12 @@ namespace MphRead::Mods::Diagnostics
     }
 
     HomingCheckScene::HomingCheckScene(const std::string& room, bool singlePlayer)
+        : HomingCheckScene(room, singlePlayer, true)
+    {
+    }
+
+    HomingCheckScene::HomingCheckScene(
+        const std::string& room, bool singlePlayer, bool waitForPlayers, bool activateStorySpawns)
         : _keyboard(Input::SyntheticInput::CreateKeyboard()), _mouse(Input::SyntheticInput::CreateMouse())
     {
         Headless::Enter();
@@ -79,12 +85,31 @@ namespace MphRead::Mods::Diagnostics
         {
             _scene->AddRoom(room, mode, Network::NetLaunch::RoomPlayerCount());
         }
+        if (activateStorySpawns)
+        {
+            auto spawns = _scene->GetPlayerSpawnEntities().GetEnumerator();
+            while (spawns.MoveNext())
+            {
+                GameState::StorySave->SetRoomState(_scene->RoomId(), spawns.Current()->Id, 3);
+            }
+        }
         _scene->OnLoad();
         _equip = std::make_shared<EquipInfo>(nullptr, SceneSetup::CreateBeamList(64, _scene.get()));
         _equip->GetAmmo = []() { return std::numeric_limits<std::int32_t>::max() / 2; };
         _equip->SetAmmo = [](std::int32_t) {};
-        Step();
-        SpawnOthers();
+        try
+        {
+            Step();
+            if (waitForPlayers)
+            {
+                SpawnOthers();
+            }
+        }
+        catch (...)
+        {
+            Cleanup();
+            throw;
+        }
     }
 
     void HomingCheckScene::SpawnOthers()
@@ -114,8 +139,16 @@ namespace MphRead::Mods::Diagnostics
 
     HomingCheckScene::~HomingCheckScene()
     {
+        Cleanup();
+    }
+
+    void HomingCheckScene::Cleanup()
+    {
         Network::MapAudit::ForceEveryone(false);
-        _scene->DoCleanup();
+        if (_scene)
+        {
+            _scene->DoCleanup();
+        }
     }
 
     PlayerEntity& HomingCheckScene::Shooter()

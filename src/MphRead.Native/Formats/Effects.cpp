@@ -11,6 +11,7 @@
 #include "../NativeRuntime/System/Managed.hpp"
 #include "../NativeRuntime/OpenTK/Mathematics.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <cmath>
 #include <cstddef>
@@ -1215,6 +1216,23 @@ namespace MphRead::Effects
         return _color;
     }
 
+    Vector3 EffectParticle::TintedColor(Vector3 color) const noexcept
+    {
+        if (!Owner)
+        {
+            return color;
+        }
+        const std::optional<Vector3>& own = Owner->Tint;
+        const std::optional<Vector3>& entry = Owner->EffectEntry ? Owner->EffectEntry->Tint : own;
+        if (!own.has_value() && !entry.has_value())
+        {
+            return color;
+        }
+        const Vector3 tint = own.has_value() ? *own : *entry;
+        const float brightness = std::max(color.X, std::max(color.Y, color.Z));
+        return Vector3(tint.X * brightness, tint.Y * brightness, tint.Z * brightness);
+    }
+
     Vector2 EffectParticle::Texcoord0() const noexcept
     {
         return _texcoord0;
@@ -1527,7 +1545,7 @@ namespace MphRead::Effects
         if (Alpha > 0.0F)
         {
             _shouldDraw = true;
-            _color = Vector3(Red, Green, Blue);
+            _color = TintedColor(Vector3(Red, Green, Blue));
             Vector3 ev1 = Multiply(_effectVec1, Scale);
             Vector3 ev2 = Multiply(_effectVec2, Scale);
 
@@ -1588,7 +1606,7 @@ namespace MphRead::Effects
         if (Alpha > 0.0F)
         {
             _shouldDraw = true;
-            _color = Vector3(Red, Green, Blue);
+            _color = TintedColor(Vector3(Red, Green, Blue));
             float angle1 = DegreesToRadians(Rotation);
             float angle2 = DegreesToRadians(Rotation + 90.0F);
             float sin1 = std::sin(angle1);
@@ -1661,7 +1679,7 @@ namespace MphRead::Effects
         {
             _shouldDraw = true;
             _drawNode = true;
-            _color = Vector3(Red, Green, Blue);
+            _color = TintedColor(Vector3(Red, Green, Blue));
             Vector4 ev4;
             EffectElementEntry& ownerForFlags = RequireReference(Owner);
             if (HasFlag(ownerForFlags.Flags, EffElemFlags::UseTransform))
@@ -1704,7 +1722,7 @@ namespace MphRead::Effects
             && (!skipIfZeroSpeed || LengthSquared(Speed) > 0.0F))
         {
             _shouldDraw = true;
-            _color = Vector3(Red, Green, Blue);
+            _color = TintedColor(Vector3(Red, Green, Blue));
             Vector3 cross = Vector3::Cross(_effectVec1, _effectVec2).Normalized();
             Vector3 ev1 = Multiply(_effectVec1, Scale);
             cross = Multiply(cross, Rotation);

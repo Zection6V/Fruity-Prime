@@ -5,6 +5,11 @@
 #include "Mods/Combat/ProjectileFlight.hpp"
 #include "Mods/Diagnostics/HomingReferenceFlight.hpp"
 #include "Mods/Network/Gameplay/Weapons/HomingTargetSelection.hpp"
+#include "Mods/Network/Gameplay/Weapons/EnemyTargetIdentity.hpp"
+#include "Mods/Network/Gameplay/Weapons/MuzzleObstructionHistory.hpp"
+#include "Mods/Network/Testing/NetHitClaimsFixture.hpp"
+#include "Mods/Network/Domain/ShotKey.hpp"
+#include "Entities/EnemyInstanceEntity.hpp"
 #include "GameState.hpp"
 
 #include <algorithm>
@@ -493,6 +498,7 @@ int main()
     using MphRead::Mods::Network::HomingTargetSelection;
     using MphRead::Mods::Network::HomingTargetSelectionRequest;
     using MphRead::Mods::Network::HomingTargetSnapshot;
+    using MphRead::Mods::Network::MuzzleObstructionHistory;
     const auto playerTarget = [](std::uint8_t slot, Vector3 position, std::int32_t team,
         bool targetable = true)
     {
@@ -567,6 +573,104 @@ int main()
     passed &= Check(HomingTargetSelection::Select(destroyedCandidate, selection).Kind
         == IntentPacket::ShotTargetKind::None,
         "a target already destroyed at selection time is not acquired");
+
+    HomingTargetSnapshot shooterAtFire = playerTarget(0, Vector3::Zero, 0);
+    HomingTargetSnapshot enemyAtFire{};
+    enemyAtFire.Reference = { IntentPacket::ShotTargetKind::EnemyInstance, 0xFF, 0xFF, 0, 0, -1, 45 };
+    enemyAtFire.Type = EntityType::EnemyInstance;
+    enemyAtFire.Position = Vector3(0, 0, 12);
+    enemyAtFire.Flags = static_cast<std::uint32_t>(Entities::EnemyFlags::CollideBeam);
+    enemyAtFire.Targetable = true;
+    HomingTargetSelectionRequest fireRequest = selection;
+    const auto validFire = HomingTargetSelection::ValidateFireTarget(
+        &shooterAtFire, 0, &enemyAtFire, fireRequest, true, Vector3(0, 0, 3), Vector3(0, 0, 1));
+    const auto boundaryFire = HomingTargetSelection::ValidateFireTarget(
+        &shooterAtFire, 0, &enemyAtFire, fireRequest, true, Vector3(0, 0, 6), Vector3(0, 0, 1));
+    const auto distantFire = HomingTargetSelection::ValidateFireTarget(
+        &shooterAtFire, 0, &enemyAtFire, fireRequest, true, Vector3(20, 0, 0), Vector3(0, 0, 1));
+    const auto beyondBoundaryFire = HomingTargetSelection::ValidateFireTarget(
+        &shooterAtFire, 0, &enemyAtFire, fireRequest, true, Vector3(0, 0, 6.01F), Vector3(0, 0, 1));
+    const auto invalidDirectionFire = HomingTargetSelection::ValidateFireTarget(
+        &shooterAtFire, 0, &enemyAtFire, fireRequest, true, Vector3::Zero, Vector3::Zero);
+    passed &= Check(validFire.ShooterValid && validFire.RayValid && validFire.Accepted
+        && boundaryFire.RayValid && boundaryFire.Accepted,
+        "authority fire validation accepts a plausible ray through the maximum historical muzzle offset");
+    passed &= Check(!distantFire.RayValid && !distantFire.Accepted
+        && !beyondBoundaryFire.RayValid && !beyondBoundaryFire.Accepted
+        && !invalidDirectionFire.RayValid && !invalidDirectionFire.Accepted,
+        "authority fire validation refuses spoofed origins and invalid directions before target selection");
+    const auto wrongShooter = HomingTargetSelection::ValidateFireTarget(
+        &shooterAtFire, 1, &enemyAtFire, fireRequest, true, Vector3::Zero, Vector3(0, 0, 1));
+    passed &= Check(!wrongShooter.ShooterValid && !wrongShooter.Accepted,
+        "authority fire validation requires the historical shooter slot to match");
+
+    HomingTargetSnapshot spoofedTarget = enemyAtFire;
+    spoofedTarget.Reference.StableId = 46;
+    spoofedTarget.Position = Vector3(20, 0, 1);
+    const std::array<HomingTargetSnapshot, 2> spoofCandidates{ enemyAtFire, spoofedTarget };
+    HomingTargetSelectionRequest spoofRequest = fireRequest;
+    spoofRequest.Origin = Vector3(20, 0, 0);
+    spoofRequest.Direction = Vector3(0, 0, 1);
+    const auto rawSpoofChoice = HomingTargetSelection::Select(spoofCandidates, spoofRequest);
+    const auto authoritySpoofChoice = HomingTargetSelection::ValidateFireTarget(
+        &shooterAtFire, 0, &spoofedTarget, fireRequest, true,
+        spoofRequest.Origin, spoofRequest.Direction);
+    passed &= Check(rawSpoofChoice == spoofedTarget.Reference
+        && !authoritySpoofChoice.RayValid && !authoritySpoofChoice.Accepted,
+        "a distant origin that makes another target look forward is rejected by authority validation");
+
+    HomingTargetSelectionRequest localSelection = selection;
+    localSelection.RequireReference = false;
+    HomingTargetSnapshot localEnemy{};
+    localEnemy.Type = EntityType::EnemyInstance;
+    localEnemy.Position = Vector3(0, 0, 8);
+    localEnemy.Flags = static_cast<std::uint32_t>(Entities::EnemyFlags::CollideBeam);
+    localEnemy.Targetable = true;
+    const std::array<HomingTargetSnapshot, 1> localCandidates{ localEnemy };
+    const auto localIndex = HomingTargetSelection::SelectIndex(localCandidates, localSelection);
+    passed &= Check(localIndex.has_value() && *localIndex == 0
+        && HomingTargetSelection::Select(localCandidates, localSelection).Kind == IntentPacket::ShotTargetKind::None,
+        "single-player target selection keeps an entity with no wire reference");
+    passed &= Check(!HomingTargetSelection::SelectIndex(localCandidates, selection).has_value(),
+        "network target selection still requires a wire reference");
+
+    const std::uint64_t enemyRoot = (static_cast<std::uint64_t>(EntityType::EnemySpawn) << 32U) | 41U;
+    const std::array<std::uint64_t, 3> peerOneIds{
+        Mods::Network::EnemyTargetIdentity::ForSpawn(enemyRoot, 1, EnemyType::Zoomer),
+        Mods::Network::EnemyTargetIdentity::ForSpawn(enemyRoot, 2, EnemyType::Zoomer),
+        Mods::Network::EnemyTargetIdentity::ForSpawn(enemyRoot, 3, EnemyType::Zoomer)
+    };
+    const std::array<std::uint64_t, 3> peerTwoIds{
+        Mods::Network::EnemyTargetIdentity::ForSpawn(enemyRoot, 1, EnemyType::Zoomer),
+        Mods::Network::EnemyTargetIdentity::ForSpawn(enemyRoot, 2, EnemyType::Zoomer),
+        Mods::Network::EnemyTargetIdentity::ForSpawn(enemyRoot, 3, EnemyType::Zoomer)
+    };
+    const std::uint64_t afterSkippedSpawn = Mods::Network::EnemyTargetIdentity::ForSpawn(
+        enemyRoot, 2, EnemyType::Zoomer);
+    passed &= Check(peerOneIds == peerTwoIds
+        && peerOneIds[0] != peerOneIds[1] && peerOneIds[1] != peerOneIds[2]
+        && peerOneIds[0] != afterSkippedSpawn,
+        "equal spawn inputs yield unique matching peer IDs while a skipped ordinal cannot alias an earlier target");
+    passed &= Check(Mods::Network::EnemyTargetIdentity::ForSpawn(0, 1, EnemyType::Zoomer) == 0,
+        "a child without a parent identity remains unencodable for network use");
+
+    passed &= Check(!Mods::Network::NetHitClaimsFixture::HomingDecisionSatisfied(true, false, false)
+        && Mods::Network::NetHitClaimsFixture::HomingDecisionSatisfied(true, false, true)
+        && Mods::Network::NetHitClaimsFixture::HomingDecisionSatisfied(true, true, false)
+        && Mods::Network::NetHitClaimsFixture::HomingDecisionSatisfied(false, false, false),
+        "a missing homing decision is accepted only when the authority confirmed muzzle contact");
+
+    auto muzzleHistory = std::make_unique<MuzzleObstructionHistory>();
+    const Mods::Network::ShotKey muzzleKey(7, 4, 2, 3, 5, 100);
+    const Mods::Combat::BeamObstacleHit muzzleContact{};
+    muzzleHistory->Record(muzzleKey, BeamType::PowerBeam, muzzleContact, 120);
+    passed &= Check(muzzleHistory->Contains(muzzleKey, BeamType::PowerBeam, 120)
+        && !muzzleHistory->Contains(Mods::Network::ShotKey(7, 4, 2, 3, 6, 100), BeamType::PowerBeam, 120)
+        && !muzzleHistory->Contains(muzzleKey, BeamType::Missile, 120),
+        "muzzle contact evidence is scoped to one shooter life and weapon");
+    passed &= Check(!muzzleHistory->Contains(muzzleKey, BeamType::PowerBeam,
+        120 + static_cast<std::uint32_t>(MuzzleObstructionHistory::Depth)),
+        "muzzle contact evidence expires before an old launch can reuse it");
 
     static_cast<void>(HomingSteeringRules::ConfigureFrequencyHz(HomingSteeringRules::DefaultFrequencyHz));
     if (passed)

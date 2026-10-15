@@ -21,12 +21,14 @@
 #include "Mods/Network/Gameplay/Combat/HitLocation.hpp"
 #include "Mods/Network/Gameplay/Player/NetPlayerBridge.hpp"
 #include "../Mods/Headless.hpp"
+#include "../Mods/Render/InstagibRails.hpp"
 #include "Mods/Network/Gameplay/Combat/NetHitPrediction.hpp"
 #include "Mods/Network/Diagnostics/HomingShotTrace.hpp"
 #include "Mods/Network/Diagnostics/NetLog.hpp"
 #include "Mods/Network/Gameplay/Weapons/ConfirmedShotSteering.hpp"
 #include "Mods/Network/Gameplay/Weapons/ContinuousWeaponPhase.hpp"
 #include "Mods/Network/Gameplay/Weapons/HomingTargetAcquisition.hpp"
+#include "Mods/Network/Gameplay/Weapons/NetShotEvents.hpp"
 #include "Mods/Network/Gameplay/Player/NetPlayerLifecycle.hpp"
 #include "Mods/Network/Session/NetSession.hpp"
 #include "Mods/Network/Diagnostics/NetShotDiagnostics.hpp"
@@ -1857,6 +1859,25 @@ namespace MphRead::Entities
         {
             flags |= BeamFlags::Homing;
         }
+        if ((preHit.has_value() || instantAoe) && homing > 0.0F && firingPlayer != nullptr
+            && !TestFlag(weapon.Flags, WeaponFlags::Continuous))
+        {
+            Mods::Network::NetShotEvents::RecordHomingTarget(
+                *firingPlayer, Mods::Network::IntentPacket::ShotTargetReference{});
+            if (Mods::Network::NetLog::Enabled())
+            {
+                const auto shot = Mods::Network::NetShotEvents::CurrentShotEvent(*firingPlayer);
+                if (shot.has_value())
+                {
+                    const std::string reason = preHit.has_value() ? "muzzle-contact" : "instant-aoe";
+                    Mods::Network::NetShotDiagnostics::Trace("target-decision",
+                        Mods::Network::ShotKey::For(firingPlayer->SlotIndex(), shot->AckFrame), weapon.Beam,
+                        "shotSequence=" + std::to_string(shot->Sequence)
+                        + " ackFrame=" + std::to_string(shot->AckFrame)
+                        + " targetDecision=none reason=" + reason);
+                }
+            }
+        }
         if (charged || TestFlag(spawnFlags, BeamSpawnFlags::Charged))
         {
             flags |= BeamFlags::Charged;
@@ -1941,6 +1962,16 @@ namespace MphRead::Entities
             damage *= 4;
             hsDamage *= 4;
             splashDmg *= 4;
+        }
+
+        // Instagib: one hit kills, from any range and anywhere on the body,
+        // scoped or not. Large enough that no distance falloff or damage
+        // scale leaves anything standing, small enough for the wire.
+        if (GameState::Instagib() && GameState::Multiplayer() && weapon.Beam == BeamType::Imperialist)
+        {
+            damage = 9999;
+            hsDamage = 9999;
+            splashDmg = 0;
         }
 
         const std::uint16_t damageInterpolation = ManagedAt(RequireReference(weapon.DamageInterpolations), charged ? 1U : 0U);
@@ -2392,7 +2423,8 @@ namespace MphRead::Entities
             if (!GameState::SinglePlayer() || colRes.Terrain() <= Terrain::Lava)
             {
                 const std::shared_ptr<BeamEffectEntity> ent = BeamEffectEntity::Create(
-                    BeamEffectEntityData(_collisionEffect, noSplat, transform, colRes.EntityCollision), _scene);
+                    BeamEffectEntityData(_collisionEffect, noSplat, transform, colRes.EntityCollision), _scene,
+                    InstagibTint());
                 if (ent)
                 {
                     if (_splashDamage > 0.0F)
@@ -2441,12 +2473,41 @@ namespace MphRead::Entities
         }
         if (effectId > 0)
         {
-            RequireReference(_scene).SpawnEffect(effectId, transform);
+            if (const std::optional<Vector3> tint = InstagibTint(); tint.has_value())
+            {
+                RequireReference(_scene).SpawnTintedEffect(effectId, transform, *tint);
+            }
+            else
+            {
+                RequireReference(_scene).SpawnEffect(effectId, transform);
+            }
         }
+    }
+
+    std::optional<Vector3> BeamProjectileEntity::InstagibTint() const
+    {
+        // Instagib: where an Imperialist shot lands is drawn in the shooter's
+        // rail colour, like the rail and the flash at the gun.
+        if (!GameState::Instagib() || !GameState::Multiplayer() || _beam != BeamType::Imperialist
+            || _owner == nullptr || _owner->Type != EntityType::Player)
+        {
+            return std::nullopt;
+        }
+        return Mods::Render::InstagibRails::ColorForSlot(static_cast<const PlayerEntity*>(_owner.get())->SlotIndex());
     }
 
     void BeamProjectileEntity::SpawnSniperBeam()
     {
+        // Instagib draws its own rail, in the shooter's colour, from the
+        // muzzle to where the shot ended (Mods/Render/InstagibRails).
+        if (GameState::Instagib() && GameState::Multiplayer() && _owner != nullptr
+            && _owner->Type == EntityType::Player)
+        {
+            const PlayerEntity* shooter = static_cast<PlayerEntity*>(_owner.get());
+            Mods::Render::InstagibRails::Add(RequireReference(_scene), _spawnPosition,
+                static_cast<Vector3>(Position), shooter->SlotIndex());
+            return;
+        }
         const Vector3 spawnPos = _pastPositions[8];
         Vector3 up = static_cast<Vector3>(Position) - spawnPos;
         const float magnitude = Length(up);

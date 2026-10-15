@@ -40,6 +40,7 @@
 #include "Formats/Movie.hpp"
 #include "HUD/HudInfo.hpp"
 #include "Mods/Branding.hpp"
+#include "Mods/Render/InstagibRails.hpp"
 #include "Mods/EndScreen.hpp"
 #include "Mods/GameSettings.hpp"
 #include "Mods/Headless.hpp"
@@ -417,6 +418,7 @@ namespace MphRead
           _layer4Info(std::make_shared<LayerInfo>()),
           _layer5Info(std::make_shared<LayerInfo>())
     {
+        _modMovieSceneId = Mods::MoviePlaybackSession::NextSceneId();
         Read::ClearCache();
         Text::Strings::ClearCache();
         GameState::Reset();
@@ -1924,7 +1926,7 @@ namespace MphRead
                 ++_frameCount;
             }
             GameState::UpdateTime(this);
-            if (_movieFrameIndex != -1) UpdateMovie();
+            if (MovieUpdatePending()) UpdateMovie();
         }
         _frameAdvanceLastFrame = _frameAdvanceOn;
         _pendingEffectSteps = std::min(_pendingEffectSteps + 1, Mods::Render::FrameTiming::MaxCatchUpSteps);
@@ -2882,6 +2884,7 @@ namespace MphRead
             PoolTrace().FreeEntries.erase(entry.get());
         }
         entry->EffectId = 0;
+        entry->Tint.reset();
         MPHREAD_DEBUG_ASSERT(entry->Elements->empty());
         return entry;
     }
@@ -2956,6 +2959,7 @@ namespace MphRead
                 + "\", now effect " + std::to_string(effect->Id) + " \"" + effect->Name + "/" + element->Name + "\"");
         }
         entry->EffectId = effect->Id;
+        entry->Tint.reset();
         entry->EffectName = effect->Name;
         entry->ElementName = element->Name;
         entry->BufferTime = element->BufferTime;
@@ -3095,8 +3099,15 @@ namespace MphRead
         SpawnEffect(effectId, transform, child, nullptr, std::move(entCol));
     }
 
+    void Scene::SpawnTintedEffect(std::int32_t effectId, Matrix4 transform, Vector3 tint,
+        std::shared_ptr<Formats::Collision::EntityCollision> entCol)
+    {
+        SpawnEffect(effectId, transform, false, nullptr, std::move(entCol), tint);
+    }
+
     void Scene::SpawnEffect(std::int32_t effectId, Matrix4 transform, bool child,
-        const std::shared_ptr<EffectEntry>& entry, std::shared_ptr<Formats::Collision::EntityCollision> entCol)
+        const std::shared_ptr<EffectEntry>& entry, std::shared_ptr<Formats::Collision::EntityCollision> entCol,
+        std::optional<Vector3> tint)
     {
         const auto effect = Read::GetEffect(effectId);
         if (!effect)
@@ -3111,6 +3122,7 @@ namespace MphRead
             {
                 return;
             }
+            element->Tint = tint;
             if (entry)
             {
                 element->EffectEntry = entry;
@@ -3485,8 +3497,10 @@ namespace MphRead
                             ? Vector3(1.0F, 0.0F, 0.0F)
                             : Vector3(0.0F, 0.0F, 1.0F);
                         vec2 = Vector3::Cross(vec1, vec2).Normalized();
-                        SpawnEffect(element->ChildEffectId,
-                            Matrix::GetTransform4(vec2, vec1, particle->Position));
+                        // A tinted effect's sparks and debris keep its tint.
+                        SpawnEffect(static_cast<std::int32_t>(element->ChildEffectId),
+                            Matrix::GetTransform4(vec2, vec1, particle->Position), false, nullptr, nullptr,
+                            element->Tint);
                     }
                     element->Particles->erase(element->Particles->begin() + j);
                     UnlinkEffectParticle(particle);
@@ -3872,6 +3886,8 @@ namespace MphRead
                 entity->GetDisplayVolumes();
             }
         }
+        // Instagib rails are not entities: they outlive the shot that made them.
+        Mods::Render::InstagibRails::AddRenderItems(*this);
         if (ProcessFrame() && GameState::MatchState() == MatchState::InProgress && !GameState::DialogPause())
         {
             for (std::int32_t i = 0; i < _pendingEffectSteps; ++i)
@@ -4081,23 +4097,37 @@ namespace MphRead
 
     void Scene::DoCleanup()
     {
-        if (!_exiting)
+        const bool firstCleanup = !_exiting;
+        _exiting = true;
+        ModStopMoviePlayback("scene-cleanup", "Scene::DoCleanup");
+        ModReleaseMovieMute();
+        if (!firstCleanup)
         {
-            _exiting = true;
-            if (_room)
+            if (_modInjectCleanupFailureForDiagnostics)
             {
-                _room->CancelTransition();
+                _modInjectCleanupFailureForDiagnostics = false;
+                Mods::DebugLog::Line("map-audit-cleanup",
+                    "injected Scene::DoCleanup exception after prior cleanup");
+                throw std::runtime_error("Injected Scene::DoCleanup failure for MapAudit diagnostics.");
             }
-            Entities::PlatformEntity::DestroyBeams();
-            Entities::EnemyInstanceEntity::DestroyBeams();
-            BreakEffectCycles();
-            Sound::Sfx::ShutDown();
-            OutputStop();
-            if (const std::shared_ptr<std::stop_source> decoderCts = _decoderCts.load())
-            {
-                decoderCts->request_stop();
-            }
-            Selection::Clear();
+            return;
+        }
+        if (_room)
+        {
+            _room->CancelTransition();
+        }
+        Entities::PlatformEntity::DestroyBeams();
+        Entities::EnemyInstanceEntity::DestroyBeams();
+        BreakEffectCycles();
+        Sound::Sfx::ShutDown();
+        OutputStop();
+        Selection::Clear();
+        if (_modInjectCleanupFailureForDiagnostics)
+        {
+            _modInjectCleanupFailureForDiagnostics = false;
+            Mods::DebugLog::Line("map-audit-cleanup",
+                "injected Scene::DoCleanup exception after cleanup stages");
+            throw std::runtime_error("Injected Scene::DoCleanup failure for MapAudit diagnostics.");
         }
     }
 
@@ -4170,7 +4200,7 @@ namespace MphRead
         const AfterFade afterFade = _afterFade;
         // A headless process has no screen to show a film on, and the film's
         // decoding tasks outlive a scene that a check unloads behind them.
-        if (afterFade == AfterFade::PlayMovie && !Mods::Headless::Active())
+        if (afterFade == AfterFade::PlayMovie)
         {
             PlayMovie(_movieSettings.MovieId);
         }

@@ -4,6 +4,8 @@
 #include "Mods/Network/Diagnostics/NetShotDiagnostics.hpp"
 #include "Mods/Network/Gameplay/Claims/Common/ClaimResend.hpp"
 #include "Mods/Network/Gameplay/Weapons/NetShotEvents.hpp"
+#include "Mods/Network/Gameplay/Weapons/HomingTargetHistory.hpp"
+#include "Mods/Network/Gameplay/Weapons/HomingTargetSelection.hpp"
 #include "Mods/Network/Gameplay/Claims/Hit/ClaimDamagePolicy.hpp"
 #include "Mods/Network/Gameplay/Claims/Hit/ClaimImpactRules.hpp"
 #include "Mods/Network/Gameplay/StatusEffects/BurnStatusEffectPolicy.hpp"
@@ -490,6 +492,12 @@ namespace MphRead::Mods::Network
             ShotKey(entry.AuthorityEpoch, entry.MatchId, entry.ShooterSlot,
                 entry.ShooterGeneration, entry.ShooterLifeId, entry.LaunchFrame),
             static_cast<BeamType>(entry.Beam), NetSession::NetFrame()));
+    }
+
+    bool NetHitClaims::HomingDecisionSatisfied(bool required, bool recorded,
+        bool authorityConfirmedMuzzleContact) noexcept
+    {
+        return !required || recorded || authorityConfirmedMuzzleContact;
     }
 
     void NetHitClaims::NoteMuzzleDescendant(const ShotKey& key, BeamType beam)
@@ -1200,9 +1208,34 @@ namespace MphRead::Mods::Network
         {
             const WeaponInfo& weapon = Runtime::RequireReference(
                 Runtime::ManagedAt(Weapons::Current, static_cast<std::int32_t>(variant->Index)));
-            if (HomingDecisionRequired(weapon, ChargeForShot(
-                    claim.ShotSequence, shooterSlot, claim.Beam, weapon))
-                && !named->HasHomingDecision())
+            const bool requiresDecision = HomingDecisionRequired(weapon, ChargeForShot(
+                claim.ShotSequence, shooterSlot, claim.Beam, weapon));
+            if (requiresDecision)
+            {
+                const std::optional<HomingTargetSnapshot> shooterAtFire
+                    = HomingTargetHistory::FindPlayer(named->AckFrame, shooterSlot);
+                const HomingFireTargetValidation rayValidation = HomingTargetSelection::ValidateFireRay(
+                    shooterAtFire.has_value() ? &*shooterAtFire : nullptr,
+                    shooterSlot, named->Origin, named->Direction);
+                NetShotDiagnostics::TraceRayValidation("claim-ray-validation",
+                    ShotKey::For(shooterSlot, named->AckFrame), static_cast<BeamType>(claim.Beam),
+                    named->Sequence, named->AckFrame, named->Origin, named->Direction,
+                    shooterAtFire.has_value() ? &shooterAtFire->Position : nullptr,
+                    shooterAtFire.has_value() ? shooterAtFire->Reference.Generation : 0,
+                    shooterAtFire.has_value() ? shooterAtFire->Reference.LifeId : 0,
+                    rayValidation.RayValid, rayValidation.RayValid);
+                if (!rayValidation.RayValid)
+                {
+                    _metrics.Increment(HitClaimMetrics::Counter::EventRefused);
+                    return false;
+                }
+            }
+            const ShotKey key(claim.AuthorityEpoch, claim.MatchId, shooterSlot,
+                claim.ShooterGeneration, claim.ShooterLifeId, launch);
+            const bool authorityConfirmedMuzzleContact = Combat::SyluxMuzzleGuard::Enabled
+                && _muzzleObstructions.Contains(key, static_cast<BeamType>(claim.Beam), NetSession::NetFrame());
+            if (!HomingDecisionSatisfied(requiresDecision, named->HasHomingDecision(),
+                authorityConfirmedMuzzleContact))
             {
                 _metrics.Increment(HitClaimMetrics::Counter::EventRefused);
                 return false;

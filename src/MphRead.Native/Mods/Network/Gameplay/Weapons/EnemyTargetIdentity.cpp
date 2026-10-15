@@ -2,6 +2,8 @@
 
 #include "Entities/EnemyInstanceEntity.hpp"
 #include "Entities/EntityBase.hpp"
+#include "Mods/Network/Diagnostics/NetLog.hpp"
+#include "Mods/Network/Session/NetSession.hpp"
 
 namespace MphRead::Mods::Network
 {
@@ -38,9 +40,32 @@ namespace MphRead::Mods::Network
         {
             return 0;
         }
+        const std::uint32_t ordinal = spawner->ModNextSpawnOrdinal();
+        const std::uint64_t stableId = ForSpawn(parent, ordinal, type);
+        if (NetSession::Active() && NetLog::Enabled())
+        {
+            NetLog::Event("[enemy-target] frame=" + std::to_string(NetSession::NetFrame())
+                + " spawnerType=" + std::to_string(static_cast<std::uint32_t>(spawner->Type))
+                + " spawnerId=" + std::to_string(spawner->Id)
+                + " root=" + std::to_string(parent)
+                + " ordinal=" + std::to_string(ordinal)
+                + " enemyType=" + std::to_string(static_cast<std::uint32_t>(type))
+                + " stableId=" + std::to_string(stableId));
+        }
+        return stableId;
+    }
+
+    std::uint64_t EnemyTargetIdentity::ForSpawn(
+        std::uint64_t parent, std::uint32_t ordinal, EnemyType type) noexcept
+    {
+        if (parent == 0)
+        {
+            return 0;
+        }
         const std::uint64_t value = Mix(parent
-            ^ (static_cast<std::uint64_t>(spawner->ModNextSpawnOrdinal()) * 0x9E3779B97F4A7C15ULL)
+            ^ (static_cast<std::uint64_t>(ordinal) * 0x9E3779B97F4A7C15ULL)
             ^ (static_cast<std::uint64_t>(type) * 0xBF58476D1CE4E5B9ULL));
-        return value == 0 ? 1 : value;
+        const std::uint64_t stableId = value == 0 ? 1 : value;
+        return stableId;
     }
 }

@@ -22,6 +22,8 @@ param(
     [int]$Seconds = 90,
     [int]$Port = 27950,
     [switch]$Morph,
+    [switch]$SpoofOrigin,
+    [switch]$MuzzleContact,
     [switch]$HostMode,
     [ValidateSet("MasterServer", "DedicatedServer")][string]$HostService = "MasterServer",
     [string[]]$Hunters = @("Samus", "Kanden", "Sylux", "Noxus", "Kanden", "Trace", "Samus", "Weavel"),
@@ -37,6 +39,16 @@ New-Item -ItemType Directory -Force $out | Out-Null
 $rotation = Join-Path $out "rotation.txt"
 Set-Content -Path $rotation -Value "$Room | $Mode | 30 | 999" -Encoding ascii
 $started = Get-Date
+
+if ($SpoofOrigin -and $MuzzleContact) {
+    throw "Spoof and muzzle checks are separate cases."
+}
+if (($SpoofOrigin -or $MuzzleContact) -and $HostMode) {
+    throw "Origin spoof checks require a dedicated server; hosted authority starts asynchronously."
+}
+if ($MuzzleContact -and $Mode -ne "PrimeHunter") {
+    throw "Muzzle contact checks require PrimeHunter mode."
+}
 
 $serverArgs = @("-server", "-port", $Port, "-players", 8, "-rotation", $rotation, "-nomaster",
     "-servername", "HomingMatrix", "-noupdate", "-noautoupdate", "-homingtrace")
@@ -82,8 +94,9 @@ if ($ReorderPercent -gt 0) { $lineArgs += @("-netreorder", "$ReorderPercent%") }
 
 for ($i = 0; $i -lt $Clients; $i++) {
     $hunter = $Hunters[$i % $Hunters.Count]
+    $hitrig = if ($SpoofOrigin) { "homing:spoof" } elseif ($MuzzleContact) { "muzzle" } else { "homing" }
     $clientArgs = @("-netcheck", "127.0.0.1", "-port", $Port, "-name", "H$i$hunter", "-hunter", $hunter,
-        "-headless", "-seconds", $Seconds, "-hitrig", "homing", "-homingtrace", "-noupdate") + $lineArgs
+        "-headless", "-seconds", $Seconds, "-hitrig", $hitrig, "-homingtrace", "-noupdate") + $lineArgs
     if ($Morph) { $clientArgs += "-rigmorph" }
     $env:FRUITY_DEBUG_LOG_DIRECTORY = Join-Path $out "client$i-logs"
     $clientProcess = Start-Process -FilePath $exe -ArgumentList $clientArgs -WorkingDirectory $build -PassThru `
@@ -132,8 +145,99 @@ Set-Content -Path (Join-Path $out "cell.txt") -Value $description -Encoding asci
 Write-Output $description
 $requirements = @()
 if ($Mode -eq "PrimeHunter") { $requirements += "--require-prime" }
-python -I "$PSScriptRoot\compare-homing-trace.py" @logs @requirements --json (Join-Path $out "result.json") | Tee-Object -FilePath (Join-Path $out "compare.txt")
-$code = $LASTEXITCODE
+$code = 0
+if ($SpoofOrigin) {
+    $serverNetLog = Join-Path $build "netlog-server.txt"
+    $savedServerNetLog = Join-Path $out "server.netlog.txt"
+    if (Test-Path $serverNetLog) {
+        $sourceLog = Get-Item -LiteralPath $serverNetLog
+        if ($sourceLog.LastWriteTime -ge $started) {
+            Copy-Item -LiteralPath $serverNetLog -Destination $savedServerNetLog
+        }
+    }
+    if (-not (Test-Path $savedServerNetLog)) {
+        Write-Output "PROBLEM no authority network log was written"
+        $code = 1
+    } else {
+        $rayValidationPattern = '\[shot\] key=(?<key>\S+) stage=(?<stage>remote-ray-validation|homing-ray-validation).*?shotSequence=(?<sequence>\d+).*?shooterHistoricalPos=\([^)]*\).*?originOffset=(?<offset>[0-9]+(?:\.[0-9]+)?).*?maxOriginOffset=(?<maximum>[0-9]+(?:\.[0-9]+)?).*?rayValid=false decision=refuse'
+        $targetValidationPattern = '\[shot\] key=(?<key>\S+) stage=homing-target-validation.*?shotSequence=(?<sequence>\d+).*?acquired=false'
+        $lines = @(Get-Content -LiteralPath $savedServerNetLog)
+        $replayRefusals = @()
+        $homingRayRefusals = @()
+        $targetRefusals = @()
+        foreach ($line in $lines) {
+            $rayMatch = [regex]::Match($line, $rayValidationPattern)
+            if ($rayMatch.Success) {
+                $offset = [double]::Parse($rayMatch.Groups['offset'].Value,
+                    [Globalization.CultureInfo]::InvariantCulture)
+                $maximumOffset = [double]::Parse($rayMatch.Groups['maximum'].Value,
+                    [Globalization.CultureInfo]::InvariantCulture)
+                if ($offset -gt $maximumOffset) {
+                    if ($rayMatch.Groups['stage'].Value -eq 'remote-ray-validation') {
+                        $replayRefusals += $rayMatch
+                    } else {
+                        $homingRayRefusals += $rayMatch
+                    }
+                }
+            }
+            $targetMatch = [regex]::Match($line, $targetValidationPattern)
+            if ($targetMatch.Success) {
+                $targetRefusals += $targetMatch
+            }
+        }
+        $matchedPair = $null
+        foreach ($replay in $replayRefusals) {
+            $homingRay = $homingRayRefusals | Where-Object {
+                $_.Groups['key'].Value -eq $replay.Groups['key'].Value -and
+                $_.Groups['sequence'].Value -eq $replay.Groups['sequence'].Value
+            } | Select-Object -First 1
+            $target = $targetRefusals | Where-Object {
+                $_.Groups['key'].Value -eq $replay.Groups['key'].Value -and
+                $_.Groups['sequence'].Value -eq $replay.Groups['sequence'].Value
+            } | Select-Object -First 1
+            if ($homingRay -and $target) {
+                $matchedPair = @($replay, $homingRay, $target)
+                break
+            }
+        }
+        if ($matchedPair) {
+            Write-Output "ASSERT authority refused the spoofed UDP ray during replay and homing target validation"
+            Write-Output $matchedPair[0].Groups['key'].Value
+            Write-Output $matchedPair[0].Value
+            Write-Output $matchedPair[1].Value
+            Write-Output $matchedPair[2].Value
+            $code = 0
+        } else {
+            Write-Output "PROBLEM authority did not refuse the same spoofed UDP ray during replay and homing target validation"
+            $code = 1
+        }
+    }
+} else {
+    python -I "$PSScriptRoot\compare-homing-trace.py" @logs @requirements --json (Join-Path $out "result.json") | Tee-Object -FilePath (Join-Path $out "compare.txt")
+    $code = $LASTEXITCODE
+    if ($MuzzleContact) {
+        $serverNetLog = Join-Path $build "netlog-server.txt"
+        $savedServerNetLog = Join-Path $out "server.netlog.txt"
+        if (Test-Path $serverNetLog) {
+            $sourceLog = Get-Item -LiteralPath $serverNetLog
+            if ($sourceLog.LastWriteTime -ge $started) {
+                Copy-Item -LiteralPath $serverNetLog -Destination $savedServerNetLog
+            }
+        }
+        $contactPattern = '\[shot\] key=(?<key>\S+) stage=target-decision.*?weapon=PowerBeam.*?shotSequence=(?<sequence>\d+).*?targetDecision=none reason=muzzle-contact'
+        $contacts = if (Test-Path $savedServerNetLog) {
+            @(Get-Content -LiteralPath $savedServerNetLog | ForEach-Object { [regex]::Match($_, $contactPattern) } |
+                Where-Object { $_.Success })
+        } else { @() }
+        if ($contacts.Count -gt 0) {
+            Write-Output "ASSERT authority confirmed a charged PowerBeam muzzle contact from UDP shot history"
+            Write-Output $contacts[0].Value
+        } else {
+            Write-Output "PROBLEM authority did not record a charged PowerBeam muzzle contact from UDP shot history"
+            $code = 1
+        }
+    }
+}
 if ($missingLog) { $code = 1 }
 foreach ($i in 0..($clientProcesses.Count - 1)) {
     $clientProcesses[$i].Refresh()
@@ -146,8 +250,13 @@ foreach ($i in 0..($clientProcesses.Count - 1)) {
         Write-Output "PROBLEM client $i did not finish the expected non-authoritative check"
         $code = 1
     }
+    $allowedClientFailures = if ($MuzzleContact) {
+        'never took a single hit|no other player was on the map and moving|their position drifted far from the authority''s'
+    } else {
+        'never took a single hit'
+    }
     $unexpected = @($clientOutput | Select-String -Pattern 'FAIL:' |
-        Where-Object { $_.Line -notmatch 'never took a single hit' })
+        Where-Object { $_.Line -notmatch $allowedClientFailures })
     if ($unexpected.Count -gt 0 -or ($clientOutput -match 'crashed:|could not join')) {
         Write-Output "PROBLEM client $($i + $firstSlot) failed outside the one-sided firing rig"
         $unexpected | ForEach-Object { Write-Output $_.Line }

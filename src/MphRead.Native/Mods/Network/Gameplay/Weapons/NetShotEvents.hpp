@@ -58,7 +58,7 @@ namespace MphRead::Mods::Network
 
         // After a shot leaves PlayerEntity::TryFireWeapon.
         static void Fired(Entities::PlayerEntity& shooter, const FiredShot& shot);
-        static void FinishShot(const Entities::PlayerEntity& shooter) noexcept;
+        static void FinishShot(const Entities::PlayerEntity& shooter, bool spawned = true) noexcept;
         [[nodiscard]] static std::optional<IntentPacket::ShotEvent> CurrentShotEvent(
             const Entities::PlayerEntity& shooter) noexcept;
         static void RecordHomingTarget(const Entities::PlayerEntity& shooter,
@@ -74,10 +74,8 @@ namespace MphRead::Mods::Network
         static void PrepareShot(Entities::PlayerEntity& shooter);
         // The event a copy is firing now.
         [[nodiscard]] static std::optional<IntentPacket::ShotEvent> FiringEvent(const Entities::PlayerEntity& shooter) noexcept;
-        // The same, when its ray is one this copy can have fired -- it leaves
-        // from within MaxRayOffset of where the copy stands: the ray and the
-        // launch frame the shot is fired with, instead of the latest intent's.
-        [[nodiscard]] static std::optional<IntentPacket::ShotEvent> FiringRay(const Entities::PlayerEntity& shooter) noexcept;
+        // The same, when its ray is plausible at the shooter's historical pose.
+        [[nodiscard]] static std::optional<IntentPacket::ShotEvent> FiringRay(const Entities::PlayerEntity& shooter);
         static constexpr float MaxRayOffset = ShotRayValidation::MaximumOriginOffset;
         // Whether TryFireWeapon may go on to fire.
         [[nodiscard]] static bool MayFire(const Entities::PlayerEntity& shooter) noexcept;

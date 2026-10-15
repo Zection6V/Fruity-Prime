@@ -1,5 +1,7 @@
 # CLAUDE Index
 
+- design/Software_Design_Principles_and_Best_Practices.md — KISS-led guidance for responsibility boundaries, single sources of truth, runtime cost, and validation; use as design reference with repository-specific instructions taking precedence
+
 CLAUDE.md is the always-loaded top-level file: identity, paths, environment,
 commands, and short pointers into the topic files below. The topic files hold
 the depth — read the one you need for the area you're touching rather than

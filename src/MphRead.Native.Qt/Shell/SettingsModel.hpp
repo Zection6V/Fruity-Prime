@@ -132,6 +132,7 @@ namespace MphRead::Qt
         QString _error;
         RowModel _display;
         std::vector<std::int32_t> _fpsLimitCaps;
+        std::vector<std::int32_t> _animationRates;
         RowModel _audio;
         RowModel _keyboard;
         RowModel _gamepad;

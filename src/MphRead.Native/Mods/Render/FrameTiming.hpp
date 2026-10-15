@@ -35,6 +35,11 @@ namespace MphRead::Mods::Render
         static constexpr std::int32_t DisplayRate = 0;
         static constexpr std::int32_t Unlimited = -1;
         static constexpr std::int32_t MinCap = 30;
+        // The rates the settings offer, in Hz: the FPS limit's stops, and the
+        // Animation row's, which reads Unlimited as the display's own rate.
+        static constexpr std::array<std::int32_t, 16> RateStops{
+            30, 60, 75, 90, 100, 120, 144, 165, 180, 200, 240,
+            360, 480, 540, 1000, Unlimited};
 
         [[nodiscard]] static bool Active() noexcept;
         [[nodiscard]] static std::int32_t StepsThisFrame() noexcept;

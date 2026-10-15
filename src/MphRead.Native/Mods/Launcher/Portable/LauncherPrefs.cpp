@@ -5,6 +5,7 @@
 
 #include "../../../Formats/Enums.hpp"
 #include "../../WindowMode.hpp"
+#include "../../Render/AnimationBlend.hpp"
 #include "../../Branding.hpp"
 #include "Mods/Network/Discovery/NetMaster.hpp"
 #include "Mods/Network/Protocol/NetProtocol.hpp"
@@ -677,6 +678,11 @@ namespace MphRead::Mods::Launcher
                     else if (value == "on") _lowLatency = NativeRuntime::Rhi::LowLatencyMode::On;
                     else if (value == "onboost") _lowLatency = NativeRuntime::Rhi::LowLatencyMode::OnBoost;
                 }
+                else if (key == "animation_rate")
+                {
+                    // Settings -> Animation: up to a rate in Hz, or the display's.
+                    if (const auto rate = Render::AnimationBlend::ParseRate(value)) Render::AnimationBlend::Rate(*rate);
+                }
                 else if (key == "auto_update")
                 {
                     bool autoUpdate = false;
@@ -752,6 +758,7 @@ namespace MphRead::Mods::Launcher
 #endif
             lines.emplace_back(std::string("low_latency=") + (_lowLatency == NativeRuntime::Rhi::LowLatencyMode::Off
                 ? "off" : _lowLatency == NativeRuntime::Rhi::LowLatencyMode::On ? "on" : "onboost"));
+            lines.emplace_back("animation_rate=" + Render::AnimationBlend::RateName(Render::AnimationBlend::Rate()));
             lines.emplace_back(
                 std::string("auto_update=")
                     + (_autoUpdate ? "true" : "false"));

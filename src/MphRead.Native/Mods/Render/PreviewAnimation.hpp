@@ -24,7 +24,7 @@ namespace MphRead::Mods::Render
         [[nodiscard]] const AnimationClock& Clock() const noexcept;
 
     private:
-        AnimationClock _clock{};
+        AnimationClock _clock{1.0 / 30.0};
         double _phase = 0;
         std::optional<std::chrono::steady_clock::time_point> _last{};
     };

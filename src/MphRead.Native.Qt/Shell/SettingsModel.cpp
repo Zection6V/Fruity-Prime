@@ -29,6 +29,7 @@
 #include "Mods/Network/Gameplay/Player/PlayerColors.hpp"
 #include "../../MphRead.Native/Mods/PauseMenu.hpp"
 #include "../../MphRead.Native/Mods/Render/Crosshair.hpp"
+#include "../../MphRead.Native/Mods/Render/AnimationBlend.hpp"
 #include "../../MphRead.Native/Mods/Render/FrameTiming.hpp"
 #include "../../MphRead.Native/Mods/Render/Radar.hpp"
 #include "../../MphRead.Native/Mods/RenderOptions.hpp"
@@ -80,10 +81,21 @@ namespace MphRead::Qt
             return QString::fromUtf8(text.data(), static_cast<qsizetype>(text.size()));
         }
 
-        const std::array<std::int32_t, 16> FpsLimitStops{
-            30, 60, 75, 90, 100, 120, 144, 165, 180, 200, 240,
-            360, 480, 540, 1000, Render::FrameTiming::Unlimited
-        };
+        // The FPS limit's stops, shared by the Animation row, with a rate set
+        // on the command line or saved off the stops kept among them so that
+        // saving another row does not move it.
+        std::vector<std::int32_t> RateStopsWith(std::int32_t current, int& index)
+        {
+            std::vector<std::int32_t> stops(Render::FrameTiming::RateStops.begin(),
+                Render::FrameTiming::RateStops.end());
+            auto at = std::find(stops.begin(), stops.end(), current);
+            if (at == stops.end())
+            {
+                at = stops.insert(std::lower_bound(stops.begin(), stops.end() - 1, current), current);
+            }
+            index = static_cast<int>(at - stops.begin());
+            return stops;
+        }
 
         const std::array<const char*, 6> LanguageNames{{
             "English", "Japanese", "French", "Spanish", "German", "Italian"
@@ -479,16 +491,8 @@ namespace MphRead::Qt
             Mods::RenderOptions::ResolutionScale(),
             [](int value) { return QString::number(std::max(Mods::RenderOptions::MinScale, value)) + QStringLiteral("%"); }));
         rows.push_back(Toggle(QStringLiteral("vsync"), QStringLiteral("VSync"), Render::FrameTiming::VSync()));
-        const auto currentCap = Render::FrameTiming::FrameRateCap();
-        _fpsLimitCaps.assign(FpsLimitStops.begin(), FpsLimitStops.end());
-        auto current = std::find(_fpsLimitCaps.begin(), _fpsLimitCaps.end(), currentCap);
-        if (current == _fpsLimitCaps.end())
-        {
-            // Retain custom CLI/saved limits when another Settings row is saved.
-            current = _fpsLimitCaps.insert(std::lower_bound(_fpsLimitCaps.begin(),
-                _fpsLimitCaps.end() - 1, currentCap), currentCap);
-        }
-        const auto currentIndex = static_cast<int>(current - _fpsLimitCaps.begin());
+        int currentIndex = 0;
+        _fpsLimitCaps = RateStopsWith(Render::FrameTiming::FrameRateCap(), currentIndex);
         rows.push_back(Slider(QStringLiteral("fpsLimit"), QStringLiteral("FPS limit"),
             currentIndex,
             [caps = _fpsLimitCaps](int value)
@@ -500,6 +504,22 @@ namespace MphRead::Qt
                     : QString::number(cap) + QStringLiteral(" fps");
             },
             120, 0, static_cast<int>(_fpsLimitCaps.size()) - 1, 1));
+        // Skeletons, material colours and scrolling textures: the DS's 30 Hz
+        // frames as they are, poses between them up to a rate, or at the
+        // display's own -- on the same stops as the FPS limit.
+        int animationIndex = 0;
+        _animationRates = RateStopsWith(Render::AnimationBlend::Rate(), animationIndex);
+        rows.push_back(Slider(QStringLiteral("animation"), QStringLiteral("Animation"),
+            animationIndex,
+            [rates = _animationRates](int value)
+            {
+                const int index = std::clamp(value, 0, static_cast<int>(rates.size()) - 1);
+                const auto rate = rates[static_cast<std::size_t>(index)];
+                return rate == Render::AnimationBlend::DisplayRate ? QStringLiteral("Display rate")
+                    : rate == Render::AnimationBlend::DsRate ? QStringLiteral("30 Hz (DS)")
+                    : QString::number(rate) + QStringLiteral(" Hz");
+            },
+            120, 0, static_cast<int>(_animationRates.size()) - 1, 1));
         rows.push_back(Toggle(QStringLiteral("lighting"), QStringLiteral("Lighting"), Mods::RenderOptions::Lighting()));
         rows.push_back(Toggle(QStringLiteral("fog"), QStringLiteral("Fog"), Mods::RenderOptions::Fog()));
         rows.push_back(Toggle(QStringLiteral("filtering"), QStringLiteral("Texture filtering"),
@@ -2174,6 +2194,9 @@ namespace MphRead::Qt
         const std::int32_t cap = _fpsLimitCaps[static_cast<std::size_t>(fpsIndex)];
         Render::FrameTiming::SetFrameRateCap(cap);
         settings.FrameRateCap = Render::FrameTiming::CapString(cap);
+        const int animationIndex = std::clamp(value(_display, "animation"), 0,
+            static_cast<int>(_animationRates.size()) - 1);
+        Render::AnimationBlend::Rate(_animationRates[static_cast<std::size_t>(animationIndex)]);
         Render::FrameTiming::SetVSync(on(_display, "vsync"));
         settings.VSync = std::string(Mods::RenderOptions::OnOff(Render::FrameTiming::VSync()));
         settings.CelShading = std::string(Mods::RenderOptions::OnOff(on(_display, "cel")));

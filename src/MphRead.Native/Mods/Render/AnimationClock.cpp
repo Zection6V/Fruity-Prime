@@ -1,5 +1,7 @@
 #include "AnimationClock.hpp"
 
+#include "FrameTiming.hpp"
+
 #include <algorithm>
 #include <cmath>
 
@@ -16,6 +18,16 @@ namespace MphRead::Mods::Render
     AnimationClock::TickScope::~TickScope()
     {
         _ticking = _previous;
+    }
+
+    AnimationClock::AnimationClock() noexcept
+        : AnimationClock(FrameTiming::StepSeconds)
+    {
+    }
+
+    AnimationClock::AnimationClock(double secondsPerStep) noexcept
+        : _secondsPerStep(secondsPerStep)
+    {
     }
 
     void AnimationClock::Step() noexcept
@@ -37,6 +49,11 @@ namespace MphRead::Mods::Render
     double AnimationClock::DrawTime() const noexcept
     {
         return static_cast<double>(_steps) + _phase;
+    }
+
+    double AnimationClock::SecondsPerStep() const noexcept
+    {
+        return _secondsPerStep;
     }
 
     const AnimationClock* AnimationClock::Ticking() noexcept

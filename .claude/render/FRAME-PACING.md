@@ -118,6 +118,18 @@ picture is still drawn at the display's rate.
 
 ### Animation curves are blended, and why that is not the same thing
 
+A player choice: the settings' **Animation** slider (Display -> Performance)
+sets how often a draw may show a new pose between two frames, in Hz, on the
+**same stops as the FPS limit** (`FrameTiming::RateStops`) but with a value of
+its own -- an unlimited frame rate with 30 Hz animation is a valid answer. The
+interval between a model's two ticks, in seconds, times the rate is how many
+slices it is cut into, and the blend steps from slice to slice: 30 Hz on 30 Hz
+frames is one slice, which is the frame itself (the DS's own look), 120 Hz is
+four, and the stops' *Unlimited* reads as **Display rate**, blending at any
+point. `AnimationBlend::Rate` holds it; `launcher.txt` keeps it as
+`animation_rate=display|N` and `-animrate display|N` overrides it for a run.
+Ticks are noted at any rate, so a change shows on the next draw.
+
 The game advances integer animation frames at the DS's 30 Hz (`EntityBase::
 Process` on every other step). `Mods/Render/AnimationBlend` draws three of a
 model's animation channels *between* the frame they are on and the frame the

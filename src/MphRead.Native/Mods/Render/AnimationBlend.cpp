@@ -1,10 +1,12 @@
 #include "AnimationBlend.hpp"
 
 #include "AnimationClock.hpp"
+#include "FrameTiming.hpp"
 #include "../../Formats/Model.hpp"
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cmath>
 #include <cstring>
 #include <numbers>
@@ -63,6 +65,7 @@ namespace MphRead::Mods::Render
         };
 
         thread_local DrawState state;
+        std::int32_t rate = AnimationBlend::DisplayRate;
 
         template<class Value>
         bool Same(const Value& a, const Value& b)
@@ -184,8 +187,16 @@ namespace MphRead::Mods::Render
             }
             // Past due (a paused world, an entity that stopped ticking) holds
             // the next frame, which is the value the next tick lands on.
-            const double fraction = std::clamp(
+            double fraction = std::clamp(
                 (tick.Clock->DrawTime() - tick.Time) / tick.Interval, 0.0, 1.0);
+            // The Animation setting: as many poses between two frames as the
+            // chosen rate fits in their interval; one is the frame itself.
+            if (rate != AnimationBlend::DisplayRate)
+            {
+                const double slices = std::round(tick.Interval * tick.Clock->SecondsPerStep() * rate);
+                if (slices <= 1) return std::nullopt;
+                fraction = std::floor(fraction * slices + 1e-9) / slices;
+            }
             if (fraction <= 0) return std::nullopt;
             return ActiveSample{nullptr, current.Curves, tick.Frame[slot], tick.Next[slot],
                 static_cast<float>(fraction)};
@@ -235,6 +246,35 @@ namespace MphRead::Mods::Render
             RestoreAll(state.Nodes, PoseOf, SetPose);
             RestoreAll(state.Materials, ColorsOf, SetColors);
         }
+    }
+
+    static_assert(AnimationBlend::DisplayRate == FrameTiming::Unlimited
+        && AnimationBlend::DsRate == FrameTiming::RateStops.front(),
+        "the Animation row shares the FPS limit's stops");
+
+    std::int32_t AnimationBlend::Rate() noexcept
+    {
+        return rate;
+    }
+
+    void AnimationBlend::Rate(std::int32_t hz) noexcept
+    {
+        rate = hz == DisplayRate ? DisplayRate : std::max(hz, DsRate);
+    }
+
+    std::string AnimationBlend::RateName(std::int32_t hz)
+    {
+        return hz == DisplayRate ? std::string("display") : std::to_string(hz);
+    }
+
+    std::optional<std::int32_t> AnimationBlend::ParseRate(std::string_view text) noexcept
+    {
+        if (text == "display") return DisplayRate;
+        if (text.ends_with("hz")) text.remove_suffix(2);
+        std::int32_t hz = 0;
+        const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), hz);
+        if (error != std::errc{} || end != text.data() + text.size() || hz < DsRate) return std::nullopt;
+        return hz;
     }
 
     void AnimationBlend::NoteTick(ModelInstance& instance)

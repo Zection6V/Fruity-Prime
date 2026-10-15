@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace MphRead
@@ -35,6 +37,21 @@ namespace MphRead::Mods::Render
     {
     public:
         AnimationBlend() = delete;
+
+        // The Animation setting, in Hz: how often a draw may show a new pose
+        // between the 30 Hz frames, on the FPS limit's stops
+        // (FrameTiming::RateStops). DsRate draws the frames as the DS did;
+        // DisplayRate (the stops' Unlimited) blends at whatever the screen
+        // draws. Ticks are noted at any rate, so a change shows on the next
+        // draw.
+        static constexpr std::int32_t DsRate = 30;
+        static constexpr std::int32_t DisplayRate = -1;
+        [[nodiscard]] static std::int32_t Rate() noexcept;
+        // Anything below DsRate but DisplayRate reads as DsRate.
+        static void Rate(std::int32_t hz) noexcept;
+        // "display", or the rate in Hz: launcher.txt and -animrate.
+        [[nodiscard]] static std::string RateName(std::int32_t hz);
+        [[nodiscard]] static std::optional<std::int32_t> ParseRate(std::string_view text) noexcept;
 
         // Hook: ModelInstance::UpdateAnimFrames(), after the frames advanced.
         static void NoteTick(ModelInstance& instance);

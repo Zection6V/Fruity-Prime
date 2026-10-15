@@ -251,6 +251,28 @@ namespace
 
         Pose(model, inst.AnimInfo);
         Require(TranslationX(model) == 20, "blended outside a draw");
+        // Settings -> Animation, on these frames a simulation step apart: a
+        // rate no faster than the frames draws them as they are, a faster one
+        // in its own steps between them, the display's at any point.
+        const auto posed = [&](std::int32_t rate, double phase)
+        {
+            AnimationBlend::Rate(rate);
+            clock.Phase(phase);
+            const AnimationBlend::DrawScope draw;
+            Pose(model, inst.AnimInfo);
+            return TranslationX(model);
+        };
+        Require(posed(AnimationBlend::DsRate, 0.75) == 20, "30 Hz setting blended");
+        Require(posed(60, 0.75) == 20, "a rate equal to the frames' blended");
+        Require(posed(120, 0.25) == 20 && Near(posed(120, 0.75), 25), "120 Hz is half-frame steps");
+        Require(Near(posed(AnimationBlend::DisplayRate, 0.75), 27.5F), "display rate blends continuously");
+        AnimationBlend::Rate(AnimationBlend::DisplayRate);
+        clock.Phase(0.25);
+        Require(AnimationBlend::ParseRate("display") == AnimationBlend::DisplayRate
+            && AnimationBlend::ParseRate("144") == 144 && AnimationBlend::ParseRate("30hz") == 30
+            && !AnimationBlend::ParseRate("20") && !AnimationBlend::ParseRate("fast")
+            && AnimationBlend::RateName(AnimationBlend::DisplayRate) == "display"
+            && AnimationBlend::RateName(240) == "240", "rate names round-trip");
         {
             const AnimationBlend::DrawScope draw;
             Pose(model, inst.AnimInfo);

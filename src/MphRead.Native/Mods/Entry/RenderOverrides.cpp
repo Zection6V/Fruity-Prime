@@ -8,6 +8,7 @@
 #include "../../NativeRuntime/System/Number.hpp"
 #include "../Diagnostics/FramePerformance.hpp"
 #include "../Input/FrameAim.hpp"
+#include "../Render/AnimationBlend.hpp"
 #include "../Render/Crosshair.hpp"
 #include "../Render/FrameTiming.hpp"
 #include "../Render/Radar.hpp"
@@ -68,6 +69,14 @@ namespace MphRead::Mods::Entry
         if (fog.has_value() && !StartsWithHyphen(fog))
         {
             RenderOptions::Fog(RenderOptions::ParseOnOff(*fog, RenderOptions::Fog()));
+        }
+
+        // Animation curves drawn up to a rate in Hz, or at the display's
+        // (Mods/Render/AnimationBlend, Settings -> Animation).
+        const std::optional<std::string> animRate = ValueAfter(args, "animrate");
+        if (animRate.has_value() && !StartsWithHyphen(animRate))
+        {
+            if (const auto rate = Render::AnimationBlend::ParseRate(*animRate)) Render::AnimationBlend::Rate(*rate);
         }
 
         // Mouse look at the display's rate (Mods/Input/FrameAim); on by default.

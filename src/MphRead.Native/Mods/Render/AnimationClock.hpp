@@ -26,16 +26,22 @@ namespace MphRead::Mods::Render
             const AnimationClock* _previous;
         };
 
+        // A simulation step by default; a menu preview's clock passes its tick.
+        AnimationClock() noexcept;
+        explicit AnimationClock(double secondsPerStep) noexcept;
+
         void Step() noexcept;
         // How far into the next step the picture being drawn is, in [0, 1).
         void Phase(double value) noexcept;
         [[nodiscard]] double TickTime() const noexcept;
         [[nodiscard]] double DrawTime() const noexcept;
+        [[nodiscard]] double SecondsPerStep() const noexcept;
 
         [[nodiscard]] static const AnimationClock* Ticking() noexcept;
         [[nodiscard]] static AnimationClock& Simulation() noexcept;
 
     private:
+        double _secondsPerStep;
         std::uint64_t _steps = 0;
         double _phase = 0;
         static thread_local const AnimationClock* _ticking;

@@ -116,6 +116,47 @@ what it buys. The extra frames are still worth having without it: the camera and
 the world are sampled at 60 but the *input-to-photon* path is not, and the
 picture is still drawn at the display's rate.
 
+### Animation curves are blended, and why that is not the same thing
+
+The game advances integer animation frames at the DS's 30 Hz (`EntityBase::
+Process` on every other step). `Mods/Render/AnimationBlend` draws three of a
+model's animation channels *between* the frame they are on and the frame the
+next tick will show, by how far the draw has run toward that tick: skeletal
+poses (`Model::AnimateNodes`/`AnimateNodes2`), material colour and alpha
+(`AnimateMaterials`) and texcoord scroll/scale/rotation (the texcoord matrix in
+`EntityBase::GetTexcoordMatrix`). Hunters, enemies, bosses, platforms, rooms'
+animated surfaces and the launcher's hunter all go through one `Pass` hook per
+channel and one in `InterpolateAnimation`; each channel reads its own slot.
+Texture swaps stay on integer frames -- there is nothing between two pictures.
+It answers both objections above:
+
+- **It looks ahead, never behind.** No previous state is kept. The next frame is
+  asked of the game's own `UpdateAnimFrames` (loop, reverse, ping-pong, no-loop,
+  pause) when a tick lands, and a draw blends a channel only while its slot's
+  frame and flags and its group still match what that tick left. A pooled model that was reset
+  or re-animated simply is not blended until its next tick.
+- **Nothing the simulation reads changes.** Integer frames are untouched, and the
+  node matrices and material colours a blended pass wrote are put back to their
+  integer values when the draw ends (`DrawScope`), unless something later in the
+  draw replaced them -- a platform's attached collision and Fire Spawn's wrists
+  read matrices a draw left behind, and Gorea's states read its arms' alpha. A
+  texcoord matrix is returned into the draw item and leaves nothing behind. `Enemy18Entity::EnemyGetDrawInfo` derives a shot origin from its
+  pose during the draw, so it opts out (`Suppress`). Measured: `-maptest -bots
+  -drawrate 3` reports the same match before and after.
+
+Time comes from `AnimationClock`: the simulation's steps once per 60 Hz step
+(`SceneAnimation::Step` in `OnSimulationFrame`), and a draw sits
+`FrameTiming::StepPhase()` past the newest step (`SceneAnimation::Draw` in
+`GetDrawItems`). Each instance records the interval between its last two ticks,
+so a 30 Hz and a 60 Hz cadence both blend correctly. `FruityPrime.AnimationBlend`
+tests it, and `fruity_animation_blend_tests <AMHP1 dir>` adds every hunter's
+real idle, poses and colours.
+
+What is still drawn at the simulation's rate, deliberately: entity and camera
+transforms and effect particles (60 Hz, see above -- pooled), HUD sprite frames
+and texture swaps (discrete), and effect spawns and beam trail samples (30 Hz,
+the DS's own cadence).
+
 ## Timers that live in the draw pass
 
 Two were found by audit and both are handled by counting steps owed rather than
@@ -134,6 +175,23 @@ by moving the code:
 
 `grep -rn "\.FrameTime"` over the rest of the tree finds 46 uses and none of
 them in a draw-path method.
+
+A second audit, of every `Draw*`/`GetDrawInfo` method that advances anything,
+found five more that played faster the faster the screen, all behind an
+even-frame or `ProcessFrame` check that was once-per-frame only while drawing
+was:
+
+- **Gorea 1's arm regeneration, Gorea 1B's grapple beam and mind tricks**
+  advanced their models from the draw on every draw of an even step.
+  `SceneAnimation::TickFromDraw` ticks at most once per step, on the
+  simulation clock, so they are blended like the rest.
+- **The pause map's Octolith icons and the quit dialog's button**
+  (`DrawPauseMenuForeground`, called from `OnRenderFrame`) ran
+  `HudObjectInstance::ProcessAnimation`, a 1/60 s timer, once per picture.
+  `SceneAnimation::StepsForDraw` runs it once per step taken since it last ran.
+
+Material colour updates in those draws (`UpdateArmMaterials` and the like) are
+recomputed from simulation timers each time and are not affected.
 
 **Frame advance** (the debug single-step) is forced back to one step per
 picture: the request to advance is consumed *after* the frame is drawn

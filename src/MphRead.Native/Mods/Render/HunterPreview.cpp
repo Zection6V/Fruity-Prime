@@ -3,7 +3,6 @@
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Metadata/Metadata.hpp"
 #include "../../NativeRuntime/System/ExceptionText.hpp"
-#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Read.hpp"
 
 #include <cmath>
@@ -120,9 +119,6 @@ void HunterPreviewEntity::GetDrawInfo()
     {
         return;
     }
-    const auto& info = NativeRuntime::RequireReference(_model->AnimInfo);
-    const PreviewNodeInterpolation interpolation(*_model->Model(), NativeRuntime::RequireReference(info.Node).Group.get(),
-        info.NodeFrame(), PreviewAnimation::NextNodeFrame(*_model), _animation.Fraction());
     UpdateTransforms(*_model, _facing, _recolor < 0 ? 0 : _recolor);
     GetDrawItems(*_model, 0, _light);
 }

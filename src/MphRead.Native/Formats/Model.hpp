@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Formats.hpp"
+#include "../Mods/Render/AnimationTick.hpp"
 
 #include <bit>
 #include <cassert>
@@ -188,6 +189,8 @@ namespace MphRead
         const std::shared_ptr<MaterialAnimationInfo> Material;
         const std::shared_ptr<TexcoordAnimationInfo> Texcoord;
         const std::shared_ptr<TextureAnimationInfo> Texture;
+        // Mod: when the newest tick landed, for draw-rate poses (Mods/Render/AnimationBlend).
+        Mods::Render::AnimationTick ModTick{};
 
         AnimationInfo();
         AnimationInfo(const AnimationInfo&) = delete;

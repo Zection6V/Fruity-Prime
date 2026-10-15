@@ -795,7 +795,16 @@ changes here, because nothing about the simulation does.
   one's transform, and a blend against that draws the shot somewhere between
   where it used to be and where it is. That is the "artifacts de tirs" and the
   wall impacts landing nowhere. Do not put it back without an answer for entity
-  reuse.
+  reuse. **Animation curves are the exception, and they have that answer**
+  (`Mods/Render/AnimationBlend`): the 30 Hz integer animation frames advance as
+  the game advances them, and a draw shows skeletal poses, material colour and
+  alpha, and texcoord motion between the current frame and the one the game's
+  own `UpdateAnimFrames` says comes next -- look-ahead, no history, dropped the
+  moment a channel's frame, group or flags differ from what the tick left. Node
+  matrices and material colours a blended draw wrote go back to their integer
+  values when the draw ends, because some simulation code reads them. Animations a *draw*
+  advances must go through `SceneAnimation::TickFromDraw` / `StepsForDraw`, or
+  they run faster on a faster screen.
 - **The game's speed no longer depends on the machine.** One call for both
   meant a box managing 40 fps played in slow motion; the accumulator pays what
   it owes, measured at 60.000 Hz with a 40 Hz draw rate.

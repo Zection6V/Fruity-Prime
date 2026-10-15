@@ -78,6 +78,7 @@
 #include "Mods/Render/Crosshair.hpp"
 #include "Mods/Render/DesktopGlContext.hpp"
 #include "Mods/Render/FrameTiming.hpp"
+#include "Mods/Render/SceneAnimation.hpp"
 #include "Mods/Render/MapThumbnail.hpp"
 #include "Mods/Render/LauncherHunter.hpp"
 #include "Mods/Render/AppIcon.hpp"
@@ -1806,6 +1807,8 @@ namespace MphRead
     void Scene::OnSimulationFrame()
     {
         const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
+        // Mod hook: this step on the animation time line (Mods/Render/SceneAnimation).
+        const Mods::Render::SceneAnimation::Step modAnimationStep;
         if (Mods::Network::NetSession::FreezeGameplay())
         {
             if (Mods::Network::NetSession::IsStarting())
@@ -3842,6 +3845,8 @@ namespace MphRead
 
     void Scene::GetDrawItems()
     {
+        // Mod hook: draw-rate poses between 30 Hz animation frames (Mods/Render/SceneAnimation).
+        const Mods::Render::SceneAnimation::Draw modAnimationDraw;
         const auto main = Entities::PlayerEntity::Main();
         if (GameState::MenuPause())
         {

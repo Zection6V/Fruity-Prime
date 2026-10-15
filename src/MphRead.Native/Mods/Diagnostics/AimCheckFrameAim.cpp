@@ -173,6 +173,30 @@ namespace MphRead::Mods::Diagnostics
         check(viewVsStep.Max < 0.01, "the drawn view is the step's camera for that aim, roll included, near the poles too");
         check(gun.Max < 0.5, "gun and muzzle are where the step puts them");
 
+        // 1b. Strafing leans the camera across its heading (_viewTiltAngleH).
+        // A frame that turns the heading must lean the way the step's camera
+        // for that heading does, or turning while strafing rolls the picture
+        // back and forth.
+        {
+            Series lean;
+            for (int i = 0; i < 300; ++i)
+            {
+                reset(yaws(rng), pitches(rng) * 0.5F, false);
+                player._viewTiltAngleH = (i % 2 == 0 ? 1.0F : -1.0F) * (5.0F + static_cast<float>(i % 30));
+                player.UpdateCamera();
+                mouse.X = pixels(rng) * 2.0F; mouse.Y = pixels(rng) * 0.5F;
+                player.ModApplyFrameAim(mouse);
+                const Matrix4 drawn = Input::FrameAim::View(&player, *player.CameraInfo(), player.CameraInfo()->ViewMatrix);
+                // The camera a step builds for the frame's aim, with the same lean.
+                player.UpdateCamera();
+                lean.Add(ViewDegrees(drawn, player.CameraInfo()->ViewMatrix));
+            }
+            player._viewTiltAngleH = 0;
+            std::cout << std::setprecision(6) << "FRAMEAIM strafe lean trials=" << lean.Count
+                << " view_vs_step_deg max=" << lean.Max << '\n';
+            check(lean.Max < 0.01, "a strafing lean turns with the frame's heading");
+        }
+
         // 2. Off, or where the camera is not the aim, frames change nothing.
         for (const bool off : {true, false})
         {

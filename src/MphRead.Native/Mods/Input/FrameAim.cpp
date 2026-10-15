@@ -2,11 +2,31 @@
 
 #include "../../Entities/Players/PlayerEntity.hpp"
 
+#include <cmath>
+
 namespace MphRead::Mods::Input
 {
     namespace
     {
+        using OpenTK::Mathematics::Vector3;
+
         bool enabled = true;
+
+        // UpdateCameraFirst leans the camera's up across the step's heading
+        // while strafing (_viewTiltAngleH): the horizontal part of UpVector
+        // is that heading's perpendicular. Turn it with the heading, about
+        // the vertical, by the turn that takes `from` to `to` on the ground.
+        Vector3 TurnedUp(Vector3 up, Vector3 from, Vector3 to)
+        {
+            const float fromLength = std::sqrt(from.X * from.X + from.Z * from.Z);
+            const float toLength = std::sqrt(to.X * to.X + to.Z * to.Z);
+            if (fromLength <= 0 || toLength <= 0) return up;
+            const float fx = from.X / fromLength, fz = from.Z / fromLength;
+            const float tx = to.X / toLength, tz = to.Z / toLength;
+            const float c = fx * tx + fz * tz;
+            const float s = fx * tz - fz * tx;
+            return Vector3(c * up.X - s * up.Z, up.Y, s * up.X + c * up.Z);
+        }
     }
 
     bool FrameAim::Enabled() noexcept
@@ -31,7 +51,10 @@ namespace MphRead::Mods::Input
         // perpendicular to the step's sight line, which near straight up or
         // down is that sight line's horizontal heading -- kept while the aim
         // turned, it rolled the picture until the next step put it back.
-        // LookAt makes from UpVector the up the step makes for this target.
-        return OpenTK::Mathematics::Matrix4::LookAt(camera.Position, camera.Target + *shift, camera.UpVector);
+        // LookAt makes from UpVector the up the step makes for this target,
+        // once its strafing lean is turned with the heading too.
+        const Vector3 target = camera.Target + *shift;
+        const Vector3 up = TurnedUp(camera.UpVector, camera.Target - camera.Position, target - camera.Position);
+        return OpenTK::Mathematics::Matrix4::LookAt(camera.Position, target, up);
     }
 }

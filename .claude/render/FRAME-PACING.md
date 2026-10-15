@@ -209,6 +209,21 @@ nearer the view was to the vertical. From `UpVector` LookAt makes the up the
 step would make for the new target; the check compares the whole view, roll
 included, and holds it within 0.001 degrees above 70 degrees of pitch.
 
+**And the strafing lean turns with the heading.** `UpdateCameraFirst` leans
+`UpVector` across the step's heading while strafing (`_viewTiltAngleH`), so
+its horizontal part points along that heading's perpendicular. Kept as it was
+while the frames turned the heading, the lean pointed the wrong way -- up to
+0.28 degrees of roll against the step's camera -- and the world wobbled when
+turning while strafing. `FrameAim::View` turns the horizontal part of
+`UpVector` about the vertical by the heading's own turn; the check holds it
+within 0.0001 degrees.
+
+What still moves at the simulation's rate while the view turns at the
+display's: the camera's *position* (walking bob, landing dip, the step
+itself), other players, enemies and shots (entity transforms are not
+interpolated, see above), and the screen shake, which `CameraInfo::Update`
+applies on every other camera update -- 30 Hz, as the DS did.
+
 Measured by `-aimcheck` (`AimCheck::CheckFrameAim`, real player): frames along
 a mouse path then a step end where one step over the whole path ends, a step
 after the frames adds nothing (it fires along the aim on screen), the view

@@ -1,4 +1,5 @@
 #include "24_Gorea1A.hpp"
+#include "../../Mods/Render/SceneAnimation.hpp"
 
 #include "25_GoreaHead.hpp"
 #include "26_GoreaArm.hpp"
@@ -1756,7 +1757,8 @@ namespace MphRead::Entities::Enemies
                 if (scene.ProcessFrame()
                     && scene.FrameCount() != 0 && scene.FrameCount() % 2 == 0)
                 {
-                    RequireReference(_regenModel).UpdateAnimFrames();
+                    // Mod hook: once per step, not once per draw.
+                    Mods::Render::SceneAnimation::TickFromDraw(RequireReference(_regenModel));
                 }
                 break;
             }

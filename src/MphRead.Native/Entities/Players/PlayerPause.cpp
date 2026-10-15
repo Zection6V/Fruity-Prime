@@ -1,4 +1,5 @@
 #include "PlayerPause.hpp"
+#include "../../Mods/Render/SceneAnimation.hpp"
 
 #include "../../Features.hpp"
 #include "../../GameState.hpp"
@@ -417,11 +418,16 @@ namespace MphRead::Entities
             Scene& scene = RequireReference(_scene);
             if (scene.ProcessFrame())
             {
-                for (std::int32_t i = 0; i < 8; ++i)
+                // Mod hook: once per simulation step, not once per draw.
+                for (std::int32_t step = Mods::Render::SceneAnimation::StepsForDraw(&_mapOctolithInsts);
+                    step > 0; --step)
                 {
-                    RequireReference(ManagedAt(_mapOctolithInsts, i)).ProcessAnimation(scene);
+                    for (std::int32_t i = 0; i < 8; ++i)
+                    {
+                        RequireReference(ManagedAt(_mapOctolithInsts, i)).ProcessAnimation(scene);
+                    }
+                    RequireReference(_mapLostOctolithInst).ProcessAnimation(scene);
                 }
-                RequireReference(_mapLostOctolithInst).ProcessAnimation(scene);
             }
             std::int32_t artifactIndex = 0;
             for (std::int32_t i = 0; i < 8; ++i)
@@ -619,7 +625,12 @@ namespace MphRead::Entities
             Scene& scene = RequireReference(_scene);
             if (scene.ProcessFrame())
             {
-                RequireReference(_dialogButtonInst).ProcessAnimation(scene);
+                // Mod hook: once per simulation step, not once per draw.
+                for (std::int32_t step = Mods::Render::SceneAnimation::StepsForDraw(&_dialogButtonInst);
+                    step > 0; --step)
+                {
+                    RequireReference(_dialogButtonInst).ProcessAnimation(scene);
+                }
             }
             const std::string text = Text::Strings::GetHudMessage(122);
             const std::int32_t characters = static_cast<std::int32_t>(_navTextTimer / (1.0F / 30.0F));

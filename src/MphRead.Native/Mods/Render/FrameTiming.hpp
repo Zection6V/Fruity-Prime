@@ -38,6 +38,8 @@ namespace MphRead::Mods::Render
 
         [[nodiscard]] static bool Active() noexcept;
         [[nodiscard]] static std::int32_t StepsThisFrame() noexcept;
+        // How far into the next simulation step this frame's picture is, [0, 1).
+        [[nodiscard]] static double StepPhase() noexcept;
 
         [[nodiscard]] static std::int64_t TotalSteps() noexcept;
         [[nodiscard]] static std::int64_t TotalFrames() noexcept;

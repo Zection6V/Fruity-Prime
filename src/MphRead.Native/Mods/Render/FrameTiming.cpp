@@ -142,6 +142,11 @@ namespace MphRead::Mods::Render
         return _stepsThisFrame;
     }
 
+    double FrameTiming::StepPhase() noexcept
+    {
+        return _active ? std::clamp(_accumulator / StepSeconds, 0.0, 1.0) : 0.0;
+    }
+
     std::int64_t FrameTiming::TotalSteps() noexcept
     {
         return _totalSteps;

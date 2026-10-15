@@ -110,6 +110,10 @@ namespace MphRead::Mods::MapGen
         // is built stays built until its .pk3 or the translator changes).
         // Nothing when it is already running.
         static void StartGenerating();
+        // Asks the job to stop after the map it is on and waits for it; no
+        // job starts afterwards. Called once main is done, before the
+        // statics the job reads are destroyed.
+        static void StopGenerating() noexcept;
         struct GenerationProgress
         {
             std::int32_t Total = 0;

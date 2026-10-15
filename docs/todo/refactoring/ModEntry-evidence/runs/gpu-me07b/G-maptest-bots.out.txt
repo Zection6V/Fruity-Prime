@@ -1,0 +1,13 @@
+[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-182035-39380-native.txt
+[window] OpenGL 4.6 compatibility (asked 2.1)
+[raw-mouse] registered target=0000000000390E36 foreground relative motion
+[vulkan] GPU NVIDIA GeForce RTX 5070 Ti API 1.4
+[vulkan probe] passive eligible; logical-device=0; queues=0; candidates=1
+[vulkan] GPU NVIDIA GeForce RTX 5070 Ti API 1.4
+[vulkan] full-screen exclusive unavailable
+[reflex probe] enabled=1 revision=3 presentId=1 reason=
+[vulkan] selected NVIDIA GeForce RTX 5070 Ti graphics=0 present=0 validation=0 swapchainMaintenance1=1 legacy=0
+[vulkan cache] native=1 initial-bytes=1483437
+[render] field of view 78 degrees (the DS's own)
+[render] cel shading off, 8 bands, outline 0.50, fog on, performance mode off
+MAPTEST TEST ARENA | players 4 | frames 180 | spawned 4/4 | moved 0/4 (furthest 19 units) | alt form 0/4 | fired 3/4 | deaths 0 | afflicted freeze 0 burn 0 disrupt 0 (probe freeze n/a burn n/a disrupt n/a) | spawnpoints 8 | jumppads 0 (0/0 launched) teleporters 0 (0/0 moved) doors 0 forcefields 0 platforms 0 itemspawns 5 items 3 morphcams 0 flagbases 0 nodes 0 artifacts 0 triggers 0 areas 0 | lowest Y 0.5 | node lookup 0/720 agreed (720 none, 0 wrong part, 0 would hide the player, 0 would reveal one; 720 samples drawable) | remote node 716/716 agreed (0 none, 0 wrong part, 0 would hide the player) | effect particles 306 | lit first 99.8% min 99.1% max 99.8% mean 99.6% (3 samples)

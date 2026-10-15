@@ -1,0 +1,7 @@
+
+Fruity Prime could not start.
+
+  ProgramException: -nativeaim requires touch, dual, nonexact-touch or nonexact-dual
+
+The details are in C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-crash-20261015-165615-36756.log.
+

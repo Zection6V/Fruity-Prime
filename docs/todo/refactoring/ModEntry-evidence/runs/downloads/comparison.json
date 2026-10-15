@@ -1,0 +1,189 @@
+{
+  "initial_exit_source": "initial-results.txt (download tool result from supplied handoff JSONL)",
+  "installserver": {
+    "baseline_exit": 1,
+    "final_exit": 1,
+    "normalized_stdout_equal": true,
+    "server_directory_exists": false
+  },
+  "mapsync_initial": {
+    "baseline_exit": 0,
+    "final_exit": 0,
+    "baseline_downloaded": 19,
+    "final_downloaded": 20,
+    "baseline_failed": "mario.pk3",
+    "original_common_payloads_equal": true
+  },
+  "mapsync_baseline_retry": {
+    "exit": 0,
+    "downloaded": [
+      "mario.pk3"
+    ]
+  },
+  "baseline_payloads": {
+    "Facer2d.pk3": {
+      "bytes": 4671566,
+      "sha256": "8f44627f5760b9cfd19451460088f8b27d078745fb306561aa9c088c4d66257e"
+    },
+    "hub3aeroq3.pk3": {
+      "bytes": 1251417,
+      "sha256": "c1b8dd7b4c41e6703751a0c2c88a594319bbf71b52ca861bcfd18f5e18078ca1"
+    },
+    "map_cpm3a.pk3": {
+      "bytes": 4196286,
+      "sha256": "f99f00dd9200a5465237856799269733f7125af7667c2753367a26744b8bffc4"
+    },
+    "mario.pk3": {
+      "bytes": 10620908,
+      "sha256": "3bef1f2b50edfea3ac2699f0be7e0c6911a649ba489cfe8f817f2105cd190716"
+    },
+    "oa_pkvomit3.pk3": {
+      "bytes": 3225335,
+      "sha256": "380d73e3e5805c9f1f646cea5f336ab1513c9bde2d830467cfd72efc7d8a59d2"
+    },
+    "oa_pvomit.pk3": {
+      "bytes": 1230070,
+      "sha256": "d919a738c780a9173d3fbeff0c47e8dfdc7f200ae81fc024588b880b0fa34213"
+    },
+    "oa_pvomit2.pk3": {
+      "bytes": 3217598,
+      "sha256": "6a0ef1a9519c1103d6d325dde09dc327deb864206c6c0dddd8cf25b01463e100"
+    },
+    "oa_pvomit4.pk3": {
+      "bytes": 4127348,
+      "sha256": "b884b00ffd3b5c9c300e8d74d2282da86722fbd560d5273390d667b4eab46fd8"
+    },
+    "oa_pvomit5.pk3": {
+      "bytes": 4078302,
+      "sha256": "0e8210465fdb43362f03e4ea2a1eb61a594a3a4840b9d3668978aee61cca25be"
+    },
+    "overkill.pk3": {
+      "bytes": 2494904,
+      "sha256": "2b7275f4684c136346c1b887eaec6470d1aa025e188ec3cb7ed813ede8f2b275"
+    },
+    "pom_bots.pk3": {
+      "bytes": 24539905,
+      "sha256": "a2cd3d93551e3791433c4418a043069c638fbf764c663c5279d0547507febb3e"
+    },
+    "q3dm0.pk3": {
+      "bytes": 1296469,
+      "sha256": "05701cea8a4bf24073d873854cb73b8ce7127575cc86779d80c32a9ae40b755c"
+    },
+    "q3dm1.pk3": {
+      "bytes": 959082,
+      "sha256": "6f52ca0cb1f65d846a8ca417abb559c4152a5414ba4ce4bd18b30e2399365b18"
+    },
+    "q3dm11.pk3": {
+      "bytes": 3385385,
+      "sha256": "e30a48cf71fafdf0101608ae2559666e49cb24d05e2e1eef0c8ffd07cf573f21"
+    },
+    "q3dm17u.pk3": {
+      "bytes": 1290032,
+      "sha256": "8972639b0b3e3b97fab66abc4d31799cedf554f3a11a65ca3d71f270c2fe6c81"
+    },
+    "q3dm6.pk3": {
+      "bytes": 1670614,
+      "sha256": "a6ef9ea533cfe0c69e0f34a13116512bac2b54027416e64290417a5a7d100b28"
+    },
+    "q3dm6test.pk3": {
+      "bytes": 5856522,
+      "sha256": "b031110f2eb225efff6c66f4f01d5242010c7a66a074db48d4932103345c1d10"
+    },
+    "q3tourney4.pk3": {
+      "bytes": 985768,
+      "sha256": "a680ae8748cfbd792cc7f9fb3a43081934f45ae23d29dd8c7eeebd927d1ea3c6"
+    },
+    "reqbath.pk3": {
+      "bytes": 8875001,
+      "sha256": "677af2eeceabb6185f8151976bd3ad6937451c0a08b826b474a03b6a47e82abd"
+    },
+    "simpsons.pk3": {
+      "bytes": 62282953,
+      "sha256": "c09f0766ca8eda7dafe03d1ee3f8b1b7d5149ef41477f9b6882f27273d6ef650"
+    }
+  },
+  "final_payloads": {
+    "Facer2d.pk3": {
+      "bytes": 4671566,
+      "sha256": "8f44627f5760b9cfd19451460088f8b27d078745fb306561aa9c088c4d66257e"
+    },
+    "hub3aeroq3.pk3": {
+      "bytes": 1251417,
+      "sha256": "c1b8dd7b4c41e6703751a0c2c88a594319bbf71b52ca861bcfd18f5e18078ca1"
+    },
+    "map_cpm3a.pk3": {
+      "bytes": 4196286,
+      "sha256": "f99f00dd9200a5465237856799269733f7125af7667c2753367a26744b8bffc4"
+    },
+    "mario.pk3": {
+      "bytes": 10620908,
+      "sha256": "3bef1f2b50edfea3ac2699f0be7e0c6911a649ba489cfe8f817f2105cd190716"
+    },
+    "oa_pkvomit3.pk3": {
+      "bytes": 3225335,
+      "sha256": "380d73e3e5805c9f1f646cea5f336ab1513c9bde2d830467cfd72efc7d8a59d2"
+    },
+    "oa_pvomit.pk3": {
+      "bytes": 1230070,
+      "sha256": "d919a738c780a9173d3fbeff0c47e8dfdc7f200ae81fc024588b880b0fa34213"
+    },
+    "oa_pvomit2.pk3": {
+      "bytes": 3217598,
+      "sha256": "6a0ef1a9519c1103d6d325dde09dc327deb864206c6c0dddd8cf25b01463e100"
+    },
+    "oa_pvomit4.pk3": {
+      "bytes": 4127348,
+      "sha256": "b884b00ffd3b5c9c300e8d74d2282da86722fbd560d5273390d667b4eab46fd8"
+    },
+    "oa_pvomit5.pk3": {
+      "bytes": 4078302,
+      "sha256": "0e8210465fdb43362f03e4ea2a1eb61a594a3a4840b9d3668978aee61cca25be"
+    },
+    "overkill.pk3": {
+      "bytes": 2494904,
+      "sha256": "2b7275f4684c136346c1b887eaec6470d1aa025e188ec3cb7ed813ede8f2b275"
+    },
+    "pom_bots.pk3": {
+      "bytes": 24539905,
+      "sha256": "a2cd3d93551e3791433c4418a043069c638fbf764c663c5279d0547507febb3e"
+    },
+    "q3dm0.pk3": {
+      "bytes": 1296469,
+      "sha256": "05701cea8a4bf24073d873854cb73b8ce7127575cc86779d80c32a9ae40b755c"
+    },
+    "q3dm1.pk3": {
+      "bytes": 959082,
+      "sha256": "6f52ca0cb1f65d846a8ca417abb559c4152a5414ba4ce4bd18b30e2399365b18"
+    },
+    "q3dm11.pk3": {
+      "bytes": 3385385,
+      "sha256": "e30a48cf71fafdf0101608ae2559666e49cb24d05e2e1eef0c8ffd07cf573f21"
+    },
+    "q3dm17u.pk3": {
+      "bytes": 1290032,
+      "sha256": "8972639b0b3e3b97fab66abc4d31799cedf554f3a11a65ca3d71f270c2fe6c81"
+    },
+    "q3dm6.pk3": {
+      "bytes": 1670614,
+      "sha256": "a6ef9ea533cfe0c69e0f34a13116512bac2b54027416e64290417a5a7d100b28"
+    },
+    "q3dm6test.pk3": {
+      "bytes": 5856522,
+      "sha256": "b031110f2eb225efff6c66f4f01d5242010c7a66a074db48d4932103345c1d10"
+    },
+    "q3tourney4.pk3": {
+      "bytes": 985768,
+      "sha256": "a680ae8748cfbd792cc7f9fb3a43081934f45ae23d29dd8c7eeebd927d1ea3c6"
+    },
+    "reqbath.pk3": {
+      "bytes": 8875001,
+      "sha256": "677af2eeceabb6185f8151976bd3ad6937451c0a08b826b474a03b6a47e82abd"
+    },
+    "simpsons.pk3": {
+      "bytes": 62282953,
+      "sha256": "c09f0766ca8eda7dafe03d1ee3f8b1b7d5149ef41477f9b6882f27273d6ef650"
+    }
+  },
+  "payloads_equal_after_retry": true,
+  "different": []
+}

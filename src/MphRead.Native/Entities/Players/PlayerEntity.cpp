@@ -1390,31 +1390,6 @@ namespace MphRead::Entities
         }
     }
 
-    void PlayerEntity::ModApplyInstagibLoadout()
-    {
-        // Instagib is a multiplayer match rule; a story hunter or a bot of
-        // the adventure keeps whatever the game gave it.
-        if (!GameState::Instagib() || !GameState::Multiplayer())
-        {
-            return;
-        }
-        constexpr MphRead::BeamType beam = MphRead::BeamType::Imperialist;
-        MphRead::WeaponInfo& info = CurrentWeaponAt(static_cast<std::int32_t>(beam));
-        _availableWeapons.ClearAll();
-        _availableCharges.ClearAll();
-        _availableWeapons[beam] = true;
-        _availableCharges[beam] = true;
-        _weaponSlots[0] = MphRead::BeamType::None;
-        _weaponSlots[1] = MphRead::BeamType::None;
-        _weaponSlots[2] = beam;
-        _ammo[UA] = _ammo[Missiles] = 0;
-        ManagedAt(_ammo, static_cast<std::int32_t>(info.AmmoType))
-            = ManagedAt(_ammoMax, static_cast<std::int32_t>(info.AmmoType));
-        RequireReference(_equipInfo).InfiniteAmmo = true;
-        _previousWeapon = beam;
-        static_cast<void>(TryEquipWeapon(beam, true));
-    }
-
     bool PlayerEntity::TryEquipWeapon(MphRead::BeamType beam, bool silent, bool debug, std::source_location caller)
     {
         const std::int32_t index = static_cast<std::int32_t>(beam);

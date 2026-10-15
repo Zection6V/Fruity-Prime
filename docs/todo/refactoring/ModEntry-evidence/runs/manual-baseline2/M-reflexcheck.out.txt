@@ -1,0 +1,148 @@
+[raw-mouse] registered target=0000000001390F14 foreground relative motion
+[vulkan] GPU NVIDIA GeForce RTX 5070 Ti API 1.4
+[vulkan] full-screen exclusive available
+[reflex probe] enabled=1 revision=3 presentId=1 reason=
+[vulkan] selected NVIDIA GeForce RTX 5070 Ti graphics=0 present=0 validation=1 swapchainMaintenance1=1 legacy=0
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[vulkan] swapchain 1280x720 images=3 present=FIFO
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[vulkan] swapchain 1280x720 images=3 present=FIFO
+[reflexcheck] PASS present=1 cap=0 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=1 lowLatencyMode=1 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=1 cap=0 requested=1 effective=1 provider=2 boost=1 authority=1 reason=
+[reflex] mode=2 lowLatencyMode=1 lowLatencyBoost=1 minimumIntervalUs=0
+[reflexcheck] PASS present=1 cap=0 requested=2 effective=2 provider=2 boost=1 authority=1 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=1 cap=0 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=1 cap=60 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=1 lowLatencyMode=1 lowLatencyBoost=0 minimumIntervalUs=16667
+[reflexcheck] PASS present=1 cap=60 requested=1 effective=1 provider=2 boost=1 authority=1 reason=
+[reflex] mode=2 lowLatencyMode=1 lowLatencyBoost=1 minimumIntervalUs=16667
+[reflexcheck] PASS present=1 cap=60 requested=2 effective=2 provider=2 boost=1 authority=1 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=1 cap=60 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=1 cap=144 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=1 lowLatencyMode=1 lowLatencyBoost=0 minimumIntervalUs=6945
+[reflexcheck] PASS present=1 cap=144 requested=1 effective=1 provider=2 boost=1 authority=1 reason=
+[reflex] mode=2 lowLatencyMode=1 lowLatencyBoost=1 minimumIntervalUs=6945
+[reflexcheck] PASS present=1 cap=144 requested=2 effective=2 provider=2 boost=1 authority=1 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=1 cap=144 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=1 cap=240 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=1 lowLatencyMode=1 lowLatencyBoost=0 minimumIntervalUs=4167
+[reflexcheck] PASS present=1 cap=240 requested=1 effective=1 provider=2 boost=1 authority=1 reason=
+[reflex] mode=2 lowLatencyMode=1 lowLatencyBoost=1 minimumIntervalUs=4167
+[reflexcheck] PASS present=1 cap=240 requested=2 effective=2 provider=2 boost=1 authority=1 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=1 cap=240 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=1 cap=-1 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=1 lowLatencyMode=1 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=1 cap=-1 requested=1 effective=1 provider=2 boost=1 authority=1 reason=
+[reflex] mode=2 lowLatencyMode=1 lowLatencyBoost=1 minimumIntervalUs=0
+[reflexcheck] PASS present=1 cap=-1 requested=2 effective=2 provider=2 boost=1 authority=1 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=1 cap=-1 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[vulkan] swapchain 1280x720 images=3 present=IMMEDIATE
+[reflexcheck] PASS present=0 cap=0 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=1 lowLatencyMode=1 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=0 cap=0 requested=1 effective=1 provider=2 boost=1 authority=1 reason=
+[reflex] mode=2 lowLatencyMode=1 lowLatencyBoost=1 minimumIntervalUs=0
+[reflexcheck] PASS present=0 cap=0 requested=2 effective=2 provider=2 boost=1 authority=1 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=0 cap=0 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=0 cap=60 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=1 lowLatencyMode=1 lowLatencyBoost=0 minimumIntervalUs=16667
+[reflexcheck] PASS present=0 cap=60 requested=1 effective=1 provider=2 boost=1 authority=1 reason=
+[reflex] mode=2 lowLatencyMode=1 lowLatencyBoost=1 minimumIntervalUs=16667
+[reflexcheck] PASS present=0 cap=60 requested=2 effective=2 provider=2 boost=1 authority=1 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=0 cap=60 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=0 cap=144 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=1 lowLatencyMode=1 lowLatencyBoost=0 minimumIntervalUs=6945
+[reflexcheck] PASS present=0 cap=144 requested=1 effective=1 provider=2 boost=1 authority=1 reason=
+[reflex] mode=2 lowLatencyMode=1 lowLatencyBoost=1 minimumIntervalUs=6945
+[reflexcheck] PASS present=0 cap=144 requested=2 effective=2 provider=2 boost=1 authority=1 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=0 cap=144 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=0 cap=240 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=1 lowLatencyMode=1 lowLatencyBoost=0 minimumIntervalUs=4167
+[reflexcheck] PASS present=0 cap=240 requested=1 effective=1 provider=2 boost=1 authority=1 reason=
+[reflex] mode=2 lowLatencyMode=1 lowLatencyBoost=1 minimumIntervalUs=4167
+[reflexcheck] PASS present=0 cap=240 requested=2 effective=2 provider=2 boost=1 authority=1 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=0 cap=240 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=0 cap=-1 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=1 lowLatencyMode=1 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=0 cap=-1 requested=1 effective=1 provider=2 boost=1 authority=1 reason=
+[reflex] mode=2 lowLatencyMode=1 lowLatencyBoost=1 minimumIntervalUs=0
+[reflexcheck] PASS present=0 cap=-1 requested=2 effective=2 provider=2 boost=1 authority=1 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=0 cap=-1 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[vulkan] swapchain 1280x720 images=3 present=MAILBOX
+[reflexcheck] PASS present=2 cap=0 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=1 lowLatencyMode=1 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=2 cap=0 requested=1 effective=1 provider=2 boost=1 authority=1 reason=
+[reflex] mode=2 lowLatencyMode=1 lowLatencyBoost=1 minimumIntervalUs=0
+[reflexcheck] PASS present=2 cap=0 requested=2 effective=2 provider=2 boost=1 authority=1 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=2 cap=0 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=2 cap=60 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=1 lowLatencyMode=1 lowLatencyBoost=0 minimumIntervalUs=16667
+[reflexcheck] PASS present=2 cap=60 requested=1 effective=1 provider=2 boost=1 authority=1 reason=
+[reflex] mode=2 lowLatencyMode=1 lowLatencyBoost=1 minimumIntervalUs=16667
+[reflexcheck] PASS present=2 cap=60 requested=2 effective=2 provider=2 boost=1 authority=1 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=2 cap=60 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=2 cap=144 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=1 lowLatencyMode=1 lowLatencyBoost=0 minimumIntervalUs=6945
+[reflexcheck] PASS present=2 cap=144 requested=1 effective=1 provider=2 boost=1 authority=1 reason=
+[reflex] mode=2 lowLatencyMode=1 lowLatencyBoost=1 minimumIntervalUs=6945
+[reflexcheck] PASS present=2 cap=144 requested=2 effective=2 provider=2 boost=1 authority=1 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=2 cap=144 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=2 cap=240 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=1 lowLatencyMode=1 lowLatencyBoost=0 minimumIntervalUs=4167
+[reflexcheck] PASS present=2 cap=240 requested=1 effective=1 provider=2 boost=1 authority=1 reason=
+[reflex] mode=2 lowLatencyMode=1 lowLatencyBoost=1 minimumIntervalUs=4167
+[reflexcheck] PASS present=2 cap=240 requested=2 effective=2 provider=2 boost=1 authority=1 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=2 cap=240 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=2 cap=-1 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=1 lowLatencyMode=1 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=2 cap=-1 requested=1 effective=1 provider=2 boost=1 authority=1 reason=
+[reflex] mode=2 lowLatencyMode=1 lowLatencyBoost=1 minimumIntervalUs=0
+[reflexcheck] PASS present=2 cap=-1 requested=2 effective=2 provider=2 boost=1 authority=1 reason=
+[reflex] mode=0 lowLatencyMode=0 lowLatencyBoost=0 minimumIntervalUs=0
+[reflexcheck] PASS present=2 cap=-1 requested=0 effective=0 provider=0 boost=1 authority=0 reason=
+[reflex] mode=2 lowLatencyMode=1 lowLatencyBoost=1 minimumIntervalUs=0
+[reflex] mode=2 lowLatencyMode=1 lowLatencyBoost=1 minimumIntervalUs=0
+[vulkan] swapchain 960x600 images=3 present=MAILBOX
+[reflex] mode=2 lowLatencyMode=1 lowLatencyBoost=1 minimumIntervalUs=0
+[vulkan] swapchain 2560x1440 images=3 present=MAILBOX
+[reflex] mode=2 lowLatencyMode=1 lowLatencyBoost=1 minimumIntervalUs=0
+[vulkan] swapchain 960x600 images=3 present=MAILBOX
+[reflex] mode=2 lowLatencyMode=1 lowLatencyBoost=1 minimumIntervalUs=0
+[vulkan] swapchain 960x600 images=3 present=MAILBOX
+[reflex] mode=2 lowLatencyMode=1 lowLatencyBoost=1 minimumIntervalUs=0
+[vulkan] swapchain 960x600 images=3 present=MAILBOX
+[reflex] mode=2 lowLatencyMode=1 lowLatencyBoost=1 minimumIntervalUs=0
+[vulkan] swapchain 960x600 images=3 present=FIFO
+[reflexcheck] native frames=148 sleeps=149 waits=213 modes=68 markers=1879 timing-reports=0 generations=10
+[reflexcheck] completed=268 abandoned=1 timing-queries=0
+[vulkan] presentation PASS; clear present; resize; fullscreen; minimize/restore; clean shutdown; validation=1; errors=0; present-fence-waits=36
+[vulkan] fallback-retired-releases=0
+[vulkan] fallback-completed-reacquire-proofs=0; frame-slot-waits=0; cleanup-frame-waits=0

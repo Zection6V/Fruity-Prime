@@ -1,0 +1,20 @@
+﻿[18:33:01.850] [crash] native stderr is being captured to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-183301-36544-native.txt
+[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-183301-36544-native.txt
+[18:33:01.850] [crash] no crash dump is configured. For a native stack from the next crash, start the game with these three set (type 4 is required -- a single-file app supports no other kind, and the file is around 110 MB, which zips well):
+[18:33:01.851] [crash]   DOTNET_DbgEnableMiniDump=1 DOTNET_DbgMiniDumpType=4 DOTNET_DbgMiniDumpName=C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\crash-%p.dmp
+[18:33:01.851] [build] Fruity Prime a local build, data format 0.35.1.0
+[18:33:01.851] [build] protocol 33, log started 2026-10-15 18:33:01 +09:00
+[18:33:01.852] [system] Microsoft Windows NT 10.0.22621.0 X64/X64, .NET native, 28 cpu(s)
+[18:33:01.852] [system] 64-bit process=True, culture=ja-JP
+[18:33:01.852] [paths] base=C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\
+[18:33:01.852] [paths] prefs=C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\
+[18:33:01.852] [paths] log=C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-183301-36544.log
+[18:33:01.852] [paths] game files ready=True
+[18:33:01.852] [args] C:/Users/Admin/Documents/git/Fruity-Prime/tools/build/out/msvc-Release/FruityPrime-me00-baseline.exe -masterserver -port 27991 -hostports none -noupdate -noautoupdate -console -debuglog
+[18:33:01.852] [render] cel=off fog=on window=ExclusiveFullscreen
+[18:33:02] [master] listening on UDP 27991
+[18:33:02] [master] servers are dropped after 50 s of silence
+[18:33:02] [master] not starting games for anybody (no host port range)
+[18:33:05] [master] + 127.0.0.1:27992 "ME06 Loopback"
+[18:33:44] [master] shutting down
+[183344.864] [exit] process exiting

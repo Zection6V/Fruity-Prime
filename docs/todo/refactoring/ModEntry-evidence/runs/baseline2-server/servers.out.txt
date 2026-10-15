@@ -1,0 +1,5 @@
+[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-183107-33028-native.txt
+[servers] asking 127.0.0.1:27991
+[servers] this directory starts no games (no host port range)
+[servers] 1 listed; asking each one
+  ME06 Loopback            127.0.0.1:27992            TEST ARENA           Battle         0/4    15 ms

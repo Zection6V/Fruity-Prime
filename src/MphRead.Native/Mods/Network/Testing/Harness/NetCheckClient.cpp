@@ -583,7 +583,7 @@ namespace MphRead::Mods::Network
             {
                 IncrementInPlace(_myDeaths);
             }
-            if (_lastLocalHealth > 0 && me->Health() > 0 && me->Health() < _lastLocalHealth)
+            if (NetFeatureCheck::ObservedDamage(_lastLocalHealth, me->Health()))
             {
                 IncrementInPlace(_damageTaken);
             }
@@ -673,7 +673,7 @@ namespace MphRead::Mods::Network
             {
                 IncrementInPlace(view.Deaths);
             }
-            if (view.LastHealth > 0 && other->Health() > 0 && other->Health() < view.LastHealth)
+            if (NetFeatureCheck::ObservedDamage(view.LastHealth, other->Health()))
             {
                 IncrementInPlace(view.Hits);
             }

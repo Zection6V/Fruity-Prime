@@ -1,0 +1,3 @@
+[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-165638-34952-native.txt
+[net] asking 127.0.0.1:1 to run TEST ARENA
+[net] it would not: no answer from 127.0.0.1:1 -- it may be down, or UDP may not reach it

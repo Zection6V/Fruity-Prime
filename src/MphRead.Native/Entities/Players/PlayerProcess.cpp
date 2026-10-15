@@ -1,5 +1,6 @@
 #include "../../Mods/MapGen/CustomRooms.hpp"
 #include "../../Mods/WorldEvents.hpp"
+#include "../../Mods/Combat/InstagibRules.hpp"
 #include "PlayerProcess.hpp"
 
 #include "PlayerEntity.hpp"
@@ -1628,7 +1629,7 @@ namespace MphRead::Entities
         const auto scene = [&]() -> Scene& { return RequireReference(_scene); };
         // Instagib: nothing on the map is for the taking.
         if (_health == 0 || (_isBot && GameState::SinglePlayer()) || _ignoreItemPickups
-            || (GameState::Instagib() && GameState::Multiplayer()))
+            || !Mods::Combat::InstagibRules::PickupsAllowed())
         {
             return;
         }

@@ -1,0 +1,20 @@
+[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-165627-35924-native.txt
+FRAMETIMING ok   unlimited cap round-trip and legacy Settings migration
+FRAMETIMING ok   60 Hz display | 7201 frames over 120.0 s | 7201 steps = 60.000 Hz (drift 0.000%) | game ran 1.0000x real time | worst frame 1 step(s) | dropped 0 | homing 3600/3600 steering steps
+FRAMETIMING ok   144 Hz display | 17281 frames over 120.0 s | 7200 steps = 59.997 Hz (drift 0.006%) | game ran 0.9999x real time | worst frame 1 step(s) | dropped 0 | homing 3600/3600 steering steps
+FRAMETIMING ok   240 Hz display | 28801 frames over 120.0 s | 7200 steps = 59.998 Hz (drift 0.003%) | game ran 1.0000x real time | worst frame 1 step(s) | dropped 0 | homing 3600/3600 steering steps
+FRAMETIMING ok   165 Hz display (not a multiple of 60) | 49501 frames over 300.0 s | 18000 steps = 59.999 Hz (drift 0.002%) | game ran 1.0000x real time | worst frame 1 step(s) | dropped 0 | homing 9000/9000 steering steps
+FRAMETIMING ok   40 Hz, a machine that cannot keep up | 4800 frames over 120.0 s | 7200 steps = 60.000 Hz (drift 0.000%) | game ran 1.0000x real time | worst frame 2 step(s) | dropped 0 | homing 3600/3600 steering steps
+FRAMETIMING ok   jittery 144 Hz | 43247 frames over 300.0 s | 18000 steps = 60.000 Hz (drift 0.000%) | game ran 1.0000x real time | worst frame 1 step(s) | dropped 0 | homing 9000/9000 steering steps
+FRAMETIMING ok   vsync flipping between 144 and 72 | 37800 frames over 300.0 s | 17999 steps = 59.997 Hz (drift 0.006%) | game ran 0.9999x real time | worst frame 1 step(s) | dropped 0 | homing 8999/8999 steering steps
+FRAMETIMING ok   1500 Hz unlimited drawing | 180001 frames over 120.0 s | 7200 steps = 60.000 Hz (drift 0.001%) | game ran 1.0000x real time | worst frame 1 step(s) | dropped 0 | homing 3600/3600 steering steps
+FRAMETIMING ok   540 Hz display | 64800 frames over 120.0 s | 7199 steps = 59.992 Hz (drift 0.014%) | game ran 0.9999x real time | worst frame 1 step(s) | dropped 0 | homing 3599/3599 steering steps
+FRAMETIMING ok   2 s stall | 1 step(s) on the stalled frame | 1 stall(s) seen | worst ordinary frame 1 step(s)
+FRAMETIMING ok   Lockjaw repeated samples at one tick
+FRAMETIMING ok   Lockjaw next tick changes sequence
+FRAMETIMING ok   Lockjaw different target changes sequence
+FRAMETIMING ok   Lockjaw different source changes sequence
+FRAMETIMING ok   Lockjaw different owner changes sequence
+FRAMETIMING ok   Lockjaw offsets stay in [-0.25, 0.25)
+FRAMETIMING ok   Lockjaw global Rng1 unchanged
+FRAMETIMING all cases pass

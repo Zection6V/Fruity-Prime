@@ -1,0 +1,33 @@
+[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-182631-21436-native.txt
+[vulkan] GPU NVIDIA GeForce RTX 5070 Ti API 1.4
+[vulkan probe] passive eligible; logical-device=0; queues=0; candidates=1
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/start.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/start-phone-portrait.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/start-phone-landscape.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/play-online.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/play-online-phone-portrait.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/play-online-phone-landscape.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/play-offline.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/download-maps.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/play-story.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/play-clips.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/play-vote.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/create-server.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/create-server-dedicated.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/create-server-maps.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/create-server-hosts.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/settings.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/settings-player.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/settings-controls.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/settings-gamepad.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/end-panel.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/end-panel-hunter.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/setup.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/confirm.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/pausemenu.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/pausemenu-small.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/pausemenu-phone.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/serverbrowser.png
+[qtuishot] C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq/lobby.png
+[qtuishot] 28 screen(s) written to C:/Users/Admin/AppData/Local/Temp/Fruity Prime-lsknDq
+[gamepadcheck] PASS: 292 deterministic checks

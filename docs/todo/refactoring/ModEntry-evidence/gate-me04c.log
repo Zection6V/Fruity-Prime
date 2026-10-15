@@ -1,0 +1,104 @@
+== me04c  2026-10-15T17:15:57
+exe sha256 0F5B16143B3480B21C1182496983D5702197A2FF39C4E6C485D7A8857BAA0F3C
+D01-rhicontract              exit=0           0.3s DADFDE4B66104856360E0E82478BBCBE9B9B6114678898FE5BCA3C688B1003EB 
+D01b-rhicontract-smoketest   exit=0           0.1s DADFDE4B66104856360E0E82478BBCBE9B9B6114678898FE5BCA3C688B1003EB 
+D01c-rhicontract-badpath     exit=1           0.1s  
+D02-smoketest-mechanics      exit=1           0.2s  
+D03-pointer-frametiming      exit=0           0.1s  
+D04-frametiming-badsize      exit=0           0.2s  
+D05-credits-update           exit=0           0.2s  
+D06-mapbundle-update         exit=0           0.2s  
+D10-nointerp-relayed         exit=0           0.1s  
+D12-nativeaim-bogus          exit=1           0.2s  
+D13-netlag-invalid           exit=0           0.1s  
+D13b-netspike-invalid        exit=0           0.1s  
+D13c-netloss-invalid         exit=0           0.1s  
+D13d-netjitter-invalid       exit=0           0.1s  
+D13e-netlag-ok               exit=0           0.1s  
+NET-all-options              exit=0           0.1s  
+NET-refusals                 exit=0           0.2s  
+A12-doubledash-credits       exit=0           0.2s  
+D11-render-overrides         exit=0           0.2s  
+D15-classicframes            exit=0           0.2s missing 
+D16-gamepad                  exit=1           1.4s  
+UI-uidesign                  exit=1           0.2s  
+UI-uibench-refused           exit=1           0.1s  
+UI-uibench-size-refused      exit=1           0.1s  
+UI-tapcheck                  exit=0           0.8s  
+SRV-servers-loopback         exit=0           0.1s  
+D09-servers-hosts            exit=0           0.1s  
+SRV-hosts-loopback           exit=0           0.2s  
+POST-mechanics               exit=0           0.2s  
+POST-rooms                   exit=0           0.1s  
+POST-q3maps-missing          exit=1           0.2s  
+POST-q3shaders-missing       exit=1           0.2s  
+POST-mapcheck-missing        exit=1           0.1s  
+POST-mapitems-missing        exit=1           0.1s  
+POST-mapmaterials            exit=0           0.2s  
+POST-altprobe-noat           exit=1           0.1s  
+D20a-shotat-commasize        exit=1           0.2s  
+D19a-mapgen-none             exit=0           0.2s  
+POST-demoinfo-missing        exit=1           0.2s  
+POST-dpstest                 exit=0           2.2s  
+POST-simcheck                exit=0           0.4s  
+D18-movieheadlesscheck       exit=0           0.5s  
+D17-netcombat-precedence     exit=0           0.6s  
+POST-hostgame-loopback       exit=1           0.1s  
+D23-unknown                  exit=1           0.1s  
+-- CLI contract vs baseline
+SAME    A12-doubledash-credits
+SAME    D01-rhicontract
+SAME    D01b-rhicontract-smoketest
+SAME    D01c-rhicontract-badpath
+SAME    D02-smoketest-mechanics
+SAME    D03-pointer-frametiming
+SAME    D04-frametiming-badsize
+SAME    D05-credits-update
+SAME    D06-mapbundle-update
+SAME    D09-servers-hosts
+SAME    D10-nointerp-relayed
+SAME    D11-render-overrides
+SAME    D12-nativeaim-bogus
+SAME    D13-netlag-invalid
+SAME    D13b-netspike-invalid
+SAME    D13c-netloss-invalid
+SAME    D13d-netjitter-invalid
+SAME    D13e-netlag-ok
+SAME    D15-classicframes
+SAME    D16-gamepad (text not compared: nondeterministic)
+SAME    D17-netcombat-precedence (text not compared: nondeterministic)
+SAME    D18-movieheadlesscheck
+SAME    D19a-mapgen-none
+SAME    D20a-shotat-commasize
+SAME    D23-unknown
+SAME    NET-all-options
+SAME    NET-refusals
+SAME    POST-altprobe-noat
+SAME    POST-demoinfo-missing
+SAME    POST-dpstest
+SAME    POST-hostgame-loopback
+SAME    POST-mapcheck-missing
+SAME    POST-mapitems-missing
+SAME    POST-mapmaterials
+SAME    POST-mechanics
+SAME    POST-q3maps-missing
+SAME    POST-q3shaders-missing
+SAME    POST-rooms
+SAME    POST-simcheck
+SAME    SRV-hosts-loopback
+SAME    SRV-servers-loopback
+SAME    UI-tapcheck
+SAME    UI-uibench-refused
+SAME    UI-uibench-size-refused
+SAME    UI-uidesign
+
+45 same, 0 different
+-- flag literal index vs HEAD
+identical
+-- ctest
+        Start  26: FruityPrime.ModEntryOptions
+  1/121 Test  #26: FruityPrime.ModEntryOptions ....................   Passed    0.13 sec
+        Start  25: FruityPrime.ModEntryCommandLine
+  5/121 Test  #25: FruityPrime.ModEntryCommandLine ................   Passed    0.03 sec
+100% tests passed, 0 tests failed out of 121
+-- result cli=0 flags=0 ctest=0

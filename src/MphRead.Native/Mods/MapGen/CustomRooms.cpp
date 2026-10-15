@@ -1218,7 +1218,35 @@ namespace MphRead::Mods::MapGen
             std::int32_t ListVersion = 0;
             // StartGenerating asked while the job ran: it goes round again.
             bool Again = false;
+            // The job's thread, kept rather than detached: a process that
+            // returns from main while it runs destroys the statics it reads
+            // (Paths::_allPaths among them) under it, which was an access
+            // violation at exit on any command that finished in a few
+            // milliseconds. StopGenerating joins it before main returns; this
+            // destructor is the backstop for std::exit.
+            std::thread Worker;
+            std::atomic<bool> Stopping{false};
+
+            GenerationState() = default;
+            GenerationState(const GenerationState&) = delete;
+            GenerationState& operator=(const GenerationState&) = delete;
+            ~GenerationState()
+            {
+                Stopping.store(true);
+                if (Worker.joinable())
+                {
+                    Worker.join();
+                }
+            }
         };
+
+        // Serialises StartGenerating and StopGenerating, which replace and
+        // join Worker. The job itself never takes it.
+        std::mutex& StartLock()
+        {
+            static std::mutex lock;
+            return lock;
+        }
 
         // Matches about to load a map not built yet: the background job
         // leaves the build lock to them (EnsureReady).
@@ -1254,7 +1282,16 @@ namespace MphRead::Mods::MapGen
         {
             return;
         }
+        // Made before the state, so that they are destroyed after it -- and
+        // so after its destructor has joined the job that uses them.
+        (void)BuildLock();
+        (void)UrgentBuilds();
         GenerationState& state = Generation();
+        const std::lock_guard<std::mutex> start(StartLock());
+        if (state.Stopping.load())
+        {
+            return;
+        }
         {
             const std::lock_guard<std::mutex> guard(state.Lock);
             if (state.Progress.Running)
@@ -1264,7 +1301,13 @@ namespace MphRead::Mods::MapGen
             }
             state.Progress = GenerationProgress{0, 0, {}, true};
         }
-        std::thread([]()
+        // Running was false, so the previous job has left its loop: what is
+        // left of it ends in a moment.
+        if (state.Worker.joinable())
+        {
+            state.Worker.join();
+        }
+        state.Worker = std::thread([]()
         {
             // Nothing is fetched here: the server's maps come when the player
             // asks (the Download maps page) or when a server plays one this
@@ -1280,7 +1323,7 @@ namespace MphRead::Mods::MapGen
                 }
                 GenerationState& done = Generation();
                 const std::lock_guard<std::mutex> guard(done.Lock);
-                if (!done.Again)
+                if (!done.Again || done.Stopping.load())
                 {
                     done.Progress.Running = false;
                     done.Progress.Current.clear();
@@ -1288,7 +1331,26 @@ namespace MphRead::Mods::MapGen
                 }
                 done.Again = false;
             }
-        }).detach();
+        });
+    }
+
+    void CustomRooms::StopGenerating() noexcept
+    {
+        GenerationState& state = Generation();
+        state.Stopping.store(true);
+        std::thread worker;
+        {
+            const std::lock_guard<std::mutex> start(StartLock());
+            worker = std::move(state.Worker);
+        }
+        if (worker.joinable() && worker.get_id() != std::this_thread::get_id())
+        {
+            worker.join();
+        }
+        else if (worker.joinable())
+        {
+            worker.detach();
+        }
     }
 
     std::int32_t CustomRooms::TakeDownloaded()
@@ -1393,6 +1455,10 @@ namespace MphRead::Mods::MapGen
         std::vector<std::shared_ptr<MapDefinition>> missing;
         for (const std::shared_ptr<MapDefinition>& def : definitions)
         {
+            if (Generation().Stopping.load())
+            {
+                return;
+            }
             try
             {
                 if (NeedsGenerating(def.get()))
@@ -1414,6 +1480,10 @@ namespace MphRead::Mods::MapGen
 
         for (const std::shared_ptr<MapDefinition>& def : missing)
         {
+            if (Generation().Stopping.load())
+            {
+                return;
+            }
             {
                 GenerationState& state = Generation();
                 const std::lock_guard<std::mutex> guard(state.Lock);

@@ -1,0 +1,15 @@
+[raw-mouse] registered target=0000000000070E30 foreground relative motion
+[vulkan] GPU NVIDIA GeForce RTX 5070 Ti API 1.4
+[vulkan] full-screen exclusive unavailable
+[reflex probe] enabled=1 revision=3 presentId=1 reason=
+[vulkan] selected NVIDIA GeForce RTX 5070 Ti graphics=0 present=0 validation=1 swapchainMaintenance1=1 legacy=0
+[vulkan cache] native=1 initial-bytes=1483437
+[vulkan] upload arena PASS; 64 batched buffer/texture cycles; persistent page reuse; recorded copy order; RGB32Float (GPU packing into RGBA32Float); oversized page reuse/readback
+[memory admission] Vulkan PASS; heaps=2; source=2; budget=15966666752; usage=75612160; backing=67108864; denied resize/buffer=2; old native/image/view/extent/handle/pixels retained; pending=0
+[memory admission] Vulkan oversized buffer rejected before native requirements query
+[vulkan] retirement PASS; 64 clear/bind/resize/release cycles; failed resize retained; churn device-wide waits=0; completed=submitted; retired=0
+[vulkan] graphics pipelines PASS; main; composite; cel; shift; manifest layouts
+[vulkan] shader modules PASS; eight stages; entry point validation; release
+[vulkan] bindings allocation PASS; arrays; alignment; fresh sets; overflow pools; frame reuse; GPU bind submit
+[vulkan cache] cached-creations=12 uncached-creations=0 saved-bytes=1566083 create-ms=91.4298
+[vulkan] resources PASS; buffer upload/copy/readback; texture upload/readback/resize; transitions; live=0; validation=1; errors=0

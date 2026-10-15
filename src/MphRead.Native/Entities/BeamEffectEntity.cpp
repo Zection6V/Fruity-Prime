@@ -1,4 +1,5 @@
 #include "BeamEffectEntity.hpp"
+#include "../Mods/Render/EffectTint.hpp"
 
 #include "../Program.hpp"
 #include "../Scene.hpp"
@@ -153,16 +154,9 @@ namespace MphRead::Entities
                     effectId = 98;
                 }
             }
-            if (tint.has_value())
-            {
-                RequireReference(scene).SpawnTintedEffect(
-                    effectId, data.Transform, *tint, data.EntityCollision);
-            }
-            else
-            {
-                RequireReference(scene).SpawnEffect(
-                    effectId, data.Transform, false, data.EntityCollision);
-            }
+            // Mod: dispatch optional presentation without changing the beam model path.
+            Mods::Render::EffectTint::Spawn(RequireReference(scene), effectId,
+                data.Transform, tint, data.EntityCollision);
             return nullptr;
         }
         return RequireReference(scene).InitBeamEffect(data);

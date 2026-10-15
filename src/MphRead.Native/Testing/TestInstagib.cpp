@@ -5,6 +5,13 @@
 #include "../Mods/Network/Domain/MatchDefinition.hpp"
 #include "../Mods/Network/Protocol/Packets/SessionPackets.hpp"
 #include "../Mods/Render/InstagibRails.hpp"
+#include "../Mods/Render/InstagibEffects.hpp"
+#include "../Mods/Render/EffectTint.hpp"
+#include "../Mods/Combat/InstagibRules.hpp"
+#include "../Mods/Launcher/Portable/LaunchPlan.hpp"
+#include "../Mods/Launcher/Portable/MatchStart.hpp"
+#include "../Formats/Effects.hpp"
+#include "../GameState.hpp"
 
 #include <cmath>
 #include <iostream>
@@ -31,6 +38,13 @@ int main()
 {
     using namespace MphRead::Mods::Network;
     using MphRead::Mods::Render::InstagibRails;
+    using MphRead::Mods::Render::InstagibEffects;
+    using MphRead::Mods::Render::EffectTint;
+    using MphRead::Mods::Combat::InstagibRules;
+    using MphRead::GameState;
+    using MphRead::GameMode;
+    using MphRead::BeamType;
+    using OpenTK::Mathematics::Vector3;
     bool ok = true;
 
     MatchDefinition match{};
@@ -80,6 +94,80 @@ int main()
     ok &= Check(gone.SpiralRadius > fired.SpiralRadius, "the spiral opens up as it goes");
     ok &= Check(InstagibRails::LookAt(-3.0F).Core <= 1.0001F && InstagibRails::LookAt(7.0F).Core < 0.001F,
         "an age outside the life is clamped");
+
+    // The same rule gates damage, pickup visibility/interaction and bot AI.
+    GameState::Mode(GameMode::Battle);
+    GameState::Instagib(false);
+    std::int32_t damage = 45, headshot = 200, splash = 17;
+    InstagibRules::ApplyDamage(BeamType::Imperialist, damage, headshot, splash);
+    ok &= Check(damage == 45 && headshot == 200 && splash == 17
+        && InstagibRules::PickupsAllowed()
+        && InstagibRules::AiWeapon(BeamType::PowerBeam) == BeamType::PowerBeam
+        && !InstagibRules::DirectDamage(BeamType::Imperialist),
+        "normal matches retain damage, pickups and AI weapon choice");
+    GameState::Instagib(true);
+    InstagibRules::ApplyDamage(BeamType::Imperialist, damage, headshot, splash);
+    ok &= Check(damage == 9999 && headshot == 9999 && splash == 0
+        && !InstagibRules::PickupsAllowed()
+        && InstagibRules::AiWeapon(BeamType::PowerBeam) == BeamType::Imperialist
+        && InstagibRules::DirectDamage(BeamType::Imperialist) == damage,
+        "instagib applies lethal rails, no pickups and the bot firing weapon together");
+    damage = 45; headshot = 200; splash = 17;
+    InstagibRules::ApplyDamage(BeamType::PowerBeam, damage, headshot, splash);
+    ok &= Check(damage == 45 && headshot == 200 && splash == 17,
+        "non-Imperialist weapons keep their damage");
+    ok &= Check(!InstagibRules::SuppressPickupTarget(33)
+        && InstagibRules::SuppressPickupTarget(34)
+        && InstagibRules::SuppressPickupTarget(73)
+        && !InstagibRules::SuppressPickupTarget(74),
+        "only the AI pickup/spawn reference range is suppressed");
+    GameState::Mode(GameMode::SinglePlayer);
+    InstagibRules::ApplyDamage(BeamType::Imperialist, damage, headshot, splash);
+    ok &= Check(!InstagibRules::Active() && InstagibRules::PickupsAllowed()
+        && !InstagibRules::SuppressPickupTarget(34)
+        && damage == 45 && headshot == 200 && splash == 17,
+        "story ignores a previously enabled multiplayer rule");
+
+    // Both desktop and Android use this transition; a plain offline match
+    // must clear the rule left by a previous online/Instagib match.
+    using namespace MphRead::Mods::Launcher;
+    LaunchPlan::Init offline{};
+    offline.Kind = LaunchKind::Offline;
+    MatchStart::ApplyLocalRules(LaunchPlan(offline));
+    ok &= Check(!GameState::Instagib(), "plain offline launch clears the previous rule");
+    offline.Instagib = true;
+    MatchStart::ApplyLocalRules(LaunchPlan(offline));
+    ok &= Check(GameState::Instagib(), "offline launch carries its requested rule");
+    offline.Kind = LaunchKind::Online;
+    offline.Instagib = false;
+    MatchStart::ApplyLocalRules(LaunchPlan(offline));
+    ok &= Check(GameState::Instagib(), "online launch leaves rule selection to server sync");
+
+    // Pool data can be absent, entry-owned or element-owned. The effective
+    // tint is also what child effects inherit, including muzzle flash debris.
+    MphRead::Effects::EffectParticle particle;
+    const Vector3 authored(0.2F, 0.8F, 0.4F);
+    ok &= Check(Distance(EffectTint::ParticleColor(particle, authored), authored) < 1.0e-6F,
+        "an unowned particle keeps its authored colour");
+    particle.Owner = std::make_shared<MphRead::Effects::EffectElementEntry>();
+    particle.Owner->EffectEntry = std::make_shared<MphRead::Effects::EffectEntry>();
+    ok &= Check(!EffectTint::ForElement(*particle.Owner), "new pool entries carry no tint");
+    particle.Owner->EffectEntry->ModTint = Vector3(1, 0, 0);
+    ok &= Check(Distance(EffectTint::ParticleColor(particle, authored), Vector3(0.8F, 0, 0)) < 1.0e-6F
+        && EffectTint::ForElement(*particle.Owner)->X == 1.0F,
+        "entry tint preserves brightness and propagates to child effects");
+    particle.Owner->ModTint = Vector3(0, 1, 0);
+    ok &= Check(Distance(EffectTint::ParticleColor(particle, authored), Vector3(0, 0.8F, 0)) < 1.0e-6F,
+        "element tint takes precedence over entry tint");
+    auto muzzle = particle.Owner->EffectEntry;
+    GameState::Mode(GameMode::Battle);
+    InstagibEffects::TintMuzzle(muzzle, BeamType::Imperialist, 1);
+    ok &= Check(muzzle->ModTint && Distance(*muzzle->ModTint, InstagibRails::ColorForSlot(1)) < 1.0e-6F,
+        "Imperialist muzzle uses its shooter slot colour");
+    GameState::Instagib(false);
+    InstagibEffects::TintMuzzle(muzzle, BeamType::Imperialist, 1);
+    ok &= Check(!muzzle->ModTint && !InstagibEffects::Tint(BeamType::Imperialist, nullptr),
+        "normal muzzle and ownerless shots do not inherit the previous tint");
 
     std::cout << (ok ? "ALL PASS" : "FAILED") << '\n';
     return ok ? 0 : 1;

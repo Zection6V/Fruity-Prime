@@ -1,0 +1,21 @@
+OK   Mods/ModEntry.cpp
+OK   Mods/Entry/CommandLine.cpp
+OK   Mods/Entry/GameChecks.cpp  (3 diagnostic(s) in this file)
+     Mods/Entry/GameChecks.cpp:226:63: warning: ignoring return value of 'bool MphRead::NativeRuntime::Int32TryParseCurrentCulture(std::string_view, int32_t&)', declared with attribute 'nodiscard' [-Wunused-result]
+     Mods/Entry/GameChecks.cpp:234:59: warning: ignoring return value of 'bool MphRead::NativeRuntime::Int32TryParseCurrentCulture(std::string_view, int32_t&)', declared with attribute 'nodiscard' [-Wunused-result]
+     Mods/Entry/GameChecks.cpp:235:59: warning: ignoring return value of 'bool MphRead::NativeRuntime::Int32TryParseCurrentCulture(std::string_view, int32_t&)', declared with attribute 'nodiscard' [-Wunused-result]
+OK   Mods/Entry/LaunchPath.cpp
+OK   Mods/Entry/MapCommands.cpp
+OK   Mods/Entry/NetworkCommands.cpp
+OK   Mods/Entry/NetworkOptions.cpp
+OK   Mods/Entry/OptionValues.cpp
+OK   Mods/Entry/PreSetupDiagnostics.cpp
+OK   Mods/Entry/RenderOverrides.cpp
+OK   Mods/Entry/ServerCommands.cpp  (1 diagnostic(s) in this file)
+     Mods/Entry/ServerCommands.cpp:384:44: warning: ignoring return value of 'bool MphRead::Mods::Network::MasterServer::SetPublicAddress(const std::string&)', declared with attribute 'nodiscard' [-Wunused-result]
+OK   Mods/Entry/UiCommands.cpp
+OK   Testing/TestModEntryCommandLine.cpp
+OK   Testing/TestModEntryOptions.cpp
+OK   Testing/TestModEntryValues.cpp
+
+15/15 compiled with g++ (Rev4, Built by MSYS2 project) 16.2.0

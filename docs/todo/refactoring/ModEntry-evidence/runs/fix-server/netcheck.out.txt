@@ -1,0 +1,234 @@
+[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-203403-15472-native.txt
+[netcheck] NC runs headless: no window, no GPU
+[net] joining 127.0.0.1:27992 as "NC"
+[net] joined as slot 0
+[net] server map: TEST ARENA (Battle, 420 s left)
+[net] connected in InMatch, slot 0
+[netcheck] NC joined slot 0, loading TEST ARENA (Battle)
+[net] slot 0 (Samus) wears suit 1
+[net] slot 3 (Kanden) wears suit 1
+[net] player slots built, main player = slot 0
+[net] player slots prepared -- local slot 0, 2 active, AI only where NetBotRoles puts it
+[net] match clock synced to server: 420 s remaining on TEST ARENA
+[net] slot 0 activated (Player1) -- 2 player(s) in scene
+[net] slot 3 activated (Bot Kanden) -- 2 player(s) in scene
+  ran 480 frame(s) in 8.2 s -- 58.6 fps
+
+=== NC: what this client saw ===
+  slot 0, authority=False, frames=480
+weapon attempted spawned localHits authorityHits predictions claims rescues refusals predictedDamage authorityDamage localHeadshots authorityHeadshots meanRewind clamp%
+Missile 5 5 0 0 0 0 0 0 0 0 0 0 0.00 0.0
+
+positions: snapshots=470 fallback entries=0 frames=0 longest=0; timing ms: snapshot=15.4 worst=31.6 simulation=15.7 worst=31.7; playout snaps: after local stall=0 without local stall=0
+  lag compensation: on, nothing to compensate (history misses 0, 0 human shots not rewound: their hits are the shooter's claims)
+  rewind depths asked: none
+  hit prediction: on, nothing predicted here (0 hits arrived from the authority)
+  headshots: none predicted here
+  health bars: 940 sample(s); debit mean 0.00 worst 0; floor held 0 (0 point(s), worst 0), lifted 0; disagreed with nothing outstanding 0 -- drawn low by 0 point(s) (worst 0), high by 0 (worst 0)
+  damage ledger: nothing predicted onto anybody
+  hit prediction by weapon: nothing predicted here
+  pickup claims: 0 declared, 0 unanswered
+  power-up pickups: 0 predicted, 0 granted, 0 refused (0 taken back)
+  power-ups: 0 granted here (0 ended early), copies started 1, retimed 0, resumed 0, ended 0
+  intents sent: 480, 103 bytes each on average
+  shot events (received): 5 received -- 5 fired (0 after a newer one), 0 stale, 0 pushed out, 0 abandoned with a life, 0 ineligible, 0 waiting (0 overdue); 0 skipped by a newer one -- 0 recovered late, 0 never arrived, 0 still awaited; ledger: 0 older shots refused, 0 contradicting a kept shot
+  netcheck-shots NC from Bot Kanden received 5 fired 5 stale 0 pushed 0 abandoned 0 waiting 0 overdue 0 gaps 0 recovered 0 lost 0 pending 0 late 0
+  puppet smoothing: on, 2 frames of buffer, 931 interpolated / 4 held, 0 starved, 0 clock snaps; steps mean 0.0434 units, worst 0.281, 57.9% of frames still (longest run 149)
+  room: TEST ARENA (server says TEST ARENA), 0 rotation(s) followed
+  packets: snapshots sent=0 received=470 late=0 restreams=1 intents received=470 intents late=0 states applied=960 dropped=0
+  chat: sent=1 received=1
+  pings: slot 0 16 ms  slot 3 0 ms
+  slot 0 NC         Samus    active=y spawned=y hp=0    pos=(5.2,0.5,8.9)
+  slot 3 Bot Kanden Kanden   active=y spawned=y hp=99   pos=(4.7,0.5,4.9)
+  my player: Samus, alt form on 0 frame(s) (authority alt 0/392, disagree 0)
+  my player: spawned on frame 11, lowest health 0, died 1 time(s), took a hit 1 time(s)
+  HUD damage indicator lit on 0 frame(s)
+  slot 3 (Bot Kanden) as I saw them: Kanden, active 480 frame(s), spawned 470, first on frame 11, in alt form for 127 (authority said alt form on 126, replica out of play during authority alt 0, active form disagreement 5)
+    moved 40.6 units over 352 distinct position(s); I saw them hit 0 time(s), killed 0 time(s), lowest health 99
+  script: 355 frame(s) with somebody in its sights, phase now Walk
+
+  feature coverage (mine = what my player did, theirs = what I saw of them)
+  netcheck-hunter NC Samus
+  netcheck-needed spawn 30 single
+  netcheck-parity spawn 0.01 30
+  netcheck-needed movement 5 single
+  netcheck-parity movement 0.03 1
+  netcheck-needed jump 1.5 single
+  netcheck-parity jump 0.05 0.2
+  netcheck-needed facing 180 single
+  netcheck-needed shooting 10 single
+  netcheck-parity shooting 0.12 10
+  netcheck-needed shots 10 single
+  netcheck-parity shots 0 2
+  netcheck-needed shot-events 10 single
+  netcheck-parity shot-events 0 2
+  netcheck-needed weapon-switch 2 pairwise
+  netcheck-needed alt-attack 3 pairwise
+  netcheck-needed alt-form 30 single
+  netcheck-needed alt-form-total 30 single
+  netcheck-parity alt-form-total 0.03 15
+  netcheck-needed unmorph 30 single
+  netcheck-needed bombs 5 single
+  netcheck-parity bombs 0.12 15
+  netcheck-needed bombs-laid 3 single
+  netcheck-parity bombs-laid 0 2
+  netcheck-needed halfturret 5 single
+  netcheck-parity halfturret 0.03 15
+  netcheck-na NC halfturret
+  netcheck-needed zoom 10 single
+  netcheck-parity zoom 0.03 10
+  netcheck-needed double-damage 10 single
+  netcheck-parity double-damage 0.03 10
+  netcheck-needed damage-taken 1 single
+  netcheck-parity damage-taken 0 1
+  netcheck-needed hit-in-alt-form 2 pairwise
+  netcheck-needed deaths 1 pairwise
+  netcheck NC mine NC spawn 392
+  netcheck NC mine NC movement 13.27
+  netcheck NC mine NC jump 0.6
+  netcheck NC mine NC facing 499.48
+  netcheck NC mine NC shooting 0
+  netcheck NC mine NC shots 0
+  netcheck NC mine NC shot-events 0
+  netcheck NC mine NC weapon-switch 0
+  netcheck NC mine NC alt-attack 0
+  netcheck NC mine NC alt-form 0
+  netcheck NC mine NC alt-form-total 0
+  netcheck NC mine NC unmorph 0
+  netcheck NC mine NC bombs 0
+  netcheck NC mine NC bombs-laid 0
+  netcheck NC mine NC halfturret 0
+  netcheck NC mine NC zoom 0
+  netcheck NC mine NC frozen 0
+  netcheck NC mine NC disrupted 0
+  netcheck NC mine NC burning 0
+  netcheck NC mine NC spectating 0
+  netcheck NC mine NC double-damage 0
+  netcheck NC mine NC damage-taken 1
+  netcheck NC mine NC health-rises 0
+  netcheck NC mine NC hit-in-alt-form 0
+  netcheck NC mine NC deaths 0
+  netcheck NC mine NC teleports 0
+  netcheck-freeze NC mine slot=0 applied-frames=0 applied-episodes=0 applied-complete=0 applied-min=0 applied-max=0 applied-local-complete=0 applied-local-min=0 applied-local-max=0 applied-remaining=0 applied-start-frame=0 applied-thaw-frame=0 applied-authority-start-frame=0 applied-authority-thaw-frame=0 applied-open=0 applied-interrupted=0 authority-snapshots=445 authority-episodes=0 authority-thaws=0 authority-min=0 authority-max=0 authority-frozen-samples=0 authority-remaining-delta-max=0 authority-frozen-excluded=0 authority-remaining-delta-max-excluded=0 authority-start-frame=0 authority-thaw-frame=0 authority-interrupted=0 authority-open=0 generation-max=1 occupant-changes=0 authority-frame=1179 authority-remaining=0
+  netcheck-freeze NC Bot Kanden slot=3 applied-frames=0 applied-episodes=0 applied-complete=0 applied-min=0 applied-max=0 applied-local-complete=0 applied-local-min=0 applied-local-max=0 applied-remaining=0 applied-start-frame=0 applied-thaw-frame=0 applied-authority-start-frame=0 applied-authority-thaw-frame=0 applied-open=0 applied-interrupted=0 authority-snapshots=445 authority-episodes=0 authority-thaws=0 authority-min=0 authority-max=0 authority-frozen-samples=0 authority-remaining-delta-max=0 authority-frozen-excluded=0 authority-remaining-delta-max-excluded=0 authority-start-frame=0 authority-thaw-frame=0 authority-interrupted=0 authority-open=0 generation-max=1 occupant-changes=0 authority-frame=1215 authority-remaining=0
+    --- as I saw Bot Kanden (slot 3, Kanden) ---
+  netcheck NC saw Bot Kanden spawn 470
+  netcheck NC saw Bot Kanden movement 40.59
+  netcheck NC saw Bot Kanden jump 0.85
+  netcheck NC saw Bot Kanden facing 3415.19
+  netcheck NC saw Bot Kanden shooting 212
+  netcheck NC saw Bot Kanden shots 5
+  netcheck NC saw Bot Kanden shot-events 5
+  netcheck NC saw Bot Kanden weapon-switch 1
+  netcheck NC saw Bot Kanden alt-attack 3
+  netcheck NC saw Bot Kanden alt-form 0
+  netcheck NC saw Bot Kanden alt-form-total 127
+  netcheck NC saw Bot Kanden unmorph 0
+  netcheck NC saw Bot Kanden bombs 91
+  netcheck NC saw Bot Kanden bombs-laid 3
+  netcheck NC saw Bot Kanden halfturret 0
+  netcheck NC saw Bot Kanden zoom 0
+  netcheck NC saw Bot Kanden frozen 0
+  netcheck NC saw Bot Kanden disrupted 0
+  netcheck NC saw Bot Kanden burning 0
+  netcheck NC saw Bot Kanden spectating 0
+  netcheck NC saw Bot Kanden double-damage 327
+  netcheck NC saw Bot Kanden damage-taken 0
+  netcheck NC saw Bot Kanden health-rises 0
+  netcheck NC saw Bot Kanden hit-in-alt-form 0
+  netcheck NC saw Bot Kanden deaths 0
+  netcheck NC saw Bot Kanden teleports 0
+  netcheck-bomb-position NC Bot Kanden samples=92 mean=0 max=0
+  netcheck-form-animation NC Bot Kanden samples=75 direction-mismatches=0 mean-progress-error=0 max-progress-error=0
+  netcheck NC mine-with Bot Kanden spawn 392
+  netcheck NC saw-with Bot Kanden spawn 470
+  netcheck NC mine-with Bot Kanden movement 13.27
+  netcheck NC saw-with Bot Kanden movement 40.59
+  netcheck NC mine-with Bot Kanden jump 0.6
+  netcheck NC saw-with Bot Kanden jump 0.85
+  netcheck NC mine-with Bot Kanden facing 499.48
+  netcheck NC saw-with Bot Kanden facing 3415.19
+  netcheck NC mine-with Bot Kanden shooting 0
+  netcheck NC saw-with Bot Kanden shooting 212
+  netcheck NC mine-with Bot Kanden shots 0
+  netcheck NC saw-with Bot Kanden shots 5
+  netcheck NC mine-with Bot Kanden shot-events 0
+  netcheck NC saw-with Bot Kanden shot-events 5
+  netcheck NC mine-with Bot Kanden weapon-switch 0
+  netcheck NC saw-with Bot Kanden weapon-switch 1
+  netcheck NC mine-with Bot Kanden alt-attack 0
+  netcheck NC saw-with Bot Kanden alt-attack 3
+  netcheck NC mine-with Bot Kanden alt-form 0
+  netcheck NC saw-with Bot Kanden alt-form 0
+  netcheck NC mine-with Bot Kanden alt-form-total 0
+  netcheck NC saw-with Bot Kanden alt-form-total 127
+  netcheck NC mine-with Bot Kanden unmorph 0
+  netcheck NC saw-with Bot Kanden unmorph 0
+  netcheck NC mine-with Bot Kanden bombs 0
+  netcheck NC saw-with Bot Kanden bombs 91
+  netcheck NC mine-with Bot Kanden bombs-laid 0
+  netcheck NC saw-with Bot Kanden bombs-laid 3
+  netcheck NC mine-with Bot Kanden halfturret 0
+  netcheck NC saw-with Bot Kanden halfturret 0
+  netcheck NC mine-with Bot Kanden zoom 0
+  netcheck NC saw-with Bot Kanden zoom 0
+  netcheck NC mine-with Bot Kanden frozen 0
+  netcheck NC saw-with Bot Kanden frozen 0
+  netcheck NC mine-with Bot Kanden disrupted 0
+  netcheck NC saw-with Bot Kanden disrupted 0
+  netcheck NC mine-with Bot Kanden burning 0
+  netcheck NC saw-with Bot Kanden burning 0
+  netcheck NC mine-with Bot Kanden spectating 0
+  netcheck NC saw-with Bot Kanden spectating 0
+  netcheck NC mine-with Bot Kanden double-damage 0
+  netcheck NC saw-with Bot Kanden double-damage 327
+  netcheck NC mine-with Bot Kanden damage-taken 1
+  netcheck NC saw-with Bot Kanden damage-taken 0
+  netcheck NC mine-with Bot Kanden health-rises 0
+  netcheck NC saw-with Bot Kanden health-rises 0
+  netcheck NC mine-with Bot Kanden hit-in-alt-form 0
+  netcheck NC saw-with Bot Kanden hit-in-alt-form 0
+  netcheck NC mine-with Bot Kanden deaths 0
+  netcheck NC saw-with Bot Kanden deaths 0
+  netcheck NC mine-with Bot Kanden teleports 0
+  netcheck NC saw-with Bot Kanden teleports 0
+    spawn            mine     392 frames      theirs     470 frames      ok
+    movement         mine      13 units       theirs      41 units       ok
+    jump             mine       1 units       theirs       1 units       untested
+    facing           mine     499 deg         theirs    3415 deg         ok
+    shooting         mine       0 beam-frames theirs     212 beam-frames untested
+    shots            mine       0 shots       theirs       5 shots       untested
+    shot-events      mine       0 events      theirs       5 events      untested
+    weapon-switch    mine       0 changes     theirs       1 changes     untested
+    alt-attack       mine       0 presses     theirs       3 presses     ok
+    alt-form         mine       0 frames      theirs       0 frames      untested
+    alt-form-total   mine       0 frames      theirs     127 frames      untested
+    unmorph          mine       0 frames      theirs       0 frames      untested
+    bombs            mine       0 frames      theirs      91 frames      untested
+    bombs-laid       mine       0 bombs       theirs       3 bombs       untested
+    halfturret       mine       0 frames      theirs       0 frames      n/a
+    zoom             mine       0 frames      theirs       0 frames      untested
+    double-damage    mine       0 frames      theirs     327 frames      untested
+    damage-taken     mine       1 hits        theirs       0 hits        unconfirmed
+    hit-in-alt-form  mine       0 hits        theirs       0 hits        untested
+    deaths           mine       0 deaths      theirs       0 deaths      untested
+    Bot Kanden: 0 teleport(s), worst jump 0.0 units
+    Bot Kanden: form disagreed on 0 frame(s) (longest run 0), worst position gap 0.32 units
+    scoreboard: 2 row(s), 69 px tall (fits)
+    items: 4 on the map now, 3.7 on average, 4 taken or expired
+    scoreboard as I see it: [0] NC 0k/1d/0p [3] Bot Kanden 1k/0d/1p
+    phases seen: Idle=288 Walk=192
+    damage pipeline (resolved here / replayed here): [0] 0/3 [3] 0/0
+    shots spawned here (per slot): [0] 0(drift 0.0/0.0 deg) [3] 5(drift 0.2/0.2 deg)
+    player collision checks: [0] 167/0/0 [3] 167/0/0
+    confirmed impacts (hold 6 frames): 0 shots in the air brought in (turned 0.0 deg on average, at most 0.0), 0 brought in from the moment they appeared, 0 drawn on the spot (shot gone or never drawn), 0 already seen as the blast that reached them, 0 Shock Coil ticks aiming its beam, 0 older events drawn at the chest, 0 unconfirmed shots let through, 0 of them on other players (observed), 3 not applicable (continuous beam, own or unknown shooter)
+    hits taken that were seen landing: 0 of 3 (remote aims turned onto this player on 35 frames, 0 shots in flight steered onto it)
+    seen landing by weapon: other 0/3
+    player overlaps by shooter:
+    authority for 0 frame(s) of 482
+    remote position snaps: 0 (worst 0.0 units) -- these are the visible teleports
+    node lookups unresolved: 941 -- these players are drawn uncalled
+    own respawn: 0 self-kill(s) predicted, 0 spawn facing(s) turned (worst 0.0 deg), 0 stale death(s) ignored
+    note: nobody killed themselves, so the early respawn -- and everything that only goes wrong there -- went untested
+
+  RESULT: PASS

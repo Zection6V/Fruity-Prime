@@ -820,12 +820,34 @@ namespace MphRead::Mods::Network
                 IncrementInPlace(record.HalfturretFrames);
             }
 
+            if (record.LastHealth > 0 && player.Health() > record.LastHealth)
+            {
+                IncrementInPlace(record.HealthRises);
+            }
+            if (ObservedDamage(record.LastHealth, player.Health()))
+            {
+                IncrementInPlace(record.DamageEvents);
+                if (player.IsAltForm())
+                {
+                    IncrementInPlace(record.DamageInAltForm);
+                }
+            }
+            if (record.WasAlive && player.Health() == 0)
+            {
+                IncrementInPlace(record.Deaths);
+            }
+
             // PlayerStateSnapshotCapture publishes Spawned from ModIsInPlay,
             // which also requires positive health. Keep parity counters on
             // the same alive interval; LoadFlags::Spawned can persist through
             // the death animation and count a corpse's stale form as active.
             if (!inPlay)
             {
+                // Health transitions are sampled before the alive-only parity
+                // counters, including the frame on which an Instagib hit kills.
+                record.LastHealth = player.Health();
+                record.WasAlive = player.Health() > 0;
+                record.FramesSinceRespawn = 0;
                 continue;
             }
 
@@ -966,24 +988,6 @@ namespace MphRead::Mods::Network
                 }
                 record.LastWeapon = player.CurrentWeapon();
             }
-            if (record.LastHealth > 0 && player.Health() > record.LastHealth)
-            {
-                IncrementInPlace(record.HealthRises);
-            }
-            if (record.LastHealth > 0 && player.Health() > 0
-                && player.Health() < record.LastHealth)
-            {
-                IncrementInPlace(record.DamageEvents);
-                if (player.IsAltForm())
-                {
-                    IncrementInPlace(record.DamageInAltForm);
-                }
-            }
-            if (record.WasAlive && player.Health() == 0)
-            {
-                IncrementInPlace(record.Deaths);
-            }
-
             const std::int32_t jumpPads = Mods::WorldEvents::JumpPadsFor(slot);
             const std::int32_t teleports = Mods::WorldEvents::TeleportsFor(slot);
             const std::int32_t worldEvents = UncheckedAdd(jumpPads, teleports);

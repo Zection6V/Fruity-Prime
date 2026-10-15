@@ -18,6 +18,7 @@
 
 #include "Mods/Network/Gameplay/Combat/NetDamage.hpp"
 #include "Mods/Combat/SyluxMuzzleGuard.hpp"
+#include "Mods/Combat/InstagibRules.hpp"
 #include "Mods/Multiplayer/TeamLayout.hpp"
 #include "Mods/Network/Gameplay/Combat/NetHitPrediction.hpp"
 #include "Mods/Network/Session/NetLifecycleTracker.hpp"
@@ -870,6 +871,10 @@ namespace MphRead::Mods::Network
                 std::max<std::int32_t>(info.ChargedDamage,
                 std::max<std::int32_t>(info.UnchargedDamage,
                 std::max<std::int32_t>(info.MinChargeDamage, info.ChargedSplashDamage))))));
+            if (const auto override = Combat::InstagibRules::DirectDamage(static_cast<BeamType>(beam)))
+            {
+                raw = std::max(raw, *override);
+            }
         }
         return static_cast<std::int32_t>(static_cast<float>(raw) * 5.0F) + 1;
     }
@@ -1371,6 +1376,13 @@ namespace MphRead::Mods::Network
         profile.Direct = { weapon->UnchargedDamage, weapon->MinChargeDamage, weapon->ChargedDamage };
         profile.Splash = { weapon->SplashDamage, weapon->MinChargeSplashDamage, weapon->ChargedSplashDamage };
         profile.Headshot = { weapon->HeadshotDamage, weapon->MinChargeHeadshotDamage, weapon->ChargedHeadshotDamage };
+        if (const auto override = Combat::InstagibRules::DirectDamage(static_cast<BeamType>(entry.Beam)))
+        {
+            profile.Direct = profile.Headshot = { *override, *override, *override };
+            profile.Splash = {};
+            // The projectile override is applied after the Prime Hunter bonus.
+            profile.PrimeHunter = false;
+        }
         profile.CanCharge = ::MphRead::TestFlag(weapon->Flags, ::MphRead::WeaponFlags::CanCharge);
         profile.PartialCharge = ::MphRead::TestFlag(weapon->Flags, ::MphRead::WeaponFlags::PartialCharge);
         profile.MinCharge = weapon->MinCharge;

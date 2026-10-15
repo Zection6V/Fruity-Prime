@@ -1,0 +1,3 @@
+[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-172636-35744-native.txt
+[thumbnails] ignoring -size 960,540 (expected e.g. 1920x1440)
+-shotat needs -at X,Y,Z -look X,Y,Z -out FILE.png

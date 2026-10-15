@@ -1,0 +1,85 @@
+order	phase	command	value	runs after	output	exit code	game files	compile condition	side effects / notes	baseline case
+01	pre-setup	(always) ApplyRenderOverrides #1	-	ConsoleSetup, ConsoleWindow::Prepare	[render] scene backend requested	-	no	-	render/frame-timing/HUD/radar statics; rhi request	D11
+02	pre-setup	(always) WindowMode::Startup #1	exclusivefullscreen > fullscreen|borderless > windowed	01	-	-	no	-	window start mode	-
+03	pre-setup	-rhicontract	FILE (launch-dir relative)	02	writes FILE	0 / 1 on write failure or exception	no	-	file write	D01 D01b D01c
+04	pre-setup	-vulkancheck	-	03	check log	Run()	no	-	Vulkan device	manual (GPU)
+05	pre-setup	-backdropparity	DIR [-backdropobserve]	04	check log	Run()	no	-	files in DIR	manual (GPU)
+06	pre-setup	-presentconformance	-	05	check log	Run()	no	-	visible window	manual (GPU)
+07	pre-setup	-rhiconformance	-	06	check log	Run()	no	-	GPU	manual (GPU)
+08	pre-setup	-reflexcheck	-	07	check log	Run()	no	-	GPU window	manual (GPU)
+09	pre-setup	-vulkanpresentcheck	-	08	check log	Run()	no	-	GPU window	manual (GPU)
+10	pre-setup	-vulkanresourcecheck	-	09	check log	Run()	no	-	GPU	manual (GPU)
+11	pre-setup	-vulkanpresentfallbackcheck	-	10	check log	Run()	no	-	GPU window	manual (GPU)
+12	pre-setup	-glfwpathcheck	-	11	check log	Run()	no	MPHREAD_SHELL	window	manual (GPU)
+13	pre-setup	-thumbnailwindowcheck	[-legacyglcheck]	12	check log	Run()	no	MPHREAD_SHELL	window	manual (GPU)
+14	pre-setup	-windowcheck	-	13	check log	Run()	no	MPHREAD_SHELL	window; restores prefs	manual (GPU)
+15	pre-setup	-smoketest	-	14 (before InputSettings/DebugLog)	smoke log	Run()	no	-	loads prefs itself	D02 D01b
+16	pre-setup	(always) InputSettings::Load, -nativeaim	touch|dual|nonexact-touch|nonexact-dual	15	ProgramException text via CrashReport	1 (Program::Main catch)	no	-	controls in memory	D12
+17	pre-setup	(always) LauncherPrefs::Load, -debuglog, DebugLog::Attach, macOS diagnostics	-	16	[debug] line	-	no	macOS for PlatformDiagnostics	log file	all
+18	pre-setup	(always) Updater::Disabled(-noupdate), ApplyRenderOverrides #2	-	17	[render] line again	-	no	-	same statics again	D11
+19	pre-setup	-pointercheck	-	18	check log	Run()	no	-	-	D03
+20	pre-setup	(always) aim assist debug/baseline/telemetry	-gamepadassisttelemetry FILE	19	-	-	no	-	telemetry file	-
+21	pre-setup	-gamepadcheck	[-shots DIR]	20	check log	Run()	no	-	-	manual (pad)
+22	pre-setup	-gamepad	[-seconds N current culture, default 15] [-verbose]	21	probe log	Run()	no	-	GLFW	D16
+23	pre-setup	-frametimingcheck	-	22	check log	Run()	no	-	-	D03 D04
+24	pre-setup	DesktopUpdate::ApplyFlag	DIR PID [... RelaunchSeparator ARGS]	23	update log	Apply()	no	-	replaces installation; relaunch	manual (never in CI)
+25	pre-setup	(always) DesktopUpdate::Clean unless spireposecheck|dialanchecheck|dialanchepeercheck|formcheck; UseDesktopIfPossible	-	24	-	-	no	-	deletes leftovers	-
+26	pre-setup	-netlag / -netspike / -netloss / netjitter,netseed,netreorder,netduplicate	VALUE	25	[net] refusal, return true	not set (0)	no	-	NetLag statics	D13*
+27	pre-setup	(always) bad-line line, homingtrace .. relayedpuppets (27 options, fixed order)	see §3.1	26	[net]/[hud] lines	-	no	-	network statics; relayedpuppets also disables NetSmoothing	NET-all-options NET-refusals D10
+28	pre-setup	-credits	-	27	credits	not set (0)	no	-	-	D05 A12 NET-*
+29	pre-setup	(always) -mapdir	DIR (launch-dir relative)	28	-	-	no	-	CustomRooms::MapDirectory	D06 D19a
+30	pre-setup	-goldencapture	SPEC [-goldendir DIR]	29	capture log	Run()	no	MPHREAD_SHELL	files	manual (GPU)
+31	pre-setup	-mapbundle	[NAME|all] [-out PATH]	30	bundle log	0 / 1 if any failed	no	-	writes .fpmap	D06
+32	pre-setup	-update	-	31	[update] lines	not set	no	-	Updater::Disabled(false); network; opens browser	skipped (external)
+33	pre-setup	-uishot	DIR	32	capture log	Run()	no	MPHREAD_QT && !ANDROID else message+1	files	manual (GPU)
+34	pre-setup	-uibench	[-uibenchshot DIR] [-uibench CSV]; refuses legacy CPU options	33	[uibench]	1 when refused	no	MPHREAD_QT && !ANDROID	files	UI-uibench-*
+35	pre-setup	-uidesign	DIR	34	retired message	1	no	-	-	UI-uidesign
+36	pre-setup	-classicframes	DIR [SCRIPT = token at IndexOfFlag+2]	35	frames log	RunFrames()	no	-	files in DIR	D15
+37	pre-setup	-shellshot	DIR	36	capture log	0/1	no	MPHREAD_SHELL	launcher window	manual (GPU)
+38	pre-setup	-tapcheck	-	37	check log	Run()	no	MPHREAD_QT && !ANDROID	-	UI-tapcheck
+39	pre-setup	(always) WindowMode::Startup #2	as 02	38	-	-	no	-	window start mode	-
+40	pre-setup	-launcher / bare start on Windows+macOS (not -menu); -text	-	39	launcher	not set	no	MPHREAD_SHELL for GUI	launcher	manual (GUI)
+41	pre-setup	bare start of a MPHREAD_SERVER build	-	40	ServerUsage	not set	no	MPHREAD_SERVER (never defined by the C++ CMake: dead in every current target)	-	n/a
+42	pre-setup	(server/master) ServerUpdate::Enabled(!-noautoupdate), AtStartup(OS command line)	-	41	[update]	-	no	-	may install and restart	ME-06 loopback (local build stands down)
+43	pre-setup	-masterserver	-port|-masterport, -hostports, -public|-publicaddress	42	[master]	not set	no	-	binds UDP; runs until signal	ME-06 loopback
+44	pre-setup	-servers	-master, -masterport	43	[servers]	not set	no	-	UDP query	SRV-servers-loopback D09
+45	pre-setup	-hosts	-master, -masterport (20 s wait)	44	[hosts]	not set	no	-	UDP query	SRV-hosts-loopback
+46	pre-setup	(fallthrough) not -server and not -dedicated	-	45	-	-	-	-	return false -> CheckSetup	D23
+47	pre-setup	-server / -dedicated	-port -players -rotation -servername|-name -friendlyfire -noshadowfreeze -affinityweapons -bots -botlevel -novote -nomapupload -hostports -simulate|-authority -nomaster|-unlisted -master -masterport	46	[server]	std::exit(1) on ProgramException	yes	-	runs until signal	ME-06 loopback
+48	post-setup	(always) ParseSize(-size WxH)	warning on bad value	CheckSetup, ParseArguments	[thumbnails] ignoring -size	-	-	-	-	D20a
+49	post-setup	(always) CustomRooms::StartGenerating unless -mapgen or -thumbnail VALUE	-	48	-	-	-	-	background thread	D19a
+50	post-setup	(always) -nohelmet, -netdebug	-	49	-	-	-	-	Features, NetDiagnostics, MapAudit	-
+51	post-setup	-mechanics	-	50	catalogue	not set	yes	-	-	POST-mechanics D02
+52	post-setup	-gamepad	as 22 (unreachable through Program::Run: 22 returns first)	51	-	-	-	-	-	D16
+53	post-setup	-resourceaudit	-	52	audit	Run()	yes	-	-	manual
+54	post-setup	-healthsimtest / -powerupsimtest	ROOM	53	sim log	Run()	yes	-	-	manual
+55	post-setup	-netlobbytest	-	54	test log	Run()	yes	-	loopback sockets	manual
+56	post-setup	-rooms	-	55	room list	not set	yes	-	-	POST-rooms
+57	post-setup	-dpstest	ROOM [-hunter] [-weapon] [-seconds/-distance invariant] [-bombs]	56	dps log	Run()	yes	-	-	POST-dpstest
+58	post-setup	-mapgen	[NAME|all] [-force ignored]	57	build log	0 / 1 if any failed	yes	-	writes room binaries	D19a
+59	post-setup	-q3maps / -q3shaders [-map] / -mapcheck	FILE / FILE / ROOM	58	listing	0/1	no	-	-	POST-q3* POST-mapcheck
+60	post-setup	-altprobe	ROOM -at X,Y,Z (invariant, no thousands) [-delay] [-hunter]	59	probe table	1 on bad -at	yes	-	-	POST-altprobe-noat
+61	post-setup	-portalviews	[ROOM|all]	60	render log	0/1	yes	-	renders, rebuilds rooms	manual (GPU)
+62	post-setup	-shotat	ROOM -at -look -out [-size W,H comma]	61	capture	0/1	yes	-	PNG	D20a
+63	post-setup	-mphtexdump	DIR	62	dump	Dump()	yes	-	files	manual
+64	post-setup	-mapsync	-	63	[maps]	0	no	-	network download	skipped (external)
+65	post-setup	-bottour / -moverprobe / -padprobe [-alt] / -mapitems [-scale] [-map] / -mapmaterials	ROOM	64	reports	Run()	yes	-	-	POST-mapitems POST-mapmaterials
+66	post-setup	-aimcheck, -weavelaltcheck	ROOM	65	check	Run()	yes	-	-	manual
+67	post-setup	-movieheadlesscheck	-	66	check	77 when GameFiles not ready	yes	-	-	D18
+68	post-setup	homing checks: homingcontinuouscheck, homingdisplaycheck, homingparitycheck, netcombatcheck, hostauthoritycheck, homingspawncheck	[ROOM|SECONDS]	67	check	77 when GameFiles not ready	yes	-	-	D17
+69	post-setup	-lockjawenemycheck	ROOM	68	check	Run()	yes	-	-	manual
+70	post-setup	-netcombatcheck (second branch)	ROOM	69	-	-	-	-	unreachable: 68 handles every input that reaches it	D17
+71	post-setup	-dialanchepeercheck [-port] / -dialanchecheck [-dialanchepeera/b]	ROOM	70	check	Run()	yes	-	loopback sockets	manual
+72	post-setup	-spireposecheck / -simcheck [-players -seconds(invariant) -mode -formcheck]	ROOM	71	check	Run()	yes	-	-	POST-simcheck
+73	post-setup	-gpulifetime [-cycles -frames]	[ROOM]	72	check	Run()	yes	-	GPU window	manual (GPU)
+74	post-setup	-mapteststorymoviecycle / -mapteststorymovietransition	-	73	check	Run()	yes	-	movie audio	manual
+75	post-setup	-maptest	ROOM + many probes; -size WxH (MapAudit only)	74	audit	Run()	yes	-	window optional	manual
+76	post-setup	-installserver	-	75	[server]	1 on failure	no	-	network download, install	skipped (external)
+77	post-setup	-hostlocal	MAPS [-mode -seconds -servername -master -masterport -nomaster]	76	[hostlocal]	1 on failure	yes	-	child server process	manual
+78	post-setup	-hostgame	ROOM [-master -masterport -mode -name -maprotation -hunter -recolor]	77	[net]	1 when refused	yes	-	joins a match	POST-hostgame-loopback
+79	post-setup	-connect	HOST [-port -name -hunter -recolor]	78	game	not set	yes	-	joins a match	manual
+80	post-setup	-netcheck	HOST [many]	79	report	Run()	yes	-	UDP client	ME-06 loopback
+81	post-setup	-demoinfo	FILE [-replay]	80	report	Print()	no	-	-	POST-demoinfo-missing
+82	post-setup	-thumbnail (repeatable)	ROOM	81	[thumbnails]	not set	yes	-	renders PNGs	manual (GPU)
+83	post-setup	-thumbnails	[-force -jobs]	82	[thumbnails]	not set	yes	-	renders PNGs	manual (GPU)
+84	post-setup	(fallthrough)	-	83	-	-	-	-	return false -> Program CLI	D23

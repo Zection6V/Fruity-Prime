@@ -1,0 +1,2 @@
+[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-174129-31196-native.txt
+Could not read missing.pk3: Could not find file 'C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\missing.pk3'.

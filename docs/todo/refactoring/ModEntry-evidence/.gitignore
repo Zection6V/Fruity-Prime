@@ -1,0 +1,8 @@
+# Locally captured images and downloaded map payloads are retained on disk.
+*.png
+*.ppm
+*.levelshot
+*.pk3
+*.part
+runs/*-sandbox/
+runs/downloads/maps-*/

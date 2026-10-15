@@ -1,0 +1,5 @@
+[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-183143-35692-native.txt
+[master] ignoring -hostports bad (expected e.g. 27900-27919, or none)
+[18:31:44] [master] listening on UDP 27993
+[18:31:44] [master] servers are dropped after 50 s of silence
+[18:31:44] [master] not starting games for anybody (no host port range)

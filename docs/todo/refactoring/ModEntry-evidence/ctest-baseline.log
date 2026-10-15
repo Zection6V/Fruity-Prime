@@ -1,0 +1,248 @@
+Internal ctest changing into directory: C:/Users/Admin/Documents/git/Fruity-Prime/tools/build/out/msvc-Release
+Test project C:/Users/Admin/Documents/git/Fruity-Prime/tools/build/out/msvc-Release
+        Start  40: FruityPrime.MapUpload
+        Start 115: FruityPrime.HomingSpawn
+        Start  12: FruityPrime.NetworkLobby
+        Start 119: FruityPrime.HostedAuthority
+        Start  39: FruityPrime.CollisionWeld
+        Start 117: FruityPrime.HomingTraceCompare
+        Start 118: FruityPrime.NetworkCombat
+        Start 116: FruityPrime.MovieHeadless
+  1/119 Test #116: FruityPrime.MovieHeadless ......................   Passed    0.45 sec
+        Start 112: FruityPrime.HomingParity
+  2/119 Test #118: FruityPrime.NetworkCombat ......................   Passed    0.64 sec
+        Start 114: FruityPrime.HomingContinuous
+  3/119 Test #112: FruityPrime.HomingParity .......................   Passed    0.42 sec
+        Start 113: FruityPrime.HomingDisplay
+  4/119 Test #114: FruityPrime.HomingContinuous ...................   Passed    0.38 sec
+        Start   1: FruityPrime.MoviePlaybackSession
+  5/119 Test  #39: FruityPrime.CollisionWeld ......................   Passed    1.20 sec
+        Start  52: FruityPrime.DemoOwnIntent
+  6/119 Test #113: FruityPrime.HomingDisplay ......................   Passed    0.39 sec
+        Start  13: FruityPrime.NetworkProtocol33Golden
+  7/119 Test  #52: FruityPrime.DemoOwnIntent ......................   Passed    0.26 sec
+        Start  19: FruityPrime.NetworkInputHistory
+  8/119 Test   #1: FruityPrime.MoviePlaybackSession ...............   Passed    0.42 sec
+        Start  22: FruityPrime.ReplicaRoomPlacement
+  9/119 Test #117: FruityPrime.HomingTraceCompare .................   Passed    1.54 sec
+ 10/119 Test  #13: FruityPrime.NetworkProtocol33Golden ............   Passed    0.25 sec
+        Start  78: FruityPrime.BurnStatusEffectPolicy
+        Start  10: FruityPrime.WeavelAltFormParity
+ 11/119 Test  #22: FruityPrime.ReplicaRoomPlacement ...............   Passed    0.37 sec
+ 12/119 Test  #78: FruityPrime.BurnStatusEffectPolicy .............   Passed    0.29 sec
+        Start  21: FruityPrime.NetworkSmoothingTimeline
+        Start  79: FruityPrime.NetSessionSimulationAdapter
+ 13/119 Test  #19: FruityPrime.NetworkInputHistory ................   Passed    0.62 sec
+        Start   5: FruityPrime.WeaponCombatRules
+ 14/119 Test  #10: FruityPrime.WeavelAltFormParity ................   Passed    0.64 sec
+        Start  14: FruityPrime.NetworkProtocol30GoldenPreserved
+ 15/119 Test  #21: FruityPrime.NetworkSmoothingTimeline ...........   Passed    0.46 sec
+ 16/119 Test  #79: FruityPrime.NetSessionSimulationAdapter ........   Passed    0.38 sec
+        Start  76: FruityPrime.ServerSessionStateBuilder
+        Start  86: FruityPrime.NetDamageMetrics
+ 17/119 Test   #5: FruityPrime.WeaponCombatRules ..................   Passed    0.47 sec
+ 18/119 Test  #14: FruityPrime.NetworkProtocol30GoldenPreserved ...   Passed    0.18 sec
+        Start  34: FruityPrime.ServerMatchRotationController
+        Start  29: FruityPrime.ServerSnapshotValidator
+ 19/119 Test  #76: FruityPrime.ServerSessionStateBuilder ..........   Passed    0.35 sec
+        Start  49: FruityPrime.AuthorityHitLedger
+ 20/119 Test  #86: FruityPrime.NetDamageMetrics ...................   Passed    0.35 sec
+        Start  56: FruityPrime.ClientLobbyState
+ 21/119 Test  #34: FruityPrime.ServerMatchRotationController ......   Passed    0.35 sec
+ 22/119 Test  #29: FruityPrime.ServerSnapshotValidator ............   Passed    0.26 sec
+        Start  73: FruityPrime.ServerLobbyCommandProcessor
+        Start  81: FruityPrime.SessionLobbySynchronizer
+ 23/119 Test  #49: FruityPrime.AuthorityHitLedger .................   Passed    0.34 sec
+ 24/119 Test  #56: FruityPrime.ClientLobbyState ...................   Passed    0.25 sec
+        Start   3: FruityPrime.SyluxMuzzleGuard
+        Start  16: FruityPrime.NetworkProtocol32GoldenPreserved
+ 25/119 Test  #73: FruityPrime.ServerLobbyCommandProcessor ........   Passed    0.27 sec
+        Start  15: FruityPrime.NetworkProtocol31GoldenPreserved
+ 26/119 Test  #81: FruityPrime.SessionLobbySynchronizer ...........   Passed    0.20 sec
+        Start  98: FruityPrime.SceneShaderAbiDrift
+ 27/119 Test  #16: FruityPrime.NetworkProtocol32GoldenPreserved ...   Passed    0.06 sec
+        Start  23: FruityPrime.NetworkBoundedInbox
+ 28/119 Test  #15: FruityPrime.NetworkProtocol31GoldenPreserved ...   Passed    0.08 sec
+        Start  11: FruityPrime.IntentTouchPayload
+ 29/119 Test  #23: FruityPrime.NetworkBoundedInbox ................   Passed    0.12 sec
+        Start  20: FruityPrime.NetworkInputPressReplay
+ 30/119 Test   #3: FruityPrime.SyluxMuzzleGuard ...................   Passed    0.31 sec
+        Start  53: FruityPrime.SessionRuntimeState
+ 31/119 Test  #20: FruityPrime.NetworkInputPressReplay ............   Passed    0.06 sec
+        Start  50: FruityPrime.AuthorityHitInbox
+ 32/119 Test  #53: FruityPrime.SessionRuntimeState ................   Passed    0.06 sec
+        Start  74: FruityPrime.ServerLobbyLoadBarrier
+ 33/119 Test  #98: FruityPrime.SceneShaderAbiDrift ................   Passed    0.27 sec
+        Start  77: FruityPrime.FreezePredictionLedger
+ 34/119 Test  #50: FruityPrime.AuthorityHitInbox ..................   Passed    0.08 sec
+ 35/119 Test  #74: FruityPrime.ServerLobbyLoadBarrier .............   Passed    0.05 sec
+        Start  80: FruityPrime.ServerSlotIdentity
+        Start  82: FruityPrime.ServerAuthorityState
+ 36/119 Test  #11: FruityPrime.IntentTouchPayload .................   Passed    0.29 sec
+ 37/119 Test  #77: FruityPrime.FreezePredictionLedger .............   Passed    0.08 sec
+        Start  57: FruityPrime.SessionConnection
+        Start  72: FruityPrime.ServerLobbyPeerState
+ 38/119 Test  #80: FruityPrime.ServerSlotIdentity .................   Passed    0.13 sec
+ 39/119 Test  #57: FruityPrime.SessionConnection ..................   Passed    0.07 sec
+        Start 111: FruityPrime.MenuLocalization
+        Start  65: FruityPrime.PickupPredictionFaults
+ 40/119 Test  #82: FruityPrime.ServerAuthorityState ...............   Passed    0.18 sec
+ 41/119 Test  #72: FruityPrime.ServerLobbyPeerState ...............   Passed    0.11 sec
+        Start   2: FruityPrime.MapAuditCleanup
+        Start  61: FruityPrime.HitClaimIntentHistory
+ 42/119 Test #111: FruityPrime.MenuLocalization ...................   Passed    0.14 sec
+ 43/119 Test  #65: FruityPrime.PickupPredictionFaults .............   Passed    0.10 sec
+        Start  62: FruityPrime.PickupClaimOutbox
+        Start  43: FruityPrime.ClaimDamagePolicy
+ 44/119 Test   #2: FruityPrime.MapAuditCleanup ....................   Passed    0.12 sec
+ 45/119 Test  #61: FruityPrime.HitClaimIntentHistory ..............   Passed    0.09 sec
+ 46/119 Test  #62: FruityPrime.PickupClaimOutbox ..................   Passed    0.06 sec
+        Start  25: FruityPrime.ClientConnectionHealth
+        Start  30: FruityPrime.ServerIntentValidator
+        Start  47: FruityPrime.HitClaimMetrics
+ 47/119 Test  #43: FruityPrime.ClaimDamagePolicy ..................   Passed    0.11 sec
+ 48/119 Test  #25: FruityPrime.ClientConnectionHealth .............   Passed    0.08 sec
+ 49/119 Test  #30: FruityPrime.ServerIntentValidator ..............   Passed    0.06 sec
+        Start  33: FruityPrime.ServerPeerIdentityChannel
+        Start  67: FruityPrime.PeerRegistry
+        Start  42: FruityPrime.HitClaimOutbox
+ 50/119 Test  #47: FruityPrime.HitClaimMetrics ....................   Passed    0.12 sec
+ 51/119 Test  #33: FruityPrime.ServerPeerIdentityChannel ..........   Passed    0.09 sec
+        Start  32: FruityPrime.ServerHandshake
+        Start  75: FruityPrime.ServerLobbyOwnershipPolicy
+ 52/119 Test  #67: FruityPrime.PeerRegistry .......................   Passed    0.12 sec
+ 53/119 Test  #42: FruityPrime.HitClaimOutbox .....................   Passed    0.10 sec
+        Start  70: FruityPrime.ServerMatchStateBuilder
+        Start  69: FruityPrime.ServerPeerProfile
+ 54/119 Test  #32: FruityPrime.ServerHandshake ....................   Passed    0.12 sec
+ 55/119 Test  #75: FruityPrime.ServerLobbyOwnershipPolicy .........   Passed    0.09 sec
+ 56/119 Test  #70: FruityPrime.ServerMatchStateBuilder ............   Passed    0.06 sec
+        Start  28: FruityPrime.ServerSnapshotStream
+        Start  18: FruityPrime.RemotePlayerChannel
+        Start  27: FruityPrime.SessionMatchIdentity
+ 57/119 Test  #69: FruityPrime.ServerPeerProfile ..................   Passed    0.12 sec
+ 58/119 Test  #28: FruityPrime.ServerSnapshotStream ...............   Passed    0.09 sec
+ 59/119 Test  #18: FruityPrime.RemotePlayerChannel ................   Passed    0.07 sec
+        Start  66: FruityPrime.ServerPeerRegistry
+        Start  48: FruityPrime.HitClaimRateLimiter
+        Start  68: FruityPrime.ServerPeerIdentity
+ 60/119 Test  #27: FruityPrime.SessionMatchIdentity ...............   Passed    0.13 sec
+        Start  60: FruityPrime.HitVerdictOutbox
+ 61/119 Test  #66: FruityPrime.ServerPeerRegistry .................   Passed    0.12 sec
+ 62/119 Test  #48: FruityPrime.HitClaimRateLimiter ................   Passed    0.09 sec
+        Start  31: FruityPrime.ServerPeerIntentState
+        Start  63: FruityPrime.PredictionBook
+ 63/119 Test  #68: FruityPrime.ServerPeerIdentity .................   Passed    0.13 sec
+ 64/119 Test  #60: FruityPrime.HitVerdictOutbox ...................   Passed    0.09 sec
+ 65/119 Test  #31: FruityPrime.ServerPeerIntentState ..............   Passed    0.07 sec
+        Start  85: FruityPrime.PeerChatRateLimiter
+        Start  54: FruityPrime.SessionTrafficMetrics
+        Start  64: FruityPrime.PickupClaimReplayLedger
+ 66/119 Test  #63: FruityPrime.PredictionBook .....................   Passed    0.12 sec
+ 67/119 Test  #85: FruityPrime.PeerChatRateLimiter ................   Passed    0.08 sec
+ 68/119 Test  #54: FruityPrime.SessionTrafficMetrics ..............   Passed    0.05 sec
+        Start  45: FruityPrime.ClaimImpactRules
+        Start  46: FruityPrime.HitClaimDeathState
+        Start  59: FruityPrime.HitClaimReplayLedger
+ 69/119 Test  #64: FruityPrime.PickupClaimReplayLedger ............   Passed    0.10 sec
+ 70/119 Test  #45: FruityPrime.ClaimImpactRules ...................   Passed    0.07 sec
+        Start  51: FruityPrime.DemoFrameClock
+        Start  55: FruityPrime.SessionPlayerIdentity
+ 71/119 Test  #46: FruityPrime.HitClaimDeathState .................   Passed    0.10 sec
+ 72/119 Test  #59: FruityPrime.HitClaimReplayLedger ...............   Passed    0.08 sec
+        Start  71: FruityPrime.ServerLobbyState
+        Start  58: FruityPrime.SessionSimulationCallbacks
+ 73/119 Test  #51: FruityPrime.DemoFrameClock .....................   Passed    0.10 sec
+ 74/119 Test  #55: FruityPrime.SessionPlayerIdentity ..............   Passed    0.08 sec
+ 75/119 Test  #71: FruityPrime.ServerLobbyState ...................   Passed    0.05 sec
+        Start  24: FruityPrime.SessionAuthorityState
+        Start  83: FruityPrime.ServerPeerLiveness
+        Start  26: FruityPrime.ClientReplicaStream
+ 76/119 Test  #24: FruityPrime.SessionAuthorityState ..............   Passed    0.08 sec
+        Start  84: FruityPrime.NetFaultQueue
+ 77/119 Test  #58: FruityPrime.SessionSimulationCallbacks .........   Passed    0.13 sec
+ 78/119 Test  #83: FruityPrime.ServerPeerLiveness .................   Passed    0.07 sec
+ 79/119 Test  #26: FruityPrime.ClientReplicaStream ................   Passed    0.05 sec
+        Start  44: FruityPrime.SpectatorPolicies
+        Start  36: FruityPrime.FormReconciliation
+        Start   6: FruityPrime.HudTextLayout
+ 80/119 Test  #44: FruityPrime.SpectatorPolicies ..................   Passed    0.09 sec
+ 81/119 Test  #36: FruityPrime.FormReconciliation .................   Passed    0.05 sec
+        Start  35: FruityPrime.FreezeTimeline
+        Start  17: FruityPrime.TimedEffectSync
+ 82/119 Test  #84: FruityPrime.NetFaultQueue ......................   Passed    0.17 sec
+ 83/119 Test   #6: FruityPrime.HudTextLayout ......................   Passed    0.09 sec
+        Start  37: FruityPrime.ShotRayValidation
+        Start  41: FruityPrime.RescuedHitLedger
+ 84/119 Test  #35: FruityPrime.FreezeTimeline .....................   Passed    0.13 sec
+ 85/119 Test  #17: FruityPrime.TimedEffectSync ....................   Passed    0.10 sec
+ 86/119 Test  #37: FruityPrime.ShotRayValidation ..................   Passed    0.07 sec
+        Start  87: FruityPrime.OpenGlUniformState
+        Start  38: FruityPrime.MapVoteRules
+        Start 110: FruityPrime.WindowsRawMouseInput
+ 87/119 Test  #38: FruityPrime.MapVoteRules .......................   Passed    0.06 sec
+        Start 106: FruityPrime.VulkanSynchronization
+ 88/119 Test  #41: FruityPrime.RescuedHitLedger ...................   Passed    0.19 sec
+ 89/119 Test  #87: FruityPrime.OpenGlUniformState .................   Passed    0.15 sec
+        Start   4: FruityPrime.NativeAimRules
+        Start 101: FruityPrime.VulkanPipelineCache
+ 90/119 Test #110: FruityPrime.WindowsRawMouseInput ...............   Passed    0.12 sec
+        Start  88: FruityPrime.FrameTelemetry
+ 91/119 Test #106: FruityPrime.VulkanSynchronization ..............   Passed    0.13 sec
+ 92/119 Test   #4: FruityPrime.NativeAimRules .....................   Passed    0.10 sec
+        Start   9: FruityPrime.DialancheNativeCollision
+        Start   7: FruityPrime.RawMouseMotion
+ 93/119 Test #101: FruityPrime.VulkanPipelineCache ................   Passed    0.13 sec
+        Start   8: FruityPrime.NativeTouchState
+ 94/119 Test  #88: FruityPrime.FrameTelemetry .....................   Passed    0.13 sec
+ 95/119 Test   #9: FruityPrime.DialancheNativeCollision ...........   Passed    0.10 sec
+        Start  95: FruityPrime.VulkanNvidiaReflex
+        Start 105: FruityPrime.VulkanFrameScheduler
+ 96/119 Test   #7: FruityPrime.RawMouseMotion .....................   Passed    0.12 sec
+        Start 107: FruityPrime.VulkanRgbTransfer
+ 97/119 Test   #8: FruityPrime.NativeTouchState ...................   Passed    0.14 sec
+ 98/119 Test  #95: FruityPrime.VulkanNvidiaReflex .................   Passed    0.11 sec
+        Start 104: FruityPrime.VulkanFrameSlots
+        Start 108: FruityPrime.VulkanResources
+ 99/119 Test #105: FruityPrime.VulkanFrameScheduler ...............   Passed    0.16 sec
+        Start 103: FruityPrime.VulkanCommandSlots
+100/119 Test #107: FruityPrime.VulkanRgbTransfer ..................   Passed    0.16 sec
+101/119 Test #104: FruityPrime.VulkanFrameSlots ...................   Passed    0.11 sec
+        Start 102: FruityPrime.VulkanFeatureProbe
+        Start  96: FruityPrime.VulkanErrors
+102/119 Test #108: FruityPrime.VulkanResources ....................   Passed    0.14 sec
+        Start  99: FruityPrime.VulkanDescriptorAllocator
+103/119 Test #103: FruityPrime.VulkanCommandSlots .................   Passed    0.13 sec
+104/119 Test #102: FruityPrime.VulkanFeatureProbe .................   Passed    0.10 sec
+        Start  94: FruityPrime.Readback
+        Start 100: FruityPrime.VulkanUploadArena
+105/119 Test  #96: FruityPrime.VulkanErrors .......................   Passed    0.15 sec
+        Start  93: FruityPrime.MemoryAdmission
+106/119 Test  #99: FruityPrime.VulkanDescriptorAllocator ..........   Passed    0.15 sec
+107/119 Test  #94: FruityPrime.Readback ...........................   Passed    0.13 sec
+        Start  97: FruityPrime.VulkanSceneUniforms
+        Start  89: FruityPrime.RendererGeometry
+108/119 Test #100: FruityPrime.VulkanUploadArena ..................   Passed    0.16 sec
+        Start 109: FruityPrime.GoldenCaptureValidation
+109/119 Test  #93: FruityPrime.MemoryAdmission ....................   Passed    0.14 sec
+110/119 Test  #97: FruityPrime.VulkanSceneUniforms ................   Passed    0.09 sec
+        Start  90: FruityPrime.RendererGpuMesh
+        Start  92: FruityPrime.RhiLifetime
+111/119 Test  #89: FruityPrime.RendererGeometry ...................   Passed    0.10 sec
+        Start  91: FruityPrime.ShaderInterface
+112/119 Test #109: FruityPrime.GoldenCaptureValidation ............   Passed    0.12 sec
+113/119 Test  #90: FruityPrime.RendererGpuMesh ....................   Passed    0.10 sec
+114/119 Test  #92: FruityPrime.RhiLifetime ........................   Passed    0.08 sec
+115/119 Test  #91: FruityPrime.ShaderInterface ....................   Passed    0.06 sec
+116/119 Test #119: FruityPrime.HostedAuthority ....................   Passed    9.55 sec
+117/119 Test  #40: FruityPrime.MapUpload ..........................   Passed   42.43 sec
+118/119 Test #115: FruityPrime.HomingSpawn ........................   Passed   55.20 sec
+119/119 Test  #12: FruityPrime.NetworkLobby .......................   Passed   71.03 sec
+
+100% tests passed, 0 tests failed out of 119
+
+Label Time Summary:
+gamefiles    =  67.03 sec*proc (7 tests)
+slow         =  55.20 sec*proc (1 test)
+
+Total Test time (real) =  71.12 sec

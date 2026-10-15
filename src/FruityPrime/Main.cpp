@@ -4,6 +4,7 @@
 // main() to hand the arguments over, and that is all this file does.
 
 #include "Program.hpp"
+#include "Mods/MapGen/CustomRooms.hpp"
 #include "NativeRuntime/System/Runtime.hpp"
 
 #include <string>
@@ -19,5 +20,8 @@ int main(int argc, char** argv)
         args.emplace_back(argv[i]);
     }
     MphRead::Program::Main(args);
+    // The background map build reads statics that returning from main
+    // destroys: it is stopped and joined first.
+    MphRead::Mods::MapGen::CustomRooms::StopGenerating();
     return MphRead::NativeRuntime::EnvironmentExitCode();
 }

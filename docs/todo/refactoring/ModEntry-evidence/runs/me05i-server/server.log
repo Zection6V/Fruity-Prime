@@ -1,0 +1,110 @@
+﻿[17:55:10.675] [crash] native stderr is being captured to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-175510-36704-native.txt
+[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-175510-36704-native.txt
+[17:55:10.675] [crash] no crash dump is configured. For a native stack from the next crash, start the game with these three set (type 4 is required -- a single-file app supports no other kind, and the file is around 110 MB, which zips well):
+[17:55:10.676] [crash]   DOTNET_DbgEnableMiniDump=1 DOTNET_DbgMiniDumpType=4 DOTNET_DbgMiniDumpName=C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\crash-%p.dmp
+[17:55:10.676] [build] Fruity Prime a local build, data format 0.35.1.0
+[17:55:10.676] [build] protocol 33, log started 2026-10-15 17:55:10 +09:00
+[17:55:10.676] [system] Microsoft Windows NT 10.0.22621.0 X64/X64, .NET native, 28 cpu(s)
+[17:55:10.676] [system] 64-bit process=True, culture=ja-JP
+[17:55:10.676] [paths] base=C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\
+[17:55:10.676] [paths] prefs=C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\
+[17:55:10.676] [paths] log=C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-175510-36704.log
+[17:55:10.676] [paths] game files ready=True
+[17:55:10.677] [args] C:/Users/Admin/Documents/git/Fruity-Prime/tools/build/out/msvc-Release/FruityPrime-me05i.exe -server -port 27992 -players 4 -servername ME06 Loopback -rotation C:/Users/Admin/Documents/git/Fruity-Prime/docs/todo/refactoring/ModEntry-evidence/runs/me05i-server/rotation.txt -bots 1 -botlevel 2 -simulate -master 127.0.0.1 -masterport 27991 -noupdate -noautoupdate -console -debuglog
+[17:55:10.677] [render] cel=off fog=on window=ExclusiveFullscreen
+[17:55:10] [server] 1 bot(s) at level 2 in slots 3-3
+[net] -simulate is the default now and does nothing; a server always runs the match itself
+[server] listing on 127.0.0.1:27991 as "ME06 Loopback" (-nomaster to stay private)
+[17:55:10] [server] listening on UDP 27992, up to 4 players
+[net] server map: TEST ARENA (Battle, 420 s left)
+[17:55:10.813] [save] read slot 0: no file, new game
+[17:55:10.950] [model] reading "WeavelAlt_Turret_lod0" (dir=Models)
+[17:55:10.951] [model] reading "alt_ice" (dir=Models)
+[net] player slots built, main player = slot 0
+[17:55:10.952] [room] loading "TEST ARENA" mode=Battle players=2 layers=0/-1
+[17:55:10.952] [room] load "TEST ARENA": started
+[17:55:10.952] [model] reading "KandenAlt_TailBomb" (dir=Models)
+[17:55:10.953] [model] reading "arcWelder" (dir=Models)
+[17:55:10.953] [model] reading "arcWelder1" (dir=Models)
+[17:55:10.953] [model] reading "particles2" (dir=Models)
+[17:55:10.953] [model] reading "particles" (dir=Models)
+[17:55:10.954] [model] reading "iceWave" (dir=Models)
+[17:55:10.954] [model] reading "sniperBeam" (dir=Models)
+[17:55:10.954] [model] reading "cylBossLaserBurn" (dir=Models)
+[17:55:10.954] [model] reading "iceShard" (dir=Models)
+[17:55:10.954] [model] reading "energyBeam" (dir=Models)
+[17:55:10.955] [model] reading "trail" (dir=Models)
+[17:55:10.955] [model] reading "electroTrail" (dir=Models)
+[17:55:10.955] [model] reading "geo1" (dir=Models)
+[17:55:10.959] [model] reading "deathParticle" (dir=Models)
+[17:55:10.959] [model] reading "samus_ice" (dir=Models)
+[17:55:10.959] [model] reading "Samus_lod0" (dir=Models)
+[17:55:10.960] [model] reading "Samus_lod1" (dir=Models)
+[17:55:10.961] [model] reading "SamusAlt_lod0" (dir=Models)
+[17:55:10.961] [model] reading "SamusGun" (dir=Models)
+[17:55:10.963] [model] reading "Kanden_lod0" (dir=Models)
+[17:55:10.964] [model] reading "Kanden_lod1" (dir=Models)
+[17:55:10.964] [model] reading "KandenAlt_lod0" (dir=Models)
+[17:55:10.965] [model] reading "KandenGun" (dir=Models)
+[17:55:10.966] [model] reading "nox_ice" (dir=Models)
+[17:55:10.966] [model] reading "Trace_lod0" (dir=Models)
+[17:55:10.967] [model] reading "Trace_lod1" (dir=Models)
+[17:55:10.968] [model] reading "TraceAlt_lod0" (dir=Models)
+[17:55:10.969] [model] reading "TraceGun" (dir=Models)
+[17:55:10.970] [model] reading "Sylux_lod0" (dir=Models)
+[17:55:10.971] [model] reading "Sylux_lod1" (dir=Models)
+[17:55:10.972] [model] reading "SyluxAlt_lod0" (dir=Models)
+[17:55:10.972] [model] reading "SyluxGun" (dir=Models)
+[17:55:10.973] [model] reading "Nox_lod0" (dir=Models)
+[17:55:10.974] [model] reading "Nox_lod1" (dir=Models)
+[17:55:10.975] [model] reading "NoxAlt_lod0" (dir=Models)
+[17:55:10.976] [model] reading "NoxGun" (dir=Models)
+[17:55:10.977] [model] reading "Spire_lod0" (dir=Models)
+[17:55:10.978] [model] reading "Spire_lod1" (dir=Models)
+[17:55:10.979] [model] reading "SpireAlt_lod0" (dir=Models)
+[17:55:10.979] [model] reading "SpireGun" (dir=Models)
+[17:55:10.980] [model] reading "Weavel_lod0" (dir=Models)
+[17:55:10.981] [model] reading "Weavel_lod1" (dir=Models)
+[17:55:10.982] [model] reading "WeavelAlt_lod0" (dir=Models)
+[17:55:10.982] [model] reading "WeavelGun" (dir=Models)
+[17:55:10.983] [model] reading "Guardian_lod0" (dir=Models)
+[17:55:10.984] [model] reading "Guardian_lod1" (dir=Models)
+[17:55:10.985] [model] reading "doubleDamage_img" (dir=Models)
+[17:55:10.985] [model] reading "gunSmoke" (dir=Models)
+[17:55:10.985] [model] reading "octolith_simple" (dir=Models)
+[17:55:10.985] [model] reading "Octolith" (dir=Models)
+[17:55:10.990] [model] reading "pick_wpn_missile" (dir=Models)
+[17:55:10.990] [model] reading "items_base" (dir=Models)
+[17:55:10.990] [model] reading "pick_wpn_missile" (dir=Models)
+[17:55:10.990] [room] "TEST ARENA" read: 13 entit(ies), id=138, area=8
+[17:55:10.990] [model] reading "pick_ammo_green" (dir=Models)
+[17:55:10.990] [model] reading "pick_ammo_orange" (dir=Models)
+[17:55:10.990] [model] reading "pick_health_B" (dir=Models)
+[17:55:10.990] [model] reading "pick_dblDamage" (dir=Models)
+[17:55:10.990] [room] load "TEST ARENA": done in 38 ms
+[17:55:10] [server] this server runs the match itself
+[17:55:10] [server] rotation: 2 map(s), starting on TEST ARENA (Battle, 7 min, 7 pts)
+[17:55:10] [server] not starting games for anybody (no host port range)
+[net] player slots prepared -- local slot -1, 0 active, AI only where NetBotRoles puts it
+[net] match clock synced to server: 420 s remaining on TEST ARENA
+[net] slot 3 activated (Bot Kanden) -- 1 player(s) in scene
+[net] slot 3 (Kanden) wears suit 1
+[17:55:23] [server] 127.0.0.1:58806 joined as slot 0
+[17:55:23] [server] [lobby] revision 1 -> 2: peer slot 0 connected
+[net] server map: TEST ARENA (Battle, 420 s left)
+[net] server started a new match on TEST ARENA; loading it
+[net] slot 0 activated (Player1) -- 2 player(s) in scene
+[net] slot 0 (Samus) wears suit 1
+[net] player slots rebuilt for the new room, main player = slot 0
+[net] player slots prepared -- local slot -1, 2 active, AI only where NetBotRoles puts it
+[net] slot 0 activated (Player1) -- 2 player(s) in scene
+[net] slot 3 activated (Bot Kanden) -- 2 player(s) in scene
+[17:55:24] [server] slot 0 is "NC" playing Samus in suit 1
+[17:55:24] [server] [lobby] revision 2 -> 3: slot 0 identity changed
+[17:55:28] [server] chat NC: hello from NC at frame 300
+[17:55:31] [server] [lobby] revision 3 -> 4: slot 0 left; owner 0
+[net] slot 0 deactivated -- player left
+[17:55:31] [server] 127.0.0.1:58806 left (slot 0)
+[17:55:31] [server] shutting down
+[17:55:31.594] [movie] scene-destroy scene_id=1 session_id=0 remaining_tasks=0
+[175531.598] [exit] process exiting

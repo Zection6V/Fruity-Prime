@@ -1,0 +1,3 @@
+[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-174407-32644-native.txt
+[classicframes] bench 1x1 (drawn 240x240): 0.64 ms a picture
+[classicframes] 0 picture(s), 120 tick(s), in classic

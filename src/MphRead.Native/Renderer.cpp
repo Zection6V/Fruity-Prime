@@ -41,6 +41,7 @@
 #include "HUD/HudInfo.hpp"
 #include "Mods/Branding.hpp"
 #include "Mods/Render/InstagibRails.hpp"
+#include "Mods/Render/EffectTint.hpp"
 #include "Mods/EndScreen.hpp"
 #include "Mods/GameSettings.hpp"
 #include "Mods/Headless.hpp"
@@ -2884,7 +2885,7 @@ namespace MphRead
             PoolTrace().FreeEntries.erase(entry.get());
         }
         entry->EffectId = 0;
-        entry->Tint.reset();
+        entry->ModTint.reset();
         MPHREAD_DEBUG_ASSERT(entry->Elements->empty());
         return entry;
     }
@@ -2959,7 +2960,7 @@ namespace MphRead
                 + "\", now effect " + std::to_string(effect->Id) + " \"" + effect->Name + "/" + element->Name + "\"");
         }
         entry->EffectId = effect->Id;
-        entry->Tint.reset();
+        entry->ModTint.reset();
         entry->EffectName = effect->Name;
         entry->ElementName = element->Name;
         entry->BufferTime = element->BufferTime;
@@ -3099,7 +3100,7 @@ namespace MphRead
         SpawnEffect(effectId, transform, child, nullptr, std::move(entCol));
     }
 
-    void Scene::SpawnTintedEffect(std::int32_t effectId, Matrix4 transform, Vector3 tint,
+    void Scene::ModSpawnTintedEffect(std::int32_t effectId, Matrix4 transform, Vector3 tint,
         std::shared_ptr<Formats::Collision::EntityCollision> entCol)
     {
         SpawnEffect(effectId, transform, false, nullptr, std::move(entCol), tint);
@@ -3122,7 +3123,7 @@ namespace MphRead
             {
                 return;
             }
-            element->Tint = tint;
+            element->ModTint = tint;
             if (entry)
             {
                 element->EffectEntry = entry;
@@ -3500,7 +3501,7 @@ namespace MphRead
                         // A tinted effect's sparks and debris keep its tint.
                         SpawnEffect(static_cast<std::int32_t>(element->ChildEffectId),
                             Matrix::GetTransform4(vec2, vec1, particle->Position), false, nullptr, nullptr,
-                            element->Tint);
+                            Mods::Render::EffectTint::ForElement(*element));
                     }
                     element->Particles->erase(element->Particles->begin() + j);
                     UnlinkEffectParticle(particle);

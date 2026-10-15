@@ -1,0 +1,70 @@
+{
+  "exeSha256": "07513F73C7226C5A6FEA7502C3D8E1BE41CAA0F029E5D67A54C6CE2D3A8E6C94",
+  "fixtureSource": "simpsons.pk3/maps/simpsons_q3.bsp",
+  "fixtureSourceSha256": "C09F0766CA8EDA7DAFE03D1EE3F8B1B7D5149EF41477F9B6882F27273D6EF650",
+  "fixtureMapNames": [
+    "EXIT_FIX_A",
+    "EXIT_FIX_B"
+  ],
+  "processId": 19640,
+  "startJst": "2026-10-15T20:37:02.9184359+09:00",
+  "closeRequestedJst": "2026-10-15T20:37:36.9941743+09:00",
+  "exitedJst": "2026-10-15T20:38:21.5500327+09:00",
+  "exitCode": 0,
+  "closeInput": "Computer Use: Alt_L+F4",
+  "screenshotFailure": "IGraphicsCaptureItemInterop.CreateForMonitor: 0x80070424",
+  "firstMapStamp": true,
+  "firstMapEntity": true,
+  "firstMapNodes": true,
+  "secondMapCacheExists": false,
+  "outputFiles": [
+    {
+      "name": "exit_fix_a_Anim.bin",
+      "bytes": 18336,
+      "sha256": "762F0D1002A80F50B25A0140D0797D06C0E442B6996BAAF31B4BBD8B6DA56215",
+      "lastWriteTime": "2026-10-15T20:38:21.1448966+09:00"
+    },
+    {
+      "name": "exit_fix_a_Collision.bin",
+      "bytes": 4225376,
+      "sha256": "A542CCADB03372B41BFCC439AD3F53864B44EF46D4A821B6904BB3DD22969022",
+      "lastWriteTime": "2026-10-15T20:38:21.1458964+09:00"
+    },
+    {
+      "name": "exit_fix_a_Model.bin",
+      "bytes": 92862472,
+      "sha256": "E03B6F8538212CDDBAEC3BFBEBA5C7E7C983A52EABE3DF53E56B2EC16518A5EE",
+      "lastWriteTime": "2026-10-15T20:38:21.1433963+09:00"
+    },
+    {
+      "name": "exit_fix_a_q3model16_Collision.bin",
+      "bytes": 448,
+      "sha256": "FE8B5F9872DE3EC02716369201DE30EC153140DD9E5392A09A88B61295D2A56D",
+      "lastWriteTime": "2026-10-15T20:38:21.1468961+09:00"
+    },
+    {
+      "name": "exit_fix_a_q3model17_Collision.bin",
+      "bytes": 448,
+      "sha256": "711C992D95BD19542E21367F6531E36BC16B15415196688B95E28966460EF913",
+      "lastWriteTime": "2026-10-15T20:38:21.1473963+09:00"
+    },
+    {
+      "name": "exit_fix_a_q3model2_Collision.bin",
+      "bytes": 448,
+      "sha256": "EA1B8203903ABC720509045979DBFC72BCBEEFD69EAD2262A0F81CD174809756",
+      "lastWriteTime": "2026-10-15T20:38:21.1463962+09:00"
+    },
+    {
+      "name": "exit_fix_a.tex",
+      "bytes": 15658200,
+      "sha256": "0F46537543A5199393352C87C5EA6A03E875AC993C28C3B0FF8B2C1D563AA0DE",
+      "lastWriteTime": "2026-10-15T20:37:30.8547998+09:00"
+    },
+    {
+      "name": "translated.txt",
+      "bytes": 53,
+      "sha256": "19B46F97851B8159CAF464B96D876B922E64EA3EC21C21F9C112C9E7B40ED450",
+      "lastWriteTime": "2026-10-15T20:38:21.4401084+09:00"
+    }
+  ]
+}

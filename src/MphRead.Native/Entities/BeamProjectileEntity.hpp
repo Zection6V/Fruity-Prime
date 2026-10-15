@@ -287,7 +287,6 @@ namespace MphRead::Entities
             const ::OpenTK::Mathematics::Vector4* muzzlePlane = nullptr);
         void GetDrawInfo() override;
         void Destroy() override;
-        [[nodiscard]] std::optional<::OpenTK::Mathematics::Vector3> InstagibTint() const;
         void SpawnDamageEffect(Effectiveness effectiveness);
 
         [[nodiscard]] static BeamResultFlags Spawn(

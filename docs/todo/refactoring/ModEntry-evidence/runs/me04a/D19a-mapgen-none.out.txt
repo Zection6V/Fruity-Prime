@@ -1,0 +1,2 @@
+[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-171102-31972-native.txt
+No maps to generate. Put a Quake 3 .pk3 or a map JSON in C:\Users\Admin\Documents\git\Fruity-Prime\docs\todo\refactoring\ModEntry-evidence\runs\me04a-sandbox\emptymaps.

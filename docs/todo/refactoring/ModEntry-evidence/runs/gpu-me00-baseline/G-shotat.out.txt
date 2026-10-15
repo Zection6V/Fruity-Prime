@@ -1,0 +1,14 @@
+[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-174602-28268-native.txt
+[thumbnails] ignoring -size 320,180 (expected e.g. 1920x1440)
+[window] OpenGL 4.6 compatibility (asked 2.1)
+[raw-mouse] registered target=00000000010D0828 foreground relative motion
+[vulkan] GPU NVIDIA GeForce RTX 5070 Ti API 1.4
+[vulkan probe] passive eligible; logical-device=0; queues=0; candidates=1
+[vulkan] GPU NVIDIA GeForce RTX 5070 Ti API 1.4
+[vulkan] full-screen exclusive unavailable
+[reflex probe] enabled=1 revision=3 presentId=1 reason=
+[vulkan] selected NVIDIA GeForce RTX 5070 Ti graphics=0 present=0 validation=0 swapchainMaintenance1=1 legacy=0
+[vulkan cache] native=1 initial-bytes=1483437
+[render] field of view 78 degrees (the DS's own)
+[render] cel shading off, 8 bands, outline 0.50, fog on, performance mode on
+[thumbnails] build a local build / ?, GL 4.6.0 NVIDIA 617.14, profile compatibility, NVIDIA Corporation / NVIDIA GeForce RTX 5070 Ti/PCIe/SSE2, window asked 320x180, got 320x180, offscreen target FramebufferComplete

@@ -1,4 +1,0 @@
-# Preserve intentional Markdown line breaks and verbatim process output.
-FruityPrime_CPP_ModEntry*.md whitespace=-blank-at-eol
-ModEntry-evidence/*.log -whitespace
-ModEntry-evidence/runs/** -whitespace

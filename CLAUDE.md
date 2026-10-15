@@ -49,6 +49,21 @@ says why -- so the upstream-ported body stays diffable. New shared helpers
 (weapon rules, steering, trace) live under `Mods/` too, not `Metadata/`. SRP and
 DRY still apply: move the logic, do not copy it.
 
+Apply this boundary to feature work, bug fixes, ports and PR/conflict resolution:
+
+- Keep fork-specific decisions and calculations under `Mods/`: damage/loadout
+  rules, AI policy, effect tinting, and their shared helpers. A `Mod` prefix or
+  comment does not make a logic block in `Entities/`, `Formats/` or `Metadata/`
+  acceptable; those files only delegate and expose the minimal state needed.
+- If an extension needs private entity members, its `ModXxx` member declaration
+  may remain in the entity header, but define the member in a `.cpp` under
+  `Mods/`, following the existing entity extension pattern. Keep the original
+  entity method's integration point to a thin call.
+- Before completing a change or merging a PR, inspect the diff in these three
+  directories. Move any added fork-specific logic into the responsible `Mods/`
+  module, including logic introduced by the incoming PR. Successful builds and
+  tests do not replace this placement check.
+
 ## Environment recipe (WSL)
 
 Three things will waste an hour each if you do not know them:

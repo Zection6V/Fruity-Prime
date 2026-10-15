@@ -1,4 +1,5 @@
 #include "Model.hpp"
+#include "../Mods/Render/PreviewAnimation.hpp"
 
 #include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/Runtime.hpp"
@@ -1159,6 +1160,10 @@ namespace MphRead
         std::int32_t frameCount,
         bool isRotation) const
     {
+        // Mod hook: fractional node sampling is scoped to a hunter preview draw.
+        if (const auto value = Mods::Render::PreviewNodeInterpolation::Sample(
+                *this, values, start, frame, blend, lutLength, frameCount, isRotation))
+            return *value;
         if (lutLength == 1)
         {
             return ManagedAt(values, start);

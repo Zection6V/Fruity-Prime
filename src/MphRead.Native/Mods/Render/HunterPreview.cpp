@@ -3,6 +3,7 @@
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Metadata/Metadata.hpp"
 #include "../../NativeRuntime/System/ExceptionText.hpp"
+#include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Read.hpp"
 
 #include <cmath>
@@ -79,6 +80,7 @@ void HunterPreviewEntity::SetUp(Hunter hunter, std::int32_t recolor)
             _model = inst;
             _hunter = hunter;
             inst->SetAnimation(static_cast<std::int32_t>(MphRead::Entities::PlayerAnimation::Idle));
+            _animation.Reset();
         }
         catch (...)
         {
@@ -98,12 +100,13 @@ void HunterPreviewEntity::Step()
 {
     if (_model != nullptr)
     {
-        _model->UpdateAnimFrames();
+        _animation.Update(*_model);
     }
 }
 
 void HunterPreviewEntity::Reset()
 {
+    _animation.Reset();
 }
 
 LightInfo HunterPreviewEntity::GetLightInfo()
@@ -117,6 +120,9 @@ void HunterPreviewEntity::GetDrawInfo()
     {
         return;
     }
+    const auto& info = NativeRuntime::RequireReference(_model->AnimInfo);
+    const PreviewNodeInterpolation interpolation(*_model->Model(), NativeRuntime::RequireReference(info.Node).Group.get(),
+        info.NodeFrame(), PreviewAnimation::NextNodeFrame(*_model), _animation.Fraction());
     UpdateTransforms(*_model, _facing, _recolor < 0 ? 0 : _recolor);
     GetDrawItems(*_model, 0, _light);
 }

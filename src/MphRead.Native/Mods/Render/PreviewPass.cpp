@@ -147,6 +147,11 @@ namespace MphRead
         return Mods::EndScreen::Available() || LauncherPreview;
     }
 
+    void Scene::ModResetPreviewAnimation()
+    {
+        if (_preview) _preview->Reset();
+    }
+
     void Scene::ModStepPreview()
     {
         if (!PreviewAsked())

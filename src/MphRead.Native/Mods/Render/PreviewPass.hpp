@@ -31,6 +31,7 @@ public: \
     [[nodiscard]] static bool PreviewWanted() noexcept; \
     static void PreviewWanted(bool value) noexcept; \
     void ModStepPreview(); \
+    void ModResetPreviewAnimation(); \
     [[nodiscard]] bool ModPreviewDrawn() const noexcept; \
     /* The launcher is asking, rather than the results screen. */ \
     inline static bool LauncherPreview = false; \

@@ -19,6 +19,7 @@
 #include "Mods/Network/Gameplay/Bombs/NetBombs.hpp"
 #include "Mods/Network/Gameplay/Weapons/RemoteShotQueue.hpp"
 #include "Mods/Network/Gameplay/Weapons/ShotEventLedger.hpp"
+#include "Mods/Network/Testing/Combat/HitRig.hpp"
 #include "../Mods/Input/HostTouch.hpp"
 #include "../Mods/Input/TouchInputAdapter.hpp"
 #include "../Entities/Players/MorphBallBoostStateMachine.hpp"
@@ -219,6 +220,20 @@ namespace
         Expect(updated.has_value() && updated->HasHomingDecision() && updated->Target == resolved.Target,
             "a reordered repeat updates the queued shot with its resolved target");
 
+        RemoteShotQueue resolvedAfterFire;
+        ShotEvent delayedDecision = MakeShotEvent(1, 300, BeamType::Missile);
+        ShotEvent delayedResolution = delayedDecision;
+        delayedResolution.ShotFlags |= IntentPacket::ShotFlagTargetResolved;
+        delayedResolution.Target = resolved.Target;
+        resolvedAfterFire.Receive(WithShots(305, { delayedDecision }));
+        const auto firedWithoutTarget = resolvedAfterFire.Next();
+        Expect(firedWithoutTarget.has_value() && !firedWithoutTarget->HasHomingDecision(),
+            "a shot may reach its single spawn attempt before its target update arrives");
+        resolvedAfterFire.Consume();
+        resolvedAfterFire.Receive(WithShots(306, { delayedResolution }));
+        Expect(!resolvedAfterFire.Next().has_value() && resolvedAfterFire.Stats().Fired == 1,
+            "a late target update cannot cause a consumed shot to spawn a second time");
+
         // The Omega shot, then the switch to the Power Beam arriving first:
         // the switch is WeaponSelect's business, the shot keeps its weapon.
         IntentPacket switched = WithShots(205, {{1, 200, Id(BeamType::OmegaCannon)}});
@@ -312,6 +327,12 @@ namespace
             && intent.ShotHistory[0].Sequence == 3 && intent.ShotHistory[3].Sequence == 6,
             "the history keeps the newest shots, oldest first");
         Expect(intent.ShotHistory[3].WeaponId == Id(BeamType::OmegaCannon), "newest last");
+        log.SetHomingTarget(6, IntentPacket::ShotTargetReference{});
+        IntentPacket muzzleDecision{};
+        log.Fill(muzzleDecision, 106);
+        Expect(muzzleDecision.ShotHistory[3].HasHomingDecision()
+            && muzzleDecision.ShotHistory[3].Target.Kind == IntentPacket::ShotTargetKind::None,
+            "a skipped target search is recorded as a resolved empty choice");
         log.Reset();
         IntentPacket::ShotEvent after{};
         after.Frame = 200;
@@ -324,6 +345,60 @@ namespace
             "a new life empties the history but never reuses a sequence");
         Expect(intent.ShotHistory[3].Charge == 5 && intent.ShotHistory[3].AckFrame == 95,
             "the charge and the world are recorded with the shot");
+        LocalShotLog canceled;
+        IntentPacket::ShotEvent canceledShot{};
+        canceledShot.Frame = 300;
+        canceledShot.WeaponId = Id(BeamType::PowerBeam);
+        const std::uint32_t canceledSequence = canceled.Record(canceledShot);
+        canceledShot.Frame = 301;
+        const std::uint32_t keptSequence = canceled.Record(canceledShot);
+        Expect(canceled.Cancel(canceledSequence), "a shot rejected before spawn is removed from its pending history");
+        Expect(keptSequence == canceledSequence + 1,
+            "cancelling a failed spawn does not roll back or reuse the shot sequence");
+        IntentPacket afterCancel{};
+        canceled.Fill(afterCancel, 301);
+        Expect(afterCancel.ShotHistoryLength == 1 && afterCancel.ShotHistory[0].Sequence == keptSequence,
+            "cancelling a spawn failure keeps later shots and does not reuse its sequence");
+        using MphRead::Mods::Network::HitRig;
+        Expect(HitRig::Configure(std::string("homing:spoof")),
+            "the origin-spoof test mode is available to a scripted UDP client");
+        IntentPacket adversarial{};
+        adversarial.ShotHistoryLength = 1;
+        ShotEvent& targeted = adversarial.ShotHistory[0];
+        targeted.Sequence = 11;
+        targeted.Frame = 302;
+        targeted.WeaponId = Id(BeamType::Missile);
+        targeted.Direction = {0.0F, 0.0F, 1.0F};
+        targeted.ShotFlags = IntentPacket::ShotFlagTargetResolved;
+        targeted.Target = {IntentPacket::ShotTargetKind::Player, 0xFF, 1, 2, 3, -1, 0};
+        const auto originalDirection = targeted.Direction;
+        const auto originalTarget = targeted.Target;
+        const std::uint32_t originalSequence = targeted.Sequence;
+        HitRig::ApplyOutgoingIntentTestCase(adversarial);
+        Expect(Near(adversarial.ShotHistory[0].Origin.X, 20.0F)
+            && OpenTK::Mathematics::LengthSquared(
+                adversarial.ShotHistory[0].Direction - originalDirection) < 1e-8F
+            && adversarial.ShotHistory[0].Sequence == originalSequence
+            && adversarial.ShotHistory[0].Target == originalTarget,
+            "the UDP test mutation changes only the origin of a resolved homing shot");
+        IntentPacket afterRigReset{};
+        afterRigReset.ShotHistoryLength = 1;
+        afterRigReset.ShotHistory[0] = adversarial.ShotHistory[0];
+        afterRigReset.ShotHistory[0].Origin = OpenTK::Mathematics::Vector3::Zero;
+        HitRig::Reset();
+        HitRig::ApplyOutgoingIntentTestCase(afterRigReset);
+        Expect(Near(afterRigReset.ShotHistory[0].Origin.X, 0.0F),
+            "resetting the hit rig clears the origin-spoof test state");
+        Expect(HitRig::Configure(std::string("homing")),
+            "the standard homing rig remains selectable after the attack case");
+        IntentPacket noneDecision{};
+        noneDecision.ShotHistoryLength = 1;
+        noneDecision.ShotHistory[0] = targeted;
+        noneDecision.ShotHistory[0].Origin = OpenTK::Mathematics::Vector3::Zero;
+        noneDecision.ShotHistory[0].Target = {};
+        HitRig::ApplyOutgoingIntentTestCase(noneDecision);
+        Expect(Near(noneDecision.ShotHistory[0].Origin.X, 0.0F),
+            "the spoof test leaves a resolved empty target decision untouched");
         // Repeated only while a receiver could still fire it.
         IntentPacket later{};
         log.Fill(later, 200 + LocalShotLog::RepeatFrames);

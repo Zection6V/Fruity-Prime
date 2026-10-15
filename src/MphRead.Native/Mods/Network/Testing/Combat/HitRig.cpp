@@ -2,16 +2,21 @@
 #include "Mods/Network/Testing/Combat/HomingRigSchedule.hpp"
 
 #include "Mods/Network/Gameplay/Combat/HitLocation.hpp"
+#include "Mods/Network/Gameplay/Player/NetPlayerLifecycle.hpp"
+#include "Mods/Combat/BeamObstacleTrace.hpp"
+#include "Mods/Network/Protocol/Packets/RealtimePackets.hpp"
 #include "Mods/Network/Session/NetSession.hpp"
 #include "Entities/Players/PlayerEntity.hpp"
 #include "Metadata/Weapons.hpp"
 #include "Entities/JumpPadEntity.hpp"
 #include "Scene.hpp"
+#include "GameState.hpp"
 #include "NativeRuntime/System/Globalization.hpp"
 #include "NativeRuntime/System/Managed.hpp"
 #include "NativeRuntime/System/Number.hpp"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <limits>
@@ -38,6 +43,7 @@ namespace MphRead::Mods::Network
         case HitRig::RigMode::Observe: return "Observe";
         case HitRig::RigMode::Strafe: return "Strafe";
         case HitRig::RigMode::Homing: return "Homing";
+        case HitRig::RigMode::Muzzle: return "Muzzle";
         }
         return std::to_string(static_cast<std::int32_t>(value));
     }
@@ -49,6 +55,13 @@ namespace MphRead::Mods::Network
             return false;
         }
         std::string key = Runtime::ToLowerInvariant(Runtime::StringTrim(*value));
+        if (key == "homing:spoof")
+        {
+            _mode = RigMode::Homing;
+            _spoofOrigin = true;
+            return true;
+        }
+        _spoofOrigin = false;
         // wells:magmaul / lanes:judicator: the cell rig with one weapon.
         if (const std::size_t colon = key.find(':'); colon != std::string::npos)
         {
@@ -112,6 +125,14 @@ namespace MphRead::Mods::Network
         if (key == "observe" || key == "observer") { _mode = RigMode::Observe; return true; }
         if (key == "strafe" || key == "rewind") { _mode = RigMode::Strafe; return true; }
         if (key == "homing") { _mode = RigMode::Homing; return true; }
+        if (key == "muzzle")
+        {
+            _mode = RigMode::Muzzle;
+            _muzzleWallReady = false;
+            _muzzlePlaced = false;
+            _muzzleChargeFrames = 0;
+            return true;
+        }
         return false;
     }
 
@@ -202,6 +223,10 @@ namespace MphRead::Mods::Network
         _highest = 0;
         _turns = 0;
         _fastest = 0;
+        _muzzleWallReady = false;
+        _muzzlePlaced = false;
+        _muzzleChargeFrames = 0;
+        _spoofOrigin = false;
     }
 
     bool HitRig::IsSniper()
@@ -224,7 +249,11 @@ namespace MphRead::Mods::Network
             return;
         }
         PlayerEntity* other = Opponent(player);
-        if (_mode == RigMode::Dialanche)
+        if (_mode == RigMode::Muzzle)
+        {
+            DriveMuzzle(player, c);
+        }
+        else if (_mode == RigMode::Dialanche)
         {
             DriveDialanche(player, c, other);
         }
@@ -263,6 +292,23 @@ namespace MphRead::Mods::Network
             DriveRunner(player, c, other);
         }
         FinishControls(player, c);
+    }
+
+    void HitRig::ApplyOutgoingIntentTestCase(IntentPacket& intent) noexcept
+    {
+        if (!_spoofOrigin)
+        {
+            return;
+        }
+        const std::size_t count = std::min<std::size_t>(intent.ShotHistoryLength, intent.ShotHistory.size());
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            IntentPacket::ShotEvent& event = intent.ShotHistory[i];
+            if (event.HasHomingDecision() && event.Target.Kind != IntentPacket::ShotTargetKind::None)
+            {
+                event.Origin = event.Origin + OpenTK::Mathematics::Vector3(20.0F, 0.0F, 0.0F);
+            }
+        }
     }
 
     void HitRig::DriveDialanche(PlayerEntity& player, PlayerControls& c, PlayerEntity* other)
@@ -340,6 +386,128 @@ namespace MphRead::Mods::Network
             HoldRange(player, c, range, command.Weapon == ::MphRead::BeamType::ShockCoil ? CloseRange : VolleyRange);
         }
         c.Shoot().SetIsDown(command.Trigger);
+    }
+
+    void HitRig::DriveMuzzle(PlayerEntity& player, PlayerControls& c)
+    {
+        using namespace OpenTK::Mathematics;
+        _aimDeltaX = _aimDeltaY = 0;
+        const std::int32_t primeSlot = GameState::PrimeHunter();
+        if (primeSlot < 0 || primeSlot != player.SlotIndex())
+        {
+            DriveHoming(player, c, Opponent(player));
+            return;
+        }
+        if (_scene == nullptr || player.Hunter() != ::MphRead::Hunter::Sylux)
+        {
+            return;
+        }
+        const std::uint16_t lifeId = NetPlayerLifecycle::Get(primeSlot);
+        if (_muzzleSlot != primeSlot || _muzzleLifeId != lifeId)
+        {
+            _muzzleSlot = primeSlot;
+            _muzzleLifeId = lifeId;
+            _muzzleWallReady = false;
+            _muzzlePlaced = false;
+            _muzzleChargeFrames = 0;
+        }
+        if (!_muzzleWallReady)
+        {
+            const Vector3 origin = player.ModMuzzlePos();
+            Vector3 forward = player.ModGunVector();
+            forward.Y = 0.0F;
+            const float forwardLength = Length(forward);
+            if (forwardLength <= 0.0F)
+            {
+                return;
+            }
+            forward = ScaleVector(forward, 1.0F / forwardLength);
+            constexpr float rayLength = 100.0F;
+            const std::array<Vector3, 5> directions{
+                forward,
+                Vector3(0.0F, 0.0F, -1.0F),
+                Vector3(0.0F, 0.0F, 1.0F),
+                Vector3(-1.0F, 0.0F, 0.0F),
+                Vector3(1.0F, 0.0F, 0.0F)
+            };
+            for (const Vector3& direction : directions)
+            {
+                const auto hit = Combat::TraceFirstBeamObstacle(
+                    origin, origin + ScaleVector(direction, rayLength), *_scene, rayLength);
+                if (!hit)
+                {
+                    continue;
+                }
+
+                Vector3 normal = hit->Collision.Plane.Xyz();
+                const float normalLength = Length(normal);
+                if (normalLength <= 0.0F)
+                {
+                    continue;
+                }
+                normal = ScaleVector(normal, 1.0F / normalLength);
+                if (std::abs(normal.Y) > 0.25F)
+                {
+                    continue;
+                }
+
+                _muzzleWallPoint = hit->Collision.Position;
+                _muzzleWallAim = direction;
+                Vector3 displacement = _muzzleWallPoint - origin;
+                displacement.Y = 0.0F;
+                _muzzleWallStand = static_cast<Vector3>(player.Position)
+                    + displacement + ScaleVector(direction, 0.05F);
+                _muzzleWallStand.Y = static_cast<Vector3>(player.Position).Y;
+                _muzzleWallReady = true;
+                break;
+            }
+        }
+        if (_muzzleWallReady)
+        {
+            if (!_muzzlePlaced)
+            {
+                player.ModPlaceAt(_muzzleWallStand);
+                Runtime::IncrementInPlace(_placements);
+                _muzzlePlaced = true;
+            }
+        }
+        if (player.CurrentWeapon() != ::MphRead::BeamType::PowerBeam)
+        {
+            player.ModArmWeapon(::MphRead::BeamType::PowerBeam);
+        }
+        player.ModSetAmmo(std::numeric_limits<std::int32_t>::max(), std::numeric_limits<std::int32_t>::max());
+        if (!_muzzleWallReady)
+        {
+            c.Shoot().SetIsDown(false);
+            _muzzleChargeFrames = 0;
+            return;
+        }
+        const Vector3 aimPoint = _muzzleWallPoint + ScaleVector(_muzzleWallAim, 4.0F);
+        const auto [turnX, turnY] = player.ModAimDeltaTowards(aimPoint);
+        if (std::isfinite(turnX) && std::isfinite(turnY))
+        {
+            _aimDeltaX = std::clamp(turnX, -TurnRate, TurnRate);
+            _aimDeltaY = std::clamp(turnY, -TurnRate, TurnRate);
+        }
+        const bool onTarget = _muzzleWallReady && std::isfinite(turnX) && std::isfinite(turnY)
+            && std::abs(turnX) < FiringCone && std::abs(turnY) < FiringCone;
+        if (!onTarget)
+        {
+            c.Shoot().SetIsDown(false);
+            _muzzleChargeFrames = 0;
+            return;
+        }
+        if (_muzzleChargeFrames < 63)
+        {
+            c.Shoot().SetIsDown(true);
+            Runtime::IncrementInPlace(_muzzleChargeFrames);
+        }
+        else
+        {
+            c.Shoot().SetIsDown(false);
+            _muzzleChargeFrames = 0;
+            Runtime::IncrementInPlace(_triggers);
+        }
     }
 
     void HitRig::DriveWells(PlayerEntity& player, PlayerControls& c, PlayerEntity* other)
@@ -880,6 +1048,13 @@ namespace MphRead::Mods::Network
                 + Runtime::ToString(_fastest, "F3") + ", " + std::to_string(_placements) + " placement(s), "
                 + std::to_string(_triggers) + " triggers, " + std::to_string(_chargedReleases) + " charged releases, "
                 + std::to_string(_framesOnTarget) + " frames on target";
+        }
+        if (_mode == RigMode::Muzzle)
+        {
+            return "hit rig: Muzzle, " + std::to_string(_placements) + " wall placements, "
+                + std::to_string(_triggers) + " charged releases"
+                + (_muzzleWallReady ? ", wall " + _muzzleWallPoint.ToString()
+                    + ", stand " + _muzzleWallStand.ToString() : ", no wall found");
         }
         const std::string role = _mode == RigMode::Wells ? "well" : _mode == RigMode::Lanes ? "lane"
             : IsSniper() ? "sniper" : _mode == RigMode::All ? "pad rider" : "runner";

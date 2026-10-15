@@ -71,6 +71,11 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static std::int32_t Bucket(::MphRead::BeamType weapon) noexcept;
         static void Trace(std::string_view stage, const ShotKey& key, ::MphRead::BeamType weapon,
             std::string_view detail = {});
+        static void TraceRayValidation(std::string_view stage, const ShotKey& key,
+            ::MphRead::BeamType weapon, std::uint32_t sequence, std::uint32_t ackFrame,
+            const OpenTK::Mathematics::Vector3& origin, const OpenTK::Mathematics::Vector3& direction,
+            const OpenTK::Mathematics::Vector3* shooterPosition, std::uint16_t shooterGeneration,
+            std::uint16_t shooterLifeId, bool rayValid, bool accepted);
         // Exactly one outcome for every TryFireWeapon invocation, including
         // early returns.
         static bool Finish(::MphRead::Entities::PlayerEntity& shooter, ShotAttemptResult result,

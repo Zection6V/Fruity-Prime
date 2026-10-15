@@ -8,6 +8,9 @@
 #include "Entities/Players/PlayerEntity.hpp"
 #include "Metadata/Weapons.hpp"
 #include "Mods/Network/Gameplay/Weapons/FiringVariant.hpp"
+#include "Mods/Network/Gameplay/Weapons/HomingTargetHistory.hpp"
+#include "Mods/Network/Gameplay/Weapons/HomingTargetSelection.hpp"
+#include "Mods/Network/Diagnostics/NetShotDiagnostics.hpp"
 #include "NativeRuntime/System/Managed.hpp"
 
 #include <algorithm>
@@ -124,11 +127,20 @@ namespace MphRead::Mods::Network
         }
     }
 
-    void NetShotEvents::FinishShot(const Entities::PlayerEntity& shooter) noexcept
+    void NetShotEvents::FinishShot(const Entities::PlayerEntity& shooter, bool spawned) noexcept
     {
         const std::int32_t slot = shooter.SlotIndex();
         if (slot >= 0 && slot < Slots)
         {
+            if (!spawned)
+            {
+                LocalShotLog* log = LogFor(shooter);
+                const auto active = _activeShots[static_cast<std::size_t>(slot)];
+                if (log != nullptr && active.has_value())
+                {
+                    static_cast<void>(log->Cancel(active->Sequence));
+                }
+            }
             _activeShots[static_cast<std::size_t>(slot)].reset();
         }
     }
@@ -268,16 +280,40 @@ namespace MphRead::Mods::Network
         return std::nullopt;
     }
 
-    std::optional<IntentPacket::ShotEvent> NetShotEvents::FiringRay(const Entities::PlayerEntity& shooter) noexcept
+    std::optional<IntentPacket::ShotEvent> NetShotEvents::FiringRay(const Entities::PlayerEntity& shooter)
     {
         std::optional<IntentPacket::ShotEvent> event = FiringEvent(shooter);
-        if (!event.has_value() || !event->HasRay()
-            || !ShotRayValidation::IsPlausibleOrigin(
-                event->Origin, static_cast<OpenTK::Mathematics::Vector3>(shooter.Position), MaxRayOffset))
+        if (!event.has_value())
         {
             return std::nullopt;
         }
-        return event;
+        const std::int32_t slot = shooter.SlotIndex();
+        const bool authority = NetSession::IsAuthority();
+        const auto shooterAtFire = authority
+            ? HomingTargetHistory::FindPlayer(event->AckFrame, slot) : std::nullopt;
+        const OpenTK::Mathematics::Vector3 currentPosition = static_cast<OpenTK::Mathematics::Vector3>(shooter.Position);
+        HomingFireTargetValidation validation{};
+        if (authority)
+        {
+            validation = HomingTargetSelection::ValidateFireRay(
+                shooterAtFire.has_value() ? &*shooterAtFire : nullptr, slot, event->Origin, event->Direction);
+        }
+        else
+        {
+            validation.ShooterValid = true;
+            validation.RayValid = ShotRayValidation::IsPlausibleRay(
+                event->Origin, event->Direction, currentPosition, MaxRayOffset);
+        }
+        NetShotDiagnostics::TraceRayValidation(authority ? "remote-ray-validation" : "remote-ray-visual",
+            ShotKey::For(slot, event->AckFrame), static_cast<::MphRead::BeamType>(event->WeaponId),
+            event->Sequence, event->AckFrame, event->Origin, event->Direction,
+            authority ? (shooterAtFire.has_value() ? &shooterAtFire->Position : nullptr) : &currentPosition,
+            authority && shooterAtFire.has_value() ? shooterAtFire->Reference.Generation
+                : NetPlayerLifecycle::Generation(slot),
+            authority && shooterAtFire.has_value() ? shooterAtFire->Reference.LifeId
+                : NetPlayerLifecycle::Get(slot),
+            validation.RayValid, validation.RayValid);
+        return validation.RayValid ? event : std::nullopt;
     }
 
     bool NetShotEvents::MayFire(const Entities::PlayerEntity& shooter) noexcept

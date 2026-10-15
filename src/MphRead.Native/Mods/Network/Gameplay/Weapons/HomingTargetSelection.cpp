@@ -3,6 +3,7 @@
 #include "Entities/EnemyInstanceEntity.hpp"
 #include "Entities/PlatformEntity.hpp"
 #include "Mods/Multiplayer/TeamLayout.hpp"
+#include "Mods/Network/Protocol/Packets/ShotRayValidation.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -20,8 +21,22 @@ namespace MphRead::Mods::Network
             return (value & flag) == flag;
         }
 
-        [[nodiscard]] bool MatchesType(const HomingTargetSnapshot& candidate) noexcept
+        [[nodiscard]] bool IsValidShooterAtFire(const HomingTargetSnapshot* shooterAtFire,
+            std::int32_t shooterSlot) noexcept
         {
+            return shooterAtFire != nullptr && shooterAtFire->Targetable
+                && shooterAtFire->Reference.Kind == IntentPacket::ShotTargetKind::Player
+                && shooterAtFire->OwnerSlot == shooterSlot;
+        }
+
+        [[nodiscard]] bool MatchesType(const HomingTargetSnapshot& candidate, bool requireReference) noexcept
+        {
+            if (!candidate.Reference.IsValid() || candidate.Reference.Kind == TargetKind::None)
+            {
+                return !requireReference && (candidate.Type == EntityType::Player
+                    || candidate.Type == EntityType::Halfturret || candidate.Type == EntityType::EnemyInstance
+                    || candidate.Type == EntityType::Door || candidate.Type == EntityType::Platform);
+            }
             switch (candidate.Reference.Kind)
             {
             case TargetKind::Player:
@@ -86,11 +101,61 @@ namespace MphRead::Mods::Network
         }
     }
 
+    HomingFireTargetValidation HomingTargetSelection::ValidateFireRay(
+        const HomingTargetSnapshot* shooterAtFire, std::int32_t shooterSlot,
+        const OpenTK::Mathematics::Vector3& rayOrigin,
+        const OpenTK::Mathematics::Vector3& rayDirection) noexcept
+    {
+        HomingFireTargetValidation result{};
+        result.ShooterValid = IsValidShooterAtFire(shooterAtFire, shooterSlot);
+        result.RayValid = result.ShooterValid && ShotRayValidation::IsPlausibleRay(
+            rayOrigin, rayDirection, shooterAtFire->Position);
+        return result;
+    }
+
+    HomingFireTargetValidation HomingTargetSelection::ValidateFireTarget(
+        const HomingTargetSnapshot* shooterAtFire, std::int32_t shooterSlot,
+        const HomingTargetSnapshot* targetAtFire, HomingTargetSelectionRequest request,
+        bool hasRay, const OpenTK::Mathematics::Vector3& rayOrigin,
+        const OpenTK::Mathematics::Vector3& rayDirection) noexcept
+    {
+        HomingFireTargetValidation result = hasRay
+            ? ValidateFireRay(shooterAtFire, shooterSlot, rayOrigin, rayDirection)
+            : HomingFireTargetValidation{};
+        if (!hasRay)
+        {
+            result.ShooterValid = IsValidShooterAtFire(shooterAtFire, shooterSlot);
+            result.RayValid = result.ShooterValid;
+        }
+        if (!result.ShooterValid || !result.RayValid || targetAtFire == nullptr)
+        {
+            return result;
+        }
+        request.ExcludedTarget = {};
+        request.OwnerTeam = shooterAtFire->TeamIndex;
+        if (!hasRay)
+        {
+            result.Accepted = IsEligible(*targetAtFire, request);
+        }
+        else
+        {
+            request.Origin = rayOrigin;
+            request.Direction = rayDirection;
+            result.Accepted = CanAcquire(*targetAtFire, request);
+        }
+        return result;
+    }
+
     bool HomingTargetSelection::IsEligible(const HomingTargetSnapshot& candidate,
         const HomingTargetSelectionRequest& request) noexcept
     {
-        if (!candidate.Reference.IsValid() || candidate.Reference == request.ExcludedTarget
-            || !candidate.Targetable || !MatchesType(candidate))
+        const bool hasReference = candidate.Reference.IsValid()
+            && candidate.Reference.Kind != IntentPacket::ShotTargetKind::None;
+        const bool hasExcludedReference = request.ExcludedTarget.IsValid()
+            && request.ExcludedTarget.Kind != IntentPacket::ShotTargetKind::None;
+        if ((request.RequireReference && !hasReference)
+            || (hasExcludedReference && candidate.Reference == request.ExcludedTarget)
+            || !candidate.Targetable || !MatchesType(candidate, request.RequireReference))
         {
             return false;
         }
@@ -140,10 +205,19 @@ namespace MphRead::Mods::Network
         std::span<const HomingTargetSnapshot> candidates,
         const HomingTargetSelectionRequest& request) noexcept
     {
+        const std::optional<std::size_t> selected = SelectIndex(candidates, request);
+        return selected.has_value() ? candidates[*selected].Reference : IntentPacket::ShotTargetReference{};
+    }
+
+    std::optional<std::size_t> HomingTargetSelection::SelectIndex(
+        std::span<const HomingTargetSnapshot> candidates,
+        const HomingTargetSelectionRequest& request) noexcept
+    {
         float bestCosine = request.Tolerance;
-        IntentPacket::ShotTargetReference selected{};
-        for (const HomingTargetSnapshot& candidate : candidates)
+        std::optional<std::size_t> selected{};
+        for (std::size_t i = 0; i < candidates.size(); ++i)
         {
+            const HomingTargetSnapshot& candidate = candidates[i];
             if (!IsEligible(candidate, request))
             {
                 continue;
@@ -154,7 +228,7 @@ namespace MphRead::Mods::Network
                 continue;
             }
             bestCosine = *cosine;
-            selected = candidate.Reference;
+            selected = i;
         }
         return selected;
     }

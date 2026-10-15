@@ -23,6 +23,7 @@ namespace MphRead::Mods::Network
         }
         // Gives the shot its sequence and keeps it.
         std::uint32_t Record(IntentPacket::ShotEvent shot) noexcept;
+        [[nodiscard]] bool Cancel(std::uint32_t sequence) noexcept;
         void SetHomingTarget(std::uint32_t sequence,
             const IntentPacket::ShotTargetReference& target) noexcept;
         // How long a shot is repeated: as long as a receiver may still fire it

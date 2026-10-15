@@ -1340,7 +1340,7 @@ namespace MphRead::Entities
             SharedFrom<EntityBase>(this), _equipInfo, shotOrigin, shotVec, flags, NodeRef, _scene, nullptr, syluxGuardStart,
             modDrawnShot);
         Mods::Network::NetUnlagged::EndShot(*this);
-        Mods::Network::NetShotEvents::FinishShot(*this);
+        Mods::Network::NetShotEvents::FinishShot(*this, result != BeamResultFlags::NoSpawn);
         if (result == BeamResultFlags::NoSpawn)
         {
             _equipInfo->Weapon = curWeapon;

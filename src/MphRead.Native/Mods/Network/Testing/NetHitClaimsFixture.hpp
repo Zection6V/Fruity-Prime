@@ -50,5 +50,18 @@ namespace MphRead::Mods::Network
         {
             return NetHitClaims::StraightWeapon(shooterSlot, beam, launchFrame, shotSequence);
         }
+
+        [[nodiscard]] static bool HomingDecisionSatisfied(bool required, bool recorded,
+            bool authorityConfirmedMuzzleContact) noexcept
+        {
+            return NetHitClaims::HomingDecisionSatisfied(required, recorded, authorityConfirmedMuzzleContact);
+        }
+
+        [[nodiscard]] static bool NamedShotAgrees(std::int32_t shooterSlot,
+            const HitClaimPacket& claim, std::uint32_t launch,
+            std::optional<IntentPacket::ShotEvent>& named)
+        {
+            return NetHitClaims::NamedShotAgrees(shooterSlot, claim, launch, named);
+        }
     };
 }

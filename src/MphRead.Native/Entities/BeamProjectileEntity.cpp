@@ -27,6 +27,7 @@
 #include "Mods/Network/Gameplay/Weapons/ConfirmedShotSteering.hpp"
 #include "Mods/Network/Gameplay/Weapons/ContinuousWeaponPhase.hpp"
 #include "Mods/Network/Gameplay/Weapons/HomingTargetAcquisition.hpp"
+#include "Mods/Network/Gameplay/Weapons/NetShotEvents.hpp"
 #include "Mods/Network/Gameplay/Player/NetPlayerLifecycle.hpp"
 #include "Mods/Network/Session/NetSession.hpp"
 #include "Mods/Network/Diagnostics/NetShotDiagnostics.hpp"
@@ -1856,6 +1857,25 @@ namespace MphRead::Entities
         if (homing > 0.0F)
         {
             flags |= BeamFlags::Homing;
+        }
+        if ((preHit.has_value() || instantAoe) && homing > 0.0F && firingPlayer != nullptr
+            && !TestFlag(weapon.Flags, WeaponFlags::Continuous))
+        {
+            Mods::Network::NetShotEvents::RecordHomingTarget(
+                *firingPlayer, Mods::Network::IntentPacket::ShotTargetReference{});
+            if (Mods::Network::NetLog::Enabled())
+            {
+                const auto shot = Mods::Network::NetShotEvents::CurrentShotEvent(*firingPlayer);
+                if (shot.has_value())
+                {
+                    const std::string reason = preHit.has_value() ? "muzzle-contact" : "instant-aoe";
+                    Mods::Network::NetShotDiagnostics::Trace("target-decision",
+                        Mods::Network::ShotKey::For(firingPlayer->SlotIndex(), shot->AckFrame), weapon.Beam,
+                        "shotSequence=" + std::to_string(shot->Sequence)
+                        + " ackFrame=" + std::to_string(shot->AckFrame)
+                        + " targetDecision=none reason=" + reason);
+                }
+            }
         }
         if (charged || TestFlag(spawnFlags, BeamSpawnFlags::Charged))
         {

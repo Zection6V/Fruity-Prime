@@ -1,5 +1,7 @@
 #pragma once
 
+#include "AnimationTick.hpp"
+
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -10,24 +12,24 @@ namespace MphRead
     class AnimationInfo;
     class Model;
     class ModelInstance;
-    class NodeAnimationGroup;
 }
 
 namespace MphRead::Mods::Render
 {
-    // Draw-rate skeletal poses over the game's 30 Hz animation frames.
+    // Draw-rate animation over the game's 30 Hz animation frames.
     //
     // The integer frames, their loop/reverse/ping-pong/end transitions and
     // everything the simulation reads stay exactly as the game advances them.
-    // Inside a DrawScope, a node curve is sampled between the current frame
-    // and the frame the next tick will show (looked ahead with the game's own
-    // UpdateAnimFrames when the tick lands), by how far the instance's clock
-    // has run toward that tick. Materials, texture swaps and texcoords keep
-    // integer frames.
+    // Inside a DrawScope, a node, material colour or texcoord curve is sampled
+    // between the current frame and the frame the next tick will show (looked
+    // ahead with the game's own UpdateAnimFrames when the tick lands), by how
+    // far the instance's clock has run toward that tick. Texture swaps keep
+    // integer frames: there is nothing between two pictures.
     //
-    // Some simulation code reads node matrices a draw left behind (a
-    // platform's attached collision, Fire Spawn's wrists). So every matrix a
-    // blended pass wrote is handed back to the integer pose when the outermost
+    // Some simulation code reads what a draw left behind -- node matrices (a
+    // platform's attached collision, Fire Spawn's wrists) and material colours
+    // (Gorea's arm alpha). So every node matrix and material colour a blended
+    // pass wrote is handed back to its integer value when the outermost
     // DrawScope ends, unless something later in the draw replaced it.
     class AnimationBlend final
     {
@@ -56,21 +58,32 @@ namespace MphRead::Mods::Render
             Suppress& operator=(const Suppress&) = delete;
         };
 
-        // Hook: Model::AnimateNodes / AnimateNodes2. When the instance can be
-        // blended, `integer` runs the same pass first, unblended, so the
-        // integer pose is known; the body that follows runs blended.
-        class NodePass final
+        // Hook: around the code that samples one channel of one instance --
+        // Model::AnimateNodes / AnimateNodes2 (from `index`), AnimateMaterials,
+        // and the texcoord matrix. Where the channel leaves state behind,
+        // `integer` runs the same pass first, unblended, so the integer values
+        // are known; the body that follows runs blended. A texcoord matrix is
+        // returned, not kept, and needs no integer pass.
+        class Pass final
         {
         public:
+            Pass(const Model& model, AnimationChannel channel,
+                const std::shared_ptr<AnimationInfo>& info)
+            {
+                if (!Plan(model, channel, info)) return;
+                Begin(model, channel, -1);
+                _engaged = true;
+            }
+
             template<class Integer>
-            NodePass(const Model& model, std::int32_t index,
+            Pass(const Model& model, AnimationChannel channel, std::int32_t index,
                 const std::shared_ptr<AnimationInfo>& info, Integer&& integer)
             {
-                if (!Plan(model, info)) return;
+                if (!Plan(model, channel, info)) return;
                 try
                 {
                     integer();
-                    Begin(model, index);
+                    Begin(model, channel, index);
                 }
                 catch (...)
                 {
@@ -79,26 +92,29 @@ namespace MphRead::Mods::Render
                 }
                 _engaged = true;
             }
-            ~NodePass();
-            NodePass(const NodePass&) = delete;
-            NodePass& operator=(const NodePass&) = delete;
+
+            ~Pass();
+            Pass(const Pass&) = delete;
+            Pass& operator=(const Pass&) = delete;
 
         private:
-            static bool Plan(const Model& model, const std::shared_ptr<AnimationInfo>& info);
-            static void Begin(const Model& model, std::int32_t index);
+            static bool Plan(const Model& model, AnimationChannel channel,
+                const std::shared_ptr<AnimationInfo>& info);
+            static void Begin(const Model& model, AnimationChannel channel, std::int32_t index);
             static void End() noexcept;
             bool _engaged = false;
         };
 
-        // Hook: Model::InterpolateAnimation. A value while a NodePass is
-        // blending one of its group's node curves.
+        // Hook: Model::InterpolateAnimation. A value while a Pass is blending
+        // one of its channel's curves.
         [[nodiscard]] static std::optional<float> Sample(const Model& model,
             const std::shared_ptr<const std::vector<float>>& values, std::int32_t start,
             std::int32_t frame, std::int32_t blend, std::int32_t length,
             std::int32_t count, bool rotation);
 
-        // How far the instance's draw is toward its next frame, 0 when it
-        // would not be blended. For checks.
-        [[nodiscard]] static float Fraction(const AnimationInfo& info);
+        // How far the channel's draw is toward its next frame, 0 when it would
+        // not be blended. For checks.
+        [[nodiscard]] static float Fraction(const AnimationInfo& info,
+            AnimationChannel channel = AnimationChannel::Node);
     };
 }

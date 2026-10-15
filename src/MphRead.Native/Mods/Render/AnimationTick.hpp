@@ -1,15 +1,19 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
-
-namespace MphRead
-{
-    class NodeAnimationGroup;
-}
 
 namespace MphRead::Mods::Render
 {
     class AnimationClock;
+
+    // The curves a draw may blend. Texture swaps are discrete and are not one.
+    enum class AnimationChannel : std::uint8_t
+    {
+        Node,
+        Material,
+        Texcoord
+    };
 
     // What the newest animation tick of one model instance looked like, kept
     // on its AnimationInfo (ModTick). Written only by AnimationBlend::NoteTick
@@ -20,11 +24,12 @@ namespace MphRead::Mods::Render
         double Time = 0;
         // Clock time between the last two ticks; 0 while unknown.
         double Interval = 0;
-        // The node slot as the tick left it, and the frame the next tick will
-        // show. A draw blends only while the slot still matches.
-        const NodeAnimationGroup* Group = nullptr;
-        std::int32_t Frame = 0;
-        std::int32_t Next = 0;
-        std::uint16_t Flags = 0;
+        // Each slot as the tick left it, and the frame the next tick will show.
+        // A channel blends only while its slot and group still match.
+        std::array<std::int32_t, 2> Frame{};
+        std::array<std::int32_t, 2> Next{};
+        std::array<std::uint16_t, 2> Flags{};
+        // Per channel, the animation group the tick saw.
+        std::array<const void*, 3> Group{};
     };
 }

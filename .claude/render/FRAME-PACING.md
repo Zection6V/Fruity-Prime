@@ -116,25 +116,31 @@ what it buys. The extra frames are still worth having without it: the camera and
 the world are sampled at 60 but the *input-to-photon* path is not, and the
 picture is still drawn at the display's rate.
 
-### Skeletal poses are blended, and why that is not the same thing
+### Animation curves are blended, and why that is not the same thing
 
 The game advances integer animation frames at the DS's 30 Hz (`EntityBase::
-Process` on every other step). `Mods/Render/AnimationBlend` draws a skeleton
-*between* the frame it is on and the frame the next tick will show, by how far
-the draw has run toward that tick -- hunters, enemies, bosses, platforms, the
-launcher's hunter, all through one hook in `Model::AnimateNodes`/`AnimateNodes2`
-and one in `InterpolateAnimation`. It answers both objections above:
+Process` on every other step). `Mods/Render/AnimationBlend` draws three of a
+model's animation channels *between* the frame they are on and the frame the
+next tick will show, by how far the draw has run toward that tick: skeletal
+poses (`Model::AnimateNodes`/`AnimateNodes2`), material colour and alpha
+(`AnimateMaterials`) and texcoord scroll/scale/rotation (the texcoord matrix in
+`EntityBase::GetTexcoordMatrix`). Hunters, enemies, bosses, platforms, rooms'
+animated surfaces and the launcher's hunter all go through one `Pass` hook per
+channel and one in `InterpolateAnimation`; each channel reads its own slot.
+Texture swaps stay on integer frames -- there is nothing between two pictures.
+It answers both objections above:
 
 - **It looks ahead, never behind.** No previous state is kept. The next frame is
   asked of the game's own `UpdateAnimFrames` (loop, reverse, ping-pong, no-loop,
-  pause) when a tick lands, and a draw blends only while the node slot's frame,
-  group and flags still match what that tick left. A pooled model that was reset
+  pause) when a tick lands, and a draw blends a channel only while its slot's
+  frame and flags and its group still match what that tick left. A pooled model that was reset
   or re-animated simply is not blended until its next tick.
 - **Nothing the simulation reads changes.** Integer frames are untouched, and the
-  node matrices a blended pass wrote are put back to the integer pose when the
-  draw ends (`DrawScope`), unless something later in the draw replaced them --
-  a platform's attached collision and Fire Spawn's wrists read matrices a draw
-  left behind. `Enemy18Entity::EnemyGetDrawInfo` derives a shot origin from its
+  node matrices and material colours a blended pass wrote are put back to their
+  integer values when the draw ends (`DrawScope`), unless something later in the
+  draw replaced them -- a platform's attached collision and Fire Spawn's wrists
+  read matrices a draw left behind, and Gorea's states read its arms' alpha. A
+  texcoord matrix is returned into the draw item and leaves nothing behind. `Enemy18Entity::EnemyGetDrawInfo` derives a shot origin from its
   pose during the draw, so it opts out (`Suppress`). Measured: `-maptest -bots
   -drawrate 3` reports the same match before and after.
 
@@ -142,9 +148,14 @@ Time comes from `AnimationClock`: the simulation's steps once per 60 Hz step
 (`SceneAnimation::Step` in `OnSimulationFrame`), and a draw sits
 `FrameTiming::StepPhase()` past the newest step (`SceneAnimation::Draw` in
 `GetDrawItems`). Each instance records the interval between its last two ticks,
-so a 30 Hz and a 60 Hz cadence both blend correctly. Materials, texture swaps and
-texcoords stay on integer frames. `FruityPrime.AnimationBlend` tests it, and
-`fruity_animation_blend_tests <AMHP1 dir>` adds every hunter's real idle.
+so a 30 Hz and a 60 Hz cadence both blend correctly. `FruityPrime.AnimationBlend`
+tests it, and `fruity_animation_blend_tests <AMHP1 dir>` adds every hunter's
+real idle, poses and colours.
+
+What is still drawn at the simulation's rate, deliberately: entity and camera
+transforms and effect particles (60 Hz, see above -- pooled), HUD sprite frames
+and texture swaps (discrete), and effect spawns and beam trail samples (30 Hz,
+the DS's own cadence).
 
 ## Timers that live in the draw pass
 

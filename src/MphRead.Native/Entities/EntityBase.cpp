@@ -1,4 +1,5 @@
 #include "EntityBase.hpp"
+#include "../Mods/Render/AnimationBlend.hpp"
 
 #include "../NativeRuntime/System/Buffers.hpp"
 
@@ -956,6 +957,9 @@ namespace MphRead::Entities
                 || material.TexgenMode != TexgenMode::None)
             {
                 const std::int32_t texcoordFrame = animInfo.TexcoordFrame();
+                // Mod hook: in a draw, texcoords may blend toward the next 30 Hz frame.
+                const Mods::Render::AnimationBlend::Pass modBlend(RequireReference(modelValue),
+                    Mods::Render::AnimationChannel::Texcoord, inst.AnimInfo);
                 texcoordMatrix = RequireReference(modelValue).AnimateTexcoords(
                     group, *animation, texcoordFrame);
             }

@@ -14,23 +14,37 @@ namespace MphRead::Mods::Render
 {
     namespace
     {
+        using OpenTK::Mathematics::Matrix4;
+        using OpenTK::Mathematics::Vector3;
+
         // A tick further apart than this is a resumption, not a cadence.
         constexpr double MaxInterval = 8.0;
 
         struct ActiveSample
         {
             const Model* Model = nullptr;
-            const NodeAnimationGroup* Group = nullptr;
+            // The value arrays of the channel's group; any other curve is left alone.
+            std::array<const std::vector<float>*, 3> Curves{};
             std::int32_t Frame = 0;
             std::int32_t Next = 0;
             float Fraction = 0;
         };
 
+        struct MaterialColors
+        {
+            Vector3 Diffuse;
+            Vector3 Ambient;
+            Vector3 Specular;
+            float Alpha;
+        };
+
+        // What a blended pass wrote over an integer value, for the restore.
+        template<class Target, class Value>
         struct Written
         {
-            std::shared_ptr<Node> Target;
-            OpenTK::Mathematics::Matrix4 Integer;
-            OpenTK::Mathematics::Matrix4 Blended;
+            std::shared_ptr<Target> Owner;
+            Value Integer;
+            Value Blended;
         };
 
         struct DrawState
@@ -41,22 +55,74 @@ namespace MphRead::Mods::Render
             bool LookingAhead = false;
             std::optional<ActiveSample> Planned{};
             std::optional<ActiveSample> Active{};
-            // Each blended pass's subtree, integer then blended.
-            std::vector<Written> Log{};
+            AnimationChannel Channel = AnimationChannel::Node;
+            std::vector<Written<Node, Matrix4>> Nodes{};
+            std::vector<Written<Material, MaterialColors>> Materials{};
             std::size_t PassStart = 0;
-            std::unordered_set<const Node*> Seen{};
+            std::unordered_set<const void*> Seen{};
         };
 
         thread_local DrawState state;
 
-        std::size_t NodeSlot(const AnimationInfo& info)
+        template<class Value>
+        bool Same(const Value& a, const Value& b)
         {
-            return static_cast<std::size_t>(NativeRuntime::RequireReference(info.Node).Slot);
+            return std::memcmp(&a, &b, sizeof(Value)) == 0;
         }
 
-        bool Same(const OpenTK::Mathematics::Matrix4& a, const OpenTK::Mathematics::Matrix4& b)
+        MaterialColors ColorsOf(const Material& material)
         {
-            return std::memcmp(&a, &b, sizeof(a)) == 0;
+            return {material.CurrentDiffuse, material.CurrentAmbient,
+                material.CurrentSpecular, material.CurrentAlpha};
+        }
+
+        void SetColors(Material& material, const MaterialColors& colors)
+        {
+            material.CurrentDiffuse = colors.Diffuse;
+            material.CurrentAmbient = colors.Ambient;
+            material.CurrentSpecular = colors.Specular;
+            material.CurrentAlpha = colors.Alpha;
+        }
+
+        // The slot a channel reads its frame from, and the group it animates.
+        struct ChannelState
+        {
+            std::size_t Slot;
+            const void* Group;
+            std::array<const std::vector<float>*, 3> Curves;
+        };
+
+        ChannelState Channel(const AnimationInfo& info, AnimationChannel channel)
+        {
+            using NativeRuntime::RequireReference;
+            switch (channel)
+            {
+            case AnimationChannel::Node:
+            {
+                const auto& slot = RequireReference(info.Node);
+                const NodeAnimationGroup* group = slot.Group.get();
+                return {static_cast<std::size_t>(slot.Slot), group, group == nullptr
+                    ? std::array<const std::vector<float>*, 3>{}
+                    : std::array{group->Scales.get(), group->Rotations.get(), group->Translations.get()}};
+            }
+            case AnimationChannel::Material:
+            {
+                const auto& slot = RequireReference(info.Material);
+                const MaterialAnimationGroup* group = slot.Group.get();
+                return {static_cast<std::size_t>(slot.Slot), group, group == nullptr
+                    ? std::array<const std::vector<float>*, 3>{}
+                    : std::array<const std::vector<float>*, 3>{group->Colors.get(), nullptr, nullptr}};
+            }
+            case AnimationChannel::Texcoord:
+            default:
+            {
+                const auto& slot = RequireReference(info.Texcoord);
+                const TexcoordAnimationGroup* group = slot.Group.get();
+                return {static_cast<std::size_t>(slot.Slot), group, group == nullptr
+                    ? std::array<const std::vector<float>*, 3>{}
+                    : std::array{group->Scales.get(), group->Rotations.get(), group->Translations.get()}};
+            }
+            }
         }
 
         // The nodes AnimateNodes/AnimateNodes2 write from `index`: the sibling
@@ -77,9 +143,9 @@ namespace MphRead::Mods::Render
             }
         }
 
-        // The frame the node slot will show after the next tick, by the game's
+        // The frames both slots will show after the next tick, by the game's
         // own state machine. UpdateAnimFrames writes only Frame and Flags.
-        std::int32_t LookAhead(ModelInstance& instance)
+        std::array<std::int32_t, 2> LookAhead(ModelInstance& instance)
         {
             AnimationInfo& info = NativeRuntime::RequireReference(instance.AnimInfo);
             struct Restore
@@ -100,42 +166,74 @@ namespace MphRead::Mods::Render
                 {(*info.Flags)[0], (*info.Flags)[1]}};
             state.LookingAhead = true;
             instance.UpdateAnimFrames();
-            return info.NodeFrame();
+            return {(*info.Frame)[0], (*info.Frame)[1]};
         }
 
-        std::optional<ActiveSample> SampleFor(const AnimationInfo& info)
+        std::optional<ActiveSample> SampleFor(const AnimationInfo& info, AnimationChannel channel)
         {
             const AnimationTick& tick = info.ModTick;
-            const NodeAnimationGroup* group
-                = NativeRuntime::RequireReference(info.Node).Group.get();
-            if (tick.Clock == nullptr || tick.Interval <= 0 || group == nullptr
-                || tick.Group != group || tick.Next == tick.Frame
-                || info.NodeFrame() != tick.Frame
-                || static_cast<std::uint16_t>((*info.Flags)[NodeSlot(info)]) != tick.Flags)
+            const ChannelState current = Channel(info, channel);
+            const std::size_t slot = current.Slot;
+            if (tick.Clock == nullptr || tick.Interval <= 0 || current.Group == nullptr || slot > 1
+                || tick.Group[static_cast<std::size_t>(channel)] != current.Group
+                || tick.Next[slot] == tick.Frame[slot]
+                || (*info.Frame)[slot] != tick.Frame[slot]
+                || static_cast<std::uint16_t>((*info.Flags)[slot]) != tick.Flags[slot])
             {
                 return std::nullopt;
             }
             // Past due (a paused world, an entity that stopped ticking) holds
-            // the next frame, which is the pose the next tick lands on.
+            // the next frame, which is the value the next tick lands on.
             const double fraction = std::clamp(
                 (tick.Clock->DrawTime() - tick.Time) / tick.Interval, 0.0, 1.0);
             if (fraction <= 0) return std::nullopt;
-            return ActiveSample{nullptr, group, tick.Frame, tick.Next, static_cast<float>(fraction)};
+            return ActiveSample{nullptr, current.Curves, tick.Frame[slot], tick.Next[slot],
+                static_cast<float>(fraction)};
+        }
+
+        Matrix4 PoseOf(const Node& node)
+        {
+            return node.Animation;
+        }
+
+        void SetPose(Node& node, const Matrix4& pose)
+        {
+            node.Animation = pose;
+        }
+
+        template<class Target, class Value, class Get>
+        void Record(std::vector<Written<Target, Value>>& log, const std::shared_ptr<Target>& owner, Get&& get)
+        {
+            const Value value = get(*owner);
+            log.push_back({owner, value, value});
+        }
+
+        template<class Target, class Value, class Get>
+        void RecordBlended(std::vector<Written<Target, Value>>& log, Get&& get)
+        {
+            for (std::size_t i = state.PassStart; i < log.size(); ++i)
+            {
+                log[i].Blended = get(*log[i].Owner);
+            }
+        }
+
+        template<class Target, class Value, class Get, class Set>
+        void RestoreAll(std::vector<Written<Target, Value>>& log, Get&& get, Set&& set)
+        {
+            // Newest first: the last pass to write a value decides what it was.
+            for (auto it = log.rbegin(); it != log.rend(); ++it)
+            {
+                if (!state.Seen.insert(it->Owner.get()).second) continue;
+                if (Same(get(*it->Owner), it->Blended)) set(*it->Owner, it->Integer);
+            }
+            log.clear();
+            state.Seen.clear();
         }
 
         void Restore()
         {
-            // Newest first: the last pass to write a node decides what it was.
-            for (auto it = state.Log.rbegin(); it != state.Log.rend(); ++it)
-            {
-                if (!state.Seen.insert(it->Target.get()).second) continue;
-                if (Same(it->Target->Animation, it->Blended))
-                {
-                    it->Target->Animation = it->Integer;
-                }
-            }
-            state.Log.clear();
-            state.Seen.clear();
+            RestoreAll(state.Nodes, PoseOf, SetPose);
+            RestoreAll(state.Materials, ColorsOf, SetColors);
         }
     }
 
@@ -162,15 +260,24 @@ namespace MphRead::Mods::Render
         }
         tick.Clock = clock;
         tick.Time = time;
-        tick.Group = NativeRuntime::RequireReference(info.Node).Group.get();
-        tick.Frame = info.NodeFrame();
-        tick.Flags = static_cast<std::uint16_t>((*info.Flags)[NodeSlot(info)]);
-        tick.Next = tick.Group != nullptr ? LookAhead(instance) : tick.Frame;
+        bool animated = false;
+        for (const auto channel : {AnimationChannel::Node, AnimationChannel::Material, AnimationChannel::Texcoord})
+        {
+            const void* group = Channel(info, channel).Group;
+            tick.Group[static_cast<std::size_t>(channel)] = group;
+            animated = animated || group != nullptr;
+        }
+        for (std::size_t slot = 0; slot < 2; ++slot)
+        {
+            tick.Frame[slot] = (*info.Frame)[slot];
+            tick.Flags[slot] = static_cast<std::uint16_t>((*info.Flags)[slot]);
+        }
+        tick.Next = animated ? LookAhead(instance) : tick.Frame;
     }
 
-    float AnimationBlend::Fraction(const AnimationInfo& info)
+    float AnimationBlend::Fraction(const AnimationInfo& info, AnimationChannel channel)
     {
-        const auto sample = SampleFor(info);
+        const auto sample = SampleFor(info, channel);
         return sample ? sample->Fraction : 0.0F;
     }
 
@@ -194,38 +301,49 @@ namespace MphRead::Mods::Render
         --state.Suppressed;
     }
 
-    bool AnimationBlend::NodePass::Plan(const Model& model, const std::shared_ptr<AnimationInfo>& info)
+    bool AnimationBlend::Pass::Plan(const Model& model, AnimationChannel channel,
+        const std::shared_ptr<AnimationInfo>& info)
     {
         if (state.Scopes == 0 || state.Suppressed != 0 || state.Busy || !info) return false;
-        state.Planned = SampleFor(*info);
+        state.Planned = SampleFor(*info, channel);
         if (!state.Planned) return false;
         state.Planned->Model = &model;
+        state.Channel = channel;
         // The integer pass and every recursion of the blended one are inert.
         state.Busy = true;
         return true;
     }
 
-    void AnimationBlend::NodePass::Begin(const Model& model, std::int32_t index)
+    void AnimationBlend::Pass::Begin(const Model& model, AnimationChannel channel, std::int32_t index)
     {
-        state.PassStart = state.Log.size();
-        Walk(model, index, [](const std::shared_ptr<Node>& node)
+        if (channel == AnimationChannel::Node)
         {
-            state.Log.push_back({node, node->Animation, node->Animation});
-        });
+            state.PassStart = state.Nodes.size();
+            Walk(model, index, [](const std::shared_ptr<Node>& node)
+            {
+                Record(state.Nodes, node, PoseOf);
+            });
+        }
+        else if (channel == AnimationChannel::Material)
+        {
+            state.PassStart = state.Materials.size();
+            for (const auto& material : NativeRuntime::RequireReference(model.Materials))
+            {
+                Record(state.Materials, material, ColorsOf);
+            }
+        }
         state.Active = state.Planned;
     }
 
-    AnimationBlend::NodePass::~NodePass()
+    AnimationBlend::Pass::~Pass()
     {
         if (!_engaged) return;
-        for (std::size_t i = state.PassStart; i < state.Log.size(); ++i)
-        {
-            state.Log[i].Blended = state.Log[i].Target->Animation;
-        }
+        if (state.Channel == AnimationChannel::Node) RecordBlended(state.Nodes, PoseOf);
+        else if (state.Channel == AnimationChannel::Material) RecordBlended(state.Materials, ColorsOf);
         End();
     }
 
-    void AnimationBlend::NodePass::End() noexcept
+    void AnimationBlend::Pass::End() noexcept
     {
         state.Active.reset();
         state.Planned.reset();
@@ -239,9 +357,11 @@ namespace MphRead::Mods::Render
     {
         if (!state.Active) return std::nullopt;
         const ActiveSample sample = *state.Active;
-        if (sample.Model != &model || sample.Frame != frame
-            || (values != sample.Group->Scales && values != sample.Group->Rotations
-                && values != sample.Group->Translations)) return std::nullopt;
+        if (sample.Model != &model || sample.Frame != frame || !values
+            || std::find(sample.Curves.begin(), sample.Curves.end(), values.get()) == sample.Curves.end())
+        {
+            return std::nullopt;
+        }
 
         // Both ends come from the game's own LUT decoder, compressed tails
         // included. Suspending the sample prevents recursion, exception safe.

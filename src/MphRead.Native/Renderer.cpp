@@ -78,6 +78,7 @@
 #include "Mods/Render/Crosshair.hpp"
 #include "Mods/Render/DesktopGlContext.hpp"
 #include "Mods/Render/FrameTiming.hpp"
+#include "Mods/Input/FrameAim.hpp"
 #include "Mods/Render/SceneAnimation.hpp"
 #include "Mods/Render/MapThumbnail.hpp"
 #include "Mods/Render/LauncherHunter.hpp"
@@ -1878,9 +1879,7 @@ namespace MphRead
                 _roamPadMoveX = _roamPadMoveY = _roamPadRise = _roamPadLookX = _roamPadLookY = 0.0F;
             }
             Mods::EndScreen::PollGamepad();
-            const bool noPlayerInput = _inputMode == InputMode::CameraOnly
-                || Mods::PauseMenu::Open() || Mods::Chat::ChatBox::Composing()
-                || (!Mods::Headless::Active() && !Mods::Input::GamepadContexts::Focused());
+            const bool noPlayerInput = ModPlayerInputBlocked();
             Entities::PlayerEntity::ProcessInput(*_keyboardState, *_mouseState, noPlayerInput);
             if (!noPlayerInput && !Mods::SpectatorMode::IsSpectating())
             {
@@ -1955,6 +1954,8 @@ namespace MphRead
     void Scene::OnDrawFrame()
     {
         const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
+        // Mod hook: draw-rate animation and mouse look for this picture (Mods/Render/SceneAnimation).
+        const Mods::Render::SceneAnimation::Draw modAnimationDraw;
         Mods::EndScreen::Tick(_room != nullptr ? _room->Meta().Name : std::string(), _globalElapsedTime);
         Mods::Render::MapThumbnail::BeginFrame();
         (void)Gpu().BeginFrame();
@@ -2580,7 +2581,8 @@ namespace MphRead
                 const auto cameraInfo = main != nullptr ? main->CameraInfo() : nullptr;
                 if (cameraInfo != nullptr)
                 {
-                    _viewMatrix = cameraInfo->ViewMatrix;
+                    // Mod hook: the aim the frames have turned since the step built this camera (Mods/Input/FrameAim).
+                    _viewMatrix = Mods::Input::FrameAim::View(main.get(), *cameraInfo, cameraInfo->ViewMatrix);
                     float fov = cameraInfo->Fov > 0.0F
                         ? cameraInfo->Fov
                         : static_cast<float>(Mods::RenderOptions::DefaultFov);
@@ -3845,8 +3847,6 @@ namespace MphRead
 
     void Scene::GetDrawItems()
     {
-        // Mod hook: draw-rate poses between 30 Hz animation frames (Mods/Render/SceneAnimation).
-        const Mods::Render::SceneAnimation::Draw modAnimationDraw;
         const auto main = Entities::PlayerEntity::Main();
         if (GameState::MenuPause())
         {
@@ -7054,6 +7054,8 @@ namespace MphRead
         {
             steps = Mods::Render::FrameTiming::Advance(args.Time);
         }
+        // Mod hook: the mouse read at this frame's pump turns the aim now (Mods/Input/FrameAim).
+        _scene->ModApplyFrameAim();
         for (std::int32_t i = 0; i < steps; ++i)
         {
             const NativeRuntime::FrameTelemetry::Scope measured(NativeRuntime::FrameTelemetry::Phase::Simulation);

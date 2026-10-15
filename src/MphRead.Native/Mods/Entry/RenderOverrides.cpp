@@ -7,6 +7,7 @@
 #include "../../NativeRuntime/System/Globalization.hpp"
 #include "../../NativeRuntime/System/Number.hpp"
 #include "../Diagnostics/FramePerformance.hpp"
+#include "../Input/FrameAim.hpp"
 #include "../Render/Crosshair.hpp"
 #include "../Render/FrameTiming.hpp"
 #include "../Render/Radar.hpp"
@@ -67,6 +68,13 @@ namespace MphRead::Mods::Entry
         if (fog.has_value() && !StartsWithHyphen(fog))
         {
             RenderOptions::Fog(RenderOptions::ParseOnOff(*fog, RenderOptions::Fog()));
+        }
+
+        // Mouse look at the display's rate (Mods/Input/FrameAim); on by default.
+        const std::optional<std::string> frameAim = ValueAfter(args, "frameaim");
+        if (frameAim.has_value() && !StartsWithHyphen(frameAim))
+        {
+            Input::FrameAim::Enabled(RenderOptions::ParseOnOff(*frameAim, Input::FrameAim::Enabled()));
         }
 
         const std::optional<std::string> fov = ValueAfter(args, "fov");

@@ -157,6 +157,54 @@ transforms and effect particles (60 Hz, see above -- pooled), HUD sprite frames
 and texture swaps (discrete), and effect spawns and beam trail samples (30 Hz,
 the DS's own cadence).
 
+### Mouse look turns at the display's rate
+
+The simulation turned the aim once per 60 Hz step, from the mouse motion
+collected before it, and built the camera in that step. A frame drawn with no
+step behind it -- most of them above 60 Hz -- showed the view the last step
+left: on a 144 Hz screen the picture of a turn was a mean 5.2 ms and up to
+13.9 ms behind the mouse, and its speed went in steps.
+
+`Mods/Input/FrameAim` turns the actual aim at the display's rate. The mouse is
+read once a frame at one fixed instant -- the frame's input pump, after the
+latency wait -- and `Scene::ModApplyFrameAim`, before the frame's steps, turns
+the aim by the motion since the last application through the game's own
+`UpdateAimY`/`UpdateAimX`, then rebuilds what a step builds from an aim (the
+gun's basis, `UpdateAimVecs`, the muzzle and charge effects). A step applies
+only the share of its mouse delta the frames have not (`ModStepMouseAim`); its
+other readers of that delta -- input seen, HUD sway, the aim frame -- still see
+the whole of it. The camera the last step built is turned to the frames' aim
+in `Scene::TransformCamera` (`FrameAim::View`). With no frame application the
+step's arithmetic is bit-for-bit what it was. Only where turning in pieces is
+turning at once: first person, mouse aim, exact rules, fixed crosshair (Pro
+mode HUD); the DS-style drift eases the view toward the aim on every call and
+is left to the step. `-frameaim off` is the control.
+
+Two earlier shapes were tried and dropped, and why matters. **Predicting** the
+next step's turn for the picture alone (and turning the gun to match) was exact
+to 0.0001 degrees, and still made the map and the gun shake: **reading the
+mouse again right before each step and each draw** put the sample at a
+different point of every frame -- later on a frame with a step, by however long
+the step took -- so the picture turned by uneven amounts at an even refresh.
+Reading once, at the same instant every frame, is what makes a turn even.
+
+**The frame's camera takes `UpVector`, never `TrueUp`.** `CameraInfo::Update`
+makes `TrueUp` perpendicular to the step's own sight line, which near straight
+up or down is that sight line's horizontal heading. Reused for a frame whose aim
+had turned since, it rolled the picture -- by up to 40 degrees against the
+camera the next step builds -- and the step put it back: a shake that grew the
+nearer the view was to the vertical. From `UpVector` LookAt makes the up the
+step would make for the new target; the check compares the whole view, roll
+included, and holds it within 0.001 degrees above 70 degrees of pitch.
+
+Measured by `-aimcheck` (`AimCheck::CheckFrameAim`, real player): frames along
+a mouse path then a step end where one step over the whole path ends, a step
+after the frames adds nothing (it fires along the aim on screen), the view
+looks along the frames' aim, and the gun and muzzle are where the step puts
+them. On a constant 180 degree/s turn read once a frame, the picture's age goes
+to 0, the per-frame turn becomes even, and what is seen matches where the next
+shot goes (see the check's `FRAMEAIM schedule` lines for the before).
+
 ## Timers that live in the draw pass
 
 Two were found by audit and both are handled by counting steps owed rather than

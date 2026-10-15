@@ -33,10 +33,6 @@ namespace MphRead::Mods::Network
     {
         HomingTargetSnapshot snapshot{};
         snapshot.Reference = HomingTargetReference::Encode(&entity);
-        if (!snapshot.Reference.IsValid())
-        {
-            return snapshot;
-        }
         snapshot.Type = entity.Type;
         entity.GetPosition(snapshot.Position);
         snapshot.Targetable = entity.GetTargetable();
@@ -91,7 +87,8 @@ namespace MphRead::Mods::Network
                     continue;
                 }
                 HomingTargetSnapshot snapshot = Capture(*entityPtr);
-                if (!snapshot.Reference.IsValid())
+                if (!snapshot.Reference.IsValid()
+                    || snapshot.Reference.Kind == IntentPacket::ShotTargetKind::None)
                 {
                     continue;
                 }
@@ -103,7 +100,8 @@ namespace MphRead::Mods::Network
     std::optional<HomingTargetSnapshot> HomingTargetHistory::Find(
         std::uint32_t frameNumber, const IntentPacket::ShotTargetReference& reference)
     {
-        if (frameNumber == 0 || !reference.IsValid())
+        if (frameNumber == 0 || !reference.IsValid()
+            || reference.Kind == IntentPacket::ShotTargetKind::None)
         {
             return std::nullopt;
         }

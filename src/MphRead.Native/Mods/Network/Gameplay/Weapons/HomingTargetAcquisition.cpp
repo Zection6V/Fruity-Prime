@@ -9,6 +9,8 @@
 #include "Mods/Network/Gameplay/Weapons/HomingTargetSelection.hpp"
 #include "Mods/Network/Gameplay/Weapons/NetShotEvents.hpp"
 #include "Mods/Network/Gameplay/Weapons/ShotOwnership.hpp"
+#include "Mods/Network/Diagnostics/NetShotDiagnostics.hpp"
+#include "Mods/Network/Diagnostics/NetLog.hpp"
 #include "Mods/Network/Session/NetSession.hpp"
 #include "NativeRuntime/System/Managed.hpp"
 #include "Scene.hpp"
@@ -39,6 +41,7 @@ namespace MphRead::Mods::Network
             Vector3 RayOrigin{};
             Vector3 RayDirection{};
             std::uint32_t Frame = 0;
+            std::uint32_t Sequence = 0;
         };
 
         [[nodiscard]] TargetDecision ReadDecision(const BeamProjectileEntity& beam, const PlayerEntity* owner)
@@ -70,6 +73,7 @@ namespace MphRead::Mods::Network
             {
                 decision.Received = decision.Remote || event->HasHomingDecision();
                 decision.Frame = event->AckFrame;
+                decision.Sequence = event->Sequence;
                 decision.HasRay = true;
                 decision.RayOrigin = event->Origin;
                 decision.RayDirection = event->Direction;
@@ -88,19 +92,31 @@ namespace MphRead::Mods::Network
         {
             const auto ownerAtFire = HomingTargetHistory::FindPlayer(decision.Frame, owner.SlotIndex());
             const auto targetAtFire = HomingTargetHistory::Find(decision.Frame, *decision.Target);
-            if (!ownerAtFire.has_value() || !ownerAtFire->Targetable || !targetAtFire.has_value())
-            {
-                return false;
-            }
-            request.ExcludedTarget = {};
-            request.OwnerTeam = ownerAtFire->TeamIndex;
-            if (!decision.HasRay)
-            {
-                return HomingTargetSelection::IsEligible(*targetAtFire, request);
-            }
-            request.Origin = decision.RayOrigin;
-            request.Direction = decision.RayDirection;
-            return HomingTargetSelection::CanAcquire(*targetAtFire, request);
+            const HomingFireTargetValidation validation = HomingTargetSelection::ValidateFireTarget(
+                ownerAtFire.has_value() ? &*ownerAtFire : nullptr, owner.SlotIndex(),
+                targetAtFire.has_value() ? &*targetAtFire : nullptr, request,
+                decision.HasRay, decision.RayOrigin, decision.RayDirection);
+            const ShotKey key = ShotKey::For(owner.SlotIndex(), decision.Frame);
+            NetShotDiagnostics::TraceRayValidation("homing-ray-validation",
+                key, request.Beam,
+                decision.Sequence, decision.Frame, decision.RayOrigin, decision.RayDirection,
+                ownerAtFire.has_value() ? &ownerAtFire->Position : nullptr,
+                ownerAtFire.has_value() ? ownerAtFire->Reference.Generation : 0,
+                ownerAtFire.has_value() ? ownerAtFire->Reference.LifeId : 0,
+                validation.RayValid, validation.Accepted);
+            const IntentPacket::ShotTargetReference& target = *decision.Target;
+            NetShotDiagnostics::Trace("homing-target-validation", key, request.Beam,
+                "shotSequence=" + std::to_string(decision.Sequence)
+                + " ackFrame=" + std::to_string(decision.Frame)
+                + " targetKind=" + std::to_string(static_cast<std::uint8_t>(target.Kind))
+                + " targetSlot=" + std::to_string(target.Slot)
+                + " targetGeneration=" + std::to_string(target.Generation)
+                + " targetLifeId=" + std::to_string(target.LifeId)
+                + " targetEntityId=" + std::to_string(target.EntityId)
+                + " targetStableId=" + std::to_string(target.StableId)
+                + " targetAtFire=" + (targetAtFire.has_value() ? "true" : "false")
+                + " acquired=" + (validation.Accepted ? "true" : "false"));
+            return validation.Accepted;
         }
 
         void RecordChoice(const BeamProjectileEntity& beam, const PlayerEntity& owner, const TargetReference& selected)
@@ -170,6 +186,7 @@ namespace MphRead::Mods::Network
         request.Range = Fixed::ToFloat(weapon.HomingRange);
         request.Tolerance = Fixed::ToFloat(equip.HomingTolerance());
         request.Continuous = ::MphRead::TestFlag(weapon.Flags, WeaponFlags::Continuous);
+        request.RequireReference = NetSession::Active();
 
         bool validated = false;
         if (decision.Remote && decision.Target.has_value() && ShotOwnership::Judges())
@@ -194,7 +211,9 @@ namespace MphRead::Mods::Network
                     continue;
                 }
                 const HomingTargetSnapshot snapshot = HomingTargetHistory::Capture(*entity);
-                if (!snapshot.Reference.IsValid() || (decision.Received && snapshot.Reference != *decision.Target))
+                if ((request.RequireReference && (!snapshot.Reference.IsValid()
+                        || snapshot.Reference.Kind == IntentPacket::ShotTargetKind::None))
+                    || (decision.Received && snapshot.Reference != *decision.Target))
                 {
                     continue;
                 }
@@ -217,21 +236,18 @@ namespace MphRead::Mods::Network
         {
             return Finish(Outcome::ReceivedIneligible, false);
         }
-        const TargetReference selected = HomingTargetSelection::Select(snapshots, request);
-        bool acquired = false;
-        for (std::size_t i = 0; selected.IsValid() && i < snapshots.size(); ++i)
+        const std::optional<std::size_t> selectedIndex = HomingTargetSelection::SelectIndex(snapshots, request);
+        const TargetReference selected = selectedIndex.has_value()
+            ? snapshots[*selectedIndex].Reference : TargetReference{};
+        if (selectedIndex.has_value())
         {
-            if (snapshots[i].Reference == selected)
-            {
-                beam.SetTarget(entities[i]);
-                acquired = true;
-                break;
-            }
+            beam.SetTarget(entities[*selectedIndex]);
         }
         if (!decision.Received && ownerPlayer != nullptr)
         {
             RecordChoice(beam, *ownerPlayer, selected);
         }
+        const bool acquired = selectedIndex.has_value();
         return Finish(acquired ? Outcome::Chosen : decision.Received ? Outcome::ReceivedIneligible
             : Outcome::NoneInCone, acquired && continuous);
     }

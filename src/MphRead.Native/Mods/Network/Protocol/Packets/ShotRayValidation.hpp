@@ -43,4 +43,13 @@ namespace MphRead::Mods::Network::ShotRayValidation
         return std::isfinite(offsetSquared) && std::isfinite(maximumOffsetSquared)
             && offsetSquared <= maximumOffsetSquared;
     }
+
+    [[nodiscard]] inline bool IsPlausibleRay(
+        const OpenTK::Mathematics::Vector3& origin,
+        const OpenTK::Mathematics::Vector3& direction,
+        const OpenTK::Mathematics::Vector3& shooterPosition,
+        float maximumOffset = MaximumOriginOffset) noexcept
+    {
+        return IsValidDirection(direction) && IsPlausibleOrigin(origin, shooterPosition, maximumOffset);
+    }
 }

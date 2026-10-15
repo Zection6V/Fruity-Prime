@@ -392,6 +392,7 @@ namespace MphRead::Mods::Network
             NetPlayerBridge::AttachLocalShot(_pendingIntent);
             NetShotEvents::Attach(_pendingIntent, NetSession::LocalSlot());
             NetBombs::AttachFor(NetSession::LocalSlot(), _pendingIntent, _pendingIntent.Frame);
+            HitRig::ApplyOutgoingIntentTestCase(_pendingIntent);
             NetSession::SendIntent(_pendingIntent);
         }
         if (!NetSession::IsAuthority())

@@ -21,5 +21,7 @@ namespace MphRead::Mods::Network
         EnemyTargetIdentity() = delete;
 
         [[nodiscard]] static std::uint64_t ForSpawn(Entities::EntityBase* spawner, EnemyType type) noexcept;
+        [[nodiscard]] static std::uint64_t ForSpawn(std::uint64_t parent,
+            std::uint32_t ordinal, EnemyType type) noexcept;
     };
 }

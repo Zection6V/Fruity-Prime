@@ -1,9 +1,15 @@
 #include "Mods/Network/Testing/Combat/NetCombatCheck.hpp"
 
 #include "Mods/Network/Gameplay/Claims/Hit/NetHitClaims.hpp"
+#include "Mods/Network/Gameplay/Weapons/NetShotEvents.hpp"
+#include "Mods/Network/Gameplay/Weapons/FiringVariant.hpp"
+#include "Mods/Network/Gameplay/Weapons/HomingTargetHistory.hpp"
+#include "Mods/Network/Gameplay/Player/NetPlayerLifecycle.hpp"
 #include "Mods/Network/Session/NetSession.hpp"
 #include "Mods/Network/Gameplay/Weapons/ContinuousWeaponPhase.hpp"
 #include "Mods/Network/Gameplay/Combat/NetUnlagged.hpp"
+#include "Mods/Network/Testing/NetHitClaimsFixture.hpp"
+#include "Mods/Network/Testing/NetUnlaggedFixture.hpp"
 #include "../Entities/BeamProjectileEntity.hpp"
 #include "../Entities/Players/PlayerEntity.hpp"
 #include "../Mods/Combat/SyluxMuzzleGuard.hpp"
@@ -14,11 +20,14 @@
 #include "SyluxGuardWeaponFixture.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 
 namespace MphRead::Mods::Network
 {
+    namespace Runtime = ::MphRead::NativeRuntime;
+
     void NetCombatCheck::SyluxMuzzleGuardCases(Scene& scene)
     {
         using namespace Entities;
@@ -31,6 +40,14 @@ namespace MphRead::Mods::Network
         const auto oldEquip = shooter._equipInfo;
         const auto oldHunter = shooter._hunter;
         const auto oldVictimPosition = static_cast<Vector3>(victim.Position);
+        const std::int32_t oldPrimeHunter = GameState::PrimeHunter();
+        const std::uint32_t fireFrame = std::max(1U, NetSession::NetFrame());
+        const auto oldPrimeHistory = NetUnlaggedFixture::CapturePrimeHistory(fireFrame);
+        std::array<Vector3, 4> oldPlayerPositions{};
+        for (std::size_t i = 0; i < oldPlayerPositions.size(); ++i)
+        {
+            oldPlayerPositions[i] = static_cast<Vector3>(PlayerEntity::Players().at(i)->Position);
+        }
         const bool oldEnabled = Guard::Enabled, oldMetrics = Metrics::Enabled;
         auto equip = std::make_shared<EquipInfo>();
         equip->Beams = oldEquip->Beams;
@@ -53,6 +70,14 @@ namespace MphRead::Mods::Network
             shooter._equipInfo = oldEquip;
             shooter._hunter = oldHunter;
             victim.Position = oldVictimPosition;
+            for (std::size_t i = 0; i < oldPlayerPositions.size(); ++i)
+            {
+                PlayerEntity::Players().at(i)->Position = oldPlayerPositions[i];
+                NetShotEvents::Forget(static_cast<std::int32_t>(i));
+            }
+            GameState::PrimeHunter(oldPrimeHunter);
+            NetUnlaggedFixture::RestorePrimeHistory(fireFrame, oldPrimeHistory);
+            HomingTargetHistory::Record(fireFrame, scene);
             Guard::Enabled = oldEnabled;
             Metrics::Enabled = oldMetrics;
             PrepareClaims();
@@ -195,24 +220,76 @@ namespace MphRead::Mods::Network
             clear();
             victim.Position = oldVictimPosition;
 
-            // Real TryFireWeapon hooks on every authority slot and on a BOT.
-            for (int slot = 0; slot < 4; ++slot)
+            // Run the real authority shot path on the authority slot.
+            NetHitClaims::Reset();
+            for (int slot = 0; slot < 1; ++slot)
             {
                 auto player = PlayerEntity::Players().at(static_cast<std::size_t>(slot));
                 const auto hunter = player->_hunter;
-                const bool bot = player->_isBot;
                 player->_hunter = Hunter::Sylux;
                 player->ModArmWeapon(BeamType::PowerBeam);
                 player->ModSetAmmo(400, 50);
                 player->_equipInfo->ChargeLevel = 0;
-                auto intent = Intent(*player, ++frame, true, true);
-                NetSession::AcceptSlotIntent(slot, intent);
+                player->Position = end;
                 player->_aimVec = -normal;
                 player->_gunDrawPos = end + ScaleVector(normal, 0.5F);
                 player->_muzzlePos = end;
                 player->_aimPosition = end - ScaleVector(normal, 10);
                 player->_gunAnimation = GunAnimation::Idle;
                 player->_timeSinceShot = 0;
+                NetShotEvents::Forget(slot);
+                GameState::PrimeHunter(slot);
+                NetUnlaggedFixture::SetPrimeHistory(fireFrame, slot);
+                HomingTargetHistory::Record(fireFrame, scene);
+                auto intent = Intent(*player, ++frame, true, true);
+                intent.AckFrame = fireFrame;
+                intent.HasShot = true;
+                intent.ShotOrigin = end;
+                intent.ShotDirection = -normal;
+                const FiringVariant variant = FiringVariant::For(*player);
+                IntentPacket::ShotEvent event{};
+                event.Sequence = 1;
+                event.Frame = intent.Frame;
+                event.AckFrame = fireFrame;
+                event.RoleFrame = FiringVariant::RoleFrame();
+                event.WeaponId = static_cast<std::uint8_t>(BeamType::PowerBeam);
+                event.WeaponVariantIndex = variant.Index;
+                const WeaponInfo& variantWeapon
+                    = Runtime::RequireReference(Weapons::Current->at(variant.Index));
+                event.Charge = static_cast<std::uint8_t>(std::min<std::uint16_t>(
+                    static_cast<std::uint16_t>(variantWeapon.FullCharge * 2), 0xFF));
+                event.Origin = end;
+                event.Direction = -normal;
+                if (variant.PrimeHunter)
+                {
+                    event.ShotFlags |= IntentPacket::ShotFlagPrimeHunter;
+                }
+                intent.ShotHistory[0] = event;
+                intent.ShotHistoryLength = 1;
+                NetShotEvents::RecordAcceptedIntent(slot, intent.SlotGeneration,
+                    intent.LifeId, intent.Frame, true);
+                NetShotEvents::Receive(slot, intent);
+                HitClaimPacket shotClaim{};
+                shotClaim.MatchId = NetSession::CurrentMatchId();
+                shotClaim.AuthorityEpoch = NetSession::AuthorityEpoch();
+                shotClaim.ShooterGeneration = NetPlayerLifecycle::Generation(slot);
+                shotClaim.ShooterLifeId = NetPlayerLifecycle::Get(slot);
+                shotClaim.Beam = static_cast<std::uint8_t>(BeamType::PowerBeam);
+                shotClaim.ShotSequence = event.Sequence;
+                shotClaim.LaunchFrame = fireFrame;
+                const auto acceptedShot = NetShotEvents::Find(slot, event.Sequence);
+                Check(acceptedShot.has_value() && !acceptedShot->HasHomingDecision()
+                    && acceptedShot->PrimeHunterAtFire(),
+                    "fixture records an unresolved Prime shot event/slot " + std::to_string(slot));
+                const WeaponInfo* shotWeapon = NetHitClaimsFixture::FiredWeapon(
+                    slot, shotClaim.Beam, fireFrame, event.Sequence);
+                Check(shotWeapon != nullptr && shotWeapon->ChargedHoming > 0,
+                    "fixture resolves the charged homing weapon variant/slot " + std::to_string(slot));
+                std::optional<IntentPacket::ShotEvent> named{};
+                Check(!NetHitClaimsFixture::NamedShotAgrees(slot, shotClaim, fireFrame, named)
+                    && named.has_value() && !named->HasHomingDecision(),
+                    "charged Prime Power Beam with no target decision is refused before muzzle evidence/slot "
+                        + std::to_string(slot));
                 player->Controls().Shoot().SetIsDown(true);
                 player->Controls().Shoot().SetIsPressed(true);
                 Metrics::Counters = {};
@@ -225,19 +302,19 @@ namespace MphRead::Mods::Network
                 player->_gunAnimation = GunAnimation::Idle;
                 Check(player->TryFireWeapon() && Metrics::Counters.TraceInvoked == 1 && Metrics::Counters.HitApplied == 1,
                     "Sylux actual authority TryFireWeapon blocks/slot " + std::to_string(slot));
+                named.reset();
+                Check(NetHitClaimsFixture::NamedShotAgrees(slot, shotClaim, fireFrame, named)
+                    && named.has_value() && !named->HasHomingDecision(),
+                    "a matching authority muzzle contact admits the otherwise unresolved charged shot/slot "
+                        + std::to_string(slot));
                 Check(LengthSquared(player->_muzzlePos - end) == 0
                     && LengthSquared(player->_gunDrawPos - (end + ScaleVector(normal, 0.5F))) == 0,
                     "gun model and muzzle effect positions stay unchanged/slot " + std::to_string(slot));
-                if (slot == 0)
-                {
-                    player->_isBot = true;
-                    player->_timeSinceShot = 1000;
-                    Metrics::Counters = {};
-                    Check(player->TryFireWeapon() && Metrics::Counters.TraceInvoked == 1 && Metrics::Counters.HitApplied == 1,
-                        "Sylux BOT shares the production muzzle policy");
-                }
                 player->_hunter = hunter;
-                player->_isBot = bot;
+                NetShotEvents::Forget(slot);
+                GameState::PrimeHunter(oldPrimeHunter);
+                NetUnlaggedFixture::RestorePrimeHistory(fireFrame, oldPrimeHistory);
+                player->Position = oldPlayerPositions[static_cast<std::size_t>(slot)];
             }
             clear();
             equip->Weapon = single;

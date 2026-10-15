@@ -351,12 +351,7 @@ namespace MphRead::Mods::Network
             ClaimArbitrationHasDeadline();
             DuplicateKillIsHeldToAllowedDamage();
             ContinuousPhaseAgreesAcrossPeers();
-            // SyluxMuzzleGuardCases(*scene) is not run here. It was verified
-            // when the guard landed (f626b0aa), and the guard's own behaviour
-            // stays covered by fruity_sylux_muzzle_guard_tests. Its authority
-            // fire cases drive a remote slot's TryFireWeapon with an intent
-            // that carries no shot event, which since 0a8bdcbf a remote copy
-            // rightly refuses -- a failure about the harness, not the guard.
+            SyluxMuzzleGuardCases(*scene);
             GameState::PointGoal(1000);
             GameState::MatchTime(3600);
             std::fill(GameState::Points().begin(), GameState::Points().end(), 0);

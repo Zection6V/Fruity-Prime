@@ -20,6 +20,8 @@ namespace MphRead::Entities
 
 namespace MphRead::Mods::Network
 {
+    struct IntentPacket;
+
     // A scripted pair of clients that stresses hit registration: a shooter
     // and a moving target -- on jump pads, at long range, or a duel.
     class HitRig final
@@ -53,7 +55,8 @@ namespace MphRead::Mods::Network
             // Even slots fire HomingRigSchedule at an odd-slot runner: every
             // charge-dependent homing weapon at the levels around each
             // boundary, and the Shock Coil held. What -homingtrace is read with.
-            Homing
+            Homing,
+            Muzzle
         };
 
         [[nodiscard]] static ::MphRead::BeamType VolleyWeapon() noexcept { return _volleyWeapon; }
@@ -88,6 +91,7 @@ namespace MphRead::Mods::Network
         static void SetScene(Scene* scene) noexcept { _scene = scene; }
         [[nodiscard]] static bool IsSniper();
         static void Drive(Entities::PlayerEntity& player);
+        static void ApplyOutgoingIntentTestCase(IntentPacket& intent) noexcept;
         [[nodiscard]] static std::string Describe();
 
     private:
@@ -122,6 +126,7 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static ::MphRead::BeamType CycleWeapon() noexcept;
         static void DriveSniper(Entities::PlayerEntity& player, Entities::PlayerControls& c, Entities::PlayerEntity* other);
         static void DriveHoming(Entities::PlayerEntity& player, Entities::PlayerControls& c, Entities::PlayerEntity* other);
+        static void DriveMuzzle(Entities::PlayerEntity& player, Entities::PlayerControls& c);
         static void HoldRange(Entities::PlayerEntity& player, Entities::PlayerControls& c, float range, float want);
         [[nodiscard]] static bool AimAt(Entities::PlayerEntity& player, Entities::PlayerEntity* target, float headHeight);
         [[nodiscard]] static Entities::PlayerEntity* Opponent(Entities::PlayerEntity& self);
@@ -169,6 +174,15 @@ namespace MphRead::Mods::Network
         inline static float _highest = 0;
         inline static bool _wasAirborne = false;
         inline static bool _morph = false;
+        inline static bool _spoofOrigin = false;
+        inline static bool _muzzleWallReady = false;
+        inline static bool _muzzlePlaced = false;
+        inline static std::int32_t _muzzleChargeFrames = 0;
+        inline static std::int32_t _muzzleSlot = -1;
+        inline static std::uint16_t _muzzleLifeId = 0;
+        inline static OpenTK::Mathematics::Vector3 _muzzleWallPoint{};
+        inline static OpenTK::Mathematics::Vector3 _muzzleWallStand{};
+        inline static OpenTK::Mathematics::Vector3 _muzzleWallAim{};
         inline static Scene* _scene = nullptr;
     };
 

@@ -37,8 +37,6 @@ namespace MphRead
 
     void Scene::ModCarryPlayerDrawn(const ModDrawMark& from, const Entities::PlayerEntity& player)
     {
-        const auto shift = player.ModPresentationShift();
-        if (!shift) return;
-        if (const auto carry = Mods::Render::MotionCarry::By(*shift)) ModCarryDrawn(from, *carry);
+        if (const auto carry = player.ModPresentationCarry()) ModCarryDrawn(from, *carry);
     }
 }

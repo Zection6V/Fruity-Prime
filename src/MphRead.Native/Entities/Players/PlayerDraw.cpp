@@ -434,11 +434,13 @@ namespace MphRead::Entities
         Model& model = RequireReference(alt.Model());
         for (std::int32_t i = 0; i < ManagedLength(_kandenSegMtx); ++i)
         {
-            RequireReference(ManagedAt(model.Nodes, i)).Animation = ManagedAt(_kandenSegMtx, i);
+            // Mod hook: each segment at the picture's instant (Mods/Render/PlayerEntityPresentation).
+            RequireReference(ManagedAt(model.Nodes, i)).Animation = ModKandenSegmentDrawn(i);
         }
         model.UpdateMatrixStack();
         UpdateMaterials(alt, Recolor());
         GetDrawItems(alt, RequireReference(ManagedAt(model.Nodes, 0)), _curAlpha);
+        ModRestoreKandenSegments();
     }
 
     void PlayerEntity::DrawSpireAltAttack()

@@ -1,6 +1,7 @@
 #include "ScenePresentation.hpp"
 
 #include "../../Entities/EntityBase.hpp"
+#include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Formats/Effects.hpp"
 #include "../../GameState.hpp"
 #include "../../Scene.hpp"
@@ -43,7 +44,12 @@ namespace MphRead::Mods::Render
     {
         ++step;
         advanced = true;
-        // Nothing draws a headless process: no poses to keep a step.
+        // The players' poses are a handful of matrices; every entity's is a
+        // map a step, which a headless process, drawing nothing, never reads.
+        for (auto it = scene.GetPlayerEntities().GetEnumerator(); it.MoveNext();)
+        {
+            if (const auto player = it.Current()) player->ModNotePresentationStep(step);
+        }
         if (Headless::Active()) return;
         for (auto it = scene.Entities().GetEnumerator(); it.MoveNext();)
         {
@@ -71,6 +77,11 @@ namespace MphRead::Mods::Render
         poses.clear();
         advanced = false;
         forcedPhase.reset();
+    }
+
+    std::uint64_t ScenePresentation::CurrentStep() noexcept
+    {
+        return step;
     }
 
     double ScenePresentation::Phase() noexcept

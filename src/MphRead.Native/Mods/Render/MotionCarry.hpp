@@ -36,6 +36,10 @@ namespace MphRead::Mods::Render
         [[nodiscard]] static std::optional<OpenTK::Mathematics::Matrix4> Between(
             const OpenTK::Mathematics::Matrix4& previous, const OpenTK::Mathematics::Matrix4& current,
             float fraction);
+        // Part of the way from `current` to `next`, a pose the game itself
+        // says comes next: the same carry, toward it rather than on past.
+        [[nodiscard]] static std::optional<OpenTK::Mathematics::Matrix4> Toward(
+            const OpenTK::Mathematics::Matrix4& current, const OpenTK::Mathematics::Matrix4& next, float fraction);
         // A translation alone, when there is one worth carrying.
         [[nodiscard]] static std::optional<OpenTK::Mathematics::Matrix4> By(OpenTK::Mathematics::Vector3 shift);
 
@@ -45,5 +49,10 @@ namespace MphRead::Mods::Render
         static void Apply(RenderItem& item, const OpenTK::Mathematics::Matrix4& carry);
         [[nodiscard]] static OpenTK::Mathematics::Vector3 Point(
             OpenTK::Mathematics::Vector3 point, const OpenTK::Mathematics::Matrix4& carry) noexcept;
+
+    private:
+        // `from`, moved by `fraction` of the motion that takes `start` to `end`.
+        [[nodiscard]] static std::optional<OpenTK::Mathematics::Matrix4> Along(const OpenTK::Mathematics::Matrix4& from,
+            const OpenTK::Mathematics::Matrix4& start, const OpenTK::Mathematics::Matrix4& end, float fraction);
     };
 }

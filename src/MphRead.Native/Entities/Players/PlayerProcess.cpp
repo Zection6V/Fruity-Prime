@@ -2327,7 +2327,8 @@ namespace MphRead::Entities
     {
         const auto scene = [&]() -> Scene& { return RequireReference(_scene); };
         constexpr std::int32_t cycle = 13 * 2;
-        float angle = 359.0F * static_cast<float>(scene().FrameCount() % cycle)
+        // Mod: _modSegmentLookAhead asks for the next frame's pose (Mods/Render/PlayerEntityPresentation).
+        float angle = 359.0F * static_cast<float>((scene().FrameCount() + _modSegmentLookAhead) % cycle)
             / static_cast<float>(cycle - 1);
         float factor = 0.3F * std::sin(DegreesToRadians(angle)) * _hSpeedMag;
         ManagedAt(_kandenSegPos, 0)

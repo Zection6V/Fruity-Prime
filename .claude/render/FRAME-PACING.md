@@ -103,7 +103,18 @@ rotation, carried that fraction of a step on. A billboard only moves. A replica
 on a client is read off the playout clock (`NetSmoothing::AheadShift`), which
 already holds that instant; a player simulated here moves on along its own
 step; an effect particle is drawn where its speed takes it, unless it stops at
-what it hits. Nothing older than the step is shown, so nothing is delayed, and
+what it hits. A player is carried by its drawn pose (`PlayerEntityPresentation`):
+in alt form that is the ball's own transform, roll and spin included -- carried
+by position alone, the ball moved every frame and rolled at 60 Hz -- and
+Kanden's segments are each drawn part of the way toward the pose the game's own
+update gives them next (`MotionCarry::Toward`): at the end of each step
+`UpdateStinglarvaSegments` is run once more, one frame on and with the body
+moved on by a step, and everything it touched is put back. Carrying them on by
+their last motion overshot once a loop -- the wiggle's angle is
+`359 * k / (cycle - 1)`, so the DS holds it still for the step it wraps -- and
+the tail snapped back. `DrawKandenAlt` draws the carried matrices and puts the
+step's back. A morph is not the body's motion, so the body is not carried
+across the step its form changes; the camera is, since it moves through one. Nothing older than the step is shown, so nothing is delayed, and
 the entity is never touched: draws compute node matrices that the simulation
 reads back, so moving the entity would have leaked the picture into the game.
 `-maptest -bots -drawrate N` draws each step at forced instants 0, 1/N, ...
@@ -323,7 +334,16 @@ motion (`CameraInfo::Position - PrevPosition`) by the fraction of a step it is
 into (`PlayerEntity::ModPresentOwnView`), the gun and muzzle with it, and puts
 the step's camera back once it is drawn. Nothing is behind the body; the error
 is the next step's change of speed, at most, and a jump no body makes in a
-step (2 units: a teleport, a respawn) is not carried. On a steady walk the
+step (`MotionCarry::JumpDistance`: a teleport, a respawn) is not carried.
+
+What the camera looks at is carried the same way, from the pose history the
+step records (`PlayerPoseHistory`: eye and target): an alt-form camera swings
+round the ball and Trace's turns with the mouse, and carried by its eye alone
+the view still turned 60 times a second under a ball and a world that moved
+every frame -- the worst of the alt-form shake. Only where this frame's own
+mouse turns the sight line (FrameAim) does the target simply go with the eye.
+The gun rides the carried view rigidly (`ModCarryCamera`, shared with the
+watched view). On a steady walk the
 picture is the camera the step builds at that instant (0.0001 cm).
 
 The body is carried the same way (`Position - PrevPosition`, and the collision

@@ -791,8 +791,8 @@ changes here, because nothing about the simulation does.
 - **The tick rate is `Mods/SimulationRate.hpp`, and nowhere else.** `Hz`,
   `StepSeconds` and the DS's half rate `DsHz` live there; `FrameTiming`, the
   homing rules, the animation rate, the particles, the harness windows and the
-  server loop read it. It is not yet free to change -- the engine still counts
-  much of its time in steps -- and the `-simhz` harness is how that gets done.
+  server loop read it. It is a definition, not a setting: the engine still
+  counts much of its time in steps of this length.
 - **Every picture shows the world at its own instant, carried on from the last
   step -- never blended with an older one** (`Mods/Render/ScenePresentation`).
   Between steps, each entity's *drawn items* -- the render items and single

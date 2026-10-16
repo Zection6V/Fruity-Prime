@@ -45,6 +45,8 @@ namespace MphRead::Mods::Render
         static void NoteAdded(const Entities::EntityBase& entity);
         static void Reset();
 
+        // The steps that ran the world so far, which pose histories are stamped with.
+        [[nodiscard]] static std::uint64_t CurrentStep() noexcept;
         // How far into the next step this picture is, [0, 1).
         [[nodiscard]] static double Phase() noexcept;
         // A harness drawing several pictures a step sets the instant of each.

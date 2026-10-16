@@ -9,9 +9,9 @@ namespace MphRead::Mods
     // runs and shows the world between steps (Mods/Render/ScenePresentation),
     // so nothing about how smooth the game looks depends on this number.
     //
-    // It is not yet free to change: the engine still counts much of its
+    // It is a definition, not a setting: the engine still counts much of its
     // time in steps of this length (timers, per-step rates, the wire and
-    // demos). Making every one of those read it is the -simhz work.
+    // demos), so changing it changes the game.
     struct SimulationRate final
     {
         SimulationRate() = delete;

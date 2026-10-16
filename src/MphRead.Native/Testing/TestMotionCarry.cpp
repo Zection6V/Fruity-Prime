@@ -84,6 +84,16 @@ int main()
             "a turn no step makes is not carried");
     }
 
+    // Toward a pose the game says comes next: part of the way there, never past.
+    {
+        const Matrix4 current = Pose(30, Vector3(1, 0, 0));
+        const Matrix4 next = Pose(40, Vector3(1.2F, 0, 0.4F));
+        const auto carry = MotionCarry::Toward(current, next, 0.25F);
+        passed &= Check(carry && Largest(current * *carry, Pose(32.5F, Vector3(1.05F, 0, 0.1F))) < 1e-4F,
+            "a quarter of the way toward the next pose");
+        passed &= Check(!MotionCarry::Toward(current, current, 0.5F), "toward the same pose is not a carry");
+    }
+
     // Drawn items: a transform, a matrix stack, and a billboard that only moves.
     {
         const auto carry = MotionCarry::Between(Pose(0, Vector3(0, 0, 0)), Pose(10, Vector3(1, 0, 0)), 1.0F);

@@ -26,8 +26,6 @@ public:                                                                         
     [[nodiscard]] bool ModPresentWatchedView(::OpenTK::Mathematics::Vector3 playoutShift);     \
     /* Once the picture is drawn: the step's own aim back (FrameAimPresentation). */          \
     void ModRestoreFrameAim();                                                                 \
-    /* Where this player's drawn body is carried to by the picture's instant, if moving. */   \
-    [[nodiscard]] std::optional<::OpenTK::Mathematics::Vector3> ModPresentationShift() const;  \
     /* What the camera should turn by since the last step built it, if anything. */           \
     [[nodiscard]] std::optional<::OpenTK::Mathematics::Vector3> ModFrameFacingShift() const;   \
 private:                                                                                       \
@@ -38,6 +36,8 @@ private:                                                                        
     void ModRebuildAimFromFacing();                                                            \
     /* What a picture changes, kept so that ModRestoreFrameAim can put it back. */            \
     void ModSaveFrameView();                                                                   \
+    /* The camera moved by `eye` and its sight line by `turn`, the gun riding with it. */     \
+    void ModCarryCamera(::OpenTK::Mathematics::Vector3 eye, ::OpenTK::Mathematics::Vector3 turn); \
     /* The muzzle and charge effects where the gun is, drawn there at once. */                \
     void ModPlaceGunEffects();                                                                 \
     ::MphRead::Mods::Input::FrameAimState _modFrameAim{};                                      \

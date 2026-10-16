@@ -208,24 +208,32 @@ namespace MphRead::Entities
             // happened yet that could say otherwise, and the next step puts
             // the eye where the body really goes. A jump no body makes in a
             // step -- a teleport, a respawn -- is not carried. The body is
-            // carried with it where it is drawn (ModPresentationShift).
-            constexpr float MaxEyeStep = Mods::Render::MotionCarry::JumpDistance;
-            ::MphRead::Entities::CameraInfo& camera = *_cameraInfo;
-            const Vector3 stepped = camera.Position - camera.PrevPosition;
+            // carried with it where it is drawn (ModPresentationCarry).
+            //
+            // What it looks at is carried the same way -- a ball's camera
+            // swings round it, Trace's turns with the mouse, a pad turns the
+            // view a step at a time -- unless this frame's own mouse turns the
+            // sight line (FrameAim), when the target goes with the eye.
+            constexpr float MaxStep = Mods::Render::MotionCarry::JumpDistance;
+            const ::MphRead::Entities::CameraInfo& camera = *_cameraInfo;
+            const Mods::Render::PlayerPoseHistory& pose = _modPose;
+            const Vector3 stepped = pose.CurrentEye - pose.PreviousEye;
+            const Vector3 looked = pose.CurrentTarget - pose.PreviousTarget;
             const float phase = static_cast<float>(Mods::Render::ScenePresentation::Phase());
-            if (Mods::Render::ScenePresentation::Moving()
-                && stepped.LengthSquared() > 0 && stepped.LengthSquared() < MaxEyeStep * MaxEyeStep)
+            if (Mods::Render::ScenePresentation::Moving() && pose.HasPrevious
+                && pose.Step == Mods::Render::ScenePresentation::CurrentStep()
+                && Same(camera.Position, pose.CurrentEye) && Same(camera.Target, pose.CurrentTarget)
+                && stepped.LengthSquared() < MaxStep * MaxStep && looked.LengthSquared() < MaxStep * MaxStep)
             {
                 const Vector3 eye = ::OpenTK::Mathematics::Multiply(stepped, phase);
-                ModSaveFrameView();
-                camera.Position = camera.Position + eye;
-                camera.Target = camera.Target + eye;
-                camera.ViewMatrix = ::OpenTK::Mathematics::CreateTranslation(-eye) * camera.ViewMatrix;
-                _gunDrawPos = _gunDrawPos + eye;
-                _muzzlePos = _muzzlePos + eye;
-                _aimPosition = _aimPosition + eye;
-                ModPlaceGunEffects();
-                shown = true;
+                const bool mouseTurns = live != nullptr && (ModFrameAimAllowed(true) || ModFrameAimAllowed(false));
+                const Vector3 turn = mouseTurns ? Vector3{} : ::OpenTK::Mathematics::Multiply(looked - stepped, phase);
+                if (eye.LengthSquared() > 0 || turn.LengthSquared() > 0)
+                {
+                    ModSaveFrameView();
+                    ModCarryCamera(eye, turn);
+                    shown = true;
+                }
             }
         }
         // The DS-style aim, from the eye this picture has.
@@ -236,28 +244,6 @@ namespace MphRead::Entities
             _modFrameView.ShownFacing = _facingVector;
         }
         return shown;
-    }
-
-    std::optional<::OpenTK::Mathematics::Vector3> PlayerEntity::ModPresentationShift() const
-    {
-        using ::OpenTK::Mathematics::Vector3;
-        if (!Mods::Render::ScenePresentation::Moving()) return std::nullopt;
-        // In first person the body is not drawn, and the eye and the gun are
-        // presented with the camera (ModPresentOwnView, ModPresentWatchedView).
-        if (IsMainPlayer() && _cameraType == CameraType::First && !IsAltForm()
-            && Formats::CameraSequence::Current() == nullptr)
-        {
-            return std::nullopt;
-        }
-        const double phase = Mods::Render::ScenePresentation::Phase();
-        // A replica on a client is read off the playout, which holds what has
-        // arrived past the step's read point: no guess at all.
-        if (Mods::Network::NetSmoothing::Active() && SlotIndex() != Mods::Network::NetSession::LocalSlot())
-        {
-            return Mods::Network::NetSmoothing::AheadShift(SlotIndex(), phase);
-        }
-        // Simulated here: on along the step's own motion.
-        return ::OpenTK::Mathematics::Multiply(static_cast<Vector3>(Position) - PrevPosition(), static_cast<float>(phase));
     }
 
     void PlayerEntity::ModSaveFrameView()
@@ -311,6 +297,17 @@ namespace MphRead::Entities
         ModSaveFrameView();
         Mods::Input::FrameAimView& view = _modFrameView;
         view.Watched = true;
+        ModCarryCamera(eye, turn);
+        view.ShownGun = _gunVec1;
+        view.ShownFacing = _facingVector;
+        return true;
+    }
+
+    void PlayerEntity::ModCarryCamera(::OpenTK::Mathematics::Vector3 eye, ::OpenTK::Mathematics::Vector3 turn)
+    {
+        using ::OpenTK::Mathematics::Matrix4;
+        using ::OpenTK::Mathematics::Vector3;
+        ::MphRead::Entities::CameraInfo& camera = *_cameraInfo;
         const Matrix4 shown = Mods::Input::FrameAim::Moved(camera, eye, turn);
         // The gun, the muzzle and their effects ride with the view: whatever
         // the step's camera had where, the picture's has in the same place.
@@ -330,9 +327,6 @@ namespace MphRead::Entities
         camera.TrueUp = direction(camera.TrueUp);
         camera.ViewMatrix = shown;
         ModPlaceGunEffects();
-        view.ShownGun = _gunVec1;
-        view.ShownFacing = _facingVector;
-        return true;
     }
 
     void PlayerEntity::ModPresentFrameReticle()

@@ -480,7 +480,11 @@ namespace MphRead::Mods::Diagnostics
                     reset(yaws(rng), pitches(rng) * 0.6F, false);
                     const Vector3 start = player.Position;
                     const Vector3 velocity(walk(rng), walk(rng) * 0.2F, walk(rng));
+                    // Two steps of a walk, as the scene records them.
                     player.SetPrevPosition(start);
+                    player.Position = start;
+                    player.UpdateCamera();
+                    Render::ScenePresentation::EndStep(*player._scene);
                     player.Position = start + velocity;
                     player.UpdateCamera();
                     player.UpdateAimVecs();
@@ -495,8 +499,9 @@ namespace MphRead::Mods::Diagnostics
                     const Matrix4 shown = Input::FrameAim::View(&player, *player.CameraInfo(), player.CameraInfo()->ViewMatrix);
                     const Vector3 shownEye = player.CameraInfo()->Position;
                     // The body's drawn items, carried by the same step's motion.
-                    const auto body = player.ModPresentationShift();
-                    bodyError.Add(OpenTK::Mathematics::Length((body ? *body : Vector3{})
+                    const auto body = player.ModPresentationCarry();
+                    const Vector3 bodyShift = body ? Vector3(body->M41, body->M42, body->M43) : Vector3{};
+                    bodyError.Add(OpenTK::Mathematics::Length(bodyShift
                         - OpenTK::Mathematics::Multiply(velocity, phase)) * 100.0);
                     gunError.Add(OpenTK::Mathematics::Length(Matrix::Vec3MultMtx4(player._gunDrawPos, shown) - gunInView) * 100.0);
                     player.ModRestoreFrameAim();
@@ -522,6 +527,35 @@ namespace MphRead::Mods::Diagnostics
             check(eyeError.Max < 0.01 && viewError.Max < 0.01,
                 "on a steady walk the carried eye is where the step puts it then");
             check(gunError.Max < 0.01, "the local gun stays where it sits in the view");
+
+            // A view turned by anything but this frame's mouse -- a pad, keys,
+            // an alt-form camera swinging round the ball -- turns on between
+            // steps along the step's own turn: the target is carried too.
+            Series targetError;
+            for (int i = 0; i < 200; ++i)
+            {
+                reset(yaws(rng), pitches(rng) * 0.5F, false);
+                player.UpdateCamera();
+                const Vector3 targetBefore = player.CameraInfo()->Target;
+                Render::ScenePresentation::EndStep(*player._scene);
+                player.UpdateAimX(walk(rng) * 10.0F);
+                player.UpdateAimY(walk(rng) * 5.0F);
+                player.UpdateCamera();
+                player.UpdateAimVecs();
+                Render::ScenePresentation::EndStep(*player._scene);
+                const Vector3 targetNow = player.CameraInfo()->Target;
+                const float phase = phases(rng);
+                atPhase(phase);
+                if (!player.ModPresentOwnView(nullptr)) { carried = false; continue; }
+                const Vector3 expected = targetNow + OpenTK::Mathematics::Multiply(targetNow - targetBefore, phase);
+                targetError.Add(OpenTK::Mathematics::Length(player.CameraInfo()->Target - expected) * 100.0);
+                player.ModRestoreFrameAim();
+                restored = restored && Same(targetNow, player.CameraInfo()->Target);
+            }
+            std::cout << std::setprecision(6) << "FRAMEAIM own turn trials=" << targetError.Count
+                << " target_vs_step_turn_cm max=" << targetError.Max << '\n';
+            check(carried && restored && targetError.Max < 0.01,
+                "a view no mouse turns this frame turns on along the step's turn");
         }
 
         Render::FrameTiming::Reset();

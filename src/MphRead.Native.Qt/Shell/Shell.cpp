@@ -1,13 +1,14 @@
 #include "../../MphRead.Native/Mods/Diagnostics/LauncherWindowCheck.hpp"
 #include "../../MphRead.Native/Mods/Diagnostics/AimCheck.hpp"
 #include "../../MphRead.Native/Mods/Render/FrameTiming.hpp"
-// Shell on Qt: the same one-window shell the renderer drives (BeforeFrame,
-// TickUi, pointer and key routing), with the menus as a Qt Quick scene (UiHost)
-// instead of the Skia-drawn Avalonia port. The match lifecycle below is the
-// Avalonia Shell's, unchanged; only the pages differ.
+// Shell on Qt: the one-window UI and input integration, with menus as a Qt
+// Quick scene (UiHost) instead of the Skia-drawn Avalonia port. Deferred match
+// starts and replay plans are owned by Mods::Launcher::ShellMatchFlow.
 
 #include "../../MphRead.Native/Mods/Launcher/GuiLauncher.hpp"
 #include "../../MphRead.Native/Mods/Launcher/Shell.hpp"
+#include "../../MphRead.Native/Mods/Launcher/ShellMatchFlow.hpp"
+#include "../../MphRead.Native/Mods/Launcher/Portable/MatchStart.hpp"
 #include "../../MphRead.Native/Mods/ScreenCapture.hpp"
 #include "../../MphRead.Native/NativeRuntime/Rhi/SceneBackend.hpp"
 
@@ -30,7 +31,6 @@
 #include "../../MphRead.Native/Mods/GameSettings.hpp"
 #include "../../MphRead.Native/Mods/Launcher/Portable/GameFiles.hpp"
 #include "../../MphRead.Native/Mods/Launcher/Portable/LauncherPrefs.hpp"
-#include "../../MphRead.Native/Mods/Launcher/Portable/MatchStart.hpp"
 #include "Mods/Network/Integration/Launch/NetHostSession.hpp"
 #include "Mods/Network/Session/NetSession.hpp"
 #include "../../MphRead.Native/Mods/PauseMenu.hpp"
@@ -80,33 +80,12 @@ namespace MphRead::Mods::Launcher::Gui
         MphRead::RenderWindow* g_window = nullptr;
         std::shared_ptr<MphRead::MenuSettings> g_settings;
         std::vector<std::string> g_rooms;
-        std::optional<LaunchPlan> g_pending;
-        std::optional<LaunchPlan> g_played;
         bool g_endMatch = false;
         bool g_quit = false;
         bool g_menuOpen = false;
         bool g_endPanel = false;
         std::unique_ptr<MphRead::Qt::ShellBridge> g_bridge;
         std::unique_ptr<MphRead::Qt::UiHost> g_host;
-
-        [[nodiscard]] LaunchPlan WithRoomKey(const LaunchPlan& source, std::string roomKey)
-        {
-            LaunchPlan::Init init;
-            init.Kind = source.Kind();
-            init.Lobby = source.Lobby();
-            init.Hunter = source.Hunter();
-            init.RoomKey = std::move(roomKey);
-            init.Mode = source.Mode();
-            init.Bots = source.Bots();
-            init.BotLevel = source.BotLevel();
-            init.Instagib = source.Instagib();
-            init.Port = source.Port();
-            init.PlayerName = source.PlayerName();
-            init.SaveSlot = source.SaveSlot();
-            init.NewGame = source.NewGame();
-            init.DemoPath = source.DemoPath();
-            return LaunchPlan(init);
-        }
 
         void Decided(LaunchPlan plan)
         {
@@ -115,7 +94,7 @@ namespace MphRead::Mods::Launcher::Gui
                 Shell::RequestQuit();
                 return;
             }
-            g_pending = std::move(plan);
+            MphRead::Mods::Launcher::ShellMatchFlow::Queue(std::move(plan));
         }
 
         // Previews of the maps (their levelshots, or drawn once built), out of
@@ -234,32 +213,6 @@ namespace MphRead::Mods::Launcher::Gui
             g_bridge->SetRooms(g_rooms, Portable::GameFiles::Ready());
             g_bridge->refreshProfile();
             ShowPage("front");
-        }
-
-        void StartMatch(MphRead::RenderWindow& window, LaunchPlan plan)
-        {
-            g_played = plan;
-            HidePage();
-            try
-            {
-                if (!Portable::MatchStart::Begin(window, g_settings, plan))
-                {
-                    MphRead::Mods::Network::NetSession::ReportMatchLoadFailed(
-                        "The map could not be loaded.");
-                    g_endMatch = true;
-                }
-            }
-            catch (const std::exception&)
-            {
-                const std::exception_ptr exception = std::current_exception();
-                std::cout << "\nThe game could not start: "
-                          << MphRead::NativeRuntime::ExceptionMessage(exception) << '\n';
-                MphRead::Mods::DebugLog::Line("crash", "the match could not start");
-                MphRead::Mods::DebugLog::Exception("crash", exception);
-                MphRead::Mods::Network::NetSession::ReportMatchLoadFailed(
-                    MphRead::NativeRuntime::ExceptionMessage(exception));
-                g_endMatch = true;
-            }
         }
 
         // Shell.EndNetworkMatchToLobby: a persistent lobby's match is over;
@@ -620,8 +573,7 @@ namespace MphRead::Mods::Launcher::Gui
 
     bool Shell::CanPlayAnother()
     {
-        return g_active && !g_pending.has_value() && g_played.has_value()
-            && g_played->Kind() == LaunchKind::Offline;
+        return g_active && MphRead::Mods::Launcher::ShellMatchFlow::CanPlayAnother();
     }
 
     std::int32_t& Shell::ShotMissCounter() noexcept
@@ -728,7 +680,7 @@ namespace MphRead::Mods::Launcher::Gui
         MphRead::RenderWindow::AfterRendererSwitch = {};
         g_active = false;
         g_window = nullptr;
-        g_pending.reset();
+        MphRead::Mods::Launcher::ShellMatchFlow::ClearPending();
         g_endMatch = false;
         g_quit = false;
         MphRead::Mods::Network::NetSession::Stop();
@@ -764,11 +716,10 @@ namespace MphRead::Mods::Launcher::Gui
             g_endMatch = false;
             EndMatch(window);
         }
-        if (g_pending.has_value())
+        if (MphRead::Mods::Launcher::ShellMatchFlow::HasPending())
         {
-            LaunchPlan plan = *g_pending;
-            g_pending.reset();
-            StartMatch(window, std::move(plan));
+            HidePage();
+            g_endMatch = !MphRead::Mods::Launcher::ShellMatchFlow::StartPending(window, g_settings);
         }
     }
 
@@ -886,17 +837,21 @@ namespace MphRead::Mods::Launcher::Gui
 
     void Shell::PlayAnother(std::string roomKey)
     {
-        if (!CanPlayAnother() || roomKey.empty() || !g_played.has_value())
+        if (!g_active || !MphRead::Mods::Launcher::ShellMatchFlow::QueueAnother(std::move(roomKey)))
         {
             return;
         }
         g_endMatch = true;
-        g_pending = WithRoomKey(*g_played, std::move(roomKey));
     }
 
     void Shell::LaunchOnStart(LaunchPlan plan)
     {
-        g_pending = std::move(plan);
+        MphRead::Mods::Launcher::ShellMatchFlow::Queue(std::move(plan));
+    }
+
+    void Shell::LaunchOnStart(StartCallback start)
+    {
+        MphRead::Mods::Launcher::ShellMatchFlow::Queue(std::move(start));
     }
 
     void Shell::PointerMoved(double x, double y)

@@ -6,6 +6,7 @@
 #include "../Metadata/Metadata.hpp"
 #include "../Read.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -825,6 +826,9 @@ namespace
                 Require(info.TexcoordFrame() == group->FrameCount - 1 && info.ModTick.Next[0] == 0,
                     "asset fixture did not reach loop seam");
                 std::unordered_map<const Material*, Matrix4> previousEnds;
+                std::unordered_map<const Material*, Matrix4> previousStarts;
+                // Spans each scrolling axis moves forward and back across the whole cycle.
+                std::unordered_map<const Material*, std::array<std::array<int, 3>, 2>> directions;
                 for (int span = 0; span <= group->FrameCount; ++span)
                 {
                     const auto frame = info.TexcoordFrame();
@@ -852,6 +856,63 @@ namespace
                         };
                         const auto startPose = atPhase(0);
                         const auto endPose = atPhase(1);
+                        // The picture never runs a span backwards: sampled finely,
+                        // the turn keeps its direction, and so does each axis's
+                        // scroll where nothing turns or scales (a turn about the
+                        // centre moves the offset along an arc).
+                        {
+                            constexpr int Samples = 16;
+                            const auto angle = [](const Matrix4& m) { return std::atan2(m.M12, m.M11); };
+                            const float turn = std::remainder(angle(endPose) - angle(startPose), 2 * std::numbers::pi_v<float>);
+                            // An authored reset (the Helm Room's floor) is a jump at
+                            // the tick, never a sweep back through the turn.
+                            {
+                                const auto rawAngle = [&](std::int32_t f)
+                                {
+                                    const auto count = group->FrameCount;
+                                    return angle(model->AnimateTexcoords(group, animation, (f % count + count) % count));
+                                };
+                                const auto rawStep = [&](std::int32_t f)
+                                {
+                                    return std::abs(std::remainder(rawAngle(f + 1) - rawAngle(f), 2 * std::numbers::pi_v<float>));
+                                };
+                                const bool seam = nextFrame == 0;
+                                if (seam && rawStep(frame) > 2 * std::max(rawStep(frame - 1), rawStep(frame + 1)) + .001F)
+                                    Require(Near(turn, 0), "real UV rotation reset swept through its turn");
+                            }
+                            const bool still = Near(startPose.M11, endPose.M11) && Near(startPose.M12, endPose.M12)
+                                && Near(startPose.M21, endPose.M21) && Near(startPose.M22, endPose.M22);
+                            Matrix4 before = startPose;
+                            for (int k = 1; k <= Samples; ++k)
+                            {
+                                const auto pose = atPhase(static_cast<double>(k) / Samples);
+                                const float turned = std::remainder(angle(pose) - angle(before), 2 * std::numbers::pi_v<float>);
+                                if (turn * turned < 0 || (Near(turn, 0) && std::abs(turned) > .0002F))
+                                {
+                                    std::cerr << "UV turn reversed: model=" << model->Name << " material=" << material->Name
+                                        << " frame=" << frame << " next=" << nextFrame << " sample=" << k
+                                        << " step=" << turned << " total=" << turn << '\n';
+                                    throw std::runtime_error("real UV rotation ran backwards inside a span");
+                                }
+                                for (std::size_t axis = 0; axis < 2 && still; ++axis)
+                                {
+                                    const auto mode = axis == 0 ? material->XRepeat : material->YRepeat;
+                                    const float period = mode == RepeatMode::Repeat ? 1.0F
+                                        : mode == RepeatMode::Mirror ? 2.0F : 0.0F;
+                                    const auto wrap = [&](float d) { return period == 0 ? d : std::remainder(d, period); };
+                                    const float total = wrap(axis == 0 ? endPose.M41 - startPose.M41 : endPose.M42 - startPose.M42);
+                                    const float step = wrap(axis == 0 ? pose.M41 - before.M41 : pose.M42 - before.M42);
+                                    if (total * step < 0 && std::abs(step) > .0002F)
+                                    {
+                                        std::cerr << "UV reversed: model=" << model->Name << " material=" << material->Name
+                                            << " axis=" << axis << " frame=" << frame << " next=" << nextFrame
+                                            << " sample=" << k << " step=" << step << " total=" << total << '\n';
+                                        throw std::runtime_error("real UV scroll ran backwards inside a span");
+                                    }
+                                }
+                                before = pose;
+                            }
+                        }
                         const auto shown = atPhase(.5);
                         for (std::size_t axis = 0; axis < 2; ++axis)
                         {
@@ -868,7 +929,18 @@ namespace
                                 Require(std::abs(std::remainder(value - start, period)) <= period * .25F + .0001F,
                                     "real map loop swept across repeated tiles");
                             }
-                            if (const auto previous = previousEnds.find(material.get()); previous != previousEnds.end())
+                            if (period != 0 && Near(startPose.M11, endPose.M11) && Near(startPose.M12, endPose.M12))
+                            {
+                                const float moved = std::remainder((axis == 0 ? endPose.M41 : endPose.M42) - start, period);
+                                if (std::abs(moved) > .0002F) ++directions[material.get()][axis][moved > 0 ? 0 : 1];
+                                if (std::abs(moved) >= period / 8) ++directions[material.get()][axis][2];
+                            }
+                            // An authored rotation reset is kept, at the tick (the Helm Room's
+                            // stars), and so is a seam that held still to jump a whole tile back.
+                            if (const auto previous = previousEnds.find(material.get()); previous != previousEnds.end()
+                                && Near(previous->second.M11, startPose.M11) && Near(previous->second.M12, startPose.M12)
+                                && !(frame == 0 && Near(axis == 0 ? previousStarts[material.get()].M41 : previousStarts[material.get()].M42,
+                                    axis == 0 ? previous->second.M41 : previous->second.M42)))
                             {
                                 const float last = axis == 0 ? previous->second.M41 : previous->second.M42;
                                 const float jump = period == 0 ? start - last : std::remainder(start - last, period);
@@ -877,6 +949,7 @@ namespace
                             if (!Near(value, raw)) ++corrected;
                         }
                         previousEnds[material.get()] = endPose;
+                        previousStarts[material.get()] = startPose;
                         Require(info.TexcoordFrame() == frame && (*info.Flags)[0] == AnimFlags::None,
                             "asset loop draw changed animation state");
                         ++spans;
@@ -889,12 +962,41 @@ namespace
                     tick();
                     clock.Phase(.5);
                 }
+                // A steady scroll never runs back at its seam (the Helm Room's
+                // scanning floor did, for a frame every 32 seconds).
+                for (const auto& [material, axes] : directions)
+                {
+                    for (std::size_t axis = 0; axis < 2; ++axis)
+                    {
+                        const int fewer = std::min(axes[axis][0], axes[axis][1]);
+                        // A step of an eighth of a tile or more is jitter (noise), not a scroll.
+                        if (fewer > 0 && fewer <= 2 && axes[axis][2] <= 2)
+                        {
+                            std::cerr << "UV seam ran back: model=" << model->Name << " material=" << material->Name
+                                << " axis=" << axis << " forward=" << axes[axis][0] << " back=" << axes[axis][1] << " raw:";
+                            const auto& animation = group->Animations->find(material->Name)->second;
+                            for (const int f : {0, 1, 2, group->FrameCount - 3, group->FrameCount - 2, group->FrameCount - 1})
+                            {
+                                const auto m = model->AnimateTexcoords(group, animation, f);
+                                std::cerr << ' ' << f << '=' << (axis == 0 ? m.M41 : m.M42);
+                            }
+                            std::cerr << " repeat=" << static_cast<int>(axis == 0 ? material->XRepeat : material->YRepeat) << '\n';
+                            throw std::runtime_error("real UV scroll ran back at its seam");
+                        }
+                    }
+                }
             }
             std::cout << "PASS real UV loop surfaces: " << model->Name << " " << checked << '\n';
         };
+        // Every room the game draws: the story's (the Helm Room's floor) too.
         for (const auto& room : Metadata::RoomList)
-            if (room->Name.starts_with("MP") && !room->FirstHunt && !room->Hybrid)
-                checkLoops(Read::GetRoomModelInstance(room->Name)->Model());
+        {
+            if (room->FirstHunt || room->Hybrid) continue;
+            std::shared_ptr<ModelInstance> instance;
+            try { instance = Read::GetRoomModelInstance(room->Name); }
+            catch (const std::exception&) { continue; }
+            if (instance != nullptr) checkLoops(instance->Model());
+        }
         for (const auto* name : {"AlimbicLightPole", "Generic_Console", "Alimbic_Console", "ElectroField1",
                  "AlimbicDoorLock", "AlimbicMorphBallDoorLock", "AlimbicBossDoorLock", "ThinDoorLock",
                  "ForceField", "energyBeam", "Teleporter", "TeleporterMP"})

@@ -447,6 +447,12 @@ namespace MphRead::Mods::Render
         {
             std::weak_ptr<const std::vector<float>> Curve;
             float Value = 0;
+            // A steady scroll whose cycle does not close (Regular): the step
+            // its seam (and a duplicated first frame) is given, and the miss
+            // that is left, spread over the cycle. One that runs back by
+            // more than that is the DS's jump, at the tick (Held).
+            bool Regular = false, Held = false, Duplicate = false;
+            float Step = 0, Miss = 0;
         };
 
         thread_local std::unordered_map<ClosureKey, Closure, ClosureHash> closures;
@@ -492,25 +498,65 @@ namespace MphRead::Mods::Render
             {
                 const ClosureKey key{curves.Translations.get(), start, blend, length, curves.FrameCount, period};
                 Closure& kept = closures[key];
+                constexpr float Unit = 1.0F / 4096.0F;
+                const std::int32_t last = curves.FrameCount - 1;
                 if (kept.Curve.expired() || kept.Curve.lock() != curves.Translations)
                 {
-                    kept = {curves.Translations, std::remainder(at(curves.FrameCount - 1) - at(0), period)};
+                    kept = {curves.Translations, std::remainder(at(last) - at(0), period)};
+                    // A scroll authored as a steady step can still miss its
+                    // own start at the seam -- the Helm Room's scanning floor
+                    // ends four steps past it, after a duplicated first frame,
+                    // so every 32 seconds the DS ran its lines back and held
+                    // them. Its step is the one the cycle ends on.
+                    kept.Step = std::remainder(at(last) - at(last - 1), period);
+                    kept.Duplicate = std::abs(std::remainder(at(1) - at(0), period)) <= Unit;
+                    kept.Miss = std::remainder(at(0) - at(last) - kept.Step
+                        - (kept.Duplicate ? kept.Step : 0.0F), period);
+                    // A scroll: a step well inside the tile, so its direction
+                    // is not a guess. Only a seam that runs back or holds,
+                    // and only a small miss, which spread over the cycle
+                    // changes the speed by under half and never the direction.
+                    const float seam = std::remainder(at(0) - at(last), period);
+                    const bool scroll = std::abs(kept.Value) > Unit && std::abs(kept.Step) > Unit
+                        && std::abs(kept.Step) < period / 8;
+                    kept.Regular = scroll && (seam * kept.Step <= 0 || kept.Duplicate)
+                        && std::abs(kept.Miss) > Unit
+                        && std::abs(kept.Miss) < .5F * std::abs(kept.Step) * static_cast<float>(curves.FrameCount);
+                    kept.Held = scroll && !kept.Regular && seam * kept.Step < 0;
                 }
                 const float closure = kept.Value;
+                if (kept.Regular)
+                {
+                    // Forward cycle time: the seam is the last frame's span.
+                    const bool reverse = (flags & AnimFlags::Reverse) != AnimFlags::None;
+                    const float count = static_cast<float>(curves.FrameCount);
+                    float time = reverse ? sample->Frame - sample->Fraction : sample->Frame + sample->Fraction;
+                    if (time < 0) time += count;
+                    const auto frame = std::clamp(static_cast<std::int32_t>(time), 0, last);
+                    const bool given = frame == last || (frame == 0 && kept.Duplicate);
+                    const float step = given ? kept.Step : std::remainder(at(frame + 1) - at(frame), period);
+                    const float from = at(frame) + (kept.Duplicate && frame > 0 ? kept.Step : 0.0F);
+                    shown = from + step * (time - frame) + kept.Miss * (time / count);
+                }
+                else if (kept.Held && ((sample->Frame == last && sample->Next == 0)
+                    || (sample->Frame == 0 && sample->Next == last)))
+                {
+                    // A whole tile back in one tick would be swept, not jumped.
+                    shown = first;
+                }
                 // fx32 authoring can leave a closed cycle one quantization
                 // unit short. Its duplicate endpoint is one pose, not a hold.
-                constexpr float Unit = 1.0F / 4096.0F;
-                if (std::abs(closure) <= Unit)
+                else if (std::abs(closure) <= Unit)
                 {
                     const bool reverse = (flags & AnimFlags::Reverse) != AnimFlags::None;
                     const float time = reverse ? sample->Frame + 1.0F - sample->Fraction
                         : sample->Frame + sample->Fraction;
-                    const float last = static_cast<float>(curves.FrameCount - 1);
-                    const float position = time * last / static_cast<float>(curves.FrameCount);
+                    const float steps = static_cast<float>(curves.FrameCount - 1);
+                    const float position = time * steps / static_cast<float>(curves.FrameCount);
                     const auto frame = std::min(static_cast<std::int32_t>(position), curves.FrameCount - 2);
                     const float from = at(frame);
                     shown = from + std::remainder(at(frame + 1) - from, period) * (position - frame)
-                        - closure * (position / last);
+                        - closure * (position / steps);
                 }
             }
             // Translation is applied after scale/rotation by AnimateTexcoords.
@@ -557,11 +603,12 @@ namespace MphRead::Mods::Render
         {
             constexpr float Turn = 2.0F * std::numbers::pi_v<float>;
             delta = std::remainder(delta, Turn);
-            if (state.Channel == AnimationChannel::Node && count > 2
+            if (count > 2
                 && ((frame == count - 1 && sample.Next == 0)
                 || (frame == 0 && sample.Next == count - 1)))
             {
-                // Symmetric rotating geometry can reset by less than a full
+                // Symmetric rotating geometry, and a texture turning on a
+                // floor (the Helm Room's), can reset by less than a full
                 // turn. Blending that authored reset invents a fast reverse
                 // rotation. Keep the reset when it exceeds both edge steps;
                 // a continuous full-turn loop still blends through its seam.

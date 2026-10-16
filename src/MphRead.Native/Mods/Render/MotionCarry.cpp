@@ -79,6 +79,12 @@ namespace MphRead::Mods::Render
         float fraction)
     {
         if (!(fraction > 0.0F)) return std::nullopt;
+        return AlongSplit(from, start, end, fraction, fraction);
+    }
+
+    std::optional<Matrix4> MotionCarry::AlongSplit(const Matrix4& from, const Matrix4& start, const Matrix4& end,
+        float move, float turnFraction)
+    {
         const Vector3 moved = Vector3(end.M41, end.M42, end.M43) - Vector3(start.M41, start.M42, start.M43);
         if (moved.LengthSquared() > JumpDistance * JumpDistance) return std::nullopt;
         // The motion's turn, D with end = start * D, a fraction of it on `from`.
@@ -86,7 +92,7 @@ namespace MphRead::Mods::Render
         const Matrix4 turn = OpenTK::Mathematics::Inverted(Rotation(start)) * Rotation(end);
         if (IsRotation(turn))
         {
-            if (const auto part = Power(turn, fraction)) turned = turned * *part;
+            if (const auto part = Power(turn, turnFraction)) turned = turned * *part;
         }
         // Rotation and Inverted work on the upper 3x3; the carry keeps the
         // pose's scale and other columns as they were.
@@ -94,9 +100,9 @@ namespace MphRead::Mods::Render
         drawn.M11 = turned.M11; drawn.M12 = turned.M12; drawn.M13 = turned.M13;
         drawn.M21 = turned.M21; drawn.M22 = turned.M22; drawn.M23 = turned.M23;
         drawn.M31 = turned.M31; drawn.M32 = turned.M32; drawn.M33 = turned.M33;
-        drawn.M41 = from.M41 + moved.X * fraction;
-        drawn.M42 = from.M42 + moved.Y * fraction;
-        drawn.M43 = from.M43 + moved.Z * fraction;
+        drawn.M41 = from.M41 + moved.X * move;
+        drawn.M42 = from.M42 + moved.Y * move;
+        drawn.M43 = from.M43 + moved.Z * move;
         const Matrix4 carry = OpenTK::Mathematics::Inverted(from) * drawn;
         if (NearIdentity(carry)) return std::nullopt;
         return carry;
@@ -105,6 +111,12 @@ namespace MphRead::Mods::Render
     std::optional<Matrix4> MotionCarry::Between(const Matrix4& previous, const Matrix4& current, float fraction)
     {
         return Along(current, previous, current, fraction);
+    }
+
+    std::optional<Matrix4> MotionCarry::BetweenShown(const Matrix4& previous, const Matrix4& current,
+        float move, float turnFraction)
+    {
+        return AlongSplit(current, previous, current, move > 0.0F ? move : 0.0F, turnFraction);
     }
 
     std::optional<Matrix4> MotionCarry::Toward(const Matrix4& current, const Matrix4& next, float fraction)

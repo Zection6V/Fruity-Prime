@@ -43,7 +43,7 @@ namespace MphRead::Mods::Network
             morph.SetIsReleased(false);
             return;
         }
-        // Offline AI and authority bots keep the native request timing.
-        player.ModStartFormSwitch();
+        // Offline AI and authority bots keep the native request and its rule.
+        static_cast<void>(player.ModRequestFormSwitch());
     }
 }

@@ -7,6 +7,7 @@
 #include "../../HUD/HudInfo.hpp"
 #include "../../Scene.hpp"
 #include "../Render/AnimationClock.hpp"
+#include "../Render/EffectPlacement.hpp"
 #include "../Render/FrameTiming.hpp"
 #include "../Render/MotionCarry.hpp"
 #include "../Render/ScenePresentation.hpp"
@@ -42,32 +43,13 @@ namespace MphRead::Entities
         {
             return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
         }
-
-        // EffectEntry::Transform sets the elements' own transform; the one
-        // their attached particles are drawn with is copied from it by
-        // Scene::ProcessEffects, once a step. Placed by a picture between
-        // steps, the effect is copied here too, or its glow trails the gun.
-        void Place(const std::shared_ptr<Effects::EffectEntry>& effect,
-            ::OpenTK::Mathematics::Vector3 side, ::OpenTK::Mathematics::Vector3 gun,
-            ::OpenTK::Mathematics::Vector3 muzzle)
-        {
-            if (effect == nullptr) return;
-            effect->Transform(side, gun, muzzle);
-            for (const auto& element : *effect->Elements)
-            {
-                if (element == nullptr) continue;
-                element->Transform = element->EntityCollision != nullptr && !element->Expired
-                    ? ::OpenTK::Mathematics::Multiply(element->OwnTransform, element->EntityCollision->Transform)
-                    : element->OwnTransform;
-            }
-        }
     }
 
     void PlayerEntity::ModPlaceGunEffects()
     {
         if (!IsMainPlayer() && _aimFrame.Owner != Mods::Input::AimOwner::Local) return;
-        Place(_muzzleEffect, _gunVec2, _gunVec1, _muzzlePos);
-        Place(_chargeEffect, _gunVec2, _gunVec1, _muzzlePos);
+        Mods::Render::PlaceEffect(_muzzleEffect, _gunVec2, _gunVec1, _muzzlePos);
+        Mods::Render::PlaceEffect(_chargeEffect, _gunVec2, _gunVec1, _muzzlePos);
     }
 
     bool PlayerEntity::ModFrameAimAllowed(bool fixedCrosshair) const

@@ -417,6 +417,8 @@ namespace MphRead::Entities
         }
         // Mod hook: your own gun's effects only with your gun (Mods/Render/PlayerEntityPresentation).
         ModGunEffectsDrawn(modFirstPersonGun);
+        // Mod hook: boost/furl/Death Alt/burn on the body as drawn (Mods/Render/PlayerEntityPresentation).
+        ModPlaceBodyEffectsDrawn();
         if (GameState::SinglePlayer() && IsMainPlayer() && _deathCountdown > 0.0F
             && _deathCountdown <= 119.0F / 30.0F)
         {

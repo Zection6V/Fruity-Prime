@@ -1096,8 +1096,33 @@ namespace
     }
 }
 
+namespace
+{
+    // The morph ball's roll on the Animation setting's grid.
+    void ShownStepFractionChecks()
+    {
+        using MphRead::Mods::Render::AnimationBlend;
+        const std::int32_t saved = AnimationBlend::Rate();
+        const auto near = [](double a, double b) { return std::fabs(a - b) < 1e-9; };
+        AnimationBlend::Rate(AnimationBlend::DisplayRate);
+        if (!near(AnimationBlend::ShownStepFraction(7, 0.4), 0.4)) throw std::runtime_error("display rate shows the picture's instant");
+        AnimationBlend::Rate(30);
+        if (!near(AnimationBlend::ShownStepFraction(8, 0.0), 0.0) || !near(AnimationBlend::ShownStepFraction(8, 0.7), 0.0))
+            throw std::runtime_error("30 Hz shows the even step's pose through it");
+        if (!near(AnimationBlend::ShownStepFraction(9, 0.0), -1.0) || !near(AnimationBlend::ShownStepFraction(9, 0.6), -1.0))
+            throw std::runtime_error("30 Hz holds the previous step's pose through the odd step");
+        AnimationBlend::Rate(60);
+        if (!near(AnimationBlend::ShownStepFraction(9, 0.9), 0.0)) throw std::runtime_error("60 Hz shows the step's pose");
+        AnimationBlend::Rate(120);
+        if (!near(AnimationBlend::ShownStepFraction(9, 0.4), 0.0) || !near(AnimationBlend::ShownStepFraction(9, 0.6), 0.5))
+            throw std::runtime_error("120 Hz shows half-step poses");
+        AnimationBlend::Rate(saved);
+    }
+}
+
 int main(int argc, char** argv)
 {
+    ShownStepFractionChecks();
     const char* stage = "preview clock";
     try
     {

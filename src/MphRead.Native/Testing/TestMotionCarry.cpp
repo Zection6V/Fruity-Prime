@@ -84,6 +84,28 @@ int main()
             "a turn no step makes is not carried");
     }
 
+    // The move and the turn on fractions of their own: a ball rolled on its
+    // animation grid while it moves on at the picture's instant.
+    {
+        const Matrix4 previous = Pose(20, Vector3(1, 2, 3));
+        const Matrix4 current = Pose(30, Vector3(1.3F, 2, 2.8F));
+        const auto held = MotionCarry::BetweenShown(previous, current, 0.5F, -1.0F);
+        passed &= Check(held && Largest(current * *held, Pose(20, Vector3(1.45F, 2, 2.7F))) < 1e-4F,
+            "a turn held at the previous step's while the move carries on");
+        const auto still = MotionCarry::BetweenShown(previous, current, 0.0F, -1.0F);
+        passed &= Check(still && Largest(current * *still, Pose(20, Vector3(1.3F, 2, 2.8F))) < 1e-4F,
+            "at the step's own instant the previous turn is shown where the step is");
+        const auto half = MotionCarry::BetweenShown(previous, current, 0.75F, 0.5F);
+        passed &= Check(half && Largest(current * *half, Pose(35, Vector3(1.525F, 2, 2.65F))) < 1e-4F,
+            "a turn on a finer grid than the picture's instant");
+        passed &= Check(!MotionCarry::BetweenShown(previous, current, 0.0F, 0.0F),
+            "the step's own pose is no carry");
+        const auto same = MotionCarry::BetweenShown(previous, current, 0.5F, 0.5F);
+        const auto plain = MotionCarry::Between(previous, current, 0.5F);
+        passed &= Check(same && plain && Largest(*same, *plain) < 1e-6F,
+            "equal fractions are Between");
+    }
+
     // Toward a pose the game says comes next: part of the way there, never past.
     {
         const Matrix4 current = Pose(30, Vector3(1, 0, 0));

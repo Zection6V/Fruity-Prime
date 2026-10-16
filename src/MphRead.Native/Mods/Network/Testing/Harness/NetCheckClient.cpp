@@ -1,4 +1,5 @@
 #include "Mods/Network/Testing/Harness/NetCheckClient.hpp"
+#include "Mods/Render/ScenePresentation.hpp"
 #include "Mods/SimulationRate.hpp"
 #include "NativeRuntime/Rhi/SceneBackend.hpp"
 #include "NativeRuntime/OpenTK/GL.hpp"
@@ -338,6 +339,15 @@ namespace MphRead::Mods::Network
         if (!_scene->OnRenderFrame())
         {
             return;
+        }
+        for (std::int32_t i = 1; i < DrawRate; ++i)
+        {
+            Present();
+            _scene->AfterRenderFrame();
+            Mods::Render::ScenePresentation::ForcePhase(static_cast<double>(i) / DrawRate);
+            _scene->OnDrawFrame();
+            static_cast<void>(_scene->OnRenderFrame());
+            Mods::Render::ScenePresentation::ForcePhase(std::nullopt);
         }
         IncrementInPlace(_frame);
         UpdateSpectating();

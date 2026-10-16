@@ -36,6 +36,13 @@ namespace MphRead::Mods::Render
         [[nodiscard]] static std::optional<OpenTK::Mathematics::Matrix4> Between(
             const OpenTK::Mathematics::Matrix4& previous, const OpenTK::Mathematics::Matrix4& current,
             float fraction);
+        // Between, with the turn on its own fraction of the step's turn: the
+        // move carried on by `move`, the pose turned by `turnFraction`, which
+        // may be negative (a pose shown at an earlier instant than the step's:
+        // -1 is `previous`'s own turn). Nothing when that leaves the pose as is.
+        [[nodiscard]] static std::optional<OpenTK::Mathematics::Matrix4> BetweenShown(
+            const OpenTK::Mathematics::Matrix4& previous, const OpenTK::Mathematics::Matrix4& current,
+            float move, float turnFraction);
         // Part of the way from `current` to `next`, a pose the game itself
         // says comes next: the same carry, toward it rather than on past.
         [[nodiscard]] static std::optional<OpenTK::Mathematics::Matrix4> Toward(
@@ -64,5 +71,9 @@ namespace MphRead::Mods::Render
         // `from`, moved by `fraction` of the motion that takes `start` to `end`.
         [[nodiscard]] static std::optional<OpenTK::Mathematics::Matrix4> Along(const OpenTK::Mathematics::Matrix4& from,
             const OpenTK::Mathematics::Matrix4& start, const OpenTK::Mathematics::Matrix4& end, float fraction);
+        // Along, with the move and the turn on fractions of their own.
+        [[nodiscard]] static std::optional<OpenTK::Mathematics::Matrix4> AlongSplit(
+            const OpenTK::Mathematics::Matrix4& from, const OpenTK::Mathematics::Matrix4& start,
+            const OpenTK::Mathematics::Matrix4& end, float move, float turnFraction);
     };
 }

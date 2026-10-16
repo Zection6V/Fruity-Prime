@@ -10,7 +10,11 @@
 public:                                                                                        \
     /* Once a frame, before its steps: turn the aim by mouse motion not yet applied. */       \
     void ModApplyFrameAim(const ::OpenTK::Windowing::GraphicsLibraryFramework::MouseState& live); \
-    /* Once a frame, after its steps: show the DS-style aim at this frame's mouse. */         \
+    /* Once a frame, after its steps: the local player's picture -- the eye carried on   */  \
+    /* along its step's motion, and the DS-style aim at this frame's mouse if any.      */     \
+    [[nodiscard]] bool ModPresentOwnView(                                                      \
+        const ::OpenTK::Windowing::GraphicsLibraryFramework::MouseState* live);                \
+    /* The DS-style aim at this frame's mouse, after ModRestoreFrameAim. */                   \
     [[nodiscard]] bool ModPresentFrameAim(                                                     \
         const ::OpenTK::Windowing::GraphicsLibraryFramework::MouseState& live);                \
     /* Once the picture's camera is set: the reticle where the aim shown is. */               \
@@ -32,6 +36,9 @@ private:                                                                        
     void ModRebuildAimFromFacing();                                                            \
     /* What a picture changes, kept so that ModRestoreFrameAim can put it back. */            \
     void ModSaveFrameView();                                                                   \
+    /* The muzzle and charge effects where the gun is, drawn there at once. */                \
+    void ModPlaceGunEffects();                                                                 \
+    ::MphRead::CollisionVolume _modFrameBodyVolume{};                                          \
     ::MphRead::Mods::Input::FrameAimState _modFrameAim{};                                      \
     ::MphRead::Mods::Input::FrameAimView _modFrameView{};                                      \
     ::MphRead::Mods::Input::CameraSource _modCameraSource{};

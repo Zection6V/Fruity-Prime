@@ -289,8 +289,35 @@ What this cannot do is turn a watched player between snapshots: their aim
 reaches this machine 60 times a second, and turning it in between would be a
 guess or a delay.
 
-What still moves at the simulation's rate: the camera's *position* in play
-(walking bob, landing dip, the step itself), other players, enemies and shots
+### Your own eye is carried on between steps
+
+The step builds your camera from your body (`UpdateCamera`: position, walking
+bob, landing dip), so between steps the eye stood still while the view turned
+every frame: walking or strafing while turning, the eye jumped forward 60
+times a second under a smoothly turning view and the whole map shook -- which
+the free camera, moving its eye every frame, never did. Your body has no
+future to read, so a picture carries the eye on along its own last step's
+motion (`CameraInfo::Position - PrevPosition`) by the fraction of a step it is
+into (`PlayerEntity::ModPresentOwnView`), the gun and muzzle with it, and puts
+the step's camera back once it is drawn. Nothing is behind the body; the error
+is the next step's change of speed, at most, and a jump no body makes in a
+step (2 units: a teleport, a respawn) is not carried. On a steady walk the
+picture is the camera the step builds at that instant (0.0001 cm).
+
+The body is carried the same way (`Position - PrevPosition`, and the collision
+volume the shadow is drawn from), because wherever it is drawn -- the ball, a
+third-person view -- a carried camera over a body left on the step makes the
+body shake on screen, which is what alt form did until it was.
+
+**And an effect placed between steps has to be drawn there.**
+`EffectEntry::Transform` writes each element's `OwnTransform`; the `Transform`
+its attached particles are drawn with is copied from it by
+`Scene::ProcessEffects`, once a step. A picture that moved the gun moved the
+charge glow's `OwnTransform` with it and left the glow drawn where the step
+had it, trailing the muzzle. Every placement a picture makes goes through
+`ModPlaceGunEffects`, which copies the transform too.
+
+What still moves at the simulation's rate: other players, enemies and shots
 (entity transforms are not interpolated, see above), a watched player's aim,
 and the screen shake, which `CameraInfo::Update` applies on every other camera
 update -- 30 Hz, as the DS did.

@@ -60,8 +60,14 @@ namespace MphRead
             }
             return Mods::Input::FrameAimPresentation(target);
         }
-        const auto main = ModFrameAimPlayer();
-        if (main == nullptr || !main->ModPresentFrameAim(*_mouseState)) return {};
+        if (!ProcessFrame() || GameState::MenuPause() || GameState::DialogPause()
+            || Mods::Network::NetSession::FreezeGameplay())
+        {
+            return {};
+        }
+        const auto main = Entities::PlayerEntity::Main();
+        const auto aiming = ModFrameAimPlayer();
+        if (main == nullptr || !main->ModPresentOwnView(aiming != nullptr ? _mouseState : nullptr)) return {};
         return Mods::Input::FrameAimPresentation(main);
     }
 

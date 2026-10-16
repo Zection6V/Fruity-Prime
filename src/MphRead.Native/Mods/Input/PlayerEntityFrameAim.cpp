@@ -1,6 +1,8 @@
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Entities/CamSeq/CameraSequence.hpp"
 #include "../../Features.hpp"
+#include "../../Formats/Collision.hpp"
+#include "../../Formats/Effects.hpp"
 #include "../../Formats/Types.hpp"
 #include "../../HUD/HudInfo.hpp"
 #include "../../Scene.hpp"
@@ -34,6 +36,32 @@ namespace MphRead::Entities
         {
             return left.X == right.X && left.Y == right.Y && left.Z == right.Z;
         }
+
+        // EffectEntry::Transform sets the elements' own transform; the one
+        // their attached particles are drawn with is copied from it by
+        // Scene::ProcessEffects, once a step. Placed by a picture between
+        // steps, the effect is copied here too, or its glow trails the gun.
+        void Place(const std::shared_ptr<Effects::EffectEntry>& effect,
+            ::OpenTK::Mathematics::Vector3 side, ::OpenTK::Mathematics::Vector3 gun,
+            ::OpenTK::Mathematics::Vector3 muzzle)
+        {
+            if (effect == nullptr) return;
+            effect->Transform(side, gun, muzzle);
+            for (const auto& element : *effect->Elements)
+            {
+                if (element == nullptr) continue;
+                element->Transform = element->EntityCollision != nullptr && !element->Expired
+                    ? ::OpenTK::Mathematics::Multiply(element->OwnTransform, element->EntityCollision->Transform)
+                    : element->OwnTransform;
+            }
+        }
+    }
+
+    void PlayerEntity::ModPlaceGunEffects()
+    {
+        if (!IsMainPlayer() && _aimFrame.Owner != Mods::Input::AimOwner::Local) return;
+        Place(_muzzleEffect, _gunVec2, _gunVec1, _muzzlePos);
+        Place(_chargeEffect, _gunVec2, _gunVec1, _muzzlePos);
     }
 
     bool PlayerEntity::ModFrameAimAllowed(bool fixedCrosshair) const
@@ -90,21 +118,17 @@ namespace MphRead::Entities
             _upVector = ::OpenTK::Mathematics::Vector3::Cross(_facingVector, _gunVec2).Normalized();
         }
         UpdateAimVecs();
-        if (IsMainPlayer())
-        {
-            if (_muzzleEffect) _muzzleEffect->Transform(_gunVec2, _gunVec1, _muzzlePos);
-            if (_chargeEffect) _chargeEffect->Transform(_gunVec2, _gunVec1, _muzzlePos);
-        }
+        ModPlaceGunEffects();
     }
 
     bool PlayerEntity::ModPresentFrameAim(const ::OpenTK::Windowing::GraphicsLibraryFramework::MouseState& live)
     {
         using ::OpenTK::Mathematics::Multiply;
         using ::OpenTK::Mathematics::Vector3;
-        ModRestoreFrameAim();
         if (!ModFrameAimAllowed(false)) return false;
         ModSaveFrameView();
         Mods::Input::FrameAimView& view = _modFrameView;
+        view.Aimed = true;
         // The aim the next step turns to, by its own UpdateAimY/UpdateAimX,
         // for the motion since the snapshot it will consume: the crosshair
         // is exactly where the mouse has put it.
@@ -164,9 +188,70 @@ namespace MphRead::Entities
         return true;
     }
 
+    bool PlayerEntity::ModPresentOwnView(const ::OpenTK::Windowing::GraphicsLibraryFramework::MouseState* live)
+    {
+        using ::OpenTK::Mathematics::Vector3;
+        ModRestoreFrameAim();
+        bool shown = false;
+        if (Mods::Input::FrameAim::Enabled() && !Mods::SpectatorMode::IsSpectating() && Health() > 0
+            && _aimFrame.Owner == Mods::Input::AimOwner::Local && Formats::CameraSequence::Current() == nullptr
+            && _cameraInfo != nullptr)
+        {
+            // The step moved the eye with the body, and the picture is a
+            // fraction of a step on from it: carried on along that step's own
+            // motion, the eye moves every frame where it otherwise jumps 60
+            // times a second under a view that turns every frame. Nothing has
+            // happened yet that could say otherwise, and the next step puts
+            // the eye where the body really goes. A jump no body makes in a
+            // step -- a teleport, a respawn -- is not carried.
+            constexpr float MaxEyeStep = 2.0F;
+            ::MphRead::Entities::CameraInfo& camera = *_cameraInfo;
+            const Vector3 stepped = camera.Position - camera.PrevPosition;
+            const float phase = static_cast<float>(Mods::Render::FrameTiming::StepPhase());
+            if (phase > 0 && stepped.LengthSquared() > 0 && stepped.LengthSquared() < MaxEyeStep * MaxEyeStep)
+            {
+                const Vector3 eye = ::OpenTK::Mathematics::Multiply(stepped, phase);
+                ModSaveFrameView();
+                camera.Position = camera.Position + eye;
+                camera.Target = camera.Target + eye;
+                camera.ViewMatrix = ::OpenTK::Mathematics::CreateTranslation(-eye) * camera.ViewMatrix;
+                _gunDrawPos = _gunDrawPos + eye;
+                _muzzlePos = _muzzlePos + eye;
+                _aimPosition = _aimPosition + eye;
+                ModPlaceGunEffects();
+                shown = true;
+            }
+            // The body the same way, where it is drawn -- the ball, a third
+            // person view -- or its own camera, carried, leaves it behind.
+            const Vector3 moved = static_cast<Vector3>(Position) - PrevPosition();
+            if (phase > 0 && moved.LengthSquared() > 0 && moved.LengthSquared() < MaxEyeStep * MaxEyeStep)
+            {
+                const Vector3 body = ::OpenTK::Mathematics::Multiply(moved, phase);
+                ModSaveFrameView();
+                Mods::Input::FrameAimView& view = _modFrameView;
+                view.Body = true;
+                view.BodyPosition = Position;
+                _modFrameBodyVolume = _volume;
+                Position = view.BodyPosition + body;
+                _volume = CollisionVolume::Move(_volume, body);
+                view.ShownBody = Position;
+                shown = true;
+            }
+        }
+        // The DS-style aim, from the eye this picture has.
+        if (live != nullptr && ModPresentFrameAim(*live)) shown = true;
+        if (shown)
+        {
+            _modFrameView.ShownGun = _gunVec1;
+            _modFrameView.ShownFacing = _facingVector;
+        }
+        return shown;
+    }
+
     void PlayerEntity::ModSaveFrameView()
     {
         Mods::Input::FrameAimView& view = _modFrameView;
+        if (view.Active) return;
         view = {};
         view.Active = true;
         view.Gun = _gunVec1;
@@ -179,6 +264,15 @@ namespace MphRead::Entities
         view.Muzzle = _muzzlePos;
         view.AimY = _aimY;
         view.Trace = _aimTrace.Calls;
+        if (_cameraInfo != nullptr)
+        {
+            view.Camera = true;
+            view.CameraPosition = _cameraInfo->Position;
+            view.CameraTarget = _cameraInfo->Target;
+            view.CameraFacing = _cameraInfo->Facing;
+            view.CameraTrueUp = _cameraInfo->TrueUp;
+            view.CameraView = _cameraInfo->ViewMatrix;
+        }
     }
 
     void PlayerEntity::ModNoteCameraSource()
@@ -204,12 +298,7 @@ namespace MphRead::Entities
         if (eye.LengthSquared() == 0 && turn.LengthSquared() == 0) return false;
         ModSaveFrameView();
         Mods::Input::FrameAimView& view = _modFrameView;
-        view.Camera = true;
-        view.CameraPosition = camera.Position;
-        view.CameraTarget = camera.Target;
-        view.CameraFacing = camera.Facing;
-        view.CameraTrueUp = camera.TrueUp;
-        view.CameraView = camera.ViewMatrix;
+        view.Watched = true;
         const Matrix4 shown = Mods::Input::FrameAim::Moved(camera, eye, turn);
         // The gun, the muzzle and their effects ride with the view: whatever
         // the step's camera had where, the picture's has in the same place.
@@ -228,11 +317,7 @@ namespace MphRead::Entities
         camera.Facing = (camera.Target - camera.Position).Normalized();
         camera.TrueUp = direction(camera.TrueUp);
         camera.ViewMatrix = shown;
-        if (IsMainPlayer())
-        {
-            if (_muzzleEffect) _muzzleEffect->Transform(_gunVec2, _gunVec1, _muzzlePos);
-            if (_chargeEffect) _chargeEffect->Transform(_gunVec2, _gunVec1, _muzzlePos);
-        }
+        ModPlaceGunEffects();
         view.ShownGun = _gunVec1;
         view.ShownFacing = _facingVector;
         return true;
@@ -273,6 +358,11 @@ namespace MphRead::Entities
         _muzzlePos = view.Muzzle;
         _aimY = view.AimY;
         _aimTrace.Calls = view.Trace;
+        if (view.Body && Same(Position, view.ShownBody))
+        {
+            Position = view.BodyPosition;
+            _volume = _modFrameBodyVolume;
+        }
         if (view.Camera && _cameraInfo != nullptr)
         {
             _cameraInfo->Position = view.CameraPosition;
@@ -281,11 +371,7 @@ namespace MphRead::Entities
             _cameraInfo->TrueUp = view.CameraTrueUp;
             _cameraInfo->ViewMatrix = view.CameraView;
         }
-        if (IsMainPlayer())
-        {
-            if (_muzzleEffect) _muzzleEffect->Transform(_gunVec2, _gunVec1, _muzzlePos);
-            if (_chargeEffect) _chargeEffect->Transform(_gunVec2, _gunVec1, _muzzlePos);
-        }
+        ModPlaceGunEffects();
         if (view.Reticle && _targetCircleInst != nullptr)
         {
             _targetCircleInst->PositionX = view.ReticleX;
@@ -308,10 +394,10 @@ namespace MphRead::Entities
 
     std::optional<::OpenTK::Mathematics::Vector3> PlayerEntity::ModFrameFacingShift() const
     {
-        if (_modFrameView.Active)
+        if (_modFrameView.Active && (_modFrameView.Watched || _modFrameView.Aimed))
         {
             // A watched view is already the camera's own matrix.
-            if (_modFrameView.Camera || !Same(_facingVector, _modFrameView.ShownFacing)) return std::nullopt;
+            if (_modFrameView.Watched || !Same(_facingVector, _modFrameView.ShownFacing)) return std::nullopt;
             return _facingVector - _modFrameView.Facing;
         }
         const Mods::Input::FrameAimState& state = _modFrameAim;

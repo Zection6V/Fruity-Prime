@@ -458,6 +458,67 @@ namespace MphRead::Mods::Diagnostics
             check(gunError.Max < 0.01, "a watched player's gun stays where it sits in their view");
         }
 
+        // 6. The local eye: a step moved it with the body, and a picture part
+        // of the way to the next step carries it on along that motion -- at a
+        // steady walk, exactly where the next step puts it -- with the gun
+        // riding along, and the step's camera back afterwards.
+        {
+            const auto atPhase = [](double phase)
+            {
+                Render::FrameTiming::Reset();
+                (void)Render::FrameTiming::Advance(phase * Render::FrameTiming::StepSeconds);
+            };
+            Series eyeError, viewError, gunError, bodyError;
+            bool restored = true, carried = true;
+            std::uniform_real_distribution<float> walk(-0.4F, 0.4F), phases(0.05F, 0.95F);
+            for (const bool fixed : {true, false})
+            {
+                Features::FixedCrosshair(fixed);
+                for (int i = 0; i < 200; ++i)
+                {
+                    reset(yaws(rng), pitches(rng) * 0.6F, false);
+                    const Vector3 start = player.Position;
+                    const Vector3 velocity(walk(rng), walk(rng) * 0.2F, walk(rng));
+                    player.SetPrevPosition(start);
+                    player.Position = start + velocity;
+                    player.UpdateCamera();
+                    player.UpdateAimVecs();
+                    const Matrix4 stepView = player.CameraInfo()->ViewMatrix;
+                    const Vector3 stepEye = player.CameraInfo()->Position;
+                    const Vector3 gunInView = Matrix::Vec3MultMtx4(player._gunDrawPos, stepView);
+                    const float phase = phases(rng);
+                    atPhase(phase);
+                    if (!player.ModPresentOwnView(&mouse)) { carried = false; continue; }
+                    const Matrix4 shown = Input::FrameAim::View(&player, *player.CameraInfo(), player.CameraInfo()->ViewMatrix);
+                    const Vector3 shownEye = player.CameraInfo()->Position;
+                    bodyError.Add(OpenTK::Mathematics::Length(static_cast<Vector3>(player.Position)
+                        - (start + velocity + OpenTK::Mathematics::Multiply(velocity, phase))) * 100.0);
+                    gunError.Add(OpenTK::Mathematics::Length(Matrix::Vec3MultMtx4(player._gunDrawPos, shown) - gunInView) * 100.0);
+                    player.ModRestoreFrameAim();
+                    restored = restored && Same(stepEye, player.CameraInfo()->Position)
+                        && Same(start + velocity, player.Position)
+                        && std::memcmp(&stepView, &player.CameraInfo()->ViewMatrix, sizeof(Matrix4)) == 0;
+                    // The camera a step builds at that point of a steady walk.
+                    player.Position = start + velocity + OpenTK::Mathematics::Multiply(velocity, phase);
+                    player.UpdateCamera();
+                    eyeError.Add(OpenTK::Mathematics::Length(shownEye - player.CameraInfo()->Position) * 100.0);
+                    // The DS-style picture also eases the view, which the bare step does not.
+                    if (fixed) viewError.Add(ViewDegrees(shown, player.CameraInfo()->ViewMatrix));
+                }
+            }
+            Features::FixedCrosshair(true);
+            Render::FrameTiming::Reset();
+            std::cout << std::setprecision(6) << "FRAMEAIM own eye trials=" << eyeError.Count
+                << " eye_vs_steady_walk_cm max=" << eyeError.Max << " view_vs_step_deg max=" << viewError.Max
+                << " gun_in_view_cm max=" << gunError.Max << " body_vs_steady_walk_cm max=" << bodyError.Max << '\n';
+            check(carried, "the local eye is carried between steps");
+            check(bodyError.Max < 0.01, "the local body is carried with it");
+            check(restored, "a local picture leaves the step's camera as it was");
+            check(eyeError.Max < 0.01 && viewError.Max < 0.01,
+                "on a steady walk the carried eye is where the step puts it then");
+            check(gunError.Max < 0.01, "the local gun stays where it sits in the view");
+        }
+
         Render::FrameTiming::Reset();
         Features::FixedCrosshair(fixedBefore);
         reset(0, 0, false);

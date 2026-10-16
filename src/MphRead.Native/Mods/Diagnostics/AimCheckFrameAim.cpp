@@ -8,6 +8,7 @@
 #include "../InputSettings.hpp"
 #include "../Render/AnimationClock.hpp"
 #include "../Render/FrameTiming.hpp"
+#include "../Render/ScenePresentation.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -488,11 +489,15 @@ namespace MphRead::Mods::Diagnostics
                     const Vector3 gunInView = Matrix::Vec3MultMtx4(player._gunDrawPos, stepView);
                     const float phase = phases(rng);
                     atPhase(phase);
+                    // The world ran this step: what a scene step tells the presentation.
+                    Render::ScenePresentation::EndStep(*player._scene);
                     if (!player.ModPresentOwnView(&mouse)) { carried = false; continue; }
                     const Matrix4 shown = Input::FrameAim::View(&player, *player.CameraInfo(), player.CameraInfo()->ViewMatrix);
                     const Vector3 shownEye = player.CameraInfo()->Position;
-                    bodyError.Add(OpenTK::Mathematics::Length(static_cast<Vector3>(player.Position)
-                        - (start + velocity + OpenTK::Mathematics::Multiply(velocity, phase))) * 100.0);
+                    // The body's drawn items, carried by the same step's motion.
+                    const auto body = player.ModPresentationShift();
+                    bodyError.Add(OpenTK::Mathematics::Length((body ? *body : Vector3{})
+                        - OpenTK::Mathematics::Multiply(velocity, phase)) * 100.0);
                     gunError.Add(OpenTK::Mathematics::Length(Matrix::Vec3MultMtx4(player._gunDrawPos, shown) - gunInView) * 100.0);
                     player.ModRestoreFrameAim();
                     restored = restored && Same(stepEye, player.CameraInfo()->Position)

@@ -1,4 +1,6 @@
 #include "Renderer.hpp"
+#include "Mods/SimulationRate.hpp"
+#include "Mods/Render/ScenePresentation.hpp"
 #include "Mods/MapGen/CustomRooms.hpp"
 #include "NativeRuntime/System/ErrorDialog.hpp"
 #include "NativeRuntime/System/ExceptionText.hpp"
@@ -1811,6 +1813,8 @@ namespace MphRead
         const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
         // Mod hook: this step on the animation time line (Mods/Render/SceneAnimation).
         const Mods::Render::SceneAnimation::Step modAnimationStep;
+        // Mod hook: until it has run the world, this step moved nothing to draw on (Mods/Render/ScenePresentation).
+        Mods::Render::ScenePresentation::BeginStep();
         if (Mods::Network::NetSession::FreezeGameplay())
         {
             if (Mods::Network::NetSession::IsStarting())
@@ -1823,7 +1827,7 @@ namespace MphRead
             return;
         }
         ++_effectFrame;
-        _frameTime = 1.0F / 60.0F;
+        _frameTime = Mods::SimulationRate::StepSecondsF;
         if (_breakNextFrame)
         {
             _frameAdvanceOn = true;
@@ -1934,6 +1938,11 @@ namespace MphRead
             if (MovieUpdatePending()) UpdateMovie();
         }
         _frameAdvanceLastFrame = _frameAdvanceOn;
+        // Mod hook: the poses this step left, to draw on from (Mods/Render/ScenePresentation).
+        if (ProcessFrame() && !GameState::MenuPause() && !GameState::DialogPause())
+        {
+            Mods::Render::ScenePresentation::EndStep(*this);
+        }
         _pendingEffectSteps = std::min(_pendingEffectSteps + 1, Mods::Render::FrameTiming::MaxCatchUpSteps);
         _pendingFadeSteps = std::min(_pendingFadeSteps + 1, Mods::Render::FrameTiming::MaxCatchUpSteps);
         if (Mods::Headless::Active()) ModStepDrawPassTimers();
@@ -2973,7 +2982,7 @@ namespace MphRead
         entry->EffectName = effect->Name;
         entry->ElementName = element->Name;
         entry->BufferTime = element->BufferTime;
-        entry->CreationTime = _elapsedTime + (child ? (1.0F / 60.0F) : 0.0F);
+        entry->CreationTime = _elapsedTime + (child ? (Mods::SimulationRate::StepSecondsF) : 0.0F);
         entry->DrainTime = element->DrainTime;
         entry->DrawType = element->DrawType;
         entry->Lifespan = element->Lifespan;
@@ -3478,15 +3487,15 @@ namespace MphRead
                     if (TypeExtensions::TestFlag(element->Flags, EffElemFlags::UseAcceleration))
                     {
                         particle->Speed = Vector3(
-                            particle->Speed.X + element->Acceleration.X * (1.0F / 60.0F),
-                            particle->Speed.Y + element->Acceleration.Y * (1.0F / 60.0F),
-                            particle->Speed.Z + element->Acceleration.Z * (1.0F / 60.0F));
+                            particle->Speed.X + element->Acceleration.X * (Mods::SimulationRate::StepSecondsF),
+                            particle->Speed.Y + element->Acceleration.Y * (Mods::SimulationRate::StepSecondsF),
+                            particle->Speed.Z + element->Acceleration.Z * (Mods::SimulationRate::StepSecondsF));
                     }
                     const Vector3 prevPos = particle->Position;
                     particle->Position = Vector3(
-                        particle->Position.X + particle->Speed.X * (1.0F / 60.0F),
-                        particle->Position.Y + particle->Speed.Y * (1.0F / 60.0F),
-                        particle->Position.Z + particle->Speed.Z * (1.0F / 60.0F));
+                        particle->Position.X + particle->Speed.X * (Mods::SimulationRate::StepSecondsF),
+                        particle->Position.Y + particle->Speed.Y * (Mods::SimulationRate::StepSecondsF),
+                        particle->Position.Z + particle->Speed.Z * (Mods::SimulationRate::StepSecondsF));
                     if (TypeExtensions::TestFlag(element->Flags, EffElemFlags::CheckCollision))
                     {
                         Formats::CollisionResult result{};
@@ -3855,7 +3864,7 @@ namespace MphRead
         if (GameState::MenuPause())
         {
             const float simFrameTime = _frameTime;
-            _frameTime = (1.0F / 60.0F) * static_cast<float>(_pendingEffectSteps);
+            _frameTime = (Mods::SimulationRate::StepSecondsF) * static_cast<float>(_pendingEffectSteps);
             _pendingEffectSteps = 0;
             main->GetPauseMapRenderItems();
             _frameTime = simFrameTime;
@@ -3875,8 +3884,11 @@ namespace MphRead
             }
             if (((player->LoadFlags() & LoadFlags::Active) == LoadFlags::Active))
             {
+                const ModDrawMark modDrawn = ModMarkDrawn();
                 player->Draw();
                 player->GetDisplayVolumes();
+                // Mod hook: drawn at the picture's instant (Mods/Render/ScenePresentation).
+                ModCarryPlayerDrawn(modDrawn, *player);
             }
         }
         auto entities = Entities().GetEnumerator();
@@ -3887,6 +3899,7 @@ namespace MphRead
             {
                 continue;
             }
+            const ModDrawMark modDrawn = ModMarkDrawn();
             if (entity->ShouldDraw)
             {
                 entity->GetDrawInfo();
@@ -3895,6 +3908,8 @@ namespace MphRead
             {
                 entity->GetDisplayVolumes();
             }
+            // Mod hook: drawn at the picture's instant (Mods/Render/ScenePresentation).
+            ModCarryEntityDrawn(modDrawn, *entity);
         }
         // Instagib rails are not entities: they outlive the shot that made them.
         Mods::Render::InstagibRails::AddRenderItems(*this);
@@ -3913,6 +3928,9 @@ namespace MphRead
             {
                 for (const auto& particle : *element->Particles)
                 {
+                    // Mod hook: drawn where its speed takes it by the picture's instant (Mods/Render/ScenePresentation).
+                    const Mods::Render::ScenePresentation::ParticleCarry modCarried(*particle,
+                        TypeExtensions::TestFlag(element->Flags, EffElemFlags::CheckCollision));
                     Matrix4 matrix = _viewMatrix;
                     if (TypeExtensions::TestFlag(particle->Owner->Flags, EffElemFlags::UseTransform)
                         && !TypeExtensions::TestFlag(particle->Owner->Flags, EffElemFlags::UseMesh))

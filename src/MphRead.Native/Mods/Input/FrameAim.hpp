@@ -50,9 +50,6 @@ namespace MphRead::Mods::Input
         float ReticleX = 0, ReticleY = 0;
         // What presents it: the DS-style aim, or a watched player's view.
         bool Aimed = false, Watched = false;
-        // The local body, carried to this picture's instant where it is drawn.
-        bool Body = false;
-        OpenTK::Mathematics::Vector3 BodyPosition{}, ShownBody{};
         // The camera as the step built it, moved to this picture's instant.
         bool Camera = false;
         OpenTK::Mathematics::Vector3 CameraPosition{}, CameraTarget{}, CameraFacing{}, CameraTrueUp{};

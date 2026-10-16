@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Entities/Players/PlayerEntity.hpp"
+#include "Mods/SimulationRate.hpp"
 
 #include <array>
 #include <cstdint>
@@ -156,7 +157,7 @@ namespace MphRead::Mods::Network
 
     private:
         static constexpr std::int32_t BeamBuckets = AltBeam + 1;
-        static constexpr float TravelFlight = 3.0F / 60.0F;
+        static constexpr float TravelFlight = 3.0F * ::MphRead::Mods::SimulationRate::StepSecondsF;
         static constexpr std::int32_t MarkerFrames = 12;
 
         template <typename T>

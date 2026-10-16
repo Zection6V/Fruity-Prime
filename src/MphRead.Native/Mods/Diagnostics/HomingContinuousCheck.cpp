@@ -1,4 +1,5 @@
 #include "Mods/Diagnostics/HomingContinuousCheck.hpp"
+#include "Mods/SimulationRate.hpp"
 
 #include "Entities/BeamProjectileEntity.hpp"
 #include "Entities/Players/PlayerEntity.hpp"
@@ -151,7 +152,7 @@ namespace MphRead::Mods::Diagnostics
 
             const auto moving = [stand](std::int32_t frame)
             {
-                const float t = static_cast<float>(frame) / 60.0F;
+                const float t = static_cast<float>(frame) / ::MphRead::Mods::SimulationRate::HzF;
                 return stand + Vector3(0.0F, 0.0F, 2.5F * std::sin(t * 3.0F));
             };
             const Burst followed = Hold(fixture, AffinityRow, 60, moving, origin);

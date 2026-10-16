@@ -1,4 +1,6 @@
 #include "Mods/Network/Testing/Maps/MapAudit.hpp"
+#include "Mods/Render/ScenePresentation.hpp"
+#include "Mods/SimulationRate.hpp"
 #include "Mods/Network/Testing/Maps/MapAuditCleanup.hpp"
 #include "Mods/Network/Testing/Maps/MapItemPickupProbe.hpp"
 #include "NativeRuntime/Rhi/SceneBackend.hpp"
@@ -152,7 +154,7 @@ namespace MphRead::Mods::Network
     RendererPlatform::WindowSettings MapAudit::GameSettings()
     {
         RendererPlatform::WindowSettings settings{};
-        settings.UpdateFrequency = 60;
+        settings.UpdateFrequency = ::MphRead::Mods::SimulationRate::Hz;
         return settings;
     }
 
@@ -527,6 +529,9 @@ namespace MphRead::Mods::Network
 
         for (std::int32_t i = 0; i < draws; ++i)
         {
+            // Each extra picture of a step at its own instant, so the world is
+            // drawn carried on and the step is shown not to see it.
+            if (draws > 1) Mods::Render::ScenePresentation::ForcePhase(static_cast<double>(i) / draws);
             _scene->OnDrawFrame();
             if (!_scene->OnRenderFrame())
             {
@@ -552,6 +557,7 @@ namespace MphRead::Mods::Network
             }
         }
 
+        if (draws > 1) Mods::Render::ScenePresentation::ForcePhase(std::nullopt);
         _lockjawDrawRngChanges = Entities::BombEntity::ModLockjawDrawRngChanges;
         if (_scene->FrameCount() != frameCountBefore)
         {
@@ -1864,6 +1870,7 @@ namespace MphRead::Mods::Network
                 << " | " << _drawRate << " draws per step"
                 << " | " << _frame << " steps, " << _scene->FrameCount() << " counted"
                 << " | draws advancing the game: " << _drawAdvancedTheGame
+                << " | drawn items carried: " << Mods::Render::ScenePresentation::CarriedItems()
                 << " | active Lockjaw trail checks: " << _lockjawTrailChecks
                 << " | trail mismatches: " << _lockjawTrailMismatches
                 << " | Lockjaw GetDrawInfo RNG changes: " << _lockjawDrawRngChanges

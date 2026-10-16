@@ -4,6 +4,7 @@
 #include "Formats/Entity.hpp"
 #include "Formats/Formats.hpp"
 #include "GameState.hpp"
+#include "Mods/Render/ScenePresentation.hpp"
 #include "Metadata/Metadata.hpp"
 #include "Read.hpp"
 #include "Strings.hpp"
@@ -139,6 +140,8 @@ namespace MphRead
 
     void Scene::AddEntity(std::shared_ptr<Entities::EntityBase> entity)
     {
+        // Mod hook: a new life has no motion to draw on from (Mods/Render/ScenePresentation).
+        if (entity) Mods::Render::ScenePresentation::NoteAdded(*entity);
         InsertEntity(entity);
         InitializeEntity(entity);
     }

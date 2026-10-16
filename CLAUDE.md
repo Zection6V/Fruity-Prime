@@ -788,16 +788,27 @@ changes here, because nothing about the simulation does.
   Every harness client calls it -- `NetCheckClient`, `MapAudit`, `WeaponDps`,
   `ThumbnailCapture` -- and is therefore untouched by any of this. So is
   Android, which drives the same call.
-- **Every picture is of the newest simulated state, and nothing is blended.**
-  There was an interpolation pass -- entity transforms and the camera blended
-  between their last two simulated states -- and it is **gone**, deliberately
-  and completely. It bought smoother motion between steps and cost visible
-  wrongness on everything that is pooled and reused: a beam projectile or an
-  impact effect taken off the free list starts its new life holding the last
-  one's transform, and a blend against that draws the shot somewhere between
-  where it used to be and where it is. That is the "artifacts de tirs" and the
-  wall impacts landing nowhere. Do not put it back without an answer for entity
-  reuse. **Animation curves are the exception, and they have that answer**
+- **The tick rate is `Mods/SimulationRate.hpp`, and nowhere else.** `Hz`,
+  `StepSeconds` and the DS's half rate `DsHz` live there; `FrameTiming`, the
+  homing rules, the animation rate, the particles, the harness windows and the
+  server loop read it. It is not yet free to change -- the engine still counts
+  much of its time in steps -- and the `-simhz` harness is how that gets done.
+- **Every picture shows the world at its own instant, carried on from the last
+  step -- never blended with an older one** (`Mods/Render/ScenePresentation`).
+  Between steps, each entity's *drawn items* -- the render items and single
+  particles its draw produced, never the entity -- are moved by its last
+  step's own motion, translation and rotation (`MotionCarry`), by as much of a
+  step as the picture is into the next; a replica on a client is read off the
+  playout instead, which already holds that instant; an effect particle by its
+  own speed. Nothing is behind the step, and nothing the simulation reads is
+  touched, so `-maptest -bots -drawrate 3` (which draws at forced instants)
+  gives the same report as `-drawrate 1` with 40-180 thousand items carried.
+  There was an interpolation pass before, and it was removed for what it did
+  to pooled entities: a shot or impact taken off the free list starts its new
+  life holding the last one's transform, and a blend against that drew it
+  somewhere between. The carry has that answer -- `Scene::AddEntity` starts a
+  life with no history, and a pose needs two steps of one life to move -- and
+  no step moves anything further than `MotionCarry::JumpDistance`. **Animation curves are the exception, and they have that answer**
   (`Mods/Render/AnimationBlend`): the 30 Hz integer animation frames advance as
   the game advances them, and a draw shows skeletal poses, material colour and
   alpha, and texcoord motion between the current frame and the one the game's

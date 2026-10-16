@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include "Mods/SimulationRate.hpp"
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -14,8 +15,8 @@ namespace MphRead::Mods::Render
         FrameTiming(const FrameTiming&) = delete;
         FrameTiming& operator=(const FrameTiming&) = delete;
 
-        static constexpr std::int32_t SimulationHz = 60;
-        static constexpr double StepSeconds = 1.0 / SimulationHz;
+        static constexpr std::int32_t SimulationHz = SimulationRate::Hz;
+        static constexpr double StepSeconds = SimulationRate::StepSeconds;
         static constexpr std::int32_t MaxCatchUpSteps = 5;
 
         [[nodiscard]] static std::int32_t FrameRateCap() noexcept;

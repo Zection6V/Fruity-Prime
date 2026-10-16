@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AnimationTick.hpp"
+#include "Mods/SimulationRate.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -44,7 +45,7 @@ namespace MphRead::Mods::Render
         // DisplayRate (the stops' Unlimited) blends at whatever the screen
         // draws. Ticks are noted at any rate, so a change shows on the next
         // draw.
-        static constexpr std::int32_t DsRate = 30;
+        static constexpr std::int32_t DsRate = SimulationRate::DsHz;
         static constexpr std::int32_t DisplayRate = -1;
         [[nodiscard]] static std::int32_t Rate() noexcept;
         // Anything below DsRate but DisplayRate reads as DsRate.

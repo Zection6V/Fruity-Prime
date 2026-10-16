@@ -8,6 +8,10 @@
 #include "../../Scene.hpp"
 #include "../Render/AnimationClock.hpp"
 #include "../Render/FrameTiming.hpp"
+#include "../Render/MotionCarry.hpp"
+#include "../Render/ScenePresentation.hpp"
+#include "../Network/Gameplay/Replication/NetSmoothing.hpp"
+#include "../Network/Session/NetSession.hpp"
 #include "../SpectatorMode.hpp"
 #include "AimNumericPolicy.hpp"
 #include "MouseAimTurn.hpp"
@@ -155,7 +159,7 @@ namespace MphRead::Entities
         {
             const double follow = 1.0 - Mods::Input::AimFollow;
             const double kept = follow * follow;
-            const double phase = Mods::Render::FrameTiming::StepPhase();
+            const double phase = Mods::Render::ScenePresentation::Phase();
             const double offsetKept = std::pow(kept, phase);
             // c(p) / b, which tends to -ln k / (1 - k) as p does to 0.
             const double lagShape = phase > 1e-6 ? (1.0 - offsetKept) / ((1.0 - kept) * phase)
@@ -203,12 +207,14 @@ namespace MphRead::Entities
             // times a second under a view that turns every frame. Nothing has
             // happened yet that could say otherwise, and the next step puts
             // the eye where the body really goes. A jump no body makes in a
-            // step -- a teleport, a respawn -- is not carried.
-            constexpr float MaxEyeStep = 2.0F;
+            // step -- a teleport, a respawn -- is not carried. The body is
+            // carried with it where it is drawn (ModPresentationShift).
+            constexpr float MaxEyeStep = Mods::Render::MotionCarry::JumpDistance;
             ::MphRead::Entities::CameraInfo& camera = *_cameraInfo;
             const Vector3 stepped = camera.Position - camera.PrevPosition;
-            const float phase = static_cast<float>(Mods::Render::FrameTiming::StepPhase());
-            if (phase > 0 && stepped.LengthSquared() > 0 && stepped.LengthSquared() < MaxEyeStep * MaxEyeStep)
+            const float phase = static_cast<float>(Mods::Render::ScenePresentation::Phase());
+            if (Mods::Render::ScenePresentation::Moving()
+                && stepped.LengthSquared() > 0 && stepped.LengthSquared() < MaxEyeStep * MaxEyeStep)
             {
                 const Vector3 eye = ::OpenTK::Mathematics::Multiply(stepped, phase);
                 ModSaveFrameView();
@@ -221,22 +227,6 @@ namespace MphRead::Entities
                 ModPlaceGunEffects();
                 shown = true;
             }
-            // The body the same way, where it is drawn -- the ball, a third
-            // person view -- or its own camera, carried, leaves it behind.
-            const Vector3 moved = static_cast<Vector3>(Position) - PrevPosition();
-            if (phase > 0 && moved.LengthSquared() > 0 && moved.LengthSquared() < MaxEyeStep * MaxEyeStep)
-            {
-                const Vector3 body = ::OpenTK::Mathematics::Multiply(moved, phase);
-                ModSaveFrameView();
-                Mods::Input::FrameAimView& view = _modFrameView;
-                view.Body = true;
-                view.BodyPosition = Position;
-                _modFrameBodyVolume = _volume;
-                Position = view.BodyPosition + body;
-                _volume = CollisionVolume::Move(_volume, body);
-                view.ShownBody = Position;
-                shown = true;
-            }
         }
         // The DS-style aim, from the eye this picture has.
         if (live != nullptr && ModPresentFrameAim(*live)) shown = true;
@@ -246,6 +236,28 @@ namespace MphRead::Entities
             _modFrameView.ShownFacing = _facingVector;
         }
         return shown;
+    }
+
+    std::optional<::OpenTK::Mathematics::Vector3> PlayerEntity::ModPresentationShift() const
+    {
+        using ::OpenTK::Mathematics::Vector3;
+        if (!Mods::Render::ScenePresentation::Moving()) return std::nullopt;
+        // In first person the body is not drawn, and the eye and the gun are
+        // presented with the camera (ModPresentOwnView, ModPresentWatchedView).
+        if (IsMainPlayer() && _cameraType == CameraType::First && !IsAltForm()
+            && Formats::CameraSequence::Current() == nullptr)
+        {
+            return std::nullopt;
+        }
+        const double phase = Mods::Render::ScenePresentation::Phase();
+        // A replica on a client is read off the playout, which holds what has
+        // arrived past the step's read point: no guess at all.
+        if (Mods::Network::NetSmoothing::Active() && SlotIndex() != Mods::Network::NetSession::LocalSlot())
+        {
+            return Mods::Network::NetSmoothing::AheadShift(SlotIndex(), phase);
+        }
+        // Simulated here: on along the step's own motion.
+        return ::OpenTK::Mathematics::Multiply(static_cast<Vector3>(Position) - PrevPosition(), static_cast<float>(phase));
     }
 
     void PlayerEntity::ModSaveFrameView()
@@ -358,11 +370,6 @@ namespace MphRead::Entities
         _muzzlePos = view.Muzzle;
         _aimY = view.AimY;
         _aimTrace.Calls = view.Trace;
-        if (view.Body && Same(Position, view.ShownBody))
-        {
-            Position = view.BodyPosition;
-            _volume = _modFrameBodyVolume;
-        }
         if (view.Camera && _cameraInfo != nullptr)
         {
             _cameraInfo->Position = view.CameraPosition;

@@ -91,7 +91,29 @@ emulator available here has no extracted game files and so cannot load a match
 -- the gap `.claude/android/ANDROID-PORT.md` already describes. Treat the
 Android frame rate as untested rather than working.
 
-## There is no interpolation, and that is deliberate
+## The world is carried on, not interpolated
+
+Every picture shows the world at its own instant (`Mods/Render/
+ScenePresentation`, `MotionCarry`). The last step recorded every entity's pose
+(`EndStep`, keyed by entity; `Scene::AddEntity` starts a new life with no
+history); a picture part of the way to the next step moves what each entity
+*drew* -- its render items, by their matrix stack or their transform, and the
+single particles it added -- by that entity's last-step motion, translation and
+rotation, carried that fraction of a step on. A billboard only moves. A replica
+on a client is read off the playout clock (`NetSmoothing::AheadShift`), which
+already holds that instant; a player simulated here moves on along its own
+step; an effect particle is drawn where its speed takes it, unless it stops at
+what it hits. Nothing older than the step is shown, so nothing is delayed, and
+the entity is never touched: draws compute node matrices that the simulation
+reads back, so moving the entity would have leaked the picture into the game.
+`-maptest -bots -drawrate N` draws each step at forced instants 0, 1/N, ...
+and its report is the same as `-drawrate 1`'s, with the number of drawn items
+carried on its `FRAMETIMING` line. `FruityPrime.MotionCarry` checks the
+arithmetic.
+
+What follows is why the earlier blend was removed, and why this is not it.
+
+### The interpolation that was removed
 
 There was. Entity transforms and the camera were blended between their last two
 simulated states across `FrameTiming.Alpha`, so that a 144 Hz picture of a
@@ -317,10 +339,11 @@ charge glow's `OwnTransform` with it and left the glow drawn where the step
 had it, trailing the muzzle. Every placement a picture makes goes through
 `ModPlaceGunEffects`, which copies the transform too.
 
-What still moves at the simulation's rate: other players, enemies and shots
-(entity transforms are not interpolated, see above), a watched player's aim,
-and the screen shake, which `CameraInfo::Update` applies on every other camera
-update -- 30 Hz, as the DS did.
+What still moves at the simulation's rate: what an entity draws from anything
+but its own transform (a shot's trail is carried with the shot; an entity that
+rewrites its transform while drawing is not carried), another player's facing
+and a watched player's aim, and the screen shake, which `CameraInfo::Update`
+applies on every other camera update -- 30 Hz, as the DS did.
 
 Measured by `-aimcheck` (`AimCheck::CheckFrameAim`, real player): frames along
 a mouse path then a step end where one step over the whole path ends, a step

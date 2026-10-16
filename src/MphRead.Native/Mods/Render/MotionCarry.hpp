@@ -1,0 +1,49 @@
+#pragma once
+
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
+
+#include <optional>
+
+namespace MphRead
+{
+    class RenderItem;
+}
+
+namespace MphRead::Mods::Render
+{
+    // A pose carried on from where the last simulation step left it, by
+    // that step's own motion, to an instant part of the way to the next
+    // step: what a picture between steps shows of anything that moves.
+    // Nothing is behind the step and nothing is held back; the next step
+    // puts everything where it really goes.
+    class MotionCarry final
+    {
+    public:
+        MotionCarry() = delete;
+
+        // Further than this in one step is not motion but a jump -- a
+        // teleporter, a respawn, a jump pad's launch frame, a pooled entity
+        // starting a new life -- and is never slid across.
+        static constexpr float JumpDistance = 4.0F;
+        // A turn this large in one step is not carried either.
+        static constexpr float MaxTurnDegrees = 90.0F;
+
+        // The world-space motion, row-vector like every engine transform,
+        // that takes the pose `current` (one step after `previous`) on by
+        // `fraction` of a step more: translation and rotation, the rotation
+        // only while the pose keeps its scale. Nothing when there is nothing
+        // to carry or the motion is a jump.
+        [[nodiscard]] static std::optional<OpenTK::Mathematics::Matrix4> Between(
+            const OpenTK::Mathematics::Matrix4& previous, const OpenTK::Mathematics::Matrix4& current,
+            float fraction);
+        // A translation alone, when there is one worth carrying.
+        [[nodiscard]] static std::optional<OpenTK::Mathematics::Matrix4> By(OpenTK::Mathematics::Vector3 shift);
+
+        // A drawn item, moved by `carry`: its matrix stack when it has one,
+        // its transform otherwise -- every kind of item is drawn through one
+        // of the two. A billboard keeps facing the camera and only moves.
+        static void Apply(RenderItem& item, const OpenTK::Mathematics::Matrix4& carry);
+        [[nodiscard]] static OpenTK::Mathematics::Vector3 Point(
+            OpenTK::Mathematics::Vector3 point, const OpenTK::Mathematics::Matrix4& carry) noexcept;
+    };
+}

@@ -1,4 +1,5 @@
 #include "AimAssistChecks.hpp"
+#include "Mods/SimulationRate.hpp"
 
 #include "AimAssist.hpp"
 #include "../AimInputSourceTracker.hpp"
@@ -21,7 +22,7 @@ namespace MphRead::Mods::Input::AimAssist
         std::vector<AimAssistTarget> targets{AimAssistTarget{1, 1, Vector2(1, .2F), Vector2(.3F, .4F), 15, true, true}};
         const auto apply = [&](float stick = .5F, float move = 0, bool eligible = true, std::optional<Vector2> raw = std::nullopt)
         {
-            return AimAssist::Apply(state, targets, raw.has_value() ? *raw : Vector2(.1F, .01F), stick, move, 1.0F / 60,
+            return AimAssist::Apply(state, targets, raw.has_value() ? *raw : Vector2(.1F, .01F), stick, move, ::MphRead::Mods::SimulationRate::StepSecondsF,
                 eligible, profile);
         };
         check(apply(0, 0, true, Vector2::Zero()) == AimAssistResult{0, 0}, "untouched pad never moves camera");

@@ -1,4 +1,5 @@
 #include "GpuLifetimeCheck.hpp"
+#include "Mods/SimulationRate.hpp"
 #include "../Branding.hpp"
 
 #include "../../Entities/Players/PlayerEntity.hpp"
@@ -30,7 +31,7 @@ namespace MphRead::Mods::Diagnostics
                 : _room(std::move(room)), _cycles(cycles), _frames(frames)
             {
                 RendererPlatform::WindowSettings settings{};
-                settings.UpdateFrequency = 60;
+                settings.UpdateFrequency = ::MphRead::Mods::SimulationRate::Hz;
                 settings.ClientSize = Vector2i(320, 180);
                 settings.Title = std::string(Branding::Name) + " GPU lifetime check";
                 settings.Profile = RendererPlatform::WindowSettings::ContextProfile::Compatability;

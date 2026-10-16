@@ -1,4 +1,5 @@
 #include "AimAssistTelemetry.hpp"
+#include "Mods/SimulationRate.hpp"
 
 #include "AimAssistDebug.hpp"
 #include "../AimInputSourceTracker.hpp"
@@ -96,7 +97,7 @@ namespace MphRead::Mods::Input::AimAssist
         if (result.TargetSlot() >= 0)
         {
             Runtime::IncrementInPlace(slot->TargetSamples);
-            slot->SecondsOnTarget += 1.0 / 60;
+            slot->SecondsOnTarget += ::MphRead::Mods::SimulationRate::StepSeconds;
             slot->ErrorSum += target.BodyError().Length();
             slot->VelocitySum += velocity;
             if (result.TargetSlot() != _lastTarget)
@@ -106,11 +107,11 @@ namespace MphRead::Mods::Input::AimAssist
         }
         if (result.RotationStrength() > 0)
         {
-            slot->AssistSeconds += 1.0 / 60;
+            slot->AssistSeconds += ::MphRead::Mods::SimulationRate::StepSeconds;
         }
         if (result.HeadBlend() > 0)
         {
-            slot->HeadSeconds += 1.0 / 60;
+            slot->HeadSeconds += ::MphRead::Mods::SimulationRate::StepSeconds;
         }
         _lastTarget = result.TargetSlot();
     }

@@ -48,6 +48,7 @@
 #include "Mods/InputSettings.hpp"
 #include "Mods/Input/AimAssist/AimAssistDebug.hpp"
 #include "Mods/Input/GamepadHaptics.hpp"
+#include "Mods/Input/MouseAimTurn.hpp"
 #include "Mods/Input/GamepadManager.hpp"
 #include "Mods/Input/GamepadUiRouter.hpp"
 #include "Mods/Input/PointerDevice.hpp"
@@ -5331,10 +5332,13 @@ namespace MphRead
         const float moveStep = (shift ? DeathCameraStep * 5.0F : DeathCameraStep) * steps;
         const float rotStep = DegreesToRadians(shift ? 3.0F : 1.5F) * steps;
         float forward = _roamPadMoveY * DeathCameraStep * steps, right = _roamPadMoveX * DeathCameraStep * steps, rise = _roamPadRise * DeathCameraStep * steps;
-        // The mouse turns it as it turns a hunter: a quarter of a degree a
-        // count at sensitivity 1 (PlayerEntity::ApplyMouseAim, unzoomed).
-        float stepH = DegreesToRadians(_roamPadLookX + mouseX / 4.0F) * steps;
-        float stepV = DegreesToRadians(_roamPadLookY - mouseY / 4.0F) * steps;
+        // The mouse turns it as it turns a hunter (PlayerEntity::ApplyMouseAim,
+        // unzoomed), sensitivity and inversion included. Its motion is already
+        // the frame's whole movement, so it is not scaled by `steps`; the
+        // pad's look is a rate a step, and is.
+        const Mods::Input::MouseTurn mouseTurn = Mods::Input::MouseAimTurn(mouseX, mouseY);
+        float stepH = DegreesToRadians(_roamPadLookX * steps - mouseTurn.Yaw);
+        float stepV = DegreesToRadians(_roamPadLookY * steps + mouseTurn.Pitch);
         if (keys)
         {
             if (_keyboardState->IsKeyDown(Key::W)) forward += moveStep;

@@ -3,9 +3,11 @@
 
 #include "Mods/Network/Session/NetLifecycleTracker.hpp"
 #include "Mods/Network/Diagnostics/NetLog.hpp"
+#include "Mods/Network/Diagnostics/FormRequestTrace.hpp"
 #include "Mods/Network/Gameplay/Player/NetPlayerLifecycle.hpp"
 #include "Mods/Network/Protocol/NetProtocol.hpp"
 #include "Mods/Network/Session/NetSession.hpp"
+#include "Mods/Network/Session/SessionFormTransition.hpp"
 #include "Mods/Network/Diagnostics/NetTimingDiagnostics.hpp"
 
 #include "NativeRuntime/System/Managed.hpp"
@@ -81,6 +83,7 @@ namespace MphRead::Mods::Network
             return;
         }
         const auto s = static_cast<std::size_t>(slot);
+        SessionFormTransition::ResetSlot(slot);
         for (std::size_t i = 0; i < HistoryFrames; i++)
         {
             _live[s][i] = false;
@@ -309,8 +312,12 @@ namespace MphRead::Mods::Network
     {
         // Between the read point and what has arrived, never past it: the
         // picture is not allowed a guess the step is not.
-        const double read = std::min(_readFrame + std::clamp(steps, 0.0, 1.0), static_cast<double>(_newest));
-        return SampleAt(slot, std::max(read, _readFrame), position, altForm, false);
+        return SampleAt(slot, PresentationFrame(steps), position, altForm, false);
+    }
+
+    double NetSmoothing::PresentationFrame(double steps) noexcept
+    {
+        return std::max(_readFrame, std::min(_readFrame + std::clamp(steps, 0.0, 1.0), static_cast<double>(_newest)));
     }
 
     Vector3 NetSmoothing::AheadShift(std::int32_t slot, double steps)
@@ -417,6 +424,16 @@ namespace MphRead::Mods::Network
             return false;
         }
         form = a;
+        if (const auto phase = SessionFormTransition::Sample(slot, PresentationFrame(), form.Direction))
+        {
+            form.PresentationPhase = *phase;
+            if (FormTransitionTrace::Enabled() && NetLog::Enabled()) NetLog::Event("[form-sample] slot=" + std::to_string(slot)
+                + " generation=" + std::to_string(NetPlayerLifecycle::Generation(slot))
+                + " life=" + std::to_string(NetPlayerLifecycle::Get(slot))
+                + " newest=" + std::to_string(_newest) + " read=" + std::to_string(_readFrame)
+                + " direction=" + std::to_string(static_cast<int>(form.Direction))
+                + " progress=" + std::to_string(form.Progress) + " phase=" + std::to_string(*phase));
+        }
         if (!bracket.HasAfter)
         {
             return true;
@@ -634,6 +651,7 @@ namespace MphRead::Mods::Network
 
     void NetSmoothing::Reset()
     {
+        SessionFormTransition::Reset();
         _stamp.fill(0);
         ClearGrid(_live);
         ClearGrid(_trackedStamp);
@@ -659,6 +677,7 @@ namespace MphRead::Mods::Network
 
     void NetSmoothing::NoteRoomChanged()
     {
+        SessionFormTransition::Reset();
         _stamp.fill(0);
         ClearGrid(_live);
         ClearGrid(_trackedStamp);

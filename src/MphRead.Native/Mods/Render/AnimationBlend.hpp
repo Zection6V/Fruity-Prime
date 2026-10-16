@@ -60,6 +60,21 @@ namespace MphRead::Mods::Render
         // Hook: ModelInstance::UpdateAnimFrames(), after the frames advanced.
         static void NoteTick(ModelInstance& instance);
 
+        // Samples a specific continuous clip frame during one draw. Integer
+        // animation frames and gameplay flags are never changed.
+        class FrameOverride final
+        {
+        public:
+            FrameOverride() = default;
+            ~FrameOverride();
+            FrameOverride(const FrameOverride&) = delete;
+            FrameOverride& operator=(const FrameOverride&) = delete;
+            void Set(AnimationInfo& info, float frame);
+        private:
+            AnimationInfo* _info = nullptr;
+            float _drawFrame = -1.0F;
+        };
+
         class DrawScope final
         {
         public:

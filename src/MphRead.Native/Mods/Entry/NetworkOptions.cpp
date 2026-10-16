@@ -3,12 +3,14 @@
 #include "CommandLine.hpp"
 
 #include "../Network/Diagnostics/HomingShotTrace.hpp"
+#include "../Network/Diagnostics/FormRequestTrace.hpp"
 #include "../Network/Gameplay/Claims/Hit/NetHitClaims.hpp"
 #include "../Network/Gameplay/Combat/HitLocation.hpp"
 #include "../Network/Gameplay/Combat/NetHitPrediction.hpp"
 #include "../Network/Gameplay/Combat/NetUnlagged.hpp"
 #include "../Network/Gameplay/Player/NetPlayerBridge.hpp"
 #include "../Network/Gameplay/Replication/NetSmoothing.hpp"
+#include "../Network/Session/SessionFormTransition.hpp"
 #include "../Network/Integration/Hooks/NetHooks.hpp"
 #include "../Network/Testing/Combat/HitRig.hpp"
 #include "../Network/Transport/NetLag.hpp"
@@ -77,6 +79,11 @@ namespace MphRead::Mods::Entry
 
     void ApplyLagCompensationOptions(const std::vector<std::string>& args)
     {
+        if (HasFlag(args, "formtrace"))
+        {
+            Network::FormTransitionTrace::Enabled(true);
+            WriteLine("[net] form trace on: accepted starts and playout samples go to the network log");
+        }
         if (HasFlag(args, "homingtrace"))
         {
             Network::HomingShotTrace::Enable(true);
@@ -209,6 +216,11 @@ namespace MphRead::Mods::Entry
         {
             Network::NetSmoothing::Enabled(false);
             WriteLine("[net] puppet interpolation off: remote players move when their snapshots arrive");
+        }
+        if (HasFlag(args, "noformevents"))
+        {
+            Network::SessionFormTransition::Enabled(false);
+            WriteLine("[net] remote form clips use snapshot progress without the event timeline");
         }
         if (HasFlag(args, "relayedpuppets"))
         {

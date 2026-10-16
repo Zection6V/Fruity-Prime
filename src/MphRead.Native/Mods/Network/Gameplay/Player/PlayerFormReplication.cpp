@@ -179,7 +179,8 @@ namespace MphRead::Mods::Network
                 // hold the sampled phase until the clock reaches stable form.
                 _transitionPlayback[static_cast<std::size_t>(slot)].Reset();
                 player.ModApplyFormTransition(morphing);
-                player.ModHoldFormTransitionAtProgress(morphing, state.Progress);
+                if (state.PresentationPhase >= 0) player.ModHoldFormTransitionAtPhase(morphing, state.PresentationPhase);
+                else player.ModHoldFormTransitionAtProgress(morphing, state.Progress);
                 return;
             }
             const FormTransitionPlaybackDecision playback = _transitionPlayback[static_cast<std::size_t>(slot)].Step(

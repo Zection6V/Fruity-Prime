@@ -137,6 +137,48 @@ namespace
             OpenTK::Mathematics::Vector3(1, 1, 1), info);
     }
 
+    void FormFrameOverrideChecks()
+    {
+        const auto rig = MakeRig();
+        ModelInstance instance(rig.Model);
+        Configure(instance, AnimFlags::NoLoop | AnimFlags::Paused, rig.Group, 4);
+        instance.AnimInfo->Node->Slot = 0;
+        (*instance.AnimInfo->Frame)[0] = 1;
+        const auto flags = (*instance.AnimInfo->Flags)[0];
+        AnimationBlend::Rate(AnimationBlend::DisplayRate);
+        {
+            const AnimationBlend::DrawScope blend;
+            AnimationBlend::FrameOverride frame;
+            frame.Set(*instance.AnimInfo, 2.375F);
+            Pose(*rig.Model, instance.AnimInfo);
+            Require(Near(TranslationX(*rig.Model), 23.75F), "event frame blends the actual native curve continuously");
+            Require(Near(AnimationBlend::FrameShown(*instance.AnimInfo), 2.375F), "draw uses the exact fractional frame");
+            Require((*instance.AnimInfo->Frame)[0] == 1, "draw never changes the simulation frame");
+            Require(Near(AnimationBlend::FrameShown(*instance.AnimInfo, 1),
+                static_cast<float>((*instance.AnimInfo->Frame)[1])), "override does not leak into the other animation slot");
+        }
+        Require((*instance.AnimInfo->Frame)[0] == 1 && (*instance.AnimInfo->Flags)[0] == flags
+            && instance.AnimInfo->ModTick.DrawFrame < 0, "draw restores integer frame and keeps gameplay flags");
+        Require(Near(TranslationX(*rig.Model), 10), "draw restores the simulation pose rather than the overridden integer pose");
+        try
+        {
+            AnimationBlend::FrameOverride frame;
+            frame.Set(*instance.AnimInfo, 2.5F);
+            throw std::runtime_error("draw interrupted");
+        }
+        catch (const std::runtime_error&) {}
+        Require((*instance.AnimInfo->Frame)[0] == 1 && instance.AnimInfo->ModTick.DrawFrame < 0,
+            "an exception restores the simulation frame");
+        AnimationBlend::Rate(AnimationBlend::DsRate);
+        {
+            AnimationBlend::FrameOverride frame;
+            frame.Set(*instance.AnimInfo, 1.9F);
+            Require(Near(instance.AnimInfo->ModTick.DrawFrame, 1), "30 Hz setting retains integer poses");
+        }
+        AnimationBlend::Rate(AnimationBlend::DisplayRate);
+        std::cout << "PASS authoritative form frame overrides\n";
+    }
+
     void PreviewClockChecks()
     {
         const auto model = Fixture();
@@ -689,6 +731,53 @@ namespace
         }
     }
 
+    void AssetFormChecks()
+    {
+        for (const auto hunter : {Hunter::Samus, Hunter::Kanden, Hunter::Spire,
+                 Hunter::Trace, Hunter::Noxus, Hunter::Sylux, Hunter::Weavel})
+        for (const auto animation : {Entities::PlayerAnimation::Morph, Entities::PlayerAnimation::Unmorph})
+        {
+            auto instance = Read::GetModelInstance(Metadata::HunterModels.at(hunter).at(0));
+            instance->SetAnimation(static_cast<int>(animation), AnimFlags::NoLoop | AnimFlags::Paused);
+            auto& model = *instance->Model();
+            auto& info = *instance->AnimInfo;
+            model.ComputeNodeMatrices(0);
+            Pose(model, instance->AnimInfo);
+            const int frame = info.NodeFrame();
+            const auto flags = (*info.Flags)[0];
+            std::vector<Matrix4> integer;
+            for (const auto& node : *model.Nodes) integer.push_back(node->Animation);
+            const int last = (*info.FrameCount)[0] - 1;
+            Require(last > 1, "real form clip has no duration");
+            for (const int hz : {30, 60, 120, 144, 240, 540})
+            {
+                const int draws = static_cast<int>(std::ceil(last * hz / 30.0));
+                for (int draw = 0; draw <= draws; ++draw)
+                {
+                    const float shown = std::min(static_cast<float>(last), 30.0F * draw / hz);
+                    {
+                        const AnimationBlend::DrawScope blend;
+                        AnimationBlend::FrameOverride sample;
+                        sample.Set(info, shown);
+                        Pose(model, instance->AnimInfo);
+                        Require(std::abs(AnimationBlend::FrameShown(info) - shown) < 0.0001F,
+                            "real form clip's duration changed with display rate");
+                        for (const auto& node : *model.Nodes)
+                            Require(std::isfinite(node->Animation.M11) && std::isfinite(node->Animation.M41),
+                                "real form sample produced an invalid node pose");
+                    }
+                    Require(info.NodeFrame() == frame && (*info.Flags)[0] == flags,
+                        "real form draw changed simulation or completed gameplay");
+                    for (std::size_t i = 0; i < integer.size(); ++i)
+                        Require(std::memcmp(&integer[i], &model.Nodes->at(i)->Animation, sizeof(Matrix4)) == 0,
+                            "real form draw leaked a node pose into the simulation");
+                }
+            }
+            std::cout << "PASS real form clip at 30/60/120/144/240/540 fps: hunter=" << static_cast<int>(hunter)
+                << " animation=" << static_cast<int>(animation) << " frames=" << last + 1 << '\n';
+        }
+    }
+
     void AssetDoorSealChecks()
     {
         for (const auto* name : {"AlimbicDoorLock", "AlimbicMorphBallDoorLock", "ThinDoorLock"})
@@ -1013,6 +1102,8 @@ int main(int argc, char** argv)
     try
     {
         PreviewClockChecks();
+        stage = "authoritative form frame";
+        FormFrameOverrideChecks();
         stage = "simulation clock";
         SimulationClockChecks();
         stage = "poses";
@@ -1027,6 +1118,8 @@ int main(int argc, char** argv)
         if (argc > 1)
         {
             AssetChecks(argv[1]);
+            stage = "real hunter form clips";
+            AssetFormChecks();
             stage = "sealed door rotation";
             AssetDoorSealChecks();
             stage = "map and prop texcoords";

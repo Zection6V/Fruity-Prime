@@ -524,11 +524,16 @@ namespace MphRead::Entities
         SyncFormTransitionProgress(morphing, progress, true);
     }
 
-    void PlayerEntity::SyncFormTransitionProgress(bool morphing, std::uint8_t progress,
+    void PlayerEntity::ModHoldFormTransitionAtPhase(bool morphing, float phase) noexcept
+    {
+        if (std::isfinite(phase)) SyncFormTransitionProgress(morphing, std::clamp(phase, 0.0F, 1.0F) * 15.0F, true);
+    }
+
+    void PlayerEntity::SyncFormTransitionProgress(bool morphing, float progress,
         bool holdAtProgress) noexcept
     {
         const PlayerAnimation expected = morphing ? PlayerAnimation::Morph : PlayerAnimation::Unmorph;
-        const std::uint8_t boundedProgress = std::min<std::uint8_t>(progress, 15);
+        const float boundedProgress = std::clamp(progress, 0.0F, 15.0F);
         constexpr std::uint8_t finalPendingPhase = 12;
         const auto advance = [expected, boundedProgress, holdAtProgress](
             const std::shared_ptr<MphRead::ModelInstance>& model)
@@ -544,7 +549,7 @@ namespace MphRead::Entities
             const std::int32_t frameCount = ::MphRead::NativeRuntime::ManagedAt(info.FrameCount, 0);
             if (frameCount <= 1) return;
             const std::int32_t lastFrame = frameCount - 1;
-            const std::int32_t target = (static_cast<std::int32_t>(boundedProgress) * lastFrame + 7) / 15;
+            const std::int32_t target = static_cast<std::int32_t>((boundedProgress * lastFrame + 7) / 15);
             std::int32_t& frame = ::MphRead::NativeRuntime::ManagedAt(info.Frame, 0);
             const std::int32_t activeTarget = std::min(target, lastFrame - 1);
             // Snap forward only. A snapshot is already in transit when it is
@@ -613,6 +618,14 @@ namespace MphRead::Entities
                 && _halfturret && _halfturret->Health() > 0;
             ModForceWeavelState(altForm, altForm && (!_weavelAltLife || active));
             return;
+        }
+        if (!altForm)
+        {
+            // A stable snapshot can bypass ExitAltForm. Use the native attack
+            // teardown as well as changing the model/collision form. Weavel's
+            // specialized lifecycle above already owns its attack teardown.
+            EndAltAttack();
+            _boostCharge = 0;
         }
         if (altForm == (*this).IsAltForm())
         {

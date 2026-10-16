@@ -566,7 +566,8 @@ namespace MphRead::Mods::Network
             if (hasDisplayedForm && displayedForm.Direction != ReplicatedFormState::Transition::None)
             {
                 const bool morphing = displayedForm.Direction == ReplicatedFormState::Transition::Morph;
-                player.ModHoldFormTransitionAtProgress(morphing, displayedForm.Progress);
+                if (displayedForm.PresentationPhase >= 0) player.ModHoldFormTransitionAtPhase(morphing, displayedForm.PresentationPhase);
+                else player.ModHoldFormTransitionAtProgress(morphing, displayedForm.Progress);
             }
             else
             {

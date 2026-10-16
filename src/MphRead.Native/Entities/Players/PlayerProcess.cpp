@@ -25,6 +25,7 @@
 #include "../../Metadata/Metadata.hpp"
 #include "../../Metadata/Weapons.hpp"
 #include "Mods/Network/Integration/Hooks/NetHooks.hpp"
+#include "Mods/Network/Diagnostics/FormRequestTrace.hpp"
 #include "Mods/Network/Gameplay/Pickups/NetItemState.hpp"
 #include "Mods/Network/Gameplay/Pickups/NetPowerUpPrediction.hpp"
 #include "Mods/Network/Gameplay/Pickups/NetPowerUps.hpp"
@@ -2051,6 +2052,7 @@ namespace MphRead::Entities
 
     bool PlayerEntity::TrySwitchForms(bool force)
     {
+        const Mods::Network::FormRequestTrace modFormRequest(*this);
         if (!force && (IsMorphing() || IsUnmorphing() || _frozenTimer > 0 || _field6D0
                 || _deathaltTimer > 0 || TestFlag(_flags2, PlayerFlags2::NoFormSwitch)
                 || (!IsAltForm() && TestFlag(_flags2, PlayerFlags2::BipedStuck))

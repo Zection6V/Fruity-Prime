@@ -18,6 +18,8 @@ namespace MphRead::Mods::Network
         bool AltForm = false;
         Transition Direction = Transition::None;
         std::uint8_t Progress = 0;
+        // Local presentation only; never serialized into PlayerState's nibble.
+        float PresentationPhase = -1.0F;
 
         [[nodiscard]] bool HeadingAlt() const noexcept
         {
@@ -45,6 +47,7 @@ namespace MphRead::Mods::Network
             result.Direction = morphing ? Transition::Morph
                 : unmorphing ? Transition::Unmorph : Transition::None;
             result.Progress = progress;
+            result.PresentationPhase = -1.0F;
             return true;
         }
     };

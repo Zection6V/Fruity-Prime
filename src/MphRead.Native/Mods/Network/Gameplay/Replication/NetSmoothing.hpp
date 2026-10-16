@@ -67,6 +67,7 @@ namespace MphRead::Mods::Network
         // zero where either cannot be read or the form changes in between.
         [[nodiscard]] static OpenTK::Mathematics::Vector3 AheadShift(std::int32_t slot, double steps);
         [[nodiscard]] static bool SampleForm(std::int32_t slot, ReplicatedFormState& form);
+        [[nodiscard]] static double PresentationFrame(double steps = 0.0) noexcept;
         [[nodiscard]] static bool SampleTrackedPosition(std::int32_t slot, std::uint32_t sequence,
             OpenTK::Mathematics::Vector3& position, bool& present);
         [[nodiscard]] static bool AckPoint(std::uint32_t& frame, std::uint8_t& subFrame);

@@ -16,6 +16,7 @@
 #include "../Diagnostics/LockjawEnemyCheck.hpp"
 #include "../Diagnostics/MovieHeadlessCheck.hpp"
 #include "../Diagnostics/WeavelAltFormCheck.hpp"
+#include "../Diagnostics/FormPresentationCheck.hpp"
 #include "../Input/GamepadProbe.hpp"
 #include "../Launcher/Portable/GameFiles.hpp"
 #include "../Multiplayer/ResourceAudit.hpp"
@@ -138,6 +139,11 @@ namespace MphRead::Mods::Entry
 
     bool TryRunGameChecks(const std::vector<std::string>& args)
     {
+        if (const auto check = ValueAfter(args, "formpresentationcheck"); check.has_value())
+        {
+            SetExitCode(Diagnostics::FormPresentationCheck::Run(*check));
+            return true;
+        }
         const auto lockjawEnemyCheck = ValueAfter(args, "lockjawenemycheck");
         if (const auto aimCheck = ValueAfter(args, "aimcheck"); aimCheck.has_value())
         {

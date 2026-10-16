@@ -2,6 +2,8 @@
 #include "Mods/Network/Gameplay/Replication/NetSmoothing.hpp"
 #include "Mods/Network/Protocol/NetProtocol.hpp"
 #include "Mods/Network/Testing/NetSessionFixture.hpp"
+#include "Mods/Network/Session/SessionFormTransition.hpp"
+#include "Mods/Network/Session/PeerRegistry.hpp"
 
 #include <array>
 #include <cmath>
@@ -337,6 +339,45 @@ int main()
         "a picture never reads past the newest snapshot");
     passed &= Check(NetSmoothing::Interpolated() == interpolatedBefore && NetSmoothing::Held() == heldBefore,
         "a picture's samples are not counted as the step's");
+
+    MatchStatePacket match{}; match.MatchId = 5; match.AuthorityEpoch = 6;
+    NetSessionFixture::SetMatchIdentity(match);
+    RemotePlayers().StoreState(lifeAfter);
+    FormTransitionPacket events{};
+    events.Match = match.MatchId; events.Epoch = match.AuthorityEpoch; events.Frame = 506; events.Count = 1;
+    auto& event = events.Records[0];
+    event.Slot = 1; event.Generation = lifeAfter.SlotGeneration; event.Life = lifeAfter.LifeId; event.Id = 1;
+    event.StartFrame = event.StampFrame = event.AnchorFrame = 504;
+    event.ClipFrames = 16; event.Direction = ReplicatedFormState::Transition::Morph;
+    const auto deliver = [&]()
+    {
+        std::array<std::uint8_t, FormTransitionPacket::MaxSize> bytes{};
+        const auto size = events.Write(bytes);
+        passed &= Check(size != 0, "event fixture encodes");
+        SessionFormTransition::Receive(std::span<const std::uint8_t>(bytes).first(size));
+    };
+    ++events.Match; deliver(); --events.Match;
+    passed &= Check(!SessionFormTransition::Sample(1, 505, event.Direction), "cross-match event is rejected");
+    ++events.Epoch; deliver(); --events.Epoch;
+    passed &= Check(!SessionFormTransition::Sample(1, 505, event.Direction), "cross-authority event is rejected");
+    ++event.Life; deliver(); --event.Life;
+    passed &= Check(!SessionFormTransition::Sample(1, 505, event.Direction), "old or future life does not own playback");
+    deliver(); deliver();
+    const auto eventPhase = SessionFormTransition::Sample(1, NetSmoothing::PresentationFrame(0.9), event.Direction);
+    passed &= Check(eventPhase && std::abs(*eventPhase - 2.0F / 30) < 0.00001F
+        && NetSmoothing::PresentationFrame(0.9) == 506,
+        "event phase and position clamp at the same newest snapshot during starvation");
+    NetSessionFixture::SetLocalSlot(1);
+    passed &= Check(!SessionFormTransition::Sample(1, 505, event.Direction), "owner prediction is never sought to remote time");
+    NetSessionFixture::SetLocalSlot(0);
+    SessionFormTransition::Enabled(false);
+    passed &= Check(!SessionFormTransition::Sample(1, 505, event.Direction), "comparison switch restores the snapshot path");
+    SessionFormTransition::Enabled(true);
+    NetSmoothing::Enabled(false);
+    passed &= Check(!NetSmoothing::Active(), "nointerp keeps immediate native playback");
+    NetSmoothing::Enabled(true);
+    NetSmoothing::NoteRoomChanged();
+    passed &= Check(!SessionFormTransition::Sample(1, 505, event.Direction), "room changes discard the old event history");
 
     NetPlayerLifecycle::SetOccupant(1, 0);
     NetPlayerLifecycle::Reset();

@@ -448,7 +448,10 @@ namespace MphRead::Mods::Network
             }
             const bool pressAltAttack = settled && playerValue.IsAltForm()
                 && !_formBombSentInAltCycle;
-            Hold(controls.AltAttack(), pressAltAttack);
+            // Vhoscythe needs a sustained charge; a one-step bomb press never
+            // exercises its active attack in this shared form test phase.
+            Hold(controls.AltAttack(), pressAltAttack
+                || (settled && playerValue.IsAltForm() && playerValue.Hunter() == Hunter::Noxus));
             if (pressAltAttack)
             {
                 _formBombSentInAltCycle = true;

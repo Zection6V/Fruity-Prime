@@ -394,8 +394,8 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
     add_executable(fruity_network_protocol_golden_tests "${CMAKE_CURRENT_SOURCE_DIR}/tools/testing/TestNetworkProtocolGolden.cpp")
     target_link_libraries(fruity_network_protocol_golden_tests PRIVATE fruity_mphread_native)
     target_compile_features(fruity_network_protocol_golden_tests PRIVATE cxx_std_20)
-    add_test(NAME FruityPrime.NetworkProtocol33Golden COMMAND fruity_network_protocol_golden_tests
-        "${CMAKE_CURRENT_SOURCE_DIR}/tools/testing/golden/network-protocol-v33.hex")
+    add_test(NAME FruityPrime.NetworkProtocol34Golden COMMAND fruity_network_protocol_golden_tests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/testing/golden/network-protocol-v34.hex")
     add_test(NAME FruityPrime.NetworkProtocol30GoldenPreserved COMMAND Python3::Interpreter
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/testing/check-network-protocol-golden.py"
         30 "${CMAKE_CURRENT_SOURCE_DIR}/tools/testing/golden/network-protocol-v30.hex")
@@ -405,6 +405,9 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
     add_test(NAME FruityPrime.NetworkProtocol32GoldenPreserved COMMAND Python3::Interpreter
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/testing/check-network-protocol-golden.py"
         32 "${CMAKE_CURRENT_SOURCE_DIR}/tools/testing/golden/network-protocol-v32.hex")
+    add_test(NAME FruityPrime.NetworkProtocol33GoldenPreserved COMMAND Python3::Interpreter
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/testing/check-network-protocol-golden.py"
+        33 "${CMAKE_CURRENT_SOURCE_DIR}/tools/testing/golden/network-protocol-v33.hex")
     add_executable(fruity_timed_effect_sync_tests
         "${FRUITY_MPHREAD_ROOT}/Testing/TestTimedEffectSync.cpp")
     target_include_directories(fruity_timed_effect_sync_tests PRIVATE "${FRUITY_MPHREAD_ROOT}")
@@ -523,6 +526,10 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
     target_link_libraries(fruity_animation_blend_tests PRIVATE fruity_mphread_native)
     target_compile_features(fruity_animation_blend_tests PRIVATE cxx_std_20)
     add_test(NAME FruityPrime.AnimationBlend COMMAND fruity_animation_blend_tests)
+    add_executable(fruity_form_transition_events_tests "${FRUITY_MPHREAD_ROOT}/Testing/TestFormTransitionEvents.cpp")
+    target_link_libraries(fruity_form_transition_events_tests PRIVATE fruity_mphread_native)
+    target_compile_features(fruity_form_transition_events_tests PRIVATE cxx_std_20)
+    add_test(NAME FruityPrime.FormTransitionEvents COMMAND fruity_form_transition_events_tests)
     # Explicit ROM/GPU diagnostic; not part of asset-free CTest runs.
     add_executable(fruity_animation_loop_capture "${FRUITY_MPHREAD_ROOT}/Testing/TestAnimationLoopCapture.cpp")
     target_link_libraries(fruity_animation_loop_capture PRIVATE fruity_mphread_native)

@@ -4,6 +4,41 @@ Code: `src/MphRead.Native/Mods/Network/Gameplay/Replication/NetSmoothing.{cpp,hp
 The shared playout-clock protocol began in protocol 7; current gameplay tracks
 reuse the same clock without changing the wire layout.
 
+Protocol 34 adds independent `FormTransition` datagrams. The eight-player
+snapshot still has 140 bytes per player; its item budget is unchanged. After
+each server simulation step, `ServerFormTransitionChannel` observes the
+published result and native clip. `FormTransitionAuthorityTracker` assigns
+one ID and accepted `StartFrame` per transition within a slot generation/life.
+Requests rejected by the game's existing form rules create no event. Records
+include the current 30 Hz clip anchor, pause state, and completion/cancellation,
+so freezing does not turn elapsed server time into advancing animation.
+
+Records are refreshed every three authority ticks and sent with the latest
+snapshot on joining. Each datagram has a 15-byte match/epoch/frame/count header
+and up to eight 26-byte records (224 bytes including PacketType). The client
+validates the whole codec and stream/life identity before updating a bounded
+timeline. Repeats and older IDs cannot restart playback; terminal checkpoints
+cannot become starts again. Death, spectator, life/slot, room and stream
+boundaries clear presentation history. Demo recording/replay carries the same
+packets and authority-frame clock; protocol 33 demos/peers remain incompatible.
+
+`SampleForm` retains the snapshot form bits and fallback progress, but prefers
+the event's continuous phase. Between simulation steps,
+`PlayerFormPresentation` samples it at `NetSmoothing::PresentationFrame`, the
+same capped read point as player position. `AnimationBlend::FrameOverride`
+samples the native node curves without writing animation frames or flags;
+its draw restores simulation node matrices, including on exceptional exit.
+Owner prediction, server collision/attacks, and Weavel turret/health lifecycle
+keep their existing owners. `-noformevents` selects the snapshot-progress
+comparison path; `-nointerp` retains immediate native playback.
+
+With `-formtrace`, server/client netlogs contain `[form-request]`, `[form-event]`, and
+`[form-sample]` records. `tools/testing/run-form-transition-net.ps1` drives
+the existing `FormBombCycle` through real UDP clients, and
+`compare-form-transition-trace.py` checks accepted start identity and every
+sampled phase against its received authority anchor. It is an automated
+state/curve check; human visual/camera/audio acceptance is separate.
+
 ## The fault
 
 *"En cas de lag élevé ou de mauvaise connexion, les clients se téléportent, ça

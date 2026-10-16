@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Mods/Network/Replay/DemoFrameClock.hpp"
+#include "Mods/Network/Protocol/Packets/PacketTypes.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -38,6 +39,7 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static std::vector<std::uint8_t> OwnIntentRecord(
             std::int32_t slot, const IntentPacket& intent);
         static void RecordOwnSnapshot(std::span<const std::uint8_t> payload);
+        static void RecordOwnPacket(PacketType type, std::span<const std::uint8_t> payload);
 
     private:
         [[nodiscard]] static std::uint32_t Frame();

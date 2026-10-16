@@ -2,6 +2,7 @@
 
 #include "AnimationTick.hpp"
 #include "Mods/SimulationRate.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -13,8 +14,10 @@
 namespace MphRead
 {
     class AnimationInfo;
+    class Material;
     class Model;
     class ModelInstance;
+    struct TexcoordAnimation;
 }
 
 namespace MphRead::Mods::Render
@@ -122,6 +125,12 @@ namespace MphRead::Mods::Render
             static void End() noexcept;
             bool _engaged = false;
         };
+
+        // Hook: EntityBase::GetTexcoordMatrix. Blend UV curves with the same
+        // clock, respecting each axis's sampler period at every frame pair.
+        [[nodiscard]] static OpenTK::Mathematics::Matrix4 Texcoords(Model& model,
+            const std::shared_ptr<AnimationInfo>& info, const Material& material,
+            const TexcoordAnimation& animation);
 
         // Hook: Model::InterpolateAnimation. A value while a Pass is blending
         // one of its channel's curves.

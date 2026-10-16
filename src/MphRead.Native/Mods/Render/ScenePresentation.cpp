@@ -108,6 +108,8 @@ namespace MphRead::Mods::Render
         // changed since (by the draw itself) is not the step's motion.
         const Matrix4 now = static_cast<Matrix4>(entity.Transform);
         if (std::memcmp(&now, &found->second.Current, sizeof(Matrix4)) != 0) return std::nullopt;
+        // Most of a level stands still: nothing to work out.
+        if (std::memcmp(&found->second.Previous, &found->second.Current, sizeof(Matrix4)) == 0) return std::nullopt;
         return MotionCarry::Between(found->second.Previous, found->second.Current, static_cast<float>(Phase()));
     }
 

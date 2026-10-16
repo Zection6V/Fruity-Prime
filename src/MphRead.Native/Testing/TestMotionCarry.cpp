@@ -94,6 +94,21 @@ int main()
         passed &= Check(!MotionCarry::Toward(current, current, 0.5F), "toward the same pose is not a carry");
     }
 
+    // A beam drawn out of a gun stays on the gun: its origin onto the muzzle,
+    // its direction onto the aim.
+    {
+        const Vector3 from(1, 2, 3), fired(0, 0, 1), muzzle(1.3F, 2.1F, 2.6F), aimed(0.3F, 0.1F, 0.95F);
+        const Matrix4 anchor = MotionCarry::Anchor(from, fired, muzzle, aimed);
+        const Vector3 origin = MotionCarry::Point(from, anchor);
+        const Vector3 tip = MotionCarry::Point(Vector3(from.X + fired.X * 5, from.Y + fired.Y * 5, from.Z + fired.Z * 5), anchor);
+        const Vector3 along = (tip - origin).Normalized();
+        const Vector3 want = aimed.Normalized();
+        passed &= Check(std::sqrt((origin - muzzle).LengthSquared()) < 1e-4F
+            && std::sqrt((along - want).LengthSquared()) < 1e-4F
+            && std::fabs(std::sqrt((tip - origin).LengthSquared()) - 5.0F) < 1e-3F,
+            "a beam is drawn out of the muzzle along the aim, its length kept");
+    }
+
     // Drawn items: a transform, a matrix stack, and a billboard that only moves.
     {
         const auto carry = MotionCarry::Between(Pose(0, Vector3(0, 0, 0)), Pose(10, Vector3(1, 0, 0)), 1.0F);

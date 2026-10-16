@@ -123,9 +123,18 @@ And the unmorph's fade reads the frame the picture shows
 the DS's 30 Hz and stepped the body's transparency with it. Nothing older than the step is shown, so nothing is delayed, and
 the entity is never touched: draws compute node matrices that the simulation
 reads back, so moving the entity would have leaked the picture into the game.
+A continuous beam (the Shock Coil, the Judicator's) is fired again every
+step and lives one, drawn out of the muzzle it left, so it has no motion of its
+own to carry while the gun it comes out of moves every frame: it is anchored to
+that gun as the picture has it instead (`MotionCarry::Anchor`, its trail's
+origin onto the muzzle and its direction onto the aim).
+
 `-maptest -bots -drawrate N` draws each step at forced instants 0, 1/N, ...
 and its report is the same as `-drawrate 1`'s, with the number of drawn items
-carried on its `FRAMETIMING` line. `FruityPrime.MotionCarry` checks the
+carried and the CPU milliseconds a picture took on its `FRAMETIMING` line.
+Measured with timers around each path, all of this presentation together
+costs about 0.02 ms of a picture's 1.0-1.2, and the animation blend
+(`AnimationBlend::Sample`, `Texcoords`) a few hundredths more. `FruityPrime.MotionCarry` checks the
 arithmetic.
 
 What follows is why the earlier blend was removed, and why this is not it.
@@ -179,6 +188,21 @@ poses (`Model::AnimateNodes`/`AnimateNodes2`), material colour and alpha
 animated surfaces and the launcher's hunter all go through one `Pass` hook per
 channel and one in `InterpolateAnimation`; each channel reads its own slot.
 Texture swaps stay on integer frames -- there is nothing between two pictures.
+For each texcoord frame pair, `AnimationBlend::Texcoords` takes translation
+through the material's sampler period (one UV tile for repeat, two for mirror)
+instead of sweeping through repeated tiles when an offset resets. This also
+covers shorter subcycles within an animation slot's full loop. Each axis
+uses its own address mode, even when S and T share a LUT. Clamp and scale/colour
+curves keep their authored interpolation.
+Closed translation cycles with a duplicate last key sample their N-1 key
+intervals across the same N-tick period, avoiding the extra still interval
+between equivalent last/first UVs. This is draw-only, applies forward and
+backward, and closes a final fx32 quantization-unit gap. No-loop, ping-pong,
+non-unit strides and differing channel/slot periods retain their timing.
+The 30 Hz Animation setting retains the original integer poses.
+Normal texgen retains its existing interpolation because it
+applies a further texture-size-dependent transform. This changes only the
+drawn matrix; integer frames, flags, and asset data stay untouched.
 It answers both objections above:
 
 - **It looks ahead, never behind.** No previous state is kept. The next frame is
@@ -201,7 +225,11 @@ Time comes from `AnimationClock`: the simulation's steps once per 60 Hz step
 `GetDrawItems`). Each instance records the interval between its last two ticks,
 so a 30 Hz and a 60 Hz cadence both blend correctly. `FruityPrime.AnimationBlend`
 tests it, and `fruity_animation_blend_tests <AMHP1 dir>` adds every hunter's
-real idle, poses and colours.
+real idle, poses and colours, plus every frame pair across full map/prop UV
+cycles (including door locks, force fields, and teleporters). The UV regression
+fixtures cover forward/reverse, repeat/mirror/clamp, shared translation LUTs,
+ping-pong, no-loop, interior resets, closed-cycle pacing, tick-boundary continuity,
+suppression, and unchanged simulation state.
 
 What is still drawn at the simulation's rate, deliberately: entity and camera
 transforms and effect particles (60 Hz, see above -- pooled), HUD sprite frames

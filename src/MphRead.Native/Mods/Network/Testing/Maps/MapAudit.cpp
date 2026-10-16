@@ -34,6 +34,7 @@
 #include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <exception>
@@ -532,8 +533,12 @@ namespace MphRead::Mods::Network
             // Each extra picture of a step at its own instant, so the world is
             // drawn carried on and the step is shown not to see it.
             if (draws > 1) Mods::Render::ScenePresentation::ForcePhase(static_cast<double>(i) / draws);
+            const auto drawStart = std::chrono::steady_clock::now();
             _scene->OnDrawFrame();
-            if (!_scene->OnRenderFrame())
+            const bool rendered = _scene->OnRenderFrame();
+            _drawSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - drawStart).count();
+            ++_draws;
+            if (!rendered)
             {
                 return;
             }
@@ -1871,6 +1876,8 @@ namespace MphRead::Mods::Network
                 << " | " << _frame << " steps, " << _scene->FrameCount() << " counted"
                 << " | draws advancing the game: " << _drawAdvancedTheGame
                 << " | drawn items carried: " << Mods::Render::ScenePresentation::CarriedItems()
+                << " | cpu ms a picture: " << ::MphRead::NativeRuntime::ToString(
+                    _draws > 0 ? _drawSeconds / static_cast<double>(_draws) * 1000.0 : 0.0, "0.000")
                 << " | active Lockjaw trail checks: " << _lockjawTrailChecks
                 << " | trail mismatches: " << _lockjawTrailMismatches
                 << " | Lockjaw GetDrawInfo RNG changes: " << _lockjawDrawRngChanges

@@ -112,6 +112,31 @@ namespace MphRead::Mods::Render
         return Along(current, current, next, fraction);
     }
 
+    Matrix4 MotionCarry::Anchor(Vector3 from, Vector3 fromDirection, Vector3 to, Vector3 toDirection)
+    {
+        // The shortest turn from one direction onto the other, about `from`,
+        // then the move onto `to`. Row-vector: p * T(-from) * R * T(to).
+        Matrix4 turn = Identity;
+        const float a = std::sqrt(fromDirection.LengthSquared()), b = std::sqrt(toDirection.LengthSquared());
+        if (a > 0.0F && b > 0.0F)
+        {
+            const Vector3 u(fromDirection.X / a, fromDirection.Y / a, fromDirection.Z / a);
+            const Vector3 v(toDirection.X / b, toDirection.Y / b, toDirection.Z / b);
+            const Vector3 axis = Vector3::Cross(u, v);
+            const float s = std::sqrt(axis.LengthSquared());
+            const float c = std::clamp(Vector3::Dot(u, v), -1.0F, 1.0F);
+            if (s > 1e-6F)
+            {
+                const float x = axis.X / s, y = axis.Y / s, z = axis.Z / s, t = 1.0F - c;
+                // Rodrigues in column form, stored transposed for row vectors.
+                turn.M11 = t * x * x + c;     turn.M21 = t * x * y - s * z; turn.M31 = t * x * z + s * y;
+                turn.M12 = t * x * y + s * z; turn.M22 = t * y * y + c;     turn.M32 = t * y * z - s * x;
+                turn.M13 = t * x * z - s * y; turn.M23 = t * y * z + s * x; turn.M33 = t * z * z + c;
+            }
+        }
+        return OpenTK::Mathematics::CreateTranslation(-from) * turn * OpenTK::Mathematics::CreateTranslation(to);
+    }
+
     std::optional<Matrix4> MotionCarry::By(Vector3 shift)
     {
         if (shift.LengthSquared() <= 0.0F || shift.LengthSquared() > JumpDistance * JumpDistance) return std::nullopt;

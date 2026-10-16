@@ -5,6 +5,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <utility>
 
 namespace MphRead::Mods::Render
 {
@@ -35,6 +36,9 @@ public:                                                                         
     void ModNotePresentationStep(std::uint64_t step);                                          \
     /* Where this player's drawn items are carried to by the picture's instant, if moving. */ \
     [[nodiscard]] std::optional<::OpenTK::Mathematics::Matrix4> ModPresentationCarry() const;  \
+    /* Where this picture has this player's muzzle and the way it points, if moving. */      \
+    [[nodiscard]] std::optional<std::pair<::OpenTK::Mathematics::Vector3,                      \
+        ::OpenTK::Mathematics::Vector3>> ModPresentedMuzzle() const;                           \
     /* Hook: DrawKandenAlt, segment `index` as drawn, each on along its own last step. */     \
     [[nodiscard]] ::OpenTK::Mathematics::Matrix4 ModKandenSegmentDrawn(std::int32_t index) const; \
     /* Hook: DrawKandenAlt, after drawing: the step's own segment matrices back. */           \

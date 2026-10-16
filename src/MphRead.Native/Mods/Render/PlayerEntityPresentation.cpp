@@ -124,6 +124,23 @@ namespace MphRead::Entities
         return carried;
     }
 
+    std::optional<std::pair<Vector3, Vector3>> PlayerEntity::ModPresentedMuzzle() const
+    {
+        if (!Mods::Render::ScenePresentation::Moving()) return std::nullopt;
+        // The gun a shot leaves from (PlayerEntity::TryFireWeapon: the muzzle,
+        // towards the aim). A local view already holds this picture's gun
+        // (ModPresentOwnView, ModPresentWatchedView); a body drawn on from its
+        // step carries its gun with it.
+        Vector3 muzzle = _muzzlePos;
+        Vector3 aimed = _aimPosition;
+        if (const auto carry = ModPresentationCarry())
+        {
+            muzzle = Mods::Render::MotionCarry::Point(muzzle, *carry);
+            aimed = Mods::Render::MotionCarry::Point(aimed, *carry);
+        }
+        return std::pair{muzzle, aimed - muzzle};
+    }
+
     Matrix4 PlayerEntity::ModKandenSegmentDrawn(std::int32_t index) const
     {
         const Matrix4& now = _kandenSegMtx.at(static_cast<std::size_t>(index));

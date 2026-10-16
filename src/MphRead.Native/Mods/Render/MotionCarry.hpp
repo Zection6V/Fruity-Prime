@@ -40,6 +40,11 @@ namespace MphRead::Mods::Render
         // says comes next: the same carry, toward it rather than on past.
         [[nodiscard]] static std::optional<OpenTK::Mathematics::Matrix4> Toward(
             const OpenTK::Mathematics::Matrix4& current, const OpenTK::Mathematics::Matrix4& next, float fraction);
+        // What takes a ray from `from` along `fromDirection` onto one from `to`
+        // along `toDirection`: a beam drawn out of a gun, kept on the gun.
+        [[nodiscard]] static OpenTK::Mathematics::Matrix4 Anchor(OpenTK::Mathematics::Vector3 from,
+            OpenTK::Mathematics::Vector3 fromDirection, OpenTK::Mathematics::Vector3 to,
+            OpenTK::Mathematics::Vector3 toDirection);
         // A translation alone, when there is one worth carrying.
         [[nodiscard]] static std::optional<OpenTK::Mathematics::Matrix4> By(OpenTK::Mathematics::Vector3 shift);
 

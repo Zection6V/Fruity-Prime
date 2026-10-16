@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstring>
 #include <numbers>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace MphRead::Mods::Render
@@ -54,6 +55,8 @@ namespace MphRead::Mods::Render
             std::int32_t Scopes = 0;
             std::int32_t Suppressed = 0;
             bool Busy = false;
+            // Sample is reading its two ends: their own reads are not blended.
+            bool Sampling = false;
             bool LookingAhead = false;
             std::optional<ActiveSample> Planned{};
             std::optional<ActiveSample> Active{};
@@ -66,6 +69,11 @@ namespace MphRead::Mods::Render
 
         thread_local DrawState state;
         std::int32_t rate = AnimationBlend::DisplayRate;
+
+        bool CanBlend()
+        {
+            return state.Scopes != 0 && state.Suppressed == 0 && !state.Busy;
+        }
 
         template<class Value>
         bool Same(const Value& a, const Value& b)
@@ -172,7 +180,8 @@ namespace MphRead::Mods::Render
             return {(*info.Frame)[0], (*info.Frame)[1]};
         }
 
-        std::optional<ActiveSample> SampleFor(const AnimationInfo& info, AnimationChannel channel)
+        std::optional<ActiveSample> SampleFor(const AnimationInfo& info, AnimationChannel channel,
+            bool includeStart = false)
         {
             const AnimationTick& tick = info.ModTick;
             const ChannelState current = Channel(info, channel);
@@ -197,7 +206,7 @@ namespace MphRead::Mods::Render
                 if (slices <= 1) return std::nullopt;
                 fraction = std::floor(fraction * slices + 1e-9) / slices;
             }
-            if (fraction <= 0) return std::nullopt;
+            if (fraction <= 0 && !includeStart) return std::nullopt;
             return ActiveSample{nullptr, current.Curves, tick.Frame[slot], tick.Next[slot],
                 static_cast<float>(fraction)};
         }
@@ -359,7 +368,7 @@ namespace MphRead::Mods::Render
     bool AnimationBlend::Pass::Plan(const Model& model, AnimationChannel channel,
         const std::shared_ptr<AnimationInfo>& info)
     {
-        if (state.Scopes == 0 || state.Suppressed != 0 || state.Busy || !info) return false;
+        if (!CanBlend() || !info) return false;
         state.Planned = SampleFor(*info, channel);
         if (!state.Planned) return false;
         state.Planned->Model = &model;
@@ -405,13 +414,126 @@ namespace MphRead::Mods::Render
         state.Busy = false;
     }
 
+    namespace
+    {
+        // A looping UV curve's closure -- where its last frame lands against
+        // its first, inside the sampler's period -- depends on the curve
+        // alone, so it is read once per curve and kept.
+        struct ClosureKey final
+        {
+            const void* Values = nullptr;
+            std::int32_t Start = 0, Blend = 0, Length = 0, Count = 0;
+            float Period = 0;
+            bool operator==(const ClosureKey&) const = default;
+        };
+
+        struct ClosureHash final
+        {
+            std::size_t operator()(const ClosureKey& key) const noexcept
+            {
+                std::size_t hash = std::hash<const void*>{}(key.Values);
+                for (const std::int32_t part : {key.Start, key.Blend, key.Length, key.Count})
+                {
+                    hash ^= std::hash<std::int32_t>{}(part) + 0x9E3779B97F4A7C15ULL + (hash << 6) + (hash >> 2);
+                }
+                return hash ^ std::hash<float>{}(key.Period);
+            }
+        };
+
+        // The curve is held weakly: a room unloaded and another loaded may put
+        // new curves where old ones were, and an entry outliving its curve is
+        // worked out again.
+        struct Closure final
+        {
+            std::weak_ptr<const std::vector<float>> Curve;
+            float Value = 0;
+        };
+
+        thread_local std::unordered_map<ClosureKey, Closure, ClosureHash> closures;
+    }
+
+    Matrix4 AnimationBlend::Texcoords(Model& model, const std::shared_ptr<AnimationInfo>& info,
+        const Material& material, const TexcoordAnimation& animation)
+    {
+        const auto& animationInfo = NativeRuntime::RequireReference(info);
+        const auto& group = NativeRuntime::RequireReference(animationInfo.Texcoord).Group;
+        // A closed UV cycle also needs its retimed value at a tick boundary.
+        const auto sample = CanBlend() ? SampleFor(animationInfo, AnimationChannel::Texcoord, true) : std::nullopt;
+        Matrix4 result;
+        {
+            const Pass pass(model, AnimationChannel::Texcoord, info);
+            result = model.AnimateTexcoords(group, animation, animationInfo.TexcoordFrame());
+        }
+        // UVs repeat in space, independently of the animation slot's clock.
+        // A curve may reset several times before the slot itself loops.
+        // Clamp, scale and colour curves retain their authored interpolation.
+        // Normal texgen applies a further texture-size-dependent transform;
+        // its curve values are not in the sampler's normalized UV space.
+        if (!sample || material.TexgenMode == TexgenMode::Normal) return result;
+        const auto& curves = NativeRuntime::RequireReference(group);
+        const auto slot = static_cast<std::size_t>(animationInfo.Texcoord->Slot);
+        const auto flags = (*animationInfo.Flags)[slot];
+        const bool looping = (flags & (AnimFlags::NoLoop | AnimFlags::PingPong)) == AnimFlags::None
+            && (*animationInfo.Step)[slot] == 1 && (*animationInfo.FrameCount)[slot] == curves.FrameCount;
+        const auto correct = [&](float& translation, RepeatMode mode,
+            std::int32_t start, std::int32_t blend, std::int32_t length)
+        {
+            const float period = mode == RepeatMode::Repeat ? 1.0F : mode == RepeatMode::Mirror ? 2.0F : 0.0F;
+            if (period == 0 || length <= 1) return;
+            const auto at = [&](std::int32_t frame)
+            {
+                return model.InterpolateAnimation(curves.Translations, start, frame, blend, length, curves.FrameCount);
+            };
+            const float first = at(sample->Frame);
+            const float second = at(sample->Next);
+            const float delta = second - first;
+            float shown = first + std::remainder(delta, period) * sample->Fraction;
+            if (looping && curves.FrameCount > 2)
+            {
+                const ClosureKey key{curves.Translations.get(), start, blend, length, curves.FrameCount, period};
+                Closure& kept = closures[key];
+                if (kept.Curve.expired() || kept.Curve.lock() != curves.Translations)
+                {
+                    kept = {curves.Translations, std::remainder(at(curves.FrameCount - 1) - at(0), period)};
+                }
+                const float closure = kept.Value;
+                // fx32 authoring can leave a closed cycle one quantization
+                // unit short. Its duplicate endpoint is one pose, not a hold.
+                constexpr float Unit = 1.0F / 4096.0F;
+                if (std::abs(closure) <= Unit)
+                {
+                    const bool reverse = (flags & AnimFlags::Reverse) != AnimFlags::None;
+                    const float time = reverse ? sample->Frame + 1.0F - sample->Fraction
+                        : sample->Frame + sample->Fraction;
+                    const float last = static_cast<float>(curves.FrameCount - 1);
+                    const float position = time * last / static_cast<float>(curves.FrameCount);
+                    const auto frame = std::min(static_cast<std::int32_t>(position), curves.FrameCount - 2);
+                    const float from = at(frame);
+                    shown = from + std::remainder(at(frame + 1) - from, period) * (position - frame)
+                        - closure * (position / last);
+                }
+            }
+            // Translation is applied after scale/rotation by AnimateTexcoords.
+            // Correct the two axes separately, even if they share a LUT.
+            translation += shown - (first + delta * sample->Fraction);
+        };
+        correct(result.M41, material.XRepeat, animation.TranslateLutIndexS,
+            animation.TranslateBlendS, animation.TranslateLutLengthS);
+        correct(result.M42, material.YRepeat, animation.TranslateLutIndexT,
+            animation.TranslateBlendT, animation.TranslateLutLengthT);
+        return result;
+    }
+
     std::optional<float> AnimationBlend::Sample(const Model& model,
         const std::shared_ptr<const std::vector<float>>& values, std::int32_t start,
         std::int32_t frame, std::int32_t blend, std::int32_t length,
         std::int32_t count, bool rotation)
     {
-        if (!state.Active) return std::nullopt;
-        const ActiveSample sample = *state.Active;
+        // Called for every curve read in the game, blended or not: one
+        // thread-local access and no copies on the way out.
+        DrawState& current = state;
+        if (!current.Active || current.Sampling) return std::nullopt;
+        const ActiveSample& sample = *current.Active;
         if (sample.Model != &model || sample.Frame != frame || !values
             || std::find(sample.Curves.begin(), sample.Curves.end(), values.get()) == sample.Curves.end())
         {
@@ -419,20 +541,41 @@ namespace MphRead::Mods::Render
         }
 
         // Both ends come from the game's own LUT decoder, compressed tails
-        // included. Suspending the sample prevents recursion, exception safe.
+        // included. Marking the read prevents recursion, exception safe.
         struct Suspend
         {
-            std::optional<ActiveSample>& Slot;
-            ActiveSample Saved;
-            ~Suspend() { Slot = Saved; }
-        } suspend{state.Active, sample};
-        state.Active.reset();
+            bool& Sampling;
+            ~Suspend() { Sampling = false; }
+        } suspend{current.Sampling};
+        current.Sampling = true;
         const float first = model.InterpolateAnimation(values, start, frame,
             blend, length, count, rotation);
         const float second = model.InterpolateAnimation(values, start, sample.Next,
             blend, length, count, rotation);
         float delta = second - first;
-        if (rotation) delta = std::remainder(delta, 2.0F * std::numbers::pi_v<float>);
+        if (rotation)
+        {
+            constexpr float Turn = 2.0F * std::numbers::pi_v<float>;
+            delta = std::remainder(delta, Turn);
+            if (state.Channel == AnimationChannel::Node && count > 2
+                && ((frame == count - 1 && sample.Next == 0)
+                || (frame == 0 && sample.Next == count - 1)))
+            {
+                // Symmetric rotating geometry can reset by less than a full
+                // turn. Blending that authored reset invents a fast reverse
+                // rotation. Keep the reset when it exceeds both edge steps;
+                // a continuous full-turn loop still blends through its seam.
+                const auto at = [&](std::int32_t index)
+                {
+                    return model.InterpolateAnimation(values, start, index, blend, length, count, true);
+                };
+                const float firstStep = std::abs(std::remainder(at(1) - at(0), Turn));
+                const float lastStep = std::abs(std::remainder(at(count - 1) - at(count - 2), Turn));
+                constexpr float RotationUnit = Turn / 65536.0F;
+                if (std::abs(delta) > 2 * std::max(firstStep, lastStep) + RotationUnit)
+                    return first;
+            }
+        }
         return first + delta * sample.Fraction;
     }
 }

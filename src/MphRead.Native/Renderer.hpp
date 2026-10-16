@@ -1148,7 +1148,7 @@ private: \
     void SetFlatColor(std::int32_t bindingId); \
     [[nodiscard]] bool ScoreboardOverFreeCamera() const; \
     void OnKeyHeld(); \
-    void MoveRoamCamera(); \
+    void MoveRoamCamera(float steps = 1.0F); \
     void UpdatePointModule(); \
     void OutputStart(); \
     void OutputStop(); \

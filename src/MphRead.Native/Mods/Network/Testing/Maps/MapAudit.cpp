@@ -1,4 +1,6 @@
 #include "Mods/Network/Testing/Maps/MapAudit.hpp"
+#include "Mods/Render/ScenePresentation.hpp"
+#include "Mods/SimulationRate.hpp"
 #include "Mods/Network/Testing/Maps/MapAuditCleanup.hpp"
 #include "Mods/Network/Testing/Maps/MapItemPickupProbe.hpp"
 #include "NativeRuntime/Rhi/SceneBackend.hpp"
@@ -32,6 +34,7 @@
 #include "NativeRuntime/System/Globalization.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <exception>
@@ -152,7 +155,7 @@ namespace MphRead::Mods::Network
     RendererPlatform::WindowSettings MapAudit::GameSettings()
     {
         RendererPlatform::WindowSettings settings{};
-        settings.UpdateFrequency = 60;
+        settings.UpdateFrequency = ::MphRead::Mods::SimulationRate::Hz;
         return settings;
     }
 
@@ -527,8 +530,15 @@ namespace MphRead::Mods::Network
 
         for (std::int32_t i = 0; i < draws; ++i)
         {
+            // Each extra picture of a step at its own instant, so the world is
+            // drawn carried on and the step is shown not to see it.
+            if (draws > 1) Mods::Render::ScenePresentation::ForcePhase(static_cast<double>(i) / draws);
+            const auto drawStart = std::chrono::steady_clock::now();
             _scene->OnDrawFrame();
-            if (!_scene->OnRenderFrame())
+            const bool rendered = _scene->OnRenderFrame();
+            _drawSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - drawStart).count();
+            ++_draws;
+            if (!rendered)
             {
                 return;
             }
@@ -552,6 +562,7 @@ namespace MphRead::Mods::Network
             }
         }
 
+        if (draws > 1) Mods::Render::ScenePresentation::ForcePhase(std::nullopt);
         _lockjawDrawRngChanges = Entities::BombEntity::ModLockjawDrawRngChanges;
         if (_scene->FrameCount() != frameCountBefore)
         {
@@ -1864,6 +1875,9 @@ namespace MphRead::Mods::Network
                 << " | " << _drawRate << " draws per step"
                 << " | " << _frame << " steps, " << _scene->FrameCount() << " counted"
                 << " | draws advancing the game: " << _drawAdvancedTheGame
+                << " | drawn items carried: " << Mods::Render::ScenePresentation::CarriedItems()
+                << " | cpu ms a picture: " << ::MphRead::NativeRuntime::ToString(
+                    _draws > 0 ? _drawSeconds / static_cast<double>(_draws) * 1000.0 : 0.0, "0.000")
                 << " | active Lockjaw trail checks: " << _lockjawTrailChecks
                 << " | trail mismatches: " << _lockjawTrailMismatches
                 << " | Lockjaw GetDrawInfo RNG changes: " << _lockjawDrawRngChanges

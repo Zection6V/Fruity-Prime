@@ -956,12 +956,9 @@ namespace MphRead::Entities
             if (!currentModel.FirstHunt
                 || material.TexgenMode != TexgenMode::None)
             {
-                const std::int32_t texcoordFrame = animInfo.TexcoordFrame();
-                // Mod hook: in a draw, texcoords may blend toward the next 30 Hz frame.
-                const Mods::Render::AnimationBlend::Pass modBlend(RequireReference(modelValue),
-                    Mods::Render::AnimationChannel::Texcoord, inst.AnimInfo);
-                texcoordMatrix = RequireReference(modelValue).AnimateTexcoords(
-                    group, *animation, texcoordFrame);
+                // Mod hook: blend texcoords in the material's repeating UV space.
+                texcoordMatrix = Mods::Render::AnimationBlend::Texcoords(
+                    RequireReference(modelValue), inst.AnimInfo, material, *animation);
             }
         }
         if (material.TexgenMode != TexgenMode::None)

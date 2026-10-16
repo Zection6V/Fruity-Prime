@@ -1,4 +1,5 @@
 #include "BotTour.hpp"
+#include "Mods/SimulationRate.hpp"
 
 #include "../../NativeRuntime/Rhi/SceneBackend.hpp"
 #include "../../NativeRuntime/OpenTK/GL.hpp"
@@ -49,7 +50,7 @@ namespace MphRead::Mods::MapGen
     RendererPlatform::WindowSettings BotTour::WindowSettings()
     {
         RendererPlatform::WindowSettings settings{};
-        settings.UpdateFrequency = 60;
+        settings.UpdateFrequency = ::MphRead::Mods::SimulationRate::Hz;
         settings.ClientSize = Vector2i(320, 180);
         settings.Title = "MphRead bot tour";
         settings.Profile = RendererPlatform::WindowSettings::ContextProfile::Compatability;
@@ -177,7 +178,7 @@ namespace MphRead::Mods::MapGen
                 _movers += entity->Type == EntityType::Q3Mover ? 1 : 0;
             }
         }
-        const float dt = 1.0F / 60.0F;
+        const float dt = ::MphRead::Mods::SimulationRate::StepSecondsF;
         const auto& all = PlayerEntity::Players();
         for (std::int32_t slot = 1; slot < _players; ++slot)
         {
@@ -222,7 +223,7 @@ namespace MphRead::Mods::MapGen
                 }
                 char line[260];
                 std::snprintf(line, sizeof(line), "  t%5.1f bot %d at %7.2f %7.2f %7.2f from %7.2f %7.2f %7.2f to %7.2f %7.2f %7.2f",
-                    _frame / 60.0F, slot, at.X, at.Y, at.Z,
+                    _frame / ::MphRead::Mods::SimulationRate::HzF, slot, at.X, at.Y, at.Z,
                     from ? from->Position.X : 0.0F, from ? from->Position.Y : 0.0F, from ? from->Position.Z : 0.0F,
                     to ? to->Position.X : 0.0F, to ? to->Position.Y : 0.0F, to ? to->Position.Z : 0.0F);
                 Runtime::ConsoleWriteLine(line);

@@ -44,6 +44,8 @@ private: \
 #include "../../Mods/Render/PlayerEntityTeamScoreboard.hpp"
 #include "../../Mods/Render/PlayerEntityMapPick.hpp"
 #include "../../Mods/Render/PlayerEntityVoteHud.hpp"
+#include "../../Mods/Input/PlayerEntityFrameAim.hpp"
+#include "../../Mods/Render/PlayerEntityPresentation.hpp"
 #include "../EnemyInstanceEntity.hpp"
 #include "../../Formats/Culling.hpp"
 #include "../../Formats/Formats.hpp"
@@ -814,6 +816,8 @@ namespace MphRead::Entities
         MPHREAD_PLAYER_MAP_PICK_MEMBERS
         MPHREAD_PLAYER_VOTE_HUD_MEMBERS
         MPHREAD_PLAYER_ENTITY_AIM_ASSIST_MEMBERS
+        MPHREAD_PLAYER_ENTITY_FRAME_AIM_MEMBERS
+        MPHREAD_PLAYER_ENTITY_PRESENTATION_MEMBERS
         MPHREAD_PLAYER_ENTITY_HAPTICS_MEMBERS
         MPHREAD_PLAYER_GOLDEN_CAPTURE_MEMBERS
 

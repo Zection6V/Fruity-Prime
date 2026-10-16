@@ -1,4 +1,5 @@
 #include "MoverProbe.hpp"
+#include "Mods/SimulationRate.hpp"
 #include "CustomRooms.hpp"
 
 #include "../../NativeRuntime/Rhi/SceneBackend.hpp"
@@ -68,7 +69,7 @@ namespace MphRead::Mods::MapGen
     RendererPlatform::WindowSettings MoverProbe::WindowSettings()
     {
         RendererPlatform::WindowSettings settings{};
-        settings.UpdateFrequency = 60;
+        settings.UpdateFrequency = ::MphRead::Mods::SimulationRate::Hz;
         settings.ClientSize = Vector2i(320, 180);
         settings.Title = "MphRead mover probe";
         settings.Profile = RendererPlatform::WindowSettings::ContextProfile::Compatability;

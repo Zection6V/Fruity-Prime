@@ -1,4 +1,5 @@
 #include "PadProbe.hpp"
+#include "Mods/SimulationRate.hpp"
 #include "../../NativeRuntime/Rhi/SceneBackend.hpp"
 #include "../../NativeRuntime/OpenTK/GL.hpp"
 #include "../../GameState.hpp"
@@ -71,7 +72,7 @@ namespace MphRead::Mods::MapGen
     RendererPlatform::WindowSettings PadProbe::WindowSettings()
     {
         RendererPlatform::WindowSettings settings{};
-        settings.UpdateFrequency = 60;
+        settings.UpdateFrequency = ::MphRead::Mods::SimulationRate::Hz;
         settings.ClientSize = Vector2i(320, 180);
         settings.Title = "MphRead jump pad probe";
         settings.Profile = RendererPlatform::WindowSettings::ContextProfile::Compatability;
@@ -547,7 +548,7 @@ namespace MphRead::Mods::MapGen
             worst = std::max(worst, trial.Deviation);
             Runtime::ConsoleWriteLine("    " + Right(Runtime::ToString(trial.Pad), 4) + "  "
                 + (trial.Walking ? "walking " : trial.Running ? "running " : "standing") + "  "
-                + Right(F(static_cast<float>(trial.Frames) / 60.0F, "F2"), 5) + "s  "
+                + Right(F(static_cast<float>(trial.Frames) / ::MphRead::Mods::SimulationRate::HzF, "F2"), 5) + "s  "
                 + Right(F(trial.Distance, "F2"), 8) + "  " + Right(F(trial.Height, "F2"), 6) + "   "
                 + Right(F(trial.Deviation, "F5"), 9) + "  "
                 + (trial.Landed ? Right(F(trial.LandingError, "F3"), 7)

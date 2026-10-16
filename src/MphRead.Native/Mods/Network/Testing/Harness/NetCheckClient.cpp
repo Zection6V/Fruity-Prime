@@ -1,4 +1,5 @@
 #include "Mods/Network/Testing/Harness/NetCheckClient.hpp"
+#include "Mods/SimulationRate.hpp"
 #include "NativeRuntime/Rhi/SceneBackend.hpp"
 #include "NativeRuntime/OpenTK/GL.hpp"
 #include "Mods/Network/Gameplay/Combat/HitLocation.hpp"
@@ -142,7 +143,7 @@ namespace MphRead::Mods::Network
     RendererPlatform::WindowSettings NetCheckClient::GameSettings()
     {
         RendererPlatform::WindowSettings settings{};
-        settings.UpdateFrequency = 60.0;
+        settings.UpdateFrequency = ::MphRead::Mods::SimulationRate::Hz;
         return settings;
     }
 
@@ -178,7 +179,7 @@ namespace MphRead::Mods::Network
         // wall time, catching up after a slow step rather than drifting, and
         // giving up on a backlog longer than a quarter second.
         using Clock = std::chrono::steady_clock;
-        const auto step = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0 / 60.0));
+        const auto step = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(::MphRead::Mods::SimulationRate::StepSeconds));
         Clock::time_point next = Clock::now();
         while (!_headlessClosing)
         {

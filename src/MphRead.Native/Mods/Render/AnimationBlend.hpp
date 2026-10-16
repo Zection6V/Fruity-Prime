@@ -1,17 +1,23 @@
 #pragma once
 
 #include "AnimationTick.hpp"
+#include "Mods/SimulationRate.hpp"
+#include "../../NativeRuntime/OpenTK/Mathematics.hpp"
 
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <vector>
 
 namespace MphRead
 {
     class AnimationInfo;
+    class Material;
     class Model;
     class ModelInstance;
+    struct TexcoordAnimation;
 }
 
 namespace MphRead::Mods::Render
@@ -35,6 +41,21 @@ namespace MphRead::Mods::Render
     {
     public:
         AnimationBlend() = delete;
+
+        // The Animation setting, in Hz: how often a draw may show a new pose
+        // between the 30 Hz frames, on the FPS limit's stops
+        // (FrameTiming::RateStops). DsRate draws the frames as the DS did;
+        // DisplayRate (the stops' Unlimited) blends at whatever the screen
+        // draws. Ticks are noted at any rate, so a change shows on the next
+        // draw.
+        static constexpr std::int32_t DsRate = SimulationRate::DsHz;
+        static constexpr std::int32_t DisplayRate = -1;
+        [[nodiscard]] static std::int32_t Rate() noexcept;
+        // Anything below DsRate but DisplayRate reads as DsRate.
+        static void Rate(std::int32_t hz) noexcept;
+        // "display", or the rate in Hz: launcher.txt and -animrate.
+        [[nodiscard]] static std::string RateName(std::int32_t hz);
+        [[nodiscard]] static std::optional<std::int32_t> ParseRate(std::string_view text) noexcept;
 
         // Hook: ModelInstance::UpdateAnimFrames(), after the frames advanced.
         static void NoteTick(ModelInstance& instance);
@@ -105,12 +126,23 @@ namespace MphRead::Mods::Render
             bool _engaged = false;
         };
 
+        // Hook: EntityBase::GetTexcoordMatrix. Blend UV curves with the same
+        // clock, respecting each axis's sampler period at every frame pair.
+        [[nodiscard]] static OpenTK::Mathematics::Matrix4 Texcoords(Model& model,
+            const std::shared_ptr<AnimationInfo>& info, const Material& material,
+            const TexcoordAnimation& animation);
+
         // Hook: Model::InterpolateAnimation. A value while a Pass is blending
         // one of its channel's curves.
         [[nodiscard]] static std::optional<float> Sample(const Model& model,
             const std::shared_ptr<const std::vector<float>>& values, std::int32_t start,
             std::int32_t frame, std::int32_t blend, std::int32_t length,
             std::int32_t count, bool rotation);
+
+        // The frame this draw shows, part of the way to the next one where the
+        // draw is blending toward it: what a value the game reads off the
+        // integer frame (a fade) reads at the picture's instant.
+        [[nodiscard]] static float FrameShown(const AnimationInfo& info, std::size_t slot = 0);
 
         // How far the channel's draw is toward its next frame, 0 when it would
         // not be blended. For checks.

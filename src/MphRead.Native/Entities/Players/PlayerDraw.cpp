@@ -5,6 +5,7 @@
 #include "../../Features.hpp"
 #include "../../Formats/CollisionDetection.hpp"
 #include "../../GameState.hpp"
+#include "../../Mods/Render/AnimationBlend.hpp"
 #include "../../Mods/Render/InstagibEffects.hpp"
 #include "Mods/SpectatorMode.hpp"
 #include "../../Metadata/Metadata.hpp"
@@ -226,6 +227,8 @@ namespace MphRead::Entities
         SetFlags2(RemoveFlag(Flags2(), PlayerFlags2::DrawnThirdPerson));
 
         bool drawBiped = false;
+        // Mod: whether this picture drew the first-person gun (ModGunEffectsDrawn).
+        bool modFirstPersonGun = false;
         if (IsMainPlayer() || IsVisible(NodeRef) || ModNodeUnresolved()
             || ModMayBypassReplicaPartCulling())
         {
@@ -329,7 +332,8 @@ namespace MphRead::Entities
                     if (IsMainPlayer() && CameraSequence::Current() == nullptr
                         && ManagedAt(biped1.AnimInfo->Index, 0) == static_cast<std::int32_t>(PlayerAnimation::Unmorph))
                     {
-                        alpha -= alpha * static_cast<float>(ManagedAt(biped1.AnimInfo->Frame, 0))
+                        // Mod: the frame the picture shows, not the 30 Hz one (Mods/Render/AnimationBlend).
+                        alpha -= alpha * Mods::Render::AnimationBlend::FrameShown(*biped1.AnimInfo)
                             / static_cast<float>(ManagedAt(biped1.AnimInfo->FrameCount, 0));
                         alpha = std::clamp(alpha, 0.0F, 1.0F);
                     }
@@ -384,6 +388,7 @@ namespace MphRead::Entities
                 // Mod: apply the match presentation before producing draw items.
                 Mods::Render::InstagibEffects::TintGun(gun, CurrentWeapon(), SlotIndex());
                 GetDrawItems(gun, RequireReference(ManagedAt(gunModel.Nodes, 0)), _curAlpha);
+                modFirstPersonGun = true;
                 if (TestFlag(Flags1(), PlayerFlags1::DrawGunSmoke))
                 {
                     Vector3 drawPos(0.0F, 0.0F, Fixed::ToFloat(Values().MuzzleOffset));
@@ -408,6 +413,8 @@ namespace MphRead::Entities
                 _muzzleEffect->SetDrawEnabled(false);
             }
         }
+        // Mod hook: your own gun's effects only with your gun (Mods/Render/PlayerEntityPresentation).
+        ModGunEffectsDrawn(modFirstPersonGun);
         if (GameState::SinglePlayer() && IsMainPlayer() && _deathCountdown > 0.0F
             && _deathCountdown <= 119.0F / 30.0F)
         {
@@ -434,11 +441,13 @@ namespace MphRead::Entities
         Model& model = RequireReference(alt.Model());
         for (std::int32_t i = 0; i < ManagedLength(_kandenSegMtx); ++i)
         {
-            RequireReference(ManagedAt(model.Nodes, i)).Animation = ManagedAt(_kandenSegMtx, i);
+            // Mod hook: each segment at the picture's instant (Mods/Render/PlayerEntityPresentation).
+            RequireReference(ManagedAt(model.Nodes, i)).Animation = ModKandenSegmentDrawn(i);
         }
         model.UpdateMatrixStack();
         UpdateMaterials(alt, Recolor());
         GetDrawItems(alt, RequireReference(ManagedAt(model.Nodes, 0)), _curAlpha);
+        ModRestoreKandenSegments();
     }
 
     void PlayerEntity::DrawSpireAltAttack()

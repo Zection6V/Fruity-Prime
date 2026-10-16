@@ -1,10 +1,10 @@
 #pragma once
 
 #include "Portable/LaunchPlan.hpp"
+#include "ShellMatchFlow.hpp"
 #include "../../NativeRuntime/Rhi/SceneBackend.hpp"
 
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -38,6 +38,7 @@ namespace MphRead::Mods::Launcher::Gui
     {
     public:
         Shell() = delete;
+        using StartCallback = Launcher::ShellMatchFlow::StartCallback;
 
         [[nodiscard]] static bool Active() noexcept;
         [[nodiscard]] static bool UiVisible();
@@ -68,6 +69,8 @@ namespace MphRead::Mods::Launcher::Gui
         // A match decided before the window opened (-connect): started on the
         // first frame, as a press of JOIN would have started it.
         static void LaunchOnStart(LaunchPlan plan);
+        // A feature-owned match started inside the shell's window and lifecycle.
+        static void LaunchOnStart(StartCallback start);
 
         static void PointerMoved(double x, double y);
         static void PointerButton(OpenTK::Windowing::GraphicsLibraryFramework::MouseButton button,

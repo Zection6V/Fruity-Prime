@@ -1,4 +1,5 @@
 #include "Mods/Network/Replay/DemoFrameClock.hpp"
+#include "Mods/SimulationRate.hpp"
 
 #include <limits>
 
@@ -32,7 +33,7 @@ namespace MphRead::Mods::Network
         }
 
         const std::uint64_t elapsed = static_cast<std::uint64_t>(timestamp - _startTimestamp);
-        constexpr std::uint64_t scale = 60;
+        constexpr auto scale = static_cast<std::uint64_t>(::MphRead::Mods::SimulationRate::Hz);
         if (elapsed > std::numeric_limits<std::uint64_t>::max() / scale)
         {
             return std::numeric_limits<std::uint32_t>::max();

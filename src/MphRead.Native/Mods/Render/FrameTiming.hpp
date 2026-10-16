@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include "Mods/SimulationRate.hpp"
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -14,8 +15,8 @@ namespace MphRead::Mods::Render
         FrameTiming(const FrameTiming&) = delete;
         FrameTiming& operator=(const FrameTiming&) = delete;
 
-        static constexpr std::int32_t SimulationHz = 60;
-        static constexpr double StepSeconds = 1.0 / SimulationHz;
+        static constexpr std::int32_t SimulationHz = SimulationRate::Hz;
+        static constexpr double StepSeconds = SimulationRate::StepSeconds;
         static constexpr std::int32_t MaxCatchUpSteps = 5;
 
         [[nodiscard]] static std::int32_t FrameRateCap() noexcept;
@@ -35,11 +36,20 @@ namespace MphRead::Mods::Render
         static constexpr std::int32_t DisplayRate = 0;
         static constexpr std::int32_t Unlimited = -1;
         static constexpr std::int32_t MinCap = 30;
+        // The rates the settings offer, in Hz: the FPS limit's stops, and the
+        // Animation row's, which reads Unlimited as the display's own rate.
+        static constexpr std::array<std::int32_t, 16> RateStops{
+            30, 60, 75, 90, 100, 120, 144, 165, 180, 200, 240,
+            360, 480, 540, 1000, Unlimited};
 
         [[nodiscard]] static bool Active() noexcept;
         [[nodiscard]] static std::int32_t StepsThisFrame() noexcept;
         // How far into the next simulation step this frame's picture is, [0, 1).
         [[nodiscard]] static double StepPhase() noexcept;
+        // This frame's elapsed time in simulation steps, for what moves per
+        // drawn frame at a per-step speed (the free camera). Capped as the
+        // steps are; a stall counts as one.
+        [[nodiscard]] static double FrameSteps() noexcept;
 
         [[nodiscard]] static std::int64_t TotalSteps() noexcept;
         [[nodiscard]] static std::int64_t TotalFrames() noexcept;
@@ -73,6 +83,7 @@ namespace MphRead::Mods::Render
         static bool _active;
         static double _accumulator;
         static std::int32_t _stepsThisFrame;
+        static double _frameSteps;
 
         static std::int64_t _totalSteps;
         static std::int64_t _totalFrames;

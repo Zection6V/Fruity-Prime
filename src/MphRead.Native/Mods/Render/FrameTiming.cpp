@@ -83,6 +83,7 @@ namespace MphRead::Mods::Render
     bool FrameTiming::_vsyncForced = false;
     bool FrameTiming::_active = false;
     double FrameTiming::_accumulator = 0.0;
+    double FrameTiming::_frameSteps = 0.0;
     std::int32_t FrameTiming::_stepsThisFrame = 0;
 
     std::int64_t FrameTiming::_totalSteps = 0;
@@ -140,6 +141,11 @@ namespace MphRead::Mods::Render
     std::int32_t FrameTiming::StepsThisFrame() noexcept
     {
         return _stepsThisFrame;
+    }
+
+    double FrameTiming::FrameSteps() noexcept
+    {
+        return _frameSteps;
     }
 
     double FrameTiming::StepPhase() noexcept
@@ -228,6 +234,7 @@ namespace MphRead::Mods::Render
     {
         _accumulator = 0.0;
         _stepsThisFrame = 0;
+        _frameSteps = 0.0;
         _active = false;
     }
 
@@ -239,6 +246,7 @@ namespace MphRead::Mods::Render
         {
             _stalls = UncheckedAdd(_stalls, 1);
             _accumulator = 0.0;
+            _frameSteps = 1.0;
             _stepsThisFrame = 1;
             _totalSteps = UncheckedAdd(_totalSteps, 1);
             _stepHistogram[1] = UncheckedAdd(_stepHistogram[1], 1);
@@ -247,6 +255,7 @@ namespace MphRead::Mods::Render
         }
 
         _accumulator += elapsedSeconds;
+        _frameSteps = std::min(elapsedSeconds / StepSeconds, static_cast<double>(MaxCatchUpSteps));
         std::int32_t steps = 0;
         while (_accumulator >= StepSeconds && steps < MaxCatchUpSteps)
         {

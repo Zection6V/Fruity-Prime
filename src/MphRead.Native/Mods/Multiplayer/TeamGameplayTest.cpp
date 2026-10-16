@@ -1,4 +1,5 @@
 #include "TeamGameplayTest.hpp"
+#include "Mods/SimulationRate.hpp"
 
 #include "TeamLayout.hpp"
 #include "TeamVisuals.hpp"
@@ -88,14 +89,14 @@ namespace MphRead::Mods::Multiplayer
                 GameState::TeamDeaths()[static_cast<std::size_t>(i)] = 3;
             }
             GameState::MatchTime(60.0F);
-            GameState::UpdateSurvival(1.0F / 60.0F);
+            GameState::UpdateSurvival(::MphRead::Mods::SimulationRate::StepSecondsF);
             check(GameState::MatchTime() == 60.0F,
                 "Survival continues with three surviving teams after A eliminated");
             for (std::int32_t i = 0; i < 8; ++i)
             {
                 Player(i).SetHealth(assignments[static_cast<std::size_t>(i)] == 3 ? 99 : 0);
             }
-            GameState::UpdateSurvival(1.0F / 60.0F);
+            GameState::UpdateSurvival(::MphRead::Mods::SimulationRate::StepSecondsF);
             check(GameState::MatchTime() == 0.0F && GameState::Time()[3] == -1.0F
                 && GameState::Time()[4] == -1.0F,
                 "Survival ends with team D and preserves both winners");

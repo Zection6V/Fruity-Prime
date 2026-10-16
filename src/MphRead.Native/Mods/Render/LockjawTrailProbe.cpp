@@ -30,13 +30,12 @@ namespace MphRead
             for (auto enumerator = GetBombEntities().GetEnumerator(); enumerator.MoveNext();)
             {
                 const Entities::BombEntity& bomb = RequireReference(enumerator.Current());
-                const OpenTK::Mathematics::Vector3 position = bomb.Position;
+                // By the bomb's own trail texture: where the trail is drawn is
+                // the picture's instant (Mods/Render/ScenePresentation), and
+                // moves between pictures of one step as it should.
                 if (bomb.Active && bomb.BombType() == BombType::Lockjaw
                     && bomb.BombIndex() > 0 && bomb.ModLockjawTrailBindingId() > 0
-                    && item.TextureBindingId == bomb.ModLockjawTrailBindingId()
-                    && item.Transform.M41 == position.X
-                    && item.Transform.M42 == position.Y
-                    && item.Transform.M43 == position.Z)
+                    && item.TextureBindingId == bomb.ModLockjawTrailBindingId())
                 {
                     lockjawTrail = true;
                     break;
@@ -50,9 +49,8 @@ namespace MphRead
             // ItemCount is the number of Vector3 entries, not the pool array length.
             signature = (signature ^ static_cast<std::uint32_t>(item.ItemCount)) * prime;
             signature = (signature ^ static_cast<std::uint32_t>(item.TextureBindingId)) * prime;
-            signature = (signature ^ std::bit_cast<std::uint32_t>(item.Transform.M41)) * prime;
-            signature = (signature ^ std::bit_cast<std::uint32_t>(item.Transform.M42)) * prime;
-            signature = (signature ^ std::bit_cast<std::uint32_t>(item.Transform.M43)) * prime;
+            // The trail's own geometry, in the frame its transform places: the
+            // noise must not change between pictures of one step.
             for (std::int32_t i = 0; i < item.ItemCount; i++)
             {
                 const OpenTK::Mathematics::Vector3 point = RequireReference(item.Points)[i];

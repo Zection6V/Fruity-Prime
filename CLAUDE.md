@@ -179,6 +179,8 @@ export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
 | `MphRead -cel on\|off [-celbands N] [-celedge N]` / `-fog on\|off` / `-prohud on\|off` | render options for every path that never opens a launcher, which is every screenshot command. `.claude/render/CEL-SHADING.md` |
 | `MphRead -fov N` | how wide the view is, 60 to 120 degrees, default **78** -- the DS's own (`NormalFov` 39, doubled). A multiplier on whatever the camera asked for, so a weapon's zoom and every scripted shot keep the proportions they had on the cartridge. For the paths that never open a launcher, like `-cel` and `-fog`: a session that does opens one takes the number from the settings' **Field of view** row instead |
 | `MphRead -fpscap N\|display` | how fast the picture is drawn. The simulation is pinned at 60 Hz on every setting, so this does not touch what the game does. `.claude/render/FRAME-PACING.md` |
+| `FruityPrime -animrate display\|N` | how often a draw may show a new pose between the DS's 30 Hz animation frames -- skeletons, material colours, scrolling textures: `30` draws the frames as they are, `display` (the default) blends at whatever the screen draws, and anything between in its own steps (`120` cuts each gap between 30 Hz frames into four steps). The settings' **Animation** slider (Display -> Performance) on the **same stops as the FPS limit** (`FrameTiming::RateStops`, its Unlimited read as *Display rate*) but its **own value**, saved as `animation_rate=` in `launcher.txt`; the flag overrides it for the run. `Mods/Render/AnimationBlend::Rate`; nothing the simulation reads changes at any rate. `.claude/render/FRAME-PACING.md` |
+| `FruityPrime -frameaim on\|off` | mouse look at the display's rate, on by default: the mouse read once a frame at the input pump turns the *actual* aim through the game's own `UpdateAimY`/`UpdateAimX` before the frame's steps, the gun and muzzle are rebuilt from it, and a step applies only what the frames have not -- so the total turn is the mouse's and a shot leaves along the aim on screen. That is first person, mouse aim, fixed crosshair (Pro mode HUD). The DS-style crosshair is *presented* instead: each picture shows the aim the next step turns to and the view on its way to that step's own, then the step's state is put back, so the simulation is bit-identical. A spectated player's camera is moved to where the playout has them at the picture's instant (never past the newest snapshot), and the free camera moves by the frame's time. `-aimcheck ROOM` measures all of it. Read the mouse once per frame, never again mid-frame: re-reading before each step and draw made the turn uneven and the map shake. `.claude/render/FRAME-PACING.md` |
 | `FruityPrime -vsync on\|off` | VSync for this run, apart from the cap: on presents FIFO, off Immediate (the settings' **VSync** row, `VSync` in `settings.json`; an old saved `display` cap reads as VSync on). With NVIDIA Reflex pacing, VSync also hands Reflex the refresh period as `minimumIntervalUs`, and the driver then caps a little under the refresh (461 FPS at 540 Hz) -- its documented Reflex+VSync policy, not ours |
 | `FRUITY_RENDER_METRICS=1` + `FRUITY_REFLEX_EXPLICIT_SUBMISSION_ID=1` / `FRUITY_REFLEX_DISABLE_SWAPCHAIN_LATENCY_MODE=1` / `FRUITY_REFLEX_DIAGNOSTIC_BYPASS_SLEEP=1` | the Reflex A/B arms, developer-only. A `[reflex-pacing]` line every 120 frames says cap, interval, present mode, screen Hz and where native admission spent its time. **Reflex uses implicit frame attribution in every mode**: a nonzero `VkLatencySubmissionPresentIdNV` on each submit made NVIDIA 617.14 signal the sleep a frame late and held On at ~280 FPS (Off ~1150). The first arm puts it back. `docs/todo/done/Fruity-Prime-Vulkan-Low-Latency-265FPS-Result-2026-10-05.md` |
 | `MphRead -crosshair STYLE` / `-crosshairsize Small\|Medium\|Big` | which crosshair the pro HUD draws, for the screenshot commands that open no launcher. Styles are Cross, Dot, CrossDot, Circle, Brackets |
@@ -786,16 +788,27 @@ changes here, because nothing about the simulation does.
   Every harness client calls it -- `NetCheckClient`, `MapAudit`, `WeaponDps`,
   `ThumbnailCapture` -- and is therefore untouched by any of this. So is
   Android, which drives the same call.
-- **Every picture is of the newest simulated state, and nothing is blended.**
-  There was an interpolation pass -- entity transforms and the camera blended
-  between their last two simulated states -- and it is **gone**, deliberately
-  and completely. It bought smoother motion between steps and cost visible
-  wrongness on everything that is pooled and reused: a beam projectile or an
-  impact effect taken off the free list starts its new life holding the last
-  one's transform, and a blend against that draws the shot somewhere between
-  where it used to be and where it is. That is the "artifacts de tirs" and the
-  wall impacts landing nowhere. Do not put it back without an answer for entity
-  reuse. **Animation curves are the exception, and they have that answer**
+- **The tick rate is `Mods/SimulationRate.hpp`, and nowhere else.** `Hz`,
+  `StepSeconds` and the DS's half rate `DsHz` live there; `FrameTiming`, the
+  homing rules, the animation rate, the particles, the harness windows and the
+  server loop read it. It is a definition, not a setting: the engine still
+  counts much of its time in steps of this length.
+- **Every picture shows the world at its own instant, carried on from the last
+  step -- never blended with an older one** (`Mods/Render/ScenePresentation`).
+  Between steps, each entity's *drawn items* -- the render items and single
+  particles its draw produced, never the entity -- are moved by its last
+  step's own motion, translation and rotation (`MotionCarry`), by as much of a
+  step as the picture is into the next; a replica on a client is read off the
+  playout instead, which already holds that instant; an effect particle by its
+  own speed. Nothing is behind the step, and nothing the simulation reads is
+  touched, so `-maptest -bots -drawrate 3` (which draws at forced instants)
+  gives the same report as `-drawrate 1` with 40-180 thousand items carried.
+  There was an interpolation pass before, and it was removed for what it did
+  to pooled entities: a shot or impact taken off the free list starts its new
+  life holding the last one's transform, and a blend against that drew it
+  somewhere between. The carry has that answer -- `Scene::AddEntity` starts a
+  life with no history, and a pose needs two steps of one life to move -- and
+  no step moves anything further than `MotionCarry::JumpDistance`. **Animation curves are the exception, and they have that answer**
   (`Mods/Render/AnimationBlend`): the 30 Hz integer animation frames advance as
   the game advances them, and a draw shows skeletal poses, material colour and
   alpha, and texcoord motion between the current frame and the one the game's

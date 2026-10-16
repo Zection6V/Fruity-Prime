@@ -494,6 +494,8 @@ namespace MphRead::Mods::Network
         bool hasDisplayedForm = false;
         if (!isLocal)
         {
+            // What this step's camera was built from, before the snapshot moves it on.
+            player.ModNoteCameraSource();
             OpenTK::Mathematics::Vector3 displayedPosition = state.Position;
             bool displayedAltForm = (state.Flags & PlayerState::FlagAltForm) != 0;
             OpenTK::Mathematics::Vector3 sampledPosition{};

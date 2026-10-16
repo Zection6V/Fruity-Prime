@@ -1075,50 +1075,8 @@ namespace MphRead::Entities
             _timeSinceInput = ManagedUInt16Add(_timeSinceInput, 1);
         }
 
-        if (_aimY < 60.0F && _aimY > -60.0F && !equipInfo.Zoomed && _health > 0
-            && !Features::NoIdleSway())
-        {
-            std::int32_t swayStart = UncheckedMultiply(_values.SwayStartTime, 2);
-            if (Features::DelayedIdleSway())
-            {
-                swayStart = UncheckedMultiply(swayStart, 4);
-            }
-            if (_timeSinceInput == swayStart)
-            {
-                _field40C = 0.0F;
-                const float factor1 = static_cast<float>(
-                    static_cast<std::int64_t>(Rng::GetRandomInt2(_values.SwayLimit))
-                    - static_cast<std::int64_t>(_values.SwayLimit / 2)) / 4096.0F;
-                const float factor2 = static_cast<float>(
-                    static_cast<std::int64_t>(Rng::GetRandomInt2(_values.SwayLimit))
-                    - static_cast<std::int64_t>(_values.SwayLimit / 2)) / 4096.0F;
-                _field410 = _facingVector;
-                _field41C = _field410;
-                _field428 = _field410;
-                _field41C = Add(_field41C, Add(ScaleVector(_gunVec2, factor1), ScaleVector(_upVector, factor2)));
-            }
-            else if (_timeSinceInput > swayStart)
-            {
-                _field40C += 1.0F / static_cast<float>(_values.SwayIncrement) / 2.0F;
-                if (_field40C >= 1.0F)
-                {
-                    _field40C = 0.0F;
-                    const float factor1 = static_cast<float>(
-                        static_cast<std::int64_t>(Rng::GetRandomInt2(_values.SwayLimit))
-                        - static_cast<std::int64_t>(_values.SwayLimit / 2)) / 4096.0F;
-                    const float factor2 = static_cast<float>(
-                        static_cast<std::int64_t>(Rng::GetRandomInt2(_values.SwayLimit))
-                        - static_cast<std::int64_t>(_values.SwayLimit / 2)) / 4096.0F;
-                    _field410 = _field41C;
-                    _field41C = _field428;
-                    _field41C = Add(_field41C, Add(ScaleVector(_gunVec2, factor1), ScaleVector(_upVector, factor2)));
-                }
-                const float angle = 180.0F * _field40C + 180.0F;
-                const float factor = (std::cos(DegreesToRadians(angle)) + 1.0F) / 2.0F;
-                _facingVector = Add(_field410, ScaleVector(Subtract(_field41C, _field410), factor));
-                _facingVector = Normalize(_facingVector);
-            }
-        }
+        // Mod hook: idle sway uses one curve for the step and the picture.
+        ModUpdateIdleSway();
 
         if (_attachedEnemy && !IsAltForm()
             && (Biped2Anim() != PlayerAnimation::Unmorph
@@ -2327,7 +2285,8 @@ namespace MphRead::Entities
     {
         const auto scene = [&]() -> Scene& { return RequireReference(_scene); };
         constexpr std::int32_t cycle = 13 * 2;
-        float angle = 359.0F * static_cast<float>(scene().FrameCount() % cycle)
+        // Mod: _modSegmentLookAhead asks for the next frame's pose (Mods/Render/PlayerEntityPresentation).
+        float angle = 359.0F * static_cast<float>((scene().FrameCount() + _modSegmentLookAhead) % cycle)
             / static_cast<float>(cycle - 1);
         float factor = 0.3F * std::sin(DegreesToRadians(angle)) * _hSpeedMag;
         ManagedAt(_kandenSegPos, 0)

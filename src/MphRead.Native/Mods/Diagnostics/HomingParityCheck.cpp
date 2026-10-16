@@ -1,4 +1,5 @@
 #include "Mods/Diagnostics/HomingParityCheck.hpp"
+#include "Mods/SimulationRate.hpp"
 
 #include "Entities/BeamProjectileEntity.hpp"
 #include "Entities/PlayerSpawnEntity.hpp"
@@ -38,7 +39,7 @@ namespace MphRead::Mods::Diagnostics
 
     namespace
     {
-        constexpr float FrameSeconds = 1.0F / 60.0F;
+        constexpr float FrameSeconds = ::MphRead::Mods::SimulationRate::StepSecondsF;
         // Float rounding over a second of flight: the 60 Hz path is the 30 Hz
         // path with the midpoint of each tick drawn between.
         constexpr float PathTolerance = 0.002F;
@@ -153,7 +154,7 @@ namespace MphRead::Mods::Diagnostics
             const Vector3 nativeStart = beam->Velocity();
             const Vector3 referenceStart = reference.Velocity();
             bool tracking = comparison.AcquiredAtSpawn;
-            const std::int32_t frames = static_cast<std::int32_t>(std::lround(flight.Seconds * 60.0F));
+            const std::int32_t frames = static_cast<std::int32_t>(std::lround(flight.Seconds * ::MphRead::Mods::SimulationRate::HzF));
             for (std::int32_t frame = 1; frame <= frames; ++frame)
             {
                 const float now = static_cast<float>(frame) * FrameSeconds;

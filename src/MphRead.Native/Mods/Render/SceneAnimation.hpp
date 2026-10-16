@@ -47,7 +47,7 @@ namespace MphRead::Mods::Render
         // display rate: 0 on a draw that no step preceded.
         [[nodiscard]] static std::int32_t StepsForDraw(const void* key);
 
-        // Hook: Scene::GetDrawItems.
+        // Hook: Scene::OnDrawFrame. One picture of blended animation.
         class Draw final
         {
         public:

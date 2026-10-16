@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../NativeRuntime/OpenTK/Mathematics.hpp"
+#include "../../Formats/Culling.hpp"
 #include "AimTrace.hpp"
 
 #include <array>
@@ -56,6 +57,8 @@ namespace MphRead::Mods::Input
         // The camera as the step built it, moved to this picture's instant.
         bool Camera = false;
         OpenTK::Mathematics::Vector3 CameraPosition{}, CameraTarget{}, CameraFacing{}, CameraTrueUp{};
+        // The room part the step put the camera in, which the room culls from.
+        Formats::Culling::NodeRef CameraNode = Formats::Culling::NodeRef::None;
         OpenTK::Mathematics::Matrix4 CameraView{};
     };
 

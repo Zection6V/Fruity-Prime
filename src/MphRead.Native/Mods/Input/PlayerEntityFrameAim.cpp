@@ -295,6 +295,7 @@ namespace MphRead::Entities
             view.CameraFacing = _cameraInfo->Facing;
             view.CameraTrueUp = _cameraInfo->TrueUp;
             view.CameraView = _cameraInfo->ViewMatrix;
+            view.CameraNode = _cameraInfo->NodeRef;
         }
     }
 
@@ -346,6 +347,14 @@ namespace MphRead::Entities
         _upVector = direction(_upVector);
         _gunVec1 = direction(_gunVec1);
         _gunVec2 = direction(_gunVec2);
+        // The room draws the parts seen from the camera's part (RoomEntity::
+        // UpdateRoomParts): an eye carried through a doorway is in the next
+        // part, and tested from the old one the far side is culled -- black.
+        // The step's own lookup, for the picture's eye; put back with the rest.
+        if (eye.LengthSquared() > 0 && camera.NodeRef.PartIndex != -1 && _scene != nullptr)
+        {
+            camera.NodeRef = _scene->UpdateNodeRef(camera.NodeRef, camera.Position, camera.Position + eye);
+        }
         camera.Position = camera.Position + eye;
         camera.Target = camera.Target + eye + turn;
         camera.Facing = (camera.Target - camera.Position).Normalized();
@@ -396,6 +405,7 @@ namespace MphRead::Entities
             _cameraInfo->Facing = view.CameraFacing;
             _cameraInfo->TrueUp = view.CameraTrueUp;
             _cameraInfo->ViewMatrix = view.CameraView;
+            _cameraInfo->NodeRef = view.CameraNode;
         }
         ModPlaceGunEffects();
         if (view.Reticle && _targetCircleInst != nullptr)

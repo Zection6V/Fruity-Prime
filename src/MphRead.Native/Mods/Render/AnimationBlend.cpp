@@ -280,6 +280,15 @@ namespace MphRead::Mods::Render
         rate = hz == DisplayRate ? DisplayRate : std::max(hz, DsRate);
     }
 
+    double AnimationBlend::ShownStepFraction(std::uint64_t step, double phase) noexcept
+    {
+        if (rate == DisplayRate) return phase;
+        // The rate's grid, in simulation steps; instants are counted in steps.
+        const double grid = static_cast<double>(SimulationRate::Hz) / static_cast<double>(rate);
+        const double at = static_cast<double>(step) + phase;
+        return std::floor(at / grid) * grid - static_cast<double>(step);
+    }
+
     std::string AnimationBlend::RateName(std::int32_t hz)
     {
         return hz == DisplayRate ? std::string("display") : std::to_string(hz);

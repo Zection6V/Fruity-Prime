@@ -5,6 +5,8 @@
 #include "../Network/Gameplay/Replication/NetSmoothing.hpp"
 #include "../Network/Session/NetSession.hpp"
 #include "../../Formats/Effects.hpp"
+#include "AnimationBlend.hpp"
+#include "EffectPlacement.hpp"
 #include "MotionCarry.hpp"
 #include "ScenePresentation.hpp"
 
@@ -111,14 +113,28 @@ namespace MphRead::Entities
 
     std::optional<Matrix4> PlayerEntity::ModPresentationCarry() const
     {
-        if (!ModPresentationMoving() || ModCarriesKandenSegments()) return std::nullopt;
+        if (ModCarriesKandenSegments()) return std::nullopt;
         const Mods::Render::PlayerPoseHistory& pose = _modPose;
-        const float phase = static_cast<float>(Mods::Render::ScenePresentation::Phase());
-        const auto carried = Mods::Render::MotionCarry::Between(pose.Previous, pose.Current, phase);
+        const bool moving = ModPresentationMoving();
+        const float phase = moving ? static_cast<float>(Mods::Render::ScenePresentation::Phase()) : 0.0F;
+        // A ball's roll, Noxus's spin and tilt are turned by the game every
+        // step, but they are what the Animation setting is about on a ball:
+        // they are shown on its grid (30 Hz holds each for two steps, back to
+        // the previous step's turn on the second), while the ball itself moves
+        // on at the picture's instant like everything else.
+        float turn = phase;
+        const bool rolls = _hunter == Hunter::Samus || _hunter == Hunter::Spire || _hunter == Hunter::Noxus;
+        if (rolls && pose.AltForm && pose.SameForm && IsAltForm()
+            && pose.Step == Mods::Render::ScenePresentation::CurrentStep())
+        {
+            turn = static_cast<float>(Mods::Render::AnimationBlend::ShownStepFraction(pose.Step, phase));
+        }
+        if (!moving && !(turn < 0.0F)) return std::nullopt;
+        const auto carried = Mods::Render::MotionCarry::BetweenShown(pose.Previous, pose.Current, phase, turn);
         // A replica on a client is read off the playout, which holds what has
         // arrived past the step's read point: its position is no guess. The
         // turn it is drawn with is simulated here, and carried as any other.
-        if (Mods::Network::NetSmoothing::Active() && SlotIndex() != Mods::Network::NetSession::LocalSlot())
+        if (moving && Mods::Network::NetSmoothing::Active() && SlotIndex() != Mods::Network::NetSession::LocalSlot())
         {
             const Vector3 ahead = Mods::Network::NetSmoothing::AheadShift(SlotIndex(), phase);
             Matrix4 drawn = carried ? pose.Current * *carried : pose.Current;
@@ -175,6 +191,32 @@ namespace MphRead::Entities
         if (!IsMainPlayer()) return;
         if (_muzzleEffect != nullptr) _muzzleEffect->SetDrawEnabled(gunDrawn);
         if (_chargeEffect != nullptr) _chargeEffect->SetDrawEnabled(gunDrawn);
+    }
+
+    void PlayerEntity::ModPlaceBodyEffectsDrawn()
+    {
+        // Process anchors these to the body at the step's pose. Between steps
+        // the body is drawn on -- carried by its motion, or a replica read off
+        // the playout at the picture's instant -- and an effect left at the
+        // step's pose trails the ball it belongs to, a boost by most of a step.
+        // Same anchors as Process, moved with the body this picture draws.
+        if (!Mods::Render::ScenePresentation::Moving()) return;
+        if (_boostEffect != nullptr && !_boostEffect->Elements->empty() && _boostEffect->Elements->front() != nullptr)
+        {
+            const Matrix4& own = _boostEffect->Elements->front()->OwnTransform;
+            const Vector3 from(own.M41, own.M42, own.M43);
+            const Vector3 to = ModPresentedPoint(static_cast<Vector3>(Position));
+            Mods::Render::BodyEffectDraws::Note(::OpenTK::Mathematics::Length(to - from));
+        }
+        const Vector3 body = ModPresentedPoint(static_cast<Vector3>(Position));
+        const Vector3 sphere = ModPresentedPoint(_volume.SpherePosition);
+        Mods::Render::PlaceEffect(_boostEffect, _gunVec2, _facingVector, body);
+        Mods::Render::PlaceEffect(_furlEffect, _gunVec2, _facingVector, body);
+        Mods::Render::PlaceEffect(_deathaltEffect, Vector3(0.0F, 1.0F, 0.0F), Vector3(1.0F, 0.0F, 0.0F), sphere);
+        if (!IsMainPlayer() || IsAltForm() || IsMorphing())
+        {
+            Mods::Render::PlaceEffect(_burnEffect, Vector3(_field70, 0.0F, _field74), Vector3(0.0F, 1.0F, 0.0F), sphere);
+        }
     }
 
     Matrix4 PlayerEntity::ModKandenSegmentDrawn(std::int32_t index) const

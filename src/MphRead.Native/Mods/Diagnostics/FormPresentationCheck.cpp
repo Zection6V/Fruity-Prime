@@ -80,6 +80,21 @@ namespace MphRead::Mods::Diagnostics
                 check(!player.Controls().Morph().IsPressed() && !player.Controls().Morph().IsDown(),
                     name + " AI morph edge clears on next input");
                 NetSessionFixture::SetLocalSlot(7);
+                // Offline AI and server bots: the game's own request. The AI
+                // holds its morph button for several frames; none of them may
+                // force the switch back while the morph is under way.
+                player.ModForceForm(false);
+                player._frozenTimer = 0;
+                NetBotInput::RequestFormSwitch(player);
+                const bool started = player.IsMorphing();
+                // Part way through the clip, as a few steps would leave it.
+                auto& clipFrame = (*player._bipedModel2->AnimInfo->Frame)[0];
+                clipFrame = 5;
+                for (int held = 0; held < 6; ++held) NetBotInput::RequestFormSwitch(player);
+                check(started && player.IsMorphing() && !player.IsUnmorphing() && clipFrame == 5,
+                    name + " a held native AI morph request does not restart the morph (clip frame "
+                        + std::to_string(clipFrame) + " of 5)");
+                player.ModForceForm(false);
                 player._frozenTimer = 0; player._altAttackCooldown = 0;
                 player._field6D0 = false;
                 player._flags1 &= ~PlayerFlags1::Standing;

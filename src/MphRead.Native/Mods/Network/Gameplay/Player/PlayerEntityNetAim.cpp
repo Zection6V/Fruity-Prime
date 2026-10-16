@@ -475,6 +475,15 @@ namespace MphRead::Entities
             + ", now " + formState));
     }
 
+    bool PlayerEntity::ModRequestFormSwitch()
+    {
+        // ModStartFormSwitch forces the switch -- reconciliation's tool, for a
+        // form the authority has already decided. A request is the player's:
+        // the cartridge AI holds its morph button for several frames, and a
+        // forced switch on each of them turned every morph back half way.
+        return (*this).TrySwitchForms();
+    }
+
     void PlayerEntity::ModApplyFormTransition(bool morphing)
     {
         if (morphing)

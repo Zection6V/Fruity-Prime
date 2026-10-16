@@ -1,4 +1,5 @@
 #include "Mods/Network/Testing/Harness/NetFeatureCheck.hpp"
+#include "Mods/Render/EffectPlacement.hpp"
 
 #include "Mods/Network/Gameplay/Combat/NetDamage.hpp"
 #include "Mods/Network/Gameplay/Combat/NetHitPrediction.hpp"
@@ -1606,6 +1607,11 @@ namespace MphRead::Mods::Network
         unresolved += ::MphRead::NativeRuntime::ToString(unresolvedCount);
         unresolved += " -- these players are drawn uncalled";
         ConsoleWriteLine(unresolved);
+        ConsoleWriteLine("    body effects placed on the drawn body: worst offset "
+            + ::MphRead::NativeRuntime::ToString(Mods::Render::BodyEffectDraws::WorstOffset(), "0.00")
+            + " units from the step's pose over "
+            + ::MphRead::NativeRuntime::ToString(Mods::Render::BodyEffectDraws::Samples())
+            + " draw(s) (0 draws: this client drew nothing)");
         // The respawn this client took for itself, which is where two
         // separate bugs lived and which the tour could not reach until it
         // learned to blow itself up.

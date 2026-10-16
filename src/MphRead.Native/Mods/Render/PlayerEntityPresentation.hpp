@@ -49,6 +49,8 @@ public:                                                                         
     [[nodiscard]] ::OpenTK::Mathematics::Vector3 ModPresentedPoint(::OpenTK::Mathematics::Vector3 point) const; \
     /* Hook: PlayerEntity::Draw. Your gun's effects are drawn while your gun is. */          \
     void ModGunEffectsDrawn(bool gunDrawn);                                                    \
+    /* Hook: PlayerEntity::Draw. Body effects on the body this picture draws. */            \
+    void ModPlaceBodyEffectsDrawn();                                                           \
     /* Hook: DrawKandenAlt, segment `index` as drawn, each on along its own last step. */     \
     [[nodiscard]] ::OpenTK::Mathematics::Matrix4 ModKandenSegmentDrawn(std::int32_t index) const; \
     /* Hook: DrawKandenAlt, after drawing: the step's own segment matrices back. */           \

@@ -4,6 +4,7 @@
 #include "../Headless.hpp"
 #include "../Network/Gameplay/Replication/NetSmoothing.hpp"
 #include "../Network/Session/NetSession.hpp"
+#include "../../Formats/Effects.hpp"
 #include "MotionCarry.hpp"
 #include "ScenePresentation.hpp"
 
@@ -160,6 +161,20 @@ namespace MphRead::Entities
         }
         if (const auto carry = ModPresentationCarry()) return Mods::Render::MotionCarry::Point(point, *carry);
         return point;
+    }
+
+    void PlayerEntity::ModGunEffectsDrawn(bool gunDrawn)
+    {
+        // A flash fired just before a morph lives on its own lifetime (a
+        // continuous weapon's, across shots) and nothing in the game ends it:
+        // through the morph the body is drawn and turns it back on at the
+        // body's gun, and in alt form it hangs where the gun had been --
+        // carried with the camera, on the screen. Yours is drawn only while
+        // your first-person gun is; anybody else's keeps PlayerDraw's own
+        // rule. Drawing only: the effects run their lives as before.
+        if (!IsMainPlayer()) return;
+        if (_muzzleEffect != nullptr) _muzzleEffect->SetDrawEnabled(gunDrawn);
+        if (_chargeEffect != nullptr) _chargeEffect->SetDrawEnabled(gunDrawn);
     }
 
     Matrix4 PlayerEntity::ModKandenSegmentDrawn(std::int32_t index) const

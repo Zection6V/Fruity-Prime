@@ -5,6 +5,7 @@
 #include "../../Features.hpp"
 #include "../../Formats/CollisionDetection.hpp"
 #include "../../GameState.hpp"
+#include "../../Mods/Render/AnimationBlend.hpp"
 #include "../../Mods/Render/InstagibEffects.hpp"
 #include "Mods/SpectatorMode.hpp"
 #include "../../Metadata/Metadata.hpp"
@@ -329,7 +330,8 @@ namespace MphRead::Entities
                     if (IsMainPlayer() && CameraSequence::Current() == nullptr
                         && ManagedAt(biped1.AnimInfo->Index, 0) == static_cast<std::int32_t>(PlayerAnimation::Unmorph))
                     {
-                        alpha -= alpha * static_cast<float>(ManagedAt(biped1.AnimInfo->Frame, 0))
+                        // Mod: the frame the picture shows, not the 30 Hz one (Mods/Render/AnimationBlend).
+                        alpha -= alpha * Mods::Render::AnimationBlend::FrameShown(*biped1.AnimInfo)
                             / static_cast<float>(ManagedAt(biped1.AnimInfo->FrameCount, 0));
                         alpha = std::clamp(alpha, 0.0F, 1.0F);
                     }

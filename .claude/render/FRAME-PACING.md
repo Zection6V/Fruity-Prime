@@ -114,7 +114,13 @@ their last motion overshot once a loop -- the wiggle's angle is
 `359 * k / (cycle - 1)`, so the DS holds it still for the step it wraps -- and
 the tail snapped back. `DrawKandenAlt` draws the carried matrices and puts the
 step's back. A morph is not the body's motion, so the body is not carried
-across the step its form changes; the camera is, since it moves through one. Nothing older than the step is shown, so nothing is delayed, and
+across the step its form changes; the camera is, since it moves through one.
+Your own body is drawn in first person too while the camera switches, through
+a morph and an unmorph (`PlayerDraw`'s `drawBiped`), so it is carried until the
+switch ends; left on the step under a carried camera, the unmorphing body shook.
+And the unmorph's fade reads the frame the picture shows
+(`AnimationBlend::FrameShown`), not the integer animation frame, which moves at
+the DS's 30 Hz and stepped the body's transparency with it. Nothing older than the step is shown, so nothing is delayed, and
 the entity is never touched: draws compute node matrices that the simulation
 reads back, so moving the entity would have leaked the picture into the game.
 `-maptest -bots -drawrate N` draws each step at forced instants 0, 1/N, ...

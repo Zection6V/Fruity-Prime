@@ -86,9 +86,12 @@ namespace MphRead::Entities
             return false;
         }
         // In first person the body is not drawn, and the eye and the gun are
-        // presented with the camera (ModPresentOwnView, ModPresentWatchedView).
+        // presented with the camera (ModPresentOwnView, ModPresentWatchedView)
+        // -- except while the camera switches, through a morph or an unmorph,
+        // when PlayerDraw draws the body too (its drawBiped).
         return !(IsMainPlayer() && _cameraType == CameraType::First && !IsAltForm()
-            && Formats::CameraSequence::Current() == nullptr);
+            && Formats::CameraSequence::Current() == nullptr
+            && _camSwitchTimer >= Values().CamSwitchTime * 2);
     }
 
     bool PlayerEntity::ModCarriesKandenSegments() const

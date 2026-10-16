@@ -130,6 +130,11 @@ namespace MphRead::Mods::Render
             std::int32_t frame, std::int32_t blend, std::int32_t length,
             std::int32_t count, bool rotation);
 
+        // The frame this draw shows, part of the way to the next one where the
+        // draw is blending toward it: what a value the game reads off the
+        // integer frame (a fade) reads at the picture's instant.
+        [[nodiscard]] static float FrameShown(const AnimationInfo& info, std::size_t slot = 0);
+
         // How far the channel's draw is toward its next frame, 0 when it would
         // not be blended. For checks.
         [[nodiscard]] static float Fraction(const AnimationInfo& info,

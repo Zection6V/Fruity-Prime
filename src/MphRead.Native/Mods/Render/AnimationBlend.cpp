@@ -315,6 +315,21 @@ namespace MphRead::Mods::Render
         tick.Next = animated ? LookAhead(instance) : tick.Frame;
     }
 
+    float AnimationBlend::FrameShown(const AnimationInfo& info, std::size_t slot)
+    {
+        const float frame = info.Frame != nullptr && slot < info.Frame->Length()
+            ? static_cast<float>((*info.Frame)[slot]) : 0.0F;
+        const auto sample = SampleFor(info, AnimationChannel::Node);
+        // A neighbouring frame only: a loop's wrap is a jump, not a sweep back.
+        if (!sample || Channel(info, AnimationChannel::Node).Slot != slot
+            || std::abs(sample->Next - sample->Frame) != 1)
+        {
+            return frame;
+        }
+        return static_cast<float>(sample->Frame)
+            + static_cast<float>(sample->Next - sample->Frame) * sample->Fraction;
+    }
+
     float AnimationBlend::Fraction(const AnimationInfo& info, AnimationChannel channel)
     {
         const auto sample = SampleFor(info, channel);

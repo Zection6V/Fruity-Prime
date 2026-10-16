@@ -179,7 +179,7 @@ left: on a 144 Hz screen the picture of a turn was a mean 5.2 ms and up to
 
 `Mods/Input/FrameAim` turns the actual aim at the display's rate. The mouse is
 read once a frame at one fixed instant -- the frame's input pump, after the
-latency wait -- and `Scene::ModApplyFrameAim`, before the frame's steps, turns
+latency wait -- and `Scene::ModApplyFrameInput`, before the frame's steps, turns
 the aim by the motion since the last application through the game's own
 `UpdateAimY`/`UpdateAimX`, then rebuilds what a step builds from an aim (the
 gun's basis, `UpdateAimVecs`, the muzzle and charge effects). A step applies
@@ -189,8 +189,8 @@ the whole of it. The camera the last step built is turned to the frames' aim
 in `Scene::TransformCamera` (`FrameAim::View`). With no frame application the
 step's arithmetic is bit-for-bit what it was. Only where turning in pieces is
 turning at once: first person, mouse aim, exact rules, fixed crosshair (Pro
-mode HUD); the DS-style drift eases the view toward the aim on every call and
-is left to the step. `-frameaim off` is the control.
+mode HUD). The DS-style crosshair is presented instead (below). `-frameaim off`
+is the control for both.
 
 Two earlier shapes were tried and dropped, and why matters. **Predicting** the
 next step's turn for the picture alone (and turning the gun to match) was exact
@@ -218,11 +218,73 @@ turning while strafing. `FrameAim::View` turns the horizontal part of
 `UpVector` about the vertical by the heading's own turn; the check holds it
 within 0.0001 degrees.
 
-What still moves at the simulation's rate while the view turns at the
-display's: the camera's *position* (walking bob, landing dip, the step
-itself), other players, enemies and shots (entity transforms are not
-interpolated, see above), and the screen shake, which `CameraInfo::Update`
-applies on every other camera update -- 30 Hz, as the DS did.
+### The DS-style crosshair is presented, not turned
+
+Without the Pro mode HUD the view trails the aim: every `UpdateAimY` and
+`UpdateAimX` ends in `UpdateAimFacing`, which holds the view inside 15 degrees
+of the aim and then eases it a tenth of the way there -- twice a step, once
+per axis. Turning that in pieces changes the ease, so the frames do not turn
+the aim. Each picture **shows** it instead, and the step finds exactly the
+state it left.
+
+`Scene::ModPresentFrameInput`, after the frame's steps, has the player save
+what a picture changes, then run the next step's own turn for the motion since
+the snapshot that step will consume -- the same `UpdateAimY`/`UpdateAimX` --
+so the crosshair is where the mouse has put it. The view starts from the last
+step's, held inside the envelope of the aim on screen (which the step's first
+turn does at once), and is carried towards the view that turn makes by the
+ease's own curve, `(1 - 0.9^(2·phase)) / (1 - 0.81)`, where phase is how far
+the picture is into the next step: at the instant the step runs, the picture
+is the step's. Zoomed, the step puts the view on the aim, and so does the
+picture. The gun is rebuilt from that view, `Scene::ModPresentFrameReticle`
+projects the reticle through the picture's own camera, and the
+`FrameAimPresentation` the render loop holds puts every field back once
+`OnRenderFrame` is done -- unless a respawn or a room load wrote an aim of its
+own meanwhile, which is then the one kept. Nothing here is behind the mouse:
+the crosshair is the frame's reading, and the view is ahead of the last step,
+never between two old ones.
+
+The HUD sway (`UpdateHudShift`, an average of eight steps' motion, rounded to
+DS pixels) stays the step's.
+
+### The free camera moves by the frame's time
+
+`Scene::MoveRoamCamera` used to run once a step, a step's worth of movement
+each time. It is a picture and nothing else -- no entity, no network, no
+random number -- so it now runs once a frame, before the steps, scaled by the
+frame's own time in steps (`FrameTiming::FrameSteps`, capped as the steps
+are). A second's flight covers the same ground at any frame rate. Where the
+fixed-step loop is not running (the harness clients), it is still called from
+the step, as before.
+
+### A watched player is shown where the playout has them now
+
+Spectating, the camera is the watched player's own, and the step builds it
+**before** `NetHooks::AfterSimulation` moves and turns that replica to the
+snapshot: so the view was a step behind the body it belonged to, and then
+held still until the next step.
+
+`NetPlayerBridge::ApplyState` notes what a replica's camera was built from
+before it moves it (`ModNoteCameraSource`). A picture then moves the eye to
+where the body is now, and on along the playout clock to the picture's
+instant -- `NetSmoothing::SampleAhead` reads the same ring the step reads, up
+to one step past the read point and **never past the newest snapshot**, so
+nothing is guessed and nothing is held back -- and turns the sight line to
+the facing the snapshot applied. The view is `FrameAim::Moved`, the same
+LookAt the step makes there (within 0.0002 degrees), the watched gun and
+muzzle are carried with it rigidly, and it is all put back after the picture.
+The ball's camera trails rather than looks along the facing, so in alt form
+only the eye moves.
+
+What this cannot do is turn a watched player between snapshots: their aim
+reaches this machine 60 times a second, and turning it in between would be a
+guess or a delay.
+
+What still moves at the simulation's rate: the camera's *position* in play
+(walking bob, landing dip, the step itself), other players, enemies and shots
+(entity transforms are not interpolated, see above), a watched player's aim,
+and the screen shake, which `CameraInfo::Update` applies on every other camera
+update -- 30 Hz, as the DS did.
 
 Measured by `-aimcheck` (`AimCheck::CheckFrameAim`, real player): frames along
 a mouse path then a step end where one step over the whole path ends, a step
@@ -231,6 +293,17 @@ looks along the frames' aim, and the gun and muzzle are where the step puts
 them. On a constant 180 degree/s turn read once a frame, the picture's age goes
 to 0, the per-frame turn becomes even, and what is seen matches where the next
 shot goes (see the check's `FRAMEAIM schedule` lines for the before).
+
+For the DS-style crosshair (`FRAMEAIM ds`): a picture leaves the step's state
+exactly as it was, the crosshair shown is the aim the next step turns to, the
+view reaches the step's own as the step runs and starts from it, held inside
+the envelope, and 240 steps with pictures between them are bit-identical to
+the same steps without. At 240 Hz the crosshair's age goes from a mean 6.25 ms
+to 0, and the view moves on every frame where it stood still on 450 of 600.
+For a watched player (`FRAMEAIM watched`): the picture is the camera a step
+builds where the player is shown, and their gun stays where it sits in it.
+`FruityPrime.NetworkSmoothingTimeline` checks that a picture's playout read is
+at most a step ahead, never past the newest snapshot, and counted nowhere.
 
 ## Timers that live in the draw pass
 

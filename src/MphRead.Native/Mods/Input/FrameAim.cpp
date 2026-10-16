@@ -53,8 +53,25 @@ namespace MphRead::Mods::Input
         // turned, it rolled the picture until the next step put it back.
         // LookAt makes from UpVector the up the step makes for this target,
         // once its strafing lean is turned with the heading too.
-        const Vector3 target = camera.Target + *shift;
-        const Vector3 up = TurnedUp(camera.UpVector, camera.Target - camera.Position, target - camera.Position);
-        return OpenTK::Mathematics::Matrix4::LookAt(camera.Position, target, up);
+        return Moved(camera, Vector3{}, *shift);
+    }
+
+    OpenTK::Mathematics::Matrix4 FrameAim::Moved(const Entities::CameraInfo& camera,
+        OpenTK::Mathematics::Vector3 eye, OpenTK::Mathematics::Vector3 turn)
+    {
+        const Vector3 position = camera.Position + eye;
+        const Vector3 target = camera.Target + eye + turn;
+        const Vector3 up = TurnedUp(camera.UpVector, camera.Target - camera.Position, target - position);
+        return OpenTK::Mathematics::Matrix4::LookAt(position, target, up);
+    }
+
+    FrameAimPresentation::FrameAimPresentation(const std::shared_ptr<Entities::PlayerEntity>& player) noexcept
+        : _player(player)
+    {
+    }
+
+    FrameAimPresentation::~FrameAimPresentation()
+    {
+        if (const auto player = _player.lock()) player->ModRestoreFrameAim();
     }
 }

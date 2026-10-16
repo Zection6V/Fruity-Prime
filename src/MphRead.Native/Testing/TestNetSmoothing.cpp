@@ -310,6 +310,34 @@ int main()
         && bombPresent && bombPosition.X == 3.0F,
         "player and tracked samples resume at the new life's first frame");
 
+    // A picture between steps reads on from the step's read point, at most a
+    // step, never past the newest snapshot, and counts nothing.
+    for (std::uint32_t frame = 504; frame <= 506; ++frame)
+    {
+        PlayerState state = lifeAfter;
+        state.Position = Vector3(static_cast<float>(frame - 500), 0, 0);
+        const std::array<PlayerState, 1> states{ state };
+        passed &= Check(NetPlayerLifecycle::AcceptState(state, frame), "the new life keeps arriving");
+        NetSmoothing::Record(frame, std::span<const PlayerState>(states));
+    }
+    NetSmoothingTestAccess::SetReadFrame(504.25);
+    const std::int64_t interpolatedBefore = NetSmoothing::Interpolated();
+    const std::int64_t heldBefore = NetSmoothing::Held();
+    passed &= Check(NetSmoothing::SampleAhead(1, 0.5, playerPosition, altForm)
+        && std::abs(playerPosition.X - 4.75F) < 0.001F,
+        "a picture half a step on samples half a frame past the read point");
+    passed &= Check(NetSmoothing::SampleAhead(1, 3.0, playerPosition, altForm)
+        && std::abs(playerPosition.X - 5.25F) < 0.001F,
+        "a picture never reads more than a step past the read point");
+    passed &= Check(std::abs(NetSmoothing::AheadShift(1, 0.5).X - 0.5F) < 0.001F,
+        "the picture's shift is the playout's own travel");
+    NetSmoothingTestAccess::SetReadFrame(505.8);
+    passed &= Check(NetSmoothing::SampleAhead(1, 0.9, playerPosition, altForm)
+        && playerPosition.X == 6.0F,
+        "a picture never reads past the newest snapshot");
+    passed &= Check(NetSmoothing::Interpolated() == interpolatedBefore && NetSmoothing::Held() == heldBefore,
+        "a picture's samples are not counted as the step's");
+
     NetPlayerLifecycle::SetOccupant(1, 0);
     NetPlayerLifecycle::Reset();
     NetSmoothing::Reset();

@@ -1,7 +1,9 @@
 #include "AimCheck.hpp"
 #include "../../Entities/Players/PlayerEntity.hpp"
 #include "../../Features.hpp"
+#include "../../Formats/Types.hpp"
 #include "../../Scene.hpp"
+#include "../Input/AimNumericPolicy.hpp"
 #include "../Input/FrameAim.hpp"
 #include "../InputSettings.hpp"
 #include "../Render/AnimationClock.hpp"
@@ -263,6 +265,196 @@ namespace MphRead::Mods::Diagnostics
                     "frame aim: turn shown the frame it is read, evenly, and nearer the next shot");
             }
         }
+
+        // 4. The DS-style crosshair is presented, not turned: a picture shows
+        // the aim the next step turns to and the view on its way to the view
+        // that step makes, and the step finds exactly the state it left.
+        {
+            Features::FixedCrosshair(false);
+            struct Aim { Vector3 Gun, Facing, Position, Side, Up, Draw, Vec, Muzzle; float Y; };
+            const auto aim = [&]
+            {
+                return Aim{player._gunVec1, player._facingVector, player._aimPosition, player._gunVec2,
+                    player._upVector, player._gunDrawPos, player._aimVec, player._muzzlePos, player._aimY};
+            };
+            const auto same = [](const Aim& a, const Aim& b) { return std::memcmp(&a, &b, sizeof(Aim)) == 0; };
+            const auto atPhase = [](double phase)
+            {
+                Render::FrameTiming::Reset();
+                (void)Render::FrameTiming::Advance(phase * Render::FrameTiming::StepSeconds);
+            };
+            const float envelope = std::acos(Input::AimEnvelopeCos) * 180.0F / Pi;
+            Series gunVsStep, arrival, atStart, outside, viewAlong;
+            bool presented = true, restored = true;
+            for (int i = 0; i < 1000; ++i)
+            {
+                // A view behind its aim, as the ease leaves it after a turn.
+                reset(yaws(rng), pitches(rng) * 0.6F, i % 5 == 4);
+                mouse.X = pixels(rng) * 3.0F; mouse.Y = pixels(rng);
+                step(mouse);
+                const Aim left = aim();
+                Mouse moved = mouse; moved.X += pixels(rng); moved.Y += pixels(rng);
+                Vector3 shownGun{}, shownFacing{};
+                for (const double phase : {0.0, 0.37, 0.9999})
+                {
+                    atPhase(phase);
+                    presented = player.ModPresentFrameAim(moved) && presented;
+                    shownGun = player._gunVec1; shownFacing = player._facingVector;
+                    const Matrix4 drawn = Input::FrameAim::View(&player, *player.CameraInfo(), player.CameraInfo()->ViewMatrix);
+                    viewAlong.Add(AngleDegrees(Forward(drawn), shownFacing));
+                    outside.Add(std::max(0.0F, AngleDegrees(shownGun, shownFacing) - envelope));
+                    // At the step's own instant the view has only moved as far
+                    // as the envelope of the aim on screen requires.
+                    if (phase == 0.0 && !player._equipInfo->Zoomed)
+                    {
+                        atStart.Add(std::fabs(AngleDegrees(shownFacing, left.Facing)
+                            - std::max(0.0F, AngleDegrees(shownGun, left.Facing) - envelope)));
+                    }
+                    player.ModRestoreFrameAim();
+                    restored = restored && same(left, aim());
+                }
+                step(moved);
+                gunVsStep.Add(AngleDegrees(shownGun, player._gunVec1));
+                arrival.Add(AngleDegrees(shownFacing, player._facingVector));
+            }
+            std::cout << std::setprecision(6) << "FRAMEAIM ds trials=" << gunVsStep.Count
+                << " crosshair_vs_next_step_deg max=" << gunVsStep.Max
+                << " view_at_step_end_vs_step_deg max=" << arrival.Max
+                << " view_at_step_start_beyond_envelope_push_deg max=" << atStart.Max
+                << " view_outside_envelope_deg max=" << outside.Max
+                << " drawn_view_vs_shown_deg max=" << viewAlong.Max << '\n';
+            check(presented, "DS crosshair is presented for mouse, exact, first person");
+            check(restored, "a DS picture leaves the step exactly the aim it left");
+            check(gunVsStep.Max < 0.0001, "the DS crosshair shown is the aim the next step turns to");
+            check(arrival.Max < 0.01, "the DS view reaches the step's own view as the step runs");
+            check(atStart.Max < 0.01 && outside.Max < 0.01,
+                "the DS view starts from the step's, held inside the envelope of the aim shown");
+            check(viewAlong.Max < 0.01, "the drawn DS view looks along the view shown");
+
+            // The same mouse, with and without pictures between the steps:
+            // the simulation's aim is the same to the bit, step after step.
+            std::vector<std::pair<float, float>> path;
+            for (int k = 0; k < 240; ++k) path.emplace_back(pixels(rng), pixels(rng) * 0.3F);
+            std::vector<Aim> alone, pictured;
+            for (const bool pictures : {false, true})
+            {
+                reset(30, 10, false);
+                std::vector<Aim>& out = pictures ? pictured : alone;
+                for (const auto& [dx, dy] : path)
+                {
+                    Mouse next = mouse; next.X += dx; next.Y += dy;
+                    if (pictures)
+                    {
+                        for (const double phase : {0.25, 0.5, 0.75})
+                        {
+                            Mouse part = mouse;
+                            part.X += dx * static_cast<float>(phase); part.Y += dy * static_cast<float>(phase);
+                            atPhase(phase);
+                            (void)player.ModPresentFrameAim(part);
+                            player.ModRestoreFrameAim();
+                        }
+                    }
+                    mouse = next;
+                    step(mouse);
+                    out.push_back(aim());
+                }
+            }
+            bool lockstep = alone.size() == pictured.size();
+            for (std::size_t k = 0; lockstep && k < alone.size(); ++k) lockstep = same(alone[k], pictured[k]);
+            check(lockstep, "DS pictures between steps leave every step's aim bit-identical");
+
+            // A turn at constant speed drawn at 240 Hz: the crosshair is the
+            // mouse's the frame it is read, and the view moves every frame.
+            for (const bool frameAim : {false, true})
+            {
+                reset(0, 0, false);
+                Render::FrameTiming::Reset();
+                Input::FrameAim::Enabled(frameAim);
+                constexpr int fps = 240;
+                Series age;
+                std::vector<double> increments;
+                double previous = 0;
+                for (int frame = 1; frame <= fps * 3; ++frame)
+                {
+                    const double t = static_cast<double>(frame) / fps;
+                    mouse.X = static_cast<float>(-degreesPerSecond * t / degreesPerPixel);
+                    const auto steps = Render::FrameTiming::Advance(1.0 / fps);
+                    for (int s = 0; s < steps; ++s) step(mouse);
+                    (void)player.ModPresentFrameAim(mouse);
+                    const Matrix4 shown = Input::FrameAim::View(&player, *player.CameraInfo(), player.CameraInfo()->ViewMatrix);
+                    const double truth = std::remainder(degreesPerSecond * t, 360.0);
+                    age.Add(std::fabs(std::remainder(truth - YawDegrees(player._gunVec1), 360.0)) / degreesPerSecond * 1000.0);
+                    const double yaw = YawDegrees(Forward(shown));
+                    if (frame > fps / 2) increments.push_back(std::remainder(yaw - previous, 360.0));
+                    previous = yaw;
+                    player.ModRestoreFrameAim();
+                }
+                double mean = 0;
+                for (const double d : increments) mean += d;
+                mean /= static_cast<double>(increments.size());
+                double variance = 0;
+                for (const double d : increments) variance += (d - mean) * (d - mean);
+                const double unevenness = std::sqrt(variance / static_cast<double>(increments.size())) / std::fabs(mean);
+                std::size_t still = 0;
+                for (const double d : increments) still += std::fabs(d) < 1e-6 ? 1U : 0U;
+                std::cout << std::setprecision(3) << "FRAMEAIM ds schedule fps=" << fps
+                    << " frame_aim=" << (frameAim ? "on " : "off") << " crosshair_age_ms mean=" << age.Mean()
+                    << " max=" << age.Max << " view_per_frame_turn_cv=" << unevenness
+                    << " frames_view_still=" << still << "/" << increments.size() << '\n';
+                if (frameAim)
+                {
+                    check(age.Max < 0.01 && still == 0, "DS crosshair shown the frame it is read, view moving every frame");
+                }
+            }
+            Input::FrameAim::Enabled(true);
+        }
+
+        // 5. A watched player: the step built their camera, then the snapshot
+        // moved and turned them. A picture shows the camera a step would build
+        // where the playout has them now, with their gun where it sits in it.
+        {
+            Series eyeError, viewError, gunError;
+            bool restored = true;
+            std::uniform_real_distribution<float> along(-0.6F, 0.6F);
+            for (int i = 0; i < 300; ++i)
+            {
+                reset(yaws(rng), pitches(rng) * 0.6F, false);
+                player.UpdateCamera();
+                player.UpdateAimVecs();
+                const Vector3 from = player.Position;
+                player.ModNoteCameraSource();
+                // The snapshot's move and turn, then the playout's travel on to the picture.
+                const Vector3 moved(along(rng), along(rng) * 0.3F, along(rng));
+                const Vector3 travel(along(rng) * 0.5F, 0, along(rng) * 0.5F);
+                player.Position = from + moved;
+                Vector3 facing = player._facingVector;
+                facing = Vector3(facing.X + along(rng) * 0.3F, facing.Y + along(rng) * 0.2F, facing.Z + along(rng) * 0.3F);
+                player.ModSetFacing(facing);
+                const Matrix4 stepView = player.CameraInfo()->ViewMatrix;
+                const Vector3 cameraBefore = player.CameraInfo()->Position;
+                const Vector3 gunInView = Matrix::Vec3MultMtx4(player._gunDrawPos, stepView);
+                if (!player.ModPresentWatchedView(travel)) { restored = false; continue; }
+                const Matrix4 shown = player.CameraInfo()->ViewMatrix;
+                const Vector3 shownEye = player.CameraInfo()->Position;
+                gunError.Add(OpenTK::Mathematics::Length(Matrix::Vec3MultMtx4(player._gunDrawPos, shown) - gunInView) * 100.0);
+                player.ModRestoreFrameAim();
+                restored = restored && Same(cameraBefore, player.CameraInfo()->Position)
+                    && std::memcmp(&stepView, &player.CameraInfo()->ViewMatrix, sizeof(Matrix4)) == 0;
+                // The camera a step builds there.
+                player.Position = from + moved + travel;
+                player.UpdateCamera();
+                eyeError.Add(OpenTK::Mathematics::Length(shownEye - player.CameraInfo()->Position) * 100.0);
+                viewError.Add(ViewDegrees(shown, player.CameraInfo()->ViewMatrix));
+            }
+            std::cout << std::setprecision(6) << "FRAMEAIM watched trials=" << viewError.Count
+                << " eye_vs_step_cm max=" << eyeError.Max << " view_vs_step_deg max=" << viewError.Max
+                << " gun_in_view_cm max=" << gunError.Max << '\n';
+            check(restored, "a watched picture leaves the step's camera as it was");
+            check(eyeError.Max < 0.01 && viewError.Max < 0.01,
+                "a watched picture is the camera a step builds where the player is shown");
+            check(gunError.Max < 0.01, "a watched player's gun stays where it sits in their view");
+        }
+
         Render::FrameTiming::Reset();
         Features::FixedCrosshair(fixedBefore);
         reset(0, 0, false);

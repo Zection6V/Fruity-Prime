@@ -1867,7 +1867,7 @@ namespace MphRead
                 spectator.ApplyView();
                 Mods::SpectatorMode::NoteScoreboard(
                     _keyboardState->IsKeyDown(RendererPlatform::Key::Tab) || spectator.Scoreboard());
-                // Rates per 60 Hz step; MoveRoamCamera applies them per drawn frame.
+                // Rates per 60 Hz step; MoveRoamCamera scales them by the frame's time (Mods/Input/FrameAim).
                 _roamPadMoveX = _freeCam ? spectator.MoveX() : 0.0F;
                 _roamPadMoveY = _freeCam ? spectator.MoveY() : 0.0F;
                 _roamPadRise = _freeCam ? spectator.Ascend() - spectator.Descend() : 0.0F;
@@ -1889,7 +1889,8 @@ namespace MphRead
             if (_room) _room->UpdateTransition();
         }
         OnKeyHeld();
-        MoveRoamCamera();
+        // Mod hook: a drawing window moves the free camera per frame instead (Mods/Input/FrameAim).
+        if (!Mods::Render::FrameTiming::Active()) MoveRoamCamera();
         if (ProcessFrame() && _room)
         {
             GameState::ProcessFrame(this);
@@ -2000,6 +2001,8 @@ namespace MphRead
             UpdateCameraPosition();
         }
         UpdateProjection();
+        // Mod hook: the reticle on the aim this picture shows (Mods/Input/FrameAim).
+        ModPresentFrameReticle();
         GetDrawItems();
     }
 
@@ -5222,7 +5225,7 @@ namespace MphRead
             }
             else if (_cameraMode == MphRead::CameraMode::Roam && _freeCam)
             {
-                // Applied on the next simulation step (MoveRoamCamera).
+                // Applied at the next frame's start (MoveRoamCamera, Mods/Input/FrameAim).
                 _roamMouseX += moveX;
                 _roamMouseY += moveY;
             }
@@ -5296,10 +5299,9 @@ namespace MphRead
         }
     }
 
-    // The free camera moves once per 60 Hz simulation step, mouse look
-    // included: the world it looks at changes at that rate, and a camera that
-    // slides between steps makes every moving thing in view judder against it.
-    void Scene::MoveRoamCamera()
+    // The free camera, mouse look included, moved by `steps` simulation
+    // steps' worth of its per-step speeds.
+    void Scene::MoveRoamCamera(float steps)
     {
         using RendererPlatform::Key;
         const float mouseX = _roamMouseX, mouseY = _roamMouseY;
@@ -5319,7 +5321,9 @@ namespace MphRead
         {
             return;
         }
-        constexpr float steps = 1.0F;
+        // Mod: `steps` is the simulation steps' worth this call moves -- one
+        // from a step, a frame's elapsed time from the display-rate free
+        // camera (Mods/Input/FrameAim) -- so a second covers the same ground.
         const bool keys = !alt;
         const bool shift = keys && (_keyboardState->IsKeyDown(Key::LeftShift) || _keyboardState->IsKeyDown(RendererPlatform::RightShiftKey));
         // The death camera's speed (PlayerEntity::UpdateCameraFree: 0.4 / 2 a step).
@@ -7054,14 +7058,16 @@ namespace MphRead
         {
             steps = Mods::Render::FrameTiming::Advance(args.Time);
         }
-        // Mod hook: the mouse read at this frame's pump turns the aim now (Mods/Input/FrameAim).
-        _scene->ModApplyFrameAim();
+        // Mod hook: the mouse read at this frame's pump turns the aim and the free camera now (Mods/Input/FrameAim).
+        _scene->ModApplyFrameInput();
         for (std::int32_t i = 0; i < steps; ++i)
         {
             const NativeRuntime::FrameTelemetry::Scope measured(NativeRuntime::FrameTelemetry::Phase::Simulation);
             _scene->OnSimulationFrame();
         }
         _swapchain->MarkLowLatency(NativeRuntime::Rhi::LowLatencyMarker::SimulationEnd);
+        // Mod hook: this picture's DS-style aim or watched view, until it is drawn (Mods/Input/FrameAim).
+        std::optional<Mods::Input::FrameAimPresentation> modFrameAim(_scene->ModPresentFrameInput());
         if (Mods::Chat::ChatBox::Composing()
             && Mods::Input::GamepadInput::TakePress(
                 Mods::Input::GamepadButtons::B | Mods::Input::GamepadButtons::Start))
@@ -7086,6 +7092,7 @@ namespace MphRead
         {
             return;
         }
+        modFrameAim.reset();
 #if defined(MPHREAD_SHELL)
         // Never let Skia/Ganesh run before the game's OpenGL scene. The UI
         // shares the window context only as a compositor backend; map/model/

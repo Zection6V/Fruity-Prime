@@ -302,14 +302,38 @@ namespace MphRead::Mods::Network
 
     bool NetSmoothing::Sample(std::int32_t slot, Vector3& position, bool& altForm)
     {
+        return SampleAt(slot, _readFrame, position, altForm, true);
+    }
+
+    bool NetSmoothing::SampleAhead(std::int32_t slot, double steps, Vector3& position, bool& altForm)
+    {
+        // Between the read point and what has arrived, never past it: the
+        // picture is not allowed a guess the step is not.
+        const double read = std::min(_readFrame + std::clamp(steps, 0.0, 1.0), static_cast<double>(_newest));
+        return SampleAt(slot, std::max(read, _readFrame), position, altForm, false);
+    }
+
+    Vector3 NetSmoothing::AheadShift(std::int32_t slot, double steps)
+    {
+        Vector3 now{}, ahead{};
+        bool altNow = false, altAhead = false;
+        if (!SampleAhead(slot, 0.0, now, altNow) || !SampleAhead(slot, steps, ahead, altAhead) || altNow != altAhead)
+        {
+            return Vector3::Zero;
+        }
+        return ahead - now;
+    }
+
+    bool NetSmoothing::SampleAt(std::int32_t slot, double read, Vector3& position, bool& altForm, bool counted)
+    {
         position = Vector3::Zero;
         altForm = false;
         if (!Active() || slot < 0 || slot >= Slots)
         {
             return false;
         }
-        const auto lower = static_cast<std::uint32_t>(std::floor(_readFrame));
-        const double fraction = _readFrame - lower;
+        const auto lower = static_cast<std::uint32_t>(std::floor(read));
+        const double fraction = read - lower;
         SnapshotBracket bracket{};
         if (!FindSnapshotBracket(lower, bracket))
         {
@@ -330,8 +354,11 @@ namespace MphRead::Mods::Network
             // With no newer live sample, keep the last state on this side of
             // the playout clock. A dead or replaced snapshot is a lifecycle
             // boundary and must not be interpolated through.
-            Runtime::IncrementInPlace(_held);
-            NoteStep(slot, position);
+            if (counted)
+            {
+                Runtime::IncrementInPlace(_held);
+                NoteStep(slot, position);
+            }
             return true;
         }
         // Packet loss or reordering leaves holes in the authority-frame ring.
@@ -343,8 +370,11 @@ namespace MphRead::Mods::Network
         {
             // A form change switches the position origin. Hold the near pose
             // until the same presentation clock reaches the new form sample.
-            Runtime::IncrementInPlace(_held);
-            NoteStep(slot, position);
+            if (counted)
+            {
+                Runtime::IncrementInPlace(_held);
+                NoteStep(slot, position);
+            }
             return true;
         }
         const Vector3 travel = b - a;
@@ -355,13 +385,19 @@ namespace MphRead::Mods::Network
             // NetUnlagged.Reconcile makes the same refusal at the other end and
             // falls back to the near side, so both worlds stay the same world.
             position = a;
-            Runtime::IncrementInPlace(_held);
-            NoteStep(slot, position);
+            if (counted)
+            {
+                Runtime::IncrementInPlace(_held);
+                NoteStep(slot, position);
+            }
             return true;
         }
         position = a + OpenTK::Mathematics::Multiply(travel, amount);
-        Runtime::IncrementInPlace(_interpolated);
-        NoteStep(slot, position);
+        if (counted)
+        {
+            Runtime::IncrementInPlace(_interpolated);
+            NoteStep(slot, position);
+        }
         return true;
     }
 

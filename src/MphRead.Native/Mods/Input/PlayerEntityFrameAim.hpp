@@ -40,6 +40,14 @@ private:                                                                        
     void ModCarryCamera(::OpenTK::Mathematics::Vector3 eye, ::OpenTK::Mathematics::Vector3 turn); \
     /* The muzzle and charge effects where the gun is, drawn there at once. */                \
     void ModPlaceGunEffects();                                                                 \
+    /* The idle sway's step, shared curve, and draw-only camera presentation. */              \
+    void ModUpdateIdleSway();                                                                  \
+    [[nodiscard]] bool ModIdleSwayEnabled() const;                                             \
+    [[nodiscard]] std::int32_t ModIdleSwayStartTime() const;                                   \
+    [[nodiscard]] ::OpenTK::Mathematics::Vector3 ModIdleSwayFacing(float phase) const;          \
+    [[nodiscard]] bool ModIdleSwayPresentable(                                                 \
+        const ::OpenTK::Windowing::GraphicsLibraryFramework::MouseState* live) const;          \
+    void ModPresentIdleSway();                                                                 \
     ::MphRead::Mods::Input::FrameAimState _modFrameAim{};                                      \
     ::MphRead::Mods::Input::FrameAimView _modFrameView{};                                      \
     ::MphRead::Mods::Input::CameraSource _modCameraSource{};

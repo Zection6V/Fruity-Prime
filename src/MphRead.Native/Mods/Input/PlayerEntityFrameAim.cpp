@@ -196,6 +196,7 @@ namespace MphRead::Entities
     {
         using ::OpenTK::Mathematics::Vector3;
         ModRestoreFrameAim();
+        const bool idleSway = ModIdleSwayPresentable(live);
         bool shown = false;
         if (Mods::Input::FrameAim::Enabled() && !Mods::SpectatorMode::IsSpectating() && Health() > 0
             && _aimFrame.Owner == Mods::Input::AimOwner::Local && Formats::CameraSequence::Current() == nullptr
@@ -227,7 +228,7 @@ namespace MphRead::Entities
             {
                 const Vector3 eye = ::OpenTK::Mathematics::Multiply(stepped, phase);
                 const bool mouseTurns = live != nullptr && (ModFrameAimAllowed(true) || ModFrameAimAllowed(false));
-                const Vector3 turn = mouseTurns ? Vector3{} : ::OpenTK::Mathematics::Multiply(looked - stepped, phase);
+                const Vector3 turn = mouseTurns || idleSway ? Vector3{} : ::OpenTK::Mathematics::Multiply(looked - stepped, phase);
                 if (eye.LengthSquared() > 0 || turn.LengthSquared() > 0)
                 {
                     ModSaveFrameView();
@@ -237,7 +238,12 @@ namespace MphRead::Entities
             }
         }
         // The DS-style aim, from the eye this picture has.
-        if (live != nullptr && ModPresentFrameAim(*live)) shown = true;
+        if (idleSway)
+        {
+            ModPresentIdleSway();
+            shown = true;
+        }
+        else if (live != nullptr && ModPresentFrameAim(*live)) shown = true;
         if (shown)
         {
             _modFrameView.ShownGun = _gunVec1;

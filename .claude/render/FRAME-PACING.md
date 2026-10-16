@@ -292,6 +292,20 @@ own meanwhile, which is then the one kept. Nothing here is behind the mouse:
 the crosshair is the frame's reading, and the view is ahead of the last step,
 never between two old ones.
 
+### Idle camera sway follows its curve between steps
+
+Idle sway advances at 60 Hz (`SwayIncrement` is halved per step). Its camera
+direction used to remain on those steps while mouse frame aim was eligible,
+even with no mouse motion. `Mods/Input/PlayerEntityIdleSway` now owns its step
+and shared cosine sampler. A picture reads the current segment at its own
+phase, clamps at the known endpoint, and carries the camera and gun together.
+The next random target is chosen only by the simulation. Both HUD styles use
+this presentation; fresh mouse motion takes priority, and zoom, morph cameras,
+cutscenes, frozen players and the idle-sway setting keep their existing gates.
+The picture restores the step's camera, aim, gun and muzzle afterwards.
+`-aimcheck` covers intermediate poses, endpoint/rollover agreement, gun placement,
+mouse takeover and unchanged state/RNG.
+
 The HUD sway (`UpdateHudShift`, an average of eight steps' motion, rounded to
 DS pixels) stays the step's.
 

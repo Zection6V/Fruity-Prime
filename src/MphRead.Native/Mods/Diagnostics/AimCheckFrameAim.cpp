@@ -3,8 +3,10 @@
 #include "../../Features.hpp"
 #include "../../Formats/Types.hpp"
 #include "../../Scene.hpp"
+#include "../../Utility/Rng.hpp"
 #include "../Input/AimNumericPolicy.hpp"
 #include "../Input/FrameAim.hpp"
+#include "../../Entities/CamSeq/CameraSequence.hpp"
 #include "../InputSettings.hpp"
 #include "../Render/AnimationClock.hpp"
 #include "../Render/FrameTiming.hpp"
@@ -69,6 +71,16 @@ namespace MphRead::Mods::Diagnostics
     // simulation's own aim.
     int AimCheck::CheckFrameAim(Entities::PlayerEntity& player)
     {
+        // The room may still own its intro camera. These checks exercise a
+        // first-person player and both HUD styles, independently of settings.
+        struct FirstPersonScope
+        {
+            std::shared_ptr<Formats::CameraSequence> Sequence = Formats::CameraSequence::Current()
+                ? Formats::CameraSequence::Current()->shared_from_this() : nullptr;
+            bool ProHud = Features::ProHud();
+            FirstPersonScope() { Formats::CameraSequence::Current(nullptr); Features::ProHud(false); }
+            ~FirstPersonScope() { Formats::CameraSequence::Current(Sequence.get()); Features::ProHud(ProHud); }
+        } firstPerson;
         int checks = 0;
         const auto check = [&](bool ok, const char* name)
         {
@@ -556,6 +568,80 @@ namespace MphRead::Mods::Diagnostics
                 << " target_vs_step_turn_cm max=" << targetError.Max << '\n';
             check(carried && restored && targetError.Max < 0.01,
                 "a view no mouse turns this frame turns on along the step's turn");
+        }
+
+        // Idle sway is a cosine segment, not mouse motion. A picture samples
+        // that same segment without choosing the next random target.
+        {
+            const bool noSway = Features::NoIdleSway();
+            const bool delayed = Features::DelayedIdleSway();
+            Features::NoIdleSway(false);
+            Features::DelayedIdleSway(false);
+            Series endpoint, gunError;
+            bool restored = true, moving = true, takeover = true;
+            for (const bool fixed : {true, false})
+            {
+                Features::FixedCrosshair(fixed);
+                for (const float segment : {.2F, .7F, .9999F})
+                {
+                    reset(0, 0, false);
+                    player._timeSinceInput = static_cast<std::uint16_t>(player.ModIdleSwayStartTime() + 5);
+                    player._field410 = player._field428 = Vector3(0, 0, 1);
+                    player._field41C = Vector3(.04F, .03F, 1);
+                    player._field40C = segment;
+                    player._facingVector = player.ModIdleSwayFacing(segment);
+                    player.ModRebuildAimFromFacing();
+                    player.UpdateCamera();
+                    Render::ScenePresentation::EndStep(*player._scene);
+                    Render::ScenePresentation::EndStep(*player._scene);
+                    const auto facing = player._facingVector;
+                    const auto gun = player._gunVec1;
+                    const auto muzzle = player._muzzlePos;
+                    const auto camera = player.CameraInfo()->ViewMatrix;
+                    const auto rng2 = Rng::Rng2();
+                    const auto gunInView = Matrix::Vec3MultMtx4(player._gunDrawPos, camera);
+                    for (const double phase : {0.0, .25, .5, .75, 1.0})
+                    {
+                        Render::ScenePresentation::ForcePhase(phase);
+                        moving = player.ModPresentOwnView(&mouse) && moving;
+                        const auto shown = Input::FrameAim::View(&player, *player.CameraInfo(), player.CameraInfo()->ViewMatrix);
+                        gunError.Add(OpenTK::Mathematics::Length(
+                            Matrix::Vec3MultMtx4(player._gunDrawPos, shown) - gunInView));
+                        if (phase == 0) moving = moving && ViewDegrees(shown, camera) < .0001;
+                        if (phase == .5 && segment < .99F) moving = moving && ViewDegrees(shown, camera) > .00001;
+                        player.ModRestoreFrameAim();
+                        restored = restored && Same(facing, player._facingVector) && Same(gun, player._gunVec1)
+                            && Same(muzzle, player._muzzlePos) && player._field40C == segment && Rng::Rng2() == rng2
+                            && std::memcmp(&camera, &player.CameraInfo()->ViewMatrix, sizeof(camera)) == 0;
+                        if (phase == 1)
+                        {
+                            player.ModUpdateIdleSway();
+                            player.UpdateCamera();
+                            endpoint.Add(ViewDegrees(shown, player.CameraInfo()->ViewMatrix));
+                            player._field40C = segment;
+                            player._field410 = player._field428 = Vector3(0, 0, 1);
+                            player._field41C = Vector3(.04F, .03F, 1);
+                            player._facingVector = facing;
+                            Rng::SetRng2(rng2);
+                        }
+                    }
+                    Mouse fresh = mouse; fresh.X += 3;
+                    takeover = takeover && !player.ModIdleSwayPresentable(&fresh);
+                    player._equipInfo->Zoomed = true;
+                    takeover = takeover && !player.ModIdleSwayPresentable(&mouse);
+                    player._equipInfo->Zoomed = false;
+                }
+            }
+            Render::ScenePresentation::ForcePhase(std::nullopt);
+            Features::NoIdleSway(noSway);
+            Features::DelayedIdleSway(delayed);
+            std::cout << "FRAMEAIM idle sway endpoint_deg max=" << endpoint.Max
+                << " gun_in_view max=" << gunError.Max << '\n';
+            check(moving, "idle sway moves between steps in both HUD styles");
+            check(restored, "idle sway pictures preserve camera aim muzzle phase and RNG");
+            check(endpoint.Max < .001, "idle sway arrives at the next step including random-target rollover");
+            check(gunError.Max < .0001, "idle sway carries the gun with the view");
+            check(takeover, "fresh mouse motion and zoom take priority over idle sway");
         }
 
         Render::FrameTiming::Reset();

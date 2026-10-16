@@ -109,6 +109,18 @@ int main()
             "a beam is drawn out of the muzzle along the aim, its length kept");
     }
 
+    // A beam held between a gun and what it is locked on: both ends land.
+    {
+        const Vector3 a(1, 2, 3), b(4, 2, 7), a2(1.2F, 2.1F, 3.0F), b2(4.5F, 1.8F, 6.6F);
+        const Matrix4 span = MotionCarry::Span(a, b, a2, b2);
+        const Vector3 mid = MotionCarry::Point(Vector3((a.X + b.X) / 2, (a.Y + b.Y) / 2, (a.Z + b.Z) / 2), span);
+        const Vector3 want((a2.X + b2.X) / 2, (a2.Y + b2.Y) / 2, (a2.Z + b2.Z) / 2);
+        passed &= Check(std::sqrt((MotionCarry::Point(a, span) - a2).LengthSquared()) < 1e-4F
+            && std::sqrt((MotionCarry::Point(b, span) - b2).LengthSquared()) < 1e-4F
+            && std::sqrt((mid - want).LengthSquared()) < 1e-4F,
+            "a locked beam's ends land on the gun and the target");
+    }
+
     // Drawn items: a transform, a matrix stack, and a billboard that only moves.
     {
         const auto carry = MotionCarry::Between(Pose(0, Vector3(0, 0, 0)), Pose(10, Vector3(1, 0, 0)), 1.0F);

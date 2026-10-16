@@ -141,6 +141,20 @@ namespace MphRead::Entities
         return std::pair{muzzle, aimed - muzzle};
     }
 
+    Vector3 PlayerEntity::ModPresentedPoint(Vector3 point) const
+    {
+        if (!Mods::Render::ScenePresentation::Moving()) return point;
+        // A local or watched view carried its camera with the body
+        // (ModCarryCamera): the body is where that eye has gone.
+        const Mods::Input::FrameAimView& view = _modFrameView;
+        if (view.Active && view.Camera && _cameraInfo != nullptr)
+        {
+            return point + (_cameraInfo->Position - view.CameraPosition);
+        }
+        if (const auto carry = ModPresentationCarry()) return Mods::Render::MotionCarry::Point(point, *carry);
+        return point;
+    }
+
     Matrix4 PlayerEntity::ModKandenSegmentDrawn(std::int32_t index) const
     {
         const Matrix4& now = _kandenSegMtx.at(static_cast<std::size_t>(index));

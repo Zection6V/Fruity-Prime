@@ -137,6 +137,18 @@ namespace MphRead::Mods::Render
         return OpenTK::Mathematics::CreateTranslation(-from) * turn * OpenTK::Mathematics::CreateTranslation(to);
     }
 
+    Matrix4 MotionCarry::Span(Vector3 fromA, Vector3 fromB, Vector3 toA, Vector3 toB)
+    {
+        const Vector3 before = fromB - fromA, after = toB - toA;
+        const float a = std::sqrt(before.LengthSquared()), b = std::sqrt(after.LengthSquared());
+        if (a <= 1e-6F || b <= 1e-6F) return Anchor(fromA, before, toA, after);
+        // About fromA: turn, then stretch, then onto toA (Anchor's move last).
+        const float stretch = b / a;
+        const Matrix4 scale = OpenTK::Mathematics::CreateScale(stretch);
+        return OpenTK::Mathematics::CreateTranslation(-fromA) * Anchor(Vector3{}, before, Vector3{}, after)
+            * scale * OpenTK::Mathematics::CreateTranslation(toA);
+    }
+
     std::optional<Matrix4> MotionCarry::By(Vector3 shift)
     {
         if (shift.LengthSquared() <= 0.0F || shift.LengthSquared() > JumpDistance * JumpDistance) return std::nullopt;

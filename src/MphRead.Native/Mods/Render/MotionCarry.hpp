@@ -45,6 +45,11 @@ namespace MphRead::Mods::Render
         [[nodiscard]] static OpenTK::Mathematics::Matrix4 Anchor(OpenTK::Mathematics::Vector3 from,
             OpenTK::Mathematics::Vector3 fromDirection, OpenTK::Mathematics::Vector3 to,
             OpenTK::Mathematics::Vector3 toDirection);
+        // What takes the segment `fromA`-`fromB` onto `toA`-`toB`: the same turn,
+        // then a uniform stretch to the new length. A beam held between a gun
+        // and what it is locked on, each end where the picture has it.
+        [[nodiscard]] static OpenTK::Mathematics::Matrix4 Span(OpenTK::Mathematics::Vector3 fromA,
+            OpenTK::Mathematics::Vector3 fromB, OpenTK::Mathematics::Vector3 toA, OpenTK::Mathematics::Vector3 toB);
         // A translation alone, when there is one worth carrying.
         [[nodiscard]] static std::optional<OpenTK::Mathematics::Matrix4> By(OpenTK::Mathematics::Vector3 shift);
 

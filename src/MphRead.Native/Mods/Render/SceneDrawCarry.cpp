@@ -46,8 +46,19 @@ namespace MphRead
             if (owner == nullptr || owner->Type != EntityType::Player) return std::nullopt;
             const auto gun = static_cast<const Entities::PlayerEntity&>(*owner).ModPresentedMuzzle();
             if (!gun) return std::nullopt;
-            // Where its trail is drawn from (DrawTrail4), and the way it was fired.
-            return Mods::Render::MotionCarry::Anchor(beam.PastPositions()[8], beam.Direction(), gun->first, gun->second);
+            // Where its trail is drawn from (DrawTrail4) to where it is.
+            const OpenTK::Mathematics::Vector3 origin = beam.PastPositions()[8];
+            const OpenTK::Mathematics::Vector3 tip = beam.Position;
+            // Locked on a player, it ends on them as the picture has them --
+            // the player it is locked on is often the one watching.
+            const auto target = beam.Target();
+            if (target != nullptr && target->Type == EntityType::Player)
+            {
+                const auto& locked = static_cast<const Entities::PlayerEntity&>(*target);
+                return Mods::Render::MotionCarry::Span(origin, tip, gun->first, locked.ModPresentedPoint(tip));
+            }
+            // Otherwise it is drawn the way it was fired, out of the gun.
+            return Mods::Render::MotionCarry::Anchor(origin, beam.Direction(), gun->first, gun->second);
         }
     }
 

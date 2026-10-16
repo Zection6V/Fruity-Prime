@@ -5,6 +5,7 @@
 #include "Mods/Network/Replay/DemoFile.hpp"
 #include "Mods/Network/Replay/DemoPlayback.hpp"
 #include "Mods/Network/Protocol/NetProtocol.hpp"
+#include "Mods/Network/Protocol/Packets/FormTransitionPacket.hpp"
 #include "Mods/Network/Session/NetSession.hpp"
 #include "Mods/Network/Transport/NetTransport.hpp"
 #include "NativeRuntime/System/Stopwatch.hpp"
@@ -149,13 +150,18 @@ namespace MphRead::Mods::Network
 
     void DemoRecorder::RecordOwnSnapshot(std::span<const std::uint8_t> payload)
     {
+        RecordOwnPacket(PacketType::Snapshot, payload);
+    }
+
+    void DemoRecorder::RecordOwnPacket(PacketType type, std::span<const std::uint8_t> payload)
+    {
         if (_writer == nullptr && !DemoClip::Active())
         {
             return;
         }
 
         std::vector<std::uint8_t> buffer(1 + payload.size());
-        buffer[0] = static_cast<std::uint8_t>(PacketType::Snapshot);
+        buffer[0] = static_cast<std::uint8_t>(type);
         std::copy(payload.begin(), payload.end(), buffer.begin() + 1);
 
         const std::span<const std::uint8_t> data(buffer);
@@ -174,6 +180,12 @@ namespace MphRead::Mods::Network
     std::uint32_t DemoRecorder::RecordFrame(
         std::span<const std::uint8_t> packet, std::uint32_t fallbackFrame)
     {
+        if (!packet.empty() && packet[0] == static_cast<std::uint8_t>(PacketType::FormTransition))
+        {
+            FormTransitionPacket forms{};
+            if (FormTransitionPacket::TryRead(packet.subspan(1), forms))
+                return _frameClock.FrameAtAuthority(forms.Frame, fallbackFrame);
+        }
         if (packet.size() < static_cast<std::size_t>(SnapshotHeader::Size + 1)
             || packet[0] != static_cast<std::uint8_t>(PacketType::Snapshot))
         {

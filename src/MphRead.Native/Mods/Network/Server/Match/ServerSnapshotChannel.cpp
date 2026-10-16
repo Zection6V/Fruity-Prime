@@ -33,6 +33,7 @@ namespace MphRead::Mods::Network
 
     void ServerSnapshotChannel::Publish(std::span<const std::uint8_t> payload, NetTransport* transport)
     {
+        _forms.ObserveSnapshot(payload, _peers, transport);
         static_cast<void>(_stream.CacheLatest(payload));
         for (const ServerPeerRegistry::PeerHandle& peer : _peers.All())
         {
@@ -49,6 +50,7 @@ namespace MphRead::Mods::Network
         if (peer != nullptr && _stream.HasLatest() && transport != nullptr)
         {
             transport->Send(peer->EndPoint, PacketType::Snapshot, _stream.Latest());
+            _forms.SendLatest(peer, transport);
         }
     }
 

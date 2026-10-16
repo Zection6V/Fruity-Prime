@@ -31,5 +31,7 @@ namespace MphRead::Mods::Render
         std::array<std::uint16_t, 2> Flags{};
         // Per channel, the animation group the tick saw.
         std::array<const void*, 3> Group{};
+        // Scoped draw-only override; restored before simulation can run.
+        float DrawFrame = -1.0F;
     };
 }

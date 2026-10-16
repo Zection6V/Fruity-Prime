@@ -43,8 +43,13 @@ namespace MphRead::Mods::Network
         // clock.
         static void ApplyPresentation(Entities::PlayerEntity& player, const ReplicatedFormState& state,
             std::uint32_t frame, std::int32_t pingMilliseconds);
+        // A relayed alt-form action is evidence the owner is in alt form. A
+        // bomb lets the presented clip run on; an attack (`complete`) finishes
+        // it on the spot so the native action runs this frame, and holds the
+        // settled form until the presentation sample catches up.
         [[nodiscard]] static bool AdvanceForAltFormAction(Entities::PlayerEntity& player,
-            const IntentPacket* ownerIntent, const PlayerState* authorityState, std::uint32_t frame);
+            const IntentPacket* ownerIntent, const PlayerState* authorityState, std::uint32_t frame,
+            bool complete = false);
         [[nodiscard]] static FormCorrection Reconcile(std::int32_t slot, std::uint32_t frame,
             bool desiredAlt, bool actualAlt, bool morphing, bool unmorphing,
             std::int32_t pingMilliseconds);
@@ -63,9 +68,13 @@ namespace MphRead::Mods::Network
 
         static void ApplyReplicatedState(Entities::PlayerEntity& player, const ReplicatedFormState& state,
             std::uint32_t frame, std::int32_t pingMilliseconds, ProgressApplication progressApplication);
+        [[nodiscard]] static bool AltCommitHolds(std::int32_t slot, const ReplicatedFormState& sample,
+            std::uint32_t frame) noexcept;
         static std::array<FormReconciliation, NetworkSlotCapacity> _reconciliation;
         static std::array<FormTransitionPlaybackPolicy, NetworkSlotCapacity> _transitionPlayback;
         static std::array<std::uint8_t, NetworkSlotCapacity> _authoritySaid;
         static std::array<bool, NetworkSlotCapacity> _ownerStableCorrectionDeferred;
+        // Frame an alt action completed the presented form; 0 when none holds.
+        static std::array<std::uint32_t, NetworkSlotCapacity> _altActionCommitFrame;
     };
 }

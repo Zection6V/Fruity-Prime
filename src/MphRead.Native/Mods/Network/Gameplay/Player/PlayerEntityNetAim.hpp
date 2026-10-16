@@ -2,6 +2,8 @@
 
 #include "Formats/Enums.hpp"
 #include "Formats/Types.hpp"
+#include "Mods/Network/Gameplay/Replication/FormTransitionAuthorityTracker.hpp"
+#include "Mods/Network/Gameplay/Player/FormTransitionDraw.hpp"
 
 #include <array>
 #include <cstdint>
@@ -45,10 +47,13 @@ public: \
     void ModApplyFormTransition(bool morphing); \
     [[nodiscard]] bool ModFormTransitionAnimationEnded(bool morphing) const noexcept; \
     [[nodiscard]] std::uint8_t ModFormTransitionProgress() const noexcept; \
+    [[nodiscard]] Mods::Network::FormClipObservation ModObserveFormClip(std::uint32_t frame) const; \
+    void ModPresentFormTransition(Mods::Network::FormTransitionDraw& draw); \
     /* Native playback path: corrects lagging progress without rewinding. */ \
     void ModSyncFormTransitionProgress(bool morphing, std::uint8_t progress) noexcept; \
     /* Remote presentation path: pins the clip to the shared NetSmoothing phase. */ \
     void ModHoldFormTransitionAtProgress(bool morphing, std::uint8_t progress) noexcept; \
+    void ModHoldFormTransitionAtPhase(bool morphing, float phase) noexcept; \
     void ModReleaseFormTransitionHold() noexcept; \
     void ModForceForm(bool altForm); \
     void ModForceWeavelState(bool desiredAlt, bool desiredTurretActive, \
@@ -114,7 +119,7 @@ public: \
     void ModIgnite(PlayerEntity& by, std::uint32_t launchFrame); \
     [[nodiscard]] bool ModCanZoom() const; \
  \
-    [[nodiscard]] std::string ModFormState() const; \
+    [[nodiscard]] std::string ModFormState() const;     /* Vhoscythe's startup count, for the alt-attack trace. */     [[nodiscard]] std::uint16_t ModAltAttackTime() const noexcept { return _altAttackTime; }     /* A remote copy's charging alt attack follows the owner's own count. */     void ModFollowAltAttackStartup(std::uint32_t ownerFramesSincePress); \
     void ModRepairVectors(); \
  \
     void ModNetDie(); \
@@ -143,7 +148,7 @@ private: \
     [[nodiscard]] std::shared_ptr<PlayerSpawnEntity> ModNearestSpawn( \
         OpenTK::Mathematics::Vector3 position, bool& any); \
  \
-    void SyncFormTransitionProgress(bool morphing, std::uint8_t progress, bool holdAtProgress) noexcept; \
+    void SyncFormTransitionProgress(bool morphing, float progress, bool holdAtProgress) noexcept; \
     void ApplyModAim();
 
 #ifndef MPHREAD_PLAYER_ENTITY_CANONICAL_HEADER

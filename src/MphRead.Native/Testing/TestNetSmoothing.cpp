@@ -2,6 +2,8 @@
 #include "Mods/Network/Gameplay/Replication/NetSmoothing.hpp"
 #include "Mods/Network/Protocol/NetProtocol.hpp"
 #include "Mods/Network/Testing/NetSessionFixture.hpp"
+#include "Mods/Network/Session/SessionFormTransition.hpp"
+#include "Mods/Network/Session/PeerRegistry.hpp"
 
 #include <array>
 #include <cmath>
@@ -128,15 +130,18 @@ int main()
     passed &= Check(NetSmoothing::Sample(1, playerPosition, altForm)
         && std::abs(playerPosition.X - 28.95F) < 0.02F && !altForm,
         "player presentation samples the shared fractional playout frame");
+    // Form is never shown a playout delay late: its clock steps once a step
+    // within FormClockSlack of the newest frame (29 here, the pose at 28.95).
+    passed &= Check(NetSmoothing::FormFrame() == 29.0,
+        "form reads its own clock, held within the slack of the newest authority frame");
     passed &= Check(NetSmoothing::SampleForm(1, form)
-        && form.Direction == ReplicatedFormState::Transition::Morph && form.Progress == 14
-        && form.HeadingAlt(),
-        "a remote form transition samples direction and progress at the shared presentation frame");
+        && form.Direction == ReplicatedFormState::Transition::Morph && form.Progress == 15,
+        "a remote morph is sampled on the form clock, ahead of the pose");
     ReplicatedFormState unmorph{};
     passed &= Check(NetSmoothing::SampleForm(2, unmorph)
-        && unmorph.Direction == ReplicatedFormState::Transition::Unmorph
-        && unmorph.Progress == 14 && !unmorph.HeadingAlt() && unmorph.AltForm,
-        "an unmorph clip samples the same presentation clock while its authority alt-form bit remains set");
+        && unmorph.Direction == ReplicatedFormState::Transition::Unmorph && unmorph.Progress == 15
+        && unmorph.AltForm,
+        "a remote unmorph is sampled on the form clock while its alt-form bit remains set");
     passed &= Check(NetSmoothing::SampleTrackedPosition(1, 7, bombPosition, bombPresent)
         && bombPresent && std::abs(bombPosition.X - 280.0F) < 0.02F,
         "a moving bomb holds its last visible pose until playout reaches its gone frame");
@@ -145,20 +150,14 @@ int main()
     passed &= Check(NetSmoothing::SampleTrackedPosition(1, 7, bombPosition, bombPresent)
         && !bombPresent && std::abs(bombPosition.X - 290.0F) < 0.02F,
         "the bomb disappears when the shared playout reaches the gone frame");
-    passed &= Check(NetSmoothing::SampleForm(1, form)
-        && form.Direction == ReplicatedFormState::Transition::Morph && form.Progress == 15,
-        "the remote animation reaches its final sampled phase before the stable-form snapshot");
-    passed &= Check(NetSmoothing::SampleForm(2, unmorph)
-        && unmorph.Direction == ReplicatedFormState::Transition::Unmorph && unmorph.Progress == 15,
-        "the unmorph animation reaches its final sampled phase before the stable-form snapshot");
-
-    NetSmoothing::Tick();
-    passed &= Check(NetSmoothing::SampleForm(1, form)
-        && form.Direction == ReplicatedFormState::Transition::None && form.AltForm,
-        "morph commits to the stable alt form only when the shared read clock reaches it");
-    passed &= Check(NetSmoothing::SampleForm(2, unmorph)
+    passed &= Check(NetSmoothing::FormFrame() == 30.0 && NetSmoothing::SampleForm(1, form)
+        && form.Direction == ReplicatedFormState::Transition::None && form.AltForm
+        && NetSmoothing::SampleForm(2, unmorph)
         && unmorph.Direction == ReplicatedFormState::Transition::None && !unmorph.AltForm,
-        "unmorph commits to the stable biped form only when the shared read clock reaches it");
+        "the form commits at the newest authority frame while the pose is still behind it");
+    NetSmoothing::Tick();
+    passed &= Check(NetSmoothing::FormFrame() == 30.0,
+        "the form clock never runs past what has arrived");
 
     NetSmoothing::Reset();
     PlayerState sparseBefore = StateAt(100);
@@ -185,7 +184,8 @@ int main()
     NetSmoothing::RecordTrackedPositions(100, 1, std::span<const NetSmoothing::TrackedPosition>(bombBefore));
     NetSmoothing::RecordTrackedPositions(103, 1, std::span<const NetSmoothing::TrackedPosition>(bombAfter));
     const std::array<float, 4> sparsePositions{ 0, 1, 2, 3 };
-    const std::array<std::uint8_t, 4> sparseProgress{ 0, 4, 8, 12 };
+    // The form clock is held within FormClockSlack (2) of the newest, 103.
+    const std::array<std::uint8_t, 4> sparseProgress{ 4, 4, 4, 4 };
     for (std::size_t i = 0; i < sparsePositions.size(); ++i)
     {
         NetSmoothingTestAccess::SetReadFrame(100.0 + static_cast<double>(i));
@@ -195,7 +195,7 @@ int main()
         passed &= Check(NetSmoothing::SampleForm(1, form)
             && form.Direction == ReplicatedFormState::Transition::Morph
             && form.Progress == sparseProgress[i],
-            "form progress shares the sparse player-position presentation clock");
+            "form progress reads the form clock inside a sparse snapshot gap");
         passed &= Check(NetSmoothing::SampleTrackedPosition(1, 7, bombPosition, bombPresent)
             && bombPresent && std::abs(bombPosition.X - sparsePositions[i]) < 0.01F,
             "tracked objects share the sparse player-position presentation clock");
@@ -204,8 +204,8 @@ int main()
     passed &= Check(NetSmoothing::Sample(1, playerPosition, altForm)
         && std::abs(playerPosition.X - 1.5F) < 0.01F,
         "fractional sparse-frame position interpolation remains continuous");
-    passed &= Check(NetSmoothing::SampleForm(1, form) && form.Progress == 6,
-        "fractional form progress remains on the shared presentation clock");
+    passed &= Check(NetSmoothing::SampleForm(1, form) && form.Progress == 4,
+        "the form clock does not follow the pose's read point");
     passed &= Check(NetSmoothing::SampleTrackedPosition(1, 7, bombPosition, bombPresent)
         && bombPresent && std::abs(bombPosition.X - 1.5F) < 0.01F,
         "fractional tracked-object interpolation remains on the shared presentation clock");
@@ -337,6 +337,45 @@ int main()
         "a picture never reads past the newest snapshot");
     passed &= Check(NetSmoothing::Interpolated() == interpolatedBefore && NetSmoothing::Held() == heldBefore,
         "a picture's samples are not counted as the step's");
+
+    MatchStatePacket match{}; match.MatchId = 5; match.AuthorityEpoch = 6;
+    NetSessionFixture::SetMatchIdentity(match);
+    RemotePlayers().StoreState(lifeAfter);
+    FormTransitionPacket events{};
+    events.Match = match.MatchId; events.Epoch = match.AuthorityEpoch; events.Frame = 506; events.Count = 1;
+    auto& event = events.Records[0];
+    event.Slot = 1; event.Generation = lifeAfter.SlotGeneration; event.Life = lifeAfter.LifeId; event.Id = 1;
+    event.StartFrame = event.StampFrame = event.AnchorFrame = 504;
+    event.ClipFrames = 16; event.Direction = ReplicatedFormState::Transition::Morph;
+    const auto deliver = [&]()
+    {
+        std::array<std::uint8_t, FormTransitionPacket::MaxSize> bytes{};
+        const auto size = events.Write(bytes);
+        passed &= Check(size != 0, "event fixture encodes");
+        SessionFormTransition::Receive(std::span<const std::uint8_t>(bytes).first(size));
+    };
+    ++events.Match; deliver(); --events.Match;
+    passed &= Check(!SessionFormTransition::Sample(1, 505, event.Direction), "cross-match event is rejected");
+    ++events.Epoch; deliver(); --events.Epoch;
+    passed &= Check(!SessionFormTransition::Sample(1, 505, event.Direction), "cross-authority event is rejected");
+    ++event.Life; deliver(); --event.Life;
+    passed &= Check(!SessionFormTransition::Sample(1, 505, event.Direction), "old or future life does not own playback");
+    deliver(); deliver();
+    const auto eventPhase = SessionFormTransition::Sample(1, NetSmoothing::PresentationFrame(0.9), event.Direction);
+    passed &= Check(eventPhase && std::abs(*eventPhase - 2.0F / 30) < 0.00001F
+        && NetSmoothing::PresentationFrame(0.9) == 506,
+        "event phase and position clamp at the same newest snapshot during starvation");
+    NetSessionFixture::SetLocalSlot(1);
+    passed &= Check(!SessionFormTransition::Sample(1, 505, event.Direction), "owner prediction is never sought to remote time");
+    NetSessionFixture::SetLocalSlot(0);
+    SessionFormTransition::Enabled(false);
+    passed &= Check(!SessionFormTransition::Sample(1, 505, event.Direction), "comparison switch restores the snapshot path");
+    SessionFormTransition::Enabled(true);
+    NetSmoothing::Enabled(false);
+    passed &= Check(!NetSmoothing::Active(), "nointerp keeps immediate native playback");
+    NetSmoothing::Enabled(true);
+    NetSmoothing::NoteRoomChanged();
+    passed &= Check(!SessionFormTransition::Sample(1, 505, event.Direction), "room changes discard the old event history");
 
     NetPlayerLifecycle::SetOccupant(1, 0);
     NetPlayerLifecycle::Reset();

@@ -31,6 +31,7 @@ namespace MphRead::Mods::Render
             std::int32_t Frame = 0;
             std::int32_t Next = 0;
             float Fraction = 0;
+            std::int32_t FirstOverride = -1;
         };
 
         struct MaterialColors
@@ -186,6 +187,14 @@ namespace MphRead::Mods::Render
             const AnimationTick& tick = info.ModTick;
             const ChannelState current = Channel(info, channel);
             const std::size_t slot = current.Slot;
+            if (tick.DrawFrame >= 0 && slot == 0 && current.Group != nullptr
+                && channel == AnimationChannel::Node)
+            {
+                const auto frame = static_cast<std::int32_t>(std::floor(tick.DrawFrame));
+                const float fraction = tick.DrawFrame - frame;
+                return ActiveSample{nullptr, current.Curves, (*info.Frame)[0],
+                    std::min(frame + 1, (*info.FrameCount)[0] - 1), fraction, frame};
+            }
             if (tick.Clock == nullptr || tick.Interval <= 0 || current.Group == nullptr || slot > 1
                 || tick.Group[static_cast<std::size_t>(channel)] != current.Group
                 || tick.Next[slot] == tick.Frame[slot]
@@ -324,11 +333,34 @@ namespace MphRead::Mods::Render
         tick.Next = animated ? LookAhead(instance) : tick.Frame;
     }
 
+    void AnimationBlend::FrameOverride::Set(AnimationInfo& info, float frame)
+    {
+        if (_info != nullptr || info.Frame == nullptr || info.FrameCount == nullptr
+            || !std::isfinite(frame) || (*info.FrameCount)[0] <= 1) return;
+        _info = &info;
+        _drawFrame = info.ModTick.DrawFrame;
+        float shown = std::clamp(frame, 0.0F, static_cast<float>((*info.FrameCount)[0] - 1));
+        if (rate != DisplayRate)
+        {
+            const float slices = static_cast<float>(rate) / DsRate;
+            shown = std::floor(shown * slices + 1e-6F) / slices;
+        }
+        info.ModTick.DrawFrame = shown;
+    }
+
+    AnimationBlend::FrameOverride::~FrameOverride()
+    {
+        if (_info == nullptr) return;
+        _info->ModTick.DrawFrame = _drawFrame;
+    }
+
     float AnimationBlend::FrameShown(const AnimationInfo& info, std::size_t slot)
     {
         const float frame = info.Frame != nullptr && slot < info.Frame->Length()
             ? static_cast<float>((*info.Frame)[slot]) : 0.0F;
         const auto sample = SampleFor(info, AnimationChannel::Node);
+        if (slot == 0 && sample && sample->FirstOverride >= 0)
+            return static_cast<float>(sample->FirstOverride) + sample->Fraction;
         // A neighbouring frame only: a loop's wrap is a jump, not a sweep back.
         if (!sample || Channel(info, AnimationChannel::Node).Slot != slot
             || std::abs(sample->Next - sample->Frame) != 1)
@@ -594,7 +626,8 @@ namespace MphRead::Mods::Render
             ~Suspend() { Sampling = false; }
         } suspend{current.Sampling};
         current.Sampling = true;
-        const float first = model.InterpolateAnimation(values, start, frame,
+        const std::int32_t firstFrame = sample.FirstOverride >= 0 ? sample.FirstOverride : frame;
+        const float first = model.InterpolateAnimation(values, start, firstFrame,
             blend, length, count, rotation);
         const float second = model.InterpolateAnimation(values, start, sample.Next,
             blend, length, count, rotation);
@@ -604,8 +637,8 @@ namespace MphRead::Mods::Render
             constexpr float Turn = 2.0F * std::numbers::pi_v<float>;
             delta = std::remainder(delta, Turn);
             if (count > 2
-                && ((frame == count - 1 && sample.Next == 0)
-                || (frame == 0 && sample.Next == count - 1)))
+                && ((firstFrame == count - 1 && sample.Next == 0)
+                || (firstFrame == 0 && sample.Next == count - 1)))
             {
                 // Symmetric rotating geometry, and a texture turning on a
                 // floor (the Helm Room's), can reset by less than a full

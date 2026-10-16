@@ -1,6 +1,8 @@
 #include "Mods/Entry/NetworkOptions.hpp"
 #include "Mods/Entry/RenderOverrides.hpp"
 #include "Mods/Network/Gameplay/Replication/NetSmoothing.hpp"
+#include "Mods/Network/Diagnostics/FormRequestTrace.hpp"
+#include "Mods/Network/Session/SessionFormTransition.hpp"
 #include "Mods/Network/Integration/Hooks/NetHooks.hpp"
 #include "Mods/Network/Testing/Combat/HitRig.hpp"
 #include "Mods/Network/Transport/NetLag.hpp"
@@ -87,6 +89,19 @@ namespace
         return passed;
     }
 
+    bool FormOptions()
+    {
+        bool passed = Check(!Network::FormTransitionTrace::Enabled(), "FORM-trace-default",
+            "per-frame form diagnostics are off in normal play");
+        Entry::ApplyLagCompensationOptions(Args{"-formtrace"});
+        passed &= Check(Network::FormTransitionTrace::Enabled(), "FORM-trace-on", "formtrace enables diagnostics");
+        Network::FormTransitionTrace::Enabled(false);
+        Entry::ApplyHitResolutionOptions(Args{"-noformevents"});
+        passed &= Check(!Network::SessionFormTransition::Enabled(), "FORM-event-off", "noformevents selects snapshot playback");
+        Network::SessionFormTransition::Enabled(true);
+        return passed;
+    }
+
     bool PuppetSources()
     {
         bool passed = true;
@@ -115,6 +130,7 @@ int main()
     passed &= RenderOverrides();
     passed &= LineSimulation();
     passed &= HitRigOptions();
+    passed &= FormOptions();
     passed &= PuppetSources();
     if (!passed)
     {

@@ -67,6 +67,11 @@ namespace MphRead::Mods::Network
         // zero where either cannot be read or the form changes in between.
         [[nodiscard]] static OpenTK::Mathematics::Vector3 AheadShift(std::int32_t slot, double steps);
         [[nodiscard]] static bool SampleForm(std::int32_t slot, ReplicatedFormState& form);
+        [[nodiscard]] static double PresentationFrame(double steps = 0.0) noexcept;
+        // Where a remote replica's form is read: the newest authority frame,
+        // on a clock that steps once a simulation step. Form is never shown a
+        // playout delay late.
+        [[nodiscard]] static double FormFrame(double steps = 0.0) noexcept;
         [[nodiscard]] static bool SampleTrackedPosition(std::int32_t slot, std::uint32_t sequence,
             OpenTK::Mathematics::Vector3& position, bool& present);
         [[nodiscard]] static bool AckPoint(std::uint32_t& frame, std::uint8_t& subFrame);
@@ -139,6 +144,8 @@ namespace MphRead::Mods::Network
         static Grid<TrackedFrame> _trackedPositions;
         static std::array<std::uint32_t, HistoryFrames> _stamp;
         static std::uint32_t _newest;
+        static double _formClock;
+        static constexpr double FormClockSlack = 2.0;
         static std::array<OpenTK::Mathematics::Vector3, Slots> _lastSampled;
         static std::array<bool, Slots> _sampledSeen;
     };

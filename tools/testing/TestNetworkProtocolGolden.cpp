@@ -1,5 +1,6 @@
 #include "Mods/Network/Protocol/NetProtocol.hpp"
 #include "Mods/Network/Protocol/SessionProtocol.hpp"
+#include "Mods/Network/Protocol/Packets/FormTransitionPacket.hpp"
 
 #include <array>
 #include <cstdint>
@@ -69,7 +70,8 @@ namespace
             static_cast<std::uint8_t>(PacketType::SessionState), static_cast<std::uint8_t>(PacketType::LobbyCommand),
             static_cast<std::uint8_t>(PacketType::LobbyCommandResult), static_cast<std::uint8_t>(PacketType::MatchLoaded),
             static_cast<std::uint8_t>(PacketType::MatchLoadFailed), static_cast<std::uint8_t>(PacketType::PickupClaim),
-            static_cast<std::uint8_t>(PacketType::PickupVerdict), static_cast<std::uint8_t>(PacketType::MapDone) });
+            static_cast<std::uint8_t>(PacketType::PickupVerdict), static_cast<std::uint8_t>(PacketType::MapDone),
+            static_cast<std::uint8_t>(PacketType::FormTransition) });
 
         HelloPacket hello;
         hello.Protocol = NetConfig::ProtocolVersion;
@@ -410,6 +412,15 @@ namespace
         loadFailed.Reason = "missing map";
         add("MatchLoadFailed", Encode<MatchLoadFailedPacket::Size>([&loadFailed](auto bytes) { loadFailed.Write(bytes); }));
 
+        FormTransitionPacket forms{};
+        forms.Match = 0x1234; forms.Epoch = 0x0102030405060708ULL; forms.Frame = 600; forms.Count = 1;
+        auto& form = forms.Records[0];
+        form.Slot = 3; form.Generation = 7; form.Life = 9; form.Id = 12;
+        form.StartFrame = 580; form.StampFrame = 600; form.AnchorFrame = 600;
+        form.ClipFrame = 10; form.ClipFrames = 16;
+        form.Direction = ReplicatedFormState::Transition::Morph;
+        add("FormTransition", Encode<FormTransitionPacket::HeaderSize + FormTransitionRecord::Size>(
+            [&forms](auto bytes) { static_cast<void>(forms.Write(bytes)); }));
         return packets;
     }
 
@@ -432,13 +443,13 @@ namespace
             {
                 if (!RoundTrips<T>(packet.Bytes))
                 {
-                    std::cerr << "Protocol 33 decode/encode mismatch: " << label << '\n';
+                    std::cerr << "Protocol 34 decode/encode mismatch: " << label << '\n';
                     return false;
                 }
                 return true;
             }
         }
-        std::cerr << "Missing Protocol 33 round-trip fixture: " << label << '\n';
+        std::cerr << "Missing Protocol 34 round-trip fixture: " << label << '\n';
         return false;
     }
 
@@ -453,20 +464,20 @@ namespace
                 T decoded{};
                 if (!tryRead(std::span<const std::uint8_t>(packet.Bytes), decoded))
                 {
-                    std::cerr << "Protocol 33 rejected valid round-trip fixture: " << label << '\n';
+                    std::cerr << "Protocol 34 rejected valid round-trip fixture: " << label << '\n';
                     return false;
                 }
                 std::vector<std::uint8_t> encoded(packet.Bytes.size());
                 decoded.Write(std::span<std::uint8_t>(encoded));
                 if (encoded != packet.Bytes)
                 {
-                    std::cerr << "Protocol 33 decode/encode mismatch: " << label << '\n';
+                    std::cerr << "Protocol 34 decode/encode mismatch: " << label << '\n';
                     return false;
                 }
                 return true;
             }
         }
-        std::cerr << "Missing Protocol 33 round-trip fixture: " << label << '\n';
+        std::cerr << "Missing Protocol 34 round-trip fixture: " << label << '\n';
         return false;
     }
 }
@@ -474,7 +485,7 @@ namespace
 int main(int argc, char** argv)
 {
     using namespace MphRead::Mods::Network;
-    static_assert(NetConfig::ProtocolVersion == 33);
+    static_assert(NetConfig::ProtocolVersion == 34);
     static_assert(HelloPacket::Size == 38);
     static_assert(static_cast<std::uint8_t>(PacketType::Hello) == 1);
     static_assert(static_cast<std::uint8_t>(PacketType::HitClaim) == 30);
@@ -534,7 +545,7 @@ int main(int argc, char** argv)
     std::ifstream input(argv[1]);
     if (!input)
     {
-        std::cerr << "Could not open Protocol 33 golden file: " << argv[1] << '\n';
+        std::cerr << "Could not open Protocol 34 golden file: " << argv[1] << '\n';
         return 2;
     }
     std::map<std::string, std::string> expected;
@@ -549,7 +560,7 @@ int main(int argc, char** argv)
         if (separator == std::string::npos || separator == 0
             || !expected.emplace(line.substr(0, separator), line.substr(separator + 1)).second)
         {
-            std::cerr << "Malformed or duplicate Protocol 33 golden entry.\n";
+            std::cerr << "Malformed or duplicate Protocol 34 golden entry.\n";
             return 2;
         }
     }
@@ -560,7 +571,7 @@ int main(int argc, char** argv)
         const auto found = expected.find(packet.Name);
         if (found == expected.end() || found->second != Hex(packet.Bytes))
         {
-            std::cerr << "Protocol 33 raw-wire mismatch: " << packet.Name << '\n';
+            std::cerr << "Protocol 34 raw-wire mismatch: " << packet.Name << '\n';
             passed = false;
         }
     }
@@ -569,6 +580,6 @@ int main(int argc, char** argv)
         std::cerr << "Expected " << expected.size() << " golden packets; captured " << packets.size() << ".\n";
         return 1;
     }
-    std::cout << "Protocol 33 raw-wire goldens passed: " << packets.size() << " packet layouts.\n";
+    std::cout << "Protocol 34 raw-wire goldens passed: " << packets.size() << " packet layouts.\n";
     return 0;
 }

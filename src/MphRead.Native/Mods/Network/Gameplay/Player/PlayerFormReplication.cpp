@@ -33,6 +33,7 @@ namespace MphRead::Mods::Network
     std::array<FormTransitionPlaybackPolicy, NetworkSlotCapacity> PlayerFormReplication::_transitionPlayback{};
     std::array<std::uint8_t, NetworkSlotCapacity> PlayerFormReplication::_authoritySaid{};
     std::array<bool, NetworkSlotCapacity> PlayerFormReplication::_ownerStableCorrectionDeferred{};
+    std::array<std::uint32_t, NetworkSlotCapacity> PlayerFormReplication::_altActionCommitFrame{};
 
     std::string PlayerFormReplication::FormSaidByAuthority()
     {
@@ -146,6 +147,11 @@ namespace MphRead::Mods::Network
             return;
         }
         if (progressApplication == ProgressApplication::PresentationClock
+            && AltCommitHolds(slot, state, frame))
+        {
+            return;
+        }
+        if (progressApplication == ProgressApplication::PresentationClock
             && player.Hunter() == Hunter::Weavel)
         {
             // Weavel's turret lifecycle remains specialized, but its displayed
@@ -179,7 +185,8 @@ namespace MphRead::Mods::Network
                 // hold the sampled phase until the clock reaches stable form.
                 _transitionPlayback[static_cast<std::size_t>(slot)].Reset();
                 player.ModApplyFormTransition(morphing);
-                player.ModHoldFormTransitionAtProgress(morphing, state.Progress);
+                if (state.PresentationPhase >= 0) player.ModHoldFormTransitionAtPhase(morphing, state.PresentationPhase);
+                else player.ModHoldFormTransitionAtProgress(morphing, state.Progress);
                 return;
             }
             const FormTransitionPlaybackDecision playback = _transitionPlayback[static_cast<std::size_t>(slot)].Step(
@@ -231,7 +238,8 @@ namespace MphRead::Mods::Network
     }
 
     bool PlayerFormReplication::AdvanceForAltFormAction(Entities::PlayerEntity& player,
-        const IntentPacket* ownerIntent, const PlayerState* authorityState, std::uint32_t frame)
+        const IntentPacket* ownerIntent, const PlayerState* authorityState, std::uint32_t frame,
+        bool complete)
     {
         const std::int32_t slot = player.SlotIndex();
         const bool ownerInPlay = ownerIntent != nullptr
@@ -276,7 +284,26 @@ namespace MphRead::Mods::Network
         }
 
         const char* reason = nullptr;
-        if (player.IsMorphing())
+        const auto action = FormPresentationPolicy::ForAltAction(complete,
+            player.IsAltForm(), player.IsMorphing(), player.IsUnmorphing());
+        if (action == FormPresentationPolicy::AltAction::Complete)
+        {
+            player.ModReleaseFormTransitionHold();
+            if (player.Hunter() == Hunter::Weavel)
+            {
+                player.ModFinalizeWeavelPresentationForm(true);
+            }
+            else
+            {
+                player.ModForceForm(true);
+            }
+            _altActionCommitFrame[static_cast<std::size_t>(slot)] = frame == 0 ? 1 : frame;
+            reason = "complete-morph";
+        }
+        else if (action == FormPresentationPolicy::AltAction::None)
+        {
+        }
+        else if (player.IsMorphing())
         {
             player.ModReleaseFormTransitionHold();
             reason = "resume-morph";
@@ -304,6 +331,22 @@ namespace MphRead::Mods::Network
         return true;
     }
 
+    bool PlayerFormReplication::AltCommitHolds(std::int32_t slot, const ReplicatedFormState& sample,
+        std::uint32_t frame) noexcept
+    {
+        std::uint32_t& committed = _altActionCommitFrame[static_cast<std::size_t>(slot)];
+        if (committed == 0)
+        {
+            return false;
+        }
+        if (FormPresentationPolicy::AltCommitHolds(sample, frame - committed))
+        {
+            return true;
+        }
+        committed = 0;
+        return false;
+    }
+
     FormCorrection PlayerFormReplication::Reconcile(std::int32_t slot, std::uint32_t frame,
         bool desiredAlt, bool actualAlt, bool morphing, bool unmorphing, std::int32_t pingMilliseconds)
     {
@@ -318,6 +361,7 @@ namespace MphRead::Mods::Network
         _reconciliation.fill(FormReconciliation{});
         _transitionPlayback.fill(FormTransitionPlaybackPolicy{});
         _ownerStableCorrectionDeferred.fill(false);
+        _altActionCommitFrame.fill(0);
     }
 
     void PlayerFormReplication::Reset() noexcept
@@ -335,6 +379,7 @@ namespace MphRead::Mods::Network
             _reconciliation[static_cast<std::size_t>(slot)].Reset();
             _transitionPlayback[static_cast<std::size_t>(slot)].Reset();
             _ownerStableCorrectionDeferred[static_cast<std::size_t>(slot)] = false;
+            _altActionCommitFrame[static_cast<std::size_t>(slot)] = 0;
         }
     }
 }

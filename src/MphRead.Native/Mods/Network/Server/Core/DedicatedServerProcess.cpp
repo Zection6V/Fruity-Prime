@@ -6,6 +6,7 @@
 #include "Mods/Network/Discovery/NetMaster.hpp"
 #include "Mods/Network/Discovery/NetStatus.hpp"
 #include "Mods/Network/Diagnostics/HomingShotTrace.hpp"
+#include "Mods/Network/Diagnostics/FormRequestTrace.hpp"
 #include "Mods/Platform/AppPaths.hpp"
 #include "NativeRuntime/System/IO.hpp"
 #include "NativeRuntime/System/Runtime.hpp"
@@ -89,6 +90,7 @@ namespace MphRead::Mods::Network
             }
             else { start.ArgumentList.emplace_back("-nomaster"); }
             if (HomingShotTrace::Enabled()) { start.ArgumentList.emplace_back("-homingtrace"); }
+            if (FormTransitionTrace::Enabled()) { start.ArgumentList.emplace_back("-formtrace"); }
             start.ArgumentList.emplace_back("-noupdate");
             start.ArgumentList.emplace_back("-noautoupdate");
             room->_process = Runtime::Process::Start(start);

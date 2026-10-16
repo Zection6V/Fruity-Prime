@@ -17,6 +17,7 @@
 #include "Mods/Network/Session/NetRoomChange.hpp"
 #include "Mods/Network/Gameplay/Player/NetScoreboard.hpp"
 #include "Mods/Network/Session/NetSession.hpp"
+#include "Mods/Network/Session/SessionFormTransition.hpp"
 #include "Mods/Network/Diagnostics/NetShotDiagnostics.hpp"
 #include "Mods/Network/Session/NetSlotManager.hpp"
 #include "Mods/Network/Gameplay/Replication/NetSmoothing.hpp"
@@ -283,6 +284,7 @@ namespace MphRead::Mods::Network
         }
         if (fresh || before != next)
         {
+            if (next != NetworkPlayerState::Alive) SessionFormTransition::ResetSlot(slot);
             SpectatorMode::NotifyTargetChanged(slot);
         }
         if (fresh)

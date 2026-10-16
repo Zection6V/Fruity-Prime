@@ -16,11 +16,13 @@
 #include "../Diagnostics/LockjawEnemyCheck.hpp"
 #include "../Diagnostics/MovieHeadlessCheck.hpp"
 #include "../Diagnostics/WeavelAltFormCheck.hpp"
+#include "../Diagnostics/FormPresentationCheck.hpp"
 #include "../Input/GamepadProbe.hpp"
 #include "../Launcher/Portable/GameFiles.hpp"
 #include "../Multiplayer/ResourceAudit.hpp"
 #include "../Network/Diagnostics/MechanicsDump.hpp"
 #include "../Network/Testing/Combat/DialancheCombatCheck.hpp"
+#include "../Network/Testing/Combat/VhoscytheCombatCheck.hpp"
 #include "../Network/Testing/Combat/HealthSimulationTest.hpp"
 #include "../Network/Testing/Combat/NetCombatCheck.hpp"
 #include "../Network/Testing/Combat/SpireAltPoseCheck.hpp"
@@ -138,6 +140,11 @@ namespace MphRead::Mods::Entry
 
     bool TryRunGameChecks(const std::vector<std::string>& args)
     {
+        if (const auto check = ValueAfter(args, "formpresentationcheck"); check.has_value())
+        {
+            SetExitCode(Diagnostics::FormPresentationCheck::Run(*check));
+            return true;
+        }
         const auto lockjawEnemyCheck = ValueAfter(args, "lockjawenemycheck");
         if (const auto aimCheck = ValueAfter(args, "aimcheck"); aimCheck.has_value())
         {
@@ -191,6 +198,8 @@ namespace MphRead::Mods::Entry
                 [&] { return Diagnostics::HomingParityCheck::Run(roomFor("homingparitycheck")); })
             || homingCheck("netcombatcheck",
                 [&] { return Network::NetCombatCheck::Run(roomFor("netcombatcheck")); })
+            || homingCheck("vhoscythecheck",
+                [&] { return Network::VhoscytheCombatCheck::Run(roomFor("vhoscythecheck")); })
             || homingCheck("hostauthoritycheck",
                 [&] { return Diagnostics::HostedAuthorityCheck::Run(roomFor("hostauthoritycheck")); })
             || homingCheck("homingspawncheck", [&]

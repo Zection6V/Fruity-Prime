@@ -6,6 +6,7 @@
 #include "../../Formats/CollisionDetection.hpp"
 #include "../../GameState.hpp"
 #include "../../Mods/Render/AnimationBlend.hpp"
+#include "Mods/Network/Diagnostics/FormRequestTrace.hpp"
 #include "../../Mods/Render/InstagibEffects.hpp"
 #include "Mods/SpectatorMode.hpp"
 #include "../../Metadata/Metadata.hpp"
@@ -188,6 +189,7 @@ namespace MphRead::Entities
 
     void PlayerEntity::Draw()
     {
+        const Mods::Network::FormTransitionDraw modFormDraw(*this);
         if (TestFlag(Flags2(), PlayerFlags2::Spectating)
             || MphRead::Mods::SpectatorMode::ShouldHideLocalPlayerModel(SlotIndex()))
         {
@@ -433,6 +435,7 @@ namespace MphRead::Entities
             }
         }
         DrawVolumes();
+        Mods::Network::FormTransitionTrace::RecordDraw(*this);
     }
 
     void PlayerEntity::DrawKandenAlt()

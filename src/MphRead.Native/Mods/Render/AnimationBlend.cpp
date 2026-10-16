@@ -25,7 +25,7 @@ namespace MphRead::Mods::Render
 
         struct ActiveSample
         {
-            const Model* Model = nullptr;
+            const Model* SourceModel = nullptr;
             // The value arrays of the channel's group; any other curve is left alone.
             std::array<const std::vector<float>*, 3> Curves{};
             std::int32_t Frame = 0;
@@ -371,7 +371,7 @@ namespace MphRead::Mods::Render
         if (!CanBlend() || !info) return false;
         state.Planned = SampleFor(*info, channel);
         if (!state.Planned) return false;
-        state.Planned->Model = &model;
+        state.Planned->SourceModel = &model;
         state.Channel = channel;
         // The integer pass and every recursion of the blended one are inert.
         state.Busy = true;
@@ -580,7 +580,7 @@ namespace MphRead::Mods::Render
         DrawState& current = state;
         if (!current.Active || current.Sampling) return std::nullopt;
         const ActiveSample& sample = *current.Active;
-        if (sample.Model != &model || sample.Frame != frame || !values
+        if (sample.SourceModel != &model || sample.Frame != frame || !values
             || std::find(sample.Curves.begin(), sample.Curves.end(), values.get()) == sample.Curves.end())
         {
             return std::nullopt;

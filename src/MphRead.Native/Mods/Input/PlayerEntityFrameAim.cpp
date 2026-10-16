@@ -50,6 +50,8 @@ namespace MphRead::Entities
         if (!IsMainPlayer() && _aimFrame.Owner != Mods::Input::AimOwner::Local) return;
         Mods::Render::PlaceEffect(_muzzleEffect, _gunVec2, _gunVec1, _muzzlePos);
         Mods::Render::PlaceEffect(_chargeEffect, _gunVec2, _gunVec1, _muzzlePos);
+        // The double damage glow round the gun, placed as the step places it.
+        Mods::Render::PlaceEffect(_doubleDmgEffect, _upVector, _gunVec1, _muzzlePos);
     }
 
     bool PlayerEntity::ModFrameAimAllowed(bool fixedCrosshair) const

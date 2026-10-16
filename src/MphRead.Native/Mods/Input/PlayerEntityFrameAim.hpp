@@ -40,7 +40,7 @@ private:                                                                        
     void ModSaveFrameView();                                                                   \
     /* The camera moved by `eye` and its sight line by `turn`, the gun riding with it. */     \
     void ModCarryCamera(::OpenTK::Mathematics::Vector3 eye, ::OpenTK::Mathematics::Vector3 turn); \
-    /* The muzzle and charge effects where the gun is, drawn there at once. */                \
+    /* The muzzle, charge and double damage effects where the gun is, drawn there at once. */ \
     void ModPlaceGunEffects();                                                                 \
     /* The idle sway's step, shared curve, and draw-only camera presentation. */              \
     void ModUpdateIdleSway();                                                                  \

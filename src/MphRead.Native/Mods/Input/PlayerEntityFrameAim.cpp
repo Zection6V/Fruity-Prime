@@ -10,6 +10,7 @@
 #include "../Render/FrameTiming.hpp"
 #include "../Render/MotionCarry.hpp"
 #include "../Render/ScenePresentation.hpp"
+#include "../SimulationRate.hpp"
 #include "../Network/Gameplay/Replication/NetSmoothing.hpp"
 #include "../Network/Session/NetSession.hpp"
 #include "../SpectatorMode.hpp"
@@ -18,6 +19,7 @@
 #include "PointerDevice.hpp"
 #include "PointerInput.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace MphRead::Entities
@@ -225,16 +227,31 @@ namespace MphRead::Entities
             const float phase = static_cast<float>(Mods::Render::ScenePresentation::Phase());
             if (Mods::Render::ScenePresentation::Moving() && pose.HasPrevious
                 && pose.Step == Mods::Render::ScenePresentation::CurrentStep()
-                && Same(camera.Position, pose.CurrentEye) && Same(camera.Target, pose.CurrentTarget)
+                && Same(camera.Position, pose.CurrentEye) && Same(camera.Target, pose.CurrentTarget + pose.CurrentShake)
                 && stepped.LengthSquared() < MaxStep * MaxStep && looked.LengthSquared() < MaxStep * MaxStep)
             {
                 const Vector3 eye = ::OpenTK::Mathematics::Multiply(stepped, phase);
                 const bool mouseTurns = live != nullptr && (ModFrameAimAllowed(true) || ModFrameAimAllowed(false));
-                const Vector3 turn = mouseTurns || idleSway ? Vector3{} : ::OpenTK::Mathematics::Multiply(looked - stepped, phase);
-                if (eye.LengthSquared() > 0 || turn.LengthSquared() > 0)
+                // The hit shake is a fresh random offset on every other step
+                // (CameraInfo::Update), held for one and gone for the next:
+                // drawn as it is, a 30 Hz flicker. The camera is carried
+                // without it, and the picture eases from the shake's previous
+                // offset to its newest over the steps between them, applied to
+                // the finished view (FrameAim::View) so that it tilts the
+                // picture and never turns its heading or its roll -- which, as
+                // a world offset on a sight line looking straight down, it does.
+                const float shakeAge = std::clamp((static_cast<float>(pose.Step - pose.ShakeStep) + phase)
+                    / static_cast<float>(Mods::SimulationRate::StepsPerDsFrame), 0.0F, 1.0F);
+                const Vector3 shake = pose.ShakeFrom
+                    + ::OpenTK::Mathematics::Multiply(pose.ShakeTo - pose.ShakeFrom, shakeAge);
+                const Vector3 turn = (mouseTurns || idleSway ? Vector3{} : ::OpenTK::Mathematics::Multiply(looked - stepped, phase))
+                    - pose.CurrentShake;
+                if (eye.LengthSquared() > 0 || turn.LengthSquared() > 0 || shake.LengthSquared() > 0)
                 {
                     ModSaveFrameView();
                     ModCarryCamera(eye, turn);
+                    _modFrameView.Shaken = shake.LengthSquared() > 0;
+                    _modFrameView.Shake = shake;
                     shown = true;
                 }
             }
@@ -399,6 +416,12 @@ namespace MphRead::Entities
         }
         state = {};
         return share;
+    }
+
+    std::optional<::OpenTK::Mathematics::Vector3> PlayerEntity::ModFrameShake() const
+    {
+        if (!_modFrameView.Active || !_modFrameView.Shaken) return std::nullopt;
+        return _modFrameView.Shake;
     }
 
     std::optional<::OpenTK::Mathematics::Vector3> PlayerEntity::ModFrameFacingShift() const

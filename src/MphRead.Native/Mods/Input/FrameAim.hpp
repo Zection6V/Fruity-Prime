@@ -50,6 +50,9 @@ namespace MphRead::Mods::Input
         float ReticleX = 0, ReticleY = 0;
         // What presents it: the DS-style aim, or a watched player's view.
         bool Aimed = false, Watched = false;
+        // The hit shake this picture shows, applied to the finished view.
+        bool Shaken = false;
+        OpenTK::Mathematics::Vector3 Shake{};
         // The camera as the step built it, moved to this picture's instant.
         bool Camera = false;
         OpenTK::Mathematics::Vector3 CameraPosition{}, CameraTarget{}, CameraFacing{}, CameraTrueUp{};
@@ -94,6 +97,9 @@ namespace MphRead::Mods::Input
         // camera; this turns it to the aim the frames have reached since.
         [[nodiscard]] static OpenTK::Mathematics::Matrix4 View(const Entities::PlayerEntity* player,
             const Entities::CameraInfo& camera, OpenTK::Mathematics::Matrix4 view);
+        // A finished view tilted by the hit shake, its up kept: no roll.
+        [[nodiscard]] static OpenTK::Mathematics::Matrix4 Shaken(OpenTK::Mathematics::Matrix4 view,
+            const Entities::CameraInfo& camera, OpenTK::Mathematics::Vector3 shake);
         // The step's camera with its eye moved and its sight line turned by
         // these, its tilt, shake and strafing lean carried along.
         [[nodiscard]] static OpenTK::Mathematics::Matrix4 Moved(const Entities::CameraInfo& camera,

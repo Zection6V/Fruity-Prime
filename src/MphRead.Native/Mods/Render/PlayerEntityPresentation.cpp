@@ -41,7 +41,14 @@ namespace MphRead::Entities
         if (_cameraInfo != nullptr)
         {
             pose.CurrentEye = _cameraInfo->Position;
-            pose.CurrentTarget = _cameraInfo->Target;
+            pose.CurrentShake = _cameraInfo->ModShakeOffset;
+            pose.CurrentTarget = _cameraInfo->Target - pose.CurrentShake;
+            if (_cameraInfo->ModShakeSlot)
+            {
+                pose.ShakeFrom = pose.ShakeTo;
+                pose.ShakeTo = pose.CurrentShake;
+                pose.ShakeStep = step;
+            }
         }
         pose.AltForm = alt;
         pose.Step = step;

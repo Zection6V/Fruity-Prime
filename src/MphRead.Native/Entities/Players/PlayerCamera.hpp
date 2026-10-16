@@ -53,6 +53,10 @@ namespace MphRead::Entities
         float Field54 = 0.0F;
         ::MphRead::Formats::Culling::NodeRef NodeRef
             = ::MphRead::Formats::Culling::NodeRef::None;
+        // Mod: what the last Update's shake added to Target, and whether it was
+        // a shake update at all (Mods/Render/PlayerEntityPresentation draws it).
+        ::OpenTK::Mathematics::Vector3 ModShakeOffset{};
+        bool ModShakeSlot = false;
 
         CameraInfo() = default;
         CameraInfo(const CameraInfo&) = delete;

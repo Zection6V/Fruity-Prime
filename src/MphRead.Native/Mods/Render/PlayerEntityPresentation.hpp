@@ -24,8 +24,14 @@ namespace MphRead::Mods::Render
         // Kanden's segments as the game's own update makes them one step on.
         std::array<OpenTK::Mathematics::Matrix4, 5> NextSegments{};
         bool HasNextSegments = false;
-        // The camera the step built: where it was and what it looked at.
+        // The camera the step built: where it was and what it looked at, the
+        // target without its hit shake (CurrentShake), which is drawn apart.
         OpenTK::Mathematics::Vector3 PreviousEye{}, CurrentEye{}, PreviousTarget{}, CurrentTarget{};
+        OpenTK::Mathematics::Vector3 CurrentShake{};
+        // The shake's last two samples, one every StepsPerDsFrame steps, and
+        // the step of the newer: a picture eases from one to the other.
+        OpenTK::Mathematics::Vector3 ShakeFrom{}, ShakeTo{};
+        std::uint64_t ShakeStep = 0;
     };
 }
 

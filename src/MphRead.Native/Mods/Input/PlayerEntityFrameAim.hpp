@@ -26,6 +26,8 @@ public:                                                                         
     [[nodiscard]] bool ModPresentWatchedView(::OpenTK::Mathematics::Vector3 playoutShift);     \
     /* Once the picture is drawn: the step's own aim back (FrameAimPresentation). */          \
     void ModRestoreFrameAim();                                                                 \
+    /* The hit shake this picture applies to its finished view, if any. */                   \
+    [[nodiscard]] std::optional<::OpenTK::Mathematics::Vector3> ModFrameShake() const;         \
     /* What the camera should turn by since the last step built it, if anything. */           \
     [[nodiscard]] std::optional<::OpenTK::Mathematics::Vector3> ModFrameFacingShift() const;   \
 private:                                                                                       \

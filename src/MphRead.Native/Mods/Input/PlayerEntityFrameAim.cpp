@@ -198,7 +198,9 @@ namespace MphRead::Entities
         ModRestoreFrameAim();
         const bool idleSway = ModIdleSwayPresentable(live);
         bool shown = false;
-        if (Mods::Input::FrameAim::Enabled() && !Mods::SpectatorMode::IsSpectating() && Health() > 0
+        // Dead too: the death camera flies at the step's rate, and is carried
+        // on between steps like any other (a respawn is a jump, not carried).
+        if (Mods::Input::FrameAim::Enabled() && !Mods::SpectatorMode::IsSpectating()
             && _aimFrame.Owner == Mods::Input::AimOwner::Local && Formats::CameraSequence::Current() == nullptr
             && _cameraInfo != nullptr)
         {

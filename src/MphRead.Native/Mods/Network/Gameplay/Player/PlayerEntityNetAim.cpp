@@ -1100,6 +1100,22 @@ namespace MphRead::Entities
             && (static_cast<std::uint32_t>((*this).EquipInfo()->Weapon->Flags) & WeaponFlagCanZoom) != 0;
     }
 
+    void PlayerEntity::ModFollowAltAttackStartup(std::uint32_t ownerFramesSincePress)
+    {
+        // Only a charge this copy already started from the relayed press: the
+        // native step below still decides whether one starts at all.
+        if (_hunter != Hunter::Noxus || _altAttackTime == 0
+            || TypeExtensions::TestFlag(_flags2, PlayerFlags2::AltAttack))
+        {
+            return;
+        }
+        // The native step adds one before testing the threshold, and the
+        // owner's count after its own frame is the frames since the press
+        // plus one -- so the count before this step is those frames.
+        const auto startup = static_cast<std::uint32_t>(_values.AltAttackStartup * 2);
+        _altAttackTime = static_cast<std::uint16_t>(std::clamp<std::uint32_t>(ownerFramesSincePress, 1U, startup));
+    }
+
     std::string PlayerEntity::ModFormState() const
     {
         std::string form = (*this).IsAltForm() ? "alt" : "biped";

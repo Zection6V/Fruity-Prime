@@ -1,5 +1,6 @@
 #include "Mods/Network/Gameplay/Replication/FormTransitionAuthorityTracker.hpp"
 #include "Mods/Network/Gameplay/Replication/FormTransitionTimeline.hpp"
+#include "Mods/Network/Gameplay/Replication/FormPresentationPolicy.hpp"
 #include "Mods/Network/Protocol/Packets/PacketTypes.hpp"
 #include <cmath>
 #include <iostream>
@@ -119,9 +120,30 @@ namespace
         Require(!timeline.Sample(2, 3, 110, Direction::Morph), "stream reset clears the timeline");
         Require(timeline.Receive(end) && !timeline.Sample(2, 3, 142, Direction::Morph), "late join never replays a completed start");
     }
+    void AltActionForm()
+    {
+        using P = FormPresentationPolicy;
+        using A = P::AltAction;
+        Require(P::ForAltAction(true, true, false, false) == A::None, "settled alt needs nothing");
+        Require(P::ForAltAction(false, true, false, false) == A::None, "settled alt needs nothing for a bomb");
+        Require(P::ForAltAction(true, false, true, false) == A::Complete, "an attack mid-morph completes the clip");
+        Require(P::ForAltAction(true, false, false, false) == A::Complete, "an attack before the clip completes it");
+        Require(P::ForAltAction(true, true, false, true) == A::Complete, "an attack mid-unmorph returns to alt");
+        Require(P::ForAltAction(false, false, true, false) == A::Resume, "a bomb lets the clip run on");
+        ReplicatedFormState morph{};
+        morph.Direction = Direction::Morph; morph.Progress = 6;
+        ReplicatedFormState biped{};
+        ReplicatedFormState alt{}; alt.AltForm = true;
+        ReplicatedFormState unmorph{}; unmorph.AltForm = true; unmorph.Direction = Direction::Unmorph;
+        Require(P::AltCommitHolds(morph, 3) && P::AltCommitHolds(biped, 1),
+            "samples behind the committed form do not pull it back");
+        Require(!P::AltCommitHolds(alt, 4), "a settled alt sample ends the hold");
+        Require(!P::AltCommitHolds(unmorph, 4), "the owner's next unmorph ends the hold");
+        Require(!P::AltCommitHolds(morph, P::AltCommitCeilingFrames + 1), "the hold is bounded");
+    }
 }
 int main()
 {
-    try { Authority(); Codec(); Playback(); std::cout << "FormTransitionEvents PASS\n"; return 0; }
+    try { Authority(); Codec(); Playback(); AltActionForm(); std::cout << "FormTransitionEvents PASS\n"; return 0; }
     catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

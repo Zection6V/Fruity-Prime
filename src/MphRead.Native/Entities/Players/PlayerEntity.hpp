@@ -86,6 +86,7 @@ namespace MphRead::Mods::Network
 {
     class NetCombatCheck;
     class DialancheCombatCheck;
+    class VhoscytheCombatCheck;
     class SpireAltPoseCheck;
 }
 
@@ -613,6 +614,7 @@ namespace MphRead::Entities
         friend class HalfturretEntity;
         friend class ::MphRead::Mods::Network::NetCombatCheck;
         friend class ::MphRead::Mods::Network::DialancheCombatCheck;
+        friend class ::MphRead::Mods::Network::VhoscytheCombatCheck;
         friend class ::MphRead::Mods::Network::SpireAltPoseCheck;
         friend class ::MphRead::Mods::Input::PointerCheck;
 

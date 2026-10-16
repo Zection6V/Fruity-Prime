@@ -119,7 +119,7 @@ public: \
     void ModIgnite(PlayerEntity& by, std::uint32_t launchFrame); \
     [[nodiscard]] bool ModCanZoom() const; \
  \
-    [[nodiscard]] std::string ModFormState() const; \
+    [[nodiscard]] std::string ModFormState() const;     /* Vhoscythe's startup count, for the alt-attack trace. */     [[nodiscard]] std::uint16_t ModAltAttackTime() const noexcept { return _altAttackTime; }     /* A remote copy's charging alt attack follows the owner's own count. */     void ModFollowAltAttackStartup(std::uint32_t ownerFramesSincePress); \
     void ModRepairVectors(); \
  \
     void ModNetDie(); \

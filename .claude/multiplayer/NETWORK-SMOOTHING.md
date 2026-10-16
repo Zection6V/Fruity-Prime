@@ -23,9 +23,15 @@ boundaries clear presentation history. Demo recording/replay carries the same
 packets and authority-frame clock; protocol 33 demos/peers remain incompatible.
 
 `SampleForm` retains the snapshot form bits and fallback progress, but prefers
-the event's continuous phase. Between simulation steps,
-`PlayerFormPresentation` samples it at `NetSmoothing::PresentationFrame`, the
-same capped read point as player position. `AnimationBlend::FrameOverride`
+the event's continuous phase. **Form is not delayed with the pose**: it is read
+at `NetSmoothing::FormFrame`, a clock of its own that steps once a simulation
+step, never past the newest snapshot and never more than `FormClockSlack` (2)
+frames behind it -- not at the playout read point, which sits 2-8 frames back
+and lags a burst of arrivals further. Relayed inputs (an alt attack) arrive on
+the newest-authority clock, and a form shown a playout delay late let them land
+on a replica still in its morph clip, where the native `!IsMorphing()` gate
+dropped them: an attack nobody else saw, or one drawn in normal form. Between
+simulation steps `PlayerFormPresentation` samples `FormFrame(phase)`. `AnimationBlend::FrameOverride`
 samples the native node curves without writing animation frames or flags;
 its draw restores simulation node matrices, including on exceptional exit.
 Owner prediction, server collision/attacks, and Weavel turret/health lifecycle
@@ -73,13 +79,22 @@ past everything that has arrived, it is pinned and the puppet holds.
 | `Record(frame, states)` | called from `NetSession.HandleSnapshot`, so what is buffered is exactly what the authority said — which is also what its own rewind history holds under that number |
 | `Tick()` | `NetHooks.AfterSimulation`, once a simulation frame, before anything reads a position |
 | `Sample(slot)` | `NetPlayerBridge.ApplyState` applies the remote display pose; `RestoreSnapshotPosition` keeps client-side simulation and collision on the latest authority position |
-| `SampleForm(slot)` | `NetPlayerBridge.ApplyState` applies the remote form transition at the same read frame as the puppet position and holds its native morph/unmorph clip at that sampled phase; the owner's predicted clip stays on the local simulation clock |
+| `SampleForm(slot)` | `NetPlayerBridge.ApplyState` applies the remote form transition at `FormFrame` (the newest authority frame, ahead of the pose) and holds its native morph/unmorph clip at that sampled phase; the owner's predicted clip stays on the local simulation clock |
 | `SampleTrackedPosition(slot, sequence)` | remote visual tracks such as bomb draw poses and their visible lifetime |
 | `AckPoint()` | `NetPlayerBridge.CaptureIntent` |
 
-The same playout clock also drives remote form-animation direction/progress and
-moving bomb presentation. `ApplyState` samples the remote display pose and
-form from one read frame after simulation; the earlier snapshot-position
+The playout clock drives moving bomb presentation; form direction/progress use
+`FormFrame` instead. A relayed alt-attack press from an owner reporting alt form
+is evidence the owner is settled: `PlayerFormReplication::AdvanceForAltFormAction`
+(the bomb path's own recovery, with `complete`) finishes the presented clip that
+frame so the press applies on time, and `FormPresentationPolicy::AltCommitHolds`
+keeps samples still behind it from pulling the replica back until a settled-alt
+or unmorph sample arrives (bounded at 120 frames). A charging alt attack
+(Vhoscythe's startup) on every remote copy, authority included, follows the
+owner's own frames -- `RemoteAltAttackClock`: press frame = intent frame - press
+age, now = intent frame + frames since it arrived -- so a late press or an early
+release no longer shortens the hold (`-vhoscythecheck`). `ApplyState` samples
+the remote display pose and form after simulation; the earlier snapshot-position
 restore is only for client-side simulation/collision and does not feed the
 display. The sampled form is applied before converting the sampled pose through
 the entity's form-specific origin, so a stable morph/unmorph commit cannot

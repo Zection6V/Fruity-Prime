@@ -440,7 +440,10 @@ namespace MphRead::Mods::Network
         case TestPhase::FormBombCycle:
         {
             const bool settled = Settled(playerValue);
-            const bool pressMorph = settled && _frame % 120 == 0;
+            // Vhoscythe needs its whole startup held in alt form; a longer
+            // cycle lets an observer that simulates below 60 Hz see it land.
+            const std::int32_t period = playerValue.Hunter() == Hunter::Noxus ? 360 : 120;
+            const bool pressMorph = settled && _frame % period == 0;
             Hold(controls.Morph(), pressMorph);
             if (!playerValue.IsAltForm())
             {
@@ -604,9 +607,10 @@ namespace MphRead::Mods::Network
         for (std::int32_t i = 0; i < static_cast<std::int32_t>(controls.All().size());
             i = UncheckedAdd(i, 1))
         {
+            // _wasDown is what Finish held last frame. The bind itself is no
+            // record of it: the main player's binds are refilled from the
+            // keyboard between frames, which made every held key a new press.
             Entities::Keybind& bind = *controls.All()[i];
-            _wasDown[CheckedIndex(i, _wasDown.size())]
-                = bind.IsDown();
             bind.SetIsDown(false);
             bind.SetIsPressed(false);
             bind.SetIsReleased(false);
@@ -633,6 +637,7 @@ namespace MphRead::Mods::Network
 
             any |= bind.IsDown()
                 || bind.IsReleased();
+            _wasDown[CheckedIndex(i, _wasDown.size())] = bind.IsDown();
         }
         if (any)
         {

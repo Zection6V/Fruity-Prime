@@ -22,6 +22,7 @@
 #include "../Multiplayer/ResourceAudit.hpp"
 #include "../Network/Diagnostics/MechanicsDump.hpp"
 #include "../Network/Testing/Combat/DialancheCombatCheck.hpp"
+#include "../Network/Testing/Combat/VhoscytheCombatCheck.hpp"
 #include "../Network/Testing/Combat/HealthSimulationTest.hpp"
 #include "../Network/Testing/Combat/NetCombatCheck.hpp"
 #include "../Network/Testing/Combat/SpireAltPoseCheck.hpp"
@@ -197,6 +198,8 @@ namespace MphRead::Mods::Entry
                 [&] { return Diagnostics::HomingParityCheck::Run(roomFor("homingparitycheck")); })
             || homingCheck("netcombatcheck",
                 [&] { return Network::NetCombatCheck::Run(roomFor("netcombatcheck")); })
+            || homingCheck("vhoscythecheck",
+                [&] { return Network::VhoscytheCombatCheck::Run(roomFor("vhoscythecheck")); })
             || homingCheck("hostauthoritycheck",
                 [&] { return Diagnostics::HostedAuthorityCheck::Run(roomFor("hostauthoritycheck")); })
             || homingCheck("homingspawncheck", [&]

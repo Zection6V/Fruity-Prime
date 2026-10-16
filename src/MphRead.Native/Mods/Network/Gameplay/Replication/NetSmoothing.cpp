@@ -49,6 +49,7 @@ namespace MphRead::Mods::Network
     NetSmoothing::Grid<NetSmoothing::TrackedFrame> NetSmoothing::_trackedPositions{};
     std::array<std::uint32_t, NetSmoothing::HistoryFrames> NetSmoothing::_stamp{};
     std::uint32_t NetSmoothing::_newest = 0;
+    double NetSmoothing::_formClock = 0.0;
     std::array<Vector3, NetSmoothing::Slots> NetSmoothing::_lastSampled{};
     std::array<bool, NetSmoothing::Slots> NetSmoothing::_sampledSeen{};
 
@@ -158,6 +159,7 @@ namespace MphRead::Mods::Network
         if (!_running)
         {
             _running = true;
+            _formClock = static_cast<double>(frame);
             _readFrame = frame > static_cast<std::uint32_t>(_delay)
                 ? static_cast<double>(frame) - _delay : static_cast<double>(frame);
         }
@@ -212,6 +214,7 @@ namespace MphRead::Mods::Network
         _sampledSeen.fill(false);
         _stallRun.fill(0);
         _newest = 0;
+        _formClock = 0.0;
         _running = false;
         _sinceStarved = 0;
         _sinceGrew = GrowCooldownFrames;
@@ -225,6 +228,11 @@ namespace MphRead::Mods::Network
             return;
         }
         _readFrame += 1.0;
+        // Form's own clock: a step a step, never past what has arrived and
+        // never more than FormClockSlack behind it, so a burst of snapshots
+        // does not hold the form back the way it holds the pose.
+        _formClock = std::clamp(_formClock + 1.0,
+            static_cast<double>(_newest) - FormClockSlack, static_cast<double>(_newest));
         const double target = static_cast<double>(_newest) - _delay;
         const double error = target - _readFrame;
         if (std::abs(error) > SnapError)
@@ -318,6 +326,14 @@ namespace MphRead::Mods::Network
     double NetSmoothing::PresentationFrame(double steps) noexcept
     {
         return std::max(_readFrame, std::min(_readFrame + std::clamp(steps, 0.0, 1.0), static_cast<double>(_newest)));
+    }
+
+    double NetSmoothing::FormFrame(double steps) noexcept
+    {
+        // A draw between steps carries the clip's own clock on by up to one
+        // step, as the step that follows will.
+        const double newest = static_cast<double>(_newest);
+        return std::clamp(_formClock, newest - FormClockSlack, newest) + std::clamp(steps, 0.0, 1.0);
     }
 
     Vector3 NetSmoothing::AheadShift(std::int32_t slot, double steps)
@@ -415,8 +431,11 @@ namespace MphRead::Mods::Network
         {
             return false;
         }
-        const auto lower = static_cast<std::uint32_t>(std::floor(_readFrame));
-        const double fraction = _readFrame - lower;
+        // Form is not delayed with the pose: it is read at the newest
+        // authority time, the clock relayed inputs (an alt attack) arrive on.
+        const double formFrame = FormFrame();
+        const auto lower = static_cast<std::uint32_t>(std::floor(formFrame));
+        const double fraction = formFrame - lower;
         ReplicatedFormState a{};
         SnapshotBracket bracket{};
         if (!FindSnapshotBracket(lower, bracket) || !LookupForm(slot, bracket.BeforeFrame, a))
@@ -424,13 +443,13 @@ namespace MphRead::Mods::Network
             return false;
         }
         form = a;
-        if (const auto phase = SessionFormTransition::Sample(slot, PresentationFrame(), form.Direction))
+        if (const auto phase = SessionFormTransition::Sample(slot, formFrame, form.Direction))
         {
             form.PresentationPhase = *phase;
             if (FormTransitionTrace::Enabled() && NetLog::Enabled()) NetLog::Event("[form-sample] slot=" + std::to_string(slot)
                 + " generation=" + std::to_string(NetPlayerLifecycle::Generation(slot))
                 + " life=" + std::to_string(NetPlayerLifecycle::Get(slot))
-                + " newest=" + std::to_string(_newest) + " read=" + std::to_string(_readFrame)
+                + " newest=" + std::to_string(_newest) + " read=" + std::to_string(formFrame)
                 + " direction=" + std::to_string(static_cast<int>(form.Direction))
                 + " progress=" + std::to_string(form.Progress) + " phase=" + std::to_string(*phase));
         }
@@ -659,6 +678,7 @@ namespace MphRead::Mods::Network
         _sampledSeen.fill(false);
         _stallRun.fill(0);
         _newest = 0;
+        _formClock = 0.0;
         _readFrame = 0;
         _running = false;
         _sinceStarved = 0;
@@ -685,6 +705,7 @@ namespace MphRead::Mods::Network
         _sampledSeen.fill(false);
         _stallRun.fill(0);
         _newest = 0;
+        _formClock = 0.0;
         _readFrame = 0;
         _running = false;
         _sinceGrew = GrowCooldownFrames;

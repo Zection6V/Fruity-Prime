@@ -40,7 +40,7 @@ namespace MphRead::Entities
         const auto direction = IsMorphing() ? ReplicatedFormState::Transition::Morph
             : IsUnmorphing() ? ReplicatedFormState::Transition::Unmorph : ReplicatedFormState::Transition::None;
         const auto phase = SessionFormTransition::Sample(SlotIndex(),
-            NetSmoothing::PresentationFrame(Mods::Render::ScenePresentation::Phase()), direction);
+            NetSmoothing::FormFrame(Mods::Render::ScenePresentation::Phase()), direction);
         if (!phase) return;
         const auto animation = direction == ReplicatedFormState::Transition::Morph ? PlayerAnimation::Morph : PlayerAnimation::Unmorph;
         std::size_t index = 0;

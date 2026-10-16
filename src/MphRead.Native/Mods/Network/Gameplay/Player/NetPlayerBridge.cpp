@@ -1,5 +1,6 @@
 #include "Mods/Network/Gameplay/Player/NetPlayerBridge.hpp"
 #include "Mods/Network/Gameplay/Player/PlayerFormReplication.hpp"
+#include "Mods/Network/Gameplay/Player/RemoteAltAttackClock.hpp"
 #include "Mods/Network/Gameplay/Player/ReplicaPlayerPolicy.hpp"
 #include "Mods/Network/Domain/NetworkVectorRules.hpp"
 #include "Mods/Network/Gameplay/Player/NetInputHistory.hpp"
@@ -235,6 +236,7 @@ namespace MphRead::Mods::Network
         if (!inPlay)
         {
             c.ClearAll();
+            RemoteAltAttackClock::ForgetSlot(player.SlotIndex());
             NativeRuntime::ManagedAt(ShootPressAge, player.SlotIndex()) = 0;
             return;
         }
@@ -263,11 +265,33 @@ namespace MphRead::Mods::Network
             NetLog::Event("slot " + std::to_string(player.SlotIndex()) + " morph press received, now " + player.ModFormState());
         }
         Set(c.Boost(), HasFlag(intent.Buttons, IntentButtons::Boost), HasFlag(missed, IntentButtons::Boost));
+        if (presentationOwnsForm && HasFlag(missed, IntentButtons::AltAttack))
+        {
+            // The press is on time; the buffered form presentation is not.
+            static_cast<void>(PlayerFormReplication::AdvanceForAltFormAction(player, &intent,
+                NetSession::HasRemoteState(player.SlotIndex())
+                    ? &NetSession::RemoteState(static_cast<std::size_t>(player.SlotIndex())) : nullptr,
+                NetSession::NetFrame(), true));
+        }
         Set(c.AltAttack(), HasFlag(intent.Buttons, IntentButtons::AltAttack), HasFlag(missed, IntentButtons::AltAttack));
+        {
+            const std::int32_t slot = player.SlotIndex();
+            RemoteAltAttackClock::Sample sample{};
+            sample.Generation = intent.SlotGeneration;
+            sample.Life = intent.LifeId;
+            sample.IntentFrame = intent.Frame;
+            sample.LocalFrame = NetSession::NetFrame();
+            sample.Pressed = HasFlag(missed, IntentButtons::AltAttack);
+            sample.PressAge = pressReplay.AltAttackAge;
+            sample.Held = HasFlag(intent.Buttons, IntentButtons::AltAttack);
+            if (const auto ownerFrames = RemoteAltAttackClock::Observe(slot, sample))
+            {
+                player.ModFollowAltAttackStartup(*ownerFrames);
+            }
+        }
         if (NetLog::Enabled() && HasFlag(missed, IntentButtons::AltAttack))
         {
             ReplicatedFormState presentationForm{};
-            const bool presentationOwnsForm = NetSmoothing::PresentationOwnsRemoteReplicas();
             const bool hasPresentationForm = presentationOwnsForm
                 && NetSmoothing::SampleForm(player.SlotIndex(), presentationForm);
             const std::uint32_t attackFrame = intent.Frame - static_cast<std::uint32_t>(pressReplay.AltAttackAge);
@@ -864,6 +888,7 @@ namespace MphRead::Mods::Network
     void NetPlayerBridge::Reset()
     {
         PlayerFormReplication::Reset();
+        RemoteAltAttackClock::Reset();
         _appliedLifeId.fill(0);
         _lifeApplied.fill(false);
         _snaps = 0;
@@ -895,6 +920,7 @@ namespace MphRead::Mods::Network
         NetInputHistory::ForgetSlot(slot);
         NetInputPressReplay::ForgetSlot(slot);
         PlayerFormReplication::ForgetSlot(slot);
+        RemoteAltAttackClock::ForgetSlot(slot);
         _lifeApplied[s] = false;
         _appliedLifeId[s] = 0;
         _aimHeld[s] = false;

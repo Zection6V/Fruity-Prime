@@ -530,6 +530,10 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING)
     target_link_libraries(fruity_form_transition_events_tests PRIVATE fruity_mphread_native)
     target_compile_features(fruity_form_transition_events_tests PRIVATE cxx_std_20)
     add_test(NAME FruityPrime.FormTransitionEvents COMMAND fruity_form_transition_events_tests)
+    add_executable(fruity_remote_alt_attack_clock_tests "${FRUITY_MPHREAD_ROOT}/Testing/TestRemoteAltAttackClock.cpp")
+    target_link_libraries(fruity_remote_alt_attack_clock_tests PRIVATE fruity_mphread_native)
+    target_compile_features(fruity_remote_alt_attack_clock_tests PRIVATE cxx_std_20)
+    add_test(NAME FruityPrime.RemoteAltAttackClock COMMAND fruity_remote_alt_attack_clock_tests)
     # Explicit ROM/GPU diagnostic; not part of asset-free CTest runs.
     add_executable(fruity_animation_loop_capture "${FRUITY_MPHREAD_ROOT}/Testing/TestAnimationLoopCapture.cpp")
     target_link_libraries(fruity_animation_loop_capture PRIVATE fruity_mphread_native)
@@ -1409,6 +1413,9 @@ if(BUILD_TESTING AND NOT CMAKE_CROSSCOMPILING AND TARGET fruity_prime)
     add_test(NAME FruityPrime.NetworkCombat COMMAND fruity_prime -netcombatcheck "MP3 PROVING GROUND" -noupdate)
     set_tests_properties(FruityPrime.NetworkCombat PROPERTIES
         SKIP_RETURN_CODE 77 LABELS gamefiles TIMEOUT 600)
+    add_test(NAME FruityPrime.VhoscytheCombat COMMAND fruity_prime -vhoscythecheck "MP3 PROVING GROUND" -noupdate)
+    set_tests_properties(FruityPrime.VhoscytheCombat PROPERTIES
+        SKIP_RETURN_CODE 77 LABELS gamefiles TIMEOUT 300)
     add_test(NAME FruityPrime.HostedAuthority COMMAND fruity_prime -hostauthoritycheck "MP3 PROVING GROUND" -noupdate)
     set_tests_properties(FruityPrime.HostedAuthority PROPERTIES
         SKIP_RETURN_CODE 77 LABELS gamefiles TIMEOUT 180)

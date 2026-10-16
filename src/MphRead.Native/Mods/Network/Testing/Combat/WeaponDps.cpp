@@ -1,4 +1,5 @@
 #include "Mods/Network/Testing/Combat/WeaponDps.hpp"
+#include "Mods/SimulationRate.hpp"
 #include "NativeRuntime/Rhi/SceneBackend.hpp"
 #include "NativeRuntime/OpenTK/GL.hpp"
 
@@ -92,7 +93,7 @@ namespace MphRead::Mods::Network
     RendererPlatform::WindowSettings WeaponDps::GameSettings()
     {
         RendererPlatform::WindowSettings settings{};
-        settings.UpdateFrequency = 60;
+        settings.UpdateFrequency = ::MphRead::Mods::SimulationRate::Hz;
         return settings;
     }
 

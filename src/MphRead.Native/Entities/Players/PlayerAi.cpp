@@ -1,4 +1,5 @@
 #include "PlayerAi.hpp"
+#include "Mods/Network/Bots/NetBotInput.hpp"
 
 #include "../../NativeRuntime/System/Runtime.hpp"
 #include "HalfturretEntity.hpp"
@@ -284,6 +285,7 @@ namespace MphRead::Entities
     void PlayerEntity::PlayerAiData::ProcessInput()
     {
         if (!_nodeData) return;
+        Mods::Network::NetBotInput::BeginInput(*_player);
         Flags3 |= AiFlags3::NoInput;
         for (AiButton* button : _buttons.AllButtons)
         {
@@ -339,7 +341,7 @@ namespace MphRead::Entities
             if (button->IsDown)
             {
                 Flags3 &= ~AiFlags3::NoInput;
-                if (button == &_touchButtons.Morph || button == &_touchButtons.Unmorph) _player->TrySwitchForms();
+                if (button == &_touchButtons.Morph || button == &_touchButtons.Unmorph) Mods::Network::NetBotInput::RequestFormSwitch(*_player);
                 else if (button == &_touchButtons.PowerBeam) _player->TryEquipWeapon(BeamType::PowerBeam);
                 else if (button == &_touchButtons.Missile) _player->TryEquipWeapon(BeamType::Missile);
                 else if (button == &_touchButtons.VoltDriver) { _player->UpdateAffinityWeaponSlot(BeamType::VoltDriver); _player->TryEquipWeapon(BeamType::VoltDriver); }

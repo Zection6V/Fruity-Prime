@@ -34,6 +34,7 @@ namespace MphRead::Mods::Render
 
     void LauncherHunter::Wanted(bool value) noexcept
     {
+        if (!value && _scene) _scene->ModResetPreviewAnimation();
         _wanted = value;
     }
 
@@ -118,6 +119,7 @@ namespace MphRead::Mods::Render
 
     void LauncherHunter::Reset()
     {
+        if (_scene) _scene->ModResetPreviewAnimation();
         _wanted = false;
         _drawn = false;
         ::MphRead::Scene::LauncherPreview = false;

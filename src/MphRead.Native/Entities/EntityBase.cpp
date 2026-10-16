@@ -1,4 +1,5 @@
 #include "EntityBase.hpp"
+#include "../Mods/Render/AnimationBlend.hpp"
 
 #include "../NativeRuntime/System/Buffers.hpp"
 
@@ -955,9 +956,9 @@ namespace MphRead::Entities
             if (!currentModel.FirstHunt
                 || material.TexgenMode != TexgenMode::None)
             {
-                const std::int32_t texcoordFrame = animInfo.TexcoordFrame();
-                texcoordMatrix = RequireReference(modelValue).AnimateTexcoords(
-                    group, *animation, texcoordFrame);
+                // Mod hook: blend texcoords in the material's repeating UV space.
+                texcoordMatrix = Mods::Render::AnimationBlend::Texcoords(
+                    RequireReference(modelValue), inst.AnimInfo, material, *animation);
             }
         }
         if (material.TexgenMode != TexgenMode::None)

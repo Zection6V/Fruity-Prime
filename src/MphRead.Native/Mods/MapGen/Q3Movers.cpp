@@ -1,4 +1,5 @@
 #include "Q3Movers.hpp"
+#include "Mods/SimulationRate.hpp"
 
 #include "CustomRooms.hpp"
 #include "Q3Bsp.hpp"
@@ -452,9 +453,9 @@ namespace MphRead::Mods::MapGen
         {
             return;
         }
-        const float elapsed = std::clamp(static_cast<float>(frame - std::min(frame, cache.Frame)) / 60.0F, 0.0F, 0.25F);
+        const float elapsed = std::clamp(static_cast<float>(frame - std::min(frame, cache.Frame)) / ::MphRead::Mods::SimulationRate::HzF, 0.0F, 0.25F);
         cache.Frame = frame;
-        cache.Seconds = static_cast<float>(frame) / 60.0F;
+        cache.Seconds = static_cast<float>(frame) / ::MphRead::Mods::SimulationRate::HzF;
 
         const float unit = Q3Convert::UnitsPerUnit;
         for (Mover& mover : cache.Movers)

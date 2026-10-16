@@ -7,6 +7,8 @@
 #include "Formats/Movie.hpp"
 #include "Messaging.hpp"
 #include "Mods/Render/PreviewCamera.hpp"
+#include "Mods/Input/SceneFrameAim.hpp"
+#include "Mods/Render/SceneDrawCarry.hpp"
 #include "Mods/Render/PreviewPass.hpp"
 #include "Mods/Render/LockjawTrailProbe.hpp"
 #include "Mods/Render/GoldenCapture.hpp"
@@ -908,6 +910,8 @@ namespace MphRead
 
         MPHREAD_SCENE_PREVIEW_CAMERA_MEMBERS
 
+        MPHREAD_SCENE_FRAME_AIM_MEMBERS
+        MPHREAD_SCENE_DRAW_CARRY_MEMBERS
         MPHREAD_SCENE_PREVIEW_PASS_MEMBERS
         MPHREAD_SCENE_LOCKJAW_TRAIL_PROBE_MEMBERS
         MPHREAD_SCENE_GOLDEN_CAPTURE_MEMBERS

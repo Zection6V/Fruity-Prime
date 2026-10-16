@@ -1,4 +1,5 @@
 #include "Model.hpp"
+#include "../Mods/Render/AnimationBlend.hpp"
 
 #include "../NativeRuntime/System/Globalization.hpp"
 #include "../NativeRuntime/System/Runtime.hpp"
@@ -472,6 +473,8 @@ namespace MphRead
         {
             UpdateAnimFrames(1);
         }
+        // Mod hook: note when this tick landed, for draw-rate poses.
+        Mods::Render::AnimationBlend::NoteTick(*this);
     }
 
     void ModelInstance::UpdateAnimFrames(std::int32_t slot)
@@ -789,6 +792,9 @@ namespace MphRead
         Vector3 scale,
         const std::shared_ptr<AnimationInfo>& info)
     {
+        // Mod hook: in a draw, this pass may blend toward the next 30 Hz frame.
+        const Mods::Render::AnimationBlend::Pass modBlend(*this, Mods::Render::AnimationChannel::Node,
+            index, info, [&] { AnimateNodes(index, useNodeTransform, parentTansform, scale, info); });
         const auto& nodes = RequireReference(Nodes);
         for (std::int32_t i = index; i != -1;)
         {
@@ -849,6 +855,9 @@ namespace MphRead
         Vector3 scale,
         const std::shared_ptr<AnimationInfo>& info)
     {
+        // Mod hook: in a draw, this pass may blend toward the next 30 Hz frame.
+        const Mods::Render::AnimationBlend::Pass modBlend(*this, Mods::Render::AnimationChannel::Node,
+            index, info, [&] { AnimateNodes2(index, useNodeTransform, parentTansform, scale, info); });
         const auto& nodes = RequireReference(Nodes);
         for (std::int32_t i = index; i != -1;)
         {
@@ -963,6 +972,9 @@ namespace MphRead
 
     void Model::AnimateMaterials(const std::shared_ptr<AnimationInfo>& info)
     {
+        // Mod hook: in a draw, colours may blend toward the next 30 Hz frame.
+        const Mods::Render::AnimationBlend::Pass modBlend(*this, Mods::Render::AnimationChannel::Material,
+            0, info, [&] { AnimateMaterials(info); });
         const auto& materials = RequireReference(Materials);
         for (std::size_t i = 0; i < materials.size(); ++i)
         {
@@ -1159,6 +1171,10 @@ namespace MphRead
         std::int32_t frameCount,
         bool isRotation) const
     {
+        // Mod hook: a draw may sample node curves between two 30 Hz frames.
+        if (const auto value = Mods::Render::AnimationBlend::Sample(
+                *this, values, start, frame, blend, lutLength, frameCount, isRotation))
+            return *value;
         if (lutLength == 1)
         {
             return ManagedAt(values, start);

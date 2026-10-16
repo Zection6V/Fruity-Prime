@@ -1,5 +1,0 @@
-[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-182935-12368-native.txt
-[hostlocal] using this build (C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\FruityPrimeServer.exe)
-[hostlocal] listening on 127.0.0.1:27888
-[hostlocal] it answers: TEST ARENA (Battle), 0/8 players
-[hostlocal] stopped

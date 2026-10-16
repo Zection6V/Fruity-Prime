@@ -799,8 +799,9 @@ namespace MphRead::Mods::Network
             {
                 IncrementInPlace(record.AltAttackPresses);
             }
+            const bool altAttackCharging = player.ModAltAttackTime() > 0 && !altAttackActive;
             if (NetLog::Enabled()
-                && (altAttackPressed
+                && (altAttackPressed || altAttackCharging
                     || (record.HasAltAttackObservation && altAttackActive != record.LastAltAttackActive)))
             {
                 NetLog::Event("[altattack-observed] slot=" + std::to_string(slot)
@@ -809,6 +810,7 @@ namespace MphRead::Mods::Network
                     + " press=" + (altAttackPressed ? std::string("true") : std::string("false"))
                     + " held=" + (player.Controls().AltAttack().IsDown() ? std::string("true") : std::string("false"))
                     + " active=" + (altAttackActive ? std::string("true") : std::string("false"))
+                    + " startup=" + std::to_string(player.ModAltAttackTime())
                     + " form=" + player.ModFormState()
                     + " frame=" + std::to_string(NetSession::NetFrame())
                     + " snapshot=" + std::to_string(NetSession::AppliedSnapshotFrame()));

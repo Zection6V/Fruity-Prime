@@ -15,6 +15,7 @@
 #include "Entry/NetworkCommands.hpp"
 #include "Entry/NetworkOptions.hpp"
 #include "Entry/OptionValues.hpp"
+#include "Entry/PlayCommands.hpp"
 #include "Entry/PreSetupDiagnostics.hpp"
 #include "Entry/RenderOverrides.hpp"
 #include "Entry/ServerCommands.hpp"
@@ -330,6 +331,13 @@ namespace MphRead::Mods
     bool ModEntry::TryHandle(const std::vector<std::string>& args)
     {
         const auto [width, height] = ParseSize(args);
+
+        // A direct playable room needs no custom-map preparation; dispatch
+        // it before starting the launcher's background map generation.
+        if (Entry::TryRunPlayCommands(args))
+        {
+            return true;
+        }
 
         // In the background: the launcher shows how far it is, and a room
         // loaded before its map is ready waits for it (Scene::AddRoom). Not

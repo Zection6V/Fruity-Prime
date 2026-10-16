@@ -3,6 +3,7 @@
 #include "Mods/Network/Integration/Hooks/NetHooks.hpp"
 #include "Mods/Network/Gameplay/Player/NetPlayerBridge.hpp"
 #include "Mods/Network/Gameplay/Player/NetPlayerLifecycle.hpp"
+#include "Mods/Network/Gameplay/Replication/NetSmoothing.hpp"
 #include "Mods/Network/Gameplay/Combat/NetHitPrediction.hpp"
 #include "Mods/Network/Session/NetRoomChange.hpp"
 #include "Mods/Network/Session/NetSession.hpp"
@@ -32,6 +33,7 @@ namespace MphRead::Mods::Diagnostics
             NativeRuntime::ConsoleWriteLine("WEAVEL LOCAL SNAPSHOT PASS " + name);
         };
         const auto savedSession = NetSessionFixture::Capture();
+        const bool savedSmoothing = NetSmoothing::Enabled();
         std::array<bool, RemotePlayerChannel::SlotCapacity> savedValid{};
         std::array<PlayerState, RemotePlayerChannel::SlotCapacity> savedStates{};
         RemotePlayerChannel& remotePlayers = RemotePlayers();
@@ -46,6 +48,7 @@ namespace MphRead::Mods::Diagnostics
         const auto restore = [&]
         {
             NetSessionFixture::Restore(savedSession);
+            NetSmoothing::Enabled(savedSmoothing);
             remotePlayers.InvalidateStates();
             for (std::size_t slot = 0; slot < savedValid.size(); slot++)
             {
@@ -61,6 +64,10 @@ namespace MphRead::Mods::Diagnostics
             NetSessionFixture::RevokeAuthority();
             NetSessionFixture::SetLocalSlot(owner.SlotIndex());
             NetSessionFixture::SetFrame(1001);
+            // This fixture applies immediate snapshots to test ownership. It
+            // must not read form samples left by the preceding simulation.
+            // FormPresentationCheck covers the buffered remote entry path.
+            NetSmoothing::Enabled(false);
             remotePlayers.InvalidateStates();
             check(NetSession::IsClient() && !NetSession::IsAuthority()
                 && NetSession::LocalSlot() == owner.SlotIndex() && NetRoomChange::GameplayReady(),
@@ -169,7 +176,9 @@ namespace MphRead::Mods::Diagnostics
                 state.Flags &= ~PlayerState::FlagAltForm;
                 apply(state, false);
                 check(!owner.IsAltForm() && turret.Health() == 0 && owner.Health() == state.Health,
-                    paths[path] + " remote Biped reconciliation remains idempotent without HP merge");
+                    paths[path] + " remote Biped reconciliation remains idempotent without HP merge: "
+                        + owner.ModFormState() + " hp=" + std::to_string(owner.Health())
+                        + " expected=" + std::to_string(state.Health) + " turret=" + std::to_string(turret.Health()));
             }
             NativeRuntime::ConsoleWriteLine("WEAVEL LOCAL SNAPSHOT PASS " + std::to_string(checks) + " checks");
         }

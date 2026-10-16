@@ -49,6 +49,21 @@ says why -- so the upstream-ported body stays diffable. New shared helpers
 (weapon rules, steering, trace) live under `Mods/` too, not `Metadata/`. SRP and
 DRY still apply: move the logic, do not copy it.
 
+Apply this boundary to feature work, bug fixes, ports and PR/conflict resolution:
+
+- Keep fork-specific decisions and calculations under `Mods/`: damage/loadout
+  rules, AI policy, effect tinting, and their shared helpers. A `Mod` prefix or
+  comment does not make a logic block in `Entities/`, `Formats/` or `Metadata/`
+  acceptable; those files only delegate and expose the minimal state needed.
+- If an extension needs private entity members, its `ModXxx` member declaration
+  may remain in the entity header, but define the member in a `.cpp` under
+  `Mods/`, following the existing entity extension pattern. Keep the original
+  entity method's integration point to a thin call.
+- Before completing a change or merging a PR, inspect the diff in these three
+  directories. Move any added fork-specific logic into the responsible `Mods/`
+  module, including logic introduced by the incoming PR. Successful builds and
+  tests do not replace this placement check.
+
 ## Environment recipe (WSL)
 
 Three things will waste an hour each if you do not know them:
@@ -128,6 +143,7 @@ export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
 | `FruityPrime ... -rhi opengl\|vulkan\|auto [-vkvalidation]` | which renderer draws, for this run; it overrides the Settings row **Renderer** (`desktop_renderer=` in `launcher.txt`, `android_renderer=` on Android; Auto by default: Vulkan, a 1.1 device on the legacy path, and OpenGL when the probe fails or the device or swapchain cannot be made -- `RenderWindow::CreateWindowOrFallBack`, or the menus cannot start on Vulkan). That row switches **in place, in a running match**: the platform window is remade on the other renderer (`RenderWindow::SwitchRenderer`), the scene's simulation carries on, and its GPU side is rebuilt under the *same texture handles* from the original model assets (without duplicate model pixel copies), plus recovery data for HUD/dynamic uploads, so every material, HUD element and effect still points at the right texture; meshes are made again as they are drawn. A renderer that cannot start is said in a dialog and the one that was running returns. `FRUITY_SWITCHCHECK=1` with `-shellshot` switches on the front screen and three times in one match, and uses a spawned player and seven bots, applies Settings and resumes after every match switch, and checks actual window visibility, backend change, geometry and continued simulation; `FRUITY_SHOT_ROOM`/`FRUITY_SHOT_FRAME` pin the shell loop's match to a room and a simulation frame so the two backends can be compared pixel for pixel. Vulkan presents the game window itself (a no-API window, Skia Ganesh on the same VkDevice) and needs a Skia built with Vulkan for the launcher -- vcpkg's `skia[vulkan]`, not MSYS2's. An explicit Vulkan that cannot start is an **error dialog, never a quiet OpenGL**; Auto takes Vulkan when this build and machine can and logs why when not. The harness windows (`-maptest`, `-goldencapture`, `-gpulifetime`) keep a GL window and draw the scene offscreen through Vulkan. One `[render] backend ...` line at startup says what was chosen. `docs/todo/Fruity-Prime-CPP-Vulkan-RHI-Phase21-Gate-2026-10-01.md` |
 | `FruityPrime -homingtrace` | one `[homing]` debug-log line per projectile (row, spawn charge, Prime role, steering, speed, target, how the target was acquired), per claim and verdict, and per Shock Coil drain, on every machine -- what `tools/testing/compare-homing-trace.py` lines up across owner, authority and observers. `.claude/multiplayer/NETWORK-HOMING.md` |
 | `FruityPrime -homingparitycheck` / `-homingdisplaycheck` / `-homingcontinuouscheck [ROOM]` / `-homingspawncheck [SEC]` | the homing weapons measured in a loaded room with no window: the real 60 Hz projectile against a 30 Hz reference, the drawn flight at 60/144/240/540 fps with the display corrections on and off, the Shock Coil lock/drain/morph/wall cases, and every story enemy, boss and platform that fires a homing row. Exit 0 = pass |
+| `FruityPrime -vhoscythecheck ["ROOM"]` | Noxus's Vhoscythe against a real player on a headless authority, driven by relayed intents: the startup count follows the **owner's frames** (`RemoteAltAttackClock`) across a late press, a threshold release, one frame short and a 30-frame gap, and the hit lands both authority-resolved and as the owner's NoBeam claim. Exit 0 = pass. `.claude/multiplayer/NETWORK-SMOOTHING.md` |
 | `tools/testing/run-homing-net-matrix.ps1` / `run-homing-net-matrix-all.ps1` | the homing network matrix: a server and `-netcheck -hitrig homing [-rigmorph]` clients (plus `-bots`, lag, loss, reorder, Prime Hunter), every log compared shot by shot. The netcheck verdict "never took a single hit" is the one-sided rig, not a failure; read `RESULT` |
 | `MphRead -debuglog` | write the file the launcher's corner switch writes, for one run. `.claude/DEBUG-LOGS.md` |
 | `~/mph-net-test/probe-chat.py [HOST] [PORT]` | what the server does with chat, asked the way no real client can: a spoofed sender, and a flood. `.claude/multiplayer/NETWORK-CHAT.md` |
@@ -164,6 +180,8 @@ export ALSOFT_DRIVERS=null PULSE_SERVER=   # else ALSA retries stall frames
 | `MphRead -cel on\|off [-celbands N] [-celedge N]` / `-fog on\|off` / `-prohud on\|off` | render options for every path that never opens a launcher, which is every screenshot command. `.claude/render/CEL-SHADING.md` |
 | `MphRead -fov N` | how wide the view is, 60 to 120 degrees, default **78** -- the DS's own (`NormalFov` 39, doubled). A multiplier on whatever the camera asked for, so a weapon's zoom and every scripted shot keep the proportions they had on the cartridge. For the paths that never open a launcher, like `-cel` and `-fog`: a session that does opens one takes the number from the settings' **Field of view** row instead |
 | `MphRead -fpscap N\|display` | how fast the picture is drawn. The simulation is pinned at 60 Hz on every setting, so this does not touch what the game does. `.claude/render/FRAME-PACING.md` |
+| `FruityPrime -animrate display\|N` | how often a draw may show a new pose between the DS's 30 Hz animation frames -- skeletons, material colours, scrolling textures: `30` draws the frames as they are, `display` (the default) blends at whatever the screen draws, and anything between in its own steps (`120` cuts each gap between 30 Hz frames into four steps). The settings' **Animation** slider (Display -> Performance) on the **same stops as the FPS limit** (`FrameTiming::RateStops`, its Unlimited read as *Display rate*) but its **own value**, saved as `animation_rate=` in `launcher.txt`; the flag overrides it for the run. `Mods/Render/AnimationBlend::Rate`; nothing the simulation reads changes at any rate. `.claude/render/FRAME-PACING.md` |
+| `FruityPrime -frameaim on\|off` | mouse look at the display's rate, on by default: the mouse read once a frame at the input pump turns the *actual* aim through the game's own `UpdateAimY`/`UpdateAimX` before the frame's steps, the gun and muzzle are rebuilt from it, and a step applies only what the frames have not -- so the total turn is the mouse's and a shot leaves along the aim on screen. That is first person, mouse aim, fixed crosshair (Pro mode HUD). The DS-style crosshair is *presented* instead: each picture shows the aim the next step turns to and the view on its way to that step's own, then the step's state is put back, so the simulation is bit-identical. A spectated player's camera is moved to where the playout has them at the picture's instant (never past the newest snapshot), and the free camera moves by the frame's time. `-aimcheck ROOM` measures all of it. Read the mouse once per frame, never again mid-frame: re-reading before each step and draw made the turn uneven and the map shake. `.claude/render/FRAME-PACING.md` |
 | `FruityPrime -vsync on\|off` | VSync for this run, apart from the cap: on presents FIFO, off Immediate (the settings' **VSync** row, `VSync` in `settings.json`; an old saved `display` cap reads as VSync on). With NVIDIA Reflex pacing, VSync also hands Reflex the refresh period as `minimumIntervalUs`, and the driver then caps a little under the refresh (461 FPS at 540 Hz) -- its documented Reflex+VSync policy, not ours |
 | `FRUITY_RENDER_METRICS=1` + `FRUITY_REFLEX_EXPLICIT_SUBMISSION_ID=1` / `FRUITY_REFLEX_DISABLE_SWAPCHAIN_LATENCY_MODE=1` / `FRUITY_REFLEX_DIAGNOSTIC_BYPASS_SLEEP=1` | the Reflex A/B arms, developer-only. A `[reflex-pacing]` line every 120 frames says cap, interval, present mode, screen Hz and where native admission spent its time. **Reflex uses implicit frame attribution in every mode**: a nonzero `VkLatencySubmissionPresentIdNV` on each submit made NVIDIA 617.14 signal the sleep a frame late and held On at ~280 FPS (Off ~1150). The first arm puts it back. `docs/todo/done/Fruity-Prime-Vulkan-Low-Latency-265FPS-Result-2026-10-05.md` |
 | `MphRead -crosshair STYLE` / `-crosshairsize Small\|Medium\|Big` | which crosshair the pro HUD draws, for the screenshot commands that open no launcher. Styles are Cross, Dot, CrossDot, Circle, Brackets |
@@ -771,16 +789,36 @@ changes here, because nothing about the simulation does.
   Every harness client calls it -- `NetCheckClient`, `MapAudit`, `WeaponDps`,
   `ThumbnailCapture` -- and is therefore untouched by any of this. So is
   Android, which drives the same call.
-- **Every picture is of the newest simulated state, and nothing is blended.**
-  There was an interpolation pass -- entity transforms and the camera blended
-  between their last two simulated states -- and it is **gone**, deliberately
-  and completely. It bought smoother motion between steps and cost visible
-  wrongness on everything that is pooled and reused: a beam projectile or an
-  impact effect taken off the free list starts its new life holding the last
-  one's transform, and a blend against that draws the shot somewhere between
-  where it used to be and where it is. That is the "artifacts de tirs" and the
-  wall impacts landing nowhere. Do not put it back without an answer for entity
-  reuse.
+- **The tick rate is `Mods/SimulationRate.hpp`, and nowhere else.** `Hz`,
+  `StepSeconds` and the DS's half rate `DsHz` live there; `FrameTiming`, the
+  homing rules, the animation rate, the particles, the harness windows and the
+  server loop read it. It is a definition, not a setting: the engine still
+  counts much of its time in steps of this length.
+- **Every picture shows the world at its own instant, carried on from the last
+  step -- never blended with an older one** (`Mods/Render/ScenePresentation`).
+  Between steps, each entity's *drawn items* -- the render items and single
+  particles its draw produced, never the entity -- are moved by its last
+  step's own motion, translation and rotation (`MotionCarry`), by as much of a
+  step as the picture is into the next; a replica on a client is read off the
+  playout instead, which already holds that instant; an effect particle by its
+  own speed. Nothing is behind the step, and nothing the simulation reads is
+  touched, so `-maptest -bots -drawrate 3` (which draws at forced instants)
+  gives the same report as `-drawrate 1` with 40-180 thousand items carried.
+  There was an interpolation pass before, and it was removed for what it did
+  to pooled entities: a shot or impact taken off the free list starts its new
+  life holding the last one's transform, and a blend against that drew it
+  somewhere between. The carry has that answer -- `Scene::AddEntity` starts a
+  life with no history, and a pose needs two steps of one life to move -- and
+  no step moves anything further than `MotionCarry::JumpDistance`. **Animation curves are the exception, and they have that answer**
+  (`Mods/Render/AnimationBlend`): the 30 Hz integer animation frames advance as
+  the game advances them, and a draw shows skeletal poses, material colour and
+  alpha, and texcoord motion between the current frame and the one the game's
+  own `UpdateAnimFrames` says comes next -- look-ahead, no history, dropped the
+  moment a channel's frame, group or flags differ from what the tick left. Node
+  matrices and material colours a blended draw wrote go back to their integer
+  values when the draw ends, because some simulation code reads them. Animations a *draw*
+  advances must go through `SceneAnimation::TickFromDraw` / `StepsForDraw`, or
+  they run faster on a faster screen.
 - **The game's speed no longer depends on the machine.** One call for both
   meant a box managing 40 fps played in slow motion; the accumulator pays what
   it owes, measured at 60.000 Hz with a 40 Hz draw rate.

@@ -5,6 +5,7 @@
 #include "../../Metadata/Metadata.hpp"
 #include "../../Metadata/SoundMeta.hpp"
 #include "../../Metadata/Weapons.hpp"
+#include "../../Mods/Render/AnimationBlend.hpp"
 #include "../../Scene.hpp"
 #include "../../Utility/Rng.hpp"
 #include "../BeamProjectileEntity.hpp"
@@ -391,6 +392,8 @@ namespace MphRead::Entities::Enemies
 
     bool Enemy18Entity::EnemyGetDrawInfo()
     {
+        // Mod hook: _rotNodePos below is where shots spawn, so this pose stays integer.
+        const Mods::Render::AnimationBlend::Suppress modNoBlend;
         ModelInstance& inst = _models[0];
         std::shared_ptr<Model> model = inst.Model();
         Model& modelRef = RequireReference(model);

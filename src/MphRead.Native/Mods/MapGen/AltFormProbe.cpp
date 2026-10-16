@@ -1,4 +1,5 @@
 #include "AltFormProbe.hpp"
+#include "Mods/SimulationRate.hpp"
 #include "../../NativeRuntime/Rhi/SceneBackend.hpp"
 #include "../../NativeRuntime/OpenTK/GL.hpp"
 
@@ -49,7 +50,7 @@ namespace MphRead::Mods::MapGen
     RendererPlatform::WindowSettings AltFormProbe::WindowSettings()
     {
         RendererPlatform::WindowSettings settings{};
-        settings.UpdateFrequency = 60;
+        settings.UpdateFrequency = ::MphRead::Mods::SimulationRate::Hz;
         settings.ClientSize = Vector2i(320, 180);
         settings.Title = "MphRead alt form probe";
         settings.Profile = RendererPlatform::WindowSettings::ContextProfile::Compatability;

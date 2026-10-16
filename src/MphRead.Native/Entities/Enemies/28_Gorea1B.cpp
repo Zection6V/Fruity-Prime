@@ -1,4 +1,5 @@
 #include "28_Gorea1B.hpp"
+#include "../../Mods/Render/SceneAnimation.hpp"
 #include "29_GoreaSealSphere1.hpp"
 #include "30_Trocra.hpp"
 #include "../../Features.hpp"
@@ -1362,7 +1363,8 @@ namespace MphRead::Entities::Enemies
             DrawGrappleBeam();
             if (scene.ProcessFrame() && scene.FrameCount() != 0 && scene.FrameCount() % 2 == 0)
             {
-                RequireReference(_grappleModel).UpdateAnimFrames();
+                // Mod hook: once per step, not once per draw.
+                Mods::Render::SceneAnimation::TickFromDraw(RequireReference(_grappleModel));
             }
         }
         return true;
@@ -1387,7 +1389,8 @@ namespace MphRead::Entities::Enemies
         Scene &scene = RequireReference(_scene);
         if (scene.ProcessFrame() && scene.FrameCount() != 0 && scene.FrameCount() % 2 == 0)
         {
-            RequireReference(_trickModel).UpdateAnimFrames();
+            // Mod hook: once per step, not once per draw.
+            Mods::Render::SceneAnimation::TickFromDraw(RequireReference(_trickModel));
         }
         for (std::int32_t i = 0; i < static_cast<std::int32_t>(_trocra.size()); ++i)
         {

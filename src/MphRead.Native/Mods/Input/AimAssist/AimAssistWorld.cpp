@@ -1,4 +1,5 @@
 #include "AimAssistWorld.hpp"
+#include "Mods/SimulationRate.hpp"
 
 #include "AimAssist.hpp"
 #include "AimAssistDebug.hpp"
@@ -140,7 +141,7 @@ namespace MphRead::Entities
         const float move = std::sqrt(movement.first * movement.first + movement.second * movement.second);
         const std::span<const AimAssistTarget> found(candidates.data(), count);
         AimAssistResult result = Mods::Input::AimAssist::AimAssist::Apply(_controllerAssist, found, NVector2(x, y),
-            std::sqrt(aim.first * aim.first + aim.second * aim.second), move, 1.0F / 60, eligible, profile);
+            std::sqrt(aim.first * aim.first + aim.second * aim.second), move, ::MphRead::Mods::SimulationRate::StepSecondsF, eligible, profile);
         AimAssistTarget chosen{};
         for (const AimAssistTarget& candidate : found)
         {

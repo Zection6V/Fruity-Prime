@@ -6,6 +6,7 @@
 #include "../../NativeRuntime/Rhi/OpenGL/OpenGlShaderInterface.hpp"
 
 #include "../EndScreen.hpp"
+#include "AnimationBlend.hpp"
 #include "HunterPreview.hpp"
 
 #include <cmath>
@@ -147,6 +148,11 @@ namespace MphRead
         return Mods::EndScreen::Available() || LauncherPreview;
     }
 
+    void Scene::ModResetPreviewAnimation()
+    {
+        if (_preview) _preview->Reset();
+    }
+
     void Scene::ModStepPreview()
     {
         if (!PreviewAsked())
@@ -191,6 +197,7 @@ namespace MphRead
         PreviewCollectFinally finally(_collectingPreview);
         try
         {
+            const Mods::Render::AnimationBlend::DrawScope blend;
             _preview->GetDrawInfo();
         }
         catch (...)

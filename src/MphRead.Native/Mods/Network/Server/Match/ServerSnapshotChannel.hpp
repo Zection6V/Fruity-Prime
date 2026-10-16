@@ -6,6 +6,7 @@
 #include "Mods/Network/Server/Lobby/ServerLobbyState.hpp"
 #include "Mods/Network/Server/Match/ServerSimulationController.hpp"
 #include "Mods/Network/Server/Match/ServerSnapshotStream.hpp"
+#include "Mods/Network/Server/Match/ServerFormTransitionChannel.hpp"
 
 #include <cstdint>
 #include <span>
@@ -38,5 +39,6 @@ namespace MphRead::Mods::Network
         ServerSimulationController& _simulation;
         ServerLobbyState& _lobby;
         std::uint16_t& _matchId;
+        ServerFormTransitionChannel _forms;
     };
 }

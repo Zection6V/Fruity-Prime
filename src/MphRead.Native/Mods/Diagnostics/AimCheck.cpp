@@ -430,6 +430,7 @@ namespace MphRead::Mods::Diagnostics
                 && std::fabs(OpenTK::Mathematics::LengthSquared(player._gunVec1) - 1) < 0.00001F,
                 "NonExact maintenance updates Target and normalized Gun direction");
             checks += CheckModes(player);
+            checks += CheckFrameAim(player);
             if (std::getenv("FRUITY_AIM_BENCH"))
             {
                 player._aimTrace.Enabled = false;

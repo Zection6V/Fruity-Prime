@@ -1,4 +1,5 @@
 #include "Q3Import.hpp"
+#include "Mods/SimulationRate.hpp"
 #include "OpenArenaTextures.hpp"
 #include "NativeRuntime/System/Charconv.hpp"
 
@@ -2997,7 +2998,7 @@ namespace MphRead::Mods::MapGen
                 float flight = 2.0F;
                 for (std::int32_t step = 1; step < 60 * 12; ++step)
                 {
-                    const float t = static_cast<float>(step) / 60.0F;
+                    const float t = static_cast<float>(step) / ::MphRead::Mods::SimulationRate::HzF;
                     if (velocity.Z - q3Gravity * t > 0.0F)
                     {
                         continue;

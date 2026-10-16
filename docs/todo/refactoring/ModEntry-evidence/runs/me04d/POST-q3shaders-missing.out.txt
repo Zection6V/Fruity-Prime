@@ -1,2 +1,0 @@
-[debug] standard error is being written to C:\Users\Admin\Documents\git\Fruity-Prime\tools\build\out\msvc-Release\logs\FruityPrime-20261015-171839-13076-native.txt
-No such file: missing.pk3

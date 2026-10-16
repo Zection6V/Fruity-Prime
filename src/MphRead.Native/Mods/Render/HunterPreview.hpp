@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../Entities/EntityBase.hpp"
+#include "PreviewAnimation.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -35,5 +36,6 @@ namespace MphRead::Mods::Render
         Hunter _missing = Hunter::Random;
         std::int32_t _recolor = -1;
         std::shared_ptr<ModelInstance> _model{};
+        PreviewAnimation _animation{};
     };
 }

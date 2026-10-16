@@ -1,6 +1,7 @@
 #pragma once
 
 #include "NativeRuntime/OpenTK/Mathematics.hpp"
+#include "Mods/SimulationRate.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -10,8 +11,8 @@ namespace MphRead::Mods::Combat
     class HomingSteeringRules final
     {
     public:
-        static constexpr std::int32_t SimulationHz = 60;
-        static constexpr std::int32_t DefaultFrequencyHz = 30;
+        static constexpr std::int32_t SimulationHz = SimulationRate::Hz;
+        static constexpr std::int32_t DefaultFrequencyHz = SimulationRate::DsHz;
 
         [[nodiscard]] static std::int32_t FrequencyHz() noexcept;
         [[nodiscard]] static bool ConfigureFrequencyHz(std::int32_t value) noexcept;

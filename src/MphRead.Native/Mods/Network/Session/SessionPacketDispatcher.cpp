@@ -2,6 +2,7 @@
 
 #include "Mods/Network/Session/NetSession.hpp"
 #include "Mods/Network/Session/SessionClaimChannel.hpp"
+#include "Mods/Network/Session/SessionFormTransition.hpp"
 #include "Mods/Network/Session/PeerRegistry.hpp"
 #include "Mods/Network/Replay/DemoPlayback.hpp"
 #include "Mods/Network/UI/Voting/MapVote.hpp"
@@ -41,6 +42,9 @@ namespace MphRead::Mods::Network
         const std::span<const std::uint8_t> payload = packet.Payload();
         switch (type)
         {
+        case PacketType::FormTransition:
+            if (NetSession::Role() == NetRole::Client) SessionFormTransition::Receive(payload);
+            break;
         case PacketType::SessionState:
             if (NetSession::Role() == NetRole::Client)
             {

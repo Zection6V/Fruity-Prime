@@ -130,6 +130,8 @@ namespace MphRead::Mods::Network
                 return "Intent";
             case PacketType::Snapshot:
                 return "Snapshot";
+            case PacketType::FormTransition:
+                return "FormTransition";
             case PacketType::Bye:
                 return "Bye";
             case PacketType::Ping:

@@ -58,7 +58,20 @@ namespace MphRead::Mods::Network
             std::span<const TrackedPosition> positions);
         static void Tick();
         [[nodiscard]] static bool Sample(std::int32_t slot, OpenTK::Mathematics::Vector3& position, bool& altForm);
+        // A picture between steps: the same sample, this many steps (up to one)
+        // past the read point and never past the newest snapshot. Counts
+        // nothing: the step's own sample is the one measured.
+        [[nodiscard]] static bool SampleAhead(std::int32_t slot, double steps,
+            OpenTK::Mathematics::Vector3& position, bool& altForm);
+        // How far a replica moves on between the step's sample and that one:
+        // zero where either cannot be read or the form changes in between.
+        [[nodiscard]] static OpenTK::Mathematics::Vector3 AheadShift(std::int32_t slot, double steps);
         [[nodiscard]] static bool SampleForm(std::int32_t slot, ReplicatedFormState& form);
+        [[nodiscard]] static double PresentationFrame(double steps = 0.0) noexcept;
+        // Where a remote replica's form is read: the newest authority frame,
+        // on a clock that steps once a simulation step. Form is never shown a
+        // playout delay late.
+        [[nodiscard]] static double FormFrame(double steps = 0.0) noexcept;
         [[nodiscard]] static bool SampleTrackedPosition(std::int32_t slot, std::uint32_t sequence,
             OpenTK::Mathematics::Vector3& position, bool& present);
         [[nodiscard]] static bool AckPoint(std::uint32_t& frame, std::uint8_t& subFrame);
@@ -89,6 +102,8 @@ namespace MphRead::Mods::Network
         static void Restart(std::uint32_t frame);
         [[nodiscard]] static bool FindSnapshotBracket(std::uint32_t frame,
             SnapshotBracket& bracket) noexcept;
+        [[nodiscard]] static bool SampleAt(std::int32_t slot, double read,
+            OpenTK::Mathematics::Vector3& position, bool& altForm, bool counted);
         [[nodiscard]] static bool Lookup(std::int32_t slot, std::uint32_t frame,
             OpenTK::Mathematics::Vector3& position, bool& altForm);
         [[nodiscard]] static bool LookupForm(std::int32_t slot, std::uint32_t frame,
@@ -129,6 +144,8 @@ namespace MphRead::Mods::Network
         static Grid<TrackedFrame> _trackedPositions;
         static std::array<std::uint32_t, HistoryFrames> _stamp;
         static std::uint32_t _newest;
+        static double _formClock;
+        static constexpr double FormClockSlack = 2.0;
         static std::array<OpenTK::Mathematics::Vector3, Slots> _lastSampled;
         static std::array<bool, Slots> _sampledSeen;
     };

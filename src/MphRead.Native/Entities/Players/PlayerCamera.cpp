@@ -975,6 +975,9 @@ namespace MphRead::Entities
         const Vector3 toTarget = Target - Position;
         const Vector3 camUp = Vector3::Cross(
             toTarget, Vector3::Cross(UpVector, toTarget));
+        // Mod hook: the shake this update applies, for the picture to draw smoothly.
+        const Vector3 modUnshaken = Target;
+        ModShakeSlot = _shake;
 
         if (Shake > 0.0F && _shake)
         {
@@ -997,6 +1000,7 @@ namespace MphRead::Entities
             }
         }
 
+        ModShakeOffset = Target - modUnshaken;
         _shake = !_shake;
         Facing = Target - Position;
         const float facingX = Facing.X;

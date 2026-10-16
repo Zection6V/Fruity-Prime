@@ -1,4 +1,6 @@
 #include "Renderer.hpp"
+#include "Mods/SimulationRate.hpp"
+#include "Mods/Render/ScenePresentation.hpp"
 #include "Mods/MapGen/CustomRooms.hpp"
 #include "NativeRuntime/System/ErrorDialog.hpp"
 #include "NativeRuntime/System/ExceptionText.hpp"
@@ -48,6 +50,7 @@
 #include "Mods/InputSettings.hpp"
 #include "Mods/Input/AimAssist/AimAssistDebug.hpp"
 #include "Mods/Input/GamepadHaptics.hpp"
+#include "Mods/Input/MouseAimTurn.hpp"
 #include "Mods/Input/GamepadManager.hpp"
 #include "Mods/Input/GamepadUiRouter.hpp"
 #include "Mods/Input/PointerDevice.hpp"
@@ -78,6 +81,8 @@
 #include "Mods/Render/Crosshair.hpp"
 #include "Mods/Render/DesktopGlContext.hpp"
 #include "Mods/Render/FrameTiming.hpp"
+#include "Mods/Input/FrameAim.hpp"
+#include "Mods/Render/SceneAnimation.hpp"
 #include "Mods/Render/MapThumbnail.hpp"
 #include "Mods/Render/LauncherHunter.hpp"
 #include "Mods/Render/AppIcon.hpp"
@@ -1806,6 +1811,10 @@ namespace MphRead
     void Scene::OnSimulationFrame()
     {
         const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
+        // Mod hook: this step on the animation time line (Mods/Render/SceneAnimation).
+        const Mods::Render::SceneAnimation::Step modAnimationStep;
+        // Mod hook: until it has run the world, this step moved nothing to draw on (Mods/Render/ScenePresentation).
+        Mods::Render::ScenePresentation::BeginStep();
         if (Mods::Network::NetSession::FreezeGameplay())
         {
             if (Mods::Network::NetSession::IsStarting())
@@ -1818,7 +1827,7 @@ namespace MphRead
             return;
         }
         ++_effectFrame;
-        _frameTime = 1.0F / 60.0F;
+        _frameTime = Mods::SimulationRate::StepSecondsF;
         if (_breakNextFrame)
         {
             _frameAdvanceOn = true;
@@ -1863,7 +1872,7 @@ namespace MphRead
                 spectator.ApplyView();
                 Mods::SpectatorMode::NoteScoreboard(
                     _keyboardState->IsKeyDown(RendererPlatform::Key::Tab) || spectator.Scoreboard());
-                // Rates per 60 Hz step; MoveRoamCamera applies them per drawn frame.
+                // Rates per 60 Hz step; MoveRoamCamera scales them by the frame's time (Mods/Input/FrameAim).
                 _roamPadMoveX = _freeCam ? spectator.MoveX() : 0.0F;
                 _roamPadMoveY = _freeCam ? spectator.MoveY() : 0.0F;
                 _roamPadRise = _freeCam ? spectator.Ascend() - spectator.Descend() : 0.0F;
@@ -1875,9 +1884,7 @@ namespace MphRead
                 _roamPadMoveX = _roamPadMoveY = _roamPadRise = _roamPadLookX = _roamPadLookY = 0.0F;
             }
             Mods::EndScreen::PollGamepad();
-            const bool noPlayerInput = _inputMode == InputMode::CameraOnly
-                || Mods::PauseMenu::Open() || Mods::Chat::ChatBox::Composing()
-                || (!Mods::Headless::Active() && !Mods::Input::GamepadContexts::Focused());
+            const bool noPlayerInput = ModPlayerInputBlocked();
             Entities::PlayerEntity::ProcessInput(*_keyboardState, *_mouseState, noPlayerInput);
             if (!noPlayerInput && !Mods::SpectatorMode::IsSpectating())
             {
@@ -1887,7 +1894,8 @@ namespace MphRead
             if (_room) _room->UpdateTransition();
         }
         OnKeyHeld();
-        MoveRoamCamera();
+        // Mod hook: a drawing window moves the free camera per frame instead (Mods/Input/FrameAim).
+        if (!Mods::Render::FrameTiming::Active()) MoveRoamCamera();
         if (ProcessFrame() && _room)
         {
             GameState::ProcessFrame(this);
@@ -1930,6 +1938,11 @@ namespace MphRead
             if (MovieUpdatePending()) UpdateMovie();
         }
         _frameAdvanceLastFrame = _frameAdvanceOn;
+        // Mod hook: the poses this step left, to draw on from (Mods/Render/ScenePresentation).
+        if (ProcessFrame() && !GameState::MenuPause() && !GameState::DialogPause())
+        {
+            Mods::Render::ScenePresentation::EndStep(*this);
+        }
         _pendingEffectSteps = std::min(_pendingEffectSteps + 1, Mods::Render::FrameTiming::MaxCatchUpSteps);
         _pendingFadeSteps = std::min(_pendingFadeSteps + 1, Mods::Render::FrameTiming::MaxCatchUpSteps);
         if (Mods::Headless::Active()) ModStepDrawPassTimers();
@@ -1952,6 +1965,8 @@ namespace MphRead
     void Scene::OnDrawFrame()
     {
         const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
+        // Mod hook: draw-rate animation and mouse look for this picture (Mods/Render/SceneAnimation).
+        const Mods::Render::SceneAnimation::Draw modAnimationDraw;
         Mods::EndScreen::Tick(_room != nullptr ? _room->Meta().Name : std::string(), _globalElapsedTime);
         Mods::Render::MapThumbnail::BeginFrame();
         (void)Gpu().BeginFrame();
@@ -1996,6 +2011,8 @@ namespace MphRead
             UpdateCameraPosition();
         }
         UpdateProjection();
+        // Mod hook: the reticle on the aim this picture shows (Mods/Input/FrameAim).
+        ModPresentFrameReticle();
         GetDrawItems();
     }
 
@@ -2577,7 +2594,8 @@ namespace MphRead
                 const auto cameraInfo = main != nullptr ? main->CameraInfo() : nullptr;
                 if (cameraInfo != nullptr)
                 {
-                    _viewMatrix = cameraInfo->ViewMatrix;
+                    // Mod hook: the aim the frames have turned since the step built this camera (Mods/Input/FrameAim).
+                    _viewMatrix = Mods::Input::FrameAim::View(main.get(), *cameraInfo, cameraInfo->ViewMatrix);
                     float fov = cameraInfo->Fov > 0.0F
                         ? cameraInfo->Fov
                         : static_cast<float>(Mods::RenderOptions::DefaultFov);
@@ -2964,7 +2982,7 @@ namespace MphRead
         entry->EffectName = effect->Name;
         entry->ElementName = element->Name;
         entry->BufferTime = element->BufferTime;
-        entry->CreationTime = _elapsedTime + (child ? (1.0F / 60.0F) : 0.0F);
+        entry->CreationTime = _elapsedTime + (child ? (Mods::SimulationRate::StepSecondsF) : 0.0F);
         entry->DrainTime = element->DrainTime;
         entry->DrawType = element->DrawType;
         entry->Lifespan = element->Lifespan;
@@ -3469,15 +3487,15 @@ namespace MphRead
                     if (TypeExtensions::TestFlag(element->Flags, EffElemFlags::UseAcceleration))
                     {
                         particle->Speed = Vector3(
-                            particle->Speed.X + element->Acceleration.X * (1.0F / 60.0F),
-                            particle->Speed.Y + element->Acceleration.Y * (1.0F / 60.0F),
-                            particle->Speed.Z + element->Acceleration.Z * (1.0F / 60.0F));
+                            particle->Speed.X + element->Acceleration.X * (Mods::SimulationRate::StepSecondsF),
+                            particle->Speed.Y + element->Acceleration.Y * (Mods::SimulationRate::StepSecondsF),
+                            particle->Speed.Z + element->Acceleration.Z * (Mods::SimulationRate::StepSecondsF));
                     }
                     const Vector3 prevPos = particle->Position;
                     particle->Position = Vector3(
-                        particle->Position.X + particle->Speed.X * (1.0F / 60.0F),
-                        particle->Position.Y + particle->Speed.Y * (1.0F / 60.0F),
-                        particle->Position.Z + particle->Speed.Z * (1.0F / 60.0F));
+                        particle->Position.X + particle->Speed.X * (Mods::SimulationRate::StepSecondsF),
+                        particle->Position.Y + particle->Speed.Y * (Mods::SimulationRate::StepSecondsF),
+                        particle->Position.Z + particle->Speed.Z * (Mods::SimulationRate::StepSecondsF));
                     if (TypeExtensions::TestFlag(element->Flags, EffElemFlags::CheckCollision))
                     {
                         Formats::CollisionResult result{};
@@ -3846,7 +3864,7 @@ namespace MphRead
         if (GameState::MenuPause())
         {
             const float simFrameTime = _frameTime;
-            _frameTime = (1.0F / 60.0F) * static_cast<float>(_pendingEffectSteps);
+            _frameTime = (Mods::SimulationRate::StepSecondsF) * static_cast<float>(_pendingEffectSteps);
             _pendingEffectSteps = 0;
             main->GetPauseMapRenderItems();
             _frameTime = simFrameTime;
@@ -3866,8 +3884,11 @@ namespace MphRead
             }
             if (((player->LoadFlags() & LoadFlags::Active) == LoadFlags::Active))
             {
+                const ModDrawMark modDrawn = ModMarkDrawn();
                 player->Draw();
                 player->GetDisplayVolumes();
+                // Mod hook: drawn at the picture's instant (Mods/Render/ScenePresentation).
+                ModCarryPlayerDrawn(modDrawn, *player);
             }
         }
         auto entities = Entities().GetEnumerator();
@@ -3878,6 +3899,7 @@ namespace MphRead
             {
                 continue;
             }
+            const ModDrawMark modDrawn = ModMarkDrawn();
             if (entity->ShouldDraw)
             {
                 entity->GetDrawInfo();
@@ -3886,6 +3908,8 @@ namespace MphRead
             {
                 entity->GetDisplayVolumes();
             }
+            // Mod hook: drawn at the picture's instant (Mods/Render/ScenePresentation).
+            ModCarryEntityDrawn(modDrawn, *entity);
         }
         // Instagib rails are not entities: they outlive the shot that made them.
         Mods::Render::InstagibRails::AddRenderItems(*this);
@@ -3904,6 +3928,9 @@ namespace MphRead
             {
                 for (const auto& particle : *element->Particles)
                 {
+                    // Mod hook: drawn where its speed takes it by the picture's instant (Mods/Render/ScenePresentation).
+                    const Mods::Render::ScenePresentation::ParticleCarry modCarried(*particle,
+                        TypeExtensions::TestFlag(element->Flags, EffElemFlags::CheckCollision));
                     Matrix4 matrix = _viewMatrix;
                     if (TypeExtensions::TestFlag(particle->Owner->Flags, EffElemFlags::UseTransform)
                         && !TypeExtensions::TestFlag(particle->Owner->Flags, EffElemFlags::UseMesh))
@@ -5217,7 +5244,7 @@ namespace MphRead
             }
             else if (_cameraMode == MphRead::CameraMode::Roam && _freeCam)
             {
-                // Applied on the next simulation step (MoveRoamCamera).
+                // Applied at the next frame's start (MoveRoamCamera, Mods/Input/FrameAim).
                 _roamMouseX += moveX;
                 _roamMouseY += moveY;
             }
@@ -5291,10 +5318,9 @@ namespace MphRead
         }
     }
 
-    // The free camera moves once per 60 Hz simulation step, mouse look
-    // included: the world it looks at changes at that rate, and a camera that
-    // slides between steps makes every moving thing in view judder against it.
-    void Scene::MoveRoamCamera()
+    // The free camera, mouse look included, moved by `steps` simulation
+    // steps' worth of its per-step speeds.
+    void Scene::MoveRoamCamera(float steps)
     {
         using RendererPlatform::Key;
         const float mouseX = _roamMouseX, mouseY = _roamMouseY;
@@ -5314,7 +5340,9 @@ namespace MphRead
         {
             return;
         }
-        constexpr float steps = 1.0F;
+        // Mod: `steps` is the simulation steps' worth this call moves -- one
+        // from a step, a frame's elapsed time from the display-rate free
+        // camera (Mods/Input/FrameAim) -- so a second covers the same ground.
         const bool keys = !alt;
         const bool shift = keys && (_keyboardState->IsKeyDown(Key::LeftShift) || _keyboardState->IsKeyDown(RendererPlatform::RightShiftKey));
         // The death camera's speed (PlayerEntity::UpdateCameraFree: 0.4 / 2 a step).
@@ -5322,10 +5350,13 @@ namespace MphRead
         const float moveStep = (shift ? DeathCameraStep * 5.0F : DeathCameraStep) * steps;
         const float rotStep = DegreesToRadians(shift ? 3.0F : 1.5F) * steps;
         float forward = _roamPadMoveY * DeathCameraStep * steps, right = _roamPadMoveX * DeathCameraStep * steps, rise = _roamPadRise * DeathCameraStep * steps;
-        // The mouse turns it as it turns a hunter: a quarter of a degree a
-        // count at sensitivity 1 (PlayerEntity::ApplyMouseAim, unzoomed).
-        float stepH = DegreesToRadians(_roamPadLookX + mouseX / 4.0F) * steps;
-        float stepV = DegreesToRadians(_roamPadLookY - mouseY / 4.0F) * steps;
+        // The mouse turns it as it turns a hunter (PlayerEntity::ApplyMouseAim,
+        // unzoomed), sensitivity and inversion included. Its motion is already
+        // the frame's whole movement, so it is not scaled by `steps`; the
+        // pad's look is a rate a step, and is.
+        const Mods::Input::MouseTurn mouseTurn = Mods::Input::MouseAimTurn(mouseX, mouseY);
+        float stepH = DegreesToRadians(_roamPadLookX * steps - mouseTurn.Yaw);
+        float stepV = DegreesToRadians(_roamPadLookY * steps + mouseTurn.Pitch);
         if (keys)
         {
             if (_keyboardState->IsKeyDown(Key::W)) forward += moveStep;
@@ -7049,12 +7080,16 @@ namespace MphRead
         {
             steps = Mods::Render::FrameTiming::Advance(args.Time);
         }
+        // Mod hook: the mouse read at this frame's pump turns the aim and the free camera now (Mods/Input/FrameAim).
+        _scene->ModApplyFrameInput();
         for (std::int32_t i = 0; i < steps; ++i)
         {
             const NativeRuntime::FrameTelemetry::Scope measured(NativeRuntime::FrameTelemetry::Phase::Simulation);
             _scene->OnSimulationFrame();
         }
         _swapchain->MarkLowLatency(NativeRuntime::Rhi::LowLatencyMarker::SimulationEnd);
+        // Mod hook: this picture's DS-style aim or watched view, until it is drawn (Mods/Input/FrameAim).
+        std::optional<Mods::Input::FrameAimPresentation> modFrameAim(_scene->ModPresentFrameInput());
         if (Mods::Chat::ChatBox::Composing()
             && Mods::Input::GamepadInput::TakePress(
                 Mods::Input::GamepadButtons::B | Mods::Input::GamepadButtons::Start))
@@ -7079,6 +7114,7 @@ namespace MphRead
         {
             return;
         }
+        modFrameAim.reset();
 #if defined(MPHREAD_SHELL)
         // Never let Skia/Ganesh run before the game's OpenGL scene. The UI
         // shares the window context only as a compositor backend; map/model/

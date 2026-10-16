@@ -44,6 +44,8 @@ private: \
 #include "../../Mods/Render/PlayerEntityTeamScoreboard.hpp"
 #include "../../Mods/Render/PlayerEntityMapPick.hpp"
 #include "../../Mods/Render/PlayerEntityVoteHud.hpp"
+#include "../../Mods/Input/PlayerEntityFrameAim.hpp"
+#include "../../Mods/Render/PlayerEntityPresentation.hpp"
 #include "../EnemyInstanceEntity.hpp"
 #include "../../Formats/Culling.hpp"
 #include "../../Formats/Formats.hpp"
@@ -59,6 +61,7 @@ private: \
 #include <utility>
 
 namespace MphRead::Mods::Diagnostics { class WeavelAltFormCheck; }
+namespace MphRead::Mods::Diagnostics { class FormPresentationCheck; }
 namespace MphRead::Mods::Diagnostics { class AimCheck; }
 
 namespace MphRead
@@ -83,6 +86,7 @@ namespace MphRead::Mods::Network
 {
     class NetCombatCheck;
     class DialancheCombatCheck;
+    class VhoscytheCombatCheck;
     class SpireAltPoseCheck;
 }
 
@@ -605,10 +609,12 @@ namespace MphRead::Entities
     {
         // NetCombatCheck reads private state the way the C# reads it by reflection.
         friend class ::MphRead::Mods::Diagnostics::WeavelAltFormCheck;
+        friend class ::MphRead::Mods::Diagnostics::FormPresentationCheck;
         friend class ::MphRead::Mods::Diagnostics::AimCheck;
         friend class HalfturretEntity;
         friend class ::MphRead::Mods::Network::NetCombatCheck;
         friend class ::MphRead::Mods::Network::DialancheCombatCheck;
+        friend class ::MphRead::Mods::Network::VhoscytheCombatCheck;
         friend class ::MphRead::Mods::Network::SpireAltPoseCheck;
         friend class ::MphRead::Mods::Input::PointerCheck;
 
@@ -814,6 +820,8 @@ namespace MphRead::Entities
         MPHREAD_PLAYER_MAP_PICK_MEMBERS
         MPHREAD_PLAYER_VOTE_HUD_MEMBERS
         MPHREAD_PLAYER_ENTITY_AIM_ASSIST_MEMBERS
+        MPHREAD_PLAYER_ENTITY_FRAME_AIM_MEMBERS
+        MPHREAD_PLAYER_ENTITY_PRESENTATION_MEMBERS
         MPHREAD_PLAYER_ENTITY_HAPTICS_MEMBERS
         MPHREAD_PLAYER_GOLDEN_CAPTURE_MEMBERS
 

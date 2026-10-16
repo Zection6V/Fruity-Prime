@@ -1,4 +1,5 @@
 #include "Mods/Network/Server/Match/ServerSim.hpp"
+#include "Mods/SimulationRate.hpp"
 #include "Mods/Network/Gameplay/Combat/NetDamage.hpp"
 #include "Mods/Network/Gameplay/Claims/Hit/NetHitClaims.hpp"
 #include "Mods/Network/Diagnostics/NetShotDiagnostics.hpp"
@@ -225,7 +226,7 @@ namespace MphRead::Mods::Network
         {
             _worstStepSeconds = elapsed;
         }
-        if (elapsed > 1.0 / 60.0)
+        if (elapsed > ::MphRead::Mods::SimulationRate::StepSeconds)
         {
             IncrementInPlace(_overrunSteps);
         }

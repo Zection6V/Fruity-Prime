@@ -113,27 +113,49 @@ namespace MphRead::Entities
         const Mods::Input::MouseTurn turn = Mods::Input::MouseAimTurn(x, y);
         UpdateAimY(turn.Pitch);
         UpdateAimX(turn.Yaw);
-        // The view the next step makes of that aim is where this picture's
-        // view is going: UpdateAimFacing's two eases of a tenth, each inside
-        // the 15 degree envelope. It is reached by the time the step runs,
-        // along the ease's own curve, from the last step's view held inside
-        // the envelope of the aim on screen -- which the step's first turn
-        // does at once. Zoomed, the step puts the view on the aim.
+        // The view the next step makes of that aim is the step's own answer,
+        // and every picture before it reads the same ease in continuous time.
+        // A step keeps k = 0.81 of the view's offset from the aim (each of
+        // UpdateAimY and UpdateAimX eases a tenth of the way), and lags an
+        // aim that moved by d by b d: b = 0.81 for a pitch, which both eases
+        // see, and 0.9 for a yaw, which only UpdateAimX's does. Over a
+        // fraction p of a step the ease keeps k^p of the last offset and lags
+        // c(p) d, c(p) = b (1 - k^p) / ((1 - k) p): a steady turn keeps a
+        // steady offset and so moves the view evenly, and at p = 1 this is
+        // the step's view for that aim -- written as that view plus what
+        // vanishes there, so the two meet exactly. Zoomed, the step puts the
+        // view on the aim.
         const Vector3 next = _facingVector;
         Vector3 facing = next;
         if (!_equipInfo->Zoomed)
         {
-            facing = view.Facing;
-            const float dot = Vector3::Dot(_gunVec1, facing);
-            if (dot < Mods::Input::AimEnvelopeCos)
-            {
-                const Vector3 side = (facing - Multiply(_gunVec1, dot)).Normalized();
-                facing = Multiply(_gunVec1, Mods::Input::AimEnvelopeCos) + Multiply(side, Mods::Input::AimEnvelopeSin);
-            }
-            const double kept = 1.0 - Mods::Input::AimFollow;
+            const double follow = 1.0 - Mods::Input::AimFollow;
+            const double kept = follow * follow;
             const double phase = Mods::Render::FrameTiming::StepPhase();
-            const float eased = static_cast<float>((1.0 - std::pow(kept, 2.0 * phase)) / (1.0 - kept * kept));
-            facing = (facing + Multiply(next - facing, eased)).Normalized();
+            const double offsetKept = std::pow(kept, phase);
+            // c(p) / b, which tends to -ln k / (1 - k) as p does to 0.
+            const double lagShape = phase > 1e-6 ? (1.0 - offsetKept) / ((1.0 - kept) * phase)
+                : -std::log(kept) / (1.0 - kept);
+            const Vector3 moved = _gunVec1 - view.Gun;
+            const float horizontal = std::sqrt(_gunVec1.X * _gunVec1.X + _gunVec1.Z * _gunVec1.Z);
+            const Vector3 side = horizontal > 0
+                ? Vector3(_gunVec1.Z / horizontal, 0.0F, -_gunVec1.X / horizontal) : Vector3{};
+            const Vector3 yawed = Multiply(side, Vector3::Dot(moved, side));
+            const Vector3 pitched = moved - yawed;
+            facing = (next + Multiply(view.Facing - view.Gun, static_cast<float>(offsetKept - kept))
+                - Multiply(yawed, static_cast<float>(follow * (lagShape - 1.0)))
+                - Multiply(pitched, static_cast<float>(kept * (lagShape - 1.0)))).Normalized();
+            // Never further behind the aim than the steps either side of this
+            // picture leave it: inside the envelope that is the ease above,
+            // and against it the step clamps and eases back every time, which
+            // a picture must not draw as a 60 Hz wobble.
+            const float cosLimit = std::min(Vector3::Dot(view.Facing, view.Gun), Vector3::Dot(next, _gunVec1));
+            const float dot = Vector3::Dot(_gunVec1, facing);
+            if (dot < cosLimit)
+            {
+                const Vector3 away = (facing - Multiply(_gunVec1, dot)).Normalized();
+                facing = Multiply(_gunVec1, cosLimit) + Multiply(away, std::sqrt(std::max(0.0F, 1.0F - cosLimit * cosLimit)));
+            }
         }
         _facingVector = facing;
         ModRebuildAimFromFacing();

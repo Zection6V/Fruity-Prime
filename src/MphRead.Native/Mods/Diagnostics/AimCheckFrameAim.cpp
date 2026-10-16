@@ -293,6 +293,12 @@ namespace MphRead::Mods::Diagnostics
                 mouse.X = pixels(rng) * 3.0F; mouse.Y = pixels(rng);
                 step(mouse);
                 const Aim left = aim();
+                // At the step's own instant, with the mouse where the step
+                // read it, the picture is the step's view.
+                atPhase(0.0);
+                presented = player.ModPresentFrameAim(mouse) && presented;
+                atStart.Add(AngleDegrees(player._facingVector, left.Facing));
+                player.ModRestoreFrameAim();
                 Mouse moved = mouse; moved.X += pixels(rng); moved.Y += pixels(rng);
                 Vector3 shownGun{}, shownFacing{};
                 for (const double phase : {0.0, 0.37, 0.9999})
@@ -303,13 +309,6 @@ namespace MphRead::Mods::Diagnostics
                     const Matrix4 drawn = Input::FrameAim::View(&player, *player.CameraInfo(), player.CameraInfo()->ViewMatrix);
                     viewAlong.Add(AngleDegrees(Forward(drawn), shownFacing));
                     outside.Add(std::max(0.0F, AngleDegrees(shownGun, shownFacing) - envelope));
-                    // At the step's own instant the view has only moved as far
-                    // as the envelope of the aim on screen requires.
-                    if (phase == 0.0 && !player._equipInfo->Zoomed)
-                    {
-                        atStart.Add(std::fabs(AngleDegrees(shownFacing, left.Facing)
-                            - std::max(0.0F, AngleDegrees(shownGun, left.Facing) - envelope)));
-                    }
                     player.ModRestoreFrameAim();
                     restored = restored && same(left, aim());
                 }
@@ -320,7 +319,7 @@ namespace MphRead::Mods::Diagnostics
             std::cout << std::setprecision(6) << "FRAMEAIM ds trials=" << gunVsStep.Count
                 << " crosshair_vs_next_step_deg max=" << gunVsStep.Max
                 << " view_at_step_end_vs_step_deg max=" << arrival.Max
-                << " view_at_step_start_beyond_envelope_push_deg max=" << atStart.Max
+                << " view_at_step_start_vs_step_deg max=" << atStart.Max
                 << " view_outside_envelope_deg max=" << outside.Max
                 << " drawn_view_vs_shown_deg max=" << viewAlong.Max << '\n';
             check(presented, "DS crosshair is presented for mouse, exact, first person");
@@ -328,7 +327,7 @@ namespace MphRead::Mods::Diagnostics
             check(gunVsStep.Max < 0.0001, "the DS crosshair shown is the aim the next step turns to");
             check(arrival.Max < 0.01, "the DS view reaches the step's own view as the step runs");
             check(atStart.Max < 0.01 && outside.Max < 0.01,
-                "the DS view starts from the step's, held inside the envelope of the aim shown");
+                "the DS view starts from the step's and stays inside the envelope of the aim shown");
             check(viewAlong.Max < 0.01, "the drawn DS view looks along the view shown");
 
             // The same mouse, with and without pictures between the steps:
@@ -365,6 +364,9 @@ namespace MphRead::Mods::Diagnostics
 
             // A turn at constant speed drawn at 240 Hz: the crosshair is the
             // mouse's the frame it is read, and the view moves every frame.
+            // 60 degrees a second keeps the view inside the 15 degree envelope;
+            // 180 runs it against the envelope, which the step clamps.
+            for (const double speed : {60.0, 180.0})
             for (const bool frameAim : {false, true})
             {
                 reset(0, 0, false);
@@ -377,13 +379,13 @@ namespace MphRead::Mods::Diagnostics
                 for (int frame = 1; frame <= fps * 3; ++frame)
                 {
                     const double t = static_cast<double>(frame) / fps;
-                    mouse.X = static_cast<float>(-degreesPerSecond * t / degreesPerPixel);
+                    mouse.X = static_cast<float>(-speed * t / degreesPerPixel);
                     const auto steps = Render::FrameTiming::Advance(1.0 / fps);
                     for (int s = 0; s < steps; ++s) step(mouse);
                     (void)player.ModPresentFrameAim(mouse);
                     const Matrix4 shown = Input::FrameAim::View(&player, *player.CameraInfo(), player.CameraInfo()->ViewMatrix);
-                    const double truth = std::remainder(degreesPerSecond * t, 360.0);
-                    age.Add(std::fabs(std::remainder(truth - YawDegrees(player._gunVec1), 360.0)) / degreesPerSecond * 1000.0);
+                    const double truth = std::remainder(speed * t, 360.0);
+                    age.Add(std::fabs(std::remainder(truth - YawDegrees(player._gunVec1), 360.0)) / speed * 1000.0);
                     const double yaw = YawDegrees(Forward(shown));
                     if (frame > fps / 2) increments.push_back(std::remainder(yaw - previous, 360.0));
                     previous = yaw;
@@ -397,13 +399,14 @@ namespace MphRead::Mods::Diagnostics
                 const double unevenness = std::sqrt(variance / static_cast<double>(increments.size())) / std::fabs(mean);
                 std::size_t still = 0;
                 for (const double d : increments) still += std::fabs(d) < 1e-6 ? 1U : 0U;
-                std::cout << std::setprecision(3) << "FRAMEAIM ds schedule fps=" << fps
+                std::cout << std::setprecision(3) << "FRAMEAIM ds schedule fps=" << fps << " deg_per_s=" << speed
                     << " frame_aim=" << (frameAim ? "on " : "off") << " crosshair_age_ms mean=" << age.Mean()
                     << " max=" << age.Max << " view_per_frame_turn_cv=" << unevenness
                     << " frames_view_still=" << still << "/" << increments.size() << '\n';
                 if (frameAim)
                 {
-                    check(age.Max < 0.01 && still == 0, "DS crosshair shown the frame it is read, view moving every frame");
+                    check(age.Max < 0.01 && still == 0 && unevenness < 0.01,
+                        "DS crosshair shown the frame it is read, view turning evenly every frame");
                 }
             }
             Input::FrameAim::Enabled(true);

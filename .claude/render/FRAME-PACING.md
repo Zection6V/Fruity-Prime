@@ -230,13 +230,22 @@ state it left.
 `Scene::ModPresentFrameInput`, after the frame's steps, has the player save
 what a picture changes, then run the next step's own turn for the motion since
 the snapshot that step will consume -- the same `UpdateAimY`/`UpdateAimX` --
-so the crosshair is where the mouse has put it. The view starts from the last
-step's, held inside the envelope of the aim on screen (which the step's first
-turn does at once), and is carried towards the view that turn makes by the
-ease's own curve, `(1 - 0.9^(2·phase)) / (1 - 0.81)`, where phase is how far
-the picture is into the next step: at the instant the step runs, the picture
-is the step's. Zoomed, the step puts the view on the aim, and so does the
-picture. The gun is rebuilt from that view, `Scene::ModPresentFrameReticle`
+so the crosshair is where the mouse has put it. The view reads the same ease
+in continuous time. A step keeps k = 0.81 of the view's offset from the aim
+and lags an aim that moved by d by b·d -- b = 0.81 for a pitch, which both of
+the step's eases see, and 0.9 for a yaw, which only `UpdateAimX`'s does --
+so over a fraction p of a step the offset kept is k^p and the lag is
+c(p)·d, c(p) = b(1 - k^p) / ((1 - k)p). A steady turn therefore keeps a
+steady offset and the view moves evenly, and at p = 1 it is the step's own
+view for that aim: the picture is written as that view plus terms that
+vanish there, so the two meet exactly. Against the 15 degree envelope the
+step clamps the offset and eases it back every time, a 60 Hz sawtooth, so a
+picture is never further behind the aim than the steps on either side of it
+leave it. The first version eased from the last step's view towards the
+next one's along the ease's own curve, which is exact at both ends and
+turned the view about 10% faster early in each step than late -- the world
+trembled at 60 Hz. Zoomed, the step puts the view on the aim, and so does
+the picture. The gun is rebuilt from that view, `Scene::ModPresentFrameReticle`
 projects the reticle through the picture's own camera, and the
 `FrameAimPresentation` the render loop holds puts every field back once
 `OnRenderFrame` is done -- unless a respawn or a room load wrote an aim of its
@@ -299,7 +308,9 @@ exactly as it was, the crosshair shown is the aim the next step turns to, the
 view reaches the step's own as the step runs and starts from it, held inside
 the envelope, and 240 steps with pictures between them are bit-identical to
 the same steps without. At 240 Hz the crosshair's age goes from a mean 6.25 ms
-to 0, and the view moves on every frame where it stood still on 450 of 600.
+to 0, the view moves on every frame where it stood still on 450 of 600, and a
+steady turn's per-frame step varies by 0.1% at 60 degrees a second and 0.8%
+at 180, against the envelope.
 For a watched player (`FRAMEAIM watched`): the picture is the camera a step
 builds where the player is shown, and their gun stays where it sits in it.
 `FruityPrime.NetworkSmoothingTimeline` checks that a picture's playout read is

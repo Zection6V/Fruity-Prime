@@ -62,12 +62,35 @@ try {
     Copy-Item -LiteralPath $intentLog -Destination (Join-Path $out 'server.netlog.txt')
     $received = @(Get-Content -LiteralPath $intentLog | Where-Object { $_ -match 'morph press received' })
     $morphSlots = @($received | ForEach-Object { if ($_ -match 'slot (\d+) morph press') { [int]$Matches[1] } } | Sort-Object -Unique)
+    # A held alt attack is one press and then a hold. An owner re-pressing on
+    # consecutive frames is input being cleared between steps -- what kept a
+    # headless AI client's Vhoscythe from ever finishing its startup.
+    $repressStorms = @()
+    for ($i = 0; $i -lt $hunters.Count; ++$i) {
+        $ownerLog = Join-Path $buildPath "netlog-FA$i$($hunters[$i]).txt"
+        if (-not (Test-Path -LiteralPath $ownerLog)) { continue }
+        $run = 0; $worst = 0; $last = -2
+        # The AI clients are still running and writing; read without locking them out.
+        $stream = [System.IO.File]::Open($ownerLog, 'Open', 'Read', 'ReadWrite')
+        $reader = [System.IO.StreamReader]::new($stream)
+        $lines = try { $reader.ReadToEnd() -split "`n" } finally { $reader.Dispose() }
+        foreach ($line in $lines) {
+            if ($line -notmatch '\[altattack-observed\] slot=\d+ role=owner .*press=true held=true .*frame=(\d+)') { continue }
+            $frame = [int]$Matches[1]
+            $run = if ($frame -eq $last + 1) { $run + 1 } else { 1 }
+            $last = $frame
+            if ($run -gt $worst) { $worst = $run }
+        }
+        if ($worst -gt 3) { $repressStorms += "$($hunters[$i])=$worst" }
+    }
     $images = @(Get-ChildItem -LiteralPath $out -Filter '*.png')
     $summary = [ordered]@{ Draws = $draws.Count; BipedAttacks = $invalid.Count; HuntersWithDrawnAttacks = $seen;
-        ServerMorphPresses = $received.Count; ServerMorphSlots = $morphSlots; Captures = $images.Count; Output = $out }
+        ServerMorphPresses = $received.Count; ServerMorphSlots = $morphSlots; RepressStorms = $repressStorms;
+        Captures = $images.Count; Output = $out }
     $summary | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $out 'result.json')
     $summary | ConvertTo-Json | Write-Output
     if ($draws.Count -eq 0 -or $invalid.Count -gt 0 -or $received.Count -eq 0 -or $images.Count -eq 0) { $result = 1 }
+    foreach ($storm in $repressStorms) { Write-Output "Held alt attack re-pressed on consecutive frames: $storm"; $result = 1 }
     foreach ($slot in 0..6) {
         if ($slot -notin $morphSlots) { Write-Output "Missing server morph input coverage: slot $slot"; $result = 1 }
     }

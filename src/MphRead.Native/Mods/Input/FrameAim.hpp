@@ -60,6 +60,7 @@ namespace MphRead::Mods::Input
         // The room part the step put the camera in, which the room culls from.
         Formats::Culling::NodeRef CameraNode = Formats::Culling::NodeRef::None;
         OpenTK::Mathematics::Matrix4 CameraView{};
+        float CameraFov = 0;
     };
 
     // Where a watched player stood and looked when the step built their

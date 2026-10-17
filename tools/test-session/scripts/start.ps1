@@ -13,7 +13,7 @@ param(
     [ValidateRange(0,5000)][int]$BotPingMs = 250,
     [string]$Room = 'MP1 SANCTORUS',
     [ValidateRange(1,60)][int]$MatchMinutes = 60,
-    [ValidateRange(1,999)][int]$PointGoal = 999,
+    [ValidateRange(1,999)][int]$PointGoal = 7,
     [ValidateRange(1024,65535)][int]$Port = 27888,
     [ValidateRange(60,86400)][int]$Seconds = 7200,
     [switch]$Instagib,

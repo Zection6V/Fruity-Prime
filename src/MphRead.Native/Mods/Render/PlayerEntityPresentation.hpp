@@ -33,6 +33,9 @@ namespace MphRead::Mods::Render
         std::int32_t TrailSteps = 0;
         // The camera type the trail was recorded under.
         std::int32_t TrailCamera = -1;
+        // The camera's field of view over the last steps, oldest first.
+        std::array<float, 3> Fov{};
+        std::int32_t FovSteps = 0;
         OpenTK::Mathematics::Vector3 CurrentShake{};
         // The shake's last two samples, one every StepsPerDsFrame steps, and
         // the step of the newer: a picture eases from one to the other.

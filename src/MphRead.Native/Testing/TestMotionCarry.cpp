@@ -148,6 +148,16 @@ int main()
         passed &= Check(near(MotionCarry::Trail(easing, 0.5F), Multiply(back, 1.47F)), "easing out is carried on");
     }
 
+    // A zoom's field of view between steps, at the game's own pace.
+    {
+        const auto near = [](float a, float b) { return std::abs(a - b) < 1e-5F; };
+        passed &= Check(near(MotionCarry::Eased(70, 66, 62, 0.5F), 60), "a steady zoom moves on at its rate");
+        // Closing a gap of 32 by a quarter a step: 46, 52, 56.5 -> 59.875.
+        passed &= Check(near(MotionCarry::Eased(46, 52, 56.5F, 1.0F), 59.875F), "a closing zoom lands on its next step");
+        passed &= Check(near(MotionCarry::Eased(60, 60, 60, 0.7F), 60), "a still zoom stays");
+        passed &= Check(near(MotionCarry::Eased(60, 64, 60, 0.5F), 60), "a zoom that turned back is held");
+    }
+
     // A beam drawn out of a gun stays on the gun: its origin onto the muzzle,
     // its direction onto the aim.
     {

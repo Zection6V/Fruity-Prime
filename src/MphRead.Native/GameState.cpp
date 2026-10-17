@@ -1314,7 +1314,8 @@ namespace MphRead
 #if defined(MPHREAD_SHELL)
                     if (Mods::Launcher::Gui::Shell::CanPlayAnother())
                     {
-                        const std::string room = Mods::MapPick::Chosen();
+                        // An unanswered ballot still rotates; a single map repeats.
+                        const std::string room = Mods::MapPick::NextRoom();
                         if (!room.empty())
                         {
                             Mods::Launcher::Gui::Shell::PlayAnother(room);

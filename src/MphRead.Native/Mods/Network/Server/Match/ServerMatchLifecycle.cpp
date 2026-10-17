@@ -2,6 +2,7 @@
 
 #include "Mods/Network/Server/Core/ServerStateBroadcastChannel.hpp"
 #include "Mods/Network/Server/Lobby/ServerLobbySession.hpp"
+#include "Mods/Network/Server/Lobby/LobbyRules.hpp"
 #include "Mods/Network/Server/Lobby/ServerMapVoting.hpp"
 #include "Mods/Network/Server/Match/ServerMatchRotationController.hpp"
 #include "Mods/Network/Server/Match/ServerSnapshotChannel.hpp"
@@ -50,19 +51,9 @@ namespace MphRead::Mods::Network
 
     double ServerMatchLifecycle::EndSequenceFor() const
     {
-        bool allReady = true;
-        std::int32_t counted = 0;
-        for (const ServerPeerRegistry::PeerHandle& peer : _ports.Peers->All())
-        {
-            ++counted;
-            if (!peer->Lobby.PostMatchReady())
-            {
-                allReady = false;
-                break;
-            }
-        }
-        const double readyWait = counted == 0 || allReady ? AllReadySeconds : ReadyWaitSeconds;
-        return std::max(EndSequenceSeconds(), readyWait);
+        // Do not wait an additional 30 seconds for post-match Ready when
+        // the next map starts automatically after the results sequence.
+        return EndSequenceSeconds();
     }
 
     void ServerMatchLifecycle::EndMatch(double now, const std::string& reason)
@@ -143,6 +134,22 @@ namespace MphRead::Mods::Network
             _previousMode = before->Mode;
         }
         const std::shared_ptr<const RotationEntry> entry = (*_ports.Rotation)->Advance();
+        // Persistent lobbies freeze their first match's rules. Adopt the next
+        // room and mode without discarding the host's other configured rules.
+        if (_ports.Lobby->Policy() == ServerSessionPolicy::Lobby)
+        {
+            MatchDefinition next = _ports.Lobby->FrozenMatch();
+            next.RoomKey = entry->RoomKey;
+            next.Mode = entry->Mode;
+            std::string reason;
+            if (LobbyRules::ValidateDefinition(next, reason) != LobbyResultCode::Ok)
+            {
+                next.Format = MatchFormat::Auto;
+            }
+            _ports.Lobby->FreezeMatch(next);
+            _ports.Lobby->FreezeWorldProfile(LobbyRules::ResolveWorldProfile(next,
+                std::max<std::int32_t>(2, static_cast<std::int32_t>(_ports.Peers->All().size()))));
+        }
         _ports.Lobby->SetPhase(SessionPhase::InMatch);
         const MatchDefinition nextDefinition = CurrentDefinition();
         ServerMatchRotationController::Advance(nextDefinition, now, *_ports.Lobby,

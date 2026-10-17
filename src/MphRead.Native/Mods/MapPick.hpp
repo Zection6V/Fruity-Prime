@@ -40,6 +40,8 @@ namespace MphRead::Mods
         [[nodiscard]] static std::int32_t PickedIndex();
         static void Reset();
         [[nodiscard]] static std::string Chosen();
+        // Selected ballot winner or the next map in the offline sequence.
+        [[nodiscard]] static std::string NextRoom();
         static void Choose(std::int32_t index);
         static void ChooseCursor();
         static void Step(std::int32_t by);
@@ -66,6 +68,7 @@ namespace MphRead::Mods
         static bool _open;
         static std::int32_t _eligible;
         static std::string _picked;
+        static std::string _defaultNext;
         static std::int32_t _cursor;
         static std::int32_t _scroll;
         static std::int32_t _window;

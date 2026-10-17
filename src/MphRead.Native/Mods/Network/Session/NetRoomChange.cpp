@@ -68,16 +68,23 @@ namespace MphRead::Mods::Network
         return NetSession::Active();
     }
 
-    void NetRoomChange::Reset()
+    void NetRoomChange::ResetForMatch()
     {
         _loadPending = false;
-        _requested = "";
+        _requested.clear();
         _requestedFrame = 0;
         _fetchWanted.clear();
         _fetchState.reset();
         _requestedMatch = 0;
-        _loadedMatch = 0;
         _loadedFrame = 0;
+        // Preserve _loadedMatch: a second round on the same map must rebuild
+        // the existing scene rather than being mistaken for the first load.
+    }
+
+    void NetRoomChange::Reset()
+    {
+        ResetForMatch();
+        _loadedMatch = 0;
     }
 
     void NetRoomChange::Sync(Scene& scene)

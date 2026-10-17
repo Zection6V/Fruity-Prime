@@ -44,6 +44,16 @@ namespace MphRead::Mods::Network::ShotRayValidation
             && offsetSquared <= maximumOffsetSquared;
     }
 
+    // A demo event is a recorded historical firing ray, not a live packet
+    // making a claim about the shooter's current interpolated position.
+    // Check finite geometry without rejecting movement since the shot.
+    [[nodiscard]] inline bool IsRecordedRay(
+        const OpenTK::Mathematics::Vector3& origin,
+        const OpenTK::Mathematics::Vector3& direction) noexcept
+    {
+        return IsFinite(origin) && IsValidDirection(direction);
+    }
+
     [[nodiscard]] inline bool IsPlausibleRay(
         const OpenTK::Mathematics::Vector3& origin,
         const OpenTK::Mathematics::Vector3& direction,

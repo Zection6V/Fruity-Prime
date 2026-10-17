@@ -1,6 +1,7 @@
 #include "SpectatorMode.hpp"
 
 #include "../Entities/Players/PlayerEntity.hpp"
+#include "../Entities/CamSeq/CameraSequence.hpp"
 #include "../GameState.hpp"
 #include "../NativeRuntime/System/Managed.hpp"
 #include "../Formats/Types.hpp"
@@ -148,6 +149,7 @@ namespace MphRead::Mods
     bool SpectatorMode::_freeCamera = false;
     std::optional<SpectatorTargetIdentity> SpectatorMode::_target{};
     bool SpectatorMode::_targetChanged = false;
+    bool SpectatorMode::_pendingPlaybackTarget = false;
     std::optional<SpectatorCameraRequest> SpectatorMode::_cameraRequest{};
     bool SpectatorMode::_showScoreboard = false;
 
@@ -196,10 +198,25 @@ namespace MphRead::Mods
             return;
         }
 
+        // Demo playback takes over the camera during an already-running match.
+        // The multiplayer intro loops indefinitely until explicitly ended,
+        // and its IsIntro() HUD draws "LAWS OF BATTLE" over every view.
+        // End it before switching MainPlayerIndex: End() restores the camera
+        // bound to the intro, which may differ from the new spectator target.
+        if (Formats::CameraSequence* intro = Formats::CameraSequence::Current();
+            intro != nullptr && SpectatorCameraPolicy::EndIntroForPlayback(
+                Network::NetSession::IsPlayback(),
+                GameState::MatchState() == MatchState::InProgress,
+                intro->IsIntro()))
+        {
+            intro->End();
+        }
+
         const std::int32_t origin = SelectionOrigin();
         _isSpectating = true;
         _target.reset();
         _targetChanged = false;
+        _pendingPlaybackTarget = watchSomeone && Network::NetSession::IsPlayback();
 
         const std::int32_t localSlot = Network::NetHooks::LocalSlot();
         if (HasPlayer(localSlot))
@@ -226,7 +243,23 @@ namespace MphRead::Mods
 
     void SpectatorMode::Update()
     {
-        if (!_isSpectating || !_target.has_value())
+        if (!_isSpectating)
+        {
+            return;
+        }
+        // Wait for the recording's first valid roster/life identity before
+        // committing the requested first-person follow. Do not override
+        // a user-selected free camera or retry in normal online spectating.
+        if (SpectatorCameraPolicy::RetryPlaybackFollow(
+                Network::NetSession::IsPlayback(), _pendingPlaybackTarget, _target.has_value()))
+        {
+            const std::int32_t next = FindNextActiveSlot(SelectionOrigin());
+            if (next >= 0 && Switch(next, true))
+            {
+                return;
+            }
+        }
+        if (!_target.has_value())
         {
             return;
         }
@@ -290,6 +323,7 @@ namespace MphRead::Mods
         {
             return;
         }
+        _pendingPlaybackTarget = false;
         Update();
         const std::int32_t origin = _target.has_value() ? _target->Slot : SelectionOrigin();
         const std::int32_t next = FindNextActiveSlot(origin);
@@ -305,6 +339,7 @@ namespace MphRead::Mods
         {
             return;
         }
+        _pendingPlaybackTarget = false;
         Update();
         const std::int32_t origin = _target.has_value() ? _target->Slot : SelectionOrigin();
         const std::int32_t previous = FindPreviousActiveSlot(origin);
@@ -320,6 +355,7 @@ namespace MphRead::Mods
         {
             return;
         }
+        _pendingPlaybackTarget = false;
         if (_freeCamera)
         {
             if (_target.has_value() && IdentityIsCurrent(*_target)
@@ -387,6 +423,7 @@ namespace MphRead::Mods
         target->CameraInfo()->NodeRef = target->NodeRef;
         _target = identity;
         _targetChanged = false;
+        _pendingPlaybackTarget = false;
 
         if (requestPlayerCamera || (_cameraRequest.has_value() && !_cameraRequest->FreeCamera))
         {
@@ -428,6 +465,7 @@ namespace MphRead::Mods
         _isSpectating = false;
         _target.reset();
         _targetChanged = false;
+        _pendingPlaybackTarget = false;
         _showScoreboard = false;
         RequestCamera(false, false);
 
@@ -448,6 +486,7 @@ namespace MphRead::Mods
         _freeCamera = false;
         _target.reset();
         _targetChanged = false;
+        _pendingPlaybackTarget = false;
         _showScoreboard = false;
         _cameraRequest.reset();
     }
@@ -456,13 +495,15 @@ namespace MphRead::Mods
     {
         const auto snapshots = CaptureSlots(Network::NetSession::Active());
         return SpectatorTargetPolicy::Find(snapshots, fromSlot,
-            Network::NetHooks::LocalSlot(), Network::NetSession::Active(), false);
+            Network::NetHooks::LocalSlot(), Network::NetSession::Active(), false,
+            Network::NetSession::IsPlayback());
     }
 
     std::int32_t SpectatorMode::FindNextActiveSlot(std::int32_t fromSlot)
     {
         const auto snapshots = CaptureSlots(Network::NetSession::Active());
         return SpectatorTargetPolicy::Find(snapshots, fromSlot,
-            Network::NetHooks::LocalSlot(), Network::NetSession::Active(), true);
+            Network::NetHooks::LocalSlot(), Network::NetSession::Active(), true,
+            Network::NetSession::IsPlayback());
     }
 }

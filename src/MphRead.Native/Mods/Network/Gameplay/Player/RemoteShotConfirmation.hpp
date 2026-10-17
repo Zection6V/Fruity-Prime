@@ -32,6 +32,13 @@ namespace MphRead::Mods::Network
         static void ConfirmedImpacts(bool value) noexcept { _confirmedImpacts = value; }
         [[nodiscard]] static bool ConfirmedImpacts() noexcept { return _confirmedImpacts; }
         static void ObservedImpacts(bool value) noexcept { _observedImpacts = value; }
+        // Recorded playback observes all actors without owning a local slot.
+        // Live clients without a slot must not synthesize authoritative impacts.
+        [[nodiscard]] static constexpr bool CanConfirmAsObserver(
+            std::int32_t localSlot, bool playback) noexcept
+        {
+            return localSlot >= 0 || playback;
+        }
         static void ConfirmIncoming(std::int32_t attackerSlot, std::int32_t victimSlot, std::uint8_t beam,
             bool keyed, std::uint8_t launchLow, ImpactOffset impact, bool headshot = false);
         [[nodiscard]] static bool CoilAimFor(const Entities::PlayerEntity& shooter,

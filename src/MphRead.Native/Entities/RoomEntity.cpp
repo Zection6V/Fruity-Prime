@@ -12,6 +12,7 @@
 #include "../Metadata/Metadata.hpp"
 #include "../Metadata/Rooms.hpp"
 #include "Mods/Network/Session/NetRoomChange.hpp"
+#include "Mods/Network/Session/NetSession.hpp"
 #include "Mods/Network/Diagnostics/NetLog.hpp"
 #include "../Program.hpp"
 #include "../Read.hpp"
@@ -1727,7 +1728,8 @@ namespace MphRead::Entities
                 if (!conInst.Active) continue;
                 Scene& scene = RequireReference(_scene);
                 scene.UpdateMaterials(conInst.Model(), 0);
-                if (GameState::InRoomTransition() || _partVisInfoHead == nullptr || scene.ShowAllNodes())
+                if (GameState::InRoomTransition() || _partVisInfoHead == nullptr || scene.ShowAllNodes()
+                    || Mods::Network::NetSession::IsPlayback())
                 {
                     Model& conModel = RequireReference((conInst).Model());
                     Matrix4 transform = CreateScale(conModel.Scale);
@@ -1773,7 +1775,12 @@ namespace MphRead::Entities
                     ClearRoomPartState();
                     UpdateRoomParts();
                 }
-                if (_partVisInfoHead == nullptr || scene.ShowAllNodes()) DrawAllNodes(inst);
+                // Recorded actors have reconstructed positions and may momentarily
+                // carry a camera node from a different presentation instant.
+                // In demos, avoid portal-pruning room geometry against that
+                // mismatched node. Live sessions retain ordinary culling.
+                if (_partVisInfoHead == nullptr || scene.ShowAllNodes()
+                    || Mods::Network::NetSession::IsPlayback()) DrawAllNodes(inst);
                 else DrawRoomParts(inst);
             }
         }

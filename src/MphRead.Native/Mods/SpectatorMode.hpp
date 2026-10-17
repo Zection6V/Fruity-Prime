@@ -57,6 +57,8 @@ namespace MphRead::Mods
         static bool _freeCamera;
         static std::optional<SpectatorTargetIdentity> _target;
         static bool _targetChanged;
+        // A recording can start before the roster exposes its first actor.
+        static bool _pendingPlaybackTarget;
         static std::optional<SpectatorCameraRequest> _cameraRequest;
         static bool _showScoreboard;
     };

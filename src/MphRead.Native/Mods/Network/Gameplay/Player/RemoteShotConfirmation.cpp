@@ -90,7 +90,8 @@ namespace MphRead::Mods::Network
             NativeRuntime::IncrementInPlace(_coilTicks);
             return;
         }
-        if (!_confirmedImpacts || local < 0 || attackerSlot < 0 || attackerSlot == local || attackerSlot == victimSlot
+        if (!_confirmedImpacts || !CanConfirmAsObserver(local, NetSession::IsPlayback())
+            || attackerSlot < 0 || attackerSlot == local || attackerSlot == victimSlot
             || victimSlot < 0 || static_cast<std::size_t>(attackerSlot) >= players.size()
             || static_cast<std::size_t>(victimSlot) >= players.size() || !ConfirmableBeam(beam)
             || (victimSlot != local && !_observedImpacts))

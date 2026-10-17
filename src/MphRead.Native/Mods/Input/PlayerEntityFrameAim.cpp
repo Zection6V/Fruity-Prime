@@ -16,6 +16,8 @@
 #include "../Network/Session/NetSession.hpp"
 #include "../SpectatorMode.hpp"
 #include "AimNumericPolicy.hpp"
+#include "FreeCameraFlight.hpp"
+#include "../InputSettings.hpp"
 #include "MouseAimTurn.hpp"
 #include "PointerDevice.hpp"
 #include "PointerInput.hpp"
@@ -235,27 +237,22 @@ namespace MphRead::Entities
         // the eye where the body really goes. A jump no body makes in a
         // step -- a teleport, a respawn -- is not carried. The body is
         // carried with it where it is drawn (ModPresentationCarry).
-        constexpr float MaxStep = Mods::Render::MotionCarry::JumpDistance;
         const Vector3 stepped = pose.CurrentEye - pose.PreviousEye;
         const Vector3 looked = pose.CurrentTarget - pose.PreviousTarget;
         Vector3 eye{};
         Vector3 turn{};
-        if (pose.HasPrevious && stepped.LengthSquared() < MaxStep * MaxStep && looked.LengthSquared() < MaxStep * MaxStep)
+        if (pose.HasPrevious && Mods::Render::MotionCarry::Within(stepped) && Mods::Render::MotionCarry::Within(looked))
         {
-            const float phase = Mods::Render::ScenePresentation::Moving()
-                ? static_cast<float>(Mods::Render::ScenePresentation::Phase()) : 0.0F;
+            const float phase = Mods::Render::ScenePresentation::ShownPhase();
             eye = ::OpenTK::Mathematics::Multiply(stepped, phase);
-            // A ball's camera, or any that trails, held off a wall goes to and
-            // fro every step (PlayerEntity::UpdateCameraThird1, the ROM's own
-            // pull-in and slide, run at 60 Hz): carried on along each step,
-            // the swing was drawn twice over. The picture shows the middle of
-            // it, moving on as it does, on the step's own instant too; a
-            // camera that only moves steadily is shown where it was.
-            const bool trails = _cameraType != CameraType::First || IsAltForm();
-            if (trails && pose.HasEarlier && (pose.PreviousEye - pose.EarlierEye).LengthSquared() < MaxStep * MaxStep)
+            // A trailing camera: the body carried as it is drawn, the camera
+            // against it as its own last steps say (ModTrailShift).
+            const Vector3 body(pose.Current.M41, pose.Current.M42, pose.Current.M43);
+            const Vector3 moved = body - Vector3(pose.Previous.M41, pose.Previous.M42, pose.Previous.M43);
+            if (const auto trail = ModTrailShift(); trail
+                && Same(pose.CurrentEye - body, pose.TrailEye.back()) && Mods::Render::MotionCarry::Within(moved))
             {
-                eye = Mods::Render::MotionCarry::Settled(pose.EarlierEye, pose.PreviousEye, pose.CurrentEye, phase)
-                    - pose.CurrentEye;
+                eye = ::OpenTK::Mathematics::Multiply(moved, phase) + *trail;
             }
             // What it looks at is carried on along the step's own motion.
             if (turnWithStep) turn = ::OpenTK::Mathematics::Multiply(looked, phase) - eye;
@@ -282,8 +279,7 @@ namespace MphRead::Entities
         if (pose.Step == Mods::Render::ScenePresentation::CurrentStep()
             && Same(camera.Target, pose.CurrentTarget + pose.CurrentShake))
         {
-            const float phase = Mods::Render::ScenePresentation::Moving()
-                ? static_cast<float>(Mods::Render::ScenePresentation::Phase()) : 0.0F;
+            const float phase = Mods::Render::ScenePresentation::ShownPhase();
             const float age = std::clamp((static_cast<float>(pose.Step - pose.ShakeStep) + phase)
                 / static_cast<float>(Mods::SimulationRate::StepsPerDsFrame), 0.0F, 1.0F);
             shake = pose.ShakeFrom + ::OpenTK::Mathematics::Multiply(pose.ShakeTo - pose.ShakeFrom, age);
@@ -330,6 +326,59 @@ namespace MphRead::Entities
         _modCameraSource = {true, CurrentStep(), static_cast<::OpenTK::Mathematics::Vector3>(Position), _facingVector};
     }
 
+    bool PlayerEntity::ModPresentDeathCamera(const ::OpenTK::Windowing::GraphicsLibraryFramework::MouseState& live,
+        const ::OpenTK::Windowing::GraphicsLibraryFramework::KeyboardState& keyboard)
+    {
+        using ::OpenTK::Mathematics::Vector3;
+        using Flight = Mods::Input::FreeCameraFlight;
+        ModRestoreFrameAim();
+        // Flown by its player once it has drifted out of the body: the
+        // spectators' free camera answers the keys and the mouse at the
+        // display's rate, and this one, flown a step at a time, is shown
+        // where the next step puts it for the keys held and the mouse moved
+        // so far -- the game's own flight (FreeCameraFlight), nothing behind
+        // the input, and every step lands where the pictures were going.
+        if (!Mods::Input::FrameAim::Enabled() || Mods::SpectatorMode::IsSpectating() || Health() > 0
+            || _cameraType != CameraType::Free || _cameraInfo == nullptr || !_input.MouseState.has_value()
+            || _aimFrame.Owner != Mods::Input::AimOwner::Local || Formats::CameraSequence::Current() != nullptr
+            || _camSwitchTimer < Values().CamSwitchTime * 2 || Mods::Input::PointerDevice::Active())
+        {
+            return false;
+        }
+        const ::MphRead::Entities::CameraInfo& camera = *_cameraInfo;
+        const Mods::Render::PlayerPoseHistory& pose = _modPose;
+        if (pose.Step != Mods::Render::ScenePresentation::CurrentStep() || !Same(camera.Position, pose.CurrentEye)
+            || !Same(camera.Target, camera.Position + camera.Facing))
+        {
+            return false;
+        }
+        const auto held = [&](const Keybind& bind)
+        {
+            if (bind.Type() == ButtonType::Key) return bind.Key() != Keybind::Keys::Unknown && keyboard.IsKeyDown(bind.Key());
+            if (bind.Type() == ButtonType::Mouse) return live.IsButtonDown(bind.MouseButton());
+            return bind.IsDown();
+        };
+        const Vector3 facing = Flight::Steerable(camera.Facing);
+        const Vector3 next = Flight::Moved(camera.Position, facing, camera.Field50, camera.Field54,
+            {held(Controls().MoveUp()), held(Controls().MoveDown()), held(Controls().MoveLeft()), held(Controls().MoveRight())});
+        const Vector3 eye = ::OpenTK::Mathematics::Multiply(next - camera.Position, Mods::Render::ScenePresentation::ShownPhase());
+        // The mouse the next step reads (ReadDirectFreeCameraAim), from the
+        // snapshot this step consumed: turned by all of it, as the aim is.
+        float aimX = 0.0F, aimY = 0.0F;
+        if (Controls().MouseAim() && !IsBot())
+        {
+            const auto [rawX, rawY] = live.DeltaFrom(*_input.MouseState);
+            const auto [x, y] = Mods::Input::PointerInput::Filter(rawX, rawY);
+            aimX = -x / 4.0F * Mods::InputSettings::MouseSensitivity() * (Controls().InvertAimX() ? -1.0F : 1.0F);
+            aimY = -y / 4.0F * Mods::InputSettings::MouseSensitivity() * (Controls().InvertAimY() ? -1.0F : 1.0F);
+        }
+        const Vector3 turn = Flight::Turned(facing, aimX, aimY) - camera.Facing;
+        if (!ModPresentCamera(eye, turn)) return false;
+        _modFrameView.ShownGun = _gunVec1;
+        _modFrameView.ShownFacing = _facingVector;
+        return true;
+    }
+
     bool PlayerEntity::ModPresentWatchedView(std::optional<::OpenTK::Mathematics::Vector3> playoutShift)
     {
         using ::OpenTK::Mathematics::Vector3;
@@ -349,17 +398,20 @@ namespace MphRead::Entities
             // The step built this camera, then the snapshot moved the player and
             // turned them (ApplyState runs after the entities): the eye goes where
             // the body is, and on along the playout to this picture's instant.
-            const Vector3 eye = *playoutShift + (static_cast<Vector3>(Position) - source.Position);
-            // Only a first-person sight line is the facing. The ball's camera
-            // trails, swinging round it a step at a time: on along that swing.
-            const Mods::Render::PlayerPoseHistory& pose = _modPose;
-            const Vector3 swing = (pose.CurrentTarget - pose.PreviousTarget) - (pose.CurrentEye - pose.PreviousEye);
-            const Vector3 turn = _cameraType == CameraType::First && !IsAltForm() ? _facingVector - source.Facing
-                : Mods::Render::ScenePresentation::Moving() && pose.HasPrevious
-                    && pose.Step == Mods::Render::ScenePresentation::CurrentStep()
-                    && swing.LengthSquared() < Mods::Render::MotionCarry::JumpDistance * Mods::Render::MotionCarry::JumpDistance
-                ? ::OpenTK::Mathematics::Multiply(swing, static_cast<float>(Mods::Render::ScenePresentation::Phase()))
-                : Vector3{};
+            Vector3 eye = *playoutShift + (static_cast<Vector3>(Position) - source.Position);
+            Vector3 turn{};
+            if (_cameraType == CameraType::First && !IsAltForm())
+            {
+                // A first-person sight line is the facing.
+                turn = _facingVector - source.Facing;
+            }
+            else if (const auto trail = ModTrailShift())
+            {
+                // A trailing camera, moved against the body as its own last
+                // steps say, what it looks at staying with the body.
+                eye = eye + *trail;
+                turn = -*trail;
+            }
             shown = ModPresentCamera(eye, turn);
         }
         if (!shown) return false;

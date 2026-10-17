@@ -24,6 +24,11 @@ public:                                                                         
     /* Once a frame, after its steps: show this watched player's camera moved by the       */  \
     /* playout since its step built it (a replica), or carried on from its step as the    */  \
     /* own view is (simulated here: no playout shift).                                    */   \
+    /* Once a frame, after its steps: the death camera, once flown, where the next step   */  \
+    /* puts it for the keys held and the mouse moved so far (FreeCameraFlight).           */   \
+    [[nodiscard]] bool ModPresentDeathCamera(                                                  \
+        const ::OpenTK::Windowing::GraphicsLibraryFramework::MouseState& live,                 \
+        const ::OpenTK::Windowing::GraphicsLibraryFramework::KeyboardState& keyboard);         \
     [[nodiscard]] bool ModPresentWatchedView(                                                  \
         std::optional<::OpenTK::Mathematics::Vector3> playoutShift);                           \
     /* The step's camera carried on to this picture's instant, its sight line along the   */  \

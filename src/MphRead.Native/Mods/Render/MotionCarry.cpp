@@ -188,6 +188,16 @@ namespace MphRead::Mods::Render
         return shown;
     }
 
+    float MotionCarry::Eased(float earlier, float previous, float current, float fraction) noexcept
+    {
+        const float last = current - previous;
+        const float before = previous - earlier;
+        if (last == 0.0F || last * before < 0.0F) return current;
+        // Setting off, the step it set off with; then the same share again.
+        const float share = before == 0.0F ? 1.0F : std::min(last / before, 1.0F);
+        return current + last * share * fraction;
+    }
+
     std::optional<Matrix4> MotionCarry::By(Vector3 shift)
     {
         if (shift.LengthSquared() <= 0.0F || !Within(shift)) return std::nullopt;

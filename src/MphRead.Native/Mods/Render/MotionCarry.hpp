@@ -76,6 +76,13 @@ namespace MphRead::Mods::Render
         //    through the body and came back.
         [[nodiscard]] static OpenTK::Mathematics::Vector3 Trail(
             const std::array<OpenTK::Mathematics::Vector3, 4>& steps, float fraction) noexcept;
+        // A value the last three steps put at `earlier`, `previous` and
+        // `current`, `fraction` of a step on toward where the next step puts
+        // it if it keeps changing as it has: by a step as large as the last
+        // (a steady rate), or as much smaller as the last was than the one
+        // before (closing a gap by a share of it each step). Exact for both;
+        // held when the value has just turned back.
+        [[nodiscard]] static float Eased(float earlier, float previous, float current, float fraction) noexcept;
         // A translation alone, when there is one worth carrying.
         [[nodiscard]] static std::optional<OpenTK::Mathematics::Matrix4> By(OpenTK::Mathematics::Vector3 shift);
 

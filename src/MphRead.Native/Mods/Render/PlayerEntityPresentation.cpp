@@ -46,6 +46,10 @@ namespace MphRead::Entities
         if (_cameraInfo != nullptr)
         {
             pose.CurrentEye = _cameraInfo->Position;
+            if (!pose.HasPrevious) pose.FovSteps = 0;
+            std::rotate(pose.Fov.begin(), pose.Fov.begin() + 1, pose.Fov.end());
+            pose.Fov.back() = _cameraInfo->Fov;
+            pose.FovSteps = std::min<std::int32_t>(pose.FovSteps + 1, static_cast<std::int32_t>(pose.Fov.size()));
             pose.CurrentShake = _cameraInfo->ModShakeOffset;
             pose.CurrentTarget = _cameraInfo->Target - pose.CurrentShake;
             if (_cameraInfo->ModShakeSlot)

@@ -1164,6 +1164,10 @@ namespace MphRead::Entities
             RequireReference(_targetCircleObj).Width, RequireReference(_targetCircleObj).Height, RequireReference(_scene));
         _smallReticle = false;
         _smallReticleTimer = 0;
+        // ResetReticle restores the ordinary character data. Reset the
+        // corresponding flag too, so ModSyncReticle can restore the Imperialist
+        // scope after respawn instead of believing it is still installed.
+        _sniperReticle = false;
     }
 
     void PlayerEntity::UpdateReticle()

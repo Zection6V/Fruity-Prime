@@ -220,6 +220,7 @@ namespace MphRead::Mods::Network
         // authority's initial Spawn while constructing the requested room.
         _loadedMatch = _requestedMatch;
         _loadPending = false;
+        NetLaunch::ApplyMatchRules();
         const std::int32_t localSlot
             = std::max(NetSession::LocalSlot(), 0);
         for (std::int32_t slot = 0; slot < Entities::PlayerEntity::MaxPlayers(); ++slot)

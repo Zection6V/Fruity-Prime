@@ -183,7 +183,6 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static SessionLifecycle::Ports LifecyclePorts();
         static void SendHello();
         static void Handle(ReceivedPacket packet, double time);
-        [[nodiscard]] static bool IsPlayback() noexcept;
         [[nodiscard]] static bool IsHostEndpoint(
             const std::shared_ptr<System::Net::IPEndPoint>& endpoint);
         [[nodiscard]] static bool RecordServerPacket(double time) noexcept;

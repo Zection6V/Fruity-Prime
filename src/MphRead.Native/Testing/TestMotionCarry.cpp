@@ -116,6 +116,29 @@ int main()
         passed &= Check(!MotionCarry::Toward(current, current, 0.5F), "toward the same pose is not a carry");
     }
 
+    // A point settled over three steps: a steady motion is shown as the carry
+    // shows it, and a swing that turns back every step is taken out.
+    {
+        const auto near = [](Vector3 a, Vector3 b) { return (a - b).LengthSquared() < 1e-10F; };
+        const Vector3 v(0.15F, 0, -0.02F);
+        const Vector3 c(3, 1, 2);
+        passed &= Check(near(MotionCarry::Settled(c - v - v, c - v, c, 0.4F), c + OpenTK::Mathematics::Multiply(v, 0.4F)),
+            "a steady motion settles where the carry puts it");
+        passed &= Check(near(MotionCarry::Settled(c, c, c, 0.7F), c), "a point at rest stays");
+        // The trace of a ball's camera at a wall: up and down
+        // 0.124 a step while the ball moves on by v.
+        const Vector3 a(0, 0.062F, 0);
+        for (const int n : {10, 11, 12})
+        {
+            const auto at = [&](int k) { return OpenTK::Mathematics::Multiply(v, static_cast<float>(k)) + OpenTK::Mathematics::Multiply(a, k % 2 == 0 ? 1.0F : -1.0F); };
+            for (const float f : {0.0F, 0.5F, 0.99F})
+            {
+                passed &= Check(near(MotionCarry::Settled(at(n - 2), at(n - 1), at(n), f), OpenTK::Mathematics::Multiply(v, static_cast<float>(n) + f)),
+                    "a swing every step settles at its middle, moving on with the drift");
+            }
+        }
+    }
+
     // A beam drawn out of a gun stays on the gun: its origin onto the muzzle,
     // its direction onto the aim.
     {

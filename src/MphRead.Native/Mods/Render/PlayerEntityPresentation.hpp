@@ -27,6 +27,9 @@ namespace MphRead::Mods::Render
         // The camera the step built: where it was and what it looked at, the
         // target without its hit shake (CurrentShake), which is drawn apart.
         OpenTK::Mathematics::Vector3 PreviousEye{}, CurrentEye{}, PreviousTarget{}, CurrentTarget{};
+        // The eye a step before the previous one, when that was recorded too.
+        bool HasEarlier = false;
+        OpenTK::Mathematics::Vector3 EarlierEye{};
         OpenTK::Mathematics::Vector3 CurrentShake{};
         // The shake's last two samples, one every StepsPerDsFrame steps, and
         // the step of the newer: a picture eases from one to the other.

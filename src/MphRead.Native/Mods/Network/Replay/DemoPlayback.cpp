@@ -89,7 +89,8 @@ namespace MphRead::Mods::Network
             PumpFrame();
             NetSession::Update(static_cast<double>(_frame) / 60.0);
             const auto serverMatch = NetSession::ServerMatch();
-            if (serverMatch.has_value() && serverMatch->RoomKey.value().length() > 0)
+            if (serverMatch.has_value() && serverMatch->RoomKey.has_value()
+                && !serverMatch->RoomKey->empty())
             {
                 if (knownAt < 0)
                 {

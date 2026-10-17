@@ -33,12 +33,15 @@ namespace MphRead::Entities
             now.M42 = Position.Y;
             now.M43 = Position.Z;
         }
+        const bool hadPrevious = pose.HasPrevious;
         pose.HasPrevious = pose.Step + 1 == step;
+        pose.HasEarlier = pose.HasPrevious && hadPrevious;
         pose.SameForm = pose.HasPrevious && pose.AltForm == alt;
         pose.Previous = pose.Current;
         pose.Current = now;
         pose.PreviousSegments = pose.CurrentSegments;
         pose.CurrentSegments = _kandenSegMtx;
+        pose.EarlierEye = pose.PreviousEye;
         pose.PreviousEye = pose.CurrentEye;
         pose.PreviousTarget = pose.CurrentTarget;
         if (_cameraInfo != nullptr)

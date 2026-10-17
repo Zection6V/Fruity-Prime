@@ -240,12 +240,25 @@ namespace MphRead::Entities
         const Vector3 looked = pose.CurrentTarget - pose.PreviousTarget;
         Vector3 eye{};
         Vector3 turn{};
-        if (Mods::Render::ScenePresentation::Moving() && pose.HasPrevious
-            && stepped.LengthSquared() < MaxStep * MaxStep && looked.LengthSquared() < MaxStep * MaxStep)
+        if (pose.HasPrevious && stepped.LengthSquared() < MaxStep * MaxStep && looked.LengthSquared() < MaxStep * MaxStep)
         {
-            const float phase = static_cast<float>(Mods::Render::ScenePresentation::Phase());
+            const float phase = Mods::Render::ScenePresentation::Moving()
+                ? static_cast<float>(Mods::Render::ScenePresentation::Phase()) : 0.0F;
             eye = ::OpenTK::Mathematics::Multiply(stepped, phase);
-            if (turnWithStep) turn = ::OpenTK::Mathematics::Multiply(looked - stepped, phase);
+            // A ball's camera, or any that trails, held off a wall goes to and
+            // fro every step (PlayerEntity::UpdateCameraThird1, the ROM's own
+            // pull-in and slide, run at 60 Hz): carried on along each step,
+            // the swing was drawn twice over. The picture shows the middle of
+            // it, moving on as it does, on the step's own instant too; a
+            // camera that only moves steadily is shown where it was.
+            const bool trails = _cameraType != CameraType::First || IsAltForm();
+            if (trails && pose.HasEarlier && (pose.PreviousEye - pose.EarlierEye).LengthSquared() < MaxStep * MaxStep)
+            {
+                eye = Mods::Render::MotionCarry::Settled(pose.EarlierEye, pose.PreviousEye, pose.CurrentEye, phase)
+                    - pose.CurrentEye;
+            }
+            // What it looks at is carried on along the step's own motion.
+            if (turnWithStep) turn = ::OpenTK::Mathematics::Multiply(looked, phase) - eye;
         }
         return ModPresentCamera(eye, turn);
     }

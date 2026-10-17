@@ -161,6 +161,15 @@ namespace MphRead::Mods::Render
             * scale * OpenTK::Mathematics::CreateTranslation(toA);
     }
 
+    Vector3 MotionCarry::Settled(Vector3 earlier, Vector3 previous, Vector3 current, float fraction) noexcept
+    {
+        // p(n) = v n + a (-1)^n: the second difference is 4a (-1)^n, and the
+        // mean rate over the last two steps is v exactly.
+        const Vector3 swing = current - previous - previous + earlier;
+        const Vector3 rate = OpenTK::Mathematics::Multiply(current - earlier, 0.5F);
+        return current - OpenTK::Mathematics::Multiply(swing, 0.25F) + OpenTK::Mathematics::Multiply(rate, fraction);
+    }
+
     std::optional<Matrix4> MotionCarry::By(Vector3 shift)
     {
         if (shift.LengthSquared() <= 0.0F || shift.LengthSquared() > JumpDistance * JumpDistance) return std::nullopt;

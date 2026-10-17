@@ -207,6 +207,19 @@ namespace MphRead::Entities
         return std::pair{muzzle, aimed - muzzle};
     }
 
+    void PlayerEntity::ModSyncReticle()
+    {
+        // The reticle is set as a weapon is switched to, and only for the
+        // player whose HUD it is then (TryEquipWeapon, UpdateZoom). A player
+        // watched by a spectator switched while somebody else's HUD was up:
+        // the last HUD's reticle stayed -- the Imperialist's scope over a
+        // Power Beam, or the reverse. Set it again whenever it disagrees.
+        const bool sniper = _currentWeapon == BeamType::Imperialist;
+        if (_sniperReticle != sniper) HudOnWeaponSwitch(_currentWeapon);
+        const bool zoomed = sniper && RequireReference(_equipInfo).Zoomed;
+        if (_hudZoom != zoomed) HudOnZoom(zoomed);
+    }
+
     Matrix4 PlayerEntity::ModTrailSegment(std::int32_t index, Matrix4 segment) const
     {
         // The newest segment, laid at the ball this step, is drawn at the

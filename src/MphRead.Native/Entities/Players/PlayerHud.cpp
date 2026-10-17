@@ -5,6 +5,7 @@
 #include "../../Mods/Localization/HudMessageLanguage.hpp"
 #include "../../Mods/Localization/HudTextLayout.hpp"
 #include "../../Mods/Multiplayer/TeamVisuals.hpp"
+#include "../../Mods/Combat/InstagibRules.hpp"
 #include "Mods/Network/Gameplay/Player/NetHudHealth.hpp"
 #include "../../Mods/Render/Radar.hpp"
 #include "../CamSeq/CameraSequence.hpp"
@@ -1209,13 +1210,15 @@ namespace MphRead::Entities
     void PlayerEntity::HudOnWeaponSwitch(BeamType beam)
     {
         SetCombatVisor();
-        if (beam != BeamType::Imperialist || _sniperReticle)
+        if (beam != BeamType::Imperialist)
         {
             _sniperReticle = false;
             ResetReticle();
         }
-        else
+        else if (!_sniperReticle)
         {
+            // Keep the sniper reticle stable when HUD presentation resyncs.
+            // Previously the Imperialist branch toggled it off every other frame.
             _sniperReticle = true;
             if (!_scanVisor)
             {
@@ -1442,7 +1445,10 @@ namespace MphRead::Entities
                         }
                         const float reticleX = _targetCircleInst->PositionX;
                         const float reticleY = _targetCircleInst->PositionY;
-                        if (Features::CustomCrosshair())
+                        // Instagib always presents the Imperialist's original
+                        // sniper reticle, even with a generic custom crosshair enabled.
+                        if (Features::CustomCrosshair()
+                            && !(Mods::Combat::InstagibRules::Active() && _currentWeapon == BeamType::Imperialist))
                         {
                             RequireReference(_scene).DrawCustomCrosshair(GetCrosshairColor(), reticleX, reticleY);
                         }

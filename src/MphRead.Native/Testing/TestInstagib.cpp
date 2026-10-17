@@ -47,6 +47,11 @@ int main()
     using OpenTK::Mathematics::Vector3;
     bool ok = true;
 
+    ok &= Check(InstagibRails::ShouldDraw(true, false)
+        && !InstagibRails::ShouldDraw(false, false)
+        && !InstagibRails::ShouldDraw(true, true),
+        "rails draw only during active play, never during results");
+
     MatchDefinition match{};
     ok &= Check(!match.Instagib && (match.Rules() & SessionRules::Instagib) == SessionRules::None,
         "off by default, and off in the rule flags");

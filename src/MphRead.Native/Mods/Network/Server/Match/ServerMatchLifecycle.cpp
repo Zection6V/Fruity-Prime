@@ -14,6 +14,7 @@
 #include "Program.hpp"
 
 #include <algorithm>
+#include <exception>
 #include <span>
 
 namespace MphRead::Mods::Network
@@ -152,6 +153,10 @@ namespace MphRead::Mods::Network
         }
         _ports.Lobby->SetPhase(SessionPhase::InMatch);
         const MatchDefinition nextDefinition = CurrentDefinition();
+        // Rotation changes the authoritative world, not only the match ID sent
+        // to clients. Dispose the previous game's scene/authority before
+        // resetting identity or launching the new one.
+        _ports.Simulation->Stop();
         ServerMatchRotationController::Advance(nextDefinition, now, *_ports.Lobby,
             *_ports.Peers, *_ports.Slots, *_ports.SnapshotStream, *_ports.MatchId,
             *_ports.MatchStarted, *_ports.MatchEndedAt);
@@ -166,6 +171,25 @@ namespace MphRead::Mods::Network
         Log("rotating to " + entry->ToString() + ", resources "
             + Multiplayer::ToString(_ports.Lobby->MapWorldProfile().Resources) + " for "
             + std::to_string(_ports.Peers->All().size()) + " player(s)");
+        if (*_ports.RunsTheMatch)
+        {
+            try
+            {
+                StartSimulation();
+            }
+            catch (const std::exception& error)
+            {
+                // A voted map may be absent or corrupt on the authority.
+                // Reuse the existing broken-room fallback rather than leaving
+                // all peers attached to a nonexistent simulation.
+                Log("rotated room failed to start: " + std::string(error.what()));
+                if (RecoverFromBrokenRoom(now))
+                {
+                    return;
+                }
+                throw;
+            }
+        }
         if (Simulating())
         {
             _ports.Session->ApplySessionState(_ports.State->BuildSessionState());

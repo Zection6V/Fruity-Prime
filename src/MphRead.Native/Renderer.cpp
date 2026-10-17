@@ -1331,6 +1331,7 @@ namespace MphRead
     void Scene::ReleaseGpuForSwitch()
     {
         if (Mods::Headless::Active()) return;
+        Mods::Render::InstagibRails::ForgetScene(*this);
         _ownedTextures.clear();
         _gpuMeshCache.Clear();
         _transientGeometry.reset();
@@ -4163,6 +4164,8 @@ namespace MphRead
 
     void Scene::ReleaseGpuResources()
     {
+        // Static rail GPU bindings must never outlive the scene that owned them.
+        Mods::Render::InstagibRails::ForgetScene(*this);
         if (Mods::Headless::Active())
         {
             return;

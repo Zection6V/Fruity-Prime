@@ -4,6 +4,9 @@
 #include "../../NativeRuntime/System/Buffers.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
 #include "../../Read.hpp"
+#include "../../GameState.hpp"
+#include "../Network/Session/NetMatchEnd.hpp"
+#include "../Network/Session/NetSession.hpp"
 #include "../../Scene.hpp"
 
 #include <algorithm>
@@ -65,6 +68,13 @@ namespace
     // A picture held still for checking the look (InstagibRails::ShowDemo).
     bool g_demo = false;
     float g_demoAge = 0.0F;
+
+    [[nodiscard]] bool MatchAllowsRails()
+    {
+        return ::MphRead::Mods::Render::InstagibRails::ShouldDraw(
+            ::MphRead::GameState::MatchState() == ::MphRead::MatchState::InProgress,
+            ::MphRead::Mods::Network::NetMatchEnd::InIntermission());
+    }
 
     [[nodiscard]] double Now() noexcept
     {
@@ -279,8 +289,17 @@ namespace MphRead::Mods::Render
         return look;
     }
 
+    bool InstagibRails::ShouldDraw(bool inProgress, bool intermission) noexcept
+    {
+        return inProgress && !intermission;
+    }
+
     void InstagibRails::Add(Scene& scene, Vector3 start, Vector3 end, std::int32_t slot)
     {
+        if (!MatchAllowsRails())
+        {
+            return;
+        }
         if (g_rails.size() >= MaxRails)
         {
             g_rails.erase(g_rails.begin());
@@ -299,6 +318,12 @@ namespace MphRead::Mods::Render
 
     void InstagibRails::AddRenderItems(Scene& scene)
     {
+        // Results must not keep animating rails from the match that just ended.
+        if (!MatchAllowsRails())
+        {
+            g_rails.clear();
+            return;
+        }
         if (g_rails.empty())
         {
             return;
@@ -315,6 +340,16 @@ namespace MphRead::Mods::Render
         for (const Rail& rail : g_rails)
         {
             Draw(scene, rail, g_demo ? g_demoAge : static_cast<float>((now - rail.Born) / LifeSeconds));
+        }
+    }
+
+    void InstagibRails::ForgetScene(const Scene& scene) noexcept
+    {
+        g_rails.erase(std::remove_if(g_rails.begin(), g_rails.end(),
+            [&scene](const Rail& rail) { return rail.Scene == &scene; }), g_rails.end());
+        if (g_texture.Scene == &scene)
+        {
+            g_texture = TrailTexture{};
         }
     }
 

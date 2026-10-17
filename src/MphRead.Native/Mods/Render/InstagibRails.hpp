@@ -41,7 +41,10 @@ namespace MphRead::Mods::Render
         // Hand every living rail to the renderer. Once per drawn frame.
         static void AddRenderItems(Scene& scene);
 
+        // Drop GPU bindings before the scene/device is destroyed or a room is reloaded.
+        static void ForgetScene(const Scene& scene) noexcept;
         static void Clear() noexcept;
+        [[nodiscard]] static bool ShouldDraw(bool inProgress, bool intermission) noexcept;
 
         // A fixed picture for checking the look without a fight to wait for:
         // eight rails, one in each colour, fanned out from the main player's

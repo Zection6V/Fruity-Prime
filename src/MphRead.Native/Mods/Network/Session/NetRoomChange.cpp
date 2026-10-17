@@ -2,6 +2,7 @@
 #include "Mods/Network/Bots/NetBotRoles.hpp"
 #include "Mods/Network/Gameplay/Claims/Hit/NetHitClaims.hpp"
 #include "Mods/Network/Gameplay/Replication/NetSmoothing.hpp"
+#include "Mods/Render/InstagibRails.hpp"
 
 #include "GameState.hpp"
 #include "Scene.hpp"
@@ -199,6 +200,9 @@ namespace MphRead::Mods::Network
         _requestedFrame = NetSession::NetFrame();
         _loadPending = true;
         _requestedMatch = match;
+        // A new round can reuse the same Scene and even the same room key.
+        // Its rail textures and active shots belong to the old round.
+        Mods::Render::InstagibRails::ForgetScene(scene);
         NativeRuntime::ConsoleWriteLine((current == wanted
             ? "[net] server started a new match on " + wanted + "; loading it"
             : "[net] server rotated to " + wanted + "; loading it"));

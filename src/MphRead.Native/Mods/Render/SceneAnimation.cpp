@@ -1,6 +1,7 @@
 #include "SceneAnimation.hpp"
 
 #include "FrameTiming.hpp"
+#include "Mods/Network/Replay/DemoPlayback.hpp"
 #include "../Headless.hpp"
 #include "../../Formats/Model.hpp"
 #include "../../NativeRuntime/System/Managed.hpp"
@@ -48,6 +49,9 @@ namespace MphRead::Mods::Render
 
     SceneAnimation::Draw::Draw() noexcept
     {
-        AnimationClock::Simulation().Phase(FrameTiming::StepPhase());
+        // At demo EOF the final world step is held. Do not advance even the
+        // fractional interpolation phase between display refreshes.
+        AnimationClock::Simulation().Phase(
+            Network::DemoPlayback::HoldLastFrame() ? 0.0 : FrameTiming::StepPhase());
     }
 }

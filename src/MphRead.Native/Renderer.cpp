@@ -1815,6 +1815,15 @@ namespace MphRead
     void Scene::OnSimulationFrame()
     {
         const std::lock_guard<std::recursive_mutex> gate(NativeRuntime::SceneGate());
+        if (Mods::Network::DemoPlayback::HoldLastFrame())
+        {
+            // Keep drawing and accepting camera/UI requests, but do not
+            // advance the world, animation tick, particles or simulation time.
+            Mods::Render::ScenePresentation::BeginStep();
+            Mods::SpectatorMode::Update();
+            ApplySpectatorCameraRequest();
+            return;
+        }
         // Mod hook: this step on the animation time line (Mods/Render/SceneAnimation).
         const Mods::Render::SceneAnimation::Step modAnimationStep;
         // Mod hook: until it has run the world, this step moved nothing to draw on (Mods/Render/ScenePresentation).
@@ -1947,6 +1956,10 @@ namespace MphRead
         if (ProcessFrame() && !GameState::MenuPause() && !GameState::DialogPause())
         {
             Mods::Render::ScenePresentation::EndStep(*this, GameState::MatchState() == MatchState::InProgress);
+            if (_room && !Mods::Network::NetSession::FreezeGameplay())
+            {
+                Mods::Network::DemoPlayback::NoteWorldStepCompleted();
+            }
         }
         _pendingEffectSteps = std::min(_pendingEffectSteps + 1, Mods::Render::FrameTiming::MaxCatchUpSteps);
         _pendingFadeSteps = std::min(_pendingFadeSteps + 1, Mods::Render::FrameTiming::MaxCatchUpSteps);

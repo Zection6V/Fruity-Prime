@@ -63,6 +63,9 @@
 #endif
 #include <windows.h>
 #include <shellapi.h>
+#if defined(_MSC_VER)
+#include <dbghelp.h>
+#endif
 #elif defined(__APPLE__)
 #include <execinfo.h>
 #include <fcntl.h>
@@ -1139,6 +1142,46 @@ namespace
         return text.str();
     }
 
+#if defined(_MSC_VER)
+    // DbgHelp resolves MSVC PDBs when they are available (for example in a
+    // RelWithDebInfo build). Without matching symbols, keep module+RVA and
+    // addr2line text so a release crash can still be symbolicated offline.
+    // All DbgHelp operations are process-global and must be serialized.
+    [[nodiscard]] std::string PdbSymbol(const void* address)
+    {
+        static std::mutex symbolMutex;
+        const std::unique_lock<std::mutex> lock(symbolMutex, std::try_to_lock);
+        if (!lock.owns_lock()) return {};
+        const HANDLE process = ::GetCurrentProcess();
+        static const bool ready = [process]()
+        {
+            ::SymSetOptions(::SymGetOptions() | SYMOPT_UNDNAME
+                | SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES | SYMOPT_FAIL_CRITICAL_ERRORS);
+            return ::SymInitialize(process, nullptr, TRUE) != FALSE;
+        }();
+        if (!ready) return {};
+
+        alignas(SYMBOL_INFO) char storage[sizeof(SYMBOL_INFO) + MAX_SYM_NAME]{};
+        auto* symbol = reinterpret_cast<SYMBOL_INFO*>(storage);
+        symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+        symbol->MaxNameLen = MAX_SYM_NAME;
+        DWORD64 displacement = 0;
+        if (::SymFromAddr(process, reinterpret_cast<DWORD64>(address), &displacement, symbol) == FALSE)
+            return {};
+        std::ostringstream result;
+        result << symbol->Name << "+0x" << std::hex << std::uppercase << displacement;
+        IMAGEHLP_LINE64 source{};
+        source.SizeOfStruct = sizeof(source);
+        DWORD lineDisplacement = 0;
+        if (::SymGetLineFromAddr64(process, reinterpret_cast<DWORD64>(address),
+            &lineDisplacement, &source) != FALSE && source.FileName != nullptr)
+        {
+            result << " (" << source.FileName << ":" << std::dec << source.LineNumber << ")";
+        }
+        return result.str();
+    }
+#endif
+
     [[nodiscard]] std::string DescribeAddress(const void* address)
     {
         std::ostringstream text;
@@ -1173,6 +1216,17 @@ namespace
                 text << " (addr2line 0x"
                     << (static_cast<std::uintptr_t>(nt.OptionalHeader.ImageBase) + offset) << ")";
             }
+            // Prefer matched PDB function and source line information. Most
+            // distributed EXEs do not have a matching PDB beside them; the
+            // original RVA / COFF fallback remains part of the report.
+#if defined(_MSC_VER)
+            const std::string pdb = PdbSymbol(address);
+            if (!pdb.empty())
+            {
+                text << " " << pdb;
+            }
+            else
+#endif
             if (module == ::GetModuleHandleW(nullptr))
             {
                 const std::string symbol = ExecutableSymbol(offset);

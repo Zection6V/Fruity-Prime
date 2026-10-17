@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Mods/Network/Replay/DemoFrameClock.hpp"
+#include "Mods/Network/Replay/DemoMatchBoundary.hpp"
 #include "Mods/Network/Protocol/Packets/PacketTypes.hpp"
 
 #include <cstdint>
@@ -8,6 +9,7 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace MphRead::Mods::Network
@@ -42,6 +44,11 @@ namespace MphRead::Mods::Network
         static void RecordOwnPacket(PacketType type, std::span<const std::uint8_t> payload);
 
     private:
+        [[nodiscard]] static bool OpenSegment(std::string_view room);
+        static void WriteBootstrap();
+        static void WriteRosterBootstrap();
+        static void WritePacket(PacketType type, std::span<const std::uint8_t> payload);
+        static void RotateTo(const DemoMatchBoundary::Identity& identity, std::int64_t arrivedAt);
         [[nodiscard]] static std::uint32_t Frame();
         [[nodiscard]] static std::uint32_t RecordFrame(
             std::span<const std::uint8_t> packet, std::uint32_t fallbackFrame);
@@ -50,5 +57,9 @@ namespace MphRead::Mods::Network
         static std::unique_ptr<DemoWriter> _writer;
         static DemoFrameClock _frameClock;
         static std::optional<std::string> _currentPath;
+        static DemoMatchBoundary _matchBoundary;
+        static std::string _stamp;
+        static std::uint32_t _segment;
+        static bool _needsRosterBootstrap;
     };
 }

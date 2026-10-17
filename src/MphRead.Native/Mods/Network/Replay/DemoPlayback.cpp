@@ -1,4 +1,5 @@
 #include "Mods/Network/Replay/DemoPlayback.hpp"
+#include "Mods/Network/Replay/DemoMatchBoundary.hpp"
 
 #include "Mods/Network/Protocol/NetProtocol.hpp"
 #include "Mods/Network/Session/NetSession.hpp"
@@ -20,6 +21,7 @@ namespace MphRead::Mods::Network
     bool DemoPlayback::_isActive = false;
     std::optional<std::string> DemoPlayback::_lastError{};
     DemoEndFrame DemoPlayback::_endFrame{};
+    DemoMatchBoundary DemoPlayback::_matchBoundary{};
 
     bool DemoPlayback::IsActive() noexcept
     {
@@ -53,6 +55,7 @@ namespace MphRead::Mods::Network
         static_cast<void>(timeoutMs);
         _lastError.reset();
         _endFrame.Reset();
+        _matchBoundary.Reset();
         _reader = DemoReader::Open(path);
         if (_reader == nullptr)
         {
@@ -86,7 +89,8 @@ namespace MphRead::Mods::Network
             PumpFrame();
             NetSession::Update(static_cast<double>(_frame) / 60.0);
             const auto serverMatch = NetSession::ServerMatch();
-            if (serverMatch.has_value() && serverMatch->RoomKey.value().length() > 0)
+            if (serverMatch.has_value() && serverMatch->RoomKey.has_value()
+                && !serverMatch->RoomKey->empty())
             {
                 if (knownAt < 0)
                 {
@@ -132,6 +136,7 @@ namespace MphRead::Mods::Network
         _frame = 0;
         _started = false;
         _endFrame.Reset();
+        _matchBoundary.Reset();
         _pending = _reader->ReadNext();
         NetSession::RewindPlayback();
         return true;
@@ -158,6 +163,17 @@ namespace MphRead::Mods::Network
                 break;
             }
             const auto data = record.Data;
+            // Old demos may contain multiple rounds. Their scene transition
+            // has no guaranteed recorded bootstrap, so end safely at the
+            // next match boundary, preserving the finished round's picture.
+            const auto identity = DemoMatchBoundary::Decode(*data);
+            if (identity && _matchBoundary.Observe(identity->MatchId, identity->Epoch))
+            {
+                NativeRuntime::ConsoleWriteLine(
+                    "[demo] legacy multi-match file: stopped at the next match boundary");
+                _pending.reset();
+                break;
+            }
             const std::int32_t length = static_cast<std::int32_t>(data->size());
             NetSession::InjectPlaybackPacket(data, length);
             _pending = _reader->ReadNext();
@@ -176,5 +192,6 @@ namespace MphRead::Mods::Network
         _frame = 0;
         _started = false;
         _endFrame.Reset();
+        _matchBoundary.Reset();
     }
 }

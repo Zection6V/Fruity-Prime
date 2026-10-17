@@ -41,7 +41,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             }
         }
         // A signaled fence and the queue timeline must agree before any reset.
-        if (_dispatch.Completed() < slot.LastUse)
+        auto completed = _dispatch.Completed();
+        if (completed < slot.LastUse && _dispatch.AwaitCompletion
+            && _dispatch.AwaitCompletion(slot.LastUse))
+            completed = _dispatch.Completed();
+        if (completed < slot.LastUse)
             throw std::logic_error("Vulkan frame-slot completion serial is still pending.");
         Check(_dispatch.ResetFence(_dispatch.Device, 1, &slot.Fence), "vkResetFences(frame slots)");
         _completed.store(std::max(_completed.load(), slot.SubmittedFrame));

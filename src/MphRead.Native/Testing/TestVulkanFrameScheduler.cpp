@@ -1,5 +1,6 @@
 #include "../NativeRuntime/Rhi/Vulkan/VulkanFrameScheduler.hpp"
 #include "../NativeRuntime/Rhi/Vulkan/VulkanResult.hpp"
+#include <algorithm>
 #include <array>
 #include <iostream>
 #include <stdexcept>
@@ -92,8 +93,9 @@ namespace
         {
             auto& f = *active; ++f.BudgetWaits;
             Expect(device == f.Device && info->semaphoreCount == 1 && *info->pSemaphores == f.Timeline
-                && *info->pValues == f.LastSignal && timeout == 2'000'000, "Budget must wait for latest submission with bounded timeout.");
-            if (f.WaitResult == VK_SUCCESS) f.Complete = f.LastSignal;
+                && *info->pValues > 0 && *info->pValues <= f.LastSignal && timeout == 2'000'000,
+                "Serial waits must target a submitted generation with a bounded timeout.");
+            if (f.WaitResult == VK_SUCCESS) f.Complete = std::max(f.Complete, *info->pValues);
             return f.WaitResult;
         }
         VulkanFrameScheduler::Dispatch Dispatch()
@@ -211,7 +213,12 @@ void Budget()
     VulkanFrameScheduler scheduler(f.Dispatch());
     Expect(scheduler.WaitForLatest(2'000'000) && !f.BudgetWaits, "Idle budget must not wait.");
     (void)scheduler.MarkExternalWork(); (void)scheduler.MarkExternalWork();
-    f.Complete = 1; f.WaitResult = VK_TIMEOUT;
+    Reject([&] { (void)scheduler.WaitForSerial(SubmissionSerial{3}, 2'000'000); });
+    // Recycle a completed slot without waiting for the newer graphics work.
+    Expect(scheduler.WaitForSerial(SubmissionSerial{1}, 2'000'000)
+        && scheduler.Completed().Value == 1 && f.Complete == 1 && f.BudgetWaits == 1,
+        "A slot serial wait blocked on newer submissions or failed to confirm its own.");
+    f.WaitResult = VK_TIMEOUT;
     Expect(!scheduler.WaitForLatest(2'000'000) && scheduler.Submitted().Value == 2
         && scheduler.Completed().Value == 1 && f.Submits == 2, "Busy budget changed submissions or established completion.");
     f.WaitResult = VK_ERROR_DEVICE_LOST;

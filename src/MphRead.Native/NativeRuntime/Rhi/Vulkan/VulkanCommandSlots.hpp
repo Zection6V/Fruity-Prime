@@ -37,6 +37,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::function<std::unique_ptr<VulkanUploadArena>()> MakeUploads;
             std::function<std::unique_ptr<VulkanDescriptorAllocator>()> MakeDescriptors;
             std::function<std::unique_ptr<VulkanTransferScratch>()> MakeScratch;
+            // Only used if the fence is signaled but the timeline is not observed yet.
+            std::function<bool(SubmissionSerial)> AwaitCompletion;
         };
         explicit VulkanCommandSlots(Dispatch dispatch);
         ~VulkanCommandSlots() { Close(); }

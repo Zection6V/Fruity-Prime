@@ -22,8 +22,13 @@ public:                                                                         
     /* A watched replica, as the snapshot moves it: what its step's camera was built from. */ \
     void ModNoteCameraSource();                                                                \
     /* Once a frame, after its steps: show this watched player's camera moved by the       */  \
-    /* playout since its step built it, and turned to the facing applied since.           */   \
-    [[nodiscard]] bool ModPresentWatchedView(::OpenTK::Mathematics::Vector3 playoutShift);     \
+    /* playout since its step built it (a replica), or carried on from its step as the    */  \
+    /* own view is (simulated here: no playout shift).                                    */   \
+    [[nodiscard]] bool ModPresentWatchedView(                                                  \
+        std::optional<::OpenTK::Mathematics::Vector3> playoutShift);                           \
+    /* The step's camera carried on to this picture's instant, its sight line along the   */  \
+    /* step's turn when asked; false when no step motion can be carried.                  */   \
+    [[nodiscard]] bool ModCarryStepCamera(bool turnWithStep);                                  \
     /* Once the picture is drawn: the step's own aim back (FrameAimPresentation). */          \
     void ModRestoreFrameAim();                                                                 \
     /* The hit shake this picture applies to its finished view, if any. */                   \

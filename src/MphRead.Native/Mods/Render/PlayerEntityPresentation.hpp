@@ -49,7 +49,7 @@ public:                                                                         
     /* Where this player's drawn items are carried to by the picture's instant, if moving. */ \
     /* A trailing camera's shift against its body at this picture's instant, if it trails. */ \
     [[nodiscard]] std::optional<::OpenTK::Mathematics::Vector3> ModTrailShift() const;         \
-    /* Hook: DrawMorphBallTrail. Segment `index` as this picture draws it. */                  \
+    /* Hook: the HUD's update. The reticle of the weapon in hand, and its zoom. */                 void ModSyncReticle();                                                                         /* Hook: DrawMorphBallTrail. Segment `index` as this picture draws it. */                  \
     [[nodiscard]] ::OpenTK::Mathematics::Matrix4 ModTrailSegment(std::int32_t index,           \
         ::OpenTK::Mathematics::Matrix4 segment) const;                                         \
     [[nodiscard]] std::optional<::OpenTK::Mathematics::Matrix4> ModPresentationCarry() const;  \

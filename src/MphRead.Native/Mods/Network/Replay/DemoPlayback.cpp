@@ -19,6 +19,7 @@ namespace MphRead::Mods::Network
     bool DemoPlayback::_started = false;
     bool DemoPlayback::_isActive = false;
     std::optional<std::string> DemoPlayback::_lastError{};
+    DemoEndFrame DemoPlayback::_endFrame{};
 
     bool DemoPlayback::IsActive() noexcept
     {
@@ -30,6 +31,18 @@ namespace MphRead::Mods::Network
         return _isActive && !_pending.has_value();
     }
 
+    bool DemoPlayback::HoldLastFrame() noexcept
+    {
+        return _isActive && _endFrame.Held();
+    }
+
+    void DemoPlayback::NoteWorldStepCompleted() noexcept
+    {
+        // Called after the final recorded packets have been delivered,
+        // dispatched and applied by the scene's simulation step.
+        _endFrame.AfterWorldStep(_isActive, AtEnd());
+    }
+
     std::optional<std::string> DemoPlayback::LastError()
     {
         return _lastError;
@@ -39,6 +52,7 @@ namespace MphRead::Mods::Network
     {
         static_cast<void>(timeoutMs);
         _lastError.reset();
+        _endFrame.Reset();
         _reader = DemoReader::Open(path);
         if (_reader == nullptr)
         {
@@ -117,6 +131,7 @@ namespace MphRead::Mods::Network
         }
         _frame = 0;
         _started = false;
+        _endFrame.Reset();
         _pending = _reader->ReadNext();
         NetSession::RewindPlayback();
         return true;
@@ -124,8 +139,10 @@ namespace MphRead::Mods::Network
 
     void DemoPlayback::PumpFrame()
     {
-        if (!_isActive || _reader == nullptr)
+        if (!_isActive || _reader == nullptr || AtEnd())
         {
+            // EOF is terminal for this playback: never advance its clock
+            // after the last packet and never implicitly rewind or loop.
             return;
         }
         if (_started)
@@ -158,5 +175,6 @@ namespace MphRead::Mods::Network
         _pending.reset();
         _frame = 0;
         _started = false;
+        _endFrame.Reset();
     }
 }

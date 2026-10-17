@@ -1,4 +1,5 @@
 #include "Mods/Network/Replay/DemoFrameClock.hpp"
+#include "Mods/Network/Replay/DemoEndFrame.hpp"
 
 #include <iostream>
 #include <limits>
@@ -6,6 +7,7 @@
 namespace
 {
     using MphRead::Mods::Network::DemoFrameClock;
+    using MphRead::Mods::Network::DemoEndFrame;
 
     bool Check(bool condition, const char* name)
     {
@@ -22,6 +24,21 @@ int main()
 {
     DemoFrameClock clock;
     bool passed = true;
+
+    // EOF must be a still picture after the final packet has been applied,
+    // not an extra simulated frame or a restart from the beginning.
+    DemoEndFrame endFrame;
+    passed &= Check(!endFrame.Held(), "a newly joined demo is running");
+    endFrame.AfterWorldStep(true, false);
+    passed &= Check(!endFrame.Held(), "playback continues while records remain");
+    endFrame.AfterWorldStep(false, true);
+    passed &= Check(!endFrame.Held(), "an inactive session cannot freeze the next scene");
+    endFrame.AfterWorldStep(true, true);
+    passed &= Check(endFrame.Held(), "the final recorded world step freezes the picture");
+    endFrame.AfterWorldStep(true, false);
+    passed &= Check(endFrame.Held(), "EOF is terminal, not a loop on the next step");
+    endFrame.Reset();
+    passed &= Check(!endFrame.Held(), "a new playback or rewind clears the frozen state");
 
     passed &= Check(clock.FrameAt(1'000'000) == 0,
         "an unstarted clock has no recording frame");

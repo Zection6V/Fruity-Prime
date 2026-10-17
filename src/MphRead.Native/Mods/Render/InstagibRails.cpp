@@ -6,6 +6,7 @@
 #include "../../Read.hpp"
 #include "../../GameState.hpp"
 #include "../Network/Session/NetMatchEnd.hpp"
+#include "../Network/Replay/DemoPlayback.hpp"
 #include "../Network/Session/NetSession.hpp"
 #include "../../Scene.hpp"
 
@@ -77,7 +78,8 @@ namespace
     {
         return ::MphRead::Mods::Render::InstagibRails::MaySpawn(
             ::MphRead::GameState::MatchState() == ::MphRead::MatchState::InProgress,
-            ::MphRead::Mods::Network::NetMatchEnd::InIntermission());
+            ::MphRead::Mods::Network::NetMatchEnd::InIntermission()
+                || ::MphRead::Mods::Network::DemoPlayback::HoldLastFrame());
     }
 
     [[nodiscard]] double Now() noexcept

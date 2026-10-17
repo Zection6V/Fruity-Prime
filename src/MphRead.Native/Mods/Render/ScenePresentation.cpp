@@ -8,6 +8,7 @@
 #include "../Headless.hpp"
 #include "../SimulationRate.hpp"
 #include "FrameTiming.hpp"
+#include "Mods/Network/Replay/DemoPlayback.hpp"
 #include "MotionCarry.hpp"
 
 #include <unordered_map>
@@ -93,7 +94,8 @@ namespace MphRead::Mods::Render
 
     double ScenePresentation::Phase() noexcept
     {
-        return forcedPhase.has_value() ? *forcedPhase : FrameTiming::StepPhase();
+        return Network::DemoPlayback::HoldLastFrame() ? 0.0
+            : forcedPhase.has_value() ? *forcedPhase : FrameTiming::StepPhase();
     }
 
     void ScenePresentation::ForcePhase(std::optional<double> phase) noexcept

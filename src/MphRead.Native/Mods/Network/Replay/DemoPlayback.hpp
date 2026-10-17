@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Mods/Network/Replay/DemoFile.hpp"
+#include "Mods/Network/Replay/DemoEndFrame.hpp"
 
 #include <cstdint>
 #include <memory>
@@ -20,6 +21,9 @@ namespace MphRead::Mods::Network
 
         [[nodiscard]] static bool IsActive() noexcept;
         [[nodiscard]] static bool AtEnd() noexcept;
+        // True only after the final packet has gone through one complete world step.
+        [[nodiscard]] static bool HoldLastFrame() noexcept;
+        static void NoteWorldStepCompleted() noexcept;
         [[nodiscard]] static std::optional<std::string> LastError();
 
         [[nodiscard]] static bool Join(const std::string& path, std::int32_t timeoutMs = 8000);
@@ -38,5 +42,6 @@ namespace MphRead::Mods::Network
         static bool _started;
         static bool _isActive;
         static std::optional<std::string> _lastError;
+        static DemoEndFrame _endFrame;
     };
 }

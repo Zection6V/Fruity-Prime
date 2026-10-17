@@ -138,9 +138,12 @@ namespace MphRead::Entities
         // run at 60 Hz): to and fro every step, or snapped in and easing out
         // again. Carried on along each step, the swing was drawn twice over
         // and a snap dove through the body and back; against the body, it
-        // moves as MotionCarry::Trail reads its last steps.
+        // moves as MotionCarry::Trail reads its last steps. The death camera
+        // trails nothing: flown by its player, it is carried on along its
+        // step like any other motion -- read as a wall fight, every start
+        // and turn of it was held a step under a sight line swung on ahead.
         const Mods::Render::PlayerPoseHistory& pose = _modPose;
-        if ((_cameraType == CameraType::First && !IsAltForm())
+        if ((_cameraType == CameraType::First && !IsAltForm()) || _cameraType == CameraType::Free
             || pose.Step != Mods::Render::ScenePresentation::CurrentStep()
             || pose.TrailSteps != static_cast<std::int32_t>(pose.TrailEye.size()))
         {

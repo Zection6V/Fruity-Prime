@@ -53,6 +53,8 @@ public:                                                                         
     [[nodiscard]] ::OpenTK::Mathematics::Matrix4 ModTrailSegment(std::int32_t index,           \
         ::OpenTK::Mathematics::Matrix4 segment) const;                                         \
     [[nodiscard]] std::optional<::OpenTK::Mathematics::Matrix4> ModPresentationCarry() const;  \
+    /* The body's pose as its last step left it (what the draw builds the body from). */      \
+    [[nodiscard]] const ::OpenTK::Mathematics::Matrix4& ModStepPose() const noexcept { return _modPose.Current; } \
     /* Where this picture has this player's muzzle and the way it points, if moving. */      \
     [[nodiscard]] std::optional<std::pair<::OpenTK::Mathematics::Vector3,                      \
         ::OpenTK::Mathematics::Vector3>> ModPresentedMuzzle() const;                           \

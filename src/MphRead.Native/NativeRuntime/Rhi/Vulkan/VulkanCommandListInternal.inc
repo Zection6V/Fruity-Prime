@@ -378,7 +378,10 @@
                                 return VulkanTransferScratch::Page{storage.Buffer, storage.Allocation, size};
                             }, [device](const VulkanTransferScratch::Page& page) {
                                 vmaDestroyBuffer(device->Allocator, page.Buffer, page.Allocation); --device->ScratchPages;
-                            }});
+                            },
+                    [device = _device.get()](SubmissionSerial serial) {
+                        return device->Scheduler->WaitForSerial(serial, 2'000'000'000ULL);
+                    }});
                     }});
                 _device->SceneForgetters[this] = [this](const void* object) { Forget(object); };
                 _device->SceneViewReplacers[this] = [this](VkImageView before, VkImageView after) {

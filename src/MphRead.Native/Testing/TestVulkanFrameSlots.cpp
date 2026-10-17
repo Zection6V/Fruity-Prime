@@ -32,8 +32,9 @@ namespace
         std::set<VkDescriptorPool> PendingPages;
         std::uint64_t Next = 10, Submitted = 0, Completed = 0;
         unsigned Creates = 0, PoolResets = 0, FenceResets = 0, Waits = 0, HostWaits = 0, SubmitCalls = 0, Timeouts = 0;
+        unsigned CompletionWaits = 0;
         bool FailFence = false, FailDescriptors = false, FailSubmit = false, FailResetFence = false;
-        bool FailResetPool = false, LagCounter = false, Lost = false, BadOrder = false;
+        bool FailResetPool = false, LagCounter = false, RecoverCounterOnWait = false, Lost = false, BadOrder = false;
         Fake() { active = this; }
         ~Fake() { active = nullptr; }
         void CheckUse(std::uint64_t serial) { if (!Lost && serial > Completed) BadOrder = true; }
@@ -93,7 +94,14 @@ namespace
                     if (FailDescriptors) throw std::runtime_error("Injected allocator creation failure.");
                     return std::make_unique<VulkanDescriptorAllocator>(VulkanDescriptorAllocator::Dispatch{
                         Handle<VkDevice>(1), CreatePage, DestroyPage, ResetPage, Allocate, Check}, VulkanDescriptorAllocator::Capacity{1, {1, 1, 1, 1, 1}});
-                }, [this] { ++HostWaits; }};
+                }, [this] { ++HostWaits; },
+                [this](SubmissionSerial serial) {
+                    ++CompletionWaits;
+                    if (!RecoverCounterOnWait) return false;
+                    Completed = std::max(Completed, serial.Value);
+                    LagCounter = false;
+                    return true;
+                }};
         }
         void TransientUse(VulkanFrameSlots& slots)
         {
@@ -142,13 +150,17 @@ namespace
         (void)slots.Begin(); (void)slots.Allocate(Layout, Need); slots.End();
         f.Completed = f.Submitted; f.LagCounter = true;
         const auto resets = f.FenceResets + f.PoolResets;
-        Reject([&] { (void)slots.Begin(); }); f.LagCounter = false;
+        Reject([&] { (void)slots.Begin(); });
+        Expect(f.CompletionWaits == 1, "A lagged timeline was not offered a targeted wait.");
+        f.RecoverCounterOnWait = true;
         Expect(slots.Current() == 2 && !slots.Active() && f.FenceResets + f.PoolResets == resets && f.Pools.size() == 1,
             "Fence alone recycled a still-pending timeline generation.");
         f.FailResetFence = true; Reject([&] { (void)slots.Begin(); }); f.FailResetFence = false;
         f.FailResetPool = true; Reject([&] { (void)slots.Begin(); }); f.FailResetPool = false;
         Expect(slots.Current() == 2 && !slots.Active() && f.Pools.size() == 1, "Failed reset advanced a frame or destroyed transients.");
-        const auto frame = slots.Begin(); Expect(frame.Number == 3 && f.Pools.empty() && !f.HostWaits, "Ready fences blocked or retry changed frame identity.");
+        const auto frame = slots.Begin(); Expect(frame.Number == 3 && f.Pools.empty() && !f.HostWaits
+            && f.CompletionWaits == 2 && !f.LagCounter,
+            "A lagged frame timeline did not recover before resource reuse.");
         slots.WaitAll(); slots.ObserveDeviceIdle(); Expect(slots.Completed() == slots.Current(), "Device idle did not publish completed frames.");
         slots.CloseAfterDrain(); f.Clean();
     }

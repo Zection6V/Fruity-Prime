@@ -31,6 +31,7 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             std::function<SubmissionSerial()> Completed;
             std::function<std::unique_ptr<VulkanDescriptorAllocator>()> MakeDescriptors;
             std::function<void()> HostWait;
+            std::function<bool(SubmissionSerial)> AwaitCompletion;
         };
         explicit VulkanFrameSlots(Dispatch dispatch);
         // The session drains/discards GPU work before destruction/explicit close.

@@ -45,6 +45,8 @@ namespace MphRead::Mods::Network
         [[nodiscard]] static bool IsHost() noexcept { return _context._runtime.Role() == NetRole::Host; }
         [[nodiscard]] static bool IsClient() noexcept { return _context._runtime.Role() == NetRole::Client; }
         [[nodiscard]] static bool IsServer() noexcept { return _context._runtime.Role() == NetRole::Server; }
+        // Read-only demo playback state, available to presentation-only consumers.
+        [[nodiscard]] static bool IsPlayback() noexcept;
 
         [[nodiscard]] static std::int32_t LocalSlot() noexcept { return _context._runtime.LocalSlot(); }
         [[nodiscard]] static std::uint32_t NetFrame() noexcept { return _context._runtime.Frame(); }

@@ -11,6 +11,7 @@
 #include <optional>
 #include <thread>
 #include <limits>
+#include <stdexcept>
 
 namespace MphRead::NativeRuntime::Rhi::Vulkan
 {
@@ -131,9 +132,12 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
         }
 
         [[nodiscard]] SubmissionSerial Submitted() const noexcept { return _progress.Submitted(); }
-        [[nodiscard]] bool WaitForLatest(std::uint64_t timeoutNanoseconds)
+        // Only wait for the serial belonging to the completed slot. Newer
+        // queue submissions must not delay recycling an older generation.
+        [[nodiscard]] bool WaitForSerial(SubmissionSerial serial, std::uint64_t timeoutNanoseconds)
         {
-            const auto serial = Submitted();
+            if (serial > Submitted())
+                throw std::logic_error("Vulkan cannot wait for an unsubmitted serial.");
             if (serial <= Poll()) return true;
             if (!_dispatch.Wait) return false;
             VkSemaphoreWaitInfo wait{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
@@ -143,9 +147,11 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
             if (_measureWaits)
             { ++_waits.count; _waits.nanoseconds += std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count(); }
             if (result == VK_TIMEOUT) return false;
-            _dispatch.CheckResult(result, "vkWaitSemaphores(presentation frame budget)");
+            _dispatch.CheckResult(result, "vkWaitSemaphores(submission serial)");
             return Poll() >= serial;
         }
+        [[nodiscard]] bool WaitForLatest(std::uint64_t timeoutNanoseconds)
+        { return WaitForSerial(Submitted(), timeoutNanoseconds); }
         [[nodiscard]] SubmissionSerial Completed() const noexcept { return _progress.Completed(); }
         [[nodiscard]] PresentationWaitStatistics PresentationWaits() const noexcept { return _waits; }
         [[nodiscard]] std::uint64_t SignalStorageGrowths() const noexcept { return _signalStorageGrowths; }

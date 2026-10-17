@@ -281,7 +281,8 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                     vk.vkResetFences, vk.vkDestroyCommandPool, vk.vkDestroyPipelineLayout,
                     [this](const VkSubmitInfo2& work, VkFence fence) { return Scheduler->Submit(work, fence); },
                     [this] { return Scheduler->Poll(); }, [this] { return MakeDescriptors({}); },
-                    [this] { ++HostWaits; }
+                    [this] { ++HostWaits; },
+                    [this](SubmissionSerial serial) { return Scheduler->WaitForSerial(serial, 2'000'000'000ULL); }
                 });
                 try
                 {

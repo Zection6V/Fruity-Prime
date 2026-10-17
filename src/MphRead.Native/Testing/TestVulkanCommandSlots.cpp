@@ -28,9 +28,9 @@ namespace
         std::map<VkBuffer, std::vector<std::byte>> Pages;
         VkCommandPool RecordingPool{};
         std::uint64_t Next = 0, Submitted = 0, Completed = 0;
-        unsigned Waits = 0, HostWaits = 0, Resets = 0, TimeoutOnce = 0, PoolCreates = 0, FenceCreates = 0, Allocates = 0;
+        unsigned Waits = 0, HostWaits = 0, CompletionWaits = 0, Resets = 0, TimeoutOnce = 0, PoolCreates = 0, FenceCreates = 0, Allocates = 0;
         unsigned FailPool = 0, FailFence = 0, FailAllocate = 0;
-        bool BadOrder = false, BadTimeline = false, FailSubmit = false, Lost = false;
+        bool BadOrder = false, BadTimeline = false, RecoverCounterOnWait = false, FailSubmit = false, Lost = false;
         Fake() { active = this; }
         ~Fake() { active = nullptr; }
         bool Pending(const Pool& pool) const
@@ -105,7 +105,13 @@ namespace
                     [this](VkDeviceSize size) {
                         const auto buffer = Handle<VkBuffer>(++Next); Pages[buffer].resize(size);
                         return VulkanTransferScratch::Page{buffer, Handle<VmaAllocation_T*>(++Next), size};
-                    }, [this](const auto& page) { Pages.erase(page.Buffer); }}, 64); }};
+                    }, [this](const auto& page) { Pages.erase(page.Buffer); }}, 64); },
+                [this](SubmissionSerial serial) {
+                    ++CompletionWaits;
+                    if (!RecoverCounterOnWait) return false;
+                    Completed = std::max(Completed, serial.Value);
+                    return true;
+                }};
         }
         void Clean() const { Expect(Pools.empty() && Buffers.empty() && Fences.empty() && Descriptors.empty() && Pages.empty() && !BadOrder, "Slot teardown leaked or destroyed pending resources."); }
     };
@@ -153,10 +159,15 @@ namespace
         Fake f; VulkanCommandSlots slots(f.Dispatch());
         for (int i = 0; i < 2; ++i) { slots.Begin(); slots.End(); slots.Submit(); }
         const auto resets = f.Resets; f.BadTimeline = true;
-        Reject([&] { slots.Begin(); }); Expect(f.Resets == resets, "Fence alone reset a slot whose serial was still pending.");
-        f.BadTimeline = false; f.Completed = f.Submitted;
+        Reject([&] { slots.Begin(); }); Expect(f.Resets == resets && f.CompletionWaits == 1,
+            "Fence alone reset a slot whose serial was still pending.");
+        // The driver reported the fence first; the targeted timeline wait
+        // later makes this exact serial observable and allows safe reuse.
+        f.BadTimeline = false; f.RecoverCounterOnWait = true;
         for (auto& [name, fence] : f.Fences) fence.Signaled = true;
-        const auto waits = f.Waits; slots.Begin(); Expect(f.Waits == waits, "Already-signaled fence added a blocking wait.");
+        const auto waits = f.Waits; slots.Begin(); Expect(f.Waits == waits
+            && f.CompletionWaits == 2 && f.Completed >= 1,
+            "Signaled fence with a delayed timeline could not safely recycle after a targeted wait.");
         slots.Close(); f.Clean();
     }
     void CheckFailures()

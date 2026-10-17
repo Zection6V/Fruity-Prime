@@ -65,7 +65,10 @@ namespace MphRead::NativeRuntime::Rhi::Vulkan
                 Check(result, "vkWaitForFences(slots)"); break;
             }
         }
-        const auto completed = _dispatch.Completed();
+        auto completed = _dispatch.Completed();
+        if (completed < slot.LastUse && _dispatch.AwaitCompletion
+            && _dispatch.AwaitCompletion(slot.LastUse))
+            completed = _dispatch.Completed();
         if (completed < slot.LastUse) throw std::logic_error("Vulkan slot completion serial is still pending.");
         slot.Uploads->ResetAfterCompletion(completed); slot.Descriptors->ResetAfterCompletion(completed);
         if (slot.Scratch) slot.Scratch->ResetAfterCompletion(completed);
